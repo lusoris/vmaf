@@ -24,12 +24,16 @@
 #include <string.h>
 #include <stdarg.h>
 #include <limits.h>
-#include <locale.h>
 #include <thread>
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include "svm.h"
+
+extern "C" {
+#include "thread_locale.h"
+}
+
 int libsvm_version = LIBSVM_VERSION;
 typedef float Qfloat;
 typedef signed char schar;
@@ -2490,11 +2494,7 @@ int svm_save_model(const char *model_file_name, const svm_model *model)
     if (fp == NULL)
         return -1;
 
-    char *old_locale = setlocale(LC_ALL, NULL);
-    if (old_locale) {
-        old_locale = strdup(old_locale);
-    }
-    setlocale(LC_ALL, "C");
+    VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
 
     const svm_parameter &param = model->param;
 
@@ -2570,8 +2570,7 @@ int svm_save_model(const char *model_file_name, const svm_model *model)
         fprintf(fp, "\n");
     }
 
-    setlocale(LC_ALL, old_locale);
-    free(old_locale);
+    vmaf_thread_locale_pop(locale_state);
 
     if (ferror(fp) != 0 || fclose(fp) != 0)
         return -1;
@@ -2750,6 +2749,8 @@ class SVMModelParserFileSource
   public:
     SVMModelParserFileSource(const char *file_path) : buffer(file_path)
     {
+        /* Force C locale for numeric parsing. See ADR-0137. */
+        buffer.imbue(std::locale::classic());
     }
 
     bool read_next(std::string &line)
@@ -2793,8 +2794,10 @@ class SVMModelParserBufferSource
     std::istringstream buffer;
 
   public:
-    SVMModelParserBufferSource(const char *buffer, size_t len) : buffer(std::string(buffer, len))
+    SVMModelParserBufferSource(const char *buf, size_t len) : buffer(std::string(buf, len))
     {
+        /* Force C locale for numeric parsing. See ADR-0137. */
+        buffer.imbue(std::locale::classic());
     }
 
     bool read_next(std::string &line)
