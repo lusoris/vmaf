@@ -335,6 +335,13 @@ static int extract_force_zero(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
     return err;
 }
 
+static int close_force_zero(VmafFeatureExtractor *fex)
+{
+    MotionState *s = fex->priv;
+
+    return vmaf_dictionary_free(&s->feature_name_dict);
+}
+
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
@@ -349,7 +356,7 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (s->motion_force_zero) {
         fex->extract = extract_force_zero;
         fex->flush = NULL;
-        fex->close = NULL;
+        fex->close = close_force_zero;
         return 0;
     }
 
