@@ -46,6 +46,10 @@ is_cuda_enabled = get_option('enable_cuda') == true
 is_sycl_enabled = get_option('enable_sycl') == true
 is_avx512_enabled = get_option('enable_avx512') == true
 is_nvtx_enabled = get_option('enable_nvtx') == true
+if is_nvtx_enabled and host_machine.system() == 'windows'
+    warning('NVTX is not supported on Windows, disabling.')
+    is_nvtx_enabled = false
+endif
 
 # DNN runtime (ONNX Runtime) — defines dnn_sources / dnn_defines / dnn_deps.
 subdir('dnn')
@@ -368,9 +372,67 @@ if is_cuda_enabled
     ]
     gencode = []
     if get_option('enable_nvcc')
-        cuda_lang = add_languages('cuda', required : true)
-        cuda_compiler = meson.get_compiler('cuda')
         nvcc_exe = find_program('nvcc')
+
+        # On Windows, nvcc requires MSVC's cl.exe as host compiler for preprocessing.
+        # We avoid adding cl.exe to PATH as that causes meson to pick MSVC as the
+        # default C compiler. Use vswhere + powershell to find cl.exe automatically.
+        if host_machine.system() == 'windows'
+            cl_find_result = run_command('powershell', '-NoProfile', '-Command',
+                '(Get-ChildItem -Path (& "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products * -property installationPath) -Recurse -Filter cl.exe -ErrorAction SilentlyContinue | Where-Object { $_.DirectoryName -like "*HostX64*x64*" } | Select-Object -First 1).FullName',
+                check: false)
+            if cl_find_result.returncode() == 0 and cl_find_result.stdout().strip() != ''
+                cl_path = cl_find_result.stdout().strip()
+                message('Found MSVC cl.exe at: ' + cl_path)
+                nvcc_ccbin_flags = ['--allow-unsupported-compiler', '-ccbin', cl_path]
+            else
+                cl_exe = find_program('cl', required: false)
+                if cl_exe.found()
+                    nvcc_ccbin_flags = ['--allow-unsupported-compiler', '-ccbin', cl_exe.full_path()]
+                else
+                    error('MSVC cl.exe not found. nvcc on Windows requires Visual Studio Build Tools.')
+                endif
+            endif
+
+            # Find MSVC and Windows SDK include dirs so cl.exe can find system
+            # headers when invoked by nvcc outside a vcvars environment.
+            # Pass them as -I flags directly to nvcc.
+            # Derive MSVC include path from cl.exe's location to ensure version match.
+            msvc_include_result = run_command('powershell', '-NoProfile', '-Command',
+                '$clPath = "' + cl_path + '"; ' +
+                '$msvcRoot = ($clPath -replace "\\\\bin\\\\.*$", ""); ' +
+                'Write-Output $msvcRoot',
+                check: false)
+            winsdk_include_result = run_command('powershell', '-NoProfile', '-Command',
+                '$sdkInc = Get-ChildItem "${env:ProgramFiles(x86)}/Windows Kits/10/Include" -Directory | Sort-Object Name | Select-Object -Last 1; ' +
+                'Write-Output $sdkInc.FullName',
+                check: false)
+            nvcc_host_includes = []
+            if msvc_include_result.returncode() == 0 and winsdk_include_result.returncode() == 0
+                msvc_root_dir = msvc_include_result.stdout().strip()
+                winsdk_inc_dir = winsdk_include_result.stdout().strip()
+                nvcc_host_includes = [
+                    '-I', msvc_root_dir / 'include',
+                    '-I', winsdk_inc_dir / 'ucrt',
+                    '-I', winsdk_inc_dir / 'shared',
+                    '-I', winsdk_inc_dir / 'um',
+                ]
+                message('MSVC include: ' + msvc_root_dir / 'include')
+                message('UCRT include: ' + winsdk_inc_dir / 'ucrt')
+            else
+                warning('Could not find MSVC/Windows SDK include paths. nvcc compilation may fail.')
+            endif
+        else
+            nvcc_ccbin_flags = []
+            nvcc_host_includes = []
+        endif
+
+        # Detect CUDA version from nvcc directly instead of add_languages('cuda'),
+        # which requires MSVC on Windows and fails with MinGW.
+        # nvcc --version outputs: "...Cuda compilation tools, release 12.6, V12.6.85..."
+        nvcc_ver_out = run_command(nvcc_exe, '--version', check: true)
+        cuda_version = nvcc_ver_out.stdout().strip().split('release ')[1].split(',')[0]
+        message('Found CUDA version = @0@'.format(cuda_version))
 
         # Gencode coverage: explicit cubins for every currently-shipping
         # consumer Nvidia generation from Turing (sm_75, RTX 20xx) through
@@ -405,13 +467,13 @@ if is_cuda_enabled
             '-gencode=arch=compute_86,code=sm_86',
             '-gencode=arch=compute_89,code=sm_89',
         ]
-        message('Found CUDA version = @0@'.format(cuda_compiler.version()))
-        if cuda_compiler.version().version_compare('<13')
+        if cuda_version.version_compare('<13')
             gencode += '-gencode=arch=compute_50,code=compute_50'
         endif
-        if cuda_compiler.version().version_compare('>11.8')
+        # always compile device code to enable quick startup on newer GPUs, for the last supported GPU also generate PTX for future compatibility
+        if cuda_version.version_compare('>11.8')
             gencode += '-gencode=arch=compute_90,code=sm_90'
-            if cuda_compiler.version().version_compare('>12.8')
+            if cuda_version.version_compare('>12.8')
                 gencode += [
                     '-gencode=arch=compute_100,code=sm_100',
                     '-gencode=arch=compute_120,code=sm_120',
@@ -438,7 +500,7 @@ if is_cuda_enabled
     message('CUDA gencode = @0@'.format(gencode))
 
 
-    cuda_flags = []
+    cuda_flags = ['-D_USE_MATH_DEFINES']
     if get_option('buildtype') == 'debug'
         cuda_flags += ['-DCUDA_DEBUG', '-G']
     else
@@ -475,7 +537,7 @@ if is_cuda_enabled
                 '-I', '../src/' + cuda_dir,
                 cuda_extra_includes,
                 '-DDEVICE_CODE',
-            ] + cuda_flags
+            ] + cuda_flags + nvcc_ccbin_flags + nvcc_host_includes
         )
         ptx_files += {name : [t]}
     endforeach
@@ -513,10 +575,11 @@ if is_cuda_enabled
         c_args : vmaf_cflags_common,
         # pthread_dependency is a no-op on POSIX (empty list) and on Windows
         # MSVC routes <pthread.h> to the header-only Win32 shim at
-        # src/compat/win32/pthread.h. cuda/common.h pulls pthread.h
-        # unconditionally, so the dependency must be threaded in here too.
+        # src/compat/win32/pthread.h. ring_buffer.c in this lib still uses
+        # pthread directly (even though Netflix#1472 removed it from
+        # common.h), so the dependency must be threaded in here.
         dependencies : [pthread_dependency],
-        cuda_args: cuda_flags # + ['-gencode', 'arch=compute_86,code=sm_86' ] #, '--use_fast_math']
+        cuda_args: cuda_flags + nvcc_ccbin_flags + nvcc_host_includes
     )
 
     common_cuda_objects += cuda_static_lib.extract_all_objects()
