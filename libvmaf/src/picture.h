@@ -16,12 +16,17 @@
  *
  */
 
-#ifndef __VMAF_SRC_PICTURE_H__
-#define __VMAF_SRC_PICTURE_H__
+#ifndef VMAF_SRC_PICTURE_INCLUDED
+#define VMAF_SRC_PICTURE_INCLUDED
 
 #ifdef HAVE_CUDA
+#ifdef DEVICE_CODE
+#include <cuda.h>
+typedef struct VmafCudaState VmafCudaState;
+#else
 #include <ffnvcodec/dynlink_cuda.h>
 #include "libvmaf/libvmaf_cuda.h"
+#endif
 #endif
 #include "libvmaf/picture.h"
 
@@ -53,4 +58,4 @@ int vmaf_picture_ref(VmafPicture *dst, VmafPicture *src);
 int vmaf_picture_set_release_callback(VmafPicture *pic, void *cookie,
                                       int (*release_picture)(VmafPicture *pic, void *cookie));
 
-#endif /* __VMAF_SRC_PICTURE_H__ */
+#endif /* VMAF_SRC_PICTURE_INCLUDED */

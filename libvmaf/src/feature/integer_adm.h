@@ -192,6 +192,10 @@ struct dwt_model_params {
 // Positional (not designated) initializers: nvcc/cl.exe on Windows
 // rejects C99 `.member = value` in C++ mode (this header is included
 // by both .c and .cu TUs). Declaration order is a/k/f0/g[4].
+// Fork keeps the full table visible to .cu TUs (positional form is
+// C++-portable); upstream Netflix#1472 uses `#ifndef __CUDACC__` to
+// omit the table from .cu TUs entirely. Either shape resolves the
+// MSVC/nvcc issue; fork prefers visibility over #ifdef.
 static const struct dwt_model_params dwt_7_9_YCbCr_threshold[3] = {
     {0.495, 0.466, 0.401, {1.501, 1.0, 0.534, 1.0}},
     {1.633, 0.353, 0.209, {1.520, 1.0, 0.502, 1.0}},
