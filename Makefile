@@ -80,7 +80,8 @@ cythonize-deps: $(VENV_PIP)
 # ============================================================================
 
 .PHONY: lint lint-c lint-py lint-sh format format-check sec sbom \
-        test-netflix-golden test-sanitizers test-fast hooks-install help
+        test-netflix-golden test-sanitizers test-fast hooks-install help \
+        coverage coverage-html coverage-check assertion-density
 
 # Top-level lint — runs every analyzer we own. Uses the meson compile_commands.json.
 lint: lint-c lint-py lint-sh
@@ -173,6 +174,54 @@ test-sanitizers:
 test-fast: build
 	PATH="$(VENV)/bin:$$PATH" meson test -C $(BUILD_DIR) --suite=fast
 
+# ============================================================================
+# Coverage gate (docs/principles.md §3 — ≥70% overall, ≥85% security-critical)
+# ============================================================================
+
+COVERAGE_DIR := build-coverage
+COVERAGE_MIN_OVERALL := 70
+COVERAGE_MIN_CRITICAL := 85
+
+# Build with gcov instrumentation, run tests, emit lcov report.
+# Uses a dedicated build dir so normal `make build` isn't instrumented.
+coverage:
+	@command -v lcov >/dev/null || { echo "lcov not found — install lcov"; exit 1; }
+	@command -v gcov >/dev/null || { echo "gcov not found — install gcc"; exit 1; }
+	@mkdir -p $(COVERAGE_DIR)
+	meson setup $(COVERAGE_DIR) $(LIBVMAF_DIR) --buildtype=debug -Db_coverage=true \
+	    -Denable_cuda=false -Denable_sycl=false --reconfigure 2>/dev/null || \
+	meson setup $(COVERAGE_DIR) $(LIBVMAF_DIR) --buildtype=debug -Db_coverage=true \
+	    -Denable_cuda=false -Denable_sycl=false
+	ninja -C $(COVERAGE_DIR)
+	meson test -C $(COVERAGE_DIR) --print-errorlogs
+	@echo "--- gathering coverage ---"
+	lcov --capture --directory $(COVERAGE_DIR) --output-file $(COVERAGE_DIR)/coverage.info \
+	     --ignore-errors mismatch,gcov,source --rc geninfo_unexecuted_blocks=1
+	lcov --remove $(COVERAGE_DIR)/coverage.info \
+	     '/usr/*' '*/subprojects/*' '*/test/*' '*/tests/*' \
+	     --output-file $(COVERAGE_DIR)/coverage.filtered.info \
+	     --ignore-errors unused
+	lcov --list $(COVERAGE_DIR)/coverage.filtered.info | tee $(COVERAGE_DIR)/coverage.summary.txt
+
+# Render HTML coverage report (open $(COVERAGE_DIR)/html/index.html).
+coverage-html: coverage
+	genhtml $(COVERAGE_DIR)/coverage.filtered.info \
+	    --output-directory $(COVERAGE_DIR)/html \
+	    --demangle-cpp --legend --title "libvmaf coverage"
+	@echo "open $(COVERAGE_DIR)/html/index.html"
+
+# Enforce the coverage thresholds from docs/principles.md §3.
+# Overall: ≥70% line coverage. Security-critical (libvmaf/src/dnn/, opt.c,
+# read_json_model.c): ≥85% line coverage.
+coverage-check: coverage
+	@scripts/ci/coverage-check.sh $(COVERAGE_DIR)/coverage.filtered.info \
+	    $(COVERAGE_MIN_OVERALL) $(COVERAGE_MIN_CRITICAL)
+
+# Power-of-10 rule 5 density check (≥2 asserts per function average across
+# fork-added code). Warns on any non-trivial fork-added function with 0 asserts.
+assertion-density:
+	@scripts/ci/assertion-density.sh
+
 # Install the pre-commit git hook (from .pre-commit-config.yaml).
 hooks-install:
 	@command -v pre-commit >/dev/null || pip install pre-commit
@@ -189,6 +238,10 @@ help:
 	@echo "  make test-netflix-golden — D24 gate: 3 Netflix CPU test pairs"
 	@echo "  make test-sanitizers  — ASan + UBSan build + run"
 	@echo "  make test-fast        — meson --suite=fast (pre-push gate)"
+	@echo "  make coverage         — gcov/lcov line+branch coverage report"
+	@echo "  make coverage-html    — render HTML coverage report"
+	@echo "  make coverage-check   — enforce ≥70% overall / ≥85% critical"
+	@echo "  make assertion-density — Power-of-10 rule 5 density check"
 	@echo "  make hooks-install    — wire up pre-commit git hooks"
 	@echo ""
 	@echo "Upstream targets: build, test, debug, install, clean, distclean, cythonize"
