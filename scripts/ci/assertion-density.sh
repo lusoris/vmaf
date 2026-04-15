@@ -115,7 +115,12 @@ for f in "${FILES[@]}"; do
                     pending_start = 0
                 }
             } else {
+                # Count both assert() (standard) and VMAF_ASSERT_DEBUG()
+                # (fork-specific, zero-cost in release; see
+                # libvmaf/include/libvmaf/vmaf_assert.h and
+                # docs/principles.md §1.2 rule 5).
                 if (line ~ /(^|[^a-zA-Z_])assert[[:space:]]*\(/) n_asserts++
+                if (line ~ /VMAF_ASSERT_DEBUG[[:space:]]*\(/) n_asserts++
                 ob = gsub(/\{/, "{", line)
                 cb = gsub(/\}/, "}", line)
                 depth += ob - cb
