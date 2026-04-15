@@ -195,55 +195,55 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
                      adm_norm_view_dist, adm_ref_display_height, adm_csf_mode);
 
 #ifdef ADM_OPT_DEBUG_DUMP
-		sprintf(pathbuf, "stage/ref[%d]_a.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_a.yuv", scale);
 		write_image(pathbuf, ref_dwt2.band_a, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/ref[%d]_h.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_h.yuv", scale);
 		write_image(pathbuf, ref_dwt2.band_h, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/ref[%d]_v.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_v.yuv", scale);
 		write_image(pathbuf, ref_dwt2.band_v, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/ref[%d]_d.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_d.yuv", scale);
 		write_image(pathbuf, ref_dwt2.band_d, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/dis[%d]_a.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_a.yuv", scale);
 		write_image(pathbuf, dis_dwt2.band_a, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/dis[%d]_h.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_h.yuv", scale);
 		write_image(pathbuf, dis_dwt2.band_h, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/dis[%d]_v.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_v.yuv", scale);
 		write_image(pathbuf, dis_dwt2.band_v, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/dis[%d]_d.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_d.yuv", scale);
 		write_image(pathbuf, dis_dwt2.band_d, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/r[%d]_h.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_h.yuv", scale);
 		write_image(pathbuf, decouple_r.band_h, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/r[%d]_v.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_v.yuv", scale);
 		write_image(pathbuf, decouple_r.band_v, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/r[%d]_d.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_d.yuv", scale);
 		write_image(pathbuf, decouple_r.band_d, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/a[%d]_h.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_h.yuv", scale);
 		write_image(pathbuf, decouple_a.band_h, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/a[%d]_v.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_v.yuv", scale);
 		write_image(pathbuf, decouple_a.band_v, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/a[%d]_d.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_d.yuv", scale);
 		write_image(pathbuf, decouple_a.band_d, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/csf_a[%d]_h.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_h.yuv", scale);
 		write_image(pathbuf, csf_a.band_h, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/csf_a[%d]_v.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_v.yuv", scale);
 		write_image(pathbuf, csf_a.band_v, w, h, buf_stride, sizeof(float));
 
-		sprintf(pathbuf, "stage/csf_a[%d]_d.yuv", scale);
+		snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_d.yuv", scale);
 		write_image(pathbuf, csf_a.band_d, w, h, buf_stride, sizeof(float));
 
 #endif
