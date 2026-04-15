@@ -186,10 +186,22 @@ static int vmaf_sycl_import_va_surface_readback(
     /* Find a suitable image format (NV12 for 8-bit, P010 for 10-bit) */
     {
         int num_fmts = vaMaxNumImageFormats(va_dpy);
+        if (num_fmts <= 0) {
+            vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                     "vaMaxNumImageFormats returned %d\n", num_fmts);
+            return -EIO;
+        }
         VAImageFormat *fmts = (VAImageFormat *)malloc(
             (size_t)num_fmts * sizeof(VAImageFormat));
+        if (!fmts) return -ENOMEM;
         int actual = 0;
-        vaQueryImageFormats(va_dpy, fmts, &actual);
+        VAStatus qst = vaQueryImageFormats(va_dpy, fmts, &actual);
+        if (qst != VA_STATUS_SUCCESS) {
+            free(fmts);
+            vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                     "vaQueryImageFormats failed: %s\n", vaErrorStr(qst));
+            return -EIO;
+        }
 
         uint32_t target_fourcc = (bpc <= 8) ? VA_FOURCC_NV12 : VA_FOURCC_P010;
         int found = 0;
