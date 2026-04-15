@@ -68,12 +68,12 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref }}
       - uses: actions/download-artifact@v4
         with: { name: release-artifacts, path: artifacts/ }
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@v0.17.8
         with:
           format: spdx-json
           output-file: artifacts/sbom.spdx.json
           path: .
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@v0.17.8
         with:
           format: cyclonedx-json
           output-file: artifacts/sbom.cdx.json
