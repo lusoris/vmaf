@@ -17,6 +17,7 @@
  *    - libva + libva-drm + Level Zero
  */
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -415,6 +416,134 @@ static mfxU32 guess_codec(const char *filename)
 }
 
 /* ------------------------------------------------------------------ */
+/* Host upload fallback                                                */
+/*                                                                     */
+/* Used when DMA-BUF zero-copy import fails (e.g. older kernel without */
+/* Level Zero VA import support, or DRM render node mismatch). Maps    */
+/* the VA surface's Y plane to host memory via vaDeriveImage+          */
+/* vaMapBuffer, copies it into a host-allocated VmafPicture, then runs */
+/* the standard vmaf_read_pictures() path — which uploads the Y plane  */
+/* into SYCL shared buffers internally and dispatches the extractor    */
+/* loop. Slower than the zero-copy path (two memcpys: VA→host→SYCL),   */
+/* but preserves numerical correctness.                                */
+/* ------------------------------------------------------------------ */
+
+static int vpl_host_upload_fallback(VADisplay va_display,
+                                    VASurfaceID ref_surf,
+                                    VASurfaceID dis_surf,
+                                    int w, int h, int bpc,
+                                    VmafContext *vmaf,
+                                    unsigned frame_idx)
+{
+    assert(va_display != NULL);
+    assert(vmaf != NULL);
+    assert(w > 0 && h > 0);
+    assert(bpc == 8 || bpc == 10);
+
+    VAImage ref_img, dis_img;
+    void *ref_map = NULL, *dis_map = NULL;
+    VmafPicture ref_pic, dis_pic;
+    int have_ref_img = 0, have_dis_img = 0;
+    int have_ref_map = 0, have_dis_map = 0;
+    int have_ref_pic = 0, have_dis_pic = 0;
+    int ret = -1;
+
+    /* Derive VAImages that alias the surface's backing storage. */
+    VAStatus st = vaDeriveImage(va_display, ref_surf, &ref_img);
+    if (st != VA_STATUS_SUCCESS) {
+        fprintf(stderr, "vaDeriveImage(ref) failed: %d\n", st);
+        goto cleanup;
+    }
+    have_ref_img = 1;
+
+    st = vaDeriveImage(va_display, dis_surf, &dis_img);
+    if (st != VA_STATUS_SUCCESS) {
+        fprintf(stderr, "vaDeriveImage(dis) failed: %d\n", st);
+        goto cleanup;
+    }
+    have_dis_img = 1;
+
+    st = vaMapBuffer(va_display, ref_img.buf, &ref_map);
+    if (st != VA_STATUS_SUCCESS || !ref_map) {
+        fprintf(stderr, "vaMapBuffer(ref) failed: %d\n", st);
+        goto cleanup;
+    }
+    have_ref_map = 1;
+
+    st = vaMapBuffer(va_display, dis_img.buf, &dis_map);
+    if (st != VA_STATUS_SUCCESS || !dis_map) {
+        fprintf(stderr, "vaMapBuffer(dis) failed: %d\n", st);
+        goto cleanup;
+    }
+    have_dis_map = 1;
+
+    /* Allocate host VmafPictures (YUV420P). VMAF reads only the Y plane;
+     * U/V are left as zeros by vmaf_picture_alloc. */
+    if (vmaf_picture_alloc(&ref_pic, VMAF_PIX_FMT_YUV420P,
+                           (unsigned)bpc, (unsigned)w, (unsigned)h) != 0) {
+        fprintf(stderr, "vmaf_picture_alloc(ref) failed\n");
+        goto cleanup;
+    }
+    have_ref_pic = 1;
+
+    if (vmaf_picture_alloc(&dis_pic, VMAF_PIX_FMT_YUV420P,
+                           (unsigned)bpc, (unsigned)w, (unsigned)h) != 0) {
+        fprintf(stderr, "vmaf_picture_alloc(dis) failed\n");
+        goto cleanup;
+    }
+    have_dis_pic = 1;
+
+    /* Copy Y plane row-by-row to account for VA pitch ≠ width. NV12/P010
+     * store Y at plane 0 (offsets[0], pitches[0]). */
+    const size_t bytes_per_pixel = (size_t)((bpc + 7) / 8);
+    const size_t row_bytes = (size_t)w * bytes_per_pixel;
+    const uint8_t *ref_y =
+        (const uint8_t *)ref_map + ref_img.offsets[0];
+    const uint8_t *dis_y =
+        (const uint8_t *)dis_map + dis_img.offsets[0];
+    uint8_t *ref_dst = (uint8_t *)ref_pic.data[0];
+    uint8_t *dis_dst = (uint8_t *)dis_pic.data[0];
+
+    for (int y = 0; y < h; y++) {
+        memcpy(ref_dst + (size_t)y * (size_t)ref_pic.stride[0],
+               ref_y + (size_t)y * (size_t)ref_img.pitches[0],
+               row_bytes);
+        memcpy(dis_dst + (size_t)y * (size_t)dis_pic.stride[0],
+               dis_y + (size_t)y * (size_t)dis_img.pitches[0],
+               row_bytes);
+    }
+
+    /* Unmap + destroy VA images now that the Y plane is copied. No need
+     * to hold them across the (potentially slow) VMAF dispatch. */
+    vaUnmapBuffer(va_display, dis_img.buf); have_dis_map = 0;
+    vaUnmapBuffer(va_display, ref_img.buf); have_ref_map = 0;
+    vaDestroyImage(va_display, dis_img.image_id); have_dis_img = 0;
+    vaDestroyImage(va_display, ref_img.image_id); have_ref_img = 0;
+
+    /* vmaf_read_pictures uploads to SYCL shared buffers internally and
+     * dispatches the extractor loop. It also unrefs ref_pic/dis_pic. */
+    int err = vmaf_read_pictures(vmaf, &ref_pic, &dis_pic, frame_idx);
+    have_ref_pic = 0;
+    have_dis_pic = 0;
+    if (err) {
+        fprintf(stderr, "vmaf_read_pictures failed at frame %u: %d\n",
+                frame_idx, err);
+        ret = err;
+        goto cleanup;
+    }
+    ret = 0;
+
+cleanup:
+    if (have_ref_pic) vmaf_picture_unref(&ref_pic);
+    if (have_dis_pic) vmaf_picture_unref(&dis_pic);
+    if (have_ref_map) vaUnmapBuffer(va_display, ref_img.buf);
+    if (have_dis_map) vaUnmapBuffer(va_display, dis_img.buf);
+    if (have_ref_img) vaDestroyImage(va_display, ref_img.image_id);
+    if (have_dis_img) vaDestroyImage(va_display, dis_img.image_id);
+    return ret;
+}
+
+/* ------------------------------------------------------------------ */
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -630,12 +759,25 @@ int main(int argc, char *argv[])
         }
 
         if (!dmabuf_ok) {
-            /* Fallback: map VA surface to host, upload via standard path */
-            /* TODO: implement vaCopySurfaceToHost + vmaf_sycl_shared_frame_upload */
-            fprintf(stderr, "Fallback host upload not yet implemented\n");
+            /* Host upload fallback: VA→host→SYCL via vmaf_read_pictures.
+             * Slower than zero-copy but numerically equivalent. */
+            err = vpl_host_upload_fallback(ref_dec.va_display,
+                                            ref_surf, dis_surf,
+                                            w, h, bpc,
+                                            vmaf, (unsigned)frame_idx);
             vpl_release_surface(ref_held);
             vpl_release_surface(dis_held);
-            break;
+            if (err) {
+                fprintf(stderr,
+                        "Host upload fallback failed at frame %d: %d\n",
+                        frame_idx, err);
+                break;
+            }
+            frame_idx++;
+            if (frame_idx % 10 == 0)
+                printf("  Processed %d frames (host fallback)...\n",
+                       frame_idx);
+            continue;
         }
 
         /* Release VPL surface references now that import is done */
