@@ -1,0 +1,96 @@
+# Windows (MinGW64) build + test gate.
+# Ported from upstream Netflix/vmaf with fork-convention triggers and v4 actions.
+
+name: windows
+on:
+  push:
+    branches: [sycl, master]
+  pull_request:
+    branches: [sycl, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Disabled 32-bit job due to vmaf score mismatch (upstream note).
+          #- msystem: MINGW32
+          #  MINGW_PACKAGE_PREFIX: mingw-w64-i686
+          #  CFLAGS: -msse2 -mfpmath=sse -mstackrealign
+          - msystem: MINGW64
+            MINGW_PACKAGE_PREFIX: mingw-w64-x86_64
+    env:
+      CC: ccache gcc
+      CXX: ccache g++
+      CFLAGS: -pipe -static -O3 -mtune=generic -D_FILE_OFFSET_BITS=64 -mthreads
+      CXXFLAGS: -pipe -static -O3 -mtune=generic -D_FILE_OFFSET_BITS=64 -mthreads
+      LDFLAGS: -pipe -static -static-libgcc -static-libstdc++
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache ccache files
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ccache
+          key: ${{ runner.os }}-${{ matrix.msystem }}-0-${{ hashFiles('**/*.c') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.msystem }}-0-
+            ${{ runner.os }}-${{ matrix.msystem }}-
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          install: >-
+            ${{ matrix.MINGW_PACKAGE_PREFIX }}-ccache
+            ${{ matrix.MINGW_PACKAGE_PREFIX }}-nasm
+            ${{ matrix.MINGW_PACKAGE_PREFIX }}-pkg-config
+            ${{ matrix.MINGW_PACKAGE_PREFIX }}-gcc
+            ${{ matrix.MINGW_PACKAGE_PREFIX }}-meson
+            ${{ matrix.MINGW_PACKAGE_PREFIX }}-ninja
+            vim make diffutils
+          update: true
+          path-type: inherit
+
+      - name: Set ccache dir
+        run: echo "CCACHE_DIR=$PWD/.ccache" >> $GITHUB_ENV
+
+      - name: Configure vmaf
+        run: meson setup libvmaf libvmaf/build --buildtype release --default-library static --prefix "$MINGW_PREFIX" -Denable_cuda=false -Denable_sycl=false
+
+      - name: Build vmaf
+        run: meson install -C libvmaf/build
+
+      - name: Test vmaf
+        run: meson test -C libvmaf/build --num-processes $(nproc)
+
+      - name: Show binary info and stage artifact
+        id: stage
+        run: |
+          ldd "$MINGW_PREFIX/bin/vmaf.exe" || true
+          mkdir -p artifact
+          cp "$MINGW_PREFIX/bin/vmaf.exe" artifact/vmaf.exe
+          echo "path=$(cygpath -m "$PWD/artifact/vmaf.exe")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload vmaf.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.msystem }}-vmaf
+          path: ${{ steps.stage.outputs.path }}
+          if-no-files-found: error
