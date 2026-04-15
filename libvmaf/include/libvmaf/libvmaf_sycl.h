@@ -337,6 +337,17 @@ int vmaf_sycl_profiling_get_string(VmafSyclState *sycl_state,
  */
 void vmaf_sycl_state_free(VmafSyclState **sycl_state);
 
+/**
+ * Print available SYCL GPU devices to stdout.
+ * Iterates every platform, enumerates GPU-type devices, and prints
+ * a one-line summary for each (index, platform, vendor, name,
+ * driver version, fp64 support). Used by the `vmaf_bench --list-devices`
+ * CLI path.
+ *
+ * @return Number of GPU devices enumerated, or negative errno on failure.
+ */
+int vmaf_sycl_list_devices(void);
+
 #ifdef __cplusplus
 }
 #endif

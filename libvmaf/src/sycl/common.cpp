@@ -128,6 +128,46 @@ struct VmafSyclState {
 };
 
 /* ------------------------------------------------------------------ */
+/* Device enumeration                                                  */
+/* ------------------------------------------------------------------ */
+
+extern "C"
+int vmaf_sycl_list_devices(void)
+{
+    try {
+        auto platforms = sycl::platform::get_platforms();
+        unsigned idx = 0;
+        printf("Available SYCL GPU devices:\n");
+        for (auto &p : platforms) {
+            const std::string plat_name =
+                p.get_info<sycl::info::platform::name>();
+            for (auto &d : p.get_devices(sycl::info::device_type::gpu)) {
+                const std::string dev_name =
+                    d.get_info<sycl::info::device::name>();
+                const std::string dev_vendor =
+                    d.get_info<sycl::info::device::vendor>();
+                const std::string driver_ver =
+                    d.get_info<sycl::info::device::driver_version>();
+                const bool has_fp64 = d.has(sycl::aspect::fp64);
+                printf("  [%u] %s\n", idx, dev_name.c_str());
+                printf("      platform: %s\n", plat_name.c_str());
+                printf("      vendor:   %s\n", dev_vendor.c_str());
+                printf("      driver:   %s\n", driver_ver.c_str());
+                printf("      fp64:     %s\n", has_fp64 ? "yes" : "no");
+                idx++;
+            }
+        }
+        if (idx == 0) {
+            printf("  (none found)\n");
+        }
+        return static_cast<int>(idx);
+    } catch (const sycl::exception &e) {
+        fprintf(stderr, "SYCL: device enumeration failed: %s\n", e.what());
+        return -EIO;
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* State lifecycle                                                     */
 /* ------------------------------------------------------------------ */
 
