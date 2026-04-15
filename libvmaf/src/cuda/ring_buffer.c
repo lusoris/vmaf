@@ -105,7 +105,7 @@ int vmaf_ring_buffer_fetch_next_picture(VmafRingBuffer *ring_buffer,
 #ifdef HAVE_NVTX
     char n[40];
     static unsigned glob = 0;
-    sprintf(n, "fetch idx %d %d", pic_idx, glob++);
+    snprintf(n, sizeof(n), "fetch idx %d %d", pic_idx, glob++);
     nvtxRangePushA(n);
 #endif
 
