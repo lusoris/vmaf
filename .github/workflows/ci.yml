@@ -164,3 +164,55 @@ jobs:
           /tmp/vmaf-train-venv/bin/pip install -e ai
       - name: Run ai/ pytests
         run: /tmp/vmaf-train-venv/bin/pytest ai/tests/ -v
+
+  # ===== Coverage gate (principles.md §3) =====
+  # ≥70% overall line coverage, ≥85% on security-critical files
+  # (libvmaf/src/dnn/, opt.c, read_json_model.c).
+  coverage:
+    name: "Coverage gate (≥70% / ≥85% critical)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build nasm pkg-config lcov gcc
+      - name: Build with gcov instrumentation + run tests
+        run: |
+          meson setup build-coverage libvmaf --buildtype=debug \
+            -Db_coverage=true -Denable_cuda=false -Denable_sycl=false
+          ninja -C build-coverage
+          meson test -C build-coverage --print-errorlogs
+      - name: Gather lcov report
+        run: |
+          lcov --capture --directory build-coverage \
+               --output-file build-coverage/coverage.info \
+               --ignore-errors mismatch,gcov,source \
+               --rc geninfo_unexecuted_blocks=1
+          lcov --remove build-coverage/coverage.info \
+               '/usr/*' '*/subprojects/*' '*/test/*' '*/tests/*' \
+               --output-file build-coverage/coverage.filtered.info \
+               --ignore-errors unused
+          lcov --list build-coverage/coverage.filtered.info
+      - name: Enforce coverage thresholds
+        run: |
+          scripts/ci/coverage-check.sh build-coverage/coverage.filtered.info 70 85
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: build-coverage/coverage.filtered.info
+          retention-days: 14
+
+  # ===== Power of 10 rule 5 — assertion density =====
+  # Every fork-added (non-trivial) function must contain ≥1 assert().
+  assertion-density:
+    name: "Assertion density (Power of 10 §5)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run assertion density scanner
+        run: bash scripts/ci/assertion-density.sh
