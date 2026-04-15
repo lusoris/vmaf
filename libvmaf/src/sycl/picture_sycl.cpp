@@ -28,6 +28,7 @@
  *   2. VmafPicture pre-allocation pool callbacks.
  */
 
+#include <cassert>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -111,6 +112,8 @@ int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
     if (!pic || !cookie) return -EINVAL;
 
     VmafSyclCookie *c = (VmafSyclCookie *)cookie;
+    assert(c->w > 0 && c->h > 0);
+    assert(c->bpc >= 8 && c->bpc <= 16);
     size_t bpp = (c->bpc + 7) / 8;
     size_t plane_size = (size_t)c->w * c->h * bpp;
 
@@ -135,6 +138,7 @@ int vmaf_sycl_picture_free(VmafPicture *pic, void *cookie)
     if (!pic || !cookie) return -EINVAL;
 
     VmafSyclCookie *c = (VmafSyclCookie *)cookie;
+    assert(c->state != NULL);
 
     if (pic->data[0]) {
         vmaf_sycl_free(c->state, pic->data[0]);

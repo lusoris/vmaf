@@ -25,6 +25,7 @@
 #include <sycl/ext/oneapi/experimental/graph.hpp>
 #include <level_zero/ze_api.h>
 
+#include <cassert>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -141,9 +142,11 @@ int vmaf_sycl_list_devices(void)
         for (auto &p : platforms) {
             const std::string plat_name =
                 p.get_info<sycl::info::platform::name>();
+            assert(!plat_name.empty());
             for (auto &d : p.get_devices(sycl::info::device_type::gpu)) {
                 const std::string dev_name =
                     d.get_info<sycl::info::device::name>();
+                assert(!dev_name.empty());
                 const std::string dev_vendor =
                     d.get_info<sycl::info::device::vendor>();
                 const std::string driver_ver =
@@ -258,6 +261,7 @@ void vmaf_sycl_state_free(VmafSyclState **sycl_state)
     if (!sycl_state || !*sycl_state) return;
 
     VmafSyclState *s = *sycl_state;
+    assert(s != nullptr);
 
     // Wait for any outstanding work on both queues
     try { s->copy_queue.wait_and_throw(); } catch (...) {}
@@ -295,6 +299,7 @@ void *vmaf_sycl_create_compute_queue(VmafSyclState *state)
     if (!state) return nullptr;
     try {
         sycl::property_list props;
+        assert(state->queue.get_device().is_gpu() || state->queue.get_device().is_cpu());
         if (state->profiling_enabled) {
             props = sycl::property_list{
                 sycl::property::queue::in_order{},
@@ -800,6 +805,7 @@ extern "C"
 int vmaf_sycl_graph_submit(VmafSyclState *state)
 {
     if (!state || !state->combined_queue) return -EINVAL;
+    assert(state->num_graph_extractors > 0);
 
     uint64_t frame = state->frame_counter;
 
@@ -902,6 +908,7 @@ extern "C"
 int vmaf_sycl_graph_wait(VmafSyclState *state)
 {
     if (!state || !state->combined_queue) return -EINVAL;
+    assert(state->num_graph_extractors >= 0);
 
     uint64_t frame = state->frame_counter;
 
@@ -1083,6 +1090,7 @@ extern "C"
 void vmaf_sycl_profiling_print(VmafSyclState *state)
 {
     if (!state) return;
+    assert(state->profiling_enabled || state->profiling_data.empty());
     std::lock_guard<std::mutex> lock(state->profiling_lock);
 
     if (state->profiling_data.empty()) {
@@ -1111,6 +1119,7 @@ extern "C"
 int vmaf_sycl_profiling_get_string(VmafSyclState *state, char **output)
 {
     if (!state || !output) return -EINVAL;
+    assert(output != nullptr);
     *output = nullptr;
 
     std::lock_guard<std::mutex> lock(state->profiling_lock);
