@@ -1,67 +1,86 @@
 # VMAF Usage through Docker
 
-Install Docker, then, from the VMAF directory, run:
+Two Dockerfiles ship with the fork:
 
-```shell script
+- [`Dockerfile`](../../Dockerfile) — builds `libvmaf` and wires FFmpeg as the
+  container entrypoint. CUDA support is enabled by default; SYCL can be enabled
+  via build arg `ENABLE_SYCL=true`.
+- [`Dockerfile.ffmpeg`](../../Dockerfile.ffmpeg) — a dedicated image that builds
+  FFmpeg with NVIDIA's nv-codec headers, so that hardware decoders can feed
+  the `libvmaf_cuda` filter end-to-end on GPU.
+
+Install Docker, then from the VMAF directory run:
+
+```bash
 docker build -t vmaf .
 ```
 
-And to use it, just run:
+The resulting image's entrypoint is `ffmpeg`, so arguments are forwarded
+directly:
 
-```shell script
-docker run --rm vmaf [CLI]
-```
-
-Where `[CLI]` is one of `run_vmaf`.
-
-For example, if you are under root, to run `run_vmaf` on a sample reference/distorted video pair under `resource/yuv`:
-
-```shell script
+```bash
 docker run --rm -v $(pwd):/files vmaf \
-    yuv420p 576 324 \
-    /files/src01_hrc00_576x324.yuv \
-    /files/src01_hrc01_576x324.yuv \
-    --out-fmt json
+    -i /files/reference.y4m \
+    -i /files/distorted.y4m \
+    -lavfi libvmaf \
+    -f null -
 ```
 
-Note that you need to first download the test videos from [vmaf_resource](https://github.com/Netflix/vmaf_resource/tree/master/python/test/resource).
+## Using Docker with CUDA support
 
-```shell script
-wget https://github.com/Netflix/vmaf_resource/raw/master/python/test/resource/yuv/src01_hrc00_576x324.yuv
-wget https://github.com/Netflix/vmaf_resource/raw/master/python/test/resource/yuv/src01_hrc01_576x324.yuv
-```
+To run containers with GPU access install the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+The default image is built with CUDA, so `libvmaf_cuda` is available out of
+the box:
 
-## Use docker with GPU support
-
-To run docker containers with GPU support you have to install the [nvidia container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-The above built container already has CUDA support inside and can use CUDA when the nvidia runtime is in use:
-```shell script
+```bash
 docker run --gpus all --rm -v $(pwd):/files vmaf \
-    yuv420p 576 324 \
-    /files/src01_hrc00_576x324.yuv \
-    /files/src01_hrc01_576x324.yuv \
-    --out-fmt json
+    -i /files/reference.y4m \
+    -i /files/distorted.y4m \
+    -lavfi "[0:v][1:v]libvmaf_cuda" \
+    -f null -
 ```
 
-While CUDA support is already fast using the `vmaf` tool the tool itself is heavily IO bottlenecked and a usage with ffmpeg and corresponding hardware decoders is much more efficient. To enable that we provide a separate Dockerfile that builds ffmpeg with cuda support and the vmaf filter. To build the container use:
-```shell script
+While CUDA keeps the metric itself fast, the `vmaf` CLI is usually I/O-bound
+for compressed inputs. For the best throughput, use `Dockerfile.ffmpeg` so
+that decoding also happens on the GPU:
+
+```bash
 docker build -f Dockerfile.ffmpeg -t ffmpeg_vmaf .
 ```
-Usage of the container is very similar to the above examples. For example to run the vmaf filter on two mp4 files use:
-```shell script
+
+Example on two HEVC bitstreams:
+
+```bash
 wget https://ultravideo.fi/video/Beauty_3840x2160_120fps_420_8bit_HEVC_RAW.hevc
 
-docker run --gpus all  -e NVIDIA_DRIVER_CAPABILITIES=compute,video -v $(pwd):/files ffmpeg_vmaf  \
-  -y -hwaccel cuda -hwaccel_output_format cuda -i /files/Beauty_3840x2160_120fps_420_8bit_HEVC_RAW.hevc \
-  -fps_mode vfr -c:a copy -c:v hevc_nvenc -b:v 2M /files/dist.mp4
+docker run --gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,video \
+    -v $(pwd):/files ffmpeg_vmaf \
+    -y -hwaccel cuda -hwaccel_output_format cuda \
+    -i /files/Beauty_3840x2160_120fps_420_8bit_HEVC_RAW.hevc \
+    -fps_mode vfr -c:a copy -c:v hevc_nvenc -b:v 2M /files/dist.mp4
 
-docker run --gpus all  -e NVIDIA_DRIVER_CAPABILITIES=compute,video -v $(pwd):/files ffmpeg_vmaf \
-    -hwaccel cuda -hwaccel_output_format cuda -i /files/Beauty_3840x2160_120fps_420_8bit_HEVC_RAW.hevc \
+docker run --gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,video \
+    -v $(pwd):/files ffmpeg_vmaf \
+    -hwaccel cuda -hwaccel_output_format cuda \
+    -i /files/Beauty_3840x2160_120fps_420_8bit_HEVC_RAW.hevc \
     -hwaccel cuda -hwaccel_output_format cuda -i /files/dist.mp4 \
     -filter_complex "[0:v]scale_cuda=format=yuv420p[ref];[1:v]scale_cuda=format=yuv420p[dist];[ref][dist]libvmaf_cuda" \
     -f null -
 ```
 
-As you see for 420 video format we will have to convert from NV12 to 420 as seen above using `scale_cuda`. For other formats like yuv444p or yuv422p you can directly use the input from the decoder without conversion.
-`-filter_complex [0:v][1:v]libvmaf_cuda`
- 
+For 4:2:0 video you need to convert NV12 to YUV420P with `scale_cuda` as shown;
+for 4:4:4 / 4:2:2 inputs the decoder output can be fed directly, e.g.
+`-filter_complex "[0:v][1:v]libvmaf_cuda"`.
+
+## Using Docker with SYCL support
+
+Build with the SYCL build arg to bundle Intel oneAPI into the image:
+
+```bash
+docker build --build-arg ENABLE_SYCL=true -t vmaf-sycl .
+```
+
+The SYCL backend is selected at CLI level with `--sycl`; see
+[backends/sycl/sycl_bundling.md](../backends/sycl/sycl_bundling.md) for
+runtime-bundling notes relevant to containerized deployments.

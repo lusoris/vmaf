@@ -4,7 +4,7 @@ The VMAF Python library offers full functionalities from running basic VMAF comm
 
 ## Requirements
 
-Make sure you have `python3` (python 3.6 or higher). You can check the version by `python3 --version`.
+Make sure you have `python3` (python 3.8 or higher). You can check the version by `python3 --version`.
 
 ### Linux
 
@@ -50,7 +50,7 @@ Note that `brew` requires no `sudo`.
 
 Follow the steps below to set up a clean virtual environment
 
-```shell script
+```bash
 python3 -m pip install virtualenv
 python3 -m virtualenv .venv
 source .venv/bin/activate
@@ -67,31 +67,34 @@ pip3 install cython numpy meson ninja
 Make sure `ninja` is 1.7.1 or higher (check by `ninja --version`).
 
 Clean build the binary by:
-```shell script
+
+```bash
 make clean; make
 ```
 
 Check if build is successful:
-```shell script
+
+```bash
 ./libvmaf/build/tools/vmaf --version
 ```
 
 Install the rest of the required Python packages:
-```shell script
+
+```bash
 pip3 install -r python/requirements.txt
 ```
 
 On macOS it's important to use the LLVM from homebrew as the macOS clang does not include support for OpenMP, which is needed for libsvm-official
 
-``` shell script
+```bash
 CC=$HOMEBREW_PREFIX/opt/llvm/bin/clang CXX=$HOMEBREW_PREFIX/opt/llvm/bin/clang++ pip3 install -r python/requirements.txt
 ```
-
 
 ## Testing
 
 Run unittests and make sure they all pass:
-```shell script
+
+```bash
 ./unittest
 ```
 
@@ -101,8 +104,8 @@ Run unittests and make sure they all pass:
 
 One can run VMAF in the command line by `run_vmaf`, which allows the input videos to be the `.yuv` format. To run VMAF on a single reference/distorted video pair, run:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_vmaf.py \
+```bash
+python -m vmaf.script.run_vmaf \
     format width height \
     reference_path \
     distorted_path \
@@ -125,8 +128,8 @@ The arguments are the following:
 
 For example, the following command runs VMAF on a pair of `.yuv` inputs ([`src01_hrc00_576x324.yuv`](https://github.com/Netflix/vmaf_resource/blob/master/python/test/resource/yuv/src01_hrc00_576x324.yuv), [`src01_hrc01_576x324.yuv`](https://github.com/Netflix/vmaf_resource/blob/master/python/test/resource/yuv/src01_hrc01_576x324.yuv)):
 
-```shell script
- PYTHONPATH=python ./python/vmaf/script/run_vmaf.py \
+```bash
+ python -m vmaf.script.run_vmaf \
   yuv420p 576 324 \
   src01_hrc00_576x324.yuv \
   src01_hrc01_576x324.yuv \
@@ -161,8 +164,8 @@ VMAF follows a machine-learning based approach to first extract a number of qual
 
 In addition to the basic commands, the VMAF package also provides a framework to allow any user to train his/her own perceptual quality assessment model. For example, directory [`model`](../../model) contains a number of pre-trained models, which can be loaded by the aforementioned commands:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_vmaf.py \
+```bash
+python -m vmaf.script.run_vmaf \
     format width height \
     reference_path \
     distorted_path \
@@ -171,8 +174,8 @@ PYTHONPATH=python ./python/vmaf/script/run_vmaf.py \
 
 For example:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_vmaf.py \
+```bash
+python -m vmaf.script.run_vmaf \
     yuv420p 576 324 \
     python/test/resource/yuv/src01_hrc00_576x324.yuv \
     python/test/resource/yuv/src01_hrc01_576x324.yuv \
@@ -214,8 +217,8 @@ See the directory [`resource/dataset`](../../resource/dataset) for more examples
 
 Once a dataset is created, first validate the dataset using existing VMAF or other (PSNR, SSIM or MS-SSIM) metrics. Run:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_testing.py \
+```bash
+python -m vmaf.script.run_testing \
     quality_type \
     test_dataset_file \
     [--vmaf-model optional_VMAF_model_path] \
@@ -231,8 +234,8 @@ Enabling `--parallelize` allows execution on multiple reference-distorted video 
 
 For example:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_testing.py \
+```bash
+python -m vmaf.script.run_testing \
     VMAF \
     resource/example/example_dataset.py \
     --cache-result \
@@ -251,16 +254,16 @@ When creating a dataset file, one may make errors (for example, having a typo in
 
 If the problem persists, one may need to run the script:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_cleaning_cache.py \
+```bash
+python -m vmaf.script.run_cleaning_cache \
     quality_type \
     test_dataset_file
 ```
 
 to clean up corrupted results in the store before retrying. For example:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_cleaning_cache.py \
+```bash
+python -m vmaf.script.run_cleaning_cache \
     VMAF \
     resource/example/example_dataset.py
 ```
@@ -269,8 +272,8 @@ PYTHONPATH=python ./python/vmaf/script/run_cleaning_cache.py \
 
 Now that we are confident that the dataset is created correctly and we have some benchmark result on existing metrics, we proceed to train a new quality assessment model. Run:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_vmaf_training.py \
+```bash
+python -m vmaf.script.run_vmaf_training \
     train_dataset_filepath \
     feature_param_file \
     model_param_file \
@@ -281,8 +284,8 @@ PYTHONPATH=python ./python/vmaf/script/run_vmaf_training.py \
 
 For example:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_vmaf_training.py \
+```bash
+python -m vmaf.script.run_vmaf_training \
     resource/example/example_dataset.py \
     resource/feature_param/vmaf_feature_v2.py \
     resource/model_param/libsvmnusvr_v2.py \
@@ -324,8 +327,8 @@ model_param_dict = {
 
 The trained model is output to `output_model_file`. Once it is obtained, it can be used by the `run_vmaf`, or by `run_testing` to validate another dataset.
 
-![training scatter](../images/scatter_training.png)
-![testing scatter](../images/scatter_testing.png)
+![training scatter](../../resource/images/scatter_training.png)
+![testing scatter](../../resource/images/scatter_testing.png)
 
 Above are two example scatter plots obtained from running the `run_vmaf_training` and `run_testing` commands on a training and a testing dataset, respectively.
 
@@ -335,8 +338,8 @@ The commands `run_vmaf_training` and `run_testing` also support custom subjectiv
 
 The subjective model option can be specified with option `--subj-model subjective_model`, for example:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_vmaf_training.py \
+```bash
+python -m vmaf.script.run_vmaf_training \
     resource/example/example_raw_dataset.py \
     resource/feature_param/vmaf_feature_v2.py \
     resource/model_param/libsvmnusvr_v2.py \
@@ -345,7 +348,7 @@ PYTHONPATH=python ./python/vmaf/script/run_vmaf_training.py \
     --cache-result \
     --parallelize
 
-PYTHONPATH=python ./python/vmaf/script/run_testing.py \
+python -m vmaf.script.run_testing \
     VMAF \
     resource/example/example_raw_dataset.py \
     --subj-model MLE_CO_AP2 \
@@ -369,7 +372,7 @@ For instructions on how to extending the `FeatureExtractor` and `TrainTestModel`
 
 ## Analysis Tools
 
-Overtime, a number of helper tools have been incorporated into the package, to facilitate training and validating VMAF models. An overview of the tools available can be found in [this slide deck](presentations/VQEG_SAM_2018_111_AnalysisToolsInVMAF.pdf).
+Overtime, a number of helper tools have been incorporated into the package, to facilitate training and validating VMAF models. An overview of the tools available can be found in [this slide deck](../reference/presentations/VQEG_SAM_2018_111_AnalysisToolsInVMAF.pdf).
 
 ### BD-Rate Calculator
 
@@ -377,10 +380,10 @@ A Bjøntegaard-Delta (BD) rate [implementation](../../python/vmaf/tools/bd_rate_
 
 ### LIME (Local-Explainer Model-Agnostic Explanation) Implementation
 
-An implementation of [LIME](https://arxiv.org/pdf/1602.04938.pdf) is also added as part of the repository. For more information, refer to our [analysis tools](presentations/VQEG_SAM_2018_111_AnalysisToolsInVMAF.pdf) presentation. The main idea is to perform a local linear approximation to any regressor or classifier and then use the coefficients of the linearized model as indicators of feature importance. LIME can be used as part of the VMAF regression framework, for example:
+An implementation of [LIME](https://arxiv.org/pdf/1602.04938.pdf) is also added as part of the repository. For more information, refer to our [analysis tools](../reference/presentations/VQEG_SAM_2018_111_AnalysisToolsInVMAF.pdf) presentation. The main idea is to perform a local linear approximation to any regressor or classifier and then use the coefficients of the linearized model as indicators of feature importance. LIME can be used as part of the VMAF regression framework, for example:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_vmaf.py \
+```bash
+python -m vmaf.script.run_vmaf \
     yuv420p 576 324 \
     src01_hrc00_576x324.yuv \
     src01_hrc00_576x324.yuv \
@@ -389,8 +392,8 @@ PYTHONPATH=python ./python/vmaf/script/run_vmaf.py \
 
 Naturally, LIME can also be applied to any other regression scheme as long as there exists a pre-trained model. For example, applying to BRISQUE:
 
-```shell script
-PYTHONPATH=python ./python/vmaf/script/run_vmaf.py yuv420p 576 324 \
+```bash
+python -m vmaf.script.run_vmaf yuv420p 576 324 \
     src01_hrc00_576x324.yuv \
     src01_hrc00_576x324.yuv \
     --local-explain \
@@ -420,22 +423,22 @@ optional arguments:
 ```
 
 Examples:
-```shell script
+
+```bash
+python/vmaf/script/convert_model_from_pkl_to_json.py \
+    --input-pkl-filepath model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.pkl \
+    --output-json-filepath ./vmaf_float_b_v0.6.3.json
 
 python/vmaf/script/convert_model_from_pkl_to_json.py \
---input-pkl-filepath model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.pkl \
---output-json-filepath ./vmaf_float_b_v0.6.3.json
-
-python/vmaf/script/convert_model_from_pkl_to_json.py \
---input-pkl-filepath model/vmaf_float_v0.6.1.pkl \
---output-json-filepath ./vmaf_float_v0.6.1.json
+    --input-pkl-filepath model/vmaf_float_v0.6.1.pkl \
+    --output-json-filepath ./vmaf_float_v0.6.1.json
 ```
 
 ## Core Classes
 
 The core classes of the VMAF Python library can be depicted in the diagram below:
 
-![UML](../images/uml.png)
+![UML](../../resource/images/uml.png)
 
 ### Asset
 
@@ -447,7 +450,7 @@ Asset extends the `WorkdirEnabled` mixin, which comes with a thread-safe working
 
 ### Executor
 
-An `Executor` takes a list of `Assets` as input, run computations on them, and return a list of corresponding `Results`. An `Executor` extends the `TypeVersionEnabled` mixin, and must specify a unique type and version combination (by the `TYPE` and `VERSION` attribute), so that the `Result` generated by it can be uniquely identified. This facilitates a number of shared housekeeping functions, including storing and reusing `Results` (`result_store`), creating FIFO pipes (`fifo_mode`), etc. `Executor` understands the preprocessing steps specified in its input `Assets`. It relies on FFmpeg to do the processing for it (FFmpeg must be pre-installed and its path specified in the `FFMPEG_PATH` field in the `python/vmaf/externals.py` file).
+An `Executor` takes a list of `Assets` as input, run computations on them, and return a list of corresponding `Results`. An `Executor` extends the `TypeVersionEnabled` mixin, and must specify a unique type and version combination (by the `TYPE` and `VERSION` attribute), so that the `Result` generated by it can be uniquely identified. This facilitates a number of shared housekeeping functions, including storing and reusing `Results` (`result_store`), creating FIFO pipes (`fifo_mode`), etc. `Executor` understands the preprocessing steps specified in its input `Assets`. It relies on FFmpeg to do the processing for it (FFmpeg must be pre-installed and its path specified in the `FFMPEG_PATH` field in the `python/vmaf/config.py` file).
 
 An `Executor` and its subclasses can take optional parameters during initialization. There are two fields to put the optional parameters:
   - `optional_dict`: a dictionary field to specify parameters that will impact numerical result (e.g. which wavelet transform to use).
