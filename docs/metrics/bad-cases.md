@@ -1,5 +1,25 @@
 # Reporting Bad Cases
 
-Over time, we have received feedbacks on when VMAF's prediction does not reflect the expected perceptual quality of videos, either they are corner cases where VMAF fails to cover, or new application scenarios which VMAF was not initially intended for. In response to that, we have created a Google form to allow users to upload their video samples and describe their cases. The bad cases are valuable for improving future versions of VMAF. Users can opt in or out for sharing their sample videos publicly.
+VMAF's predictions do not always reflect perceived quality — corner cases
+and novel application scenarios outside the training distribution both
+produce mispredictions. Bad-case reports are valuable for improving future
+model versions.
 
-Please submit the bad cases through [this link](https://docs.google.com/forms/d/e/1FAIpQLSdJntNoBuucMSiYoK3SDWoY1QN0yiFAi5LyEXuOyXEWJbQBtQ/viewform?usp=sf_link).
+## Upstream channel (Netflix/vmaf)
+
+Netflix maintains a Google form to collect bad-case samples. Users can opt
+in or out for public sharing:
+
+- [Bad-case submission form](https://docs.google.com/forms/d/e/1FAIpQLSdJntNoBuucMSiYoK3SDWoY1QN0yiFAi5LyEXuOyXEWJbQBtQ/viewform?usp=sf_link)
+
+## Fork channel (Lusoris/vmaf)
+
+For bad cases that are specific to fork-added surfaces — SYCL / CUDA / HIP
+numerical divergence, `--precision` output correctness, tiny-AI model
+drift — open an issue on [Lusoris/vmaf](https://github.com/Lusoris/vmaf/issues)
+with reproducer inputs and, if possible, the backend that produced the
+anomalous result.
+
+A cross-backend numeric diff can be generated via the `/cross-backend-diff`
+skill before filing, which narrows the report to the specific feature and
+scale where the divergence is observed.

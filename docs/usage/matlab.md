@@ -1,36 +1,39 @@
-Matlab Usage
-===================
+# MATLAB Usage
 
 ## Prerequisites
 
-To be able to use Matlab, you need to first successfully download and activate Matlab, as described [here](https://www.mathworks.com/). Then, add a line to python/vmaf/externals.py, like:
+Install and activate [MATLAB](https://www.mathworks.com/). Then set
+`MATLAB_PATH` in [`python/vmaf/config.py`](../../python/vmaf/config.py) to
+point at your MATLAB binary:
 
-```
-MATLAB_PATH = <path_to_matlab>
+```python
+MATLAB_PATH = "/path/to/matlab"
 ```
 
-For example (mac OSX):
+For example on macOS:
 
-```
-MATLAB_PATH = "/Applications/MATLAB_R2017a.app/bin/matlab" 
+```python
+MATLAB_PATH = "/Applications/MATLAB_R2017a.app/bin/matlab"
 ```
 
 ## Available Algorithms
 
 The available algorithms are ST-MAD [1], ST-RRED [2], SpEED-QA [3] and BRISQUE [4].
 
-Example usage for ST-MAD, ST-RRED and SpEED-QA with the run_testing script:
+Example usage for ST-MAD, ST-RRED and SpEED-QA with the `run_testing` script:
 
-```shell script
-./run_testing quality_type dataset_file
+```bash
+python -m vmaf.script.run_testing <quality_type> <dataset_file>
 ```
 
-where quality_type can be STMAD (for ST-MAD), STRRED (for ST-RRED) and SpEED_Matlab (for SpEED-QA). We have also implemented a computationally efficient version of ST-RRED (use STRREDOpt as the quality_type), which produces numerically identical results to ST-RRED.
+where `<quality_type>` is `STMAD` (ST-MAD), `STRRED` (ST-RRED), `SpEED_Matlab`
+(SpEED-QA), or `STRREDOpt` for a computationally efficient ST-RRED variant
+that produces numerically identical results.
 
 Example usage for BRISQUE:
 
-```shell script
-./run_vmaf yuv_420p 1920 1080 \
+```bash
+python -m vmaf.script.run_vmaf yuv_420p 1920 1080 \
     NFLX_dataset_public/ref/OldTownCross_25fps.yuv \
     NFLX_dataset_public/dis/OldTownCross_90_1080_4300.yuv \
     --model model/vmaf_brisque_all_v0.0rc.pkl
