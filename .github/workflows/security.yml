@@ -45,6 +45,9 @@ jobs:
         with:
           sarif_file: semgrep.sarif
 
+  # security-and-quality is a superset of security-extended, so specifying
+  # both duplicates queries and trips the CodeQL setup UI's "ambiguous
+  # configuration" detector. Pick one suite per job.
   codeql-cpp:
     name: CodeQL (C/C++)
     runs-on: ubuntu-latest
@@ -54,7 +57,7 @@ jobs:
       - uses: github/codeql-action/init@v3
         with:
           languages: cpp
-          queries: security-extended,security-and-quality
+          queries: security-and-quality
       - name: Build
         run: |
           sudo apt-get update
@@ -74,10 +77,28 @@ jobs:
       - uses: github/codeql-action/init@v3
         with:
           languages: python
-          queries: security-extended
+          queries: security-and-quality
       - uses: github/codeql-action/analyze@v3
         with:
           category: "/language:python"
+
+  # CodeQL's Actions-language support landed GA in late 2025. It scans
+  # .github/workflows/*.yml for token-permission, injection, and pinning
+  # issues. GitHub's default setup was auto-enabling this on the side; make
+  # it explicit here so the job history is versioned with the repo.
+  codeql-actions:
+    name: CodeQL (Actions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: actions
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:actions"
 
   secret-scan:
     name: gitleaks (secret scan)
