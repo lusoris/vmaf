@@ -13,17 +13,21 @@ on:
         description: "Tag to build provenance for"
         required: true
 
+# Default to least-privilege at the workflow level; individual jobs that
+# need `id-token: write` (Sigstore OIDC), `contents: write` (upload release
+# assets), or `attestations: write` (provenance) opt in per-job so a newly
+# added step can't silently inherit write scope. Addresses Scorecard
+# TokenPermissionsID alerts on `contents` and `packages`.
 permissions:
-  contents: write          # upload release assets
-  id-token: write          # OIDC for Sigstore keyless + SLSA generator
-  attestations: write
-  packages: write
+  contents: read
 
 jobs:
   build-artifacts:
     name: Build release artifacts (libvmaf.so, vmaf CLI, models)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     steps:
@@ -62,6 +66,8 @@ jobs:
     needs: build-artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -88,6 +94,9 @@ jobs:
     needs: build-artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      id-token: write   # Sigstore keyless OIDC
+      contents: read
     steps:
       - uses: actions/download-artifact@v4
         with: { name: release-artifacts, path: artifacts/ }
@@ -130,6 +139,8 @@ jobs:
     if: github.event_name == 'release'
     needs: [build-artifacts, sbom, sign, slsa-provenance]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # upload files to the GitHub Release
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dist/ }

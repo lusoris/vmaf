@@ -6,4 +6,4 @@ else
   pattern="$1"
 fi
 
-PYTHONPATH=python python3 -m unittest discover -v -s python/test/ -p $pattern
+PYTHONPATH=python python3 -m unittest discover -v -s python/test/ -p "$pattern"
