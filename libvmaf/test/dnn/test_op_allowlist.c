@@ -14,7 +14,7 @@ static char *test_common_ops_allowed(void)
     mu_assert("Relu should be allowed", vmaf_dnn_op_allowed("Relu"));
     mu_assert("BatchNormalization should be allowed", vmaf_dnn_op_allowed("BatchNormalization"));
     mu_assert("GlobalAveragePool should be allowed", vmaf_dnn_op_allowed("GlobalAveragePool"));
-    mu_assert("QuantizeLinear should be allowed",   vmaf_dnn_op_allowed("QuantizeLinear"));
+    mu_assert("QuantizeLinear should be allowed", vmaf_dnn_op_allowed("QuantizeLinear"));
     mu_assert("DequantizeLinear should be allowed", vmaf_dnn_op_allowed("DequantizeLinear"));
     return NULL;
 }
