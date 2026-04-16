@@ -166,6 +166,50 @@ def manifest_scan_cmd(
     )
 
 
+@app.command("profile")
+def profile_cmd(
+    model: Path = typer.Option(..., exists=True, help="ONNX model to profile"),
+    shape: Optional[list[str]] = typer.Option(
+        None,
+        "--shape",
+        help='Input shape as "N,C,H,W" (repeatable). Defaults to graph shape.',
+    ),
+    provider: Optional[list[str]] = typer.Option(
+        None,
+        "--provider",
+        help="ORT provider (repeatable). Defaults to all available.",
+    ),
+    warmup: int = typer.Option(5, help="Warmup iterations"),
+    iters: int = typer.Option(100, help="Timed iterations"),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+) -> None:
+    """Measure latency + peak RSS delta for a model across providers.
+
+    Produces a table with mean / p50 / p99 latency and peak-RSS delta per
+    (provider, shape). Useful both for picking a deployment target and
+    as a CI gate ("this model must stay under 20 ms on CPU").
+    """
+    import json as _json
+
+    from .profile import profile_model, render_table
+
+    shapes: list[tuple[int, ...]] | None = None
+    if shape:
+        shapes = [tuple(int(x) for x in s.split(",")) for s in shape]
+
+    report = profile_model(
+        model,
+        shapes=shapes,
+        providers=list(provider) if provider else None,
+        warmup=warmup,
+        iters=iters,
+    )
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+        console.print(f"[green]Wrote {json_out}[/green]")
+
+
 @app.command("audit-compat")
 def audit_compat_cmd(
     model_dir: Path = typer.Option(
