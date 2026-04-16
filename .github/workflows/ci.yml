@@ -223,22 +223,9 @@ jobs:
       - name: Run full Python test suite (instrumented libvmaf.so + vmaf CLI)
         env:
           PYTHONPATH: ${{ github.workspace }}/python
-          # Point the Python binding at the gcov-instrumented .so + CLI.
           LD_LIBRARY_PATH: ${{ github.workspace }}/libvmaf/build-coverage/src
-          PATH: ${{ github.workspace }}/libvmaf/build-coverage/tools:${{ env.PATH }}
         run: |
-          # The Python suite is the real coverage signal: it exercises every
-          # feature-extractor, the quality runner, the ensemble/bootstrap
-          # runner, the reader, the result serializer, CLI options, and the
-          # vmafexec binary against the Netflix golden YUV pairs + synthetic
-          # fixtures. gcov counters accumulate into build-coverage/**/*.gcda.
-          #
-          # `-m "not slow"` skips the minutes-long BD-rate cross-validation
-          # tests; those add minimal new coverage and quadruple job runtime.
-          # `|| true` so individual flaky tests (e.g. needing external
-          # matlab / cambi_tool binaries) don't mask coverage data from the
-          # 200+ passing tests. Correctness is separately gated by the
-          # netflix-golden job.
+          export PATH="${{ github.workspace }}/libvmaf/build-coverage/tools:$PATH"
           python3 -m pytest python/test/ -v -m "not slow" --tb=short \
             --ignore=python/test/resource || true
       - name: Gather lcov report
@@ -307,11 +294,9 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/python
           LD_LIBRARY_PATH: ${{ github.workspace }}/libvmaf/build-coverage-gpu/src
-          PATH: ${{ github.workspace }}/libvmaf/build-coverage-gpu/tools:${{ env.PATH }}
         run: |
+          export PATH="${{ github.workspace }}/libvmaf/build-coverage-gpu/tools:$PATH"
           python3 -m pip install --user -r python/requirements.txt pytest
-          # Per-backend coverage runs: each forces VMAF_CUDA / VMAF_SYCL
-          # dispatch so their kernels are instrumented.
           VMAF_FORCE_BACKEND=cuda python3 -m pytest python/test/ -v \
             -m "not slow" --tb=short --ignore=python/test/resource || true
           VMAF_FORCE_BACKEND=sycl python3 -m pytest python/test/ -v \
