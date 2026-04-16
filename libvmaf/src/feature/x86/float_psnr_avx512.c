@@ -38,7 +38,15 @@ double float_psnr_noise_line_avx512(const float *ref, const float *dis, int w)
         dsum1 = _mm512_add_pd(dsum1, _mm512_cvtps_pd(hi));
     }
 
-    double result = _mm512_reduce_add_pd(_mm512_add_pd(dsum0, dsum1));
+    __m512d total = _mm512_add_pd(dsum0, dsum1);
+    __m256d tlo = _mm512_castpd512_pd256(total);
+    __m256d thi = _mm512_extractf64x4_pd(total, 1);
+    __m256d t4 = _mm256_add_pd(tlo, thi);
+    __m128d t2lo = _mm256_castpd256_pd128(t4);
+    __m128d t2hi = _mm256_extractf128_pd(t4, 1);
+    __m128d s = _mm_add_pd(t2lo, t2hi);
+    s = _mm_add_sd(s, _mm_unpackhi_pd(s, s));
+    double result = _mm_cvtsd_f64(s);
 
     for (; j < w; j++) {
         float diff = ref[j] - dis[j];

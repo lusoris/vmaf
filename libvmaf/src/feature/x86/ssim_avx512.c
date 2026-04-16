@@ -147,10 +147,27 @@ void ssim_accumulate_avx512(const float *ref_mu, const float *cmp_mu, const floa
         ds1 = _mm512_add_pd(ds1, _mm512_cvtps_pd(hi8_s));
     }
 
-    double local_ssim = _mm512_reduce_add_pd(_mm512_add_pd(dssim0, dssim1));
-    double local_l = _mm512_reduce_add_pd(_mm512_add_pd(dl0, dl1));
-    double local_c = _mm512_reduce_add_pd(_mm512_add_pd(dc0, dc1));
-    double local_s = _mm512_reduce_add_pd(_mm512_add_pd(ds0, ds1));
+    /* Explicit horizontal reduction matching AVX2 accumulation order.
+     * _mm512_reduce_add_pd is a compiler pseudo-intrinsic whose reduction
+     * tree may differ between compilers, causing sub-ULP drift vs scalar. */
+#define HSUM512_PD(vec)                                        \
+    ({                                                         \
+        __m256d _lo = _mm512_castpd512_pd256(vec);             \
+        __m256d _hi = _mm512_extractf64x4_pd(vec, 1);         \
+        __m256d _t4 = _mm256_add_pd(_lo, _hi);                \
+        __m128d _t2lo = _mm256_castpd256_pd128(_t4);           \
+        __m128d _t2hi = _mm256_extractf128_pd(_t4, 1);        \
+        __m128d _s = _mm_add_pd(_t2lo, _t2hi);                \
+        _s = _mm_add_sd(_s, _mm_unpackhi_pd(_s, _s));         \
+        _mm_cvtsd_f64(_s);                                     \
+    })
+
+    double local_ssim = HSUM512_PD(_mm512_add_pd(dssim0, dssim1));
+    double local_l = HSUM512_PD(_mm512_add_pd(dl0, dl1));
+    double local_c = HSUM512_PD(_mm512_add_pd(dc0, dc1));
+    double local_s = HSUM512_PD(_mm512_add_pd(ds0, ds1));
+
+#undef HSUM512_PD
 
     /* Scalar tail */
     for (; i < n; i++) {
