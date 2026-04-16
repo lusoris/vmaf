@@ -1,5 +1,8 @@
 #!/bin/bash
-source /opt/intel/oneapi/setvars.sh 2>/dev/null
+# shellcheck disable=SC1091  # setvars.sh is Intel-provided, not part of the repo
+set -euo pipefail
+
+source /opt/intel/oneapi/setvars.sh 2>/dev/null || true
 
 VMAF=/usr/local/bin/vmaf
 YUV=/home/kilian/dev/libvmaf_vulkan/python/test/resource/yuv
@@ -14,7 +17,7 @@ run_test() {
     local label="$1" ref="$2" dis="$3" w="$4" h="$5" bd="$6"
     shift 6
     local result
-    result=$($VMAF -r "$ref" -d "$dis" -w "$w" -h "$h" -p 420 -b "$bd" "$@" -o /dev/stdout --json -q 2>/dev/null \
+    result=$("$VMAF" -r "$ref" -d "$dis" -w "$w" -h "$h" -p 420 -b "$bd" "$@" -o /dev/stdout --json -q 2>/dev/null \
         | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"{d['pooled_metrics']['vmaf']['mean']:.6f}\")" 2>/dev/null)
     if [ -z "$result" ]; then
         result="FAILED/N/A"

@@ -1,6 +1,9 @@
 #!/bin/bash
-source /opt/intel/oneapi/setvars.sh 2>/dev/null
-cd /home/kilian/dev/libvmaf_vulkan
+# shellcheck disable=SC1091  # setvars.sh is Intel-provided, not part of the repo
+set -euo pipefail
+
+source /opt/intel/oneapi/setvars.sh 2>/dev/null || true
+cd /home/kilian/dev/libvmaf_vulkan || exit 1
 
 VMAF=/usr/local/bin/vmaf
 MODEL=model/vmaf_v0.6.1.json
@@ -10,15 +13,17 @@ mkdir -p "$OUTDIR"
 run() {
     local name="$1" ref="$2" dis="$3" w="$4" h="$5" bd="$6" flags="$7"
     local out="$OUTDIR/${name}.json"
+    local start end ms score
     echo -n "  $name ... "
-    local start=$(date +%s%N)
-    $VMAF --reference "$ref" --distorted "$dis" \
-        --width $w --height $h --pixel_format 420 --bitdepth $bd \
-        --model path=$MODEL --threads 1 \
+    start=$(date +%s%N)
+    # shellcheck disable=SC2086  # $flags is an intentionally-split flag list
+    "$VMAF" --reference "$ref" --distorted "$dis" \
+        --width "$w" --height "$h" --pixel_format 420 --bitdepth "$bd" \
+        --model "path=$MODEL" --threads 1 \
         --output "$out" --json -q $flags 2>/dev/null
-    local end=$(date +%s%N)
-    local ms=$(( (end - start) / 1000000 ))
-    local score=$(python3 -c "import json; print(f'{json.load(open(\"$out\"))[\"pooled_metrics\"][\"vmaf\"][\"mean\"]:.6f}')")
+    end=$(date +%s%N)
+    ms=$(( (end - start) / 1000000 ))
+    score=$(python3 -c "import json; print(f'{json.load(open(\"$out\"))[\"pooled_metrics\"][\"vmaf\"][\"mean\"]:.6f}')")
     echo "${score}  (${ms}ms)"
 }
 
