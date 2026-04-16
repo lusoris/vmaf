@@ -64,8 +64,7 @@ locally before loading:
 cosign verify-blob \
     --certificate-identity-regexp "https://github.com/lusoris/vmaf/.github/workflows/release.yml@.*" \
     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-    --signature vmaf_tiny_fr_v1.onnx.sig \
-    --certificate vmaf_tiny_fr_v1.onnx.cert \
+    --bundle vmaf_tiny_fr_v1.onnx.bundle \
     vmaf_tiny_fr_v1.onnx
 ```
 

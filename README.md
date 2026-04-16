@@ -122,7 +122,7 @@ Tagged releases use `vX.Y.Z-lusoris.N`, tracking upstream Netflix version +
 fork suffix. Every release asset is:
 
 - Signed with [Sigstore](https://sigstore.dev) keyless OIDC — verify with
-  `cosign verify-blob --certificate <asset>.pem --signature <asset>.sig <asset>`.
+  `cosign verify-blob --bundle <asset>.bundle <asset>`.
 - Accompanied by SPDX and CycloneDX SBOMs.
 - Backed by [SLSA L3](https://slsa.dev) provenance via
   `slsa-github-generator` — verify with `slsa-verifier`.
