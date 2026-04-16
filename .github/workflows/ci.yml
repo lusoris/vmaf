@@ -48,7 +48,7 @@ jobs:
         working-directory: libvmaf
         run: |
           meson setup build -Denable_cuda=false -Denable_sycl=false \
-            -Denable_avx512=true --buildtype=release
+            -Denable_float=true -Denable_avx512=true --buildtype=release
           meson compile -C build
 
       - name: Run Netflix golden test pairs
@@ -117,7 +117,7 @@ jobs:
         run: |
           meson setup build -Db_sanitize=${{ matrix.sanitizer }} \
             -Denable_cuda=false -Denable_sycl=false --buildtype=debug \
-            -Db_lto=false
+            -Db_lto=false -Db_lundef=false
           meson compile -C build
       - name: Run unit tests under sanitizer
         working-directory: libvmaf
@@ -215,7 +215,7 @@ jobs:
           # ORT; full DNN coverage is gated on ORT availability (separate job).
           meson setup build-coverage --buildtype=debug \
             -Db_coverage=true -Denable_cuda=false -Denable_sycl=false \
-            -Denable_avx512=true
+            -Denable_float=true -Denable_avx512=true
           ninja -C build-coverage
       - name: Run meson unit suite (with gcov counters)
         working-directory: libvmaf
@@ -298,7 +298,7 @@ jobs:
           meson setup build-coverage-gpu --buildtype=debug \
             -Db_coverage=true \
             -Denable_cuda=true -Denable_sycl=true \
-            -Denable_avx512=true
+            -Denable_float=true -Denable_avx512=true
           ninja -C build-coverage-gpu
       - name: Run meson unit suite
         working-directory: libvmaf
