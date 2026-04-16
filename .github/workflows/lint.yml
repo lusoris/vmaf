@@ -70,7 +70,12 @@ jobs:
       - name: Install
         run: sudo apt-get update && sudo apt-get install -y cppcheck meson ninja-build nasm
       - name: Generate compile_commands
-        run: meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+        run: |
+          meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+          # Build first so codegen outputs (model JSONs → .c) exist on disk.
+          # cppcheck parses compile_commands.json literally and errors on
+          # any missing translation-unit file.
+          meson compile -C build
       - name: Run cppcheck
         run: |
           cppcheck --enable=all --inline-suppr \

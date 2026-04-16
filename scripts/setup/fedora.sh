@@ -10,6 +10,7 @@ need_sudo() { [[ $EUID -ne 0 ]] && echo "sudo" || echo ""; }
 SUDO="$(need_sudo)"
 
 # Detect Fedora vs RHEL-family for EPEL handling.
+# shellcheck disable=SC1091  # /etc/os-release is a system file, not in-repo
 . /etc/os-release
 if [[ "$ID" != "fedora" ]]; then
   $SUDO dnf install -y epel-release
@@ -41,7 +42,7 @@ fi
 
 if [[ "$ENABLE_CUDA" == "true" ]]; then
   # RPM Fusion nonfree contains cuda for Fedora; on RHEL, use NVIDIA's repo.
-  $SUDO dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/fedora$VERSION_ID/x86_64/cuda-fedora$VERSION_ID.repo || true
+  $SUDO dnf config-manager --add-repo "https://developer.download.nvidia.com/compute/cuda/repos/fedora${VERSION_ID}/x86_64/cuda-fedora${VERSION_ID}.repo" || true
   $SUDO dnf install -y cuda-toolkit
   echo "Note: export PATH=/usr/local/cuda/bin:\$PATH"
 fi
@@ -58,7 +59,7 @@ repo_gpgcheck=1
 gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
 EOF
   $SUDO dnf install -y intel-oneapi-compiler-dpcpp-cpp intel-oneapi-runtime-libs \
-                       level-zero-devel libva-devel
+    level-zero-devel libva-devel
   echo "Then: source /opt/intel/oneapi/setvars.sh"
 fi
 

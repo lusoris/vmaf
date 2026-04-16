@@ -46,7 +46,7 @@ case "$ID" in
     for like in ${ID_LIKE:-}; do
       case "$like" in
         debian) exec "$DIR/ubuntu.sh" "$@" ;;
-        arch)   exec "$DIR/arch.sh"   "$@" ;;
+        arch) exec "$DIR/arch.sh" "$@" ;;
         fedora | rhel) exec "$DIR/fedora.sh" "$@" ;;
       esac
     done

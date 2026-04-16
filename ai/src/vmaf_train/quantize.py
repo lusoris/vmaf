@@ -59,17 +59,13 @@ class QuantizationReport:
         }
 
 
-def _load_calibration_features(
-    parquet: Path, n_total: int
-) -> np.ndarray:
+def _load_calibration_features(parquet: Path, n_total: int) -> np.ndarray:
     import pandas as pd
 
     df = pd.read_parquet(parquet)
     cols = [c for c in FEATURE_COLUMNS if c in df.columns]
     if not cols:
-        raise ValueError(
-            f"{parquet} has no FEATURE_COLUMNS; got {list(df.columns)}"
-        )
+        raise ValueError(f"{parquet} has no FEATURE_COLUMNS; got {list(df.columns)}")
     x = df[cols].to_numpy(dtype=np.float32)
     if len(x) < n_total + HELD_OUT_SAMPLES:
         raise ValueError(
@@ -89,8 +85,7 @@ def _make_calibration_reader(features: np.ndarray, input_name: str, batch_size: 
     class _Reader(CalibrationDataReader):
         def __init__(self) -> None:
             self._iter = iter(
-                features[i : i + batch_size]
-                for i in range(0, len(features), batch_size)
+                features[i : i + batch_size] for i in range(0, len(features), batch_size)
             )
 
         def get_next(self) -> dict | None:
@@ -161,10 +156,12 @@ def quantize_int8(
 
 
 def render_table(report: QuantizationReport) -> str:
-    return "\n".join([
-        f"fp32: {report.fp32_path.name}  ({report.fp32_bytes / 1024:.1f} KiB)",
-        f"int8: {report.int8_path.name}  ({report.int8_bytes / 1024:.1f} KiB)",
-        f"compression: {report.compression_ratio:.2f}x",
-        f"calibration samples: {report.n_calibration}  held-out: {report.n_held_out}",
-        f"max |Δ|: {report.max_abs_error:.4g}  RMSE: {report.rmse:.4g}",
-    ])
+    return "\n".join(
+        [
+            f"fp32: {report.fp32_path.name}  ({report.fp32_bytes / 1024:.1f} KiB)",
+            f"int8: {report.int8_path.name}  ({report.int8_bytes / 1024:.1f} KiB)",
+            f"compression: {report.compression_ratio:.2f}x",
+            f"calibration samples: {report.n_calibration}  held-out: {report.n_held_out}",
+            f"max |Δ|: {report.max_abs_error:.4g}  RMSE: {report.rmse:.4g}",
+        ]
+    )

@@ -9,6 +9,7 @@
  *  with a larger output tensor.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,6 +47,8 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
 {
     if (!out || !onnx_path)
         return -EINVAL;
+    assert(out != NULL);
+    assert(onnx_path != NULL);
 
     VmafOrtSession *sess = (VmafOrtSession *)calloc(1, sizeof(*sess));
     if (!sess)

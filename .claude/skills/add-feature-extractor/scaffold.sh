@@ -5,8 +5,8 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-    echo "usage: $0 <name>" >&2
-    exit 2
+  echo "usage: $0 <name>" >&2
+  exit 2
 fi
 
 name="$1"
@@ -18,16 +18,16 @@ tpl="$repo_root/.claude/skills/add-feature-extractor/templates"
 dst="$repo_root/libvmaf/src/feature"
 
 for suffix in h c; do
-    out="$dst/${name}.${suffix}"
-    if [[ -e "$out" ]]; then
-        echo "refuse: $out already exists" >&2
-        exit 1
-    fi
-    sed -e "s/{{NAME}}/$name/g" \
-        -e "s/{{NAME_UPPER}}/$name_upper/g" \
-        -e "s/{{NAME_PASCAL}}/$name_pascal/g" \
-        "$tpl/feature.${suffix}.template" > "$out"
-    echo "wrote $out"
+  out="$dst/${name}.${suffix}"
+  if [[ -e "$out" ]]; then
+    echo "refuse: $out already exists" >&2
+    exit 1
+  fi
+  sed -e "s/{{NAME}}/$name/g" \
+    -e "s/{{NAME_UPPER}}/$name_upper/g" \
+    -e "s/{{NAME_PASCAL}}/$name_pascal/g" \
+    "$tpl/feature.${suffix}.template" >"$out"
+  echo "wrote $out"
 done
 
 echo "next: register $name in libvmaf/src/feature/feature_extractor.c and add a model-json entry."

@@ -44,12 +44,8 @@ class BisectResult:
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        d["first_bad_model"] = (
-            str(self.first_bad_model) if self.first_bad_model else None
-        )
-        d["last_good_model"] = (
-            str(self.last_good_model) if self.last_good_model else None
-        )
+        d["first_bad_model"] = str(self.first_bad_model) if self.first_bad_model else None
+        d["last_good_model"] = str(self.last_good_model) if self.last_good_model else None
         for s in d["steps"]:
             s["model"] = str(s["model"])
         return d
@@ -106,9 +102,7 @@ def bisect_model_quality(
         raise ValueError("bisect_model_quality needs at least 2 models")
 
     kind, threshold = _resolve_threshold(min_plcc, min_srocc, max_rmse)
-    result = BisectResult(
-        threshold_kind=kind, threshold_value=threshold, n_models=len(models)
-    )
+    result = BisectResult(threshold_kind=kind, threshold_value=threshold, n_models=len(models))
     cache: dict[int, BisectStep] = {}
 
     def check(idx: int) -> BisectStep:
@@ -117,7 +111,9 @@ def bisect_model_quality(
         model = models[idx]
         report = evaluate_onnx(model, features, targets, input_name=input_name)
         step = BisectStep(
-            index=idx, model=model, report=report,
+            index=idx,
+            model=model,
+            report=report,
             passed=_gate(kind, threshold, report),
         )
         cache[idx] = step
@@ -151,8 +147,7 @@ def bisect_model_quality(
     result.last_good_index = lo
     result.last_good_model = models[lo]
     result.verdict = (
-        f"first bad: index {hi} ({models[hi].name}) — "
-        f"last good: index {lo} ({models[lo].name})"
+        f"first bad: index {hi} ({models[hi].name}) — " f"last good: index {lo} ({models[lo].name})"
     )
     # Keep the step log in visit order for auditability.
     result.steps.sort(key=lambda s: s.index)

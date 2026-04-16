@@ -67,9 +67,7 @@ def test_bisect_localises_first_bad(tmp_path: Path) -> None:
     pytest.importorskip("onnxruntime")
     paths = _make_timeline(tmp_path, n=9, bad_from=5)
     feats, targets = _data()
-    result = bisect_model_quality(
-        paths, feats, targets, min_plcc=0.9, input_name="input"
-    )
+    result = bisect_model_quality(paths, feats, targets, min_plcc=0.9, input_name="input")
     assert result.first_bad_index == 5
     assert result.last_good_index == 4
     # log2(9) ≈ 3.17; plus the 2 boundary probes → ≤ 6 total visits.
@@ -109,8 +107,11 @@ def test_requires_exactly_one_threshold() -> None:
         bisect_model_quality([Path("a"), Path("b")], np.zeros((2, 6)), np.zeros(2))
     with pytest.raises(ValueError, match="exactly one"):
         bisect_model_quality(
-            [Path("a"), Path("b")], np.zeros((2, 6)), np.zeros(2),
-            min_plcc=0.9, max_rmse=1.0,
+            [Path("a"), Path("b")],
+            np.zeros((2, 6)),
+            np.zeros(2),
+            min_plcc=0.9,
+            max_rmse=1.0,
         )
 
 

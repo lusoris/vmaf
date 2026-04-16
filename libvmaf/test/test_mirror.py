@@ -4,8 +4,10 @@ def old_mirror(idx, sup):
     return v if v < sup else sup - (v - sup + 1)
 
 def new_mirror(idx, sup):
-    if idx < 0: return -idx
-    if idx >= sup: return 2 * (sup - 1) - idx
+    if idx < 0:
+        return -idx
+    if idx >= sup:
+        return 2 * (sup - 1) - idx
     return idx
 
 for sup in [5, 324, 576]:

@@ -39,9 +39,7 @@ def sigma_from_logvar(logvar: float) -> float:
     return math.exp(0.5 * logvar)
 
 
-def confidence_interval(
-    score: float, logvar: float, z: float = 1.96
-) -> tuple[float, float]:
+def confidence_interval(score: float, logvar: float, z: float = 1.96) -> tuple[float, float]:
     """Return (low, high) bounds at @p z standard deviations.
 
     z=1.96 → 95% CI under the Gaussian assumption. Clamp score to the

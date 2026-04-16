@@ -14,9 +14,7 @@ def _tiny_mlp(path: Path, in_features: int = 6) -> None:
     # Dynamic batch dim so custom-shape profiling works.
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, ["N", in_features])
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, ["N", 1])
-    w = helper.make_tensor(
-        "W", TensorProto.FLOAT, [in_features, 1], [0.1] * in_features
-    )
+    w = helper.make_tensor("W", TensorProto.FLOAT, [in_features, 1], [0.1] * in_features)
     b = helper.make_tensor("B", TensorProto.FLOAT, [1], [0.0])
     node = helper.make_node("Gemm", ["x", "W", "B"], ["y"])
     graph = helper.make_graph([node], "mlp", [x], [y], [w, b])

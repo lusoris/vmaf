@@ -79,8 +79,7 @@ def _infer_or_given_shape(model_path: Path, explicit: tuple[int, ...] | None) ->
     if not model.graph.input:
         raise ValueError(f"{model_path} has no inputs")
     return tuple(
-        d.dim_value if d.dim_value else 4
-        for d in model.graph.input[0].type.tensor_type.shape.dim
+        d.dim_value if d.dim_value else 4 for d in model.graph.input[0].type.tensor_type.shape.dim
     )
 
 
@@ -146,7 +145,9 @@ def render_table(report: CrossBackendReport) -> str:
         lines.append("(no alternate providers available — CPU-only install)")
     for c in report.comparisons:
         status = "OK" if c.max_abs_error <= report.atol else "FAIL"
-        lines.append(f"{c.provider:<32} {c.max_abs_error:>12.3g} {c.mean_abs_error:>12.3g} {status}")
+        lines.append(
+            f"{c.provider:<32} {c.max_abs_error:>12.3g} {c.mean_abs_error:>12.3g} {status}"
+        )
     if report.missing:
         lines.append("")
         lines.append(f"requested but unavailable: {', '.join(report.missing)}")

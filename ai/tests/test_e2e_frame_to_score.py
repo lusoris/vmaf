@@ -51,7 +51,9 @@ def _make_linear_fr_onnx(path: Path, n_features: int) -> None:
     x = helper.make_tensor_value_info("features", TensorProto.FLOAT, ["N", n_features])
     y = helper.make_tensor_value_info("score", TensorProto.FLOAT, ["N"])
     w = helper.make_tensor(
-        "W", TensorProto.FLOAT, [n_features, 1],
+        "W",
+        TensorProto.FLOAT,
+        [n_features, 1],
         np.full((n_features, 1), 1.0 / n_features, dtype=np.float32).flatten().tolist(),
     )
     b = helper.make_tensor("b", TensorProto.FLOAT, [1], [0.0])
@@ -62,7 +64,11 @@ def _make_linear_fr_onnx(path: Path, n_features: int) -> None:
     axes = helper.make_tensor("axes", TensorProto.INT64, [1], [1])
     squeeze = helper.make_node("Squeeze", ["wide", "axes"], ["score"])
     graph = helper.make_graph(
-        [matmul, add, squeeze], "fr_linear", [x], [y], [w, b, axes],
+        [matmul, add, squeeze],
+        "fr_linear",
+        [x],
+        [y],
+        [w, b, axes],
     )
     onnx.save(
         helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]),

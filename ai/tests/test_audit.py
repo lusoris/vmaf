@@ -89,7 +89,10 @@ def test_normalization_length_drift(tmp_path: Path) -> None:
     _make_fr(p, EXPECTED_FR_FEATURE_COUNT)
     _write_sidecar(
         p,
-        normalization={"mean": [0.0] * (EXPECTED_FR_FEATURE_COUNT - 1), "std": [1.0] * (EXPECTED_FR_FEATURE_COUNT - 1)},
+        normalization={
+            "mean": [0.0] * (EXPECTED_FR_FEATURE_COUNT - 1),
+            "std": [1.0] * (EXPECTED_FR_FEATURE_COUNT - 1),
+        },
     )
     a = audit_model(p)
     assert not a.ok

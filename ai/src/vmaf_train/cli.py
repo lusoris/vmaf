@@ -294,8 +294,10 @@ def check_ops_cmd(
 def audit_learned_filter_cmd(
     model: Path = typer.Option(..., exists=True, help="Learned-filter ONNX model"),
     frames: Path = typer.Option(
-        ..., exists=True, dir_okay=False,
-        help="NumPy .npy file of shape (N, H, W) with values in [0, peak]"
+        ...,
+        exists=True,
+        dir_okay=False,
+        help="NumPy .npy file of shape (N, H, W) with values in [0, peak]",
     ),
     peak: float = typer.Option(1.0, help="Max pixel value (1.0 for normalized luma)"),
     input_name: str = typer.Option("input"),
@@ -386,9 +388,7 @@ def quantize_int8_cmd(
         json_out.write_text(_json.dumps(report.to_dict(), indent=2))
         console.print(f"[green]Wrote {json_out}[/green]")
     if report.rmse > rmse_gate:
-        console.print(
-            f"[red]INT8 drift RMSE {report.rmse:.3g} exceeds gate {rmse_gate:g}[/red]"
-        )
+        console.print(f"[red]INT8 drift RMSE {report.rmse:.3g} exceeds gate {rmse_gate:g}[/red]")
         raise typer.Exit(code=2)
 
 
@@ -498,7 +498,11 @@ def bisect_model_quality_cmd(
     if json_out:
         json_out.write_text(_json.dumps(result.to_dict(), indent=2))
         console.print(f"[green]Wrote {json_out}[/green]")
-    if fail_on_first_bad and result.first_bad_index is not None and result.last_good_index is not None:
+    if (
+        fail_on_first_bad
+        and result.first_bad_index is not None
+        and result.last_good_index is not None
+    ):
         raise typer.Exit(code=2)
 
 

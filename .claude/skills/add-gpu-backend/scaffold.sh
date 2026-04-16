@@ -8,8 +8,8 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-    echo "usage: $0 <backend>" >&2
-    exit 2
+  echo "usage: $0 <backend>" >&2
+  exit 2
 fi
 
 backend="$1"
@@ -22,26 +22,26 @@ tpl="$repo_root/.claude/skills/add-gpu-backend/templates"
 src="$repo_root/libvmaf/src"
 
 subst() {
-    sed -e "s/{{BACKEND}}/$backend/g" \
-        -e "s/{{BACKEND_UPPER}}/$backend_upper/g" \
-        -e "s/{{BACKEND_PASCAL}}/$backend_pascal/g" \
-        "$@"
+  sed -e "s/{{BACKEND}}/$backend/g" \
+    -e "s/{{BACKEND_UPPER}}/$backend_upper/g" \
+    -e "s/{{BACKEND_PASCAL}}/$backend_pascal/g" \
+    "$@"
 }
 
 mkdir -p "$src/$backend" "$src/feature/$backend"
 
-subst "$tpl/common.h.template"           > "$src/$backend/common.h"
-subst "$tpl/common.c.template"           > "$src/$backend/common.c"
-subst "$tpl/meson.build.template"        > "$src/$backend/meson.build"
+subst "$tpl/common.h.template" >"$src/$backend/common.h"
+subst "$tpl/common.c.template" >"$src/$backend/common.c"
+subst "$tpl/meson.build.template" >"$src/$backend/meson.build"
 
 for feat in adm vif motion; do
-    FEATURE="$feat" \
+  FEATURE="$feat" \
     sed -e "s/{{BACKEND}}/$backend/g" \
-        -e "s/{{BACKEND_UPPER}}/$backend_upper/g" \
-        -e "s/{{BACKEND_PASCAL}}/$backend_pascal/g" \
-        -e "s/{{FEATURE}}/$feat/g" \
-        "$tpl/feature_stub.c.template" \
-        > "$src/feature/$backend/${feat}_${backend}.c"
+    -e "s/{{BACKEND_UPPER}}/$backend_upper/g" \
+    -e "s/{{BACKEND_PASCAL}}/$backend_pascal/g" \
+    -e "s/{{FEATURE}}/$feat/g" \
+    "$tpl/feature_stub.c.template" \
+    >"$src/feature/$backend/${feat}_${backend}.c"
 done
 
 echo "scaffolded $backend backend under libvmaf/src/$backend/ + libvmaf/src/feature/$backend/"

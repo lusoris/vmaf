@@ -24,8 +24,8 @@ from pathlib import Path
 import numpy as np
 
 DEFAULT_SSIM_MIN = 0.6
-DEFAULT_MEAN_SHIFT_MAX = 0.05   # |Δmean| > 5% of the peak is suspicious
-DEFAULT_STD_RATIO_MAX = 2.0     # filter must not amplify noise > 2×
+DEFAULT_MEAN_SHIFT_MAX = 0.05  # |Δmean| > 5% of the peak is suspicious
+DEFAULT_STD_RATIO_MAX = 2.0  # filter must not amplify noise > 2×
 DEFAULT_CLIP_FRACTION_MAX = 0.01  # >1% of output pixels at the peak
 
 
@@ -33,12 +33,12 @@ DEFAULT_CLIP_FRACTION_MAX = 0.01  # >1% of output pixels at the peak
 class FrameStats:
     mean_input: float
     mean_output: float
-    mean_shift: float       # output - input
+    mean_shift: float  # output - input
     std_input: float
     std_output: float
-    std_ratio: float        # std_output / std_input
+    std_ratio: float  # std_output / std_input
     ssim: float
-    clip_fraction: float    # fraction of output pixels at min or max
+    clip_fraction: float  # fraction of output pixels at min or max
     max_abs_delta: float
 
 
@@ -66,9 +66,7 @@ class LearnedFilterAuditReport:
         return d
 
 
-def _ssim(
-    a: np.ndarray, b: np.ndarray, peak: float, k1: float = 0.01, k2: float = 0.03
-) -> float:
+def _ssim(a: np.ndarray, b: np.ndarray, peak: float, k1: float = 0.01, k2: float = 0.03) -> float:
     """Single-channel SSIM over the full image (mean + variance only)."""
     mu_a = a.mean()
     mu_b = b.mean()

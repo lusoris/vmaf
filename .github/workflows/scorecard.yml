@@ -1,0 +1,47 @@
+# OpenSSF Scorecard — weekly supply-chain health scan.
+#
+# Publishes results to the OpenSSF public dashboard (Sigstore-signed attestation)
+# and uploads SARIF into the GitHub Security tab so maintainers can see delta
+# regressions on pinning, branch-protection, and dependency-review postures.
+#
+# Badge: README "OpenSSF Scorecard" links here.
+
+name: scorecard
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: "19 4 * * 1"
+  push:
+    branches: [master]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write     # upload SARIF to the Security tab
+      id-token: write             # Sigstore attestation for the public dashboard
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a  # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - name: Upload artifact (debug / replay)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: scorecard-sarif
+          path: results.sarif
+          retention-days: 14
+      - name: Upload to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.28.11
+        with:
+          sarif_file: results.sarif

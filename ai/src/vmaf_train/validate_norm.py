@@ -75,8 +75,7 @@ def _load_features(path: Path, columns: list[str]) -> tuple[np.ndarray, list[str
     cols = [c for c in columns if c in df.columns]
     if not cols:
         raise ValueError(
-            f"{path} has none of the expected feature columns; "
-            f"available: {list(df.columns)}"
+            f"{path} has none of the expected feature columns; " f"available: {list(df.columns)}"
         )
     return df[cols].to_numpy(dtype=np.float64), cols
 
@@ -94,9 +93,7 @@ def validate_norm(
 
     if not mean or not std:
         report = NormReport(sidecar=sidecar_path, n_samples=0)
-        report.warnings.append(
-            "sidecar has no normalization block — cannot validate drift"
-        )
+        report.warnings.append("sidecar has no normalization block — cannot validate drift")
         return report
 
     mean_arr = np.asarray(mean, dtype=np.float64)
@@ -117,9 +114,7 @@ def validate_norm(
         obs_mean = float(col.mean())
         obs_std = float(col.std(ddof=0))
         shift = abs(obs_mean - declared_mean) / max(declared_std, 1e-9)
-        outliers = float(
-            np.mean(np.abs(col - declared_mean) > OUTLIER_SIGMA * declared_std)
-        )
+        outliers = float(np.mean(np.abs(col - declared_mean) > OUTLIER_SIGMA * declared_std))
         drift = FeatureDrift(
             name=name,
             declared_mean=declared_mean,
@@ -131,9 +126,7 @@ def validate_norm(
         )
         report.drifts.append(drift)
         if shift > 1.0:
-            report.warnings.append(
-                f"{name}: declared mean drift {shift:.2f}σ from observed data"
-            )
+            report.warnings.append(f"{name}: declared mean drift {shift:.2f}σ from observed data")
         if outliers > OUTLIER_FRACTION_WARN:
             report.warnings.append(
                 f"{name}: {outliers * 100:.1f}% of samples >3σ from declared mean "

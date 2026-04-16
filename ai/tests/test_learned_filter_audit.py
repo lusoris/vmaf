@@ -29,8 +29,7 @@ def _make_filter_identity(path: Path) -> None:
     y = helper.make_tensor_value_info("output", TensorProto.FLOAT, ["N", 1, "H", "W"])
     node = helper.make_node("Identity", ["input"], ["output"])
     graph = helper.make_graph([node], "ident", [x], [y])
-    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]),
-              str(path))
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), str(path))
 
 
 def _make_filter_affine(path: Path, alpha: float, beta: float) -> None:
@@ -42,15 +41,12 @@ def _make_filter_affine(path: Path, alpha: float, beta: float) -> None:
     mul = helper.make_node("Mul", ["input", "Alpha"], ["scaled"])
     add = helper.make_node("Add", ["scaled", "Beta"], ["output"])
     graph = helper.make_graph([mul, add], "affine", [x], [y], [scale, bias])
-    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]),
-              str(path))
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), str(path))
 
 
 def _random_frames(n: int = 4, h: int = 32, w: int = 32) -> list[np.ndarray]:
     rng = np.random.default_rng(0)
-    return [
-        rng.uniform(0.2, 0.8, size=(h, w)).astype(np.float32) for _ in range(n)
-    ]
+    return [rng.uniform(0.2, 0.8, size=(h, w)).astype(np.float32) for _ in range(n)]
 
 
 def test_identity_filter_passes(tmp_path: Path) -> None:
