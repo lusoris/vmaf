@@ -114,7 +114,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install ruff black isort mypy
+        run: pip install ruff 'black==26.3.1' isort mypy
       - run: ruff check python/ ai/ scripts/
       - run: black --check python/ ai/ scripts/
       - run: isort --check-only python/ ai/ scripts/

@@ -38,7 +38,7 @@ repos:
         exclude: '^subprojects/|^libvmaf/test/data/'
 
   - repo: https://github.com/psf/black
-    rev: 24.8.0
+    rev: 26.3.1
     hooks:
       - id: black
         files: '^(python|ai|scripts)/.*\.py$'
