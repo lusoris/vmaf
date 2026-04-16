@@ -29,6 +29,8 @@
  * __libc_single_threaded.  The weak attribute lets the real glibc symbol
  * take precedence when available. */
 #ifdef __linux__
+/* The name is dictated by glibc's ABI and must match exactly. */
+/* NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,misc-use-internal-linkage) */
 __attribute__((weak)) char __libc_single_threaded = 1;
 #endif
 
@@ -37,6 +39,8 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #include "libvmaf/picture.h"
 
 #include "cpu.h"
+#include "dnn/dnn_ctx.h"
+#include "dnn/tensor_io.h"
 #include "feature/feature_extractor.h"
 #include "feature/feature_collector.h"
 #include "metadata_handler.h"
@@ -108,6 +112,16 @@ typedef struct VmafContext {
     unsigned pic_cnt;
     bool flushed;
     VmafPicture prev_ref; // previous ref pic for PREV_REF extractors (in-order only)
+    struct {
+        VmafOrtSession *sess;
+        VmafModelSidecar meta;
+        bool  has_sidecar;
+        int   expected_w;
+        int   expected_h;
+        float *in_buf;          /* size: expected_w * expected_h floats */
+        size_t in_elements;
+        char  *feature_name;    /* owned; published via feature_collector */
+    } dnn;
 } VmafContext;
 
 #ifdef VMAF_BATCH_THREADING
@@ -437,6 +451,117 @@ static int set_fex_framesync(VmafFeatureExtractorContext *fex_ctx,
     return 0;
 }
 
+static void vmaf_ctx_dnn_free(VmafContext *vmaf)
+{
+    if (!vmaf) return;
+    if (vmaf->dnn.sess) {
+        vmaf_ort_close(vmaf->dnn.sess);
+        vmaf->dnn.sess = NULL;
+    }
+    if (vmaf->dnn.has_sidecar) {
+        vmaf_dnn_sidecar_free(&vmaf->dnn.meta);
+        vmaf->dnn.has_sidecar = false;
+    }
+    free(vmaf->dnn.in_buf);
+    vmaf->dnn.in_buf = NULL;
+    vmaf->dnn.in_elements = 0;
+    free(vmaf->dnn.feature_name);
+    vmaf->dnn.feature_name = NULL;
+}
+
+int vmaf_ctx_dnn_has_session(const VmafContext *ctx)
+{
+    return (ctx && ctx->dnn.sess) ? 1 : 0;
+}
+
+int vmaf_ctx_dnn_attach(VmafContext *ctx,
+                        VmafOrtSession *sess,
+                        const VmafModelSidecar *meta,
+                        const int64_t *in_shape, size_t in_rank,
+                        const char *feature_name)
+{
+    if (!ctx || !sess || !in_shape || !feature_name) return -EINVAL;
+    if (ctx->dnn.sess) return -EBUSY;
+
+    /* Only NCHW [1, 1, H, W] is supported for the current wiring. Anything
+     * else is a hard -ENOTSUP so users see the limit rather than silent
+     * mis-inference. */
+    if (in_rank != 4) return -ENOTSUP;
+    if (in_shape[0] != 1 || in_shape[1] != 1) return -ENOTSUP;
+    const int64_t h = in_shape[2];
+    const int64_t w = in_shape[3];
+    if (h <= 0 || w <= 0) return -ENOTSUP;   /* dynamic dims unsupported */
+
+    const size_t n = (size_t) w * (size_t) h;
+    float *buf = (float *) calloc(n, sizeof(*buf));
+    if (!buf) return -ENOMEM;
+
+    char *name = strdup(feature_name);
+    if (!name) { free(buf); return -ENOMEM; }
+
+    ctx->dnn.sess         = sess;
+    if (meta) {
+        ctx->dnn.meta        = *meta;
+        ctx->dnn.has_sidecar = true;
+    }
+    ctx->dnn.expected_w   = (int) w;
+    ctx->dnn.expected_h   = (int) h;
+    ctx->dnn.in_buf       = buf;
+    ctx->dnn.in_elements  = n;
+    ctx->dnn.feature_name = name;
+    return 0;
+}
+
+static int vmaf_ctx_dnn_run_frame(VmafContext *vmaf, VmafPicture *ref,
+                                  unsigned index)
+{
+    if (!vmaf->dnn.sess) return 0;
+    if (!ref || !ref->data[0]) return -EINVAL;
+
+    /* The current tensor bridge operates on 8-bit luma only. 10/12-bit
+     * content and multi-channel inputs are rejected loudly rather than
+     * quietly truncated. */
+    if (ref->bpc != 8) return -ENOTSUP;
+    if ((int) ref->w[0] != vmaf->dnn.expected_w ||
+        (int) ref->h[0] != vmaf->dnn.expected_h) {
+        return -ERANGE;
+    }
+
+    const float *mean = NULL;
+    const float *std  = NULL;
+    float m = 0.f;
+    float s = 1.f;
+    if (vmaf->dnn.has_sidecar && vmaf->dnn.meta.has_norm) {
+        m = vmaf->dnn.meta.norm_mean;
+        s = vmaf->dnn.meta.norm_std;
+        if (s > 0.f) { mean = &m; std = &s; }
+    }
+
+    int rc = vmaf_tensor_from_luma((const uint8_t *) ref->data[0],
+                                   (size_t) ref->stride[0],
+                                   vmaf->dnn.expected_w, vmaf->dnn.expected_h,
+                                   VMAF_TENSOR_LAYOUT_NCHW,
+                                   VMAF_TENSOR_DTYPE_F32,
+                                   mean, std,
+                                   vmaf->dnn.in_buf);
+    if (rc < 0) return rc;
+
+    const int64_t shape[4] = {
+        1, 1, vmaf->dnn.expected_h, vmaf->dnn.expected_w
+    };
+    float out = 0.f;
+    size_t out_n = 0;
+    rc = vmaf_ort_infer(vmaf->dnn.sess,
+                        vmaf->dnn.in_buf, shape, 4,
+                        &out, 1u, &out_n);
+    if (rc < 0) return rc;
+    if (out_n != 1u) return -ENOTSUP;  /* multi-value outputs unsupported */
+
+    return vmaf_feature_collector_append(vmaf->feature_collector,
+                                         vmaf->dnn.feature_name,
+                                         (double) out, index);
+}
+
 int vmaf_close(VmafContext *vmaf)
 {
     if (!vmaf) return -EINVAL;
@@ -449,6 +574,7 @@ int vmaf_close(VmafContext *vmaf)
     vmaf_feature_collector_destroy(vmaf->feature_collector);
     vmaf_thread_pool_destroy(vmaf->thread_pool);
     vmaf_fex_ctx_pool_destroy(vmaf->fex_ctx_pool);
+    vmaf_ctx_dnn_free(vmaf);
 #ifdef VMAF_PICTURE_POOL
     if (vmaf->picture_pool)
         vmaf_picture_pool_close(vmaf->picture_pool);
@@ -702,6 +828,7 @@ unref:
 }
 #endif // VMAF_BATCH_THREADING
 
+/* NOLINTNEXTLINE(readability-function-size) */
 static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref,
                                   VmafPicture *dist, unsigned index)
 {
@@ -733,7 +860,9 @@ static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref,
                                        &fex_ctx);
         if (err) return err;
 
-        VmafPicture pic_a, pic_b, prev_ref = { 0 };
+        VmafPicture pic_a;
+        VmafPicture pic_b;
+        VmafPicture prev_ref = { 0 };
         vmaf_picture_ref(&pic_a, ref);
         vmaf_picture_ref(&pic_b, dist);
 
@@ -883,18 +1012,20 @@ static int flush_context_threaded(VmafContext *vmaf)
     return err;
 }
 
+/* NOLINTNEXTLINE(readability-function-size) */
 static int flush_context(VmafContext *vmaf)
 {
     int err = 0;
-    if (vmaf->thread_pool)
+    if (vmaf->thread_pool) {
         err = flush_context_threaded(vmaf);
-    else {
+    } else {
         RegisteredFeatureExtractors rfe = vmaf->registered_feature_extractors;
         for (unsigned i = 0; i < rfe.cnt; i++) {
             if (!(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) &&
-                !(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL))
+                !(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)) {
                 err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i],
                                                             vmaf->feature_collector);
+            }
         }
     }
 
@@ -1067,6 +1198,8 @@ static unsigned rfe_hw_flags(RegisteredFeatureExtractors *rfe)
 
 #endif
 
+/* Upstream dispatch function. Refactoring is tracked in .workingdir2/OPEN.md. */
+/* NOLINTNEXTLINE(readability-function-size) */
 int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
                        unsigned index)
 {
@@ -1204,6 +1337,14 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
         ref = &ref_host;
         dist = &dist_host;
 #endif
+
+    /* Per-frame tiny-model inference, if one is attached. Runs on the main
+     * thread after extractor dispatch; publishes to the feature collector
+     * under the sidecar-derived feature name. */
+    if (vmaf->dnn.sess) {
+        err = vmaf_ctx_dnn_run_frame(vmaf, ref, index);
+        if (err) return err;
+    }
 
     //multithreading for GPU does not yield performance benefits
     //disabled for now
@@ -1410,7 +1551,10 @@ int vmaf_feature_score_pooled(VmafContext *vmaf, const char *feature_name,
     if (!pool_method) return -EINVAL;
 
     unsigned pic_cnt = 0;
-    double min = 0., max = 0., sum = 0., i_sum = 0.;
+    double min = 0.;
+    double max = 0.;
+    double sum = 0.;
+    double i_sum = 0.;
     for (unsigned i = index_low; i <= index_high; i++) {
         if ((vmaf->cfg.n_subsample > 1) && (i % vmaf->cfg.n_subsample))
             continue;
@@ -1501,22 +1645,22 @@ int vmaf_score_pooled_model_collection(VmafContext *vmaf,
     char name[name_sz];
     memset(name, 0, name_sz);
 
-    snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
+    (void) snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method,
                                      &score->bootstrap.bagging_score,
                                      index_low, index_high);
 
-    snprintf(name, name_sz, "%s%s", model_collection->name, suffix_stddev);
+    (void) snprintf(name, name_sz, "%s%s", model_collection->name, suffix_stddev);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method,
                                      &score->bootstrap.stddev,
                                      index_low, index_high);
 
-    snprintf(name, name_sz, "%s%s", model_collection->name, suffix_lo);
+    (void) snprintf(name, name_sz, "%s%s", model_collection->name, suffix_lo);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method,
                                      &score->bootstrap.ci.p95.lo,
                                      index_low, index_high);
 
-    snprintf(name, name_sz, "%s%s", model_collection->name, suffix_hi);
+    (void) snprintf(name, name_sz, "%s%s", model_collection->name, suffix_hi);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method,
                                      &score->bootstrap.ci.p95.hi,
                                      index_low, index_high);
@@ -1535,7 +1679,7 @@ int vmaf_write_output_with_format(VmafContext *vmaf, const char *output_path,
 {
     FILE *outfile = fopen(output_path, "w");
     if (!outfile) {
-        fprintf(stderr, "could not open file: %s\n", output_path);
+        (void) fprintf(stderr, "could not open file: %s\n", output_path);
         return -EINVAL;
     }
 
@@ -1569,7 +1713,7 @@ int vmaf_write_output_with_format(VmafContext *vmaf, const char *output_path,
         break;
     }
 
-    fclose(outfile);
+    if (fclose(outfile) != 0 && ret == 0) ret = -EIO;
     return ret;
 }
 

@@ -157,6 +157,45 @@ int vmaf_ort_infer(VmafOrtSession *sess,
     return 0;
 }
 
+int vmaf_ort_input_shape(VmafOrtSession *sess,
+                         int64_t *out_shape, size_t max_rank,
+                         size_t *out_rank)
+{
+    if (!sess || !out_shape || !out_rank || max_rank == 0) return -EINVAL;
+
+    OrtTypeInfo *type_info = NULL;
+    OrtStatus *st = sess->api->SessionGetInputTypeInfo(sess->session, 0,
+                                                       &type_info);
+    if (st) { sess->api->ReleaseStatus(st); return -EIO; }
+
+    const OrtTensorTypeAndShapeInfo *tinfo = NULL;
+    st = sess->api->CastTypeInfoToTensorInfo(type_info, &tinfo);
+    if (st) {
+        sess->api->ReleaseStatus(st);
+        sess->api->ReleaseTypeInfo(type_info);
+        return -EIO;
+    }
+
+    size_t rank = 0;
+    st = sess->api->GetDimensionsCount(tinfo, &rank);
+    if (st) {
+        sess->api->ReleaseStatus(st);
+        sess->api->ReleaseTypeInfo(type_info);
+        return -EIO;
+    }
+    if (rank == 0 || rank > max_rank) {
+        sess->api->ReleaseTypeInfo(type_info);
+        return -ERANGE;
+    }
+
+    st = sess->api->GetDimensions(tinfo, out_shape, rank);
+    sess->api->ReleaseTypeInfo(type_info);
+    if (st) { sess->api->ReleaseStatus(st); return -EIO; }
+
+    *out_rank = rank;
+    return 0;
+}
+
 void vmaf_ort_close(VmafOrtSession *sess)
 {
     if (!sess) return;
@@ -185,6 +224,8 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path,
     return -ENOSYS;
 }
 
+/* NOLINTBEGIN(readability-non-const-parameter)
+ * Stub signatures must match the real-ORT path declared in the header. */
 int vmaf_ort_infer(VmafOrtSession *sess,
                    const float *input, const int64_t *input_shape,
                    size_t input_rank,
@@ -195,6 +236,15 @@ int vmaf_ort_infer(VmafOrtSession *sess,
     (void) output; (void) output_capacity; (void) output_written;
     return -ENOSYS;
 }
+
+int vmaf_ort_input_shape(VmafOrtSession *sess,
+                         int64_t *out_shape, size_t max_rank,
+                         size_t *out_rank)
+{
+    (void) sess; (void) out_shape; (void) max_rank; (void) out_rank;
+    return -ENOSYS;
+}
+/* NOLINTEND(readability-non-const-parameter) */
 
 void vmaf_ort_close(VmafOrtSession *sess)
 {
