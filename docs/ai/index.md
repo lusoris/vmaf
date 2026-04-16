@@ -1,0 +1,9 @@
+# Tiny AI
+
+The Tiny AI surface ships small ONNX perceptual-quality models alongside classic VMAF SVM models.
+
+- [Overview](overview.md) — architecture, capabilities, model lifecycle
+- [Training](training.md) — train custom models with `vmaf-train`
+- [Inference](inference.md) — run models via the C API or CLI
+- [Benchmarks](benchmarks.md) — latency and accuracy numbers
+- [Security](security.md) — op allowlists, model validation, supply chain
