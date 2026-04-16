@@ -15,18 +15,19 @@ repos:
       # text-transforming hooks would silently corrupt. Limit to the files
       # we actually author/maintain.
       - id: trailing-whitespace
-        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
+        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|^resource/|^libvmaf/src/feature/iqa/|^libvmaf/include/|^libvmaf/tools/vidinput\.h|^libvmaf/src/feature/integer_vif\.h|^docs/|^python/DEVELOP\.md|^CHANGELOG\.md|^libvmaf/README\.md|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy|json)$'
       - id: end-of-file-fixer
-        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
+        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|^resource/|^testdata/|^docs/|^libvmaf/src/feature/(luminance_tools|psnr_tools)\.[ch]|^libvmaf/src/feature/x86/cambi_avx2\.c|^libvmaf/test/test_(psnr|luminance_tools|cambi)\.c|^python/(requirements\.txt|vmaf/model/)|^CHANGELOG\.md|^OSSMETADATA|^LICENSE|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
       - id: check-merge-conflict
       - id: check-yaml
+        exclude: '^\.clang-format$'
       - id: check-json
       - id: check-toml
       - id: check-added-large-files
         args: ["--maxkb=1024"]
       - id: mixed-line-ending
         args: ["--fix=lf"]
-        exclude: '^libvmaf/test/data/'
+        exclude: '^libvmaf/test/data/|^matlab/'
       - id: detect-private-key
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
@@ -41,12 +42,14 @@ repos:
     hooks:
       - id: black
         files: '^(python|ai|scripts)/.*\.py$'
+        exclude: '^python/test/resource/|^python/test/result_test\.py|^python/vmaf/config\.py|^resource/'
 
   - repo: https://github.com/PyCQA/isort
     rev: 5.13.2
     hooks:
       - id: isort
         files: '^(python|ai|scripts)/.*\.py$'
+        exclude: '^python/test/resource/|^resource/'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.10

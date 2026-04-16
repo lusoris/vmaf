@@ -6,11 +6,7 @@ import math
 
 import pytest
 
-from vmaf_train.confidence import (
-    MIN_LOGVAR,
-    confidence_interval,
-    sigma_from_logvar,
-)
+from vmaf_train.confidence import MIN_LOGVAR, confidence_interval, sigma_from_logvar
 
 
 def test_sigma_from_logvar_round_trip() -> None:
