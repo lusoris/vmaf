@@ -8,8 +8,8 @@ file="${CLAUDE_TOOL_INPUT_file_path:-}"
 [[ -z "$file" ]] && exit 0
 
 case "$(basename "$file")" in
-    meson.build|meson_options.txt) ;;
-    *) exit 0 ;;
+  meson.build | meson_options.txt) ;;
+  *) exit 0 ;;
 esac
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -20,7 +20,7 @@ link="$repo_root/compile_commands.json"
 [[ ! -f "$cc_json" ]] && exit 0
 
 if [[ -L "$link" && "$(readlink "$link")" == "$cc_json" ]]; then
-    exit 0
+  exit 0
 fi
 
 ln -sfn "$cc_json" "$link"

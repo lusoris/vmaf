@@ -24,65 +24,72 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES_DIR="$(cd "$HERE/.." && pwd)"
 
 : "${FFMPEG_SRC:=/tmp/vmaf-ffmpeg}"
-: "${FFMPEG_SHA:=n8.1}"        # pinned release tag; update as patches evolve
+: "${FFMPEG_SHA:=n8.1}" # pinned release tag; update as patches evolve
 : "${KEEP_BUILD:=}"
 : "${VMAF_PREFIX:=}"
 
 if [[ -n "$VMAF_PREFIX" ]]; then
-    export PKG_CONFIG_PATH="$VMAF_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-    export LD_LIBRARY_PATH="$VMAF_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+  export PKG_CONFIG_PATH="$VMAF_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+  export LD_LIBRARY_PATH="$VMAF_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 fi
 
 if ! command -v git >/dev/null; then
-    echo "git not found on PATH" >&2; exit 77
+  echo "git not found on PATH" >&2
+  exit 77
 fi
 if ! pkg-config --exists libvmaf; then
-    echo "libvmaf not found via pkg-config — install libvmaf first or set VMAF_PREFIX" >&2
-    exit 77
+  echo "libvmaf not found via pkg-config — install libvmaf first or set VMAF_PREFIX" >&2
+  exit 77
 fi
 
 if [[ ! -d "$FFMPEG_SRC/.git" ]]; then
-    echo "Cloning FFmpeg into $FFMPEG_SRC …"
-    git clone --depth 1 --branch "$FFMPEG_SHA" https://git.ffmpeg.org/ffmpeg.git "$FFMPEG_SRC"
+  echo "Cloning FFmpeg into $FFMPEG_SRC …"
+  git clone --depth 1 --branch "$FFMPEG_SHA" https://git.ffmpeg.org/ffmpeg.git "$FFMPEG_SRC"
 else
-    git -C "$FFMPEG_SRC" fetch --tags --depth 1 origin "$FFMPEG_SHA" || true
-    git -C "$FFMPEG_SRC" reset --hard FETCH_HEAD 2>/dev/null || \
-        git -C "$FFMPEG_SRC" checkout "$FFMPEG_SHA"
-    git -C "$FFMPEG_SRC" clean -fdx
+  git -C "$FFMPEG_SRC" fetch --tags --depth 1 origin "$FFMPEG_SHA" || true
+  git -C "$FFMPEG_SRC" reset --hard FETCH_HEAD 2>/dev/null ||
+    git -C "$FFMPEG_SRC" checkout "$FFMPEG_SHA"
+  git -C "$FFMPEG_SRC" clean -fdx
 fi
 
 echo "Applying patches from $PATCHES_DIR …"
 while IFS= read -r line; do
-    line="${line%%#*}"
-    line="${line// /}"
-    [[ -z "$line" ]] && continue
-    echo "  → $line"
-    git -C "$FFMPEG_SRC" apply --3way "$PATCHES_DIR/$line"
-done < "$PATCHES_DIR/series.txt"
+  line="${line%%#*}"
+  line="${line// /}"
+  [[ -z "$line" ]] && continue
+  echo "  → $line"
+  git -C "$FFMPEG_SRC" apply --3way "$PATCHES_DIR/$line"
+done <"$PATCHES_DIR/series.txt"
 
 echo "Configuring FFmpeg …"
 cd "$FFMPEG_SRC"
 ./configure \
-    --disable-doc \
-    --disable-debug \
-    --disable-programs \
-    --enable-ffmpeg \
-    --enable-libvmaf \
-    --enable-filter=vmaf_pre \
-    --enable-gpl
+  --disable-doc \
+  --disable-debug \
+  --disable-programs \
+  --enable-ffmpeg \
+  --enable-libvmaf \
+  --enable-filter=vmaf_pre \
+  --enable-gpl
 
 echo "Building FFmpeg …"
 make -j"$(nproc)"
 
 echo "Verifying new options …"
-./ffmpeg -hide_banner -h filter=libvmaf 2>&1 | grep -q -- 'tiny_model' \
-    || { echo "libvmaf filter does not advertise tiny_model"; exit 1; }
-./ffmpeg -hide_banner -h filter=vmaf_pre >/dev/null 2>&1 \
-    || { echo "vmaf_pre filter not registered"; exit 1; }
+./ffmpeg -hide_banner -h filter=libvmaf 2>&1 | grep -q -- 'tiny_model' ||
+  {
+    echo "libvmaf filter does not advertise tiny_model"
+    exit 1
+  }
+./ffmpeg -hide_banner -h filter=vmaf_pre >/dev/null 2>&1 ||
+  {
+    echo "vmaf_pre filter not registered"
+    exit 1
+  }
 
 echo "PASS: ffmpeg-patches smoke ok"
 
 if [[ -z "$KEEP_BUILD" ]]; then
-    echo "Cleaning $FFMPEG_SRC (set KEEP_BUILD=1 to keep)."
-    rm -rf "$FFMPEG_SRC"
+  echo "Cleaning $FFMPEG_SRC (set KEEP_BUILD=1 to keep)."
+  rm -rf "$FFMPEG_SRC"
 fi

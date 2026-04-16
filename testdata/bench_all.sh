@@ -11,25 +11,25 @@ OUTDIR=testdata/bbb/results
 mkdir -p "$OUTDIR"
 
 run() {
-    local name="$1" ref="$2" dis="$3" w="$4" h="$5" bd="$6" flags="$7"
-    local out="$OUTDIR/${name}.json"
-    local start end ms score
-    echo -n "  $name ... "
-    start=$(date +%s%N)
-    # shellcheck disable=SC2086  # $flags is an intentionally-split flag list
-    "$VMAF" --reference "$ref" --distorted "$dis" \
-        --width "$w" --height "$h" --pixel_format 420 --bitdepth "$bd" \
-        --model "path=$MODEL" --threads 1 \
-        --output "$out" --json -q $flags 2>/dev/null
-    end=$(date +%s%N)
-    ms=$(( (end - start) / 1000000 ))
-    score=$(python3 -c "import json; print(f'{json.load(open(\"$out\"))[\"pooled_metrics\"][\"vmaf\"][\"mean\"]:.6f}')")
-    echo "${score}  (${ms}ms)"
+  local name="$1" ref="$2" dis="$3" w="$4" h="$5" bd="$6" flags="$7"
+  local out="$OUTDIR/${name}.json"
+  local start end ms score
+  echo -n "  $name ... "
+  start=$(date +%s%N)
+  # shellcheck disable=SC2086  # $flags is an intentionally-split flag list
+  "$VMAF" --reference "$ref" --distorted "$dis" \
+    --width "$w" --height "$h" --pixel_format 420 --bitdepth "$bd" \
+    --model "path=$MODEL" --threads 1 \
+    --output "$out" --json -q $flags 2>/dev/null
+  end=$(date +%s%N)
+  ms=$(((end - start) / 1000000))
+  score=$(python3 -c "import json; print(f'{json.load(open(\"$out\"))[\"pooled_metrics\"][\"vmaf\"][\"mean\"]:.6f}')")
+  echo "${score}  (${ms}ms)"
 }
 
 compare() {
-    local tag="$1"
-    python3 - "$tag" "$OUTDIR" <<'PYEOF'
+  local tag="$1"
+  python3 - "$tag" "$OUTDIR" <<'PYEOF'
 import json, sys
 tag = sys.argv[1]
 outdir = sys.argv[2]
@@ -68,9 +68,9 @@ echo "Test 1: Official 576x324 (48 frames, 8-bit)"
 echo "========================================="
 REF=python/test/resource/yuv/src01_hrc00_576x324.yuv
 DIS=python/test/resource/yuv/src01_hrc01_576x324.yuv
-run "t1_cpu"    "$REF" "$DIS" 576 324 8 "--no_cuda --no_sycl"
-run "t1_cuda"   "$REF" "$DIS" 576 324 8 "--no_sycl"
-run "t1_sycl"   "$REF" "$DIS" 576 324 8 "--no_cuda"
+run "t1_cpu" "$REF" "$DIS" 576 324 8 "--no_cuda --no_sycl"
+run "t1_cuda" "$REF" "$DIS" 576 324 8 "--no_sycl"
+run "t1_sycl" "$REF" "$DIS" 576 324 8 "--no_cuda"
 echo "Comparison:"
 compare "t1"
 
@@ -80,9 +80,9 @@ echo "Test 2: Official 1080p (5 frames, 8-bit)"
 echo "========================================="
 REF=python/test/resource/yuv/src01_hrc00_1920x1080_5frames.yuv
 DIS=python/test/resource/yuv/src01_hrc01_1920x1080_5frames.yuv
-run "t2_cpu"    "$REF" "$DIS" 1920 1080 8 "--no_cuda --no_sycl"
-run "t2_cuda"   "$REF" "$DIS" 1920 1080 8 "--no_sycl"
-run "t2_sycl"   "$REF" "$DIS" 1920 1080 8 "--no_cuda"
+run "t2_cpu" "$REF" "$DIS" 1920 1080 8 "--no_cuda --no_sycl"
+run "t2_cuda" "$REF" "$DIS" 1920 1080 8 "--no_sycl"
+run "t2_sycl" "$REF" "$DIS" 1920 1080 8 "--no_cuda"
 echo "Comparison:"
 compare "t2"
 
@@ -92,9 +92,9 @@ echo "Test 3: BBB 4K (200 frames, 8-bit)"
 echo "========================================="
 REF=testdata/bbb/ref_3840x2160_200f.yuv
 DIS=testdata/bbb/dis_3840x2160_200f.yuv
-run "t3_cpu"    "$REF" "$DIS" 3840 2160 8 "--no_cuda --no_sycl"
-run "t3_cuda"   "$REF" "$DIS" 3840 2160 8 "--no_sycl"
-run "t3_sycl"   "$REF" "$DIS" 3840 2160 8 "--no_cuda"
+run "t3_cpu" "$REF" "$DIS" 3840 2160 8 "--no_cuda --no_sycl"
+run "t3_cuda" "$REF" "$DIS" 3840 2160 8 "--no_sycl"
+run "t3_sycl" "$REF" "$DIS" 3840 2160 8 "--no_cuda"
 echo "Comparison:"
 compare "t3"
 

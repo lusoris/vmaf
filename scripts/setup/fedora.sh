@@ -59,7 +59,7 @@ repo_gpgcheck=1
 gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
 EOF
   $SUDO dnf install -y intel-oneapi-compiler-dpcpp-cpp intel-oneapi-runtime-libs \
-                       level-zero-devel libva-devel
+    level-zero-devel libva-devel
   echo "Then: source /opt/intel/oneapi/setvars.sh"
 fi
 

@@ -47,10 +47,10 @@ fi
 
 if [[ "$ENABLE_SYCL" == "true" ]]; then
   echo "--- Intel oneAPI DPC++ (SYCL) ---"
-  wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
-    | $SUDO gpg --dearmor -o /usr/share/keyrings/oneapi-archive-keyring.gpg
-  echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" \
-    | $SUDO tee /etc/apt/sources.list.d/oneapi.list >/dev/null
+  wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB |
+    $SUDO gpg --dearmor -o /usr/share/keyrings/oneapi-archive-keyring.gpg
+  echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" |
+    $SUDO tee /etc/apt/sources.list.d/oneapi.list >/dev/null
   $SUDO apt-get update
   $SUDO apt-get install -y --no-install-recommends \
     intel-oneapi-compiler-dpcpp-cpp intel-oneapi-runtime-libs \

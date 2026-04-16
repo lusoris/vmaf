@@ -13,8 +13,8 @@ OVERALL_MIN="${2:-70}"
 CRITICAL_MIN="${3:-85}"
 
 if ! command -v lcov >/dev/null; then
-    echo "lcov not installed — cannot enforce coverage" >&2
-    exit 1
+  echo "lcov not installed — cannot enforce coverage" >&2
+  exit 1
 fi
 
 # Format from `lcov --summary`:
@@ -25,8 +25,8 @@ echo "Overall line coverage: ${OVERALL}% (min ${OVERALL_MIN}%)"
 
 # awk to compare floats
 if awk -v c="$OVERALL" -v m="$OVERALL_MIN" 'BEGIN{exit !(c+0 < m+0)}'; then
-    echo "FAIL: overall coverage ${OVERALL}% below minimum ${OVERALL_MIN}%" >&2
-    exit 1
+  echo "FAIL: overall coverage ${OVERALL}% below minimum ${OVERALL_MIN}%" >&2
+  exit 1
 fi
 
 # Per-file extraction via `lcov --list` (machine-parseable).
@@ -44,20 +44,20 @@ LIST="$(lcov --list "$INFO" --list-full-path 2>/dev/null | awk '
 
 fail=0
 while IFS=' ' read -r path pct; do
-    [ -z "$path" ] && continue
-    case "$path" in
-        */libvmaf/src/dnn/*|*/libvmaf/src/opt.c|*/libvmaf/src/read_json_model.c)
-            echo "  critical: $path — ${pct}%"
-            if awk -v c="$pct" -v m="$CRITICAL_MIN" 'BEGIN{exit !(c+0 < m+0)}'; then
-                echo "    FAIL: security-critical file below ${CRITICAL_MIN}%" >&2
-                fail=1
-            fi
-            ;;
-    esac
+  [ -z "$path" ] && continue
+  case "$path" in
+    */libvmaf/src/dnn/* | */libvmaf/src/opt.c | */libvmaf/src/read_json_model.c)
+      echo "  critical: $path — ${pct}%"
+      if awk -v c="$pct" -v m="$CRITICAL_MIN" 'BEGIN{exit !(c+0 < m+0)}'; then
+        echo "    FAIL: security-critical file below ${CRITICAL_MIN}%" >&2
+        fail=1
+      fi
+      ;;
+  esac
 done <<<"$LIST"
 
 if [ "$fail" -ne 0 ]; then
-    exit 1
+  exit 1
 fi
 
 echo "PASS: coverage gate met (overall ≥${OVERALL_MIN}%, critical ≥${CRITICAL_MIN}%)"

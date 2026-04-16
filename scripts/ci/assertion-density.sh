@@ -16,18 +16,18 @@ MIN_LINES="${MIN_LINES:-20}"
 
 # Collect fork-added files by header scan.
 mapfile -t FILES < <(
-    git ls-files 'libvmaf/src/**/*.c' 'libvmaf/src/**/*.cpp' 'libvmaf/tools/*.c' \
-        2>/dev/null | while read -r f; do
-        [ -f "$f" ] || continue
-        if head -n 20 "$f" 2>/dev/null | grep -q "Lusoris and Claude"; then
-            echo "$f"
-        fi
-    done
+  git ls-files 'libvmaf/src/**/*.c' 'libvmaf/src/**/*.cpp' 'libvmaf/tools/*.c' \
+    2>/dev/null | while read -r f; do
+    [ -f "$f" ] || continue
+    if head -n 20 "$f" 2>/dev/null | grep -q "Lusoris and Claude"; then
+      echo "$f"
+    fi
+  done
 )
 
 if [ "${#FILES[@]}" -eq 0 ]; then
-    echo "assertion-density: no fork-added files found; skipping"
-    exit 0
+  echo "assertion-density: no fork-added files found; skipping"
+  exit 0
 fi
 
 echo "assertion-density: scanning ${#FILES[@]} fork-added files"
@@ -39,7 +39,7 @@ tmpfile="$(mktemp)"
 trap 'rm -f "$tmpfile"' EXIT
 
 for f in "${FILES[@]}"; do
-    awk -v FILE="$f" '
+  awk -v FILE="$f" '
         # Function start heuristic:
         #   - line starts at column 0 (no leading whitespace)
         #   - first token is NOT a C/C++ keyword (if/for/while/switch/do/return/else/goto/case/default)
@@ -133,7 +133,7 @@ for f in "${FILES[@]}"; do
                 }
             }
         }
-    ' "$f" >> "$tmpfile"
+    ' "$f" >>"$tmpfile"
 done
 
 total_funcs=0
@@ -141,23 +141,23 @@ total_asserts=0
 fail=0
 
 while read -r loc name nl na; do
-    total_funcs=$((total_funcs + 1))
-    total_asserts=$((total_asserts + na))
-    if [ "$nl" -ge "$MIN_LINES" ] && [ "$na" -eq 0 ]; then
-        echo "FAIL: $loc $name — ${nl} lines, 0 asserts" >&2
-        fail=$((fail + 1))
-    fi
-done < "$tmpfile"
+  total_funcs=$((total_funcs + 1))
+  total_asserts=$((total_asserts + na))
+  if [ "$nl" -ge "$MIN_LINES" ] && [ "$na" -eq 0 ]; then
+    echo "FAIL: $loc $name — ${nl} lines, 0 asserts" >&2
+    fail=$((fail + 1))
+  fi
+done <"$tmpfile"
 
 if [ "$total_funcs" -gt 0 ]; then
-    avg=$(awk -v a="$total_asserts" -v f="$total_funcs" 'BEGIN{printf "%.2f", a/f}')
-    echo
-    echo "assertion-density: ${total_asserts} asserts across ${total_funcs} fork-added functions (avg ${avg})"
+  avg=$(awk -v a="$total_asserts" -v f="$total_funcs" 'BEGIN{printf "%.2f", a/f}')
+  echo
+  echo "assertion-density: ${total_asserts} asserts across ${total_funcs} fork-added functions (avg ${avg})"
 fi
 
 if [ "$fail" -gt 0 ]; then
-    echo "FAIL: ${fail} fork-added functions ≥${MIN_LINES} lines have zero asserts" >&2
-    exit 1
+  echo "FAIL: ${fail} fork-added functions ≥${MIN_LINES} lines have zero asserts" >&2
+  exit 1
 fi
 
 echo "PASS: every fork-added function ≥${MIN_LINES} lines has ≥1 assert"

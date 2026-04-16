@@ -10,8 +10,8 @@ set -eu
 : "${VMAF_BIN:=build/tools/vmaf}"
 
 if [[ ! -x "$VMAF_BIN" ]]; then
-    echo "vmaf binary not found at $VMAF_BIN — set VMAF_BIN=<path>" >&2
-    exit 77  # meson's "skipped"
+  echo "vmaf binary not found at $VMAF_BIN — set VMAF_BIN=<path>" >&2
+  exit 77 # meson's "skipped"
 fi
 
 # `vmaf --help` exits with 1 by convention, so capture the output first
@@ -19,17 +19,26 @@ fi
 help_text="$("$VMAF_BIN" --help 2>&1 || true)"
 
 # 1. Help text must advertise the tiny flags.
-printf '%s\n' "$help_text" | grep -q -- '--tiny-model'   || { echo "help missing --tiny-model"; exit 1; }
-printf '%s\n' "$help_text" | grep -q -- '--tiny-device'  || { echo "help missing --tiny-device"; exit 1; }
-printf '%s\n' "$help_text" | grep -q -- '--no-reference' || { echo "help missing --no-reference"; exit 1; }
+printf '%s\n' "$help_text" | grep -q -- '--tiny-model' || {
+  echo "help missing --tiny-model"
+  exit 1
+}
+printf '%s\n' "$help_text" | grep -q -- '--tiny-device' || {
+  echo "help missing --tiny-device"
+  exit 1
+}
+printf '%s\n' "$help_text" | grep -q -- '--no-reference' || {
+  echo "help missing --no-reference"
+  exit 1
+}
 
 # 2. Invalid device string must be rejected with a useful message.
-if "$VMAF_BIN" --tiny-model /nonexistent.onnx --tiny-device bogus 2>&1 \
-    | grep -qi 'auto|cpu|cuda|openvino|rocm'; then
-    :
+if "$VMAF_BIN" --tiny-model /nonexistent.onnx --tiny-device bogus 2>&1 |
+  grep -qi 'auto|cpu|cuda|openvino|rocm'; then
+  :
 else
-    echo "expected validation error for --tiny-device bogus"
-    exit 1
+  echo "expected validation error for --tiny-device bogus"
+  exit 1
 fi
 
 echo "PASS: $0"
