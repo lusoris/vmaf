@@ -217,25 +217,25 @@ int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride
 #undef ADJUST
 
 #ifdef VIF_OPT_DEBUG_DUMP
-        sprintf(pathbuf, "stage/ref[%d].bin", scale);
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d].bin", scale);
         write_image(pathbuf, curr_ref_scale, w, h, curr_ref_stride, sizeof(float));
 
-        sprintf(pathbuf, "stage/dis[%d].bin", scale);
+        snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d].bin", scale);
         write_image(pathbuf, curr_dis_scale, w, h, curr_dis_stride, sizeof(float));
 
-        sprintf(pathbuf, "stage/mu1[%d].bin", scale);
+        snprintf(pathbuf, sizeof(pathbuf), "stage/mu1[%d].bin", scale);
         write_image(pathbuf, mu1_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
 
-        sprintf(pathbuf, "stage/mu2[%d].bin", scale);
+        snprintf(pathbuf, sizeof(pathbuf), "stage/mu2[%d].bin", scale);
         write_image(pathbuf, mu2_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
 
-        sprintf(pathbuf, "stage/ref_sq_filt[%d].bin", scale);
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref_sq_filt[%d].bin", scale);
         write_image(pathbuf, ref_sq_filt_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
 
-        sprintf(pathbuf, "stage/dis_sq_filt[%d].bin", scale);
+        snprintf(pathbuf, sizeof(pathbuf), "stage/dis_sq_filt[%d].bin", scale);
         write_image(pathbuf, dis_sq_filt_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
 
-        sprintf(pathbuf, "stage/ref_dis_filt[%d].bin", scale);
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref_dis_filt[%d].bin", scale);
         write_image(pathbuf, ref_dis_filt_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
 #endif
 
