@@ -12,5 +12,10 @@ unusedFunction:libvmaf/src/sycl/*.cpp
 
 # Public C API surface — naturally has functions only called by external linkers.
 unusedFunction:libvmaf/include/libvmaf/*.h
+
+# Upstream Netflix SVM: realloc pattern that nulls pointer on failure.
+# Tracked as cleanup debt; not fixed here because svm.cpp is upstream code.
+memleakOnRealloc:libvmaf/src/svm.cpp
+
 missingIncludeSystem
 unmatchedSuppression
