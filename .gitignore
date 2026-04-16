@@ -31,6 +31,7 @@ testdata/bbb/*.yuv
 
 # Claude Code local (machine-specific) settings
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Generated benchmark results
 testdata/bbb/results/
