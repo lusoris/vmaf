@@ -15,9 +15,9 @@ repos:
       # text-transforming hooks would silently corrupt. Limit to the files
       # we actually author/maintain.
       - id: trailing-whitespace
-        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
+        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|^resource/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
       - id: end-of-file-fixer
-        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
+        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|^resource/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
       - id: check-merge-conflict
       - id: check-yaml
       - id: check-json
