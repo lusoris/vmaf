@@ -14,6 +14,8 @@ import onnxruntime as ort
 import torch
 from torch import nn
 
+from ..op_allowlist import check_graph
+
 OPSET = 17
 
 
@@ -52,7 +54,15 @@ def export_to_onnx(
         dynamic_axes=dynamic_axes,
         opset_version=opset,
     )
-    onnx.checker.check_model(onnx.load(str(out_path)))
+    loaded = onnx.load(str(out_path))
+    onnx.checker.check_model(loaded)
+
+    report = check_graph(loaded)
+    if not report.ok:
+        raise RuntimeError(
+            f"exported graph uses ops not on libvmaf's allowlist — "
+            f"would fail at vmaf_dnn_load time: {report.pretty()}"
+        )
 
     sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
     with torch.no_grad():
