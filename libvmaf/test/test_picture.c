@@ -49,16 +49,12 @@ static char *test_picture_data_alignment()
     int err;
 
     VmafPicture pic;
-    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 10, 1920+1, 1080);
+    err = vmaf_picture_alloc(&pic, VMAF_PIX_FMT_YUV420P, 10, 1920 + 1, 1080);
     mu_assert("problem during vmaf_picture_alloc", !err);
     mu_assert("picture data is not 32-byte alligned",
-        !(((uintptr_t) pic.data[0]) % 32) &&
-        !(((uintptr_t) pic.data[1]) % 32) &&
-        !(((uintptr_t) pic.data[2]) % 32) &&
-        !(pic.stride[0] % 32) &&
-        !(pic.stride[1] % 32) &&
-        !(pic.stride[2] % 32)
-    );
+              !(((uintptr_t)pic.data[0]) % 32) && !(((uintptr_t)pic.data[1]) % 32) &&
+                  !(((uintptr_t)pic.data[2]) % 32) && !(pic.stride[0] % 32) &&
+                  !(pic.stride[1] % 32) && !(pic.stride[2] % 32));
     err = vmaf_picture_unref(&pic);
     mu_assert("problem during vmaf_picture_unref", !err);
 

@@ -25,12 +25,14 @@
 #include "vif_statistics.cuh"
 
 template <typename alignment_type = uint2, int fwidth_0 = 17, int fwidth_1 = 9>
-__device__ __forceinline__ void filter1d_8_vertical_kernel(VifBufferCuda buf, uint8_t* ref_in, uint8_t* dis_in,
-        int w, int h, filter_table_stuct vif_filt_s0) {
+__device__ __forceinline__ void filter1d_8_vertical_kernel(VifBufferCuda buf, uint8_t *ref_in,
+                                                           uint8_t *dis_in, int w, int h,
+                                                           filter_table_stuct vif_filt_s0)
+{
     using writeback_type = uint4;
     constexpr int val_per_thread = sizeof(alignment_type);
     static_assert(val_per_thread % 4 == 0 && val_per_thread <= 16,
-            "val per thread bust be divisible by 4 and under 16");
+                  "val per thread bust be divisible by 4 and under 16");
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
     const int x_start = (blockIdx.x * blockDim.x + threadIdx.x) * val_per_thread;
     if (x_start < w && y < h) {
@@ -56,10 +58,10 @@ __device__ __forceinline__ void filter1d_8_vertical_kernel(VifBufferCuda buf, ui
             if (ii_check >= h) {
                 ii_check = 2 * h - ii_check - 2;
             }
-            ref_aligned = *reinterpret_cast<alignment_type *>(
-                    &(ref_in[ii_check * buf.stride + x_start]));
-            dis_aligned = *reinterpret_cast<alignment_type *>(
-                    &(dis_in[ii_check * buf.stride + x_start]));
+            ref_aligned =
+                *reinterpret_cast<alignment_type *>(&(ref_in[ii_check * buf.stride + x_start]));
+            dis_aligned =
+                *reinterpret_cast<alignment_type *>(&(dis_in[ii_check * buf.stride + x_start]));
             for (int off = 0; off < val_per_thread; ++off) {
                 const int j = x_start + off;
                 if (j < w) {
@@ -74,7 +76,7 @@ __device__ __forceinline__ void filter1d_8_vertical_kernel(VifBufferCuda buf, ui
                     accum_dis[off] += img_coeff_dis * (uint32_t)dis_val;
                     accum_ref_dis[off] += img_coeff_ref * (uint32_t)dis_val;
                     if (fi >= (fwidth_0 - fwidth_1) / 2 &&
-                            fi < (fwidth_0 - (fwidth_0 - fwidth_1) / 2)) {
+                        fi < (fwidth_0 - (fwidth_0 - fwidth_1) / 2)) {
                         const uint16_t fcoeff_rd =
                             vif_filt_s0.filter[1][fi - ((fwidth_0 - fwidth_1) / 2)];
                         accum_ref_rd[off] += fcoeff_rd * ref_val;
@@ -112,12 +114,11 @@ __device__ __forceinline__ void filter1d_8_vertical_kernel(VifBufferCuda buf, ui
 }
 
 template <int val_per_thread = 1, int fwidth_0 = 17, int fwidth_1 = 9>
-__device__ __forceinline__ void filter1d_8_horizontal_kernel(VifBufferCuda buf, int w, int h,
-        filter_table_stuct vif_filt_s0,
-        double vif_enhn_gain_limit,
-        vif_accums *accum) {
-    static_assert(val_per_thread % 2 == 0,
-            "val_per_thread must be divisible by 2");
+__device__ __forceinline__ void
+filter1d_8_horizontal_kernel(VifBufferCuda buf, int w, int h, filter_table_stuct vif_filt_s0,
+                             double vif_enhn_gain_limit, vif_accums *accum)
+{
+    static_assert(val_per_thread % 2 == 0, "val_per_thread must be divisible by 2");
     int y = blockIdx.y;
     int x_start = (blockIdx.x * blockDim.x + threadIdx.x) * val_per_thread;
     if (y < h && x_start < w) {
@@ -146,8 +147,7 @@ __device__ __forceinline__ void filter1d_8_horizontal_kernel(VifBufferCuda buf, 
         // Interior fast path: no mirror needed, symmetric filter optimization.
         // All horizontal accumulators are linear in tmp values, so we can sum
         // symmetric tap pairs before multiplying (17→9 muls at scale 0).
-        const bool interior = (x_start >= half_fw) &&
-                              (x_start + val_per_thread - 1 + half_fw < w);
+        const bool interior = (x_start >= half_fw) && (x_start + val_per_thread - 1 + half_fw < w);
         if (interior) {
             const int buf_row = y * stride_tmp;
             // Center tap (unpaired)
@@ -180,11 +180,16 @@ __device__ __forceinline__ void filter1d_8_horizontal_kernel(VifBufferCuda buf, 
                 for (int off = 0; off < val_per_thread; ++off) {
                     const int lo = buf_row + x_start + off - half_fw + fj;
                     const int hi = buf_row + x_start + off + half_fw - fj;
-                    accum_mu1[off] += fcoeff * ((uint32_t)buf.tmp.mu1[lo] + (uint32_t)buf.tmp.mu1[hi]);
-                    accum_mu2[off] += fcoeff * ((uint32_t)buf.tmp.mu2[lo] + (uint32_t)buf.tmp.mu2[hi]);
-                    accum_ref_tmp[off] += fcoeff * ((uint64_t)buf.tmp.ref[lo] + (uint64_t)buf.tmp.ref[hi]);
-                    accum_dis_tmp[off] += fcoeff * ((uint64_t)buf.tmp.dis[lo] + (uint64_t)buf.tmp.dis[hi]);
-                    accum_ref_dis_tmp[off] += fcoeff * ((uint64_t)buf.tmp.ref_dis[lo] + (uint64_t)buf.tmp.ref_dis[hi]);
+                    accum_mu1[off] +=
+                        fcoeff * ((uint32_t)buf.tmp.mu1[lo] + (uint32_t)buf.tmp.mu1[hi]);
+                    accum_mu2[off] +=
+                        fcoeff * ((uint32_t)buf.tmp.mu2[lo] + (uint32_t)buf.tmp.mu2[hi]);
+                    accum_ref_tmp[off] +=
+                        fcoeff * ((uint64_t)buf.tmp.ref[lo] + (uint64_t)buf.tmp.ref[hi]);
+                    accum_dis_tmp[off] +=
+                        fcoeff * ((uint64_t)buf.tmp.dis[lo] + (uint64_t)buf.tmp.dis[hi]);
+                    accum_ref_dis_tmp[off] +=
+                        fcoeff * ((uint64_t)buf.tmp.ref_dis[lo] + (uint64_t)buf.tmp.ref_dis[hi]);
                 }
                 // RD symmetric pairs (coefficients are also symmetric)
                 if (fwidth_1 > 0 && fj >= rd_start && fj < rd_start + rd_half) {
@@ -193,8 +198,10 @@ __device__ __forceinline__ void filter1d_8_horizontal_kernel(VifBufferCuda buf, 
                     for (int off = 0; off < val_per_thread; off += 2) {
                         const int lo = buf_row + x_start + off - half_fw + fj;
                         const int hi = buf_row + x_start + off + half_fw - fj;
-                        accum_ref_rd[off / 2] += fcoeff_rd * (buf.tmp.ref_convol[lo] + buf.tmp.ref_convol[hi]);
-                        accum_dis_rd[off / 2] += fcoeff_rd * (buf.tmp.dis_convol[lo] + buf.tmp.dis_convol[hi]);
+                        accum_ref_rd[off / 2] +=
+                            fcoeff_rd * (buf.tmp.ref_convol[lo] + buf.tmp.ref_convol[hi]);
+                        accum_dis_rd[off / 2] +=
+                            fcoeff_rd * (buf.tmp.dis_convol[lo] + buf.tmp.dis_convol[hi]);
                     }
                 }
             }
@@ -224,7 +231,7 @@ __device__ __forceinline__ void filter1d_8_horizontal_kernel(VifBufferCuda buf, 
                             fcoeff * ((uint64_t)buf.tmp.ref_dis[y * stride_tmp + jj_check]);
 
                         if (fj >= (fwidth_0 - fwidth_1) / 2 &&
-                                fj < (fwidth_0 - (fwidth_0 - fwidth_1) / 2) && off % 2 == 0) {
+                            fj < (fwidth_0 - (fwidth_0 - fwidth_1) / 2) && off % 2 == 0) {
                             const uint16_t fcoeff_rd =
                                 vif_filt_s0.filter[1][fj - ((fwidth_0 - fwidth_1) / 2)];
                             accum_ref_rd[off / 2] +=
@@ -242,9 +249,9 @@ __device__ __forceinline__ void filter1d_8_horizontal_kernel(VifBufferCuda buf, 
                 accum_ref[off] = (uint32_t)((accum_ref_tmp[off] + 32768) >> 16);
                 accum_dis[off] = (uint32_t)((accum_dis_tmp[off] + 32768) >> 16);
                 accum_ref_dis[off] = (uint32_t)((accum_ref_dis_tmp[off] + 32768) >> 16);
-                vif_statistic_calculation<uint32_t>(
-                        accum_mu1[off], accum_mu2[off], accum_ref[off], accum_dis[off],
-                        accum_ref_dis[off], x, w, h, vif_enhn_gain_limit, thread_accum);
+                vif_statistic_calculation<uint32_t>(accum_mu1[off], accum_mu2[off], accum_ref[off],
+                                                    accum_dis[off], accum_ref_dis[off], x, w, h,
+                                                    vif_enhn_gain_limit, thread_accum);
             }
         }
 
@@ -256,8 +263,7 @@ __device__ __forceinline__ void filter1d_8_horizontal_kernel(VifBufferCuda buf, 
         // each warp writes its sum to global mem
         if (warp_id == 0) {
             for (int i = 0; i < 7; ++i) {
-                atomicAdd_int64(&reinterpret_cast<int64_t *>(accum)[i],
-                        thread_accum_i64[i]);
+                atomicAdd_int64(&reinterpret_cast<int64_t *>(accum)[i], thread_accum_i64[i]);
             }
         }
 
@@ -280,14 +286,15 @@ __device__ __forceinline__ void filter1d_8_horizontal_kernel(VifBufferCuda buf, 
 
 template <typename alignment_type = uint2, int fwidth, int fwidth_rd, int scale>
 __device__ __forceinline__ void
-filter1d_16_vertical_kernel(VifBufferCuda buf, uint16_t* ref_in, uint16_t* dis_in, int w, int h,
-        int32_t add_shift_round_VP, int32_t shift_VP,
-        int32_t add_shift_round_VP_sq, int32_t shift_VP_sq,
-        filter_table_stuct vif_filt) {
+filter1d_16_vertical_kernel(VifBufferCuda buf, uint16_t *ref_in, uint16_t *dis_in, int w, int h,
+                            int32_t add_shift_round_VP, int32_t shift_VP,
+                            int32_t add_shift_round_VP_sq, int32_t shift_VP_sq,
+                            filter_table_stuct vif_filt)
+{
     using writeback_type = uint4;
     constexpr int val_per_thread = sizeof(alignment_type) / sizeof(uint16_t);
     static_assert(val_per_thread % 4 == 0 && val_per_thread <= 8,
-            "val per thread bust be divisible by 4 and under 16");
+                  "val per thread bust be divisible by 4 and under 16");
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
     const int x_start = (blockIdx.x * blockDim.x + threadIdx.x) * val_per_thread;
     if (x_start < w && y < h) {
@@ -306,18 +313,18 @@ filter1d_16_vertical_kernel(VifBufferCuda buf, uint16_t* ref_in, uint16_t* dis_i
             uint16_t dis[val_per_thread];
             alignment_type dis_aligned;
         };
-        const ptrdiff_t stride = (scale == 0) ? buf.stride / sizeof(uint16_t)
-                                                : buf.rd_stride / sizeof(uint16_t);
+        const ptrdiff_t stride =
+            (scale == 0) ? buf.stride / sizeof(uint16_t) : buf.rd_stride / sizeof(uint16_t);
         for (int fi = 0; fi < fwidth; ++fi) {
             int ii = y - fwidth / 2;
             int ii_check = abs(ii + fi);
             if (ii_check >= h) {
                 ii_check = 2 * h - ii_check - 2;
             }
-            ref_aligned = *reinterpret_cast<alignment_type *>(
-                    &(ref_in)[ii_check * stride + x_start]);
-            dis_aligned = *reinterpret_cast<alignment_type *>(
-                    &(dis_in)[ii_check * stride + x_start]);
+            ref_aligned =
+                *reinterpret_cast<alignment_type *>(&(ref_in)[ii_check * stride + x_start]);
+            dis_aligned =
+                *reinterpret_cast<alignment_type *>(&(dis_in)[ii_check * stride + x_start]);
             for (int off = 0; off < val_per_thread; ++off) {
                 const int j = x_start + off;
                 if (j < w) {
@@ -332,7 +339,7 @@ filter1d_16_vertical_kernel(VifBufferCuda buf, uint16_t* ref_in, uint16_t* dis_i
                     accum_dis[off] += img_coeff_dis * (uint64_t)imgcoeff_dis;
                     accum_ref_dis[off] += img_coeff_ref * (uint64_t)imgcoeff_dis;
                     if (fi >= (fwidth - fwidth_rd) / 2 &&
-                            fi < (fwidth - (fwidth_rd - fwidth_rd) / 2) && fwidth_rd > 0) {
+                        fi < (fwidth - (fwidth_rd - fwidth_rd) / 2) && fwidth_rd > 0) {
                         const uint16_t fcoeff_rd =
                             vif_filt.filter[scale + 1][fi - ((fwidth - fwidth_rd) / 2)];
                         accum_ref_rd[off] += fcoeff_rd * imgcoeff_ref;
@@ -347,17 +354,12 @@ filter1d_16_vertical_kernel(VifBufferCuda buf, uint16_t* ref_in, uint16_t* dis_i
         __align__(sizeof(writeback_type)) uint32_t accum_dis_32[val_per_thread] = {0};
         __align__(sizeof(writeback_type)) uint32_t accum_ref_dis_32[val_per_thread] = {0};
         for (int off = 0; off < val_per_thread; ++off) {
-            accum_mu1[off] =
-                (uint16_t)((accum_mu1[off] + add_shift_round_VP) >> shift_VP);
-            accum_mu2[off] =
-                (uint16_t)((accum_mu2[off] + add_shift_round_VP) >> shift_VP);
-            accum_ref_32[off] =
-                (uint32_t)((accum_ref[off] + add_shift_round_VP_sq) >> shift_VP_sq);
-            accum_dis_32[off] =
-                (uint32_t)((accum_dis[off] + add_shift_round_VP_sq) >> shift_VP_sq);
+            accum_mu1[off] = (uint16_t)((accum_mu1[off] + add_shift_round_VP) >> shift_VP);
+            accum_mu2[off] = (uint16_t)((accum_mu2[off] + add_shift_round_VP) >> shift_VP);
+            accum_ref_32[off] = (uint32_t)((accum_ref[off] + add_shift_round_VP_sq) >> shift_VP_sq);
+            accum_dis_32[off] = (uint32_t)((accum_dis[off] + add_shift_round_VP_sq) >> shift_VP_sq);
             accum_ref_dis_32[off] =
-                (uint32_t)((accum_ref_dis[off] + add_shift_round_VP_sq) >>
-                        shift_VP_sq);
+                (uint32_t)((accum_ref_dis[off] + add_shift_round_VP_sq) >> shift_VP_sq);
             if (fwidth_rd > 0) {
                 accum_ref_rd[off] =
                     (uint16_t)((accum_ref_rd[off] + add_shift_round_VP) >> shift_VP);
@@ -392,12 +394,11 @@ filter1d_16_vertical_kernel(VifBufferCuda buf, uint16_t* ref_in, uint16_t* dis_i
 
 template <int val_per_thread = 2, int fwidth, int fwidth_rd, int scale>
 __device__ __forceinline__ void
-filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h,
-        int32_t add_shift_round_HP, int32_t shift_HP,
-        filter_table_stuct vif_filt,
-        double vif_enhn_gain_limit, vif_accums *accum) {
-    static_assert(val_per_thread % 2 == 0,
-            "val_per_thread must be divisible by 2");
+filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h, int32_t add_shift_round_HP,
+                              int32_t shift_HP, filter_table_stuct vif_filt,
+                              double vif_enhn_gain_limit, vif_accums *accum)
+{
+    static_assert(val_per_thread % 2 == 0, "val_per_thread must be divisible by 2");
 
     int y = blockIdx.y;
     int x_start = (blockIdx.x * blockDim.x + threadIdx.x) * val_per_thread;
@@ -426,8 +427,7 @@ filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h,
         // Interior fast path: no mirror needed, symmetric filter optimization.
         // All horizontal accumulators are linear in tmp values, so we can sum
         // symmetric tap pairs before multiplying (17→9 muls at scale 0).
-        const bool interior = (x_start >= half_fw) &&
-                              (x_start + val_per_thread - 1 + half_fw < w);
+        const bool interior = (x_start >= half_fw) && (x_start + val_per_thread - 1 + half_fw < w);
         if (interior) {
             const int buf_row = y * stride_tmp;
             // Center tap (unpaired)
@@ -460,11 +460,16 @@ filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h,
                 for (int off = 0; off < val_per_thread; ++off) {
                     const int lo = buf_row + x_start + off - half_fw + fj;
                     const int hi = buf_row + x_start + off + half_fw - fj;
-                    accum_mu1[off] += fcoeff * ((uint32_t)buf.tmp.mu1[lo] + (uint32_t)buf.tmp.mu1[hi]);
-                    accum_mu2[off] += fcoeff * ((uint32_t)buf.tmp.mu2[lo] + (uint32_t)buf.tmp.mu2[hi]);
-                    accum_ref_tmp[off] += fcoeff * ((uint64_t)buf.tmp.ref[lo] + (uint64_t)buf.tmp.ref[hi]);
-                    accum_dis_tmp[off] += fcoeff * ((uint64_t)buf.tmp.dis[lo] + (uint64_t)buf.tmp.dis[hi]);
-                    accum_ref_dis_tmp[off] += fcoeff * ((uint64_t)buf.tmp.ref_dis[lo] + (uint64_t)buf.tmp.ref_dis[hi]);
+                    accum_mu1[off] +=
+                        fcoeff * ((uint32_t)buf.tmp.mu1[lo] + (uint32_t)buf.tmp.mu1[hi]);
+                    accum_mu2[off] +=
+                        fcoeff * ((uint32_t)buf.tmp.mu2[lo] + (uint32_t)buf.tmp.mu2[hi]);
+                    accum_ref_tmp[off] +=
+                        fcoeff * ((uint64_t)buf.tmp.ref[lo] + (uint64_t)buf.tmp.ref[hi]);
+                    accum_dis_tmp[off] +=
+                        fcoeff * ((uint64_t)buf.tmp.dis[lo] + (uint64_t)buf.tmp.dis[hi]);
+                    accum_ref_dis_tmp[off] +=
+                        fcoeff * ((uint64_t)buf.tmp.ref_dis[lo] + (uint64_t)buf.tmp.ref_dis[hi]);
                 }
                 // RD symmetric pairs (coefficients are also symmetric)
                 if (fwidth_rd > 0 && fj >= rd_start && fj < rd_start + rd_half) {
@@ -473,8 +478,10 @@ filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h,
                     for (int off = 0; off < val_per_thread; off += 2) {
                         const int lo = buf_row + x_start + off - half_fw + fj;
                         const int hi = buf_row + x_start + off + half_fw - fj;
-                        accum_ref_rd[off / 2] += fcoeff_rd * ((uint32_t)buf.tmp.ref_convol[lo] + (uint32_t)buf.tmp.ref_convol[hi]);
-                        accum_dis_rd[off / 2] += fcoeff_rd * ((uint32_t)buf.tmp.dis_convol[lo] + (uint32_t)buf.tmp.dis_convol[hi]);
+                        accum_ref_rd[off / 2] += fcoeff_rd * ((uint32_t)buf.tmp.ref_convol[lo] +
+                                                              (uint32_t)buf.tmp.ref_convol[hi]);
+                        accum_dis_rd[off / 2] += fcoeff_rd * ((uint32_t)buf.tmp.dis_convol[lo] +
+                                                              (uint32_t)buf.tmp.dis_convol[hi]);
                     }
                 }
             }
@@ -504,8 +511,8 @@ filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h,
                             fcoeff * ((uint64_t)buf.tmp.ref_dis[y * stride_tmp + jj_check]);
 
                         if (fj >= (fwidth - fwidth_rd) / 2 &&
-                                fj < (fwidth - (fwidth - fwidth_rd) / 2) && fwidth_rd > 0 &&
-                                off % 2 == 0) {
+                            fj < (fwidth - (fwidth - fwidth_rd) / 2) && fwidth_rd > 0 &&
+                            off % 2 == 0) {
                             const uint32_t fcoeff_rd =
                                 vif_filt.filter[scale + 1][fj - ((fwidth - fwidth_rd) / 2)];
                             accum_ref_rd[off / 2] +=
@@ -522,16 +529,13 @@ filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h,
         for (int off = 0; off < val_per_thread; ++off) {
             const int x = x_start + off;
             if (x < w) {
-                accum_ref[off] =
-                    (uint32_t)((accum_ref_tmp[off] + add_shift_round_HP) >> shift_HP);
-                accum_dis[off] =
-                    (uint32_t)((accum_dis_tmp[off] + add_shift_round_HP) >> shift_HP);
+                accum_ref[off] = (uint32_t)((accum_ref_tmp[off] + add_shift_round_HP) >> shift_HP);
+                accum_dis[off] = (uint32_t)((accum_dis_tmp[off] + add_shift_round_HP) >> shift_HP);
                 accum_ref_dis[off] =
-                    (uint32_t)((accum_ref_dis_tmp[off] + add_shift_round_HP) >>
-                            shift_HP);
-                vif_statistic_calculation<uint32_t>(
-                        accum_mu1[off], accum_mu2[off], accum_ref[off], accum_dis[off],
-                        accum_ref_dis[off], x, w, h, vif_enhn_gain_limit, thread_accum);
+                    (uint32_t)((accum_ref_dis_tmp[off] + add_shift_round_HP) >> shift_HP);
+                vif_statistic_calculation<uint32_t>(accum_mu1[off], accum_mu2[off], accum_ref[off],
+                                                    accum_dis[off], accum_ref_dis[off], x, w, h,
+                                                    vif_enhn_gain_limit, thread_accum);
             }
         }
 
@@ -543,8 +547,7 @@ filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h,
         // each warp writes its sum to global mem
         if (warp_id == 0) {
             for (int i = 0; i < 7; ++i) {
-                atomicAdd_int64(&reinterpret_cast<int64_t *>(accum)[i],
-                        thread_accum_i64[i]);
+                atomicAdd_int64(&reinterpret_cast<int64_t *>(accum)[i], thread_accum_i64[i]);
             }
         }
 
@@ -565,59 +568,57 @@ filter1d_16_horizontal_kernel(VifBufferCuda buf, int w, int h,
     }
 }
 
-#define FILTER1D_8_VERT(alignment_type, fwidth_0, fwidth_1)                                 \
-    __global__ void filter1d_8_vertical_kernel_##alignment_type##_##fwidth_0##_##fwidth_1 ( \
-            VifBufferCuda buf, uint8_t* ref_in, uint8_t* dis_in,                            \
-            int w, int h, filter_table_stuct vif_filt_s0)                                   \
-{                                                                                           \
-    filter1d_8_vertical_kernel<alignment_type, fwidth_0, fwidth_1>(                         \
-            buf, ref_in, dis_in, w, h, vif_filt_s0);                                        \
-}
+#define FILTER1D_8_VERT(alignment_type, fwidth_0, fwidth_1)                                        \
+    __global__ void filter1d_8_vertical_kernel_##alignment_type##_##fwidth_0##_##fwidth_1(         \
+        VifBufferCuda buf, uint8_t *ref_in, uint8_t *dis_in, int w, int h,                         \
+        filter_table_stuct vif_filt_s0)                                                            \
+    {                                                                                              \
+        filter1d_8_vertical_kernel<alignment_type, fwidth_0, fwidth_1>(buf, ref_in, dis_in, w, h,  \
+                                                                       vif_filt_s0);               \
+    }
 
-#define FILTER1D_8_HORI(val_per_thread, fwidth_0, fwidth_1)                                   \
-    __global__ void filter1d_8_horizontal_kernel_##val_per_thread##_##fwidth_0##_##fwidth_1 ( \
-            VifBufferCuda buf, int w, int h,  filter_table_stuct vif_filt_s0,                 \
-            double vif_enhn_gain_limit,  vif_accums *accum)                                   \
-{                                                                                             \
-    filter1d_8_horizontal_kernel<val_per_thread, fwidth_0, fwidth_1>(                         \
-            buf, w, h, vif_filt_s0, vif_enhn_gain_limit, accum);                              \
-}
+#define FILTER1D_8_HORI(val_per_thread, fwidth_0, fwidth_1)                                        \
+    __global__ void filter1d_8_horizontal_kernel_##val_per_thread##_##fwidth_0##_##fwidth_1(       \
+        VifBufferCuda buf, int w, int h, filter_table_stuct vif_filt_s0,                           \
+        double vif_enhn_gain_limit, vif_accums *accum)                                             \
+    {                                                                                              \
+        filter1d_8_horizontal_kernel<val_per_thread, fwidth_0, fwidth_1>(                          \
+            buf, w, h, vif_filt_s0, vif_enhn_gain_limit, accum);                                   \
+    }
 
-#define FILTER1D_16_VERT(alignment_type, fwidth, fwidth_rd, scale)                                    \
-    __global__ void filter1d_16_vertical_kernel_##alignment_type##_##fwidth##_##fwidth_rd##_##scale ( \
-            VifBufferCuda buf, uint16_t* ref_in, uint16_t* dis_in, int w, int h,                      \
-            int32_t add_shift_round_VP, int32_t shift_VP,                                             \
-            int32_t add_shift_round_VP_sq, int32_t shift_VP_sq,                                       \
-            filter_table_stuct vif_filt)                                                              \
-{                                                                                                     \
-    filter1d_16_vertical_kernel<alignment_type, fwidth, fwidth_rd, scale>(                            \
-            buf, ref_in, dis_in, w, h, add_shift_round_VP, shift_VP,                                  \
-            add_shift_round_VP_sq, shift_VP_sq, vif_filt);                                            \
-}
+#define FILTER1D_16_VERT(alignment_type, fwidth, fwidth_rd, scale)                                 \
+    __global__ void                                                                                \
+    filter1d_16_vertical_kernel_##alignment_type##_##fwidth##_##fwidth_rd##_##scale(               \
+        VifBufferCuda buf, uint16_t *ref_in, uint16_t *dis_in, int w, int h,                       \
+        int32_t add_shift_round_VP, int32_t shift_VP, int32_t add_shift_round_VP_sq,               \
+        int32_t shift_VP_sq, filter_table_stuct vif_filt)                                          \
+    {                                                                                              \
+        filter1d_16_vertical_kernel<alignment_type, fwidth, fwidth_rd, scale>(                     \
+            buf, ref_in, dis_in, w, h, add_shift_round_VP, shift_VP, add_shift_round_VP_sq,        \
+            shift_VP_sq, vif_filt);                                                                \
+    }
 
-#define FILTER1D_16_HORI(val_per_thread, fwidth, fwidth_rd, scale)                                      \
-    __global__ void filter1d_16_horizontal_kernel_##val_per_thread##_##fwidth##_##fwidth_rd##_##scale ( \
-            VifBufferCuda buf, int w, int h,                                                            \
-            int32_t add_shift_round_HP, int32_t shift_HP,                                               \
-            filter_table_stuct vif_filt,                                                                \
-            double vif_enhn_gain_limit, vif_accums *accum)                                              \
-{                                                                                                       \
-    filter1d_16_horizontal_kernel<val_per_thread, fwidth, fwidth_rd, scale>(                            \
-            buf, w, h, add_shift_round_HP, shift_HP,                                                    \
-            vif_filt, vif_enhn_gain_limit, accum);                                                      \
-}
+#define FILTER1D_16_HORI(val_per_thread, fwidth, fwidth_rd, scale)                                 \
+    __global__ void                                                                                \
+    filter1d_16_horizontal_kernel_##val_per_thread##_##fwidth##_##fwidth_rd##_##scale(             \
+        VifBufferCuda buf, int w, int h, int32_t add_shift_round_HP, int32_t shift_HP,             \
+        filter_table_stuct vif_filt, double vif_enhn_gain_limit, vif_accums *accum)                \
+    {                                                                                              \
+        filter1d_16_horizontal_kernel<val_per_thread, fwidth, fwidth_rd, scale>(                   \
+            buf, w, h, add_shift_round_HP, shift_HP, vif_filt, vif_enhn_gain_limit, accum);        \
+    }
 
 extern "C" {
-    // constexpr int fwidth[4] = {17, 9, 5, 3};
-    FILTER1D_8_VERT(uint32_t, 17, 9);   // filter1d_8_vertical_kernel_uint32_t_17_9
-    FILTER1D_8_HORI(2, 17, 9);          // filter1d_8_horizontal_kernel_2_17_9
-    FILTER1D_16_VERT(uint2, 17, 9, 0);  // filter1d_16_vertical_kernel_uint2_17_9_0
-    FILTER1D_16_VERT(uint2, 9, 5, 1);   // filter1d_16_vertical_kernel_uint2_9_5_1
-    FILTER1D_16_VERT(uint2, 5, 3, 2);   // filter1d_16_vertical_kernel_uint2_5_3_2
-    FILTER1D_16_VERT(uint2, 3, 0, 3);   // filter1d_16_vertical_kernel_uint2_3_0_3
+// constexpr int fwidth[4] = {17, 9, 5, 3};
+FILTER1D_8_VERT(uint32_t, 17, 9);  // filter1d_8_vertical_kernel_uint32_t_17_9
+FILTER1D_8_HORI(2, 17, 9);         // filter1d_8_horizontal_kernel_2_17_9
+FILTER1D_16_VERT(uint2, 17, 9, 0); // filter1d_16_vertical_kernel_uint2_17_9_0
+FILTER1D_16_VERT(uint2, 9, 5, 1);  // filter1d_16_vertical_kernel_uint2_9_5_1
+FILTER1D_16_VERT(uint2, 5, 3, 2);  // filter1d_16_vertical_kernel_uint2_5_3_2
+FILTER1D_16_VERT(uint2, 3, 0, 3);  // filter1d_16_vertical_kernel_uint2_3_0_3
 
-    FILTER1D_16_HORI(2, 17, 9, 0);      // filter1d_16_horizontal_kernel_2_17_9_0
-    FILTER1D_16_HORI(2, 9, 5, 1);       // filter1d_16_horizontal_kernel_2_9_5_1
-    FILTER1D_16_HORI(2, 5, 3, 2);       // filter1d_16_horizontal_kernel_2_5_3_2
-    FILTER1D_16_HORI(2, 3, 0, 3);       // filter1d_16_horizontal_kernel_2_3_0_3
+FILTER1D_16_HORI(2, 17, 9, 0); // filter1d_16_horizontal_kernel_2_17_9_0
+FILTER1D_16_HORI(2, 9, 5, 1);  // filter1d_16_horizontal_kernel_2_9_5_1
+FILTER1D_16_HORI(2, 5, 3, 2);  // filter1d_16_horizontal_kernel_2_5_3_2
+FILTER1D_16_HORI(2, 3, 0, 3);  // filter1d_16_horizontal_kernel_2_3_0_3
 }

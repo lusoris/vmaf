@@ -41,23 +41,22 @@ typedef struct ThreadData {
 
 static void my_worker(void *data, void **tpool_thread_data)
 {
-    (void) tpool_thread_data;
+    (void)tpool_thread_data;
     int ctr;
     struct ThreadData *thread_data = data;
     uint8_t *shared_buf;
     uint8_t *dependent_buf;
 
     //acquire new buffer from frame sync
-    vmaf_framesync_acquire_new_buf(thread_data->fs_ctx, (void*)&shared_buf,
-                                   FRAME_BUF_LEN, thread_data->index);
+    vmaf_framesync_acquire_new_buf(thread_data->fs_ctx, (void *)&shared_buf, FRAME_BUF_LEN,
+                                   thread_data->index);
 
     //populate shared buffer with values
     for (ctr = 0; ctr < FRAME_BUF_LEN; ctr++)
         shared_buf[ctr] = thread_data->ref[ctr] + thread_data->dist[ctr] + 2;
 
     //submit filled buffer back to frame sync
-    vmaf_framesync_submit_filled_data(thread_data->fs_ctx, shared_buf,
-                                      thread_data->index);
+    vmaf_framesync_submit_filled_data(thread_data->fs_ctx, shared_buf, thread_data->index);
 
     //sleep to simulate work load
     const int sleep_seconds = 1;
@@ -67,23 +66,21 @@ static void my_worker(void *data, void **tpool_thread_data)
     sleep(sleep_seconds);
 #endif
 
-    if (thread_data->index == 0) goto cleanup;
+    if (thread_data->index == 0)
+        goto cleanup;
 
     //retrieve dependent buffer from frame sync
-    vmaf_framesync_retrieve_filled_data(thread_data->fs_ctx,
-                                        (void*)&dependent_buf,
+    vmaf_framesync_retrieve_filled_data(thread_data->fs_ctx, (void *)&dependent_buf,
                                         thread_data->index - 1);
 
     for (ctr = 0; ctr < FRAME_BUF_LEN; ctr++) {
         if (dependent_buf[ctr] != (thread_data->ref[ctr] + thread_data->dist[ctr])) {
-            fprintf(stderr, "verification error in frame index %d\n",
-                    thread_data->index);
+            fprintf(stderr, "verification error in frame index %d\n", thread_data->index);
         }
     }
 
     //release dependent buffer from frame sync
-    vmaf_framesync_release_buf(thread_data->fs_ctx, dependent_buf,
-                               thread_data->index - 1);
+    vmaf_framesync_release_buf(thread_data->fs_ctx, dependent_buf, thread_data->index - 1);
 
 cleanup:
     free(thread_data->ref);
@@ -98,7 +95,7 @@ static char *test_framesync_create_process_and_destroy()
     VmafFrameSyncContext *fs_ctx;
     unsigned n_threads = 2;
 
-    VmafThreadPoolConfig tpool_cfg = { .n_threads = n_threads };
+    VmafThreadPoolConfig tpool_cfg = {.n_threads = n_threads};
     err = vmaf_thread_pool_create(&pool, tpool_cfg);
     mu_assert("problem during vmaf_thread_pool_init", !err);
 

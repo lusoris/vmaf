@@ -20,10 +20,10 @@
 
 int vmaf_floorn(int n, int m)
 {
-	return n - n % m;
+    return n - n % m;
 }
 
 int vmaf_ceiln(int n, int m)
 {
-	return n % m ? n + (m - n % m) : n;
+    return n % m ? n + (m - n % m) : n;
 }

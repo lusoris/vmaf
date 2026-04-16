@@ -51,24 +51,23 @@ typedef struct {
     bool common_bitdepth;
     unsigned cpumask;
     unsigned gpumask;
-    bool use_gpumask;   // true only when --gpumask was explicitly passed
+    bool use_gpumask; // true only when --gpumask was explicitly passed
     bool no_cuda;
     bool no_sycl;
-    int sycl_device;    // -1 = not requested (default), 0+ = device index
-    const char *precision_fmt;  // resolved printf format, e.g. "%.17g"
-    int precision_n;            // -1 = unset (default %.17g), else user N
+    int sycl_device;           // -1 = not requested (default), 0+ = device index
+    const char *precision_fmt; // resolved printf format, e.g. "%.17g"
+    int precision_n;           // -1 = unset (default %.17g), else user N
     bool precision_max;
     bool precision_legacy;
     /* Phase 3k — tiny-AI surface (all unset by default). */
-    const char *tiny_model_path;   /* NULL = no tiny model */
-    const char *tiny_device;       /* "auto"|"cpu"|"cuda"|"openvino"|"rocm" */
-    int         tiny_threads;      /* 0 = ORT default */
-    bool        tiny_fp16;
-    bool        no_reference;      /* skip reference; only meaningful with NR tiny model */
+    const char *tiny_model_path; /* NULL = no tiny model */
+    const char *tiny_device;     /* "auto"|"cpu"|"cuda"|"openvino"|"rocm" */
+    int tiny_threads;            /* 0 = ORT default */
+    bool tiny_fp16;
+    bool no_reference; /* skip reference; only meaningful with NR tiny model */
 } CLISettings;
 
-void cli_parse(const int argc, char *const *const argv,
-               CLISettings *const settings);
+void cli_parse(const int argc, char *const *const argv, CLISettings *const settings);
 
 void cli_free(CLISettings *settings);
 

@@ -21,10 +21,8 @@
 
 #include <stdint.h>
 
-uint32_t psnr_sse_line_8_neon(const uint8_t *ref, const uint8_t *dis,
-                               unsigned w);
+uint32_t psnr_sse_line_8_neon(const uint8_t *ref, const uint8_t *dis, unsigned w);
 
-uint64_t psnr_sse_line_16_neon(const uint16_t *ref, const uint16_t *dis,
-                                unsigned w);
+uint64_t psnr_sse_line_16_neon(const uint16_t *ref, const uint16_t *dis, unsigned w);
 
 #endif /* ARM64_NEON_PSNR_H_ */

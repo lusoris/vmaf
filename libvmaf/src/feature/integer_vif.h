@@ -30,13 +30,13 @@
 #endif // !DEFAULT_VIF_ENHN_GAIN_LIMIT
 
 static const uint16_t vif_filter1d_table[4][18] = {
-    { 489, 935, 1640, 2640, 3896, 5274, 6547, 7455, 7784, 7455, 6547, 5274, 3896, 2640, 1640, 935, 489, 0 },
-    { 1244, 3663, 7925, 12590, 14692, 12590, 7925, 3663, 1244, 0 },
-    { 3571, 16004, 26386, 16004, 3571, 0 },
-    { 10904, 43728, 10904, 0 }
-};
+    {489, 935, 1640, 2640, 3896, 5274, 6547, 7455, 7784, 7455, 6547, 5274, 3896, 2640, 1640, 935,
+     489, 0},
+    {1244, 3663, 7925, 12590, 14692, 12590, 7925, 3663, 1244, 0},
+    {3571, 16004, 26386, 16004, 3571, 0},
+    {10904, 43728, 10904, 0}};
 
-static const int vif_filter1d_width[4] = { 17, 9, 5, 3 };
+static const int vif_filter1d_width[4] = {17, 9, 5, 3};
 
 typedef struct VifBuffer {
     void *data;
@@ -117,25 +117,26 @@ static inline void PADDING_SQ_DATA_2(VifBuffer buf, int w, unsigned fwidth_half)
 }
 
 void vif_statistic_8(struct VifPublicState *s, float *num, float *den, unsigned w, unsigned h);
-void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned w, unsigned h, int bpc, int scale);
+void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned w, unsigned h,
+                      int bpc, int scale);
 
 /*
  * Compute vif residuals on a vertically filtered line 
  * This is a support method for block based vip_statistic_xxx method and is typically called
  * only when to is not a multiple of the block size, with from = (to / block_size) + block_size
  */
-VifResiduals vif_compute_line_residuals(VifPublicState *s, unsigned from,
-                                        unsigned to, int scale);
-
+VifResiduals vif_compute_line_residuals(VifPublicState *s, unsigned from, unsigned to, int scale);
 
 #if defined(_MSC_VER) && !defined(__clang__)
 #include <intrin.h>
 
-static inline int __builtin_clz(unsigned x) {
+static inline int __builtin_clz(unsigned x)
+{
     return (int)__lzcnt(x);
 }
 
-static inline int __builtin_clzll(unsigned long long x) {
+static inline int __builtin_clzll(unsigned long long x)
+{
     return (int)__lzcnt64(x);
 }
 

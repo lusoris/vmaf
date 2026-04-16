@@ -46,52 +46,45 @@ typedef struct MotionState {
     double score;
     bool debug;
     bool motion_force_zero;
-    void (*y_convolution)(void *src, uint16_t *dst, unsigned width,
-                          unsigned height, ptrdiff_t src_stride,
-                          ptrdiff_t dst_stride, unsigned inp_size_bits);
-    void (*x_convolution)(const uint16_t *src, uint16_t *dst, unsigned width,
-                          unsigned height, ptrdiff_t src_stride,
-                          ptrdiff_t dst_stride);
+    void (*y_convolution)(void *src, uint16_t *dst, unsigned width, unsigned height,
+                          ptrdiff_t src_stride, ptrdiff_t dst_stride, unsigned inp_size_bits);
+    void (*x_convolution)(const uint16_t *src, uint16_t *dst, unsigned width, unsigned height,
+                          ptrdiff_t src_stride, ptrdiff_t dst_stride);
     void (*sad)(VmafPicture *pic_a, VmafPicture *pic_b, uint64_t *sad);
     VmafDictionary *feature_name_dict;
 } MotionState;
 
-static const VmafOption options[] = {
-    {
-        .name = "debug",
-        .help = "debug mode: enable additional output",
-        .offset = offsetof(MotionState, debug),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = true,
-    },
-    {
-        .name = "motion_force_zero",
-        .alias = "force_0",
-        .help = "forcing motion score to zero",
-        .offset = offsetof(MotionState, motion_force_zero),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = false,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    { 0 }
-};
+static const VmafOption options[] = {{
+                                         .name = "debug",
+                                         .help = "debug mode: enable additional output",
+                                         .offset = offsetof(MotionState, debug),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = true,
+                                     },
+                                     {
+                                         .name = "motion_force_zero",
+                                         .alias = "force_0",
+                                         .help = "forcing motion score to zero",
+                                         .offset = offsetof(MotionState, motion_force_zero),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = false,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {0}};
 
-static inline void
-x_convolution_16(const uint16_t *src, uint16_t *dst, unsigned width,
-                 unsigned height, ptrdiff_t src_stride,
-                 ptrdiff_t dst_stride)
+static inline void x_convolution_16(const uint16_t *src, uint16_t *dst, unsigned width,
+                                    unsigned height, ptrdiff_t src_stride, ptrdiff_t dst_stride)
 {
     const unsigned radius = filter_width / 2;
     const unsigned left_edge = vmaf_ceiln(radius, 1);
     const unsigned right_edge = vmaf_floorn(width - (filter_width - radius), 1);
     const unsigned shift_add_round = 32768;
 
-    uint16_t *src_p = (uint16_t*) src + (left_edge - radius);
+    uint16_t *src_p = (uint16_t *)src + (left_edge - radius);
     for (unsigned i = 0; i < height; ++i) {
         for (unsigned j = 0; j < left_edge; j++) {
             dst[i * dst_stride + j] =
-                (edge_16(true, src, width, height, src_stride, i, j) +
-                 shift_add_round) >> 16;
+                (edge_16(true, src, width, height, src_stride, i, j) + shift_add_round) >> 16;
         }
 
         uint16_t *src_p1 = src_p;
@@ -108,31 +101,29 @@ x_convolution_16(const uint16_t *src, uint16_t *dst, unsigned width,
 
         for (unsigned j = right_edge; j < width; j++) {
             dst[i * dst_stride + j] =
-                (edge_16(true, src, width, height, src_stride, i, j) +
-                 shift_add_round) >> 16;
+                (edge_16(true, src, width, height, src_stride, i, j) + shift_add_round) >> 16;
         }
 
         src_p += src_stride;
     }
 }
 
-static inline void
-y_convolution_16(void *src, uint16_t *dst, unsigned width,
-                 unsigned height, ptrdiff_t src_stride,
-                 ptrdiff_t dst_stride, unsigned inp_size_bits)
+static inline void y_convolution_16(void *src, uint16_t *dst, unsigned width, unsigned height,
+                                    ptrdiff_t src_stride, ptrdiff_t dst_stride,
+                                    unsigned inp_size_bits)
 {
     const unsigned radius = filter_width / 2;
     const unsigned top_edge = vmaf_ceiln(radius, 1);
     const unsigned bottom_edge = vmaf_floorn(height - (filter_width - radius), 1);
-    const unsigned add_before_shift = (int) pow(2, (inp_size_bits - 1));
+    const unsigned add_before_shift = (int)pow(2, (inp_size_bits - 1));
     const unsigned shift_var = inp_size_bits;
 
-    uint16_t *src_p = (uint16_t*) src + (top_edge - radius) * src_stride;
+    uint16_t *src_p = (uint16_t *)src + (top_edge - radius) * src_stride;
     for (unsigned i = 0; i < top_edge; i++) {
         for (unsigned j = 0; j < width; ++j) {
             dst[i * dst_stride + j] =
-                (edge_16(false, src, width, height, src_stride, i, j) +
-                 add_before_shift) >> shift_var;
+                (edge_16(false, src, width, height, src_stride, i, j) + add_before_shift) >>
+                shift_var;
         }
     }
 
@@ -154,14 +145,13 @@ y_convolution_16(void *src, uint16_t *dst, unsigned width,
     for (unsigned i = bottom_edge; i < height; i++) {
         for (unsigned j = 0; j < width; ++j) {
             dst[i * dst_stride + j] =
-                (edge_16(false, src, width, height, src_stride, i, j) +
-                 add_before_shift) >> shift_var;
+                (edge_16(false, src, width, height, src_stride, i, j) + add_before_shift) >>
+                shift_var;
         }
     }
 }
 
-static inline uint32_t
-edge_8(const uint8_t *src, int height, int stride, int i, int j)
+static inline uint32_t edge_8(const uint8_t *src, int height, int stride, int i, int j)
 {
     int radius = filter_width / 2;
     uint32_t accum = 0;
@@ -181,27 +171,25 @@ edge_8(const uint8_t *src, int height, int stride, int i, int j)
     return accum;
 }
 
-static inline void
-y_convolution_8(void *src, uint16_t *dst, unsigned width,
-                unsigned height, ptrdiff_t src_stride, ptrdiff_t dst_stride,
-                unsigned inp_size_bits)
+static inline void y_convolution_8(void *src, uint16_t *dst, unsigned width, unsigned height,
+                                   ptrdiff_t src_stride, ptrdiff_t dst_stride,
+                                   unsigned inp_size_bits)
 {
-    (void) inp_size_bits;
+    (void)inp_size_bits;
     const unsigned radius = filter_width / 2;
     const unsigned top_edge = vmaf_ceiln(radius, 1);
     const unsigned bottom_edge = vmaf_floorn(height - (filter_width - radius), 1);
     const unsigned shift_var = 8;
-    const unsigned add_before_shift = (int) pow(2, (shift_var - 1));
+    const unsigned add_before_shift = (int)pow(2, (shift_var - 1));
 
     for (unsigned i = 0; i < top_edge; i++) {
         for (unsigned j = 0; j < width; ++j) {
             dst[i * dst_stride + j] =
-                (edge_8(src, height, src_stride, i, j) +
-                 add_before_shift) >> shift_var;
+                (edge_8(src, height, src_stride, i, j) + add_before_shift) >> shift_var;
         }
     }
 
-    uint8_t *src_p = (uint8_t*) src + (top_edge - radius) * src_stride;
+    uint8_t *src_p = (uint8_t *)src + (top_edge - radius) * src_stride;
     for (unsigned i = top_edge; i < bottom_edge; i++) {
         uint8_t *src_p1 = src_p;
         for (unsigned j = 0; j < width; ++j) {
@@ -220,8 +208,7 @@ y_convolution_8(void *src, uint16_t *dst, unsigned width,
     for (unsigned i = bottom_edge; i < height; i++) {
         for (unsigned j = 0; j < width; ++j) {
             dst[i * dst_stride + j] =
-                (edge_8(src, height, src_stride, i, j) +
-                 add_before_shift) >> shift_var;
+                (edge_8(src, height, src_stride, i, j) + add_before_shift) >> shift_var;
         }
     }
 }
@@ -243,30 +230,27 @@ static void sad_c(VmafPicture *pic_a, VmafPicture *pic_b, uint64_t *sad)
     }
 }
 
-static int extract_force_zero(VmafFeatureExtractor *fex,
-                              VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                              VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                              unsigned index,
+static int extract_force_zero(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
+                              VmafPicture *ref_pic_90, VmafPicture *dist_pic,
+                              VmafPicture *dist_pic_90, unsigned index,
                               VmafFeatureCollector *feature_collector)
 {
     MotionState *s = fex->priv;
 
-    (void) fex;
-    (void) ref_pic;
-    (void) ref_pic_90;
-    (void) dist_pic;
-    (void) dist_pic_90;
+    (void)fex;
+    (void)ref_pic;
+    (void)ref_pic_90;
+    (void)dist_pic;
+    (void)dist_pic_90;
 
-    int err =
-        vmaf_feature_collector_append_with_dict(feature_collector,
-                s->feature_name_dict, "VMAF_integer_feature_motion2_score", 0.,
-                index);
+    int err = vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "VMAF_integer_feature_motion2_score", 0., index);
 
-    if (!s->debug) return err;
+    if (!s->debug)
+        return err;
 
-    err = vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "VMAF_integer_feature_motion_score", 0.,
-            index);
+    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                  "VMAF_integer_feature_motion_score", 0., index);
 
     return err;
 }
@@ -278,19 +262,19 @@ static int close_force_zero(VmafFeatureExtractor *fex)
     return vmaf_dictionary_free(&s->feature_name_dict);
 }
 
-static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h)
+static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                unsigned h)
 {
-    (void) pix_fmt;
+    (void)pix_fmt;
 
     MotionState *s = fex->priv;
     int err = 0;
     unsigned flags = vmaf_get_cpu_flags();
 
     s->feature_name_dict =
-        vmaf_feature_name_dict_from_provided_features(fex->provided_features,
-                fex->options, s);
-    if (!s->feature_name_dict) goto fail;
+        vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
+    if (!s->feature_name_dict)
+        goto fail;
 
     if (s->motion_force_zero) {
         fex->extract = extract_force_zero;
@@ -303,7 +287,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     err |= vmaf_picture_alloc(&s->blur[0], VMAF_PIX_FMT_YUV400P, 16, w, h);
     err |= vmaf_picture_alloc(&s->blur[1], VMAF_PIX_FMT_YUV400P, 16, w, h);
     err |= vmaf_picture_alloc(&s->blur[2], VMAF_PIX_FMT_YUV400P, 16, w, h);
-    if (err) goto fail;
+    if (err)
+        goto fail;
 
     s->y_convolution = bpc == 8 ? y_convolution_8 : y_convolution_16;
 #if ARCH_X86
@@ -353,78 +338,68 @@ fail:
     return err;
 }
 
-static int flush(VmafFeatureExtractor *fex,
-                 VmafFeatureCollector *feature_collector)
+static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
     MotionState *s = fex->priv;
     int ret = 0;
 
     if (s->index > 0) {
-        ret = vmaf_feature_collector_append(feature_collector,
-                                            "VMAF_integer_feature_motion2_score",
+        ret = vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_score",
                                             s->score, s->index);
     }
 
     return (ret < 0) ? ret : !ret;
 }
 
-static inline double normalize_and_scale_sad(uint64_t sad,
-                                             unsigned w, unsigned h)
+static inline double normalize_and_scale_sad(uint64_t sad, unsigned w, unsigned h)
 {
-    return (float) (sad / 256.) / (w * h);
+    return (float)(sad / 256.) / (w * h);
 }
 
-static int extract(VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector)
+static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector)
 {
     MotionState *s = fex->priv;
     int err = 0;
 
-    (void) dist_pic;
-    (void) ref_pic_90;
-    (void) dist_pic_90;
+    (void)dist_pic;
+    (void)ref_pic_90;
+    (void)dist_pic_90;
 
     s->index = index;
     const unsigned blur_idx_0 = (index + 0) % 3;
     const unsigned blur_idx_1 = (index + 1) % 3;
     const unsigned blur_idx_2 = (index + 2) % 3;
 
-    const ptrdiff_t y_src_stride =
-        ref_pic->bpc == 8 ? ref_pic->stride[0] : ref_pic->stride[0] / 2;
+    const ptrdiff_t y_src_stride = ref_pic->bpc == 8 ? ref_pic->stride[0] : ref_pic->stride[0] / 2;
 
-    s->y_convolution(ref_pic->data[0], s->tmp.data[0], ref_pic->w[0],
-                     ref_pic->h[0], y_src_stride, s->tmp.stride[0] / 2,
-                     ref_pic->bpc);
+    s->y_convolution(ref_pic->data[0], s->tmp.data[0], ref_pic->w[0], ref_pic->h[0], y_src_stride,
+                     s->tmp.stride[0] / 2, ref_pic->bpc);
 
-    s->x_convolution(s->tmp.data[0], s->blur[blur_idx_0].data[0],
-                     s->tmp.w[0], s->tmp.h[0], s->tmp.stride[0] / 2,
-                     s->blur[blur_idx_0].stride[0] / 2);
+    s->x_convolution(s->tmp.data[0], s->blur[blur_idx_0].data[0], s->tmp.w[0], s->tmp.h[0],
+                     s->tmp.stride[0] / 2, s->blur[blur_idx_0].stride[0] / 2);
 
     if (index == 0) {
-        err = vmaf_feature_collector_append(feature_collector,
-                                            "VMAF_integer_feature_motion2_score",
+        err = vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_score",
                                             0., index);
         if (s->debug) {
             err |= vmaf_feature_collector_append(feature_collector,
-                                                 "VMAF_integer_feature_motion_score",
-                                                 0., index);
+                                                 "VMAF_integer_feature_motion_score", 0., index);
         }
         return err;
     }
 
     uint64_t sad;
     s->sad(&s->blur[blur_idx_2], &s->blur[blur_idx_0], &sad);
-    double score = s->score =
-        normalize_and_scale_sad(sad, ref_pic->w[0], ref_pic->h[0]);
+    double score = s->score = normalize_and_scale_sad(sad, ref_pic->w[0], ref_pic->h[0]);
 
     if (s->debug) {
-        err |= vmaf_feature_collector_append(feature_collector,
-                                             "VMAF_integer_feature_motion_score",
+        err |= vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion_score",
                                              score, index);
     }
-    if (err) return err;
+    if (err)
+        return err;
 
     if (index == 1)
         return 0;
@@ -434,8 +409,7 @@ static int extract(VmafFeatureExtractor *fex,
     double score2 = normalize_and_scale_sad(sad2, ref_pic->w[0], ref_pic->h[0]);
 
     score2 = score2 < score ? score2 : score;
-    err = vmaf_feature_collector_append(feature_collector,
-                                        "VMAF_integer_feature_motion2_score",
+    err = vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_score",
                                         score2, index - 1);
     return err;
 }
@@ -453,10 +427,8 @@ static int close(VmafFeatureExtractor *fex)
     return err;
 }
 
-static const char *provided_features[] = {
-    "VMAF_integer_feature_motion_score", "VMAF_integer_feature_motion2_score",
-    NULL
-};
+static const char *provided_features[] = {"VMAF_integer_feature_motion_score",
+                                          "VMAF_integer_feature_motion2_score", NULL};
 
 VmafFeatureExtractor vmaf_fex_integer_motion = {
     .name = "motion",

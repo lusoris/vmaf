@@ -38,10 +38,10 @@
  */
 
 #ifdef VMAF_DEBUG
-#  include <assert.h>
-#  define VMAF_ASSERT_DEBUG(expr) assert(expr)
+#include <assert.h>
+#define VMAF_ASSERT_DEBUG(expr) assert(expr)
 #else
-#  define VMAF_ASSERT_DEBUG(expr) ((void)sizeof(expr))
+#define VMAF_ASSERT_DEBUG(expr) ((void)sizeof(expr))
 #endif
 
 #endif /* __VMAF_ASSERT_H__ */

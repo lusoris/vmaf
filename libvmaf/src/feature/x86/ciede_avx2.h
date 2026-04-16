@@ -21,12 +21,10 @@
 
 #include <stdint.h>
 
-void ciede_preprocess_8_avx2(const uint8_t *y_buf, const uint8_t *u_buf,
-                              const uint8_t *v_buf, float *out_y, float *out_u,
-                              float *out_v, int w);
+void ciede_preprocess_8_avx2(const uint8_t *y_buf, const uint8_t *u_buf, const uint8_t *v_buf,
+                             float *out_y, float *out_u, float *out_v, int w);
 
-void ciede_preprocess_16_avx2(const uint16_t *y_buf, const uint16_t *u_buf,
-                               const uint16_t *v_buf, float *out_y,
-                               float *out_u, float *out_v, int w);
+void ciede_preprocess_16_avx2(const uint16_t *y_buf, const uint16_t *u_buf, const uint16_t *v_buf,
+                              float *out_y, float *out_u, float *out_v, int w);
 
 #endif /* X86_AVX2_CIEDE_H_ */

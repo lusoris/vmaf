@@ -28,7 +28,7 @@
 #include "feature_name.h"
 #include "opt.h"
 
-static size_t snprintfcat(char* buf, size_t buf_sz, char const* fmt, ...)
+static size_t snprintfcat(char *buf, size_t buf_sz, char const *fmt, ...)
 {
     va_list args;
     const size_t len = strnlen(buf, buf_sz);
@@ -41,15 +41,15 @@ static size_t snprintfcat(char* buf, size_t buf_sz, char const* fmt, ...)
 
 #define VMAF_FEATURE_NAME_DEFAULT_BUFFER_SIZE 256
 
-static char *vmaf_feature_name_from_opts_dict(const char *name,
-                              const VmafOption *opts, VmafDictionary *opts_dict)
+static char *vmaf_feature_name_from_opts_dict(const char *name, const VmafOption *opts,
+                                              VmafDictionary *opts_dict)
 {
     VmafDictionary *sorted_dict = NULL;
     vmaf_dictionary_copy(&opts_dict, &sorted_dict);
     vmaf_dictionary_alphabetical_sort(sorted_dict);
 
     const size_t buf_sz = VMAF_FEATURE_NAME_DEFAULT_BUFFER_SIZE;
-    char buf[VMAF_FEATURE_NAME_DEFAULT_BUFFER_SIZE + 1] = { 0 };
+    char buf[VMAF_FEATURE_NAME_DEFAULT_BUFFER_SIZE + 1] = {0};
 
     if (!opts || !sorted_dict) {
         snprintfcat(buf, buf_sz, "%s", name);
@@ -59,9 +59,12 @@ static char *vmaf_feature_name_from_opts_dict(const char *name,
         for (unsigned i = 0; i < sorted_dict->cnt; i++) {
             const VmafOption *opt = NULL;
             for (unsigned j = 0; (opt = &opts[j]); j++) {
-                if (!opt->name) break;
-                if (strcmp(opt->name, sorted_dict->entry[i].key)) continue;
-                if (!(opt->flags & VMAF_OPT_FLAG_FEATURE_PARAM)) continue;
+                if (!opt->name)
+                    break;
+                if (strcmp(opt->name, sorted_dict->entry[i].key))
+                    continue;
+                if (!(opt->flags & VMAF_OPT_FLAG_FEATURE_PARAM))
+                    continue;
                 const char *key = opt->alias ? opt->alias : opt->name;
                 const char *val = sorted_dict->entry[i].val;
 
@@ -75,78 +78,86 @@ static char *vmaf_feature_name_from_opts_dict(const char *name,
                 }
             }
         }
-
     }
 
     vmaf_dictionary_free(&sorted_dict);
 
     const size_t dst_sz = strnlen(buf, buf_sz) + 1;
     char *dst = malloc(dst_sz);
-    if (!dst) return NULL;
+    if (!dst)
+        return NULL;
     strncpy(dst, buf, dst_sz);
     return dst;
 }
 
 static int option_is_default(const VmafOption *opt, const void *data)
 {
-    if (!opt) return -EINVAL;
-    if (!data) return -EINVAL;
+    if (!opt)
+        return -EINVAL;
+    if (!data)
+        return -EINVAL;
 
     switch (opt->type) {
     case VMAF_OPT_TYPE_BOOL:
-        return opt->default_val.b == *((bool*)data);
+        return opt->default_val.b == *((bool *)data);
     case VMAF_OPT_TYPE_INT:
-        return opt->default_val.i == *((int*)data);
+        return opt->default_val.i == *((int *)data);
     case VMAF_OPT_TYPE_DOUBLE:
-        return opt->default_val.d == *((double*)data);
+        return opt->default_val.d == *((double *)data);
     case VMAF_OPT_TYPE_STRING:
-        return !strcmp(opt->default_val.s, *((char**)data));
+        return !strcmp(opt->default_val.s, *((char **)data));
     default:
         return -EINVAL;
     }
 }
 
-char *vmaf_feature_name_from_options(const char *name, const VmafOption *opts,
-                                     void *obj)
+char *vmaf_feature_name_from_options(const char *name, const VmafOption *opts, void *obj)
 {
-    if (!name) return NULL;
+    if (!name)
+        return NULL;
 
     VmafDictionary *opts_dict = NULL;
     char *output = NULL;
 
-    if (!opts) goto write_output;
-    if (!obj) goto write_output;
+    if (!opts)
+        goto write_output;
+    if (!obj)
+        goto write_output;
 
     const VmafOption *opt = NULL;
     for (unsigned i = 0; (opt = &opts[i]); i++) {
-        if (!opt->name) break;
-        if (!(opt->flags & VMAF_OPT_FLAG_FEATURE_PARAM)) continue;
+        if (!opt->name)
+            break;
+        if (!(opt->flags & VMAF_OPT_FLAG_FEATURE_PARAM))
+            continue;
 
-        const void *data = (uint8_t*)obj + opt->offset;
-        if (option_is_default(opt, data)) continue;
+        const void *data = (uint8_t *)obj + opt->offset;
+        if (option_is_default(opt, data))
+            continue;
 
         const size_t buf_sz = VMAF_FEATURE_NAME_DEFAULT_BUFFER_SIZE;
-        char buf[VMAF_FEATURE_NAME_DEFAULT_BUFFER_SIZE + 1] = { 0 };
+        char buf[VMAF_FEATURE_NAME_DEFAULT_BUFFER_SIZE + 1] = {0};
 
         switch (opt->type) {
         case VMAF_OPT_TYPE_BOOL:
-            snprintf(buf, buf_sz, "%s", *((bool*)data) ? "true" : "false");
+            snprintf(buf, buf_sz, "%s", *((bool *)data) ? "true" : "false");
             break;
         case VMAF_OPT_TYPE_INT:
-            snprintf(buf, buf_sz, "%d", *((int*)data));
+            snprintf(buf, buf_sz, "%d", *((int *)data));
             break;
         case VMAF_OPT_TYPE_DOUBLE:
-            snprintf(buf, buf_sz, "%g", *((double*)data));
+            snprintf(buf, buf_sz, "%g", *((double *)data));
             break;
         case VMAF_OPT_TYPE_STRING:
-            snprintf(buf, buf_sz, "%s", *((char**)data));
+            snprintf(buf, buf_sz, "%s", *((char **)data));
             break;
         default:
             break;
         }
 
         int err = vmaf_dictionary_set(&opts_dict, opt->name, buf, 0);
-        if (err) goto exit;
+        if (err)
+            goto exit;
     }
 
 write_output:
@@ -156,19 +167,20 @@ exit:
     return output;
 }
 
-VmafDictionary *
-vmaf_feature_name_dict_from_provided_features(const char **provided_features,
-                                              const VmafOption *opts, void *obj)
+VmafDictionary *vmaf_feature_name_dict_from_provided_features(const char **provided_features,
+                                                              const VmafOption *opts, void *obj)
 {
     VmafDictionary *dict = NULL;
 
     const char *feature_name;
     for (unsigned i = 0; (feature_name = provided_features[i]); i++) {
         char *fn = vmaf_feature_name_from_options(feature_name, opts, obj);
-        if (!fn) goto fail;
+        if (!fn)
+            goto fail;
         int err = vmaf_dictionary_set(&dict, feature_name, fn, 0);
         free(fn);
-        if (err) goto fail;
+        if (err)
+            goto fail;
     }
     return dict;
 

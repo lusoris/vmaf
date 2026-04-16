@@ -40,46 +40,57 @@
 
 float KBND_SYMMETRIC(const float *img, int w, int h, int x, int y, float bnd_const)
 {
-    (void) bnd_const;
-    if (x<0) x=-1-x;
-    else if (x>=w) x=(w-(x-w))-1;
-    if (y<0) y=-1-y;
-    else if (y>=h) y=(h-(y-h))-1;
-    return img[y*w + x];
+    (void)bnd_const;
+    if (x < 0)
+        x = -1 - x;
+    else if (x >= w)
+        x = (w - (x - w)) - 1;
+    if (y < 0)
+        y = -1 - y;
+    else if (y >= h)
+        y = (h - (y - h)) - 1;
+    return img[y * w + x];
 }
 
 float KBND_REPLICATE(const float *img, int w, int h, int x, int y, float bnd_const)
 {
-    (void) bnd_const;
-    if (x<0) x=0;
-    if (x>=w) x=w-1;
-    if (y<0) y=0;
-    if (y>=h) y=h-1;
-    return img[y*w + x];
+    (void)bnd_const;
+    if (x < 0)
+        x = 0;
+    if (x >= w)
+        x = w - 1;
+    if (y < 0)
+        y = 0;
+    if (y >= h)
+        y = h - 1;
+    return img[y * w + x];
 }
 
 float KBND_CONSTANT(const float *img, int w, int h, int x, int y, float bnd_const)
 {
-    if (x<0) x=0;
-    if (y<0) y=0;
-    if (x>=w || y>=h)
+    if (x < 0)
+        x = 0;
+    if (y < 0)
+        y = 0;
+    if (x >= w || y >= h)
         return bnd_const;
-    return img[y*w + x];
+    return img[y * w + x];
 }
 
 static float _calc_scale(const struct _kernel *k)
 {
-    int ii,k_len;
-    double sum=0.0;
+    int ii, k_len;
+    double sum = 0.0;
 
     if (k->normalized)
         return 1.0f;
     else {
 
-        assert(0); /* zli-nflx: TODO: generalize to make _calc_scale work on 1D separable filtering */
+        assert(
+            0); /* zli-nflx: TODO: generalize to make _calc_scale work on 1D separable filtering */
 
         k_len = k->w * k->h;
-        for (ii=0; ii<k_len; ++ii)
+        for (ii = 0; ii < k_len; ++ii)
             sum += k->kernel[ii];
         if (sum != 0.0)
             return (float)(1.0 / sum);
@@ -87,21 +98,22 @@ static float _calc_scale(const struct _kernel *k)
     }
 }
 
-void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw, int *rh)
+void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw,
+                   int *rh)
 {
 
 #ifdef IQA_CONVOLVE_1D
 
     /* use 1D separable filter */
 
-    int x,y,kx,ky,u,v;
-    int uc = k->w/2;
-    int vc = k->h/2;
-    int kw_even = (k->w&1)?0:1;
-    int kh_even = (k->h&1)?0:1;
+    int x, y, kx, ky, u, v;
+    int uc = k->w / 2;
+    int vc = k->h / 2;
+    int kw_even = (k->w & 1) ? 0 : 1;
+    int kh_even = (k->h & 1) ? 0 : 1;
     int dst_w = w - k->w + 1;
     int dst_h = h - k->h + 1;
-    int img_offset,k_offset;
+    int img_offset, k_offset;
     double sum;
     float scale, *dst;
     float *img_cache;
@@ -111,7 +123,7 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
     scale = _calc_scale(k);
 
     /* create cache */
-    img_cache = (float *)calloc(w*h, sizeof(float));
+    img_cache = (float *)calloc(w * h, sizeof(float));
     if (!img_cache)
         assert(0);
 
@@ -120,14 +132,14 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
         dst = img; /* Convolve in-place */
 
     /* filter horizontally */
-    for (y=-vc; y<dst_h+vc; ++y) {
-        for (x=0; x<dst_w; ++x) {
+    for (y = -vc; y < dst_h + vc; ++y) {
+        for (x = 0; x < dst_w; ++x) {
             sum = 0.0;
             k_offset = 0;
-            ky = y+vc;
-            kx = x+uc;
-            img_offset = ky*w + kx;
-            for (u=-uc; u<=uc-kw_even; ++u, ++k_offset) {
+            ky = y + vc;
+            kx = x + uc;
+            img_offset = ky * w + kx;
+            for (u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
                 sum += img[img_offset + u] * k->kernel_h[k_offset];
             }
             img_cache[img_offset] = (float)(sum * scale);
@@ -135,17 +147,17 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
     }
 
     /* filter vertically */
-    for (x=0; x<dst_w; ++x) {
-        for (y=0; y<dst_h; ++y) {
+    for (x = 0; x < dst_w; ++x) {
+        for (y = 0; y < dst_h; ++y) {
             sum = 0.0;
             k_offset = 0;
-            ky = y+vc;
-            kx = x+uc;
-            img_offset = ky*w + kx;
-            for (v=-vc; v<=vc-kh_even; ++v, ++k_offset) {
-                sum += img_cache[img_offset + v*w] * k->kernel_v[k_offset];
+            ky = y + vc;
+            kx = x + uc;
+            img_offset = ky * w + kx;
+            for (v = -vc; v <= vc - kh_even; ++v, ++k_offset) {
+                sum += img_cache[img_offset + v * w] * k->kernel_v[k_offset];
             }
-            dst[y*dst_w + x] = (float)(sum * scale);
+            dst[y * dst_w + x] = (float)(sum * scale);
         }
     }
 
@@ -154,16 +166,16 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
 
 #else /* use 2D filter */
 
-    int x,y,kx,ky,u,v;
-    int uc = k->w/2;
-    int vc = k->h/2;
-    int kw_even = (k->w&1)?0:1;
-    int kh_even = (k->h&1)?0:1;
+    int x, y, kx, ky, u, v;
+    int uc = k->w / 2;
+    int vc = k->h / 2;
+    int kw_even = (k->w & 1) ? 0 : 1;
+    int kh_even = (k->h & 1) ? 0 : 1;
     int dst_w = w - k->w + 1;
     int dst_h = h - k->h + 1;
-    int img_offset,k_offset;
+    int img_offset, k_offset;
     float sum;
-    float scale, *dst=result;
+    float scale, *dst = result;
 
     if (!dst)
         dst = img; /* Convolve in-place */
@@ -171,40 +183,41 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
     /* Kernel is applied to all positions where the kernel is fully contained
      * in the image */
     scale = _calc_scale(k);
-    for (y=0; y < dst_h; ++y) {
-        for (x=0; x < dst_w; ++x) {
+    for (y = 0; y < dst_h; ++y) {
+        for (x = 0; x < dst_w; ++x) {
             sum = 0.0;
             k_offset = 0;
-            ky = y+vc;
-            kx = x+uc;
-            for (v=-vc; v <= vc-kh_even; ++v) {
-                img_offset = (ky+v)*w + kx;
-                for (u=-uc; u <= uc-kw_even; ++u, ++k_offset) {
-                    sum += img[img_offset+u] * k->kernel[k_offset];
+            ky = y + vc;
+            kx = x + uc;
+            for (v = -vc; v <= vc - kh_even; ++v) {
+                img_offset = (ky + v) * w + kx;
+                for (u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
+                    sum += img[img_offset + u] * k->kernel[k_offset];
                 }
             }
-            dst[y*dst_w + x] = (float)(sum * scale);
+            dst[y * dst_w + x] = (float)(sum * scale);
         }
     }
 
 #endif
 
-    if (rw) *rw = dst_w;
-    if (rh) *rh = dst_h;
-
+    if (rw)
+        *rw = dst_w;
+    if (rh)
+        *rh = dst_h;
 }
 
 int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *result)
 {
-    int x,y;
+    int x, y;
     int img_offset;
-    float scale, *dst=result;
+    float scale, *dst = result;
 
     if (!k || !k->bnd_opt)
         return 1;
 
     if (!dst) {
-        dst = (float*)malloc(w*h*sizeof(float));
+        dst = (float *)malloc(w * h * sizeof(float));
         if (!dst)
             return 2;
     }
@@ -212,17 +225,17 @@ int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *re
     scale = _calc_scale(k);
 
     /* Kernel is applied to all positions where top-left corner is in the image */
-    for (y=0; y < h; ++y) {
-        for (x=0; x < w; ++x) {
-            dst[y*w + x] = _iqa_filter_pixel(img, w, h, x, y, k, scale);
+    for (y = 0; y < h; ++y) {
+        for (x = 0; x < w; ++x) {
+            dst[y * w + x] = _iqa_filter_pixel(img, w, h, x, y, k, scale);
         }
     }
 
     /* If no result buffer given, copy results to image buffer */
     if (!result) {
-        for (y=0; y<h; ++y) {
-            img_offset = y*w;
-            for (x=0; x<w; ++x, ++img_offset) {
+        for (y = 0; y < h; ++y) {
+            img_offset = y * w;
+            for (x = 0; x < w; ++x, ++img_offset) {
                 img[img_offset] = dst[img_offset];
             }
         }
@@ -231,25 +244,26 @@ int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *re
     return 0;
 }
 
-float _iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct _kernel *k, const float kscale)
+float _iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct _kernel *k,
+                        const float kscale)
 {
-    int u,v,uc,vc;
-    int kw_even,kh_even;
-    int x_edge_left,x_edge_right,y_edge_top,y_edge_bottom;
-    int edge,img_offset,k_offset;
+    int u, v, uc, vc;
+    int kw_even, kh_even;
+    int x_edge_left, x_edge_right, y_edge_top, y_edge_bottom;
+    int edge, img_offset, k_offset;
     double sum;
 
     if (!k)
-        return img[y*w + x];
+        return img[y * w + x];
 
-    uc = k->w/2;
-    vc = k->h/2;
-    kw_even = (k->w&1)?0:1;
-    kh_even = (k->h&1)?0:1;
-    x_edge_left  = uc;
-    x_edge_right = w-uc;
+    uc = k->w / 2;
+    vc = k->h / 2;
+    kw_even = (k->w & 1) ? 0 : 1;
+    kh_even = (k->h & 1) ? 0 : 1;
+    x_edge_left = uc;
+    x_edge_right = w - uc;
     y_edge_top = vc;
-    y_edge_bottom = h-vc;
+    y_edge_bottom = h - vc;
 
     edge = 0;
     if (x < x_edge_left || y < y_edge_top || x >= x_edge_right || y >= y_edge_bottom)
@@ -257,13 +271,13 @@ float _iqa_filter_pixel(const float *img, int w, int h, int x, int y, const stru
 
     sum = 0.0;
     k_offset = 0;
-    for (v=-vc; v <= vc-kh_even; ++v) {
-        img_offset = (y+v)*w + x;
-        for (u=-uc; u <= uc-kw_even; ++u, ++k_offset) {
+    for (v = -vc; v <= vc - kh_even; ++v) {
+        img_offset = (y + v) * w + x;
+        for (u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
             if (!edge)
-                sum += img[img_offset+u] * k->kernel[k_offset];
+                sum += img[img_offset + u] * k->kernel[k_offset];
             else
-                sum += k->bnd_opt(img, w, h, x+u, y+v, k->bnd_const) * k->kernel[k_offset];
+                sum += k->bnd_opt(img, w, h, x + u, y + v, k->bnd_const) * k->kernel[k_offset];
         }
     }
     return (float)(sum * kscale);

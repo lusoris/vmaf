@@ -47,35 +47,33 @@ typedef struct VifState {
     void (*subsample_rd_8)(VifBuffer buf, unsigned w, unsigned h);
     void (*subsample_rd_16)(VifBuffer buf, unsigned w, unsigned h, int scale, int bpc);
     void (*vif_statistic_8)(VifPublicState *s, float *num, float *den, unsigned w, unsigned h);
-    void (*vif_statistic_16)(VifPublicState *s, float *num, float *den, unsigned w, unsigned h, int bpc, int scale);
+    void (*vif_statistic_16)(VifPublicState *s, float *num, float *den, unsigned w, unsigned h,
+                             int bpc, int scale);
     VmafDictionary *feature_name_dict;
 } VifState;
 
-static const VmafOption options[] = {
-    {
-        .name = "debug",
-        .help = "debug mode: enable additional output",
-        .offset = offsetof(VifState, debug),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = false,
-    },
-    {
-        .name = "vif_enhn_gain_limit",
-        .alias = "egl",
-        .help = "enhancement gain imposed on vif, must be >= 1.0, "
-                "where 1.0 means the gain is completely disabled",
-        .offset = offsetof(VifState, public.vif_enhn_gain_limit),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = DEFAULT_VIF_ENHN_GAIN_LIMIT,
-        .min = 1.0,
-        .max = DEFAULT_VIF_ENHN_GAIN_LIMIT,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    { 0 }
-};
+static const VmafOption options[] = {{
+                                         .name = "debug",
+                                         .help = "debug mode: enable additional output",
+                                         .offset = offsetof(VifState, debug),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = false,
+                                     },
+                                     {
+                                         .name = "vif_enhn_gain_limit",
+                                         .alias = "egl",
+                                         .help = "enhancement gain imposed on vif, must be >= 1.0, "
+                                                 "where 1.0 means the gain is completely disabled",
+                                         .offset = offsetof(VifState, public.vif_enhn_gain_limit),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val.d = DEFAULT_VIF_ENHN_GAIN_LIMIT,
+                                         .min = 1.0,
+                                         .max = DEFAULT_VIF_ENHN_GAIN_LIMIT,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {0}};
 
-static FORCE_INLINE void
-pad_top_and_bottom(VifBuffer buf, unsigned h, int fwidth)
+static FORCE_INLINE void pad_top_and_bottom(VifBuffer buf, unsigned h, int fwidth)
 {
     const unsigned fwidth_half = fwidth / 2;
     unsigned char *ref = buf.ref;
@@ -85,16 +83,13 @@ pad_top_and_bottom(VifBuffer buf, unsigned h, int fwidth)
         memcpy(ref - offset, ref + offset, buf.stride);
         memcpy(dis - offset, dis + offset, buf.stride);
         memcpy(ref + buf.stride * (h - 1) + buf.stride * i,
-               ref + buf.stride * (h - 1) - buf.stride * i,
-               buf.stride);
+               ref + buf.stride * (h - 1) - buf.stride * i, buf.stride);
         memcpy(dis + buf.stride * (h - 1) + buf.stride * i,
-               dis + buf.stride * (h - 1) - buf.stride * i,
-               buf.stride);
+               dis + buf.stride * (h - 1) - buf.stride * i, buf.stride);
     }
 }
 
-static FORCE_INLINE void
-decimate_and_pad(VifBuffer buf, unsigned w, unsigned h, int scale)
+static FORCE_INLINE void decimate_and_pad(VifBuffer buf, unsigned w, unsigned h, int scale)
 {
     uint16_t *ref = buf.ref;
     uint16_t *dis = buf.dis;
@@ -124,8 +119,8 @@ static void subsample_rd_8(VifBuffer buf, unsigned w, unsigned h)
                 int ii = i - fwidth / 2;
                 int ii_check = ii + fi;
                 const uint16_t fcoeff = vif_filt_s1[fi];
-                const uint8_t *ref = (uint8_t*)buf.ref;
-                const uint8_t *dis = (uint8_t*)buf.dis;
+                const uint8_t *ref = (uint8_t *)buf.ref;
+                const uint8_t *dis = (uint8_t *)buf.dis;
                 accum_ref += fcoeff * (uint32_t)ref[ii_check * buf.stride + j];
                 accum_dis += fcoeff * (uint32_t)dis[ii_check * buf.stride + j];
             }
@@ -163,8 +158,7 @@ static void subsample_rd_16(VifBuffer buf, unsigned w, unsigned h, int scale, in
     if (scale == 0) {
         add_shift_round_VP = 1 << (bpc - 1);
         shift_VP = bpc;
-    }
-    else {
+    } else {
         add_shift_round_VP = 32768;
         shift_VP = 16;
     }
@@ -219,7 +213,8 @@ static inline void log_generate(uint16_t *log2_table)
     }
 }
 
-void vif_statistic_8(struct VifPublicState *s, float *num, float *den, unsigned w, unsigned h) {
+void vif_statistic_8(struct VifPublicState *s, float *num, float *den, unsigned w, unsigned h)
+{
     const unsigned fwidth = vif_filter1d_width[0];
     const uint16_t *vif_filt_s0 = vif_filter1d_table[0];
     VifBuffer buf = s->buf;
@@ -243,8 +238,8 @@ void vif_statistic_8(struct VifPublicState *s, float *num, float *den, unsigned 
                 int ii = i - fwidth / 2;
                 int ii_check = ii + fi;
                 const uint16_t fcoeff = vif_filt_s0[fi];
-                const uint8_t *ref = (uint8_t*)buf.ref;
-                const uint8_t *dis = (uint8_t*)buf.dis;
+                const uint8_t *ref = (uint8_t *)buf.ref;
+                const uint8_t *dis = (uint8_t *)buf.dis;
                 uint16_t imgcoeff_ref = ref[ii_check * buf.stride + j];
                 uint16_t imgcoeff_dis = dis[ii_check * buf.stride + j];
                 uint32_t img_coeff_ref = fcoeff * (uint32_t)imgcoeff_ref;
@@ -284,12 +279,9 @@ void vif_statistic_8(struct VifPublicState *s, float *num, float *den, unsigned 
 
             uint32_t mu1_val = accum_mu1;
             uint32_t mu2_val = accum_mu2;
-            uint32_t mu1_sq_val = (uint32_t)((((uint64_t)mu1_val * mu1_val)
-                + 2147483648) >> 32);
-            uint32_t mu2_sq_val = (uint32_t)((((uint64_t)mu2_val * mu2_val)
-                + 2147483648) >> 32);
-            uint32_t mu1_mu2_val = (uint32_t)((((uint64_t)mu1_val * mu2_val)
-                + 2147483648) >> 32);
+            uint32_t mu1_sq_val = (uint32_t)((((uint64_t)mu1_val * mu1_val) + 2147483648) >> 32);
+            uint32_t mu2_sq_val = (uint32_t)((((uint64_t)mu2_val * mu2_val) + 2147483648) >> 32);
+            uint32_t mu1_mu2_val = (uint32_t)((((uint64_t)mu1_val * mu2_val) + 2147483648) >> 32);
 
             uint32_t xx_filt_val = (uint32_t)((accum_ref + 32768) >> 16);
             uint32_t yy_filt_val = (uint32_t)((accum_dis + 32768) >> 16);
@@ -331,18 +323,20 @@ void vif_statistic_8(struct VifPublicState *s, float *num, float *den, unsigned 
                     int64_t numer1_tmp = (int64_t)((g * g * sigma1_sq)) + numer1; //numerator
                     accum_num_log += log2_64(log2_table, numer1_tmp) - log2_64(log2_table, numer1);
                 }
-            }
-            else {
+            } else {
                 accum_num_non_log += sigma2_sq;
                 accum_den_non_log++;
             }
         }
     }
-    num[0] = accum_num_log / 2048.0 + (accum_den_non_log - ((accum_num_non_log) / 16384.0) / (65025.0));
+    num[0] =
+        accum_num_log / 2048.0 + (accum_den_non_log - ((accum_num_non_log) / 16384.0) / (65025.0));
     den[0] = accum_den_log / 2048.0 + accum_den_non_log;
 }
 
-void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned w, unsigned h, int bpc, int scale) {
+void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned w, unsigned h,
+                      int bpc, int scale)
+{
     const unsigned fwidth = vif_filter1d_width[scale];
     const uint16_t *vif_filt = vif_filter1d_table[scale];
     VifBuffer buf = s->buf;
@@ -363,8 +357,7 @@ void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned
         add_shift_round_VP = 1 << (bpc - 1);
         shift_VP_sq = (bpc - 8) * 2;
         add_shift_round_VP_sq = (bpc == 8) ? 0 : 1 << (shift_VP_sq - 1);
-    }
-    else {
+    } else {
         shift_HP = 16;
         add_shift_round_HP = 32768;
         shift_VP = 16;
@@ -427,12 +420,9 @@ void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned
 
             uint32_t mu1_val = accum_mu1;
             uint32_t mu2_val = accum_mu2;
-            uint32_t mu1_sq_val = (uint32_t)((((uint64_t)mu1_val * mu1_val)
-                                    + 2147483648) >> 32);
-            uint32_t mu2_sq_val = (uint32_t)((((uint64_t)mu2_val * mu2_val)
-                                    + 2147483648) >> 32);
-            uint32_t mu1_mu2_val = (uint32_t)((((uint64_t)mu1_val * mu2_val)
-                                    + 2147483648) >> 32);
+            uint32_t mu1_sq_val = (uint32_t)((((uint64_t)mu1_val * mu1_val) + 2147483648) >> 32);
+            uint32_t mu2_sq_val = (uint32_t)((((uint64_t)mu2_val * mu2_val) + 2147483648) >> 32);
+            uint32_t mu1_mu2_val = (uint32_t)((((uint64_t)mu1_val * mu2_val) + 2147483648) >> 32);
 
             uint32_t xx_filt_val = (uint32_t)((accum_ref + add_shift_round_HP) >> shift_HP);
             uint32_t yy_filt_val = (uint32_t)((accum_dis + add_shift_round_HP) >> shift_HP);
@@ -474,21 +464,20 @@ void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned
                     int64_t numer1_tmp = (int64_t)((g * g * sigma1_sq)) + numer1; //numerator
                     accum_num_log += log2_64(log2_table, numer1_tmp) - log2_64(log2_table, numer1);
                 }
-            }
-            else {
+            } else {
                 accum_num_non_log += sigma2_sq;
                 accum_den_non_log++;
             }
         }
     }
-    num[0] = accum_num_log / 2048.0 + (accum_den_non_log - ((accum_num_non_log) / 16384.0) / (65025.0));
+    num[0] =
+        accum_num_log / 2048.0 + (accum_den_non_log - ((accum_num_non_log) / 16384.0) / (65025.0));
     den[0] = accum_den_log / 2048.0 + accum_den_non_log;
 }
 
-VifResiduals vif_compute_line_residuals(VifPublicState *s, unsigned from,
-                                        unsigned to, int scale)
+VifResiduals vif_compute_line_residuals(VifPublicState *s, unsigned from, unsigned to, int scale)
 {
-    VifResiduals residuals = { 0 };
+    VifResiduals residuals = {0};
     const unsigned fwidth = vif_filter1d_width[scale];
     const uint16_t *vif_filt = vif_filter1d_table[scale];
     VifBuffer buf = s->buf;
@@ -518,12 +507,9 @@ VifResiduals vif_compute_line_residuals(VifPublicState *s, unsigned from,
         }
         uint32_t mu1_val = accum_mu1;
         uint32_t mu2_val = accum_mu2;
-        uint32_t mu1_sq_val = (uint32_t)((((uint64_t)mu1_val * mu1_val)
-            + 2147483648) >> 32);
-        uint32_t mu2_sq_val = (uint32_t)((((uint64_t)mu2_val * mu2_val)
-            + 2147483648) >> 32);
-        uint32_t mu1_mu2_val = (uint32_t)((((uint64_t)mu1_val * mu2_val)
-            + 2147483648) >> 32);
+        uint32_t mu1_sq_val = (uint32_t)((((uint64_t)mu1_val * mu1_val) + 2147483648) >> 32);
+        uint32_t mu2_sq_val = (uint32_t)((((uint64_t)mu2_val * mu2_val) + 2147483648) >> 32);
+        uint32_t mu1_mu2_val = (uint32_t)((((uint64_t)mu1_val * mu2_val) + 2147483648) >> 32);
 
         uint32_t xx_filt_val = (uint32_t)((accum_ref + add_shift_round_HP) >> shift_HP);
         uint32_t yy_filt_val = (uint32_t)((accum_dis + add_shift_round_HP) >> shift_HP);
@@ -563,10 +549,10 @@ VifResiduals vif_compute_line_residuals(VifPublicState *s, unsigned from,
 
                 uint32_t numer1 = (sv_sq + sigma_nsq);
                 int64_t numer1_tmp = (int64_t)((g * g * sigma1_sq)) + numer1; //numerator
-                residuals.accum_num_log += log2_64(log2_table, numer1_tmp) - log2_64(log2_table, numer1);
+                residuals.accum_num_log +=
+                    log2_64(log2_table, numer1_tmp) - log2_64(log2_table, numer1);
             }
-        }
-        else {
+        } else {
             residuals.accum_num_non_log += sigma2_sq;
             residuals.accum_den_non_log++;
         }
@@ -574,9 +560,8 @@ VifResiduals vif_compute_line_residuals(VifPublicState *s, unsigned from,
     return residuals;
 }
 
-
-static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h)
+static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                unsigned h)
 {
     VifState *s = fex->priv;
 
@@ -619,44 +604,61 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     s->public.buf.stride = ALIGN_CEIL(w << hbd);
     s->public.buf.stride_16 = ALIGN_CEIL(w * sizeof(uint16_t));
     s->public.buf.stride_32 = ALIGN_CEIL(w * sizeof(uint32_t));
-    s->public.buf.stride_tmp =
-        ALIGN_CEIL((MAX_ALIGN + w + MAX_ALIGN) * sizeof(uint32_t));
+    s->public.buf.stride_tmp = ALIGN_CEIL((MAX_ALIGN + w + MAX_ALIGN) * sizeof(uint32_t));
     const size_t frame_size = s->public.buf.stride * h;
     const size_t pad_size = s->public.buf.stride * 8;
-    const size_t data_sz =
-        2 * (pad_size + frame_size + pad_size) + 2 * (h * s->public.buf.stride_16) +
-        5 * (s->public.buf.stride_32) + 7 * s->public.buf.stride_tmp;
+    const size_t data_sz = 2 * (pad_size + frame_size + pad_size) +
+                           2 * (h * s->public.buf.stride_16) + 5 * (s->public.buf.stride_32) +
+                           7 * s->public.buf.stride_tmp;
     void *data = aligned_malloc(data_sz, MAX_ALIGN);
-    if (!data) return -ENOMEM;
+    if (!data)
+        return -ENOMEM;
     memset(data, 0, data_sz);
 
-    s->public.buf.data = data; data += pad_size;
-    s->public.buf.ref = data; data += frame_size + pad_size + pad_size;
-    s->public.buf.dis = data; data += frame_size + pad_size;
-    s->public.buf.mu1 = data; data += h * s->public.buf.stride_16;
-    s->public.buf.mu2 = data; data += h * s->public.buf.stride_16;
-    s->public.buf.mu1_32 = data; data += s->public.buf.stride_32;
-    s->public.buf.mu2_32 = data; data += s->public.buf.stride_32;
-    s->public.buf.ref_sq = data; data += s->public.buf.stride_32;
-    s->public.buf.dis_sq = data; data += s->public.buf.stride_32;
-    s->public.buf.ref_dis = data; data += s->public.buf.stride_32;
-    s->public.buf.tmp.mu1 = data; data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.mu2 = data; data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.ref = data; data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.dis = data; data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.ref_dis = data; data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.ref_convol = data; data += s->public.buf.stride_tmp;
+    s->public.buf.data = data;
+    data += pad_size;
+    s->public.buf.ref = data;
+    data += frame_size + pad_size + pad_size;
+    s->public.buf.dis = data;
+    data += frame_size + pad_size;
+    s->public.buf.mu1 = data;
+    data += h * s->public.buf.stride_16;
+    s->public.buf.mu2 = data;
+    data += h * s->public.buf.stride_16;
+    s->public.buf.mu1_32 = data;
+    data += s->public.buf.stride_32;
+    s->public.buf.mu2_32 = data;
+    data += s->public.buf.stride_32;
+    s->public.buf.ref_sq = data;
+    data += s->public.buf.stride_32;
+    s->public.buf.dis_sq = data;
+    data += s->public.buf.stride_32;
+    s->public.buf.ref_dis = data;
+    data += s->public.buf.stride_32;
+    s->public.buf.tmp.mu1 = data;
+    data += s->public.buf.stride_tmp;
+    s->public.buf.tmp.mu2 = data;
+    data += s->public.buf.stride_tmp;
+    s->public.buf.tmp.ref = data;
+    data += s->public.buf.stride_tmp;
+    s->public.buf.tmp.dis = data;
+    data += s->public.buf.stride_tmp;
+    s->public.buf.tmp.ref_dis = data;
+    data += s->public.buf.stride_tmp;
+    s->public.buf.tmp.ref_convol = data;
+    data += s->public.buf.stride_tmp;
     s->public.buf.tmp.dis_convol = data;
 
     s->feature_name_dict =
-        vmaf_feature_name_dict_from_provided_features(fex->provided_features,
-                fex->options, s);
-    if (!s->feature_name_dict) goto fail;
+        vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
+    if (!s->feature_name_dict)
+        goto fail;
 
     return 0;
 
 fail:
-    if (data) aligned_free(data);
+    if (data)
+        aligned_free(data);
     vmaf_dictionary_free(&s->feature_name_dict);
     return -ENOMEM;
 }
@@ -668,88 +670,77 @@ typedef struct VifScore {
     } scale[4];
 } VifScore;
 
-static int write_scores(VmafFeatureCollector *feature_collector, unsigned index,
-                        VifScore vif, VifState *s)
+static int write_scores(VmafFeatureCollector *feature_collector, unsigned index, VifScore vif,
+                        VifState *s)
 {
     int err = 0;
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "VMAF_integer_feature_vif_scale0_score",
-            vif.scale[0].num / vif.scale[0].den, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "VMAF_integer_feature_vif_scale0_score",
+                                                   vif.scale[0].num / vif.scale[0].den, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "VMAF_integer_feature_vif_scale1_score",
-            vif.scale[1].num / vif.scale[1].den, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "VMAF_integer_feature_vif_scale1_score",
+                                                   vif.scale[1].num / vif.scale[1].den, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "VMAF_integer_feature_vif_scale2_score",
-            vif.scale[2].num / vif.scale[2].den, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "VMAF_integer_feature_vif_scale2_score",
+                                                   vif.scale[2].num / vif.scale[2].den, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "VMAF_integer_feature_vif_scale3_score",
-            vif.scale[3].num / vif.scale[3].den, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "VMAF_integer_feature_vif_scale3_score",
+                                                   vif.scale[3].num / vif.scale[3].den, index);
 
-    if (!s->debug) return err;
+    if (!s->debug)
+        return err;
 
-    const double score_num =
-        (double)vif.scale[0].num + (double)vif.scale[1].num +
-        (double)vif.scale[2].num + (double)vif.scale[3].num;
+    const double score_num = (double)vif.scale[0].num + (double)vif.scale[1].num +
+                             (double)vif.scale[2].num + (double)vif.scale[3].num;
 
-    const double score_den =
-        (double)vif.scale[0].den + (double)vif.scale[1].den +
-        (double)vif.scale[2].den + (double)vif.scale[3].den;
+    const double score_den = (double)vif.scale[0].den + (double)vif.scale[1].den +
+                             (double)vif.scale[2].den + (double)vif.scale[3].den;
 
-    const double score =
-        score_den == 0.0 ? 1.0f : score_num / score_den;
+    const double score = score_den == 0.0 ? 1.0f : score_num / score_den;
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif", score, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "integer_vif", score, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_num", score_num, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "integer_vif_num", score_num, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_den", score_den, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "integer_vif_den", score_den, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_num_scale0", vif.scale[0].num,
-            index);
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "integer_vif_num_scale0", vif.scale[0].num, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_den_scale0", vif.scale[0].den,
-            index);
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "integer_vif_den_scale0", vif.scale[0].den, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_num_scale1", vif.scale[1].num,
-            index);
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "integer_vif_num_scale1", vif.scale[1].num, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_den_scale1", vif.scale[1].den,
-            index);
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "integer_vif_den_scale1", vif.scale[1].den, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_num_scale2", vif.scale[2].num,
-            index);
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "integer_vif_num_scale2", vif.scale[2].num, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_den_scale2", vif.scale[2].den,
-            index);
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "integer_vif_den_scale2", vif.scale[2].den, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_num_scale3", vif.scale[3].num,
-            index);
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "integer_vif_num_scale3", vif.scale[3].num, index);
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector,
-            s->feature_name_dict, "integer_vif_den_scale3", vif.scale[3].den,
-            index);
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "integer_vif_den_scale3", vif.scale[3].den, index);
 
     return err;
 }
 
-static int extract(VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector)
+static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector)
 {
     VifState *s = fex->priv;
 
@@ -782,16 +773,17 @@ static int extract(VmafFeatureExtractor *fex,
             else
                 s->subsample_rd_16(s->public.buf, w, h, scale - 1, ref_pic->bpc);
 
-            w /= 2; h /= 2;
+            w /= 2;
+            h /= 2;
         }
 
         if (ref_pic->bpc == 8 && scale == 0) {
-            s->vif_statistic_8(&s->public, &vif_score.scale[scale].num, &vif_score.scale[scale].den, w, h);
+            s->vif_statistic_8(&s->public, &vif_score.scale[scale].num, &vif_score.scale[scale].den,
+                               w, h);
+        } else {
+            s->vif_statistic_16(&s->public, &vif_score.scale[scale].num,
+                                &vif_score.scale[scale].den, w, h, ref_pic->bpc, scale);
         }
-        else {
-            s->vif_statistic_16(&s->public, &vif_score.scale[scale].num, &vif_score.scale[scale].den, w, h, ref_pic->bpc, scale);
-        }
-
     }
 
     return write_scores(feature_collector, index, vif_score, s);
@@ -800,20 +792,28 @@ static int extract(VmafFeatureExtractor *fex,
 static int close(VmafFeatureExtractor *fex)
 {
     VifState *s = fex->priv;
-    if (s->public.buf.data) aligned_free(s->public.buf.data);
+    if (s->public.buf.data)
+        aligned_free(s->public.buf.data);
     vmaf_dictionary_free(&s->feature_name_dict);
     return 0;
 }
 
-static const char *provided_features[] = {
-    "VMAF_integer_feature_vif_scale0_score", "VMAF_integer_feature_vif_scale1_score",
-    "VMAF_integer_feature_vif_scale2_score", "VMAF_integer_feature_vif_scale3_score",
-    "integer_vif", "integer_vif_num", "integer_vif_den", "integer_vif_num_scale0",
-    "integer_vif_den_scale0", "integer_vif_num_scale1", "integer_vif_den_scale1",
-    "integer_vif_num_scale2", "integer_vif_den_scale2", "integer_vif_num_scale3",
-    "integer_vif_den_scale3",
-    NULL
-};
+static const char *provided_features[] = {"VMAF_integer_feature_vif_scale0_score",
+                                          "VMAF_integer_feature_vif_scale1_score",
+                                          "VMAF_integer_feature_vif_scale2_score",
+                                          "VMAF_integer_feature_vif_scale3_score",
+                                          "integer_vif",
+                                          "integer_vif_num",
+                                          "integer_vif_den",
+                                          "integer_vif_num_scale0",
+                                          "integer_vif_den_scale0",
+                                          "integer_vif_num_scale1",
+                                          "integer_vif_den_scale1",
+                                          "integer_vif_num_scale2",
+                                          "integer_vif_den_scale2",
+                                          "integer_vif_num_scale3",
+                                          "integer_vif_den_scale3",
+                                          NULL};
 
 VmafFeatureExtractor vmaf_fex_integer_vif = {
     .name = "vif",

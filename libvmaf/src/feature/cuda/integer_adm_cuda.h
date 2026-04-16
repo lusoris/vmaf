@@ -26,31 +26,31 @@
 
 typedef struct cuda_adm_dwt_band_t {
     union {
-        struct{
+        struct {
             int16_t *band_a; /* Low-pass V + low-pass H. */
             int16_t *band_h; /* High-pass V + low-pass H. */
             int16_t *band_v; /* Low-pass V + high-pass H. */
             int16_t *band_d; /* High-pass V + high-pass H. */
         };
-        int16_t * bands[4];
+        int16_t *bands[4];
     };
 } cuda_adm_dwt_band_t;
 
 typedef struct cuda_i4_adm_dwt_band_t {
     union {
-        struct{
+        struct {
             int32_t *band_a; /* Low-pass V + low-pass H. */
             int32_t *band_h; /* High-pass V + low-pass H. */
             int32_t *band_v; /* Low-pass V + high-pass H. */
             int32_t *band_d; /* High-pass V + high-pass H. */
         };
-        int32_t * bands[4];
+        int32_t *bands[4];
     };
 } cuda_i4_adm_dwt_band_t;
 
 typedef struct AdmFixedParametersCuda {
-    float rfactor[3*4];
-    uint32_t i_rfactor[3*4];
+    float rfactor[3 * 4];
+    uint32_t i_rfactor[3 * 4];
     float factor1[4];
     float factor2[4];
     float log2_h;
@@ -70,12 +70,12 @@ typedef struct AdmBufferCuda {
     size_t ind_size_x, ind_size_y; // strides size for intermidate buffers
     int *ind_y[4], *ind_x[4];
 
-    struct VmafCudaBuffer* data_buf;
-    struct VmafCudaBuffer* tmp_ref;
-    struct VmafCudaBuffer* tmp_dis;
-    struct VmafCudaBuffer* tmp_res;
-    struct VmafCudaBuffer* tmp_accum;
-    struct VmafCudaBuffer* tmp_accum_h;
+    struct VmafCudaBuffer *data_buf;
+    struct VmafCudaBuffer *tmp_ref;
+    struct VmafCudaBuffer *tmp_dis;
+    struct VmafCudaBuffer *tmp_res;
+    struct VmafCudaBuffer *tmp_accum;
+    struct VmafCudaBuffer *tmp_accum_h;
 
     cuda_adm_dwt_band_t ref_dwt2;
     cuda_adm_dwt_band_t dis_dwt2;
@@ -85,9 +85,9 @@ typedef struct AdmBufferCuda {
     cuda_i4_adm_dwt_band_t i4_dis_dwt2;
     cuda_i4_adm_dwt_band_t i4_csf_f;
 
-    int64_t* adm_cm[4];
-    uint64_t* adm_csf_den[4];
-    void* results_host;
+    int64_t *adm_cm[4];
+    uint64_t *adm_csf_den[4];
+    void *results_host;
 } AdmBufferCuda;
 
 extern const unsigned char adm_dwt2_ptx[];

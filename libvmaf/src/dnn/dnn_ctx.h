@@ -35,11 +35,8 @@ extern "C" {
  * Currently accepts NCHW shape [1, 1, H, W] — single-channel luma. Other
  * shapes are rejected with -ENOTSUP so the failure is visible, not silent.
  */
-int vmaf_ctx_dnn_attach(VmafContext *ctx,
-                        VmafOrtSession *sess,
-                        const VmafModelSidecar *meta,
-                        const int64_t *in_shape, size_t in_rank,
-                        const char *feature_name);
+int vmaf_ctx_dnn_attach(VmafContext *ctx, VmafOrtSession *sess, const VmafModelSidecar *meta,
+                        const int64_t *in_shape, size_t in_rank, const char *feature_name);
 
 /** Returns 1 if a tiny model is attached to @p ctx, else 0. */
 int vmaf_ctx_dnn_has_session(const VmafContext *ctx);

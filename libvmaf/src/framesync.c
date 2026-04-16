@@ -48,7 +48,8 @@ typedef struct VmafFrameSyncContext {
 int vmaf_framesync_init(VmafFrameSyncContext **fs_ctx)
 {
     VmafFrameSyncContext *const ctx = *fs_ctx = malloc(sizeof(VmafFrameSyncContext));
-    if (!ctx) return -ENOMEM;
+    if (!ctx)
+        return -ENOMEM;
     memset(ctx, 0, sizeof(VmafFrameSyncContext));
     ctx->buf_cnt = 1;
 
@@ -61,13 +62,13 @@ int vmaf_framesync_init(VmafFrameSyncContext **fs_ctx)
     buf_que->frame_data = NULL;
     buf_que->buf_status = BUF_FREE;
     buf_que->index = -1;
-    buf_que->next  = NULL;
+    buf_que->next = NULL;
 
     return 0;
 }
 
-int vmaf_framesync_acquire_new_buf(VmafFrameSyncContext *fs_ctx, void **data,
-                                   unsigned data_sz, unsigned index)
+int vmaf_framesync_acquire_new_buf(VmafFrameSyncContext *fs_ctx, void **data, unsigned data_sz,
+                                   unsigned index)
 {
     VmafFrameSyncBuf *buf_que = fs_ctx->buf_que;
     *data = NULL;
@@ -114,8 +115,7 @@ int vmaf_framesync_acquire_new_buf(VmafFrameSyncContext *fs_ctx, void **data,
     return 0;
 }
 
-int vmaf_framesync_submit_filled_data(VmafFrameSyncContext *fs_ctx, void *data,
-                                      unsigned index)
+int vmaf_framesync_submit_filled_data(VmafFrameSyncContext *fs_ctx, void *data, unsigned index)
 {
     VmafFrameSyncBuf *buf_que = fs_ctx->buf_que;
 
@@ -143,8 +143,7 @@ int vmaf_framesync_submit_filled_data(VmafFrameSyncContext *fs_ctx, void *data,
     return 0;
 }
 
-int vmaf_framesync_retrieve_filled_data(VmafFrameSyncContext *fs_ctx,
-                                        void **data, unsigned index)
+int vmaf_framesync_retrieve_filled_data(VmafFrameSyncContext *fs_ctx, void **data, unsigned index)
 {
     *data = NULL;
 
@@ -173,8 +172,7 @@ int vmaf_framesync_retrieve_filled_data(VmafFrameSyncContext *fs_ctx,
     return 0;
 }
 
-int vmaf_framesync_release_buf(VmafFrameSyncContext *fs_ctx, void *data,
-                               unsigned index)
+int vmaf_framesync_release_buf(VmafFrameSyncContext *fs_ctx, void *data, unsigned index)
 {
     VmafFrameSyncBuf *buf_que = fs_ctx->buf_que;
 

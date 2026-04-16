@@ -21,8 +21,7 @@
 
 #include <stdint.h>
 
-void x_convolution_16_neon(const uint16_t *src, uint16_t *dst, unsigned width,
-                           unsigned height, ptrdiff_t src_stride,
-                           ptrdiff_t dst_stride);
+void x_convolution_16_neon(const uint16_t *src, uint16_t *dst, unsigned width, unsigned height,
+                           ptrdiff_t src_stride, ptrdiff_t dst_stride);
 
 #endif /* ARM64_NEON_MOTION_H_ */

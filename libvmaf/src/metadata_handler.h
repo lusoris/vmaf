@@ -28,14 +28,13 @@ typedef struct VmafCallbackItem {
     struct VmafCallbackItem *next;
 } VmafCallbackItem;
 
-typedef struct  VmafCallbackList{
+typedef struct VmafCallbackList {
     VmafCallbackItem *head;
 } VmafCallbackList;
 
 int vmaf_metadata_init(VmafCallbackList **const metadata);
 
-int vmaf_metadata_append(VmafCallbackList *metadata,
-                         const VmafMetadataConfiguration metadata_cfg);
+int vmaf_metadata_append(VmafCallbackList *metadata, const VmafMetadataConfiguration metadata_cfg);
 
 int vmaf_metadata_destroy(VmafCallbackList *metadata);
 

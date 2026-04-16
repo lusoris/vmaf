@@ -42,12 +42,13 @@
 /* Upload / download                                                   */
 /* ------------------------------------------------------------------ */
 
-extern "C"
-int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst,
-                              VmafPicture *pic, unsigned plane)
+extern "C" int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst, VmafPicture *pic,
+                                        unsigned plane)
 {
-    if (!state || !dst || !pic) return -EINVAL;
-    if (plane >= 3) return -EINVAL;
+    if (!state || !dst || !pic)
+        return -EINVAL;
+    if (plane >= 3)
+        return -EINVAL;
 
     size_t bpp = (pic->bpc + 7) / 8;
     size_t row_bytes = pic->w[plane] * bpp;
@@ -62,20 +63,21 @@ int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst,
     const uint8_t *src = (const uint8_t *)pic->data[plane];
     uint8_t *d = (uint8_t *)dst;
     for (unsigned y = 0; y < pic->h[plane]; y++) {
-        int err = vmaf_sycl_memcpy_h2d(state, d + y * row_bytes,
-                                        src + y * pic->stride[plane],
-                                        row_bytes);
-        if (err) return err;
+        int err =
+            vmaf_sycl_memcpy_h2d(state, d + y * row_bytes, src + y * pic->stride[plane], row_bytes);
+        if (err)
+            return err;
     }
     return 0;
 }
 
-extern "C"
-int vmaf_sycl_picture_download(VmafSyclState *state, const void *src,
-                                VmafPicture *pic, unsigned plane)
+extern "C" int vmaf_sycl_picture_download(VmafSyclState *state, const void *src, VmafPicture *pic,
+                                          unsigned plane)
 {
-    if (!state || !src || !pic) return -EINVAL;
-    if (plane >= 3) return -EINVAL;
+    if (!state || !src || !pic)
+        return -EINVAL;
+    if (plane >= 3)
+        return -EINVAL;
 
     size_t bpp = (pic->bpc + 7) / 8;
     size_t row_bytes = pic->w[plane] * bpp;
@@ -87,15 +89,14 @@ int vmaf_sycl_picture_download(VmafSyclState *state, const void *src,
 
     /* Non-contiguous — download packed, then scatter rows */
     void *packed = malloc(total);
-    if (!packed) return -ENOMEM;
+    if (!packed)
+        return -ENOMEM;
 
     int err = vmaf_sycl_memcpy_d2h(state, packed, src, total);
     if (!err) {
         uint8_t *dst_ptr = (uint8_t *)pic->data[plane];
         for (unsigned y = 0; y < pic->h[plane]; y++) {
-            memcpy(dst_ptr + y * pic->stride[plane],
-                   (uint8_t *)packed + y * row_bytes,
-                   row_bytes);
+            memcpy(dst_ptr + y * pic->stride[plane], (uint8_t *)packed + y * row_bytes, row_bytes);
         }
     }
     free(packed);
@@ -106,10 +107,10 @@ int vmaf_sycl_picture_download(VmafSyclState *state, const void *src,
 /* VmafPicture pool callbacks                                          */
 /* ------------------------------------------------------------------ */
 
-extern "C"
-int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
+extern "C" int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
 {
-    if (!pic || !cookie) return -EINVAL;
+    if (!pic || !cookie)
+        return -EINVAL;
 
     VmafSyclCookie *c = (VmafSyclCookie *)cookie;
     assert(c->w > 0 && c->h > 0);
@@ -119,7 +120,8 @@ int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
 
     /* Allocate device memory for Y plane only (VMAF operates on luma) */
     void *dev_buf = vmaf_sycl_malloc_device(c->state, plane_size);
-    if (!dev_buf) return -ENOMEM;
+    if (!dev_buf)
+        return -ENOMEM;
 
     memset(pic, 0, sizeof(*pic));
     pic->data[0] = dev_buf;
@@ -132,10 +134,10 @@ int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
     return 0;
 }
 
-extern "C"
-int vmaf_sycl_picture_free(VmafPicture *pic, void *cookie)
+extern "C" int vmaf_sycl_picture_free(VmafPicture *pic, void *cookie)
 {
-    if (!pic || !cookie) return -EINVAL;
+    if (!pic || !cookie)
+        return -EINVAL;
 
     VmafSyclCookie *c = (VmafSyclCookie *)cookie;
     assert(c->state != NULL);

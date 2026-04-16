@@ -23,7 +23,7 @@ static char *test_context_init_and_close()
 {
     int err = 0;
     VmafContext *vmaf;
-    VmafConfiguration cfg = { 0 };
+    VmafConfiguration cfg = {0};
 
     err = vmaf_init(&vmaf, cfg);
     mu_assert("problem during vmaf_init", !err);
@@ -37,7 +37,7 @@ static char *test_get_feature_score()
 {
     int err = 0;
     VmafContext *vmaf;
-    VmafConfiguration cfg = { 0 };
+    VmafConfiguration cfg = {0};
 
     err = vmaf_init(&vmaf, cfg);
     mu_assert("problem during vmaf_init", !err);
@@ -58,11 +58,9 @@ static char *test_get_feature_score()
     mu_assert("problem during vmaf_feature_score_at_index", !err);
     mu_assert("retrieved feature score does not match", score == 300.);
 
-    err = vmaf_feature_score_pooled(vmaf, "feature_a", VMAF_POOL_METHOD_MEAN,
-                                    &score, 0, 2);
+    err = vmaf_feature_score_pooled(vmaf, "feature_a", VMAF_POOL_METHOD_MEAN, &score, 0, 2);
     mu_assert("problem during vmaf_feature_score_pooled", !err);
-    mu_assert("pooled feature score does not match expected value",
-              score == 200.);
+    mu_assert("pooled feature score does not match expected value", score == 200.);
 
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_close", !err);

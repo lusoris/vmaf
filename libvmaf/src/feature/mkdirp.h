@@ -16,6 +16,6 @@
  * Recursively `mkdir(path, mode)`
  */
 
-int mkdirp(const char *, mode_t );
+int mkdirp(const char *, mode_t);
 
 #endif

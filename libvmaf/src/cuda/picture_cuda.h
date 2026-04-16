@@ -42,8 +42,7 @@ typedef struct VmafCudaCookie {
  *
  * @return CUDA_SUCCESS on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_cuda_picture_upload_async(VmafPicture *cuda_pic, VmafPicture *pic,
-                                   uint8_t bitmask);
+int vmaf_cuda_picture_upload_async(VmafPicture *cuda_pic, VmafPicture *pic, uint8_t bitmask);
 
 /**
  * Download a VmafPicture from the GPU to CPU on the CUstream passed.
@@ -56,12 +55,10 @@ int vmaf_cuda_picture_upload_async(VmafPicture *cuda_pic, VmafPicture *pic,
  *
  * @return CUDA_SUCCESS on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_cuda_picture_download_async(VmafPicture *cuda_pic, VmafPicture *pic,
-                                     uint8_t bitmask);
+int vmaf_cuda_picture_download_async(VmafPicture *cuda_pic, VmafPicture *pic, uint8_t bitmask);
 
-int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fmt,
-                                   unsigned bpc, unsigned w, unsigned h,
-                                   VmafCudaState *cuda_state);
+int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fmt, unsigned bpc,
+                                   unsigned w, unsigned h, VmafCudaState *cuda_state);
 
 int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie);
 

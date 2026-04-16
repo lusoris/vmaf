@@ -26,9 +26,7 @@ void cambi_increment_range_neon(uint16_t *arr, int left, int right);
 
 void cambi_decrement_range_neon(uint16_t *arr, int left, int right);
 
-void get_derivative_data_for_row_neon(const uint16_t *image_data,
-                                      uint16_t *derivative_buffer,
-                                      int width, int height, int row,
-                                      int stride);
+void get_derivative_data_for_row_neon(const uint16_t *image_data, uint16_t *derivative_buffer,
+                                      int width, int height, int row, int stride);
 
 #endif /* ARM64_NEON_CAMBI_H_ */

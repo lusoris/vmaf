@@ -75,9 +75,9 @@ typedef struct VmafModel {
     } score_transform;
     struct svm_model *svm;
     // Pre-allocated prediction state (populated lazily, reused per frame)
-    struct svm_node *predict_nodes;  // n_features + 1 entries
-    char **predict_feature_names;    // n_features cached name strings
-    void **predict_feature_vectors;  // cached FeatureVector* pointers (opaque)
+    struct svm_node *predict_nodes; // n_features + 1 entries
+    char **predict_feature_names;   // n_features cached name strings
+    void **predict_feature_vectors; // cached FeatureVector* pointers (opaque)
 } VmafModel;
 
 typedef struct VmafModelCollection {
@@ -89,7 +89,6 @@ typedef struct VmafModelCollection {
 
 char *vmaf_model_generate_name(VmafModelConfig *cfg);
 
-int vmaf_model_collection_append(VmafModelCollection **model_collection,
-                                 VmafModel *model);
+int vmaf_model_collection_append(VmafModelCollection **model_collection, VmafModel *model);
 
 #endif /* __VMAF_SRC_MODEL_H__ */

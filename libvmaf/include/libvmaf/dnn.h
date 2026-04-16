@@ -32,18 +32,18 @@ extern "C" {
 #endif
 
 typedef enum VmafDnnDevice {
-    VMAF_DNN_DEVICE_AUTO     = 0,
-    VMAF_DNN_DEVICE_CPU      = 1,
-    VMAF_DNN_DEVICE_CUDA     = 2,
-    VMAF_DNN_DEVICE_OPENVINO = 3,   /**< covers SYCL / oneAPI / Intel GPU */
-    VMAF_DNN_DEVICE_ROCM     = 4,
+    VMAF_DNN_DEVICE_AUTO = 0,
+    VMAF_DNN_DEVICE_CPU = 1,
+    VMAF_DNN_DEVICE_CUDA = 2,
+    VMAF_DNN_DEVICE_OPENVINO = 3, /**< covers SYCL / oneAPI / Intel GPU */
+    VMAF_DNN_DEVICE_ROCM = 4,
 } VmafDnnDevice;
 
 typedef struct VmafDnnConfig {
     VmafDnnDevice device;
-    int           device_index;     /**< multi-GPU index; 0 for single-GPU/CPU */
-    int           threads;          /**< CPU EP intra-op threads; 0 = ORT default */
-    bool          fp16_io;          /**< request fp16 tensors when supported */
+    int device_index; /**< multi-GPU index; 0 for single-GPU/CPU */
+    int threads;      /**< CPU EP intra-op threads; 0 = ORT default */
+    bool fp16_io;     /**< request fp16 tensors when supported */
 } VmafDnnConfig;
 
 /**
@@ -64,9 +64,7 @@ int vmaf_dnn_available(void);
  *         args, -ENOENT if the path does not exist, -E2BIG if the file is
  *         larger than VMAF_MAX_MODEL_BYTES (default 50 MB).
  */
-int vmaf_use_tiny_model(VmafContext *ctx,
-                        const char *onnx_path,
-                        const VmafDnnConfig *cfg);
+int vmaf_use_tiny_model(VmafContext *ctx, const char *onnx_path, const VmafDnnConfig *cfg);
 
 /**
  * Standalone DNN session for filter-style inference (learned pre-processing,
@@ -79,9 +77,7 @@ typedef struct VmafDnnSession VmafDnnSession;
  * Open a session against @p onnx_path. Applies the same size-cap + allowlist
  * validation as vmaf_use_tiny_model().
  */
-int vmaf_dnn_session_open(VmafDnnSession **out,
-                          const char *onnx_path,
-                          const VmafDnnConfig *cfg);
+int vmaf_dnn_session_open(VmafDnnSession **out, const char *onnx_path, const VmafDnnConfig *cfg);
 
 /**
  * Run one luma-in / luma-out pass. The model's input must be NCHW
@@ -92,10 +88,8 @@ int vmaf_dnn_session_open(VmafDnnSession **out,
  * @return 0 on success, -ENOTSUP if the model shape is not luma-only,
  *         -ERANGE if @p w/@p h don't match the model's static input shape.
  */
-int vmaf_dnn_session_run_luma8(VmafDnnSession *sess,
-                               const uint8_t *in,  size_t in_stride,
-                               int w, int h,
-                               uint8_t *out, size_t out_stride);
+int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t in_stride, int w,
+                               int h, uint8_t *out, size_t out_stride);
 
 void vmaf_dnn_session_close(VmafDnnSession *sess);
 

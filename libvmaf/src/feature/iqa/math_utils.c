@@ -36,7 +36,7 @@
 extern IQA_INLINE int _round(float a)
 {
     int sign_a = a > 0.0f ? 1 : -1;
-    return a-(int)a >= 0.5 ? (int)a + sign_a : (int)a;
+    return a - (int)a >= 0.5 ? (int)a + sign_a : (int)a;
 }
 
 extern IQA_INLINE int _max(int x, int y)
@@ -57,8 +57,8 @@ extern IQA_INLINE int _cmp_float(float a, float b, int digits)
     double scale = pow(10.0, (double)digits);
     double ax = a * scale;
     double bx = b * scale;
-    int ai = ax-(int)ax >= 0.5 ? (int)ax + sign_a : (int)ax;
-    int bi = bx-(int)bx >= 0.5 ? (int)bx + sign_b : (int)bx;
+    int ai = ax - (int)ax >= 0.5 ? (int)ax + sign_a : (int)ax;
+    int bi = bx - (int)bx >= 0.5 ? (int)bx + sign_b : (int)bx;
 
     /* Compare */
     return ai == bi ? 0 : 1;
@@ -67,9 +67,9 @@ extern IQA_INLINE int _cmp_float(float a, float b, int digits)
 extern IQA_INLINE int _matrix_cmp(const float *a, const float *b, int w, int h, int digits)
 {
     int offset;
-    int result=0;
-    int len=w*h;
-    for (offset=0; offset<len; ++offset) {
+    int result = 0;
+    int len = w * h;
+    for (offset = 0; offset < len; ++offset) {
         if (_cmp_float(a[offset], b[offset], digits)) {
             result = 1;
             break;
@@ -78,4 +78,3 @@ extern IQA_INLINE int _matrix_cmp(const float *a, const float *b, int w, int h, 
 
     return result;
 }
-

@@ -23,13 +23,11 @@
 #include <stdint.h>
 
 uint64_t motion_score_pipeline_8_avx2(const uint8_t *prev, ptrdiff_t prev_stride,
-                                      const uint8_t *cur, ptrdiff_t cur_stride,
-                                      int32_t *y_row, unsigned w, unsigned h,
-                                      unsigned bpc);
+                                      const uint8_t *cur, ptrdiff_t cur_stride, int32_t *y_row,
+                                      unsigned w, unsigned h, unsigned bpc);
 
 uint64_t motion_score_pipeline_16_avx2(const uint8_t *prev, ptrdiff_t prev_stride,
-                                       const uint8_t *cur, ptrdiff_t cur_stride,
-                                       int32_t *y_row, unsigned w, unsigned h,
-                                       unsigned bpc);
+                                       const uint8_t *cur, ptrdiff_t cur_stride, int32_t *y_row,
+                                       unsigned w, unsigned h, unsigned bpc);
 
 #endif /* X86_AVX2_MOTION_V2_H_ */

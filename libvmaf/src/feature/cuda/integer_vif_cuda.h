@@ -24,7 +24,6 @@
 #include "integer_vif.h"
 #include "common.h"
 
-
 /* Enhancement gain imposed on vif, must be >= 1.0, where 1.0 means the gain is completely disabled */
 #ifndef DEFAULT_VIF_ENHN_GAIN_LIMIT
 #define DEFAULT_VIF_ENHN_GAIN_LIMIT (100.0)
@@ -46,8 +45,8 @@ typedef struct VifBufferCuda {
     uint32_t *dis_sq;
     uint32_t *ref_dis;
     int64_t *accum;
-    void* accum_host;
-    void* cpu_param_buf;
+    void *accum_host;
+    void *cpu_param_buf;
     struct {
         uint32_t *mu1;
         uint32_t *mu2;

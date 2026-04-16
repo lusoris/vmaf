@@ -21,7 +21,8 @@
 
 #define EPS 0.00001
 
-static int almost_equal(double a, double b) {
+static int almost_equal(double a, double b)
+{
     double diff = a > b ? a - b : b - a;
     return diff < EPS;
 }
@@ -35,9 +36,10 @@ static int get_picture_16b(VmafPicture *pic, int pic_index)
     };
 
     int err = vmaf_picture_alloc(pic, VMAF_PIX_FMT_YUV420P, 16, 2, 2);
-    if (err) return err;
+    if (err)
+        return err;
     for (int c = 0; c < 3; c++) {
-        uint16_t *data = (uint16_t *) pic->data[c];
+        uint16_t *data = (uint16_t *)pic->data[c];
         int stride = pic->stride[c] >> 1;
         for (unsigned i = 0; i < pic->h[c]; i++) {
             for (unsigned j = 0; j < pic->w[c]; j++) {
@@ -84,14 +86,13 @@ static char *test_16b_large_diff()
     mu_assert("wrong mse_y", almost_equal(mse_y, 4294836225.0));
     mu_assert("wrong mse_cb", almost_equal(mse_cb, 4294836225.0));
     mu_assert("wrong mse_cr", almost_equal(mse_cr, 4294836225.0));
-    
+
     vmaf_feature_collector_destroy(fc);
     vmaf_picture_unref(&pic1);
     vmaf_picture_unref(&pic2);
 
     return NULL;
 }
-
 
 char *run_tests()
 {

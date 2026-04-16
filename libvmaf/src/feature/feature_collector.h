@@ -55,7 +55,9 @@ typedef struct VmafFeatureCollector {
     VmafCallbackList *metadata;
     VmafPredictModel *models;
     unsigned cnt, capacity;
-    struct { clock_t begin, end; } timer;
+    struct {
+        clock_t begin, end;
+    } timer;
     pthread_mutex_t lock;
 } VmafFeatureCollector;
 
@@ -63,26 +65,22 @@ int vmaf_feature_collector_init(VmafFeatureCollector **const feature_collector);
 
 int vmaf_feature_collector_mount_model(VmafFeatureCollector *feature_collector, VmafModel *model);
 
-int vmaf_feature_collector_append(VmafFeatureCollector *feature_collector,
-                                  const char *feature_name, double score,
-                                  unsigned index);
+int vmaf_feature_collector_append(VmafFeatureCollector *feature_collector, const char *feature_name,
+                                  double score, unsigned index);
 
 int vmaf_feature_collector_register_metadata(VmafFeatureCollector *feature_collector,
                                              VmafMetadataConfiguration metadata_cfg);
 
-int vmaf_feature_collector_append_with_dict(VmafFeatureCollector *fc,
-        VmafDictionary *dict, const char *feature_name, double score,
-        unsigned index);
+int vmaf_feature_collector_append_with_dict(VmafFeatureCollector *fc, VmafDictionary *dict,
+                                            const char *feature_name, double score, unsigned index);
 
 int vmaf_feature_collector_get_score(VmafFeatureCollector *feature_collector,
-                                     const char *feature_name, double *score,
-                                     unsigned index);
+                                     const char *feature_name, double *score, unsigned index);
 
 FeatureVector *vmaf_feature_collector_find(VmafFeatureCollector *feature_collector,
                                            const char *feature_name);
 
-static inline int vmaf_feature_vector_get_score(FeatureVector *fv,
-                                                double *score, unsigned index)
+static inline int vmaf_feature_vector_get_score(FeatureVector *fv, double *score, unsigned index)
 {
     if (!fv || index >= fv->capacity || !fv->score[index].written)
         return -1;
@@ -91,12 +89,10 @@ static inline int vmaf_feature_vector_get_score(FeatureVector *fv,
 }
 
 int vmaf_feature_collector_set_aggregate(VmafFeatureCollector *feature_collector,
-                                         const char *feature_name,
-                                         double score);
+                                         const char *feature_name, double score);
 
 int vmaf_feature_collector_get_aggregate(VmafFeatureCollector *feature_collector,
-                                         const char *feature_name,
-                                         double *score);
+                                         const char *feature_name, double *score);
 
 void vmaf_feature_collector_destroy(VmafFeatureCollector *feature_collector);
 

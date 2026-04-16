@@ -45,8 +45,7 @@ typedef struct VmafSyclState VmafSyclState;
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_dmabuf_import(VmafSyclState *state, int fd, size_t size,
-                             void **ptr);
+int vmaf_sycl_dmabuf_import(VmafSyclState *state, int fd, size_t size, void **ptr);
 
 /**
  * Free a pointer returned by vmaf_sycl_dmabuf_import().
@@ -80,11 +79,8 @@ void vmaf_sycl_dmabuf_free(VmafSyclState *state, void *ptr);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_import_va_surface(VmafSyclState *state,
-                                 void *va_display,
-                                 unsigned int va_surface,
-                                 int is_ref,
-                                 unsigned w, unsigned h, unsigned bpc);
+int vmaf_sycl_import_va_surface(VmafSyclState *state, void *va_display, unsigned int va_surface,
+                                int is_ref, unsigned w, unsigned h, unsigned bpc);
 
 #ifdef __cplusplus
 }

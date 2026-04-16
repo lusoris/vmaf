@@ -19,8 +19,8 @@ typedef enum VmafTensorLayout {
 } VmafTensorLayout;
 
 typedef enum VmafTensorDType {
-    VMAF_TENSOR_DTYPE_F32  = 0,
-    VMAF_TENSOR_DTYPE_F16  = 1,
+    VMAF_TENSOR_DTYPE_F32 = 0,
+    VMAF_TENSOR_DTYPE_F16 = 1,
 } VmafTensorDType;
 
 /**
@@ -38,24 +38,18 @@ typedef enum VmafTensorDType {
  *
  * @return 0 on success, -EINVAL on bad args.
  */
-int vmaf_tensor_from_luma(const uint8_t *src, size_t stride_src,
-                          int width, int height,
-                          VmafTensorLayout layout,
-                          VmafTensorDType dtype,
-                          const float *mean, const float *std,
-                          void *dst);
+int vmaf_tensor_from_luma(const uint8_t *src, size_t stride_src, int width, int height,
+                          VmafTensorLayout layout, VmafTensorDType dtype, const float *mean,
+                          const float *std, void *dst);
 
 /**
  * Convert a normalized float32/float16 NCHW or NHWC tensor back to an 8-bit
  * luma plane. De-normalizes (if mean/std provided), multiplies by 255 with
  * round-half-to-even, clamps to [0, 255]. Used by learned-filter output.
  */
-int vmaf_tensor_to_luma(const void *src,
-                        VmafTensorLayout layout,
-                        VmafTensorDType dtype,
-                        int width, int height,
-                        const float *mean, const float *std,
-                        uint8_t *dst, size_t stride_dst);
+int vmaf_tensor_to_luma(const void *src, VmafTensorLayout layout, VmafTensorDType dtype, int width,
+                        int height, const float *mean, const float *std, uint8_t *dst,
+                        size_t stride_dst);
 
 /** Convert float32 ↔ float16 in-place element counts. */
 void vmaf_f32_to_f16(const float *src, uint16_t *dst, size_t n);

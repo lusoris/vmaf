@@ -18,30 +18,29 @@
 
 #include "feature_extractor.h"
 
-static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h)
+static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                unsigned h)
 {
-    (void) fex;
-    (void) pix_fmt;
-    (void) bpc;
-    (void) w;
-    (void) h;
+    (void)fex;
+    (void)pix_fmt;
+    (void)bpc;
+    (void)w;
+    (void)h;
 
     return 0;
 }
 
-static int extract(VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector)
+static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector)
 {
-    (void) fex;
-    (void) ref_pic;
-    (void) ref_pic_90;
-    (void) dist_pic;
-    (void) dist_pic_90;
-    (void) index;
-    (void) feature_collector;
+    (void)fex;
+    (void)ref_pic;
+    (void)ref_pic_90;
+    (void)dist_pic;
+    (void)dist_pic_90;
+    (void)index;
+    (void)feature_collector;
 
     return 0;
 }

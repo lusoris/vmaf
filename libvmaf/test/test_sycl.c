@@ -33,12 +33,14 @@ static int sycl_init_failed = 0;
 
 static char *test_sycl_state_init(void)
 {
-    VmafSyclConfiguration cfg = { .device_index = -1 };
+    VmafSyclConfiguration cfg = {.device_index = -1};
     int err = vmaf_sycl_state_init(&sycl, cfg);
     if (err) {
         /* No SYCL GPU available — skip device-dependent tests */
-        fprintf(stderr, "  [SKIP] SYCL state init failed (err=%d), "
-                "no GPU available — skipping device tests\n", err);
+        fprintf(stderr,
+                "  [SKIP] SYCL state init failed (err=%d), "
+                "no GPU available — skipping device tests\n",
+                err);
         sycl_init_failed = 1;
         sycl = NULL;
         return NULL;
@@ -50,13 +52,13 @@ static char *test_sycl_state_init(void)
 static char *test_sycl_state_init_invalid(void)
 {
     /* NULL pointer should be rejected */
-    VmafSyclConfiguration cfg = { .device_index = -1 };
+    VmafSyclConfiguration cfg = {.device_index = -1};
     int err = vmaf_sycl_state_init(NULL, cfg);
     mu_assert("NULL pointer should return EINVAL", err < 0);
 
     /* Out-of-range device index */
     VmafSyclState *tmp = NULL;
-    VmafSyclConfiguration bad_cfg = { .device_index = 9999 };
+    VmafSyclConfiguration bad_cfg = {.device_index = 9999};
     err = vmaf_sycl_state_init(&tmp, bad_cfg);
     mu_assert("invalid device_index should fail", err < 0);
     mu_assert("state should be NULL on failure", tmp == NULL);
@@ -93,26 +95,21 @@ static char *test_sycl_feature_extractor_lookup(void)
     /* Lookup by extractor name */
     fex = vmaf_get_feature_extractor_by_name("adm_sycl");
     mu_assert("adm_sycl should be registered", fex != NULL);
-    mu_assert("adm_sycl name should match",
-              !strcmp(fex->name, "adm_sycl"));
+    mu_assert("adm_sycl name should match", !strcmp(fex->name, "adm_sycl"));
 
     fex = vmaf_get_feature_extractor_by_name("vif_sycl");
     mu_assert("vif_sycl should be registered", fex != NULL);
-    mu_assert("vif_sycl name should match",
-              !strcmp(fex->name, "vif_sycl"));
+    mu_assert("vif_sycl name should match", !strcmp(fex->name, "vif_sycl"));
 
     fex = vmaf_get_feature_extractor_by_name("motion_sycl");
     mu_assert("motion_sycl should be registered", fex != NULL);
-    mu_assert("motion_sycl name should match",
-              !strcmp(fex->name, "motion_sycl"));
+    mu_assert("motion_sycl name should match", !strcmp(fex->name, "motion_sycl"));
 
     /* Lookup by feature name with SYCL flag */
     unsigned flags = VMAF_FEATURE_EXTRACTOR_SYCL;
-    fex = vmaf_get_feature_extractor_by_feature_name(
-            "VMAF_integer_feature_adm2_score", flags);
+    fex = vmaf_get_feature_extractor_by_feature_name("VMAF_integer_feature_adm2_score", flags);
     mu_assert("SYCL ADM should be found by feature name", fex != NULL);
-    mu_assert("should be adm_sycl",
-              !strcmp(fex->name, "adm_sycl"));
+    mu_assert("should be adm_sycl", !strcmp(fex->name, "adm_sycl"));
 
     return NULL;
 }

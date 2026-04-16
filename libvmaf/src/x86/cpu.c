@@ -40,8 +40,9 @@ uint64_t vmaf_cpu_xgetbv(unsigned xcr);
 
 #define X(reg, mask) (((reg) & (mask)) == (mask))
 
-unsigned vmaf_get_cpu_flags_x86(void) {
-    CpuidRegisters r = { 0 };
+unsigned vmaf_get_cpu_flags_x86(void)
+{
+    CpuidRegisters r = {0};
     vmaf_cpu_cpuid(&r, 0, 0);
     const unsigned max_leaf = r.eax;
     unsigned flags = 0;

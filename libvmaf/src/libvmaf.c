@@ -95,7 +95,7 @@ typedef struct VmafContext {
         } cfg;
         VmafCudaState state;
         VmafCudaCookie cookie;
-        VmafRingBuffer* ring_buffer;
+        VmafRingBuffer *ring_buffer;
     } cuda;
 #endif
 #ifdef HAVE_SYCL
@@ -115,12 +115,12 @@ typedef struct VmafContext {
     struct {
         VmafOrtSession *sess;
         VmafModelSidecar meta;
-        bool  has_sidecar;
-        int   expected_w;
-        int   expected_h;
-        float *in_buf;          /* size: expected_w * expected_h floats */
+        bool has_sidecar;
+        int expected_w;
+        int expected_h;
+        float *in_buf; /* size: expected_w * expected_h floats */
         size_t in_elements;
-        char  *feature_name;    /* owned; published via feature_collector */
+        char *feature_name; /* owned; published via feature_collector */
     } dnn;
 } VmafContext;
 
@@ -146,11 +146,13 @@ static void batch_thread_data_free(void *data)
 
 int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg)
 {
-    if (!vmaf) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
     int err = 0;
 
     VmafContext *const v = *vmaf = malloc(sizeof(*v));
-    if (!v) goto fail;
+    if (!v)
+        goto fail;
     memset(v, 0, sizeof(*v));
     v->cfg = cfg;
 
@@ -160,11 +162,14 @@ int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg)
     vmaf_set_log_level(cfg.log_level);
 
     err = vmaf_framesync_init(&(v->framesync));
-    if (err) goto free_v;
+    if (err)
+        goto free_v;
     err = vmaf_feature_collector_init(&(v->feature_collector));
-    if (err) goto free_framesync;
+    if (err)
+        goto free_framesync;
     err = feature_extractor_vector_init(&(v->registered_feature_extractors));
-    if (err) goto free_feature_collector;
+    if (err)
+        goto free_feature_collector;
 
     if (v->cfg.n_threads > 0) {
         VmafThreadPoolConfig tpool_cfg = {
@@ -174,9 +179,11 @@ int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg)
 #endif
         };
         err = vmaf_thread_pool_create(&v->thread_pool, tpool_cfg);
-        if (err) goto free_feature_extractor_vector;
+        if (err)
+            goto free_feature_extractor_vector;
         err = vmaf_fex_ctx_pool_create(&v->fex_ctx_pool, v->cfg.n_threads);
-        if (err) goto free_thread_pool;
+        if (err)
+            goto free_thread_pool;
     }
 
     return 0;
@@ -199,11 +206,16 @@ fail:
 static int prepare_ring_buffer(VmafContext *vmaf, unsigned w, unsigned h,
                                enum VmafPixelFormat pix_fmt, unsigned bpc)
 {
-    if (!vmaf) return -EINVAL;
-    if (!w) return -EINVAL;
-    if (!h) return -EINVAL;
-    if (!pix_fmt) return -EINVAL;
-    if (!bpc) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!w)
+        return -EINVAL;
+    if (!h)
+        return -EINVAL;
+    if (!pix_fmt)
+        return -EINVAL;
+    if (!bpc)
+        return -EINVAL;
 
     vmaf->cuda.cookie.pix_fmt = vmaf->pic_params.pix_fmt = pix_fmt;
     vmaf->cuda.cookie.h = vmaf->pic_params.h = h;
@@ -224,8 +236,10 @@ static int prepare_ring_buffer(VmafContext *vmaf, unsigned w, unsigned h,
 
 int vmaf_cuda_import_state(VmafContext *vmaf, VmafCudaState *cu_state)
 {
-    if (!vmaf) return -EINVAL;
-    if (!cu_state) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!cu_state)
+        return -EINVAL;
 
     vmaf->cuda.state = *cu_state;
 
@@ -234,7 +248,8 @@ int vmaf_cuda_import_state(VmafContext *vmaf, VmafCudaState *cu_state)
 
 int vmaf_cuda_preallocate_pictures(VmafContext *vmaf, VmafCudaPictureConfiguration cfg)
 {
-    if (!vmaf) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
 
     int err = 0;
 
@@ -250,29 +265,29 @@ int vmaf_cuda_preallocate_pictures(VmafContext *vmaf, VmafCudaPictureConfigurati
     case VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_HOST:
     case VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_HOST_PINNED:
     case VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_DEVICE:
-        err = prepare_ring_buffer(vmaf, cfg.pic_params.w,
-                                  cfg.pic_params.h, cfg.pic_params.pix_fmt,
+        err = prepare_ring_buffer(vmaf, cfg.pic_params.w, cfg.pic_params.h, cfg.pic_params.pix_fmt,
                                   cfg.pic_params.bpc);
         if (err) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                     "problem during cuda picture preallocation\n");
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "problem during cuda picture preallocation\n");
             return err;
         }
         break;
     default:
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "unknown cuda picture preallocation method\n");
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "unknown cuda picture preallocation method\n");
         return -EINVAL;
     }
 
     return err;
 }
 
-int vmaf_cuda_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture* pic)
+int vmaf_cuda_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic)
 {
-    if (!vmaf) return -EINVAL;
-    if (!pic) return -EINVAL;
-    if (!vmaf->cuda.ring_buffer) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!pic)
+        return -EINVAL;
+    if (!vmaf->cuda.ring_buffer)
+        return -EINVAL;
 
     //TODO: preallocate host pics
 
@@ -281,22 +296,20 @@ int vmaf_cuda_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture* pic)
         return vmaf_ring_buffer_fetch_next_picture(vmaf->cuda.ring_buffer, pic);
     case VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_HOST:
         return vmaf_picture_alloc(pic, vmaf->cuda.cfg.pic_params.pix_fmt,
-                vmaf->cuda.cfg.pic_params.bpc, vmaf->cuda.cfg.pic_params.w,
-                vmaf->cuda.cfg.pic_params.h);
+                                  vmaf->cuda.cfg.pic_params.bpc, vmaf->cuda.cfg.pic_params.w,
+                                  vmaf->cuda.cfg.pic_params.h);
     case VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_HOST_PINNED:
-        return vmaf_cuda_picture_alloc_pinned(pic, vmaf->cuda.cfg.pic_params.pix_fmt,
-                vmaf->cuda.cfg.pic_params.bpc, vmaf->cuda.cfg.pic_params.w,
-                vmaf->cuda.cfg.pic_params.h, &vmaf->cuda.state);
+        return vmaf_cuda_picture_alloc_pinned(
+            pic, vmaf->cuda.cfg.pic_params.pix_fmt, vmaf->cuda.cfg.pic_params.bpc,
+            vmaf->cuda.cfg.pic_params.w, vmaf->cuda.cfg.pic_params.h, &vmaf->cuda.state);
     case VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_NONE:
     default:
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "undefined cuda picture preallocation method\n");
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "undefined cuda picture preallocation method\n");
         return -EINVAL;
     }
 }
 
-static int set_fex_cuda_state(VmafFeatureExtractorContext *fex_ctx,
-                              VmafContext *vmaf)
+static int set_fex_cuda_state(VmafFeatureExtractorContext *fex_ctx, VmafContext *vmaf)
 {
     if (fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA)
         fex_ctx->fex->cu_state = &(vmaf->cuda.state);
@@ -306,13 +319,15 @@ static int set_fex_cuda_state(VmafFeatureExtractorContext *fex_ctx,
 #endif
 
 #ifdef VMAF_PICTURE_POOL
-static int prepare_picture_pool(VmafContext *vmaf, unsigned pic_cnt,
-                                unsigned w, unsigned h,
+static int prepare_picture_pool(VmafContext *vmaf, unsigned pic_cnt, unsigned w, unsigned h,
                                 enum VmafPixelFormat pix_fmt, unsigned bpc)
 {
-    if (!vmaf) return -EINVAL;
-    if (!w || !h) return -EINVAL;
-    if (!pic_cnt) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!w || !h)
+        return -EINVAL;
+    if (!pic_cnt)
+        return -EINVAL;
 
     VmafPicturePoolConfig cfg = {
         .pic_cnt = pic_cnt,
@@ -327,41 +342,41 @@ static int prepare_picture_pool(VmafContext *vmaf, unsigned pic_cnt,
 
 static int check_picture_pool(VmafContext *vmaf)
 {
-    if (!vmaf->thread_pool) return 0;
-    if (vmaf->picture_pool) return 0;
+    if (!vmaf->thread_pool)
+        return 0;
+    if (vmaf->picture_pool)
+        return 0;
 
     // Default to 2x thread count if not explicitly preallocated
     const unsigned pic_cnt = vmaf->cfg.n_threads * 2;
 
-    int err = prepare_picture_pool(vmaf, pic_cnt,
-                                   vmaf->pic_params.w,
-                                   vmaf->pic_params.h,
-                                   vmaf->pic_params.pix_fmt,
-                                   vmaf->pic_params.bpc);
+    int err = prepare_picture_pool(vmaf, pic_cnt, vmaf->pic_params.w, vmaf->pic_params.h,
+                                   vmaf->pic_params.pix_fmt, vmaf->pic_params.bpc);
     if (err) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "problem during prepare_picture_pool\n");
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "problem during prepare_picture_pool\n");
         return -EINVAL;
     }
 
     return 0;
 }
 
-int vmaf_preallocate_pictures(VmafContext *vmaf,
-                                   VmafPictureConfiguration cfg)
+int vmaf_preallocate_pictures(VmafContext *vmaf, VmafPictureConfiguration cfg)
 {
-    if (!vmaf) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
 
-    return prepare_picture_pool(vmaf, cfg.pic_cnt,
-                                cfg.pic_params.w, cfg.pic_params.h,
+    return prepare_picture_pool(vmaf, cfg.pic_cnt, cfg.pic_params.w, cfg.pic_params.h,
                                 cfg.pic_params.pix_fmt, cfg.pic_params.bpc);
 }
 
 int vmaf_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic)
 {
-    if (!vmaf) return -EINVAL;
-    if (!pic) return -EINVAL;
-    if (!vmaf->picture_pool) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!pic)
+        return -EINVAL;
+    if (!vmaf->picture_pool)
+        return -EINVAL;
 
     return vmaf_picture_pool_fetch(vmaf->picture_pool, pic);
 }
@@ -370,38 +385,42 @@ int vmaf_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic)
 #ifdef HAVE_SYCL
 int vmaf_sycl_import_state(VmafContext *vmaf, VmafSyclState *sycl_state)
 {
-    if (!vmaf) return -EINVAL;
-    if (!sycl_state) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!sycl_state)
+        return -EINVAL;
 
     vmaf->sycl.state = sycl_state;
 
     return 0;
 }
 
-int vmaf_sycl_preallocate_pictures(VmafContext *vmaf,
-                                    VmafSyclPictureConfiguration cfg)
+int vmaf_sycl_preallocate_pictures(VmafContext *vmaf, VmafSyclPictureConfiguration cfg)
 {
     // SYCL extractors handle picture upload internally,
     // so preallocation is not strictly needed.
-    (void)vmaf; (void)cfg;
+    (void)vmaf;
+    (void)cfg;
     return 0;
 }
 
 int vmaf_sycl_picture_fetch(VmafContext *vmaf, VmafPicture *pic)
 {
-    if (!vmaf) return -EINVAL;
-    if (!pic) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!pic)
+        return -EINVAL;
 
-    return vmaf_picture_alloc(pic, vmaf->pic_params.pix_fmt,
-                              vmaf->pic_params.bpc,
+    return vmaf_picture_alloc(pic, vmaf->pic_params.pix_fmt, vmaf->pic_params.bpc,
                               vmaf->pic_params.w, vmaf->pic_params.h);
 }
 
-int vmaf_sycl_init_frame_buffers(VmafContext *vmaf,
-                                  unsigned w, unsigned h, unsigned bpc)
+int vmaf_sycl_init_frame_buffers(VmafContext *vmaf, unsigned w, unsigned h, unsigned bpc)
 {
-    if (!vmaf) return -EINVAL;
-    if (!vmaf->sycl.state) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!vmaf->sycl.state)
+        return -EINVAL;
 
     vmaf->pic_params.w = w;
     vmaf->pic_params.h = h;
@@ -411,22 +430,25 @@ int vmaf_sycl_init_frame_buffers(VmafContext *vmaf,
     return vmaf_sycl_shared_frame_init(vmaf->sycl.state, w, h, bpc);
 }
 
-int vmaf_sycl_get_frame_buffers(VmafContext *vmaf,
-                                 void **ref, void **dis)
+int vmaf_sycl_get_frame_buffers(VmafContext *vmaf, void **ref, void **dis)
 {
-    if (!vmaf || !vmaf->sycl.state) return -EINVAL;
+    if (!vmaf || !vmaf->sycl.state)
+        return -EINVAL;
 
     return vmaf_sycl_shared_frame_get(vmaf->sycl.state, ref, dis);
 }
 
 int vmaf_sycl_wait_compute(VmafContext *vmaf)
 {
-    if (!vmaf) return -EINVAL;
-    if (!vmaf->sycl.state) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!vmaf->sycl.state)
+        return -EINVAL;
 
     // Wait on the primary queue (VA surface imports / de-tile kernels)
     int err = vmaf_sycl_queue_wait(vmaf->sycl.state);
-    if (err) return err;
+    if (err)
+        return err;
 
     // Also wait on the combined compute queue (GPU feature extractors).
     // Without this, the VA import path can overwrite shared ref/dis buffers
@@ -434,8 +456,7 @@ int vmaf_sycl_wait_compute(VmafContext *vmaf)
     return vmaf_sycl_combined_queue_wait(vmaf->sycl.state);
 }
 
-static int set_fex_sycl_state(VmafFeatureExtractorContext *fex_ctx,
-                               VmafContext *vmaf)
+static int set_fex_sycl_state(VmafFeatureExtractorContext *fex_ctx, VmafContext *vmaf)
 {
     if (fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)
         fex_ctx->fex->sycl_state = vmaf->sycl.state;
@@ -443,8 +464,7 @@ static int set_fex_sycl_state(VmafFeatureExtractorContext *fex_ctx,
 }
 #endif
 
-static int set_fex_framesync(VmafFeatureExtractorContext *fex_ctx,
-                              VmafContext *vmaf)
+static int set_fex_framesync(VmafFeatureExtractorContext *fex_ctx, VmafContext *vmaf)
 {
     if (fex_ctx->fex->flags & VMAF_FEATURE_FRAME_SYNC)
         fex_ctx->fex->framesync = (vmaf->framesync);
@@ -453,7 +473,8 @@ static int set_fex_framesync(VmafFeatureExtractorContext *fex_ctx,
 
 static void vmaf_ctx_dnn_free(VmafContext *vmaf)
 {
-    if (!vmaf) return;
+    if (!vmaf)
+        return;
     if (vmaf->dnn.sess) {
         vmaf_ort_close(vmaf->dnn.sess);
         vmaf->dnn.sess = NULL;
@@ -474,97 +495,103 @@ int vmaf_ctx_dnn_has_session(const VmafContext *ctx)
     return (ctx && ctx->dnn.sess) ? 1 : 0;
 }
 
-int vmaf_ctx_dnn_attach(VmafContext *ctx,
-                        VmafOrtSession *sess,
-                        const VmafModelSidecar *meta,
-                        const int64_t *in_shape, size_t in_rank,
-                        const char *feature_name)
+int vmaf_ctx_dnn_attach(VmafContext *ctx, VmafOrtSession *sess, const VmafModelSidecar *meta,
+                        const int64_t *in_shape, size_t in_rank, const char *feature_name)
 {
-    if (!ctx || !sess || !in_shape || !feature_name) return -EINVAL;
-    if (ctx->dnn.sess) return -EBUSY;
+    if (!ctx || !sess || !in_shape || !feature_name)
+        return -EINVAL;
+    if (ctx->dnn.sess)
+        return -EBUSY;
 
     /* Only NCHW [1, 1, H, W] is supported for the current wiring. Anything
      * else is a hard -ENOTSUP so users see the limit rather than silent
      * mis-inference. */
-    if (in_rank != 4) return -ENOTSUP;
-    if (in_shape[0] != 1 || in_shape[1] != 1) return -ENOTSUP;
+    if (in_rank != 4)
+        return -ENOTSUP;
+    if (in_shape[0] != 1 || in_shape[1] != 1)
+        return -ENOTSUP;
     const int64_t h = in_shape[2];
     const int64_t w = in_shape[3];
-    if (h <= 0 || w <= 0) return -ENOTSUP;   /* dynamic dims unsupported */
+    if (h <= 0 || w <= 0)
+        return -ENOTSUP; /* dynamic dims unsupported */
 
-    const size_t n = (size_t) w * (size_t) h;
-    float *buf = (float *) calloc(n, sizeof(*buf));
-    if (!buf) return -ENOMEM;
+    const size_t n = (size_t)w * (size_t)h;
+    float *buf = (float *)calloc(n, sizeof(*buf));
+    if (!buf)
+        return -ENOMEM;
 
     char *name = strdup(feature_name);
-    if (!name) { free(buf); return -ENOMEM; }
+    if (!name) {
+        free(buf);
+        return -ENOMEM;
+    }
 
-    ctx->dnn.sess         = sess;
+    ctx->dnn.sess = sess;
     if (meta) {
-        ctx->dnn.meta        = *meta;
+        ctx->dnn.meta = *meta;
         ctx->dnn.has_sidecar = true;
     }
-    ctx->dnn.expected_w   = (int) w;
-    ctx->dnn.expected_h   = (int) h;
-    ctx->dnn.in_buf       = buf;
-    ctx->dnn.in_elements  = n;
+    ctx->dnn.expected_w = (int)w;
+    ctx->dnn.expected_h = (int)h;
+    ctx->dnn.in_buf = buf;
+    ctx->dnn.in_elements = n;
     ctx->dnn.feature_name = name;
     return 0;
 }
 
-static int vmaf_ctx_dnn_run_frame(VmafContext *vmaf, VmafPicture *ref,
-                                  unsigned index)
+static int vmaf_ctx_dnn_run_frame(VmafContext *vmaf, VmafPicture *ref, unsigned index)
 {
-    if (!vmaf->dnn.sess) return 0;
-    if (!ref || !ref->data[0]) return -EINVAL;
+    if (!vmaf->dnn.sess)
+        return 0;
+    if (!ref || !ref->data[0])
+        return -EINVAL;
 
     /* The current tensor bridge operates on 8-bit luma only. 10/12-bit
      * content and multi-channel inputs are rejected loudly rather than
      * quietly truncated. */
-    if (ref->bpc != 8) return -ENOTSUP;
-    if ((int) ref->w[0] != vmaf->dnn.expected_w ||
-        (int) ref->h[0] != vmaf->dnn.expected_h) {
+    if (ref->bpc != 8)
+        return -ENOTSUP;
+    if ((int)ref->w[0] != vmaf->dnn.expected_w || (int)ref->h[0] != vmaf->dnn.expected_h) {
         return -ERANGE;
     }
 
     const float *mean = NULL;
-    const float *std  = NULL;
+    const float *std = NULL;
     float m = 0.f;
     float s = 1.f;
     if (vmaf->dnn.has_sidecar && vmaf->dnn.meta.has_norm) {
         m = vmaf->dnn.meta.norm_mean;
         s = vmaf->dnn.meta.norm_std;
-        if (s > 0.f) { mean = &m; std = &s; }
+        if (s > 0.f) {
+            mean = &m;
+            std = &s;
+        }
     }
 
-    int rc = vmaf_tensor_from_luma((const uint8_t *) ref->data[0],
-                                   (size_t) ref->stride[0],
-                                   vmaf->dnn.expected_w, vmaf->dnn.expected_h,
-                                   VMAF_TENSOR_LAYOUT_NCHW,
-                                   VMAF_TENSOR_DTYPE_F32,
-                                   mean, std,
-                                   vmaf->dnn.in_buf);
-    if (rc < 0) return rc;
+    int rc =
+        vmaf_tensor_from_luma((const uint8_t *)ref->data[0], (size_t)ref->stride[0],
+                              vmaf->dnn.expected_w, vmaf->dnn.expected_h, VMAF_TENSOR_LAYOUT_NCHW,
+                              VMAF_TENSOR_DTYPE_F32, mean, std, vmaf->dnn.in_buf);
+    if (rc < 0)
+        return rc;
 
-    const int64_t shape[4] = {
-        1, 1, vmaf->dnn.expected_h, vmaf->dnn.expected_w
-    };
+    const int64_t shape[4] = {1, 1, vmaf->dnn.expected_h, vmaf->dnn.expected_w};
     float out = 0.f;
     size_t out_n = 0;
-    rc = vmaf_ort_infer(vmaf->dnn.sess,
-                        vmaf->dnn.in_buf, shape, 4,
-                        &out, 1u, &out_n);
-    if (rc < 0) return rc;
-    if (out_n != 1u) return -ENOTSUP;  /* multi-value outputs unsupported */
+    rc = vmaf_ort_infer(vmaf->dnn.sess, vmaf->dnn.in_buf, shape, 4, &out, 1u, &out_n);
+    if (rc < 0)
+        return rc;
+    if (out_n != 1u)
+        return -ENOTSUP; /* multi-value outputs unsupported */
 
-    return vmaf_feature_collector_append(vmaf->feature_collector,
-                                         vmaf->dnn.feature_name,
-                                         (double) out, index);
+    return vmaf_feature_collector_append(vmaf->feature_collector, vmaf->dnn.feature_name,
+                                         (double)out, index);
 }
 
 int vmaf_close(VmafContext *vmaf)
 {
-    if (!vmaf) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
 
     vmaf_thread_pool_wait(vmaf->thread_pool);
     if (vmaf->prev_ref.ref)
@@ -596,36 +623,40 @@ int vmaf_close(VmafContext *vmaf)
     return 0;
 }
 
-int vmaf_import_feature_score(VmafContext *vmaf, const char *feature_name,
-                              double value, unsigned index)
+int vmaf_import_feature_score(VmafContext *vmaf, const char *feature_name, double value,
+                              unsigned index)
 {
-    if (!vmaf) return -EINVAL;
-    if (!feature_name) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!feature_name)
+        return -EINVAL;
 
-    return vmaf_feature_collector_append(vmaf->feature_collector, feature_name,
-                                         value, index);
+    return vmaf_feature_collector_append(vmaf->feature_collector, feature_name, value, index);
 }
 
-int vmaf_use_feature(VmafContext *vmaf, const char *feature_name,
-                     VmafFeatureDictionary *opts_dict)
+int vmaf_use_feature(VmafContext *vmaf, const char *feature_name, VmafFeatureDictionary *opts_dict)
 {
-    if (!vmaf) return -EINVAL;
-    if (!feature_name) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!feature_name)
+        return -EINVAL;
 
-    VmafDictionary *s = (VmafDictionary*) opts_dict;
+    VmafDictionary *s = (VmafDictionary *)opts_dict;
 
     int err = 0;
 
-    VmafFeatureExtractor *fex =
-        vmaf_get_feature_extractor_by_name(feature_name);
-    if (!fex) return -EINVAL;
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name(feature_name);
+    if (!fex)
+        return -EINVAL;
 
     VmafDictionary *d = NULL;
     if (s) {
         err = vmaf_dictionary_copy(&s, &d);
-        if (err) return err;
+        if (err)
+            return err;
         err = vmaf_dictionary_free(&s);
-        if (err) return err;
+        if (err)
+            return err;
     }
 
     VmafFeatureExtractorContext *fex_ctx;
@@ -637,7 +668,8 @@ int vmaf_use_feature(VmafContext *vmaf, const char *feature_name,
     err |= set_fex_sycl_state(fex_ctx, vmaf);
 #endif
     err |= set_fex_framesync(fex_ctx, vmaf);
-    if (err) return err;
+    if (err)
+        return err;
 
     RegisteredFeatureExtractors *rfe = &(vmaf->registered_feature_extractors);
     err = feature_extractor_vector_append(rfe, fex_ctx, 0);
@@ -649,8 +681,10 @@ int vmaf_use_feature(VmafContext *vmaf, const char *feature_name,
 
 int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
 {
-    if (!vmaf) return -EINVAL;
-    if (!model) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!model)
+        return -EINVAL;
 
     int err = 0;
 
@@ -669,11 +703,9 @@ int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
 
     for (unsigned i = 0; i < model->n_features; i++) {
         VmafFeatureExtractor *fex =
-            vmaf_get_feature_extractor_by_feature_name(model->feature[i].name,
-                                                       fex_flags);
+            vmaf_get_feature_extractor_by_feature_name(model->feature[i].name, fex_flags);
         if (!fex) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                     "could not initialize feature extractor \"%s\"\n",
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "could not initialize feature extractor \"%s\"\n",
                      model->feature[i].name);
             return -EINVAL;
         }
@@ -682,7 +714,8 @@ int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
         VmafDictionary *d = NULL;
         if (model->feature[i].opts_dict) {
             err = vmaf_dictionary_copy(&model->feature[i].opts_dict, &d);
-            if (err) return err;
+            if (err)
+                return err;
         }
         err = vmaf_feature_extractor_context_create(&fex_ctx, fex, d);
 #ifdef HAVE_CUDA
@@ -692,7 +725,8 @@ int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
         err |= set_fex_sycl_state(fex_ctx, vmaf);
 #endif
         err |= set_fex_framesync(fex_ctx, vmaf);
-        if (err) return err;
+        if (err)
+            return err;
         err = feature_extractor_vector_append(rfe, fex_ctx, 0);
         if (err) {
             err |= vmaf_feature_extractor_context_destroy(fex_ctx);
@@ -701,7 +735,8 @@ int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
     }
 
     err = vmaf_feature_collector_mount_model(vmaf->feature_collector, model);
-    if (err) return err;
+    if (err)
+        return err;
 
     return 0;
 }
@@ -709,8 +744,10 @@ int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
 int vmaf_use_features_from_model_collection(VmafContext *vmaf,
                                             VmafModelCollection *model_collection)
 {
-    if (!vmaf) return -EINVAL;
-    if (!model_collection) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!model_collection)
+        return -EINVAL;
 
     int err = 0;
     for (unsigned i = 0; i < model_collection->cnt; i++)
@@ -730,15 +767,14 @@ struct ThreadData {
 
 static void threaded_extract_func(void *e, void **thread_data)
 {
-    (void) thread_data;
+    (void)thread_data;
     struct ThreadData *f = e;
 
     if (f->prev_ref.ref)
         f->fex_ctx->fex->prev_ref = f->prev_ref;
 
-    f->err = vmaf_feature_extractor_context_extract(f->fex_ctx, &f->ref, NULL,
-                                                    &f->dist, NULL, f->index,
-                                                    f->feature_collector);
+    f->err = vmaf_feature_extractor_context_extract(f->fex_ctx, &f->ref, NULL, &f->dist, NULL,
+                                                    f->index, f->feature_collector);
 
     if (f->prev_ref.ref) {
         memset(&f->fex_ctx->fex->prev_ref, 0, sizeof(f->fex_ctx->fex->prev_ref));
@@ -768,10 +804,17 @@ static void threaded_extract_batch_func(void *e, void **thread_data)
     BatchThreadData *td = *thread_data;
     if (!td) {
         td = malloc(sizeof(*td));
-        if (!td) { f->err = -ENOMEM; goto unref; }
+        if (!td) {
+            f->err = -ENOMEM;
+            goto unref;
+        }
         td->cnt = f->registered_fex->cnt;
         td->fex_ctx = calloc(td->cnt, sizeof(*td->fex_ctx));
-        if (!td->fex_ctx) { free(td); f->err = -ENOMEM; goto unref; }
+        if (!td->fex_ctx) {
+            free(td);
+            f->err = -ENOMEM;
+            goto unref;
+        }
         *thread_data = td;
     }
 
@@ -792,11 +835,16 @@ static void threaded_extract_batch_func(void *e, void **thread_data)
             VmafDictionary *d = NULL;
             if (opts_dict) {
                 int err = vmaf_dictionary_copy(&opts_dict, &d);
-                if (err) { f->err = err; break; }
+                if (err) {
+                    f->err = err;
+                    break;
+                }
             }
-            int err = vmaf_feature_extractor_context_create(&td->fex_ctx[i],
-                                                             fex, d);
-            if (err) { f->err = err; break; }
+            int err = vmaf_feature_extractor_context_create(&td->fex_ctx[i], fex, d);
+            if (err) {
+                f->err = err;
+                break;
+            }
         }
 
         if (fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) {
@@ -804,15 +852,11 @@ static void threaded_extract_batch_func(void *e, void **thread_data)
                 td->fex_ctx[i]->fex->prev_ref = f->prev_ref;
         }
 
-        int err = vmaf_feature_extractor_context_extract(td->fex_ctx[i],
-                                                         &f->ref, NULL,
-                                                         &f->dist, NULL,
-                                                         f->index,
-                                                         f->feature_collector);
+        int err = vmaf_feature_extractor_context_extract(td->fex_ctx[i], &f->ref, NULL, &f->dist,
+                                                         NULL, f->index, f->feature_collector);
 
         if (fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF)
-            memset(&td->fex_ctx[i]->fex->prev_ref, 0,
-                   sizeof(td->fex_ctx[i]->fex->prev_ref));
+            memset(&td->fex_ctx[i]->fex->prev_ref, 0, sizeof(td->fex_ctx[i]->fex->prev_ref));
 
         if (err) {
             f->err = err;
@@ -829,46 +873,44 @@ unref:
 #endif // VMAF_BATCH_THREADING
 
 /* NOLINTNEXTLINE(readability-function-size) */
-static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref,
-                                  VmafPicture *dist, unsigned index)
+static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
+                                  unsigned index)
 {
-    if (!vmaf) return -EINVAL;
-    if (!ref) return -EINVAL;
-    if (!dist) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!ref)
+        return -EINVAL;
+    if (!dist)
+        return -EINVAL;
 
     int err = 0;
 
     for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
-        VmafFeatureExtractor *fex =
-            vmaf->registered_feature_extractors.fex_ctx[i]->fex;
+        VmafFeatureExtractor *fex = vmaf->registered_feature_extractors.fex_ctx[i]->fex;
         if (fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA)
             continue;
         if (fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)
             continue;
-        VmafDictionary *opts_dict =
-            vmaf->registered_feature_extractors.fex_ctx[i]->opts_dict;
+        VmafDictionary *opts_dict = vmaf->registered_feature_extractors.fex_ctx[i]->opts_dict;
 
         if ((vmaf->cfg.n_subsample > 1) && (index % vmaf->cfg.n_subsample) &&
-            !(fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL))
-        {
+            !(fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL)) {
             continue;
         }
 
         fex->framesync = vmaf->framesync;
         VmafFeatureExtractorContext *fex_ctx;
-        err = vmaf_fex_ctx_pool_aquire(vmaf->fex_ctx_pool, fex, opts_dict,
-                                       &fex_ctx);
-        if (err) return err;
+        err = vmaf_fex_ctx_pool_aquire(vmaf->fex_ctx_pool, fex, opts_dict, &fex_ctx);
+        if (err)
+            return err;
 
         VmafPicture pic_a;
         VmafPicture pic_b;
-        VmafPicture prev_ref = { 0 };
+        VmafPicture prev_ref = {0};
         vmaf_picture_ref(&pic_a, ref);
         vmaf_picture_ref(&pic_b, dist);
 
-        if ((fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) &&
-            vmaf->prev_ref.ref)
-        {
+        if ((fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) && vmaf->prev_ref.ref) {
             vmaf_picture_ref(&prev_ref, &vmaf->prev_ref);
         }
 
@@ -883,12 +925,13 @@ static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref,
             .err = 0,
         };
 
-        err = vmaf_thread_pool_enqueue(vmaf->thread_pool, threaded_extract_func,
-                                       &data, sizeof(data));
+        err =
+            vmaf_thread_pool_enqueue(vmaf->thread_pool, threaded_extract_func, &data, sizeof(data));
         if (err) {
             vmaf_picture_unref(&pic_a);
             vmaf_picture_unref(&pic_b);
-            if (prev_ref.ref) vmaf_picture_unref(&prev_ref);
+            if (prev_ref.ref)
+                vmaf_picture_unref(&prev_ref);
             return err;
         }
     }
@@ -901,16 +944,19 @@ static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref,
 }
 
 #ifdef VMAF_BATCH_THREADING
-static int threaded_read_pictures_batch(VmafContext *vmaf, VmafPicture *ref,
-                                        VmafPicture *dist, unsigned index)
+static int threaded_read_pictures_batch(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
+                                        unsigned index)
 {
-    if (!vmaf) return -EINVAL;
-    if (!ref) return -EINVAL;
-    if (!dist) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!ref)
+        return -EINVAL;
+    if (!dist)
+        return -EINVAL;
 
     int err = 0;
 
-    VmafPicture pic_a, pic_b, prev_ref = { 0 };
+    VmafPicture pic_a, pic_b, prev_ref = {0};
     vmaf_picture_ref(&pic_a, ref);
     vmaf_picture_ref(&pic_b, dist);
 
@@ -928,12 +974,13 @@ static int threaded_read_pictures_batch(VmafContext *vmaf, VmafPicture *ref,
         .err = 0,
     };
 
-    err = vmaf_thread_pool_enqueue(vmaf->thread_pool, threaded_extract_batch_func,
-                                   &data, sizeof(data));
+    err = vmaf_thread_pool_enqueue(vmaf->thread_pool, threaded_extract_batch_func, &data,
+                                   sizeof(data));
     if (err) {
         vmaf_picture_unref(&pic_a);
         vmaf_picture_unref(&pic_b);
-        if (prev_ref.ref) vmaf_picture_unref(&prev_ref);
+        if (prev_ref.ref)
+            vmaf_picture_unref(&prev_ref);
         return err;
     }
 
@@ -945,8 +992,7 @@ static int threaded_read_pictures_batch(VmafContext *vmaf, VmafPicture *ref,
 }
 #endif // VMAF_BATCH_THREADING
 
-static int validate_pic_params(VmafContext *vmaf, VmafPicture *ref,
-                               VmafPicture *dist)
+static int validate_pic_params(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist)
 {
     VmafPicturePrivate *ref_priv = ref->priv;
     VmafPicturePrivate *dist_priv = dist->priv;
@@ -963,9 +1009,7 @@ static int validate_pic_params(VmafContext *vmaf, VmafPicture *ref,
         return -EINVAL;
     if ((ref->h[0] != dist->h[0]) || (ref->h[0] != vmaf->pic_params.h))
         return -EINVAL;
-    if ((ref->pix_fmt != dist->pix_fmt) ||
-        (ref->pix_fmt != vmaf->pic_params.pix_fmt))
-    {
+    if ((ref->pix_fmt != dist->pix_fmt) || (ref->pix_fmt != vmaf->pic_params.pix_fmt)) {
         return -EINVAL;
     }
     if ((ref->bpc != dist->bpc) && (ref->bpc != vmaf->pic_params.bpc))
@@ -985,8 +1029,7 @@ static int flush_context_threaded(VmafContext *vmaf)
     for (unsigned i = 0; i < rfe.cnt; i++) {
         if (!(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL))
             continue;
-        err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i],
-                                                    vmaf->feature_collector);
+        err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
     }
 #else
     err |= vmaf_fex_ctx_pool_flush(vmaf->fex_ctx_pool, vmaf->feature_collector);
@@ -1003,12 +1046,15 @@ static int flush_context_threaded(VmafContext *vmaf)
             if (!fex->flush)
                 continue;
             int flush_err = 0;
-            while (!(flush_err = fex->flush(fex, vmaf->feature_collector)));
-            if (flush_err < 0) err |= flush_err;
+            while (!(flush_err = fex->flush(fex, vmaf->feature_collector)))
+                ;
+            if (flush_err < 0)
+                err |= flush_err;
         }
     }
 
-    if (!err) vmaf->flushed = true;
+    if (!err)
+        vmaf->flushed = true;
     return err;
 }
 
@@ -1023,8 +1069,8 @@ static int flush_context(VmafContext *vmaf)
         for (unsigned i = 0; i < rfe.cnt; i++) {
             if (!(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) &&
                 !(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)) {
-                err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i],
-                                                            vmaf->feature_collector);
+                err |=
+                    vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
             }
         }
     }
@@ -1036,23 +1082,21 @@ static int flush_context(VmafContext *vmaf)
             if (rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) {
                 // Collect any pending double-buffered CUDA work
                 if (rfe.fex_ctx[i]->gpu_pending) {
-                    err |= vmaf_feature_extractor_context_collect(rfe.fex_ctx[i],
-                            rfe.fex_ctx[i]->gpu_pending_index,
-                            vmaf->feature_collector);
+                    err |= vmaf_feature_extractor_context_collect(
+                        rfe.fex_ctx[i], rfe.fex_ctx[i]->gpu_pending_index, vmaf->feature_collector);
                     rfe.fex_ctx[i]->gpu_pending = false;
                 }
-                err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i],
-                                                            vmaf->feature_collector);
+                err |=
+                    vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
             }
         }
-        CudaFunctions* cu_f = vmaf->cuda.state.f;
+        CudaFunctions *cu_f = vmaf->cuda.state.f;
         err |= cu_f->cuCtxPushCurrent(vmaf->cuda.state.ctx);
         err |= cu_f->cuStreamSynchronize(vmaf->cuda.state.str);
         err |= cu_f->cuCtxSynchronize();
         err |= cu_f->cuCtxPopCurrent(NULL);
         if (err) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                    "context could not be synchronized\n");
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "context could not be synchronized\n");
             return -EINVAL;
         }
     }
@@ -1065,39 +1109,39 @@ static int flush_context(VmafContext *vmaf)
         for (unsigned i = 0; i < rfe.cnt; i++) {
             if ((rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL) &&
                 rfe.fex_ctx[i]->gpu_pending) {
-                err |= vmaf_feature_extractor_context_collect(rfe.fex_ctx[i],
-                        rfe.fex_ctx[i]->gpu_pending_index,
-                        vmaf->feature_collector);
+                err |= vmaf_feature_extractor_context_collect(
+                    rfe.fex_ctx[i], rfe.fex_ctx[i]->gpu_pending_index, vmaf->feature_collector);
                 rfe.fex_ctx[i]->gpu_pending = false;
             }
         }
         for (unsigned i = 0; i < rfe.cnt; i++) {
             if (rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)
-                err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i],
-                                                            vmaf->feature_collector);
+                err |=
+                    vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
         }
         vmaf_sycl_queue_wait(vmaf->sycl.state);
         vmaf_sycl_print_timing(vmaf->sycl.state);
     }
 #endif
 
-    if (!err) vmaf->flushed = true;
+    if (!err)
+        vmaf->flushed = true;
     return err;
 }
 
 #ifdef HAVE_CUDA
 static int check_ring_buffer(VmafContext *vmaf)
 {
-    if (!vmaf->cuda.state.ctx) return 0;
+    if (!vmaf->cuda.state.ctx)
+        return 0;
 
     int err = 0;
 
     if (!vmaf->cuda.cfg.pic_prealloc_method && !vmaf->cuda.ring_buffer) {
         err = prepare_ring_buffer(vmaf, vmaf->pic_params.w, vmaf->pic_params.h,
-                vmaf->pic_params.pix_fmt, vmaf->pic_params.bpc);
+                                  vmaf->pic_params.pix_fmt, vmaf->pic_params.bpc);
         if (err) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                     "problem during prepare_ring_buffer\n");
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "problem during prepare_ring_buffer\n");
             return -EINVAL;
         }
     }
@@ -1105,20 +1149,21 @@ static int check_ring_buffer(VmafContext *vmaf)
     return err;
 }
 
-enum  {
+enum {
     HW_FLAG_HOST = 1 << 0,
     HW_FLAG_DEVICE = 1 << 1,
 };
 
-static int translate_picture_host(VmafContext *vmaf, VmafPicture *pic,
-                                  VmafPicture *pic_device, unsigned hw_flags)
+static int translate_picture_host(VmafContext *vmaf, VmafPicture *pic, VmafPicture *pic_device,
+                                  unsigned hw_flags)
 {
     int err = 0;
-    if (!(hw_flags & HW_FLAG_DEVICE)) return err;
+    if (!(hw_flags & HW_FLAG_DEVICE))
+        return err;
 
     //host to device
 
-    switch(vmaf->pic_params.buf_type) {
+    switch (vmaf->pic_params.buf_type) {
     case VMAF_PICTURE_BUFFER_TYPE_HOST:
     case VMAF_PICTURE_BUFFER_TYPE_CUDA_HOST_PINNED:
         if (!vmaf->cuda.state.ctx)
@@ -1126,8 +1171,7 @@ static int translate_picture_host(VmafContext *vmaf, VmafPicture *pic,
         err |= vmaf_ring_buffer_fetch_next_picture(vmaf->cuda.ring_buffer, pic_device);
         err |= vmaf_cuda_picture_upload_async(pic_device, pic, 0x1);
         if (err) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                    "problem moving host pic into cuda device buffer\n");
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "problem moving host pic into cuda device buffer\n");
             return err;
         }
         break;
@@ -1138,39 +1182,36 @@ static int translate_picture_host(VmafContext *vmaf, VmafPicture *pic,
     return err;
 }
 
-static int translate_picture_device(VmafContext *vmaf, VmafPicture *pic,
-                                    VmafPicture *pic_host, unsigned hw_flags)
+static int translate_picture_device(VmafContext *vmaf, VmafPicture *pic, VmafPicture *pic_host,
+                                    unsigned hw_flags)
 {
     int err = 0;
-    if (!(hw_flags & HW_FLAG_HOST)) return err;
+    if (!(hw_flags & HW_FLAG_HOST))
+        return err;
 
     //device to host
 
-    err = vmaf_picture_alloc(pic_host, pic->pix_fmt, pic->bpc,
-                             pic->w[0], pic->h[0]);
+    err = vmaf_picture_alloc(pic_host, pic->pix_fmt, pic->bpc, pic->w[0], pic->h[0]);
     if (err) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "problem allocating host pic\n");
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "problem allocating host pic\n");
         return err;
     }
 
     err = vmaf_cuda_picture_download_async(pic, pic_host, 0x1);
     if (err) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "problem moving cuda pic into host buffer\n");
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "problem moving cuda pic into host buffer\n");
         return err;
     }
 
     return err;
 }
 
-static int translate_picture(VmafContext *vmaf, VmafPicture *pic,
-                             VmafPicture *pic_host, VmafPicture *pic_device,
-                             unsigned hw_flags)
+static int translate_picture(VmafContext *vmaf, VmafPicture *pic, VmafPicture *pic_host,
+                             VmafPicture *pic_device, unsigned hw_flags)
 {
     const VmafPicturePrivate *pic_priv = pic->priv;
 
-    switch(pic_priv->buf_type) {
+    switch (pic_priv->buf_type) {
     case VMAF_PICTURE_BUFFER_TYPE_HOST:
     case VMAF_PICTURE_BUFFER_TYPE_CUDA_HOST_PINNED:
         *pic_host = *pic;
@@ -1185,12 +1226,13 @@ static int translate_picture(VmafContext *vmaf, VmafPicture *pic,
 
 static unsigned rfe_hw_flags(RegisteredFeatureExtractors *rfe)
 {
-    if (!rfe) return -EINVAL;
+    if (!rfe)
+        return -EINVAL;
 
     unsigned flags = 0;
     for (unsigned i = 0; i < rfe->cnt; i++) {
-        flags |= rfe->fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ?
-            HW_FLAG_DEVICE : HW_FLAG_HOST;
+        flags |= rfe->fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? HW_FLAG_DEVICE :
+                                                                             HW_FLAG_HOST;
     }
 
     return flags;
@@ -1200,37 +1242,43 @@ static unsigned rfe_hw_flags(RegisteredFeatureExtractors *rfe)
 
 /* Upstream dispatch function. Refactoring is tracked in .workingdir2/OPEN.md. */
 /* NOLINTNEXTLINE(readability-function-size) */
-int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
-                       unsigned index)
+int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, unsigned index)
 {
-    if (!vmaf) return -EINVAL;
-    if (vmaf->flushed) return -EINVAL;
-    if (!ref != !dist) return -EINVAL;
-    if (!ref && !dist) return flush_context(vmaf);
+    if (!vmaf)
+        return -EINVAL;
+    if (vmaf->flushed)
+        return -EINVAL;
+    if (!ref != !dist)
+        return -EINVAL;
+    if (!ref && !dist)
+        return flush_context(vmaf);
 
     int err = 0;
 
     vmaf->pic_cnt++;
     err = validate_pic_params(vmaf, ref, dist);
-    if (err) return err;
+    if (err)
+        return err;
 
 #ifdef VMAF_PICTURE_POOL
     err = check_picture_pool(vmaf);
-    if (err) return err;
+    if (err)
+        return err;
 #endif
 
 #ifdef HAVE_CUDA
     err = check_ring_buffer(vmaf);
-    if (err) return err;
+    if (err)
+        return err;
 
-    const unsigned hw_flags =
-        rfe_hw_flags(&vmaf->registered_feature_extractors);
+    const unsigned hw_flags = rfe_hw_flags(&vmaf->registered_feature_extractors);
 
-    VmafPicture ref_host = { 0 }, ref_device = { 0 };
+    VmafPicture ref_host = {0}, ref_device = {0};
     err = translate_picture(vmaf, ref, &ref_host, &ref_device, hw_flags);
-    if (err) return err;
+    if (err)
+        return err;
 
-    VmafPicture dist_host = { 0 }, dist_device = { 0 };
+    VmafPicture dist_host = {0}, dist_device = {0};
     err = translate_picture(vmaf, dist, &dist_host, &dist_device, hw_flags);
 #endif
 
@@ -1247,13 +1295,13 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
         // implicitly) before overwriting the upload slot.
         // On the very first frame, skip the wait since nothing is pending.
         if (!vmaf_sycl_get_shared_ref(vmaf->sycl.state)) {
-            err = vmaf_sycl_shared_frame_init(vmaf->sycl.state,
-                                               ref->w[0], ref->h[0],
-                                               ref->bpc);
-            if (err) return err;
+            err = vmaf_sycl_shared_frame_init(vmaf->sycl.state, ref->w[0], ref->h[0], ref->bpc);
+            if (err)
+                return err;
         }
         err = vmaf_sycl_shared_frame_upload(vmaf->sycl.state, ref, dist);
-        if (err) return err;
+        if (err)
+            return err;
         // DMA runs asynchronously on copy_queue while the CPU collects
         // previous-frame results below.  vmaf_sycl_graph_submit() will
         // wait for copy_queue just before replaying the command graph.
@@ -1265,8 +1313,7 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
     // collects results from extractor N+1's previous frame, overlapping
     // GPU compute with CPU score-writing. Critical for small GPUs (RTX 3050).
     for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
-        VmafFeatureExtractorContext *fex_ctx =
-            vmaf->registered_feature_extractors.fex_ctx[i];
+        VmafFeatureExtractorContext *fex_ctx = vmaf->registered_feature_extractors.fex_ctx[i];
 
         if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL)) {
             if ((vmaf->cfg.n_subsample > 1) && (index % vmaf->cfg.n_subsample))
@@ -1274,23 +1321,18 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
         }
 
         if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) &&
-            !(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL) &&
-            vmaf->thread_pool) {
+            !(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL) && vmaf->thread_pool) {
 #ifdef VMAF_BATCH_THREADING
             if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL))
 #endif
-            continue;
+                continue;
         }
 #ifdef HAVE_CUDA
-        ref = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ?
-            &ref_device : &ref_host;
-        dist = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ?
-            &dist_device : &dist_host;
+        ref = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? &ref_device : &ref_host;
+        dist = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? &dist_device : &dist_host;
 #endif
 
-        if ((fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) &&
-            vmaf->prev_ref.ref)
-        {
+        if ((fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) && vmaf->prev_ref.ref) {
             fex_ctx->fex->prev_ref = vmaf->prev_ref;
         }
 
@@ -1301,16 +1343,14 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
         if (fex_ctx->fex->submit && fex_ctx->fex->collect) {
             // Collect previous frame's results (if any)
             if (fex_ctx->gpu_pending) {
-                err = vmaf_feature_extractor_context_collect(fex_ctx,
-                        fex_ctx->gpu_pending_index,
-                        vmaf->feature_collector);
+                err = vmaf_feature_extractor_context_collect(fex_ctx, fex_ctx->gpu_pending_index,
+                                                             vmaf->feature_collector);
                 fex_ctx->gpu_pending = false;
                 if (err)
                     return err;
             }
             // Submit current frame (non-blocking GPU work)
-            err = vmaf_feature_extractor_context_submit(fex_ctx,
-                    ref, NULL, dist, NULL, index);
+            err = vmaf_feature_extractor_context_submit(fex_ctx, ref, NULL, dist, NULL, index);
             if (err)
                 return err;
             fex_ctx->gpu_pending = true;
@@ -1318,8 +1358,7 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
             continue;
         }
 
-        err = vmaf_feature_extractor_context_extract(fex_ctx, ref, NULL, dist,
-                                                     NULL, index,
+        err = vmaf_feature_extractor_context_extract(fex_ctx, ref, NULL, dist, NULL, index,
                                                      vmaf->feature_collector);
 
         if (fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF)
@@ -1334,8 +1373,8 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
     // kernels are enqueued.
 
 #ifdef HAVE_CUDA
-        ref = &ref_host;
-        dist = &dist_host;
+    ref = &ref_host;
+    dist = &dist_host;
 #endif
 
     /* Per-frame tiny-model inference, if one is attached. Runs on the main
@@ -1343,12 +1382,13 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
      * under the sidecar-derived feature name. */
     if (vmaf->dnn.sess) {
         err = vmaf_ctx_dnn_run_frame(vmaf, ref, index);
-        if (err) return err;
+        if (err)
+            return err;
     }
 
     //multithreading for GPU does not yield performance benefits
     //disabled for now
-    if (vmaf->thread_pool){
+    if (vmaf->thread_pool) {
 #ifdef VMAF_BATCH_THREADING
         return threaded_read_pictures_batch(vmaf, ref, dist, index);
 #else
@@ -1366,17 +1406,17 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
     if (dist_host.priv)
         err |= vmaf_picture_unref(&dist_host);
 
-    CudaFunctions* cu_f = vmaf->cuda.state.f;
+    CudaFunctions *cu_f = vmaf->cuda.state.f;
     if (ref_device.priv) {
         CHECK_CUDA(cu_f, cuEventRecord(vmaf_cuda_picture_get_finished_event(&ref_device),
-                                 vmaf_cuda_picture_get_stream(&ref_device)));
+                                       vmaf_cuda_picture_get_stream(&ref_device)));
         //^FIXME: move to picture callback
         err |= vmaf_picture_unref(&ref_device);
     }
 
     if (dist_device.priv) {
         CHECK_CUDA(cu_f, cuEventRecord(vmaf_cuda_picture_get_finished_event(&dist_device),
-                                vmaf_cuda_picture_get_stream(&dist_device)));
+                                       vmaf_cuda_picture_get_stream(&dist_device)));
         //^FIXME: move to picture callback
         err |= vmaf_picture_unref(&dist_device);
     }
@@ -1392,9 +1432,12 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
 #ifdef HAVE_SYCL
 int vmaf_read_pictures_sycl(VmafContext *vmaf, unsigned index)
 {
-    if (!vmaf) return -EINVAL;
-    if (!vmaf->sycl.state) return -EINVAL;
-    if (vmaf->flushed) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!vmaf->sycl.state)
+        return -EINVAL;
+    if (vmaf->flushed)
+        return -EINVAL;
 
     int err = 0;
     vmaf->pic_cnt++;
@@ -1405,7 +1448,8 @@ int vmaf_read_pictures_sycl(VmafContext *vmaf, unsigned index)
     // reuse the VA surface for the next frame.  Without this wait, the async
     // de-tile could race with the hwupload writing new data.
     err = vmaf_sycl_queue_wait(vmaf->sycl.state);
-    if (err) return err;
+    if (err)
+        return err;
 
     // Advance frame counter for the zero-copy VA import path.
     // The host upload path (vmaf_sycl_shared_frame_upload) does this
@@ -1419,8 +1463,7 @@ int vmaf_read_pictures_sycl(VmafContext *vmaf, unsigned index)
     // No upload needed — caller already wrote Y plane data into the shared
     // SYCL USM device buffers (e.g. via VPL Level Zero interop).
     for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
-        VmafFeatureExtractorContext *fex_ctx =
-            vmaf->registered_feature_extractors.fex_ctx[i];
+        VmafFeatureExtractorContext *fex_ctx = vmaf->registered_feature_extractors.fex_ctx[i];
 
         if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL))
             continue;
@@ -1432,24 +1475,26 @@ int vmaf_read_pictures_sycl(VmafContext *vmaf, unsigned index)
 
         // Lazy initialization
         if (!fex_ctx->is_initialized) {
-            err = vmaf_feature_extractor_context_init(fex_ctx,
-                    vmaf->pic_params.pix_fmt, vmaf->pic_params.bpc,
-                    vmaf->pic_params.w, vmaf->pic_params.h);
-            if (err) return err;
+            err = vmaf_feature_extractor_context_init(fex_ctx, vmaf->pic_params.pix_fmt,
+                                                      vmaf->pic_params.bpc, vmaf->pic_params.w,
+                                                      vmaf->pic_params.h);
+            if (err)
+                return err;
         }
 
         // Collect previous frame's results (double-buffered)
         if (fex_ctx->gpu_pending) {
-            err = vmaf_feature_extractor_context_collect(fex_ctx,
-                    fex_ctx->gpu_pending_index,
-                    vmaf->feature_collector);
+            err = vmaf_feature_extractor_context_collect(fex_ctx, fex_ctx->gpu_pending_index,
+                                                         vmaf->feature_collector);
             fex_ctx->gpu_pending = false;
-            if (err) return err;
+            if (err)
+                return err;
         }
 
         // Submit current frame (GPU buffers already populated)
         err = vmaf_feature_extractor_context_submit_nocopy(fex_ctx, index);
-        if (err) return err;
+        if (err)
+            return err;
         fex_ctx->gpu_pending = true;
         fex_ctx->gpu_pending_index = index;
     }
@@ -1459,8 +1504,10 @@ int vmaf_read_pictures_sycl(VmafContext *vmaf, unsigned index)
 
 int vmaf_flush_sycl(VmafContext *vmaf)
 {
-    if (!vmaf) return -EINVAL;
-    if (vmaf->flushed) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (vmaf->flushed)
+        return -EINVAL;
 
     int err = 0;
 
@@ -1470,85 +1517,91 @@ int vmaf_flush_sycl(VmafContext *vmaf)
         for (unsigned i = 0; i < rfe.cnt; i++) {
             if ((rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL) &&
                 rfe.fex_ctx[i]->gpu_pending) {
-                err |= vmaf_feature_extractor_context_collect(rfe.fex_ctx[i],
-                        rfe.fex_ctx[i]->gpu_pending_index,
-                        vmaf->feature_collector);
+                err |= vmaf_feature_extractor_context_collect(
+                    rfe.fex_ctx[i], rfe.fex_ctx[i]->gpu_pending_index, vmaf->feature_collector);
                 rfe.fex_ctx[i]->gpu_pending = false;
             }
         }
         for (unsigned i = 0; i < rfe.cnt; i++) {
             if (rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)
-                err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i],
-                                                            vmaf->feature_collector);
+                err |=
+                    vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
         }
         vmaf_sycl_queue_wait(vmaf->sycl.state);
         vmaf_sycl_print_timing(vmaf->sycl.state);
     }
 
-    if (!err) vmaf->flushed = true;
+    if (!err)
+        vmaf->flushed = true;
     return err;
 }
 #endif
 
 int vmaf_register_metadata_handler(VmafContext *vmaf, VmafMetadataConfiguration cfg)
 {
-    if (!vmaf) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
 
     return vmaf_feature_collector_register_metadata(vmaf->feature_collector, cfg);
 }
 
-int vmaf_feature_score_at_index(VmafContext *vmaf, const char *feature_name,
-                                double *score, unsigned index)
+int vmaf_feature_score_at_index(VmafContext *vmaf, const char *feature_name, double *score,
+                                unsigned index)
 {
-    if (!vmaf) return -EINVAL;
-    if (!feature_name) return -EINVAL;
-    if (!score) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!feature_name)
+        return -EINVAL;
+    if (!score)
+        return -EINVAL;
 
-    return vmaf_feature_collector_get_score(vmaf->feature_collector,
-                                            feature_name, score, index);
+    return vmaf_feature_collector_get_score(vmaf->feature_collector, feature_name, score, index);
 }
 
-
-int vmaf_score_at_index(VmafContext *vmaf, VmafModel *model, double *score,
-                        unsigned index)
+int vmaf_score_at_index(VmafContext *vmaf, VmafModel *model, double *score, unsigned index)
 {
-    if (!vmaf) return -EINVAL;
-    if (!model) return -EINVAL;
-    if (!score) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!model)
+        return -EINVAL;
+    if (!score)
+        return -EINVAL;
 
-    int err =
-        vmaf_feature_collector_get_score(vmaf->feature_collector, model->name,
-                                         score, index);
+    int err = vmaf_feature_collector_get_score(vmaf->feature_collector, model->name, score, index);
     if (err) {
-        err = vmaf_predict_score_at_index(model, vmaf->feature_collector, index,
-                                          score, true, false, 0);
+        err = vmaf_predict_score_at_index(model, vmaf->feature_collector, index, score, true, false,
+                                          0);
     }
 
     return err;
 }
 
-int vmaf_score_at_index_model_collection(VmafContext *vmaf,
-                                         VmafModelCollection *model_collection,
-                                         VmafModelCollectionScore *score,
-                                         unsigned index)
+int vmaf_score_at_index_model_collection(VmafContext *vmaf, VmafModelCollection *model_collection,
+                                         VmafModelCollectionScore *score, unsigned index)
 {
-    if (!vmaf) return -EINVAL;
-    if (!model_collection) return -EINVAL;
-    if (!score) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!model_collection)
+        return -EINVAL;
+    if (!score)
+        return -EINVAL;
 
-    return vmaf_predict_score_at_index_model_collection(model_collection,
-                                                        vmaf->feature_collector,
+    return vmaf_predict_score_at_index_model_collection(model_collection, vmaf->feature_collector,
                                                         index, score);
 }
 
 int vmaf_feature_score_pooled(VmafContext *vmaf, const char *feature_name,
-                              enum VmafPoolingMethod pool_method, double *score,
-                              unsigned index_low, unsigned index_high)
+                              enum VmafPoolingMethod pool_method, double *score, unsigned index_low,
+                              unsigned index_high)
 {
-    if (!vmaf) return -EINVAL;
-    if (!feature_name) return -EINVAL;
-    if (index_low > index_high) return -EINVAL;
-    if (!pool_method) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!feature_name)
+        return -EINVAL;
+    if (index_low > index_high)
+        return -EINVAL;
+    if (!pool_method)
+        return -EINVAL;
 
     unsigned pic_cnt = 0;
     double min = 0.;
@@ -1561,7 +1614,8 @@ int vmaf_feature_score_pooled(VmafContext *vmaf, const char *feature_name,
         pic_cnt++;
         double s;
         int err = vmaf_feature_score_at_index(vmaf, feature_name, &s, i);
-        if (err) return err;
+        if (err)
+            return err;
         sum += s;
         i_sum += 1. / (s + 1.);
         if ((i == index_low) || (s < min))
@@ -1590,39 +1644,47 @@ int vmaf_feature_score_pooled(VmafContext *vmaf, const char *feature_name,
     return 0;
 }
 
-int vmaf_score_pooled(VmafContext *vmaf, VmafModel *model,
-                      enum VmafPoolingMethod pool_method, double *score,
-                      unsigned index_low, unsigned index_high)
+int vmaf_score_pooled(VmafContext *vmaf, VmafModel *model, enum VmafPoolingMethod pool_method,
+                      double *score, unsigned index_low, unsigned index_high)
 {
-    if (!vmaf) return -EINVAL;
-    if (!model) return -EINVAL;
-    if (!score) return -EINVAL;
-    if (index_low > index_high) return -EINVAL;
-    if (!pool_method) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!model)
+        return -EINVAL;
+    if (!score)
+        return -EINVAL;
+    if (index_low > index_high)
+        return -EINVAL;
+    if (!pool_method)
+        return -EINVAL;
 
     for (unsigned i = index_low; i <= index_high; i++) {
         if ((vmaf->cfg.n_subsample > 1) && (i % vmaf->cfg.n_subsample))
             continue;
         double vmaf_score;
         int err = vmaf_score_at_index(vmaf, model, &vmaf_score, i);
-        if (err) return err;
+        if (err)
+            return err;
     }
 
-    return vmaf_feature_score_pooled(vmaf, model->name, pool_method, score,
-                                     index_low, index_high);
+    return vmaf_feature_score_pooled(vmaf, model->name, pool_method, score, index_low, index_high);
 }
 
-int vmaf_score_pooled_model_collection(VmafContext *vmaf,
-                                       VmafModelCollection *model_collection,
+int vmaf_score_pooled_model_collection(VmafContext *vmaf, VmafModelCollection *model_collection,
                                        enum VmafPoolingMethod pool_method,
-                                       VmafModelCollectionScore *score,
-                                       unsigned index_low, unsigned index_high)
+                                       VmafModelCollectionScore *score, unsigned index_low,
+                                       unsigned index_high)
 {
-    if (!vmaf) return -EINVAL;
-    if (!model_collection) return -EINVAL;
-    if (!score) return -EINVAL;
-    if (index_low > index_high) return -EINVAL;
-    if (!pool_method) return -EINVAL;
+    if (!vmaf)
+        return -EINVAL;
+    if (!model_collection)
+        return -EINVAL;
+    if (!score)
+        return -EINVAL;
+    if (index_low > index_high)
+        return -EINVAL;
+    if (!pool_method)
+        return -EINVAL;
 
     int err = 0;
     for (unsigned i = index_low; i <= index_high; i++) {
@@ -1630,7 +1692,8 @@ int vmaf_score_pooled_model_collection(VmafContext *vmaf,
             continue;
         VmafModelCollectionScore s;
         err = vmaf_score_at_index_model_collection(vmaf, model_collection, &s, i);
-        if (err) return err;
+        if (err)
+            return err;
     }
 
     score->type = VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP;
@@ -1640,29 +1703,24 @@ int vmaf_score_pooled_model_collection(VmafContext *vmaf,
     const char *suffix_hi = "_ci_p95_hi";
     const char *suffix_bagging = "_bagging";
     const char *suffix_stddev = "_stddev";
-    const size_t name_sz =
-        strlen(model_collection->name) + strlen(suffix_lo) + 1;
+    const size_t name_sz = strlen(model_collection->name) + strlen(suffix_lo) + 1;
     char name[name_sz];
     memset(name, 0, name_sz);
 
-    (void) snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
-    err |= vmaf_feature_score_pooled(vmaf, name, pool_method,
-                                     &score->bootstrap.bagging_score,
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
+    err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.bagging_score,
                                      index_low, index_high);
 
-    (void) snprintf(name, name_sz, "%s%s", model_collection->name, suffix_stddev);
-    err |= vmaf_feature_score_pooled(vmaf, name, pool_method,
-                                     &score->bootstrap.stddev,
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_stddev);
+    err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.stddev, index_low,
+                                     index_high);
+
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_lo);
+    err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.ci.p95.lo,
                                      index_low, index_high);
 
-    (void) snprintf(name, name_sz, "%s%s", model_collection->name, suffix_lo);
-    err |= vmaf_feature_score_pooled(vmaf, name, pool_method,
-                                     &score->bootstrap.ci.p95.lo,
-                                     index_low, index_high);
-
-    (void) snprintf(name, name_sz, "%s%s", model_collection->name, suffix_hi);
-    err |= vmaf_feature_score_pooled(vmaf, name, pool_method,
-                                     &score->bootstrap.ci.p95.hi,
+    (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_hi);
+    err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.ci.p95.hi,
                                      index_low, index_high);
 
     return err;
@@ -1674,51 +1732,49 @@ const char *vmaf_version(void)
 }
 
 int vmaf_write_output_with_format(VmafContext *vmaf, const char *output_path,
-                                  enum VmafOutputFormat fmt,
-                                  const char *score_format)
+                                  enum VmafOutputFormat fmt, const char *score_format)
 {
     FILE *outfile = fopen(output_path, "w");
     if (!outfile) {
-        (void) fprintf(stderr, "could not open file: %s\n", output_path);
+        (void)fprintf(stderr, "could not open file: %s\n", output_path);
         return -EINVAL;
     }
 
-    const double fps = vmaf->pic_cnt /
-                ((double) (vmaf->feature_collector->timer.end -
-                vmaf->feature_collector->timer.begin) / CLOCKS_PER_SEC);
+    const double fps =
+        vmaf->pic_cnt /
+        ((double)(vmaf->feature_collector->timer.end - vmaf->feature_collector->timer.begin) /
+         CLOCKS_PER_SEC);
 
     int ret = 0;
     switch (fmt) {
     case VMAF_OUTPUT_FORMAT_XML:
-        ret = vmaf_write_output_xml(vmaf, vmaf->feature_collector, outfile,
-                                    vmaf->cfg.n_subsample,
-                                    vmaf->pic_params.w, vmaf->pic_params.h,
-                                    fps, vmaf->pic_cnt, score_format);
+        ret = vmaf_write_output_xml(vmaf, vmaf->feature_collector, outfile, vmaf->cfg.n_subsample,
+                                    vmaf->pic_params.w, vmaf->pic_params.h, fps, vmaf->pic_cnt,
+                                    score_format);
         break;
     case VMAF_OUTPUT_FORMAT_JSON:
-        ret = vmaf_write_output_json(vmaf, vmaf->feature_collector, outfile,
-                                     vmaf->cfg.n_subsample, fps, vmaf->pic_cnt,
-                                     score_format);
+        ret = vmaf_write_output_json(vmaf, vmaf->feature_collector, outfile, vmaf->cfg.n_subsample,
+                                     fps, vmaf->pic_cnt, score_format);
         break;
     case VMAF_OUTPUT_FORMAT_CSV:
-        ret = vmaf_write_output_csv(vmaf->feature_collector, outfile,
-                                    vmaf->cfg.n_subsample, score_format);
+        ret = vmaf_write_output_csv(vmaf->feature_collector, outfile, vmaf->cfg.n_subsample,
+                                    score_format);
         break;
     case VMAF_OUTPUT_FORMAT_SUB:
-        ret = vmaf_write_output_sub(vmaf->feature_collector, outfile,
-                                    vmaf->cfg.n_subsample, score_format);
+        ret = vmaf_write_output_sub(vmaf->feature_collector, outfile, vmaf->cfg.n_subsample,
+                                    score_format);
         break;
     default:
         ret = -EINVAL;
         break;
     }
 
-    if (fclose(outfile) != 0 && ret == 0) ret = -EIO;
+    if (fclose(outfile) != 0 && ret == 0)
+        ret = -EIO;
     return ret;
 }
 
-int vmaf_write_output(VmafContext *vmaf, const char *output_path,
-                      enum VmafOutputFormat fmt)
+int vmaf_write_output(VmafContext *vmaf, const char *output_path, enum VmafOutputFormat fmt)
 {
     return vmaf_write_output_with_format(vmaf, output_path, fmt, NULL);
 }

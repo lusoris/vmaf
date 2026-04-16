@@ -44,10 +44,8 @@
 #endif
 #endif
 
-typedef uint64_t (*motion_pipeline_fn)(const uint8_t *, ptrdiff_t,
-                                       const uint8_t *, ptrdiff_t,
-                                       int32_t *, unsigned, unsigned,
-                                       unsigned bpc);
+typedef uint64_t (*motion_pipeline_fn)(const uint8_t *, ptrdiff_t, const uint8_t *, ptrdiff_t,
+                                       int32_t *, unsigned, unsigned, unsigned bpc);
 
 typedef struct MotionV2State {
     int32_t *y_row;
@@ -57,16 +55,16 @@ typedef struct MotionV2State {
 
 static inline int mirror(int idx, int size)
 {
-    if (idx < 0) return -idx;
-    if (idx >= size) return 2 * size - idx - 1;
+    if (idx < 0)
+        return -idx;
+    if (idx >= size)
+        return 2 * size - idx - 1;
     return idx;
 }
 
-static uint64_t
-motion_score_pipeline_8(const uint8_t *prev, ptrdiff_t prev_stride,
-                        const uint8_t *cur, ptrdiff_t cur_stride,
-                        int32_t *y_row, unsigned w, unsigned h,
-                        unsigned bpc)
+static uint64_t motion_score_pipeline_8(const uint8_t *prev, ptrdiff_t prev_stride,
+                                        const uint8_t *cur, ptrdiff_t cur_stride, int32_t *y_row,
+                                        unsigned w, unsigned h, unsigned bpc)
 {
     (void)bpc;
     const int radius = filter_width / 2;
@@ -82,15 +80,15 @@ motion_score_pipeline_8(const uint8_t *prev, ptrdiff_t prev_stride,
             int32_t accum = 0;
             for (int k = 0; k < filter_width; k++) {
                 const int row = mirror((int)i - radius + k, (int)h);
-                int32_t diff = prev[row * prev_stride + j]
-                             - cur[row * cur_stride + j];
+                int32_t diff = prev[row * prev_stride + j] - cur[row * cur_stride + j];
                 accum += (int32_t)filter[k] * diff;
             }
             y_row[j] = (accum + y_round) >> 8;
             any_nonzero |= y_row[j];
         }
 
-        if (!any_nonzero) continue;
+        if (!any_nonzero)
+            continue;
 
         // x_conv + abs + accumulate for row i
         uint32_t row_sad = 0;
@@ -109,11 +107,10 @@ motion_score_pipeline_8(const uint8_t *prev, ptrdiff_t prev_stride,
     return sad;
 }
 
-static inline uint64_t
-motion_score_pipeline_16(const uint8_t *prev_u8, ptrdiff_t prev_stride,
-                         const uint8_t *cur_u8, ptrdiff_t cur_stride,
-                         int32_t *y_row, unsigned w, unsigned h,
-                         unsigned bpc)
+static inline uint64_t motion_score_pipeline_16(const uint8_t *prev_u8, ptrdiff_t prev_stride,
+                                                const uint8_t *cur_u8, ptrdiff_t cur_stride,
+                                                int32_t *y_row, unsigned w, unsigned h,
+                                                unsigned bpc)
 {
     const uint16_t *prev = (const uint16_t *)prev_u8;
     const uint16_t *cur = (const uint16_t *)cur_u8;
@@ -133,15 +130,15 @@ motion_score_pipeline_16(const uint8_t *prev_u8, ptrdiff_t prev_stride,
             int64_t accum = 0;
             for (int k = 0; k < filter_width; k++) {
                 const int row = mirror((int)i - radius + k, (int)h);
-                int32_t diff = prev[row * p_stride + j]
-                             - cur[row * c_stride + j];
+                int32_t diff = prev[row * p_stride + j] - cur[row * c_stride + j];
                 accum += (int64_t)filter[k] * diff;
             }
             y_row[j] = (int32_t)((accum + y_round) >> bpc);
             any_nonzero |= y_row[j];
         }
 
-        if (!any_nonzero) continue;
+        if (!any_nonzero)
+            continue;
 
         // x_conv + abs + accumulate for row i
         uint32_t row_sad = 0;
@@ -160,10 +157,10 @@ motion_score_pipeline_16(const uint8_t *prev_u8, ptrdiff_t prev_stride,
     return sad;
 }
 
-static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h)
+static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                unsigned h)
 {
-    (void) pix_fmt;
+    (void)pix_fmt;
     MotionV2State *s = fex->priv;
 
     s->w = w;
@@ -171,7 +168,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     s->bpc = bpc;
 
     s->y_row = malloc(sizeof(*s->y_row) * w);
-    if (!s->y_row) return -ENOMEM;
+    if (!s->y_row)
+        return -ENOMEM;
 
     if (bpc == 8)
         s->pipeline = motion_score_pipeline_8;
@@ -198,20 +196,19 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     return 0;
 }
 
-static int extract(VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector)
+static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector)
 {
     MotionV2State *s = fex->priv;
 
-    (void) dist_pic;
-    (void) ref_pic_90;
-    (void) dist_pic_90;
+    (void)dist_pic;
+    (void)ref_pic_90;
+    (void)dist_pic_90;
 
     if (index == 0) {
         return vmaf_feature_collector_append(feature_collector,
-                "VMAF_integer_feature_motion_v2_sad_score", 0., index);
+                                             "VMAF_integer_feature_motion_v2_sad_score", 0., index);
     }
 
     if (!fex->prev_ref.ref)
@@ -222,14 +219,13 @@ static int extract(VmafFeatureExtractor *fex,
     const uint8_t *prev_data = (const uint8_t *)fex->prev_ref.data[0];
     const uint8_t *cur_data = (const uint8_t *)ref_pic->data[0];
 
-    uint64_t sad = s->pipeline(prev_data, fex->prev_ref.stride[0],
-                               cur_data, ref_pic->stride[0],
+    uint64_t sad = s->pipeline(prev_data, fex->prev_ref.stride[0], cur_data, ref_pic->stride[0],
                                s->y_row, w, h, s->bpc);
 
     double score = (double)sad / 256. / (w * h);
 
     return vmaf_feature_collector_append(feature_collector,
-            "VMAF_integer_feature_motion_v2_sad_score", score, index);
+                                         "VMAF_integer_feature_motion_v2_sad_score", score, index);
 }
 
 static int close_fex(VmafFeatureExtractor *fex)
@@ -239,45 +235,42 @@ static int close_fex(VmafFeatureExtractor *fex)
     return 0;
 }
 
-static int flush(VmafFeatureExtractor *fex,
-                 VmafFeatureCollector *feature_collector)
+static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
-    (void) fex;
+    (void)fex;
 
     unsigned n_frames = 0;
     double dummy;
-    while (!vmaf_feature_collector_get_score(feature_collector,
-            "VMAF_integer_feature_motion_v2_sad_score", &dummy, n_frames))
+    while (!vmaf_feature_collector_get_score(
+        feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &dummy, n_frames))
         n_frames++;
 
-    if (n_frames < 2) return 1;
+    if (n_frames < 2)
+        return 1;
 
     for (unsigned i = 0; i < n_frames; i++) {
         double score_cur, score_next;
         vmaf_feature_collector_get_score(feature_collector,
-            "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
+                                         "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
 
         double motion2;
         if (i + 1 < n_frames) {
-            vmaf_feature_collector_get_score(feature_collector,
-                "VMAF_integer_feature_motion_v2_sad_score", &score_next, i + 1);
+            vmaf_feature_collector_get_score(
+                feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &score_next, i + 1);
             motion2 = score_cur < score_next ? score_cur : score_next;
         } else {
             motion2 = score_cur;
         }
 
-        vmaf_feature_collector_append(feature_collector,
-            "VMAF_integer_feature_motion2_v2_score", motion2, i);
+        vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_v2_score",
+                                      motion2, i);
     }
 
     return 1;
 }
 
-static const char *provided_features[] = {
-    "VMAF_integer_feature_motion_v2_sad_score",
-    "VMAF_integer_feature_motion2_v2_score",
-    NULL
-};
+static const char *provided_features[] = {"VMAF_integer_feature_motion_v2_sad_score",
+                                          "VMAF_integer_feature_motion2_v2_score", NULL};
 
 VmafFeatureExtractor vmaf_fex_integer_motion_v2 = {
     .name = "motion_v2",

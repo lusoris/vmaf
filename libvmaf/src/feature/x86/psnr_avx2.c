@@ -21,8 +21,7 @@
 
 #include "psnr_avx2.h"
 
-uint32_t psnr_sse_line_8_avx2(const uint8_t *ref, const uint8_t *dis,
-                               unsigned w)
+uint32_t psnr_sse_line_8_avx2(const uint8_t *ref, const uint8_t *dis, unsigned w)
 {
     __m256i sum = _mm256_setzero_si256();
     unsigned j = 0;
@@ -64,8 +63,7 @@ uint32_t psnr_sse_line_8_avx2(const uint8_t *ref, const uint8_t *dis,
     return result;
 }
 
-uint64_t psnr_sse_line_16_avx2(const uint16_t *ref, const uint16_t *dis,
-                                unsigned w)
+uint64_t psnr_sse_line_16_avx2(const uint16_t *ref, const uint16_t *dis, unsigned w)
 {
     __m256i sum0 = _mm256_setzero_si256();
     __m256i sum1 = _mm256_setzero_si256();
@@ -88,14 +86,10 @@ uint64_t psnr_sse_line_16_avx2(const uint16_t *ref, const uint16_t *dis,
         __m256i sq1 = _mm256_mullo_epi32(diff1, diff1);
 
         /* Widen 8x uint32 → 4x uint64 each, accumulate */
-        sum0 = _mm256_add_epi64(sum0,
-            _mm256_cvtepu32_epi64(_mm256_castsi256_si128(sq0)));
-        sum1 = _mm256_add_epi64(sum1,
-            _mm256_cvtepu32_epi64(_mm256_extracti128_si256(sq0, 1)));
-        sum0 = _mm256_add_epi64(sum0,
-            _mm256_cvtepu32_epi64(_mm256_castsi256_si128(sq1)));
-        sum1 = _mm256_add_epi64(sum1,
-            _mm256_cvtepu32_epi64(_mm256_extracti128_si256(sq1, 1)));
+        sum0 = _mm256_add_epi64(sum0, _mm256_cvtepu32_epi64(_mm256_castsi256_si128(sq0)));
+        sum1 = _mm256_add_epi64(sum1, _mm256_cvtepu32_epi64(_mm256_extracti128_si256(sq0, 1)));
+        sum0 = _mm256_add_epi64(sum0, _mm256_cvtepu32_epi64(_mm256_castsi256_si128(sq1)));
+        sum1 = _mm256_add_epi64(sum1, _mm256_cvtepu32_epi64(_mm256_extracti128_si256(sq1, 1)));
     }
 
     /* Horizontal sum of 4+4 uint64 → scalar */

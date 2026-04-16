@@ -26,6 +26,7 @@ void cambi_increment_range_avx512(uint16_t *arr, int left, int right);
 
 void cambi_decrement_range_avx512(uint16_t *arr, int left, int right);
 
-void get_derivative_data_for_row_avx512(const uint16_t *image_data, uint16_t *derivative_buffer, int width, int height, int row, int stride);
+void get_derivative_data_for_row_avx512(const uint16_t *image_data, uint16_t *derivative_buffer,
+                                        int width, int height, int row, int stride);
 
 #endif /* X86_AVX512_CAMBI_H_ */
