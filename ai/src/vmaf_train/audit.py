@@ -55,7 +55,7 @@ def audit_model(onnx_path: Path) -> ModelAudit:
 
     try:
         model = onnx.load(str(onnx_path))
-    except Exception as exc:  # noqa: BLE001 - onnx raises many types
+    except Exception as exc:
         audit.issues.append(f"failed to load ONNX: {exc}")
         return audit
 

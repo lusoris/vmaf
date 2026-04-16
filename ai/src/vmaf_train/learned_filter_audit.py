@@ -23,7 +23,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 DEFAULT_SSIM_MIN = 0.6
 DEFAULT_MEAN_SHIFT_MAX = 0.05   # |Δmean| > 5% of the peak is suspicious
 DEFAULT_STD_RATIO_MAX = 2.0     # filter must not amplify noise > 2×

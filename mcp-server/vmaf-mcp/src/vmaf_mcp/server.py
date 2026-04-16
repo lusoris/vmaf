@@ -24,7 +24,7 @@ import asyncio
 import json
 import os
 import shutil
-import subprocess  # noqa: S404 — we exec our own signed vmaf binary, inputs are validated
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -126,7 +126,7 @@ async def _run_vmaf_score(req: ScoreRequest) -> dict[str, Any]:
         proc = await asyncio.create_subprocess_exec(
             *argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        stdout, stderr = await proc.communicate()
+        _stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
             raise RuntimeError(
                 f"vmaf exited {proc.returncode}: {stderr.decode(errors='replace')}"
@@ -155,7 +155,7 @@ def _list_backends() -> dict[str, bool]:
     if not vmaf.exists():
         return {"cpu": False, "cuda": False, "sycl": False, "hip": False}
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [str(vmaf), "--version"], capture_output=True, text=True, timeout=5, check=False
         )
         blob = (result.stdout + result.stderr).lower()
@@ -251,7 +251,7 @@ def _eval_model_on_split(
         "model": str(model),
         "features": str(features),
         "split": split,
-        "n": int(len(x)),
+        "n": len(x),
         "plcc": plcc,
         "srocc": srocc,
         "rmse": rmse,
@@ -268,7 +268,7 @@ def _compare_models(
     for m in models:
         try:
             reports.append(_eval_model_on_split(m, features, split, input_name))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append({"model": str(m), "error": str(exc)})
     reports.sort(key=lambda r: r["plcc"], reverse=True)
     return {"ranked": reports, "errors": errors}
@@ -434,7 +434,7 @@ async def _call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             )
         else:
             raise ValueError(f"unknown tool: {name}")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return [TextContent(type="text", text=json.dumps({"error": str(exc)}))]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
 

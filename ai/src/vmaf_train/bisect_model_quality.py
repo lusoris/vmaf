@@ -127,7 +127,7 @@ def bisect_model_quality(
     first = check(0)
     last = check(len(models) - 1)
     if not first.passed:
-        result.verdict = f"first model (index 0) already fails gate; nothing to bisect"
+        result.verdict = "first model (index 0) already fails gate; nothing to bisect"
         result.first_bad_index = 0
         result.first_bad_model = models[0]
         return result

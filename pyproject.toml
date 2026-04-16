@@ -53,8 +53,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"python/test/**" = ["S", "PL", "B"]   # upstream test code, not our style
-"python/vmaf/**" = ["PL"]             # upstream library code
+# Upstream Netflix Python is not our style canon. Keep F821 (undefined
+# name) and real-bug pyflakes catching defects; silence bugbear /
+# security / simplify / style families and the hygiene-only F/E codes
+# (unused imports, unused vars, bare except) — those represent style
+# drift Netflix owns, not regressions we introduced.
+"python/**" = [
+    "S", "PL", "B", "C4", "PIE", "RET", "SIM", "RUF", "I001",
+    "F401", "F522", "F541", "F841",
+    "E402", "E711", "E722", "E731", "E741",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["python/test", "ai/tests"]

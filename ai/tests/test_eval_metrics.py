@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("scipy")
 
-from vmaf_train.eval import correlations  # noqa: E402
+from vmaf_train.eval import correlations
 
 
 def test_perfect_correlation() -> None:
