@@ -21,6 +21,27 @@ updates:
       - dependency-name: "numpy"
         update-types: ["version-update:semver-major"]
 
+  - package-ecosystem: "pip"
+    directory: "/ai"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "python", "tiny-ai"]
+
+  - package-ecosystem: "pip"
+    directory: "/mcp-server/vmaf-mcp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "python", "mcp"]
+
+  - package-ecosystem: "pip"
+    directory: "/dev-llm"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "python", "dev-llm"]
+
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
