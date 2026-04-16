@@ -66,10 +66,10 @@ jobs:
           python3 -m pytest python/test/quality_runner_test.py \
                             python/test/feature_extractor_test.py \
                             -v -m "not slow" --tb=short \
-                            --deselect python/test/quality_runner_test.py::QualityRunnerTest::test_run_vmaf_runner_float_rdh540 \
-                            --deselect python/test/quality_runner_test.py::QualityRunnerTest::test_run_vmaf_runner_v061 \
-                            --deselect python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_psnr_fextractor_proc \
-                            --deselect python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_ssim_fextractor_flat
+                            --deselect test/quality_runner_test.py::QualityRunnerTest::test_run_vmaf_runner_float_rdh540 \
+                            --deselect test/quality_runner_test.py::QualityRunnerTest::test_run_vmaf_runner_v061 \
+                            --deselect test/feature_extractor_test.py::FeatureExtractorTest::test_run_psnr_fextractor_proc \
+                            --deselect test/feature_extractor_test.py::FeatureExtractorTest::test_run_ssim_fextractor_flat
 
   # ===== Cross-backend ULP gate =====
   # Skipped on CI runners without GPUs; runs only on self-hosted with cuda.

@@ -17,5 +17,9 @@ unusedFunction:libvmaf/include/libvmaf/*.h
 # Tracked as cleanup debt; not fixed here because svm.cpp is upstream code.
 memleakOnRealloc:libvmaf/src/svm.cpp
 
+# cppcheck 2.13 doesn't recognise = {0} aggregate init as covering all members.
+uninitvar:libvmaf/test/test_propagate_metadata.c
+uninitStructMember:libvmaf/test/test_propagate_metadata.c
+
 missingIncludeSystem
 unmatchedSuppression
