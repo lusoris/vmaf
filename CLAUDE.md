@@ -162,3 +162,20 @@ Use `/prep-release` to dry-run locally before merging a release PR.
 7. **Every** new `.c` / `.h` / `.cpp` / `.cu` starts with the license header. Use
    `Copyright 2026 Lusoris and Claude (Anthropic)` for wholly-new files, Netflix
    header for upstream-touched files.
+
+## 13. Interaction style — prefer the popup question tool
+
+When the agent needs the user to decide between options, resolve ambiguity, or pick
+priorities, **use `AskUserQuestion` (the in-chat popup) instead of writing a wall of
+numbered questions in prose**. Prose questionnaires slow the user down — they have to
+scroll, parse, and type a structured reply. The popup lets them click through in
+seconds.
+
+Rules of thumb:
+
+- 2–4 focused questions per popup, each with 2–4 concrete option choices (+ auto "Other").
+- Mark the recommended option `(Recommended)` as option 1 when one clearly wins.
+- Use `preview` fields when comparing code snippets, configs, or mockups side-by-side.
+- Reserve prose for explanations that set up the question, not for the question itself.
+- Still fine to answer a direct user question in prose — this rule applies to *asking*,
+  not to reporting.
