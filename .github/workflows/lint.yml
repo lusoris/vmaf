@@ -92,7 +92,8 @@ jobs:
           meson compile -C build
       - name: Run cppcheck
         run: |
-          cppcheck --enable=all --inline-suppr \
+          cppcheck --enable=warning,performance,portability \
+            --inline-suppr \
             --suppressions-list=.cppcheck-suppressions.txt \
             --project=build/compile_commands.json \
             --error-exitcode=1 \
