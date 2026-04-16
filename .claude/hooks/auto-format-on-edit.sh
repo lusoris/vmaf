@@ -14,14 +14,22 @@ esac
 
 case "$file" in
     *.c|*.h|*.cpp|*.hpp|*.cu|*.cuh)
-        command -v clang-format >/dev/null 2>&1 && clang-format -i --style=file "$file" || true
+        if command -v clang-format >/dev/null 2>&1; then
+            clang-format -i --style=file "$file" || true
+        fi
         ;;
     *.py)
-        command -v black >/dev/null 2>&1 && black -q "$file" || true
-        command -v isort >/dev/null 2>&1 && isort -q "$file" || true
+        if command -v black >/dev/null 2>&1; then
+            black -q "$file" || true
+        fi
+        if command -v isort >/dev/null 2>&1; then
+            isort -q "$file" || true
+        fi
         ;;
     *.sh)
-        command -v shfmt >/dev/null 2>&1 && shfmt -w -i 4 -ci "$file" || true
+        if command -v shfmt >/dev/null 2>&1; then
+            shfmt -w -i 4 -ci "$file" || true
+        fi
         ;;
 esac
 

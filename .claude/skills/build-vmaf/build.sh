@@ -59,7 +59,7 @@ if [[ "$san" != none ]]; then
             asan)        opts+=(-Db_sanitize=address --buildtype=debug) ;;
             ubsan)       opts+=(-Db_sanitize=undefined --buildtype=debug) ;;
             asan,ubsan|ubsan,asan|address,undefined)
-                         opts+=(-Db_sanitize=address,undefined --buildtype=debug) ;;
+                         opts+=("-Db_sanitize=address,undefined" --buildtype=debug) ;;
             *) echo "unknown sanitizers: $san" >&2; exit 2 ;;
         esac
     fi

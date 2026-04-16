@@ -7,11 +7,12 @@ set -euo pipefail
 file="${CLAUDE_TOOL_INPUT_file_path:-}"
 [[ -z "$file" ]] && exit 0
 
+# In bash case-globs, '*' matches '/', so '*/libvmaf/src/feature/*.c'
+# also catches files in subdirectories (x86/, arm64/, cuda/, sycl/).
 case "$file" in
     */libvmaf/src/feature/*.c|*/libvmaf/src/feature/*.h \
-    |*/libvmaf/src/feature/*/*.c|*/libvmaf/src/feature/*/*.h \
-    |*/libvmaf/src/feature/*/*.cu|*/libvmaf/src/feature/*/*.cuh \
-    |*/libvmaf/src/feature/*/*.cpp|*/libvmaf/src/feature/*/*.hpp)
+    |*/libvmaf/src/feature/*.cu|*/libvmaf/src/feature/*.cuh \
+    |*/libvmaf/src/feature/*.cpp|*/libvmaf/src/feature/*.hpp)
         cat >&2 <<EOF
 NOTICE: edited feature extractor code: $file
 

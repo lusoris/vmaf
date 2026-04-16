@@ -22,7 +22,6 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES_DIR="$(cd "$HERE/.." && pwd)"
-REPO_ROOT="$(cd "$PATCHES_DIR/.." && pwd)"
 
 : "${FFMPEG_SRC:=/tmp/vmaf-ffmpeg}"
 : "${FFMPEG_SHA:=n8.1}"        # pinned release tag; update as patches evolve
