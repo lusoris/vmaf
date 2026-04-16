@@ -290,6 +290,61 @@ def check_ops_cmd(
     raise typer.Exit(code=2)
 
 
+@app.command("audit-learned-filter")
+def audit_learned_filter_cmd(
+    model: Path = typer.Option(..., exists=True, help="Learned-filter ONNX model"),
+    frames: Path = typer.Option(
+        ..., exists=True, dir_okay=False,
+        help="NumPy .npy file of shape (N, H, W) with values in [0, peak]"
+    ),
+    peak: float = typer.Option(1.0, help="Max pixel value (1.0 for normalized luma)"),
+    input_name: str = typer.Option("input"),
+    ssim_min: float = typer.Option(0.6, help="Warn if per-frame SSIM(in, out) < this"),
+    mean_shift_max: float = typer.Option(0.05),
+    std_ratio_max: float = typer.Option(2.0),
+    clip_fraction_max: float = typer.Option(0.01),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+    fail_on_warning: bool = typer.Option(False, "--fail-on-warning"),
+) -> None:
+    """Pre-deploy audit for a learned-filter (C3) ONNX model.
+
+    Runs the filter over a corpus of frames and flags four failure
+    modes: mean shift (output brighter/darker than input), std inflation
+    (filter amplifies noise), clipping at codec boundaries, and SSIM
+    collapse (filter destroyed structure). Catches the "trained on
+    clean content, deployed on heavily-compressed content" class of
+    silent failure before the model hits a production pipeline.
+    """
+    import json as _json
+
+    import numpy as np
+
+    from .learned_filter_audit import audit_learned_filter, render_table
+
+    corpus = np.load(frames)
+    if corpus.ndim != 3:
+        console.print(f"[red]{frames} must be (N, H, W); got {corpus.shape}[/red]")
+        raise typer.Exit(code=2)
+    frames_list = [corpus[i] for i in range(corpus.shape[0])]
+
+    report = audit_learned_filter(
+        model=model,
+        frames=frames_list,
+        peak=peak,
+        input_name=input_name,
+        ssim_min=ssim_min,
+        mean_shift_max=mean_shift_max,
+        std_ratio_max=std_ratio_max,
+        clip_fraction_max=clip_fraction_max,
+    )
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+        console.print(f"[green]Wrote {json_out}[/green]")
+    if fail_on_warning and not report.ok:
+        raise typer.Exit(code=2)
+
+
 @app.command("quantize-int8")
 def quantize_int8_cmd(
     fp32: Path = typer.Option(..., exists=True, help="Input fp32 .onnx path"),
