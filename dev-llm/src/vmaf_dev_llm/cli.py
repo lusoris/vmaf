@@ -127,6 +127,50 @@ def docgen(
 
 
 @app.command()
+def modelcard(
+    onnx: Path = typer.Option(..., "--onnx", "-o", exists=True, readable=True,
+                              help="ONNX model to describe."),
+    features: Path | None = typer.Option(
+        None, "--features", "-F", exists=True, readable=True,
+        help="Optional parquet feature cache for a live PLCC/SROCC/RMSE measurement."
+    ),
+    split: str = typer.Option(
+        "test", "--split", help="Split to evaluate on when --features is passed."
+    ),
+    repo_root: Path | None = typer.Option(
+        None, "--repo-root",
+        help="Repo root (used to find libvmaf/src/dnn/op_allowlist.c). "
+             "Defaults to the current working directory."
+    ),
+    facts_only: bool = typer.Option(
+        False, "--facts-only",
+        help="Print the collected facts block instead of calling the LLM. "
+             "Useful for debugging + for callers who want to render the card "
+             "with a different model."
+    ),
+    model: str | None = typer.Option(None, "--model", "-m"),
+) -> None:
+    """Draft a model-card Markdown document for a shipped ONNX tiny-AI model."""
+    from .modelcard_facts import collect_facts
+
+    root = (repo_root or Path.cwd()).resolve()
+    facts = collect_facts(onnx.resolve(), repo_root=root, features=features, split=split)
+    facts_md = facts.to_markdown()
+    if facts_only:
+        print(facts_md)
+        return
+    cfg = load_config()
+    template = _load_prompt(cfg, "model_card.md")
+    prompt = template.replace("{{MODEL_NAME}}", facts.name).replace("{{FACTS}}", facts_md)
+    try:
+        out = _run_ollama(cfg, prompt=prompt, model=model)
+    except OllamaError as e:
+        console.print(f"[red]{e}[/red]")
+        sys.exit(1)
+    print(out.strip())
+
+
+@app.command()
 def check() -> None:
     """Verify local config + Ollama availability; useful for /doctor flows."""
     cfg = load_config()
