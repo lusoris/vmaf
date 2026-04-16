@@ -139,9 +139,10 @@ def _check_op_allowlist(onnx_path: Path, facts: ModelFacts, repo_root: Path) -> 
     import re
 
     text = allow_src.read_text()
-    # Take everything between 'allowed_ops[]' and the next `}` to avoid matching
-    # other quoted strings in the file.
-    m = re.search(r"allowed_ops\s*\[\s*\]\s*=\s*\{([^}]*)\}", text, re.S)
+    # Match both `allowed_ops[]` and upstream's `ALLOWED_OPS[]`.
+    m = re.search(
+        r"(?i)[A-Z_]*ALLOWED_OPS[A-Z_]*\s*\[\s*\]\s*=\s*\{([^}]*)\}", text, re.S
+    )
     if not m:
         return
     allowed = set(re.findall(r'"([A-Za-z][A-Za-z0-9_]*)"', m.group(1)))
