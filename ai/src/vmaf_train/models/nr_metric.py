@@ -6,6 +6,8 @@ import lightning as L
 import torch
 from torch import nn
 
+from ..confidence import gaussian_nll
+
 
 def _dw_sep(in_c: int, out_c: int, stride: int = 1) -> nn.Sequential:
     return nn.Sequential(
@@ -19,7 +21,12 @@ def _dw_sep(in_c: int, out_c: int, stride: int = 1) -> nn.Sequential:
 
 
 class NRMetric(L.LightningModule):
-    """MobileNet-tiny-ish backbone → global pool → scalar MOS."""
+    """MobileNet-tiny-ish backbone → global pool → scalar MOS.
+
+    Supports the same @c emit_variance mode as the FR regressor — when
+    on, the head emits ``(N, 2)`` (μ, logvar) and training switches to
+    Gaussian NLL.
+    """
 
     def __init__(
         self,
@@ -27,10 +34,12 @@ class NRMetric(L.LightningModule):
         width: int = 16,
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
+        emit_variance: bool = False,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
         w = width
+        out_features = 2 if emit_variance else 1
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, w, 3, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(w),
@@ -46,16 +55,31 @@ class NRMetric(L.LightningModule):
         self.head = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.Linear(w * 8, 1),
+            nn.Linear(w * 8, out_features),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(self.body(self.stem(x))).squeeze(-1)
+        out = self.head(self.body(self.stem(x)))
+        if self.hparams.emit_variance:
+            return out  # (N, 2): [:, 0] = score, [:, 1] = logvar
+        return out.squeeze(-1)
 
     def _step(self, batch, tag: str) -> torch.Tensor:
         x, y = batch
-        pred = self(x)
-        loss = nn.functional.mse_loss(pred, y)
+        out = self(x)
+        if self.hparams.emit_variance:
+            pred = out[..., 0]
+            logvar = out[..., 1]
+            loss = gaussian_nll(pred, y, logvar).mean()
+            self.log(f"{tag}/nll", loss, prog_bar=True, on_epoch=True)
+            with torch.no_grad():
+                self.log(
+                    f"{tag}/mse",
+                    nn.functional.mse_loss(pred, y),
+                    on_epoch=True,
+                )
+            return loss
+        loss = nn.functional.mse_loss(out, y)
         self.log(f"{tag}/mse", loss, prog_bar=True, on_epoch=True)
         return loss
 

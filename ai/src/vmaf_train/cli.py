@@ -166,6 +166,229 @@ def manifest_scan_cmd(
     )
 
 
+@app.command("validate-norm")
+def validate_norm_cmd(
+    model: Path = typer.Option(..., exists=True, help="ONNX model or its .json sidecar"),
+    features: Path = typer.Option(..., exists=True, help="Feature parquet"),
+    fail_on_warning: bool = typer.Option(
+        False, "--fail-on-warning", help="Exit 2 if any drift exceeds threshold"
+    ),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+) -> None:
+    """Compare a sidecar's declared feature normalization against real data.
+
+    Flags features whose declared mean drifts > 1σ from the observed
+    data's mean, or where > 5% of samples are > 3σ from the declared
+    mean. Catches the "trained on dataset A, deployed on dataset B"
+    class of silent correctness bug.
+    """
+    import json as _json
+
+    from .validate_norm import render_table, validate_norm
+
+    report = validate_norm(model, features)
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+    if fail_on_warning and not report.ok:
+        raise typer.Exit(code=2)
+
+
+@app.command("profile")
+def profile_cmd(
+    model: Path = typer.Option(..., exists=True, help="ONNX model to profile"),
+    shape: Optional[list[str]] = typer.Option(
+        None,
+        "--shape",
+        help='Input shape as "N,C,H,W" (repeatable). Defaults to graph shape.',
+    ),
+    provider: Optional[list[str]] = typer.Option(
+        None,
+        "--provider",
+        help="ORT provider (repeatable). Defaults to all available.",
+    ),
+    warmup: int = typer.Option(5, help="Warmup iterations"),
+    iters: int = typer.Option(100, help="Timed iterations"),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+) -> None:
+    """Measure latency + peak RSS delta for a model across providers.
+
+    Produces a table with mean / p50 / p99 latency and peak-RSS delta per
+    (provider, shape). Useful both for picking a deployment target and
+    as a CI gate ("this model must stay under 20 ms on CPU").
+    """
+    import json as _json
+
+    from .profile import profile_model, render_table
+
+    shapes: list[tuple[int, ...]] | None = None
+    if shape:
+        shapes = [tuple(int(x) for x in s.split(",")) for s in shape]
+
+    report = profile_model(
+        model,
+        shapes=shapes,
+        providers=list(provider) if provider else None,
+        warmup=warmup,
+        iters=iters,
+    )
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+        console.print(f"[green]Wrote {json_out}[/green]")
+
+
+@app.command("audit-compat")
+def audit_compat_cmd(
+    model_dir: Path = typer.Option(
+        Path("model/tiny"),
+        exists=True,
+        file_okay=False,
+        help="Directory containing shipped .onnx models + sidecars",
+    ),
+    fail_on_warning: bool = typer.Option(
+        False, "--fail-on-warning", help="Exit 2 if any audit issue is found"
+    ),
+) -> None:
+    """Audit every tiny model in @p model_dir for feature-contract drift.
+
+    Catches the common "new feature extractor broke old model" class of
+    regression where libvmaf's FEATURE_COLUMNS count has changed but a
+    shipped C1 model still expects the old shape.
+    """
+    from .audit import audit_dir, render_table
+
+    audits = audit_dir(model_dir)
+    console.print(render_table(audits))
+    failed = [a for a in audits if not a.ok]
+    if failed and fail_on_warning:
+        console.print(f"[red]{len(failed)} model(s) have audit issues[/red]")
+        raise typer.Exit(code=2)
+
+
+@app.command("check-ops")
+def check_ops_cmd(
+    model: Path = typer.Option(..., exists=True, help="ONNX model to validate"),
+) -> None:
+    """Check an ONNX model against libvmaf's op allowlist.
+
+    Parses libvmaf/src/dnn/op_allowlist.c (the runtime source of truth)
+    and reports any op the model uses that libvmaf would reject at load
+    time. Exits 2 if forbidden ops are found.
+    """
+    from .op_allowlist import check_model
+
+    report = check_model(model)
+    if report.ok:
+        console.print(f"[green]{report.pretty()}[/green]")
+        return
+    console.print(f"[red]{report.pretty()}[/red]")
+    console.print(
+        "[yellow]Extend libvmaf/src/dnn/op_allowlist.c only when a shipped model "
+        "genuinely needs the op — see docs/tiny-ai/security.md[/yellow]"
+    )
+    raise typer.Exit(code=2)
+
+
+@app.command("quantize-int8")
+def quantize_int8_cmd(
+    fp32: Path = typer.Option(..., exists=True, help="Input fp32 .onnx path"),
+    output: Path = typer.Option(..., help="Output int8 .onnx path"),
+    calibration: Path = typer.Option(
+        ..., exists=True, help="Parquet feature cache used for PTQ calibration"
+    ),
+    input_name: str = typer.Option("features"),
+    n_calibration: int = typer.Option(512, help="Calibration sample count"),
+    batch_size: int = typer.Option(32, help="Calibration batch size"),
+    rmse_gate: float = typer.Option(
+        1.0,
+        help="Exit 2 if the INT8-vs-fp32 RMSE on held-out samples exceeds this",
+    ),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+) -> None:
+    """Post-training quantize a fp32 ONNX model to INT8 (static PTQ, QDQ format).
+
+    Uses a parquet feature cache as the calibration source (same schema
+    as the features consumed by `vmaf-train eval`). Outputs drift
+    statistics against held-out samples and exits 2 if the RMSE breaks
+    the gate — protects against "we shipped the int8 model but it
+    silently lost 5 VMAF points".
+    """
+    import json as _json
+
+    from .quantize import quantize_int8, render_table
+
+    report = quantize_int8(
+        fp32_path=fp32,
+        int8_path=output,
+        calibration=calibration,
+        input_name=input_name,
+        n_calibration=n_calibration,
+        batch_size=batch_size,
+    )
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+        console.print(f"[green]Wrote {json_out}[/green]")
+    if report.rmse > rmse_gate:
+        console.print(
+            f"[red]INT8 drift RMSE {report.rmse:.3g} exceeds gate {rmse_gate:g}[/red]"
+        )
+        raise typer.Exit(code=2)
+
+
+@app.command("cross-backend")
+def cross_backend_cmd(
+    model: Path = typer.Option(..., exists=True, help="ONNX model to check"),
+    features: Optional[Path] = typer.Option(
+        None, exists=True, help="Feature parquet (if omitted, synthetic input is used)"
+    ),
+    provider: Optional[list[str]] = typer.Option(
+        None,
+        "--provider",
+        help="ORT provider (repeatable). Defaults to every non-CPU available provider.",
+    ),
+    shape: Optional[str] = typer.Option(
+        None, help='Synthetic input shape as "N,C,H,W" (ignored when --features is given)'
+    ),
+    n_rows: int = typer.Option(256, help="Max rows to pull from features parquet"),
+    atol: float = typer.Option(
+        1e-3, help="Absolute-error threshold — exits 2 on any provider above this"
+    ),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+    fail_on_mismatch: bool = typer.Option(
+        False, "--fail-on-mismatch", help="Exit 2 when any provider exceeds atol"
+    ),
+) -> None:
+    """Run a model on CPU + every other execution provider and diff outputs.
+
+    Guards against the "provider A passes CI, provider B silently ships a
+    VMAF-point drift in prod" class of bug. Mirrors the ≤2-ULP discipline
+    we apply to VMAF's own cross-backend scoring.
+    """
+    import json as _json
+
+    from .cross_backend import compare_backends, render_table
+
+    parsed_shape: tuple[int, ...] | None = None
+    if shape:
+        parsed_shape = tuple(int(x) for x in shape.split(","))
+    report = compare_backends(
+        model_path=model,
+        providers=list(provider) if provider else None,
+        features=features,
+        shape=parsed_shape,
+        n_rows=n_rows,
+        atol=atol,
+    )
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+        console.print(f"[green]Wrote {json_out}[/green]")
+    if fail_on_mismatch and not report.ok:
+        raise typer.Exit(code=2)
+
+
 @app.command("register")
 def register_cmd(
     model: Path = typer.Option(..., exists=True, help="ONNX model to register"),
