@@ -132,3 +132,17 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
 6. Every new `.c` / `.h` / `.cpp` / `.cu` file starts with the applicable license
    header (wholly-new fork files: `Copyright 2026 Lusoris and Claude (Anthropic)`;
    files touching Netflix code: Netflix header preserved).
+
+## 13. Interaction style — prefer structured popup questions
+
+When your host agent exposes a structured-question UI (Claude Code's `AskUserQuestion`,
+Cursor's choice prompt, Aider's multi-choice, etc.), **use it instead of posting a
+wall of numbered questions in prose**. The user clicks through options in seconds;
+prose questionnaires force them to scroll, parse, and type structured replies.
+
+Rules of thumb:
+
+- 2–4 focused questions per round, 2–4 concrete options each.
+- Mark the recommended option `(Recommended)` when one clearly wins.
+- Reserve prose for setting up the question, not for the question itself.
+- Still fine to answer in prose — this rule applies to *asking*, not to reporting.
