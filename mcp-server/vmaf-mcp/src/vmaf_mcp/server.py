@@ -24,6 +24,12 @@ import asyncio
 import json
 import os
 import shutil
+# subprocess callers below exec our own signed vmaf binary with an argv list
+# (no shell=True, no user-controlled strings in argv[0]); broad exception
+# handlers on the call paths convert failures into JSON-RPC errors for the
+# client. If ruff `select` is ever widened to include the bandit (`S`) or
+# blind-except (`BLE`) rules, re-evaluate these sites deliberately rather
+# than silencing with # noqa markers.
 import subprocess
 import sys
 from dataclasses import dataclass
