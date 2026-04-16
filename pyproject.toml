@@ -63,6 +63,22 @@ ignore = [
     "F401", "F522", "F541", "F841",
     "E402", "E711", "E722", "E731", "E741",
 ]
+# Ad-hoc developer benchmark + one-off comparison scripts. They are
+# manually invoked by humans, not shipped as part of libvmaf, so style
+# drift is acceptable and the bandit `S` warnings (subprocess,
+# try/except pass) are known-and-accepted in a dev context.
+"testdata/**" = [
+    "S", "PL", "B", "SIM", "RUF", "I001",
+    "F401", "F541", "F841",
+    "E401", "E402", "E701", "E722", "W291", "W292",
+]
+# Upstream Netflix dataset / model config scripts. Pure data, not
+# business logic — they ship as fixtures and are not in our hot path.
+"resource/**" = [
+    "S", "PL", "B", "SIM", "RUF", "I001",
+    "F401", "F541", "F841",
+    "E401", "E402", "E701", "E711", "E722", "W291", "W292",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["python/test", "ai/tests"]
