@@ -4,7 +4,7 @@ CAMBI (Contrast Aware Multiscale Banding Index) is Netflix's detector for bandin
 
 ## Background
 
-For an introduction to CAMBI, please refer to the [tech blog](https://netflixtechblog.medium.com/cambi-a-banding-artifact-detector-96777ae12fe2). For a detailed technical description, please refer to the [technical paper](papers/CAMBI_PCS2021.pdf) published at PCS 2021. Note that the paper describes an initial version of CAMBI that no longer matches the code exactly, but it is still a good introduction.
+For an introduction to CAMBI, please refer to the [tech blog](https://netflixtechblog.medium.com/cambi-a-banding-artifact-detector-96777ae12fe2). For a detailed technical description, please refer to the [technical paper](../reference/papers/CAMBI_PCS2021.pdf) published at PCS 2021. Note that the paper describes an initial version of CAMBI that no longer matches the code exactly, but it is still a good introduction.
 
 By default, the current version of CAMBI is a [no-reference metric](https://en.wikipedia.org/wiki/Video_quality#Classification_of_objective_video_quality_models), and operates on a frame-by-frame basis (no temporal information is leveraged). To integrate it as part of the VMAF framework, which employs a [full-reference metric](https://en.wikipedia.org/wiki/Video_quality#Classification_of_objective_video_quality_models) API, CAMBI takes both a reference and a distorted video as its input. For simplicity, one can point the input arguments `--reference` and `--distorted` to the same video path. 
 
@@ -18,7 +18,7 @@ The CAMBI score starts at 0, meaning no banding is detected. A higher CAMBI scor
 
 To invoke CAMBI using the VMAF command line, follow the [instruction](../../libvmaf/tools/README.md) and use `cambi` as the feature name. For example, after downloading the input video [`src01_hrc01_576x324.yuv`](https://github.com/Netflix/vmaf_resource/blob/master/python/test/resource/yuv/src01_hrc01_576x324.yuv), invoke CAMBI via:
 
-```shell script
+```bash
 libvmaf/build/tools/vmaf \
     --reference src01_hrc01_576x324.yuv \
     --distorted src01_hrc01_576x324.yuv \
@@ -64,7 +64,7 @@ The CAMBI feature extractor also supports additional optional parameters as list
 
 An example using the `enc_width` and `enc_height` options on the input video [`KristenAndSara_1280x720_8bit_processed.yuv`](https://github.com/Netflix/vmaf_resource/blob/master/python/test/resource/yuv/KristenAndSara_1280x720_8bit_processed.yuv) which has been encoded at 540p and later upscaled to 1280p (specifying the accurate encoding width and height as input allows CAMBI to more accurately assess the banding artifact):
 
-```shell script
+```bash
 libvmaf/build/tools/vmaf \
     --reference KristenAndSara_1280x720_8bit_processed.yuv \
     --distorted KristenAndSara_1280x720_8bit_processed.yuv \
@@ -89,7 +89,7 @@ This will yield the output:
 
 If no encoding width and height parameters are specified:
 
-```shell script
+```bash
 libvmaf/build/tools/vmaf \
     --reference KristenAndSara_1280x720_8bit_processed.yuv \
     --distorted KristenAndSara_1280x720_8bit_processed.yuv \

@@ -11,10 +11,10 @@ Using the versioned `--nflx_ctc` preset, the following metrics will be computed 
 * CAMBI
 
 ## Usage
-Basic usage of the tool is described in the [`vmaf` README](../../libvmaf/tools/README.md). Use the versioned `--nflx_ctc` presets to register and configure all metrics according to the NFLX CTC. Basic usage is as follows:
+Basic usage of the tool is described in the [`vmaf` README](../../../libvmaf/tools/README.md). Use the versioned `--nflx_ctc` presets to register and configure all metrics according to the NFLX CTC. Basic usage is as follows:
 
-```
-./build/tools/vmaf  \
+```bash
+./build/tools/vmaf \
     --reference reference.y4m \
     --distorted distorted.y4m \
     --nflx_ctc v1.0 \

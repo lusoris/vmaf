@@ -2,7 +2,7 @@
 
 Since v1.3.7 (June 2018), we have introduced a way to quantify the level of confidence that a VMAF prediction entails. With this method, each VMAF prediction score can be accompanied by a 95% confidence interval (CI), which quantifies the level of confidence that the prediction lies within the interval. 
 
-The CI is a consequence of the fact that the VMAF model is trained on a sample of subjective scores, while the population is unknown. The CI is established through [bootstrapping](https://www.jstor.org/stable/2241979) using the full training data. Essentially, the bootstrapping approach trains multiple models. Each of the models will introduce a slightly different prediction. The variability of these predictions quantifies the level of confidence -- the more close these predictions, the more confident the prediction using the full data. More details can be found in [this](presentations/VQEG_SAM_2018_023_VMAF_Variability.pdf) slide deck.
+The CI is a consequence of the fact that the VMAF model is trained on a sample of subjective scores, while the population is unknown. The CI is established through [bootstrapping](https://www.jstor.org/stable/2241979) using the full training data. Essentially, the bootstrapping approach trains multiple models. Each of the models will introduce a slightly different prediction. The variability of these predictions quantifies the level of confidence -- the more close these predictions, the more confident the prediction using the full data. More details can be found in [this slide deck](../reference/presentations/VQEG_SAM_2018_023_VMAF_Variability.pdf).
 
 ## Implementation Details of Bootstrapping
 
@@ -10,15 +10,15 @@ There are two ways to perform bootstrapping on VMAF. The first one is called pla
 
 ## Run in Command Line
 
-To enable CI, use the option `--ci` in the command line tools with a bootstrapping model such as `model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.json`. The `--ci` option is available for `run_vmaf`. In [libvmaf](libvmaf/README.md), CI can be enabled by setting the argument `enable_conf_interval` to 1. For the `vmaf` executable, it can automatically detect if a model is a bootstrap model, so just pass in the model path and no `--ci` option is needed.
+To enable CI, use the option `--ci` in the command line tools with a bootstrapping model such as `model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.json`. The `--ci` option is available for `run_vmaf`. In [libvmaf](../../libvmaf/README.md), CI can be enabled by setting the argument `enable_conf_interval` to 1. For the `vmaf` executable, it can automatically detect if a model is a bootstrap model, so just pass in the model path and no `--ci` option is needed.
 
 For example, running
 
-```
-./run_vmaf yuv420p 576 324 \
+```bash
+python -m vmaf.script.run_vmaf yuv420p 576 324 \
     src01_hrc00_576x324.yuv \
     src01_hrc01_576x324.yuv \
-    --model model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.pkl \
+    --model model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.json \
     --out-fmt json --ci
 ```
 
@@ -54,17 +54,17 @@ We assumed, for the sake of simplicity, that the distribution of VMAF prediction
 
 CI can also be enabled in [`run_testing`](../usage/python.md#validate-a-dataset) on a dataset. In this case, the `quality_type` must be `BOOTSTRAP_VMAF`, and the `--vmaf-model` must point to the right bootstrapping model. For example:
 
-```
-./run_testing \
+```bash
+python -m vmaf.script.run_testing \
     BOOTSTRAP_VMAF resource/dataset/NFLX_dataset_public.py \
-    --vmaf-model model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.pkl \
+    --vmaf-model model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.json \
     --cache-result \
     --parallelize
 ```
 
 Running the command line above will generate scatter plot:
 
-![confidence interval plot](/resource/images/CI.png)
+![confidence interval plot](../../resource/images/CI.png)
 
 Here each data point (color representing different content) is associated with a 95% CI. It is interesting to note that points on the higher-score end tend to have a tighter CI than points on the lower-score end. This can be explained by the fact that in the dataset to train the VMAF model, there are more dense data points on the higher end than the lower.
 
@@ -72,13 +72,13 @@ Here each data point (color representing different content) is associated with a
 
 To train a bootstrap model, one can use [`run_vmaf_training`](../usage/python.md#train-a-new-model) command line. In the parameter file, the `model_type` must be `BOOTSTRAP_LIBSVMNUSVR`. In `model_param_dict`, one can optionally specify the number of models to be used via `num_models`. See [`vmaf_v6_bootstrap.py`](../../resource/param/vmaf_v6_bootstrap.py) for an example parameter file.
 
-Running the command line below will generate a bootstrap model `test_b_model.pkl`.
+Running the command line below will generate a bootstrap model `test_b_model.json`.
 
-```
-./run_vmaf_training resource/dataset/NFLX_dataset_public.py \
+```bash
+python -m vmaf.script.run_vmaf_training resource/dataset/NFLX_dataset_public.py \
     resource/param/vmaf_v6_bootstrap.py \
     resource/param/vmaf_v6_bootstrap.py \
-    ~/Desktop/test/test_b_model.pkl \
+    ~/Desktop/test/test_b_model.json \
     --cache-result \
     --parallelize
 ```

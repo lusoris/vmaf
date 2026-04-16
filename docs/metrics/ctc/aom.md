@@ -1,6 +1,6 @@
 # AOM CTC
 
-[AOM](http://aomedia.org/) has specified  [`vmaf`](../../libvmaf/tools/README.md) to be the standard implementation metrics tool according to the AOM common test conditions (CTC).
+[AOM](http://aomedia.org/) has specified  [`vmaf`](../../../libvmaf/tools/README.md) to be the standard implementation metrics tool according to the AOM common test conditions (CTC).
 
 ## Metrics
 Using the versioned `--aom_ctc` preset, the following metrics will be computed and logged. These metrics are specified according to the AOM CTC.
@@ -16,10 +16,10 @@ Using the versioned `--aom_ctc` preset, the following metrics will be computed a
 * CAMBI
 
 ## Usage
-Basic usage of the tool is described in the [`vmaf` README](../../libvmaf/tools/README.md). Use the versioned `--aom_ctc` presets to register and configure all metrics according to the AOM CTC. Basic AOM CTC usage is as follows:
+Basic usage of the tool is described in the [`vmaf` README](../../../libvmaf/tools/README.md). Use the versioned `--aom_ctc` presets to register and configure all metrics according to the AOM CTC. Basic AOM CTC usage is as follows:
 
-```
-./build/tools/vmaf  \
+```bash
+./build/tools/vmaf \
     --reference reference.y4m \
     --distorted distorted.y4m \
     --aom_ctc v1.0 \
