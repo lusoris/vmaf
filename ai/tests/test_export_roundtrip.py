@@ -11,6 +11,7 @@ onnx = pytest.importorskip("onnx")
 onnxruntime = pytest.importorskip("onnxruntime")
 
 import numpy as np  # noqa: E402
+
 from vmaf_train.models import FRRegressor, LearnedFilter, NRMetric, export_to_onnx  # noqa: E402
 
 

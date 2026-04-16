@@ -15,6 +15,7 @@ import numpy as np
 import onnx
 import pytest
 from onnx import TensorProto, helper
+
 from vmaf_train.bisect_model_quality import bisect_model_quality, render_table
 
 N_FEATURES = 6

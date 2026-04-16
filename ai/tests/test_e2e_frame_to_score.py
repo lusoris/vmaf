@@ -30,6 +30,7 @@ ort = pytest.importorskip("onnxruntime")
 
 import numpy as np  # noqa: E402
 from onnx import TensorProto, helper  # noqa: E402
+
 from vmaf_train.data.feature_dump import (  # noqa: E402
     DEFAULT_FEATURES,
     Entry,

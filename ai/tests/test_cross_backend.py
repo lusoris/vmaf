@@ -15,6 +15,7 @@ import onnx
 import pandas as pd
 import pytest
 from onnx import TensorProto, helper
+
 from vmaf_train.cross_backend import (
     CPU_PROVIDER,
     compare_backends,

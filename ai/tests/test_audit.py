@@ -7,6 +7,7 @@ from pathlib import Path
 
 import onnx
 from onnx import TensorProto, helper
+
 from vmaf_train.audit import EXPECTED_FR_FEATURE_COUNT, audit_dir, audit_model, render_table
 
 

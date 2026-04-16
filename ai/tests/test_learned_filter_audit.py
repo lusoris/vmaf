@@ -19,6 +19,7 @@ import numpy as np
 import onnx
 import pytest
 from onnx import TensorProto, helper
+
 from vmaf_train.learned_filter_audit import audit_learned_filter, render_table
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import onnx
 from onnx import TensorProto, helper
+
 from vmaf_train.profile import profile_model, render_table
 
 

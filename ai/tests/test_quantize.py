@@ -15,6 +15,7 @@ import onnx
 import pandas as pd
 import pytest
 from onnx import TensorProto, helper
+
 from vmaf_train.features import FEATURE_COLUMNS
 from vmaf_train.quantize import quantize_int8, render_table
 

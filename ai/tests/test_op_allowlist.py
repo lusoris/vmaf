@@ -7,6 +7,7 @@ from pathlib import Path
 import onnx
 import pytest
 from onnx import TensorProto, helper
+
 from vmaf_train.op_allowlist import check_graph, check_model, load_allowlist
 
 
