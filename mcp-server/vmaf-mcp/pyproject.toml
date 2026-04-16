@@ -44,3 +44,10 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "SIM", "RUF"]
+ignore = [
+  "E501",   # line length handled by black
+  "B008",   # typer.Option / FastAPI Depends pattern — idiomatic
+  "RUF001", # ambiguous unicode — em-dashes in strings are intentional
+  "RUF002", # ambiguous unicode in docstrings
+  "RUF003", # ambiguous unicode in comments
+]

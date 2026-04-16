@@ -37,7 +37,6 @@ from vmaf_train.data.feature_dump import (  # noqa: E402
     dump_features,
 )
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VMAF_BIN = REPO_ROOT / "build" / "tools" / "vmaf"
 YUV_DIR = REPO_ROOT / "python" / "test" / "resource" / "yuv"
@@ -111,4 +110,4 @@ def test_frame_to_score_pipeline(tmp_path: Path) -> None:
     assert np.isfinite(scores).all()
     # Sanity: our weights average the six features, all of which sit in
     # [0, ~5] for this clip, so scores must land in a sensible band.
-    assert 0.0 <= scores.min() and scores.max() < 10.0
+    assert scores.min() >= 0.0 and scores.max() < 10.0

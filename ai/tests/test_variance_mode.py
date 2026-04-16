@@ -65,7 +65,7 @@ def test_nr_variance_mode_two_columns() -> None:
 
 
 def test_fr_variance_onnx_export(tmp_path: Path) -> None:
-    onnx = pytest.importorskip("onnx")
+    pytest.importorskip("onnx")
     ort = pytest.importorskip("onnxruntime")
     from vmaf_train.models import FRRegressor, export_to_onnx
 

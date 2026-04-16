@@ -54,4 +54,4 @@ def test_register_rejects_unknown_kind(tmp_path: Path) -> None:
 
 
 def test_valid_kinds_constant() -> None:
-    assert VALID_KINDS == {"fr", "nr", "filter"}
+    assert {"fr", "nr", "filter"} == VALID_KINDS
