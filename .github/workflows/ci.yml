@@ -42,8 +42,12 @@ jobs:
           python3 -m pip install --user -r python/requirements.txt pytest
 
       - name: Build (CPU, release)
+        # Build inside libvmaf/ so the CLI lands at libvmaf/build/tools/vmaf
+        # — python/vmaf/__init__.py hardcodes that relative path when no
+        # external vmaf binary is configured via vmaf_path() / vmafexec_path().
+        working-directory: libvmaf
         run: |
-          meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
+          meson setup build -Denable_cuda=false -Denable_sycl=false \
             -Denable_avx512=true --buildtype=release
           meson compile -C build
 
@@ -73,8 +77,9 @@ jobs:
           sudo apt-get install -y meson ninja-build nasm pkg-config python3-pip
           python3 -m pip install --user numpy
       - name: Build CPU
+        working-directory: libvmaf
         run: |
-          meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false --buildtype=release
+          meson setup build -Denable_cuda=false -Denable_sycl=false --buildtype=release
           meson compile -C build
       - name: Compute CPU scores against snapshot
         run: |
@@ -98,18 +103,24 @@ jobs:
           # a system-wide LLVM 16 gold plugin that can't read clang-18 LTO
           # bitcode (Unknown attribute kind 91 in LLVM 16 reader). Using lld
           # keeps the linker in the same LLVM major as the compiler.
-          sudo apt-get install -y meson ninja-build nasm clang-18 lld-18
+          # libclang-rt-18-dev ships the ASan/UBSan/TSan runtime libraries
+          # (libclang_rt.asan.a etc.); without it clang-18 emits instrumented
+          # code but lld-18 can't resolve __asan_*/__ubsan_* symbols.
+          sudo apt-get install -y meson ninja-build nasm clang-18 lld-18 \
+            libclang-rt-18-dev
       - name: Build with ${{ matrix.sanitizer }} sanitizer
+        working-directory: libvmaf
         env:
           CC: clang-18
           CXX: clang++-18
           LDFLAGS: -fuse-ld=lld-18
         run: |
-          meson setup build libvmaf -Db_sanitize=${{ matrix.sanitizer }} \
+          meson setup build -Db_sanitize=${{ matrix.sanitizer }} \
             -Denable_cuda=false -Denable_sycl=false --buildtype=debug \
             -Db_lto=false
           meson compile -C build
       - name: Run unit tests under sanitizer
+        working-directory: libvmaf
         run: meson test -C build --print-errorlogs --suite=unit
 
   # ===== DNN / tiny-AI gate =====
@@ -173,6 +184,9 @@ jobs:
         run: |
           python3 -m venv /tmp/vmaf-train-venv
           /tmp/vmaf-train-venv/bin/pip install --upgrade pip
+          # pytest is a test-time dep, not runtime, so install it explicitly
+          # rather than relying on ai/pyproject.toml extras.
+          /tmp/vmaf-train-venv/bin/pip install pytest
           /tmp/vmaf-train-venv/bin/pip install -e ai
       - name: Run ai/ pytests
         run: /tmp/vmaf-train-venv/bin/pytest ai/tests/ -v
@@ -193,21 +207,25 @@ jobs:
             python3-pip
           python3 -m pip install --user -r python/requirements.txt pytest
       - name: Build with gcov instrumentation
+        # Build inside libvmaf/ so python/vmaf/__init__.py finds the CLI at
+        # libvmaf/build-coverage/tools/vmaf (it hardcodes that relative path).
+        working-directory: libvmaf
         run: |
           # AVX-512 on so SIMD paths are exercised. DNN stubs compile without
           # ORT; full DNN coverage is gated on ORT availability (separate job).
-          meson setup build-coverage libvmaf --buildtype=debug \
+          meson setup build-coverage --buildtype=debug \
             -Db_coverage=true -Denable_cuda=false -Denable_sycl=false \
             -Denable_avx512=true
           ninja -C build-coverage
       - name: Run meson unit suite (with gcov counters)
+        working-directory: libvmaf
         run: meson test -C build-coverage --print-errorlogs
       - name: Run full Python test suite (instrumented libvmaf.so + vmaf CLI)
         env:
           PYTHONPATH: ${{ github.workspace }}/python
           # Point the Python binding at the gcov-instrumented .so + CLI.
-          LD_LIBRARY_PATH: ${{ github.workspace }}/build-coverage/src
-          PATH: ${{ github.workspace }}/build-coverage/tools:${{ env.PATH }}
+          LD_LIBRARY_PATH: ${{ github.workspace }}/libvmaf/build-coverage/src
+          PATH: ${{ github.workspace }}/libvmaf/build-coverage/tools:${{ env.PATH }}
         run: |
           # The Python suite is the real coverage signal: it exercises every
           # feature-extractor, the quality runner, the ensemble/bootstrap
@@ -224,6 +242,7 @@ jobs:
           python3 -m pytest python/test/ -v -m "not slow" --tb=short \
             --ignore=python/test/resource || true
       - name: Gather lcov report
+        working-directory: libvmaf
         run: |
           lcov --capture --directory build-coverage \
                --output-file build-coverage/coverage.info \
@@ -245,13 +264,13 @@ jobs:
           # Starting floor 40% = meson unit suite (~13%) + Python suite
           # exercising feature extractors + CLI. Ratchet up to 70% as we add
           # upstream-aimed tests (integer_adm, integer_vif, ssim full-path).
-          scripts/ci/coverage-check.sh build-coverage/coverage.filtered.info 40 85
+          scripts/ci/coverage-check.sh libvmaf/build-coverage/coverage.filtered.info 40 85
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-lcov-cpu
-          path: build-coverage/coverage.filtered.info
+          path: libvmaf/build-coverage/coverage.filtered.info
           retention-days: 14
 
   # ===== GPU coverage (self-hosted) =====
@@ -274,19 +293,21 @@ jobs:
         with:
           submodules: recursive
       - name: Build with gcov + CUDA + SYCL + AVX-512
+        working-directory: libvmaf
         run: |
-          meson setup build-coverage-gpu libvmaf --buildtype=debug \
+          meson setup build-coverage-gpu --buildtype=debug \
             -Db_coverage=true \
             -Denable_cuda=true -Denable_sycl=true \
             -Denable_avx512=true
           ninja -C build-coverage-gpu
       - name: Run meson unit suite
+        working-directory: libvmaf
         run: meson test -C build-coverage-gpu --print-errorlogs
       - name: Run Python suite on CUDA + SYCL backends
         env:
           PYTHONPATH: ${{ github.workspace }}/python
-          LD_LIBRARY_PATH: ${{ github.workspace }}/build-coverage-gpu/src
-          PATH: ${{ github.workspace }}/build-coverage-gpu/tools:${{ env.PATH }}
+          LD_LIBRARY_PATH: ${{ github.workspace }}/libvmaf/build-coverage-gpu/src
+          PATH: ${{ github.workspace }}/libvmaf/build-coverage-gpu/tools:${{ env.PATH }}
         run: |
           python3 -m pip install --user -r python/requirements.txt pytest
           # Per-backend coverage runs: each forces VMAF_CUDA / VMAF_SYCL
@@ -296,6 +317,7 @@ jobs:
           VMAF_FORCE_BACKEND=sycl python3 -m pytest python/test/ -v \
             -m "not slow" --tb=short --ignore=python/test/resource || true
       - name: Gather lcov report
+        working-directory: libvmaf
         run: |
           lcov --capture --directory build-coverage-gpu \
                --output-file build-coverage-gpu/coverage.info \
@@ -308,13 +330,13 @@ jobs:
           lcov --list build-coverage-gpu/coverage.filtered.info
       - name: Enforce coverage thresholds (GPU)
         run: |
-          scripts/ci/coverage-check.sh build-coverage-gpu/coverage.filtered.info 70 85
+          scripts/ci/coverage-check.sh libvmaf/build-coverage-gpu/coverage.filtered.info 70 85
       - name: Upload GPU coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-lcov-gpu
-          path: build-coverage-gpu/coverage.filtered.info
+          path: libvmaf/build-coverage-gpu/coverage.filtered.info
           retention-days: 14
 
   # ===== Power of 10 rule 5 — assertion density =====
