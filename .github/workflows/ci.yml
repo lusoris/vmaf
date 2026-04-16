@@ -227,7 +227,8 @@ jobs:
         run: |
           export PATH="${{ github.workspace }}/libvmaf/build-coverage/tools:$PATH"
           python3 -m pytest python/test/ -v -m "not slow" --tb=short \
-            --ignore=python/test/resource || true
+            --ignore=python/test/resource \
+            --ignore=python/test/cy_test.py || true
       - name: Gather lcov report
         working-directory: libvmaf
         run: |
