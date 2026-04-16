@@ -31,8 +31,11 @@ This is an overview of the available documentation in the VMAF repository.
 
 ## Backends
 
-GPU / SIMD backend notes, each in their own folder under [backends/](backends/):
-`x86/`, `cuda/`, `sycl/`, `oneapi/`, `amd-hip/`, `amd-amf/`, `qsv/`, `nvtx/`.
+GPU / SIMD backend notes under [backends/](backends/):
+
+- [x86 SIMD (AVX2 / AVX-512)](backends/x86/avx512.md)
+- [CUDA](backends/cuda/overview.md) + [NVTX profiling](backends/nvtx/profiling.md)
+- [SYCL / oneAPI](backends/sycl/overview.md) + [self-contained bundling](backends/sycl/bundling.md)
 
 ## Tiny-AI
 

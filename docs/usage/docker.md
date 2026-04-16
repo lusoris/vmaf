@@ -82,5 +82,5 @@ docker build --build-arg ENABLE_SYCL=true -t vmaf-sycl .
 ```
 
 The SYCL backend is selected at CLI level with `--sycl`; see
-[backends/sycl/sycl_bundling.md](../backends/sycl/sycl_bundling.md) for
+[backends/sycl/bundling.md](../backends/sycl/bundling.md) for
 runtime-bundling notes relevant to containerized deployments.

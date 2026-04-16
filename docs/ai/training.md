@@ -115,14 +115,10 @@ will flag as a regression when it exceeds a tight allclose).
 
 ## Hyperparameter sweeps
 
-```bash
-pip install -e 'ai[tune]'
-vmaf-train tune \
-    --config ai/configs/fr_tiny_v1.yaml \
-    --study fr_tiny_v1_sweep
-```
-
-Uses Optuna. Results are written under `runs/<study>/`.
+The `ai[tune]` extra pulls in Optuna + Ray Tune. A first-class `vmaf-train
+tune` subcommand is planned but not yet wired — for now, drive the sweep
+from a standalone script that imports the training entry point and
+dispatches configs through Optuna.
 
 ## Troubleshooting
 

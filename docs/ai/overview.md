@@ -55,7 +55,9 @@ boundary is the `.onnx` + sidecar JSON pair on disk.
 | Compare a new model's PLCC/SROCC/RMSE to the SVM baseline | — | [benchmarks.md](benchmarks.md) |
 | Understand the operator allowlist + signature model | — | [security.md](security.md) |
 
-## Decisions
+## Related documents
 
-The full design trail is in [`.workingdir2/phases/03-framework/3k-tiny-ai.md`](../../.workingdir2/phases/03-framework/3k-tiny-ai.md)
-(D20–D23). This doc set is the user-facing distillation.
+- [training.md](training.md) — `vmaf-train` CLI, dataset manifests, export flow.
+- [inference.md](inference.md) — CLI / C API / ffmpeg filter surfaces.
+- [benchmarks.md](benchmarks.md) — accuracy + throughput methodology.
+- [security.md](security.md) — operator allowlist, size cap, Sigstore verification.

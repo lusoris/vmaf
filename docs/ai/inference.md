@@ -8,13 +8,12 @@ ffmpeg filters. All three funnel through
 
 - libvmaf built with `-Denable_dnn=enabled` (or `auto` with ONNX Runtime
   discoverable via `pkg-config`).
-- ONNX Runtime ≥ 1.20 — on Ubuntu 24.04, install via:
-
-  ```bash
-  scripts/dev-setup/ubuntu.sh --with-onnxruntime
-  ```
-
-  Other distros have the same flag.
+- ONNX Runtime ≥ 1.20 available at build time. ONNX Runtime isn't in the
+  distro setup scripts under [scripts/setup/](../../scripts/setup/) yet —
+  install the prebuilt release tarball from
+  <https://github.com/microsoft/onnxruntime/releases> or a distro package
+  if available, and make sure its `libonnxruntime.so` + headers are on
+  `PKG_CONFIG_PATH` before running `meson setup`.
 - A `.onnx` model + sidecar `.json` pair under `model/tiny/` or anywhere
   else — the CLI flag accepts an absolute path.
 

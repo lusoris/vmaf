@@ -56,16 +56,17 @@ consume unbounded memory or divert through a non-allowlisted op.
 
 ## Layer 4 — signature verification (opt-in)
 
-Models shipped under `model/tiny/` are signed during release by
-`.github/workflows/release.yml` using Sigstore's keyless flow. To verify
-locally before loading:
+Release artifacts (including models shipped under `model/tiny/`) are
+signed by [`.github/workflows/supply-chain.yml`](../../.github/workflows/supply-chain.yml)
+using Sigstore's keyless flow. The workflow emits `<artifact>.sig` and
+`<artifact>.pem` beside each artifact. To verify locally before loading:
 
 ```bash
 cosign verify-blob \
-    --certificate-identity-regexp "https://github.com/lusoris/vmaf/.github/workflows/release.yml@.*" \
+    --certificate-identity-regexp "https://github.com/lusoris/vmaf/.github/workflows/supply-chain.yml@.*" \
     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
     --signature vmaf_tiny_fr_v1.onnx.sig \
-    --certificate vmaf_tiny_fr_v1.onnx.cert \
+    --certificate vmaf_tiny_fr_v1.onnx.pem \
     vmaf_tiny_fr_v1.onnx
 ```
 
