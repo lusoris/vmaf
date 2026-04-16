@@ -278,7 +278,15 @@ float float_adm_csf_den_scale_avx512(const float *src, int w, int h, int src_str
             dsum1 = _mm512_add_pd(dsum1, _mm512_cvtps_pd(_mm512_extractf32x8_ps(val3, 1)));
         }
 
-        double row_accum = _mm512_reduce_add_pd(_mm512_add_pd(dsum0, dsum1));
+        __m512d dtotal = _mm512_add_pd(dsum0, dsum1);
+        __m256d dlo256 = _mm512_castpd512_pd256(dtotal);
+        __m256d dhi256 = _mm512_extractf64x4_pd(dtotal, 1);
+        __m256d dt4 = _mm256_add_pd(dlo256, dhi256);
+        __m128d dlo = _mm256_castpd256_pd128(dt4);
+        __m128d dhi = _mm256_extractf128_pd(dt4, 1);
+        __m128d ds = _mm_add_pd(dlo, dhi);
+        ds = _mm_add_sd(ds, _mm_unpackhi_pd(ds, ds));
+        double row_accum = _mm_cvtsd_f64(ds);
 
         /* Scalar tail */
         for (; j < right; ++j) {
@@ -316,7 +324,15 @@ float float_adm_sum_cube_avx512(const float *x, int w, int h, int stride, int le
             dsum1 = _mm512_add_pd(dsum1, _mm512_cvtps_pd(_mm512_extractf32x8_ps(val3, 1)));
         }
 
-        double row_accum = _mm512_reduce_add_pd(_mm512_add_pd(dsum0, dsum1));
+        __m512d dtotal = _mm512_add_pd(dsum0, dsum1);
+        __m256d dlo256 = _mm512_castpd512_pd256(dtotal);
+        __m256d dhi256 = _mm512_extractf64x4_pd(dtotal, 1);
+        __m256d dt4 = _mm256_add_pd(dlo256, dhi256);
+        __m128d dlo = _mm256_castpd256_pd128(dt4);
+        __m128d dhi = _mm256_extractf128_pd(dt4, 1);
+        __m128d ds = _mm_add_pd(dlo, dhi);
+        ds = _mm_add_sd(ds, _mm_unpackhi_pd(ds, ds));
+        double row_accum = _mm_cvtsd_f64(ds);
 
         /* Scalar tail */
         for (; j < right; ++j) {

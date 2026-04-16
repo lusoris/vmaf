@@ -246,12 +246,14 @@ jobs:
         run: |
           lcov --capture --directory build-coverage \
                --output-file build-coverage/coverage.info \
-               --ignore-errors mismatch,gcov,source \
+               --ignore-errors mismatch,mismatch \
+               --ignore-errors gcov,gcov \
+               --ignore-errors source,source \
                --rc geninfo_unexecuted_blocks=1
           lcov --remove build-coverage/coverage.info \
                '/usr/*' '*/subprojects/*' '*/test/*' '*/tests/*' \
                --output-file build-coverage/coverage.filtered.info \
-               --ignore-errors unused
+               --ignore-errors unused,unused
           lcov --list build-coverage/coverage.filtered.info
       - name: Enforce coverage thresholds
         run: |
