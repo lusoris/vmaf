@@ -22,10 +22,12 @@
 
 #include "cli_parse.h"
 
-static int cli_free_dicts(CLISettings *settings) {
+static int cli_free_dicts(CLISettings *settings)
+{
     for (unsigned i = 0; i < settings->feature_cnt; i++) {
         int err = vmaf_feature_dictionary_free(&(settings->feature_cfg[i].opts_dict));
-        if (err) return err;
+        if (err)
+            return err;
     }
     return 0;
 }
@@ -37,9 +39,12 @@ static char *test_aom_ctc_v1_0()
     CLISettings settings;
     optind = 1;
     cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --aom_ctc v1.0 provided but common_bitdepth enabled", !settings.common_bitdepth);
-    mu_assert("cli_parse: --aom_ctc v1.0 provided but number of features is not 5", settings.feature_cnt == 5);
-    mu_assert("cli_parse: --aom_ctc v1.0 provided but number of models is not 2", settings.model_cnt == 2);
+    mu_assert("cli_parse: --aom_ctc v1.0 provided but common_bitdepth enabled",
+              !settings.common_bitdepth);
+    mu_assert("cli_parse: --aom_ctc v1.0 provided but number of features is not 5",
+              settings.feature_cnt == 5);
+    mu_assert("cli_parse: --aom_ctc v1.0 provided but number of models is not 2",
+              settings.model_cnt == 2);
     cli_free(&settings);
     cli_free_dicts(&settings);
 
@@ -53,9 +58,12 @@ static char *test_aom_ctc_v2_0()
     CLISettings settings;
     optind = 1;
     cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --aom_ctc v2.0 provided but common_bitdepth enabled", !settings.common_bitdepth);
-    mu_assert("cli_parse: --aom_ctc v2.0 provided but number of features is not 5", settings.feature_cnt == 5);
-    mu_assert("cli_parse: --aom_ctc v2.0 provided but number of models is not 2", settings.model_cnt == 2);
+    mu_assert("cli_parse: --aom_ctc v2.0 provided but common_bitdepth enabled",
+              !settings.common_bitdepth);
+    mu_assert("cli_parse: --aom_ctc v2.0 provided but number of features is not 5",
+              settings.feature_cnt == 5);
+    mu_assert("cli_parse: --aom_ctc v2.0 provided but number of models is not 2",
+              settings.model_cnt == 2);
     cli_free(&settings);
     cli_free_dicts(&settings);
 
@@ -69,9 +77,12 @@ static char *test_aom_ctc_v3_0()
     CLISettings settings;
     optind = 1;
     cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --aom_ctc v3.0 provided but common_bitdepth enabled", !settings.common_bitdepth);
-    mu_assert("cli_parse: --aom_ctc v3.0 provided but number of features is not 6", settings.feature_cnt == 6);
-    mu_assert("cli_parse: --aom_ctc v3.0 provided but number of models is not 2", settings.model_cnt == 2);
+    mu_assert("cli_parse: --aom_ctc v3.0 provided but common_bitdepth enabled",
+              !settings.common_bitdepth);
+    mu_assert("cli_parse: --aom_ctc v3.0 provided but number of features is not 6",
+              settings.feature_cnt == 6);
+    mu_assert("cli_parse: --aom_ctc v3.0 provided but number of models is not 2",
+              settings.model_cnt == 2);
     cli_free(&settings);
     cli_free_dicts(&settings);
 
@@ -85,9 +96,12 @@ static char *test_aom_ctc_v4_0()
     CLISettings settings;
     optind = 1;
     cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --aom_ctc v4.0 provided but common_bitdepth enabled", !settings.common_bitdepth);
-    mu_assert("cli_parse: --aom_ctc v4.0 provided but number of features is not 6", settings.feature_cnt == 6);
-    mu_assert("cli_parse: --aom_ctc v4.0 provided but number of models is not 2", settings.model_cnt == 2);
+    mu_assert("cli_parse: --aom_ctc v4.0 provided but common_bitdepth enabled",
+              !settings.common_bitdepth);
+    mu_assert("cli_parse: --aom_ctc v4.0 provided but number of features is not 6",
+              settings.feature_cnt == 6);
+    mu_assert("cli_parse: --aom_ctc v4.0 provided but number of models is not 2",
+              settings.model_cnt == 2);
     cli_free(&settings);
     cli_free_dicts(&settings);
 
@@ -101,9 +115,12 @@ static char *test_aom_ctc_v5_0()
     CLISettings settings;
     optind = 1;
     cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --aom_ctc v5.0 provided but common_bitdepth enabled", !settings.common_bitdepth);
-    mu_assert("cli_parse: --aom_ctc v5.0 provided but number of features is not 6", settings.feature_cnt == 6);
-    mu_assert("cli_parse: --aom_ctc v5.0 provided but number of models is not 2", settings.model_cnt == 2);
+    mu_assert("cli_parse: --aom_ctc v5.0 provided but common_bitdepth enabled",
+              !settings.common_bitdepth);
+    mu_assert("cli_parse: --aom_ctc v5.0 provided but number of features is not 6",
+              settings.feature_cnt == 6);
+    mu_assert("cli_parse: --aom_ctc v5.0 provided but number of models is not 2",
+              settings.model_cnt == 2);
     cli_free(&settings);
     cli_free_dicts(&settings);
 
@@ -117,9 +134,12 @@ static char *test_aom_ctc_v6_0()
     CLISettings settings;
     optind = 1;
     cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --aom_ctc v6.0 provided but common_bitdepth not enabled", settings.common_bitdepth);
-    mu_assert("cli_parse: --aom_ctc v6.0 provided but number of features is not 6", settings.feature_cnt == 6);
-    mu_assert("cli_parse: --aom_ctc v6.0 provided but number of models is not 2", settings.model_cnt == 2);
+    mu_assert("cli_parse: --aom_ctc v6.0 provided but common_bitdepth not enabled",
+              settings.common_bitdepth);
+    mu_assert("cli_parse: --aom_ctc v6.0 provided but number of features is not 6",
+              settings.feature_cnt == 6);
+    mu_assert("cli_parse: --aom_ctc v6.0 provided but number of models is not 2",
+              settings.model_cnt == 2);
     cli_free(&settings);
     cli_free_dicts(&settings);
 
@@ -133,9 +153,12 @@ static char *test_nflx_ctc_v1_0()
     CLISettings settings;
     optind = 1;
     cli_parse(argc, argv, &settings);
-    mu_assert("cli_parse: --nflx_ctc v1.0 provided but common_bitdepth enabled", !settings.common_bitdepth);
-    mu_assert("cli_parse: --nflx_ctc v1.0 provided but number of features is not 3", settings.feature_cnt == 3);
-    mu_assert("cli_parse: --nflx_ctc v1.0 provided but number of models is not 2", settings.model_cnt == 2);
+    mu_assert("cli_parse: --nflx_ctc v1.0 provided but common_bitdepth enabled",
+              !settings.common_bitdepth);
+    mu_assert("cli_parse: --nflx_ctc v1.0 provided but number of features is not 3",
+              settings.feature_cnt == 3);
+    mu_assert("cli_parse: --nflx_ctc v1.0 provided but number of models is not 2",
+              settings.model_cnt == 2);
     cli_free(&settings);
     cli_free_dicts(&settings);
 

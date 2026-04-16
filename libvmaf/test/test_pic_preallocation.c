@@ -40,19 +40,20 @@ static char *test_picture_pool_basic()
 
     // Use large pool for round-robin
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = 1920,
-            .h = 1080,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
+        .pic_params =
+            {
+                .w = 1920,
+                .h = 1080,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
         .pic_cnt = 40,
     };
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
     mu_assert("problem during vmaf_preallocate_pictures", !err);
 
-    VmafModelConfig model_cfg = { 0 };
+    VmafModelConfig model_cfg = {0};
     VmafModel *model;
     err = vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
     mu_assert("problem during vmaf_model_load", !err);
@@ -94,19 +95,20 @@ static char *test_picture_pool_small()
 
     // Small pool to test round-robin wrapping
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = 640,
-            .h = 480,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
+        .pic_params =
+            {
+                .w = 640,
+                .h = 480,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
         .pic_cnt = 8,
     };
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
     mu_assert("problem during vmaf_preallocate_pictures", !err);
 
-    VmafModelConfig model_cfg = { 0 };
+    VmafModelConfig model_cfg = {0};
     VmafModel *model;
     err = vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
     mu_assert("problem during vmaf_model_load", !err);
@@ -148,12 +150,13 @@ static char *test_picture_pool_fetch_unref_cycle()
     mu_assert("problem during vmaf_init", !err);
 
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = 1920,
-            .h = 1080,
-            .bpc = 10,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
+        .pic_params =
+            {
+                .w = 1920,
+                .h = 1080,
+                .bpc = 10,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
         .pic_cnt = 16,
     };
 
@@ -198,19 +201,20 @@ static char *test_picture_pool_yuv444()
 
     // Test with YUV444 format
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = 1920,
-            .h = 1080,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV444P,
-        },
+        .pic_params =
+            {
+                .w = 1920,
+                .h = 1080,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV444P,
+            },
         .pic_cnt = 20,
     };
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
     mu_assert("problem during vmaf_preallocate_pictures", !err);
 
-    VmafModelConfig model_cfg = { 0 };
+    VmafModelConfig model_cfg = {0};
     VmafModel *model;
     err = vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
     mu_assert("problem during vmaf_model_load", !err);
@@ -257,12 +261,13 @@ static char *test_picture_pool_exhaustion()
 
     // Very small pool (2 pictures) to test exhaustion
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = 640,
-            .h = 480,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
+        .pic_params =
+            {
+                .w = 640,
+                .h = 480,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
         .pic_cnt = 2,
     };
 
@@ -315,7 +320,7 @@ typedef struct {
     int thread_id;
     int fetch_count;
     int error;
-    void **data_ptrs;  // Track which data pointers we got
+    void **data_ptrs; // Track which data pointers we got
 } thread_test_data;
 
 static void *thread_fetch_worker(void *arg)
@@ -334,7 +339,7 @@ static void *thread_fetch_worker(void *arg)
         data->data_ptrs[i] = pic.data[0];
 
         // Simulate some work
-        usleep(100);  // 0.1ms
+        usleep(100); // 0.1ms
 
         err = vmaf_picture_unref(&pic);
         if (err) {
@@ -361,13 +366,14 @@ static char *test_picture_pool_multithreaded()
     mu_assert("problem during vmaf_init", !err);
 
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = 1920,
-            .h = 1080,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
-        .pic_cnt = 8,  // Small pool to stress test
+        .pic_params =
+            {
+                .w = 1920,
+                .h = 1080,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
+        .pic_cnt = 8, // Small pool to stress test
     };
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
@@ -384,7 +390,7 @@ static char *test_picture_pool_multithreaded()
         thread_data[i].thread_id = i;
         thread_data[i].fetch_count = fetches_per_thread;
         thread_data[i].error = 0;
-        thread_data[i].data_ptrs = malloc(sizeof(void*) * fetches_per_thread);
+        thread_data[i].data_ptrs = malloc(sizeof(void *) * fetches_per_thread);
 
         err = pthread_create(&threads[i], NULL, thread_fetch_worker, &thread_data[i]);
         mu_assert("problem creating thread", !err);
@@ -436,12 +442,13 @@ static char *test_picture_pool_close_waits()
     mu_assert("problem during vmaf_init", !err);
 
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = 640,
-            .h = 480,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
+        .pic_params =
+            {
+                .w = 640,
+                .h = 480,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
         .pic_cnt = 4,
     };
 
@@ -484,13 +491,14 @@ static char *test_picture_pool_stress()
 
     // Very small pool relative to thread count
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = 640,
-            .h = 480,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
-        .pic_cnt = 4,  // Only 4 pictures for 16 threads!
+        .pic_params =
+            {
+                .w = 640,
+                .h = 480,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
+        .pic_cnt = 4, // Only 4 pictures for 16 threads!
     };
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
@@ -507,7 +515,7 @@ static char *test_picture_pool_stress()
         thread_data[i].thread_id = i;
         thread_data[i].fetch_count = fetches_per_thread;
         thread_data[i].error = 0;
-        thread_data[i].data_ptrs = malloc(sizeof(void*) * fetches_per_thread);
+        thread_data[i].data_ptrs = malloc(sizeof(void *) * fetches_per_thread);
 
         err = pthread_create(&threads[i], NULL, thread_fetch_worker, &thread_data[i]);
         mu_assert("problem creating thread", !err);

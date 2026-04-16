@@ -24,11 +24,12 @@
 
 int vmaf_metadata_init(VmafCallbackList **const metadata)
 {
-    if (!metadata) return -EINVAL;
+    if (!metadata)
+        return -EINVAL;
 
-    VmafCallbackList *const metadata_s = *metadata =
-        malloc(sizeof(*metadata_s));
-    if (!metadata_s) goto fail;
+    VmafCallbackList *const metadata_s = *metadata = malloc(sizeof(*metadata_s));
+    if (!metadata_s)
+        goto fail;
 
     metadata_s->head = NULL;
 
@@ -40,10 +41,12 @@ fail:
 
 int vmaf_metadata_append(VmafCallbackList *metadata, const VmafMetadataConfiguration metadata_cfg)
 {
-    if (!metadata) return -EINVAL;
+    if (!metadata)
+        return -EINVAL;
 
     VmafCallbackItem *node = malloc(sizeof(*node));
-    if (!node) goto fail;
+    if (!node)
+        goto fail;
     memset(node, 0, sizeof(*node));
 
     node->metadata_cfg = metadata_cfg;
@@ -52,7 +55,8 @@ int vmaf_metadata_append(VmafCallbackList *metadata, const VmafMetadataConfigura
         metadata->head = node;
     } else {
         VmafCallbackItem *iter = metadata->head;
-        while (iter->next) iter = iter->next;
+        while (iter->next)
+            iter = iter->next;
         iter->next = node;
     }
 
@@ -64,7 +68,8 @@ fail:
 
 int vmaf_metadata_destroy(VmafCallbackList *metadata)
 {
-    if (!metadata) return -EINVAL;
+    if (!metadata)
+        return -EINVAL;
 
     VmafCallbackItem *iter = metadata->head;
     while (iter) {

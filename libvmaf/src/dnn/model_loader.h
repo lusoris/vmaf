@@ -16,20 +16,20 @@ extern "C" {
 #endif
 
 /** Defaults; override via env VMAF_MAX_MODEL_BYTES (50 MB). */
-#define VMAF_DNN_DEFAULT_MAX_BYTES ((size_t) 50u * 1024u * 1024u)
+#define VMAF_DNN_DEFAULT_MAX_BYTES ((size_t)50u * 1024u * 1024u)
 
 typedef struct VmafModelSidecar {
-    VmafModelKind kind;            /**< mirrors sidecar "kind" field */
-    int           opset;
-    char         *name;            /**< owned */
-    char         *input_name;      /**< owned */
-    char         *output_name;     /**< owned */
-    float         norm_mean;
-    float         norm_std;
-    bool          has_norm;
-    float         expected_min;
-    float         expected_max;
-    bool          has_range;
+    VmafModelKind kind; /**< mirrors sidecar "kind" field */
+    int opset;
+    char *name;        /**< owned */
+    char *input_name;  /**< owned */
+    char *output_name; /**< owned */
+    float norm_mean;
+    float norm_std;
+    bool has_norm;
+    float expected_min;
+    float expected_max;
+    bool has_range;
 } VmafModelSidecar;
 
 /** Byte-identical magic check. Returns VMAF_MODEL_KIND_SVM for libsvm json/pkl,

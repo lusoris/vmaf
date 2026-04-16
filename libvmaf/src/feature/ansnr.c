@@ -37,12 +37,13 @@
 #define ansnr_filter1d_dis ansnr_filter1d_dis_s
 #define ansnr_filter2d_ref ansnr_filter2d_ref_s
 #define ansnr_filter2d_dis ansnr_filter2d_dis_s
-#define ansnr_filter1d     ansnr_filter1d_s
-#define ansnr_filter2d     ansnr_filter2d_s
-#define ansnr_mse          ansnr_mse_s
-#define offset_image       offset_image_s
+#define ansnr_filter1d ansnr_filter1d_s
+#define ansnr_filter2d ansnr_filter2d_s
+#define ansnr_mse ansnr_mse_s
+#define offset_image offset_image_s
 
-int compute_ansnr(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride, double *score, double *score_psnr, double peak, double psnr_max)
+int compute_ansnr(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
+                  double *score, double *score_psnr, double peak, double psnr_max)
 {
     float *data_buf = 0;
     char *data_top;
@@ -61,27 +62,30 @@ int compute_ansnr(const float *ref, const float *dis, int w, int h, int ref_stri
 
     int ret = 1;
 
-    if (SIZE_MAX / buf_sz_one < 2)
-    {
+    if (SIZE_MAX / buf_sz_one < 2) {
         goto fail;
     }
 
-    if (!(data_buf = aligned_malloc(buf_sz_one * 2, MAX_ALIGN)))
-    {
+    if (!(data_buf = aligned_malloc(buf_sz_one * 2, MAX_ALIGN))) {
         goto fail;
     }
 
     data_top = (char *)data_buf;
 
-    ref_filtr = (float *)data_top; data_top += buf_sz_one;
+    ref_filtr = (float *)data_top;
+    data_top += buf_sz_one;
     filtd = (float *)data_top;
 
 #ifdef ANSNR_OPT_FILTER_1D
-    ansnr_filter1d(ansnr_filter1d_ref, ref, ref_filtr, w, h, ref_stride, buf_stride, ansnr_filter1d_ref_width);
-    ansnr_filter1d(ansnr_filter1d_dis, dis, filtd, w, h, dis_stride, buf_stride, ansnr_filter1d_dis_width);
+    ansnr_filter1d(ansnr_filter1d_ref, ref, ref_filtr, w, h, ref_stride, buf_stride,
+                   ansnr_filter1d_ref_width);
+    ansnr_filter1d(ansnr_filter1d_dis, dis, filtd, w, h, dis_stride, buf_stride,
+                   ansnr_filter1d_dis_width);
 #else
-    ansnr_filter2d(ansnr_filter2d_ref, ref, ref_filtr, w, h, ref_stride, buf_stride, ansnr_filter2d_ref_width);
-    ansnr_filter2d(ansnr_filter2d_dis, dis, filtd, w, h, dis_stride, buf_stride, ansnr_filter2d_dis_width);
+    ansnr_filter2d(ansnr_filter2d_ref, ref, ref_filtr, w, h, ref_stride, buf_stride,
+                   ansnr_filter2d_ref_width);
+    ansnr_filter2d(ansnr_filter2d_dis, dis, filtd, w, h, dis_stride, buf_stride,
+                   ansnr_filter2d_dis_width);
 #endif
 
 #ifdef ANSNR_OPT_DEBUG_DUMP
@@ -92,18 +96,20 @@ int compute_ansnr(const float *ref, const float *dis, int w, int h, int ref_stri
     ansnr_mse(ref_filtr, filtd, &sig, &noise, w, h, buf_stride, buf_stride);
 
 #ifdef ANSNR_OPT_NORMALIZE
-# ifdef ANSNR_OPT_FILTER_1D
-    ansnr_filter1d(ansnr_filter1d_dis, ref, filtd, w, h, ref_stride, buf_stride, ansnr_filter1d_dis_width);
-# else
-    ansnr_filter2d(ansnr_filter2d_dis, ref, filtd, w, h, ref_stride, buf_stride, ansnr_filter2d_dis_width);
-# endif
-# ifdef ANSNR_OPT_DEBUG_DUMP
+#ifdef ANSNR_OPT_FILTER_1D
+    ansnr_filter1d(ansnr_filter1d_dis, ref, filtd, w, h, ref_stride, buf_stride,
+                   ansnr_filter1d_dis_width);
+#else
+    ansnr_filter2d(ansnr_filter2d_dis, ref, filtd, w, h, ref_stride, buf_stride,
+                   ansnr_filter2d_dis_width);
+#endif
+#ifdef ANSNR_OPT_DEBUG_DUMP
     write_image("stage/ref_filtd.bin", filtd, w, h, buf_stride, sizeof(float));
-# endif
+#endif
     ansnr_mse(ref_filtr, filtd, 0, &noise_min, w, h, buf_stride, buf_stride);
     *score = 10.0 * log10(noise / (noise - noise_min));
 #else
-    *score = noise==0 ? psnr_max : 10.0 * log10(sig / noise);
+    *score = noise == 0 ? psnr_max : 10.0 * log10(sig / noise);
 #endif
 
     double eps = 1e-10;

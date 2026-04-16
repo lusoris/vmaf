@@ -33,8 +33,8 @@ typedef struct MomentState {
     float *dist;
 } MomentState;
 
-static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h)
+static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                unsigned h)
 {
     (void)pix_fmt;
     (void)bpc;
@@ -42,9 +42,11 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     MomentState *s = fex->priv;
     s->float_stride = ALIGN_CEIL(w * sizeof(float));
     s->ref = aligned_malloc(s->float_stride * h, 32);
-    if (!s->ref) goto fail;
+    if (!s->ref)
+        goto fail;
     s->dist = aligned_malloc(s->float_stride * h, 32);
-    if (!s->dist) goto free_ref;
+    if (!s->dist)
+        goto free_ref;
 
     return 0;
 
@@ -54,50 +56,45 @@ fail:
     return -ENOMEM;
 }
 
-static int extract(VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector)
+static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector)
 {
     MomentState *s = fex->priv;
     int err = 0;
 
-    (void) ref_pic_90;
-    (void) dist_pic_90;
+    (void)ref_pic_90;
+    (void)dist_pic_90;
 
     picture_copy(s->ref, s->float_stride, ref_pic, 0, ref_pic->bpc);
     picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc);
 
     double score[4];
-    err = compute_1st_moment(s->ref, ref_pic->w[0], ref_pic->h[0],
-                             s->float_stride, &score[0]);
-    if (err) return err;
-    err = compute_1st_moment(s->dist, dist_pic->w[0], dist_pic->h[0],
-                             s->float_stride, &score[1]);
-    if (err) return err;
-    err = compute_2nd_moment(s->ref, ref_pic->w[0], ref_pic->h[0],
-                             s->float_stride, &score[2]);
-    if (err) return err;
-    err = compute_2nd_moment(s->dist, dist_pic->w[0], dist_pic->h[0],
-                             s->float_stride, &score[3]);
-    if (err) return err;
+    err = compute_1st_moment(s->ref, ref_pic->w[0], ref_pic->h[0], s->float_stride, &score[0]);
+    if (err)
+        return err;
+    err = compute_1st_moment(s->dist, dist_pic->w[0], dist_pic->h[0], s->float_stride, &score[1]);
+    if (err)
+        return err;
+    err = compute_2nd_moment(s->ref, ref_pic->w[0], ref_pic->h[0], s->float_stride, &score[2]);
+    if (err)
+        return err;
+    err = compute_2nd_moment(s->dist, dist_pic->w[0], dist_pic->h[0], s->float_stride, &score[3]);
+    if (err)
+        return err;
 
-    err = vmaf_feature_collector_append(feature_collector,
-                                        "float_moment_ref1st",
-                                        score[0], index);
-    if (err) return err;
-    err = vmaf_feature_collector_append(feature_collector,
-                                        "float_moment_dis1st",
-                                        score[1], index);
-    if (err) return err;
-    err = vmaf_feature_collector_append(feature_collector,
-                                        "float_moment_ref2nd",
-                                        score[2], index);
-    if (err) return err;
-    err = vmaf_feature_collector_append(feature_collector,
-                                        "float_moment_dis2nd",
-                                        score[3], index);
-    if (err) return err;
+    err = vmaf_feature_collector_append(feature_collector, "float_moment_ref1st", score[0], index);
+    if (err)
+        return err;
+    err = vmaf_feature_collector_append(feature_collector, "float_moment_dis1st", score[1], index);
+    if (err)
+        return err;
+    err = vmaf_feature_collector_append(feature_collector, "float_moment_ref2nd", score[2], index);
+    if (err)
+        return err;
+    err = vmaf_feature_collector_append(feature_collector, "float_moment_dis2nd", score[3], index);
+    if (err)
+        return err;
 
     return 0;
 }
@@ -105,15 +102,14 @@ static int extract(VmafFeatureExtractor *fex,
 static int close(VmafFeatureExtractor *fex)
 {
     MomentState *s = fex->priv;
-    if (s->ref) aligned_free(s->ref);
-    if (s->dist) aligned_free(s->dist);
+    if (s->ref)
+        aligned_free(s->ref);
+    if (s->dist)
+        aligned_free(s->dist);
     return 0;
 }
 
-static const char *provided_features[] = {
-    "float_moment",
-    NULL
-};
+static const char *provided_features[] = {"float_moment", NULL};
 
 VmafFeatureExtractor vmaf_fex_float_moment = {
     .name = "float_moment",

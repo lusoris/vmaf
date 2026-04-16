@@ -40,25 +40,28 @@
  * Allows fine-grain control of the SSIM algorithm.
  */
 struct iqa_ssim_args {
-    float alpha;    /**< luminance exponent */
-    float beta;     /**< contrast exponent */
-    float gamma;    /**< structure exponent */
-    int L;          /**< dynamic range (2^8 - 1)*/
-    float K1;       /**< stabilization constant 1 */
-    float K2;       /**< stabilization constant 2 */
-    int f;          /**< scale factor. 0=default scaling, 1=no scaling */
+    float alpha; /**< luminance exponent */
+    float beta;  /**< contrast exponent */
+    float gamma; /**< structure exponent */
+    int L;       /**< dynamic range (2^8 - 1)*/
+    float K1;    /**< stabilization constant 1 */
+    float K2;    /**< stabilization constant 2 */
+    int f;       /**< scale factor. 0=default scaling, 1=no scaling */
 };
 
 /**
  * Allows fine-grain control of the MS-SSIM algorithm.
  */
 struct iqa_ms_ssim_args {
-    int wang;             /**< 1=original algorithm by Wang, et al. 0=MS-SSIM* by Rouse/Hemami (default). */
-    int gaussian;         /**< 1=11x11 Gaussian window (default). 0=8x8 linear window. */
-    int scales;           /**< Number of scaled images to use. Default is 5. */
-    const float *alphas;  /**< Pointer to array of alpha values for each scale. Required if 'scales' isn't 5. */
-    const float *betas;   /**< Pointer to array of beta values for each scale. Required if 'scales' isn't 5. */
-    const float *gammas;  /**< Pointer to array of gamma values for each scale. Required if 'scales' isn't 5. */
+    int wang;     /**< 1=original algorithm by Wang, et al. 0=MS-SSIM* by Rouse/Hemami (default). */
+    int gaussian; /**< 1=11x11 Gaussian window (default). 0=8x8 linear window. */
+    int scales;   /**< Number of scaled images to use. Default is 5. */
+    const float *
+        alphas; /**< Pointer to array of alpha values for each scale. Required if 'scales' isn't 5. */
+    const float *
+        betas; /**< Pointer to array of beta values for each scale. Required if 'scales' isn't 5. */
+    const float *
+        gammas; /**< Pointer to array of gamma values for each scale. Required if 'scales' isn't 5. */
 };
 
 #endif /*_IQA_H_*/

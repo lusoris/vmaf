@@ -25,8 +25,10 @@
 
 static inline int mirror(int idx, int size)
 {
-    if (idx < 0) return -idx;
-    if (idx >= size) return 2 * size - idx - 1;
+    if (idx < 0)
+        return -idx;
+    if (idx >= size)
+        return 2 * size - idx - 1;
     return idx;
 }
 
@@ -42,8 +44,7 @@ static inline __m256i srai_epi64_16(__m256i v)
 
 // SIMD phase 2: x_conv + abs + SAD for one row of int32 y_row.
 // Processes 8 int32 columns at a time via mullo_epi32 + int64 accumulation.
-static inline uint32_t
-x_conv_row_sad_avx2(const int32_t *y_row, unsigned w)
+static inline uint32_t x_conv_row_sad_avx2(const int32_t *y_row, unsigned w)
 {
     const __m256i g0 = _mm256_set1_epi32(3571);
     const __m256i g1 = _mm256_set1_epi32(16004);
@@ -68,11 +69,11 @@ x_conv_row_sad_avx2(const int32_t *y_row, unsigned w)
     // SIMD middle: need y_row[j-2]..y_row[j+9], so j+10 <= w
     __m256i sad_acc = _mm256_setzero_si256();
     for (; j + 10 <= w; j += 8) {
-        __m256i y0 = _mm256_loadu_si256((__m256i*)(y_row + j - 2));
-        __m256i y1 = _mm256_loadu_si256((__m256i*)(y_row + j - 1));
-        __m256i y2 = _mm256_loadu_si256((__m256i*)(y_row + j));
-        __m256i y3 = _mm256_loadu_si256((__m256i*)(y_row + j + 1));
-        __m256i y4 = _mm256_loadu_si256((__m256i*)(y_row + j + 2));
+        __m256i y0 = _mm256_loadu_si256((__m256i *)(y_row + j - 2));
+        __m256i y1 = _mm256_loadu_si256((__m256i *)(y_row + j - 1));
+        __m256i y2 = _mm256_loadu_si256((__m256i *)(y_row + j));
+        __m256i y3 = _mm256_loadu_si256((__m256i *)(y_row + j + 1));
+        __m256i y4 = _mm256_loadu_si256((__m256i *)(y_row + j + 2));
 
         // Each product fits in int32
         __m256i p0 = _mm256_mullo_epi32(y0, g0);
@@ -100,14 +101,11 @@ x_conv_row_sad_avx2(const int32_t *y_row, unsigned w)
         acc_hi = srai_epi64_16(_mm256_add_epi64(acc_hi, round64));
 
         // Pack int64 -> int32 (gather low 32 bits of each 64-bit lane)
-        __m128i res_lo = _mm256_castsi256_si128(
-            _mm256_permutevar8x32_epi32(acc_lo, perm_idx));
-        __m128i res_hi = _mm256_castsi256_si128(
-            _mm256_permutevar8x32_epi32(acc_hi, perm_idx));
+        __m128i res_lo = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(acc_lo, perm_idx));
+        __m128i res_hi = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(acc_hi, perm_idx));
 
         // Combine into 8 x int32, abs, accumulate
-        __m256i result = _mm256_inserti128_si256(
-            _mm256_castsi128_si256(res_lo), res_hi, 1);
+        __m256i result = _mm256_inserti128_si256(_mm256_castsi128_si256(res_lo), res_hi, 1);
         __m256i abs_result = _mm256_abs_epi32(result);
 
         sad_acc = _mm256_add_epi32(sad_acc, abs_result);
@@ -117,10 +115,8 @@ x_conv_row_sad_avx2(const int32_t *y_row, unsigned w)
     __m128i lo128 = _mm256_castsi256_si128(sad_acc);
     __m128i hi128 = _mm256_extracti128_si256(sad_acc, 1);
     __m128i sum128 = _mm_add_epi32(lo128, hi128);
-    sum128 = _mm_add_epi32(sum128,
-                _mm_shuffle_epi32(sum128, _MM_SHUFFLE(1, 0, 3, 2)));
-    sum128 = _mm_add_epi32(sum128,
-                _mm_shuffle_epi32(sum128, _MM_SHUFFLE(0, 1, 0, 1)));
+    sum128 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, _MM_SHUFFLE(1, 0, 3, 2)));
+    sum128 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, _MM_SHUFFLE(0, 1, 0, 1)));
     row_sad += (uint32_t)_mm_cvtsi128_si32(sum128);
 
     // Scalar right edge + tail
@@ -138,9 +134,8 @@ x_conv_row_sad_avx2(const int32_t *y_row, unsigned w)
 }
 
 uint64_t motion_score_pipeline_16_avx2(const uint8_t *prev_u8, ptrdiff_t prev_stride,
-                                       const uint8_t *cur_u8, ptrdiff_t cur_stride,
-                                       int32_t *y_row, unsigned w, unsigned h,
-                                       unsigned bpc)
+                                       const uint8_t *cur_u8, ptrdiff_t cur_stride, int32_t *y_row,
+                                       unsigned w, unsigned h, unsigned bpc)
 {
     const uint16_t *prev = (const uint16_t *)prev_u8;
     const uint16_t *cur = (const uint16_t *)cur_u8;
@@ -168,21 +163,21 @@ uint64_t motion_score_pipeline_16_avx2(const uint8_t *prev_u8, ptrdiff_t prev_st
         unsigned j;
         __m256i nz_acc = _mm256_setzero_si256();
         for (j = 0; j + 8 <= w; j += 8) {
-            __m256i d0 = _mm256_sub_epi32(
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(pp[0] + j))),
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(cp[0] + j))));
-            __m256i d1 = _mm256_sub_epi32(
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(pp[1] + j))),
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(cp[1] + j))));
-            __m256i d2 = _mm256_sub_epi32(
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(pp[2] + j))),
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(cp[2] + j))));
-            __m256i d3 = _mm256_sub_epi32(
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(pp[3] + j))),
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(cp[3] + j))));
-            __m256i d4 = _mm256_sub_epi32(
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(pp[4] + j))),
-                _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)(cp[4] + j))));
+            __m256i d0 =
+                _mm256_sub_epi32(_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(pp[0] + j))),
+                                 _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(cp[0] + j))));
+            __m256i d1 =
+                _mm256_sub_epi32(_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(pp[1] + j))),
+                                 _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(cp[1] + j))));
+            __m256i d2 =
+                _mm256_sub_epi32(_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(pp[2] + j))),
+                                 _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(cp[2] + j))));
+            __m256i d3 =
+                _mm256_sub_epi32(_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(pp[3] + j))),
+                                 _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(cp[3] + j))));
+            __m256i d4 =
+                _mm256_sub_epi32(_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(pp[4] + j))),
+                                 _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *)(cp[4] + j))));
 
             __m256i prod0 = _mm256_mullo_epi32(d0, g0);
             __m256i prod1 = _mm256_mullo_epi32(d1, g1);
@@ -197,22 +192,23 @@ uint64_t motion_score_pipeline_16_avx2(const uint8_t *prev_u8, ptrdiff_t prev_st
             acc_lo = _mm256_add_epi64(acc_lo, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(prod4)));
 
             __m256i acc_hi = _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod0, 1));
-            acc_hi = _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod1, 1)));
-            acc_hi = _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod2, 1)));
-            acc_hi = _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod3, 1)));
-            acc_hi = _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod4, 1)));
+            acc_hi =
+                _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod1, 1)));
+            acc_hi =
+                _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod2, 1)));
+            acc_hi =
+                _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod3, 1)));
+            acc_hi =
+                _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod4, 1)));
 
             acc_lo = _mm256_srlv_epi64(_mm256_add_epi64(acc_lo, round64), bpc_vec);
             acc_hi = _mm256_srlv_epi64(_mm256_add_epi64(acc_hi, round64), bpc_vec);
 
-            __m128i res_lo = _mm256_castsi256_si128(
-                _mm256_permutevar8x32_epi32(acc_lo, perm_idx));
-            __m128i res_hi = _mm256_castsi256_si128(
-                _mm256_permutevar8x32_epi32(acc_hi, perm_idx));
+            __m128i res_lo = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(acc_lo, perm_idx));
+            __m128i res_hi = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(acc_hi, perm_idx));
 
-            __m256i result = _mm256_inserti128_si256(
-                _mm256_castsi128_si256(res_lo), res_hi, 1);
-            _mm256_storeu_si256((__m256i*)(y_row + j), result);
+            __m256i result = _mm256_inserti128_si256(_mm256_castsi128_si256(res_lo), res_hi, 1);
+            _mm256_storeu_si256((__m256i *)(y_row + j), result);
             nz_acc = _mm256_or_si256(nz_acc, result);
         }
 
@@ -228,7 +224,8 @@ uint64_t motion_score_pipeline_16_avx2(const uint8_t *prev_u8, ptrdiff_t prev_st
             nz_tail |= y_row[j];
         }
 
-        if (_mm256_testz_si256(nz_acc, nz_acc) && !nz_tail) continue;
+        if (_mm256_testz_si256(nz_acc, nz_acc) && !nz_tail)
+            continue;
 
         // Phase 2: SIMD x_conv + abs + accumulate
         sad += x_conv_row_sad_avx2(y_row, w);
@@ -238,9 +235,8 @@ uint64_t motion_score_pipeline_16_avx2(const uint8_t *prev_u8, ptrdiff_t prev_st
 }
 
 uint64_t motion_score_pipeline_8_avx2(const uint8_t *prev, ptrdiff_t prev_stride,
-                                      const uint8_t *cur, ptrdiff_t cur_stride,
-                                      int32_t *y_row, unsigned w, unsigned h,
-                                      unsigned bpc)
+                                      const uint8_t *cur, ptrdiff_t cur_stride, int32_t *y_row,
+                                      unsigned w, unsigned h, unsigned bpc)
 {
     (void)bpc;
     const __m256i f0 = _mm256_set1_epi16(3571);
@@ -262,21 +258,21 @@ uint64_t motion_score_pipeline_8_avx2(const uint8_t *prev, ptrdiff_t prev_stride
         unsigned j;
         __m256i nz_acc = _mm256_setzero_si256();
         for (j = 0; j + 16 <= w; j += 16) {
-            __m256i d0 = _mm256_sub_epi16(
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(p[0] + j))),
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(c[0] + j))));
-            __m256i d1 = _mm256_sub_epi16(
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(p[1] + j))),
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(c[1] + j))));
-            __m256i d2 = _mm256_sub_epi16(
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(p[2] + j))),
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(c[2] + j))));
-            __m256i d3 = _mm256_sub_epi16(
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(p[3] + j))),
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(c[3] + j))));
-            __m256i d4 = _mm256_sub_epi16(
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(p[4] + j))),
-                _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)(c[4] + j))));
+            __m256i d0 =
+                _mm256_sub_epi16(_mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(p[0] + j))),
+                                 _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(c[0] + j))));
+            __m256i d1 =
+                _mm256_sub_epi16(_mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(p[1] + j))),
+                                 _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(c[1] + j))));
+            __m256i d2 =
+                _mm256_sub_epi16(_mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(p[2] + j))),
+                                 _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(c[2] + j))));
+            __m256i d3 =
+                _mm256_sub_epi16(_mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(p[3] + j))),
+                                 _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(c[3] + j))));
+            __m256i d4 =
+                _mm256_sub_epi16(_mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(p[4] + j))),
+                                 _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)(c[4] + j))));
 
             __m256i lo = _mm256_mullo_epi16(d0, f0);
             __m256i hi = _mm256_mulhi_epi16(d0, f0);
@@ -306,10 +302,10 @@ uint64_t motion_score_pipeline_8_avx2(const uint8_t *prev, ptrdiff_t prev_stride
             acc_lo = _mm256_srai_epi32(_mm256_add_epi32(acc_lo, round8), 8);
             acc_hi = _mm256_srai_epi32(_mm256_add_epi32(acc_hi, round8), 8);
 
-            __m256i cols_0_7  = _mm256_permute2x128_si256(acc_lo, acc_hi, 0x20);
+            __m256i cols_0_7 = _mm256_permute2x128_si256(acc_lo, acc_hi, 0x20);
             __m256i cols_8_15 = _mm256_permute2x128_si256(acc_lo, acc_hi, 0x31);
-            _mm256_storeu_si256((__m256i*)(y_row + j), cols_0_7);
-            _mm256_storeu_si256((__m256i*)(y_row + j + 8), cols_8_15);
+            _mm256_storeu_si256((__m256i *)(y_row + j), cols_0_7);
+            _mm256_storeu_si256((__m256i *)(y_row + j + 8), cols_8_15);
             nz_acc = _mm256_or_si256(nz_acc, _mm256_or_si256(cols_0_7, cols_8_15));
         }
 
@@ -325,7 +321,8 @@ uint64_t motion_score_pipeline_8_avx2(const uint8_t *prev, ptrdiff_t prev_stride
             nz_tail |= y_row[j];
         }
 
-        if (_mm256_testz_si256(nz_acc, nz_acc) && !nz_tail) continue;
+        if (_mm256_testz_si256(nz_acc, nz_acc) && !nz_tail)
+            continue;
 
         // Phase 2: SIMD x_conv + abs + accumulate
         sad += x_conv_row_sad_avx2(y_row, w);

@@ -83,8 +83,7 @@ void vmaf_sycl_free(VmafSyclState *state, void *ptr);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_memcpy_h2d(VmafSyclState *state, void *dst, const void *src,
-                          size_t size);
+int vmaf_sycl_memcpy_h2d(VmafSyclState *state, void *dst, const void *src, size_t size);
 
 /**
  * Synchronous device→host copy.
@@ -96,8 +95,7 @@ int vmaf_sycl_memcpy_h2d(VmafSyclState *state, void *dst, const void *src,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_memcpy_d2h(VmafSyclState *state, void *dst, const void *src,
-                          size_t size);
+int vmaf_sycl_memcpy_d2h(VmafSyclState *state, void *dst, const void *src, size_t size);
 
 /**
  * Asynchronous host→device copy (returns immediately, work queued).
@@ -109,8 +107,7 @@ int vmaf_sycl_memcpy_d2h(VmafSyclState *state, void *dst, const void *src,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_memcpy_h2d_async(VmafSyclState *state, void *dst,
-                                const void *src, size_t size);
+int vmaf_sycl_memcpy_h2d_async(VmafSyclState *state, void *dst, const void *src, size_t size);
 
 /* ---- Queue synchronization ---- */
 
@@ -180,8 +177,7 @@ void vmaf_sycl_destroy_queue(void *queue_ptr);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_shared_frame_init(VmafSyclState *state,
-                                 unsigned w, unsigned h, unsigned bpc);
+int vmaf_sycl_shared_frame_init(VmafSyclState *state, unsigned w, unsigned h, unsigned bpc);
 
 /**
  * Get pointers to the shared ref+dis device buffers.
@@ -192,8 +188,7 @@ int vmaf_sycl_shared_frame_init(VmafSyclState *state,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_shared_frame_get(VmafSyclState *state,
-                                void **ref, void **dis);
+int vmaf_sycl_shared_frame_get(VmafSyclState *state, void **ref, void **dis);
 
 /**
  * Upload host Y-plane data to the shared device buffers.
@@ -205,8 +200,7 @@ int vmaf_sycl_shared_frame_get(VmafSyclState *state,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_shared_frame_upload(VmafSyclState *state,
-                                   VmafPicture *ref, VmafPicture *dis);
+int vmaf_sycl_shared_frame_upload(VmafSyclState *state, VmafPicture *ref, VmafPicture *dis);
 
 /**
  * Upload a single Y-plane from a host buffer into a shared device buffer.
@@ -224,10 +218,8 @@ int vmaf_sycl_shared_frame_upload(VmafSyclState *state,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_upload_plane(VmafSyclState *state,
-                            const void *src, unsigned pitch,
-                            int is_ref,
-                            unsigned w, unsigned h, unsigned bpc);
+int vmaf_sycl_upload_plane(VmafSyclState *state, const void *src, unsigned pitch, int is_ref,
+                           unsigned w, unsigned h, unsigned bpc);
 
 /**
  * Free the shared frame buffers.
@@ -346,8 +338,8 @@ void *vmaf_sycl_get_last_upload_event(VmafSyclState *state);
  *   @param slot  Double-buffer slot index (0 or 1).
  *   May be NULL if no per-slot configuration is needed.
  */
-typedef void (*VmafSyclGraphEnqueueFn)(void *queue_ptr, void *priv,
-                                        void *shared_ref, void *shared_dis);
+typedef void (*VmafSyclGraphEnqueueFn)(void *queue_ptr, void *priv, void *shared_ref,
+                                       void *shared_dis);
 typedef void (*VmafSyclGraphPreFn)(void *queue_ptr, void *priv);
 typedef void (*VmafSyclGraphPostFn)(void *queue_ptr, void *priv);
 typedef void (*VmafSyclGraphConfigFn)(void *priv, int slot);
@@ -365,13 +357,9 @@ typedef void (*VmafSyclGraphConfigFn)(void *priv, int slot);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_graph_register(VmafSyclState *state,
-                              VmafSyclGraphEnqueueFn enqueue_fn,
-                              VmafSyclGraphPreFn pre_fn,
-                              VmafSyclGraphPostFn post_fn,
-                              VmafSyclGraphConfigFn config_fn,
-                              void *priv,
-                              const char *name);
+int vmaf_sycl_graph_register(VmafSyclState *state, VmafSyclGraphEnqueueFn enqueue_fn,
+                             VmafSyclGraphPreFn pre_fn, VmafSyclGraphPostFn post_fn,
+                             VmafSyclGraphConfigFn config_fn, void *priv, const char *name);
 
 /**
  * Get the combined compute queue for direct submission.
@@ -483,8 +471,7 @@ void vmaf_sycl_set_detile_event(VmafSyclState *state, void *event_ptr);
  * @param kernel_name  Human-readable kernel name.
  * @param delta_ns     Elapsed time in nanoseconds.
  */
-void vmaf_sycl_profiling_record(VmafSyclState *state,
-                                 const char *kernel_name, uint64_t delta_ns);
+void vmaf_sycl_profiling_record(VmafSyclState *state, const char *kernel_name, uint64_t delta_ns);
 
 /**
  * Check whether profiling is enabled.

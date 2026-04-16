@@ -21,20 +21,18 @@
 
 #include "model.h"
 
-int vmaf_read_json_model_from_buffer(VmafModel **model, VmafModelConfig *cfg,
-                                     const char *data, const int data_len);
+int vmaf_read_json_model_from_buffer(VmafModel **model, VmafModelConfig *cfg, const char *data,
+                                     const int data_len);
 
 int vmaf_read_json_model_collection_from_buffer(VmafModel **model,
-                                         VmafModelCollection **model_collection,
-                                         VmafModelConfig *cfg,
-                                         const char *data, const int data_len);
+                                                VmafModelCollection **model_collection,
+                                                VmafModelConfig *cfg, const char *data,
+                                                const int data_len);
 
-int vmaf_read_json_model_from_path(VmafModel **model, VmafModelConfig *cfg,
-                                   const char *path);
+int vmaf_read_json_model_from_path(VmafModel **model, VmafModelConfig *cfg, const char *path);
 
 int vmaf_read_json_model_collection_from_path(VmafModel **model,
                                               VmafModelCollection **model_collection,
-                                              VmafModelConfig *cfg,
-                                              const char *path);
+                                              VmafModelConfig *cfg, const char *path);
 
 #endif /* __VMAF_JSON_MODEL_H__ */

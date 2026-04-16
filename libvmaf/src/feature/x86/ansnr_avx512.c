@@ -19,8 +19,8 @@
 #include <immintrin.h>
 #include "ansnr_avx512.h"
 
-void ansnr_mse_line_avx512(const float *ref, const float *dis,
-                            float *sig_accum, float *noise_accum, int w)
+void ansnr_mse_line_avx512(const float *ref, const float *dis, float *sig_accum, float *noise_accum,
+                           int w)
 {
     /* Accumulate in double to eliminate SIMD lane-reorder precision loss */
     __m512d sig_dsum0 = _mm512_setzero_pd();
@@ -47,10 +47,8 @@ void ansnr_mse_line_avx512(const float *ref, const float *dis,
         noise_dsum1 = _mm512_add_pd(noise_dsum1, _mm512_cvtps_pd(noise_hi));
     }
 
-    float sig_result = (float)_mm512_reduce_add_pd(
-        _mm512_add_pd(sig_dsum0, sig_dsum1));
-    float noise_result = (float)_mm512_reduce_add_pd(
-        _mm512_add_pd(noise_dsum0, noise_dsum1));
+    float sig_result = (float)_mm512_reduce_add_pd(_mm512_add_pd(sig_dsum0, sig_dsum1));
+    float noise_result = (float)_mm512_reduce_add_pd(_mm512_add_pd(noise_dsum0, noise_dsum1));
 
     for (; j < w; j++) {
         float r = ref[j];

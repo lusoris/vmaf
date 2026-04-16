@@ -52,9 +52,8 @@ static ssim_precompute_fn g_ssim_precompute = NULL;
 static ssim_variance_fn g_ssim_variance = NULL;
 static ssim_accumulate_fn g_ssim_accumulate = NULL;
 
-void _iqa_ssim_set_dispatch(ssim_precompute_fn precompute,
-                             ssim_variance_fn variance,
-                             ssim_accumulate_fn accumulate)
+void _iqa_ssim_set_dispatch(ssim_precompute_fn precompute, ssim_variance_fn variance,
+                            ssim_accumulate_fn accumulate)
 {
     g_ssim_precompute = precompute;
     g_ssim_variance = variance;
@@ -67,17 +66,18 @@ IQA_INLINE static double _calc_luminance(float mu1, float mu2, float C1, float a
     double result;
     float sign;
     /* For MS-SSIM* */
-    if (C1 == 0 && mu1*mu1 == 0 && mu2*mu2 == 0)
+    if (C1 == 0 && mu1 * mu1 == 0 && mu2 * mu2 == 0)
         return 1.0;
-    result = (2.0 * mu1 * mu2 + C1) / (mu1*mu1 + mu2*mu2 + C1);
+    result = (2.0 * mu1 * mu2 + C1) / (mu1 * mu1 + mu2 * mu2 + C1);
     if (alpha == 1.0f)
         return result;
     sign = result < 0.0 ? -1.0f : 1.0f;
-    return sign * pow(fabs(result),(double)alpha);
+    return sign * pow(fabs(result), (double)alpha);
 }
 
 /* _calc_contrast */
-IQA_INLINE static double _calc_contrast(double sigma_comb_12, float sigma1_sqd, float sigma2_sqd, float C2, float beta)
+IQA_INLINE static double _calc_contrast(double sigma_comb_12, float sigma1_sqd, float sigma2_sqd,
+                                        float C2, float beta)
 {
     double result;
     float sign;
@@ -88,11 +88,12 @@ IQA_INLINE static double _calc_contrast(double sigma_comb_12, float sigma1_sqd, 
     if (beta == 1.0f)
         return result;
     sign = result < 0.0 ? -1.0f : 1.0f;
-    return sign * pow(fabs(result),(double)beta);
+    return sign * pow(fabs(result), (double)beta);
 }
 
 /* _calc_structure */
-IQA_INLINE static double _calc_structure(float sigma_12, double sigma_comb_12, float sigma1, float sigma2, float C3, float gamma)
+IQA_INLINE static double _calc_structure(float sigma_12, double sigma_comb_12, float sigma1,
+                                         float sigma2, float C3, float gamma)
 {
     double result;
     float sign;
@@ -107,27 +108,27 @@ IQA_INLINE static double _calc_structure(float sigma_12, double sigma_comb_12, f
     if (gamma == 1.0f)
         return result;
     sign = result < 0.0 ? -1.0f : 1.0f;
-    return sign * pow(fabs(result),(double)gamma);
+    return sign * pow(fabs(result), (double)gamma);
 }
 
 /* _iqa_ssim */
 float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
-		const struct _map_reduce *mr, const struct iqa_ssim_args *args
-		, float *l_mean, float *c_mean, float *s_mean /* zli-nflx */
-		)
+                const struct _map_reduce *mr, const struct iqa_ssim_args *args, float *l_mean,
+                float *c_mean, float *s_mean /* zli-nflx */
+)
 {
-    float alpha=1.0f, beta=1.0f, gamma=1.0f;
-    int L=255;
-    float K1=0.01f, K2=0.03f;
-    float C1,C2,C3;
-    int x,y,offset;
-    float *ref_mu,*cmp_mu,*ref_sigma_sqd,*cmp_sigma_sqd,*sigma_both;
+    float alpha = 1.0f, beta = 1.0f, gamma = 1.0f;
+    int L = 255;
+    float K1 = 0.01f, K2 = 0.03f;
+    float C1, C2, C3;
+    int x, y, offset;
+    float *ref_mu, *cmp_mu, *ref_sigma_sqd, *cmp_sigma_sqd, *sigma_both;
     double ssim_sum;
     // double numerator, denominator; /* zli-nflx */
     double luminance_comp, contrast_comp, structure_comp, sigma_root;
     struct _ssim_int sint;
     double l_sum, c_sum, s_sum, l, c, s; /* zli-nflx */
-    float sigma_ref_sigma_cmp; /* zli-nflx */
+    float sigma_ref_sigma_cmp;           /* zli-nflx */
 
     assert(!args); /* zli-nflx: for now only works for default case */
 
@@ -136,27 +137,32 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
         if (!mr)
             return INFINITY;
         alpha = args->alpha;
-        beta  = args->beta;
+        beta = args->beta;
         gamma = args->gamma;
-        L     = args->L;
-        K1    = args->K1;
-        K2    = args->K2;
+        L = args->L;
+        K1 = args->K1;
+        K2 = args->K2;
     }
-    C1 = (K1*L)*(K1*L);
-    C2 = (K2*L)*(K2*L);
+    C1 = (K1 * L) * (K1 * L);
+    C2 = (K2 * L) * (K2 * L);
     C3 = C2 / 2.0f;
 
-    ref_mu = (float*)malloc(w*h*sizeof(float));
-    cmp_mu = (float*)malloc(w*h*sizeof(float));
-    ref_sigma_sqd = (float*)malloc(w*h*sizeof(float));
-    cmp_sigma_sqd = (float*)malloc(w*h*sizeof(float));
-    sigma_both = (float*)malloc(w*h*sizeof(float));
+    ref_mu = (float *)malloc(w * h * sizeof(float));
+    cmp_mu = (float *)malloc(w * h * sizeof(float));
+    ref_sigma_sqd = (float *)malloc(w * h * sizeof(float));
+    cmp_sigma_sqd = (float *)malloc(w * h * sizeof(float));
+    sigma_both = (float *)malloc(w * h * sizeof(float));
     if (!ref_mu || !cmp_mu || !ref_sigma_sqd || !cmp_sigma_sqd || !sigma_both) {
-        if (ref_mu) free(ref_mu);
-        if (cmp_mu) free(cmp_mu);
-        if (ref_sigma_sqd) free(ref_sigma_sqd);
-        if (cmp_sigma_sqd) free(cmp_sigma_sqd);
-        if (sigma_both) free(sigma_both);
+        if (ref_mu)
+            free(ref_mu);
+        if (cmp_mu)
+            free(cmp_mu);
+        if (ref_sigma_sqd)
+            free(ref_sigma_sqd);
+        if (cmp_sigma_sqd)
+            free(cmp_sigma_sqd);
+        if (sigma_both)
+            free(sigma_both);
         return INFINITY;
     }
 
@@ -165,12 +171,11 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
     _iqa_convolve(cmp, w, h, k, cmp_mu, 0, 0);
 
     if (g_ssim_precompute) {
-        g_ssim_precompute(ref, cmp, ref_sigma_sqd, cmp_sigma_sqd, sigma_both,
-                          w * h);
+        g_ssim_precompute(ref, cmp, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w * h);
     } else {
-        for (y=0; y<h; ++y) {
-            offset = y*w;
-            for (x=0; x<w; ++x, ++offset) {
+        for (y = 0; y < h; ++y) {
+            offset = y * w;
+            for (x = 0; x < w; ++x, ++offset) {
                 ref_sigma_sqd[offset] = ref[offset] * ref[offset];
                 cmp_sigma_sqd[offset] = cmp[offset] * cmp[offset];
                 sigma_both[offset] = ref[offset] * cmp[offset];
@@ -179,18 +184,17 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
     }
 
     /* Calculate sigma */
-    _iqa_convolve(ref_sigma_sqd, w, h, k, 0,  0,  0);
-    _iqa_convolve(cmp_sigma_sqd, w, h, k, 0,  0,  0);
-    _iqa_convolve(sigma_both,    w, h, k, 0, &w, &h); /* Update the width and height */
+    _iqa_convolve(ref_sigma_sqd, w, h, k, 0, 0, 0);
+    _iqa_convolve(cmp_sigma_sqd, w, h, k, 0, 0, 0);
+    _iqa_convolve(sigma_both, w, h, k, 0, &w, &h); /* Update the width and height */
 
     /* The convolution results are smaller by the kernel width and height */
     if (g_ssim_variance) {
-        g_ssim_variance(ref_sigma_sqd, cmp_sigma_sqd, sigma_both,
-                        ref_mu, cmp_mu, w * h);
+        g_ssim_variance(ref_sigma_sqd, cmp_sigma_sqd, sigma_both, ref_mu, cmp_mu, w * h);
     } else {
-        for (y=0; y<h; ++y) {
-            offset = y*w;
-            for (x=0; x<w; ++x, ++offset) {
+        for (y = 0; y < h; ++y) {
+            offset = y * w;
+            for (x = 0; x < w; ++x, ++offset) {
                 ref_sigma_sqd[offset] -= ref_mu[offset] * ref_mu[offset];
                 cmp_sigma_sqd[offset] -= cmp_mu[offset] * cmp_mu[offset];
 
@@ -207,58 +211,63 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
     c_sum = 0.0; /* zli-nflx */
     s_sum = 0.0; /* zli-nflx */
     if (!args && g_ssim_accumulate) {
-        g_ssim_accumulate(ref_mu, cmp_mu, ref_sigma_sqd, cmp_sigma_sqd,
-                          sigma_both, w * h, C1, C2, C3,
-                          &ssim_sum, &l_sum, &c_sum, &s_sum);
+        g_ssim_accumulate(ref_mu, cmp_mu, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w * h, C1, C2,
+                          C3, &ssim_sum, &l_sum, &c_sum, &s_sum);
     } else {
-    for (y=0; y<h; ++y) {
-        offset = y*w;
-        for (x=0; x<w; ++x, ++offset) {
+        for (y = 0; y < h; ++y) {
+            offset = y * w;
+            for (x = 0; x < w; ++x, ++offset) {
 
-            if (!args) {
+                if (!args) {
 
-            	/* The default case */
-                /* zli-nflx: */
-                sigma_ref_sigma_cmp = sqrt(ref_sigma_sqd[offset] * cmp_sigma_sqd[offset]);
-                l = (2.0 * ref_mu[offset] * cmp_mu[offset] + C1) / (ref_mu[offset]*ref_mu[offset] + cmp_mu[offset]*cmp_mu[offset] + C1);
-                c = (2.0 * sigma_ref_sigma_cmp + C2) /  (ref_sigma_sqd[offset] + cmp_sigma_sqd[offset] + C2);
+                    /* The default case */
+                    /* zli-nflx: */
+                    sigma_ref_sigma_cmp = sqrt(ref_sigma_sqd[offset] * cmp_sigma_sqd[offset]);
+                    l = (2.0 * ref_mu[offset] * cmp_mu[offset] + C1) /
+                        (ref_mu[offset] * ref_mu[offset] + cmp_mu[offset] * cmp_mu[offset] + C1);
+                    c = (2.0 * sigma_ref_sigma_cmp + C2) /
+                        (ref_sigma_sqd[offset] + cmp_sigma_sqd[offset] + C2);
 
-                /* zli-nflx: fix corner case where ref and cmp are identical, and the local filtered region is
+                    /* zli-nflx: fix corner case where ref and cmp are identical, and the local filtered region is
                  * completely flat (zero std). In this case, sigma_both can become negative due to inprecise
                  * float representation but sigma_ref_sigma_cmp is zero, resulting s < 1.0. The desiired
                  * behavior should be that ssim score is 1.0. */
-                const float clamped_sigma_both = (sigma_both[offset] < 0.0f &&
-                        sigma_ref_sigma_cmp <= 0.0f) ? 0.0f : sigma_both[offset];
-                s = (clamped_sigma_both + C3) / (sigma_ref_sigma_cmp + C3);
+                    const float clamped_sigma_both =
+                        (sigma_both[offset] < 0.0f && sigma_ref_sigma_cmp <= 0.0f) ?
+                            0.0f :
+                            sigma_both[offset];
+                    s = (clamped_sigma_both + C3) / (sigma_ref_sigma_cmp + C3);
 
-                ssim_sum += l * c * s;
-                l_sum += l;
-                c_sum += c;
-                s_sum += s;
-            }
-            else {
-                /* User tweaked alpha, beta, or gamma */
+                    ssim_sum += l * c * s;
+                    l_sum += l;
+                    c_sum += c;
+                    s_sum += s;
+                } else {
+                    /* User tweaked alpha, beta, or gamma */
 
-                /* passing a negative number to sqrt() cause a domain error */
-                if (ref_sigma_sqd[offset] < 0.0f)
-                    ref_sigma_sqd[offset] = 0.0f;
-                if (cmp_sigma_sqd[offset] < 0.0f)
-                    cmp_sigma_sqd[offset] = 0.0f;
-                sigma_root = sqrt(ref_sigma_sqd[offset] * cmp_sigma_sqd[offset]);
+                    /* passing a negative number to sqrt() cause a domain error */
+                    if (ref_sigma_sqd[offset] < 0.0f)
+                        ref_sigma_sqd[offset] = 0.0f;
+                    if (cmp_sigma_sqd[offset] < 0.0f)
+                        cmp_sigma_sqd[offset] = 0.0f;
+                    sigma_root = sqrt(ref_sigma_sqd[offset] * cmp_sigma_sqd[offset]);
 
-                luminance_comp = _calc_luminance(ref_mu[offset], cmp_mu[offset], C1, alpha);
-                contrast_comp  = _calc_contrast(sigma_root, ref_sigma_sqd[offset], cmp_sigma_sqd[offset], C2, beta);
-                structure_comp = _calc_structure(sigma_both[offset], sigma_root, ref_sigma_sqd[offset], cmp_sigma_sqd[offset], C3, gamma);
+                    luminance_comp = _calc_luminance(ref_mu[offset], cmp_mu[offset], C1, alpha);
+                    contrast_comp = _calc_contrast(sigma_root, ref_sigma_sqd[offset],
+                                                   cmp_sigma_sqd[offset], C2, beta);
+                    structure_comp =
+                        _calc_structure(sigma_both[offset], sigma_root, ref_sigma_sqd[offset],
+                                        cmp_sigma_sqd[offset], C3, gamma);
 
-                sint.l = luminance_comp;
-                sint.c = contrast_comp;
-                sint.s = structure_comp;
+                    sint.l = luminance_comp;
+                    sint.c = contrast_comp;
+                    sint.s = structure_comp;
 
-                if (mr->map(&sint, mr->context))
-                    return INFINITY;
+                    if (mr->map(&sint, mr->context))
+                        return INFINITY;
+                }
             }
         }
-    }
     }
 
     free(ref_mu);
@@ -268,11 +277,10 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
     free(sigma_both);
 
     if (!args) {
-    	*l_mean = (float)(l_sum / (double)(w*h)); /* zli-nflx */
-    	*c_mean = (float)(c_sum / (double)(w*h)); /* zli-nflx */
-    	*s_mean = (float)(s_sum / (double)(w*h)); /* zli-nflx */
-        return (float)(ssim_sum / (double)(w*h));
+        *l_mean = (float)(l_sum / (double)(w * h)); /* zli-nflx */
+        *c_mean = (float)(c_sum / (double)(w * h)); /* zli-nflx */
+        *s_mean = (float)(s_sum / (double)(w * h)); /* zli-nflx */
+        return (float)(ssim_sum / (double)(w * h));
     }
     return mr->reduce(w, h, mr->context);
 }
-

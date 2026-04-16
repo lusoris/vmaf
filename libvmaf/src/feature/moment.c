@@ -35,10 +35,8 @@ int compute_1st_moment(const float *pic, int w, int h, int stride, double *score
 
     int stride_ = stride / sizeof(float);
 
-    for (int i = 0; i < h; ++i)
-    {
-        for (int j = 0; j < w; ++j)
-        {
+    for (int i = 0; i < h; ++i) {
+        for (int j = 0; j < w; ++j) {
             pic_ = pic[i * stride_ + j];
             cum += pic_;
         }
@@ -57,10 +55,8 @@ int compute_2nd_moment(const float *pic, int w, int h, int stride, double *score
 
     int stride_ = stride / sizeof(float);
 
-    for (int i = 0; i < h; ++i)
-    {
-        for (int j = 0; j < w; ++j)
-        {
+    for (int i = 0; i < h; ++i) {
+        for (int j = 0; j < w; ++j) {
             pic_ = pic[i * stride_ + j];
             cum += pic_ * pic_;
         }

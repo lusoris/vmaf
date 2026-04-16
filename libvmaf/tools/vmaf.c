@@ -40,14 +40,13 @@ static int validate_videos(video_input *vid1, video_input *vid2, bool common_bit
     video_input_get_info(vid2, &info2);
 
     if ((info1.frame_w != info2.frame_w) || (info1.frame_h != info2.frame_h)) {
-        fprintf(stderr, "dimensions do not match: %dx%d, %dx%d\n",
-                info1.frame_w, info1.frame_h, info2.frame_w, info2.frame_h);
+        fprintf(stderr, "dimensions do not match: %dx%d, %dx%d\n", info1.frame_w, info1.frame_h,
+                info2.frame_w, info2.frame_h);
         err_cnt++;
     }
 
     if (info1.pixel_fmt != info2.pixel_fmt) {
-        fprintf(stderr, "pixel formats do not match: %d, %d\n",
-                info1.pixel_fmt, info2.pixel_fmt);
+        fprintf(stderr, "pixel formats do not match: %d, %d\n", info1.pixel_fmt, info2.pixel_fmt);
         err_cnt++;
     }
 
@@ -57,8 +56,7 @@ static int validate_videos(video_input *vid1, video_input *vid2, bool common_bit
     }
 
     if (!common_bitdepth && info1.depth != info2.depth) {
-        fprintf(stderr, "bitdepths do not match: %d, %d\n",
-                info1.depth, info2.depth);
+        fprintf(stderr, "bitdepths do not match: %d, %d\n", info1.depth, info2.depth);
         err_cnt++;
     }
 
@@ -73,17 +71,16 @@ static int validate_videos(video_input *vid1, video_input *vid2, bool common_bit
 }
 
 // Copy video input data to picture buffer
-static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr,
-                               video_input_info *info, int depth)
+static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr, video_input_info *info,
+                              int depth)
 {
     if (info->depth == depth) {
         if (info->depth == 8) {
             for (unsigned i = 0; i < 3; i++) {
-                int xdec = i&&!(info->pixel_fmt&1);
-                int ydec = i&&!(info->pixel_fmt&2);
-                uint8_t *ycbcr_data = ycbcr[i].data +
-                    (info->pic_y >> ydec) * ycbcr[i].stride +
-                    (info->pic_x >> xdec);
+                int xdec = i && !(info->pixel_fmt & 1);
+                int ydec = i && !(info->pixel_fmt & 2);
+                uint8_t *ycbcr_data =
+                    ycbcr[i].data + (info->pic_y >> ydec) * ycbcr[i].stride + (info->pic_x >> xdec);
                 uint8_t *pic_data = pic->data[i];
 
                 for (unsigned j = 0; j < pic->h[i]; j++) {
@@ -94,11 +91,11 @@ static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr,
             }
         } else {
             for (unsigned i = 0; i < 3; i++) {
-                int xdec = i&&!(info->pixel_fmt&1);
-                int ydec = i&&!(info->pixel_fmt&2);
-                uint16_t *ycbcr_data = (uint16_t*) ycbcr[i].data +
-                    (info->pic_y >> ydec) * (ycbcr[i].stride / 2) +
-                    (info->pic_x >> xdec);
+                int xdec = i && !(info->pixel_fmt & 1);
+                int ydec = i && !(info->pixel_fmt & 2);
+                uint16_t *ycbcr_data = (uint16_t *)ycbcr[i].data +
+                                       (info->pic_y >> ydec) * (ycbcr[i].stride / 2) +
+                                       (info->pic_x >> xdec);
                 uint16_t *pic_data = pic->data[i];
 
                 for (unsigned j = 0; j < pic->h[i]; j++) {
@@ -114,12 +111,11 @@ static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr,
         int left_shift = depth - info->depth;
         if (info->depth == 8) {
             for (unsigned i = 0; i < 3; i++) {
-                int xdec = i&&!(info->pixel_fmt&1);
-                int ydec = i&&!(info->pixel_fmt&2);
-                uint8_t *ycbcr_data = ycbcr[i].data +
-                    (info->pic_y >> ydec) * ycbcr[i].stride +
-                    (info->pic_x >> xdec);
-                uint16_t *pic_data = (uint16_t*)pic->data[i];
+                int xdec = i && !(info->pixel_fmt & 1);
+                int ydec = i && !(info->pixel_fmt & 2);
+                uint8_t *ycbcr_data =
+                    ycbcr[i].data + (info->pic_y >> ydec) * ycbcr[i].stride + (info->pic_x >> xdec);
+                uint16_t *pic_data = (uint16_t *)pic->data[i];
 
                 for (unsigned j = 0; j < pic->h[i]; j++) {
                     for (unsigned k = 0; k < pic->w[i]; k++) {
@@ -131,11 +127,11 @@ static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr,
             }
         } else {
             for (unsigned i = 0; i < 3; i++) {
-                int xdec = i&&!(info->pixel_fmt&1);
-                int ydec = i&&!(info->pixel_fmt&2);
-                uint16_t *ycbcr_data = (uint16_t*) ycbcr[i].data +
-                    (info->pic_y >> ydec) * (ycbcr[i].stride / 2) +
-                    (info->pic_x >> xdec);
+                int xdec = i && !(info->pixel_fmt & 1);
+                int ydec = i && !(info->pixel_fmt & 2);
+                uint16_t *ycbcr_data = (uint16_t *)ycbcr[i].data +
+                                       (info->pic_y >> ydec) * (ycbcr[i].stride / 2) +
+                                       (info->pic_x >> xdec);
                 uint16_t *pic_data = pic->data[i];
 
                 for (unsigned j = 0; j < pic->h[i]; j++) {
@@ -157,7 +153,8 @@ static int fetch_picture(VmafContext *vmaf, video_input *vid, VmafPicture *pic, 
     video_input_info info;
 
     ret = video_input_fetch_frame(vid, ycbcr, NULL);
-    if (ret < 1) return !ret;
+    if (ret < 1)
+        return !ret;
 
     video_input_get_info(vid, &info);
 
@@ -168,9 +165,8 @@ static int fetch_picture(VmafContext *vmaf, video_input *vid, VmafPicture *pic, 
         return -1;
     }
 #else
-    (void) vmaf;  // Unused when pool is disabled
-    ret = vmaf_picture_alloc(pic, pix_fmt_map(info.pixel_fmt), depth,
-                             info.pic_w, info.pic_h);
+    (void)vmaf; // Unused when pool is disabled
+    ret = vmaf_picture_alloc(pic, pix_fmt_map(info.pixel_fmt), depth, info.pic_w, info.pic_h);
     if (ret) {
         fprintf(stderr, "problem allocating picture.\n");
         return -1;
@@ -195,8 +191,8 @@ int main(int argc, char *argv[])
     FILE *file_dist = NULL;
     bool vid_ref_open = false;
     bool vid_dist_open = false;
-    video_input vid_ref = { 0 };
-    video_input vid_dist = { 0 };
+    video_input vid_ref = {0};
+    video_input vid_dist = {0};
     VmafContext *vmaf = NULL;
     VmafModel **model = NULL;
     VmafModelCollection **model_collection = NULL;
@@ -226,8 +222,7 @@ int main(int argc, char *argv[])
     }
 
     if (c.use_yuv) {
-        err = raw_input_open(&vid_ref, file_ref,
-                             c.width, c.height, c.pix_fmt, c.bitdepth);
+        err = raw_input_open(&vid_ref, file_ref, c.width, c.height, c.pix_fmt, c.bitdepth);
     } else {
         err = video_input_open(&vid_ref, file_ref);
     }
@@ -240,8 +235,7 @@ int main(int argc, char *argv[])
     file_ref = NULL; /* ownership transferred to vid_ref */
 
     if (c.use_yuv) {
-        err = raw_input_open(&vid_dist, file_dist,
-                             c.width, c.height, c.pix_fmt, c.bitdepth);
+        err = raw_input_open(&vid_dist, file_dist, c.width, c.height, c.pix_fmt, c.bitdepth);
     } else {
         err = video_input_open(&vid_dist, file_dist);
     }
@@ -255,8 +249,8 @@ int main(int argc, char *argv[])
 
     err = validate_videos(&vid_ref, &vid_dist, c.common_bitdepth);
     if (err) {
-        fprintf(stderr, "videos are incompatible, %d %s.\n",
-                err, err == 1 ? "problem" : "problems");
+        fprintf(stderr, "videos are incompatible, %d %s.\n", err,
+                err == 1 ? "problem" : "problems");
         ret = -1;
         goto cleanup;
     }
@@ -312,7 +306,7 @@ int main(int argc, char *argv[])
 #ifdef HAVE_CUDA
     bool cuda_active = false;
     VmafCudaState *cu_state;
-    VmafCudaConfiguration cuda_cfg = { 0 };
+    VmafCudaConfiguration cuda_cfg = {0};
     if (c.use_gpumask && !c.no_cuda
 #ifdef HAVE_SYCL
         && !sycl_active
@@ -331,7 +325,7 @@ int main(int argc, char *argv[])
             cuda_active = true;
         }
     }
-    (void) cuda_active;
+    (void)cuda_active;
 #endif
 
 #ifdef VMAF_PICTURE_POOL
@@ -340,12 +334,13 @@ int main(int argc, char *argv[])
     video_input_get_info(&vid_ref, &info);
 
     VmafPictureConfiguration pic_cfg = {
-        .pic_params = {
-            .w = info.pic_w,
-            .h = info.pic_h,
-            .bpc = common_bitdepth,
-            .pix_fmt = pix_fmt_map(info.pixel_fmt),
-        },
+        .pic_params =
+            {
+                .w = info.pic_w,
+                .h = info.pic_h,
+                .bpc = common_bitdepth,
+                .pix_fmt = pix_fmt_map(info.pixel_fmt),
+            },
         .pic_cnt = c.thread_cnt > 0 ? (c.thread_cnt + 1) * 2 : 2,
     };
 
@@ -357,30 +352,37 @@ int main(int argc, char *argv[])
     }
 
     if (istty && !c.quiet) {
-        fprintf(stderr, "picture pool: %d pictures pre-allocated\n",
-                pic_cfg.pic_cnt);
+        fprintf(stderr, "picture pool: %d pictures pre-allocated\n", pic_cfg.pic_cnt);
     }
 #endif
 
     const size_t model_sz = sizeof(*model) * c.model_cnt;
-    model = (VmafModel **) malloc(model_sz);
-    if (!model) { ret = -1; goto cleanup; }
-    memset((void *) model, 0, model_sz);
+    model = (VmafModel **)malloc(model_sz);
+    if (!model) {
+        ret = -1;
+        goto cleanup;
+    }
+    memset((void *)model, 0, model_sz);
 
     const size_t model_collection_sz = sizeof(*model_collection) * c.model_cnt;
-    model_collection = (VmafModelCollection **) malloc(model_collection_sz);
-    if (!model_collection) { ret = -1; goto cleanup; }
-    memset((void *) model_collection, 0, model_collection_sz);
+    model_collection = (VmafModelCollection **)malloc(model_collection_sz);
+    if (!model_collection) {
+        ret = -1;
+        goto cleanup;
+    }
+    memset((void *)model_collection, 0, model_collection_sz);
 
     const size_t label_sz = sizeof(*model_collection_label) * c.model_cnt;
-    model_collection_label = (const char **) malloc(label_sz);
-    if (!model_collection_label) { ret = -1; goto cleanup; }
-    memset((void *) model_collection_label, 0, label_sz);
+    model_collection_label = (const char **)malloc(label_sz);
+    if (!model_collection_label) {
+        ret = -1;
+        goto cleanup;
+    }
+    memset((void *)model_collection_label, 0, label_sz);
 
     for (unsigned i = 0; i < c.model_cnt; i++) {
         if (c.model_config[i].version) {
-            err = vmaf_model_load(&model[i], &c.model_config[i].cfg,
-                                  c.model_config[i].version);
+            err = vmaf_model_load(&model[i], &c.model_config[i].cfg, c.model_config[i].version);
         } else {
             err = vmaf_model_load_from_path(&model[i], &c.model_config[i].cfg,
                                             c.model_config[i].path);
@@ -391,41 +393,36 @@ int main(int argc, char *argv[])
             // this is implicit because the `--model` option could take either
             // a model or model_collection
             if (c.model_config[i].version) {
-                err = vmaf_model_collection_load(&model[i],
-                                        &model_collection[model_collection_cnt],
-                                        &c.model_config[i].cfg,
-                                        c.model_config[i].version);
+                err = vmaf_model_collection_load(&model[i], &model_collection[model_collection_cnt],
+                                                 &c.model_config[i].cfg, c.model_config[i].version);
             } else {
-                err = vmaf_model_collection_load_from_path(&model[i],
-                                        &model_collection[model_collection_cnt],
-                                        &c.model_config[i].cfg,
-                                        c.model_config[i].path);
+                err = vmaf_model_collection_load_from_path(
+                    &model[i], &model_collection[model_collection_cnt], &c.model_config[i].cfg,
+                    c.model_config[i].path);
             }
 
             if (err) {
                 fprintf(stderr, "problem loading model: %s\n",
-                        c.model_config[i].version ?
-                            c.model_config[i].version : c.model_config[i].path);
+                        c.model_config[i].version ? c.model_config[i].version :
+                                                    c.model_config[i].path);
                 ret = -1;
                 goto cleanup;
             }
 
             model_collection_label[model_collection_cnt] =
-                c.model_config[i].version ?
-                    c.model_config[i].version : c.model_config[i].path;
+                c.model_config[i].version ? c.model_config[i].version : c.model_config[i].path;
 
             for (unsigned j = 0; j < c.model_config[i].overload_cnt; j++) {
                 err = vmaf_model_collection_feature_overload(
-                               model[i],
-                               &model_collection[model_collection_cnt],
-                               c.model_config[i].feature_overload[j].name,
-                               c.model_config[i].feature_overload[j].opts_dict);
+                    model[i], &model_collection[model_collection_cnt],
+                    c.model_config[i].feature_overload[j].name,
+                    c.model_config[i].feature_overload[j].opts_dict);
                 if (err) {
                     fprintf(stderr,
                             "problem overloading feature extractors from "
                             "model collection: %s\n",
-                            c.model_config[i].version ?
-                            c.model_config[i].version : c.model_config[i].path);
+                            c.model_config[i].version ? c.model_config[i].version :
+                                                        c.model_config[i].path);
                     model_collection_cnt++;
                     ret = -1;
                     goto cleanup;
@@ -433,13 +430,13 @@ int main(int argc, char *argv[])
             }
 
             err = vmaf_use_features_from_model_collection(vmaf,
-                                        model_collection[model_collection_cnt]);
+                                                          model_collection[model_collection_cnt]);
             if (err) {
                 fprintf(stderr,
                         "problem loading feature extractors from "
                         "model collection: %s\n",
-                        c.model_config[i].version ?
-                            c.model_config[i].version : c.model_config[i].path);
+                        c.model_config[i].version ? c.model_config[i].version :
+                                                    c.model_config[i].path);
                 model_collection_cnt++;
                 ret = -1;
                 goto cleanup;
@@ -450,15 +447,14 @@ int main(int argc, char *argv[])
         }
 
         for (unsigned j = 0; j < c.model_config[i].overload_cnt; j++) {
-            err = vmaf_model_feature_overload(model[i],
-                               c.model_config[i].feature_overload[j].name,
-                               c.model_config[i].feature_overload[j].opts_dict);
+            err = vmaf_model_feature_overload(model[i], c.model_config[i].feature_overload[j].name,
+                                              c.model_config[i].feature_overload[j].opts_dict);
             if (err) {
                 fprintf(stderr,
                         "problem overloading feature extractors from "
                         "model: %s\n",
-                        c.model_config[i].version ?
-                            c.model_config[i].version : c.model_config[i].path);
+                        c.model_config[i].version ? c.model_config[i].version :
+                                                    c.model_config[i].path);
                 ret = -1;
                 goto cleanup;
             }
@@ -466,21 +462,17 @@ int main(int argc, char *argv[])
 
         err = vmaf_use_features_from_model(vmaf, model[i]);
         if (err) {
-            fprintf(stderr,
-                    "problem loading feature extractors from model: %s\n",
-                     c.model_config[i].version ?
-                         c.model_config[i].version : c.model_config[i].path);
+            fprintf(stderr, "problem loading feature extractors from model: %s\n",
+                    c.model_config[i].version ? c.model_config[i].version : c.model_config[i].path);
             ret = -1;
             goto cleanup;
         }
     }
 
     for (unsigned i = 0; i < c.feature_cnt; i++) {
-        err = vmaf_use_feature(vmaf, c.feature_cfg[i].name,
-                               c.feature_cfg[i].opts_dict);
+        err = vmaf_use_feature(vmaf, c.feature_cfg[i].name, c.feature_cfg[i].opts_dict);
         if (err) {
-            fprintf(stderr, "problem loading feature extractor: %s\n",
-                    c.feature_cfg[i].name);
+            fprintf(stderr, "problem loading feature extractor: %s\n", c.feature_cfg[i].name);
             ret = -1;
             goto cleanup;
         }
@@ -497,21 +489,24 @@ int main(int argc, char *argv[])
         }
         VmafDnnDevice dev = VMAF_DNN_DEVICE_AUTO;
         if (c.tiny_device) {
-            if      (!strcmp(c.tiny_device, "cpu"))      dev = VMAF_DNN_DEVICE_CPU;
-            else if (!strcmp(c.tiny_device, "cuda"))     dev = VMAF_DNN_DEVICE_CUDA;
-            else if (!strcmp(c.tiny_device, "openvino")) dev = VMAF_DNN_DEVICE_OPENVINO;
-            else if (!strcmp(c.tiny_device, "rocm"))     dev = VMAF_DNN_DEVICE_ROCM;
+            if (!strcmp(c.tiny_device, "cpu"))
+                dev = VMAF_DNN_DEVICE_CPU;
+            else if (!strcmp(c.tiny_device, "cuda"))
+                dev = VMAF_DNN_DEVICE_CUDA;
+            else if (!strcmp(c.tiny_device, "openvino"))
+                dev = VMAF_DNN_DEVICE_OPENVINO;
+            else if (!strcmp(c.tiny_device, "rocm"))
+                dev = VMAF_DNN_DEVICE_ROCM;
         }
         VmafDnnConfig dnn_cfg = {
-            .device       = dev,
+            .device = dev,
             .device_index = 0,
-            .threads      = c.tiny_threads,
-            .fp16_io      = c.tiny_fp16,
+            .threads = c.tiny_threads,
+            .fp16_io = c.tiny_fp16,
         };
         err = vmaf_use_tiny_model(vmaf, c.tiny_model_path, &dnn_cfg);
         if (err) {
-            fprintf(stderr, "problem loading tiny model %s: %d\n",
-                    c.tiny_model_path, err);
+            fprintf(stderr, "problem loading tiny model %s: %d\n", c.tiny_model_path, err);
             ret = -1;
             goto cleanup;
         }
@@ -528,7 +523,7 @@ int main(int argc, char *argv[])
     float fps = 0.;
     const time_t t0 = clock();
     unsigned picture_index;
-    for (picture_index = 0 ;; picture_index++) {
+    for (picture_index = 0;; picture_index++) {
 
         if (c.frame_cnt && picture_index >= c.frame_cnt)
             break;
@@ -543,15 +538,13 @@ int main(int argc, char *argv[])
             fprintf(stderr, "\nproblem while reading pictures\n");
             break;
         } else if (ret1) {
-            fprintf(stderr, "\n\"%s\" ended before \"%s\".\n",
-                    c.path_ref, c.path_dist);
+            fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c.path_ref, c.path_dist);
             int err_unref = vmaf_picture_unref(&pic_dist);
             if (err_unref)
                 fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
             break;
         } else if (ret2) {
-            fprintf(stderr, "\n\"%s\" ended before \"%s\".\n",
-                    c.path_dist, c.path_ref);
+            fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c.path_dist, c.path_ref);
             int err_unref = vmaf_picture_unref(&pic_ref);
             if (err_unref)
                 fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
@@ -560,13 +553,11 @@ int main(int argc, char *argv[])
 
         if (istty && !c.quiet) {
             if (picture_index > 0 && !(picture_index % 10)) {
-                fps = (picture_index + 1) /
-                      (((float)clock() - t0) / CLOCKS_PER_SEC);
+                fps = (picture_index + 1) / (((float)clock() - t0) / CLOCKS_PER_SEC);
             }
 
-            fprintf(stderr, "\r%d frame%s %s %.2f FPS\033[K",
-                    picture_index + 1, picture_index ? "s" : " ",
-                    spinner[picture_index % spinner_length], fps);
+            fprintf(stderr, "\r%d frame%s %s %.2f FPS\033[K", picture_index + 1,
+                    picture_index ? "s" : " ", spinner[picture_index % spinner_length], fps);
             fflush(stderr);
         }
 
@@ -589,8 +580,8 @@ int main(int argc, char *argv[])
     if (!c.no_prediction) {
         for (unsigned i = 0; i < c.model_cnt; i++) {
             double vmaf_score;
-            err = vmaf_score_pooled(vmaf, model[i], VMAF_POOL_METHOD_MEAN,
-                                    &vmaf_score, 0, picture_index - 1);
+            err = vmaf_score_pooled(vmaf, model[i], VMAF_POOL_METHOD_MEAN, &vmaf_score, 0,
+                                    picture_index - 1);
             if (err) {
                 fprintf(stderr, "problem generating pooled VMAF score\n");
                 ret = -1;
@@ -599,18 +590,17 @@ int main(int argc, char *argv[])
 
             if (istty && (!c.quiet || !c.output_path)) {
                 fprintf(stderr, "%s: ",
-                        c.model_config[i].version ?
-                            c.model_config[i].version : c.model_config[i].path);
+                        c.model_config[i].version ? c.model_config[i].version :
+                                                    c.model_config[i].path);
                 fprintf(stderr, c.precision_fmt, vmaf_score);
                 fprintf(stderr, "\n");
             }
         }
 
         for (unsigned i = 0; i < model_collection_cnt; i++) {
-            VmafModelCollectionScore score = { 0 };
-            err = vmaf_score_pooled_model_collection(vmaf, model_collection[i],
-                                                     VMAF_POOL_METHOD_MEAN, &score,
-                                                     0, picture_index - 1);
+            VmafModelCollectionScore score = {0};
+            err = vmaf_score_pooled_model_collection(
+                vmaf, model_collection[i], VMAF_POOL_METHOD_MEAN, &score, 0, picture_index - 1);
             if (err) {
                 fprintf(stderr, "problem generating pooled VMAF score\n");
                 ret = -1;
@@ -638,8 +628,7 @@ int main(int argc, char *argv[])
     }
 
     if (c.output_path)
-        vmaf_write_output_with_format(vmaf, c.output_path, c.output_fmt,
-                                      c.precision_fmt);
+        vmaf_write_output_with_format(vmaf, c.output_path, c.output_fmt, c.precision_fmt);
 
     ret = err;
 
@@ -647,23 +636,28 @@ cleanup:
     if (model) {
         for (unsigned i = 0; i < c.model_cnt; i++)
             vmaf_model_destroy(model[i]);
-        free((void *) model);
+        free((void *)model);
     }
     if (model_collection) {
         for (unsigned i = 0; i < model_collection_cnt; i++)
             vmaf_model_collection_destroy(model_collection[i]);
-        free((void *) model_collection);
+        free((void *)model_collection);
     }
-    free((void *) model_collection_label);
-    if (vmaf) vmaf_close(vmaf);
+    free((void *)model_collection_label);
+    if (vmaf)
+        vmaf_close(vmaf);
 #ifdef HAVE_SYCL
     if (sycl_active)
         vmaf_sycl_state_free(&sycl_state);
 #endif
-    if (vid_dist_open) video_input_close(&vid_dist);
-    if (vid_ref_open) video_input_close(&vid_ref);
-    if (file_dist) fclose(file_dist);
-    if (file_ref) fclose(file_ref);
+    if (vid_dist_open)
+        video_input_close(&vid_dist);
+    if (vid_ref_open)
+        video_input_close(&vid_ref);
+    if (file_dist)
+        fclose(file_dist);
+    if (file_ref)
+        fclose(file_ref);
     cli_free(&c);
     return ret;
 }

@@ -19,20 +19,15 @@
 #ifndef ARM64_NEON_SSIM_H_
 #define ARM64_NEON_SSIM_H_
 
-void ssim_precompute_neon(const float *ref, const float *cmp,
-                           float *ref_sq, float *cmp_sq,
-                           float *ref_cmp, int n);
+void ssim_precompute_neon(const float *ref, const float *cmp, float *ref_sq, float *cmp_sq,
+                          float *ref_cmp, int n);
 
-void ssim_variance_neon(float *ref_sigma_sqd, float *cmp_sigma_sqd,
-                         float *sigma_both, const float *ref_mu,
-                         const float *cmp_mu, int n);
+void ssim_variance_neon(float *ref_sigma_sqd, float *cmp_sigma_sqd, float *sigma_both,
+                        const float *ref_mu, const float *cmp_mu, int n);
 
-void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu,
-                           const float *ref_sigma_sqd,
-                           const float *cmp_sigma_sqd,
-                           const float *sigma_both, int n,
-                           float C1, float C2, float C3,
-                           double *ssim_sum, double *l_sum,
-                           double *c_sum, double *s_sum);
+void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu, const float *ref_sigma_sqd,
+                          const float *cmp_sigma_sqd, const float *sigma_both, int n, float C1,
+                          float C2, float C3, double *ssim_sum, double *l_sum, double *c_sum,
+                          double *s_sum);
 
 #endif /* ARM64_NEON_SSIM_H_ */

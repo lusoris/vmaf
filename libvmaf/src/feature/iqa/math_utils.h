@@ -46,13 +46,11 @@ int _max(int x, int y);
 
 int _min(int x, int y);
 
-
 /** 
  * Compares 2 floats to the specified digit of precision.
  * @return 0 if equal, 1 otherwise.
  */
 int _cmp_float(float a, float b, int digits);
-
 
 /** 
  * Compares 2 matrices with the specified precision. 'b' is assumed to be the

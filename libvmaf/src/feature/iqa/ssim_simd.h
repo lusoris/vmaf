@@ -19,24 +19,18 @@
 #ifndef IQA_SSIM_SIMD_H_
 #define IQA_SSIM_SIMD_H_
 
-typedef void (*ssim_precompute_fn)(const float *ref, const float *cmp,
-                                    float *ref_sq, float *cmp_sq,
-                                    float *ref_cmp, int n);
+typedef void (*ssim_precompute_fn)(const float *ref, const float *cmp, float *ref_sq, float *cmp_sq,
+                                   float *ref_cmp, int n);
 
-typedef void (*ssim_variance_fn)(float *ref_sigma_sqd, float *cmp_sigma_sqd,
-                                  float *sigma_both, const float *ref_mu,
-                                  const float *cmp_mu, int n);
+typedef void (*ssim_variance_fn)(float *ref_sigma_sqd, float *cmp_sigma_sqd, float *sigma_both,
+                                 const float *ref_mu, const float *cmp_mu, int n);
 
 typedef void (*ssim_accumulate_fn)(const float *ref_mu, const float *cmp_mu,
-                                    const float *ref_sigma_sqd,
-                                    const float *cmp_sigma_sqd,
-                                    const float *sigma_both, int n,
-                                    float C1, float C2, float C3,
-                                    double *ssim_sum, double *l_sum,
-                                    double *c_sum, double *s_sum);
+                                   const float *ref_sigma_sqd, const float *cmp_sigma_sqd,
+                                   const float *sigma_both, int n, float C1, float C2, float C3,
+                                   double *ssim_sum, double *l_sum, double *c_sum, double *s_sum);
 
-void _iqa_ssim_set_dispatch(ssim_precompute_fn precompute,
-                             ssim_variance_fn variance,
-                             ssim_accumulate_fn accumulate);
+void _iqa_ssim_set_dispatch(ssim_precompute_fn precompute, ssim_variance_fn variance,
+                            ssim_accumulate_fn accumulate);
 
 #endif /* IQA_SSIM_SIMD_H_ */

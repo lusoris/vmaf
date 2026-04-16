@@ -30,8 +30,7 @@ typedef struct VmafThreadPoolConfig {
 
 int vmaf_thread_pool_create(VmafThreadPool **tpool, VmafThreadPoolConfig cfg);
 
-int vmaf_thread_pool_enqueue(VmafThreadPool *pool,
-                             void (*func)(void *data, void **thread_data),
+int vmaf_thread_pool_enqueue(VmafThreadPool *pool, void (*func)(void *data, void **thread_data),
                              void *data, size_t data_sz);
 
 int vmaf_thread_pool_wait(VmafThreadPool *pool);

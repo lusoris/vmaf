@@ -48,10 +48,10 @@ typedef struct VmafPicturePool {
     pthread_mutex_t lock;
     pthread_cond_t available;
 
-    VmafPicture *pictures;        // Array of pre-allocated pictures
+    VmafPicture *pictures; // Array of pre-allocated pictures
 
-    unsigned *free_list;          // Stack of available picture indices
-    unsigned free_list_top;       // Index of top of stack (# of free pictures)
+    unsigned *free_list;    // Stack of available picture indices
+    unsigned free_list_top; // Index of top of stack (# of free pictures)
 } VmafPicturePool;
 
 /**
@@ -61,7 +61,7 @@ typedef struct VmafPicturePool {
  */
 static int pooled_picture_release(VmafPicture *pic, void *cookie)
 {
-    (void) cookie;
+    (void)cookie;
 
     // Extract pool info from priv before it gets freed
     PooledPicturePriv *priv = (PooledPicturePriv *)pic->priv;
@@ -73,24 +73,27 @@ static int pooled_picture_release(VmafPicture *pic, void *cookie)
     // Return picture to pool (thread-safe) - O(1) push onto free list
     pthread_mutex_lock(&pool->lock);
     pool->free_list[pool->free_list_top++] = idx;
-    pthread_cond_signal(&pool->available);  // Wake one waiting thread
+    pthread_cond_signal(&pool->available); // Wake one waiting thread
     pthread_mutex_unlock(&pool->lock);
 
     return 0;
 }
 
 /* NOLINTNEXTLINE(readability-function-size) */
-int vmaf_picture_pool_init(VmafPicturePool **pool,
-                           VmafPicturePoolConfig cfg)
+int vmaf_picture_pool_init(VmafPicturePool **pool, VmafPicturePoolConfig cfg)
 {
-    if (!pool) return -EINVAL;
-    if (!cfg.pic_cnt) return -EINVAL;
-    if (!cfg.w || !cfg.h) return -EINVAL;
+    if (!pool)
+        return -EINVAL;
+    if (!cfg.pic_cnt)
+        return -EINVAL;
+    if (!cfg.w || !cfg.h)
+        return -EINVAL;
 
     int err = 0;
 
     VmafPicturePool *const p = *pool = malloc(sizeof(*p));
-    if (!p) goto fail;
+    if (!p)
+        goto fail;
     memset(p, 0, sizeof(*p));
     p->cfg = cfg;
 
@@ -109,15 +112,16 @@ int vmaf_picture_pool_init(VmafPicturePool **pool,
     }
 
     err = pthread_mutex_init(&p->lock, NULL);
-    if (err) goto free_free_list;
+    if (err)
+        goto free_free_list;
 
     err = pthread_cond_init(&p->available, NULL);
-    if (err) goto free_mutex;
+    if (err)
+        goto free_mutex;
 
     // Pre-allocate all pictures with their data buffers
     for (unsigned i = 0; i < cfg.pic_cnt; i++) {
-        err = vmaf_picture_alloc(&p->pictures[i], cfg.pix_fmt, cfg.bpc,
-                                 cfg.w, cfg.h);
+        err = vmaf_picture_alloc(&p->pictures[i], cfg.pix_fmt, cfg.bpc, cfg.w, cfg.h);
         if (err) {
             // Free any pictures we've already allocated
             for (unsigned j = 0; j < i; j++) {
@@ -135,7 +139,7 @@ int vmaf_picture_pool_init(VmafPicturePool **pool,
         // Push index onto free list (all pictures start available)
         p->free_list[i] = i;
     }
-    p->free_list_top = cfg.pic_cnt;  // Stack is full initially
+    p->free_list_top = cfg.pic_cnt; // Stack is full initially
 
     return 0;
 
@@ -156,7 +160,8 @@ fail:
 
 int vmaf_picture_pool_close(VmafPicturePool *pool)
 {
-    if (!pool) return -EINVAL;
+    if (!pool)
+        return -EINVAL;
 
     pthread_mutex_lock(&pool->lock);
 
@@ -183,11 +188,14 @@ int vmaf_picture_pool_close(VmafPicturePool *pool)
 
 int vmaf_picture_pool_fetch(VmafPicturePool *pool, VmafPicture *pic)
 {
-    if (!pool) return -EINVAL;
-    if (!pic) return -EINVAL;
+    if (!pool)
+        return -EINVAL;
+    if (!pic)
+        return -EINVAL;
 
     int err = pthread_mutex_lock(&pool->lock);
-    if (err) return err;
+    if (err)
+        return err;
 
     // Wait while no pictures are available (event-driven, no polling)
     while (pool->free_list_top == 0) {
@@ -215,7 +223,7 @@ int vmaf_picture_pool_fetch(VmafPicturePool *pool, VmafPicture *pic)
     memset(priv, 0, sizeof(*priv));
     priv->pool = pool;
     priv->pic_idx = idx;
-    pic->priv = (VmafPicturePrivate*)priv;
+    pic->priv = (VmafPicturePrivate *)priv;
 
     // Set custom release callback to return picture to pool
     err = vmaf_picture_set_release_callback(pic, NULL, pooled_picture_release);

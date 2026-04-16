@@ -33,18 +33,15 @@ static char *test_get_feature_extractor_by_name_and_feature_name()
     fex = vmaf_get_feature_extractor_by_name("");
     mu_assert("problem during vmaf_get_feature_extractor_by_name", !fex);
     fex = vmaf_get_feature_extractor_by_name("vif");
-    mu_assert("problem vmaf_get_feature_extractor_by_name",
-              !strcmp(fex->name, "vif"));
+    mu_assert("problem vmaf_get_feature_extractor_by_name", !strcmp(fex->name, "vif"));
 
-    fex = vmaf_get_feature_extractor_by_feature_name(
-            "VMAF_integer_feature_adm2_score", 0);
+    fex = vmaf_get_feature_extractor_by_feature_name("VMAF_integer_feature_adm2_score", 0);
     mu_assert("problem during vmaf_get_feature_extractor_by_feature_name",
               fex && !strcmp(fex->name, "adm"));
 
 #if HAVE_CUDA
     unsigned flags = VMAF_FEATURE_EXTRACTOR_CUDA;
-    fex = vmaf_get_feature_extractor_by_feature_name(
-            "VMAF_integer_feature_adm2_score", flags);
+    fex = vmaf_get_feature_extractor_by_feature_name("VMAF_integer_feature_adm2_score", flags);
     mu_assert("problem during vmaf_get_feature_extractor_by_feature_name",
               fex && !strcmp(fex->name, "adm_cuda"));
 #endif
@@ -61,8 +58,7 @@ static char *test_feature_extractor_context_pool()
     err = vmaf_fex_ctx_pool_create(&pool, n_threads);
     mu_assert("problem during vmaf_fex_ctx_pool_create", !err);
 
-    VmafFeatureExtractor *fex =
-        vmaf_get_feature_extractor_by_name("float_ssim");
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_ssim");
     mu_assert("problem during vmaf_get_feature_extractor_by_name", fex);
 
     VmafFeatureExtractorContext *fex_ctx[n_threads];
@@ -90,8 +86,7 @@ static char *test_feature_extractor_flush()
 
     VmafFeatureExtractor *fex;
     fex = vmaf_get_feature_extractor_by_name("motion");
-    mu_assert("problem vmaf_get_feature_extractor_by_name",
-              !strcmp(fex->name, "motion"));
+    mu_assert("problem vmaf_get_feature_extractor_by_name", !strcmp(fex->name, "motion"));
     VmafFeatureExtractorContext *fex_ctx;
     err = vmaf_feature_extractor_context_create(&fex_ctx, fex, NULL);
     mu_assert("problem during vmaf_feature_extractor_context_create", !err);
@@ -107,22 +102,17 @@ static char *test_feature_extractor_flush()
     mu_assert("vmaf_feature_collector_init", !err);
 
     double score;
-    err = vmaf_feature_extractor_context_extract(fex_ctx, &ref, NULL, &dist,
-                                                 NULL, 0, vfc);
+    err = vmaf_feature_extractor_context_extract(fex_ctx, &ref, NULL, &dist, NULL, 0, vfc);
     mu_assert("problem during vmaf_feature_extractor_context_extract", !err);
-    err = vmaf_feature_collector_get_score(vfc, "VMAF_integer_feature_motion2_score",
-                                           &score, 0);
+    err = vmaf_feature_collector_get_score(vfc, "VMAF_integer_feature_motion2_score", &score, 0);
     mu_assert("problem during vmaf_feature_collector_get_score", !err);
-    err = vmaf_feature_extractor_context_extract(fex_ctx, &ref, NULL, &dist,
-                                                 NULL, 1, vfc);
+    err = vmaf_feature_extractor_context_extract(fex_ctx, &ref, NULL, &dist, NULL, 1, vfc);
     mu_assert("problem during vmaf_feature_extractor_context_extract", !err);
-    err = vmaf_feature_collector_get_score(vfc, "VMAF_integer_feature_motion2_score",
-                                           &score, 0);
+    err = vmaf_feature_collector_get_score(vfc, "VMAF_integer_feature_motion2_score", &score, 0);
     mu_assert("problem during vmaf_feature_extractor_context_flush", !err);
     err = vmaf_feature_extractor_context_flush(fex_ctx, vfc);
     mu_assert("problem during vmaf_feature_extractor_context_flush", !err);
-    err = vmaf_feature_collector_get_score(vfc, "VMAF_integer_feature_motion2_score",
-                                           &score, 1);
+    err = vmaf_feature_collector_get_score(vfc, "VMAF_integer_feature_motion2_score", &score, 1);
     mu_assert("problem during vmaf_feature_collector_get_score", !err);
 
     err = vmaf_feature_extractor_context_close(fex_ctx);
@@ -143,8 +133,7 @@ static char *test_feature_extractor_initialization_options()
 
     VmafFeatureExtractor *fex;
     fex = vmaf_get_feature_extractor_by_name("psnr");
-    mu_assert("problem vmaf_get_feature_extractor_by_name",
-              !strcmp(fex->name, "psnr"));
+    mu_assert("problem vmaf_get_feature_extractor_by_name", !strcmp(fex->name, "psnr"));
 
     VmafDictionary *opts_dict = NULL;
     err = vmaf_dictionary_set(&opts_dict, "enable_chroma", "false", 0);
@@ -164,8 +153,7 @@ static char *test_feature_extractor_initialization_options()
     err = vmaf_feature_collector_init(&vfc);
     mu_assert("problem during vmaf_feature_collector_init", !err);
 
-    err = vmaf_feature_extractor_context_extract(fex_ctx, &ref, NULL, &dist,
-                                                 NULL, 0, vfc);
+    err = vmaf_feature_extractor_context_extract(fex_ctx, &ref, NULL, &dist, NULL, 0, vfc);
     mu_assert("problem during vmaf_feature_extractor_context_extract", !err);
 
     double score;

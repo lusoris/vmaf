@@ -45,8 +45,8 @@ typedef struct VmafPicture {
     void *priv;
 } VmafPicture;
 
-int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt,
-                       unsigned bpc, unsigned w, unsigned h);
+int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                       unsigned h);
 
 int vmaf_picture_unref(VmafPicture *pic);
 

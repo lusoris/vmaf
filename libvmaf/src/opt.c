@@ -26,74 +26,89 @@
 static int set_option_bool(bool *dst, bool default_val, const char *val)
 {
     *dst = default_val;
-    if (!val) return 0;
+    if (!val)
+        return 0;
 
-    if (!strcmp(val, "true")) *dst = true;
-    else if (!strcmp(val, "false")) *dst = false;
-    else return -EINVAL;
+    if (!strcmp(val, "true"))
+        *dst = true;
+    else if (!strcmp(val, "false"))
+        *dst = false;
+    else
+        return -EINVAL;
 
     return 0;
 }
 
-static int set_option_int(int *dst, int default_val, const char *val,
-                          int min, int max)
+static int set_option_int(int *dst, int default_val, const char *val, int min, int max)
 {
     *dst = default_val;
-    if (!val) return 0;
+    if (!val)
+        return 0;
 
     char *end = NULL;
     errno = 0;
     const long n = strtol(val, &end, 10);
-    if (end == val || *end != '\0') return -EINVAL;
-    if (errno == ERANGE) return -EINVAL;
-    if (n < (long) min) return -EINVAL;
-    if (n > (long) max) return -EINVAL;
-    *dst = (int) n;
+    if (end == val || *end != '\0')
+        return -EINVAL;
+    if (errno == ERANGE)
+        return -EINVAL;
+    if (n < (long)min)
+        return -EINVAL;
+    if (n > (long)max)
+        return -EINVAL;
+    *dst = (int)n;
     return 0;
 }
 
-static int set_option_double(double *dst, double default_val, const char *val,
-                             double min, double max)
+static int set_option_double(double *dst, double default_val, const char *val, double min,
+                             double max)
 {
     *dst = default_val;
-    if (!val) return 0;
+    if (!val)
+        return 0;
 
     char *end = NULL;
     errno = 0;
     const double n = strtod(val, &end);
-    if (end == val || *end != '\0') return -EINVAL;
-    if (errno == ERANGE) return -EINVAL;
-    if (n < min) return -EINVAL;
-    if (n > max) return -EINVAL;
+    if (end == val || *end != '\0')
+        return -EINVAL;
+    if (errno == ERANGE)
+        return -EINVAL;
+    if (n < min)
+        return -EINVAL;
+    if (n > max)
+        return -EINVAL;
     *dst = n;
     return 0;
 }
 
-static int set_option_string(char **dst, char *default_val, const char *val) {
+static int set_option_string(char **dst, char *default_val, const char *val)
+{
     *dst = default_val;
-    if (!val) return 0;
-    *dst = (char*)val;
+    if (!val)
+        return 0;
+    *dst = (char *)val;
     return 0;
 }
 
 int vmaf_option_set(const VmafOption *opt, void *obj, const char *val)
 {
-    if (!obj) return -EINVAL;
-    if (!opt) return -EINVAL;
+    if (!obj)
+        return -EINVAL;
+    if (!opt)
+        return -EINVAL;
 
-    uint8_t *base = (uint8_t *) obj + opt->offset;
+    uint8_t *base = (uint8_t *)obj + opt->offset;
 
     switch (opt->type) {
     case VMAF_OPT_TYPE_BOOL:
-        return set_option_bool((bool *) base, opt->default_val.b, val);
+        return set_option_bool((bool *)base, opt->default_val.b, val);
     case VMAF_OPT_TYPE_INT:
-        return set_option_int((int *) base, opt->default_val.i, val,
-                              opt->min, opt->max);
+        return set_option_int((int *)base, opt->default_val.i, val, opt->min, opt->max);
     case VMAF_OPT_TYPE_DOUBLE:
-        return set_option_double((double *) base, opt->default_val.d, val,
-                                 opt->min, opt->max);
+        return set_option_double((double *)base, opt->default_val.d, val, opt->min, opt->max);
     case VMAF_OPT_TYPE_STRING:
-        return set_option_string((char **) base, opt->default_val.s, val);
+        return set_option_string((char **)base, opt->default_val.s, val);
     default:
         return -EINVAL;
     }

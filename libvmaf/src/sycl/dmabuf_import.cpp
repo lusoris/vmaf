@@ -63,24 +63,22 @@ extern "C" {
 /* DMA-BUF → Level Zero → SYCL device pointer                         */
 /* ------------------------------------------------------------------ */
 
-extern "C"
-int vmaf_sycl_dmabuf_import(VmafSyclState *state, int fd, size_t size,
-                             void **ptr)
+extern "C" int vmaf_sycl_dmabuf_import(VmafSyclState *state, int fd, size_t size, void **ptr)
 {
-    if (!state || fd < 0 || !size || !ptr) return -EINVAL;
+    if (!state || fd < 0 || !size || !ptr)
+        return -EINVAL;
     *ptr = nullptr;
 
     try {
         sycl::queue *q = (sycl::queue *)vmaf_sycl_get_queue_ptr(state);
-        if (!q) return -EINVAL;
+        if (!q)
+            return -EINVAL;
 
         /* Extract Level Zero native handles from the SYCL queue */
         ze_context_handle_t ze_ctx =
-            sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
-                q->get_context());
+            sycl::get_native<sycl::backend::ext_oneapi_level_zero>(q->get_context());
         ze_device_handle_t ze_dev =
-            sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
-                q->get_device());
+            sycl::get_native<sycl::backend::ext_oneapi_level_zero>(q->get_device());
 
         /* Set up DMA-BUF import descriptor */
         ze_external_memory_import_fd_t import_desc = {};
@@ -97,12 +95,10 @@ int vmaf_sycl_dmabuf_import(VmafSyclState *state, int fd, size_t size,
         alloc_desc.ordinal = 0;
 
         void *ze_ptr = nullptr;
-        ze_result_t res = zeMemAllocDevice(ze_ctx, &alloc_desc, size,
-                                            0 /* alignment */, ze_dev,
-                                            &ze_ptr);
+        ze_result_t res =
+            zeMemAllocDevice(ze_ctx, &alloc_desc, size, 0 /* alignment */, ze_dev, &ze_ptr);
         if (res != ZE_RESULT_SUCCESS) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                     "Level Zero DMA-BUF import failed: 0x%x\n", res);
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "Level Zero DMA-BUF import failed: 0x%x\n", res);
             return -EIO;
         }
 
@@ -110,28 +106,26 @@ int vmaf_sycl_dmabuf_import(VmafSyclState *state, int fd, size_t size,
         return 0;
 
     } catch (const sycl::exception &e) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "SYCL DMA-BUF import exception: %s\n", e.what());
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "SYCL DMA-BUF import exception: %s\n", e.what());
         return -EIO;
     } catch (const std::exception &e) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "DMA-BUF import error: %s\n", e.what());
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "DMA-BUF import error: %s\n", e.what());
         return -EIO;
     }
 }
 
-extern "C"
-void vmaf_sycl_dmabuf_free(VmafSyclState *state, void *ptr)
+extern "C" void vmaf_sycl_dmabuf_free(VmafSyclState *state, void *ptr)
 {
-    if (!state || !ptr) return;
+    if (!state || !ptr)
+        return;
 
     try {
         sycl::queue *q = (sycl::queue *)vmaf_sycl_get_queue_ptr(state);
-        if (!q) return;
+        if (!q)
+            return;
 
         ze_context_handle_t ze_ctx =
-            sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
-                q->get_context());
+            sycl::get_native<sycl::backend::ext_oneapi_level_zero>(q->get_context());
 
         zeMemFree(ze_ctx, ptr);
     } catch (...) {
@@ -169,12 +163,9 @@ void vmaf_sycl_dmabuf_free(VmafSyclState *state, void *ptr)
 /* Used when vaExportSurfaceHandle / DMA-BUF import is not available.  */
 /* ------------------------------------------------------------------ */
 
-static int vmaf_sycl_import_va_surface_readback(
-    VmafSyclState *state,
-    void *va_display_handle,
-    unsigned int va_surface_id,
-    int is_ref,
-    unsigned w, unsigned h, unsigned bpc)
+static int vmaf_sycl_import_va_surface_readback(VmafSyclState *state, void *va_display_handle,
+                                                unsigned int va_surface_id, int is_ref, unsigned w,
+                                                unsigned h, unsigned bpc)
 {
     VADisplay va_dpy = (VADisplay)va_display_handle;
     VASurfaceID va_surf = (VASurfaceID)va_surface_id;
@@ -187,19 +178,17 @@ static int vmaf_sycl_import_va_surface_readback(
     {
         int num_fmts = vaMaxNumImageFormats(va_dpy);
         if (num_fmts <= 0) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                     "vaMaxNumImageFormats returned %d\n", num_fmts);
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "vaMaxNumImageFormats returned %d\n", num_fmts);
             return -EIO;
         }
-        VAImageFormat *fmts = (VAImageFormat *)malloc(
-            (size_t)num_fmts * sizeof(VAImageFormat));
-        if (!fmts) return -ENOMEM;
+        VAImageFormat *fmts = (VAImageFormat *)malloc((size_t)num_fmts * sizeof(VAImageFormat));
+        if (!fmts)
+            return -ENOMEM;
         int actual = 0;
         VAStatus qst = vaQueryImageFormats(va_dpy, fmts, &actual);
         if (qst != VA_STATUS_SUCCESS) {
             free(fmts);
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                     "vaQueryImageFormats failed: %s\n", vaErrorStr(qst));
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "vaQueryImageFormats failed: %s\n", vaErrorStr(qst));
             return -EIO;
         }
 
@@ -215,8 +204,7 @@ static int vmaf_sycl_import_va_surface_readback(
         free(fmts);
 
         if (!found) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                     "VA image format %s not supported\n",
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "VA image format %s not supported\n",
                      bpc <= 8 ? "NV12" : "P010");
             return -ENOTSUP;
         }
@@ -227,15 +215,13 @@ static int vmaf_sycl_import_va_surface_readback(
 
     VAStatus va_st = vaCreateImage(va_dpy, &y_fmt, w, h, &va_img);
     if (va_st != VA_STATUS_SUCCESS) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "vaCreateImage failed: %s\n", vaErrorStr(va_st));
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "vaCreateImage failed: %s\n", vaErrorStr(va_st));
         return -EIO;
     }
 
     va_st = vaGetImage(va_dpy, va_surf, 0, 0, w, h, va_img.image_id);
     if (va_st != VA_STATUS_SUCCESS) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "vaGetImage failed: %s\n", vaErrorStr(va_st));
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "vaGetImage failed: %s\n", vaErrorStr(va_st));
         vaDestroyImage(va_dpy, va_img.image_id);
         return -EIO;
     }
@@ -243,19 +229,16 @@ static int vmaf_sycl_import_va_surface_readback(
     void *img_data = nullptr;
     va_st = vaMapBuffer(va_dpy, va_img.buf, &img_data);
     if (va_st != VA_STATUS_SUCCESS) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "vaMapBuffer failed: %s\n", vaErrorStr(va_st));
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "vaMapBuffer failed: %s\n", vaErrorStr(va_st));
         vaDestroyImage(va_dpy, va_img.image_id);
         return -EIO;
     }
 
     uint8_t *y_plane = (uint8_t *)img_data + va_img.offsets[0];
     uint32_t y_pitch = va_img.pitches[0];
-    size_t   y_row_bytes = (size_t)w * bytes_per_pixel;
+    size_t y_row_bytes = (size_t)w * bytes_per_pixel;
 
-    void *target_buf = is_ref
-        ? vmaf_sycl_get_shared_ref(state)
-        : vmaf_sycl_get_shared_dis(state);
+    void *target_buf = is_ref ? vmaf_sycl_get_shared_ref(state) : vmaf_sycl_get_shared_dis(state);
 
     if (!target_buf) {
         vaUnmapBuffer(va_dpy, va_img.buf);
@@ -288,14 +271,12 @@ static int vmaf_sycl_import_va_surface_readback(
 /* Zero-copy: VA surface → DMA-BUF → Level Zero → SYCL de-tile        */
 /* ------------------------------------------------------------------ */
 
-extern "C"
-int vmaf_sycl_import_va_surface(VmafSyclState *state,
-                                 void *va_display_handle,
-                                 unsigned int va_surface_id,
-                                 int is_ref,
-                                 unsigned w, unsigned h, unsigned bpc)
+extern "C" int vmaf_sycl_import_va_surface(VmafSyclState *state, void *va_display_handle,
+                                           unsigned int va_surface_id, int is_ref, unsigned w,
+                                           unsigned h, unsigned bpc)
 {
-    if (!state || !va_display_handle) return -EINVAL;
+    if (!state || !va_display_handle)
+        return -EINVAL;
 
     VADisplay va_dpy = (VADisplay)va_display_handle;
     VASurfaceID va_surf = (VASurfaceID)va_surface_id;
@@ -303,26 +284,22 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
     /* Sync the VA surface to ensure decode is complete */
     VAStatus va_st = vaSyncSurface(va_dpy, va_surf);
     if (va_st != VA_STATUS_SUCCESS) {
-        vmaf_log(VMAF_LOG_LEVEL_WARNING,
-                 "vaSyncSurface failed: %s\n", vaErrorStr(va_st));
+        vmaf_log(VMAF_LOG_LEVEL_WARNING, "vaSyncSurface failed: %s\n", vaErrorStr(va_st));
     }
 
     /* Export the VA surface as DRM PRIME2 (DMA-BUF fd + layout info) */
     VADRMPRIMESurfaceDescriptor desc;
     memset(&desc, 0, sizeof(desc));
 
-    va_st = vaExportSurfaceHandle(
-        va_dpy, va_surf,
-        VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
-        VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_SEPARATE_LAYERS,
-        &desc);
+    va_st = vaExportSurfaceHandle(va_dpy, va_surf, VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
+                                  VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_SEPARATE_LAYERS,
+                                  &desc);
 
     if (va_st != VA_STATUS_SUCCESS) {
-        vmaf_log(VMAF_LOG_LEVEL_INFO,
-                 "vaExportSurfaceHandle failed: %s — using readback path\n",
+        vmaf_log(VMAF_LOG_LEVEL_INFO, "vaExportSurfaceHandle failed: %s — using readback path\n",
                  vaErrorStr(va_st));
-        return vmaf_sycl_import_va_surface_readback(
-            state, va_display_handle, va_surface_id, is_ref, w, h, bpc);
+        return vmaf_sycl_import_va_surface_readback(state, va_display_handle, va_surface_id, is_ref,
+                                                    w, h, bpc);
     }
 
     if (desc.num_layers < 1 || desc.num_objects < 1) {
@@ -334,19 +311,18 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
 
     /* Extract Y plane metadata from the first layer */
     uint32_t y_obj_idx = desc.layers[0].object_index[0];
-    int      y_fd      = desc.objects[y_obj_idx].fd;
-    uint32_t y_size    = desc.objects[y_obj_idx].size;
-    uint64_t modifier  = desc.objects[y_obj_idx].drm_format_modifier;
-    uint32_t y_offset  = desc.layers[0].offset[0];
-    uint32_t y_pitch   = desc.layers[0].pitch[0];
-    unsigned bpp       = (bpc + 7) / 8;
+    int y_fd = desc.objects[y_obj_idx].fd;
+    uint32_t y_size = desc.objects[y_obj_idx].size;
+    uint64_t modifier = desc.objects[y_obj_idx].drm_format_modifier;
+    uint32_t y_offset = desc.layers[0].offset[0];
+    uint32_t y_pitch = desc.layers[0].pitch[0];
+    unsigned bpp = (bpc + 7) / 8;
 
     vmaf_log(VMAF_LOG_LEVEL_DEBUG,
              "[%s] DRM PRIME: fd=%d size=%u modifier=0x%llx "
              "offset=%u pitch=%u (%ux%u @ %u bpp)\n",
-             is_ref ? "ref" : "dis",
-             y_fd, y_size, (unsigned long long)modifier,
-             y_offset, y_pitch, w, h, bpp);
+             is_ref ? "ref" : "dis", y_fd, y_size, (unsigned long long)modifier, y_offset, y_pitch,
+             w, h, bpp);
 
     /* Import the DMA-BUF fd into Level Zero as device memory.
      * This wraps the SAME GPU memory — no copy happens here. */
@@ -358,21 +334,17 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
         close(desc.objects[i].fd);
 
     if (err) {
-        vmaf_log(VMAF_LOG_LEVEL_INFO,
-                 "DMA-BUF import failed (%d) — using readback path\n", err);
-        return vmaf_sycl_import_va_surface_readback(
-            state, va_display_handle, va_surface_id, is_ref, w, h, bpc);
+        vmaf_log(VMAF_LOG_LEVEL_INFO, "DMA-BUF import failed (%d) — using readback path\n", err);
+        return vmaf_sycl_import_va_surface_readback(state, va_display_handle, va_surface_id, is_ref,
+                                                    w, h, bpc);
     }
 
     /* Get target shared frame buffer */
-    void *target_buf = is_ref
-        ? vmaf_sycl_get_shared_ref(state)
-        : vmaf_sycl_get_shared_dis(state);
+    void *target_buf = is_ref ? vmaf_sycl_get_shared_ref(state) : vmaf_sycl_get_shared_dis(state);
 
     if (!target_buf) {
         vmaf_sycl_dmabuf_free(state, imported_ptr);
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "Shared frame buffer not initialised\n");
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "Shared frame buffer not initialised\n");
         return -EINVAL;
     }
 
@@ -382,10 +354,10 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
     /* Log the zero-copy path once (first successful import) */
     static bool logged_zero_copy = false;
     if (!logged_zero_copy) {
-        const char *tiling_name =
-            modifier == DRM_FORMAT_MOD_LINEAR ? "LINEAR" :
-            modifier == I915_FORMAT_MOD_4_TILED ? "Tile4" :
-            modifier == I915_FORMAT_MOD_Y_TILED ? "Y-tiled" : "unknown";
+        const char *tiling_name = modifier == DRM_FORMAT_MOD_LINEAR   ? "LINEAR" :
+                                  modifier == I915_FORMAT_MOD_4_TILED ? "Tile4" :
+                                  modifier == I915_FORMAT_MOD_Y_TILED ? "Y-tiled" :
+                                                                        "unknown";
         vmaf_log(VMAF_LOG_LEVEL_INFO,
                  "VA surface zero-copy: DMA-BUF → Level Zero → %s de-tile "
                  "(%ux%u @ %u bpp, pitch=%u)\n",
@@ -398,8 +370,7 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
          * LINEAR surface → device-to-device memcpy (GPU blitter).
          * No CPU involvement at all.
          */
-        vmaf_log(VMAF_LOG_LEVEL_DEBUG, "[%s] zero-copy: LINEAR D2D\n",
-                 is_ref ? "ref" : "dis");
+        vmaf_log(VMAF_LOG_LEVEL_DEBUG, "[%s] zero-copy: LINEAR D2D\n", is_ref ? "ref" : "dis");
 
         sycl::event ev;
         if (y_pitch == row_bytes && y_offset == 0) {
@@ -407,8 +378,7 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
         } else {
             for (unsigned row = 0; row < h; row++) {
                 ev = q->memcpy((uint8_t *)target_buf + row * row_bytes,
-                          (uint8_t *)imported_ptr + y_offset + row * y_pitch,
-                          row_bytes);
+                               (uint8_t *)imported_ptr + y_offset + row * y_pitch, row_bytes);
             }
         }
         vmaf_sycl_set_detile_event(state, &ev);
@@ -440,45 +410,40 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
         unsigned words_per_tile_row = 128 / 4; /* = 32 */
         unsigned words_per_row = tiles_per_row * words_per_tile_row;
 
-        sycl::event ev = q->parallel_for(
-            sycl::range<2>(h, words_per_row),
-            [=](sycl::id<2> id) {
-                unsigned py = id[0];
-                unsigned word_x = id[1];
+        sycl::event ev = q->parallel_for(sycl::range<2>(h, words_per_row), [=](sycl::id<2> id) {
+            unsigned py = id[0];
+            unsigned word_x = id[1];
 
-                /* Tile address */
-                unsigned tc = word_x / words_per_tile_row;
-                unsigned wt = word_x % words_per_tile_row;
-                unsigned tr = py / 32;
-                unsigned ity = py % 32;
+            /* Tile address */
+            unsigned tc = word_x / words_per_tile_row;
+            unsigned wt = word_x % words_per_tile_row;
+            unsigned tr = py / 32;
+            unsigned ity = py % 32;
 
-                /* Tile4 intra-tile swizzle */
-                unsigned x_byte = wt * 4;
-                unsigned swizzled =
-                    (x_byte & 0x0F)                /* [3:0]  = x[3:0] */
-                    | ((ity & 3) << 4)             /* [5:4]  = y[1:0] */
-                    | (((x_byte >> 4) & 3) << 6)   /* [7:6]  = x[5:4] */
-                    | (((ity >> 2) & 1) << 8)      /* [8]    = y[2]   */
-                    | (((x_byte >> 6) & 1) << 9)   /* [9]    = x[6]   */
-                    | (((ity >> 3) & 1) << 10)     /* [10]   = y[3]   */
-                    | (((ity >> 4) & 1) << 11);    /* [11]   = y[4]   */
+            /* Tile4 intra-tile swizzle */
+            unsigned x_byte = wt * 4;
+            unsigned swizzled = (x_byte & 0x0F)              /* [3:0]  = x[3:0] */
+                                | ((ity & 3) << 4)           /* [5:4]  = y[1:0] */
+                                | (((x_byte >> 4) & 3) << 6) /* [7:6]  = x[5:4] */
+                                | (((ity >> 2) & 1) << 8)    /* [8]    = y[2]   */
+                                | (((x_byte >> 6) & 1) << 9) /* [9]    = x[6]   */
+                                | (((ity >> 3) & 1) << 10)   /* [10]   = y[3]   */
+                                | (((ity >> 4) & 1) << 11);  /* [11]   = y[4]   */
 
-                size_t src_off = (size_t)(tr * tiles_per_row + tc) * 4096
-                               + swizzled;
+            size_t src_off = (size_t)(tr * tiles_per_row + tc) * 4096 + swizzled;
 
-                /* Linear destination */
-                size_t dst_off = (size_t)py * row_bytes + tc * 128 + wt * 4;
+            /* Linear destination */
+            size_t dst_off = (size_t)py * row_bytes + tc * 128 + wt * 4;
 
-                /* Bounds check — last tile column may exceed frame width */
-                if (dst_off + 4 <= (size_t)(py + 1) * row_bytes) {
-                    *(uint32_t *)(dst + dst_off) =
-                        *(const uint32_t *)(src + src_off);
-                } else if (dst_off < (size_t)(py + 1) * row_bytes) {
-                    size_t remain = (size_t)(py + 1) * row_bytes - dst_off;
-                    for (size_t b = 0; b < remain; b++)
-                        dst[dst_off + b] = src[src_off + b];
-                }
-            });
+            /* Bounds check — last tile column may exceed frame width */
+            if (dst_off + 4 <= (size_t)(py + 1) * row_bytes) {
+                *(uint32_t *)(dst + dst_off) = *(const uint32_t *)(src + src_off);
+            } else if (dst_off < (size_t)(py + 1) * row_bytes) {
+                size_t remain = (size_t)(py + 1) * row_bytes - dst_off;
+                for (size_t b = 0; b < remain; b++)
+                    dst[dst_off + b] = src[src_off + b];
+            }
+        });
         vmaf_sycl_set_detile_event(state, &ev);
 
     } else if (modifier == I915_FORMAT_MOD_Y_TILED) {
@@ -500,47 +465,42 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
         unsigned words_per_tile_row = 128 / 4;
         unsigned words_per_row = tiles_per_row * words_per_tile_row;
 
-        sycl::event ev = q->parallel_for(
-            sycl::range<2>(h, words_per_row),
-            [=](sycl::id<2> id) {
-                unsigned py = id[0];
-                unsigned word_x = id[1];
+        sycl::event ev = q->parallel_for(sycl::range<2>(h, words_per_row), [=](sycl::id<2> id) {
+            unsigned py = id[0];
+            unsigned word_x = id[1];
 
-                unsigned tc = word_x / words_per_tile_row;
-                unsigned wt = word_x % words_per_tile_row;
-                unsigned tr = py / 32;
-                unsigned ity = py % 32;
+            unsigned tc = word_x / words_per_tile_row;
+            unsigned wt = word_x % words_per_tile_row;
+            unsigned tr = py / 32;
+            unsigned ity = py % 32;
 
-                /* Y-tiled address: OWord column-major */
-                unsigned in_tile_byte_x = wt * 4;
-                unsigned oword_col = in_tile_byte_x / 16;
-                unsigned oword_byte = in_tile_byte_x % 16;
+            /* Y-tiled address: OWord column-major */
+            unsigned in_tile_byte_x = wt * 4;
+            unsigned oword_col = in_tile_byte_x / 16;
+            unsigned oword_byte = in_tile_byte_x % 16;
 
-                size_t src_off = (size_t)(tr * tiles_per_row + tc) * 4096
-                               + (size_t)oword_col * 512
-                               + (size_t)ity * 16 + oword_byte;
+            size_t src_off = (size_t)(tr * tiles_per_row + tc) * 4096 + (size_t)oword_col * 512 +
+                             (size_t)ity * 16 + oword_byte;
 
-                size_t dst_off = (size_t)py * row_bytes + tc * 128 + wt * 4;
+            size_t dst_off = (size_t)py * row_bytes + tc * 128 + wt * 4;
 
-                if (dst_off + 4 <= (size_t)(py + 1) * row_bytes) {
-                    *(uint32_t *)(dst + dst_off) =
-                        *(const uint32_t *)(src + src_off);
-                } else if (dst_off < (size_t)(py + 1) * row_bytes) {
-                    size_t remain = (size_t)(py + 1) * row_bytes - dst_off;
-                    for (size_t b = 0; b < remain; b++)
-                        dst[dst_off + b] = src[src_off + b];
-                }
-            });
+            if (dst_off + 4 <= (size_t)(py + 1) * row_bytes) {
+                *(uint32_t *)(dst + dst_off) = *(const uint32_t *)(src + src_off);
+            } else if (dst_off < (size_t)(py + 1) * row_bytes) {
+                size_t remain = (size_t)(py + 1) * row_bytes - dst_off;
+                for (size_t b = 0; b < remain; b++)
+                    dst[dst_off + b] = src[src_off + b];
+            }
+        });
         vmaf_sycl_set_detile_event(state, &ev);
 
     } else {
         /* Unknown tiling — fall back to VA readback path */
         vmaf_sycl_dmabuf_free(state, imported_ptr);
-        vmaf_log(VMAF_LOG_LEVEL_WARNING,
-                 "Unknown DRM modifier 0x%llx — using readback path\n",
+        vmaf_log(VMAF_LOG_LEVEL_WARNING, "Unknown DRM modifier 0x%llx — using readback path\n",
                  (unsigned long long)modifier);
-        return vmaf_sycl_import_va_surface_readback(
-            state, va_display_handle, va_surface_id, is_ref, w, h, bpc);
+        return vmaf_sycl_import_va_surface_readback(state, va_display_handle, va_surface_id, is_ref,
+                                                    w, h, bpc);
     }
 
     /* Defer the free: the de-tile kernel still needs to read from
@@ -552,15 +512,17 @@ int vmaf_sycl_import_va_surface(VmafSyclState *state,
 
 #else /* !HAVE_SYCL_DMABUF */
 
-extern "C"
-int vmaf_sycl_import_va_surface(VmafSyclState *state,
-                                 void *va_display_handle,
-                                 unsigned int va_surface_id,
-                                 int is_ref,
-                                 unsigned w, unsigned h, unsigned bpc)
+extern "C" int vmaf_sycl_import_va_surface(VmafSyclState *state, void *va_display_handle,
+                                           unsigned int va_surface_id, int is_ref, unsigned w,
+                                           unsigned h, unsigned bpc)
 {
-    (void)state; (void)va_display_handle; (void)va_surface_id;
-    (void)is_ref; (void)w; (void)h; (void)bpc;
+    (void)state;
+    (void)va_display_handle;
+    (void)va_surface_id;
+    (void)is_ref;
+    (void)w;
+    (void)h;
+    (void)bpc;
     return -ENOTSUP;
 }
 

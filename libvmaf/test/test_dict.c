@@ -73,30 +73,26 @@ static char *test_vmaf_dictionary()
 
     const char *pre_existing_key = "key_9";
     const char *new_value = "new_value";
-    err = vmaf_dictionary_set(&dict, pre_existing_key, new_value,
-                              VMAF_DICT_DO_NOT_OVERWRITE);
+    err = vmaf_dictionary_set(&dict, pre_existing_key, new_value, VMAF_DICT_DO_NOT_OVERWRITE);
     mu_assert("vmaf_dictionary_set should fail with pre-existing key", err);
     entry = vmaf_dictionary_get(&dict, pre_existing_key, 0);
     mu_assert("dictionary should return original value with pre-existing key",
-              !strcmp(entry->key, pre_existing_key) &&
-              !strcmp(entry->val, "val_9"));
-    err = vmaf_dictionary_set(&dict, pre_existing_key, "val_9",
-                              VMAF_DICT_DO_NOT_OVERWRITE);
+              !strcmp(entry->key, pre_existing_key) && !strcmp(entry->val, "val_9"));
+    err = vmaf_dictionary_set(&dict, pre_existing_key, "val_9", VMAF_DICT_DO_NOT_OVERWRITE);
     mu_assert("vmaf_dictionary_set should not fail when pre-existing key "
-              "matches pre-existing value", !err);
+              "matches pre-existing value",
+              !err);
     err = vmaf_dictionary_set(&dict, pre_existing_key, new_value, 0);
     mu_assert("problem during vmaf_dictionary_set", !err);
     entry = vmaf_dictionary_get(&dict, pre_existing_key, 0);
     mu_assert("dictionary should return new value with pre-existing key",
-              !strcmp(entry->key, pre_existing_key) &&
-              !strcmp(entry->val, new_value));
+              !strcmp(entry->key, pre_existing_key) && !strcmp(entry->val, new_value));
 
     VmafDictionary *new_dict = NULL;
     err = vmaf_dictionary_copy(&dict, &new_dict);
     mu_assert("problem during vmaf_dictionary_copy", !err);
     mu_assert("new_dict should no longer be NULL", new_dict);
-    mu_assert("new_dict should have a matching cnt",
-              dict->cnt == new_dict->cnt);
+    mu_assert("new_dict should have a matching cnt", dict->cnt == new_dict->cnt);
 
     vmaf_dictionary_free(&dict);
     mu_assert("dictionary should be NULL after free", !dict);
@@ -227,8 +223,7 @@ static char *test_vmaf_dictionary_normalize_numerical_val()
     VmafDictionary *d = NULL;
     const VmafDictionaryEntry *e = NULL;
 
-    err = vmaf_dictionary_set(&d, "key", "1.0",
-                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES);
+    err = vmaf_dictionary_set(&d, "key", "1.0", VMAF_DICT_NORMALIZE_NUMERICAL_VALUES);
     mu_assert("dictionary should have been created", d);
     mu_assert("problem during vmaf_dictionary_set", !err);
 
@@ -236,16 +231,14 @@ static char *test_vmaf_dictionary_normalize_numerical_val()
     mu_assert("dictionary should return an entry", e);
     mu_assert("entry should have normalized val", !strcmp(e->val, "1"));
 
-    err = vmaf_dictionary_set(&d, "key", "1",
-                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES);
+    err = vmaf_dictionary_set(&d, "key", "1", VMAF_DICT_NORMALIZE_NUMERICAL_VALUES);
     mu_assert("problem during vmaf_dictionary_set", !err);
 
     e = vmaf_dictionary_get(&d, "key", 0);
     mu_assert("dictionary should return an entry", e);
     mu_assert("entry should have normalized val", !strcmp(e->val, "1"));
 
-    err = vmaf_dictionary_set(&d, "key", "1.0000",
-                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES);
+    err = vmaf_dictionary_set(&d, "key", "1.0000", VMAF_DICT_NORMALIZE_NUMERICAL_VALUES);
     mu_assert("problem during vmaf_dictionary_set", !err);
 
     e = vmaf_dictionary_get(&d, "key", 0);
@@ -253,24 +246,21 @@ static char *test_vmaf_dictionary_normalize_numerical_val()
     mu_assert("entry should have normalized val", !strcmp(e->val, "1"));
 
     err = vmaf_dictionary_set(&d, "key", "1.00",
-                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES |
-                              VMAF_DICT_DO_NOT_OVERWRITE);
+                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES | VMAF_DICT_DO_NOT_OVERWRITE);
     mu_assert("problem during vmaf_dictionary_set", !err);
     e = vmaf_dictionary_get(&d, "key", 0);
     mu_assert("dictionary should return an entry", e);
     mu_assert("entry should have normalized val", !strcmp(e->val, "1"));
 
     err = vmaf_dictionary_set(&d, "key", " 1.00 ",
-                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES |
-                              VMAF_DICT_DO_NOT_OVERWRITE);
+                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES | VMAF_DICT_DO_NOT_OVERWRITE);
     mu_assert("problem during vmaf_dictionary_set", !err);
     e = vmaf_dictionary_get(&d, "key", 0);
     mu_assert("dictionary should return an entry", e);
     mu_assert("entry should have normalized val", !strcmp(e->val, "1"));
 
     err = vmaf_dictionary_set(&d, "key", "1abc",
-                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES |
-                              VMAF_DICT_DO_NOT_OVERWRITE);
+                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES | VMAF_DICT_DO_NOT_OVERWRITE);
     mu_assert("problem during vmaf_dictionary_set", !err);
     e = vmaf_dictionary_get(&d, "key", 0);
     mu_assert("dictionary should return an entry", e);
@@ -278,20 +268,17 @@ static char *test_vmaf_dictionary_normalize_numerical_val()
 
     mu_assert("dictionary should have just 1 entry", d->cnt == 1);
 
-    err = vmaf_dictionary_set(&d, "debug", "true",
-                              VMAF_DICT_NORMALIZE_NUMERICAL_VALUES);
+    err = vmaf_dictionary_set(&d, "debug", "true", VMAF_DICT_NORMALIZE_NUMERICAL_VALUES);
     mu_assert("problem during vmaf_dictionary_set", !err);
     e = vmaf_dictionary_get(&d, "debug", 0);
     mu_assert("dictionary should return an entry", e);
-    mu_assert("flag should not affect non-numerical values",
-              !strcmp(e->val, "true"));
+    mu_assert("flag should not affect non-numerical values", !strcmp(e->val, "true"));
 
     vmaf_dictionary_free(&d);
     mu_assert("dictionary should be NULL after free", !d);
 
     return NULL;
 }
-
 
 static char *test_vmaf_feature_dictionary()
 {

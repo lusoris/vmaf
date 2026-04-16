@@ -34,10 +34,13 @@
 #define PIC_POOL_MAX 8
 
 static struct {
-    struct { void *data; size_t size; } entries[PIC_POOL_MAX];
+    struct {
+        void *data;
+        size_t size;
+    } entries[PIC_POOL_MAX];
     unsigned count;
     pthread_mutex_t lock;
-} pic_pool = { .lock = PTHREAD_MUTEX_INITIALIZER };
+} pic_pool = {.lock = PTHREAD_MUTEX_INITIALIZER};
 
 static void *pic_pool_acquire(size_t size)
 {
@@ -65,7 +68,7 @@ static void pic_pool_release(void *data, size_t size)
         return;
     }
     pthread_mutex_unlock(&pic_pool.lock);
-    aligned_free(data);  // pool full, discard
+    aligned_free(data); // pool full, discard
 }
 
 // Release callback that returns buffer to pool instead of freeing
@@ -78,16 +81,18 @@ static int pool_release_picture(VmafPicture *pic, void *cookie)
 
 static int default_release_picture(VmafPicture *pic, void *cookie)
 {
-    (void) cookie;
+    (void)cookie;
     aligned_free(pic->data[0]);
     return 0;
 }
 
 int vmaf_picture_set_release_callback(VmafPicture *pic, void *cookie,
-                         int (*release_picture)(VmafPicture *pic, void *cookie))
+                                      int (*release_picture)(VmafPicture *pic, void *cookie))
 {
-    if (!pic) return -EINVAL;
-    if (!release_picture) return -EINVAL;
+    if (!pic)
+        return -EINVAL;
+    if (!release_picture)
+        return -EINVAL;
 
     VmafPicturePrivate *priv = pic->priv;
     priv->cookie = cookie;
@@ -100,18 +105,22 @@ int vmaf_picture_priv_init(VmafPicture *pic)
 {
     const size_t priv_sz = sizeof(VmafPicturePrivate);
     pic->priv = malloc(priv_sz);
-    if (!pic->priv) return -EINVAL;
+    if (!pic->priv)
+        return -EINVAL;
     memset(pic->priv, 0, priv_sz);
     return 0;
 }
 
 /* NOLINTNEXTLINE(readability-function-size) */
-int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt,
-                       unsigned bpc, unsigned w, unsigned h)
+int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                       unsigned h)
 {
-    if (!pic) return -EINVAL;
-    if (!pix_fmt) return -EINVAL;
-    if (bpc < 8 || bpc > 16) return -EINVAL;
+    if (!pic)
+        return -EINVAL;
+    if (!pix_fmt)
+        return -EINVAL;
+    if (bpc < 8 || bpc > 16)
+        return -EINVAL;
 
     int err = 0;
 
@@ -142,7 +151,8 @@ int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt,
         memset(data, 0, pic_size);
     } else {
         data = aligned_malloc(pic_size, DATA_ALIGN);
-        if (!data) goto fail;
+        if (!data)
+            goto fail;
         memset(data, 0, pic_size);
     }
     pic->data[0] = data;
@@ -155,12 +165,14 @@ int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt,
     /* The callback userdata slot stores pic_size inline as a tagged value,
      * never dereferenced — standard uintptr_t idiom. */
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    err |= vmaf_picture_set_release_callback(pic, (void *)(uintptr_t)pic_size,
-                                             pool_release_picture);
-    if (err) goto free_data;
+    err |=
+        vmaf_picture_set_release_callback(pic, (void *)(uintptr_t)pic_size, pool_release_picture);
+    if (err)
+        goto free_data;
 
     err = vmaf_ref_init(&pic->ref);
-    if (err) goto free_priv;
+    if (err)
+        goto free_priv;
 
     return 0;
 
@@ -172,17 +184,22 @@ fail:
     return -ENOMEM;
 }
 
-int vmaf_picture_ref(VmafPicture *dst, VmafPicture *src) {
-    if (!dst || !src) return -EINVAL;
+int vmaf_picture_ref(VmafPicture *dst, VmafPicture *src)
+{
+    if (!dst || !src)
+        return -EINVAL;
 
     memcpy(dst, src, sizeof(*src));
     vmaf_ref_fetch_increment(src->ref);
     return 0;
 }
 
-int vmaf_picture_unref(VmafPicture *pic) {
-    if (!pic) return -EINVAL;
-    if (!pic->ref) return -EINVAL;
+int vmaf_picture_unref(VmafPicture *pic)
+{
+    if (!pic)
+        return -EINVAL;
+    if (!pic->ref)
+        return -EINVAL;
 
     const long old_cnt = vmaf_ref_fetch_decrement(pic->ref);
     if (old_cnt == 1) {

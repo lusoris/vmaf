@@ -43,7 +43,7 @@ static char *test_ring_buffer()
         .state = malloc(sizeof(VmafCudaState)),
     };
 
-    VmafCudaConfiguration cu_cfg = { 0 };
+    VmafCudaConfiguration cu_cfg = {0};
     vmaf_cuda_state_init(&my_cookie.state, cu_cfg);
 
     VmafRingBufferConfig cfg = {
@@ -64,8 +64,7 @@ static char *test_ring_buffer()
     mu_assert("data[0] should have been allocated", pic_1.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_1.data[1]);
     mu_assert("data[2] should not have been allocated", !pic_1.data[2]);
-    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P",
-              pic_1.pix_fmt == VMAF_PIX_FMT_YUV400P);
+    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_1.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     VmafPicture pic_2;
     err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_2);
@@ -73,8 +72,7 @@ static char *test_ring_buffer()
     mu_assert("data[0] should have been allocated", pic_2.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_2.data[1]);
     mu_assert("data[2] should not have been allocated", !pic_2.data[2]);
-    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P",
-              pic_2.pix_fmt == VMAF_PIX_FMT_YUV400P);
+    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_2.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     VmafPicture pic_3;
     err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_3);
@@ -82,8 +80,7 @@ static char *test_ring_buffer()
     mu_assert("data[0] should have been allocated", pic_3.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_3.data[1]);
     mu_assert("data[2] should not have been allocated", !pic_3.data[2]);
-    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P",
-              pic_3.pix_fmt == VMAF_PIX_FMT_YUV400P);
+    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_3.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     VmafPicture pic_4;
     err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_4);
@@ -91,8 +88,7 @@ static char *test_ring_buffer()
     mu_assert("data[0] should have been allocated", pic_4.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_4.data[1]);
     mu_assert("data[2] should not have been allocated", !pic_4.data[2]);
-    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P",
-              pic_4.pix_fmt == VMAF_PIX_FMT_YUV400P);
+    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_4.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     VmafPicture pic_5;
     err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_5);
@@ -100,8 +96,7 @@ static char *test_ring_buffer()
     mu_assert("data[0] should have been allocated", pic_5.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_5.data[1]);
     mu_assert("data[2] should not have been allocated", !pic_5.data[2]);
-    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P",
-              pic_5.pix_fmt == VMAF_PIX_FMT_YUV400P);
+    mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_5.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     mu_assert("pic_5 should use the same data buffer as pic_1 did.",
               pic_1.data[0] == pic_5.data[0]);

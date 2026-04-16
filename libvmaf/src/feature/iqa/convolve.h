@@ -43,7 +43,6 @@ float KBND_REPLICATE(const float *img, int w, int h, int x, int y, float bnd_con
 /** Out-of-bounds array values are set to 'bnd_const' */
 float KBND_CONSTANT(const float *img, int w, int h, int x, int y, float bnd_const);
 
-
 /** Defines a convolution kernel */
 struct _kernel {
     float *kernel;          /**< Pointer to the kernel values */
@@ -53,7 +52,7 @@ struct _kernel {
     int h;                  /**< The kernel height */
     int normalized;         /**< 1 if the kernel values add up to 1. 0 otherwise */
     _iqa_get_pixel bnd_opt; /**< Defines how out-of-bounds image values are handled */
-    float bnd_const;        /**< If 'bnd_opt' is KBND_CONSTANT, this specifies the out-of-bounds value */
+    float bnd_const; /**< If 'bnd_opt' is KBND_CONSTANT, this specifies the out-of-bounds value */
 };
 
 /**
@@ -72,7 +71,8 @@ struct _kernel {
  * @param rw Optional. The width of the resulting image will be stored here.
  * @param rh Optional. The height of the resulting image will be stored here.
  */
-void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw, int *rh);
+void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw,
+                   int *rh);
 
 /**
  * The same as _iqa_convolve() except the kernel is applied to the entire image.
@@ -107,7 +107,7 @@ int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *re
  *               kernels. Required if 'k' is not null.
  * @return The filtered pixel value.
  */
-float _iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct _kernel *k, const float kscale);
-
+float _iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct _kernel *k,
+                        const float kscale);
 
 #endif /*_CONVOLVE_H_*/

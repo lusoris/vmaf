@@ -107,8 +107,8 @@ const char *vmaf_feature_name_alias(const char *feature_name)
     unsigned alias_cnt = sizeof(alias_map) / sizeof(alias_map[0]);
 
     for (unsigned i = 0; i < alias_cnt; i++) {
-       if (!strcmp(feature_name, alias_map[i].name))
-           return alias_map[i].alias;
+        if (!strcmp(feature_name, alias_map[i].name))
+            return alias_map[i].alias;
     }
 
     return feature_name;

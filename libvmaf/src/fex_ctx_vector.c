@@ -30,29 +30,29 @@ int feature_extractor_vector_init(RegisteredFeatureExtractors *rfe)
     rfe->cnt = 0;
     rfe->capacity = 8;
     const size_t sz = sizeof(*(rfe->fex_ctx)) * rfe->capacity;
-    rfe->fex_ctx = (VmafFeatureExtractorContext **) malloc(sz);
-    if (!rfe->fex_ctx) return -ENOMEM;
-    memset((void *) rfe->fex_ctx, 0, sz);
+    rfe->fex_ctx = (VmafFeatureExtractorContext **)malloc(sz);
+    if (!rfe->fex_ctx)
+        return -ENOMEM;
+    memset((void *)rfe->fex_ctx, 0, sz);
     return 0;
 }
 
 int feature_extractor_vector_append(RegisteredFeatureExtractors *rfe,
-                                    VmafFeatureExtractorContext *fex_ctx,
-                                    uint64_t flags)
+                                    VmafFeatureExtractorContext *fex_ctx, uint64_t flags)
 {
-    if (!rfe) return -EINVAL;
-    if (!fex_ctx) return -EINVAL;
+    if (!rfe)
+        return -EINVAL;
+    if (!fex_ctx)
+        return -EINVAL;
 
-    (void) flags;
+    (void)flags;
 
     for (unsigned i = 0; i < rfe->cnt; i++) {
-        char *feature_a =
-            vmaf_feature_name_from_options(rfe->fex_ctx[i]->fex->name,
-                    rfe->fex_ctx[i]->fex->options, rfe->fex_ctx[i]->fex->priv);
+        char *feature_a = vmaf_feature_name_from_options(
+            rfe->fex_ctx[i]->fex->name, rfe->fex_ctx[i]->fex->options, rfe->fex_ctx[i]->fex->priv);
 
-        char *feature_b =
-            vmaf_feature_name_from_options(fex_ctx->fex->name,
-                    fex_ctx->fex->options, fex_ctx->fex->priv);
+        char *feature_b = vmaf_feature_name_from_options(fex_ctx->fex->name, fex_ctx->fex->options,
+                                                         fex_ctx->fex->priv);
 
         int ret = 1;
         if (feature_a && feature_b)
@@ -61,19 +61,19 @@ int feature_extractor_vector_append(RegisteredFeatureExtractors *rfe,
         free(feature_a);
         free(feature_b);
 
-        if (ret != 0) continue;
+        if (ret != 0)
+            continue;
 
         return vmaf_feature_extractor_context_destroy(fex_ctx);
     }
 
     if (rfe->cnt >= rfe->capacity) {
         assert(rfe->capacity > 0);
-        const size_t capacity = (size_t) rfe->capacity * 2;
-        VmafFeatureExtractorContext **fex_ctx_new =
-            (VmafFeatureExtractorContext **) realloc(
-                (void *) rfe->fex_ctx,
-                sizeof(*(rfe->fex_ctx)) * capacity);
-        if (!fex_ctx_new) return -ENOMEM;
+        const size_t capacity = (size_t)rfe->capacity * 2;
+        VmafFeatureExtractorContext **fex_ctx_new = (VmafFeatureExtractorContext **)realloc(
+            (void *)rfe->fex_ctx, sizeof(*(rfe->fex_ctx)) * capacity);
+        if (!fex_ctx_new)
+            return -ENOMEM;
         rfe->fex_ctx = fex_ctx_new;
         rfe->capacity = capacity;
         for (unsigned i = rfe->cnt; i < rfe->capacity; i++)
@@ -87,8 +87,7 @@ int feature_extractor_vector_append(RegisteredFeatureExtractors *rfe,
              fex_ctx->fex->name, cnt);
 
     for (unsigned i = 0; i < cnt; i++) {
-        vmaf_log(VMAF_LOG_LEVEL_DEBUG,"%s: %s\n",
-                 fex_ctx->opts_dict->entry[i].key,
+        vmaf_log(VMAF_LOG_LEVEL_DEBUG, "%s: %s\n", fex_ctx->opts_dict->entry[i].key,
                  fex_ctx->opts_dict->entry[i].val);
     }
 
@@ -98,10 +97,11 @@ int feature_extractor_vector_append(RegisteredFeatureExtractors *rfe,
 
 void feature_extractor_vector_destroy(RegisteredFeatureExtractors *rfe)
 {
-    if (!rfe) return;
+    if (!rfe)
+        return;
     for (unsigned i = 0; i < rfe->cnt; i++) {
         vmaf_feature_extractor_context_close(rfe->fex_ctx[i]);
         vmaf_feature_extractor_context_destroy(rfe->fex_ctx[i]);
     }
-    free((void *) rfe->fex_ctx);
+    free((void *)rfe->fex_ctx);
 }

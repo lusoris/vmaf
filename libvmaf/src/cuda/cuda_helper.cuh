@@ -31,38 +31,39 @@
 #include "stdio.h"
 #include <ffnvcodec/dynlink_loader.h>
 
-#define DIV_ROUND_UP(x, y) (((x) + (y)-1) / (y))
+#define DIV_ROUND_UP(x, y) (((x) + (y) - 1) / (y))
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-#define CHECK_CUDA(funcs, CALL)                                                 \
-    do {                                                                        \
-        const CUresult cu_err = funcs->CALL;                                    \
-        if (CUDA_SUCCESS != cu_err) {                                           \
-            const char *err_txt;                                                \
-            funcs->cuGetErrorName(cu_err, &err_txt);                            \
-            printf("code: %d; description: %s\n", (int)cu_err, err_txt);        \
-            assert(0);                                                          \
-        }                                                                       \
+#define CHECK_CUDA(funcs, CALL)                                                                    \
+    do {                                                                                           \
+        const CUresult cu_err = funcs->CALL;                                                       \
+        if (CUDA_SUCCESS != cu_err) {                                                              \
+            const char *err_txt;                                                                   \
+            funcs->cuGetErrorName(cu_err, &err_txt);                                               \
+            printf("code: %d; description: %s\n", (int)cu_err, err_txt);                           \
+            assert(0);                                                                             \
+        }                                                                                          \
     } while (0)
 
 #ifdef DEVICE_CODE
-namespace {
-    __forceinline__ __device__ int64_t warp_reduce(int64_t x) {
+namespace
+{
+__forceinline__ __device__ int64_t warp_reduce(int64_t x)
+{
 #pragma unroll
-        for (int i = 16; i > 0; i >>= 1) {
-            x += int64_t(__shfl_down_sync(0xffffffff, x & 0xffffffff, i)) |
-                int64_t(__shfl_down_sync(0xffffffff, x >> 32, i) << 32);
-        }
-        return x;
+    for (int i = 16; i > 0; i >>= 1) {
+        x += int64_t(__shfl_down_sync(0xffffffff, x & 0xffffffff, i)) |
+             int64_t(__shfl_down_sync(0xffffffff, x >> 32, i) << 32);
     }
+    return x;
+}
 
-    typedef unsigned long long int uint64_cu;
-    __forceinline__ __device__ int64_t atomicAdd_int64(int64_t *address,
-            int64_t val) {
-        return atomicAdd(reinterpret_cast<uint64_cu *>(address),
-                static_cast<uint64_cu>(val));
-    }
+typedef unsigned long long int uint64_cu;
+__forceinline__ __device__ int64_t atomicAdd_int64(int64_t *address, int64_t val)
+{
+    return atomicAdd(reinterpret_cast<uint64_cu *>(address), static_cast<uint64_cu>(val));
+}
 } // namespace
 #endif
 

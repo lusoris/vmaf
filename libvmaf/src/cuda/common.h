@@ -80,8 +80,7 @@ int vmaf_cuda_release(VmafCudaState *cu_state);
  *
  * @return CUDA_SUCCESS on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_cuda_buffer_alloc(VmafCudaState *cu_state, VmafCudaBuffer **buf,
-                           size_t size);
+int vmaf_cuda_buffer_alloc(VmafCudaState *cu_state, VmafCudaBuffer **buf, size_t size);
 
 /**
  * Frees a VmafCudaBuffer from the GPU and sets the passed pointer to 0.
@@ -108,8 +107,8 @@ int vmaf_cuda_buffer_free(VmafCudaState *cu_state, VmafCudaBuffer *buf);
  *
  * @return CUDA_SUCCESS on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_cuda_buffer_upload_async(VmafCudaState *cu_state, VmafCudaBuffer *buf,
-                                  const void *src, CUstream c_stream);
+int vmaf_cuda_buffer_upload_async(VmafCudaState *cu_state, VmafCudaBuffer *buf, const void *src,
+                                  CUstream c_stream);
 /**
  * Downloads data in the size of the VmafCudaBuffer from the GPU asynchronously.
  *
@@ -123,8 +122,8 @@ int vmaf_cuda_buffer_upload_async(VmafCudaState *cu_state, VmafCudaBuffer *buf,
  *
  * @return CUDA_SUCCESS on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_cuda_buffer_download_async(VmafCudaState *cu_state, VmafCudaBuffer *buf,
-                                    void *dst, CUstream c_stream);
+int vmaf_cuda_buffer_download_async(VmafCudaState *cu_state, VmafCudaBuffer *buf, void *dst,
+                                    CUstream c_stream);
 /**
  * Device pointer getter for VmafCudaBuffer
  *
@@ -157,8 +156,7 @@ int vmaf_cuda_buffer_host_free(VmafCudaState *cu_state, void *buf);
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_cuda_buffer_host_alloc(VmafCudaState *cu_state, void **p_buf,
-                                size_t size);
+int vmaf_cuda_buffer_host_alloc(VmafCudaState *cu_state, void **p_buf, size_t size);
 #endif // !HAVE_CUDA
 
 #endif /* __VMAF_SRC_CUDA_COMMON_H__ */

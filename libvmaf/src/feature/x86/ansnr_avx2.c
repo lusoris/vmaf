@@ -19,8 +19,8 @@
 #include <immintrin.h>
 #include "ansnr_avx2.h"
 
-void ansnr_mse_line_avx2(const float *ref, const float *dis,
-                          float *sig_accum, float *noise_accum, int w)
+void ansnr_mse_line_avx2(const float *ref, const float *dis, float *sig_accum, float *noise_accum,
+                         int w)
 {
     /* Accumulate in double to eliminate SIMD lane-reorder precision loss */
     __m256d sig_dsum0 = _mm256_setzero_pd();

@@ -50,6 +50,7 @@
  * @param rh Optional. The height of the resulting image will be stored here.
  * @return 0 on success.
  */
-int _iqa_decimate(float *img, int w, int h, int factor, const struct _kernel *k, float *result, int *rw, int *rh);
+int _iqa_decimate(float *img, int w, int h, int factor, const struct _kernel *k, float *result,
+                  int *rw, int *rh);
 
 #endif /*_DECIMATE_H_*/

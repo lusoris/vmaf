@@ -21,8 +21,7 @@
 
 #include "psnr_neon.h"
 
-uint32_t psnr_sse_line_8_neon(const uint8_t *ref, const uint8_t *dis,
-                               unsigned w)
+uint32_t psnr_sse_line_8_neon(const uint8_t *ref, const uint8_t *dis, unsigned w)
 {
     uint32x4_t sum0 = vdupq_n_u32(0);
     uint32x4_t sum1 = vdupq_n_u32(0);
@@ -46,14 +45,10 @@ uint32_t psnr_sse_line_8_neon(const uint8_t *ref, const uint8_t *dis,
         uint16x8_t a1_hi = vmull_u8(vget_high_u8(abs1), vget_high_u8(abs1));
 
         /* Widen u16 → u32 and accumulate */
-        sum0 = vaddq_u32(sum0, vaddl_u16(vget_low_u16(a0_lo),
-                                          vget_high_u16(a0_lo)));
-        sum1 = vaddq_u32(sum1, vaddl_u16(vget_low_u16(a0_hi),
-                                          vget_high_u16(a0_hi)));
-        sum0 = vaddq_u32(sum0, vaddl_u16(vget_low_u16(a1_lo),
-                                          vget_high_u16(a1_lo)));
-        sum1 = vaddq_u32(sum1, vaddl_u16(vget_low_u16(a1_hi),
-                                          vget_high_u16(a1_hi)));
+        sum0 = vaddq_u32(sum0, vaddl_u16(vget_low_u16(a0_lo), vget_high_u16(a0_lo)));
+        sum1 = vaddq_u32(sum1, vaddl_u16(vget_low_u16(a0_hi), vget_high_u16(a0_hi)));
+        sum0 = vaddq_u32(sum0, vaddl_u16(vget_low_u16(a1_lo), vget_high_u16(a1_lo)));
+        sum1 = vaddq_u32(sum1, vaddl_u16(vget_low_u16(a1_hi), vget_high_u16(a1_hi)));
     }
 
     /* Horizontal sum */
@@ -69,8 +64,7 @@ uint32_t psnr_sse_line_8_neon(const uint8_t *ref, const uint8_t *dis,
     return result;
 }
 
-uint64_t psnr_sse_line_16_neon(const uint16_t *ref, const uint16_t *dis,
-                                unsigned w)
+uint64_t psnr_sse_line_16_neon(const uint16_t *ref, const uint16_t *dis, unsigned w)
 {
     uint64x2_t sum0 = vdupq_n_u64(0);
     uint64x2_t sum1 = vdupq_n_u64(0);

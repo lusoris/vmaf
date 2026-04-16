@@ -19,7 +19,7 @@
 #ifndef ARM64_NEON_ANSNR_H_
 #define ARM64_NEON_ANSNR_H_
 
-void ansnr_mse_line_neon(const float *ref, const float *dis,
-                          float *sig_accum, float *noise_accum, int w);
+void ansnr_mse_line_neon(const float *ref, const float *dis, float *sig_accum, float *noise_accum,
+                         int w);
 
 #endif /* ARM64_NEON_ANSNR_H_ */

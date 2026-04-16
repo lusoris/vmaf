@@ -53,8 +53,8 @@ typedef struct VmafFeatureExtractor {
      * @param       w Width of all subsequent pictures.
      * @param       h Height of all subsequent pictures.
      */
-    int (*init)(struct VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h);
+    int (*init)(struct VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
+                unsigned w, unsigned h);
     /**
      * Feature extraction callback. Called for every pair of pictures. Unless
      * the VMAF_FEATURE_EXTRACTOR_TEMPORAL flag is set, there is no guarantee
@@ -69,10 +69,9 @@ typedef struct VmafFeatureExtractor {
      * @param             index Picture index.
      * @param feature_collector VmafFeatureCollector used to write out scores.
      */
-    int (*extract)(struct VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector);
+    int (*extract)(struct VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector);
     /**
      * Buffer flush callback. Optional.
      * Called only when the VMAF_FEATURE_EXTRACTOR_TEMPORAL flag is set.
@@ -80,8 +79,7 @@ typedef struct VmafFeatureExtractor {
      * @param               fex self.
      * @param feature_collector VmafFeatureCollector used to write out scores.
      */
-    int (*flush)(struct VmafFeatureExtractor *fex,
-                 VmafFeatureCollector *feature_collector);
+    int (*flush)(struct VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector);
     /**
      * Close callback. Optional, clean up fex->priv buffers here.
      *
@@ -96,29 +94,26 @@ typedef struct VmafFeatureExtractor {
      *
      * Parameters mirror extract(), except feature_collector is deferred.
      */
-    int (*submit)(struct VmafFeatureExtractor *fex,
-                  VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                  VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                  unsigned index);
+    int (*submit)(struct VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                  VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index);
     /**
      * Async collect callback. Called after submit() to wait for GPU completion,
      * download results, and write scores to the feature collector.
      */
-    int (*collect)(struct VmafFeatureExtractor *fex,
-                   unsigned index,
+    int (*collect)(struct VmafFeatureExtractor *fex, unsigned index,
                    VmafFeatureCollector *feature_collector);
-    const VmafOption *options; ///< Optional initialization options.
-    void *priv; ///< Custom data.
-    size_t priv_size; ///< sizeof private data.
-    uint64_t flags; ///< Feauture extraction flags, binary or'd.
+    const VmafOption *options;      ///< Optional initialization options.
+    void *priv;                     ///< Custom data.
+    size_t priv_size;               ///< sizeof private data.
+    uint64_t flags;                 ///< Feauture extraction flags, binary or'd.
     const char **provided_features; ///< Provided feature list, NULL terminated.
 
-    #ifdef HAVE_CUDA
+#ifdef HAVE_CUDA
     VmafCudaState *cu_state; ///< VmafCudaState, set by framework
-    #endif
-    #ifdef HAVE_SYCL
+#endif
+#ifdef HAVE_SYCL
     struct VmafSyclState *sycl_state; ///< VmafSyclState, set by framework
-    #endif
+#endif
 
     VmafFrameSyncContext *framesync;
     VmafPicture prev_ref; ///< Previous reference picture, set by framework.
@@ -126,8 +121,7 @@ typedef struct VmafFeatureExtractor {
 } VmafFeatureExtractor;
 
 VmafFeatureExtractor *vmaf_get_feature_extractor_by_name(const char *name);
-VmafFeatureExtractor *vmaf_get_feature_extractor_by_feature_name(const char *name,
-                                                                 unsigned flags);
+VmafFeatureExtractor *vmaf_get_feature_extractor_by_feature_name(const char *name, unsigned flags);
 
 enum VmafFeatureExtractorContextFlags {
     VMAF_FEATURE_EXTRACTOR_CONTEXT_DO_NOT_OVERWRITE = 1 << 0,
@@ -142,32 +136,28 @@ typedef struct VmafFeatureExtractorContext {
 } VmafFeatureExtractorContext;
 
 int vmaf_feature_extractor_context_create(VmafFeatureExtractorContext **fex_ctx,
-                                          VmafFeatureExtractor *fex,
-                                          VmafDictionary *opts_dict);
+                                          VmafFeatureExtractor *fex, VmafDictionary *opts_dict);
 
 int vmaf_feature_extractor_context_init(VmafFeatureExtractorContext *fex_ctx,
-                                        enum VmafPixelFormat pix_fmt,
-                                        unsigned bpc, unsigned w, unsigned h);
+                                        enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                                        unsigned h);
 
-int vmaf_feature_extractor_context_extract(VmafFeatureExtractorContext *fex_ctx,
-                                           VmafPicture *ref, VmafPicture *ref_90,
-                                           VmafPicture *dist, VmafPicture *dist_90,
-                                           unsigned pic_index,
+int vmaf_feature_extractor_context_extract(VmafFeatureExtractorContext *fex_ctx, VmafPicture *ref,
+                                           VmafPicture *ref_90, VmafPicture *dist,
+                                           VmafPicture *dist_90, unsigned pic_index,
                                            VmafFeatureCollector *vfc);
 
-int vmaf_feature_extractor_context_submit(VmafFeatureExtractorContext *fex_ctx,
-                                          VmafPicture *ref, VmafPicture *ref_90,
-                                          VmafPicture *dist, VmafPicture *dist_90,
-                                          unsigned pic_index);
+int vmaf_feature_extractor_context_submit(VmafFeatureExtractorContext *fex_ctx, VmafPicture *ref,
+                                          VmafPicture *ref_90, VmafPicture *dist,
+                                          VmafPicture *dist_90, unsigned pic_index);
 
 // Submit for zero-copy GPU path: no VmafPicture needed.
 // Caller must ensure extractor is initialized via
 // vmaf_feature_extractor_context_init() before first call.
-int vmaf_feature_extractor_context_submit_nocopy(
-        VmafFeatureExtractorContext *fex_ctx, unsigned pic_index);
+int vmaf_feature_extractor_context_submit_nocopy(VmafFeatureExtractorContext *fex_ctx,
+                                                 unsigned pic_index);
 
-int vmaf_feature_extractor_context_collect(VmafFeatureExtractorContext *fex_ctx,
-                                           unsigned pic_index,
+int vmaf_feature_extractor_context_collect(VmafFeatureExtractorContext *fex_ctx, unsigned pic_index,
                                            VmafFeatureCollector *vfc);
 
 int vmaf_feature_extractor_context_flush(VmafFeatureExtractorContext *fex_ctx,
@@ -195,16 +185,13 @@ typedef struct VmafFeatureExtractorContextPool {
     unsigned n_threads;
 } VmafFeatureExtractorContextPool;
 
-int vmaf_fex_ctx_pool_create(VmafFeatureExtractorContextPool **pool,
-                             unsigned n_threads);
+int vmaf_fex_ctx_pool_create(VmafFeatureExtractorContextPool **pool, unsigned n_threads);
 
-int vmaf_fex_ctx_pool_aquire(VmafFeatureExtractorContextPool *pool,
-                             VmafFeatureExtractor *fex,
-                             VmafDictionary *opts_dict,
-                             VmafFeatureExtractorContext **fex_ctx);
+int vmaf_fex_ctx_pool_aquire(VmafFeatureExtractorContextPool *pool, VmafFeatureExtractor *fex,
+                             VmafDictionary *opts_dict, VmafFeatureExtractorContext **fex_ctx);
 
 int vmaf_fex_ctx_pool_release(VmafFeatureExtractorContextPool *pool,
-                             VmafFeatureExtractorContext *fex_ctx);
+                              VmafFeatureExtractorContext *fex_ctx);
 
 int vmaf_fex_ctx_pool_flush(VmafFeatureExtractorContextPool *pool,
                             VmafFeatureCollector *feature_collector);

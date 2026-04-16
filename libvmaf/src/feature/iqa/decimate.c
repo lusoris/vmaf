@@ -34,26 +34,29 @@
 #include "decimate.h"
 #include <stdlib.h>
 
-int _iqa_decimate(float *img, int w, int h, int factor, const struct _kernel *k, float *result, int *rw, int *rh)
+int _iqa_decimate(float *img, int w, int h, int factor, const struct _kernel *k, float *result,
+                  int *rw, int *rh)
 {
-    int x,y;
-    int sw = w/factor + (w&1);
-    int sh = h/factor + (h&1);
+    int x, y;
+    int sw = w / factor + (w & 1);
+    int sh = h / factor + (h & 1);
     int dst_offset;
-    float *dst=img;
+    float *dst = img;
 
     if (result)
         dst = result;
 
     /* Downsample */
-    for (y=0; y<sh; ++y) {
-        dst_offset = y*sw;
-        for (x=0; x<sw; ++x,++dst_offset) {
-            dst[dst_offset] = _iqa_filter_pixel(img, w, h, x*factor, y*factor, k, 1.0f);
+    for (y = 0; y < sh; ++y) {
+        dst_offset = y * sw;
+        for (x = 0; x < sw; ++x, ++dst_offset) {
+            dst[dst_offset] = _iqa_filter_pixel(img, w, h, x * factor, y * factor, k, 1.0f);
         }
     }
-    
-    if (rw) *rw = sw;
-    if (rh) *rh = sh;
+
+    if (rw)
+        *rw = sw;
+    if (rh)
+        *rh = sh;
     return 0;
 }

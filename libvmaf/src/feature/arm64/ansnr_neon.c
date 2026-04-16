@@ -19,8 +19,8 @@
 #include <arm_neon.h>
 #include "ansnr_neon.h"
 
-void ansnr_mse_line_neon(const float *ref, const float *dis,
-                          float *sig_accum, float *noise_accum, int w)
+void ansnr_mse_line_neon(const float *ref, const float *dis, float *sig_accum, float *noise_accum,
+                         int w)
 {
     /* Accumulate in double to eliminate SIMD lane-reorder precision loss */
     float64x2_t sig_dsum0 = vdupq_n_f64(0.0);

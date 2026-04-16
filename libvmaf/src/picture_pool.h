@@ -31,8 +31,7 @@ typedef struct VmafPicturePoolConfig {
 
 typedef struct VmafPicturePool VmafPicturePool;
 
-int vmaf_picture_pool_init(VmafPicturePool **pool,
-                           VmafPicturePoolConfig cfg);
+int vmaf_picture_pool_init(VmafPicturePool **pool, VmafPicturePoolConfig cfg);
 
 int vmaf_picture_pool_close(VmafPicturePool *pool);
 

@@ -60,11 +60,11 @@ static char *test_range_foot_head()
     int foot, head;
 
     range_foot_head(8, VMAF_PIXEL_RANGE_LIMITED, &foot, &head);
-    mu_assert("wrong 'limited' 8b range computation", (foot==16 && head==235));
+    mu_assert("wrong 'limited' 8b range computation", (foot == 16 && head == 235));
     range_foot_head(8, VMAF_PIXEL_RANGE_FULL, &foot, &head);
-    mu_assert("wrong 'full' 8b range computation", (foot==0 && head==255));
+    mu_assert("wrong 'full' 8b range computation", (foot == 0 && head == 255));
     range_foot_head(10, VMAF_PIXEL_RANGE_LIMITED, &foot, &head);
-    mu_assert("wrong 'limited' 10b range computation", (foot==64 && head==940));
+    mu_assert("wrong 'limited' 10b range computation", (foot == 64 && head == 940));
 
     return NULL;
 }

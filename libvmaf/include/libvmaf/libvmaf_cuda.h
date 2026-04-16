@@ -84,8 +84,7 @@ typedef struct VmafCudaPictureConfiguration {
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_cuda_preallocate_pictures(VmafContext *vmaf,
-                                   VmafCudaPictureConfiguration cfg);
+int vmaf_cuda_preallocate_pictures(VmafContext *vmaf, VmafCudaPictureConfiguration cfg);
 
 /**
  * Fetch a preallocated VmafPicture for use during CUDA feature extraction.
@@ -100,7 +99,7 @@ int vmaf_cuda_preallocate_pictures(VmafContext *vmaf,
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_cuda_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture* pic);
+int vmaf_cuda_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic);
 
 #ifdef __cplusplus
 }

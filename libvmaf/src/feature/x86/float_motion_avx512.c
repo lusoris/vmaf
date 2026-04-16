@@ -43,14 +43,22 @@ float float_sad_line_avx512(const float *img1, const float *img2, int w)
          */
         float tmp[16];
         _mm512_storeu_ps(tmp, abs_diff);
-        accum += tmp[0];  accum += tmp[1];
-        accum += tmp[2];  accum += tmp[3];
-        accum += tmp[4];  accum += tmp[5];
-        accum += tmp[6];  accum += tmp[7];
-        accum += tmp[8];  accum += tmp[9];
-        accum += tmp[10]; accum += tmp[11];
-        accum += tmp[12]; accum += tmp[13];
-        accum += tmp[14]; accum += tmp[15];
+        accum += tmp[0];
+        accum += tmp[1];
+        accum += tmp[2];
+        accum += tmp[3];
+        accum += tmp[4];
+        accum += tmp[5];
+        accum += tmp[6];
+        accum += tmp[7];
+        accum += tmp[8];
+        accum += tmp[9];
+        accum += tmp[10];
+        accum += tmp[11];
+        accum += tmp[12];
+        accum += tmp[13];
+        accum += tmp[14];
+        accum += tmp[15];
     }
 
     for (; j < w; j++) {
