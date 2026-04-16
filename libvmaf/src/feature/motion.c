@@ -33,52 +33,55 @@
 #include "motion_tools.h"
 
 #define convolution_f32_c convolution_f32_c_s
-#define FILTER_5           FILTER_5_s
-#define offset_image       offset_image_s
+#define FILTER_5 FILTER_5_s
+#define offset_image offset_image_s
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 /**
  * Note: img1_stride and img2_stride are in terms of (sizeof(float) bytes)
  */
-float vmaf_image_sad_c(const float *img1, const float *img2, int width, int height, int img1_stride, int img2_stride)
+float vmaf_image_sad_c(const float *img1, const float *img2, int width, int height, int img1_stride,
+                       int img2_stride)
 {
     float accum = (float)0.0;
 
     for (int i = 0; i < height; ++i) {
-                float accum_line = (float)0.0;
+        float accum_line = (float)0.0;
         for (int j = 0; j < width; ++j) {
             float img1px = img1[i * img1_stride + j];
             float img2px = img2[i * img2_stride + j];
 
             accum_line += fabs(img1px - img2px);
         }
-                accum += accum_line;
+        accum += accum_line;
     }
 
-    return (float) (accum / (width * height));
+    return (float)(accum / (width * height));
 }
 
 /**
  * Note: ref_stride and dis_stride are in terms of bytes
  */
-int compute_motion(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride, double *score)
+int compute_motion(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
+                   double *score)
 {
 
-    if (ref_stride % sizeof(float) != 0)
-    {
-        printf("error: ref_stride %% sizeof(float) != 0, ref_stride = %d, sizeof(float) = %zu.\n", ref_stride, sizeof(float));
+    if (ref_stride % sizeof(float) != 0) {
+        printf("error: ref_stride %% sizeof(float) != 0, ref_stride = %d, sizeof(float) = %zu.\n",
+               ref_stride, sizeof(float));
         fflush(stdout);
         goto fail;
     }
-    if (dis_stride % sizeof(float) != 0)
-    {
-        printf("error: dis_stride %% sizeof(float) != 0, dis_stride = %d, sizeof(float) = %zu.\n", dis_stride, sizeof(float));
+    if (dis_stride % sizeof(float) != 0) {
+        printf("error: dis_stride %% sizeof(float) != 0, dis_stride = %d, sizeof(float) = %zu.\n",
+               dis_stride, sizeof(float));
         fflush(stdout);
         goto fail;
     }
     // stride for vmaf_image_sad_c is in terms of (sizeof(float) bytes)
-    *score = vmaf_image_sad_c(ref, dis, w, h, ref_stride / sizeof(float), dis_stride / sizeof(float));
+    *score =
+        vmaf_image_sad_c(ref, dis, w, h, ref_stride / sizeof(float), dis_stride / sizeof(float));
 
     return 0;
 

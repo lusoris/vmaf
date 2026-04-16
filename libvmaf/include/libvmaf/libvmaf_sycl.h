@@ -55,8 +55,7 @@ typedef struct VmafSyclConfiguration {
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_state_init(VmafSyclState **sycl_state,
-                          VmafSyclConfiguration cfg);
+int vmaf_sycl_state_init(VmafSyclState **sycl_state, VmafSyclConfiguration cfg);
 
 /**
  * Import a VmafSyclState into a VmafContext.
@@ -100,8 +99,7 @@ typedef struct VmafSyclPictureConfiguration {
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_preallocate_pictures(VmafContext *vmaf,
-                                    VmafSyclPictureConfiguration cfg);
+int vmaf_sycl_preallocate_pictures(VmafContext *vmaf, VmafSyclPictureConfiguration cfg);
 
 /**
  * Fetch a pre-allocated SYCL picture.
@@ -134,8 +132,7 @@ int vmaf_sycl_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_init_frame_buffers(VmafContext *vmaf,
-                                  unsigned w, unsigned h, unsigned bpc);
+int vmaf_sycl_init_frame_buffers(VmafContext *vmaf, unsigned w, unsigned h, unsigned bpc);
 
 /**
  * Obtain pointers to the shared device buffers.
@@ -148,8 +145,7 @@ int vmaf_sycl_init_frame_buffers(VmafContext *vmaf,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_get_frame_buffers(VmafContext *vmaf,
-                                 void **ref, void **dis);
+int vmaf_sycl_get_frame_buffers(VmafContext *vmaf, void **ref, void **dis);
 
 /**
  * Wait for all submitted SYCL compute work to complete.
@@ -206,8 +202,7 @@ int vmaf_flush_sycl(VmafContext *vmaf);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_dmabuf_import(VmafSyclState *sycl_state, int fd, size_t size,
-                             void **ptr);
+int vmaf_sycl_dmabuf_import(VmafSyclState *sycl_state, int fd, size_t size, void **ptr);
 
 /**
  * Free a pointer returned by vmaf_sycl_dmabuf_import().
@@ -235,11 +230,9 @@ void vmaf_sycl_dmabuf_free(VmafSyclState *sycl_state, void *ptr);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_import_va_surface(VmafSyclState *sycl_state,
-                                 void *va_display,
-                                 unsigned int va_surface,
-                                 int is_ref,
-                                 unsigned w, unsigned h, unsigned bpc);
+int vmaf_sycl_import_va_surface(VmafSyclState *sycl_state, void *va_display,
+                                unsigned int va_surface, int is_ref, unsigned w, unsigned h,
+                                unsigned bpc);
 
 /**
  * Upload a raw Y-plane from host memory into a shared frame buffer.
@@ -256,10 +249,8 @@ int vmaf_sycl_import_va_surface(VmafSyclState *sycl_state,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_upload_plane(VmafSyclState *sycl_state,
-                            const void *src, unsigned pitch,
-                            int is_ref,
-                            unsigned w, unsigned h, unsigned bpc);
+int vmaf_sycl_upload_plane(VmafSyclState *sycl_state, const void *src, unsigned pitch, int is_ref,
+                           unsigned w, unsigned h, unsigned bpc);
 
 #ifdef _WIN32
 /**
@@ -279,12 +270,9 @@ int vmaf_sycl_upload_plane(VmafSyclState *sycl_state,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_import_d3d11_surface(VmafSyclState *sycl_state,
-                                    void *d3d11_device,
-                                    void *d3d11_texture,
-                                    unsigned subresource,
-                                    int is_ref,
-                                    unsigned w, unsigned h, unsigned bpc);
+int vmaf_sycl_import_d3d11_surface(VmafSyclState *sycl_state, void *d3d11_device,
+                                   void *d3d11_texture, unsigned subresource, int is_ref,
+                                   unsigned w, unsigned h, unsigned bpc);
 #endif /* _WIN32 */
 
 /* ------------------------------------------------------------------
@@ -325,8 +313,7 @@ void vmaf_sycl_profiling_print(VmafSyclState *sycl_state);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_profiling_get_string(VmafSyclState *sycl_state,
-                                    char **output);
+int vmaf_sycl_profiling_get_string(VmafSyclState *sycl_state, char **output);
 
 /**
  * Release all resources owned by the SYCL state (queue, buffers, etc.)

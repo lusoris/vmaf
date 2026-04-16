@@ -9,6 +9,7 @@ every YUV / Y4M file by SHA-256, and optionally joins a MOS CSV.
 CSV format (if provided): one header row, columns `key,mos`. Unknown keys
 in the CSV are ignored; files without a MOS entry simply get `mos: null`.
 """
+
 from __future__ import annotations
 
 import csv
@@ -51,7 +52,11 @@ def load_mos_csv(csv_path: Path) -> dict[str, float]:
     mos: dict[str, float] = {}
     with csv_path.open() as fh:
         reader = csv.DictReader(fh)
-        if reader.fieldnames is None or "key" not in reader.fieldnames or "mos" not in reader.fieldnames:
+        if (
+            reader.fieldnames is None
+            or "key" not in reader.fieldnames
+            or "mos" not in reader.fieldnames
+        ):
             raise ValueError(f"{csv_path}: missing required 'key' / 'mos' columns")
         for row in reader:
             key = row["key"].strip()
@@ -78,12 +83,14 @@ def scan(dataset: str, root: Path, mos_csv: Path | None = None) -> list[ScanEntr
             continue
         rel = p.relative_to(root)
         key = _key_from_relpath(rel)
-        entries.append(ScanEntry(
-            key=key,
-            path=str(rel),
-            sha256=_sha256(p),
-            mos=mos.get(key),
-        ))
+        entries.append(
+            ScanEntry(
+                key=key,
+                path=str(rel),
+                sha256=_sha256(p),
+                mos=mos.get(key),
+            )
+        )
     return entries
 
 
@@ -94,8 +101,7 @@ def write_manifest(dataset: str, entries: list[ScanEntry]) -> Path:
         "name": dataset,
         "license": meta["license"],
         "entries": [
-            {"key": e.key, "path": e.path, "sha256": e.sha256, "mos": e.mos}
-            for e in entries
+            {"key": e.key, "path": e.path, "sha256": e.sha256, "mos": e.mos} for e in entries
         ],
     }
     with dst.open("w") as fh:

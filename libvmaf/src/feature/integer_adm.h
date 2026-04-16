@@ -11,7 +11,8 @@
 static int32_t div_lookup[65537];
 static const int32_t div_Q_factor = 1073741824; // 2^30
 
-static inline void div_lookup_generator() {
+static inline void div_lookup_generator()
+{
     for (int i = 1; i <= 32768; ++i) {
         int32_t recip = (int32_t)(div_Q_factor / i);
         div_lookup[32768 + i] = recip;
@@ -35,10 +36,10 @@ typedef struct i4_adm_dwt_band_t {
 
 typedef struct AdmBuffer {
     size_t ind_size_x, ind_size_y; // strides size for intermidate buffers
-    void *data_buf;   // buffer for adm intermidiate data calculations
-    void *tmp_ref;    // buffer for adm intermidiate data calculations
-    void *buf_x_orig; // buffer for storing imgcoeff values along x.
-    void *buf_y_orig; // buffer for storing imgcoeff values along y.
+    void *data_buf;                // buffer for adm intermidiate data calculations
+    void *tmp_ref;                 // buffer for adm intermidiate data calculations
+    void *buf_x_orig;              // buffer for storing imgcoeff values along x.
+    void *buf_y_orig;              // buffer for storing imgcoeff values along y.
     int *ind_y[4], *ind_x[4];
 
     adm_dwt_band_t ref_dwt2;
@@ -148,11 +149,8 @@ static const struct dwt_model_params dwt_7_9_YCbCr_threshold[3] = {
  * These amplitudes were calculated for the 7-9 biorthogonal wavelet basis
  */
 static const float dwt_7_9_basis_function_amplitudes[6][4] = {
-    {0.62171, 0.67234, 0.72709, 0.67234},
-    {0.34537, 0.41317, 0.49428, 0.41317},
-    {0.18004, 0.22727, 0.28688, 0.22727},
-    {0.091401, 0.11792, 0.15214, 0.11792},
-    {0.045943, 0.059758, 0.077727, 0.059758},
-    {0.023013, 0.030018, 0.039156, 0.030018}};
+    {0.62171, 0.67234, 0.72709, 0.67234},     {0.34537, 0.41317, 0.49428, 0.41317},
+    {0.18004, 0.22727, 0.28688, 0.22727},     {0.091401, 0.11792, 0.15214, 0.11792},
+    {0.045943, 0.059758, 0.077727, 0.059758}, {0.023013, 0.030018, 0.039156, 0.030018}};
 
 #endif /* _FEATURE_ADM_H_ */

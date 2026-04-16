@@ -19,7 +19,7 @@
 #ifndef X86_AVX2_ANSNR_H_
 #define X86_AVX2_ANSNR_H_
 
-void ansnr_mse_line_avx2(const float *ref, const float *dis,
-                          float *sig_accum, float *noise_accum, int w);
+void ansnr_mse_line_avx2(const float *ref, const float *dis, float *sig_accum, float *noise_accum,
+                         int w);
 
 #endif /* X86_AVX2_ANSNR_H_ */

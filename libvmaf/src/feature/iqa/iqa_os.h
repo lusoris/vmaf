@@ -46,12 +46,12 @@
 #define IQA_INLINE __inline
 
 #ifndef INFINITY
-    #define INFINITY (float)HUGE_VAL /**< Defined in C99 (Windows is C89) */
-#endif /*INFINITY*/
+#define INFINITY (float)HUGE_VAL /**< Defined in C99 (Windows is C89) */
+#endif                           /*INFINITY*/
 
 #ifndef NAN
-    static const unsigned long __nan[2] = {0xffffffff, 0x7fffffff};
-    #define NAN (*(const float *) __nan) /**< Defined in C99 (Windows is C99) */
+static const unsigned long __nan[2] = {0xffffffff, 0x7fffffff};
+#define NAN (*(const float *)__nan) /**< Defined in C99 (Windows is C99) */
 #endif
 
 #define IQA_EXPORT __declspec(dllexport)

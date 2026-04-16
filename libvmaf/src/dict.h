@@ -39,16 +39,13 @@ enum VmafDictionaryFlags {
     VMAF_DICT_NORMALIZE_NUMERICAL_VALUES = 1 << 1,
 };
 
-int vmaf_dictionary_set(VmafDictionary **dict, const char *key, const char *val,
-                        uint64_t flags);
+int vmaf_dictionary_set(VmafDictionary **dict, const char *key, const char *val, uint64_t flags);
 
-VmafDictionaryEntry *vmaf_dictionary_get(VmafDictionary **dict,
-                                         const char *key, uint64_t flags);
+VmafDictionaryEntry *vmaf_dictionary_get(VmafDictionary **dict, const char *key, uint64_t flags);
 
 int vmaf_dictionary_copy(VmafDictionary **src, VmafDictionary **dst);
 
-VmafDictionary *vmaf_dictionary_merge(VmafDictionary **dict_a,
-                                      VmafDictionary **dict_b,
+VmafDictionary *vmaf_dictionary_merge(VmafDictionary **dict_a, VmafDictionary **dict_b,
                                       uint64_t flags);
 
 int vmaf_dictionary_compare(VmafDictionary *dict_a, VmafDictionary *dict_b);

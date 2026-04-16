@@ -50,17 +50,15 @@ static const char *level_str_color[] = {
 
 void vmaf_log(enum VmafLogLevel level, const char *fmt, ...)
 {
-    if (level <= VMAF_LOG_LEVEL_NONE) return;
-    if (level > vmaf_log_level) return;
+    if (level <= VMAF_LOG_LEVEL_NONE)
+        return;
+    if (level > vmaf_log_level)
+        return;
 
     va_list args;
-    (void) fprintf(stderr, "%slibvmaf%s %s%s%s ",
-                   istty ? "\x1B[35m" : "",
-                   istty ? "\x1B[0m" : "",
-                   istty ? level_str_color[level] : "",
-                   level_str[level],
-                   istty ? "\x1B[0m" : "");
+    (void)fprintf(stderr, "%slibvmaf%s %s%s%s ", istty ? "\x1B[35m" : "", istty ? "\x1B[0m" : "",
+                  istty ? level_str_color[level] : "", level_str[level], istty ? "\x1B[0m" : "");
     va_start(args, fmt);
-    (void) vfprintf(stderr, fmt, args);
+    (void)vfprintf(stderr, fmt, args);
     va_end(args);
 }

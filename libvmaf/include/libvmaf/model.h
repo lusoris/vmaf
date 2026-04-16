@@ -41,7 +41,7 @@ typedef struct VmafModel VmafModel;
  * sets `"kind": "nr"`, in which case DNN_NR).
  */
 typedef enum VmafModelKind {
-    VMAF_MODEL_KIND_SVM    = 0,
+    VMAF_MODEL_KIND_SVM = 0,
     VMAF_MODEL_KIND_DNN_FR = 1,
     VMAF_MODEL_KIND_DNN_NR = 2,
 } VmafModelKind;
@@ -58,11 +58,9 @@ typedef struct VmafModelConfig {
     uint64_t flags;
 } VmafModelConfig;
 
-int vmaf_model_load(VmafModel **model, VmafModelConfig *cfg,
-                    const char *version);
+int vmaf_model_load(VmafModel **model, VmafModelConfig *cfg, const char *version);
 
-int vmaf_model_load_from_path(VmafModel **model, VmafModelConfig *cfg,
-                              const char *path);
+int vmaf_model_load_from_path(VmafModel **model, VmafModelConfig *cfg, const char *path);
 
 int vmaf_model_feature_overload(VmafModel *model, const char *feature_name,
                                 VmafFeatureDictionary *opts_dict);
@@ -82,23 +80,20 @@ typedef struct VmafModelCollectionScore {
         double bagging_score;
         double stddev;
         struct {
-            struct { double lo, hi; } p95;
+            struct {
+                double lo, hi;
+            } p95;
         } ci;
     } bootstrap;
 } VmafModelCollectionScore;
 
-int vmaf_model_collection_load(VmafModel **model,
-                               VmafModelCollection **model_collection,
-                               VmafModelConfig *cfg,
-                               const char *version);
+int vmaf_model_collection_load(VmafModel **model, VmafModelCollection **model_collection,
+                               VmafModelConfig *cfg, const char *version);
 
-int vmaf_model_collection_load_from_path(VmafModel **model,
-                                         VmafModelCollection **model_collection,
-                                         VmafModelConfig *cfg,
-                                         const char *path);
+int vmaf_model_collection_load_from_path(VmafModel **model, VmafModelCollection **model_collection,
+                                         VmafModelConfig *cfg, const char *path);
 
-int vmaf_model_collection_feature_overload(VmafModel *model,
-                                           VmafModelCollection **model_collection,
+int vmaf_model_collection_feature_overload(VmafModel *model, VmafModelCollection **model_collection,
                                            const char *feature_name,
                                            VmafFeatureDictionary *opts_dict);
 

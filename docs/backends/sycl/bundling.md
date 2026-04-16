@@ -85,3 +85,29 @@ Any "not found" entries need to be bundled.
 - SPIR-V device code is embedded in the binary at link time via `clang-offload-wrapper`, so no extra device code files are needed.
 - The kernel driver (`i915` or `xe`) must still be loaded on the target system — it cannot be bundled.
 - `libva` and `libva-drm` are only needed if using the DMA-BUF zero-copy path; otherwise the CPU upload path is used.
+
+## Toolchain versions and runtime knobs
+
+Built and validated against:
+
+- **Intel oneAPI DPC++ 2025.3** (package `intel-oneapi-compiler-dpcpp-cpp-2025.3`, icpx 2025.3.x).
+- **Level Zero loader v1.28.0** (`oneapi-src/level-zero`, tag `v1.28.0`, Feb 2026).
+- **Intel Compute Runtime 26.09+** on target systems with Xe2 / Battlemage.
+- **SYCL 2020 Rev 11** spec.
+
+oneAPI 2025.0 was an ABI-breaking release; any object files / shared libraries built
+against earlier toolchains must be rebuilt. CI pins the minor meta-package
+`-2025.3` rather than the unversioned `latest` to prevent silent bumps.
+
+### Level Zero v2 adapter (enabled by default on Xe2 / Battlemage)
+
+oneAPI 2025.3 enables the refactored Unified Runtime L0 v2 adapter by default on
+Arc B-Series and other Xe2-based GPUs. On **Arc A-Series / DG2 / Flex** you may
+observe a perf regression under L0 v2's immediate command lists; the escape hatch is:
+
+```bash
+export UR_L0_USE_IMMEDIATE_COMMANDLISTS=0
+```
+
+Set before running `ffmpeg` or any libvmaf-linked binary. Xe2 / Battlemage users
+should leave the default (immediate command lists on).

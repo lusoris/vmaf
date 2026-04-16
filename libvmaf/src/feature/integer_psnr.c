@@ -93,9 +93,7 @@ static const VmafOption options[] = {
         .min = 0.0,
         .max = DBL_MAX,
     },
-    { 0 }
-};
-
+    {0}};
 
 static uint32_t sse_line_8_c(const uint8_t *ref, const uint8_t *dis, unsigned w)
 {
@@ -107,8 +105,7 @@ static uint32_t sse_line_8_c(const uint8_t *ref, const uint8_t *dis, unsigned w)
     return sse;
 }
 
-static uint64_t sse_line_16_c(const uint16_t *ref, const uint16_t *dis,
-                               unsigned w)
+static uint64_t sse_line_16_c(const uint16_t *ref, const uint16_t *dis, unsigned w)
 {
     uint64_t sse = 0;
     for (unsigned j = 0; j < w; j++) {
@@ -118,8 +115,8 @@ static uint64_t sse_line_16_c(const uint16_t *ref, const uint16_t *dis,
     return sse;
 }
 
-static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h)
+static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                unsigned h)
 {
     PsnrState *s = fex->priv;
     s->peak = s->reduced_hbd_peak ? 255 * 1 << (bpc - 8) : (1 << bpc) - 1;
@@ -131,8 +128,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
         if (s->min_sse != 0.0) {
             const int ss_hor = pix_fmt != VMAF_PIX_FMT_YUV444P;
             const int ss_ver = pix_fmt == VMAF_PIX_FMT_YUV420P;
-            const double mse = s->min_sse /
-                (((i && ss_hor) ? w / 2 : w) * ((i && ss_ver) ? h / 2 : h));
+            const double mse =
+                s->min_sse / (((i && ss_hor) ? w / 2 : w) * ((i && ss_ver) ? h / 2 : h));
             s->psnr_max[i] = ceil(10. * log10(s->peak * s->peak / mse));
         } else {
             s->psnr_max[i] = (6 * bpc) + 12;
@@ -170,12 +167,11 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-static char *mse_name[3] = { "mse_y", "mse_cb", "mse_cr" };
-static char *psnr_name[3] = { "psnr_y", "psnr_cb", "psnr_cr" };
+static char *mse_name[3] = {"mse_y", "mse_cb", "mse_cr"};
+static char *psnr_name[3] = {"psnr_y", "psnr_cb", "psnr_cr"};
 
-static int psnr(VmafPicture *ref_pic, VmafPicture *dist_pic,
-                unsigned index, VmafFeatureCollector *feature_collector,
-                PsnrState *s)
+static int psnr(VmafPicture *ref_pic, VmafPicture *dist_pic, unsigned index,
+                VmafFeatureCollector *feature_collector, PsnrState *s)
 {
     const uint8_t peak = 255; // (1 << ref_pic->bpc) - 1;
     const unsigned n = s->enable_chroma ? 3 : 1;
@@ -200,24 +196,20 @@ static int psnr(VmafPicture *ref_pic, VmafPicture *dist_pic,
             s->apsnr.n_pixels[p] += ref_pic->h[p] * ref_pic->w[p];
         }
 
-        const double mse = ((double) sse) / (ref_pic->w[p] * ref_pic->h[p]);
-        const double psnr =
-            MIN(10. * log10(peak * peak / MAX(mse, 1e-16)), s->psnr_max[p]);
+        const double mse = ((double)sse) / (ref_pic->w[p] * ref_pic->h[p]);
+        const double psnr = MIN(10. * log10(peak * peak / MAX(mse, 1e-16)), s->psnr_max[p]);
 
-        err |= vmaf_feature_collector_append(feature_collector, psnr_name[p],
-                                             psnr, index);
+        err |= vmaf_feature_collector_append(feature_collector, psnr_name[p], psnr, index);
         if (s->enable_mse) {
-            err |= vmaf_feature_collector_append(feature_collector, mse_name[p],
-                                                 mse, index);
+            err |= vmaf_feature_collector_append(feature_collector, mse_name[p], mse, index);
         }
     }
 
     return err;
 }
 
-static int psnr_hbd(VmafPicture *ref_pic, VmafPicture *dist_pic,
-                    unsigned index, VmafFeatureCollector *feature_collector,
-                    PsnrState *s)
+static int psnr_hbd(VmafPicture *ref_pic, VmafPicture *dist_pic, unsigned index,
+                    VmafFeatureCollector *feature_collector, PsnrState *s)
 {
     const unsigned n = s->enable_chroma ? 3 : 1;
 
@@ -241,33 +233,28 @@ static int psnr_hbd(VmafPicture *ref_pic, VmafPicture *dist_pic,
             s->apsnr.n_pixels[p] += ref_pic->h[p] * ref_pic->w[p];
         }
 
-        const double mse = ((double) sse) / (ref_pic->w[p] * ref_pic->h[p]);
-        const double psnr =
-            MIN(10. * log10(s->peak * s->peak / MAX(mse, 1e-16)),
-                s->psnr_max[p]);
+        const double mse = ((double)sse) / (ref_pic->w[p] * ref_pic->h[p]);
+        const double psnr = MIN(10. * log10(s->peak * s->peak / MAX(mse, 1e-16)), s->psnr_max[p]);
 
-        err |= vmaf_feature_collector_append(feature_collector, psnr_name[p],
-                                             psnr, index);
+        err |= vmaf_feature_collector_append(feature_collector, psnr_name[p], psnr, index);
         if (s->enable_mse) {
-            err |= vmaf_feature_collector_append(feature_collector, mse_name[p],
-                                                 mse, index);
+            err |= vmaf_feature_collector_append(feature_collector, mse_name[p], mse, index);
         }
     }
 
     return err;
 }
 
-static int extract(VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector)
+static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector)
 {
     PsnrState *s = fex->priv;
 
-    (void) ref_pic_90;
-    (void) dist_pic_90;
+    (void)ref_pic_90;
+    (void)dist_pic_90;
 
-    switch(ref_pic->bpc) {
+    switch (ref_pic->bpc) {
     case 8:
         return psnr(ref_pic, dist_pic, index, feature_collector, s);
     case 10:
@@ -279,39 +266,29 @@ static int extract(VmafFeatureExtractor *fex,
     }
 }
 
-static int flush(VmafFeatureExtractor *fex,
-                 VmafFeatureCollector *feature_collector)
+static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
     PsnrState *s = fex->priv;
-    const char *apsnr_name[3] = { "apsnr_y", "apsnr_cb", "apsnr_cr" };
+    const char *apsnr_name[3] = {"apsnr_y", "apsnr_cb", "apsnr_cr"};
 
     int err = 0;
     if (s->enable_apsnr) {
         for (unsigned i = 0; i < 3; i++) {
 
-            double apsnr = 10 * (log10(s->peak * s->peak) +
-                                 log10(s->apsnr.n_pixels[i]) -
+            double apsnr = 10 * (log10(s->peak * s->peak) + log10(s->apsnr.n_pixels[i]) -
                                  log10(s->apsnr.sse[i]));
 
-            double max_apsnr =
-                ceil(10 * log10(s->peak * s->peak *
-                                s->apsnr.n_pixels[i] *
-                                2));
+            double max_apsnr = ceil(10 * log10(s->peak * s->peak * s->apsnr.n_pixels[i] * 2));
 
-            err |=
-                vmaf_feature_collector_set_aggregate(feature_collector,
-                                                     apsnr_name[i],
-                                                     MIN(apsnr, max_apsnr));
+            err |= vmaf_feature_collector_set_aggregate(feature_collector, apsnr_name[i],
+                                                        MIN(apsnr, max_apsnr));
         }
     }
 
     return (err < 0) ? err : !err;
 }
 
-static const char *provided_features[] = {
-    "psnr_y", "psnr_cb", "psnr_cr",
-    NULL
-};
+static const char *provided_features[] = {"psnr_y", "psnr_cb", "psnr_cr", NULL};
 
 VmafFeatureExtractor vmaf_fex_psnr = {
     .name = "psnr",

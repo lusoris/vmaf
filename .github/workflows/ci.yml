@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -66,7 +66,7 @@ jobs:
     needs: netflix-golden
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install deps
         run: |
           sudo apt-get update
@@ -90,7 +90,7 @@ jobs:
       matrix:
         sanitizer: [address, undefined, thread]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install deps
         run: |
           sudo apt-get update
@@ -116,7 +116,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install build deps
         run: |
           sudo apt-get update
@@ -124,7 +124,9 @@ jobs:
             python3-pip python3-venv
       - name: Install ONNX Runtime (CPU)
         env:
-          ORT_VERSION: "1.20.0"
+          # Pinned to 1.22.2 (Mar 2026). 1.24.x is current latest but
+          # very fresh; 1.22 is stable and two minors newer than 1.20.
+          ORT_VERSION: "1.22.2"
         run: |
           curl -sSL \
             "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
@@ -173,7 +175,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install deps
         run: |
           sudo apt-get update
@@ -213,6 +215,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run assertion density scanner
         run: bash scripts/ci/assertion-density.sh

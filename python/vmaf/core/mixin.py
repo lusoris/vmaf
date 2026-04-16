@@ -1,7 +1,7 @@
-from abc import abstractmethod, ABCMeta
 import os
-import uuid
 import re
+import uuid
+from abc import ABCMeta, abstractmethod
 
 from vmaf.tools.misc import get_dir_without_last_slash
 
@@ -52,19 +52,19 @@ class TypeVersionEnabled(object):
 
     def _assert_type_version(self):
 
-        assert re.match(r"^[a-zA-Z0-9._-]+$", self.TYPE), \
-            "TYPE can only contains alphabets, numbers, dot (.), hyphen(-) and underscore (_)."
+        assert re.match(
+            r"^[a-zA-Z0-9._-]+$", self.TYPE
+        ), "TYPE can only contains alphabets, numbers, dot (.), hyphen(-) and underscore (_)."
 
-        assert re.match(r"^[a-zA-Z0-9._-]+$", self.VERSION), \
-            "VERSION can only contains alphabets, numbers, dot (.), hyphen(-) and underscore (_)."
+        assert re.match(
+            r"^[a-zA-Z0-9._-]+$", self.VERSION
+        ), "VERSION can only contains alphabets, numbers, dot (.), hyphen(-) and underscore (_)."
 
     def get_type_version_string(self):
-        return "{type}_V{version}".format(type=self.TYPE,
-                                          version=self.VERSION)
+        return "{type}_V{version}".format(type=self.TYPE, version=self.VERSION)
 
     def get_cozy_type_version_string(self):
-        return "{type} VERSION {version}".format(type=self.TYPE,
-                                                 version=self.VERSION)
+        return "{type} VERSION {version}".format(type=self.TYPE, version=self.VERSION)
 
     @classmethod
     def find_subclass(cls, subclass_type):
@@ -75,16 +75,17 @@ class TypeVersionEnabled(object):
         """
         matched_subclasses = []
         for subclass in cls.get_subclasses_recursively():
-            if hasattr(subclass, 'TYPE') and subclass.TYPE == subclass_type:
+            if hasattr(subclass, "TYPE") and subclass.TYPE == subclass_type:
                 matched_subclasses.append(subclass)
-        assert len(matched_subclasses) == 1, \
-            "Must have one and only one subclass of {class_name} with type " \
+        assert len(matched_subclasses) == 1, (
+            "Must have one and only one subclass of {class_name} with type "
             "{type}, but got {num}: {classes}".format(
                 class_name=cls.__name__,
                 type=subclass_type,
                 num=len(matched_subclasses),
                 classes=[clss.__name__ for clss in matched_subclasses],
             )
+        )
         return matched_subclasses[0]
 
     @classmethod

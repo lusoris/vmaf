@@ -60,17 +60,19 @@ typedef struct PsnrState {
     double (*noise_line)(const float *, const float *, int);
 } PsnrState;
 
-static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h)
+static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                unsigned h)
 {
     (void)pix_fmt;
 
     PsnrState *s = fex->priv;
     s->float_stride = ALIGN_CEIL(w * sizeof(float));
     s->ref = aligned_malloc(s->float_stride * h, 32);
-    if (!s->ref) goto fail;
+    if (!s->ref)
+        goto fail;
     s->dist = aligned_malloc(s->float_stride * h, 32);
-    if (!s->dist) goto free_ref;
+    if (!s->dist)
+        goto free_ref;
 
     if (bpc == 8) {
         s->peak = 255.0;
@@ -116,16 +118,15 @@ fail:
     return -ENOMEM;
 }
 
-static int extract(VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector)
+static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector)
 {
     PsnrState *s = fex->priv;
     int err = 0;
 
-    (void) ref_pic_90;
-    (void) dist_pic_90;
+    (void)ref_pic_90;
+    (void)dist_pic_90;
 
     picture_copy(s->ref, s->float_stride, ref_pic, 0, ref_pic->bpc);
     picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc);
@@ -140,26 +141,24 @@ static int extract(VmafFeatureExtractor *fex,
     noise_ /= (w * h);
 
     double eps = 1e-10;
-    double score = MIN(10 * log10(s->peak * s->peak / MAX(noise_, eps)),
-                       s->psnr_max);
-    err = vmaf_feature_collector_append(feature_collector, "float_psnr",
-                                        score, index);
-    if (err) return err;
+    double score = MIN(10 * log10(s->peak * s->peak / MAX(noise_, eps)), s->psnr_max);
+    err = vmaf_feature_collector_append(feature_collector, "float_psnr", score, index);
+    if (err)
+        return err;
     return 0;
 }
 
 static int close(VmafFeatureExtractor *fex)
 {
     PsnrState *s = fex->priv;
-    if (s->ref) aligned_free(s->ref);
-    if (s->dist) aligned_free(s->dist);
+    if (s->ref)
+        aligned_free(s->ref);
+    if (s->dist)
+        aligned_free(s->dist);
     return 0;
 }
 
-static const char *provided_features[] = {
-    "float_psnr",
-    NULL
-};
+static const char *provided_features[] = {"float_psnr", NULL};
 
 VmafFeatureExtractor vmaf_fex_float_psnr = {
     .name = "float_psnr",

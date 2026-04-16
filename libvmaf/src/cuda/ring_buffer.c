@@ -35,18 +35,22 @@ typedef struct VmafRingBuffer {
     VmafPicture *pic;
 } VmafRingBuffer;
 
-int vmaf_ring_buffer_init(VmafRingBuffer **ring_buffer,
-                          VmafRingBufferConfig cfg)
+int vmaf_ring_buffer_init(VmafRingBuffer **ring_buffer, VmafRingBufferConfig cfg)
 {
-    if (!ring_buffer) return -EINVAL;
-    if (!cfg.pic_cnt) return -EINVAL;
-    if (!cfg.alloc_picture_callback) return -EINVAL;
-    if (!cfg.free_picture_callback) return -EINVAL;
+    if (!ring_buffer)
+        return -EINVAL;
+    if (!cfg.pic_cnt)
+        return -EINVAL;
+    if (!cfg.alloc_picture_callback)
+        return -EINVAL;
+    if (!cfg.free_picture_callback)
+        return -EINVAL;
 
     int err = 0;
 
     VmafRingBuffer *const rb = *ring_buffer = malloc(sizeof(*rb));
-    if (!rb) goto fail;
+    if (!rb)
+        goto fail;
     memset(rb, 0, sizeof(*rb));
     rb->cfg = cfg;
 
@@ -57,7 +61,8 @@ int vmaf_ring_buffer_init(VmafRingBuffer **ring_buffer,
     }
 
     err = pthread_mutex_init(&rb->busy, NULL);
-    if (err) goto free_pic;
+    if (err)
+        goto free_pic;
 
     for (unsigned i = 0; i < rb->cfg.pic_cnt; i++)
         err |= rb->cfg.alloc_picture_callback(&rb->pic[i], rb->cfg.cookie);
@@ -74,14 +79,16 @@ fail:
 
 int vmaf_ring_buffer_close(VmafRingBuffer *ring_buffer)
 {
-    if (!ring_buffer) return -EINVAL;
+    if (!ring_buffer)
+        return -EINVAL;
 
     int err = pthread_mutex_lock(&ring_buffer->busy);
-    if (err) return err;
+    if (err)
+        return err;
 
     for (unsigned i = 0; i < ring_buffer->cfg.pic_cnt; i++) {
-        err |= ring_buffer->cfg.free_picture_callback(&ring_buffer->pic[i],
-                                                      ring_buffer->cfg.cookie);
+        err |=
+            ring_buffer->cfg.free_picture_callback(&ring_buffer->pic[i], ring_buffer->cfg.cookie);
     }
 
     free(ring_buffer->pic);
@@ -89,18 +96,21 @@ int vmaf_ring_buffer_close(VmafRingBuffer *ring_buffer)
     return err;
 }
 
-int vmaf_ring_buffer_fetch_next_picture(VmafRingBuffer *ring_buffer,
-                                        VmafPicture *pic)
+int vmaf_ring_buffer_fetch_next_picture(VmafRingBuffer *ring_buffer, VmafPicture *pic)
 {
-    if (!ring_buffer) return -EINVAL;
-    if (!pic) return -EINVAL;
+    if (!ring_buffer)
+        return -EINVAL;
+    if (!pic)
+        return -EINVAL;
 
     int err = pthread_mutex_lock(&ring_buffer->busy);
-    if (err) return err;
+    if (err)
+        return err;
     unsigned pic_idx = ring_buffer->curr_idx;
-    ring_buffer->curr_idx = (ring_buffer->curr_idx+1) % ring_buffer->cfg.pic_cnt;
+    ring_buffer->curr_idx = (ring_buffer->curr_idx + 1) % ring_buffer->cfg.pic_cnt;
     err |= pthread_mutex_unlock(&ring_buffer->busy);
-    if (err) return err;
+    if (err)
+        return err;
 
 #ifdef HAVE_NVTX
     char n[40];
@@ -112,8 +122,7 @@ int vmaf_ring_buffer_fetch_next_picture(VmafRingBuffer *ring_buffer,
     vmaf_picture_ref(pic, &ring_buffer->pic[pic_idx]);
 
     if (ring_buffer->cfg.synchronize_picture_callback) {
-        err |= ring_buffer->cfg.synchronize_picture_callback(pic,
-                ring_buffer->cfg.cookie);
+        err |= ring_buffer->cfg.synchronize_picture_callback(pic, ring_buffer->cfg.cookie);
     }
 
 #ifdef HAVE_NVTX

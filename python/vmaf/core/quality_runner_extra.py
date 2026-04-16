@@ -14,12 +14,12 @@ class VmafQualityRunnerWithLocalExplainer(VmafQualityRunner):
     want to be searchable by type 'VMAF', so it is put in a different module file.
     """
 
-    TYPE = 'VMAF_LE'
-    VERSION = '{}-le1'.format(VmafQualityRunner.VERSION)
+    TYPE = "VMAF_LE"
+    VERSION = "{}-le1".format(VmafQualityRunner.VERSION)
 
     @classmethod
     def get_explanations_key(cls):
-        return cls.get_scores_key() + '_exps'
+        return cls.get_scores_key() + "_exps"
 
     @override(VmafQualityRunner)
     def _run_on_asset(self, asset):
@@ -30,11 +30,10 @@ class VmafQualityRunnerWithLocalExplainer(VmafQualityRunner):
         feature_result = vmaf_fassembler.results[0]
         model = self._load_model(asset)
         xs = model.get_per_unit_xs_from_a_result(feature_result)
-        ys_pred = self.predict_with_model(model, xs)['ys_pred']
+        ys_pred = self.predict_with_model(model, xs)["ys_pred"]
 
-        if self.optional_dict2 is not None and \
-           'explainer' in self.optional_dict2:
-            explainer = self.optional_dict2['explainer']
+        if self.optional_dict2 is not None and "explainer" in self.optional_dict2:
+            explainer = self.optional_dict2["explainer"]
         else:
             explainer = LocalExplainer()
 

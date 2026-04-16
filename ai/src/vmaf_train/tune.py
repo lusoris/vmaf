@@ -1,4 +1,5 @@
 """Optional Optuna hyperparameter sweep — imported lazily to keep core deps small."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

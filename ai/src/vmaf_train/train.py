@@ -1,4 +1,5 @@
 """Main training entry, driven by a YAML config or direct kwargs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,8 +14,8 @@ from .datamodule import VmafTrainDataModule
 from .models import FRRegressor, LearnedFilter, NRMetric
 
 MODEL_REGISTRY: dict[str, type[L.LightningModule]] = {
-    "fr_regressor":   FRRegressor,
-    "nr_metric":      NRMetric,
+    "fr_regressor": FRRegressor,
+    "nr_metric": NRMetric,
     "learned_filter": LearnedFilter,
 }
 

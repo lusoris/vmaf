@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+
 from vmaf.core.quality_runner import QualityRunner
 from vmaf.core.result_store import FileSystemResultStore
 from vmaf.routine import run_remove_results_for_dataset
@@ -11,10 +12,9 @@ __license__ = "BSD+Patent"
 
 
 def print_usage():
-    quality_runner_types = ['VMAF', 'PSNR', 'SSIM', 'MS_SSIM']
-    print("usage: " + os.path.basename(sys.argv[0]) + \
-          " quality_type dataset_filepath\n")
-    print("quality_type:\n\t" + "\n\t".join(quality_runner_types) +"\n")
+    quality_runner_types = ["VMAF", "PSNR", "SSIM", "MS_SSIM"]
+    print("usage: " + os.path.basename(sys.argv[0]) + " quality_type dataset_filepath\n")
+    print("quality_type:\n\t" + "\n\t".join(quality_runner_types) + "\n")
 
 
 def main():
@@ -48,6 +48,6 @@ def main():
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     ret = main()
     exit(ret)

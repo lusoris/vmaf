@@ -32,17 +32,16 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-int compute_psnr(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride, double *score, double peak, double psnr_max)
+int compute_psnr(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
+                 double *score, double peak, double psnr_max)
 {
     double noise_ = 0;
 
     int ref_stride_ = ref_stride / sizeof(float);
     int dis_stride_ = dis_stride / sizeof(float);
 
-    for (int i = 0; i < h; ++i)
-    {
-        for (int j = 0; j < w; ++j)
-        {
+    for (int i = 0; i < h; ++i) {
+        for (int j = 0; j < w; ++j) {
             float ref_ = ref[i * ref_stride_ + j];
             float dis_ = dis[i * dis_stride_ + j];
             float diff = ref_ - dis_;

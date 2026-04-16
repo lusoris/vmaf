@@ -20,15 +20,14 @@
 
 #include <libvmaf/picture.h>
 
-void picture_copy_hbd(float *dst, ptrdiff_t dst_stride,
-                      VmafPicture *src, int offset, float scaler)
+void picture_copy_hbd(float *dst, ptrdiff_t dst_stride, VmafPicture *src, int offset, float scaler)
 {
     float *float_data = dst;
     uint16_t *data = src->data[0];
 
     for (unsigned i = 0; i < src->h[0]; i++) {
         for (unsigned j = 0; j < src->w[0]; j++) {
-            float_data[j] = (float) data[j] / scaler + offset;
+            float_data[j] = (float)data[j] / scaler + offset;
         }
         float_data += dst_stride / sizeof(float);
         data += src->stride[0] / 2;
@@ -36,8 +35,7 @@ void picture_copy_hbd(float *dst, ptrdiff_t dst_stride,
     return;
 }
 
-void picture_copy(float *dst, ptrdiff_t dst_stride,
-                  VmafPicture *src, int offset, unsigned bpc)
+void picture_copy(float *dst, ptrdiff_t dst_stride, VmafPicture *src, int offset, unsigned bpc)
 {
     if (bpc == 10) {
         picture_copy_hbd(dst, dst_stride, src, offset, 4.0f);
@@ -55,7 +53,7 @@ void picture_copy(float *dst, ptrdiff_t dst_stride,
 
     for (unsigned i = 0; i < src->h[0]; i++) {
         for (unsigned j = 0; j < src->w[0]; j++) {
-            float_data[j] = (float) data[j] + offset;
+            float_data[j] = (float)data[j] + offset;
         }
         float_data += dst_stride / sizeof(float);
         data += src->stride[0];

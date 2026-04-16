@@ -23,9 +23,8 @@
 #include "feature/integer_motion.h"
 #include "feature/common/alignment.h"
 
-void x_convolution_16_neon(const uint16_t *src, uint16_t *dst, unsigned width,
-                           unsigned height, ptrdiff_t src_stride,
-                           ptrdiff_t dst_stride)
+void x_convolution_16_neon(const uint16_t *src, uint16_t *dst, unsigned width, unsigned height,
+                           ptrdiff_t src_stride, ptrdiff_t dst_stride)
 {
     const unsigned radius = filter_width / 2;
     const unsigned left_edge = vmaf_ceiln(radius, 1);
@@ -36,8 +35,7 @@ void x_convolution_16_neon(const uint16_t *src, uint16_t *dst, unsigned width,
     for (unsigned i = 0; i < height; ++i) {
         for (unsigned j = 0; j < left_edge; j++) {
             dst[i * dst_stride + j] =
-                (edge_16(true, src, width, height, src_stride, i, j) +
-                 shift_add_round) >> 16;
+                (edge_16(true, src, width, height, src_stride, i, j) + shift_add_round) >> 16;
         }
     }
 
@@ -106,8 +104,7 @@ void x_convolution_16_neon(const uint16_t *src, uint16_t *dst, unsigned width,
     for (unsigned i = 0; i < height; ++i) {
         for (unsigned j = right_edge; j < width; j++) {
             dst[i * dst_stride + j] =
-                (edge_16(true, src, width, height, src_stride, i, j) +
-                 shift_add_round) >> 16;
+                (edge_16(true, src, width, height, src_stride, i, j) + shift_add_round) >> 16;
         }
     }
 }

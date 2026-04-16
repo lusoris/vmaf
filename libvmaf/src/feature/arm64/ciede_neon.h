@@ -21,12 +21,10 @@
 
 #include <stdint.h>
 
-void ciede_preprocess_8_neon(const uint8_t *y_buf, const uint8_t *u_buf,
-                              const uint8_t *v_buf, float *out_y, float *out_u,
-                              float *out_v, int w);
+void ciede_preprocess_8_neon(const uint8_t *y_buf, const uint8_t *u_buf, const uint8_t *v_buf,
+                             float *out_y, float *out_u, float *out_v, int w);
 
-void ciede_preprocess_16_neon(const uint16_t *y_buf, const uint16_t *u_buf,
-                               const uint16_t *v_buf, float *out_y,
-                               float *out_u, float *out_v, int w);
+void ciede_preprocess_16_neon(const uint16_t *y_buf, const uint16_t *u_buf, const uint16_t *v_buf,
+                              float *out_y, float *out_u, float *out_v, int w);
 
 #endif /* ARM64_NEON_CIEDE_H_ */

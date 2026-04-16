@@ -48,8 +48,7 @@ typedef struct VmafSyclCookie {
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst,
-                              VmafPicture *pic, unsigned plane);
+int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst, VmafPicture *pic, unsigned plane);
 
 /**
  * Download a Y-plane from a SYCL USM device buffer back to a host
@@ -62,8 +61,8 @@ int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_picture_download(VmafSyclState *state, const void *src,
-                                VmafPicture *pic, unsigned plane);
+int vmaf_sycl_picture_download(VmafSyclState *state, const void *src, VmafPicture *pic,
+                               unsigned plane);
 
 /**
  * Allocate a SYCL device-backed VmafPicture.

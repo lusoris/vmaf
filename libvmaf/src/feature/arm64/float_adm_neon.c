@@ -21,19 +21,14 @@
 #include "float_adm_neon.h"
 #include "mem.h"
 
-static const float dwt2_db2_coeffs_lo_s[4] = {
-    0.482962913144690f, 0.836516303737469f,
-    0.224143868041857f, -0.129409522550921f
-};
+static const float dwt2_db2_coeffs_lo_s[4] = {0.482962913144690f, 0.836516303737469f,
+                                              0.224143868041857f, -0.129409522550921f};
 
-static const float dwt2_db2_coeffs_hi_s[4] = {
-    -0.129409522550921f, -0.224143868041857f,
-    0.836516303737469f, -0.482962913144690f
-};
+static const float dwt2_db2_coeffs_hi_s[4] = {-0.129409522550921f, -0.224143868041857f,
+                                              0.836516303737469f, -0.482962913144690f};
 
-void float_adm_dwt2_neon(const float *src, const adm_dwt_band_t_s *dst,
-                          int **ind_y, int **ind_x,
-                          int w, int h, int src_stride, int dst_stride)
+void float_adm_dwt2_neon(const float *src, const adm_dwt_band_t_s *dst, int **ind_y, int **ind_x,
+                         int w, int h, int src_stride, int dst_stride)
 {
     const float *filter_lo = dwt2_db2_coeffs_lo_s;
     const float *filter_hi = dwt2_db2_coeffs_hi_s;
@@ -88,10 +83,10 @@ void float_adm_dwt2_neon(const float *src, const adm_dwt_band_t_s *dst,
             float s2 = row2[j];
             float s3 = row3[j];
 
-            tmplo[j] = filter_lo[0] * s0 + filter_lo[1] * s1 +
-                        filter_lo[2] * s2 + filter_lo[3] * s3;
-            tmphi[j] = filter_hi[0] * s0 + filter_hi[1] * s1 +
-                        filter_hi[2] * s2 + filter_hi[3] * s3;
+            tmplo[j] =
+                filter_lo[0] * s0 + filter_lo[1] * s1 + filter_lo[2] * s2 + filter_lo[3] * s3;
+            tmphi[j] =
+                filter_hi[0] * s0 + filter_hi[1] * s1 + filter_hi[2] * s2 + filter_hi[3] * s3;
         }
 
         /* Horizontal pass (lo and hi): scalar due to indirect indexing. */
@@ -109,13 +104,13 @@ void float_adm_dwt2_neon(const float *src, const adm_dwt_band_t_s *dst,
             float accum;
             int off = i * dst_px_stride + j;
 
-            accum  = filter_lo[0] * sl0;
+            accum = filter_lo[0] * sl0;
             accum += filter_lo[1] * sl1;
             accum += filter_lo[2] * sl2;
             accum += filter_lo[3] * sl3;
             dst->band_a[off] = accum;
 
-            accum  = filter_hi[0] * sl0;
+            accum = filter_hi[0] * sl0;
             accum += filter_hi[1] * sl1;
             accum += filter_hi[2] * sl2;
             accum += filter_hi[3] * sl3;
@@ -126,13 +121,13 @@ void float_adm_dwt2_neon(const float *src, const adm_dwt_band_t_s *dst,
             float sh2 = tmphi[j2];
             float sh3 = tmphi[j3];
 
-            accum  = filter_lo[0] * sh0;
+            accum = filter_lo[0] * sh0;
             accum += filter_lo[1] * sh1;
             accum += filter_lo[2] * sh2;
             accum += filter_lo[3] * sh3;
             dst->band_h[off] = accum;
 
-            accum  = filter_hi[0] * sh0;
+            accum = filter_hi[0] * sh0;
             accum += filter_hi[1] * sh1;
             accum += filter_hi[2] * sh2;
             accum += filter_hi[3] * sh3;
@@ -144,9 +139,8 @@ void float_adm_dwt2_neon(const float *src, const adm_dwt_band_t_s *dst,
     aligned_free(tmphi);
 }
 
-void float_adm_csf_neon(const float *src, float *dst, float *flt,
-                         int w, int h, int src_stride, int dst_stride,
-                         float factor, float one_by_30)
+void float_adm_csf_neon(const float *src, float *dst, float *flt, int w, int h, int src_stride,
+                        int dst_stride, float factor, float one_by_30)
 {
     int src_px_stride = src_stride / sizeof(float);
     int dst_px_stride = dst_stride / sizeof(float);
@@ -179,11 +173,11 @@ void float_adm_csf_neon(const float *src, float *dst, float *flt,
     }
 }
 
-float float_adm_csf_den_scale_neon(const float *src, int w, int h,
-                                    int src_stride, int left, int top,
-                                    int right, int bottom, float factor)
+float float_adm_csf_den_scale_neon(const float *src, int w, int h, int src_stride, int left,
+                                   int top, int right, int bottom, float factor)
 {
-    (void)w; (void)h;
+    (void)w;
+    (void)h;
     int src_px_stride = src_stride / sizeof(float);
 
     float32x4_t v_factor = vdupq_n_f32(factor);
@@ -220,10 +214,11 @@ float float_adm_csf_den_scale_neon(const float *src, int w, int h,
     return accum;
 }
 
-float float_adm_sum_cube_neon(const float *x, int w, int h, int stride,
-                               int left, int top, int right, int bottom)
+float float_adm_sum_cube_neon(const float *x, int w, int h, int stride, int left, int top,
+                              int right, int bottom)
 {
-    (void)w; (void)h;
+    (void)w;
+    (void)h;
     int px_stride = stride / sizeof(float);
 
     float32x4_t v_accum = vdupq_n_f32(0.0f);

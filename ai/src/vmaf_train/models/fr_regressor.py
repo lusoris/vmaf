@@ -1,4 +1,5 @@
 """C1 — feature-vector → MOS regressor (replaces / augments SVM)."""
+
 from __future__ import annotations
 
 import lightning as L

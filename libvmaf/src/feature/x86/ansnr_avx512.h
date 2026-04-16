@@ -19,7 +19,7 @@
 #ifndef X86_AVX512_ANSNR_H_
 #define X86_AVX512_ANSNR_H_
 
-void ansnr_mse_line_avx512(const float *ref, const float *dis,
-                            float *sig_accum, float *noise_accum, int w);
+void ansnr_mse_line_avx512(const float *ref, const float *dis, float *sig_accum, float *noise_accum,
+                           int w);
 
 #endif /* X86_AVX512_ANSNR_H_ */

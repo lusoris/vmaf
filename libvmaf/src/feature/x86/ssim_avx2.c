@@ -21,9 +21,8 @@
 
 #include "ssim_avx2.h"
 
-void ssim_precompute_avx2(const float *ref, const float *cmp,
-                           float *ref_sq, float *cmp_sq,
-                           float *ref_cmp, int n)
+void ssim_precompute_avx2(const float *ref, const float *cmp, float *ref_sq, float *cmp_sq,
+                          float *ref_cmp, int n)
 {
     int i = 0;
     for (; i + 8 <= n; i += 8) {
@@ -40,9 +39,8 @@ void ssim_precompute_avx2(const float *ref, const float *cmp,
     }
 }
 
-void ssim_variance_avx2(float *ref_sigma_sqd, float *cmp_sigma_sqd,
-                         float *sigma_both, const float *ref_mu,
-                         const float *cmp_mu, int n)
+void ssim_variance_avx2(float *ref_sigma_sqd, float *cmp_sigma_sqd, float *sigma_both,
+                        const float *ref_mu, const float *cmp_mu, int n)
 {
     __m256 zero = _mm256_setzero_ps();
     int i = 0;
@@ -66,25 +64,24 @@ void ssim_variance_avx2(float *ref_sigma_sqd, float *cmp_sigma_sqd,
     }
     for (; i < n; i++) {
         ref_sigma_sqd[i] -= ref_mu[i] * ref_mu[i];
-        if (ref_sigma_sqd[i] < 0.0f) ref_sigma_sqd[i] = 0.0f;
+        if (ref_sigma_sqd[i] < 0.0f)
+            ref_sigma_sqd[i] = 0.0f;
         cmp_sigma_sqd[i] -= cmp_mu[i] * cmp_mu[i];
-        if (cmp_sigma_sqd[i] < 0.0f) cmp_sigma_sqd[i] = 0.0f;
+        if (cmp_sigma_sqd[i] < 0.0f)
+            cmp_sigma_sqd[i] = 0.0f;
         sigma_both[i] -= ref_mu[i] * cmp_mu[i];
     }
 }
 
-void ssim_accumulate_avx2(const float *ref_mu, const float *cmp_mu,
-                           const float *ref_sigma_sqd,
-                           const float *cmp_sigma_sqd,
-                           const float *sigma_both, int n,
-                           float C1, float C2, float C3,
-                           double *ssim_sum, double *l_sum,
-                           double *c_sum, double *s_sum)
+void ssim_accumulate_avx2(const float *ref_mu, const float *cmp_mu, const float *ref_sigma_sqd,
+                          const float *cmp_sigma_sqd, const float *sigma_both, int n, float C1,
+                          float C2, float C3, double *ssim_sum, double *l_sum, double *c_sum,
+                          double *s_sum)
 {
     __m256 vC1 = _mm256_set1_ps(C1);
     __m256 vC2 = _mm256_set1_ps(C2);
     __m256 vC3 = _mm256_set1_ps(C3);
-    __m256 v2  = _mm256_set1_ps(2.0f);
+    __m256 v2 = _mm256_set1_ps(2.0f);
     __m256 vzero = _mm256_setzero_ps();
 
     __m256d dssim0 = _mm256_setzero_pd();
@@ -109,8 +106,8 @@ void ssim_accumulate_avx2(const float *ref_mu, const float *cmp_mu,
 
         /* l = (2*rm*cm + C1) / (rm^2 + cm^2 + C1) */
         __m256 l_num = _mm256_add_ps(_mm256_mul_ps(v2, _mm256_mul_ps(rm, cm)), vC1);
-        __m256 l_den = _mm256_add_ps(_mm256_add_ps(_mm256_mul_ps(rm, rm),
-                                                     _mm256_mul_ps(cm, cm)), vC1);
+        __m256 l_den =
+            _mm256_add_ps(_mm256_add_ps(_mm256_mul_ps(rm, rm), _mm256_mul_ps(cm, cm)), vC1);
         __m256 l = _mm256_div_ps(l_num, l_den);
 
         /* c = (2*srsc + C2) / (rs + cs + C2) */
@@ -193,11 +190,9 @@ void ssim_accumulate_avx2(const float *ref_mu, const float *cmp_mu,
     for (; i < n; i++) {
         float srsc = sqrtf(ref_sigma_sqd[i] * cmp_sigma_sqd[i]);
         double lv = (2.0 * ref_mu[i] * cmp_mu[i] + C1) /
-                    (ref_mu[i]*ref_mu[i] + cmp_mu[i]*cmp_mu[i] + C1);
-        double cv = (2.0 * srsc + C2) /
-                    (ref_sigma_sqd[i] + cmp_sigma_sqd[i] + C2);
-        float csb = (sigma_both[i] < 0.0f && srsc <= 0.0f) ?
-                    0.0f : sigma_both[i];
+                    (ref_mu[i] * ref_mu[i] + cmp_mu[i] * cmp_mu[i] + C1);
+        double cv = (2.0 * srsc + C2) / (ref_sigma_sqd[i] + cmp_sigma_sqd[i] + C2);
+        float csb = (sigma_both[i] < 0.0f && srsc <= 0.0f) ? 0.0f : sigma_both[i];
         double sv = (csb + C3) / (srsc + C3);
         local_ssim += lv * cv * sv;
         local_l += lv;

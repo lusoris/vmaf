@@ -66,28 +66,26 @@ typedef struct MotionState {
     float (*sad_line)(const float *, const float *, int);
 } MotionState;
 
-static const VmafOption options[] = {
-    {
-        .name = "debug",
-        .help = "debug mode: enable additional output",
-        .offset = offsetof(MotionState, debug),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = true,
-    },
-    {
-        .name = "motion_force_zero",
-        .alias = "force_0",
-        .help = "forcing motion score to zero",
-        .offset = offsetof(MotionState, motion_force_zero),
-        .type = VMAF_OPT_TYPE_BOOL,
-        .default_val.b = false,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    { 0 }
-};
+static const VmafOption options[] = {{
+                                         .name = "debug",
+                                         .help = "debug mode: enable additional output",
+                                         .offset = offsetof(MotionState, debug),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = true,
+                                     },
+                                     {
+                                         .name = "motion_force_zero",
+                                         .alias = "force_0",
+                                         .help = "forcing motion score to zero",
+                                         .offset = offsetof(MotionState, motion_force_zero),
+                                         .type = VMAF_OPT_TYPE_BOOL,
+                                         .default_val.b = false,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {0}};
 
-static double compute_motion_simd(const float *ref, const float *dis,
-                                  int w, int h, int ref_stride, int dis_stride,
+static double compute_motion_simd(const float *ref, const float *dis, int w, int h, int ref_stride,
+                                  int dis_stride,
                                   float (*sad_line)(const float *, const float *, int))
 {
     int ref_px_stride = ref_stride / sizeof(float);
@@ -100,8 +98,8 @@ static double compute_motion_simd(const float *ref, const float *dis,
     return (double)(accum / (w * h));
 }
 
-static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                unsigned bpc, unsigned w, unsigned h)
+static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
+                unsigned h)
 {
     (void)pix_fmt;
     (void)bpc;
@@ -141,60 +139,58 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
 #endif
 
     s->feature_name_dict =
-        vmaf_feature_name_dict_from_provided_features(fex->provided_features,
-                fex->options, s);
-    if (!s->feature_name_dict) goto fail;
+        vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
+    if (!s->feature_name_dict)
+        goto fail;
 
     return 0;
 
 fail:
-    if (s->ref) aligned_free(s->ref);
-    if (s->blur[0]) aligned_free(s->blur[0]);
-    if (s->blur[1]) aligned_free(s->blur[1]);
-    if (s->blur[2]) aligned_free(s->blur[2]);
-    if (s->tmp) aligned_free(s->tmp);
+    if (s->ref)
+        aligned_free(s->ref);
+    if (s->blur[0])
+        aligned_free(s->blur[0]);
+    if (s->blur[1])
+        aligned_free(s->blur[1]);
+    if (s->blur[2])
+        aligned_free(s->blur[2]);
+    if (s->tmp)
+        aligned_free(s->tmp);
     vmaf_dictionary_free(&s->feature_name_dict);
     return -ENOMEM;
-
 }
 
-static int flush(VmafFeatureExtractor *fex,
-                 VmafFeatureCollector *feature_collector)
+static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
     MotionState *s = fex->priv;
     int ret = 0;
 
     if (s->index > 0) {
-        ret = vmaf_feature_collector_append(feature_collector,
-                                            "VMAF_feature_motion2_score",
+        ret = vmaf_feature_collector_append(feature_collector, "VMAF_feature_motion2_score",
                                             s->score, s->index);
     }
 
     return (ret < 0) ? ret : !ret;
 }
 
-static int extract(VmafFeatureExtractor *fex,
-                   VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                   VmafPicture *dist_pic, VmafPicture *dist_pic_90,
-                   unsigned index, VmafFeatureCollector *feature_collector)
+static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                   VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
+                   VmafFeatureCollector *feature_collector)
 {
     MotionState *s = fex->priv;
     int err = 0;
 
-    (void) dist_pic;
-    (void) ref_pic_90;
-    (void) dist_pic_90;
+    (void)dist_pic;
+    (void)ref_pic_90;
+    (void)dist_pic_90;
 
     if (s->motion_force_zero) {
-        int err =
-            vmaf_feature_collector_append_with_dict(feature_collector,
-                    s->feature_name_dict, "VMAF_feature_motion2_score",
-                    0., index);
+        int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                          "VMAF_feature_motion2_score", 0., index);
 
         if (s->debug) {
-            err |= vmaf_feature_collector_append_with_dict(feature_collector,
-                    s->feature_name_dict, "VMAF_feature_motion_score", 0.,
-                    index);
+            err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                           "VMAF_feature_motion_score", 0., index);
         }
         return err;
     }
@@ -205,48 +201,43 @@ static int extract(VmafFeatureExtractor *fex,
     unsigned blur_idx_2 = (index + 2) % 3;
 
     picture_copy(s->ref, s->float_stride, ref_pic, -128, ref_pic->bpc);
-    convolution_f32_c_s(FILTER_5_s, 5, s->ref, s->blur[blur_idx_0], s->tmp,
-                        ref_pic->w[0], ref_pic->h[0],
-                        s->float_stride / sizeof(float),
+    convolution_f32_c_s(FILTER_5_s, 5, s->ref, s->blur[blur_idx_0], s->tmp, ref_pic->w[0],
+                        ref_pic->h[0], s->float_stride / sizeof(float),
                         s->float_stride / sizeof(float));
 
     if (index == 0) {
-        err = vmaf_feature_collector_append(feature_collector,
-                                             "VMAF_feature_motion2_score",
-                                             0., index);
+        err = vmaf_feature_collector_append(feature_collector, "VMAF_feature_motion2_score", 0.,
+                                            index);
         if (s->debug) {
-            err |= vmaf_feature_collector_append(feature_collector,
-                                                 "VMAF_feature_motion_score",
-                                                 0., index);
+            err |= vmaf_feature_collector_append(feature_collector, "VMAF_feature_motion_score", 0.,
+                                                 index);
         }
         return err;
     }
 
-    double score = compute_motion_simd(s->blur[blur_idx_2], s->blur[blur_idx_0],
-                                       ref_pic->w[0], ref_pic->h[0],
-                                       s->float_stride, s->float_stride,
-                                       s->sad_line);
+    double score =
+        compute_motion_simd(s->blur[blur_idx_2], s->blur[blur_idx_0], ref_pic->w[0], ref_pic->h[0],
+                            s->float_stride, s->float_stride, s->sad_line);
 
     if (s->debug) {
-        err |= vmaf_feature_collector_append(feature_collector,
-                                            "VMAF_feature_motion_score",
-                                            score, index);
+        err |= vmaf_feature_collector_append(feature_collector, "VMAF_feature_motion_score", score,
+                                             index);
     }
-    if (err) return err;
+    if (err)
+        return err;
     s->score = score;
 
     if (index == 1)
         return 0;
-    
-    double score2 = compute_motion_simd(s->blur[blur_idx_2], s->blur[blur_idx_1],
-                                        ref_pic->w[0], ref_pic->h[0],
-                                        s->float_stride, s->float_stride,
-                                        s->sad_line);
+
+    double score2 =
+        compute_motion_simd(s->blur[blur_idx_2], s->blur[blur_idx_1], ref_pic->w[0], ref_pic->h[0],
+                            s->float_stride, s->float_stride, s->sad_line);
     score2 = score2 < score ? score2 : score;
-    err = vmaf_feature_collector_append(feature_collector,
-                                        "VMAF_feature_motion2_score",
-                                        score2, index - 1);
-    if (err) return err;
+    err = vmaf_feature_collector_append(feature_collector, "VMAF_feature_motion2_score", score2,
+                                        index - 1);
+    if (err)
+        return err;
 
     return 0;
 }
@@ -255,20 +246,22 @@ static int close(VmafFeatureExtractor *fex)
 {
     MotionState *s = fex->priv;
 
-    if (s->ref) aligned_free(s->ref);
-    if (s->blur[0]) aligned_free(s->blur[0]);
-    if (s->blur[1]) aligned_free(s->blur[1]);
-    if (s->blur[2]) aligned_free(s->blur[2]);
-    if (s->tmp) aligned_free(s->tmp);
+    if (s->ref)
+        aligned_free(s->ref);
+    if (s->blur[0])
+        aligned_free(s->blur[0]);
+    if (s->blur[1])
+        aligned_free(s->blur[1]);
+    if (s->blur[2])
+        aligned_free(s->blur[2]);
+    if (s->tmp)
+        aligned_free(s->tmp);
     vmaf_dictionary_free(&s->feature_name_dict);
     return 0;
 }
 
-static const char *provided_features[] = {
-    "VMAF_feature_motion_score", "VMAF_feature_motion2_score",
-    "VMAF_feature_motion2_score",
-    NULL
-};
+static const char *provided_features[] = {"VMAF_feature_motion_score", "VMAF_feature_motion2_score",
+                                          "VMAF_feature_motion2_score", NULL};
 
 VmafFeatureExtractor vmaf_fex_float_motion = {
     .name = "float_motion",

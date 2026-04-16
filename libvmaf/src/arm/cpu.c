@@ -20,7 +20,8 @@
 
 #include "arm/cpu.h"
 
-unsigned vmaf_get_cpu_flags_arm(void) {
+unsigned vmaf_get_cpu_flags_arm(void)
+{
     unsigned flags = 0;
 
 #ifdef ARCH_AARCH64

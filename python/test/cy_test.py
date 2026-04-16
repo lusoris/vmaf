@@ -121,13 +121,23 @@ class AdmDwt2CyTestOnAkiyo(unittest.TestCase):
 
     def setUp(self) -> None:
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "refp_vmaf_hacking_investigation_0_0_akiyo_cif_notyuv_0to0_identity_vs_akiyo_cif_notyuv_0to0_multiply_q_352x288"),
-                width=352, height=288, yuv_type='yuv420p'
+            filepath=VmafConfig.test_resource_path(
+                "yuv",
+                "refp_vmaf_hacking_investigation_0_0_akiyo_cif_notyuv_0to0_identity_vs_akiyo_cif_notyuv_0to0_multiply_q_352x288",
+            ),
+            width=352,
+            height=288,
+            yuv_type="yuv420p",
         ) as yuv_reader_ref:
             self.y_ref = yuv_reader_ref.next()[0].astype(np.float64)
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "disp_vmaf_hacking_investigation_0_0_akiyo_cif_notyuv_0to0_identity_vs_akiyo_cif_notyuv_0to0_multiply_q_352x288"),
-                width=352, height=288, yuv_type='yuv420p'
+            filepath=VmafConfig.test_resource_path(
+                "yuv",
+                "disp_vmaf_hacking_investigation_0_0_akiyo_cif_notyuv_0to0_identity_vs_akiyo_cif_notyuv_0to0_multiply_q_352x288",
+            ),
+            width=352,
+            height=288,
+            yuv_type="yuv420p",
         ) as yuv_reader_ref:
             self.y_dis = yuv_reader_ref.next()[0].astype(np.float64)
 
@@ -228,13 +238,23 @@ class AdmDwt2CyTestOnAkiyoXsmall(unittest.TestCase):
 
     def setUp(self) -> None:
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "refp_vmaf_hacking_investigation_0_0_akiyo_cif_notyuv_0to0_identity_vs_akiyo_cif_notyuv_0to0_multiply_q_18x22"),
-                width=22, height=18, yuv_type='yuv420p'
+            filepath=VmafConfig.test_resource_path(
+                "yuv",
+                "refp_vmaf_hacking_investigation_0_0_akiyo_cif_notyuv_0to0_identity_vs_akiyo_cif_notyuv_0to0_multiply_q_18x22",
+            ),
+            width=22,
+            height=18,
+            yuv_type="yuv420p",
         ) as yuv_reader_ref:
             self.y_ref = yuv_reader_ref.next()[0].astype(np.float64)
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "disp_vmaf_hacking_investigation_0_0_akiyo_cif_notyuv_0to0_identity_vs_akiyo_cif_notyuv_0to0_multiply_q_18x22"),
-                width=22, height=18, yuv_type='yuv420p'
+            filepath=VmafConfig.test_resource_path(
+                "yuv",
+                "disp_vmaf_hacking_investigation_0_0_akiyo_cif_notyuv_0to0_identity_vs_akiyo_cif_notyuv_0to0_multiply_q_18x22",
+            ),
+            width=22,
+            height=18,
+            yuv_type="yuv420p",
         ) as yuv_reader_ref:
             self.y_dis = yuv_reader_ref.next()[0].astype(np.float64)
 
@@ -262,5 +282,5 @@ class AdmDwt2CyTestOnAkiyoXsmall(unittest.TestCase):
         self.assertAlmostEqual(a[-1][-1], 44.29716825973104, places=6)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main(verbosity=2)

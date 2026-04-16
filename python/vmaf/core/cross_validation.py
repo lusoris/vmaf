@@ -4,20 +4,21 @@ __copyright__ = "Copyright 2016-2020, Netflix, Inc."
 __license__ = "BSD+Patent"
 
 import random
-from math import floor
 import sys
+from math import floor
 
 
 class ModelCrossValidation(object):
 
     @staticmethod
-    def run_cross_validation(train_test_model_class,
-                             model_param,
-                             results_or_df,
-                             train_indices,
-                             test_indices,
-                             optional_dict2=None
-                             ):
+    def run_cross_validation(
+        train_test_model_class,
+        model_param,
+        results_or_df,
+        train_indices,
+        test_indices,
+        optional_dict2=None,
+    ):
         """
         Simple cross validation.
         :param train_test_model_class:
@@ -31,25 +32,24 @@ class ModelCrossValidation(object):
         xs_test = train_test_model_class.get_xs_from_results(results_or_df, test_indices)
         ys_test = train_test_model_class.get_ys_from_results(results_or_df, test_indices)
 
-        model = train_test_model_class(model_param,
-                                       logger=None,
-                                       optional_dict2=optional_dict2)
+        model = train_test_model_class(model_param, logger=None, optional_dict2=optional_dict2)
         model.train(xys_train)
         stats = model.evaluate(xs_test, ys_test)
 
-        output = {'stats': stats, 'model': model,
-                  'contentids': ys_test['content_id']}
+        output = {"stats": stats, "model": model, "contentids": ys_test["content_id"]}
 
         return output
 
     @classmethod
-    def run_kfold_cross_validation(cls,
-                                   train_test_model_class,
-                                   model_param,
-                                   results_or_df,
-                                   kfold,
-                                   logger=None,
-                                   optional_dict2=None):
+    def run_kfold_cross_validation(
+        cls,
+        train_test_model_class,
+        model_param,
+        results_or_df,
+        kfold,
+        logger=None,
+        optional_dict2=None,
+    ):
         """
         Standard k-fold cross validation, given hyperparameter set model_param
         :param train_test_model_class:
@@ -62,26 +62,25 @@ class ModelCrossValidation(object):
         """
 
         if isinstance(kfold, int):
-            kfold_type = 'int'
+            kfold_type = "int"
         elif isinstance(kfold, (list, tuple)):
-            kfold_type = 'list'
+            kfold_type = "list"
         else:
-            assert False, 'kfold must be either a list of lists or an integer.'
+            assert False, "kfold must be either a list of lists or an integer."
 
         # if input is integer (e.g. 4), reconstruct kfold in list of indices
         # format
-        if kfold_type == 'int':
+        if kfold_type == "int":
             num_fold = kfold
             dataframe_size = len(results_or_df)
             fold_size = int(floor(dataframe_size / num_fold))
             kfold = []
             for fold in range(num_fold):
                 index_start = fold * fold_size
-                index_end = min((fold+1)*fold_size, dataframe_size)
+                index_end = min((fold + 1) * fold_size, dataframe_size)
                 kfold.append(range(index_start, index_end))
 
-        assert len(kfold) >= 2, 'kfold list must have length >= 2 for k-fold ' \
-                                'cross validation.'
+        assert len(kfold) >= 2, "kfold list must have length >= 2 for k-fold " "cross validation."
 
         statss = []
         models = []
@@ -90,7 +89,7 @@ class ModelCrossValidation(object):
         for fold in range(len(kfold)):
 
             # to avoid interference among folds
-            if hasattr(train_test_model_class, 'reset'):
+            if hasattr(train_test_model_class, "reset"):
                 train_test_model_class.reset()
 
             if logger:
@@ -102,41 +101,44 @@ class ModelCrossValidation(object):
                 if train_fold != fold:
                     train_index_range += kfold[train_fold]
 
-            output = cls.run_cross_validation(train_test_model_class,
-                                              model_param,
-                                              results_or_df,
-                                              train_index_range,
-                                              test_index_range,
-                                              optional_dict2)
+            output = cls.run_cross_validation(
+                train_test_model_class,
+                model_param,
+                results_or_df,
+                train_index_range,
+                test_index_range,
+                optional_dict2,
+            )
 
-            stats = output['stats']
-            model = output['model']
+            stats = output["stats"]
+            model = output["model"]
 
             statss.append(stats)
             models.append(model)
 
-            contentids += list(output['contentids'])
+            contentids += list(output["contentids"])
 
         aggr_stats = train_test_model_class.aggregate_stats_list(statss)
 
-        output = {'aggr_stats': aggr_stats, 'statss': statss, 'models': models}
+        output = {"aggr_stats": aggr_stats, "statss": statss, "models": models}
 
         assert contentids is not None
-        output['contentids'] = contentids
+        output["contentids"] = contentids
 
         return output
 
     @classmethod
-    def run_nested_kfold_cross_validation(cls,
-                                          train_test_model_class,
-                                          model_param_search_range,
-                                          results_or_df,
-                                          kfold,
-                                          search_strategy='grid',
-                                          random_search_times=100,
-                                          logger=None,
-                                          optional_dict2=None,
-                                          ):
+    def run_nested_kfold_cross_validation(
+        cls,
+        train_test_model_class,
+        model_param_search_range,
+        results_or_df,
+        kfold,
+        search_strategy="grid",
+        random_search_times=100,
+        logger=None,
+        optional_dict2=None,
+    ):
         """
         Nested k-fold cross validation, given hyperparameter search range. The
         search range is specified in the format of, e.g.:
@@ -154,35 +156,36 @@ class ModelCrossValidation(object):
         """
 
         if isinstance(kfold, int):
-            kfold_type = 'int'
+            kfold_type = "int"
         elif isinstance(kfold, (list, tuple)):
-            kfold_type = 'list'
+            kfold_type = "list"
         else:
-            assert False, 'kfold must be either a list of lists or an integer.'
+            assert False, "kfold must be either a list of lists or an integer."
 
         # if input is integer (e.g. 4), reconstruct kfold in list of indices
         # format
-        if kfold_type == 'int':
+        if kfold_type == "int":
             num_fold = kfold
             dataframe_size = len(results_or_df)
             fold_size = int(floor(dataframe_size / num_fold))
             kfold = []
             for fold in range(num_fold):
                 index_start = fold * fold_size
-                index_end = min((fold+1)*fold_size, dataframe_size)
+                index_end = min((fold + 1) * fold_size, dataframe_size)
                 kfold.append(range(index_start, index_end))
 
-        assert len(kfold) >= 3, 'kfold list must have length >= 2 for nested ' \
-                                'k-fold cross validation.'
+        assert len(kfold) >= 3, (
+            "kfold list must have length >= 2 for nested " "k-fold cross validation."
+        )
 
-        if search_strategy == 'grid':
+        if search_strategy == "grid":
             cls._assert_grid_search(model_param_search_range)
-            list_model_param = unroll_dict_of_lists(
-                model_param_search_range)
-        elif search_strategy == 'random':
+            list_model_param = unroll_dict_of_lists(model_param_search_range)
+        elif search_strategy == "random":
             cls._assert_random_search(model_param_search_range)
             list_model_param = cls._sample_model_param_list(
-                model_param_search_range, random_search_times)
+                model_param_search_range, random_search_times
+            )
         else:
             assert False, "Unknown search_strategy: {}".format(search_strategy)
 
@@ -213,45 +216,49 @@ class ModelCrossValidation(object):
                 if logger:
                     logger.info("\tModel parameter: {}".format(model_param))
 
-                output = \
-                    cls.run_kfold_cross_validation(train_test_model_class,
-                                                   model_param,
-                                                   results_or_df,
-                                                   train_index_range_in_list_of_indices,
-                                                   optional_dict2)
-                stats = output['aggr_stats']
+                output = cls.run_kfold_cross_validation(
+                    train_test_model_class,
+                    model_param,
+                    results_or_df,
+                    train_index_range_in_list_of_indices,
+                    optional_dict2,
+                )
+                stats = output["aggr_stats"]
 
                 if (best_stats is None) or (
-                    train_test_model_class.get_objective_score(stats, score_type='SRCC')
-                    >
-                    train_test_model_class.get_objective_score(best_stats, score_type='SRCC')
+                    train_test_model_class.get_objective_score(stats, score_type="SRCC")
+                    > train_test_model_class.get_objective_score(best_stats, score_type="SRCC")
                 ):
                     best_stats = stats
                     best_model_param = model_param
 
             # run cross validation based on best model parameters
             output_ = cls.run_cross_validation(
-                train_test_model_class, best_model_param, results_or_df,
-                train_index_range, test_index_range, optional_dict2
+                train_test_model_class,
+                best_model_param,
+                results_or_df,
+                train_index_range,
+                test_index_range,
+                optional_dict2,
             )
-            stats_ = output_['stats']
+            stats_ = output_["stats"]
 
             statss.append(stats_)
             model_params.append(best_model_param)
 
-            contentids += list(output_['contentids'])
+            contentids += list(output_["contentids"])
 
         aggr_stats = train_test_model_class.aggregate_stats_list(statss)
         top_model_param, count = cls._find_most_frequent_dict(model_params)
 
         assert contentids is not None
         output__ = {
-            'aggr_stats': aggr_stats,
-            'top_model_param': top_model_param,
-            'top_ratio': float(count) / len(model_params),
-            'statss': statss,
-            'model_params': model_params,
-            'contentids': contentids,
+            "aggr_stats": aggr_stats,
+            "top_model_param": top_model_param,
+            "top_ratio": float(count) / len(model_params),
+            "statss": statss,
+            "model_params": model_params,
+            "contentids": contentids,
         }
 
         return output__
@@ -270,33 +277,37 @@ class ModelCrossValidation(object):
         # for random search, model_param_search_range's values must either be
         # lists/tuples, or dictionary containing 'low' and 'high' bounds.
         for v in model_param_search_range.values():
-            assert (isinstance(v, (list, tuple))
-                    or
-                    (isinstance(v, dict) and 'low' in v
-                     and 'high' in v and 'decimal' in v)
-                    )
+            assert isinstance(v, (list, tuple)) or (
+                isinstance(v, dict) and "low" in v and "high" in v and "decimal" in v
+            )
 
     @classmethod
     def print_output(cls, output):
-        if 'stats' in output:
-            print('Stats: {}'.format(cls.format_stats(output['stats'])))
-        if 'aggr_stats' in output:
-            print('Aggregated stats: {}'.format(cls.format_stats(output['aggr_stats'])))
-        if 'top_model_param' in output:
-            print('Top model param ({ratio:.3f}): {modelparam}'.format(
-                ratio=output['top_ratio'],
-                modelparam=output['top_model_param']))
-        if 'statss' in output and 'model_params' in output:
-            for fold, (stats, model_param) in \
-                    enumerate(zip(output['statss'], output['model_params'])):
-                print('Fold {fold}: {model_param}, {stats}'.format(
-                    fold=fold, model_param=model_param,
-                    stats=cls.format_stats(stats)))
+        if "stats" in output:
+            print("Stats: {}".format(cls.format_stats(output["stats"])))
+        if "aggr_stats" in output:
+            print("Aggregated stats: {}".format(cls.format_stats(output["aggr_stats"])))
+        if "top_model_param" in output:
+            print(
+                "Top model param ({ratio:.3f}): {modelparam}".format(
+                    ratio=output["top_ratio"], modelparam=output["top_model_param"]
+                )
+            )
+        if "statss" in output and "model_params" in output:
+            for fold, (stats, model_param) in enumerate(
+                zip(output["statss"], output["model_params"])
+            ):
+                print(
+                    "Fold {fold}: {model_param}, {stats}".format(
+                        fold=fold, model_param=model_param, stats=cls.format_stats(stats)
+                    )
+                )
 
     @staticmethod
     def format_stats(stats):
-        return '(SRCC: {srcc:.3f}, PCC: {pcc:.3f}, MSE: {rmse:.3f})'.format(
-            srcc=stats['SRCC'], pcc=stats['PCC'], rmse=stats['RMSE'])
+        return "(SRCC: {srcc:.3f}, PCC: {pcc:.3f}, MSE: {rmse:.3f})".format(
+            srcc=stats["SRCC"], pcc=stats["PCC"], rmse=stats["RMSE"]
+        )
 
     @staticmethod
     def _sample_model_param_list(model_param_search_range, random_search_times):
@@ -308,9 +319,9 @@ class ModelCrossValidation(object):
                 v = model_param_search_range[k]
                 if isinstance(v, (list, tuple)):
                     d[k] = random.choice(v)
-                elif isinstance(v, dict) and 'low' in v and 'high' in v and 'decimal' in v:
-                    num = random.uniform(v['low'], v['high'])
-                    scale = (10**v['decimal'])
+                elif isinstance(v, dict) and "low" in v and "high" in v and "decimal" in v:
+                    num = random.uniform(v["low"], v["high"])
+                    scale = 10 ** v["decimal"]
                     num = int(num * scale) / float(scale)
                     d[k] = num
                 else:

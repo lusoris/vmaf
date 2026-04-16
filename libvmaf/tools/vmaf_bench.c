@@ -59,7 +59,7 @@ static double now_ms(void)
 
 /* ==================== YUV file I/O ==================== */
 
-#define MAX_TEST_FRAMES 48  /* frames available in test data */
+#define MAX_TEST_FRAMES 48 /* frames available in test data */
 #define DEFAULT_DATA_DIR "/tmp/vmaf_test"
 
 static unsigned g_bpc = 8; /* configurable via --bpc */
@@ -94,33 +94,37 @@ static int yuv_pair_open(YuvPair *yp, unsigned w, unsigned h)
     yp->ref_fp = fopen(ref_path, "rb");
     yp->dis_fp = fopen(dis_path, "rb");
     if (!yp->ref_fp || !yp->dis_fp) {
-        fprintf(stderr, "Cannot open test data for %ux%u\n"
+        fprintf(stderr,
+                "Cannot open test data for %ux%u\n"
                 "  ref: %s (%s)\n  dis: %s (%s)\n"
                 "Set VMAF_TEST_DATA or --data-dir to your data directory.\n",
-                w, h, ref_path, yp->ref_fp ? "ok" : "MISSING",
-                dis_path, yp->dis_fp ? "ok" : "MISSING");
-        if (yp->ref_fp) fclose(yp->ref_fp);
-        if (yp->dis_fp) fclose(yp->dis_fp);
+                w, h, ref_path, yp->ref_fp ? "ok" : "MISSING", dis_path,
+                yp->dis_fp ? "ok" : "MISSING");
+        if (yp->ref_fp)
+            fclose(yp->ref_fp);
+        if (yp->dis_fp)
+            fclose(yp->dis_fp);
         memset(yp, 0, sizeof(*yp));
         return -1;
     }
 
     yp->width = w;
     yp->height = h;
-    yp->frame_bytes = (size_t)w * h * 3 / 2;  /* YUV420P 8-bit */
+    yp->frame_bytes = (size_t)w * h * 3 / 2; /* YUV420P 8-bit */
     yp->ref_buf = malloc(yp->frame_bytes);
     yp->dis_buf = malloc(yp->frame_bytes);
     if (!yp->ref_buf || !yp->dis_buf) {
-        free(yp->ref_buf); free(yp->dis_buf);
-        fclose(yp->ref_fp); fclose(yp->dis_fp);
+        free(yp->ref_buf);
+        free(yp->dis_buf);
+        fclose(yp->ref_fp);
+        fclose(yp->dis_fp);
         memset(yp, 0, sizeof(*yp));
         return -1;
     }
     return 0;
 }
 
-static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx,
-                               VmafPicture *ref, VmafPicture *dist)
+static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx, VmafPicture *ref, VmafPicture *dist)
 {
     size_t offset = (size_t)frame_idx * yp->frame_bytes;
     fseek(yp->ref_fp, (long)offset, SEEK_SET);
@@ -150,10 +154,8 @@ static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx,
                 ddst[x] = (uint16_t)(yp->dis_buf[y * w + x]) << shift;
             }
         } else {
-            memcpy((uint8_t *)ref->data[0] + y * ref->stride[0],
-                   yp->ref_buf + y * w, w);
-            memcpy((uint8_t *)dist->data[0] + y * dist->stride[0],
-                   yp->dis_buf + y * w, w);
+            memcpy((uint8_t *)ref->data[0] + y * ref->stride[0], yp->ref_buf + y * w, w);
+            memcpy((uint8_t *)dist->data[0] + y * dist->stride[0], yp->dis_buf + y * w, w);
         }
     }
     /* U plane */
@@ -166,10 +168,10 @@ static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx,
                 ddst[x] = (uint16_t)(yp->dis_buf[y_bytes + y * uv_w + x]) << shift;
             }
         } else {
-            memcpy((uint8_t *)ref->data[1] + y * ref->stride[1],
-                   yp->ref_buf + y_bytes + y * uv_w, uv_w);
-            memcpy((uint8_t *)dist->data[1] + y * dist->stride[1],
-                   yp->dis_buf + y_bytes + y * uv_w, uv_w);
+            memcpy((uint8_t *)ref->data[1] + y * ref->stride[1], yp->ref_buf + y_bytes + y * uv_w,
+                   uv_w);
+            memcpy((uint8_t *)dist->data[1] + y * dist->stride[1], yp->dis_buf + y_bytes + y * uv_w,
+                   uv_w);
         }
     }
     /* V plane */
@@ -194,8 +196,10 @@ static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx,
 
 static void yuv_pair_close(YuvPair *yp)
 {
-    if (yp->ref_fp) fclose(yp->ref_fp);
-    if (yp->dis_fp) fclose(yp->dis_fp);
+    if (yp->ref_fp)
+        fclose(yp->ref_fp);
+    if (yp->dis_fp)
+        fclose(yp->dis_fp);
     free(yp->ref_buf);
     free(yp->dis_buf);
     memset(yp, 0, sizeof(*yp));
@@ -204,9 +208,9 @@ static void yuv_pair_close(YuvPair *yp)
 /* ==================== Backend enum ==================== */
 
 enum Backend {
-    BACKEND_CPU    = 0,
-    BACKEND_CUDA   = 2,
-    BACKEND_SYCL   = 3,
+    BACKEND_CPU = 0,
+    BACKEND_CUDA = 2,
+    BACKEND_SYCL = 3,
 };
 
 typedef struct {
@@ -216,21 +220,21 @@ typedef struct {
 } BenchTarget;
 
 static const BenchTarget targets[] = {
-    { "motion (CPU)",          "motion",              BACKEND_CPU },
-    { "vif (CPU)",             "vif",                 BACKEND_CPU },
-    { "adm (CPU)",             "adm",                 BACKEND_CPU },
-    { "float_ssim (CPU)",      "float_ssim",          BACKEND_CPU },
-    { "float_ms_ssim (CPU)",   "float_ms_ssim",       BACKEND_CPU },
-    { "psnr (CPU)",            "psnr",                BACKEND_CPU },
+    {"motion (CPU)", "motion", BACKEND_CPU},
+    {"vif (CPU)", "vif", BACKEND_CPU},
+    {"adm (CPU)", "adm", BACKEND_CPU},
+    {"float_ssim (CPU)", "float_ssim", BACKEND_CPU},
+    {"float_ms_ssim (CPU)", "float_ms_ssim", BACKEND_CPU},
+    {"psnr (CPU)", "psnr", BACKEND_CPU},
 #ifdef HAVE_CUDA
-    { "motion (CUDA)",         "motion_cuda",         BACKEND_CUDA },
-    { "vif (CUDA)",            "vif_cuda",             BACKEND_CUDA },
-    { "adm (CUDA)",            "adm_cuda",             BACKEND_CUDA },
+    {"motion (CUDA)", "motion_cuda", BACKEND_CUDA},
+    {"vif (CUDA)", "vif_cuda", BACKEND_CUDA},
+    {"adm (CUDA)", "adm_cuda", BACKEND_CUDA},
 #endif
 #ifdef HAVE_SYCL
-    { "motion (SYCL)",         "motion_sycl",          BACKEND_SYCL },
-    { "vif (SYCL)",            "vif_sycl",              BACKEND_SYCL },
-    { "adm (SYCL)",            "adm_sycl",              BACKEND_SYCL },
+    {"motion (SYCL)", "motion_sycl", BACKEND_SYCL},
+    {"vif (SYCL)", "vif_sycl", BACKEND_SYCL},
+    {"adm (SYCL)", "adm_sycl", BACKEND_SYCL},
 #endif
 };
 static const int n_targets = sizeof(targets) / sizeof(targets[0]);
@@ -241,11 +245,7 @@ typedef struct {
 } Resolution;
 
 static const Resolution resolutions[] = {
-    {  576,  324 },
-    {  640,  480 },
-    { 1280,  720 },
-    { 1920, 1080 },
-    { 3840, 2160 },
+    {576, 324}, {640, 480}, {1280, 720}, {1920, 1080}, {3840, 2160},
 };
 static const int n_resolutions = sizeof(resolutions) / sizeof(resolutions[0]);
 
@@ -266,7 +266,8 @@ static int run_sycl_gpu_profile(unsigned w, unsigned h, unsigned n_frames)
 
     VmafContext *vmaf = NULL;
     err = vmaf_init(&vmaf, cfg);
-    if (err) return err;
+    if (err)
+        return err;
 
     VmafSyclState *sycl_state = NULL;
     VmafSyclConfiguration sycl_cfg = {
@@ -274,7 +275,10 @@ static int run_sycl_gpu_profile(unsigned w, unsigned h, unsigned n_frames)
         .enable_profiling = 1,
     };
     err = vmaf_sycl_state_init(&sycl_state, sycl_cfg);
-    if (err) { vmaf_close(vmaf); return err; }
+    if (err) {
+        vmaf_close(vmaf);
+        return err;
+    }
 
     err = vmaf_sycl_profiling_enable(sycl_state);
     if (err) {
@@ -284,18 +288,30 @@ static int run_sycl_gpu_profile(unsigned w, unsigned h, unsigned n_frames)
     }
 
     err = vmaf_sycl_import_state(vmaf, sycl_state);
-    if (err) { vmaf_close(vmaf); return err; }
+    if (err) {
+        vmaf_close(vmaf);
+        return err;
+    }
 
     /* Register all three SYCL features */
     err = vmaf_use_feature(vmaf, "motion_sycl", NULL);
-    if (err) { vmaf_close(vmaf); return err; }
+    if (err) {
+        vmaf_close(vmaf);
+        return err;
+    }
     err = vmaf_use_feature(vmaf, "vif_sycl", NULL);
-    if (err) { vmaf_close(vmaf); return err; }
+    if (err) {
+        vmaf_close(vmaf);
+        return err;
+    }
     err = vmaf_use_feature(vmaf, "adm_sycl", NULL);
-    if (err) { vmaf_close(vmaf); return err; }
+    if (err) {
+        vmaf_close(vmaf);
+        return err;
+    }
 
     /* Run frames */
-    YuvPair yp = { 0 };
+    YuvPair yp = {0};
     if (yuv_pair_open(&yp, w, h)) {
         vmaf_close(vmaf);
         return -1;
@@ -311,13 +327,13 @@ static int run_sycl_gpu_profile(unsigned w, unsigned h, unsigned n_frames)
             break;
         }
         err = vmaf_read_pictures(vmaf, &ref, &dist, i);
-        if (err) break;
+        if (err)
+            break;
     }
     yuv_pair_close(&yp);
 
     /* Print per-kernel timing */
-    printf("SYCL Kernel Profile (%ux%u, %u-bit, %u frames)\n",
-           w, h, g_bpc, n_frames);
+    printf("SYCL Kernel Profile (%ux%u, %u-bit, %u frames)\n", w, h, g_bpc, n_frames);
     vmaf_sycl_profiling_print(sycl_state);
 
     vmaf_read_pictures(vmaf, NULL, NULL, 0);
@@ -328,9 +344,8 @@ static int run_sycl_gpu_profile(unsigned w, unsigned h, unsigned n_frames)
 
 /* ==================== Benchmark core ==================== */
 
-static int bench_feature(const BenchTarget *target, unsigned w, unsigned h,
-                         unsigned n_frames, double *out_init_ms,
-                         double *out_avg_ms, double *out_total_ms)
+static int bench_feature(const BenchTarget *target, unsigned w, unsigned h, unsigned n_frames,
+                         double *out_init_ms, double *out_avg_ms, double *out_total_ms)
 {
     int err = 0;
     double t0, t1;
@@ -346,26 +361,39 @@ static int bench_feature(const BenchTarget *target, unsigned w, unsigned h,
 
     VmafContext *vmaf = NULL;
     err = vmaf_init(&vmaf, cfg);
-    if (err) return err;
+    if (err)
+        return err;
 
 #ifdef HAVE_CUDA
     if (target->backend == BACKEND_CUDA) {
         VmafCudaState *cu_state = NULL;
-        VmafCudaConfiguration cu_cfg = { 0 };
+        VmafCudaConfiguration cu_cfg = {0};
         err = vmaf_cuda_state_init(&cu_state, cu_cfg);
-        if (err) { vmaf_close(vmaf); return err; }
+        if (err) {
+            vmaf_close(vmaf);
+            return err;
+        }
         err = vmaf_cuda_import_state(vmaf, cu_state);
-        if (err) { vmaf_close(vmaf); return err; }
+        if (err) {
+            vmaf_close(vmaf);
+            return err;
+        }
     }
 #endif
 #ifdef HAVE_SYCL
     if (target->backend == BACKEND_SYCL) {
         VmafSyclState *sycl_state = NULL;
-        VmafSyclConfiguration sycl_cfg = { .device_index = g_gpu_device_idx };
+        VmafSyclConfiguration sycl_cfg = {.device_index = g_gpu_device_idx};
         err = vmaf_sycl_state_init(&sycl_state, sycl_cfg);
-        if (err) { vmaf_close(vmaf); return err; }
+        if (err) {
+            vmaf_close(vmaf);
+            return err;
+        }
         err = vmaf_sycl_import_state(vmaf, sycl_state);
-        if (err) { vmaf_close(vmaf); return err; }
+        if (err) {
+            vmaf_close(vmaf);
+            return err;
+        }
     }
 #endif
 
@@ -376,7 +404,7 @@ static int bench_feature(const BenchTarget *target, unsigned w, unsigned h,
         return err;
     }
 
-    YuvPair yp = { 0 };
+    YuvPair yp = {0};
     if (yuv_pair_open(&yp, w, h)) {
         vmaf_close(vmaf);
         return -1;
@@ -414,7 +442,8 @@ static int bench_feature(const BenchTarget *target, unsigned w, unsigned h,
             break;
         }
         err = vmaf_read_pictures(vmaf, &r, &d, i);
-        if (err) break;
+        if (err)
+            break;
     }
     t1 = now_ms();
     yuv_pair_close(&yp);
@@ -430,7 +459,8 @@ static int bench_feature(const BenchTarget *target, unsigned w, unsigned h,
 
 static void print_separator(int cols)
 {
-    for (int i = 0; i < cols; i++) fputc('-', stdout);
+    for (int i = 0; i < cols; i++)
+        fputc('-', stdout);
     fputc('\n', stdout);
 }
 
@@ -449,56 +479,55 @@ typedef struct {
 
 static const ValidationPair validation_pairs[] = {
 #ifdef HAVE_CUDA
-    {
-        "motion", "motion_cuda", "Motion/CU", BACKEND_CUDA, 5e-6,
-        { "VMAF_integer_feature_motion_score",
-          "VMAF_integer_feature_motion2_score", NULL }
-    },
-    {
-        "vif", "vif_cuda", "VIF/CU", BACKEND_CUDA, 0.001,
-        { "VMAF_integer_feature_vif_scale0_score",
-          "VMAF_integer_feature_vif_scale1_score",
-          "VMAF_integer_feature_vif_scale2_score",
-          "VMAF_integer_feature_vif_scale3_score", NULL }
-    },
-    {
-        "adm", "adm_cuda", "ADM/CU", BACKEND_CUDA, 0.5,
-        { "VMAF_integer_feature_adm2_score",
-          "integer_adm_scale0",
-          "integer_adm_scale1",
-          "integer_adm_scale2",
-          "integer_adm_scale3", NULL }
-    },
+    {"motion",
+     "motion_cuda",
+     "Motion/CU",
+     BACKEND_CUDA,
+     5e-6,
+     {"VMAF_integer_feature_motion_score", "VMAF_integer_feature_motion2_score", NULL}},
+    {"vif",
+     "vif_cuda",
+     "VIF/CU",
+     BACKEND_CUDA,
+     0.001,
+     {"VMAF_integer_feature_vif_scale0_score", "VMAF_integer_feature_vif_scale1_score",
+      "VMAF_integer_feature_vif_scale2_score", "VMAF_integer_feature_vif_scale3_score", NULL}},
+    {"adm",
+     "adm_cuda",
+     "ADM/CU",
+     BACKEND_CUDA,
+     0.5,
+     {"VMAF_integer_feature_adm2_score", "integer_adm_scale0", "integer_adm_scale1",
+      "integer_adm_scale2", "integer_adm_scale3", NULL}},
 #endif
 #ifdef HAVE_SYCL
-    {
-        "motion", "motion_sycl", "Motion/SYCL", BACKEND_SYCL, 5e-6,
-        { "VMAF_integer_feature_motion2_score", NULL }
-    },
-    {
-        "vif", "vif_sycl", "VIF/SYCL", BACKEND_SYCL, 0.001,
-        { "VMAF_integer_feature_vif_scale0_score",
-          "VMAF_integer_feature_vif_scale1_score",
-          "VMAF_integer_feature_vif_scale2_score",
-          "VMAF_integer_feature_vif_scale3_score", NULL }
-    },
-    {
-        "adm", "adm_sycl", "ADM/SYCL", BACKEND_SYCL, 0.5,
-        { "VMAF_integer_feature_adm2_score",
-          "integer_adm_scale0",
-          "integer_adm_scale1",
-          "integer_adm_scale2",
-          "integer_adm_scale3", NULL }
-    },
+    {"motion",
+     "motion_sycl",
+     "Motion/SYCL",
+     BACKEND_SYCL,
+     5e-6,
+     {"VMAF_integer_feature_motion2_score", NULL}},
+    {"vif",
+     "vif_sycl",
+     "VIF/SYCL",
+     BACKEND_SYCL,
+     0.001,
+     {"VMAF_integer_feature_vif_scale0_score", "VMAF_integer_feature_vif_scale1_score",
+      "VMAF_integer_feature_vif_scale2_score", "VMAF_integer_feature_vif_scale3_score", NULL}},
+    {"adm",
+     "adm_sycl",
+     "ADM/SYCL",
+     BACKEND_SYCL,
+     0.5,
+     {"VMAF_integer_feature_adm2_score", "integer_adm_scale0", "integer_adm_scale1",
+      "integer_adm_scale2", "integer_adm_scale3", NULL}},
 #endif
 };
-static const int n_validation_pairs =
-    sizeof(validation_pairs) / sizeof(validation_pairs[0]);
+static const int n_validation_pairs = sizeof(validation_pairs) / sizeof(validation_pairs[0]);
 
 /* Run a feature extractor and collect per-frame scores */
-static int run_feature_collect(const char *feature, enum Backend backend,
-                               unsigned w, unsigned h, unsigned n_frames,
-                               const char *const *score_names,
+static int run_feature_collect(const char *feature, enum Backend backend, unsigned w, unsigned h,
+                               unsigned n_frames, const char *const *score_names,
                                double scores[][16])
 {
     int err = 0;
@@ -514,33 +543,49 @@ static int run_feature_collect(const char *feature, enum Backend backend,
 
     VmafContext *vmaf = NULL;
     err = vmaf_init(&vmaf, cfg);
-    if (err) return err;
+    if (err)
+        return err;
 
 #ifdef HAVE_CUDA
     if (backend == BACKEND_CUDA) {
         VmafCudaState *cu_state = NULL;
-        VmafCudaConfiguration cu_cfg = { 0 };
+        VmafCudaConfiguration cu_cfg = {0};
         err = vmaf_cuda_state_init(&cu_state, cu_cfg);
-        if (err) { vmaf_close(vmaf); return err; }
+        if (err) {
+            vmaf_close(vmaf);
+            return err;
+        }
         err = vmaf_cuda_import_state(vmaf, cu_state);
-        if (err) { vmaf_close(vmaf); return err; }
+        if (err) {
+            vmaf_close(vmaf);
+            return err;
+        }
     }
 #endif
 #ifdef HAVE_SYCL
     if (backend == BACKEND_SYCL) {
         VmafSyclState *sycl_state = NULL;
-        VmafSyclConfiguration sycl_cfg = { .device_index = g_gpu_device_idx };
+        VmafSyclConfiguration sycl_cfg = {.device_index = g_gpu_device_idx};
         err = vmaf_sycl_state_init(&sycl_state, sycl_cfg);
-        if (err) { vmaf_close(vmaf); return err; }
+        if (err) {
+            vmaf_close(vmaf);
+            return err;
+        }
         err = vmaf_sycl_import_state(vmaf, sycl_state);
-        if (err) { vmaf_close(vmaf); return err; }
+        if (err) {
+            vmaf_close(vmaf);
+            return err;
+        }
     }
 #endif
 
     err = vmaf_use_feature(vmaf, feature, NULL);
-    if (err) { vmaf_close(vmaf); return err; }
+    if (err) {
+        vmaf_close(vmaf);
+        return err;
+    }
 
-    YuvPair yp = { 0 };
+    YuvPair yp = {0};
     if (yuv_pair_open(&yp, w, h)) {
         vmaf_close(vmaf);
         return -1;
@@ -559,7 +604,9 @@ static int run_feature_collect(const char *feature, enum Backend backend,
         }
         err = vmaf_read_pictures(vmaf, &r, &d, i);
         if (err) {
-            yuv_pair_close(&yp); vmaf_close(vmaf); return err;
+            yuv_pair_close(&yp);
+            vmaf_close(vmaf);
+            return err;
         }
     }
     yuv_pair_close(&yp);
@@ -589,7 +636,8 @@ static int run_validation(unsigned w, unsigned h, unsigned n_frames)
 
         /* Count score names */
         int n_scores = 0;
-        while (vp->score_names[n_scores]) n_scores++;
+        while (vp->score_names[n_scores])
+            n_scores++;
 
         double (*cpu_scores)[16] = calloc(n_frames, sizeof(*cpu_scores));
         double (*gpu_scores)[16] = calloc(n_frames, sizeof(*gpu_scores));
@@ -600,16 +648,14 @@ static int run_validation(unsigned w, unsigned h, unsigned n_frames)
             return -1;
         }
 
-        int err_cpu = run_feature_collect(vp->cpu_feature, BACKEND_CPU,
-                                          w, h, n_frames,
+        int err_cpu = run_feature_collect(vp->cpu_feature, BACKEND_CPU, w, h, n_frames,
                                           vp->score_names, cpu_scores);
-        int err_gpu = run_feature_collect(vp->gpu_feature, vp->backend,
-                                          w, h, n_frames,
+        int err_gpu = run_feature_collect(vp->gpu_feature, vp->backend, w, h, n_frames,
                                           vp->score_names, gpu_scores);
 
         if (err_cpu || err_gpu) {
-            printf("  %-10s @ %s: SKIP (cpu_err=%d gpu_err=%d)\n",
-                   vp->label, res_str, err_cpu, err_gpu);
+            printf("  %-10s @ %s: SKIP (cpu_err=%d gpu_err=%d)\n", vp->label, res_str, err_cpu,
+                   err_gpu);
             free(cpu_scores);
             free(gpu_scores);
             continue;
@@ -623,11 +669,16 @@ static int run_validation(unsigned w, unsigned h, unsigned n_frames)
                 double c = cpu_scores[f][s];
                 double v = gpu_scores[f][s];
                 // Both NaN is acceptable (e.g. motion2 at index 1)
-                if (isnan(c) && isnan(v)) continue;
+                if (isnan(c) && isnan(v))
+                    continue;
                 // One NaN but not the other is a real mismatch
-                if (isnan(c) || isnan(v)) { any_nan = 1; continue; }
+                if (isnan(c) || isnan(v)) {
+                    any_nan = 1;
+                    continue;
+                }
                 double diff = fabs(c - v);
-                if (diff > max_diff) max_diff = diff;
+                if (diff > max_diff)
+                    max_diff = diff;
             }
 
             const double tol = vp->tolerance;
@@ -637,10 +688,8 @@ static int run_validation(unsigned w, unsigned h, unsigned n_frames)
             if (!pass)
                 total_fail++;
 
-            printf("  %-10s @ %s  %-45s  max_diff=%.2e  [%s]\n",
-                   vp->label, res_str, vp->score_names[s], max_diff, status);
-
-
+            printf("  %-10s @ %s  %-45s  max_diff=%.2e  [%s]\n", vp->label, res_str,
+                   vp->score_names[s], max_diff, status);
         }
 
         free(cpu_scores);
@@ -671,8 +720,9 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "Invalid --frames value: %s\n", argv[i]);
                 return 1;
             }
-            n_frames = (unsigned) v;
-            if (n_frames < 2) n_frames = 2;
+            n_frames = (unsigned)v;
+            if (n_frames < 2)
+                n_frames = 2;
         } else if (!strcmp(argv[i], "--resolution") && i + 1 < argc) {
             i++;
             char *end = NULL;
@@ -688,19 +738,20 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "Invalid --resolution: %s\n", argv[i]);
                 return 1;
             }
-            const unsigned rw = (unsigned) rw_l;
-            const unsigned rh = (unsigned) rh_l;
+            const unsigned rw = (unsigned)rw_l;
+            const unsigned rh = (unsigned)rh_l;
             for (int j = 0; j < n_resolutions; j++) {
-                if (resolutions[j].width == rw &&
-                    resolutions[j].height == rh) {
+                if (resolutions[j].width == rw && resolutions[j].height == rh) {
                     res_idx = j;
                     break;
                 }
             }
             if (res_idx < 0) {
-                fprintf(stderr, "Unknown resolution %ux%u. "
+                fprintf(stderr,
+                        "Unknown resolution %ux%u. "
                         "Supported: 576x324, 640x480, 1280x720, "
-                        "1920x1080, 3840x2160\n", rw, rh);
+                        "1920x1080, 3840x2160\n",
+                        rw, rh);
                 return 1;
             }
         } else if (!strcmp(argv[i], "--bpc") && i + 1 < argc) {
@@ -710,7 +761,7 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "Invalid --bpc value: %s\n", argv[i]);
                 return 1;
             }
-            g_bpc = (unsigned) v;
+            g_bpc = (unsigned)v;
             if (g_bpc != 8 && g_bpc != 10 && g_bpc != 12 && g_bpc != 16) {
                 fprintf(stderr, "Unsupported bpc: %u (use 8, 10, 12, or 16)\n", g_bpc);
                 return 1;
@@ -743,7 +794,8 @@ int main(int argc, char *argv[])
             printf("  --frames N        Number of frames per benchmark (default: 10, max: 48)\n");
             printf("  --resolution WxH  Single resolution to test (default: all)\n");
             printf("  --bpc N           Bits per component (8, 10, 12, 16; default: 8)\n");
-            printf("  --data-dir PATH   Path to test data directory (default: %s)\n", DEFAULT_DATA_DIR);
+            printf("  --data-dir PATH   Path to test data directory (default: %s)\n",
+                   DEFAULT_DATA_DIR);
             printf("                    Override with VMAF_TEST_DATA env var\n\n");
             printf("GPU device selection:\n");
             printf("  --list-devices    List available GPU devices\n");
@@ -762,7 +814,8 @@ int main(int argc, char *argv[])
     if (list_devices) {
 #ifdef HAVE_SYCL
         const int n = vmaf_sycl_list_devices();
-        if (n < 0) return 1;
+        if (n < 0)
+            return 1;
 #else
         fprintf(stderr, "No GPU backend enabled\n");
 #endif
@@ -771,8 +824,8 @@ int main(int argc, char *argv[])
 
     /* Cap frames at available test data */
     if (n_frames > MAX_TEST_FRAMES) {
-        fprintf(stderr, "Warning: capping --frames %u to %d (available in test data)\n",
-                n_frames, MAX_TEST_FRAMES);
+        fprintf(stderr, "Warning: capping --frames %u to %d (available in test data)\n", n_frames,
+                MAX_TEST_FRAMES);
         n_frames = MAX_TEST_FRAMES;
     }
 
@@ -789,7 +842,8 @@ int main(int argc, char *argv[])
 #ifdef HAVE_SYCL
         {
             int ret = run_sycl_gpu_profile(pw, ph, n_frames);
-            if (ret) return ret;
+            if (ret)
+                return ret;
         }
 #endif
 #if !defined(HAVE_SYCL)
@@ -808,8 +862,7 @@ int main(int argc, char *argv[])
 
         int total_fail = 0;
         for (int r = r_start; r < r_end; r++) {
-            total_fail += run_validation(resolutions[r].width,
-                                         resolutions[r].height, n_frames);
+            total_fail += run_validation(resolutions[r].width, resolutions[r].height, n_frames);
         }
 
         printf("\n");
@@ -832,8 +885,8 @@ int main(int argc, char *argv[])
     printf("\n");
 
     const int col_w = 88;
-    printf("%-28s  %8s  %8s  %8s  %8s  %8s\n",
-           "Feature", "Res", "Init ms", "Avg ms", "Total ms", "FPS");
+    printf("%-28s  %8s  %8s  %8s  %8s  %8s\n", "Feature", "Res", "Init ms", "Avg ms", "Total ms",
+           "FPS");
     print_separator(col_w);
 
     for (int t = 0; t < n_targets; t++) {
@@ -847,17 +900,16 @@ int main(int argc, char *argv[])
             char res_str[16];
             snprintf(res_str, sizeof(res_str), "%ux%u", w, h);
 
-            int err = bench_feature(&targets[t], w, h, n_frames,
-                                    &init_ms, &avg_ms, &total_ms);
+            int err = bench_feature(&targets[t], w, h, n_frames, &init_ms, &avg_ms, &total_ms);
             if (err) {
-                printf("%-28s  %8s  %8s  %8s  %8s  %8s\n",
-                       targets[t].label, res_str, "FAIL", "-", "-", "-");
+                printf("%-28s  %8s  %8s  %8s  %8s  %8s\n", targets[t].label, res_str, "FAIL", "-",
+                       "-", "-");
                 continue;
             }
 
             double fps = (n_frames - 1) / (total_ms / 1000.0);
-            printf("%-28s  %8s  %8.1f  %8.2f  %8.1f  %8.1f\n",
-                   targets[t].label, res_str, init_ms, avg_ms, total_ms, fps);
+            printf("%-28s  %8s  %8.1f  %8.2f  %8.1f  %8.1f\n", targets[t].label, res_str, init_ms,
+                   avg_ms, total_ms, fps);
             fflush(stdout);
         }
         if (r_end - r_start > 1)

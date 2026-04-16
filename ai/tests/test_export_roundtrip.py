@@ -1,4 +1,5 @@
 """Export roundtrip — torch.eval() vs onnxruntime must agree to atol=1e-5."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,7 +11,6 @@ onnx = pytest.importorskip("onnx")
 onnxruntime = pytest.importorskip("onnxruntime")
 
 import numpy as np  # noqa: E402
-
 from vmaf_train.models import FRRegressor, LearnedFilter, NRMetric, export_to_onnx  # noqa: E402
 
 

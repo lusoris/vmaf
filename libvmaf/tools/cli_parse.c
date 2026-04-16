@@ -41,12 +41,11 @@ enum {
 };
 
 #define VMAF_DEFAULT_PRECISION_FMT "%.17g"
-#define VMAF_LEGACY_PRECISION_FMT  "%.6f"
+#define VMAF_LEGACY_PRECISION_FMT "%.6f"
 
 static char precision_fmt_buf[16];
 
-static const char *resolve_precision_fmt(const char *optarg, const char *app,
-                                         CLISettings *s)
+static const char *resolve_precision_fmt(const char *optarg, const char *app, CLISettings *s)
 {
     if (!strcmp(optarg, "max") || !strcmp(optarg, "full")) {
         s->precision_max = true;
@@ -59,8 +58,9 @@ static const char *resolve_precision_fmt(const char *optarg, const char *app,
     char *end;
     long n = strtol(optarg, &end, 10);
     if (*end || end == optarg || n < 1 || n > 17) {
-        fprintf(stderr, "%s: --precision must be an integer 1..17, "
-                        "or one of: max, full, legacy (got: %s)\n",
+        fprintf(stderr,
+                "%s: --precision must be an integer 1..17, "
+                "or one of: max, full, legacy (got: %s)\n",
                 app, optarg);
         exit(1);
     }
@@ -70,49 +70,50 @@ static const char *resolve_precision_fmt(const char *optarg, const char *app,
 }
 
 static const struct option long_opts[] = {
-    { "reference",        1, NULL, 'r' },
-    { "distorted",        1, NULL, 'd' },
-    { "width",            1, NULL, 'w' },
-    { "height",           1, NULL, 'h' },
-    { "pixel_format",     1, NULL, 'p' },
-    { "bitdepth",         1, NULL, 'b' },
-    { "model",            1, NULL, 'm' },
-    { "output",           1, NULL, 'o' },
-    { "xml",              0, NULL, ARG_OUTPUT_XML },
-    { "json",             0, NULL, ARG_OUTPUT_JSON },
-    { "csv",              0, NULL, ARG_OUTPUT_CSV },
-    { "sub",              0, NULL, ARG_OUTPUT_SUB },
-    { "threads",          1, NULL, ARG_THREADS },
-    { "feature",          1, NULL, ARG_FEATURE },
-    { "subsample",        1, NULL, ARG_SUBSAMPLE },
-    { "cpumask",          1, NULL, ARG_CPUMASK },
-    { "gpumask",          1, NULL, ARG_GPUMASK },
-    { "aom_ctc",          1, NULL, ARG_AOM_CTC },
-    { "nflx_ctc",         1, NULL, ARG_NFLX_CTC },
-    { "frame_cnt",        1, NULL, ARG_FRAME_CNT },
-    { "frame_skip_ref",   1, NULL, ARG_FRAME_SKIP_REF },
-    { "frame_skip_dist",  1, NULL, ARG_FRAME_SKIP_DIST },
-    { "no_cuda",          0, NULL, ARG_NO_CUDA },
-    { "no_sycl",          0, NULL, ARG_NO_SYCL },
-    { "sycl_device",      1, NULL, ARG_SYCL_DEVICE },
-    { "precision",        1, NULL, ARG_PRECISION },
-    { "tiny-model",       1, NULL, ARG_TINY_MODEL },
-    { "tiny_model",       1, NULL, ARG_TINY_MODEL },
-    { "tiny-device",      1, NULL, ARG_TINY_DEVICE },
-    { "tiny_device",      1, NULL, ARG_TINY_DEVICE },
-    { "tiny-threads",     1, NULL, ARG_TINY_THREADS },
-    { "tiny_threads",     1, NULL, ARG_TINY_THREADS },
-    { "tiny-fp16",        0, NULL, ARG_TINY_FP16 },
-    { "tiny_fp16",        0, NULL, ARG_TINY_FP16 },
-    { "no-reference",     0, NULL, ARG_NO_REFERENCE },
-    { "no_reference",     0, NULL, ARG_NO_REFERENCE },
-    { "no_prediction",    0, NULL, 'n' },
-    { "version",          0, NULL, 'v' },
-    { "quiet",            0, NULL, 'q' },
-    { NULL,               0, NULL, 0 },
+    {"reference", 1, NULL, 'r'},
+    {"distorted", 1, NULL, 'd'},
+    {"width", 1, NULL, 'w'},
+    {"height", 1, NULL, 'h'},
+    {"pixel_format", 1, NULL, 'p'},
+    {"bitdepth", 1, NULL, 'b'},
+    {"model", 1, NULL, 'm'},
+    {"output", 1, NULL, 'o'},
+    {"xml", 0, NULL, ARG_OUTPUT_XML},
+    {"json", 0, NULL, ARG_OUTPUT_JSON},
+    {"csv", 0, NULL, ARG_OUTPUT_CSV},
+    {"sub", 0, NULL, ARG_OUTPUT_SUB},
+    {"threads", 1, NULL, ARG_THREADS},
+    {"feature", 1, NULL, ARG_FEATURE},
+    {"subsample", 1, NULL, ARG_SUBSAMPLE},
+    {"cpumask", 1, NULL, ARG_CPUMASK},
+    {"gpumask", 1, NULL, ARG_GPUMASK},
+    {"aom_ctc", 1, NULL, ARG_AOM_CTC},
+    {"nflx_ctc", 1, NULL, ARG_NFLX_CTC},
+    {"frame_cnt", 1, NULL, ARG_FRAME_CNT},
+    {"frame_skip_ref", 1, NULL, ARG_FRAME_SKIP_REF},
+    {"frame_skip_dist", 1, NULL, ARG_FRAME_SKIP_DIST},
+    {"no_cuda", 0, NULL, ARG_NO_CUDA},
+    {"no_sycl", 0, NULL, ARG_NO_SYCL},
+    {"sycl_device", 1, NULL, ARG_SYCL_DEVICE},
+    {"precision", 1, NULL, ARG_PRECISION},
+    {"tiny-model", 1, NULL, ARG_TINY_MODEL},
+    {"tiny_model", 1, NULL, ARG_TINY_MODEL},
+    {"tiny-device", 1, NULL, ARG_TINY_DEVICE},
+    {"tiny_device", 1, NULL, ARG_TINY_DEVICE},
+    {"tiny-threads", 1, NULL, ARG_TINY_THREADS},
+    {"tiny_threads", 1, NULL, ARG_TINY_THREADS},
+    {"tiny-fp16", 0, NULL, ARG_TINY_FP16},
+    {"tiny_fp16", 0, NULL, ARG_TINY_FP16},
+    {"no-reference", 0, NULL, ARG_NO_REFERENCE},
+    {"no_reference", 0, NULL, ARG_NO_REFERENCE},
+    {"no_prediction", 0, NULL, 'n'},
+    {"version", 0, NULL, 'v'},
+    {"quiet", 0, NULL, 'q'},
+    {NULL, 0, NULL, 0},
 };
 
-static void usage(const char *const app, const char *const reason, ...) {
+static void usage(const char *const app, const char *const reason, ...)
+{
     if (reason) {
         va_list args;
         va_start(args, reason);
@@ -121,72 +122,75 @@ static void usage(const char *const app, const char *const reason, ...) {
         fprintf(stderr, "\n\n");
     }
     fprintf(stderr, "Usage: %s [options]\n\n", app);
-    fprintf(stderr, "Supported options:\n"
-            " --reference/-r $path:        path to reference .y4m or .yuv\n"
-            " --distorted/-d $path:        path to distorted .y4m or .yuv\n"
-            " --width/-w $unsigned:        width\n"
-            " --height/-h $unsigned:       height\n"
-            " --pixel_format/-p: $string   pixel format (420/422/444)\n"
-            " --bitdepth/-b $unsigned:     bitdepth (8/10/12/16)\n"
-            " --model/-m $params:          model parameters, colon \":\" delimited\n"
-            "                              `path=` path to model file\n"
-            "                              `version=` built-in model version\n"
-            "                              `name=` name used in log (optional)\n"
-            " --output/-o $path:           output file\n"
-            " --xml:                       write output file as XML (default)\n"
-            " --json:                      write output file as JSON\n"
-            " --csv:                       write output file as CSV\n"
-            " --sub:                       write output file as subtitle\n"
-            " --threads $unsigned:         number of threads to use\n"
-            " --feature $string:           additional feature\n"
-            " --cpumask: $bitmask          restrict permitted CPU instruction sets\n"
-            " --gpumask: $bitmask          restrict permitted GPU operations\n"
-            " --frame_cnt $unsigned:       maximum number of frames to process\n"
-            " --frame_skip_ref $unsigned:  skip the first N frames in reference\n"
-            " --frame_skip_dist $unsigned: skip the first N frames in distorted\n"
-            " --subsample: $unsigned       compute scores only every N frames\n"
-            " --no_cuda:                   disable CUDA backend\n"
-            " --no_sycl:                    disable SYCL/oneAPI backend\n"
-            " --sycl_device $unsigned:      select SYCL GPU by index (default: auto)\n"
-            " --precision $spec:            score output precision\n"
-            "                                  N (1..17) -> printf \"%%.<N>g\"\n"
-            "                                  max|full  -> \"%%.17g\" (default; round-trip lossless)\n"
-            "                                  legacy    -> \"%%.6f\" (pre-fork Netflix output)\n"
-            " --tiny-model $path:           load a tiny ONNX model alongside classic models\n"
-            " --tiny-device $string:        auto|cpu|cuda|openvino|rocm (default: auto)\n"
-            " --tiny-threads $unsigned:     CPU EP intra-op threads (0 = ORT default)\n"
-            " --tiny-fp16:                  request fp16 IO where the EP supports it\n"
-            " --no-reference:               no-reference mode; valid only with an NR tiny model\n"
-            " --quiet/-q:                  disable FPS meter when run in a TTY\n"
-            " --no_prediction/-n:          no prediction, extract features only\n"
-            " --version/-v:                print version and exit\n"
-           );
+    fprintf(
+        stderr,
+        "Supported options:\n"
+        " --reference/-r $path:        path to reference .y4m or .yuv\n"
+        " --distorted/-d $path:        path to distorted .y4m or .yuv\n"
+        " --width/-w $unsigned:        width\n"
+        " --height/-h $unsigned:       height\n"
+        " --pixel_format/-p: $string   pixel format (420/422/444)\n"
+        " --bitdepth/-b $unsigned:     bitdepth (8/10/12/16)\n"
+        " --model/-m $params:          model parameters, colon \":\" delimited\n"
+        "                              `path=` path to model file\n"
+        "                              `version=` built-in model version\n"
+        "                              `name=` name used in log (optional)\n"
+        " --output/-o $path:           output file\n"
+        " --xml:                       write output file as XML (default)\n"
+        " --json:                      write output file as JSON\n"
+        " --csv:                       write output file as CSV\n"
+        " --sub:                       write output file as subtitle\n"
+        " --threads $unsigned:         number of threads to use\n"
+        " --feature $string:           additional feature\n"
+        " --cpumask: $bitmask          restrict permitted CPU instruction sets\n"
+        " --gpumask: $bitmask          restrict permitted GPU operations\n"
+        " --frame_cnt $unsigned:       maximum number of frames to process\n"
+        " --frame_skip_ref $unsigned:  skip the first N frames in reference\n"
+        " --frame_skip_dist $unsigned: skip the first N frames in distorted\n"
+        " --subsample: $unsigned       compute scores only every N frames\n"
+        " --no_cuda:                   disable CUDA backend\n"
+        " --no_sycl:                    disable SYCL/oneAPI backend\n"
+        " --sycl_device $unsigned:      select SYCL GPU by index (default: auto)\n"
+        " --precision $spec:            score output precision\n"
+        "                                  N (1..17) -> printf \"%%.<N>g\"\n"
+        "                                  max|full  -> \"%%.17g\" (default; round-trip lossless)\n"
+        "                                  legacy    -> \"%%.6f\" (pre-fork Netflix output)\n"
+        " --tiny-model $path:           load a tiny ONNX model alongside classic models\n"
+        " --tiny-device $string:        auto|cpu|cuda|openvino|rocm (default: auto)\n"
+        " --tiny-threads $unsigned:     CPU EP intra-op threads (0 = ORT default)\n"
+        " --tiny-fp16:                  request fp16 IO where the EP supports it\n"
+        " --no-reference:               no-reference mode; valid only with an NR tiny model\n"
+        " --quiet/-q:                  disable FPS meter when run in a TTY\n"
+        " --no_prediction/-n:          no prediction, extract features only\n"
+        " --version/-v:                print version and exit\n");
     exit(1);
 }
 
-#define CHECKED_APPEND(arr, cnt, val, app, desc) do {                   \
-    if ((cnt) == CLI_SETTINGS_STATIC_ARRAY_LEN)                         \
-        usage((app), "A maximum of %d %s are supported\n",              \
-              CLI_SETTINGS_STATIC_ARRAY_LEN, (desc));                   \
-    (arr)[(cnt)++] = (val);                                             \
-} while (0)
+#define CHECKED_APPEND(arr, cnt, val, app, desc)                                                   \
+    do {                                                                                           \
+        if ((cnt) == CLI_SETTINGS_STATIC_ARRAY_LEN)                                                \
+            usage((app), "A maximum of %d %s are supported\n", CLI_SETTINGS_STATIC_ARRAY_LEN,      \
+                  (desc));                                                                         \
+        (arr)[(cnt)++] = (val);                                                                    \
+    } while (0)
 
-#define CHECKED_REPLACE(arr, cnt, val, app, desc) do {                  \
-    CLIFeatureConfig _val = (val);                                      \
-    unsigned _i;                                                        \
-    for (_i = 0; _i < (cnt); _i++)                                      \
-        if (!strcmp((arr)[_i].name, _val.name)) {                       \
-            free((arr)[_i].buf);                                        \
-            vmaf_feature_dictionary_free(&(arr)[_i].opts_dict);         \
-            (arr)[_i] = _val;                                           \
-            break;                                                      \
-        }                                                               \
-    if (_i == (cnt))                                                    \
-        CHECKED_APPEND((arr), (cnt), _val, (app), (desc));              \
-} while (0)
+#define CHECKED_REPLACE(arr, cnt, val, app, desc)                                                  \
+    do {                                                                                           \
+        CLIFeatureConfig _val = (val);                                                             \
+        unsigned _i;                                                                               \
+        for (_i = 0; _i < (cnt); _i++)                                                             \
+            if (!strcmp((arr)[_i].name, _val.name)) {                                              \
+                free((arr)[_i].buf);                                                               \
+                vmaf_feature_dictionary_free(&(arr)[_i].opts_dict);                                \
+                (arr)[_i] = _val;                                                                  \
+                break;                                                                             \
+            }                                                                                      \
+        if (_i == (cnt))                                                                           \
+            CHECKED_APPEND((arr), (cnt), _val, (app), (desc));                                     \
+    } while (0)
 
-static void error(const char *const app, const char *const optarg,
-                  const int option, const char *const shouldbe)
+static void error(const char *const app, const char *const optarg, const int option,
+                  const char *const shouldbe)
 {
     char optname[256];
     int n;
@@ -201,21 +205,19 @@ static void error(const char *const app, const char *const optarg,
         sprintf(optname, "--%s", long_opts[n].name);
     }
 
-    usage(app, "Invalid argument \"%s\" for option %s; should be %s",
-          optarg, optname, shouldbe);
+    usage(app, "Invalid argument \"%s\" for option %s; should be %s", optarg, optname, shouldbe);
 }
 
-static unsigned parse_unsigned(const char *const optarg, const int option,
-                               const char *const app)
+static unsigned parse_unsigned(const char *const optarg, const int option, const char *const app)
 {
     char *end;
-    const unsigned res = (unsigned) strtoul(optarg, &end, 0);
-    if (*end || end == optarg) error(app, optarg, option, "an integer");
+    const unsigned res = (unsigned)strtoul(optarg, &end, 0);
+    if (*end || end == optarg)
+        error(app, optarg, option, "an integer");
     return res;
 }
 
-static unsigned parse_bitdepth(const char *const optarg, const int option,
-                               const char *const app)
+static unsigned parse_bitdepth(const char *const optarg, const int option, const char *const app)
 {
     unsigned bitdepth = parse_unsigned(optarg, option, app);
     if (!((bitdepth == 8) || (bitdepth == 10) || (bitdepth == 12) || (bitdepth == 16)))
@@ -223,8 +225,7 @@ static unsigned parse_bitdepth(const char *const optarg, const int option,
     return bitdepth;
 }
 
-static enum VmafPixelFormat parse_pix_fmt(const char *const optarg,
-                                          const int option,
+static enum VmafPixelFormat parse_pix_fmt(const char *const optarg, const int option,
                                           const char *const app)
 {
     enum VmafPixelFormat pix_fmt = VMAF_PIX_FMT_UNKNOWN;
@@ -236,8 +237,10 @@ static enum VmafPixelFormat parse_pix_fmt(const char *const optarg,
     if (!strcmp(optarg, "444"))
         pix_fmt = VMAF_PIX_FMT_YUV444P;
 
-    if (!pix_fmt) error(app, optarg, option, "a valid pixel format "
-                                             "(420/422/444)");
+    if (!pix_fmt)
+        error(app, optarg, option,
+              "a valid pixel format "
+              "(420/422/444)");
 
     return pix_fmt;
 }
@@ -246,17 +249,18 @@ static enum VmafPixelFormat parse_pix_fmt(const char *const optarg,
 static char *strsep(char **sp, char *sep)
 {
     char *p, *s;
-    if (sp == NULL || *sp == NULL || **sp == '\0') return NULL;
+    if (sp == NULL || *sp == NULL || **sp == '\0')
+        return NULL;
     s = *sp;
     p = s + strcspn(s, sep);
-    if (*p != '\0') *p++ = '\0';
+    if (*p != '\0')
+        *p++ = '\0';
     *sp = p;
     return s;
 }
 #endif
 
-static CLIModelConfig parse_model_config(const char *const optarg,
-                                         const char *const app)
+static CLIModelConfig parse_model_config(const char *const optarg, const char *const app)
 {
     const size_t optarg_sz = strnlen(optarg, 1024);
     char *optarg_copy = malloc(optarg_sz + 1);
@@ -266,10 +270,11 @@ static CLIModelConfig parse_model_config(const char *const optarg,
     strncpy(optarg_copy, optarg, optarg_sz);
 
     CLIModelConfig model_cfg = {
-        .cfg = {
-            .name = "vmaf",
-            .flags = VMAF_MODEL_FLAGS_DEFAULT,
-        },
+        .cfg =
+            {
+                .name = "vmaf",
+                .flags = VMAF_MODEL_FLAGS_DEFAULT,
+            },
         .path = NULL,
         .version = NULL,
         .buf = optarg_copy,
@@ -285,8 +290,10 @@ static CLIModelConfig parse_model_config(const char *const optarg,
             } else if (!strcmp(key, "enable_transform")) {
                 val = "true";
             } else {
-                usage(app, "Problem parsing model, "
-                           "bad option string \"%s\".", key);
+                usage(app,
+                      "Problem parsing model, "
+                      "bad option string \"%s\".",
+                      key);
             }
         }
 
@@ -297,24 +304,23 @@ static CLIModelConfig parse_model_config(const char *const optarg,
         } else if (!strcmp(key, "version")) {
             model_cfg.version = val;
         } else if (!strcmp(key, "disable_clip")) {
-            model_cfg.cfg.flags |=
-                !strcmp(val, "true") ? VMAF_MODEL_FLAG_DISABLE_CLIP : 0;
+            model_cfg.cfg.flags |= !strcmp(val, "true") ? VMAF_MODEL_FLAG_DISABLE_CLIP : 0;
         } else if (!strcmp(key, "enable_transform")) {
-            model_cfg.cfg.flags |=
-                !strcmp(val, "true") ? VMAF_MODEL_FLAG_ENABLE_TRANSFORM : 0;
+            model_cfg.cfg.flags |= !strcmp(val, "true") ? VMAF_MODEL_FLAG_ENABLE_TRANSFORM : 0;
         } else {
             if (model_cfg.overload_cnt == CLI_SETTINGS_STATIC_ARRAY_LEN) {
-                usage(app, "A maximum of %d feature overloads per model"
-                      " are supported\n", CLI_SETTINGS_STATIC_ARRAY_LEN);
+                usage(app,
+                      "A maximum of %d feature overloads per model"
+                      " are supported\n",
+                      CLI_SETTINGS_STATIC_ARRAY_LEN);
             }
             char *name = strsep(&key, ".");
             model_cfg.feature_overload[model_cfg.overload_cnt].name = name;
             char *opt = strsep(&key, ".");
-            int err =
-                vmaf_feature_dictionary_set(
-                    &model_cfg.feature_overload[model_cfg.overload_cnt].opts_dict,
-                    opt, val);
-            if (err) usage(app, "Problem parsing model: \"%s\"\n", name);
+            int err = vmaf_feature_dictionary_set(
+                &model_cfg.feature_overload[model_cfg.overload_cnt].opts_dict, opt, val);
+            if (err)
+                usage(app, "Problem parsing model: \"%s\"\n", name);
 
             model_cfg.overload_cnt++;
         }
@@ -323,8 +329,7 @@ static CLIModelConfig parse_model_config(const char *const optarg,
     return model_cfg;
 }
 
-static CLIFeatureConfig parse_feature_config(const char *const optarg,
-                                             const char *const app)
+static CLIFeatureConfig parse_feature_config(const char *const optarg, const char *const app)
 {
     const size_t optarg_sz = strnlen(optarg, 1024);
     char *optarg_copy = malloc(optarg_sz + 1);
@@ -345,8 +350,10 @@ static CLIFeatureConfig parse_feature_config(const char *const optarg,
         const char *key = strsep(&key_val, "=");
         const char *val = strsep(&key_val, "=");
         if (!val) {
-            usage(app, "Problem parsing feature \"%s\","
-                       " bad option string \"%s\".\n", feature_cfg.name, key);
+            usage(app,
+                  "Problem parsing feature \"%s\","
+                  " bad option string \"%s\".\n",
+                  feature_cfg.name, key);
         }
         int err = vmaf_feature_dictionary_set(&feature_cfg.opts_dict, key, val);
         if (err)
@@ -360,36 +367,35 @@ static void aom_ctc_v1_0(CLISettings *settings, const char *const app)
 {
     CLIModelConfig cfg = {
         .version = "vmaf_v0.6.1",
-        .cfg = { .name = "vmaf" },
+        .cfg = {.name = "vmaf"},
     };
-    CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg,
-                   app, "models");
+    CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg, app, "models");
 
     CLIModelConfig cfg_neg = {
         .version = "vmaf_v0.6.1neg",
-        .cfg = { .name = "vmaf_neg" },
+        .cfg = {.name = "vmaf_neg"},
     };
-    CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg_neg,
-                   app, "models");
+    CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg_neg, app, "models");
 
     CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("psnr=reduced_hbd_peak=true:"
-                             "enable_apsnr=true:min_sse=0.5", app),
-        app, "features");
+                   parse_feature_config("psnr=reduced_hbd_peak=true:"
+                                        "enable_apsnr=true:min_sse=0.5",
+                                        app),
+                   app, "features");
+
+    CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt, parse_feature_config("ciede", app),
+                   app, "features");
 
     CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("ciede", app), app, "features");
+                   parse_feature_config("float_ssim=enable_db=true:clip_db=true", app), app,
+                   "features");
 
     CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("float_ssim=enable_db=true:clip_db=true", app),
-        app, "features");
+                   parse_feature_config("float_ms_ssim=enable_db=true:clip_db=true", app), app,
+                   "features");
 
     CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("float_ms_ssim=enable_db=true:clip_db=true", app),
-        app, "features");
-
-    CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("psnr_hvs", app), app, "features");
+                   parse_feature_config("psnr_hvs", app), app, "features");
 }
 
 static void aom_ctc_v2_0(CLISettings *settings, const char *app)
@@ -400,8 +406,8 @@ static void aom_ctc_v2_0(CLISettings *settings, const char *app)
 static void aom_ctc_v3_0(CLISettings *settings, const char *app)
 {
     aom_ctc_v2_0(settings, app);
-    CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("cambi", app), app, "features");
+    CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt, parse_feature_config("cambi", app),
+                   app, "features");
 }
 
 static void aom_ctc_v4_0(CLISettings *settings, const char *app)
@@ -424,13 +430,11 @@ static void aom_ctc_v7_0(CLISettings *settings, const char *app)
 {
     aom_ctc_v6_0(settings, app);
     CHECKED_REPLACE(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("float_ssim=scale=1:enable_db=true:clip_db=true",
-                             app),
-        app, "features");
+                    parse_feature_config("float_ssim=scale=1:enable_db=true:clip_db=true", app),
+                    app, "features");
 }
 
-static void parse_aom_ctc(CLISettings *settings, const char *const optarg,
-                          const char *const app)
+static void parse_aom_ctc(CLISettings *settings, const char *const optarg, const char *const app)
 {
     if (!strcmp(optarg, "proposed"))
         usage(app, "`--aom_ctc proposed` is deprecated.");
@@ -477,32 +481,29 @@ static void nflx_ctc_v1_0(CLISettings *settings, const char *const app)
 {
     CLIModelConfig cfg = {
         .version = "vmaf_4k_v0.6.1",
-        .cfg = { .name = "vmaf" },
+        .cfg = {.name = "vmaf"},
     };
-    CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg,
-                   app, "models");
+    CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg, app, "models");
 
     CLIModelConfig cfg_neg = {
         .version = "vmaf_4k_v0.6.1neg",
-        .cfg = { .name = "vmaf_neg" },
+        .cfg = {.name = "vmaf_neg"},
     };
-    CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg_neg,
-                   app, "models");
+    CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg_neg, app, "models");
 
     CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("psnr=enable_chroma=true:enable_apsnr=true", app),
-        app, "features");
+                   parse_feature_config("psnr=enable_chroma=true:enable_apsnr=true", app), app,
+                   "features");
 
     CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("float_ssim=enable_db=true:clip_db=true", app),
-        app, "features");
+                   parse_feature_config("float_ssim=enable_db=true:clip_db=true", app), app,
+                   "features");
 
-    CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-        parse_feature_config("cambi", app), app, "features");
+    CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt, parse_feature_config("cambi", app),
+                   app, "features");
 }
 
-static void parse_nflx_ctc(CLISettings *settings, const char *const optarg,
-                         const char *const app)
+static void parse_nflx_ctc(CLISettings *settings, const char *const optarg, const char *const app)
 {
     if (!strcmp(optarg, "v1.0")) {
         nflx_ctc_v1_0(settings, app);
@@ -512,11 +513,10 @@ static void parse_nflx_ctc(CLISettings *settings, const char *const optarg,
     usage(app, "bad nflx_ctc version \"%s\"", optarg);
 }
 
-void cli_parse(const int argc, char *const *const argv,
-               CLISettings *const settings)
+void cli_parse(const int argc, char *const *const argv, CLISettings *const settings)
 {
     memset(settings, 0, sizeof(*settings));
-    settings->sycl_device = -1;    // auto-select by default
+    settings->sycl_device = -1; // auto-select by default
     settings->precision_n = -1;
     settings->precision_fmt = VMAF_DEFAULT_PRECISION_FMT;
     settings->tiny_device = "auto";
@@ -563,11 +563,11 @@ void cli_parse(const int argc, char *const *const argv,
             break;
         case 'm':
             CHECKED_APPEND(settings->model_config, settings->model_cnt,
-                parse_model_config(optarg, argv[0]), argv[0], "models");
+                           parse_model_config(optarg, argv[0]), argv[0], "models");
             break;
         case ARG_FEATURE:
             CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
-                parse_feature_config(optarg, argv[0]), argv[0], "features");
+                           parse_feature_config(optarg, argv[0]), argv[0], "features");
             break;
         case ARG_THREADS:
             settings->thread_cnt = parse_unsigned(optarg, 't', argv[0]);
@@ -589,8 +589,7 @@ void cli_parse(const int argc, char *const *const argv,
             parse_nflx_ctc(settings, optarg, argv[0]);
             break;
         case ARG_FRAME_CNT:
-            settings->frame_cnt =
-                parse_unsigned(optarg, ARG_FRAME_CNT, argv[0]);
+            settings->frame_cnt = parse_unsigned(optarg, ARG_FRAME_CNT, argv[0]);
             break;
         case ARG_FRAME_SKIP_REF:
             settings->frame_skip_ref = parse_unsigned(optarg, ARG_FRAME_SKIP_REF, argv[0]);
@@ -614,17 +613,14 @@ void cli_parse(const int argc, char *const *const argv,
             settings->tiny_model_path = optarg;
             break;
         case ARG_TINY_DEVICE:
-            if (strcmp(optarg, "auto") && strcmp(optarg, "cpu") &&
-                strcmp(optarg, "cuda") && strcmp(optarg, "openvino") &&
-                strcmp(optarg, "rocm")) {
-                error(argv[0], optarg, ARG_TINY_DEVICE,
-                      "one of auto|cpu|cuda|openvino|rocm");
+            if (strcmp(optarg, "auto") && strcmp(optarg, "cpu") && strcmp(optarg, "cuda") &&
+                strcmp(optarg, "openvino") && strcmp(optarg, "rocm")) {
+                error(argv[0], optarg, ARG_TINY_DEVICE, "one of auto|cpu|cuda|openvino|rocm");
             }
             settings->tiny_device = optarg;
             break;
         case ARG_TINY_THREADS:
-            settings->tiny_threads =
-                (int) parse_unsigned(optarg, ARG_TINY_THREADS, argv[0]);
+            settings->tiny_threads = (int)parse_unsigned(optarg, ARG_TINY_THREADS, argv[0]);
             break;
         case ARG_TINY_FP16:
             settings->tiny_fp16 = true;
@@ -652,9 +648,8 @@ void cli_parse(const int argc, char *const *const argv,
         usage(argv[0], "Reference .y4m or .yuv (-r/--reference) is required");
     if (!settings->path_dist)
         usage(argv[0], "Distorted .y4m or .yuv (-d/--distorted) is required");
-    if (settings->use_yuv && !(settings->width && settings->height &&
-        settings->pix_fmt && settings->bitdepth))
-    {
+    if (settings->use_yuv &&
+        !(settings->width && settings->height && settings->pix_fmt && settings->bitdepth)) {
         usage(argv[0], "The following options are required for .yuv input:\n"
                        "  --width/-w\n"
                        "  --height/-h\n"
@@ -667,8 +662,7 @@ void cli_parse(const int argc, char *const *const argv,
         CLIModelConfig cfg = {
             .version = "vmaf_v0.6.1",
         };
-        CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg,
-                       argv[0], "models");
+        CHECKED_APPEND(settings->model_config, settings->model_cnt, cfg, argv[0], "models");
 #else
         usage(argv[0], "At least one model (-m/--model) is required "
                        "unless no prediction (-n/--no_prediction) is set");
@@ -677,10 +671,9 @@ void cli_parse(const int argc, char *const *const argv,
 
     for (unsigned i = 0; i < settings->model_cnt; i++) {
         for (unsigned j = 0; j < settings->model_cnt; j++) {
-            if (i == j) continue;
-            if (!strcmp(settings->model_config[i].cfg.name,
-                        settings->model_config[j].cfg.name))
-            {
+            if (i == j)
+                continue;
+            if (!strcmp(settings->model_config[i].cfg.name, settings->model_config[j].cfg.name)) {
                 usage(argv[0], "Each model should be uniquely named. "
                                "Set using `--model` via the `name=...` param.");
             }

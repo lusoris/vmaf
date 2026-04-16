@@ -25,7 +25,8 @@
 int vmaf_ref_init(VmafRef **ref)
 {
     VmafRef *const r = *ref = malloc(sizeof(*r));
-    if (!r) return -ENOMEM;
+    if (!r)
+        return -ENOMEM;
     memset(r, 0, sizeof(*r));
     atomic_init(&r->cnt, 1);
     return 0;

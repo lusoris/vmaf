@@ -34,39 +34,39 @@
 #endif
 
 #if 1
-const float ansnr_filter1d_ref_s[3] = { 0.250138193, 0.499723613, 0.250138193 };
+const float ansnr_filter1d_ref_s[3] = {0.250138193, 0.499723613, 0.250138193};
 
-const float ansnr_filter1d_dis_s[5] = { 0.054488685, 0.244201347, 0.402619958, 0.244201347, 0.054488685 };
+const float ansnr_filter1d_dis_s[5] = {0.054488685, 0.244201347, 0.402619958, 0.244201347,
+                                       0.054488685};
 
 #else
 
-const float ansnr_filter1d_ref_s[3] = { 0x1.00243ap-2, 0x1.ffb78cp-2, 0x1.00243ap-2 };
+const float ansnr_filter1d_ref_s[3] = {0x1.00243ap-2, 0x1.ffb78cp-2, 0x1.00243ap-2};
 
-const float ansnr_filter1d_dis_s[5] = { 0x1.be5f0ep-5, 0x1.f41fd6p-3, 0x1.9c4868p-2, 0x1.f41fd6p-3, 0x1.be5f0ep-5 };
+const float ansnr_filter1d_dis_s[5] = {0x1.be5f0ep-5, 0x1.f41fd6p-3, 0x1.9c4868p-2, 0x1.f41fd6p-3,
+                                       0x1.be5f0ep-5};
 
 #endif
 
 const int ansnr_filter1d_ref_width = 3;
 const int ansnr_filter1d_dis_width = 5;
 
-const float ansnr_filter2d_ref_s[3*3] = {
-    1.0 / 16.0, 2.0 / 16.0, 1.0 / 16.0,
-    2.0 / 16.0, 4.0 / 16.0, 2.0 / 16.0,
-    1.0 / 16.0, 2.0 / 16.0, 1.0 / 16.0
-};
+const float ansnr_filter2d_ref_s[3 * 3] = {1.0 / 16.0, 2.0 / 16.0, 1.0 / 16.0,
+                                           2.0 / 16.0, 4.0 / 16.0, 2.0 / 16.0,
+                                           1.0 / 16.0, 2.0 / 16.0, 1.0 / 16.0};
 
-const float ansnr_filter2d_dis_s[5*5] = {
+const float ansnr_filter2d_dis_s[5 * 5] = {
     2.0 / 571.0,  7.0 / 571.0,  12.0 / 571.0,  7.0 / 571.0,  2.0 / 571.0,
     7.0 / 571.0,  31.0 / 571.0, 52.0 / 571.0,  31.0 / 571.0, 7.0 / 571.0,
     12.0 / 571.0, 52.0 / 571.0, 127.0 / 571.0, 52.0 / 571.0, 12.0 / 571.0,
     7.0 / 571.0,  31.0 / 571.0, 52.0 / 571.0,  31.0 / 571.0, 7.0 / 571.0,
-    2.0 / 571.0,  7.0 / 571.0,  12.0 / 571.0,  7.0 / 571.0,  2.0 / 571.0
-};
+    2.0 / 571.0,  7.0 / 571.0,  12.0 / 571.0,  7.0 / 571.0,  2.0 / 571.0};
 
 const int ansnr_filter2d_ref_width = 3;
 const int ansnr_filter2d_dis_width = 5;
 
-void ansnr_mse_s(const float *ref, const float *dis, float *sig, float *noise, int w, int h, int ref_stride, int dis_stride)
+void ansnr_mse_s(const float *ref, const float *dis, float *sig, float *noise, int w, int h,
+                 int ref_stride, int dis_stride)
 {
     int ref_px_stride = ref_stride / sizeof(float);
     int dis_px_stride = dis_stride / sizeof(float);
@@ -96,8 +96,7 @@ void ansnr_mse_s(const float *ref, const float *dis, float *sig, float *noise, i
 
     if (mse_line) {
         for (int i = 0; i < h; ++i)
-            mse_line(ref + i * ref_px_stride, dis + i * dis_px_stride,
-                     &sig_accum, &noise_accum, w);
+            mse_line(ref + i * ref_px_stride, dis + i * dis_px_stride, &sig_accum, &noise_accum, w);
     } else {
         int i, j;
         float ref_val, dis_val;
@@ -110,11 +109,11 @@ void ansnr_mse_s(const float *ref, const float *dis, float *sig, float *noise, i
                 ref_val = ref[i * ref_px_stride + j];
                 dis_val = dis[i * dis_px_stride + j];
 
-                sig_accum_inner   += ref_val * ref_val;
+                sig_accum_inner += ref_val * ref_val;
                 noise_accum_inner += (ref_val - dis_val) * (ref_val - dis_val);
             }
 
-            sig_accum   += sig_accum_inner;
+            sig_accum += sig_accum_inner;
             noise_accum += noise_accum_inner;
         }
     }
@@ -125,7 +124,8 @@ void ansnr_mse_s(const float *ref, const float *dis, float *sig, float *noise, i
         *noise = noise_accum;
 }
 
-void ansnr_filter1d_s(const float *f, const float *src, float *dst, int w, int h, int src_stride, int dst_stride, int fwidth)
+void ansnr_filter1d_s(const float *f, const float *src, float *dst, int w, int h, int src_stride,
+                      int dst_stride, int fwidth)
 {
     int src_px_stride = src_stride / sizeof(float);
     int dst_px_stride = dst_stride / sizeof(float);
@@ -148,8 +148,10 @@ void ansnr_filter1d_s(const float *f, const float *src, float *dst, int w, int h
                 ii = ii < 0 ? 0 : (ii > h - 1 ? h - 1 : ii);
                 imgcoeff = src[ii * src_px_stride + j];
 #else
-                if (ii < 0) ii = -ii;
-                else if (ii >= h) ii = 2 * h - ii - 1;
+                if (ii < 0)
+                    ii = -ii;
+                else if (ii >= h)
+                    ii = 2 * h - ii - 1;
                 imgcoeff = src[ii * src_px_stride + j];
 #endif
                 accum += fcoeff * imgcoeff;
@@ -170,8 +172,10 @@ void ansnr_filter1d_s(const float *f, const float *src, float *dst, int w, int h
                 jj = jj < 0 ? 0 : (jj > w - 1 ? w - 1 : jj);
                 imgcoeff = tmp[jj];
 #else
-                if (jj < 0) jj = -jj;
-                else if (jj >= w) jj = 2 * w - jj - 1;
+                if (jj < 0)
+                    jj = -jj;
+                else if (jj >= w)
+                    jj = 2 * w - jj - 1;
                 imgcoeff = tmp[jj];
 #endif
                 accum += fcoeff * imgcoeff;
@@ -184,7 +188,8 @@ void ansnr_filter1d_s(const float *f, const float *src, float *dst, int w, int h
     aligned_free(tmp);
 }
 
-void ansnr_filter2d_s(const float *f, const float *src, float *dst, int w, int h, int src_stride, int dst_stride, int fwidth)
+void ansnr_filter2d_s(const float *f, const float *src, float *dst, int w, int h, int src_stride,
+                      int dst_stride, int fwidth)
 {
     int src_px_stride = src_stride / sizeof(float);
     int dst_px_stride = dst_stride / sizeof(float);
@@ -209,10 +214,14 @@ void ansnr_filter2d_s(const float *f, const float *src, float *dst, int w, int h
                     jj = jj < 0 ? 0 : (jj > w - 1 ? w - 1 : jj);
                     imgcoeff = src[ii * src_px_stride + jj];
 #else
-                    if (ii < 0) ii = -ii;
-                    else if (ii >= h) ii = 2 * h - ii - 1;
-                    if (jj < 0) jj = -jj;
-                    else if (jj >= w) jj = 2 * w - jj - 1;
+                    if (ii < 0)
+                        ii = -ii;
+                    else if (ii >= h)
+                        ii = 2 * h - ii - 1;
+                    if (jj < 0)
+                        jj = -jj;
+                    else if (jj >= w)
+                        jj = 2 * w - jj - 1;
                     imgcoeff = src[ii * src_px_stride + jj];
 #endif
                     accum_inner += fcoeff * imgcoeff;
@@ -225,4 +234,3 @@ void ansnr_filter2d_s(const float *f, const float *src, float *dst, int w, int h
         }
     }
 }
-

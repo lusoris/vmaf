@@ -18,7 +18,7 @@ static uint16_t f32_to_f16_one(float f)
     uint32_t x;
     memcpy(&x, &f, sizeof(x));
     uint32_t sign = (x >> 31) & 0x1u;
-    int32_t  exp  = (int32_t)((x >> 23) & 0xffu) - 127 + 15;
+    int32_t exp = (int32_t)((x >> 23) & 0xffu) - 127 + 15;
     uint32_t mant = x & 0x7fffffu;
 
     if (exp >= 31) {
@@ -42,7 +42,7 @@ static uint16_t f32_to_f16_one(float f)
 static float f16_to_f32_one(uint16_t h)
 {
     uint32_t sign = (h >> 15) & 0x1u;
-    uint32_t exp  = (h >> 10) & 0x1fu;
+    uint32_t exp = (h >> 10) & 0x1fu;
     uint32_t mant = h & 0x3ffu;
     uint32_t out;
     if (exp == 0u) {
@@ -81,22 +81,18 @@ void vmaf_f16_to_f32(const uint16_t *src, float *dst, size_t n)
     }
 }
 
-int vmaf_tensor_from_luma(const uint8_t *src, size_t stride_src,
-                          int width, int height,
-                          VmafTensorLayout layout,
-                          VmafTensorDType dtype,
-                          const float *mean, const float *std,
-                          void *dst)
+int vmaf_tensor_from_luma(const uint8_t *src, size_t stride_src, int width, int height,
+                          VmafTensorLayout layout, VmafTensorDType dtype, const float *mean,
+                          const float *std, void *dst)
 {
-    if (!src || !dst || width <= 0 || height <= 0 ||
-        stride_src < (size_t)width) {
+    if (!src || !dst || width <= 0 || height <= 0 || stride_src < (size_t)width) {
         return -EINVAL;
     }
     /* Luma is single-channel; NCHW vs NHWC layout is equivalent for C=1. */
-    (void) layout;
+    (void)layout;
 
     const float m = mean ? mean[0] : 0.0f;
-    const float s = std  ? std[0]  : 1.0f;
+    const float s = std ? std[0] : 1.0f;
     if (s == 0.0f) {
         return -EINVAL;
     }
@@ -104,7 +100,7 @@ int vmaf_tensor_from_luma(const uint8_t *src, size_t stride_src,
 
     const size_t n = (size_t)width * (size_t)height;
     if (dtype == VMAF_TENSOR_DTYPE_F32) {
-        float *out = (float *) dst;
+        float *out = (float *)dst;
         for (int y = 0; y < height; ++y) {
             const uint8_t *row = src + (size_t)y * stride_src;
             for (int x = 0; x < width; ++x) {
@@ -113,7 +109,7 @@ int vmaf_tensor_from_luma(const uint8_t *src, size_t stride_src,
             }
         }
     } else if (dtype == VMAF_TENSOR_DTYPE_F16) {
-        uint16_t *out = (uint16_t *) dst;
+        uint16_t *out = (uint16_t *)dst;
         for (int y = 0; y < height; ++y) {
             const uint8_t *row = src + (size_t)y * stride_src;
             for (int x = 0; x < width; ++x) {
@@ -124,44 +120,41 @@ int vmaf_tensor_from_luma(const uint8_t *src, size_t stride_src,
     } else {
         return -EINVAL;
     }
-    (void) n;
+    (void)n;
     return 0;
 }
 
-int vmaf_tensor_to_luma(const void *src,
-                        VmafTensorLayout layout,
-                        VmafTensorDType dtype,
-                        int width, int height,
-                        const float *mean, const float *std,
-                        uint8_t *dst, size_t stride_dst)
+int vmaf_tensor_to_luma(const void *src, VmafTensorLayout layout, VmafTensorDType dtype, int width,
+                        int height, const float *mean, const float *std, uint8_t *dst,
+                        size_t stride_dst)
 {
-    if (!src || !dst || width <= 0 || height <= 0 ||
-        stride_dst < (size_t)width) {
+    if (!src || !dst || width <= 0 || height <= 0 || stride_dst < (size_t)width) {
         return -EINVAL;
     }
-    (void) layout;
+    (void)layout;
 
     const float m = mean ? mean[0] : 0.0f;
-    const float s = std  ? std[0]  : 1.0f;
+    const float s = std ? std[0] : 1.0f;
 
     for (int y = 0; y < height; ++y) {
         uint8_t *row = dst + (size_t)y * stride_dst;
         for (int x = 0; x < width; ++x) {
             float v;
             if (dtype == VMAF_TENSOR_DTYPE_F32) {
-                v = ((const float *) src)[(size_t)y * (size_t)width + (size_t)x];
+                v = ((const float *)src)[(size_t)y * (size_t)width + (size_t)x];
             } else if (dtype == VMAF_TENSOR_DTYPE_F16) {
-                v = f16_to_f32_one(
-                    ((const uint16_t *) src)[(size_t)y * (size_t)width + (size_t)x]);
+                v = f16_to_f32_one(((const uint16_t *)src)[(size_t)y * (size_t)width + (size_t)x]);
             } else {
                 return -EINVAL;
             }
             float denorm = ((v * s) + m) * 255.0f;
             float rounded = nearbyintf(denorm);
-            int ri = (int) rounded;
-            if (ri < 0) ri = 0;
-            if (ri > 255) ri = 255;
-            row[x] = (uint8_t) ri;
+            int ri = (int)rounded;
+            if (ri < 0)
+                ri = 0;
+            if (ri > 255)
+                ri = 255;
+            row[x] = (uint8_t)ri;
         }
     }
     return 0;

@@ -7,6 +7,7 @@ Subcommands:
   eval               evaluate an ONNX model on a feature parquet (PLCC/SROCC/RMSE)
   register           write the sidecar metadata JSON for a shipped model
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -79,7 +80,9 @@ def fit_cmd(
 def export_cmd(
     checkpoint: Path = typer.Option(..., exists=True, help="Lightning checkpoint"),
     output: Path = typer.Option(..., help="Output .onnx path"),
-    model: str = typer.Option("fr_regressor", help="Model family: fr_regressor|nr_metric|learned_filter"),
+    model: str = typer.Option(
+        "fr_regressor", help="Model family: fr_regressor|nr_metric|learned_filter"
+    ),
     opset: int = typer.Option(17),
     atol: float = typer.Option(1e-5, help="Roundtrip tolerance (torch vs onnxruntime)"),
 ) -> None:
@@ -137,7 +140,10 @@ def manifest_scan_cmd(
     dataset: str = typer.Option(..., help="Dataset name (nflx, konvid-1k, ...)"),
     root: Path = typer.Option(..., exists=True, file_okay=False, help="Local dataset root"),
     mos_csv: Optional[Path] = typer.Option(
-        None, "--mos-csv", exists=True, dir_okay=False,
+        None,
+        "--mos-csv",
+        exists=True,
+        dir_okay=False,
         help="Optional CSV with columns key,mos",
     ),
 ) -> None:
@@ -156,8 +162,7 @@ def manifest_scan_cmd(
     dst = write_manifest(dataset, entries)
     with_mos = sum(1 for e in entries if e.mos is not None)
     console.print(
-        f"[green]Wrote {dst} with {len(entries)} entries "
-        f"({with_mos} with MOS)[/green]"
+        f"[green]Wrote {dst} with {len(entries)} entries " f"({with_mos} with MOS)[/green]"
     )
 
 

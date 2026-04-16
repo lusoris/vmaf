@@ -92,14 +92,11 @@ static const VmafBuiltInModel built_in_models[] = {
         .data_len = &src_vmaf_4k_v0_6_1neg_json_len,
     },
 #endif
-    { 0 }
-};
+    {0}};
 
-#define BUILT_IN_MODEL_CNT \
-    (((sizeof(built_in_models)) / (sizeof(built_in_models[0]))) - 1)
+#define BUILT_IN_MODEL_CNT (((sizeof(built_in_models)) / (sizeof(built_in_models[0]))) - 1)
 
-int vmaf_model_load(VmafModel **model, VmafModelConfig *cfg,
-                    const char *version)
+int vmaf_model_load(VmafModel **model, VmafModelConfig *cfg, const char *version)
 {
     const VmafBuiltInModel *built_in_model = NULL;
 
@@ -111,8 +108,7 @@ int vmaf_model_load(VmafModel **model, VmafModelConfig *cfg,
     }
 
     if (!built_in_model) {
-        vmaf_log(VMAF_LOG_LEVEL_WARNING,
-                 "no such built-in model: \"%s\"\n", version);
+        vmaf_log(VMAF_LOG_LEVEL_WARNING, "no such built-in model: \"%s\"\n", version);
         return -EINVAL;
     }
 
@@ -123,11 +119,11 @@ int vmaf_model_load(VmafModel **model, VmafModelConfig *cfg,
 char *vmaf_model_generate_name(VmafModelConfig *cfg)
 {
     const char *default_name = "vmaf";
-    const size_t name_sz =
-        cfg->name ? strlen(cfg->name) + 1 : strlen(default_name) + 1;
+    const size_t name_sz = cfg->name ? strlen(cfg->name) + 1 : strlen(default_name) + 1;
 
     char *name = malloc(name_sz);
-    if (!name) return NULL;
+    if (!name)
+        return NULL;
 
     const char *src = cfg->name ? cfg->name : default_name;
     memcpy(name, src, name_sz);
@@ -135,18 +131,15 @@ char *vmaf_model_generate_name(VmafModelConfig *cfg)
     return name;
 }
 
-int vmaf_model_load_from_path(VmafModel **model, VmafModelConfig *cfg,
-                              const char *path)
+int vmaf_model_load_from_path(VmafModel **model, VmafModelConfig *cfg, const char *path)
 {
     int err = vmaf_read_json_model_from_path(model, cfg, path);
     if (err) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "could not read model from path: \"%s\"\n", path);
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "could not read model from path: \"%s\"\n", path);
         char *ext = strrchr(path, '.');
         if (ext && !strcmp(ext, ".pkl")) {
-            vmaf_log(
-                VMAF_LOG_LEVEL_ERROR,
-                "support for pkl model files has been removed, use json\n");
+            vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                     "support for pkl model files has been removed, use json\n");
         }
     }
     return err;
@@ -155,34 +148,41 @@ int vmaf_model_load_from_path(VmafModel **model, VmafModelConfig *cfg,
 int vmaf_model_feature_overload(VmafModel *model, const char *feature_name,
                                 VmafFeatureDictionary *opts_dict)
 {
-    if (!model) return -EINVAL;
-    if (!feature_name) return -EINVAL;
-    if (!opts_dict) return -EINVAL;
+    if (!model)
+        return -EINVAL;
+    if (!feature_name)
+        return -EINVAL;
+    if (!opts_dict)
+        return -EINVAL;
 
     int err = 0;
 
     for (unsigned i = 0; i < model->n_features; i++) {
         VmafFeatureExtractor *fex =
             vmaf_get_feature_extractor_by_feature_name(model->feature[i].name, 0);
-        if (!fex) continue;
-        if (strcmp(feature_name, fex->name) != 0) continue;
-        VmafDictionary *d =
-            vmaf_dictionary_merge((VmafDictionary**)&model->feature[i].opts_dict,
-                                  (VmafDictionary**)&opts_dict, 0);
-        if (!d) return -ENOMEM;
+        if (!fex)
+            continue;
+        if (strcmp(feature_name, fex->name) != 0)
+            continue;
+        VmafDictionary *d = vmaf_dictionary_merge((VmafDictionary **)&model->feature[i].opts_dict,
+                                                  (VmafDictionary **)&opts_dict, 0);
+        if (!d)
+            return -ENOMEM;
         err = vmaf_dictionary_free(&model->feature[i].opts_dict);
-        if (err) goto exit;
+        if (err)
+            goto exit;
         model->feature[i].opts_dict = d;
     }
 
 exit:
-    err |= vmaf_dictionary_free((VmafDictionary**)&opts_dict);
+    err |= vmaf_dictionary_free((VmafDictionary **)&opts_dict);
     return err;
 }
 
 void vmaf_model_destroy(VmafModel *model)
 {
-    if (!model) return;
+    if (!model)
+        return;
     free(model->path);
     free(model->name);
     svm_free_and_destroy_model(&(model->svm));
@@ -197,43 +197,49 @@ void vmaf_model_destroy(VmafModel *model)
         for (unsigned i = 0; i < model->n_features; i++) {
             free(model->predict_feature_names[i]);
         }
-        free((void *) model->predict_feature_names);
+        free((void *)model->predict_feature_names);
     }
-    free((void *) model->predict_feature_vectors);
+    free((void *)model->predict_feature_vectors);
     free(model);
 }
 
-int vmaf_model_collection_append(VmafModelCollection **model_collection,
-                                 VmafModel *model)
+int vmaf_model_collection_append(VmafModelCollection **model_collection, VmafModel *model)
 {
-    if (!model_collection) return -EINVAL;
-    if (!model) return -EINVAL;
+    if (!model_collection)
+        return -EINVAL;
+    if (!model)
+        return -EINVAL;
 
     VmafModelCollection *mc = *model_collection;
 
     if (!mc) {
         mc = *model_collection = malloc(sizeof(*mc));
-        if (!mc) goto fail;
+        if (!mc)
+            goto fail;
         memset(mc, 0, sizeof(*mc));
         const size_t initial_sz = 8 * sizeof(*mc->model);
-        mc->model = (VmafModel **) malloc(initial_sz);
-        if (!mc->model) goto fail_mc;
-        memset((void *) mc->model, 0, initial_sz);
+        mc->model = (VmafModel **)malloc(initial_sz);
+        if (!mc->model)
+            goto fail_mc;
+        memset((void *)mc->model, 0, initial_sz);
         mc->size = 8;
         mc->type = model->type;
         const size_t name_sz = strlen(model->name) - 5 + 1;
         mc->name = malloc(name_sz);
-        if (!mc->name) goto fail_model;
-        memset((char*)mc->name, 0, name_sz);
-        strncpy((char*)mc->name, model->name, name_sz - 1);
+        if (!mc->name)
+            goto fail_model;
+        memset((char *)mc->name, 0, name_sz);
+        strncpy((char *)mc->name, model->name, name_sz - 1);
     }
 
-    if (mc->type != model->type) return -EINVAL;
+    if (mc->type != model->type)
+        return -EINVAL;
 
     if (mc->cnt == mc->size) {
         const size_t sz = mc->size * sizeof(*mc->model) * 2;
-        VmafModel **m = (VmafModel **) realloc((void *) mc->model, sz);
-        if (!m) goto fail;
+        VmafModel **m = (VmafModel **)realloc((void *)mc->model, sz);
+        if (!m)
+            goto fail;
         mc->model = m;
         mc->size *= 2;
     }
@@ -242,7 +248,7 @@ int vmaf_model_collection_append(VmafModelCollection **model_collection,
     return 0;
 
 fail_model:
-    free((void *) mc->model);
+    free((void *)mc->model);
 fail_mc:
     free(mc);
 fail:
@@ -252,19 +258,18 @@ fail:
 
 void vmaf_model_collection_destroy(VmafModelCollection *model_collection)
 {
-    if (!model_collection) return;
+    if (!model_collection)
+        return;
     for (unsigned i = 0; i < model_collection->cnt; i++) {
         vmaf_model_destroy(model_collection->model[i]);
     }
-    free((void *) model_collection->model);
-    free((char*)model_collection->name);
+    free((void *)model_collection->model);
+    free((char *)model_collection->name);
     free(model_collection);
 }
 
-int vmaf_model_collection_load(VmafModel **model,
-                               VmafModelCollection **model_collection,
-                               VmafModelConfig *cfg,
-                               const char *version)
+int vmaf_model_collection_load(VmafModel **model, VmafModelCollection **model_collection,
+                               VmafModelConfig *cfg, const char *version)
 {
     const VmafBuiltInModel *built_in_model = NULL;
 
@@ -276,50 +281,43 @@ int vmaf_model_collection_load(VmafModel **model,
     }
 
     if (!built_in_model) {
-        vmaf_log(VMAF_LOG_LEVEL_WARNING,
-                 "no such built-in model collection: \"%s\"\n", version);
+        vmaf_log(VMAF_LOG_LEVEL_WARNING, "no such built-in model collection: \"%s\"\n", version);
         return -EINVAL;
     }
 
-    return vmaf_read_json_model_collection_from_buffer(model, model_collection,
-                                                     cfg, built_in_model->data,
-                                                     *built_in_model->data_len);
+    return vmaf_read_json_model_collection_from_buffer(
+        model, model_collection, cfg, built_in_model->data, *built_in_model->data_len);
 }
 
-int vmaf_model_collection_load_from_path(VmafModel **model,
-                                         VmafModelCollection **model_collection,
-                                         VmafModelConfig *cfg,
-                                         const char *path)
+int vmaf_model_collection_load_from_path(VmafModel **model, VmafModelCollection **model_collection,
+                                         VmafModelConfig *cfg, const char *path)
 {
-    int err =
-        vmaf_read_json_model_collection_from_path(model, model_collection,
-                                                  cfg, path);
+    int err = vmaf_read_json_model_collection_from_path(model, model_collection, cfg, path);
     if (err) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "could not read model collection from path: \"%s\"\n", path);
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "could not read model collection from path: \"%s\"\n", path);
         char *ext = strrchr(path, '.');
         if (ext && !strcmp(ext, ".pkl")) {
-            vmaf_log(
-                VMAF_LOG_LEVEL_ERROR,
-                "support for pkl model files has been removed, use json\n");
+            vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                     "support for pkl model files has been removed, use json\n");
         }
     }
 
     return err;
 }
 
-int vmaf_model_collection_feature_overload(VmafModel *model,
-                                           VmafModelCollection **model_collection,
+int vmaf_model_collection_feature_overload(VmafModel *model, VmafModelCollection **model_collection,
                                            const char *feature_name,
                                            VmafFeatureDictionary *opts_dict)
 {
-    if (!model_collection) return -EINVAL;
+    if (!model_collection)
+        return -EINVAL;
     VmafModelCollection *mc = *model_collection;
 
     int err = 0;
     for (unsigned i = 0; i < mc->cnt; i++) {
         VmafFeatureDictionary *d = NULL;
-        if (vmaf_dictionary_copy((VmafDictionary**)&opts_dict, (VmafDictionary**)&d)) goto exit;
+        if (vmaf_dictionary_copy((VmafDictionary **)&opts_dict, (VmafDictionary **)&d))
+            goto exit;
         err |= vmaf_model_feature_overload(mc->model[i], feature_name, d);
     }
 
@@ -327,4 +325,3 @@ exit:
     err |= vmaf_model_feature_overload(model, feature_name, opts_dict);
     return err;
 }
-

@@ -51,8 +51,10 @@ typedef struct VmafThreadPool {
 
 static VmafThreadPoolJob *vmaf_thread_pool_fetch_job(VmafThreadPool *pool)
 {
-    if (!pool) return NULL;
-    if (!pool->queue.head) return NULL;
+    if (!pool)
+        return NULL;
+    if (!pool->queue.head)
+        return NULL;
 
     VmafThreadPoolJob *job = pool->queue.head;
     if (!job->next) {
@@ -66,8 +68,10 @@ static VmafThreadPoolJob *vmaf_thread_pool_fetch_job(VmafThreadPool *pool)
 
 static void vmaf_thread_pool_job_destroy(VmafThreadPoolJob *job)
 {
-    if (!job) return;
-    if (job->data) free(job->data);
+    if (!job)
+        return;
+    if (job->data)
+        free(job->data);
     free(job);
 }
 
@@ -80,7 +84,8 @@ static void *vmaf_thread_pool_runner(void *p)
         pthread_mutex_lock(&(pool->queue.lock));
         if (!pool->queue.head && !pool->stop)
             pthread_cond_wait(&(pool->queue.empty), &(pool->queue.lock));
-        if (pool->stop) break;
+        if (pool->stop)
+            break;
         VmafThreadPoolJob *job = vmaf_thread_pool_fetch_job(pool);
         pool->n_working++;
         pthread_mutex_unlock(&(pool->queue.lock));
@@ -104,11 +109,14 @@ static void *vmaf_thread_pool_runner(void *p)
 
 int vmaf_thread_pool_create(VmafThreadPool **pool, VmafThreadPoolConfig cfg)
 {
-    if (!pool) return -EINVAL;
-    if (!cfg.n_threads) return -EINVAL;
+    if (!pool)
+        return -EINVAL;
+    if (!cfg.n_threads)
+        return -EINVAL;
 
     VmafThreadPool *const p = *pool = malloc(sizeof(*p));
-    if (!p) return -ENOMEM;
+    if (!p)
+        return -ENOMEM;
     memset(p, 0, sizeof(*p));
     p->n_threads = cfg.n_threads;
     p->thread_data_free = cfg.thread_data_free;
@@ -134,20 +142,23 @@ int vmaf_thread_pool_create(VmafThreadPool **pool, VmafThreadPoolConfig cfg)
     return 0;
 }
 
-int vmaf_thread_pool_enqueue(VmafThreadPool *pool,
-                             void (*func)(void *data, void **thread_data),
+int vmaf_thread_pool_enqueue(VmafThreadPool *pool, void (*func)(void *data, void **thread_data),
                              void *data, size_t data_sz)
 {
-    if (!pool) return -EINVAL;
-    if (!func) return -EINVAL;
+    if (!pool)
+        return -EINVAL;
+    if (!func)
+        return -EINVAL;
 
     VmafThreadPoolJob *job = malloc(sizeof(*job));
-    if (!job) return -ENOMEM;
+    if (!job)
+        return -ENOMEM;
     memset(job, 0, sizeof(*job));
     job->func = func;
     if (data) {
         job->data = malloc(data_sz);
-        if (!job->data) goto free_job;
+        if (!job->data)
+            goto free_job;
         memcpy(job->data, data, data_sz);
     }
 
@@ -173,18 +184,20 @@ free_job:
 
 int vmaf_thread_pool_wait(VmafThreadPool *pool)
 {
-    if (!pool) return -EINVAL;
+    if (!pool)
+        return -EINVAL;
 
     pthread_mutex_lock(&(pool->queue.lock));
-    while((!pool->stop && (pool->n_working || pool->queue.head)) ||
-          (pool->stop && pool->n_threads))
+    while ((!pool->stop && (pool->n_working || pool->queue.head)) ||
+           (pool->stop && pool->n_threads))
         pthread_cond_wait(&(pool->working), &(pool->queue.lock));
     pthread_mutex_unlock(&(pool->queue.lock));
     return 0;
 }
 int vmaf_thread_pool_destroy(VmafThreadPool *pool)
 {
-    if (!pool) return -EINVAL;
+    if (!pool)
+        return -EINVAL;
 
     const unsigned n_workers = pool->n_threads;
 

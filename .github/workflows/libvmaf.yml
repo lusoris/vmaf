@@ -116,6 +116,9 @@ jobs:
           brew install -q ninja nasm ccache llvm
 
       # ---------- Intel oneAPI (SYCL) ----------
+      # Pinned to oneAPI 2025.3 (icpx 2025.3.x) and Level Zero v1.28.0.
+      # 2025.0 was an ABI-breaking release, so pin to the 2025.3 minor meta
+      # package rather than the unversioned 'latest' to avoid silent bumps.
       - name: Install Intel oneAPI
         if: matrix.sycl
         run: |
@@ -126,9 +129,10 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" \
             | sudo tee /etc/apt/sources.list.d/oneAPI.list
           sudo apt-get update
-          sudo -E apt-get -yq install intel-oneapi-compiler-dpcpp-cpp cmake
-          # Level Zero headers + loader library (build from source — not in Ubuntu 24.04 repos)
-          git clone --depth=1 https://github.com/oneapi-src/level-zero.git /tmp/level-zero
+          sudo -E apt-get -yq install intel-oneapi-compiler-dpcpp-cpp-2025.3 cmake
+          # Level Zero headers + loader library, pinned to stable tag.
+          git clone --depth=1 --branch v1.28.0 \
+            https://github.com/oneapi-src/level-zero.git /tmp/level-zero
           cmake -S /tmp/level-zero -B /tmp/level-zero/build -DCMAKE_INSTALL_PREFIX=/usr
           cmake --build /tmp/level-zero/build -j$(nproc)
           sudo cmake --install /tmp/level-zero/build
@@ -138,11 +142,14 @@ jobs:
           sudo ldconfig
 
       # ---------- CUDA toolkit ----------
+      # Pinned to CUDA 13.0.0 (released 2025-08-04). 13.0 drops sm_50/60/70
+      # (Maxwell/Pascal/Volta); meson.build already guards the sm_50 gencode
+      # with a `<13` version check. Minimum driver for 13.x is >= 580.
       - name: Install CUDA toolkit
         if: matrix.cuda
         uses: Jimver/cuda-toolkit@v0.2.35
         with:
-          cuda: '12.6.0'
+          cuda: '13.0.0'
           method: network
           sub-packages: '["nvcc", "cudart-dev"]'
 

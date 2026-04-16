@@ -43,7 +43,7 @@ class ListStats(object):
         return np.mean(abs_diff_scores)
 
     @staticmethod
-    def moving_average(my_list, n, type='exponential', decay=-1):
+    def moving_average(my_list, n, type="exponential", decay=-1):
         """
         compute an n period moving average.
         :param my_list:
@@ -53,16 +53,16 @@ class ListStats(object):
         :return:
         """
         x = np.asarray(my_list)
-        if type == 'simple':
+        if type == "simple":
             weights = np.ones(n)
-        elif type == 'exponential':
-            weights = np.exp(np.linspace(decay, 0., n))
+        elif type == "exponential":
+            weights = np.exp(np.linspace(decay, 0.0, n))
         else:
             assert False, "Unknown type: {}.".format(type)
 
         weights /= weights.sum()
 
-        a = np.convolve(x, weights, mode='full')[:len(x)]
+        a = np.convolve(x, weights, mode="full")[: len(x)]
         a[:n] = a[n]
         return a
 
@@ -92,15 +92,20 @@ class ListStats(object):
 
     @staticmethod
     def print_stats(my_list):
-        print("Min: {min}, Max: {max}, Median: {median}, Mean: {mean}," \
-              " Variance: {var}, Total_variation: {total_var}".format(
-            min=np.min(my_list), max=np.max(my_list),
-            median=np.median(my_list), mean=np.mean(my_list),
-            var=np.var(my_list),
-            total_var=ListStats.total_variation(my_list)))
+        print(
+            "Min: {min}, Max: {max}, Median: {median}, Mean: {mean},"
+            " Variance: {var}, Total_variation: {total_var}".format(
+                min=np.min(my_list),
+                max=np.max(my_list),
+                median=np.median(my_list),
+                mean=np.mean(my_list),
+                var=np.var(my_list),
+                total_var=ListStats.total_variation(my_list),
+            )
+        )
 
     @staticmethod
-    def print_moving_average_stats(my_list, n, type='exponential', decay=-1):
+    def print_moving_average_stats(my_list, n, type="exponential", decay=-1):
         moving_avg_list = ListStats.moving_average(my_list, n, type, decay)
         ListStats.print_stats(moving_avg_list)
 
@@ -109,6 +114,7 @@ class ListStats(object):
         return np.mean(list(filter(lambda x: x is not None, my_list)))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import doctest
+
     doctest.testmod()

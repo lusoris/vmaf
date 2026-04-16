@@ -21,9 +21,8 @@
 
 #include "ssim_neon.h"
 
-void ssim_precompute_neon(const float *ref, const float *cmp,
-                           float *ref_sq, float *cmp_sq,
-                           float *ref_cmp, int n)
+void ssim_precompute_neon(const float *ref, const float *cmp, float *ref_sq, float *cmp_sq,
+                          float *ref_cmp, int n)
 {
     int i = 0;
     for (; i + 4 <= n; i += 4) {
@@ -40,9 +39,8 @@ void ssim_precompute_neon(const float *ref, const float *cmp,
     }
 }
 
-void ssim_variance_neon(float *ref_sigma_sqd, float *cmp_sigma_sqd,
-                         float *sigma_both, const float *ref_mu,
-                         const float *cmp_mu, int n)
+void ssim_variance_neon(float *ref_sigma_sqd, float *cmp_sigma_sqd, float *sigma_both,
+                        const float *ref_mu, const float *cmp_mu, int n)
 {
     float32x4_t zero = vdupq_n_f32(0.0f);
     int i = 0;
@@ -66,25 +64,24 @@ void ssim_variance_neon(float *ref_sigma_sqd, float *cmp_sigma_sqd,
     }
     for (; i < n; i++) {
         ref_sigma_sqd[i] -= ref_mu[i] * ref_mu[i];
-        if (ref_sigma_sqd[i] < 0.0f) ref_sigma_sqd[i] = 0.0f;
+        if (ref_sigma_sqd[i] < 0.0f)
+            ref_sigma_sqd[i] = 0.0f;
         cmp_sigma_sqd[i] -= cmp_mu[i] * cmp_mu[i];
-        if (cmp_sigma_sqd[i] < 0.0f) cmp_sigma_sqd[i] = 0.0f;
+        if (cmp_sigma_sqd[i] < 0.0f)
+            cmp_sigma_sqd[i] = 0.0f;
         sigma_both[i] -= ref_mu[i] * cmp_mu[i];
     }
 }
 
-void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu,
-                           const float *ref_sigma_sqd,
-                           const float *cmp_sigma_sqd,
-                           const float *sigma_both, int n,
-                           float C1, float C2, float C3,
-                           double *ssim_sum, double *l_sum,
-                           double *c_sum, double *s_sum)
+void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu, const float *ref_sigma_sqd,
+                          const float *cmp_sigma_sqd, const float *sigma_both, int n, float C1,
+                          float C2, float C3, double *ssim_sum, double *l_sum, double *c_sum,
+                          double *s_sum)
 {
     float32x4_t vC1 = vdupq_n_f32(C1);
     float32x4_t vC2 = vdupq_n_f32(C2);
     float32x4_t vC3 = vdupq_n_f32(C3);
-    float32x4_t v2  = vdupq_n_f32(2.0f);
+    float32x4_t v2 = vdupq_n_f32(2.0f);
     float32x4_t vzero = vdupq_n_f32(0.0f);
 
     float64x2_t dssim0 = vdupq_n_f64(0.0);
@@ -109,8 +106,7 @@ void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu,
 
         /* l = (2*rm*cm + C1) / (rm^2 + cm^2 + C1) */
         float32x4_t l_num = vaddq_f32(vmulq_f32(v2, vmulq_f32(rm, cm)), vC1);
-        float32x4_t l_den = vaddq_f32(vaddq_f32(vmulq_f32(rm, rm),
-                                                   vmulq_f32(cm, cm)), vC1);
+        float32x4_t l_den = vaddq_f32(vaddq_f32(vmulq_f32(rm, rm), vmulq_f32(cm, cm)), vC1);
         float32x4_t l = vdivq_f32(l_num, l_den);
 
         /* c = (2*srsc + C2) / (rs + cs + C2) */
@@ -125,8 +121,7 @@ void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu,
         float32x4_t clamped_sb = vbslq_f32(clamp_mask, vzero, sb);
 
         /* s = (clamped_sb + C3) / (srsc + C3) */
-        float32x4_t s = vdivq_f32(vaddq_f32(clamped_sb, vC3),
-                                    vaddq_f32(srsc, vC3));
+        float32x4_t s = vdivq_f32(vaddq_f32(clamped_sb, vC3), vaddq_f32(srsc, vC3));
 
         float32x4_t ssim_val = vmulq_f32(vmulq_f32(l, c), s);
 
@@ -159,11 +154,9 @@ void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu,
     for (; i < n; i++) {
         float srsc = sqrtf(ref_sigma_sqd[i] * cmp_sigma_sqd[i]);
         double lv = (2.0 * ref_mu[i] * cmp_mu[i] + C1) /
-                    (ref_mu[i]*ref_mu[i] + cmp_mu[i]*cmp_mu[i] + C1);
-        double cv = (2.0 * srsc + C2) /
-                    (ref_sigma_sqd[i] + cmp_sigma_sqd[i] + C2);
-        float csb = (sigma_both[i] < 0.0f && srsc <= 0.0f) ?
-                    0.0f : sigma_both[i];
+                    (ref_mu[i] * ref_mu[i] + cmp_mu[i] * cmp_mu[i] + C1);
+        double cv = (2.0 * srsc + C2) / (ref_sigma_sqd[i] + cmp_sigma_sqd[i] + C2);
+        float csb = (sigma_both[i] < 0.0f && srsc <= 0.0f) ? 0.0f : sigma_both[i];
         double sv = (csb + C3) / (srsc + C3);
         local_ssim += lv * cv * sv;
         local_l += lv;

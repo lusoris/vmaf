@@ -27,13 +27,13 @@ static char *test_cuda_no_init()
 {
     int err = 0;
 
-    VmafConfiguration vmaf_cfg = { 0 };
+    VmafConfiguration vmaf_cfg = {0};
 
     VmafContext *vmaf;
     vmaf_init(&vmaf, vmaf_cfg);
     mu_assert("problem during vmaf_init", vmaf);
 
-    VmafModelConfig model_cfg = { 0 };
+    VmafModelConfig model_cfg = {0};
     VmafModel *model;
     vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
     mu_assert("problem during vmaf_model_load", model);
@@ -64,20 +64,20 @@ static char *test_cuda_picture_preallocation_method_none()
 {
     int err = 0;
 
-    VmafConfiguration vmaf_cfg = { 0 };
+    VmafConfiguration vmaf_cfg = {0};
 
     VmafContext *vmaf;
     vmaf_init(&vmaf, vmaf_cfg);
     mu_assert("problem during vmaf_init", vmaf);
 
     VmafCudaState *cu_state;
-    VmafCudaConfiguration cuda_cfg = { 0 };
+    VmafCudaConfiguration cuda_cfg = {0};
     err = vmaf_cuda_state_init(&cu_state, cuda_cfg);
     mu_assert("problem during vmaf_cuda_state_init", !err);
     err = vmaf_cuda_import_state(vmaf, cu_state);
     mu_assert("problem during vmaf_cuda_import_state", !err);
 
-    VmafModelConfig model_cfg = { 0 };
+    VmafModelConfig model_cfg = {0};
     VmafModel *model;
     vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
     mu_assert("problem during vmaf_model_load", model);
@@ -108,33 +108,34 @@ static char *test_cuda_picture_preallocation_method_host()
 {
     int err = 0;
 
-    VmafConfiguration vmaf_cfg = { 0 };
+    VmafConfiguration vmaf_cfg = {0};
 
     VmafContext *vmaf;
     vmaf_init(&vmaf, vmaf_cfg);
     mu_assert("problem during vmaf_init", vmaf);
 
     VmafCudaState *cu_state;
-    VmafCudaConfiguration cuda_cfg = { 0 };
+    VmafCudaConfiguration cuda_cfg = {0};
     err = vmaf_cuda_state_init(&cu_state, cuda_cfg);
     mu_assert("problem during vmaf_cuda_state_init", !err);
     err = vmaf_cuda_import_state(vmaf, cu_state);
     mu_assert("problem during vmaf_cuda_import_state", !err);
 
     VmafCudaPictureConfiguration cuda_pic_cfg = {
-        .pic_params = {
-            .w = 1920,
-            .h = 1080,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
+        .pic_params =
+            {
+                .w = 1920,
+                .h = 1080,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
         .pic_prealloc_method = VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_HOST,
     };
 
     err = vmaf_cuda_preallocate_pictures(vmaf, cuda_pic_cfg);
     mu_assert("problem during vmaf_cuda_preallocate_pictures", !err);
 
-    VmafModelConfig model_cfg = { 0 };
+    VmafModelConfig model_cfg = {0};
     VmafModel *model;
     vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
     mu_assert("problem during vmaf_model_load", model);
@@ -165,33 +166,34 @@ static char *test_cuda_picture_preallocation_method_host_pinned()
 {
     int err = 0;
 
-    VmafConfiguration vmaf_cfg = { 0 };
+    VmafConfiguration vmaf_cfg = {0};
 
     VmafContext *vmaf;
     vmaf_init(&vmaf, vmaf_cfg);
     mu_assert("problem during vmaf_init", vmaf);
 
     VmafCudaState *cu_state;
-    VmafCudaConfiguration cuda_cfg = { 0 };
+    VmafCudaConfiguration cuda_cfg = {0};
     err = vmaf_cuda_state_init(&cu_state, cuda_cfg);
     mu_assert("problem during vmaf_cuda_state_init", !err);
     err = vmaf_cuda_import_state(vmaf, cu_state);
     mu_assert("problem during vmaf_cuda_import_state", !err);
 
     VmafCudaPictureConfiguration cuda_pic_cfg = {
-        .pic_params = {
-            .w = 1920,
-            .h = 1080,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
+        .pic_params =
+            {
+                .w = 1920,
+                .h = 1080,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
         .pic_prealloc_method = VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_HOST_PINNED,
     };
 
     err = vmaf_cuda_preallocate_pictures(vmaf, cuda_pic_cfg);
     mu_assert("problem during vmaf_cuda_preallocate_pictures", !err);
 
-    VmafModelConfig model_cfg = { 0 };
+    VmafModelConfig model_cfg = {0};
     VmafModel *model;
     vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
     mu_assert("problem during vmaf_model_load", model);
@@ -222,33 +224,34 @@ static char *test_cuda_picture_preallocation_method_device()
 {
     int err = 0;
 
-    VmafConfiguration vmaf_cfg = { 0 };
+    VmafConfiguration vmaf_cfg = {0};
 
     VmafContext *vmaf;
     vmaf_init(&vmaf, vmaf_cfg);
     mu_assert("problem during vmaf_init", vmaf);
 
     VmafCudaState *cu_state;
-    VmafCudaConfiguration cuda_cfg = { 0 };
+    VmafCudaConfiguration cuda_cfg = {0};
     err = vmaf_cuda_state_init(&cu_state, cuda_cfg);
     mu_assert("problem during vmaf_cuda_state_init", !err);
     err = vmaf_cuda_import_state(vmaf, cu_state);
     mu_assert("problem during vmaf_cuda_import_state", !err);
 
     VmafCudaPictureConfiguration cuda_pic_cfg = {
-        .pic_params = {
-            .w = 1920,
-            .h = 1080,
-            .bpc = 8,
-            .pix_fmt = VMAF_PIX_FMT_YUV420P,
-        },
+        .pic_params =
+            {
+                .w = 1920,
+                .h = 1080,
+                .bpc = 8,
+                .pix_fmt = VMAF_PIX_FMT_YUV420P,
+            },
         .pic_prealloc_method = VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_DEVICE,
     };
 
     err = vmaf_cuda_preallocate_pictures(vmaf, cuda_pic_cfg);
     mu_assert("problem during vmaf_cuda_preallocate_pictures", !err);
 
-    VmafModelConfig model_cfg = { 0 };
+    VmafModelConfig model_cfg = {0};
     VmafModel *model;
     vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
     mu_assert("problem during vmaf_model_load", model);

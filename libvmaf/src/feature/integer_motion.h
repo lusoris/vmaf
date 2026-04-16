@@ -23,12 +23,11 @@
 #include <stdint.h>
 #include "cpu.h"
 
-static const uint16_t filter[5] = { 3571, 16004, 26386, 16004, 3571 };
+static const uint16_t filter[5] = {3571, 16004, 26386, 16004, 3571};
 static const int filter_width = sizeof(filter) / sizeof(filter[0]);
 
-static inline uint32_t
-edge_16(bool horizontal, const uint16_t *src, int width,
-        int height, int stride, int i, int j)
+static inline uint32_t edge_16(bool horizontal, const uint16_t *src, int width, int height,
+                               int stride, int i, int j)
 {
     const int radius = filter_width / 2;
     uint32_t accum = 0;
