@@ -12,10 +12,19 @@ The raw subjective scores collected are then cleaned up using the MLE methodolog
 
 ## Predict Quality on a Cellular Phone Screen
 
-The default VMAF model (`model/vmaf_v0.6.1.json`) also offers a custom model for cellular phone screen viewing. This model can be invoked by adding `--phone-model` option in the commands `run_vmaf`, `run_vmaf_in_batch`, and `run_testing` e.g.:
+The default VMAF model (`model/vmaf_v0.6.1.json`) has a companion phone-screen mode, activated via `--phone-model`. From the C CLI:
 
-```shell script
-./run_vmaf yuv420p 576 324 \
+```bash
+vmaf --reference src01_hrc00_576x324.yuv \
+     --distorted src01_hrc01_576x324.yuv \
+     --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+     --model version=vmaf_v0.6.1:phone_model=1
+```
+
+From the Python scripts:
+
+```bash
+python -m vmaf.script.run_vmaf yuv420p 576 324 \
     src01_hrc00_576x324.yuv \
     src01_hrc01_576x324.yuv \
     --phone-model
@@ -31,14 +40,21 @@ From the figure it can be interpreted that due to the factors of screen size and
 
 ## Predict Quality on a 4KTV Screen at 1.5H
 
-As of v1.3.7 (June 2018), we have added a new 4K VMAF model at `model/vmaf_4k_v0.6.1.json`, which predicts the subjective quality of video displayed on a 4KTV and viewed from the distance of 1.5 times the height of the display device (1.5H). Again, this model is trained with subjective data collected in a lab experiment, using the ACR methodology (notice that it uses the original 5-level discrete scale instead of the continuous scale). The viewing distance of 1.5H is the critical distance for a human subject to appreciate the quality of 4K content (see [recommendation](https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2022-0-201208-W!!PDF-E.pdf)). More details can be found in [this](presentations/VQEG_SAM_2018_025_VMAF_4K.pdf) slide deck.
+A 4K VMAF model at `model/vmaf_4k_v0.6.1.json` predicts the subjective quality of video displayed on a 4KTV and viewed from the distance of 1.5 times the height of the display device (1.5H). Again, this model is trained with subjective data collected in a lab experiment, using the ACR methodology (notice that it uses the original 5-level discrete scale instead of the continuous scale). The viewing distance of 1.5H is the critical distance for a human subject to appreciate the quality of 4K content (see [recommendation](https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2022-0-201208-W!!PDF-E.pdf)). More details are in [this slide deck](../reference/presentations/VQEG_SAM_2018_025_VMAF_4K.pdf).
 
-To invoke this model, specify the model path using the `--model` option. For example:
+To invoke this model, specify the model path on the `vmaf` CLI:
 
-```shell script
-./run_vmaf yuv420p 3840 2160 \
-    ref_path \
-    dis_path \
+```bash
+vmaf --reference ref_path --distorted dis_path \
+     --width 3840 --height 2160 --pixel-format 420 --bitdepth 8 \
+     --model path=model/vmaf_4k_v0.6.1.json
+```
+
+Or from the Python scripts:
+
+```bash
+python -m vmaf.script.run_vmaf yuv420p 3840 2160 \
+    ref_path dis_path \
     --model model/vmaf_4k_v0.6.1.json
 ```
 
@@ -54,8 +70,16 @@ More details on the reasoning behind NEG have been shared in [this tech memo](ht
 
 ## What are the Differences between Individual Models?
 
-There are no material differences comparing 0.6.2 and 0.6.3 to 0.6.1.
+There are no material differences between 0.6.1, 0.6.2, and 0.6.3. The latter two were retrained later on the same dataset with the same hyperparameters, but using elementary features that were slightly improved.
 
-0.6.2 and 0.6.3 were retrained later on the same dataset with the same hyperparameters, but based on the elementary features that have been slightly improved.
+The 0.6.2 and 0.6.3 models also come in `_b` (bootstrap) variants, which enable prediction confidence intervals. See the [confidence interval document](../metrics/confidence-interval.md).
 
-The models 0.6.2 and 0.6.3 also come with a way to compute the prediction confidence interval based on bootstrapping.
+Each model also has a corresponding `_float_` variant (e.g. `vmaf_float_v0.6.1.pkl` / `vmaf_float_v0.6.1.json`), which evaluates features in double-precision floating-point instead of the default fixed-point path. The fixed-point path is bit-exactly reproducible; the floating-point path is the one the tuning experiments were run against.
+
+## GPU and SIMD acceleration (fork-specific)
+
+All models above run unchanged on the fork's CUDA, SYCL, and HIP backends (select via `--cuda` / `--sycl` / build flags) and on AVX2 / AVX-512 / NEON SIMD on x86 and ARM CPUs. The backend affects only the feature-extraction performance — scores are ULP-bounded identical across backends, and the three Netflix golden-data checkpoints run in CI to enforce this.
+
+## Tiny-AI models (planned)
+
+The fork adds a registration surface for small ONNX perceptual quality models — see [docs/ai/](../ai/). `model/tiny/` is reserved for future milestone artefacts; no weights ship yet.

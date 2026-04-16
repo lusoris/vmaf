@@ -20,6 +20,8 @@ This is an overview of the available features including their identifier (e.g., 
 
 **Note:** Depending on the build of libvmaf, not all features may be available.
 
+Core features (VIF, Motion2, ADM) have SIMD paths on x86 (AVX2, AVX-512) and ARM (NEON), plus full CUDA, SYCL and HIP kernel implementations. Additional features vary in SIMD / GPU coverage — refer to the per-backend notes under [`backends/`](../backends/).
+
 Read on for a detailed description.
 
 ## Core features

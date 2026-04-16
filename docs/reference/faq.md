@@ -1,75 +1,221 @@
 # Frequently Asked Questions
 
-#### Q: When computing VMAF on low-resolution videos (480-pixel height, for example), why the scores look so high, even when there are visible artifacts?
+> This FAQ covers both the upstream [Netflix/vmaf](https://github.com/Netflix/vmaf)
+> Q&A and fork-specific entries for the SYCL / CUDA / HIP backends, SIMD paths,
+> and the tiny-AI model surface. Upstream issue numbers (e.g. `Netflix/vmaf#20`)
+> are kept for historical context — the issues themselves are long-resolved.
 
-A: It is associated with the underlying assumption of VMAF on the subject viewing distance and display size.
+## Scoring & models
 
-Fundamentally, any perceptual quality model should take into account the viewing distance and the display size (or the ratio between the two). The same distorted video, if viewed closed-up, could contain more visual artifacts hence yield lower perceptual quality.
+### Q: When computing VMAF on low-resolution videos (480-pixel height, for example), why do the scores look so high, even when there are visible artifacts?
 
-In the case of the default VMAF model (`model/vmaf_float_v0.6.1.pkl`), which is trained to predict the quality of videos displayed on a 1080p HDTV in a living-room-like environment, all the subjective data were collected in such a way that the distorted videos get rescaled to 1080 resolution and displayed with a viewing distance of three times the screen height (3H), or angular resolution of 60 pixels/degree. Effectively, what the VMAF model trying to capture is the perceptual quality of a 1080 video displayed from 3H away. That’s the implicit assumption of the default VMAF model.
+A: VMAF embeds an implicit assumption about viewing distance and display size.
 
-Now, think about what it means when the VMAF score is calculated on a reference/distorted video pair of 480 resolution. It is similar to as if the 480 video is CROPPED from a 1080 video. If the height of the 480 video is H’, then H’ = 480 / 1080 * H = 0.44 * H, where H is the height of the 1080 video displayed. As a result, VMAF is modeling the viewing distance of 3*H = 6.75*H’. In other words, if you calculate VMAF on the 480 resolution video pair, you are going to predict the perceptual quality of viewing distance 6.75 times its height. This is going to hide a lot of artifacts, hence yielding a very high score. 
+Any perceptual quality model has to account for viewing distance and display
+size (or their ratio). The same distorted video, viewed close-up, contains more
+visible artifacts and so has lower perceptual quality.
 
-One implication of the observation above is that, one should NOT compare the absolute VMAF score of a 1080 video with the score of a 480 video obtained at its native resolution -- it is an apples-to-oranges comparison.
+The default VMAF model (`model/vmaf_float_v0.6.1.pkl`) is trained to predict
+the quality of videos displayed on a 1080p HDTV in a living-room environment.
+All subjective data was collected with distorted videos rescaled to 1080 and
+displayed from a viewing distance of three times the screen height (3H) — an
+angular resolution of 60 pixels per degree. The implicit assumption is: *a
+1080 video displayed from 3H away*.
 
-If, say, for a distorted video of 480 resolution, we still want to predict its quality viewing from 3 times the height (not 6.75), how can this be achieved? 
+When VMAF is calculated on a 480-resolution pair, it is as if the 480 video is
+*cropped* from a 1080 video. If the 480 video has height H', then
+H' = 480/1080 · H ≈ 0.44 · H. VMAF is then effectively modelling viewing
+distance of 3H = 6.75 · H'. In other words, running VMAF on a native-480 pair
+predicts the perceptual quality of viewing from 6.75× the screen height —
+which hides a lot of artifacts and inflates the score.
 
-- If the 480 distorted video comes with a source (reference) video of 1080 resolution, then the right way to do it is to upsample the 480 video to 1080, and calculate the VMAF at 1080, together with its 1080 source.
+One implication: **do not compare the absolute VMAF score of a 1080 video with
+the score of a 480 video obtained at its native resolution** — it is apples vs
+oranges.
 
-- If the 480 distorted video has only a 480 reference, then you can still upsample both distorted/reference to 1080, and calculate VMAF. A caveat is, since the VMAF model was not trained with upsampled references, the prediction would not be as accurate as 1).
+To predict quality at 3× height for a 480 pair:
 
-#### Q: Why the included SSIM tool produces numerical results off compared to other tools?
+- If the 480 distorted video has a 1080 reference, upsample the 480 distorted
+  to 1080 and run VMAF at 1080.
+- If both are 480, upsample both to 1080 and run VMAF. The default model was
+  not trained on upsampled references, so prediction is less accurate than
+  the first option.
 
-A: The SSIM implementation in the VMAF package includes an empirical downsampling process, as described at the Suggested Usage section of [SSIM](https://ece.uwaterloo.ca/~z70wang/research/ssim/). The other implementations, such as the SSIM filter in FFmpeg, does not include this step.
+### Q: Will VMAF work on 4K videos?
 
-#### Q: Why the aggregate VMAF score sometimes may bias "easy" content too much? [Issue #20](https://github.com/Netflix/vmaf/issues/20)
+A: The default model (`model/vmaf_v0.6.1.json`) was trained on videos encoded
+at resolutions up to 1080p. It is still useful for 4K if you only need a
+*relative* score (A vs B ordering), but absolute predictions are not
+guaranteed.
 
-A: By default, the VMAF output reports the aggregate score as the average (i.e. arithmetic mean) of the per-frame scores mostly for its simplicity, as well as for consistency with other metrics (e.g. mean PSNR). There are psycho-visual evidences, however, suggest that human opinions tend to weigh more heavily towards the worst-quality frames. It is an open question what the optimal way to pool the per-frame scores is, as it also depends on many factors, such as the time scale of the pooling (seconds vs minutes).
+For 4K-specific scoring, use the dedicated 4K model
+`model/vmaf_4k_v0.6.1.json`, which predicts 4KTV viewing at 1.5× display
+height. See the
+[Predict Quality on a 4KTV Screen at 1.5H](../models/overview.md#predict-quality-on-a-4ktv-screen-at-15h)
+section of the models document.
 
-To provide some flexibility, in command-line tools *run_vmaf*, *run_psnr*, *run_vmaf_in_batch*, *run_vmaf_training* and *run_testing*, among others, we added a hidden option `--pool pool_method`, where `pool_method` is among `mean`, `harmonic_mean`, `median`, `min`, `perc5`, `perc10` and `perc20` (percx means x-percentile).
+### Q: When I compare a video with itself as reference, I expect a perfect VMAF score of 100, but I see ~98.7. Is this a bug?
 
-#### Q: Will VMAF work on 4K videos?
+A: No. VMAF does not guarantee a perfect score on identical inputs, but should
+return a value close to 100. The same is true of other ML-based predictors
+(e.g. VQM-VFD). The gap comes from features (ADM, VIF) that do not have a
+closed-form identity at the fit-polynomial output stage.
 
-A: The default VMAF model at `model/vmaf_v0.6.1.pkl` was trained on videos encoded at resolutions *up to* 1080p. It is still useful for measuring 4K videos, if you are interested in a relative score. In other words, for two 4K videos A and B with A perceptually better than B, the VMAF scores will tell you so too. However, if you are interested in an absolute score, say if a 4K video is perceptually acceptable, you may not get an accurate answer.
+### Q: How is the VMAF package versioned?
 
-As of VDK v1.3.7 (June 2018), we have added a new 4K model at `model/vmaf_4k_v0.6.1.json`, which is trained to predict 4KTV viewing at distance of 1.5X the display height. Refer to [this](../models/overview.md#predict-quality-on-a-4ktv-screen-at-15h) section for details.
+A: The VMAF number in the `VERSION` file tracks the default model consumed by
+`VmafQualityRunner`. Whenever the default model changes in a way that alters
+the numerical output, the number is bumped. For `libvmaf` (the C library) and
+for everything else, version numbers follow the package version in
+`libvmaf.pc`.
 
-#### Q: Will VMAF work on applications other than HTTP adaptive streaming?
+> **Fork note:** the Lusoris fork uses `vX.Y.Z-lusoris.N` — upstream Netflix
+> version + fork-specific revision. See the
+> [release guide](../development/release.md).
 
-A: VMAF was designed with HTTP adaptive streaming in mind. Correspondingly, in terms of the types of video artifacts, it only considers compression artifact and scaling artifact (read [this](http://techblog.netflix.com/2016/06/toward-practical-perceptual-video.html) tech blog post for more details). The perceptual quality of other artifacts (for example, artifacts due to packet losses or transmission errors) MAY be predicted inaccurately.
+### Q: Why is the aggregate VMAF score sometimes biased toward "easy" content? (upstream `Netflix/vmaf#20`)
 
-#### Q: Can I pass encoded H264/VP9/H265 bitstreams to VMAF as input? [Issue #55](https://github.com/Netflix/vmaf/issues/55)
+A: The default aggregate is the arithmetic mean of per-frame scores — chosen
+for simplicity and consistency with other metrics (e.g. mean PSNR).
+Psycho-visual evidence suggests humans weigh the worst-quality frames more
+heavily, so mean is not necessarily optimal.
 
-A: Yes, you can. The paved path forward is to use FFmpeg's `libvmaf` filter option. Refer to the [FFmpeg documentation](../usage/ffmpeg.md) for details.
+Pooling can be changed via `--pool` on `vmaf` and via the `pool_method`
+argument to `run_vmaf`, `run_psnr`, `run_vmaf_training`, `run_testing` and
+friends. Accepted values: `mean`, `harmonic_mean`, `median`, `min`, `perc5`,
+`perc10`, `perc20`.
 
-#### Q: When I compare a video with itself as reference, I expect to get a perfect score of VMAF 100, but what I see is a score like 98.7. Is there a bug?
+## Inputs & formats
 
-A: VMAF does not guarantee that you get a perfect score in this case, but you should get a score close enough. Similar things would happen to other machine learning-based predictors (another example is VQM-VFD).
+### Q: Can I pass encoded H.264 / VP9 / HEVC bitstreams to VMAF as input? (upstream `Netflix/vmaf#55`)
 
-#### Q: How is the VMAF package versioned?
-
-A: Since the package has been growing and there were confusion on what this VMAF number should be in the VERSION file, it is decided to stick to the convention that this VMAF version should only be related to the version of the default model for the `VmafQualityRunner`. Whenever there is a numerical change to the VMAF result in running the default model, this number is going to be updated. For anything else, we are going to use the VDK version number. For `libvmaf`, whenever there is an interface change or numerical change to the VMAF result, the version number at `https://github.com/Netflix/vmaf/blob/master/src/libvmaf/libvmaf.pc` is going to be updated to the latest VDK number.
-
-#### Q: If I train a model using the `run_vmaf_training` process with some dataset, and then I run the `run_testing` process with that trained model and the same dataset, why wouldn't I get the same results (SRCC, PCC, and RMSE)? [Issue #191](https://github.com/Netflix/vmaf/issues/191)
-
-A: This is due to the slightly different workflows used by `run_vmaf_training` and `run_testing`. In `run_vmaf_training`, the feature scores (elementary metric scores) from each frame are first extracted,  each feature is then temporally pooled (by arithmetic mean) to form a feature score per clip. The per-clip feature scores are then fit with the subjective scores to obtain the trained model. The reported SRCC, PCC and RMSE are the fitting result. In `run_testing`, the per-frame feature scores are first extracted, then the prediction model is applied on a per-frame basis, resulting "per-frame VMAF score". The final score for the clip is arithmetic mean of the per-frame scores. As you can see, there is a re-ordering of the 'temporal pooling' and 'prediction' operators. If the features from a clip are constant, the re-ordering will not have an impact. In practice, we find the numeric difference to be small.
+A: Yes — use FFmpeg's `libvmaf` filter. Details in the
+[FFmpeg documentation](../usage/ffmpeg.md).
 
 ### Q: How do I use VMAF with downscaled videos?
 
-A: If you have a distorted video that was scaled down (e.g. for adaptive streaming) and want to calculate VMAF, you can use FFmpeg with `libvmaf` to perform the re-scaling for you.
+A: If a distorted video was scaled down (e.g. for adaptive streaming) and you
+want to evaluate its quality at the reference resolution, use FFmpeg with the
+`libvmaf` filter to rescale on-the-fly.
 
 For example, to upscale the distorted video to 1080p:
 
+```bash
+ffmpeg -i main.mpg -i ref.mpg \
+  -filter_complex "[0:v]scale=1920x1080:flags=bicubic[main];[main][1:v]libvmaf" \
+  -f null -
 ```
-ffmpeg -i main.mpg -i ref.mpg -filter_complex "[0:v]scale=1920x1080:flags=bicubic[main];[main][1:v]libvmaf" -f null -
+
+This scales the first input video (`0:v`) to 1080p and forwards it to VMAF
+(`libvmaf`) as `main`, to be compared against the second input `1:v`. See the
+[FFmpeg documentation](../usage/ffmpeg.md) for more.
+
+### Q: Why does the included SSIM tool produce different numbers than other SSIM implementations?
+
+A: The SSIM implementation in VMAF includes the empirical downsampling step
+from the *Suggested Usage* section of
+[SSIM](https://ece.uwaterloo.ca/~z70wang/research/ssim/). FFmpeg's `ssim`
+filter, for example, does not include this step.
+
+### Q: Why are PSNR values capped at 60 dB for 8-bit inputs, 72 dB for 10-bit, 84 dB for 12-bit, and 108 dB for 16-bit?
+
+A: The caps follow the rule of thumb `6·N + 12`, where `N` is the bit depth.
+
+This approximates the more precise
+`10 · log10( (2^N - 1)^2 / (1/12) )`, where `2^N - 1` is the peak signal of an
+N-bit representation and `1/12` is the variance of `Uniform[0, 1]`-distributed
+quantisation noise (the noise of rounding a real-valued signal to its integer
+representation). For `N = 8`, the precise formula yields 58.92 dB; the
+rule-of-thumb rounds to 60.
+
+It is true that an 8-bit distorted signal could match an 8-bit reference
+exactly and produce infinite PSNR, but that only happens because the reference
+is itself in 8-bit representation. In general, references come from higher-bit
+or floating-point sources, and PSNR is bounded by the quantisation-noise floor
+above. A bit-depth-based PSNR cap reflects that more realistic fidelity
+ceiling.
+
+## Training
+
+### Q: If I train a model with `run_vmaf_training` and then test with `run_testing` on the same dataset, why don't I get the same SRCC / PCC / RMSE? (upstream `Netflix/vmaf#191`)
+
+A: The two scripts use slightly different pipelines.
+
+`run_vmaf_training` extracts per-frame feature scores, temporally pools each
+feature (arithmetic mean) into a per-clip feature score, then fits the model
+against subjective scores. The reported metrics are the fitting result.
+
+`run_testing` extracts per-frame features, applies the prediction model
+per-frame, and then arithmetic-means the per-frame VMAF scores into a clip
+score. This is a *re-ordering* of "temporal pooling" and "prediction".
+
+If features are constant across a clip, the order does not matter. In
+practice, the difference is small but non-zero.
+
+### Q: How do I train a custom VMAF model?
+
+A: See the upstream
+[Python library guide](../usage/python.md#train-a-new-model). For the fork's
+tiny-AI models (ONNX-based quality predictors), see
+[docs/ai/training.md](../ai/training.md) and the `ai/` package
+(`pip install -e ai && vmaf-train --help`).
+
+## Performance & backends (fork-specific)
+
+### Q: Does the fork support GPU acceleration?
+
+A: Yes. The fork adds CUDA, SYCL, and HIP backends on top of upstream, selected
+at runtime by build flags:
+
+```bash
+meson setup build libvmaf -Denable_cuda=true -Denable_sycl=true
 ```
 
-This scales the first input video (`0:v`) and forwards it to VMAF (`libvmaf`) with the label `main`, where it is compared against the second input video, `1:v`. More details can be found [here](../usage/ffmpeg.md).
+See [backends/](../backends/) for per-backend best-practice notes. To enable a
+backend at call time, use `--cuda` or `--sycl` on the `vmaf` CLI. The CPU path
+with AVX2/AVX-512/NEON SIMD remains the default.
 
-### Q: Why are the PSNR values capped at 60 dB for 8-bit inputs and 72 dB for 10-bit inputs in the package's implementation?
+### Q: How do I get bit-exact round-trippable VMAF output?
 
-A: The peak PSNR values follow a rule-of-thumb formula of `6 * N + 12`, where `N` is the bit depth. In the most recent support of 12-bit and 16-bit inputs, we have followed this convention and capped the PSNR at 84 dB and 108 dB, respectively.
+A: Use the fork-added `--precision` flag on the `vmaf` CLI. The default format
+string is `%.17g` (IEEE-754 round-trip lossless). Override with any printf
+format to match legacy pipelines.
 
-This formula above is an approximation (for mnemonics purpose) of a more precise formula `10 * log10( (2^N - 1)^2 / (1 / 12))`, where `2^N - 1` is the peak signal of an N-bit representation, and `1 / 12` is the variance of a `Uniform[0, 1]`-distributed quantization noise, as a result of rounding a signal to its integer representation. For example, with `N = 8`, the formula yields 58.92 dB. The variance of the quantization noise captures the fundamental limit of an N-bit representation.
+### Q: What are the "tiny-AI" models and how do I use them?
 
-One may argue that even with 8-bit inputs, the PSNR could go to infinity if the distorted signal matches the reference signal exactly. Notice that in this case, it is because that the reference signal itself happens to be in 8-bit representation; in general, one could easily imagine that the reference signal comes from a high-bit or floating-point representation, and the PSNR is subject to the fundamental limit characterized by the formula above. Thus, we think that imposing a bit depth-based cap on the PSNR sets a more realistic goal on the signal fidelity one tries to achieve.
+A: Tiny-AI is a fork-added surface for small ONNX perceptual quality models
+that run through ONNX Runtime inside libvmaf. See
+[docs/ai/overview.md](../ai/overview.md) for the architecture and
+[docs/ai/inference.md](../ai/inference.md) for the CLI.
+
+No first-milestone model weights ship yet — `model/tiny/` is reserved for
+artefacts produced via the [`ai/`](../../ai/) training package
+(`pip install -e ai && vmaf-train --help`). Once a model passes the
+cross-backend ULP gate, it will land as `model/tiny/vmaf_tiny_vN.onnx`.
+Invocation will be:
+
+```bash
+vmaf --reference ref.y4m --distorted dis.y4m \
+  --tiny-model model/tiny/vmaf_tiny_vN.onnx \
+  --tiny-device cuda
+```
+
+### Q: Does the fork preserve Netflix's golden-data numerical contract?
+
+A: Yes. The three canonical Netflix reference test pairs
+(src01/hrc00–hrc01, checkerboard 1-pixel shift, checkerboard 10-pixel shift)
+run in CI as a required status check. Numerical correctness against upstream
+is verified per commit. See the
+[engineering principles](../principles.md#netflix-golden-data-gate) for the
+specific fidelity guarantee.
+
+## Applications
+
+### Q: Will VMAF work on applications other than HTTP adaptive streaming?
+
+A: VMAF was designed with HTTP adaptive streaming in mind. It targets
+compression artifacts and scaling artifacts (see Netflix's
+[tech blog post](https://netflixtechblog.com/toward-a-practical-perceptual-video-quality-metric-653f208b9652)
+for context). Artifacts outside that space — transmission errors, packet loss,
+pre-capture noise, encoder-specific pathologies — may be predicted
+inaccurately.
