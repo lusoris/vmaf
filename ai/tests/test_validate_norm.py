@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-
 from vmaf_train.features import FEATURE_COLUMNS
 from vmaf_train.validate_norm import render_table, validate_norm
 

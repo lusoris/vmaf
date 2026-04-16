@@ -6,7 +6,6 @@ import hashlib
 from pathlib import Path
 
 import pytest
-
 from vmaf_train.data import manifest_scan
 
 

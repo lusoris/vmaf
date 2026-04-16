@@ -67,9 +67,7 @@ def _available_providers(requested: list[str] | None) -> list[str]:
         return all_eps
     missing = [p for p in requested if p not in all_eps]
     if missing:
-        raise ValueError(
-            f"requested providers {missing} not available; ORT has {all_eps}"
-        )
+        raise ValueError(f"requested providers {missing} not available; ORT has {all_eps}")
     return requested
 
 

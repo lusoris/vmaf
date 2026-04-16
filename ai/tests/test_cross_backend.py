@@ -15,7 +15,6 @@ import onnx
 import pandas as pd
 import pytest
 from onnx import TensorProto, helper
-
 from vmaf_train.cross_backend import (
     CPU_PROVIDER,
     compare_backends,
@@ -27,9 +26,7 @@ from vmaf_train.features import FEATURE_COLUMNS
 def _tiny_mlp(path: Path, in_features: int = 6) -> None:
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, ["N", in_features])
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, ["N", 1])
-    w = helper.make_tensor(
-        "W", TensorProto.FLOAT, [in_features, 1], [0.1] * in_features
-    )
+    w = helper.make_tensor("W", TensorProto.FLOAT, [in_features, 1], [0.1] * in_features)
     b = helper.make_tensor("B", TensorProto.FLOAT, [1], [0.0])
     node = helper.make_node("Gemm", ["x", "W", "B"], ["y"])
     graph = helper.make_graph([node], "mlp", [x], [y], [w, b])
@@ -79,9 +76,7 @@ def test_features_parquet_path(tmp_path: Path) -> None:
     p = tmp_path / "m.onnx"
     _tiny_mlp(p, in_features=len(FEATURE_COLUMNS))
     rng = np.random.default_rng(0)
-    df = pd.DataFrame(
-        {c: rng.standard_normal(50).astype(np.float32) for c in FEATURE_COLUMNS}
-    )
+    df = pd.DataFrame({c: rng.standard_normal(50).astype(np.float32) for c in FEATURE_COLUMNS})
     parquet = tmp_path / "f.parquet"
     df.to_parquet(parquet)
     report = compare_backends(p, providers=[CPU_PROVIDER], features=parquet, n_rows=10)

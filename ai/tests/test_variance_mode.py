@@ -74,7 +74,11 @@ def test_fr_variance_onnx_export(tmp_path: Path) -> None:
     # The exporter treats the output as a single tensor — variance mode
     # produces a (N, 2) single tensor, so no special casing is needed.
     export_to_onnx(
-        m, out_path, in_shape=(1, 6), input_name="features", output_name="score_logvar",
+        m,
+        out_path,
+        in_shape=(1, 6),
+        input_name="features",
+        output_name="score_logvar",
         atol=1e-5,
     )
     sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])

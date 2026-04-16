@@ -22,9 +22,7 @@ _STRING_RE = re.compile(r'"([A-Za-z][A-Za-z0-9_]*)"')
 def load_allowlist(source: Path = _ALLOWLIST_C) -> frozenset[str]:
     """Return the set of op types libvmaf will accept at session init."""
     if not source.is_file():
-        raise FileNotFoundError(
-            f"op_allowlist.c not found at {source}; cannot validate ONNX ops"
-        )
+        raise FileNotFoundError(f"op_allowlist.c not found at {source}; cannot validate ONNX ops")
     text = source.read_text(encoding="utf-8")
     return frozenset(_STRING_RE.findall(text))
 
@@ -46,9 +44,7 @@ class AllowlistReport:
         return f"allowlist FAIL: {len(self.forbidden)} forbidden op(s): {bad}"
 
 
-def check_model(
-    onnx_path: Path, allowed: frozenset[str] | None = None
-) -> AllowlistReport:
+def check_model(onnx_path: Path, allowed: frozenset[str] | None = None) -> AllowlistReport:
     """Walk @p onnx_path and compare its ops against libvmaf's allowlist."""
     if allowed is None:
         allowed = load_allowlist()
@@ -61,9 +57,7 @@ def check_model(
     )
 
 
-def check_graph(
-    model: onnx.ModelProto, allowed: frozenset[str] | None = None
-) -> AllowlistReport:
+def check_graph(model: onnx.ModelProto, allowed: frozenset[str] | None = None) -> AllowlistReport:
     """Same as check_model() but against an in-memory onnx.ModelProto."""
     if allowed is None:
         allowed = load_allowlist()

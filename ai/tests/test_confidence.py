@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from vmaf_train.confidence import (
     MIN_LOGVAR,
     confidence_interval,
