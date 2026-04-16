@@ -20,11 +20,23 @@
 #include <math.h>
 #include <string.h>
 
+#include "cpu.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 
 #include "mem.h"
 #include "picture_copy.h"
+
+#if ARCH_X86
+#include "x86/float_psnr_avx2.h"
+#if HAVE_AVX512
+#include "x86/float_psnr_avx512.h"
+#endif
+#endif
+
+#if ARCH_AARCH64
+#include "arm64/float_psnr_neon.h"
+#endif
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
@@ -79,6 +91,24 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     }
 
     s->noise_line = float_psnr_noise_line_c;
+
+#if ARCH_X86
+    {
+        unsigned flags = vmaf_get_cpu_flags();
+        if (flags & VMAF_X86_CPU_FLAG_AVX2)
+            s->noise_line = float_psnr_noise_line_avx2;
+#if HAVE_AVX512
+        if (flags & VMAF_X86_CPU_FLAG_AVX512)
+            s->noise_line = float_psnr_noise_line_avx512;
+#endif
+    }
+#elif ARCH_AARCH64
+    {
+        unsigned flags = vmaf_get_cpu_flags();
+        if (flags & VMAF_ARM_CPU_FLAG_NEON)
+            s->noise_line = float_psnr_noise_line_neon;
+    }
+#endif
 
     return 0;
 
