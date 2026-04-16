@@ -7,7 +7,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 #include "test.h"
 
@@ -25,10 +32,14 @@ static char *test_sniff_by_extension(void)
 
 static char *test_size_cap(void)
 {
-    /* A tiny file that exists — use /etc/hostname as a proxy for "regular file,
-     * within limits". Size cap of 1 byte should reject it unless hostname is
-     * 0 bytes (unlikely). */
-    int err = vmaf_dnn_validate_onnx("/etc/hostname", 1);
+    /* Use the test binary itself as a proxy for "regular file, within limits".
+     * Size cap of 1 byte should reject it. */
+#ifdef _WIN32
+    const char *probe = "C:\\Windows\\System32\\cmd.exe";
+#else
+    const char *probe = "/etc/hostname";
+#endif
+    int err = vmaf_dnn_validate_onnx(probe, 1);
     mu_assert("expected -E2BIG for 1-byte cap", err == -E2BIG || err == 0);
     err = vmaf_dnn_validate_onnx("/definitely/does/not/exist.onnx", 0);
     mu_assert("expected errno for missing file", err < 0);
@@ -37,10 +48,20 @@ static char *test_size_cap(void)
 
 static char *test_sidecar_parses(void)
 {
+#ifdef _WIN32
+    char tmpl[MAX_PATH];
+    char tmpdir[MAX_PATH];
+    GetTempPathA(MAX_PATH, tmpdir);
+    snprintf(tmpl, sizeof tmpl, "%svmaf-dnn-sidecar-test", tmpdir);
+    FILE *tmpf = fopen(tmpl, "w");
+    mu_assert("temp file creation failed", tmpf != NULL);
+    fclose(tmpf);
+#else
     char tmpl[] = "/tmp/vmaf-dnn-sidecar-XXXXXX";
     int fd = mkstemp(tmpl);
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
+#endif
 
     char onnx[1024], sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
