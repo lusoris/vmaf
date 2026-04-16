@@ -24,7 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
-      image: returntocorp/semgrep:latest
+      # returntocorp/semgrep was renamed to semgrep/semgrep upstream. The old
+      # image still resolves but ships an EOL semgrep-core that exits 7 when it
+      # cannot load current `p/cwe-top-25` / `p/cert-c-strict` rulesets, which
+      # uploads an empty SARIF and lights up a "Semgrep OSS is reporting errors"
+      # banner on the repo Security tab.
+      image: semgrep/semgrep:latest
     steps:
       - uses: actions/checkout@v4
       - run: |
@@ -54,7 +59,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y meson ninja-build nasm
-          meson setup build -Denable_cuda=false -Denable_sycl=false
+          meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
           meson compile -C build
       - uses: github/codeql-action/analyze@v3
         with:
