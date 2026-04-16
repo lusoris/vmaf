@@ -93,4 +93,4 @@ The final command line will depend on what shell you are running `ffmpeg` throug
 
 ## External resources
 
-Refer to [this page](external_resource.md) for a list of FFmpeg-based 3rd-party tools.
+Refer to [this page](external-resources.md) for a list of FFmpeg-based 3rd-party tools.

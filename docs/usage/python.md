@@ -208,7 +208,7 @@ dis_videos = [
 ]
 ```
 
-See the directory [`resource/dataset`](../../resource/dataset) for more examples. Also refer to the [Datasets](datasets.md) document regarding publicly available datasets.
+See the directory [`resource/dataset`](../../resource/dataset) for more examples. Also refer to the [Datasets](../models/datasets.md) document regarding publicly available datasets.
 
 ### Validate a Dataset
 

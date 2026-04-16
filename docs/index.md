@@ -2,33 +2,49 @@
 
 This is an overview of the available documentation in the VMAF repository.
 
-## FAQ
+## Getting started
 
-- [FAQ](faq.md) – a collection of frequently asked questions
+- [Installation](getting-started/install/) – per-OS install scripts (Ubuntu, Fedora, Arch, Alpine, macOS, Windows)
+- [Building on Windows](getting-started/building-on-windows.md) – build VMAF from source on Windows (upstream guide)
 
-## Models and Features
+## Usage
 
-- [Models](models.md) – a summary of the available pre-trained models
-- [Features](features.md) – VMAF's core features (metrics)
-- [Datasets](datasets.md) – an overview of the two publicly available datasets for training custom models
-- [Confidence Interval](conf_interval.md) – how to use bootstrapping to provide CI estimates for VMAF scores
-- [Bad Cases](bad_cases.md) – how to report cases of VMAF not working well
+- [Python library](usage/python.md) – explains the Python wrapper for VMAF
+- [FFmpeg](usage/ffmpeg.md) – how to use VMAF in conjunction with FFmpeg
+- [Docker](usage/docker.md) – how to run VMAF with Docker
+- [MATLAB](usage/matlab.md) – running other quality algorithms (ST-RRED, ST-MAD, SpEED-QA, and BRISQUE) with MATLAB
+- [External resources](usage/external-resources.md) – e.g. software using VMAF
 
-## Software
+## Metrics
 
-- [Python library](python.md) – explains the Python wrapper for VMAF
-- [ffmpeg](ffmpeg.md) – how to use VMAF in conjunction with FFmpeg
-- [Docker](docker.md) – how to run VMAF with Docker
-- [External resources](external_resource.md) – e.g. software using VMAF
-- [MATLAB](matlab_usage.md) – running other quality algorithms (ST-RRED, ST-MAD, SpEED-QA, and BRISQUE) with MATLAB
-- [Windows](windows.md) – how to build VMAF for Windows
-- [AOM CTC](aom_ctc.md) - how to use VMAF compliant with [AOM](http://aomedia.org/) common test conditions.
-- [NFLX CTC](nflx_ctc.md) - how to use NFLX common test conditions.
+- [Features](metrics/features.md) – VMAF's core features (metrics)
+- [CAMBI](metrics/cambi.md) – contrast-aware multiscale banding index
+- [Confidence Interval](metrics/confidence-interval.md) – bootstrapping for CI estimates of VMAF scores
+- [Bad Cases](metrics/bad-cases.md) – how to report cases of VMAF not working well
+- [AOM CTC](metrics/ctc/aom.md) – running VMAF under [AOM](http://aomedia.org/) common test conditions
+- [NFLX CTC](metrics/ctc/nflx.md) – running VMAF under NFLX common test conditions
+
+## Models
+
+- [Overview](models/overview.md) – summary of the available pre-trained models
+- [Datasets](models/datasets.md) – the two publicly available datasets for training custom models
+
+## Backends
+
+GPU / SIMD backend notes, each in their own folder under [backends/](backends/):
+`x86/`, `cuda/`, `sycl/`, `oneapi/`, `amd-hip/`, `amd-amf/`, `qsv/`, `nvtx/`.
+
+## Tiny-AI
+
+- [Tiny-AI docs](ai/) – overview, training, inference, benchmarks, security
 
 ## Development
 
-- [Release](release.md) – how to perform a new release
+- [Engineering principles](principles.md) – NASA Power-of-10 + JPL + CERT + MISRA, golden gate, quality policy
+- [Release](development/release.md) – how to perform a new release
 
-## Literature
+## Reference
 
-- [References](references.md) – a list of links and papers
+- [FAQ](reference/faq.md)
+- [References](reference/references.md) – a list of links and papers
+- [Papers](reference/papers/) and [Presentations](reference/presentations/)

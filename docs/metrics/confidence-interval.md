@@ -52,7 +52,7 @@ We assumed, for the sake of simplicity, that the distribution of VMAF prediction
 
 ## Dataset Validation
 
-CI can also be enabled in [`run_testing`](python.md/#validate-a-dataset) on a dataset. In this case, the `quality_type` must be `BOOTSTRAP_VMAF`, and the `--vmaf-model` must point to the right bootstrapping model. For example:
+CI can also be enabled in [`run_testing`](../usage/python.md#validate-a-dataset) on a dataset. In this case, the `quality_type` must be `BOOTSTRAP_VMAF`, and the `--vmaf-model` must point to the right bootstrapping model. For example:
 
 ```
 ./run_testing \
@@ -70,7 +70,7 @@ Here each data point (color representing different content) is associated with a
 
 ## Training Bootstrap Models
 
-To train a bootstrap model, one can use [`run_vmaf_training`](python.md/#train-a-new-model) command line. In the parameter file, the `model_type` must be `BOOTSTRAP_LIBSVMNUSVR`. In `model_param_dict`, one can optionally specify the number of models to be used via `num_models`. See [`vmaf_v6_bootstrap.py`](../../resource/param/vmaf_v6_bootstrap.py) for an example parameter file.
+To train a bootstrap model, one can use [`run_vmaf_training`](../usage/python.md#train-a-new-model) command line. In the parameter file, the `model_type` must be `BOOTSTRAP_LIBSVMNUSVR`. In `model_param_dict`, one can optionally specify the number of models to be used via `num_models`. See [`vmaf_v6_bootstrap.py`](../../resource/param/vmaf_v6_bootstrap.py) for an example parameter file.
 
 Running the command line below will generate a bootstrap model `test_b_model.pkl`.
 
