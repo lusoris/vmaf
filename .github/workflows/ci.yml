@@ -255,7 +255,7 @@ jobs:
           scripts/ci/coverage-check.sh libvmaf/build-coverage/coverage.filtered.info 40 85
       - name: Upload coverage artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-lcov-cpu
           path: libvmaf/build-coverage/coverage.filtered.info
@@ -319,7 +319,7 @@ jobs:
           scripts/ci/coverage-check.sh libvmaf/build-coverage-gpu/coverage.filtered.info 70 85
       - name: Upload GPU coverage artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-lcov-gpu
           path: libvmaf/build-coverage-gpu/coverage.filtered.info

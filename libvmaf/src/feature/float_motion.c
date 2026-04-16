@@ -21,7 +21,6 @@
 #include <string.h>
 #include <stddef.h>
 
-#include "cpu.h"
 #include "common/convolution.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
@@ -31,17 +30,6 @@
 #include "motion_tools.h"
 
 #include "picture_copy.h"
-
-#if ARCH_X86
-#include "x86/float_motion_avx2.h"
-#if HAVE_AVX512
-#include "x86/float_motion_avx512.h"
-#endif
-#endif
-
-#if ARCH_AARCH64
-#include "arm64/float_motion_neon.h"
-#endif
 
 static float float_sad_line_c(const float *img1, const float *img2, int w)
 {
@@ -119,24 +107,6 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->score = 0;
 
     s->sad_line = float_sad_line_c;
-
-#if ARCH_X86
-    {
-        unsigned flags = vmaf_get_cpu_flags();
-        if (flags & VMAF_X86_CPU_FLAG_AVX2)
-            s->sad_line = float_sad_line_avx2;
-#if HAVE_AVX512
-        if (flags & VMAF_X86_CPU_FLAG_AVX512)
-            s->sad_line = float_sad_line_avx512;
-#endif
-    }
-#elif ARCH_AARCH64
-    {
-        unsigned flags = vmaf_get_cpu_flags();
-        if (flags & VMAF_ARM_CPU_FLAG_NEON)
-            s->sad_line = float_sad_line_neon;
-    }
-#endif
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);

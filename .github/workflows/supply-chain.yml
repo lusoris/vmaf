@@ -55,7 +55,7 @@ jobs:
         run: |
           cd artifacts
           echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: release-artifacts
           path: artifacts/
@@ -84,7 +84,7 @@ jobs:
           format: cyclonedx-json
           output-file: artifacts/sbom.cdx.json
           path: .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: sbom
           path: artifacts/sbom.*.json
@@ -114,7 +114,7 @@ jobs:
               --bundle "$f.bundle" \
               "$f"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: signatures
           path: artifacts/*.bundle
