@@ -1,13 +1,19 @@
-FROM ubuntu:22.04
+# Base: NVIDIA CUDA 13.0.2 devel on Ubuntu 24.04. Digest-pinned for
+# reproducible builds. Gives us nvcc + cudart-dev without Ubuntu's
+# stale 'nvidia-cuda-toolkit' apt package (22.04 shipped CUDA 11.5).
+FROM nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:450d11555d20ac8ebbbc13ebf17589c2bd42869171a90179ce7098b4a5e64c6a
 
 ARG NV_CODEC_TAG="876af32a202d0de83bd1d36fe74ee0f7fcf86b0d"
 ARG FFMPEG_TAG=n8.1
-ARG NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_75,code=compute_75 -O2"
+# Broadened gencode: Turing baseline (sm_75) + Ampere (sm_80) + Hopper
+# (sm_90) + Blackwell consumer (sm_120). CUDA 13 dropped sm_50/60/70.
+ARG NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_90,code=sm_90 -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 -O2"
 ARG ENABLE_SYCL=false
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ---------- system dependencies ----------
+# CUDA toolkit + cudart are already present in the base image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ninja-build \
@@ -22,9 +28,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     git \
     pkg-config \
-    # CUDA
-    nvidia-cuda-dev \
-    nvidia-cuda-toolkit \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------- Intel oneAPI (SYCL, optional) ----------
