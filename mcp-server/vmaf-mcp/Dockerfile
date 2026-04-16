@@ -14,6 +14,7 @@
 FROM ubuntu:24.04@sha256:cdb5fd928fced577cfecf12c8966e830fcdf42ee481fb0b91904eeddc2fe5eff AS build
 
 ENV DEBIAN_FRONTEND=noninteractive
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential meson ninja-build pkg-config nasm \
         python3 python3-pip python3-venv \
@@ -22,7 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 COPY . /src
-RUN cd libvmaf && meson setup ../build -Denable_cuda=false -Denable_sycl=false --buildtype=release \
+WORKDIR /src/libvmaf
+RUN meson setup ../build -Denable_cuda=false -Denable_sycl=false --buildtype=release \
     && ninja -C ../build
 
 FROM ubuntu:24.04@sha256:cdb5fd928fced577cfecf12c8966e830fcdf42ee481fb0b91904eeddc2fe5eff
@@ -31,6 +33,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     VMAF_BIN=/opt/vmaf/vmaf \
     PATH=/opt/vmaf:$PATH
 
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv \
         ca-certificates \
