@@ -166,6 +166,30 @@ def manifest_scan_cmd(
     )
 
 
+@app.command("check-ops")
+def check_ops_cmd(
+    model: Path = typer.Option(..., exists=True, help="ONNX model to validate"),
+) -> None:
+    """Check an ONNX model against libvmaf's op allowlist.
+
+    Parses libvmaf/src/dnn/op_allowlist.c (the runtime source of truth)
+    and reports any op the model uses that libvmaf would reject at load
+    time. Exits 2 if forbidden ops are found.
+    """
+    from .op_allowlist import check_model
+
+    report = check_model(model)
+    if report.ok:
+        console.print(f"[green]{report.pretty()}[/green]")
+        return
+    console.print(f"[red]{report.pretty()}[/red]")
+    console.print(
+        "[yellow]Extend libvmaf/src/dnn/op_allowlist.c only when a shipped model "
+        "genuinely needs the op — see docs/tiny-ai/security.md[/yellow]"
+    )
+    raise typer.Exit(code=2)
+
+
 @app.command("register")
 def register_cmd(
     model: Path = typer.Option(..., exists=True, help="ONNX model to register"),
