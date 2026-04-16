@@ -1,9 +1,10 @@
 import numpy as np
-cimport numpy as np
 
+cimport numpy as np
 from libc.stdlib cimport calloc, free
 
 from vmaf.core.adm_dwt2_tools import ALIGN_CEIL, MAX_ALIGN
+
 
 cdef extern from "feature/adm_tools.h":
     ctypedef struct adm_dwt_band_t_d:

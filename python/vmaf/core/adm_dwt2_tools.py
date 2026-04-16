@@ -20,6 +20,7 @@ def ALIGN_CEIL(x):
     return x + y
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import doctest
+
     doctest.testmod()

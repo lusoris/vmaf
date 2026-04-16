@@ -1,4 +1,5 @@
 import os
+
 import numpy as np
 
 from vmaf.config import VmafConfig, VmafExternalConfig
@@ -22,24 +23,30 @@ class MatlabFeatureExtractor(FeatureExtractor):
 
 
 class StrredFeatureExtractor(MatlabFeatureExtractor):
-    TYPE = 'STRRED_feature'
+    TYPE = "STRRED_feature"
 
     # VERSION = '1.0'
     # VERSION = '1.1' # fix matlab code where width and height are mistakenly swapped
     # VERSION = '1.2' # fix minor frame and prev frame swap issue
-    VERSION = '1.3'  # align ST-RRED with ST-RREDopt calculations
+    VERSION = "1.3"  # align ST-RRED with ST-RREDopt calculations
 
-    ATOM_FEATURES = ['srred', 'trred', ]
+    ATOM_FEATURES = [
+        "srred",
+        "trred",
+    ]
 
-    DERIVED_ATOM_FEATURES = ['strred', ]
+    DERIVED_ATOM_FEATURES = [
+        "strred",
+    ]
 
-    MATLAB_WORKSPACE = VmafConfig.root_path('matlab', 'strred')
+    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "strred")
 
     @classmethod
     def _assert_an_asset(cls, asset):
         super(StrredFeatureExtractor, cls)._assert_an_asset(asset)
-        assert asset.ref_yuv_type == 'yuv420p' and asset.dis_yuv_type == 'yuv420p', \
-            'STRRED feature extractor only supports yuv420p for now.'
+        assert (
+            asset.ref_yuv_type == "yuv420p" and asset.dis_yuv_type == "yuv420p"
+        ), "STRRED feature extractor only supports yuv420p for now."
 
     def _generate_result(self, asset):
         # routine to call the command-line executable and generate quality
@@ -49,7 +56,7 @@ class StrredFeatureExtractor(MatlabFeatureExtractor):
         dis_procfile_path = asset.dis_procfile_path
         log_file_path = self._get_log_file_path(asset)
 
-        current_dir = os.getcwd() + '/'
+        current_dir = os.getcwd() + "/"
 
         ref_procfile_path = make_absolute_path(ref_procfile_path, current_dir)
         dis_procfile_path = make_absolute_path(dis_procfile_path, current_dir)
@@ -57,7 +64,7 @@ class StrredFeatureExtractor(MatlabFeatureExtractor):
 
         quality_width, quality_height = asset.quality_width_height
 
-        strred_cmd = '''{matlab} -nodisplay -nosplash -nodesktop -r "run_strred('{ref}', '{dis}', {h}, {w}); exit;" >> {log_file_path}'''.format(
+        strred_cmd = """{matlab} -nodisplay -nosplash -nodesktop -r "run_strred('{ref}', '{dis}', {h}, {w}); exit;" >> {log_file_path}""".format(
             matlab=VmafExternalConfig.get_and_assert_matlab(),
             ref=ref_procfile_path,
             dis=dis_procfile_path,
@@ -86,11 +93,11 @@ class StrredFeatureExtractor(MatlabFeatureExtractor):
         result = super(StrredFeatureExtractor, cls)._post_process_result(result)
 
         # calculate refvar and disvar from ref1st, ref2nd, dis1st, dis2nd
-        srred_scores_key = cls.get_scores_key('srred')
-        trred_scores_key = cls.get_scores_key('trred')
-        strred_scores_key = cls.get_scores_key('strred')
+        srred_scores_key = cls.get_scores_key("srred")
+        trred_scores_key = cls.get_scores_key("trred")
+        strred_scores_key = cls.get_scores_key("strred")
 
-        strred_all_same_scores_key = cls.get_scores_key('strred_all_same')
+        strred_all_same_scores_key = cls.get_scores_key("strred_all_same")
 
         srred_scores = result.result_dict[srred_scores_key]
         trred_scores = result.result_dict[trred_scores_key]
@@ -100,8 +107,11 @@ class StrredFeatureExtractor(MatlabFeatureExtractor):
         # === Way One: consistent with VMAF framework, which is to multiply S and T scores per frame, then average
         strred_scores = list(map(_strred, zip(srred_scores, trred_scores)))
         # === Way Two: authentic way of calculating STRRED score: average first, then multiply ===
-        strred_all_same_scores = ListStats.nonemean(srred_scores) * ListStats.nonemean(trred_scores) * np.ones(
-            len(srred_scores))
+        strred_all_same_scores = (
+            ListStats.nonemean(srred_scores)
+            * ListStats.nonemean(trred_scores)
+            * np.ones(len(srred_scores))
+        )
 
         result.result_dict[strred_all_same_scores_key] = strred_all_same_scores
         result.result_dict[strred_scores_key] = strred_scores
@@ -114,21 +124,25 @@ class StrredFeatureExtractor(MatlabFeatureExtractor):
 
 
 class StrredOptFeatureExtractor(MatlabFeatureExtractor):
-    TYPE = 'STRREDOpt_feature'
+    TYPE = "STRREDOpt_feature"
 
-    VERSION = '1.1'  # aligned ST-RREDopt computation, i.e. each current and previous frame for calculation and append to the ST-RREDopt of the first frame the result from the 2nd one
+    VERSION = "1.1"  # aligned ST-RREDopt computation, i.e. each current and previous frame for calculation and append to the ST-RREDopt of the first frame the result from the 2nd one
 
-    ATOM_FEATURES = ['srred', 'trred', ]
+    ATOM_FEATURES = [
+        "srred",
+        "trred",
+    ]
 
-    DERIVED_ATOM_FEATURES = ['strred', 'strred_all_same']
+    DERIVED_ATOM_FEATURES = ["strred", "strred_all_same"]
 
-    MATLAB_WORKSPACE = VmafConfig.root_path('matlab', 'strred')
+    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "strred")
 
     @classmethod
     def _assert_an_asset(cls, asset):
         super(StrredOptFeatureExtractor, cls)._assert_an_asset(asset)
-        assert asset.ref_yuv_type == 'yuv420p' and asset.dis_yuv_type == 'yuv420p', \
-            'STRRED opt feature extractor only supports yuv420p for now.'
+        assert (
+            asset.ref_yuv_type == "yuv420p" and asset.dis_yuv_type == "yuv420p"
+        ), "STRRED opt feature extractor only supports yuv420p for now."
 
     def _generate_result(self, asset):
         # routine to call the command-line executable and generate quality
@@ -138,7 +152,7 @@ class StrredOptFeatureExtractor(MatlabFeatureExtractor):
         dis_procfile_path = asset.dis_procfile_path
         log_file_path = self._get_log_file_path(asset)
 
-        current_dir = os.getcwd() + '/'
+        current_dir = os.getcwd() + "/"
 
         ref_procfile_path = make_absolute_path(ref_procfile_path, current_dir)
         dis_procfile_path = make_absolute_path(dis_procfile_path, current_dir)
@@ -146,7 +160,7 @@ class StrredOptFeatureExtractor(MatlabFeatureExtractor):
 
         quality_width, quality_height = asset.quality_width_height
 
-        strredopt_cmd = '''{matlab} -nodisplay -nosplash -nodesktop -r "run_strred_opt('{ref}', '{dis}', {w}, {h}); exit;" >> {log_file_path}'''.format(
+        strredopt_cmd = """{matlab} -nodisplay -nosplash -nodesktop -r "run_strred_opt('{ref}', '{dis}', {w}, {h}); exit;" >> {log_file_path}""".format(
             matlab=VmafExternalConfig.get_and_assert_matlab(),
             ref=ref_procfile_path,
             dis=dis_procfile_path,
@@ -179,11 +193,11 @@ class StrredOptFeatureExtractor(MatlabFeatureExtractor):
 
         result = super(StrredOptFeatureExtractor, cls)._post_process_result(result)
 
-        srred_scores_key = cls.get_scores_key('srred')
-        trred_scores_key = cls.get_scores_key('trred')
-        strred_scores_key = cls.get_scores_key('strred')
+        srred_scores_key = cls.get_scores_key("srred")
+        trred_scores_key = cls.get_scores_key("trred")
+        strred_scores_key = cls.get_scores_key("strred")
 
-        strred_all_same_scores_key = cls.get_scores_key('strred_all_same')
+        strred_all_same_scores_key = cls.get_scores_key("strred_all_same")
 
         srred_scores = result.result_dict[srred_scores_key]
         trred_scores = result.result_dict[trred_scores_key]
@@ -193,8 +207,11 @@ class StrredOptFeatureExtractor(MatlabFeatureExtractor):
         # === Way One: consistent with VMAF framework, which is to multiply S and T scores per frame, then average
         strred_scores = list(map(_strred, zip(srred_scores, trred_scores)))
         # === Way Two: authentic way of calculating STRRED score: average first, then multiply ===
-        strred_all_same_scores = ListStats.nonemean(srred_scores) * ListStats.nonemean(trred_scores) * np.ones(
-            len(srred_scores))
+        strred_all_same_scores = (
+            ListStats.nonemean(srred_scores)
+            * ListStats.nonemean(trred_scores)
+            * np.ones(len(srred_scores))
+        )
 
         result.result_dict[strred_all_same_scores_key] = strred_all_same_scores
         result.result_dict[strred_scores_key] = strred_scores
@@ -207,19 +224,19 @@ class StrredOptFeatureExtractor(MatlabFeatureExtractor):
 
 
 class SpEEDMatlabFeatureExtractor(MatlabFeatureExtractor):
-    TYPE = 'SpEED_Matlab_feature'
+    TYPE = "SpEED_Matlab_feature"
 
-    VERSION = '0.1'
+    VERSION = "0.1"
 
     scale_list = [2, 3, 4]
     ATOM_FEATURES = []
     DERIVED_ATOM_FEATURES = []
     for scale_now in scale_list:
-        ATOM_FEATURES.append('sspeed_' + str(scale_now))
-        ATOM_FEATURES.append('tspeed_' + str(scale_now))
-        DERIVED_ATOM_FEATURES.append('speed_' + str(scale_now))
+        ATOM_FEATURES.append("sspeed_" + str(scale_now))
+        ATOM_FEATURES.append("tspeed_" + str(scale_now))
+        DERIVED_ATOM_FEATURES.append("speed_" + str(scale_now))
 
-    MATLAB_WORKSPACE = VmafConfig.root_path('matlab', 'SpEED')
+    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "SpEED")
 
     def _generate_result(self, asset):
 
@@ -228,12 +245,12 @@ class SpEEDMatlabFeatureExtractor(MatlabFeatureExtractor):
         ref_procfile_path = asset.ref_procfile_path
         dis_procfile_path = asset.dis_procfile_path
         log_file_path = self._get_log_file_path(asset)
-        current_dir = os.getcwd() + '/'
+        current_dir = os.getcwd() + "/"
         ref_procfile_path = make_absolute_path(ref_procfile_path, current_dir)
         dis_procfile_path = make_absolute_path(dis_procfile_path, current_dir)
         log_file_path = make_absolute_path(log_file_path, current_dir)
         quality_width, quality_height = asset.quality_width_height
-        speed_cmd = '''{matlab} -nodisplay -nosplash -nodesktop -r "run_speed('{ref}', '{dis}', {w}, {h}, {bands}, '{yuv_type}'); exit;" >> {log_file_path}'''.format(
+        speed_cmd = """{matlab} -nodisplay -nosplash -nodesktop -r "run_speed('{ref}', '{dis}', {w}, {h}, {bands}, '{yuv_type}'); exit;" >> {log_file_path}""".format(
             matlab=VmafExternalConfig.get_and_assert_matlab(),
             ref=ref_procfile_path,
             dis=dis_procfile_path,
@@ -266,14 +283,16 @@ class SpEEDMatlabFeatureExtractor(MatlabFeatureExtractor):
 
         result = super(SpEEDMatlabFeatureExtractor, cls)._post_process_result(result)
         for scale_now in cls.scale_list:
-            sspeed_scale_now_scores_key = cls.get_scores_key('sspeed_' + str(scale_now))
-            tspeed_scale_now_scores_key = cls.get_scores_key('tspeed_' + str(scale_now))
-            speed_scale_now_scores_key = cls.get_scores_key('speed_' + str(scale_now))
+            sspeed_scale_now_scores_key = cls.get_scores_key("sspeed_" + str(scale_now))
+            tspeed_scale_now_scores_key = cls.get_scores_key("tspeed_" + str(scale_now))
+            speed_scale_now_scores_key = cls.get_scores_key("speed_" + str(scale_now))
             sspeed_scale_now_scores = result.result_dict[sspeed_scale_now_scores_key]
             tspeed_scale_now_scores = result.result_dict[tspeed_scale_now_scores_key]
             assert len(sspeed_scale_now_scores) == len(tspeed_scale_now_scores)
             # consistent with VMAF framework, which is to multiply S and T scores per frame, then average
-            speed_scale_now_scores = list(map(_speed, zip(sspeed_scale_now_scores, tspeed_scale_now_scores)))
+            speed_scale_now_scores = list(
+                map(_speed, zip(sspeed_scale_now_scores, tspeed_scale_now_scores))
+            )
             result.result_dict[speed_scale_now_scores_key] = speed_scale_now_scores
 
         # validate
@@ -287,29 +306,33 @@ class STMADFeatureExtractor(MatlabFeatureExtractor):
 
     VERSION = "0.1"
 
-    ATOM_FEATURES = ['smad', 'tmad', 'stmad']
+    ATOM_FEATURES = ["smad", "tmad", "stmad"]
 
-    DERIVED_ATOM_FEATURES = ['smad_all_same', 'tmad_all_same', 'stmad_all_same']
+    DERIVED_ATOM_FEATURES = ["smad_all_same", "tmad_all_same", "stmad_all_same"]
 
-    MATLAB_WORKSPACE = VmafConfig.root_path('matlab', 'STMAD_2011_MatlabCode')
+    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "STMAD_2011_MatlabCode")
 
     # compile necessary functions; need to use mex from within matlab
     def _custom_init(self):
 
         def run_stmad_cmd(stmad_cmd):
-            current_dir = os.getcwd() + '/'
+            current_dir = os.getcwd() + "/"
             os.chdir(self.MATLAB_WORKSPACE)
             run_process(stmad_cmd, shell=True)
             os.chdir(current_dir)
 
-        stmad_mex_cmd_1 = '''{matlab} -nodisplay -nosplash -nodesktop -r "mex ical_std.c; exit;"'''.format(
-            matlab=VmafExternalConfig.get_and_assert_matlab(),
+        stmad_mex_cmd_1 = (
+            '''{matlab} -nodisplay -nosplash -nodesktop -r "mex ical_std.c; exit;"'''.format(
+                matlab=VmafExternalConfig.get_and_assert_matlab(),
+            )
         )
 
         run_stmad_cmd(stmad_mex_cmd_1)
 
-        stmad_mex_cmd_2 = '''{matlab} -nodisplay -nosplash -nodesktop -r "mex ical_stat.c; exit;"'''.format(
-            matlab=VmafExternalConfig.get_and_assert_matlab(),
+        stmad_mex_cmd_2 = (
+            '''{matlab} -nodisplay -nosplash -nodesktop -r "mex ical_stat.c; exit;"'''.format(
+                matlab=VmafExternalConfig.get_and_assert_matlab(),
+            )
         )
 
         run_stmad_cmd(stmad_mex_cmd_2)
@@ -317,8 +340,9 @@ class STMADFeatureExtractor(MatlabFeatureExtractor):
     @classmethod
     def _assert_an_asset(cls, asset):
         super(STMADFeatureExtractor, cls)._assert_an_asset(asset)
-        assert asset.ref_yuv_type == 'yuv420p' and asset.dis_yuv_type == 'yuv420p', \
-            'STMAD feature extractor only supports yuv420p for now.'
+        assert (
+            asset.ref_yuv_type == "yuv420p" and asset.dis_yuv_type == "yuv420p"
+        ), "STMAD feature extractor only supports yuv420p for now."
 
     def _generate_result(self, asset):
         # routine to call the command-line executable and generate quality
@@ -328,7 +352,7 @@ class STMADFeatureExtractor(MatlabFeatureExtractor):
         dis_procfile_path = asset.dis_procfile_path
         log_file_path = self._get_log_file_path(asset)
 
-        current_dir = os.getcwd() + '/'
+        current_dir = os.getcwd() + "/"
 
         ref_procfile_path = make_absolute_path(ref_procfile_path, current_dir)
         dis_procfile_path = make_absolute_path(dis_procfile_path, current_dir)
@@ -336,7 +360,7 @@ class STMADFeatureExtractor(MatlabFeatureExtractor):
 
         quality_width, quality_height = asset.quality_width_height
 
-        stmad_cmd = '''{matlab} -nodisplay -nosplash -nodesktop -r "run_stmad('{ref}', '{dis}', {w}, {h}); exit;" >> {log_file_path}'''.format(
+        stmad_cmd = """{matlab} -nodisplay -nosplash -nodesktop -r "run_stmad('{ref}', '{dis}', {w}, {h}); exit;" >> {log_file_path}""".format(
             matlab=VmafExternalConfig.get_and_assert_matlab(),
             ref=ref_procfile_path,
             dis=dis_procfile_path,
@@ -358,13 +382,13 @@ class STMADFeatureExtractor(MatlabFeatureExtractor):
 
         result = super(STMADFeatureExtractor, cls)._post_process_result(result)
 
-        smad_scores_key = cls.get_scores_key('smad')
-        tmad_scores_key = cls.get_scores_key('tmad')
-        stmad_scores_key = cls.get_scores_key('stmad')
+        smad_scores_key = cls.get_scores_key("smad")
+        tmad_scores_key = cls.get_scores_key("tmad")
+        stmad_scores_key = cls.get_scores_key("stmad")
 
-        smad_all_same_scores_key = cls.get_scores_key('smad_all_same')
-        tmad_all_same_scores_key = cls.get_scores_key('tmad_all_same')
-        stmad_all_same_scores_key = cls.get_scores_key('stmad_all_same')
+        smad_all_same_scores_key = cls.get_scores_key("smad_all_same")
+        tmad_all_same_scores_key = cls.get_scores_key("tmad_all_same")
+        stmad_all_same_scores_key = cls.get_scores_key("stmad_all_same")
 
         # remember that smad, tmad, stmad are only one value for the whole video so
         # stmad_all_same_scores is identical to stmad_scores
@@ -389,14 +413,14 @@ class STMADFeatureExtractor(MatlabFeatureExtractor):
 
 
 class iCIDFeatureExtractor(MatlabFeatureExtractor):
-    TYPE = 'ICID_feature'
+    TYPE = "ICID_feature"
 
-    VERSION = '1.0'
+    VERSION = "1.0"
 
-    ATOM_FEATURES = ['icid']
+    ATOM_FEATURES = ["icid"]
     # DERIVED_ATOM_FEATURES = ['icid_all_same']
 
-    MATLAB_WORKSPACE = VmafConfig.root_path('matlab', 'cid_icid')
+    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "cid_icid")
 
     @classmethod
     def _assert_an_asset(cls, asset):
@@ -411,7 +435,7 @@ class iCIDFeatureExtractor(MatlabFeatureExtractor):
         dis_workfile_path = asset.dis_workfile_path
         log_file_path = self._get_log_file_path(asset)
 
-        current_dir = os.getcwd() + '/'
+        current_dir = os.getcwd() + "/"
 
         ref_workfile_path = make_absolute_path(ref_workfile_path, current_dir)
         dis_workfile_path = make_absolute_path(dis_workfile_path, current_dir)
@@ -419,7 +443,7 @@ class iCIDFeatureExtractor(MatlabFeatureExtractor):
 
         quality_width, quality_height = asset.quality_width_height
 
-        icid_cmd = '''{matlab} -nodisplay -nosplash -nodesktop -r "run_icid('{ref}', '{dis}', {h}, {w}, '{yuvtype}'); exit;" >> {log_file_path}'''.format(
+        icid_cmd = """{matlab} -nodisplay -nosplash -nodesktop -r "run_icid('{ref}', '{dis}', {h}, {w}, '{yuvtype}'); exit;" >> {log_file_path}""".format(
             matlab=VmafExternalConfig.get_and_assert_matlab(),
             ref=ref_workfile_path,
             dis=dis_workfile_path,

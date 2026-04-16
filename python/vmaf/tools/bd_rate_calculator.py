@@ -29,9 +29,11 @@ class BDrateCalculator(object):
         setB = cls._dedup_and_order(setB)
         # ==== added by zli =======
 
-        assert not (len(setA) < 4 or len(setB) < 4), \
-            "Problem with input RD point lists. setA is size {}, " \
-            "setB is size {}".format(len(setA), len(setB))
+        assert not (
+            len(setA) < 4 or len(setB) < 4
+        ), "Problem with input RD point lists. setA is size {}, " "setB is size {}".format(
+            len(setA), len(setB)
+        )
 
         if not cls.isCurveMonotonic(setA):
             raise AssertionError(cls.REJECTED_BD_RATE_NON_MONOTONIC)
@@ -75,7 +77,7 @@ class BDrateCalculator(object):
             # ==== added by zli =======
             # if set_[i][1] > set_[i + 1][1]:
             if set_[i][1] >= set_[i + 1][1]:
-            # ==== added by zli =======
+                # ==== added by zli =======
                 return False
 
         return True
@@ -102,7 +104,9 @@ class BDrateCalculator(object):
         c = []
         b = []
 
-        InterpolationUtils.computeParamsForSegments(rdPointsList, log_rate, log_dist, H, delta, d, c, b, True)
+        InterpolationUtils.computeParamsForSegments(
+            rdPointsList, log_rate, log_dist, H, delta, d, c, b, True
+        )
 
         # // cubic function is rate(i) + s*(d(i) + s*(c(i) + s*(b(i))) where s = x - dist(i)
         # // or rate(i) + s*d(i) + s*s*c(i) + s*s*s*b(i)

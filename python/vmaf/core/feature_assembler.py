@@ -11,20 +11,21 @@ class FeatureAssembler(object):
     FeatureExtractors. For each asset, it outputs a BasicResult object.
     """
 
-    def __init__(self,
-                 feature_dict,
-                 feature_option_dict,
-                 assets,
-                 logger,
-                 fifo_mode,
-                 delete_workdir,
-                 result_store,
-                 optional_dict=None,
-                 optional_dict2=None,
-                 parallelize=False,
-                 processes=None,
-                 save_workfiles=False,
-                 ):
+    def __init__(
+        self,
+        feature_dict,
+        feature_option_dict,
+        assets,
+        logger,
+        fifo_mode,
+        delete_workdir,
+        result_store,
+        optional_dict=None,
+        optional_dict2=None,
+        parallelize=False,
+        processes=None,
+        save_workfiles=False,
+    ):
         """
         :param feature_dict: in the format of:
         {FeatureExtractor_type:'all', ...}, or
@@ -75,10 +76,9 @@ class FeatureAssembler(object):
 
         result_dicts = self._create_feature_result_dicts()
 
-        self.results = list(map(
-            lambda tasset: BasicResult(tasset[0], tasset[1]),
-            zip(self.assets, result_dicts)
-        ))
+        self.results = list(
+            map(lambda tasset: BasicResult(tasset[0], tasset[1]), zip(self.assets, result_dicts))
+        )
 
     def _create_feature_result_dicts(self):
         # assemble an output dict with demanded atom features
@@ -94,11 +94,14 @@ class FeatureAssembler(object):
                     except KeyError:
                         # Determine scores keys from other features. These need to be discarded when wildcard-querying
                         # for all scores keys pertinent to a particular atom feature.
-                        other_scores_keys = [self._get_scores_key(fextractor_type, other_atom_feature)
-                                             for other_atom_feature in self._get_atom_features(fextractor_type)
-                                             if other_atom_feature is not atom_feature]
-                        scores_key_alt = BasicResult.scores_key_wildcard_match(result.result_dict, scores_key,
-                                                                               excluded_scores_keys=other_scores_keys)
+                        other_scores_keys = [
+                            self._get_scores_key(fextractor_type, other_atom_feature)
+                            for other_atom_feature in self._get_atom_features(fextractor_type)
+                            if other_atom_feature is not atom_feature
+                        ]
+                        scores_key_alt = BasicResult.scores_key_wildcard_match(
+                            result.result_dict, scores_key, excluded_scores_keys=other_scores_keys
+                        )
                         result_dicts[result_index][scores_key] = result[scores_key_alt]
         return result_dicts
 
@@ -118,9 +121,11 @@ class FeatureAssembler(object):
         return scores_key
 
     def _get_atom_features(self, fextractor_type):
-        if self.feature_dict[fextractor_type] == 'all':
+        if self.feature_dict[fextractor_type] == "all":
             fextractor_class = FeatureExtractor.find_subclass(fextractor_type)
-            atom_features = fextractor_class.ATOM_FEATURES + getattr(fextractor_class, 'DERIVED_ATOM_FEATURES', [])
+            atom_features = fextractor_class.ATOM_FEATURES + getattr(
+                fextractor_class, "DERIVED_ATOM_FEATURES", []
+            )
 
         else:
             atom_features = self.feature_dict[fextractor_type]
@@ -144,13 +149,14 @@ class FeatureAssembler(object):
         else:
             optional_dict = self.optional_dict
 
-        fextractor = fextractor_class(assets=self.assets,
-                                      logger=self.logger,
-                                      fifo_mode=self.fifo_mode,
-                                      delete_workdir=self.delete_workdir,
-                                      result_store=self.result_store,
-                                      optional_dict=optional_dict,
-                                      optional_dict2=self.optional_dict2,
-                                      save_workfiles=self.save_workfiles,
-                                      )
+        fextractor = fextractor_class(
+            assets=self.assets,
+            logger=self.logger,
+            fifo_mode=self.fifo_mode,
+            delete_workdir=self.delete_workdir,
+            result_store=self.result_store,
+            optional_dict=optional_dict,
+            optional_dict2=self.optional_dict2,
+            save_workfiles=self.save_workfiles,
+        )
         return fextractor

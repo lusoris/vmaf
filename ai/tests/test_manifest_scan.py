@@ -1,11 +1,11 @@
 """Unit tests for the manifest-scan tooling."""
+
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
 
 import pytest
-
 from vmaf_train.data import manifest_scan
 
 

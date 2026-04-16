@@ -1,4 +1,5 @@
 """C3 — learned residual filter for encoder pre-processing."""
+
 from __future__ import annotations
 
 import lightning as L

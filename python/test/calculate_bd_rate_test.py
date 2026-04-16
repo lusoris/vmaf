@@ -1,12 +1,10 @@
 import unittest
 
-
 __copyright__ = "Copyright 2024, Netflix, Inc."
 __license__ = "BSD+Patent"
 
 from vmaf.tools.bd_rate import calculate_bd_rate
-from vmaf.tools.exceptions import BdRateNonMonotonicException, \
-    BdRateNoOverlapException
+from vmaf.tools.exceptions import BdRateNonMonotonicException, BdRateNoOverlapException
 from vmaf.tools.typing_utils import RdPoint
 
 
@@ -376,16 +374,44 @@ class CalculateBdRateTest(unittest.TestCase):
 class CalculateBdRateJCTVCTest(unittest.TestCase):
     def test_calculate_bd_rate_1(self) -> None:
         score = calculate_bd_rate(
-            create_rd_points([(108048.8736, 43.6471), (61279.976, 40.3953), (33905.6656, 37.247), (18883.6928, 34.2911)]),
-            create_rd_points([(108061.2784, 43.6768), (61299.9936, 40.4232), (33928.7472, 37.2761), (18910.912, 34.3147)]),
+            create_rd_points(
+                [
+                    (108048.8736, 43.6471),
+                    (61279.976, 40.3953),
+                    (33905.6656, 37.247),
+                    (18883.6928, 34.2911),
+                ]
+            ),
+            create_rd_points(
+                [
+                    (108061.2784, 43.6768),
+                    (61299.9936, 40.4232),
+                    (33928.7472, 37.2761),
+                    (18910.912, 34.3147),
+                ]
+            ),
         )
         expected_score = -0.00465215420752807
         self.assertAlmostEqual(expected_score, score, places=4)
 
     def test_calculate_bd_rate_2(self) -> None:
         score = calculate_bd_rate(
-            create_rd_points([(40433.8848, 37.5761), (7622.7456, 35.3756), (2394.488, 33.8977), (1017.6184, 32.0603)]),
-            create_rd_points([(40370.12, 37.5982), (7587.0024, 35.4025), (2390.0944, 33.9194), (1017.0984, 32.0822)]),
+            create_rd_points(
+                [
+                    (40433.8848, 37.5761),
+                    (7622.7456, 35.3756),
+                    (2394.488, 33.8977),
+                    (1017.6184, 32.0603),
+                ]
+            ),
+            create_rd_points(
+                [
+                    (40370.12, 37.5982),
+                    (7587.0024, 35.4025),
+                    (2390.0944, 33.9194),
+                    (1017.0984, 32.0822),
+                ]
+            ),
         )
         expected_score = -0.018779823450567612
         self.assertAlmostEqual(expected_score, score, places=4)
@@ -393,15 +419,43 @@ class CalculateBdRateJCTVCTest(unittest.TestCase):
     def test_calculate_bd_rate_non_monotonic(self) -> None:
         with self.assertRaises(BdRateNonMonotonicException):
             _ = calculate_bd_rate(
-                create_rd_points([(108048.8736, 39.6471), (61279.976, 40.3953), (33905.6656, 37.247), (18883.6928, 34.2911)]),
-                create_rd_points([(108061.2784, 43.6768), (61299.9936, 40.4232), (33928.7472, 37.2761), (18910.912, 34.3147)]),
+                create_rd_points(
+                    [
+                        (108048.8736, 39.6471),
+                        (61279.976, 40.3953),
+                        (33905.6656, 37.247),
+                        (18883.6928, 34.2911),
+                    ]
+                ),
+                create_rd_points(
+                    [
+                        (108061.2784, 43.6768),
+                        (61299.9936, 40.4232),
+                        (33928.7472, 37.2761),
+                        (18910.912, 34.3147),
+                    ]
+                ),
             )
 
     def test_calculate_bd_rate_non_monotonic2(self) -> None:
         with self.assertRaises(BdRateNonMonotonicException):
             _ = calculate_bd_rate(
-                create_rd_points([(58048.8736, 43.6471), (61279.976, 40.3953), (33905.6656, 37.247), (18883.6928, 34.2911)]),
-                create_rd_points([(108061.2784, 43.6768), (61299.9936, 40.4232), (33928.7472, 37.2761), (18910.912, 34.3147)]),
+                create_rd_points(
+                    [
+                        (58048.8736, 43.6471),
+                        (61279.976, 40.3953),
+                        (33905.6656, 37.247),
+                        (18883.6928, 34.2911),
+                    ]
+                ),
+                create_rd_points(
+                    [
+                        (108061.2784, 43.6768),
+                        (61299.9936, 40.4232),
+                        (33928.7472, 37.2761),
+                        (18910.912, 34.3147),
+                    ]
+                ),
             )
 
 

@@ -1,8 +1,8 @@
 import numpy as np
+import scipy.io
 import scipy.misc
 import scipy.ndimage
 import scipy.stats
-import scipy.io
 from PIL import Image
 
 from vmaf.config import VmafConfig
@@ -30,7 +30,7 @@ def _gauss_window(lw, sigma):
 
 
 def _hp_image(image):
-    extend_mode = 'reflect'
+    extend_mode = "reflect"
     image = np.array(image).astype(np.float32)
     w, h = image.shape
     mu_image = np.zeros((w, h))
@@ -41,7 +41,7 @@ def _hp_image(image):
 
 
 def _var_image(hpimg):
-    extend_mode = 'reflect'
+    extend_mode = "reflect"
     w, h = hpimg.shape
     varimg = np.zeros((w, h))
     _var_window = _gauss_window(3, 1.0)
@@ -80,10 +80,10 @@ def midrank(x):
     # Z=[Z Z(end)+1];
     # N=length(x);
     # T=zeros(1,N);
-    J, Z = zip(*sorted(enumerate(x), key=lambda x:x[1]))
+    J, Z = zip(*sorted(enumerate(x), key=lambda x: x[1]))
     J = list(J)
     Z = list(Z)
-    Z.append(Z[-1]+1)
+    Z.append(Z[-1] + 1)
     N = len(x)
     T = np.zeros(N)
 
@@ -104,11 +104,11 @@ def midrank(x):
     while i <= N:
         a = i
         j = a
-        while Z[j-1] == Z[a-1]:
+        while Z[j - 1] == Z[a - 1]:
             j = j + 1
         b = j - 1
-        for k in range(a, b+1):
-            T[k-1] = (a + b) / 2
+        for k in range(a, b + 1):
+            T[k - 1] = (a + b) / 2
         i = b + 1
 
     # T(J)=T;
@@ -145,7 +145,7 @@ def _cov_kendall(x):
             # until this is fixed, we bypass the exact calculation method by using the variance approximation (asymptotic method)
             # need a try-except clause: ealier scipy versions do not support a method keywarg
             try:
-                kendall, _ = scipy.stats.kendalltau(x[i,:], x[j,:], method='asymptotic')
+                kendall, _ = scipy.stats.kendalltau(x[i, :], x[j, :], method="asymptotic")
             except TypeError:
                 kendall, _ = scipy.stats.kendalltau(x[i, :], x[j, :])
             cov_[i, j] = kendall
@@ -187,8 +187,10 @@ def AUC_CI(n_D, n_I, Area):
     Q2 = 2.0 * Area * Area / (1.0 + Area)
 
     # SE=sqrt((Area*(1-Area)+(n_D-1)*(Q1-Area*Area)+(n_I-1)*(Q2-Area*Area))/(n_I*n_D));
-    SE = np.sqrt((Area * (1.0 - Area) + (n_D-1) * (Q1 - Area * Area) +
-                  (n_I - 1.0) * (Q2 - Area*Area)) / (n_I * n_D))
+    SE = np.sqrt(
+        (Area * (1.0 - Area) + (n_D - 1) * (Q1 - Area * Area) + (n_I - 1.0) * (Q2 - Area * Area))
+        / (n_I * n_D)
+    )
 
     # CI = 1.96 * SE;
     CI = 1.96 * SE
@@ -233,31 +235,31 @@ def significanceHM(A, B, AUCs):
     #         pHM(j,i) = pHM(i,j);
     #     end
     # end
-    hm_filepath = VmafConfig.tools_resource_path('Hanley_McNeil.mat')
+    hm_filepath = VmafConfig.tools_resource_path("Hanley_McNeil.mat")
     hm_dict = scipy.io.loadmat(hm_filepath)
     pHM = np.ones([n_met, n_met])
-    Table_HM = hm_dict['Table_HM']
-    AA_vec = hm_dict['AA_vec']
-    rA_vec = hm_dict['rA_vec']
+    Table_HM = hm_dict["Table_HM"]
+    AA_vec = hm_dict["AA_vec"]
+    rA_vec = hm_dict["rA_vec"]
     CI = np.ones(n_met)
     for i in range(1, n_met):
-        CI1,SE1 = AUC_CI(A.shape[1], B.shape[1], AUCs[i-1])
-        CI[i-1] = CI1
+        CI1, SE1 = AUC_CI(A.shape[1], B.shape[1], AUCs[i - 1])
+        CI[i - 1] = CI1
 
-        for j in range(i+1, n_met+1):
-            CI2, SE2 = AUC_CI(A.shape[1], B.shape[1], AUCs[j-1])
-            CI[j-1] = CI2
+        for j in range(i + 1, n_met + 1):
+            CI2, SE2 = AUC_CI(A.shape[1], B.shape[1], AUCs[j - 1])
+            CI[j - 1] = CI2
 
-            rA = (CorrA[i-1,j-1] + CorrB[i-1,j-1]) / 2
-            AA = (AUCs[i-1] + AUCs[j-1]) / 2
+            rA = (CorrA[i - 1, j - 1] + CorrB[i - 1, j - 1]) / 2
+            AA = (AUCs[i - 1] + AUCs[j - 1]) / 2
 
             rr, _ = index_and_value_of_min(abs(rA - rA_vec).ravel())
             aa, _ = index_and_value_of_min(abs(AA - AA_vec).ravel())
             r = Table_HM[rr, aa]
 
-            z = abs(AUCs[i - 1] - AUCs[j - 1]) / np.sqrt(SE1 ** 2 + SE2 ** 2 + 2 * r * SE1 * SE2)
-            pHM[i-1, j-1] = 1.0 - scipy.stats.norm.cdf(z)
-            pHM[j-1, i-1] = pHM[i-1, j-1]
+            z = abs(AUCs[i - 1] - AUCs[j - 1]) / np.sqrt(SE1**2 + SE2**2 + 2 * r * SE1 * SE2)
+            pHM[i - 1, j - 1] = 1.0 - scipy.stats.norm.cdf(z)
+            pHM[j - 1, i - 1] = pHM[i - 1, j - 1]
 
     return pHM, CI
 
@@ -288,7 +290,7 @@ def fastDeLong(samples):
     #     error('Argument mismatch error');
     # end
     if np.sum(samples.spsizes) != samples.ratings.shape[1] or len(samples.spsizes) != 2:
-        assert False, 'Argument mismatch error'
+        assert False, "Argument mismatch error"
 
     # z = samples.ratings;
     # m = samples.spsizes(1);

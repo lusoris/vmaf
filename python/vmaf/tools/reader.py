@@ -8,48 +8,53 @@ __license__ = "BSD+Patent"
 
 class YuvReader(object):
 
-    SUPPORTED_YUV_8BIT_TYPES = ['yuv420p',
-                                'yuv422p',
-                                'yuv444p',
-                                'gray',
-                                ]
+    SUPPORTED_YUV_8BIT_TYPES = [
+        "yuv420p",
+        "yuv422p",
+        "yuv444p",
+        "gray",
+    ]
 
-    SUPPORTED_YUV_10BIT_LE_TYPES = ['yuv420p10le',
-                                    'yuv422p10le',
-                                    'yuv444p10le',
-                                    'gray10le',
-                                    ]
+    SUPPORTED_YUV_10BIT_LE_TYPES = [
+        "yuv420p10le",
+        "yuv422p10le",
+        "yuv444p10le",
+        "gray10le",
+    ]
 
-    SUPPORTED_YUV_12BIT_LE_TYPES = ['yuv420p12le',
-                                    'yuv422p12le',
-                                    'yuv444p12le',
-                                    'gray12le',
-                                    ]
+    SUPPORTED_YUV_12BIT_LE_TYPES = [
+        "yuv420p12le",
+        "yuv422p12le",
+        "yuv444p12le",
+        "gray12le",
+    ]
 
-    SUPPORTED_YUV_16BIT_LE_TYPES = ['yuv420p16le',
-                                    'yuv422p16le',
-                                    'yuv444p16le',
-                                    'gray16le',
-                                    ]
+    SUPPORTED_YUV_16BIT_LE_TYPES = [
+        "yuv420p16le",
+        "yuv422p16le",
+        "yuv444p16le",
+        "gray16le",
+    ]
 
     # ex: for yuv420p, the width and height of U/V is 0.5x, 0.5x of Y
-    UV_WIDTH_HEIGHT_MULTIPLIERS_DICT = {'yuv420p': (0.5, 0.5),
-                                        'yuv422p': (0.5, 1.0),
-                                        'yuv444p': (1.0, 1.0),
-                                        'gray': (0.0, 0.0),
-                                        'yuv420p10le': (0.5, 0.5),
-                                        'yuv422p10le': (0.5, 1.0),
-                                        'yuv444p10le': (1.0, 1.0),
-                                        'gray10le': (0.0, 0.0),
-                                        'yuv420p12le': (0.5, 0.5),
-                                        'yuv422p12le': (0.5, 1.0),
-                                        'yuv444p12le': (1.0, 1.0),
-                                        'gray12le': (0.0, 0.0),
-                                        'yuv420p16le': (0.5, 0.5),
-                                        'yuv422p16le': (0.5, 1.0),
-                                        'yuv444p16le': (1.0, 1.0),
-                                        'gray16le': (0.0, 0.0),
-                                        }
+    UV_WIDTH_HEIGHT_MULTIPLIERS_DICT = {
+        "yuv420p": (0.5, 0.5),
+        "yuv422p": (0.5, 1.0),
+        "yuv444p": (1.0, 1.0),
+        "gray": (0.0, 0.0),
+        "yuv420p10le": (0.5, 0.5),
+        "yuv422p10le": (0.5, 1.0),
+        "yuv444p10le": (1.0, 1.0),
+        "gray10le": (0.0, 0.0),
+        "yuv420p12le": (0.5, 0.5),
+        "yuv422p12le": (0.5, 1.0),
+        "yuv444p12le": (1.0, 1.0),
+        "gray12le": (0.0, 0.0),
+        "yuv420p16le": (0.5, 0.5),
+        "yuv422p16le": (0.5, 1.0),
+        "yuv444p16le": (1.0, 1.0),
+        "gray16le": (0.0, 0.0),
+    }
 
     def __init__(self, filepath, width, height, yuv_type):
 
@@ -60,7 +65,7 @@ class YuvReader(object):
 
         self._asserts()
 
-        self.file = open(self.filepath, 'rb')
+        self.file = open(self.filepath, "rb")
 
     def close(self):
         self.file.close()
@@ -94,15 +99,26 @@ class YuvReader(object):
         w_multiplier, h_multiplier = self._get_uv_width_height_multiplier()
 
         if self._is_10bitle() or self._is_12bitle() or self._is_16bitle():
-            num_frms = float(self.num_bytes) / self.width / self.height / (1.0 + w_multiplier * h_multiplier * 2) / 2
+            num_frms = (
+                float(self.num_bytes)
+                / self.width
+                / self.height
+                / (1.0 + w_multiplier * h_multiplier * 2)
+                / 2
+            )
 
         elif self._is_8bit():
-            num_frms = float(self.num_bytes) / self.width / self.height / (1.0 + w_multiplier * h_multiplier * 2)
+            num_frms = (
+                float(self.num_bytes)
+                / self.width
+                / self.height
+                / (1.0 + w_multiplier * h_multiplier * 2)
+            )
 
         else:
             assert False
 
-        assert num_frms.is_integer(), 'Number of frames is not integer: {}'.format(num_frms)
+        assert num_frms.is_integer(), "Number of frames is not integer: {}".format(num_frms)
 
         return int(num_frms)
 
@@ -111,15 +127,15 @@ class YuvReader(object):
         return self.UV_WIDTH_HEIGHT_MULTIPLIERS_DICT[self.yuv_type]
 
     def _assert_yuv_type(self):
-        assert (self.yuv_type in self.SUPPORTED_YUV_8BIT_TYPES
-                or self.yuv_type in self.SUPPORTED_YUV_10BIT_LE_TYPES
-                or self.yuv_type in self.SUPPORTED_YUV_12BIT_LE_TYPES
-                or self.yuv_type in self.SUPPORTED_YUV_16BIT_LE_TYPES), \
-            'Unsupported YUV type: {}'.format(self.yuv_type)
+        assert (
+            self.yuv_type in self.SUPPORTED_YUV_8BIT_TYPES
+            or self.yuv_type in self.SUPPORTED_YUV_10BIT_LE_TYPES
+            or self.yuv_type in self.SUPPORTED_YUV_12BIT_LE_TYPES
+            or self.yuv_type in self.SUPPORTED_YUV_16BIT_LE_TYPES
+        ), "Unsupported YUV type: {}".format(self.yuv_type)
 
     def _assert_file_exist(self):
-        assert os.path.exists(self.filepath), \
-            "File does not exist: {}".format(self.filepath)
+        assert os.path.exists(self.filepath), "File does not exist: {}".format(self.filepath)
 
     def _asserts(self):
 
@@ -147,9 +163,9 @@ class YuvReader(object):
     def convert_format(self, value, bit_depth):
         return value.astype(np.double) / (2.0**bit_depth - 1.0)
 
-    def next(self, format='uint'):
+    def next(self, format="uint"):
 
-        assert format == 'uint' or format == 'float'
+        assert format == "uint" or format == "float"
 
         y_width = self.width
         y_height = self.height
@@ -182,16 +198,16 @@ class YuvReader(object):
             if v.size == 0:
                 raise StopIteration
         else:
-            assert False, f'Unsupported uv_width and uv_height: {uv_width}, {uv_height}'
+            assert False, f"Unsupported uv_width and uv_height: {uv_width}, {uv_height}"
 
         y = y.reshape(y_height, y_width)
         u = u.reshape(uv_height, uv_width) if u is not None else None
         v = v.reshape(uv_height, uv_width) if v is not None else None
 
-        if format == 'uint':
+        if format == "uint":
             return y, u, v
 
-        elif format == 'float':
+        elif format == "float":
             if self._is_8bit():
                 bit_depth = 8
             elif self._is_10bitle():
