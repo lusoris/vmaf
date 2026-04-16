@@ -634,7 +634,7 @@ class SiTiNorefFeatureExtractor(NorefExecutorMixin, FeatureExtractor):
                 if i == 0:
                     ti = 0
                 else:
-                    ti = np.std(dis_y - dis_y_prev)
+                    ti = np.std(dis_y - dis_y_prev)  # noqa: F821  (bound in previous iteration)
                 dis_y_prev = copy.deepcopy(dis_y)
                 scores_mtx_list.append(np.hstack(([si], [ti])))
                 i += 1

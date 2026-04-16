@@ -5,4 +5,4 @@ from .fr_regressor import FRRegressor
 from .learned_filter import LearnedFilter
 from .nr_metric import NRMetric
 
-__all__ = ["FRRegressor", "NRMetric", "LearnedFilter", "export_to_onnx"]
+__all__ = ["FRRegressor", "LearnedFilter", "NRMetric", "export_to_onnx"]

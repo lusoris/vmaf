@@ -84,7 +84,7 @@ def _load_calibration_features(
 
 def _make_calibration_reader(features: np.ndarray, input_name: str, batch_size: int):
     """Build an onnxruntime CalibrationDataReader yielding feature batches."""
-    from onnxruntime.quantization import CalibrationDataReader  # noqa: E501
+    from onnxruntime.quantization import CalibrationDataReader
 
     class _Reader(CalibrationDataReader):
         def __init__(self) -> None:
@@ -151,8 +151,8 @@ def quantize_int8(
     return QuantizationReport(
         fp32_path=fp32_path,
         int8_path=int8_path,
-        n_calibration=int(len(calib)),
-        n_held_out=int(len(held)),
+        n_calibration=len(calib),
+        n_held_out=len(held),
         max_abs_error=float(np.abs(diff).max()),
         rmse=float(np.sqrt((diff**2).mean())),
         fp32_bytes=fp32_path.stat().st_size,

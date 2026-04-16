@@ -1,13 +1,11 @@
 """Smoke tests for the vmaf-mcp server — no network, no GPU required."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from vmaf_mcp import server as srv
-
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -150,7 +148,6 @@ def test_compare_models_ranks_by_plcc(tmp_path):
     feats = tmp_path / "f.parquet"
     _make_tiny_mlp(good)
     # A model with opposite-sign weights will have strongly negative PLCC.
-    import numpy as np
     import onnx
     from onnx import TensorProto, helper
 

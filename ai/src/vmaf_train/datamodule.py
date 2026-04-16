@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from .data.splits import split_keys
 from .features import FEATURE_COLUMNS
 
-__all__ = ["FeatureScoreDataset", "VmafTrainDataModule", "FEATURE_COLUMNS"]
+__all__ = ["FEATURE_COLUMNS", "FeatureScoreDataset", "VmafTrainDataModule"]
 
 
 class FeatureScoreDataset(Dataset):
