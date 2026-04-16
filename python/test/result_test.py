@@ -224,7 +224,8 @@ class ResultFormattingTest(unittest.TestCase):
     def test_to_json(self):
         self.assertEqual(
             self.result.to_dict(),
-            json.loads("""
+            json.loads(
+                """
 {
     "executorId": "SSIM_V1.0",
     "asset": {
@@ -261,7 +262,8 @@ class ResultFormattingTest(unittest.TestCase):
         "method": "mean"
     }
 }
-        """),
+        """
+            ),
         )
 
 

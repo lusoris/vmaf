@@ -33,10 +33,13 @@ def download_reactively(local_path, remote_path):
 
 class VmafExternalConfig(object):
 
-    _MISSING_EXTERNAL_MESSAGE = """
+    _MISSING_EXTERNAL_MESSAGE = (
+        """
     Must install {name} and set {key} in %s/externals.py, e.g. add a line like
     {key} = "[path to exec]/{name}"
-    """ % PYTHON_ROOT
+    """
+        % PYTHON_ROOT
+    )
 
     @staticmethod
     def _path_from_external(name):

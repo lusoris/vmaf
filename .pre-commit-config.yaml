@@ -20,6 +20,7 @@ repos:
         exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^matlab/|^model/|^python/test/resource/|^resource/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
       - id: check-merge-conflict
       - id: check-yaml
+        exclude: '\.clang-format$'
       - id: check-json
       - id: check-toml
       - id: check-added-large-files

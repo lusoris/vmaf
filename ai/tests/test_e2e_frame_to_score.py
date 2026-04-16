@@ -31,11 +31,7 @@ ort = pytest.importorskip("onnxruntime")
 import numpy as np  # noqa: E402
 from onnx import TensorProto, helper  # noqa: E402
 
-from vmaf_train.data.feature_dump import (  # noqa: E402
-    DEFAULT_FEATURES,
-    Entry,
-    dump_features,
-)
+from vmaf_train.data.feature_dump import DEFAULT_FEATURES, Entry, dump_features  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VMAF_BIN = REPO_ROOT / "build" / "tools" / "vmaf"

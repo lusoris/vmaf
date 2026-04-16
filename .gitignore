@@ -35,3 +35,4 @@ testdata/bbb/*.yuv
 
 # Generated benchmark results
 testdata/bbb/results/
+build-docs/

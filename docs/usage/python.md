@@ -142,13 +142,13 @@ This will generate JSON output like:
 {
     ...
     "aggregate": {
-        "VMAF_feature_adm2_score": 0.93458780776205741, 
-        "VMAF_feature_motion2_score": 3.8953518541666665, 
-        "VMAF_feature_vif_scale0_score": 0.36342081156994926, 
-        "VMAF_feature_vif_scale1_score": 0.76664738784617292, 
-        "VMAF_feature_vif_scale2_score": 0.86285338927816291, 
-        "VMAF_feature_vif_scale3_score": 0.91597186913930484, 
-        "VMAF_score": 76.699271371151269, 
+        "VMAF_feature_adm2_score": 0.93458780776205741,
+        "VMAF_feature_motion2_score": 3.8953518541666665,
+        "VMAF_feature_vif_scale0_score": 0.36342081156994926,
+        "VMAF_feature_vif_scale1_score": 0.76664738784617292,
+        "VMAF_feature_vif_scale2_score": 0.86285338927816291,
+        "VMAF_feature_vif_scale3_score": 0.91597186913930484,
+        "VMAF_score": 76.699271371151269,
         "method": "mean"
     }
 }
@@ -442,7 +442,7 @@ The core classes of the VMAF Python library can be depicted in the diagram below
 
 ### Asset
 
-An Asset is the most basic unit with enough information to perform a task on a media. It includes basic information about a distorted video and its undistorted reference counterpart, as well as the auxiliary preprocessing information that can be understood by the `Executor` and its subclasses. For example: 
+An Asset is the most basic unit with enough information to perform a task on a media. It includes basic information about a distorted video and its undistorted reference counterpart, as well as the auxiliary preprocessing information that can be understood by the `Executor` and its subclasses. For example:
   - The frame range on which to perform a task (i.e. `dis_start_end_frame` and `ref_start_end_frame`)
   - At what resolution to perform a task (e.g. a video frame is upscaled with a `resampling_type` method to the resolution specified by `quality_width_height` before feature extraction)
 
@@ -478,7 +478,7 @@ The `Result` class also provides a number of tools for aggregating the per-unit 
 
 ### TrainTestModel
 
-`TrainTestModel` is the base class for any concrete implementation of regressor, which must provide a `train()` method to perform training on a set of data and their groud-truth labels, and a `predict()` method to predict the labels on a set of data, and a `to_file()` and a `from_file()` method to save and load trained models. 
+`TrainTestModel` is the base class for any concrete implementation of regressor, which must provide a `train()` method to perform training on a set of data and their groud-truth labels, and a `predict()` method to predict the labels on a set of data, and a `to_file()` and a `from_file()` method to save and load trained models.
 
 A `TrainTestModel` constructor must supply a dictionary of parameters (i.e. `param_dict`) that contains the regressor's hyper-parameters. The base class also provides shared functionalities such as input data normalization/output data denormalization, evaluating prediction performance, etc.
 
