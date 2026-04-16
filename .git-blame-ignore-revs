@@ -6,4 +6,5 @@
 # style(python): apply black 26 + isort 8 across all Python trees
 2fb05aadbd0c78ad7aec7180ebff80e98f34af3d
 
-# style(c): apply clang-format 22 across full tree (placeholder — filled on commit)
+# style(c): apply clang-format 22 across full C/C++/CUDA tree
+459fb0b280480a98547e31d72110ee18880107a4
