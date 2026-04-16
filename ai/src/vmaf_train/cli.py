@@ -290,6 +290,53 @@ def check_ops_cmd(
     raise typer.Exit(code=2)
 
 
+@app.command("quantize-int8")
+def quantize_int8_cmd(
+    fp32: Path = typer.Option(..., exists=True, help="Input fp32 .onnx path"),
+    output: Path = typer.Option(..., help="Output int8 .onnx path"),
+    calibration: Path = typer.Option(
+        ..., exists=True, help="Parquet feature cache used for PTQ calibration"
+    ),
+    input_name: str = typer.Option("features"),
+    n_calibration: int = typer.Option(512, help="Calibration sample count"),
+    batch_size: int = typer.Option(32, help="Calibration batch size"),
+    rmse_gate: float = typer.Option(
+        1.0,
+        help="Exit 2 if the INT8-vs-fp32 RMSE on held-out samples exceeds this",
+    ),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+) -> None:
+    """Post-training quantize a fp32 ONNX model to INT8 (static PTQ, QDQ format).
+
+    Uses a parquet feature cache as the calibration source (same schema
+    as the features consumed by `vmaf-train eval`). Outputs drift
+    statistics against held-out samples and exits 2 if the RMSE breaks
+    the gate — protects against "we shipped the int8 model but it
+    silently lost 5 VMAF points".
+    """
+    import json as _json
+
+    from .quantize import quantize_int8, render_table
+
+    report = quantize_int8(
+        fp32_path=fp32,
+        int8_path=output,
+        calibration=calibration,
+        input_name=input_name,
+        n_calibration=n_calibration,
+        batch_size=batch_size,
+    )
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+        console.print(f"[green]Wrote {json_out}[/green]")
+    if report.rmse > rmse_gate:
+        console.print(
+            f"[red]INT8 drift RMSE {report.rmse:.3g} exceeds gate {rmse_gate:g}[/red]"
+        )
+        raise typer.Exit(code=2)
+
+
 @app.command("cross-backend")
 def cross_backend_cmd(
     model: Path = typer.Option(..., exists=True, help="ONNX model to check"),

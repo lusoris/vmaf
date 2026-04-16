@@ -74,6 +74,12 @@ static const char *const ALLOWED_OPS[] = {
     "Clip",
     /* dropout (no-op in inference) */
     "Dropout",
+    /* INT8 post-training quantization (QDQ format): the underlying
+     * Gemm / Conv / MatMul stay on the list above; these two ops carry
+     * the scale + zero-point tensors that wrap each quantized operator.
+     */
+    "QuantizeLinear",
+    "DequantizeLinear",
     /* misc, safe */
     "Constant",
     "ConstantOfShape",
