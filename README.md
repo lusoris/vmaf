@@ -103,18 +103,18 @@ through a single ONNX Runtime-backed inference path inside libvmaf.
 - CLI usage: `vmaf --tiny-model model/tiny/vmaf_tiny_fr_v1.onnx [--tiny-device cuda]`.
 - Meson flag: `-Denable_dnn=auto|enabled|disabled` (default `auto`).
 - ffmpeg: apply [`ffmpeg-patches/*.patch`](ffmpeg-patches/) for `tiny_model=...` and the new `vmaf_pre` filter.
-- Docs: [`docs/tiny-ai/`](docs/tiny-ai/).
+- Docs: [`docs/ai/`](docs/ai/).
 
 ## Documentation
 
 - [`CLAUDE.md`](CLAUDE.md) — orientation for Claude Code sessions.
 - [`AGENTS.md`](AGENTS.md) — same, for tool-agnostic agents (Cursor, Aider, Copilot).
 - [`docs/principles.md`](docs/principles.md) — NASA Power-of-10 + JPL + CERT + MISRA coding standard, Netflix golden gate, quality policy.
-- [`docs/sycl_bundling.md`](docs/sycl_bundling.md) — self-contained SYCL runtime bundling.
-- [`docs/tiny-ai/`](docs/tiny-ai/) — training, inference, benchmarks, security.
+- [`docs/backends/sycl/bundling.md`](docs/backends/sycl/bundling.md) — self-contained SYCL runtime bundling.
+- [`docs/ai/`](docs/ai/) — training, inference, benchmarks, security.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute (fork-specific + upstream guide preserved).
 - [`SECURITY.md`](SECURITY.md) — coordinated disclosure, SLA, supply-chain guarantees.
-- [Netflix/vmaf upstream docs](resource/doc/index.md) — FAQs, models, AOM CTC usage.
+- [Netflix/vmaf upstream docs](docs/index.md) — FAQs, models, AOM CTC usage.
 
 ## Release & signing
 
