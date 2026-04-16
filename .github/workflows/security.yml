@@ -10,9 +10,12 @@ on:
     - cron: "0 6 * * 1"   # weekly Mon 06:00 UTC
   workflow_dispatch:
 
+# Default to least-privilege; jobs that push SARIF to the Security tab
+# (semgrep, codeql-*, gitleaks) opt into `security-events: write` per-job.
+# dependency-review only needs `contents: read`. Addresses Scorecard
+# TokenPermissionsID alert on the previously top-level write scope.
 permissions:
   contents: read
-  security-events: write   # CodeQL needs this to upload SARIF
 
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +26,9 @@ jobs:
     name: semgrep (CWE Top 25 + CERT-C + custom)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif to Security tab
     container:
       # returntocorp/semgrep was renamed to semgrep/semgrep upstream. The old
       # image still resolves but ships an EOL semgrep-core that exits 7 when it
@@ -79,6 +85,9 @@ jobs:
     name: CodeQL (C/C++)
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    permissions:
+      contents: read
+      security-events: write   # codeql-action/analyze uploads SARIF
     steps:
       - uses: actions/checkout@v6
       - uses: github/codeql-action/init@v3
@@ -100,6 +109,9 @@ jobs:
     name: CodeQL (Python)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v6
       - uses: github/codeql-action/init@v3
@@ -118,6 +130,9 @@ jobs:
     name: CodeQL (Actions)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v6
       - uses: github/codeql-action/init@v3
@@ -132,6 +147,9 @@ jobs:
     name: gitleaks (secret scan)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write   # gitleaks-action uploads SARIF
     steps:
       - uses: actions/checkout@v6
         with:
