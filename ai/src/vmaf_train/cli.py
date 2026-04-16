@@ -166,6 +166,34 @@ def manifest_scan_cmd(
     )
 
 
+@app.command("audit-compat")
+def audit_compat_cmd(
+    model_dir: Path = typer.Option(
+        Path("model/tiny"),
+        exists=True,
+        file_okay=False,
+        help="Directory containing shipped .onnx models + sidecars",
+    ),
+    fail_on_warning: bool = typer.Option(
+        False, "--fail-on-warning", help="Exit 2 if any audit issue is found"
+    ),
+) -> None:
+    """Audit every tiny model in @p model_dir for feature-contract drift.
+
+    Catches the common "new feature extractor broke old model" class of
+    regression where libvmaf's FEATURE_COLUMNS count has changed but a
+    shipped C1 model still expects the old shape.
+    """
+    from .audit import audit_dir, render_table
+
+    audits = audit_dir(model_dir)
+    console.print(render_table(audits))
+    failed = [a for a in audits if not a.ok]
+    if failed and fail_on_warning:
+        console.print(f"[red]{len(failed)} model(s) have audit issues[/red]")
+        raise typer.Exit(code=2)
+
+
 @app.command("check-ops")
 def check_ops_cmd(
     model: Path = typer.Option(..., exists=True, help="ONNX model to validate"),

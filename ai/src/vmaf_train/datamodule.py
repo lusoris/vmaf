@@ -15,15 +15,9 @@ import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from .data.splits import split_keys
+from .features import FEATURE_COLUMNS
 
-FEATURE_COLUMNS = (
-    "adm2",
-    "vif_scale0",
-    "vif_scale1",
-    "vif_scale2",
-    "vif_scale3",
-    "motion2",
-)
+__all__ = ["FeatureScoreDataset", "VmafTrainDataModule", "FEATURE_COLUMNS"]
 
 
 class FeatureScoreDataset(Dataset):
