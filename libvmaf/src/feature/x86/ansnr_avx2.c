@@ -22,11 +22,8 @@
 void ansnr_mse_line_avx2(const float *ref, const float *dis, float *sig_accum, float *noise_accum,
                          int w)
 {
-    /* Accumulate in double to eliminate SIMD lane-reorder precision loss */
-    __m256d sig_dsum0 = _mm256_setzero_pd();
-    __m256d sig_dsum1 = _mm256_setzero_pd();
-    __m256d noise_dsum0 = _mm256_setzero_pd();
-    __m256d noise_dsum1 = _mm256_setzero_pd();
+    double sig_result = 0.0;
+    double noise_result = 0.0;
     int j = 0;
 
     for (; j + 8 <= w; j += 8) {
@@ -36,33 +33,16 @@ void ansnr_mse_line_avx2(const float *ref, const float *dis, float *sig_accum, f
         __m256 sig_val = _mm256_mul_ps(r, r);
         __m256 noise_val = _mm256_mul_ps(diff, diff);
 
-        __m128 sig_lo = _mm256_castps256_ps128(sig_val);
-        __m128 sig_hi = _mm256_extractf128_ps(sig_val, 1);
-        sig_dsum0 = _mm256_add_pd(sig_dsum0, _mm256_cvtps_pd(sig_lo));
-        sig_dsum1 = _mm256_add_pd(sig_dsum1, _mm256_cvtps_pd(sig_hi));
-
-        __m128 noise_lo = _mm256_castps256_ps128(noise_val);
-        __m128 noise_hi = _mm256_extractf128_ps(noise_val, 1);
-        noise_dsum0 = _mm256_add_pd(noise_dsum0, _mm256_cvtps_pd(noise_lo));
-        noise_dsum1 = _mm256_add_pd(noise_dsum1, _mm256_cvtps_pd(noise_hi));
+        float stmp[8] __attribute__((aligned(32)));
+        float ntmp[8] __attribute__((aligned(32)));
+        _mm256_store_ps(stmp, sig_val);
+        _mm256_store_ps(ntmp, noise_val);
+        for (int k = 0; k < 8; k++) {
+            sig_result += (double)stmp[k];
+            noise_result += (double)ntmp[k];
+        }
     }
 
-    /* Horizontal reduce to double, then truncate to float for per-row sum */
-    __m256d sig_total = _mm256_add_pd(sig_dsum0, sig_dsum1);
-    __m128d sig_tlo = _mm256_castpd256_pd128(sig_total);
-    __m128d sig_thi = _mm256_extractf128_pd(sig_total, 1);
-    __m128d sig_s = _mm_add_pd(sig_tlo, sig_thi);
-    sig_s = _mm_add_sd(sig_s, _mm_unpackhi_pd(sig_s, sig_s));
-    float sig_result = (float)_mm_cvtsd_f64(sig_s);
-
-    __m256d noise_total = _mm256_add_pd(noise_dsum0, noise_dsum1);
-    __m128d noise_tlo = _mm256_castpd256_pd128(noise_total);
-    __m128d noise_thi = _mm256_extractf128_pd(noise_total, 1);
-    __m128d noise_s = _mm_add_pd(noise_tlo, noise_thi);
-    noise_s = _mm_add_sd(noise_s, _mm_unpackhi_pd(noise_s, noise_s));
-    float noise_result = (float)_mm_cvtsd_f64(noise_s);
-
-    /* Scalar tail */
     for (; j < w; j++) {
         float r = ref[j];
         float d = dis[j];
@@ -71,6 +51,6 @@ void ansnr_mse_line_avx2(const float *ref, const float *dis, float *sig_accum, f
         noise_result += diff * diff;
     }
 
-    *sig_accum += sig_result;
-    *noise_accum += noise_result;
+    *sig_accum += (float)sig_result;
+    *noise_accum += (float)noise_result;
 }

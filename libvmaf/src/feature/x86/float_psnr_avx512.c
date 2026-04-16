@@ -21,9 +21,7 @@
 
 double float_psnr_noise_line_avx512(const float *ref, const float *dis, int w)
 {
-    /* Accumulate in double to eliminate SIMD lane-reorder precision loss */
-    __m512d dsum0 = _mm512_setzero_pd();
-    __m512d dsum1 = _mm512_setzero_pd();
+    double result = 0.0;
     int j = 0;
 
     for (; j + 16 <= w; j += 16) {
@@ -32,13 +30,11 @@ double float_psnr_noise_line_avx512(const float *ref, const float *dis, int w)
         __m512 diff = _mm512_sub_ps(r, d);
         __m512 sq = _mm512_mul_ps(diff, diff);
 
-        __m256 lo = _mm512_castps512_ps256(sq);
-        __m256 hi = _mm512_extractf32x8_ps(sq, 1);
-        dsum0 = _mm512_add_pd(dsum0, _mm512_cvtps_pd(lo));
-        dsum1 = _mm512_add_pd(dsum1, _mm512_cvtps_pd(hi));
+        float tmp[16] __attribute__((aligned(64)));
+        _mm512_store_ps(tmp, sq);
+        for (int k = 0; k < 16; k++)
+            result += (double)tmp[k];
     }
-
-    double result = _mm512_reduce_add_pd(_mm512_add_pd(dsum0, dsum1));
 
     for (; j < w; j++) {
         float diff = ref[j] - dis[j];
