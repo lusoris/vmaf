@@ -761,8 +761,8 @@ int main(int argc, char *argv[])
 
     if (list_devices) {
 #ifdef HAVE_SYCL
-        /* SYCL device listing could be added here */
-        fprintf(stderr, "SYCL device listing not yet implemented\n");
+        const int n = vmaf_sycl_list_devices();
+        if (n < 0) return 1;
 #else
         fprintf(stderr, "No GPU backend enabled\n");
 #endif
