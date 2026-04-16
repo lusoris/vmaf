@@ -1,17 +1,21 @@
 """MCP server for the Lusoris VMAF fork.
 
-Exposes four tools over the Model Context Protocol (stdio transport):
+Exposes six tools over the Model Context Protocol (stdio transport):
 
-- ``vmaf_score``       — score a (reference, distorted) pair.
-- ``list_models``      — enumerate the VMAF models registered with the build.
-- ``list_backends``    — report which backends (cpu/cuda/sycl) are available.
-- ``run_benchmark``    — run the Netflix benchmark harness on a pair.
+- ``vmaf_score``          — score a (reference, distorted) pair.
+- ``list_models``         — enumerate the VMAF models registered with the build.
+- ``list_backends``       — report which backends (cpu/cuda/sycl) are available.
+- ``run_benchmark``       — run the Netflix benchmark harness on a pair.
+- ``eval_model_on_split`` — run an ONNX tiny-AI model against a parquet feature
+  cache on a deterministic split and report PLCC/SROCC/RMSE.
+- ``compare_models``      — rank several ONNX models on the same split.
 
 The server assumes ``build/tools/vmaf`` exists (build first with
 ``meson compile -C build``). Paths are validated to live under either the
-repository's ``testdata/`` / ``python/test/resource/`` trees or an
-explicitly-allowlisted prefix passed via ``VMAF_MCP_ALLOW``. This prevents
-callers from coercing the server into reading arbitrary host paths.
+repository's ``testdata/`` / ``python/test/resource/`` / ``model/`` trees
+or an explicitly-allowlisted prefix passed via ``VMAF_MCP_ALLOW``. This
+prevents callers from coercing the server into reading arbitrary host
+paths.
 """
 
 from __future__ import annotations
@@ -50,6 +54,7 @@ def _allowed_roots() -> list[Path]:
     roots = [
         _repo_root() / "testdata",
         _repo_root() / "python" / "test" / "resource",
+        _repo_root() / "model",
     ]
     extra = os.environ.get("VMAF_MCP_ALLOW")
     if extra:
@@ -164,6 +169,111 @@ def _list_backends() -> dict[str, bool]:
     }
 
 
+_FEATURE_COLUMNS = (
+    "adm2",
+    "vif_scale0",
+    "vif_scale1",
+    "vif_scale2",
+    "vif_scale3",
+    "motion2",
+)
+_VALID_SPLITS = ("train", "val", "test", "all")
+
+
+def _eval_model_on_split(
+    model: Path, features: Path, split: str, input_name: str
+) -> dict[str, Any]:
+    """Run @p model on @p split of @p features and return PLCC/SROCC/RMSE.
+
+    Imports are lazy so the base mcp-server install (no pandas / onnxruntime
+    / scipy) isn't forced to pull in ML deps just to score video.
+    """
+    if split not in _VALID_SPLITS:
+        raise ValueError(f"split must be one of {_VALID_SPLITS}; got {split!r}")
+    try:
+        import numpy as np
+        import onnxruntime as ort
+        import pandas as pd
+        from scipy.stats import pearsonr, spearmanr
+    except ImportError as exc:  # pragma: no cover — exercised only without extras
+        raise RuntimeError(
+            "eval_model_on_split requires the 'eval' extra: "
+            "pip install 'vmaf-mcp[eval]'"
+        ) from exc
+
+    df = pd.read_parquet(features)
+    if "mos" not in df.columns:
+        raise ValueError(f"{features} has no 'mos' column — can't score correlations")
+    if split != "all" and "key" in df.columns:
+        # Inline the split_keys hashing so we don't depend on vmaf_train.
+        import hashlib
+
+        def bucket(key: str) -> float:
+            h = hashlib.sha256(f"vmaf-train-splits-v1:{key}".encode()).digest()
+            return int.from_bytes(h[:8], "big") / (1 << 64)
+
+        val_frac, test_frac = 0.1, 0.1
+
+        def which(key: str) -> str:
+            b = bucket(str(key))
+            if b < test_frac:
+                return "test"
+            if b < test_frac + val_frac:
+                return "val"
+            return "train"
+
+        keep = df["key"].astype(str).map(which) == split
+        df = df[keep]
+
+    cols = [c for c in _FEATURE_COLUMNS if c in df.columns]
+    if not cols:
+        raise ValueError(
+            f"{features} has none of the expected feature columns "
+            f"{_FEATURE_COLUMNS}; got {list(df.columns)}"
+        )
+    x = df[cols].to_numpy(dtype=np.float32)
+    y = df["mos"].to_numpy(dtype=np.float32)
+    if len(x) < 2:
+        raise ValueError(
+            f"split {split!r} has {len(x)} samples — need ≥2 to compute correlations"
+        )
+
+    sess = ort.InferenceSession(str(model), providers=["CPUExecutionProvider"])
+    pred = np.asarray(sess.run(None, {input_name: x})[0]).reshape(-1)
+    if pred.shape != y.shape:
+        raise ValueError(
+            f"model output shape {pred.shape} does not match target shape {y.shape}"
+        )
+    plcc = float(pearsonr(pred, y).statistic)
+    srocc = float(spearmanr(pred, y).statistic)
+    rmse = float(np.sqrt(((pred - y) ** 2).mean()))
+    return {
+        "model": str(model),
+        "features": str(features),
+        "split": split,
+        "n": int(len(x)),
+        "plcc": plcc,
+        "srocc": srocc,
+        "rmse": rmse,
+        "columns": cols,
+    }
+
+
+def _compare_models(
+    models: list[Path], features: Path, split: str, input_name: str
+) -> dict[str, Any]:
+    """Rank @p models on the same feature split by descending PLCC."""
+    reports: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for m in models:
+        try:
+            reports.append(_eval_model_on_split(m, features, split, input_name))
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"model": str(m), "error": str(exc)})
+    reports.sort(key=lambda r: r["plcc"], reverse=True)
+    return {"ranked": reports, "errors": errors}
+
+
 async def _run_benchmark(ref: Path, dis: Path, width: int, height: int) -> dict[str, Any]:
     script = _repo_root() / "testdata" / "bench_all.sh"
     if not script.exists():
@@ -235,6 +345,46 @@ async def _list_tools() -> list[Tool]:
                 },
             },
         ),
+        Tool(
+            name="eval_model_on_split",
+            description=(
+                "Run an ONNX tiny-AI regressor on a parquet feature cache, "
+                "filter to a deterministic train/val/test split (keyed by the "
+                "'key' column), and report PLCC / SROCC / RMSE."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["model", "features"],
+                "properties": {
+                    "model":      {"type": "string", "description": "ONNX model path."},
+                    "features":   {"type": "string", "description": "Parquet feature cache path."},
+                    "split":      {"type": "string", "enum": list(_VALID_SPLITS), "default": "test"},
+                    "input_name": {"type": "string", "default": "features"},
+                },
+            },
+        ),
+        Tool(
+            name="compare_models",
+            description=(
+                "Rank several ONNX models on the same parquet feature split by "
+                "descending PLCC. Models that fail to load or score are listed "
+                "under 'errors' instead of aborting the whole call."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["models", "features"],
+                "properties": {
+                    "models":     {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                    },
+                    "features":   {"type": "string"},
+                    "split":      {"type": "string", "enum": list(_VALID_SPLITS), "default": "test"},
+                    "input_name": {"type": "string", "default": "features"},
+                },
+            },
+        ),
     ]
 
 
@@ -264,6 +414,23 @@ async def _call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 dis=_validate_path(arguments["dis"]),
                 width=int(arguments["width"]),
                 height=int(arguments["height"]),
+            )
+        elif name == "eval_model_on_split":
+            result = _eval_model_on_split(
+                model=_validate_path(arguments["model"]),
+                features=_validate_path(arguments["features"]),
+                split=str(arguments.get("split", "test")),
+                input_name=str(arguments.get("input_name", "features")),
+            )
+        elif name == "compare_models":
+            models_in = arguments["models"]
+            if not isinstance(models_in, list) or not models_in:
+                raise ValueError("'models' must be a non-empty list of paths")
+            result = _compare_models(
+                models=[_validate_path(m) for m in models_in],
+                features=_validate_path(arguments["features"]),
+                split=str(arguments.get("split", "test")),
+                input_name=str(arguments.get("input_name", "features")),
             )
         else:
             raise ValueError(f"unknown tool: {name}")
