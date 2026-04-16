@@ -12,12 +12,14 @@
  *  -ENOSYS from every entry point so consumers degrade gracefully.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "libvmaf/dnn.h"
+#include "libvmaf/vmaf_assert.h"
 
 #include "dnn_ctx.h"
 #include "model_loader.h"
@@ -38,6 +40,8 @@ int vmaf_use_tiny_model(VmafContext *ctx, const char *onnx_path, const VmafDnnCo
 #if defined(VMAF_HAVE_DNN) && VMAF_HAVE_DNN
     if (!ctx || !onnx_path)
         return -EINVAL;
+    assert(ctx != NULL);
+    assert(onnx_path != NULL);
 
     size_t max_bytes = VMAF_DNN_DEFAULT_MAX_BYTES;
     const char *env = getenv("VMAF_MAX_MODEL_BYTES");
@@ -118,6 +122,8 @@ int vmaf_dnn_session_open(VmafDnnSession **out, const char *onnx_path, const Vma
 {
     if (!out || !onnx_path)
         return -EINVAL;
+    assert(out != NULL);
+    assert(onnx_path != NULL);
 
     size_t max_bytes = VMAF_DNN_DEFAULT_MAX_BYTES;
     const char *env = getenv("VMAF_MAX_MODEL_BYTES");
