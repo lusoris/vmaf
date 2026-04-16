@@ -290,6 +290,58 @@ def check_ops_cmd(
     raise typer.Exit(code=2)
 
 
+@app.command("cross-backend")
+def cross_backend_cmd(
+    model: Path = typer.Option(..., exists=True, help="ONNX model to check"),
+    features: Optional[Path] = typer.Option(
+        None, exists=True, help="Feature parquet (if omitted, synthetic input is used)"
+    ),
+    provider: Optional[list[str]] = typer.Option(
+        None,
+        "--provider",
+        help="ORT provider (repeatable). Defaults to every non-CPU available provider.",
+    ),
+    shape: Optional[str] = typer.Option(
+        None, help='Synthetic input shape as "N,C,H,W" (ignored when --features is given)'
+    ),
+    n_rows: int = typer.Option(256, help="Max rows to pull from features parquet"),
+    atol: float = typer.Option(
+        1e-3, help="Absolute-error threshold — exits 2 on any provider above this"
+    ),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+    fail_on_mismatch: bool = typer.Option(
+        False, "--fail-on-mismatch", help="Exit 2 when any provider exceeds atol"
+    ),
+) -> None:
+    """Run a model on CPU + every other execution provider and diff outputs.
+
+    Guards against the "provider A passes CI, provider B silently ships a
+    VMAF-point drift in prod" class of bug. Mirrors the ≤2-ULP discipline
+    we apply to VMAF's own cross-backend scoring.
+    """
+    import json as _json
+
+    from .cross_backend import compare_backends, render_table
+
+    parsed_shape: tuple[int, ...] | None = None
+    if shape:
+        parsed_shape = tuple(int(x) for x in shape.split(","))
+    report = compare_backends(
+        model_path=model,
+        providers=list(provider) if provider else None,
+        features=features,
+        shape=parsed_shape,
+        n_rows=n_rows,
+        atol=atol,
+    )
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+        console.print(f"[green]Wrote {json_out}[/green]")
+    if fail_on_mismatch and not report.ok:
+        raise typer.Exit(code=2)
+
+
 @app.command("register")
 def register_cmd(
     model: Path = typer.Option(..., exists=True, help="ONNX model to register"),
