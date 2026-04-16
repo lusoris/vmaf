@@ -84,14 +84,10 @@ void ssim_accumulate_avx512(const float *ref_mu, const float *cmp_mu, const floa
     __m512 v2 = _mm512_set1_ps(2.0f);
     __m512 vzero = _mm512_setzero_ps();
 
-    __m512d dssim0 = _mm512_setzero_pd();
-    __m512d dssim1 = _mm512_setzero_pd();
-    __m512d dl0 = _mm512_setzero_pd();
-    __m512d dl1 = _mm512_setzero_pd();
-    __m512d dc0 = _mm512_setzero_pd();
-    __m512d dc1 = _mm512_setzero_pd();
-    __m512d ds0 = _mm512_setzero_pd();
-    __m512d ds1 = _mm512_setzero_pd();
+    double local_ssim = 0.0;
+    double local_l = 0.0;
+    double local_c = 0.0;
+    double local_s = 0.0;
 
     int i = 0;
     for (; i + 16 <= n; i += 16) {
@@ -125,49 +121,22 @@ void ssim_accumulate_avx512(const float *ref_mu, const float *cmp_mu, const floa
 
         __m512 ssim_val = _mm512_mul_ps(_mm512_mul_ps(l, c), s);
 
-        /* Widen to double and accumulate (low 8 + high 8) */
-        __m256 lo8_ssim = _mm512_castps512_ps256(ssim_val);
-        __m256 hi8_ssim = _mm512_extractf32x8_ps(ssim_val, 1);
-        dssim0 = _mm512_add_pd(dssim0, _mm512_cvtps_pd(lo8_ssim));
-        dssim1 = _mm512_add_pd(dssim1, _mm512_cvtps_pd(hi8_ssim));
+        float t_ssim[16] __attribute__((aligned(64)));
+        float t_l[16] __attribute__((aligned(64)));
+        float t_c[16] __attribute__((aligned(64)));
+        float t_s[16] __attribute__((aligned(64)));
+        _mm512_store_ps(t_ssim, ssim_val);
+        _mm512_store_ps(t_l, l);
+        _mm512_store_ps(t_c, c);
+        _mm512_store_ps(t_s, s);
 
-        __m256 lo8_l = _mm512_castps512_ps256(l);
-        __m256 hi8_l = _mm512_extractf32x8_ps(l, 1);
-        dl0 = _mm512_add_pd(dl0, _mm512_cvtps_pd(lo8_l));
-        dl1 = _mm512_add_pd(dl1, _mm512_cvtps_pd(hi8_l));
-
-        __m256 lo8_c = _mm512_castps512_ps256(c);
-        __m256 hi8_c = _mm512_extractf32x8_ps(c, 1);
-        dc0 = _mm512_add_pd(dc0, _mm512_cvtps_pd(lo8_c));
-        dc1 = _mm512_add_pd(dc1, _mm512_cvtps_pd(hi8_c));
-
-        __m256 lo8_s = _mm512_castps512_ps256(s);
-        __m256 hi8_s = _mm512_extractf32x8_ps(s, 1);
-        ds0 = _mm512_add_pd(ds0, _mm512_cvtps_pd(lo8_s));
-        ds1 = _mm512_add_pd(ds1, _mm512_cvtps_pd(hi8_s));
+        for (int k = 0; k < 16; k++) {
+            local_ssim += (double)t_ssim[k];
+            local_l += (double)t_l[k];
+            local_c += (double)t_c[k];
+            local_s += (double)t_s[k];
+        }
     }
-
-    /* Explicit horizontal reduction matching AVX2 accumulation order.
-     * _mm512_reduce_add_pd is a compiler pseudo-intrinsic whose reduction
-     * tree may differ between compilers, causing sub-ULP drift vs scalar. */
-#define HSUM512_PD(vec)                                        \
-    ({                                                         \
-        __m256d _lo = _mm512_castpd512_pd256(vec);             \
-        __m256d _hi = _mm512_extractf64x4_pd(vec, 1);         \
-        __m256d _t4 = _mm256_add_pd(_lo, _hi);                \
-        __m128d _t2lo = _mm256_castpd256_pd128(_t4);           \
-        __m128d _t2hi = _mm256_extractf128_pd(_t4, 1);        \
-        __m128d _s = _mm_add_pd(_t2lo, _t2hi);                \
-        _s = _mm_add_sd(_s, _mm_unpackhi_pd(_s, _s));         \
-        _mm_cvtsd_f64(_s);                                     \
-    })
-
-    double local_ssim = HSUM512_PD(_mm512_add_pd(dssim0, dssim1));
-    double local_l = HSUM512_PD(_mm512_add_pd(dl0, dl1));
-    double local_c = HSUM512_PD(_mm512_add_pd(dc0, dc1));
-    double local_s = HSUM512_PD(_mm512_add_pd(ds0, ds1));
-
-#undef HSUM512_PD
 
     /* Scalar tail */
     for (; i < n; i++) {

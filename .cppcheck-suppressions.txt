@@ -1,21 +1,44 @@
 # Vendored upstream code we don't own.
 *:subprojects/*
+*:*/subprojects/*
 *:libvmaf/test/data/*
+*:*/libvmaf/test/data/*
 *:build/*
+*:*/build/*
 
 # False positives we've reviewed; revisit yearly.
-unusedFunction:libvmaf/src/feature/*_avx512.c
-unusedFunction:libvmaf/src/feature/*_avx2.c
-unusedFunction:libvmaf/src/feature/*_neon.c
-unusedFunction:libvmaf/src/cuda/*.cu
-unusedFunction:libvmaf/src/sycl/*.cpp
+unusedFunction:*_avx512.c
+unusedFunction:*_avx2.c
+unusedFunction:*_neon.c
+unusedFunction:*.cu
+unusedFunction:*sycl/*.cpp
 
 # Public C API surface — naturally has functions only called by external linkers.
-unusedFunction:libvmaf/include/libvmaf/*.h
+unusedFunction:*/libvmaf/*.h
 
-# Upstream Netflix SVM: realloc pattern that nulls pointer on failure.
-# Tracked as cleanup debt; not fixed here because svm.cpp is upstream code.
-memleakOnRealloc:libvmaf/src/svm.cpp
+# Upstream Netflix SVM (libsvm): many cppcheck findings we don't own.
+# uninitMemberVar, memleakOnRealloc, etc. — all upstream patterns.
+*:*svm.cpp
+
+# Upstream integer ADM/VIF: intentional SIMD patterns.
+# shiftNegativeLHS is used for arithmetic right-shift on signed integers
+# (well-defined on x86 two's complement; the C standard says impl-defined).
+shiftNegativeLHS:*adm_avx2.c
+shiftNegativeLHS:*adm_avx512.c
+
+# invalidPointerCast: SIMD type-punning via _mm256_castsi256_ps etc.
+invalidPointerCast:*float_adm_avx2.c
+
+# arithOperationsOnVoidPointer: GNU C extension (sizeof(void)==1), used
+# pervasively in upstream integer_vif.c for pointer arithmetic on buffers.
+arithOperationsOnVoidPointer:*integer_vif.c
+
+# invalidPrintfArgType_sint: upstream uses %d for ptrdiff_t / size_t in
+# printf-family calls. Fixing requires changing upstream format strings.
+invalidPrintfArgType_sint
+
+# False positive: VLA `scores` is filled via out-param in loop before use.
+uninitvar:*predict.c
 
 missingIncludeSystem
 unmatchedSuppression
