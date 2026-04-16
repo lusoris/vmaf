@@ -5,6 +5,7 @@ dataset manifest, and writes a parquet table suitable for pandas / polars
 consumption. A feature vector is the union of whatever extractors the runner
 configures (adm2, vif_scale0..3, motion2, etc.).
 """
+
 from __future__ import annotations
 
 import json
@@ -42,12 +43,19 @@ def _run_vmaf(binary: Path, entry: Entry, features: tuple[str, ...]) -> dict:
         feat_args += ["--feature", f]
     cmd = [
         str(binary),
-        "-r", str(entry.ref),
-        "-d", str(entry.dis),
-        "-w", str(entry.width),
-        "-h", str(entry.height),
-        "-p", entry.pix_fmt,
-        "--json", "-o", "-",
+        "-r",
+        str(entry.ref),
+        "-d",
+        str(entry.dis),
+        "-w",
+        str(entry.width),
+        "-h",
+        str(entry.height),
+        "-p",
+        entry.pix_fmt,
+        "--json",
+        "-o",
+        "-",
         *feat_args,
     ]
     out = subprocess.run(cmd, check=True, capture_output=True, text=True)

@@ -12,7 +12,6 @@ import os
 
 from setuptools import setup
 
-
 PYTHON_PROJECT = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -36,18 +35,18 @@ class LazyExtensions(list):
     @property
     def extensions(self):
         if self._extensions is None:
-            from Cython.Build import cythonize
             import numpy
+            from Cython.Build import cythonize
 
-            self._extensions = cythonize([
-                'vmaf/core/adm_dwt2_cy.pyx'
-            ], compiler_directives={'language_level' : "3"})
+            self._extensions = cythonize(
+                ["vmaf/core/adm_dwt2_cy.pyx"], compiler_directives={"language_level": "3"}
+            )
             # compat/ contains a stub config.h that disables SIMD dispatch
             # (the SIMD .c files are not compiled into this extension)
             self._extensions[0].include_dirs = [
                 numpy.get_include(),
-                os.path.join(PYTHON_PROJECT, 'compat'),
-                '../libvmaf/src',
+                os.path.join(PYTHON_PROJECT, "compat"),
+                "../libvmaf/src",
             ]
 
         return self._extensions
@@ -84,17 +83,17 @@ setup(
         "sureal>=0.4.2",
         "dill>=0.3.1",
     ],
-    entry_points = {
-        'console_scripts': [
-            'run_cleaning_cache=vmaf.script.run_cleaning_cache:main',
-            'run_psnr=vmaf.script.run_psnr:main',
-            'run_result_assembly=vmaf.script.run_result_assembly:main',
-            'run_testing=vmaf.script.run_testing:main',
-            'run_toddnoiseclassifier=vmaf.script.run_toddnoiseclassifier:main',
-            'run_vmaf=vmaf.script.run_vmaf:main',
-            'run_vmaf_cross_validation=vmaf.script.run_vmaf_cross_validation:main',
-            'run_vmaf_in_batch=vmaf.script.run_vmaf_in_batch:main',
-            'run_vmaf_training=vmaf.script.run_vmaf_training:main',
+    entry_points={
+        "console_scripts": [
+            "run_cleaning_cache=vmaf.script.run_cleaning_cache:main",
+            "run_psnr=vmaf.script.run_psnr:main",
+            "run_result_assembly=vmaf.script.run_result_assembly:main",
+            "run_testing=vmaf.script.run_testing:main",
+            "run_toddnoiseclassifier=vmaf.script.run_toddnoiseclassifier:main",
+            "run_vmaf=vmaf.script.run_vmaf:main",
+            "run_vmaf_cross_validation=vmaf.script.run_vmaf_cross_validation:main",
+            "run_vmaf_in_batch=vmaf.script.run_vmaf_in_batch:main",
+            "run_vmaf_training=vmaf.script.run_vmaf_training:main",
         ],
     },
     ext_modules=LazyExtensions(),

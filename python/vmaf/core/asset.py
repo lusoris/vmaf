@@ -10,12 +10,15 @@ __license__ = "BSD+Patent"
 
 import os
 
-from vmaf.core.mixin import WorkdirEnabled
-from vmaf.tools.misc import get_file_name_without_extension, \
-    get_file_name_with_extension, get_unique_str_from_recursive_dict, \
-    map_yuv_type_to_bitdepth
 from vmaf.config import VmafConfig
+from vmaf.core.mixin import WorkdirEnabled
 from vmaf.core.proc_func import proc_func_dict
+from vmaf.tools.misc import (
+    get_file_name_with_extension,
+    get_file_name_without_extension,
+    get_unique_str_from_recursive_dict,
+    map_yuv_type_to_bitdepth,
+)
 
 
 class Asset(WorkdirEnabled):
@@ -36,24 +39,40 @@ class Asset(WorkdirEnabled):
     can be decoded by ffmpeg.
     """
 
-    SUPPORTED_YUV_TYPES = ['yuv420p', 'yuv422p', 'yuv444p',
-                           'yuv420p10le', 'yuv422p10le', 'yuv444p10le',
-                           'yuv420p12le', 'yuv422p12le', 'yuv444p12le',
-                           'yuv420p16le', 'yuv422p16le', 'yuv444p16le',
-                           'notyuv']
-    DEFAULT_YUV_TYPE = 'yuv420p'
+    SUPPORTED_YUV_TYPES = [
+        "yuv420p",
+        "yuv422p",
+        "yuv444p",
+        "yuv420p10le",
+        "yuv422p10le",
+        "yuv444p10le",
+        "yuv420p12le",
+        "yuv422p12le",
+        "yuv444p12le",
+        "yuv420p16le",
+        "yuv422p16le",
+        "yuv444p16le",
+        "notyuv",
+    ]
+    DEFAULT_YUV_TYPE = "yuv420p"
 
-    SUPPORTED_RESAMPLING_TYPES = ['bilinear', 'bicubic', 'lanczos']
-    DEFAULT_RESAMPLING_TYPE = 'bicubic'
+    SUPPORTED_RESAMPLING_TYPES = ["bilinear", "bicubic", "lanczos"]
+    DEFAULT_RESAMPLING_TYPE = "bicubic"
 
-    ORDERED_FILTER_LIST = ['crop', 'pad', 'gblur', 'eq', 'lutyuv', 'yadif']
+    ORDERED_FILTER_LIST = ["crop", "pad", "gblur", "eq", "lutyuv", "yadif"]
 
     # ==== constructor ====
 
-    def __init__(self, dataset, content_id, asset_id,
-                 ref_path, dis_path,
-                 asset_dict,
-                 workdir_root=VmafConfig.workdir_path()):
+    def __init__(
+        self,
+        dataset,
+        content_id,
+        asset_id,
+        ref_path,
+        dis_path,
+        asset_dict,
+        workdir_root=VmafConfig.workdir_path(),
+    ):
         """
         :param dataset:
         :param content_id: ID of content the asset correspond to within dataset
@@ -82,47 +101,55 @@ class Asset(WorkdirEnabled):
         # if YUV is notyuv, then ref/dis width and height should not be given,
         # since it must be encoded video and the information should be already
         # in included in the header of the video files
-        if self.ref_yuv_type == 'notyuv':
-            assert self.ref_width_height is None, 'For ref_yuv_type nonyuv, ref_width_height must NOT be specified.'
-        if self.dis_yuv_type == 'notyuv':
-            assert self.dis_width_height is None, 'For dis_yuv_type nonyuv, dis_width_height must NOT be specified.'
+        if self.ref_yuv_type == "notyuv":
+            assert (
+                self.ref_width_height is None
+            ), "For ref_yuv_type nonyuv, ref_width_height must NOT be specified."
+        if self.dis_yuv_type == "notyuv":
+            assert (
+                self.dis_width_height is None
+            ), "For dis_yuv_type nonyuv, dis_width_height must NOT be specified."
         # validate asset_dict
         self._assert_asset_dict()
 
     def _assert_asset_dict(self):
         # perform necessary assertions on asset properties of asset dict
-        if 'fps' in self.asset_dict:
-            assert self.asset_dict['fps'] > 0.0, 'Frame rate has to be positive.'
-        if 'rebuf_indices' in self.asset_dict:
-            assert isinstance(self.asset_dict['rebuf_indices'], list), 'Rebuffering indices need to be in a list.'
+        if "fps" in self.asset_dict:
+            assert self.asset_dict["fps"] > 0.0, "Frame rate has to be positive."
+        if "rebuf_indices" in self.asset_dict:
+            assert isinstance(
+                self.asset_dict["rebuf_indices"], list
+            ), "Rebuffering indices need to be in a list."
             # check for negative rebuffering indices
-            assert len(list(filter(lambda x: x < 0, self.asset_dict['rebuf_indices']))) == 0, 'All rebuffering indices have to be >= 0.'
+            assert (
+                len(list(filter(lambda x: x < 0, self.asset_dict["rebuf_indices"]))) == 0
+            ), "All rebuffering indices have to be >= 0."
 
     def copy(self, **kwargs):
         new_asset_dict = copy.deepcopy(self.asset_dict)
 
         # reset the following arguments:
-        if 'use_path_as_workpath' in new_asset_dict:
-            del new_asset_dict['use_path_as_workpath']
+        if "use_path_as_workpath" in new_asset_dict:
+            del new_asset_dict["use_path_as_workpath"]
 
-        if 'use_workpath_as_procpath' in new_asset_dict:
-            del new_asset_dict['use_workpath_as_procpath']
+        if "use_workpath_as_procpath" in new_asset_dict:
+            del new_asset_dict["use_workpath_as_procpath"]
 
-        dataset = kwargs['dataset'] if 'dataset' in kwargs else self.dataset
-        content_id = kwargs['content_id'] if 'content_id' in kwargs else self.content_id
-        asset_id = kwargs['asset_id'] if 'asset_id' in kwargs else self.asset_id
-        ref_path = kwargs['ref_path'] if 'ref_path' in kwargs else self.ref_path
-        dis_path = kwargs['dis_path'] if 'dis_path' in kwargs else self.dis_path
-        workdir_root = kwargs['workdir_root'] if 'workdir_root' in kwargs else self.workdir_root
+        dataset = kwargs["dataset"] if "dataset" in kwargs else self.dataset
+        content_id = kwargs["content_id"] if "content_id" in kwargs else self.content_id
+        asset_id = kwargs["asset_id"] if "asset_id" in kwargs else self.asset_id
+        ref_path = kwargs["ref_path"] if "ref_path" in kwargs else self.ref_path
+        dis_path = kwargs["dis_path"] if "dis_path" in kwargs else self.dis_path
+        workdir_root = kwargs["workdir_root"] if "workdir_root" in kwargs else self.workdir_root
 
         # additional or override elements in asset_dict
-        if 'asset_dict' in kwargs:
-            for key in kwargs['asset_dict']:
-                new_asset_dict[key] = kwargs['asset_dict'][key]
+        if "asset_dict" in kwargs:
+            for key in kwargs["asset_dict"]:
+                new_asset_dict[key] = kwargs["asset_dict"][key]
 
-        new_asset = self.__class__(dataset, content_id, asset_id,
-                                   ref_path, dis_path, new_asset_dict,
-                                   workdir_root)
+        new_asset = self.__class__(
+            dataset, content_id, asset_id, ref_path, dis_path, new_asset_dict, workdir_root
+        )
         return new_asset
 
     @classmethod
@@ -132,21 +159,23 @@ class Asset(WorkdirEnabled):
         :return:
         """
         import ast
-        d = ast.literal_eval(rp)
-        assert 'dataset' in d
-        assert 'content_id' in d
-        assert 'asset_id' in d
-        assert 'ref_path' in d
-        assert 'dis_path' in d
-        assert 'asset_dict' in d
 
-        return cls(dataset=d['dataset'],
-                   content_id=d['content_id'],
-                   asset_id=d['asset_id'],
-                   ref_path=d['ref_path'],
-                   dis_path=d['dis_path'],
-                   asset_dict=d['asset_dict']
-                   )
+        d = ast.literal_eval(rp)
+        assert "dataset" in d
+        assert "content_id" in d
+        assert "asset_id" in d
+        assert "ref_path" in d
+        assert "dis_path" in d
+        assert "asset_dict" in d
+
+        return cls(
+            dataset=d["dataset"],
+            content_id=d["content_id"],
+            asset_id=d["asset_id"],
+            ref_path=d["ref_path"],
+            dis_path=d["dis_path"],
+            asset_dict=d["asset_dict"],
+        )
 
     # ==== groundtruth ====
     @property
@@ -155,15 +184,15 @@ class Asset(WorkdirEnabled):
         Ground truth score, e.g. MOS, DMOS
         :return:
         """
-        if 'groundtruth' in self.asset_dict:
-            return self.asset_dict['groundtruth']
+        if "groundtruth" in self.asset_dict:
+            return self.asset_dict["groundtruth"]
         else:
             return None
 
     @property
     def groundtruth_std(self):
-        if 'groundtruth_std' in self.asset_dict:
-            return self.asset_dict['groundtruth_std']
+        if "groundtruth_std" in self.asset_dict:
+            return self.asset_dict["groundtruth_std"]
         else:
             return None
 
@@ -173,8 +202,8 @@ class Asset(WorkdirEnabled):
         Raw ground truth scores, e.g. opinion score (OS)
         :return:
         """
-        if 'raw_groundtruth' in self.asset_dict:
-            return self.asset_dict['raw_groundtruth']
+        if "raw_groundtruth" in self.asset_dict:
+            return self.asset_dict["raw_groundtruth"]
         else:
             return None
 
@@ -187,10 +216,10 @@ class Asset(WorkdirEnabled):
         :return: width and height of reference video. If None, it signals that
         width and height should be figured out in other means (e.g. FFMPEG).
         """
-        if 'ref_width' in self.asset_dict and 'ref_height' in self.asset_dict:
-            return self.asset_dict['ref_width'], self.asset_dict['ref_height']
-        elif 'width' in self.asset_dict and 'height' in self.asset_dict:
-            return self.asset_dict['width'], self.asset_dict['height']
+        if "ref_width" in self.asset_dict and "ref_height" in self.asset_dict:
+            return self.asset_dict["ref_width"], self.asset_dict["ref_height"]
+        elif "width" in self.asset_dict and "height" in self.asset_dict:
+            return self.asset_dict["width"], self.asset_dict["height"]
         else:
             return None
 
@@ -201,10 +230,10 @@ class Asset(WorkdirEnabled):
         :return: width and height of distorted video. If None, it signals that
         width and height should be figured out in other means (e.g. FFMPEG)
         """
-        if 'dis_width' in self.asset_dict and 'dis_height' in self.asset_dict:
-            return self.asset_dict['dis_width'], self.asset_dict['dis_height']
-        elif 'width' in self.asset_dict and 'height' in self.asset_dict:
-            return self.asset_dict['width'], self.asset_dict['height']
+        if "dis_width" in self.asset_dict and "dis_height" in self.asset_dict:
+            return self.asset_dict["dis_width"], self.asset_dict["dis_height"]
+        elif "width" in self.asset_dict and "height" in self.asset_dict:
+            return self.asset_dict["width"], self.asset_dict["height"]
         else:
             return None
 
@@ -216,8 +245,8 @@ class Asset(WorkdirEnabled):
         Defaults to dis_width_height.
         """
 
-        if 'dis_enc_width' in self.asset_dict and 'dis_enc_height' in self.asset_dict:
-            return self.asset_dict['dis_enc_width'], self.asset_dict['dis_enc_height']
+        if "dis_enc_width" in self.asset_dict and "dis_enc_height" in self.asset_dict:
+            return self.asset_dict["dis_enc_width"], self.asset_dict["dis_enc_height"]
         else:
             return self.dis_width_height
 
@@ -228,26 +257,30 @@ class Asset(WorkdirEnabled):
         :return: bitdepth of the encode.
         Defaults to bitdepth of dis_yuv_type (e.g. 8 for yuv420p).
         """
-        if 'dis_enc_bitdepth' in self.asset_dict:
-            assert self.asset_dict['dis_enc_bitdepth'] in [8, 10, 12, 16], \
-                "Supported encoding bitdepths are 8, 10, 12, and 16."
-            return self.asset_dict['dis_enc_bitdepth']
+        if "dis_enc_bitdepth" in self.asset_dict:
+            assert self.asset_dict["dis_enc_bitdepth"] in [
+                8,
+                10,
+                12,
+                16,
+            ], "Supported encoding bitdepths are 8, 10, 12, and 16."
+            return self.asset_dict["dis_enc_bitdepth"]
         else:
             return map_yuv_type_to_bitdepth(self.dis_yuv_type)
 
     def clear_up_width_height(self):
-        if 'width' in self.asset_dict:
-            del self.asset_dict['width']
-        if 'height' in self.asset_dict:
-            del self.asset_dict['height']
-        if 'ref_width' in self.asset_dict:
-            del self.asset_dict['ref_width']
-        if 'ref_height' in self.asset_dict:
-            del self.asset_dict['ref_height']
-        if 'dis_width' in self.asset_dict:
-            del self.asset_dict['dis_width']
-        if 'dis_height' in self.asset_dict:
-            del self.asset_dict['dis_height']
+        if "width" in self.asset_dict:
+            del self.asset_dict["width"]
+        if "height" in self.asset_dict:
+            del self.asset_dict["height"]
+        if "ref_width" in self.asset_dict:
+            del self.asset_dict["ref_width"]
+        if "ref_height" in self.asset_dict:
+            del self.asset_dict["ref_height"]
+        if "dis_width" in self.asset_dict:
+            del self.asset_dict["dis_width"]
+        if "dis_height" in self.asset_dict:
+            del self.asset_dict["dis_height"]
 
     @property
     def quality_width_height(self):
@@ -260,11 +293,11 @@ class Asset(WorkdirEnabled):
         'notyuv', in which case the other's width/height (could also be None)
         """
 
-        if 'quality_width' in self.asset_dict and 'quality_height' in self.asset_dict:
-            return self.asset_dict['quality_width'], self.asset_dict['quality_height']
-        elif self.ref_yuv_type == 'notyuv':
+        if "quality_width" in self.asset_dict and "quality_height" in self.asset_dict:
+            return self.asset_dict["quality_width"], self.asset_dict["quality_height"]
+        elif self.ref_yuv_type == "notyuv":
             return self.dis_width_height
-        elif self.dis_yuv_type == 'notyuv':
+        elif self.dis_yuv_type == "notyuv":
             return self.ref_width_height
         else:
             assert self.ref_width_height == self.dis_width_height
@@ -280,20 +313,24 @@ class Asset(WorkdirEnabled):
         (inclusive). If None, it signals that the entire video should be
         processed.
         """
-        if 'ref_start_frame' in self.asset_dict and 'ref_end_frame' in self.asset_dict:
-            return self.asset_dict['ref_start_frame'], self.asset_dict['ref_end_frame']
+        if "ref_start_frame" in self.asset_dict and "ref_end_frame" in self.asset_dict:
+            return self.asset_dict["ref_start_frame"], self.asset_dict["ref_end_frame"]
 
-        elif 'start_frame' in self.asset_dict and 'end_frame' in self.asset_dict:
-            return self.asset_dict['start_frame'], self.asset_dict['end_frame']
+        elif "start_frame" in self.asset_dict and "end_frame" in self.asset_dict:
+            return self.asset_dict["start_frame"], self.asset_dict["end_frame"]
 
-        elif 'start_sec' in self.asset_dict and 'end_sec' in self.asset_dict and 'fps' in self.asset_dict:
-            start_frame = int(round(self.asset_dict['start_sec'] * self.asset_dict['fps']))
-            end_frame = int(round(self.asset_dict['end_sec'] * self.asset_dict['fps'])) - 1
+        elif (
+            "start_sec" in self.asset_dict
+            and "end_sec" in self.asset_dict
+            and "fps" in self.asset_dict
+        ):
+            start_frame = int(round(self.asset_dict["start_sec"] * self.asset_dict["fps"]))
+            end_frame = int(round(self.asset_dict["end_sec"] * self.asset_dict["fps"])) - 1
             return start_frame, end_frame
 
-        elif 'duration_sec' in self.asset_dict and 'fps' in self.asset_dict:
+        elif "duration_sec" in self.asset_dict and "fps" in self.asset_dict:
             start_frame = 0
-            end_frame = int(round(self.asset_dict['duration_sec'] * self.asset_dict['fps'])) - 1
+            end_frame = int(round(self.asset_dict["duration_sec"] * self.asset_dict["fps"])) - 1
             return start_frame, end_frame
 
         else:
@@ -307,40 +344,44 @@ class Asset(WorkdirEnabled):
         (inclusive). If None, it signals that the entire video should be
         processed.
         """
-        if 'dis_start_frame' in self.asset_dict and 'dis_end_frame' in self.asset_dict:
-            return self.asset_dict['dis_start_frame'], self.asset_dict['dis_end_frame']
+        if "dis_start_frame" in self.asset_dict and "dis_end_frame" in self.asset_dict:
+            return self.asset_dict["dis_start_frame"], self.asset_dict["dis_end_frame"]
 
-        elif 'start_frame' in self.asset_dict and 'end_frame' in self.asset_dict:
-            return self.asset_dict['start_frame'], self.asset_dict['end_frame']
+        elif "start_frame" in self.asset_dict and "end_frame" in self.asset_dict:
+            return self.asset_dict["start_frame"], self.asset_dict["end_frame"]
 
-        elif 'start_sec' in self.asset_dict and 'end_sec' in self.asset_dict and 'fps' in self.asset_dict:
-            start_frame = int(round(self.asset_dict['start_sec'] * self.asset_dict['fps']))
-            end_frame = int(round(self.asset_dict['end_sec'] * self.asset_dict['fps'])) - 1
+        elif (
+            "start_sec" in self.asset_dict
+            and "end_sec" in self.asset_dict
+            and "fps" in self.asset_dict
+        ):
+            start_frame = int(round(self.asset_dict["start_sec"] * self.asset_dict["fps"]))
+            end_frame = int(round(self.asset_dict["end_sec"] * self.asset_dict["fps"])) - 1
             return start_frame, end_frame
 
-        elif 'duration_sec' in self.asset_dict and 'fps' in self.asset_dict:
+        elif "duration_sec" in self.asset_dict and "fps" in self.asset_dict:
             start_frame = 0
-            end_frame = int(round(self.asset_dict['duration_sec'] * self.asset_dict['fps'])) - 1
+            end_frame = int(round(self.asset_dict["duration_sec"] * self.asset_dict["fps"])) - 1
             return start_frame, end_frame
 
         else:
             return None
 
     def clear_up_start_end_frame(self):
-        if 'start_frame' in self.asset_dict:
-            del self.asset_dict['start_frame']
-        if 'end_frame' in self.asset_dict:
-            del self.asset_dict['end_frame']
-        if 'ref_start_frame' in self.asset_dict:
-            del self.asset_dict['ref_start_frame']
-        if 'dis_start_frame' in self.asset_dict:
-            del self.asset_dict['dis_start_frame']
-        if 'start_sec' in self.asset_dict:
-            del self.asset_dict['start_sec']
-        if 'end_sec' in self.asset_dict:
-            del self.asset_dict['end_sec']
-        if 'duration_sec' in self.asset_dict:
-            del self.asset_dict['duration_sec']
+        if "start_frame" in self.asset_dict:
+            del self.asset_dict["start_frame"]
+        if "end_frame" in self.asset_dict:
+            del self.asset_dict["end_frame"]
+        if "ref_start_frame" in self.asset_dict:
+            del self.asset_dict["ref_start_frame"]
+        if "dis_start_frame" in self.asset_dict:
+            del self.asset_dict["dis_start_frame"]
+        if "start_sec" in self.asset_dict:
+            del self.asset_dict["start_sec"]
+        if "end_sec" in self.asset_dict:
+            del self.asset_dict["end_sec"]
+        if "duration_sec" in self.asset_dict:
+            del self.asset_dict["duration_sec"]
 
     # ==== duration and start time====
 
@@ -350,16 +391,15 @@ class Asset(WorkdirEnabled):
         Reference video's duration in second used in quality calculation.
         :return:
         """
-        if 'duration_sec' in self.asset_dict:
-            return self.asset_dict['duration_sec']
-        elif 'start_sec' in self.asset_dict \
-                and 'end_sec' in self.asset_dict:
-            return self.asset_dict['end_sec'] - self.asset_dict['start_sec']
+        if "duration_sec" in self.asset_dict:
+            return self.asset_dict["duration_sec"]
+        elif "start_sec" in self.asset_dict and "end_sec" in self.asset_dict:
+            return self.asset_dict["end_sec"] - self.asset_dict["start_sec"]
         else:
             ref_start_end_frame = self.ref_start_end_frame
-            if ref_start_end_frame and 'fps' in self.asset_dict:
+            if ref_start_end_frame and "fps" in self.asset_dict:
                 s, e = ref_start_end_frame
-                return (e - s + 1) / float(self.asset_dict['fps'])
+                return (e - s + 1) / float(self.asset_dict["fps"])
             else:
                 return None
 
@@ -369,17 +409,15 @@ class Asset(WorkdirEnabled):
         Distorted video's duration in second used in quality calculation.
         :return:
         """
-        if 'duration_sec' in self.asset_dict:
-            return self.asset_dict['duration_sec']
-        elif 'start_sec' in self.asset_dict \
-                and 'end_sec' in self.asset_dict:
-            return self.asset_dict['end_sec'] - self.asset_dict['start_sec']
+        if "duration_sec" in self.asset_dict:
+            return self.asset_dict["duration_sec"]
+        elif "start_sec" in self.asset_dict and "end_sec" in self.asset_dict:
+            return self.asset_dict["end_sec"] - self.asset_dict["start_sec"]
         else:
             dis_start_end_frame = self.dis_start_end_frame
-            if dis_start_end_frame \
-                    and 'fps' in self.asset_dict:
+            if dis_start_end_frame and "fps" in self.asset_dict:
                 start, end = dis_start_end_frame
-                return (end - start + 1) / float(self.asset_dict['fps'])
+                return (end - start + 1) / float(self.asset_dict["fps"])
             else:
                 return None
 
@@ -403,19 +441,23 @@ class Asset(WorkdirEnabled):
 
     @property
     def fps(self):
-        if 'fps' in self.asset_dict:
-            assert self.asset_dict['fps'] > 0.0, 'Frame rate has to be positive.'
-            return self.asset_dict['fps']
+        if "fps" in self.asset_dict:
+            assert self.asset_dict["fps"] > 0.0, "Frame rate has to be positive."
+            return self.asset_dict["fps"]
         else:
             return None
 
     @property
     def rebuf_indices(self):
-        if 'rebuf_indices' in self.asset_dict:
-            assert isinstance(self.asset_dict['rebuf_indices'], list), 'Rebuffering indices need to be in a list.'
+        if "rebuf_indices" in self.asset_dict:
+            assert isinstance(
+                self.asset_dict["rebuf_indices"], list
+            ), "Rebuffering indices need to be in a list."
             # check for negative rebuffering indices
-            assert len(list(filter(lambda x: x < 0, self.asset_dict['rebuf_indices']))) == 0, 'All rebuffering indices have to be >= 0.'
-            return self.asset_dict['rebuf_indices']
+            assert (
+                len(list(filter(lambda x: x < 0, self.asset_dict["rebuf_indices"]))) == 0
+            ), "All rebuffering indices have to be >= 0."
+            return self.asset_dict["rebuf_indices"]
         else:
             return None
 
@@ -441,8 +483,10 @@ class Asset(WorkdirEnabled):
 
         # if resolutions are consistent, no resampling is taking place, so
         # specificying resampling type should be ignored
-        if self.ref_resampling_type != self.DEFAULT_RESAMPLING_TYPE and \
-                not self.ref_width_height == self.quality_width_height:
+        if (
+            self.ref_resampling_type != self.DEFAULT_RESAMPLING_TYPE
+            and not self.ref_width_height == self.quality_width_height
+        ):
             if s != "":
                 s += "_"
             s += "{}".format(self.ref_resampling_type)
@@ -452,15 +496,15 @@ class Asset(WorkdirEnabled):
             s += "_{start}to{end}".format(start=start, end=end)
 
         for key in self.ORDERED_FILTER_LIST:
-            if self.get_filter_cmd(key, 'ref') is not None:
+            if self.get_filter_cmd(key, "ref") is not None:
                 if s != "":
                     s += "_"
-                s += "{}{}".format(key, self.get_filter_cmd(key, 'ref'))
+                s += "{}{}".format(key, self.get_filter_cmd(key, "ref"))
 
         if self.ref_proc_callback_str:
-            s += f'_{self.ref_proc_callback_str}'
+            s += f"_{self.ref_proc_callback_str}"
 
-        return slugify(s, separator='_')
+        return slugify(s, separator="_")
 
     @property
     def dis_str(self):
@@ -481,8 +525,10 @@ class Asset(WorkdirEnabled):
             w, h = self.dis_encode_width_height
             s += "_e_{w}x{h}".format(w=w, h=h)
 
-        if self.dis_encode_bitdepth is not None and \
-                map_yuv_type_to_bitdepth(self.dis_yuv_type) != self.dis_encode_bitdepth:
+        if (
+            self.dis_encode_bitdepth is not None
+            and map_yuv_type_to_bitdepth(self.dis_yuv_type) != self.dis_encode_bitdepth
+        ):
             # only add dis_encode_bitdepth to the string if it is not None, and it is different from the bitdepth
             # of dis_yuv_type
             ebd = self.dis_encode_bitdepth
@@ -493,8 +539,10 @@ class Asset(WorkdirEnabled):
 
         # if resolutions are consistent, no resampling is taking place, so
         # specificying resampling type should be ignored
-        if self.dis_resampling_type != self.DEFAULT_RESAMPLING_TYPE and \
-                not self.dis_width_height == self.quality_width_height:
+        if (
+            self.dis_resampling_type != self.DEFAULT_RESAMPLING_TYPE
+            and not self.dis_width_height == self.quality_width_height
+        ):
             if s != "":
                 s += "_"
             s += "{}".format(self.dis_resampling_type)
@@ -504,15 +552,15 @@ class Asset(WorkdirEnabled):
             s += "_{start}to{end}".format(start=start, end=end)
 
         for key in self.ORDERED_FILTER_LIST:
-            if self.get_filter_cmd(key, 'dis') is not None:
+            if self.get_filter_cmd(key, "dis") is not None:
                 if s != "":
                     s += "_"
-                s += "{}{}".format(key, self.get_filter_cmd(key, 'dis'))
+                s += "{}{}".format(key, self.get_filter_cmd(key, "dis"))
 
         if self.dis_proc_callback_str:
-            s += f'_{self.dis_proc_callback_str}'
+            s += f"_{self.dis_proc_callback_str}"
 
-        return slugify(s, separator='_')
+        return slugify(s, separator="_")
 
     @property
     def quality_str(self):
@@ -540,12 +588,13 @@ class Asset(WorkdirEnabled):
         The compact string representation of asset, used by __str__.
         :return:
         """
-        s = "{dataset}_{content_id}_{asset_id}_{ref_str}_vs_{dis_str}".\
-            format(dataset=self.dataset,
-                   content_id=self.content_id,
-                   asset_id=self.asset_id,
-                   ref_str=self.ref_str,
-                   dis_str=self.dis_str)
+        s = "{dataset}_{content_id}_{asset_id}_{ref_str}_vs_{dis_str}".format(
+            dataset=self.dataset,
+            content_id=self.content_id,
+            asset_id=self.asset_id,
+            ref_str=self.ref_str,
+            dis_str=self.dis_str,
+        )
         quality_str = self.quality_str
         if quality_str:
             s += "_q_{quality_str}".format(quality_str=quality_str)
@@ -563,9 +612,9 @@ class Asset(WorkdirEnabled):
         """
         d = {}
         for key in self.__dict__:
-            if key == 'workdir':
+            if key == "workdir":
                 d[key] = ""
-            elif key == 'ref_path' or key == 'dis_path':
+            elif key == "ref_path" or key == "dis_path":
                 d[key] = get_file_name_with_extension(self.__dict__[key])
             else:
                 d[key] = self.__dict__[key]
@@ -661,42 +710,38 @@ class Asset(WorkdirEnabled):
 
     @property
     def ref_yuv_type(self):
-        if 'ref_yuv_type' in self.asset_dict:
-            if self.asset_dict['ref_yuv_type'] in self.SUPPORTED_YUV_TYPES:
-                return self.asset_dict['ref_yuv_type']
+        if "ref_yuv_type" in self.asset_dict:
+            if self.asset_dict["ref_yuv_type"] in self.SUPPORTED_YUV_TYPES:
+                return self.asset_dict["ref_yuv_type"]
             else:
-                assert False, "Unsupported YUV type: {}".format(
-                    self.asset_dict['ref_yuv_type'])
-        elif 'yuv_type' in self.asset_dict:
-            if self.asset_dict['yuv_type'] in self.SUPPORTED_YUV_TYPES:
-                return self.asset_dict['yuv_type']
+                assert False, "Unsupported YUV type: {}".format(self.asset_dict["ref_yuv_type"])
+        elif "yuv_type" in self.asset_dict:
+            if self.asset_dict["yuv_type"] in self.SUPPORTED_YUV_TYPES:
+                return self.asset_dict["yuv_type"]
             else:
-                assert False, "Unsupported YUV type: {}".format(
-                    self.asset_dict['yuv_type'])
+                assert False, "Unsupported YUV type: {}".format(self.asset_dict["yuv_type"])
         else:
             return self.DEFAULT_YUV_TYPE
 
     @property
     def dis_yuv_type(self):
-        if 'dis_yuv_type' in self.asset_dict:
-            if self.asset_dict['dis_yuv_type'] in self.SUPPORTED_YUV_TYPES:
-                return self.asset_dict['dis_yuv_type']
+        if "dis_yuv_type" in self.asset_dict:
+            if self.asset_dict["dis_yuv_type"] in self.SUPPORTED_YUV_TYPES:
+                return self.asset_dict["dis_yuv_type"]
             else:
-                assert False, "Unsupported YUV type: {}".format(
-                    self.asset_dict['dis_yuv_type'])
-        elif 'yuv_type' in self.asset_dict:
-            if self.asset_dict['yuv_type'] in self.SUPPORTED_YUV_TYPES:
-                return self.asset_dict['yuv_type']
+                assert False, "Unsupported YUV type: {}".format(self.asset_dict["dis_yuv_type"])
+        elif "yuv_type" in self.asset_dict:
+            if self.asset_dict["yuv_type"] in self.SUPPORTED_YUV_TYPES:
+                return self.asset_dict["yuv_type"]
             else:
-                assert False, "Unsupported YUV type: {}".format(
-                    self.asset_dict['yuv_type'])
+                assert False, "Unsupported YUV type: {}".format(self.asset_dict["yuv_type"])
         else:
             return self.DEFAULT_YUV_TYPE
 
     @property
     @deprecated
     def yuv_type(self):
-        """ For backward-compatibility """
+        """For backward-compatibility"""
         assert self.ref_yuv_type == self.dis_yuv_type
         return self.dis_yuv_type
 
@@ -708,63 +753,70 @@ class Asset(WorkdirEnabled):
         this property tries to read workfile_yuv_type from asset_dict, if it is there it is set
         else it defaults to default_yuv_type
         """
-        supported_yuv_types = list(set(Asset.SUPPORTED_YUV_TYPES) - {'notyuv'})
-        if 'workfile_yuv_type' in self.asset_dict:
-            workfile_yuv_type = self.asset_dict['workfile_yuv_type']
-            assert workfile_yuv_type in supported_yuv_types, "Workfile YUV format {} is not valid, pick: {}".format(
-                workfile_yuv_type, str(supported_yuv_types))
+        supported_yuv_types = list(set(Asset.SUPPORTED_YUV_TYPES) - {"notyuv"})
+        if "workfile_yuv_type" in self.asset_dict:
+            workfile_yuv_type = self.asset_dict["workfile_yuv_type"]
+            assert (
+                workfile_yuv_type in supported_yuv_types
+            ), "Workfile YUV format {} is not valid, pick: {}".format(
+                workfile_yuv_type, str(supported_yuv_types)
+            )
             return workfile_yuv_type
         else:
             return self.DEFAULT_YUV_TYPE
 
     def clear_up_yuv_type(self):
-        if 'yuv_type' in self.asset_dict:
-            del self.asset_dict['yuv_type']
-        if 'ref_yuv_type' in self.asset_dict:
-            del self.asset_dict['ref_yuv_type']
-        if 'dis_yuv_type' in self.asset_dict:
-            del self.asset_dict['dis_yuv_type']
+        if "yuv_type" in self.asset_dict:
+            del self.asset_dict["yuv_type"]
+        if "ref_yuv_type" in self.asset_dict:
+            del self.asset_dict["ref_yuv_type"]
+        if "dis_yuv_type" in self.asset_dict:
+            del self.asset_dict["dis_yuv_type"]
 
     # ==== resampling type ====
 
     @property
     def ref_resampling_type(self):
-        if 'ref_resampling_type' in self.asset_dict:
-            if self.asset_dict['ref_resampling_type'] in self.SUPPORTED_RESAMPLING_TYPES:
-                return self.asset_dict['ref_resampling_type']
+        if "ref_resampling_type" in self.asset_dict:
+            if self.asset_dict["ref_resampling_type"] in self.SUPPORTED_RESAMPLING_TYPES:
+                return self.asset_dict["ref_resampling_type"]
             else:
                 assert False, "Unsupported resampling type: {}".format(
-                    self.asset_dict['ref_resampling_type'])
-        elif 'resampling_type' in self.asset_dict:
-            if self.asset_dict['resampling_type'] in self.SUPPORTED_RESAMPLING_TYPES:
-                return self.asset_dict['resampling_type']
+                    self.asset_dict["ref_resampling_type"]
+                )
+        elif "resampling_type" in self.asset_dict:
+            if self.asset_dict["resampling_type"] in self.SUPPORTED_RESAMPLING_TYPES:
+                return self.asset_dict["resampling_type"]
             else:
                 assert False, "Unsupported resampling type: {}".format(
-                    self.asset_dict['resampling_type'])
+                    self.asset_dict["resampling_type"]
+                )
         else:
             return self.DEFAULT_RESAMPLING_TYPE
 
     @property
     def dis_resampling_type(self):
-        if 'dis_resampling_type' in self.asset_dict:
-            if self.asset_dict['dis_resampling_type'] in self.SUPPORTED_RESAMPLING_TYPES:
-                return self.asset_dict['dis_resampling_type']
+        if "dis_resampling_type" in self.asset_dict:
+            if self.asset_dict["dis_resampling_type"] in self.SUPPORTED_RESAMPLING_TYPES:
+                return self.asset_dict["dis_resampling_type"]
             else:
                 assert False, "Unsupported resampling type: {}".format(
-                    self.asset_dict['dis_resampling_type'])
-        elif 'resampling_type' in self.asset_dict:
-            if self.asset_dict['resampling_type'] in self.SUPPORTED_RESAMPLING_TYPES:
-                return self.asset_dict['resampling_type']
+                    self.asset_dict["dis_resampling_type"]
+                )
+        elif "resampling_type" in self.asset_dict:
+            if self.asset_dict["resampling_type"] in self.SUPPORTED_RESAMPLING_TYPES:
+                return self.asset_dict["resampling_type"]
             else:
                 assert False, "Unsupported resampling type: {}".format(
-                    self.asset_dict['resampling_type'])
+                    self.asset_dict["resampling_type"]
+                )
         else:
             return self.DEFAULT_RESAMPLING_TYPE
 
     @property
     @deprecated
     def resampling_type(self):
-        """ For backward-compatibility """
+        """For backward-compatibility"""
         assert self.ref_resampling_type == self.dis_resampling_type
         return self.dis_resampling_type
 
@@ -774,10 +826,10 @@ class Asset(WorkdirEnabled):
         If True, use ref_path as ref_workfile_path, and dis_path as
         dis_workfile_path.
         """
-        if 'use_path_as_workpath' in self.asset_dict:
-            if self.asset_dict['use_path_as_workpath'] == 1:
+        if "use_path_as_workpath" in self.asset_dict:
+            if self.asset_dict["use_path_as_workpath"] == 1:
                 return True
-            elif self.asset_dict['use_path_as_workpath'] == 0:
+            elif self.asset_dict["use_path_as_workpath"] == 0:
                 return False
             else:
                 assert False
@@ -790,9 +842,9 @@ class Asset(WorkdirEnabled):
         # df = pd.DataFrame.from_dict(ast.literal_eval(result_file.read()))
         # cannot read true/false
         if bool_value is True:
-            self.asset_dict['use_path_as_workpath'] = 1
+            self.asset_dict["use_path_as_workpath"] = 1
         else:
-            self.asset_dict['use_path_as_workpath'] = 0
+            self.asset_dict["use_path_as_workpath"] = 0
 
     @property
     def use_workpath_as_procpath(self):
@@ -800,10 +852,10 @@ class Asset(WorkdirEnabled):
         If True, use ref_workfile_path as ref_procfile_path, and dis_workfile_path
         as dis_procfile_path.
         """
-        if 'use_workpath_as_procpath' in self.asset_dict:
-            if self.asset_dict['use_workpath_as_procpath'] == 1:
+        if "use_workpath_as_procpath" in self.asset_dict:
+            if self.asset_dict["use_workpath_as_procpath"] == 1:
                 return True
-            elif self.asset_dict['use_workpath_as_procpath'] == 0:
+            elif self.asset_dict["use_workpath_as_procpath"] == 0:
                 return False
             else:
                 assert False
@@ -816,47 +868,50 @@ class Asset(WorkdirEnabled):
         # df = pd.DataFrame.from_dict(ast.literal_eval(result_file.read()))
         # cannot read true/false
         if bool_value is True:
-            self.asset_dict['use_workpath_as_procpath'] = 1
+            self.asset_dict["use_workpath_as_procpath"] = 1
         else:
-            self.asset_dict['use_workpath_as_procpath'] = 0
+            self.asset_dict["use_workpath_as_procpath"] = 0
 
     @property
     def crop_cmd(self):
-        return self.get_filter_cmd('crop', None)
+        return self.get_filter_cmd("crop", None)
 
     @property
     def ref_crop_cmd(self):
-        return self.get_filter_cmd('crop', 'ref')
+        return self.get_filter_cmd("crop", "ref")
 
     @property
     def dis_crop_cmd(self):
-        return self.get_filter_cmd('crop', 'dis')
+        return self.get_filter_cmd("crop", "dis")
 
     @property
     def pad_cmd(self):
-        return self.get_filter_cmd('pad', None)
+        return self.get_filter_cmd("pad", None)
 
     @property
     def ref_pad_cmd(self):
-        return self.get_filter_cmd('pad', 'ref')
+        return self.get_filter_cmd("pad", "ref")
 
     @property
     def dis_pad_cmd(self):
-        return self.get_filter_cmd('pad', 'dis')
+        return self.get_filter_cmd("pad", "dis")
 
     def get_filter_cmd(self, key, target=None):
-        assert key in self.ORDERED_FILTER_LIST, 'key {key} is not in SUPPORTED_FILTER_TYPES'.format(key=key)
-        assert target == 'ref' or target == 'dis' or target is None, \
-            'target is {}, which is not supported'.format(target)
+        assert key in self.ORDERED_FILTER_LIST, "key {key} is not in SUPPORTED_FILTER_TYPES".format(
+            key=key
+        )
+        assert (
+            target == "ref" or target == "dis" or target is None
+        ), "target is {}, which is not supported".format(target)
         if target is None:
-            cmd = key + '_cmd'
+            cmd = key + "_cmd"
             if cmd in self.asset_dict:
                 return self.asset_dict[cmd]
             else:
                 return None
-        if target == 'ref' or target == 'dis':
-            cmd = target + '_' + key + '_cmd'
-            cmd2 = key + '_cmd'
+        if target == "ref" or target == "dis":
+            cmd = target + "_" + key + "_cmd"
+            cmd2 = key + "_cmd"
             if cmd in self.asset_dict:
                 return self.asset_dict[cmd]
             elif cmd2 in self.asset_dict:
@@ -868,18 +923,20 @@ class Asset(WorkdirEnabled):
 
     @property
     def ref_proc_callback_str(self):
-        if 'ref_proc_callback' in self.asset_dict:
-            if self.asset_dict['ref_proc_callback'] in proc_func_dict:
-                return self.asset_dict['ref_proc_callback']
+        if "ref_proc_callback" in self.asset_dict:
+            if self.asset_dict["ref_proc_callback"] in proc_func_dict:
+                return self.asset_dict["ref_proc_callback"]
             else:
                 assert False, "Unsupported ref_proc_callback: {}".format(
-                    self.asset_dict['ref_proc_callback'])
-        elif 'proc_callback' in self.asset_dict:
-            if self.asset_dict['proc_callback'] in proc_func_dict:
-                return self.asset_dict['proc_callback']
+                    self.asset_dict["ref_proc_callback"]
+                )
+        elif "proc_callback" in self.asset_dict:
+            if self.asset_dict["proc_callback"] in proc_func_dict:
+                return self.asset_dict["proc_callback"]
             else:
                 assert False, "Unsupported proc_callback: {}".format(
-                    self.asset_dict['proc_callback'])
+                    self.asset_dict["proc_callback"]
+                )
         else:
             return None
 
@@ -892,18 +949,20 @@ class Asset(WorkdirEnabled):
 
     @property
     def dis_proc_callback_str(self):
-        if 'dis_proc_callback' in self.asset_dict:
-            if self.asset_dict['dis_proc_callback'] in proc_func_dict:
-                return self.asset_dict['dis_proc_callback']
+        if "dis_proc_callback" in self.asset_dict:
+            if self.asset_dict["dis_proc_callback"] in proc_func_dict:
+                return self.asset_dict["dis_proc_callback"]
             else:
                 assert False, "Unsupported dis_proc_callback: {}".format(
-                    self.asset_dict['dis_proc_callback'])
-        elif 'proc_callback' in self.asset_dict:
-            if self.asset_dict['proc_callback'] in proc_func_dict:
-                return self.asset_dict['proc_callback']
+                    self.asset_dict["dis_proc_callback"]
+                )
+        elif "proc_callback" in self.asset_dict:
+            if self.asset_dict["proc_callback"] in proc_func_dict:
+                return self.asset_dict["proc_callback"]
             else:
                 assert False, "Unsupported proc_callback: {}".format(
-                    self.asset_dict['proc_callback'])
+                    self.asset_dict["proc_callback"]
+                )
         else:
             return None
 
@@ -923,10 +982,15 @@ class NorefAsset(Asset):
 
     # ==== constructor ====
 
-    def __init__(self, dataset, content_id, asset_id,
-                 dis_path,
-                 asset_dict,
-                 workdir_root=VmafConfig.workdir_path()):
+    def __init__(
+        self,
+        dataset,
+        content_id,
+        asset_id,
+        dis_path,
+        asset_dict,
+        workdir_root=VmafConfig.workdir_path(),
+    ):
         """
         :param dataset:
         :param content_id: ID of content the asset correspond to within dataset
@@ -943,7 +1007,7 @@ class NorefAsset(Asset):
             dis_path,  # repeat dis_path for both ref_path and dis_path
             dis_path,
             asset_dict,
-            workdir_root
+            workdir_root,
         )
 
     @override(Asset)
@@ -951,31 +1015,31 @@ class NorefAsset(Asset):
         new_asset_dict = copy.deepcopy(self.asset_dict)
 
         # reset the following arguments:
-        if 'use_path_as_workpath' in new_asset_dict:
-            del new_asset_dict['use_path_as_workpath']
+        if "use_path_as_workpath" in new_asset_dict:
+            del new_asset_dict["use_path_as_workpath"]
 
-        if 'use_workpath_as_procpath' in new_asset_dict:
-            del new_asset_dict['use_workpath_as_procpath']
+        if "use_workpath_as_procpath" in new_asset_dict:
+            del new_asset_dict["use_workpath_as_procpath"]
 
-        dataset = kwargs['dataset'] if 'dataset' in kwargs else self.dataset
-        content_id = kwargs['content_id'] if 'content_id' in kwargs else self.content_id
-        asset_id = kwargs['asset_id'] if 'asset_id' in kwargs else self.asset_id
-        dis_path = kwargs['dis_path'] if 'dis_path' in kwargs else self.dis_path
-        workdir_root = kwargs['workdir_root'] if 'workdir_root' in kwargs else self.workdir_root
+        dataset = kwargs["dataset"] if "dataset" in kwargs else self.dataset
+        content_id = kwargs["content_id"] if "content_id" in kwargs else self.content_id
+        asset_id = kwargs["asset_id"] if "asset_id" in kwargs else self.asset_id
+        dis_path = kwargs["dis_path"] if "dis_path" in kwargs else self.dis_path
+        workdir_root = kwargs["workdir_root"] if "workdir_root" in kwargs else self.workdir_root
 
         # additional or override elements in asset_dict
-        if 'asset_dict' in kwargs:
-            for key in kwargs['asset_dict']:
-                new_asset_dict[key] = kwargs['asset_dict'][key]
+        if "asset_dict" in kwargs:
+            for key in kwargs["asset_dict"]:
+                new_asset_dict[key] = kwargs["asset_dict"][key]
 
-        new_asset = self.__class__(dataset, content_id, asset_id,
-                                   dis_path, new_asset_dict,
-                                   workdir_root)
+        new_asset = self.__class__(
+            dataset, content_id, asset_id, dis_path, new_asset_dict, workdir_root
+        )
         return new_asset
 
     def copy_as_asset(self, **kwargs):
-        """ similar to Noref.copy, except that the returned object is of
-        (super)class Asset. """
+        """similar to Noref.copy, except that the returned object is of
+        (super)class Asset."""
         new_asset = self.copy()
         new_asset.__class__ = Asset
         return new_asset.copy(**kwargs)
@@ -1035,11 +1099,12 @@ class NorefAsset(Asset):
         The compact string representation of asset, used by __str__.
         :return:
         """
-        s = "{dataset}_{content_id}_{asset_id}_{dis_str}". \
-            format(dataset=self.dataset,
-                   content_id=self.content_id,
-                   asset_id=self.asset_id,
-                   dis_str=self.dis_str)
+        s = "{dataset}_{content_id}_{asset_id}_{dis_str}".format(
+            dataset=self.dataset,
+            content_id=self.content_id,
+            asset_id=self.asset_id,
+            dis_str=self.dis_str,
+        )
         quality_str = self.quality_str
         if quality_str:
             s += "_q_{quality_str}".format(quality_str=quality_str)

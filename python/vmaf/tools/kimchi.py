@@ -2,10 +2,11 @@
 # For converting Python 2 pickles to Python 3
 # taken from https://rebeccabilbro.github.io/convert-py2-pickles-to-py3/
 
-import os
-import dill
-import pickle
 import argparse
+import os
+import pickle
+
+import dill
 
 
 def convert(old_pkl):
@@ -13,7 +14,7 @@ def convert(old_pkl):
     Convert a Python 2 pickle to Python 3
     """
     # Make a name for the new pickle
-    new_pkl = os.path.splitext(os.path.basename(old_pkl))[0]+"_p3.pkl"
+    new_pkl = os.path.splitext(os.path.basename(old_pkl))[0] + "_p3.pkl"
 
     # Convert Python 2 "ObjectType" to Python 3 object
     dill._dill._reverse_typemap["ObjectType"] = object
@@ -28,9 +29,7 @@ def convert(old_pkl):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Convert a Python 2 pickle to Python 3"
-    )
+    parser = argparse.ArgumentParser(description="Convert a Python 2 pickle to Python 3")
 
     parser.add_argument("infile", help="Python 2 pickle filename")
 

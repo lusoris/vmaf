@@ -1,4 +1,5 @@
 """ffmpeg-decoded frame batches for NR / learned-filter training (C2, C3)."""
+
 from __future__ import annotations
 
 import subprocess
@@ -24,8 +25,16 @@ def iter_frames(source: FrameSource, ffmpeg: str = "ffmpeg") -> Iterator[np.ndar
     frame_bytes = source.width * source.height
     proc = subprocess.Popen(
         [
-            ffmpeg, "-v", "error", "-i", str(source.path),
-            "-f", "rawvideo", "-pix_fmt", source.pix_fmt, "-",
+            ffmpeg,
+            "-v",
+            "error",
+            "-i",
+            str(source.path),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            source.pix_fmt,
+            "-",
         ],
         stdout=subprocess.PIPE,
     )

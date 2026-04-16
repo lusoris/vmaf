@@ -5,7 +5,9 @@ class BdRateException(Exception):
 class BdRateNotEnoughPointsException(BdRateException):
     """Exception raised when there are not enough points in the BD-rate calculation."""
 
-    def __init__(self, message: str = "Not enough points for BD-rate calculation; at least 4 points required"):
+    def __init__(
+        self, message: str = "Not enough points for BD-rate calculation; at least 4 points required"
+    ):
         super().__init__(message)
 
 

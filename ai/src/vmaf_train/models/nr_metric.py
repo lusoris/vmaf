@@ -1,4 +1,5 @@
 """C2 — no-reference metric: distorted frame → MOS (small CNN)."""
+
 from __future__ import annotations
 
 import lightning as L

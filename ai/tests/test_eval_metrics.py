@@ -1,4 +1,5 @@
 """PLCC/SROCC/RMSE sanity checks against synthetic data with known correlation."""
+
 from __future__ import annotations
 
 import numpy as np

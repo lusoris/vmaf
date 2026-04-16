@@ -1,6 +1,6 @@
-import os
-import hashlib
 import ast
+import hashlib
+import os
 import shutil
 
 import pandas as pd
@@ -11,14 +11,14 @@ from vmaf.core.result import Result
 from vmaf.tools.misc import make_parent_dirs_if_nonexist
 
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
-__license__ = ("BSD"
-               "+Patent")
+__license__ = "BSD" "+Patent"
 
 
 class ResultStore(object):
     """
     Provide capability to save and load a Result.
     """
+
     pass
 
 
@@ -26,6 +26,7 @@ class SqliteResultStore(ResultStore):
     """
     persist result by a SQLite engine that save/load result.
     """
+
     pass
 
 
@@ -38,9 +39,8 @@ class FileSystemResultStore(ResultStore):
     multiple files, each file stores dataframe for an asset, and has file name
     str(asset).
     """
-    def __init__(self, logger=None,
-                 result_store_dir=VmafConfig.file_result_store_path()
-                 ):
+
+    def __init__(self, logger=None, result_store_dir=VmafConfig.file_result_store_path()):
         self.logger = logger
         self.result_store_dir = result_store_dir
 
@@ -49,7 +49,11 @@ class FileSystemResultStore(ResultStore):
         try:
             make_parent_dirs_if_nonexist(result_file_path)
         except OSError as e:
-            print('make_parent_dirs_if_nonexist {path} fails: {e}'.format(path=result_file_path, e=str(e)))
+            print(
+                "make_parent_dirs_if_nonexist {path} fails: {e}".format(
+                    path=result_file_path, e=str(e)
+                )
+            )
 
         self.save_result(result, result_file_path)
 
@@ -58,7 +62,11 @@ class FileSystemResultStore(ResultStore):
         try:
             make_parent_dirs_if_nonexist(result_file_path)
         except OSError as e:
-            print('make_parent_dirs_if_nonexist {path} fails: {e}'.format(path=result_file_path, e=str(e)))
+            print(
+                "make_parent_dirs_if_nonexist {path} fails: {e}".format(
+                    path=result_file_path, e=str(e)
+                )
+            )
 
         shutil.copyfile(workfile_path, result_file_path + suffix)
 
@@ -102,6 +110,7 @@ class FileSystemResultStore(ResultStore):
         :return:
         """
         import shutil
+
         if os.path.isdir(self.result_store_dir):
             shutil.rmtree(self.result_store_dir)
 
@@ -111,7 +120,9 @@ class FileSystemResultStore(ResultStore):
     def _get_result_file_path2(self, asset, executor_id):
         str_to_hash = str(asset).encode("utf-8")
         return "{dir}/{executor_id}/{dataset}/{content_id}/{str}".format(
-            dir=self.result_store_dir, executor_id=executor_id,
+            dir=self.result_store_dir,
+            executor_id=executor_id,
             dataset=asset.dataset,
             content_id=asset.content_id,
-            str=hashlib.sha1(str_to_hash).hexdigest())
+            str=hashlib.sha1(str_to_hash).hexdigest(),
+        )

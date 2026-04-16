@@ -1,4 +1,5 @@
 """Deterministic split invariants."""
+
 from __future__ import annotations
 
 from vmaf_train.data.splits import split_keys

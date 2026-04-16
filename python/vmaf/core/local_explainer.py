@@ -1,5 +1,4 @@
 import numpy as np
-
 import sklearn.metrics
 from sklearn.linear_model import Ridge
 
@@ -38,13 +37,14 @@ class LocalExplainer(object):
     Lime: Explaining the predictions of any machine learning classifier
     https://github.com/marcotcr/lime"""
 
-    def __init__(self,
-                 neighbor_std=1.0,
-                 neighbor_samples=5000,
-                 distance_metric='euclidean',
-                 kernel_width=3,
-                 model_regressor=None,
-                 ):
+    def __init__(
+        self,
+        neighbor_std=1.0,
+        neighbor_samples=5000,
+        distance_metric="euclidean",
+        kernel_width=3,
+        model_regressor=None,
+    ):
         """Init function.
 
         :param neighbor_std: standard deviation of neighborhood sampled
@@ -56,19 +56,23 @@ class LocalExplainer(object):
         self.neighbor_std = neighbor_std
         self.neighbor_samples = neighbor_samples
         self.distance_metric = distance_metric
-        self.kernel_fn = lambda d: np.sqrt(np.exp(-(d**2) / kernel_width ** 2))
-        self.model_regressor = Ridge(alpha=1, fit_intercept=True) if model_regressor is None else model_regressor
+        self.kernel_fn = lambda d: np.sqrt(np.exp(-(d**2) / kernel_width**2))
+        self.model_regressor = (
+            Ridge(alpha=1, fit_intercept=True) if model_regressor is None else model_regressor
+        )
 
     def _assert_model(self, train_test_model):
 
         train_test_model._assert_trained()
 
-        assert hasattr(train_test_model, '_to_tabular_xs'), \
-            'train_test_model must have a method _to_tabular_xs().'
+        assert hasattr(
+            train_test_model, "_to_tabular_xs"
+        ), "train_test_model must have a method _to_tabular_xs()."
 
-        assert train_test_model.norm_type != 'none', \
-            'If train_test_model has not been normalized, ' \
-            'the sampled neighborhood may not be of the right shape.'
+        assert train_test_model.norm_type != "none", (
+            "If train_test_model has not been normalized, "
+            "the sampled neighborhood may not be of the right shape."
+        )
 
     def explain(self, train_test_model, xs):
         """Explain data points.
@@ -108,9 +112,7 @@ class LocalExplainer(object):
 
             # calculate distance to center
             distances = sklearn.metrics.pairwise_distances(
-                xs_2d_neighbor,
-                xs_2d_neighbor[0].reshape(1, -1),
-                metric=self.distance_metric
+                xs_2d_neighbor, xs_2d_neighbor[0].reshape(1, -1), metric=self.distance_metric
             ).ravel()
             sample_weight = self.kernel_fn(distances)
 
@@ -123,29 +125,29 @@ class LocalExplainer(object):
 
             # take xs_2d_neighbor and ys_label_pred_neighbor, train a linear
             # model
-            self.model_regressor.fit(xs_2d_neighbor,
-                                     ys_label_pred_neighbor,
-                                     sample_weight=sample_weight)
+            self.model_regressor.fit(
+                xs_2d_neighbor, ys_label_pred_neighbor, sample_weight=sample_weight
+            )
             feature_weight = self.model_regressor.coef_.copy()
             feature_weights[i_sample, :] = feature_weight
 
         exps = {
-            'feature_weights': feature_weights,
-            'features': xs_2d_unnormalized,
-            'features_normalized': xs_2d,
-            'feature_names': feature_names
+            "feature_weights": feature_weights,
+            "features": xs_2d_unnormalized,
+            "features_normalized": xs_2d,
+            "feature_names": feature_names,
         }
 
         return exps
 
     @staticmethod
     def assert_explanations(exps, assets=None, ys=None, ys_pred=None):
-        N = exps['feature_weights'].shape[0]
-        assert N == exps['features_normalized'].shape[0]
+        N = exps["feature_weights"].shape[0]
+        assert N == exps["features_normalized"].shape[0]
         if assets is not None:
             assert N == len(assets)
         if ys is not None:
-            assert N == len(ys['label'])
+            assert N == len(ys["label"])
         if ys_pred is not None:
             assert N == len(ys_pred)
         return N
@@ -156,22 +158,29 @@ class LocalExplainer(object):
         # asserts
         N = cls.assert_explanations(exps, assets, ys, ys_pred)
 
-        print("Features: {}".format(exps['feature_names']))
+        print("Features: {}".format(exps["feature_names"]))
 
         for n in range(N):
-            weights = exps['feature_weights'][n]
-            features = exps['features_normalized'][n]
+            weights = exps["feature_weights"][n]
+            features = exps["features_normalized"][n]
 
             asset = assets[n] if assets is not None else None
-            y = ys['label'][n] if ys is not None else None
+            y = ys["label"][n] if ys is not None else None
             y_pred = ys_pred[n] if ys_pred is not None else None
 
-            print("{ref}".format(
-                ref=get_file_name_without_extension(asset.ref_path) if
-                asset is not None else "Asset {}".format(n)))
+            print(
+                "{ref}".format(
+                    ref=(
+                        get_file_name_without_extension(asset.ref_path)
+                        if asset is not None
+                        else "Asset {}".format(n)
+                    )
+                )
+            )
             if asset is not None:
-                print("\tDistorted: {dis}".format(
-                    dis=get_file_name_without_extension(asset.dis_path)))
+                print(
+                    "\tDistorted: {dis}".format(dis=get_file_name_without_extension(asset.dis_path))
+                )
             if y is not None:
                 print("\tground truth: {y:.3f}".format(y=y))
             if y_pred is not None:
@@ -187,19 +196,20 @@ class LocalExplainer(object):
 
         figs = []
         for n in range(N):
-            weights = exps['feature_weights'][n]
-            features = exps['features'][n]
-            normalized = exps['features_normalized'][n]
+            weights = exps["feature_weights"][n]
+            features = exps["features"][n]
+            normalized = exps["features_normalized"][n]
 
             asset = assets[n] if assets is not None else None
-            y = ys['label'][n] if ys is not None else None
+            y = ys["label"][n] if ys is not None else None
             y_pred = ys_pred[n] if ys_pred is not None else None
 
             img = None
             if asset is not None:
                 w, h = asset.dis_width_height
-                with YuvReader(filepath=asset.dis_path, width=w, height=h,
-                               yuv_type=asset.dis_yuv_type) as yuv_reader:
+                with YuvReader(
+                    filepath=asset.dis_path, width=w, height=h, yuv_type=asset.dis_yuv_type
+                ) as yuv_reader:
                     for yuv in yuv_reader:
                         img, _, _ = yuv
                         img = img.astype(np.double)
@@ -213,7 +223,7 @@ class LocalExplainer(object):
                 title += "ground truth: {:.3f}\n".format(y)
             if y_pred is not None:
                 title += "predicted: {:.3f}\n".format(y_pred)
-            if title != "" and title[-1] == '\n':
+            if title != "" and title[-1] == "\n":
                 title = title[:-1]
 
             assert len(weights) == len(features)
@@ -227,25 +237,25 @@ class LocalExplainer(object):
             ax_right = plt.subplot(2, 3, 6, sharey=ax_left)
 
             if img is not None:
-                ax_top.imshow(img, cmap='Greys_r')
+                ax_top.imshow(img, cmap="Greys_r")
             ax_top.get_xaxis().set_visible(False)
             ax_top.get_yaxis().set_visible(False)
             ax_top.set_title(title)
 
             pos = np.arange(M) + 0.1
-            ax_left.barh(pos, features, color='b', label='feature')
+            ax_left.barh(pos, features, color="b", label="feature")
             ax_left.set_xticks(np.arange(0, 1.1, 0.2))
             ax_left.set_yticks(pos + 0.35)
-            ax_left.set_yticklabels(exps['feature_names'])
-            ax_left.set_title('feature')
+            ax_left.set_yticklabels(exps["feature_names"])
+            ax_left.set_title("feature")
 
-            ax_mid.barh(pos, normalized, color='g', label='fnormal')
+            ax_mid.barh(pos, normalized, color="g", label="fnormal")
             ax_mid.get_yaxis().set_visible(False)
-            ax_mid.set_title('fnormal')
+            ax_mid.set_title("fnormal")
 
-            ax_right.barh(pos, weights, color='r', label='weight')
+            ax_right.barh(pos, weights, color="r", label="weight")
             ax_right.get_yaxis().set_visible(False)
-            ax_right.set_title('weight')
+            ax_right.set_title("weight")
 
             plt.tight_layout()
 
@@ -260,9 +270,9 @@ class LocalExplainer(object):
         for index in indexs:
             assert index < N
         exps2 = {
-            'feature_weights': exps['feature_weights'][indexs, :],
-            'features': exps['features'][indexs, :],
-            'features_normalized': exps['features_normalized'][indexs, :],
-            'feature_names': exps['feature_names']
+            "feature_weights": exps["feature_weights"][indexs, :],
+            "features": exps["features"][indexs, :],
+            "features_normalized": exps["features_normalized"][indexs, :],
+            "feature_names": exps["feature_names"],
         }
         return exps2

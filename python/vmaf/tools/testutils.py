@@ -11,7 +11,7 @@ def get_tidy_mock_call_args_list(mockProcessRunner_run) -> List[str]:
         if isinstance(e, str):
             l.append(e)
         else:
-            l.append(' '.join(e))
+            l.append(" ".join(e))
     return l
 
 
@@ -22,8 +22,8 @@ def replace_uuid(command_line: str) -> str:
     >>> replace_uuid('/tmp/72b3a7af-204c-4455-afe5-be2d536f2fdd/dv_el_out_1.h265')
     '/tmp/[UUID]/dv_el_out_1.h265'
     """
-    uuid_pattern = r'\b[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}\b'
-    return re.sub(uuid_pattern, '[UUID]', command_line)
+    uuid_pattern = r"\b[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}\b"
+    return re.sub(uuid_pattern, "[UUID]", command_line)
 
 
 def replace_root(command_line: str, root: str) -> str:
@@ -35,7 +35,7 @@ def replace_root(command_line: str, root: str) -> str:
     >>> replace_root('/tmp/72b3a7af-204c-4455-afe5-be2d536f2fdd', root='/opt/project')
     '/tmp/72b3a7af-204c-4455-afe5-be2d536f2fdd'
     """
-    return re.sub(root, '[ROOT]', command_line)
+    return re.sub(root, "[ROOT]", command_line)
 
 
 def remove_redundant_whitespace(command_line: str) -> str:
@@ -89,10 +89,10 @@ def remove_option(command_line: str, option: str) -> str:
     >>> remove_option('-- model M ', 'model')
     '-- model M '
     """
-    if command_line.startswith('--{option}'.format(option=option)):
-        return re.sub(r'--{option} [^\s]*'.format(option=option), '', command_line)
+    if command_line.startswith("--{option}".format(option=option)):
+        return re.sub(r"--{option} [^\s]*".format(option=option), "", command_line)
     else:
-        return re.sub(r' --{option} [^\s]*'.format(option=option), '', command_line)
+        return re.sub(r" --{option} [^\s]*".format(option=option), "", command_line)
 
 
 def remove_elements_containing_substring(command_line: str, sub_str: str) -> str:
@@ -105,8 +105,16 @@ def remove_elements_containing_substring(command_line: str, sub_str: str) -> str
     return " ".join([x for x in command_line.split() if sub_str not in x])
 
 
-def assert_equivalent_commands(self, cmds: List[str], cmds_expected: List[str], root: str, root_expected: str, do_replace_uuid: bool = True,
-                               options_to_remove: Optional[List[str]] = None, substrings_to_remove: Optional[List[str]] = None):
+def assert_equivalent_commands(
+    self,
+    cmds: List[str],
+    cmds_expected: List[str],
+    root: str,
+    root_expected: str,
+    do_replace_uuid: bool = True,
+    options_to_remove: Optional[List[str]] = None,
+    substrings_to_remove: Optional[List[str]] = None,
+):
     """
     >>> self = MyTestCase()
     >>> self.setUp()
@@ -134,7 +142,9 @@ def assert_equivalent_commands(self, cmds: List[str], cmds_expected: List[str], 
         options_to_remove = []
     if substrings_to_remove is None:
         substrings_to_remove = []
-    assert len(cmds) == len(cmds_expected), f"length of cmds and cmds_expected are not equal: {len(cmds)} vs. {len(cmds_expected)}"
+    assert len(cmds) == len(
+        cmds_expected
+    ), f"length of cmds and cmds_expected are not equal: {len(cmds)} vs. {len(cmds_expected)}"
     for cmd, cmd_expected in zip(cmds, cmds_expected):
 
         if do_replace_uuid is True:
@@ -156,6 +166,10 @@ def assert_equivalent_commands(self, cmds: List[str], cmds_expected: List[str], 
         for sbstr_to_remove in substrings_to_remove:
             cmd_expected3 = remove_elements_containing_substring(cmd_expected3, sbstr_to_remove)
 
-        self.assertEqual(cmd3, cmd_expected3, msg=f"cmd and cmd_expected are not matched:\ncmd: {cmd}\ncmd:expected: "
-                                                  f"{cmd_expected}\nprocessed cmd: {cmd3}\nprocessed cmd:expected: "
-                                                  f"{cmd_expected3}")
+        self.assertEqual(
+            cmd3,
+            cmd_expected3,
+            msg=f"cmd and cmd_expected are not matched:\ncmd: {cmd}\ncmd:expected: "
+            f"{cmd_expected}\nprocessed cmd: {cmd3}\nprocessed cmd:expected: "
+            f"{cmd_expected3}",
+        )

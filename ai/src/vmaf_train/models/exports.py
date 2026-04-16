@@ -3,6 +3,7 @@
 Validates opset 17, dynamic batch axis, and runs the exported graph through
 onnxruntime; asserts allclose(atol=1e-5) vs the pytorch `.eval()` output.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,6 +60,4 @@ def export_to_onnx(
     ort_out = sess.run(None, {input_name: dummy.numpy()})[0]
     max_abs = float(np.abs(ref - ort_out).max())
     if max_abs > atol:
-        raise RuntimeError(
-            f"torch vs onnxruntime drift {max_abs:g} exceeds atol {atol:g}"
-        )
+        raise RuntimeError(f"torch vs onnxruntime drift {max_abs:g} exceeds atol {atol:g}")

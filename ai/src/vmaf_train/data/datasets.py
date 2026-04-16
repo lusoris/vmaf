@@ -8,6 +8,7 @@ SHA-256 pins. The repo does not redistribute the data — consumers point
 
 See `vmaf_train.data.manifest_scan` for the scanner implementation.
 """
+
 from __future__ import annotations
 
 import os
@@ -17,11 +18,11 @@ from pathlib import Path
 import yaml
 
 DATASETS: dict[str, dict[str, str]] = {
-    "nflx":         {"capability": "C1/C2", "license": "Netflix research"},
-    "konvid-1k":    {"capability": "C2",    "license": "CC BY 4.0"},
-    "live-vqc":     {"capability": "C2",    "license": "Academic"},
-    "youtube-ugc":  {"capability": "C2",    "license": "CC BY 3.0"},
-    "bvi-dvc":      {"capability": "C3",    "license": "Academic"},
+    "nflx": {"capability": "C1/C2", "license": "Netflix research"},
+    "konvid-1k": {"capability": "C2", "license": "CC BY 4.0"},
+    "live-vqc": {"capability": "C2", "license": "Academic"},
+    "youtube-ugc": {"capability": "C2", "license": "CC BY 3.0"},
+    "bvi-dvc": {"capability": "C3", "license": "Academic"},
 }
 
 

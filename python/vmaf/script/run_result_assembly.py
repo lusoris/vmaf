@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
-import os
-import sys
-import re
-
 import json
+import os
+import re
+import sys
 
 from vmaf.core.result import Result
 
@@ -19,7 +18,7 @@ def print_usage():
 
 class FileAssembler:
 
-    SUPPORTED_FILE_TYPES = ['xml', 'json']
+    SUPPORTED_FILE_TYPES = ["xml", "json"]
 
     def __init__(self, to_assemble_input):
         self.to_assemble_input = to_assemble_input
@@ -80,8 +79,11 @@ class FileAssembler:
         assemble_format_list = [os.path.splitext(f)[1].split(".")[1] for f in to_assemble_list]
         assert len(set(assemble_format_list)) == 1, "The file formats for assembly do not much."
         # check that the file format is supported for assembly
-        assert assemble_format_list[0] in self.SUPPORTED_FILE_TYPES, \
-            "The assembly format is not consistent, use any of {fmts}".format(fmts=str(self.SUPPORTED_FILE_TYPES))
+        assert (
+            assemble_format_list[0] in self.SUPPORTED_FILE_TYPES
+        ), "The assembly format is not consistent, use any of {fmts}".format(
+            fmts=str(self.SUPPORTED_FILE_TYPES)
+        )
 
 
 class XmlAssembler(FileAssembler):
@@ -91,7 +93,7 @@ class XmlAssembler(FileAssembler):
 
         to_assemble_xml_strings = []
         for to_assemble_xml in to_assemble_list:
-            with open(to_assemble_xml, 'r') as f:
+            with open(to_assemble_xml, "r") as f:
                 to_assemble_xml_strings.append(f.read())
 
         return to_assemble_xml_strings
@@ -114,7 +116,7 @@ class JsonAssembler(FileAssembler):
 
         to_assemble_json_strings = []
         for json_file in to_assemble_list:
-            with open(json_file, 'r') as f:
+            with open(json_file, "r") as f:
                 to_assemble_json_strings.append(json.load(f))
 
         return to_assemble_json_strings

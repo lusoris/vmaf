@@ -16,7 +16,7 @@ class YuvReaderTest(unittest.TestCase):
             filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv"),
             width=576,
             height=324,
-            yuv_type='yuv420p'
+            yuv_type="yuv420p",
         ) as yuv_reader:
             self.assertEqual(yuv_reader.num_bytes, 13436928)
             self.assertEqual(yuv_reader.num_frms, 48)
@@ -27,7 +27,7 @@ class YuvReaderTest(unittest.TestCase):
             filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv"),
             width=576,
             height=324,
-            yuv_type='yuv420p'
+            yuv_type="yuv420p",
         ) as yuv_reader:
             assert hasattr(yuv_reader.file, "read")
 
@@ -36,7 +36,7 @@ class YuvReaderTest(unittest.TestCase):
             filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv"),
             width=576,
             height=324,
-            yuv_type='yuv420p'
+            yuv_type="yuv420p",
         ) as yuv_reader:
 
             y, u, v = yuv_reader.next()
@@ -83,7 +83,7 @@ class YuvReaderTest(unittest.TestCase):
             filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv"),
             width=576,
             height=324,
-            yuv_type='gray'
+            yuv_type="gray",
         ) as yuv_reader:
 
             y, u, v = yuv_reader.next()
@@ -108,8 +108,11 @@ class YuvReaderTest(unittest.TestCase):
         y_2ndmoments = []
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv"),
-                width=576, height=324, yuv_type='yuv420p') as yuv_reader:
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p",
+        ) as yuv_reader:
 
             for y, u, v in yuv_reader:
                 y, u, v = y.astype(np.double), u.astype(np.double), v.astype(np.double)
@@ -127,8 +130,11 @@ class YuvReaderTest(unittest.TestCase):
         y_2ndmoments = []
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv"),
-                width=576, height=324, yuv_type='yuv420p') as yuv_reader:
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p",
+        ) as yuv_reader:
 
             while True:
                 try:
@@ -150,12 +156,15 @@ class YuvReaderTest(unittest.TestCase):
         y_2ndmoments = []
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv"),
-                width=576, height=324, yuv_type='yuv420p') as yuv_reader:
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p",
+        ) as yuv_reader:
 
             while True:
                 try:
-                    y, u, v = yuv_reader.next(format='float')
+                    y, u, v = yuv_reader.next(format="float")
                     y_1stmoments.append(y.mean())
                     y_2ndmoments.append(y.var() + y.mean() * y.mean())
                 except StopIteration:
@@ -172,10 +181,10 @@ class YuvReaderTest10le(unittest.TestCase):
     def test_yuv_reader(self):
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv422p10le.yuv"),
-                width=576,
-                height=324,
-                yuv_type='yuv422p10le'
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv422p10le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv422p10le",
         ) as yuv_reader:
             self.assertEqual(yuv_reader.num_bytes, 35831808)
             self.assertEqual(yuv_reader.num_frms, 48)
@@ -184,14 +193,18 @@ class YuvReaderTest10le(unittest.TestCase):
     def test_with(self):
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv422p10le.yuv"),
-                width=576,
-                height=324,
-                yuv_type='yuv422p10le'
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv422p10le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv422p10le",
         ) as yuv_reader:
 
             y, u, v = yuv_reader.next()
-            y, u, v = y.astype(np.double) / 4.0, u.astype(np.double) / 4.0, v.astype(np.double) / 4.0
+            y, u, v = (
+                y.astype(np.double) / 4.0,
+                u.astype(np.double) / 4.0,
+                v.astype(np.double) / 4.0,
+            )
 
             self.assertEqual(y[0][0], 87)
             self.assertEqual(y[0][1], 131)
@@ -210,7 +223,11 @@ class YuvReaderTest10le(unittest.TestCase):
             self.assertAlmostEqual(v.mean(), 122.05113490226337, places=4)
 
             y, u, v = yuv_reader.next()
-            y, u, v = y.astype(np.double) / 4.0, u.astype(np.double) / 4.0, v.astype(np.double) / 4.0
+            y, u, v = (
+                y.astype(np.double) / 4.0,
+                u.astype(np.double) / 4.0,
+                v.astype(np.double) / 4.0,
+            )
 
             self.assertEqual(y[0][0], 142)
             self.assertEqual(y[0][1], 128)
@@ -234,11 +251,18 @@ class YuvReaderTest10le(unittest.TestCase):
         y_2ndmoments = []
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv422p10le.yuv"),
-                width=576, height=324, yuv_type='yuv422p10le') as yuv_reader:
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv422p10le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv422p10le",
+        ) as yuv_reader:
 
             for y, u, v in yuv_reader:
-                y, u, v = y.astype(np.double) / 4.0, u.astype(np.double) / 4.0, v.astype(np.double) / 4.0
+                y, u, v = (
+                    y.astype(np.double) / 4.0,
+                    u.astype(np.double) / 4.0,
+                    v.astype(np.double) / 4.0,
+                )
                 y_1stmoments.append(y.mean())
                 y_2ndmoments.append(y.var() + y.mean() * y.mean())
 
@@ -253,10 +277,10 @@ class YuvReaderTest12le(unittest.TestCase):
     def test_yuv_reader(self):
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv420p12le.yuv"),
-                width=576,
-                height=324,
-                yuv_type='yuv420p12le'
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv420p12le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p12le",
         ) as yuv_reader:
             self.assertEqual(yuv_reader.num_bytes, 1679616)
             self.assertEqual(yuv_reader.num_frms, 3)
@@ -265,14 +289,18 @@ class YuvReaderTest12le(unittest.TestCase):
     def test_with(self):
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv420p12le.yuv"),
-                width=576,
-                height=324,
-                yuv_type='yuv420p12le'
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv420p12le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p12le",
         ) as yuv_reader:
 
             y, u, v = yuv_reader.next()
-            y, u, v = y.astype(np.double) / 16.0, u.astype(np.double) / 16.0, v.astype(np.double) / 16.0
+            y, u, v = (
+                y.astype(np.double) / 16.0,
+                u.astype(np.double) / 16.0,
+                v.astype(np.double) / 16.0,
+            )
 
             self.assertEqual(y[0][0], 87)
             self.assertEqual(y[0][1], 131)
@@ -291,7 +319,11 @@ class YuvReaderTest12le(unittest.TestCase):
             self.assertAlmostEqual(v.mean(), 122.05084019204389, places=4)
 
             y, u, v = yuv_reader.next()
-            y, u, v = y.astype(np.double) / 16.0, u.astype(np.double) / 16.0, v.astype(np.double) / 16.0
+            y, u, v = (
+                y.astype(np.double) / 16.0,
+                u.astype(np.double) / 16.0,
+                v.astype(np.double) / 16.0,
+            )
 
             self.assertEqual(y[0][0], 142)
             self.assertEqual(y[0][1], 128)
@@ -315,11 +347,18 @@ class YuvReaderTest12le(unittest.TestCase):
         y_2ndmoments = []
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv420p12le.yuv"),
-                width=576, height=324, yuv_type='yuv420p12le') as yuv_reader:
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv420p12le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p12le",
+        ) as yuv_reader:
 
             for y, u, v in yuv_reader:
-                y, u, v = y.astype(np.double) / 16.0, u.astype(np.double) / 16.0, v.astype(np.double) / 16.0
+                y, u, v = (
+                    y.astype(np.double) / 16.0,
+                    u.astype(np.double) / 16.0,
+                    v.astype(np.double) / 16.0,
+                )
                 y_1stmoments.append(y.mean())
                 y_2ndmoments.append(y.var() + y.mean() * y.mean())
 
@@ -334,10 +373,10 @@ class YuvReaderTest16le(unittest.TestCase):
     def test_yuv_reader(self):
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv420p16le.yuv"),
-                width=576,
-                height=324,
-                yuv_type='yuv420p16le'
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv420p16le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p16le",
         ) as yuv_reader:
             self.assertEqual(yuv_reader.num_bytes, 1679616)
             self.assertEqual(yuv_reader.num_frms, 3)
@@ -346,14 +385,18 @@ class YuvReaderTest16le(unittest.TestCase):
     def test_with(self):
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv420p16le.yuv"),
-                width=576,
-                height=324,
-                yuv_type='yuv420p16le'
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv420p16le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p16le",
         ) as yuv_reader:
 
             y, u, v = yuv_reader.next()
-            y, u, v = y.astype(np.double) / 256.0, u.astype(np.double) / 256.0, v.astype(np.double) / 256.0
+            y, u, v = (
+                y.astype(np.double) / 256.0,
+                u.astype(np.double) / 256.0,
+                v.astype(np.double) / 256.0,
+            )
 
             self.assertEqual(y[0][0], 87)
             self.assertEqual(y[0][1], 131)
@@ -372,7 +415,11 @@ class YuvReaderTest16le(unittest.TestCase):
             self.assertAlmostEqual(v.mean(), 122.05084019204389, places=4)
 
             y, u, v = yuv_reader.next()
-            y, u, v = y.astype(np.double) / 256.0, u.astype(np.double) / 256.0, v.astype(np.double) / 256.0
+            y, u, v = (
+                y.astype(np.double) / 256.0,
+                u.astype(np.double) / 256.0,
+                v.astype(np.double) / 256.0,
+            )
 
             self.assertEqual(y[0][0], 142)
             self.assertEqual(y[0][1], 128)
@@ -396,11 +443,18 @@ class YuvReaderTest16le(unittest.TestCase):
         y_2ndmoments = []
 
         with YuvReader(
-                filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv420p16le.yuv"),
-                width=576, height=324, yuv_type='yuv420p16le') as yuv_reader:
+            filepath=VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv420p16le.yuv"),
+            width=576,
+            height=324,
+            yuv_type="yuv420p16le",
+        ) as yuv_reader:
 
             for y, u, v in yuv_reader:
-                y, u, v = y.astype(np.double) / 256.0, u.astype(np.double) / 256.0, v.astype(np.double) / 256.0
+                y, u, v = (
+                    y.astype(np.double) / 256.0,
+                    u.astype(np.double) / 256.0,
+                    v.astype(np.double) / 256.0,
+                )
                 y_1stmoments.append(y.mean())
                 y_2ndmoments.append(y.var() + y.mean() * y.mean())
 
@@ -410,5 +464,5 @@ class YuvReaderTest16le(unittest.TestCase):
         self.assertAlmostEqual(float(np.mean(y_2ndmoments)), 4904.42749592764, places=4)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main(verbosity=2)

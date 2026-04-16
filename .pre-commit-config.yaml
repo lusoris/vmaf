@@ -32,13 +32,13 @@ repos:
         exclude: '^subprojects/|^libvmaf/test/data/'
 
   - repo: https://github.com/psf/black
-    rev: 24.8.0
+    rev: 26.3.1
     hooks:
       - id: black
         files: '^(python|ai|scripts)/.*\.py$'
 
   - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
+    rev: 8.0.1
     hooks:
       - id: isort
         files: '^(python|ai|scripts)/.*\.py$'

@@ -7,10 +7,10 @@ Run embedded doctests
 
 import doctest
 
-from vmaf.tools import misc
 # from vmaf.tools import stats
-from vmaf.core import quality_runner
-from vmaf.core import train_test_model
+from vmaf.core import quality_runner, train_test_model
+from vmaf.tools import misc
+
 
 def load_tests(loader, tests, ignore):
     tests.addTests(doctest.DocTestSuite(misc))

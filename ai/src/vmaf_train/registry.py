@@ -12,6 +12,7 @@ Each `.onnx` under `model/tiny/` gets a `<name>.json` sidecar recording:
 
 Keeps a flat schema so the C loader can parse it with a minimal JSON reader.
 """
+
 from __future__ import annotations
 
 import hashlib

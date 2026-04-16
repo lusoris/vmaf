@@ -4,6 +4,7 @@ Accepts either a numpy .npz cache (legacy) or a parquet file produced by
 `data.feature_dump.dump_features`. Deterministic split derived from
 `data.splits.split_keys` on the per-row `key` column when present.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -79,36 +80,43 @@ class VmafTrainDataModule(L.LightningDataModule):
         keys = ds.keys
         if keys is not None and len(set(keys)) > 1:
             splits = split_keys(sorted(set(keys)), self.val_frac, self.test_frac)
-            bag = {k: tag for tag, keys_ in (
-                ("train", splits.train),
-                ("val", splits.val),
-                ("test", splits.test),
-            ) for k in keys_}
+            bag = {
+                k: tag
+                for tag, keys_ in (
+                    ("train", splits.train),
+                    ("val", splits.val),
+                    ("test", splits.test),
+                )
+                for k in keys_
+            }
             train_idx = [i for i, k in enumerate(keys) if bag[k] == "train"]
-            val_idx   = [i for i, k in enumerate(keys) if bag[k] == "val"]
-            test_idx  = [i for i, k in enumerate(keys) if bag[k] == "test"]
+            val_idx = [i for i, k in enumerate(keys) if bag[k] == "val"]
+            test_idx = [i for i, k in enumerate(keys) if bag[k] == "test"]
             self.train = Subset(ds, train_idx)
-            self.val   = Subset(ds, val_idx)
-            self.test  = Subset(ds, test_idx)
+            self.val = Subset(ds, val_idx)
+            self.test = Subset(ds, test_idx)
         else:
             n = len(ds)
             n_test = int(n * self.test_frac)
-            n_val  = int(n * self.val_frac)
-            n_tr   = n - n_val - n_test
+            n_val = int(n * self.val_frac)
+            n_tr = n - n_val - n_test
             gen = torch.Generator().manual_seed(0)
             perm = torch.randperm(n, generator=gen).tolist()
             self.train = Subset(ds, perm[:n_tr])
-            self.val   = Subset(ds, perm[n_tr:n_tr + n_val])
-            self.test  = Subset(ds, perm[n_tr + n_val:])
+            self.val = Subset(ds, perm[n_tr : n_tr + n_val])
+            self.test = Subset(ds, perm[n_tr + n_val :])
 
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(self.train, batch_size=self.batch_size,
-                          shuffle=True, num_workers=self.num_workers)
+        return DataLoader(
+            self.train, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers
+        )
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(self.val, batch_size=self.batch_size,
-                          shuffle=False, num_workers=self.num_workers)
+        return DataLoader(
+            self.val, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers
+        )
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(self.test, batch_size=self.batch_size,
-                          shuffle=False, num_workers=self.num_workers)
+        return DataLoader(
+            self.test, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers
+        )

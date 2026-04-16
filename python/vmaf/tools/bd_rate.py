@@ -8,19 +8,19 @@ __copyright__ = "Copyright 2016-2024, Netflix, Inc."
 __license__ = "BSD+Patent"
 
 import math
+from typing import Any, Iterable
 
 import numpy as np
-from typing import Iterable, Any
-
 from scipy.integrate import trapezoid
 from scipy.interpolate import pchip_interpolate  # type: ignore[attr-defined]
 
 from vmaf.tools.convex_hull import calculate_convex_hull
+
 from .exceptions import (
-    BdRateNoOverlapException,
     BdRateNonMonotonicException,
-    BdRateZeroRateException,
+    BdRateNoOverlapException,
     BdRateNotEnoughPointsException,
+    BdRateZeroRateException,
 )
 from .typing_utils import RdPoint
 
@@ -142,7 +142,10 @@ def _is_curve_monotonic(points: list[RdPoint]) -> bool:
     Returns:
         True if the curve is monotonic, False otherwise.
     """
-    return all(point1.rate < point2.rate and point1.metric < point2.metric for point1, point2 in zip(points, points[1:]))
+    return all(
+        point1.rate < point2.rate and point1.metric < point2.metric
+        for point1, point2 in zip(points, points[1:])
+    )
 
 
 def _rates_are_nonzero(points: Iterable[RdPoint]) -> bool:
