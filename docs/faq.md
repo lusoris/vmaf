@@ -32,7 +32,7 @@ To provide some flexibility, in command-line tools *run_vmaf*, *run_psnr*, *run_
 
 A: The default VMAF model at `model/vmaf_v0.6.1.pkl` was trained on videos encoded at resolutions *up to* 1080p. It is still useful for measuring 4K videos, if you are interested in a relative score. In other words, for two 4K videos A and B with A perceptually better than B, the VMAF scores will tell you so too. However, if you are interested in an absolute score, say if a 4K video is perceptually acceptable, you may not get an accurate answer.
 
-As of VDK v1.3.7 (June 2018), we have added a new 4K model at `model/vmaf_4k_v0.6.1.json`, which is trained to predict 4KTV viewing at distance of 1.5X the display height. Refer to [this](resource/doc/models.md/#predict-quality-on-a-4ktv-screen-at-15h) section for details.
+As of VDK v1.3.7 (June 2018), we have added a new 4K model at `model/vmaf_4k_v0.6.1.json`, which is trained to predict 4KTV viewing at distance of 1.5X the display height. Refer to [this](models.md#predict-quality-on-a-4ktv-screen-at-15h) section for details.
 
 #### Q: Will VMAF work on applications other than HTTP adaptive streaming?
 
@@ -40,7 +40,7 @@ A: VMAF was designed with HTTP adaptive streaming in mind. Correspondingly, in t
 
 #### Q: Can I pass encoded H264/VP9/H265 bitstreams to VMAF as input? [Issue #55](https://github.com/Netflix/vmaf/issues/55)
 
-A: Yes, you can. The paved path forward is to use FFmpeg's `libvmaf` filter option. Refer to the [FFmpeg documentation](resource/doc/ffmpeg.md) for details.
+A: Yes, you can. The paved path forward is to use FFmpeg's `libvmaf` filter option. Refer to the [FFmpeg documentation](ffmpeg.md) for details.
 
 #### Q: When I compare a video with itself as reference, I expect to get a perfect score of VMAF 100, but what I see is a score like 98.7. Is there a bug?
 
@@ -64,7 +64,7 @@ For example, to upscale the distorted video to 1080p:
 ffmpeg -i main.mpg -i ref.mpg -filter_complex "[0:v]scale=1920x1080:flags=bicubic[main];[main][1:v]libvmaf" -f null -
 ```
 
-This scales the first input video (`0:v`) and forwards it to VMAF (`libvmaf`) with the label `main`, where it is compared against the second input video, `1:v`. More details can be found [here](resource/doc/ffmpeg.md).
+This scales the first input video (`0:v`) and forwards it to VMAF (`libvmaf`) with the label `main`, where it is compared against the second input video, `1:v`. More details can be found [here](ffmpeg.md).
 
 ### Q: Why are the PSNR values capped at 60 dB for 8-bit inputs and 72 dB for 10-bit inputs in the package's implementation?
 

@@ -80,8 +80,7 @@ ai/                           # Tiny-AI training (Python / PyTorch + Lightning)
 mcp-server/vmaf-mcp/          # MCP JSON-RPC server (Python)
 model/                        # .json / .pkl / .onnx VMAF models
 testdata/                     # YUV fixtures + benchmark JSONs (fork-added)
-docs/                         # architecture + best-practice docs
-resource/doc/                 # upstream docs (kept in sync when possible)
+docs/                         # all documentation (upstream-mirrored + fork-added)
 .claude/                      # Claude Code config (skills, agents, hooks)
 .workingdir2/                 # planning dossier (read-only at runtime)
 ```

@@ -18,7 +18,7 @@ description: Scaffold a new feature extractor (e.g. a novel metric) with C sourc
 | `libvmaf/src/feature/<name>.c`              | Scalar reference implementation            |
 | `libvmaf/src/feature/<name>.h`              | Prototype                                  |
 | `libvmaf/test/test_<name>.c`                | Smoke test (1 frame, fixed expected value) |
-| `resource/doc/<name>.md`                    | Metric documentation (inputs, range, refs) |
+| `docs/<name>.md`                            | Metric documentation (inputs, range, refs) |
 
 ## Files patched
 

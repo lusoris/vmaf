@@ -8,7 +8,7 @@ file="${CLAUDE_TOOL_INPUT_file_path:-}"
 
 # Never reformat files that are explicitly upstream-touched or generated
 case "$file" in
-    */resource/doc/*|*/subprojects/*|*/build/*|*/testdata/*.yuv|*.json|*.onnx|*.pkl)
+    */subprojects/*|*/build/*|*/testdata/*.yuv|*.json|*.onnx|*.pkl)
         exit 0 ;;
 esac
 

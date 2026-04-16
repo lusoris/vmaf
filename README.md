@@ -110,11 +110,11 @@ through a single ONNX Runtime-backed inference path inside libvmaf.
 - [`CLAUDE.md`](CLAUDE.md) — orientation for Claude Code sessions.
 - [`AGENTS.md`](AGENTS.md) — same, for tool-agnostic agents (Cursor, Aider, Copilot).
 - [`docs/principles.md`](docs/principles.md) — NASA Power-of-10 + JPL + CERT + MISRA coding standard, Netflix golden gate, quality policy.
-- [`docs/sycl_bundling.md`](docs/sycl_bundling.md) — self-contained SYCL runtime bundling.
+- [`docs/sycl/sycl_bundling.md`](docs/sycl/sycl_bundling.md) — self-contained SYCL runtime bundling.
 - [`docs/tiny-ai/`](docs/tiny-ai/) — training, inference, benchmarks, security.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute (fork-specific + upstream guide preserved).
 - [`SECURITY.md`](SECURITY.md) — coordinated disclosure, SLA, supply-chain guarantees.
-- [Netflix/vmaf upstream docs](resource/doc/index.md) — FAQs, models, AOM CTC usage.
+- [Netflix/vmaf upstream docs](docs/index.md) — FAQs, models, AOM CTC usage.
 
 ## Release & signing
 
