@@ -43,7 +43,7 @@ jobs:
 
       - name: Build (CPU, release)
         run: |
-          meson setup build -Denable_cuda=false -Denable_sycl=false \
+          meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
             -Denable_avx512=true --buildtype=release
           meson compile -C build
 
@@ -74,7 +74,7 @@ jobs:
           python3 -m pip install --user numpy
       - name: Build CPU
         run: |
-          meson setup build -Denable_cuda=false -Denable_sycl=false --buildtype=release
+          meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false --buildtype=release
           meson compile -C build
       - name: Compute CPU scores against snapshot
         run: |
@@ -100,7 +100,7 @@ jobs:
           CC: clang
           CXX: clang++
         run: |
-          meson setup build -Db_sanitize=${{ matrix.sanitizer }} \
+          meson setup build libvmaf -Db_sanitize=${{ matrix.sanitizer }} \
             -Denable_cuda=false -Denable_sycl=false --buildtype=debug
           meson compile -C build
       - name: Run unit tests under sanitizer

@@ -25,9 +25,13 @@ $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends 
 if [[ "$INSTALL_LINTERS" == "true" ]]; then
   $SUDO apt-get install -y --no-install-recommends shellcheck
   # shfmt from release (not in apt for older Ubuntu).
+  # Pin to an explicit version URL — the /releases/latest/download/ route
+  # 404s as soon as upstream tags a newer version because the filename
+  # contains the version string.
   if ! command -v shfmt >/dev/null; then
+    SHFMT_VERSION="v3.9.0"
     $SUDO curl -fsSL -o /usr/local/bin/shfmt \
-      https://github.com/mvdan/sh/releases/latest/download/shfmt_v3.9.0_linux_amd64
+      "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_linux_amd64"
     $SUDO chmod +x /usr/local/bin/shfmt
   fi
   # Python linters in user-site (no sudo pip).
