@@ -444,6 +444,64 @@ def cross_backend_cmd(
         raise typer.Exit(code=2)
 
 
+@app.command("bisect-model-quality")
+def bisect_model_quality_cmd(
+    models: list[Path] = typer.Argument(
+        ..., help="Ordered list of ONNX checkpoints (head = assumed-good, tail = assumed-bad)"
+    ),
+    features: Path = typer.Option(
+        ..., exists=True, help="Held-out features parquet with a `mos` column"
+    ),
+    min_plcc: Optional[float] = typer.Option(None, help="PLCC lower bound"),
+    min_srocc: Optional[float] = typer.Option(None, help="SROCC lower bound"),
+    max_rmse: Optional[float] = typer.Option(None, help="RMSE upper bound"),
+    input_name: str = typer.Option("input", help="ONNX model input tensor name"),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+    fail_on_first_bad: bool = typer.Option(
+        False, "--fail-on-first-bad", help="Exit 2 when a regression is localized"
+    ),
+) -> None:
+    """Binary-search a list of ONNX checkpoints for the first quality regression.
+
+    Use on a timeline of checkpoints (training-run intermediates, release
+    history) to pinpoint the step where PLCC/SROCC dropped below a gate.
+    Assumes the list is ordered good→bad; if not, exits 0 with the verdict
+    "no regression detected" or "first model already fails".
+    """
+    import json as _json
+
+    import pandas as pd
+
+    from .bisect_model_quality import bisect_model_quality, render_table
+    from .data.feature_dump import DEFAULT_FEATURES
+
+    df = pd.read_parquet(features)
+    if "mos" not in df.columns:
+        raise typer.BadParameter("features parquet must contain a 'mos' column")
+    df = df.dropna(subset=["mos"])
+    feat_cols = [c for c in DEFAULT_FEATURES if c in df.columns]
+    if not feat_cols:
+        raise typer.BadParameter("features parquet has none of the expected feature columns")
+    feat_matrix = df[feat_cols].to_numpy(dtype="float32")
+    targets = df["mos"].to_numpy(dtype="float32")
+
+    result = bisect_model_quality(
+        models=list(models),
+        features=feat_matrix,
+        targets=targets,
+        min_plcc=min_plcc,
+        min_srocc=min_srocc,
+        max_rmse=max_rmse,
+        input_name=input_name,
+    )
+    console.print(render_table(result))
+    if json_out:
+        json_out.write_text(_json.dumps(result.to_dict(), indent=2))
+        console.print(f"[green]Wrote {json_out}[/green]")
+    if fail_on_first_bad and result.first_bad_index is not None and result.last_good_index is not None:
+        raise typer.Exit(code=2)
+
+
 @app.command("register")
 def register_cmd(
     model: Path = typer.Option(..., exists=True, help="ONNX model to register"),
