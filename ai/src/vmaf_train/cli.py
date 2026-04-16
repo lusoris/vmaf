@@ -166,6 +166,34 @@ def manifest_scan_cmd(
     )
 
 
+@app.command("validate-norm")
+def validate_norm_cmd(
+    model: Path = typer.Option(..., exists=True, help="ONNX model or its .json sidecar"),
+    features: Path = typer.Option(..., exists=True, help="Feature parquet"),
+    fail_on_warning: bool = typer.Option(
+        False, "--fail-on-warning", help="Exit 2 if any drift exceeds threshold"
+    ),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report"),
+) -> None:
+    """Compare a sidecar's declared feature normalization against real data.
+
+    Flags features whose declared mean drifts > 1σ from the observed
+    data's mean, or where > 5% of samples are > 3σ from the declared
+    mean. Catches the "trained on dataset A, deployed on dataset B"
+    class of silent correctness bug.
+    """
+    import json as _json
+
+    from .validate_norm import render_table, validate_norm
+
+    report = validate_norm(model, features)
+    console.print(render_table(report))
+    if json_out:
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2))
+    if fail_on_warning and not report.ok:
+        raise typer.Exit(code=2)
+
+
 @app.command("profile")
 def profile_cmd(
     model: Path = typer.Option(..., exists=True, help="ONNX model to profile"),
