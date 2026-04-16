@@ -33,8 +33,8 @@ RUN if [ "$ENABLE_SYCL" = "true" ]; then \
         wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | apt-key add - && \
         echo "deb https://apt.repos.intel.com/oneapi all main" > /etc/apt/sources.list.d/oneapi.list && \
         apt-get update && apt-get install -y --no-install-recommends \
-            intel-oneapi-compiler-dpcpp-cpp \
-            intel-oneapi-runtime-libs \
+            intel-oneapi-compiler-dpcpp-cpp-2025.3 \
+            intel-oneapi-runtime-libs-2025.3 \
             libva-dev \
             libva-drm2 \
             level-zero-dev && \
