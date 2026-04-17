@@ -9,6 +9,14 @@
       "opset": 17,
       "sha256": "c83a5f217fa3736bf575c52f7f4c187a6201951e8ddccb51bdcdcc136108fbe0",
       "smoke": true
+    },
+    {
+      "id": "lpips_sq_v1",
+      "kind": "fr",
+      "notes": "LPIPS-SqueezeNet (richzhang/PerceptualSimilarity v0.1). Two-input model: 'ref' + 'dist' ImageNet-normalised NCHW; scalar 'score' output. Exported via ai/lpips_export.py.",
+      "onnx": "lpips_sq.onnx",
+      "opset": 18,
+      "sha256": "1402626680d5b69a793e647edda2c32f04e192f5cf1e7837bec8bde14187a261"
     }
   ],
   "schema_version": 0
