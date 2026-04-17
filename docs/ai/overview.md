@@ -62,3 +62,11 @@ boundary is the `.onnx` + sidecar JSON pair on disk.
 - [inference.md](inference.md) — CLI / C API / ffmpeg filter surfaces.
 - [benchmarks.md](benchmarks.md) — accuracy + throughput methodology.
 - [security.md](security.md) — operator allowlist, size cap, Sigstore verification.
+
+## Per-model reference
+
+Every shipped tiny-AI checkpoint gets its own usage page under
+[`models/`](models/) — see [CLAUDE.md §12 rule 10 / ADR D42](../adr/decisions-log.md)
+for the rule. Current pages:
+
+- [LPIPS-SqueezeNet](models/lpips_sq.md) — full-reference perceptual distance.

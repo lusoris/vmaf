@@ -132,6 +132,15 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
 6. Every new `.c` / `.h` / `.cpp` / `.cu` file starts with the applicable license
    header (wholly-new fork files: `Copyright 2026 Lusoris and Claude (Anthropic)`;
    files touching Netflix code: Netflix header preserved).
+7. Every change to the tiny-AI surface (anything under `ai/`, `libvmaf/src/dnn/`,
+   DNN-backed feature extractors in `libvmaf/src/feature/`, `model/tiny/`, the MCP
+   server, or any `--tiny-model` / `vmaf_pre` / `vmaf_post` / `vmaf-train` /
+   `describe_worst_frames` user surface) ships **human-readable documentation** under
+   `docs/ai/` in the same PR as the code. Minimum bar: (a) what the model/feature does
+   in plain English, (b) output range + interpretation, (c) a runnable copy-pasteable
+   example (CLI, C, or Python), (d) provenance of any shipped checkpoint (source,
+   license, sha256), (e) known limitations. Code comments and ADR rows are *not
+   substitutes* — they explain decisions to maintainers, not usage to humans. See D42.
 
 ## 13. Interaction style — prefer structured popup questions
 
