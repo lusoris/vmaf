@@ -205,11 +205,15 @@ int vmaf_sycl_preallocate_pictures(VmafContext *ctx, VmafSyclPictureConfiguratio
 int vmaf_sycl_picture_fetch(VmafContext *ctx, VmafPicture *pic);
 ```
 
-Same semantics as the CUDA flavour:
-
-- `DEVICE` — USM device allocation, `cudaMemcpy`-equivalent into device memory
-  only (i.e. no auto H2D; your source must already be a device pointer).
-- `HOST` — USM host allocation; libvmaf inserts the copy.
+**Note:** unlike the CUDA flavour, the SYCL simple path does **not**
+currently use USM allocations. `vmaf_sycl_preallocate_pictures` is a no-op
+stub and `vmaf_sycl_picture_fetch` allocates via the regular host
+`vmaf_picture_alloc()` — the `DEVICE` / `HOST` enum values are declared for
+symmetry with CUDA but are not acted upon today
+([`libvmaf/src/libvmaf.c`](../../libvmaf/src/libvmaf.c)). SYCL extractors
+upload frame data internally when they receive a host-allocated picture.
+For true zero-copy, use the frame-buffer API below — that is the real
+GPU-resident path on SYCL.
 
 ### Zero-copy frame-buffer path
 
@@ -274,9 +278,12 @@ int  vmaf_sycl_import_d3d11_surface (VmafSyclState *state, void *d3d11_device,
 - `vmaf_sycl_upload_plane` is the **platform-agnostic escape hatch** —
   `memcpy` from a host pointer. Use when nothing better works or when you
   need a baseline for benchmarking.
-- `vmaf_sycl_import_d3d11_surface` (Windows only) imports a D3D11 texture
-  via a staging texture + map. Expensive (one extra D3D copy) but the only
-  path on Windows without WSL. Experimental.
+- `vmaf_sycl_import_d3d11_surface` (Windows only) is the **host roundtrip**
+  path: it creates a staging texture, copies the decoded surface into it,
+  maps the staging texture for CPU read, then uploads via H2D memcpy
+  (GPU → CPU → GPU). Not zero-copy — it exists because a true
+  D3D11 → SYCL path needs NT-handle sharing which is not yet implemented.
+  Experimental; only path on Windows without WSL.
 
 See [ADR-0016](../adr/0016-sycl-to-master-merge-conflict-policy.md) for how
 these APIs landed and [../backends/sycl/overview.md](../backends/sycl/overview.md)
@@ -304,12 +311,14 @@ set.
 
 ### Limitations
 
-- Zero-copy ingest paths require the SYCL queue to use the Level Zero
-  backend. OpenCL-backend SYCL builds fall back silently to `upload_plane`.
-- `vmaf_sycl_import_d3d11_surface` performs a full staging-texture copy
-  internally — it is "DMA-free on the source side" but not zero-copy
-  end-to-end. A true zero-copy D3D11 → SYCL path requires NT handle sharing
-  (not yet implemented).
+- Zero-copy ingest paths (`dmabuf_import`, `import_va_surface`) require
+  the SYCL queue to use the Level Zero backend — they call
+  `sycl::get_native<ext_oneapi_level_zero>` directly. On an OpenCL-backend
+  SYCL build these return `-EIO` with an error log; the caller must fall
+  back to `vmaf_sycl_upload_plane` explicitly.
+- `vmaf_sycl_import_d3d11_surface` is a full host roundtrip
+  (staging-texture copy → CPU map → H2D memcpy), not zero-copy. A true
+  D3D11 → SYCL path requires NT-handle sharing (not yet implemented).
 - `vmaf_sycl_init_frame_buffers` is single-resolution. Changing `w`/`h`/`bpc`
   mid-stream requires `vmaf_close` + re-init.
 
