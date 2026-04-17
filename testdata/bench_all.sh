@@ -3,7 +3,7 @@
 set -euo pipefail
 
 source /opt/intel/oneapi/setvars.sh 2>/dev/null || true
-cd /home/kilian/dev/libvmaf_vulkan || exit 1
+cd "${VMAF_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo /home/kilian/dev/vmaf)}" || exit 1
 
 VMAF=/usr/local/bin/vmaf
 MODEL=model/vmaf_v0.6.1.json
