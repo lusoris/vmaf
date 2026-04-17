@@ -18,6 +18,12 @@ This is an overview of the available documentation in the VMAF repository.
 - [MATLAB](usage/matlab.md) – running other quality algorithms (ST-RRED, ST-MAD, SpEED-QA, and BRISQUE) with MATLAB
 - [External resources](usage/external-resources.md) – e.g. software using VMAF
 
+## C API
+
+- [API overview](api/index.md) – core `libvmaf.h` + `picture.h` + `model.h` + `feature.h`: context lifecycle, scoring, pictures, models, ABI-stability tiers, thread-safety, runnable example
+- [DNN sessions](api/dnn.md) – tiny-AI `dnn.h`: standalone ONNX sessions (luma filter + multi-input named binding), device config, error codes
+- [GPU (CUDA / SYCL)](api/gpu.md) – `libvmaf_cuda.h` + `libvmaf_sycl.h`: zero-copy frame buffers, dmabuf / VA / D3D11 import, profiling
+
 ## Metrics
 
 - [Features](metrics/features.md) – VMAF's core features (metrics)

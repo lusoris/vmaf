@@ -110,6 +110,10 @@ nav:
       - Docker: usage/docker.md
       - MATLAB: usage/matlab.md
       - External resources: usage/external-resources.md
+  - C API:
+      - api/index.md
+      - DNN sessions: api/dnn.md
+      - GPU (CUDA / SYCL): api/gpu.md
   - Metrics:
       - Features: metrics/features.md
       - CAMBI: metrics/cambi.md
