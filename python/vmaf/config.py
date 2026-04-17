@@ -23,16 +23,12 @@ ROOT = os.path.abspath(
 # actually uses it (see docs/architecture/workspace.md). Override with the
 # VMAF_WORKSPACE env var if you need the harness to read/write elsewhere
 # (useful for CI caches or read-only checkouts).
-WORKSPACE = os.environ.get(
-    "VMAF_WORKSPACE", os.path.join(PYTHON_ROOT, "workspace")
-)
+WORKSPACE = os.environ.get("VMAF_WORKSPACE", os.path.join(PYTHON_ROOT, "workspace"))
 # Fork change: the training/eval harness reads example datasets, param files,
 # model params, and tutorial images from a resource tree. Upstream keeps that at
 # ROOT/resource (repo root). This fork moves it next to the code that uses it
 # (see docs/architecture/index.md). Override with the VMAF_RESOURCE env var.
-RESOURCE = os.environ.get(
-    "VMAF_RESOURCE", os.path.join(PYTHON_ROOT, "resource")
-)
+RESOURCE = os.environ.get("VMAF_RESOURCE", os.path.join(PYTHON_ROOT, "resource"))
 VMAF_RESOURCE_ROOT = "https://github.com/Netflix/vmaf_resource/raw/master"
 
 
