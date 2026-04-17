@@ -20,7 +20,9 @@ repos:
         exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^model/|^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
       - id: check-merge-conflict
       - id: check-yaml
-        exclude: '\.clang-format$'
+        # mkdocs.yml uses `!!python/name:...` tags (Material extensions, pymdownx
+        # superfences) which the default SafeLoader can't resolve.
+        exclude: '\.clang-format$|^mkdocs\.yml$'
       - id: check-json
       - id: check-toml
       - id: check-added-large-files

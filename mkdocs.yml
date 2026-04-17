@@ -1,0 +1,140 @@
+site_name: "VMAF — Lusoris fork"
+site_url: https://lusoris.github.io/vmaf/
+site_description: Perceptual video quality assessment with GPU/SIMD acceleration.
+repo_url: https://github.com/lusoris/vmaf
+repo_name: lusoris/vmaf
+edit_uri: edit/master/docs/
+copyright: "BSD-3-Clause-Plus-Patent — Netflix / Lusoris"
+
+docs_dir: docs
+site_dir: build-docs/site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - def_list
+  - footnotes
+
+validation:
+  links:
+    not_found: info
+    anchors: info
+    unrecognized_links: info
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/lusoris/vmaf
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - getting-started/index.md
+      - Install:
+          - Ubuntu: getting-started/install/ubuntu.md
+          - Fedora: getting-started/install/fedora.md
+          - Arch: getting-started/install/arch.md
+          - Alpine: getting-started/install/alpine.md
+          - macOS: getting-started/install/macos.md
+          - Windows: getting-started/install/windows.md
+      - Building on Windows: getting-started/building-on-windows.md
+  - Usage:
+      - Python library: usage/python.md
+      - FFmpeg: usage/ffmpeg.md
+      - Docker: usage/docker.md
+      - MATLAB: usage/matlab.md
+      - External resources: usage/external-resources.md
+  - Metrics:
+      - Features: metrics/features.md
+      - CAMBI: metrics/cambi.md
+      - Confidence Interval: metrics/confidence-interval.md
+      - Bad cases: metrics/bad-cases.md
+      - CTC:
+          - AOM: metrics/ctc/aom.md
+          - NFLX: metrics/ctc/nflx.md
+  - Models:
+      - Overview: models/overview.md
+      - Datasets: models/datasets.md
+  - Backends:
+      - backends/index.md
+      - x86 SIMD (AVX2 / AVX-512): backends/x86/avx512.md
+      - CUDA: backends/cuda/overview.md
+      - NVTX profiling: backends/nvtx/profiling.md
+      - SYCL / oneAPI: backends/sycl/overview.md
+      - SYCL bundling: backends/sycl/bundling.md
+  - Tiny AI:
+      - ai/index.md
+      - Overview: ai/overview.md
+      - Training: ai/training.md
+      - Inference: ai/inference.md
+      - Benchmarks: ai/benchmarks.md
+      - Security: ai/security.md
+  - Development:
+      - Engineering principles: principles.md
+      - Release: development/release.md
+  - Reference:
+      - FAQ: reference/faq.md
+      - References: reference/references.md
