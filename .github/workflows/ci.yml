@@ -208,7 +208,7 @@ jobs:
   coverage:
     name: "Coverage gate (ramping to 70% / 85% critical)"
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
       - name: Install deps
