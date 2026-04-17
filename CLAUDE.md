@@ -163,6 +163,18 @@ Use `/prep-release` to dry-run locally before merging a release PR.
 7. **Every** new `.c` / `.h` / `.cpp` / `.cu` starts with the license header. Use
    `Copyright 2026 Lusoris and Claude (Anthropic)` for wholly-new files, Netflix
    header for upstream-touched files.
+8. **Every** non-trivial architectural, policy, or scope decision gets an ADR row
+   in [docs/adr/decisions-log.md](docs/adr/decisions-log.md) **before** the commit
+   that implements it lands. Non-trivial = another engineer could reasonably have
+   chosen differently (directory moves, base-image policy, CI-gate semantics,
+   test-selection rules, new dependencies, coding-standards changes). Bug fixes
+   and implementation details do NOT need an ADR. Cite `req` (direct user quote)
+   or `Q<round>.<q>` (popup answer) as source; put the "why" and alternatives-
+   considered in the rationale block below the table. Mirror to
+   `.workingdir2/decisions/` for local planning continuity; the tracked
+   `docs/adr/` copy is authoritative.
+9. **Every** session re-reads `docs/adr/decisions-log.md` at start and adds missing
+   rows for any decisions inherited from context before the next commit. See D28.
 
 ## 13. Interaction style — prefer the popup question tool
 

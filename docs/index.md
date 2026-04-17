@@ -41,6 +41,7 @@ GPU / SIMD backend notes under [backends/](backends/):
 
 - [Repository layout](architecture/index.md) – what lives where + decision tree
 - [Python-harness workspace](architecture/workspace.md) – the moved `workspace/` tree
+- [ADR log](adr/) – every non-trivial architectural / policy decision + rationale
 
 ## Tiny-AI
 
