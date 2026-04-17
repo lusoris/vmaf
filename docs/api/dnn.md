@@ -41,12 +41,23 @@ typedef struct VmafDnnConfig {
 } VmafDnnConfig;
 ```
 
-- `device = AUTO` — use the best ORT execution provider available in the
-  linked build. Order of preference: CUDA → OpenVINO → ROCm → CPU.
-- `device = CPU` — force the CPU EP even if a GPU EP is linked. Useful for
-  golden-data regression testing.
-- `fp16_io` — a hint, not a contract. The EP is free to downcast or up-cast
-  silently; the session still accepts fp32 buffers at the call sites below.
+- `device = AUTO` — today equivalent to `CPU`. The backend
+  ([`ort_backend.c:85-98`](../../libvmaf/src/dnn/ort_backend.c)) only
+  special-cases `VMAF_DNN_DEVICE_CUDA` (guarded by `ORT_API_HAS_CUDA`);
+  every other value — `AUTO`, `CPU`, `OPENVINO`, `ROCM`, unknown — falls
+  through to the default CPU EP. The "CUDA → OpenVINO → ROCm → CPU"
+  preference order is **not** implemented yet; tracked as
+  [issue #30](https://github.com/lusoris/vmaf/issues/30).
+- `device = CUDA` — only functional when ORT itself was built with the CUDA
+  EP (`ORT_API_HAS_CUDA`). If not, the call silently falls back to CPU and
+  succeeds — there is no error.
+- `device = OPENVINO` / `device = ROCM` — **accepted but ignored today**.
+  The enum values exist so client code can stop using them when EPs are
+  added without an API break, but right now they produce a CPU EP session
+  (same issue #30).
+- `fp16_io` — **currently a ghost field**. Declared in the header but not
+  read anywhere in `libvmaf/src/dnn/`. Kept in the config struct so the ABI
+  doesn't break when honored; file a follow-up if you need it wired up.
 - `threads = 0` — lets ORT pick. Set explicitly when pinning affinity or
   benchmarking.
 
@@ -74,6 +85,8 @@ Returns:
 - `-E2BIG` — file exceeds `VMAF_MAX_MODEL_BYTES` (default 50 MB — defence
   against adversarial bloat; see
   [ADR-0039](../adr/0039-onnx-runtime-op-walk-registry.md)).
+- `-ENOMEM` — session allocation failed (ORT env, session options, or
+  internal buffer allocation).
 - Negative `errno` from the operator-allowlist walk if the model contains a
   banned op.
 
@@ -164,9 +177,12 @@ Errors:
 
 - `-ENOSYS` — built without DNN support.
 - `-EINVAL` — mismatched arity, null pointers, rank zero.
+- `-ENOMEM` — allocation failure (per-input staging buffer, or tensor
+  creation).
 - `-ENOSPC` — some `outputs[i].capacity` is smaller than the produced tensor.
-  On this return, `outputs[i].written` is *still* populated with the required
-  element count, so the caller can resize and retry.
+  On this return, `outputs[i].written` is populated with the required
+  element count (the code sets `written = produced` *before* the capacity
+  check), so the caller can resize and retry with the same bindings.
 - `-EIO` — ORT failure (bad graph, EP crash, OOM on device). The diagnostic
   is logged via the `VmafContext` log callback if one is configured (for
   sessions opened without a `VmafContext`, logging goes through the
@@ -239,9 +255,12 @@ Only works when libvmaf was built with `-Denable_dnn=true`.
   shipped in `model/tiny/`; untrusted models with new op types will be
   rejected at `_open`. Extend the allowlist via the registry — see
   [ADR-0039](../adr/0039-onnx-runtime-op-walk-registry.md).
-- `VMAF_DNN_DEVICE_OPENVINO` requires an ORT built with the OpenVINO EP.
-  Our distributed binaries include this by default; third-party builds
-  may not.
+- `VMAF_DNN_DEVICE_OPENVINO` and `VMAF_DNN_DEVICE_ROCM` are **accepted but
+  ignored** — the backend only wires up CPU (default) and CUDA (when
+  `ORT_API_HAS_CUDA`). Adding the OpenVINO + ROCm EP append calls is
+  tracked as [issue #30](https://github.com/lusoris/vmaf/issues/30).
+- `VmafDnnConfig.fp16_io` is **accepted but ignored** — currently a ghost
+  field. Same tracking issue.
 - There is no callback / progress hook; inference is synchronous per call.
 - Sessions are heap-only; no stack-allocated variant.
 
