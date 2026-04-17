@@ -52,38 +52,19 @@ jobs:
             --sarif --output=semgrep-local.sarif
       - name: Run semgrep (registry rule packs — advisory)
         continue-on-error: true
-        env:
-          # Authenticated fetches avoid the Semgrep Registry rate-limiting
-          # that used to produce empty SARIFs and a "Semgrep OSS is reporting
-          # errors" banner on the Security tab. SEMGREP_APP_TOKEN is a repo
-          # secret (see docs/development/ci-secrets.md / D39).
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: |
           # Registry packs (p/cwe-top-25, p/cert-c-strict, p/cert-cpp-strict):
           # upstream ships thousands of rules, some of which legitimately fire
           # on Netflix-authored upstream code we haven't yet cleaned up. Run
           # them for visibility on the Security tab, but don't gate merges —
           # that's CodeQL's job (security-and-quality suite, separate job).
+          # continue-on-error because the Semgrep Registry occasionally rate-
+          # limits unauthenticated fetches, which exits 7 with an empty SARIF.
           semgrep scan \
             --config=p/cwe-top-25 \
             --config=p/cert-c-strict \
             --config=p/cert-cpp-strict \
             --sarif --output=semgrep-registry.sarif || true
-      - name: Check registry SARIF is non-empty
-        id: registry_sarif
-        run: |
-          # Guard the SARIF upload: if the token wasn't set or the registry
-          # fetch still failed, the SARIF can end up empty (runs=[]). GitHub
-          # then marks "Semgrep OSS reporting errors" on the Security tab.
-          # Skip upload unless we got real results.
-          if [ -s semgrep-registry.sarif ] && \
-             jq -e '.runs[0].results | length > 0 or (.runs[0].tool.driver.rules | length > 0)' \
-                semgrep-registry.sarif > /dev/null 2>&1; then
-            echo "upload=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "upload=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::semgrep-registry.sarif is empty — skipping SARIF upload"
-          fi
       - name: Upload local-rules SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v4
@@ -91,7 +72,7 @@ jobs:
           sarif_file: semgrep-local.sarif
           category: semgrep-local
       - name: Upload registry-rules SARIF
-        if: always() && steps.registry_sarif.outputs.upload == 'true'
+        if: always() && hashFiles('semgrep-registry.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep-registry.sarif
