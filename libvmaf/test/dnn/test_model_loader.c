@@ -46,6 +46,82 @@ static char *test_size_cap(void)
     return NULL;
 }
 
+static char *test_validate_null_path(void)
+{
+    const int err = vmaf_dnn_validate_onnx(NULL, 0);
+    mu_assert("NULL path → -EINVAL", err == -EINVAL);
+    return NULL;
+}
+
+#ifndef _WIN32
+/* Write @p len bytes of @p data to a fresh temp file; returns malloc'd path. */
+static char *write_temp(const unsigned char *data, size_t len)
+{
+    char tmpl[] = "/tmp/vmaf-dnn-validate-XXXXXX";
+    int fd = mkstemp(tmpl);
+    if (fd < 0)
+        return NULL;
+    const ssize_t w = write(fd, data, len);
+    close(fd);
+    if (w != (ssize_t)len)
+        return NULL;
+    return strdup(tmpl);
+}
+
+static char *test_validate_zero_byte(void)
+{
+    char *path = write_temp((const unsigned char *)"", 0);
+    mu_assert("temp file creation failed", path != NULL);
+    const int err = vmaf_dnn_validate_onnx(path, 0);
+    remove(path);
+    free(path);
+    mu_assert("empty file → -EBADMSG", err == -EBADMSG);
+    return NULL;
+}
+
+static char *test_validate_allowed_onnx(void)
+{
+    /* Minimal ModelProto { graph { node { op_type = "Conv" } } } */
+    const unsigned char buf[] = {0x3A, 0x08, 0x0A, 0x06, 0x22, 0x04, 'C', 'o', 'n', 'v'};
+    char *path = write_temp(buf, sizeof(buf));
+    mu_assert("temp file creation failed", path != NULL);
+    const int err = vmaf_dnn_validate_onnx(path, 0);
+    remove(path);
+    free(path);
+    mu_assert("allowed Conv onnx → 0", err == 0);
+    return NULL;
+}
+
+static char *test_validate_disallowed_onnx(void)
+{
+    const unsigned char buf[] = {0x3A, 0x08, 0x0A, 0x06, 0x22, 0x04, 'L', 'o', 'o', 'p'};
+    char *path = write_temp(buf, sizeof(buf));
+    mu_assert("temp file creation failed", path != NULL);
+    const int err = vmaf_dnn_validate_onnx(path, 0);
+    remove(path);
+    free(path);
+    mu_assert("disallowed Loop onnx → -EPERM", err == -EPERM);
+    return NULL;
+}
+
+static char *test_validate_symlink_to_dir(void)
+{
+    /* Path hardening: realpath() must resolve a symlink to /tmp (a
+     * directory) before the S_ISREG gate, so validate must reject. */
+    char link_path[] = "/tmp/vmaf-dnn-dirlink-XXXXXX";
+    int fd = mkstemp(link_path);
+    mu_assert("mkstemp failed", fd >= 0);
+    close(fd);
+    remove(link_path);
+    mu_assert("symlink() failed", symlink("/tmp", link_path) == 0);
+    const int err = vmaf_dnn_validate_onnx(link_path, 0);
+    remove(link_path);
+    /* /tmp is not a regular file → stat_regular returns -ENOENT. */
+    mu_assert("symlink-to-dir → -ENOENT", err == -ENOENT);
+    return NULL;
+}
+#endif /* !_WIN32 */
+
 static char *test_sidecar_parses(void)
 {
 #ifdef _WIN32
@@ -102,6 +178,13 @@ char *run_tests(void)
 {
     mu_run_test(test_sniff_by_extension);
     mu_run_test(test_size_cap);
+    mu_run_test(test_validate_null_path);
+#ifndef _WIN32
+    mu_run_test(test_validate_zero_byte);
+    mu_run_test(test_validate_allowed_onnx);
+    mu_run_test(test_validate_disallowed_onnx);
+    mu_run_test(test_validate_symlink_to_dir);
+#endif
     mu_run_test(test_sidecar_parses);
     return NULL;
 }

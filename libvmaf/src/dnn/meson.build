@@ -33,6 +33,7 @@ endif
 dnn_sources = files(
   'dnn_api.c',
   'model_loader.c',
+  'onnx_scan.c',
   'op_allowlist.c',
   'ort_backend.c',
   'tensor_io.c',

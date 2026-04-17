@@ -26,7 +26,18 @@ test_op_allowlist = executable('test_op_allowlist',
 )
 
 test_model_loader = executable('test_model_loader',
-    ['../test.c', 'test_model_loader.c', '../../src/dnn/model_loader.c'],
+    ['../test.c', 'test_model_loader.c',
+     '../../src/dnn/model_loader.c',
+     '../../src/dnn/onnx_scan.c',
+     '../../src/dnn/op_allowlist.c'],
+    include_directories : dnn_test_inc,
+    c_args : dnn_defines,
+)
+
+test_onnx_scan = executable('test_onnx_scan',
+    ['../test.c', 'test_onnx_scan.c',
+     '../../src/dnn/onnx_scan.c',
+     '../../src/dnn/op_allowlist.c'],
     include_directories : dnn_test_inc,
     c_args : dnn_defines,
 )
@@ -34,6 +45,7 @@ test_model_loader = executable('test_model_loader',
 test('test_tensor_io',    test_tensor_io,    suite : 'dnn')
 test('test_op_allowlist', test_op_allowlist, suite : 'dnn')
 test('test_model_loader', test_model_loader, suite : 'dnn')
+test('test_onnx_scan',    test_onnx_scan,    suite : 'dnn')
 
 bash_prog = find_program('bash', required : false)
 if bash_prog.found()
@@ -42,5 +54,15 @@ if bash_prog.found()
          args : [files('test_cli.sh')],
          env  : { 'VMAF_BIN' : vmaf.full_path() },
          depends : vmaf,
+         suite : 'dnn')
+
+    # Registry integrity — verifies every model/tiny/*.onnx listed in
+    # registry.json exists and matches its pinned sha256. Runs against the
+    # source tree, not the build tree. Fails loudly if a tiny-model file
+    # is tampered with without a registry bump.
+    test('test_registry',
+         bash_prog,
+         args : [files('test_registry.sh')],
+         env  : { 'TINY_DIR' : meson.project_source_root() / '..' / 'model' / 'tiny' },
          suite : 'dnn')
 endif
