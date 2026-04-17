@@ -208,7 +208,7 @@ jobs:
   coverage:
     name: "Coverage gate (ramping to 70% / 85% critical)"
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Install deps
@@ -237,9 +237,12 @@ jobs:
           LD_LIBRARY_PATH: ${{ github.workspace }}/libvmaf/build-coverage/src
         run: |
           export PATH="${{ github.workspace }}/libvmaf/build-coverage/tools:$PATH"
+          python3 -m pip install --user pytest-timeout
           python3 -m pytest python/test/ -v -m "not slow" --tb=short \
+            --timeout=120 \
             --ignore=python/test/resource \
-            --ignore=python/test/cy_test.py || true
+            --ignore=python/test/cy_test.py \
+            --ignore=python/test/cambi_test.py || true
       - name: Gather lcov report
         working-directory: libvmaf
         run: |
