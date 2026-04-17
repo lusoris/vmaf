@@ -164,16 +164,23 @@ tiny-AI models (ONNX-based quality predictors), see
 
 ### Q: Does the fork support GPU acceleration?
 
-A: Yes. The fork adds CUDA, SYCL, and HIP backends on top of upstream, selected
-at runtime by build flags:
+A: Yes. The fork adds CUDA and SYCL backends on top of upstream (HIP is
+planned; see [backends/index.md](../backends/index.md)). Enable the
+backends at build time:
 
 ```bash
-meson setup build libvmaf -Denable_cuda=true -Denable_sycl=true
+cd libvmaf
+meson setup build -Denable_cuda=true -Denable_sycl=true
+ninja -C build
 ```
 
-See [backends/](../backends/) for per-backend best-practice notes. To enable a
-backend at call time, use `--cuda` or `--sycl` on the `vmaf` CLI. The CPU path
-with AVX2/AVX-512/NEON SIMD remains the default.
+See [backends/](../backends/index.md) for per-backend notes and
+[development/build-flags.md](../development/build-flags.md) for every
+`meson_options.txt` option. When the binary is built with a GPU
+backend it is **auto-selected at runtime** — there is no `--cuda` or
+`--sycl` selector flag. Opt out via `--no_cuda` / `--no_sycl`, or pin
+a specific SYCL device with `--sycl_device N`. The CPU path with
+AVX2 / AVX-512 / NEON SIMD is the universal fallback.
 
 ### Q: How do I get bit-exact round-trippable VMAF output?
 
