@@ -102,6 +102,9 @@ nav:
           - Windows: getting-started/install/windows.md
       - Building on Windows: getting-started/building-on-windows.md
   - Usage:
+      - CLI reference: usage/cli.md
+      - vmaf_bench: usage/bench.md
+      - '--precision': usage/precision.md
       - Python library: usage/python.md
       - FFmpeg: usage/ffmpeg.md
       - Docker: usage/docker.md
