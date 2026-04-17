@@ -166,9 +166,11 @@ ffmpeg -hwaccel cuda -hwaccel_output_format cuda -i reference.mp4 \
        -f null -
 ```
 
-The SYCL backend is used through `libvmaf` directly (via `--sycl`) rather than
-a dedicated FFmpeg filter — pipe decoded YUV into the `vmaf` CLI when a SYCL
-pipeline is needed. See [backends/sycl/](../backends/sycl/) for details.
+There is no dedicated FFmpeg filter for the SYCL backend; route decoded
+YUV through the `vmaf` CLI when a SYCL pipeline is needed (SYCL auto-
+selects when `libvmaf` is built with `-Denable_sycl=true`; use
+`--sycl_device N` to pin a device or `--no_sycl` to opt out). See
+[backends/sycl/overview.md](../backends/sycl/overview.md) for details.
 
 ## External resources
 
