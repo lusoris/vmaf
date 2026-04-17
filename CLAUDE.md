@@ -153,8 +153,11 @@ Use `/prep-release` to dry-run locally before merging a release PR.
 ## 12. Hard rules for every session
 
 1. **Never** modify Netflix golden assertions (§8).
-2. **Never** `git push --force` to `master`.
+2. **Never** `git push --force` to `master`. *(Also host-enforced: branch
+   protection rejects force-push and deletion — see D37 /
+   [release.md](docs/development/release.md#master-branch-protection).)*
 3. **Never** commit to `master` directly — branch + PR, merge via squash or ff only.
+   *(Also host-enforced: `required_linear_history: true` and 19 required status checks.)*
 4. **Never** skip `make lint` before pushing.
 5. **Never** commit benchmark output files (`testdata/netflix_benchmark_results.json`
    is usually noise from an ad-hoc run; stash it unless the run is formal).

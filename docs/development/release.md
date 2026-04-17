@@ -60,6 +60,27 @@ validates:
 See the [session orientation](../../CLAUDE.md#11-release) for the one-line
 summary and the `/prep-release` skill definition for the full checklist.
 
+## `master` branch protection
+
+`master` is protected at the GitHub API layer — the policy in
+[CLAUDE.md §12](../../CLAUDE.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md)
+is enforced at the host, not just honored by convention.
+
+- **Required status checks (19):** pre-commit, ruff+mypy+black, semgrep,
+  Netflix CPU golden (D24), ASan/UBSan/MSan ×3, Assertion density,
+  CodeQL ×4, clang-tidy, cppcheck, Tiny AI, MINGW build, dependency-review,
+  gitleaks, shellcheck+shfmt.
+- **Linear history required** — merges are squash-or-ff-only.
+- **Force-push and deletion disabled.**
+- **Admin bypass kept on** (owner can land emergency fixes that skip required
+  checks — use sparingly; see the emergency-release section below).
+- **Not required (non-blocking signals):** Coverage gate (~40 min, historically
+  finicky), GPU-advisory jobs, Semgrep OSS.
+
+Management: `gh api --method PUT repos/lusoris/vmaf/branches/master/protection`
+with a JSON payload. The current rule set is documented in ADR D37.
+When adding or renaming a required CI job, update the `contexts` list.
+
 ## Emergency release (out-of-band)
 
 If a CVE requires an out-of-band release that bypasses the release-please PR:
