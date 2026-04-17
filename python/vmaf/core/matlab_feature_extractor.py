@@ -39,7 +39,7 @@ class StrredFeatureExtractor(MatlabFeatureExtractor):
         "strred",
     ]
 
-    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "strred")
+    MATLAB_WORKSPACE = VmafConfig.root_path("python", "vmaf", "matlab", "strred")
 
     @classmethod
     def _assert_an_asset(cls, asset):
@@ -135,7 +135,7 @@ class StrredOptFeatureExtractor(MatlabFeatureExtractor):
 
     DERIVED_ATOM_FEATURES = ["strred", "strred_all_same"]
 
-    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "strred")
+    MATLAB_WORKSPACE = VmafConfig.root_path("python", "vmaf", "matlab", "strred")
 
     @classmethod
     def _assert_an_asset(cls, asset):
@@ -236,7 +236,7 @@ class SpEEDMatlabFeatureExtractor(MatlabFeatureExtractor):
         ATOM_FEATURES.append("tspeed_" + str(scale_now))
         DERIVED_ATOM_FEATURES.append("speed_" + str(scale_now))
 
-    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "SpEED")
+    MATLAB_WORKSPACE = VmafConfig.root_path("python", "vmaf", "matlab", "SpEED")
 
     def _generate_result(self, asset):
 
@@ -310,7 +310,7 @@ class STMADFeatureExtractor(MatlabFeatureExtractor):
 
     DERIVED_ATOM_FEATURES = ["smad_all_same", "tmad_all_same", "stmad_all_same"]
 
-    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "STMAD_2011_MatlabCode")
+    MATLAB_WORKSPACE = VmafConfig.root_path("python", "vmaf", "matlab", "STMAD_2011_MatlabCode")
 
     # compile necessary functions; need to use mex from within matlab
     def _custom_init(self):
@@ -420,7 +420,7 @@ class iCIDFeatureExtractor(MatlabFeatureExtractor):
     ATOM_FEATURES = ["icid"]
     # DERIVED_ATOM_FEATURES = ['icid_all_same']
 
-    MATLAB_WORKSPACE = VmafConfig.root_path("matlab", "cid_icid")
+    MATLAB_WORKSPACE = VmafConfig.root_path("python", "vmaf", "matlab", "cid_icid")
 
     @classmethod
     def _assert_an_asset(cls, asset):

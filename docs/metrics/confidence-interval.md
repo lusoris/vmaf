@@ -1,6 +1,6 @@
 # VMAF Confidence Interval
 
-Since v1.3.7 (June 2018), we have introduced a way to quantify the level of confidence that a VMAF prediction entails. With this method, each VMAF prediction score can be accompanied by a 95% confidence interval (CI), which quantifies the level of confidence that the prediction lies within the interval. 
+Since v1.3.7 (June 2018), we have introduced a way to quantify the level of confidence that a VMAF prediction entails. With this method, each VMAF prediction score can be accompanied by a 95% confidence interval (CI), which quantifies the level of confidence that the prediction lies within the interval.
 
 The CI is a consequence of the fact that the VMAF model is trained on a sample of subjective scores, while the population is unknown. The CI is established through [bootstrapping](https://www.jstor.org/stable/2241979) using the full training data. Essentially, the bootstrapping approach trains multiple models. Each of the models will introduce a slightly different prediction. The variability of these predictions quantifies the level of confidence -- the more close these predictions, the more confident the prediction using the full data. More details can be found in [this slide deck](../reference/presentations/VQEG_SAM_2018_023_VMAF_Variability.pdf).
 
@@ -56,7 +56,7 @@ CI can also be enabled in [`run_testing`](../usage/python.md#validate-a-dataset)
 
 ```bash
 python -m vmaf.script.run_testing \
-    BOOTSTRAP_VMAF resource/dataset/NFLX_dataset_public.py \
+    BOOTSTRAP_VMAF python/vmaf/resource/dataset/NFLX_dataset_public.py \
     --vmaf-model model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.json \
     --cache-result \
     --parallelize
@@ -70,14 +70,14 @@ Here each data point (color representing different content) is associated with a
 
 ## Training Bootstrap Models
 
-To train a bootstrap model, one can use [`run_vmaf_training`](../usage/python.md#train-a-new-model) command line. In the parameter file, the `model_type` must be `BOOTSTRAP_LIBSVMNUSVR`. In `model_param_dict`, one can optionally specify the number of models to be used via `num_models`. See [`vmaf_v6_bootstrap.py`](../../resource/param/vmaf_v6_bootstrap.py) for an example parameter file.
+To train a bootstrap model, one can use [`run_vmaf_training`](../usage/python.md#train-a-new-model) command line. In the parameter file, the `model_type` must be `BOOTSTRAP_LIBSVMNUSVR`. In `model_param_dict`, one can optionally specify the number of models to be used via `num_models`. See [`vmaf_v6_bootstrap.py`](../../python/vmaf/resource/param/vmaf_v6_bootstrap.py) for an example parameter file.
 
 Running the command line below will generate a bootstrap model `test_b_model.json`.
 
 ```bash
-python -m vmaf.script.run_vmaf_training resource/dataset/NFLX_dataset_public.py \
-    resource/param/vmaf_v6_bootstrap.py \
-    resource/param/vmaf_v6_bootstrap.py \
+python -m vmaf.script.run_vmaf_training python/vmaf/resource/dataset/NFLX_dataset_public.py \
+    python/vmaf/resource/param/vmaf_v6_bootstrap.py \
+    python/vmaf/resource/param/vmaf_v6_bootstrap.py \
     ~/Desktop/test/test_b_model.json \
     --cache-result \
     --parallelize

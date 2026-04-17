@@ -10,9 +10,12 @@ on:
     - cron: "0 6 * * 1"   # weekly Mon 06:00 UTC
   workflow_dispatch:
 
+# Default to least-privilege; jobs that push SARIF to the Security tab
+# (semgrep, codeql-*, gitleaks) opt into `security-events: write` per-job.
+# dependency-review only needs `contents: read`. Addresses Scorecard
+# TokenPermissionsID alert on the previously top-level write scope.
 permissions:
   contents: read
-  security-events: write   # CodeQL needs this to upload SARIF
 
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +26,9 @@ jobs:
     name: semgrep (CWE Top 25 + CERT-C + custom)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif to Security tab
     container:
       # returntocorp/semgrep was renamed to semgrep/semgrep upstream. The old
       # image still resolves but ships an EOL semgrep-core that exits 7 when it
@@ -61,13 +67,13 @@ jobs:
             --sarif --output=semgrep-registry.sarif || true
       - name: Upload local-rules SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep-local.sarif
           category: semgrep-local
       - name: Upload registry-rules SARIF
         if: always() && hashFiles('semgrep-registry.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep-registry.sarif
           category: semgrep-registry
@@ -79,19 +85,24 @@ jobs:
     name: CodeQL (C/C++)
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    permissions:
+      contents: read
+      security-events: write   # codeql-action/analyze uploads SARIF
     steps:
       - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: cpp
           queries: security-and-quality
+          config-file: ./.github/codeql-config.yml
       - name: Build
+        working-directory: libvmaf
         run: |
           sudo apt-get update
           sudo apt-get install -y meson ninja-build nasm
-          meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+          meson setup build -Denable_cuda=false -Denable_sycl=false
           meson compile -C build
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:cpp"
 
@@ -99,13 +110,17 @@ jobs:
     name: CodeQL (Python)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: python
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v3
+          config-file: ./.github/codeql-config.yml
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:python"
 
@@ -117,13 +132,17 @@ jobs:
     name: CodeQL (Actions)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: actions
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v3
+          config-file: ./.github/codeql-config.yml
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:actions"
 
@@ -131,6 +150,9 @@ jobs:
     name: gitleaks (secret scan)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write   # gitleaks-action uploads SARIF
     steps:
       - uses: actions/checkout@v6
         with:

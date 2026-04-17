@@ -56,7 +56,7 @@ New release to add CAMBI (Contrast Aware Multiscale Banding Index).
 
 - Python library: add encode width and height to Asset.
 - libvmaf: add pixel format VMAF_PIX_FMT_YUV400P.
-- Add cambi; add tests. 
+- Add cambi; add tests.
 - Improve documentation. (#912)
 
 ## (2021-09-20) [v2.2.1]
@@ -149,12 +149,12 @@ This is a minor release for the initial AOM CTC. Support has been added for temp
 - libvmaf_rc general improvements
 
 ## (2020-2-27) [1.5.1]
-    
+
 **New features:**
 - `libvmaf` has been relocated, and now has its own self-enclosed source tree (`./libvmaf/`) and build system (`meson`).
 - Update license to BSD+Patent.
 - Migrate the build system from makefile to meson.
-- Introduce a new release candidate API with the associated library `libvmaf_rc` and executable `vmaf_rc` under `./libvmaf/build`. 
+- Introduce a new release candidate API with the associated library `libvmaf_rc` and executable `vmaf_rc` under `./libvmaf/build`.
 - Add SI and TI feature extractor python classes.
 - Add fixed-point SSIM implementation.
 - Migrate to python3.
@@ -525,4 +525,3 @@ This is a minor release for the initial AOM CTC. Support has been added for temp
 
 **New features:**
 - Add SsimFeatureExtractor and MsSsimFeatureExtractor with intermediate features (luminence, contrast, structure).
-

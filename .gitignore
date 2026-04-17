@@ -25,6 +25,24 @@ testdata/bbb/*.yuv
 *.mp4
 *.mkv
 
+# Upstream MATLAB MEX compiled artefacts (platform-specific binaries).
+# Rebuild locally via `mex file.c` if you need the MATLAB reference path.
+# See Scorecard Binary-Artifacts / D38.
+python/vmaf/matlab/**/*.mex
+python/vmaf/matlab/**/*.mex[0-9]*
+python/vmaf/matlab/**/*.mexa64
+python/vmaf/matlab/**/*.mexglx
+python/vmaf/matlab/**/*.mexlx
+python/vmaf/matlab/**/*.mexmac
+python/vmaf/matlab/**/*.mexmaci64
+python/vmaf/matlab/**/*.mexsol
+python/vmaf/matlab/**/*.mexw32
+python/vmaf/matlab/**/*.mexw64
+python/vmaf/matlab/**/*.dll
+python/vmaf/matlab/**/*.exp
+python/vmaf/matlab/**/*.lib
+python/vmaf/matlab/**/*.o
+
 # Working/scratch directories
 .workingdir/
 .workingdir2/
@@ -35,3 +53,4 @@ testdata/bbb/*.yuv
 
 # Generated benchmark results
 testdata/bbb/results/
+build-docs/

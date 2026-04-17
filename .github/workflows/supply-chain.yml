@@ -13,17 +13,21 @@ on:
         description: "Tag to build provenance for"
         required: true
 
+# Default to least-privilege at the workflow level; individual jobs that
+# need `id-token: write` (Sigstore OIDC), `contents: write` (upload release
+# assets), or `attestations: write` (provenance) opt in per-job so a newly
+# added step can't silently inherit write scope. Addresses Scorecard
+# TokenPermissionsID alerts on `contents` and `packages`.
 permissions:
-  contents: write          # upload release assets
-  id-token: write          # OIDC for Sigstore keyless + SLSA generator
-  attestations: write
-  packages: write
+  contents: read
 
 jobs:
   build-artifacts:
     name: Build release artifacts (libvmaf.so, vmaf CLI, models)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     steps:
@@ -51,7 +55,7 @@ jobs:
         run: |
           cd artifacts
           echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: release-artifacts
           path: artifacts/
@@ -62,11 +66,13 @@ jobs:
     needs: build-artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { name: release-artifacts, path: artifacts/ }
       - uses: anchore/sbom-action@55dc4ee22412511ee8c3142cbea40418e6cec693  # v0.17.8
         with:
@@ -78,7 +84,7 @@ jobs:
           format: cyclonedx-json
           output-file: artifacts/sbom.cdx.json
           path: .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: sbom
           path: artifacts/sbom.*.json
@@ -88,8 +94,11 @@ jobs:
     needs: build-artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      id-token: write   # Sigstore keyless OIDC
+      contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { name: release-artifacts, path: artifacts/ }
       # cosign-installer v4 + cosign v3: sign-blob now emits a Sigstore
       # bundle (single .bundle file containing signature + certificate
@@ -105,7 +114,7 @@ jobs:
               --bundle "$f.bundle" \
               "$f"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: signatures
           path: artifacts/*.bundle
@@ -130,8 +139,10 @@ jobs:
     if: github.event_name == 'release'
     needs: [build-artifacts, sbom, sign, slsa-provenance]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # upload files to the GitHub Release
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { path: dist/ }
       - uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:

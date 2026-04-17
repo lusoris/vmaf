@@ -64,6 +64,38 @@ static int model_compare(VmafModel *model_a, VmafModel *model_b)
     return err;
 }
 
+/* Read the whole file into a malloc'd buffer; caller frees.
+ * Returns NULL on error; sets *len on success. */
+static char *slurp(const char *path, size_t *len)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return NULL;
+    if (fseek(f, 0, SEEK_END) != 0) {
+        (void)fclose(f);
+        return NULL;
+    }
+    const long sz = ftell(f);
+    if (sz < 0 || fseek(f, 0, SEEK_SET) != 0) {
+        (void)fclose(f);
+        return NULL;
+    }
+    char *buf = malloc((size_t)sz + 1);
+    if (!buf) {
+        (void)fclose(f);
+        return NULL;
+    }
+    const size_t got = fread(buf, 1, (size_t)sz, f);
+    (void)fclose(f);
+    if (got != (size_t)sz) {
+        free(buf);
+        return NULL;
+    }
+    buf[sz] = '\0';
+    *len = (size_t)sz;
+    return buf;
+}
+
 static char *test_json_model()
 {
     int err = 0;
@@ -343,6 +375,230 @@ static char *test_model_set_flags()
     return NULL;
 }
 
+/* Exercises vmaf_read_json_model_from_buffer — never hit by the existing
+ * tests, which only use vmaf_read_json_model_from_path. Round-trip: file →
+ * buffer → parse, and compare against the path-parsed model. */
+static char *test_json_model_from_buffer(void)
+{
+    const char *path = JSON_MODEL_PATH "vmaf_float_v0.6.1.json";
+    size_t len = 0;
+    char *buf = slurp(path, &len);
+    mu_assert("slurp failed", buf != NULL);
+
+    VmafModel *m_buf;
+    VmafModelConfig cfg_buf = {0};
+    int err = vmaf_read_json_model_from_buffer(&m_buf, &cfg_buf, buf, (int)len);
+    mu_assert("from_buffer failed", !err);
+
+    VmafModel *m_path;
+    VmafModelConfig cfg_path = {0};
+    err = vmaf_read_json_model_from_path(&m_path, &cfg_path, path);
+    mu_assert("from_path failed", !err);
+
+    mu_assert("buffer/path models diverge", !model_compare(m_buf, m_path));
+
+    vmaf_model_destroy(m_buf);
+    vmaf_model_destroy(m_path);
+    free(buf);
+    return NULL;
+}
+
+/* Missing path → -EINVAL from the fopen guard in vmaf_read_json_model_from_path. */
+static char *test_json_model_missing_path(void)
+{
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err =
+        vmaf_read_json_model_from_path(&m, &cfg, "/nonexistent/path/vmaf_does_not_exist.json");
+    mu_assert("missing path should return -EINVAL", err == -EINVAL);
+    return NULL;
+}
+
+/* Malformed JSON buffer → non-zero error from the parser. */
+static char *test_json_model_malformed_buffer(void)
+{
+    const char garbage[] = "{this is definitely not valid json}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, garbage, (int)sizeof(garbage) - 1);
+    mu_assert("malformed JSON should return non-zero", err != 0);
+    /* On the error path the parser may still have allocated *m; free if so. */
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* Empty buffer → non-zero error. */
+static char *test_json_model_empty_buffer(void)
+{
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, "", 0);
+    mu_assert("empty buffer should return non-zero", err != 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* Exercises vmaf_read_json_model_collection_from_path on the bootstrap
+ * ensemble model. Verifies model_collection_parse iterates its keyed
+ * sub-models ("0", "1", …) and fills both *model (first) and
+ * *model_collection (rest). */
+static char *test_json_model_collection_from_path(void)
+{
+    const char *path = JSON_MODEL_PATH "vmaf_b_v0.6.3.json";
+    VmafModel *m = NULL;
+    VmafModelCollection *mc = NULL;
+    VmafModelConfig cfg = {.name = "vmaf_b"};
+    int err = vmaf_read_json_model_collection_from_path(&m, &mc, &cfg, path);
+    mu_assert("collection_from_path failed", !err);
+    mu_assert("first model not populated", m != NULL);
+    mu_assert("collection not populated", mc != NULL);
+
+    vmaf_model_destroy(m);
+    vmaf_model_collection_destroy(mc);
+    return NULL;
+}
+
+/* Same ensemble model via the buffer entry point. */
+static char *test_json_model_collection_from_buffer(void)
+{
+    const char *path = JSON_MODEL_PATH "vmaf_b_v0.6.3.json";
+    size_t len = 0;
+    char *buf = slurp(path, &len);
+    mu_assert("slurp failed", buf != NULL);
+
+    VmafModel *m = NULL;
+    VmafModelCollection *mc = NULL;
+    VmafModelConfig cfg = {.name = "vmaf_b_buf"};
+    int err = vmaf_read_json_model_collection_from_buffer(&m, &mc, &cfg, buf, (int)len);
+    mu_assert("collection_from_buffer failed", !err);
+    mu_assert("first model not populated", m != NULL);
+    mu_assert("collection not populated", mc != NULL);
+
+    vmaf_model_destroy(m);
+    vmaf_model_collection_destroy(mc);
+    free(buf);
+    return NULL;
+}
+
+/* Missing path for the collection API → -EINVAL. */
+static char *test_json_model_collection_missing_path(void)
+{
+    VmafModel *m = NULL;
+    VmafModelCollection *mc = NULL;
+    VmafModelConfig cfg = {0};
+    int err =
+        vmaf_read_json_model_collection_from_path(&m, &mc, &cfg, "/nonexistent/path/vmaf_b.json");
+    mu_assert("missing collection path should return -EINVAL", err == -EINVAL);
+    return NULL;
+}
+
+/* Collection buffer that is not an object → model_collection_parse early
+ * -EINVAL branch. */
+static char *test_json_model_collection_malformed_buffer(void)
+{
+    const char garbage[] = "[1, 2, 3]";
+    VmafModel *m = NULL;
+    VmafModelCollection *mc = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_collection_from_buffer(&m, &mc, &cfg, garbage,
+                                                          (int)sizeof(garbage) - 1);
+    mu_assert("non-object collection should return non-zero", err != 0);
+    return NULL;
+}
+
+/* Hits parser branches that upstream model JSONs don't exercise:
+ *   - model_type = RESIDUEBOOTSTRAP_LIBSVMNUSVR
+ *   - norm_type = none
+ *   - score_transform with knots array + out_lte_in
+ *   - feature_opts_dicts with string and bool values (not just numbers)
+ * We don't assert a specific return code — libsvm's parser tolerates a
+ * lot of garbage, so the call may succeed or fail depending on where in
+ * the token stream it gives up. All we care about here is that the
+ * pre-libsvm branches get exercised without crashing. */
+static char *test_json_model_synthetic_branches(void)
+{
+    const char json[] =
+        "{"
+        "\"model_dict\": {"
+        "\"model_type\": \"RESIDUEBOOTSTRAP_LIBSVMNUSVR\","
+        "\"norm_type\": \"none\","
+        "\"score_transform\": {"
+        "\"enabled\": true,"
+        "\"p0\": 1.0,"
+        "\"p1\": 2.0,"
+        "\"p2\": 3.0,"
+        "\"knots\": [[0.0, 0.0], [1.0, 1.0]],"
+        "\"out_lte_in\": \"true\","
+        "\"out_gte_in\": \"false\""
+        "},"
+        "\"feature_names\": [\"f1\", \"f2\"],"
+        "\"slopes\": [1.0, 0.1, 0.2],"
+        "\"intercepts\": [0.0, 0.0, 0.0],"
+        "\"feature_opts_dicts\": ["
+        "{\"k_num\": 1.5, \"k_str\": \"hello\", \"k_true\": true, \"k_false\": false}"
+        "],"
+        "\"score_clip\": [0, 100],"
+        "\"model\": \"not-a-real-libsvm-payload\""
+        "}"
+        "}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    /* libsvm's string parser is permissive and may accept arbitrary bytes,
+     * so don't assert on err — the point is that parse_model_dict /
+     * parse_score_transform / parse_feature_opts_dicts executed without
+     * crashing and any allocation got cleaned up. */
+    (void)err;
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* Collection parser hits json_skip() for keys that don't match the
+ * generated "%d" index sequence (line 556). Also hits the -EINVAL early
+ * return when the inner model payload is malformed (line 538). */
+static char *test_json_model_collection_skips_unknown_keys(void)
+{
+    const char json[] = "{"
+                        "\"extra_meta\": \"ignored\","
+                        "\"0\": \"not an object — will fail inner parse\""
+                        "}";
+    VmafModel *m = NULL;
+    VmafModelCollection *mc = NULL;
+    VmafModelConfig cfg = {.name = "synth"};
+    int err =
+        vmaf_read_json_model_collection_from_buffer(&m, &mc, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("bad inner model should fail the collection parse", err != 0);
+    if (m)
+        vmaf_model_destroy(m);
+    if (mc)
+        vmaf_model_collection_destroy(mc);
+    return NULL;
+}
+
+/* Exercises the score_transform parser branches (p0, p1, p2, out_gte_in)
+ * via VMAF_MODEL_FLAG_ENABLE_TRANSFORM on a model that actually carries a
+ * score_transform block. vmaf_v0.6.1.json has one. */
+static char *test_json_model_score_transform(void)
+{
+    VmafModel *m;
+    VmafModelConfig cfg = {
+        .flags = VMAF_MODEL_FLAG_ENABLE_TRANSFORM,
+    };
+    const char *path = JSON_MODEL_PATH "vmaf_v0.6.1.json";
+    int err = vmaf_read_json_model_from_path(&m, &cfg, path);
+    mu_assert("load failed", !err);
+    mu_assert("score_transform should be enabled", m->score_transform.enabled);
+    mu_assert("p0 should be enabled", m->score_transform.p0.enabled);
+    mu_assert("p1 should be enabled", m->score_transform.p1.enabled);
+    mu_assert("p2 should be enabled", m->score_transform.p2.enabled);
+    mu_assert("out_gte_in should be set", m->score_transform.out_gte_in);
+    vmaf_model_destroy(m);
+    return NULL;
+}
+
 char *run_tests()
 {
     mu_run_test(test_json_model);
@@ -354,5 +610,16 @@ char *run_tests()
     mu_run_test(test_model_check_default_behavior_set_flags);
     mu_run_test(test_model_set_flags);
     mu_run_test(test_model_feature);
+    mu_run_test(test_json_model_from_buffer);
+    mu_run_test(test_json_model_missing_path);
+    mu_run_test(test_json_model_malformed_buffer);
+    mu_run_test(test_json_model_empty_buffer);
+    mu_run_test(test_json_model_collection_from_path);
+    mu_run_test(test_json_model_collection_from_buffer);
+    mu_run_test(test_json_model_collection_missing_path);
+    mu_run_test(test_json_model_collection_malformed_buffer);
+    mu_run_test(test_json_model_score_transform);
+    mu_run_test(test_json_model_synthetic_branches);
+    mu_run_test(test_json_model_collection_skips_unknown_keys);
     return NULL;
 }

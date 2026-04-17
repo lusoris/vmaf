@@ -121,7 +121,7 @@ void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned
                       int bpc, int scale);
 
 /*
- * Compute vif residuals on a vertically filtered line 
+ * Compute vif residuals on a vertically filtered line
  * This is a support method for block based vip_statistic_xxx method and is typically called
  * only when to is not a multiple of the block size, with from = (to / block_size) + block_size
  */

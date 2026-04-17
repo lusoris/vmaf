@@ -57,6 +57,7 @@ boundary is the `.onnx` + sidecar JSON pair on disk.
 
 ## Related documents
 
+- [roadmap.md](roadmap.md) — Wave 1 scope expansion (LPIPS, saliency, per-shot CRF, `vmaf_post`, allowlist `Loop`/`If`, MCP VLM tool).
 - [training.md](training.md) — `vmaf-train` CLI, dataset manifests, export flow.
 - [inference.md](inference.md) — CLI / C API / ffmpeg filter surfaces.
 - [benchmarks.md](benchmarks.md) — accuracy + throughput methodology.

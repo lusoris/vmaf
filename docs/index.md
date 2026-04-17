@@ -37,13 +37,21 @@ GPU / SIMD backend notes under [backends/](backends/):
 - [CUDA](backends/cuda/overview.md) + [NVTX profiling](backends/nvtx/profiling.md)
 - [SYCL / oneAPI](backends/sycl/overview.md) + [self-contained bundling](backends/sycl/bundling.md)
 
+## Architecture
+
+- [Repository layout](architecture/index.md) – what lives where + decision tree
+- [Python-harness workspace](architecture/workspace.md) – the moved `workspace/` tree
+- [ADR log](adr/) – every non-trivial architectural / policy decision + rationale
+
 ## Tiny-AI
 
 - [Tiny-AI docs](ai/) – overview, training, inference, benchmarks, security
+- [Tiny-AI roadmap](ai/roadmap.md) – Wave 1 scope expansion (LPIPS, saliency, per-shot CRF, `vmaf_post`, allowlist `Loop`/`If`, MCP VLM tool)
 
 ## Development
 
 - [Engineering principles](principles.md) – NASA Power-of-10 + JPL + CERT + MISRA, golden gate, quality policy
+- [Benchmarks](benchmarks.md) – fork-added benchmark numbers (GPU, SIMD, `--precision`)
 - [Release](development/release.md) – how to perform a new release
 
 ## Reference

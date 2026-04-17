@@ -16,6 +16,19 @@ ROOT = os.path.abspath(
         "..",
     )
 )
+# Fork change: the Python training/eval harness writes its dataset, model,
+# encode, output, and per-run scratch trees under a workspace directory. Upstream
+# keeps that at ROOT/workspace (repo root), which is noise for users who only
+# consume libvmaf or the vmaf CLI. This fork moves it next to the code that
+# actually uses it (see docs/architecture/workspace.md). Override with the
+# VMAF_WORKSPACE env var if you need the harness to read/write elsewhere
+# (useful for CI caches or read-only checkouts).
+WORKSPACE = os.environ.get("VMAF_WORKSPACE", os.path.join(PYTHON_ROOT, "workspace"))
+# Fork change: the training/eval harness reads example datasets, param files,
+# model params, and tutorial images from a resource tree. Upstream keeps that at
+# ROOT/resource (repo root). This fork moves it next to the code that uses it
+# (see docs/architecture/index.md). Override with the VMAF_RESOURCE env var.
+RESOURCE = os.environ.get("VMAF_RESOURCE", os.path.join(PYTHON_ROOT, "resource"))
 VMAF_RESOURCE_ROOT = "https://github.com/Netflix/vmaf_resource/raw/master"
 
 
@@ -192,19 +205,24 @@ class VmafConfig(object):
 
     @classmethod
     def file_result_store_path(cls, *components):
-        return cls.root_path("workspace", "result_store_dir", "file_result_store", *components)
+        return os.path.join(WORKSPACE, "result_store_dir", "file_result_store", *components)
 
     @classmethod
     def encode_store_path(cls, *components):
-        return cls.root_path("workspace", "result_store_dir", "encode_store", *components)
+        return os.path.join(WORKSPACE, "result_store_dir", "encode_store", *components)
 
     @classmethod
     def workspace_path(cls, *components):
-        return cls.root_path("workspace", *components)
+        """Root of the Python harness workspace (datasets, models, encodes,
+        outputs, per-run scratch). Fork moved this from ROOT/workspace to
+        python/vmaf/workspace; override via VMAF_WORKSPACE env var. See
+        docs/architecture/workspace.md for the subdirectory contract.
+        """
+        return os.path.join(WORKSPACE, *components)
 
     @classmethod
     def workdir_path(cls, *components):
-        return cls.root_path("workspace", "workdir", *components)
+        return os.path.join(WORKSPACE, "workdir", *components)
 
     @classmethod
     def model_path(cls, *components):
@@ -212,7 +230,12 @@ class VmafConfig(object):
 
     @classmethod
     def resource_path(cls, *components):
-        return cls.root_path("resource", *components)
+        """Root of the static resource tree (example datasets, param files,
+        model-training params, tutorial images). Fork moved this from
+        ROOT/resource to python/vmaf/resource; override via VMAF_RESOURCE env
+        var. See docs/architecture/index.md for the rationale.
+        """
+        return os.path.join(RESOURCE, *components)
 
     @classmethod
     def test_resource_path(cls, *components, bypass_download=False):
@@ -232,7 +255,7 @@ class VmafConfig(object):
 
     @classmethod
     def encode_path(cls, *components):
-        return cls.root_path("workspace", "encode", *components)
+        return os.path.join(WORKSPACE, "encode", *components)
 
 
 class DisplayConfig(object):

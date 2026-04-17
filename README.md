@@ -33,7 +33,7 @@ contract. The three Netflix CPU golden-data tests (1 normal + 2 checkerboard
 pairs) run as a required CI gate on every PR — see
 [`docs/principles.md`](docs/principles.md) §3.1 and decision D24.
 
-![vmaf logo](resource/images/vmaf_logo.jpg)
+![vmaf logo](python/vmaf/resource/images/vmaf_logo.jpg)
 
 ## Quickstart
 
@@ -111,6 +111,7 @@ through a single ONNX Runtime-backed inference path inside libvmaf.
 - [`AGENTS.md`](AGENTS.md) — same, for tool-agnostic agents (Cursor, Aider, Copilot).
 - [`docs/principles.md`](docs/principles.md) — NASA Power-of-10 + JPL + CERT + MISRA coding standard, Netflix golden gate, quality policy.
 - [`docs/backends/sycl/bundling.md`](docs/backends/sycl/bundling.md) — self-contained SYCL runtime bundling.
+- [`docs/benchmarks.md`](docs/benchmarks.md) — fork-added benchmark numbers (GPU, SIMD, `--precision`).
 - [`docs/ai/`](docs/ai/) — training, inference, benchmarks, security.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute (fork-specific + upstream guide preserved).
 - [`SECURITY.md`](SECURITY.md) — coordinated disclosure, SLA, supply-chain guarantees.

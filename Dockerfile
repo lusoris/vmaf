@@ -1,13 +1,19 @@
-# Base: NVIDIA CUDA 13.0.2 devel on Ubuntu 24.04. Digest-pinned for
-# reproducible builds. Gives us nvcc + cudart-dev without Ubuntu's
-# stale 'nvidia-cuda-toolkit' apt package (22.04 shipped CUDA 11.5).
-FROM nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:450d11555d20ac8ebbbc13ebf17589c2bd42869171a90179ce7098b4a5e64c6a
+# Base: NVIDIA CUDA ≥13.2 devel on Ubuntu 24.04. Non-conservative pin per ADR D27 —
+# we follow latest-stable CUDA aggressively because the fork's value is GPU perf on
+# current hardware; being one release behind costs ~10-30% on kernel-bound stages.
+# Digest-pinned for reproducibility of *this* snapshot; bump both tag + digest on
+# every stable CUDA release. Gives us nvcc + cudart-dev without Ubuntu's stale
+# 'nvidia-cuda-toolkit' apt package (24.04 still ships CUDA 12.x).
+FROM nvidia/cuda:13.2.0-devel-ubuntu24.04
 
 ARG NV_CODEC_TAG="876af32a202d0de83bd1d36fe74ee0f7fcf86b0d"
 ARG FFMPEG_TAG=n8.1
-# Broadened gencode: Turing baseline (sm_75) + Ampere (sm_80) + Hopper
-# (sm_90) + Blackwell consumer (sm_120). CUDA 13 dropped sm_50/60/70.
-ARG NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_90,code=sm_90 -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 -O2"
+# Broadened gencode: Turing baseline (sm_75) + Ampere (sm_80) + Hopper (sm_90) +
+# Blackwell consumer (sm_120). CUDA 13 dropped sm_50/60/70.
+# Experimental nvcc feature flags (ADR D27): relaxed-constexpr lets us reuse host
+# constexpr in device code; extended-lambda allows __device__ lambdas with capture;
+# expt-relaxed-constexpr is required by several Thrust/CUB templates we pull in.
+ARG NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_90,code=sm_90 -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 --expt-relaxed-constexpr --extended-lambda --expt-extended-lambda -O2"
 ARG ENABLE_SYCL=false
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -77,7 +83,7 @@ RUN make clean && make ENABLE_NVCC=true && make install
 RUN wget -q "https://github.com/FFmpeg/FFmpeg/archive/${FFMPEG_TAG}.zip" && \
     unzip -q "${FFMPEG_TAG}.zip" && rm "${FFMPEG_TAG}.zip"
 
-COPY patches/ffmpeg-libvmaf-sycl.patch /tmp/
+COPY ffmpeg-patches/0003-libvmaf-wire-sycl-backend-selector.patch /tmp/ffmpeg-libvmaf-sycl.patch
 WORKDIR /vmaf/FFmpeg-${FFMPEG_TAG}
 RUN (git apply /tmp/ffmpeg-libvmaf-sycl.patch 2>/dev/null || patch -p1 < /tmp/ffmpeg-libvmaf-sycl.patch)
 

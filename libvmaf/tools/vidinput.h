@@ -91,7 +91,7 @@ typedef enum {
     /** Currently reserved. */
     PF_RSVD,
     /** Chroma decimation by 2 in the X direction (4:2:2).
-   *  The Cb and Cr chroma planes are half the width of the luma plane, 
+   *  The Cb and Cr chroma planes are half the width of the luma plane,
    *  but full height. */
     PF_422,
     /** No chroma decimation (4:4:4).
