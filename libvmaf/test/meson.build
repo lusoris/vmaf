@@ -215,7 +215,16 @@ test_sycl = executable('test_sycl',
     c_args: ['-DHAVE_SYCL=1']
 )
 
+test_sycl_pic_preallocation = executable('test_sycl_pic_preallocation',
+    ['test.c', 'test_sycl_pic_preallocation.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [sycl_dependency],
+    c_args: ['-DHAVE_SYCL=1']
+)
+
 test('test_sycl', test_sycl)
+test('test_sycl_pic_preallocation', test_sycl_pic_preallocation)
 endif
 
 test('test_picture', test_picture)
