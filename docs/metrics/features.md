@@ -362,7 +362,7 @@ vmaf_feature_dictionary_set(&opts, "enable_mse", "true");
 vmaf_use_feature(ctx, "psnr", opts);
 ```
 
-See [api/index.md](../api/index.md#vmaffeaturedictionary--tuning-extractors)
+See [api/index.md](../api/index.md#vmaffeaturedictionary)
 for the dictionary ownership rules.
 
 ## Related

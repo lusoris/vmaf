@@ -213,7 +213,7 @@ A: Yes. The three canonical Netflix reference test pairs
 (src01/hrc00–hrc01, checkerboard 1-pixel shift, checkerboard 10-pixel shift)
 run in CI as a required status check. Numerical correctness against upstream
 is verified per commit. See the
-[engineering principles](../principles.md#netflix-golden-data-gate) for the
+[engineering principles](../principles.md#31-netflix-golden-data-gate) for the
 specific fidelity guarantee.
 
 ## Applications

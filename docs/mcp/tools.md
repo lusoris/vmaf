@@ -42,7 +42,7 @@ vmaf -r <ref> -d <dis> --width <w> --height <h> -p <pixfmt> -b <bitdepth> \
 
 The JSON written by vmaf is parsed and returned verbatim (the temp file
 is always unlinked — even on error). See
-[usage/cli.md](../usage/cli.md#output-modes) for the report schema.
+[usage/cli.md](../usage/cli.md#output) for the report schema.
 
 ### Example call
 

@@ -153,8 +153,9 @@ int main(void) {
   `vmaf_cuda_state_init()` (via `cuCtxSetCurrent` or `cudaSetDevice`).
 - No stream parameter. libvmaf runs its own streams internally; interop with
   an external stream is not exposed in v1.
-- No HIP path in this header. HIP support is separate and currently gated
-  behind `-Denable_hip=true` (experimental).
+- No HIP path in this header. A HIP backend is planned but not yet
+  scaffolded — the `enable_hip` meson option does not exist. See
+  [backends/index.md](../backends/index.md).
 
 ## SYCL
 
