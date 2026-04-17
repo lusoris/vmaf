@@ -143,7 +143,7 @@ typedef struct VmafConfiguration {
     unsigned n_threads;             /* worker threads for feature extraction */
     unsigned n_subsample;           /* compute scores every Nth frame (1 = all) */
     uint64_t cpumask;               /* disable specific CPU ISAs (see below) */
-    uint64_t gpumask;               /* disable CUDA (any bit set) */
+    uint64_t gpumask;               /* disable BOTH CUDA and SYCL (any non-zero value) */
 } VmafConfiguration;
 ```
 
@@ -158,6 +158,12 @@ typedef struct VmafConfiguration {
 | 16 | AVX512 |
 | 32 | AVX512ICL |
 
+> **`gpumask` caveat.** Despite the `uint64_t` type and "bitmask" name,
+> the field is treated as a boolean: any non-zero value disables *both*
+> CUDA and SYCL in [`libvmaf.c:694-698`](../../libvmaf/src/libvmaf.c).
+> There is no per-backend bit. Use `--no_cuda` / `--no_sycl` on the
+> CLI for per-backend opt-out.
+>
 > **Even-`n_subsample` warning.** Setting `n_subsample` to an even value can
 > produce inaccurate motion scores because the motion feature is frame-delta
 > based. Prefer 1 (all frames) or an odd integer. See

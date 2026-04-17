@@ -9,7 +9,7 @@ frame touches a graph.
 | Class | Example | Mitigation |
 | --- | --- | --- |
 | Hostile `.onnx` file | Model with custom op that exfiltrates via network syscall | Operator allowlist (next section). |
-| Memory-exhaustion via huge model | 10 GB `.onnx` dropped in `VMAF_TINY_MODEL_DIR` | Size cap (`VMAF_MAX_MODEL_BYTES`, default 50 MB). |
+| Memory-exhaustion via huge model | 10 GB `.onnx` passed to `--tiny-model` | Size cap (`VMAF_MAX_MODEL_BYTES`, default 50 MB). |
 | Path-traversal via `--tiny-model` | `--tiny-model ../../etc/shadow` | `vmaf_dnn_validate_onnx` requires `S_ISREG` + readable; refuses directories and devices. |
 | Silent model substitution | Attacker replaces signed model with a poisoned one | Opt-in Sigstore (`cosign`) verification against the workflow identity. |
 
@@ -39,9 +39,15 @@ concrete model that needs the addition.
 - **Path validation.** `vmaf_dnn_validate_onnx`:
   - resolves symlinks,
   - asserts `S_ISREG` (no devices, pipes, directories),
-  - if `VMAF_TINY_MODEL_DIR` is set, asserts the resolved path is under
-    it (chroot-style),
   - returns `-errno` on any failure — caller must check.
+
+  > **Planned (not yet implemented):** a `VMAF_TINY_MODEL_DIR` env var
+  > to chroot-style assert the resolved path is under a caller-trusted
+  > directory. Tracked as
+  > [issue #28](https://github.com/lusoris/vmaf/issues/28). Today
+  > the loader trusts the caller-supplied path once symlinks + file-type
+  > checks pass; MCP callers get a separate path allowlist
+  > ([mcp/index.md](../mcp/index.md#security-model)).
 - **Shape sanity.** The sidecar JSON declares `input_name`,
   `output_name`, and `expected_output_range`. Runtime values outside the
   range raise a warning to stderr; persistent violation aborts scoring
