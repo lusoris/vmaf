@@ -51,6 +51,67 @@ The expected output is:
 
 See the [FFmpeg's guide to libvmaf](https://ffmpeg.org/ffmpeg-filters.html#libvmaf), the [FFmpeg Filtering Guide](https://trac.ffmpeg.org/wiki/FilteringGuide) for more examples of complex filters, and the [Scaling Guide](https://trac.ffmpeg.org/wiki/Scaling) for information about scaling and using different scaling algorithms.
 
+## `libvmaf` filter option reference
+
+The `libvmaf` filter ships with FFmpeg (source:
+[`libavfilter/vf_libvmaf.c`](https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/vf_libvmaf.c))
+and wraps this repo's `libvmaf` C API. Options are set after the
+filter name inside an `-lavfi` expression, colon-separated:
+
+```text
+libvmaf=model=version=vmaf_v0.6.1:log_path=/dev/stdout:log_fmt=json:n_threads=4
+```
+
+| Option        | Type                                    | Default             | Effect                                                                  |
+|---------------|-----------------------------------------|---------------------|-------------------------------------------------------------------------|
+| `model`       | string (pipe-separated `version=` / `path=`) | `version=vmaf_v0.6.1` | Load a built-in or file-backed model. Supports multiple models stacked  |
+| `log_path`    | path                                    | (stderr only)       | Where to write the per-frame report (`/dev/stdout` is common)            |
+| `log_fmt`     | `xml` / `json` / `csv` / `sub`          | `xml`               | Report format; matches the `vmaf` CLI output modes                       |
+| `feature`     | string (pipe-separated `name=` entries) | (only model features) | Attach additional feature extractors (`name=psnr`, `name=ciede`, …)     |
+| `pool`        | `mean` / `min` / `harmonic_mean`        | `mean`              | Pooling method for the per-frame scores                                  |
+| `n_threads`   | integer                                 | `0` (library default)| Number of worker threads libvmaf is allowed to spawn                    |
+| `n_subsample` | integer `≥ 1`                           | `1`                 | Compute VMAF on every Nth frame only — useful for long-clip QC          |
+
+The filter publishes the final pooled score to FFmpeg's log as
+`VMAF score: <mean>`; the structured log at `log_path` is authoritative.
+
+### Fork-added options
+
+None currently. The fork-specific `--precision` flag on the `vmaf` CLI
+does not have an FFmpeg filter equivalent; pooled-score precision from
+FFmpeg comes from FFmpeg's own `%f` formatting. Use the `vmaf` CLI
+(not the filter) when you need `--precision=17` round-trip output.
+
+### Multi-feature / multi-model examples
+
+Score a pair with the default model plus PSNR + CIEDE attached:
+
+```bash
+ffmpeg -i ref.y4m -i dis.y4m \
+  -lavfi "[0:v][1:v]libvmaf=feature='name=psnr|name=ciede':log_fmt=json:log_path=/dev/stdout" \
+  -f null -
+```
+
+Score against two models in one pass (both appear in the report):
+
+```bash
+ffmpeg -i ref.y4m -i dis.y4m \
+  -lavfi "[0:v][1:v]libvmaf=model='version=vmaf_v0.6.1|version=vmaf_v0.6.1neg':log_fmt=json:log_path=/dev/stdout" \
+  -f null -
+```
+
+### When to use `vmaf` CLI instead of the filter
+
+- **You need `--precision 17`** (round-trip lossless output).
+- **You need the tiny-AI surface** (`--tiny-model`, `--tiny-device`,
+  `--no-reference`) — the FFmpeg filter does not yet expose these
+  flags. See [api/dnn.md](../api/dnn.md) for the C-API surface.
+- **You want deterministic CPU-only output.** The `libvmaf_cuda` filter
+  is automatic inside FFmpeg based on frame format; the CLI gives you
+  explicit `--no_cuda` / `--no_sycl` opt-out control.
+
+For everything else, the filter is the right tool.
+
 ## Note about the model path on Windows
 
 Due to Windows not having a good default for where to pull the VMAF model from, you will always need to specify `model_path` when calling libvmaf through `ffmpeg`. However, you will need to be careful about the path you pass to `model_path`.

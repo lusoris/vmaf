@@ -81,6 +81,9 @@ Build with the SYCL build arg to bundle Intel oneAPI into the image:
 docker build --build-arg ENABLE_SYCL=true -t vmaf-sycl .
 ```
 
-The SYCL backend is selected at CLI level with `--sycl`; see
-[backends/sycl/bundling.md](../backends/sycl/bundling.md) for
-runtime-bundling notes relevant to containerized deployments.
+When the image is built with SYCL, the backend is auto-selected
+inside `vmaf`. Use `--no_sycl` to opt out, or `--sycl_device N` to
+pin a specific device index — there is no `--sycl` selector flag.
+See [backends/sycl/bundling.md](../backends/sycl/bundling.md) for
+runtime-bundling notes relevant to containerized deployments, and
+[cli.md](cli.md#backend-selection) for the full flag grammar.
