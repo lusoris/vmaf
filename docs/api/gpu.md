@@ -205,15 +205,15 @@ int vmaf_sycl_preallocate_pictures(VmafContext *ctx, VmafSyclPictureConfiguratio
 int vmaf_sycl_picture_fetch(VmafContext *ctx, VmafPicture *pic);
 ```
 
-**Note:** unlike the CUDA flavour, the SYCL simple path does **not**
-currently use USM allocations. `vmaf_sycl_preallocate_pictures` is a no-op
-stub and `vmaf_sycl_picture_fetch` allocates via the regular host
+**Known bug — do not rely on this API.** Unlike the CUDA flavour, the SYCL
+simple path does **not** currently honor its preallocation enum.
+`vmaf_sycl_preallocate_pictures` is a no-op stub and
+`vmaf_sycl_picture_fetch` allocates via the regular host
 `vmaf_picture_alloc()` — the `DEVICE` / `HOST` enum values are declared for
-symmetry with CUDA but are not acted upon today
-([`libvmaf/src/libvmaf.c`](../../libvmaf/src/libvmaf.c)). SYCL extractors
-upload frame data internally when they receive a host-allocated picture.
-For true zero-copy, use the frame-buffer API below — that is the real
-GPU-resident path on SYCL.
+symmetry with CUDA but are silently ignored
+([`libvmaf/src/libvmaf.c`](../../libvmaf/src/libvmaf.c)). Tracked as
+[issue #26](https://github.com/lusoris/vmaf/issues/26). Use the frame-buffer
+API below — that is the real GPU-resident path on SYCL today.
 
 ### Zero-copy frame-buffer path
 
@@ -278,12 +278,13 @@ int  vmaf_sycl_import_d3d11_surface (VmafSyclState *state, void *d3d11_device,
 - `vmaf_sycl_upload_plane` is the **platform-agnostic escape hatch** —
   `memcpy` from a host pointer. Use when nothing better works or when you
   need a baseline for benchmarking.
-- `vmaf_sycl_import_d3d11_surface` (Windows only) is the **host roundtrip**
-  path: it creates a staging texture, copies the decoded surface into it,
-  maps the staging texture for CPU read, then uploads via H2D memcpy
-  (GPU → CPU → GPU). Not zero-copy — it exists because a true
-  D3D11 → SYCL path needs NT-handle sharing which is not yet implemented.
-  Experimental; only path on Windows without WSL.
+- `vmaf_sycl_import_d3d11_surface` (Windows only) is **declared in the
+  public header but not implemented in-tree** (`rg` finds zero
+  definitions). The Doxygen block describes an intended host-roundtrip
+  design — staging texture → CPU map → H2D memcpy — but no translation
+  unit provides the symbol today. Tracked as
+  [issue #27](https://github.com/lusoris/vmaf/issues/27). On Windows,
+  use `vmaf_sycl_upload_plane` for a host → USM fallback.
 
 See [ADR-0016](../adr/0016-sycl-to-master-merge-conflict-policy.md) for how
 these APIs landed and [../backends/sycl/overview.md](../backends/sycl/overview.md)
@@ -316,9 +317,9 @@ set.
   `sycl::get_native<ext_oneapi_level_zero>` directly. On an OpenCL-backend
   SYCL build these return `-EIO` with an error log; the caller must fall
   back to `vmaf_sycl_upload_plane` explicitly.
-- `vmaf_sycl_import_d3d11_surface` is a full host roundtrip
-  (staging-texture copy → CPU map → H2D memcpy), not zero-copy. A true
-  D3D11 → SYCL path requires NT-handle sharing (not yet implemented).
+- `vmaf_sycl_import_d3d11_surface` is **declared but unimplemented**
+  (ghost symbol — see [issue #27](https://github.com/lusoris/vmaf/issues/27)).
+  Windows callers must use `vmaf_sycl_upload_plane` today.
 - `vmaf_sycl_init_frame_buffers` is single-resolution. Changing `w`/`h`/`bpc`
   mid-stream requires `vmaf_close` + re-init.
 
