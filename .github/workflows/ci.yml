@@ -236,10 +236,18 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/python
           LD_LIBRARY_PATH: ${{ github.workspace }}/libvmaf/build-coverage/src
         run: |
+          # python/vmaf/__init__.py hardcodes libvmaf/build/tools/vmaf as the
+          # CLI path. Symlink build-coverage → build so coverage runs find it.
+          ln -sf build-coverage libvmaf/build
           export PATH="${{ github.workspace }}/libvmaf/build-coverage/tools:$PATH"
           python3 -m pip install --user pytest-timeout
-          python3 -m pytest python/test/ -v -m "not slow" --tb=short \
-            --timeout=120 \
+          # Wrap in `timeout` + --kill-after so stuck vmaf CLI subprocesses
+          # from failing vmafexec tests can't zombie-hang the step past the
+          # job budget. pytest-timeout=60 per-test is the first line; the
+          # outer timeout is the backstop.
+          timeout --kill-after=30s 20m python3 -m pytest python/test/ -v \
+            -m "not slow" --tb=short \
+            --timeout=60 --timeout-method=thread \
             --ignore=python/test/resource \
             --ignore=python/test/cy_test.py \
             --ignore=python/test/cambi_test.py || true
