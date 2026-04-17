@@ -228,7 +228,7 @@ python -m vmaf.script.run_testing \
 
 where `quality_type` can be `VMAF`, `PSNR`, `SSIM`, `MS_SSIM`, etc.
 
-Enabling `--cache-result` allows storing/retrieving extracted features (or elementary quality metrics) in a data store (under `workspace/result_store_dir/file_result_store`), since feature extraction is the most expensive operations here.
+Enabling `--cache-result` allows storing/retrieving extracted features (or elementary quality metrics) in a data store (under `python/vmaf/workspace/result_store_dir/file_result_store` by default; overridable via the `VMAF_WORKSPACE` environment variable — see [docs/architecture/workspace.md](../architecture/workspace.md)), since feature extraction is the most expensive operations here.
 
 Enabling `--parallelize` allows execution on multiple reference-distorted video pairs in parallel. Sometimes it is desirable to disable parallelization for debugging purpose (e.g. some error messages can only be displayed when parallel execution is disabled).
 
@@ -289,7 +289,7 @@ python -m vmaf.script.run_vmaf_training \
     resource/example/example_dataset.py \
     resource/feature_param/vmaf_feature_v2.py \
     resource/model_param/libsvmnusvr_v2.py \
-    workspace/model/test_model.pkl \
+    python/vmaf/workspace/model/test_model.pkl \
     --cache-result \
     --parallelize
 ```
@@ -343,7 +343,7 @@ python -m vmaf.script.run_vmaf_training \
     resource/example/example_raw_dataset.py \
     resource/feature_param/vmaf_feature_v2.py \
     resource/model_param/libsvmnusvr_v2.py \
-    workspace/model/test_model.pkl \
+    python/vmaf/workspace/model/test_model.pkl \
     --subj-model MLE_CO_AP2 \
     --cache-result \
     --parallelize

@@ -37,6 +37,11 @@ GPU / SIMD backend notes under [backends/](backends/):
 - [CUDA](backends/cuda/overview.md) + [NVTX profiling](backends/nvtx/profiling.md)
 - [SYCL / oneAPI](backends/sycl/overview.md) + [self-contained bundling](backends/sycl/bundling.md)
 
+## Architecture
+
+- [Repository layout](architecture/index.md) – what lives where + decision tree
+- [Python-harness workspace](architecture/workspace.md) – the moved `workspace/` tree
+
 ## Tiny-AI
 
 - [Tiny-AI docs](ai/) – overview, training, inference, benchmarks, security

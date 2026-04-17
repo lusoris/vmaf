@@ -74,7 +74,8 @@ libvmaf/
   include/libvmaf/            # public C API headers
   tools/                      # CLI: vmaf.c, vmaf_bench.c, cli_parse.c
   test/                       # C unit tests
-python/vmaf/                  # Python bindings + training harness
+python/vmaf/                  # Python bindings + classic training harness
+  workspace/                  # harness scratch — was ROOT/workspace/ upstream; see docs/architecture/workspace.md
 python/test/                  # Python tests — contains Netflix golden assertions
 ai/                           # Tiny-AI training (Python / PyTorch + Lightning)
 mcp-server/vmaf-mcp/          # MCP JSON-RPC server (Python)
