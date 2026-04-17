@@ -36,6 +36,50 @@ static char *resolve_path(const char *path, char *resolved)
 #endif
 }
 
+/* Optional chroot-style path jail: when VMAF_TINY_MODEL_DIR is set in the
+ * environment, the caller-supplied (already resolved) model path must sit
+ * under the jail directory after both are canonicalised. Returns 0 when
+ * the env is unset/empty (no-op) or the path is inside the jail, and
+ * -EACCES otherwise. Fails closed on a misconfigured jail (env points at
+ * a non-directory or an unresolvable path) — defensive default. */
+static int enforce_tiny_model_jail(const char *resolved_model)
+{
+    const char *jail_env = getenv("VMAF_TINY_MODEL_DIR");
+    if (!jail_env || jail_env[0] == '\0')
+        return 0;
+
+    char jail_resolved[PATH_MAX];
+    if (resolve_path(jail_env, jail_resolved) == NULL)
+        return -EACCES;
+
+    struct stat jst;
+    if (stat(jail_resolved, &jst) != 0)
+        return -EACCES;
+    if (!S_ISDIR(jst.st_mode))
+        return -EACCES;
+
+    const size_t jlen = strlen(jail_resolved);
+    if (jlen == 0u || jlen >= PATH_MAX - 1u)
+        return -EACCES;
+
+    /* Require a trailing separator on the jail prefix so "/foo" does not
+     * match a sibling "/foobar". Normalise by appending one when absent. */
+    char jail_prefix[PATH_MAX];
+    size_t plen = jlen;
+    memcpy(jail_prefix, jail_resolved, jlen);
+    if (jail_prefix[plen - 1u] != '/') {
+        jail_prefix[plen++] = '/';
+    }
+    jail_prefix[plen] = '\0';
+
+    const size_t mlen = strlen(resolved_model);
+    if (mlen < plen)
+        return -EACCES;
+    if (strncmp(resolved_model, jail_prefix, plen) != 0)
+        return -EACCES;
+    return 0;
+}
+
 /* ONNX files are protobuf-serialised graph messages. We sniff by extension +
  * a loose leading-byte pattern — protobuf varints start with a field tag
  * byte, so the first byte is rarely '{' (JSON) or '\x80' (pickle). */
@@ -255,8 +299,15 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
         return -errno;
     assert(resolved[0] != '\0');
 
+    /* Optional chroot-style path jail via VMAF_TINY_MODEL_DIR. Applied
+     * before any I/O on the target so a jail violation can't even trigger
+     * a stat() of the would-be path. */
+    int err = enforce_tiny_model_jail(resolved);
+    if (err != 0)
+        return err;
+
     size_t sz = 0;
-    int err = stat_regular(resolved, max_bytes, &sz);
+    err = stat_regular(resolved, max_bytes, &sz);
     if (err != 0)
         return err;
     assert(sz <= max_bytes);
