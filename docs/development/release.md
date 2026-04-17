@@ -78,7 +78,8 @@ is enforced at the host, not just honored by convention.
   finicky), GPU-advisory jobs, Semgrep OSS.
 
 Management: `gh api --method PUT repos/lusoris/vmaf/branches/master/protection`
-with a JSON payload. The current rule set is documented in ADR D37.
+with a JSON payload. The current rule set is documented in
+[ADR-0037](../adr/0037-master-branch-protection.md).
 When adding or renaming a required CI job, update the `contexts` list.
 
 ## Emergency release (out-of-band)

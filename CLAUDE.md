@@ -154,7 +154,8 @@ Use `/prep-release` to dry-run locally before merging a release PR.
 
 1. **Never** modify Netflix golden assertions (§8).
 2. **Never** `git push --force` to `master`. *(Also host-enforced: branch
-   protection rejects force-push and deletion — see D37 /
+   protection rejects force-push and deletion — see
+   [ADR-0037](docs/adr/0037-master-branch-protection.md) /
    [release.md](docs/development/release.md#master-branch-protection).)*
 3. **Never** commit to `master` directly — branch + PR, merge via squash or ff only.
    *(Also host-enforced: `required_linear_history: true` and 19 required status checks.)*
@@ -166,18 +167,23 @@ Use `/prep-release` to dry-run locally before merging a release PR.
 7. **Every** new `.c` / `.h` / `.cpp` / `.cu` starts with the license header. Use
    `Copyright 2026 Lusoris and Claude (Anthropic)` for wholly-new files, Netflix
    header for upstream-touched files.
-8. **Every** non-trivial architectural, policy, or scope decision gets an ADR row
-   in [docs/adr/decisions-log.md](docs/adr/decisions-log.md) **before** the commit
-   that implements it lands. Non-trivial = another engineer could reasonably have
-   chosen differently (directory moves, base-image policy, CI-gate semantics,
-   test-selection rules, new dependencies, coding-standards changes). Bug fixes
-   and implementation details do NOT need an ADR. Cite `req` (direct user quote)
-   or `Q<round>.<q>` (popup answer) as source; put the "why" and alternatives-
-   considered in the rationale block below the table. Mirror to
-   `.workingdir2/decisions/` for local planning continuity; the tracked
-   `docs/adr/` copy is authoritative.
-9. **Every** session re-reads `docs/adr/decisions-log.md` at start and adds missing
-   rows for any decisions inherited from context before the next commit. See D28.
+8. **Every** non-trivial architectural, policy, or scope decision gets its own
+   ADR file `docs/adr/NNNN-kebab-case.md` following
+   [docs/adr/0000-template.md](docs/adr/0000-template.md) **before** the commit
+   that implements it lands, plus an index row in
+   [docs/adr/README.md](docs/adr/README.md). Non-trivial = another engineer
+   could reasonably have chosen differently (directory moves, base-image
+   policy, CI-gate semantics, test-selection rules, new dependencies,
+   coding-standards changes). Bug fixes and implementation details do NOT
+   need an ADR. Cite `req` (direct user quote) or `Q<round>.<q>` (popup
+   answer) in the ADR's `## References` section; put the "why" in `## Context`
+   and the runner-up options in `## Alternatives considered`. Planning
+   dossiers under `.workingdir2/` may mirror ADRs for local continuity, but
+   the tracked `docs/adr/` tree is authoritative. See
+   [ADR-0028](docs/adr/0028-adr-maintenance-rule.md).
+9. **Every** session re-reads [docs/adr/README.md](docs/adr/README.md) at
+   start and writes missing `docs/adr/NNNN-*.md` files + index rows for any
+   decisions inherited from context before the next commit.
 10. **Every** change to the tiny-AI surface (anything under `ai/`, `libvmaf/src/dnn/`,
     `libvmaf/src/feature/feature_*.c` when the extractor is DNN-backed, `model/tiny/`,
     `mcp-server/`, or any `--tiny-model` / `vmaf_pre` / `vmaf_post` / `vmaf-train` /
@@ -187,8 +193,8 @@ Use `/prep-release` to dry-run locally before merging a release PR.
     (c) a runnable copy-pasteable example (CLI invocation, C snippet, or Python call),
     (d) the provenance of any shipped checkpoint (source, license, sha256), (e) known
     limitations (e.g. 8-bit only, BT.709 limited range, min resolution). Code comments
-    and ADR rows are *not substitutes* — they explain decisions to maintainers, not
-    usage to humans. See D42.
+    and ADRs are *not substitutes* — they explain decisions to maintainers, not
+    usage to humans. See [ADR-0042](docs/adr/0042-tinyai-docs-required-per-pr.md).
 
 ## 13. Interaction style — prefer the popup question tool
 

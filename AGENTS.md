@@ -139,8 +139,18 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
    `docs/ai/` in the same PR as the code. Minimum bar: (a) what the model/feature does
    in plain English, (b) output range + interpretation, (c) a runnable copy-pasteable
    example (CLI, C, or Python), (d) provenance of any shipped checkpoint (source,
-   license, sha256), (e) known limitations. Code comments and ADR rows are *not
-   substitutes* — they explain decisions to maintainers, not usage to humans. See D42.
+   license, sha256), (e) known limitations. Code comments and ADRs are *not
+   substitutes* — they explain decisions to maintainers, not usage to humans. See
+   [ADR-0042](docs/adr/0042-tinyai-docs-required-per-pr.md).
+8. Every non-trivial architectural, policy, or scope decision ships as its own
+   ADR file `docs/adr/NNNN-kebab-case.md` following
+   [docs/adr/0000-template.md](docs/adr/0000-template.md) **before** the
+   commit that implements it lands, and adds an index row in
+   [docs/adr/README.md](docs/adr/README.md). Non-trivial = another engineer
+   could reasonably have chosen differently. Bug fixes and implementation
+   details do not need an ADR. Cite `req` (direct user quote) or
+   `Q<round>.<q>` (popup answer) in the ADR's `## References` section. See
+   [ADR-0028](docs/adr/0028-adr-maintenance-rule.md).
 
 ## 13. Interaction style — prefer structured popup questions
 

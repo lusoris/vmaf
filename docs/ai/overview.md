@@ -66,7 +66,7 @@ boundary is the `.onnx` + sidecar JSON pair on disk.
 ## Per-model reference
 
 Every shipped tiny-AI checkpoint gets its own usage page under
-[`models/`](models/) — see [CLAUDE.md §12 rule 10 / ADR D42](../adr/decisions-log.md)
+[`models/`](models/) — see [CLAUDE.md §12 rule 10 / ADR-0042](../adr/0042-tinyai-docs-required-per-pr.md)
 for the rule. Current pages:
 
 - [LPIPS-SqueezeNet](models/lpips_sq.md) — full-reference perceptual distance.
