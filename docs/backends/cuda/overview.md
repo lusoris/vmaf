@@ -69,6 +69,39 @@ Adding a new CUDA extractor: see [`/add-feature-extractor`](../../../.claude/ski
 See [nvtx/profiling.md](../nvtx/profiling.md) for Nsight Systems recipes that
 rely on the backend's NVTX annotations.
 
+## Numerical tolerance vs the CPU scalar path
+
+CUDA integer kernels are bit-identical to the CPU fixed-point path by
+design — the shipped Netflix golden suite
+(`make test-netflix-golden`) compares CUDA scores against the CPU
+scores at the reported `--precision` and fails the build on any
+divergence beyond the last printed digit.
+
+There is **no floating-point slack** on VIF / ADM / Motion2: the integer
+kernels produce the same 64-bit accumulator values as the CPU scalar
+twins. If you see a per-frame delta greater than 0 at `--precision 17`,
+treat it as a backend bug and run
+[`/cross-backend-diff`](../../../.claude/skills/cross-backend-diff/SKILL.md)
+before shipping.
+
+## Known gaps
+
+- **CAMBI** — no CUDA kernel. Runs on CPU even when the rest of the
+  pipeline is on the GPU; the frame is downloaded to host memory for
+  CAMBI and the CUDA twin is used for everything else.
+- **CIEDE2000** — no CUDA kernel (same CPU-fallback behaviour).
+- **SSIM / MS-SSIM / PSNR / PSNR-HVS / ANSNR** — no CUDA kernels; these
+  are rare enough in production that the CPU twin is sufficient.
+- **Float-twin extractors (`float_*`)** — the CUDA backend only
+  implements the fixed-point integer extractors. Requesting
+  `--feature float_adm` with `--no_cuda=false` will still dispatch to
+  CPU for that feature.
+- **HIP / AMD** — not yet scaffolded; see
+  [backends/index.md](../index.md) for the status row.
+
+See [metrics/features.md](../../metrics/features.md) for the
+per-extractor coverage matrix.
+
 ## References
 
 - [CUDA C++ Best Practices Guide](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/)

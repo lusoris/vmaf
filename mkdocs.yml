@@ -144,6 +144,7 @@ nav:
       - Security: ai/security.md
   - Development:
       - Engineering principles: principles.md
+      - Build flags: development/build-flags.md
       - Release: development/release.md
   - Reference:
       - FAQ: reference/faq.md

@@ -66,6 +66,7 @@ GPU / SIMD backend notes under [backends/](backends/):
 
 - [Engineering principles](principles.md) – NASA Power-of-10 + JPL + CERT + MISRA, golden gate, quality policy
 - [Benchmarks](benchmarks.md) – fork-added benchmark numbers (GPU, SIMD, `--precision`)
+- [Build flags](development/build-flags.md) – every `meson_options.txt` option with defaults, effects, and flag interactions
 - [Release](development/release.md) – how to perform a new release
 
 ## Reference
