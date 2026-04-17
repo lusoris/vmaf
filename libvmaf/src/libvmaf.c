@@ -62,9 +62,7 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #include "cuda/ring_buffer.h"
 #endif
 
-#ifdef VMAF_PICTURE_POOL
 #include "picture_pool.h"
-#endif
 
 #ifdef HAVE_SYCL
 #include "libvmaf/libvmaf_sycl.h"
@@ -79,9 +77,7 @@ typedef struct VmafContext {
     VmafFeatureExtractorContextPool *fex_ctx_pool;
     VmafThreadPool *thread_pool;
     VmafFrameSyncContext *framesync;
-#ifdef VMAF_PICTURE_POOL
     VmafPicturePool *picture_pool;
-#endif
 #ifdef HAVE_CUDA
     struct {
         struct {
@@ -320,7 +316,6 @@ static int set_fex_cuda_state(VmafFeatureExtractorContext *fex_ctx, VmafContext 
 
 #endif
 
-#ifdef VMAF_PICTURE_POOL
 static int prepare_picture_pool(VmafContext *vmaf, unsigned pic_cnt, unsigned w, unsigned h,
                                 enum VmafPixelFormat pix_fmt, unsigned bpc)
 {
@@ -382,7 +377,6 @@ int vmaf_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic)
 
     return vmaf_picture_pool_fetch(vmaf->picture_pool, pic);
 }
-#endif
 
 #ifdef HAVE_SYCL
 int vmaf_sycl_import_state(VmafContext *vmaf, VmafSyclState *sycl_state)
@@ -635,10 +629,8 @@ int vmaf_close(VmafContext *vmaf)
     vmaf_thread_pool_destroy(vmaf->thread_pool);
     vmaf_fex_ctx_pool_destroy(vmaf->fex_ctx_pool);
     vmaf_ctx_dnn_free(vmaf);
-#ifdef VMAF_PICTURE_POOL
     if (vmaf->picture_pool)
         vmaf_picture_pool_close(vmaf->picture_pool);
-#endif
 #ifdef HAVE_CUDA
     if (vmaf->cuda.ring_buffer)
         vmaf_ring_buffer_close(vmaf->cuda.ring_buffer);
@@ -1297,11 +1289,9 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
     if (err)
         return err;
 
-#ifdef VMAF_PICTURE_POOL
     err = check_picture_pool(vmaf);
     if (err)
         return err;
-#endif
 
 #ifdef HAVE_CUDA
     err = check_ring_buffer(vmaf);
