@@ -122,9 +122,14 @@ The implementation:
 
 Errors:
 
-- `-ENOTSUP` — graph shape isn't luma-only.
+- `-EINVAL` — `sess`, `in`, or `out` is NULL.
+- `-ENOTSUP` — graph shape isn't the supported NCHW `[1,1,H,W]` luma layout,
+  or ORT returned fewer output elements than `w*h`.
 - `-ERANGE` — `w`/`h` don't match the graph's static input shape. Use
   `vmaf_dnn_session_run()` for dynamic shapes.
+- `-ENOSYS` — libvmaf was built without ONNX Runtime support
+  (`enable_onnx=false`); every DNN entry point returns `-ENOSYS` in that
+  configuration.
 
 ### General named-binding call
 

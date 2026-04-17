@@ -299,12 +299,15 @@ void vmaf_sycl_profiling_print      (VmafSyclState *state);
 int  vmaf_sycl_profiling_get_string (VmafSyclState *state, char **out);
 ```
 
-Profiling must be enabled *before* any frames are submitted — it requires
-the SYCL queue to be created with `enable_profiling`, and the queue is
-constructed inside `vmaf_sycl_state_init()`. Enable it at init time via
-`VmafSyclConfiguration.enable_profiling = 1` if you intend to profile, or
-use `vmaf_sycl_profiling_enable` on a state that was inited with the flag
-set.
+Profiling must be enabled *at init time* — the SYCL queue is created with
+the `enable_profiling` property inside `vmaf_sycl_state_init()` only when
+`VmafSyclConfiguration.enable_profiling = 1` is passed. `vmaf_sycl_profiling_enable`
+does **not** re-create the queue; it only flips a `bool` on the state
+(`libvmaf/src/sycl/common.cpp:1053`). If the queue was not built with
+`enable_profiling`, calling `vmaf_sycl_profiling_enable` succeeds but
+subsequent `get_profiling_info` calls on kernel events will throw a
+`sycl::exception`. In practice: set `enable_profiling=1` at init, then use
+the enable/disable pair to gate which frame ranges get timed.
 
 `vmaf_sycl_profiling_get_string` yields a caller-owned buffer — free with
 `free()`. Equivalent to `vmaf_bench --gpu-profile`
