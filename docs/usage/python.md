@@ -95,7 +95,7 @@ CC=$HOMEBREW_PREFIX/opt/llvm/bin/clang CXX=$HOMEBREW_PREFIX/opt/llvm/bin/clang++
 Run unittests and make sure they all pass:
 
 ```bash
-./unittest
+./scripts/run_unittests.sh
 ```
 
 ## Command Line Tools
@@ -192,7 +192,7 @@ Once a model is trained, the VMAF package also provides tools to cross validate 
 
 ### Create a Dataset
 
-To begin with, create a dataset file following the format in [`example_dataset.py`](../../resource/example/example_dataset.py). A dataset is a collection of distorted videos. Each has a unique asset ID and a corresponding reference video, identified by a unique content ID. Each distorted video is also associated with subjective quality score, typically a MOS (mean opinion score), obtained through subjective study. An example code snippet that defines a dataset is as follows:
+To begin with, create a dataset file following the format in [`example_dataset.py`](../../python/vmaf/resource/example/example_dataset.py). A dataset is a collection of distorted videos. Each has a unique asset ID and a corresponding reference video, identified by a unique content ID. Each distorted video is also associated with subjective quality score, typically a MOS (mean opinion score), obtained through subjective study. An example code snippet that defines a dataset is as follows:
 
 ```python
 dataset_name = 'example'
@@ -211,7 +211,7 @@ dis_videos = [
 ]
 ```
 
-See the directory [`resource/dataset`](../../resource/dataset) for more examples. Also refer to the [Datasets](../models/datasets.md) document regarding publicly available datasets.
+See the directory [`python/vmaf/resource/dataset`](../../python/vmaf/resource/dataset) for more examples. Also refer to the [Datasets](../models/datasets.md) document regarding publicly available datasets.
 
 ### Validate a Dataset
 
@@ -237,7 +237,7 @@ For example:
 ```bash
 python -m vmaf.script.run_testing \
     VMAF \
-    resource/example/example_dataset.py \
+    python/vmaf/resource/example/example_dataset.py \
     --cache-result \
     --parallelize
 ```
@@ -265,7 +265,7 @@ to clean up corrupted results in the store before retrying. For example:
 ```bash
 python -m vmaf.script.run_cleaning_cache \
     VMAF \
-    resource/example/example_dataset.py
+    python/vmaf/resource/example/example_dataset.py
 ```
 
 ### Train a New Model
@@ -286,9 +286,9 @@ For example:
 
 ```bash
 python -m vmaf.script.run_vmaf_training \
-    resource/example/example_dataset.py \
-    resource/feature_param/vmaf_feature_v2.py \
-    resource/model_param/libsvmnusvr_v2.py \
+    python/vmaf/resource/example/example_dataset.py \
+    python/vmaf/resource/feature_param/vmaf_feature_v2.py \
+    python/vmaf/resource/model_param/libsvmnusvr_v2.py \
     python/vmaf/workspace/model/test_model.pkl \
     --cache-result \
     --parallelize
@@ -340,9 +340,9 @@ The subjective model option can be specified with option `--subj-model subjectiv
 
 ```bash
 python -m vmaf.script.run_vmaf_training \
-    resource/example/example_raw_dataset.py \
-    resource/feature_param/vmaf_feature_v2.py \
-    resource/model_param/libsvmnusvr_v2.py \
+    python/vmaf/resource/example/example_raw_dataset.py \
+    python/vmaf/resource/feature_param/vmaf_feature_v2.py \
+    python/vmaf/resource/model_param/libsvmnusvr_v2.py \
     python/vmaf/workspace/model/test_model.pkl \
     --subj-model MLE_CO_AP2 \
     --cache-result \
@@ -350,13 +350,13 @@ python -m vmaf.script.run_vmaf_training \
 
 python -m vmaf.script.run_testing \
     VMAF \
-    resource/example/example_raw_dataset.py \
+    python/vmaf/resource/example/example_raw_dataset.py \
     --subj-model MLE_CO_AP2 \
     --cache-result \
     --parallelize
 ```
 
-Note that for the `--subj-model` option to have effect, the input dataset file must follow a format similar to [example_raw_dataset.py](../../resource/example/example_raw_dataset.py). Specifically, for each dictionary element in `dis_videos`, instead of having a key named `dmos` or `groundtruth` as in [example_dataset.py](../../resource/example/example_dataset.py), it must have a key named `os` (stands for opinion score), and the value must be a list of numbers. This is the "raw opinion score" collected from subjective experiments, which is used as the input to the custom subjective models.
+Note that for the `--subj-model` option to have effect, the input dataset file must follow a format similar to [example_raw_dataset.py](../../python/vmaf/resource/example/example_raw_dataset.py). Specifically, for each dictionary element in `dis_videos`, instead of having a key named `dmos` or `groundtruth` as in [example_dataset.py](../../python/vmaf/resource/example/example_dataset.py), it must have a key named `os` (stands for opinion score), and the value must be a list of numbers. This is the "raw opinion score" collected from subjective experiments, which is used as the input to the custom subjective models.
 
 ### Cross Validation
 

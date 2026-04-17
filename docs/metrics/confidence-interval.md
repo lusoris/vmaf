@@ -56,7 +56,7 @@ CI can also be enabled in [`run_testing`](../usage/python.md#validate-a-dataset)
 
 ```bash
 python -m vmaf.script.run_testing \
-    BOOTSTRAP_VMAF resource/dataset/NFLX_dataset_public.py \
+    BOOTSTRAP_VMAF python/vmaf/resource/dataset/NFLX_dataset_public.py \
     --vmaf-model model/vmaf_float_b_v0.6.3/vmaf_float_b_v0.6.3.json \
     --cache-result \
     --parallelize
@@ -70,14 +70,14 @@ Here each data point (color representing different content) is associated with a
 
 ## Training Bootstrap Models
 
-To train a bootstrap model, one can use [`run_vmaf_training`](../usage/python.md#train-a-new-model) command line. In the parameter file, the `model_type` must be `BOOTSTRAP_LIBSVMNUSVR`. In `model_param_dict`, one can optionally specify the number of models to be used via `num_models`. See [`vmaf_v6_bootstrap.py`](../../resource/param/vmaf_v6_bootstrap.py) for an example parameter file.
+To train a bootstrap model, one can use [`run_vmaf_training`](../usage/python.md#train-a-new-model) command line. In the parameter file, the `model_type` must be `BOOTSTRAP_LIBSVMNUSVR`. In `model_param_dict`, one can optionally specify the number of models to be used via `num_models`. See [`vmaf_v6_bootstrap.py`](../../python/vmaf/resource/param/vmaf_v6_bootstrap.py) for an example parameter file.
 
 Running the command line below will generate a bootstrap model `test_b_model.json`.
 
 ```bash
-python -m vmaf.script.run_vmaf_training resource/dataset/NFLX_dataset_public.py \
-    resource/param/vmaf_v6_bootstrap.py \
-    resource/param/vmaf_v6_bootstrap.py \
+python -m vmaf.script.run_vmaf_training python/vmaf/resource/dataset/NFLX_dataset_public.py \
+    python/vmaf/resource/param/vmaf_v6_bootstrap.py \
+    python/vmaf/resource/param/vmaf_v6_bootstrap.py \
     ~/Desktop/test/test_b_model.json \
     --cache-result \
     --parallelize

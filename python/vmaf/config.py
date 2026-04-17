@@ -26,6 +26,13 @@ ROOT = os.path.abspath(
 WORKSPACE = os.environ.get(
     "VMAF_WORKSPACE", os.path.join(PYTHON_ROOT, "workspace")
 )
+# Fork change: the training/eval harness reads example datasets, param files,
+# model params, and tutorial images from a resource tree. Upstream keeps that at
+# ROOT/resource (repo root). This fork moves it next to the code that uses it
+# (see docs/architecture/index.md). Override with the VMAF_RESOURCE env var.
+RESOURCE = os.environ.get(
+    "VMAF_RESOURCE", os.path.join(PYTHON_ROOT, "resource")
+)
 VMAF_RESOURCE_ROOT = "https://github.com/Netflix/vmaf_resource/raw/master"
 
 
@@ -227,7 +234,12 @@ class VmafConfig(object):
 
     @classmethod
     def resource_path(cls, *components):
-        return cls.root_path("resource", *components)
+        """Root of the static resource tree (example datasets, param files,
+        model-training params, tutorial images). Fork moved this from
+        ROOT/resource to python/vmaf/resource; override via VMAF_RESOURCE env
+        var. See docs/architecture/index.md for the rationale.
+        """
+        return os.path.join(RESOURCE, *components)
 
     @classmethod
     def test_resource_path(cls, *components, bypass_download=False):

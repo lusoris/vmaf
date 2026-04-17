@@ -2,7 +2,7 @@
 
 > **Scope:** this file tracks *fork-added* benchmarks (GPU backends, SIMD
 > paths, `--precision` overhead). Netflix's upstream correctness numbers
-> are the Netflix golden CPU pools — see [CLAUDE.md §8](CLAUDE.md).
+> are the Netflix golden CPU pools — see [CLAUDE.md §8](../CLAUDE.md).
 
 Runs below are produced by `make bench` (drives `testdata/bench_all.sh`) on
 a fixed hardware profile and pinned commit. Contribute new numbers via a

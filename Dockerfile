@@ -83,7 +83,7 @@ RUN make clean && make ENABLE_NVCC=true && make install
 RUN wget -q "https://github.com/FFmpeg/FFmpeg/archive/${FFMPEG_TAG}.zip" && \
     unzip -q "${FFMPEG_TAG}.zip" && rm "${FFMPEG_TAG}.zip"
 
-COPY patches/ffmpeg-libvmaf-sycl.patch /tmp/
+COPY ffmpeg-patches/0003-libvmaf-wire-sycl-backend-selector.patch /tmp/ffmpeg-libvmaf-sycl.patch
 WORKDIR /vmaf/FFmpeg-${FFMPEG_TAG}
 RUN (git apply /tmp/ffmpeg-libvmaf-sycl.patch 2>/dev/null || patch -p1 < /tmp/ffmpeg-libvmaf-sycl.patch)
 

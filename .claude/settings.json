@@ -123,18 +123,36 @@
   },
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash", "command": ".claude/hooks/block-unsafe-bash.sh" }
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/block-unsafe-bash.sh" }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "Edit|Write", "command": ".claude/hooks/auto-format-on-edit.sh" },
-      { "matcher": "Edit|Write", "command": ".claude/hooks/auto-snapshot-warn.sh" },
-      { "matcher": "Edit|Write", "command": ".claude/hooks/compile-commands-sync.sh" }
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/auto-format-on-edit.sh" },
+          { "type": "command", "command": ".claude/hooks/auto-snapshot-warn.sh" },
+          { "type": "command", "command": ".claude/hooks/compile-commands-sync.sh" }
+        ]
+      }
     ],
     "SessionStart": [
-      { "command": ".claude/hooks/session-start.sh" }
+      {
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/session-start.sh" }
+        ]
+      }
     ],
     "Stop": [
-      { "command": ".claude/hooks/stop.sh" }
+      {
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/stop.sh" }
+        ]
+      }
     ]
   }
 }

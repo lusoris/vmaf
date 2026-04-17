@@ -50,6 +50,7 @@ GPU / SIMD backend notes under [backends/](backends/):
 ## Development
 
 - [Engineering principles](principles.md) – NASA Power-of-10 + JPL + CERT + MISRA, golden gate, quality policy
+- [Benchmarks](benchmarks.md) – fork-added benchmark numbers (GPU, SIMD, `--precision`)
 - [Release](development/release.md) – how to perform a new release
 
 ## Reference
