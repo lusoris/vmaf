@@ -60,6 +60,7 @@ extern VmafFeatureExtractor vmaf_fex_integer_vif_sycl;
 extern VmafFeatureExtractor vmaf_fex_integer_adm_sycl;
 extern VmafFeatureExtractor vmaf_fex_integer_motion_sycl;
 #endif
+extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_null;
 
 static VmafFeatureExtractor *feature_extractor_list[] = {
@@ -80,7 +81,7 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
 #if HAVE_CUDA
     &vmaf_fex_integer_adm_cuda, &vmaf_fex_integer_vif_cuda, &vmaf_fex_integer_motion_cuda,
 #endif
-    &vmaf_fex_null, NULL};
+    &vmaf_fex_lpips, &vmaf_fex_null, NULL};
 
 VmafFeatureExtractor *vmaf_get_feature_extractor_by_name(const char *name)
 {

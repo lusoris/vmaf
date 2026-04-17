@@ -178,6 +178,17 @@ Use `/prep-release` to dry-run locally before merging a release PR.
    `docs/adr/` copy is authoritative.
 9. **Every** session re-reads `docs/adr/decisions-log.md` at start and adds missing
    rows for any decisions inherited from context before the next commit. See D28.
+10. **Every** change to the tiny-AI surface (anything under `ai/`, `libvmaf/src/dnn/`,
+    `libvmaf/src/feature/feature_*.c` when the extractor is DNN-backed, `model/tiny/`,
+    `mcp-server/`, or any `--tiny-model` / `vmaf_pre` / `vmaf_post` / `vmaf-train` /
+    `describe_worst_frames` user surface) ships **human-readable documentation** under
+    `docs/ai/` in the same PR as the code. Minimum bar: (a) what the model/feature does
+    in plain English, (b) the numeric range of its output and how to interpret it,
+    (c) a runnable copy-pasteable example (CLI invocation, C snippet, or Python call),
+    (d) the provenance of any shipped checkpoint (source, license, sha256), (e) known
+    limitations (e.g. 8-bit only, BT.709 limited range, min resolution). Code comments
+    and ADR rows are *not substitutes* — they explain decisions to maintainers, not
+    usage to humans. See D42.
 
 ## 13. Interaction style — prefer the popup question tool
 

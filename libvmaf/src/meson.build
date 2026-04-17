@@ -33,6 +33,9 @@ is_nvtx_enabled = get_option('enable_nvtx') == true
 subdir('dnn')
 if dnn_have_ort
     cdata.set10('HAVE_DNN', true)
+    # Propagate VMAF_HAVE_DNN to every libvmaf TU: feature_extractor.c and
+    # feature_lpips.c both gate registration/initialisation on it.
+    vmaf_cflags_common += dnn_defines
 endif
 
 if is_nvtx_enabled
@@ -562,6 +565,10 @@ libvmaf_feature_sources = [
     feature_src_dir + 'cambi.c',
     feature_src_dir + 'luminance_tools.c',
     feature_src_dir + 'null.c',
+    # LPIPS extractor uses the public libvmaf/dnn.h surface, which stays
+    # available as -ENOSYS stubs when ORT is missing — so compile
+    # unconditionally; init() declines at runtime on stub builds.
+    feature_src_dir + 'feature_lpips.c',
 ]
 
 if float_enabled

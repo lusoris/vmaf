@@ -64,11 +64,16 @@ test_predict = executable('test_predict',
 )
 
 test_feature_extractor = executable('test_feature_extractor',
+    # dnn_sources pulled in directly so feature_lpips.c can resolve its
+    # libvmaf/dnn.h references (session_open/run/close,
+    # vmaf_tensor_from_rgb_imagenet) without linking against libvmaf.so.
     ['test.c', 'test_feature_extractor.c', '../src/mem.c', '../src/picture.c', '../src/ref.c',
      '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
-     '../src/metadata_handler.c'],
-    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
-    dependencies : [math_lib, stdatomic_dependency, thread_lib, cuda_dependency, sycl_dependency],
+     '../src/metadata_handler.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, thread_lib, cuda_dependency, sycl_dependency,
+                    dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -108,6 +113,26 @@ test_ciede = executable('test_ciede',
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
     dependencies: [cuda_dependency, sycl_dependency],
+)
+
+# LPIPS registration tests — verify feature wiring without depending on a
+# real ORT session. Links against libvmaf_feature_static_lib for the
+# extractor list and pulls in opt.c for the VmafOption typedef.
+test_lpips = executable('test_lpips',
+    ['test.c', 'test_lpips.c', '../src/mem.c', '../src/picture.c', '../src/ref.c',
+     '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, thread_lib, cuda_dependency, sycl_dependency,
+                    dnn_deps],
+    objects : [
+      common_cuda_objects,
+      platform_specific_cpu_objects,
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
+    ]
 )
 
 test_cambi = executable('test_cambi',
@@ -204,6 +229,7 @@ test('test_cpu', test_cpu)
 test('test_ref', test_ref)
 test('test_feature', test_feature)
 test('test_ciede', test_ciede)
+test('test_lpips', test_lpips)
 test('test_cambi', test_cambi)
 test('test_luminance_tools', test_luminance_tools)
 test('test_cli_parse', test_cli_parse)
