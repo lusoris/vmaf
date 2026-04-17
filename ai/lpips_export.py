@@ -39,6 +39,7 @@ Usage
 Parity check against Torch reference is run automatically; fails with a
 non-zero exit if atol>1e-4.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,7 +52,6 @@ import numpy as np
 import onnx
 import torch
 import torch.nn as nn
-
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)

@@ -31,6 +31,31 @@
 #include "feature/feature_extractor.h"
 #include "opt.h"
 
+/* MinGW's mingw.org / MSYS2 headers do not expose POSIX setenv/unsetenv under
+ * -std=c11 -pedantic. Shim via _putenv_s (MSVCRT) on _WIN32; use the POSIX
+ * functions elsewhere. Both shims silently swallow failures — this is a test
+ * helper, not a production code path. */
+#if defined(_WIN32)
+#include <stdlib.h>
+static int test_setenv(const char *name, const char *value)
+{
+    return _putenv_s(name, value);
+}
+static int test_unsetenv(const char *name)
+{
+    return _putenv_s(name, "");
+}
+#else
+static int test_setenv(const char *name, const char *value)
+{
+    return setenv(name, value, 1);
+}
+static int test_unsetenv(const char *name)
+{
+    return unsetenv(name);
+}
+#endif
+
 static char *test_lpips_is_registered(void)
 {
     VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("lpips");
@@ -83,7 +108,7 @@ static char *test_lpips_init_rejects_missing_model(void)
     /* Save + clear the env var for the duration of this test. */
     const char *saved = getenv("VMAF_LPIPS_MODEL_PATH");
     char *saved_copy = saved ? strdup(saved) : NULL;
-    (void)unsetenv("VMAF_LPIPS_MODEL_PATH");
+    (void)test_unsetenv("VMAF_LPIPS_MODEL_PATH");
 
     int rc = fex->init(fex, VMAF_PIX_FMT_YUV420P, 8u, 64u, 64u);
     mu_assert("init must fail when no model path is provided", rc < 0);
@@ -94,7 +119,7 @@ static char *test_lpips_init_rejects_missing_model(void)
     (void)fex->close(fex);
 
     if (saved_copy) {
-        (void)setenv("VMAF_LPIPS_MODEL_PATH", saved_copy, 1);
+        (void)test_setenv("VMAF_LPIPS_MODEL_PATH", saved_copy);
         free(saved_copy);
     }
     free(priv);
