@@ -71,18 +71,28 @@ rely on the backend's NVTX annotations.
 
 ## Numerical tolerance vs the CPU scalar path
 
-CUDA integer kernels are bit-identical to the CPU fixed-point path by
-design — the shipped Netflix golden suite
-(`make test-netflix-golden`) compares CUDA scores against the CPU
-scores at the reported `--precision` and fails the build on any
-divergence beyond the last printed digit.
+CUDA kernels target **close agreement** with the CPU fixed-point path,
+not bit-exact equality. Different reduction orders, FMA contractions,
+and parallel-prefix sums can perturb the final integer accumulator by a
+fraction of a ULP — this has always been the case for VMAF on GPU,
+not a fork regression. In practice the per-frame pooled VMAF agrees
+to ~6 decimal places (the legacy `%.6f` truncation hides the delta
+entirely; `--precision 17` exposes it).
 
-There is **no floating-point slack** on VIF / ADM / Motion2: the integer
-kernels produce the same 64-bit accumulator values as the CPU scalar
-twins. If you see a per-frame delta greater than 0 at `--precision 17`,
-treat it as a backend bug and run
+The **Netflix golden-data gate is CPU-only** — the three reference
+pairs in `python/test/` (1 normal + 2 checkerboard) are hardcoded
+`assertAlmostEqual` values that only the CPU scalar + fixed-point
+path is required to match exactly. See
+[docs/principles.md §3.1](../../principles.md#31-netflix-golden-data-gate).
+
+GPU regression is caught by fork-added per-backend snapshot tests
+(`testdata/scores_cpu_*.json` + `testdata/netflix_benchmark_results.json`),
+which record what each backend produces today at a small ULP
+tolerance. Regenerate intentionally via
+[`/regen-snapshots`](../../../.claude/skills/regen-snapshots/SKILL.md)
+with a commit-message justification; use
 [`/cross-backend-diff`](../../../.claude/skills/cross-backend-diff/SKILL.md)
-before shipping.
+to surface an unexpected delta.
 
 ## Known gaps
 

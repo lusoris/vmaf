@@ -209,12 +209,25 @@ vmaf --reference ref.y4m --distorted dis.y4m \
 
 ### Q: Does the fork preserve Netflix's golden-data numerical contract?
 
-A: Yes. The three canonical Netflix reference test pairs
-(src01/hrc00–hrc01, checkerboard 1-pixel shift, checkerboard 10-pixel shift)
-run in CI as a required status check. Numerical correctness against upstream
-is verified per commit. See the
-[engineering principles](../principles.md#31-netflix-golden-data-gate) for the
-specific fidelity guarantee.
+A: Yes, on the CPU path. The three canonical Netflix reference test
+pairs (src01/hrc00–hrc01, checkerboard 1-pixel shift, checkerboard
+10-pixel shift) run in CI as a required status check and the CPU
+scalar + fixed-point path must match upstream exactly.
+
+The **GPU backends (CUDA, SYCL) are not bit-exact** with the CPU path —
+they never were, not even upstream. Different reduction orders,
+parallel-prefix scans, and FMA contractions on GPUs introduce small
+ULP-level deltas. The same is true at a smaller scale for the SIMD
+paths (AVX2 / AVX-512 / NEON). Agreement between CPU and
+CUDA/SYCL/SIMD is typically ~6 decimals on the pooled VMAF — enough
+that `--precision legacy` (`%.6f`) hides the delta, but `--precision 17`
+exposes it.
+
+GPU / SIMD paths are regression-tested by fork-added snapshot JSONs
+under `testdata/` (per-backend, ULP tolerance, regenerated via
+`/regen-snapshots`), not by the Netflix goldens. See
+[engineering principles §3.1](../principles.md#31-netflix-golden-data-gate)
+for the scope of the CPU gate.
 
 ## Applications
 

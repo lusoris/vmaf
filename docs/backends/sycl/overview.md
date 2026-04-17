@@ -82,17 +82,27 @@ libvmaf/src/feature/sycl/                # per-feature kernels
 
 ## Numerical tolerance vs the CPU scalar path
 
-SYCL integer kernels target bit-identity with the CPU fixed-point path.
-`make test-netflix-golden` runs the SYCL backend side-by-side with CPU
-and CUDA and fails on any delta beyond the reported `--precision`.
+SYCL kernels target **close agreement** with the CPU fixed-point
+path, not bit-exact equality. Like every GPU path for VMAF, different
+reduction orders, parallel-prefix scans, and FMA contractions can
+perturb the final accumulator by a fraction of a ULP. Agreement is
+typically at ~6 decimal places of the pooled VMAF score.
 
-Accelerator-dependent caveats:
+The **Netflix golden-data gate is CPU-only** — see
+[docs/principles.md §3.1](../../principles.md#31-netflix-golden-data-gate).
+The SYCL backend's per-build numerics are pinned by fork-added snapshot
+tests, not by the Netflix goldens.
+
+Accelerator-dependent controls that reduce (but do not eliminate)
+the deviation:
 
 - **fp16 path is disabled for scoring.** Some Intel GPUs expose fp16
   arithmetic; libvmaf forces fp32 on the kernel so scores are portable
   across hosts with different fp16 rounding modes.
-- **Work-group reductions use fixed iteration order** so a
-  reduction-order divergence cannot leak into the final integer score.
+- **Work-group reductions use fixed iteration order** so the most
+  common source of cross-run drift (non-deterministic reduction tree)
+  is eliminated; the remaining deltas come from unavoidable arithmetic
+  restructuring between scalar and parallel-prefix code.
 
 ## Known gaps
 

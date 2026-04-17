@@ -35,8 +35,9 @@ fork PRs advance `-lusoris.N`.
 2. **Merging the release PR** tags the commit and triggers the release
    workflow.
 3. **The release workflow** builds artefacts (libvmaf binaries, Python wheels),
-   runs the Netflix golden-data gate on all backends, and publishes signed
-   artefacts to GitHub Releases.
+   runs the Netflix golden-data gate (CPU only — the GPU/SIMD backends
+   are covered by per-backend snapshot tests at ULP tolerance, not by
+   the goldens), and publishes signed artefacts to GitHub Releases.
 
 ## Signing
 
@@ -53,7 +54,9 @@ Before merging a release PR, invoke the `/prep-release` skill locally. It
 validates:
 
 - All commits since the last release parse as Conventional Commits.
-- The Netflix golden-data gate passes on every available backend.
+- The Netflix golden-data gate (CPU scalar + fixed-point) passes.
+  GPU / SIMD backends are validated separately via per-backend
+  snapshot tests.
 - `CHANGELOG.md` renders correctly and references no removed files.
 - Signing credentials (OIDC) resolve in the current CI environment.
 
