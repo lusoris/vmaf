@@ -184,8 +184,11 @@ after import. You must call it explicitly after `vmaf_close(ctx)`. This
 asymmetry exists because SYCL USM allocations are queue-scoped and the
 queue outlives one scoring session.
 
-`vmaf_sycl_list_devices` prints every SYCL GPU device with its ordinal —
-used by `vmaf_bench --list-devices` ([../usage/bench.md](../usage/bench.md)).
+`vmaf_sycl_list_devices` enumerates `device_type::gpu` only (CPU / FPGA /
+accelerator devices are skipped) and prints one line per device with its
+ordinal, platform, vendor, driver version, and fp64 support flag. Returns
+the count, or `-EIO` on a SYCL exception. Used by `vmaf_bench --list-devices`
+([../usage/bench.md](../usage/bench.md)).
 
 ### Picture preallocation (simple path)
 
@@ -318,8 +321,12 @@ the enable/disable pair to gate which frame ranges get timed.
 - Zero-copy ingest paths (`dmabuf_import`, `import_va_surface`) require
   the SYCL queue to use the Level Zero backend — they call
   `sycl::get_native<ext_oneapi_level_zero>` directly. On an OpenCL-backend
-  SYCL build these return `-EIO` with an error log; the caller must fall
-  back to `vmaf_sycl_upload_plane` explicitly.
+  SYCL build these throw `sycl::exception`, which the wrapper catches and
+  converts to `-EIO`. The error log is generic (`"SYCL DMA-BUF import
+  exception: <what()>"`) rather than a specific "not on Level Zero"
+  diagnostic, so callers that want a graceful degradation should detect
+  their own backend via `sycl::queue::get_backend()` up front and fall
+  back to `vmaf_sycl_upload_plane` without relying on the log text.
 - `vmaf_sycl_import_d3d11_surface` is **declared but unimplemented**
   (ghost symbol — see [issue #27](https://github.com/lusoris/vmaf/issues/27)).
   Windows callers must use `vmaf_sycl_upload_plane` today.
