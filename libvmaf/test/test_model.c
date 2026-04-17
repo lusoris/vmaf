@@ -408,8 +408,8 @@ static char *test_json_model_missing_path(void)
 {
     VmafModel *m = NULL;
     VmafModelConfig cfg = {0};
-    int err = vmaf_read_json_model_from_path(&m, &cfg,
-                                             "/nonexistent/path/vmaf_does_not_exist.json");
+    int err =
+        vmaf_read_json_model_from_path(&m, &cfg, "/nonexistent/path/vmaf_does_not_exist.json");
     mu_assert("missing path should return -EINVAL", err == -EINVAL);
     return NULL;
 }
@@ -420,8 +420,7 @@ static char *test_json_model_malformed_buffer(void)
     const char garbage[] = "{this is definitely not valid json}";
     VmafModel *m = NULL;
     VmafModelConfig cfg = {0};
-    int err = vmaf_read_json_model_from_buffer(&m, &cfg, garbage,
-                                               (int)sizeof(garbage) - 1);
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, garbage, (int)sizeof(garbage) - 1);
     mu_assert("malformed JSON should return non-zero", err != 0);
     /* On the error path the parser may still have allocated *m; free if so. */
     if (m)
@@ -450,7 +449,7 @@ static char *test_json_model_collection_from_path(void)
     const char *path = JSON_MODEL_PATH "vmaf_b_v0.6.3.json";
     VmafModel *m = NULL;
     VmafModelCollection *mc = NULL;
-    VmafModelConfig cfg = { .name = "vmaf_b" };
+    VmafModelConfig cfg = {.name = "vmaf_b"};
     int err = vmaf_read_json_model_collection_from_path(&m, &mc, &cfg, path);
     mu_assert("collection_from_path failed", !err);
     mu_assert("first model not populated", m != NULL);
@@ -471,9 +470,8 @@ static char *test_json_model_collection_from_buffer(void)
 
     VmafModel *m = NULL;
     VmafModelCollection *mc = NULL;
-    VmafModelConfig cfg = { .name = "vmaf_b_buf" };
-    int err = vmaf_read_json_model_collection_from_buffer(&m, &mc, &cfg, buf,
-                                                          (int)len);
+    VmafModelConfig cfg = {.name = "vmaf_b_buf"};
+    int err = vmaf_read_json_model_collection_from_buffer(&m, &mc, &cfg, buf, (int)len);
     mu_assert("collection_from_buffer failed", !err);
     mu_assert("first model not populated", m != NULL);
     mu_assert("collection not populated", mc != NULL);
@@ -490,8 +488,8 @@ static char *test_json_model_collection_missing_path(void)
     VmafModel *m = NULL;
     VmafModelCollection *mc = NULL;
     VmafModelConfig cfg = {0};
-    int err = vmaf_read_json_model_collection_from_path(
-        &m, &mc, &cfg, "/nonexistent/path/vmaf_b.json");
+    int err =
+        vmaf_read_json_model_collection_from_path(&m, &mc, &cfg, "/nonexistent/path/vmaf_b.json");
     mu_assert("missing collection path should return -EINVAL", err == -EINVAL);
     return NULL;
 }
@@ -504,8 +502,8 @@ static char *test_json_model_collection_malformed_buffer(void)
     VmafModel *m = NULL;
     VmafModelCollection *mc = NULL;
     VmafModelConfig cfg = {0};
-    int err = vmaf_read_json_model_collection_from_buffer(
-        &m, &mc, &cfg, garbage, (int)sizeof(garbage) - 1);
+    int err = vmaf_read_json_model_collection_from_buffer(&m, &mc, &cfg, garbage,
+                                                          (int)sizeof(garbage) - 1);
     mu_assert("non-object collection should return non-zero", err != 0);
     return NULL;
 }
@@ -523,32 +521,31 @@ static char *test_json_model_synthetic_branches(void)
 {
     const char json[] =
         "{"
-          "\"model_dict\": {"
-            "\"model_type\": \"RESIDUEBOOTSTRAP_LIBSVMNUSVR\","
-            "\"norm_type\": \"none\","
-            "\"score_transform\": {"
-              "\"enabled\": true,"
-              "\"p0\": 1.0,"
-              "\"p1\": 2.0,"
-              "\"p2\": 3.0,"
-              "\"knots\": [[0.0, 0.0], [1.0, 1.0]],"
-              "\"out_lte_in\": \"true\","
-              "\"out_gte_in\": \"false\""
-            "},"
-            "\"feature_names\": [\"f1\", \"f2\"],"
-            "\"slopes\": [1.0, 0.1, 0.2],"
-            "\"intercepts\": [0.0, 0.0, 0.0],"
-            "\"feature_opts_dicts\": ["
-              "{\"k_num\": 1.5, \"k_str\": \"hello\", \"k_true\": true, \"k_false\": false}"
-            "],"
-            "\"score_clip\": [0, 100],"
-            "\"model\": \"not-a-real-libsvm-payload\""
-          "}"
+        "\"model_dict\": {"
+        "\"model_type\": \"RESIDUEBOOTSTRAP_LIBSVMNUSVR\","
+        "\"norm_type\": \"none\","
+        "\"score_transform\": {"
+        "\"enabled\": true,"
+        "\"p0\": 1.0,"
+        "\"p1\": 2.0,"
+        "\"p2\": 3.0,"
+        "\"knots\": [[0.0, 0.0], [1.0, 1.0]],"
+        "\"out_lte_in\": \"true\","
+        "\"out_gte_in\": \"false\""
+        "},"
+        "\"feature_names\": [\"f1\", \"f2\"],"
+        "\"slopes\": [1.0, 0.1, 0.2],"
+        "\"intercepts\": [0.0, 0.0, 0.0],"
+        "\"feature_opts_dicts\": ["
+        "{\"k_num\": 1.5, \"k_str\": \"hello\", \"k_true\": true, \"k_false\": false}"
+        "],"
+        "\"score_clip\": [0, 100],"
+        "\"model\": \"not-a-real-libsvm-payload\""
+        "}"
         "}";
     VmafModel *m = NULL;
     VmafModelConfig cfg = {0};
-    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json,
-                                               (int)sizeof(json) - 1);
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
     /* libsvm's string parser is permissive and may accept arbitrary bytes,
      * so don't assert on err — the point is that parse_model_dict /
      * parse_score_transform / parse_feature_opts_dicts executed without
@@ -564,16 +561,15 @@ static char *test_json_model_synthetic_branches(void)
  * return when the inner model payload is malformed (line 538). */
 static char *test_json_model_collection_skips_unknown_keys(void)
 {
-    const char json[] =
-        "{"
-          "\"extra_meta\": \"ignored\","
-          "\"0\": \"not an object — will fail inner parse\""
-        "}";
+    const char json[] = "{"
+                        "\"extra_meta\": \"ignored\","
+                        "\"0\": \"not an object — will fail inner parse\""
+                        "}";
     VmafModel *m = NULL;
     VmafModelCollection *mc = NULL;
-    VmafModelConfig cfg = { .name = "synth" };
-    int err = vmaf_read_json_model_collection_from_buffer(
-        &m, &mc, &cfg, json, (int)sizeof(json) - 1);
+    VmafModelConfig cfg = {.name = "synth"};
+    int err =
+        vmaf_read_json_model_collection_from_buffer(&m, &mc, &cfg, json, (int)sizeof(json) - 1);
     mu_assert("bad inner model should fail the collection parse", err != 0);
     if (m)
         vmaf_model_destroy(m);
