@@ -132,6 +132,9 @@ nav:
       - NVTX profiling: backends/nvtx/profiling.md
       - SYCL / oneAPI: backends/sycl/overview.md
       - SYCL bundling: backends/sycl/bundling.md
+  - MCP:
+      - mcp/index.md
+      - Tool reference: mcp/tools.md
   - Tiny AI:
       - ai/index.md
       - Overview: ai/overview.md

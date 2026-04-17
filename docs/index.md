@@ -52,6 +52,11 @@ GPU / SIMD backend notes under [backends/](backends/):
 - [Python-harness workspace](architecture/workspace.md) – the moved `workspace/` tree
 - [ADR log](adr/) – every non-trivial architectural / policy decision + rationale
 
+## MCP
+
+- [MCP server overview](mcp/index.md) – install, security model (path allowlist), env vars, Claude Desktop / Cursor config
+- [Tool reference](mcp/tools.md) – per-tool request/response schemas + error codes for `vmaf_score`, `list_models`, `list_backends`, `run_benchmark`, `eval_model_on_split`, `compare_models`
+
 ## Tiny-AI
 
 - [Tiny-AI docs](ai/) – overview, training, inference, benchmarks, security
