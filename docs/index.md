@@ -46,6 +46,7 @@ GPU / SIMD backend notes under [backends/](backends/):
 ## Tiny-AI
 
 - [Tiny-AI docs](ai/) – overview, training, inference, benchmarks, security
+- [Tiny-AI roadmap](ai/roadmap.md) – Wave 1 scope expansion (LPIPS, saliency, per-shot CRF, `vmaf_post`, allowlist `Loop`/`If`, MCP VLM tool)
 
 ## Development
 
