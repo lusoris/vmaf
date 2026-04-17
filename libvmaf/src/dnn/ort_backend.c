@@ -29,8 +29,15 @@ struct VmafOrtSession {
     OrtSession *session;
     OrtSessionOptions *opts;
     OrtAllocator *alloc;
+    /* input_name / output_name mirror names[0] for the single-input legacy
+     * path (vmaf_ort_infer). names/n_inputs/n_outputs cover the full graph
+     * IO for vmaf_ort_run. */
     char *input_name;
     char *output_name;
+    char **input_names;
+    char **output_names;
+    size_t n_inputs;
+    size_t n_outputs;
 };
 
 #define ORT_TRY(call)                                                                              \
@@ -93,8 +100,32 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
     ORT_TRY(sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session));
     ORT_TRY(sess->api->GetAllocatorWithDefaultOptions(&sess->alloc));
 
-    ORT_TRY(sess->api->SessionGetInputName(sess->session, 0, sess->alloc, &sess->input_name));
-    ORT_TRY(sess->api->SessionGetOutputName(sess->session, 0, sess->alloc, &sess->output_name));
+    size_t ni = 0, no = 0;
+    ORT_TRY(sess->api->SessionGetInputCount(sess->session, &ni));
+    ORT_TRY(sess->api->SessionGetOutputCount(sess->session, &no));
+    if (ni == 0 || no == 0) {
+        vmaf_ort_close(sess);
+        return -EINVAL;
+    }
+    sess->n_inputs = ni;
+    sess->n_outputs = no;
+    sess->input_names = (char **)calloc(ni, sizeof(char *));
+    sess->output_names = (char **)calloc(no, sizeof(char *));
+    if (!sess->input_names || !sess->output_names) {
+        vmaf_ort_close(sess);
+        return -ENOMEM;
+    }
+    for (size_t i = 0; i < ni; ++i) {
+        ORT_TRY(
+            sess->api->SessionGetInputName(sess->session, i, sess->alloc, &sess->input_names[i]));
+    }
+    for (size_t i = 0; i < no; ++i) {
+        ORT_TRY(
+            sess->api->SessionGetOutputName(sess->session, i, sess->alloc, &sess->output_names[i]));
+    }
+    /* legacy single-IO pointers alias position 0 */
+    sess->input_name = sess->input_names[0];
+    sess->output_name = sess->output_names[0];
 
     *out = sess;
     return 0;
@@ -218,12 +249,22 @@ void vmaf_ort_close(VmafOrtSession *sess)
 {
     if (!sess)
         return;
+    assert(sess != NULL);
     if (sess->api) {
-        if (sess->alloc && sess->input_name) {
-            (void)sess->api->AllocatorFree(sess->alloc, sess->input_name);
+        assert(sess->api != NULL);
+        if (sess->alloc && sess->input_names) {
+            assert(sess->n_inputs > 0u);
+            for (size_t i = 0; i < sess->n_inputs; ++i) {
+                if (sess->input_names[i])
+                    (void)sess->api->AllocatorFree(sess->alloc, sess->input_names[i]);
+            }
         }
-        if (sess->alloc && sess->output_name) {
-            (void)sess->api->AllocatorFree(sess->alloc, sess->output_name);
+        if (sess->alloc && sess->output_names) {
+            assert(sess->n_outputs > 0u);
+            for (size_t i = 0; i < sess->n_outputs; ++i) {
+                if (sess->output_names[i])
+                    (void)sess->api->AllocatorFree(sess->alloc, sess->output_names[i]);
+            }
         }
         if (sess->session)
             sess->api->ReleaseSession(sess->session);
@@ -232,7 +273,159 @@ void vmaf_ort_close(VmafOrtSession *sess)
         if (sess->env)
             sess->api->ReleaseEnv(sess->env);
     }
+    free(sess->input_names);
+    free(sess->output_names);
     free(sess);
+}
+
+int vmaf_ort_io_count(VmafOrtSession *sess, size_t *n_inputs, size_t *n_outputs)
+{
+    if (!sess || !n_inputs || !n_outputs)
+        return -EINVAL;
+    *n_inputs = sess->n_inputs;
+    *n_outputs = sess->n_outputs;
+    return 0;
+}
+
+/* Resolve a user-supplied input/output name against the session's name
+ * table. NULL name → positional fallback at @p pos. Returns the const
+ * char* used by ORT (owned by the session) or NULL on lookup failure. */
+static const char *resolve_name(char **table, size_t count, const char *name, size_t pos)
+{
+    if (name == NULL) {
+        if (pos >= count)
+            return NULL;
+        return table[pos];
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (table[i] && strcmp(table[i], name) == 0)
+            return table[i];
+    }
+    return NULL;
+}
+
+int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_inputs,
+                 VmafOrtTensorOut *outputs, size_t n_outputs)
+{
+    if (!sess || !inputs || !outputs || n_inputs == 0u || n_outputs == 0u)
+        return -EINVAL;
+    assert(sess != NULL);
+    assert(inputs != NULL);
+    assert(outputs != NULL);
+    if (n_inputs != sess->n_inputs || n_outputs != sess->n_outputs)
+        return -EINVAL;
+
+    OrtMemoryInfo *mem = NULL;
+    OrtStatus *st0 = sess->api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &mem);
+    if (st0) {
+        sess->api->ReleaseStatus(st0);
+        return -EIO;
+    }
+
+    const char **in_names = (const char **)calloc(n_inputs, sizeof(char *));
+    const char **out_names = (const char **)calloc(n_outputs, sizeof(char *));
+    OrtValue **in_vals = (OrtValue **)calloc(n_inputs, sizeof(OrtValue *));
+    OrtValue **out_vals = (OrtValue **)calloc(n_outputs, sizeof(OrtValue *));
+    if (!in_names || !out_names || !in_vals || !out_vals) {
+        sess->api->ReleaseMemoryInfo(mem);
+        free(in_names);
+        free(out_names);
+        free(in_vals);
+        free(out_vals);
+        return -ENOMEM;
+    }
+
+    int rc = 0;
+    for (size_t i = 0; i < n_inputs; ++i) {
+        if (!inputs[i].data || !inputs[i].shape || inputs[i].rank == 0u) {
+            rc = -EINVAL;
+            goto cleanup;
+        }
+        in_names[i] = resolve_name(sess->input_names, sess->n_inputs, inputs[i].name, i);
+        if (!in_names[i]) {
+            rc = -EINVAL;
+            goto cleanup;
+        }
+        size_t n = 1;
+        for (size_t d = 0; d < inputs[i].rank; ++d) {
+            if (inputs[i].shape[d] <= 0) {
+                rc = -EINVAL;
+                goto cleanup;
+            }
+            n *= (size_t)inputs[i].shape[d];
+        }
+        OrtStatus *st = sess->api->CreateTensorWithDataAsOrtValue(
+            mem, (void *)inputs[i].data, n * sizeof(float), inputs[i].shape, inputs[i].rank,
+            ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_vals[i]);
+        if (st) {
+            sess->api->ReleaseStatus(st);
+            rc = -EIO;
+            goto cleanup;
+        }
+    }
+    for (size_t i = 0; i < n_outputs; ++i) {
+        if (!outputs[i].data) {
+            rc = -EINVAL;
+            goto cleanup;
+        }
+        out_names[i] = resolve_name(sess->output_names, sess->n_outputs, outputs[i].name, i);
+        if (!out_names[i]) {
+            rc = -EINVAL;
+            goto cleanup;
+        }
+    }
+
+    OrtStatus *st_run =
+        sess->api->Run(sess->session, NULL, in_names, (const OrtValue *const *)in_vals, n_inputs,
+                       out_names, n_outputs, out_vals);
+    if (st_run) {
+        sess->api->ReleaseStatus(st_run);
+        rc = -EIO;
+        goto cleanup;
+    }
+
+    for (size_t i = 0; i < n_outputs; ++i) {
+        OrtTensorTypeAndShapeInfo *info = NULL;
+        OrtStatus *st = sess->api->GetTensorTypeAndShape(out_vals[i], &info);
+        if (st) {
+            sess->api->ReleaseStatus(st);
+            rc = -EIO;
+            goto cleanup;
+        }
+        size_t produced = 0;
+        (void)sess->api->GetTensorShapeElementCount(info, &produced);
+        sess->api->ReleaseTensorTypeAndShapeInfo(info);
+
+        outputs[i].written = produced;
+        if (produced > outputs[i].capacity) {
+            rc = -ENOSPC;
+            continue;
+        }
+        float *out_data = NULL;
+        st = sess->api->GetTensorMutableData(out_vals[i], (void **)&out_data);
+        if (st) {
+            sess->api->ReleaseStatus(st);
+            rc = -EIO;
+            goto cleanup;
+        }
+        memcpy(outputs[i].data, out_data, produced * sizeof(float));
+    }
+
+cleanup:
+    for (size_t i = 0; i < n_inputs; ++i) {
+        if (in_vals[i])
+            sess->api->ReleaseValue(in_vals[i]);
+    }
+    for (size_t i = 0; i < n_outputs; ++i) {
+        if (out_vals[i])
+            sess->api->ReleaseValue(out_vals[i]);
+    }
+    sess->api->ReleaseMemoryInfo(mem);
+    free(in_names);
+    free(out_names);
+    free(in_vals);
+    free(out_vals);
+    return rc;
 }
 
 #else /* !VMAF_HAVE_DNN */
@@ -271,6 +464,25 @@ int vmaf_ort_input_shape(VmafOrtSession *sess, int64_t *out_shape, size_t max_ra
     (void)out_shape;
     (void)max_rank;
     (void)out_rank;
+    return -ENOSYS;
+}
+
+int vmaf_ort_io_count(VmafOrtSession *sess, size_t *n_inputs, size_t *n_outputs)
+{
+    (void)sess;
+    (void)n_inputs;
+    (void)n_outputs;
+    return -ENOSYS;
+}
+
+int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_inputs,
+                 VmafOrtTensorOut *outputs, size_t n_outputs)
+{
+    (void)sess;
+    (void)inputs;
+    (void)n_inputs;
+    (void)outputs;
+    (void)n_outputs;
     return -ENOSYS;
 }
 /* NOLINTEND(readability-non-const-parameter) */

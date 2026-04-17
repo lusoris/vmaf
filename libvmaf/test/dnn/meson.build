@@ -42,10 +42,22 @@ test_onnx_scan = executable('test_onnx_scan',
     c_args : dnn_defines,
 )
 
-test('test_tensor_io',    test_tensor_io,    suite : 'dnn')
-test('test_op_allowlist', test_op_allowlist, suite : 'dnn')
-test('test_model_loader', test_model_loader, suite : 'dnn')
-test('test_onnx_scan',    test_onnx_scan,    suite : 'dnn')
+# Public-surface smoke test for vmaf_dnn_session_run(). Links against
+# libvmaf so it exercises the real stub / real-ORT path that downstream
+# consumers get, not a compiled-in copy.
+test_dnn_session_api = executable('test_dnn_session_api',
+    ['../test.c', 'test_dnn_session_api.c'],
+    include_directories : dnn_test_inc,
+    c_args : dnn_defines,
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies : [cuda_dependency, sycl_dependency],
+)
+
+test('test_tensor_io',       test_tensor_io,       suite : 'dnn')
+test('test_op_allowlist',    test_op_allowlist,    suite : 'dnn')
+test('test_model_loader',    test_model_loader,    suite : 'dnn')
+test('test_onnx_scan',       test_onnx_scan,       suite : 'dnn')
+test('test_dnn_session_api', test_dnn_session_api, suite : 'dnn')
 
 bash_prog = find_program('bash', required : false)
 if bash_prog.found()

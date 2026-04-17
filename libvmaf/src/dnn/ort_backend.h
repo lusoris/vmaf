@@ -20,6 +20,34 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
 int vmaf_ort_infer(VmafOrtSession *sess, const float *input, const int64_t *input_shape,
                    size_t input_rank, float *output, size_t output_capacity,
                    size_t *output_written);
+
+/**
+ * Multi-input / multi-output inference. @p inputs carries @p n_inputs
+ * descriptors; each binds by ONNX input name when @p in_names[i] is
+ * non-NULL, else positionally. Same convention for outputs. All tensors
+ * are float32. On -ENOSPC (output buffer too small) the @p out_written
+ * entry for the short buffer is set to the required element count.
+ */
+typedef struct {
+    const char *name;
+    const float *data;
+    const int64_t *shape;
+    size_t rank;
+} VmafOrtTensorIn;
+
+typedef struct {
+    const char *name;
+    float *data;
+    size_t capacity;
+    size_t written;
+} VmafOrtTensorOut;
+
+int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_inputs,
+                 VmafOrtTensorOut *outputs, size_t n_outputs);
+
+/** Number of graph inputs / outputs in the loaded model. */
+int vmaf_ort_io_count(VmafOrtSession *sess, size_t *n_inputs, size_t *n_outputs);
+
 /**
  * Fetch the static shape of input 0. @p max_rank caps the number of dims
  * written; actual rank is returned via @p out_rank. Dimensions marked dynamic

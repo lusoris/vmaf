@@ -124,6 +124,40 @@ int vmaf_tensor_from_luma(const uint8_t *src, size_t stride_src, int width, int 
     return 0;
 }
 
+/* ImageNet / torchvision normalization constants. Keep in sync with the
+ * export pipeline in ai/ — any divergence silently biases every learned
+ * RGB model (LPIPS, MobileSal, TransNet-V2). */
+static const float IMAGENET_MEAN[3] = {0.485f, 0.456f, 0.406f};
+static const float IMAGENET_STD[3] = {0.229f, 0.224f, 0.225f};
+
+int vmaf_tensor_from_rgb_imagenet(const uint8_t *src_r, size_t stride_r, const uint8_t *src_g,
+                                  size_t stride_g, const uint8_t *src_b, size_t stride_b, int width,
+                                  int height, float *dst)
+{
+    if (!src_r || !src_g || !src_b || !dst || width <= 0 || height <= 0)
+        return -EINVAL;
+    if (stride_r < (size_t)width || stride_g < (size_t)width || stride_b < (size_t)width)
+        return -EINVAL;
+
+    const size_t plane = (size_t)width * (size_t)height;
+    const uint8_t *const srcs[3] = {src_r, src_g, src_b};
+    const size_t strides[3] = {stride_r, stride_g, stride_b};
+
+    for (int c = 0; c < 3; ++c) {
+        const float m = IMAGENET_MEAN[c];
+        const float inv_s = 1.0f / IMAGENET_STD[c];
+        float *out_c = dst + (size_t)c * plane;
+        for (int y = 0; y < height; ++y) {
+            const uint8_t *row = srcs[c] + (size_t)y * strides[c];
+            float *out_row = out_c + (size_t)y * (size_t)width;
+            for (int x = 0; x < width; ++x) {
+                out_row[x] = (((float)row[x] * (1.0f / 255.0f)) - m) * inv_s;
+            }
+        }
+    }
+    return 0;
+}
+
 int vmaf_tensor_to_luma(const void *src, VmafTensorLayout layout, VmafTensorDType dtype, int width,
                         int height, const float *mean, const float *std, uint8_t *dst,
                         size_t stride_dst)

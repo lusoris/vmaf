@@ -163,19 +163,22 @@ int vmaf_dnn_session_open(VmafDnnSession **out, const char *onnx_path, const Vma
     if (rc < 0)
         goto fail;
 
-    if (rank != 4 || shape[0] != 1 || shape[1] != 1 || shape[2] <= 0 || shape[3] <= 0) {
-        rc = -ENOTSUP;
-        goto fail;
-    }
-    s->h = (int)shape[2];
-    s->w = (int)shape[3];
-
-    const size_t n = (size_t)s->w * (size_t)s->h;
-    s->in_buf = (float *)calloc(n, sizeof(float));
-    s->out_buf = (float *)calloc(n, sizeof(float));
-    if (!s->in_buf || !s->out_buf) {
-        rc = -ENOMEM;
-        goto fail;
+    /* Preserve the legacy luma fast-path when the model's input shape is
+     * NCHW [1,1,H,W]: allocate scratch buffers sized for luma so
+     * vmaf_dnn_session_run_luma8() can avoid reallocating per-frame. For
+     * any other shape we leave in_buf / out_buf NULL and w == h == 0;
+     * vmaf_dnn_session_run_luma8() then returns -ENOTSUP, while the
+     * generic vmaf_dnn_session_run() path works regardless. */
+    if (rank == 4 && shape[0] == 1 && shape[1] == 1 && shape[2] > 0 && shape[3] > 0) {
+        s->h = (int)shape[2];
+        s->w = (int)shape[3];
+        const size_t n = (size_t)s->w * (size_t)s->h;
+        s->in_buf = (float *)calloc(n, sizeof(float));
+        s->out_buf = (float *)calloc(n, sizeof(float));
+        if (!s->in_buf || !s->out_buf) {
+            rc = -ENOMEM;
+            goto fail;
+        }
     }
 
     *out = s;
@@ -191,6 +194,11 @@ int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t i
 {
     if (!sess || !in || !out)
         return -EINVAL;
+    /* in_buf / out_buf are only allocated when the model's input shape is
+     * NCHW [1,1,H,W] (see vmaf_dnn_session_open). Models with multi-
+     * channel or multi-input graphs must use vmaf_dnn_session_run(). */
+    if (!sess->in_buf || !sess->out_buf || sess->w == 0 || sess->h == 0)
+        return -ENOTSUP;
     if (w != sess->w || h != sess->h)
         return -ERANGE;
 
@@ -220,6 +228,55 @@ int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t i
 
     return vmaf_tensor_to_luma(sess->out_buf, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, w, h,
                                mean, std, out, out_stride);
+}
+
+int vmaf_dnn_session_run(VmafDnnSession *sess, const VmafDnnInput *inputs, size_t n_inputs,
+                         VmafDnnOutput *outputs, size_t n_outputs)
+{
+    if (!sess || !inputs || !outputs || n_inputs == 0u || n_outputs == 0u)
+        return -EINVAL;
+    assert(sess != NULL);
+    assert(sess->ort != NULL);
+
+    VmafOrtTensorIn stack_in[4];
+    VmafOrtTensorOut stack_out[4];
+    VmafOrtTensorIn *ti =
+        (n_inputs <= 4u) ? stack_in : (VmafOrtTensorIn *)calloc(n_inputs, sizeof(VmafOrtTensorIn));
+    VmafOrtTensorOut *to = (n_outputs <= 4u) ?
+                               stack_out :
+                               (VmafOrtTensorOut *)calloc(n_outputs, sizeof(VmafOrtTensorOut));
+    if (!ti || !to) {
+        if (ti && ti != stack_in)
+            free(ti);
+        if (to && to != stack_out)
+            free(to);
+        return -ENOMEM;
+    }
+
+    for (size_t i = 0; i < n_inputs; ++i) {
+        ti[i].name = inputs[i].name;
+        ti[i].data = inputs[i].data;
+        ti[i].shape = inputs[i].shape;
+        ti[i].rank = inputs[i].rank;
+    }
+    for (size_t i = 0; i < n_outputs; ++i) {
+        to[i].name = outputs[i].name;
+        to[i].data = outputs[i].data;
+        to[i].capacity = outputs[i].capacity;
+        to[i].written = 0u;
+    }
+
+    int rc = vmaf_ort_run(sess->ort, ti, n_inputs, to, n_outputs);
+
+    for (size_t i = 0; i < n_outputs; ++i) {
+        outputs[i].written = to[i].written;
+    }
+
+    if (ti != stack_in)
+        free(ti);
+    if (to != stack_out)
+        free(to);
+    return rc;
 }
 
 void vmaf_dnn_session_close(VmafDnnSession *sess)
@@ -261,6 +318,18 @@ int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t i
     (void)h;
     (void)out;
     (void)out_stride;
+    return -ENOSYS;
+}
+
+int vmaf_dnn_session_run(VmafDnnSession *sess, const VmafDnnInput *inputs, size_t n_inputs,
+                         VmafDnnOutput *outputs,
+                         size_t n_outputs) // NOLINT(readability-non-const-parameter)
+{
+    (void)sess;
+    (void)inputs;
+    (void)n_inputs;
+    (void)outputs;
+    (void)n_outputs;
     return -ENOSYS;
 }
 

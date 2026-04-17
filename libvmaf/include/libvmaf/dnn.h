@@ -91,6 +91,47 @@ int vmaf_dnn_session_open(VmafDnnSession **out, const char *onnx_path, const Vma
 int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t in_stride, int w,
                                int h, uint8_t *out, size_t out_stride);
 
+/**
+ * One input tensor passed to vmaf_dnn_session_run(). @p name binds by
+ * ONNX graph input name when non-NULL; when NULL, the tensor is bound
+ * positionally at the descriptor's array index. Tensors are float32,
+ * row-major, with @p rank dimensions.
+ */
+typedef struct VmafDnnInput {
+    const char *name;
+    const float *data;
+    const int64_t *shape;
+    size_t rank;
+} VmafDnnInput;
+
+/**
+ * One output tensor for vmaf_dnn_session_run(). @p data / @p capacity
+ * are caller-owned; @p written is populated with the element count
+ * actually produced. @p name binds by ONNX graph output name when
+ * non-NULL, else positionally.
+ */
+typedef struct VmafDnnOutput {
+    const char *name;
+    float *data;
+    size_t capacity;
+    size_t written;
+} VmafDnnOutput;
+
+/**
+ * Run one inference pass with arbitrary named inputs and outputs. All
+ * tensors are float32. The session's ONNX graph must declare exactly
+ * @p n_inputs inputs and @p n_outputs outputs; mismatched arity returns
+ * -EINVAL. Output buffers that are smaller than the produced tensor
+ * return -ENOSPC; on -ENOSPC the @p written field is still populated
+ * with the required element count so the caller can resize and retry.
+ *
+ * @return 0 on success; -ENOSYS if built without DNN support;
+ *         -EINVAL on bad arity / null pointers; -ENOSPC if any output
+ *         buffer is too small; -EIO on ORT failure.
+ */
+int vmaf_dnn_session_run(VmafDnnSession *sess, const VmafDnnInput *inputs, size_t n_inputs,
+                         VmafDnnOutput *outputs, size_t n_outputs);
+
 void vmaf_dnn_session_close(VmafDnnSession *sess);
 
 #ifdef __cplusplus
