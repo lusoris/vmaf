@@ -1,0 +1,15 @@
+{
+  "$schema": "./registry.schema.json",
+  "models": [
+    {
+      "id": "smoke_v0",
+      "kind": "fr",
+      "notes": "CI load-path probe (Conv + Identity). Not a quality model.",
+      "onnx": "smoke_v0.onnx",
+      "opset": 17,
+      "sha256": "c83a5f217fa3736bf575c52f7f4c187a6201951e8ddccb51bdcdcc136108fbe0",
+      "smoke": true
+    }
+  ],
+  "schema_version": 0
+}

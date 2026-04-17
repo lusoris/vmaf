@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lusoris/vmaf/model/tiny/registry.schema.json",
+  "title": "VMAF tiny-model registry v0",
+  "description": "Index of trusted ONNX tiny-models shipped with libvmaf. The registry is the *trust root*: every ONNX file referenced here must (1) live under model/tiny/, (2) carry a matching sidecar JSON with the same basename, and (3) match the sha256 digest recorded below. Runtime loaders cross-check the digest before CreateSession; a mismatch refuses to load. Per-model inference metadata (input/output tensor names, normalisation, opset) lives in the sidecar next to each ONNX file — NOT here — so the registry stays small and easy to audit.",
+  "type": "object",
+  "required": ["schema_version", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": {
+      "description": "Bumped on breaking changes to registry layout. 0 = pre-release.",
+      "type": "integer",
+      "const": 0
+    },
+    "models": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/model_entry" }
+    }
+  },
+  "$defs": {
+    "model_entry": {
+      "type": "object",
+      "required": ["id", "kind", "onnx", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable identifier, kebab-case. Used by --tiny-model=<id>.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$",
+          "maxLength": 64
+        },
+        "kind": {
+          "description": "Mirrors VmafModelKind. 'fr' = full-reference, 'nr' = no-reference.",
+          "enum": ["fr", "nr"]
+        },
+        "onnx": {
+          "description": "Path to the ONNX file, relative to model/tiny/.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_./-]*\\.onnx$",
+          "maxLength": 256
+        },
+        "sha256": {
+          "description": "Lowercase hex sha256 of the exact ONNX bytes shipped in-tree.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "opset": {
+          "description": "ONNX opset — mirrors sidecar.onnx_opset. Required for non-smoke models; informational for smoke.",
+          "type": "integer",
+          "minimum": 7,
+          "maximum": 21
+        },
+        "notes": {
+          "description": "Free text; training recipe hash, provenance, etc.",
+          "type": "string",
+          "maxLength": 512
+        },
+        "smoke": {
+          "description": "True for the CI smoke fixture. Smoke models are load-path probes, not quality models — they're excluded from the quality-metric harness.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}

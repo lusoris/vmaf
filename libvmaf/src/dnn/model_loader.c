@@ -15,7 +15,7 @@
 #include "libvmaf/model.h"
 
 #include "model_loader.h"
-#include "op_allowlist.h"
+#include "onnx_scan.h"
 
 /* ONNX files are protobuf-serialised graph messages. We sniff by extension +
  * a loose leading-byte pattern — protobuf varints start with a field tag
@@ -182,13 +182,10 @@ void vmaf_dnn_sidecar_free(VmafModelSidecar *s)
     memset(s, 0, sizeof(*s));
 }
 
-int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
+/* Size + kind check on the resolved path. Returns 0 + st_size in *out_size
+ * on success, or a negative errno on failure. */
+static int stat_regular(const char *path, size_t max_bytes, size_t *out_size)
 {
-    if (!path)
-        return -EINVAL;
-    if (max_bytes == 0)
-        max_bytes = VMAF_DNN_DEFAULT_MAX_BYTES;
-
     struct stat st;
     if (stat(path, &st) != 0)
         return -errno;
@@ -196,9 +193,63 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
         return -ENOENT;
     if ((size_t)st.st_size > max_bytes)
         return -E2BIG;
-
-    /* Deep op-allowlist walk is done by ort_backend.c once the session is
-     * created (it has the parsed graph in hand). This function enforces
-     * the cheap invariants (regular file, size cap) prior to any parsing. */
+    *out_size = (size_t)st.st_size;
     return 0;
+}
+
+/* Read @p sz bytes of @p path into a freshly-allocated buffer. Caller frees. */
+static int slurp_file(const char *path, size_t sz, unsigned char **out_buf)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return -errno;
+    unsigned char *buf = (unsigned char *)malloc(sz);
+    if (!buf) {
+        (void)fclose(f);
+        return -ENOMEM;
+    }
+    const size_t r = fread(buf, 1u, sz, f);
+    (void)fclose(f);
+    if (r != sz) {
+        free(buf);
+        return -EIO;
+    }
+    *out_buf = buf;
+    return 0;
+}
+
+int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
+{
+    if (!path)
+        return -EINVAL;
+    if (max_bytes == 0)
+        max_bytes = VMAF_DNN_DEFAULT_MAX_BYTES;
+
+    /* Resolve symlinks and normalise the path before any stat / open. An
+     * adversarial --tiny-model value could point at a symlink to a non-
+     * regular file; realpath() dereferences the symlink so the subsequent
+     * S_ISREG check reflects the actual target. */
+    char resolved[PATH_MAX];
+    if (realpath(path, resolved) == NULL)
+        return -errno;
+
+    size_t sz = 0;
+    int err = stat_regular(resolved, max_bytes, &sz);
+    if (err != 0)
+        return err;
+    /* Degenerate zero-byte file cannot be a valid ONNX ModelProto. */
+    if (sz == 0)
+        return -EBADMSG;
+
+    unsigned char *buf = NULL;
+    err = slurp_file(resolved, sz, &buf);
+    if (err != 0)
+        return err;
+
+    /* Deep op-allowlist walk: parse the ONNX protobuf for NodeProto.op_type
+     * strings and reject any that are not in the allowlist. This runs
+     * before ORT's CreateSession, so a disallowed op short-circuits load. */
+    err = vmaf_dnn_scan_onnx(buf, sz, NULL);
+    free(buf);
+    return err;
 }
