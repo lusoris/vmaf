@@ -184,17 +184,25 @@ Use `/prep-release` to dry-run locally before merging a release PR.
 9. **Every** session re-reads [docs/adr/README.md](docs/adr/README.md) at
    start and writes missing `docs/adr/NNNN-*.md` files + index rows for any
    decisions inherited from context before the next commit.
-10. **Every** change to the tiny-AI surface (anything under `ai/`, `libvmaf/src/dnn/`,
-    `libvmaf/src/feature/feature_*.c` when the extractor is DNN-backed, `model/tiny/`,
-    `mcp-server/`, or any `--tiny-model` / `vmaf_pre` / `vmaf_post` / `vmaf-train` /
-    `describe_worst_frames` user surface) ships **human-readable documentation** under
-    `docs/ai/` in the same PR as the code. Minimum bar: (a) what the model/feature does
-    in plain English, (b) the numeric range of its output and how to interpret it,
-    (c) a runnable copy-pasteable example (CLI invocation, C snippet, or Python call),
-    (d) the provenance of any shipped checkpoint (source, license, sha256), (e) known
-    limitations (e.g. 8-bit only, BT.709 limited range, min resolution). Code comments
-    and ADRs are *not substitutes* — they explain decisions to maintainers, not
-    usage to humans. See [ADR-0042](docs/adr/0042-tinyai-docs-required-per-pr.md).
+10. **Every** PR that adds or changes a user-discoverable surface ships
+    **human-readable documentation** under `docs/` in the same PR as the code.
+    User-discoverable means: CLI flags or binaries, public C API under
+    `libvmaf/include/`, feature extractors, GPU backends / SIMD paths,
+    `meson_options.txt` build flags, ffmpeg filter options, MCP tools, tiny-AI
+    surfaces, and user-visible log / error / output-schema changes. Docs land
+    in the existing topic tree — CLI in [`docs/usage/`](docs/usage/), C API in
+    [`docs/api/`](docs/api/), extractors in [`docs/metrics/`](docs/metrics/),
+    backends in [`docs/backends/`](docs/backends/), build / release in
+    [`docs/development/`](docs/development/), tiny-AI in
+    [`docs/ai/`](docs/ai/), MCP in [`docs/mcp/`](docs/mcp/), architecture /
+    C4 in [`docs/architecture/`](docs/architecture/). The minimum bar is
+    *per-surface* (see [ADR-0100](docs/adr/0100-project-wide-doc-substance-rule.md)
+    §Per-surface minimum bars). Tiny-AI keeps the tighter 5-point bar in
+    [ADR-0042](docs/adr/0042-tinyai-docs-required-per-pr.md) as the
+    specialisation. Code comments and ADRs are *not substitutes* — they
+    explain decisions to maintainers, not usage to humans. Internal
+    refactors, bug fixes with no user-visible delta, and test-only changes
+    are excluded.
 
 ## 13. Interaction style — prefer the popup question tool
 

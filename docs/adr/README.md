@@ -133,3 +133,4 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0040](0040-dnn-session-multi-input-api.md) | Extend DNN session API to multi-input/output with named bindings | Accepted | ai, dnn, cli |
 | [ADR-0041](0041-lpips-sq-extractor.md) | Ship LPIPS-SqueezeNet FR extractor with inverse-ImageNet in graph | Accepted | ai, dnn, cli |
 | [ADR-0042](0042-tinyai-docs-required-per-pr.md) | Tiny-AI PRs must ship human-readable docs in the same PR | Accepted | ai, dnn, docs |
+| [ADR-0100](0100-project-wide-doc-substance-rule.md) | Every user-discoverable change ships docs in the same PR (project-wide) | Accepted | docs, agents, framework |

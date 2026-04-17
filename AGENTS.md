@@ -132,16 +132,22 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
 6. Every new `.c` / `.h` / `.cpp` / `.cu` file starts with the applicable license
    header (wholly-new fork files: `Copyright 2026 Lusoris and Claude (Anthropic)`;
    files touching Netflix code: Netflix header preserved).
-7. Every change to the tiny-AI surface (anything under `ai/`, `libvmaf/src/dnn/`,
-   DNN-backed feature extractors in `libvmaf/src/feature/`, `model/tiny/`, the MCP
-   server, or any `--tiny-model` / `vmaf_pre` / `vmaf_post` / `vmaf-train` /
-   `describe_worst_frames` user surface) ships **human-readable documentation** under
-   `docs/ai/` in the same PR as the code. Minimum bar: (a) what the model/feature does
-   in plain English, (b) output range + interpretation, (c) a runnable copy-pasteable
-   example (CLI, C, or Python), (d) provenance of any shipped checkpoint (source,
-   license, sha256), (e) known limitations. Code comments and ADRs are *not
-   substitutes* — they explain decisions to maintainers, not usage to humans. See
-   [ADR-0042](docs/adr/0042-tinyai-docs-required-per-pr.md).
+7. Every PR that adds or changes a user-discoverable surface ships
+   **human-readable documentation** under `docs/` in the same PR as the code.
+   User-discoverable means: CLI flags or binaries, public C API under
+   `libvmaf/include/`, feature extractors, GPU backends / SIMD paths,
+   `meson_options.txt` build flags, ffmpeg filter options, MCP tools, tiny-AI
+   surfaces, and user-visible log / error / output-schema changes. Docs land
+   in the existing topic tree (CLI → `docs/usage/`, C API → `docs/api/`,
+   extractors → `docs/metrics/`, backends → `docs/backends/`, build/release
+   → `docs/development/`, tiny-AI → `docs/ai/`, MCP → `docs/mcp/`,
+   architecture → `docs/architecture/`). The minimum bar is *per-surface*
+   (see [ADR-0100](docs/adr/0100-project-wide-doc-substance-rule.md)
+   §Per-surface minimum bars). Tiny-AI keeps the tighter 5-point bar in
+   [ADR-0042](docs/adr/0042-tinyai-docs-required-per-pr.md) as the
+   specialisation. Code comments and ADRs are *not substitutes* — they
+   explain decisions to maintainers, not usage to humans. Internal refactors,
+   bug fixes with no user-visible delta, and test-only changes are excluded.
 8. Every non-trivial architectural, policy, or scope decision ships as its own
    ADR file `docs/adr/NNNN-kebab-case.md` following
    [docs/adr/0000-template.md](docs/adr/0000-template.md) **before** the
