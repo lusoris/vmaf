@@ -12,10 +12,29 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#ifdef _WIN32
+#include <stdlib.h> /* _fullpath */
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+#endif
+
 #include "libvmaf/model.h"
 
 #include "model_loader.h"
 #include "onnx_scan.h"
+
+/* Portable realpath wrapper: POSIX realpath() on Linux/macOS, _fullpath()
+ * on MinGW/Windows. Both resolve symlinks and canonicalise the path in
+ * place, returning NULL on failure. */
+static char *resolve_path(const char *path, char *resolved)
+{
+#ifdef _WIN32
+    return _fullpath(resolved, path, PATH_MAX);
+#else
+    return realpath(path, resolved);
+#endif
+}
 
 /* ONNX files are protobuf-serialised graph messages. We sniff by extension +
  * a loose leading-byte pattern — protobuf varints start with a field tag
@@ -222,21 +241,25 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
 {
     if (!path)
         return -EINVAL;
+    assert(path != NULL);
     if (max_bytes == 0)
         max_bytes = VMAF_DNN_DEFAULT_MAX_BYTES;
+    assert(max_bytes > 0u);
 
     /* Resolve symlinks and normalise the path before any stat / open. An
      * adversarial --tiny-model value could point at a symlink to a non-
-     * regular file; realpath() dereferences the symlink so the subsequent
-     * S_ISREG check reflects the actual target. */
+     * regular file; resolve_path() dereferences the symlink so the
+     * subsequent S_ISREG check reflects the actual target. */
     char resolved[PATH_MAX];
-    if (realpath(path, resolved) == NULL)
+    if (resolve_path(path, resolved) == NULL)
         return -errno;
+    assert(resolved[0] != '\0');
 
     size_t sz = 0;
     int err = stat_regular(resolved, max_bytes, &sz);
     if (err != 0)
         return err;
+    assert(sz <= max_bytes);
     /* Degenerate zero-byte file cannot be a valid ONNX ModelProto. */
     if (sz == 0)
         return -EBADMSG;
@@ -245,6 +268,7 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
     err = slurp_file(resolved, sz, &buf);
     if (err != 0)
         return err;
+    assert(buf != NULL);
 
     /* Deep op-allowlist walk: parse the ONNX protobuf for NodeProto.op_type
      * strings and reject any that are not in the allowlist. This runs

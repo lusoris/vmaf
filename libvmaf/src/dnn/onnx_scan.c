@@ -227,6 +227,8 @@ int vmaf_dnn_scan_onnx(const unsigned char *buf, size_t len, char **first_bad)
     if (!buf || len == 0u) {
         return -EINVAL;
     }
+    assert(buf != NULL);
+    assert(len > 0u);
     if (first_bad) {
         *first_bad = NULL;
     }
@@ -239,6 +241,7 @@ int vmaf_dnn_scan_onnx(const unsigned char *buf, size_t len, char **first_bad)
         if (err != 0) {
             return err;
         }
+        assert(off <= len);
         const unsigned field = (unsigned)(tag >> 3);
         const unsigned wire = (unsigned)(tag & 0x7u);
 
@@ -251,6 +254,7 @@ int vmaf_dnn_scan_onnx(const unsigned char *buf, size_t len, char **first_bad)
             if (glen > (uint64_t)(len - off)) {
                 return -EBADMSG;
             }
+            assert(off + (size_t)glen <= len);
             err = scan_graph(buf + off, (size_t)glen, first_bad);
             if (err != 0) {
                 return err;
@@ -264,5 +268,6 @@ int vmaf_dnn_scan_onnx(const unsigned char *buf, size_t len, char **first_bad)
             }
         }
     }
+    assert(off <= len);
     return graph_found ? 0 : -ENOENT;
 }
