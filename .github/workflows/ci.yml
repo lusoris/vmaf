@@ -224,17 +224,28 @@ jobs:
           # summary the gate script parses directly. See ADR-0110.
           python3 -m pip install --user -r python/requirements.txt pytest \
             'gcovr>=8.0'
-      - name: Install ONNX Runtime (CPU)
-        # Mirror the dnn job's ORT install so the coverage build can enable
-        # `-Denable_dnn=enabled`; otherwise libvmaf/src/dnn/*.c only get
-        # stub coverage (and the 85% critical-file gate is unmeasurable).
+      - name: Install ONNX Runtime (GPU build, CPU + CUDA EPs)
+        # The GPU .tgz bundles CPU + CUDA + TensorRT execution providers in
+        # one package. We install it (instead of the smaller CPU-only build)
+        # so the coverage gate can also exercise the CUDA EP-attach success
+        # arms in ort_backend.c — which on a CPU-only ORT remained
+        # unreachable per ADR-0112. CUDA EP attach only requires the CUDA
+        # *runtime* library to load (no actual GPU driver), which is why we
+        # `apt install libcudart12` below. CreateSession then fails because
+        # there's no real GPU on ubuntu-latest; vmaf_ort_open's two-stage
+        # fallback (ADR-0113) catches that and retries with CPU-only
+        # session_options, so existing tests stay green while the EP-attach
+        # success arm and the new fallback path both execute.
         env:
           ORT_VERSION: "1.22.0"
         run: |
+          # CUDA 12.x runtime — user-space libs only, no driver. Lets ORT
+          # dlopen libonnxruntime_providers_cuda.so → libcudart.so.12.
+          sudo apt-get install -y libcudart12 || sudo apt-get install -y nvidia-cuda-toolkit
           curl -sSL \
-            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-gpu-${ORT_VERSION}.tgz" \
             | sudo tar -xz -C /opt/
-          sudo ln -sfn "/opt/onnxruntime-linux-x64-${ORT_VERSION}" /opt/onnxruntime
+          sudo ln -sfn "/opt/onnxruntime-linux-x64-gpu-${ORT_VERSION}" /opt/onnxruntime
           sudo install -d /usr/local/lib/pkgconfig
           cat <<EOF | sudo tee /usr/local/lib/pkgconfig/libonnxruntime.pc >/dev/null
           prefix=/opt/onnxruntime

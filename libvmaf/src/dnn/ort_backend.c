@@ -259,7 +259,54 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
         break;
     }
 
-    ORT_TRY(sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session));
+    /* Two-stage session creation with non-CPU → CPU fallback.
+     *
+     * try_append_<EP> returning success only proves ORT *registered* the EP;
+     * actual hardware initialisation happens inside CreateSession. If no
+     * matching device is present (CUDA EP registered without an NVIDIA GPU,
+     * OpenVINO without an OV-supported runtime, etc.) CreateSession returns
+     * a non-null OrtStatus. Without this fallback, that condition would
+     * surface as -EIO and the entire session_open would fail — even though
+     * the CPU EP is always linked and could have served the request.
+     *
+     * Behaviour change on the happy path: when CUDA / OpenVINO / ROCm
+     * actually work, nothing changes. The fallback only fires when the
+     * non-CPU EP attached but its hardware is unavailable, which previously
+     * was a hard failure. Callers that need to detect the degraded mode can
+     * check vmaf_ort_attached_ep() — it now returns "CPU" after fallback.
+     * See ADR-0113. */
+    OrtStatus *create_st = sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session);
+    if (create_st != NULL) {
+        sess->api->ReleaseStatus(create_st);
+        if (strcmp(sess->ep_name, "CPU") != 0) {
+            /* Recreate session_options with no non-CPU EPs and retry. */
+            sess->api->ReleaseSessionOptions(sess->opts);
+            sess->opts = NULL;
+            OrtStatus *opts_st = sess->api->CreateSessionOptions(&sess->opts);
+            if (opts_st != NULL) {
+                sess->api->ReleaseStatus(opts_st);
+                vmaf_ort_close(sess);
+                return -EIO;
+            }
+            const int intra_retry = (cfg && cfg->threads > 0) ? cfg->threads : 0;
+            if (intra_retry > 0) {
+                OrtStatus *t_st = sess->api->SetIntraOpNumThreads(sess->opts, intra_retry);
+                if (t_st != NULL)
+                    sess->api->ReleaseStatus(t_st);
+            }
+            sess->ep_name = "CPU";
+            OrtStatus *retry_st =
+                sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session);
+            if (retry_st != NULL) {
+                sess->api->ReleaseStatus(retry_st);
+                vmaf_ort_close(sess);
+                return -EIO;
+            }
+        } else {
+            vmaf_ort_close(sess);
+            return -EIO;
+        }
+    }
     ORT_TRY(sess->api->GetAllocatorWithDefaultOptions(&sess->alloc));
 
     size_t ni = 0, no = 0;
