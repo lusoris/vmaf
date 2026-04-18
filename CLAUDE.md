@@ -203,6 +203,21 @@ Use `/prep-release` to dry-run locally before merging a release PR.
     explain decisions to maintainers, not usage to humans. Internal
     refactors, bug fixes with no user-visible delta, and test-only changes
     are excluded.
+11. **Every** fork-local PR ships the **six deep-dive deliverables** in
+    the same PR (per [ADR-0108](docs/adr/0108-deep-dive-deliverables-rule.md)):
+    (1) research digest under [`docs/research/`](docs/research/) (or
+    "no digest needed: trivial"), (2) decision matrix in the
+    accompanying ADR's `## Alternatives considered` (or "no
+    alternatives: only-one-way fix"), (3) `AGENTS.md` invariant note in
+    the relevant package (or "no rebase-sensitive invariants"), (4)
+    reproducer / smoke-test command in the PR description, (5)
+    `CHANGELOG.md` "lusoris fork" entry, (6) entry in
+    [`docs/rebase-notes.md`](docs/rebase-notes.md) (or `no rebase
+    impact: REASON`). *Fork-local* means anything not a verbatim port
+    of upstream Netflix/vmaf code; pure upstream syncs and
+    `port-upstream-commit` PRs are exempt. The PR template
+    ([.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md))
+    carries the checklist; reviewers verify it.
 
 ## 13. Interaction style — prefer the popup question tool
 

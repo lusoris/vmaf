@@ -47,6 +47,30 @@
 
 <!-- Paste `/profile-hotpath` before/after, or benchmark output with % delta. -->
 
+## Deep-dive deliverables ([ADR-0108](../docs/adr/0108-deep-dive-deliverables-rule.md))
+
+<!-- Required for fork-local PRs. Skip an item by replacing the checkbox with a one-line
+     "no <item> needed: <reason>" justification (e.g. "no rebase impact: docs-only").
+     Upstream-port PRs (see /port-upstream-commit) and pure upstream syncs are exempt. -->
+
+- [ ] **Research digest** — `docs/research/NNNN-*.md` written or linked, OR "no digest needed: trivial".
+- [ ] **Decision matrix** — captured in the corresponding ADR's `## Alternatives considered` (or in the digest), OR "no alternatives: only-one-way fix".
+- [ ] **`AGENTS.md` invariant note** — added to the relevant package's `AGENTS.md`, OR "no rebase-sensitive invariants".
+- [ ] **Reproducer / smoke-test command** — pasted below under "Reproducer".
+- [ ] **`CHANGELOG.md` "lusoris fork" entry** — bullet added to the existing fork section.
+- [ ] **Rebase note** — entry added to `docs/rebase-notes.md` under a new ID, OR `no rebase impact: REASON`.
+
+### Reproducer
+
+<!-- One concrete command exercising the changed path against a known input. Examples:
+     `vmaf -r python/test/resource/yuv/src01_hrc00_576x324.yuv -d ... --feature=lpips`
+     `meson test -C build --suite=fast`
+     `mkdocs build --strict`. -->
+
+```bash
+<command>
+```
+
 ## Known follow-ups
 
 <!-- Anything deliberately out of scope, linked issues, SIMD/GPU twins not updated. -->

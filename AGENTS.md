@@ -157,6 +157,20 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
    details do not need an ADR. Cite `req` (direct user quote) or
    `Q<round>.<q>` (popup answer) in the ADR's `## References` section. See
    [ADR-0028](docs/adr/0028-adr-maintenance-rule.md).
+9. Every fork-local PR ships the **six deep-dive deliverables** in the same
+   PR (per [ADR-0108](docs/adr/0108-deep-dive-deliverables-rule.md)):
+   (a) research digest under [`docs/research/`](docs/research/) (or
+   "no digest needed: trivial"); (b) decision matrix in the accompanying
+   ADR's `## Alternatives considered` (or "no alternatives: only-one-way
+   fix"); (c) `AGENTS.md` invariant note in the relevant package (or
+   "no rebase-sensitive invariants"); (d) reproducer / smoke-test command
+   in the PR description; (e) `CHANGELOG.md` "lusoris fork" entry;
+   (f) entry in [`docs/rebase-notes.md`](docs/rebase-notes.md) (or
+   `no rebase impact: REASON`). *Fork-local* means anything not a verbatim
+   port of upstream Netflix/vmaf code; pure upstream syncs and
+   `port-upstream-commit` PRs are exempt. The PR template
+   ([.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md))
+   carries the checklist.
 
 ## 13. Interaction style — prefer structured popup questions
 
