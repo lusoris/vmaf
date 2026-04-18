@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -144,7 +144,7 @@ static inline uint32_t edge_8(const uint8_t *src, int height, int stride, int i,
         if (i_tap < 0)
             i_tap = -i_tap;
         else if (i_tap >= height)
-            i_tap = height - (i_tap - height + 1);
+            i_tap = height - (i_tap - height + 2);
 
         accum += filter[k] * src[i_tap * stride + j_tap];
     }

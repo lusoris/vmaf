@@ -294,3 +294,37 @@ inline._
   grep '<metric name="vmaf"' /tmp/vmaf-port.json
   # Expected: mean ≈ 76.66890 (golden 76.66890519623612, places=4 OK).
   ```
+
+### 0013 — Upstream motion port (Netflix PR #1486 head `2aab9ef1`)
+
+- **Workstream PRs**: this PR; ports upstream PR #1486 (4 commits on top
+  of `966be8d5` ADM base, head `2aab9ef1`). Sister to entry 0012.
+- **Touches**:
+  `libvmaf/src/feature/integer_motion.{c,h}`,
+  `libvmaf/src/feature/motion_blend_tools.h` (new upstream file),
+  `libvmaf/src/feature/x86/motion_avx2.c`,
+  `libvmaf/src/feature/x86/motion_avx512.c`,
+  `libvmaf/src/feature/alias.c` (additive: `integer_motion3` row),
+  `python/test/{quality_runner,vmafexec,feature_extractor,vmafexec_feature_extractor}_test.py`
+  (golden tolerance updates: `places=4` → `places=2` on motion-affected
+  asserts; expected values unchanged).
+- **Invariant**: motion files mirror upstream byte-for-byte (modulo our
+  clang-format-22 pass). The `alias.c` row for `integer_motion3` was
+  inserted surgically to avoid clobbering the AVX-512 ADM registration
+  added by entry 0012; new motion3 metric appears in default VMAF model
+  output but is not standalone-loadable via `--feature integer_motion3`
+  (sub-feature only). Netflix golden VMAF mean shifts
+  `76.668904824` → `76.667830213` (well within `places=2` tolerance the
+  upstream PR loosened to). **Do not** revert `places=4` on
+  motion-touching assertions without also reverting the motion code.
+- **Re-test**:
+
+  ```bash
+  ninja -C libvmaf/build && meson test -C libvmaf/build
+  libvmaf/build/tools/vmaf -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      -w 576 -h 324 -p 420 -b 8 \
+      --model version=vmaf_v0.6.1 -o /tmp/vmaf-motion-port.json
+  grep -E '<metric name="vmaf"|integer_motion3' /tmp/vmaf-motion-port.json
+  # Expected: vmaf mean ≈ 76.66783; integer_motion3 mean ≈ 3.98976.
+  ```
