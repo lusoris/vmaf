@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -71,6 +71,14 @@ static Alias alias_map[] = {
     {
         .name = "VMAF_integer_feature_adm2_score",
         .alias = "integer_adm2",
+    },
+    {
+        .name = "VMAF_integer_feature_aim_score",
+        .alias = "integer_aim",
+    },
+    {
+        .name = "VMAF_integer_feature_adm3_score",
+        .alias = "integer_adm3",
     },
     {
         .name = "VMAF_integer_feature_motion_score",

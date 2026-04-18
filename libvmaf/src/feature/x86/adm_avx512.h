@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@
 #ifndef X86_AVX512_ADM_H_
 #define X86_AVX512_ADM_H_
 
+#include <stdbool.h>
+
 #include "feature/integer_adm.h"
 
 void adm_dwt2_8_avx512(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *buf, int w, int h,
@@ -31,10 +33,14 @@ void adm_decouple_s123_avx512(AdmBuffer *buf, int w, int h, int stride, double a
                               int32_t *adm_div_lookup);
 
 float adm_cm_avx512(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stride,
-                    double adm_norm_view_dist, int adm_ref_display_height);
+                    double adm_norm_view_dist, int adm_ref_display_height, int adm_csf_mode,
+                    double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
+                    bool measure_aim);
 
 float i4_adm_cm_avx512(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stride, int scale,
-                       double adm_norm_view_dist, int adm_ref_display_height);
+                       double adm_norm_view_dist, int adm_ref_display_height, int adm_csf_mode,
+                       double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
+                       bool measure_aim);
 
 void adm_dwt2_s123_combined_avx512(const int32_t *i4_ref_scale, const int32_t *i4_curr_dis,
                                    AdmBuffer *buf, int w, int h, int ref_stride, int dis_stride,
@@ -44,15 +50,21 @@ void adm_dwt2_16_avx512(const uint16_t *src, const adm_dwt_band_t *dst, AdmBuffe
                         int h, int src_stride, int dst_stride, int inp_size_bits);
 
 void adm_csf_avx512(AdmBuffer *buf, int w, int h, int stride, double adm_norm_view_dist,
-                    int adm_ref_display_height);
+                    int adm_ref_display_height, int adm_csf_mode, double adm_csf_scale,
+                    double adm_csf_diag_scale, bool measure_aim);
 
 void i4_adm_csf_avx512(AdmBuffer *buf, int scale, int w, int h, int stride,
-                       double adm_norm_view_dist, int adm_ref_display_height);
+                       double adm_norm_view_dist, int adm_ref_display_height, int adm_csf_mode,
+                       double adm_csf_scale, double adm_csf_diag_scale, bool measure_aim);
 
 float adm_csf_den_scale_avx512(const adm_dwt_band_t *src, int w, int h, int src_stride,
-                               double adm_norm_view_dist, int adm_ref_display_height);
+                               double adm_norm_view_dist, int adm_ref_display_height,
+                               int adm_csf_mode, double adm_csf_scale, double adm_csf_diag_scale,
+                               double adm_noise_weight);
 
 float adm_csf_den_s123_avx512(const i4_adm_dwt_band_t *src, int scale, int w, int h, int src_stride,
-                              double adm_norm_view_dist, int adm_ref_display_height);
+                              double adm_norm_view_dist, int adm_ref_display_height,
+                              int adm_csf_mode, double adm_csf_scale, double adm_csf_diag_scale,
+                              double adm_noise_weight);
 
 #endif /* X86_AVX512_ADM_H_ */
