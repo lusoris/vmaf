@@ -530,3 +530,84 @@ inline.*
   Pure fork-local; no Netflix-side conflict vector. If upstream ever
   changes the default format string, treat their value as the new
   baseline and reconfirm the golden assertions before adopting.
+
+### 0018 — FFmpeg patches ship as ordered series.txt
+
+- **Workstream PRs**: this PR (`fix(ci): drop dead sycl trigger +
+  consolidate windows.yml into libvmaf.yml (ADR-0115)`). Surfaced
+  once ADR-0115's consolidation routed the docker / FFmpeg-SYCL
+  jobs through the master-targeting CI gate for the first time on
+  this branch — the standalone `0003-…sycl…` apply broke because
+  it referenced struct fields added by `0001-…tiny-model…`, the
+  Dockerfile only `COPY`'d 0003, and `ffmpeg.yml` referenced a
+  stale `../patches/` path.
+- **Touches**: `Dockerfile` (lines ~86-95 — the FFmpeg patch-apply
+  block), `.github/workflows/ffmpeg.yml` (the `Build FFmpeg with
+  SYCL patch series` step), `ffmpeg-patches/000{1,2,3}-*.patch`
+  (regenerated via real `git format-patch -3` so they carry valid
+  `index <sha>..<sha> <mode>` lines and committable SHAs). Pure
+  fork-local; no upstream FFmpeg or Netflix file changes.
+- **Invariant**: both the Dockerfile and `ffmpeg.yml` walk
+  `ffmpeg-patches/series.txt` line-by-line and apply each patch
+  via `git apply` with a `patch -p1` fallback. **Do not** ship a
+  new patch without appending it to `series.txt`, and **do not**
+  reorder existing entries — patch 0003 references LIBVMAFContext
+  fields added by patch 0001, so any out-of-order apply breaks
+  the build at hunk 2 of vf_libvmaf.c.
+- **Two flag-side fixes bundled in the same PR**:
+  1. `--enable-libvmaf-sycl` is **not** a valid FFmpeg configure
+     option. Patch 0003 uses `check_pkg_config libvmaf_sycl …`
+     auto-detection (matching how `libvmaf_cuda` is wired) — it
+     never registers the switch. Both Dockerfile and ffmpeg.yml
+     used to pass the flag and configure rejected it with
+     `Unknown option "--enable-libvmaf-sycl"`. SYCL support is
+     now controlled solely by `-Denable_sycl=true` at libvmaf
+     build time; FFmpeg picks it up automatically when
+     `libvmaf-sycl.pc` is on `PKG_CONFIG_PATH`.
+  2. The Dockerfile now carries **two** nvcc-flag ARGs.
+     `NVCC_FLAGS` (libvmaf) keeps four `-gencode` lines plus the
+     experimental `--extended-lambda` /
+     `--expt-relaxed-constexpr` / `--expt-extended-lambda` flags
+     needed for Thrust/CUB host+device code. `FFMPEG_NVCC_FLAGS`
+     (FFmpeg) carries a single `-gencode arch=compute_75,code=sm_75
+     -O2` — FFmpeg's `check_nvcc` runs `nvcc -ptx`, which fails with
+     `nvcc fatal: Option '--ptx (-ptx)' is not allowed when
+     compiling for multiple GPU architectures` on multi-arch input,
+     and `--extended-lambda` requires host+device compilation.
+     compute_75 PTX is forward-compatible with all newer GPUs via
+     driver JIT.
+  3. `--enable-libnpp` is no longer passed to FFmpeg's configure.
+     FFmpeg n8.1's libnpp probe carries an explicit
+     `die "ERROR: libnpp support is deprecated, version 13.0 and
+     up are not supported"` (configure:7335-7336) that fires on
+     the base image's CUDA 13.2 libnpp. We don't use scale_npp /
+     transpose_npp / sharpen_npp in any VMAF workflow; cuvid +
+     nvdec + nvenc + libvmaf-cuda is the actual GPU path. Revisit
+     once we move to an FFmpeg release that supports CUDA 13
+     libnpp upstream.
+  4. Patch 0002 (`add-vmaf_pre-filter`) gained a missing
+     `#include "libavutil/imgutils.h"` for `av_image_copy_plane()`.
+     FFmpeg's libavfilter Makefile builds with
+     `-Werror=implicit-function-declaration` so this fired during
+     the actual compile (not configure). Caught by a local
+     `docker build` rather than waiting for GitHub Actions —
+     much faster iteration loop.
+- **Re-test**:
+
+  ```bash
+  cd /tmp && rm -rf ffmpeg-test && \
+      git clone -q --depth 1 -b n8.1 \
+          https://git.ffmpeg.org/ffmpeg.git ffmpeg-test && \
+      cd ffmpeg-test && \
+      while IFS= read -r line; do \
+          case "$line" in ''|\#*) continue ;; esac; \
+          git apply "/path/to/vmaf/ffmpeg-patches/$line" \
+              || patch -p1 < "/path/to/vmaf/ffmpeg-patches/$line"; \
+      done < /path/to/vmaf/ffmpeg-patches/series.txt
+  # Expected: all three patches apply with no rejects; the resulting
+  # tree compiles with --enable-libvmaf. SYCL is auto-detected via
+  # check_pkg_config (patch 0003), so no explicit configure flag is
+  # required when libvmaf-sycl.pc is on PKG_CONFIG_PATH.
+  ```
+
+  Pure fork-local series; no Netflix-side conflict vector. See ADR-0118.

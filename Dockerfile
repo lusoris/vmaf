@@ -14,6 +14,17 @@ ARG FFMPEG_TAG=n8.1
 # constexpr in device code; extended-lambda allows __device__ lambdas with capture;
 # expt-relaxed-constexpr is required by several Thrust/CUB templates we pull in.
 ARG NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_90,code=sm_90 -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 --expt-relaxed-constexpr --extended-lambda --expt-extended-lambda -O2"
+# FFmpeg's configure runs check_nvcc in `-ptx` device-only mode. Two
+# constraints from that mode that the libvmaf NVCC_FLAGS above violate:
+#   1. `-ptx` only accepts a SINGLE `-gencode` (nvcc fatal: "Option
+#      '--ptx (-ptx)' is not allowed when compiling for multiple GPU
+#      architectures"). FFmpeg's CUDA filters compile to one PTX target
+#      and rely on driver JIT for newer GPUs, so one arch is sufficient.
+#   2. The experimental host+device flags above (`--extended-lambda` et
+#      al.) are device-only-incompatible.
+# compute_75 (Turing) is FFmpeg's own fallback default for modern nvcc;
+# the PTX is forward-compatible with everything newer via JIT.
+ARG FFMPEG_NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -O2"
 ARG ENABLE_SYCL=false
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -83,14 +94,30 @@ RUN make clean && make ENABLE_NVCC=true && make install
 RUN wget -q "https://github.com/FFmpeg/FFmpeg/archive/${FFMPEG_TAG}.zip" && \
     unzip -q "${FFMPEG_TAG}.zip" && rm "${FFMPEG_TAG}.zip"
 
-COPY ffmpeg-patches/0003-libvmaf-wire-sycl-backend-selector.patch /tmp/ffmpeg-libvmaf-sycl.patch
+COPY ffmpeg-patches /tmp/ffmpeg-patches
 WORKDIR /vmaf/FFmpeg-${FFMPEG_TAG}
-RUN (git apply /tmp/ffmpeg-libvmaf-sycl.patch 2>/dev/null || patch -p1 < /tmp/ffmpeg-libvmaf-sycl.patch)
+# Apply the patch series in series.txt order. Patch 0003 depends on
+# fields added by 0001, so applying out of order breaks the build.
+RUN set -e; \
+    while IFS= read -r line; do \
+        case "$line" in ''|\#*) continue ;; esac; \
+        echo "Applying ffmpeg-patches/$line"; \
+        git apply "/tmp/ffmpeg-patches/$line" 2>/dev/null \
+            || patch -p1 < "/tmp/ffmpeg-patches/$line"; \
+    done < /tmp/ffmpeg-patches/series.txt
 
-RUN SYCL_FLAG="" && \
-    if [ "$ENABLE_SYCL" = "true" ]; then SYCL_FLAG="--enable-libvmaf-sycl"; fi && \
-    ./configure \
-        --enable-libnpp \
+# libvmaf-sycl is auto-detected by FFmpeg's check_pkg_config (added by
+# patch 0003); there is no `--enable-libvmaf-sycl` flag to pass. SYCL
+# support follows libvmaf's pkg-config (set by `-Denable_sycl=true` at
+# libvmaf build time).
+# `--enable-libnpp` is omitted: FFmpeg n8.1's libnpp probe carries an
+# explicit `die "ERROR: libnpp support is deprecated, version 13.0 and up
+# are not supported"` (configure:7335-7336) that fires on the base image's
+# CUDA 13.2 libnpp. The npp_*_filter set (scale_npp, transpose_npp, etc.)
+# is unrelated to VMAF; cuvid + nvdec + nvenc + libvmaf-cuda are what we
+# actually use here. Revisit once we move to an FFmpeg release that
+# supports CUDA 13 libnpp upstream.
+RUN ./configure \
         --enable-nonfree \
         --enable-nvdec \
         --enable-nvenc \
@@ -100,8 +127,7 @@ RUN SYCL_FLAG="" && \
         --enable-libvmaf \
         --enable-ffnvcodec \
         --disable-stripping \
-        --nvccflags="${NVCC_FLAGS}" \
-        "${SYCL_FLAG}" && \
+        --nvccflags="${FFMPEG_NVCC_FLAGS}" && \
     make -j"$(nproc)" && \
     make install
 

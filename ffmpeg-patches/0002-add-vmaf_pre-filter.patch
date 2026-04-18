@@ -1,7 +1,10 @@
-From b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2 Mon Sep 17 00:00:00 2001
+From 20e12cc1ada49209d4dc835f05cf03f299995204 Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
 Date: Wed, 15 Apr 2026 12:05:00 +0000
 Subject: [PATCH 2/3] avfilter: add vmaf_pre filter (learned pre-processing)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
 New video filter `vmaf_pre` that runs a residual CNN (C3 in Lusoris
 libvmaf's tiny-AI matrix) to pre-process luma planes before encoding.
@@ -18,24 +21,27 @@ Rebased against FFmpeg n8.1. The filter uses the FFFilter struct layout
 
 Signed-off-by: Lusoris <lusoris@pm.me>
 ---
- configure                 |   3 +
+ configure                 |   2 +
  libavfilter/Makefile      |   1 +
  libavfilter/allfilters.c  |   1 +
- libavfilter/vf_vmaf_pre.c | 211 ++++++++++++++++++++++++++++++++++++++
- 4 files changed, 216 insertions(+)
+ libavfilter/vf_vmaf_pre.c | 193 ++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 197 insertions(+)
  create mode 100644 libavfilter/vf_vmaf_pre.c
 
 diff --git a/configure b/configure
+index 1759694..87a9d35 100755
 --- a/configure
 +++ b/configure
-@@ -4236,6 +4236,7 @@ vidstabtransform_filter_deps="libvidstab"
+@@ -4235,6 +4235,7 @@ vidstabdetect_filter_deps="libvidstab"
+ vidstabtransform_filter_deps="libvidstab"
  libvmaf_filter_deps="libvmaf"
  libvmaf_cuda_filter_deps="libvmaf libvmaf_cuda ffnvcodec"
 +vmaf_pre_filter_deps="libvmaf"
  zmq_filter_deps="libzmq"
  zoompan_filter_deps="swscale"
  zscale_filter_deps="libzimg const_nan"
-@@ -7391,6 +7392,7 @@ enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid
+@@ -7390,6 +7391,7 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
+ enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid.stab/libvidstab.h vsMotionDetectInit
  enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
 +enabled vmaf_pre_filter   && require_pkg_config libvmaf_dnn "libvmaf >= 3.0.0" libvmaf/dnn.h vmaf_dnn_session_open
@@ -43,17 +49,23 @@ diff --git a/configure b/configure
                                 require libvo_amrwbenc vo-amrwbenc/enc_if.h E_IF_init -lvo-amrwbenc; }
  enabled libvorbis         && require_pkg_config libvorbis vorbis vorbis/codec.h vorbis_info_init &&
 diff --git a/libavfilter/Makefile b/libavfilter/Makefile
+index a530cfa..db0e09b 100644
 --- a/libavfilter/Makefile
 +++ b/libavfilter/Makefile
-@@ -573,6 +573,7 @@ OBJS-$(CONFIG_VIGNETTE_FILTER)               += vf_vignette.o
+@@ -571,6 +571,7 @@ OBJS-$(CONFIG_VIDSTABTRANSFORM_FILTER)       += vidstabutils.o vf_vidstabtransfo
+ OBJS-$(CONFIG_VIF_FILTER)                    += vf_vif.o framesync.o
+ OBJS-$(CONFIG_VIGNETTE_FILTER)               += vf_vignette.o
  OBJS-$(CONFIG_VMAFMOTION_FILTER)             += vf_vmafmotion.o framesync.o
 +OBJS-$(CONFIG_VMAF_PRE_FILTER)               += vf_vmaf_pre.o
- OBJS-$(CONFIG_W3FDIF_FILTER)                 += vf_w3fdif.o
- OBJS-$(CONFIG_WAVEFORM_FILTER)               += vf_waveform.o
+ OBJS-$(CONFIG_VPP_AMF_FILTER)                += vf_vpp_amf.o scale_eval.o vf_amf_common.o
+ OBJS-$(CONFIG_VPP_QSV_FILTER)                += vf_vpp_qsv.o
+ OBJS-$(CONFIG_VSTACK_FILTER)                 += vf_stack.o framesync.o
 diff --git a/libavfilter/allfilters.c b/libavfilter/allfilters.c
+index e26859e..4e951ca 100644
 --- a/libavfilter/allfilters.c
 +++ b/libavfilter/allfilters.c
-@@ -539,6 +539,7 @@ extern const FFFilter ff_vf_vif;
+@@ -537,6 +537,7 @@ extern const FFFilter ff_vf_vidstabtransform;
+ extern const FFFilter ff_vf_vif;
  extern const FFFilter ff_vf_vignette;
  extern const FFFilter ff_vf_vmafmotion;
 +extern const FFFilter ff_vf_vmaf_pre;
@@ -62,9 +74,10 @@ diff --git a/libavfilter/allfilters.c b/libavfilter/allfilters.c
  extern const FFFilter ff_vf_w3fdif;
 diff --git a/libavfilter/vf_vmaf_pre.c b/libavfilter/vf_vmaf_pre.c
 new file mode 100644
+index 0000000..b339442
 --- /dev/null
 +++ b/libavfilter/vf_vmaf_pre.c
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,193 @@
 +/*
 + * Copyright 2026 Lusoris and Claude (Anthropic)
 + *
@@ -92,6 +105,7 @@ new file mode 100644
 +#include <libvmaf/dnn.h>
 +
 +#include "libavutil/avstring.h"
++#include "libavutil/imgutils.h"
 +#include "libavutil/mem.h"
 +#include "libavutil/opt.h"
 +#include "libavutil/pixdesc.h"
@@ -257,5 +271,6 @@ new file mode 100644
 +    FILTER_OUTPUTS(ff_video_default_filterpad),
 +    FILTER_QUERY_FUNC2(query_formats),
 +};
---
-2.45.0
+-- 
+2.53.0
+
