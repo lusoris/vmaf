@@ -142,6 +142,7 @@ nav:
       - Inference: ai/inference.md
       - Benchmarks: ai/benchmarks.md
       - Security: ai/security.md
+      - Bisect model quality: ai/bisect-model-quality.md
   - Development:
       - Engineering principles: principles.md
       - Build flags: development/build-flags.md
