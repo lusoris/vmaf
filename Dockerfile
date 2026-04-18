@@ -97,6 +97,9 @@ RUN set -e; \
 
 RUN SYCL_FLAG="" && \
     if [ "$ENABLE_SYCL" = "true" ]; then SYCL_FLAG="--enable-libvmaf-sycl"; fi && \
+    # Unquoted ${SYCL_FLAG} so an empty value vanishes; "${SYCL_FLAG}"
+    # would pass FFmpeg's configure a literal empty arg, which it
+    # rejects with `Unknown option ""`. ENABLE_SYCL=false is default.
     ./configure \
         --enable-libnpp \
         --enable-nonfree \
@@ -109,7 +112,7 @@ RUN SYCL_FLAG="" && \
         --enable-ffnvcodec \
         --disable-stripping \
         --nvccflags="${NVCC_FLAGS}" \
-        "${SYCL_FLAG}" && \
+        ${SYCL_FLAG} && \
     make -j"$(nproc)" && \
     make install
 
