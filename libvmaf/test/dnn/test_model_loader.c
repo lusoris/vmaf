@@ -367,6 +367,195 @@ static char *test_sidecar_parses(void)
     return NULL;
 }
 
+static char *test_sidecar_rejects_null_args(void)
+{
+    /* NULL onnx_path or NULL out → -EINVAL (line 171). */
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(NULL, &meta);
+    mu_assert("NULL onnx_path rejected", err == -EINVAL);
+    err = vmaf_dnn_sidecar_load("model.onnx", NULL);
+    mu_assert("NULL out rejected", err == -EINVAL);
+    return NULL;
+}
+
+static char *test_sidecar_free_null_is_noop(void)
+{
+    /* free(NULL) must be a no-op (line 241). */
+    vmaf_dnn_sidecar_free(NULL);
+    mu_assert("sidecar_free(NULL) returned without crashing", 1);
+    return NULL;
+}
+
+static char *test_sidecar_missing_returns_enoent(void)
+{
+    /* Sidecar absent → -ENOENT (errno propagation through fopen). */
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load("/tmp/vmaf-no-such-model-zzz.onnx", &meta);
+    mu_assert("missing sidecar → -ENOENT", err == -ENOENT);
+    return NULL;
+}
+
+#ifndef _WIN32
+static char *test_sidecar_parses_kind_nr(void)
+{
+    /* kind == "nr" branch (line 224). */
+    char tmpl[] = "/tmp/vmaf-dnn-sidecar-nr-XXXXXX";
+    int fd = mkstemp(tmpl);
+    mu_assert("mkstemp failed", fd >= 0);
+    close(fd);
+
+    char onnx[1024], sidecar[1024];
+    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    FILE *f = fopen(onnx, "w");
+    if (f)
+        fclose(f);
+
+    FILE *s = fopen(sidecar, "w");
+    mu_assert("fopen sidecar failed", s != NULL);
+    fprintf(s, "{\"kind\": \"nr\"}\n");
+    fclose(s);
+
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(onnx, &meta);
+    mu_assert("sidecar_load nr failed", err == 0);
+    mu_assert("kind NR", meta.kind == VMAF_MODEL_KIND_DNN_NR);
+    vmaf_dnn_sidecar_free(&meta);
+
+    remove(sidecar);
+    remove(onnx);
+    remove(tmpl);
+    return NULL;
+}
+
+static char *test_sidecar_no_dot_onnx_extension(void)
+{
+    /* Path that does not end in ".onnx" → falls through to the
+     * memcpy(sidecar + len, ".json", 6) branch (line 185). With this
+     * branch, foo.bin → foo.bin.json. */
+    char tmpl[] = "/tmp/vmaf-dnn-noext-XXXXXX";
+    int fd = mkstemp(tmpl);
+    mu_assert("mkstemp failed", fd >= 0);
+    close(fd);
+
+    char model[1024], sidecar[1024];
+    snprintf(model, sizeof model, "%s.bin", tmpl);
+    snprintf(sidecar, sizeof sidecar, "%s.bin.json", tmpl);
+    FILE *f = fopen(model, "w");
+    if (f)
+        fclose(f);
+
+    FILE *s = fopen(sidecar, "w");
+    mu_assert("fopen sidecar failed", s != NULL);
+    fprintf(s, "{\"kind\": \"fr\"}\n");
+    fclose(s);
+
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(model, &meta);
+    mu_assert("non-onnx sidecar suffix branch", err == 0);
+    vmaf_dnn_sidecar_free(&meta);
+
+    remove(sidecar);
+    remove(model);
+    remove(tmpl);
+    return NULL;
+}
+
+static char *test_sidecar_oversized_path(void)
+{
+    /* Path of length > sizeof(sidecar) - 6 → -ENAMETOOLONG (line 178).
+     * sizeof(sidecar) is 4096; we need a path > 4090 chars. */
+    char *huge = (char *)malloc(4100u);
+    mu_assert("alloc failed", huge != NULL);
+    memset(huge, 'a', 4096u);
+    huge[4096] = '\0';
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(huge, &meta);
+    free(huge);
+    mu_assert("oversized path → -ENAMETOOLONG", err == -ENAMETOOLONG);
+    return NULL;
+}
+
+static char *test_sidecar_malformed_keys_default(void)
+{
+    /* Sidecar JSON missing keys / malformed values: extract_string and
+     * extract_int return NULL/error and the loader falls back to defaults
+     * without erroring. Drives the no-key / non-string / non-int branches
+     * in extract_string (lines 117-138) and extract_int (lines 147-163). */
+    char tmpl[] = "/tmp/vmaf-dnn-malformed-XXXXXX";
+    int fd = mkstemp(tmpl);
+    mu_assert("mkstemp failed", fd >= 0);
+    close(fd);
+
+    char onnx[1024], sidecar[1024];
+    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    FILE *f = fopen(onnx, "w");
+    if (f)
+        fclose(f);
+
+    FILE *s = fopen(sidecar, "w");
+    mu_assert("fopen sidecar failed", s != NULL);
+    /* "kind" present but not a string (number) → extract_string returns
+     * NULL via "no opening quote" branch. "name" missing entirely →
+     * extract_string returns NULL via strstr-miss branch. "onnx_opset"
+     * present but not a number → extract_int returns -EINVAL via the
+     * endp == p branch. */
+    fprintf(s, "{\"kind\": 42, \"onnx_opset\": \"abc\"}\n");
+    fclose(s);
+
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(onnx, &meta);
+    mu_assert("malformed sidecar still loads with defaults", err == 0);
+    /* kind defaults to FR when "kind" is non-string. */
+    mu_assert("kind defaults to FR", meta.kind == VMAF_MODEL_KIND_DNN_FR);
+    /* opset stays 0 when extract_int rejects the value. */
+    mu_assert("opset defaults to 0", meta.opset == 0);
+    /* No name in JSON → out->name is NULL. */
+    mu_assert("missing name stays NULL", meta.name == NULL);
+    vmaf_dnn_sidecar_free(&meta);
+
+    remove(sidecar);
+    remove(onnx);
+    remove(tmpl);
+    return NULL;
+}
+
+static char *test_sidecar_extract_string_no_close_quote(void)
+{
+    /* extract_string with a key that has an opening quote on the value but
+     * no closing quote → strchr(p, '"') returns NULL, line 132 branch. */
+    char tmpl[] = "/tmp/vmaf-dnn-noclose-XXXXXX";
+    int fd = mkstemp(tmpl);
+    mu_assert("mkstemp failed", fd >= 0);
+    close(fd);
+
+    char onnx[1024], sidecar[1024];
+    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    FILE *f = fopen(onnx, "w");
+    if (f)
+        fclose(f);
+
+    FILE *s = fopen(sidecar, "w");
+    mu_assert("fopen sidecar failed", s != NULL);
+    /* "name" opens a quote that never closes before EOF. */
+    fputs("{\"name\": \"unterminated", s);
+    fclose(s);
+
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(onnx, &meta);
+    mu_assert("malformed sidecar still loads", err == 0);
+    mu_assert("unterminated string returns NULL", meta.name == NULL);
+    vmaf_dnn_sidecar_free(&meta);
+
+    remove(sidecar);
+    remove(onnx);
+    remove(tmpl);
+    return NULL;
+}
+#endif /* !_WIN32 */
+
 char *run_tests(void)
 {
     mu_run_test(test_sniff_by_extension);
@@ -387,5 +576,15 @@ char *run_tests(void)
     mu_run_test(test_jail_accepts_trailing_slash);
 #endif
     mu_run_test(test_sidecar_parses);
+    mu_run_test(test_sidecar_rejects_null_args);
+    mu_run_test(test_sidecar_free_null_is_noop);
+    mu_run_test(test_sidecar_missing_returns_enoent);
+#ifndef _WIN32
+    mu_run_test(test_sidecar_parses_kind_nr);
+    mu_run_test(test_sidecar_no_dot_onnx_extension);
+    mu_run_test(test_sidecar_oversized_path);
+    mu_run_test(test_sidecar_malformed_keys_default);
+    mu_run_test(test_sidecar_extract_string_no_close_quote);
+#endif
     return NULL;
 }

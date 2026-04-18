@@ -556,6 +556,270 @@ static char *test_json_model_synthetic_branches(void)
     return NULL;
 }
 
+/* parse_model_dict: unknown model_type value → -EINVAL (line 333). */
+static char *test_json_model_unknown_model_type(void)
+{
+    const char json[] = "{\"model_dict\": {\"model_type\": \"NOT_A_REAL_TYPE\"}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("unknown model_type must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_model_dict: unknown norm_type value → -EINVAL (line 347). */
+static char *test_json_model_unknown_norm_type(void)
+{
+    const char json[] = "{\"model_dict\": {\"norm_type\": \"weird-norm\"}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("unknown norm_type must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_model_dict: model_type not a string → -EINVAL (line 324). */
+static char *test_json_model_model_type_not_string(void)
+{
+    const char json[] = "{\"model_dict\": {\"model_type\": 42}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-string model_type must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_model_dict: norm_type not a string → -EINVAL (line 340). */
+static char *test_json_model_norm_type_not_string(void)
+{
+    const char json[] = "{\"model_dict\": {\"norm_type\": 7}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-string norm_type must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_model_dict: score_transform not an object → -EINVAL (line 308). */
+static char *test_json_model_score_transform_not_object(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_transform\": [1,2,3]}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-object score_transform must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_score_transform: p0 neither null nor number → -EINVAL (line 216). */
+static char *test_json_model_score_transform_p0_bad_type(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"p0\": \"oops\"}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("string p0 must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_score_transform: p1 bad type → -EINVAL (line 228). */
+static char *test_json_model_score_transform_p1_bad_type(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"p1\": true}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("bool p1 must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_score_transform: p2 bad type → -EINVAL (line 240). */
+static char *test_json_model_score_transform_p2_bad_type(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"p2\": false}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("bool p2 must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_score_transform: knots neither null nor array → -EINVAL (line 255). */
+static char *test_json_model_score_transform_knots_bad_type(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"knots\": 99}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("number knots must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_score_transform: out_lte_in not a string → -EINVAL (line 262). */
+static char *test_json_model_score_transform_out_lte_in_not_string(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"out_lte_in\": 1}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-string out_lte_in must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_score_transform: out_gte_in not a string → -EINVAL (line 271). */
+static char *test_json_model_score_transform_out_gte_in_not_string(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"out_gte_in\": 1}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-string out_gte_in must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_score_transform: enabled neither true nor false → -EINVAL (line 204). */
+static char *test_json_model_score_transform_enabled_bad_type(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"enabled\": 7}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-bool enabled must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_feature_names: non-string element → -EINVAL (line 180). */
+static char *test_json_model_feature_names_non_string(void)
+{
+    const char json[] = "{\"model_dict\": {\"feature_names\": [\"ok\", 42]}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-string feature name must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_slopes: non-number element → -EINVAL (line 116). */
+static char *test_json_model_slopes_non_number(void)
+{
+    const char json[] = "{\"model_dict\": {\"slopes\": [1.0, \"x\"]}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-number slope must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_intercepts: first element not a number → -EINVAL (line 92). */
+static char *test_json_model_intercepts_first_not_number(void)
+{
+    const char json[] = "{\"model_dict\": {\"intercepts\": [\"nope\"]}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-number first intercept must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_knots: outer element not an array → -EINVAL (line 149). */
+static char *test_json_model_knots_outer_not_array(void)
+{
+    const char json[] =
+        "{\"model_dict\": {\"score_transform\": {\"knots\": [42]}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-array knot must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_knots_list: knot pair holds >2 numbers → -EINVAL (line 132). */
+static char *test_json_model_knots_too_many_values(void)
+{
+    const char json[] =
+        "{\"model_dict\": {\"score_transform\": {\"knots\": [[0.0, 1.0, 2.0]]}}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("knot triple must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_feature_opts_dicts: value type other than number/bool/string
+ * (here: null) → -EINVAL (line 77). */
+static char *test_json_model_feature_opts_dict_bad_value_type(void)
+{
+    const char json[] =
+        "{\"model_dict\": {\"feature_opts_dicts\": [{\"k\": null}]}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("null opts value must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_model_dict: score_clip not an array → -EINVAL (line 354). */
+static char *test_json_model_score_clip_not_array(void)
+{
+    const char json[] = "{\"model_dict\": {\"score_clip\": 0}}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-array score_clip must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
+/* parse_model_dict: top-level model_dict value not an object → -EINVAL (line 299). */
+static char *test_json_model_model_dict_not_object(void)
+{
+    const char json[] = "{\"model_dict\": [1,2]}";
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
+    mu_assert("non-object model_dict must reject", err < 0);
+    if (m)
+        vmaf_model_destroy(m);
+    return NULL;
+}
+
 /* Collection parser hits json_skip() for keys that don't match the
  * generated "%d" index sequence (line 556). Also hits the -EINVAL early
  * return when the inner model payload is malformed (line 538). */
@@ -621,5 +885,25 @@ char *run_tests()
     mu_run_test(test_json_model_score_transform);
     mu_run_test(test_json_model_synthetic_branches);
     mu_run_test(test_json_model_collection_skips_unknown_keys);
+    mu_run_test(test_json_model_unknown_model_type);
+    mu_run_test(test_json_model_unknown_norm_type);
+    mu_run_test(test_json_model_model_type_not_string);
+    mu_run_test(test_json_model_norm_type_not_string);
+    mu_run_test(test_json_model_score_transform_not_object);
+    mu_run_test(test_json_model_score_transform_p0_bad_type);
+    mu_run_test(test_json_model_score_transform_p1_bad_type);
+    mu_run_test(test_json_model_score_transform_p2_bad_type);
+    mu_run_test(test_json_model_score_transform_knots_bad_type);
+    mu_run_test(test_json_model_score_transform_out_lte_in_not_string);
+    mu_run_test(test_json_model_score_transform_out_gte_in_not_string);
+    mu_run_test(test_json_model_score_transform_enabled_bad_type);
+    mu_run_test(test_json_model_feature_names_non_string);
+    mu_run_test(test_json_model_slopes_non_number);
+    mu_run_test(test_json_model_intercepts_first_not_number);
+    mu_run_test(test_json_model_knots_outer_not_array);
+    mu_run_test(test_json_model_knots_too_many_values);
+    mu_run_test(test_json_model_feature_opts_dict_bad_value_type);
+    mu_run_test(test_json_model_score_clip_not_array);
+    mu_run_test(test_json_model_model_dict_not_object);
     return NULL;
 }
