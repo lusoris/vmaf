@@ -69,6 +69,7 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #ifdef HAVE_SYCL
 #include "libvmaf/libvmaf_sycl.h"
 #include "sycl/common.h"
+#include "sycl/picture_sycl.h"
 #endif
 
 typedef struct VmafContext {
@@ -101,6 +102,7 @@ typedef struct VmafContext {
 #ifdef HAVE_SYCL
     struct {
         VmafSyclState *state;
+        VmafSyclPicturePool *pool;
     } sycl;
 #endif
     struct {
@@ -397,11 +399,36 @@ int vmaf_sycl_import_state(VmafContext *vmaf, VmafSyclState *sycl_state)
 
 int vmaf_sycl_preallocate_pictures(VmafContext *vmaf, VmafSyclPictureConfiguration cfg)
 {
-    // SYCL extractors handle picture upload internally,
-    // so preallocation is not strictly needed.
-    (void)vmaf;
-    (void)cfg;
-    return 0;
+    if (!vmaf)
+        return -EINVAL;
+    if (!vmaf->sycl.state)
+        return -EINVAL;
+    if (vmaf->sycl.pool)
+        return -EBUSY;
+
+    if (cfg.pic_prealloc_method == VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_NONE)
+        return 0;
+
+    enum VmafSyclPoolMethod method;
+    switch (cfg.pic_prealloc_method) {
+    case VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_DEVICE:
+        method = VMAF_SYCL_POOL_DEVICE;
+        break;
+    case VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_HOST:
+        method = VMAF_SYCL_POOL_HOST;
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    /* Pool depth of 2 matches the shared-frame double-buffering in
+     * vmaf_sycl_shared_frame_upload — caller writes into pic N while
+     * extractors still consume pic N-1. */
+    const unsigned pic_cnt = 2;
+
+    return vmaf_sycl_picture_pool_init(&vmaf->sycl.pool, vmaf->sycl.state, pic_cnt,
+                                       cfg.pic_params.w, cfg.pic_params.h, cfg.pic_params.bpc,
+                                       cfg.pic_params.pix_fmt, method);
 }
 
 int vmaf_sycl_picture_fetch(VmafContext *vmaf, VmafPicture *pic)
@@ -411,6 +438,12 @@ int vmaf_sycl_picture_fetch(VmafContext *vmaf, VmafPicture *pic)
     if (!pic)
         return -EINVAL;
 
+    if (vmaf->sycl.pool)
+        return vmaf_sycl_picture_pool_fetch(vmaf->sycl.pool, pic);
+
+    /* No pool configured — fall back to a host-backed picture so callers
+     * that ignored vmaf_sycl_preallocate_pictures() still receive a usable
+     * buffer (the shared-frame upload path handles host→device copy). */
     return vmaf_picture_alloc(pic, vmaf->pic_params.pix_fmt, vmaf->pic_params.bpc,
                               vmaf->pic_params.w, vmaf->pic_params.h);
 }
@@ -613,6 +646,10 @@ int vmaf_close(VmafContext *vmaf)
         vmaf_cuda_release(&vmaf->cuda.state);
 #endif
 #ifdef HAVE_SYCL
+    if (vmaf->sycl.pool) {
+        vmaf_sycl_picture_pool_close(vmaf->sycl.pool);
+        vmaf->sycl.pool = NULL;
+    }
     /* Note: ownership of sycl.state is NOT transferred by
      * vmaf_sycl_import_state(), so we do not free it here.
      * The caller must call vmaf_sycl_state_free() after vmaf_close(). */

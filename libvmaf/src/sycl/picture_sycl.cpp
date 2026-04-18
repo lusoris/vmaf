@@ -32,11 +32,17 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <new>
 
 #include <sycl/sycl.hpp>
 
-#include "picture_sycl.h"
+extern "C" {
+#include "picture.h"
 #include "common.h"
+#include "ref.h"
+}
+#include "picture_sycl.h"
 
 /* ------------------------------------------------------------------ */
 /* Upload / download                                                   */
@@ -118,18 +124,51 @@ extern "C" int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
     size_t bpp = (c->bpc + 7) / 8;
     size_t plane_size = (size_t)c->w * c->h * bpp;
 
-    /* Allocate device memory for Y plane only (VMAF operates on luma) */
-    void *dev_buf = vmaf_sycl_malloc_device(c->state, plane_size);
-    if (!dev_buf)
+    /* Y plane only — VMAF operates on luma. DEVICE USM for GPU-resident,
+     * HOST USM when the caller wants coherent host-visible buffers. */
+    void *buf = nullptr;
+    switch (c->method) {
+    case VMAF_SYCL_POOL_HOST:
+        buf = vmaf_sycl_malloc_host(c->state, plane_size);
+        break;
+    case VMAF_SYCL_POOL_DEVICE:
+    default:
+        buf = vmaf_sycl_malloc_device(c->state, plane_size);
+        break;
+    }
+    if (!buf)
         return -ENOMEM;
 
     memset(pic, 0, sizeof(*pic));
-    pic->data[0] = dev_buf;
+    pic->data[0] = buf;
     pic->stride[0] = c->w * bpp;
     pic->w[0] = c->w;
     pic->h[0] = c->h;
     pic->bpc = c->bpc;
     pic->pix_fmt = c->pix_fmt;
+
+    /* Attach priv + refcount so vmaf_picture_ref/unref work symmetrically
+     * with host-backed pictures. buf_type tags this as SYCL-device-owned
+     * so validate_pic_params can enforce consistent backing across ref/dist. */
+    auto *priv = (VmafPicturePrivate *)calloc(1, sizeof(VmafPicturePrivate));
+    if (!priv) {
+        vmaf_sycl_free(c->state, buf);
+        pic->data[0] = nullptr;
+        return -ENOMEM;
+    }
+    priv->buf_type = VMAF_PICTURE_BUFFER_TYPE_SYCL_DEVICE;
+    priv->cookie = cookie;
+    priv->release_picture = vmaf_sycl_picture_free;
+    pic->priv = priv;
+
+    int err = vmaf_ref_init(&pic->ref);
+    if (err) {
+        free(priv);
+        pic->priv = nullptr;
+        vmaf_sycl_free(c->state, buf);
+        pic->data[0] = nullptr;
+        return err;
+    }
 
     return 0;
 }
@@ -142,18 +181,114 @@ extern "C" int vmaf_sycl_picture_free(VmafPicture *pic, void *cookie)
     VmafSyclCookie *c = (VmafSyclCookie *)cookie;
     assert(c->state != NULL);
 
-    if (pic->data[0]) {
-        vmaf_sycl_free(c->state, pic->data[0]);
-        pic->data[0] = NULL;
-    }
-    if (pic->data[1]) {
-        vmaf_sycl_free(c->state, pic->data[1]);
-        pic->data[1] = NULL;
-    }
-    if (pic->data[2]) {
-        vmaf_sycl_free(c->state, pic->data[2]);
-        pic->data[2] = NULL;
+    /* When invoked via vmaf_picture_unref the caller has already detached
+     * priv + ref on its side, so only the USM buffers remain to free here.
+     * When invoked directly by the pool on close, we also own priv + ref
+     * and must release both. */
+    for (unsigned i = 0; i < 3; i++) {
+        if (pic->data[i]) {
+            vmaf_sycl_free(c->state, pic->data[i]);
+            pic->data[i] = nullptr;
+        }
     }
 
     return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Picture pool                                                        */
+/* ------------------------------------------------------------------ */
+
+struct VmafSyclPicturePool {
+    VmafSyclCookie cookie;
+    unsigned pic_cnt;
+    unsigned curr_idx;
+    std::mutex lock;
+    VmafPicture *pic;
+};
+
+extern "C" int vmaf_sycl_picture_pool_init(VmafSyclPicturePool **pool_out, VmafSyclState *state,
+                                           unsigned pic_cnt, unsigned w, unsigned h, unsigned bpc,
+                                           enum VmafPixelFormat pix_fmt,
+                                           enum VmafSyclPoolMethod method)
+{
+    if (!pool_out || !state)
+        return -EINVAL;
+    if (pic_cnt == 0 || w == 0 || h == 0)
+        return -EINVAL;
+    if (bpc < 8 || bpc > 16)
+        return -EINVAL;
+
+    auto *pool = new (std::nothrow) VmafSyclPicturePool();
+    if (!pool)
+        return -ENOMEM;
+    pool->cookie.pix_fmt = pix_fmt;
+    pool->cookie.bpc = bpc;
+    pool->cookie.w = w;
+    pool->cookie.h = h;
+    pool->cookie.state = state;
+    pool->cookie.method = method;
+    pool->pic_cnt = pic_cnt;
+    pool->curr_idx = 0;
+
+    pool->pic = (VmafPicture *)calloc(pic_cnt, sizeof(VmafPicture));
+    if (!pool->pic) {
+        delete pool;
+        return -ENOMEM;
+    }
+
+    for (unsigned i = 0; i < pic_cnt; i++) {
+        int err = vmaf_sycl_picture_alloc(&pool->pic[i], &pool->cookie);
+        if (err) {
+            /* unwind already-allocated entries */
+            for (unsigned j = 0; j < i; j++) {
+                (void)vmaf_sycl_picture_free(&pool->pic[j], &pool->cookie);
+                free(pool->pic[j].priv);
+                if (pool->pic[j].ref)
+                    vmaf_ref_close(pool->pic[j].ref);
+            }
+            free(pool->pic);
+            delete pool;
+            return err;
+        }
+    }
+
+    *pool_out = pool;
+    return 0;
+}
+
+extern "C" int vmaf_sycl_picture_pool_fetch(VmafSyclPicturePool *pool, VmafPicture *pic_out)
+{
+    if (!pool || !pic_out)
+        return -EINVAL;
+
+    unsigned idx;
+    {
+        std::lock_guard<std::mutex> g(pool->lock);
+        idx = pool->curr_idx;
+        pool->curr_idx = (pool->curr_idx + 1u) % pool->pic_cnt;
+    }
+
+    /* vmaf_picture_ref copies the struct and increments the atomic refcount
+     * on the shared backing. The caller owns the returned ref and must
+     * release it via vmaf_picture_unref(). The pool retains its own ref on
+     * each pic[i] until vmaf_sycl_picture_pool_close(). */
+    return vmaf_picture_ref(pic_out, &pool->pic[idx]);
+}
+
+extern "C" int vmaf_sycl_picture_pool_close(VmafSyclPicturePool *pool)
+{
+    if (!pool)
+        return -EINVAL;
+
+    int err = 0;
+    for (unsigned i = 0; i < pool->pic_cnt; i++) {
+        err |= vmaf_sycl_picture_free(&pool->pic[i], &pool->cookie);
+        free(pool->pic[i].priv);
+        if (pool->pic[i].ref)
+            vmaf_ref_close(pool->pic[i].ref);
+    }
+    free(pool->pic);
+    delete pool;
+    return err;
 }

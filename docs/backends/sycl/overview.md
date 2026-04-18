@@ -79,6 +79,46 @@ libvmaf/src/feature/sycl/                # per-feature kernels
   event dependencies; dependencies within an extractor are handled by the
   in-order semantics.
 
+## Picture pre-allocation
+
+`vmaf_sycl_preallocate_pictures()` + `vmaf_sycl_picture_fetch()` back a
+2-deep ring of USM-backed `VmafPicture` instances that callers hand to
+`vmaf_read_pictures()`. Three modes:
+
+| `pic_prealloc_method` | Backing | Use case |
+| --- | --- | --- |
+| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_NONE` | No pool; `vmaf_sycl_picture_fetch` falls back to host `vmaf_picture_alloc` | CPU-fed pipelines, test harnesses |
+| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_DEVICE` | `sycl::malloc_device` (GPU-resident) | Zero-copy decoder interop (decoder writes directly into device USM) |
+| `VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_HOST` | `sycl::malloc_host` (coherent, CPU-visible) | Decoders that must write from the CPU but want pool reuse |
+
+The pool depth (2) matches the double-buffered shared-frame upload in
+`VmafSyclState`, so frame N+1 can start filling slot 1 while frame N's
+compute still consumes slot 0. The caller owns the ref returned by
+`vmaf_sycl_picture_fetch` and must release it via `vmaf_picture_unref` when
+done with it; the pool retains its own ref until `vmaf_close()`.
+
+Minimal example:
+
+```c
+VmafSyclPictureConfiguration cfg = {
+    .pic_params = { .w = 1920, .h = 1080, .bpc = 8, .pix_fmt = VMAF_PIX_FMT_YUV420P },
+    .pic_prealloc_method = VMAF_SYCL_PICTURE_PREALLOCATION_METHOD_DEVICE,
+};
+vmaf_sycl_preallocate_pictures(vmaf, cfg);
+
+for (unsigned i = 0; i < n_frames; i++) {
+    VmafPicture ref, dis;
+    vmaf_sycl_picture_fetch(vmaf, &ref);   /* device USM, caller writes */
+    vmaf_sycl_picture_fetch(vmaf, &dis);
+    /* ... fill ref.data[0] and dis.data[0] via decoder/upload ... */
+    vmaf_read_pictures(vmaf, &ref, &dis, i);
+}
+vmaf_read_pictures(vmaf, NULL, NULL, 0);
+```
+
+See [ADR-0101](../../adr/0101-sycl-usm-picture-pool.md) for the design
+rationale (Y-plane only, pool depth 2, refcount semantics).
+
 ## Profiling
 
 - Intel VTune (`vtune-gui`) with the GPU Compute analysis type for kernel
