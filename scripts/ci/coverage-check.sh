@@ -41,11 +41,14 @@ fi
 #       { "filename": "libvmaf/src/foo.c",
 #         "line_percent": 81.2,
 #         "line_total": 412, "line_covered": 335 }, ... ] }
+# Note: avoid f-strings here. Python <3.12 forbids backslashes inside f-string
+# expressions, and we are inside single-quoted bash so we cannot escape
+# double quotes for the dict key. printf-style formatting sidesteps both.
 read -r OVERALL <<<"$(python3 -c '
 import json, sys
 with open(sys.argv[1]) as f:
     d = json.load(f)
-print(f"{d.get(\"line_percent\", 0):.4f}")
+print("%.4f" % d.get("line_percent", 0))
 ' "$INFO")"
 
 echo "Overall line coverage: ${OVERALL}% (min ${OVERALL_MIN}%)"
