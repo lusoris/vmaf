@@ -402,7 +402,7 @@ inline.*
       --filter 'src/.*' \
       --exclude '.*/test/.*' --exclude '.*/tests/.*' \
       --exclude '.*/subprojects/.*' \
-      --gcov-ignore-parse-errors=negative_hits.warn \
+      --gcov-ignore-parse-errors=negative_hits.warn,suspicious_hits.warn \
       --print-summary --txt build-cov-test/coverage.txt \
       --json-summary build-cov-test/coverage.json \
       build-cov-test
