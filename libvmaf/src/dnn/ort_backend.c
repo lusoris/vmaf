@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "ort_backend.h"
+#include "ort_backend_internal.h"
 
 #if defined(VMAF_HAVE_DNN) && VMAF_HAVE_DNN
 
@@ -672,6 +673,25 @@ cleanup:
     return rc;
 }
 
+/* Internal-test entry points (declared in ort_backend_internal.h). Thin
+ * wrappers preserve the static qualifier on the originals so production
+ * call sites remain fully inlinable while the test binary can still
+ * exercise the helpers directly. See ADR-0112. */
+uint16_t vmaf_ort_internal_fp32_to_fp16(float f)
+{
+    return fp32_to_fp16(f);
+}
+
+float vmaf_ort_internal_fp16_to_fp32(uint16_t h)
+{
+    return fp16_to_fp32(h);
+}
+
+const char *vmaf_ort_internal_resolve_name(char **table, size_t count, const char *name, size_t pos)
+{
+    return resolve_name(table, count, name, pos);
+}
+
 #else /* !VMAF_HAVE_DNN */
 
 struct VmafOrtSession {
@@ -734,6 +754,31 @@ int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_i
 void vmaf_ort_close(VmafOrtSession *sess)
 {
     (void)sess;
+}
+
+/* Internal-test stubs for the DNN-disabled build. The real wrappers live
+ * in the VMAF_HAVE_DNN branch above; here they exist purely so
+ * test_ort_internals.c links cleanly on stub builds. The test bodies
+ * short-circuit via vmaf_dnn_available() before invoking these. */
+uint16_t vmaf_ort_internal_fp32_to_fp16(float f)
+{
+    (void)f;
+    return 0u;
+}
+
+float vmaf_ort_internal_fp16_to_fp32(uint16_t h)
+{
+    (void)h;
+    return 0.0f;
+}
+
+const char *vmaf_ort_internal_resolve_name(char **table, size_t count, const char *name, size_t pos)
+{
+    (void)table;
+    (void)count;
+    (void)name;
+    (void)pos;
+    return NULL;
 }
 
 #endif /* VMAF_HAVE_DNN */
