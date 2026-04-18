@@ -328,3 +328,47 @@ inline._
   grep -E '<metric name="vmaf"|integer_motion3' /tmp/vmaf-motion-port.json
   # Expected: vmaf mean ≈ 76.66783; integer_motion3 mean ≈ 3.98976.
   ```
+
+### 0014 — Coverage gate `-fprofile-update=atomic` + `python/test/` lint exclusion
+
+- **Workstream PRs**: this PR (lint-exclude + coverage-gcov-race fix bundle).
+- **Touches**:
+  `.github/workflows/ci.yml` (CPU + GPU coverage jobs add
+  `-Dc_args=-fprofile-update=atomic` / `-Dcpp_args=-fprofile-update=atomic`
+  and `--ignore-errors negative` on `lcov --capture`),
+  `pyproject.toml` (Black/isort/Ruff exclude `python/test/`),
+  `.pre-commit-config.yaml` (pre-commit Black/isort/Ruff hooks exclude
+  `^python/test/`).
+- **Invariant**: coverage CI must build with atomic gcov counters because
+  meson test runs in parallel and SIMD inner loops (`vif_avx2.c:673`,
+  motion_avx2, etc.) race the `.gcda` counters → negative counts →
+  `geninfo` hard-aborts the gate. Lint config must exclude
+  `python/test/` because that tree is upstream-mirror code (wholesale
+  overwritten on every `/sync-upstream` and `/port-upstream-commit`),
+  so any fork-side reformat is net-negative — Black `extend-exclude`
+  only filters during directory walks, not explicitly-passed files,
+  so pre-commit needs its own `exclude` regex. An upstream sync that
+  changes the upstream Black/Ruff config or the meson coverage
+  default is unlikely to collide (we only modify CI workflow + fork
+  tooling config), but if upstream ever ships a `pyproject.toml` of
+  its own, the fork's must keep these exclusions.
+  See [ADR-0110](adr/0110-coverage-gate-fprofile-update-atomic.md).
+- **Re-test**:
+
+  ```bash
+  # Reproduce gcov race locally (requires gcc + lcov):
+  cd libvmaf
+  meson setup build-cov-test --buildtype=debug -Db_coverage=true \
+      -Denable_avx512=true -Denable_float=true \
+      -Dc_args=-fprofile-update=atomic -Dcpp_args=-fprofile-update=atomic
+  ninja -C build-cov-test
+  meson test -C build-cov-test --print-errorlogs
+  lcov --capture --directory build-cov-test \
+       --output-file build-cov-test/coverage.info \
+       --ignore-errors mismatch,gcov,source,negative
+  # Expected: lcov completes without "Unexpected negative count".
+
+  # Lint-exclude smoke test:
+  pre-commit run --files python/test/quality_runner_test.py
+  # Expected: Black/isort/Ruff/ruff-check report "Skipped" (excluded).
+  ```
