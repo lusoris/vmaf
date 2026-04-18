@@ -754,8 +754,7 @@ static char *test_json_model_intercepts_first_not_number(void)
 /* parse_knots: outer element not an array → -EINVAL (line 149). */
 static char *test_json_model_knots_outer_not_array(void)
 {
-    const char json[] =
-        "{\"model_dict\": {\"score_transform\": {\"knots\": [42]}}}";
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"knots\": [42]}}}";
     VmafModel *m = NULL;
     VmafModelConfig cfg = {0};
     int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
@@ -768,8 +767,7 @@ static char *test_json_model_knots_outer_not_array(void)
 /* parse_knots_list: knot pair holds >2 numbers → -EINVAL (line 132). */
 static char *test_json_model_knots_too_many_values(void)
 {
-    const char json[] =
-        "{\"model_dict\": {\"score_transform\": {\"knots\": [[0.0, 1.0, 2.0]]}}}";
+    const char json[] = "{\"model_dict\": {\"score_transform\": {\"knots\": [[0.0, 1.0, 2.0]]}}}";
     VmafModel *m = NULL;
     VmafModelConfig cfg = {0};
     int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);
@@ -783,8 +781,7 @@ static char *test_json_model_knots_too_many_values(void)
  * (here: null) → -EINVAL (line 77). */
 static char *test_json_model_feature_opts_dict_bad_value_type(void)
 {
-    const char json[] =
-        "{\"model_dict\": {\"feature_opts_dicts\": [{\"k\": null}]}}";
+    const char json[] = "{\"model_dict\": {\"feature_opts_dicts\": [{\"k\": null}]}}";
     VmafModel *m = NULL;
     VmafModelConfig cfg = {0};
     int err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)sizeof(json) - 1);

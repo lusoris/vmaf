@@ -21,6 +21,29 @@
 
 #include "libvmaf/dnn.h"
 
+/* MinGW lacks POSIX setenv/unsetenv. Map to _putenv_s on Windows so the
+ * VMAF_MAX_MODEL_BYTES env-cap branch tests stay portable. */
+#ifdef _WIN32
+#include <stdlib.h>
+static int test_setenv(const char *k, const char *v)
+{
+    return _putenv_s(k, v);
+}
+static void test_unsetenv(const char *k)
+{
+    (void)_putenv_s(k, "");
+}
+#else
+static int test_setenv(const char *k, const char *v)
+{
+    return setenv(k, v, 1);
+}
+static void test_unsetenv(const char *k)
+{
+    (void)unsetenv(k);
+}
+#endif
+
 static char *test_stub_returns_enosys_when_disabled(void)
 {
     if (vmaf_dnn_available()) {
@@ -148,10 +171,10 @@ static char *test_session_open_respects_max_bytes_env(void)
      * byte must reject any real ONNX file. */
     if (!vmaf_dnn_available())
         return NULL;
-    setenv("VMAF_MAX_MODEL_BYTES", "1", 1);
+    test_setenv("VMAF_MAX_MODEL_BYTES", "1");
     VmafDnnSession *sess = NULL;
     int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
-    unsetenv("VMAF_MAX_MODEL_BYTES");
+    test_unsetenv("VMAF_MAX_MODEL_BYTES");
     if (rc == -ENOENT) {
         /* working tree without testdata — skip. */
         return NULL;
@@ -167,10 +190,10 @@ static char *test_session_open_ignores_invalid_max_bytes_env(void)
      * and keeps the default cap (line 65). Open must succeed. */
     if (!vmaf_dnn_available())
         return NULL;
-    setenv("VMAF_MAX_MODEL_BYTES", "not-a-number", 1);
+    test_setenv("VMAF_MAX_MODEL_BYTES", "not-a-number");
     VmafDnnSession *sess = NULL;
     int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
-    unsetenv("VMAF_MAX_MODEL_BYTES");
+    test_unsetenv("VMAF_MAX_MODEL_BYTES");
     if (rc == -ENOENT)
         return NULL;
     mu_assert("invalid env ignored, open succeeds", rc == 0);
@@ -258,7 +281,8 @@ static char *test_session_run_unknown_input_name(void)
 
     float buf[16] = {0};
     int64_t shape[4] = {1, 1, 4, 4};
-    VmafDnnInput in = {.name = "definitely-not-a-real-input", .data = buf, .shape = shape, .rank = 4};
+    VmafDnnInput in = {
+        .name = "definitely-not-a-real-input", .data = buf, .shape = shape, .rank = 4};
     VmafDnnOutput out = {.name = NULL, .data = buf, .capacity = 16, .written = 0};
     rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
     mu_assert("unknown input name rejected", rc < 0);

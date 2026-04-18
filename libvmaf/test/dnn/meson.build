@@ -70,7 +70,9 @@ test('test_tensor_io',       test_tensor_io,       suite : 'dnn')
 test('test_op_allowlist',    test_op_allowlist,    suite : 'dnn')
 test('test_model_loader',    test_model_loader,    suite : 'dnn')
 test('test_onnx_scan',       test_onnx_scan,       suite : 'dnn')
-test('test_dnn_session_api', test_dnn_session_api, suite : 'dnn')
+test('test_dnn_session_api', test_dnn_session_api,
+     workdir : meson.project_source_root() / '..',
+     suite : 'dnn')
 test('test_ep_fp16',         test_ep_fp16,
      workdir : meson.project_source_root() / '..',
      suite : 'dnn')

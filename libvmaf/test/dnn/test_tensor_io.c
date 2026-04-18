@@ -161,12 +161,11 @@ static char *test_f16_special_values(void)
     /* Cover the NaN/inf/subnormal branches in the soft-float converters
      * that the smooth-roundtrip test does not reach. */
     float specials[6] = {
-        INFINITY,    /* exp >= 31, mant == 0  -> +inf */
-        -INFINITY,   /* exp >= 31, mant == 0  -> -inf */
-        NAN,         /* exp >= 31, mant != 0  -> NaN propagation (line 26-27) */
-        1e-8f,       /* exp <= 0, exp >= -10  -> subnormal path (line 33-35) */
-        -1e-8f,
-        1e-30f,      /* exp < -10             -> flush-to-zero */
+        INFINITY,          /* exp >= 31, mant == 0  -> +inf */
+        -INFINITY,         /* exp >= 31, mant == 0  -> -inf */
+        NAN,               /* exp >= 31, mant != 0  -> NaN propagation (line 26-27) */
+        1e-8f,             /* exp <= 0, exp >= -10  -> subnormal path (line 33-35) */
+        -1e-8f,    1e-30f, /* exp < -10             -> flush-to-zero */
     };
     uint16_t h[6];
     float back[6];
@@ -230,8 +229,8 @@ static char *test_from_luma_invalid_dtype(void)
      * value as dtype is a coding error we still want to fail closed on. */
     uint8_t src[4] = {0, 0, 0, 0};
     float dst[4];
-    int err = vmaf_tensor_from_luma(src, 2, 2, 2, VMAF_TENSOR_LAYOUT_NCHW, (VmafTensorDType)99, NULL,
-                                    NULL, dst);
+    int err = vmaf_tensor_from_luma(src, 2, 2, 2, VMAF_TENSOR_LAYOUT_NCHW, (VmafTensorDType)99,
+                                    NULL, NULL, dst);
     mu_assert("unknown dtype rejected", err < 0);
     return NULL;
 }
