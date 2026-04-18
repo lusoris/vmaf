@@ -76,8 +76,12 @@ static float barten_rod_cone_sens(float luminance_level)
 static float barten_mtf(float spatial_frequency)
 {
     float mtf = 0.0;
-    for (int i = 0; i <= 3; i++)
-        mtf = mtf + barten_mtf_params_a[i] * exp(-barten_mtf_params_b[i] * spatial_frequency);
+    for (int i = 0; i <= 3; i++) {
+        /* Promote one operand of the inner product to double; see
+         * linear_interpolate above. */
+        mtf =
+            mtf + barten_mtf_params_a[i] * exp(-(double)barten_mtf_params_b[i] * spatial_frequency);
+    }
     return mtf;
 }
 
@@ -145,7 +149,9 @@ static FORCE_INLINE inline float barten_csf(int lambda, double adm_norm_view_dis
     float csf = p_3 / pow((double)a * b, 0.5);
 
     /* return entire CSF */
-    return csf * barten_mtf(spatial_frequency) * barten_rod_cone_sens(adm_csf_lum_level) *
+    /* Promote one operand of the chained float product to double; see
+     * linear_interpolate above. */
+    return (double)csf * barten_mtf(spatial_frequency) * barten_rod_cone_sens(adm_csf_lum_level) *
            adm_csf_scale;
 }
 
