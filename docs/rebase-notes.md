@@ -399,7 +399,7 @@ inline.*
   ninja -C build-cov-test
   meson test -C build-cov-test --print-errorlogs --num-processes 1
   ~/.local/bin/gcovr --root .. \
-      --filter 'libvmaf/src/.*' \
+      --filter 'src/.*' \
       --exclude '.*/test/.*' --exclude '.*/tests/.*' \
       --exclude '.*/subprojects/.*' \
       --gcov-ignore-parse-errors=negative_hits.warn \

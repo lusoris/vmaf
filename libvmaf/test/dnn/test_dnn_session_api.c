@@ -67,10 +67,89 @@ static char *test_descriptor_field_layout(void)
     return NULL;
 }
 
+static char *test_session_open_rejects_null_out(void)
+{
+    int rc = vmaf_dnn_session_open(NULL, "anything.onnx", NULL);
+    /* Stub branch: -ENOSYS; real branch: -EINVAL. Either is a hard reject. */
+    mu_assert("NULL out pointer rejected", rc < 0);
+    return NULL;
+}
+
+static char *test_session_open_rejects_null_path(void)
+{
+    VmafDnnSession *s = NULL;
+    int rc = vmaf_dnn_session_open(&s, NULL, NULL);
+    mu_assert("NULL path rejected", rc < 0);
+    mu_assert("session pointer not written on reject", s == NULL);
+    return NULL;
+}
+
+static char *test_session_open_rejects_missing_file(void)
+{
+    if (!vmaf_dnn_available()) {
+        /* Stub returns -ENOSYS regardless of path; no file-existence check
+         * to exercise. Skip without failing. */
+        return NULL;
+    }
+    VmafDnnSession *s = NULL;
+    int rc = vmaf_dnn_session_open(&s, "/nonexistent/path/to/model.onnx", NULL);
+    mu_assert("missing model file rejected", rc < 0);
+    mu_assert("session pointer not populated", s == NULL);
+    return NULL;
+}
+
+static char *test_session_run_luma8_rejects_null(void)
+{
+    /* Stub branch: returns -ENOSYS for any args. Real branch: -EINVAL on
+     * NULL sess/in/out. The wrapper rejects either way. */
+    uint8_t buf[16] = {0};
+    int rc = vmaf_dnn_session_run_luma8(NULL, buf, 4, 4, 4, buf, 4);
+    mu_assert("NULL session rejected by run_luma8", rc < 0);
+    return NULL;
+}
+
+static char *test_session_close_null_is_noop(void)
+{
+    /* Free on NULL is a hard contract — must never crash. There is no
+     * return value to assert; reaching the next line is the test. */
+    vmaf_dnn_session_close(NULL);
+    mu_assert("close(NULL) returned without crashing", 1);
+    return NULL;
+}
+
+static char *test_attached_ep_null_returns_null(void)
+{
+    const char *ep = vmaf_dnn_session_attached_ep(NULL);
+    mu_assert("attached_ep(NULL) returns NULL", ep == NULL);
+    return NULL;
+}
+
+static char *test_run_rejects_zero_n_inputs(void)
+{
+    /* Even with non-NULL pointers, 0 inputs / 0 outputs must be rejected.
+     * Stub returns -ENOSYS; real branch returns -EINVAL. */
+    float buf[1] = {0.0f};
+    int64_t shape[1] = {1};
+    VmafDnnInput in = {.name = NULL, .data = buf, .shape = shape, .rank = 1};
+    VmafDnnOutput out = {.name = NULL, .data = buf, .capacity = 1, .written = 0};
+    int rc = vmaf_dnn_session_run((VmafDnnSession *)0xdeadbeef, &in, 0u, &out, 1u);
+    mu_assert("zero n_inputs rejected", rc < 0);
+    rc = vmaf_dnn_session_run((VmafDnnSession *)0xdeadbeef, &in, 1u, &out, 0u);
+    mu_assert("zero n_outputs rejected", rc < 0);
+    return NULL;
+}
+
 char *run_tests(void)
 {
     mu_run_test(test_stub_returns_enosys_when_disabled);
     mu_run_test(test_rejects_null_session);
     mu_run_test(test_descriptor_field_layout);
+    mu_run_test(test_session_open_rejects_null_out);
+    mu_run_test(test_session_open_rejects_null_path);
+    mu_run_test(test_session_open_rejects_missing_file);
+    mu_run_test(test_session_run_luma8_rejects_null);
+    mu_run_test(test_session_close_null_is_noop);
+    mu_run_test(test_attached_ep_null_returns_null);
+    mu_run_test(test_run_rejects_zero_n_inputs);
     return NULL;
 }
