@@ -41,6 +41,16 @@ ai/
 - **Docs**: every new model or training recipe ships a page under
   `docs/ai/` in the same PR. See
   [ADR-0042](../docs/adr/0042-tinyai-docs-required-per-pr.md).
+- **Bisect-cache fixture is byte-stable** — `ai/testdata/bisect/` is
+  the deterministic placeholder for the nightly `bisect-model-quality`
+  workflow. Regenerate via `python ai/scripts/build_bisect_cache.py`
+  with seeds `FEATURE_SEED=20260418` / `MODEL_SEED=20260419`. CI runs
+  the same script with `--check` and asserts byte-equality before the
+  bisect; toolchain bumps that change `pandas` / `pyarrow` / `onnx`
+  serialisation will fail the workflow until the cache is regenerated
+  and committed. See
+  [ADR-0109](../docs/adr/0109-nightly-bisect-model-quality.md) +
+  [Research-0001](../docs/research/0001-bisect-model-quality-cache.md).
 
 ## Governing ADRs
 
@@ -51,6 +61,7 @@ ai/
 - [ADR-0039](../docs/adr/0039-onnx-runtime-op-walk-registry.md) — runtime op-allowlist + registry schema.
 - [ADR-0041](../docs/adr/0041-lpips-sq-extractor.md) — LPIPS export pattern (ImageNet-in-graph).
 - [ADR-0042](../docs/adr/0042-tinyai-docs-required-per-pr.md) — doc-substance rule.
+- [ADR-0109](../docs/adr/0109-nightly-bisect-model-quality.md) — nightly bisect workflow + synthetic placeholder cache.
 
 ## Local workflow
 

@@ -30,6 +30,18 @@
   D24, sanitizers, cross-backend ULP), lint (clang-tidy, cppcheck,
   pre-commit), security (semgrep, CodeQL, gitleaks, dependency-review),
   supply-chain (SBOM, Sigstore keyless signing, SLSA L3 provenance).
+- **Tiny AI**: nightly `bisect-model-quality` workflow
+  ([`.github/workflows/nightly-bisect.yml`](.github/workflows/nightly-bisect.yml))
+  runs `vmaf-train bisect-model-quality` against a deterministic
+  synthetic placeholder cache
+  ([`ai/testdata/bisect/`](ai/testdata/bisect/),
+  reproducible from
+  [`ai/scripts/build_bisect_cache.py`](ai/scripts/build_bisect_cache.py))
+  and posts the verdict + per-step PLCC/SROCC/RMSE table to sticky
+  tracker issue #40. Real DMOS-aligned cache swaps in via a follow-up;
+  see [ADR-0109](docs/adr/0109-nightly-bisect-model-quality.md) +
+  [Research-0001](docs/research/0001-bisect-model-quality-cache.md).
+  Closes #4.
 
 ### Changed
 

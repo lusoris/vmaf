@@ -232,3 +232,37 @@ than per-PR. Future PRs add entries individually.
 _Pre-ADR-0108 entries above are the result of a one-shot backfill
 sweep on 2026-04-18; subsequent fork-local PRs add their own entries
 inline._
+
+### 0011 — Nightly bisect-model-quality + fixture cache
+
+- **Workstream PRs**: closes #4; sticky tracker issue #40.
+- **Touches**:
+  `.github/workflows/nightly-bisect.yml`,
+  `ai/scripts/build_bisect_cache.py`,
+  `ai/testdata/bisect/{features.parquet, models/*.onnx, README.md}`,
+  `scripts/ci/post-bisect-comment.py`,
+  `docs/ai/bisect-model-quality.md`,
+  `docs/adr/0109-nightly-bisect-model-quality.md`,
+  `docs/research/0001-bisect-model-quality-cache.md`,
+  `mkdocs.yml` (nav).
+- **Invariant**: the committed parquet + ONNX bytes under
+  `ai/testdata/bisect/` must regenerate **byte-identically** from
+  `ai/scripts/build_bisect_cache.py` with seeds `FEATURE_SEED=20260418`
+  and `MODEL_SEED=20260419`. The CI `--check` step asserts this before
+  every bisect run, so any upstream pull that bumps `pandas` /
+  `pyarrow` / `onnx` enough to change the serialiser bytes will fail
+  the workflow until the cache is regenerated and committed.
+- **Re-test**:
+
+  ```bash
+  python ai/scripts/build_bisect_cache.py --check
+  vmaf-train bisect-model-quality \
+      ai/testdata/bisect/models/model_*.onnx \
+      --features ai/testdata/bisect/features.parquet \
+      --min-plcc 0.85 --input-name input
+  # Expected: "no regression in this range"; first_bad_index None.
+  ```
+
+  Pure upstream code is not touched, so no Netflix-side conflict
+  vector. Only fork-local files; risk is toolchain drift, not merge
+  conflict.
