@@ -117,6 +117,22 @@
   re-trigger lint failures whenever upstream rewrites these files,
   and the fix is another in-tree reformat pass — never an exclusion.
   See [`docs/rebase-notes.md` entry 0014](docs/rebase-notes.md).
+- **Coverage Gate annotations cleanup**: `actions/upload-artifact@v5|@v6
+  → @v7` (and `actions/download-artifact@v5 → @v7` on supply-chain.yml)
+  across every workflow under `.github/workflows/`, ahead of GitHub's
+  2026-06-02 forced-Node-24 cutoff that turns the current Node 20
+  deprecation banner into a hard error. Coverage Gate gcovr
+  invocations also pipe stderr through `grep -vE 'Ignoring
+  (suspicious|negative) hits' ... || true` so the chatty annotation
+  for legitimately-large hit counts on tight inner loops (e.g.
+  `ansnr_tools.c:207` at ~4.93 G hits across an HD multi-frame
+  coverage suite) is dropped without losing the underlying data —
+  `--gcov-ignore-parse-errors=suspicious_hits.warn` still tells
+  gcovr to accept the count, only the annotation is filtered. The
+  filter regex is anchored to gcov's exact warning prefix, so any
+  *other* gcovr warning still surfaces. See
+  [ADR-0117](docs/adr/0117-coverage-gate-warning-noise-suppression.md)
+  and [`docs/rebase-notes.md` entry 0015](docs/rebase-notes.md).
 
 ### Fixed
 

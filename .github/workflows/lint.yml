@@ -98,7 +98,7 @@ jobs:
             --project=build/compile_commands.json \
             --error-exitcode=1 \
             --xml --output-file=cppcheck-report.xml 2>&1
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cppcheck-report

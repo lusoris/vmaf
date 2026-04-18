@@ -611,3 +611,51 @@ inline.*
   ```
 
   Pure fork-local series; no Netflix-side conflict vector. See ADR-0118.
+
+### 0019 — Coverage Gate annotations: upload-artifact v7 + gcovr filter
+
+- **Workstream PRs**: this PR.
+- **Touches**:
+  `.github/workflows/ci.yml` (CPU + GPU coverage steps: gcovr stderr
+  piped through `grep -vE 'Ignoring (suspicious|negative) hits' ... ||
+  true`),
+  `.github/workflows/{ci,lint,nightly,nightly-bisect,supply-chain,libvmaf}.yml`
+  (`actions/upload-artifact@v5|@v6 → @v7`,
+  `actions/download-artifact@v5 → @v7` in `supply-chain.yml`). Note:
+  `windows.yml` was consolidated into `libvmaf.yml` by ADR-0115 / PR #50,
+  so the windows-side bump now lives in `libvmaf.yml`'s
+  `build (MINGW64, …)` job.
+- **Invariant**: Coverage Gate Annotations panel must finish empty on a
+  clean run. The two pieces are coordinated — (a) `@v7` for upload /
+  download artifact actions silences GitHub's Node-20 deprecation banner
+  ahead of the 2026-06-02 forced-Node-24 cutoff; (b) the gcovr stderr
+  filter swallows the `Ignoring (suspicious|negative) hits` warnings
+  that gcovr 8 emits for the legitimately-large hit counts in tight
+  ANSNR / VIF / motion inner loops (e.g. `ansnr_tools.c:207` at ~4.93 G
+  hits across an HD multi-frame coverage suite — real, not gcov bug).
+  The filter is regex-narrow and anchored to gcov's exact warning
+  prefix; any *other* gcovr warning still surfaces. Upstream
+  (Netflix/vmaf) does not maintain these CI files; rebase impact is
+  limited to the unlikely case that an upstream sync touches the
+  shared `.github/workflows/` tree, which it currently does not. See
+  [ADR-0117](adr/0117-coverage-gate-warning-noise-suppression.md).
+- **Re-test**:
+
+  ```bash
+  # Verify gcovr filter locally (after a coverage build per entry 0014):
+  ~/.local/bin/gcovr --root .. \
+      --filter 'src/.*' \
+      --exclude '.*/test/.*' --exclude '.*/tests/.*' \
+      --exclude '.*/subprojects/.*' \
+      --gcov-ignore-parse-errors=negative_hits.warn \
+      --gcov-ignore-parse-errors=suspicious_hits.warn \
+      --print-summary --txt build-cov-test/coverage.txt \
+      build-cov-test \
+    2> >(grep -vE 'Ignoring (suspicious|negative) hits' >&2 || true)
+  # Expected: stderr contains the gcovr summary block but NO
+  # "Ignoring (suspicious|negative) hits" lines. coverage.txt unchanged.
+
+  # Verify all upload/download-artifact instances are on @v7:
+  grep -rE 'actions/(upload|download)-artifact@v[0-6]' .github/workflows/
+  # Expected: empty output.
+  ```
