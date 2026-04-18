@@ -194,17 +194,15 @@ test('test_ring_buffer', test_ring_buffer)
 test('test_cuda_pic_preallocation', test_cuda_pic_preallocation)
 endif
 
-# picture pool test - only works when library is built with -DVMAF_PICTURE_POOL
-# To run: meson configure build -Dc_args="-DVMAF_PICTURE_POOL" && ninja -C build && ninja -C build test
-if '-DVMAF_PICTURE_POOL' in get_option('c_args')
-    test_pic_preallocation = executable('test_pic_preallocation',
-        ['test.c', 'test_pic_preallocation.c'],
-        include_directories : [libvmaf_inc, test_inc],
-        link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-        c_args: ['-DVMAF_PICTURE_POOL']
-    )
-    test('test_pic_preallocation', test_pic_preallocation)
-endif
+# picture pool test - exercises vmaf_preallocate_pictures / vmaf_fetch_preallocated_picture.
+# These symbols are always linked into libvmaf (no build gate), so this test
+# always runs.
+test_pic_preallocation = executable('test_pic_preallocation',
+    ['test.c', 'test_pic_preallocation.c'],
+    include_directories : [libvmaf_inc, test_inc],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+)
+test('test_pic_preallocation', test_pic_preallocation)
 
 if get_option('enable_sycl')
 test_sycl = executable('test_sycl',

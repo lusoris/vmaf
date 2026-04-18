@@ -158,20 +158,11 @@ static int fetch_picture(VmafContext *vmaf, video_input *vid, VmafPicture *pic, 
 
     video_input_get_info(vid, &info);
 
-#ifdef VMAF_PICTURE_POOL
     ret = vmaf_fetch_preallocated_picture(vmaf, pic);
     if (ret) {
         fprintf(stderr, "problem fetching picture from pool.\n");
         return -1;
     }
-#else
-    (void)vmaf; // Unused when pool is disabled
-    ret = vmaf_picture_alloc(pic, pix_fmt_map(info.pixel_fmt), depth, info.pic_w, info.pic_h);
-    if (ret) {
-        fprintf(stderr, "problem allocating picture.\n");
-        return -1;
-    }
-#endif
 
     copy_picture_data(pic, ycbcr, &info, depth);
     return 0;
@@ -328,7 +319,6 @@ int main(int argc, char *argv[])
     (void)cuda_active;
 #endif
 
-#ifdef VMAF_PICTURE_POOL
     // Preallocate picture pool to avoid allocation overhead
     video_input_info info;
     video_input_get_info(&vid_ref, &info);
@@ -341,7 +331,15 @@ int main(int argc, char *argv[])
                 .bpc = common_bitdepth,
                 .pix_fmt = pix_fmt_map(info.pixel_fmt),
             },
-        .pic_cnt = c.thread_cnt > 0 ? (c.thread_cnt + 1) * 2 : 2,
+        /* Liveness budget per frame:
+         *   2  — ref + dist currently held by the CLI fetch/process step
+         *   1  — `vmaf->prev_ref` keeps the previous frame's ref picture
+         *        live across the frame boundary (for motion features)
+         *   2*thread_cnt — worker threads may hold (ref, dist) on in-flight
+         *        frames that haven't finished processing yet
+         * The `+ 1` term covers prev_ref uniformly. Undersizing deadlocks
+         * vmaf_picture_pool_fetch on frame N+1. */
+        .pic_cnt = 2 * (c.thread_cnt + 1) + 1,
     };
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
@@ -354,7 +352,6 @@ int main(int argc, char *argv[])
     if (istty && !c.quiet) {
         fprintf(stderr, "picture pool: %d pictures pre-allocated\n", pic_cfg.pic_cnt);
     }
-#endif
 
     const size_t model_sz = sizeof(*model) * c.model_cnt;
     model = (VmafModel **)malloc(model_sz);
