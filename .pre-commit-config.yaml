@@ -29,7 +29,11 @@ repos:
         args: ["--maxkb=1024"]
       - id: mixed-line-ending
         args: ["--fix=lf"]
-        exclude: '^libvmaf/test/data/'
+        # Same binary-file exclusions as trailing-whitespace / end-of-file-fixer
+        # above — mixed-line-ending's built-in binary detection misfires on
+        # some ONNX / .bin payloads and rewrites bytes inside the serialized
+        # model, which then fails sha256 pinning in registry.json.
+        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^model/|^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
       - id: detect-private-key
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
