@@ -127,6 +127,21 @@
   workaround. Surfaced by ADR-0115's CI trigger consolidation, which finally
   ran tox on PRs to master.
 
+### Fixed
+
+- **SYCL build with non-icpx host CXX**: `libvmaf/src/meson.build`
+  unconditionally added `-fsycl` to the libvmaf shared-library link args
+  whenever SYCL was enabled, even when the project's C++ compiler was
+  gcc / clang / msvc. The host link driver does not understand `-fsycl`
+  and failed with `g++: error: unrecognized command-line option '-fsycl'`
+  at the `libvmaf.so` link step. The arg is now gated on
+  `meson.get_compiler('cpp').get_id() == 'intel-llvm'`. The runtime
+  libraries (libsycl + libsvml + libirc + libze_loader) declared as link
+  dependencies already cover the gcc/clang link path, matching the
+  documented "host C++ + sidecar icpx" project mode. Surfaced by
+  ADR-0115's CI consolidation, which added an Ubuntu SYCL job that
+  exercises this configuration on PRs to master.
+
 ### Re-attributed
 
 - 11 SYCL files in `libvmaf/{include,src,test}/.../sycl/` from
