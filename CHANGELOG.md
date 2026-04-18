@@ -37,6 +37,17 @@
   scores at `%.17g` instead of `%.6f` for round-trip reproducibility.
 - Copyright headers across Netflix-authored sources updated `2016-2020` →
   `2016-2026`.
+- **Engineering process**: every fork-local PR now ships the six
+  deep-dive deliverables (research digest, decision matrix in the
+  ADR, `AGENTS.md` invariant note, reproducer command, fork-changelog
+  entry, rebase note) in the same PR. New scaffolding:
+  [`docs/research/`](docs/research/),
+  [`docs/rebase-notes.md`](docs/rebase-notes.md), updated
+  [`PR template`](.github/PULL_REQUEST_TEMPLATE.md). See
+  [ADR-0108](docs/adr/0108-deep-dive-deliverables-rule.md). Existing
+  fork-local PRs have a one-shot rebase-notes backfill (10 grouped
+  workstream entries) so the next upstream sync starts from a
+  populated ledger. Closes #38.
 
 ### Re-attributed
 
