@@ -481,6 +481,7 @@ if is_sycl_enabled
         sycl_dir + 'common.cpp',
         sycl_dir + 'picture_sycl.cpp',
         sycl_dir + 'dmabuf_import.cpp',
+        sycl_dir + 'd3d11_import.cpp',
     ]
 
     sycl_surface_args = []
@@ -501,6 +502,16 @@ if is_sycl_enabled
         message('SYCL DMA-BUF import: enabled (VA-API found)')
     else
         message('SYCL DMA-BUF import: disabled (missing VA-API)')
+    endif
+
+    # Windows: D3D11 staging-texture surface import. d3d11_import.cpp is
+    # wrapped in #ifdef _WIN32 so the TU is a no-op on non-Windows; we
+    # link d3d11 + dxgi only when building for Windows.
+    if host_machine.system() == 'windows'
+        d3d11_lib = cc.find_library('d3d11', required : true)
+        dxgi_lib  = cc.find_library('dxgi',  required : true)
+        sycl_surface_deps += [d3d11_lib, dxgi_lib]
+        message('SYCL D3D11 import: enabled (Windows target)')
     endif
 
     # Compile each SYCL common source with icpx
