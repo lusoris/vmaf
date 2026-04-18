@@ -1374,12 +1374,12 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
                                                              vmaf->feature_collector);
                 fex_ctx->gpu_pending = false;
                 if (err)
-                    return err;
+                    goto cleanup;
             }
             // Submit current frame (non-blocking GPU work)
             err = vmaf_feature_extractor_context_submit(fex_ctx, ref, NULL, dist, NULL, index);
             if (err)
-                return err;
+                goto cleanup;
             fex_ctx->gpu_pending = true;
             fex_ctx->gpu_pending_index = index;
             continue;
@@ -1392,7 +1392,7 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
             memset(&fex_ctx->fex->prev_ref, 0, sizeof(fex_ctx->fex->prev_ref));
 
         if (err)
-            return err;
+            goto cleanup;
     }
 
     // Note: SYCL upload is done BEFORE the extractor loop (above)
@@ -1410,7 +1410,7 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
     if (vmaf->dnn.sess) {
         err = vmaf_ctx_dnn_run_frame(vmaf, ref, index);
         if (err)
-            return err;
+            goto cleanup;
     }
 
     //multithreading for GPU does not yield performance benefits
@@ -1426,6 +1426,13 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
     if (vmaf->prev_ref.ref)
         vmaf_picture_unref(&vmaf->prev_ref);
     vmaf_picture_ref(&vmaf->prev_ref, ref);
+
+    /* Always unref the caller's ref/dist before returning. With the
+     * always-on picture pool, leaking even one picture per frame holds a
+     * pool slot, and the next vmaf_picture_pool_fetch deadlocks in
+     * pthread_cond_wait once the pool drains. The fall-through and
+     * goto cleanup paths share this same teardown. */
+cleanup:
 #ifdef HAVE_CUDA
     if (ref_host.priv)
         err |= vmaf_picture_unref(&ref_host);
