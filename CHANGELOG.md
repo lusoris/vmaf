@@ -151,8 +151,6 @@
   workaround. Surfaced by ADR-0115's CI trigger consolidation, which finally
   ran tox on PRs to master.
 
-### Fixed
-
 - **SYCL build with non-icpx host CXX**: `libvmaf/src/meson.build`
   unconditionally added `-fsycl` to the libvmaf shared-library link args
   whenever SYCL was enabled, even when the project's C++ compiler was
@@ -185,11 +183,23 @@
   configure flag (patch 0003 wires SYCL via `check_pkg_config`
   auto-detection — there is no such configure switch) and splits
   the Dockerfile's nvcc flags into a libvmaf set
-  (`NVCC_FLAGS`, retains `--extended-lambda` and the `--expt-*`
-  flags for Thrust/CUB) and an FFmpeg set (`FFMPEG_NVCC_FLAGS`,
-  PTX-only `code=compute_*` targets, no experimental host+device
-  flags) so FFmpeg's `check_nvcc -ptx` probe stops failing. See
-  ADR-0118 and entry 0017.
+  (`NVCC_FLAGS`, retains the four `-gencode` lines plus
+  `--extended-lambda` and the `--expt-*` flags for Thrust/CUB) and
+  an FFmpeg set (`FFMPEG_NVCC_FLAGS`, single-arch
+  `compute_75,sm_75` matching FFmpeg's own modern-nvcc default —
+  PTX is forward-compatible via driver JIT) so FFmpeg's
+  `check_nvcc -ptx` probe stops failing with `nvcc fatal: Option
+  '--ptx (-ptx)' is not allowed when compiling for multiple GPU
+  architectures`. Also drops `--enable-libnpp` from FFmpeg
+  configure — FFmpeg n8.1 explicitly `die`s if libnpp >= 13.0
+  (configure:7335-7336 `"libnpp support is deprecated, version
+  13.0 and up are not supported"`), and we don't actually use
+  scale_npp / transpose_npp filters in VMAF workflows; cuvid +
+  nvdec + nvenc + libvmaf-cuda are what we exercise. Patch 0002
+  also gained a missing `#include "libavutil/imgutils.h"` for
+  `av_image_copy_plane` (caught by the local docker build —
+  upstream FFmpeg builds with `-Werror=implicit-function-declaration`).
+  See ADR-0118 and entry 0017.
 
 ### Re-attributed
 

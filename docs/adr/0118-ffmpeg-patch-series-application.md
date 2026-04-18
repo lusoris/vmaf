@@ -45,15 +45,36 @@ series itself applied cleanly:
   `libvmaf_sycl` switch in `EXTERNAL_LIBRARY_LIST`, so configure rejects the
   flag with `Unknown option "--enable-libvmaf-sycl"`. The flag was a
   copy-paste artefact from before patch 0003 was switched to auto-detection.
-- **Experimental nvcc flags reused for FFmpeg's check_nvcc.** Commit
-  `8a995cb0` (ADR-D27) appended `--expt-relaxed-constexpr --extended-lambda
-  --expt-extended-lambda` to `NVCC_FLAGS` for libvmaf's Thrust/CUB code, then
-  the Dockerfile threaded the same `${NVCC_FLAGS}` into FFmpeg's
-  `--nvccflags=`. FFmpeg's `check_nvcc` invokes nvcc in `-ptx` device-only
-  mode; `--extended-lambda` requires host+device compilation and `code=sm_*`
-  binary targets are invalid in `-ptx` mode. Result: `failed checking for
-  nvcc.` even though the same nvcc compiled libvmaf successfully one step
-  earlier.
+- **Multi-arch nvcc flags reused for FFmpeg's check_nvcc.** Commit
+  `8a995cb0` (ADR-D27) broadened `NVCC_FLAGS` to four `-gencode` lines
+  (Turing/Ampere/Hopper/Blackwell) plus experimental host+device flags
+  (`--expt-relaxed-constexpr --extended-lambda --expt-extended-lambda`) for
+  libvmaf's Thrust/CUB code, then the Dockerfile threaded the same
+  `${NVCC_FLAGS}` into FFmpeg's `--nvccflags=`. FFmpeg's `check_nvcc`
+  invokes nvcc in `-ptx` device-only mode, which rejects this with the
+  fatal error `Option '--ptx (-ptx)' is not allowed when compiling for
+  multiple GPU architectures` (verified locally with nvcc 13.2). The
+  experimental flags compound the problem (device-only-incompatible) but
+  the multi-arch issue is what surfaces first. Result: `failed checking
+  for nvcc.` even though the same nvcc compiled libvmaf successfully one
+  step earlier.
+- **FFmpeg n8.1's libnpp probe explicitly rejects CUDA 13.x.** Once the
+  nvcc fix above lets FFmpeg's configure get past the nvcc check, the
+  next probe in source order is libnpp (configure line 7330). FFmpeg
+  n8.1 carries an explicit `die "ERROR: libnpp support is deprecated,
+  version 13.0 and up are not supported"` (configure:7335-7336) that
+  fires on the base image's CUDA 13.2 libnpp. The `npp_*_filter` set
+  (scale_npp, transpose_npp, etc.) is unrelated to VMAF workflows; we
+  use cuvid + nvdec + nvenc + libvmaf-cuda instead.
+- **Patch 0002 missing `libavutil/imgutils.h` include.** `vf_vmaf_pre.c`
+  calls `av_image_copy_plane()` (declared in `libavutil/imgutils.h`)
+  but the original patch only included `pixdesc.h` / `mem.h` / `opt.h`
+  / `avstring.h`. FFmpeg's libavfilter Makefile builds with
+  `-Werror=implicit-function-declaration`, so the symbol-resolves-at-link
+  hack doesn't paper over it. Caught by the local docker build (which
+  the user prefers as the validation step over GitHub-Actions waits);
+  the patch was regenerated via `git format-patch` after committing the
+  include into a fresh n8.1 worktree so it carries a real SHA.
 
 ## Decision
 
@@ -73,15 +94,17 @@ trigger consolidation, not orthogonal cleanup):
   libvmaf build time; FFmpeg auto-detects libvmaf-sycl via the
   `check_pkg_config` line patch 0003 adds.
 - Split nvcc flags into two ARGs in the Dockerfile. `NVCC_FLAGS` keeps the
-  experimental `--extended-lambda` / `--expt-*` flags for libvmaf's CUDA
-  build; new `FFMPEG_NVCC_FLAGS` carries only the gencode set with
-  `code=compute_*` PTX targets (no `code=sm_*` binary targets, no
-  experimental flags) so FFmpeg's `-ptx` configure probe succeeds.
+  four `-gencode` lines plus the experimental `--extended-lambda` /
+  `--expt-*` flags for libvmaf's CUDA build; new `FFMPEG_NVCC_FLAGS`
+  carries a single `-gencode arch=compute_75,code=sm_75 -O2` (matches
+  FFmpeg's own modern-nvcc default — PTX is forward-compatible with all
+  newer GPUs via driver JIT, and `-ptx` mode requires single-arch). No
+  experimental host+device flags either.
 
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Apply only 0003 (status quo before this PR) | Smallest CI surface. | tiny-AI and `vf_vmaf_pre` never reach a docker FFmpeg build; 0003 fails to apply standalone because it depends on 0001's struct fields. | Broken — chosen approach is the only one that compiles. |
 | Squash all three patches into one mega-patch | Single `git apply`, no ordering risk. | Loses the per-feature commit message + signed-off-by trail; harder to upstream piecemeal; harder to diff what's a Lusoris addition vs. an FFmpeg change. | Future upstreaming pressure (each of the three is a sensible standalone PR target). |
 | Maintain a permanent `lusoris-fork` branch on a vendored FFmpeg checkout | Always green; no patch fragility. | Doubles repo size; rebases on every FFmpeg release become a manual chore; breaks the "patches against tagged release" provenance story. | Operational cost too high for a 3-patch series. |

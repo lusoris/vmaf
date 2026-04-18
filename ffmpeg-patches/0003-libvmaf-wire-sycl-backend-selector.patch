@@ -1,4 +1,4 @@
-From 88ff9d03547e88be6dd4850852902d20918cdd7a Mon Sep 17 00:00:00 2001
+From 72b4ce101ce16d55bf459a30d75c170b9be8ff08 Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
 Date: Wed, 15 Apr 2026 12:10:00 +0000
 Subject: [PATCH 3/3] avfilter/vf_libvmaf: wire SYCL backend selector

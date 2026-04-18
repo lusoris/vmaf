@@ -565,13 +565,33 @@ inline.*
      build time; FFmpeg picks it up automatically when
      `libvmaf-sycl.pc` is on `PKG_CONFIG_PATH`.
   2. The Dockerfile now carries **two** nvcc-flag ARGs.
-     `NVCC_FLAGS` (libvmaf) keeps the experimental
-     `--extended-lambda` / `--expt-relaxed-constexpr` /
-     `--expt-extended-lambda` flags needed for Thrust/CUB host+device
-     code. `FFMPEG_NVCC_FLAGS` (FFmpeg) carries only gencode with
-     `code=compute_*` PTX targets — no `code=sm_*` binary targets
-     and no experimental flags — because FFmpeg's `check_nvcc`
-     invokes nvcc in `-ptx` device-only mode, which rejects both.
+     `NVCC_FLAGS` (libvmaf) keeps four `-gencode` lines plus the
+     experimental `--extended-lambda` /
+     `--expt-relaxed-constexpr` / `--expt-extended-lambda` flags
+     needed for Thrust/CUB host+device code. `FFMPEG_NVCC_FLAGS`
+     (FFmpeg) carries a single `-gencode arch=compute_75,code=sm_75
+     -O2` — FFmpeg's `check_nvcc` runs `nvcc -ptx`, which fails with
+     `nvcc fatal: Option '--ptx (-ptx)' is not allowed when
+     compiling for multiple GPU architectures` on multi-arch input,
+     and `--extended-lambda` requires host+device compilation.
+     compute_75 PTX is forward-compatible with all newer GPUs via
+     driver JIT.
+  3. `--enable-libnpp` is no longer passed to FFmpeg's configure.
+     FFmpeg n8.1's libnpp probe carries an explicit
+     `die "ERROR: libnpp support is deprecated, version 13.0 and
+     up are not supported"` (configure:7335-7336) that fires on
+     the base image's CUDA 13.2 libnpp. We don't use scale_npp /
+     transpose_npp / sharpen_npp in any VMAF workflow; cuvid +
+     nvdec + nvenc + libvmaf-cuda is the actual GPU path. Revisit
+     once we move to an FFmpeg release that supports CUDA 13
+     libnpp upstream.
+  4. Patch 0002 (`add-vmaf_pre-filter`) gained a missing
+     `#include "libavutil/imgutils.h"` for `av_image_copy_plane()`.
+     FFmpeg's libavfilter Makefile builds with
+     `-Werror=implicit-function-declaration` so this fired during
+     the actual compile (not configure). Caught by a local
+     `docker build` rather than waiting for GitHub Actions —
+     much faster iteration loop.
 - **Re-test**:
 
   ```bash

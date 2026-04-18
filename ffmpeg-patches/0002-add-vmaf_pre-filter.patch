@@ -1,4 +1,4 @@
-From 1d008afaaab97b3c11dcaf73a22d7e2de300cdd0 Mon Sep 17 00:00:00 2001
+From 20e12cc1ada49209d4dc835f05cf03f299995204 Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
 Date: Wed, 15 Apr 2026 12:05:00 +0000
 Subject: [PATCH 2/3] avfilter: add vmaf_pre filter (learned pre-processing)
@@ -24,8 +24,8 @@ Signed-off-by: Lusoris <lusoris@pm.me>
  configure                 |   2 +
  libavfilter/Makefile      |   1 +
  libavfilter/allfilters.c  |   1 +
- libavfilter/vf_vmaf_pre.c | 192 ++++++++++++++++++++++++++++++++++++++
- 4 files changed, 196 insertions(+)
+ libavfilter/vf_vmaf_pre.c | 193 ++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 197 insertions(+)
  create mode 100644 libavfilter/vf_vmaf_pre.c
 
 diff --git a/configure b/configure
@@ -74,10 +74,10 @@ index e26859e..4e951ca 100644
  extern const FFFilter ff_vf_w3fdif;
 diff --git a/libavfilter/vf_vmaf_pre.c b/libavfilter/vf_vmaf_pre.c
 new file mode 100644
-index 0000000..88eb186
+index 0000000..b339442
 --- /dev/null
 +++ b/libavfilter/vf_vmaf_pre.c
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,193 @@
 +/*
 + * Copyright 2026 Lusoris and Claude (Anthropic)
 + *
@@ -105,6 +105,7 @@ index 0000000..88eb186
 +#include <libvmaf/dnn.h>
 +
 +#include "libavutil/avstring.h"
++#include "libavutil/imgutils.h"
 +#include "libavutil/mem.h"
 +#include "libavutil/opt.h"
 +#include "libavutil/pixdesc.h"

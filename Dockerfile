@@ -14,12 +14,17 @@ ARG FFMPEG_TAG=n8.1
 # constexpr in device code; extended-lambda allows __device__ lambdas with capture;
 # expt-relaxed-constexpr is required by several Thrust/CUB templates we pull in.
 ARG NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_90,code=sm_90 -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 --expt-relaxed-constexpr --extended-lambda --expt-extended-lambda -O2"
-# FFmpeg's configure runs check_nvcc in `-ptx` device-only mode. The
-# experimental host+device flags above (--extended-lambda et al.) are valid
-# for libvmaf's Thrust/CUB code but make `nvcc -ptx` fail the configure
-# probe. Same gencode set, no experimental flags, no sm_* binary targets
-# (keep only compute_*,compute_* PTX so -ptx mode can emit something).
-ARG FFMPEG_NVCC_FLAGS="-gencode arch=compute_75,code=compute_75 -gencode arch=compute_80,code=compute_80 -gencode arch=compute_90,code=compute_90 -gencode arch=compute_120,code=compute_120 -O2"
+# FFmpeg's configure runs check_nvcc in `-ptx` device-only mode. Two
+# constraints from that mode that the libvmaf NVCC_FLAGS above violate:
+#   1. `-ptx` only accepts a SINGLE `-gencode` (nvcc fatal: "Option
+#      '--ptx (-ptx)' is not allowed when compiling for multiple GPU
+#      architectures"). FFmpeg's CUDA filters compile to one PTX target
+#      and rely on driver JIT for newer GPUs, so one arch is sufficient.
+#   2. The experimental host+device flags above (`--extended-lambda` et
+#      al.) are device-only-incompatible.
+# compute_75 (Turing) is FFmpeg's own fallback default for modern nvcc;
+# the PTX is forward-compatible with everything newer via JIT.
+ARG FFMPEG_NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -O2"
 ARG ENABLE_SYCL=false
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -105,8 +110,14 @@ RUN set -e; \
 # patch 0003); there is no `--enable-libvmaf-sycl` flag to pass. SYCL
 # support follows libvmaf's pkg-config (set by `-Denable_sycl=true` at
 # libvmaf build time).
+# `--enable-libnpp` is omitted: FFmpeg n8.1's libnpp probe carries an
+# explicit `die "ERROR: libnpp support is deprecated, version 13.0 and up
+# are not supported"` (configure:7335-7336) that fires on the base image's
+# CUDA 13.2 libnpp. The npp_*_filter set (scale_npp, transpose_npp, etc.)
+# is unrelated to VMAF; cuvid + nvdec + nvenc + libvmaf-cuda are what we
+# actually use here. Revisit once we move to an FFmpeg release that
+# supports CUDA 13 libnpp upstream.
 RUN ./configure \
-        --enable-libnpp \
         --enable-nonfree \
         --enable-nvdec \
         --enable-nvenc \
