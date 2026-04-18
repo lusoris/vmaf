@@ -36,12 +36,14 @@ static char *test_sniff_by_extension(void)
 
 static char *test_size_cap(void)
 {
-    /* Use the test binary itself as a proxy for "regular file, within limits".
-     * Size cap of 1 byte should reject it. */
+    /* Use a regular file that exists on every supported host as a proxy for
+     * "regular file, within limits". /etc/passwd ships on Linux and macOS;
+     * /etc/hostname is Linux-only and made the macOS leg fail with -ENOENT
+     * when this assertion expects -E2BIG (size cap) or 0 (success). */
 #ifdef _WIN32
     const char *probe = "C:\\Windows\\System32\\cmd.exe";
 #else
-    const char *probe = "/etc/hostname";
+    const char *probe = "/etc/passwd";
 #endif
     int err = vmaf_dnn_validate_onnx(probe, 1);
     mu_assert("expected -E2BIG for 1-byte cap", err == -E2BIG || err == 0);
