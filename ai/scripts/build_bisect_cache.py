@@ -164,8 +164,14 @@ def main() -> int:
     args = p.parse_args()
     if args.check:
         return check(args.out)
-    if args.out.exists():
-        shutil.rmtree(args.out)
+    # Wipe only generated artifacts; preserve hand-written siblings such as
+    # README.md that explain the cache to future readers.
+    parquet = args.out / "features.parquet"
+    models = args.out / "models"
+    if parquet.exists():
+        parquet.unlink()
+    if models.exists():
+        shutil.rmtree(models)
     regenerate(args.out)
     print(f"OK  wrote {args.out}")
     return 0
