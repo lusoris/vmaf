@@ -76,8 +76,10 @@ not bit-exact equality. Different reduction orders, FMA contractions,
 and parallel-prefix sums can perturb the final integer accumulator by a
 fraction of a ULP — this has always been the case for VMAF on GPU,
 not a fork regression. In practice the per-frame pooled VMAF agrees
-to ~6 decimal places (the legacy `%.6f` truncation hides the delta
-entirely; `--precision 17` exposes it).
+to ~6 decimal places (the default `%.6f` truncation hides the delta
+entirely; `--precision=max` exposes it). See
+[ADR-0119](../../adr/0119-cli-precision-default-revert.md) for the
+precision-default rationale.
 
 The **Netflix golden-data gate is CPU-only** — the three reference
 pairs in `python/test/` (1 normal + 2 checkerboard) are hardcoded

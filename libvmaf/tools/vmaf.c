@@ -511,11 +511,23 @@ int main(int argc, char *argv[])
 
     VmafPicture pic_ref_skip, pic_dist_skip;
 
-    for (unsigned i = 0; i < c.frame_skip_ref; i++)
-        fetch_picture(vmaf, &vid_ref, &pic_ref_skip, common_bitdepth);
+    /* Unref each fetched picture: fetch_picture() reserves a slot from the
+     * preallocated picture pool, and skipped frames are never handed to
+     * vmaf_read_pictures() to release them. Without unref the pool is
+     * exhausted after N skips and the next fetch blocks indefinitely. */
+    for (unsigned i = 0; i < c.frame_skip_ref; i++) {
+        if (fetch_picture(vmaf, &vid_ref, &pic_ref_skip, common_bitdepth))
+            break;
+        if (vmaf_picture_unref(&pic_ref_skip))
+            fprintf(stderr, "\nproblem during vmaf_picture_unref (skip ref)\n");
+    }
 
-    for (unsigned i = 0; i < c.frame_skip_dist; i++)
-        fetch_picture(vmaf, &vid_dist, &pic_dist_skip, common_bitdepth);
+    for (unsigned i = 0; i < c.frame_skip_dist; i++) {
+        if (fetch_picture(vmaf, &vid_dist, &pic_dist_skip, common_bitdepth))
+            break;
+        if (vmaf_picture_unref(&pic_dist_skip))
+            fprintf(stderr, "\nproblem during vmaf_picture_unref (skip dist)\n");
+    }
 
     float fps = 0.;
     const time_t t0 = clock();

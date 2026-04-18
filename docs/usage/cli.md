@@ -119,15 +119,18 @@ regardless of `--output`.
 
 ```
 --precision N          # printf "%.<N>g", N in 1..17
---precision max|full   # printf "%.17g" — IEEE-754 round-trip lossless (DEFAULT)
---precision legacy     # printf "%.6f"  — pre-fork Netflix output format
+--precision max|full   # printf "%.17g" — IEEE-754 round-trip lossless (opt-in)
+--precision legacy     # printf "%.6f"  — synonym for the default
 ```
 
-The fork's default is `%.17g` (see [ADR-0006](../adr/0006-cli-precision-17g-default.md)),
-which is the minimum width that guarantees every double can be printed and re-parsed
-without loss. Use `--precision legacy` to reproduce pre-fork Netflix output verbatim;
-use a lower `--precision N` only for terminal readability, never for score archival.
-Affects XML, JSON, CSV, SUB, and stderr consistently.
+The fork's default is `%.6f` (see
+[ADR-0119](../adr/0119-cli-precision-default-revert.md), which supersedes
+[ADR-0006](../adr/0006-cli-precision-17g-default.md)), matching upstream
+Netflix output byte-for-byte so the CPU golden gate passes without explicit
+flags. Pass `--precision=max` whenever you need IEEE-754 round-trip lossless
+output (cross-backend numeric diff, archival reports, any consumer that
+re-parses scores into doubles and compares them). Affects XML, JSON, CSV,
+SUB, and stderr consistently.
 
 See [precision.md](precision.md) for the full table of when to pick each mode.
 
@@ -286,9 +289,12 @@ CPU goldens preserved verbatim as a required CI gate — see
   but does not skip loading — the model is still used to select which features to
   extract. Omit `--model` entirely plus pass `--no_prediction` to extract only the
   features listed via `--feature`.
-- **`--precision legacy` truncation**. `%.6f` can truncate differences ≤ 1e-6
-  that would be distinguishable under the default. The legacy mode exists for
-  bit-for-bit reproduction of pre-fork Netflix reports only.
+- **Default `%.6f` truncation**. The default (and `--precision legacy`)
+  truncates differences ≤ 1e-6 that would be distinguishable under
+  `--precision=max`. Use `max` whenever you need to compare scores
+  numerically (cross-backend diff, archival reports). The default mode
+  exists for byte-for-byte agreement with pre-fork Netflix output, which
+  the CPU golden gate depends on.
 - **`--tiny-model` vs `--model`**. These compose — tiny-AI models are
   **additional** scores layered on top of the classic SVM/XGBoost prediction, not
   a replacement for it. Use `--no_prediction` if you want tiny scores alone. See
@@ -305,4 +311,9 @@ CPU goldens preserved verbatim as a required CI gate — see
 - [../backends/index.md](../backends/index.md) — runtime backend dispatch rules.
 - [../metrics/features.md](../metrics/features.md) — per-feature identifiers and options.
 - [../ai/inference.md](../ai/inference.md) — tiny-AI inference walkthrough.
-- [ADR-0006](../adr/0006-cli-precision-17g-default.md), [ADR-0023](../adr/0023-tinyai-user-surfaces.md), [ADR-0024](../adr/0024-netflix-golden-preserved.md), [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md).
+- [ADR-0119](../adr/0119-cli-precision-default-revert.md) (current
+  precision default; supersedes
+  [ADR-0006](../adr/0006-cli-precision-17g-default.md)),
+  [ADR-0023](../adr/0023-tinyai-user-surfaces.md),
+  [ADR-0024](../adr/0024-netflix-golden-preserved.md),
+  [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md).

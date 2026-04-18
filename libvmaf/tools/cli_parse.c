@@ -40,8 +40,12 @@ enum {
     ARG_NO_REFERENCE,
 };
 
-#define VMAF_DEFAULT_PRECISION_FMT "%.17g"
-#define VMAF_LEGACY_PRECISION_FMT "%.6f"
+/* Default matches Netflix's pre-fork output exactly so the CPU golden
+ * gate passes without explicit flags (CLAUDE.md §8). Round-trip lossless
+ * formatting is opt-in via --precision=max. See ADR-0119 (supersedes
+ * ADR-0006). */
+#define VMAF_DEFAULT_PRECISION_FMT "%.6f"
+#define VMAF_LOSSLESS_PRECISION_FMT "%.17g"
 
 static char precision_fmt_buf[16];
 
@@ -49,11 +53,13 @@ static const char *resolve_precision_fmt(const char *optarg, const char *app, CL
 {
     if (!strcmp(optarg, "max") || !strcmp(optarg, "full")) {
         s->precision_max = true;
-        return VMAF_DEFAULT_PRECISION_FMT;
+        return VMAF_LOSSLESS_PRECISION_FMT;
     }
     if (!strcmp(optarg, "legacy")) {
+        /* `legacy` is now the default; keep the alias accepted so existing
+         * scripts that pass it explicitly do not break. */
         s->precision_legacy = true;
-        return VMAF_LEGACY_PRECISION_FMT;
+        return VMAF_DEFAULT_PRECISION_FMT;
     }
     char *end;
     long n = strtol(optarg, &end, 10);
@@ -153,8 +159,8 @@ static void usage(const char *const app, const char *const reason, ...)
         " --sycl_device $unsigned:      select SYCL GPU by index (default: auto)\n"
         " --precision $spec:            score output precision\n"
         "                                  N (1..17) -> printf \"%%.<N>g\"\n"
-        "                                  max|full  -> \"%%.17g\" (default; round-trip lossless)\n"
-        "                                  legacy    -> \"%%.6f\" (pre-fork Netflix output)\n"
+        "                                  max|full  -> \"%%.17g\" (round-trip lossless)\n"
+        "                                  legacy    -> \"%%.6f\" (default; Netflix-compatible)\n"
         " --tiny-model $path:           load a tiny ONNX model alongside classic models\n"
         " --tiny-device $string:        auto|cpu|cuda|openvino|rocm (default: auto)\n"
         " --tiny-threads $unsigned:     CPU EP intra-op threads (0 = ORT default)\n"

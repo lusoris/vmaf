@@ -10,11 +10,13 @@
 
 - **CLI**: `--precision $spec` flag for score output formatting.
   - `N` (1..17) → `printf "%.<N>g"`
-  - `max` / `full` → `"%.17g"` (default; round-trip lossless)
-  - `legacy` → `"%.6f"` (pre-fork Netflix behavior, opt-in for compat)
+  - `max` / `full` → `"%.17g"` (round-trip lossless, opt-in)
+  - `legacy` → `"%.6f"` (synonym for the default)
+  - default (no flag) → `"%.6f"` (Netflix-compatible per ADR-0119;
+    supersedes ADR-0006's original `%.17g` default)
 - **Public API**: `vmaf_write_output_with_format()` accepts a `score_format`
   string; old `vmaf_write_output()` routes through the new function with
-  `"%.17g"` default.
+  `"%.6f"` default.
 - **GPU backends**: SYCL/oneAPI backend (Lusoris + Claude); CUDA backend
   optimizations (decoupled buffer elimination, VIF rd_stride, ADM inline
   decouple).
@@ -118,6 +120,28 @@
 
 ### Fixed
 
+- **CLI precision default reverted to `%.6f` (Netflix-compat)**: ADR-0006
+  shipped `%.17g` as the default for round-trip-lossless output, but
+  several Netflix golden tests in `python/test/command_line_test.py`,
+  `vmafexec_test.py` etc. do *exact-string* matches against XML output
+  (not `assertAlmostEqual`), so the wider default broke the gate. Default
+  now matches upstream Netflix byte-for-byte; `--precision=max` (alias
+  `full`) is the explicit opt-in for `%.17g`. `--precision=legacy` is
+  preserved as a synonym for the (new) default. Library
+  `vmaf_write_output_with_format(..., NULL)` and `python/vmaf/core/result.py`
+  formatters revert in lockstep. See
+  [ADR-0119](docs/adr/0119-cli-precision-default-revert.md) (supersedes
+  [ADR-0006](docs/adr/0006-cli-precision-17g-default.md)). Latent on
+  master 2026-04-15 → 2026-04-19; surfaced by ADR-0115's CI consolidation
+  routing tox through master-targeting PRs.
+- **`--frame_skip_ref` / `--frame_skip_dist` hang**: the skip loops in
+  `libvmaf/tools/vmaf.c` fetched pictures from the preallocated picture
+  pool (now always-on per ADR-0104) but never `vmaf_picture_unref`'d
+  them, exhausting the pool after N skips and blocking the next fetch
+  indefinitely. Each skipped picture is now unref'd immediately after
+  fetch. Surfaced by `test_run_vmafexec_with_frame_skipping{,_unequal}`
+  hanging locally (timeout 60 s, no output written) once tox started
+  exercising both flags on master-targeting PRs.
 - **CI tox doctest collection**: `pytest --doctest-modules` errored on five
   upstream files under `python/vmaf/resource/` (parameter / dataset / example
   config files; `vmaf_v7.2_bootstrap.py` and friends — dots in the stem make

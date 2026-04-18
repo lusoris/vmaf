@@ -11,7 +11,9 @@ This is an overview of the available documentation in the VMAF repository.
 
 - [CLI reference](usage/cli.md) – the `vmaf` command-line tool, every flag, defaults, examples
 - [`vmaf_bench`](usage/bench.md) – micro-benchmark & GPU-vs-CPU validation harness
-- [`--precision`](usage/precision.md) – score output precision (default `%.17g`, legacy `%.6f`)
+- [`--precision`](usage/precision.md) – score output precision (default
+  `%.6f` Netflix-compat; opt into `%.17g` round-trip lossless via
+  `--precision=max`)
 - [Python library](usage/python.md) – explains the Python wrapper for VMAF
 - [FFmpeg](usage/ffmpeg.md) – how to use VMAF in conjunction with FFmpeg
 - [Docker](usage/docker.md) – how to run VMAF with Docker

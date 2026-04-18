@@ -80,7 +80,10 @@ The filter publishes the final pooled score to FFmpeg's log as
 None currently. The fork-specific `--precision` flag on the `vmaf` CLI
 does not have an FFmpeg filter equivalent; pooled-score precision from
 FFmpeg comes from FFmpeg's own `%f` formatting. Use the `vmaf` CLI
-(not the filter) when you need `--precision=17` round-trip output.
+(not the filter) when you need `--precision=max` round-trip lossless
+output (CLI default is `%.6f` for Netflix-compat per
+[ADR-0119](../adr/0119-cli-precision-default-revert.md); pass
+`--precision=max` to opt into `%.17g`).
 
 ### Multi-feature / multi-model examples
 
@@ -102,7 +105,9 @@ ffmpeg -i ref.y4m -i dis.y4m \
 
 ### When to use `vmaf` CLI instead of the filter
 
-- **You need `--precision 17`** (round-trip lossless output).
+- **You need `--precision=max`** (round-trip lossless `%.17g` output;
+  CLI default is `%.6f` per
+  [ADR-0119](../adr/0119-cli-precision-default-revert.md)).
 - **You need the tiny-AI surface** (`--tiny-model`, `--tiny-device`,
   `--no-reference`) — the FFmpeg filter does not yet expose these
   flags. See [api/dnn.md](../api/dnn.md) for the C-API surface.

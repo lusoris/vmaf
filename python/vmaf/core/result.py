@@ -129,7 +129,7 @@ class BasicResult(object):
                         ", ".join(
                             list(
                                 map(
-                                    lambda tscore: "{score_key}:{score:.17g}".format(
+                                    lambda tscore: "{score_key}:{score:.6f}".format(
                                         score_key=tscore[0], score=tscore[1]
                                     ),
                                     zip(list_score_key, tframe_scores[1]),
@@ -150,7 +150,7 @@ class BasicResult(object):
             ", ".join(
                 list(
                     map(
-                        lambda tscore: "{score_key}:{score:.17g}".format(
+                        lambda tscore: "{score_key}:{score:.6f}".format(
                             score_key=tscore[0], score=tscore[1]
                         ),
                         zip(

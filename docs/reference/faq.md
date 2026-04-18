@@ -184,9 +184,12 @@ AVX2 / AVX-512 / NEON SIMD is the universal fallback.
 
 ### Q: How do I get bit-exact round-trippable VMAF output?
 
-A: Use the fork-added `--precision` flag on the `vmaf` CLI. The default format
-string is `%.17g` (IEEE-754 round-trip lossless). Override with any printf
-format to match legacy pipelines.
+A: Pass `--precision=max` to the fork-added flag on the `vmaf` CLI. The
+default format string is `%.6f` (Netflix-compatible per
+[ADR-0119](../adr/0119-cli-precision-default-revert.md));
+`--precision=max` (alias `full`) selects `%.17g` for IEEE-754
+round-trip lossless output. `--precision=N` (1..17) overrides with
+`"%.<N>g"`.
 
 ### Q: What are the "tiny-AI" models and how do I use them?
 
@@ -220,8 +223,8 @@ parallel-prefix scans, and FMA contractions on GPUs introduce small
 ULP-level deltas. The same is true at a smaller scale for the SIMD
 paths (AVX2 / AVX-512 / NEON). Agreement between CPU and
 CUDA/SYCL/SIMD is typically ~6 decimals on the pooled VMAF — enough
-that `--precision legacy` (`%.6f`) hides the delta, but `--precision 17`
-exposes it.
+that the default (`%.6f`, alias `--precision=legacy`) hides the delta,
+but `--precision=max` (`%.17g`) exposes it.
 
 GPU / SIMD paths are regression-tested by fork-added snapshot JSONs
 under `testdata/` (per-backend, ULP tolerance, regenerated via

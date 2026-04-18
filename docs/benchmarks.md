@@ -19,7 +19,10 @@ PR that updates this file alongside the commit that motivates the rerun.
 ## Backend comparison (Netflix normal pair, 576×324)
 
 Source: `python/test/resource/yuv/src01_hrc00_576x324.yuv` vs `…hrc01…`.
-Precision: `--precision=17` (IEEE-754 round-trip lossless).
+Precision: `--precision=max` (IEEE-754 round-trip lossless `%.17g`; the
+CLI default is `%.6f` per
+[ADR-0119](adr/0119-cli-precision-default-revert.md), so cross-backend
+diffs must opt in explicitly).
 
 | Backend | fps (higher better) | vmaf pool | delta vs CPU |
 |---------|---------------------|-----------|--------------|
@@ -34,14 +37,14 @@ commit a PR with the updated table.
 
 ## `--precision` overhead
 
-String formatting is not on the hot path; switching from `%.6f` (legacy)
-to `%.17g` (default) changes only the output stage.
+String formatting is not on the hot path; switching from `%.6f` (default)
+to `%.17g` (`--precision=max`) changes only the output stage.
 
 | `--precision` | output stage ns/frame | output size (JSON) |
 |---------------|-----------------------|--------------------|
-| `legacy` | `TBD` | baseline |
+| no flag (`%.6f`) | `TBD` | baseline |
 | `6` | `TBD` | ~baseline |
-| `17` | `TBD` | +~20 % chars |
+| `max` (`%.17g`) | `TBD` | +~20 % chars |
 
 ## How to reproduce
 
@@ -50,7 +53,7 @@ make bench PROFILE=ryzen-4090
 # or manually:
 build/tools/vmaf -r ref.yuv -d dis.yuv \
     -w 576 -h 324 -p 420 -b 8 \
-    --precision=17 --output=bench.json
+    --precision=max --output=bench.json
 ```
 
 Then append a row with hardware + commit SHA + measured pool to the
