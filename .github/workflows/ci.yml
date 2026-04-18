@@ -225,14 +225,20 @@ jobs:
           # AVX-512 on so SIMD paths are exercised. DNN stubs compile without
           # ORT; full DNN coverage is gated on ORT availability (separate job).
           #
-          # -fprofile-update=atomic: meson runs unit tests in parallel (jN where
-          # N=nproc), and every test binary links the same instrumented
-          # libvmaf.so. Concurrent counter increments inside SIMD inner loops
-          # (vif_avx2, motion_avx2, etc.) race the .gcda counters and produce
-          # negative counts that geninfo refuses to process ("Unexpected
-          # negative count for vif_avx2.c:673" — observed on master 2026-04-18,
-          # see ADR-0110). Atomic counter updates eliminate the race at ~5%
-          # runtime cost, which is acceptable for the coverage build only.
+          # -fprofile-update=atomic fixes the intra-process race where SIMD
+          # inner loops (vif_avx2, motion_avx2, etc.) increment the same
+          # 64-bit gcov counter from multiple threads and produce negative
+          # values that geninfo rejects. See ADR-0110.
+          #
+          # The companion fix lives in the test step below: --num-processes 1
+          # serialises meson test execution so multiple test binaries don't
+          # concurrently merge their counters into the same .gcda files for
+          # the shared libvmaf.so (a multi-PROCESS race that the atomic flag
+          # does NOT cover — atomic is per-thread, not per-process). Without
+          # serialisation, the .gcda merge produces inflated hit counts on
+          # some files (e.g. dnn_api.c showing >100% line coverage) and
+          # under-counts on others, breaking lcov's per-file accounting even
+          # when geninfo no longer aborts.
           meson setup build-coverage --buildtype=debug \
             -Db_coverage=true -Denable_cuda=false -Denable_sycl=false \
             -Denable_float=true -Denable_avx512=true \
@@ -241,7 +247,7 @@ jobs:
           ninja -C build-coverage
       - name: Run meson unit suite (with gcov counters)
         working-directory: libvmaf
-        run: meson test -C build-coverage --print-errorlogs
+        run: meson test -C build-coverage --print-errorlogs --num-processes 1
       - name: Run full Python test suite (instrumented libvmaf.so + vmaf CLI)
         env:
           PYTHONPATH: ${{ github.workspace }}/python
@@ -332,7 +338,9 @@ jobs:
           ninja -C build-coverage-gpu
       - name: Run meson unit suite
         working-directory: libvmaf
-        run: meson test -C build-coverage-gpu --print-errorlogs
+        # See CPU coverage job for --num-processes 1 rationale: serialise
+        # to keep multi-process .gcda merges race-free.
+        run: meson test -C build-coverage-gpu --print-errorlogs --num-processes 1
       - name: Run Python suite on CUDA + SYCL backends
         env:
           PYTHONPATH: ${{ github.workspace }}/python

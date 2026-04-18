@@ -329,29 +329,37 @@ inline._
   # Expected: vmaf mean ≈ 76.66783; integer_motion3 mean ≈ 3.98976.
   ```
 
-### 0014 — Coverage gate `-fprofile-update=atomic` + `python/test/` lint exclusion
+### 0014 — Coverage gate gcov race fix (atomic + serial tests) + `python/test/` lint exclusion
 
 - **Workstream PRs**: this PR (lint-exclude + coverage-gcov-race fix bundle).
 - **Touches**:
   `.github/workflows/ci.yml` (CPU + GPU coverage jobs add
-  `-Dc_args=-fprofile-update=atomic` / `-Dcpp_args=-fprofile-update=atomic`
-  and `--ignore-errors negative` on `lcov --capture`),
+  `-Dc_args=-fprofile-update=atomic` / `-Dcpp_args=-fprofile-update=atomic`,
+  pass `--num-processes 1` to `meson test` in the coverage step, and
+  pass `--ignore-errors negative` on `lcov --capture`),
   `pyproject.toml` (Black/isort/Ruff exclude `python/test/`),
   `.pre-commit-config.yaml` (pre-commit Black/isort/Ruff hooks exclude
   `^python/test/`).
-- **Invariant**: coverage CI must build with atomic gcov counters because
-  meson test runs in parallel and SIMD inner loops (`vif_avx2.c:673`,
-  motion_avx2, etc.) race the `.gcda` counters → negative counts →
-  `geninfo` hard-aborts the gate. Lint config must exclude
-  `python/test/` because that tree is upstream-mirror code (wholesale
-  overwritten on every `/sync-upstream` and `/port-upstream-commit`),
-  so any fork-side reformat is net-negative — Black `extend-exclude`
-  only filters during directory walks, not explicitly-passed files,
-  so pre-commit needs its own `exclude` regex. An upstream sync that
-  changes the upstream Black/Ruff config or the meson coverage
-  default is unlikely to collide (we only modify CI workflow + fork
-  tooling config), but if upstream ever ships a `pyproject.toml` of
-  its own, the fork's must keep these exclusions.
+- **Invariant**: coverage CI must use BOTH gcov race fixes together
+  because they target two different races: (a) `-fprofile-update=atomic`
+  closes the intra-process race where SIMD inner loops
+  (`vif_avx2.c:673`, motion_avx2, etc.) race `.gcda` counters within
+  one test binary → negative counts → `geninfo` aborts; (b)
+  `--num-processes 1` closes the inter-process race where multiple
+  parallel test binaries merge their counters into the same `.gcda`
+  files for the shared `libvmaf.so` at process exit → inflated /
+  asymmetric per-file hit counts (`dnn_api.c — 1176%` was the smoking
+  gun). The atomic flag is per-thread, not per-process; never drop
+  one fix thinking the other covers the same race. Lint config must
+  exclude `python/test/` because that tree is upstream-mirror code
+  (wholesale overwritten on every `/sync-upstream` and
+  `/port-upstream-commit`), so any fork-side reformat is net-negative —
+  Black `extend-exclude` only filters during directory walks, not
+  explicitly-passed files, so pre-commit needs its own `exclude`
+  regex. An upstream sync that changes the upstream Black/Ruff config
+  or the meson coverage default is unlikely to collide (we only modify
+  CI workflow + fork tooling config), but if upstream ever ships a
+  `pyproject.toml` of its own, the fork's must keep these exclusions.
   See [ADR-0110](adr/0110-coverage-gate-fprofile-update-atomic.md).
 - **Re-test**:
 
@@ -362,11 +370,14 @@ inline._
       -Denable_avx512=true -Denable_float=true \
       -Dc_args=-fprofile-update=atomic -Dcpp_args=-fprofile-update=atomic
   ninja -C build-cov-test
-  meson test -C build-cov-test --print-errorlogs
+  meson test -C build-cov-test --print-errorlogs --num-processes 1
   lcov --capture --directory build-cov-test \
        --output-file build-cov-test/coverage.info \
        --ignore-errors mismatch,gcov,source,negative
-  # Expected: lcov completes without "Unexpected negative count".
+  lcov --list build-cov-test/coverage.info | grep -E 'dnn_api|model_loader'
+  # Expected: lcov completes without "Unexpected negative count" AND no
+  # per-file percentages exceed 100% (drop --num-processes 1 to reproduce
+  # the multi-process .gcda merge race that produces dnn_api.c — 1176%).
 
   # Lint-exclude smoke test:
   pre-commit run --files python/test/quality_runner_test.py

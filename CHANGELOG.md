@@ -73,14 +73,19 @@
   fork-local PRs have a one-shot rebase-notes backfill (10 grouped
   workstream entries) so the next upstream sync starts from a
   populated ledger. Closes #38.
-- **Coverage gate**: built with `-fprofile-update=atomic` (CPU + GPU
-  jobs) so parallel meson tests stop racing the `.gcda` counters on
-  instrumented SIMD inner loops. Eliminates the "Unexpected negative
-  count for vif_avx2.c:673" hard-fail that was breaking five
-  consecutive `master` runs as of 2026-04-18. `lcov --capture` now
-  also passes `--ignore-errors negative` as a belt-and-suspenders
-  guard. See
-  [ADR-0110](docs/adr/0110-coverage-gate-fprofile-update-atomic.md)
+- **Coverage gate**: two-part race fix on the gcov path. (1) Build with
+  `-fprofile-update=atomic` (CPU + GPU jobs) so parallel meson tests
+  stop racing the `.gcda` counters on instrumented SIMD inner loops —
+  eliminates the "Unexpected negative count for vif_avx2.c:673"
+  geninfo hard-fail. (2) Run `meson test --num-processes 1` in the
+  coverage steps so multiple test binaries don't concurrently merge
+  their counters into the same `.gcda` files for the shared
+  `libvmaf.so` — the on-exit merge is a multi-PROCESS race that the
+  atomic flag (per-thread) does not cover, and produced inflated
+  hit counts (e.g. `dnn_api.c — 1176%`) on the first
+  `-fprofile-update=atomic`-only attempt. `lcov --capture` also
+  passes `--ignore-errors negative` as a belt-and-suspenders guard.
+  See [ADR-0110](docs/adr/0110-coverage-gate-fprofile-update-atomic.md)
   and [`docs/rebase-notes.md` entry 0014](docs/rebase-notes.md).
 - **Lint config**: pre-commit + Black + isort + Ruff now exclude the
   whole `python/test/` tree (was: only `python/test/resource/`).
