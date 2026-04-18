@@ -58,6 +58,16 @@
   shifts `76.66890` → `76.66783` (within `places=2` tolerance the
   upstream PR loosened to). See
   [`docs/rebase-notes.md` entry 0013](docs/rebase-notes.md).
+- **Upstream port — AVX2/AVX-512 portability** (Netflix PR #1475):
+  replaces non-portable GCC vector subscripting (`rN[0] + rN[1]`) with
+  `_mm_extract_epi64` / `_mm256_extract_epi64`, and a stray C-style
+  `(__m256i)` cast on a `__m256` operand with `_mm256_castps_si256`,
+  across `adm_avx2.c`, `adm_avx512.c`, `motion_avx2.c`,
+  `motion_avx512.c`. Unblocks builds on MSVC and stricter
+  compilers. Netflix golden VMAF mean unchanged from entry 0013
+  (`76.66783`). The third upstream commit (cosmetic indentation fix)
+  was a no-op against our existing clang-format-22 wrapped formatting.
+  See [`docs/rebase-notes.md` entry 0016](docs/rebase-notes.md).
 - Python diagnostic output (`Result._get_perframe_score_str`) now emits
   scores at `%.17g` instead of `%.6f` for round-trip reproducibility.
 - Copyright headers across Netflix-authored sources updated `2016-2020` →

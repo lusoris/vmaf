@@ -328,3 +328,38 @@ inline._
   grep -E '<metric name="vmaf"|integer_motion3' /tmp/vmaf-motion-port.json
   # Expected: vmaf mean ≈ 76.66783; integer_motion3 mean ≈ 3.98976.
   ```
+
+### 0016 — Upstream AVX2/AVX-512 portability port (Netflix PR #1475)
+
+- **Workstream PRs**: this PR; ports upstream PR #1475
+  ("AVX2: replace non‑portable vector indexing & SIMD casts with intrinsic
+  extraction/reinterpretation"). Two upstream commits applied
+  (`c437f43d`, `b4fcd21b`); the third upstream commit (`50e772a1`,
+  cosmetic indentation fix) collapsed to a no‑op against our existing
+  clang-format-22 wrapped formatting and was skipped.
+- **Touches**:
+  `libvmaf/src/feature/x86/adm_avx2.c`,
+  `libvmaf/src/feature/x86/adm_avx512.c`,
+  `libvmaf/src/feature/x86/motion_avx2.c`,
+  `libvmaf/src/feature/x86/motion_avx512.c`.
+- **Invariant**: do **not** revert `_mm_extract_epi64(rN, 0) +
+  _mm_extract_epi64(rN, 1)` back to `rN[0] + rN[1]` (GCC vector
+  subscripting is a non-portable extension; MSVC and stricter compilers
+  reject it). Likewise do **not** revert `_mm256_castps_si256(...)`
+  back to a C-style `(__m256i)` cast on `__m256` operands. These files
+  also carry entry 0001 (ADM `_mm256_cvtps_pd` double-precision
+  reduction) and entry 0013 (motion files mirror upstream byte-for-byte
+  modulo our wrapped formatting); the AVX-512 variant in 0001 and the
+  motion mirror in 0013 are independent of this portability change and
+  must both still hold.
+- **Re-test**:
+
+  ```bash
+  ninja -C libvmaf/build && meson test -C libvmaf/build
+  libvmaf/build/tools/vmaf -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      -w 576 -h 324 -p 420 -b 8 \
+      --model version=vmaf_v0.6.1 -o /tmp/vmaf-1475-port.json
+  grep -E '<metric name="vmaf"' /tmp/vmaf-1475-port.json
+  # Expected: vmaf mean unchanged from entry 0013 (≈ 76.66783).
+  ```
