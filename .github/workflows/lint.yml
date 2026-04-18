@@ -4,9 +4,9 @@
 name: lint
 on:
   push:
-    branches: [sycl, master]
+    branches: [master]
   pull_request:
-    branches: [sycl, master]
+    branches: [master]
   workflow_dispatch:
 
 permissions:

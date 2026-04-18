@@ -3,9 +3,9 @@
 name: security
 on:
   push:
-    branches: [sycl, master]
+    branches: [master]
   pull_request:
-    branches: [sycl, master]
+    branches: [master]
   schedule:
     - cron: "0 6 * * 1"   # weekly Mon 06:00 UTC
   workflow_dispatch:

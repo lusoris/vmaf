@@ -1,9 +1,9 @@
 name: ffmpeg
 on:
   push:
-    branches: [sycl]
+    branches: [master]
   pull_request:
-    branches: [sycl]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
