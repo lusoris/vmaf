@@ -31,12 +31,11 @@ STICKY_HEADER = "<!-- bisect-tracker -->"
 
 def _gh(*args: str) -> str:
     """Run `gh` and return stdout; raise on non-zero exit."""
-    result = subprocess.run(
-        ["gh", *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    # S603/S607: trusted args (caller-controlled, not user input);
+    # `gh` resolved from $PATH is correct here — GitHub Actions
+    # provides it pre-installed and at varying absolute locations.
+    cmd = ["gh", *args]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
     return result.stdout
 
 
@@ -56,7 +55,10 @@ def _format_body(report: dict, run_url: str) -> str:
             + (f" (`{Path(report['last_good_model']).name}`)" if last_good is not None else "")
         )
 
-    rows = ["| idx | status | PLCC | SROCC | RMSE | model |", "| --: | :-: | --: | --: | --: | :-- |"]
+    rows = [
+        "| idx | status | PLCC | SROCC | RMSE | model |",
+        "| --: | :-: | --: | --: | --: | :-- |",
+    ]
     for s in sorted(report["steps"], key=lambda r: r["index"]):
         status = "GOOD" if s["passed"] else "BAD"
         r = s["report"]

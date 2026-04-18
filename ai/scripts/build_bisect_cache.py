@@ -140,8 +140,7 @@ def check(out_dir: Path) -> int:
             for d in diffs:
                 print(f"DRIFT  {d}", file=sys.stderr)
             print(
-                "\nRegenerate the committed cache:\n"
-                "  python ai/scripts/build_bisect_cache.py\n",
+                "\nRegenerate the committed cache:\n" "  python ai/scripts/build_bisect_cache.py\n",
                 file=sys.stderr,
             )
             return 1
