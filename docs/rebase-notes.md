@@ -659,3 +659,42 @@ inline.*
   grep -rE 'actions/(upload|download)-artifact@v[0-6]' .github/workflows/
   # Expected: empty output.
   ```
+
+### 0020 — CI workflow file + display-name renames (Title Case sweep)
+
+- **Workstream PRs**: this PR; renames all six core
+  `.github/workflows/*.yml` files to purpose-descriptive kebab-case and
+  normalises every workflow `name:` and job `name:` to Title Case. See
+  [ADR-0116](adr/0116-ci-workflow-naming-convention.md).
+- **Touches**:
+  `.github/workflows/{ci,lint,security,libvmaf,ffmpeg,docker}.yml`
+  (renamed via `git mv` to
+  `tests-and-quality-gates.yml`, `lint-and-format.yml`,
+  `security-scans.yml`, `libvmaf-build-matrix.yml`,
+  `ffmpeg-integration.yml`, `docker-image.yml`),
+  `README.md` (5 badge URLs + labels), `docs/principles.md` (line 5
+  workflow-tuple update), `.claude/skills/add-gpu-backend/SKILL.md` +
+  `scaffold.sh` (filename refs), `docs/adr/0116-*.md` (new),
+  `docs/adr/README.md` (index row), `CHANGELOG.md`.
+- **Invariant**: workflow files are *purpose-named*; their `name:`
+  fields are Title Case sentences with em-dash axis tags; job-level
+  `name:` strings are Title Case sentences (Build — / Pre-Commit /
+  Coverage Gate / etc.). Required-status-check contexts in `master`
+  branch protection are bound to job-level names — when renaming any
+  job, re-pin via
+  `gh api --method PUT repos/lusoris/vmaf/branches/master/protection`.
+  The 19 required gates' *semantics* are unchanged from
+  [ADR-0037](adr/0037-master-branch-protection.md); only their display
+  strings move.
+- **Re-test**:
+
+  ```bash
+  # Validate every workflow file parses and lists the expected job names.
+  cd .github/workflows
+  for f in tests-and-quality-gates.yml lint-and-format.yml security-scans.yml \
+           libvmaf-build-matrix.yml ffmpeg-integration.yml docker-image.yml; do
+      yq '.name, .jobs.[].name' "$f" || echo "PARSE FAIL: $f"
+  done
+  # Expected: each workflow prints its Title Case workflow name + job names;
+  # no PARSE FAIL lines.
+  ```

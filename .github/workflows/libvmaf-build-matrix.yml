@@ -1,4 +1,4 @@
-name: libvmaf
+name: libvmaf Build Matrix — Linux/macOS/Windows/ARM × CPU/SYCL/CUDA
 on:
   push:
     branches: [master]
@@ -29,39 +29,39 @@ jobs:
           - os: ubuntu-latest
             CC: ccache gcc
             CXX: ccache g++
-            name: Ubuntu gcc
+            name: Build — Ubuntu gcc (CPU)
           - os: ubuntu-latest
             CC: ccache clang
             CXX: ccache clang++
-            name: Ubuntu clang
+            name: Build — Ubuntu clang (CPU)
           - os: macos-latest
             CC: ccache clang
             CXX: ccache clang++
-            name: macOS clang
+            name: Build — macOS clang (CPU)
             experimental: true
           - os: ubuntu-24.04-arm
             CC: ccache clang
             CXX: ccache clang++
-            name: Ubuntu ARM clang
+            name: Build — Ubuntu ARM clang (CPU)
 
           # --- Static library builds ---
           - os: ubuntu-latest
             CC: ccache gcc
             CXX: ccache g++
             meson_extra: --default-library static
-            name: Ubuntu gcc static
+            name: Build — Ubuntu gcc Static (CPU)
           - os: ubuntu-latest
             CC: ccache gcc
             CXX: ccache g++
             sycl: true
             meson_extra: --default-library static -Denable_sycl=true
-            name: Ubuntu SYCL static
+            name: Build — Ubuntu SYCL Static
           - os: ubuntu-latest
             CC: ccache gcc
             CXX: ccache g++
             cuda: true
             meson_extra: --default-library static -Denable_cuda=true -Denable_nvcc=true
-            name: Ubuntu CUDA static
+            name: Build — Ubuntu CUDA Static
 
           # --- SYCL build (gcc host + icpx for SYCL sources) ---
           - os: ubuntu-latest
@@ -69,7 +69,7 @@ jobs:
             CXX: ccache g++
             sycl: true
             meson_extra: -Denable_sycl=true
-            name: Ubuntu SYCL
+            name: Build — Ubuntu SYCL
 
           # --- CUDA build (gcc + nvcc) ---
           - os: ubuntu-latest
@@ -77,7 +77,7 @@ jobs:
             CXX: ccache g++
             cuda: true
             meson_extra: -Denable_cuda=true -Denable_nvcc=true
-            name: Ubuntu CUDA
+            name: Build — Ubuntu CUDA
 
           # --- SYCL + CUDA combined ---
           - os: ubuntu-latest
@@ -86,7 +86,7 @@ jobs:
             sycl: true
             cuda: true
             meson_extra: -Denable_sycl=true -Denable_cuda=true -Denable_nvcc=true
-            name: Ubuntu SYCL+CUDA
+            name: Build — Ubuntu SYCL + CUDA
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -245,12 +245,12 @@ jobs:
   # MINGW32 is intentionally disabled (vmaf score mismatch — upstream note);
   # 32-bit support would need a SIMD audit before re-enabling.
   #
-  # Job key + name are intentionally `build` (matches the
-  # `build (MINGW64, mingw-w64-x86_64)` required status check on master,
-  # which was created when this job lived in windows.yml under
-  # `jobs: build:`). Renaming would break branch protection until the
-  # required-check list is updated separately. See ADR-0115.
-  build:
+  # Job key renamed `build` → `windows` and display name set to Title Case
+  # per ADR-0116. The matrix-expanded required status check on master is
+  # re-pinned to `Build — Windows MinGW64 (CPU)` immediately after this
+  # workflow lands (see ADR-0116 §Consequences).
+  windows:
+    name: Build — Windows MinGW64 (CPU)
     runs-on: windows-latest
     timeout-minutes: 45
     strategy:

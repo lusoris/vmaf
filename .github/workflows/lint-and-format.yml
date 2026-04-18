@@ -1,7 +1,7 @@
-# Static-analysis gate. Runs in parallel with build (ci.yml) so a lint failure
-# doesn't block discovering build breakage and vice versa.
+# Static-analysis gate. Runs in parallel with the libvmaf Build Matrix so a
+# lint failure doesn't block discovering build breakage and vice versa.
 
-name: lint
+name: Lint & Format — Pre-Commit / Clang-Tidy / Cppcheck / Python / Shell
 on:
   push:
     branches: [master]
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   pre-commit:
-    name: pre-commit (formatters + basic checks)
+    name: Pre-Commit (Formatters + Basic Checks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -45,7 +45,7 @@ jobs:
         run: pre-commit run --show-diff-on-failure --color=always --all-files
 
   clang-tidy:
-    name: clang-tidy
+    name: Clang-Tidy (Changed C/C++ Files)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -76,7 +76,7 @@ jobs:
           [ -f /tmp/tidy.fail ] && exit 1 || exit 0
 
   cppcheck:
-    name: cppcheck
+    name: Cppcheck (Whole Project)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -105,7 +105,7 @@ jobs:
           path: cppcheck-report.xml
 
   python-lint:
-    name: ruff + mypy + black --check
+    name: Python Lint (Ruff + Black + isort + mypy)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -121,7 +121,7 @@ jobs:
       - run: mypy ai/ scripts/ || echo "mypy advisory only on first run"
 
   shellcheck:
-    name: shellcheck + shfmt
+    name: ShellCheck + shfmt (All *.sh)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

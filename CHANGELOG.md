@@ -215,7 +215,16 @@
   also gained a missing `#include "libavutil/imgutils.h"` for
   `av_image_copy_plane` (caught by the local docker build —
   upstream FFmpeg builds with `-Werror=implicit-function-declaration`).
-  See ADR-0118 and entry 0017.
+  See ADR-0118 and entry 0018.
+
+- **CI workflow naming**: renamed all six core `.github/workflows/*.yml`
+  files to purpose-descriptive kebab-case (e.g. `ci.yml` →
+  `tests-and-quality-gates.yml`, `libvmaf.yml` →
+  `libvmaf-build-matrix.yml`) and normalised every workflow `name:` and
+  job `name:` to Title Case. Required-status-check contexts in
+  `master` branch protection re-pinned in the same merge window. See
+  [ADR-0116](docs/adr/0116-ci-workflow-naming-convention.md) +
+  [`docs/rebase-notes.md` entry 0020](docs/rebase-notes.md).
 
 ### Re-attributed
 

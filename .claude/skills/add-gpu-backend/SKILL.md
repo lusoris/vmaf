@@ -30,7 +30,7 @@ stays green while the implementation is filled in incrementally.
 | `libvmaf/include/libvmaf/libvmaf_<name>.h`                   | Public header (fetch pic, device sel)|
 | `libvmaf/test/test_<name>_smoke.c`                           | Build + init + single-frame test     |
 | `docs/<name>/README.md`                                      | Backend doc stub (build, caveats)    |
-| `.github/workflows/<name>.yml` (or ci.yml matrix row)        | CI job                               |
+| `.github/workflows/<name>.yml` (or libvmaf-build-matrix.yml row) | CI job                           |
 
 ## Files patched
 
