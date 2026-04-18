@@ -331,7 +331,15 @@ int main(int argc, char *argv[])
                 .bpc = common_bitdepth,
                 .pix_fmt = pix_fmt_map(info.pixel_fmt),
             },
-        .pic_cnt = c.thread_cnt > 0 ? (c.thread_cnt + 1) * 2 : 2,
+        /* Liveness budget per frame:
+         *   2  — ref + dist currently held by the CLI fetch/process step
+         *   1  — `vmaf->prev_ref` keeps the previous frame's ref picture
+         *        live across the frame boundary (for motion features)
+         *   2*thread_cnt — worker threads may hold (ref, dist) on in-flight
+         *        frames that haven't finished processing yet
+         * The `+ 1` term covers prev_ref uniformly. Undersizing deadlocks
+         * vmaf_picture_pool_fetch on frame N+1. */
+        .pic_cnt = 2 * (c.thread_cnt + 1) + 1,
     };
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
