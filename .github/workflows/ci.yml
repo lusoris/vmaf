@@ -1,4 +1,4 @@
-# Top-level CI — orchestrates Netflix golden gate (D24 — must always pass) and
+# Top-level CI — orchestrates Netflix golden gate (ADR-0024 — must always pass) and
 # the cross-backend numerical-correctness check. The pre-existing `libvmaf.yml`
 # handles the cross-platform build matrix; this file owns the *correctness* gate.
 
@@ -21,7 +21,7 @@ env:
   DEBIAN_FRONTEND: noninteractive
 
 jobs:
-  # ===== Netflix golden-data gate (D24) =====
+  # ===== Netflix golden-data gate (ADR-0024) =====
   # The 3 Netflix CPU test pairs (1 normal + 2 checkerboard) are the source of
   # truth for VMAF correctness. They MUST pass on every PR. No skips, no excuses.
   netflix-golden:

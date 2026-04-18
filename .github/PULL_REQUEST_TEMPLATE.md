@@ -28,7 +28,7 @@
 - [ ] If I added a new `.c` / `.cpp` / `.cu` / `.h` / `.hpp`, it has the appropriate license header (see `CONTRIBUTING.md`).
 - [ ] If this is a breaking change, the commit message uses `!` or `BREAKING CHANGE:` and the migration path is documented below.
 
-## Netflix golden-data gate (D24)
+## Netflix golden-data gate ([ADR-0024](../docs/adr/0024-netflix-golden-preserved.md))
 
 <!-- CI runs the 3 Netflix CPU golden pairs (1 normal + 2 checkerboard) on every PR. -->
 

@@ -157,8 +157,9 @@ regenerate it from the upstream weights:
 The exporter absorbs the *inverse*-ImageNet transform into the graph so
 that the C side can feed it tensors from the shared
 `vmaf_tensor_from_rgb_imagenet()` helper (used by every ImageNet-family
-model — MobileSal, future MUSIQ, etc.). See [ADR D40 + D41](../../adr/decisions-log.md)
-for the rationale.
+model — MobileSal, future MUSIQ, etc.). See
+[ADR-0040](../../adr/0040-dnn-session-multi-input-api.md) and
+[ADR-0041](../../adr/0041-lpips-sq-extractor.md) for the rationale.
 
 ## See also
 

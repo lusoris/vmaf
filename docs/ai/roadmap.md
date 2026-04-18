@@ -2,10 +2,12 @@
 
 Where the tiny-AI surface is going. Four capabilities already in-tree
 (see [overview.md](overview.md)); this roadmap captures the *expansion* —
-what we're adding that the current scope (ADR D20–D23) doesn't cover.
+what we're adding that the current scope ([ADR-0020](../adr/0020-tinyai-four-capabilities.md)
+– [ADR-0023](../adr/0023-tinyai-user-surfaces.md)) doesn't cover.
 
-> **Status.** Wave 1 locked by [ADR D36](../adr/decisions-log.md) on
-> 2026-04-17. Subsequent waves are non-binding; they document direction.
+> **Status.** Wave 1 locked by
+> [ADR-0036](../adr/0036-tinyai-wave1-scope-expansion.md) on 2026-04-17.
+> Subsequent waves are non-binding; they document direction.
 
 ## 1. Where we are
 
@@ -31,7 +33,8 @@ Not shipped yet:
 
 ## 2. Wave 1 — what lands next
 
-All four sub-lists below were approved in the popup that produced ADR D36.
+All four sub-lists below were approved in the popup that produced
+[ADR-0036](../adr/0036-tinyai-wave1-scope-expansion.md).
 Order is rough; "ship baselines" is the blocker on everything else.
 
 ### 2.1 Ship baselines
@@ -229,4 +232,4 @@ Not on the roadmap, for clarity:
 - [inference.md](inference.md) — CLI / C API / ffmpeg surfaces.
 - [benchmarks.md](benchmarks.md) — PLCC/SROCC/RMSE methodology.
 - [security.md](security.md) — op allowlist and size cap (expanded by §4).
-- [ADR D36](../adr/decisions-log.md) — this roadmap's authority.
+- [ADR-0036](../adr/0036-tinyai-wave1-scope-expansion.md) — this roadmap's authority.
