@@ -98,14 +98,20 @@ static float fp16_to_fp32(uint16_t h)
         if (mant == 0u) {
             x = sign << 31;
         } else {
-            /* subnormal */
+            /* Subnormal half. Loop normalises the mantissa: each shift
+             * moves the leading 1 toward bit 10. The loop body counts
+             * one shift more than the leading-zero distance (the
+             * iteration that *places* the implicit 1 also runs), so the
+             * fp32 biased exponent is (127 - 15 - e), not (127 - 14 - e).
+             * The earlier formula doubled the magnitude of every
+             * subnormal (e.g. 0x03FF → 1.22e-4 instead of 6.10e-5). */
             int32_t e = -1;
             do {
                 mant <<= 1;
                 ++e;
             } while ((mant & 0x400u) == 0u);
             mant &= 0x3FFu;
-            x = (sign << 31) | (uint32_t)((127 - 14 - e) << 23) | (mant << 13);
+            x = (sign << 31) | (uint32_t)((127 - 15 - e) << 23) | (mant << 13);
         }
     } else if (exp_h == 31u) {
         x = (sign << 31) | 0x7F800000u | (mant << 13);
@@ -754,6 +760,12 @@ int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_i
 void vmaf_ort_close(VmafOrtSession *sess)
 {
     (void)sess;
+}
+
+const char *vmaf_ort_attached_ep(const VmafOrtSession *sess)
+{
+    (void)sess;
+    return NULL;
 }
 
 /* Internal-test stubs for the DNN-disabled build. The real wrappers live

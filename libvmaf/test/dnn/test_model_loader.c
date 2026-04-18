@@ -87,6 +87,20 @@ static int write_file_600(const char *path, const unsigned char *data, size_t le
     return 0;
 }
 
+/* Open @p path for writing with user-only perms (0600), returning a buffered
+ * FILE* via fdopen so existing fprintf-based test code keeps working. Same
+ * umask-safety motivation as write_file_600. Returns NULL on any error. */
+static FILE *fopen_w_600(const char *path)
+{
+    const int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0)
+        return NULL;
+    FILE *fp = fdopen(fd, "w");
+    if (!fp)
+        (void)close(fd);
+    return fp;
+}
+
 static char *test_validate_zero_byte(void)
 {
     char *path = write_temp((const unsigned char *)"", 0);
@@ -336,11 +350,11 @@ static char *test_sidecar_parses(void)
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     /* Touch an empty onnx so sidecar_load doesn't key off its existence. */
-    FILE *f = fopen(onnx, "w");
+    FILE *f = fopen_w_600(onnx);
     if (f)
         fclose(f);
 
-    FILE *s = fopen(sidecar, "w");
+    FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
     fprintf(s, "{\n"
                "  \"name\": \"vmaf_tiny_fr_v1\",\n"
@@ -407,11 +421,11 @@ static char *test_sidecar_parses_kind_nr(void)
     char onnx[1024], sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
-    FILE *f = fopen(onnx, "w");
+    FILE *f = fopen_w_600(onnx);
     if (f)
         fclose(f);
 
-    FILE *s = fopen(sidecar, "w");
+    FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
     fprintf(s, "{\"kind\": \"nr\"}\n");
     fclose(s);
@@ -441,11 +455,11 @@ static char *test_sidecar_no_dot_onnx_extension(void)
     char model[1024], sidecar[1024];
     snprintf(model, sizeof model, "%s.bin", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.bin.json", tmpl);
-    FILE *f = fopen(model, "w");
+    FILE *f = fopen_w_600(model);
     if (f)
         fclose(f);
 
-    FILE *s = fopen(sidecar, "w");
+    FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
     fprintf(s, "{\"kind\": \"fr\"}\n");
     fclose(s);
@@ -490,11 +504,11 @@ static char *test_sidecar_malformed_keys_default(void)
     char onnx[1024], sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
-    FILE *f = fopen(onnx, "w");
+    FILE *f = fopen_w_600(onnx);
     if (f)
         fclose(f);
 
-    FILE *s = fopen(sidecar, "w");
+    FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
     /* "kind" present but not a string (number) → extract_string returns
      * NULL via "no opening quote" branch. "name" missing entirely →
@@ -533,11 +547,11 @@ static char *test_sidecar_extract_string_no_close_quote(void)
     char onnx[1024], sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
-    FILE *f = fopen(onnx, "w");
+    FILE *f = fopen_w_600(onnx);
     if (f)
         fclose(f);
 
-    FILE *s = fopen(sidecar, "w");
+    FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
     /* "name" opens a quote that never closes before EOF. */
     fputs("{\"name\": \"unterminated", s);

@@ -119,15 +119,21 @@ static char *test_fp16_to_fp32_subnormal(void)
 {
     if (!vmaf_dnn_available())
         return NULL;
-    /* exp_h == 0, mant != 0 → subnormal half. Smallest positive subnormal:
-     * 0x0001 → 2^-24. Hits L100-108 (loop normalises mantissa). */
-    const float v = vmaf_ort_internal_fp16_to_fp32(0x0001);
-    mu_assert("fp16→fp32: smallest subnormal > 0", v > 0.0f);
-    mu_assert("fp16→fp32: smallest subnormal < 1e-6", v < 1.0e-6f);
-    /* Largest subnormal: 0x03FF */
+    /* IEEE 754 subnormal half: value = mant × 2^-24.
+     * Smallest positive subnormal 0x0001 → 2^-24 ≈ 5.960e-8. */
+    const float vmin = vmaf_ort_internal_fp16_to_fp32(0x0001);
+    const float kSmallest = 5.9604644775390625e-8f; /* 2^-24, exact in fp32 */
+    mu_assert("fp16→fp32: smallest subnormal == 2^-24", vmin == kSmallest);
+    /* Largest subnormal 0x03FF → (1023/1024) × 2^-14 ≈ 6.0976e-5.
+     * Earlier off-by-one returned 2× this value (1.22e-4); the exact
+     * equality below regression-locks the fix. */
     const float vmax = vmaf_ort_internal_fp16_to_fp32(0x03FF);
-    mu_assert("fp16→fp32: largest subnormal > 0", vmax > 0.0f);
-    mu_assert("fp16→fp32: largest subnormal < 1e-4", vmax < 1.0e-4f);
+    const float kLargest = 1023.0f * 5.9604644775390625e-8f; /* 1023 × 2^-24 */
+    mu_assert("fp16→fp32: largest subnormal == 1023 × 2^-24", vmax == kLargest);
+    /* Mid-range subnormal 0x0200 → 512 × 2^-24 = 2^-15 (exactly normal-edge). */
+    const float vmid = vmaf_ort_internal_fp16_to_fp32(0x0200);
+    const float kMid = 512.0f * 5.9604644775390625e-8f; /* 2^-15 */
+    mu_assert("fp16→fp32: mid subnormal == 512 × 2^-24", vmid == kMid);
     return NULL;
 }
 
