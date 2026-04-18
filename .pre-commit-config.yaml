@@ -52,21 +52,21 @@ repos:
         # pyproject.toml [tool.black] extend-exclude. Black's extend-exclude
         # only filters during directory walks, not explicitly-passed files,
         # so pre-commit needs its own exclude to skip them.
-        exclude: '^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/'
+        exclude: '^python/test/|^python/vmaf/resource/|^python/vmaf/matlab/'
 
   - repo: https://github.com/PyCQA/isort
     rev: 5.13.2
     hooks:
       - id: isort
         files: '^(python|ai|scripts)/.*\.py$'
-        exclude: '^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/'
+        exclude: '^python/test/|^python/vmaf/resource/|^python/vmaf/matlab/'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.10
     hooks:
       - id: ruff-check
         files: '^(python|ai|scripts)/.*\.py$'
-        exclude: '^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/'
+        exclude: '^python/test/|^python/vmaf/resource/|^python/vmaf/matlab/'
         args: ["--fix"]
 
   - repo: https://github.com/scop/pre-commit-shfmt
