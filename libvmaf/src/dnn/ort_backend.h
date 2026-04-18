@@ -55,6 +55,15 @@ int vmaf_ort_io_count(VmafOrtSession *sess, size_t *n_inputs, size_t *n_outputs)
  */
 int vmaf_ort_input_shape(VmafOrtSession *sess, int64_t *out_shape, size_t max_rank,
                          size_t *out_rank);
+
+/**
+ * Name of the ONNX Runtime execution provider that actually attached to
+ * the session. Populated at open time; owned by the session. Stable
+ * strings: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU", "ROCm".
+ * Returns NULL if @p sess is NULL.
+ */
+const char *vmaf_ort_attached_ep(const VmafOrtSession *sess);
+
 void vmaf_ort_close(VmafOrtSession *sess);
 
 #ifdef __cplusplus

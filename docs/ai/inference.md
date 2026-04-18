@@ -120,9 +120,57 @@ ffmpeg -i in.mp4 \
 | --- | --- | --- |
 | `--tiny-device cpu` | CPUExecutionProvider | Always available. |
 | `--tiny-device cuda` | CUDAExecutionProvider | Requires CUDA-enabled ORT; shares context with libvmaf-cuda. |
-| `--tiny-device openvino` | OpenVINOExecutionProvider | Covers Intel GPU / SYCL / oneAPI. |
-| `--tiny-device rocm` | ROCmExecutionProvider | Wired, untested until HIP backend lands. |
-| `--tiny-device auto` | best available | Probes CUDA → OpenVINO → ROCm → CPU. |
+| `--tiny-device openvino` | OpenVINOExecutionProvider | Covers Intel GPU / SYCL / oneAPI. Tries GPU device type first, falls back to CPU device type. |
+| `--tiny-device rocm` | ROCmExecutionProvider | Requires ROCm-enabled ORT. |
+| `--tiny-device auto` | best available | Ordered try-chain: CUDA → OpenVINO (GPU then CPU) → ROCm → CPU. |
+
+### Graceful EP fallback
+
+If the requested EP isn't compiled into the linked ORT build (for
+example, you ask for `cuda` on a CPU-only ORT), the session still
+opens — it silently degrades to the CPU EP rather than failing. This
+matches `VmafDnnConfig.device` being documented as a *hint*, not a
+requirement: a laptop and a workstation running the same binary get
+the best EP each one has.
+
+To see which EP actually bound, call
+`vmaf_dnn_session_attached_ep()` on the session:
+
+```c
+VmafDnnSession *sess;
+vmaf_dnn_session_open(&sess, "/models/m.onnx",
+                      &(VmafDnnConfig){.device = VMAF_DNN_DEVICE_AUTO});
+printf("bound EP: %s\n", vmaf_dnn_session_attached_ep(sess));
+/* One of: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU", "ROCm" */
+```
+
+Consumers that need a hard failure on missing EP should assert on the
+returned string at the call site (for example
+`strcmp(ep, "CUDA") == 0`).
+
+### fp16 I/O (`VmafDnnConfig.fp16_io`)
+
+Setting `.fp16_io = true` enables a host-side fp32 ↔ fp16 round-trip
+at the I/O boundary, triggered per input/output slot when the model's
+graph declares that slot as `FLOAT16`. The public API always takes
+fp32; libvmaf performs the cast internally. When the model declares
+`FLOAT32` on a slot, `fp16_io = true` is a no-op at that slot. When
+the EP is OpenVINO, the precision hint `FP16` is additionally passed
+to the EP so intermediate compute also runs at half precision.
+
+Example — running a FLOAT16-typed model:
+
+```c
+VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_AUTO, .fp16_io = true};
+VmafDnnSession *sess;
+vmaf_dnn_session_open(&sess, "/models/m_fp16.onnx", &cfg);
+
+float in[H*W] = { /* fp32 input */ };
+float out[H*W];
+VmafDnnInput  din = {.data = in,  .shape = (int64_t[4]){1,1,H,W}, .rank = 4};
+VmafDnnOutput dout = {.data = out, .capacity = H*W};
+vmaf_dnn_session_run(sess, &din, 1, &dout, 1);
+```
 
 ## Expected cross-device variance
 

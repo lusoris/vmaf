@@ -135,4 +135,5 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0042](0042-tinyai-docs-required-per-pr.md) | Tiny-AI PRs must ship human-readable docs in the same PR | Accepted | ai, dnn, docs |
 | [ADR-0100](0100-project-wide-doc-substance-rule.md) | Every user-discoverable change ships docs in the same PR (project-wide) | Accepted | docs, agents, framework |
 | [ADR-0101](0101-sycl-usm-picture-pool.md) | Implement USM-backed picture pre-allocation pool for SYCL | Accepted | sycl, gpu, picture-api, memory |
+| [ADR-0102](0102-dnn-ep-selection-and-fp16-io.md) | DNN EP selection is ordered + graceful; `fp16_io` does a host-side fp32↔fp16 cast | Accepted | ai, dnn, cli |
 | [ADR-0103](0103-sycl-d3d11-surface-import.md) | Implement `vmaf_sycl_import_d3d11_surface` as staging-texture H2D path | Accepted | sycl, windows, api |

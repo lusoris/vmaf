@@ -292,6 +292,13 @@ void vmaf_dnn_session_close(VmafDnnSession *sess)
     free(sess);
 }
 
+const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess)
+{
+    if (!sess || !sess->ort)
+        return NULL;
+    return vmaf_ort_attached_ep(sess->ort);
+}
+
 #else /* !VMAF_HAVE_DNN */
 
 struct VmafDnnSession {
@@ -336,6 +343,12 @@ int vmaf_dnn_session_run(VmafDnnSession *sess, const VmafDnnInput *inputs, size_
 void vmaf_dnn_session_close(VmafDnnSession *sess)
 {
     (void)sess;
+}
+
+const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess)
+{
+    (void)sess;
+    return NULL;
 }
 
 #endif /* VMAF_HAVE_DNN */

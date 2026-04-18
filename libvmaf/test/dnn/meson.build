@@ -53,11 +53,27 @@ test_dnn_session_api = executable('test_dnn_session_api',
     dependencies : [cuda_dependency, sycl_dependency],
 )
 
+# Execution-provider selection + fp16_io round-trip. Needs the real
+# libvmaf so that the attached-EP accessor is resolved from the same
+# TU that constructed the session; running against a compiled-in copy
+# of ort_backend.c would defeat the test. The fp16 branch requires the
+# real ORT build; on stub builds every path short-circuits to NULL/ENOSYS.
+test_ep_fp16 = executable('test_ep_fp16',
+    ['../test.c', 'test_ep_fp16.c'],
+    include_directories : dnn_test_inc,
+    c_args : dnn_defines,
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies : [math_lib, cuda_dependency, sycl_dependency],
+)
+
 test('test_tensor_io',       test_tensor_io,       suite : 'dnn')
 test('test_op_allowlist',    test_op_allowlist,    suite : 'dnn')
 test('test_model_loader',    test_model_loader,    suite : 'dnn')
 test('test_onnx_scan',       test_onnx_scan,       suite : 'dnn')
 test('test_dnn_session_api', test_dnn_session_api, suite : 'dnn')
+test('test_ep_fp16',         test_ep_fp16,
+     workdir : meson.project_source_root() / '..',
+     suite : 'dnn')
 
 bash_prog = find_program('bash', required : false)
 if bash_prog.found()
