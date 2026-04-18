@@ -45,6 +45,19 @@
 
 ### Changed
 
+- **Upstream port — ADM** (Netflix `966be8d5`, fork PR #44, merged
+  `d06dd6cf`): integer ADM kernels + AVX2/AVX-512 SIMD paths +
+  `barten_csf_tools.h` ported wholesale; `i4_adm_cm` signature extended
+  from 8 to 13 args. Netflix golden VMAF mean unchanged at
+  `76.66890` (places=4 OK). See
+  [`docs/rebase-notes.md` entry 0012](docs/rebase-notes.md).
+- **Upstream port — motion** (Netflix PR #1486 head `2aab9ef1`, sister
+  to ADM port): integer motion + AVX2/AVX-512 paths +
+  `motion_blend_tools.h` ported wholesale; new `integer_motion3`
+  sub-feature appears in the default VMAF model output. Golden mean
+  shifts `76.66890` → `76.66783` (within `places=2` tolerance the
+  upstream PR loosened to). See
+  [`docs/rebase-notes.md` entry 0013](docs/rebase-notes.md).
 - Python diagnostic output (`Result._get_perframe_score_str`) now emits
   scores at `%.17g` instead of `%.6f` for round-trip reproducibility.
 - Copyright headers across Netflix-authored sources updated `2016-2020` →

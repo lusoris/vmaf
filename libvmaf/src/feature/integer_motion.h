@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "cpu.h"
 
 static const uint16_t filter[5] = {3571, 16004, 26386, 16004, 3571};
 static const int filter_width = sizeof(filter) / sizeof(filter[0]);
@@ -41,12 +40,12 @@ static inline uint32_t edge_16(bool horizontal, const uint16_t *src, int width, 
             if (j_tap < 0)
                 j_tap = -j_tap;
             else if (j_tap >= width)
-                j_tap = width - (j_tap - width + 1);
+                j_tap = width - (j_tap - width + 2);
         } else {
             if (i_tap < 0)
                 i_tap = -i_tap;
             else if (i_tap >= height)
-                i_tap = height - (i_tap - height + 1);
+                i_tap = height - (i_tap - height + 2);
         }
         accum += filter[k] * src[i_tap * stride + j_tap];
     }
