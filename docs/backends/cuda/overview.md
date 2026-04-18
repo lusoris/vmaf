@@ -69,6 +69,49 @@ Adding a new CUDA extractor: see [`/add-feature-extractor`](../../../.claude/ski
 See [nvtx/profiling.md](../nvtx/profiling.md) for Nsight Systems recipes that
 rely on the backend's NVTX annotations.
 
+## Numerical tolerance vs the CPU scalar path
+
+CUDA kernels target **close agreement** with the CPU fixed-point path,
+not bit-exact equality. Different reduction orders, FMA contractions,
+and parallel-prefix sums can perturb the final integer accumulator by a
+fraction of a ULP — this has always been the case for VMAF on GPU,
+not a fork regression. In practice the per-frame pooled VMAF agrees
+to ~6 decimal places (the legacy `%.6f` truncation hides the delta
+entirely; `--precision 17` exposes it).
+
+The **Netflix golden-data gate is CPU-only** — the three reference
+pairs in `python/test/` (1 normal + 2 checkerboard) are hardcoded
+`assertAlmostEqual` values that only the CPU scalar + fixed-point
+path is required to match exactly. See
+[docs/principles.md §3.1](../../principles.md#31-netflix-golden-data-gate).
+
+GPU regression is caught by fork-added per-backend snapshot tests
+(`testdata/scores_cpu_*.json` + `testdata/netflix_benchmark_results.json`),
+which record what each backend produces today at a small ULP
+tolerance. Regenerate intentionally via
+[`/regen-snapshots`](../../../.claude/skills/regen-snapshots/SKILL.md)
+with a commit-message justification; use
+[`/cross-backend-diff`](../../../.claude/skills/cross-backend-diff/SKILL.md)
+to surface an unexpected delta.
+
+## Known gaps
+
+- **CAMBI** — no CUDA kernel. Runs on CPU even when the rest of the
+  pipeline is on the GPU; the frame is downloaded to host memory for
+  CAMBI and the CUDA twin is used for everything else.
+- **CIEDE2000** — no CUDA kernel (same CPU-fallback behaviour).
+- **SSIM / MS-SSIM / PSNR / PSNR-HVS / ANSNR** — no CUDA kernels; these
+  are rare enough in production that the CPU twin is sufficient.
+- **Float-twin extractors (`float_*`)** — the CUDA backend only
+  implements the fixed-point integer extractors. Requesting
+  `--feature float_adm` with `--no_cuda=false` will still dispatch to
+  CPU for that feature.
+- **HIP / AMD** — not yet scaffolded; see
+  [backends/index.md](../index.md) for the status row.
+
+See [metrics/features.md](../../metrics/features.md) for the
+per-extractor coverage matrix.
+
 ## References
 
 - [CUDA C++ Best Practices Guide](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/)

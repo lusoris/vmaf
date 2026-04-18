@@ -9,11 +9,20 @@ This is an overview of the available documentation in the VMAF repository.
 
 ## Usage
 
+- [CLI reference](usage/cli.md) – the `vmaf` command-line tool, every flag, defaults, examples
+- [`vmaf_bench`](usage/bench.md) – micro-benchmark & GPU-vs-CPU validation harness
+- [`--precision`](usage/precision.md) – score output precision (default `%.17g`, legacy `%.6f`)
 - [Python library](usage/python.md) – explains the Python wrapper for VMAF
 - [FFmpeg](usage/ffmpeg.md) – how to use VMAF in conjunction with FFmpeg
 - [Docker](usage/docker.md) – how to run VMAF with Docker
 - [MATLAB](usage/matlab.md) – running other quality algorithms (ST-RRED, ST-MAD, SpEED-QA, and BRISQUE) with MATLAB
 - [External resources](usage/external-resources.md) – e.g. software using VMAF
+
+## C API
+
+- [API overview](api/index.md) – core `libvmaf.h` + `picture.h` + `model.h` + `feature.h`: context lifecycle, scoring, pictures, models, ABI-stability tiers, thread-safety, runnable example
+- [DNN sessions](api/dnn.md) – tiny-AI `dnn.h`: standalone ONNX sessions (luma filter + multi-input named binding), device config, error codes
+- [GPU (CUDA / SYCL)](api/gpu.md) – `libvmaf_cuda.h` + `libvmaf_sycl.h`: zero-copy frame buffers, dmabuf / VA / D3D11 import, profiling
 
 ## Metrics
 
@@ -43,6 +52,11 @@ GPU / SIMD backend notes under [backends/](backends/):
 - [Python-harness workspace](architecture/workspace.md) – the moved `workspace/` tree
 - [ADR log](adr/) – every non-trivial architectural / policy decision + rationale
 
+## MCP
+
+- [MCP server overview](mcp/index.md) – install, security model (path allowlist), env vars, Claude Desktop / Cursor config
+- [Tool reference](mcp/tools.md) – per-tool request/response schemas + error codes for `vmaf_score`, `list_models`, `list_backends`, `run_benchmark`, `eval_model_on_split`, `compare_models`
+
 ## Tiny-AI
 
 - [Tiny-AI docs](ai/) – overview, training, inference, benchmarks, security
@@ -52,6 +66,7 @@ GPU / SIMD backend notes under [backends/](backends/):
 
 - [Engineering principles](principles.md) – NASA Power-of-10 + JPL + CERT + MISRA, golden gate, quality policy
 - [Benchmarks](benchmarks.md) – fork-added benchmark numbers (GPU, SIMD, `--precision`)
+- [Build flags](development/build-flags.md) – every `meson_options.txt` option with defaults, effects, and flag interactions
 - [Release](development/release.md) – how to perform a new release
 
 ## Reference

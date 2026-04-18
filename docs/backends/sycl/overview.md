@@ -76,6 +76,52 @@ libvmaf/src/feature/sycl/                # per-feature kernels
   for Level Zero API-level tracing.
 - For end-to-end wall-time comparisons against the CUDA / CPU paths, use
   `make test-netflix-golden` which records per-backend scores and timings.
+- Programmatic profiling via `VmafSyclState.enable_profiling` — see
+  [api/gpu.md](../../api/gpu.md#profiling-helpers) for the queue-event
+  query API.
+
+## Numerical tolerance vs the CPU scalar path
+
+SYCL kernels target **close agreement** with the CPU fixed-point
+path, not bit-exact equality. Like every GPU path for VMAF, different
+reduction orders, parallel-prefix scans, and FMA contractions can
+perturb the final accumulator by a fraction of a ULP. Agreement is
+typically at ~6 decimal places of the pooled VMAF score.
+
+The **Netflix golden-data gate is CPU-only** — see
+[docs/principles.md §3.1](../../principles.md#31-netflix-golden-data-gate).
+The SYCL backend's per-build numerics are pinned by fork-added snapshot
+tests, not by the Netflix goldens.
+
+Accelerator-dependent controls that reduce (but do not eliminate)
+the deviation:
+
+- **fp16 path is disabled for scoring.** Some Intel GPUs expose fp16
+  arithmetic; libvmaf forces fp32 on the kernel so scores are portable
+  across hosts with different fp16 rounding modes.
+- **Work-group reductions use fixed iteration order** so the most
+  common source of cross-run drift (non-deterministic reduction tree)
+  is eliminated; the remaining deltas come from unavoidable arithmetic
+  restructuring between scalar and parallel-prefix code.
+
+## Known gaps
+
+- **CAMBI** — no SYCL kernel; runs on CPU. Frame download is unavoidable
+  for CAMBI when the rest of the pipeline is on the GPU.
+- **CIEDE2000** — no SYCL kernel; CPU fallback.
+- **SSIM / MS-SSIM / PSNR / PSNR-HVS / ANSNR** — no SYCL kernels.
+- **Float-twin extractors (`float_*`)** — the SYCL backend only
+  implements the fixed-point integer extractors.
+- **dmabuf import is Linux-only.** The VA-API → dmabuf fast path is
+  gated on `__linux__` and the `ext::oneapi::experimental::external_memory`
+  extension. Windows SYCL builds fall back to `malloc_shared` host upload.
+- **HIP / ROCm via SYCL** — requires building DPC++ with the HIP plugin;
+  the shipped Intel oneAPI binaries only include the Level Zero +
+  OpenCL CPU + CUDA plugins.
+
+See [metrics/features.md](../../metrics/features.md) for the
+per-extractor coverage matrix and [api/gpu.md](../../api/gpu.md#sycl)
+for the programmatic surface.
 
 ## References
 

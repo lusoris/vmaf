@@ -1,0 +1,298 @@
+# MCP tool reference
+
+Per-tool request / response schemas and error semantics for
+[`vmaf-mcp`](index.md). Source of truth: the `list_tools()` handler in
+[mcp-server/vmaf-mcp/src/vmaf_mcp/server.py](../../mcp-server/vmaf-mcp/src/vmaf_mcp/server.py).
+
+Every tool returns a single `TextContent` message whose body is a JSON
+document. On error the body has shape `{"error": "<string>"}`, so clients
+can `json.loads()` unconditionally and branch on the presence of
+`error`.
+
+## `vmaf_score`
+
+Score one `(ref, dis)` YUV pair and return the full VMAF JSON report.
+
+### Input schema
+
+| Field       | Type                                   | Required | Default                 | Notes                                          |
+|-------------|----------------------------------------|----------|-------------------------|------------------------------------------------|
+| `ref`       | string (path)                          | yes      | —                       | Reference YUV; must be under an allowed root   |
+| `dis`       | string (path)                          | yes      | —                       | Distorted YUV; same allowlist                  |
+| `width`     | integer `≥ 1`                          | yes      | —                       | Frame width in pixels                          |
+| `height`    | integer `≥ 1`                          | yes      | —                       | Frame height in pixels                         |
+| `pixfmt`    | `"420" \| "422" \| "444"`              | yes      | —                       | YUV chroma subsampling                         |
+| `bitdepth`  | `8 \| 10 \| 12 \| 16`                  | yes      | —                       | Bit depth of both YUV files                    |
+| `model`     | string                                 | no       | `"version=vmaf_v0.6.1"` | Any `--model` grammar from the CLI             |
+| `backend`   | `"auto" \| "cpu" \| "cuda" \| "sycl"`  | no       | `"auto"`                | Backend selection; `auto` lets vmaf pick       |
+| `precision` | string                                 | no       | `"17"`                  | Passed straight to `--precision`               |
+
+### Behaviour
+
+The server exec's the local `vmaf` binary with, effectively:
+
+```bash
+vmaf -r <ref> -d <dis> --width <w> --height <h> -p <pixfmt> -b <bitdepth> \
+     -m <model> --precision <precision> -q --json -o <tmp>
+# plus per-backend flags:
+#   backend=cpu  → --no_cuda --no_sycl
+#   backend=cuda → --no_sycl
+#   backend=sycl → --no_cuda
+```
+
+The JSON written by vmaf is parsed and returned verbatim (the temp file
+is always unlinked — even on error). See
+[usage/cli.md](../usage/cli.md#output) for the report schema.
+
+### Example call
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "vmaf_score",
+    "arguments": {
+      "ref":      "python/test/resource/yuv/src01_hrc00_576x324.yuv",
+      "dis":      "python/test/resource/yuv/src01_hrc01_576x324.yuv",
+      "width":    576,
+      "height":   324,
+      "pixfmt":   "420",
+      "bitdepth": 8,
+      "backend":  "cpu"
+    }
+  }
+}
+```
+
+Response body (abridged):
+
+```json
+{
+  "version": "3.x.y-lusoris.N",
+  "pooled_metrics": { "vmaf": { "mean": 76.668905, "...": "..." } },
+  "frames": [ { "frameNum": 0, "metrics": { "vmaf": 78.8263, "...": "..." } } ]
+}
+```
+
+### Errors
+
+- Path not under an allowlisted root → `{"error": "path ... not under an allowlisted root; set VMAF_MCP_ALLOW to extend."}`.
+- Path does not exist → `{"error": "<abs-path>"}` from `FileNotFoundError`.
+- vmaf binary missing → `{"error": "vmaf binary not found at ...; Build first: meson compile -C build."}`.
+- Non-zero vmaf exit → `{"error": "vmaf exited <code>: <stderr>"}`.
+
+## `list_models`
+
+Walk `model/` (recursively) and list every `.json`, `.pkl`, or `.onnx`
+file shipped with the build.
+
+### Input schema — no arguments.
+
+### Response body
+
+```json
+{
+  "models": [
+    {
+      "name": "vmaf_v0.6.1",
+      "path": "model/vmaf_v0.6.1.json",
+      "format": "json",
+      "size_bytes": 9128
+    },
+    {
+      "name": "lpips_sq_small",
+      "path": "model/tiny/lpips_sq_small.onnx",
+      "format": "onnx",
+      "size_bytes": 4873216
+    }
+  ]
+}
+```
+
+`name` is the file stem (no extension). Use it with `vmaf_score`'s
+`model` field as `"version=<name>"` for built-in `.json` models or as a
+plain path for custom `.pkl` / `.onnx`.
+
+### Errors — none in the normal case (an empty `model/` returns `{"models": []}`).
+
+## `list_backends`
+
+Probe the local vmaf binary and report which runtime backends it was
+built with.
+
+### Input schema — no arguments.
+
+### Response body
+
+```json
+{
+  "cpu":  true,
+  "cuda": true,
+  "sycl": false,
+  "hip":  false
+}
+```
+
+The server runs `vmaf --version` with a 5-second timeout and grep's the
+output; `cpu` is reported `true` whenever the binary exists.
+
+### Errors
+
+- If the vmaf binary is missing, every flag is `false` — no error is
+  raised. Call `list_backends` before other tools to test whether the
+  build is usable.
+
+## `run_benchmark`
+
+Execute `testdata/bench_all.sh` on a `(ref, dis)` pair. The harness
+runs CPU / CUDA / SYCL variants end-to-end and prints timings — see
+[usage/bench.md](../usage/bench.md).
+
+### Input schema
+
+| Field    | Type          | Required |
+|----------|---------------|----------|
+| `ref`    | string (path) | yes      |
+| `dis`    | string (path) | yes      |
+| `width`  | integer       | yes      |
+| `height` | integer       | yes      |
+
+### Response body
+
+```json
+{
+  "exit_code": 0,
+  "stdout": "...",
+  "stderr": "..."
+}
+```
+
+### Errors
+
+- `testdata/bench_all.sh` missing → `{"error": "benchmark harness not found: ..."}`.
+- Non-zero exit is *not* an error — it is returned in `exit_code` so the
+  caller can see both stdout and stderr regardless.
+
+## `eval_model_on_split`
+
+Load an ONNX tiny-AI regressor, run it against a parquet feature cache,
+filter to a deterministic `train` / `val` / `test` split (keyed by the
+`key` column via SHA-256 bucketing — same scheme as `vmaf_train`), and
+report correlations against the `mos` target.
+
+Requires the optional `eval` extra:
+
+```bash
+pip install -e 'mcp-server/vmaf-mcp[eval]'
+```
+
+which pulls in `numpy`, `pandas`, `scipy`, and `onnxruntime`.
+
+### Input schema
+
+| Field        | Type                                                         | Required | Default      |
+|--------------|--------------------------------------------------------------|----------|--------------|
+| `model`      | string (path to `.onnx`)                                     | yes      | —            |
+| `features`   | string (path to `.parquet`)                                  | yes      | —            |
+| `split`      | `"train" \| "val" \| "test" \| "all"`                        | no       | `"test"`     |
+| `input_name` | string — the ONNX graph's input-tensor name                  | no       | `"features"` |
+
+### Feature-column contract
+
+The parquet must contain the column `mos` (ground-truth subjective
+score). For the input tensor, the server picks whichever of these
+columns are present:
+
+- `adm2`
+- `vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3`
+- `motion2`
+
+At least one must be present, in that order. The ONNX model must
+accept a `float32` tensor of shape `[N, K]` where `K` is the number
+of columns found.
+
+### Response body
+
+```json
+{
+  "model":    "/home/you/dev/vmaf/model/tiny/lpips_sq_small.onnx",
+  "features": "/home/you/feature-cache/netflix-public.parquet",
+  "split":    "test",
+  "n":        137,
+  "plcc":     0.9743,
+  "srocc":    0.9612,
+  "rmse":     3.214,
+  "columns":  ["adm2", "vif_scale0", "vif_scale1", "vif_scale2", "vif_scale3", "motion2"]
+}
+```
+
+### Errors
+
+- Bad split name → `{"error": "split must be one of ('train', 'val', 'test', 'all'); got 'foo'"}`.
+- Missing `mos` column → `{"error": "<path> has no 'mos' column — can't score correlations"}`.
+- Missing all feature columns → `{"error": "... has none of the expected feature columns ..."}`.
+- Fewer than 2 samples in the chosen split → `{"error": "split 'test' has N samples — need ≥2 to compute correlations"}`.
+- Model output shape ≠ target shape → `{"error": "model output shape ... does not match target shape ..."}`.
+- `eval` extra not installed → `{"error": "eval_model_on_split requires the 'eval' extra: pip install 'vmaf-mcp[eval]'"}`.
+
+## `compare_models`
+
+Rank several ONNX models on the same parquet split by descending PLCC.
+Models that fail to load or score are collected under `errors` instead
+of aborting the whole call — so the agent can surface partial results.
+
+### Input schema
+
+| Field        | Type                                                         | Required | Default      |
+|--------------|--------------------------------------------------------------|----------|--------------|
+| `models`     | array of string (paths to `.onnx`), `minItems: 1`            | yes      | —            |
+| `features`   | string (path to `.parquet`)                                  | yes      | —            |
+| `split`      | `"train" \| "val" \| "test" \| "all"`                        | no       | `"test"`     |
+| `input_name` | string                                                       | no       | `"features"` |
+
+### Response body
+
+```json
+{
+  "ranked": [
+    { "model": "/.../baseline_v3.onnx",  "plcc": 0.9743, "srocc": 0.9612, "rmse": 3.21, "n": 137, "split": "test", "columns": [ "..." ] },
+    { "model": "/.../baseline_v2.onnx",  "plcc": 0.9611, "srocc": 0.9503, "rmse": 3.80, "n": 137, "split": "test", "columns": [ "..." ] }
+  ],
+  "errors": [
+    { "model": "/.../broken.onnx", "error": "model output shape (137, 2) does not match target shape (137,)" }
+  ]
+}
+```
+
+`ranked` is sorted descending by `plcc`. `errors` preserves the input
+order for models that failed, with the raised exception serialised as
+a string.
+
+### Errors
+
+- Empty or non-list `models` → `{"error": "'models' must be a non-empty list of paths"}`.
+- Individual model failures show up under the `errors` array, not as a
+  top-level error.
+
+## Cross-tool error conventions
+
+| Situation                               | Shape                                                   |
+|-----------------------------------------|---------------------------------------------------------|
+| Unknown tool name                       | `{"error": "unknown tool: <name>"}`                     |
+| Path outside allowlist                  | `{"error": "path ... not under an allowlisted root"}`   |
+| Path does not exist                     | `{"error": "<resolved-abs-path>"}`                      |
+| Subprocess non-zero (vmaf_score only)   | `{"error": "vmaf exited <rc>: <stderr>"}`               |
+| Missing optional extras                 | `{"error": "... requires the 'eval' extra: ..."}`       |
+
+All exceptions raised inside a tool handler are caught and serialised
+into the `error` shape above — the JSON-RPC channel itself never
+returns a non-200.
+
+## Related
+
+- [MCP server overview](index.md) — install, security model, env vars.
+- [CLI reference](../usage/cli.md) — the CLI that `vmaf_score` wraps.
+- [`vmaf_bench`](../usage/bench.md) — what `run_benchmark` drives.
+- [Tiny-AI inference](../ai/inference.md) — what
+  `eval_model_on_split` / `compare_models` are scoring.
+- [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md).

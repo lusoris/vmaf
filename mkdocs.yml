@@ -102,11 +102,18 @@ nav:
           - Windows: getting-started/install/windows.md
       - Building on Windows: getting-started/building-on-windows.md
   - Usage:
+      - CLI reference: usage/cli.md
+      - vmaf_bench: usage/bench.md
+      - '--precision': usage/precision.md
       - Python library: usage/python.md
       - FFmpeg: usage/ffmpeg.md
       - Docker: usage/docker.md
       - MATLAB: usage/matlab.md
       - External resources: usage/external-resources.md
+  - C API:
+      - api/index.md
+      - DNN sessions: api/dnn.md
+      - GPU (CUDA / SYCL): api/gpu.md
   - Metrics:
       - Features: metrics/features.md
       - CAMBI: metrics/cambi.md
@@ -125,6 +132,9 @@ nav:
       - NVTX profiling: backends/nvtx/profiling.md
       - SYCL / oneAPI: backends/sycl/overview.md
       - SYCL bundling: backends/sycl/bundling.md
+  - MCP:
+      - mcp/index.md
+      - Tool reference: mcp/tools.md
   - Tiny AI:
       - ai/index.md
       - Overview: ai/overview.md
@@ -134,6 +144,7 @@ nav:
       - Security: ai/security.md
   - Development:
       - Engineering principles: principles.md
+      - Build flags: development/build-flags.md
       - Release: development/release.md
   - Reference:
       - FAQ: reference/faq.md

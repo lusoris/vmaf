@@ -164,16 +164,23 @@ tiny-AI models (ONNX-based quality predictors), see
 
 ### Q: Does the fork support GPU acceleration?
 
-A: Yes. The fork adds CUDA, SYCL, and HIP backends on top of upstream, selected
-at runtime by build flags:
+A: Yes. The fork adds CUDA and SYCL backends on top of upstream (HIP is
+planned; see [backends/index.md](../backends/index.md)). Enable the
+backends at build time:
 
 ```bash
-meson setup build libvmaf -Denable_cuda=true -Denable_sycl=true
+cd libvmaf
+meson setup build -Denable_cuda=true -Denable_sycl=true
+ninja -C build
 ```
 
-See [backends/](../backends/) for per-backend best-practice notes. To enable a
-backend at call time, use `--cuda` or `--sycl` on the `vmaf` CLI. The CPU path
-with AVX2/AVX-512/NEON SIMD remains the default.
+See [backends/](../backends/index.md) for per-backend notes and
+[development/build-flags.md](../development/build-flags.md) for every
+`meson_options.txt` option. When the binary is built with a GPU
+backend it is **auto-selected at runtime** — there is no `--cuda` or
+`--sycl` selector flag. Opt out via `--no_cuda` / `--no_sycl`, or pin
+a specific SYCL device with `--sycl_device N`. The CPU path with
+AVX2 / AVX-512 / NEON SIMD is the universal fallback.
 
 ### Q: How do I get bit-exact round-trippable VMAF output?
 
@@ -202,12 +209,25 @@ vmaf --reference ref.y4m --distorted dis.y4m \
 
 ### Q: Does the fork preserve Netflix's golden-data numerical contract?
 
-A: Yes. The three canonical Netflix reference test pairs
-(src01/hrc00–hrc01, checkerboard 1-pixel shift, checkerboard 10-pixel shift)
-run in CI as a required status check. Numerical correctness against upstream
-is verified per commit. See the
-[engineering principles](../principles.md#netflix-golden-data-gate) for the
-specific fidelity guarantee.
+A: Yes, on the CPU path. The three canonical Netflix reference test
+pairs (src01/hrc00–hrc01, checkerboard 1-pixel shift, checkerboard
+10-pixel shift) run in CI as a required status check and the CPU
+scalar + fixed-point path must match upstream exactly.
+
+The **GPU backends (CUDA, SYCL) are not bit-exact** with the CPU path —
+they never were, not even upstream. Different reduction orders,
+parallel-prefix scans, and FMA contractions on GPUs introduce small
+ULP-level deltas. The same is true at a smaller scale for the SIMD
+paths (AVX2 / AVX-512 / NEON). Agreement between CPU and
+CUDA/SYCL/SIMD is typically ~6 decimals on the pooled VMAF — enough
+that `--precision legacy` (`%.6f`) hides the delta, but `--precision 17`
+exposes it.
+
+GPU / SIMD paths are regression-tested by fork-added snapshot JSONs
+under `testdata/` (per-backend, ULP tolerance, regenerated via
+`/regen-snapshots`), not by the Netflix goldens. See
+[engineering principles §3.1](../principles.md#31-netflix-golden-data-gate)
+for the scope of the CPU gate.
 
 ## Applications
 
