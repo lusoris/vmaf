@@ -46,7 +46,8 @@ All release artefacts are signed via
 repository's GitHub OIDC identity. No long-lived signing keys live in the
 repo or in CI secrets.
 
-Consumers can verify signatures with `cosign verify-blob --certificate-identity-regexp …`.
+Consumers can verify signatures with
+`cosign verify-blob --certificate-identity-regexp …`.
 
 ## Dry-running a release
 

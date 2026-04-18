@@ -1,9 +1,12 @@
-# ADR-0110: Coverage gate uses `-fprofile-update=atomic` to survive parallel meson tests
+# ADR-0110: Coverage gate `-fprofile-update=atomic` for parallel meson tests
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0111](0111-coverage-gate-gcovr-with-ort.md)
 - **Date**: 2026-04-18
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ci, build, simd, testing
+- **Note**: The two race fixes documented here (`-fprofile-update=atomic`
+  and `meson test --num-processes 1`) remain in force; ADR-0111 layers
+  the lcov→gcovr migration and the ORT install on top.
 
 ## Context
 
@@ -11,7 +14,7 @@ The Coverage gate (CPU job in `.github/workflows/ci.yml`) fails reliably
 on `master` after the AVX-512 SIMD rollouts. The hard-fail line is
 emitted by `lcov`/`geninfo` during the "Gather lcov report" step:
 
-```
+```text
 geninfo: ERROR: Unexpected negative count '-44224' for
   /home/runner/work/vmaf/vmaf/libvmaf/src/feature/x86/vif_avx2.c:673.
         Perhaps you need to compile with '-fprofile-update=atomic'
@@ -69,7 +72,7 @@ which is a rounding error against the 30-min job budget and the
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `-fprofile-update=atomic` + `meson test --num-processes 1` + `--ignore-errors negative` (chosen) | Fixes both intra- and inter-process races correctly; gate produces honest, consistent per-file coverage; robust to future SIMD growth | Coverage build is ~5% slower (atomic RMW); test step is serial (~2× wall-time on the unit suite) | Correct fix; cost is acceptable for a once-per-CI-run job |
 | `-fprofile-update=atomic` alone (initial attempt) | One-flag fix; geninfo no longer aborts | Multi-process .gcda merge still races → inflated hit counts on some files (e.g. `dnn_api.c — 1176%`) and undercounts on others; per-file gate becomes meaningless | Verified empirically on `fix/lint-exclude-upstream-mirror-tests` build of 2026-04-18 — geninfo was happy but per-file numbers were nonsense |
 | `--ignore-errors negative` alone (no atomic, no serialisation) | One-line workaround | Counter values silently wrong; coverage % becomes meaningless on instrumented SIMD lines | Defeats the purpose of having a coverage gate |

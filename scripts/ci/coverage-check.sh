@@ -1,32 +1,53 @@
 #!/usr/bin/env bash
 # Enforce coverage thresholds from docs/principles.md §3.
-# Usage: coverage-check.sh <lcov.info> <overall_min%> <critical_min%>
+# Usage: coverage-check.sh <gcovr-summary.json> <overall_min%> <critical_min%>
 #
-# Overall = unweighted average line coverage across every file in the lcov
-# report (which has already been filtered by the caller to exclude test code,
-# subprojects, and /usr/*). Applies to upstream *and* fork-added code — we
-# will be modifying upstream paths over time (SIMD fixes, refactors, bug
-# fixes) and need a safety net.
+# Overall = unweighted average line coverage across every file in the gcovr
+# summary (already filtered by gcovr to libvmaf/src/* and exclude test code,
+# subprojects, /usr/*). Applies to upstream *and* fork-added code — we will
+# be modifying upstream paths over time (SIMD fixes, refactors, bug fixes)
+# and need a safety net.
 #
 # Security-critical = files under libvmaf/src/dnn/, plus opt.c and
 # read_json_model.c (JSON + option parsing: user-supplied input paths).
-# Files with zero lcov data are skipped (no tests → nothing to assert).
+# Files with zero gcovr data are skipped (no tests → nothing to assert).
+#
+# Why gcovr (not lcov): lcov sums hits/lines across every .gcno that names
+# the same source — when foo.c is built into both libvmaf.so and N test
+# binaries, lcov reports up to N+1× the real coverage and prints
+# impossible >100% values (we observed dnn_api.c at 1176%). gcovr
+# deduplicates by source path so the per-file numbers are honest.
+# See ADR-0110.
 
 set -euo pipefail
 
-INFO="${1:?usage: coverage-check.sh <lcov.info> <overall_min%> <critical_min%>}"
+INFO="${1:?usage: coverage-check.sh <gcovr-summary.json> <overall_min%> <critical_min%>}"
 OVERALL_MIN="${2:-70}"
 CRITICAL_MIN="${3:-85}"
 
-if ! command -v lcov >/dev/null; then
-  echo "lcov not installed — cannot enforce coverage" >&2
+if ! command -v python3 >/dev/null; then
+  echo "python3 not installed — cannot parse gcovr JSON" >&2
   exit 1
 fi
 
-# Format from `lcov --summary`:
-#   lines......: 73.4% (1234 of 1681 lines)
-SUMMARY="$(lcov --summary "$INFO" 2>&1)"
-OVERALL="$(grep -oP 'lines\.+: \K[0-9.]+' <<<"$SUMMARY" | head -1 || echo 0)"
+if [ ! -f "$INFO" ]; then
+  echo "coverage summary not found: $INFO" >&2
+  exit 1
+fi
+
+# Pull the overall percent + per-file rows out of gcovr's --json-summary
+# format. The schema:
+#   { "line_percent": 73.4, "files": [
+#       { "filename": "libvmaf/src/foo.c",
+#         "line_percent": 81.2,
+#         "line_total": 412, "line_covered": 335 }, ... ] }
+read -r OVERALL <<<"$(python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+print(f"{d.get(\"line_percent\", 0):.4f}")
+' "$INFO")"
+
 echo "Overall line coverage: ${OVERALL}% (min ${OVERALL_MIN}%)"
 
 if awk -v c="$OVERALL" -v m="$OVERALL_MIN" 'BEGIN{exit !(c+0 < m+0)}'; then
@@ -34,24 +55,27 @@ if awk -v c="$OVERALL" -v m="$OVERALL_MIN" 'BEGIN{exit !(c+0 < m+0)}'; then
   exit 1
 fi
 
-# Per-file extraction via `lcov --list --list-full-path`:
-#   /abs/path/file.c | lines_pct | fncov_pct | brcov_pct | ...
-LIST="$(lcov --list "$INFO" --list-full-path 2>/dev/null | awk '
-    /^Overall|^=====|^Lines|^\[/ {next}
-    /\|/ && !/Filename/ {
-        split($0, parts, "|");
-        fname=parts[1]; gsub(/^ +| +$/, "", fname);
-        lp=parts[2];    gsub(/[%[:space:]]/, "", lp);
-        if (fname != "" && lp != "") print fname, lp;
-    }
-')"
+# Per-file critical check. Print one line per critical file with the actual
+# percentage; flag any below CRITICAL_MIN. Files with 0 lines (no tests yet)
+# are surfaced but not enforced — easier to see the gap than to silently
+# pass/fail.
+PER_FILE="$(python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+for entry in d.get("files", []):
+    fn = entry.get("filename", "")
+    pct = entry.get("line_percent", 0.0)
+    total = entry.get("line_total", 0)
+    print(f"{fn}\t{pct:.4f}\t{total}")
+' "$INFO")"
 
 fail=0
-while IFS=' ' read -r path pct; do
+while IFS=$'\t' read -r path pct total; do
   [ -z "$path" ] && continue
   case "$path" in
-    */libvmaf/src/dnn/* | */libvmaf/src/opt.c | */libvmaf/src/read_json_model.c)
-      if awk -v c="$pct" 'BEGIN{exit !(c+0 == 0)}'; then
+    *libvmaf/src/dnn/* | *libvmaf/src/opt.c | *libvmaf/src/read_json_model.c)
+      if [ "$total" = "0" ] || awk -v c="$pct" 'BEGIN{exit !(c+0 == 0)}'; then
         echo "  critical (no tests yet — not enforced): $path — ${pct}%"
         continue
       fi
@@ -62,7 +86,7 @@ while IFS=' ' read -r path pct; do
       fi
       ;;
   esac
-done <<<"$LIST"
+done <<<"$PER_FILE"
 
 if [ "$fail" -ne 0 ]; then
   exit 1

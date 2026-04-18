@@ -1,10 +1,6 @@
 # Centralizes Python linter/formatter config for the fork-added Python tooling
-# (ai/, scripts/) and the existing python/ tree. Upstream-authored python/test/
-# files are excluded from both formatting and linting — they are wholesale
-# overwritten on every `/sync-upstream` and every `/port-upstream-commit` that
-# touches a golden test, so any fork-side reformat would just be re-broken
-# the next time we mirror upstream. Real-bug catches on python/vmaf/* still
-# apply via [tool.ruff.lint.per-file-ignores].
+# (ai/, scripts/) and the existing python/ tree. Upstream-authored python/
+# tests are formatted but not lint-failed (see [tool.ruff.lint.per-file-ignores]).
 
 [project]
 name = "vmaf-fork-tooling"
@@ -22,7 +18,7 @@ extend-exclude = '''
   | build
   | dist
   | subprojects
-  | python/test
+  | python/test/resource
   | python/vmaf/resource
   | python/vmaf/matlab
 )/
@@ -35,7 +31,7 @@ known_first_party = ["vmaf", "ai", "vmaf_train"]
 skip_glob = [
   "build/*",
   "subprojects/*",
-  "python/test/*",
+  "python/test/resource/*",
   "python/vmaf/resource/*",
   "python/vmaf/matlab/*",
 ]
@@ -46,7 +42,7 @@ target-version = "py310"
 extend-exclude = [
   "build",
   "subprojects",
-  "python/test",
+  "python/test/resource",
   "python/vmaf/resource",
   "python/vmaf/matlab",
 ]

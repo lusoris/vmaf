@@ -69,8 +69,7 @@ than per-PR. Future PRs add entries individually.
 - **Re-test**: `meson setup build -Denable_cuda=true && ninja -C build
   && meson test -C build --suite=cuda`.
 
-### 0003 — SYCL backend (USM picture pool, D3D11 surface import,
-`vmaf_sycl_*` public API)
+### 0003 — SYCL backend (USM pool / D3D11 import / `vmaf_sycl_*` API)
 
 - **Workstream PRs**: #33, #35, #5 (initial scaffolding), and the
   picture-pool deadlock fix that landed via #32.
@@ -193,7 +192,8 @@ than per-PR. Future PRs add entries individually.
 - **Re-test**: `python -m pytest python/test/ -k golden` (verifies the
   resource-tree path works); `make test-netflix-golden`.
 
-### 0009 — License headers (Lusoris/Claude on wholly-new files;
+### 0009 — License headers (Lusoris/Claude on wholly-new files
+
 2016–2026 on Netflix files)
 
 - **Workstream PRs**: commits `c159761d`, `a185f8ef`, `0e98c949`, codified
@@ -229,9 +229,9 @@ than per-PR. Future PRs add entries individually.
 
 ---
 
-_Pre-ADR-0108 entries above are the result of a one-shot backfill
+*Pre-ADR-0108 entries above are the result of a one-shot backfill
 sweep on 2026-04-18; subsequent fork-local PRs add their own entries
-inline._
+inline.*
 
 ### 0011 — Nightly bisect-model-quality + fixture cache
 
@@ -329,57 +329,76 @@ inline._
   # Expected: vmaf mean ≈ 76.66783; integer_motion3 mean ≈ 3.98976.
   ```
 
-### 0014 — Coverage gate gcov race fix (atomic + serial tests) + `python/test/` lint exclusion
+### 0014 — Coverage gate overhaul + upstream `python/test/` reformat
 
-- **Workstream PRs**: this PR (lint-exclude + coverage-gcov-race fix bundle).
+- **Workstream PRs**: this PR (coverage-gate overhaul + in-tree reformat
+  of upstream-mirror Python tests).
 - **Touches**:
-  `.github/workflows/ci.yml` (CPU + GPU coverage jobs add
+  `.github/workflows/ci.yml` (CPU + GPU coverage jobs:
   `-Dc_args=-fprofile-update=atomic` / `-Dcpp_args=-fprofile-update=atomic`,
-  pass `--num-processes 1` to `meson test` in the coverage step, and
-  pass `--ignore-errors negative` on `lcov --capture`),
-  `pyproject.toml` (Black/isort/Ruff exclude `python/test/`),
-  `.pre-commit-config.yaml` (pre-commit Black/isort/Ruff hooks exclude
-  `^python/test/`).
-- **Invariant**: coverage CI must use BOTH gcov race fixes together
-  because they target two different races: (a) `-fprofile-update=atomic`
-  closes the intra-process race where SIMD inner loops
-  (`vif_avx2.c:673`, motion_avx2, etc.) race `.gcda` counters within
-  one test binary → negative counts → `geninfo` aborts; (b)
-  `--num-processes 1` closes the inter-process race where multiple
-  parallel test binaries merge their counters into the same `.gcda`
-  files for the shared `libvmaf.so` at process exit → inflated /
-  asymmetric per-file hit counts (`dnn_api.c — 1176%` was the smoking
-  gun). The atomic flag is per-thread, not per-process; never drop
-  one fix thinking the other covers the same race. Lint config must
-  exclude `python/test/` because that tree is upstream-mirror code
-  (wholesale overwritten on every `/sync-upstream` and
-  `/port-upstream-commit`), so any fork-side reformat is net-negative —
-  Black `extend-exclude` only filters during directory walks, not
-  explicitly-passed files, so pre-commit needs its own `exclude`
-  regex. An upstream sync that changes the upstream Black/Ruff config
-  or the meson coverage default is unlikely to collide (we only modify
-  CI workflow + fork tooling config), but if upstream ever ships a
-  `pyproject.toml` of its own, the fork's must keep these exclusions.
-  See [ADR-0110](adr/0110-coverage-gate-fprofile-update-atomic.md).
+  `meson test --num-processes 1`, `-Denable_dnn=enabled`, ORT install
+  step on the CPU coverage job, `lcov`/`geninfo` replaced by `gcovr`
+  with `--json-summary` / `--xml` / `--txt` output, artifact rename
+  `coverage-lcov-{cpu,gpu}` → `coverage-{cpu,gpu}`),
+  `scripts/ci/coverage-check.sh` (rewritten to parse gcovr JSON via
+  `python3 -c` — same CLI signature),
+  `python/test/{feature_extractor,quality_runner,vmafexec,vmafexec_feature_extractor}_test.py`
+  (mechanical Black + isort reformat — no assertion values changed,
+  imports regrouped, line wrapping normalised).
+- **Invariant**: coverage CI must keep all four pieces in lockstep —
+  (a) `-fprofile-update=atomic` closes the intra-process counter race
+  on SIMD inner loops (`vif_avx2.c:673`, `motion_avx2`, etc.) →
+  negative counts → `geninfo`/gcovr abort; (b) `--num-processes 1`
+  closes the inter-process race where multiple parallel test binaries
+  merge their counters into the same `.gcda` files for the shared
+  `libvmaf.so` at process exit (per-thread atomicity does not cover
+  this); (c) `gcovr` deduplicates `.gcno` files belonging to the
+  same source compiled into multiple targets — without dedup, lcov
+  sums hits across compilation units and yields impossible
+  >100% values (`dnn_api.c — 1176%` was the smoking gun on the first
+  attempt that had only (a)+(b)); (d) ORT install + `enable_dnn=enabled`
+  in the coverage job is what makes `libvmaf/src/dnn/*.c` measurable
+  in the first place — without ORT, the DNN tree compiles in stub
+  branches and the 85% per-critical-file gate is meaningless. Lint
+  scope: upstream-mirror Python tests are linted at the same standard
+  as fork-added code; we accept that `/sync-upstream` and
+  `/port-upstream-commit` will re-trigger Black/isort failures
+  whenever upstream rewrites these files, and the fix is another
+  in-tree reformat pass — never an exclusion. The fork's
+  `pyproject.toml` and `.pre-commit-config.yaml` keep
+  `python/test/resource/` (binary fixtures only) excluded;
+  `python/test/*.py` is in scope. See
+  [ADR-0110](adr/0110-coverage-gate-fprofile-update-atomic.md) (race
+  fixes, superseded) and
+  [ADR-0111](adr/0111-coverage-gate-gcovr-with-ort.md) (gcovr + ORT
+  layer).
 - **Re-test**:
 
   ```bash
-  # Reproduce gcov race locally (requires gcc + lcov):
+  # Reproduce coverage path locally (requires gcc + python3-pip):
+  pip install --user 'gcovr>=8.0'
   cd libvmaf
   meson setup build-cov-test --buildtype=debug -Db_coverage=true \
-      -Denable_avx512=true -Denable_float=true \
+      -Denable_avx512=true -Denable_float=true -Denable_dnn=disabled \
       -Dc_args=-fprofile-update=atomic -Dcpp_args=-fprofile-update=atomic
   ninja -C build-cov-test
   meson test -C build-cov-test --print-errorlogs --num-processes 1
-  lcov --capture --directory build-cov-test \
-       --output-file build-cov-test/coverage.info \
-       --ignore-errors mismatch,gcov,source,negative
-  lcov --list build-cov-test/coverage.info | grep -E 'dnn_api|model_loader'
-  # Expected: lcov completes without "Unexpected negative count" AND no
+  ~/.local/bin/gcovr --root .. \
+      --filter '../libvmaf/src/.*' \
+      --exclude '.*/test/.*' --exclude '.*/tests/.*' \
+      --exclude '.*/subprojects/.*' \
+      --gcov-ignore-parse-errors=negative_hits.warn \
+      --print-summary --txt build-cov-test/coverage.txt \
+      --json-summary build-cov-test/coverage.json \
+      build-cov-test
+  grep -E 'dnn_api|model_loader' build-cov-test/coverage.txt
+  # Expected: gcovr completes without "Unexpected negative count" AND no
   # per-file percentages exceed 100% (drop --num-processes 1 to reproduce
-  # the multi-process .gcda merge race that produces dnn_api.c — 1176%).
+  # the multi-process .gcda merge race; switch back to lcov to reproduce
+  # the dnn_api.c — 1176% over-count from compilation-unit summation).
 
-  # Lint-exclude smoke test:
+  # Lint smoke test for upstream-mirror tree:
   pre-commit run --files python/test/quality_runner_test.py
-  # Expected: Black/isort/Ruff/ruff-check report "Skipped" (excluded).
+  # Expected: Black/isort/Ruff all PASS — files are reformatted in-tree
+  # to fork style and stay clean until the next upstream sync.
   ```
