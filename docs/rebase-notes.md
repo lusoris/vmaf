@@ -266,3 +266,31 @@ inline._
   Pure upstream code is not touched, so no Netflix-side conflict
   vector. Only fork-local files; risk is toolchain drift, not merge
   conflict.
+
+### 0012 — Upstream ADM port (Netflix `966be8d5`)
+
+- **Workstream PRs**: this PR; ports a single upstream commit.
+- **Touches**:
+  `libvmaf/src/feature/integer_adm.{c,h}`,
+  `libvmaf/src/feature/x86/adm_avx2.{c,h}`,
+  `libvmaf/src/feature/x86/adm_avx512.{c,h}`,
+  `libvmaf/src/feature/alias.c`,
+  `libvmaf/src/feature/barten_csf_tools.h` (new upstream file).
+- **Invariant**: the eight ADM files now mirror upstream's content
+  byte-for-byte (modulo our clang-format-22 pass and the Netflix
+  copyright-year bump on the new header). Future `/sync-upstream`
+  runs can take new upstream ADM commits cleanly. **Do not** revert
+  to a pre-`966be8d5` ADM kernel without also reverting the call-site
+  signatures in `integer_compute_adm` — upstream extended
+  `i4_adm_cm` from 8 to 13 args.
+- **Re-test**:
+
+  ```bash
+  ninja -C libvmaf/build && meson test -C libvmaf/build
+  libvmaf/build/tools/vmaf -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      -w 576 -h 324 -p 420 -b 8 \
+      --model version=vmaf_v0.6.1 -o /tmp/vmaf-port.json
+  grep '<metric name="vmaf"' /tmp/vmaf-port.json
+  # Expected: mean ≈ 76.66890 (golden 76.66890519623612, places=4 OK).
+  ```
