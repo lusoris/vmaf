@@ -83,9 +83,17 @@ RUN make clean && make ENABLE_NVCC=true && make install
 RUN wget -q "https://github.com/FFmpeg/FFmpeg/archive/${FFMPEG_TAG}.zip" && \
     unzip -q "${FFMPEG_TAG}.zip" && rm "${FFMPEG_TAG}.zip"
 
-COPY ffmpeg-patches/0003-libvmaf-wire-sycl-backend-selector.patch /tmp/ffmpeg-libvmaf-sycl.patch
+COPY ffmpeg-patches /tmp/ffmpeg-patches
 WORKDIR /vmaf/FFmpeg-${FFMPEG_TAG}
-RUN (git apply /tmp/ffmpeg-libvmaf-sycl.patch 2>/dev/null || patch -p1 < /tmp/ffmpeg-libvmaf-sycl.patch)
+# Apply the patch series in series.txt order. Patch 0003 depends on
+# fields added by 0001, so applying out of order breaks the build.
+RUN set -e; \
+    while IFS= read -r line; do \
+        case "$line" in ''|\#*) continue ;; esac; \
+        echo "Applying ffmpeg-patches/$line"; \
+        git apply "/tmp/ffmpeg-patches/$line" 2>/dev/null \
+            || patch -p1 < "/tmp/ffmpeg-patches/$line"; \
+    done < /tmp/ffmpeg-patches/series.txt
 
 RUN SYCL_FLAG="" && \
     if [ "$ENABLE_SYCL" = "true" ]; then SYCL_FLAG="--enable-libvmaf-sycl"; fi && \

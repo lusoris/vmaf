@@ -166,6 +166,23 @@
   ADR-0115's CI consolidation, which added an Ubuntu SYCL job that
   exercises this configuration on PRs to master.
 
+- **FFmpeg patch series application**: `Dockerfile` and
+  `.github/workflows/ffmpeg.yml` now walk `ffmpeg-patches/series.txt`
+  and apply each patch in order via `git apply` with a `patch -p1`
+  fallback. The Dockerfile previously `COPY`'d only patch 0003 (which
+  fails to apply standalone because it references `LIBVMAFContext`
+  fields added by patch 0001), and `ffmpeg.yml` referenced a stale
+  `../patches/ffmpeg-libvmaf-sycl.patch` that no longer existed.
+  Patches `0001-libvmaf-add-tiny-model-option.patch`,
+  `0002-add-vmaf_pre-filter.patch`, and
+  `0003-libvmaf-wire-sycl-backend-selector.patch` were also
+  regenerated via real `git format-patch -3` so they carry valid
+  `index <sha>..<sha> <mode>` header lines (the originals were
+  hand-stubbed with placeholder SHAs and `git apply` choked on them).
+  Docker images and CI FFmpeg-SYCL builds now exercise the full
+  fork-added FFmpeg surface (tiny-AI + `vmaf_pre` + SYCL selector),
+  not just SYCL. See ADR-0118 and entry 0017.
+
 ### Re-attributed
 
 - 11 SYCL files in `libvmaf/{include,src,test}/.../sycl/` from

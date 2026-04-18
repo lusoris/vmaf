@@ -1,4 +1,4 @@
-From c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3 Mon Sep 17 00:00:00 2001
+From 88ff9d03547e88be6dd4850852902d20918cdd7a Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
 Date: Wed, 15 Apr 2026 12:10:00 +0000
 Subject: [PATCH 3/3] avfilter/vf_libvmaf: wire SYCL backend selector
@@ -22,26 +22,29 @@ Rebased against FFmpeg n8.1.
 Signed-off-by: Lusoris <lusoris@pm.me>
 ---
  configure                |  1 +
- libavfilter/vf_libvmaf.c | 55 ++++++++++++++++++++++++++++++++++++++++
- 2 files changed, 56 insertions(+)
+ libavfilter/vf_libvmaf.c | 48 ++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 49 insertions(+)
 
 diff --git a/configure b/configure
+index 87a9d35..c1666a9 100755
 --- a/configure
 +++ b/configure
-@@ -7392,6 +7392,7 @@ enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid
+@@ -7391,6 +7391,7 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
+ enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid.stab/libvidstab.h vsMotionDetectInit
  enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
 +enabled libvmaf           && check_pkg_config libvmaf_sycl "libvmaf >= 3.0.0" libvmaf/libvmaf_sycl.h vmaf_sycl_state_init
+ enabled vmaf_pre_filter   && require_pkg_config libvmaf_dnn "libvmaf >= 3.0.0" libvmaf/dnn.h vmaf_dnn_session_open
  enabled libvo_amrwbenc    && { check_pkg_config libvo_amrwbenc vo-amrwbenc vo-amrwbenc/enc_if.h E_IF_init ||
                                 require libvo_amrwbenc vo-amrwbenc/enc_if.h E_IF_init -lvo-amrwbenc; }
- enabled libvorbis         && require_pkg_config libvorbis vorbis vorbis/codec.h vorbis_info_init &&
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
+index 0b8b3f6..e3cf572 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
-@@ -46,6 +46,10 @@
+@@ -47,6 +47,10 @@
  #include "libavutil/hwcontext_cuda_internal.h"
  #endif
-
+ 
 +#if CONFIG_LIBVMAF_SYCL
 +#include <libvmaf/libvmaf_sycl.h>
 +#endif
@@ -49,7 +52,7 @@ diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
  typedef struct LIBVMAFContext {
      const AVClass *class;
      FFFrameSync fs;
-@@ -63,6 +67,12 @@ typedef struct LIBVMAFContext {
+@@ -61,6 +65,12 @@ typedef struct LIBVMAFContext {
      char *tiny_device;
      int   tiny_threads;
      int   tiny_fp16;
@@ -62,7 +65,7 @@ diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
      VmafContext *vmaf;
      VmafModel **model;
      unsigned model_cnt;
-@@ -87,6 +97,8 @@ static const AVOption libvmaf_options[] = {
+@@ -86,6 +96,8 @@ static const AVOption libvmaf_options[] = {
      {"tiny_device",  "tiny-model device: auto|cpu|cuda|openvino|rocm.",                 OFFSET(tiny_device),     AV_OPT_TYPE_STRING, {.str="auto"}, 0, 0,        FLAGS},
      {"tiny_threads", "tiny-model CPU EP intra-op threads (0 = ORT default).",           OFFSET(tiny_threads),    AV_OPT_TYPE_INT,    {.i64=0},      0, INT_MAX,  FLAGS},
      {"tiny_fp16",    "Request fp16 I/O when the device supports it.",                   OFFSET(tiny_fp16),       AV_OPT_TYPE_BOOL,   {.i64=0},      0, 1,        FLAGS},
@@ -70,11 +73,11 @@ diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
 +    {"sycl_profile", "Enable SYCL queue profiling.",                                    OFFSET(sycl_profile),    AV_OPT_TYPE_BOOL,   {.i64=0},      0, 1,        FLAGS},
      { NULL }
  };
-
-@@ -446,6 +458,34 @@ static av_cold int init(AVFilterContext *ctx)
+ 
+@@ -450,6 +462,35 @@ static av_cold int init(AVFilterContext *ctx)
      if (err)
          return AVERROR(EINVAL);
-
+ 
 +    if (s->sycl_device >= 0) {
 +#if CONFIG_LIBVMAF_SYCL
 +        VmafSyclConfiguration sycl_cfg = {
@@ -107,7 +110,8 @@ diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
      err = parse_models(ctx);
      if (err)
          return err;
-@@ -595,4 +613,11 @@ clean_up:
+@@ -646,6 +687,13 @@ clean_up:
+ 
      if (s->vmaf)
          vmaf_close(s->vmaf);
 +
@@ -118,5 +122,8 @@ diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
 +    }
 +#endif
  }
---
-2.45.0
+ 
+ static const AVFilterPad libvmaf_inputs[] = {
+-- 
+2.53.0
+

@@ -112,12 +112,19 @@ jobs:
             -Denable_float=true -Denable_sycl=true
           sudo ninja -vC libvmaf/build install
 
-      - name: Build FFmpeg with SYCL patch
+      - name: Build FFmpeg with SYCL patch series
         run: |
           git clone -q --branch release/8.1 --depth=1 "https://github.com/FFmpeg/FFmpeg" ffmpeg
           cd ffmpeg
-          git apply ../patches/ffmpeg-libvmaf-sycl.patch \
-            || patch -p1 < ../patches/ffmpeg-libvmaf-sycl.patch
+          # Apply the patch series in series.txt order. Patch 0003 (SYCL)
+          # depends on fields added by 0001 (tiny-AI), so applying out of
+          # order breaks the build.
+          while IFS= read -r line; do
+            case "$line" in ''|\#*) continue ;; esac
+            echo "Applying ffmpeg-patches/$line"
+            git apply "../ffmpeg-patches/$line" \
+              || patch -p1 < "../ffmpeg-patches/$line"
+          done < ../ffmpeg-patches/series.txt
           PKG_CONFIG_PATH="/usr/local/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" \
           ./configure --enable-version3 --enable-libvmaf --enable-libvmaf-sycl \
             --enable-libvpl --disable-indevs --cc="$CC" --cxx="$CXX" \

@@ -530,3 +530,44 @@ inline.*
   Pure fork-local; no Netflix-side conflict vector. If upstream ever
   changes the default format string, treat their value as the new
   baseline and reconfirm the golden assertions before adopting.
+
+### 0018 — FFmpeg patches ship as ordered series.txt
+
+- **Workstream PRs**: this PR (`fix(ci): drop dead sycl trigger +
+  consolidate windows.yml into libvmaf.yml (ADR-0115)`). Surfaced
+  once ADR-0115's consolidation routed the docker / FFmpeg-SYCL
+  jobs through the master-targeting CI gate for the first time on
+  this branch — the standalone `0003-…sycl…` apply broke because
+  it referenced struct fields added by `0001-…tiny-model…`, the
+  Dockerfile only `COPY`'d 0003, and `ffmpeg.yml` referenced a
+  stale `../patches/` path.
+- **Touches**: `Dockerfile` (lines ~86-95 — the FFmpeg patch-apply
+  block), `.github/workflows/ffmpeg.yml` (the `Build FFmpeg with
+  SYCL patch series` step), `ffmpeg-patches/000{1,2,3}-*.patch`
+  (regenerated via real `git format-patch -3` so they carry valid
+  `index <sha>..<sha> <mode>` lines and committable SHAs). Pure
+  fork-local; no upstream FFmpeg or Netflix file changes.
+- **Invariant**: both the Dockerfile and `ffmpeg.yml` walk
+  `ffmpeg-patches/series.txt` line-by-line and apply each patch
+  via `git apply` with a `patch -p1` fallback. **Do not** ship a
+  new patch without appending it to `series.txt`, and **do not**
+  reorder existing entries — patch 0003 references LIBVMAFContext
+  fields added by patch 0001, so any out-of-order apply breaks
+  the build at hunk 2 of vf_libvmaf.c.
+- **Re-test**:
+
+  ```bash
+  cd /tmp && rm -rf ffmpeg-test && \
+      git clone -q --depth 1 -b n8.1 \
+          https://git.ffmpeg.org/ffmpeg.git ffmpeg-test && \
+      cd ffmpeg-test && \
+      while IFS= read -r line; do \
+          case "$line" in ''|\#*) continue ;; esac; \
+          git apply "/path/to/vmaf/ffmpeg-patches/$line" \
+              || patch -p1 < "/path/to/vmaf/ffmpeg-patches/$line"; \
+      done < /path/to/vmaf/ffmpeg-patches/series.txt
+  # Expected: all three patches apply with no rejects; the resulting
+  # tree compiles with --enable-libvmaf --enable-libvmaf-sycl.
+  ```
+
+  Pure fork-local series; no Netflix-side conflict vector. See ADR-0118.
