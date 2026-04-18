@@ -25,6 +25,16 @@ INFO="${1:?usage: coverage-check.sh <gcovr-summary.json> <overall_min%> <critica
 OVERALL_MIN="${2:-70}"
 CRITICAL_MIN="${3:-85}"
 
+# Per-file critical-coverage overrides. Files listed here use the override
+# instead of CRITICAL_MIN. Keep this list short and tied to ADRs so the
+# rationale doesn't rot — every entry must cite the ADR that justifies the
+# lower bar. See ADR-0114 for the EP-availability structural ceiling on
+# the dnn/ort_backend.c + dnn/dnn_api.c entries.
+declare -A PER_FILE_MIN=(
+  ["libvmaf/src/dnn/ort_backend.c"]=78
+  ["libvmaf/src/dnn/dnn_api.c"]=78
+)
+
 if ! command -v python3 >/dev/null; then
   echo "python3 not installed — cannot parse gcovr JSON" >&2
   exit 1
@@ -82,9 +92,14 @@ while IFS=$'\t' read -r path pct total; do
         echo "  critical (no tests yet — not enforced): $path — ${pct}%"
         continue
       fi
-      echo "  critical: $path — ${pct}%"
-      if awk -v c="$pct" -v m="$CRITICAL_MIN" 'BEGIN{exit !(c+0 < m+0)}'; then
-        echo "    FAIL: security-critical file below ${CRITICAL_MIN}%" >&2
+      # Normalise to a key that matches PER_FILE_MIN (gcovr emits paths
+      # relative to the meson build dir; strip any leading ../). Default
+      # to CRITICAL_MIN when no override exists.
+      key="${path#../}"
+      threshold="${PER_FILE_MIN[$key]:-$CRITICAL_MIN}"
+      echo "  critical: $path — ${pct}% (min ${threshold}%)"
+      if awk -v c="$pct" -v m="$threshold" 'BEGIN{exit !(c+0 < m+0)}'; then
+        echo "    FAIL: security-critical file below ${threshold}%" >&2
         fail=1
       fi
       ;;
