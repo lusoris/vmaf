@@ -447,3 +447,38 @@ inline.*
   vector. Risk is upstream renaming or removing files under
   `python/vmaf/resource/` such that the directory disappears, in
   which case the `--ignore` becomes a harmless no-op.
+
+### 0016 — SYCL `-fsycl` link-arg gated on icpx CXX
+
+- **Workstream PRs**: this PR (`fix(libvmaf): gate -fsycl link arg on
+  icpx CXX, allow gcc/clang host linker`). Surfaced once
+  ADR-0115's CI consolidation added an Ubuntu SYCL job to PR-time CI
+  that uses `CXX=g++` (host linker) with sidecar icpx for SYCL .cpp
+  compilation.
+- **Touches**: `libvmaf/src/meson.build` (the `vmaf_link_args` block
+  immediately after the `is_sycl_enabled` flag handling — currently
+  ~lines 696-712). Pure fork-local; no upstream Meson file changes
+  expected.
+- **Invariant**: `-fsycl` is appended to `vmaf_link_args` **only** when
+  `meson.get_compiler('cpp').get_id() == 'intel-llvm'` (icpx).
+  Rationale: the documented project mode (see comment near `is_sycl_enabled`
+  block at top of `src/meson.build`) compiles SYCL `.cpp` files via
+  `custom_target` with icpx, while the project's CXX driver may be gcc /
+  clang / msvc; in that mode the SPIR-V device code is already embedded
+  in the icpx-compiled `.o` files at compile time, and the runtime
+  libraries (`libsycl` + `libsvml` + `libirc` + `libze_loader`) declared
+  as link dependencies resolve every symbol. Passing `-fsycl` to a
+  non-icpx linker is a hard error
+  (`g++: error: unrecognized command-line option '-fsycl'`). **Do not**
+  remove the `cpp.get_id() == 'intel-llvm'` guard without first verifying
+  every CI matrix leg uses icpx as the project CXX.
+- **Re-test**:
+
+  ```bash
+  meson setup build -Denable_sycl=true \
+      -Dcpp_link_args=-Wl,--no-undefined
+  ninja -C build src/libvmaf.so.3
+  # Expected: link succeeds; no `-fsycl` errors with gcc/clang host CXX.
+  ```
+
+  Pure fork-local guard; no Netflix-side conflict vector.

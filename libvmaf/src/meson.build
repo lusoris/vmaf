@@ -693,11 +693,21 @@ if is_sycl_enabled
     vmaf_cflags_common += '-DHAVE_SYCL'
 endif
 
-# When SYCL is enabled and icpx is the linker, -fsycl must be passed at
-# link time so that clang-offload-wrapper embeds the SPIR-V device code.
+# `-fsycl` is icpx-only.  When the project's C++ compiler is icpx the link
+# driver invokes clang-offload-wrapper and needs `-fsycl` to embed the
+# SPIR-V device code; when it is gcc/clang/msvc (the documented
+# host-compiler-with-sidecar-icpx mode — see comment on line 462) the
+# SYCL device code is already embedded in the icpx-compiled .o files at
+# compile time, and the runtime libraries (libsycl + libsvml + libirc +
+# libze_loader) declared as link dependencies above resolve every symbol.
+# Passing `-fsycl` to a non-icpx linker is a hard error
+# (`g++: error: unrecognized command-line option '-fsycl'`).
 vmaf_link_args = []
 if is_sycl_enabled
-    vmaf_link_args += ['-fsycl']
+    cpp = meson.get_compiler('cpp')
+    if cpp.get_id() == 'intel-llvm'
+        vmaf_link_args += ['-fsycl']
+    endif
 endif
 
 libvmaf = library(
