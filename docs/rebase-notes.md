@@ -418,3 +418,32 @@ inline.*
   # Expected: Black/isort/Ruff all PASS — files are reformatted in-tree
   # to fork style and stay clean until the next upstream sync.
   ```
+
+### 0015 — Tox doctest collection skips `vmaf/resource/`
+
+- **Workstream PRs**: this PR (`fix(ci): skip pytest doctest collection
+  of vmaf/resource/ data files`). Surfaced once ADR-0115 consolidated
+  CI triggers to `master` and tox actually started running on PRs.
+- **Touches**: `python/tox.ini` (single-line `--ignore=vmaf/resource`
+  added to the pytest invocation, plus an explanatory comment block).
+  Pure fork-local; no upstream Python file changes.
+- **Invariant**: `pytest --doctest-modules` must not attempt to import
+  files under `python/vmaf/resource/`. Those are parameter / dataset /
+  example-config `.py` files; several have dots in their stems (e.g.
+  `vmaf_v7.2_bootstrap.py`) that make them unimportable as Python
+  modules. None carry doctests, so the ignore is correctness rather
+  than a workaround. **Do not** drop the `--ignore=vmaf/resource`
+  flag without first verifying every file under that directory has
+  been renamed to a dot-free stem and is importable.
+- **Re-test**:
+
+  ```bash
+  cd python && tox -e py311 -- --collect-only --doctest-modules \
+      --ignore=vmaf/resource 2>&1 | grep -c "ERROR collecting vmaf/resource"
+  # Expected: 0 (was 5 before the fix).
+  ```
+
+  Pure upstream code is not touched, so no Netflix-side conflict
+  vector. Risk is upstream renaming or removing files under
+  `python/vmaf/resource/` such that the directory disappears, in
+  which case the `--ignore` becomes a harmless no-op.

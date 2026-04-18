@@ -116,6 +116,17 @@
   and the fix is another in-tree reformat pass — never an exclusion.
   See [`docs/rebase-notes.md` entry 0014](docs/rebase-notes.md).
 
+### Fixed
+
+- **CI tox doctest collection**: `pytest --doctest-modules` errored on five
+  upstream files under `python/vmaf/resource/` (parameter / dataset / example
+  config files; `vmaf_v7.2_bootstrap.py` and friends — dots in the stem make
+  them unimportable as Python modules). Tox commands now pass
+  `--ignore=vmaf/resource` so doctest collection skips that subtree. The
+  files carry no doctests to begin with, so this is correctness, not a
+  workaround. Surfaced by ADR-0115's CI trigger consolidation, which finally
+  ran tox on PRs to master.
+
 ### Re-attributed
 
 - 11 SYCL files in `libvmaf/{include,src,test}/.../sycl/` from
