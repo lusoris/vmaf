@@ -320,6 +320,12 @@ jobs:
           #   - coverage.xml (Cobertura, for downstream tooling)
           #   - coverage.json (machine-readable summary the gate parses)
           #   - coverage.txt (human-readable, surfaced in CI logs)
+          # Suspicious/negative hit warnings on hot inner loops (e.g.
+          # ansnr_tools.c:207, 4.9 G hits on a 5x5 filter inner loop across
+          # an HD frame batch — real, not a gcov bug) are filtered out so
+          # the Coverage Gate stays warning-free. Underlying data is still
+          # ingested via the .warn settings; only the chatty stderr line is
+          # dropped. See ADR-0117.
           ~/.local/bin/gcovr --root .. \
               --filter 'src/.*' \
               --exclude '.*/test/.*' \
@@ -331,7 +337,8 @@ jobs:
               --txt build-coverage/coverage.txt \
               --json-summary build-coverage/coverage.json \
               --xml build-coverage/coverage.xml \
-              build-coverage
+              build-coverage \
+            2> >(grep -vE 'Ignoring (suspicious|negative) hits' >&2 || true)
           echo "----- Per-file summary -----"
           cat build-coverage/coverage.txt
       - name: Enforce coverage thresholds
@@ -348,7 +355,7 @@ jobs:
           scripts/ci/coverage-check.sh libvmaf/build-coverage/coverage.json 40 85
       - name: Upload coverage artifact
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-cpu
           path: |
@@ -407,7 +414,8 @@ jobs:
       - name: Gather coverage report (gcovr)
         working-directory: libvmaf
         run: |
-          # Same gcovr migration as CPU coverage job (see ADR-0110).
+          # Same gcovr migration as CPU coverage job (see ADR-0110); same
+          # suspicious-hits stderr filter as the CPU job (see ADR-0117).
           python3 -m pip install --user 'gcovr>=8.0'
           ~/.local/bin/gcovr --root .. \
               --filter 'src/.*' \
@@ -420,14 +428,15 @@ jobs:
               --txt build-coverage-gpu/coverage.txt \
               --json-summary build-coverage-gpu/coverage.json \
               --xml build-coverage-gpu/coverage.xml \
-              build-coverage-gpu
+              build-coverage-gpu \
+            2> >(grep -vE 'Ignoring (suspicious|negative) hits' >&2 || true)
           cat build-coverage-gpu/coverage.txt
       - name: Enforce coverage thresholds (GPU)
         run: |
           scripts/ci/coverage-check.sh libvmaf/build-coverage-gpu/coverage.json 70 85
       - name: Upload GPU coverage artifact
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-gpu
           path: |

@@ -56,7 +56,7 @@ jobs:
 
       - name: Upload bisect report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: bisect-report
           path: bisect-out/result.json

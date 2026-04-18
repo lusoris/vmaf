@@ -234,7 +234,7 @@ jobs:
       # ---------- Artifacts ----------
       - name: Upload vmaf binary
         if: "!contains(matrix.meson_extra, 'static')"
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}-vmaf
           path: ./install/bin/vmaf
@@ -323,7 +323,7 @@ jobs:
           echo "path=$(cygpath -m "$PWD/artifact/vmaf.exe")" >> "$GITHUB_OUTPUT"
 
       - name: Upload vmaf.exe artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.msystem }}-vmaf
           path: ${{ steps.stage.outputs.path }}
