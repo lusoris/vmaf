@@ -1,6 +1,6 @@
 # Security scans: SAST (semgrep + CodeQL), secret scanning, dependency review.
 
-name: security
+name: Security Scans — Semgrep / CodeQL / Gitleaks / Dependency Review
 on:
   push:
     branches: [master]
@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   semgrep:
-    name: semgrep (CWE Top 25 + CERT-C + custom)
+    name: Semgrep (CWE Top 25 + CERT-C + Custom)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -147,7 +147,7 @@ jobs:
           category: "/language:actions"
 
   secret-scan:
-    name: gitleaks (secret scan)
+    name: Gitleaks (Secret Scan)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -162,7 +162,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   dependency-review:
-    name: dependency-review
+    name: Dependency Review (PR Diff)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5

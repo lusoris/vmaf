@@ -1,4 +1,4 @@
-name: ffmpeg
+name: FFmpeg Integration — Linux/macOS × gcc/clang + SYCL
 on:
   push:
     branches: [master]
@@ -22,11 +22,11 @@ jobs:
           - os: ubuntu-latest
             CC: gcc
             CXX: g++
-            name: FFmpeg Ubuntu gcc (build only)
+            name: FFmpeg — Ubuntu gcc (Build Only)
           - os: macos-latest
             CC: clang
             CXX: clang++
-            name: FFmpeg macOS clang (build only)
+            name: FFmpeg — macOS clang (Build Only)
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     env:
@@ -67,7 +67,7 @@ jobs:
 
   # Build-only: FFmpeg with SYCL patch (no GPU hardware on runners)
   ffmpeg-sycl:
-    name: FFmpeg SYCL (build only)
+    name: FFmpeg — SYCL (Build Only)
     runs-on: ubuntu-latest
     env:
       CC: gcc
@@ -86,7 +86,7 @@ jobs:
           sudo -E apt-get -yq install ninja-build gcc g++ nasm gpg-agent libvpl-dev
 
       - name: Install Intel oneAPI
-        # Pinned to oneAPI 2025.3 + Level Zero v1.28.0. See libvmaf.yml.
+        # Pinned to oneAPI 2025.3 + Level Zero v1.28.0. See libvmaf-build-matrix.yml.
         run: |
           wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
             | sudo gpg --dearmor -o /usr/share/keyrings/oneapi-archive-keyring.gpg

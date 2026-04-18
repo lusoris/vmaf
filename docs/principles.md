@@ -2,7 +2,8 @@
 
 This document defines the non-negotiable standards for code merged to `master`. Every
 requirement here is codified in one of: `.clang-tidy`, `.cppcheck-suppressions.txt`,
-`.semgrep.yml`, `.pre-commit-config.yaml`, `.github/workflows/{lint,security,supply-chain}.yml`.
+`.semgrep.yml`, `.pre-commit-config.yaml`,
+`.github/workflows/{lint-and-format,security-scans,supply-chain}.yml`.
 If a rule here is not yet codified in tooling, it is tracked as an OPEN item in
 [.workingdir2/OPEN.md](../.workingdir2/OPEN.md).
 
