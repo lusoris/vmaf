@@ -104,29 +104,36 @@ def _find_existing_comment(repo: str, issue: int) -> int | None:
 
 def _write_comment(repo: str, issue: int, body: str) -> None:
     comment_id = _find_existing_comment(repo, issue)
-    body_path = Path(".bisect-comment-body.md")
-    body_path.write_text(body, encoding="utf-8")
-    try:
-        if comment_id is None:
-            _gh(
-                "api",
-                f"repos/{repo}/issues/{issue}/comments",
-                "-f",
-                f"body=@{body_path}",
-            )
-            print(f"posted new sticky comment on issue #{issue}")
-        else:
-            _gh(
-                "api",
-                "--method",
-                "PATCH",
-                f"repos/{repo}/issues/comments/{comment_id}",
-                "-f",
-                f"body=@{body_path}",
-            )
-            print(f"edited sticky comment {comment_id} on issue #{issue}")
-    finally:
-        body_path.unlink(missing_ok=True)
+    # `gh api -f` sends raw strings (no @file substitution); `-F` types
+    # values and resolves @file. Pass the body as a raw string from stdin
+    # via `--input -` so we don't have to escape multi-line markdown on
+    # the command line and don't smuggle a literal "@path" into the JSON.
+    if comment_id is None:
+        endpoint = f"repos/{repo}/issues/{issue}/comments"
+        _gh_with_stdin(["api", endpoint, "--input", "-"], body)
+        print(f"posted new sticky comment on issue #{issue}")
+    else:
+        endpoint = f"repos/{repo}/issues/comments/{comment_id}"
+        _gh_with_stdin(
+            ["api", "--method", "PATCH", endpoint, "--input", "-"],
+            body,
+        )
+        print(f"edited sticky comment {comment_id} on issue #{issue}")
+
+
+def _gh_with_stdin(args: list[str], body: str) -> None:
+    """Run `gh` and feed a JSON body on stdin; raise on non-zero exit."""
+    payload = json.dumps({"body": body})
+    cmd = ["gh", *args]
+    # S603/S607: trusted args (caller-controlled, not user input);
+    # `gh` resolved from $PATH is the GitHub-Actions convention.
+    subprocess.run(  # noqa: S603
+        cmd,
+        check=True,
+        input=payload,
+        capture_output=True,
+        text=True,
+    )
 
 
 def main() -> int:
