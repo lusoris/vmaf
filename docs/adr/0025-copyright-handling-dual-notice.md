@@ -1,6 +1,6 @@
 # ADR-0025: Copyright handling preserves Netflix and adds Lusoris/Claude
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0105](0105-copyright-handling-dual-notice.md)
 - **Date**: 2026-04-17
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: license, docs

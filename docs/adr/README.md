@@ -115,10 +115,10 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0022](0022-inference-runtime-onnx.md) | Inference runtime: ONNX Runtime via execution providers | Accepted | ai, dnn, cuda, sycl, build |
 | [ADR-0023](0023-tinyai-user-surfaces.md) | Tiny-AI user surfaces: CLI, C API, ffmpeg, training | Accepted | ai, dnn, cli, framework |
 | [ADR-0024](0024-netflix-golden-preserved.md) | Preserve Netflix source-of-truth tests verbatim | Accepted | testing, ci, license |
-| [ADR-0025](0025-copyright-handling-dual-notice.md) | Copyright handling preserves Netflix, adds Lusoris/Claude | Accepted | license, docs |
+| [ADR-0025](0025-copyright-handling-dual-notice.md) | Copyright handling preserves Netflix, adds Lusoris/Claude | Superseded by [ADR-0105](0105-copyright-handling-dual-notice.md) | license, docs |
 | [ADR-0026](0026-workspace-relocated-under-python.md) | Relocate Python harness workspace under `python/vmaf/` | Accepted | workspace, python, docs |
 | [ADR-0027](0027-non-conservative-image-pins.md) | Non-conservative image pins + experimental toolchain flags | Accepted | ci, cuda, sycl, build, supply-chain |
-| [ADR-0028](0028-adr-maintenance-rule.md) | Every non-trivial decision gets an ADR before the commit | Accepted | docs, planning, agents |
+| [ADR-0028](0028-adr-maintenance-rule.md) | Every non-trivial decision gets an ADR before the commit | Superseded by [ADR-0106](0106-adr-maintenance-rule.md) | docs, planning, agents |
 | [ADR-0029](0029-resource-tree-relocated.md) | Relocate resource tree under `python/vmaf/` | Accepted | workspace, python, docs |
 | [ADR-0030](0030-matlab-sources-relocated.md) | Relocate MATLAB sources under `python/vmaf/` | Accepted | workspace, matlab, python |
 | [ADR-0031](0031-fork-docs-moved-under-docs.md) | Fork-added docs live under `docs/` | Accepted | docs, workspace |
@@ -126,7 +126,7 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0033](0033-codeql-config-moved-to-github.md) | Relocate CodeQL config to `.github/` | Accepted | security, ci, github |
 | [ADR-0034](0034-single-patches-directory.md) | Delete `patches/` leftover; keep only `ffmpeg-patches/` | Accepted | workspace, build |
 | [ADR-0035](0035-claude-hooks-schema-fix.md) | Migrate `.claude/settings.json` hooks to current schema | Accepted | claude, agents |
-| [ADR-0036](0036-tinyai-wave1-scope-expansion.md) | Tiny-AI Wave 1 scope expanded beyond D20–D23 | Accepted | ai, dnn, cli, framework, mcp |
+| [ADR-0036](0036-tinyai-wave1-scope-expansion.md) | Tiny-AI Wave 1 scope expanded beyond D20–D23 | Superseded by [ADR-0107](0107-tinyai-wave1-scope-expansion.md) | ai, dnn, cli, framework, mcp |
 | [ADR-0037](0037-master-branch-protection.md) | Protect `master` branch on GitHub with required checks | Accepted | github, ci, security, release |
 | [ADR-0038](0038-purge-upstream-matlab-mex-binaries.md) | Purge upstream MATLAB MEX compiled binaries from tree | Accepted | security, matlab, supply-chain |
 | [ADR-0039](0039-onnx-runtime-op-walk-registry.md) | Pull forward runtime op-allowlist walk + model registry | Accepted | ai, dnn, security, supply-chain |
@@ -138,3 +138,6 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0102](0102-dnn-ep-selection-and-fp16-io.md) | DNN EP selection is ordered + graceful; `fp16_io` does a host-side fp32↔fp16 cast | Accepted | ai, dnn, cli |
 | [ADR-0103](0103-sycl-d3d11-surface-import.md) | Implement `vmaf_sycl_import_d3d11_surface` as staging-texture H2D path | Accepted | sycl, windows, api |
 | [ADR-0104](0104-picture-pool-always-on.md) | Compile `picture_pool` unconditionally and size it for the live-picture set | Accepted | api, build, cli |
+| [ADR-0105](0105-copyright-handling-dual-notice.md) | Copyright handling preserves Netflix and adds Lusoris/Claude (paraphrased re-statement) | Supersedes [ADR-0025](0025-copyright-handling-dual-notice.md) | license, docs |
+| [ADR-0106](0106-adr-maintenance-rule.md) | Every non-trivial decision gets its own ADR file before the commit (paraphrased re-statement) | Supersedes [ADR-0028](0028-adr-maintenance-rule.md) | docs, planning, agents |
+| [ADR-0107](0107-tinyai-wave1-scope-expansion.md) | Tiny-AI Wave 1 scope expanded beyond ADR-0020 through ADR-0023 (paraphrased re-statement) | Supersedes [ADR-0036](0036-tinyai-wave1-scope-expansion.md) | ai, dnn, cli, framework, mcp |
