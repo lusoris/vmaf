@@ -66,12 +66,29 @@ test_ep_fp16 = executable('test_ep_fp16',
     dependencies : [math_lib, cuda_dependency, sycl_dependency],
 )
 
+# Direct unit tests for ort_backend.c internal helpers exposed via
+# ort_backend_internal.h (fp16 conversion edges, resolve_name,
+# NULL-guard branches that the public dnn.h surface never reaches on a
+# CPU-only ORT CI build). See ADR-0112.
+test_ort_internals = executable('test_ort_internals',
+    ['../test.c', 'test_ort_internals.c'],
+    include_directories : dnn_test_inc,
+    c_args : dnn_defines,
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies : [math_lib, cuda_dependency, sycl_dependency],
+)
+
 test('test_tensor_io',       test_tensor_io,       suite : 'dnn')
 test('test_op_allowlist',    test_op_allowlist,    suite : 'dnn')
 test('test_model_loader',    test_model_loader,    suite : 'dnn')
 test('test_onnx_scan',       test_onnx_scan,       suite : 'dnn')
-test('test_dnn_session_api', test_dnn_session_api, suite : 'dnn')
+test('test_dnn_session_api', test_dnn_session_api,
+     workdir : meson.project_source_root() / '..',
+     suite : 'dnn')
 test('test_ep_fp16',         test_ep_fp16,
+     workdir : meson.project_source_root() / '..',
+     suite : 'dnn')
+test('test_ort_internals',   test_ort_internals,
      workdir : meson.project_source_root() / '..',
      suite : 'dnn')
 

@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "ort_backend.h"
+#include "ort_backend_internal.h"
 
 #if defined(VMAF_HAVE_DNN) && VMAF_HAVE_DNN
 
@@ -97,14 +98,20 @@ static float fp16_to_fp32(uint16_t h)
         if (mant == 0u) {
             x = sign << 31;
         } else {
-            /* subnormal */
+            /* Subnormal half. Loop normalises the mantissa: each shift
+             * moves the leading 1 toward bit 10. The loop body counts
+             * one shift more than the leading-zero distance (the
+             * iteration that *places* the implicit 1 also runs), so the
+             * fp32 biased exponent is (127 - 15 - e), not (127 - 14 - e).
+             * The earlier formula doubled the magnitude of every
+             * subnormal (e.g. 0x03FF → 1.22e-4 instead of 6.10e-5). */
             int32_t e = -1;
             do {
                 mant <<= 1;
                 ++e;
             } while ((mant & 0x400u) == 0u);
             mant &= 0x3FFu;
-            x = (sign << 31) | (uint32_t)((127 - 14 - e) << 23) | (mant << 13);
+            x = (sign << 31) | (uint32_t)((127 - 15 - e) << 23) | (mant << 13);
         }
     } else if (exp_h == 31u) {
         x = (sign << 31) | 0x7F800000u | (mant << 13);
@@ -252,7 +259,55 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
         break;
     }
 
-    ORT_TRY(sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session));
+    /* Two-stage session creation with non-CPU → CPU fallback.
+     *
+     * try_append_<EP> returning success only proves ORT *registered* the EP;
+     * actual hardware initialisation happens inside CreateSession. If no
+     * matching device is present (CUDA EP registered without an NVIDIA GPU,
+     * OpenVINO without an OV-supported runtime, etc.) CreateSession returns
+     * a non-null OrtStatus. Without this fallback, that condition would
+     * surface as -EIO and the entire session_open would fail — even though
+     * the CPU EP is always linked and could have served the request.
+     *
+     * Behaviour change on the happy path: when CUDA / OpenVINO / ROCm
+     * actually work, nothing changes. The fallback only fires when the
+     * non-CPU EP attached but its hardware is unavailable, which previously
+     * was a hard failure. Callers that need to detect the degraded mode can
+     * check vmaf_ort_attached_ep() — it now returns "CPU" after fallback.
+     * See ADR-0113. */
+    OrtStatus *create_st =
+        sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session);
+    if (create_st != NULL) {
+        sess->api->ReleaseStatus(create_st);
+        if (strcmp(sess->ep_name, "CPU") != 0) {
+            /* Recreate session_options with no non-CPU EPs and retry. */
+            sess->api->ReleaseSessionOptions(sess->opts);
+            sess->opts = NULL;
+            OrtStatus *opts_st = sess->api->CreateSessionOptions(&sess->opts);
+            if (opts_st != NULL) {
+                sess->api->ReleaseStatus(opts_st);
+                vmaf_ort_close(sess);
+                return -EIO;
+            }
+            const int intra_retry = (cfg && cfg->threads > 0) ? cfg->threads : 0;
+            if (intra_retry > 0) {
+                OrtStatus *t_st = sess->api->SetIntraOpNumThreads(sess->opts, intra_retry);
+                if (t_st != NULL)
+                    sess->api->ReleaseStatus(t_st);
+            }
+            sess->ep_name = "CPU";
+            OrtStatus *retry_st =
+                sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session);
+            if (retry_st != NULL) {
+                sess->api->ReleaseStatus(retry_st);
+                vmaf_ort_close(sess);
+                return -EIO;
+            }
+        } else {
+            vmaf_ort_close(sess);
+            return -EIO;
+        }
+    }
     ORT_TRY(sess->api->GetAllocatorWithDefaultOptions(&sess->alloc));
 
     size_t ni = 0, no = 0;
@@ -672,6 +727,25 @@ cleanup:
     return rc;
 }
 
+/* Internal-test entry points (declared in ort_backend_internal.h). Thin
+ * wrappers preserve the static qualifier on the originals so production
+ * call sites remain fully inlinable while the test binary can still
+ * exercise the helpers directly. See ADR-0112. */
+uint16_t vmaf_ort_internal_fp32_to_fp16(float f)
+{
+    return fp32_to_fp16(f);
+}
+
+float vmaf_ort_internal_fp16_to_fp32(uint16_t h)
+{
+    return fp16_to_fp32(h);
+}
+
+const char *vmaf_ort_internal_resolve_name(char **table, size_t count, const char *name, size_t pos)
+{
+    return resolve_name(table, count, name, pos);
+}
+
 #else /* !VMAF_HAVE_DNN */
 
 struct VmafOrtSession {
@@ -734,6 +808,37 @@ int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_i
 void vmaf_ort_close(VmafOrtSession *sess)
 {
     (void)sess;
+}
+
+const char *vmaf_ort_attached_ep(const VmafOrtSession *sess)
+{
+    (void)sess;
+    return NULL;
+}
+
+/* Internal-test stubs for the DNN-disabled build. The real wrappers live
+ * in the VMAF_HAVE_DNN branch above; here they exist purely so
+ * test_ort_internals.c links cleanly on stub builds. The test bodies
+ * short-circuit via vmaf_dnn_available() before invoking these. */
+uint16_t vmaf_ort_internal_fp32_to_fp16(float f)
+{
+    (void)f;
+    return 0u;
+}
+
+float vmaf_ort_internal_fp16_to_fp32(uint16_t h)
+{
+    (void)h;
+    return 0.0f;
+}
+
+const char *vmaf_ort_internal_resolve_name(char **table, size_t count, const char *name, size_t pos)
+{
+    (void)table;
+    (void)count;
+    (void)name;
+    (void)pos;
+    return NULL;
 }
 
 #endif /* VMAF_HAVE_DNN */

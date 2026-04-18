@@ -702,7 +702,7 @@ endif
 
 libvmaf = library(
     'vmaf',
-    [libvmaf_sources, rev_target, json_model_c_sources, dnn_sources],
+    [libvmaf_sources, rev_target, json_model_c_sources, dnn_sources, dnn_libvmaf_only_sources],
     include_directories : [libvmaf_inc, vmaf_include, dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     link_args : vmaf_link_args,

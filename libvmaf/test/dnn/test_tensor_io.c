@@ -156,6 +156,139 @@ static char *test_rgb_imagenet_rejects_bad_args(void)
     return NULL;
 }
 
+static char *test_f16_special_values(void)
+{
+    /* Cover the NaN/inf/subnormal branches in the soft-float converters
+     * that the smooth-roundtrip test does not reach. */
+    float specials[6] = {
+        INFINITY,          /* exp >= 31, mant == 0  -> +inf */
+        -INFINITY,         /* exp >= 31, mant == 0  -> -inf */
+        NAN,               /* exp >= 31, mant != 0  -> NaN propagation (line 26-27) */
+        1e-8f,             /* exp <= 0, exp >= -10  -> subnormal path (line 33-35) */
+        -1e-8f,    1e-30f, /* exp < -10             -> flush-to-zero */
+    };
+    uint16_t h[6];
+    float back[6];
+    vmaf_f32_to_f16(specials, h, 6);
+    vmaf_f16_to_f32(h, back, 6);
+
+    mu_assert("+inf survives roundtrip", isinf(back[0]) && back[0] > 0.0f);
+    mu_assert("-inf survives roundtrip", isinf(back[1]) && back[1] < 0.0f);
+    mu_assert("NaN survives roundtrip", isnan(back[2]));
+    mu_assert("tiny positive becomes subnormal or zero", back[3] >= 0.0f && back[3] < 1e-3f);
+    mu_assert("tiny negative becomes subnormal or zero", back[4] <= 0.0f && back[4] > -1e-3f);
+    mu_assert("underflow flushes to zero", back[5] == 0.0f);
+    return NULL;
+}
+
+static char *test_f16_to_f32_subnormal(void)
+{
+    /* Hand-construct a fp16 subnormal (exp=0, mant!=0) to drive the
+     * normalize-loop branch (line 52-58). 0x0001 is the smallest positive
+     * fp16 subnormal: 2^-24. */
+    uint16_t subnormal[2] = {0x0001u, 0x8001u};
+    float out[2];
+    vmaf_f16_to_f32(subnormal, out, 2);
+    const float expected = 1.0f / (float)(1u << 24);
+    mu_assert("smallest positive subnormal", fabsf(out[0] - expected) < 1e-9f);
+    mu_assert("smallest negative subnormal", fabsf(out[1] + expected) < 1e-9f);
+    return NULL;
+}
+
+static char *test_from_luma_zero_std_rejected(void)
+{
+    /* std == 0 must be rejected to avoid divide-by-zero (line 97). */
+    uint8_t src[4] = {0, 64, 128, 255};
+    float dst[4];
+    float zero_std = 0.0f;
+    float zero_mean = 0.0f;
+    int err = vmaf_tensor_from_luma(src, 2, 2, 2, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32,
+                                    &zero_mean, &zero_std, dst);
+    mu_assert("zero std must be rejected", err < 0);
+    return NULL;
+}
+
+static char *test_from_luma_f16_path(void)
+{
+    /* Drive the F16 destination branch (lines 111-117). */
+    uint8_t src[4] = {0, 64, 128, 255};
+    uint16_t dst[4] = {0xffffu, 0xffffu, 0xffffu, 0xffffu};
+    int err = vmaf_tensor_from_luma(src, 2, 2, 2, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F16,
+                                    NULL, NULL, dst);
+    mu_assert("F16 luma conversion ok", err == 0);
+    /* 0 must round to fp16 +0.0 (0x0000). */
+    mu_assert("0 maps to fp16 zero", dst[0] == 0x0000u);
+    /* 255 maps to ~1.0; fp16 1.0 is 0x3c00. */
+    mu_assert("255 maps near fp16 1.0", dst[3] == 0x3c00u);
+    return NULL;
+}
+
+static char *test_from_luma_invalid_dtype(void)
+{
+    /* Drive the dtype-default reject (line 121). Passing an out-of-enum
+     * value as dtype is a coding error we still want to fail closed on. */
+    uint8_t src[4] = {0, 0, 0, 0};
+    float dst[4];
+    int err = vmaf_tensor_from_luma(src, 2, 2, 2, VMAF_TENSOR_LAYOUT_NCHW, (VmafTensorDType)99,
+                                    NULL, NULL, dst);
+    mu_assert("unknown dtype rejected", err < 0);
+    return NULL;
+}
+
+static char *test_to_luma_rejects_bad_args(void)
+{
+    /* Drive the input-validation branch in vmaf_tensor_to_luma (line 166). */
+    float src[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    uint8_t dst[4];
+    int err = vmaf_tensor_to_luma(NULL, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, 2, 2, NULL,
+                                  NULL, dst, 2);
+    mu_assert("NULL src rejected", err < 0);
+    err = vmaf_tensor_to_luma(src, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, 2, 2, NULL, NULL,
+                              NULL, 2);
+    mu_assert("NULL dst rejected", err < 0);
+    err = vmaf_tensor_to_luma(src, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, 2, 2, NULL, NULL,
+                              dst, 1);
+    mu_assert("stride < width rejected", err < 0);
+    err = vmaf_tensor_to_luma(src, VMAF_TENSOR_LAYOUT_NCHW, (VmafTensorDType)99, 2, 2, NULL, NULL,
+                              dst, 2);
+    mu_assert("unknown dtype rejected", err < 0);
+    return NULL;
+}
+
+static char *test_to_luma_clamps_out_of_range(void)
+{
+    /* Drive the < 0 and > 255 clamps (lines 188, 190). With mean=0 std=1,
+     * a tensor value of 2.0 maps to 510 (clamped to 255), -1.0 maps to
+     * -255 (clamped to 0). */
+    float src[4] = {-1.0f, 2.0f, 0.5f, 0.0f};
+    uint8_t dst[4] = {99, 99, 99, 99};
+    int err = vmaf_tensor_to_luma(src, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, 2, 2, NULL,
+                                  NULL, dst, 2);
+    mu_assert("to_luma ok", err == 0);
+    mu_assert("negative clamps to 0", dst[0] == 0);
+    mu_assert(">1.0 clamps to 255", dst[1] == 255);
+    /* 0.5 * 255 = 127.5 → round-to-even → 128. */
+    mu_assert("0.5 rounds to 128", dst[2] == 128);
+    mu_assert("0.0 maps to 0", dst[3] == 0);
+    return NULL;
+}
+
+static char *test_to_luma_f16_path(void)
+{
+    /* Drive the F16 source branch (lines 179-180). 0x3c00 is fp16 1.0,
+     * 0x0000 is fp16 0. */
+    uint16_t src[4] = {0x0000u, 0x3c00u, 0x3800u, 0x0000u}; /* 0, 1, 0.5, 0 */
+    uint8_t dst[4] = {99, 99, 99, 99};
+    int err = vmaf_tensor_to_luma(src, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F16, 2, 2, NULL,
+                                  NULL, dst, 2);
+    mu_assert("f16 to_luma ok", err == 0);
+    mu_assert("fp16 0 → 0", dst[0] == 0);
+    mu_assert("fp16 1.0 → 255", dst[1] == 255);
+    /* 0.5 * 255 = 127.5 → round-to-even → 128. */
+    mu_assert("fp16 0.5 → 128", dst[2] == 128);
+    return NULL;
+}
+
 char *run_tests(void)
 {
     mu_run_test(test_luma_to_f32_unnormalized);
@@ -165,5 +298,13 @@ char *run_tests(void)
     mu_run_test(test_rgb_imagenet_known_values);
     mu_run_test(test_rgb_imagenet_nchw_layout);
     mu_run_test(test_rgb_imagenet_rejects_bad_args);
+    mu_run_test(test_f16_special_values);
+    mu_run_test(test_f16_to_f32_subnormal);
+    mu_run_test(test_from_luma_zero_std_rejected);
+    mu_run_test(test_from_luma_f16_path);
+    mu_run_test(test_from_luma_invalid_dtype);
+    mu_run_test(test_to_luma_rejects_bad_args);
+    mu_run_test(test_to_luma_clamps_out_of_range);
+    mu_run_test(test_to_luma_f16_path);
     return NULL;
 }

@@ -38,4 +38,13 @@ dnn_sources = files(
   'ort_backend.c',
   'tensor_io.c',
 )
+# `dnn_attach_api.c` defines `vmaf_use_tiny_model`, which references
+# `vmaf_ctx_dnn_attach` from `libvmaf.c`. It is therefore linked into
+# `libvmaf.so` (via `dnn_libvmaf_only_sources`) but kept out of
+# `dnn_sources` so the unit-test executables — which pull in
+# `dnn_sources` for `feature_lpips.c` but do NOT link `libvmaf.c` —
+# don't end up with an undefined-symbol link error when ORT is enabled.
+dnn_libvmaf_only_sources = files(
+  'dnn_attach_api.c',
+)
 dnn_inc = include_directories('.', '../../include')

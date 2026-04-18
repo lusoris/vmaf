@@ -89,6 +89,12 @@ test_dict = executable('test_dict',
     dependencies: [sycl_dependency],
 )
 
+test_opt = executable('test_opt',
+    ['test.c', 'test_opt.c', '../src/opt.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    dependencies: [math_lib, sycl_dependency],
+)
+
 test_cpu = executable('test_cpu',
     ['test.c', 'test_cpu.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
@@ -232,6 +238,7 @@ test('test_model', test_model)
 test('test_predict', test_predict)
 test('test_feature_extractor', test_feature_extractor)
 test('test_dict', test_dict)
+test('test_opt', test_opt)
 test('test_cpu', test_cpu)
 test('test_ref', test_ref)
 test('test_feature', test_feature)

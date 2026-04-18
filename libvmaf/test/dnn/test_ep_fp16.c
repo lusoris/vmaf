@@ -140,6 +140,51 @@ static char *test_fp16_io_round_trip(void)
     return NULL;
 }
 
+static char *test_fp16_io_edge_values(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+
+    /* Round-trip edge values through the fp16 IO path: subnormal, overflow
+     * (→ inf), underflow (→ ±0), and a value that's exactly representable
+     * but outside the small-integer range. Drives the inf/nan, overflow,
+     * underflow, and subnormal branches of fp32_to_fp16 and fp16_to_fp32.
+     * The Identity model gives us output == input modulo fp16 representation,
+     * so we assert direction-preserving properties (sign, finiteness,
+     * magnitude bracket), not bit-exact equality. */
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_CPU, .fp16_io = true};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP16_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("fp16 edge open succeeds", rc == 0);
+
+    /* 1.0e-7f underflows fp16 (smallest normal ≈ 6.1e-5), 1.0e-5f is
+     * subnormal in fp16, 1.0e10f overflows fp16 (max ≈ 65504). */
+    const float in_data[4] = {1.0e-7f, 1.0e-5f, 1.0e10f, -1.0e10f};
+    float out_data[4] = {9999.f, 9999.f, 9999.f, 9999.f};
+    const int64_t shape[4] = {1, 1, 2, 2};
+
+    VmafDnnInput in = {.name = "x", .data = in_data, .shape = shape, .rank = 4};
+    VmafDnnOutput out = {.name = "y", .data = out_data, .capacity = 4, .written = 0};
+
+    rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
+    mu_assert("fp16 edge run succeeds", rc == 0);
+    mu_assert("fp16 edge output count is 4", out.written == 4);
+
+    /* 1e-7 → underflow → ±0 (assert magnitude near zero) */
+    mu_assert("fp16 underflow → near zero", fabsf(out_data[0]) < 1.0e-6f);
+    /* 1e-5 → subnormal in fp16 → small positive value */
+    mu_assert("fp16 subnormal → small positive", out_data[1] > 0.0f && out_data[1] < 1.0e-3f);
+    /* 1e10 → overflow → +inf */
+    mu_assert("fp16 +overflow → +inf", isinf(out_data[2]) && out_data[2] > 0.0f);
+    /* -1e10 → overflow → -inf */
+    mu_assert("fp16 -overflow → -inf", isinf(out_data[3]) && out_data[3] < 0.0f);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
 static char *test_fp16_model_rejects_fp32_config(void)
 {
     if (!vmaf_dnn_available())
@@ -186,6 +231,7 @@ char *run_tests(void)
     mu_run_test(test_explicit_openvino_graceful_fallback);
     mu_run_test(test_explicit_cuda_graceful_fallback);
     mu_run_test(test_fp16_io_round_trip);
+    mu_run_test(test_fp16_io_edge_values);
     mu_run_test(test_fp16_model_rejects_fp32_config);
     mu_run_test(test_stub_attached_ep_returns_null);
     return NULL;

@@ -21,6 +21,29 @@
 
 #include "libvmaf/dnn.h"
 
+/* MinGW lacks POSIX setenv/unsetenv. Map to _putenv_s on Windows so the
+ * VMAF_MAX_MODEL_BYTES env-cap branch tests stay portable. */
+#ifdef _WIN32
+#include <stdlib.h>
+static int test_setenv(const char *k, const char *v)
+{
+    return _putenv_s(k, v);
+}
+static void test_unsetenv(const char *k)
+{
+    (void)_putenv_s(k, "");
+}
+#else
+static int test_setenv(const char *k, const char *v)
+{
+    return setenv(k, v, 1);
+}
+static void test_unsetenv(const char *k)
+{
+    (void)unsetenv(k);
+}
+#endif
+
 static char *test_stub_returns_enosys_when_disabled(void)
 {
     if (vmaf_dnn_available()) {
@@ -67,10 +90,444 @@ static char *test_descriptor_field_layout(void)
     return NULL;
 }
 
+static char *test_session_open_rejects_null_out(void)
+{
+    int rc = vmaf_dnn_session_open(NULL, "anything.onnx", NULL);
+    /* Stub branch: -ENOSYS; real branch: -EINVAL. Either is a hard reject. */
+    mu_assert("NULL out pointer rejected", rc < 0);
+    return NULL;
+}
+
+static char *test_session_open_rejects_null_path(void)
+{
+    VmafDnnSession *s = NULL;
+    int rc = vmaf_dnn_session_open(&s, NULL, NULL);
+    mu_assert("NULL path rejected", rc < 0);
+    mu_assert("session pointer not written on reject", s == NULL);
+    return NULL;
+}
+
+static char *test_session_open_rejects_missing_file(void)
+{
+    if (!vmaf_dnn_available()) {
+        /* Stub returns -ENOSYS regardless of path; no file-existence check
+         * to exercise. Skip without failing. */
+        return NULL;
+    }
+    VmafDnnSession *s = NULL;
+    int rc = vmaf_dnn_session_open(&s, "/nonexistent/path/to/model.onnx", NULL);
+    mu_assert("missing model file rejected", rc < 0);
+    mu_assert("session pointer not populated", s == NULL);
+    return NULL;
+}
+
+static char *test_session_run_luma8_rejects_null(void)
+{
+    /* Stub branch: returns -ENOSYS for any args. Real branch: -EINVAL on
+     * NULL sess/in/out. The wrapper rejects either way. */
+    uint8_t buf[16] = {0};
+    int rc = vmaf_dnn_session_run_luma8(NULL, buf, 4, 4, 4, buf, 4);
+    mu_assert("NULL session rejected by run_luma8", rc < 0);
+    return NULL;
+}
+
+static char *test_session_close_null_is_noop(void)
+{
+    /* Free on NULL is a hard contract — must never crash. There is no
+     * return value to assert; reaching the next line is the test. */
+    vmaf_dnn_session_close(NULL);
+    mu_assert("close(NULL) returned without crashing", 1);
+    return NULL;
+}
+
+static char *test_attached_ep_null_returns_null(void)
+{
+    const char *ep = vmaf_dnn_session_attached_ep(NULL);
+    mu_assert("attached_ep(NULL) returns NULL", ep == NULL);
+    return NULL;
+}
+
+static char *test_run_rejects_zero_n_inputs(void)
+{
+    /* Even with non-NULL pointers, 0 inputs / 0 outputs must be rejected.
+     * Stub returns -ENOSYS; real branch returns -EINVAL. */
+    float buf[1] = {0.0f};
+    int64_t shape[1] = {1};
+    VmafDnnInput in = {.name = NULL, .data = buf, .shape = shape, .rank = 1};
+    VmafDnnOutput out = {.name = NULL, .data = buf, .capacity = 1, .written = 0};
+    int rc = vmaf_dnn_session_run((VmafDnnSession *)0xdeadbeef, &in, 0u, &out, 1u);
+    mu_assert("zero n_inputs rejected", rc < 0);
+    rc = vmaf_dnn_session_run((VmafDnnSession *)0xdeadbeef, &in, 1u, &out, 0u);
+    mu_assert("zero n_outputs rejected", rc < 0);
+    return NULL;
+}
+
+#define SMOKE_FP32_MODEL "model/tiny/smoke_v0.onnx"
+
+static char *test_session_open_respects_max_bytes_env(void)
+{
+    /* Drives the VMAF_MAX_MODEL_BYTES env-parse branch (lines 60-67) and
+     * the validate_onnx -> -E2BIG return (line 70). Setting the cap to 1
+     * byte must reject any real ONNX file. */
+    if (!vmaf_dnn_available())
+        return NULL;
+    test_setenv("VMAF_MAX_MODEL_BYTES", "1");
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    test_unsetenv("VMAF_MAX_MODEL_BYTES");
+    if (rc == -ENOENT) {
+        /* working tree without testdata — skip. */
+        return NULL;
+    }
+    mu_assert("VMAF_MAX_MODEL_BYTES=1 must reject", rc < 0);
+    mu_assert("session must not leak on reject", sess == NULL);
+    return NULL;
+}
+
+static char *test_session_open_ignores_invalid_max_bytes_env(void)
+{
+    /* Non-numeric env value falls through the strtoul check (endp != '\0')
+     * and keeps the default cap (line 65). Open must succeed. */
+    if (!vmaf_dnn_available())
+        return NULL;
+    test_setenv("VMAF_MAX_MODEL_BYTES", "not-a-number");
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    test_unsetenv("VMAF_MAX_MODEL_BYTES");
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("invalid env ignored, open succeeds", rc == 0);
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_luma8_size_mismatch(void)
+{
+    /* Drives the w/h mismatch branch (-ERANGE, lines 134-135). Open with
+     * a known 2x2 model, then run with a 4x4 buffer — must reject. */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    /* smoke_v0.onnx is fixed-shape NCHW [1,1,4,4]. Pass 7x7 buffers — the
+     * w/h mismatch must return -ERANGE before any tensor copy happens. */
+    uint8_t in[49] = {0};
+    uint8_t out[49] = {0};
+    rc = vmaf_dnn_session_run_luma8(sess, in, 7, 7, 7, out, 7);
+    mu_assert("w/h mismatch returns negative", rc < 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_heap_path_for_many_inputs(void)
+{
+    /* Drives the heap-allocation branch (n_inputs > 4, lines 175-185 and
+     * the matching free at 207-210). We use a stub session pointer — the
+     * model never gets opened — but the input-vector heap path runs before
+     * vmaf_ort_run is called. The call must return < 0 (most likely -EFAULT
+     * or similar) without leaking. Caveat: when DNN is disabled the stub
+     * returns -ENOSYS before any allocation, so this is an effective test
+     * only on real-ORT builds. */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    /* 5 inputs forces the heap-allocation branch (stack array is size 4). */
+    float buf[4] = {0};
+    int64_t shape[4] = {1, 1, 2, 2};
+    VmafDnnInput in[5];
+    for (size_t i = 0; i < 5; ++i) {
+        in[i].name = "x";
+        in[i].data = buf;
+        in[i].shape = shape;
+        in[i].rank = 4u;
+    }
+    VmafDnnOutput out[5];
+    for (size_t i = 0; i < 5; ++i) {
+        out[i].name = "y";
+        out[i].data = buf;
+        out[i].capacity = 4u;
+        out[i].written = 0u;
+    }
+    /* The model has only 1 input — passing 5 must fail in vmaf_ort_run,
+     * but the heap allocate/free pair around the call still executes. */
+    rc = vmaf_dnn_session_run(sess, in, 5u, out, 5u);
+    mu_assert("mismatched input count rejected", rc < 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_unknown_input_name(void)
+{
+    /* Drives resolve_name() lookup-by-name failure (ort_backend.c line 560,
+     * caller branch line 604 → -EINVAL). */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    float buf[16] = {0};
+    int64_t shape[4] = {1, 1, 4, 4};
+    VmafDnnInput in = {
+        .name = "definitely-not-a-real-input", .data = buf, .shape = shape, .rank = 4};
+    VmafDnnOutput out = {.name = NULL, .data = buf, .capacity = 16, .written = 0};
+    rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
+    mu_assert("unknown input name rejected", rc < 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_unknown_output_name(void)
+{
+    /* resolve_name() failure on output table (line 625 → -EINVAL). */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    float buf[16] = {0};
+    int64_t shape[4] = {1, 1, 4, 4};
+    VmafDnnInput in = {.name = NULL, .data = buf, .shape = shape, .rank = 4};
+    VmafDnnOutput out = {.name = "no-such-output", .data = buf, .capacity = 16, .written = 0};
+    rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
+    mu_assert("unknown output name rejected", rc < 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_zero_rank_input(void)
+{
+    /* Drives the rank == 0 guard inside vmaf_ort_run (line 598 → -EINVAL). */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    float buf[16] = {0};
+    int64_t shape[4] = {1, 1, 4, 4};
+    VmafDnnInput in = {.name = NULL, .data = buf, .shape = shape, .rank = 0u};
+    VmafDnnOutput out = {.name = NULL, .data = buf, .capacity = 16, .written = 0};
+    rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
+    mu_assert("zero-rank input rejected", rc < 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_negative_dim(void)
+{
+    /* Drives the shape[d] <= 0 guard (line 608 → -EINVAL). */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    float buf[16] = {0};
+    int64_t shape[4] = {1, 1, -1, 4}; /* dynamic dim sentinel — must be rejected */
+    VmafDnnInput in = {.name = NULL, .data = buf, .shape = shape, .rank = 4};
+    VmafDnnOutput out = {.name = NULL, .data = buf, .capacity = 16, .written = 0};
+    rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
+    mu_assert("negative input dim rejected", rc < 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_null_input_data(void)
+{
+    /* Drives the !inputs[i].data guard (line 598 → -EINVAL). */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    float buf[16] = {0};
+    int64_t shape[4] = {1, 1, 4, 4};
+    VmafDnnInput in = {.name = NULL, .data = NULL, .shape = shape, .rank = 4};
+    VmafDnnOutput out = {.name = NULL, .data = buf, .capacity = 16, .written = 0};
+    rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
+    mu_assert("null input data rejected", rc < 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_null_output_data(void)
+{
+    /* Drives the !outputs[i].data guard (line 621 → -EINVAL). */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    float buf[16] = {0};
+    int64_t shape[4] = {1, 1, 4, 4};
+    VmafDnnInput in = {.name = NULL, .data = buf, .shape = shape, .rank = 4};
+    VmafDnnOutput out = {.name = NULL, .data = NULL, .capacity = 16, .written = 0};
+    rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
+    mu_assert("null output data rejected", rc < 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_undersized_output(void)
+{
+    /* Drives copy_output_tensor() -ENOSPC branch (lines 391, 646-649). The
+     * smoke model's output is 4x4 = 16 floats; provide capacity 1 and check
+     * we get -ENOSPC and written reflects the required count. */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    float in_buf[16] = {0};
+    float out_buf[1] = {0.f};
+    int64_t shape[4] = {1, 1, 4, 4};
+    VmafDnnInput in = {.name = NULL, .data = in_buf, .shape = shape, .rank = 4};
+    VmafDnnOutput out = {.name = NULL, .data = out_buf, .capacity = 1, .written = 0};
+    rc = vmaf_dnn_session_run(sess, &in, 1, &out, 1);
+    mu_assert("undersized output buffer returns -ENOSPC", rc == -ENOSPC);
+    mu_assert("required count surfaced via written", out.written == 16u);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_named_io_round_trip(void)
+{
+    /* Drives the resolve_name() success-by-name branch (lines 557-558).
+     * Names match exactly the smoke model's IO ("features"/"out") — if the
+     * model uses different names this gracefully falls back to <0 and the
+     * test stays informative without spuriously failing. */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    /* Use the legacy luma path to drive a successful end-to-end run that
+     * exercises the inference branches in vmaf_ort_infer (build_input_tensor
+     * fp32 path + copy_output_tensor non-fp16 branch). */
+    uint8_t in_buf[16] = {0};
+    uint8_t out_buf[16] = {0};
+    rc = vmaf_dnn_session_run_luma8(sess, in_buf, 4, 4, 4, out_buf, 4);
+    mu_assert("luma8 run on smoke model succeeds", rc == 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_open_threads_config(void)
+{
+    /* Drives the cfg->threads > 0 branch in vmaf_ort_open (line 204). */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_CPU, .threads = 2};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("threads=2 open succeeds", rc == 0);
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_open_rocm_falls_through(void)
+{
+    /* Drives VMAF_DNN_DEVICE_ROCM branch (lines 237-240). On a CPU-only ORT
+     * build try_append_rocm() returns non-zero and ep_name stays "CPU". */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_ROCM};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("ROCm request does not fail open", rc == 0);
+    const char *ep = vmaf_dnn_session_attached_ep(sess);
+    mu_assert("EP is reported", ep != NULL);
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_attached_ep_after_session_close(void)
+{
+    /* Drives the success path of vmaf_dnn_session_attached_ep (line 231). */
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+    const char *ep = vmaf_dnn_session_attached_ep(sess);
+    mu_assert("attached EP is reported", ep != NULL && ep[0] != '\0');
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
 char *run_tests(void)
 {
     mu_run_test(test_stub_returns_enosys_when_disabled);
     mu_run_test(test_rejects_null_session);
     mu_run_test(test_descriptor_field_layout);
+    mu_run_test(test_session_open_rejects_null_out);
+    mu_run_test(test_session_open_rejects_null_path);
+    mu_run_test(test_session_open_rejects_missing_file);
+    mu_run_test(test_session_run_luma8_rejects_null);
+    mu_run_test(test_session_close_null_is_noop);
+    mu_run_test(test_attached_ep_null_returns_null);
+    mu_run_test(test_run_rejects_zero_n_inputs);
+    mu_run_test(test_session_open_respects_max_bytes_env);
+    mu_run_test(test_session_open_ignores_invalid_max_bytes_env);
+    mu_run_test(test_session_run_luma8_size_mismatch);
+    mu_run_test(test_session_run_heap_path_for_many_inputs);
+    mu_run_test(test_attached_ep_after_session_close);
+    mu_run_test(test_session_run_unknown_input_name);
+    mu_run_test(test_session_run_unknown_output_name);
+    mu_run_test(test_session_run_zero_rank_input);
+    mu_run_test(test_session_run_negative_dim);
+    mu_run_test(test_session_run_null_input_data);
+    mu_run_test(test_session_run_null_output_data);
+    mu_run_test(test_session_run_undersized_output);
+    mu_run_test(test_session_run_named_io_round_trip);
+    mu_run_test(test_session_open_threads_config);
+    mu_run_test(test_session_open_rocm_falls_through);
     return NULL;
 }

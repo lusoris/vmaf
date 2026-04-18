@@ -46,7 +46,8 @@ All release artefacts are signed via
 repository's GitHub OIDC identity. No long-lived signing keys live in the
 repo or in CI secrets.
 
-Consumers can verify signatures with `cosign verify-blob --certificate-identity-regexp …`.
+Consumers can verify signatures with
+`cosign verify-blob --certificate-identity-regexp …`.
 
 ## Dry-running a release
 
@@ -77,8 +78,10 @@ is enforced at the host, not just honored by convention.
 - **Force-push and deletion disabled.**
 - **Admin bypass kept on** (owner can land emergency fixes that skip required
   checks — use sparingly; see the emergency-release section below).
-- **Not required (non-blocking signals):** Coverage gate (~40 min, historically
-  finicky), GPU-advisory jobs, Semgrep OSS.
+- **Not required (non-blocking signals):** Coverage gate (~40 min — built
+  with `-fprofile-update=atomic` since 2026-04-18 to survive parallel-meson
+  SIMD-counter races, see [ADR-0110](../adr/0110-coverage-gate-fprofile-update-atomic.md)),
+  GPU-advisory jobs, Semgrep OSS.
 
 Management: `gh api --method PUT repos/lusoris/vmaf/branches/master/protection`
 with a JSON payload. The current rule set is documented in
