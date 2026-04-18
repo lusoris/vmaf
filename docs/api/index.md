@@ -186,8 +186,8 @@ typedef struct VmafConfiguration {
 | `vmaf_score_pooled(ctx, model, method, *score, lo, hi)` | 0 / -errno | Pooled VMAF over `[lo, hi]`. |
 | `vmaf_score_pooled_model_collection(...)` | 0 / -errno | Pooled bootstrap. |
 | `vmaf_feature_score_pooled(ctx, name, method, *score, lo, hi)` | 0 / -errno | Pooled feature score. |
-| `vmaf_write_output(ctx, path, fmt)` | 0 / -errno | Write report with the default `%.17g` score format. |
-| `vmaf_write_output_with_format(ctx, path, fmt, "%.6f")` | 0 / -errno | Write report with a caller-controlled printf format. Pass `NULL` for the default. Format must take exactly one `double`. |
+| `vmaf_write_output(ctx, path, fmt)` | 0 / -errno | Write report with the default `%.6f` score format (Netflix-compatible per [ADR-0119](../adr/0119-cli-precision-default-revert.md)). |
+| `vmaf_write_output_with_format(ctx, path, fmt, "%.17g")` | 0 / -errno | Write report with a caller-controlled printf format. Pass `NULL` for the `%.6f` default. Pass `"%.17g"` for IEEE-754 round-trip lossless. Format must take exactly one `double`. |
 | `vmaf_preallocate_pictures(ctx, cfg)` | 0 / -errno | Allocate a reusable picture pool (CPU path; for GPU see [gpu.md](gpu.md)). |
 | `vmaf_fetch_preallocated_picture(ctx, *pic)` | 0 / -errno | Pull a picture from the pool; return it via `vmaf_picture_unref()`. |
 | `vmaf_close(ctx)` | 0 / -errno | Free the context. After this the pointer is invalid. |
@@ -453,7 +453,8 @@ the 576×324 fixture.
 - [../usage/cli.md](../usage/cli.md) — the `vmaf` CLI walkthrough mirrors this
   API 1:1
 - [../metrics/features.md](../metrics/features.md) — feature names + options
-- [ADR-0006](../adr/0006-cli-precision-17g-default.md) — `%.17g` default and
-  `vmaf_write_output_with_format`
+- [ADR-0119](../adr/0119-cli-precision-default-revert.md) — current `%.6f`
+  default for `vmaf_write_output_with_format(..., NULL)` (supersedes
+  [ADR-0006](../adr/0006-cli-precision-17g-default.md))
 - [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md) — the doc-substance
   rule this page satisfies

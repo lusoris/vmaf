@@ -55,10 +55,10 @@ typedef struct {
     bool no_cuda;
     bool no_sycl;
     int sycl_device;           // -1 = not requested (default), 0+ = device index
-    const char *precision_fmt; // resolved printf format, e.g. "%.17g"
-    int precision_n;           // -1 = unset (default %.17g), else user N
-    bool precision_max;
-    bool precision_legacy;
+    const char *precision_fmt; // resolved printf format, e.g. "%.6f"
+    int precision_n;           // -1 = unset (default %.6f), else user N
+    bool precision_max;        // --precision=max|full given (selects %.17g)
+    bool precision_legacy;     // --precision=legacy given (alias for the default)
     /* Phase 3k — tiny-AI surface (all unset by default). */
     const char *tiny_model_path; /* NULL = no tiny model */
     const char *tiny_device;     /* "auto"|"cpu"|"cuda"|"openvino"|"rocm" */

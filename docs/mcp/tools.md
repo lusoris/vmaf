@@ -25,7 +25,7 @@ Score one `(ref, dis)` YUV pair and return the full VMAF JSON report.
 | `bitdepth`  | `8 \| 10 \| 12 \| 16`                  | yes      | —                       | Bit depth of both YUV files                    |
 | `model`     | string                                 | no       | `"version=vmaf_v0.6.1"` | Any `--model` grammar from the CLI             |
 | `backend`   | `"auto" \| "cpu" \| "cuda" \| "sycl"`  | no       | `"auto"`                | Backend selection; `auto` lets vmaf pick       |
-| `precision` | string                                 | no       | `"17"`                  | Passed straight to `--precision`               |
+| `precision` | string                                 | no       | `"17"`                  | Passed straight to `--precision` (see below)   |
 
 ### Behaviour
 
@@ -43,6 +43,15 @@ vmaf -r <ref> -d <dis> --width <w> --height <h> -p <pixfmt> -b <bitdepth> \
 The JSON written by vmaf is parsed and returned verbatim (the temp file
 is always unlinked — even on error). See
 [usage/cli.md](../usage/cli.md#output) for the report schema.
+
+> **`precision` default `"17"`.** The MCP server explicitly passes
+> `--precision 17` (`%.17g`, IEEE-754 round-trip lossless) so MCP
+> consumers always get scores that re-parse to the exact same double.
+> The underlying `vmaf` CLI default is `%.6f` for Netflix-compat per
+> [ADR-0119](../adr/0119-cli-precision-default-revert.md); MCP overrides
+> it because programmatic consumers (re-parsing the JSON) want the
+> lossless form by default. Pass `"6"` (or `"legacy"`) to match the CLI
+> default exactly.
 
 ### Example call
 

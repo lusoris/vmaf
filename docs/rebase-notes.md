@@ -482,3 +482,51 @@ inline.*
   ```
 
   Pure fork-local guard; no Netflix-side conflict vector.
+
+### 0017 — CLI precision default `%.6f` (Netflix-compat) + frame-skip unref
+
+- **Workstream PRs**: this PR (`fix(cli): revert precision default to
+  %.6f and unref skipped frames`). Reverts the default flipped by
+  commit `c989fbd9` (ADR-0006) per ADR-0119. Companion fix in
+  `libvmaf/tools/vmaf.c` resolves the picture-pool exhaustion in the
+  `--frame_skip_ref/dist` loops surfaced once the always-on picture
+  pool (ADR-0104) made unref'ing skipped pictures mandatory.
+- **Touches**:
+  - `libvmaf/tools/cli_parse.c` (`VMAF_DEFAULT_PRECISION_FMT` +
+    `VMAF_LOSSLESS_PRECISION_FMT` macros, `resolve_precision_fmt()`
+    body, `--help` text)
+  - `libvmaf/tools/cli_parse.h` (field comments only; struct shape
+    unchanged)
+  - `libvmaf/src/output.c` (`DEFAULT_SCORE_FORMAT` macro)
+  - `libvmaf/tools/vmaf.c` (skip loop bodies at the
+    `c.frame_skip_ref` / `c.frame_skip_dist` for-loops)
+  - `python/vmaf/core/result.py` (per-frame and aggregate `:.6f`
+    formatters)
+  - `python/test/command_line_test.py` is unmodified — Netflix golden
+    assertions stay frozen per CLAUDE.md §8; the binary's output
+    format adapts to them, not the other way around.
+- **Invariant**: `vmaf` CLI default score-output format is `%.6f`
+  (matches upstream Netflix byte-for-byte). `--precision=max|full`
+  selects `%.17g` (IEEE-754 round-trip lossless). `--precision=legacy`
+  is a synonym for the default. The library default for
+  `vmaf_write_output_with_format(..., score_format=NULL)` matches.
+  Skipped frames in the `--frame_skip_ref` / `--frame_skip_dist`
+  pre-loops are `vmaf_picture_unref`'d immediately after fetch so the
+  preallocated picture pool is not exhausted before the main scoring
+  loop runs. **Do not** flip the macros back to `%.17g` or remove the
+  unrefs without a superseding ADR — both are golden-gate-load-bearing.
+- **Re-test**:
+
+  ```bash
+  ninja -C libvmaf/build
+  python -m pytest python/test/command_line_test.py \
+      ::VmafexecCommandLineTest::test_run_vmafexec \
+      ::VmafexecCommandLineTest::test_run_vmafexec_with_frame_skipping \
+      ::VmafexecCommandLineTest::test_run_vmafexec_with_frame_skipping_unequal \
+      -v
+  # Expected: all three PASS in <1 s combined.
+  ```
+
+  Pure fork-local; no Netflix-side conflict vector. If upstream ever
+  changes the default format string, treat their value as the new
+  baseline and reconfirm the golden assertions before adopting.

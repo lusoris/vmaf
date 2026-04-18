@@ -96,7 +96,7 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0003](0003-workingdir2-empty-planning-dir.md) | Introduce `.workingdir2` as new planning directory | Accepted | workspace, planning, claude |
 | [ADR-0004](0004-auto-push-after-merges.md) | Auto-push sycl and master to origin after merges | Accepted | git, ci, release |
 | [ADR-0005](0005-framework-adaptation-full-scope.md) | Adopt full framework adaptation scope (a–g) | Accepted | framework, ci, docs, build, mcp |
-| [ADR-0006](0006-cli-precision-17g-default.md) | Set CLI precision default to `%.17g` with `--precision` flag | Accepted | cli, testing, python |
+| [ADR-0006](0006-cli-precision-17g-default.md) | Set CLI precision default to `%.17g` with `--precision` flag | Superseded by [ADR-0119](0119-cli-precision-default-revert.md) | cli, testing, python |
 | [ADR-0007](0007-claude-settings-fresh-rewrite.md) | Rewrite `.claude/settings.json` from scratch | Accepted | claude, agents |
 | [ADR-0008](0008-readme-fork-rebrand.md) | Rewrite README with fork branding, preserve Netflix attribution | Accepted | docs, readme, license |
 | [ADR-0009](0009-mcp-server-tool-surface.md) | MCP server exposes four core tools | Accepted | mcp, python, framework |
@@ -148,3 +148,4 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0112](0112-ort-backend-testability-surface.md) | Expose `ort_backend.c` static helpers (fp16 conversion, resolve_name) via private internal header so `test_ort_internals` can unit-test edge branches the public API can't reach on a CPU-only ORT build | Accepted | dnn, testing, coverage |
 | [ADR-0113](0113-ort-create-session-fallback-multi-ep-ci.md) | `vmaf_ort_open` falls back to CPU when `CreateSession` fails after a non-CPU EP attached; coverage CI installs `onnxruntime-gpu` + `libcudart12` to exercise EP-attach success arms | Accepted | dnn, ci, coverage, ort |
 | [ADR-0114](0114-coverage-gate-per-file-overrides.md) | `coverage-check.sh` gains a per-file critical-coverage override map; `dnn/ort_backend.c` + `dnn/dnn_api.c` floor at 78% (structural EP-availability ceiling per ADR-0112) | Accepted | ci, coverage, dnn, ort, gate |
+| [ADR-0119](0119-cli-precision-default-revert.md) | Revert CLI precision default from `%.17g` to `%.6f` so the Netflix CPU golden gate (CLAUDE.md §8) passes without per-call-site flags; `--precision=max` keeps the round-trip-lossless opt-in | Supersedes [ADR-0006](0006-cli-precision-17g-default.md) | cli, testing, python, golden-gate |

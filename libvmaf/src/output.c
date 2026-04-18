@@ -26,7 +26,11 @@
 
 #include "libvmaf/libvmaf.h"
 
-#define DEFAULT_SCORE_FORMAT "%.17g"
+/* Library default matches Netflix's pre-fork output exactly so consumers of
+ * vmaf_write_output_with_format(..., NULL) get golden-compatible numbers
+ * without an explicit format. Round-trip lossless is opt-in via "%.17g".
+ * See ADR-0119 (supersedes ADR-0006). */
+#define DEFAULT_SCORE_FORMAT "%.6f"
 
 static unsigned max_capacity(VmafFeatureCollector *fc)
 {
