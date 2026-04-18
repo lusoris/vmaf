@@ -14,6 +14,12 @@ ARG FFMPEG_TAG=n8.1
 # constexpr in device code; extended-lambda allows __device__ lambdas with capture;
 # expt-relaxed-constexpr is required by several Thrust/CUB templates we pull in.
 ARG NVCC_FLAGS="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_90,code=sm_90 -gencode arch=compute_120,code=sm_120 -gencode arch=compute_120,code=compute_120 --expt-relaxed-constexpr --extended-lambda --expt-extended-lambda -O2"
+# FFmpeg's configure runs check_nvcc in `-ptx` device-only mode. The
+# experimental host+device flags above (--extended-lambda et al.) are valid
+# for libvmaf's Thrust/CUB code but make `nvcc -ptx` fail the configure
+# probe. Same gencode set, no experimental flags, no sm_* binary targets
+# (keep only compute_*,compute_* PTX so -ptx mode can emit something).
+ARG FFMPEG_NVCC_FLAGS="-gencode arch=compute_75,code=compute_75 -gencode arch=compute_80,code=compute_80 -gencode arch=compute_90,code=compute_90 -gencode arch=compute_120,code=compute_120 -O2"
 ARG ENABLE_SYCL=false
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -95,12 +101,11 @@ RUN set -e; \
             || patch -p1 < "/tmp/ffmpeg-patches/$line"; \
     done < /tmp/ffmpeg-patches/series.txt
 
-RUN SYCL_FLAG="" && \
-    if [ "$ENABLE_SYCL" = "true" ]; then SYCL_FLAG="--enable-libvmaf-sycl"; fi && \
-    # Unquoted ${SYCL_FLAG} so an empty value vanishes; "${SYCL_FLAG}"
-    # would pass FFmpeg's configure a literal empty arg, which it
-    # rejects with `Unknown option ""`. ENABLE_SYCL=false is default.
-    ./configure \
+# libvmaf-sycl is auto-detected by FFmpeg's check_pkg_config (added by
+# patch 0003); there is no `--enable-libvmaf-sycl` flag to pass. SYCL
+# support follows libvmaf's pkg-config (set by `-Denable_sycl=true` at
+# libvmaf build time).
+RUN ./configure \
         --enable-libnpp \
         --enable-nonfree \
         --enable-nvdec \
@@ -111,8 +116,7 @@ RUN SYCL_FLAG="" && \
         --enable-libvmaf \
         --enable-ffnvcodec \
         --disable-stripping \
-        --nvccflags="${NVCC_FLAGS}" \
-        ${SYCL_FLAG} && \
+        --nvccflags="${FFMPEG_NVCC_FLAGS}" && \
     make -j"$(nproc)" && \
     make install
 

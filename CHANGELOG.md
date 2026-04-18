@@ -181,7 +181,15 @@
   hand-stubbed with placeholder SHAs and `git apply` choked on them).
   Docker images and CI FFmpeg-SYCL builds now exercise the full
   fork-added FFmpeg surface (tiny-AI + `vmaf_pre` + SYCL selector),
-  not just SYCL. See ADR-0118 and entry 0017.
+  not just SYCL. Also drops the bogus `--enable-libvmaf-sycl`
+  configure flag (patch 0003 wires SYCL via `check_pkg_config`
+  auto-detection — there is no such configure switch) and splits
+  the Dockerfile's nvcc flags into a libvmaf set
+  (`NVCC_FLAGS`, retains `--extended-lambda` and the `--expt-*`
+  flags for Thrust/CUB) and an FFmpeg set (`FFMPEG_NVCC_FLAGS`,
+  PTX-only `code=compute_*` targets, no experimental host+device
+  flags) so FFmpeg's `check_nvcc -ptx` probe stops failing. See
+  ADR-0118 and entry 0017.
 
 ### Re-attributed
 

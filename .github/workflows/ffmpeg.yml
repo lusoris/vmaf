@@ -125,8 +125,10 @@ jobs:
             git apply "../ffmpeg-patches/$line" \
               || patch -p1 < "../ffmpeg-patches/$line"
           done < ../ffmpeg-patches/series.txt
+          # libvmaf-sycl is auto-detected by check_pkg_config in patch 0003;
+          # there is no `--enable-libvmaf-sycl` flag to pass.
           PKG_CONFIG_PATH="/usr/local/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" \
-          ./configure --enable-version3 --enable-libvmaf --enable-libvmaf-sycl \
+          ./configure --enable-version3 --enable-libvmaf \
             --enable-libvpl --disable-indevs --cc="$CC" --cxx="$CXX" \
             || { tail -50 ffbuild/config.log; exit 1; }
           sudo make --quiet -j $(nproc) install

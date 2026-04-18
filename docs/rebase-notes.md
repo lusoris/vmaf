@@ -554,6 +554,24 @@ inline.*
   reorder existing entries — patch 0003 references LIBVMAFContext
   fields added by patch 0001, so any out-of-order apply breaks
   the build at hunk 2 of vf_libvmaf.c.
+- **Two flag-side fixes bundled in the same PR**:
+  1. `--enable-libvmaf-sycl` is **not** a valid FFmpeg configure
+     option. Patch 0003 uses `check_pkg_config libvmaf_sycl …`
+     auto-detection (matching how `libvmaf_cuda` is wired) — it
+     never registers the switch. Both Dockerfile and ffmpeg.yml
+     used to pass the flag and configure rejected it with
+     `Unknown option "--enable-libvmaf-sycl"`. SYCL support is
+     now controlled solely by `-Denable_sycl=true` at libvmaf
+     build time; FFmpeg picks it up automatically when
+     `libvmaf-sycl.pc` is on `PKG_CONFIG_PATH`.
+  2. The Dockerfile now carries **two** nvcc-flag ARGs.
+     `NVCC_FLAGS` (libvmaf) keeps the experimental
+     `--extended-lambda` / `--expt-relaxed-constexpr` /
+     `--expt-extended-lambda` flags needed for Thrust/CUB host+device
+     code. `FFMPEG_NVCC_FLAGS` (FFmpeg) carries only gencode with
+     `code=compute_*` PTX targets — no `code=sm_*` binary targets
+     and no experimental flags — because FFmpeg's `check_nvcc`
+     invokes nvcc in `-ptx` device-only mode, which rejects both.
 - **Re-test**:
 
   ```bash
@@ -567,7 +585,9 @@ inline.*
               || patch -p1 < "/path/to/vmaf/ffmpeg-patches/$line"; \
       done < /path/to/vmaf/ffmpeg-patches/series.txt
   # Expected: all three patches apply with no rejects; the resulting
-  # tree compiles with --enable-libvmaf --enable-libvmaf-sycl.
+  # tree compiles with --enable-libvmaf. SYCL is auto-detected via
+  # check_pkg_config (patch 0003), so no explicit configure flag is
+  # required when libvmaf-sycl.pc is on PKG_CONFIG_PATH.
   ```
 
   Pure fork-local series; no Netflix-side conflict vector. See ADR-0118.

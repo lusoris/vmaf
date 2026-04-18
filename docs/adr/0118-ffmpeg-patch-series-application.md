@@ -35,6 +35,26 @@ PR #50 surfaced all three problems simultaneously the moment its consolidated
 master-targeting trigger matrix sent the docker / FFmpeg-SYCL jobs through the
 gate for the first time on this branch.
 
+Two latent build-flag bugs surfaced in the same trigger window once the patch
+series itself applied cleanly:
+
+- **Phantom `--enable-libvmaf-sycl` configure flag.** Both Dockerfile and
+  `ffmpeg.yml` passed `--enable-libvmaf-sycl` to FFmpeg's `./configure`. Patch
+  0003 only adds `check_pkg_config libvmaf_sycl …` (auto-detection that
+  matches how `libvmaf_cuda` is wired) — it never registers the
+  `libvmaf_sycl` switch in `EXTERNAL_LIBRARY_LIST`, so configure rejects the
+  flag with `Unknown option "--enable-libvmaf-sycl"`. The flag was a
+  copy-paste artefact from before patch 0003 was switched to auto-detection.
+- **Experimental nvcc flags reused for FFmpeg's check_nvcc.** Commit
+  `8a995cb0` (ADR-D27) appended `--expt-relaxed-constexpr --extended-lambda
+  --expt-extended-lambda` to `NVCC_FLAGS` for libvmaf's Thrust/CUB code, then
+  the Dockerfile threaded the same `${NVCC_FLAGS}` into FFmpeg's
+  `--nvccflags=`. FFmpeg's `check_nvcc` invokes nvcc in `-ptx` device-only
+  mode; `--extended-lambda` requires host+device compilation and `code=sm_*`
+  binary targets are invalid in `-ptx` mode. Result: `failed checking for
+  nvcc.` even though the same nvcc compiled libvmaf successfully one step
+  earlier.
+
 ## Decision
 
 **We will treat `ffmpeg-patches/` as a managed quilt-style series, applied in
@@ -43,6 +63,20 @@ the order recorded in `ffmpeg-patches/series.txt`.** The Dockerfile and the
 via `git apply` with a `patch -p1` fallback. The patches themselves are
 regenerated via real `git format-patch -3` runs against an FFmpeg `n8.1`
 worktree, so they carry valid `index` lines and committable SHAs.
+
+**The two latent build-flag bugs are fixed in the same PR** (in scope per the
+no-skip-shortcuts memory rule — they're regressions newly exposed by the
+trigger consolidation, not orthogonal cleanup):
+
+- Drop the `--enable-libvmaf-sycl` configure flag from the Dockerfile and
+  `ffmpeg.yml`. SYCL support is enabled by setting `-Denable_sycl=true` at
+  libvmaf build time; FFmpeg auto-detects libvmaf-sycl via the
+  `check_pkg_config` line patch 0003 adds.
+- Split nvcc flags into two ARGs in the Dockerfile. `NVCC_FLAGS` keeps the
+  experimental `--extended-lambda` / `--expt-*` flags for libvmaf's CUDA
+  build; new `FFMPEG_NVCC_FLAGS` carries only the gencode set with
+  `code=compute_*` PTX targets (no `code=sm_*` binary targets, no
+  experimental flags) so FFmpeg's `-ptx` configure probe succeeds.
 
 ## Alternatives considered
 
