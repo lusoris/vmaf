@@ -310,7 +310,7 @@ jobs:
           #   - coverage.json (machine-readable summary the gate parses)
           #   - coverage.txt (human-readable, surfaced in CI logs)
           ~/.local/bin/gcovr --root .. \
-              --filter '../libvmaf/src/.*' \
+              --filter 'libvmaf/src/.*' \
               --exclude '.*/test/.*' \
               --exclude '.*/tests/.*' \
               --exclude '.*/subprojects/.*' \
@@ -398,7 +398,7 @@ jobs:
           # Same gcovr migration as CPU coverage job (see ADR-0110).
           python3 -m pip install --user 'gcovr>=8.0'
           ~/.local/bin/gcovr --root .. \
-              --filter '../libvmaf/src/.*' \
+              --filter 'libvmaf/src/.*' \
               --exclude '.*/test/.*' \
               --exclude '.*/tests/.*' \
               --exclude '.*/subprojects/.*' \
