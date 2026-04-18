@@ -275,7 +275,8 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
      * was a hard failure. Callers that need to detect the degraded mode can
      * check vmaf_ort_attached_ep() — it now returns "CPU" after fallback.
      * See ADR-0113. */
-    OrtStatus *create_st = sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session);
+    OrtStatus *create_st =
+        sess->api->CreateSession(sess->env, onnx_path, sess->opts, &sess->session);
     if (create_st != NULL) {
         sess->api->ReleaseStatus(create_st);
         if (strcmp(sess->ep_name, "CPU") != 0) {
