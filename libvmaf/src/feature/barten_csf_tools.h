@@ -25,10 +25,20 @@
 #ifndef BARTEN_CSF_TOOLS_H_
 #define BARTEN_CSF_TOOLS_H_
 
+/* MinGW's <math.h> does not expose M_PI unless _USE_MATH_DEFINES is set
+ * before the include; provide a fallback that mirrors the convention used
+ * in adm_tools.h, integer_adm.h, ciede.c, etc. */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846264338327
+#endif
+
 static float linear_interpolate(float left_position, float left_value, float right_position,
                                 float right_value, float sample_position)
 {
-    return left_value + ((right_value - left_value) / (right_position - left_position)) *
+    /* Promote one operand to double so the chained float multiplication does not
+     * lose precision before being widened — fork-only deviation from upstream
+     * Netflix/vmaf 966be8d5 to silence cpp/integer-multiplication-cast-to-long. */
+    return left_value + ((double)(right_value - left_value) / (right_position - left_position)) *
                             (sample_position - left_position);
 }
 
@@ -57,7 +67,8 @@ static float barten_rod_cone_sens(float luminance_level)
     float cvi_sens_drop = barten_csf_sa[1];   // p6 in the paper
     float cvi_trans_slope = barten_csf_sa[2]; // p7 in the paper
     float cvi_low_slope = barten_csf_sa[3];   // p8 in the paper
-    return barten_csf_sa[0] *
+    /* Promote barten_csf_sa[0] to double; see linear_interpolate above. */
+    return (double)barten_csf_sa[0] *
            pow(pow(cvi_sens_drop / luminance_level, cvi_trans_slope) + 1, -cvi_low_slope);
 }
 
@@ -125,11 +136,13 @@ static FORCE_INLINE inline float barten_csf(int lambda, double adm_norm_view_dis
     // these values can be derived by the matlab code:
     // metric_par = hdrvdp_parse_options({})
     // hdrvdp_ncsf(rho, lum, metric_par); (any rho works)
-    float a = 1.0f + pow(p_0 * spatial_frequency, p_1);
-    float b = 1.0f / pow(1 - exp(-pow(spatial_frequency / 7, 2)), p_2);
+    /* Promote one operand of each chained float product to double; see
+     * linear_interpolate above. */
+    float a = 1.0f + pow((double)p_0 * spatial_frequency, p_1);
+    float b = 1.0f / pow(1 - exp(-pow((double)spatial_frequency / 7, 2)), p_2);
 
     /* neural contrast sensitivity function */
-    float csf = p_3 / pow(a * b, 0.5);
+    float csf = p_3 / pow((double)a * b, 0.5);
 
     /* return entire CSF */
     return csf * barten_mtf(spatial_frequency) * barten_rod_cone_sens(adm_csf_lum_level) *
@@ -160,7 +173,7 @@ static const float BLENDED_CSF_480_3H[2][4] = {{0.027961, 0.045875, 0.060275, 0.
 static const float BLENDED_CSF_480_5H[2][4] = {{0.016781, 0.032822, 0.05032, 0.061594},
                                                {0.00691, 0.016545, 0.029917, 0.037777}};
 
-/* 
+/*
  * BLENDED_CSF coefficient arrays for v1.0.17+ models (with CSF bug fix)
  * These coefficients incorporate the L1 optimization scaling parameter fix
  */
@@ -190,7 +203,7 @@ static const float BLENDED_CSF_480_5H_MAE[2][4] = {{0.015665, 0.028766, 0.040612
 
 /*
  * CSF function with CSF bug fix
- * Uses the corrected L1 optimization 
+ * Uses the corrected L1 optimization
  */
 static FORCE_INLINE inline float barten_watson_blend_csf_mae(int scale, int theta,
                                                              double adm_norm_view_dist,
