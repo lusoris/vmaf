@@ -342,10 +342,18 @@ inline.*
   `coverage-lcov-{cpu,gpu}` → `coverage-{cpu,gpu}`),
   `scripts/ci/coverage-check.sh` (rewritten to parse gcovr JSON via
   `python3 -c` — same CLI signature),
+  `libvmaf/src/dnn/dnn_api.c` + new `libvmaf/src/dnn/dnn_attach_api.c`
+  (`vmaf_use_tiny_model` carved out into its own TU so the unit-test
+  binaries — which pull in `dnn_sources` for `feature_lpips.c` but
+  never link `libvmaf.c` — don't end up with an undefined reference
+  to `vmaf_ctx_dnn_attach` once `enable_dnn=enabled` activates the
+  real bodies),
+  `libvmaf/src/dnn/meson.build` + `libvmaf/src/meson.build`
+  (new `dnn_libvmaf_only_sources` list wired into `libvmaf.so` only),
   `python/test/{feature_extractor,quality_runner,vmafexec,vmafexec_feature_extractor}_test.py`
   (mechanical Black + isort reformat — no assertion values changed,
   imports regrouped, line wrapping normalised).
-- **Invariant**: coverage CI must keep all four pieces in lockstep —
+- **Invariant**: coverage CI must keep all five pieces in lockstep —
   (a) `-fprofile-update=atomic` closes the intra-process counter race
   on SIMD inner loops (`vif_avx2.c:673`, `motion_avx2`, etc.) →
   negative counts → `geninfo`/gcovr abort; (b) `--num-processes 1`
@@ -359,7 +367,14 @@ inline.*
   attempt that had only (a)+(b)); (d) ORT install + `enable_dnn=enabled`
   in the coverage job is what makes `libvmaf/src/dnn/*.c` measurable
   in the first place — without ORT, the DNN tree compiles in stub
-  branches and the 85% per-critical-file gate is meaningless. Lint
+  branches and the 85% per-critical-file gate is meaningless;
+  (e) `vmaf_use_tiny_model` lives in `dnn_attach_api.c` and is added
+  to `libvmaf.so` only via `dnn_libvmaf_only_sources` — moving it
+  back into `dnn_api.c` reintroduces the `vmaf_ctx_dnn_attach`
+  undefined-reference link error in `test_feature_extractor` /
+  `test_lpips` whenever `enable_dnn=enabled`, since those test
+  binaries pull in `dnn_sources` for `feature_lpips.c` but never
+  link `libvmaf.c`. Lint
   scope: upstream-mirror Python tests are linted at the same standard
   as fork-added code; we accept that `/sync-upstream` and
   `/port-upstream-commit` will re-trigger Black/isort failures

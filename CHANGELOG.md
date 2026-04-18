@@ -90,7 +90,14 @@
   coverage instead of stubs (the 85% per-critical-file gate was
   previously unmeasurable). Coverage artifact is now
   `coverage.{xml,json,txt}` (Cobertura + gcovr JSON summary +
-  human-readable text).
+  human-readable text). (5) Carve `vmaf_use_tiny_model` out of
+  `libvmaf/src/dnn/dnn_api.c` into a new
+  `libvmaf/src/dnn/dnn_attach_api.c` so the unit-test binaries —
+  which pull in `dnn_sources` for `feature_lpips.c` but never link
+  `libvmaf.c` — don't end up with an undefined reference to
+  `vmaf_ctx_dnn_attach` once `enable_dnn=enabled` activates the real
+  bodies. The new TU is wired into `libvmaf.so` only via a separate
+  `dnn_libvmaf_only_sources` list.
   See [ADR-0110](docs/adr/0110-coverage-gate-fprofile-update-atomic.md)
   (race fixes) and
   [ADR-0111](docs/adr/0111-coverage-gate-gcovr-with-ort.md)
