@@ -255,6 +255,14 @@
   scores at `%.17g` instead of `%.6f` for round-trip reproducibility.
 - Copyright headers across Netflix-authored sources updated `2016-2020` →
   `2016-2026`.
+- **CI hygiene — Node 24 stragglers**: finish the `@v7` bump left over
+  after the rename sweep (rebase-notes 0019/0020). `scorecard.yml`
+  SHA-pinned `actions/upload-artifact@330a01c4... # v5` →
+  `@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1`, and
+  `nightly-bisect.yml` `actions/setup-python@v5` → `@v6`. Resolves the
+  last `Node.js 20 actions are deprecated` runner warnings ahead of
+  the **2026-06-02** forced-Node-24 cutover (full Node-20 removal
+  2026-09-16). Every other workflow was already bumped on master.
 - **Engineering process**: every fork-local PR now ships the six
   deep-dive deliverables (research digest, decision matrix in the
   ADR, `AGENTS.md` invariant note, reproducer command, fork-changelog
