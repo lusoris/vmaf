@@ -38,7 +38,137 @@ struct VmafOrtSession {
     char **output_names;
     size_t n_inputs;
     size_t n_outputs;
+    /* Per-IO element type (ONNXTensorElementDataType). Populated at open
+     * time so vmaf_ort_infer/run can decide whether to emit fp32 or fp16
+     * tensors to ORT without re-querying the model each call. */
+    int *input_elem_types;
+    int *output_elem_types;
+    bool fp16_io;
+    /* EP actually attached, for diagnostics. "CPU" when nothing else bound. */
+    const char *ep_name;
 };
+
+/* ------------------------------------------------------------------ */
+/* Portable IEEE 754 half-precision conversion.                        */
+/* Avoids depending on _Float16 / F16C intrinsics so the DNN backend    */
+/* still builds on hosts without hardware fp16 support (older SSE      */
+/* x86_64, ARMv7). Handles inf / nan / subnormals / overflow.          */
+/* ------------------------------------------------------------------ */
+
+static uint16_t fp32_to_fp16(float f)
+{
+    uint32_t x;
+    memcpy(&x, &f, sizeof(x));
+    const uint32_t sign = (x >> 31) & 0x1u;
+    const int32_t exp_f = (int32_t)((x >> 23) & 0xFFu) - 127;
+    uint32_t mant = x & 0x7FFFFFu;
+
+    if (exp_f == 128) {
+        /* inf / nan */
+        return (uint16_t)((sign << 15) | 0x7C00u | (mant ? 0x200u : 0u));
+    }
+    if (exp_f > 15) {
+        /* overflow → inf */
+        return (uint16_t)((sign << 15) | 0x7C00u);
+    }
+    if (exp_f < -24) {
+        /* underflow → ±0 */
+        return (uint16_t)(sign << 15);
+    }
+    if (exp_f < -14) {
+        /* subnormal half */
+        mant |= 0x800000u;
+        const uint32_t shift = (uint32_t)(-exp_f - 14) + 13u;
+        return (uint16_t)((sign << 15) | (mant >> shift));
+    }
+    const uint16_t h_exp = (uint16_t)(exp_f + 15);
+    const uint16_t h_mant = (uint16_t)(mant >> 13);
+    return (uint16_t)((sign << 15) | ((uint16_t)(h_exp << 10)) | h_mant);
+}
+
+static float fp16_to_fp32(uint16_t h)
+{
+    const uint32_t sign = (uint32_t)(h >> 15) & 0x1u;
+    uint32_t exp_h = (uint32_t)(h >> 10) & 0x1Fu;
+    uint32_t mant = (uint32_t)h & 0x3FFu;
+    uint32_t x;
+
+    if (exp_h == 0u) {
+        if (mant == 0u) {
+            x = sign << 31;
+        } else {
+            /* subnormal */
+            int32_t e = -1;
+            do {
+                mant <<= 1;
+                ++e;
+            } while ((mant & 0x400u) == 0u);
+            mant &= 0x3FFu;
+            x = (sign << 31) | (uint32_t)((127 - 14 - e) << 23) | (mant << 13);
+        }
+    } else if (exp_h == 31u) {
+        x = (sign << 31) | 0x7F800000u | (mant << 13);
+    } else {
+        x = (sign << 31) | ((exp_h + 112u) << 23) | (mant << 13);
+    }
+
+    float f;
+    memcpy(&f, &x, sizeof(f));
+    return f;
+}
+
+/* ------------------------------------------------------------------ */
+/* Execution-provider selection.                                       */
+/* ORT's generic SessionOptionsAppendExecutionProvider returns         */
+/* non-null OrtStatus when the requested EP isn't registered in this   */
+/* ORT build — we treat that as "EP unavailable, try next" and fall    */
+/* through to the CPU EP, which is always linked.                      */
+/* ------------------------------------------------------------------ */
+
+static int try_append_ep_generic(struct VmafOrtSession *sess, const char *name,
+                                 const char *const *keys, const char *const *values, size_t nk)
+{
+    OrtStatus *st =
+        sess->api->SessionOptionsAppendExecutionProvider(sess->opts, name, keys, values, nk);
+    if (st != NULL) {
+        sess->api->ReleaseStatus(st);
+        return -ENOSYS;
+    }
+    return 0;
+}
+
+static int try_append_cuda(struct VmafOrtSession *sess, int device_index)
+{
+    OrtCUDAProviderOptions cuda = {0};
+    cuda.device_id = device_index;
+    OrtStatus *st = sess->api->SessionOptionsAppendExecutionProvider_CUDA(sess->opts, &cuda);
+    if (st != NULL) {
+        sess->api->ReleaseStatus(st);
+        return -ENOSYS;
+    }
+    return 0;
+}
+
+static int try_append_openvino(struct VmafOrtSession *sess, const char *device_type, bool fp16_io)
+{
+    const char *keys[2];
+    const char *values[2];
+    size_t nk = 0u;
+    keys[nk] = "device_type";
+    values[nk] = device_type;
+    ++nk;
+    if (fp16_io) {
+        keys[nk] = "precision";
+        values[nk] = "FP16";
+        ++nk;
+    }
+    return try_append_ep_generic(sess, "OpenVINOExecutionProvider", keys, values, nk);
+}
+
+static int try_append_rocm(struct VmafOrtSession *sess)
+{
+    return try_append_ep_generic(sess, "ROCMExecutionProvider", NULL, NULL, 0u);
+}
 
 #define ORT_TRY(call)                                                                              \
     do {                                                                                           \
@@ -77,22 +207,47 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
 
     const VmafDnnDevice dev = cfg ? cfg->device : VMAF_DNN_DEVICE_AUTO;
     const int idx = (cfg && cfg->device_index > 0) ? cfg->device_index : 0;
-    (void)idx;
+    sess->fp16_io = (cfg != NULL) && cfg->fp16_io;
 
-    /* Execution-provider selection. Silently falls back to CPU if the
-     * requested EP isn't compiled into ORT; the DNN runtime is best-effort
-     * and the CPU EP is always available. */
+    /* Execution-provider selection.
+     *
+     * AUTO: try CUDA → OpenVINO (GPU then CPU) → ROCm → CPU. The first EP
+     * whose append call returns NULL OrtStatus wins; EPs absent from the
+     * ORT build return non-null and we fall through. The CPU EP is always
+     * linked, so the final fall-through never fails.
+     *
+     * Explicit device: try only the requested EP; on failure the session
+     * silently downgrades to CPU. Callers that need to know which EP
+     * actually bound can check sess->ep_name via vmaf_ort_attached_ep()
+     * (exposed for diagnostics / tests).
+     */
+    sess->ep_name = "CPU";
     switch (dev) {
-#ifdef ORT_API_HAS_CUDA
-    case VMAF_DNN_DEVICE_CUDA: {
-        OrtCUDAProviderOptions cuda = {0};
-        cuda.device_id = idx;
-        (void)sess->api->SessionOptionsAppendExecutionProvider_CUDA(sess->opts, &cuda);
+    case VMAF_DNN_DEVICE_CUDA:
+        if (try_append_cuda(sess, idx) == 0)
+            sess->ep_name = "CUDA";
         break;
-    }
-#endif
-    case VMAF_DNN_DEVICE_CPU:
+    case VMAF_DNN_DEVICE_OPENVINO:
+        if (try_append_openvino(sess, "GPU", sess->fp16_io) == 0) {
+            sess->ep_name = "OpenVINO:GPU";
+        } else if (try_append_openvino(sess, "CPU", sess->fp16_io) == 0) {
+            sess->ep_name = "OpenVINO:CPU";
+        }
+        break;
+    case VMAF_DNN_DEVICE_ROCM:
+        if (try_append_rocm(sess) == 0)
+            sess->ep_name = "ROCm";
+        break;
     case VMAF_DNN_DEVICE_AUTO:
+        if (try_append_cuda(sess, idx) == 0) {
+            sess->ep_name = "CUDA";
+        } else if (try_append_openvino(sess, "GPU", sess->fp16_io) == 0) {
+            sess->ep_name = "OpenVINO:GPU";
+        } else if (try_append_rocm(sess) == 0) {
+            sess->ep_name = "ROCm";
+        }
+        break;
+    case VMAF_DNN_DEVICE_CPU:
     default:
         break;
     }
@@ -127,7 +282,127 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
     sess->input_name = sess->input_names[0];
     sess->output_name = sess->output_names[0];
 
+    /* Cache per-IO element types so the run path can decide fp32 vs fp16
+     * tensor creation without re-querying the model every call. */
+    sess->input_elem_types = (int *)calloc(ni, sizeof(int));
+    sess->output_elem_types = (int *)calloc(no, sizeof(int));
+    if (!sess->input_elem_types || !sess->output_elem_types) {
+        vmaf_ort_close(sess);
+        return -ENOMEM;
+    }
+    for (size_t i = 0; i < ni; ++i) {
+        OrtTypeInfo *ti = NULL;
+        ORT_TRY(sess->api->SessionGetInputTypeInfo(sess->session, i, &ti));
+        const OrtTensorTypeAndShapeInfo *tinfo = NULL;
+        OrtStatus *cst = sess->api->CastTypeInfoToTensorInfo(ti, &tinfo);
+        if (cst == NULL && tinfo != NULL) {
+            ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
+            (void)sess->api->GetTensorElementType(tinfo, &et);
+            sess->input_elem_types[i] = (int)et;
+        } else if (cst != NULL) {
+            sess->api->ReleaseStatus(cst);
+        }
+        sess->api->ReleaseTypeInfo(ti);
+    }
+    for (size_t i = 0; i < no; ++i) {
+        OrtTypeInfo *ti = NULL;
+        ORT_TRY(sess->api->SessionGetOutputTypeInfo(sess->session, i, &ti));
+        const OrtTensorTypeAndShapeInfo *tinfo = NULL;
+        OrtStatus *cst = sess->api->CastTypeInfoToTensorInfo(ti, &tinfo);
+        if (cst == NULL && tinfo != NULL) {
+            ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
+            (void)sess->api->GetTensorElementType(tinfo, &et);
+            sess->output_elem_types[i] = (int)et;
+        } else if (cst != NULL) {
+            sess->api->ReleaseStatus(cst);
+        }
+        sess->api->ReleaseTypeInfo(ti);
+    }
+
     *out = sess;
+    return 0;
+}
+
+/* Build an OrtValue from caller-supplied fp32 data. When the model declares
+ * FLOAT16 at this slot and fp16_io is enabled, we emit a scratch fp16 tensor
+ * (ownership returned via @p scratch_out so the caller can free it after
+ * Run()); otherwise the caller's buffer is wrapped directly as fp32. */
+static int build_input_tensor(VmafOrtSession *sess, OrtMemoryInfo *mem, size_t slot,
+                              const float *data, const int64_t *shape, size_t rank,
+                              OrtValue **tensor_out, void **scratch_out)
+{
+    size_t n = 1;
+    for (size_t d = 0; d < rank; ++d) {
+        n *= (size_t)shape[d];
+    }
+
+    const bool want_fp16 =
+        sess->fp16_io && sess->input_elem_types[slot] == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16;
+
+    if (want_fp16) {
+        uint16_t *half = (uint16_t *)malloc(n * sizeof(uint16_t));
+        if (!half)
+            return -ENOMEM;
+        for (size_t i = 0; i < n; ++i)
+            half[i] = fp32_to_fp16(data[i]);
+        OrtStatus *st = sess->api->CreateTensorWithDataAsOrtValue(
+            mem, half, n * sizeof(uint16_t), shape, rank, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16,
+            tensor_out);
+        if (st) {
+            sess->api->ReleaseStatus(st);
+            free(half);
+            return -EIO;
+        }
+        *scratch_out = half;
+        return 0;
+    }
+
+    OrtStatus *st =
+        sess->api->CreateTensorWithDataAsOrtValue(mem, (void *)data, n * sizeof(float), shape, rank,
+                                                  ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, tensor_out);
+    if (st) {
+        sess->api->ReleaseStatus(st);
+        return -EIO;
+    }
+    *scratch_out = NULL;
+    return 0;
+}
+
+/* Copy out an OrtValue into the caller's fp32 buffer. Detects the actual
+ * tensor element type from the OrtValue — if fp16, casts back to fp32. */
+static int copy_output_tensor(VmafOrtSession *sess, OrtValue *tensor, float *dst, size_t capacity,
+                              size_t *written)
+{
+    OrtTensorTypeAndShapeInfo *info = NULL;
+    OrtStatus *st = sess->api->GetTensorTypeAndShape(tensor, &info);
+    if (st) {
+        sess->api->ReleaseStatus(st);
+        return -EIO;
+    }
+    size_t out_n = 0;
+    (void)sess->api->GetTensorShapeElementCount(info, &out_n);
+    ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    (void)sess->api->GetTensorElementType(info, &et);
+    sess->api->ReleaseTensorTypeAndShapeInfo(info);
+
+    if (written)
+        *written = out_n;
+    if (out_n > capacity)
+        return -ENOSPC;
+
+    void *raw = NULL;
+    st = sess->api->GetTensorMutableData(tensor, &raw);
+    if (st) {
+        sess->api->ReleaseStatus(st);
+        return -EIO;
+    }
+    if (et == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+        const uint16_t *src = (const uint16_t *)raw;
+        for (size_t i = 0; i < out_n; ++i)
+            dst[i] = fp16_to_fp32(src[i]);
+    } else {
+        memcpy(dst, raw, out_n * sizeof(float));
+    }
     return 0;
 }
 
@@ -144,20 +419,13 @@ int vmaf_ort_infer(VmafOrtSession *sess, const float *input, const int64_t *inpu
         return -EIO;
     }
 
-    size_t n = 1;
-    for (size_t i = 0; i < input_rank; ++i) {
-        n *= (size_t)input_shape[i];
-    }
-
     OrtValue *in_tensor = NULL;
-    st = sess->api->CreateTensorWithDataAsOrtValue(mem, (void *)input, n * sizeof(float),
-                                                   input_shape, input_rank,
-                                                   ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor);
+    void *in_scratch = NULL;
+    int rc =
+        build_input_tensor(sess, mem, 0u, input, input_shape, input_rank, &in_tensor, &in_scratch);
     sess->api->ReleaseMemoryInfo(mem);
-    if (st) {
-        sess->api->ReleaseStatus(st);
-        return -EIO;
-    }
+    if (rc != 0)
+        return rc;
 
     const char *in_names[1] = {sess->input_name};
     const char *out_names[1] = {sess->output_name};
@@ -166,39 +434,18 @@ int vmaf_ort_infer(VmafOrtSession *sess, const float *input, const int64_t *inpu
     st = sess->api->Run(sess->session, NULL, in_names, (const OrtValue *const *)&in_tensor, 1,
                         out_names, 1, &out_tensor);
     sess->api->ReleaseValue(in_tensor);
+    free(in_scratch);
     if (st) {
         sess->api->ReleaseStatus(st);
         return -EIO;
     }
 
-    float *out_data = NULL;
-    st = sess->api->GetTensorMutableData(out_tensor, (void **)&out_data);
-    if (st) {
-        sess->api->ReleaseStatus(st);
-        sess->api->ReleaseValue(out_tensor);
-        return -EIO;
-    }
-
-    OrtTensorTypeAndShapeInfo *info = NULL;
-    st = sess->api->GetTensorTypeAndShape(out_tensor, &info);
-    if (st) {
-        sess->api->ReleaseStatus(st);
-        sess->api->ReleaseValue(out_tensor);
-        return -EIO;
-    }
-    size_t out_n = 0;
-    (void)sess->api->GetTensorShapeElementCount(info, &out_n);
-    sess->api->ReleaseTensorTypeAndShapeInfo(info);
-
-    if (out_n > output_capacity) {
-        sess->api->ReleaseValue(out_tensor);
-        return -ENOSPC;
-    }
-    memcpy(output, out_data, out_n * sizeof(float));
-    if (output_written)
-        *output_written = out_n;
+    size_t produced = 0;
+    rc = copy_output_tensor(sess, out_tensor, output, output_capacity, &produced);
     sess->api->ReleaseValue(out_tensor);
-    return 0;
+    if (output_written)
+        *output_written = produced;
+    return rc;
 }
 
 int vmaf_ort_input_shape(VmafOrtSession *sess, int64_t *out_shape, size_t max_rank,
@@ -275,7 +522,16 @@ void vmaf_ort_close(VmafOrtSession *sess)
     }
     free(sess->input_names);
     free(sess->output_names);
+    free(sess->input_elem_types);
+    free(sess->output_elem_types);
     free(sess);
+}
+
+const char *vmaf_ort_attached_ep(const VmafOrtSession *sess)
+{
+    if (!sess)
+        return NULL;
+    return sess->ep_name;
 }
 
 int vmaf_ort_io_count(VmafOrtSession *sess, size_t *n_inputs, size_t *n_outputs)
@@ -326,12 +582,14 @@ int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_i
     const char **out_names = (const char **)calloc(n_outputs, sizeof(char *));
     OrtValue **in_vals = (OrtValue **)calloc(n_inputs, sizeof(OrtValue *));
     OrtValue **out_vals = (OrtValue **)calloc(n_outputs, sizeof(OrtValue *));
-    if (!in_names || !out_names || !in_vals || !out_vals) {
+    void **in_scratch = (void **)calloc(n_inputs, sizeof(void *));
+    if (!in_names || !out_names || !in_vals || !out_vals || !in_scratch) {
         sess->api->ReleaseMemoryInfo(mem);
         free(in_names);
         free(out_names);
         free(in_vals);
         free(out_vals);
+        free(in_scratch);
         return -ENOMEM;
     }
 
@@ -346,20 +604,16 @@ int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_i
             rc = -EINVAL;
             goto cleanup;
         }
-        size_t n = 1;
         for (size_t d = 0; d < inputs[i].rank; ++d) {
             if (inputs[i].shape[d] <= 0) {
                 rc = -EINVAL;
                 goto cleanup;
             }
-            n *= (size_t)inputs[i].shape[d];
         }
-        OrtStatus *st = sess->api->CreateTensorWithDataAsOrtValue(
-            mem, (void *)inputs[i].data, n * sizeof(float), inputs[i].shape, inputs[i].rank,
-            ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_vals[i]);
-        if (st) {
-            sess->api->ReleaseStatus(st);
-            rc = -EIO;
+        int brc = build_input_tensor(sess, mem, i, inputs[i].data, inputs[i].shape, inputs[i].rank,
+                                     &in_vals[i], &in_scratch[i]);
+        if (brc != 0) {
+            rc = brc;
             goto cleanup;
         }
     }
@@ -385,36 +639,25 @@ int vmaf_ort_run(VmafOrtSession *sess, const VmafOrtTensorIn *inputs, size_t n_i
     }
 
     for (size_t i = 0; i < n_outputs; ++i) {
-        OrtTensorTypeAndShapeInfo *info = NULL;
-        OrtStatus *st = sess->api->GetTensorTypeAndShape(out_vals[i], &info);
-        if (st) {
-            sess->api->ReleaseStatus(st);
-            rc = -EIO;
-            goto cleanup;
-        }
         size_t produced = 0;
-        (void)sess->api->GetTensorShapeElementCount(info, &produced);
-        sess->api->ReleaseTensorTypeAndShapeInfo(info);
-
+        int cpy =
+            copy_output_tensor(sess, out_vals[i], outputs[i].data, outputs[i].capacity, &produced);
         outputs[i].written = produced;
-        if (produced > outputs[i].capacity) {
+        if (cpy == -ENOSPC) {
+            /* Short buffer — record the required count and keep going so all
+             * outputs get their `written` populated, but propagate -ENOSPC. */
             rc = -ENOSPC;
-            continue;
-        }
-        float *out_data = NULL;
-        st = sess->api->GetTensorMutableData(out_vals[i], (void **)&out_data);
-        if (st) {
-            sess->api->ReleaseStatus(st);
-            rc = -EIO;
+        } else if (cpy != 0) {
+            rc = cpy;
             goto cleanup;
         }
-        memcpy(outputs[i].data, out_data, produced * sizeof(float));
     }
 
 cleanup:
     for (size_t i = 0; i < n_inputs; ++i) {
         if (in_vals[i])
             sess->api->ReleaseValue(in_vals[i]);
+        free(in_scratch[i]);
     }
     for (size_t i = 0; i < n_outputs; ++i) {
         if (out_vals[i])
@@ -425,6 +668,7 @@ cleanup:
     free(out_names);
     free(in_vals);
     free(out_vals);
+    free(in_scratch);
     return rc;
 }
 

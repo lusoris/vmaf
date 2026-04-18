@@ -11,6 +11,15 @@
       "smoke": true
     },
     {
+      "id": "smoke_fp16_v0",
+      "kind": "fr",
+      "notes": "fp16 I/O round-trip probe (Identity op). Exercises the fp16_io cast path; not a quality model.",
+      "onnx": "smoke_fp16_v0.onnx",
+      "opset": 17,
+      "sha256": "6cbf16be5d2cfb858f1eb60bfdcc9e674c15f17b3ff365afa475bbe9be76258b",
+      "smoke": true
+    },
+    {
       "id": "lpips_sq_v1",
       "kind": "fr",
       "notes": "LPIPS-SqueezeNet (richzhang/PerceptualSimilarity v0.1). Two-input model: 'ref' + 'dist' ImageNet-normalised NCHW; scalar 'score' output. Exported via ai/lpips_export.py.",

@@ -134,6 +134,15 @@ int vmaf_dnn_session_run(VmafDnnSession *sess, const VmafDnnInput *inputs, size_
 
 void vmaf_dnn_session_close(VmafDnnSession *sess);
 
+/**
+ * Name of the ONNX Runtime execution provider that actually bound to the
+ * session. Useful for diagnostics and for asserting AUTO-chain behaviour
+ * in tests. Stable strings: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU",
+ * "ROCm". Returns NULL if @p sess is NULL or libvmaf was built without
+ * DNN support. Lifetime: owned by @p sess.
+ */
+const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess);
+
 #ifdef __cplusplus
 }
 #endif
