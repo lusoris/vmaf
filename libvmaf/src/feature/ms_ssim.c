@@ -29,35 +29,22 @@
 #include "iqa/math_utils.h"
 #include "iqa/decimate.h"
 #include "iqa/ssim_tools.h"
+#include "ms_ssim_decimate.h"
 
-/* Low-pass filter for down-sampling (9/7 biorthogonal wavelet filter) */
+/*
+ * MS-SSIM 9-tap 9/7 biorthogonal wavelet LPF coefficients moved to
+ * libvmaf/src/feature/ms_ssim_decimate.c (separable form). The 2-D
+ * `g_lpf` array in upstream Netflix/vmaf ms_ssim.c is no longer used
+ * on this fork because the decimate path switched from
+ * `_iqa_decimate(..., 2, &lpf_2d, ...)` to the separable scalar-FMA
+ * path `ms_ssim_decimate_scalar`. See ADR-0125.
+ *
+ * REBASE-SENSITIVE INVARIANT: if Netflix upstream modifies `g_lpf`,
+ * `g_lpf_h`, or `g_lpf_v` in this file during a sync, mirror the
+ * change to `ms_ssim_lpf_h` / `ms_ssim_lpf_v` in ms_ssim_decimate.c.
+ * See `libvmaf/src/feature/AGENTS.md` and docs/rebase-notes.md.
+ */
 #define LPF_LEN 9
-static const float g_lpf[LPF_LEN][LPF_LEN] = {
-    {0.000714f, -0.000450f, -0.002090f, 0.007132f, 0.016114f, 0.007132f, -0.002090f, -0.000450f,
-     0.000714f},
-    {-0.000450f, 0.000283f, 0.001316f, -0.004490f, -0.010146f, -0.004490f, 0.001316f, 0.000283f,
-     -0.000450f},
-    {-0.002090f, 0.001316f, 0.006115f, -0.020867f, -0.047149f, -0.020867f, 0.006115f, 0.001316f,
-     -0.002090f},
-    {0.007132f, -0.004490f, -0.020867f, 0.071207f, 0.160885f, 0.071207f, -0.020867f, -0.004490f,
-     0.007132f},
-    {0.016114f, -0.010146f, -0.047149f, 0.160885f, 0.363505f, 0.160885f, -0.047149f, -0.010146f,
-     0.016114f},
-    {0.007132f, -0.004490f, -0.020867f, 0.071207f, 0.160885f, 0.071207f, -0.020867f, -0.004490f,
-     0.007132f},
-    {-0.002090f, 0.001316f, 0.006115f, -0.020867f, -0.047149f, -0.020867f, 0.006115f, 0.001316f,
-     -0.002090f},
-    {-0.000450f, 0.000283f, 0.001316f, -0.004490f, -0.010146f, -0.004490f, 0.001316f, 0.000283f,
-     -0.000450f},
-    {0.000714f, -0.000450f, -0.002090f, 0.007132f, 0.016114f, 0.007132f, -0.002090f, -0.000450f,
-     0.000714f},
-};
-
-static const float g_lpf_h[LPF_LEN] = {0.026727f, -0.016828f, -0.078201f, 0.266846f, 0.602914f,
-                                       0.266846f, -0.078201f, -0.016828f, 0.026727f};
-
-static const float g_lpf_v[LPF_LEN] = {0.026727f, -0.016828f, -0.078201f, 0.266846f, 0.602914f,
-                                       0.266846f, -0.078201f, -0.016828f, 0.026727f};
 
 /* Alpha, beta, and gamma values for each scale */
 static float g_alphas[] = {0.0000f, 0.0000f, 0.0000f, 0.0000f, 0.1333f};
@@ -136,7 +123,7 @@ int compute_ms_ssim(const float *ref, const float *cmp, int w, int h, int ref_st
     float **ref_imgs, **cmp_imgs; /* Array of pointers to scaled images */
     double msssim;
     float l, c, s;
-    struct _kernel lpf, window;
+    struct _kernel window;
     struct iqa_ssim_args s_args;
     struct _map_reduce mr;
     struct _context ms_ctx;
@@ -234,19 +221,17 @@ int compute_ms_ssim(const float *ref, const float *cmp, int w, int h, int ref_st
         }
     }
 
-    /* create scaled versions of the images */
+    /*
+     * Create scaled versions of the images via the separable decimate
+     * path (see ADR-0125). Replaces upstream's
+     * `_iqa_decimate(..., 2, &lpf_2d, ...)` 2-D 9x9 kernel.
+     */
     cur_w = w;
     cur_h = h;
-    lpf.kernel = (float *)g_lpf;
-    lpf.kernel_h = (float *)g_lpf_h; /* zli-nflx */
-    lpf.kernel_v = (float *)g_lpf_v; /* zli-nflx */
-    lpf.w = lpf.h = LPF_LEN;
-    lpf.normalized = 1;
-    lpf.bnd_opt = KBND_SYMMETRIC;
     for (idx = 1; idx < scales; ++idx) {
-        if (_iqa_decimate(ref_imgs[idx - 1], cur_w, cur_h, 2, &lpf, ref_imgs[idx], 0, 0) ||
-            _iqa_decimate(cmp_imgs[idx - 1], cur_w, cur_h, 2, &lpf, cmp_imgs[idx], &cur_w,
-                          &cur_h)) {
+        if (ms_ssim_decimate_scalar(ref_imgs[idx - 1], cur_w, cur_h, ref_imgs[idx], 0, 0) ||
+            ms_ssim_decimate_scalar(cmp_imgs[idx - 1], cur_w, cur_h, cmp_imgs[idx], &cur_w,
+                                    &cur_h)) {
             _free_buffers(ref_imgs, scales);
             _free_buffers(cmp_imgs, scales);
             free(ref_imgs);
