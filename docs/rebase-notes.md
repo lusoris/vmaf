@@ -762,17 +762,22 @@ inline.*
   `docs/adr/0121-windows-gpu-build-only-legs.md` (new),
   `docs/adr/README.md` (index row),
   `CHANGELOG.md` (Added entry).
-- **Invariant**: Windows GPU legs are pinned to the same CUDA toolchain
-  version as the corresponding Linux CUDA leg (CUDA 13.0.0) so a
-  Linux-vs-Windows divergence implies an MSVC ABI issue, not a
-  tooling-version delta. When the Linux CUDA leg bumps CUDA, the
-  Windows leg must move in lockstep. The Windows oneAPI install uses
-  the Chocolatey package `intel-oneapi-basekit` (latest stable, ≈
-  oneAPI 2025.x) — `rscohn2/setup-oneapi@v0` is Linux-only and cannot
-  install on `windows-latest`. The one new third-party action
-  (`ilammy/msvc-dev-cmd@v1`) is intentionally floating-tag-pinned to
-  match the rest of the repo; if the SHA-pinning policy changes,
-  update it.
+- **Invariant**: Windows GPU legs are pinned to the same toolchain
+  versions as the corresponding Linux GPU legs (CUDA 13.0.0, oneAPI
+  BaseKit 2025.3.0.372) so a Linux-vs-Windows divergence implies an
+  MSVC ABI issue, not a tooling-version delta. When either Linux GPU
+  leg bumps its toolchain, the Windows leg must move in lockstep —
+  the Intel installer URL on Windows hard-codes the per-release
+  directory id and the version string, so the bump is two-line
+  edits in the SYCL `Install Intel oneAPI (windows)` step (the
+  `WINDOWS_BASEKIT_URL` env var). Both legs additionally inject
+  `/experimental:c11atomics` into `CFLAGS` / `CXXFLAGS` because
+  libvmaf uses C11 atomics that MSVC's `<stdatomic.h>` rejects
+  without that opt-in flag — when MSVC ships full C11 atomics
+  support, the flag becomes unconditional and can be dropped.
+  The one new third-party action (`ilammy/msvc-dev-cmd@v1`) is
+  intentionally floating-tag-pinned to match the rest of the
+  repo; if the SHA-pinning policy changes, update it.
 - **Re-test**:
 
   ```bash

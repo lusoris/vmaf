@@ -69,19 +69,32 @@ Both legs:
   Identical pins keep the MSVC-vs-Linux comparison meaningful — if
   a build breaks here but not on Linux, it's an MSVC ABI issue, not
   a tooling-version delta.
-- Install oneAPI on Windows via **Chocolatey**
-  (`choco install intel-oneapi-basekit`). The community
+- Install oneAPI on Windows via the official **`oneapi-src/oneapi-ci`
+  offline-installer pattern**: `curl` the Intel Base Toolkit
+  Windows installer, extract the bootstrapper, run with
+  `--components=intel.oneapi.win.cpp-dpcpp-common --eula=accept`
+  plus `NEED_VS{2017,2019,2022}_INTEGRATION=0` to skip the (slow)
+  Visual Studio plug-in steps. Pinned to BaseKit 2025.3.0.372 to
+  match the Linux SYCL leg's `intel-oneapi-compiler-dpcpp-cpp-2025.3`.
+  Two earlier candidates failed: (1)
   [`rscohn2/setup-oneapi@v0`](https://github.com/rscohn2/setup-oneapi)
-  action that the first iteration of this ADR called for is
-  **Linux-only** — its bundled installer URLs are all `.sh`
-  scripts (verified in `src/main.js`). On Windows, Chocolatey is
-  preinstalled on `windows-latest` and the `intel-oneapi-basekit`
-  package lays down the icx-cl / DPC++ driver under the standard
-  `C:\Program Files (x86)\Intel\oneAPI\` prefix that
-  `setvars.bat` expects. We accept choco's "latest stable" pin
-  (≈ oneAPI 2025.x) rather than chasing the exact 2025.3 build —
-  Intel's offline-installer URLs rotate per release, so a literal
-  pin would need URL updates the choco package handles for us.
+  is **Linux-only** — every installer URL in its `src/main.js`
+  ends in `.sh`; (2) Chocolatey's `intel-oneapi-basekit` package
+  is **not on the community feed** (verified 2026-04-19: lookup
+  fast-failed in 3 s with `package was not found with the
+  source(s) listed`). The Intel offline installer is what Intel
+  themselves use in CI
+  (`oneapi-src/oneapi-ci/scripts/install_windows.bat`), so it
+  gives us the most stable, owner-blessed install path on Windows.
+- Inject `/experimental:c11atomics` into `CFLAGS` and `CXXFLAGS`
+  before `meson setup` on Windows. libvmaf uses C11 atomics
+  (`stdatomic.h` + `__atomic_*`); MSVC's `<stdatomic.h>` errors
+  with `"C atomic support is not enabled"` unless the
+  `/experimental:c11atomics` compiler flag is set — the flag is
+  opt-in until MSVC ships full C11/C17 atomics support. Setting
+  it via env var is preferable to a meson native file because
+  the flag is purely build-system-conditional, not source-side:
+  gcc / clang / icpx / nvcc don't need it.
 - Skip the test step entirely. `windows-latest` has no GPU; running
   even CPU-only tests would consume runner minutes for no signal
   beyond what the Linux legs already provide.
@@ -128,10 +141,15 @@ first).
 - One new third-party action in the workflow:
   `ilammy/msvc-dev-cmd@v1`. Widely used with a good security
   record, but additional supply-chain surface beyond the existing
-  `Jimver/cuda-toolkit`. The SYCL leg additionally trusts the
-  `intel-oneapi-basekit` Chocolatey package — Chocolatey's
-  community-feed signing applies, and the package itself wraps
-  Intel's signed installer.
+  `Jimver/cuda-toolkit`. The SYCL leg additionally pulls a
+  signed installer from
+  `registrationcenter-download.intel.com` over HTTPS — Intel-owned
+  infrastructure, the same source `oneapi-src/oneapi-ci` uses.
+- The Intel offline-installer URL hard-codes the BaseKit version
+  (`2025.3.0.372`) and a per-release directory id. When the Linux
+  SYCL leg bumps oneAPI, this URL must be updated in lockstep —
+  drift defeats the parity invariant. See `docs/rebase-notes.md`
+  entry 0022 for the touch-list.
 
 **Neutral / follow-ups:**
 
@@ -158,8 +176,9 @@ first).
   policy that the post-merge re-pin updates.
 - [ilammy/msvc-dev-cmd@v1](https://github.com/ilammy/msvc-dev-cmd)
 - [Jimver/cuda-toolkit@v0.2.35](https://github.com/Jimver/cuda-toolkit)
-- [Chocolatey package: `intel-oneapi-basekit`](https://community.chocolatey.org/packages/intel-oneapi-basekit)
+- [Intel `oneapi-src/oneapi-ci` — official Windows install pattern](https://github.com/oneapi-src/oneapi-ci/blob/master/scripts/install_windows.bat)
 - [NVIDIA Windows CUDA sub-package list](https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-cuda-software)
+- [MSVC `/experimental:c11atomics` opt-in flag](https://learn.microsoft.com/en-us/cpp/build/reference/std-specify-language-standard-version)
 - `req` (paraphrased): user picked "Add both CUDA + SYCL Windows
   build-only legs" via the post-cascade scope popup, after I offered
   it as the most-ambitious of three scope choices for Windows GPU

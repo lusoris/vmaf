@@ -419,16 +419,16 @@ jobs:
   # action that runs `vcvars64.bat` and exports the variables).
   # CUDA toolkit comes from Jimver/cuda-toolkit (same action used by
   # the Linux CUDA legs, pinned to the same 13.0.0 release for parity).
-  # oneAPI is installed via Chocolatey (`choco install
-  # intel-oneapi-basekit`) — `rscohn2/setup-oneapi@v0` only ships
-  # Linux installer URLs (all `.sh`), so it cannot install on
-  # `windows-latest`. The choco package provides the icx-cl / DPC++
-  # driver under the standard `C:\Program Files (x86)\Intel\oneAPI\`
-  # prefix that `setvars.bat` expects. We accept choco's "latest
-  # stable" pin (≈ oneAPI 2025.x) rather than pinning to 2025.3
-  # exactly: the offline-installer URL on Intel's registration
-  # center rotates per release and would need URL updates the choco
-  # pin avoids.
+  # oneAPI is installed via the official `oneapi-src/oneapi-ci`
+  # offline-installer pattern (`curl` the Base Toolkit installer +
+  # extract + run bootstrapper). We tried `rscohn2/setup-oneapi@v0`
+  # first (Linux-only — all install URLs `.sh`) and Chocolatey's
+  # `intel-oneapi-basekit` (not on the community feed); neither
+  # works on `windows-latest`. Pinned to oneAPI 2025.3.0.372 to
+  # match the Linux SYCL leg's `intel-oneapi-compiler-dpcpp-cpp-2025.3`.
+  # Both legs additionally inject `/experimental:c11atomics` into
+  # `CFLAGS` / `CXXFLAGS` because libvmaf uses C11 atomics that
+  # MSVC's `<stdatomic.h>` refuses without that flag.
   #
   # The two job names are pinned to required status checks on master
   # immediately after merge (see ADR-0121 §Consequences).
@@ -487,22 +487,41 @@ jobs:
           sub-packages: '["nvcc", "cudart", "visual_studio_integration"]'
 
       # ---------- Intel oneAPI (SYCL leg only) ----------
-      # Chocolatey is preinstalled on `windows-latest`; the
-      # `intel-oneapi-basekit` package installs the icx-cl / DPC++
-      # driver under `C:\Program Files (x86)\Intel\oneAPI\`. The
-      # package is ~5GB and takes ~15 min to install — well within
-      # the job's 60-min timeout. See ADR-0121 for why we cannot
-      # use `rscohn2/setup-oneapi@v0` (Linux-only action) here.
+      # Mirrors the official `oneapi-src/oneapi-ci` install pattern
+      # (`scripts/install_windows.bat`): curl the offline Base
+      # Toolkit installer, extract its bootstrapper, run with
+      # `--components=intel.oneapi.win.cpp-dpcpp-common --eula=accept`
+      # plus `NEED_VS*_INTEGRATION=0` so we skip the (very slow) VS
+      # IDE plug-in steps. Pinned to oneAPI 2025.3 to match the
+      # Linux SYCL leg's `intel-oneapi-compiler-dpcpp-cpp-2025.3`.
+      # Chocolatey was tried first but `intel-oneapi-basekit` is
+      # not on the community feed (verified 2026-04-19).
       - name: Install Intel oneAPI (windows)
         if: matrix.backend == 'sycl'
-        shell: pwsh
+        shell: cmd
+        env:
+          WINDOWS_BASEKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/1f18901e-877d-469d-a41a-a10f11b39336/intel-oneapi-base-toolkit-2025.3.0.372_offline.exe
+          WINDOWS_DPCPP_COMPONENTS: intel.oneapi.win.cpp-dpcpp-common
         run: |
-          choco install intel-oneapi-basekit -y --no-progress --limit-output
+          curl.exe --output %TEMP%\webimage.exe --url %WINDOWS_BASEKIT_URL% --retry 5 --retry-delay 5
+          start /b /wait %TEMP%\webimage.exe -s -x -f webimage_extracted --log extract.log
+          del %TEMP%\webimage.exe
+          webimage_extracted\bootstrapper.exe -s --action install --components=%WINDOWS_DPCPP_COMPONENTS% --eula=accept -p=NEED_VS2017_INTEGRATION=0 -p=NEED_VS2019_INTEGRATION=0 -p=NEED_VS2022_INTEGRATION=0 --log-dir=.
+          set installer_exit_code=%ERRORLEVEL%
+          rd /s/q "webimage_extracted"
+          exit /b %installer_exit_code%
 
       # ---------- Build ----------
+      # CFLAGS/CXXFLAGS carry `/experimental:c11atomics` — without
+      # that flag MSVC's `<stdatomic.h>` errors with "C atomic
+      # support is not enabled" (libvmaf uses C11 atomics; meson's
+      # compiler check rejects the toolchain otherwise).
       - name: Configure libvmaf (CUDA)
         if: matrix.backend == 'cuda'
         shell: cmd
+        env:
+          CFLAGS: /experimental:c11atomics
+          CXXFLAGS: /experimental:c11atomics
         run: |
           meson setup libvmaf libvmaf\build --buildtype release ^
             --prefix %CD%\install ^
@@ -512,6 +531,9 @@ jobs:
       - name: Configure libvmaf (SYCL)
         if: matrix.backend == 'sycl'
         shell: cmd
+        env:
+          CFLAGS: /experimental:c11atomics
+          CXXFLAGS: /experimental:c11atomics
         run: |
           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
           set CC=icx-cl
