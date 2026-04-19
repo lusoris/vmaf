@@ -31,8 +31,12 @@ void vmaf_init_cpu(void)
         /* Warm up AVX-512 execution units. On Intel CPUs, the 512-bit
          * units power down after idle and take 10-20µs to reactivate.
          * Issuing a dummy instruction here avoids that latency penalty
-         * on the first frame of actual computation. */
+         * on the first frame of actual computation.
+         * GCC/clang inline asm only — MSVC dropped inline asm on x64.
+         * On MSVC the warmup is skipped (micro-opt, not correctness). */
+#if defined(__GNUC__) || defined(__clang__)
         __asm__ volatile("vpxord %%zmm0, %%zmm0, %%zmm0" ::: "zmm0");
+#endif
     }
 #endif
 #elif ARCH_AARCH64

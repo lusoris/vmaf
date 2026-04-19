@@ -16,7 +16,11 @@
  *
  */
 
+#ifdef _WIN32
+#include "compat/win32/getopt.h"
+#else
 #include <getopt.h>
+#endif
 
 #include "test.h"
 

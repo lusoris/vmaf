@@ -1,5 +1,9 @@
 #include <assert.h>
+#ifdef _WIN32
+#include "compat/win32/getopt.h"
+#else
 #include <getopt.h>
+#endif
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>

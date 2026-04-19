@@ -25,6 +25,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # Resolve LFS blobs (e.g. model/tiny/*.onnx) so pre-commit's final
+          # "changes made by hooks" diff doesn't report pointer-vs-blob noise
+          # against files no hook actually touched.
+          lfs: true
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

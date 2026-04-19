@@ -213,7 +213,7 @@ float float_adm_csf_den_scale_avx2(const float *src, int w, int h, int src_strid
             __m256 vsq = _mm256_mul_ps(v, v);
             __m256 vcube = _mm256_mul_ps(vsq, v);
 
-            float tmp[8] __attribute__((aligned(32)));
+            _Alignas(32) float tmp[8];
             _mm256_store_ps(tmp, vcube);
             for (int k = 0; k < 8; k++)
                 row_accum += (double)tmp[k];
@@ -251,7 +251,7 @@ float float_adm_sum_cube_avx2(const float *x, int w, int h, int stride, int left
             __m256 vsq = _mm256_mul_ps(v, v);
             __m256 vcube = _mm256_mul_ps(vsq, v);
 
-            float tmp[8] __attribute__((aligned(32)));
+            _Alignas(32) float tmp[8];
             _mm256_store_ps(tmp, vcube);
             for (int k = 0; k < 8; k++)
                 row_accum += (double)tmp[k];

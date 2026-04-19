@@ -270,7 +270,7 @@ float float_adm_csf_den_scale_avx512(const float *src, int w, int h, int src_str
             __m512 val2 = _mm512_mul_ps(val, val);
             __m512 val3 = _mm512_mul_ps(val2, val);
 
-            float tmp[16] __attribute__((aligned(64)));
+            _Alignas(64) float tmp[16];
             _mm512_store_ps(tmp, val3);
             for (int k = 0; k < 16; k++)
                 row_accum += (double)tmp[k];
@@ -306,7 +306,7 @@ float float_adm_sum_cube_avx512(const float *x, int w, int h, int stride, int le
             __m512 val2 = _mm512_mul_ps(val, val);
             __m512 val3 = _mm512_mul_ps(val2, val);
 
-            float tmp[16] __attribute__((aligned(64)));
+            _Alignas(64) float tmp[16];
             _mm512_store_ps(tmp, val3);
             for (int k = 0; k < 16; k++)
                 row_accum += (double)tmp[k];

@@ -21,7 +21,15 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#ifdef _WIN32
+/* MSVC provides isatty / fileno via <io.h> (named with leading underscores;
+ * the non-underscored aliases stay available for POSIX source portability). */
+#include <io.h>
+#define isatty _isatty
+#define fileno _fileno
+#else
 #include <unistd.h>
+#endif
 
 static enum VmafLogLevel vmaf_log_level = VMAF_LOG_LEVEL_INFO;
 static int istty = 0;

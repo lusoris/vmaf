@@ -30,7 +30,7 @@ double float_psnr_noise_line_avx2(const float *ref, const float *dis, int w)
         __m256 diff = _mm256_sub_ps(r, d);
         __m256 sq = _mm256_mul_ps(diff, diff);
 
-        float tmp[8] __attribute__((aligned(32)));
+        _Alignas(32) float tmp[8];
         _mm256_store_ps(tmp, sq);
         for (int k = 0; k < 8; k++)
             result += (double)tmp[k];

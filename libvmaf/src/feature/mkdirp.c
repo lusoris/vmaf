@@ -6,10 +6,16 @@
 // MIT licensed
 //
 
-#include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+/* MSVC has no <unistd.h>; mkdir lives in <direct.h> as _mkdir(path).
+ * The mode parameter is ignored on Windows (CreateDirectoryA path). */
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
 #include "mkdirp.h"
 
 static char *path_normalize(const char *path)
@@ -73,7 +79,8 @@ int mkdirp(const char *path, mode_t mode)
 // make this one if parent has been made
 #ifdef _WIN32
     // http://msdn.microsoft.com/en-us/library/2fkk4dzw.aspx
-    int rc = mkdir(pathname);
+    (void)mode;
+    int rc = _mkdir(pathname);
 #else
     int rc = mkdir(pathname, mode);
 #endif

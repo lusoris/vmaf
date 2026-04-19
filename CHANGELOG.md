@@ -54,6 +54,187 @@
   stays `experimental: true` because Homebrew ORT floats. See
   [ADR-0120](docs/adr/0120-ai-enabled-ci-matrix-legs.md) +
   [`docs/rebase-notes.md` entry 0021](docs/rebase-notes.md).
+- **CI**: two Windows GPU build-only matrix legs in
+  [`.github/workflows/libvmaf-build-matrix.yml`](.github/workflows/libvmaf-build-matrix.yml)
+  — `Build — Windows MSVC + CUDA (build only)` and
+  `Build — Windows MSVC + oneAPI SYCL (build only)`. Both gate the
+  MSVC build-portability of the CUDA host code and SYCL `vmaf_sycl_*`
+  C-API entry points, respectively. No test step (windows-latest has
+  no GPU). Both legs are pinned to required status checks on `master`.
+  See [ADR-0121](docs/adr/0121-windows-gpu-build-only-legs.md) +
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: Win32 `pthread.h` compat shim at
+  [`libvmaf/src/compat/win32/pthread.h`](libvmaf/src/compat/win32/pthread.h)
+  — header-only, maps the in-use pthread subset (mutex / cond / thread
+  create+join+detach + `PTHREAD_MUTEX_INITIALIZER` /
+  `PTHREAD_COND_INITIALIZER`) onto Win32 SRWLOCK + CONDITION_VARIABLE +
+  `_beginthreadex`. Wired in via a new `pthread_dependency` in
+  `libvmaf/meson.build`, gated on `cc.check_header('pthread.h')`
+  failing — POSIX and MinGW (winpthreads) builds are untouched. Lets
+  the Windows MSVC GPU legs from ADR-0121 actually compile the libvmaf
+  core (~14 TUs `#include <pthread.h>` unconditionally). Pattern
+  mirrors the long-standing `compat/gcc/stdatomic.h` shim. nvcc fatbin
+  and icpx SYCL `custom_target`s additionally thread the shim include
+  path through `cuda_extra_includes` / `sycl_inc_flags` on Windows
+  (custom targets bypass meson's `dependencies:` plumbing).
+- **Build**: SYCL Windows host-arg handling in
+  [`libvmaf/src/meson.build`](libvmaf/src/meson.build) — `icpx-cl`
+  on Windows targets `x86_64-pc-windows-msvc` and rejects `-fPIC`.
+  `sycl_common_args` / `sycl_feature_args` now route the flag through
+  `sycl_pic_arg = host_machine.system() != 'windows' ? ['-fPIC'] : []`
+  instead of hard-coding it. PIC is the default for Windows DLLs, so
+  dropping the flag is the correct build-system fix, not a workaround.
+- **Build**: SYCL Windows source portability — four MSVC C++
+  blockers fixed so `icpx-cl` compiles the SYCL TUs.
+  (1) [`libvmaf/src/ref.h`](libvmaf/src/ref.h) +
+  [`libvmaf/src/feature/feature_extractor.h`](libvmaf/src/feature/feature_extractor.h)
+  (UPSTREAM) gained an `#if defined(__cplusplus) && defined(_MSC_VER)`
+  branch that pulls `atomic_int` via `using std::atomic_int;` —
+  MSVC's `<stdatomic.h>` only surfaces the C11 typedefs in
+  `namespace std::` under C++, while gcc/clang expose them globally
+  via a GNU extension. POSIX paths fall through to the original
+  `<stdatomic.h>` line; ABI unchanged. (2)
+  [`libvmaf/src/sycl/d3d11_import.cpp`](libvmaf/src/sycl/d3d11_import.cpp)
+  switched `<libvmaf/log.h>` (non-existent) to `"log.h"` (the actual
+  internal header). (3)
+  [`libvmaf/src/sycl/dmabuf_import.cpp`](libvmaf/src/sycl/dmabuf_import.cpp)
+  moved `<unistd.h>` inside `#if HAVE_SYCL_DMABUF` — POSIX `close()`
+  is only used in the VA-API path, so non-DMA-BUF hosts (Windows
+  MSVC, macOS) no longer fail with `'unistd.h' file not found`. (4)
+  [`libvmaf/src/sycl/common.cpp`](libvmaf/src/sycl/common.cpp)
+  replaced POSIX `clock_gettime(CLOCK_MONOTONIC)` with
+  `std::chrono::steady_clock` — guaranteed monotonic by the C++
+  standard and portable on every supported host. All four preserve
+  POSIX/Linux behaviour bit-identically. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: CUDA Windows source portability — fifth MSVC blocker
+  fixed on the CUDA leg's CPU SIMD compile path.
+  [`libvmaf/src/feature/x86/motion_avx2.c`](libvmaf/src/feature/x86/motion_avx2.c)
+  (UPSTREAM) line 529 indexed an `__m256i` directly
+  (`final_accum[0] + ... + final_accum[3]`) — gcc/clang allow this
+  via the GNU vector extension, MSVC rejects it with `C2088:
+  built-in operator '[' cannot be applied to an operand of type
+  '__m256i'`. Replaced with four `_mm256_extract_epi64` calls,
+  summed — bit-exact lane sum on every compiler. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: x86 SIMD Windows source portability — sweep that
+  finishes the MSVC compile of the libvmaf CPU SIMD layer.
+  Round-19 surfaced the same vector-extension pattern at 19 more
+  call sites plus 6 GCC-style `(__m256i)x` casts.
+  [`libvmaf/src/feature/x86/adm_avx2.c`](libvmaf/src/feature/x86/adm_avx2.c)
+  (UPSTREAM) had 6 lines using
+  `(__m256i)(_mm256_cmp_ps(...))` casts (replaced with
+  `_mm256_castps_si256(...)`) and 12 sites of `__m128i[N]`
+  lane-extract reductions (replaced with `_mm_extract_epi64`).
+  [`libvmaf/src/feature/x86/adm_avx512.c`](libvmaf/src/feature/x86/adm_avx512.c)
+  (UPSTREAM) had 6 sister lane-extract reductions on the
+  AVX-512 paths.
+  [`libvmaf/src/feature/x86/motion_avx512.c`](libvmaf/src/feature/x86/motion_avx512.c)
+  (UPSTREAM, ported from PR #1486) had one final lane-extract
+  reduction. All 19 + 6 fixes are bit-exact rewrites — gcc/clang
+  emit identical vextract+padd sequences either way.
+  Additionally
+  [`libvmaf/src/sycl/d3d11_import.cpp`](libvmaf/src/sycl/d3d11_import.cpp)
+  switched from C-style COBJMACROS helpers
+  (`ID3D11Device_CreateTexture2D`, etc.) to C++ method-call syntax
+  (`device->CreateTexture2D`) because d3d11.h gates COBJMACROS
+  behind `!defined(__cplusplus)` and the TU compiles as C++
+  under icpx-cl. ABI-equivalent. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: x86 SIMD alignment specifier — round-20 swap from
+  GCC trailing `__attribute__((aligned(N)))` to C11-standard
+  leading `_Alignas(N)` across 17 scratch-buffer sites in
+  `vif_statistic_avx2.c` (UPSTREAM), `ansnr_avx{2,512}.c`
+  (UPSTREAM), `float_adm_avx{2,512}.c` (UPSTREAM),
+  `float_psnr_avx{2,512}.c` (UPSTREAM) and `ssim_avx{2,512}.c`
+  (UPSTREAM). Same alignment guarantee, MSVC-portable
+  (`/std:c11`). The pre-existing portable `ALIGNED(x)` macro in
+  `vif_avx{2,512}.c` was already MSVC-clean and remains untouched.
+- **Build**: `mkdirp` Windows portability —
+  [`libvmaf/src/feature/mkdirp.c`](libvmaf/src/feature/mkdirp.c)
+  and
+  [`libvmaf/src/feature/mkdirp.h`](libvmaf/src/feature/mkdirp.h)
+  (third-party MIT-licensed micro-library) gate `<unistd.h>` to
+  non-Windows, add `<direct.h>` + `_mkdir` on MSVC, and provide a
+  local `mode_t` typedef (MSVC's `<sys/types.h>` doesn't declare
+  it). The `mode` argument is silently ignored on the Windows
+  path — same behaviour as before for POSIX callers. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: round-21 MSVC mop-up —
+  [`libvmaf/src/feature/x86/adm_avx512.c`](libvmaf/src/feature/x86/adm_avx512.c)
+  (UPSTREAM) adds six more `_mm_extract_epi64` rewrites at lines
+  2128 / 2135 / 2142 / 2589 / 2595 / 2601 that the round-19 sweep
+  missed (bit-exact).
+  [`libvmaf/src/log.c`](libvmaf/src/log.c) (UPSTREAM) gates
+  `<unistd.h>` to non-Windows and pulls `_isatty` / `_fileno` from
+  `<io.h>` on MSVC via macro redirection; the single `isatty(fileno
+  (stderr))` call site compiles unchanged on every platform.
+  See [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **CI**: `.github/workflows/lint-and-format.yml` pre-commit job
+  now checks out with `lfs: true`. Without it `model/tiny/*.onnx`
+  lands as LFS pointer stubs and pre-commit's "changes made by
+  hooks" reporter flags the stubs as pre-commit-induced
+  modifications against HEAD's resolved blobs, failing the job
+  even though no hook touched them. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: round-21e MSVC mop-up — the Windows MSVC legs now
+  build the full tree (CLI tools, unit tests, `libvmaf.dll`)
+  instead of the earlier short cut of skipping tools / tests.
+  Source changes:
+  (i) eight C99 variable-length arrays converted to compile-time
+  constants or heap allocations —
+  [`libvmaf/src/predict.c:385,453`](libvmaf/src/predict.c),
+  [`libvmaf/src/libvmaf.c:1741`](libvmaf/src/libvmaf.c),
+  [`libvmaf/src/read_json_model.c:517,520`](libvmaf/src/read_json_model.c),
+  [`libvmaf/test/test_feature_extractor.c:56`](libvmaf/test/test_feature_extractor.c),
+  [`libvmaf/test/test_cambi.c:254`](libvmaf/test/test_cambi.c),
+  [`libvmaf/test/test_pic_preallocation.c:382,506`](libvmaf/test/test_pic_preallocation.c);
+  (ii) fork-added POSIX/GNU `getopt_long` shim at
+  [`libvmaf/tools/compat/win32/`](libvmaf/tools/compat/win32/)
+  (header + ~260-line companion source) declared via a single
+  `getopt_dependency` in
+  [`libvmaf/meson.build`](libvmaf/meson.build) that
+  auto-propagates the .c into the `vmaf` CLI and
+  `test_cli_parse`;
+  (iii) `pthread_dependency` threaded through the eleven test
+  targets in
+  [`libvmaf/test/meson.build`](libvmaf/test/meson.build)
+  that transitively include `<pthread.h>` via
+  `feature_collector.h`;
+  (iv) `<unistd.h>` → `<io.h>` redirection
+  (`isatty`/`fileno` → `_isatty`/`_fileno`) added to
+  [`libvmaf/tools/vmaf.c`](libvmaf/tools/vmaf.c);
+  (v) `<unistd.h>` → `<windows.h>` + `Sleep` macros
+  added to
+  [`libvmaf/test/test_ring_buffer.c`](libvmaf/test/test_ring_buffer.c)
+  and
+  [`libvmaf/test/test_pic_preallocation.c`](libvmaf/test/test_pic_preallocation.c)
+  for `usleep` / `sleep`;
+  (vi) `__builtin_clz` / `__builtin_clzll` MSVC fallback via
+  `__lzcnt` / `__lzcnt64` extracted into
+  [`libvmaf/src/feature/compat_builtin.h`](libvmaf/src/feature/compat_builtin.h)
+  and included from the three TUs that use the builtin
+  (`integer_adm.c`, `x86/adm_avx2.c`, `x86/adm_avx512.c`);
+  (vii) `extern "C"` wrap added around
+  `#include "log.h"` in
+  [`libvmaf/src/sycl/d3d11_import.cpp`](libvmaf/src/sycl/d3d11_import.cpp)
+  so `vmaf_log` resolves against the C-linkage symbol
+  produced by `log.c` when this .cpp TU gets pulled into
+  a SYCL-enabled test executable by icpx-cl. Upstream
+  `log.h` has no `__cplusplus` guard; the wrap keeps the
+  fork-local fix inside the fork-added .cpp instead of
+  touching the shared header.
+  Workflow change: both Windows MSVC matrix legs now pass
+  `--default-library=static` in `meson_extra` because libvmaf's
+  public API carries no `__declspec(dllexport)` — a vanilla
+  MSVC shared build produces an empty import lib and tools
+  fail with `LNK1181`. Mirrors the MinGW leg's static-link
+  choice. Both MSVC CUDA and MSVC SYCL legs validated
+  locally end-to-end on a Windows Server 2022 VM with
+  CUDA 13.0, oneAPI 2025.3, and Level Zero loader v1.18.5
+  prior to push.
+  See [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md)
+  paragraphs (h)–(p).
 
 ### Changed
 

@@ -407,3 +407,236 @@ jobs:
           name: ${{ matrix.msystem }}-vmaf
           path: ${{ steps.stage.outputs.path }}
           if-no-files-found: error
+
+  # ===== Windows GPU build-only (MSVC + CUDA, MSVC + oneAPI SYCL) =====
+  # Build-only legs — no GPU on the windows-latest runner, so the test
+  # step is intentionally omitted. The point is verifying that the
+  # CUDA / SYCL backend code compiles & links on the MSVC toolchain,
+  # closing the platform-coverage hole left by the Linux-only GPU
+  # matrix entries above. See ADR-0121.
+  #
+  # MSVC env is set up via ilammy/msvc-dev-cmd@v1 (community-standard
+  # action that runs `vcvars64.bat` and exports the variables).
+  # CUDA toolkit comes from Jimver/cuda-toolkit (same action used by
+  # the Linux CUDA legs, pinned to the same 13.0.0 release for parity).
+  # oneAPI is installed via the official `oneapi-src/oneapi-ci`
+  # offline-installer pattern (`curl` the Base Toolkit installer +
+  # extract + run bootstrapper). We tried `rscohn2/setup-oneapi@v0`
+  # first (Linux-only — all install URLs `.sh`) and Chocolatey's
+  # `intel-oneapi-basekit` (not on the community feed); neither
+  # works on `windows-latest`. Pinned to oneAPI 2025.3.0.372 to
+  # match the Linux SYCL leg's `intel-oneapi-compiler-dpcpp-cpp-2025.3`.
+  # Both legs additionally inject `/experimental:c11atomics` into
+  # `CFLAGS` / `CXXFLAGS` because libvmaf uses C11 atomics that
+  # MSVC's `<stdatomic.h>` refuses without that flag.
+  #
+  # The two job names are pinned to required status checks on master
+  # immediately after merge (see ADR-0121 §Consequences).
+  windows-gpu-build:
+    name: ${{ matrix.name }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --default-library=static: libvmaf has no __declspec(dllexport)
+          # on its public API (upstream is POSIX-shaped), so a vanilla MSVC
+          # shared build produces an empty import lib and the tool targets
+          # fail with LNK1181. Mirrors the MinGW leg's `--default-library
+          # static` at line 387. Also lets the vmaf CLI pick the static
+          # archive via libvmaf/tools/meson.build:26 without the
+          # get_shared_lib() branch.
+          - backend: cuda
+            meson_extra: --default-library=static -Denable_cuda=true -Denable_nvcc=true -Denable_sycl=false
+            name: Build — Windows MSVC + CUDA (build only)
+          - backend: sycl
+            meson_extra: --default-library=static -Denable_cuda=false -Denable_sycl=true
+            name: Build — Windows MSVC + oneAPI SYCL (build only)
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install meson and ninja
+        run: |
+          python -m pip install --upgrade pip
+          pip install meson ninja
+
+      # ---------- MSVC dev environment ----------
+      # Exports cl.exe + the rest of the MSVC toolchain into PATH /
+      # INCLUDE / LIB. Required by both backends (CUDA's nvcc shells
+      # out to cl.exe; oneAPI's icx-cl wraps cl.exe).
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # ---------- CUDA toolkit (CUDA leg only) ----------
+      # Same pin as the Linux CUDA legs: CUDA 13.0.0, Maxwell/Pascal/Volta
+      # gencodes dropped (meson.build already guards the sm_50 emit on
+      # `version < 13`).
+      - name: Install CUDA toolkit (windows)
+        if: matrix.backend == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.35
+        with:
+          cuda: '13.0.0'
+          method: network
+          # Windows sub-package names per
+          # https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-cuda-software
+          # — the action appends `_<major>.<minor>` to each entry, so
+          # `nvcc` → `nvcc_13.0`, etc. `cudart_dev` is Linux-Debian
+          # naming and is rejected by the Windows installer; the
+          # runtime dev headers ship with `cudart` on Windows.
+          # `crt` ships `crt/host_config.h` (CUDA Runtime Library
+          # compile-time headers); without it `cuda_runtime.h` errors
+          # with "Cannot open include file: 'crt/host_config.h'".
+          # NOTE: `cuda_cccl` looks like the right name on first read
+          # of the docs but is NOT a valid Windows sub-package name
+          # in CUDA 13.x — the installer rejects it with exit code
+          # 0xE0E07F19 (invalid package). The Windows CUDA Runtime
+          # ships these headers under the standalone `crt` sub-package
+          # per the CUDA Windows install guide.
+          # `nvvm` ships `nvvm/bin/cicc.exe` (CUDA LLVM-based device
+          # compiler) + `nvvm/libdevice/libdevice.*.bc`. Without it
+          # the `nvcc` driver spawns `cicc.exe` → "The system cannot
+          # find the path specified." at the .cu → PTX stage, even
+          # for an empty kernel. Verified locally (Windows Server
+          # 2022 VM, CUDA 13.0.48) 2026-04-19 — see ADR-0121.
+          sub-packages: '["nvcc", "cudart", "crt", "nvvm", "visual_studio_integration"]'
+
+      # ---------- Intel oneAPI (SYCL leg only) ----------
+      # Mirrors the official `oneapi-src/oneapi-ci` install pattern
+      # (`scripts/install_windows.bat`): curl the offline Base
+      # Toolkit installer, extract its bootstrapper, run with
+      # `--components=intel.oneapi.win.cpp-dpcpp-common --eula=accept`
+      # plus `NEED_VS*_INTEGRATION=0` so we skip the (very slow) VS
+      # IDE plug-in steps. Pinned to oneAPI 2025.3 to match the
+      # Linux SYCL leg's `intel-oneapi-compiler-dpcpp-cpp-2025.3`.
+      # Chocolatey was tried first but `intel-oneapi-basekit` is
+      # not on the community feed (verified 2026-04-19).
+      - name: Install Intel oneAPI (windows)
+        if: matrix.backend == 'sycl'
+        shell: cmd
+        env:
+          WINDOWS_BASEKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/1f18901e-877d-469d-a41a-a10f11b39336/intel-oneapi-base-toolkit-2025.3.0.372_offline.exe
+          WINDOWS_DPCPP_COMPONENTS: intel.oneapi.win.cpp-dpcpp-common
+        run: |
+          curl.exe --output %TEMP%\webimage.exe --url %WINDOWS_BASEKIT_URL% --retry 5 --retry-delay 5
+          start /b /wait %TEMP%\webimage.exe -s -x -f webimage_extracted --log extract.log
+          del %TEMP%\webimage.exe
+          webimage_extracted\bootstrapper.exe -s --action install --components=%WINDOWS_DPCPP_COMPONENTS% --eula=accept -p=NEED_VS2017_INTEGRATION=0 -p=NEED_VS2019_INTEGRATION=0 -p=NEED_VS2022_INTEGRATION=0 --log-dir=.
+          set installer_exit_code=%ERRORLEVEL%
+          rd /s/q "webimage_extracted"
+          exit /b %installer_exit_code%
+
+      # ---------- nv-codec-headers (CUDA leg only) ----------
+      # libvmaf's CUDA path includes `<ffnvcodec/dynlink_cuda.h>`
+      # (see libvmaf/src/meson.build §324). The Linux CUDA leg
+      # installs this via `git clone … && make install`. On
+      # Windows there's no `make install` story, but the package
+      # is header-only — clone, copy the `include/ffnvcodec/`
+      # tree into a known prefix, and append that prefix to the
+      # `INCLUDE` env so `cl.exe` picks it up.
+      - name: Install nv-codec-headers (windows)
+        if: matrix.backend == 'cuda'
+        shell: cmd
+        run: |
+          git clone --depth=1 https://code.ffmpeg.org/FFmpeg/nv-codec-headers nv-codec-headers
+          mkdir nvcodec-prefix\include\ffnvcodec
+          copy nv-codec-headers\include\ffnvcodec\*.h nvcodec-prefix\include\ffnvcodec\
+          echo INCLUDE=%CD%\nvcodec-prefix\include;%INCLUDE%>>%GITHUB_ENV%
+
+      # ---------- Strip ccache from PATH (Windows) ----------
+      # `windows-latest` ships `C:\Strawberry\c\bin\ccache.exe` on
+      # PATH. Meson's compiler-detection wraps nvcc with it
+      # unconditionally → "Compiler ... ccache nvcc cannot compile
+      # programs" (the wrap happens at meson configure time;
+      # `CCACHE_DISABLE=1` only affects ccache at runtime, not
+      # meson's wrap decision). Rename the binary so meson can't
+      # find it.
+      - name: Disable ccache wrap (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = 'C:\Strawberry\c\bin\ccache.exe'
+          if (Test-Path $p) { Rename-Item -Path $p -NewName 'ccache.exe.disabled' }
+          Write-Host "ccache binary disabled"
+
+      # ---------- Build ----------
+      # CFLAGS/CXXFLAGS carry `/experimental:c11atomics` — without
+      # that flag MSVC's `<stdatomic.h>` errors with "C atomic
+      # support is not enabled" (libvmaf uses C11 atomics; meson's
+      # compiler check rejects the toolchain otherwise).
+      - name: Configure libvmaf (CUDA)
+        if: matrix.backend == 'cuda'
+        shell: cmd
+        env:
+          CFLAGS: /experimental:c11atomics
+          CXXFLAGS: /experimental:c11atomics
+        run: |
+          meson setup libvmaf libvmaf\build --buildtype release ^
+            --prefix %CD%\install ^
+            -Denable_float=true ^
+            ${{ matrix.meson_extra }}
+
+      # ---------- Level Zero loader (SYCL leg only) ----------
+      # libvmaf/src/meson.build:492 calls
+      # `cc.find_library('ze_loader', required : true)` and
+      # `libvmaf/src/sycl/common.cpp:26` includes
+      # `<level_zero/ze_api.h>`. The Linux SYCL leg picks both up
+      # from `intel-level-zero-gpu` / `level-zero-dev` apt packages.
+      # Windows oneAPI BaseKit does NOT ship `ze_loader.lib`, so
+      # build the loader from source (cmake build, header-only +
+      # one .lib output). Mirror the `oneapi-src/level-zero` README
+      # quick-build recipe; pin to v1.18.5 to match the version the
+      # Linux Ubuntu 24.04 runners install via apt.
+      - name: Install Level Zero loader (windows)
+        if: matrix.backend == 'sycl'
+        shell: cmd
+        run: |
+          git clone --depth=1 --branch v1.18.5 https://github.com/oneapi-src/level-zero level-zero-src
+          cmake -S level-zero-src -B level-zero-src\build -DCMAKE_INSTALL_PREFIX=%CD%\level-zero-prefix -DCMAKE_BUILD_TYPE=Release
+          cmake --build level-zero-src\build --config Release --target install
+          echo INCLUDE=%CD%\level-zero-prefix\include;%INCLUDE%>>%GITHUB_ENV%
+          echo LIB=%CD%\level-zero-prefix\lib;%LIB%>>%GITHUB_ENV%
+
+      # `-Dcpp_std=c++14` overrides libvmaf's default `c++11`
+      # because icx-cl 2025.3 only accepts c++14/c++17/c++20/c++latest
+      # under MSVC ABI mode (drops c++11 from the standards list it
+      # advertises to meson).
+      - name: Configure libvmaf (SYCL)
+        if: matrix.backend == 'sycl'
+        shell: cmd
+        env:
+          CFLAGS: /experimental:c11atomics
+          CXXFLAGS: /experimental:c11atomics
+        run: |
+          call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+          set CC=icx-cl
+          set CXX=icx-cl
+          meson setup libvmaf libvmaf\build --buildtype release ^
+            --prefix %CD%\install ^
+            -Denable_float=true ^
+            -Dcpp_std=c++14 ^
+            ${{ matrix.meson_extra }}
+
+      - name: Build libvmaf (CUDA)
+        if: matrix.backend == 'cuda'
+        shell: cmd
+        run: |
+          ninja -v -C libvmaf\build install
+
+      - name: Build libvmaf (SYCL)
+        if: matrix.backend == 'sycl'
+        shell: cmd
+        run: |
+          call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+          ninja -v -C libvmaf\build install
+
+      # No test step — windows-latest has no GPU. The whole point of
+      # this job is exercising the MSVC + CUDA / MSVC + oneAPI link
+      # paths to catch portability regressions at compile time.

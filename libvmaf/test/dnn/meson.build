@@ -94,12 +94,18 @@ test('test_ort_internals',   test_ort_internals,
 
 bash_prog = find_program('bash', required : false)
 if bash_prog.found()
-    test('test_cli',
-         bash_prog,
-         args : [files('test_cli.sh')],
-         env  : { 'VMAF_BIN' : vmaf.full_path() },
-         depends : vmaf,
-         suite : 'dnn')
+    # test_cli shells out to the built `vmaf` CLI binary, which only
+    # exists when -Denable_tools=true. Skip the CLI-level smoke test
+    # when tools are disabled (e.g. on the Windows MSVC build-only
+    # legs where <unistd.h> / <getopt.h> aren't available).
+    if get_option('enable_tools')
+        test('test_cli',
+             bash_prog,
+             args : [files('test_cli.sh')],
+             env  : { 'VMAF_BIN' : vmaf.full_path() },
+             depends : vmaf,
+             suite : 'dnn')
+    endif
 
     # Registry integrity — verifies every model/tiny/*.onnx listed in
     # registry.json exists and matches its pinned sha256. Runs against the

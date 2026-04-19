@@ -42,13 +42,16 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
-#include <unistd.h>
 
 #include <sycl/sycl.hpp>
 #include <sycl/backend.hpp>
 #include <level_zero/ze_api.h>
 
 #if HAVE_SYCL_DMABUF
+/* unistd.h (POSIX close()) only used inside the VA-API import path
+ * below — guard alongside libva so non-DMA-BUF builds (Windows MSVC,
+ * macOS, Linux without VA-API) don't fail with "unistd.h not found". */
+#include <unistd.h>
 #include <va/va.h>
 #include <va/va_drmcommon.h>
 #endif

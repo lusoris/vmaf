@@ -395,6 +395,17 @@ if is_cuda_enabled
         endif
     endif
 
+    # On Windows MSVC, the .cu sources transitively include
+    # feature_collector.h and cuda/common.h, both of which `#include
+    # <pthread.h>`. nvcc shells the host pass out to cl.exe, which
+    # has no pthread.h on its system include path. The shim at
+    # libvmaf/src/compat/win32/pthread.h is wired into the C/C++ builds
+    # via pthread_dependency, but custom_target nvcc invocations build
+    # their own -I list — so add the shim path explicitly here too.
+    cuda_extra_includes = []
+    if host_machine.system() == 'windows'
+        cuda_extra_includes += ['-I', '../src/compat/win32']
+    endif
     ptx_files = {}
     foreach name, _cu : cuda_cu_sources
         t = custom_target('cu_ptx_target_' + name,
@@ -410,6 +421,7 @@ if is_cuda_enabled
                 '-I', '../include',
                 '-I', '../src/feature',
                 '-I', '../src/' + cuda_dir,
+                cuda_extra_includes,
                 '-DDEVICE_CODE',
             ] + cuda_flags
         )
@@ -447,6 +459,11 @@ if is_cuda_enabled
             cuda_inc,
         ],
         c_args : vmaf_cflags_common,
+        # pthread_dependency is a no-op on POSIX (empty list) and on Windows
+        # MSVC routes <pthread.h> to the header-only Win32 shim at
+        # src/compat/win32/pthread.h. cuda/common.h pulls pthread.h
+        # unconditionally, so the dependency must be threaded in here too.
+        dependencies : [pthread_dependency],
         cuda_args: cuda_flags # + ['-gencode', 'arch=compute_86,code=sm_86' ] #, '--use_fast_math']
     )
 
@@ -475,7 +492,26 @@ if is_sycl_enabled
         '-I' + meson.current_source_dir() / 'sycl',
     ]
 
-    sycl_common_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20', '-fPIC']
+    # icpx-cl on Windows targets x86_64-pc-windows-msvc and rejects
+    # -fPIC ("unsupported option for target"). PIC is the default on
+    # Windows DLL builds anyway, so drop the flag there. Mirrors the
+    # CUDA / nvcc fatbin handling at cuda_extra_includes.
+    sycl_pic_arg = []
+    if host_machine.system() != 'windows'
+        sycl_pic_arg = ['-fPIC']
+    endif
+
+    # SYCL .cpp sources include feature_collector.h transitively, which
+    # pulls in pthread.h. icpx custom_targets bypass meson's dependency
+    # plumbing, so thread the Win32 pthread shim include path into the
+    # explicit -I list on Windows. Same pattern as cuda_extra_includes.
+    if host_machine.system() == 'windows'
+        sycl_inc_flags += [
+            '-I' + meson.current_source_dir() / 'compat' / 'win32',
+        ]
+    endif
+
+    sycl_common_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20'] + sycl_pic_arg
 
     sycl_sources = [
         sycl_dir + 'common.cpp',
@@ -532,11 +568,19 @@ if is_sycl_enabled
     sycl_lib = cc.find_library('sycl', dirs : [sycl_lib_dir], required : true)
     # icpx-compiled objects reference Intel runtime symbols (_intel_fast_memcpy,
     # __svml_*) that gcc/g++ won't find.  Link the Intel runtime libraries
-    # explicitly so a non-Intel host linker can resolve them.
-    svml_lib = cc.find_library('svml', dirs : [sycl_lib_dir], required : true)
-    irc_lib = cc.find_library('irc', dirs : [sycl_lib_dir], required : true)
+    # explicitly so a non-Intel host linker can resolve them. On Windows
+    # the host C/C++ compiler is icx-cl (the same Intel toolchain), which
+    # auto-injects svml/irc at link time — and the Windows lib names
+    # differ (svml_dispmd.lib, libirc.lib) — so skip the explicit lookup
+    # there.
+    sycl_extra_runtime_deps = []
+    if host_machine.system() != 'windows'
+        svml_lib = cc.find_library('svml', dirs : [sycl_lib_dir], required : true)
+        irc_lib = cc.find_library('irc', dirs : [sycl_lib_dir], required : true)
+        sycl_extra_runtime_deps += [svml_lib, irc_lib]
+    endif
     sycl_dependency += declare_dependency(
-        dependencies : [sycl_lib, svml_lib, irc_lib, libze_dep] + sycl_surface_deps,
+        dependencies : [sycl_lib, libze_dep] + sycl_extra_runtime_deps + sycl_surface_deps,
     )
 endif
 
@@ -626,7 +670,7 @@ if is_sycl_enabled
         feature_src_dir + 'sycl/integer_motion_sycl.cpp',
     ]
 
-    sycl_feature_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20', '-fPIC', '-fpermissive']
+    sycl_feature_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20'] + sycl_pic_arg + ['-fpermissive']
     sycl_feature_inc = sycl_inc_flags + [
         '-I' + meson.current_source_dir() / 'cuda',
     ]
@@ -646,7 +690,7 @@ libvmaf_feature_static_lib = static_library(
     'libvmaf_feature',
     libvmaf_feature_sources,
     include_directories : [libvmaf_include, vmaf_include, cuda_dir],
-    dependencies: [stdatomic_dependency, cuda_dependency, sycl_dependency],
+    dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency],
     objects: [common_cuda_objects, common_sycl_objects, sycl_feature_objects]
 )
 
@@ -720,6 +764,7 @@ libvmaf = library(
       thread_lib,
       math_lib,
       stdatomic_dependency,
+      pthread_dependency,
       cuda_dependency,
       sycl_dependency,
       dnn_deps,
@@ -746,8 +791,10 @@ libvmaf_private_libs = [thread_lib, math_lib]
 libvmaf_private_reqs = []
 
 if is_sycl_enabled
-    # sycl, svml, irc are Intel compiler runtime libs without .pc files
-    libvmaf_private_libs += [sycl_lib, svml_lib, irc_lib]
+    # sycl, svml, irc are Intel compiler runtime libs without .pc files.
+    # On Windows the explicit svml/irc lookup is skipped (icx-cl
+    # auto-injects them at link time), so don't reference them here.
+    libvmaf_private_libs += [sycl_lib] + sycl_extra_runtime_deps
     # ze_loader has a .pc file — use requires_private for transitive resolution
     libvmaf_private_reqs += 'libze_loader'
     if have_sycl_dmabuf

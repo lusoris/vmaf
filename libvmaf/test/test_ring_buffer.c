@@ -20,7 +20,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#define usleep(us) Sleep(((us) + 999) / 1000)
+#define sleep(s) Sleep((s) * 1000)
+#else
 #include <unistd.h>
+#endif
 
 #include "test.h"
 

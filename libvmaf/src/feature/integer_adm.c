@@ -17,6 +17,7 @@
  */
 
 #include "barten_csf_tools.h"
+#include "compat_builtin.h"
 #include "cpu.h"
 #include "dict.h"
 #include "feature_collector.h"

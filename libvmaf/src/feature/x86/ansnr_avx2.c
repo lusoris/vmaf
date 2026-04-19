@@ -33,8 +33,8 @@ void ansnr_mse_line_avx2(const float *ref, const float *dis, float *sig_accum, f
         __m256 sig_val = _mm256_mul_ps(r, r);
         __m256 noise_val = _mm256_mul_ps(diff, diff);
 
-        float stmp[8] __attribute__((aligned(32)));
-        float ntmp[8] __attribute__((aligned(32)));
+        _Alignas(32) float stmp[8];
+        _Alignas(32) float ntmp[8];
         _mm256_store_ps(stmp, sig_val);
         _mm256_store_ps(ntmp, noise_val);
         for (int k = 0; k < 8; k++) {

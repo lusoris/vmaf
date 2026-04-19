@@ -30,7 +30,7 @@ double float_psnr_noise_line_avx512(const float *ref, const float *dis, int w)
         __m512 diff = _mm512_sub_ps(r, d);
         __m512 sq = _mm512_mul_ps(diff, diff);
 
-        float tmp[16] __attribute__((aligned(64)));
+        _Alignas(64) float tmp[16];
         _mm512_store_ps(tmp, sq);
         for (int k = 0; k < 16; k++)
             result += (double)tmp[k];

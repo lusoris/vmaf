@@ -25,15 +25,16 @@
  *  oneAPI DPC++ doesn't yet document ID3D11Resource import in SYCL; revisit
  *  when that lands.
  *
- *  Code uses #define COBJMACROS so the C-style COM macros
- *  (ID3D11Device_CreateTexture2D, ID3D11Texture2D_Release, …) work under
- *  both MSVC and mingw-w64's d3d11.h — identical call sites in both
- *  compilers. See ADR-0103 rationale.
+ *  This TU is .cpp (icpx-cl drives it as C++ on Windows) and uses
+ *  C++ method-call syntax for COM interfaces (`device->CreateTexture2D(...)`)
+ *  — d3d11.h's COBJMACROS C-style helpers are gated behind
+ *  `#if !defined(__cplusplus)`, so they aren't visible here. The two
+ *  forms are ABI-equivalent (both dispatch through the COM vtable);
+ *  the choice is purely lexical. See ADR-0103 rationale.
  */
 
 #ifdef _WIN32
 
-#define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <d3d11.h>
@@ -43,7 +44,16 @@
 #include <string.h>
 
 #include <libvmaf/libvmaf_sycl.h>
-#include <libvmaf/log.h>
+
+/* log.h is internal to libvmaf/src/, not part of the public
+ * libvmaf/include/libvmaf/ surface — bare include via the
+ * src-relative path supplied as -I in the icpx invocation.
+ * Wrapped in extern "C" because log.h has no __cplusplus guard
+ * (upstream Netflix header) and vmaf_log must resolve to the
+ * C-linkage symbol produced by log.c. */
+extern "C" {
+#include "log.h"
+}
 
 /* libvmaf_sycl.h declares these with C linkage already. Just forward them
  * so this TU doesn't need the internal common.h. */
@@ -66,7 +76,7 @@ extern "C" int vmaf_sycl_import_d3d11_surface(VmafSyclState *state, void *d3d11_
 
     D3D11_TEXTURE2D_DESC src_desc;
     memset(&src_desc, 0, sizeof(src_desc));
-    ID3D11Texture2D_GetDesc(src_tex, &src_desc);
+    src_tex->GetDesc(&src_desc);
 
     if (src_desc.Width < w || src_desc.Height < h) {
         vmaf_log(VMAF_LOG_LEVEL_ERROR,
@@ -84,7 +94,7 @@ extern "C" int vmaf_sycl_import_d3d11_surface(VmafSyclState *state, void *d3d11_
     ID3D11DeviceContext *ctx = NULL;
     int rc = 0;
 
-    ID3D11Device_GetImmediateContext(device, &ctx);
+    device->GetImmediateContext(&ctx);
     if (!ctx) {
         vmaf_log(VMAF_LOG_LEVEL_ERROR, "D3D11 import: GetImmediateContext returned NULL\n");
         return -EIO;
@@ -102,15 +112,14 @@ extern "C" int vmaf_sycl_import_d3d11_surface(VmafSyclState *state, void *d3d11_
         staging_desc.ArraySize = 1;
         staging_desc.MipLevels = 1;
 
-        HRESULT hr = ID3D11Device_CreateTexture2D(device, &staging_desc, NULL, &staging_tex);
+        HRESULT hr = device->CreateTexture2D(&staging_desc, NULL, &staging_tex);
         if (FAILED(hr)) {
             vmaf_log(VMAF_LOG_LEVEL_ERROR,
                      "D3D11 import: CreateTexture2D(staging) failed: 0x%08lx\n", (unsigned long)hr);
             rc = -EIO;
             goto done;
         }
-        ID3D11DeviceContext_CopyResource(ctx, (ID3D11Resource *)staging_tex,
-                                         (ID3D11Resource *)src_tex);
+        ctx->CopyResource((ID3D11Resource *)staging_tex, (ID3D11Resource *)src_tex);
         map_target = (ID3D11Resource *)staging_tex;
     }
 
@@ -121,7 +130,7 @@ extern "C" int vmaf_sycl_import_d3d11_surface(VmafSyclState *state, void *d3d11_
      * caller passed their own staging texture honour their subresource
      * index. */
     const unsigned map_sub = src_is_staging ? subresource : 0;
-    HRESULT hr = ID3D11DeviceContext_Map(ctx, map_target, map_sub, D3D11_MAP_READ, 0, &mapped);
+    HRESULT hr = ctx->Map(map_target, map_sub, D3D11_MAP_READ, 0, &mapped);
     if (FAILED(hr)) {
         vmaf_log(VMAF_LOG_LEVEL_ERROR, "D3D11 import: Map(staging) failed: 0x%08lx\n",
                  (unsigned long)hr);
@@ -130,20 +139,20 @@ extern "C" int vmaf_sycl_import_d3d11_surface(VmafSyclState *state, void *d3d11_
     }
 
     if (!mapped.pData || mapped.RowPitch == 0) {
-        ID3D11DeviceContext_Unmap(ctx, map_target, map_sub);
+        ctx->Unmap(map_target, map_sub);
         vmaf_log(VMAF_LOG_LEVEL_ERROR, "D3D11 import: Map returned empty descriptor\n");
         rc = -EIO;
         goto done;
     }
 
     rc = vmaf_sycl_upload_plane(state, mapped.pData, mapped.RowPitch, is_ref, w, h, bpc);
-    ID3D11DeviceContext_Unmap(ctx, map_target, map_sub);
+    ctx->Unmap(map_target, map_sub);
 
 done:
     if (staging_tex)
-        ID3D11Texture2D_Release(staging_tex);
+        staging_tex->Release();
     if (ctx)
-        ID3D11DeviceContext_Release(ctx);
+        ctx->Release();
     return rc;
 }
 
