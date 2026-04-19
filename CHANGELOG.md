@@ -235,6 +235,30 @@
   prior to push.
   See [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md)
   paragraphs (h)–(p).
+- **CUDA**: out-of-the-box GPU coverage for Ampere `sm_86` (RTX 30xx)
+  and Ada `sm_89` (RTX 40xx). The gencode array in
+  [`libvmaf/src/meson.build`](libvmaf/src/meson.build) now
+  unconditionally emits cubins for `sm_75` / `sm_80` / `sm_86` /
+  `sm_89` plus a `compute_80` PTX backward-JIT fallback, independent
+  of host `nvcc` version. Upstream Netflix only shipped cubins at Txx
+  major boundaries, so Ampere-`sm_86` / Ada-`sm_89` ran on a
+  `compute_90` PTX that cannot JIT backward and fell over at
+  kernel-load time on every consumer 3080/3090/4070/4090. See
+  [ADR-0122](docs/adr/0122-cuda-gencode-coverage-and-init-hardening.md)
+  and [`docs/rebase-notes.md` entry 0023](docs/rebase-notes.md).
+- **CUDA**: actionable init-failure logging in
+  [`libvmaf/src/cuda/common.c`](libvmaf/src/cuda/common.c). When
+  `cuda_load_functions()` (the `nv-codec-headers` dlopen wrapper
+  around `libcuda.so.1`) fails, `vmaf_cuda_state_init()` now emits a
+  multi-line message naming the missing library, the loader-path
+  check command (`ldconfig -p | grep libcuda`), and the docs section
+  at
+  [`docs/backends/cuda/overview.md#runtime-requirements`](docs/backends/cuda/overview.md#runtime-requirements).
+  A parallel message on `cuInit(0)` failure distinguishes
+  driver-load failure from userspace/kernel version skew. Also fixes
+  a pre-existing leak on both error paths (`cuda_free_functions()` +
+  `free(c)` + `*cu_state = NULL`). See
+  [ADR-0122](docs/adr/0122-cuda-gencode-coverage-and-init-hardening.md).
 
 ### Changed
 
