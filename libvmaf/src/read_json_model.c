@@ -514,18 +514,30 @@ static int model_collection_parse(json_stream *s, VmafModel **model,
         return -ENOMEM;
 
     const size_t cfg_name_sz = strlen(name) + 5 + 1;
-    char cfg_name[cfg_name_sz];
+    /* Heap-allocated for MSVC portability (no VLAs). `cfg_name` survives
+     * across the while-loop iterations because `c.name` points into it
+     * after the first successful sub-model read. */
+    char *cfg_name = (char *)malloc(cfg_name_sz);
+    if (!cfg_name) {
+        free((char *)name);
+        return -ENOMEM;
+    }
 
-    const size_t generated_key_sz = 4 + 1;
-    char generated_key[generated_key_sz];
+    /* `generated_key_sz` = 4 + 1 = 5 is a true compile-time constant, but
+     * `const size_t …` is not a constant-expression in C, so declaring a
+     * plain fixed-size array (not a VLA) avoids MSVC C2057. Covers up to
+     * four decimal digits of `i` (9999 + NUL). */
+    char generated_key[5];
 
     unsigned i = 0;
     while (json_peek(s) != JSON_OBJECT_END && !json_get_error(s)) {
-        if (json_next(s) != JSON_STRING)
-            return -EINVAL;
+        if (json_next(s) != JSON_STRING) {
+            err = -EINVAL;
+            goto out;
+        }
 
         const char *key = json_get_string(s, NULL);
-        (void)snprintf(generated_key, generated_key_sz, "%d", i);
+        (void)snprintf(generated_key, sizeof(generated_key), "%d", i);
 
         if (!strcmp(key, generated_key)) {
             /* When i==0, ownership of m is transferred to *model below; when
@@ -535,7 +547,7 @@ static int model_collection_parse(json_stream *s, VmafModel **model,
             VmafModel *m;
             err = vmaf_read_json_model(&m, &c, s);
             if (err)
-                return err;
+                goto out;
 
             if (i == 0) {
                 *model = m;
@@ -544,7 +556,7 @@ static int model_collection_parse(json_stream *s, VmafModel **model,
                 err = vmaf_model_collection_append(model_collection, m);
                 if (err) {
                     vmaf_model_destroy(m);
-                    return err;
+                    goto out;
                 }
             }
             // NOLINTEND(clang-analyzer-unix.Malloc)
@@ -556,9 +568,11 @@ static int model_collection_parse(json_stream *s, VmafModel **model,
         json_skip(s);
     }
 
-    free((char *)name);
     if (!(*model_collection))
-        return -EINVAL;
+        err = -EINVAL;
+out:
+    free(cfg_name);
+    free((char *)name);
     return err;
 }
 

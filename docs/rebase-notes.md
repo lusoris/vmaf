@@ -1097,30 +1097,46 @@ inline.*
   to the POSIX macro on Linux/macOS.
   Round-21e surfaced the final source-portability
   blockers once the DLL build passed preprocessing.
-  (h) `libvmaf/src/predict.c` and
-  `libvmaf/src/libvmaf.c` (both UPSTREAM) used C99
-  variable-length arrays — `double scores[cnt]` at
+  (h) `libvmaf/src/predict.c`, `libvmaf/src/libvmaf.c`
+  and `libvmaf/src/read_json_model.c` (all UPSTREAM)
+  used C99 variable-length arrays —
+  `double scores[cnt]` at
   [predict.c:385](../libvmaf/src/predict.c#L385),
   `char name[name_sz]` at
   [predict.c:453](../libvmaf/src/predict.c#L453)
-  and [libvmaf.c:1741](../libvmaf/src/libvmaf.c#L1741).
-  gcc/clang accept VLAs as a C11 optional feature;
-  MSVC (even with `/std:c11`) rejects them outright
-  with `C2057: expected constant expression`.
-  Replaced each with a small `malloc` + explicit
-  `free` on every exit path (in predict.c a
-  `goto out;` cleanup arm was introduced because
-  the bootstrap loops error-exit mid-function). The
-  buffers are a handful of bytes each (`name_sz` is
-  the model-collection name length plus the fixed
-  `_ci_p95_lo` suffix, `scores` holds ~20 doubles —
-  one per bootstrap sample) so the heap round-trip
-  is not performance-relevant; the
-  `return -ENOMEM` on allocation failure is the
-  only new failure mode, which callers already
-  handle uniformly. Re-absorb if upstream Netflix
-  later edits the same loops and your toolchain
-  matrix omits MSVC.
+  and [libvmaf.c:1741](../libvmaf/src/libvmaf.c#L1741),
+  plus [`cfg_name[cfg_name_sz]`](../libvmaf/src/read_json_model.c#L517)
+  and [`generated_key[generated_key_sz]`](../libvmaf/src/read_json_model.c#L520)
+  in the `.json` model-collection parser. gcc/clang
+  accept VLAs as a C11 optional feature; MSVC
+  (even with `/std:c11`) rejects them outright with
+  `C2057: expected constant expression` (plus C2466
+  and C2133 on the `const size_t` sized arrays —
+  MSVC treats `const` as runtime-bounded, not a
+  constant expression, even when the initialiser is
+  literal like `4 + 1`). Replaced each runtime-sized
+  buffer with a small `malloc` + explicit `free` on
+  every exit path (in predict.c and read_json_model.c
+  a `goto out;` cleanup arm was introduced because
+  the loops error-exit mid-function). The
+  `generated_key` buffer in read_json_model.c uses
+  the narrower fix — `char generated_key[5];` —
+  since its size (four decimal digits of the
+  bootstrap sub-model index plus NUL) is a true
+  compile-time constant. Buffers are a handful of
+  bytes each (`name_sz` is the model-collection name
+  length plus the fixed `_ci_p95_lo` suffix, `scores`
+  holds ~20 doubles, `cfg_name` is the name plus
+  `_0000` suffix), so the heap round-trip is not
+  performance-relevant; the new `-ENOMEM` failure
+  mode is handled uniformly by existing callers.
+  The read_json_model.c refactor also plugs a
+  pre-existing leak of the `name` buffer on the
+  early `return -EINVAL` when a JSON object key
+  isn't a string — the `goto out;` path frees
+  `name` + `cfg_name` on every exit. Re-absorb if
+  upstream Netflix later edits the same loops and
+  your toolchain matrix omits MSVC.
   (i) `libvmaf/tools/vmaf.c` and
   `libvmaf/tools/cli_parse.c` (fork-touched)
   `#include <unistd.h>` / `<getopt.h>` which MSVC
