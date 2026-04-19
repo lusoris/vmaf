@@ -775,6 +775,16 @@ inline.*
   libvmaf uses C11 atomics that MSVC's `<stdatomic.h>` rejects
   without that opt-in flag — when MSVC ships full C11 atomics
   support, the flag becomes unconditional and can be dropped.
+  Two Windows-only dependency steps round out the parity:
+  the CUDA leg's `Jimver/cuda-toolkit` sub-package list includes
+  `cuda_cccl` (CUDA C++ Core Library headers, ships
+  `crt/host_config.h`); the SYCL leg builds the Level Zero
+  loader from source (`oneapi-src/level-zero` v1.18.5 →
+  `cmake --build … --target install`) because Windows oneAPI
+  BaseKit ships the SYCL runtime but not `ze_loader.lib`, and
+  libvmaf's meson `cc.find_library('ze_loader')` needs both the
+  header and the import library. When the Linux apt
+  `level-zero-dev` version moves, bump the L0 git tag to match.
   The one new third-party action (`ilammy/msvc-dev-cmd@v1`) is
   intentionally floating-tag-pinned to match the rest of the
   repo; if the SHA-pinning policy changes, update it.

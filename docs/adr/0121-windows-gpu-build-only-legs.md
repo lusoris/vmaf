@@ -95,6 +95,26 @@ Both legs:
   it via env var is preferable to a meson native file because
   the flag is purely build-system-conditional, not source-side:
   gcc / clang / icpx / nvcc don't need it.
+- Pull two extra dependencies that the Linux GPU legs get
+  for free from apt but Windows installers do not ship:
+  - **CUDA `cuda_cccl` sub-package** — added to the
+    `Jimver/cuda-toolkit` `sub-packages` list. Provides
+    `crt/host_config.h` (CUDA C++ Core Library headers) which
+    `cuda_runtime.h` includes unconditionally. Without it, the
+    very first MSVC translation unit that touches the CUDA
+    runtime errors with `Cannot open include file:
+    'crt/host_config.h'`.
+  - **Level Zero loader from source** — `oneapi-src/level-zero`
+    cloned at tag `v1.18.5` (matches the Ubuntu 24.04 apt
+    `level-zero-dev` version, keeping the parity invariant with
+    the Linux SYCL leg) and built via `cmake --build … --target
+    install` to a job-local prefix. Its `include/` and `lib/`
+    are appended to `INCLUDE` and `LIB` via `GITHUB_ENV` so
+    meson's `cc.find_library('ze_loader', required: true)` at
+    `libvmaf/src/meson.build:492` resolves. Windows oneAPI
+    BaseKit ships the SYCL runtime but not the L0 loader
+    `ze_loader.lib`; building from source is the
+    Intel-documented path on Windows.
 - Skip the test step entirely. `windows-latest` has no GPU; running
   even CPU-only tests would consume runner minutes for no signal
   beyond what the Linux legs already provide.
