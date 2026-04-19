@@ -764,6 +764,10 @@ inline.*
   `CHANGELOG.md` (Added entry),
   `libvmaf/src/compat/win32/pthread.h` (new — Win32 pthread shim
   for MSVC; mirrors `compat/gcc/stdatomic.h` pattern),
+  `libvmaf/src/feature/integer_adm.h` (UPSTREAM — converted
+  the `dwt_7_9_YCbCr_threshold[3]` designated initializer to
+  positional form so MSVC/nvcc-on-Windows accepts the C++
+  parse; semantically identical, no behavioural change),
   `libvmaf/meson.build` (new `pthread_dependency` gated on
   `cc.check_header('pthread.h')` failing),
   `libvmaf/src/meson.build` and `libvmaf/test/meson.build` (thread
@@ -829,10 +833,25 @@ inline.*
   `-fPIC` token through `sycl_pic_arg = host_machine.system()
   != 'windows' ? ['-fPIC'] : []`. PIC is the default for
   Windows DLLs, so dropping the flag is the correct fix
-  rather than a workaround. The one new third-party action
-  (`ilammy/msvc-dev-cmd@v1`) is intentionally
-  floating-tag-pinned to match the rest of the repo; if the
-  SHA-pinning policy changes, update it.
+  rather than a workaround. Round-14 surfaced a third
+  Windows-only blocker: `libvmaf/src/feature/integer_adm.h`
+  (an upstream Netflix file, last touched by upstream port
+  d06dd6cf) initialises `dwt_7_9_YCbCr_threshold[3]` with
+  C99 designated initializers (`{.a = ..., .k = ..., .f0 =
+  ..., .g = {...}}`). The header is included from both
+  `integer_adm.c` (C TU) and `cuda/integer_adm/*.cu` (C++
+  TU via nvcc); MSVC's C++ frontend (and nvcc's cudafe++
+  on Windows) rejects C99 designated initializers without
+  `/std:c++20`. Converted to positional initialization in
+  the same struct-member order (a / k / f0 / g[4]) — the
+  conversion is provably semantically identical and works
+  in every C/C++ standard, so it costs nothing on the
+  upstream-merge side beyond a trivial conflict marker if
+  upstream Netflix later edits the same lines. Restore
+  designated form post-merge if upstream has it. The one
+  new third-party action (`ilammy/msvc-dev-cmd@v1`) is
+  intentionally floating-tag-pinned to match the rest of
+  the repo; if the SHA-pinning policy changes, update it.
 - **Re-test**:
 
   ```bash
