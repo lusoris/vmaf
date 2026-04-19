@@ -107,6 +107,16 @@
   standard and portable on every supported host. All four preserve
   POSIX/Linux behaviour bit-identically. See
   [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: CUDA Windows source portability — fifth MSVC blocker
+  fixed on the CUDA leg's CPU SIMD compile path.
+  [`libvmaf/src/feature/x86/motion_avx2.c`](libvmaf/src/feature/x86/motion_avx2.c)
+  (UPSTREAM) line 529 indexed an `__m256i` directly
+  (`final_accum[0] + ... + final_accum[3]`) — gcc/clang allow this
+  via the GNU vector extension, MSVC rejects it with `C2088:
+  built-in operator '[' cannot be applied to an operand of type
+  '__m256i'`. Replaced with four `_mm256_extract_epi64` calls,
+  summed — bit-exact lane sum on every compiler. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
 
 ### Changed
 

@@ -782,6 +782,9 @@ inline.*
   `libvmaf/src/sycl/common.cpp` (replace POSIX
   `clock_gettime(CLOCK_MONOTONIC)` with portable
   `std::chrono::steady_clock`),
+  `libvmaf/src/feature/x86/motion_avx2.c` (UPSTREAM —
+  replace GCC vector-extension `__m256i[N]` indexing at
+  line 529 with `_mm256_extract_epi64`; bit-exact),
   `libvmaf/meson.build` (new `pthread_dependency` gated on
   `cc.check_header('pthread.h')` failing),
   `libvmaf/src/meson.build` and `libvmaf/test/meson.build` (thread
@@ -900,7 +903,23 @@ inline.*
   (guaranteed monotonic by the C++ standard, portable on
   every supported host). All four fixes preserve
   POSIX/Linux behaviour bit-identically and only change
-  the Windows MSVC build path. The one
+  the Windows MSVC build path.
+  Round-18 surfaced a fifth Windows blocker on the CUDA
+  leg's CPU SIMD compile path:
+  `libvmaf/src/feature/x86/motion_avx2.c:529` (UPSTREAM,
+  ported in commit 9371a0aa from Netflix PR #1486)
+  computed `final_accum[0] + final_accum[1] +
+  final_accum[2] + final_accum[3]` to extract the four
+  int64 lanes from an `__m256i`. gcc/clang allow this
+  via the GNU vector-extension treatment of `__m256i`
+  (it carries `__attribute__((vector_size(32)))`); MSVC
+  rejects it with `C2088: built-in operator '[' cannot
+  be applied to an operand of type '__m256i'`. Replaced
+  with `_mm256_extract_epi64(final_accum, N)` for
+  N ∈ {0..3}, summed — bit-exact lane sum on every
+  compiler. Restore the index form post-merge if
+  upstream Netflix later edits the same lines and your
+  toolchain matrix doesn't include MSVC. The one
   new third-party action (`ilammy/msvc-dev-cmd@v1`) is
   intentionally floating-tag-pinned to match the rest of
   the repo; if the SHA-pinning policy changes, update it.
