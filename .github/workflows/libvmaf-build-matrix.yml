@@ -268,7 +268,12 @@ jobs:
       # for log isolation only.
       - name: Run meson dnn suite (DNN leg)
         if: matrix.dnn
-        run: sudo meson test -C libvmaf/build --suite=dnn --print-errorlogs
+        # `sudo $(which meson)` resolves the meson absolute path before
+        # sudo strips PATH — pip-installed meson lives under the runner
+        # user's $HOME so a bare `sudo meson` reports "command not found".
+        # Sudo is needed because the preceding `sudo ninja install` step
+        # left build artifacts owned by root.
+        run: sudo $(which meson) test -C libvmaf/build --suite=dnn --print-errorlogs
 
       # CPU-only: full test suite + tox
       - name: Run tests
