@@ -145,7 +145,8 @@ int vmaf_cuda_state_init(VmafCudaState **cu_state, VmafCudaConfiguration cfg)
                  "CUDA: cuInit(0) failed (err=%d). The driver was "
                  "loaded but initialization failed — typically a "
                  "driver/userspace version mismatch or no CUDA-capable "
-                 "device visible to the process.\n", err);
+                 "device visible to the process.\n",
+                 err);
         cuda_free_functions(&c->f);
         free(c);
         *cu_state = NULL;
