@@ -188,13 +188,19 @@
   C11 feature. Buffers are a handful of bytes each, so the
   heap round-trip is not performance-relevant.
   [`.github/workflows/libvmaf-build-matrix.yml`](.github/workflows/libvmaf-build-matrix.yml)
-  sets `-Denable_tools=false` on both Windows MSVC legs —
-  [`libvmaf/tools/vmaf.c`](libvmaf/tools/vmaf.c) and
-  [`libvmaf/tools/cli_parse.c`](libvmaf/tools/cli_parse.c)
+  sets both `-Denable_tools=false` and `-Denable_tests=false`
+  on the two Windows MSVC legs —
+  [`libvmaf/tools/vmaf.c`](libvmaf/tools/vmaf.c),
+  [`libvmaf/tools/cli_parse.c`](libvmaf/tools/cli_parse.c),
+  and [`libvmaf/test/test_cli_parse.c`](libvmaf/test/test_cli_parse.c)
   include `<unistd.h>` / `<getopt.h>` which MSVC does not
-  ship, and the legs are deliberately scoped to building
-  `libvmaf.dll` for downstream consumers (the job names end
-  in "(build only)"). MinGW-w64 CLI builds are unaffected.
+  ship, and most test binaries transitively pull in
+  `<pthread.h>` via `feature_collector.h` without the
+  Win32 pthread shim threaded through their dependencies.
+  The legs are deliberately scoped to building `libvmaf.dll`
+  for downstream consumers (the job names end in
+  "(build only)"). MinGW-w64 CLI + test builds are
+  unaffected; Linux/macOS legs keep tests enabled.
   See [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
 
 ### Changed

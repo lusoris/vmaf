@@ -1144,29 +1144,41 @@ inline.*
   accepts enum constants identically. Re-absorb
   if upstream Netflix later edits the same loops
   and your toolchain matrix omits MSVC.
-  (i) `libvmaf/tools/vmaf.c` and
-  `libvmaf/tools/cli_parse.c` (fork-touched)
-  `#include <unistd.h>` / `<getopt.h>` which MSVC
-  does not ship and which the fork deliberately
-  does not polyfill — porting the CLI to MSVC
-  would require a full `getopt_long` shim and is
-  out of scope for the build-only GPU legs. The
-  job name is literally "Windows MSVC + CUDA
-  (build only)" / "…SYCL (build only)" and the
-  value of those legs is verifying that
+  (i) The Windows MSVC build-only legs disable
+  both `-Denable_tools=false` and
+  `-Denable_tests=false` (flipped together in
+  [`.github/workflows/libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml)).
+  Rationale: the legs are explicitly "(build
+  only)" — their value is verifying
   `libvmaf.dll` builds for downstream consumers
   (ffmpeg's MSVC build, WPF apps, etc.), not
-  that the reference CLI runs on Windows. Added
-  `-Denable_tools=false` to both Windows MSVC
-  legs' `meson_extra` in
-  [`.github/workflows/libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml).
-  MinGW-w64 builds are unaffected (they ship
-  `<unistd.h>` / `<getopt.h>` via winpthreads +
-  mingw-w64-crt). If the CLI ever needs to
-  build with MSVC, the follow-up is a
+  that the reference CLI runs on Windows nor
+  that the unit-test suite compiles. The tree
+  deliberately does not polyfill POSIX surfaces
+  used by tests and the CLI:
+  `libvmaf/tools/vmaf.c` and
+  `libvmaf/tools/cli_parse.c` include
+  `<unistd.h>` / `<getopt.h>`;
+  `libvmaf/test/test_cli_parse.c` also includes
+  `<getopt.h>`; and most test binaries include
+  feature TUs that transitively pull in
+  `feature_collector.h` → `<pthread.h>`, which
+  the fork's Win32 shim only routes into
+  per-target `dependencies:` lists that were
+  never threaded through the test targets
+  (`test_ciede`, `test_log`, `test_dict`, etc.).
+  Skipping tests sidesteps all of that. MinGW-w64
+  builds are unaffected (they ship `<unistd.h>`
+  / `<getopt.h>` via winpthreads + mingw-w64-crt)
+  and Linux/macOS legs keep tests enabled so the
+  usual green-CI gate still runs. If the CLI or
+  the test suite ever needs to build with MSVC,
+  the follow-up is a
   `libvmaf/tools/compat/getopt.h` shim plus the
   same `<io.h>` / `_isatty` redirection used in
-  `log.c`.
+  `log.c`, plus threading `pthread_dependency`
+  into every test executable's `dependencies:`
+  list.
   (j) [`libvmaf/test/dnn/meson.build:100`](../libvmaf/test/dnn/meson.build#L100)
   (fork-added) — the `test_cli` integration test
   takes `VMAF_BIN` / `depends` from the

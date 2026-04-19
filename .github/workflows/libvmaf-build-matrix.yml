@@ -441,10 +441,10 @@ jobs:
       matrix:
         include:
           - backend: cuda
-            meson_extra: -Denable_cuda=true -Denable_nvcc=true -Denable_sycl=false -Denable_tools=false
+            meson_extra: -Denable_cuda=true -Denable_nvcc=true -Denable_sycl=false -Denable_tools=false -Denable_tests=false
             name: Build — Windows MSVC + CUDA (build only)
           - backend: sycl
-            meson_extra: -Denable_cuda=false -Denable_sycl=true -Denable_tools=false
+            meson_extra: -Denable_cuda=false -Denable_sycl=true -Denable_tools=false -Denable_tests=false
             name: Build — Windows MSVC + oneAPI SYCL (build only)
     steps:
       - uses: actions/checkout@v6
