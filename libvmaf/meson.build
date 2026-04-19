@@ -42,6 +42,19 @@ if not cc.check_header('stdatomic.h')
     endif
 endif
 
+# Windows MSVC / clang-cl ships no <pthread.h>. libvmaf uses pthread mutex /
+# cond / thread-create across the core (~14 files), so resolve the include
+# locally via a header-only Win32 SRWLOCK / CONDITION_VARIABLE shim. MinGW
+# ships its own winpthreads, so check_header() succeeds there and the shim
+# stays out of the include path. See src/compat/win32/pthread.h and
+# docs/adr/0121-windows-gpu-build-only-legs.md for the rationale.
+pthread_dependency = []
+if not cc.check_header('pthread.h')
+    pthread_dependency = declare_dependency(
+        include_directories : include_directories('src/compat/win32'),
+    )
+endif
+
 subdir('include')
 subdir('src')
 subdir('tools')

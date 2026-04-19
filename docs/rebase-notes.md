@@ -761,7 +761,13 @@ inline.*
   `windows-gpu-build` job),
   `docs/adr/0121-windows-gpu-build-only-legs.md` (new),
   `docs/adr/README.md` (index row),
-  `CHANGELOG.md` (Added entry).
+  `CHANGELOG.md` (Added entry),
+  `libvmaf/src/compat/win32/pthread.h` (new — Win32 pthread shim
+  for MSVC; mirrors `compat/gcc/stdatomic.h` pattern),
+  `libvmaf/meson.build` (new `pthread_dependency` gated on
+  `cc.check_header('pthread.h')` failing),
+  `libvmaf/src/meson.build` and `libvmaf/test/meson.build` (thread
+  `pthread_dependency` into every target compiling pthread-using TUs).
 - **Invariant**: Windows GPU legs are pinned to the same toolchain
   versions as the corresponding Linux GPU legs (CUDA 13.0.0, oneAPI
   BaseKit 2025.3.0.372) so a Linux-vs-Windows divergence implies an
@@ -797,7 +803,20 @@ inline.*
   'windows'` — those calls exist for the gcc/g++ + icpx Linux
   flow where the host linker is non-Intel; on Windows the host
   compiler is icx-cl itself and auto-injects the Intel runtime.
-  The one new third-party action (`ilammy/msvc-dev-cmd@v1`) is
+  Round-10 surfaced an additional Windows-only gap: ~14 libvmaf
+  TUs `#include <pthread.h>` unconditionally, but MSVC and
+  clang-cl ship no pthread (MinGW does, via winpthreads). The
+  fork now ships a header-only Win32 shim at
+  `libvmaf/src/compat/win32/pthread.h` mapping the in-use
+  pthread subset (mutex / cond / thread create+join+detach)
+  onto SRWLOCK + CONDITION_VARIABLE + `_beginthreadex`. The
+  shim is wired in via `pthread_dependency` in
+  `libvmaf/meson.build`, declared only when
+  `cc.check_header('pthread.h')` fails — so MinGW and POSIX
+  paths stay untouched. When upstream Netflix/vmaf adds new
+  pthread surface (e.g., `pthread_rwlock_*`), extend
+  `compat/win32/pthread.h` to cover it. The one new
+  third-party action (`ilammy/msvc-dev-cmd@v1`) is
   intentionally floating-tag-pinned to match the rest of the
   repo; if the SHA-pinning policy changes, update it.
 - **Re-test**:

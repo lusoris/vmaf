@@ -63,6 +63,17 @@
   no GPU). Both legs are pinned to required status checks on `master`.
   See [ADR-0121](docs/adr/0121-windows-gpu-build-only-legs.md) +
   [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: Win32 `pthread.h` compat shim at
+  [`libvmaf/src/compat/win32/pthread.h`](libvmaf/src/compat/win32/pthread.h)
+  — header-only, maps the in-use pthread subset (mutex / cond / thread
+  create+join+detach + `PTHREAD_MUTEX_INITIALIZER` /
+  `PTHREAD_COND_INITIALIZER`) onto Win32 SRWLOCK + CONDITION_VARIABLE +
+  `_beginthreadex`. Wired in via a new `pthread_dependency` in
+  `libvmaf/meson.build`, gated on `cc.check_header('pthread.h')`
+  failing — POSIX and MinGW (winpthreads) builds are untouched. Lets
+  the Windows MSVC GPU legs from ADR-0121 actually compile the libvmaf
+  core (~14 TUs `#include <pthread.h>` unconditionally). Pattern
+  mirrors the long-standing `compat/gcc/stdatomic.h` shim.
 
 ### Changed
 

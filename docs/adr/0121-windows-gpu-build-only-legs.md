@@ -144,6 +144,29 @@ Both legs:
   (`svml_dispmd.lib`, `libirc.lib`) so the bare-name lookup
   would fail anyway. Guard the block with `if
   host_machine.system() != 'windows'`.
+- **Win32 `pthread.h` compat shim** — libvmaf core uses the
+  pthread API (mutex / cond / thread-create) across ~14 files,
+  with `#include <pthread.h>` unconditional. MSVC and clang-cl
+  ship no `pthread.h` (MinGW does, via winpthreads). Round-10
+  surfaced this as `fatal error C1083: Cannot open include
+  file: 'pthread.h'` in six CUDA host TUs once the nvvm device
+  compiler started running. Resolved by adding a header-only
+  shim at [`libvmaf/src/compat/win32/pthread.h`](../../libvmaf/src/compat/win32/pthread.h)
+  that maps the in-use pthread subset onto Win32 SRWLOCK +
+  CONDITION_VARIABLE + `_beginthreadex`, mirroring the
+  long-standing `compat/gcc/stdatomic.h` pattern. Wired in
+  via a new `pthread_dependency` declared in
+  [`libvmaf/meson.build`](../../libvmaf/meson.build) and gated on
+  `cc.check_header('pthread.h')` failing — so MinGW and POSIX
+  paths are untouched. Shim covers `pthread_t`,
+  `pthread_mutex_*`, `pthread_cond_*`, `pthread_create`,
+  `pthread_join`, `pthread_detach`, plus
+  `PTHREAD_MUTEX_INITIALIZER` / `PTHREAD_COND_INITIALIZER` —
+  exactly the surface in use, no more. Floor is Vista+ for
+  SRWLOCK / CONDITION_VARIABLE; `windows-2022` runners are
+  well above that. Build-only legs do not exercise the
+  shim's runtime semantics, but the GPU host TUs that link
+  against libvmaf now compile cleanly under MSVC.
 - Skip the test step entirely. `windows-latest` has no GPU; running
   even CPU-only tests would consume runner minutes for no signal
   beyond what the Linux legs already provide.
