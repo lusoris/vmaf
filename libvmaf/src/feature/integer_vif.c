@@ -610,7 +610,12 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     const size_t data_sz = 2 * (pad_size + frame_size + pad_size) +
                            2 * (h * s->public.buf.stride_16) + 5 * (s->public.buf.stride_32) +
                            7 * s->public.buf.stride_tmp;
-    void *data = aligned_malloc(data_sz, MAX_ALIGN);
+    /* Walk the one allocation as a byte cursor. The original upstream
+     * form used `void *data` and relied on the GCC extension that treats
+     * pointer arithmetic on void* as byte-wise (sizeof(void)==1). MSVC
+     * rejects that with C2036, so use uint8_t* and cast explicitly at
+     * assignments to typed pointers. Byte offsets are identical. */
+    uint8_t *data = aligned_malloc(data_sz, MAX_ALIGN);
     if (!data)
         return -ENOMEM;
     memset(data, 0, data_sz);
@@ -621,33 +626,33 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     data += frame_size + pad_size + pad_size;
     s->public.buf.dis = data;
     data += frame_size + pad_size;
-    s->public.buf.mu1 = data;
+    s->public.buf.mu1 = (uint16_t *)data;
     data += h * s->public.buf.stride_16;
-    s->public.buf.mu2 = data;
+    s->public.buf.mu2 = (uint16_t *)data;
     data += h * s->public.buf.stride_16;
-    s->public.buf.mu1_32 = data;
+    s->public.buf.mu1_32 = (uint32_t *)data;
     data += s->public.buf.stride_32;
-    s->public.buf.mu2_32 = data;
+    s->public.buf.mu2_32 = (uint32_t *)data;
     data += s->public.buf.stride_32;
-    s->public.buf.ref_sq = data;
+    s->public.buf.ref_sq = (uint32_t *)data;
     data += s->public.buf.stride_32;
-    s->public.buf.dis_sq = data;
+    s->public.buf.dis_sq = (uint32_t *)data;
     data += s->public.buf.stride_32;
-    s->public.buf.ref_dis = data;
+    s->public.buf.ref_dis = (uint32_t *)data;
     data += s->public.buf.stride_32;
-    s->public.buf.tmp.mu1 = data;
+    s->public.buf.tmp.mu1 = (uint32_t *)data;
     data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.mu2 = data;
+    s->public.buf.tmp.mu2 = (uint32_t *)data;
     data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.ref = data;
+    s->public.buf.tmp.ref = (uint32_t *)data;
     data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.dis = data;
+    s->public.buf.tmp.dis = (uint32_t *)data;
     data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.ref_dis = data;
+    s->public.buf.tmp.ref_dis = (uint32_t *)data;
     data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.ref_convol = data;
+    s->public.buf.tmp.ref_convol = (uint32_t *)data;
     data += s->public.buf.stride_tmp;
-    s->public.buf.tmp.dis_convol = data;
+    s->public.buf.tmp.dis_convol = (uint32_t *)data;
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);

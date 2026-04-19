@@ -795,6 +795,10 @@ inline.*
   `libvmaf/src/log.c` (UPSTREAM — gate `<unistd.h>`
   behind `!_WIN32`, include `<io.h>` + redirect
   `isatty`/`fileno` to `_isatty`/`_fileno` for MSVC),
+  `libvmaf/src/feature/integer_vif.c` (UPSTREAM —
+  switch the `aligned_malloc` cursor from `void *`
+  to `uint8_t *` with explicit typed-pointer casts
+  so MSVC accepts the byte-wise pointer arithmetic),
   `.github/workflows/lint-and-format.yml` (fork-added —
   set `lfs: true` on the pre-commit job's checkout so
   LFS-stored ONNX blobs resolve and don't appear as
@@ -1051,6 +1055,24 @@ inline.*
   `dependencies : [pthread_dependency]` — no-op
   on POSIX (empty list), routes the shim path in
   on Windows.
+  (e) `libvmaf/src/feature/integer_vif.c`
+  (UPSTREAM) walked one big `aligned_malloc`
+  result as `void *data` and did
+  `data += pad_size` / `data += h *
+  stride_16` etc. to carve the buffer into
+  typed sub-pointers. gcc/clang accept
+  pointer arithmetic on `void *` as a GNU
+  extension (treating `sizeof(void) == 1`);
+  MSVC rejects it with `C2036: 'void *':
+  unknown size`. Replaced the cursor type
+  with `uint8_t *` and added explicit casts
+  at assignment sites that take a typed
+  pointer (`uint16_t *mu1`, `uint32_t
+  *mu1_32`, etc.). Byte offsets are
+  identical, layout unchanged, bit-exact.
+  If upstream Netflix edits the same loop,
+  reabsorb the walk and re-apply the
+  cursor-type + cast pattern.
 - **Re-test**:
 
   ```bash
