@@ -795,6 +795,15 @@ inline.*
   `libvmaf/src/feature/x86/motion_avx512.c` (UPSTREAM —
   replace 1 `__m128i[N]` reduction with
   `_mm_extract_epi64`; bit-exact),
+  `libvmaf/src/feature/x86/{vif_statistic_avx2,ansnr_avx2,ansnr_avx512,float_adm_avx2,float_adm_avx512,float_psnr_avx2,float_psnr_avx512,ssim_avx2,ssim_avx512}.c`
+  (UPSTREAM — convert 17 sites of trailing
+  `__attribute__((aligned(N)))` to leading C11
+  `_Alignas(N)`; same alignment, MSVC-portable),
+  `libvmaf/src/feature/mkdirp.c` and
+  `libvmaf/src/feature/mkdirp.h` (UPSTREAM third-party
+  MIT-licensed micro-library — gate `<unistd.h>` to
+  non-Windows, add `<direct.h>` + `_mkdir` for Windows,
+  add `mode_t` typedef for MSVC),
   `libvmaf/meson.build` (new `pthread_dependency` gated on
   `cc.check_header('pthread.h')` failing),
   `libvmaf/src/meson.build` and `libvmaf/test/meson.build` (thread
@@ -967,7 +976,38 @@ inline.*
   aren't visible in this `.cpp` TU. The two forms are
   ABI-equivalent (both dispatch through the COM vtable);
   the choice is purely lexical and POSIX builds aren't
-  affected (the whole TU is `#ifdef _WIN32`). The one
+  affected (the whole TU is `#ifdef _WIN32`).
+  Round-20 surfaced two more Windows-only blockers.
+  (a) 17 sites across the x86 SIMD layer used GCC's
+  `float tmp[N] __attribute__((aligned(M)));` form to
+  align scratch buffers for `_mm{256,512}_store_ps`.
+  MSVC rejects the trailing-attribute syntax with
+  `C2146: syntax error: missing ';' before identifier
+  '__attribute__'`. Replaced with the C11-standard
+  `_Alignas(M) float tmp[N];` (alignment specifier
+  before the type) — works in gcc, clang and MSVC
+  with `/std:c11`. Files touched (all UPSTREAM):
+  `vif_statistic_avx2.c` (×2), `ansnr_avx2.c` (×2),
+  `ansnr_avx512.c` (×2), `float_adm_avx2.c` (×2),
+  `float_adm_avx512.c` (×2), `float_psnr_avx2.c` (×1),
+  `float_psnr_avx512.c` (×1), `ssim_avx2.c` (×4),
+  `ssim_avx512.c` (×4). The pre-existing
+  `vif_avx2.c` / `vif_avx512.c` already define a
+  portable `ALIGNED(x)` macro at file scope and
+  position the attribute before the type, so they
+  compile cleanly under MSVC and were not touched.
+  (b) `libvmaf/src/feature/mkdirp.c` (UPSTREAM,
+  third-party MIT-licensed copy of Stephen Mathieson's
+  micro-library) included `<unistd.h>` unconditionally
+  but never used POSIX `unistd` symbols (only `mkdir`
+  via `<sys/stat.h>`/`<direct.h>`). Gated `<unistd.h>`
+  to non-Windows and added `<direct.h>` for Windows;
+  switched `mkdir(pathname)` → `_mkdir(pathname)` (the
+  non-deprecated MSVC name). `libvmaf/src/feature/mkdirp.h`
+  added a `mode_t` typedef under MSVC since neither
+  `<sys/types.h>` nor `<sys/stat.h>` declare it on
+  Windows; `mode` is ignored on the Windows path
+  anyway. The one
   new third-party action (`ilammy/msvc-dev-cmd@v1`) is
   intentionally floating-tag-pinned to match the rest of
   the repo; if the SHA-pinning policy changes, update it.

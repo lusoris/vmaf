@@ -117,10 +117,10 @@ void ssim_accumulate_avx512(const float *ref_mu, const float *cmp_mu, const floa
 
         __m512 ssim_val = _mm512_mul_ps(_mm512_mul_ps(l, c), s);
 
-        float t_ssim[16] __attribute__((aligned(64)));
-        float t_l[16] __attribute__((aligned(64)));
-        float t_c[16] __attribute__((aligned(64)));
-        float t_s[16] __attribute__((aligned(64)));
+        _Alignas(64) float t_ssim[16];
+        _Alignas(64) float t_l[16];
+        _Alignas(64) float t_c[16];
+        _Alignas(64) float t_s[16];
         _mm512_store_ps(t_ssim, ssim_val);
         _mm512_store_ps(t_l, l);
         _mm512_store_ps(t_c, c);

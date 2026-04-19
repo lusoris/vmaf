@@ -119,10 +119,10 @@ void ssim_accumulate_avx2(const float *ref_mu, const float *cmp_mu, const float 
 
         __m256 ssim_val = _mm256_mul_ps(_mm256_mul_ps(l, c), s);
 
-        float t_ssim[8] __attribute__((aligned(32)));
-        float t_l[8] __attribute__((aligned(32)));
-        float t_c[8] __attribute__((aligned(32)));
-        float t_s[8] __attribute__((aligned(32)));
+        _Alignas(32) float t_ssim[8];
+        _Alignas(32) float t_l[8];
+        _Alignas(32) float t_c[8];
+        _Alignas(32) float t_s[8];
         _mm256_store_ps(t_ssim, ssim_val);
         _mm256_store_ps(t_l, l);
         _mm256_store_ps(t_c, c);

@@ -178,8 +178,8 @@ void vif_statistic_s_avx2(const float *mu1, const float *mu2, const float *xx_fi
 
             /* Extract and accumulate sequentially in float to match scalar precision */
             {
-                float tmp_n[8] __attribute__((aligned(32)));
-                float tmp_d[8] __attribute__((aligned(32)));
+                _Alignas(32) float tmp_n[8];
+                _Alignas(32) float tmp_d[8];
                 _mm256_store_ps(tmp_n, v_num_val);
                 _mm256_store_ps(tmp_d, v_den_val);
                 for (int k = 0; k < 8; k++) {

@@ -141,6 +141,25 @@
   behind `!defined(__cplusplus)` and the TU compiles as C++
   under icpx-cl. ABI-equivalent. See
   [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: x86 SIMD alignment specifier — round-20 swap from
+  GCC trailing `__attribute__((aligned(N)))` to C11-standard
+  leading `_Alignas(N)` across 17 scratch-buffer sites in
+  `vif_statistic_avx2.c` (UPSTREAM), `ansnr_avx{2,512}.c`
+  (UPSTREAM), `float_adm_avx{2,512}.c` (UPSTREAM),
+  `float_psnr_avx{2,512}.c` (UPSTREAM) and `ssim_avx{2,512}.c`
+  (UPSTREAM). Same alignment guarantee, MSVC-portable
+  (`/std:c11`). The pre-existing portable `ALIGNED(x)` macro in
+  `vif_avx{2,512}.c` was already MSVC-clean and remains untouched.
+- **Build**: `mkdirp` Windows portability —
+  [`libvmaf/src/feature/mkdirp.c`](libvmaf/src/feature/mkdirp.c)
+  and
+  [`libvmaf/src/feature/mkdirp.h`](libvmaf/src/feature/mkdirp.h)
+  (third-party MIT-licensed micro-library) gate `<unistd.h>` to
+  non-Windows, add `<direct.h>` + `_mkdir` on MSVC, and provide a
+  local `mode_t` typedef (MSVC's `<sys/types.h>` doesn't declare
+  it). The `mode` argument is silently ignored on the Windows
+  path — same behaviour as before for POSIX callers. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
 
 ### Changed
 

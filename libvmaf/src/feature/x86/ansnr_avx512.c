@@ -33,8 +33,8 @@ void ansnr_mse_line_avx512(const float *ref, const float *dis, float *sig_accum,
         __m512 sig_val = _mm512_mul_ps(r, r);
         __m512 noise_val = _mm512_mul_ps(diff, diff);
 
-        float stmp[16] __attribute__((aligned(64)));
-        float ntmp[16] __attribute__((aligned(64)));
+        _Alignas(64) float stmp[16];
+        _Alignas(64) float ntmp[16];
         _mm512_store_ps(stmp, sig_val);
         _mm512_store_ps(ntmp, noise_val);
         for (int k = 0; k < 16; k++) {
