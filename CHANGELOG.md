@@ -274,7 +274,13 @@
   copyright-template choice). Upstream-port PRs (`port:` title /
   `port/` branch) are exempt. Reviewer documentation at
   [`docs/development/automated-rule-enforcement.md`](docs/development/automated-rule-enforcement.md).
-  See [ADR-0124](docs/adr/0124-automated-rule-enforcement.md) and
+  First `--all-files` pass also backfilled 18 pre-existing missing
+  headers (13 upstream C files Netflix 2016–2026, 4 fork-authored
+  NEON sources + `python/compat/config.h` Lusoris+Claude 2026);
+  `libvmaf/src/pdjson.{c,h}` (vendored JSON parser) and
+  `python/vmaf/matlab/` (upstream MATLAB MEX) are excluded from
+  the hook rather than receiving synthetic headers. See
+  [ADR-0124](docs/adr/0124-automated-rule-enforcement.md) and
   [Research-0002](docs/research/0002-automated-rule-enforcement.md).
 
 ### Changed

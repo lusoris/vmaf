@@ -98,7 +98,11 @@ repos:
         name: ADR-0105 copyright header present (C/C++/CUDA)
         entry: scripts/ci/check-copyright.sh
         language: script
-        # Upstream subprojects and test fixtures never carry our header
-        # templates; skip them.
-        exclude: '^subprojects/|^libvmaf/test/data/|^python/vmaf/resource/|^python/test/resource/'
+        # Exclusions: (a) upstream vendored subprojects, (b) test fixtures,
+        # (c) resource directories that ship upstream assets unchanged,
+        # (d) libvmaf/src/pdjson.{c,h} — vendored 3rd-party JSON parser
+        # retaining its own in-file "Vendored 3rd-party" banner,
+        # (e) python/vmaf/matlab/ — upstream Netflix training-harness MATLAB
+        # MEX C sources, already excluded from other hygiene hooks.
+        exclude: '^subprojects/|^libvmaf/test/data/|^python/vmaf/resource/|^python/test/resource/|^python/vmaf/matlab/|^libvmaf/src/pdjson\.(c|h)$'
         types_or: [c, c++, cuda]
