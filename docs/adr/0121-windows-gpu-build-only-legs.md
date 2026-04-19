@@ -53,7 +53,7 @@ Add a new top-level `windows-gpu-build` job in
 running on `windows-latest`, with two matrix entries:
 
 | Display name | Backend | Toolchain | Build-only? |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `Build — Windows MSVC + CUDA (build only)` | CUDA | MSVC + nvcc 13.0.0 | yes |
 | `Build — Windows MSVC + oneAPI SYCL (build only)` | SYCL | MSVC + icx-cl 2025.3 | yes |
 
@@ -64,12 +64,24 @@ Both legs:
   runs `vcvars64.bat` and exports the env vars). Required because
   nvcc shells out to `cl.exe` and `icx-cl` is a `cl.exe`-compatible
   driver.
-- Pin tooling to the exact same versions as the Linux GPU legs:
-  CUDA 13.0.0 (via [`Jimver/cuda-toolkit@v0.2.35`](https://github.com/Jimver/cuda-toolkit))
-  and oneAPI 2025.3 (via [`rscohn2/setup-oneapi@v0`](https://github.com/rscohn2/setup-oneapi)
-  with `dpcpp@2025.3`). Identical pins keep the MSVC-vs-Linux
-  comparison meaningful — if a build breaks here but not on Linux,
-  it's an MSVC ABI issue, not a tooling-version delta.
+- Pin CUDA tooling to the exact same version as the Linux CUDA leg:
+  CUDA 13.0.0 (via [`Jimver/cuda-toolkit@v0.2.35`](https://github.com/Jimver/cuda-toolkit)).
+  Identical pins keep the MSVC-vs-Linux comparison meaningful — if
+  a build breaks here but not on Linux, it's an MSVC ABI issue, not
+  a tooling-version delta.
+- Install oneAPI on Windows via **Chocolatey**
+  (`choco install intel-oneapi-basekit`). The community
+  [`rscohn2/setup-oneapi@v0`](https://github.com/rscohn2/setup-oneapi)
+  action that the first iteration of this ADR called for is
+  **Linux-only** — its bundled installer URLs are all `.sh`
+  scripts (verified in `src/main.js`). On Windows, Chocolatey is
+  preinstalled on `windows-latest` and the `intel-oneapi-basekit`
+  package lays down the icx-cl / DPC++ driver under the standard
+  `C:\Program Files (x86)\Intel\oneAPI\` prefix that
+  `setvars.bat` expects. We accept choco's "latest stable" pin
+  (≈ oneAPI 2025.x) rather than chasing the exact 2025.3 build —
+  Intel's offline-installer URLs rotate per release, so a literal
+  pin would need URL updates the choco package handles for us.
 - Skip the test step entirely. `windows-latest` has no GPU; running
   even CPU-only tests would consume runner minutes for no signal
   beyond what the Linux legs already provide.
@@ -82,7 +94,7 @@ first).
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Status quo (Linux GPU only)** | Zero CI cost. | MSVC build-portability regressions only surface from downstream user reports. | The whole motivation for this ADR is closing exactly that hole. |
 | **Add only the CUDA Windows leg** | Half the CI minutes; CUDA is the more popular GPU backend. | SYCL on Windows is the less-tested backend → most likely to bit-rot → most valuable to gate. | Half coverage of the hole isn't satisfying; user scope was both. |
 | **Add Windows GPU legs but as `experimental: true` (informational)** | Avoids gating master on Windows GPU runner flakiness (Jimver/cuda-toolkit network occasionally times out). | Defeats the purpose: an informational green-vs-yellow distinction won't surface PR regressions to authors who don't notice yellow. | Pin them as required; flakiness is rare enough to absorb the occasional re-run. |
@@ -113,10 +125,13 @@ first).
   but produces wrong output on Windows GPUs would still slip through.
   Mitigated by Linux GPU legs catching most behavioural regressions
   via the Ubuntu CUDA / SYCL legs.
-- Two new third-party actions in the workflow:
-  `ilammy/msvc-dev-cmd@v1` and `rscohn2/setup-oneapi@v0`. Both are
-  widely used and have good security records, but they're additional
-  supply-chain surface beyond the existing `Jimver/cuda-toolkit`.
+- One new third-party action in the workflow:
+  `ilammy/msvc-dev-cmd@v1`. Widely used with a good security
+  record, but additional supply-chain surface beyond the existing
+  `Jimver/cuda-toolkit`. The SYCL leg additionally trusts the
+  `intel-oneapi-basekit` Chocolatey package — Chocolatey's
+  community-feed signing applies, and the package itself wraps
+  Intel's signed installer.
 
 **Neutral / follow-ups:**
 
@@ -143,7 +158,8 @@ first).
   policy that the post-merge re-pin updates.
 - [ilammy/msvc-dev-cmd@v1](https://github.com/ilammy/msvc-dev-cmd)
 - [Jimver/cuda-toolkit@v0.2.35](https://github.com/Jimver/cuda-toolkit)
-- [rscohn2/setup-oneapi@v0](https://github.com/rscohn2/setup-oneapi)
+- [Chocolatey package: `intel-oneapi-basekit`](https://community.chocolatey.org/packages/intel-oneapi-basekit)
+- [NVIDIA Windows CUDA sub-package list](https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-cuda-software)
 - `req` (paraphrased): user picked "Add both CUDA + SYCL Windows
   build-only legs" via the post-cascade scope popup, after I offered
   it as the most-ambitious of three scope choices for Windows GPU

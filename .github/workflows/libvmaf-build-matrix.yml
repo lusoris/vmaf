@@ -419,9 +419,16 @@ jobs:
   # action that runs `vcvars64.bat` and exports the variables).
   # CUDA toolkit comes from Jimver/cuda-toolkit (same action used by
   # the Linux CUDA legs, pinned to the same 13.0.0 release for parity).
-  # oneAPI is installed via rscohn2/setup-oneapi@v0 — community action
-  # that mirrors the Linux apt install, pinning the DPC++ compiler
-  # (icx-cl) at 2025.3 for ABI parity with the Linux SYCL leg.
+  # oneAPI is installed via Chocolatey (`choco install
+  # intel-oneapi-basekit`) — `rscohn2/setup-oneapi@v0` only ships
+  # Linux installer URLs (all `.sh`), so it cannot install on
+  # `windows-latest`. The choco package provides the icx-cl / DPC++
+  # driver under the standard `C:\Program Files (x86)\Intel\oneAPI\`
+  # prefix that `setvars.bat` expects. We accept choco's "latest
+  # stable" pin (≈ oneAPI 2025.x) rather than pinning to 2025.3
+  # exactly: the offline-installer URL on Intel's registration
+  # center rotates per release and would need URL updates the choco
+  # pin avoids.
   #
   # The two job names are pinned to required status checks on master
   # immediately after merge (see ADR-0121 §Consequences).
@@ -471,17 +478,26 @@ jobs:
         with:
           cuda: '13.0.0'
           method: network
-          sub-packages: '["nvcc", "cudart_dev", "visual_studio_integration"]'
+          # Windows sub-package names per
+          # https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-cuda-software
+          # — the action appends `_<major>.<minor>` to each entry, so
+          # `nvcc` → `nvcc_13.0`, etc. `cudart_dev` is Linux-Debian
+          # naming and is rejected by the Windows installer; the
+          # runtime dev headers ship with `cudart` on Windows.
+          sub-packages: '["nvcc", "cudart", "visual_studio_integration"]'
 
       # ---------- Intel oneAPI (SYCL leg only) ----------
-      # rscohn2/setup-oneapi installs the DPC++ compiler component
-      # only (smaller than the full base toolkit). Pinned to 2025.3
-      # for ABI parity with the Linux SYCL leg.
+      # Chocolatey is preinstalled on `windows-latest`; the
+      # `intel-oneapi-basekit` package installs the icx-cl / DPC++
+      # driver under `C:\Program Files (x86)\Intel\oneAPI\`. The
+      # package is ~5GB and takes ~15 min to install — well within
+      # the job's 60-min timeout. See ADR-0121 for why we cannot
+      # use `rscohn2/setup-oneapi@v0` (Linux-only action) here.
       - name: Install Intel oneAPI (windows)
         if: matrix.backend == 'sycl'
-        uses: rscohn2/setup-oneapi@v0
-        with:
-          components: dpcpp@2025.3
+        shell: pwsh
+        run: |
+          choco install intel-oneapi-basekit -y --no-progress --limit-output
 
       # ---------- Build ----------
       - name: Configure libvmaf (CUDA)
