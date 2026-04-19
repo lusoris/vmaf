@@ -26,9 +26,9 @@
 #include "getopt.h"
 
 char *optarg = NULL;
-int   optind = 1;
-int   opterr = 1;
-int   optopt = 0;
+int optind = 1;
+int opterr = 1;
+int optopt = 0;
 
 /* Scan cursor inside the current argv element when it is a cluster of short
  * options (e.g. "-abc"). Reset to NULL between argv elements. */
@@ -39,11 +39,10 @@ static void report_unknown(const char *prog, int opt, int is_long, const char *n
     if (!opterr)
         return;
     if (is_long) {
-        (void)fprintf(stderr, "%s: unrecognized option '--%s'\n",
-                      prog ? prog : "getopt", name ? name : "");
+        (void)fprintf(stderr, "%s: unrecognized option '--%s'\n", prog ? prog : "getopt",
+                      name ? name : "");
     } else {
-        (void)fprintf(stderr, "%s: invalid option -- '%c'\n",
-                      prog ? prog : "getopt", opt);
+        (void)fprintf(stderr, "%s: invalid option -- '%c'\n", prog ? prog : "getopt", opt);
     }
 }
 
@@ -52,11 +51,11 @@ static void report_missing_arg(const char *prog, int opt, int is_long, const cha
     if (!opterr)
         return;
     if (is_long) {
-        (void)fprintf(stderr, "%s: option '--%s' requires an argument\n",
-                      prog ? prog : "getopt", name ? name : "");
+        (void)fprintf(stderr, "%s: option '--%s' requires an argument\n", prog ? prog : "getopt",
+                      name ? name : "");
     } else {
-        (void)fprintf(stderr, "%s: option requires an argument -- '%c'\n",
-                      prog ? prog : "getopt", opt);
+        (void)fprintf(stderr, "%s: option requires an argument -- '%c'\n", prog ? prog : "getopt",
+                      opt);
     }
 }
 
@@ -79,8 +78,7 @@ static void argv_shift(char **argv, int src, int dst)
     argv[dst] = save;
 }
 
-static int handle_short(int argc, char *const argv[], const char *optstring,
-                        char **argv_w)
+static int handle_short(int argc, char *const argv[], const char *optstring, char **argv_w)
 {
     const char *prog = argv[0];
     char opt = *short_cursor++;
@@ -134,17 +132,16 @@ static int handle_short(int argc, char *const argv[], const char *optstring,
 }
 
 static int handle_long(int argc, char *const argv[], const char *optstring,
-                       const struct option *longopts, int *longindex,
-                       char **argv_w)
+                       const struct option *longopts, int *longindex, char **argv_w)
 {
     const char *prog = argv[0];
-    const char *arg  = argv[optind] + 2u; /* skip leading "--" */
-    const char *eq   = strchr(arg, '=');
-    size_t      nlen = eq ? (size_t)(eq - arg) : strlen(arg);
+    const char *arg = argv[optind] + 2u; /* skip leading "--" */
+    const char *eq = strchr(arg, '=');
+    size_t nlen = eq ? (size_t)(eq - arg) : strlen(arg);
 
     /* Exact match first; fall through to a unique-prefix match. */
-    int match   = -1;
-    int ambig   = 0;
+    int match = -1;
+    int ambig = 0;
     for (int i = 0; longopts[i].name; i++) {
         if (strncmp(longopts[i].name, arg, nlen) == 0) {
             if (strlen(longopts[i].name) == nlen) {
@@ -161,10 +158,8 @@ static int handle_long(int argc, char *const argv[], const char *optstring,
 
     if (match < 0 || ambig) {
         if (opterr) {
-            (void)fprintf(stderr, "%s: %s option '--%.*s'\n",
-                          prog ? prog : "getopt",
-                          ambig ? "ambiguous" : "unrecognized",
-                          (int)nlen, arg);
+            (void)fprintf(stderr, "%s: %s option '--%.*s'\n", prog ? prog : "getopt",
+                          ambig ? "ambiguous" : "unrecognized", (int)nlen, arg);
         }
         optopt = 0;
         optind++;
@@ -228,8 +223,7 @@ static int getopt_internal(int argc, char *const argv[], const char *optstring,
             int non_opt = optind;
             /* Find the next option (or end). */
             int next_opt = non_opt + 1;
-            while (next_opt < argc &&
-                   (argv[next_opt][0] != '-' || argv[next_opt][1] == '\0')) {
+            while (next_opt < argc && (argv[next_opt][0] != '-' || argv[next_opt][1] == '\0')) {
                 next_opt++;
             }
             if (next_opt >= argc)
@@ -253,8 +247,7 @@ static int getopt_internal(int argc, char *const argv[], const char *optstring,
         if (cur[1] == '-') {
             if (!longopts)
                 return -1;
-            return handle_long(argc, argv, optstring, longopts, longindex,
-                               argv_w);
+            return handle_long(argc, argv, optstring, longopts, longindex, argv_w);
         }
         /* Short option cluster "-abc". */
         short_cursor = cur + 1;
@@ -268,8 +261,8 @@ int getopt(int argc, char *const argv[], const char *optstring)
     return getopt_internal(argc, argv, optstring, NULL, NULL);
 }
 
-int getopt_long(int argc, char *const argv[], const char *optstring,
-                const struct option *longopts, int *longindex)
+int getopt_long(int argc, char *const argv[], const char *optstring, const struct option *longopts,
+                int *longindex)
 {
     return getopt_internal(argc, argv, optstring, longopts, longindex);
 }
