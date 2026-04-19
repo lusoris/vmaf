@@ -1,7 +1,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+/* MSVC/UCRT provides isatty / fileno via <io.h> under the MSVC-prefixed
+ * names _isatty / _fileno; the POSIX-style aliases stay available for
+ * source portability. MinGW ships <unistd.h>, so this split is strictly
+ * MSVC / clang-cl. */
+#include <io.h>
+#define isatty _isatty
+#define fileno _fileno
+#else
 #include <unistd.h>
+#endif
 
 #include "cli_parse.h"
 #include "spinner.h"

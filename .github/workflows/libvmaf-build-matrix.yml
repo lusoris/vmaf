@@ -440,11 +440,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # --default-library=static: libvmaf has no __declspec(dllexport)
+          # on its public API (upstream is POSIX-shaped), so a vanilla MSVC
+          # shared build produces an empty import lib and the tool targets
+          # fail with LNK1181. Mirrors the MinGW leg's `--default-library
+          # static` at line 387. Also lets the vmaf CLI pick the static
+          # archive via libvmaf/tools/meson.build:26 without the
+          # get_shared_lib() branch.
           - backend: cuda
-            meson_extra: -Denable_cuda=true -Denable_nvcc=true -Denable_sycl=false -Denable_tools=false -Denable_tests=false
+            meson_extra: --default-library=static -Denable_cuda=true -Denable_nvcc=true -Denable_sycl=false
             name: Build — Windows MSVC + CUDA (build only)
           - backend: sycl
-            meson_extra: -Denable_cuda=false -Denable_sycl=true -Denable_tools=false -Denable_tests=false
+            meson_extra: --default-library=static -Denable_cuda=false -Denable_sycl=true
             name: Build — Windows MSVC + oneAPI SYCL (build only)
     steps:
       - uses: actions/checkout@v6

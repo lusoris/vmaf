@@ -19,6 +19,7 @@
 #include <stdbool.h>
 
 #include "feature/barten_csf_tools.h"
+#include "feature/compat_builtin.h"
 #include "feature/integer_adm.h"
 #include <immintrin.h>
 

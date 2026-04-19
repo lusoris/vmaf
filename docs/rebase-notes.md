@@ -1144,56 +1144,139 @@ inline.*
   accepts enum constants identically. Re-absorb
   if upstream Netflix later edits the same loops
   and your toolchain matrix omits MSVC.
-  (i) The Windows MSVC build-only legs disable
-  both `-Denable_tools=false` and
-  `-Denable_tests=false` (flipped together in
-  [`.github/workflows/libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml)).
-  Rationale: the legs are explicitly "(build
-  only)" — their value is verifying
-  `libvmaf.dll` builds for downstream consumers
-  (ffmpeg's MSVC build, WPF apps, etc.), not
-  that the reference CLI runs on Windows nor
-  that the unit-test suite compiles. The tree
-  deliberately does not polyfill POSIX surfaces
-  used by tests and the CLI:
-  `libvmaf/tools/vmaf.c` and
-  `libvmaf/tools/cli_parse.c` include
-  `<unistd.h>` / `<getopt.h>`;
-  `libvmaf/test/test_cli_parse.c` also includes
-  `<getopt.h>`; and most test binaries include
-  feature TUs that transitively pull in
-  `feature_collector.h` → `<pthread.h>`, which
-  the fork's Win32 shim only routes into
-  per-target `dependencies:` lists that were
-  never threaded through the test targets
-  (`test_ciede`, `test_log`, `test_dict`, etc.).
-  Skipping tests sidesteps all of that. MinGW-w64
-  builds are unaffected (they ship `<unistd.h>`
-  / `<getopt.h>` via winpthreads + mingw-w64-crt)
-  and Linux/macOS legs keep tests enabled so the
-  usual green-CI gate still runs. If the CLI or
-  the test suite ever needs to build with MSVC,
-  the follow-up is a
-  `libvmaf/tools/compat/getopt.h` shim plus the
-  same `<io.h>` / `_isatty` redirection used in
-  `log.c`, plus threading `pthread_dependency`
-  into every test executable's `dependencies:`
-  list.
-  (j) [`libvmaf/test/dnn/meson.build:100`](../libvmaf/test/dnn/meson.build#L100)
-  (fork-added) — the `test_cli` integration test
-  takes `VMAF_BIN` / `depends` from the
-  `vmaf` executable target. That target lives
-  in [`libvmaf/tools/meson.build:26`](../libvmaf/tools/meson.build#L26)
-  and is only declared under the `enable_tools`
-  option. Meson configure failed with
-  `ERROR: Unknown variable "vmaf"` once
-  `-Denable_tools=false` was flipped on. Gated
-  the `test_cli` registration behind
-  `if get_option('enable_tools')` — the
-  `test_registry` smoke test stays unconditional
-  because it only touches source-tree files
-  (`model/tiny/*.onnx`) and doesn't need the
-  binary.
+  (i) The Windows MSVC build-only legs now build
+  the full tree — CLI tools, unit tests and
+  libvmaf.dll — rather than the previous short
+  cut of disabling `-Denable_tools` /
+  `-Denable_tests`. Per user direction
+  ("fix the code ffs"), the tree polyfills the
+  remaining POSIX surfaces on MSVC instead:
+  ([`libvmaf/tools/compat/win32/getopt.h`](../libvmaf/tools/compat/win32/getopt.h)
+  +
+  [`libvmaf/tools/compat/win32/getopt.c`](../libvmaf/tools/compat/win32/getopt.c))
+  a from-scratch POSIX/GNU-compatible
+  `getopt_long` shim (short / long options,
+  `no_argument` / `required_argument` /
+  `optional_argument`, argv permutation for
+  non-option operands, `--` explicit stop,
+  `=`-embedded values). The shim is fork-added
+  (BSD-3-Clause-Plus-Patent, Copyright 2026
+  Lusoris and Claude) and declared via a single
+  `getopt_dependency` in
+  [`libvmaf/meson.build`](../libvmaf/meson.build),
+  gated on `cc.check_header('getopt.h')` failing.
+  The dependency auto-propagates the shim
+  `.c` into any consuming target via meson's
+  `sources:` keyword, so both the `vmaf` CLI
+  (`libvmaf/tools/meson.build`) and the
+  `test_cli_parse` unit test
+  (`libvmaf/test/meson.build`) pick it up
+  uniformly. MinGW ships `<getopt.h>` via
+  mingw-w64-crt, so `check_header` succeeds
+  there and the shim stays out of the TU list.
+  (j) Eleven test executables
+  (`test_log`, `test_dict`, `test_opt`,
+  `test_cpu`, `test_ref`, `test_feature`,
+  `test_ciede`, `test_luminance_tools`,
+  `test_cli_parse`, `test_sycl`,
+  `test_sycl_pic_preallocation`) were missing
+  `pthread_dependency` in their `dependencies:`
+  lists at [`libvmaf/test/meson.build`](../libvmaf/test/meson.build).
+  On POSIX `pthread_dependency` is an empty
+  list so the omission was invisible; on MSVC
+  those TUs transitively include
+  `feature_collector.h` → `<pthread.h>` and
+  fail with C1083. Threaded the dependency
+  through all eleven targets. `test_cli_parse`
+  additionally lists `getopt_dependency` to pick
+  up the shim.
+  (k) Three additional VLA sites surfaced once
+  the test harness built on MSVC:
+  [`test_cambi.c:254`](../libvmaf/test/test_cambi.c#L254)
+  had `unsigned w = 5, h = 5;
+  uint16_t buffer[3 * w];`; converted to
+  `enum { w = 5, h = 5 };` so the array extent is
+  a constant expression.
+  [`test_pic_preallocation.c:382`](../libvmaf/test/test_pic_preallocation.c#L382)
+  and
+  [`test_pic_preallocation.c:506`](../libvmaf/test/test_pic_preallocation.c#L506)
+  had `const int num_threads = N; pthread_t
+  threads[num_threads];` — MSVC rejects `const int`
+  as non-constant-expression. Converted to
+  `enum { num_threads = N, fetches_per_thread = M };`.
+  (l) [`test_ring_buffer.c:23`](../libvmaf/test/test_ring_buffer.c#L23)
+  and
+  [`test_pic_preallocation.c:26`](../libvmaf/test/test_pic_preallocation.c#L26)
+  included `<unistd.h>` for `usleep` / `sleep`.
+  Gated behind `!_WIN32` with a Win32 fallback
+  via `<windows.h>` + `#define usleep(us)
+  Sleep(((us) + 999) / 1000)` / `#define sleep(s)
+  Sleep((s) * 1000)`. The conversion rounds
+  sub-millisecond `usleep` inputs up, which is
+  safe for these test paths (they use 100 µs
+  jitter and 1 s waits).
+  (m) [`libvmaf/tools/vmaf.c`](../libvmaf/tools/vmaf.c)
+  included `<unistd.h>` for `isatty` / `fileno`.
+  Applied the same gating pattern used in
+  [`log.c`](../libvmaf/src/log.c#L34) in round-21(b) —
+  include `<io.h>` on MSVC and redirect
+  `isatty` / `fileno` to `_isatty` / `_fileno`
+  via `#define`.
+  (n) `__builtin_clz` / `__builtin_clzll` are
+  GCC intrinsics; MSVC ships `__lzcnt` /
+  `__lzcnt64` via `<intrin.h>` instead. The
+  shim already lived in
+  [`libvmaf/src/feature/integer_vif.h`](../libvmaf/src/feature/integer_vif.h)
+  but
+  [`integer_adm.c:939`](../libvmaf/src/feature/integer_adm.c#L939),
+  [`x86/adm_avx2.c:1425`](../libvmaf/src/feature/x86/adm_avx2.c#L1425)
+  and
+  [`x86/adm_avx512.c:1217`](../libvmaf/src/feature/x86/adm_avx512.c#L1217)
+  don't include that header. Extracted the shim
+  into a dedicated
+  [`libvmaf/src/feature/compat_builtin.h`](../libvmaf/src/feature/compat_builtin.h)
+  (fork-added) and included it from all four TUs.
+  The guard is `defined(_MSC_VER) && !defined(__clang__)`,
+  so clang-cl / icx-cl (which provide the GCC
+  intrinsics natively) skip the shim.
+  (o) The SYCL leg's D3D11 import TU
+  [`libvmaf/src/sycl/d3d11_import.cpp`](../libvmaf/src/sycl/d3d11_import.cpp)
+  is C++ (icpx-cl drives it as C++ on Windows)
+  but included the internal C header
+  [`log.h`](../libvmaf/src/log.h) without an
+  `extern "C"` wrap. `log.h` is an upstream
+  Netflix header with no `__cplusplus` guard,
+  so `vmaf_log` got C++ name-mangled in the
+  .cpp TU and failed to resolve against the
+  C-linkage symbol produced by `log.c` at
+  link time (`LNK2019` from every test target
+  that pulls in the SYCL static lib). Wrapped
+  the `#include "log.h"` with
+  `extern "C" { ... }` inside the fork-added
+  .cpp rather than touching the upstream
+  header — keeps `log.h` identical to upstream
+  on every `/sync-upstream`.
+  (p) The Windows MSVC legs build with
+  `--default-library=static`. libvmaf's public
+  API has no `__declspec(dllexport)` attributes
+  (upstream Netflix is POSIX-shaped), so a
+  vanilla MSVC shared build produces
+  `src/vmaf-3.dll` with no exported symbols and
+  the toolchain therefore never emits the
+  companion `vmaf.lib` import library. Downstream
+  tool targets then fail with
+  `LNK1181: cannot open input file 'src\vmaf.lib'`.
+  The MinGW matrix leg has used
+  `--default-library static` since day one for
+  the same reason
+  ([line 387](../.github/workflows/libvmaf-build-matrix.yml#L387));
+  the MSVC legs now mirror that choice via
+  `matrix.include[].meson_extra`. Downstream
+  consumers that want a DLL can either add
+  `__declspec(dllexport)` decorations to the
+  public API or use a `.def` file; that is a
+  separate decision and out of scope for the
+  build-only gate.
 - **Re-test**:
 
   ```bash

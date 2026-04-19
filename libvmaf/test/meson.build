@@ -34,7 +34,7 @@ test_feature_collector = executable('test_feature_collector',
 test_log = executable('test_log',
     ['test.c', 'test_log.c', '../src/log.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, sycl_dependency],
 )
 
 test_thread_pool = executable('test_thread_pool',
@@ -86,39 +86,39 @@ test_feature_extractor = executable('test_feature_extractor',
 test_dict = executable('test_dict',
     ['test.c', 'test_dict.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, sycl_dependency],
 )
 
 test_opt = executable('test_opt',
     ['test.c', 'test_opt.c', '../src/opt.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
-    dependencies: [math_lib, sycl_dependency],
+    dependencies: [math_lib, pthread_dependency, sycl_dependency],
 )
 
 test_cpu = executable('test_cpu',
     ['test.c', 'test_cpu.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     objects : libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, sycl_dependency],
 )
 
 test_ref = executable('test_ref',
     ['test.c', 'test_ref.c', '../src/ref.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, sycl_dependency],
 )
 
 test_feature = executable('test_feature',
     ['test.c', 'test_feature.c', '../src/feature/alias.c', '../src/dict.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, sycl_dependency],
 )
 
 test_ciede = executable('test_ciede',
     ['test.c', 'test_ciede.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [cuda_dependency, sycl_dependency],
+    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency],
 )
 
 # LPIPS registration tests — verify feature wiring without depending on a
@@ -152,7 +152,7 @@ test_luminance_tools = executable('test_luminance_tools',
     ['test.c', 'test_luminance_tools.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, sycl_dependency],
 )
 
 test_cli_parse = executable('test_cli_parse',
@@ -160,7 +160,7 @@ test_cli_parse = executable('test_cli_parse',
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), include_directories('../tools/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
     c_args : [compat_cflags],
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, getopt_dependency, sycl_dependency],
 )
 
 test_psnr = executable('test_psnr',
@@ -216,7 +216,7 @@ test_sycl = executable('test_sycl',
     ['test.c', 'test_sycl.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, sycl_dependency],
     c_args: ['-DHAVE_SYCL=1']
 )
 
@@ -224,7 +224,7 @@ test_sycl_pic_preallocation = executable('test_sycl_pic_preallocation',
     ['test.c', 'test_sycl_pic_preallocation.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [sycl_dependency],
+    dependencies: [pthread_dependency, sycl_dependency],
     c_args: ['-DHAVE_SYCL=1']
 )
 

@@ -7,7 +7,10 @@ if not get_option('enable_tools')
     subdir_done()
 endif
 
-vmaf_tool_deps = [stdatomic_dependency, cuda_dependency]
+# getopt_dependency is declared in libvmaf/meson.build: an empty list on
+# POSIX / MinGW hosts, or a declare_dependency that pulls in the Win32
+# header-only + companion-source shim on MSVC / clang-cl hosts.
+vmaf_tool_deps = [stdatomic_dependency, cuda_dependency, getopt_dependency]
 vmaf_tool_cflags = [vmaf_cflags_common, compat_cflags]
 vmaf_tool_link_args = []
 if get_option('enable_cuda')

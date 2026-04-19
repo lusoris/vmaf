@@ -23,7 +23,13 @@
 
 #include <pthread.h>
 #include <stdlib.h>
+#ifdef _WIN32
+#include <windows.h>
+#define usleep(us) Sleep(((us) + 999) / 1000)
+#define sleep(s) Sleep((s) * 1000)
+#else
 #include <unistd.h>
+#endif
 
 static char *test_picture_pool_basic()
 {
@@ -379,8 +385,7 @@ static char *test_picture_pool_multithreaded()
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
     mu_assert("problem during vmaf_preallocate_pictures", !err);
 
-    const int num_threads = 4;
-    const int fetches_per_thread = 20;
+    enum { num_threads = 4, fetches_per_thread = 20 };
     pthread_t threads[num_threads];
     thread_test_data thread_data[num_threads];
 
@@ -504,8 +509,7 @@ static char *test_picture_pool_stress()
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
     mu_assert("problem during vmaf_preallocate_pictures", !err);
 
-    const int num_threads = 16;
-    const int fetches_per_thread = 50;
+    enum { num_threads = 16, fetches_per_thread = 50 };
     pthread_t threads[num_threads];
     thread_test_data thread_data[num_threads];
 

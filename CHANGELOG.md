@@ -177,31 +177,64 @@
   modifications against HEAD's resolved blobs, failing the job
   even though no hook touched them. See
   [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
-- **Build**: round-21e MSVC mop-up —
-  [`libvmaf/src/predict.c`](libvmaf/src/predict.c) and
-  [`libvmaf/src/libvmaf.c`](libvmaf/src/libvmaf.c) (both UPSTREAM)
-  convert three C99 variable-length arrays (`double scores[cnt]`
-  in the bootstrap loop + two `char name[name_sz]` buffers) to
-  heap allocations with explicit `free` on every exit path.
-  MSVC's `/std:c11` rejects VLAs outright (`C2057: expected
-  constant expression`); gcc/clang accept them as an optional
-  C11 feature. Buffers are a handful of bytes each, so the
-  heap round-trip is not performance-relevant.
-  [`.github/workflows/libvmaf-build-matrix.yml`](.github/workflows/libvmaf-build-matrix.yml)
-  sets both `-Denable_tools=false` and `-Denable_tests=false`
-  on the two Windows MSVC legs —
-  [`libvmaf/tools/vmaf.c`](libvmaf/tools/vmaf.c),
-  [`libvmaf/tools/cli_parse.c`](libvmaf/tools/cli_parse.c),
-  and [`libvmaf/test/test_cli_parse.c`](libvmaf/test/test_cli_parse.c)
-  include `<unistd.h>` / `<getopt.h>` which MSVC does not
-  ship, and most test binaries transitively pull in
-  `<pthread.h>` via `feature_collector.h` without the
-  Win32 pthread shim threaded through their dependencies.
-  The legs are deliberately scoped to building `libvmaf.dll`
-  for downstream consumers (the job names end in
-  "(build only)"). MinGW-w64 CLI + test builds are
-  unaffected; Linux/macOS legs keep tests enabled.
-  See [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: round-21e MSVC mop-up — the Windows MSVC legs now
+  build the full tree (CLI tools, unit tests, `libvmaf.dll`)
+  instead of the earlier short cut of skipping tools / tests.
+  Source changes:
+  (i) eight C99 variable-length arrays converted to compile-time
+  constants or heap allocations —
+  [`libvmaf/src/predict.c:385,453`](libvmaf/src/predict.c),
+  [`libvmaf/src/libvmaf.c:1741`](libvmaf/src/libvmaf.c),
+  [`libvmaf/src/read_json_model.c:517,520`](libvmaf/src/read_json_model.c),
+  [`libvmaf/test/test_feature_extractor.c:56`](libvmaf/test/test_feature_extractor.c),
+  [`libvmaf/test/test_cambi.c:254`](libvmaf/test/test_cambi.c),
+  [`libvmaf/test/test_pic_preallocation.c:382,506`](libvmaf/test/test_pic_preallocation.c);
+  (ii) fork-added POSIX/GNU `getopt_long` shim at
+  [`libvmaf/tools/compat/win32/`](libvmaf/tools/compat/win32/)
+  (header + ~260-line companion source) declared via a single
+  `getopt_dependency` in
+  [`libvmaf/meson.build`](libvmaf/meson.build) that
+  auto-propagates the .c into the `vmaf` CLI and
+  `test_cli_parse`;
+  (iii) `pthread_dependency` threaded through the eleven test
+  targets in
+  [`libvmaf/test/meson.build`](libvmaf/test/meson.build)
+  that transitively include `<pthread.h>` via
+  `feature_collector.h`;
+  (iv) `<unistd.h>` → `<io.h>` redirection
+  (`isatty`/`fileno` → `_isatty`/`_fileno`) added to
+  [`libvmaf/tools/vmaf.c`](libvmaf/tools/vmaf.c);
+  (v) `<unistd.h>` → `<windows.h>` + `Sleep` macros
+  added to
+  [`libvmaf/test/test_ring_buffer.c`](libvmaf/test/test_ring_buffer.c)
+  and
+  [`libvmaf/test/test_pic_preallocation.c`](libvmaf/test/test_pic_preallocation.c)
+  for `usleep` / `sleep`;
+  (vi) `__builtin_clz` / `__builtin_clzll` MSVC fallback via
+  `__lzcnt` / `__lzcnt64` extracted into
+  [`libvmaf/src/feature/compat_builtin.h`](libvmaf/src/feature/compat_builtin.h)
+  and included from the three TUs that use the builtin
+  (`integer_adm.c`, `x86/adm_avx2.c`, `x86/adm_avx512.c`);
+  (vii) `extern "C"` wrap added around
+  `#include "log.h"` in
+  [`libvmaf/src/sycl/d3d11_import.cpp`](libvmaf/src/sycl/d3d11_import.cpp)
+  so `vmaf_log` resolves against the C-linkage symbol
+  produced by `log.c` when this .cpp TU gets pulled into
+  a SYCL-enabled test executable by icpx-cl. Upstream
+  `log.h` has no `__cplusplus` guard; the wrap keeps the
+  fork-local fix inside the fork-added .cpp instead of
+  touching the shared header.
+  Workflow change: both Windows MSVC matrix legs now pass
+  `--default-library=static` in `meson_extra` because libvmaf's
+  public API carries no `__declspec(dllexport)` — a vanilla
+  MSVC shared build produces an empty import lib and tools
+  fail with `LNK1181`. Mirrors the MinGW leg's static-link
+  choice. Both MSVC CUDA and MSVC SYCL legs validated
+  locally end-to-end on a Windows Server 2022 VM with
+  CUDA 13.0, oneAPI 2025.3, and Level Zero loader v1.18.5
+  prior to push.
+  See [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md)
+  paragraphs (h)–(p).
 
 ### Changed
 

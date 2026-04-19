@@ -127,20 +127,7 @@ void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned
  */
 VifResiduals vif_compute_line_residuals(VifPublicState *s, unsigned from, unsigned to, int scale);
 
-#if defined(_MSC_VER) && !defined(__clang__)
-#include <intrin.h>
-
-static inline int __builtin_clz(unsigned x)
-{
-    return (int)__lzcnt(x);
-}
-
-static inline int __builtin_clzll(unsigned long long x)
-{
-    return (int)__lzcnt64(x);
-}
-
-#endif
+#include "compat_builtin.h"
 
 static inline int32_t log2_32(const uint16_t *log2_table, uint32_t temp)
 {
