@@ -1335,3 +1335,40 @@ inline.*
   LD_LIBRARY_PATH= ./build/tools/vmaf --help 2>&1 | grep -qi 'libcuda.so.1' || \
       echo "init log regressed"
   ```
+
+### 0024 — `vmaf_read_pictures` null-guard for CUDA device-only path
+
+- **Workstream PRs**: the ADR-0123 follow-up landed atop the ADR-0122
+  gencode/init-hardening work.
+- **Touches**:
+  - `libvmaf/src/libvmaf.c` — the non-threaded tail of
+    `vmaf_read_pictures` at the `prev_ref` update site (line ~1428 in
+    the fork; upstream equivalent is the tail added by
+    `f740276a`).
+- **Invariant**: the `prev_ref` update is guarded by
+  `if (ref && ref->ref)` so pure-CUDA extractor sets (where `ref =
+  &ref_host` but `ref_host` was never populated by
+  `translate_picture_device`) do not deref a NULL refcount. Upstream
+  currently has the same unguarded tail; the bug is masked upstream
+  only because the experimental `VMAF_PICTURE_POOL` gate from
+  `32b115df` is still in place. A literal upstream merge that removes
+  our null-guard while upstream's experimental gate is still holding
+  would pass tests but re-open the `libvmaf_cuda` ffmpeg crash the
+  moment the gate flips default-on (which the fork did in
+  `65460e3a`, [ADR-0104](adr/0104-picture-pool-always-on.md)). Keep
+  the guard until the upstream null-guard port lands.
+- **Re-test**:
+
+  ```bash
+  # Unit tests cover the non-regression on the library side:
+  meson test -C build
+
+  # End-to-end regression: ffmpeg libvmaf_cuda must exit 0 on a
+  # CUDA-device-only extractor set (full recipe in ADR-0123).
+  ./ffmpeg -init_hw_device cuda=cu:0 -filter_hw_device cu \
+    -i /tmp/ref.mp4 -i /tmp/dis.mp4 \
+    -lavfi "[0:v]format=yuv420p,hwupload_cuda[r];\
+            [1:v]format=yuv420p,hwupload_cuda[d];\
+            [r][d]libvmaf_cuda=log_path=/tmp/out.json:log_fmt=json" \
+    -f null -
+  ```
