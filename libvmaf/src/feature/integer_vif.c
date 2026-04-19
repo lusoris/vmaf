@@ -662,8 +662,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     return 0;
 
 fail:
-    if (data)
-        aligned_free(data);
+    if (s->public.buf.data)
+        aligned_free(s->public.buf.data);
     vmaf_dictionary_free(&s->feature_name_dict);
     return -ENOMEM;
 }
