@@ -395,6 +395,17 @@ if is_cuda_enabled
         endif
     endif
 
+    # On Windows MSVC, the .cu sources transitively include
+    # feature_collector.h and cuda/common.h, both of which `#include
+    # <pthread.h>`. nvcc shells the host pass out to cl.exe, which
+    # has no pthread.h on its system include path. The shim at
+    # libvmaf/src/compat/win32/pthread.h is wired into the C/C++ builds
+    # via pthread_dependency, but custom_target nvcc invocations build
+    # their own -I list — so add the shim path explicitly here too.
+    cuda_extra_includes = []
+    if host_machine.system() == 'windows'
+        cuda_extra_includes += ['-I', '../src/compat/win32']
+    endif
     ptx_files = {}
     foreach name, _cu : cuda_cu_sources
         t = custom_target('cu_ptx_target_' + name,
@@ -410,6 +421,7 @@ if is_cuda_enabled
                 '-I', '../include',
                 '-I', '../src/feature',
                 '-I', '../src/' + cuda_dir,
+                cuda_extra_includes,
                 '-DDEVICE_CODE',
             ] + cuda_flags
         )
