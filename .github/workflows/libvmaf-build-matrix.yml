@@ -484,10 +484,16 @@ jobs:
           # `nvcc` → `nvcc_13.0`, etc. `cudart_dev` is Linux-Debian
           # naming and is rejected by the Windows installer; the
           # runtime dev headers ship with `cudart` on Windows.
-          # `cuda_cccl` ships `crt/host_config.h` (CUDA C++ Core
-          # Library headers); without it `cuda_runtime.h` errors with
-          # "Cannot open include file: 'crt/host_config.h'".
-          sub-packages: '["nvcc", "cudart", "cuda_cccl", "visual_studio_integration"]'
+          # `crt` ships `crt/host_config.h` (CUDA Runtime Library
+          # compile-time headers); without it `cuda_runtime.h` errors
+          # with "Cannot open include file: 'crt/host_config.h'".
+          # NOTE: `cuda_cccl` looks like the right name on first read
+          # of the docs but is NOT a valid Windows sub-package name
+          # in CUDA 13.x — the installer rejects it with exit code
+          # 0xE0E07F19 (invalid package). The Windows CUDA Runtime
+          # ships these headers under the standalone `crt` sub-package
+          # per the CUDA Windows install guide.
+          sub-packages: '["nvcc", "cudart", "crt", "visual_studio_integration"]'
 
       # ---------- Intel oneAPI (SYCL leg only) ----------
       # Mirrors the official `oneapi-src/oneapi-ci` install pattern

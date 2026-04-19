@@ -532,11 +532,19 @@ if is_sycl_enabled
     sycl_lib = cc.find_library('sycl', dirs : [sycl_lib_dir], required : true)
     # icpx-compiled objects reference Intel runtime symbols (_intel_fast_memcpy,
     # __svml_*) that gcc/g++ won't find.  Link the Intel runtime libraries
-    # explicitly so a non-Intel host linker can resolve them.
-    svml_lib = cc.find_library('svml', dirs : [sycl_lib_dir], required : true)
-    irc_lib = cc.find_library('irc', dirs : [sycl_lib_dir], required : true)
+    # explicitly so a non-Intel host linker can resolve them. On Windows
+    # the host C/C++ compiler is icx-cl (the same Intel toolchain), which
+    # auto-injects svml/irc at link time — and the Windows lib names
+    # differ (svml_dispmd.lib, libirc.lib) — so skip the explicit lookup
+    # there.
+    sycl_extra_runtime_deps = []
+    if host_machine.system() != 'windows'
+        svml_lib = cc.find_library('svml', dirs : [sycl_lib_dir], required : true)
+        irc_lib = cc.find_library('irc', dirs : [sycl_lib_dir], required : true)
+        sycl_extra_runtime_deps += [svml_lib, irc_lib]
+    endif
     sycl_dependency += declare_dependency(
-        dependencies : [sycl_lib, svml_lib, irc_lib, libze_dep] + sycl_surface_deps,
+        dependencies : [sycl_lib, libze_dep] + sycl_extra_runtime_deps + sycl_surface_deps,
     )
 endif
 

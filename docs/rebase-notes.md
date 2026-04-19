@@ -777,14 +777,21 @@ inline.*
   support, the flag becomes unconditional and can be dropped.
   Two Windows-only dependency steps round out the parity:
   the CUDA leg's `Jimver/cuda-toolkit` sub-package list includes
-  `cuda_cccl` (CUDA C++ Core Library headers, ships
-  `crt/host_config.h`); the SYCL leg builds the Level Zero
+  `crt` (CUDA Runtime Library compile-time headers, ships
+  `crt/host_config.h`; `cuda_cccl` is not a valid Windows
+  sub-package name — installer rejects it); the SYCL leg builds
+  the Level Zero
   loader from source (`oneapi-src/level-zero` v1.18.5 →
   `cmake --build … --target install`) because Windows oneAPI
   BaseKit ships the SYCL runtime but not `ze_loader.lib`, and
   libvmaf's meson `cc.find_library('ze_loader')` needs both the
   header and the import library. When the Linux apt
   `level-zero-dev` version moves, bump the L0 git tag to match.
+  `libvmaf/src/meson.build` guards the explicit `svml` / `irc`
+  `cc.find_library` calls behind `host_machine.system() !=
+  'windows'` — those calls exist for the gcc/g++ + icpx Linux
+  flow where the host linker is non-Intel; on Windows the host
+  compiler is icx-cl itself and auto-injects the Intel runtime.
   The one new third-party action (`ilammy/msvc-dev-cmd@v1`) is
   intentionally floating-tag-pinned to match the rest of the
   repo; if the SHA-pinning policy changes, update it.

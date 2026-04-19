@@ -97,13 +97,17 @@ Both legs:
   gcc / clang / icpx / nvcc don't need it.
 - Pull two extra dependencies that the Linux GPU legs get
   for free from apt but Windows installers do not ship:
-  - **CUDA `cuda_cccl` sub-package** — added to the
+  - **CUDA `crt` sub-package** — added to the
     `Jimver/cuda-toolkit` `sub-packages` list. Provides
-    `crt/host_config.h` (CUDA C++ Core Library headers) which
-    `cuda_runtime.h` includes unconditionally. Without it, the
-    very first MSVC translation unit that touches the CUDA
-    runtime errors with `Cannot open include file:
-    'crt/host_config.h'`.
+    `crt/host_config.h` (CUDA Runtime Library compile-time
+    headers) which `cuda_runtime.h` includes unconditionally.
+    Without it, the very first MSVC translation unit that
+    touches the CUDA runtime errors with `Cannot open include
+    file: 'crt/host_config.h'`. (`cuda_cccl` looks like the
+    intuitive name from the docs but is **not** a valid Windows
+    sub-package — the installer rejects it with exit code
+    `0xE0E07F19`. The Windows installer name is the bare
+    `crt`.)
   - **Level Zero loader from source** — `oneapi-src/level-zero`
     cloned at tag `v1.18.5` (matches the Ubuntu 24.04 apt
     `level-zero-dev` version, keeping the parity invariant with
@@ -115,6 +119,16 @@ Both legs:
     BaseKit ships the SYCL runtime but not the L0 loader
     `ze_loader.lib`; building from source is the
     Intel-documented path on Windows.
+- Make `svml` / `irc` runtime-library lookup Linux-only in
+  `libvmaf/src/meson.build`. Those explicit `cc.find_library`
+  calls exist so a non-Intel host linker (gcc/g++) can resolve
+  Intel runtime symbols emitted by icpx-compiled objects. On
+  Windows the host C/C++ compiler is **icx-cl** itself — the
+  same Intel toolchain that emits those symbols and auto-injects
+  svml/irc at link time — and the Windows lib names differ
+  (`svml_dispmd.lib`, `libirc.lib`) so the bare-name lookup
+  would fail anyway. Guard the block with `if
+  host_machine.system() != 'windows'`.
 - Skip the test step entirely. `windows-latest` has no GPU; running
   even CPU-only tests would consume runner minutes for no signal
   beyond what the Linux legs already provide.
