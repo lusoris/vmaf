@@ -383,6 +383,17 @@
   does not touch `prev_ref`). Always-on picture pool stays. See
   [ADR-0123](docs/adr/0123-cuda-post-cubin-load-regression-32b115df.md);
   follow-up item to port the null-guard upstream to Netflix/vmaf.
+- **VIF `init()` fail-path leak**: `libvmaf/src/feature/integer_vif.c`'s
+  `init()` carves one `aligned_malloc` into the VifBuffer sub-pointers by
+  walking a `uint8_t *data` cursor forward through the allocation. When
+  `vmaf_feature_name_dict_from_provided_features` returned NULL, the
+  fail-path called `aligned_free(data)` on the *advanced* cursor — not a
+  valid `aligned_malloc` return — leaking the whole block and passing a
+  garbage pointer to `free`. Fail path now frees `s->public.buf.data`,
+  the saved base pointer. Ported from Netflix upstream PR
+  [#1476](https://github.com/Netflix/vmaf/pull/1476); the companion
+  void*→uint8_t* UB portability fix from that PR is already on master
+  (commit `b0a4ac3a`, rebase-notes 0022 §e).
 - **CLI precision default reverted to `%.6f` (Netflix-compat)**: ADR-0006
   shipped `%.17g` as the default for round-trip-lossless output, but
   several Netflix golden tests in `python/test/command_line_test.py`,

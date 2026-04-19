@@ -1372,3 +1372,30 @@ inline.*
             [r][d]libvmaf_cuda=log_path=/tmp/out.json:log_fmt=json" \
     -f null -
   ```
+
+### 0025 — VIF `init()` fail-path frees advanced byte-cursor
+
+- **Workstream PRs**: PR #47 (rewritten to leak-fix-only after master
+  absorbed the void*→uint8_t* half via commit `b0a4ac3a`, entry 0022
+  §e). Ports the leak-fix half of upstream Netflix PR
+  [#1476](https://github.com/Netflix/vmaf/pull/1476).
+- **Touches**: `libvmaf/src/feature/integer_vif.c` (UPSTREAM —
+  2-line fix in the `init()` `fail:` handler).
+- **Invariant**: `init()` walks `uint8_t *data` forward through
+  `aligned_malloc`'s one allocation, advancing past each
+  sub-pointer assignment. If
+  `vmaf_feature_name_dict_from_provided_features` returns NULL
+  the fail path must free the *base* pointer `s->public.buf.data`,
+  never the advanced cursor `data`. Upstream master still has
+  `aligned_free(data)` there — same bug — so this entry is the
+  reminder to not let an upstream sync re-introduce the
+  advanced-cursor form. If upstream lands PR #1476 or an
+  equivalent, the sync can drop this entry.
+- **Re-test**:
+
+  ```bash
+  meson test -C build --suite=fast
+  # Static check: ripgrep the pattern that must NOT return.
+  rg -n "aligned_free\(data\)" libvmaf/src/feature/integer_vif.c && \
+      echo 'REGRESSED' || echo 'ok'
+  ```
