@@ -48,19 +48,19 @@
 #include <errno.h>
 #include <stdlib.h>
 
-typedef HANDLE              pthread_t;
-typedef SRWLOCK             pthread_mutex_t;
-typedef CONDITION_VARIABLE  pthread_cond_t;
-typedef void               *pthread_attr_t;
-typedef void               *pthread_mutexattr_t;
-typedef void               *pthread_condattr_t;
+typedef HANDLE pthread_t;
+typedef SRWLOCK pthread_mutex_t;
+typedef CONDITION_VARIABLE pthread_cond_t;
+typedef void *pthread_attr_t;
+typedef void *pthread_mutexattr_t;
+typedef void *pthread_condattr_t;
 
 #define PTHREAD_MUTEX_INITIALIZER SRWLOCK_INIT
-#define PTHREAD_COND_INITIALIZER  CONDITION_VARIABLE_INIT
+#define PTHREAD_COND_INITIALIZER CONDITION_VARIABLE_INIT
 
 typedef struct vmaf_w32_pthread_trampoline {
     void *(*start)(void *);
-    void  *arg;
+    void *arg;
 } vmaf_w32_pthread_trampoline_t;
 
 static unsigned __stdcall vmaf_w32_pthread_runner(void *raw)
@@ -75,10 +75,11 @@ static inline int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                  void *(*start_routine)(void *), void *arg)
 {
     (void)attr;
-    if (!thread || !start_routine) return EINVAL;
-    vmaf_w32_pthread_trampoline_t *tramp =
-        (vmaf_w32_pthread_trampoline_t *)malloc(sizeof(*tramp));
-    if (!tramp) return ENOMEM;
+    if (!thread || !start_routine)
+        return EINVAL;
+    vmaf_w32_pthread_trampoline_t *tramp = (vmaf_w32_pthread_trampoline_t *)malloc(sizeof(*tramp));
+    if (!tramp)
+        return ENOMEM;
     tramp->start = start_routine;
     tramp->arg = arg;
     uintptr_t h = _beginthreadex(NULL, 0, vmaf_w32_pthread_runner, tramp, 0, NULL);
@@ -93,9 +94,11 @@ static inline int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 
 static inline int pthread_join(pthread_t thread, void **retval)
 {
-    if (retval) *retval = NULL;
+    if (retval)
+        *retval = NULL;
     DWORD r = WaitForSingleObject(thread, INFINITE);
-    if (r == WAIT_FAILED) return EINVAL;
+    if (r == WAIT_FAILED)
+        return EINVAL;
     CloseHandle(thread);
     return 0;
 }
@@ -105,11 +108,11 @@ static inline int pthread_detach(pthread_t thread)
     return CloseHandle(thread) ? 0 : EINVAL;
 }
 
-static inline int pthread_mutex_init(pthread_mutex_t *mutex,
-                                     const pthread_mutexattr_t *attr)
+static inline int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr)
 {
     (void)attr;
-    if (!mutex) return EINVAL;
+    if (!mutex)
+        return EINVAL;
     InitializeSRWLock(mutex);
     return 0;
 }
@@ -132,11 +135,11 @@ static inline int pthread_mutex_unlock(pthread_mutex_t *mutex)
     return 0;
 }
 
-static inline int pthread_cond_init(pthread_cond_t *cond,
-                                    const pthread_condattr_t *attr)
+static inline int pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr)
 {
     (void)attr;
-    if (!cond) return EINVAL;
+    if (!cond)
+        return EINVAL;
     InitializeConditionVariable(cond);
     return 0;
 }
