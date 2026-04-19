@@ -641,6 +641,7 @@ libvmaf_feature_sources = [
     feature_src_dir + 'ssim.c',
     feature_src_dir + 'ms_ssim.c',
     feature_src_dir + 'ssimulacra2.c',
+    feature_src_dir + 'ms_ssim_decimate.c',
     feature_src_dir + 'iqa/decimate.c',
     feature_src_dir + 'iqa/ssim_tools.c',
     feature_src_dir + 'iqa/math_utils.c',
