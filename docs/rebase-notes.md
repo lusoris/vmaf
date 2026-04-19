@@ -1040,6 +1040,17 @@ inline.*
   HEAD's real blobs and fails the job even though
   no hook touched them. Added `lfs: true` to the
   pre-commit job's checkout.
+  (d) `libvmaf/src/meson.build` —
+  `cuda_common_vmaf_lib` static library had no
+  `dependencies:` list, so the Win32 pthread shim
+  (wired in via `pthread_dependency` in
+  [libvmaf/meson.build](../libvmaf/meson.build))
+  wasn't on its include path; `cuda/common.h`
+  unconditionally `#include <pthread.h>` and
+  MSVC failed with C1083. Added
+  `dependencies : [pthread_dependency]` — no-op
+  on POSIX (empty list), routes the shim path in
+  on Windows.
 - **Re-test**:
 
   ```bash

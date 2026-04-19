@@ -459,6 +459,11 @@ if is_cuda_enabled
             cuda_inc,
         ],
         c_args : vmaf_cflags_common,
+        # pthread_dependency is a no-op on POSIX (empty list) and on Windows
+        # MSVC routes <pthread.h> to the header-only Win32 shim at
+        # src/compat/win32/pthread.h. cuda/common.h pulls pthread.h
+        # unconditionally, so the dependency must be threaded in here too.
+        dependencies : [pthread_dependency],
         cuda_args: cuda_flags # + ['-gencode', 'arch=compute_86,code=sm_86' ] #, '--use_fast_math']
     )
 
