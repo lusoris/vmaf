@@ -10,6 +10,7 @@ paths = [
   '''^python/test/resource/''',
   '''^testdata/.*\.(yuv|y4m|mp4|json)$''',
   '''^model/.*\.(json|pkl|onnx)$''',
+  '''^ai/src/vmaf_train/data/manifests/README\.md$''',
   '''^\.git/''',
   '''^build/''',
   '''^builddir.*/''',
