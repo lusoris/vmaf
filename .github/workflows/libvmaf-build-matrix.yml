@@ -533,24 +533,34 @@ jobs:
       # that flag MSVC's `<stdatomic.h>` errors with "C atomic
       # support is not enabled" (libvmaf uses C11 atomics; meson's
       # compiler check rejects the toolchain otherwise).
+      # `CCACHE_DISABLE=1` because `windows-latest` ships
+      # `C:\Strawberry\c\bin\ccache.exe` on PATH; meson auto-detects
+      # it and wraps nvcc → "Compiler ... ccache nvcc cannot
+      # compile programs". We don't want CI build caching here.
       - name: Configure libvmaf (CUDA)
         if: matrix.backend == 'cuda'
         shell: cmd
         env:
           CFLAGS: /experimental:c11atomics
           CXXFLAGS: /experimental:c11atomics
+          CCACHE_DISABLE: '1'
         run: |
           meson setup libvmaf libvmaf\build --buildtype release ^
             --prefix %CD%\install ^
             -Denable_float=true ^
             ${{ matrix.meson_extra }}
 
+      # `-Dcpp_std=c++14` overrides libvmaf's default `c++11`
+      # because icx-cl 2025.3 only accepts c++14/c++17/c++20/c++latest
+      # under MSVC ABI mode (drops c++11 from the standards list it
+      # advertises to meson).
       - name: Configure libvmaf (SYCL)
         if: matrix.backend == 'sycl'
         shell: cmd
         env:
           CFLAGS: /experimental:c11atomics
           CXXFLAGS: /experimental:c11atomics
+          CCACHE_DISABLE: '1'
         run: |
           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
           set CC=icx-cl
@@ -558,6 +568,7 @@ jobs:
           meson setup libvmaf libvmaf\build --buildtype release ^
             --prefix %CD%\install ^
             -Denable_float=true ^
+            -Dcpp_std=c++14 ^
             ${{ matrix.meson_extra }}
 
       - name: Build libvmaf (CUDA)
