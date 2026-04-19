@@ -1144,6 +1144,21 @@ inline.*
   `libvmaf/tools/compat/getopt.h` shim plus the
   same `<io.h>` / `_isatty` redirection used in
   `log.c`.
+  (j) [`libvmaf/test/dnn/meson.build:100`](../libvmaf/test/dnn/meson.build#L100)
+  (fork-added) — the `test_cli` integration test
+  takes `VMAF_BIN` / `depends` from the
+  `vmaf` executable target. That target lives
+  in [`libvmaf/tools/meson.build:26`](../libvmaf/tools/meson.build#L26)
+  and is only declared under the `enable_tools`
+  option. Meson configure failed with
+  `ERROR: Unknown variable "vmaf"` once
+  `-Denable_tools=false` was flipped on. Gated
+  the `test_cli` registration behind
+  `if get_option('enable_tools')` — the
+  `test_registry` smoke test stays unconditional
+  because it only touches source-tree files
+  (`model/tiny/*.onnx`) and doesn't need the
+  binary.
 - **Re-test**:
 
   ```bash
