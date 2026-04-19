@@ -511,6 +511,23 @@ jobs:
           rd /s/q "webimage_extracted"
           exit /b %installer_exit_code%
 
+      # ---------- nv-codec-headers (CUDA leg only) ----------
+      # libvmaf's CUDA path includes `<ffnvcodec/dynlink_cuda.h>`
+      # (see libvmaf/src/meson.build §324). The Linux CUDA leg
+      # installs this via `git clone … && make install`. On
+      # Windows there's no `make install` story, but the package
+      # is header-only — clone, copy the `include/ffnvcodec/`
+      # tree into a known prefix, and append that prefix to the
+      # `INCLUDE` env so `cl.exe` picks it up.
+      - name: Install nv-codec-headers (windows)
+        if: matrix.backend == 'cuda'
+        shell: cmd
+        run: |
+          git clone --depth=1 https://code.ffmpeg.org/FFmpeg/nv-codec-headers nv-codec-headers
+          mkdir nvcodec-prefix\include\ffnvcodec
+          copy nv-codec-headers\include\ffnvcodec\*.h nvcodec-prefix\include\ffnvcodec\
+          echo INCLUDE=%CD%\nvcodec-prefix\include;%INCLUDE%>>%GITHUB_ENV%
+
       # ---------- Build ----------
       # CFLAGS/CXXFLAGS carry `/experimental:c11atomics` — without
       # that flag MSVC's `<stdatomic.h>` errors with "C atomic
