@@ -790,8 +790,15 @@ inline.*
   `_mm256_castps_si256(...)` and 12 `__m128i[N]`
   reductions with `_mm_extract_epi64`; bit-exact),
   `libvmaf/src/feature/x86/adm_avx512.c` (UPSTREAM —
-  replace 6 `__m128i[N]` reductions with
+  replace 12 `__m128i[N]` reductions with
   `_mm_extract_epi64`; bit-exact),
+  `libvmaf/src/log.c` (UPSTREAM — gate `<unistd.h>`
+  behind `!_WIN32`, include `<io.h>` + redirect
+  `isatty`/`fileno` to `_isatty`/`_fileno` for MSVC),
+  `.github/workflows/lint-and-format.yml` (fork-added —
+  set `lfs: true` on the pre-commit job's checkout so
+  LFS-stored ONNX blobs resolve and don't appear as
+  phantom pre-commit-induced diffs),
   `libvmaf/src/feature/x86/motion_avx512.c` (UPSTREAM —
   replace 1 `__m128i[N]` reduction with
   `_mm_extract_epi64`; bit-exact),
@@ -1007,10 +1014,32 @@ inline.*
   added a `mode_t` typedef under MSVC since neither
   `<sys/types.h>` nor `<sys/stat.h>` declare it on
   Windows; `mode` is ignored on the Windows path
-  anyway. The one
-  new third-party action (`ilammy/msvc-dev-cmd@v1`) is
-  intentionally floating-tag-pinned to match the rest of
-  the repo; if the SHA-pinning policy changes, update it.
+  anyway.
+  Round-21 surfaced two more blockers (the round-19
+  `__m128i[N]` sweep missed six sites) plus a
+  pre-commit workflow checkout gap.
+  (a) `libvmaf/src/feature/x86/adm_avx512.c` (UPSTREAM)
+  had six further `r2_X[0] + r2_X[1]` reductions at
+  lines 2128 / 2135 / 2142 / 2589 / 2595 / 2601 that
+  reduce a `__m512i` accumulator down to `__m128i`
+  before the lane index. Replaced with the same
+  `_mm_extract_epi64(r2_X, N)` summed-pair pattern
+  used in round 19 — bit-exact, MSVC-portable.
+  (b) `libvmaf/src/log.c` (UPSTREAM) included
+  `<unistd.h>` unconditionally to pick up POSIX
+  `isatty` / `fileno`. On MSVC both live in
+  `<io.h>` as `_isatty` / `_fileno`; gated the
+  include and macro-redirected the names so the
+  one call site at line 34 compiles on both sides
+  without touching the POSIX path.
+  (c) `.github/workflows/lint-and-format.yml`
+  (fork-added) checks out without `lfs: true`, so
+  the `model/tiny/*.onnx` files land as LFS
+  pointer stubs. pre-commit's "changes made by
+  hooks" reporter then diffs the stubs against
+  HEAD's real blobs and fails the job even though
+  no hook touched them. Added `lfs: true` to the
+  pre-commit job's checkout.
 - **Re-test**:
 
   ```bash

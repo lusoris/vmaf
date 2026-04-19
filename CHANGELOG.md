@@ -160,6 +160,23 @@
   it). The `mode` argument is silently ignored on the Windows
   path — same behaviour as before for POSIX callers. See
   [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: round-21 MSVC mop-up —
+  [`libvmaf/src/feature/x86/adm_avx512.c`](libvmaf/src/feature/x86/adm_avx512.c)
+  (UPSTREAM) adds six more `_mm_extract_epi64` rewrites at lines
+  2128 / 2135 / 2142 / 2589 / 2595 / 2601 that the round-19 sweep
+  missed (bit-exact).
+  [`libvmaf/src/log.c`](libvmaf/src/log.c) (UPSTREAM) gates
+  `<unistd.h>` to non-Windows and pulls `_isatty` / `_fileno` from
+  `<io.h>` on MSVC via macro redirection; the single `isatty(fileno
+  (stderr))` call site compiles unchanged on every platform.
+  See [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **CI**: `.github/workflows/lint-and-format.yml` pre-commit job
+  now checks out with `lfs: true`. Without it `model/tiny/*.onnx`
+  lands as LFS pointer stubs and pre-commit's "changes made by
+  hooks" reporter flags the stubs as pre-commit-induced
+  modifications against HEAD's resolved blobs, failing the job
+  even though no hook touched them. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
 
 ### Changed
 

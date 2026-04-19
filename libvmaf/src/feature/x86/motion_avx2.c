@@ -529,10 +529,10 @@ void sad_avx2(VmafPicture *pic_a, VmafPicture *pic_b, uint64_t *sad)
     /* GCC/clang allow `final_accum[N]` indexing on __m256i via the vector
      * extension; MSVC rejects it (C2088). Use the portable extract intrinsic
      * — bit-exact with the original lane-wise sum. */
-    uint64_t r1 = (uint64_t)_mm256_extract_epi64(final_accum, 0)
-                + (uint64_t)_mm256_extract_epi64(final_accum, 1)
-                + (uint64_t)_mm256_extract_epi64(final_accum, 2)
-                + (uint64_t)_mm256_extract_epi64(final_accum, 3);
+    uint64_t r1 = (uint64_t)_mm256_extract_epi64(final_accum, 0) +
+                  (uint64_t)_mm256_extract_epi64(final_accum, 1) +
+                  (uint64_t)_mm256_extract_epi64(final_accum, 2) +
+                  (uint64_t)_mm256_extract_epi64(final_accum, 3);
 
     *sad += r1;
 }
