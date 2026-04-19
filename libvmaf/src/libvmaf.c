@@ -1425,7 +1425,16 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
 
     if (vmaf->prev_ref.ref)
         vmaf_picture_unref(&vmaf->prev_ref);
-    vmaf_picture_ref(&vmaf->prev_ref, ref);
+    /* CUDA device-only path: HAVE_CUDA reassigns `ref = &ref_host` above,
+     * but `ref_host` is zero-initialised whenever every extractor carries
+     * VMAF_FEATURE_EXTRACTOR_CUDA (rfe_hw_flags returns HW_FLAG_DEVICE
+     * only, so translate_picture_device early-returns and never downloads).
+     * Deref of ref_host.ref == NULL crashes vmaf_ref_fetch_increment. The
+     * only PREV_REF consumer is CPU integer_motion_v2, which is never
+     * registered alongside a pure CUDA extractor set — skipping the
+     * prev_ref update here is safe. ADR-0123. */
+    if (ref && ref->ref)
+        vmaf_picture_ref(&vmaf->prev_ref, ref);
 
     /* Always unref the caller's ref/dist before returning. With the
      * always-on picture pool, leaking even one picture per frame holds a

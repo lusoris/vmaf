@@ -359,6 +359,30 @@
 
 ### Fixed
 
+- **`libvmaf_cuda` ffmpeg filter segfault on first frame**: external
+  reporter (2026-04-19) hit a SIGSEGV in `vmaf_ref_fetch_increment` on
+  every invocation of ffmpeg's `libvmaf_cuda` filter against the fork's
+  master build. Root cause is a three-commit composition: upstream
+  `32b115df` (2026-04-07) added the experimental `VMAF_PICTURE_POOL`
+  with an always-live `vmaf->prev_ref` slot; upstream `f740276a`
+  (2026-04-09) moved the `vmaf_picture_ref(&vmaf->prev_ref, ref)` tail
+  onto the non-threaded path without guarding against `ref->ref ==
+  NULL`; fork commit `65460e3a` ([ADR-0104](docs/adr/0104-picture-pool-always-on.md))
+  dropped the `VMAF_PICTURE_POOL` meson gate for ABI stability
+  (+10 fps CPU gain), exposing the unguarded deref to every default
+  build. On the CUDA-device-only extractor set that the ffmpeg filter
+  registers, `rfe_hw_flags` returns `HW_FLAG_DEVICE` only,
+  `translate_picture_device` early-returns without downloading, and
+  `ref_host` stays zero-initialised — the subsequent
+  `vmaf_picture_ref(&prev_ref, &ref_host)` deref'd `NULL`. Fix is a
+  narrow null-guard at `libvmaf/src/libvmaf.c:1428`
+  (`if (ref && ref->ref) vmaf_picture_ref(...)`). Semantically correct,
+  not merely defensive: the only `VMAF_FEATURE_EXTRACTOR_PREV_REF`
+  consumer is CPU `integer_motion_v2`, which is never registered
+  alongside a pure-CUDA set. SYCL is unaffected (`vmaf_read_pictures_sycl`
+  does not touch `prev_ref`). Always-on picture pool stays. See
+  [ADR-0123](docs/adr/0123-cuda-post-cubin-load-regression-32b115df.md);
+  follow-up item to port the null-guard upstream to Netflix/vmaf.
 - **CLI precision default reverted to `%.6f` (Netflix-compat)**: ADR-0006
   shipped `%.17g` as the default for round-trip-lossless output, but
   several Netflix golden tests in `python/test/command_line_test.py`,
