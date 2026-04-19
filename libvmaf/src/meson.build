@@ -754,8 +754,10 @@ libvmaf_private_libs = [thread_lib, math_lib]
 libvmaf_private_reqs = []
 
 if is_sycl_enabled
-    # sycl, svml, irc are Intel compiler runtime libs without .pc files
-    libvmaf_private_libs += [sycl_lib, svml_lib, irc_lib]
+    # sycl, svml, irc are Intel compiler runtime libs without .pc files.
+    # On Windows the explicit svml/irc lookup is skipped (icx-cl
+    # auto-injects them at link time), so don't reference them here.
+    libvmaf_private_libs += [sycl_lib] + sycl_extra_runtime_deps
     # ze_loader has a .pc file — use requires_private for transitive resolution
     libvmaf_private_reqs += 'libze_loader'
     if have_sycl_dmabuf

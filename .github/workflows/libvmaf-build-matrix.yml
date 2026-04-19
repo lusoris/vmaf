@@ -537,22 +537,32 @@ jobs:
           copy nv-codec-headers\include\ffnvcodec\*.h nvcodec-prefix\include\ffnvcodec\
           echo INCLUDE=%CD%\nvcodec-prefix\include;%INCLUDE%>>%GITHUB_ENV%
 
+      # ---------- Strip ccache from PATH (Windows) ----------
+      # `windows-latest` ships `C:\Strawberry\c\bin\ccache.exe` on
+      # PATH. Meson's compiler-detection wraps nvcc with it
+      # unconditionally → "Compiler ... ccache nvcc cannot compile
+      # programs" (the wrap happens at meson configure time;
+      # `CCACHE_DISABLE=1` only affects ccache at runtime, not
+      # meson's wrap decision). Rename the binary so meson can't
+      # find it.
+      - name: Disable ccache wrap (windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          if exist C:\Strawberry\c\bin\ccache.exe ren C:\Strawberry\c\bin\ccache.exe ccache.exe.disabled
+          where ccache.exe || echo ccache not on PATH (good)
+
       # ---------- Build ----------
       # CFLAGS/CXXFLAGS carry `/experimental:c11atomics` — without
       # that flag MSVC's `<stdatomic.h>` errors with "C atomic
       # support is not enabled" (libvmaf uses C11 atomics; meson's
       # compiler check rejects the toolchain otherwise).
-      # `CCACHE_DISABLE=1` because `windows-latest` ships
-      # `C:\Strawberry\c\bin\ccache.exe` on PATH; meson auto-detects
-      # it and wraps nvcc → "Compiler ... ccache nvcc cannot
-      # compile programs". We don't want CI build caching here.
       - name: Configure libvmaf (CUDA)
         if: matrix.backend == 'cuda'
         shell: cmd
         env:
           CFLAGS: /experimental:c11atomics
           CXXFLAGS: /experimental:c11atomics
-          CCACHE_DISABLE: '1'
         run: |
           meson setup libvmaf libvmaf\build --buildtype release ^
             --prefix %CD%\install ^
@@ -590,7 +600,6 @@ jobs:
         env:
           CFLAGS: /experimental:c11atomics
           CXXFLAGS: /experimental:c11atomics
-          CCACHE_DISABLE: '1'
         run: |
           call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
           set CC=icx-cl
