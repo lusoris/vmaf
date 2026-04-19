@@ -547,10 +547,11 @@ jobs:
       # find it.
       - name: Disable ccache wrap (windows)
         if: runner.os == 'Windows'
-        shell: cmd
+        shell: pwsh
         run: |
-          if exist C:\Strawberry\c\bin\ccache.exe ren C:\Strawberry\c\bin\ccache.exe ccache.exe.disabled
-          where ccache.exe || echo ccache not on PATH (good)
+          $p = 'C:\Strawberry\c\bin\ccache.exe'
+          if (Test-Path $p) { Rename-Item -Path $p -NewName 'ccache.exe.disabled' }
+          Write-Host "ccache binary disabled"
 
       # ---------- Build ----------
       # CFLAGS/CXXFLAGS carry `/experimental:c11atomics` — without
