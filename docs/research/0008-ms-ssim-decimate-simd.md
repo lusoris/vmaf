@@ -47,23 +47,33 @@ scalar reference need to use for that to hold?
 - **2-D kernel (current path)**: 9 × 9 = 81 multiply-adds per
   destination pixel. At factor=2 on 1920 × 1080 input, the first
   scale produces 960 × 540 = 518 400 destination pixels × 81 MACs =
-  42 M FMAs per scale. 5-scale pyramid total ≈ 56 M FMAs per
-  reference-distortion pair per frame.
-- **Separable form**: 9 horizontal taps + 9 vertical taps = 18
-  multiply-adds per destination pixel. Same 518 400 pixels × 18 MACs
-  = 9.3 M FMAs per scale. 5-scale total ≈ 12.4 M FMAs — a **4.5×
-  FLOP reduction** before any SIMD is applied.
-- **Separable + stride-2 fusion**: because decimate subsamples by 2,
-  the horizontal pass only needs to write every other column and the
-  vertical pass only needs to read those columns. That halves the
-  horizontal-pass output rows (odd rows are discarded after the
-  vertical pass), giving another 2× reduction. Net ≈ 9 MACs per
-  destination pixel, a **9× FLOP reduction** vs. the 2-D form.
+  42 M FMAs per scale. Count in source-image-pixel units:
+  `20.25 × w × h` MACs.
+- **Separable with stride-2 on horizontal pass (chosen form)**:
+  horizontal pass produces `w_out × h` outputs (factor-2 subsampling
+  applied during the horizontal pass only), each with 9 MACs →
+  `w_out × h × 9 = 4.5 × w × h` MACs. Vertical pass then produces
+  `w_out × h_out` outputs with 9 MACs each →
+  `w_out × h_out × 9 = 2.25 × w × h` MACs. Total:
+  `6.75 × w × h` MACs — a **~3× FLOP reduction** vs. the 2-D form,
+  not 9× as initially overstated (earlier draft double-counted the
+  stride-2 savings).
+- **Why not full stride-2 on both passes?** The vertical pass needs
+  all source rows, not just even-indexed rows, because the 9-tap
+  vertical kernel at `y_out * 2` reads rows `y_out*2 - 4 .. y_out*2 +
+  4`, which spans both even and odd source rows. So horizontal pass
+  must produce output for every source row `y`, just subsampled in
+  `x`. No further reduction is safe.
 - **SIMD lane multiplier**: AVX2 ymm (8-lane float32) and AVX-512 zmm
-  (16-lane float32) further parallelise the remaining 9 MACs. The
-  horizontal pass stays 9-wide (not a clean power of two), so there
-  is tail handling for the last lane, but the vertical pass is
-  trivially lane-parallel across destination columns.
+  (16-lane float32) parallelise across *destination columns* in both
+  passes. Inner-region speedup vs. scalar-separable: ~8× (AVX2),
+  ~16× (AVX-512). Total vs. scalar 2-D: **~24× (AVX2)**, **~48×
+  (AVX-512)** on the inner region.
+- **Amdahl**: end-to-end MS-SSIM speedup depends on decimate's
+  runtime share. The ~40% figure cited in the ADR is unverified;
+  verified with `perf record` during implementation and this digest
+  gets updated. If decimate is only 20% of MS-SSIM wall time, the
+  end-to-end gain caps near 1.24× even with AVX-512.
 
 ### Summation-order problem (bit-exactness)
 
@@ -208,5 +218,5 @@ of total runtime; profiling will update this digest.
 - Sibling SIMD implementations in
   [`libvmaf/src/feature/x86/`](../../libvmaf/src/feature/x86/) —
   structural templates.
-- PR for this workstream: TBD (opened after scalar-separable + AVX2
-  + AVX-512 land on `feat/ms-ssim-decimate-simd`).
+- PR for this workstream: TBD (opened after scalar-separable,
+  AVX2, and AVX-512 land on `feat/ms-ssim-decimate-simd`).
