@@ -61,8 +61,10 @@ Conventions:
 | ID | Title | Status | Workstream |
 | --- | --- | --- | --- |
 | [0001](0001-bisect-model-quality-cache.md) | Cache shape for `bisect-model-quality` nightly | Active | [ADR-0109](../adr/0109-nightly-bisect-model-quality.md) |
+| [0002](0002-ms-ssim-decimate-simd.md) | MS-SSIM decimate SIMD — FLOP accounting, summation order, bit-exactness | Active | [ADR-0125](../adr/0125-ms-ssim-decimate-simd.md) |
 
-<!-- Backfill entries for older workstreams land here as their authors revisit the corresponding code. -->
+<!-- Backfill entries for older workstreams land here as their authors
+     revisit the corresponding code. -->
 
 *(Index seeded by [ADR-0108](../adr/0108-deep-dive-deliverables-rule.md)'s
 adoption PR; backfilled digests for the existing major workstreams
