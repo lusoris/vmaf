@@ -382,7 +382,12 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
                                                  unsigned index, VmafModelCollectionScore *score)
 {
     int err = 0;
-    double scores[model_collection->cnt];
+    /* MSVC rejects VLAs; heap-allocate the scratch array so both
+     * compilers accept it. Size is typically the bootstrap count (~20),
+     * so the allocation is trivially small. */
+    double *scores = (double *)malloc(sizeof(double) * model_collection->cnt);
+    if (!scores)
+        return -ENOMEM;
 
     for (unsigned i = 0; i < model_collection->cnt; i++) {
         // mean, stddev, etc. are calculated on untransformed/unclipped scores
@@ -395,7 +400,7 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
                                           &scores[i], false, false, flags);
         // NOLINTEND(clang-analyzer-optin.core.EnumCastOutOfRange)
         if (err)
-            return err;
+            goto out;
 
         // do not override the model's transform/clip behavior
         // write the scores to the feature collector
@@ -403,7 +408,7 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
         err = vmaf_predict_score_at_index(model_collection->model[i], feature_collector, index,
                                           &score, true, false, 0);
         if (err)
-            return err;
+            goto out;
     }
 
     score->type = VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP;
@@ -450,8 +455,12 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
     const char *suffix_bagging = "_bagging";
     const char *suffix_stddev = "_stddev";
     const size_t name_sz = strlen(model_collection->name) + strlen(suffix_lo) + 1;
-    char name[name_sz];
-    memset(name, 0, name_sz);
+    /* Heap-allocated for MSVC portability (no VLAs). */
+    char *name = (char *)calloc(1u, name_sz);
+    if (!name) {
+        err = -ENOMEM;
+        goto out;
+    }
 
     (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
     err |= vmaf_feature_collector_append(feature_collector, name, score->bootstrap.bagging_score,
@@ -467,6 +476,10 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
     (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_hi);
     err |=
         vmaf_feature_collector_append(feature_collector, name, score->bootstrap.ci.p95.hi, index);
+
+    free(name);
+out:
+    free(scores);
     return err;
 }
 

@@ -1738,8 +1738,11 @@ int vmaf_score_pooled_model_collection(VmafContext *vmaf, VmafModelCollection *m
     const char *suffix_bagging = "_bagging";
     const char *suffix_stddev = "_stddev";
     const size_t name_sz = strlen(model_collection->name) + strlen(suffix_lo) + 1;
-    char name[name_sz];
-    memset(name, 0, name_sz);
+    /* Heap-allocated for MSVC portability (no VLAs). The buffer is short-lived
+     * and freed before return. */
+    char *name = (char *)calloc(1u, name_sz);
+    if (!name)
+        return -ENOMEM;
 
     (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.bagging_score,
@@ -1757,6 +1760,7 @@ int vmaf_score_pooled_model_collection(VmafContext *vmaf, VmafModelCollection *m
     err |= vmaf_feature_score_pooled(vmaf, name, pool_method, &score->bootstrap.ci.p95.hi,
                                      index_low, index_high);
 
+    free(name);
     return err;
 }
 

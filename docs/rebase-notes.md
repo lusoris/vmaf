@@ -1095,6 +1095,55 @@ inline.*
   #endif`, same for S_ISREG) guarded by
   `#ifdef _WIN32`. Semantically identical
   to the POSIX macro on Linux/macOS.
+  Round-21e surfaced the final source-portability
+  blockers once the DLL build passed preprocessing.
+  (h) `libvmaf/src/predict.c` and
+  `libvmaf/src/libvmaf.c` (both UPSTREAM) used C99
+  variable-length arrays — `double scores[cnt]` at
+  [predict.c:385](../libvmaf/src/predict.c#L385),
+  `char name[name_sz]` at
+  [predict.c:453](../libvmaf/src/predict.c#L453)
+  and [libvmaf.c:1741](../libvmaf/src/libvmaf.c#L1741).
+  gcc/clang accept VLAs as a C11 optional feature;
+  MSVC (even with `/std:c11`) rejects them outright
+  with `C2057: expected constant expression`.
+  Replaced each with a small `malloc` + explicit
+  `free` on every exit path (in predict.c a
+  `goto out;` cleanup arm was introduced because
+  the bootstrap loops error-exit mid-function). The
+  buffers are a handful of bytes each (`name_sz` is
+  the model-collection name length plus the fixed
+  `_ci_p95_lo` suffix, `scores` holds ~20 doubles —
+  one per bootstrap sample) so the heap round-trip
+  is not performance-relevant; the
+  `return -ENOMEM` on allocation failure is the
+  only new failure mode, which callers already
+  handle uniformly. Re-absorb if upstream Netflix
+  later edits the same loops and your toolchain
+  matrix omits MSVC.
+  (i) `libvmaf/tools/vmaf.c` and
+  `libvmaf/tools/cli_parse.c` (fork-touched)
+  `#include <unistd.h>` / `<getopt.h>` which MSVC
+  does not ship and which the fork deliberately
+  does not polyfill — porting the CLI to MSVC
+  would require a full `getopt_long` shim and is
+  out of scope for the build-only GPU legs. The
+  job name is literally "Windows MSVC + CUDA
+  (build only)" / "…SYCL (build only)" and the
+  value of those legs is verifying that
+  `libvmaf.dll` builds for downstream consumers
+  (ffmpeg's MSVC build, WPF apps, etc.), not
+  that the reference CLI runs on Windows. Added
+  `-Denable_tools=false` to both Windows MSVC
+  legs' `meson_extra` in
+  [`.github/workflows/libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml).
+  MinGW-w64 builds are unaffected (they ship
+  `<unistd.h>` / `<getopt.h>` via winpthreads +
+  mingw-w64-crt). If the CLI ever needs to
+  build with MSVC, the follow-up is a
+  `libvmaf/tools/compat/getopt.h` shim plus the
+  same `<io.h>` / `_isatty` redirection used in
+  `log.c`.
 - **Re-test**:
 
   ```bash

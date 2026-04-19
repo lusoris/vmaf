@@ -177,6 +177,25 @@
   modifications against HEAD's resolved blobs, failing the job
   even though no hook touched them. See
   [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: round-21e MSVC mop-up —
+  [`libvmaf/src/predict.c`](libvmaf/src/predict.c) and
+  [`libvmaf/src/libvmaf.c`](libvmaf/src/libvmaf.c) (both UPSTREAM)
+  convert three C99 variable-length arrays (`double scores[cnt]`
+  in the bootstrap loop + two `char name[name_sz]` buffers) to
+  heap allocations with explicit `free` on every exit path.
+  MSVC's `/std:c11` rejects VLAs outright (`C2057: expected
+  constant expression`); gcc/clang accept them as an optional
+  C11 feature. Buffers are a handful of bytes each, so the
+  heap round-trip is not performance-relevant.
+  [`.github/workflows/libvmaf-build-matrix.yml`](.github/workflows/libvmaf-build-matrix.yml)
+  sets `-Denable_tools=false` on both Windows MSVC legs —
+  [`libvmaf/tools/vmaf.c`](libvmaf/tools/vmaf.c) and
+  [`libvmaf/tools/cli_parse.c`](libvmaf/tools/cli_parse.c)
+  include `<unistd.h>` / `<getopt.h>` which MSVC does not
+  ship, and the legs are deliberately scoped to building
+  `libvmaf.dll` for downstream consumers (the job names end
+  in "(build only)"). MinGW-w64 CLI builds are unaffected.
+  See [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
 
 ### Changed
 
