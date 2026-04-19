@@ -777,9 +777,14 @@ inline.*
   support, the flag becomes unconditional and can be dropped.
   Two Windows-only dependency steps round out the parity:
   the CUDA leg's `Jimver/cuda-toolkit` sub-package list includes
-  `crt` (CUDA Runtime Library compile-time headers, ships
+  both `crt` (CUDA Runtime Library compile-time headers, ships
   `crt/host_config.h`; `cuda_cccl` is not a valid Windows
-  sub-package name — installer rejects it); the SYCL leg builds
+  sub-package name — installer rejects it) and `nvvm` (ships
+  `nvvm/bin/cicc.exe` + `nvvm/libdevice/libdevice.*.bc`; without
+  it, nvcc's `.cu → PTX` stage fails with `The system cannot
+  find the path specified.` — on Linux apt pulls NVVM in
+  transitively with `cuda-nvcc-XY`, Windows requires it
+  explicitly); the SYCL leg builds
   the Level Zero
   loader from source (`oneapi-src/level-zero` v1.18.5 →
   `cmake --build … --target install`) because Windows oneAPI

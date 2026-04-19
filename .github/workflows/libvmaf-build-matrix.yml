@@ -493,7 +493,13 @@ jobs:
           # 0xE0E07F19 (invalid package). The Windows CUDA Runtime
           # ships these headers under the standalone `crt` sub-package
           # per the CUDA Windows install guide.
-          sub-packages: '["nvcc", "cudart", "crt", "visual_studio_integration"]'
+          # `nvvm` ships `nvvm/bin/cicc.exe` (CUDA LLVM-based device
+          # compiler) + `nvvm/libdevice/libdevice.*.bc`. Without it
+          # the `nvcc` driver spawns `cicc.exe` → "The system cannot
+          # find the path specified." at the .cu → PTX stage, even
+          # for an empty kernel. Verified locally (Windows Server
+          # 2022 VM, CUDA 13.0.48) 2026-04-19 — see ADR-0121.
+          sub-packages: '["nvcc", "cudart", "crt", "nvvm", "visual_studio_integration"]'
 
       # ---------- Intel oneAPI (SYCL leg only) ----------
       # Mirrors the official `oneapi-src/oneapi-ci` install pattern

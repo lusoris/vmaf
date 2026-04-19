@@ -108,6 +108,21 @@ Both legs:
     sub-package — the installer rejects it with exit code
     `0xE0E07F19`. The Windows installer name is the bare
     `crt`.)
+  - **CUDA `nvvm` sub-package** — also added to the
+    `sub-packages` list. Ships `nvvm/bin/cicc.exe` (CUDA's
+    LLVM-based device compiler) and `nvvm/libdevice/libdevice.*.bc`
+    (the device library nvcc links against). Without it, the
+    `nvcc` driver binary installs fine but crashes at the first
+    `.cu → PTX` stage with `stderr: The system cannot find
+    the path specified.` — because `nvcc.profile` points
+    `CICC_PATH = $(TOP)/nvvm/bin` and that directory doesn't
+    exist. On Linux the apt `cuda-nvcc-XY` package pulls NVVM
+    in transitively; on Windows the Jimver action requires
+    naming it explicitly. Discovered by reproducing the CI
+    failure locally in a Windows Server 2022 VM (CUDA
+    13.0.48, 2026-04-19) after eight rounds of CI-loop
+    debugging failed to surface the root cause from log output
+    alone.
   - **Level Zero loader from source** — `oneapi-src/level-zero`
     cloned at tag `v1.18.5` (matches the Ubuntu 24.04 apt
     `level-zero-dev` version, keeping the parity invariant with
