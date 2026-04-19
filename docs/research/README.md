@@ -61,6 +61,7 @@ Conventions:
 | ID | Title | Status | Workstream |
 | --- | --- | --- | --- |
 | [0001](0001-bisect-model-quality-cache.md) | Cache shape for `bisect-model-quality` nightly | Active | [ADR-0109](../adr/0109-nightly-bisect-model-quality.md) |
+| [0002](0002-automated-rule-enforcement.md) | Automating process-ADR enforcement (0100 / 0105 / 0106 / 0108) | Active | [ADR-0124](../adr/0124-automated-rule-enforcement.md) |
 
 <!-- Backfill entries for older workstreams land here as their authors revisit the corresponding code. -->
 

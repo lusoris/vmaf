@@ -91,3 +91,14 @@ repos:
       - id: conventional-pre-commit
         stages: [commit-msg]
         args: [--strict, "feat", "fix", "perf", "refactor", "docs", "test", "build", "ci", "chore", "revert", "port", "sycl", "cuda", "simd"]
+
+  - repo: local
+    hooks:
+      - id: check-copyright
+        name: ADR-0105 copyright header present (C/C++/CUDA)
+        entry: scripts/ci/check-copyright.sh
+        language: script
+        # Upstream subprojects and test fixtures never carry our header
+        # templates; skip them.
+        exclude: '^subprojects/|^libvmaf/test/data/|^python/vmaf/resource/|^python/test/resource/'
+        types_or: [c, c++, cuda]

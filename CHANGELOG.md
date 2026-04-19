@@ -259,6 +259,23 @@
   a pre-existing leak on both error paths (`cuda_free_functions()` +
   `free(c)` + `*cu_state = NULL`). See
   [ADR-0122](docs/adr/0122-cuda-gencode-coverage-and-init-hardening.md).
+- **Automated rule-enforcement for four process ADRs**: new workflow
+  [`.github/workflows/rule-enforcement.yml`](.github/workflows/rule-enforcement.yml)
+  plus a pre-commit `check-copyright` hook
+  ([`scripts/ci/check-copyright.sh`](scripts/ci/check-copyright.sh)) close
+  the "rule-without-a-check" gap on
+  [ADR-0100](docs/adr/0100-project-wide-doc-substance-rule.md),
+  [ADR-0105](docs/adr/0105-copyright-handling-dual-notice.md),
+  [ADR-0106](docs/adr/0106-adr-maintenance-rule.md), and
+  [ADR-0108](docs/adr/0108-deep-dive-deliverables-rule.md). The
+  ADR-0108 six-deliverable checklist is **blocking**; the other
+  three are advisory comments because their predicates require
+  human judgement (pure-refactor exemption, ADR-triviality call,
+  copyright-template choice). Upstream-port PRs (`port:` title /
+  `port/` branch) are exempt. Reviewer documentation at
+  [`docs/development/automated-rule-enforcement.md`](docs/development/automated-rule-enforcement.md).
+  See [ADR-0124](docs/adr/0124-automated-rule-enforcement.md) and
+  [Research-0002](docs/research/0002-automated-rule-enforcement.md).
 
 ### Changed
 

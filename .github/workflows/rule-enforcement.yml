@@ -1,0 +1,246 @@
+name: Rule Enforcement — ADR-0100 / 0106 / 0108
+
+# ADR-0124: automated enforcement of the process ADRs.
+# Three jobs — one blocking (deep-dive-checklist, ADR-0108), two
+# advisory (doc-substance-check ADR-0100, adr-backfill-check ADR-0106).
+# Copyright-header enforcement (ADR-0105) lives in pre-commit, not here.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: rule-enforcement-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deep-dive-checklist:
+    name: Deep-Dive Deliverables Checklist (ADR-0108)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Skip upstream-port PRs
+        id: scope
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          # ADR-0108 exempts verbatim upstream ports. Honour the existing
+          # conventions: Conventional-Commit prefix `port:` or a branch
+          # name under `port/`.
+          if [[ "${PR_TITLE}" =~ ^port[:\(] ]] || [[ "${HEAD_REF}" =~ ^port/ ]]; then
+            echo "exempt=true" >> "$GITHUB_OUTPUT"
+            echo "PR is an upstream port — exempt from ADR-0108 deliverables."
+          else
+            echo "exempt=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Parse six-deliverable checklist
+        if: steps.scope.outputs.exempt == 'false'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          # The six deliverables, as named in .github/PULL_REQUEST_TEMPLATE.md
+          # under the "Deep-dive deliverables" heading.
+          items=(
+            "Research digest"
+            "Decision matrix"
+            "AGENTS.md invariant note"
+            "Reproducer / smoke-test command"
+            "CHANGELOG.md"
+            "Rebase note"
+          )
+
+          # Write PR body to a file so grep can handle newlines robustly.
+          printf '%s' "${PR_BODY:-}" > /tmp/pr_body.md
+
+          fail=0
+          for item in "${items[@]}"; do
+            # Look for either a ticked checkbox mentioning the item, or
+            # an "opt-out" line per ADR-0108. Checkboxes use `- [x]`.
+            # Opt-outs take the form `no <thing> needed: <reason>` or
+            # `no rebase impact: <reason>` per the template.
+            #
+            # grep is intentionally loose on surrounding punctuation
+            # because reviewers sometimes reword the labels slightly.
+            if grep -qiE -- "- \[x\].*${item}" /tmp/pr_body.md; then
+              echo "OK (ticked): ${item}"
+              continue
+            fi
+            if grep -qiE "no .*(needed|impact|alternatives|rebase-sensitive)" /tmp/pr_body.md; then
+              # Require the opt-out to reference the item name OR a
+              # shorter keyword for it.
+              case "${item}" in
+                "Research digest")            key="digest" ;;
+                "Decision matrix")            key="alternatives" ;;
+                "AGENTS.md invariant note")   key="rebase-sensitive|AGENTS" ;;
+                "Reproducer / smoke-test command") key="reproducer|smoke" ;;
+                "CHANGELOG.md")               key="changelog" ;;
+                "Rebase note")                key="rebase" ;;
+              esac
+              if grep -qiE "no .*(${key})" /tmp/pr_body.md; then
+                echo "OK (opt-out): ${item}"
+                continue
+              fi
+            fi
+            echo "::error title=ADR-0108 missing deliverable::${item} is neither ticked nor opted-out in the PR description."
+            fail=1
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo ""
+            echo "See ADR-0108 (docs/adr/0108-deep-dive-deliverables-rule.md)"
+            echo "and .github/PULL_REQUEST_TEMPLATE.md for the six-deliverable"
+            echo "checklist and the opt-out syntax."
+            exit 1
+          fi
+
+      - name: Verify ticked file-referencing items appear in diff
+        if: steps.scope.outputs.exempt == 'false'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${PR_BODY:-}" > /tmp/pr_body.md
+
+          # Compute PR diff file list once.
+          git diff --name-only "${BASE_SHA}".."${HEAD_SHA}" > /tmp/diff_files.txt
+
+          fail=0
+
+          # Research digest — if ticked, expect docs/research/NNNN-*.md
+          if grep -qiE -- '- \[x\].*Research digest' /tmp/pr_body.md; then
+            if ! grep -qE '^docs/research/[0-9]+-' /tmp/diff_files.txt; then
+              echo "::error title=ADR-0108 research digest::Checkbox ticked but no docs/research/NNNN-*.md added in this PR."
+              fail=1
+            fi
+          fi
+
+          # CHANGELOG entry — if ticked, expect CHANGELOG.md in diff
+          if grep -qiE -- '- \[x\].*CHANGELOG' /tmp/pr_body.md; then
+            if ! grep -qE '^CHANGELOG\.md$' /tmp/diff_files.txt; then
+              echo "::error title=ADR-0108 CHANGELOG::Checkbox ticked but CHANGELOG.md is not in this PR."
+              fail=1
+            fi
+          fi
+
+          # Rebase note — if ticked, expect docs/rebase-notes.md in diff
+          if grep -qiE -- '- \[x\].*Rebase note' /tmp/pr_body.md; then
+            if ! grep -qE '^docs/rebase-notes\.md$' /tmp/diff_files.txt; then
+              echo "::error title=ADR-0108 rebase note::Checkbox ticked but docs/rebase-notes.md is not in this PR."
+              fail=1
+            fi
+          fi
+
+          exit "$fail"
+
+  doc-substance-check:
+    name: Doc-Substance Advisory (ADR-0100)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Advisory: never fails the check. Posts a PR comment listing
+    # user-discoverable surfaces changed without a matching docs/ diff.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan diff for user-discoverable surfaces
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          git diff --name-only "${BASE_SHA}".."${HEAD_SHA}" > /tmp/diff_files.txt
+
+          # Paths per ADR-0100 §"What counts as a user-discoverable change".
+          # A hit here is only suggestive — pure internal refactors in
+          # these trees are also legitimate and don't need docs.
+          surface_hit=0
+          while IFS= read -r pattern; do
+            if grep -qE "${pattern}" /tmp/diff_files.txt; then
+              surface_hit=1
+              break
+            fi
+          done <<'EOF'
+          ^libvmaf/include/
+          ^libvmaf/src/feature/feature_.*\.c$
+          ^libvmaf/src/feature/integer_.*\.c$
+          ^libvmaf/tools/
+          ^meson_options\.toml$
+          ^meson_options\.txt$
+          ^mcp-server/
+          ^ai/src/vmaf_train/cli
+          ^ffmpeg-patches/
+          EOF
+
+          docs_hit=0
+          if grep -qE '^docs/' /tmp/diff_files.txt; then
+            docs_hit=1
+          fi
+
+          if [ "${surface_hit}" -eq 1 ] && [ "${docs_hit}" -eq 0 ]; then
+            echo "ADR-0100 advisory: user-discoverable surface changed without a matching docs/ edit."
+            echo "Changed paths matching surface patterns:"
+            grep -E '^(libvmaf/include/|libvmaf/src/feature/|libvmaf/tools/|meson_options|mcp-server/|ai/src/vmaf_train/cli|ffmpeg-patches/)' /tmp/diff_files.txt || true
+            echo ""
+            echo "If this PR is a pure internal refactor / bug fix with no user-visible delta,"
+            echo "no docs are required (see ADR-0100 §Context for the exemption)."
+          else
+            echo "ADR-0100 advisory: no user-discoverable surface changed, or docs/ was updated."
+          fi
+
+  adr-backfill-check:
+    name: ADR-Backfill Advisory (ADR-0106)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan diff for policy-surface edits without a new ADR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          git diff --name-only "${BASE_SHA}".."${HEAD_SHA}" > /tmp/diff_files.txt
+
+          adr_added=0
+          if grep -qE '^docs/adr/[0-9]+-' /tmp/diff_files.txt; then
+            adr_added=1
+          fi
+
+          policy_hit=0
+          if grep -qE '^(libvmaf/include/|meson_options\.(txt|toml)|\.github/|docs/principles\.md$|CLAUDE\.md$|AGENTS\.md$|\.pre-commit-config\.yaml$)' /tmp/diff_files.txt; then
+            policy_hit=1
+          fi
+
+          if [ "${policy_hit}" -eq 1 ] && [ "${adr_added}" -eq 0 ]; then
+            echo "ADR-0106 advisory: policy / public-surface paths changed without a new ADR."
+            echo "Policy paths in this PR:"
+            grep -E '^(libvmaf/include/|meson_options\.|\.github/|docs/principles\.md$|CLAUDE\.md$|AGENTS\.md$|\.pre-commit-config\.yaml$)' /tmp/diff_files.txt || true
+            echo ""
+            echo "If the change is a refactor or a pure bug fix, no new ADR is required."
+            echo "Otherwise write docs/adr/NNNN-*.md before merging (see ADR-0106)."
+          else
+            echo "ADR-0106 advisory: no policy surface changed, or a new ADR was added."
+          fi
