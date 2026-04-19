@@ -116,15 +116,40 @@ int vmaf_cuda_state_init(VmafCudaState **cu_state, VmafCudaConfiguration cfg)
     if (!c)
         return -ENOMEM;
     memset(c, 0, sizeof(*c));
+
+    /* cuda_load_functions dlopens libcuda.so.1 via nv-codec-headers. A
+     * failure here is almost always a runtime-env issue, not a bug in
+     * libvmaf: the driver stub is either missing, not on the loader
+     * path, or shadowed by a stale version. Every downstream kernel
+     * launch dereferences c->f, so we must hard-fail with an
+     * actionable message before any extractor touches it. */
     int err = cuda_load_functions(&c->f, NULL /* log_ctx */);
-    if (!c->f || err) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "Error: failed to load CUDA functions\n");
+    if (err || !c->f) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "CUDA: failed to load the Nvidia driver library.\n"
+                 "      libvmaf dlopens libcuda.so.1 at runtime via "
+                 "nv-codec-headers; this step failed.\n"
+                 "      Check that libcuda.so.1 exists and is on the "
+                 "dynamic-loader path:\n"
+                 "        ldconfig -p | grep -iE 'libcuda|libnvcuvid'\n"
+                 "      The libvmaf_cuda backend cannot run without it. "
+                 "See docs/backends/cuda/overview.md#runtime-requirements.\n");
+        free(c);
+        *cu_state = NULL;
         return -EINVAL;
     }
 
     err = c->f->cuInit(0);
     if (err) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "problem during CUDA initialization\n");
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "CUDA: cuInit(0) failed (err=%d). The driver was "
+                 "loaded but initialization failed — typically a "
+                 "driver/userspace version mismatch or no CUDA-capable "
+                 "device visible to the process.\n",
+                 err);
+        cuda_free_functions(&c->f);
+        free(c);
+        *cu_state = NULL;
         return -EINVAL;
     }
 

@@ -347,29 +347,56 @@ if is_cuda_enabled
         cuda_compiler = meson.get_compiler('cuda')
         nvcc_exe = find_program('nvcc')
 
+        # Gencode coverage: explicit cubins for every currently-shipping
+        # consumer Nvidia generation from Turing (sm_75, RTX 20xx) through
+        # Blackwell (sm_120, RTX 50xx) whenever the host nvcc supports them.
+        # A compute_80 PTX is always emitted as the backward-JIT fallback
+        # so any sm_80+ GPU missing a native cubin (future minor revisions,
+        # headless Tegra variants) can still JIT a compatible kernel at
+        # load time.
+        #
+        # Upstream Netflix meson.build only shipped cubins at the Txx major
+        # boundaries (sm_75, sm_80, sm_90, sm_100, sm_120) plus a PTX at the
+        # highest compute cap the toolchain supports. On CUDA 12.x that
+        # meant Ampere sm_86 (RTX 30xx) and Ada sm_89 (RTX 40xx) had no
+        # matching cubin and no PTX that could JIT backward to their arch
+        # (the only PTX shipped was compute_90 or compute_120). The fork
+        # closes that coverage hole unconditionally — independent of
+        # toolchain version.
+        #
+        # Scope note: this fix addresses the cubin/PTX coverage surface
+        # only. It does NOT fix every CUDA crash reported against the
+        # upstream tree; upstream commit 32b115df (experimental
+        # VMAF_BATCH_THREADING / VMAF_PICTURE_POOL threading modes) is
+        # tracked as a separate post-cubin-load regression under
+        # ADR-0123.
         gencode = [
             '--fatbin',
             '-gencode=arch=compute_75,code=sm_75',
             '-gencode=arch=compute_80,code=sm_80',
+            # PTX at compute_80 is the JIT floor for every sm_80+ GPU that
+            # might be missing a native cubin. Keep it unconditional.
+            '-gencode=arch=compute_80,code=compute_80',
+            '-gencode=arch=compute_86,code=sm_86',
+            '-gencode=arch=compute_89,code=sm_89',
         ]
         message('Found CUDA version = @0@'.format(cuda_compiler.version()))
         if cuda_compiler.version().version_compare('<13')
             gencode += '-gencode=arch=compute_50,code=compute_50'
         endif
-        # always compile device code to enable quick startup on newer GPUs, for the last supported GPU also generate PTX for future compatibility
         if cuda_compiler.version().version_compare('>11.8')
             gencode += '-gencode=arch=compute_90,code=sm_90'
             if cuda_compiler.version().version_compare('>12.8')
                 gencode += [
                     '-gencode=arch=compute_100,code=sm_100',
                     '-gencode=arch=compute_120,code=sm_120',
-                    '-gencode=arch=compute_120,code=compute_120'
+                    # PTX at the highest compute cap the toolchain can
+                    # target, for forward JIT to future GPUs.
+                    '-gencode=arch=compute_120,code=compute_120',
                 ]
             else
                 gencode += '-gencode=arch=compute_90,code=compute_90'
             endif
-        else
-            gencode += '-gencode=arch=compute_80,code=compute_80'
         endif
 
     else

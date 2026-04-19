@@ -1297,3 +1297,41 @@ inline.*
   gh api --method PUT repos/lusoris/vmaf/branches/master/protection \
       --input /tmp/protection-update.json
   ```
+
+### 0023 — CUDA gencode coverage (sm_86/sm_89/compute_80 PTX) + init hardening
+
+- **Workstream PRs**: the ADR-0122 PR (gencode + init hardening) and
+  the ADR-0123 follow-up for the `32b115df` post-cubin-load
+  regression.
+- **Touches**:
+  - `libvmaf/src/meson.build` — the `gencode` array in the
+    `if get_option('enable_nvcc')` branch.
+  - `libvmaf/src/cuda/common.c` — `vmaf_cuda_state_init()` error
+    paths (multi-line actionable log, `cuda_free_functions()` +
+    `free(c)` + `*cu_state = NULL` cleanup).
+  - `docs/backends/cuda/overview.md` — `## Runtime requirements`
+    section and `### GPU architecture coverage` table.
+- **Invariant**: the `gencode` array unconditionally emits cubins for
+  `sm_75` / `sm_80` / `sm_86` / `sm_89` plus a `compute_80` PTX,
+  independent of host `nvcc` version. Upstream Netflix's gencode
+  only ships cubins at Txx major boundaries (`sm_75` / `sm_80` /
+  `sm_90` / `sm_100` / `sm_120`); a literal merge that replaces our
+  array with upstream's would re-open the Ampere-`sm_86` /
+  Ada-`sm_89` coverage hole. The `sm_90` / `sm_100` / `sm_120`
+  entries are still version-gated and should be preserved verbatim
+  if upstream adds new gates. The init-path error messages are
+  fork-local strings; upstream's terse `"Error: failed to load CUDA
+  functions"` must NOT win a merge.
+- **Re-test**:
+
+  ```bash
+  meson setup build -Denable_cuda=true -Denable_nvcc=true
+  ninja -C build 2>&1 | grep -E 'compute_(80|86|89)'
+  # Expect at least -gencode=arch=compute_86,code=sm_86 and
+  #                -gencode=arch=compute_89,code=sm_89 and
+  #                -gencode=arch=compute_80,code=compute_80
+
+  # Actionable init message (run without CUDA driver on the loader path):
+  LD_LIBRARY_PATH= ./build/tools/vmaf --help 2>&1 | grep -qi 'libcuda.so.1' || \
+      echo "init log regressed"
+  ```
