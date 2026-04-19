@@ -54,6 +54,15 @@
   stays `experimental: true` because Homebrew ORT floats. See
   [ADR-0120](docs/adr/0120-ai-enabled-ci-matrix-legs.md) +
   [`docs/rebase-notes.md` entry 0021](docs/rebase-notes.md).
+- **CI**: two Windows GPU build-only matrix legs in
+  [`.github/workflows/libvmaf-build-matrix.yml`](.github/workflows/libvmaf-build-matrix.yml)
+  — `Build — Windows MSVC + CUDA (build only)` and
+  `Build — Windows MSVC + oneAPI SYCL (build only)`. Both gate the
+  MSVC build-portability of the CUDA host code and SYCL `vmaf_sycl_*`
+  C-API entry points, respectively. No test step (windows-latest has
+  no GPU). Both legs are pinned to required status checks on `master`.
+  See [ADR-0121](docs/adr/0121-windows-gpu-build-only-legs.md) +
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
 
 ### Changed
 

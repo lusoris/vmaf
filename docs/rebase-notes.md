@@ -748,3 +748,48 @@ inline.*
   gh api --method PUT repos/lusoris/vmaf/branches/master/protection \
       --input /tmp/protection-update.json
   ```
+
+### 0022 — Windows GPU build-only matrix legs (MSVC + CUDA, MSVC + oneAPI SYCL)
+
+- **Workstream PRs**: this PR; adds a new top-level `windows-gpu-build`
+  job to
+  [`.github/workflows/libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml)
+  with two matrix entries (CUDA, SYCL). See
+  [ADR-0121](adr/0121-windows-gpu-build-only-legs.md).
+- **Touches**:
+  `.github/workflows/libvmaf-build-matrix.yml` (new
+  `windows-gpu-build` job),
+  `docs/adr/0121-windows-gpu-build-only-legs.md` (new),
+  `docs/adr/README.md` (index row),
+  `CHANGELOG.md` (Added entry).
+- **Invariant**: Windows GPU legs are pinned to the same CUDA toolchain
+  version as the corresponding Linux CUDA leg (CUDA 13.0.0) so a
+  Linux-vs-Windows divergence implies an MSVC ABI issue, not a
+  tooling-version delta. When the Linux CUDA leg bumps CUDA, the
+  Windows leg must move in lockstep. The Windows oneAPI install uses
+  the Chocolatey package `intel-oneapi-basekit` (latest stable, ≈
+  oneAPI 2025.x) — `rscohn2/setup-oneapi@v0` is Linux-only and cannot
+  install on `windows-latest`. The one new third-party action
+  (`ilammy/msvc-dev-cmd@v1`) is intentionally floating-tag-pinned to
+  match the rest of the repo; if the SHA-pinning policy changes,
+  update it.
+- **Re-test**:
+
+  ```bash
+  # Local sanity: the matrix file parses and the new job names exist.
+  yq '.jobs.windows-gpu-build.strategy.matrix.include[].name' \
+      .github/workflows/libvmaf-build-matrix.yml
+  # Expected output (2 lines):
+  #   Build — Windows MSVC + CUDA (build only)
+  #   Build — Windows MSVC + oneAPI SYCL (build only)
+  ```
+
+- **Branch protection**: the two Windows GPU legs are pinned as
+  required status checks on `master` immediately after this PR's
+  merge. After ADR-0120's two Linux DNN legs the count moves
+  21 → 23. Re-pin via:
+
+  ```bash
+  gh api --method PUT repos/lusoris/vmaf/branches/master/protection \
+      --input /tmp/protection-update.json
+  ```

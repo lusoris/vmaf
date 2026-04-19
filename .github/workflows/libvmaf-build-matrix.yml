@@ -407,3 +407,117 @@ jobs:
           name: ${{ matrix.msystem }}-vmaf
           path: ${{ steps.stage.outputs.path }}
           if-no-files-found: error
+
+  # ===== Windows GPU build-only (MSVC + CUDA, MSVC + oneAPI SYCL) =====
+  # Build-only legs — no GPU on the windows-latest runner, so the test
+  # step is intentionally omitted. The point is verifying that the
+  # CUDA / SYCL backend code compiles & links on the MSVC toolchain,
+  # closing the platform-coverage hole left by the Linux-only GPU
+  # matrix entries above. See ADR-0121.
+  #
+  # MSVC env is set up via ilammy/msvc-dev-cmd@v1 (community-standard
+  # action that runs `vcvars64.bat` and exports the variables).
+  # CUDA toolkit comes from Jimver/cuda-toolkit (same action used by
+  # the Linux CUDA legs, pinned to the same 13.0.0 release for parity).
+  # oneAPI is installed via rscohn2/setup-oneapi@v0 — community action
+  # that mirrors the Linux apt install, pinning the DPC++ compiler
+  # (icx-cl) at 2025.3 for ABI parity with the Linux SYCL leg.
+  #
+  # The two job names are pinned to required status checks on master
+  # immediately after merge (see ADR-0121 §Consequences).
+  windows-gpu-build:
+    name: ${{ matrix.name }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: cuda
+            meson_extra: -Denable_cuda=true -Denable_nvcc=true -Denable_sycl=false
+            name: Build — Windows MSVC + CUDA (build only)
+          - backend: sycl
+            meson_extra: -Denable_cuda=false -Denable_sycl=true
+            name: Build — Windows MSVC + oneAPI SYCL (build only)
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install meson and ninja
+        run: |
+          python -m pip install --upgrade pip
+          pip install meson ninja
+
+      # ---------- MSVC dev environment ----------
+      # Exports cl.exe + the rest of the MSVC toolchain into PATH /
+      # INCLUDE / LIB. Required by both backends (CUDA's nvcc shells
+      # out to cl.exe; oneAPI's icx-cl wraps cl.exe).
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # ---------- CUDA toolkit (CUDA leg only) ----------
+      # Same pin as the Linux CUDA legs: CUDA 13.0.0, Maxwell/Pascal/Volta
+      # gencodes dropped (meson.build already guards the sm_50 emit on
+      # `version < 13`).
+      - name: Install CUDA toolkit (windows)
+        if: matrix.backend == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.35
+        with:
+          cuda: '13.0.0'
+          method: network
+          sub-packages: '["nvcc", "cudart_dev", "visual_studio_integration"]'
+
+      # ---------- Intel oneAPI (SYCL leg only) ----------
+      # rscohn2/setup-oneapi installs the DPC++ compiler component
+      # only (smaller than the full base toolkit). Pinned to 2025.3
+      # for ABI parity with the Linux SYCL leg.
+      - name: Install Intel oneAPI (windows)
+        if: matrix.backend == 'sycl'
+        uses: rscohn2/setup-oneapi@v0
+        with:
+          components: dpcpp@2025.3
+
+      # ---------- Build ----------
+      - name: Configure libvmaf (CUDA)
+        if: matrix.backend == 'cuda'
+        shell: cmd
+        run: |
+          meson setup libvmaf libvmaf\build --buildtype release ^
+            --prefix %CD%\install ^
+            -Denable_float=true ^
+            ${{ matrix.meson_extra }}
+
+      - name: Configure libvmaf (SYCL)
+        if: matrix.backend == 'sycl'
+        shell: cmd
+        run: |
+          call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+          set CC=icx-cl
+          set CXX=icx-cl
+          meson setup libvmaf libvmaf\build --buildtype release ^
+            --prefix %CD%\install ^
+            -Denable_float=true ^
+            ${{ matrix.meson_extra }}
+
+      - name: Build libvmaf (CUDA)
+        if: matrix.backend == 'cuda'
+        shell: cmd
+        run: |
+          ninja -v -C libvmaf\build install
+
+      - name: Build libvmaf (SYCL)
+        if: matrix.backend == 'sycl'
+        shell: cmd
+        run: |
+          call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
+          ninja -v -C libvmaf\build install
+
+      # No test step — windows-latest has no GPU. The whole point of
+      # this job is exercising the MSVC + CUDA / MSVC + oneAPI link
+      # paths to catch portability regressions at compile time.
