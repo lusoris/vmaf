@@ -53,7 +53,9 @@ static char *test_feature_extractor_context_pool()
 {
     int err = 0;
 
-    const unsigned n_threads = 8;
+    /* Enum rather than `const unsigned` so MSVC accepts the array
+     * extent as a constant-expression (C `const` is runtime-bounded). */
+    enum { n_threads = 8 };
     VmafFeatureExtractorContextPool *pool;
     err = vmaf_fex_ctx_pool_create(&pool, n_threads);
     mu_assert("problem during vmaf_fex_ctx_pool_create", !err);

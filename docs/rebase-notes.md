@@ -1134,9 +1134,16 @@ inline.*
   pre-existing leak of the `name` buffer on the
   early `return -EINVAL` when a JSON object key
   isn't a string — the `goto out;` path frees
-  `name` + `cfg_name` on every exit. Re-absorb if
-  upstream Netflix later edits the same loops and
-  your toolchain matrix omits MSVC.
+  `name` + `cfg_name` on every exit.
+  [`libvmaf/test/test_feature_extractor.c:56`](../libvmaf/test/test_feature_extractor.c#L56)
+  (UPSTREAM) declared `const unsigned n_threads = 8;`
+  and used it as the extent of `VmafFeatureExtractorContext
+  *fex_ctx[n_threads];`. Converted to
+  `enum { n_threads = 8 };` so MSVC sees a
+  constant-expression; every other compiler
+  accepts enum constants identically. Re-absorb
+  if upstream Netflix later edits the same loops
+  and your toolchain matrix omits MSVC.
   (i) `libvmaf/tools/vmaf.c` and
   `libvmaf/tools/cli_parse.c` (fork-touched)
   `#include <unistd.h>` / `<getopt.h>` which MSVC
