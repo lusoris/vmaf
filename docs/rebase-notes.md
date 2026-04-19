@@ -785,6 +785,16 @@ inline.*
   `libvmaf/src/feature/x86/motion_avx2.c` (UPSTREAM —
   replace GCC vector-extension `__m256i[N]` indexing at
   line 529 with `_mm256_extract_epi64`; bit-exact),
+  `libvmaf/src/feature/x86/adm_avx2.c` (UPSTREAM —
+  replace 6 `(__m256i)(_mm256_cmp_ps(...))` casts with
+  `_mm256_castps_si256(...)` and 12 `__m128i[N]`
+  reductions with `_mm_extract_epi64`; bit-exact),
+  `libvmaf/src/feature/x86/adm_avx512.c` (UPSTREAM —
+  replace 6 `__m128i[N]` reductions with
+  `_mm_extract_epi64`; bit-exact),
+  `libvmaf/src/feature/x86/motion_avx512.c` (UPSTREAM —
+  replace 1 `__m128i[N]` reduction with
+  `_mm_extract_epi64`; bit-exact),
   `libvmaf/meson.build` (new `pthread_dependency` gated on
   `cc.check_header('pthread.h')` failing),
   `libvmaf/src/meson.build` and `libvmaf/test/meson.build` (thread
@@ -919,7 +929,45 @@ inline.*
   N ∈ {0..3}, summed — bit-exact lane sum on every
   compiler. Restore the index form post-merge if
   upstream Netflix later edits the same lines and your
-  toolchain matrix doesn't include MSVC. The one
+  toolchain matrix doesn't include MSVC.
+  Round-19 surfaced the same MSVC pattern at 19 more
+  call sites across the AVX2/AVX-512 ADM and motion
+  files plus six GCC-style vector casts.
+  `libvmaf/src/feature/x86/adm_avx2.c` (UPSTREAM):
+  6 lines (915-920) used `(__m256i)(_mm256_cmp_ps(...))`
+  C-style casts that gcc/clang accept via the GNU
+  vector extension; replaced with the dedicated
+  `_mm256_castps_si256(...)` bit-cast intrinsic. 12
+  lane-extract sites (`r2_h[0]+r2_h[1]`, etc. at lines
+  2420 / 2425 / 2430 / 2893 / 2897 / 2901 / 4079 /
+  4084 / 4089 / 4627 / 4631 / 4635) replaced with
+  `_mm_extract_epi64(r2_X, N)` summed pair.
+  `libvmaf/src/feature/x86/adm_avx512.c` (UPSTREAM):
+  6 sister lane-extract sites (lines 4470 / 4477 /
+  4484 / 4625 / 4631 / 4637) — same fix. The AVX-512
+  paths reduce a `__m512i` down to `__m128i` first
+  (via `_mm512_extracti64x4_epi64` →
+  `_mm256_extracti64x2_epi64`) before the index, so
+  only the final `__m128i[N]` step needed changing.
+  `libvmaf/src/feature/x86/motion_avx512.c` (UPSTREAM,
+  ported in 9371a0aa from PR #1486): one final
+  `r2[0]+r2[1]` reduction (line 448), same fix. All
+  19 lane-extract fixes plus the 6 cast fixes are
+  bit-exact rewrites and only change the source-level
+  syntax to MSVC-portable form. Restore the original
+  forms post-merge if upstream Netflix later edits
+  the same lines and your toolchain matrix doesn't
+  include MSVC. Additionally
+  `libvmaf/src/sycl/d3d11_import.cpp` (fork-added)
+  switched from C-style COBJMACROS helpers
+  (`ID3D11Device_CreateTexture2D`, `…_Release`, etc.)
+  to C++ method-call syntax (`device->CreateTexture2D`,
+  `tex->Release`) — d3d11.h gates COBJMACROS behind
+  `!defined(__cplusplus)`, so the C-style helpers
+  aren't visible in this `.cpp` TU. The two forms are
+  ABI-equivalent (both dispatch through the COM vtable);
+  the choice is purely lexical and POSIX builds aren't
+  affected (the whole TU is `#ifdef _WIN32`). The one
   new third-party action (`ilammy/msvc-dev-cmd@v1`) is
   intentionally floating-tag-pinned to match the rest of
   the repo; if the SHA-pinning policy changes, update it.

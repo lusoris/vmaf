@@ -117,6 +117,30 @@
   '__m256i'`. Replaced with four `_mm256_extract_epi64` calls,
   summed — bit-exact lane sum on every compiler. See
   [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
+- **Build**: x86 SIMD Windows source portability — sweep that
+  finishes the MSVC compile of the libvmaf CPU SIMD layer.
+  Round-19 surfaced the same vector-extension pattern at 19 more
+  call sites plus 6 GCC-style `(__m256i)x` casts.
+  [`libvmaf/src/feature/x86/adm_avx2.c`](libvmaf/src/feature/x86/adm_avx2.c)
+  (UPSTREAM) had 6 lines using
+  `(__m256i)(_mm256_cmp_ps(...))` casts (replaced with
+  `_mm256_castps_si256(...)`) and 12 sites of `__m128i[N]`
+  lane-extract reductions (replaced with `_mm_extract_epi64`).
+  [`libvmaf/src/feature/x86/adm_avx512.c`](libvmaf/src/feature/x86/adm_avx512.c)
+  (UPSTREAM) had 6 sister lane-extract reductions on the
+  AVX-512 paths.
+  [`libvmaf/src/feature/x86/motion_avx512.c`](libvmaf/src/feature/x86/motion_avx512.c)
+  (UPSTREAM, ported from PR #1486) had one final lane-extract
+  reduction. All 19 + 6 fixes are bit-exact rewrites — gcc/clang
+  emit identical vextract+padd sequences either way.
+  Additionally
+  [`libvmaf/src/sycl/d3d11_import.cpp`](libvmaf/src/sycl/d3d11_import.cpp)
+  switched from C-style COBJMACROS helpers
+  (`ID3D11Device_CreateTexture2D`, etc.) to C++ method-call syntax
+  (`device->CreateTexture2D`) because d3d11.h gates COBJMACROS
+  behind `!defined(__cplusplus)` and the TU compiles as C++
+  under icpx-cl. ABI-equivalent. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
 
 ### Changed
 
