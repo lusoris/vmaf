@@ -27,6 +27,7 @@
 
 #include <cassert>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -34,13 +35,17 @@
 #include <mutex>
 #include <string>
 #include <vector>
-#include <time.h>
 
+/* Portable monotonic timer in milliseconds. std::chrono::steady_clock
+ * is guaranteed monotonic by the C++ standard and is available on
+ * every supported host (Linux gcc/clang/icpx + Windows MSVC/icpx-cl).
+ * Replaces the previous POSIX clock_gettime(CLOCK_MONOTONIC) which
+ * does not exist on Windows. */
 static double monotonic_ms()
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+    using namespace std::chrono;
+    auto now = steady_clock::now().time_since_epoch();
+    return duration<double, std::milli>(now).count();
 }
 
 extern "C" {

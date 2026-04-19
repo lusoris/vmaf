@@ -43,7 +43,11 @@
 #include <string.h>
 
 #include <libvmaf/libvmaf_sycl.h>
-#include <libvmaf/log.h>
+
+/* log.h is internal to libvmaf/src/, not part of the public
+ * libvmaf/include/libvmaf/ surface — bare include via the
+ * src-relative path supplied as -I in the icpx invocation. */
+#include "log.h"
 
 /* libvmaf_sycl.h declares these with C linkage already. Just forward them
  * so this TU doesn't need the internal common.h. */

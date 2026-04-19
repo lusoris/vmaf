@@ -768,6 +768,20 @@ inline.*
   the `dwt_7_9_YCbCr_threshold[3]` designated initializer to
   positional form so MSVC/nvcc-on-Windows accepts the C++
   parse; semantically identical, no behavioural change),
+  `libvmaf/src/ref.h` and
+  `libvmaf/src/feature/feature_extractor.h` (UPSTREAM —
+  added `#if defined(__cplusplus) && defined(_MSC_VER)`
+  branch around `#include <stdatomic.h>` so MSVC C++ TUs
+  pull `atomic_int` via `using std::atomic_int;`; POSIX
+  paths unchanged),
+  `libvmaf/src/sycl/d3d11_import.cpp` (fix non-existent
+  `<libvmaf/log.h>` → `"log.h"`),
+  `libvmaf/src/sycl/dmabuf_import.cpp` (move `<unistd.h>`
+  inside `#if HAVE_SYCL_DMABUF` guard for non-VA-API
+  hosts),
+  `libvmaf/src/sycl/common.cpp` (replace POSIX
+  `clock_gettime(CLOCK_MONOTONIC)` with portable
+  `std::chrono::steady_clock`),
   `libvmaf/meson.build` (new `pthread_dependency` gated on
   `cc.check_header('pthread.h')` failing),
   `libvmaf/src/meson.build` and `libvmaf/test/meson.build` (thread
@@ -848,7 +862,45 @@ inline.*
   in every C/C++ standard, so it costs nothing on the
   upstream-merge side beyond a trivial conflict marker if
   upstream Netflix later edits the same lines. Restore
-  designated form post-merge if upstream has it. The one
+  designated form post-merge if upstream has it.
+  Round-17 surfaced four more Windows/MSVC-only SYCL
+  blockers, two of which touch upstream-shared headers.
+  (a) `libvmaf/src/ref.h` and
+  `libvmaf/src/feature/feature_extractor.h` (UPSTREAM)
+  unconditionally `#include <stdatomic.h>` and use the
+  `atomic_int` typedef in struct definitions. MSVC's
+  `<stdatomic.h>` (added in 19.34) only declares the C11
+  symbols inside the global namespace under C; in C++
+  compilation (icpx-cl drives the SYCL TUs as C++) MSVC
+  surfaces them only inside `namespace std::`. gcc/clang
+  expose both via a GNU extension, so the upstream code
+  works on every other platform. The fork now wraps both
+  headers' `#include <stdatomic.h>` in
+  `#if defined(__cplusplus) && defined(_MSC_VER)` →
+  `#include <atomic>` + `using std::atomic_int;`, falling
+  through to the original `<stdatomic.h>` line on every
+  other configuration. ABI is unchanged — `atomic_int`
+  resolves to the same underlying type. If upstream
+  Netflix adds further C11 atomic typedefs in these
+  headers (e.g., `atomic_uint`, `atomic_size_t`), extend
+  the `using std::` lines to cover them. (b)
+  `libvmaf/src/sycl/d3d11_import.cpp` (fork-added)
+  used `<libvmaf/log.h>` which doesn't exist — `log.h`
+  lives at `libvmaf/src/log.h` and is internal. Switched
+  to `"log.h"`; the icpx invocation already supplies the
+  src-relative `-I`. (c) `libvmaf/src/sycl/dmabuf_import.cpp`
+  (fork-added) included `<unistd.h>` at file scope, but
+  POSIX `close()` is only used inside the
+  `#if HAVE_SYCL_DMABUF` VA-API block. Moved the
+  `<unistd.h>` include inside that guard so non-DMA-BUF
+  builds (Windows MSVC, macOS) compile cleanly. (d)
+  `libvmaf/src/sycl/common.cpp` (fork-added) called
+  `clock_gettime(CLOCK_MONOTONIC)`, which doesn't exist
+  on Windows. Replaced with `std::chrono::steady_clock`
+  (guaranteed monotonic by the C++ standard, portable on
+  every supported host). All four fixes preserve
+  POSIX/Linux behaviour bit-identically and only change
+  the Windows MSVC build path. The one
   new third-party action (`ilammy/msvc-dev-cmd@v1`) is
   intentionally floating-tag-pinned to match the rest of
   the repo; if the SHA-pinning policy changes, update it.

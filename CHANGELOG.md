@@ -84,6 +84,29 @@
   `sycl_pic_arg = host_machine.system() != 'windows' ? ['-fPIC'] : []`
   instead of hard-coding it. PIC is the default for Windows DLLs, so
   dropping the flag is the correct build-system fix, not a workaround.
+- **Build**: SYCL Windows source portability — four MSVC C++
+  blockers fixed so `icpx-cl` compiles the SYCL TUs.
+  (1) [`libvmaf/src/ref.h`](libvmaf/src/ref.h) +
+  [`libvmaf/src/feature/feature_extractor.h`](libvmaf/src/feature/feature_extractor.h)
+  (UPSTREAM) gained an `#if defined(__cplusplus) && defined(_MSC_VER)`
+  branch that pulls `atomic_int` via `using std::atomic_int;` —
+  MSVC's `<stdatomic.h>` only surfaces the C11 typedefs in
+  `namespace std::` under C++, while gcc/clang expose them globally
+  via a GNU extension. POSIX paths fall through to the original
+  `<stdatomic.h>` line; ABI unchanged. (2)
+  [`libvmaf/src/sycl/d3d11_import.cpp`](libvmaf/src/sycl/d3d11_import.cpp)
+  switched `<libvmaf/log.h>` (non-existent) to `"log.h"` (the actual
+  internal header). (3)
+  [`libvmaf/src/sycl/dmabuf_import.cpp`](libvmaf/src/sycl/dmabuf_import.cpp)
+  moved `<unistd.h>` inside `#if HAVE_SYCL_DMABUF` — POSIX `close()`
+  is only used in the VA-API path, so non-DMA-BUF hosts (Windows
+  MSVC, macOS) no longer fail with `'unistd.h' file not found`. (4)
+  [`libvmaf/src/sycl/common.cpp`](libvmaf/src/sycl/common.cpp)
+  replaced POSIX `clock_gettime(CLOCK_MONOTONIC)` with
+  `std::chrono::steady_clock` — guaranteed monotonic by the C++
+  standard and portable on every supported host. All four preserve
+  POSIX/Linux behaviour bit-identically. See
+  [`docs/rebase-notes.md` entry 0022](docs/rebase-notes.md).
 
 ### Changed
 
