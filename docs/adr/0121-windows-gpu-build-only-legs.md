@@ -167,6 +167,24 @@ Both legs:
   well above that. Build-only legs do not exercise the
   shim's runtime semantics, but the GPU host TUs that link
   against libvmaf now compile cleanly under MSVC.
+- **icpx-cl Windows host-arg handling** — SYCL's `icpx` driver
+  on Windows targets `x86_64-pc-windows-msvc` and rejects
+  `-fPIC` outright (`unsupported option '-fPIC' for target
+  'x86_64-pc-windows-msvc'`). PIC is the default for Windows
+  DLLs anyway, so dropping the flag on Windows is the correct
+  build-system fix, not a workaround. Resolved in
+  [`libvmaf/src/meson.build`](../../libvmaf/src/meson.build) by
+  introducing `sycl_pic_arg = host_machine.system() != 'windows'
+  ? ['-fPIC'] : []` and threading it into both
+  `sycl_common_args` and `sycl_feature_args` in place of the
+  hard-coded `-fPIC` token. The same SYCL `.cpp` translation
+  units transitively include `feature_collector.h`, which pulls
+  in `pthread.h` — so the Win32 pthread shim path is also
+  appended to `sycl_inc_flags` on Windows, mirroring the
+  `cuda_extra_includes` handling for the nvcc fatbin
+  `custom_target`. icpx `custom_target` invocations bypass
+  meson's regular `dependencies:` plumbing the same way nvcc
+  fatbins do, so the include-path threading must be explicit.
 - Skip the test step entirely. `windows-latest` has no GPU; running
   even CPU-only tests would consume runner minutes for no signal
   beyond what the Linux legs already provide.

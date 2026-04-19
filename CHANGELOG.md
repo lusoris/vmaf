@@ -73,7 +73,17 @@
   failing — POSIX and MinGW (winpthreads) builds are untouched. Lets
   the Windows MSVC GPU legs from ADR-0121 actually compile the libvmaf
   core (~14 TUs `#include <pthread.h>` unconditionally). Pattern
-  mirrors the long-standing `compat/gcc/stdatomic.h` shim.
+  mirrors the long-standing `compat/gcc/stdatomic.h` shim. nvcc fatbin
+  and icpx SYCL `custom_target`s additionally thread the shim include
+  path through `cuda_extra_includes` / `sycl_inc_flags` on Windows
+  (custom targets bypass meson's `dependencies:` plumbing).
+- **Build**: SYCL Windows host-arg handling in
+  [`libvmaf/src/meson.build`](libvmaf/src/meson.build) — `icpx-cl`
+  on Windows targets `x86_64-pc-windows-msvc` and rejects `-fPIC`.
+  `sycl_common_args` / `sycl_feature_args` now route the flag through
+  `sycl_pic_arg = host_machine.system() != 'windows' ? ['-fPIC'] : []`
+  instead of hard-coding it. PIC is the default for Windows DLLs, so
+  dropping the flag is the correct build-system fix, not a workaround.
 
 ### Changed
 

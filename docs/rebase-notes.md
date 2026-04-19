@@ -815,10 +815,24 @@ inline.*
   `cc.check_header('pthread.h')` fails — so MinGW and POSIX
   paths stay untouched. When upstream Netflix/vmaf adds new
   pthread surface (e.g., `pthread_rwlock_*`), extend
-  `compat/win32/pthread.h` to cover it. The one new
-  third-party action (`ilammy/msvc-dev-cmd@v1`) is
-  intentionally floating-tag-pinned to match the rest of the
-  repo; if the SHA-pinning policy changes, update it.
+  `compat/win32/pthread.h` to cover it. Both nvcc fatbin
+  `custom_target`s (CUDA) and icpx `custom_target`s (SYCL
+  `common.cpp` / `picture_sycl.cpp` / `dmabuf_import.cpp`,
+  plus the SYCL feature kernels) bypass meson's
+  `dependencies:` plumbing and hand-roll their own `-I`
+  lists, so the shim
+  path must be threaded into both `cuda_extra_includes` and
+  `sycl_inc_flags` explicitly on Windows. icpx-cl on
+  Windows additionally rejects `-fPIC` (`unsupported option
+  for target 'x86_64-pc-windows-msvc'`) — so
+  `sycl_common_args` and `sycl_feature_args` route their
+  `-fPIC` token through `sycl_pic_arg = host_machine.system()
+  != 'windows' ? ['-fPIC'] : []`. PIC is the default for
+  Windows DLLs, so dropping the flag is the correct fix
+  rather than a workaround. The one new third-party action
+  (`ilammy/msvc-dev-cmd@v1`) is intentionally
+  floating-tag-pinned to match the rest of the repo; if the
+  SHA-pinning policy changes, update it.
 - **Re-test**:
 
   ```bash

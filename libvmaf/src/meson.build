@@ -487,7 +487,26 @@ if is_sycl_enabled
         '-I' + meson.current_source_dir() / 'sycl',
     ]
 
-    sycl_common_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20', '-fPIC']
+    # icpx-cl on Windows targets x86_64-pc-windows-msvc and rejects
+    # -fPIC ("unsupported option for target"). PIC is the default on
+    # Windows DLL builds anyway, so drop the flag there. Mirrors the
+    # CUDA / nvcc fatbin handling at cuda_extra_includes.
+    sycl_pic_arg = []
+    if host_machine.system() != 'windows'
+        sycl_pic_arg = ['-fPIC']
+    endif
+
+    # SYCL .cpp sources include feature_collector.h transitively, which
+    # pulls in pthread.h. icpx custom_targets bypass meson's dependency
+    # plumbing, so thread the Win32 pthread shim include path into the
+    # explicit -I list on Windows. Same pattern as cuda_extra_includes.
+    if host_machine.system() == 'windows'
+        sycl_inc_flags += [
+            '-I' + meson.current_source_dir() / 'compat' / 'win32',
+        ]
+    endif
+
+    sycl_common_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20'] + sycl_pic_arg
 
     sycl_sources = [
         sycl_dir + 'common.cpp',
@@ -646,7 +665,7 @@ if is_sycl_enabled
         feature_src_dir + 'sycl/integer_motion_sycl.cpp',
     ]
 
-    sycl_feature_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20', '-fPIC', '-fpermissive']
+    sycl_feature_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20'] + sycl_pic_arg + ['-fpermissive']
     sycl_feature_inc = sycl_inc_flags + [
         '-I' + meson.current_source_dir() / 'cuda',
     ]
