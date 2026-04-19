@@ -44,6 +44,16 @@
   see [ADR-0109](docs/adr/0109-nightly-bisect-model-quality.md) +
   [Research-0001](docs/research/0001-bisect-model-quality-cache.md).
   Closes #4.
+- **CI**: three DNN-enabled matrix legs in
+  [`.github/workflows/libvmaf-build-matrix.yml`](.github/workflows/libvmaf-build-matrix.yml)
+  — `Build — Ubuntu gcc (CPU) + DNN`, `Build — Ubuntu clang (CPU) + DNN`,
+  `Build — macOS clang (CPU) + DNN`. Each leg installs ONNX Runtime
+  (Linux: MS tarball pinned to 1.22.0; macOS: Homebrew) and runs the
+  meson `dnn` test suite plus full `ninja test`. The two Linux legs
+  are pinned to required status checks on `master`; the macOS leg
+  stays `experimental: true` because Homebrew ORT floats. See
+  [ADR-0120](docs/adr/0120-ai-enabled-ci-matrix-legs.md) +
+  [`docs/rebase-notes.md` entry 0021](docs/rebase-notes.md).
 
 ### Changed
 

@@ -698,3 +698,53 @@ inline.*
   # Expected: each workflow prints its Title Case workflow name + job names;
   # no PARSE FAIL lines.
   ```
+
+### 0021 — DNN-enabled CI matrix legs (gcc + clang + macOS)
+
+- **Workstream PRs**: this PR; adds three new entries to the
+  `libvmaf-build` matrix in
+  [`.github/workflows/libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml)
+  covering `-Denable_dnn=enabled` across Ubuntu/gcc, Ubuntu/clang, and
+  macOS/clang. See
+  [ADR-0120](adr/0120-ai-enabled-ci-matrix-legs.md).
+- **Touches**:
+  `.github/workflows/libvmaf-build-matrix.yml` (3 new matrix entries +
+  ORT install steps + dedicated dnn-suite test step),
+  `docs/adr/0120-ai-enabled-ci-matrix-legs.md` (new),
+  `docs/adr/README.md` (index row),
+  `CHANGELOG.md` (Added entry).
+- **Invariant**: the DNN matrix legs install ONNX Runtime via the same
+  pinned source as the dedicated Tiny AI job
+  ([tests-and-quality-gates.yml](../.github/workflows/tests-and-quality-gates.yml))
+  — Linux: MS tarball at the version pinned by `ORT_VERSION`; macOS:
+  Homebrew. When the Tiny AI job's pin changes, the matrix legs'
+  `ORT_VERSION` env in their `Install ONNX Runtime (linux, DNN leg)`
+  step must change to match; otherwise compiler/portability coverage
+  drifts away from the gating leg's actual ABI.
+- **Re-test**:
+
+  ```bash
+  # Local sanity: the matrix file parses and the new job names exist.
+  yq '.jobs.libvmaf-build.strategy.matrix.include[] | select(.dnn==true) | .name' \
+      .github/workflows/libvmaf-build-matrix.yml
+  # Expected output (3 lines):
+  #   Build — Ubuntu gcc (CPU) + DNN
+  #   Build — Ubuntu clang (CPU) + DNN
+  #   Build — macOS clang (CPU) + DNN
+
+  # Local DNN build sanity (matches what each leg will run):
+  meson setup libvmaf libvmaf/build --buildtype release \
+      --prefix $PWD/install -Denable_float=true -Denable_dnn=enabled
+  ninja -vC libvmaf/build install
+  meson test -C libvmaf/build --suite=dnn --print-errorlogs
+  ```
+
+- **Branch protection**: the two Linux DNN legs are pinned as required
+  status checks on `master` immediately after this PR's merge (19 → 21
+  contexts). The macOS leg stays informational (`experimental: true`)
+  because Homebrew ORT floats. Re-pin command:
+
+  ```bash
+  gh api --method PUT repos/lusoris/vmaf/branches/master/protection \
+      --input /tmp/protection-update.json
+  ```
