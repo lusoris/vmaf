@@ -1399,3 +1399,40 @@ inline.*
   rg -n "aligned_free\(data\)" libvmaf/src/feature/integer_vif.c && \
       echo 'REGRESSED' || echo 'ok'
   ```
+
+### 0026 — Automated rule-enforcement workflow + copyright pre-commit hook
+
+- **Workstream PRs**: this PR (ADR-0124 adoption). Closes the
+  "rule-without-a-check" gap on ADR-0100 / 0105 / 0106 / 0108.
+- **Touches** (all FORK-ADDED — no upstream overlap):
+  `.github/workflows/rule-enforcement.yml` (new),
+  `scripts/ci/check-copyright.sh` (new),
+  `.pre-commit-config.yaml` (appended local hook).
+- **Invariant**: the `deep-dive-checklist` job is **blocking** on
+  every PR that is not an upstream port (exempt via `port:` title
+  prefix or `port/` branch). The other three gates
+  (`doc-substance-check`, `adr-backfill-check`, copyright
+  pre-commit) are advisory or pre-commit, never CI-blocking; this
+  split is the whole point of ADR-0124 and an upstream sync must
+  not move them into the required-status-check set without a
+  follow-up ADR. The opt-out parser matches
+  `/^-?\s*no .* (?:needed|impact|rebase-sensitive)/` per
+  ADR-0108 §Opt-out-lines — if upstream ever changes PR-template
+  phrasing (unlikely; this is fork-local), the regex and the
+  template must move together.
+- **Re-test**:
+
+  ```bash
+  # Lint the workflow + hook locally.
+  pre-commit run --files \
+    .github/workflows/rule-enforcement.yml \
+    scripts/ci/check-copyright.sh \
+    .pre-commit-config.yaml
+
+  # Dry-run the copyright hook against a staged source file.
+  scripts/ci/check-copyright.sh libvmaf/src/libvmaf.c && echo ok
+
+  # Synthetic PR body that violates ADR-0108 should fail the parser;
+  # see docs/research/0002-automated-rule-enforcement.md §Verification
+  # plan for the three test cases.
+  ```

@@ -1,9 +1,28 @@
+/**
+ *
+ *  Copyright 2026 Lusoris and Claude (Anthropic)
+ *
+ *     Licensed under the BSD+Patent License (the "License");
+ *     you may not use this file except in compliance with the License.
+ *     You may obtain a copy of the License at
+ *
+ *         https://opensource.org/licenses/BSDplusPatent
+ *
+ *     Unless required by applicable law or agreed to in writing, software
+ *     distributed under the License is distributed on an "AS IS" BASIS,
+ *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *     See the License for the specific language governing permissions and
+ *     limitations under the License.
+ *
+ */
+
 #include <arm_neon.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include "feature/common/macros.h"
 #include "feature/integer_vif.h"
+#include "libvmaf/vmaf_assert.h"
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
@@ -271,6 +290,9 @@ static FORCE_INLINE void decimate_and_pad(VifBuffer buf, unsigned w, unsigned h,
 
 void vif_subsample_rd_8_neon(VifBuffer buf, unsigned int w, unsigned int h)
 {
+    VMAF_ASSERT_DEBUG(buf.ref != NULL);
+    VMAF_ASSERT_DEBUG(buf.dis != NULL);
+    VMAF_ASSERT_DEBUG(w > 0 && h > 0);
     const unsigned int uiw15 = (w > 15 ? w - 15 : 0);
     const unsigned int fwidth = vif_filter1d_width[1];
     const uint16_t *vif_filt_s1 = vif_filter1d_table[1];
@@ -402,6 +424,11 @@ void vif_subsample_rd_8_neon(VifBuffer buf, unsigned int w, unsigned int h)
 
 void vif_subsample_rd_16_neon(VifBuffer buf, unsigned int w, unsigned int h, int scale, int bpc)
 {
+    VMAF_ASSERT_DEBUG(buf.ref != NULL);
+    VMAF_ASSERT_DEBUG(buf.dis != NULL);
+    VMAF_ASSERT_DEBUG(w > 0 && h > 0);
+    VMAF_ASSERT_DEBUG(scale >= 0 && scale < 3);
+    VMAF_ASSERT_DEBUG(bpc >= 8 && bpc <= 16);
     const unsigned int uiw15 = (w > 15 ? w - 15 : 0);
     const unsigned int fwidth = vif_filter1d_width[scale + 1];
     const uint16_t *vif_filt_s = vif_filter1d_table[scale + 1];
@@ -536,6 +563,9 @@ void vif_subsample_rd_16_neon(VifBuffer buf, unsigned int w, unsigned int h, int
 
 void vif_statistic_8_neon(struct VifPublicState *s, float *num, float *den, unsigned w, unsigned h)
 {
+    VMAF_ASSERT_DEBUG(s != NULL);
+    VMAF_ASSERT_DEBUG(num != NULL && den != NULL);
+    VMAF_ASSERT_DEBUG(w > 0 && h > 0);
     const unsigned int uiw15 = (w > 15 ? w - 15 : 0);
     const unsigned int uiw7 = (w > 7 ? w - 7 : 0);
     const unsigned int fwidth = vif_filter1d_width[0];
