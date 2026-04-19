@@ -799,6 +799,11 @@ inline.*
   switch the `aligned_malloc` cursor from `void *`
   to `uint8_t *` with explicit typed-pointer casts
   so MSVC accepts the byte-wise pointer arithmetic),
+  `libvmaf/src/feature/cuda/integer_adm_cuda.c`
+  (UPSTREAM — drop unused `<unistd.h>` include),
+  `libvmaf/src/dnn/model_loader.c` (fork-added —
+  Windows fallback definitions for POSIX `S_ISDIR`
+  / `S_ISREG` path-classification macros),
   `.github/workflows/lint-and-format.yml` (fork-added —
   set `lfs: true` on the pre-commit job's checkout so
   LFS-stored ONNX blobs resolve and don't appear as
@@ -1073,6 +1078,23 @@ inline.*
   If upstream Netflix edits the same loop,
   reabsorb the walk and re-apply the
   cursor-type + cast pattern.
+  (f) `libvmaf/src/feature/cuda/integer_adm_cuda.c`
+  (UPSTREAM) included `<unistd.h>` at line 33
+  but used no POSIX symbols from it; MSVC
+  failed with C1083. Dropped the unused
+  include outright — simplest fix, no runtime
+  change on any platform.
+  (g) `libvmaf/src/dnn/model_loader.c`
+  (fork-added) uses `S_ISDIR` / `S_ISREG` to
+  classify resolved paths. MSVC ships the
+  underlying `S_IFMT` / `S_IFDIR` / `S_IFREG`
+  bit masks in `<sys/stat.h>` but not the
+  POSIX classification macros. Added a
+  Windows-only fallback (`#ifndef S_ISDIR
+  #define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+  #endif`, same for S_ISREG) guarded by
+  `#ifdef _WIN32`. Semantically identical
+  to the POSIX macro on Linux/macOS.
 - **Re-test**:
 
   ```bash

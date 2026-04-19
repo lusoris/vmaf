@@ -17,6 +17,15 @@
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
+/* MSVC's <sys/stat.h> ships the S_IFDIR / S_IFREG bit masks but not the
+ * POSIX classification macros. Provide them so the single-source path
+ * checks below compile on both sides. */
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+#endif
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+#endif
 #endif
 
 #include "libvmaf/model.h"
