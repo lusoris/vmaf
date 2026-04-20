@@ -230,8 +230,7 @@ int compute_ms_ssim(const float *ref, const float *cmp, int w, int h, int ref_st
     cur_h = h;
     for (idx = 1; idx < scales; ++idx) {
         if (ms_ssim_decimate(ref_imgs[idx - 1], cur_w, cur_h, ref_imgs[idx], 0, 0) ||
-            ms_ssim_decimate(cmp_imgs[idx - 1], cur_w, cur_h, cmp_imgs[idx], &cur_w,
-                                    &cur_h)) {
+            ms_ssim_decimate(cmp_imgs[idx - 1], cur_w, cur_h, cmp_imgs[idx], &cur_w, &cur_h)) {
             _free_buffers(ref_imgs, scales);
             _free_buffers(cmp_imgs, scales);
             free(ref_imgs);
