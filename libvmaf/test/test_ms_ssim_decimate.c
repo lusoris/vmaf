@@ -31,6 +31,7 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -40,6 +41,16 @@
 #include "feature/x86/ms_ssim_decimate_avx512.h"
 #endif
 #include "test.h"
+#include "x86/cpu.h"
+
+/* Runtime CPU-feature gates. Set in run_tests() before any case runs. The
+ * SIMD kernels emit AVX2/AVX-512 instructions unconditionally; calling them
+ * on a CPU without the corresponding ISA SIGILLs. GitHub Actions Windows
+ * runners currently use AMD Zen 3 hosts (AVX2, no AVX-512), so the test
+ * must probe at runtime, not via the HAVE_AVX512 compile-time macro.
+ */
+static int g_has_avx2 = 0;
+static int g_has_avx512 = 0;
 
 /* Deterministic pseudo-random fill — reproducible across runs. */
 static void fill_pattern(float *buf, size_t n, uint32_t seed)
@@ -86,22 +97,26 @@ static char *check_case(int w, int h, uint32_t seed)
     memset(dst_avx2, 0x55, dst_n * sizeof(float));
 
     const int rc_scalar = ms_ssim_decimate_scalar(src, w, h, dst_scalar, NULL, NULL);
-    const int rc_avx2 = ms_ssim_decimate_avx2(src, w, h, dst_avx2, NULL, NULL);
-
     mu_assert("scalar decimate failed", rc_scalar == 0);
-    mu_assert("avx2 decimate failed", rc_avx2 == 0);
-    mu_assert("avx2 output not bit-identical to scalar",
-              compare_bitexact(dst_scalar, dst_avx2, dst_n));
+
+    if (g_has_avx2) {
+        const int rc_avx2 = ms_ssim_decimate_avx2(src, w, h, dst_avx2, NULL, NULL);
+        mu_assert("avx2 decimate failed", rc_avx2 == 0);
+        mu_assert("avx2 output not bit-identical to scalar",
+                  compare_bitexact(dst_scalar, dst_avx2, dst_n));
+    }
 
 #if HAVE_AVX512
-    float *dst_avx512 = (float *)malloc(dst_n * sizeof(float));
-    mu_assert("malloc failed", dst_avx512 != NULL);
-    memset(dst_avx512, 0x33, dst_n * sizeof(float));
-    const int rc_avx512 = ms_ssim_decimate_avx512(src, w, h, dst_avx512, NULL, NULL);
-    mu_assert("avx512 decimate failed", rc_avx512 == 0);
-    mu_assert("avx512 output not bit-identical to scalar",
-              compare_bitexact(dst_scalar, dst_avx512, dst_n));
-    free(dst_avx512);
+    if (g_has_avx512) {
+        float *dst_avx512 = (float *)malloc(dst_n * sizeof(float));
+        mu_assert("malloc failed", dst_avx512 != NULL);
+        memset(dst_avx512, 0x33, dst_n * sizeof(float));
+        const int rc_avx512 = ms_ssim_decimate_avx512(src, w, h, dst_avx512, NULL, NULL);
+        mu_assert("avx512 decimate failed", rc_avx512 == 0);
+        mu_assert("avx512 output not bit-identical to scalar",
+                  compare_bitexact(dst_scalar, dst_avx512, dst_n));
+        free(dst_avx512);
+    }
 #endif
 
     free(src);
@@ -157,6 +172,14 @@ static char *test_480x270(void)
 
 char *run_tests(void)
 {
+    const unsigned cpu_flags = vmaf_get_cpu_flags_x86();
+    g_has_avx2 = (cpu_flags & VMAF_X86_CPU_FLAG_AVX2) ? 1 : 0;
+    g_has_avx512 = (cpu_flags & VMAF_X86_CPU_FLAG_AVX512) ? 1 : 0;
+    if (!g_has_avx2 && !g_has_avx512) {
+        (void)fprintf(stderr, "skipping: CPU has neither AVX2 nor AVX-512\n");
+        return NULL;
+    }
+
     mu_run_test(test_1x1);
     mu_run_test(test_8x8);
     mu_run_test(test_9x9);
