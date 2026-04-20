@@ -343,3 +343,24 @@ exit:
     err |= vmaf_model_feature_overload(model, feature_name, opts_dict);
     return err;
 }
+
+const void *vmaf_model_version_next(const void *prev, const char **version)
+{
+    if (BUILT_IN_MODEL_CNT == 0)
+        return NULL;
+
+    const VmafBuiltInModel *prev_model = prev;
+    const VmafBuiltInModel *out_model = NULL;
+
+    if (!prev_model) {
+        out_model = &built_in_models[0];
+    } else {
+        const size_t idx = (size_t)(prev_model - built_in_models);
+        if (idx + 1 < BUILT_IN_MODEL_CNT)
+            out_model = prev_model + 1;
+    }
+
+    if (version && out_model)
+        *version = out_model->version;
+    return out_model;
+}

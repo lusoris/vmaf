@@ -99,6 +99,21 @@ int vmaf_model_collection_feature_overload(VmafModel *model, VmafModelCollection
 
 void vmaf_model_collection_destroy(VmafModelCollection *model_collection);
 
+/**
+ * Iterate through all built-in VMAF model versions.
+ *
+ * Pass NULL for @p prev on the first call; on subsequent calls pass the
+ * previously-returned opaque handle. When iteration reaches the end the
+ * function returns NULL and leaves @p *version unmodified.
+ *
+ * @param prev    opaque handle from the previous call, or NULL to begin.
+ * @param version OUT: set to the version string of the returned model on
+ *                a non-NULL return. Not modified on end-of-iteration.
+ *                May itself be NULL if the caller only needs the handle.
+ * @return opaque handle to the next model, or NULL after the last model.
+ */
+const void *vmaf_model_version_next(const void *prev, const char **version);
+
 #ifdef __cplusplus
 }
 #endif

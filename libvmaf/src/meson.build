@@ -843,3 +843,9 @@ pkg_mod.generate(libraries: libvmaf,
     requires_private: libvmaf_private_reqs,
     libraries_private: libvmaf_private_libs,
 )
+
+libvmaf_dep = declare_dependency(
+    link_with: libvmaf,
+    include_directories: [libvmaf_inc],
+)
+meson.override_dependency('libvmaf', libvmaf_dep)

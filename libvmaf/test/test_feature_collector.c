@@ -48,53 +48,77 @@ static char *test_model_mount_with_use_features()
     return NULL;
 }
 
+static int load_three_test_models(VmafModel *models[3], const char *const names[3])
+{
+    for (unsigned k = 0; k < 3; k++) {
+        VmafModelConfig cfg = {
+            .name = names[k],
+            .flags = VMAF_MODEL_FLAGS_DEFAULT,
+        };
+        int err = vmaf_model_load(&models[k], &cfg, "vmaf_v0.6.1");
+        if (err || !models[k])
+            return -1;
+    }
+    return 0;
+}
+
+static void destroy_three_test_models(VmafModel *models[3])
+{
+    for (unsigned k = 0; k < 3; k++)
+        vmaf_model_destroy(models[k]);
+}
+
 static char *test_model_mount()
 {
-    int err = 0;
-
     VmafFeatureCollector *feature_collector;
-    err = vmaf_feature_collector_init(&feature_collector);
+    int err = vmaf_feature_collector_init(&feature_collector);
     mu_assert("problem during vmaf_feature_collector_init", !err);
 
-    VmafModelConfig model_cfg = {0};
-    VmafModel *model;
-    vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
-    mu_assert("problem during vmaf_model_load", model);
+    const char *const model_names[3] = {"vmaf_0", "vmaf_1", "vmaf_2"};
+    VmafModel *models[3];
+    err = load_three_test_models(models, model_names);
+    mu_assert("problem during vmaf_model_load", !err);
 
-    err = vmaf_feature_collector_mount_model(feature_collector, model);
-    mu_assert("problem during vmaf_model_mount", feature_collector->models);
+    for (unsigned k = 0; k < 3; k++) {
+        err = vmaf_feature_collector_mount_model(feature_collector, models[k]);
+        mu_assert("problem during vmaf_model_mount", !err);
+    }
 
-    err = vmaf_feature_collector_mount_model(feature_collector, model);
-    mu_assert("problem during vmaf_model_mount", feature_collector->models->next);
+    VmafPredictModel *it = feature_collector->models;
+    for (unsigned i = 0; it; i++, it = it->next) {
+        mu_assert("model name does not match mount order",
+                  !strcmp(it->model->name, model_names[i]));
+    }
 
-    vmaf_model_destroy(model);
+    destroy_three_test_models(models);
     vmaf_feature_collector_destroy(feature_collector);
-
     return NULL;
 }
 
 static char *test_model_unmount()
 {
-    int err = 0;
-
     VmafFeatureCollector *feature_collector;
-    err = vmaf_feature_collector_init(&feature_collector);
+    int err = vmaf_feature_collector_init(&feature_collector);
     mu_assert("problem during vmaf_feature_collector_init", !err);
 
-    VmafModelConfig model_cfg = {0};
-    VmafModel *model;
-    vmaf_model_load(&model, &model_cfg, "vmaf_v0.6.1");
-    mu_assert("problem during vmaf_model_load", model);
+    const char *const model_names[3] = {"vmaf_0", "vmaf_1", "vmaf_2"};
+    VmafModel *models[3];
+    err = load_three_test_models(models, model_names);
+    mu_assert("problem during vmaf_model_load", !err);
 
-    err = vmaf_feature_collector_mount_model(feature_collector, model);
-    mu_assert("problem during vmaf_model_mount", feature_collector->models);
+    for (unsigned k = 0; k < 3; k++) {
+        err = vmaf_feature_collector_mount_model(feature_collector, models[k]);
+        mu_assert("problem during vmaf_model_mount", !err);
+    }
+    for (unsigned k = 0; k < 3; k++) {
+        err = vmaf_feature_collector_unmount_model(feature_collector, models[k]);
+        mu_assert("problem during vmaf_model_unmount", !err);
+    }
 
-    err = vmaf_feature_collector_unmount_model(feature_collector, model);
-    mu_assert("problem during vmaf_model_unmount", !feature_collector->models);
+    mu_assert("feature_collector->models should be NULL", !feature_collector->models);
 
-    vmaf_model_destroy(model);
+    destroy_three_test_models(models);
     vmaf_feature_collector_destroy(feature_collector);
-
     return NULL;
 }
 
