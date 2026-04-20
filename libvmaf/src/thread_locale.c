@@ -63,13 +63,17 @@ VmafThreadLocaleState *vmaf_thread_locale_push_c(void)
     state->old_locale = uselocale(state->c_locale);
 
 #elif defined(_WIN32)
-    // Windows: enable per-thread locale, then set to "C"
-    // Use LC_ALL for complete locale isolation
+    // Windows: enable per-thread locale, then set to "C".
+    // Use LC_ALL for complete locale isolation.
+    //
+    // On MinGW64 linked against msvcrt.dll, _configthreadlocale may
+    // return -1 because per-thread locale mode is not implemented in
+    // that CRT. In that case we fall back to a process-global
+    // setlocale — the caller still gets C-locale numeric formatting
+    // for the duration of the push/pop window, but without per-thread
+    // isolation. We keep old_per_thread_mode at -1 so pop() skips the
+    // restore call (the guard is already in place below).
     state->old_per_thread_mode = _configthreadlocale(_ENABLE_PER_THREAD_LOCALE);
-    if (state->old_per_thread_mode == -1) {
-        free(state);
-        return NULL;
-    }
 
     const char *old = setlocale(LC_ALL, NULL);
     if (old) {
