@@ -288,6 +288,9 @@ int vmaf_model_load_from_path(VmafModel **model, VmafModelConfig *cfg, const cha
 int vmaf_model_feature_overload(VmafModel *model, const char *feature_name,
                                 VmafFeatureDictionary *opts_dict);
 void vmaf_model_destroy(VmafModel *model);
+
+/* Enumerate the built-in version strings compiled into this libvmaf. */
+const void *vmaf_model_version_next(const void *prev, const char **version);
 ```
 
 Built-in version strings accepted by `vmaf_model_load`:
@@ -296,6 +299,28 @@ Built-in version strings accepted by `vmaf_model_load`:
 `vmaf_4k_v0.6.1neg`, plus `vmaf_float_*` equivalents (legacy float-precision
 variants). See [../usage/cli.md#models](../usage/cli.md#models) for when to
 pick which.
+
+Discover the list programmatically rather than hard-coding it — the set
+depends on the build's `VMAF_BUILT_IN_MODELS` and `VMAF_FLOAT_FEATURES`
+flags:
+
+```c
+const void *handle = NULL;
+const char *name   = NULL;
+while ((handle = vmaf_model_version_next(handle, &name)) != NULL) {
+    printf("built-in model: %s\n", name);
+}
+```
+
+`vmaf_model_version_next` is an opaque-handle cursor: pass `NULL` on the
+first call, pass the previous return on subsequent calls, stop when NULL is
+returned. `*version` is left unmodified at end-of-iteration so the caller's
+last value stays valid. Pass `version == NULL` if you only need the
+iteration count. Returns NULL immediately when the library was built
+without any built-in models. See
+[ADR-0135](../adr/0135-port-netflix-1424-expose-builtin-model-versions.md)
+for the contract's correctness-relevant details (NULL-on-first-call,
+end-of-iteration semantics).
 
 `vmaf_model_kind` — the fork added model-kind discrimination
 (`VMAF_MODEL_KIND_SVM`, `VMAF_MODEL_KIND_DNN_FR`, `VMAF_MODEL_KIND_DNN_NR`),

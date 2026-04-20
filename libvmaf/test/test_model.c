@@ -860,6 +860,22 @@ static char *test_json_model_score_transform(void)
     return NULL;
 }
 
+static char *test_version_next(void)
+{
+    const void *next = NULL;
+    const char *version = NULL;
+    unsigned count = 0;
+    while ((next = vmaf_model_version_next(next, &version)) != NULL) {
+        const VmafBuiltInModel *m = next;
+        mu_assert("vmaf_model_version_next must hand out the stored version pointer",
+                  m->version == version);
+        count++;
+    }
+    mu_assert("vmaf_model_version_next must iterate every built-in model exactly once",
+              count == BUILT_IN_MODEL_CNT);
+    return NULL;
+}
+
 char *run_tests()
 {
     mu_run_test(test_json_model);
@@ -902,5 +918,6 @@ char *run_tests()
     mu_run_test(test_json_model_feature_opts_dict_bad_value_type);
     mu_run_test(test_json_model_score_clip_not_array);
     mu_run_test(test_json_model_model_dict_not_object);
+    mu_run_test(test_version_next);
     return NULL;
 }
