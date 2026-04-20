@@ -8,6 +8,22 @@
 
 ### Added
 
+- **Metric**: SSIMULACRA 2 scalar feature extractor
+  ([`libvmaf/src/feature/ssimulacra2.c`](libvmaf/src/feature/ssimulacra2.c))
+  — port of libjxl's perceptual similarity metric on top of the fork's
+  YUV pipeline. Ingests YUV 4:2:0/4:2:2/4:4:4 at 8/10/12 bpc with a
+  configurable YUV→RGB matrix (`yuv_matrix` option, BT.709 limited
+  default), converts through linear RGB → XYB → 6-scale pyramid with
+  SSIMMap + EdgeDiffMap + canonical 108-weight polynomial pool.
+  Pyramid blur is a bit-close C port of libjxl's `FastGaussian`
+  3-pole recursive IIR (`lib/jxl/gauss_blur.cc`,
+  Charalampidis 2016 truncated-cosine approximation, k={1,3,5},
+  zero-pad boundaries). Registered as feature `ssimulacra2` — one
+  scalar per frame in `[0, 100]`, identity inputs return exactly
+  `100.000000`. Scalar only; AVX2/AVX-512/NEON follow-ups are
+  separate PRs. See
+  [ADR-0130](docs/adr/0130-ssimulacra2-scalar-implementation.md) +
+  [Research-0007](docs/research/0007-ssimulacra2-scalar-port.md).
 - **CLI**: `--precision $spec` flag for score output formatting.
   - `N` (1..17) → `printf "%.<N>g"`
   - `max` / `full` → `"%.17g"` (round-trip lossless, opt-in)

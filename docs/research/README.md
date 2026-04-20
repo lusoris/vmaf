@@ -62,8 +62,10 @@ Conventions:
 | --- | --- | --- | --- |
 | [0001](0001-bisect-model-quality-cache.md) | Cache shape for `bisect-model-quality` nightly | Active | [ADR-0109](../adr/0109-nightly-bisect-model-quality.md) |
 | [0002](0002-automated-rule-enforcement.md) | Automating process-ADR enforcement (0100 / 0105 / 0106 / 0108) | Active | [ADR-0124](../adr/0124-automated-rule-enforcement.md) |
+| [0007](0007-ssimulacra2-scalar-port.md) | SSIMULACRA 2 scalar port — YUV handling, blur deviation, snapshot tooling | Active | [ADR-0126](../adr/0126-ssimulacra2-feature-extractor.md), [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md) |
 
-<!-- Backfill entries for older workstreams land here as their authors revisit the corresponding code. -->
+<!-- Backfill entries for older workstreams land here as their authors
+     revisit the corresponding code. -->
 
 *(Index seeded by [ADR-0108](../adr/0108-deep-dive-deliverables-rule.md)'s
 adoption PR; backfilled digests for the existing major workstreams

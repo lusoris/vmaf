@@ -55,8 +55,31 @@ feature/
 | Cross-backend diff | [cross-backend-diff](../../../.claude/skills/cross-backend-diff/SKILL.md) |
 | Profile a hot path | [profile-hotpath](../../../.claude/skills/profile-hotpath/SKILL.md) |
 
+## Rebase-sensitive invariants
+
+- `ssimulacra2.c` is fork-local (not upstream). It embeds several
+  constant tables that must stay in lock-step with libjxl even across
+  a rebase:
+  - **Opsin absorbance matrix** (`kM00`…`kM22`) and bias `kB` — see
+    libjxl `lib/jxl/opsin_params.h`.
+  - **`MakePositiveXYB` offsets** — `B=(B-Y)+0.55`, `X*=14`, `X+=0.42`,
+    `Y+=0.01`.
+  - **108 pooling weights (`kWeights[]`)** and the final polynomial
+    transform (`0.9562382…`, `2.326765…`, `-0.0208845…`,
+    `6.2484966e-05`, `0.6276336…`) — from `tools/ssimulacra2.cc`.
+  - **FastGaussian coefficient derivation** — `3.2795·σ + 0.2546`
+    radius, k∈{1,3,5}, Cramer's-rule 3×3 solve for β. Any drift from
+    libjxl's `lib/jxl/gauss_blur.cc` formulas breaks bit-exactness of
+    the scalar blur.
+  If libjxl changes any of these upstream, update the scalar extractor
+  in the same PR (same for the SIMD follow-ups, which will mirror the
+  same coefficient path).
+
 ## Governing ADRs
 
 - [ADR-0024](../../../docs/adr/0024-netflix-golden-preserved.md) — the three CPU golden pairs never change.
 - [ADR-0041](../../../docs/adr/0041-lpips-sq-extractor.md) — LPIPS extractor registration pattern.
 - [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md) — DNN-backed extractors ship docs under `docs/ai/`.
+- [ADR-0126](../../../docs/adr/0126-ssimulacra2-feature-extractor.md) +
+  [ADR-0130](../../../docs/adr/0130-ssimulacra2-scalar-implementation.md)
+  — SSIMULACRA 2 extractor scope + scalar implementation.
