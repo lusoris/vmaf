@@ -40,16 +40,33 @@
 
 float KBND_SYMMETRIC(const float *img, int w, int h, int x, int y, float bnd_const)
 {
+    /*
+     * Period-based symmetric extension (period = 2*n). Matches the
+     * single-reflect form used previously whenever the offset is ≤ n,
+     * and additionally handles the sub-kernel-radius regime where
+     * |x| > w or |y| > h — cases that only occur when the input
+     * dimension is smaller than the kernel half-width, and which a
+     * single reflection leaves out of bounds. See
+     * docs/adr/0125-ms-ssim-decimate-simd.md.
+     */
     (void)bnd_const;
-    if (x < 0)
-        x = -1 - x;
-    else if (x >= w)
-        x = (w - (x - w)) - 1;
-    if (y < 0)
-        y = -1 - y;
-    else if (y >= h)
-        y = (h - (y - h)) - 1;
-    return img[y * w + x];
+    const int px = 2 * w;
+    int rx = x % px;
+    if (rx < 0) {
+        rx += px;
+    }
+    if (rx >= w) {
+        rx = px - rx - 1;
+    }
+    const int py = 2 * h;
+    int ry = y % py;
+    if (ry < 0) {
+        ry += py;
+    }
+    if (ry >= h) {
+        ry = py - ry - 1;
+    }
+    return img[ry * w + rx];
 }
 
 float KBND_REPLICATE(const float *img, int w, int h, int x, int y, float bnd_const)

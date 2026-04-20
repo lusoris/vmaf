@@ -74,12 +74,26 @@ feature/
   If libjxl changes any of these upstream, update the scalar extractor
   in the same PR (same for the SIMD follow-ups, which will mirror the
   same coefficient path).
+- **MS-SSIM decimate LPF coefficients**: the 9-tap 9/7 biorthogonal
+  filter table (`ms_ssim_lpf_h` / `ms_ssim_lpf_v`) appears verbatim in
+  three TUs that must stay byte-identical for the bit-exactness
+  contract — `ms_ssim_decimate.c`, `x86/ms_ssim_decimate_avx2.c`, and
+  `x86/ms_ssim_decimate_avx512.c`. The source of truth upstream is
+  `g_lpf_h` / `g_lpf_v` in `ms_ssim.c`. If a rebase touches any of
+  those four files, diff all four against each other before pushing.
+  See [ADR-0125](../../../docs/adr/0125-ms-ssim-decimate-simd.md).
+- **KBND_SYMMETRIC mirror**: `ms_ssim_decimate_mirror` is duplicated
+  across the same three TUs and must match the upstream
+  `KBND_SYMMETRIC` branch in `iqa/convolve.c`. Changing the boundary
+  semantics in any one of them breaks bit-identity.
 
 ## Governing ADRs
 
 - [ADR-0024](../../../docs/adr/0024-netflix-golden-preserved.md) — the three CPU golden pairs never change.
 - [ADR-0041](../../../docs/adr/0041-lpips-sq-extractor.md) — LPIPS extractor registration pattern.
 - [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md) — DNN-backed extractors ship docs under `docs/ai/`.
+- [ADR-0125](../../../docs/adr/0125-ms-ssim-decimate-simd.md) —
+  MS-SSIM decimate separable SIMD + bit-exactness contract.
 - [ADR-0126](../../../docs/adr/0126-ssimulacra2-feature-extractor.md) +
   [ADR-0130](../../../docs/adr/0130-ssimulacra2-scalar-implementation.md)
   — SSIMULACRA 2 extractor scope + scalar implementation.

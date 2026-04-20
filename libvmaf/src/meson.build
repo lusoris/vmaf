@@ -266,6 +266,7 @@ if is_asm_enabled
           feature_src_dir + 'x86/ansnr_avx2.c',
           feature_src_dir + 'x86/float_adm_avx2.c',
           feature_src_dir + 'x86/ciede_avx2.c',
+          feature_src_dir + 'x86/ms_ssim_decimate_avx2.c',
       ]
 
       x86_avx2_static_lib = static_library(
@@ -291,6 +292,7 @@ if is_asm_enabled
             feature_src_dir + 'x86/ansnr_avx512.c',
             feature_src_dir + 'x86/float_adm_avx512.c',
             feature_src_dir + 'x86/ciede_avx512.c',
+            feature_src_dir + 'x86/ms_ssim_decimate_avx512.c',
         ]
 
         x86_avx512_static_lib = static_library(
@@ -641,6 +643,7 @@ libvmaf_feature_sources = [
     feature_src_dir + 'ssim.c',
     feature_src_dir + 'ms_ssim.c',
     feature_src_dir + 'ssimulacra2.c',
+    feature_src_dir + 'ms_ssim_decimate.c',
     feature_src_dir + 'iqa/decimate.c',
     feature_src_dir + 'iqa/ssim_tools.c',
     feature_src_dir + 'iqa/math_utils.c',
