@@ -1399,3 +1399,35 @@ inline.*
   rg -n "aligned_free\(data\)" libvmaf/src/feature/integer_vif.c && \
       echo 'REGRESSED' || echo 'ok'
   ```
+
+### 0026 — MS-SSIM separable decimate + AVX2/AVX-512 SIMD
+
+- **Workstream PRs**: `feat/ms-ssim-decimate-simd`, commits
+  `7de8cd7f` (scalar separable), `5f93c864` (AVX2), `73436438`
+  (AVX-512).
+- **Touches**:
+  `libvmaf/src/feature/ms_ssim_decimate.{c,h}` (NEW),
+  `libvmaf/src/feature/x86/ms_ssim_decimate_avx2.{c,h}` (NEW),
+  `libvmaf/src/feature/x86/ms_ssim_decimate_avx512.{c,h}` (NEW),
+  `libvmaf/src/feature/ms_ssim.c` (call-site change),
+  `libvmaf/src/meson.build` (register new SIMD TUs),
+  `libvmaf/test/test_ms_ssim_decimate.c` (NEW).
+- **Invariant**: the 9-tap 9/7 biorthogonal wavelet LPF
+  coefficients (`ms_ssim_lpf_h` / `ms_ssim_lpf_v`) are duplicated
+  verbatim in four TUs for bit-identity: the scalar
+  `ms_ssim_decimate.c`, the AVX2 variant, the AVX-512 variant, and
+  upstream's `g_lpf_h` / `g_lpf_v` in `ms_ssim.c`. Any upstream
+  change to the coefficient values or the `KBND_SYMMETRIC` mirror
+  branch in `iqa/convolve.c` must be mirrored to all four. If not
+  mirrored, SIMD paths and scalar diverge silently and the
+  bit-equality `memcmp` in `test_ms_ssim_decimate` catches it —
+  but only when that test runs, so diff the four files first.
+- **Re-test**:
+
+  ```bash
+  meson test -C build --suite=fast
+  ./build/test/test_ms_ssim_decimate
+  # Netflix MS-SSIM golden — places=4 must still pass through SIMD.
+  .venv/bin/python -m pytest \
+      python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_ms_ssim_fextractor
+  ```
