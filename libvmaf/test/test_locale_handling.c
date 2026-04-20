@@ -53,21 +53,24 @@ static int locale_available(const char *locale_name)
     return available;
 }
 
-// Helper function to verify a string contains periods, not commas
+// Helper function to verify a string contains periods, not commas, as
+// numeric decimal separators. A digit-period-digit triple is a period
+// decimal ("12.345"); a digit-comma-digit triple is a locale-leaked
+// comma decimal ("12,345"). Structural JSON commas like
+// `"frameNum": 0,\n` must not trigger a false positive — the trailing
+// character there is a newline, not a digit.
 static int contains_period_decimals(const char *str)
 {
-    // Check if we have numbers with periods (e.g., "123.456")
-    // and NOT commas (e.g., "123,456")
     const char *p = str;
     int found_period = 0;
 
     while (*p) {
         if (*p >= '0' && *p <= '9') {
-            // Found a digit, check next char
-            if (*(p + 1) == '.') {
+            char next = *(p + 1);
+            char after = next ? *(p + 2) : '\0';
+            if (next == '.' && after >= '0' && after <= '9') {
                 found_period = 1;
-            } else if (*(p + 1) == ',') {
-                // Found comma decimal separator - FAIL
+            } else if (next == ',' && after >= '0' && after <= '9') {
                 return 0;
             }
         }
@@ -77,7 +80,7 @@ static int contains_period_decimals(const char *str)
     return found_period;
 }
 
-static char *test_locale_abstraction_basic()
+static char *test_locale_abstraction_basic(void)
 {
     // Test basic push/pop functionality
     if (!locale_available("es_ES.UTF-8") && !locale_available("es_ES.utf8")) {
@@ -109,7 +112,7 @@ static char *test_locale_abstraction_basic()
     return NULL;
 }
 
-static char *test_output_xml_with_comma_locale()
+static char *test_output_xml_with_comma_locale(void)
 {
     if (!locale_available("fr_FR.UTF-8") && !locale_available("fr_FR.utf8")) {
         fprintf(stderr, "Skipping test: French locale not available\n");
@@ -164,7 +167,7 @@ static char *test_output_xml_with_comma_locale()
     return NULL;
 }
 
-static char *test_output_json_with_comma_locale()
+static char *test_output_json_with_comma_locale(void)
 {
     if (!locale_available("it_IT.UTF-8") && !locale_available("it_IT.utf8")) {
         fprintf(stderr, "Skipping test: Italian locale not available\n");
@@ -219,7 +222,7 @@ static char *test_output_json_with_comma_locale()
     return NULL;
 }
 
-static char *test_output_csv_with_comma_locale()
+static char *test_output_csv_with_comma_locale(void)
 {
     if (!locale_available("es_ES.UTF-8") && !locale_available("es_ES.utf8")) {
         fprintf(stderr, "Skipping test: Spanish locale not available\n");
@@ -261,7 +264,7 @@ static char *test_output_csv_with_comma_locale()
     return NULL;
 }
 
-static char *test_model_parse_with_comma_locale()
+static char *test_model_parse_with_comma_locale(void)
 {
     if (!locale_available("es_ES.UTF-8") && !locale_available("es_ES.utf8")) {
         fprintf(stderr, "Skipping test: Spanish locale not available\n");
@@ -312,7 +315,7 @@ static char *test_model_parse_with_comma_locale()
 }
 
 #ifdef HAVE_USELOCALE
-static char *test_uselocale_available()
+static char *test_uselocale_available(void)
 {
     VmafThreadLocaleState *state = vmaf_thread_locale_push_c();
     mu_assert("HAVE_USELOCALE: push should succeed", state != NULL);
@@ -320,7 +323,7 @@ static char *test_uselocale_available()
     return NULL;
 }
 #elif defined(_WIN32)
-static char *test_windows_locale_handling()
+static char *test_windows_locale_handling(void)
 {
     VmafThreadLocaleState *state = vmaf_thread_locale_push_c();
     mu_assert("Windows: push should succeed", state != NULL);
@@ -329,7 +332,7 @@ static char *test_windows_locale_handling()
 }
 #endif
 
-char *run_tests()
+char *run_tests(void)
 {
     mu_run_test(test_locale_abstraction_basic);
     mu_run_test(test_output_xml_with_comma_locale);
