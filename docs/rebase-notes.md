@@ -1436,3 +1436,32 @@ inline.*
   # see docs/research/0002-automated-rule-enforcement.md §Verification
   # plan for the three test cases.
   ```
+
+### 0027 — SSIMULACRA 2 scalar extractor (libjxl FastGaussian IIR blur)
+
+- **Workstream PRs**: this PR (`feat/ssimulacra2-scalar`); proposal
+  ADR in PR #67.
+- **Touches**:
+  `libvmaf/src/feature/ssimulacra2.c` (fork-local, new),
+  `libvmaf/src/meson.build`,
+  `libvmaf/src/feature/feature_extractor.c`.
+- **Invariant**: the extractor embeds several tables that must
+  track libjxl upstream — opsin absorbance matrix, `MakePositiveXYB`
+  offsets, 108 pooling weights, polynomial-transform coefficients,
+  and the FastGaussian coefficient-derivation formulas
+  (radius = `3.2795·σ + 0.2546`, Cramer's 3×3 solve for β, n2/d1
+  assignment per Charalampidis 2016 (33)). If libjxl ever changes
+  any of these, update `ssimulacra2.c` in the same PR that syncs
+  upstream. Self-consistency must stay at exactly `100.000000` for
+  identical ref/dist inputs — this is the cheapest regression check.
+- **Re-test**:
+
+  ```bash
+  meson test -C build --suite=fast
+  ./build/tools/vmaf \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    -w 576 -h 324 -p 420 -b 8 --feature ssimulacra2 -o /tmp/self.xml \
+    && grep -q 'ssimulacra2="100.000000"' /tmp/self.xml \
+    && echo "ok: self-consistency 100.0"
+  ```
