@@ -36,10 +36,30 @@ cuda/
   with a justification in the commit message. See
   [CLAUDE.md §9](../../../CLAUDE.md).
 
+## Rebase-sensitive invariants
+
+- **`picture_cuda.c` synchronous free**: `vmaf_cuda_picture_free`
+  deliberately calls `cuMemFree` — *not* `cuMemFreeAsync` — because
+  the previous `cuStreamSynchronize` already drains any pending work
+  and the stream handle is about to be destroyed, which made the
+  async variant assert (`Assertion 0 failed`) with two or more
+  concurrent CUDA sessions. Upstream carries this fix in
+  [Netflix#1382](https://github.com/Netflix/vmaf/pull/1382), still
+  OPEN as of 2026-04-20. If a rebase reintroduces `cuMemFreeAsync`
+  here — whether from an upstream merge of #1382 (unlikely to
+  conflict, this is the same substance) or a refactor that "restores
+  async symmetry" — keep the synchronous form. The async variant is
+  a multi-session data hazard, not a perf optimisation. Tracker:
+  [Netflix#1381](https://github.com/Netflix/vmaf/issues/1381). See
+  [ADR-0131](../../../docs/adr/0131-port-netflix-1382-cumemfree.md)
+  and [rebase-notes 0031](../../../docs/rebase-notes.md).
+
 ## Governing ADRs
 
 - [ADR-0022](../../../docs/adr/0022-inference-runtime-onnx.md) — CUDA execution provider mapping.
 - [ADR-0027](../../../docs/adr/0027-non-conservative-image-pins.md) — CUDA 13.2 + experimental flags.
+- [ADR-0131](../../../docs/adr/0131-port-netflix-1382-cumemfree.md) —
+  `vmaf_cuda_picture_free` synchronous free.
 
 ## Build
 

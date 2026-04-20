@@ -87,6 +87,21 @@ feature/
   across the same four TUs and must match the upstream
   `KBND_SYMMETRIC` branch in `iqa/convolve.c`. Changing the boundary
   semantics in any one of them breaks bit-identity.
+- **`feature_collector.c` mount/unmount traversal**: the fork rewrites
+  `vmaf_feature_collector_mount_model` and `unmount_model` to walk a
+  local cursor instead of advancing the pointer-to-head — upstream
+  [Netflix#1406](https://github.com/Netflix/vmaf/pull/1406) is still
+  OPEN as of 2026-04-20 and its body corrupts the list on ≥3 mounted
+  models. `unmount_model` additionally returns `-ENOENT` (not
+  `-EINVAL`) for "model not mounted". If upstream ever merges #1406,
+  **keep the fork's version on conflict** — the traversal is correct
+  and the errno split lets callers distinguish misuse from not-found.
+  Test coverage in [`../../test/test_feature_collector.c`](../../test/test_feature_collector.c)
+  uses the shared `load_three_test_models` / `destroy_three_test_models`
+  helpers; upstream's PR inlines 60 LoC of per-model scaffolding that
+  would trip clang-tidy `readability-function-size` (JPL-P10 rule 4).
+  See [ADR-0132](../../../docs/adr/0132-port-netflix-1406-feature-collector-model-list.md)
+  and [rebase-notes 0031](../../../docs/rebase-notes.md).
 
 ## Governing ADRs
 

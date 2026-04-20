@@ -8,6 +8,19 @@
 
 ### Added
 
+- **Public API**: `vmaf_model_version_next(prev, &version)` iterator for
+  enumerating the built-in VMAF model versions compiled into the
+  library. Opaque-handle cursor — NULL to start, NULL-return to stop.
+  Ports [Netflix#1424](https://github.com/Netflix/vmaf/pull/1424) with
+  three correctness corrections (NULL-pointer arithmetic UB,
+  off-by-one returning the sentinel, const-qualifier mismatches in the
+  test); see [ADR-0135](docs/adr/0135-port-netflix-1424-expose-builtin-model-versions.md).
+- **Build**: libvmaf now exports `libvmaf_dep` via `declare_dependency`
+  and registers an `override_dependency('libvmaf', ...)` in
+  `libvmaf/src/meson.build`, so the fork is consumable as a meson
+  subproject with the standard `dependency('libvmaf')` idiom. Ports
+  [Netflix#1451](https://github.com/Netflix/vmaf/pull/1451); see
+  [ADR-0134](docs/adr/0134-port-netflix-1451-meson-declare-dependency.md).
 - **Metric**: SSIMULACRA 2 scalar feature extractor
   ([`libvmaf/src/feature/ssimulacra2.c`](libvmaf/src/feature/ssimulacra2.c))
   — port of libjxl's perceptual similarity metric on top of the fork's
@@ -412,6 +425,30 @@
 
 ### Fixed
 
+- **CUDA multi-session `vmaf_cuda_picture_free` assertion-0 crash**:
+  two or more concurrent CUDA sessions freeing pictures tripped
+  `Assertion 0 failed` inside the driver because
+  `cuMemFreeAsync(ptr, stream)` enqueued the free on a stream that
+  was destroyed two statements later. The fork swaps the async call
+  for synchronous `cuMemFree` at
+  [`libvmaf/src/cuda/picture_cuda.c:247`](libvmaf/src/cuda/picture_cuda.c#L247);
+  the preceding `cuStreamSynchronize` already removed any async
+  overlap so perf is unchanged. Ports
+  [Netflix#1382](https://github.com/Netflix/vmaf/pull/1382)
+  (tracking [Netflix#1381](https://github.com/Netflix/vmaf/issues/1381));
+  see [ADR-0131](docs/adr/0131-port-netflix-1382-cumemfree.md).
+- **`vmaf_feature_collector_mount_model` list-corruption on ≥3
+  models**: the upstream body advanced the `*head` pointer-to-pointer
+  instead of walking a local cursor, overwriting the head element
+  with its own successor and losing every entry past the second.
+  Fork rewrites mount/unmount in
+  [`libvmaf/src/feature/feature_collector.c`](libvmaf/src/feature/feature_collector.c)
+  with a correct traversal, and `unmount_model` now returns
+  `-ENOENT` (not `-EINVAL`) when the requested model isn't mounted
+  so callers can distinguish misuse from not-found. Test coverage
+  extended to a 3-element mount / unmount sequence. Ports
+  [Netflix#1406](https://github.com/Netflix/vmaf/pull/1406);
+  see [ADR-0132](docs/adr/0132-port-netflix-1406-feature-collector-model-list.md).
 - **`KBND_SYMMETRIC` sub-kernel-radius out-of-bounds reflection**:
   upstream's 2-D symmetric boundary extension reflected the index a
   single time, which leaves out-of-bounds values whenever the input

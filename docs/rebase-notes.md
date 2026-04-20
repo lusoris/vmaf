@@ -1561,3 +1561,51 @@ inline.*
   ASAN_OPTIONS=detect_leaks=1 \
       ./build-asan-lto/test/test_pic_preallocation
   ```
+
+### 0031 — Batch-A upstream-port small-fix sweep (ports of unmerged PRs)
+
+- **Workstream PRs**: `feat/batch-a-upstream-small-fix-sweep` — commits
+  `546a40ee` (T0-1), `8fed8ad1` (T4-4), `83a1db46` (T4-5),
+  `34425dee` (T4-6). ADRs 0131, 0132, 0134, 0135.
+- **Touches**:
+  - `libvmaf/src/cuda/picture_cuda.c` (one-line `cuMemFree` port of
+    [Netflix#1382][pr1382])
+  - `libvmaf/src/feature/feature_collector.c` +
+    `libvmaf/test/test_feature_collector.c` (mount/unmount bugfix
+    port of [Netflix#1406][pr1406] + shared-helper test refactor)
+  - `libvmaf/src/meson.build` (`declare_dependency` +
+    `override_dependency` port of [Netflix#1451][pr1451])
+  - `libvmaf/include/libvmaf/model.h`, `libvmaf/src/model.c`,
+    `libvmaf/test/test_model.c`, `docs/api/index.md` (built-in
+    model iterator port of [Netflix#1424][pr1424])
+- **Invariant**: each of the four upstream PRs is OPEN (unmerged) on
+  the port date; when Netflix merges any of them, the fork's
+  version is correction-bearing (T4-4 test refactor, T4-6 three
+  defect fixes + Doxygen doc expansion), not line-identical.
+  Resolution on upstream merge is **always "keep fork version"**
+  because the fork's version already satisfies the PR's intent
+  and additionally fixes the defects.
+  - Netflix#1406 conflict will land in `test_feature_collector.c`
+    — fork uses `load_three_test_models()` helper vs upstream's
+    inline per-model `VmafModel *m0, *m1, *m2;` duplication.
+  - Netflix#1424 conflict will land in `libvmaf/src/model.c` and
+    `libvmaf/test/test_model.c` — fork uses `else if` guard +
+    `idx + 1 < CNT` + const-qualified test types.
+  - Netflix#1382 and Netflix#1451 are line-identical in substance;
+    merge should be clean aside from trailing-comma style drift.
+- **Re-test**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+  ninja -C build test/test_feature_collector test/test_model
+  build/test/test_feature_collector
+  build/test/test_model
+  # Expected: 6/6 pass in test_feature_collector (mount/unmount
+  # 3-model sequences); 39/39 pass in test_model (includes
+  # test_version_next full-iteration invariant).
+  ```
+
+[pr1382]: https://github.com/Netflix/vmaf/pull/1382
+[pr1406]: https://github.com/Netflix/vmaf/pull/1406
+[pr1424]: https://github.com/Netflix/vmaf/pull/1424
+[pr1451]: https://github.com/Netflix/vmaf/pull/1451
