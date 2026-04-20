@@ -26,6 +26,9 @@
 
 #if ARCH_X86
 #include "x86/ms_ssim_decimate_avx2.h"
+#if HAVE_AVX512
+#include "x86/ms_ssim_decimate_avx512.h"
+#endif
 #endif
 
 /*
@@ -151,6 +154,11 @@ int ms_ssim_decimate(const float *src, int w, int h, float *dst, int *rw, int *r
 {
 #if ARCH_X86
     const unsigned flags = vmaf_get_cpu_flags();
+#if HAVE_AVX512
+    if (flags & VMAF_X86_CPU_FLAG_AVX512) {
+        return ms_ssim_decimate_avx512(src, w, h, dst, rw, rh);
+    }
+#endif
     if (flags & VMAF_X86_CPU_FLAG_AVX2) {
         return ms_ssim_decimate_avx2(src, w, h, dst, rw, rh);
     }
