@@ -69,7 +69,7 @@ test_feature_extractor = executable('test_feature_extractor',
     # vmaf_tensor_from_rgb_imagenet) without linking against libvmaf.so.
     ['test.c', 'test_feature_extractor.c', '../src/mem.c', '../src/picture.c', '../src/ref.c',
      '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
-     '../src/metadata_handler.c', dnn_sources],
+     '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency,
@@ -127,7 +127,7 @@ test_ciede = executable('test_ciede',
 test_lpips = executable('test_lpips',
     ['test.c', 'test_lpips.c', '../src/mem.c', '../src/picture.c', '../src/ref.c',
      '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
-     '../src/metadata_handler.c', dnn_sources],
+     '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency,
@@ -190,7 +190,7 @@ test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
     ['test.c', 'test_ms_ssim_decimate.c',
      '../src/mem.c', '../src/picture.c', '../src/ref.c',
      '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
-     '../src/metadata_handler.c', dnn_sources],
+     '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
                            include_directories('../src/feature/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
@@ -205,6 +205,19 @@ test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
     ],
 )
 endif
+
+test_locale_handling = executable('test_locale_handling',
+    ['test.c', 'test_locale_handling.c'],
+    include_directories : [
+        libvmaf_inc,
+        test_inc,
+        include_directories('../src/'),
+        include_directories('..')
+    ],
+    c_args : ['-I' + meson.project_build_root() / 'src'] + vmaf_cflags_common,
+    dependencies : [pthread_dependency],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+)
 
 if get_option('enable_cuda')
 test_ring_buffer = executable('test_ring_buffer',
@@ -281,5 +294,7 @@ test('test_propagate_metadata', test_propagate_metadata)
 if ms_ssim_decimate_test_archs.contains(host_machine.cpu_family())
 test('test_ms_ssim_decimate', test_ms_ssim_decimate)
 endif
+
+test('test_locale_handling', test_locale_handling)
 
 subdir('dnn')

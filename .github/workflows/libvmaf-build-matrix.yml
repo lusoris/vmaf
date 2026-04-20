@@ -391,7 +391,12 @@ jobs:
         run: meson install -C libvmaf/build
 
       - name: Test vmaf
-        run: meson test -C libvmaf/build --num-processes $(nproc)
+        # --print-errorlogs surfaces the failing test's stdout/stderr
+        # inline in the CI log instead of only writing it to
+        # meson-logs/testlog.txt, so cross-platform debugging (e.g.
+        # MinGW64-specific locale assertions) does not require an
+        # artifact round-trip.
+        run: meson test -C libvmaf/build --num-processes $(nproc) --print-errorlogs
 
       - name: Show binary info and stage artifact
         id: stage
