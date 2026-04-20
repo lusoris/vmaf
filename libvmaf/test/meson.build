@@ -186,7 +186,7 @@ test_framesync = executable('test_framesync',
 if host_machine.cpu_family() == 'x86_64' or host_machine.cpu_family() == 'x86'
 test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
     ['test.c', 'test_ms_ssim_decimate.c',
-     '../src/feature/ms_ssim_decimate.c'],
+     '../src/mem.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
                            include_directories('../src/feature/')],
     c_args : vmaf_cflags_common,
@@ -194,6 +194,7 @@ test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
     objects : [
       platform_specific_cpu_objects,
       libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
     ],
 )
 endif

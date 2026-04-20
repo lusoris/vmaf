@@ -1313,8 +1313,19 @@ void adm_decouple_s123_avx512(AdmBuffer *buf, int w, int h, int stride, double a
                 _mm512_add_epi64(_mm512_mul_epi32(th_hi_epi64, th_hi_epi64),
                                  _mm512_mul_epi32(tv_hi_epi64, tv_hi_epi64));
 
-            // angle_flag as int64
-            int64_t angle_flag[16];
+            // angle_flag as int64.
+            //
+            // Aligned to 64 bytes: below, `_mm512_loadu_si512(&angle_flag[0])`
+            // and `_mm512_loadu_si512(&angle_flag[8])` are nominally unaligned
+            // loads, but LTO can legally promote them to `vmovdqa64` once
+            // link-time alignment inference concludes that the pointer is
+            // 64-byte aligned. The C-level default stack alignment for an
+            // `int64_t[16]` is 8, so the promoted aligned load faults under
+            // `--buildtype=release -Db_lto=true`. Forcing 64-byte alignment
+            // on the stack slot keeps both the unaligned and the
+            // LTO-promoted aligned form correct.
+            // See docs/development/known-upstream-bugs.md.
+            _Alignas(64) int64_t angle_flag[16];
             calc_angle(_mm256_extract_epi64(_mm512_extracti64x4_epi64(ot_dp_lo_epi64, 0), 0),
                        _mm256_extract_epi64(_mm512_extracti64x4_epi64(o_mag_sq_lo_epi64, 0), 0),
                        _mm256_extract_epi64(_mm512_extracti64x4_epi64(t_mag_sq_lo_epi64, 0), 0),

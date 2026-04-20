@@ -48,16 +48,22 @@ static const float ms_ssim_lpf_v[MS_SSIM_DECIMATE_LPF_LEN] = {
     0.266846f, -0.078201f, -0.016828f, 0.026727f,
 };
 
-/* KBND_SYMMETRIC mirror — byte-identical to the scalar reference. */
+/*
+ * KBND_SYMMETRIC mirror — byte-identical to the scalar reference.
+ * Period-based reflection (period = 2*n) handles the sub-kernel-radius
+ * regime.
+ */
 static inline int ms_ssim_decimate_mirror(int idx, int n)
 {
-    if (idx < 0) {
-        return -1 - idx;
+    const int period = 2 * n;
+    int r = idx % period;
+    if (r < 0) {
+        r += period;
     }
-    if (idx >= n) {
-        return (n - (idx - n)) - 1;
+    if (r >= n) {
+        r = period - r - 1;
     }
-    return idx;
+    return r;
 }
 
 static inline float h_pass_scalar(const float *src_row, int x_out, int w)

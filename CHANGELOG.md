@@ -410,6 +410,35 @@
 
 ### Fixed
 
+- **`KBND_SYMMETRIC` sub-kernel-radius out-of-bounds reflection**:
+  upstream's 2-D symmetric boundary extension reflected the index a
+  single time, which leaves out-of-bounds values whenever the input
+  dimension is smaller than the kernel half-width (for the 9-tap
+  MS-SSIM LPF, `n ≤ 3`). The fork rewrites `KBND_SYMMETRIC` in
+  [`libvmaf/src/feature/iqa/convolve.c`](libvmaf/src/feature/iqa/convolve.c)
+  and the scalar / AVX2 / AVX-512 / NEON `ms_ssim_decimate_mirror`
+  helpers into the period-based form (`period = 2*n`) that bounces
+  correctly for any offset. Netflix golden outputs are unchanged
+  because 576×324 and 1920×1080 inputs never exercise the
+  sub-kernel-radius regime. See
+  [`docs/development/known-upstream-bugs.md`](docs/development/known-upstream-bugs.md)
+  and [ADR-0125](docs/adr/0125-ms-ssim-decimate-simd.md).
+- **`adm_decouple_s123_avx512` LTO+release SEGV**: the stack array
+  `int64_t angle_flag[16]` is read via two `_mm512_loadu_si512`
+  calls. Under `--buildtype=release -Db_lto=true`, link-time
+  alignment inference promotes them to `vmovdqa64`, which faults
+  because the C default stack alignment for `int64_t[16]` is 8
+  bytes. Annotating the array with `_Alignas(64)` at
+  [`libvmaf/src/feature/x86/adm_avx512.c:1317`](libvmaf/src/feature/x86/adm_avx512.c#L1317)
+  keeps both the unaligned source form and the LTO-promoted aligned
+  form correct. Debug / no-LTO builds, and every CI sanitizer job,
+  are unaffected.
+- **`test_pic_preallocation` VmafModel leaks**:
+  `test_picture_pool_basic` / `_small` / `_yuv444` loaded a
+  `VmafModel` via `vmaf_model_load` and never freed it, so
+  LeakSanitizer reported 208 B direct + 23 KiB indirect per test.
+  Paired each load with `vmaf_model_destroy(model)` in
+  [`libvmaf/test/test_pic_preallocation.c`](libvmaf/test/test_pic_preallocation.c).
 - **`libvmaf_cuda` ffmpeg filter segfault on first frame**: external
   reporter (2026-04-19) hit a SIGSEGV in `vmaf_ref_fetch_increment` on
   every invocation of ffmpeg's `libvmaf_cuda` filter against the fork's

@@ -54,19 +54,25 @@ static const float ms_ssim_lpf_v[MS_SSIM_DECIMATE_LPF_LEN] = {
 
 /*
  * KBND_SYMMETRIC mirror: indices outside [0, n) reflect around the
- * nearest border. This matches `KBND_SYMMETRIC` in
- * libvmaf/src/feature/iqa/convolve.c so the boundary behaviour is
- * identical to the vendored 2-D path.
+ * nearest border. Period-based formulation (period = 2*n) handles any
+ * offset, including the sub-kernel-radius regime where |idx - 0| > n
+ * or |idx - (n-1)| > n — cases where a single reflection (as in
+ * upstream iqa/KBND_SYMMETRIC) still leaves the index out of bounds.
+ * For idx ∈ [-n, 2*n-1] this matches the classic single-reflect form
+ * exactly, so the vendored 2-D iqa path and this separable path agree
+ * on every MS-SSIM pyramid scale that upstream actually exercises.
  */
 static inline int ms_ssim_decimate_mirror(int idx, int n)
 {
-    if (idx < 0) {
-        return -1 - idx;
+    const int period = 2 * n;
+    int r = idx % period;
+    if (r < 0) {
+        r += period;
     }
-    if (idx >= n) {
-        return (n - (idx - n)) - 1;
+    if (r >= n) {
+        r = period - r - 1;
     }
-    return idx;
+    return r;
 }
 
 /* Horizontal pass: src[h x w] -> tmp[h x w_out] via ms_ssim_lpf_h. */

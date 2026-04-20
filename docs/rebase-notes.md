@@ -1498,3 +1498,54 @@ inline.*
   .venv/bin/python -m pytest \
       python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_ms_ssim_fextractor
   ```
+
+### 0029 — `KBND_SYMMETRIC` period-based reflection in `iqa/convolve.c`
+
+- **Workstream PRs**: `feat/ms-ssim-decimate-simd-v2` follow-up
+  (CI triage on PR #69, 2026-04-20).
+- **Touches**: `libvmaf/src/feature/iqa/convolve.c` (upstream
+  file, rewritten `KBND_SYMMETRIC`).
+- **Invariant**: `KBND_SYMMETRIC(img, w, h, x, y, _)` must use the
+  period-based form (`period = 2*w`, `period = 2*h`) so that offsets
+  with `|x| > w` or `|y| > h` still land in bounds. Upstream's
+  single-reflect form was out-of-bounds whenever `w < kernel_half`
+  or `h < kernel_half`; the latent bug did not reproduce in Netflix
+  golden tests because MS-SSIM pyramids never decimate below
+  ~60×34. Any upstream change that reverts to the single-reflect
+  form must be rejected or re-ported.
+- **Re-test**:
+
+  ```bash
+  ./build/test/test_ms_ssim_decimate        # test_1x1 border case
+  .venv/bin/python -m pytest \
+      python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_ms_ssim_fextractor
+  ```
+
+### 0030 — `adm_decouple_s123_avx512` stack-array 64-byte alignment
+
+- **Workstream PRs**: `feat/ms-ssim-decimate-simd-v2` follow-up
+  (CI triage on PR #69, 2026-04-20).
+- **Touches**: `libvmaf/src/feature/x86/adm_avx512.c` (upstream
+  file, one-line `_Alignas(64)` on `int64_t angle_flag[16]` at
+  line 1317). `libvmaf/test/test_pic_preallocation.c` (upstream
+  file, three `vmaf_model_destroy(model)` calls pairing the
+  `vmaf_model_load` in `test_picture_pool_basic` / `_small` /
+  `_yuv444`).
+- **Invariant**: the stack slot for `angle_flag` must be 64-byte
+  aligned because two `_mm512_loadu_si512(&angle_flag[0/8])`
+  loads in the same scope may be promoted to aligned `vmovdqa64`
+  by LTO. Dropping the `_Alignas(64)` annotation re-introduces
+  the SEGV under `--buildtype=release -Db_lto=true
+  -Db_sanitize=address`. Debug / no-LTO builds keep
+  `vmovdqu64` and cannot flag the regression. See
+  `docs/development/known-upstream-bugs.md`.
+- **Re-test**:
+
+  ```bash
+  meson setup build-asan-lto libvmaf \
+      -Denable_cuda=false -Denable_sycl=false \
+      -Db_sanitize=address --buildtype=release -Db_lto=true
+  ninja -C build-asan-lto test/test_pic_preallocation
+  ASAN_OPTIONS=detect_leaks=1 \
+      ./build-asan-lto/test/test_pic_preallocation
+  ```
