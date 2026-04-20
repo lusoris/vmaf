@@ -8,6 +8,23 @@
 
 ### Added
 
+- **Governance — Q2 2026 modernization ADRs**: four Proposed ADRs +
+  four research digests scoping the next modernization workstreams
+  (no implementation yet):
+  - [ADR-0126](docs/adr/0126-ssimulacra2-extractor.md) /
+    [Research-0003](docs/research/0003-ssimulacra2-port-sourcing.md):
+    SSIMULACRA 2 feature extractor (port libjxl C++ reference).
+  - [ADR-0127](docs/adr/0127-vulkan-compute-backend.md) /
+    [Research-0004](docs/research/0004-vulkan-backend-design.md):
+    Vulkan compute backend (volk + GLSL→SPIR-V + VMA, VIF
+    pathfinder).
+  - [ADR-0128](docs/adr/0128-embedded-mcp-in-libvmaf.md) /
+    [Research-0005](docs/research/0005-embedded-mcp-transport.md):
+    Embedded MCP server in libvmaf (SSE + UDS + stdio, flag-gated).
+  - [ADR-0129](docs/adr/0129-tinyai-ptq-quantization.md) /
+    [Research-0006](docs/research/0006-tinyai-ptq-accuracy-targets.md):
+    Tiny-AI PTQ int8 (static + dynamic + QAT per-model via
+    `model/registry.json`).
 - **CLI**: `--precision $spec` flag for score output formatting.
   - `N` (1..17) → `printf "%.<N>g"`
   - `max` / `full` → `"%.17g"` (round-trip lossless, opt-in)
