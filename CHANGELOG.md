@@ -8,6 +8,20 @@
 
 ### Added
 
+- **I18N / thread-safety**: `thread_locale.h/.c` cross-platform thread-local
+  locale abstraction ported from upstream PR
+  [Netflix/vmaf#1430](https://github.com/Netflix/vmaf/pull/1430) (Diego Nieto,
+  Fluendo). `vmaf_write_output_{xml,json,csv,sub}`, `svm_save_model`,
+  `vmaf_read_json_model`, and both SVM model parsers now switch the calling
+  thread's locale to `"C"` for numeric I/O instead of using the
+  process-global `setlocale` bracket. POSIX.1-2008 `uselocale` +
+  `newlocale(LC_ALL_MASK)` on Linux/macOS/BSD; `_configthreadlocale` +
+  per-thread `setlocale` on Windows; graceful no-op fallback elsewhere.
+  Fixes a latent data-race under multi-threaded hosts (ffmpeg filter graphs
+  with multiple VMAF instances, MCP server worker pools) where one thread's
+  `setlocale(LC_ALL, "C")` bracket would clobber another thread's active
+  locale mid-call. See
+  [ADR-0137](docs/adr/0137-thread-local-locale-for-numeric-io.md).
 - **Public API**: `vmaf_model_version_next(prev, &version)` iterator for
   enumerating the built-in VMAF model versions compiled into the
   library. Opaque-handle cursor — NULL to start, NULL-return to stop.

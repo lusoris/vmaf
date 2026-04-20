@@ -1609,3 +1609,58 @@ inline.*
 [pr1406]: https://github.com/Netflix/vmaf/pull/1406
 [pr1424]: https://github.com/Netflix/vmaf/pull/1424
 [pr1451]: https://github.com/Netflix/vmaf/pull/1451
+
+### 0032 — Thread-local locale handling for numeric I/O (port of Netflix/vmaf#1430)
+
+- **Workstream PRs**: `port/netflix-1430-thread-locale`
+  (T4-3 from the "Batch-A follow-up" sweep, 2026-04-20).
+- **Touches**: `libvmaf/src/thread_locale.h` / `libvmaf/src/thread_locale.c`
+  (new, upstream-authored); `libvmaf/src/meson.build` (two
+  `cdata.set('HAVE_USELOCALE'/'HAVE_XLOCALE_H')` probes +
+  `src_dir + 'thread_locale.c'` in `libvmaf_sources`);
+  `libvmaf/src/output.c` (four writers gain
+  `push_c()` + `pop()` bracket, preserving fork's
+  `ferror(outfile) ? -EIO : 0` return contract from
+  [ADR-0119](adr/0119-cli-precision-default-revert.md));
+  `libvmaf/src/svm.cpp` (drop `<locale.h>` include; replace
+  `setlocale/strdup/setlocale` bracket with
+  `vmaf_thread_locale_push_c/pop`; add
+  `buffer.imbue(std::locale::classic())` to both SVM parser ctors
+  with fork's K&R + 4-space style);
+  `libvmaf/src/read_json_model.c` (bracket `model_parse` with
+  push/pop); `libvmaf/test/meson.build` (new
+  `test_locale_handling` target + test registration);
+  `libvmaf/test/test_locale_handling.c` (new, upstream-authored
+  with three fork corrections for the `score_format` parameter).
+- **Invariant**: fork's output writers return
+  `ferror(outfile) ? -EIO : 0` — this must survive any upstream
+  refactor of the writer bodies. The `push_c()` call MUST be
+  paired with a `pop()` on every return path (writer bodies have
+  a single tail return, so the pattern is locally
+  `push → body → pop → return ferror-check`). Dropping
+  `pop()` leaks a `locale_t` on POSIX and leaves the thread
+  locked to "C" on Windows.
+- **Re-test**:
+
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_locale_handling
+  # Repro the user-visible failure without the fix:
+  LC_ALL=de_DE.UTF-8 build/tools/vmaf --reference ref.yuv \
+      --distorted dis.yuv --width 1920 --height 1080 \
+      --pixel_format 420 --bitdepth 8 --output result.json \
+      --json
+  # Assert output contains period decimals, not comma.
+  python -c "import json; d=json.load(open('result.json')); \
+      assert all('.' in repr(v) for v in \
+      [f['metrics']['vmaf'] for f in d['frames']])"
+  ```
+
+- **On upstream sync**: when Netflix merges PR #1430, the
+  `(cherry picked from commit 054a97ed…)` trailer in
+  `git log port/netflix-1430-thread-locale` lets the next
+  `/sync-upstream` skip this commit. If the upstream diff
+  drifts, redo the three fork corrections listed in
+  [ADR-0137](adr/0137-thread-local-locale-for-numeric-io.md)
+  §Decision.
