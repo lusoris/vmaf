@@ -39,6 +39,18 @@
 - **Numerical correctness**: float ADM `sum_cube` and `csf_den_scale` use
   double-precision accumulation in scalar/AVX2/AVX512 paths to eliminate
   ~8e-5 drift between scalar and SIMD reductions.
+- **MS-SSIM SIMD**: separable scalar-FMA decimate with AVX2 (8-wide)
+  and AVX-512 (16-wide) variants for the 9-tap 9/7 biorthogonal wavelet
+  LPF used by the MS-SSIM scale pyramid. Per-lane `_mm{256,512}_fmadd_ps`
+  with broadcast coefficients produces output byte-identical to the
+  scalar reference; stride-2 horizontal deinterleave via
+  `_mm256_shuffle_ps`+`_mm256_permute4x64_pd` (AVX2) and
+  `_mm512_permutex2var_ps` (AVX-512). Runtime dispatch prefers
+  AVX-512 > AVX2 > scalar. Netflix MS-SSIM golden passes at places=4
+  through all three paths; 10 synthetic `memcmp` cases (1x1 border,
+  odd dimensions, 1920x1080) verify strict byte-equality in
+  [`libvmaf/test/test_ms_ssim_decimate.c`](libvmaf/test/test_ms_ssim_decimate.c).
+  See [ADR-0125](docs/adr/0125-ms-ssim-decimate-simd.md).
 - **AI-agent scaffolding**: `.claude/` directory with 7 specialized review
   agents (c-, cuda-, sycl-, vulkan-, simd-, meson-reviewer, perf-profiler),
   18 task skills, hooks for unsafe-bash blocking and auto-format,
