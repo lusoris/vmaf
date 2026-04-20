@@ -36,6 +36,9 @@
 
 #include "feature/ms_ssim_decimate.h"
 #include "feature/x86/ms_ssim_decimate_avx2.h"
+#if HAVE_AVX512
+#include "feature/x86/ms_ssim_decimate_avx512.h"
+#endif
 #include "test.h"
 
 /* Deterministic pseudo-random fill — reproducible across runs. */
@@ -89,6 +92,17 @@ static char *check_case(int w, int h, uint32_t seed)
     mu_assert("avx2 decimate failed", rc_avx2 == 0);
     mu_assert("avx2 output not bit-identical to scalar",
               compare_bitexact(dst_scalar, dst_avx2, dst_n));
+
+#if HAVE_AVX512
+    float *dst_avx512 = (float *)malloc(dst_n * sizeof(float));
+    mu_assert("malloc failed", dst_avx512 != NULL);
+    memset(dst_avx512, 0x33, dst_n * sizeof(float));
+    const int rc_avx512 = ms_ssim_decimate_avx512(src, w, h, dst_avx512, NULL, NULL);
+    mu_assert("avx512 decimate failed", rc_avx512 == 0);
+    mu_assert("avx512 output not bit-identical to scalar",
+              compare_bitexact(dst_scalar, dst_avx512, dst_n));
+    free(dst_avx512);
+#endif
 
     free(src);
     free(dst_scalar);
