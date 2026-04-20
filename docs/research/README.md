@@ -62,6 +62,10 @@ Conventions:
 | --- | --- | --- | --- |
 | [0001](0001-bisect-model-quality-cache.md) | Cache shape for `bisect-model-quality` nightly | Active | [ADR-0109](../adr/0109-nightly-bisect-model-quality.md) |
 | [0002](0002-automated-rule-enforcement.md) | Automating process-ADR enforcement (0100 / 0105 / 0106 / 0108) | Active | [ADR-0124](../adr/0124-automated-rule-enforcement.md) |
+| [0003](0003-ssimulacra2-port-sourcing.md) | SSIMULACRA 2 port source selection + upstream-drift strategy | Active | [ADR-0126](../adr/0126-ssimulacra2-extractor.md) |
+| [0004](0004-vulkan-backend-design.md) | Vulkan compute backend — loader, shader language, allocator, DMABUF import | Active | [ADR-0127](../adr/0127-vulkan-compute-backend.md) |
+| [0005](0005-embedded-mcp-transport.md) | Embedded MCP in libvmaf — threading, JSON library, SSE server, Power-of-10 fit | Active | [ADR-0128](../adr/0128-embedded-mcp-in-libvmaf.md) |
+| [0006](0006-tinyai-ptq-accuracy-targets.md) | Tiny-AI PTQ int8 — accuracy targets, ORT API comparison, calibration sourcing | Active | [ADR-0129](../adr/0129-tinyai-ptq-quantization.md) |
 
 <!-- Backfill entries for older workstreams land here as their authors revisit the corresponding code. -->
 
