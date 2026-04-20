@@ -48,8 +48,7 @@ static char *test_model_mount_with_use_features()
     return NULL;
 }
 
-static int load_three_test_models(VmafModel *models[3],
-                                  const char *const names[3])
+static int load_three_test_models(VmafModel *models[3], const char *const names[3])
 {
     for (unsigned k = 0; k < 3; k++) {
         VmafModelConfig cfg = {
@@ -116,8 +115,7 @@ static char *test_model_unmount()
         mu_assert("problem during vmaf_model_unmount", !err);
     }
 
-    mu_assert("feature_collector->models should be NULL",
-              !feature_collector->models);
+    mu_assert("feature_collector->models should be NULL", !feature_collector->models);
 
     destroy_three_test_models(models);
     vmaf_feature_collector_destroy(feature_collector);
