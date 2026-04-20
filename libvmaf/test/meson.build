@@ -179,17 +179,13 @@ test_framesync = executable('test_framesync',
     dependencies : [pthread_dependency, thread_lib, sycl_dependency],
 )
 
-# Bit-exactness between the scalar-separable reference and the x86 SIMD
-# paths. Links the x86 AVX2/AVX-512 object libraries directly so the
-# kernels can be called without CPU-flag gating from inside the test.
-# Pulls in libvmaf core sources + dnn_sources the same way
-# test_feature_extractor does — extract_all_objects(libvmaf_feature)
-# drags in feature_lpips.o (which references vmaf_dnn_session_*) plus
-# every feature_collector wrapper (which references vmaf_log,
-# vmaf_picture_alloc, vmaf_dictionary_*), so we need the symbols those
-# wrappers call on.
-# See docs/adr/0125-ms-ssim-decimate-simd.md.
-if host_machine.cpu_family() == 'x86_64' or host_machine.cpu_family() == 'x86'
+# Bit-exactness between the scalar-separable reference and the arch-
+# specific SIMD paths (x86 AVX2/AVX-512 and arm64 NEON). Links the
+# platform SIMD object libraries directly so the kernels can be called
+# without CPU-flag gating from inside the test. See
+# docs/adr/0125-ms-ssim-decimate-simd.md.
+ms_ssim_decimate_test_archs = ['x86_64', 'x86', 'aarch64', 'arm64']
+if ms_ssim_decimate_test_archs.contains(host_machine.cpu_family())
 test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
     ['test.c', 'test_ms_ssim_decimate.c',
      '../src/mem.c', '../src/picture.c', '../src/ref.c',
@@ -282,7 +278,7 @@ test('test_cli_parse', test_cli_parse)
 test('test_psnr', test_psnr)
 test('test_framesync', test_framesync)
 test('test_propagate_metadata', test_propagate_metadata)
-if host_machine.cpu_family() == 'x86_64' or host_machine.cpu_family() == 'x86'
+if ms_ssim_decimate_test_archs.contains(host_machine.cpu_family())
 test('test_ms_ssim_decimate', test_ms_ssim_decimate)
 endif
 

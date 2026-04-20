@@ -316,13 +316,18 @@ AVX2, AVX-512, NEON.
 **MS-SSIM decimate (fork-local)** — the 9-tap 9/7 biorthogonal wavelet
 LPF that produces scales 1–4 runs through `ms_ssim_decimate` in
 [`libvmaf/src/feature/ms_ssim_decimate.c`](../../libvmaf/src/feature/ms_ssim_decimate.c).
-SIMD variants live in [`libvmaf/src/feature/x86/ms_ssim_decimate_avx2.c`](../../libvmaf/src/feature/x86/ms_ssim_decimate_avx2.c)
-(8-wide) and [`libvmaf/src/feature/x86/ms_ssim_decimate_avx512.c`](../../libvmaf/src/feature/x86/ms_ssim_decimate_avx512.c)
-(16-wide). Dispatch prefers AVX-512 over AVX2 over scalar at runtime
-via `vmaf_get_cpu_flags()`; all three paths are strictly
-**byte-identical** (per-lane `fmaf` / `_mm{256,512}_fmadd_ps` with
-broadcast coefficients and scalar-fallback borders). The contract
-is verified by `libvmaf/test/test_ms_ssim_decimate.c` across
+SIMD variants live in
+[`libvmaf/src/feature/x86/ms_ssim_decimate_avx2.c`](../../libvmaf/src/feature/x86/ms_ssim_decimate_avx2.c)
+(8-wide),
+[`libvmaf/src/feature/x86/ms_ssim_decimate_avx512.c`](../../libvmaf/src/feature/x86/ms_ssim_decimate_avx512.c)
+(16-wide), and
+[`libvmaf/src/feature/arm64/ms_ssim_decimate_neon.c`](../../libvmaf/src/feature/arm64/ms_ssim_decimate_neon.c)
+(4-wide). Dispatch prefers AVX-512 > AVX2 > scalar on x86 and
+NEON > scalar on aarch64 at runtime via `vmaf_get_cpu_flags()`; all
+four paths are strictly **byte-identical** (per-lane `fmaf` /
+`_mm{256,512}_fmadd_ps` / `vfmaq_n_f32` with broadcast coefficients
+and scalar-fallback borders). The contract is verified by
+`libvmaf/test/test_ms_ssim_decimate.c` across
 1x1 / 8x8 / 9x9 / border-edge / 1920x1080 cases. See
 [ADR-0125](../adr/0125-ms-ssim-decimate-simd.md).
 
