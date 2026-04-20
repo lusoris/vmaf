@@ -74,7 +74,7 @@ int vmaf_write_output_xml(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *out
 
     const char *sf = fmt_or_default(score_format);
 
-    VmafThreadLocaleState* locale_state = vmaf_thread_locale_push_c();
+    VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
 
     fprintf(outfile, "<VMAF version=\"%s\">\n", vmaf_version());
     fprintf(outfile, "  <params qualityWidth=\"%d\" qualityHeight=\"%d\" />\n", width, height);
@@ -151,7 +151,7 @@ int vmaf_write_output_json(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *ou
 {
     const char *sf = fmt_or_default(score_format);
 
-    VmafThreadLocaleState* locale_state = vmaf_thread_locale_push_c();
+    VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
 
     fprintf(outfile, "{\n");
     fprintf(outfile, "  \"version\": \"%s\",\n", vmaf_version());
@@ -280,7 +280,7 @@ int vmaf_write_output_csv(VmafFeatureCollector *fc, FILE *outfile, unsigned subs
 {
     const char *sf = fmt_or_default(score_format);
 
-    VmafThreadLocaleState* locale_state = vmaf_thread_locale_push_c();
+    VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
 
     fprintf(outfile, "Frame,");
     for (unsigned i = 0; i < fc->cnt; i++) {
@@ -324,7 +324,7 @@ int vmaf_write_output_sub(VmafFeatureCollector *fc, FILE *outfile, unsigned subs
 {
     const char *sf = fmt_or_default(score_format);
 
-    VmafThreadLocaleState* locale_state = vmaf_thread_locale_push_c();
+    VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
 
     for (unsigned i = 0; i < max_capacity(fc); i++) {
         if ((subsample > 1) && (i % subsample))

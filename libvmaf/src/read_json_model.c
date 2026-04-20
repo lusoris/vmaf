@@ -470,7 +470,7 @@ static int vmaf_read_json_model(VmafModel **model, VmafModelConfig *cfg, json_st
         return -ENOMEM;
     memset(m->score_transform.knots.list, 0, knots_sz);
 
-    VmafThreadLocaleState* locale_state = vmaf_thread_locale_push_c();
+    VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
 
     err = model_parse(s, m, cfg->flags);
 

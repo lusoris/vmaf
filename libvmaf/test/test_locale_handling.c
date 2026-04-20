@@ -64,9 +64,9 @@ static int contains_period_decimals(const char *str)
     while (*p) {
         if (*p >= '0' && *p <= '9') {
             // Found a digit, check next char
-            if (*(p+1) == '.') {
+            if (*(p + 1) == '.') {
                 found_period = 1;
-            } else if (*(p+1) == ',') {
+            } else if (*(p + 1) == ',') {
                 // Found comma decimal separator - FAIL
                 return 0;
             }
@@ -149,12 +149,9 @@ static char *test_output_xml_with_comma_locale()
     output[bytes_read] = '\0';
     fclose(tmpf);
 
-    mu_assert("XML output should contain period decimals",
-              contains_period_decimals(output));
-    mu_assert("XML output should not contain 12,345",
-              strstr(output, "12,345") == NULL);
-    mu_assert("XML output should contain 12.3",
-              strstr(output, "12.3") != NULL);
+    mu_assert("XML output should contain period decimals", contains_period_decimals(output));
+    mu_assert("XML output should not contain 12,345", strstr(output, "12,345") == NULL);
+    mu_assert("XML output should contain 12.3", strstr(output, "12.3") != NULL);
 
     char buffer[100];
     snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
@@ -207,10 +204,8 @@ static char *test_output_json_with_comma_locale()
     output[bytes_read] = '\0';
     fclose(tmpf);
 
-    mu_assert("JSON output should contain period decimals",
-              contains_period_decimals(output));
-    mu_assert("JSON output should not contain 98,765",
-              strstr(output, "98,765") == NULL);
+    mu_assert("JSON output should contain period decimals", contains_period_decimals(output));
+    mu_assert("JSON output should not contain 98,765", strstr(output, "98,765") == NULL);
 
     // Verify Italian locale still active
     char buffer[100];
@@ -254,8 +249,7 @@ static char *test_output_csv_with_comma_locale()
     output[bytes_read] = '\0';
     fclose(tmpf);
 
-    mu_assert("CSV output should contain period decimals",
-              contains_period_decimals(output));
+    mu_assert("CSV output should contain period decimals", contains_period_decimals(output));
 
     char buffer[100];
     snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
@@ -276,14 +270,14 @@ static char *test_model_parse_with_comma_locale()
 
     // Simple JSON model with floating point values
     const char *model_json = "{"
-        "\"model_dict\":{"
-        "\"model_type\":\"LIBSVMNUSVR\","
-        "\"norm_type\":\"linear_rescale\","
-        "\"slopes\":[1.5,2.5],"
-        "\"intercepts\":[0.5,1.5],"
-        "\"score_clip\":[0.0,100.0],"
-        "\"feature_names\":[\"feature1\"]"
-        "}}";
+                             "\"model_dict\":{"
+                             "\"model_type\":\"LIBSVMNUSVR\","
+                             "\"norm_type\":\"linear_rescale\","
+                             "\"slopes\":[1.5,2.5],"
+                             "\"intercepts\":[0.5,1.5],"
+                             "\"score_clip\":[0.0,100.0],"
+                             "\"feature_names\":[\"feature1\"]"
+                             "}}";
 
     const char *spanish = locale_available("es_ES.UTF-8") ? "es_ES.UTF-8" : "es_ES.utf8";
     setlocale(LC_ALL, spanish);
@@ -299,8 +293,7 @@ static char *test_model_parse_with_comma_locale()
         .flags = VMAF_MODEL_FLAGS_DEFAULT,
     };
 
-    int err = vmaf_read_json_model_from_buffer(&model, &cfg,
-                                               model_json, strlen(model_json));
+    int err = vmaf_read_json_model_from_buffer(&model, &cfg, model_json, strlen(model_json));
     mu_assert("vmaf_read_json_model_from_buffer should succeed", !err);
     mu_assert("model should not be NULL", model != NULL);
 

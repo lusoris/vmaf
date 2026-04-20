@@ -36,22 +36,22 @@ typedef struct VmafThreadLocaleState VmafThreadLocaleState;
  * - Character classification (isalpha, isdigit, etc.)
  * - String collation and comparison
  * - Date/time formatting
- * 
+ *
  * Thread-safe: affects only the calling thread.
- * 
+ *
  * @return Opaque state handle to be passed to vmaf_thread_locale_pop(),
  *         or NULL on allocation failure or if thread-safe locale is unavailable.
  */
-VmafThreadLocaleState* vmaf_thread_locale_push_c(void);
+VmafThreadLocaleState *vmaf_thread_locale_push_c(void);
 
 /**
  * Restore previous locale state in the current thread.
  * Must be called with the state returned by vmaf_thread_locale_push_c().
- * 
+ *
  * @param state State handle from vmaf_thread_locale_push_c().
  *              Freed internally, do not use after this call.
  */
-void vmaf_thread_locale_pop(VmafThreadLocaleState* state);
+void vmaf_thread_locale_pop(VmafThreadLocaleState *state);
 
 #ifdef __cplusplus
 }
