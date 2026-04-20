@@ -31,6 +31,10 @@
 #endif
 #endif
 
+#if ARCH_AARCH64
+#include "arm64/ms_ssim_decimate_neon.h"
+#endif
+
 /*
  * 9-tap 9/7 biorthogonal wavelet LPF, separable form.
  *
@@ -158,16 +162,28 @@ int ms_ssim_decimate_scalar(const float *src, int w, int h, float *dst, int *rw,
  */
 int ms_ssim_decimate(const float *src, int w, int h, float *dst, int *rw, int *rh)
 {
-#if ARCH_X86
+    VMAF_ASSERT_DEBUG(src != NULL);
+    VMAF_ASSERT_DEBUG(dst != NULL);
+    VMAF_ASSERT_DEBUG(src != dst);
+    VMAF_ASSERT_DEBUG(w > 0);
+    VMAF_ASSERT_DEBUG(h > 0);
+#if ARCH_X86 || ARCH_AARCH64
     const unsigned flags = vmaf_get_cpu_flags();
-#if HAVE_AVX512
+#if ARCH_X86 && HAVE_AVX512
     if (flags & VMAF_X86_CPU_FLAG_AVX512) {
         return ms_ssim_decimate_avx512(src, w, h, dst, rw, rh);
     }
 #endif
+#if ARCH_X86
     if (flags & VMAF_X86_CPU_FLAG_AVX2) {
         return ms_ssim_decimate_avx2(src, w, h, dst, rw, rh);
     }
+#endif
+#if ARCH_AARCH64
+    if (flags & VMAF_ARM_CPU_FLAG_NEON) {
+        return ms_ssim_decimate_neon(src, w, h, dst, rw, rh);
+    }
+#endif
 #endif
     return ms_ssim_decimate_scalar(src, w, h, dst, rw, rh);
 }
