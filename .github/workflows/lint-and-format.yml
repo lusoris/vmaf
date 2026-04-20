@@ -101,7 +101,11 @@ jobs:
               | grep -v '^subprojects/' | tr '\n' ' ')
           fi
           [ -z "$files" ] && { echo "no C/C++ changes"; exit 0; }
-          echo "$files" | tr ' ' '\n' \
+          # Drop empty lines — the `tr '\n' ' ' | tr ' ' '\n'` round-trip
+          # leaves a trailing blank that parallel would pass to clang-tidy
+          # as an empty filename, which clang resolves to the workspace
+          # directory and reports as a clang-diagnostic-error.
+          echo "$files" | tr ' ' '\n' | grep -v '^$' \
             | parallel -j$(nproc) "clang-tidy -p build --quiet {} || touch /tmp/tidy.fail"
           [ -f /tmp/tidy.fail ] && exit 1 || exit 0
 
