@@ -179,6 +179,25 @@ test_framesync = executable('test_framesync',
     dependencies : [pthread_dependency, thread_lib, sycl_dependency],
 )
 
+# Bit-exactness between the scalar-separable reference and the x86 SIMD
+# paths. Links the x86 AVX2/AVX-512 object libraries directly so the
+# kernels can be called without CPU-flag gating from inside the test.
+# See docs/adr/0125-ms-ssim-decimate-simd.md.
+if host_machine.cpu_family() == 'x86_64' or host_machine.cpu_family() == 'x86'
+test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
+    ['test.c', 'test_ms_ssim_decimate.c',
+     '../src/feature/ms_ssim_decimate.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
+                           include_directories('../src/feature/')],
+    c_args : vmaf_cflags_common,
+    dependencies : [math_lib, pthread_dependency, sycl_dependency],
+    objects : [
+      platform_specific_cpu_objects,
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+    ],
+)
+endif
+
 if get_option('enable_cuda')
 test_ring_buffer = executable('test_ring_buffer',
     ['test.c', 'test_ring_buffer.c', '../src/cuda/ring_buffer.c', '../src/cuda/picture_cuda.c'],
@@ -251,5 +270,8 @@ test('test_cli_parse', test_cli_parse)
 test('test_psnr', test_psnr)
 test('test_framesync', test_framesync)
 test('test_propagate_metadata', test_propagate_metadata)
+if host_machine.cpu_family() == 'x86_64' or host_machine.cpu_family() == 'x86'
+test('test_ms_ssim_decimate', test_ms_ssim_decimate)
+endif
 
 subdir('dnn')

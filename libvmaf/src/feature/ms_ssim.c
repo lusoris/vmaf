@@ -37,7 +37,7 @@
  * `g_lpf` array in upstream Netflix/vmaf ms_ssim.c is no longer used
  * on this fork because the decimate path switched from
  * `_iqa_decimate(..., 2, &lpf_2d, ...)` to the separable scalar-FMA
- * path `ms_ssim_decimate_scalar`. See ADR-0125.
+ * path `ms_ssim_decimate`. See ADR-0125.
  *
  * REBASE-SENSITIVE INVARIANT: if Netflix upstream modifies `g_lpf`,
  * `g_lpf_h`, or `g_lpf_v` in this file during a sync, mirror the
@@ -229,8 +229,8 @@ int compute_ms_ssim(const float *ref, const float *cmp, int w, int h, int ref_st
     cur_w = w;
     cur_h = h;
     for (idx = 1; idx < scales; ++idx) {
-        if (ms_ssim_decimate_scalar(ref_imgs[idx - 1], cur_w, cur_h, ref_imgs[idx], 0, 0) ||
-            ms_ssim_decimate_scalar(cmp_imgs[idx - 1], cur_w, cur_h, cmp_imgs[idx], &cur_w,
+        if (ms_ssim_decimate(ref_imgs[idx - 1], cur_w, cur_h, ref_imgs[idx], 0, 0) ||
+            ms_ssim_decimate(cmp_imgs[idx - 1], cur_w, cur_h, cmp_imgs[idx], &cur_w,
                                     &cur_h)) {
             _free_buffers(ref_imgs, scales);
             _free_buffers(cmp_imgs, scales);
