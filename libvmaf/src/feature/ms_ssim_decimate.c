@@ -20,8 +20,13 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+#include "cpu.h"
 #include "libvmaf/vmaf_assert.h"
 #include "ms_ssim_decimate.h"
+
+#if ARCH_X86
+#include "x86/ms_ssim_decimate_avx2.h"
+#endif
 
 /*
  * 9-tap 9/7 biorthogonal wavelet LPF, separable form.
@@ -61,6 +66,43 @@ static inline int ms_ssim_decimate_mirror(int idx, int n)
     return idx;
 }
 
+/* Horizontal pass: src[h x w] -> tmp[h x w_out] via ms_ssim_lpf_h. */
+static void h_pass_scalar(const float *src, int w, int h, float *tmp, int w_out)
+{
+    const int half = MS_SSIM_DECIMATE_LPF_HALF;
+    for (int y = 0; y < h; ++y) {
+        const float *src_row = &src[(size_t)y * (size_t)w];
+        float *tmp_row = &tmp[(size_t)y * (size_t)w_out];
+        for (int x_out = 0; x_out < w_out; ++x_out) {
+            const int x_src = x_out * 2;
+            float acc = 0.0f;
+            for (int k = 0; k < MS_SSIM_DECIMATE_LPF_LEN; ++k) {
+                const int xi = ms_ssim_decimate_mirror(x_src + k - half, w);
+                acc = fmaf(src_row[xi], ms_ssim_lpf_h[k], acc);
+            }
+            tmp_row[x_out] = acc;
+        }
+    }
+}
+
+/* Vertical pass: tmp[h x w_out] -> dst[h_out x w_out] via ms_ssim_lpf_v. */
+static void v_pass_scalar(const float *tmp, int h, float *dst, int w_out, int h_out)
+{
+    const int half = MS_SSIM_DECIMATE_LPF_HALF;
+    for (int y_out = 0; y_out < h_out; ++y_out) {
+        const int y_src = y_out * 2;
+        float *dst_row = &dst[(size_t)y_out * (size_t)w_out];
+        for (int x_out = 0; x_out < w_out; ++x_out) {
+            float acc = 0.0f;
+            for (int k = 0; k < MS_SSIM_DECIMATE_LPF_LEN; ++k) {
+                const int yi = ms_ssim_decimate_mirror(y_src + k - half, h);
+                acc = fmaf(tmp[(size_t)yi * (size_t)w_out + (size_t)x_out], ms_ssim_lpf_v[k], acc);
+            }
+            dst_row[x_out] = acc;
+        }
+    }
+}
+
 int ms_ssim_decimate_scalar(const float *src, int w, int h, float *dst, int *rw, int *rh)
 {
     VMAF_ASSERT_DEBUG(src != NULL);
@@ -71,7 +113,6 @@ int ms_ssim_decimate_scalar(const float *src, int w, int h, float *dst, int *rw,
 
     const int w_out = (w / 2) + (w & 1);
     const int h_out = (h / 2) + (h & 1);
-    const int half = MS_SSIM_DECIMATE_LPF_HALF;
 
     /*
      * Horizontal pass scratch: w_out columns per row, all h rows
@@ -85,34 +126,8 @@ int ms_ssim_decimate_scalar(const float *src, int w, int h, float *dst, int *rw,
         return -1;
     }
 
-    /* Horizontal pass: src[h x w] -> tmp[h x w_out] via g_lpf_h. */
-    for (int y = 0; y < h; ++y) {
-        const float *src_row = &src[y * w];
-        float *tmp_row = &tmp[y * w_out];
-        for (int x_out = 0; x_out < w_out; ++x_out) {
-            const int x_src = x_out * 2;
-            float acc = 0.0f;
-            for (int k = 0; k < MS_SSIM_DECIMATE_LPF_LEN; ++k) {
-                const int xi = ms_ssim_decimate_mirror(x_src + k - half, w);
-                acc = fmaf(src_row[xi], ms_ssim_lpf_h[k], acc);
-            }
-            tmp_row[x_out] = acc;
-        }
-    }
-
-    /* Vertical pass: tmp[h x w_out] -> dst[h_out x w_out] via g_lpf_v. */
-    for (int y_out = 0; y_out < h_out; ++y_out) {
-        const int y_src = y_out * 2;
-        float *dst_row = &dst[y_out * w_out];
-        for (int x_out = 0; x_out < w_out; ++x_out) {
-            float acc = 0.0f;
-            for (int k = 0; k < MS_SSIM_DECIMATE_LPF_LEN; ++k) {
-                const int yi = ms_ssim_decimate_mirror(y_src + k - half, h);
-                acc = fmaf(tmp[yi * w_out + x_out], ms_ssim_lpf_v[k], acc);
-            }
-            dst_row[x_out] = acc;
-        }
-    }
+    h_pass_scalar(src, w, h, tmp, w_out);
+    v_pass_scalar(tmp, h, dst, w_out, h_out);
 
     free(tmp);
 
@@ -123,4 +138,22 @@ int ms_ssim_decimate_scalar(const float *src, int w, int h, float *dst, int *rw,
         *rh = h_out;
     }
     return 0;
+}
+
+/*
+ * Runtime dispatch: pick the fastest bit-identical implementation
+ * available on the host CPU. AVX2 / AVX-512 kernels produce
+ * byte-identical output to the scalar reference (per-lane sequential
+ * FMA, same coefficients, same mirror). See
+ * libvmaf/test/test_ms_ssim_decimate.c.
+ */
+int ms_ssim_decimate(const float *src, int w, int h, float *dst, int *rw, int *rh)
+{
+#if ARCH_X86
+    const unsigned flags = vmaf_get_cpu_flags();
+    if (flags & VMAF_X86_CPU_FLAG_AVX2) {
+        return ms_ssim_decimate_avx2(src, w, h, dst, rw, rh);
+    }
+#endif
+    return ms_ssim_decimate_scalar(src, w, h, dst, rw, rh);
 }

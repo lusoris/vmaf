@@ -55,4 +55,13 @@
  */
 int ms_ssim_decimate_scalar(const float *src, int w, int h, float *dst, int *rw, int *rh);
 
+/**
+ * Auto-dispatching entry point: picks AVX2 / AVX-512 / scalar based on
+ * runtime CPU capability. Output is byte-identical across all three
+ * implementations (see libvmaf/test/test_ms_ssim_decimate.c).
+ *
+ * Signature identical to ms_ssim_decimate_scalar.
+ */
+int ms_ssim_decimate(const float *src, int w, int h, float *dst, int *rw, int *rh);
+
 #endif /* __VMAF_MS_SSIM_DECIMATE_H__ */
