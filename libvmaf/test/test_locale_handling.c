@@ -53,31 +53,30 @@ static int locale_available(const char *locale_name)
     return available;
 }
 
-// Helper function to verify a string contains periods, not commas, as
-// numeric decimal separators. A digit-period-digit triple is a period
-// decimal ("12.345"); a digit-comma-digit triple is a locale-leaked
-// comma decimal ("12,345"). Structural JSON commas like
-// `"frameNum": 0,\n` must not trigger a false positive — the trailing
-// character there is a newline, not a digit.
+// Helper function to verify a string contains period-formatted decimal
+// numbers. Returns true iff at least one digit-period-digit triple
+// appears (e.g. "12.345"). A digit-comma-digit triple is NOT
+// interpreted as a leak signal here — CSV uses commas as structural
+// field separators between integer cells (e.g. "0,3" between "Frame"
+// column and first numeric column), and JSON uses trailing structural
+// commas. If the thread-local C-locale applied correctly, the output
+// will contain period decimals; if it did not, every numeric field
+// would use commas and no period-decimal triple would appear, so the
+// presence check is sufficient.
 static int contains_period_decimals(const char *str)
 {
     const char *p = str;
-    int found_period = 0;
-
     while (*p) {
         if (*p >= '0' && *p <= '9') {
             char next = *(p + 1);
             char after = next ? *(p + 2) : '\0';
             if (next == '.' && after >= '0' && after <= '9') {
-                found_period = 1;
-            } else if (next == ',' && after >= '0' && after <= '9') {
-                return 0;
+                return 1;
             }
         }
         p++;
     }
-
-    return found_period;
+    return 0;
 }
 
 static char *test_locale_abstraction_basic(void)

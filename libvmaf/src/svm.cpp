@@ -16,6 +16,19 @@
  *
  */
 
+/*
+ * Vendored libsvm — we own our patches (thread-locale integration, JSON
+ * entry points, move-from-text-to-parser refactor), but the bulk of this
+ * file is verbatim libsvm. Whole-file clang-tidy scans surface
+ * long-latent warnings in the vendored code (null-derefs under
+ * analyzer paths, rand() usage, nullptr modernisation, function-size
+ * / branches / nesting over our Power-of-10 thresholds, etc.). The
+ * project policy for vendored upstream code is to keep the libsvm diff
+ * reviewable against the upstream source rather than re-flow it — so
+ * suppress the whole file and track behaviour via the unit tests that
+ * exercise svm_load_model / svm_predict / svm_save_model.
+ */
+// NOLINTBEGIN
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2873,11 +2886,6 @@ template <typename TSource> class SVMModelParser
     }
 
   private:
-    /* Parser body for the libsvm file format. Vendored upstream — the
-     * size / branch / nesting bounds predate our Power-of-10 rules and
-     * upstream owns the shape. Silenced rather than re-flowed so the
-     * libsvm diff stays reviewable against the upstream source. */
-    // NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
     void parse_header()
     {
         svm_parameter &param = model->param;
@@ -2976,11 +2984,7 @@ template <typename TSource> class SVMModelParser
         // support vectors will be stored within a single memory plane, that is indexed into
         // by a pointer-array
 
-        // create memory plane that stores the support vectors. Ownership
-        // transfers to model->SV[0..] below; model->free_sv = 1 arranges
-        // cleanup in svm_free_model_content(). Analyzer can't track the
-        // indirect ownership — false positive.
-        // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
+        // create memory plane that stores the support vectors
         svm_node *support_vectors = Malloc(svm_node, sv_buffer.size());
         memcpy(support_vectors, sv_buffer.data(), sizeof(svm_node) * sv_buffer.size());
         // create and populate the pointer array, that points into the memory plane
@@ -2993,7 +2997,6 @@ template <typename TSource> class SVMModelParser
             }
         }
 
-        // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
         model->free_sv = 1; // XXX
     }
 };
@@ -3015,3 +3018,4 @@ svm_model *svm_parse_model_from_buffer(const char *model_buffer, unsigned int le
     }
     return parser.get_model();
 }
+// NOLINTEND
