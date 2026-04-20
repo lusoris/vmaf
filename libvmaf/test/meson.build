@@ -182,19 +182,30 @@ test_framesync = executable('test_framesync',
 # Bit-exactness between the scalar-separable reference and the x86 SIMD
 # paths. Links the x86 AVX2/AVX-512 object libraries directly so the
 # kernels can be called without CPU-flag gating from inside the test.
+# Pulls in libvmaf core sources + dnn_sources the same way
+# test_feature_extractor does — extract_all_objects(libvmaf_feature)
+# drags in feature_lpips.o (which references vmaf_dnn_session_*) plus
+# every feature_collector wrapper (which references vmaf_log,
+# vmaf_picture_alloc, vmaf_dictionary_*), so we need the symbols those
+# wrappers call on.
 # See docs/adr/0125-ms-ssim-decimate-simd.md.
 if host_machine.cpu_family() == 'x86_64' or host_machine.cpu_family() == 'x86'
 test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
     ['test.c', 'test_ms_ssim_decimate.c',
-     '../src/mem.c'],
+     '../src/mem.c', '../src/picture.c', '../src/ref.c',
+     '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
-                           include_directories('../src/feature/')],
-    c_args : vmaf_cflags_common,
-    dependencies : [math_lib, pthread_dependency, sycl_dependency],
+                           include_directories('../src/feature/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
+                    cuda_dependency, sycl_dependency, dnn_deps],
     objects : [
+      common_cuda_objects,
       platform_specific_cpu_objects,
       libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
       libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
     ],
 )
 endif
