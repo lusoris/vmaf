@@ -148,8 +148,15 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
     if (!dst)
         dst = img; /* Convolve in-place */
 
-    /* filter horizontally */
-    for (y = -vc; y < dst_h + vc; ++y) {
+    /* filter horizontally — fill cache rows that the v-pass will read.
+     * v-pass reads cache[(y+vc+v)*w + kx] for y ∈ [0, dst_h) and v ∈
+     * [-vc, vc-kh_even], so the maximum cache row needed is
+     * (dst_h-1) + 2vc - kh_even = h - 1. Stopping the outer loop at
+     * `dst_h + vc - kh_even` avoids writing/reading row ky = h on
+     * even-tap kernels (kh_even == 1), which was an OOB by one row
+     * when image height equals kernel height or dst_h is small. No
+     * numerical impact: the skipped row was never consumed. */
+    for (y = -vc; y < dst_h + vc - kh_even; ++y) {
         for (x = 0; x < dst_w; ++x) {
             sum = 0.0;
             k_offset = 0;

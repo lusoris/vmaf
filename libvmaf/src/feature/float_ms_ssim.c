@@ -31,8 +31,10 @@
 
 #if ARCH_X86
 #include "x86/ssim_avx2.h"
+#include "x86/convolve_avx2.h"
 #if HAVE_AVX512
 #include "x86/ssim_avx512.h"
+#include "x86/convolve_avx512.h"
 #endif
 #endif
 
@@ -93,19 +95,24 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
 #if ARCH_X86
     {
         unsigned flags = vmaf_get_cpu_flags();
-        if (flags & VMAF_X86_CPU_FLAG_AVX2)
+        if (flags & VMAF_X86_CPU_FLAG_AVX2) {
             _iqa_ssim_set_dispatch(ssim_precompute_avx2, ssim_variance_avx2, ssim_accumulate_avx2);
+            _iqa_convolve_set_dispatch(iqa_convolve_avx2);
+        }
 #if HAVE_AVX512
-        if (flags & VMAF_X86_CPU_FLAG_AVX512)
+        if (flags & VMAF_X86_CPU_FLAG_AVX512) {
             _iqa_ssim_set_dispatch(ssim_precompute_avx512, ssim_variance_avx512,
                                    ssim_accumulate_avx512);
+            _iqa_convolve_set_dispatch(iqa_convolve_avx512);
+        }
 #endif
     }
 #elif ARCH_AARCH64
     {
         unsigned flags = vmaf_get_cpu_flags();
-        if (flags & VMAF_ARM_CPU_FLAG_NEON)
+        if (flags & VMAF_ARM_CPU_FLAG_NEON) {
             _iqa_ssim_set_dispatch(ssim_precompute_neon, ssim_variance_neon, ssim_accumulate_neon);
+        }
     }
 #endif
 
@@ -145,7 +152,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     picture_copy(s->ref, s->float_stride, ref_pic, 0, ref_pic->bpc);
     picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc);
 
-    double score, l_scores[5], c_scores[5], s_scores[5];
+    double score;
+    double l_scores[5];
+    double c_scores[5];
+    double s_scores[5];
     err = compute_ms_ssim(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride,
                           s->float_stride, &score, l_scores, c_scores, s_scores);
     if (err)
