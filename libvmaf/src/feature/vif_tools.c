@@ -40,7 +40,7 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 
 #ifndef M_PI
-    #define M_PI 3.14159265358979323846
+#define M_PI 3.14159265358979323846
 #endif
 
 #ifdef VIF_OPT_FAST_LOG2 // option to replace log2 calculation with faster speed
@@ -749,23 +749,25 @@ void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, flo
     aligned_free(tmp);
 }
 
-static int round_up_to_odd(float f) {
+static int round_up_to_odd(float f)
+{
     int ceiling = ceil(f);
     if (ceiling % 2 == 0) {
         return ceiling + 1;
-    }
-    else {
+    } else {
         return ceiling;
     }
 }
 
-static float get_gaussian_pdf(float x, float mean, float stdev) {
-    float num = exp(-0.5 * (x - mean)/stdev * (x - mean)/stdev);
+static float get_gaussian_pdf(float x, float mean, float stdev)
+{
+    float num = exp(-0.5 * (x - mean) / stdev * (x - mean) / stdev);
     float den = 1 / (stdev * sqrt(2 * M_PI));
     return num / den;
 }
 
-static void get_1d_gaussian_kernel(float *out, int size, float stdev) {
+static void get_1d_gaussian_kernel(float *out, int size, float stdev)
+{
     assert(size % 2 == 1);
 
     float sum = 0;
@@ -780,7 +782,8 @@ static void get_1d_gaussian_kernel(float *out, int size, float stdev) {
     }
 }
 
-bool vif_validate_kernelscale(float kernelscale) {
+bool vif_validate_kernelscale(float kernelscale)
+{
     for (int i = 0; i < NUM_KERNELSCALES; i++) {
         if (fabsf(kernelscale - valid_kernelscales[i]) < 1e-3) {
             return true;
@@ -789,19 +792,22 @@ bool vif_validate_kernelscale(float kernelscale) {
     return false;
 }
 
-int vif_get_filter_size(int scale, float kernelscale) {
+int vif_get_filter_size(int scale, float kernelscale)
+{
     assert(scale <= 4);
 
     int n = (1 << (4 - scale)) + 1;
     return MAX(round_up_to_odd(n * kernelscale), 3);
 }
 
-void vif_get_filter(float *out, int scale, float kernelscale) {
+void vif_get_filter(float *out, int scale, float kernelscale)
+{
     int window_size = vif_get_filter_size(scale, kernelscale);
     get_1d_gaussian_kernel(out, window_size, window_size / 5.0f);
 }
 
-void speed_get_antialias_filter(float *out, int scale, float kernelscale) {
+void speed_get_antialias_filter(float *out, int scale, float kernelscale)
+{
     // sigma_trick logic replication: antialias filter always has the size of scale 1 filter
     int window_size = vif_get_filter_size(1, kernelscale);
     get_1d_gaussian_kernel(out, window_size, sqrt(scale) * window_size / 5.0f);
@@ -822,7 +828,8 @@ void vif_dec16_s(const float *src, float *dst, int src_w, int src_h, int src_str
     }
 }
 
-int vif_get_scaling_method(char *scaling_method_str, enum vif_scaling_method *scale_method) {
+int vif_get_scaling_method(char *scaling_method_str, enum vif_scaling_method *scale_method)
+{
     if (!strcmp(scaling_method_str, "nearest")) {
         *scale_method = vif_scale_nearest;
     } else if (!strcmp(scaling_method_str, "bilinear")) {
@@ -832,14 +839,18 @@ int vif_get_scaling_method(char *scaling_method_str, enum vif_scaling_method *sc
     } else if (!strcmp(scaling_method_str, "lanczos4")) {
         *scale_method = vif_scale_lanczos4;
     } else {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "Invalid scale method %s. Supported scale methods: [nearest, bilinear, bicubic, lanczos4]\n", scaling_method_str);
+        vmaf_log(
+            VMAF_LOG_LEVEL_ERROR,
+            "Invalid scale method %s. Supported scale methods: [nearest, bilinear, bicubic, lanczos4]\n",
+            scaling_method_str);
         return -EINVAL;
     }
 
     return 0;
 }
 
-static float bicubic_kernel(float t) {
+static float bicubic_kernel(float t)
+{
     float a = -0.75;
     if (t < 0) {
         t = -t;
@@ -853,11 +864,14 @@ static float bicubic_kernel(float t) {
     return 0;
 }
 
-static float mirror(float i, float left, float right) {
+static float mirror(float i, float left, float right)
+{
     return (i < left ? -i : i > right ? 2 * right - i : i);
 }
 
-static float bicubic_interpolation(const float *src, int width, int height, int src_stride, float x, float y) {
+static float bicubic_interpolation(const float *src, int width, int height, int src_stride, float x,
+                                   float y)
+{
     int x0 = floor(x);
     int y0 = floor(y);
 
@@ -885,9 +899,9 @@ static float bicubic_interpolation(const float *src, int width, int height, int 
     return interp_val;
 }
 
-static void vif_scale_frame_bicubic_s(const float *src, float *dst,
-                                      int src_w, int src_h, int src_stride,
-                                      int dst_w, int dst_h, int dst_stride) {
+static void vif_scale_frame_bicubic_s(const float *src, float *dst, int src_w, int src_h,
+                                      int src_stride, int dst_w, int dst_h, int dst_stride)
+{
     // if the input and output sizes are the same
     if (src_w == dst_w && src_h == dst_h) {
         memcpy(dst, src, dst_stride * dst_h * sizeof(float));
@@ -906,15 +920,19 @@ static void vif_scale_frame_bicubic_s(const float *src, float *dst,
     }
 }
 
-static float lanczos4_kernel(float x, float a) {
-    if (x == 0.0) return 1.0;
+static float lanczos4_kernel(float x, float a)
+{
+    if (x == 0.0)
+        return 1.0;
     if (x > -a && x < a) {
         return a * sin(M_PI * x) * sin(M_PI * x / a) / (M_PI * M_PI * x * x);
     }
     return 0.0;
 }
 
-static float lanczos4_interpolation(const float *src, int width, int height, int src_stride, float x, float y) {
+static float lanczos4_interpolation(const float *src, int width, int height, int src_stride,
+                                    float x, float y)
+{
     int a = 4;
     int x0 = floor(x);
     int y0 = floor(y);
@@ -946,9 +964,9 @@ static float lanczos4_interpolation(const float *src, int width, int height, int
     return value / weight_sum;
 }
 
-static void vif_scale_frame_lanczos4_s(const float *src, float *dst,
-                                      int src_w, int src_h, int src_stride,
-                                      int dst_w, int dst_h, int dst_stride) {
+static void vif_scale_frame_lanczos4_s(const float *src, float *dst, int src_w, int src_h,
+                                       int src_stride, int dst_w, int dst_h, int dst_stride)
+{
     // if the input and output sizes are the same
     if (src_w == dst_w && src_h == dst_h) {
         memcpy(dst, src, dst_stride * dst_h * sizeof(float));
@@ -967,7 +985,9 @@ static void vif_scale_frame_lanczos4_s(const float *src, float *dst,
     }
 }
 
-static float bilinear_interpolation(const float *src, int width, int height, int src_stride, float x, float y) {
+static float bilinear_interpolation(const float *src, int width, int height, int src_stride,
+                                    float x, float y)
+{
     int x1 = mirror(floor(x), 0, width - 1);
     int x2 = mirror(ceil(x), 0, width - 1);
     int y1 = mirror(floor(y), 0, height - 1);
@@ -976,17 +996,14 @@ static float bilinear_interpolation(const float *src, int width, int height, int
     float dx = x - x1;
     float dy = y - y1;
 
-    return (
-        (1 - dy) * (1 - dx) * src[y1 * src_stride + x1] +
-        (1 - dy) *      dx  * src[y1 * src_stride + x2] +
-             dy  * (1 - dx) * src[y2 * src_stride + x1] +
-             dy  *      dx  * src[y2 * src_stride + x2]
-    );
+    return ((1 - dy) * (1 - dx) * src[y1 * src_stride + x1] +
+            (1 - dy) * dx * src[y1 * src_stride + x2] + dy * (1 - dx) * src[y2 * src_stride + x1] +
+            dy * dx * src[y2 * src_stride + x2]);
 }
 
-static void vif_scale_frame_bilinear_s(const float *src, float *dst,
-                       int src_w, int src_h, int src_stride,
-                       int dst_w, int dst_h, int dst_stride) {
+static void vif_scale_frame_bilinear_s(const float *src, float *dst, int src_w, int src_h,
+                                       int src_stride, int dst_w, int dst_h, int dst_stride)
+{
     // if the input and output sizes are the same
     if (src_w == dst_w && src_h == dst_h) {
         memcpy(dst, src, dst_stride * dst_h * sizeof(float));
@@ -1005,9 +1022,9 @@ static void vif_scale_frame_bilinear_s(const float *src, float *dst,
     }
 }
 
-static void vif_scale_frame_nearest_s(const float *src, float *dst,
-                       int src_w, int src_h, int src_stride,
-                       int dst_w, int dst_h, int dst_stride) {
+static void vif_scale_frame_nearest_s(const float *src, float *dst, int src_w, int src_h,
+                                      int src_stride, int dst_w, int dst_h, int dst_stride)
+{
     // if the input and output sizes are the same
     if (src_w == dst_w && src_h == dst_h) {
         memcpy(dst, src, dst_stride * dst_h * sizeof(float));
@@ -1027,8 +1044,8 @@ static void vif_scale_frame_nearest_s(const float *src, float *dst,
 }
 
 void vif_scale_frame_s(enum vif_scaling_method scale_method, const float *src, float *dst,
-                       int src_w, int src_h, int src_stride,
-                       int dst_w, int dst_h, int dst_stride) {
+                       int src_w, int src_h, int src_stride, int dst_w, int dst_h, int dst_stride)
+{
     if (scale_method == vif_scale_nearest) {
         vif_scale_frame_nearest_s(src, dst, src_w, src_h, src_stride, dst_w, dst_h, dst_stride);
     } else if (scale_method == vif_scale_bilinear) {

@@ -210,6 +210,25 @@ test_cambi = executable('test_cambi',
     dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
 )
 
+# speed_chroma + speed_temporal registration smoke tests — link against
+# libvmaf_feature_static_lib for the extractor list (mirrors test_lpips).
+test_speed = executable('test_speed',
+    ['test.c', 'test_speed.c', '../src/mem.c', '../src/picture.c', '../src/ref.c',
+     '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps,
+                    dnn_deps],
+    objects : [
+      common_cuda_objects,
+      platform_specific_cpu_objects,
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
+    ]
+)
+
 test_luminance_tools = executable('test_luminance_tools',
     ['test.c', 'test_luminance_tools.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
@@ -618,6 +637,7 @@ test('test_fastdvdnet_pre', test_fastdvdnet_pre)
 test('test_mobilesal', test_mobilesal)
 test('test_transnet_v2', test_transnet_v2)
 test('test_cambi', test_cambi)
+test('test_speed', test_speed)
 test('test_luminance_tools', test_luminance_tools)
 test('test_cli_parse', test_cli_parse)
 test('test_psnr', test_psnr)

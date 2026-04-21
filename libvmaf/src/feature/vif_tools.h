@@ -51,26 +51,10 @@ enum vif_scaling_method {
 #define NUM_KERNELSCALES 21
 
 static const float valid_kernelscales[NUM_KERNELSCALES] = {
-    1.0,
-    1.0f / 2.0f,
-    3.0f / 2.0f,
-    2.0f,
-    2.0f / 3.0f,
-    24.0f / 10.0f,
-    360.0f / 97.0f,
-    4.0f / 3.0f,
-    3.5f / 3.0f,
-    3.75f / 3.0f,
-    4.25f / 3.0f,
-    5.0f / 3.0f,
-    3.0f,
-    1.0f / 2.25f,
-    1.4746f,
-    1.54f,
-    1.6f,
-    1.06667f,
-    0.711111f,
-    0.740740f,
+    1.0,           1.0f / 2.0f,    3.0f / 2.0f, 2.0f,         2.0f / 3.0f,
+    24.0f / 10.0f, 360.0f / 97.0f, 4.0f / 3.0f, 3.5f / 3.0f,  3.75f / 3.0f,
+    4.25f / 3.0f,  5.0f / 3.0f,    3.0f,        1.0f / 2.25f, 1.4746f,
+    1.54f,         1.6f,           1.06667f,    0.711111f,    0.740740f,
     1.111111f,
 };
 
@@ -79,7 +63,8 @@ static const float valid_kernelscales[NUM_KERNELSCALES] = {
 void vif_dec2_s(const float *src, float *dst, int src_w, int src_h, int src_stride,
                 int dst_stride); // stride >= width, multiple of 16 or 32 typically
 
-void vif_dec16_s(const float *src, float *dst, int src_w, int src_h, int src_stride, int dst_stride); // stride >= width, multiple of 16 or 32 typically
+void vif_dec16_s(const float *src, float *dst, int src_w, int src_h, int src_stride,
+                 int dst_stride); // stride >= width, multiple of 16 or 32 typically
 
 float vif_sum_s(const float *x, int w, int h, int stride);
 
@@ -101,7 +86,8 @@ void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, flo
 
 int vif_get_scaling_method(char *scaling_method_str, enum vif_scaling_method *scale_method);
 
-void vif_scale_frame_s(enum vif_scaling_method scale_method, const float *src, float *dst, int src_w, int src_h, int src_stride, int dst_w, int dst_h, int dst_stride);
+void vif_scale_frame_s(enum vif_scaling_method scale_method, const float *src, float *dst,
+                       int src_w, int src_h, int src_stride, int dst_w, int dst_h, int dst_stride);
 
 int vif_get_filter_size(int scale, float kernelscale);
 
