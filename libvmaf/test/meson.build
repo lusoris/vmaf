@@ -184,7 +184,7 @@ test_framesync = executable('test_framesync',
 # platform SIMD object libraries directly so the kernels can be called
 # without CPU-flag gating from inside the test. See
 # docs/adr/0125-ms-ssim-decimate-simd.md.
-iqa_convolve_test_archs = ['x86_64', 'x86']
+iqa_convolve_test_archs = ['x86_64', 'x86', 'aarch64', 'arm64']
 if iqa_convolve_test_archs.contains(host_machine.cpu_family())
 test_iqa_convolve = executable('test_iqa_convolve',
     ['test.c', 'test_iqa_convolve.c',

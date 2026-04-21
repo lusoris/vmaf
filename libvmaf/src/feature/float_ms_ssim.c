@@ -39,6 +39,7 @@
 #endif
 
 #if ARCH_AARCH64
+#include "arm64/convolve_neon.h"
 #include "arm64/ssim_neon.h"
 #endif
 
@@ -112,6 +113,7 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         unsigned flags = vmaf_get_cpu_flags();
         if (flags & VMAF_ARM_CPU_FLAG_NEON) {
             _iqa_ssim_set_dispatch(ssim_precompute_neon, ssim_variance_neon, ssim_accumulate_neon);
+            _iqa_convolve_set_dispatch(iqa_convolve_neon);
         }
     }
 #endif

@@ -1729,3 +1729,88 @@ inline.*
   required for the bit-exactness claim. Same applies to
   `convolve_avx2/512` — they are fork-only; dispatch sits in
   `ssim_tools.c` via `_iqa_convolve_set_dispatch`.
+
+### 0034 — SIMD DX framework + NEON SSIM/convolve bit-exact port
+
+- **Workstream PRs**: `feat/simd-dx-framework` (this PR, PR #A);
+  ships the two demos on top of which PR #B will consume the
+  framework (ssimulacra2, motion_v2, vif_statistic, ...).
+- **Touches**:
+  [`libvmaf/src/feature/simd_dx.h`](../libvmaf/src/feature/simd_dx.h)
+  (new header),
+  [`libvmaf/src/feature/arm64/convolve_neon.c`](../libvmaf/src/feature/arm64/convolve_neon.c)
+  +
+  [`convolve_neon.h`](../libvmaf/src/feature/arm64/convolve_neon.h)
+  (new NEON port),
+  [`libvmaf/src/feature/arm64/ssim_neon.c`](../libvmaf/src/feature/arm64/ssim_neon.c)
+  (`ssim_accumulate_neon` rewritten for ADR-0139 bit-exactness;
+  `precompute` + `variance` unchanged),
+  [`libvmaf/src/feature/float_ssim.c`](../libvmaf/src/feature/float_ssim.c)
+  +
+  [`libvmaf/src/feature/float_ms_ssim.c`](../libvmaf/src/feature/float_ms_ssim.c)
+  (wire `iqa_convolve_neon` into the aarch64 dispatch setters),
+  [`libvmaf/src/meson.build`](../libvmaf/src/meson.build)
+  (`arm64_sources` += convolve_neon.c),
+  [`libvmaf/test/meson.build`](../libvmaf/test/meson.build)
+  (`test_iqa_convolve` arch filter extended to `arm64` / `aarch64`),
+  [`libvmaf/test/test_iqa_convolve.c`](../libvmaf/test/test_iqa_convolve.c)
+  (NEON variant check + aarch64 CPU flag detection),
+  [`libvmaf/test/dnn/meson.build`](../libvmaf/test/dnn/meson.build)
+  (`test_cli.sh` gated on `not meson.is_cross_build()` — bash
+  invokes `$VMAF_BIN` directly so meson's exe_wrapper isn't
+  applied), new
+  [`build-aux/aarch64-linux-gnu.ini`](../build-aux/aarch64-linux-gnu.ini)
+  meson cross-file,
+  [`.claude/skills/add-simd-path/SKILL.md`](../.claude/skills/add-simd-path/SKILL.md)
+  (upgraded kernel-spec flags).
+- **Invariants** (see [ADR-0140](adr/0140-simd-dx-framework.md)
+  §Decision):
+  1. `simd_dx.h` is fork-local. Keep the fork's version on upstream
+     conflict. Macro names are ISA-suffixed (`_AVX2_4L`,
+     `_AVX512_8L`, `_NEON_4L`) — do not collapse into a cross-ISA
+     abstraction; the fork's SIMD policy
+     (user-memory `feedback_simd_dx_scope.md`) rules out
+     Highway / simde / xsimd.
+  2. The ADR-0138 widen-then-add rule (single-rounded
+     `float * float` → widen → `double` add, NO FMA) applies to
+     NEON exactly as to AVX2 / AVX-512. The NEON form uses paired
+     `float64x2_t` accumulators (lo / hi) because NEON has no
+     `float64x4_t`.
+  3. The ADR-0139 per-lane scalar-double reduction rule applies to
+     `ssim_accumulate_neon` exactly as to the AVX2 / AVX-512
+     variants. The NEON implementation uses
+     `SIMD_ALIGNED_F32_BUF_NEON` (`_Alignas(16) float name[4]`) +
+     a 4-iteration scalar loop.
+- **Re-test** (requires `aarch64-linux-gnu-gcc` +
+  `qemu-user-static` + aarch64 sysroot at `/usr/aarch64-linux-gnu`):
+
+  ```bash
+  cd libvmaf
+  meson setup ../build-aarch64 \
+    --cross-file ../build-aux/aarch64-linux-gnu.ini \
+    -Denable_cuda=false -Denable_sycl=false -Denable_dnn=disabled
+  cd ..
+  ninja -C build-aarch64
+  meson test -C build-aarch64                       # expect 31/31 OK
+  # Bit-exactness check scalar vs NEON under QEMU:
+  REF=python/test/resource/yuv/src01_hrc00_576x324.yuv
+  DIS=python/test/resource/yuv/src01_hrc01_576x324.yuv
+  for m in 255 0; do
+    LD_LIBRARY_PATH=$PWD/build-aarch64/src qemu-aarch64-static \
+      -L /usr/aarch64-linux-gnu build-aarch64/tools/vmaf \
+      --cpumask $m --reference $REF --distorted $DIS \
+      --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+      --feature float_ssim --feature float_ms_ssim \
+      --output /tmp/ssim_$m.xml --precision max
+  done
+  diff <(grep -v '<fyi fps' /tmp/ssim_255.xml) \
+       <(grep -v '<fyi fps' /tmp/ssim_0.xml)     # expect empty
+  ```
+
+- **On upstream sync**: upstream has no NEON SSIM and no NEON
+  convolve for IQA. If they ever add one, **keep the fork's
+  version on conflict** — the fork's NEON path is the only variant
+  verified bit-exact to scalar at `--precision max`. The
+  `build-aux/aarch64-linux-gnu.ini` cross-file has no upstream
+  equivalent. The `/add-simd-path` skill is fork-only; upstream
+  doesn't ship `.claude/skills/`.

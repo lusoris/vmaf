@@ -25,6 +25,35 @@
     [Research-0006](docs/research/0006-tinyai-ptq-accuracy-targets.md):
     Tiny-AI PTQ int8 (static + dynamic + QAT per-model via
     `model/registry.json`).
+- **SIMD DX framework — `simd_dx.h` + upgraded `/add-simd-path` skill**:
+  fork-internal header
+  ([`libvmaf/src/feature/simd_dx.h`](libvmaf/src/feature/simd_dx.h))
+  that codifies the ADR-0138 (widen-then-add) and ADR-0139 (per-lane
+  scalar-double reduce) patterns as ISA-suffixed macros
+  (`SIMD_WIDEN_ADD_F32_F64_AVX2_4L` / `_AVX512_8L` / `_NEON_4L`,
+  `SIMD_ALIGNED_F32_BUF_*`, `SIMD_LANES_*`). Zero runtime overhead —
+  each macro documents its scalar C equivalent and is guarded by the
+  matching `__AVX2__` / `__AVX512F__` / `__ARM_NEON` ifdef. The
+  `/add-simd-path` skill
+  ([`.claude/skills/add-simd-path/SKILL.md`](.claude/skills/add-simd-path/SKILL.md))
+  gained `--kernel-spec=widen-add-f32-f64|per-lane-scalar-double|none`,
+  `--lanes=N`, and `--tail=scalar|masked` flags so new SIMD TUs
+  scaffold from a short declaration instead of a cold copy-paste.
+  Demonstrated on two real kernels in the same PR: a new bit-exact
+  `iqa_convolve_neon`
+  ([`libvmaf/src/feature/arm64/convolve_neon.c`](libvmaf/src/feature/arm64/convolve_neon.c))
+  and a bit-exactness fix for `ssim_accumulate_neon` that mirrors the
+  ADR-0139 x86 fix. Together they complete the SSIM / MS-SSIM SIMD
+  coverage on aarch64. See
+  [ADR-0140](docs/adr/0140-simd-dx-framework.md) +
+  [research digest 0013](docs/research/0013-simd-dx-framework.md).
+- **aarch64 cross-compile lane**:
+  [`build-aux/aarch64-linux-gnu.ini`](build-aux/aarch64-linux-gnu.ini)
+  meson cross-file for `aarch64-linux-gnu-gcc` +
+  `qemu-aarch64-static`. The `test_iqa_convolve` meson target now
+  covers `arm64` / `aarch64` alongside `x86_64` / `x86` so future NEON
+  convolve changes gate on the same bit-exactness contract as the x86
+  variants.
 - **I18N / thread-safety**: `thread_locale.h/.c` cross-platform thread-local
   locale abstraction ported from upstream PR
   [Netflix/vmaf#1430](https://github.com/Netflix/vmaf/pull/1430) (Diego Nieto,
@@ -456,6 +485,24 @@
 
 ### Fixed
 
+- **SSIM / MS-SSIM NEON bit-exactness to scalar**: fork-local
+  `ssim_accumulate_neon`
+  ([`libvmaf/src/feature/arm64/ssim_neon.c`](libvmaf/src/feature/arm64/ssim_neon.c))
+  previously carried the same ~0.13 float-ULP drift on
+  `float_ms_ssim` / ~6 × 10⁻⁸ drift on `float_ssim` that ADR-0139
+  fixed for AVX2 / AVX-512 — it was never surfaced because CI has no
+  aarch64 runner. The NEON accumulator now computes the float-valued
+  intermediates in vector float (`float32x4_t`) and spills to
+  `SIMD_ALIGNED_F32_BUF_NEON(4)` buffers so the
+  `2.0 * mu1 * mu2 + C1` numerator + division + `l*c*s` triple
+  product run per-lane in scalar double, matching the x86 fix. Also
+  plugged the aarch64 `iqa_convolve` gap — there was no NEON convolve
+  at all before this PR; the VIF / ADM features used the scalar path
+  on aarch64 while x86 ran AVX2 / AVX-512. Verified bit-identical
+  under `qemu-aarch64-static` on both Netflix `src01_hrc00/01_576x324`
+  and `checkerboard_1920_1080_10_3` pairs at `--precision max`. See
+  [ADR-0140](docs/adr/0140-simd-dx-framework.md) +
+  [research digest 0013](docs/research/0013-simd-dx-framework.md).
 - **SSIM / MS-SSIM AVX2 + AVX-512 bit-exactness to scalar**: fork-local
   `ssim_accumulate_avx2` / `ssim_accumulate_avx512`
   ([`libvmaf/src/feature/x86/ssim_avx2.c`](libvmaf/src/feature/x86/ssim_avx2.c),

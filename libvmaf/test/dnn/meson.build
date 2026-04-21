@@ -97,8 +97,10 @@ if bash_prog.found()
     # test_cli shells out to the built `vmaf` CLI binary, which only
     # exists when -Denable_tools=true. Skip the CLI-level smoke test
     # when tools are disabled (e.g. on the Windows MSVC build-only
-    # legs where <unistd.h> / <getopt.h> aren't available).
-    if get_option('enable_tools')
+    # legs where <unistd.h> / <getopt.h> aren't available) or when
+    # cross-compiling (bash invokes VMAF_BIN directly, bypassing meson's
+    # exe_wrapper; qemu-user then fails without QEMU_LD_PREFIX).
+    if get_option('enable_tools') and not meson.is_cross_build()
         test('test_cli',
              bash_prog,
              args : [files('test_cli.sh')],

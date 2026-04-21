@@ -17,10 +17,10 @@
  */
 
 /*
- * Bit-exactness contract (ADR-0138): the SIMD `iqa_convolve_*` variants
- * — AVX2 and AVX-512 — produce byte-for-byte the same output as the
- * scalar reference `_iqa_convolve` under IQA_CONVOLVE_1D, for any
- * (src, w, h, kernel) in the SSIM/MS-SSIM supported space:
+ * Bit-exactness contract (ADR-0138, ADR-0140): the SIMD `iqa_convolve_*`
+ * variants — AVX2, AVX-512, and NEON — produce byte-for-byte the same
+ * output as the scalar reference `_iqa_convolve` under IQA_CONVOLVE_1D,
+ * for any (src, w, h, kernel) in the SSIM/MS-SSIM supported space:
  *   - 11-tap Gaussian (odd kernel, kw_even == 0)
  *   - 8-tap box       (even kernel, kw_even == 1)
  *   - image dimensions where `w >= kw` and `h >= kh`
@@ -48,6 +48,10 @@
 #include "feature/x86/convolve_avx512.h"
 #endif
 #endif
+#if ARCH_AARCH64
+#include "cpu.h"
+#include "feature/arm64/convolve_neon.h"
+#endif
 #include "test.h"
 #if ARCH_X86
 #include "x86/cpu.h"
@@ -56,6 +60,9 @@
 #if ARCH_X86
 static int g_has_avx2 = 0;
 static int g_has_avx512 = 0;
+#endif
+#if ARCH_AARCH64
+static int g_has_neon = 0;
 #endif
 
 /* 11-tap Gaussian — matches g_gaussian_window_{h,v} in ssim_tools.h. */
@@ -84,7 +91,7 @@ static int compare_bitexact(const float *a, const float *b, size_t n)
     return memcmp(a, b, n * sizeof(float)) == 0;
 }
 
-#if ARCH_X86
+#if ARCH_X86 || ARCH_AARCH64
 typedef void (*convolve_simd_fn)(float *img, int w, int h, const float *kernel_h,
                                  const float *kernel_v, int kw, int kh, int normalized,
                                  float *workspace, float *result, int *rw, int *rh);
@@ -112,7 +119,7 @@ static char *check_simd_variant(const float *src, int w, int h, const float *ker
     free(workspace);
     return NULL;
 }
-#endif /* ARCH_X86 */
+#endif /* ARCH_X86 || ARCH_AARCH64 */
 
 static char *check_case(int w, int h, int kw, const float *kernel_h, const float *kernel_v,
                         uint32_t seed)
@@ -166,6 +173,15 @@ static char *check_case(int w, int h, int kw, const float *kernel_h, const float
             goto done;
     }
 #endif
+#endif
+#if ARCH_AARCH64
+    if (g_has_neon) {
+        msg = check_simd_variant(src, w, h, kernel_h, kernel_v, kw, kw, dst_scalar, dst_n,
+                                 iqa_convolve_neon, 0x77,
+                                 "neon convolve output not bit-identical to scalar");
+        if (msg)
+            goto done;
+    }
 #endif
 
 done:
@@ -242,8 +258,15 @@ char *run_tests(void)
         (void)fprintf(stderr, "skipping: CPU has neither AVX2 nor AVX-512\n");
         return NULL;
     }
+#elif ARCH_AARCH64
+    const unsigned cpu_flags = vmaf_get_cpu_flags();
+    g_has_neon = (cpu_flags & VMAF_ARM_CPU_FLAG_NEON) ? 1 : 0;
+    if (!g_has_neon) {
+        (void)fprintf(stderr, "skipping: aarch64 CPU lacks NEON\n");
+        return NULL;
+    }
 #else
-    (void)fprintf(stderr, "skipping: non-x86 arch\n");
+    (void)fprintf(stderr, "skipping: non-x86, non-aarch64 arch\n");
     return NULL;
 #endif
 
