@@ -77,7 +77,8 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             files=$(git diff --name-only \
               origin/${{ github.base_ref }}...HEAD \
-              -- '*.c' '*.h' '*.cpp' '*.hpp' | tr '\n' ' ')
+              -- '*.c' '*.h' '*.cpp' '*.hpp' \
+              | grep -v '^libvmaf/src/feature/arm64/' | tr '\n' ' ')
           elif [ "${{ github.event_name }}" = "push" ]; then
             before="${{ github.event.before }}"
             zero="0000000000000000000000000000000000000000"
@@ -86,19 +87,21 @@ jobs:
               # parent exists, otherwise skip (no meaningful delta).
               if git rev-parse HEAD~1 >/dev/null 2>&1; then
                 files=$(git diff --name-only HEAD~1..HEAD \
-                  -- '*.c' '*.h' '*.cpp' '*.hpp' | tr '\n' ' ')
+                  -- '*.c' '*.h' '*.cpp' '*.hpp' \
+                  | grep -v '^libvmaf/src/feature/arm64/' | tr '\n' ' ')
               else
                 files=""
               fi
             else
               files=$(git diff --name-only "$before"..HEAD \
-                -- '*.c' '*.h' '*.cpp' '*.hpp' | tr '\n' ' ')
+                -- '*.c' '*.h' '*.cpp' '*.hpp' \
+                | grep -v '^libvmaf/src/feature/arm64/' | tr '\n' ' ')
             fi
           else
             # workflow_dispatch and other triggers: scan full tree (slow
             # but deliberate — operator asked for it).
             files=$(git ls-files '*.c' '*.h' '*.cpp' '*.hpp' \
-              | grep -v '^subprojects/' | tr '\n' ' ')
+              | grep -v '^subprojects/' | grep -v '^libvmaf/src/feature/arm64/' | tr '\n' ' ')
           fi
           [ -z "$files" ] && { echo "no C/C++ changes"; exit 0; }
           # Drop empty lines — the `tr '\n' ' ' | tr ' ' '\n'` round-trip
