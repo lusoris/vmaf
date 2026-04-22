@@ -1,5 +1,15 @@
 # CLAUDE.md — VMAF Fork (Lusoris)
 
+## 🌟 GLOBAL PROJECT RULES (TOP PRIORITY)
+
+These 2 rules apply to ALL agents, ALL tools, and ALL commits — without exception.
+They override everything else in this file.
+
+1. **NEVER modify Netflix golden-data assertions** (`python/test/` `assertAlmostEqual` values).
+   They are the numerical-correctness ground truth. If scores drift, fix the code — not the assertions.
+2. **EVERY user-discoverable surface gets human-readable documentation in the same PR** as the code.
+   No docs = unmergeable PR. ADRs and code comments are not substitutes.
+
 High-signal orientation for Claude Code sessions opened in this repo.
 Non-Claude agents: see [AGENTS.md](AGENTS.md) (same content, tool-agnostic).
 
@@ -218,6 +228,26 @@ Use `/prep-release` to dry-run locally before merging a release PR.
     `port-upstream-commit` PRs are exempt. The PR template
     ([.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md))
     carries the checklist; reviewers verify it.
+12. **Every** PR leaves every file it touches **lint-clean** to the
+    fork's strictest profile (clang-tidy + cppcheck + the linters in
+    `make lint`), regardless of whether the file is fork-local or
+    upstream-mirror. "Touches" = any hunk in the PR's diff against its
+    merge base. Refactor first (extract helpers, split oversized
+    functions, rename reserved identifiers, `(void)`-cast discarded
+    return values, ...). `// NOLINT` / `// NOLINTNEXTLINE` is reserved
+    for cases where refactoring would break a **load-bearing
+    invariant** — e.g., an ADR-0138 / ADR-0139 bit-exactness pattern
+    that requires an inline per-lane reduction, or an upstream-parity
+    identifier the rebase story depends on keeping verbatim. Every
+    NOLINT cites inline the ADR / research digest / rebase invariant
+    that forces it; a NOLINT without a justification comment is itself
+    a lint violation. Historical debt from before this rule
+    (pre-2026-04-21, ~18 `readability-function-size` NOLINTs +
+    upstream `_iqa_*` suppressions) is scoped to backlog item T7-5
+    (one sweep-PR, gated by Netflix golden + `/cross-backend-diff`);
+    this rule does not backdate itself onto in-flight PRs that don't
+    touch those files. See
+    [ADR-0141](docs/adr/0141-touched-file-cleanup-rule.md).
 
 ## 13. Interaction style — prefer the popup question tool
 

@@ -236,7 +236,12 @@ static float ssim_accumulate_user_args_scalar(float *ref_sigma_sqd, float *cmp_s
     return mr->reduce(w, h, mr->context);
 }
 
-/* _iqa_ssim */
+/* _iqa_ssim — upstream Netflix function. Refactor deferred to backlog item T7-5
+ * (one-PR sweep gated by Netflix golden + /cross-backend-diff, per ADR-0141
+ * §Historical debt). The fork's changes here (ADR-0138 dispatch + workspace
+ * allocator) are surgical; splitting the function would fork upstream's shape
+ * for zero behaviour delta. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
                 const struct _map_reduce *mr, const struct iqa_ssim_args *args, float *l_mean,
                 float *c_mean, float *s_mean /* zli-nflx */

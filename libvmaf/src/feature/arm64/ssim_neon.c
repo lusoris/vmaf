@@ -17,8 +17,8 @@
  */
 
 #include <arm_neon.h>
-#include <math.h>
 
+#include "../iqa/ssim_accumulate_lane.h"
 #include "../simd_dx.h"
 #include "ssim_neon.h"
 
@@ -87,6 +87,47 @@ void ssim_variance_neon(float *ref_sigma_sqd, float *cmp_sigma_sqd, float *sigma
     }
 }
 
+/* 4-wide NEON block — see ssim_avx2.c for the AVX2 companion. */
+static inline void ssim_accumulate_block_neon(const float *ref_mu, const float *cmp_mu,
+                                              const float *ref_sigma_sqd,
+                                              const float *cmp_sigma_sqd, const float *sigma_both,
+                                              int i, float32x4_t vC1, float32x4_t vC2,
+                                              float32x4_t vC3, float32x4_t vzero, float C1,
+                                              float C2, double *local_ssim, double *local_l,
+                                              double *local_c, double *local_s)
+{
+    const float32x4_t rm = vld1q_f32(ref_mu + i);
+    const float32x4_t cm = vld1q_f32(cmp_mu + i);
+    const float32x4_t rs = vld1q_f32(ref_sigma_sqd + i);
+    const float32x4_t cs = vld1q_f32(cmp_sigma_sqd + i);
+    const float32x4_t sb = vld1q_f32(sigma_both + i);
+    const float32x4_t srsc = vsqrtq_f32(vmulq_f32(rs, cs));
+    const float32x4_t l_den = vaddq_f32(vaddq_f32(vmulq_f32(rm, rm), vmulq_f32(cm, cm)), vC1);
+    const float32x4_t c_den = vaddq_f32(vaddq_f32(rs, cs), vC2);
+    const uint32x4_t sb_neg = vcltq_f32(sb, vzero);
+    const uint32x4_t srsc_le0 = vcleq_f32(srsc, vzero);
+    const float32x4_t clamped_sb = vbslq_f32(vandq_u32(sb_neg, srsc_le0), vzero, sb);
+    const float32x4_t sv_f = vdivq_f32(vaddq_f32(clamped_sb, vC3), vaddq_f32(srsc, vC3));
+
+    SIMD_ALIGNED_F32_BUF_NEON(t_rm);
+    SIMD_ALIGNED_F32_BUF_NEON(t_cm);
+    SIMD_ALIGNED_F32_BUF_NEON(t_srsc);
+    SIMD_ALIGNED_F32_BUF_NEON(t_l_den);
+    SIMD_ALIGNED_F32_BUF_NEON(t_c_den);
+    SIMD_ALIGNED_F32_BUF_NEON(t_sv);
+    vst1q_f32(t_rm, rm);
+    vst1q_f32(t_cm, cm);
+    vst1q_f32(t_srsc, srsc);
+    vst1q_f32(t_l_den, l_den);
+    vst1q_f32(t_c_den, c_den);
+    vst1q_f32(t_sv, sv_f);
+
+    for (int k = 0; k < SIMD_LANES_NEON; k++) {
+        ssim_accumulate_lane(t_rm[k], t_cm[k], t_srsc[k], t_l_den[k], t_c_den[k], t_sv[k], C1, C2,
+                             local_ssim, local_l, local_c, local_s);
+    }
+}
+
 void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu, const float *ref_sigma_sqd,
                           const float *cmp_sigma_sqd, const float *sigma_both, int n, float C1,
                           float C2, float C3, double *ssim_sum, double *l_sum, double *c_sum,
@@ -96,7 +137,6 @@ void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu, const float 
     const float32x4_t vC2 = vdupq_n_f32(C2);
     const float32x4_t vC3 = vdupq_n_f32(C3);
     const float32x4_t vzero = vdupq_n_f32(0.0f);
-
     double local_ssim = 0.0;
     double local_l = 0.0;
     double local_c = 0.0;
@@ -104,72 +144,15 @@ void ssim_accumulate_neon(const float *ref_mu, const float *cmp_mu, const float 
 
     int i = 0;
     for (; i + SIMD_LANES_NEON <= n; i += SIMD_LANES_NEON) {
-        const float32x4_t rm = vld1q_f32(ref_mu + i);
-        const float32x4_t cm = vld1q_f32(cmp_mu + i);
-        const float32x4_t rs = vld1q_f32(ref_sigma_sqd + i);
-        const float32x4_t cs = vld1q_f32(cmp_sigma_sqd + i);
-        const float32x4_t sb = vld1q_f32(sigma_both + i);
-
-        /* srsc = sqrtf(rs * cs) — float mul + float sqrt. */
-        const float32x4_t srsc = vsqrtq_f32(vmulq_f32(rs, cs));
-
-        /* Float denominators, matching scalar order: ((a+b)+C). */
-        const float32x4_t l_den = vaddq_f32(vaddq_f32(vmulq_f32(rm, rm), vmulq_f32(cm, cm)), vC1);
-        const float32x4_t c_den = vaddq_f32(vaddq_f32(rs, cs), vC2);
-
-        /* s numerator: clamp sb to 0 iff sb<0 AND srsc<=0, add C3. */
-        const uint32x4_t sb_neg = vcltq_f32(sb, vzero);
-        const uint32x4_t srsc_le0 = vcleq_f32(srsc, vzero);
-        const uint32x4_t clamp_mask = vandq_u32(sb_neg, srsc_le0);
-        const float32x4_t clamped_sb = vbslq_f32(clamp_mask, vzero, sb);
-        /* sv = (csb + C3) / (srsc + C3) — all float; promoted to double
-         * at per-lane load below. */
-        const float32x4_t sv_f = vdivq_f32(vaddq_f32(clamped_sb, vC3), vaddq_f32(srsc, vC3));
-
-        SIMD_ALIGNED_F32_BUF_NEON(t_rm);
-        SIMD_ALIGNED_F32_BUF_NEON(t_cm);
-        SIMD_ALIGNED_F32_BUF_NEON(t_srsc);
-        SIMD_ALIGNED_F32_BUF_NEON(t_l_den);
-        SIMD_ALIGNED_F32_BUF_NEON(t_c_den);
-        SIMD_ALIGNED_F32_BUF_NEON(t_sv);
-        vst1q_f32(t_rm, rm);
-        vst1q_f32(t_cm, cm);
-        vst1q_f32(t_srsc, srsc);
-        vst1q_f32(t_l_den, l_den);
-        vst1q_f32(t_c_den, c_den);
-        vst1q_f32(t_sv, sv_f);
-
-        /* Per-lane scalar-double reduction. Matches scalar:
-         *   lv = (2.0 * rm * cm + C1) / (rm*rm + cm*cm + C1)     [double]
-         *   cv = (2.0 * srsc + C2)    / (rs + cs + C2)           [double]
-         *   sv = (csb + C3) / (srsc + C3)                        [float→double]
-         *   ssim += lv * cv * sv
-         */
-        for (int k = 0; k < SIMD_LANES_NEON; k++) {
-            const double lv = (2.0 * t_rm[k] * t_cm[k] + C1) / t_l_den[k];
-            const double cv = (2.0 * t_srsc[k] + C2) / t_c_den[k];
-            const double sv = t_sv[k];
-            local_ssim += lv * cv * sv;
-            local_l += lv;
-            local_c += cv;
-            local_s += sv;
-        }
+        ssim_accumulate_block_neon(ref_mu, cmp_mu, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, i, vC1,
+                                   vC2, vC3, vzero, C1, C2, &local_ssim, &local_l, &local_c,
+                                   &local_s);
     }
-
-    /* Scalar tail */
     for (; i < n; i++) {
-        const float srsc = sqrtf(ref_sigma_sqd[i] * cmp_sigma_sqd[i]);
-        const double lv = (2.0 * ref_mu[i] * cmp_mu[i] + C1) /
-                          (ref_mu[i] * ref_mu[i] + cmp_mu[i] * cmp_mu[i] + C1);
-        const double cv = (2.0 * srsc + C2) / (ref_sigma_sqd[i] + cmp_sigma_sqd[i] + C2);
-        const float csb = (sigma_both[i] < 0.0f && srsc <= 0.0f) ? 0.0f : sigma_both[i];
-        const double sv = (csb + C3) / (srsc + C3);
-        local_ssim += lv * cv * sv;
-        local_l += lv;
-        local_c += cv;
-        local_s += sv;
+        ssim_accumulate_scalar_step(ref_mu[i], cmp_mu[i], ref_sigma_sqd[i], cmp_sigma_sqd[i],
+                                    sigma_both[i], C1, C2, C3, &local_ssim, &local_l, &local_c,
+                                    &local_s);
     }
-
     *ssim_sum += local_ssim;
     *l_sum += local_l;
     *c_sum += local_c;

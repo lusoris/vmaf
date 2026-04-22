@@ -17,8 +17,8 @@
  */
 
 #include <immintrin.h>
-#include <math.h>
 
+#include "../iqa/ssim_accumulate_lane.h"
 #include "ssim_avx2.h"
 
 /*
@@ -88,6 +88,48 @@ void ssim_variance_avx2(float *ref_sigma_sqd, float *cmp_sigma_sqd, float *sigma
     }
 }
 
+/* 8-wide SIMD block: compute float intermediates, spill to aligned
+ * buffers, reduce per-lane in scalar double (ADR-0139). */
+static inline void ssim_accumulate_block_avx2(const float *ref_mu, const float *cmp_mu,
+                                              const float *ref_sigma_sqd,
+                                              const float *cmp_sigma_sqd, const float *sigma_both,
+                                              int i, __m256 vC1, __m256 vC2, __m256 vC3,
+                                              __m256 vzero, float C1, float C2, double *local_ssim,
+                                              double *local_l, double *local_c, double *local_s)
+{
+    const __m256 rm = _mm256_loadu_ps(ref_mu + i);
+    const __m256 cm = _mm256_loadu_ps(cmp_mu + i);
+    const __m256 rs = _mm256_loadu_ps(ref_sigma_sqd + i);
+    const __m256 cs = _mm256_loadu_ps(cmp_sigma_sqd + i);
+    const __m256 sb = _mm256_loadu_ps(sigma_both + i);
+    const __m256 srsc = _mm256_sqrt_ps(_mm256_mul_ps(rs, cs));
+    const __m256 l_den =
+        _mm256_add_ps(_mm256_add_ps(_mm256_mul_ps(rm, rm), _mm256_mul_ps(cm, cm)), vC1);
+    const __m256 c_den = _mm256_add_ps(_mm256_add_ps(rs, cs), vC2);
+    const __m256 sb_neg = _mm256_cmp_ps(sb, vzero, _CMP_LT_OQ);
+    const __m256 srsc_le0 = _mm256_cmp_ps(srsc, vzero, _CMP_LE_OQ);
+    const __m256 clamped_sb = _mm256_blendv_ps(sb, vzero, _mm256_and_ps(sb_neg, srsc_le0));
+    const __m256 sv_f = _mm256_div_ps(_mm256_add_ps(clamped_sb, vC3), _mm256_add_ps(srsc, vC3));
+
+    _Alignas(32) float t_rm[8];
+    _Alignas(32) float t_cm[8];
+    _Alignas(32) float t_srsc[8];
+    _Alignas(32) float t_l_den[8];
+    _Alignas(32) float t_c_den[8];
+    _Alignas(32) float t_sv[8];
+    _mm256_store_ps(t_rm, rm);
+    _mm256_store_ps(t_cm, cm);
+    _mm256_store_ps(t_srsc, srsc);
+    _mm256_store_ps(t_l_den, l_den);
+    _mm256_store_ps(t_c_den, c_den);
+    _mm256_store_ps(t_sv, sv_f);
+
+    for (int k = 0; k < 8; k++) {
+        ssim_accumulate_lane(t_rm[k], t_cm[k], t_srsc[k], t_l_den[k], t_c_den[k], t_sv[k], C1, C2,
+                             local_ssim, local_l, local_c, local_s);
+    }
+}
+
 void ssim_accumulate_avx2(const float *ref_mu, const float *cmp_mu, const float *ref_sigma_sqd,
                           const float *cmp_sigma_sqd, const float *sigma_both, int n, float C1,
                           float C2, float C3, double *ssim_sum, double *l_sum, double *c_sum,
@@ -97,7 +139,6 @@ void ssim_accumulate_avx2(const float *ref_mu, const float *cmp_mu, const float 
     const __m256 vC2 = _mm256_set1_ps(C2);
     const __m256 vC3 = _mm256_set1_ps(C3);
     const __m256 vzero = _mm256_setzero_ps();
-
     double local_ssim = 0.0;
     double local_l = 0.0;
     double local_c = 0.0;
@@ -105,73 +146,15 @@ void ssim_accumulate_avx2(const float *ref_mu, const float *cmp_mu, const float 
 
     int i = 0;
     for (; i + 8 <= n; i += 8) {
-        const __m256 rm = _mm256_loadu_ps(ref_mu + i);
-        const __m256 cm = _mm256_loadu_ps(cmp_mu + i);
-        const __m256 rs = _mm256_loadu_ps(ref_sigma_sqd + i);
-        const __m256 cs = _mm256_loadu_ps(cmp_sigma_sqd + i);
-        const __m256 sb = _mm256_loadu_ps(sigma_both + i);
-
-        /* srsc = sqrtf(rs * cs) — float mul + float sqrt. */
-        const __m256 srsc = _mm256_sqrt_ps(_mm256_mul_ps(rs, cs));
-
-        /* Float denominators, matching scalar order: ((a+b)+C). */
-        const __m256 l_den =
-            _mm256_add_ps(_mm256_add_ps(_mm256_mul_ps(rm, rm), _mm256_mul_ps(cm, cm)), vC1);
-        const __m256 c_den = _mm256_add_ps(_mm256_add_ps(rs, cs), vC2);
-
-        /* s numerator: clamp sb to 0 iff sb<0 AND srsc<=0, add C3. */
-        const __m256 sb_neg = _mm256_cmp_ps(sb, vzero, _CMP_LT_OQ);
-        const __m256 srsc_le0 = _mm256_cmp_ps(srsc, vzero, _CMP_LE_OQ);
-        const __m256 clamp_mask = _mm256_and_ps(sb_neg, srsc_le0);
-        const __m256 clamped_sb = _mm256_blendv_ps(sb, vzero, clamp_mask);
-        /* sv = (csb + C3) / (srsc + C3) — all float; promoted to double
-         * at per-lane load below. */
-        const __m256 sv_f = _mm256_div_ps(_mm256_add_ps(clamped_sb, vC3), _mm256_add_ps(srsc, vC3));
-
-        _Alignas(32) float t_rm[8];
-        _Alignas(32) float t_cm[8];
-        _Alignas(32) float t_srsc[8];
-        _Alignas(32) float t_l_den[8];
-        _Alignas(32) float t_c_den[8];
-        _Alignas(32) float t_sv[8];
-        _mm256_store_ps(t_rm, rm);
-        _mm256_store_ps(t_cm, cm);
-        _mm256_store_ps(t_srsc, srsc);
-        _mm256_store_ps(t_l_den, l_den);
-        _mm256_store_ps(t_c_den, c_den);
-        _mm256_store_ps(t_sv, sv_f);
-
-        /* Per-lane scalar-double reduction. Matches scalar:
-         *   lv = (2.0 * rm * cm + C1) / (rm*rm + cm*cm + C1)     [double]
-         *   cv = (2.0 * srsc + C2)    / (rs + cs + C2)           [double]
-         *   sv = (csb + C3) / (srsc + C3)                        [float→double]
-         *   ssim += lv * cv * sv
-         */
-        for (int k = 0; k < 8; k++) {
-            const double lv = (2.0 * t_rm[k] * t_cm[k] + C1) / t_l_den[k];
-            const double cv = (2.0 * t_srsc[k] + C2) / t_c_den[k];
-            const double sv = t_sv[k];
-            local_ssim += lv * cv * sv;
-            local_l += lv;
-            local_c += cv;
-            local_s += sv;
-        }
+        ssim_accumulate_block_avx2(ref_mu, cmp_mu, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, i, vC1,
+                                   vC2, vC3, vzero, C1, C2, &local_ssim, &local_l, &local_c,
+                                   &local_s);
     }
-
-    /* Scalar tail */
     for (; i < n; i++) {
-        const float srsc = sqrtf(ref_sigma_sqd[i] * cmp_sigma_sqd[i]);
-        const double lv = (2.0 * ref_mu[i] * cmp_mu[i] + C1) /
-                          (ref_mu[i] * ref_mu[i] + cmp_mu[i] * cmp_mu[i] + C1);
-        const double cv = (2.0 * srsc + C2) / (ref_sigma_sqd[i] + cmp_sigma_sqd[i] + C2);
-        const float csb = (sigma_both[i] < 0.0f && srsc <= 0.0f) ? 0.0f : sigma_both[i];
-        const double sv = (csb + C3) / (srsc + C3);
-        local_ssim += lv * cv * sv;
-        local_l += lv;
-        local_c += cv;
-        local_s += sv;
+        ssim_accumulate_scalar_step(ref_mu[i], cmp_mu[i], ref_sigma_sqd[i], cmp_sigma_sqd[i],
+                                    sigma_both[i], C1, C2, C3, &local_ssim, &local_l, &local_c,
+                                    &local_s);
     }
-
     *ssim_sum += local_ssim;
     *l_sum += local_l;
     *c_sum += local_c;

@@ -121,6 +121,74 @@ static char *check_simd_variant(const float *src, int w, int h, const float *ker
 }
 #endif /* ARCH_X86 || ARCH_AARCH64 */
 
+/* Run the scalar reference convolve into `dst_scalar`. Mutates a
+ * disposable copy of `src` because `_iqa_convolve` may touch its
+ * input; the caller's `src` buffer is preserved for the SIMD passes. */
+static char *run_scalar_reference(const float *src, int w, int h, int kw, const float *kernel_h,
+                                  const float *kernel_v, size_t src_n, float *dst_scalar)
+{
+    struct _kernel k;
+    k.kernel = NULL;
+    k.kernel_h = (float *)kernel_h;
+    k.kernel_v = (float *)kernel_v;
+    k.w = kw;
+    k.h = kw;
+    k.normalized = 1;
+    k.bnd_opt = NULL;
+    k.bnd_const = 0.0f;
+
+    float *src_scalar_copy = (float *)malloc(src_n * sizeof(float));
+    mu_assert("malloc failed", src_scalar_copy != NULL);
+    memcpy(src_scalar_copy, src, src_n * sizeof(float));
+    _iqa_convolve(src_scalar_copy, w, h, &k, dst_scalar, NULL, NULL);
+    free(src_scalar_copy);
+    return NULL;
+}
+
+/* Run all configured SIMD convolves for this host and bit-compare
+ * each against `dst_scalar`. Returns NULL on success or the first
+ * variant's mismatch message. */
+static char *check_all_simd_variants(const float *src, int w, int h, int kw, const float *kernel_h,
+                                     const float *kernel_v, const float *dst_scalar, size_t dst_n)
+{
+#if ARCH_X86
+    if (g_has_avx2) {
+        char *msg = check_simd_variant(src, w, h, kernel_h, kernel_v, kw, kw, dst_scalar, dst_n,
+                                       iqa_convolve_avx2, 0x55,
+                                       "avx2 convolve output not bit-identical to scalar");
+        if (msg)
+            return msg;
+    }
+#if HAVE_AVX512
+    if (g_has_avx512) {
+        char *msg = check_simd_variant(src, w, h, kernel_h, kernel_v, kw, kw, dst_scalar, dst_n,
+                                       iqa_convolve_avx512, 0x33,
+                                       "avx512 convolve output not bit-identical to scalar");
+        if (msg)
+            return msg;
+    }
+#endif
+#endif
+#if ARCH_AARCH64
+    if (g_has_neon) {
+        char *msg = check_simd_variant(src, w, h, kernel_h, kernel_v, kw, kw, dst_scalar, dst_n,
+                                       iqa_convolve_neon, 0x77,
+                                       "neon convolve output not bit-identical to scalar");
+        if (msg)
+            return msg;
+    }
+#endif
+    (void)src;
+    (void)w;
+    (void)h;
+    (void)kw;
+    (void)kernel_h;
+    (void)kernel_v;
+    (void)dst_scalar;
+    (void)dst_n;
+    return NULL;
+}
+
 static char *check_case(int w, int h, int kw, const float *kernel_h, const float *kernel_v,
                         uint32_t seed)
 {
@@ -134,60 +202,14 @@ static char *check_case(int w, int h, int kw, const float *kernel_h, const float
     mu_assert("malloc failed", src && dst_scalar);
     fill_pattern(src, src_n, seed);
     memset(dst_scalar, 0xAA, dst_n * sizeof(float));
+    (void)dst_h;
 
-    /* Build the _kernel descriptor for the scalar reference. */
-    struct _kernel k;
-    k.kernel = NULL;
-    k.kernel_h = (float *)kernel_h;
-    k.kernel_v = (float *)kernel_v;
-    k.w = kw;
-    k.h = kw;
-    k.normalized = 1;
-    k.bnd_opt = NULL;
-    k.bnd_const = 0.0f;
+    char *msg = run_scalar_reference(src, w, h, kw, kernel_h, kernel_v, src_n, dst_scalar);
+    if (!msg)
+        msg = check_all_simd_variants(src, w, h, kw, kernel_h, kernel_v, dst_scalar, dst_n);
 
-    /* _iqa_convolve mutates `src` in-place when result is non-NULL only
-     * for the cache; the result goes into dst_scalar. Make a copy to be
-     * safe against any mutation. */
-    float *src_scalar_copy = (float *)malloc(src_n * sizeof(float));
-    mu_assert("malloc failed", src_scalar_copy != NULL);
-    memcpy(src_scalar_copy, src, src_n * sizeof(float));
-    _iqa_convolve(src_scalar_copy, w, h, &k, dst_scalar, NULL, NULL);
-    free(src_scalar_copy);
-
-    char *msg = NULL;
-#if ARCH_X86
-    if (g_has_avx2) {
-        msg = check_simd_variant(src, w, h, kernel_h, kernel_v, kw, kw, dst_scalar, dst_n,
-                                 iqa_convolve_avx2, 0x55,
-                                 "avx2 convolve output not bit-identical to scalar");
-        if (msg)
-            goto done;
-    }
-#if HAVE_AVX512
-    if (g_has_avx512) {
-        msg = check_simd_variant(src, w, h, kernel_h, kernel_v, kw, kw, dst_scalar, dst_n,
-                                 iqa_convolve_avx512, 0x33,
-                                 "avx512 convolve output not bit-identical to scalar");
-        if (msg)
-            goto done;
-    }
-#endif
-#endif
-#if ARCH_AARCH64
-    if (g_has_neon) {
-        msg = check_simd_variant(src, w, h, kernel_h, kernel_v, kw, kw, dst_scalar, dst_n,
-                                 iqa_convolve_neon, 0x77,
-                                 "neon convolve output not bit-identical to scalar");
-        if (msg)
-            goto done;
-    }
-#endif
-
-done:
     free(src);
     free(dst_scalar);
-    (void)dst_h;
     return msg;
 }
 
@@ -248,7 +270,9 @@ static char *test_box_576x324(void)
     return check_case(576, 324, 8, kernel_box8, kernel_box8, 0xbbbbbbbbu);
 }
 
-char *run_tests(void)
+/* Detect the SIMD features available on this host. Returns 1 if any
+ * variant is runnable (test suite proceeds), 0 otherwise (skip). */
+static int detect_simd_support(void)
 {
 #if ARCH_X86
     const unsigned cpu_flags = vmaf_get_cpu_flags_x86();
@@ -256,20 +280,25 @@ char *run_tests(void)
     g_has_avx512 = (cpu_flags & VMAF_X86_CPU_FLAG_AVX512) ? 1 : 0;
     if (!g_has_avx2 && !g_has_avx512) {
         (void)fprintf(stderr, "skipping: CPU has neither AVX2 nor AVX-512\n");
-        return NULL;
+        return 0;
     }
+    return 1;
 #elif ARCH_AARCH64
     const unsigned cpu_flags = vmaf_get_cpu_flags();
     g_has_neon = (cpu_flags & VMAF_ARM_CPU_FLAG_NEON) ? 1 : 0;
     if (!g_has_neon) {
         (void)fprintf(stderr, "skipping: aarch64 CPU lacks NEON\n");
-        return NULL;
+        return 0;
     }
+    return 1;
 #else
     (void)fprintf(stderr, "skipping: non-x86, non-aarch64 arch\n");
-    return NULL;
+    return 0;
 #endif
+}
 
+static char *run_gauss_tests(void)
+{
     mu_run_test(test_gauss_11x11);
     mu_run_test(test_gauss_12x12);
     mu_run_test(test_gauss_19x19);
@@ -279,10 +308,24 @@ char *run_tests(void)
     mu_run_test(test_gauss_61x41);
     mu_run_test(test_gauss_576x324);
     mu_run_test(test_gauss_1920x1080);
+    return NULL;
+}
 
+static char *run_box_tests(void)
+{
     mu_run_test(test_box_8x8);
     mu_run_test(test_box_16x16);
     mu_run_test(test_box_21x13);
     mu_run_test(test_box_576x324);
     return NULL;
+}
+
+char *run_tests(void)
+{
+    if (!detect_simd_support())
+        return NULL;
+    char *msg = run_gauss_tests();
+    if (msg)
+        return msg;
+    return run_box_tests();
 }
