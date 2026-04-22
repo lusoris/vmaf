@@ -1436,3 +1436,231 @@ inline.*
   # see docs/research/0002-automated-rule-enforcement.md §Verification
   # plan for the three test cases.
   ```
+
+### 0027 — SSIMULACRA 2 scalar extractor (libjxl FastGaussian IIR blur)
+
+- **Workstream PRs**: this PR (`feat/ssimulacra2-scalar`); proposal
+  ADR in PR #67.
+- **Touches**:
+  `libvmaf/src/feature/ssimulacra2.c` (fork-local, new),
+  `libvmaf/src/meson.build`,
+  `libvmaf/src/feature/feature_extractor.c`.
+- **Invariant**: the extractor embeds several tables that must
+  track libjxl upstream — opsin absorbance matrix, `MakePositiveXYB`
+  offsets, 108 pooling weights, polynomial-transform coefficients,
+  and the FastGaussian coefficient-derivation formulas
+  (radius = `3.2795·σ + 0.2546`, Cramer's 3×3 solve for β, n2/d1
+  assignment per Charalampidis 2016 (33)). If libjxl ever changes
+  any of these, update `ssimulacra2.c` in the same PR that syncs
+  upstream. Self-consistency must stay at exactly `100.000000` for
+  identical ref/dist inputs — this is the cheapest regression check.
+- **Re-test**:
+
+  ```bash
+  meson test -C build --suite=fast
+  ./build/tools/vmaf \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    -w 576 -h 324 -p 420 -b 8 --feature ssimulacra2 -o /tmp/self.xml \
+    && grep -q 'ssimulacra2="100.000000"' /tmp/self.xml \
+    && echo "ok: self-consistency 100.0"
+  ```
+
+### 0028 — MS-SSIM separable decimate + AVX2/AVX-512/NEON SIMD
+
+- **Workstream PRs**: `feat/ms-ssim-decimate-simd-v2` (supersedes the
+  rebase-incompatible `feat/ms-ssim-decimate-simd`; AVX2/AVX-512,
+  commits `7de8cd7f` scalar separable, `5f93c864` AVX2, `73436438`
+  AVX-512); `feat/ms-ssim-decimate-neon-v2` (NEON follow-up, stacked).
+- **Touches**:
+  `libvmaf/src/feature/ms_ssim_decimate.{c,h}` (NEW),
+  `libvmaf/src/feature/x86/ms_ssim_decimate_avx2.{c,h}` (NEW),
+  `libvmaf/src/feature/x86/ms_ssim_decimate_avx512.{c,h}` (NEW),
+  `libvmaf/src/feature/arm64/ms_ssim_decimate_neon.{c,h}` (NEW),
+  `libvmaf/src/feature/ms_ssim.c` (call-site change),
+  `libvmaf/src/meson.build` (register new SIMD TUs),
+  `libvmaf/test/test_ms_ssim_decimate.c` (NEW),
+  `libvmaf/test/meson.build` (arm64 gating).
+- **Invariant**: the 9-tap 9/7 biorthogonal wavelet LPF
+  coefficients (`ms_ssim_lpf_h` / `ms_ssim_lpf_v`) are duplicated
+  verbatim in five TUs for bit-identity: the scalar
+  `ms_ssim_decimate.c`, the AVX2 variant, the AVX-512 variant, the
+  NEON variant, and upstream's `g_lpf_h` / `g_lpf_v` in
+  `ms_ssim.c`. Any upstream change to the coefficient values or the
+  `KBND_SYMMETRIC` mirror branch in `iqa/convolve.c` must be
+  mirrored to all five. If not mirrored, SIMD paths and scalar
+  diverge silently and the bit-equality `memcmp` in
+  `test_ms_ssim_decimate` catches it — but only when that test
+  runs, so diff the five files first.
+- **Re-test** (on each supported host arch):
+
+  ```bash
+  # x86_64 host — native build.
+  meson test -C build
+  ./build/test/test_ms_ssim_decimate
+
+  # aarch64 host OR aarch64 cross under qemu — see /tmp/aarch64-cross.txt.
+  meson setup build-arm64 libvmaf --cross-file /tmp/aarch64-cross.txt \
+      -Denable_cuda=false -Denable_sycl=false
+  ninja -C build-arm64
+  qemu-aarch64-static -L /usr/aarch64-linux-gnu \
+      build-arm64/test/test_ms_ssim_decimate
+
+  # Netflix MS-SSIM golden — places=4 must still pass through SIMD.
+  .venv/bin/python -m pytest \
+      python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_ms_ssim_fextractor
+  ```
+
+### 0029 — `KBND_SYMMETRIC` period-based reflection in `iqa/convolve.c`
+
+- **Workstream PRs**: `feat/ms-ssim-decimate-simd-v2` follow-up
+  (CI triage on PR #69, 2026-04-20).
+- **Touches**: `libvmaf/src/feature/iqa/convolve.c` (upstream
+  file, rewritten `KBND_SYMMETRIC`).
+- **Invariant**: `KBND_SYMMETRIC(img, w, h, x, y, _)` must use the
+  period-based form (`period = 2*w`, `period = 2*h`) so that offsets
+  with `|x| > w` or `|y| > h` still land in bounds. Upstream's
+  single-reflect form was out-of-bounds whenever `w < kernel_half`
+  or `h < kernel_half`; the latent bug did not reproduce in Netflix
+  golden tests because MS-SSIM pyramids never decimate below
+  ~60×34. Any upstream change that reverts to the single-reflect
+  form must be rejected or re-ported.
+- **Re-test**:
+
+  ```bash
+  ./build/test/test_ms_ssim_decimate        # test_1x1 border case
+  .venv/bin/python -m pytest \
+      python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_ms_ssim_fextractor
+  ```
+
+### 0030 — `adm_decouple_s123_avx512` stack-array 64-byte alignment
+
+- **Workstream PRs**: `feat/ms-ssim-decimate-simd-v2` follow-up
+  (CI triage on PR #69, 2026-04-20).
+- **Touches**: `libvmaf/src/feature/x86/adm_avx512.c` (upstream
+  file, one-line `_Alignas(64)` on `int64_t angle_flag[16]` at
+  line 1317). `libvmaf/test/test_pic_preallocation.c` (upstream
+  file, three `vmaf_model_destroy(model)` calls pairing the
+  `vmaf_model_load` in `test_picture_pool_basic` / `_small` /
+  `_yuv444`).
+- **Invariant**: the stack slot for `angle_flag` must be 64-byte
+  aligned because two `_mm512_loadu_si512(&angle_flag[0/8])`
+  loads in the same scope may be promoted to aligned `vmovdqa64`
+  by LTO. Dropping the `_Alignas(64)` annotation re-introduces
+  the SEGV under `--buildtype=release -Db_lto=true
+  -Db_sanitize=address`. Debug / no-LTO builds keep
+  `vmovdqu64` and cannot flag the regression. See
+  `docs/development/known-upstream-bugs.md`.
+- **Re-test**:
+
+  ```bash
+  meson setup build-asan-lto libvmaf \
+      -Denable_cuda=false -Denable_sycl=false \
+      -Db_sanitize=address --buildtype=release -Db_lto=true
+  ninja -C build-asan-lto test/test_pic_preallocation
+  ASAN_OPTIONS=detect_leaks=1 \
+      ./build-asan-lto/test/test_pic_preallocation
+  ```
+
+### 0031 — Batch-A upstream-port small-fix sweep (ports of unmerged PRs)
+
+- **Workstream PRs**: `feat/batch-a-upstream-small-fix-sweep` — commits
+  `546a40ee` (T0-1), `8fed8ad1` (T4-4), `83a1db46` (T4-5),
+  `34425dee` (T4-6). ADRs 0131, 0132, 0134, 0135.
+- **Touches**:
+  - `libvmaf/src/cuda/picture_cuda.c` (one-line `cuMemFree` port of
+    [Netflix#1382][pr1382])
+  - `libvmaf/src/feature/feature_collector.c` +
+    `libvmaf/test/test_feature_collector.c` (mount/unmount bugfix
+    port of [Netflix#1406][pr1406] + shared-helper test refactor)
+  - `libvmaf/src/meson.build` (`declare_dependency` +
+    `override_dependency` port of [Netflix#1451][pr1451])
+  - `libvmaf/include/libvmaf/model.h`, `libvmaf/src/model.c`,
+    `libvmaf/test/test_model.c`, `docs/api/index.md` (built-in
+    model iterator port of [Netflix#1424][pr1424])
+- **Invariant**: each of the four upstream PRs is OPEN (unmerged) on
+  the port date; when Netflix merges any of them, the fork's
+  version is correction-bearing (T4-4 test refactor, T4-6 three
+  defect fixes + Doxygen doc expansion), not line-identical.
+  Resolution on upstream merge is **always "keep fork version"**
+  because the fork's version already satisfies the PR's intent
+  and additionally fixes the defects.
+  - Netflix#1406 conflict will land in `test_feature_collector.c`
+    — fork uses `load_three_test_models()` helper vs upstream's
+    inline per-model `VmafModel *m0, *m1, *m2;` duplication.
+  - Netflix#1424 conflict will land in `libvmaf/src/model.c` and
+    `libvmaf/test/test_model.c` — fork uses `else if` guard +
+    `idx + 1 < CNT` + const-qualified test types.
+  - Netflix#1382 and Netflix#1451 are line-identical in substance;
+    merge should be clean aside from trailing-comma style drift.
+- **Re-test**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+  ninja -C build test/test_feature_collector test/test_model
+  build/test/test_feature_collector
+  build/test/test_model
+  # Expected: 6/6 pass in test_feature_collector (mount/unmount
+  # 3-model sequences); 39/39 pass in test_model (includes
+  # test_version_next full-iteration invariant).
+  ```
+
+[pr1382]: https://github.com/Netflix/vmaf/pull/1382
+[pr1406]: https://github.com/Netflix/vmaf/pull/1406
+[pr1424]: https://github.com/Netflix/vmaf/pull/1424
+[pr1451]: https://github.com/Netflix/vmaf/pull/1451
+
+### 0032 — Thread-local locale handling for numeric I/O (port of Netflix/vmaf#1430)
+
+- **Workstream PRs**: `port/netflix-1430-thread-locale`
+  (T4-3 from the "Batch-A follow-up" sweep, 2026-04-20).
+- **Touches**: `libvmaf/src/thread_locale.h` / `libvmaf/src/thread_locale.c`
+  (new, upstream-authored); `libvmaf/src/meson.build` (two
+  `cdata.set('HAVE_USELOCALE'/'HAVE_XLOCALE_H')` probes +
+  `src_dir + 'thread_locale.c'` in `libvmaf_sources`);
+  `libvmaf/src/output.c` (four writers gain
+  `push_c()` + `pop()` bracket, preserving fork's
+  `ferror(outfile) ? -EIO : 0` return contract from
+  [ADR-0119](adr/0119-cli-precision-default-revert.md));
+  `libvmaf/src/svm.cpp` (drop `<locale.h>` include; replace
+  `setlocale/strdup/setlocale` bracket with
+  `vmaf_thread_locale_push_c/pop`; add
+  `buffer.imbue(std::locale::classic())` to both SVM parser ctors
+  with fork's K&R + 4-space style);
+  `libvmaf/src/read_json_model.c` (bracket `model_parse` with
+  push/pop); `libvmaf/test/meson.build` (new
+  `test_locale_handling` target + test registration);
+  `libvmaf/test/test_locale_handling.c` (new, upstream-authored
+  with three fork corrections for the `score_format` parameter).
+- **Invariant**: fork's output writers return
+  `ferror(outfile) ? -EIO : 0` — this must survive any upstream
+  refactor of the writer bodies. The `push_c()` call MUST be
+  paired with a `pop()` on every return path (writer bodies have
+  a single tail return, so the pattern is locally
+  `push → body → pop → return ferror-check`). Dropping
+  `pop()` leaks a `locale_t` on POSIX and leaves the thread
+  locked to "C" on Windows.
+- **Re-test**:
+
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_locale_handling
+  # Repro the user-visible failure without the fix:
+  LC_ALL=de_DE.UTF-8 build/tools/vmaf --reference ref.yuv \
+      --distorted dis.yuv --width 1920 --height 1080 \
+      --pixel_format 420 --bitdepth 8 --output result.json \
+      --json
+  # Assert output contains period decimals, not comma.
+  python -c "import json; d=json.load(open('result.json')); \
+      assert all('.' in repr(v) for v in \
+      [f['metrics']['vmaf'] for f in d['frames']])"
+  ```
+
+- **On upstream sync**: when Netflix merges PR #1430, the
+  `(cherry picked from commit 054a97ed…)` trailer in
+  `git log port/netflix-1430-thread-locale` lets the next
+  `/sync-upstream` skip this commit. If the upstream diff
+  drifts, redo the three fork corrections listed in
+  [ADR-0137](adr/0137-thread-local-locale-for-numeric-io.md)
+  §Decision.

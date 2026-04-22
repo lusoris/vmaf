@@ -41,6 +41,7 @@ limitations in the same PR as the code.
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | —      |
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | —      |
 | ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | —      |
+| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | —                   | —      |
 
 **Core** extractors are required inputs for the shipped VMAF models (see
 [models/overview.md](../models/overview.md)); non-core extractors are
@@ -312,6 +313,24 @@ score is reported on a dB scale via `-10 × log10(1 − score)`; use
 **Backends** — `ssim` (fixed): scalar only. `float_ssim` / `float_ms_ssim`:
 AVX2, AVX-512, NEON.
 
+**MS-SSIM decimate (fork-local)** — the 9-tap 9/7 biorthogonal wavelet
+LPF that produces scales 1–4 runs through `ms_ssim_decimate` in
+[`libvmaf/src/feature/ms_ssim_decimate.c`](../../libvmaf/src/feature/ms_ssim_decimate.c).
+SIMD variants live in
+[`libvmaf/src/feature/x86/ms_ssim_decimate_avx2.c`](../../libvmaf/src/feature/x86/ms_ssim_decimate_avx2.c)
+(8-wide),
+[`libvmaf/src/feature/x86/ms_ssim_decimate_avx512.c`](../../libvmaf/src/feature/x86/ms_ssim_decimate_avx512.c)
+(16-wide), and
+[`libvmaf/src/feature/arm64/ms_ssim_decimate_neon.c`](../../libvmaf/src/feature/arm64/ms_ssim_decimate_neon.c)
+(4-wide). Dispatch prefers AVX-512 > AVX2 > scalar on x86 and
+NEON > scalar on aarch64 at runtime via `vmaf_get_cpu_flags()`; all
+four paths are strictly **byte-identical** (per-lane `fmaf` /
+`_mm{256,512}_fmadd_ps` / `vfmaq_n_f32` with broadcast coefficients
+and scalar-fallback borders). The contract is verified by
+`libvmaf/test/test_ms_ssim_decimate.c` across
+1x1 / 8x8 / 9x9 / border-edge / 1920x1080 cases. See
+[ADR-0125](../adr/0125-ms-ssim-decimate-simd.md).
+
 ### ANSNR — Adjusted Noise SNR
 
 SNR after a noise-shaping Wiener filter. Historical VMAF input that no
@@ -328,6 +347,58 @@ shipped model still consumes; kept for back-compat with external callers.
 **Options** — none.
 
 **Backends** — scalar only.
+
+### SSIMULACRA 2 — perceptual similarity in XYB space
+
+Fork-added scalar port of the libjxl reference metric, including a
+bit-close C port of libjxl's `FastGaussian` 3-pole recursive IIR as
+the pyramid blur. See
+[ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md) for the
+scope and algorithm choice, and
+[Research-0007](../research/0007-ssimulacra2-scalar-port.md) for the
+engineering rationale.
+
+**Invocation** — `--feature ssimulacra2`.
+
+**Output metrics** — `ssimulacra2` (one scalar per frame).
+
+**Output range** — `[0, 100]`, higher is better. Identical reference and
+distorted frames return exactly `100`. A reference table from the
+upstream algorithm author:
+
+| Score band | Perceptual meaning                          |
+|------------|---------------------------------------------|
+| 90–100     | Visually lossless                           |
+| 70–90      | High quality, only noticeable on close look |
+| 50–70      | Medium quality, clearly lossy               |
+| 30–50      | Low quality, obvious artifacts              |
+| 0–30       | Very low quality                            |
+
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 bpc. Chroma is
+nearest-neighbor upsampled to luma resolution; BT.709 limited-range is
+the default YUV→RGB matrix.
+
+**Options** (one, controlling the YUV→RGB matrix)
+
+| Option       | Type | Default | Range | Effect                                                               |
+|--------------|------|---------|-------|----------------------------------------------------------------------|
+| `yuv_matrix` | int  | `0`     | `0–3` | 0: BT.709 limited, 1: BT.601 limited, 2: BT.709 full, 3: BT.601 full |
+
+**Backends** — scalar only. SIMD / GPU paths are follow-up workstreams.
+
+**Limitations** —
+
+- Coefficient derivation in `create_recursive_gaussian` uses Cramer's
+  rule in doubles, which produces identical `n2`/`d1` floats to
+  libjxl's `Inv3x3Matrix` for σ=1.5 at 10-decimal precision but is
+  not guaranteed bit-exact at every σ. The fork pins σ=1.5, matching
+  libjxl's `kSigma`.
+- Snapshot-gate JSON (`testdata/scores_cpu_ssimulacra2.json`) is not
+  shipped in this PR — it lands in a follow-up once the
+  reference-tooling path is unblocked (`ssimulacra2_rs` cargo crate
+  currently broken).
+- ~1 fps at 1080p on a single modern x86 core. Do not run in
+  interactive workloads until the AVX2 / AVX-512 / NEON variants land.
 
 ## Invoking features from the CLI
 

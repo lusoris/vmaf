@@ -24,7 +24,6 @@
 
 #include "config.h"
 #include "feature_extractor.h"
-#include "feature_name.h"
 #include "log.h"
 #include "picture.h"
 
@@ -42,6 +41,7 @@ extern VmafFeatureExtractor vmaf_fex_float_vif;
 #endif
 extern VmafFeatureExtractor vmaf_fex_float_ssim;
 extern VmafFeatureExtractor vmaf_fex_float_ms_ssim;
+extern VmafFeatureExtractor vmaf_fex_ssimulacra2;
 extern VmafFeatureExtractor vmaf_fex_ciede;
 extern VmafFeatureExtractor vmaf_fex_psnr;
 extern VmafFeatureExtractor vmaf_fex_psnr_hvs;
@@ -68,8 +68,8 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_float_psnr, &vmaf_fex_float_ansnr, &vmaf_fex_float_adm, &vmaf_fex_float_vif,
     &vmaf_fex_float_motion, &vmaf_fex_float_moment,
 #endif
-    &vmaf_fex_float_ms_ssim, &vmaf_fex_float_ssim, &vmaf_fex_ciede, &vmaf_fex_psnr,
-    &vmaf_fex_psnr_hvs, &vmaf_fex_integer_adm, &vmaf_fex_integer_motion,
+    &vmaf_fex_float_ms_ssim, &vmaf_fex_float_ssim, &vmaf_fex_ssimulacra2, &vmaf_fex_ciede,
+    &vmaf_fex_psnr, &vmaf_fex_psnr_hvs, &vmaf_fex_integer_adm, &vmaf_fex_integer_motion,
     &vmaf_fex_integer_motion_v2, &vmaf_fex_integer_vif, &vmaf_fex_cambi,
 #if HAVE_SYCL
     // SYCL before CUDA: when multiple GPU backends are compiled in,
@@ -307,9 +307,11 @@ int vmaf_feature_extractor_context_flush(VmafFeatureExtractorContext *fex_ctx,
         return 0;
 
     int err = 0;
-    if (fex_ctx->fex->flush)
-        while (!(err = fex_ctx->fex->flush(fex_ctx->fex, vfc)))
-            ;
+    if (fex_ctx->fex->flush) {
+        while (!(err = fex_ctx->fex->flush(fex_ctx->fex, vfc))) {
+            /* drain all flush-emitted features */
+        }
+    }
     return err < 0 ? err : 0;
 }
 

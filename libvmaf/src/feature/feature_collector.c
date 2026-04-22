@@ -267,17 +267,17 @@ int vmaf_feature_collector_mount_model(VmafFeatureCollector *feature_collector, 
     VmafPredictModel *m = malloc(sizeof(VmafPredictModel));
     if (!m)
         return -ENOMEM;
+
     m->model = model;
     m->next = NULL;
 
-    VmafPredictModel **head = &feature_collector->models;
-    while (*head && (*head)->next != NULL)
-        *head = (*head)->next;
-
-    if (!(*head)) {
-        *head = m;
+    VmafPredictModel *head = feature_collector->models;
+    if (!head) {
+        feature_collector->models = m;
     } else {
-        (*head)->next = m;
+        while (head->next)
+            head = head->next;
+        head->next = m;
     }
 
     return 0;
@@ -290,18 +290,24 @@ int vmaf_feature_collector_unmount_model(VmafFeatureCollector *feature_collector
     if (!model)
         return -EINVAL;
 
-    VmafPredictModel **head = &feature_collector->models;
-    while (*head && (*head)->model != model)
-        head = &(*head)->next;
+    VmafPredictModel *head = feature_collector->models;
+    VmafPredictModel *prev = NULL;
 
-    if (!(*head))
-        return -EINVAL;
+    while (head) {
+        if (head->model == model) {
+            if (prev) {
+                prev->next = head->next;
+            } else {
+                feature_collector->models = head->next;
+            }
+            free(head);
+            return 0;
+        }
+        prev = head;
+        head = head->next;
+    }
 
-    VmafPredictModel *m = *head;
-    *head = m->next;
-    free(m);
-
-    return 0;
+    return -ENOENT;
 }
 
 int vmaf_feature_collector_register_metadata(VmafFeatureCollector *feature_collector,

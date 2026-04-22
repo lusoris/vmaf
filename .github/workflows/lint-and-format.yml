@@ -54,6 +54,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Need history for the push-delta diff on master. fetch-depth: 2
+          # is enough for a squash-merge FF (one new commit), but use 0 to
+          # tolerate multi-commit FF pushes without a second fetch step.
+          fetch-depth: 0
       - name: Install deps
         run: |
           sudo apt-get update
@@ -66,16 +71,41 @@ jobs:
           meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
       - name: Run clang-tidy on changed files
         run: |
+          # Collect the delta for both PR and push events so master-post-merge
+          # doesn't re-scan every vendored .c/.cpp (e.g. libvmaf/src/svm.cpp)
+          # and surface pre-existing warnings unrelated to the push.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             files=$(git diff --name-only \
               origin/${{ github.base_ref }}...HEAD \
               -- '*.c' '*.h' '*.cpp' '*.hpp' | tr '\n' ' ')
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            before="${{ github.event.before }}"
+            zero="0000000000000000000000000000000000000000"
+            if [ -z "$before" ] || [ "$before" = "$zero" ]; then
+              # Initial push / new branch: fall back to HEAD~1..HEAD if a
+              # parent exists, otherwise skip (no meaningful delta).
+              if git rev-parse HEAD~1 >/dev/null 2>&1; then
+                files=$(git diff --name-only HEAD~1..HEAD \
+                  -- '*.c' '*.h' '*.cpp' '*.hpp' | tr '\n' ' ')
+              else
+                files=""
+              fi
+            else
+              files=$(git diff --name-only "$before"..HEAD \
+                -- '*.c' '*.h' '*.cpp' '*.hpp' | tr '\n' ' ')
+            fi
           else
+            # workflow_dispatch and other triggers: scan full tree (slow
+            # but deliberate — operator asked for it).
             files=$(git ls-files '*.c' '*.h' '*.cpp' '*.hpp' \
               | grep -v '^subprojects/' | tr '\n' ' ')
           fi
           [ -z "$files" ] && { echo "no C/C++ changes"; exit 0; }
-          echo "$files" | tr ' ' '\n' \
+          # Drop empty lines — the `tr '\n' ' ' | tr ' ' '\n'` round-trip
+          # leaves a trailing blank that parallel would pass to clang-tidy
+          # as an empty filename, which clang resolves to the workspace
+          # directory and reports as a clang-diagnostic-error.
+          echo "$files" | tr ' ' '\n' | grep -v '^$' \
             | parallel -j$(nproc) "clang-tidy -p build --quiet {} || touch /tmp/tidy.fail"
           [ -f /tmp/tidy.fail ] && exit 1 || exit 0
 

@@ -66,8 +66,11 @@ Conventions:
 | [0004](0004-vulkan-backend-design.md) | Vulkan compute backend — loader, shader language, allocator, DMABUF import | Active | [ADR-0127](../adr/0127-vulkan-compute-backend.md) |
 | [0005](0005-embedded-mcp-transport.md) | Embedded MCP in libvmaf — threading, JSON library, SSE server, Power-of-10 fit | Active | [ADR-0128](../adr/0128-embedded-mcp-in-libvmaf.md) |
 | [0006](0006-tinyai-ptq-accuracy-targets.md) | Tiny-AI PTQ int8 — accuracy targets, ORT API comparison, calibration sourcing | Active | [ADR-0129](../adr/0129-tinyai-ptq-quantization.md) |
+| [0007](0007-ssimulacra2-scalar-port.md) | SSIMULACRA 2 scalar port — YUV handling, blur deviation, snapshot tooling | Active | [ADR-0126](../adr/0126-ssimulacra2-extractor.md), [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md) |
+| [0008](0008-ms-ssim-decimate-simd.md) | MS-SSIM decimate SIMD — FLOP accounting, summation order, bit-exactness | Active | [ADR-0125](../adr/0125-ms-ssim-decimate-simd.md) |
 
-<!-- Backfill entries for older workstreams land here as their authors revisit the corresponding code. -->
+<!-- Backfill entries for older workstreams land here as their authors
+     revisit the corresponding code. -->
 
 *(Index seeded by [ADR-0108](../adr/0108-deep-dive-deliverables-rule.md)'s
 adoption PR; backfilled digests for the existing major workstreams

@@ -25,6 +25,49 @@
     [Research-0006](docs/research/0006-tinyai-ptq-accuracy-targets.md):
     Tiny-AI PTQ int8 (static + dynamic + QAT per-model via
     `model/registry.json`).
+- **I18N / thread-safety**: `thread_locale.h/.c` cross-platform thread-local
+  locale abstraction ported from upstream PR
+  [Netflix/vmaf#1430](https://github.com/Netflix/vmaf/pull/1430) (Diego Nieto,
+  Fluendo). `vmaf_write_output_{xml,json,csv,sub}`, `svm_save_model`,
+  `vmaf_read_json_model`, and both SVM model parsers now switch the calling
+  thread's locale to `"C"` for numeric I/O instead of using the
+  process-global `setlocale` bracket. POSIX.1-2008 `uselocale` +
+  `newlocale(LC_ALL_MASK)` on Linux/macOS/BSD; `_configthreadlocale` +
+  per-thread `setlocale` on Windows; graceful no-op fallback elsewhere.
+  Fixes a latent data-race under multi-threaded hosts (ffmpeg filter graphs
+  with multiple VMAF instances, MCP server worker pools) where one thread's
+  `setlocale(LC_ALL, "C")` bracket would clobber another thread's active
+  locale mid-call. See
+  [ADR-0137](docs/adr/0137-thread-local-locale-for-numeric-io.md).
+- **Public API**: `vmaf_model_version_next(prev, &version)` iterator for
+  enumerating the built-in VMAF model versions compiled into the
+  library. Opaque-handle cursor — NULL to start, NULL-return to stop.
+  Ports [Netflix#1424](https://github.com/Netflix/vmaf/pull/1424) with
+  three correctness corrections (NULL-pointer arithmetic UB,
+  off-by-one returning the sentinel, const-qualifier mismatches in the
+  test); see [ADR-0135](docs/adr/0135-port-netflix-1424-expose-builtin-model-versions.md).
+- **Build**: libvmaf now exports `libvmaf_dep` via `declare_dependency`
+  and registers an `override_dependency('libvmaf', ...)` in
+  `libvmaf/src/meson.build`, so the fork is consumable as a meson
+  subproject with the standard `dependency('libvmaf')` idiom. Ports
+  [Netflix#1451](https://github.com/Netflix/vmaf/pull/1451); see
+  [ADR-0134](docs/adr/0134-port-netflix-1451-meson-declare-dependency.md).
+- **Metric**: SSIMULACRA 2 scalar feature extractor
+  ([`libvmaf/src/feature/ssimulacra2.c`](libvmaf/src/feature/ssimulacra2.c))
+  — port of libjxl's perceptual similarity metric on top of the fork's
+  YUV pipeline. Ingests YUV 4:2:0/4:2:2/4:4:4 at 8/10/12 bpc with a
+  configurable YUV→RGB matrix (`yuv_matrix` option, BT.709 limited
+  default), converts through linear RGB → XYB → 6-scale pyramid with
+  SSIMMap + EdgeDiffMap + canonical 108-weight polynomial pool.
+  Pyramid blur is a bit-close C port of libjxl's `FastGaussian`
+  3-pole recursive IIR (`lib/jxl/gauss_blur.cc`,
+  Charalampidis 2016 truncated-cosine approximation, k={1,3,5},
+  zero-pad boundaries). Registered as feature `ssimulacra2` — one
+  scalar per frame in `[0, 100]`, identity inputs return exactly
+  `100.000000`. Scalar only; AVX2/AVX-512/NEON follow-ups are
+  separate PRs. See
+  [ADR-0130](docs/adr/0130-ssimulacra2-scalar-implementation.md) +
+  [Research-0007](docs/research/0007-ssimulacra2-scalar-port.md).
 - **CLI**: `--precision $spec` flag for score output formatting.
   - `N` (1..17) → `printf "%.<N>g"`
   - `max` / `full` → `"%.17g"` (round-trip lossless, opt-in)
@@ -40,6 +83,20 @@
 - **Numerical correctness**: float ADM `sum_cube` and `csf_den_scale` use
   double-precision accumulation in scalar/AVX2/AVX512 paths to eliminate
   ~8e-5 drift between scalar and SIMD reductions.
+- **MS-SSIM SIMD**: separable scalar-FMA decimate with AVX2 (8-wide),
+  AVX-512 (16-wide), and NEON (4-wide) variants for the 9-tap 9/7
+  biorthogonal wavelet LPF used by the MS-SSIM scale pyramid. Per-lane
+  `_mm{256,512}_fmadd_ps` (x86) / `vfmaq_n_f32` (aarch64) with
+  broadcast coefficients produces output byte-identical to the scalar
+  reference; stride-2 horizontal deinterleave via
+  `_mm256_shuffle_ps`+`_mm256_permute4x64_pd` (AVX2),
+  `_mm512_permutex2var_ps` (AVX-512), and `vld2q_f32` (NEON). Runtime
+  dispatch prefers AVX-512 > AVX2 > scalar on x86 and NEON > scalar on
+  arm64. Netflix MS-SSIM golden passes at places=4 through every
+  dispatched path; 10 synthetic `memcmp` cases (1x1 border, odd
+  dimensions, 1920x1080) verify strict byte-equality in
+  [`libvmaf/test/test_ms_ssim_decimate.c`](libvmaf/test/test_ms_ssim_decimate.c).
+  See [ADR-0125](docs/adr/0125-ms-ssim-decimate-simd.md).
 - **AI-agent scaffolding**: `.claude/` directory with 7 specialized review
   agents (c-, cuda-, sycl-, vulkan-, simd-, meson-reviewer, perf-profiler),
   18 task skills, hooks for unsafe-bash blocking and auto-format,
@@ -399,6 +456,59 @@
 
 ### Fixed
 
+- **CUDA multi-session `vmaf_cuda_picture_free` assertion-0 crash**:
+  two or more concurrent CUDA sessions freeing pictures tripped
+  `Assertion 0 failed` inside the driver because
+  `cuMemFreeAsync(ptr, stream)` enqueued the free on a stream that
+  was destroyed two statements later. The fork swaps the async call
+  for synchronous `cuMemFree` at
+  [`libvmaf/src/cuda/picture_cuda.c:247`](libvmaf/src/cuda/picture_cuda.c#L247);
+  the preceding `cuStreamSynchronize` already removed any async
+  overlap so perf is unchanged. Ports
+  [Netflix#1382](https://github.com/Netflix/vmaf/pull/1382)
+  (tracking [Netflix#1381](https://github.com/Netflix/vmaf/issues/1381));
+  see [ADR-0131](docs/adr/0131-port-netflix-1382-cumemfree.md).
+- **`vmaf_feature_collector_mount_model` list-corruption on ≥3
+  models**: the upstream body advanced the `*head` pointer-to-pointer
+  instead of walking a local cursor, overwriting the head element
+  with its own successor and losing every entry past the second.
+  Fork rewrites mount/unmount in
+  [`libvmaf/src/feature/feature_collector.c`](libvmaf/src/feature/feature_collector.c)
+  with a correct traversal, and `unmount_model` now returns
+  `-ENOENT` (not `-EINVAL`) when the requested model isn't mounted
+  so callers can distinguish misuse from not-found. Test coverage
+  extended to a 3-element mount / unmount sequence. Ports
+  [Netflix#1406](https://github.com/Netflix/vmaf/pull/1406);
+  see [ADR-0132](docs/adr/0132-port-netflix-1406-feature-collector-model-list.md).
+- **`KBND_SYMMETRIC` sub-kernel-radius out-of-bounds reflection**:
+  upstream's 2-D symmetric boundary extension reflected the index a
+  single time, which leaves out-of-bounds values whenever the input
+  dimension is smaller than the kernel half-width (for the 9-tap
+  MS-SSIM LPF, `n ≤ 3`). The fork rewrites `KBND_SYMMETRIC` in
+  [`libvmaf/src/feature/iqa/convolve.c`](libvmaf/src/feature/iqa/convolve.c)
+  and the scalar / AVX2 / AVX-512 / NEON `ms_ssim_decimate_mirror`
+  helpers into the period-based form (`period = 2*n`) that bounces
+  correctly for any offset. Netflix golden outputs are unchanged
+  because 576×324 and 1920×1080 inputs never exercise the
+  sub-kernel-radius regime. See
+  [`docs/development/known-upstream-bugs.md`](docs/development/known-upstream-bugs.md)
+  and [ADR-0125](docs/adr/0125-ms-ssim-decimate-simd.md).
+- **`adm_decouple_s123_avx512` LTO+release SEGV**: the stack array
+  `int64_t angle_flag[16]` is read via two `_mm512_loadu_si512`
+  calls. Under `--buildtype=release -Db_lto=true`, link-time
+  alignment inference promotes them to `vmovdqa64`, which faults
+  because the C default stack alignment for `int64_t[16]` is 8
+  bytes. Annotating the array with `_Alignas(64)` at
+  [`libvmaf/src/feature/x86/adm_avx512.c:1317`](libvmaf/src/feature/x86/adm_avx512.c#L1317)
+  keeps both the unaligned source form and the LTO-promoted aligned
+  form correct. Debug / no-LTO builds, and every CI sanitizer job,
+  are unaffected.
+- **`test_pic_preallocation` VmafModel leaks**:
+  `test_picture_pool_basic` / `_small` / `_yuv444` loaded a
+  `VmafModel` via `vmaf_model_load` and never freed it, so
+  LeakSanitizer reported 208 B direct + 23 KiB indirect per test.
+  Paired each load with `vmaf_model_destroy(model)` in
+  [`libvmaf/test/test_pic_preallocation.c`](libvmaf/test/test_pic_preallocation.c).
 - **`libvmaf_cuda` ffmpeg filter segfault on first frame**: external
   reporter (2026-04-19) hit a SIGSEGV in `vmaf_ref_fetch_increment` on
   every invocation of ffmpeg's `libvmaf_cuda` filter against the fork's

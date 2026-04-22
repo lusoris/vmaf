@@ -23,6 +23,24 @@ if cc.symbols_have_underscore_prefix()
     cdata_asm.set10('PREFIX', true)
 endif
 
+# Check for locale handling functions
+uselocale_test = '''
+#define _GNU_SOURCE
+#include <locale.h>
+int main() {
+    locale_t loc = uselocale((locale_t)0);
+    return 0;
+}
+'''
+if cc.compiles(uselocale_test, name: 'uselocale availability')
+    cdata.set('HAVE_USELOCALE', 1)
+endif
+
+# Check for xlocale.h header (needed on some older macOS versions)
+if cc.has_header('xlocale.h')
+    cdata.set('HAVE_XLOCALE_H', 1)
+endif
+
 is_asm_enabled = get_option('enable_asm') == true
 is_cuda_enabled = get_option('enable_cuda') == true
 is_sycl_enabled = get_option('enable_sycl') == true
@@ -238,6 +256,7 @@ if is_asm_enabled
           feature_src_dir + 'arm64/ansnr_neon.c',
           feature_src_dir + 'arm64/float_adm_neon.c',
           feature_src_dir + 'arm64/ciede_neon.c',
+          feature_src_dir + 'arm64/ms_ssim_decimate_neon.c',
         ]
 
           arm64_static_lib = static_library(
@@ -266,6 +285,7 @@ if is_asm_enabled
           feature_src_dir + 'x86/ansnr_avx2.c',
           feature_src_dir + 'x86/float_adm_avx2.c',
           feature_src_dir + 'x86/ciede_avx2.c',
+          feature_src_dir + 'x86/ms_ssim_decimate_avx2.c',
       ]
 
       x86_avx2_static_lib = static_library(
@@ -291,6 +311,7 @@ if is_asm_enabled
             feature_src_dir + 'x86/ansnr_avx512.c',
             feature_src_dir + 'x86/float_adm_avx512.c',
             feature_src_dir + 'x86/ciede_avx512.c',
+            feature_src_dir + 'x86/ms_ssim_decimate_avx512.c',
         ]
 
         x86_avx512_static_lib = static_library(
@@ -640,6 +661,8 @@ libvmaf_feature_sources = [
     feature_src_dir + 'float_ms_ssim.c',
     feature_src_dir + 'ssim.c',
     feature_src_dir + 'ms_ssim.c',
+    feature_src_dir + 'ssimulacra2.c',
+    feature_src_dir + 'ms_ssim_decimate.c',
     feature_src_dir + 'iqa/decimate.c',
     feature_src_dir + 'iqa/ssim_tools.c',
     feature_src_dir + 'iqa/math_utils.c',
@@ -752,6 +775,7 @@ libvmaf_sources = [
     src_dir + 'framesync.c',
     src_dir + 'metadata_handler.c',
     src_dir + 'picture_pool.c',
+    src_dir + 'thread_locale.c',
 ]
 
 if is_cuda_enabled
@@ -838,3 +862,9 @@ pkg_mod.generate(libraries: libvmaf,
     requires_private: libvmaf_private_reqs,
     libraries_private: libvmaf_private_libs,
 )
+
+libvmaf_dep = declare_dependency(
+    link_with: libvmaf,
+    include_directories: [libvmaf_inc],
+)
+meson.override_dependency('libvmaf', libvmaf_dep)

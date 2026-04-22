@@ -59,6 +59,21 @@ libvmaf/
 - [ADR-0022](../docs/adr/0022-inference-runtime-onnx.md) — execution-provider mapping ORT↔backends.
 - [ADR-0024](../docs/adr/0024-netflix-golden-preserved.md) — golden-data gate (three CPU reference pairs, never modified).
 - [ADR-0025](../docs/adr/0025-copyright-handling-dual-notice.md) — dual-copyright policy.
+- [ADR-0137](../docs/adr/0137-thread-local-locale-for-numeric-io.md) —
+  thread-local locale abstraction (`thread_locale.h`) for all numeric I/O.
+
+## Rebase-sensitive invariants
+
+- **Output writers return `ferror(outfile) ? -EIO : 0`.**
+  `vmaf_write_output_{xml,json,csv,sub}` in
+  [src/output.c](src/output.c) use a single tail `return` that
+  checks `ferror(outfile)` — per [ADR-0119](../docs/adr/0119-cli-precision-default-revert.md).
+  Any upstream patch that changes the tail to bare `return 0`
+  must be merged so the fork's `ferror` check survives. The
+  thread-locale bracket from [ADR-0137](../docs/adr/0137-thread-local-locale-for-numeric-io.md)
+  is `push_c()` at entry → body → `pop()` before the `ferror`
+  check; dropping the `pop()` leaks a `locale_t` on POSIX and
+  leaves the calling thread locked to `"C"` on Windows.
 
 Backend-specific orientation:
 

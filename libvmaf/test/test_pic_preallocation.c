@@ -83,6 +83,8 @@ static char *test_picture_pool_basic()
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_close", !err);
 
+    vmaf_model_destroy(model);
+
     return NULL;
 }
 
@@ -138,6 +140,8 @@ static char *test_picture_pool_small()
 
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_close", !err);
+
+    vmaf_model_destroy(model);
 
     return NULL;
 }
@@ -247,6 +251,8 @@ static char *test_picture_pool_yuv444()
 
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_close", !err);
+
+    vmaf_model_destroy(model);
 
     return NULL;
 }

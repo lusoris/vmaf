@@ -63,7 +63,11 @@ jobs:
           )
 
           # Write PR body to a file so grep can handle newlines robustly.
-          printf '%s' "${PR_BODY:-}" > /tmp/pr_body.md
+          # Strip markdown emphasis/code characters (backticks, asterisks,
+          # underscores) before grepping: the PR template wraps labels
+          # like `AGENTS.md` in backticks, which would otherwise insert
+          # characters between tokens and break the `- [x].*<item>` regex.
+          printf '%s' "${PR_BODY:-}" | tr -d '`*_' > /tmp/pr_body.md
 
           fail=0
           for item in "${items[@]}"; do
@@ -114,7 +118,9 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          printf '%s' "${PR_BODY:-}" > /tmp/pr_body.md
+          # Same markdown-stripping as the parse step above so `- [x]`
+          # matches regardless of backtick/asterisk wrapping.
+          printf '%s' "${PR_BODY:-}" | tr -d '`*_' > /tmp/pr_body.md
 
           # Compute PR diff file list once.
           git diff --name-only "${BASE_SHA}".."${HEAD_SHA}" > /tmp/diff_files.txt
