@@ -137,6 +137,23 @@ feature/
   would trip clang-tidy `readability-function-size` (JPL-P10 rule 4).
   See [ADR-0132](../../../docs/adr/0132-port-netflix-1406-feature-collector-model-list.md)
   and [rebase-notes 0031](../../../docs/rebase-notes.md).
+- **VIF `vif_sigma_nsq` AVX2 parity** (fork-local, ADR-0142): the
+  fork-local [`x86/vif_statistic_avx2.c`](x86/vif_statistic_avx2.c)
+  `vif_statistic_s_avx2` signature carries a 14th `double
+  vif_sigma_nsq` parameter that upstream does not know about
+  (upstream ships no AVX2 variant). Two rules preserve the
+  default-path bit-identity invariant on rebase:
+  1. **Float discipline**: the compute sites use a local
+     `const float sigma_nsq = (float)vif_sigma_nsq;` and
+     `sigma_max_inv = powf((float)vif_sigma_nsq, 2.0f) / (255² f)`
+     — NOT the upstream scalar's double-promotion pattern.
+     Keep the float-cast on conflict.
+  2. **Signature lockstep**: if upstream extends the scalar
+     `vif_statistic_s` signature further, the AVX2 variant's
+     declaration in [`vif_tools.c`](vif_tools.c) and definition in
+     `x86/vif_statistic_avx2.c` must move in lockstep with it.
+  See [ADR-0142](../../../docs/adr/0142-port-netflix-18e8f1c5-vif-sigma-nsq.md)
+  and [rebase-notes 0035](../../../docs/rebase-notes.md).
 
 ## Governing ADRs
 

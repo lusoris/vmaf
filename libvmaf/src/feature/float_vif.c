@@ -37,6 +37,7 @@ typedef struct VifState {
     bool debug;
     double vif_enhn_gain_limit;
     double vif_kernelscale;
+    double vif_sigma_nsq;
     VmafDictionary *feature_name_dict;
 } VifState;
 
@@ -70,6 +71,17 @@ static const VmafOption options[] = {{
                                          .default_val.d = DEFAULT_VIF_KERNELSCALE,
                                          .min = 0.1,
                                          .max = 4.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {
+                                         .name = "vif_sigma_nsq",
+                                         .alias = "snsq",
+                                         .help = "neural noise variance",
+                                         .offset = offsetof(VifState, vif_sigma_nsq),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val.d = 2.0,
+                                         .min = 0.0,
+                                         .max = 5.0,
                                          .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
                                      },
                                      {0}};
@@ -122,7 +134,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     double scores[8];
     err = compute_vif(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride,
                       s->float_stride, &score, &score_num, &score_den, scores,
-                      s->vif_enhn_gain_limit, s->vif_kernelscale);
+                      s->vif_enhn_gain_limit, s->vif_kernelscale, s->vif_sigma_nsq);
     if (err)
         return err;
 
