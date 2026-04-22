@@ -1664,3 +1664,68 @@ inline.*
   drifts, redo the three fork corrections listed in
   [ADR-0137](adr/0137-thread-local-locale-for-numeric-io.md)
   §Decision.
+
+### 0033 — SSIM / MS-SSIM SIMD bit-exact to scalar via per-lane scalar double
+
+- **Workstream PRs**: `feat/ms-ssim-decimate-neon` (this PR —
+  companion to the ADR-0138 convolve fast path).
+- **Touches**:
+  [`libvmaf/src/feature/x86/ssim_avx2.c`](../libvmaf/src/feature/x86/ssim_avx2.c)
+  and
+  [`libvmaf/src/feature/x86/ssim_avx512.c`](../libvmaf/src/feature/x86/ssim_avx512.c)
+  — `ssim_accumulate_*` rewritten. `ssim_precompute_*` and
+  `ssim_variance_*` unchanged (they were already bit-exact).
+  Plus the new bit-exact
+  [`convolve_avx2.c`](../libvmaf/src/feature/x86/convolve_avx2.c) /
+  [`convolve_avx512.c`](../libvmaf/src/feature/x86/convolve_avx512.c)
+  and the upstream h-pass OOB fix at
+  [`iqa/convolve.c:159`](../libvmaf/src/feature/iqa/convolve.c#L159).
+- **Invariants** (see
+  [ADR-0139](adr/0139-ssim-simd-bitexact-double.md) §Decision):
+  1. **Convolve taps** — *single-rounded `float*float` → widen →
+     `double` add*, NO FMA. Mirrors scalar `sum += img[i]*k[j]` in
+     [`iqa/convolve.c`](../libvmaf/src/feature/iqa/convolve.c).
+  2. **SSIM accumulate** — scalar's `2.0 *` literal
+     (`2.0 * ref_mu[i] * cmp_mu[i] + C1` and `2.0 * srsc + C2`)
+     is a C `double` literal. Both SIMD accumulators do the `2.0 *`
+     numerator + division + final `l*c*s` product per-lane in
+     scalar double to match scalar type promotions byte-for-byte.
+  3. **H-pass outer-loop bound** — `y < dst_h + vc - kh_even` (not
+     `y < dst_h + vc`); the `- kh_even` is load-bearing because the
+     last cache row on even-tap kernels (e.g. box-8) is never read
+     by the v-pass but was previously written OOB when image height
+     equals kernel height.
+
+  Fork-local SSIM SIMD is NOT upstream. If upstream ever adds their
+  own SSIM AVX2/AVX-512, **keep the fork's version on conflict** —
+  it's the only variant verified bit-exact to scalar at
+  `--precision max`.
+- **Re-test**:
+
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_iqa_convolve test_ms_ssim_decimate
+  # Bit-exactness check across dispatch backends:
+  FIX=python/test/resource/yuv/checkerboard_1920_1080_10_3_0_0.yuv
+  DIS=python/test/resource/yuv/checkerboard_1920_1080_10_3_1_0.yuv
+  for m in 255 16 0; do
+    build/tools/vmaf --cpumask $m --reference $FIX --distorted $DIS \
+        --width 1920 --height 1080 --pixel_format 420 --bitdepth 8 \
+        --feature float_ssim --feature float_ms_ssim \
+        --output /tmp/ssim_$m.xml --precision max
+  done
+  diff <(grep -v '<fyi fps' /tmp/ssim_255.xml) \
+       <(grep -v '<fyi fps' /tmp/ssim_16.xml)    # expect empty
+  diff <(grep -v '<fyi fps' /tmp/ssim_255.xml) \
+       <(grep -v '<fyi fps' /tmp/ssim_0.xml)     # expect empty
+  ```
+
+- **On upstream sync**: the AVX2/AVX-512 SSIM surface is entirely
+  fork-local (upstream has VIF/ADM/motion/CAMBI SIMD but no SSIM).
+  If upstream ever introduces SSIM SIMD, their kernel bodies will
+  almost certainly compute `l*c*s` in vector float for throughput —
+  **do not adopt**. The fork's per-lane-scalar-double reduction is
+  required for the bit-exactness claim. Same applies to
+  `convolve_avx2/512` — they are fork-only; dispatch sits in
+  `ssim_tools.c` via `_iqa_convolve_set_dispatch`.

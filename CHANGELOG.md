@@ -439,6 +439,28 @@
 
 ### Fixed
 
+- **SSIM / MS-SSIM AVX2 + AVX-512 bit-exactness to scalar**: fork-local
+  `ssim_accumulate_avx2` / `ssim_accumulate_avx512`
+  ([`libvmaf/src/feature/x86/ssim_avx2.c`](libvmaf/src/feature/x86/ssim_avx2.c),
+  [`libvmaf/src/feature/x86/ssim_avx512.c`](libvmaf/src/feature/x86/ssim_avx512.c))
+  previously computed the `l`, `c`, `s` factors as vector float and
+  produced the `l * c * s` triple product in float before accumulating
+  to double — that diverged from the scalar reference by ~0.13 float
+  ULPs (8th decimal) on `float_ms_ssim`, because scalar evaluates
+  `2.0 * mu1 * mu2 + C1` and `2.0 * srsc + C2` in double (the literal
+  `2.0` is a C `double`) and runs `lv * cv * sv` as three double
+  multiplies. The SIMD accumulators now compute the float-valued
+  intermediates (`srsc`, denominators, `sv`) in vector float and do
+  the double-precision numerator + division + triple product per-lane
+  in scalar double inside an 8/16-wide inner loop, matching scalar
+  byte-for-byte. Verified: scalar = AVX2 = AVX-512 bit-identical at
+  `--precision max` on both Netflix `src01_hrc00/01_576x324` and
+  `checkerboard_1920_1080_10_3` pairs. `ssim_precompute_*` and
+  `ssim_variance_*` were already bit-exact (pure elementwise float
+  ops). Companion fix to the new bit-exact `_iqa_convolve_avx2/512`
+  dispatch. See
+  [ADR-0139](docs/adr/0139-ssim-simd-bitexact-double.md) +
+  [ADR-0138](docs/adr/0138-iqa-convolve-avx2-bitexact-double.md).
 - **CUDA multi-session `vmaf_cuda_picture_free` assertion-0 crash**:
   two or more concurrent CUDA sessions freeing pictures tripped
   `Assertion 0 failed` inside the driver because

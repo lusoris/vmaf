@@ -34,9 +34,9 @@
  * contrast and structure.
  */
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <stddef.h>
 #include <assert.h> /* zli-nflx */
 
 #include "iqa.h"
@@ -60,8 +60,33 @@ void _iqa_ssim_set_dispatch(ssim_precompute_fn precompute, ssim_variance_fn vari
     g_ssim_accumulate = accumulate;
 }
 
-/* _calc_luminance */
-IQA_INLINE static double _calc_luminance(float mu1, float mu2, float C1, float alpha)
+/* SIMD dispatch for _iqa_convolve (see ADR-0138) */
+static iqa_convolve_fn g_iqa_convolve = NULL;
+
+void _iqa_convolve_set_dispatch(iqa_convolve_fn convolve)
+{
+    g_iqa_convolve = convolve;
+}
+
+/* Adapter: feeds the `struct _kernel *` call site into the
+ * primitive-args SIMD function pointer; falls back to the scalar
+ * `_iqa_convolve` when no dispatch is installed. `workspace` is the
+ * caller-owned w*h scratch buffer reused across every dispatch site
+ * in a single _iqa_ssim invocation (see ADR-0138 §Decision). */
+static inline void iqa_convolve_dispatch(float *img, int w, int h, const struct _kernel *k,
+                                         float *workspace, float *result, int *rw, int *rh)
+{
+    if (g_iqa_convolve) {
+        g_iqa_convolve(img, w, h, k->kernel_h, k->kernel_v, k->w, k->h, k->normalized, workspace,
+                       result, rw, rh);
+    } else {
+        (void)workspace;
+        _iqa_convolve(img, w, h, k, result, rw, rh);
+    }
+}
+
+/* calc_luminance */
+IQA_INLINE static double calc_luminance(float mu1, float mu2, float C1, float alpha)
 {
     double result;
     float sign;
@@ -75,9 +100,9 @@ IQA_INLINE static double _calc_luminance(float mu1, float mu2, float C1, float a
     return sign * pow(fabs(result), (double)alpha);
 }
 
-/* _calc_contrast */
-IQA_INLINE static double _calc_contrast(double sigma_comb_12, float sigma1_sqd, float sigma2_sqd,
-                                        float C2, float beta)
+/* calc_contrast */
+IQA_INLINE static double calc_contrast(double sigma_comb_12, float sigma1_sqd, float sigma2_sqd,
+                                       float C2, float beta)
 {
     double result;
     float sign;
@@ -91,24 +116,124 @@ IQA_INLINE static double _calc_contrast(double sigma_comb_12, float sigma1_sqd, 
     return sign * pow(fabs(result), (double)beta);
 }
 
-/* _calc_structure */
-IQA_INLINE static double _calc_structure(float sigma_12, double sigma_comb_12, float sigma1,
-                                         float sigma2, float C3, float gamma)
+/* calc_structure */
+IQA_INLINE static double calc_structure(float sigma_12, double sigma_comb_12, float sigma1,
+                                        float sigma2, float C3, float gamma)
 {
     double result;
     float sign;
     /* For MS-SSIM* */
     if (C3 == 0 && sigma_comb_12 == 0) {
-        if (sigma1 == 0 && sigma2 == 0)
+        if (sigma1 == 0 && sigma2 == 0) {
             return 1.0;
-        else if (sigma1 == 0 || sigma2 == 0)
+        } else if (sigma1 == 0 || sigma2 == 0) {
             return 0.0;
+        }
     }
     result = (sigma_12 + C3) / (sigma_comb_12 + C3);
-    if (gamma == 1.0f)
+    if (gamma == 1.0f) {
         return result;
+    }
     sign = result < 0.0 ? -1.0f : 1.0f;
     return sign * pow(fabs(result), (double)gamma);
+}
+
+/* Scalar fallback for the precompute stage (ref*ref, cmp*cmp, ref*cmp). */
+static void ssim_precompute_scalar(const float *ref, const float *cmp, float *ref_sq, float *cmp_sq,
+                                   float *ref_cmp, int w, int h)
+{
+    for (int y = 0; y < h; ++y) {
+        int offset = y * w;
+        for (int x = 0; x < w; ++x, ++offset) {
+            ref_sq[offset] = ref[offset] * ref[offset];
+            cmp_sq[offset] = cmp[offset] * cmp[offset];
+            ref_cmp[offset] = ref[offset] * cmp[offset];
+        }
+    }
+}
+
+/* Scalar fallback for the variance stage: subtract mu^2 and clamp to 0. */
+static void ssim_variance_scalar(float *ref_sigma_sqd, float *cmp_sigma_sqd, float *sigma_both,
+                                 const float *ref_mu, const float *cmp_mu, int w, int h)
+{
+    for (int y = 0; y < h; ++y) {
+        int offset = y * w;
+        for (int x = 0; x < w; ++x, ++offset) {
+            ref_sigma_sqd[offset] -= ref_mu[offset] * ref_mu[offset];
+            cmp_sigma_sqd[offset] -= cmp_mu[offset] * cmp_mu[offset];
+            /* zli-nflx: clamp to zero after subtraction */
+            ref_sigma_sqd[offset] = MAX(0.0, ref_sigma_sqd[offset]);
+            cmp_sigma_sqd[offset] = MAX(0.0, cmp_sigma_sqd[offset]);
+            sigma_both[offset] -= ref_mu[offset] * cmp_mu[offset];
+        }
+    }
+}
+
+/* Scalar fallback for the default-case accumulate (l*c*s with the zli-nflx
+ * flat-region clamp on sigma_both). */
+static void ssim_accumulate_default_scalar(const float *ref_mu, const float *cmp_mu,
+                                           const float *ref_sigma_sqd, const float *cmp_sigma_sqd,
+                                           const float *sigma_both, int w, int h, float C1,
+                                           float C2, float C3, double *ssim_sum, double *l_sum,
+                                           double *c_sum, double *s_sum)
+{
+    for (int y = 0; y < h; ++y) {
+        int offset = y * w;
+        for (int x = 0; x < w; ++x, ++offset) {
+            const float sigma_ref_sigma_cmp = sqrtf(ref_sigma_sqd[offset] * cmp_sigma_sqd[offset]);
+            const double l =
+                (2.0 * ref_mu[offset] * cmp_mu[offset] + C1) /
+                (ref_mu[offset] * ref_mu[offset] + cmp_mu[offset] * cmp_mu[offset] + C1);
+            const double c = (2.0 * sigma_ref_sigma_cmp + C2) /
+                             (ref_sigma_sqd[offset] + cmp_sigma_sqd[offset] + C2);
+            /* zli-nflx: when ref == cmp and the filtered region is flat (zero std),
+             * sigma_both can go slightly negative via float rounding while
+             * sigma_ref_sigma_cmp is zero; clamp so s stays at 1.0. */
+            const float clamped_sigma_both =
+                (sigma_both[offset] < 0.0f && sigma_ref_sigma_cmp <= 0.0f) ? 0.0f :
+                                                                             sigma_both[offset];
+            const double s = (clamped_sigma_both + C3) / (sigma_ref_sigma_cmp + C3);
+            *ssim_sum += l * c * s;
+            *l_sum += l;
+            *c_sum += c;
+            *s_sum += s;
+        }
+    }
+}
+
+/* Scalar path for the user-tweaked (alpha/beta/gamma) branch. Reached only
+ * when the caller passes non-NULL args; gated by `assert(!args)` in the
+ * default path. Returns INFINITY if mr->map signals abort, otherwise the
+ * reduced score. */
+static float ssim_accumulate_user_args_scalar(float *ref_sigma_sqd, float *cmp_sigma_sqd,
+                                              float *sigma_both, const float *ref_mu,
+                                              const float *cmp_mu, int w, int h, float C1, float C2,
+                                              float C3, float alpha, float beta, float gamma,
+                                              const struct _map_reduce *mr)
+{
+    struct _ssim_int sint;
+    for (int y = 0; y < h; ++y) {
+        int offset = y * w;
+        for (int x = 0; x < w; ++x, ++offset) {
+            /* passing a negative number to sqrt() causes a domain error */
+            if (ref_sigma_sqd[offset] < 0.0f) {
+                ref_sigma_sqd[offset] = 0.0f;
+            }
+            if (cmp_sigma_sqd[offset] < 0.0f) {
+                cmp_sigma_sqd[offset] = 0.0f;
+            }
+            const double sigma_root = sqrtf(ref_sigma_sqd[offset] * cmp_sigma_sqd[offset]);
+            sint.l = calc_luminance(ref_mu[offset], cmp_mu[offset], C1, alpha);
+            sint.c =
+                calc_contrast(sigma_root, ref_sigma_sqd[offset], cmp_sigma_sqd[offset], C2, beta);
+            sint.s = calc_structure(sigma_both[offset], sigma_root, ref_sigma_sqd[offset],
+                                    cmp_sigma_sqd[offset], C3, gamma);
+            if (mr->map(&sint, mr->context)) {
+                return INFINITY;
+            }
+        }
+    }
+    return mr->reduce(w, h, mr->context);
 }
 
 /* _iqa_ssim */
@@ -117,25 +242,20 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
                 float *c_mean, float *s_mean /* zli-nflx */
 )
 {
-    float alpha = 1.0f, beta = 1.0f, gamma = 1.0f;
+    float alpha = 1.0f;
+    float beta = 1.0f;
+    float gamma = 1.0f;
     int L = 255;
-    float K1 = 0.01f, K2 = 0.03f;
-    float C1, C2, C3;
-    int x, y, offset;
-    float *ref_mu, *cmp_mu, *ref_sigma_sqd, *cmp_sigma_sqd, *sigma_both;
-    double ssim_sum;
-    // double numerator, denominator; /* zli-nflx */
-    double luminance_comp, contrast_comp, structure_comp, sigma_root;
-    struct _ssim_int sint;
-    double l_sum, c_sum, s_sum, l, c, s; /* zli-nflx */
-    float sigma_ref_sigma_cmp;           /* zli-nflx */
+    float K1 = 0.01f;
+    float K2 = 0.03f;
 
     assert(!args); /* zli-nflx: for now only works for default case */
 
     /* Initialize algorithm parameters */
     if (args) {
-        if (!mr)
+        if (!mr) {
             return INFINITY;
+        }
         alpha = args->alpha;
         beta = args->beta;
         gamma = args->gamma;
@@ -143,131 +263,71 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
         K1 = args->K1;
         K2 = args->K2;
     }
-    C1 = (K1 * L) * (K1 * L);
-    C2 = (K2 * L) * (K2 * L);
-    C3 = C2 / 2.0f;
+    const float C1 = (K1 * L) * (K1 * L);
+    const float C2 = (K2 * L) * (K2 * L);
+    const float C3 = C2 / 2.0f;
 
-    ref_mu = (float *)malloc(w * h * sizeof(float));
-    cmp_mu = (float *)malloc(w * h * sizeof(float));
-    ref_sigma_sqd = (float *)malloc(w * h * sizeof(float));
-    cmp_sigma_sqd = (float *)malloc(w * h * sizeof(float));
-    sigma_both = (float *)malloc(w * h * sizeof(float));
-    if (!ref_mu || !cmp_mu || !ref_sigma_sqd || !cmp_sigma_sqd || !sigma_both) {
-        if (ref_mu)
-            free(ref_mu);
-        if (cmp_mu)
-            free(cmp_mu);
-        if (ref_sigma_sqd)
-            free(ref_sigma_sqd);
-        if (cmp_sigma_sqd)
-            free(cmp_sigma_sqd);
-        if (sigma_both)
-            free(sigma_both);
+    const size_t n_elems = (size_t)w * (size_t)h;
+    float *ref_mu = (float *)malloc(n_elems * sizeof(float));
+    float *cmp_mu = (float *)malloc(n_elems * sizeof(float));
+    float *ref_sigma_sqd = (float *)malloc(n_elems * sizeof(float));
+    float *cmp_sigma_sqd = (float *)malloc(n_elems * sizeof(float));
+    float *sigma_both = (float *)malloc(n_elems * sizeof(float));
+    /* Shared workspace for the SIMD convolve's horizontal-pass cache.
+     * Allocated once and threaded through all 5 dispatch sites below,
+     * replacing ~1200 per-call calloc/free pairs on a 120-frame 1080p
+     * run. Scalar `_iqa_convolve` ignores it. See ADR-0138. */
+    float *conv_workspace = (float *)malloc(n_elems * sizeof(float));
+    if (!ref_mu || !cmp_mu || !ref_sigma_sqd || !cmp_sigma_sqd || !sigma_both || !conv_workspace) {
+        /* free(NULL) is a well-defined no-op (C89 §7.20.3.2) */
+        free(ref_mu);
+        free(cmp_mu);
+        free(ref_sigma_sqd);
+        free(cmp_sigma_sqd);
+        free(sigma_both);
+        free(conv_workspace);
         return INFINITY;
     }
 
     /* Calculate mean */
-    _iqa_convolve(ref, w, h, k, ref_mu, 0, 0);
-    _iqa_convolve(cmp, w, h, k, cmp_mu, 0, 0);
+    iqa_convolve_dispatch(ref, w, h, k, conv_workspace, ref_mu, 0, 0);
+    iqa_convolve_dispatch(cmp, w, h, k, conv_workspace, cmp_mu, 0, 0);
 
+    /* Precompute ref^2, cmp^2, ref*cmp */
     if (g_ssim_precompute) {
         g_ssim_precompute(ref, cmp, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w * h);
     } else {
-        for (y = 0; y < h; ++y) {
-            offset = y * w;
-            for (x = 0; x < w; ++x, ++offset) {
-                ref_sigma_sqd[offset] = ref[offset] * ref[offset];
-                cmp_sigma_sqd[offset] = cmp[offset] * cmp[offset];
-                sigma_both[offset] = ref[offset] * cmp[offset];
-            }
-        }
+        ssim_precompute_scalar(ref, cmp, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w, h);
     }
 
     /* Calculate sigma */
-    _iqa_convolve(ref_sigma_sqd, w, h, k, 0, 0, 0);
-    _iqa_convolve(cmp_sigma_sqd, w, h, k, 0, 0, 0);
-    _iqa_convolve(sigma_both, w, h, k, 0, &w, &h); /* Update the width and height */
+    iqa_convolve_dispatch(ref_sigma_sqd, w, h, k, conv_workspace, 0, 0, 0);
+    iqa_convolve_dispatch(cmp_sigma_sqd, w, h, k, conv_workspace, 0, 0, 0);
+    iqa_convolve_dispatch(sigma_both, w, h, k, conv_workspace, 0, &w, &h); /* Update w/h */
 
     /* The convolution results are smaller by the kernel width and height */
     if (g_ssim_variance) {
         g_ssim_variance(ref_sigma_sqd, cmp_sigma_sqd, sigma_both, ref_mu, cmp_mu, w * h);
     } else {
-        for (y = 0; y < h; ++y) {
-            offset = y * w;
-            for (x = 0; x < w; ++x, ++offset) {
-                ref_sigma_sqd[offset] -= ref_mu[offset] * ref_mu[offset];
-                cmp_sigma_sqd[offset] -= cmp_mu[offset] * cmp_mu[offset];
-
-                ref_sigma_sqd[offset] = MAX(0.0, ref_sigma_sqd[offset]); /* zli-nflx */
-                cmp_sigma_sqd[offset] = MAX(0.0, cmp_sigma_sqd[offset]); /* zli-nflx */
-
-                sigma_both[offset] -= ref_mu[offset] * cmp_mu[offset];
-            }
-        }
+        ssim_variance_scalar(ref_sigma_sqd, cmp_sigma_sqd, sigma_both, ref_mu, cmp_mu, w, h);
     }
 
-    ssim_sum = 0.0;
-    l_sum = 0.0; /* zli-nflx */
-    c_sum = 0.0; /* zli-nflx */
-    s_sum = 0.0; /* zli-nflx */
+    /* Accumulate: three paths (dispatch, scalar default, or user-args) */
+    double ssim_sum = 0.0;
+    double l_sum = 0.0;
+    double c_sum = 0.0;
+    double s_sum = 0.0;
+    float user_args_result = 0.0f;
     if (!args && g_ssim_accumulate) {
         g_ssim_accumulate(ref_mu, cmp_mu, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w * h, C1, C2,
                           C3, &ssim_sum, &l_sum, &c_sum, &s_sum);
+    } else if (!args) {
+        ssim_accumulate_default_scalar(ref_mu, cmp_mu, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w,
+                                       h, C1, C2, C3, &ssim_sum, &l_sum, &c_sum, &s_sum);
     } else {
-        for (y = 0; y < h; ++y) {
-            offset = y * w;
-            for (x = 0; x < w; ++x, ++offset) {
-
-                if (!args) {
-
-                    /* The default case */
-                    /* zli-nflx: */
-                    sigma_ref_sigma_cmp = sqrt(ref_sigma_sqd[offset] * cmp_sigma_sqd[offset]);
-                    l = (2.0 * ref_mu[offset] * cmp_mu[offset] + C1) /
-                        (ref_mu[offset] * ref_mu[offset] + cmp_mu[offset] * cmp_mu[offset] + C1);
-                    c = (2.0 * sigma_ref_sigma_cmp + C2) /
-                        (ref_sigma_sqd[offset] + cmp_sigma_sqd[offset] + C2);
-
-                    /* zli-nflx: fix corner case where ref and cmp are identical, and the local filtered region is
-                 * completely flat (zero std). In this case, sigma_both can become negative due to inprecise
-                 * float representation but sigma_ref_sigma_cmp is zero, resulting s < 1.0. The desiired
-                 * behavior should be that ssim score is 1.0. */
-                    const float clamped_sigma_both =
-                        (sigma_both[offset] < 0.0f && sigma_ref_sigma_cmp <= 0.0f) ?
-                            0.0f :
-                            sigma_both[offset];
-                    s = (clamped_sigma_both + C3) / (sigma_ref_sigma_cmp + C3);
-
-                    ssim_sum += l * c * s;
-                    l_sum += l;
-                    c_sum += c;
-                    s_sum += s;
-                } else {
-                    /* User tweaked alpha, beta, or gamma */
-
-                    /* passing a negative number to sqrt() cause a domain error */
-                    if (ref_sigma_sqd[offset] < 0.0f)
-                        ref_sigma_sqd[offset] = 0.0f;
-                    if (cmp_sigma_sqd[offset] < 0.0f)
-                        cmp_sigma_sqd[offset] = 0.0f;
-                    sigma_root = sqrt(ref_sigma_sqd[offset] * cmp_sigma_sqd[offset]);
-
-                    luminance_comp = _calc_luminance(ref_mu[offset], cmp_mu[offset], C1, alpha);
-                    contrast_comp = _calc_contrast(sigma_root, ref_sigma_sqd[offset],
-                                                   cmp_sigma_sqd[offset], C2, beta);
-                    structure_comp =
-                        _calc_structure(sigma_both[offset], sigma_root, ref_sigma_sqd[offset],
-                                        cmp_sigma_sqd[offset], C3, gamma);
-
-                    sint.l = luminance_comp;
-                    sint.c = contrast_comp;
-                    sint.s = structure_comp;
-
-                    if (mr->map(&sint, mr->context))
-                        return INFINITY;
-                }
-            }
-        }
+        user_args_result =
+            ssim_accumulate_user_args_scalar(ref_sigma_sqd, cmp_sigma_sqd, sigma_both, ref_mu,
+                                             cmp_mu, w, h, C1, C2, C3, alpha, beta, gamma, mr);
     }
 
     free(ref_mu);
@@ -275,6 +335,7 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
     free(ref_sigma_sqd);
     free(cmp_sigma_sqd);
     free(sigma_both);
+    free(conv_workspace);
 
     if (!args) {
         *l_mean = (float)(l_sum / (double)(w * h)); /* zli-nflx */
@@ -282,5 +343,5 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
         *s_mean = (float)(s_sum / (double)(w * h)); /* zli-nflx */
         return (float)(ssim_sum / (double)(w * h));
     }
-    return mr->reduce(w, h, mr->context);
+    return user_args_result;
 }

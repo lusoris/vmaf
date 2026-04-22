@@ -64,6 +64,9 @@ Conventions:
 | [0002](0002-automated-rule-enforcement.md) | Automating process-ADR enforcement (0100 / 0105 / 0106 / 0108) | Active | [ADR-0124](../adr/0124-automated-rule-enforcement.md) |
 | [0007](0007-ssimulacra2-scalar-port.md) | SSIMULACRA 2 scalar port — YUV handling, blur deviation, snapshot tooling | Active | [ADR-0126](../adr/0126-ssimulacra2-feature-extractor.md), [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md) |
 | [0008](0008-ms-ssim-decimate-simd.md) | MS-SSIM decimate SIMD — FLOP accounting, summation order, bit-exactness | Active | [ADR-0125](../adr/0125-ms-ssim-decimate-simd.md) |
+| [0010](0010-speed-netflix-upstream-direction.md) | Is Netflix about to ship a SpEED-driven VMAF successor? (informational) | Active | — |
+| [0011](0011-iqa-convolve-avx2.md) | `_iqa_convolve` AVX2 — bit-exactness via `__m256d`, kernel invariants, Amdahl | Active | [ADR-0138](../adr/0138-iqa-convolve-avx2-bitexact-double.md) |
+| [0012](0012-ssim-simd-bitexact.md) | SSIM SIMD bit-exactness to scalar — where the ULP drifted | Active | [ADR-0139](../adr/0139-ssim-simd-bitexact-double.md) |
 
 <!-- Backfill entries for older workstreams land here as their authors
      revisit the corresponding code. -->

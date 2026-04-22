@@ -87,6 +87,28 @@ feature/
   across the same four TUs and must match the upstream
   `KBND_SYMMETRIC` branch in `iqa/convolve.c`. Changing the boundary
   semantics in any one of them breaks bit-identity.
+- **SSIM / MS-SSIM SIMD bit-exactness invariants** (fork-local,
+  ADR-0138 + ADR-0139): the AVX2 / AVX-512 paths in
+  `x86/ssim_avx2.c` / `x86/ssim_avx512.c` and
+  `x86/convolve_avx2.c` / `x86/convolve_avx512.c` are bit-identical
+  to the scalar reference under FLT_EVAL_METHOD == 0. Two rules are
+  load-bearing and must be preserved on rebase:
+  1. **Convolve taps**: each tap is *single-rounded `float * float`
+     → widen to `double` → `double` add*. No FMA. Mirrors scalar
+     `sum += img[i] * k[j]` in
+     [`iqa/convolve.c`](iqa/convolve.c). Changing scalar to `fmaf`
+     or to a double-mul pattern requires matching both SIMD
+     variants.
+  2. **SSIM accumulate**: the `2.0 *` literal in
+     [`ssim_accumulate_default_scalar`](iqa/ssim_tools.c)
+     (`2.0 * ref_mu[i] * cmp_mu[i] + C1` and
+     `2.0 * srsc + C2`) is a C `double` literal, which promotes
+     the float operands to double before the multiply. Both SIMD
+     accumulators do the `2.0 *` numerator + division + final
+     `l*c*s` product per-lane in scalar double to match. If
+     upstream ever changes the `2.0` literal to `2.0f` (or
+     restructures the l/c numerators), both SIMD variants need a
+     matching rewrite.
 - **`feature_collector.c` mount/unmount traversal**: the fork rewrites
   `vmaf_feature_collector_mount_model` and `unmount_model` to walk a
   local cursor instead of advancing the pointer-to-head — upstream

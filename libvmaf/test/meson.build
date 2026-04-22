@@ -184,6 +184,28 @@ test_framesync = executable('test_framesync',
 # platform SIMD object libraries directly so the kernels can be called
 # without CPU-flag gating from inside the test. See
 # docs/adr/0125-ms-ssim-decimate-simd.md.
+iqa_convolve_test_archs = ['x86_64', 'x86']
+if iqa_convolve_test_archs.contains(host_machine.cpu_family())
+test_iqa_convolve = executable('test_iqa_convolve',
+    ['test.c', 'test_iqa_convolve.c',
+     '../src/mem.c', '../src/picture.c', '../src/ref.c',
+     '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
+                           include_directories('../src/feature/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
+                    cuda_dependency, sycl_dependency, dnn_deps],
+    objects : [
+      common_cuda_objects,
+      platform_specific_cpu_objects,
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
+    ],
+)
+endif
+
 ms_ssim_decimate_test_archs = ['x86_64', 'x86', 'aarch64', 'arm64']
 if ms_ssim_decimate_test_archs.contains(host_machine.cpu_family())
 test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
@@ -293,6 +315,10 @@ test('test_framesync', test_framesync)
 test('test_propagate_metadata', test_propagate_metadata)
 if ms_ssim_decimate_test_archs.contains(host_machine.cpu_family())
 test('test_ms_ssim_decimate', test_ms_ssim_decimate)
+endif
+
+if iqa_convolve_test_archs.contains(host_machine.cpu_family())
+test('test_iqa_convolve', test_iqa_convolve)
 endif
 
 test('test_locale_handling', test_locale_handling)
