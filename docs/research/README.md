@@ -62,7 +62,11 @@ Conventions:
 | --- | --- | --- | --- |
 | [0001](0001-bisect-model-quality-cache.md) | Cache shape for `bisect-model-quality` nightly | Active | [ADR-0109](../adr/0109-nightly-bisect-model-quality.md) |
 | [0002](0002-automated-rule-enforcement.md) | Automating process-ADR enforcement (0100 / 0105 / 0106 / 0108) | Active | [ADR-0124](../adr/0124-automated-rule-enforcement.md) |
-| [0007](0007-ssimulacra2-scalar-port.md) | SSIMULACRA 2 scalar port — YUV handling, blur deviation, snapshot tooling | Active | [ADR-0126](../adr/0126-ssimulacra2-feature-extractor.md), [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md) |
+| [0003](0003-ssimulacra2-port-sourcing.md) | SSIMULACRA 2 port source selection + upstream-drift strategy | Active | [ADR-0126](../adr/0126-ssimulacra2-extractor.md) |
+| [0004](0004-vulkan-backend-design.md) | Vulkan compute backend — loader, shader language, allocator, DMABUF import | Active | [ADR-0127](../adr/0127-vulkan-compute-backend.md) |
+| [0005](0005-embedded-mcp-transport.md) | Embedded MCP in libvmaf — threading, JSON library, SSE server, Power-of-10 fit | Active | [ADR-0128](../adr/0128-embedded-mcp-in-libvmaf.md) |
+| [0006](0006-tinyai-ptq-accuracy-targets.md) | Tiny-AI PTQ int8 — accuracy targets, ORT API comparison, calibration sourcing | Active | [ADR-0129](../adr/0129-tinyai-ptq-quantization.md) |
+| [0007](0007-ssimulacra2-scalar-port.md) | SSIMULACRA 2 scalar port — YUV handling, blur deviation, snapshot tooling | Active | [ADR-0126](../adr/0126-ssimulacra2-extractor.md), [ADR-0130](../adr/0130-ssimulacra2-scalar-implementation.md) |
 | [0008](0008-ms-ssim-decimate-simd.md) | MS-SSIM decimate SIMD — FLOP accounting, summation order, bit-exactness | Active | [ADR-0125](../adr/0125-ms-ssim-decimate-simd.md) |
 | [0010](0010-speed-netflix-upstream-direction.md) | Is Netflix about to ship a SpEED-driven VMAF successor? (informational) | Active | — |
 | [0011](0011-iqa-convolve-avx2.md) | `_iqa_convolve` AVX2 — bit-exactness via `__m256d`, kernel invariants, Amdahl | Active | [ADR-0138](../adr/0138-iqa-convolve-avx2-bitexact-double.md) |
