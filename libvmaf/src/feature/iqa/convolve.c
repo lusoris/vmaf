@@ -115,6 +115,12 @@ static float _calc_scale(const struct _kernel *k)
     }
 }
 
+/* _iqa_convolve — upstream Netflix function. Refactor deferred to backlog item T7-5
+ * (one-PR sweep gated by Netflix golden + /cross-backend-diff, per ADR-0141
+ * §Historical debt). The fork's only change here is the kw_even bound fix
+ * documented in docs/rebase-notes.md §0033; splitting the function would fork
+ * upstream's shape and inflate rebase conflicts with zero behaviour delta. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw,
                    int *rh)
 {

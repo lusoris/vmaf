@@ -257,6 +257,7 @@ if is_asm_enabled
           feature_src_dir + 'arm64/float_adm_neon.c',
           feature_src_dir + 'arm64/ciede_neon.c',
           feature_src_dir + 'arm64/ms_ssim_decimate_neon.c',
+          feature_src_dir + 'arm64/convolve_neon.c',
         ]
 
           arm64_static_lib = static_library(

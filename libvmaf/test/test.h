@@ -26,18 +26,26 @@
             return message;                                                                        \
     } while (0)
 
-#define mu_run_test(test)                                                                          \
-    do {                                                                                           \
-        fprintf(stderr, #test ": ");                                                               \
-        char *message = test();                                                                    \
-        mu_tests_run++;                                                                            \
-        if (message) {                                                                             \
-            fprintf(stderr, "\033[31mfail\033[0m");                                                \
-            return message;                                                                        \
-        } else {                                                                                   \
-            fprintf(stderr, "\033[32mpass\033[0m\n");                                              \
-        }                                                                                          \
-    } while (0)
-
 extern int mu_tests_run;
 char *run_tests(void);
+
+/* Reports pass/fail for one test and returns its message (NULL on
+ * pass). Lives here as a `static inline` helper so every TU that
+ * includes test.h gets one copy and so the `mu_run_test` macro
+ * expansion stays short enough to avoid tripping
+ * `readability-function-size` on test bodies that run many cases. */
+static inline char *mu_report(const char *name, char *(*test)(void))
+{
+    (void)fprintf(stderr, "%s: ", name);
+    char *message = test();
+    mu_tests_run++;
+    (void)fprintf(stderr, message ? "\033[31mfail\033[0m" : "\033[32mpass\033[0m\n");
+    return message;
+}
+
+#define mu_run_test(test)                                                                          \
+    do {                                                                                           \
+        char *mu_msg = mu_report(#test, (test));                                                   \
+        if (mu_msg)                                                                                \
+            return mu_msg;                                                                         \
+    } while (0)

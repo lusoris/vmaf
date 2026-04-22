@@ -1,5 +1,15 @@
 # AGENTS.md — VMAF Fork (Lusoris)
 
+## 🌟 GLOBAL PROJECT RULES (TOP PRIORITY)
+
+These 2 rules apply to ALL agents, ALL tools, and ALL commits — without exception.
+They override everything else in this file.
+
+1. **NEVER modify Netflix golden-data assertions** (`python/test/` `assertAlmostEqual` values).
+   They are the numerical-correctness ground truth. If scores drift, fix the code — not the assertions.
+2. **EVERY user-discoverable surface gets human-readable documentation in the same PR** as the code.
+   No docs = unmergeable PR. ADRs and code comments are not substitutes.
+
 Orientation for any coding agent (Cursor, Copilot, Aider, Continue, Cody, Codeium, etc.)
 opened in this repo. For Claude Code–specific tooling (skills, hooks), see
 [CLAUDE.md](CLAUDE.md) — the same operational content with Claude-specific commands.
@@ -171,6 +181,17 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
    `port-upstream-commit` PRs are exempt. The PR template
    ([.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md))
    carries the checklist.
+10. Every PR leaves every file it touches **lint-clean** to the fork's
+    strictest profile (clang-tidy + cppcheck + `make lint`), whether the
+    file is fork-local or upstream-mirror. "Touches" = any hunk in the
+    PR's diff against its merge base. Refactor first; `// NOLINT` is
+    reserved for cases where refactoring would break a load-bearing
+    invariant (ADR-0138 / ADR-0139 bit-exactness pattern,
+    upstream-parity identifier the rebase story depends on). Every
+    NOLINT cites inline the ADR / research digest / rebase invariant
+    that forces it. Historical pre-2026-04-21 NOLINTs are scoped to
+    backlog item T7-5 (one sweep-PR). See
+    [ADR-0141](docs/adr/0141-touched-file-cleanup-rule.md).
 
 ## 13. Interaction style — prefer structured popup questions
 
