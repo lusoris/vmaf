@@ -147,6 +147,21 @@ feature/
   the fork's `static` and `ptrdiff_t` unless upstream adopts them.
   See [ADR-0143](../../../docs/adr/0143-port-netflix-f3a628b4-generalized-avx-convolve.md)
   and [rebase-notes 0036](../../../docs/rebase-notes.md).
+- **`motion_v2` NEON shift semantics** (fork-local, ADR-0145):
+  [`arm64/motion_v2_neon.c`](arm64/motion_v2_neon.c) uses
+  **arithmetic** right-shift throughout (`vshrq_n_s64(v, 16)` for
+  the Phase-2 known shift, `vshlq_s64(v, -(int64_t)bpc)` for the
+  Phase-1 runtime shift). The fork's AVX2 variant
+  [`x86/motion_v2_avx2.c`](x86/motion_v2_avx2.c) uses
+  `_mm256_srlv_epi64` (*logical*) which can diverge from scalar on
+  negative-diff pixels. NEON matches scalar, AVX2 does not — this
+  is intentional until the AVX2 audit lands. On rebase: keep the
+  arithmetic-shift form in NEON; do NOT port AVX2's logical pattern
+  even if it looks simpler. 4-lane stride + scalar tails on both
+  sides of the row are load-bearing for the x_conv edge-mirror
+  contract. See
+  [ADR-0145](../../../docs/adr/0145-motion-v2-neon-bitexact.md)
+  and [rebase-notes 0038](../../../docs/rebase-notes.md).
 
 ## Governing ADRs
 
