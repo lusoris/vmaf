@@ -1,4 +1,4 @@
-From 72b4ce101ce16d55bf459a30d75c170b9be8ff08 Mon Sep 17 00:00:00 2001
+From 78c0a47490fa694d3179c76abd092588f5424268 Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
 Date: Wed, 15 Apr 2026 12:10:00 +0000
 Subject: [PATCH 3/3] avfilter/vf_libvmaf: wire SYCL backend selector
@@ -26,10 +26,10 @@ Signed-off-by: Lusoris <lusoris@pm.me>
  2 files changed, 49 insertions(+)
 
 diff --git a/configure b/configure
-index 87a9d35..c1666a9 100755
+index 24371d5084..e4a21b0a6b 100755
 --- a/configure
 +++ b/configure
-@@ -7391,6 +7391,7 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
+@@ -7461,6 +7461,7 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
  enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid.stab/libvidstab.h vsMotionDetectInit
  enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
@@ -38,7 +38,7 @@ index 87a9d35..c1666a9 100755
  enabled libvo_amrwbenc    && { check_pkg_config libvo_amrwbenc vo-amrwbenc vo-amrwbenc/enc_if.h E_IF_init ||
                                 require libvo_amrwbenc vo-amrwbenc/enc_if.h E_IF_init -lvo-amrwbenc; }
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 0b8b3f6..e3cf572 100644
+index 0b8b3f690d..e3cf572c91 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
 @@ -47,6 +47,10 @@
@@ -125,5 +125,5 @@ index 0b8b3f6..e3cf572 100644
  
  static const AVFilterPad libvmaf_inputs[] = {
 -- 
-2.53.0
+2.54.0
 

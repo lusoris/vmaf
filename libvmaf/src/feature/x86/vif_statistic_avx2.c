@@ -18,6 +18,9 @@
 
 #include <immintrin.h>
 #include <math.h>
+#include <stddef.h>
+
+#include "vif_statistic_avx2.h"
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
@@ -60,21 +63,29 @@ static inline __m256 log2_ps_avx2(__m256 x)
     return _mm256_add_ps(e, p);
 }
 
+/* vif_statistic_s_avx2 — fork-local 8-lane SIMD variant of
+ * `vif_statistic_s`. Refactor-size deferred to backlog T7-5 per
+ * ADR-0141 §Historical debt (function pre-dates the touched-file
+ * cleanup rule; splitting it would entangle the ADR-0138 /
+ * ADR-0139 bit-exactness invariants across helpers without a
+ * net audit-ability gain). */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 void vif_statistic_s_avx2(const float *mu1, const float *mu2, const float *xx_filt,
                           const float *yy_filt, const float *xy_filt, float *num, float *den, int w,
                           int h, int mu1_stride, int mu2_stride, int xx_filt_stride,
-                          int yy_filt_stride, int xy_filt_stride, double vif_enhn_gain_limit)
+                          int yy_filt_stride, int xy_filt_stride, double vif_enhn_gain_limit,
+                          double vif_sigma_nsq)
 {
-    const float sigma_nsq = 2.0f;
-    const float sigma_max_inv = 4.0f / (255.0f * 255.0f);
+    const float sigma_nsq = (float)vif_sigma_nsq;
+    const float sigma_max_inv = powf((float)vif_sigma_nsq, 2.0f) / (255.0f * 255.0f);
     const float eps = 1.0e-10f;
     const float vif_egl_f = (float)vif_enhn_gain_limit;
 
-    int mu1_px_stride = mu1_stride / sizeof(float);
-    int mu2_px_stride = mu2_stride / sizeof(float);
-    int xx_filt_px_stride = xx_filt_stride / sizeof(float);
-    int yy_filt_px_stride = yy_filt_stride / sizeof(float);
-    int xy_filt_px_stride = xy_filt_stride / sizeof(float);
+    const ptrdiff_t mu1_px_stride = (ptrdiff_t)mu1_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t mu2_px_stride = (ptrdiff_t)mu2_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t xx_filt_px_stride = (ptrdiff_t)xx_filt_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t yy_filt_px_stride = (ptrdiff_t)yy_filt_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t xy_filt_px_stride = (ptrdiff_t)xy_filt_stride / (ptrdiff_t)sizeof(float);
 
     __m256 v_sigma_nsq = _mm256_set1_ps(sigma_nsq);
     __m256 v_sigma_max_inv = _mm256_set1_ps(sigma_max_inv);

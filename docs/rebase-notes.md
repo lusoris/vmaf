@@ -1814,3 +1814,62 @@ inline.*
   `build-aux/aarch64-linux-gnu.ini` cross-file has no upstream
   equivalent. The `/add-simd-path` skill is fork-only; upstream
   doesn't ship `.claude/skills/`.
+
+### 0035 — Port Netflix `vif_sigma_nsq` parameter + fork AVX2 extension
+
+- **Workstream PRs**: `port/upstream-18e8f1c5-vif-sigma-nsq` (this PR).
+- **Upstream commit**: [`18e8f1c5`](https://github.com/Netflix/vmaf/commit/18e8f1c5)
+  "feature/vif: add vif_sigma_nsq" (Kyle Swanson, 2026-04-20).
+- **Touches** (fork-local, upstream + fork-delta):
+  - [`libvmaf/src/feature/vif.h`](../libvmaf/src/feature/vif.h),
+    [`libvmaf/src/feature/vif.c`](../libvmaf/src/feature/vif.c),
+    [`libvmaf/src/feature/vif_tools.h`](../libvmaf/src/feature/vif_tools.h),
+    [`libvmaf/src/feature/vif_tools.c`](../libvmaf/src/feature/vif_tools.c),
+    [`libvmaf/src/feature/float_vif.c`](../libvmaf/src/feature/float_vif.c) —
+    upstream-tracking: `compute_vif` / `vif_statistic_s` signatures grow a
+    14th `double vif_sigma_nsq` parameter; `float_vif.c` gains a
+    `VmafOption` entry with default `2.0` + alias `snsq`.
+  - [`libvmaf/src/feature/x86/vif_statistic_avx2.c`](../libvmaf/src/feature/x86/vif_statistic_avx2.c) —
+    **fork-delta**: upstream does not ship an AVX2 variant of
+    `vif_statistic_s`; the fork's variant's signature is extended to
+    mirror the scalar path. Also: stride→ptrdiff_t widening fix per
+    ADR-0141; `readability-function-size` NOLINT cites ADR-0141
+    §Historical debt + T7-5.
+  - [`python/vmaf/core/feature_extractor.py`](../python/vmaf/core/feature_extractor.py),
+    [`python/test/feature_extractor_test.py`](../python/test/feature_extractor_test.py),
+    [`python/test/vmafexec_feature_extractor_test.py`](../python/test/vmafexec_feature_extractor_test.py) —
+    upstream-tracking: python wiring + tests for the new parameter.
+- **Invariants** (see
+  [ADR-0142](adr/0142-port-netflix-18e8f1c5-vif-sigma-nsq.md) §Decision):
+  1. **Default-path bit-identity**: `vif_sigma_nsq = 2.0` produces
+     scores bit-identical to pre-port fork master on both scalar and
+     AVX2 paths. `powf(2.0f, 2.0f) / (255.0f * 255.0f) ==
+     4.0f / 65025.0f` exactly.
+  2. **Fork float-discipline**: the compute sites use a local
+     `const float sigma_nsq = (float)vif_sigma_nsq;` instead of
+     inlining the `double` parameter directly. Upstream's scalar body
+     implicitly double-promotes via `sv_sq + vif_sigma_nsq` — the fork
+     deliberately stays in float to preserve the ADR-0138 / ADR-0139
+     arithmetic invariant. This is a small, intentional divergence
+     that matters only at non-default values.
+  3. **AVX2 path parity**: the fork-local `vif_statistic_s_avx2`
+     signature mirrors the scalar path (14 arguments including
+     `vif_sigma_nsq`). On upstream sync: if upstream ever adds an AVX2
+     variant, diff the fork's body against theirs — keep the fork's on
+     conflict unless upstream adopts the float-discipline invariant.
+- **Re-test**:
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build            # expect 32/32 OK (float_vif gated tests)
+  # Confirm default-path bit-identity (CLI-level float_vif extraction is
+  # blocked by a pre-existing master-side loader issue unrelated to this
+  # port; test_feature_extractor covers the dispatch + option parsing).
+  ```
+- **On upstream sync**: upstream `18e8f1c5` is the source of truth for
+  the scalar path + python bindings; on a rebase, prefer upstream for
+  those files. For `vif_tools.c`'s AVX2 wrapper + dispatch and for
+  `x86/vif_statistic_avx2.c`, **keep the fork's version on conflict** —
+  upstream has no AVX2 variant. If upstream ever adds one, compare
+  bodies function-by-function with ADR-0138 / ADR-0139 float-discipline
+  in mind.

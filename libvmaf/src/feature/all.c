@@ -41,9 +41,9 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
                 int adm_ref_display_height, int adm_csf_mode);
 int compute_ansnr(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
                   double *score, double *score_psnr, double peak, double psnr_max);
-int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
-                double *score, double *score_num, double *score_den, double *scores,
-                double vif_enhn_gain_limit, double vif_kernelscale);
+/* `compute_vif` forward-decl removed: unused here, and the stale prototype
+ * (pre-ADR-0142) was missing the `vif_sigma_nsq` parameter. Callers use
+ * `vif.h`. */
 int compute_motion(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
                    double *score);
 

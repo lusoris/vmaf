@@ -8,6 +8,18 @@
 
 ### Added
 
+- **VIF: configurable `vif_sigma_nsq` feature parameter**: port of
+  Netflix upstream [`18e8f1c5`](https://github.com/Netflix/vmaf/commit/18e8f1c5)
+  (Kyle Swanson, 2026-04-20) promoting VIF's hard-coded neural-noise
+  variance `static const float sigma_nsq = 2` into a runtime-configurable
+  double parameter `vif_sigma_nsq` (range `[0.0, 5.0]`, alias `snsq`,
+  default `2.0`). Threaded through `compute_vif` → `vif_statistic_s` and
+  the fork-local `vif_statistic_s_avx2` AVX2 variant (which upstream does
+  not ship; its signature was extended in lockstep so both paths agree on
+  the new 14-argument contract). Default-path scores bit-identical to
+  pre-port master. Use via CLI:
+  `vmaf --feature float_vif:snsq=2.5 ...` or per-model. See
+  [ADR-0142](docs/adr/0142-port-netflix-18e8f1c5-vif-sigma-nsq.md).
 - **Governance — Q2 2026 modernization ADRs**: four Proposed ADRs +
   four research digests scoping the next modernization workstreams
   (no implementation yet):

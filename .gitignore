@@ -54,3 +54,4 @@ python/vmaf/matlab/**/*.o
 # Generated benchmark results
 testdata/bbb/results/
 build-docs/
+preprints202604.0035.v1.pdf
