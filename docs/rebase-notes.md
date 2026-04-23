@@ -1815,61 +1815,71 @@ inline.*
   equivalent. The `/add-simd-path` skill is fork-only; upstream
   doesn't ship `.claude/skills/`.
 
-### 0035 — Port Netflix `vif_sigma_nsq` parameter + fork AVX2 extension
+### 0036 — Port Netflix generalised AVX convolve + ADR-0141 cleanup
 
-- **Workstream PRs**: `port/upstream-18e8f1c5-vif-sigma-nsq` (this PR).
-- **Upstream commit**: [`18e8f1c5`](https://github.com/Netflix/vmaf/commit/18e8f1c5)
-  "feature/vif: add vif_sigma_nsq" (Kyle Swanson, 2026-04-20).
-- **Touches** (fork-local, upstream + fork-delta):
-  - [`libvmaf/src/feature/vif.h`](../libvmaf/src/feature/vif.h),
-    [`libvmaf/src/feature/vif.c`](../libvmaf/src/feature/vif.c),
-    [`libvmaf/src/feature/vif_tools.h`](../libvmaf/src/feature/vif_tools.h),
-    [`libvmaf/src/feature/vif_tools.c`](../libvmaf/src/feature/vif_tools.c),
-    [`libvmaf/src/feature/float_vif.c`](../libvmaf/src/feature/float_vif.c) —
-    upstream-tracking: `compute_vif` / `vif_statistic_s` signatures grow a
-    14th `double vif_sigma_nsq` parameter; `float_vif.c` gains a
-    `VmafOption` entry with default `2.0` + alias `snsq`.
-  - [`libvmaf/src/feature/x86/vif_statistic_avx2.c`](../libvmaf/src/feature/x86/vif_statistic_avx2.c) —
-    **fork-delta**: upstream does not ship an AVX2 variant of
-    `vif_statistic_s`; the fork's variant's signature is extended to
-    mirror the scalar path. Also: stride→ptrdiff_t widening fix per
-    ADR-0141; `readability-function-size` NOLINT cites ADR-0141
-    §Historical debt + T7-5.
-  - [`python/vmaf/core/feature_extractor.py`](../python/vmaf/core/feature_extractor.py),
-    [`python/test/feature_extractor_test.py`](../python/test/feature_extractor_test.py),
-    [`python/test/vmafexec_feature_extractor_test.py`](../python/test/vmafexec_feature_extractor_test.py) —
-    upstream-tracking: python wiring + tests for the new parameter.
+- **Workstream PRs**: `port/upstream-f3a628b4-generalized-avx-convolve` (this PR).
+- **Upstream commit**: [`f3a628b4`](https://github.com/Netflix/vmaf/commit/f3a628b4)
+  "feature/common: generalize avx convolution for arbitrary filter widths"
+  (Kyle Swanson, 2026-04-21).
+- **Touches**:
+  - [`libvmaf/src/feature/common/convolution.h`](../libvmaf/src/feature/common/convolution.h) —
+    upstream-tracking: adds `#define MAX_FWIDTH_AVX_CONV 17`.
+  - [`libvmaf/src/feature/common/convolution_avx.c`](../libvmaf/src/feature/common/convolution_avx.c) —
+    upstream-tracking (2,500 LoC deletion) **plus fork-delta cleanup**
+    per ADR-0141: four scanline helpers `convolution_f32_avx_s_1d_*`
+    changed from external linkage to `static` (no other TU uses them
+    after the specialised-path removal); stride parameters widened
+    from `int` to `ptrdiff_t` in the helpers, with `(ptrdiff_t)` casts
+    at public-function multiplication sites; `#include <stddef.h>`
+    added for the type.
+  - [`libvmaf/src/feature/vif_tools.c`](../libvmaf/src/feature/vif_tools.c) —
+    upstream-tracking: three AVX dispatch sites drop the
+    `fwidth == 17 || ... == 3` whitelist in favour of
+    `fwidth <= MAX_FWIDTH_AVX_CONV`.
+  - [`python/test/quality_runner_test.py`](../python/test/quality_runner_test.py),
+    [`python/test/vmafexec_test.py`](../python/test/vmafexec_test.py) —
+    upstream-authored loosening of two full-VMAF-score assertions
+    from `places=2` (±0.005) to `places=1` (±0.05). Adopted per the
+    ADR-0142 Netflix-authority precedent (project rule #1 addresses
+    fork drift, not upstream-authored test updates the fork must
+    track).
 - **Invariants** (see
-  [ADR-0142](adr/0142-port-netflix-18e8f1c5-vif-sigma-nsq.md) §Decision):
-  1. **Default-path bit-identity**: `vif_sigma_nsq = 2.0` produces
-     scores bit-identical to pre-port fork master on both scalar and
-     AVX2 paths. `powf(2.0f, 2.0f) / (255.0f * 255.0f) ==
-     4.0f / 65025.0f` exactly.
-  2. **Fork float-discipline**: the compute sites use a local
-     `const float sigma_nsq = (float)vif_sigma_nsq;` instead of
-     inlining the `double` parameter directly. Upstream's scalar body
-     implicitly double-promotes via `sv_sq + vif_sigma_nsq` — the fork
-     deliberately stays in float to preserve the ADR-0138 / ADR-0139
-     arithmetic invariant. This is a small, intentional divergence
-     that matters only at non-default values.
-  3. **AVX2 path parity**: the fork-local `vif_statistic_s_avx2`
-     signature mirrors the scalar path (14 arguments including
-     `vif_sigma_nsq`). On upstream sync: if upstream ever adds an AVX2
-     variant, diff the fork's body against theirs — keep the fork's on
-     conflict unless upstream adopts the float-discipline invariant.
+  [ADR-0143](adr/0143-port-netflix-f3a628b4-generalized-avx-convolve.md)
+  §Decision):
+  1. **Static linkage on scanline helpers** — upstream leaves the four
+     `convolution_f32_avx_s_1d_*_scanline` helpers with external
+     linkage out of habit; the fork narrows them to `static`. On
+     upstream sync: if upstream ever externs them from another TU,
+     that's a flag to re-audit; keep the fork's `static` unless the
+     reference is real.
+  2. **`ptrdiff_t` strides inside helpers** — the public
+     `convolution_f32_avx_*_s` wrappers keep `int` strides (matching
+     the upstream interface + `convolution.h` declarations). Helpers
+     take `ptrdiff_t` to silence `bugprone-implicit-widening-of-
+     multiplication-result`. If upstream changes the public interface
+     to `ptrdiff_t`, drop the fork's wrapper-level casts.
+  3. **`MAX_FWIDTH_AVX_CONV = 17`** — the ceiling is upstream's; if
+     upstream bumps it, the fork must rebuild + re-run the VIF golden
+     test pair.
 - **Re-test**:
   ```bash
   meson setup build -Denable_cuda=false -Denable_sycl=false
   ninja -C build
-  meson test -C build            # expect 32/32 OK (float_vif gated tests)
-  # Confirm default-path bit-identity (CLI-level float_vif extraction is
-  # blocked by a pre-existing master-side loader issue unrelated to this
-  # port; test_feature_extractor covers the dispatch + option parsing).
+  meson test -C build            # expect 32/32 OK
+  clang-tidy -p build libvmaf/src/feature/common/convolution_avx.c
+  # Zero warnings expected on the touched file.
   ```
-- **On upstream sync**: upstream `18e8f1c5` is the source of truth for
-  the scalar path + python bindings; on a rebase, prefer upstream for
-  those files. For `vif_tools.c`'s AVX2 wrapper + dispatch and for
-  `x86/vif_statistic_avx2.c`, **keep the fork's version on conflict** —
-  upstream has no AVX2 variant. If upstream ever adds one, compare
-  bodies function-by-function with ADR-0138 / ADR-0139 float-discipline
-  in mind.
+  Netflix CPU golden CI leg exercises the two loosened assertions;
+  confirmed locally under meson test.
+- **On upstream sync**: upstream is the source of truth for
+  `convolution_avx.c`, `convolution.h`, `vif_tools.c` dispatch, and
+  the two python golden tolerances. On a rebase, prefer upstream for
+  those files **except**:
+  - Keep the fork's `static` on the four scanline helpers.
+  - Keep the fork's `ptrdiff_t` helper signatures + multiplication-
+    site casts (unless upstream adopts them too, in which case
+    converge).
+  - Keep the fork's `#include <stddef.h>`.
+  If upstream re-introduces a specialised fast path for common
+  widths, evaluate on a per-fwidth perf profile — the fork's
+  `/profile-hotpath` skill covers this.
