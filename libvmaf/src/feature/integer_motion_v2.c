@@ -43,6 +43,9 @@
 #include "x86/motion_v2_avx512.h"
 #endif
 #endif
+#if ARCH_AARCH64
+#include "arm64/motion_v2_neon.h"
+#endif
 
 typedef uint64_t (*motion_pipeline_fn)(const uint8_t *, ptrdiff_t, const uint8_t *, ptrdiff_t,
                                        int32_t *, unsigned, unsigned, unsigned bpc);
@@ -191,6 +194,14 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
             s->pipeline = motion_score_pipeline_16_avx512;
     }
 #endif
+#endif
+#if ARCH_AARCH64
+    if (vmaf_get_cpu_flags() & VMAF_ARM_CPU_FLAG_NEON) {
+        if (bpc == 8)
+            s->pipeline = motion_score_pipeline_8_neon;
+        else
+            s->pipeline = motion_score_pipeline_16_neon;
+    }
 #endif
 
     return 0;

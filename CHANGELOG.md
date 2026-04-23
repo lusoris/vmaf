@@ -6,6 +6,22 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Added
+
+- **`motion_v2` NEON SIMD** (fork-local): aarch64 users now get a
+  NEON fast path for the `motion_v2` feature. Scalar + AVX2 + AVX-512
+  variants already existed; this closes the ISA-parity gap (backlog
+  T3-4). The NEON impl uses arithmetic right-shift throughout
+  (`vshrq_n_s64`, `vshlq_s64(v, -bpc)`) to match the scalar C `>>`
+  semantics byte-for-byte — deliberately diverging from the fork's
+  AVX2 variant, which uses logical `_mm256_srlv_epi64` and can
+  diverge on negative-diff pixels; an AVX2 re-audit is queued as
+  follow-up. Five small `static inline` helpers keep every function
+  under ADR-0141's 60-line budget; zero clang-tidy warnings, no
+  NOLINT. Verified bit-exact under QEMU user-mode on the Netflix
+  `src01_hrc00/01_576x324` pair. See
+  [ADR-0145](docs/adr/0145-motion-v2-neon-bitexact.md).
+
 ### Changed
 
 - **VIF AVX2 convolve: generalised for arbitrary filter widths** (port of

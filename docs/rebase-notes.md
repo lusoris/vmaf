@@ -1883,3 +1883,74 @@ inline.*
   If upstream re-introduces a specialised fast path for common
   widths, evaluate on a per-fwidth perf profile — the fork's
   `/profile-hotpath` skill covers this.
+
+### 0038 — `motion_v2` NEON SIMD (fork-local)
+
+- **Workstream PR**: `port/motion-bundle-neon-and-updates` (this PR).
+- **Upstream**: none — aarch64 NEON for `motion_v2` is fork-local.
+  Upstream scalar + AVX2 + AVX-512 variants exist; this PR adds the
+  missing NEON fourth path. Scalar is the bit-exactness ground truth.
+- **Touches** (fork-local):
+  - [`libvmaf/src/feature/arm64/motion_v2_neon.c`](../libvmaf/src/feature/arm64/motion_v2_neon.c) —
+    new TU, ~300 LoC. 4-wide int32 SIMD over the 5-tap Gaussian
+    pipeline. Five `static inline` helpers keep every function
+    under the ADR-0141 60-line budget.
+  - [`libvmaf/src/feature/arm64/motion_v2_neon.h`](../libvmaf/src/feature/arm64/motion_v2_neon.h) —
+    new header declaring the two public entry points.
+  - [`libvmaf/src/feature/integer_motion_v2.c`](../libvmaf/src/feature/integer_motion_v2.c) —
+    dispatch update: adds an `#if ARCH_AARCH64` block in `init`
+    that selects the NEON variant when `VMAF_ARM_CPU_FLAG_NEON` is
+    present, mirroring the existing x86 dispatch blocks.
+  - [`libvmaf/src/meson.build`](../libvmaf/src/meson.build) — add
+    `arm64/motion_v2_neon.c` to the `arm64_sources` list.
+- **Invariants** (see
+  [ADR-0145](adr/0145-motion-v2-neon-bitexact.md) §Decision):
+  1. **Arithmetic right-shift throughout**. The fork's AVX2 path
+     uses `_mm256_srlv_epi64` (*logical*) which can diverge from
+     scalar on negative-diff pixels. The NEON port uses
+     `vshrq_n_s64(v, 16)` for the known Phase-2 shift and
+     `vshlq_s64(v, -(int64_t)bpc)` for the variable Phase-1
+     shift — both arithmetic, matching scalar C `>>` on signed
+     integer. On rebase: keep the arithmetic forms; do NOT adopt
+     `vshrq_n_u64` or a logical emulation even if it runs faster.
+  2. **4-lane stride + mirror tails**. SIMD stride = 4; scalar
+     tails cover the remainder. The Phase-2 helper
+     `x_conv_row_sad_neon` hands 4 lanes to `x_conv_block4_neon`
+     and drops to scalar for both left/right edges (`j < 2` and
+     `j + 6 > w`). On rebase: preserve the 4-lane stride and the
+     two-sided scalar tail.
+  3. **Signature parity with AVX2**. Both pipeline entry points
+     match the AVX2 + AVX-512 variants' `(const uint8_t *prev,
+     ptrdiff_t, const uint8_t *cur, ptrdiff_t, int32_t *y_row,
+     unsigned w, unsigned h, unsigned bpc)` signature. On rebase:
+     if upstream changes the signature, mirror the change here
+     AND in the x86 variants in lockstep.
+- **Re-test**:
+  ```bash
+  meson setup build-aarch64 libvmaf --cross-file build-aux/aarch64-linux-gnu.ini \
+    -Denable_cuda=false -Denable_sycl=false
+  ninja -C build-aarch64
+  meson test -C build-aarch64 --no-rebuild            # expect 31/31 OK
+  clang-tidy -p build-aarch64 libvmaf/src/feature/arm64/motion_v2_neon.c
+  # Zero warnings expected on the touched file.
+  # NEON-vs-scalar bit-exact diff under QEMU:
+  for mask in 0 255; do
+    LD_LIBRARY_PATH=build-aarch64/src qemu-aarch64-static -L /usr/aarch64-linux-gnu \
+      build-aarch64/tools/vmaf \
+      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      -w 576 -h 324 -p 420 -b 8 -n --feature motion_v2 \
+      --cpumask $mask --output /tmp/mv2_$mask.xml --precision max
+  done
+  diff <(grep -v 'fps=' /tmp/mv2_0.xml) <(grep -v 'fps=' /tmp/mv2_255.xml)  # expect empty
+  ```
+- **On upstream sync**: upstream has no NEON `motion_v2` and has not
+  signalled plans to add one. If they ever do, diff their NEON
+  against the fork's: on logical-vs-arithmetic shift, keep the
+  fork's arithmetic form (matches scalar). On the function
+  decomposition (the five helpers), adopt upstream's if it's
+  smaller; the fork's layout is ADR-0141-driven, not a semantic
+  contract.
+- **Follow-up T-N**: audit the fork's AVX2 `motion_v2` variant
+  (`x86/motion_v2_avx2.c`) against scalar on a negative-diff
+  corpus. If `srlv_epi64` causes a delta, open a correctness PR.
