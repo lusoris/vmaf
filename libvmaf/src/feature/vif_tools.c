@@ -585,9 +585,22 @@ void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, c
     *den = accum_den;
 }
 
-/* Mirror reflection at image edges for a tap index. Shared by every
- * scalar-fallback convolve in this TU. */
-static inline int vif_mirror_tap(int idx, int extent)
+/* Mirror reflection at image edges for a vertical-axis tap index.
+ * Upstream `41d42c9e` fixed the `- 1` off-by-one to `- 2` for the
+ * vertical scalar fallback. */
+static inline int vif_mirror_tap_v(int idx, int extent)
+{
+    if (idx < 0)
+        return -idx;
+    if (idx >= extent)
+        return 2 * extent - idx - 2;
+    return idx;
+}
+
+/* Mirror reflection at image edges for a horizontal-axis tap index.
+ * Upstream keeps the `- 1` form for the horizontal pass in vif_tools.c
+ * (see upstream master post-41d42c9e). */
+static inline int vif_mirror_tap_h(int idx, int extent)
 {
     if (idx < 0)
         return -idx;
@@ -604,7 +617,7 @@ static void vif_vpass_row_s(const float *f, int fwidth, const float *src, ptrdif
     for (int j = 0; j < w; ++j) {
         float accum = 0;
         for (int fi = 0; fi < fwidth; ++fi) {
-            const int ii = vif_mirror_tap(row - fwidth / 2 + fi, h);
+            const int ii = vif_mirror_tap_v(row - fwidth / 2 + fi, h);
             accum += f[fi] * src[ii * src_px_stride + j];
         }
         tmp[j] = accum;
@@ -618,7 +631,7 @@ static void vif_hpass_row_s(const float *f, int fwidth, const float *tmp, int w,
     for (int j = 0; j < w; ++j) {
         float accum = 0;
         for (int fj = 0; fj < fwidth; ++fj) {
-            const int jj = vif_mirror_tap(j - fwidth / 2 + fj, w);
+            const int jj = vif_mirror_tap_h(j - fwidth / 2 + fj, w);
             accum += f[fj] * tmp[jj];
         }
         dst_row[j] = accum;
@@ -656,7 +669,7 @@ static void vif_vpass_row_sq_s(const float *f, int fwidth, const float *src,
     for (int j = 0; j < w; ++j) {
         float accum = 0;
         for (int fi = 0; fi < fwidth; ++fi) {
-            const int ii = vif_mirror_tap(row - fwidth / 2 + fi, h);
+            const int ii = vif_mirror_tap_v(row - fwidth / 2 + fi, h);
             const float imgcoeff = src[ii * src_px_stride + j];
             accum += f[fi] * (imgcoeff * imgcoeff);
         }
@@ -696,7 +709,7 @@ static void vif_vpass_row_xy_s(const float *f, int fwidth, const float *src1,
     for (int j = 0; j < w; ++j) {
         float accum = 0;
         for (int fi = 0; fi < fwidth; ++fi) {
-            const int ii = vif_mirror_tap(row - fwidth / 2 + fi, h);
+            const int ii = vif_mirror_tap_v(row - fwidth / 2 + fi, h);
             const float a = src1[ii * src1_px_stride + j];
             const float b = src2[ii * src2_px_stride + j];
             accum += f[fi] * (a * b);
