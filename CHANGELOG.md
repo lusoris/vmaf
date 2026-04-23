@@ -6,6 +6,27 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Changed
+
+- **VIF AVX2 convolve: generalised for arbitrary filter widths** (port of
+  Netflix upstream [`f3a628b4`](https://github.com/Netflix/vmaf/commit/f3a628b4),
+  Kyle Swanson, 2026-04-21). `libvmaf/src/feature/common/convolution_avx.c`
+  drops from 2,747 LoC of branch-unrolled kernels specialised to
+  `fwidth ∈ {3, 5, 9, 17}` down to 247 LoC of a single parametric 1-D
+  scanline pair. New `MAX_FWIDTH_AVX_CONV` ceiling in `convolution.h`
+  lets the VIF AVX2 dispatch in `vif_tools.c` drop its hard-coded
+  fwidth whitelist. Fork cleanup per ADR-0141: four helpers now
+  `static`, strides widened to `ptrdiff_t` to eliminate
+  `bugprone-implicit-widening-of-multiplication-result` on every
+  pointer-offset site. Paired with a 10× loosening of the Netflix
+  golden tolerance on two full-VMAF assertions
+  (`VMAF_score`, `VMAFEXEC_score`: `places=2` → `places=1`),
+  matching Netflix's own upstream test update. The generalised
+  kernel's accumulation order differs at ULP scale vs the
+  specialised ones; drift is orders of magnitude below perceptual
+  discriminability. See
+  [ADR-0143](docs/adr/0143-port-netflix-f3a628b4-generalized-avx-convolve.md).
+
 ### Added
 
 - **VIF: configurable `vif_sigma_nsq` feature parameter**: port of

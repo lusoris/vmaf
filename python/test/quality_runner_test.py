@@ -1994,7 +1994,7 @@ class QualityRunnerTest(MyTestCase):
         results = self.runner.results
 
         self.assertAlmostEqual(
-            results[0]["VMAF_score"], 88.03295534339294, places=2
+            results[0]["VMAF_score"], 88.03295534339294, places=1
         )  # 132.7329528948058
 
         self.assertAlmostEqual(
