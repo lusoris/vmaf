@@ -236,12 +236,84 @@ static float ssim_accumulate_user_args_scalar(float *ref_sigma_sqd, float *cmp_s
     return mr->reduce(w, h, mr->context);
 }
 
-/* _iqa_ssim — upstream Netflix function. Refactor deferred to backlog item T7-5
- * (one-PR sweep gated by Netflix golden + /cross-backend-diff, per ADR-0141
- * §Historical debt). The fork's changes here (ADR-0138 dispatch + workspace
- * allocator) are surgical; splitting the function would fork upstream's shape
- * for zero behaviour delta. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+struct ssim_workspace {
+    float *ref_mu;
+    float *cmp_mu;
+    float *ref_sigma_sqd;
+    float *cmp_sigma_sqd;
+    float *sigma_both;
+    /* Shared workspace for the SIMD convolve's horizontal-pass cache.
+     * Allocated once and threaded through all 5 dispatch sites below,
+     * replacing ~1200 per-call calloc/free pairs on a 120-frame 1080p
+     * run. Scalar `_iqa_convolve` ignores it. See ADR-0138. */
+    float *conv_workspace;
+};
+
+static int ssim_workspace_alloc(struct ssim_workspace *ws, size_t n_elems)
+{
+    ws->ref_mu = (float *)malloc(n_elems * sizeof(float));
+    ws->cmp_mu = (float *)malloc(n_elems * sizeof(float));
+    ws->ref_sigma_sqd = (float *)malloc(n_elems * sizeof(float));
+    ws->cmp_sigma_sqd = (float *)malloc(n_elems * sizeof(float));
+    ws->sigma_both = (float *)malloc(n_elems * sizeof(float));
+    ws->conv_workspace = (float *)malloc(n_elems * sizeof(float));
+    return (ws->ref_mu && ws->cmp_mu && ws->ref_sigma_sqd && ws->cmp_sigma_sqd && ws->sigma_both &&
+            ws->conv_workspace) ?
+               0 :
+               -1;
+}
+
+static void ssim_workspace_free(struct ssim_workspace *ws)
+{
+    /* free(NULL) is a well-defined no-op (C89 §7.20.3.2) */
+    free(ws->ref_mu);
+    free(ws->cmp_mu);
+    free(ws->ref_sigma_sqd);
+    free(ws->cmp_sigma_sqd);
+    free(ws->sigma_both);
+    free(ws->conv_workspace);
+}
+
+static void ssim_compute_stats(float *ref, float *cmp, int *w, int *h, const struct _kernel *k,
+                               struct ssim_workspace *ws)
+{
+    iqa_convolve_dispatch(ref, *w, *h, k, ws->conv_workspace, ws->ref_mu, 0, 0);
+    iqa_convolve_dispatch(cmp, *w, *h, k, ws->conv_workspace, ws->cmp_mu, 0, 0);
+
+    if (g_ssim_precompute) {
+        g_ssim_precompute(ref, cmp, ws->ref_sigma_sqd, ws->cmp_sigma_sqd, ws->sigma_both,
+                          (*w) * (*h));
+    } else {
+        ssim_precompute_scalar(ref, cmp, ws->ref_sigma_sqd, ws->cmp_sigma_sqd, ws->sigma_both, *w,
+                               *h);
+    }
+
+    iqa_convolve_dispatch(ws->ref_sigma_sqd, *w, *h, k, ws->conv_workspace, 0, 0, 0);
+    iqa_convolve_dispatch(ws->cmp_sigma_sqd, *w, *h, k, ws->conv_workspace, 0, 0, 0);
+    iqa_convolve_dispatch(ws->sigma_both, *w, *h, k, ws->conv_workspace, 0, w, h); /* Update w/h */
+
+    if (g_ssim_variance) {
+        g_ssim_variance(ws->ref_sigma_sqd, ws->cmp_sigma_sqd, ws->sigma_both, ws->ref_mu,
+                        ws->cmp_mu, (*w) * (*h));
+    } else {
+        ssim_variance_scalar(ws->ref_sigma_sqd, ws->cmp_sigma_sqd, ws->sigma_both, ws->ref_mu,
+                             ws->cmp_mu, *w, *h);
+    }
+}
+
+static void ssim_init_args(const struct iqa_ssim_args *args, float *alpha, float *beta,
+                           float *gamma, int *L, float *K1, float *K2)
+{
+    if (!args)
+        return;
+    *alpha = args->alpha;
+    *beta = args->beta;
+    *gamma = args->gamma;
+    *L = args->L;
+    *K1 = args->K1;
+    *K2 = args->K2;
+}
+
 float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
                 const struct _map_reduce *mr, const struct iqa_ssim_args *args, float *l_mean,
                 float *c_mean, float *s_mean /* zli-nflx */
@@ -256,91 +328,41 @@ float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
 
     assert(!args); /* zli-nflx: for now only works for default case */
 
-    /* Initialize algorithm parameters */
-    if (args) {
-        if (!mr) {
-            return INFINITY;
-        }
-        alpha = args->alpha;
-        beta = args->beta;
-        gamma = args->gamma;
-        L = args->L;
-        K1 = args->K1;
-        K2 = args->K2;
-    }
+    if (args && !mr)
+        return INFINITY;
+    ssim_init_args(args, &alpha, &beta, &gamma, &L, &K1, &K2);
+
     const float C1 = (K1 * L) * (K1 * L);
     const float C2 = (K2 * L) * (K2 * L);
     const float C3 = C2 / 2.0f;
 
-    const size_t n_elems = (size_t)w * (size_t)h;
-    float *ref_mu = (float *)malloc(n_elems * sizeof(float));
-    float *cmp_mu = (float *)malloc(n_elems * sizeof(float));
-    float *ref_sigma_sqd = (float *)malloc(n_elems * sizeof(float));
-    float *cmp_sigma_sqd = (float *)malloc(n_elems * sizeof(float));
-    float *sigma_both = (float *)malloc(n_elems * sizeof(float));
-    /* Shared workspace for the SIMD convolve's horizontal-pass cache.
-     * Allocated once and threaded through all 5 dispatch sites below,
-     * replacing ~1200 per-call calloc/free pairs on a 120-frame 1080p
-     * run. Scalar `_iqa_convolve` ignores it. See ADR-0138. */
-    float *conv_workspace = (float *)malloc(n_elems * sizeof(float));
-    if (!ref_mu || !cmp_mu || !ref_sigma_sqd || !cmp_sigma_sqd || !sigma_both || !conv_workspace) {
-        /* free(NULL) is a well-defined no-op (C89 §7.20.3.2) */
-        free(ref_mu);
-        free(cmp_mu);
-        free(ref_sigma_sqd);
-        free(cmp_sigma_sqd);
-        free(sigma_both);
-        free(conv_workspace);
+    struct ssim_workspace ws = {0};
+    if (ssim_workspace_alloc(&ws, (size_t)w * (size_t)h) != 0) {
+        ssim_workspace_free(&ws);
         return INFINITY;
     }
 
-    /* Calculate mean */
-    iqa_convolve_dispatch(ref, w, h, k, conv_workspace, ref_mu, 0, 0);
-    iqa_convolve_dispatch(cmp, w, h, k, conv_workspace, cmp_mu, 0, 0);
+    ssim_compute_stats(ref, cmp, &w, &h, k, &ws);
 
-    /* Precompute ref^2, cmp^2, ref*cmp */
-    if (g_ssim_precompute) {
-        g_ssim_precompute(ref, cmp, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w * h);
-    } else {
-        ssim_precompute_scalar(ref, cmp, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w, h);
-    }
-
-    /* Calculate sigma */
-    iqa_convolve_dispatch(ref_sigma_sqd, w, h, k, conv_workspace, 0, 0, 0);
-    iqa_convolve_dispatch(cmp_sigma_sqd, w, h, k, conv_workspace, 0, 0, 0);
-    iqa_convolve_dispatch(sigma_both, w, h, k, conv_workspace, 0, &w, &h); /* Update w/h */
-
-    /* The convolution results are smaller by the kernel width and height */
-    if (g_ssim_variance) {
-        g_ssim_variance(ref_sigma_sqd, cmp_sigma_sqd, sigma_both, ref_mu, cmp_mu, w * h);
-    } else {
-        ssim_variance_scalar(ref_sigma_sqd, cmp_sigma_sqd, sigma_both, ref_mu, cmp_mu, w, h);
-    }
-
-    /* Accumulate: three paths (dispatch, scalar default, or user-args) */
     double ssim_sum = 0.0;
     double l_sum = 0.0;
     double c_sum = 0.0;
     double s_sum = 0.0;
     float user_args_result = 0.0f;
     if (!args && g_ssim_accumulate) {
-        g_ssim_accumulate(ref_mu, cmp_mu, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w * h, C1, C2,
-                          C3, &ssim_sum, &l_sum, &c_sum, &s_sum);
+        g_ssim_accumulate(ws.ref_mu, ws.cmp_mu, ws.ref_sigma_sqd, ws.cmp_sigma_sqd, ws.sigma_both,
+                          w * h, C1, C2, C3, &ssim_sum, &l_sum, &c_sum, &s_sum);
     } else if (!args) {
-        ssim_accumulate_default_scalar(ref_mu, cmp_mu, ref_sigma_sqd, cmp_sigma_sqd, sigma_both, w,
-                                       h, C1, C2, C3, &ssim_sum, &l_sum, &c_sum, &s_sum);
+        ssim_accumulate_default_scalar(ws.ref_mu, ws.cmp_mu, ws.ref_sigma_sqd, ws.cmp_sigma_sqd,
+                                       ws.sigma_both, w, h, C1, C2, C3, &ssim_sum, &l_sum, &c_sum,
+                                       &s_sum);
     } else {
-        user_args_result =
-            ssim_accumulate_user_args_scalar(ref_sigma_sqd, cmp_sigma_sqd, sigma_both, ref_mu,
-                                             cmp_mu, w, h, C1, C2, C3, alpha, beta, gamma, mr);
+        user_args_result = ssim_accumulate_user_args_scalar(ws.ref_sigma_sqd, ws.cmp_sigma_sqd,
+                                                            ws.sigma_both, ws.ref_mu, ws.cmp_mu, w,
+                                                            h, C1, C2, C3, alpha, beta, gamma, mr);
     }
 
-    free(ref_mu);
-    free(cmp_mu);
-    free(ref_sigma_sqd);
-    free(cmp_sigma_sqd);
-    free(sigma_both);
-    free(conv_workspace);
+    ssim_workspace_free(&ws);
 
     if (!args) {
         *l_mean = (float)(l_sum / (double)(w * h)); /* zli-nflx */

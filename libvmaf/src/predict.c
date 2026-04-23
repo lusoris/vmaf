@@ -85,64 +85,51 @@ static int find_linear_function_parameters(VmafPoint p1, VmafPoint p2, double *a
     return 0;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
-static int piecewise_linear_mapping(double x, VmafPoint *knots, unsigned n_knots, double *y)
+static int piecewise_segment_apply(double x, VmafPoint *knots, unsigned idx, unsigned n_seg,
+                                   double *y)
 {
+    if (!(knots[idx].x < knots[idx + 1].x && knots[idx].y <= knots[idx + 1].y))
+        return EINVAL;
 
-    // initialize them to prevent uninitialized variable warnings
+    const bool cond0 = knots[idx].x <= x;
+    const bool cond1 = x <= knots[idx + 1].x;
+
+    if (knots[idx].y == knots[idx + 1].y) { // the segment is horizontal
+        if (cond0 && cond1)
+            *y = knots[idx].y;
+        if (idx == 0 && x < knots[idx].x)
+            *y = knots[idx].y;
+        if (idx == n_seg - 1 && x > knots[idx + 1].x)
+            *y = knots[idx].y;
+        return 0;
+    }
+
     double slope = 0.0;
     double offset = 0.0;
+    find_linear_function_parameters(knots[idx], knots[idx + 1], &slope, &offset);
 
-    if (n_knots <= 1) {
+    if (cond0 && cond1)
+        *y = slope * x + offset;
+    if (idx == 0 && x < knots[idx].x)
+        *y = slope * x + offset;
+    if (idx == n_seg - 1 && x > knots[idx + 1].x)
+        *y = slope * x + offset;
+    return 0;
+}
+
+static int piecewise_linear_mapping(double x, VmafPoint *knots, unsigned n_knots, double *y)
+{
+    if (n_knots <= 1)
         return EINVAL;
-    }
     unsigned n_seg = n_knots - 1;
 
     *y = 0.0;
 
     // construct the function
     for (unsigned idx = 0; idx < n_seg; idx++) {
-        if (!(knots[idx].x < knots[idx + 1].x && knots[idx].y <= knots[idx + 1].y))
-            return EINVAL;
-
-        bool cond0 = knots[idx].x <= x;
-        bool cond1 = x <= knots[idx + 1].x;
-
-        if (knots[idx].y == knots[idx + 1].y) { // the segment is horizontal
-            if (cond0 && cond1) {
-                *y = knots[idx].y;
-            }
-
-            if (idx == 0) {
-                // for points below the defined range
-                if (x < knots[idx].x)
-                    *y = knots[idx].y;
-            }
-
-            if (idx == n_seg - 1) {
-                // for points above the defined range
-                if (x > knots[idx + 1].x)
-                    *y = knots[idx].y;
-            }
-        } else {
-            find_linear_function_parameters(knots[idx], knots[idx + 1], &slope, &offset);
-
-            if (cond0 && cond1) {
-                *y = slope * x + offset;
-            }
-
-            if (idx == 0) {
-                // for points below the defined range
-                if (x < knots[idx].x)
-                    *y = slope * x + offset;
-            }
-
-            if (idx == n_seg - 1) {
-                // for points above the defined range
-                if (x > knots[idx + 1].x)
-                    *y = slope * x + offset;
-            }
-        }
+        int err = piecewise_segment_apply(x, knots, idx, n_seg, y);
+        if (err)
+            return err;
     }
 
     return 0;
@@ -216,20 +203,43 @@ static int clip(const VmafModel *model, double *prediction, enum VmafModelFlags 
     return 0;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
-int vmaf_predict_score_at_index(VmafModel *model, VmafFeatureCollector *feature_collector,
-                                unsigned index, double *vmaf_score, bool write_prediction,
-                                bool propagate_metadata, enum VmafModelFlags flags)
+static int predict_resolve_feature_name(VmafModel *model, unsigned i)
 {
-    if (!model)
+    VmafFeatureExtractor *fex =
+        vmaf_get_feature_extractor_by_feature_name(model->feature[i].name, 0);
+    if (!fex) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "vmaf_predict_score_at_index(): no feature extractor "
+                 "providing feature '%s'\n",
+                 model->feature[i].name);
         return -EINVAL;
-    if (!feature_collector)
-        return -EINVAL;
-    if (!vmaf_score)
-        return -EINVAL;
+    }
 
-    int err = 0;
+    VmafDictionary *opts_dict = NULL;
+    if (model->feature[i].opts_dict) {
+        int err = vmaf_dictionary_copy(&model->feature[i].opts_dict, &opts_dict);
+        if (err)
+            return err;
+    }
 
+    VmafFeatureExtractorContext *fex_ctx;
+    int err = vmaf_feature_extractor_context_create(&fex_ctx, fex, opts_dict);
+    if (err) {
+        vmaf_dictionary_free(&opts_dict);
+        return err;
+    }
+
+    model->predict_feature_names[i] = vmaf_feature_name_from_options(
+        model->feature[i].name, fex_ctx->fex->options, fex_ctx->fex->priv);
+    vmaf_feature_extractor_context_destroy(fex_ctx);
+
+    if (!model->predict_feature_names[i])
+        return -ENOMEM;
+    return 0;
+}
+
+static int predict_ensure_caches(VmafModel *model, VmafFeatureCollector *feature_collector)
+{
     // Lazily build the cached feature name lookup table
     if (!model->predict_feature_names) {
         assert(model->n_features > 0);
@@ -238,36 +248,9 @@ int vmaf_predict_score_at_index(VmafModel *model, VmafFeatureCollector *feature_
             return -ENOMEM;
 
         for (unsigned i = 0; i < model->n_features; i++) {
-            VmafFeatureExtractor *fex =
-                vmaf_get_feature_extractor_by_feature_name(model->feature[i].name, 0);
-            if (!fex) {
-                vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                         "vmaf_predict_score_at_index(): no feature extractor "
-                         "providing feature '%s'\n",
-                         model->feature[i].name);
-                return -EINVAL;
-            }
-
-            VmafDictionary *opts_dict = NULL;
-            if (model->feature[i].opts_dict) {
-                err = vmaf_dictionary_copy(&model->feature[i].opts_dict, &opts_dict);
-                if (err)
-                    return err;
-            }
-
-            VmafFeatureExtractorContext *fex_ctx;
-            err = vmaf_feature_extractor_context_create(&fex_ctx, fex, opts_dict);
-            if (err) {
-                vmaf_dictionary_free(&opts_dict);
+            int err = predict_resolve_feature_name(model, i);
+            if (err)
                 return err;
-            }
-
-            model->predict_feature_names[i] = vmaf_feature_name_from_options(
-                model->feature[i].name, fex_ctx->fex->options, fex_ctx->fex->priv);
-            vmaf_feature_extractor_context_destroy(fex_ctx);
-
-            if (!model->predict_feature_names[i])
-                return -ENOMEM;
         }
     }
 
@@ -290,34 +273,50 @@ int vmaf_predict_score_at_index(VmafModel *model, VmafFeatureCollector *feature_
         }
     }
 
-    struct svm_node *node = model->predict_nodes;
+    return 0;
+}
 
+static int predict_load_feature_score(VmafModel *model, VmafFeatureCollector *feature_collector,
+                                      unsigned i, unsigned index, bool propagate_metadata,
+                                      double *feature_score)
+{
+    FeatureVector *fv = model->predict_feature_vectors[i];
+    int err;
+
+    if (fv) {
+        err = vmaf_feature_vector_get_score(fv, feature_score, index);
+    } else {
+        // Fallback: feature not yet registered, try normal lookup
+        err = vmaf_feature_collector_get_score(feature_collector, model->predict_feature_names[i],
+                                               feature_score, index);
+        if (!err) {
+            // Cache for future calls
+            model->predict_feature_vectors[i] =
+                vmaf_feature_collector_find(feature_collector, model->predict_feature_names[i]);
+        }
+    }
+
+    if (err) {
+        if (!propagate_metadata) {
+            vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                     "vmaf_predict_score_at_index(): no feature '%s' "
+                     "at index %d\n",
+                     model->predict_feature_names[i], index);
+        }
+    }
+    return err;
+}
+
+static int predict_build_svm_nodes(VmafModel *model, VmafFeatureCollector *feature_collector,
+                                   unsigned index, bool propagate_metadata)
+{
+    struct svm_node *node = model->predict_nodes;
     for (unsigned i = 0; i < model->n_features; i++) {
         double feature_score;
-        FeatureVector *fv = model->predict_feature_vectors[i];
-
-        if (fv) {
-            err = vmaf_feature_vector_get_score(fv, &feature_score, index);
-        } else {
-            // Fallback: feature not yet registered, try normal lookup
-            err = vmaf_feature_collector_get_score(
-                feature_collector, model->predict_feature_names[i], &feature_score, index);
-            if (!err) {
-                // Cache for future calls
-                model->predict_feature_vectors[i] =
-                    vmaf_feature_collector_find(feature_collector, model->predict_feature_names[i]);
-            }
-        }
-
-        if (err) {
-            if (!propagate_metadata) {
-                vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                         "vmaf_predict_score_at_index(): no feature '%s' "
-                         "at index %d\n",
-                         model->predict_feature_names[i], index);
-            }
+        int err = predict_load_feature_score(model, feature_collector, i, index, propagate_metadata,
+                                             &feature_score);
+        if (err)
             return err;
-        }
 
         err =
             normalize(model, model->feature[i].slope, model->feature[i].intercept, &feature_score);
@@ -328,8 +327,29 @@ int vmaf_predict_score_at_index(VmafModel *model, VmafFeatureCollector *feature_
         node[i].value = feature_score;
     }
     node[model->n_features].index = -1;
+    return 0;
+}
 
-    double prediction = svm_predict(model->svm, node);
+int vmaf_predict_score_at_index(VmafModel *model, VmafFeatureCollector *feature_collector,
+                                unsigned index, double *vmaf_score, bool write_prediction,
+                                bool propagate_metadata, enum VmafModelFlags flags)
+{
+    if (!model)
+        return -EINVAL;
+    if (!feature_collector)
+        return -EINVAL;
+    if (!vmaf_score)
+        return -EINVAL;
+
+    int err = predict_ensure_caches(model, feature_collector);
+    if (err)
+        return err;
+
+    err = predict_build_svm_nodes(model, feature_collector, index, propagate_metadata);
+    if (err)
+        return err;
+
+    double prediction = svm_predict(model->svm, model->predict_nodes);
 
     err = denormalize(model, &prediction);
     if (err)
@@ -358,12 +378,13 @@ static int score_compare(const void *a, const void *b)
 {
     const double *x = a;
     const double *y = b;
-    if (*x > *y)
+    if (*x > *y) {
         return 1;
-    else if (*x < *y)
+    }
+    if (*x < *y) {
         return -1;
-    else
-        return 0;
+    }
+    return 0;
 }
 
 static double percentile(double *scores, unsigned n_scores, double perc)
@@ -376,19 +397,10 @@ static double percentile(double *scores, unsigned n_scores, double perc)
                               scores[idx_l] * (idx_r - p) + scores[idx_r] * (p - idx_l);
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
-static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_collection,
-                                                 VmafFeatureCollector *feature_collector,
-                                                 unsigned index, VmafModelCollectionScore *score)
+static int bootstrap_gather_scores(VmafModelCollection *model_collection,
+                                   VmafFeatureCollector *feature_collector, unsigned index,
+                                   double *scores)
 {
-    int err = 0;
-    /* MSVC rejects VLAs; heap-allocate the scratch array so both
-     * compilers accept it. Size is typically the bootstrap count (~20),
-     * so the allocation is trivially small. */
-    double *scores = (double *)malloc(sizeof(double) * model_collection->cnt);
-    if (!scores)
-        return -ENOMEM;
-
     for (unsigned i = 0; i < model_collection->cnt; i++) {
         // mean, stddev, etc. are calculated on untransformed/unclipped scores
         // gather the unclipped scores, for the purposes of these calculations
@@ -396,11 +408,11 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
         const unsigned flags = VMAF_MODEL_FLAG_DISABLE_CLIP | VMAF_MODEL_FLAG_DISABLE_TRANSFORM;
         /* Bitmask of VmafModelFlags values is not itself a named enumerator. */
         // NOLINTBEGIN(clang-analyzer-optin.core.EnumCastOutOfRange)
-        err = vmaf_predict_score_at_index(model_collection->model[i], feature_collector, index,
-                                          &scores[i], false, false, flags);
+        int err = vmaf_predict_score_at_index(model_collection->model[i], feature_collector, index,
+                                              &scores[i], false, false, flags);
         // NOLINTEND(clang-analyzer-optin.core.EnumCastOutOfRange)
         if (err)
-            goto out;
+            return err;
 
         // do not override the model's transform/clip behavior
         // write the scores to the feature collector
@@ -408,11 +420,15 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
         err = vmaf_predict_score_at_index(model_collection->model[i], feature_collector, index,
                                           &score, true, false, 0);
         if (err)
-            goto out;
+            return err;
     }
+    return 0;
+}
 
-    score->type = VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP;
-
+static void bootstrap_compute_statistics(VmafModelCollection *model_collection, double *scores,
+                                         VmafModelCollectionScore *score, double *score_plus_delta,
+                                         double *score_minus_delta)
+{
     double sum = 0.;
     for (unsigned i = 0; i < model_collection->cnt; i++) {
         sum += scores[i];
@@ -421,8 +437,8 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
     score->bootstrap.bagging_score = mean;
 
     const double delta = 0.01;
-    double score_plus_delta = mean + delta;
-    double score_minus_delta = mean - delta;
+    *score_plus_delta = mean + delta;
+    *score_minus_delta = mean - delta;
 
     double ssd = 0.;
     for (unsigned i = 0; i < model_collection->cnt; i++) {
@@ -433,22 +449,27 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
     qsort(scores, model_collection->cnt, sizeof(double), score_compare);
     score->bootstrap.ci.p95.lo = percentile(scores, model_collection->cnt, 2.5);
     score->bootstrap.ci.p95.hi = percentile(scores, model_collection->cnt, 97.5);
+}
 
-    const VmafModel *model = model_collection->model[0];
+static void bootstrap_transform_and_clip(const VmafModel *model, VmafModelCollectionScore *score,
+                                         double *score_plus_delta, double *score_minus_delta)
+{
     transform(model, &score->bootstrap.bagging_score, 0);
     clip(model, &score->bootstrap.bagging_score, 0);
     transform(model, &score->bootstrap.ci.p95.lo, 0);
     clip(model, &score->bootstrap.ci.p95.lo, 0);
     transform(model, &score->bootstrap.ci.p95.hi, 0);
     clip(model, &score->bootstrap.ci.p95.hi, 0);
-    transform(model, &score_plus_delta, 0);
-    clip(model, &score_plus_delta, 0);
-    transform(model, &score_minus_delta, 0);
-    clip(model, &score_minus_delta, 0);
+    transform(model, score_plus_delta, 0);
+    clip(model, score_plus_delta, 0);
+    transform(model, score_minus_delta, 0);
+    clip(model, score_minus_delta, 0);
+}
 
-    const double slope = (score_plus_delta - score_minus_delta) / (2.0 * delta);
-    score->bootstrap.stddev *= slope;
-
+static int bootstrap_append_named_scores(VmafModelCollection *model_collection,
+                                         VmafFeatureCollector *feature_collector, unsigned index,
+                                         VmafModelCollectionScore *score)
+{
     //TODO: dedupe, vmaf_score_pooled_model_collection()
     const char *suffix_lo = "_ci_p95_lo";
     const char *suffix_hi = "_ci_p95_hi";
@@ -457,11 +478,10 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
     const size_t name_sz = strlen(model_collection->name) + strlen(suffix_lo) + 1;
     /* Heap-allocated for MSVC portability (no VLAs). */
     char *name = (char *)calloc(1u, name_sz);
-    if (!name) {
-        err = -ENOMEM;
-        goto out;
-    }
+    if (!name)
+        return -ENOMEM;
 
+    int err = 0;
     (void)snprintf(name, name_sz, "%s%s", model_collection->name, suffix_bagging);
     err |= vmaf_feature_collector_append(feature_collector, name, score->bootstrap.bagging_score,
                                          index);
@@ -478,6 +498,41 @@ static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_coll
         vmaf_feature_collector_append(feature_collector, name, score->bootstrap.ci.p95.hi, index);
 
     free(name);
+    return err;
+}
+
+static int vmaf_bootstrap_predict_score_at_index(VmafModelCollection *model_collection,
+                                                 VmafFeatureCollector *feature_collector,
+                                                 unsigned index, VmafModelCollectionScore *score)
+{
+    int err = 0;
+    /* MSVC rejects VLAs; heap-allocate the scratch array so both
+     * compilers accept it. Size is typically the bootstrap count (~20),
+     * so the allocation is trivially small. */
+    double *scores = (double *)malloc(sizeof(double) * model_collection->cnt);
+    if (!scores)
+        return -ENOMEM;
+
+    err = bootstrap_gather_scores(model_collection, feature_collector, index, scores);
+    if (err)
+        goto out;
+
+    score->type = VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP;
+
+    double score_plus_delta;
+    double score_minus_delta;
+    bootstrap_compute_statistics(model_collection, scores, score, &score_plus_delta,
+                                 &score_minus_delta);
+
+    const VmafModel *model = model_collection->model[0];
+    bootstrap_transform_and_clip(model, score, &score_plus_delta, &score_minus_delta);
+
+    const double delta = 0.01;
+    const double slope = (score_plus_delta - score_minus_delta) / (2.0 * delta);
+    score->bootstrap.stddev *= slope;
+
+    err = bootstrap_append_named_scores(model_collection, feature_collector, index, score);
+
 out:
     free(scores);
     return err;

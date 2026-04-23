@@ -24,6 +24,7 @@
 #include "thread_locale.h"
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,43 @@
 #define MAX_FEATURE_COUNT 64 //FIXME
 #define MAX_KNOT_COUNT 10    //FIXME
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int parse_feature_opts_entry(json_stream *s, VmafModel *model, unsigned i, char *key)
+{
+    if (json_peek(s) == JSON_NUMBER) {
+        const char *val = json_get_string(s, NULL);
+        const uint64_t flags = VMAF_DICT_DO_NOT_OVERWRITE | VMAF_DICT_NORMALIZE_NUMERICAL_VALUES;
+        return vmaf_dictionary_set(&(model->feature[i].opts_dict), key, val, flags);
+    }
+    if (json_peek(s) == JSON_TRUE || json_peek(s) == JSON_FALSE) {
+        const uint64_t flags = VMAF_DICT_DO_NOT_OVERWRITE;
+        const char *val = (json_peek(s) == JSON_TRUE) ? "true" : "false";
+        return vmaf_dictionary_set(&(model->feature[i].opts_dict), key, val, flags);
+    }
+    if (json_peek(s) == JSON_STRING) {
+        const char *val = json_get_string(s, NULL);
+        const uint64_t flags = VMAF_DICT_DO_NOT_OVERWRITE;
+        return vmaf_dictionary_set(&(model->feature[i].opts_dict), key, val, flags);
+    }
+    return -EINVAL; //TODO
+}
+
+static int parse_feature_opts_object(json_stream *s, VmafModel *model, unsigned i)
+{
+    while (json_peek(s) != JSON_OBJECT_END && !json_get_error(s)) {
+        if (json_next(s) != JSON_STRING)
+            return -EINVAL;
+        char *key = strdup(json_get_string(s, NULL));
+        if (!key)
+            return -ENOMEM;
+        int err = parse_feature_opts_entry(s, model, i, key);
+        free(key);
+        if (err)
+            return err;
+        json_skip(s);
+    }
+    return 0;
+}
+
 static int parse_feature_opts_dicts(json_stream *s, VmafModel *model)
 {
     unsigned i = 0;
@@ -41,44 +78,9 @@ static int parse_feature_opts_dicts(json_stream *s, VmafModel *model)
         if (i >= MAX_FEATURE_COUNT)
             return -EINVAL;
 
-        while (json_peek(s) != JSON_OBJECT_END && !json_get_error(s)) {
-            if (json_next(s) != JSON_STRING)
-                return -EINVAL;
-            char *key = strdup(json_get_string(s, NULL));
-            if (!key)
-                return -ENOMEM;
-            if (json_peek(s) == JSON_NUMBER) {
-                const char *val = json_get_string(s, NULL);
-                const uint64_t flags =
-                    VMAF_DICT_DO_NOT_OVERWRITE | VMAF_DICT_NORMALIZE_NUMERICAL_VALUES;
-                int err = vmaf_dictionary_set(&(model->feature[i].opts_dict), key, val, flags);
-                free(key);
-                if (err)
-                    return err;
-            } else if (json_peek(s) == JSON_TRUE || json_peek(s) == JSON_FALSE) {
-                const uint64_t flags = VMAF_DICT_DO_NOT_OVERWRITE;
-                int err;
-                if (json_peek(s) == JSON_TRUE) {
-                    err = vmaf_dictionary_set(&(model->feature[i].opts_dict), key, "true", flags);
-                } else {
-                    err = vmaf_dictionary_set(&(model->feature[i].opts_dict), key, "false", flags);
-                }
-                free(key);
-                if (err)
-                    return err;
-            } else if (json_peek(s) == JSON_STRING) {
-                const char *val = json_get_string(s, NULL);
-                const uint64_t flags = VMAF_DICT_DO_NOT_OVERWRITE;
-                int err = vmaf_dictionary_set(&(model->feature[i].opts_dict), key, val, flags);
-                free(key);
-                if (err)
-                    return err;
-            } else {
-                free(key);
-                return -EINVAL; //TODO
-            }
-            json_skip(s);
-        }
+        int err = parse_feature_opts_object(s, model, i);
+        if (err)
+            return err;
         i++;
         json_skip_until(s, JSON_OBJECT_END);
     }
@@ -190,7 +192,78 @@ static int parse_feature_names(json_stream *s, VmafModel *model)
     return 0;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int parse_score_transform_poly(json_stream *s, bool *enabled, double *value)
+{
+    if (json_peek(s) == JSON_NULL) {
+        *enabled = false;
+        return 0;
+    }
+    if (json_next(s) == JSON_NUMBER) {
+        *enabled = true;
+        *value = json_get_number(s);
+        return 0;
+    }
+    return -EINVAL;
+}
+
+static int parse_score_transform_knots_key(json_stream *s, VmafModel *model)
+{
+    if (json_peek(s) == JSON_NULL) {
+        model->score_transform.knots.enabled = false;
+        model->score_transform.knots.n_knots = 0;
+        return 0;
+    }
+    if (json_next(s) == JSON_ARRAY) {
+        int err = parse_knots(s, model);
+        if (err)
+            return err;
+        json_skip_until(s, JSON_ARRAY_END);
+        return 0;
+    }
+    return -EINVAL;
+}
+
+static int parse_score_transform_bool_str(json_stream *s, bool *out)
+{
+    if (json_next(s) != JSON_STRING)
+        return -EINVAL;
+    const char *val = json_get_string(s, NULL);
+    if (!strcmp(val, "true"))
+        *out = true;
+    return 0;
+}
+
+static int parse_score_transform_entry(json_stream *s, VmafModel *model, const char *key)
+{
+    if (!strcmp(key, "enabled")) {
+        if (json_peek(s) != JSON_TRUE && json_peek(s) != JSON_FALSE)
+            return -EINVAL;
+        model->score_transform.enabled = (json_next(s) == JSON_TRUE);
+        return 0;
+    }
+    if (!strcmp(key, "p0")) {
+        return parse_score_transform_poly(s, &model->score_transform.p0.enabled,
+                                          &model->score_transform.p0.value);
+    }
+    if (!strcmp(key, "p1")) {
+        return parse_score_transform_poly(s, &model->score_transform.p1.enabled,
+                                          &model->score_transform.p1.value);
+    }
+    if (!strcmp(key, "p2")) {
+        return parse_score_transform_poly(s, &model->score_transform.p2.enabled,
+                                          &model->score_transform.p2.value);
+    }
+    if (!strcmp(key, "knots"))
+        return parse_score_transform_knots_key(s, model);
+    if (!strcmp(key, "out_lte_in"))
+        return parse_score_transform_bool_str(s, &model->score_transform.out_lte_in);
+    if (!strcmp(key, "out_gte_in"))
+        return parse_score_transform_bool_str(s, &model->score_transform.out_gte_in);
+
+    json_skip(s);
+    return 0;
+}
+
 static int parse_score_transform(json_stream *s, VmafModel *model)
 {
     model->score_transform.enabled = false;
@@ -199,84 +272,9 @@ static int parse_score_transform(json_stream *s, VmafModel *model)
             return -EINVAL;
 
         const char *key = json_get_string(s, NULL);
-
-        if (!strcmp(key, "enabled")) {
-            if (json_peek(s) != JSON_TRUE && json_peek(s) != JSON_FALSE)
-                return -EINVAL;
-            model->score_transform.enabled = (json_next(s) == JSON_TRUE);
-            continue;
-        }
-
-        if (!strcmp(key, "p0")) {
-            if (json_peek(s) == JSON_NULL) {
-                model->score_transform.p0.enabled = false;
-            } else if (json_next(s) == JSON_NUMBER) {
-                model->score_transform.p0.enabled = true;
-                model->score_transform.p0.value = json_get_number(s);
-            } else {
-                return -EINVAL;
-            }
-            continue;
-        }
-
-        if (!strcmp(key, "p1")) {
-            if (json_peek(s) == JSON_NULL) {
-                model->score_transform.p1.enabled = false;
-            } else if (json_next(s) == JSON_NUMBER) {
-                model->score_transform.p1.enabled = true;
-                model->score_transform.p1.value = json_get_number(s);
-            } else {
-                return -EINVAL;
-            }
-            continue;
-        }
-
-        if (!strcmp(key, "p2")) {
-            if (json_peek(s) == JSON_NULL) {
-                model->score_transform.p2.enabled = false;
-            } else if (json_next(s) == JSON_NUMBER) {
-                model->score_transform.p2.enabled = true;
-                model->score_transform.p2.value = json_get_number(s);
-            } else {
-                return -EINVAL;
-            }
-            continue;
-        }
-
-        if (!strcmp(key, "knots")) {
-            if (json_peek(s) == JSON_NULL) {
-                model->score_transform.knots.enabled = false;
-                model->score_transform.knots.n_knots = 0;
-            } else if (json_next(s) == JSON_ARRAY) {
-                int err = parse_knots(s, model);
-                if (err)
-                    return err;
-                json_skip_until(s, JSON_ARRAY_END);
-            } else {
-                return -EINVAL;
-            }
-            continue;
-        }
-
-        if (!strcmp(key, "out_lte_in")) {
-            if (json_next(s) != JSON_STRING)
-                return -EINVAL;
-            const char *out_lte_in = json_get_string(s, NULL);
-            if (!strcmp(out_lte_in, "true"))
-                model->score_transform.out_lte_in = true;
-            continue;
-        }
-
-        if (!strcmp(key, "out_gte_in")) {
-            if (json_next(s) != JSON_STRING)
-                return -EINVAL;
-            const char *out_gte_in = json_get_string(s, NULL);
-            if (!strcmp(out_gte_in, "true"))
-                model->score_transform.out_gte_in = true;
-            continue;
-        }
-
-        json_skip(s);
+        int err = parse_score_transform_entry(s, model, key);
+        if (err)
+            return err;
     }
 
     return 0;
@@ -293,7 +291,131 @@ static int parse_libsvm_model(json_stream *s, VmafModel *model)
     return 0;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int parse_model_dict_score_transform(json_stream *s, VmafModel *model,
+                                            enum VmafModelFlags flags)
+{
+    if (json_next(s) != JSON_OBJECT)
+        return -EINVAL;
+
+    int err = parse_score_transform(s, model);
+    if (err)
+        return err;
+
+    if (!model->score_transform.enabled && (flags & VMAF_MODEL_FLAG_ENABLE_TRANSFORM)) {
+        model->score_transform.enabled = true;
+    }
+    json_skip_until(s, JSON_OBJECT_END);
+    return 0;
+}
+
+static int parse_model_dict_model_type(json_stream *s, VmafModel *model)
+{
+    if (json_next(s) != JSON_STRING)
+        return -EINVAL;
+    const char *model_type = json_get_string(s, NULL);
+    if (!strcmp(model_type, "RESIDUEBOOTSTRAP_LIBSVMNUSVR")) {
+        model->type = VMAF_MODEL_RESIDUE_BOOTSTRAP_SVM_NUSVR;
+    } else if (!strcmp(model_type, "BOOTSTRAP_LIBSVMNUSVR")) {
+        model->type = VMAF_MODEL_BOOTSTRAP_SVM_NUSVR;
+    } else if (!strcmp(model_type, "LIBSVMNUSVR")) {
+        model->type = VMAF_MODEL_TYPE_SVM_NUSVR;
+    } else {
+        return -EINVAL;
+    }
+    return 0;
+}
+
+static int parse_model_dict_norm_type(json_stream *s, VmafModel *model)
+{
+    if (json_next(s) != JSON_STRING)
+        return -EINVAL;
+    const char *norm_type = json_get_string(s, NULL);
+    if (!strcmp(norm_type, "linear_rescale")) {
+        model->norm_type = VMAF_MODEL_NORMALIZATION_TYPE_LINEAR_RESCALE;
+    } else if (!strcmp(norm_type, "none")) {
+        model->norm_type = VMAF_MODEL_NORMALIZATION_TYPE_NONE;
+    } else {
+        return -EINVAL;
+    }
+    return 0;
+}
+
+static int parse_model_dict_score_clip(json_stream *s, VmafModel *model, enum VmafModelFlags flags)
+{
+    if (json_next(s) != JSON_ARRAY)
+        return -EINVAL;
+    if (!(flags & VMAF_MODEL_FLAG_DISABLE_CLIP)) {
+        model->score_clip.enabled = true;
+        if (json_next(s) != JSON_NUMBER)
+            return -EINVAL;
+        model->score_clip.min = json_get_number(s);
+        if (json_next(s) != JSON_NUMBER)
+            return -EINVAL;
+        model->score_clip.max = json_get_number(s);
+    }
+    json_skip_until(s, JSON_ARRAY_END);
+    return 0;
+}
+
+static int parse_model_dict_array_key(json_stream *s, VmafModel *model, const char *key)
+{
+    if (!strcmp(key, "slopes")) {
+        if (json_next(s) != JSON_ARRAY)
+            return -EINVAL;
+        int err = parse_slopes(s, model);
+        if (err)
+            return err;
+        json_skip_until(s, JSON_ARRAY_END);
+        return 0;
+    }
+    if (!strcmp(key, "intercepts")) {
+        if (json_next(s) != JSON_ARRAY)
+            return -EINVAL;
+        int err = parse_intercepts(s, model);
+        if (err)
+            return err;
+        json_skip_until(s, JSON_ARRAY_END);
+        return 0;
+    }
+    if (!strcmp(key, "feature_names")) {
+        if (json_next(s) != JSON_ARRAY)
+            return -EINVAL;
+        return parse_feature_names(s, model);
+    }
+    if (!strcmp(key, "feature_opts_dicts")) {
+        if (json_next(s) != JSON_ARRAY)
+            return -EINVAL;
+        return parse_feature_opts_dicts(s, model);
+    }
+    if (!strcmp(key, "model")) {
+        if (json_next(s) != JSON_STRING)
+            return -EINVAL;
+        return parse_libsvm_model(s, model);
+    }
+    /* Unrecognised key: caller skips. */
+    return 1;
+}
+
+static int parse_model_dict_entry(json_stream *s, VmafModel *model, enum VmafModelFlags flags,
+                                  const char *key)
+{
+    if (!strcmp(key, "score_transform"))
+        return parse_model_dict_score_transform(s, model, flags);
+    if (!strcmp(key, "model_type"))
+        return parse_model_dict_model_type(s, model);
+    if (!strcmp(key, "norm_type"))
+        return parse_model_dict_norm_type(s, model);
+    if (!strcmp(key, "score_clip"))
+        return parse_model_dict_score_clip(s, model, flags);
+
+    int r = parse_model_dict_array_key(s, model, key);
+    if (r <= 0)
+        return r;
+
+    json_skip(s);
+    return 0;
+}
+
 static int parse_model_dict(json_stream *s, VmafModel *model, enum VmafModelFlags flags)
 {
     if (json_next(s) != JSON_OBJECT)
@@ -303,117 +425,9 @@ static int parse_model_dict(json_stream *s, VmafModel *model, enum VmafModelFlag
         if (json_next(s) != JSON_STRING)
             return -EINVAL;
         const char *key = json_get_string(s, NULL);
-
-        if (!strcmp(key, "score_transform")) {
-            if (json_next(s) != JSON_OBJECT)
-                return -EINVAL;
-
-            int err = parse_score_transform(s, model);
-            if (err)
-                return err;
-
-            if (!model->score_transform.enabled && (flags & VMAF_MODEL_FLAG_ENABLE_TRANSFORM)) {
-                model->score_transform.enabled = true;
-            }
-
-            json_skip_until(s, JSON_OBJECT_END);
-            continue;
-        }
-
-        if (!strcmp(key, "model_type")) {
-            if (json_next(s) != JSON_STRING)
-                return -EINVAL;
-            const char *model_type = json_get_string(s, NULL);
-            if (!strcmp(model_type, "RESIDUEBOOTSTRAP_LIBSVMNUSVR")) {
-                model->type = VMAF_MODEL_RESIDUE_BOOTSTRAP_SVM_NUSVR;
-            } else if (!strcmp(model_type, "BOOTSTRAP_LIBSVMNUSVR")) {
-                model->type = VMAF_MODEL_BOOTSTRAP_SVM_NUSVR;
-            } else if (!strcmp(model_type, "LIBSVMNUSVR")) {
-                model->type = VMAF_MODEL_TYPE_SVM_NUSVR;
-            } else {
-                return -EINVAL;
-            }
-            continue;
-        }
-
-        if (!strcmp(key, "norm_type")) {
-            if (json_next(s) != JSON_STRING)
-                return -EINVAL;
-            const char *norm_type = json_get_string(s, NULL);
-            if (!strcmp(norm_type, "linear_rescale")) {
-                model->norm_type = VMAF_MODEL_NORMALIZATION_TYPE_LINEAR_RESCALE;
-            } else if (!strcmp(norm_type, "none")) {
-                model->norm_type = VMAF_MODEL_NORMALIZATION_TYPE_NONE;
-            } else {
-                return -EINVAL;
-            }
-            continue;
-        }
-
-        if (!strcmp(key, "score_clip")) {
-            if (json_next(s) != JSON_ARRAY)
-                return -EINVAL;
-            if (!(flags & VMAF_MODEL_FLAG_DISABLE_CLIP)) {
-                model->score_clip.enabled = true;
-                if (json_next(s) != JSON_NUMBER)
-                    return -EINVAL;
-                model->score_clip.min = json_get_number(s);
-                if (json_next(s) != JSON_NUMBER)
-                    return -EINVAL;
-                model->score_clip.max = json_get_number(s);
-            }
-            json_skip_until(s, JSON_ARRAY_END);
-            continue;
-        }
-
-        if (!strcmp(key, "slopes")) {
-            if (json_next(s) != JSON_ARRAY)
-                return -EINVAL;
-            int err = parse_slopes(s, model);
-            if (err)
-                return err;
-            json_skip_until(s, JSON_ARRAY_END);
-            continue;
-        }
-
-        if (!strcmp(key, "intercepts")) {
-            if (json_next(s) != JSON_ARRAY)
-                return -EINVAL;
-            int err = parse_intercepts(s, model);
-            if (err)
-                return err;
-            json_skip_until(s, JSON_ARRAY_END);
-            continue;
-        }
-
-        if (!strcmp(key, "feature_names")) {
-            if (json_next(s) != JSON_ARRAY)
-                return -EINVAL;
-            int err = parse_feature_names(s, model);
-            if (err)
-                return err;
-            continue;
-        }
-
-        if (!strcmp(key, "feature_opts_dicts")) {
-            if (json_next(s) != JSON_ARRAY)
-                return -EINVAL;
-            int err = parse_feature_opts_dicts(s, model);
-            if (err)
-                return err;
-            continue;
-        }
-
-        if (!strcmp(key, "model")) {
-            if (json_next(s) != JSON_STRING)
-                return -EINVAL;
-            int err = parse_libsvm_model(s, model);
-            if (err)
-                return err;
-            continue;
-        }
-
-        json_skip(s);
+        int err = parse_model_dict_entry(s, model, flags, key);
+        if (err)
+            return err;
     }
 
     json_skip_until(s, JSON_OBJECT_END);
@@ -505,12 +519,73 @@ int vmaf_read_json_model_from_path(VmafModel **model, VmafModelConfig *cfg, cons
     return err;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int model_collection_read_one(json_stream *s, VmafModel **model,
+                                     VmafModelCollection **model_collection, VmafModelConfig *c,
+                                     unsigned i)
+{
+    /* When i==0, ownership of m is transferred to *model below; when
+     * i>=1, ownership is transferred to *model_collection via append.
+     * The analyzer loses track of this cross-parameter ownership. */
+    // NOLINTBEGIN(clang-analyzer-unix.Malloc)
+    VmafModel *m;
+    int err = vmaf_read_json_model(&m, c, s);
+    if (err)
+        return err;
+
+    if (i == 0) {
+        *model = m;
+    } else {
+        err = vmaf_model_collection_append(model_collection, m);
+        if (err) {
+            vmaf_model_destroy(m);
+            return err;
+        }
+    }
+    // NOLINTEND(clang-analyzer-unix.Malloc)
+    return 0;
+}
+
+static int model_collection_parse_loop(json_stream *s, VmafModel **model,
+                                       VmafModelCollection **model_collection, VmafModelConfig *c,
+                                       const char *name, char *cfg_name, size_t cfg_name_sz)
+{
+    /* `generated_key_sz` = 4 + 1 = 5 is a true compile-time constant, but
+     * `const size_t …` is not a constant-expression in C, so declaring a
+     * plain fixed-size array (not a VLA) avoids MSVC C2057. Covers up to
+     * four decimal digits of `i` (9999 + NUL). */
+    char generated_key[5];
+    unsigned i = 0;
+    int err = -EINVAL;
+
+    while (json_peek(s) != JSON_OBJECT_END && !json_get_error(s)) {
+        if (json_next(s) != JSON_STRING)
+            return -EINVAL;
+
+        const char *key = json_get_string(s, NULL);
+        (void)snprintf(generated_key, sizeof(generated_key), "%d", i);
+
+        if (strcmp(key, generated_key) != 0) {
+            json_skip(s);
+            continue;
+        }
+
+        err = model_collection_read_one(s, model, model_collection, c, i);
+        if (err)
+            return err;
+
+        if (i == 0)
+            c->name = cfg_name;
+        (void)snprintf(cfg_name, cfg_name_sz, "%s_%04d", name, ++i);
+    }
+
+    if (!(*model_collection))
+        err = -EINVAL;
+    return err;
+}
+
 static int model_collection_parse(json_stream *s, VmafModel **model,
                                   VmafModelCollection **model_collection, VmafModelConfig *cfg)
 {
-    int err = -EINVAL;
-
     *model_collection = NULL;
 
     if (json_next(s) != JSON_OBJECT)
@@ -531,54 +606,9 @@ static int model_collection_parse(json_stream *s, VmafModel **model,
         return -ENOMEM;
     }
 
-    /* `generated_key_sz` = 4 + 1 = 5 is a true compile-time constant, but
-     * `const size_t …` is not a constant-expression in C, so declaring a
-     * plain fixed-size array (not a VLA) avoids MSVC C2057. Covers up to
-     * four decimal digits of `i` (9999 + NUL). */
-    char generated_key[5];
+    int err =
+        model_collection_parse_loop(s, model, model_collection, &c, name, cfg_name, cfg_name_sz);
 
-    unsigned i = 0;
-    while (json_peek(s) != JSON_OBJECT_END && !json_get_error(s)) {
-        if (json_next(s) != JSON_STRING) {
-            err = -EINVAL;
-            goto out;
-        }
-
-        const char *key = json_get_string(s, NULL);
-        (void)snprintf(generated_key, sizeof(generated_key), "%d", i);
-
-        if (!strcmp(key, generated_key)) {
-            /* When i==0, ownership of m is transferred to *model below; when
-             * i>=1, ownership is transferred to *model_collection via append.
-             * The analyzer loses track of this cross-parameter ownership. */
-            // NOLINTBEGIN(clang-analyzer-unix.Malloc)
-            VmafModel *m;
-            err = vmaf_read_json_model(&m, &c, s);
-            if (err)
-                goto out;
-
-            if (i == 0) {
-                *model = m;
-                c.name = cfg_name;
-            } else {
-                err = vmaf_model_collection_append(model_collection, m);
-                if (err) {
-                    vmaf_model_destroy(m);
-                    goto out;
-                }
-            }
-            // NOLINTEND(clang-analyzer-unix.Malloc)
-
-            (void)snprintf((char *)c.name, cfg_name_sz, "%s_%04d", name, ++i);
-            continue;
-        }
-
-        json_skip(s);
-    }
-
-    if (!(*model_collection))
-        err = -EINVAL;
-out:
     free(cfg_name);
     free((char *)name);
     return err;

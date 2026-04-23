@@ -94,141 +94,130 @@ float KBND_CONSTANT(const float *img, int w, int h, int x, int y, float bnd_cons
     return img[y * w + x];
 }
 
-static float _calc_scale(const struct _kernel *k)
+static float iqa_calc_scale(const struct _kernel *k)
 {
-    int ii, k_len;
-    double sum = 0.0;
-
     if (k->normalized)
         return 1.0f;
-    else {
 
-        assert(
-            0); /* zli-nflx: TODO: generalize to make _calc_scale work on 1D separable filtering */
+    /* zli-nflx: TODO: generalize to make iqa_calc_scale work on 1D separable filtering */
+    assert(0);
 
-        k_len = k->w * k->h;
-        for (ii = 0; ii < k_len; ++ii)
-            sum += k->kernel[ii];
-        if (sum != 0.0)
-            return (float)(1.0 / sum);
-        return 1.0f;
+    double sum = 0.0;
+    const int k_len = k->w * k->h;
+    for (int ii = 0; ii < k_len; ++ii) {
+        sum += k->kernel[ii];
     }
+    if (sum != 0.0) {
+        return (float)(1.0 / sum);
+    }
+    return 1.0f;
 }
-
-/* _iqa_convolve — upstream Netflix function. Refactor deferred to backlog item T7-5
- * (one-PR sweep gated by Netflix golden + /cross-backend-diff, per ADR-0141
- * §Historical debt). The fork's only change here is the kw_even bound fix
- * documented in docs/rebase-notes.md §0033; splitting the function would fork
- * upstream's shape and inflate rebase conflicts with zero behaviour delta. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
-void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw,
-                   int *rh)
-{
 
 #ifdef IQA_CONVOLVE_1D
 
-    /* use 1D separable filter */
-
-    int x, y, kx, ky, u, v;
-    int uc = k->w / 2;
-    int vc = k->h / 2;
-    int kw_even = (k->w & 1) ? 0 : 1;
-    int kh_even = (k->h & 1) ? 0 : 1;
-    int dst_w = w - k->w + 1;
-    int dst_h = h - k->h + 1;
-    int img_offset, k_offset;
-    double sum;
-    float scale, *dst;
-    float *img_cache;
-
-    /* Kernel is applied to all positions where the kernel is fully contained
-     * in the image */
-    scale = _calc_scale(k);
-
-    /* create cache */
-    img_cache = (float *)calloc(w * h, sizeof(float));
-    if (!img_cache)
-        assert(0);
-
-    dst = result;
-    if (!dst)
-        dst = img; /* Convolve in-place */
-
-    /* filter horizontally — fill cache rows that the v-pass will read.
-     * v-pass reads cache[(y+vc+v)*w + kx] for y ∈ [0, dst_h) and v ∈
-     * [-vc, vc-kh_even], so the maximum cache row needed is
-     * (dst_h-1) + 2vc - kh_even = h - 1. Stopping the outer loop at
-     * `dst_h + vc - kh_even` avoids writing/reading row ky = h on
-     * even-tap kernels (kh_even == 1), which was an OOB by one row
-     * when image height equals kernel height or dst_h is small. No
-     * numerical impact: the skipped row was never consumed. */
-    for (y = -vc; y < dst_h + vc - kh_even; ++y) {
-        for (x = 0; x < dst_w; ++x) {
-            sum = 0.0;
-            k_offset = 0;
-            ky = y + vc;
-            kx = x + uc;
-            img_offset = ky * w + kx;
-            for (u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
+/* Horizontal pass of the 1D-separable convolve — fills img_cache rows that
+ * the v-pass will later read. Rows beyond `dst_h + vc - kh_even` are never
+ * consumed; stopping there avoids an OOB row on even-tap kernels (see
+ * docs/rebase-notes.md §0033). */
+static void iqa_convolve_horizontal_pass(const float *img, int w, const struct _kernel *k,
+                                         float *img_cache, int dst_w, int dst_h, float scale)
+{
+    const int uc = k->w / 2;
+    const int vc = k->h / 2;
+    const int kw_even = (k->w & 1) ? 0 : 1;
+    const int kh_even = (k->h & 1) ? 0 : 1;
+    for (int y = -vc; y < dst_h + vc - kh_even; ++y) {
+        for (int x = 0; x < dst_w; ++x) {
+            double sum = 0.0;
+            int k_offset = 0;
+            const int ky = y + vc;
+            const int kx = x + uc;
+            const int img_offset = ky * w + kx;
+            for (int u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
                 sum += img[img_offset + u] * k->kernel_h[k_offset];
             }
             img_cache[img_offset] = (float)(sum * scale);
         }
     }
+}
 
-    /* filter vertically */
-    for (x = 0; x < dst_w; ++x) {
-        for (y = 0; y < dst_h; ++y) {
-            sum = 0.0;
-            k_offset = 0;
-            ky = y + vc;
-            kx = x + uc;
-            img_offset = ky * w + kx;
-            for (v = -vc; v <= vc - kh_even; ++v, ++k_offset) {
+static void iqa_convolve_vertical_pass(const float *img_cache, int w, const struct _kernel *k,
+                                       float *dst, int dst_w, int dst_h, float scale)
+{
+    const int uc = k->w / 2;
+    const int vc = k->h / 2;
+    const int kh_even = (k->h & 1) ? 0 : 1;
+    for (int x = 0; x < dst_w; ++x) {
+        for (int y = 0; y < dst_h; ++y) {
+            double sum = 0.0;
+            int k_offset = 0;
+            const int ky = y + vc;
+            const int kx = x + uc;
+            const int img_offset = ky * w + kx;
+            for (int v = -vc; v <= vc - kh_even; ++v, ++k_offset) {
                 sum += img_cache[img_offset + v * w] * k->kernel_v[k_offset];
             }
             dst[y * dst_w + x] = (float)(sum * scale);
         }
     }
+}
 
-    /* free cache */
+static void iqa_convolve_1d_separable(float *img, int w, int h, const struct _kernel *k,
+                                      float *result, int dst_w, int dst_h)
+{
+    const float scale = iqa_calc_scale(k);
+    float *img_cache = (float *)calloc((size_t)w * (size_t)h, sizeof(float));
+    if (!img_cache)
+        assert(0);
+
+    float *dst = result ? result : img;
+    iqa_convolve_horizontal_pass(img, w, k, img_cache, dst_w, dst_h, scale);
+    iqa_convolve_vertical_pass(img_cache, w, k, dst, dst_w, dst_h, scale);
     free(img_cache);
+}
 
 #else /* use 2D filter */
 
-    int x, y, kx, ky, u, v;
-    int uc = k->w / 2;
-    int vc = k->h / 2;
-    int kw_even = (k->w & 1) ? 0 : 1;
-    int kh_even = (k->h & 1) ? 0 : 1;
-    int dst_w = w - k->w + 1;
-    int dst_h = h - k->h + 1;
-    int img_offset, k_offset;
-    float sum;
-    float scale, *dst = result;
+static void iqa_convolve_2d(float *img, int w, const struct _kernel *k, float *result, int dst_w,
+                            int dst_h)
+{
+    const int uc = k->w / 2;
+    const int vc = k->h / 2;
+    const int kw_even = (k->w & 1) ? 0 : 1;
+    const int kh_even = (k->h & 1) ? 0 : 1;
+    const float scale = iqa_calc_scale(k);
+    float *dst = result ? result : img;
 
-    if (!dst)
-        dst = img; /* Convolve in-place */
-
-    /* Kernel is applied to all positions where the kernel is fully contained
-     * in the image */
-    scale = _calc_scale(k);
-    for (y = 0; y < dst_h; ++y) {
-        for (x = 0; x < dst_w; ++x) {
-            sum = 0.0;
-            k_offset = 0;
-            ky = y + vc;
-            kx = x + uc;
-            for (v = -vc; v <= vc - kh_even; ++v) {
-                img_offset = (ky + v) * w + kx;
-                for (u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
+    for (int y = 0; y < dst_h; ++y) {
+        for (int x = 0; x < dst_w; ++x) {
+            float sum = 0.0f;
+            int k_offset = 0;
+            const int ky = y + vc;
+            const int kx = x + uc;
+            for (int v = -vc; v <= vc - kh_even; ++v) {
+                const int img_offset = (ky + v) * w + kx;
+                for (int u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
                     sum += img[img_offset + u] * k->kernel[k_offset];
                 }
             }
             dst[y * dst_w + x] = (float)(sum * scale);
         }
     }
+}
 
+#endif
+
+void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw,
+                   int *rh)
+{
+    const int dst_w = w - k->w + 1;
+    const int dst_h = h - k->h + 1;
+
+#ifdef IQA_CONVOLVE_1D
+    iqa_convolve_1d_separable(img, w, h, k, result, dst_w, dst_h);
+#else
+    (void)h;
+    iqa_convolve_2d(img, w, k, result, dst_w, dst_h);
 #endif
 
     if (rw)
@@ -239,20 +228,21 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
 
 int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *result)
 {
-    int x, y;
+    int x;
+    int y;
     int img_offset;
-    float scale, *dst = result;
+    float *dst = result;
 
     if (!k || !k->bnd_opt)
         return 1;
 
     if (!dst) {
-        dst = (float *)malloc(w * h * sizeof(float));
+        dst = (float *)malloc((size_t)w * (size_t)h * sizeof(float));
         if (!dst)
             return 2;
     }
 
-    scale = _calc_scale(k);
+    const float scale = iqa_calc_scale(k);
 
     /* Kernel is applied to all positions where top-left corner is in the image */
     for (y = 0; y < h; ++y) {
@@ -277,37 +267,31 @@ int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *re
 float _iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct _kernel *k,
                         const float kscale)
 {
-    int u, v, uc, vc;
-    int kw_even, kh_even;
-    int x_edge_left, x_edge_right, y_edge_top, y_edge_bottom;
-    int edge, img_offset, k_offset;
-    double sum;
-
     if (!k)
         return img[y * w + x];
 
-    uc = k->w / 2;
-    vc = k->h / 2;
-    kw_even = (k->w & 1) ? 0 : 1;
-    kh_even = (k->h & 1) ? 0 : 1;
-    x_edge_left = uc;
-    x_edge_right = w - uc;
-    y_edge_top = vc;
-    y_edge_bottom = h - vc;
+    const int uc = k->w / 2;
+    const int vc = k->h / 2;
+    const int kw_even = (k->w & 1) ? 0 : 1;
+    const int kh_even = (k->h & 1) ? 0 : 1;
+    const int x_edge_left = uc;
+    const int x_edge_right = w - uc;
+    const int y_edge_top = vc;
+    const int y_edge_bottom = h - vc;
 
-    edge = 0;
-    if (x < x_edge_left || y < y_edge_top || x >= x_edge_right || y >= y_edge_bottom)
-        edge = 1;
+    const int edge =
+        (x < x_edge_left || y < y_edge_top || x >= x_edge_right || y >= y_edge_bottom) ? 1 : 0;
 
-    sum = 0.0;
-    k_offset = 0;
-    for (v = -vc; v <= vc - kh_even; ++v) {
-        img_offset = (y + v) * w + x;
-        for (u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
-            if (!edge)
+    double sum = 0.0;
+    int k_offset = 0;
+    for (int v = -vc; v <= vc - kh_even; ++v) {
+        const int img_offset = (y + v) * w + x;
+        for (int u = -uc; u <= uc - kw_even; ++u, ++k_offset) {
+            if (!edge) {
                 sum += img[img_offset + u] * k->kernel[k_offset];
-            else
+            } else {
                 sum += k->bnd_opt(img, w, h, x + u, y + v, k->bnd_const) * k->kernel[k_offset];
+            }
         }
     }
     return (float)(sum * kscale);

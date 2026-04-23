@@ -1954,3 +1954,69 @@ inline.*
 - **Follow-up T-N**: audit the fork's AVX2 `motion_v2` variant
   (`x86/motion_v2_avx2.c`) against scalar on a negative-diff
   corpus. If `srlv_epi64` causes a delta, open a correctness PR.
+
+### 0039 — `readability-function-size` NOLINT sweep (ADR-0146)
+
+- **ADR**: [ADR-0146](adr/0146-nolint-sweep-function-size.md)
+- **Touches**:
+  - `libvmaf/src/dict.c`
+  - `libvmaf/src/picture.c`
+  - `libvmaf/src/picture_pool.c`
+  - `libvmaf/src/predict.c`
+  - `libvmaf/src/libvmaf.c`
+  - `libvmaf/src/output.c`
+  - `libvmaf/src/read_json_model.c`
+  - `libvmaf/src/feature/feature_extractor.c`
+  - `libvmaf/src/feature/feature_collector.c`
+  - `libvmaf/src/feature/iqa/convolve.c`
+  - `libvmaf/src/feature/iqa/ssim_tools.c`
+  - `libvmaf/src/feature/x86/vif_statistic_avx2.c`
+- **Invariant**: every `readability-function-size` NOLINT suppression
+  has been replaced by a set of small `static` (or `static inline`,
+  for the SIMD / IQA files) helpers. The helper names are stable
+  interfaces the surrounding code depends on (e.g.
+  `iqa_convolve_1d_separable`, `iqa_convolve_2d`,
+  `ssim_compute_stats`, `ssim_workspace_alloc` / `_free`,
+  `vif_stat_simd8_compute` / `_reduce`, `struct vif_simd8_lane`,
+  `read_pictures_extractor_loop`, `read_pictures_post_extractor`,
+  `read_pictures_validate_and_prep`,
+  `read_pictures_update_prev_ref`). Upstream Netflix has no
+  equivalent helpers; rebases touching any of these files will
+  conflict against the fork's split shape.
+- **On upstream sync**:
+  - If upstream lands a different decomposition of `_iqa_convolve`
+    or `_iqa_ssim`, prefer upstream's shape only if it keeps the
+    ADR-0138 / ADR-0139 bit-exactness invariants (single-rounded
+    float mul → widen to double → double add; per-lane scalar-float
+    reduction through aligned temp buffer). Otherwise keep the
+    fork's split and re-document the divergence here.
+  - The fork renamed `_calc_scale` → `iqa_calc_scale` to clear the
+    `bugprone-reserved-identifier` check. If upstream modifies
+    `_calc_scale`, keep the fork's name and port the behavioural
+    change.
+  - `model_collection_parse_loop` writes directly to `cfg_name`
+    rather than through `c->name` — if upstream ever rewrites
+    `model_collection_parse`, preserve the direct write (it's what
+    lets the param stay non-const without a NOLINT).
+- **Re-test on rebase** (x86, any libsvm-less host):
+
+  ```bash
+  ninja -C build && meson test -C build
+  for mask in 0 255; do
+    VMAF_CPU_MASK=$mask ./build/tools/vmaf \
+      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+      -m version=vmaf_v0.6.1 -o /tmp/vmaf_$mask.xml
+  done
+  diff <(grep -v fyi /tmp/vmaf_0.xml) <(grep -v fyi /tmp/vmaf_255.xml)
+  # expect exit 0 (Netflix-golden-pair VMAF bit-identical scalar vs SIMD)
+  ```
+
+  Also run `clang-tidy -p build` on every file in **Touches**;
+  expect zero warnings.
+- **Follow-up T7-6**: decide whether to rename the `_iqa_*` API
+  surface (convolve / ssim / decimate / img_filter / filter_pixel /
+  get_pixel) across all callers to clear the remaining
+  `bugprone-reserved-identifier` suppressions in `ssim.c`,
+  `ms_ssim.c`, `float_ms_ssim.c`. Out of scope here.

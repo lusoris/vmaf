@@ -901,7 +901,47 @@ unref:
 }
 #endif // VMAF_BATCH_THREADING
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int threaded_enqueue_one(VmafContext *vmaf, VmafFeatureExtractor *fex,
+                                VmafDictionary *opts_dict, VmafPicture *ref, VmafPicture *dist,
+                                unsigned index)
+{
+    fex->framesync = vmaf->framesync;
+    VmafFeatureExtractorContext *fex_ctx;
+    int err = vmaf_fex_ctx_pool_aquire(vmaf->fex_ctx_pool, fex, opts_dict, &fex_ctx);
+    if (err)
+        return err;
+
+    VmafPicture pic_a;
+    VmafPicture pic_b;
+    VmafPicture prev_ref = {0};
+    vmaf_picture_ref(&pic_a, ref);
+    vmaf_picture_ref(&pic_b, dist);
+
+    if ((fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) && vmaf->prev_ref.ref) {
+        vmaf_picture_ref(&prev_ref, &vmaf->prev_ref);
+    }
+
+    struct ThreadData data = {
+        .fex_ctx = fex_ctx,
+        .ref = pic_a,
+        .dist = pic_b,
+        .prev_ref = prev_ref,
+        .index = index,
+        .feature_collector = vmaf->feature_collector,
+        .fex_ctx_pool = vmaf->fex_ctx_pool,
+        .err = 0,
+    };
+
+    err = vmaf_thread_pool_enqueue(vmaf->thread_pool, threaded_extract_func, &data, sizeof(data));
+    if (err) {
+        vmaf_picture_unref(&pic_a);
+        vmaf_picture_unref(&pic_b);
+        if (prev_ref.ref)
+            vmaf_picture_unref(&prev_ref);
+    }
+    return err;
+}
+
 static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
                                   unsigned index)
 {
@@ -911,8 +951,6 @@ static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPictu
         return -EINVAL;
     if (!dist)
         return -EINVAL;
-
-    int err = 0;
 
     for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
         VmafFeatureExtractor *fex = vmaf->registered_feature_extractors.fex_ctx[i]->fex;
@@ -927,42 +965,9 @@ static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPictu
             continue;
         }
 
-        fex->framesync = vmaf->framesync;
-        VmafFeatureExtractorContext *fex_ctx;
-        err = vmaf_fex_ctx_pool_aquire(vmaf->fex_ctx_pool, fex, opts_dict, &fex_ctx);
+        int err = threaded_enqueue_one(vmaf, fex, opts_dict, ref, dist, index);
         if (err)
             return err;
-
-        VmafPicture pic_a;
-        VmafPicture pic_b;
-        VmafPicture prev_ref = {0};
-        vmaf_picture_ref(&pic_a, ref);
-        vmaf_picture_ref(&pic_b, dist);
-
-        if ((fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) && vmaf->prev_ref.ref) {
-            vmaf_picture_ref(&prev_ref, &vmaf->prev_ref);
-        }
-
-        struct ThreadData data = {
-            .fex_ctx = fex_ctx,
-            .ref = pic_a,
-            .dist = pic_b,
-            .prev_ref = prev_ref,
-            .index = index,
-            .feature_collector = vmaf->feature_collector,
-            .fex_ctx_pool = vmaf->fex_ctx_pool,
-            .err = 0,
-        };
-
-        err =
-            vmaf_thread_pool_enqueue(vmaf->thread_pool, threaded_extract_func, &data, sizeof(data));
-        if (err) {
-            vmaf_picture_unref(&pic_a);
-            vmaf_picture_unref(&pic_b);
-            if (prev_ref.ref)
-                vmaf_picture_unref(&prev_ref);
-            return err;
-        }
     }
 
     if (vmaf->prev_ref.ref)
@@ -1087,70 +1092,95 @@ static int flush_context_threaded(VmafContext *vmaf)
     return err;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int flush_context_serial(VmafContext *vmaf)
+{
+    int err = 0;
+    RegisteredFeatureExtractors rfe = vmaf->registered_feature_extractors;
+    for (unsigned i = 0; i < rfe.cnt; i++) {
+        if (!(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) &&
+            !(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)) {
+            err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
+        }
+    }
+    return err;
+}
+
+#ifdef HAVE_CUDA
+static int flush_context_cuda(VmafContext *vmaf)
+{
+    int err = 0;
+    if (!vmaf->cuda.state.ctx)
+        return 0;
+    RegisteredFeatureExtractors rfe = vmaf->registered_feature_extractors;
+    for (unsigned i = 0; i < rfe.cnt; i++) {
+        if (rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) {
+            // Collect any pending double-buffered CUDA work
+            if (rfe.fex_ctx[i]->gpu_pending) {
+                err |= vmaf_feature_extractor_context_collect(
+                    rfe.fex_ctx[i], rfe.fex_ctx[i]->gpu_pending_index, vmaf->feature_collector);
+                rfe.fex_ctx[i]->gpu_pending = false;
+            }
+            err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
+        }
+    }
+    CudaFunctions *cu_f = vmaf->cuda.state.f;
+    err |= cu_f->cuCtxPushCurrent(vmaf->cuda.state.ctx);
+    err |= cu_f->cuStreamSynchronize(vmaf->cuda.state.str);
+    err |= cu_f->cuCtxSynchronize();
+    err |= cu_f->cuCtxPopCurrent(NULL);
+    if (err) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "context could not be synchronized\n");
+        return -EINVAL;
+    }
+    return 0;
+}
+#endif
+
+#ifdef HAVE_SYCL
+static int flush_context_sycl(VmafContext *vmaf)
+{
+    int err = 0;
+    if (!vmaf->sycl.state)
+        return 0;
+    RegisteredFeatureExtractors rfe = vmaf->registered_feature_extractors;
+    // Collect any pending double-buffered SYCL work
+    for (unsigned i = 0; i < rfe.cnt; i++) {
+        if ((rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL) &&
+            rfe.fex_ctx[i]->gpu_pending) {
+            err |= vmaf_feature_extractor_context_collect(
+                rfe.fex_ctx[i], rfe.fex_ctx[i]->gpu_pending_index, vmaf->feature_collector);
+            rfe.fex_ctx[i]->gpu_pending = false;
+        }
+    }
+    for (unsigned i = 0; i < rfe.cnt; i++) {
+        if (rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)
+            err |= vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
+    }
+    vmaf_sycl_queue_wait(vmaf->sycl.state);
+    vmaf_sycl_print_timing(vmaf->sycl.state);
+    return err;
+}
+#endif
+
 static int flush_context(VmafContext *vmaf)
 {
     int err = 0;
     if (vmaf->thread_pool) {
         err = flush_context_threaded(vmaf);
     } else {
-        RegisteredFeatureExtractors rfe = vmaf->registered_feature_extractors;
-        for (unsigned i = 0; i < rfe.cnt; i++) {
-            if (!(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) &&
-                !(rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)) {
-                err |=
-                    vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
-            }
-        }
+        err = flush_context_serial(vmaf);
     }
 
 #ifdef HAVE_CUDA
-    if (vmaf->cuda.state.ctx) {
-        RegisteredFeatureExtractors rfe = vmaf->registered_feature_extractors;
-        for (unsigned i = 0; i < rfe.cnt; i++) {
-            if (rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) {
-                // Collect any pending double-buffered CUDA work
-                if (rfe.fex_ctx[i]->gpu_pending) {
-                    err |= vmaf_feature_extractor_context_collect(
-                        rfe.fex_ctx[i], rfe.fex_ctx[i]->gpu_pending_index, vmaf->feature_collector);
-                    rfe.fex_ctx[i]->gpu_pending = false;
-                }
-                err |=
-                    vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
-            }
-        }
-        CudaFunctions *cu_f = vmaf->cuda.state.f;
-        err |= cu_f->cuCtxPushCurrent(vmaf->cuda.state.ctx);
-        err |= cu_f->cuStreamSynchronize(vmaf->cuda.state.str);
-        err |= cu_f->cuCtxSynchronize();
-        err |= cu_f->cuCtxPopCurrent(NULL);
-        if (err) {
-            vmaf_log(VMAF_LOG_LEVEL_ERROR, "context could not be synchronized\n");
-            return -EINVAL;
-        }
+    {
+        int cuda_err = flush_context_cuda(vmaf);
+        if (cuda_err)
+            return cuda_err;
     }
 #endif
 
 #ifdef HAVE_SYCL
-    if (vmaf->sycl.state) {
-        RegisteredFeatureExtractors rfe = vmaf->registered_feature_extractors;
-        // Collect any pending double-buffered SYCL work
-        for (unsigned i = 0; i < rfe.cnt; i++) {
-            if ((rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL) &&
-                rfe.fex_ctx[i]->gpu_pending) {
-                err |= vmaf_feature_extractor_context_collect(
-                    rfe.fex_ctx[i], rfe.fex_ctx[i]->gpu_pending_index, vmaf->feature_collector);
-                rfe.fex_ctx[i]->gpu_pending = false;
-            }
-        }
-        for (unsigned i = 0; i < rfe.cnt; i++) {
-            if (rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL)
-                err |=
-                    vmaf_feature_extractor_context_flush(rfe.fex_ctx[i], vmaf->feature_collector);
-        }
-        vmaf_sycl_queue_wait(vmaf->sycl.state);
-        vmaf_sycl_print_timing(vmaf->sycl.state);
-    }
+    err |= flush_context_sycl(vmaf);
 #endif
 
     if (!err)
@@ -1269,8 +1299,213 @@ static unsigned rfe_hw_flags(RegisteredFeatureExtractors *rfe)
 
 #endif
 
+#ifdef HAVE_CUDA
+static int read_pictures_cuda_translate(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
+                                        unsigned hw_flags, VmafPicture *ref_host,
+                                        VmafPicture *ref_device, VmafPicture *dist_host,
+                                        VmafPicture *dist_device)
+{
+    int err = translate_picture(vmaf, ref, ref_host, ref_device, hw_flags);
+    if (err)
+        return err;
+    /* Upstream code ignores the dist translation return value — preserved. */
+    (void)translate_picture(vmaf, dist, dist_host, dist_device, hw_flags);
+    return 0;
+}
+
+static int read_pictures_cuda_cleanup(VmafContext *vmaf, VmafPicture *ref_host,
+                                      VmafPicture *ref_device, VmafPicture *dist_host,
+                                      VmafPicture *dist_device)
+{
+    int err = 0;
+    if (ref_host->priv)
+        err |= vmaf_picture_unref(ref_host);
+    if (dist_host->priv)
+        err |= vmaf_picture_unref(dist_host);
+
+    CudaFunctions *cu_f = vmaf->cuda.state.f;
+    if (ref_device->priv) {
+        CHECK_CUDA(cu_f, cuEventRecord(vmaf_cuda_picture_get_finished_event(ref_device),
+                                       vmaf_cuda_picture_get_stream(ref_device)));
+        //^FIXME: move to picture callback
+        err |= vmaf_picture_unref(ref_device);
+    }
+    if (dist_device->priv) {
+        CHECK_CUDA(cu_f, cuEventRecord(vmaf_cuda_picture_get_finished_event(dist_device),
+                                       vmaf_cuda_picture_get_stream(dist_device)));
+        //^FIXME: move to picture callback
+        err |= vmaf_picture_unref(dist_device);
+    }
+    return err;
+}
+#endif
+
+#ifdef HAVE_SYCL
+static int read_pictures_sycl_prep(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist)
+{
+    // SYCL upload must happen BEFORE the extractor loop because SYCL
+    // queues are in-order — kernels enqueued during submit read shared
+    // buffers immediately, unlike the deferred batched model.
+    // Auto-initialize shared buffers on the first frame.
+    if (!vmaf->sycl.state)
+        return 0;
+    // Double-buffered: compute reads buf[cur_compute] while upload
+    // writes buf[cur_upload].  No need to wait for previous compute
+    // before uploading — the buffers are disjoint.  Just wait for the
+    // previous upload to finish (in-order copy_queue guarantees this
+    // implicitly) before overwriting the upload slot.
+    // On the very first frame, skip the wait since nothing is pending.
+    if (!vmaf_sycl_get_shared_ref(vmaf->sycl.state)) {
+        int err = vmaf_sycl_shared_frame_init(vmaf->sycl.state, ref->w[0], ref->h[0], ref->bpc);
+        if (err)
+            return err;
+    }
+    // DMA runs asynchronously on copy_queue while the CPU collects
+    // previous-frame results below.  vmaf_sycl_graph_submit() will
+    // wait for copy_queue just before replaying the command graph.
+    return vmaf_sycl_shared_frame_upload(vmaf->sycl.state, ref, dist);
+}
+#endif
+
+static bool read_pictures_should_skip(VmafContext *vmaf, VmafFeatureExtractorContext *fex_ctx,
+                                      unsigned index)
+{
+    if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL)) {
+        if ((vmaf->cfg.n_subsample > 1) && (index % vmaf->cfg.n_subsample))
+            return true;
+    }
+
+    if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) &&
+        !(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL) && vmaf->thread_pool) {
+#ifdef VMAF_BATCH_THREADING
+        if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL))
+#endif
+            return true;
+    }
+    return false;
+}
+
+static int read_pictures_dispatch_one(VmafContext *vmaf, VmafFeatureExtractorContext *fex_ctx,
+                                      VmafPicture *ref, VmafPicture *dist, unsigned index)
+{
+    if ((fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) && vmaf->prev_ref.ref) {
+        fex_ctx->fex->prev_ref = vmaf->prev_ref;
+    }
+
+    // Double-buffer: collect previous frame, then submit current frame.
+    // This overlaps GPU compute of the previous frame with CPU-side
+    // command recording for the current frame.
+    // Works for both Vulkan and CUDA extractors that implement submit/collect.
+    if (fex_ctx->fex->submit && fex_ctx->fex->collect) {
+        int err = 0;
+        // Collect previous frame's results (if any)
+        if (fex_ctx->gpu_pending) {
+            err = vmaf_feature_extractor_context_collect(fex_ctx, fex_ctx->gpu_pending_index,
+                                                         vmaf->feature_collector);
+            fex_ctx->gpu_pending = false;
+            if (err)
+                return err;
+        }
+        // Submit current frame (non-blocking GPU work)
+        err = vmaf_feature_extractor_context_submit(fex_ctx, ref, NULL, dist, NULL, index);
+        if (err)
+            return err;
+        fex_ctx->gpu_pending = true;
+        fex_ctx->gpu_pending_index = index;
+        return 0;
+    }
+
+    int err = vmaf_feature_extractor_context_extract(fex_ctx, ref, NULL, dist, NULL, index,
+                                                     vmaf->feature_collector);
+
+    if (fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF)
+        memset(&fex_ctx->fex->prev_ref, 0, sizeof(fex_ctx->fex->prev_ref));
+
+    return err;
+}
+
 /* Upstream dispatch function. Refactoring is tracked in .workingdir2/OPEN.md. */
-/* NOLINTNEXTLINE(readability-function-size) */
+static int read_pictures_validate_and_prep(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist)
+{
+    int err = validate_pic_params(vmaf, ref, dist);
+    if (err)
+        return err;
+    err = check_picture_pool(vmaf);
+    if (err)
+        return err;
+#ifdef HAVE_CUDA
+    err = check_ring_buffer(vmaf);
+    if (err)
+        return err;
+#endif
+#ifdef HAVE_SYCL
+    err = read_pictures_sycl_prep(vmaf, ref, dist);
+#endif
+    return err;
+}
+
+static int read_pictures_extractor_loop(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
+#ifdef HAVE_CUDA
+                                        VmafPicture *ref_host, VmafPicture *ref_device,
+                                        VmafPicture *dist_host, VmafPicture *dist_device,
+#endif
+                                        unsigned index)
+{
+    for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
+        VmafFeatureExtractorContext *fex_ctx = vmaf->registered_feature_extractors.fex_ctx[i];
+        if (read_pictures_should_skip(vmaf, fex_ctx, index))
+            continue;
+#ifdef HAVE_CUDA
+        ref = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? ref_device : ref_host;
+        dist = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? dist_device : dist_host;
+#endif
+        int err = read_pictures_dispatch_one(vmaf, fex_ctx, ref, dist, index);
+        if (err)
+            return err;
+    }
+    return 0;
+}
+
+/* CUDA device-only path: HAVE_CUDA reassigns `ref = &ref_host` at caller,
+ * but `ref_host` is zero-initialised whenever every extractor carries
+ * VMAF_FEATURE_EXTRACTOR_CUDA (rfe_hw_flags returns HW_FLAG_DEVICE only,
+ * so translate_picture_device early-returns and never downloads). Deref
+ * of ref_host.ref == NULL crashes vmaf_ref_fetch_increment. The only
+ * PREV_REF consumer is CPU integer_motion_v2, which is never registered
+ * alongside a pure CUDA extractor set — skipping the prev_ref update here
+ * is safe. ADR-0123. */
+static void read_pictures_update_prev_ref(VmafContext *vmaf, VmafPicture *ref)
+{
+    if (vmaf->prev_ref.ref)
+        vmaf_picture_unref(&vmaf->prev_ref);
+    if (ref && ref->ref)
+        vmaf_picture_ref(&vmaf->prev_ref, ref);
+}
+
+/* Post-extractor stage: per-frame DNN inference + optional thread-pool
+ * dispatch. Returns the final value vmaf_read_pictures should bubble up,
+ * or a sentinel to indicate the caller should fall through to prev_ref
+ * update + cleanup. */
+static int read_pictures_post_extractor(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
+                                        unsigned index, bool *done)
+{
+    *done = false;
+    if (vmaf->dnn.sess) {
+        int err = vmaf_ctx_dnn_run_frame(vmaf, ref, index);
+        if (err)
+            return err;
+    }
+    if (vmaf->thread_pool) {
+        *done = true;
+#ifdef VMAF_BATCH_THREADING
+        return threaded_read_pictures_batch(vmaf, ref, dist, index);
+#else
+        return threaded_read_pictures(vmaf, ref, dist, index);
+#endif
+    }
+    return 0;
+}
+
 int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, unsigned index)
 {
     if (!vmaf)
@@ -1282,188 +1517,50 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
     if (!ref && !dist)
         return flush_context(vmaf);
 
-    int err = 0;
-
     vmaf->pic_cnt++;
-    err = validate_pic_params(vmaf, ref, dist);
-    if (err)
-        return err;
-
-    err = check_picture_pool(vmaf);
+    int err = read_pictures_validate_and_prep(vmaf, ref, dist);
     if (err)
         return err;
 
 #ifdef HAVE_CUDA
-    err = check_ring_buffer(vmaf);
-    if (err)
-        return err;
-
     const unsigned hw_flags = rfe_hw_flags(&vmaf->registered_feature_extractors);
-
     VmafPicture ref_host = {0}, ref_device = {0};
-    err = translate_picture(vmaf, ref, &ref_host, &ref_device, hw_flags);
+    VmafPicture dist_host = {0}, dist_device = {0};
+    err = read_pictures_cuda_translate(vmaf, ref, dist, hw_flags, &ref_host, &ref_device,
+                                       &dist_host, &dist_device);
     if (err)
         return err;
-
-    VmafPicture dist_host = {0}, dist_device = {0};
-    err = translate_picture(vmaf, dist, &dist_host, &dist_device, hw_flags);
 #endif
 
-#ifdef HAVE_SYCL
-    // SYCL upload must happen BEFORE the extractor loop because SYCL
-    // queues are in-order — kernels enqueued during submit read shared
-    // buffers immediately, unlike the deferred batched model.
-    // Auto-initialize shared buffers on the first frame.
-    if (vmaf->sycl.state) {
-        // Double-buffered: compute reads buf[cur_compute] while upload
-        // writes buf[cur_upload].  No need to wait for previous compute
-        // before uploading — the buffers are disjoint.  Just wait for the
-        // previous upload to finish (in-order copy_queue guarantees this
-        // implicitly) before overwriting the upload slot.
-        // On the very first frame, skip the wait since nothing is pending.
-        if (!vmaf_sycl_get_shared_ref(vmaf->sycl.state)) {
-            err = vmaf_sycl_shared_frame_init(vmaf->sycl.state, ref->w[0], ref->h[0], ref->bpc);
-            if (err)
-                return err;
-        }
-        err = vmaf_sycl_shared_frame_upload(vmaf->sycl.state, ref, dist);
-        if (err)
-            return err;
-        // DMA runs asynchronously on copy_queue while the CPU collects
-        // previous-frame results below.  vmaf_sycl_graph_submit() will
-        // wait for copy_queue just before replaying the command graph.
-    }
-#endif
-
-    // GPU extractor loop: inline collect-then-submit per extractor.
-    // This allows the GPU to start on extractor N's new work while the CPU
-    // collects results from extractor N+1's previous frame, overlapping
-    // GPU compute with CPU score-writing. Critical for small GPUs (RTX 3050).
-    for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
-        VmafFeatureExtractorContext *fex_ctx = vmaf->registered_feature_extractors.fex_ctx[i];
-
-        if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL)) {
-            if ((vmaf->cfg.n_subsample > 1) && (index % vmaf->cfg.n_subsample))
-                continue;
-        }
-
-        if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) &&
-            !(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_SYCL) && vmaf->thread_pool) {
-#ifdef VMAF_BATCH_THREADING
-            if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL))
-#endif
-                continue;
-        }
+    err = read_pictures_extractor_loop(vmaf, ref, dist,
 #ifdef HAVE_CUDA
-        ref = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? &ref_device : &ref_host;
-        dist = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? &dist_device : &dist_host;
+                                       &ref_host, &ref_device, &dist_host, &dist_device,
 #endif
-
-        if ((fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) && vmaf->prev_ref.ref) {
-            fex_ctx->fex->prev_ref = vmaf->prev_ref;
-        }
-
-        // Double-buffer: collect previous frame, then submit current frame.
-        // This overlaps GPU compute of the previous frame with CPU-side
-        // command recording for the current frame.
-        // Works for both Vulkan and CUDA extractors that implement submit/collect.
-        if (fex_ctx->fex->submit && fex_ctx->fex->collect) {
-            // Collect previous frame's results (if any)
-            if (fex_ctx->gpu_pending) {
-                err = vmaf_feature_extractor_context_collect(fex_ctx, fex_ctx->gpu_pending_index,
-                                                             vmaf->feature_collector);
-                fex_ctx->gpu_pending = false;
-                if (err)
-                    goto cleanup;
-            }
-            // Submit current frame (non-blocking GPU work)
-            err = vmaf_feature_extractor_context_submit(fex_ctx, ref, NULL, dist, NULL, index);
-            if (err)
-                goto cleanup;
-            fex_ctx->gpu_pending = true;
-            fex_ctx->gpu_pending_index = index;
-            continue;
-        }
-
-        err = vmaf_feature_extractor_context_extract(fex_ctx, ref, NULL, dist, NULL, index,
-                                                     vmaf->feature_collector);
-
-        if (fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF)
-            memset(&fex_ctx->fex->prev_ref, 0, sizeof(fex_ctx->fex->prev_ref));
-
-        if (err)
-            goto cleanup;
-    }
-
-    // Note: SYCL upload is done BEFORE the extractor loop (above)
-    // because SYCL in-order queues require data to be present when
-    // kernels are enqueued.
+                                       index);
+    if (err)
+        goto cleanup;
 
 #ifdef HAVE_CUDA
     ref = &ref_host;
     dist = &dist_host;
 #endif
 
-    /* Per-frame tiny-model inference, if one is attached. Runs on the main
-     * thread after extractor dispatch; publishes to the feature collector
-     * under the sidecar-derived feature name. */
-    if (vmaf->dnn.sess) {
-        err = vmaf_ctx_dnn_run_frame(vmaf, ref, index);
-        if (err)
-            goto cleanup;
-    }
+    bool done = false;
+    err = read_pictures_post_extractor(vmaf, ref, dist, index, &done);
+    if (done)
+        return err;
+    if (err)
+        goto cleanup;
 
-    //multithreading for GPU does not yield performance benefits
-    //disabled for now
-    if (vmaf->thread_pool) {
-#ifdef VMAF_BATCH_THREADING
-        return threaded_read_pictures_batch(vmaf, ref, dist, index);
-#else
-        return threaded_read_pictures(vmaf, ref, dist, index);
-#endif
-    }
-
-    if (vmaf->prev_ref.ref)
-        vmaf_picture_unref(&vmaf->prev_ref);
-    /* CUDA device-only path: HAVE_CUDA reassigns `ref = &ref_host` above,
-     * but `ref_host` is zero-initialised whenever every extractor carries
-     * VMAF_FEATURE_EXTRACTOR_CUDA (rfe_hw_flags returns HW_FLAG_DEVICE
-     * only, so translate_picture_device early-returns and never downloads).
-     * Deref of ref_host.ref == NULL crashes vmaf_ref_fetch_increment. The
-     * only PREV_REF consumer is CPU integer_motion_v2, which is never
-     * registered alongside a pure CUDA extractor set — skipping the
-     * prev_ref update here is safe. ADR-0123. */
-    if (ref && ref->ref)
-        vmaf_picture_ref(&vmaf->prev_ref, ref);
+    read_pictures_update_prev_ref(vmaf, ref);
 
     /* Always unref the caller's ref/dist before returning. With the
      * always-on picture pool, leaking even one picture per frame holds a
      * pool slot, and the next vmaf_picture_pool_fetch deadlocks in
-     * pthread_cond_wait once the pool drains. The fall-through and
-     * goto cleanup paths share this same teardown. */
+     * pthread_cond_wait once the pool drains. */
 cleanup:
 #ifdef HAVE_CUDA
-    if (ref_host.priv)
-        err |= vmaf_picture_unref(&ref_host);
-
-    if (dist_host.priv)
-        err |= vmaf_picture_unref(&dist_host);
-
-    CudaFunctions *cu_f = vmaf->cuda.state.f;
-    if (ref_device.priv) {
-        CHECK_CUDA(cu_f, cuEventRecord(vmaf_cuda_picture_get_finished_event(&ref_device),
-                                       vmaf_cuda_picture_get_stream(&ref_device)));
-        //^FIXME: move to picture callback
-        err |= vmaf_picture_unref(&ref_device);
-    }
-
-    if (dist_device.priv) {
-        CHECK_CUDA(cu_f, cuEventRecord(vmaf_cuda_picture_get_finished_event(&dist_device),
-                                       vmaf_cuda_picture_get_stream(&dist_device)));
-        //^FIXME: move to picture callback
-        err |= vmaf_picture_unref(&dist_device);
-    }
-
+    err |= read_pictures_cuda_cleanup(vmaf, &ref_host, &ref_device, &dist_host, &dist_device);
 #else
     err |= vmaf_picture_unref(ref);
     err |= vmaf_picture_unref(dist);

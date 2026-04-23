@@ -429,7 +429,50 @@ fail:
     return NULL;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int ctx_pool_ensure_slot_ctx(struct fex_list_entry *entry, int i, VmafFeatureExtractor *fex,
+                                    VmafDictionary *opts_dict)
+{
+    if (entry->ctx_list[i].fex_ctx)
+        return 0;
+
+    VmafDictionary *d = NULL;
+    if (opts_dict) {
+        int err = vmaf_dictionary_copy(&opts_dict, &d);
+        if (err) {
+            (void)vmaf_dictionary_free(&d);
+            return err;
+        }
+    }
+    VmafFeatureExtractorContext *f = NULL;
+    int err = vmaf_feature_extractor_context_create(&f, entry->fex, d);
+    if (err) {
+        (void)vmaf_dictionary_free(&d);
+        return err;
+    }
+    entry->ctx_list[i].fex_ctx = f;
+    if (f->fex->flags & VMAF_FEATURE_FRAME_SYNC) {
+        f->fex->framesync = (fex->framesync);
+    }
+    return 0;
+}
+
+static int ctx_pool_claim_slot(struct fex_list_entry *entry, VmafFeatureExtractor *fex,
+                               VmafDictionary *opts_dict, VmafFeatureExtractorContext **fex_ctx)
+{
+    for (int i = 0; i < atomic_load(&entry->capacity); i++) {
+        int err = ctx_pool_ensure_slot_ctx(entry, i, fex, opts_dict);
+        if (err)
+            return err;
+        if (!entry->ctx_list[i].in_use) {
+            *fex_ctx = entry->ctx_list[i].fex_ctx;
+            entry->ctx_list[i].in_use = true;
+            break;
+        }
+    }
+    atomic_fetch_add(&entry->in_use, 1);
+    return 0;
+}
+
 int vmaf_fex_ctx_pool_aquire(VmafFeatureExtractorContextPool *pool, VmafFeatureExtractor *fex,
                              VmafDictionary *opts_dict, VmafFeatureExtractorContext **fex_ctx)
 {
@@ -452,34 +495,7 @@ int vmaf_fex_ctx_pool_aquire(VmafFeatureExtractorContextPool *pool, VmafFeatureE
     while (atomic_load(&entry->capacity) == atomic_load(&entry->in_use))
         pthread_cond_wait(&(entry->full), &(pool->lock));
 
-    for (int i = 0; i < atomic_load(&entry->capacity); i++) {
-        VmafFeatureExtractorContext *f = entry->ctx_list[i].fex_ctx;
-        if (!f) {
-            VmafDictionary *d = NULL;
-            if (opts_dict) {
-                err = vmaf_dictionary_copy(&opts_dict, &d);
-                if (err) {
-                    (void)vmaf_dictionary_free(&d);
-                    goto unlock;
-                }
-            }
-            err = vmaf_feature_extractor_context_create(&f, entry->fex, d);
-            if (err) {
-                (void)vmaf_dictionary_free(&d);
-                goto unlock;
-            }
-            entry->ctx_list[i].fex_ctx = f;
-            if (f->fex->flags & VMAF_FEATURE_FRAME_SYNC) {
-                f->fex->framesync = (fex->framesync);
-            }
-        }
-        if (!entry->ctx_list[i].in_use) {
-            *fex_ctx = f;
-            entry->ctx_list[i].in_use = true;
-            break;
-        }
-    }
-    atomic_fetch_add(&entry->in_use, 1);
+    err = ctx_pool_claim_slot(entry, fex, opts_dict, fex_ctx);
 
 unlock:
     pthread_mutex_unlock(&(pool->lock));

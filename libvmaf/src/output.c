@@ -18,6 +18,7 @@
 
 #include <errno.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 
 #include "feature/alias.h"
@@ -57,42 +58,31 @@ static inline const char *fmt_or_default(const char *score_format)
     return score_format ? score_format : DEFAULT_SCORE_FORMAT;
 }
 
+static unsigned count_written_at(VmafFeatureCollector *fc, unsigned i)
+{
+    unsigned cnt = 0;
+    for (unsigned j = 0; j < fc->cnt; j++) {
+        if (i > fc->feature_vector[j]->capacity)
+            continue;
+        if (fc->feature_vector[j]->score[i].written)
+            cnt++;
+    }
+    return cnt;
+}
+
 /* Writers rely on a final ferror() check to detect I/O failure rather than
  * propagating per-call errors — there is no recoverable action mid-stream. */
 // NOLINTBEGIN(cert-err33-c)
-/* NOLINTNEXTLINE(readability-function-size) */
-int vmaf_write_output_xml(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *outfile,
-                          unsigned subsample, unsigned width, unsigned height, double fps,
-                          unsigned pic_cnt, const char *score_format)
+static void xml_write_frames(VmafFeatureCollector *fc, FILE *outfile, unsigned subsample,
+                             const char *sf)
 {
-    if (!vmaf)
-        return -EINVAL;
-    if (!fc)
-        return -EINVAL;
-    if (!outfile)
-        return -EINVAL;
-
-    const char *sf = fmt_or_default(score_format);
-
-    VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
-
-    fprintf(outfile, "<VMAF version=\"%s\">\n", vmaf_version());
-    fprintf(outfile, "  <params qualityWidth=\"%d\" qualityHeight=\"%d\" />\n", width, height);
-    fprintf(outfile, "  <fyi fps=\"%.2f\" />\n", fps);
-
     unsigned n_frames = 0;
     fprintf(outfile, "  <frames>\n");
     for (unsigned i = 0; i < max_capacity(fc); i++) {
         if ((subsample > 1) && (i % subsample))
             continue;
 
-        unsigned cnt = 0;
-        for (unsigned j = 0; j < fc->cnt; j++) {
-            if (i > fc->feature_vector[j]->capacity)
-                continue;
-            if (fc->feature_vector[j]->score[i].written)
-                cnt++;
-        }
+        unsigned cnt = count_written_at(fc, i);
         if (!cnt)
             continue;
 
@@ -110,7 +100,11 @@ int vmaf_write_output_xml(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *out
         fprintf(outfile, "/>\n");
     }
     fprintf(outfile, "  </frames>\n");
+}
 
+static void xml_write_pooled_and_aggregate(VmafContext *vmaf, VmafFeatureCollector *fc,
+                                           FILE *outfile, unsigned pic_cnt, const char *sf)
+{
     fprintf(outfile, "  <pooled_metrics>\n");
     for (unsigned i = 0; i < fc->cnt; i++) {
         const char *feature_name = fc->feature_vector[i]->name;
@@ -136,6 +130,29 @@ int vmaf_write_output_xml(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *out
         fprintf(outfile, "\" ");
     }
     fprintf(outfile, "/>\n");
+}
+
+int vmaf_write_output_xml(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *outfile,
+                          unsigned subsample, unsigned width, unsigned height, double fps,
+                          unsigned pic_cnt, const char *score_format)
+{
+    if (!vmaf)
+        return -EINVAL;
+    if (!fc)
+        return -EINVAL;
+    if (!outfile)
+        return -EINVAL;
+
+    const char *sf = fmt_or_default(score_format);
+
+    VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
+
+    fprintf(outfile, "<VMAF version=\"%s\">\n", vmaf_version());
+    fprintf(outfile, "  <params qualityWidth=\"%d\" qualityHeight=\"%d\" />\n", width, height);
+    fprintf(outfile, "  <fyi fps=\"%.2f\" />\n", fps);
+
+    xml_write_frames(fc, outfile, subsample, sf);
+    xml_write_pooled_and_aggregate(vmaf, fc, outfile, pic_cnt, sf);
 
     fprintf(outfile, "</VMAF>\n");
 
@@ -144,7 +161,131 @@ int vmaf_write_output_xml(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *out
     return ferror(outfile) ? -EIO : 0;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static void json_write_frame_metric(FILE *outfile, const char *name, double value, const char *sf,
+                                    bool trailing_comma)
+{
+    switch (fpclassify(value)) {
+    case FP_NORMAL:
+    case FP_ZERO:
+    case FP_SUBNORMAL:
+        fprintf(outfile, "        \"%s\": ", name);
+        fprintf(outfile, sf, value);
+        fprintf(outfile, "%s\n", trailing_comma ? "," : "");
+        break;
+    case FP_INFINITE:
+    case FP_NAN:
+    default:
+        fprintf(outfile, "        \"%s\": null%s", name, trailing_comma ? "," : "");
+        break;
+    }
+}
+
+static void json_write_frame(VmafFeatureCollector *fc, FILE *outfile, unsigned i, unsigned cnt,
+                             const char *sf)
+{
+    fprintf(outfile, "    {\n");
+    fprintf(outfile, "      \"frameNum\": %d,\n", i);
+    fprintf(outfile, "      \"metrics\": {\n");
+
+    unsigned cnt2 = 0;
+    for (unsigned j = 0; j < fc->cnt; j++) {
+        if (i > fc->feature_vector[j]->capacity)
+            continue;
+        if (!fc->feature_vector[j]->score[i].written)
+            continue;
+        cnt2++;
+        json_write_frame_metric(outfile, vmaf_feature_name_alias(fc->feature_vector[j]->name),
+                                fc->feature_vector[j]->score[i].value, sf, cnt2 < cnt);
+    }
+    fprintf(outfile, "      }\n");
+    fprintf(outfile, "    }");
+}
+
+static void json_write_frames(VmafFeatureCollector *fc, FILE *outfile, unsigned subsample,
+                              const char *sf)
+{
+    unsigned n_frames = 0;
+    fprintf(outfile, "  \"frames\": [");
+    for (unsigned i = 0; i < max_capacity(fc); i++) {
+        if ((subsample > 1) && (i % subsample))
+            continue;
+
+        unsigned cnt = count_written_at(fc, i);
+        if (!cnt)
+            continue;
+        fprintf(outfile, "%s", i > 0 ? ",\n" : "\n");
+
+        json_write_frame(fc, outfile, i, cnt, sf);
+        n_frames++;
+    }
+    fprintf(outfile, "\n  ],\n");
+}
+
+static void json_write_pool_score(FILE *outfile, unsigned j, double score, const char *sf)
+{
+    fprintf(outfile, "%s", j > 1 ? ",\n" : "\n");
+    switch (fpclassify(score)) {
+    case FP_NORMAL:
+    case FP_ZERO:
+    case FP_SUBNORMAL:
+        fprintf(outfile, "      \"%s\": ", pool_method_name[j]);
+        fprintf(outfile, sf, score);
+        break;
+    case FP_INFINITE:
+    case FP_NAN:
+    default:
+        fprintf(outfile, "      \"%s\": null", pool_method_name[j]);
+        break;
+    }
+}
+
+static void json_write_pooled_entry(VmafContext *vmaf, FILE *outfile, const char *feature_name,
+                                    unsigned pic_cnt, const char *sf)
+{
+    fprintf(outfile, "    \"%s\": {", vmaf_feature_name_alias(feature_name));
+    for (unsigned j = 1; j < VMAF_POOL_METHOD_NB; j++) {
+        double score;
+        int err = vmaf_feature_score_pooled(vmaf, feature_name, j, &score, 0, pic_cnt - 1);
+        if (!err)
+            json_write_pool_score(outfile, j, score, sf);
+    }
+    fprintf(outfile, "\n");
+    fprintf(outfile, "    }");
+}
+
+static void json_write_pooled(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *outfile,
+                              unsigned pic_cnt, const char *sf)
+{
+    fprintf(outfile, "  \"pooled_metrics\": {");
+    for (unsigned i = 0; i < fc->cnt; i++) {
+        fprintf(outfile, "%s", i > 0 ? ",\n" : "\n");
+        json_write_pooled_entry(vmaf, outfile, fc->feature_vector[i]->name, pic_cnt, sf);
+    }
+    fprintf(outfile, "\n  },\n");
+}
+
+static void json_write_aggregate(VmafFeatureCollector *fc, FILE *outfile, const char *sf)
+{
+    fprintf(outfile, "  \"aggregate_metrics\": {");
+    for (unsigned i = 0; i < fc->aggregate_vector.cnt; i++) {
+        switch (fpclassify(fc->aggregate_vector.metric[i].value)) {
+        case FP_NORMAL:
+        case FP_ZERO:
+        case FP_SUBNORMAL:
+            fprintf(outfile, "\n    \"%s\": ", fc->aggregate_vector.metric[i].name);
+            fprintf(outfile, sf, fc->aggregate_vector.metric[i].value);
+            break;
+        case FP_INFINITE:
+        case FP_NAN:
+        default:
+            fprintf(outfile, "\n    \"%s\": null", fc->aggregate_vector.metric[i].name);
+            break;
+        }
+        fprintf(outfile, "%s", i < fc->aggregate_vector.cnt - 1 ? "," : "");
+    }
+    fprintf(outfile, "\n  }\n");
+}
+
 int vmaf_write_output_json(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *outfile,
                            unsigned subsample, double fps, unsigned pic_cnt,
                            const char *score_format)
@@ -168,106 +309,10 @@ int vmaf_write_output_json(VmafContext *vmaf, VmafFeatureCollector *fc, FILE *ou
         break;
     }
 
-    unsigned n_frames = 0;
-    fprintf(outfile, "  \"frames\": [");
-    for (unsigned i = 0; i < max_capacity(fc); i++) {
-        if ((subsample > 1) && (i % subsample))
-            continue;
+    json_write_frames(fc, outfile, subsample, sf);
+    json_write_pooled(vmaf, fc, outfile, pic_cnt, sf);
+    json_write_aggregate(fc, outfile, sf);
 
-        unsigned cnt = 0;
-        for (unsigned j = 0; j < fc->cnt; j++) {
-            if (i > fc->feature_vector[j]->capacity)
-                continue;
-            if (fc->feature_vector[j]->score[i].written)
-                cnt++;
-        }
-        if (!cnt)
-            continue;
-        fprintf(outfile, "%s", i > 0 ? ",\n" : "\n");
-
-        fprintf(outfile, "    {\n");
-        fprintf(outfile, "      \"frameNum\": %d,\n", i);
-        fprintf(outfile, "      \"metrics\": {\n");
-
-        unsigned cnt2 = 0;
-        for (unsigned j = 0; j < fc->cnt; j++) {
-            if (i > fc->feature_vector[j]->capacity)
-                continue;
-            if (!fc->feature_vector[j]->score[i].written)
-                continue;
-            cnt2++;
-            switch (fpclassify(fc->feature_vector[j]->score[i].value)) {
-            case FP_NORMAL:
-            case FP_ZERO:
-            case FP_SUBNORMAL:
-                fprintf(outfile,
-                        "        \"%s\": ", vmaf_feature_name_alias(fc->feature_vector[j]->name));
-                fprintf(outfile, sf, fc->feature_vector[j]->score[i].value);
-                fprintf(outfile, "%s\n", cnt2 < cnt ? "," : "");
-                break;
-            case FP_INFINITE:
-            case FP_NAN:
-            default:
-                fprintf(outfile, "        \"%s\": null%s",
-                        vmaf_feature_name_alias(fc->feature_vector[j]->name),
-                        cnt2 < cnt ? "," : "");
-                break;
-            }
-        }
-        fprintf(outfile, "      }\n");
-        fprintf(outfile, "    }");
-        n_frames++;
-    }
-    fprintf(outfile, "\n  ],\n");
-
-    fprintf(outfile, "  \"pooled_metrics\": {");
-    for (unsigned i = 0; i < fc->cnt; i++) {
-        const char *feature_name = fc->feature_vector[i]->name;
-        fprintf(outfile, "%s", i > 0 ? ",\n" : "\n");
-        fprintf(outfile, "    \"%s\": {", vmaf_feature_name_alias(feature_name));
-        for (unsigned j = 1; j < VMAF_POOL_METHOD_NB; j++) {
-            double score;
-            int err = vmaf_feature_score_pooled(vmaf, feature_name, j, &score, 0, pic_cnt - 1);
-            if (!err) {
-                fprintf(outfile, "%s", j > 1 ? ",\n" : "\n");
-                switch (fpclassify(score)) {
-                case FP_NORMAL:
-                case FP_ZERO:
-                case FP_SUBNORMAL:
-                    fprintf(outfile, "      \"%s\": ", pool_method_name[j]);
-                    fprintf(outfile, sf, score);
-                    break;
-                case FP_INFINITE:
-                case FP_NAN:
-                default:
-                    fprintf(outfile, "      \"%s\": null", pool_method_name[j]);
-                    break;
-                }
-            }
-        }
-        fprintf(outfile, "\n");
-        fprintf(outfile, "    }");
-    }
-    fprintf(outfile, "\n  },\n");
-
-    fprintf(outfile, "  \"aggregate_metrics\": {");
-    for (unsigned i = 0; i < fc->aggregate_vector.cnt; i++) {
-        switch (fpclassify(fc->aggregate_vector.metric[i].value)) {
-        case FP_NORMAL:
-        case FP_ZERO:
-        case FP_SUBNORMAL:
-            fprintf(outfile, "\n    \"%s\": ", fc->aggregate_vector.metric[i].name);
-            fprintf(outfile, sf, fc->aggregate_vector.metric[i].value);
-            break;
-        case FP_INFINITE:
-        case FP_NAN:
-        default:
-            fprintf(outfile, "\n    \"%s\": null", fc->aggregate_vector.metric[i].name);
-            break;
-        }
-        fprintf(outfile, "%s", i < fc->aggregate_vector.cnt - 1 ? "," : "");
-    }
-    fprintf(outfile, "\n  }\n");
     fprintf(outfile, "}\n");
 
     vmaf_thread_locale_pop(locale_state);

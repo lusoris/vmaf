@@ -63,36 +63,212 @@ static inline __m256 log2_ps_avx2(__m256 x)
     return _mm256_add_ps(e, p);
 }
 
-/* vif_statistic_s_avx2 — fork-local 8-lane SIMD variant of
- * `vif_statistic_s`. Refactor-size deferred to backlog T7-5 per
- * ADR-0141 §Historical debt (function pre-dates the touched-file
- * cleanup rule; splitting it would entangle the ADR-0138 /
- * ADR-0139 bit-exactness invariants across helpers without a
- * net audit-ability gain). */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+/* Per-invocation constants used by both SIMD and scalar kernels. Keeping
+ * the scalar-float constants and the __m256 broadcasts together makes the
+ * helpers below bit-identical to the inline form — ADR-0138 / ADR-0139. */
+struct vif_stat_consts {
+    float sigma_nsq;
+    float sigma_max_inv;
+    float eps;
+    float vif_egl_f;
+    __m256 v_sigma_nsq;
+    __m256 v_sigma_max_inv;
+    __m256 v_eps;
+    __m256 v_zero;
+    __m256 v_one;
+    __m256 v_egl;
+};
+
+/* Per-lane state carried between the clamp+ratio stage and the log+reduce
+ * stage. Kept as an explicit struct so both halves of the 8-lane block can
+ * live in their own functions without losing the ADR-0139 per-lane
+ * scalar-float reduction contract. */
+struct vif_simd8_lane {
+    __m256 v_mu1_sq;
+    __m256 v_mu2_sq;
+    __m256 v_xx;
+    __m256 v_yy;
+    __m256 v_sigma1_sq;
+    __m256 v_sigma12;
+    __m256 v_sv_sq;
+    __m256 v_g;
+};
+
+static inline struct vif_simd8_lane vif_stat_simd8_compute(const float *mu1_row,
+                                                           const float *mu2_row,
+                                                           const float *xx_row, const float *yy_row,
+                                                           const float *xy_row, int j,
+                                                           const struct vif_stat_consts *c)
+{
+    __m256 v_mu1 = _mm256_loadu_ps(mu1_row + j);
+    __m256 v_mu2 = _mm256_loadu_ps(mu2_row + j);
+    __m256 v_xx = _mm256_loadu_ps(xx_row + j);
+    __m256 v_yy = _mm256_loadu_ps(yy_row + j);
+    __m256 v_xy = _mm256_loadu_ps(xy_row + j);
+
+    __m256 v_mu1_sq = _mm256_mul_ps(v_mu1, v_mu1);
+    __m256 v_mu2_sq = _mm256_mul_ps(v_mu2, v_mu2);
+    __m256 v_mu1_mu2 = _mm256_mul_ps(v_mu1, v_mu2);
+
+    __m256 v_sigma1_sq = _mm256_max_ps(_mm256_sub_ps(v_xx, v_mu1_sq), c->v_zero);
+    __m256 v_sigma2_sq = _mm256_max_ps(_mm256_sub_ps(v_yy, v_mu2_sq), c->v_zero);
+    __m256 v_sigma12 = _mm256_sub_ps(v_xy, v_mu1_mu2);
+
+    __m256 v_g = _mm256_div_ps(v_sigma12, _mm256_add_ps(v_sigma1_sq, c->v_eps));
+    __m256 v_sv_sq = _mm256_sub_ps(v_sigma2_sq, _mm256_mul_ps(v_g, v_sigma12));
+
+    __m256 mask_s1_lt_eps = _mm256_cmp_ps(v_sigma1_sq, c->v_eps, _CMP_LT_OS);
+    v_g = _mm256_andnot_ps(mask_s1_lt_eps, v_g);
+    v_sv_sq = _mm256_blendv_ps(v_sv_sq, v_sigma2_sq, mask_s1_lt_eps);
+    v_sigma1_sq = _mm256_andnot_ps(mask_s1_lt_eps, v_sigma1_sq);
+
+    __m256 mask_s2_lt_eps = _mm256_cmp_ps(v_sigma2_sq, c->v_eps, _CMP_LT_OS);
+    v_g = _mm256_andnot_ps(mask_s2_lt_eps, v_g);
+    v_sv_sq = _mm256_andnot_ps(mask_s2_lt_eps, v_sv_sq);
+
+    __m256 mask_g_lt_0 = _mm256_cmp_ps(v_g, c->v_zero, _CMP_LT_OS);
+    v_sv_sq = _mm256_blendv_ps(v_sv_sq, v_sigma2_sq, mask_g_lt_0);
+    v_g = _mm256_max_ps(v_g, c->v_zero);
+
+    v_sv_sq = _mm256_max_ps(v_sv_sq, c->v_eps);
+    v_g = _mm256_min_ps(v_g, c->v_egl);
+
+    struct vif_simd8_lane L = {
+        .v_mu1_sq = v_mu1_sq,
+        .v_mu2_sq = v_mu2_sq,
+        .v_xx = v_xx,
+        .v_yy = v_yy,
+        .v_sigma1_sq = v_sigma1_sq,
+        .v_sigma12 = v_sigma12,
+        .v_sv_sq = v_sv_sq,
+        .v_g = v_g,
+    };
+    return L;
+}
+
+/* Finalize one 8-lane block: compute log2f num/den, apply the two late
+ * branches (sigma12 < 0 and sigma1_sq < sigma_nsq), and per-lane reduce
+ * into the scalar-float accumulators (ADR-0139). */
+static inline void vif_stat_simd8_reduce(const struct vif_simd8_lane *L,
+                                         const struct vif_stat_consts *c, float *accum_num,
+                                         float *accum_den)
+{
+    __m256 v_g_sq = _mm256_mul_ps(L->v_g, L->v_g);
+    __m256 v_num_arg =
+        _mm256_add_ps(c->v_one, _mm256_div_ps(_mm256_mul_ps(v_g_sq, L->v_sigma1_sq),
+                                              _mm256_add_ps(L->v_sv_sq, c->v_sigma_nsq)));
+    __m256 v_num_val = log2_ps_avx2(v_num_arg);
+    __m256 v_den_val =
+        log2_ps_avx2(_mm256_add_ps(c->v_one, _mm256_div_ps(L->v_sigma1_sq, c->v_sigma_nsq)));
+
+    __m256 mask_s12_lt_0 = _mm256_cmp_ps(L->v_sigma12, c->v_zero, _CMP_LT_OS);
+    v_num_val = _mm256_andnot_ps(mask_s12_lt_0, v_num_val);
+
+    /* Recompute original sigma1_sq (before the <eps zero step) for the
+     * sigma1_sq < sigma_nsq branch. */
+    __m256 mask_s1_lt_nsq = _mm256_cmp_ps(
+        _mm256_max_ps(_mm256_sub_ps(L->v_xx, L->v_mu1_sq), c->v_zero), c->v_sigma_nsq, _CMP_LT_OS);
+    __m256 v_alt_num = _mm256_sub_ps(
+        c->v_one, _mm256_mul_ps(_mm256_max_ps(_mm256_sub_ps(L->v_yy, L->v_mu2_sq), c->v_zero),
+                                c->v_sigma_max_inv));
+    v_num_val = _mm256_blendv_ps(v_num_val, v_alt_num, mask_s1_lt_nsq);
+    v_den_val = _mm256_blendv_ps(v_den_val, c->v_one, mask_s1_lt_nsq);
+
+    _Alignas(32) float tmp_n[8];
+    _Alignas(32) float tmp_d[8];
+    _mm256_store_ps(tmp_n, v_num_val);
+    _mm256_store_ps(tmp_d, v_den_val);
+    for (int k = 0; k < 8; k++) {
+        *accum_num += tmp_n[k];
+        *accum_den += tmp_d[k];
+    }
+}
+
+static inline void vif_stat_simd8_block(const float *mu1_row, const float *mu2_row,
+                                        const float *xx_row, const float *yy_row,
+                                        const float *xy_row, int j, const struct vif_stat_consts *c,
+                                        float *accum_num, float *accum_den)
+{
+    struct vif_simd8_lane L =
+        vif_stat_simd8_compute(mu1_row, mu2_row, xx_row, yy_row, xy_row, j, c);
+    vif_stat_simd8_reduce(&L, c, accum_num, accum_den);
+}
+
+static inline void vif_stat_scalar_pixel(float mu1_val, float mu2_val, float xx_filt_val,
+                                         float yy_filt_val, float xy_filt_val,
+                                         const struct vif_stat_consts *c, float *accum_num,
+                                         float *accum_den)
+{
+    float mu1_sq_val = mu1_val * mu1_val;
+    float mu2_sq_val = mu2_val * mu2_val;
+    float mu1_mu2_val = mu1_val * mu2_val;
+
+    float sigma1_sq = MAX(xx_filt_val - mu1_sq_val, 0.0f);
+    float sigma2_sq = MAX(yy_filt_val - mu2_sq_val, 0.0f);
+    float sigma12 = xy_filt_val - mu1_mu2_val;
+
+    float g = sigma12 / (sigma1_sq + c->eps);
+    float sv_sq = sigma2_sq - g * sigma12;
+
+    if (sigma1_sq < c->eps) {
+        g = 0.0f;
+        sv_sq = sigma2_sq;
+        sigma1_sq = 0.0f;
+    }
+    if (sigma2_sq < c->eps) {
+        g = 0.0f;
+        sv_sq = 0.0f;
+    }
+    if (g < 0.0f) {
+        sv_sq = sigma2_sq;
+        g = 0.0f;
+    }
+    sv_sq = MAX(sv_sq, c->eps);
+    g = MIN(g, c->vif_egl_f);
+
+    float num_val = log2f(1.0f + (g * g * sigma1_sq) / (sv_sq + c->sigma_nsq));
+    float den_val = log2f(1.0f + sigma1_sq / c->sigma_nsq);
+
+    if (sigma12 < 0.0f)
+        num_val = 0.0f;
+    if (sigma1_sq < c->sigma_nsq) {
+        num_val = 1.0f - sigma2_sq * c->sigma_max_inv;
+        den_val = 1.0f;
+    }
+
+    *accum_num += num_val;
+    *accum_den += den_val;
+}
+
+static inline void vif_stat_consts_init(struct vif_stat_consts *c, double vif_enhn_gain_limit,
+                                        double vif_sigma_nsq)
+{
+    c->sigma_nsq = (float)vif_sigma_nsq;
+    c->sigma_max_inv = powf((float)vif_sigma_nsq, 2.0f) / (255.0f * 255.0f);
+    c->eps = 1.0e-10f;
+    c->vif_egl_f = (float)vif_enhn_gain_limit;
+    c->v_sigma_nsq = _mm256_set1_ps(c->sigma_nsq);
+    c->v_sigma_max_inv = _mm256_set1_ps(c->sigma_max_inv);
+    c->v_eps = _mm256_set1_ps(c->eps);
+    c->v_zero = _mm256_setzero_ps();
+    c->v_one = _mm256_set1_ps(1.0f);
+    c->v_egl = _mm256_set1_ps(c->vif_egl_f);
+}
+
 void vif_statistic_s_avx2(const float *mu1, const float *mu2, const float *xx_filt,
                           const float *yy_filt, const float *xy_filt, float *num, float *den, int w,
                           int h, int mu1_stride, int mu2_stride, int xx_filt_stride,
                           int yy_filt_stride, int xy_filt_stride, double vif_enhn_gain_limit,
                           double vif_sigma_nsq)
 {
-    const float sigma_nsq = (float)vif_sigma_nsq;
-    const float sigma_max_inv = powf((float)vif_sigma_nsq, 2.0f) / (255.0f * 255.0f);
-    const float eps = 1.0e-10f;
-    const float vif_egl_f = (float)vif_enhn_gain_limit;
+    struct vif_stat_consts c;
+    vif_stat_consts_init(&c, vif_enhn_gain_limit, vif_sigma_nsq);
 
     const ptrdiff_t mu1_px_stride = (ptrdiff_t)mu1_stride / (ptrdiff_t)sizeof(float);
     const ptrdiff_t mu2_px_stride = (ptrdiff_t)mu2_stride / (ptrdiff_t)sizeof(float);
     const ptrdiff_t xx_filt_px_stride = (ptrdiff_t)xx_filt_stride / (ptrdiff_t)sizeof(float);
     const ptrdiff_t yy_filt_px_stride = (ptrdiff_t)yy_filt_stride / (ptrdiff_t)sizeof(float);
     const ptrdiff_t xy_filt_px_stride = (ptrdiff_t)xy_filt_stride / (ptrdiff_t)sizeof(float);
-
-    __m256 v_sigma_nsq = _mm256_set1_ps(sigma_nsq);
-    __m256 v_sigma_max_inv = _mm256_set1_ps(sigma_max_inv);
-    __m256 v_eps = _mm256_set1_ps(eps);
-    __m256 v_zero = _mm256_setzero_ps();
-    __m256 v_one = _mm256_set1_ps(1.0f);
-    __m256 v_egl = _mm256_set1_ps(vif_egl_f);
 
     float accum_num = 0.0f;
     float accum_den = 0.0f;
@@ -106,146 +282,15 @@ void vif_statistic_s_avx2(const float *mu1, const float *mu2, const float *xx_fi
 
         float accum_inner_num = 0.0f;
         float accum_inner_den = 0.0f;
-
+        const int w8 = w & ~7;
         int j = 0;
-        int w8 = w & ~7;
-
         for (; j < w8; j += 8) {
-            // Load 8 floats from each array
-            __m256 v_mu1 = _mm256_loadu_ps(mu1_row + j);
-            __m256 v_mu2 = _mm256_loadu_ps(mu2_row + j);
-            __m256 v_xx = _mm256_loadu_ps(xx_row + j);
-            __m256 v_yy = _mm256_loadu_ps(yy_row + j);
-            __m256 v_xy = _mm256_loadu_ps(xy_row + j);
-
-            // mu1_sq, mu2_sq, mu1_mu2
-            __m256 v_mu1_sq = _mm256_mul_ps(v_mu1, v_mu1);
-            __m256 v_mu2_sq = _mm256_mul_ps(v_mu2, v_mu2);
-            __m256 v_mu1_mu2 = _mm256_mul_ps(v_mu1, v_mu2);
-
-            // sigma1_sq, sigma2_sq, sigma12
-            __m256 v_sigma1_sq = _mm256_sub_ps(v_xx, v_mu1_sq);
-            __m256 v_sigma2_sq = _mm256_sub_ps(v_yy, v_mu2_sq);
-            __m256 v_sigma12 = _mm256_sub_ps(v_xy, v_mu1_mu2);
-
-            // sigma1_sq = max(sigma1_sq, 0), sigma2_sq = max(sigma2_sq, 0)
-            v_sigma1_sq = _mm256_max_ps(v_sigma1_sq, v_zero);
-            v_sigma2_sq = _mm256_max_ps(v_sigma2_sq, v_zero);
-
-            // g = sigma12 / (sigma1_sq + eps)
-            __m256 v_g = _mm256_div_ps(v_sigma12, _mm256_add_ps(v_sigma1_sq, v_eps));
-
-            // sv_sq = sigma2_sq - g * sigma12
-            __m256 v_sv_sq = _mm256_sub_ps(v_sigma2_sq, _mm256_mul_ps(v_g, v_sigma12));
-
-            // if (sigma1_sq < eps): g = 0, sv_sq = sigma2_sq, sigma1_sq = 0
-            __m256 mask_s1_lt_eps = _mm256_cmp_ps(v_sigma1_sq, v_eps, _CMP_LT_OS);
-            v_g = _mm256_andnot_ps(mask_s1_lt_eps, v_g);
-            v_sv_sq = _mm256_blendv_ps(v_sv_sq, v_sigma2_sq, mask_s1_lt_eps);
-            v_sigma1_sq = _mm256_andnot_ps(mask_s1_lt_eps, v_sigma1_sq);
-
-            // if (sigma2_sq < eps): g = 0, sv_sq = 0
-            __m256 mask_s2_lt_eps = _mm256_cmp_ps(v_sigma2_sq, v_eps, _CMP_LT_OS);
-            v_g = _mm256_andnot_ps(mask_s2_lt_eps, v_g);
-            v_sv_sq = _mm256_andnot_ps(mask_s2_lt_eps, v_sv_sq);
-
-            // if (g < 0): sv_sq = sigma2_sq, g = 0
-            __m256 mask_g_lt_0 = _mm256_cmp_ps(v_g, v_zero, _CMP_LT_OS);
-            v_sv_sq = _mm256_blendv_ps(v_sv_sq, v_sigma2_sq, mask_g_lt_0);
-            v_g = _mm256_max_ps(v_g, v_zero);
-
-            // sv_sq = max(sv_sq, eps)
-            v_sv_sq = _mm256_max_ps(v_sv_sq, v_eps);
-
-            // g = min(g, vif_enhn_gain_limit)
-            v_g = _mm256_min_ps(v_g, v_egl);
-
-            // num_val = log2f(1 + (g*g*sigma1_sq) / (sv_sq + sigma_nsq))
-            __m256 v_g_sq = _mm256_mul_ps(v_g, v_g);
-            __m256 v_num_arg =
-                _mm256_add_ps(v_one, _mm256_div_ps(_mm256_mul_ps(v_g_sq, v_sigma1_sq),
-                                                   _mm256_add_ps(v_sv_sq, v_sigma_nsq)));
-            __m256 v_num_val = log2_ps_avx2(v_num_arg);
-
-            // den_val = log2f(1 + sigma1_sq / sigma_nsq)
-            __m256 v_den_arg = _mm256_add_ps(v_one, _mm256_div_ps(v_sigma1_sq, v_sigma_nsq));
-            __m256 v_den_val = log2_ps_avx2(v_den_arg);
-
-            // if (sigma12 < 0): num_val = 0
-            __m256 mask_s12_lt_0 = _mm256_cmp_ps(v_sigma12, v_zero, _CMP_LT_OS);
-            v_num_val = _mm256_andnot_ps(mask_s12_lt_0, v_num_val);
-
-            // if (sigma1_sq < sigma_nsq): num_val = 1 - sigma2_sq * sigma_max_inv
-            //                             den_val = 1
-            __m256 mask_s1_lt_nsq = _mm256_cmp_ps(
-                // We need original sigma1_sq before zeroing.
-                // Re-compute from xx and mu1_sq for the comparison.
-                _mm256_max_ps(_mm256_sub_ps(v_xx, v_mu1_sq), v_zero), v_sigma_nsq, _CMP_LT_OS);
-            __m256 v_alt_num = _mm256_sub_ps(
-                v_one, _mm256_mul_ps(_mm256_max_ps(_mm256_sub_ps(v_yy, v_mu2_sq), v_zero),
-                                     v_sigma_max_inv));
-            v_num_val = _mm256_blendv_ps(v_num_val, v_alt_num, mask_s1_lt_nsq);
-            v_den_val = _mm256_blendv_ps(v_den_val, v_one, mask_s1_lt_nsq);
-
-            /* Extract and accumulate sequentially in float to match scalar precision */
-            {
-                _Alignas(32) float tmp_n[8];
-                _Alignas(32) float tmp_d[8];
-                _mm256_store_ps(tmp_n, v_num_val);
-                _mm256_store_ps(tmp_d, v_den_val);
-                for (int k = 0; k < 8; k++) {
-                    accum_inner_num += tmp_n[k];
-                    accum_inner_den += tmp_d[k];
-                }
-            }
+            vif_stat_simd8_block(mu1_row, mu2_row, xx_row, yy_row, xy_row, j, &c, &accum_inner_num,
+                                 &accum_inner_den);
         }
-
-        // Scalar tail for remaining pixels
         for (; j < w; ++j) {
-            float mu1_val = mu1_row[j];
-            float mu2_val = mu2_row[j];
-            float mu1_sq_val = mu1_val * mu1_val;
-            float mu2_sq_val = mu2_val * mu2_val;
-            float mu1_mu2_val = mu1_val * mu2_val;
-            float xx_filt_val = xx_row[j];
-            float yy_filt_val = yy_row[j];
-            float xy_filt_val = xy_row[j];
-
-            float sigma1_sq = MAX(xx_filt_val - mu1_sq_val, 0.0f);
-            float sigma2_sq = MAX(yy_filt_val - mu2_sq_val, 0.0f);
-            float sigma12 = xy_filt_val - mu1_mu2_val;
-
-            float g = sigma12 / (sigma1_sq + eps);
-            float sv_sq = sigma2_sq - g * sigma12;
-
-            if (sigma1_sq < eps) {
-                g = 0.0f;
-                sv_sq = sigma2_sq;
-                sigma1_sq = 0.0f;
-            }
-            if (sigma2_sq < eps) {
-                g = 0.0f;
-                sv_sq = 0.0f;
-            }
-            if (g < 0.0f) {
-                sv_sq = sigma2_sq;
-                g = 0.0f;
-            }
-            sv_sq = MAX(sv_sq, eps);
-            g = MIN(g, vif_egl_f);
-
-            float num_val = log2f(1.0f + (g * g * sigma1_sq) / (sv_sq + sigma_nsq));
-            float den_val = log2f(1.0f + sigma1_sq / sigma_nsq);
-
-            if (sigma12 < 0.0f)
-                num_val = 0.0f;
-            if (sigma1_sq < sigma_nsq) {
-                num_val = 1.0f - sigma2_sq * sigma_max_inv;
-                den_val = 1.0f;
-            }
-
-            accum_inner_num += num_val;
-            accum_inner_den += den_val;
+            vif_stat_scalar_pixel(mu1_row[j], mu2_row[j], xx_row[j], yy_row[j], xy_row[j], &c,
+                                  &accum_inner_num, &accum_inner_den);
         }
 
         accum_num += accum_inner_num;

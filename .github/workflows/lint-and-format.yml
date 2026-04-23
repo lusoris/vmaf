@@ -69,6 +69,9 @@ jobs:
       - name: Generate compile_commands.json
         run: |
           meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+          # Build first so codegen outputs (vcs_version.h, model JSONs → .c)
+          # exist on disk before clang-tidy parses the translation units.
+          meson compile -C build
       - name: Run clang-tidy on changed files
         run: |
           # Collect the delta for both PR and push events so master-post-merge
