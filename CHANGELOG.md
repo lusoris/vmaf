@@ -6,6 +6,31 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Fixed
+
+- **VIF edge-mirror bug (`+ 1` → `+ 2`)**: port of Netflix upstream
+  [`41d42c9e`](https://github.com/Netflix/vmaf/commit/41d42c9e)
+  (Kyle Swanson, 2026-04-20). Five convolve sites — three inline
+  `convolution_edge_*_s` helpers in
+  `libvmaf/src/feature/common/convolution_internal.h` plus two
+  scalar fallbacks in
+  [`libvmaf/src/feature/vif_tools.c`](libvmaf/src/feature/vif_tools.c)
+  (`vif_filter1d_s`, `vif_filter1d_sq_s`) — swap the off-by-one
+  mirror reflection `j_tap = width - (j_tap - width + 1)` for the
+  correct `+ 2`. The old form indexed the edge sample twice
+  instead of reflecting past it. Companion commit
+  [`bc744aa3`](https://github.com/Netflix/vmaf/commit/bc744aa3)
+  loosens ~40 paired `assertAlmostEqual` assertions from
+  `places=4` to `places=3` across six python test files
+  (`result_test`, `feature_assembler_test`, `local_explainer_test`,
+  `routine_test`, `vmafexec_feature_extractor_test`,
+  `feature_extractor_test`) so the tests absorb the correctness
+  drift. Final VMAF scores shift by ~1e-3 vs pre-port master —
+  well below perceptual discriminability and below the VMAF
+  model's training-noise floor; when Netflix publishes a retrained
+  model the drift self-resolves. See
+  [ADR-0144](docs/adr/0144-port-netflix-41d42c9e-vif-edge-mirror.md).
+
 ### Added
 
 - **Governance — Q2 2026 modernization ADRs**: four Proposed ADRs +

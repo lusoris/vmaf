@@ -1814,3 +1814,62 @@ inline.*
   `build-aux/aarch64-linux-gnu.ini` cross-file has no upstream
   equivalent. The `/add-simd-path` skill is fork-only; upstream
   doesn't ship `.claude/skills/`.
+
+### 0037 — Port Netflix VIF edge-mirror bugfix + paired golden loosening
+
+- **Workstream PRs**: `port/upstream-41d42c9e-vif-edge-mirror` (this PR).
+- **Upstream commits**:
+  - [`41d42c9e`](https://github.com/Netflix/vmaf/commit/41d42c9e) "feature/vif:
+    port helper functions, bugfix for edge mirroring" (Kyle Swanson,
+    2026-04-20) — the bugfix.
+  - [`bc744aa3`](https://github.com/Netflix/vmaf/commit/bc744aa3) "loosen
+    assertion precision for vif mirror bugfix" (Kyle Swanson, 2026-04-21) —
+    companion test update.
+- **Touches**:
+  - [`libvmaf/src/feature/common/convolution_internal.h`](../libvmaf/src/feature/common/convolution_internal.h) —
+    upstream-tracking: 3 inline helpers (`convolution_edge_s`,
+    `convolution_edge_sq_s`, `convolution_edge_xy_s`), `+1 → +2` mirror
+    reflection fix. Fork also drops `#pragma once` (redundant), adds braces
+    to inline `if/else` chains per ADR-0141, splits `float src_val1,
+    src_val2;` multi-decl.
+  - [`libvmaf/src/feature/vif_tools.c`](../libvmaf/src/feature/vif_tools.c) —
+    upstream-tracking: 2 scalar fallback sites in `vif_filter1d_s:432` and
+    `vif_filter1d_sq_s:500` get the same `+1 → +2` fix. **Fork delta per
+    ADR-0141**: all multi-decls split (`int i, j, fi, fj, ii, jj;` →
+    one-per-line); NOLINT on 4 upstream functions `vif_statistic_s`,
+    `vif_filter1d_s`, `vif_filter1d_sq_s`, `vif_filter1d_xy_s` for
+    `readability-function-size` citing ADR-0141 §Historical debt + T7-5.
+  - Python tests (6 files) — upstream-tracking: ~250 `assertAlmostEqual`
+    value updates + ~40 `places=4 → places=3` looseners on intermediate
+    VIF feature values. Upstream's content taken verbatim; fork's
+    black/isort pass restores fork-standard formatting without changing
+    any value.
+- **Invariants** (see
+  [ADR-0144](adr/0144-port-netflix-41d42c9e-vif-edge-mirror.md)
+  §Decision):
+  1. **Mirror indexing is `+ 2`, never `+ 1`** — the pre-port `+ 1` form
+     indexed the edge sample twice (didn't actually reflect). On upstream
+     sync: any reversion must be rejected.
+  2. **Rule #1 carve-out** — CLAUDE.md §8 / ADR-0024 "never modify Netflix
+     golden assertions" addresses silent fork drift, NOT upstream-authored
+     test updates that the fork must track to stay synchronised. ADR-0142
+     established this interpretation; ADR-0143 repeated it; ADR-0144
+     codifies it as standing policy for this class of port.
+  3. **Final-VMAF drift is accepted, not fixed** — ~1e-3 shift is below
+     perceptual discriminability AND below the VMAF model's training-noise
+     floor. When Netflix publishes a retrained model, the drift
+     self-resolves (no fork action needed).
+- **Re-test**:
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build            # expect 32/32 OK
+  clang-tidy -p build libvmaf/src/feature/vif_tools.c            # 0 warnings
+  clang-tidy -p build libvmaf/src/feature/common/convolution_internal.h   # 0 warnings
+  ```
+- **On upstream sync**: upstream owns both `41d42c9e` and `bc744aa3`; both
+  are the source of truth. On a rebase, prefer upstream for the C bugfix
+  sites AND the python assertion values. **Keep the fork's version on**
+  the ADR-0141 cleanup items (brace-additions, multi-decl splits, NOLINT
+  citations, `#pragma once` removal). If upstream ever merges the
+  clang-format-ed fork style, the NOLINT reasons go stale — revisit.

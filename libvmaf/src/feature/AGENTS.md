@@ -137,6 +137,23 @@ feature/
   would trip clang-tidy `readability-function-size` (JPL-P10 rule 4).
   See [ADR-0132](../../../docs/adr/0132-port-netflix-1406-feature-collector-model-list.md)
   and [rebase-notes 0031](../../../docs/rebase-notes.md).
+- **VIF edge-mirror reflection is `+ 2`, never `+ 1`** (ADR-0144):
+  the scalar convolve helpers in
+  [`common/convolution_internal.h`](common/convolution_internal.h)
+  (`convolution_edge_s`, `convolution_edge_sq_s`,
+  `convolution_edge_xy_s`) and the fallback paths in
+  [`vif_tools.c`](vif_tools.c) (`vif_filter1d_s`,
+  `vif_filter1d_sq_s`) mirror edge taps via
+  `j_tap = width - (j_tap - width + 2)` /
+  `ii = 2*h - ii - 2`. The `+ 1` form (fork history before upstream
+  `41d42c9e` landed) indexed the edge sample twice instead of
+  reflecting past it. On upstream sync: reject any reversion. This
+  rule pairs with the companion "rule #1 carve-out": upstream-
+  authored python test updates that track this bugfix are NOT
+  "modifying Netflix goldens" in the CLAUDE.md §8 sense; the fork
+  ports them verbatim. See
+  [ADR-0144](../../../docs/adr/0144-port-netflix-41d42c9e-vif-edge-mirror.md)
+  and [rebase-notes 0037](../../../docs/rebase-notes.md).
 
 ## Governing ADRs
 
