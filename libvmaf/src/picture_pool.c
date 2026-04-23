@@ -79,7 +79,31 @@ static int pooled_picture_release(VmafPicture *pic, void *cookie)
     return 0;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int pool_preallocate_pictures(VmafPicturePool *p, VmafPicturePoolConfig cfg)
+{
+    for (unsigned i = 0; i < cfg.pic_cnt; i++) {
+        int err = vmaf_picture_alloc(&p->pictures[i], cfg.pix_fmt, cfg.bpc, cfg.w, cfg.h);
+        if (err) {
+            // Free any pictures we've already allocated
+            for (unsigned j = 0; j < i; j++) {
+                vmaf_picture_unref(&p->pictures[j]);
+            }
+            return err;
+        }
+
+        // Clear priv and ref - we'll recreate them on each fetch
+        free(p->pictures[i].priv);
+        vmaf_ref_close(p->pictures[i].ref);
+        p->pictures[i].priv = NULL;
+        p->pictures[i].ref = NULL;
+
+        // Push index onto free list (all pictures start available)
+        p->free_list[i] = i;
+    }
+    p->free_list_top = cfg.pic_cnt; // Stack is full initially
+    return 0;
+}
+
 int vmaf_picture_pool_init(VmafPicturePool **pool, VmafPicturePoolConfig cfg)
 {
     if (!pool)
@@ -119,27 +143,9 @@ int vmaf_picture_pool_init(VmafPicturePool **pool, VmafPicturePoolConfig cfg)
     if (err)
         goto free_mutex;
 
-    // Pre-allocate all pictures with their data buffers
-    for (unsigned i = 0; i < cfg.pic_cnt; i++) {
-        err = vmaf_picture_alloc(&p->pictures[i], cfg.pix_fmt, cfg.bpc, cfg.w, cfg.h);
-        if (err) {
-            // Free any pictures we've already allocated
-            for (unsigned j = 0; j < i; j++) {
-                vmaf_picture_unref(&p->pictures[j]);
-            }
-            goto free_cond;
-        }
-
-        // Clear priv and ref - we'll recreate them on each fetch
-        free(p->pictures[i].priv);
-        vmaf_ref_close(p->pictures[i].ref);
-        p->pictures[i].priv = NULL;
-        p->pictures[i].ref = NULL;
-
-        // Push index onto free list (all pictures start available)
-        p->free_list[i] = i;
-    }
-    p->free_list_top = cfg.pic_cnt; // Stack is full initially
+    err = pool_preallocate_pictures(p, cfg);
+    if (err)
+        goto free_cond;
 
     return 0;
 

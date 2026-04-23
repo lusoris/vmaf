@@ -24,6 +24,27 @@
 
 ### Changed
 
+- **Function-size NOLINT sweep** — refactored every
+  `readability-function-size` NOLINT suppression in `libvmaf/src/` (20
+  sites across 12 files: `dict.c`, `picture.c`, `picture_pool.c`,
+  `predict.c`, `libvmaf.c`, `output.c`, `read_json_model.c`,
+  `feature/feature_extractor.c`, `feature/feature_collector.c`,
+  `feature/iqa/convolve.c`, `feature/iqa/ssim_tools.c`,
+  `feature/x86/vif_statistic_avx2.c`) into small named `static`
+  helpers. IQA / SIMD files use `static inline` helpers threaded
+  through an explicit `struct vif_simd8_lane` to preserve the
+  ADR-0138 / ADR-0139 bit-exactness invariants (per-lane scalar-float
+  reduction, single-rounded float-mul → widen → double-add).
+  Netflix-golden-pair VMAF score remains bit-identical between
+  `VMAF_CPU_MASK=0` and `VMAF_CPU_MASK=255`. Zero new NOLINTs
+  introduced. Drive-by fixes: TU-static `_calc_scale` →
+  `iqa_calc_scale` for `bugprone-reserved-identifier`; tightened
+  `calloc(w * h, ...)` widening; separated multi-declaration forms;
+  `model_collection_parse_loop` now writes directly through
+  `cfg_name` instead of the aliased `c->name` (drops the last
+  `readability-non-const-parameter` NOLINT). See
+  [ADR-0146](docs/adr/0146-nolint-sweep-function-size.md).
+
 - **VIF AVX2 convolve: generalised for arbitrary filter widths** (port of
   Netflix upstream [`f3a628b4`](https://github.com/Netflix/vmaf/commit/f3a628b4),
   Kyle Swanson, 2026-04-21). `libvmaf/src/feature/common/convolution_avx.c`

@@ -45,105 +45,121 @@ VmafDictionaryEntry *vmaf_dictionary_get(VmafDictionary **dict, const char *key,
     return NULL;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int dict_ensure_allocated(VmafDictionary **dict)
+{
+    if (*dict)
+        return 0;
+
+    VmafDictionary *d = malloc(sizeof(*d));
+    if (!d)
+        return -ENOMEM;
+    memset(d, 0, sizeof(*d));
+
+    const size_t initial_sz = 8 * sizeof(*d->entry);
+    d->entry = malloc(initial_sz);
+    if (!d->entry) {
+        free(d);
+        return -ENOMEM;
+    }
+    memset(d->entry, 0, initial_sz);
+    d->size = 8;
+    *dict = d;
+    return 0;
+}
+
+static int dict_normalize_numeric(const char *val, char **buf_out)
+{
+    *buf_out = NULL;
+    char *end = NULL;
+    double dv = strtof(val, &end);
+    if (dv == 0 && val == end)
+        return 0;
+
+    const char *fmt = "%g";
+    const int snp = snprintf(NULL, 0, fmt, dv);
+    if (snp < 0)
+        return -EINVAL;
+    const size_t buf_sz = (size_t)snp + 1;
+    char *buf = malloc(buf_sz);
+    if (!buf)
+        return -ENOMEM;
+    (void)snprintf(buf, buf_sz, fmt, dv);
+    *buf_out = buf;
+    return 0;
+}
+
+static int dict_grow_entries(VmafDictionary *d)
+{
+    if (d->cnt < d->size)
+        return 0;
+    assert(d->size > 0);
+    const size_t sz = d->size * sizeof(*d->entry) * 2;
+    VmafDictionaryEntry *entry = (VmafDictionaryEntry *)realloc(d->entry, sz);
+    if (!entry)
+        return -ENOMEM;
+    d->entry = entry;
+    d->size *= 2;
+    return 0;
+}
+
+static int dict_overwrite_existing(VmafDictionaryEntry *existing, const char *val)
+{
+    const char *val_copy = strdup(val);
+    if (!val_copy)
+        return -ENOMEM;
+    free((char *)existing->val);
+    existing->val = val_copy;
+    return 0;
+}
+
+static int dict_append_new_entry(VmafDictionary *d, const char *key, const char *val)
+{
+    int err = dict_grow_entries(d);
+    if (err)
+        return err;
+
+    const char *val_copy = strdup(val);
+    if (!val_copy)
+        return -ENOMEM;
+    const char *key_copy = strdup(key);
+    if (!key_copy) {
+        free((char *)val_copy);
+        return -ENOMEM;
+    }
+
+    d->entry[d->cnt++] = (VmafDictionaryEntry){.key = key_copy, .val = val_copy};
+    return 0;
+}
+
 int vmaf_dictionary_set(VmafDictionary **dict, const char *key, const char *val, uint64_t flags)
 {
-    if (!dict)
+    if (!dict || !key || !val)
         return -EINVAL;
-    if (!key)
-        return -EINVAL;
-    if (!val)
-        return -EINVAL;
+
+    int err = dict_ensure_allocated(dict);
+    if (err)
+        return err;
+
+    char *buf = NULL;
+    if (flags & VMAF_DICT_NORMALIZE_NUMERICAL_VALUES) {
+        err = dict_normalize_numeric(val, &buf);
+        if (err)
+            return err;
+    }
+    val = buf ? buf : val;
 
     VmafDictionary *d = *dict;
-    char *buf = NULL;
-    const char *val_copy = NULL;
-    const char *key_copy = NULL;
-
-    if (!d) {
-        d = *dict = malloc(sizeof(*d));
-        if (!d)
-            return -ENOMEM;
-        memset(d, 0, sizeof(*d));
-        const size_t initial_sz = 8 * sizeof(*d->entry);
-        d->entry = malloc(initial_sz);
-        if (!d->entry) {
-            free(d);
-            *dict = NULL;
-            return -ENOMEM;
-        }
-        memset(d->entry, 0, initial_sz);
-        d->size = 8;
+    VmafDictionaryEntry *existing = vmaf_dictionary_get(&d, key, 0);
+    if (existing && (flags & VMAF_DICT_DO_NOT_OVERWRITE)) {
+        err = !strcmp(existing->val, val) ? 0 : -EINVAL;
+    } else if (existing) {
+        err = dict_overwrite_existing(existing, val);
+    } else {
+        err = dict_append_new_entry(d, key, val);
     }
-
-    if (flags & VMAF_DICT_NORMALIZE_NUMERICAL_VALUES) {
-        char *end = NULL;
-        double dv = strtof(val, &end);
-        if (!(dv == 0 && val == end)) {
-            const char *fmt = "%g";
-            const int snp = snprintf(NULL, 0, fmt, dv);
-            if (snp < 0)
-                return -EINVAL;
-            const size_t buf_sz = (size_t)snp + 1;
-            buf = malloc(buf_sz);
-            if (!buf)
-                return -ENOMEM;
-            (void)snprintf(buf, buf_sz, fmt, dv);
-        }
-    }
-
-    val = buf ? buf : val;
-    VmafDictionaryEntry *existing_entry = vmaf_dictionary_get(&d, key, 0);
-    if (existing_entry && (flags & VMAF_DICT_DO_NOT_OVERWRITE)) {
-        int ret = !strcmp(existing_entry->val, val) ? 0 : -EINVAL;
-        free(buf);
-        return ret;
-    }
-
-    /* Overwrite path — no realloc, so existing_entry stays valid. */
-    if (existing_entry) {
-        val_copy = strdup(val);
-        if (!val_copy)
-            goto fail;
-        free((char *)existing_entry->val);
-        existing_entry->val = val_copy;
-        free(buf);
-        return 0;
-    }
-
-    if (d->cnt == d->size) {
-        assert(d->size > 0);
-        const size_t sz = d->size * sizeof(*d->entry) * 2;
-        VmafDictionaryEntry *entry = (VmafDictionaryEntry *)realloc(d->entry, sz);
-        if (!entry)
-            goto fail;
-        d->entry = entry;
-        d->size *= 2;
-    }
-
-    val_copy = strdup(val);
-    if (!val_copy)
-        goto fail;
-    key_copy = strdup(key);
-    if (!key_copy)
-        goto fail;
 
     free(buf);
-
-    VmafDictionaryEntry entry = {
-        .key = key_copy,
-        .val = val_copy,
-    };
-
-    d->entry[d->cnt++] = entry;
-
-    return 0;
-
-fail:
-    free(buf);
-    free((char *)val_copy);
-    free((char *)key_copy);
-    return -ENOMEM;
+    return err;
 }
 
 int vmaf_dictionary_copy(VmafDictionary **src, VmafDictionary **dst)

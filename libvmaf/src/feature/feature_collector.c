@@ -352,7 +352,92 @@ FeatureVector *vmaf_feature_collector_find(VmafFeatureCollector *fc, const char 
     return fv;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+static int feature_collector_grow_capacity(VmafFeatureCollector *feature_collector)
+{
+    if (feature_collector->cnt + 1 <= feature_collector->capacity)
+        return 0;
+    assert(feature_collector->capacity > 0);
+    const size_t entry_sz = sizeof(*(feature_collector->feature_vector));
+    const size_t old_bytes = entry_sz * feature_collector->capacity;
+    FeatureVector **fv =
+        (FeatureVector **)realloc((void *)feature_collector->feature_vector, old_bytes * 2);
+    if (!fv)
+        return -ENOMEM;
+    memset((void *)(fv + feature_collector->capacity), 0, old_bytes);
+    feature_collector->feature_vector = fv;
+    feature_collector->capacity *= 2;
+    return 0;
+}
+
+static int feature_collector_ensure_vector(VmafFeatureCollector *feature_collector,
+                                           const char *feature_name, FeatureVector **out)
+{
+    FeatureVector *feature_vector = find_feature_vector(feature_collector, feature_name);
+    if (feature_vector) {
+        *out = feature_vector;
+        return 0;
+    }
+
+    int err = feature_vector_init(&feature_vector, feature_name);
+    if (err)
+        return err;
+    err = feature_collector_grow_capacity(feature_collector);
+    if (err) {
+        feature_vector_destroy(feature_vector);
+        return err;
+    }
+    feature_collector->feature_vector[feature_collector->cnt++] = feature_vector;
+    *out = feature_vector;
+    return 0;
+}
+
+static void feature_collector_run_model_predict(VmafFeatureCollector *feature_collector,
+                                                unsigned picture_index, double *score)
+{
+    VmafPredictModel *model_iter = feature_collector->models;
+    while (model_iter) {
+        VmafModel *model = model_iter->model;
+
+        pthread_mutex_unlock(&(feature_collector->lock));
+        int res =
+            vmaf_feature_collector_get_score(feature_collector, model->name, score, picture_index);
+        pthread_mutex_lock(&(feature_collector->lock));
+
+        if (res) {
+            pthread_mutex_unlock(&(feature_collector->lock));
+            (void)vmaf_predict_score_at_index(model, feature_collector, picture_index, score, true,
+                                              true, 0);
+            pthread_mutex_lock(&(feature_collector->lock));
+        }
+        model_iter = model_iter->next;
+    }
+}
+
+static void feature_collector_dispatch_metadata(VmafFeatureCollector *feature_collector,
+                                                const char *feature_name, unsigned picture_index,
+                                                double score)
+{
+    VmafCallbackItem *metadata_iter =
+        feature_collector->metadata ? feature_collector->metadata->head : NULL;
+    while (metadata_iter) {
+        // Check current feature name is the same as the metadata feature name
+        if (!strcmp(metadata_iter->metadata_cfg.feature_name, feature_name)) {
+            // Call the callback function with the metadata feature name
+            VmafMetadata data = {
+                .feature_name = metadata_iter->metadata_cfg.feature_name,
+                .picture_index = picture_index,
+                .score = score,
+            };
+            metadata_iter->metadata_cfg.callback(metadata_iter->metadata_cfg.data, &data);
+        } else {
+            // If metadata feature name is not the same as the current feature feature_name
+            // Check if metadata feature name is the predicted feature
+            feature_collector_run_model_predict(feature_collector, picture_index, &score);
+        }
+        metadata_iter = metadata_iter->next;
+    }
+}
+
 int vmaf_feature_collector_append(VmafFeatureCollector *feature_collector, const char *feature_name,
                                   double score, unsigned picture_index)
 {
@@ -367,77 +452,16 @@ int vmaf_feature_collector_append(VmafFeatureCollector *feature_collector, const
     if (!feature_collector->timer.begin)
         feature_collector->timer.begin = clock();
 
-    FeatureVector *feature_vector = find_feature_vector(feature_collector, feature_name);
-
-    if (!feature_vector) {
-        err = feature_vector_init(&feature_vector, feature_name);
-        if (err)
-            goto unlock;
-        if (feature_collector->cnt + 1 > feature_collector->capacity) {
-            assert(feature_collector->capacity > 0);
-            const size_t entry_sz = sizeof(*(feature_collector->feature_vector));
-            const size_t old_bytes = entry_sz * feature_collector->capacity;
-            FeatureVector **fv =
-                (FeatureVector **)realloc((void *)feature_collector->feature_vector, old_bytes * 2);
-            if (!fv) {
-                feature_vector_destroy(feature_vector);
-                err = -ENOMEM;
-                goto unlock;
-            }
-            memset((void *)(fv + feature_collector->capacity), 0, old_bytes);
-            feature_collector->feature_vector = fv;
-            feature_collector->capacity *= 2;
-        }
-        feature_collector->feature_vector[feature_collector->cnt++] = feature_vector;
-    }
+    FeatureVector *feature_vector = NULL;
+    err = feature_collector_ensure_vector(feature_collector, feature_name, &feature_vector);
+    if (err)
+        goto unlock;
 
     err = feature_vector_append(feature_vector, picture_index, score);
     if (err)
         goto unlock;
 
-    int res = 0;
-
-    VmafCallbackItem *metadata_iter =
-        feature_collector->metadata ? feature_collector->metadata->head : NULL;
-    while (metadata_iter) {
-        // Check current feature name is the same as the metadata feature name
-        if (!strcmp(metadata_iter->metadata_cfg.feature_name, feature_name)) {
-
-            // Call the callback function with the metadata feature name
-            VmafMetadata data = {
-                .feature_name = metadata_iter->metadata_cfg.feature_name,
-                .picture_index = picture_index,
-                .score = score,
-            };
-            metadata_iter->metadata_cfg.callback(metadata_iter->metadata_cfg.data, &data);
-            // Move to the next metadata
-            goto next_metadata;
-        }
-
-        VmafPredictModel *model_iter = feature_collector->models;
-
-        // If metadata feature name is not the same as the current feature feature_name
-        // Check if metadata feature name is the predicted feature
-        while (model_iter) {
-            VmafModel *model = model_iter->model;
-
-            pthread_mutex_unlock(&(feature_collector->lock));
-            res = vmaf_feature_collector_get_score(feature_collector, model->name, &score,
-                                                   picture_index);
-            pthread_mutex_lock(&(feature_collector->lock));
-
-            if (res) {
-                pthread_mutex_unlock(&(feature_collector->lock));
-                res |= vmaf_predict_score_at_index(model, feature_collector, picture_index, &score,
-                                                   true, true, 0);
-                pthread_mutex_lock(&(feature_collector->lock));
-            }
-            model_iter = model_iter->next;
-        }
-
-    next_metadata:
-        metadata_iter = metadata_iter->next;
-    }
+    feature_collector_dispatch_metadata(feature_collector, feature_name, picture_index, score);
 
 unlock:
     feature_collector->timer.end = clock();
