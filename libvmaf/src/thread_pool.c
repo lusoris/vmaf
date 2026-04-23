@@ -24,9 +24,17 @@
 
 #include "thread_pool.h"
 
+/* Payload ≤ JOB_INLINE_DATA_SIZE lives inside the job struct itself,
+ * avoiding a second malloc per enqueue. Sized to cover every
+ * `data_sz` used by current callers (the CPU read_pictures stage
+ * submits a 32-byte VmafPicture pair, MCP transports submit 48-byte
+ * frame events — 64 bytes gives comfortable headroom). */
+#define JOB_INLINE_DATA_SIZE 64
+
 typedef struct VmafThreadPoolJob {
     void (*func)(void *data, void **thread_data);
     void *data;
+    char inline_data[JOB_INLINE_DATA_SIZE];
     struct VmafThreadPoolJob *next;
 } VmafThreadPoolJob;
 
@@ -47,6 +55,8 @@ typedef struct VmafThreadPool {
     bool stop;
     VmafThreadPoolWorker *workers;
     void (*thread_data_free)(void *thread_data);
+    /* Recycled job objects for reuse, keyed off the pool's lock. */
+    VmafThreadPoolJob *free_jobs;
 } VmafThreadPool;
 
 static VmafThreadPoolJob *vmaf_thread_pool_fetch_job(VmafThreadPool *pool)
@@ -66,13 +76,33 @@ static VmafThreadPoolJob *vmaf_thread_pool_fetch_job(VmafThreadPool *pool)
     return job;
 }
 
+/* Drop a job's external data buffer (if it was heap-allocated rather
+ * than living in job->inline_data). Caller owns the job slot itself. */
+static void vmaf_thread_pool_job_clear_data(VmafThreadPoolJob *job)
+{
+    if (job->data && job->data != job->inline_data)
+        free(job->data);
+    job->data = NULL;
+    job->func = NULL;
+}
+
 static void vmaf_thread_pool_job_destroy(VmafThreadPoolJob *job)
 {
     if (!job)
         return;
-    if (job->data)
-        free(job->data);
+    vmaf_thread_pool_job_clear_data(job);
     free(job);
+}
+
+/* Push `job` onto the pool's free list for later reuse by enqueue.
+ * Caller must hold pool->queue.lock. */
+static void vmaf_thread_pool_job_recycle(VmafThreadPool *pool, VmafThreadPoolJob *job)
+{
+    if (!job)
+        return;
+    vmaf_thread_pool_job_clear_data(job);
+    job->next = pool->free_jobs;
+    pool->free_jobs = job;
 }
 
 static void *vmaf_thread_pool_runner(void *p)
@@ -91,10 +121,11 @@ static void *vmaf_thread_pool_runner(void *p)
         pthread_mutex_unlock(&(pool->queue.lock));
         if (job) {
             job->func(job->data, &worker->data);
-            vmaf_thread_pool_job_destroy(job);
         }
         pthread_mutex_lock(&(pool->queue.lock));
         pool->n_working--;
+        if (job)
+            vmaf_thread_pool_job_recycle(pool, job);
         if (!pool->stop && pool->n_working == 0 && !pool->queue.head)
             pthread_cond_signal(&(pool->working));
         pthread_mutex_unlock(&(pool->queue.lock));
@@ -150,19 +181,41 @@ int vmaf_thread_pool_enqueue(VmafThreadPool *pool, void (*func)(void *data, void
     if (!func)
         return -EINVAL;
 
-    VmafThreadPoolJob *job = malloc(sizeof(*job));
-    if (!job)
-        return -ENOMEM;
+    pthread_mutex_lock(&(pool->queue.lock));
+
+    /* Reuse a recycled slot if available, otherwise heap-allocate one.
+     * The free list is mutex-protected so fetching and returning stays
+     * coherent with the runner thread's recycle on job completion. */
+    VmafThreadPoolJob *job = pool->free_jobs;
+    if (job) {
+        pool->free_jobs = job->next;
+    } else {
+        job = malloc(sizeof(*job));
+        if (!job) {
+            pthread_mutex_unlock(&(pool->queue.lock));
+            return -ENOMEM;
+        }
+    }
+
     memset(job, 0, sizeof(*job));
     job->func = func;
     if (data) {
-        job->data = malloc(data_sz);
-        if (!job->data)
-            goto free_job;
-        memcpy(job->data, data, data_sz);
+        if (data_sz <= JOB_INLINE_DATA_SIZE) {
+            memcpy(job->inline_data, data, data_sz);
+            job->data = job->inline_data;
+        } else {
+            job->data = malloc(data_sz);
+            if (!job->data) {
+                /* Return the job slot to the free list; releasing the
+                 * heap copy would defeat the job-pool win on retry. */
+                job->next = pool->free_jobs;
+                pool->free_jobs = job;
+                pthread_mutex_unlock(&(pool->queue.lock));
+                return -ENOMEM;
+            }
+            memcpy(job->data, data, data_sz);
+        }
     }
-
-    pthread_mutex_lock(&(pool->queue.lock));
 
     if (!pool->queue.head) {
         pool->queue.head = job;
@@ -176,10 +229,6 @@ int vmaf_thread_pool_enqueue(VmafThreadPool *pool, void (*func)(void *data, void
     pthread_mutex_unlock(&(pool->queue.lock));
 
     return 0;
-
-free_job:
-    free(job);
-    return -ENOMEM;
 }
 
 int vmaf_thread_pool_wait(VmafThreadPool *pool)
@@ -214,6 +263,16 @@ int vmaf_thread_pool_destroy(VmafThreadPool *pool)
     pthread_cond_broadcast(&(pool->queue.empty));
     pthread_mutex_unlock(&(pool->queue.lock));
     vmaf_thread_pool_wait(pool);
+
+    /* Free every slot still on the recycle list. No lock needed —
+     * vmaf_thread_pool_wait returns only after all workers exit. */
+    job = pool->free_jobs;
+    while (job) {
+        VmafThreadPoolJob *next_job = job->next;
+        free(job);
+        job = next_job;
+    }
+    pool->free_jobs = NULL;
 
     if (pool->thread_data_free) {
         for (unsigned i = 0; i < n_workers; i++) {

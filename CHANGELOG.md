@@ -24,6 +24,22 @@
 
 ### Changed
 
+- **Thread-pool job-object recycling** (perf, fork-local port of
+  Netflix upstream PR [#1464](https://github.com/Netflix/vmaf/pull/1464),
+  thread-pool portion only). `libvmaf/src/thread_pool.c` now recycles
+  `VmafThreadPoolJob` slots via a mutex-protected free list rather
+  than `malloc`/`free` on every enqueue, and stores payloads ≤ 64
+  bytes inline in the job struct (`char inline_data[64]`) so the
+  common-case enqueue path avoids a second allocation entirely.
+  Adapted to the fork's `void (*func)(void *data, void **thread_data)`
+  signature and per-worker `VmafThreadPoolWorker` data path (which
+  upstream lacks). **~1.8–2.6× enqueue throughput** on a 500 000-job
+  4-thread micro-benchmark; bit-identical VMAF scores between
+  `--threads 4` and serial, and between `VMAF_CPU_MASK=0` and `=255`
+  under `--threads 4`. Closes the thread-pool half of backlog T3-6
+  (the AVX2 PSNR half was already covered by fork commit `81fcd42e`).
+  See [ADR-0147](docs/adr/0147-thread-pool-job-pool.md).
+
 - **Function-size NOLINT sweep** — refactored every
   `readability-function-size` NOLINT suppression in `libvmaf/src/` (20
   sites across 12 files: `dict.c`, `picture.c`, `picture_pool.c`,
