@@ -2020,3 +2020,64 @@ inline.*
   get_pixel) across all callers to clear the remaining
   `bugprone-reserved-identifier` suppressions in `ssim.c`,
   `ms_ssim.c`, `float_ms_ssim.c`. Out of scope here.
+
+### 0040 — Thread-pool job recycling + inline data buffer (ADR-0147)
+
+- **ADR**: [ADR-0147](adr/0147-thread-pool-job-pool.md)
+- **Touches**: [`libvmaf/src/thread_pool.c`](../libvmaf/src/thread_pool.c)
+- **Invariants**:
+  1. `VmafThreadPoolJob` carries a fixed-size `char inline_data[64]`
+     buffer. Payloads ≤ 64 bytes go through
+     `memcpy(job->inline_data, data, data_sz)` +
+     `job->data = job->inline_data`; payloads > 64 bytes take the
+     legacy `malloc` path. The cleanup path MUST distinguish the
+     two via `job->data != job->inline_data` — a naive
+     `free(job->data)` would corrupt the slot. Enforced in
+     `vmaf_thread_pool_job_clear_data`.
+  2. `free_jobs` list is protected by the existing `queue.lock`;
+     enqueue pops from it before `malloc`ing, runner recycles onto
+     it after running a job. `vmaf_thread_pool_destroy` walks the
+     list after `vmaf_thread_pool_wait` returns (all workers have
+     exited → no lock needed). Any reorder that frees the queue
+     lock before the `free_jobs` walk is a leak on shutdown.
+  3. Fork's `void (*func)(void *data, void **thread_data)`
+     signature + per-worker `VmafThreadPoolWorker` are fork-local;
+     upstream Netflix #1464 has `func(void *data)`. Keep the fork's
+     signature on any rebase — callers
+     (`src/libvmaf.c:threaded_enqueue_one` etc.) depend on the
+     two-arg form.
+- **On upstream sync**: Netflix PR #1464 is CLOSED (not merged) and
+  bundles twelve unrelated optimizations. Only the thread-pool
+  portion is ported here. If upstream ever reopens and merges #1464
+  (or a successor), cherry-pick **only** the pool mechanics; reject
+  the payload-signature changes, the ADM / VIF / predict.c pieces
+  (they conflict with ADR-0138 / 0139 / 0142 bit-exactness and with
+  T7-5 predict.c refactor), and the feature-collector capacity bump
+  (fork already capped at 8 for a reason — see
+  [`src/feature/feature_collector.c`][fc-src]).
+
+[fc-src]: ../libvmaf/src/feature/feature_collector.c
+
+- **Re-test on rebase** (x86, any libsvm-less host):
+
+  ```bash
+  ninja -C build && meson test -C build
+  for threads in 1 4; do
+    for mask in 0 255; do
+      VMAF_CPU_MASK=$mask ./build/tools/vmaf \
+        --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+        --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+        --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+        -m version=vmaf_v0.6.1 --threads $threads -o /tmp/vmaf_${threads}_${mask}.xml
+    done
+  done
+  # Expect bit-identical scores (attribute order may differ across
+  # --threads 1 vs --threads 4 because feature-collector emits in
+  # insertion order; the numeric values match).
+  diff <(grep -v fyi /tmp/vmaf_4_0.xml) <(grep -v fyi /tmp/vmaf_4_255.xml)
+  # expect exit 0 (scalar vs SIMD threaded)
+  ```
+
+  Also run `clang-tidy -p build libvmaf/src/thread_pool.c` — expect
+  zero warnings. Re-run the 500 000-job micro-benchmark from
+  ADR-0147 §Decision if performance is under investigation.

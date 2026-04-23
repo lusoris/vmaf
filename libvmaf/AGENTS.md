@@ -74,6 +74,24 @@ libvmaf/
   is `push_c()` at entry → body → `pop()` before the `ferror`
   check; dropping the `pop()` leaks a `locale_t` on POSIX and
   leaves the calling thread locked to `"C"` on Windows.
+- **Thread-pool job recycling + inline data buffer** (fork-local,
+  ADR-0147): [`src/thread_pool.c`](src/thread_pool.c) recycles
+  `VmafThreadPoolJob` slots via a `pool->free_jobs` free list
+  (mutex-protected by `queue.lock`) and stores payloads ≤
+  `JOB_INLINE_DATA_SIZE` (64 bytes) inside `job->inline_data`
+  instead of a second `malloc`. The cleanup path distinguishes
+  inline from heap payloads via the
+  `job->data != job->inline_data` guard in
+  `vmaf_thread_pool_job_clear_data`; do not collapse this
+  check during a rebase — freeing `inline_data` would corrupt
+  the slot. The fork's `func(void *data, void **thread_data)`
+  signature and `VmafThreadPoolWorker` per-worker-data path must
+  survive any upstream sync; Netflix upstream PR #1464 (closed)
+  has a similar job-pool but uses the bare
+  `func(void *data)` signature — on conflict keep the fork's
+  two-arg signature and merge only the pool-mechanics changes.
+  See [ADR-0147](../docs/adr/0147-thread-pool-job-pool.md) and
+  [rebase-notes 0040](../docs/rebase-notes.md).
 
 Backend-specific orientation:
 
