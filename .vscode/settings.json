@@ -89,5 +89,7 @@
   },
 
   "cmake.configureOnOpen": false,
-  "cmake.sourceDirectory": ""
+  "cmake.sourceDirectory": "",
+  "C_Cpp.default.compileCommands": "/home/kilian/dev/vmaf/libvmaf/builddir/compile_commands.json",
+  "C_Cpp.default.configurationProvider": "mesonbuild.mesonbuild"
 }

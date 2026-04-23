@@ -469,10 +469,16 @@ float vif_sum_s(const float *x, int w, int h, int stride)
 
 /* Per-pixel VIF statistic (matching_matlab mode). Extracted to keep the
  * outer dispatch function under the function-size budget. Returns the
- * (num, den) contribution for one (mu1, mu2, xx, yy, xy) tuple. */
+ * (num, den) contribution for one (mu1, mu2, xx, yy, xy) tuple.
+ *
+ * `vif_sigma_nsq` and `sigma_max_inv` are `double` on purpose: upstream
+ * `18e8f1c5` adopts double-promotion in the final log2f arguments, and
+ * Netflix's new test values (`python/test/feature_extractor_test.py`,
+ * `vmafexec_feature_extractor_test.py`) assert on those promoted
+ * scores. See ADR-0142 §Decision. */
 static inline void vif_stat_one_pixel(float mu1_val, float mu2_val, float xx_filt_val,
-                                      float yy_filt_val, float xy_filt_val, float sigma_nsq,
-                                      float sigma_max_inv, float vif_enhn_gain_limit_f,
+                                      float yy_filt_val, float xy_filt_val, double vif_sigma_nsq,
+                                      double sigma_max_inv, float vif_enhn_gain_limit_f,
                                       float *num_out, float *den_out)
 {
     const float eps = 1.0e-10f;
@@ -502,12 +508,12 @@ static inline void vif_stat_one_pixel(float mu1_val, float mu2_val, float xx_fil
     sv_sq = MAX(sv_sq, eps);
     g = MIN(g, vif_enhn_gain_limit_f);
 
-    float num_val = log2f(1.0f + (g * g * sigma1_sq) / (sv_sq + sigma_nsq));
-    float den_val = log2f(1.0f + sigma1_sq / sigma_nsq);
+    float num_val = log2f(1.0f + (g * g * sigma1_sq) / (sv_sq + vif_sigma_nsq));
+    float den_val = log2f(1.0f + sigma1_sq / vif_sigma_nsq);
 
     if (sigma12 < 0.0f)
         num_val = 0.0f;
-    if (sigma1_sq < sigma_nsq) {
+    if (sigma1_sq < vif_sigma_nsq) {
         num_val = 1.0f - sigma2_sq * sigma_max_inv;
         den_val = 1.0f;
     }
@@ -522,8 +528,17 @@ void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, c
                      double vif_enhn_gain_limit, double vif_sigma_nsq)
 {
 #if ARCH_X86
+    /* AVX2 path uses pure-float arithmetic. Upstream `18e8f1c5` adopted
+     * double-promotion on `sv_sq + vif_sigma_nsq` in the scalar path,
+     * and Netflix's new non-default `vif_sigma_nsq` tests assert on
+     * those double-promoted scores. For the default `sigma_nsq = 2.0`
+     * the two paths match within float tolerance; for non-default
+     * values we fall through to the scalar reference so Netflix's
+     * goldens hold. A future refactor could port ADR-0139's per-lane
+     * scalar-double reduction into the AVX2 variant to unlock the
+     * fast path unconditionally. */
     const unsigned flags = vmaf_get_cpu_flags();
-    if (flags & VMAF_X86_CPU_FLAG_AVX2) {
+    if ((flags & VMAF_X86_CPU_FLAG_AVX2) && vif_sigma_nsq == 2.0) {
         vif_statistic_s_avx2(mu1, mu2, xx_filt, yy_filt, xy_filt, num, den, w, h, mu1_stride,
                              mu2_stride, xx_filt_stride, yy_filt_stride, xy_filt_stride,
                              vif_enhn_gain_limit, vif_sigma_nsq);
@@ -531,8 +546,13 @@ void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, c
     }
 #endif
 
-    const float sigma_nsq = (float)vif_sigma_nsq;
-    const float sigma_max_inv = powf((float)vif_sigma_nsq, 2.0f) / (255.0f * 255.0f);
+    /* Match upstream `18e8f1c5`: `sigma_max_inv` is derived at `double`
+     * precision (`powf(vif_sigma_nsq, 2.0f)` computed in float, divided
+     * by 255²f) and the per-pixel helper also keeps `vif_sigma_nsq`
+     * as `double` so the log2f arguments get upstream's
+     * double-promotion. Netflix's new `vif_sigma_nsq` test cases
+     * assert on those promoted scores. */
+    const double sigma_max_inv = powf((float)vif_sigma_nsq, 2.0f) / (255.0f * 255.0f);
     const float vif_egl = (float)vif_enhn_gain_limit;
 
     const ptrdiff_t mu1_px_stride = (ptrdiff_t)mu1_stride / (ptrdiff_t)sizeof(float);
@@ -553,7 +573,7 @@ void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, c
             vif_stat_one_pixel(mu1[i * mu1_px_stride + j], mu2[i * mu2_px_stride + j],
                                xx_filt[i * xx_filt_px_stride + j],
                                yy_filt[i * yy_filt_px_stride + j],
-                               xy_filt[i * xy_filt_px_stride + j], sigma_nsq, sigma_max_inv,
+                               xy_filt[i * xy_filt_px_stride + j], vif_sigma_nsq, sigma_max_inv,
                                vif_egl, &num_val, &den_val);
             accum_inner_num += num_val;
             accum_inner_den += den_val;
