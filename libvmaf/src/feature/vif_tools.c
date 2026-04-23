@@ -28,6 +28,9 @@
 #include "common/convolution.h"
 #include "vif_options.h"
 #include "vif_tools.h"
+#if ARCH_X86
+#include "x86/vif_statistic_avx2.h"
+#endif
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
@@ -57,9 +60,12 @@ static float log2f_approx(float x)
     const uint32_t exp_mant_mask = 0x007FFFFFUL;
 
     float remain;
-    float log_base, log_remain;
-    uint32_t u32, u32remain;
-    uint32_t exponent, mant;
+    float log_base;
+    float log_remain;
+    uint32_t u32;
+    uint32_t u32remain;
+    uint32_t exponent;
+    uint32_t mant;
 
     if (x == 0)
         return -INFINITY;
@@ -429,7 +435,8 @@ void vif_dec2_s(const float *src, float *dst, int src_w, int src_h, int src_stri
     int src_px_stride = src_stride / sizeof(float); // src_stride is in bytes
     int dst_px_stride = dst_stride / sizeof(float);
 
-    int i, j;
+    int i;
+    int j;
 
     // decimation by 2 in each direction (after gaussian blur? check)
     for (i = 0; i < src_h / 2; ++i) {
@@ -442,7 +449,8 @@ void vif_dec2_s(const float *src, float *dst, int src_w, int src_h, int src_stri
 float vif_sum_s(const float *x, int w, int h, int stride)
 {
     int px_stride = stride / sizeof(float);
-    int i, j;
+    int i;
+    int j;
 
     float accum = 0;
 
@@ -459,11 +467,54 @@ float vif_sum_s(const float *x, int w, int h, int stride)
     return accum;
 }
 
-void vif_statistic_s_avx2(const float *mu1, const float *mu2, const float *xx_filt,
-                          const float *yy_filt, const float *xy_filt, float *num, float *den, int w,
-                          int h, int mu1_stride, int mu2_stride, int xx_filt_stride,
-                          int yy_filt_stride, int xy_filt_stride, double vif_enhn_gain_limit,
-                          double vif_sigma_nsq);
+/* Per-pixel VIF statistic (matching_matlab mode). Extracted to keep the
+ * outer dispatch function under the function-size budget. Returns the
+ * (num, den) contribution for one (mu1, mu2, xx, yy, xy) tuple. */
+static inline void vif_stat_one_pixel(float mu1_val, float mu2_val, float xx_filt_val,
+                                      float yy_filt_val, float xy_filt_val, float sigma_nsq,
+                                      float sigma_max_inv, float vif_enhn_gain_limit_f,
+                                      float *num_out, float *den_out)
+{
+    const float eps = 1.0e-10f;
+    float sigma1_sq = xx_filt_val - mu1_val * mu1_val;
+    float sigma2_sq = yy_filt_val - mu2_val * mu2_val;
+    const float sigma12 = xy_filt_val - mu1_val * mu2_val;
+
+    sigma1_sq = MAX(sigma1_sq, 0.0f);
+    sigma2_sq = MAX(sigma2_sq, 0.0f);
+
+    float g = sigma12 / (sigma1_sq + eps);
+    float sv_sq = sigma2_sq - g * sigma12;
+
+    if (sigma1_sq < eps) {
+        g = 0.0f;
+        sv_sq = sigma2_sq;
+        sigma1_sq = 0.0f;
+    }
+    if (sigma2_sq < eps) {
+        g = 0.0f;
+        sv_sq = 0.0f;
+    }
+    if (g < 0.0f) {
+        sv_sq = sigma2_sq;
+        g = 0.0f;
+    }
+    sv_sq = MAX(sv_sq, eps);
+    g = MIN(g, vif_enhn_gain_limit_f);
+
+    float num_val = log2f(1.0f + (g * g * sigma1_sq) / (sv_sq + sigma_nsq));
+    float den_val = log2f(1.0f + sigma1_sq / sigma_nsq);
+
+    if (sigma12 < 0.0f)
+        num_val = 0.0f;
+    if (sigma1_sq < sigma_nsq) {
+        num_val = 1.0f - sigma2_sq * sigma_max_inv;
+        den_val = 1.0f;
+    }
+
+    *num_out = num_val;
+    *den_out = den_val;
+}
 
 void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, const float *yy_filt,
                      const float *xy_filt, float *num, float *den, int w, int h, int mu1_stride,
@@ -482,110 +533,31 @@ void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, c
 
     const float sigma_nsq = (float)vif_sigma_nsq;
     const float sigma_max_inv = powf((float)vif_sigma_nsq, 2.0f) / (255.0f * 255.0f);
+    const float vif_egl = (float)vif_enhn_gain_limit;
 
-    int mu1_px_stride = mu1_stride / sizeof(float);
-    int mu2_px_stride = mu2_stride / sizeof(float);
-    int xx_filt_px_stride = xx_filt_stride / sizeof(float);
-    int yy_filt_px_stride = yy_filt_stride / sizeof(float);
-    int xy_filt_px_stride = xy_filt_stride / sizeof(float);
-
-    float mu1_sq_val, mu2_sq_val, mu1_mu2_val, xx_filt_val, yy_filt_val, xy_filt_val;
-    float sigma1_sq, sigma2_sq, sigma12;
-    float num_val, den_val;
-    int i, j;
-
-    /* ==== vif_stat_mode = 'matching_c' ==== */
-    // float num_log_den, num_log_num;
-    /* ==== vif_stat_mode = 'matching_matlab' ==== */
-    float g, sv_sq, eps = 1.0e-10f;
-    float vif_enhn_gain_limit_f = (float)vif_enhn_gain_limit;
-    /* == end of vif_stat_mode = 'matching_matlab' == */
+    const ptrdiff_t mu1_px_stride = (ptrdiff_t)mu1_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t mu2_px_stride = (ptrdiff_t)mu2_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t xx_filt_px_stride = (ptrdiff_t)xx_filt_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t yy_filt_px_stride = (ptrdiff_t)yy_filt_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t xy_filt_px_stride = (ptrdiff_t)xy_filt_stride / (ptrdiff_t)sizeof(float);
 
     float accum_num = 0.0f;
     float accum_den = 0.0f;
 
-    for (i = 0; i < h; ++i) {
+    for (int i = 0; i < h; ++i) {
         float accum_inner_num = 0;
         float accum_inner_den = 0;
-        for (j = 0; j < w; ++j) {
-            float mu1_val = mu1[i * mu1_px_stride + j];
-            float mu2_val = mu2[i * mu2_px_stride + j];
-            mu1_sq_val = mu1_val * mu1_val; // same name as the Matlab code vifp_mscale.m
-            mu2_sq_val = mu2_val * mu2_val;
-            mu1_mu2_val = mu1_val * mu2_val; //mu1_mu2[i * mu1_mu2_px_stride + j];
-            xx_filt_val = xx_filt[i * xx_filt_px_stride + j];
-            yy_filt_val = yy_filt[i * yy_filt_px_stride + j];
-            xy_filt_val = xy_filt[i * xy_filt_px_stride + j];
-
-            sigma1_sq = xx_filt_val - mu1_sq_val;
-            sigma2_sq = yy_filt_val - mu2_sq_val;
-            sigma12 = xy_filt_val - mu1_mu2_val;
-
-            /* ==== vif_stat_mode = 'matching_c' ==== */
-
-            /* if (sigma1_sq < sigma_nsq) {
-                num_val = 1.0 - sigma2_sq * sigma_max_inv;
-                den_val = 1.0;
-            }
-            else {
-                num_log_num = (sigma2_sq + sigma_nsq) * sigma1_sq;
-                if (sigma12 < 0)
-                {
-                    num_val = 0.0;
-                }
-                else
-                {
-                    num_log_den = num_log_num - sigma12 * sigma12;
-                    num_val = log2f(num_log_num / num_log_den);
-                }
-                den_val = log2f(1.0f + sigma1_sq / sigma_nsq);
-            } */
-
-            /* ==== vif_stat_mode = 'matching_matlab' ==== */
-
-            sigma1_sq = MAX(sigma1_sq, 0.0f);
-            sigma2_sq = MAX(sigma2_sq, 0.0f);
-
-            g = sigma12 / (sigma1_sq + eps);
-            sv_sq = sigma2_sq - g * sigma12;
-
-            if (sigma1_sq < eps) {
-                g = 0.0f;
-                sv_sq = sigma2_sq;
-                sigma1_sq = 0.0f;
-            }
-
-            if (sigma2_sq < eps) {
-                g = 0.0f;
-                sv_sq = 0.0f;
-            }
-
-            if (g < 0.0f) {
-                sv_sq = sigma2_sq;
-                g = 0.0f;
-            }
-            sv_sq = MAX(sv_sq, eps);
-
-            g = MIN(g, vif_enhn_gain_limit_f);
-
-            num_val = log2f(1.0f + (g * g * sigma1_sq) / (sv_sq + sigma_nsq));
-            den_val = log2f(1.0f + (sigma1_sq) / (sigma_nsq));
-
-            if (sigma12 < 0.0f) {
-                num_val = 0.0f;
-            }
-
-            if (sigma1_sq < sigma_nsq) {
-                num_val = 1.0f - sigma2_sq * sigma_max_inv;
-                den_val = 1.0f;
-            }
-
-            /* == end of vif_stat_mode = 'matching_matlab' == */
-
+        for (int j = 0; j < w; ++j) {
+            float num_val;
+            float den_val;
+            vif_stat_one_pixel(mu1[i * mu1_px_stride + j], mu2[i * mu2_px_stride + j],
+                               xx_filt[i * xx_filt_px_stride + j],
+                               yy_filt[i * yy_filt_px_stride + j],
+                               xy_filt[i * xy_filt_px_stride + j], sigma_nsq, sigma_max_inv,
+                               vif_egl, &num_val, &den_val);
             accum_inner_num += num_val;
             accum_inner_den += den_val;
         }
-
         accum_num += accum_inner_num;
         accum_den += accum_inner_den;
     }
@@ -593,14 +565,51 @@ void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, c
     *den = accum_den;
 }
 
+/* Mirror reflection at image edges for a tap index. Shared by every
+ * scalar-fallback convolve in this TU. */
+static inline int vif_mirror_tap(int idx, int extent)
+{
+    if (idx < 0)
+        return -idx;
+    if (idx >= extent)
+        return 2 * extent - idx - 1;
+    return idx;
+}
+
+/* One row of the vertical pass for vif_filter1d_s: taps from `src`
+ * mirrored at top/bottom, written straight to `tmp[j]`. */
+static void vif_vpass_row_s(const float *f, int fwidth, const float *src, ptrdiff_t src_px_stride,
+                            int row, int w, int h, float *tmp)
+{
+    for (int j = 0; j < w; ++j) {
+        float accum = 0;
+        for (int fi = 0; fi < fwidth; ++fi) {
+            const int ii = vif_mirror_tap(row - fwidth / 2 + fi, h);
+            accum += f[fi] * src[ii * src_px_stride + j];
+        }
+        tmp[j] = accum;
+    }
+}
+
+/* One row of the horizontal pass: taps from `tmp` mirrored at left/right,
+ * written to `dst_row`. Shared by all three scalar convolve fallbacks. */
+static void vif_hpass_row_s(const float *f, int fwidth, const float *tmp, int w, float *dst_row)
+{
+    for (int j = 0; j < w; ++j) {
+        float accum = 0;
+        for (int fj = 0; fj < fwidth; ++fj) {
+            const int jj = vif_mirror_tap(j - fwidth / 2 + fj, w);
+            accum += f[fj] * tmp[jj];
+        }
+        dst_row[j] = accum;
+    }
+}
+
 void vif_filter1d_s(const float *f, const float *src, float *dst, float *tmpbuf, int w, int h,
                     int src_stride, int dst_stride, int fwidth)
 {
-
-    int src_px_stride = src_stride / sizeof(float);
-    int dst_px_stride = dst_stride / sizeof(float);
-
-    /* if support avx */
+    const ptrdiff_t src_px_stride = (ptrdiff_t)src_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t dst_px_stride = (ptrdiff_t)dst_stride / (ptrdiff_t)sizeof(float);
 
 #if ARCH_X86
     const unsigned flags = vmaf_get_cpu_flags();
@@ -611,65 +620,35 @@ void vif_filter1d_s(const float *f, const float *src, float *dst, float *tmpbuf,
     }
 #endif
 
-    /* fall back */
-
     float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
-    float fcoeff, imgcoeff;
-
-    int i, j, fi, fj, ii, jj;
-
-    for (i = 0; i < h; ++i) {
-        /* Vertical pass. */
-        for (j = 0; j < w; ++j) {
-            float accum = 0;
-
-            for (fi = 0; fi < fwidth; ++fi) {
-                fcoeff = f[fi];
-
-                ii = i - fwidth / 2 + fi;
-                ii = ii < 0 ? -ii : (ii >= h ? 2 * h - ii - 1 : ii);
-
-                imgcoeff = src[ii * src_px_stride + j];
-
-                accum += fcoeff * imgcoeff;
-            }
-
-            tmp[j] = accum;
-        }
-
-        /* Horizontal pass. */
-        for (j = 0; j < w; ++j) {
-            float accum = 0;
-
-            for (fj = 0; fj < fwidth; ++fj) {
-                fcoeff = f[fj];
-
-                jj = j - fwidth / 2 + fj;
-                jj = jj < 0 ? -jj : (jj >= w ? 2 * w - jj - 1 : jj);
-
-                imgcoeff = tmp[jj];
-
-                accum += fcoeff * imgcoeff;
-            }
-
-            dst[i * dst_px_stride + j] = accum;
-        }
+    for (int i = 0; i < h; ++i) {
+        vif_vpass_row_s(f, fwidth, src, src_px_stride, i, w, h, tmp);
+        vif_hpass_row_s(f, fwidth, tmp, w, dst + i * dst_px_stride);
     }
-
     aligned_free(tmp);
 }
 
-// Code optimized by adding intrinsic code for the functions,
-// vif_filter1d_sq and vif_filter1d_sq
+/* One row of the vertical pass for vif_filter1d_sq_s: taps from
+ * `src * src` (squared input). */
+static void vif_vpass_row_sq_s(const float *f, int fwidth, const float *src,
+                               ptrdiff_t src_px_stride, int row, int w, int h, float *tmp)
+{
+    for (int j = 0; j < w; ++j) {
+        float accum = 0;
+        for (int fi = 0; fi < fwidth; ++fi) {
+            const int ii = vif_mirror_tap(row - fwidth / 2 + fi, h);
+            const float imgcoeff = src[ii * src_px_stride + j];
+            accum += f[fi] * (imgcoeff * imgcoeff);
+        }
+        tmp[j] = accum;
+    }
+}
 
 void vif_filter1d_sq_s(const float *f, const float *src, float *dst, float *tmpbuf, int w, int h,
                        int src_stride, int dst_stride, int fwidth)
 {
-
-    int src_px_stride = src_stride / sizeof(float);
-    int dst_px_stride = dst_stride / sizeof(float);
-
-    /* if support avx */
+    const ptrdiff_t src_px_stride = (ptrdiff_t)src_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t dst_px_stride = (ptrdiff_t)dst_stride / (ptrdiff_t)sizeof(float);
 
 #if ARCH_X86
     const unsigned flags = vmaf_get_cpu_flags();
@@ -680,64 +659,39 @@ void vif_filter1d_sq_s(const float *f, const float *src, float *dst, float *tmpb
     }
 #endif
 
-    /* fall back */
-
     float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
-    float fcoeff, imgcoeff;
-
-    int i, j, fi, fj, ii, jj;
-
-    for (i = 0; i < h; ++i) {
-        /* Vertical pass. */
-        for (j = 0; j < w; ++j) {
-            float accum = 0;
-
-            for (fi = 0; fi < fwidth; ++fi) {
-                fcoeff = f[fi];
-
-                ii = i - fwidth / 2 + fi;
-                ii = ii < 0 ? -ii : (ii >= h ? 2 * h - ii - 1 : ii);
-
-                imgcoeff = src[ii * src_px_stride + j];
-
-                accum += fcoeff * (imgcoeff * imgcoeff);
-            }
-
-            tmp[j] = accum;
-        }
-
-        /* Horizontal pass. */
-        for (j = 0; j < w; ++j) {
-            float accum = 0;
-
-            for (fj = 0; fj < fwidth; ++fj) {
-                fcoeff = f[fj];
-
-                jj = j - fwidth / 2 + fj;
-                jj = jj < 0 ? -jj : (jj >= w ? 2 * w - jj - 1 : jj);
-
-                imgcoeff = tmp[jj];
-
-                accum += fcoeff * imgcoeff;
-            }
-
-            dst[i * dst_px_stride + j] = accum;
-        }
+    for (int i = 0; i < h; ++i) {
+        vif_vpass_row_sq_s(f, fwidth, src, src_px_stride, i, w, h, tmp);
+        vif_hpass_row_s(f, fwidth, tmp, w, dst + i * dst_px_stride);
     }
-
     aligned_free(tmp);
+}
+
+/* One row of the vertical pass for vif_filter1d_xy_s: taps from
+ * `src1 * src2` (cross-product). */
+static void vif_vpass_row_xy_s(const float *f, int fwidth, const float *src1,
+                               ptrdiff_t src1_px_stride, const float *src2,
+                               ptrdiff_t src2_px_stride, int row, int w, int h, float *tmp)
+{
+    for (int j = 0; j < w; ++j) {
+        float accum = 0;
+        for (int fi = 0; fi < fwidth; ++fi) {
+            const int ii = vif_mirror_tap(row - fwidth / 2 + fi, h);
+            const float a = src1[ii * src1_px_stride + j];
+            const float b = src2[ii * src2_px_stride + j];
+            accum += f[fi] * (a * b);
+        }
+        tmp[j] = accum;
+    }
 }
 
 void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, float *dst,
                        float *tmpbuf, int w, int h, int src1_stride, int src2_stride,
                        int dst_stride, int fwidth)
 {
-
-    int src1_px_stride = src1_stride / sizeof(float);
-    int src2_px_stride = src2_stride / sizeof(float);
-    int dst_px_stride = dst_stride / sizeof(float);
-
-    /* if support avx */
+    const ptrdiff_t src1_px_stride = (ptrdiff_t)src1_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t src2_px_stride = (ptrdiff_t)src2_stride / (ptrdiff_t)sizeof(float);
+    const ptrdiff_t dst_px_stride = (ptrdiff_t)dst_stride / (ptrdiff_t)sizeof(float);
 
 #if ARCH_X86
     const unsigned flags = vmaf_get_cpu_flags();
@@ -749,51 +703,10 @@ void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, flo
     }
 #endif
 
-    /* fall back */
-
     float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
-    float fcoeff, imgcoeff, imgcoeff1, imgcoeff2;
-
-    int i, j, fi, fj, ii, jj;
-
-    for (i = 0; i < h; ++i) {
-        /* Vertical pass. */
-        for (j = 0; j < w; ++j) {
-            float accum = 0;
-
-            for (fi = 0; fi < fwidth; ++fi) {
-                fcoeff = f[fi];
-
-                ii = i - fwidth / 2 + fi;
-                ii = ii < 0 ? -ii : (ii >= h ? 2 * h - ii - 1 : ii);
-
-                imgcoeff1 = src1[ii * src1_px_stride + j];
-                imgcoeff2 = src2[ii * src2_px_stride + j];
-
-                accum += fcoeff * (imgcoeff1 * imgcoeff2);
-            }
-
-            tmp[j] = accum;
-        }
-
-        /* Horizontal pass. */
-        for (j = 0; j < w; ++j) {
-            float accum = 0;
-
-            for (fj = 0; fj < fwidth; ++fj) {
-                fcoeff = f[fj];
-
-                jj = j - fwidth / 2 + fj;
-                jj = jj < 0 ? -jj : (jj >= w ? 2 * w - jj - 1 : jj);
-
-                imgcoeff = tmp[jj];
-
-                accum += fcoeff * imgcoeff;
-            }
-
-            dst[i * dst_px_stride + j] = accum;
-        }
+    for (int i = 0; i < h; ++i) {
+        vif_vpass_row_xy_s(f, fwidth, src1, src1_px_stride, src2, src2_px_stride, i, w, h, tmp);
+        vif_hpass_row_s(f, fwidth, tmp, w, dst + i * dst_px_stride);
     }
-
     aligned_free(tmp);
 }

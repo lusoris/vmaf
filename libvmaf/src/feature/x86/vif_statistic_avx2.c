@@ -20,6 +20,8 @@
 #include <math.h>
 #include <stddef.h>
 
+#include "vif_statistic_avx2.h"
+
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 

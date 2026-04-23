@@ -117,12 +117,40 @@ fail:
     return -ENOMEM;
 }
 
+/* Publish the 14 auxiliary debug features (raw num/den per scale + overall
+ * vif / vif_num / vif_den). Only reached when the `debug` option is on. */
+static int publish_debug_vif_features(VmafFeatureCollector *fc, VmafDictionary *name_dict,
+                                      unsigned index, double score, double score_num,
+                                      double score_den, const double *scores)
+{
+    int err = 0;
+    err |= vmaf_feature_collector_append_with_dict(fc, name_dict, "vif", score, index);
+    err |= vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num", score_num, index);
+    err |= vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den", score_den, index);
+    err |=
+        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num_scale0", scores[0], index);
+    err |=
+        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den_scale0", scores[1], index);
+    err |=
+        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num_scale1", scores[2], index);
+    err |=
+        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den_scale1", scores[3], index);
+    err |=
+        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num_scale2", scores[4], index);
+    err |=
+        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den_scale2", scores[5], index);
+    err |=
+        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num_scale3", scores[6], index);
+    err |=
+        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den_scale3", scores[7], index);
+    return err;
+}
+
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
 {
     VifState *s = fex->priv;
-    int err = 0;
 
     (void)ref_pic_90;
     (void)dist_pic_90;
@@ -130,66 +158,33 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     picture_copy(s->ref, s->float_stride, ref_pic, -128, ref_pic->bpc);
     picture_copy(s->dist, s->float_stride, dist_pic, -128, dist_pic->bpc);
 
-    double score, score_num, score_den;
+    double score;
+    double score_num;
+    double score_den;
     double scores[8];
-    err = compute_vif(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride,
-                      s->float_stride, &score, &score_num, &score_den, scores,
-                      s->vif_enhn_gain_limit, s->vif_kernelscale, s->vif_sigma_nsq);
+    int err = compute_vif(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride,
+                          s->float_stride, &score, &score_num, &score_den, scores,
+                          s->vif_enhn_gain_limit, s->vif_kernelscale, s->vif_sigma_nsq);
     if (err)
         return err;
 
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_feature_vif_scale0_score",
                                                    scores[0] / scores[1], index);
-
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_feature_vif_scale1_score",
                                                    scores[2] / scores[3], index);
-
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_feature_vif_scale2_score",
                                                    scores[4] / scores[5], index);
-
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_feature_vif_scale3_score",
                                                    scores[6] / scores[7], index);
 
-    if (!s->debug)
-        return err;
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, "vif",
-                                                   score, index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_num", score_num, index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_den", score_den, index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_num_scale0", scores[0], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_den_scale0", scores[1], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_num_scale1", scores[2], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_den_scale1", scores[3], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_num_scale2", scores[4], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_den_scale2", scores[5], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_num_scale3", scores[6], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "vif_den_scale3", scores[7], index);
-
+    if (s->debug) {
+        err |= publish_debug_vif_features(feature_collector, s->feature_name_dict, index, score,
+                                          score_num, score_den, scores);
+    }
     return err;
 }
 
@@ -220,6 +215,10 @@ static const char *provided_features[] = {"VMAF_feature_vif_scale0_score",
                                           "vif_num_scale3",
                                           "vif_den_scale3",
                                           NULL};
+
+/* Redundant extern declaration so single-TU analysis (clang-tidy) sees the
+ * cross-TU use in feature_extractor.c's static registration table. */
+extern VmafFeatureExtractor vmaf_fex_float_vif;
 
 VmafFeatureExtractor vmaf_fex_float_vif = {
     .name = "float_vif",
