@@ -229,7 +229,7 @@ int vmaf_feature_collector_init(VmafFeatureCollector **const feature_collector)
         goto fail;
     memset(fc, 0, sizeof(*fc));
     fc->capacity = 8;
-    const size_t fv_sz = sizeof(*(fc->feature_vector)) * fc->capacity;
+    const size_t fv_sz = sizeof(FeatureVector *) * fc->capacity;
     fc->feature_vector = (FeatureVector **)malloc(fv_sz);
     if (!fc->feature_vector)
         goto free_fc;
@@ -357,7 +357,7 @@ static int feature_collector_grow_capacity(VmafFeatureCollector *feature_collect
     if (feature_collector->cnt + 1 <= feature_collector->capacity)
         return 0;
     assert(feature_collector->capacity > 0);
-    const size_t entry_sz = sizeof(*(feature_collector->feature_vector));
+    const size_t entry_sz = sizeof(FeatureVector *);
     const size_t old_bytes = entry_sz * feature_collector->capacity;
     FeatureVector **fv =
         (FeatureVector **)realloc((void *)feature_collector->feature_vector, old_bytes * 2);
