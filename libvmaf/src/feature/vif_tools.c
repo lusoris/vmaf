@@ -57,9 +57,12 @@ static float log2f_approx(float x)
     const uint32_t exp_mant_mask = 0x007FFFFFUL;
 
     float remain;
-    float log_base, log_remain;
-    uint32_t u32, u32remain;
-    uint32_t exponent, mant;
+    float log_base;
+    float log_remain;
+    uint32_t u32;
+    uint32_t u32remain;
+    uint32_t exponent;
+    uint32_t mant;
 
     if (x == 0)
         return -INFINITY;
@@ -429,7 +432,8 @@ void vif_dec2_s(const float *src, float *dst, int src_w, int src_h, int src_stri
     int src_px_stride = src_stride / sizeof(float); // src_stride is in bytes
     int dst_px_stride = dst_stride / sizeof(float);
 
-    int i, j;
+    int i;
+    int j;
 
     // decimation by 2 in each direction (after gaussian blur? check)
     for (i = 0; i < src_h / 2; ++i) {
@@ -442,7 +446,8 @@ void vif_dec2_s(const float *src, float *dst, int src_w, int src_h, int src_stri
 float vif_sum_s(const float *x, int w, int h, int stride)
 {
     int px_stride = stride / sizeof(float);
-    int i, j;
+    int i;
+    int j;
 
     float accum = 0;
 
@@ -464,6 +469,11 @@ void vif_statistic_s_avx2(const float *mu1, const float *mu2, const float *xx_fi
                           int h, int mu1_stride, int mu2_stride, int xx_filt_stride,
                           int yy_filt_stride, int xy_filt_stride, double vif_enhn_gain_limit);
 
+/* vif_statistic_s — upstream Netflix scalar fast path. Function-size refactor
+ * deferred to backlog item T7-5 per ADR-0141 §Historical debt (the scalar
+ * reference shape is carried verbatim to preserve the bit-exactness contract
+ * with its AVX2 sibling and upstream's rebase story). */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, const float *yy_filt,
                      const float *xy_filt, float *num, float *den, int w, int h, int mu1_stride,
                      int mu2_stride, int xx_filt_stride, int yy_filt_stride, int xy_filt_stride,
@@ -488,15 +498,26 @@ void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, c
     int yy_filt_px_stride = yy_filt_stride / sizeof(float);
     int xy_filt_px_stride = xy_filt_stride / sizeof(float);
 
-    float mu1_sq_val, mu2_sq_val, mu1_mu2_val, xx_filt_val, yy_filt_val, xy_filt_val;
-    float sigma1_sq, sigma2_sq, sigma12;
-    float num_val, den_val;
-    int i, j;
+    float mu1_sq_val;
+    float mu2_sq_val;
+    float mu1_mu2_val;
+    float xx_filt_val;
+    float yy_filt_val;
+    float xy_filt_val;
+    float sigma1_sq;
+    float sigma2_sq;
+    float sigma12;
+    float num_val;
+    float den_val;
+    int i;
+    int j;
 
     /* ==== vif_stat_mode = 'matching_c' ==== */
     // float num_log_den, num_log_num;
     /* ==== vif_stat_mode = 'matching_matlab' ==== */
-    float g, sv_sq, eps = 1.0e-10f;
+    float g;
+    float sv_sq;
+    float eps = 1.0e-10f;
     float vif_enhn_gain_limit_f = (float)vif_enhn_gain_limit;
     /* == end of vif_stat_mode = 'matching_matlab' == */
 
@@ -592,6 +613,9 @@ void vif_statistic_s(const float *mu1, const float *mu2, const float *xx_filt, c
     *den = accum_den;
 }
 
+/* vif_filter1d_s — upstream scalar VIF 1-D convolve. Function-size deferred
+ * to T7-5 per ADR-0141 §Historical debt. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 void vif_filter1d_s(const float *f, const float *src, float *dst, float *tmpbuf, int w, int h,
                     int src_stride, int dst_stride, int fwidth)
 {
@@ -613,9 +637,15 @@ void vif_filter1d_s(const float *f, const float *src, float *dst, float *tmpbuf,
     /* fall back */
 
     float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
-    float fcoeff, imgcoeff;
+    float fcoeff;
+    float imgcoeff;
 
-    int i, j, fi, fj, ii, jj;
+    int i;
+    int j;
+    int fi;
+    int fj;
+    int ii;
+    int jj;
 
     for (i = 0; i < h; ++i) {
         /* Vertical pass. */
@@ -661,6 +691,8 @@ void vif_filter1d_s(const float *f, const float *src, float *dst, float *tmpbuf,
 // Code optimized by adding intrinsic code for the functions,
 // vif_filter1d_sq and vif_filter1d_sq
 
+/* vif_filter1d_sq_s — upstream scalar variant. T7-5 / ADR-0141. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 void vif_filter1d_sq_s(const float *f, const float *src, float *dst, float *tmpbuf, int w, int h,
                        int src_stride, int dst_stride, int fwidth)
 {
@@ -682,9 +714,15 @@ void vif_filter1d_sq_s(const float *f, const float *src, float *dst, float *tmpb
     /* fall back */
 
     float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
-    float fcoeff, imgcoeff;
+    float fcoeff;
+    float imgcoeff;
 
-    int i, j, fi, fj, ii, jj;
+    int i;
+    int j;
+    int fi;
+    int fj;
+    int ii;
+    int jj;
 
     for (i = 0; i < h; ++i) {
         /* Vertical pass. */
@@ -727,6 +765,8 @@ void vif_filter1d_sq_s(const float *f, const float *src, float *dst, float *tmpb
     aligned_free(tmp);
 }
 
+/* vif_filter1d_xy_s — upstream scalar variant. T7-5 / ADR-0141. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, float *dst,
                        float *tmpbuf, int w, int h, int src1_stride, int src2_stride,
                        int dst_stride, int fwidth)
@@ -751,9 +791,17 @@ void vif_filter1d_xy_s(const float *f, const float *src1, const float *src2, flo
     /* fall back */
 
     float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
-    float fcoeff, imgcoeff, imgcoeff1, imgcoeff2;
+    float fcoeff;
+    float imgcoeff;
+    float imgcoeff1;
+    float imgcoeff2;
 
-    int i, j, fi, fj, ii, jj;
+    int i;
+    int j;
+    int fi;
+    int fj;
+    int ii;
+    int jj;
 
     for (i = 0; i < h; ++i) {
         /* Vertical pass. */

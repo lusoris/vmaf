@@ -16,8 +16,6 @@
  *
  */
 
-#pragma once
-
 #ifndef CONVOLUTION_INTERNAL_H_
 #define CONVOLUTION_INTERNAL_H_
 
@@ -38,15 +36,17 @@ FORCE_INLINE float convolution_edge_s(bool horizontal, const float *filter, int 
         // Handle edges by mirroring. Upstream `41d42c9e` fixed the off-by-one:
         // `+ 1` → `+ 2` makes the reflection match sample indexing correctly.
         if (horizontal) {
-            if (j_tap < 0)
+            if (j_tap < 0) {
                 j_tap = -j_tap;
-            else if (j_tap >= width)
+            } else if (j_tap >= width) {
                 j_tap = width - (j_tap - width + 2);
+            }
         } else {
-            if (i_tap < 0)
+            if (i_tap < 0) {
                 i_tap = -i_tap;
-            else if (i_tap >= height)
+            } else if (i_tap >= height) {
                 i_tap = height - (i_tap - height + 2);
+            }
         }
 
         accum += filter[k] * src[i_tap * stride + j_tap];
@@ -68,15 +68,17 @@ FORCE_INLINE float convolution_edge_sq_s(bool horizontal, const float *filter, i
 
         // Handle edges by mirroring (upstream `41d42c9e` +1 → +2 bugfix).
         if (horizontal) {
-            if (j_tap < 0)
+            if (j_tap < 0) {
                 j_tap = -j_tap;
-            else if (j_tap >= width)
+            } else if (j_tap >= width) {
                 j_tap = width - (j_tap - width + 2);
+            }
         } else {
-            if (i_tap < 0)
+            if (i_tap < 0) {
                 i_tap = -i_tap;
-            else if (i_tap >= height)
+            } else if (i_tap >= height) {
                 i_tap = height - (i_tap - height + 2);
+            }
         }
         src_val = src[i_tap * stride + j_tap];
         accum += filter[k] * (src_val * src_val);
@@ -91,22 +93,25 @@ FORCE_INLINE float convolution_edge_xy_s(bool horizontal, const float *filter, i
     int radius = filter_width / 2;
 
     float accum = 0;
-    float src_val1, src_val2;
+    float src_val1;
+    float src_val2;
     for (int k = 0; k < filter_width; ++k) {
         int i_tap = horizontal ? i : i - radius + k;
         int j_tap = horizontal ? j - radius + k : j;
 
         // Handle edges by mirroring (upstream `41d42c9e` +1 → +2 bugfix).
         if (horizontal) {
-            if (j_tap < 0)
+            if (j_tap < 0) {
                 j_tap = -j_tap;
-            else if (j_tap >= width)
+            } else if (j_tap >= width) {
                 j_tap = width - (j_tap - width + 2);
+            }
         } else {
-            if (i_tap < 0)
+            if (i_tap < 0) {
                 i_tap = -i_tap;
-            else if (i_tap >= height)
+            } else if (i_tap >= height) {
                 i_tap = height - (i_tap - height + 2);
+            }
         }
         src_val1 = src1[i_tap * stride1 + j_tap];
         src_val2 = src2[i_tap * stride2 + j_tap];
