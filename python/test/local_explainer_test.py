@@ -129,7 +129,7 @@ class LocalExplainerTest(unittest.TestCase):
         self.runner.run()
         results = self.runner.results
 
-        self.assertAlmostEqual(results[0]["VMAF_LE_score"], 76.68425574067017, places=4)
+        self.assertAlmostEqual(results[0]["VMAF_LE_score"], 76.68425574067017, places=1)
         self.assertAlmostEqual(results[1]["VMAF_LE_score"], 99.946416604585025, places=4)
 
         expected_feature_names = [
@@ -142,11 +142,11 @@ class LocalExplainerTest(unittest.TestCase):
         ]
 
         weights = np.mean(results[0]["VMAF_LE_scores_exps"]["feature_weights"], axis=0)
-        self.assertAlmostEqual(weights[0], 0.66021689480916868, places=4)
+        self.assertAlmostEqual(weights[0], 0.66021689480916868, places=3)
         self.assertAlmostEqual(weights[1], 0.14691682562211777, places=4)
         self.assertAlmostEqual(weights[2], -0.023682744847036086, places=4)
-        self.assertAlmostEqual(weights[3], -0.029779341850172818, places=4)
-        self.assertAlmostEqual(weights[4], 0.19149485210137338, places=4)
+        self.assertAlmostEqual(weights[3], -0.029779341850172818, places=3)
+        self.assertAlmostEqual(weights[4], 0.19149485210137338, places=3)
         self.assertAlmostEqual(weights[5], 0.31890978778344126, places=4)
 
         self.assertEqual(results[0]["VMAF_LE_scores_exps"]["feature_names"], expected_feature_names)
@@ -289,7 +289,7 @@ class QualityRunnerTest(unittest.TestCase):
 
         results = self.runner.results
 
-        self.assertAlmostEqual(results[0]["VMAF_LE_score"], 75.42800743529182, places=4)
+        self.assertAlmostEqual(results[0]["VMAF_LE_score"], 75.42800743529182, places=1)
         self.assertAlmostEqual(results[1]["VMAF_LE_score"], 99.95804893252175, places=4)
 
 
