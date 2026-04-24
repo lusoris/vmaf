@@ -2204,3 +2204,77 @@ inline.*
   # which doesn't exercise fifo_mode path but does verify the
   # refactor didn't break executor.py imports.
   ```
+
+### 0043 — Port Netflix #1472 — CUDA on Windows MSYS2/MinGW (ADR-0150)
+
+- **ADR**: [ADR-0150](adr/0150-port-netflix-1472-cuda-windows.md)
+- **Upstream commits**: Netflix PR
+  [#1472](https://github.com/Netflix/vmaf/pull/1472) —
+  `15745cdf` (portability) + `b7b65e64` (meson plumbing). Both
+  OPEN upstream as of 2026-04-24.
+- **Touches**:
+  - [`libvmaf/src/cuda/common.h`](../libvmaf/src/cuda/common.h)
+    — drop `<pthread.h>` include; rename reserved header guard
+    `__VMAF_SRC_CUDA_COMMON_H__` → `VMAF_SRC_CUDA_COMMON_INCLUDED`.
+  - [`libvmaf/src/cuda/cuda_helper.cuh`](../libvmaf/src/cuda/cuda_helper.cuh)
+    — `#ifdef DEVICE_CODE` guard around `<cuda.h>` vs
+    `<ffnvcodec/dynlink_loader.h>`.
+  - [`libvmaf/src/picture.h`](../libvmaf/src/picture.h) —
+    `#ifdef DEVICE_CODE` guard around `<cuda.h>` +
+    forward-declare `VmafCudaState` vs `<ffnvcodec/*>` + full
+    `libvmaf_cuda.h`; rename reserved header guard.
+  - [`libvmaf/src/feature/integer_adm.h`](../libvmaf/src/feature/integer_adm.h)
+    — updated comment above `dwt_7_9_YCbCr_threshold` table
+    noting the fork's positional-initializer shape vs upstream's
+    `#ifndef __CUDACC__` shape (see §Fork carve-outs).
+  - `libvmaf/src/feature/cuda/integer_adm/{adm_cm,adm_csf,adm_csf_den,adm_decouple,adm_dwt2}.cu`
+    — `#ifndef DEVICE_CODE` guard around
+    `#include "feature_collector.h"`.
+  - [`libvmaf/src/meson.build`](../libvmaf/src/meson.build) —
+    Windows nvcc plumbing (+70 LoC under
+    `host_machine.system() == 'windows'`): `vswhere`-based
+    `cl.exe` discovery, MSVC + Windows SDK include path
+    injection, CUDA version detection via `nvcc --version`,
+    `nvcc_ccbin_flags` + `nvcc_host_includes` threaded through
+    every `custom_target` that invokes nvcc.
+- **Fork carve-outs** (load-bearing on rebase):
+  1. **`integer_adm.h` uses positional initializers**, NOT
+     upstream's `#ifndef __CUDACC__` wrap. Both shapes resolve
+     the MSVC/nvcc C++-designated-initializer issue; the
+     positional form is C++-portable and keeps the table
+     available to future `.cu` consumers. Keep the fork's form
+     on rebase.
+  2. **`cuda_static_lib` keeps `dependencies : [pthread_dependency]`**.
+     Upstream drops it; the fork needs it because `ring_buffer.c`
+     (built as part of `cuda_static_lib`) `#include`s
+     `<pthread.h>` directly. On rebase: keep the fork's version.
+  3. **`meson.build` gencode coverage block**: the fork's
+     ADR-0122 explicit cubin list (sm_75/80/86/89 + compute_80
+     PTX) sits after the new upstream nvcc-detect block. On
+     rebase, re-assemble the same merged order: nvcc-detect
+     first, then gencode coverage (both host-independent).
+  4. **Header guards**: `_INCLUDED` spellings are fork-local
+     (ADR-0148 precedent). Upstream keeps reserved
+     `__VMAF_SRC_*_H__` spellings. On rebase, keep `_INCLUDED`.
+- **On upstream sync**: PR #1472 is still OPEN. When merged,
+  re-diff the three conflict-resolved hunks against upstream's
+  final form. Keep fork's version on the four carve-outs above
+  unless upstream meaningfully reshapes those regions.
+- **Re-test on rebase** (Linux host with CUDA toolkit):
+
+  ```bash
+  meson setup libvmaf libvmaf/build-cuda \
+      -Denable_cuda=true -Denable_nvcc=true -Denable_sycl=false
+  ninja -C libvmaf/build-cuda && meson test -C libvmaf/build-cuda
+  # Expect 6 .fatbin files generated + CLI linked + 35/35 tests pass.
+  ```
+
+  Windows validation is operator-driven — CI does not yet have a
+  Windows + MSYS2 + MinGW + MSVC BuildTools + CUDA runner
+  (tracked as T7-3 in `.workingdir2/OPEN.md`).
+- **Prerequisites note** (Windows only): `nv-codec-headers` must
+  be built from git master commit `876af32` or later. The
+  release tag `n13.0.19.0` is missing `cuMemFreeHost`,
+  `cuStreamCreateWithPriority`, `cuLaunchHostFunc`, and other
+  `CudaFunctions` members libvmaf uses. Pre-existing issue, not
+  scope of this port.

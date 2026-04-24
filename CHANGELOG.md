@@ -22,6 +22,34 @@
   `src01_hrc00/01_576x324` pair. See
   [ADR-0145](docs/adr/0145-motion-v2-neon-bitexact.md).
 
+### Added
+
+- **Windows MSYS2/MinGW CUDA build support** (port of Netflix
+  upstream PR [#1472](https://github.com/Netflix/vmaf/pull/1472),
+  birkdev, 2026-03-16, OPEN). Enables
+  `-Denable_cuda=true -Denable_nvcc=true` on Windows with MSYS2 +
+  MinGW-GCC host compiler + MSVC Build Tools + CUDA toolkit.
+  Source-portability guards in CUDA headers + `.cu` files: drop
+  `<pthread.h>` from `cuda/common.h`; DEVICE_CODE guards on
+  `<ffnvcodec/*>` vs `<cuda.h>` in `cuda_helper.cuh` +
+  `picture.h`; `#ifndef DEVICE_CODE` around `feature_collector.h`
+  in 5 ADM `.cu` files. Meson build plumbing: `vswhere`-based
+  `cl.exe` discovery (without adding it to PATH, which would
+  break MinGW-GCC CPU build), Windows SDK + MSVC include path
+  injection via `-I` flags to nvcc, CUDA version detection via
+  `nvcc --version` (replaces `meson.get_compiler('cuda')` which
+  needs MSVC as default C compiler). Fork carve-outs: keep
+  positional (not `#ifndef __CUDACC__`) initializers in
+  `integer_adm.h`; keep `pthread_dependency` on `cuda_static_lib`
+  because `ring_buffer.c` still uses pthread directly; merge
+  fork's ADR-0122 gencode coverage block with upstream's new
+  nvcc-detect block. Drive-by: rename reserved `__VMAF_SRC_*_H__`
+  header guards to `VMAF_SRC_*_INCLUDED` per ADR-0141. Linux
+  CPU build 32/32 + Linux CUDA build 35/35 pass; Windows CUDA
+  build not yet CI-validated (tracked as T7-3 — self-hosted
+  Windows+CUDA runner enrollment). Closes backlog item T4-2.
+  See [ADR-0150](docs/adr/0150-port-netflix-1472-cuda-windows.md).
+
 ### Fixed
 
 - **FIFO-mode workfile/procfile opens no longer race-hang on slow
