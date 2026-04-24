@@ -83,6 +83,13 @@ fail:
     if (ctx_pushed)
         (void)cu_state->f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    /* Netflix#1300 — release the primary context we just retained so
+     * vmaf_cuda_state_init's unwind only has to free c + c->f. Without
+     * this the driver keeps the primary context alive for the lifetime
+     * of the process. */
+    (void)cu_state->f->cuDevicePrimaryCtxRelease(cu_state->dev);
+    cu_state->ctx = 0;
+    cu_state->release_ctx = 0;
     return _cuda_err;
 }
 
@@ -174,10 +181,20 @@ int vmaf_cuda_state_init(VmafCudaState **cu_state, VmafCudaConfiguration cfg)
         return -EINVAL;
     }
 
-    if (cfg.cu_ctx)
-        return init_with_provided_context(c, cfg.cu_ctx);
-    else
-        return init_with_primary_context(c);
+    /* Netflix#1300 — if the inner init fails (no visible device,
+     * primary-context retain refused, stream create failed, ...) the
+     * pre-fix code returned the error code but left c + c->f on the
+     * heap. The caller only has **cu_state populated with a half-
+     * initialised struct and no way to free it because vmaf_cuda_release
+     * refuses (is_cudastate_empty returns true for the no-context
+     * case). Unwind here so the error path is allocation-neutral. */
+    err = cfg.cu_ctx ? init_with_provided_context(c, cfg.cu_ctx) : init_with_primary_context(c);
+    if (err) {
+        cuda_free_functions(&c->f);
+        free(c);
+        *cu_state = NULL;
+    }
+    return err;
 }
 
 int vmaf_cuda_sync(VmafCudaState *cu_state)
@@ -211,7 +228,17 @@ int vmaf_cuda_release(VmafCudaState *cu_state)
     if (cu_state->release_ctx)
         CHECK_CUDA_GOTO(cu_state->f, cuDevicePrimaryCtxRelease(cu_state->dev), fail_after_pop);
 
+    /* Save the dlopen'd driver function table before the memset so we
+     * can release it afterwards. Order matters: zeroing cu_state first
+     * guarantees that any caller that reinspects the struct after
+     * vmaf_close() sees a NULL f field rather than a pointer to freed
+     * memory. Netflix#1300 — the original code leaked the CudaFunctions
+     * table (~hundreds of function pointers) on every init/close
+     * cycle. */
+    CudaFunctions *f = cu_state->f;
     memset((void *)cu_state, 0, sizeof(*cu_state));
+    if (f)
+        cuda_free_functions(&f);
     return 0;
 
 fail:
@@ -219,6 +246,23 @@ fail:
         (void)cu_state->f->cuCtxPopCurrent(NULL);
 fail_after_pop:
     return _cuda_err;
+}
+
+int vmaf_cuda_state_free(VmafCudaState *cu_state)
+{
+    /* NULL-safe like libc free(). Netflix#1300 — vmaf_cuda_state_init()
+     * heap-allocates a VmafCudaState that vmaf_cuda_import_state()
+     * copies by value into the VmafContext; vmaf_close() only tears
+     * down the copy, never the original allocation. Callers must
+     * invoke vmaf_cuda_state_free() after vmaf_close() to release the
+     * original struct. By this point vmaf_close() has already run
+     * vmaf_cuda_release(), which destroys stream + context and memsets
+     * the struct to zero, so the only work left here is the free()
+     * itself. */
+    if (!cu_state)
+        return 0;
+    free(cu_state);
+    return 0;
 }
 
 int vmaf_cuda_buffer_alloc(VmafCudaState *cu_state, VmafCudaBuffer **p_buf, size_t size)

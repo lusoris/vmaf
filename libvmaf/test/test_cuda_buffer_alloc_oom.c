@@ -64,7 +64,7 @@ static char *test_cuda_buffer_alloc_oom_returns_enomem(void)
     mu_assert("vmaf_cuda_buffer_alloc must NULL out the output buffer on failure", buf == NULL);
 
     (void)vmaf_cuda_release(cu_state);
-    free(cu_state);
+    (void)vmaf_cuda_state_free(cu_state);
     return NULL;
 }
 

@@ -45,6 +45,21 @@ typedef struct VmafCudaConfiguration {
 int vmaf_cuda_state_init(VmafCudaState **cu_state, VmafCudaConfiguration cfg);
 
 /**
+ * Free VmafCudaState allocated by `vmaf_cuda_state_init()`.
+ *
+ * Must be called AFTER `vmaf_close()` on any VmafContext that imported
+ * this state via `vmaf_cuda_import_state()`, because `vmaf_close()`
+ * destroys the underlying CUDA stream and context. Calling
+ * `vmaf_cuda_state_free()` first would leave `vmaf_close()` with a
+ * dangling state.
+ *
+ * @param cu_state CUDA state to free. Safe to pass NULL.
+ *
+ * @return 0 on success, or < 0 (a negative errno code) on error.
+ */
+int vmaf_cuda_state_free(VmafCudaState *cu_state);
+
+/**
  * Import VmafCudaState for use during CUDA feature extraction.
  *
  * @param vmaf VMAF context allocated with `vmaf_init()`.

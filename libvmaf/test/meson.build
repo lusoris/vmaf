@@ -274,6 +274,21 @@ test_cuda_buffer_alloc_oom = executable('test_cuda_buffer_alloc_oom',
     c_args: ['-DHAVE_CUDA=1']
 )
 test('test_cuda_buffer_alloc_oom', test_cuda_buffer_alloc_oom)
+
+# Netflix#1300 / ADR-0157 — preallocation-leak reducer. Runs N
+# init/preallocate/fetch/close cycles with FULL cleanup on each cycle
+# (vmaf_close + vmaf_cuda_state_free + vmaf_model_destroy). ASan is the
+# gate: pre-fix, the framework leaked the VmafCudaState struct, the
+# CudaFunctions dlopen table, and the ring-buffer mutex state on every
+# cycle. GPU-gated: skips cleanly if no driver/device is visible.
+test_cuda_preallocation_leak = executable('test_cuda_preallocation_leak',
+    ['test.c', 'test_cuda_preallocation_leak.c'],
+    include_directories : [libvmaf_inc, test_inc],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, cuda_dependency],
+    c_args: ['-DHAVE_CUDA=1']
+)
+test('test_cuda_preallocation_leak', test_cuda_preallocation_leak)
 endif
 
 # picture pool test - exercises vmaf_preallocate_pictures / vmaf_fetch_preallocated_picture.
