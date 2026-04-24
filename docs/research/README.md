@@ -76,6 +76,7 @@ Conventions:
 | [0015](0015-ssimulacra2-simd.md) | SSIMULACRA 2 AVX2 + AVX-512 + NEON — per-lane `cbrtf`, left-to-right summation, 2×2 downsample deinterleave | Active | [ADR-0161](../adr/0161-ssimulacra2-simd-bitexact.md) |
 | [0016](0016-ssimulacra2-iir-blur-simd.md) | SSIMULACRA 2 IIR blur SIMD — row-batching with gather (horizontal), column-SIMD (vertical), bit-exact to scalar | Active | [ADR-0162](../adr/0162-ssimulacra2-iir-blur-simd.md) |
 | [0017](0017-ssimulacra2-ptlr-simd.md) | SSIMULACRA 2 `picture_to_linear_rgb` SIMD — per-lane scalar reads, SIMD matmul, per-lane scalar `powf` | Active | [ADR-0163](../adr/0163-ssimulacra2-ptlr-simd.md) |
+| [0018](0018-ssimulacra2-snapshot-gate.md) | SSIMULACRA 2 snapshot-JSON regression gate — why fork self-consistency beats libjxl/Pacidus cross-check at this scope | Active | [ADR-0164](../adr/0164-ssimulacra2-snapshot-gate.md) |
 
 <!-- Backfill entries for older workstreams land here as their authors
      revisit the corresponding code. -->

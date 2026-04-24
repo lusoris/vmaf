@@ -44,6 +44,16 @@
 
 ### Added
 
+- **SSIMULACRA 2 regression gate** (fork-local, backlog T3-3). New
+  `python/test/ssimulacra2_test.py` invokes `vmaf --feature ssimulacra2`
+  on the canonical `src01_hrc00/01_576x324` pair + the small 160×90
+  derived fixture and pins the per-frame + pooled output scores
+  against reference values with 4-place tolerance. Catches unintended
+  drift in the extractor output — complements the kernel-level SIMD
+  bit-exact unit tests with an end-to-end integration gate. Closes
+  ADR-0130's T3-3 deferral; backlog T3-1 + T3-3 both close now.
+  See [ADR-0164](docs/adr/0164-ssimulacra2-snapshot-gate.md).
+
 - **SSIMULACRA 2 `picture_to_linear_rgb` SIMD (AVX2 + AVX-512 + NEON)**
   (fork-local, backlog T3-1 phase 3 — closes T3-1 in full). The last
   scalar hot path in the SSIMULACRA 2 extractor is now vectorised on

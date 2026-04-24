@@ -2289,6 +2289,44 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0056 — SSIMULACRA 2 snapshot-JSON regression gate (ADR-0164)
+
+- **ADR**: [ADR-0164](adr/0164-ssimulacra2-snapshot-gate.md)
+- **Upstream source**: fork-local. Netflix/vmaf has no SSIMULACRA 2.
+- **Touches**:
+  - [python/test/ssimulacra2_test.py](../python/test/ssimulacra2_test.py)
+    — new fork-added Python test. Uses `subprocess.call` against
+    `ExternalProgram.vmafexec` with `--feature ssimulacra2`; parses
+    the `--json` output; asserts pooled + per-frame scores.
+- **Invariants** (load-bearing):
+  1. **Pinned values are CPU-only** — generated on master HEAD
+     after PR #100 merge. Re-generate if the scalar or any SIMD
+     path changes semantically (which per ADR-0161/0162/0163's
+     bit-exactness contract, it shouldn't — any bit-exact refactor
+     leaves pinned values unchanged).
+  2. **Tolerance is 4 decimal places (`places=4`)** — matches
+     1e-4. The CPU paths are bit-exact so actual drift should be
+     0; the tolerance is defensive.
+  3. **Fixtures are already-checked-in** — `src01_hrc00/01_576x324`
+     is also the primary Netflix golden fixture; the 160×90
+     derived one stresses the sub-176 pyramid-termination path.
+  4. **Do NOT modify the Netflix golden assertions in
+     quality_runner_test.py et al.** — those are upstream-pinned.
+     This test is a SEPARATE file that adds fork-specific scores.
+- **On upstream sync**: no upstream interaction. If Netflix adopts
+  SSIMULACRA 2 in the future, cross-reference against their
+  pinning if they add one.
+- **Re-test on rebase / after any ssimulacra2 change**:
+
+  ```bash
+  cd python && python -m pytest test/ssimulacra2_test.py -v   # 2/2
+  ```
+
+- **Follow-ups**:
+  - Cross-reference gate against libjxl `tools/ssimulacra2` when
+    `ssimulacra2_rs` cargo install is fixed.
+  - Expand fixture coverage if new YUV test assets land.
+
 ### 0055 — SSIMULACRA 2 `picture_to_linear_rgb` SIMD (ADR-0163)
 
 - **ADR**: [ADR-0163](adr/0163-ssimulacra2-ptlr-simd.md)
