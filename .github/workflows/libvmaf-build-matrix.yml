@@ -44,6 +44,22 @@ jobs:
             CXX: ccache clang++
             name: Build — Ubuntu ARM clang (CPU)
 
+          # --- i686 (32-bit x86) build — reproduces Netflix#1481 ---
+          # Verifies libvmaf still compiles on 32-bit x86 with
+          # -Denable_asm=false. The documented workaround for the
+          # `_mm256_extract_epi64` implicit-declaration failure on
+          # 32-bit x86 is to disable the asm path; this job pins
+          # that contract so any future 32-bit-only regression trips
+          # the matrix. Tests are skipped (meson cross-build marks
+          # them SKIP 77 — host can run i686 binaries natively but
+          # meson doesn't know that). See ADR-0151.
+          - os: ubuntu-latest
+            CC: ccache gcc
+            CXX: ccache g++
+            i686: true
+            meson_extra: --cross-file=build-aux/i686-linux-gnu.ini -Denable_asm=false
+            name: Build — Ubuntu i686 gcc (CPU, no-asm)
+
           # --- DNN-enabled builds (ADR-0120) ---
           # Build with -Denable_dnn=enabled across compiler/OS combinations
           # to ensure the ORT C-API surface compiles on every CPU leg, not
@@ -134,7 +150,7 @@ jobs:
           pip install meson
 
       - name: Install dependencies (ubuntu)
-        if: startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda
+        if: startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686
         run: |
           sudo apt-get update
           sudo -E apt-get -yq install ccache ninja-build nasm libomp-dev pkg-config
@@ -142,6 +158,14 @@ jobs:
           *gcc)   sudo -E apt-get -yq install gcc g++ ;;
           *clang) sudo -E apt-get -yq install clang ;;
           esac
+
+      - name: Install dependencies (ubuntu i686)
+        if: matrix.i686
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo -E apt-get -yq install ccache ninja-build pkg-config \
+            gcc g++ gcc-multilib g++-multilib
 
       - name: Install dependencies (mac)
         if: matrix.os == 'macos-latest'
@@ -275,13 +299,16 @@ jobs:
         # left build artifacts owned by root.
         run: sudo $(which meson) test -C libvmaf/build --suite=dnn --print-errorlogs
 
-      # CPU-only: full test suite + tox
+      # CPU-only: full test suite + tox (skipped for i686 cross-build
+      # because meson marks cross-compiled tests SKIP 77 regardless of
+      # whether the host can actually run them; the build itself is
+      # what Netflix#1481 needs to pin).
       - name: Run tests
-        if: "!matrix.sycl && !matrix.cuda"
+        if: "!matrix.sycl && !matrix.cuda && !matrix.i686"
         run: sudo ninja -vC libvmaf/build test
 
       - name: Run tox tests (ubuntu)
-        if: "startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda"
+        if: "startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686"
         run: |
           mkdir -p ~/.ccache && sudo chown -R $(whoami) ~/.ccache
           pip install tox
