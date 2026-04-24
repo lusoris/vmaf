@@ -2279,6 +2279,62 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0048 — `i4_adm_cm` int32 rounding overflow deliberately preserved (ADR-0155)
+
+- **ADR**: [ADR-0155](adr/0155-adm-i4-rounding-deferred-netflix-955.md)
+- **Upstream source**: Netflix upstream issue
+  [#955](https://github.com/Netflix/vmaf/issues/955) (OPEN since
+  2020; no maintainer response as of 2026-04-24). Reports that
+  `add_bef_shift_flt[idx] = (1u << (shift_flt[idx] - 1))` in
+  `libvmaf/src/feature/integer_adm.c` scales 1–3 overflows
+  `int32_t` (`1u << 31 = 0x80000000` wraps to `-2147483648`).
+  Rounding term is sign-negated; ADM scales 1–3 biased low by
+  ≈1 LSB per summed term.
+- **Touches** (documentation-only):
+  - [`docs/adr/0155-adm-i4-rounding-deferred-netflix-955.md`](adr/0155-adm-i4-rounding-deferred-netflix-955.md)
+    — new ADR (this entry's anchor).
+  - [`libvmaf/src/feature/integer_adm.c`](../libvmaf/src/feature/integer_adm.c)
+    — in-file warning comment above the overflow site
+    (`add_bef_shift_flt[]` initialiser loop around line 1277).
+    **No code change.**
+  - [`libvmaf/src/feature/AGENTS.md`](../libvmaf/src/feature/AGENTS.md)
+    — invariant note under "Rebase-sensitive invariants".
+- **Invariants** (load-bearing — do NOT silently "fix"):
+  1. `integer_adm.c` keeps `int32_t add_bef_shift_flt[3]` with
+     the overflowing `1u << 31` assignment. The Netflix golden
+     assertions (`python/test/quality_runner_test.py`,
+     `vmafexec_test.py`, `feature_extractor_test.py`) encode the
+     buggy ADM output. Project hard rule #1
+     ([ADR-0024](adr/0024-netflix-golden-preserved.md)) prohibits
+     changing those assertions.
+  2. Any "fix" that changes ADM numerical output must land
+     together with a coordinated Netflix-authored golden-number
+     update (the [ADR-0142](adr/0142-port-netflix-18e8f1c5-vif-sigma-nsq.md)
+     Netflix-authority carve-out). Until Netflix#955 closes
+     upstream, there is no authority to track.
+- **On upstream sync**:
+  - If Netflix finally lands a fix for #955 (widening the
+    rounding term to `uint32_t` or `int64_t`), sync the C-side
+    fix AND the updated `assertAlmostEqual` values in the same
+    merge. Re-run `make test-netflix-golden` and
+    `/cross-backend-diff` on the golden pairs to verify the new
+    numbers are consistent across CPU / CUDA / SYCL.
+  - Remove the in-file warning comment above the `add_bef_shift_flt`
+    initialiser loop, flip ADR-0155 to `Superseded by ADR-NNNN`,
+    and drop this rebase-notes entry.
+  - If upstream instead closes #955 as wont-fix, keep this entry
+    verbatim and update the ADR status to note upstream's
+    closure.
+- **Re-test on rebase** (gates the invariant by confirming the
+  golden numbers are unchanged):
+
+  ```bash
+  ninja -C build
+  make test-netflix-golden
+  # Expect: VMAF mean 76.66890… on src01_hrc00/01_576x324 golden
+  # pair — bit-identical to pre-rebase.
+  ```
+
 ### 0047 — `vmaf_score_pooled` -EAGAIN for pending features (ADR-0154)
 
 - **ADR**: [ADR-0154](adr/0154-score-pooled-eagain-netflix-755.md)

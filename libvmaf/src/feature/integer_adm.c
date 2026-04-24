@@ -1276,6 +1276,15 @@ static void i4_adm_csf(AdmBuffer *buf, int scale, int w, int h, int stride,
     const uint32_t shift_flt[3] = {32, 32, 32};
     int32_t add_bef_shift_dst[3], add_bef_shift_flt[3];
 
+    /* Netflix#955 / ADR-0155: `1u << 31` is `0x80000000`, which wraps
+     * to `-2147483648` on assignment into `int32_t add_bef_shift_flt[]`.
+     * The rounding term for scales 1-3 is therefore sign-negated;
+     * every downstream `(prod + add_bef_shift) >> 32` subtracts 2^31
+     * instead of adding it. The buggy arithmetic is encoded in the
+     * Netflix golden assertions (project hard rule #1 /
+     * ADR-0024) — do NOT widen `add_bef_shift_flt[]` to `uint32_t`
+     * or `int64_t` without a coordinated Netflix-side golden-number
+     * update. See docs/adr/0155-adm-i4-rounding-deferred-netflix-955.md. */
     for (unsigned idx = 0; idx < 3; ++idx) {
         add_bef_shift_dst[idx] = (1u << (shift_dst[idx] - 1));
         add_bef_shift_flt[idx] = (1u << (shift_flt[idx] - 1));
@@ -1990,6 +1999,9 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
     const uint32_t shift_flt[3] = {32, 32, 32};
     int32_t add_bef_shift_dst[3], add_bef_shift_flt[3];
 
+    /* Netflix#955 / ADR-0155: second occurrence of the same overflow —
+     * see note at the earlier `add_bef_shift_flt[]` initialiser loop.
+     * Preserved for Netflix-golden bit-exactness. */
     for (unsigned idx = 0; idx < 3; ++idx) {
         add_bef_shift_dst[idx] = (1u << (shift_dst[idx] - 1));
         add_bef_shift_flt[idx] = (1u << (shift_flt[idx] - 1));
