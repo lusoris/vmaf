@@ -31,9 +31,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdint.h>
 #include <string.h>
 
+#include "config.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "log.h"
+#if ARCH_X86
+#include "cpu.h"
+#include "feature/x86/psnr_hvs_avx2.h"
+#include "x86/cpu.h"
+#endif
 
 typedef int32_t od_coeff;
 
@@ -43,6 +49,21 @@ typedef int32_t od_coeff;
 
 #define OD_DCT_RSHIFT(_a, _b) OD_UNBIASED_RSHIFT32(_a, _b)
 
+/* ADR-0141 load-bearing carve-out: the Xiph-licensed upstream
+ * `od_bin_fdct8`, `od_bin_fdct8x8`, and `calc_psnrhvs` sources below
+ * are kept verbatim for rebase / upstream-audit parity. They exceed
+ * fork-local size / braces / narrowing / stride-widening thresholds
+ * that would require mechanical rewrites; every such rewrite would
+ * make the AVX2 bit-exactness diff harder to audit (this file is the
+ * reference implementation the AVX2 TU diffs against line-for-line).
+ * Suppressions are scoped to the upstream block only; fork-local
+ * dispatch code below uses full lint hygiene. */
+// NOLINTBEGIN(readability-function-size,google-readability-function-size,
+// bugprone-implicit-widening-of-multiplication-result,
+// readability-braces-around-statements,
+// google-readability-braces-around-statements,
+// hicpp-braces-around-statements,
+// performance-type-promotion-in-math-fn)
 static void od_bin_fdct8(od_coeff y[8], const od_coeff *x, int xstride)
 {
     int t0;
@@ -342,17 +363,34 @@ static double calc_psnrhvs(const unsigned char *_src, int _systride, const unsig
     ret /= samplemax * samplemax;
     return ret;
 }
+// NOLINTEND(readability-function-size,google-readability-function-size,
+// bugprone-implicit-widening-of-multiplication-result,
+// readability-braces-around-statements,
+// google-readability-braces-around-statements,
+// hicpp-braces-around-statements,
+// performance-type-promotion-in-math-fn)
 
 static double convert_score_db(double _score, double _weight)
 {
     return 10 * (-1 * log10(_weight * _score));
 }
 
+/*
+ * Per-extractor dispatch state. Runtime-selected in `init()` based on
+ * host CPU flags; scalar by default, AVX2 when available. The function
+ * pointer signature matches the scalar `calc_psnrhvs` exactly so that
+ * adding a new ISA (AVX-512, NEON) is a one-line edit in `init()`.
+ */
+typedef struct PsnrHvsState {
+    double (*calc_psnrhvs)(const unsigned char *src, int systride, const unsigned char *dst,
+                           int dystride, double par, int depth, int w, int h, int step,
+                           float csf[8][8]);
+} PsnrHvsState;
+
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
-    (void)fex;
-    (void)bpc;
+    PsnrHvsState *s = fex->priv;
     (void)w;
     (void)h;
 
@@ -364,16 +402,26 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         return -EINVAL;
     }
 
-    if (pix_fmt == VMAF_PIX_FMT_YUV400P)
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P) {
         return -EINVAL;
-    else
-        return 0;
+    }
+
+    s->calc_psnrhvs = calc_psnrhvs;
+#if ARCH_X86
+    unsigned flags = vmaf_get_cpu_flags();
+    if (flags & VMAF_X86_CPU_FLAG_AVX2) {
+        s->calc_psnrhvs = calc_psnrhvs_avx2;
+    }
+#endif
+
+    return 0;
 }
 
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
 {
+    PsnrHvsState *s = fex->priv;
     int err = 0;
 
     (void)ref_pic_90;
@@ -382,11 +430,11 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     double score[3];
     for (unsigned i = 0; i < 3; i++) {
         score[i] =
-            calc_psnrhvs(ref_pic->data[i], ref_pic->stride[i], dist_pic->data[i],
-                         dist_pic->stride[i], 1.0, ref_pic->bpc, ref_pic->w[i], ref_pic->h[i], 7,
-                         i == 0 ? csf_y :
-                         i == 1 ? csf_cb420 :
-                                  csf_cr420);
+            s->calc_psnrhvs(ref_pic->data[i], ref_pic->stride[i], dist_pic->data[i],
+                            dist_pic->stride[i], 1.0, ref_pic->bpc, ref_pic->w[i], ref_pic->h[i], 7,
+                            i == 0 ? csf_y :
+                            i == 1 ? csf_cb420 :
+                                     csf_cr420);
 
         err |= vmaf_feature_collector_append(feature_collector, fex->provided_features[i],
                                              convert_score_db(score[i], 1.0), index);
@@ -401,9 +449,13 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 static const char *provided_features[] = {"psnr_hvs_y", "psnr_hvs_cb", "psnr_hvs_cr", "psnr_hvs",
                                           NULL};
 
+/* External linkage is required — the extractor registry iterates over
+ * `vmaf_fex_*` externs in libvmaf/src/feature/feature_extractor.c. */
+// NOLINTNEXTLINE(misc-use-internal-linkage,cppcoreguidelines-avoid-non-const-global-variables)
 VmafFeatureExtractor vmaf_fex_psnr_hvs = {
     .name = "psnr_hvs",
     .init = init,
     .extract = extract,
+    .priv_size = sizeof(PsnrHvsState),
     .provided_features = provided_features,
 };

@@ -237,6 +237,27 @@ feature/
   [ADR-0155](../../../docs/adr/0155-adm-i4-rounding-deferred-netflix-955.md)
   and [rebase-notes 0048](../../../docs/rebase-notes.md).
 
+- **`psnr_hvs` AVX2 DCT bit-exactness** (fork-local, ADR-0159):
+  [`x86/psnr_hvs_avx2.c`](x86/psnr_hvs_avx2.c) vectorizes the
+  Xiph/Daala 8×8 integer DCT across 8 rows in parallel
+  (`__m256i`, 8× int32) via **butterfly → transpose → butterfly
+  → transpose**. Byte-identical `od_coeff` output to scalar
+  under `FLT_EVAL_METHOD == 0`; float accumulators (means /
+  variances / mask / error) kept scalar by construction per
+  ADR-0139 precedent. **On rebase**: never introduce a
+  horizontal-reduce vectorization of the float accumulators
+  without replicating the per-lane scalar-float reduction
+  pattern. Keep `#pragma STDC FP_CONTRACT OFF` at the TU
+  header — removing it allows `fmaf` and breaks the 1-ulp
+  guarantee. The scalar TU
+  [`third_party/xiph/psnr_hvs.c`](third_party/xiph/psnr_hvs.c)
+  is the bit-exact reference; don't touch its butterfly block
+  without matching changes in the AVX2 TU. NEON follow-up PR
+  (T3-5-neon, pending) will mirror these invariants in
+  `arm64/psnr_hvs_neon.c`. See
+  [ADR-0159](../../../docs/adr/0159-psnr-hvs-avx2-bitexact.md)
+  and [rebase-notes 0052](../../../docs/rebase-notes.md).
+
 ## Governing ADRs
 
 - [ADR-0024](../../../docs/adr/0024-netflix-golden-preserved.md) —
