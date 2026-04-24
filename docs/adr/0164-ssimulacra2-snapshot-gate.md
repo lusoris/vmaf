@@ -79,26 +79,42 @@ generated on a CPU-only build at the current master HEAD.
     and the CI GCC/clang hosts (Ubuntu, glibc; macOS, libSystem).
   - Investigated FMA-fusion as the suspect and hardened the build
     anyway: every ssimulacra2 source (scalar extractor + AVX2 +
-    AVX-512 + NEON SIMD TUs) now compiles in a dedicated static lib
-    with `-ffp-contract=off`. Mirrors the ADR-0161 NEON carve-out;
-    prevents cross-host FMA-fusion drift as a matter of principle
-    and protects against future fusion-related regressions.
+    AVX-512 + NEON SIMD TUs) now compiles in a dedicated static
+    lib with `-ffp-contract=off`. Mirrors the ADR-0161 NEON
+    carve-out; prevents cross-host FMA-fusion drift as a matter
+    of principle and protects against future fusion-related
+    regressions.
   - BUT the drift persisted under `-ffp-contract=off`. Root cause
-    is **libm variance**, not fusion: the phase-1 `cbrtf` and
+    was **libm variance**, not fusion: the phase-1 `cbrtf` and
     phase-3 `powf` per-lane scalar calls hit host libc, and
-    different libm implementations (glibc vs musl vs macOS
+    different libm implementations (glibc / musl / macOS
     libSystem) compute the transcendentals with different
     polynomial approximations that differ by ~1 ulp. Aggregated
     across 48 frames × 6 scales × 3 planes, this compounds to
     ~2e-4 in the pooled score.
-  - No compile-flag fix. Settled on `places=3` (1e-3) tolerance,
-    which covers the observed variance with a factor of ~5× margin
-    while still catching material regressions (an actual behaviour
-    change would drift by orders of magnitude more than ulp-level
-    libm polynomial noise).
-  - The fp-contract=off build splits remain in place as a
-    belt-and-suspenders guarantee against any future FMA-fusion
-    drift that would compound with libm variance.
+  - **Proper fix (shipped)**: replace libm `cbrtf` and `powf` with
+    deterministic host-independent implementations in
+    `libvmaf/src/feature/ssimulacra2_math.h` —
+    - `vmaf_ss2_cbrtf()`: bit-trick initial estimate + 2 Newton–
+      Raphson iterations, accuracy ~7e-7, pure IEEE-754 float
+      arithmetic.
+    - `vmaf_ss2_srgb_eotf()`: 1024-entry LUT with linear
+      interpolation, accuracy ~5e-7. LUT values committed as
+      hardcoded hex-float literals in
+      `libvmaf/src/feature/ssimulacra2_eotf_lut.h`, generated
+      offline by `scripts/gen_ssimulacra2_eotf_lut.py`.
+    Both are used consistently across scalar + AVX2 + AVX-512 +
+    NEON paths, preserving the ADR-0161/0162/0163 scalar-vs-SIMD
+    bit-exact contract while removing the runtime libc
+    dependency.
+  - Consequence: output drifts from the libjxl `tools/ssimulacra2`
+    reference by ~1e-6 per frame (within scope per ADR-0130, which
+    never committed to libjxl bit-exactness in CI), and is now
+    bit-identical across hosts. Tolerance stays tight at
+    `places=4` (1e-4).
+  - The fp-contract=off build splits remain in place as
+    belt-and-suspenders hardening against any future FMA-related
+    drift.
 - **Neutral / follow-ups**:
   - When libjxl releases a new SSIMULACRA 2 reference version or
     `ssimulacra2_rs` becomes installable again, a separate ADR could

@@ -34,6 +34,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "feature/ssimulacra2_math.h"
 #include "ssimulacra2_neon.h"
 
 #pragma STDC FP_CONTRACT OFF
@@ -52,7 +53,7 @@ static inline float32x4_t cbrtf_lane_neon(float32x4_t v)
     alignas(16) float tmp[4];
     vst1q_f32(tmp, v);
     for (int k = 0; k < 4; k++) {
-        tmp[k] = cbrtf(tmp[k]);
+        tmp[k] = vmaf_ss2_cbrtf(tmp[k]);
     }
     return vld1q_f32(tmp);
 }
@@ -95,7 +96,7 @@ void ssimulacra2_linear_rgb_to_xyb_neon(const float *lin, float *xyb, unsigned w
     const float m01 = 1.0f - kM00 - kM02;
     const float m11 = 1.0f - kM10 - kM12;
     const float m22 = 1.0f - kM20 - kM21;
-    const float cbrt_bias = cbrtf(kOpsinBias);
+    const float cbrt_bias = vmaf_ss2_cbrtf(kOpsinBias);
 
     const float32x4_t vm00 = vdupq_n_f32(kM00);
     const float32x4_t vm01 = vdupq_n_f32(m01);
@@ -159,9 +160,9 @@ void ssimulacra2_linear_rgb_to_xyb_neon(const float *lin, float *xyb, unsigned w
             m = 0.0f;
         if (s < 0.0f)
             s = 0.0f;
-        float L = cbrtf(l) - cbrt_bias;
-        float M = cbrtf(m) - cbrt_bias;
-        float S = cbrtf(s) - cbrt_bias;
+        float L = vmaf_ss2_cbrtf(l) - cbrt_bias;
+        float M = vmaf_ss2_cbrtf(m) - cbrt_bias;
+        float S = vmaf_ss2_cbrtf(s) - cbrt_bias;
         float X = 0.5f * (L - M);
         float Y = 0.5f * (L + M);
         float B = S;
@@ -581,11 +582,7 @@ static inline float32x4_t srgb_to_linear_lane_neon(float32x4_t v)
     vst1q_f32(tmp, v);
     for (int k = 0; k < 4; k++) {
         const float x = tmp[k];
-        if (x <= 0.04045f) {
-            tmp[k] = x / 12.92f;
-        } else {
-            tmp[k] = powf((x + 0.055f) / 1.055f, 2.4f);
-        }
+        tmp[k] = vmaf_ss2_srgb_eotf(x);
     }
     return vld1q_f32(tmp);
 }
@@ -723,9 +720,9 @@ void ssimulacra2_picture_to_linear_rgb_neon(int yuv_matrix, unsigned bpc, unsign
                 B = 0.0f;
             if (B > 1.0f)
                 B = 1.0f;
-            const float Rl = (R <= 0.04045f) ? (R / 12.92f) : powf((R + 0.055f) / 1.055f, 2.4f);
-            const float Gl = (G <= 0.04045f) ? (G / 12.92f) : powf((G + 0.055f) / 1.055f, 2.4f);
-            const float Bl = (B <= 0.04045f) ? (B / 12.92f) : powf((B + 0.055f) / 1.055f, 2.4f);
+            const float Rl = vmaf_ss2_srgb_eotf(R);
+            const float Gl = vmaf_ss2_srgb_eotf(G);
+            const float Bl = vmaf_ss2_srgb_eotf(B);
             const size_t idx = (size_t)y * w + x;
             rp[idx] = Rl;
             gp[idx] = Gl;

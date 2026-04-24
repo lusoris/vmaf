@@ -47,6 +47,7 @@
 
 #include "feature_collector.h"
 #include "feature_extractor.h"
+#include "feature/ssimulacra2_math.h"
 #include "feature/ssimulacra2_simd_common.h"
 #include "mem.h"
 
@@ -316,12 +317,12 @@ static inline float clampf(float v, float lo, float hi)
     return v;
 }
 
-/* sRGB → linear (matches IEC 61966-2-1). */
+/* sRGB → linear (matches IEC 61966-2-1). Uses the fork's deterministic
+ * LUT-based EOTF (ADR-0164) instead of libm `powf` so output is
+ * host-independent across glibc / musl / macOS libSystem. */
 static inline float srgb_to_linear(float v)
 {
-    if (v <= 0.04045f)
-        return v / 12.92f;
-    return powf((v + 0.055f) / 1.055f, 2.4f);
+    return vmaf_ss2_srgb_eotf(v);
 }
 
 /* Port of libjxl CreateRecursiveGaussian (lib/jxl/gauss_blur.cc).
@@ -556,7 +557,7 @@ static void linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsigned
     const float m01 = 1.0f - kM00 - kM02;
     const float m11 = 1.0f - kM10 - kM12;
     const float m22 = 1.0f - kM20 - kM21;
-    const float cbrt_bias = cbrtf(kOpsinBias);
+    const float cbrt_bias = vmaf_ss2_cbrtf(kOpsinBias);
 
     for (size_t i = 0; i < plane_sz; i++) {
         float r = rp[i], g = gp[i], b = bp[i];
@@ -571,9 +572,9 @@ static void linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsigned
         if (s < 0.0f)
             s = 0.0f;
 
-        float L = cbrtf(l) - cbrt_bias;
-        float M = cbrtf(m) - cbrt_bias;
-        float S = cbrtf(s) - cbrt_bias;
+        float L = vmaf_ss2_cbrtf(l) - cbrt_bias;
+        float M = vmaf_ss2_cbrtf(m) - cbrt_bias;
+        float S = vmaf_ss2_cbrtf(s) - cbrt_bias;
 
         float X = 0.5f * (L - M);
         float Y = 0.5f * (L + M);

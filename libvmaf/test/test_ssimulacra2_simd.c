@@ -36,6 +36,7 @@
 #include "config.h"
 #include "test.h"
 
+#include "feature/ssimulacra2_math.h"
 #include "feature/ssimulacra2_simd_common.h"
 
 #if ARCH_X86
@@ -102,7 +103,7 @@ static void ref_linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsi
     const float m01 = 1.0f - kM00 - kM02;
     const float m11 = 1.0f - kM10 - kM12;
     const float m22 = 1.0f - kM20 - kM21;
-    const float cbrt_bias = cbrtf(kOpsinBias);
+    const float cbrt_bias = vmaf_ss2_cbrtf(kOpsinBias);
     for (size_t i = 0; i < plane_sz; i++) {
         float r = rp[i];
         float g = gp[i];
@@ -116,9 +117,9 @@ static void ref_linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsi
             m = 0.0f;
         if (s < 0.0f)
             s = 0.0f;
-        float L = cbrtf(l) - cbrt_bias;
-        float M = cbrtf(m) - cbrt_bias;
-        float S = cbrtf(s) - cbrt_bias;
+        float L = vmaf_ss2_cbrtf(l) - cbrt_bias;
+        float M = vmaf_ss2_cbrtf(m) - cbrt_bias;
+        float S = vmaf_ss2_cbrtf(s) - cbrt_bias;
         float X = 0.5f * (L - M);
         float Y = 0.5f * (L + M);
         float B = S;
@@ -613,9 +614,7 @@ static char *test_blur(void)
 /* Scalar reference: sRGB EOTF — verbatim copy of extractor's inline helper. */
 static inline float ref_srgb_to_linear(float v)
 {
-    if (v <= 0.04045f)
-        return v / 12.92f;
-    return powf((v + 0.055f) / 1.055f, 2.4f);
+    return vmaf_ss2_srgb_eotf(v);
 }
 
 /* Scalar reference: read_plane — handles all chroma ratios + 8/16-bit. */

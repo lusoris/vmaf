@@ -8,20 +8,16 @@ of the upstream Netflix bit-exactness contract. They pin the fork's
 self-consistency; drift here means the SIMD ports (or scalar) changed
 behaviour.
 
-Tolerance is `places=3` (1e-3). Although the SSIMULACRA 2 scalar
-extractor + AVX2 + AVX-512 + NEON SIMD TUs all compile in dedicated
-static libs with `-ffp-contract=off` (so FMA fusion is deterministic
-across hosts), the phase-1 `cbrtf` + phase-3 `powf` per-lane scalar
-libm calls carry a small cross-host variance (~2e-4): glibc vs musl
-vs macOS libc implement these transcendentals with different
-polynomial approximations. Within-host bit-exactness is preserved
-(15 kernel-level unit tests under `test_ssimulacra2_simd` assert
-this on AVX-512 and NEON) — only the aggregate pooled per-frame
-scores drift slightly.
-
-1e-3 tolerance gives comfortable headroom while still flagging any
-material regression (an actual behaviour change in the extractor
-would drift by orders of magnitude more).
+Tolerance is `places=4` (1e-4). Both the phase-1 `cbrtf` and the
+phase-3 sRGB EOTF (`powf((x + 0.055)/1.055, 2.4)`) have been
+replaced with deterministic host-independent implementations in
+`libvmaf/src/feature/ssimulacra2_math.h` — a Newton–Raphson
+cube root (accuracy ~7e-7) and a 1024-entry LUT for the EOTF
+(accuracy ~5e-7, LUT values committed as hardcoded hex-float
+literals by the `scripts/gen_ssimulacra2_eotf_lut.py` generator).
+No runtime libc dependency for transcendentals, so the output is
+bit-for-bit identical across glibc / musl / macOS libSystem hosts
+and the tight `places=4` gate holds.
 """
 
 import json
@@ -71,12 +67,12 @@ class Ssimulacra2SnapshotTest(unittest.TestCase):
         pooled = result["pooled_metrics"]["ssimulacra2"]
         frames = result["frames"]
         self.assertEqual(len(frames), 48)
-        self.assertAlmostEqual(pooled["mean"], 24.612655, places=3)
-        self.assertAlmostEqual(pooled["min"], 13.827219, places=3)
-        self.assertAlmostEqual(pooled["max"], 49.941581, places=3)
-        self.assertAlmostEqual(pooled["harmonic_mean"], 22.903611, places=3)
-        self.assertAlmostEqual(frames[0]["metrics"]["ssimulacra2"], 49.941581, places=3)
-        self.assertAlmostEqual(frames[47]["metrics"]["ssimulacra2"], 37.411922, places=3)
+        self.assertAlmostEqual(pooled["mean"], 24.612655, places=4)
+        self.assertAlmostEqual(pooled["min"], 13.827219, places=4)
+        self.assertAlmostEqual(pooled["max"], 49.941581, places=4)
+        self.assertAlmostEqual(pooled["harmonic_mean"], 22.903611, places=4)
+        self.assertAlmostEqual(frames[0]["metrics"]["ssimulacra2"], 49.941581, places=4)
+        self.assertAlmostEqual(frames[47]["metrics"]["ssimulacra2"], 37.411922, places=4)
 
     def test_ssimulacra2_small_160x90(self):
         """Tiny 160x90 derived fixture — exercises the <8x8 tail path."""
@@ -97,11 +93,11 @@ class Ssimulacra2SnapshotTest(unittest.TestCase):
         pooled = result["pooled_metrics"]["ssimulacra2"]
         frames = result["frames"]
         self.assertEqual(len(frames), 48)
-        self.assertAlmostEqual(pooled["mean"], 77.693091, places=3)
-        self.assertAlmostEqual(pooled["min"], 72.809320, places=3)
-        self.assertAlmostEqual(pooled["max"], 86.802974, places=3)
-        self.assertAlmostEqual(frames[0]["metrics"]["ssimulacra2"], 86.802974, places=3)
-        self.assertAlmostEqual(frames[47]["metrics"]["ssimulacra2"], 82.604036, places=3)
+        self.assertAlmostEqual(pooled["mean"], 77.693091, places=4)
+        self.assertAlmostEqual(pooled["min"], 72.809320, places=4)
+        self.assertAlmostEqual(pooled["max"], 86.802974, places=4)
+        self.assertAlmostEqual(frames[0]["metrics"]["ssimulacra2"], 86.802974, places=4)
+        self.assertAlmostEqual(frames[47]["metrics"]["ssimulacra2"], 82.604036, places=4)
 
 
 if __name__ == "__main__":
