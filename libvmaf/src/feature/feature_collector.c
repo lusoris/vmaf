@@ -502,8 +502,18 @@ int vmaf_feature_collector_get_score(VmafFeatureCollector *feature_collector,
         goto unlock;
     }
 
+    /* Netflix#755 / ADR-0154: distinguish "feature index is genuinely
+     * invalid" (-EINVAL above) from "feature is valid but not yet
+     * written" (-EAGAIN here). Several extractors (integer_motion
+     * motion2/motion3, five-frame-window variants) write their score
+     * for frame N retroactively when frame N+1 or N+2 is extracted —
+     * and on flush for the tail. A caller interleaving
+     * vmaf_read_pictures(i) with vmaf_score_pooled(i, i) then hits a
+     * false-fatal error; -EAGAIN tells the caller the request will
+     * succeed later (after more reads or after flush) rather than
+     * signalling programmer error. */
     if (!feature_vector->score[index].written) {
-        err = -EINVAL;
+        err = -EAGAIN;
         goto unlock;
     }
 

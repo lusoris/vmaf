@@ -282,6 +282,16 @@ test_read_pictures_monotonic = executable('test_read_pictures_monotonic',
 )
 test('test_read_pictures_monotonic', test_read_pictures_monotonic)
 
+# ADR-0154 — score_pooled returns -EAGAIN instead of -EINVAL for
+# not-yet-written features (Netflix#755).
+test_score_pooled_eagain = executable('test_score_pooled_eagain',
+    ['test.c', 'test_score_pooled_eagain.c'],
+    include_directories : [libvmaf_inc, test_inc],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [math_lib, pthread_dependency, thread_lib],
+)
+test('test_score_pooled_eagain', test_score_pooled_eagain)
+
 # ADR-0153 — float_ms_ssim init rejects <176x176 (Netflix#1414).
 test_float_ms_ssim_min_dim = executable('test_float_ms_ssim_min_dim',
     ['test.c', 'test_float_ms_ssim_min_dim.c', '../src/mem.c', '../src/picture.c',

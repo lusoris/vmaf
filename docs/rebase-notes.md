@@ -2279,6 +2279,55 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0047 — `vmaf_score_pooled` -EAGAIN for pending features (ADR-0154)
+
+- **ADR**: [ADR-0154](adr/0154-score-pooled-eagain-netflix-755.md)
+- **Upstream source**: Netflix upstream issue
+  [#755](https://github.com/Netflix/vmaf/issues/755) (OPEN as of
+  2026-04-24). Upstream maintainer closed the door on the
+  streaming use case in 2020 ("you cannot call
+  vmaf_score_pooled() in a loop"); fork reopens it via error-code
+  semantics without changing the retroactive-write design.
+- **Touches**:
+  - [`libvmaf/src/feature/feature_collector.c`](../libvmaf/src/feature/feature_collector.c)
+    — `vmaf_feature_collector_get_score` returns `-EAGAIN`
+    (was `-EINVAL`) when the requested index is valid but not
+    yet written.
+  - [`libvmaf/src/feature/feature_collector.h`](../libvmaf/src/feature/feature_collector.h)
+    — inline `vmaf_feature_vector_get_score` now returns
+    `-EINVAL` for null/out-of-range and `-EAGAIN` for
+    not-written (was `-1` for both). Added `#include <errno.h>`.
+    Rename reserved `__VMAF_FEATURE_COLLECTOR_H__` guard to
+    `VMAF_FEATURE_COLLECTOR_INCLUDED`.
+  - [`libvmaf/test/test_score_pooled_eagain.c`](../libvmaf/test/test_score_pooled_eagain.c)
+    — new 4-subtest reducer.
+  - [`libvmaf/test/meson.build`](../libvmaf/test/meson.build)
+    — register the new test.
+- **Invariants** (load-bearing, enforced by the reducer):
+  1. `vmaf_feature_collector_get_score(fc, name, &score, i)`
+     returns `-EAGAIN` iff the feature `name` is registered and
+     `i` is in range but `score[i].written == false`.
+  2. The return stays `-EINVAL` for (a) null pointers, (b)
+     `i >= feature_vector->capacity`, (c) unknown feature name.
+  3. The inline fast-path `vmaf_feature_vector_get_score` uses
+     the same split.
+- **On upstream sync**: upstream has not changed the error
+  semantics since 2020. If they do (unlikely), keep the fork's
+  `-EAGAIN` — it is strictly more informative and downstream
+  code depending on the split would regress.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C build && meson test -C build test_score_pooled_eagain
+  # Expect: 4/4 subtests pass.
+
+  # Reducer check:
+  git stash push libvmaf/src/feature/feature_collector.c libvmaf/src/feature/feature_collector.h
+  ninja -C build && meson test -C build test_score_pooled_eagain
+  # Expect: Fail: 1 (tests fail without -EAGAIN split).
+  git stash pop
+  ```
+
 ### 0046 — `float_ms_ssim` min-dim guard (ADR-0153)
 
 - **ADR**: [ADR-0153](adr/0153-float-ms-ssim-min-dim-netflix-1414.md)
