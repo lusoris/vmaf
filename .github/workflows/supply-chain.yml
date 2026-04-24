@@ -134,10 +134,90 @@ jobs:
       base64-subjects: ${{ needs.build-artifacts.outputs.hashes }}
       upload-assets: ${{ github.event_name == 'release' }}
 
+  # ===== MCP server (vmaf-mcp Python package) =====
+  # ADR-0166: ship to PyPI (Trusted Publishing) + GitHub release attachment
+  # with the same Sigstore + SLSA story as the libvmaf artifacts.
+
+  mcp-build:
+    name: Build vmaf-mcp wheel + sdist
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install build deps
+        run: python -m pip install --upgrade build
+      - name: Build wheel + sdist
+        working-directory: mcp-server/vmaf-mcp
+        run: python -m build --wheel --sdist --outdir ../../mcp-dist
+      - name: Compute SHA256 hashes (SLSA input)
+        id: hash
+        run: |
+          cd mcp-dist
+          echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcp-dist
+          path: mcp-dist/
+          retention-days: 7
+
+  mcp-sign:
+    name: Sigstore keyless sign — vmaf-mcp
+    needs: mcp-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write   # Sigstore keyless OIDC
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v7
+        with: { name: mcp-dist, path: mcp-dist/ }
+      - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003  # v4.1.1
+        with: { cosign-release: "v3.0.6" }
+      - name: Sign every artifact (keyless OIDC)
+        run: |
+          cd mcp-dist
+          for f in *; do
+            cosign sign-blob --yes \
+              --bundle "$f.bundle" \
+              "$f"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcp-signatures
+          path: mcp-dist/*.bundle
+
+  mcp-publish-pypi:
+    name: Publish vmaf-mcp to PyPI (Trusted Publishing)
+    if: github.event_name == 'release'
+    needs: [mcp-build, mcp-sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi-publish    # user binds this to PyPI Trusted Publisher
+    permissions:
+      id-token: write             # OIDC token for Trusted Publishing
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v7
+        with: { name: mcp-dist, path: dist/ }
+      # PEP 740 attestations: emit Sigstore-signed provenance the index
+      # stores alongside the artifact.
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+
   attach-to-release:
     name: Attach SBOM + signatures to GitHub Release
     if: github.event_name == 'release'
-    needs: [build-artifacts, sbom, sign, slsa-provenance]
+    needs: [build-artifacts, sbom, sign, slsa-provenance, mcp-build, mcp-sign]
     runs-on: ubuntu-latest
     permissions:
       contents: write   # upload files to the GitHub Release
@@ -151,3 +231,5 @@ jobs:
             dist/release-artifacts/*
             dist/sbom/*
             dist/signatures/*
+            dist/mcp-dist/*
+            dist/mcp-signatures/*

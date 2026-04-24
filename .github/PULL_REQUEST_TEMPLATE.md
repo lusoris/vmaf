@@ -28,6 +28,16 @@
 - [ ] If I added a new `.c` / `.cpp` / `.cu` / `.h` / `.hpp`, it has the appropriate license header (see `CONTRIBUTING.md`).
 - [ ] If this is a breaking change, the commit message uses `!` or `BREAKING CHANGE:` and the migration path is documented below.
 
+## Bug-status hygiene ([ADR-0165](../docs/adr/0165-state-md-bug-tracking.md))
+
+<!-- Required when a PR closes / opens / rules-out a bug. Skip with
+     "no state delta: REASON" if the PR has no bug-status impact (pure feat,
+     refactor, infra, etc.). -->
+
+- [ ] [`docs/state.md`](../docs/state.md) updated in this PR with a row
+  in the appropriate section (Open / Recently closed / Confirmed
+  not-affected / Deferred), OR `no state delta: REASON`.
+
 ## Netflix golden-data gate ([ADR-0024](../docs/adr/0024-netflix-golden-preserved.md))
 
 <!-- CI runs the 3 Netflix CPU golden pairs (1 normal + 2 checkerboard) on every PR. -->

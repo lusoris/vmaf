@@ -248,6 +248,18 @@ Use `/prep-release` to dry-run locally before merging a release PR.
     this rule does not backdate itself onto in-flight PRs that don't
     touch those files. See
     [ADR-0141](docs/adr/0141-touched-file-cleanup-rule.md).
+13. **Every** PR that closes a bug, opens a bug, or rules a Netflix
+    upstream report not-affecting-the-fork updates
+    [`docs/state.md`](docs/state.md) in the **same PR**. The update
+    lands a row in the appropriate section (Open / Recently closed /
+    Confirmed not-affected / Deferred) and cross-links the ADR, the
+    PR + commit, and the Netflix issue (if any). State drift compounds
+    across sessions — the rule trades a 30-second edit for hours of
+    re-investigation cost when context resets. The PR template
+    ([.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md))
+    carries a checkbox; reviewers verify it. See
+    [ADR-0165](docs/adr/0165-state-md-bug-tracking.md). Closes
+    Issue #20.
 
 ## 13. Interaction style — prefer the popup question tool
 

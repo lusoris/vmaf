@@ -87,6 +87,15 @@ Every non-void function returns `int` with these conventions:
 - A negative number — error. The magnitude is a POSIX `errno` code (always
   positive in `errno.h`); negate to match:
   - `-EINVAL` — bad argument (null pointer, out-of-range enum, wrong shape).
+  - `-EAGAIN` — feature still pending; retry after the producer side
+    catches up. Returned by `vmaf_score_pooled` /
+    `vmaf_score_pooled_model_collection` /
+    `vmaf_score_at_index` when the requested frame range has been read
+    via `vmaf_read_pictures` but the feature extractor has not yet
+    completed. See [ADR-0154](../adr/0154-score-pooled-eagain.md). Not
+    a fatal error — the typical fix is either flushing
+    (`vmaf_read_pictures(NULL, NULL, 0)`) before scoring, or polling
+    until success.
   - `-ENOMEM` — allocation failed.
   - `-ENOENT` — file not found (`vmaf_model_load_from_path` etc).
   - `-ENOSYS` — entry point compiled out (e.g. `vmaf_dnn_*` on a
@@ -179,7 +188,7 @@ typedef struct VmafConfiguration {
 | `vmaf_use_features_from_model_collection(ctx, coll)` | 0 / -errno | Same, for a bootstrap model collection. |
 | `vmaf_use_feature(ctx, "psnr", opts)` | 0 / -errno | Register an extra feature not required by any loaded model. Context takes ownership of `opts`; on success never free it yourself. |
 | `vmaf_import_feature_score(ctx, name, value, index)` | 0 / -errno | Inject a pre-computed feature value (e.g. from a different pipeline). |
-| `vmaf_read_pictures(ctx, ref, dist, index)` | 0 / -errno | Feed a frame pair. `ctx` takes ownership via `vmaf_picture_unref()`. Pass `NULL, NULL, 0` to flush after the last frame. |
+| `vmaf_read_pictures(ctx, ref, dist, index)` | 0 / -errno | Feed a frame pair. `ctx` takes ownership via `vmaf_picture_unref()`. `index` must be **strictly increasing** across successive calls — non-monotonic indices return `-EINVAL` (see [ADR-0152](../adr/0152-monotonic-index-rejection.md)). Pass `NULL, NULL, 0` to flush after the last frame. |
 | `vmaf_score_at_index(ctx, model, *score, index)` | 0 / -errno | Per-frame VMAF score. |
 | `vmaf_score_at_index_model_collection(ctx, coll, *score, index)` | 0 / -errno | Per-frame bootstrap score (mean + stddev + 95% CI). |
 | `vmaf_feature_score_at_index(ctx, name, *score, index)` | 0 / -errno | Per-frame feature score (e.g. `"psnr_y"`). |

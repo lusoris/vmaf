@@ -273,7 +273,14 @@ is rejected at init.**
 
 **Options** — none.
 
-**Backends** — scalar only (Xiph reference implementation).
+**Backends** — scalar (Xiph reference), AVX2
+([ADR-0159](../adr/0159-psnr-hvs-avx2-bitexact.md)), NEON aarch64
+([ADR-0160](../adr/0160-psnr-hvs-neon-bitexact.md)). The 8×8 integer
+DCT block is vectorized 8-rows-in-parallel via butterfly→transpose→
+butterfly→transpose; float accumulators stay scalar by construction
+to preserve byte-identity with the reference. Verified bit-identical
+to scalar on all three Netflix golden pairs; ~3.58× DCT microbench
+speedup on AVX2.
 
 ### SSIM / MS-SSIM
 
@@ -300,6 +307,14 @@ score is reported on a dB scale via `-10 × log10(1 − score)`; use
 `clip_db=true` to cap infinite values when reference ≡ distorted.
 
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
+
+**Minimum dimensions** — `float_ms_ssim` requires at least **176×176**
+luma. The five Gaussian-pyramid scales force a `2⁴ = 16`× downsample
+on the smallest level; sub-176×176 inputs (e.g. QCIF) cause the
+decimate kernel to produce undefined output. The init path rejects
+smaller inputs with `-EINVAL` and a clear log message — see
+[ADR-0153](../adr/0153-float-ms-ssim-min-size.md). `ssim` /
+`float_ssim` have no such constraint.
 
 **Options** (apply to `float_ssim` / `float_ms_ssim` only)
 
@@ -384,7 +399,24 @@ the default YUV→RGB matrix.
 |--------------|------|---------|-------|----------------------------------------------------------------------|
 | `yuv_matrix` | int  | `0`     | `0–3` | 0: BT.709 limited, 1: BT.601 limited, 2: BT.709 full, 3: BT.601 full |
 
-**Backends** — scalar only. SIMD / GPU paths are follow-up workstreams.
+**Backends** — AVX2, AVX-512, NEON. Three SIMD ports landed
+2026-04-25: pointwise + reduction kernels
+([ADR-0161](../adr/0161-ssimulacra2-simd-bitexact.md)),
+IIR blur ([ADR-0162](../adr/0162-ssimulacra2-iir-blur-simd.md)),
+and `picture_to_linear_rgb` ([ADR-0163](../adr/0163-ssimulacra2-ptlr-simd.md)).
+All three SIMD paths build with `-ffp-contract=off` in dedicated
+split static libraries to pin cross-host bit-exactness. CUDA / SYCL
+backends remain optional follow-up work (BACKLOG T3-8).
+
+**Bit-exactness** — scalar and SIMD outputs are byte-identical on the
+fork's host matrix (verified by `libvmaf/test/test_ssimulacra2_simd.c`,
+11 unit tests). Cross-host determinism is pinned by replacing libm
+`cbrtf` and `powf(x, 2.4)` with deterministic polynomials —
+`vmaf_ss2_cbrtf` (bit-trick init + 2 Newton-Raphson iterations,
+~7e-7 accuracy) and a 1024-entry sRGB-EOTF LUT (~5e-7 accuracy). See
+[ADR-0164](../adr/0164-ssimulacra2-snapshot-gate.md). The CI snapshot
+gate (`python/test/ssimulacra2_test.py`) pins 48-frame
+mean/min/max/hmean/frame-0/frame-47 values at `places=4` tolerance.
 
 **Limitations** —
 
@@ -393,12 +425,7 @@ the default YUV→RGB matrix.
   libjxl's `Inv3x3Matrix` for σ=1.5 at 10-decimal precision but is
   not guaranteed bit-exact at every σ. The fork pins σ=1.5, matching
   libjxl's `kSigma`.
-- Snapshot-gate JSON (`testdata/scores_cpu_ssimulacra2.json`) is not
-  shipped in this PR — it lands in a follow-up once the
-  reference-tooling path is unblocked (`ssimulacra2_rs` cargo crate
-  currently broken).
-- ~1 fps at 1080p on a single modern x86 core. Do not run in
-  interactive workloads until the AVX2 / AVX-512 / NEON variants land.
+- CUDA + SYCL ports are not yet shipped (BACKLOG T3-8).
 
 ## Invoking features from the CLI
 

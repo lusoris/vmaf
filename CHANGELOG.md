@@ -8,6 +8,53 @@
 
 ### Added
 
+- **Path-mapped doc-drift enforcement** (fork-local): closes the
+  gap surfaced by the 2026-04-25 docs audit. New project hook
+  [`.claude/hooks/docs-drift-warn.sh`](.claude/hooks/docs-drift-warn.sh)
+  emits an informational `NOTICE` when an Edit/Write touches a
+  user-discoverable surface (libvmaf headers / feature extractors /
+  SIMD twins / CLI / MCP / tiny-AI CLI / ffmpeg patches) but no
+  matching `docs/<topic>/` file is touched. CI counterpart in
+  [`rule-enforcement.yml`](.github/workflows/rule-enforcement.yml)
+  promoted from advisory to blocking + rewritten to use a
+  path-mapped surface→docs check; ADR additions no longer satisfy
+  it (ADRs are decisions, not user docs). Per-PR opt-out
+  `no docs needed: REASON` for genuine internal-refactor PRs.
+  See [ADR-0167](docs/adr/0167-doc-drift-enforcement.md).
+- **Documentation refresh covering 16 recent PRs** (fork-local): in
+  the same PR as ADR-0167, the audit-flagged gaps are filled —
+  `vmaf_cuda_state_free()` API documented in
+  [`docs/api/gpu.md`](docs/api/gpu.md); `-EAGAIN` semantics +
+  `vmaf_read_pictures` monotonic-index requirement in
+  [`docs/api/index.md`](docs/api/index.md); SSIMULACRA 2 + PSNR-HVS
+  SIMD coverage matrix and `float_ms_ssim` <176×176 minimum
+  documented in [`docs/metrics/features.md`](docs/metrics/features.md).
+- **Tracked `docs/state.md` + bug-status hygiene rule** (fork-local):
+  closes [Issue #20](https://github.com/lusoris/vmaf/issues/20) and
+  backlog item T7-1. New tracked file [`docs/state.md`](docs/state.md)
+  is the canonical in-tree register of bug status (Open / Recently
+  closed / Confirmed not-affected / Deferred). New CLAUDE.md §12
+  rule 13 mandates a same-PR update on every bug close / open /
+  rule-out; the PR template carries a checkbox. ADRs cover decisions,
+  this file covers bug status — distinct artifacts. See
+  [ADR-0165](docs/adr/0165-state-md-bug-tracking.md).
+- **MCP server release artifact channel — PyPI + GitHub release
+  attachment + Sigstore** (fork-local): closes backlog item T7-2.
+  [`supply-chain.yml`](.github/workflows/supply-chain.yml) extended
+  with new `mcp-build` / `mcp-sign` / `mcp-publish-pypi` jobs.
+  After this lands, `pip install vmaf-mcp` works (PyPI Trusted
+  Publishing via OIDC, no token); the same wheel + sdist also
+  attach to the GitHub release with a Sigstore keyless `.bundle` +
+  PEP 740 attestation + SLSA L3 provenance. One-time PyPI
+  Trusted-Publisher binding required (operational note in the ADR).
+  See [ADR-0166](docs/adr/0166-mcp-server-release-channel.md).
+- **Self-hosted GPU runner enrollment guide** (fork-local): closes
+  backlog item T7-3. New
+  [`docs/development/self-hosted-runner.md`](docs/development/self-hosted-runner.md)
+  pins the registration steps so the next operator (or the user's
+  local dev box, per popup 2026-04-25) can stand a runner up in
+  ~10 minutes. The fine-grained label scheme (`gpu-cuda`,
+  `gpu-intel`, `avx512`) is documented for future job targeting.
 - **`motion_v2` NEON SIMD** (fork-local): aarch64 users now get a
   NEON fast path for the `motion_v2` feature. Scalar + AVX2 + AVX-512
   variants already existed; this closes the ISA-parity gap (backlog
