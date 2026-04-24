@@ -42,6 +42,7 @@
  *   `od_bin_fdct8x8` calls are.
  */
 
+#include <assert.h>
 #include <immintrin.h>
 #include <math.h>
 #include <stddef.h>
@@ -242,6 +243,10 @@ static inline void transpose8x8_epi32(__m256i *r0, __m256i *r1, __m256i *r2, __m
 
 void od_bin_fdct8x8_avx2(int32_t *y, int32_t ystride, const int32_t *x, int32_t xstride)
 {
+    assert(y != NULL);
+    assert(x != NULL);
+    assert(xstride >= 8);
+    assert(ystride >= 8);
     const ptrdiff_t xs = (ptrdiff_t)xstride;
     const ptrdiff_t ys = (ptrdiff_t)ystride;
     /* Load 8 rows of x. Each row vector holds 8 int32s. */
@@ -412,24 +417,29 @@ static void compute_masks(psnr_hvs_block *b, const float mask[8][8])
 }
 
 /* Per-coefficient error accumulation; AC coefficients have the mask-
- * threshold subtraction applied, DC (i==j==0) is compared raw. Returns
- * the added sum-of-squared-errors contribution for this block; increments
- * `*pixels` by 64. */
-static float accumulate_error(const psnr_hvs_block *b, const float mask[8][8], float csf[8][8],
-                              int *pixels)
+ * threshold subtraction applied, DC (i==j==0) is compared raw. Adds the
+ * 64 per-coefficient contributions directly into `*ret`; increments
+ * `*pixels` by 64.
+ *
+ * ADR-0159 bit-exactness: `*ret` is the cross-block running accumulator
+ * (scalar's outer `ret`). Accumulating into a local float here and then
+ * adding the per-block total to the caller would change the float
+ * summation tree (IEEE-754 add is non-associative) and break byte-for-byte
+ * parity with the scalar reference's inline accumulation at
+ * third_party/xiph/psnr_hvs.c:355. */
+static void accumulate_error(const psnr_hvs_block *b, const float mask[8][8], float csf[8][8],
+                             float *ret, int *pixels)
 {
-    float ret = 0;
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
             float err = abs(b->dct_s[i * 8 + j] - b->dct_d[i * 8 + j]);
             if (i != 0 || j != 0) {
                 err = err < b->s_mask / mask[i][j] ? 0 : err - b->s_mask / mask[i][j];
             }
-            ret += (err * csf[i][j]) * (err * csf[i][j]);
+            *ret += (err * csf[i][j]) * (err * csf[i][j]);
             (*pixels)++;
         }
     }
-    return ret;
 }
 
 double calc_psnrhvs_avx2(const unsigned char *src, int systride, const unsigned char *dst,
@@ -454,7 +464,7 @@ double calc_psnrhvs_avx2(const unsigned char *src, int systride, const unsigned 
             load_block_and_means(&b, src, systride, dst, dystride, depth, x, y);
             compute_vars(&b);
             compute_masks(&b, mask);
-            ret += accumulate_error(&b, mask, csf, &pixels);
+            accumulate_error(&b, mask, csf, &ret, &pixels);
         }
     }
     ret /= pixels;

@@ -2316,7 +2316,15 @@ inline.*
      same per-block scalar loop as scalar psnr_hvs — bit-exact
      by construction. Do not vectorize these with horizontal
      reductions without replicating ADR-0139's per-lane
-     scalar-float reduction pattern.
+     scalar-float reduction pattern. The cross-block error
+     accumulator `ret` is threaded through `accumulate_error()`
+     **by pointer**, not returned-then-summed: each of the 64
+     per-coefficient contributions per block must hit the outer
+     `ret` directly, matching scalar's inline `ret += ...` at
+     `third_party/xiph/psnr_hvs.c` line 355. IEEE-754 float
+     add is non-associative — summing into a local float and
+     then adding the per-block total to `ret` changes the
+     summation tree and drifts the Netflix golden by ~5.5e-5.
   4. **`#pragma STDC FP_CONTRACT OFF`** at the TU header
      disables FMA formation. Required: `fmaf(a, b, c)` can
      differ from `(a*b)+c` by 1 ulp, breaking bit-exactness.
