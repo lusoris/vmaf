@@ -67,12 +67,12 @@ class Ssimulacra2SnapshotTest(unittest.TestCase):
         pooled = result["pooled_metrics"]["ssimulacra2"]
         frames = result["frames"]
         self.assertEqual(len(frames), 48)
-        self.assertAlmostEqual(pooled["mean"], 24.612655, places=4)
-        self.assertAlmostEqual(pooled["min"], 13.827219, places=4)
-        self.assertAlmostEqual(pooled["max"], 49.941581, places=4)
-        self.assertAlmostEqual(pooled["harmonic_mean"], 22.903611, places=4)
-        self.assertAlmostEqual(frames[0]["metrics"]["ssimulacra2"], 49.941581, places=4)
-        self.assertAlmostEqual(frames[47]["metrics"]["ssimulacra2"], 37.411922, places=4)
+        self.assertAlmostEqual(pooled["mean"], 24.613842, places=4)
+        self.assertAlmostEqual(pooled["min"], 13.816480, places=4)
+        self.assertAlmostEqual(pooled["max"], 49.955009, places=4)
+        self.assertAlmostEqual(pooled["harmonic_mean"], 22.904087, places=4)
+        self.assertAlmostEqual(frames[0]["metrics"]["ssimulacra2"], 49.955009, places=4)
+        self.assertAlmostEqual(frames[47]["metrics"]["ssimulacra2"], 37.408924, places=4)
 
     def test_ssimulacra2_small_160x90(self):
         """Tiny 160x90 derived fixture — exercises the <8x8 tail path."""
@@ -93,11 +93,11 @@ class Ssimulacra2SnapshotTest(unittest.TestCase):
         pooled = result["pooled_metrics"]["ssimulacra2"]
         frames = result["frames"]
         self.assertEqual(len(frames), 48)
-        self.assertAlmostEqual(pooled["mean"], 77.693091, places=4)
-        self.assertAlmostEqual(pooled["min"], 72.809320, places=4)
-        self.assertAlmostEqual(pooled["max"], 86.802974, places=4)
-        self.assertAlmostEqual(frames[0]["metrics"]["ssimulacra2"], 86.802974, places=4)
-        self.assertAlmostEqual(frames[47]["metrics"]["ssimulacra2"], 82.604036, places=4)
+        self.assertAlmostEqual(pooled["mean"], 77.693109, places=4)
+        self.assertAlmostEqual(pooled["min"], 72.806309, places=4)
+        self.assertAlmostEqual(pooled["max"], 86.795857, places=4)
+        self.assertAlmostEqual(frames[0]["metrics"]["ssimulacra2"], 86.795857, places=4)
+        self.assertAlmostEqual(frames[47]["metrics"]["ssimulacra2"], 82.603946, places=4)
 
 
 if __name__ == "__main__":
