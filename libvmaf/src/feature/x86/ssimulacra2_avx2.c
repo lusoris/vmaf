@@ -48,6 +48,7 @@
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "ssimulacra2_avx2.h"
 
@@ -405,4 +406,217 @@ void ssimulacra2_edge_diff_map_avx2(const float *img1, const float *mu1, const f
         plane_averages[c * 4 + 2] = one_per_pixels * s2;
         plane_averages[c * 4 + 3] = sqrt(sqrt(one_per_pixels * s3));
     }
+}
+
+/*
+ * FastGaussian separable IIR — horizontal pass.
+ *
+ * Scalar `fast_gaussian_1d` is a 3-pole serial recurrence per row;
+ * the recurrence can't vectorise within a single row. We batch 8
+ * rows in parallel: each AVX2 vector lane holds a column of the 8
+ * rows being processed together.
+ *
+ * Data layout: scalar input is row-major (`in[y * w + x]`). To
+ * feed 8 rows into SIMD lanes, we use `vpgatherdd`-style strided
+ * loads — lane i reads `in[(y_batch + i) * w + x]` via a stride-w
+ * index vector. Output is written lane-by-lane (AVX2 has no
+ * scatter) via a spill + 8 scalar stores per iteration. The
+ * per-lane IIR state vectors hold prev1/prev2 for 8 independent
+ * rows in lock-step.
+ *
+ * Bit-exact to scalar: each lane computes the same recurrence on
+ * the same row of input, in the same left-to-right order. IEEE-754
+ * lane-commutative arithmetic yields byte-identical results.
+ */
+/* ADR-0141 carve-out: gather loads + 3-pole IIR recurrence + scatter-via-
+ * scalar-store kept together for line-for-line scalar diff. Splitting would
+ * spill the IIR state across call boundaries and break the bit-exact audit
+ * vs the scalar reference in `fast_gaussian_1d`. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static void hblur_8rows_avx2(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                             const float *in, float *out, unsigned w, unsigned y_base,
+                             unsigned row_count)
+{
+    const ptrdiff_t N = (ptrdiff_t)rg_radius;
+    const ptrdiff_t W = (ptrdiff_t)w;
+
+    /* Per-lane gather index vector: lane i reads at offset i * w. */
+    int32_t idx_tmp[8];
+    for (int i = 0; i < 8; i++) {
+        idx_tmp[i] = (i < (int)row_count) ? (int32_t)((y_base + (unsigned)i) * w) : 0;
+    }
+    const __m256i vindices = _mm256_loadu_si256((const __m256i *)idx_tmp);
+
+    /* Mask: lanes beyond `row_count` should not contribute to output. */
+    const int32_t lane_valid = (row_count >= 8) ? 0 : (int32_t)row_count;
+    (void)lane_valid;
+
+    const __m256 vn2_0 = _mm256_set1_ps(rg_n2[0]);
+    const __m256 vn2_1 = _mm256_set1_ps(rg_n2[1]);
+    const __m256 vn2_2 = _mm256_set1_ps(rg_n2[2]);
+    const __m256 vd1_0 = _mm256_set1_ps(rg_d1[0]);
+    const __m256 vd1_1 = _mm256_set1_ps(rg_d1[1]);
+    const __m256 vd1_2 = _mm256_set1_ps(rg_d1[2]);
+
+    __m256 prev1_0 = _mm256_setzero_ps();
+    __m256 prev1_1 = _mm256_setzero_ps();
+    __m256 prev1_2 = _mm256_setzero_ps();
+    __m256 prev2_0 = _mm256_setzero_ps();
+    __m256 prev2_1 = _mm256_setzero_ps();
+    __m256 prev2_2 = _mm256_setzero_ps();
+
+    alignas(32) float store_tmp[8];
+
+    for (ptrdiff_t n = -N + 1; n < W; n++) {
+        const ptrdiff_t left = n - N - 1;
+        const ptrdiff_t right = n + N - 1;
+        const __m256 lv = (left >= 0) ? _mm256_i32gather_ps(in + left, vindices, sizeof(float)) :
+                                        _mm256_setzero_ps();
+        const __m256 rv = (right < W) ? _mm256_i32gather_ps(in + right, vindices, sizeof(float)) :
+                                        _mm256_setzero_ps();
+        const __m256 sum = _mm256_add_ps(lv, rv);
+
+        /* Scalar order: n2_k * sum - d1_k * prev1_k - prev2_k. */
+        __m256 o0 = _mm256_sub_ps(_mm256_mul_ps(vn2_0, sum), _mm256_mul_ps(vd1_0, prev1_0));
+        o0 = _mm256_sub_ps(o0, prev2_0);
+        __m256 o1 = _mm256_sub_ps(_mm256_mul_ps(vn2_1, sum), _mm256_mul_ps(vd1_1, prev1_1));
+        o1 = _mm256_sub_ps(o1, prev2_1);
+        __m256 o2 = _mm256_sub_ps(_mm256_mul_ps(vn2_2, sum), _mm256_mul_ps(vd1_2, prev1_2));
+        o2 = _mm256_sub_ps(o2, prev2_2);
+
+        prev2_0 = prev1_0;
+        prev2_1 = prev1_1;
+        prev2_2 = prev1_2;
+        prev1_0 = o0;
+        prev1_1 = o1;
+        prev1_2 = o2;
+
+        if (n >= 0) {
+            /* Scalar order: (o0 + o1) + o2. */
+            const __m256 res = _mm256_add_ps(_mm256_add_ps(o0, o1), o2);
+            _mm256_store_ps(store_tmp, res);
+            for (unsigned i = 0; i < row_count; i++) {
+                out[((size_t)y_base + i) * w + (size_t)n] = store_tmp[i];
+            }
+        }
+    }
+}
+
+/*
+ * FastGaussian separable IIR — vertical pass.
+ *
+ * The per-column IIR state (`prev1_*`, `prev2_*`) already lives in
+ * contiguous 6 × w float arrays (`col_state`), so 8 consecutive
+ * columns' state load/store naturally with aligned vectors. No
+ * gather required.
+ *
+ * Bit-exact to scalar: same summation order, lane-commutative.
+ */
+/* ADR-0141 carve-out: SIMD main loop + scalar tail share the same IIR
+ * state arrays and must stay in one function to preserve the scalar
+ * per-column state-update ordering. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static void vblur_simd_8cols_avx2(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                  float *col_state, const float *in, float *out, unsigned w,
+                                  unsigned h)
+{
+    const size_t xsize = (size_t)w;
+    float *prev1_0 = col_state + 0u * xsize;
+    float *prev1_1 = col_state + 1u * xsize;
+    float *prev1_2 = col_state + 2u * xsize;
+    float *prev2_0 = col_state + 3u * xsize;
+    float *prev2_1 = col_state + 4u * xsize;
+    float *prev2_2 = col_state + 5u * xsize;
+    memset(col_state, 0, 6u * xsize * sizeof(float));
+
+    const __m256 vn2_0 = _mm256_set1_ps(rg_n2[0]);
+    const __m256 vn2_1 = _mm256_set1_ps(rg_n2[1]);
+    const __m256 vn2_2 = _mm256_set1_ps(rg_n2[2]);
+    const __m256 vd1_0 = _mm256_set1_ps(rg_d1[0]);
+    const __m256 vd1_1 = _mm256_set1_ps(rg_d1[1]);
+    const __m256 vd1_2 = _mm256_set1_ps(rg_d1[2]);
+
+    const ptrdiff_t N = (ptrdiff_t)rg_radius;
+    const ptrdiff_t ysize = (ptrdiff_t)h;
+
+    for (ptrdiff_t n = -N + 1; n < ysize; n++) {
+        const ptrdiff_t left = n - N - 1;
+        const ptrdiff_t right = n + N - 1;
+        const float *lrow = (left >= 0) ? (in + (size_t)left * xsize) : NULL;
+        const float *rrow = (right < ysize) ? (in + (size_t)right * xsize) : NULL;
+        float *orow = (n >= 0) ? (out + (size_t)n * xsize) : NULL;
+
+        size_t x = 0;
+        for (; x + 8 <= xsize; x += 8) {
+            const __m256 lv = lrow ? _mm256_loadu_ps(lrow + x) : _mm256_setzero_ps();
+            const __m256 rv = rrow ? _mm256_loadu_ps(rrow + x) : _mm256_setzero_ps();
+            const __m256 sum = _mm256_add_ps(lv, rv);
+            const __m256 p1_0 = _mm256_loadu_ps(prev1_0 + x);
+            const __m256 p1_1 = _mm256_loadu_ps(prev1_1 + x);
+            const __m256 p1_2 = _mm256_loadu_ps(prev1_2 + x);
+            const __m256 p2_0 = _mm256_loadu_ps(prev2_0 + x);
+            const __m256 p2_1 = _mm256_loadu_ps(prev2_1 + x);
+            const __m256 p2_2 = _mm256_loadu_ps(prev2_2 + x);
+            __m256 o0 = _mm256_sub_ps(_mm256_mul_ps(vn2_0, sum), _mm256_mul_ps(vd1_0, p1_0));
+            o0 = _mm256_sub_ps(o0, p2_0);
+            __m256 o1 = _mm256_sub_ps(_mm256_mul_ps(vn2_1, sum), _mm256_mul_ps(vd1_1, p1_1));
+            o1 = _mm256_sub_ps(o1, p2_1);
+            __m256 o2 = _mm256_sub_ps(_mm256_mul_ps(vn2_2, sum), _mm256_mul_ps(vd1_2, p1_2));
+            o2 = _mm256_sub_ps(o2, p2_2);
+            _mm256_storeu_ps(prev2_0 + x, p1_0);
+            _mm256_storeu_ps(prev2_1 + x, p1_1);
+            _mm256_storeu_ps(prev2_2 + x, p1_2);
+            _mm256_storeu_ps(prev1_0 + x, o0);
+            _mm256_storeu_ps(prev1_1 + x, o1);
+            _mm256_storeu_ps(prev1_2 + x, o2);
+            if (orow) {
+                const __m256 res = _mm256_add_ps(_mm256_add_ps(o0, o1), o2);
+                _mm256_storeu_ps(orow + x, res);
+            }
+        }
+        /* Scalar tail — identical to scalar reference body. */
+        for (; x < xsize; x++) {
+            const float lv = lrow ? lrow[x] : 0.f;
+            const float rv = rrow ? rrow[x] : 0.f;
+            const float sum = lv + rv;
+            const float o0 = rg_n2[0] * sum - rg_d1[0] * prev1_0[x] - prev2_0[x];
+            const float o1 = rg_n2[1] * sum - rg_d1[1] * prev1_1[x] - prev2_1[x];
+            const float o2 = rg_n2[2] * sum - rg_d1[2] * prev1_2[x] - prev2_2[x];
+            prev2_0[x] = prev1_0[x];
+            prev2_1[x] = prev1_1[x];
+            prev2_2[x] = prev1_2[x];
+            prev1_0[x] = o0;
+            prev1_1[x] = o1;
+            prev1_2[x] = o2;
+            if (orow) {
+                orow[x] = o0 + o1 + o2;
+            }
+        }
+    }
+}
+
+void ssimulacra2_blur_plane_avx2(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                 float *col_state, const float *in, float *out, float *scratch,
+                                 unsigned w, unsigned h)
+{
+    assert(col_state != NULL);
+    assert(in != NULL);
+    assert(out != NULL);
+    assert(scratch != NULL);
+    assert(w > 0 && h > 0);
+
+    /* Horizontal pass: 8-row batches through `scratch`. */
+    unsigned y = 0;
+    for (; y + 8 <= h; y += 8) {
+        hblur_8rows_avx2(rg_n2, rg_d1, rg_radius, in, scratch, w, y, 8);
+    }
+    if (y < h) {
+        /* Tail: fewer than 8 rows. Still use the 8-wide path with a
+         * masked-store row_count — bit-exact because lanes beyond
+         * `row_count` don't write to output. */
+        hblur_8rows_avx2(rg_n2, rg_d1, rg_radius, in, scratch, w, y, h - y);
+    }
+
+    /* Vertical pass: 8-column SIMD with scalar tail. */
+    vblur_simd_8cols_avx2(rg_n2, rg_d1, rg_radius, col_state, scratch, out, w, h);
 }

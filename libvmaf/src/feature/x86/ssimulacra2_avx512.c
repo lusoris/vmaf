@@ -37,6 +37,7 @@
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "ssimulacra2_avx512.h"
 
@@ -360,4 +361,168 @@ void ssimulacra2_edge_diff_map_avx512(const float *img1, const float *mu1, const
         plane_averages[c * 4 + 2] = one_per_pixels * s2;
         plane_averages[c * 4 + 3] = sqrt(sqrt(one_per_pixels * s3));
     }
+}
+
+/* ADR-0141 carve-out: gather loads + 3-pole IIR + scalar-store scatter. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static void hblur_16rows_avx512(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                const float *in, float *out, unsigned w, unsigned y_base,
+                                unsigned row_count)
+{
+    const ptrdiff_t N = (ptrdiff_t)rg_radius;
+    const ptrdiff_t W = (ptrdiff_t)w;
+
+    int32_t idx_tmp[16];
+    for (int i = 0; i < 16; i++) {
+        idx_tmp[i] = (i < (int)row_count) ? (int32_t)(((size_t)y_base + (size_t)i) * w) : 0;
+    }
+    const __m512i vindices = _mm512_loadu_si512((const __m512i *)idx_tmp);
+
+    const __m512 vn2_0 = _mm512_set1_ps(rg_n2[0]);
+    const __m512 vn2_1 = _mm512_set1_ps(rg_n2[1]);
+    const __m512 vn2_2 = _mm512_set1_ps(rg_n2[2]);
+    const __m512 vd1_0 = _mm512_set1_ps(rg_d1[0]);
+    const __m512 vd1_1 = _mm512_set1_ps(rg_d1[1]);
+    const __m512 vd1_2 = _mm512_set1_ps(rg_d1[2]);
+
+    __m512 prev1_0 = _mm512_setzero_ps();
+    __m512 prev1_1 = _mm512_setzero_ps();
+    __m512 prev1_2 = _mm512_setzero_ps();
+    __m512 prev2_0 = _mm512_setzero_ps();
+    __m512 prev2_1 = _mm512_setzero_ps();
+    __m512 prev2_2 = _mm512_setzero_ps();
+
+    alignas(64) float store_tmp[16];
+
+    for (ptrdiff_t n = -N + 1; n < W; n++) {
+        const ptrdiff_t left = n - N - 1;
+        const ptrdiff_t right = n + N - 1;
+        const __m512 lv = (left >= 0) ? _mm512_i32gather_ps(vindices, in + left, sizeof(float)) :
+                                        _mm512_setzero_ps();
+        const __m512 rv = (right < W) ? _mm512_i32gather_ps(vindices, in + right, sizeof(float)) :
+                                        _mm512_setzero_ps();
+        const __m512 sum = _mm512_add_ps(lv, rv);
+
+        __m512 o0 = _mm512_sub_ps(_mm512_mul_ps(vn2_0, sum), _mm512_mul_ps(vd1_0, prev1_0));
+        o0 = _mm512_sub_ps(o0, prev2_0);
+        __m512 o1 = _mm512_sub_ps(_mm512_mul_ps(vn2_1, sum), _mm512_mul_ps(vd1_1, prev1_1));
+        o1 = _mm512_sub_ps(o1, prev2_1);
+        __m512 o2 = _mm512_sub_ps(_mm512_mul_ps(vn2_2, sum), _mm512_mul_ps(vd1_2, prev1_2));
+        o2 = _mm512_sub_ps(o2, prev2_2);
+
+        prev2_0 = prev1_0;
+        prev2_1 = prev1_1;
+        prev2_2 = prev1_2;
+        prev1_0 = o0;
+        prev1_1 = o1;
+        prev1_2 = o2;
+
+        if (n >= 0) {
+            const __m512 res = _mm512_add_ps(_mm512_add_ps(o0, o1), o2);
+            _mm512_store_ps(store_tmp, res);
+            for (unsigned i = 0; i < row_count; i++) {
+                out[((size_t)y_base + i) * w + (size_t)n] = store_tmp[i];
+            }
+        }
+    }
+}
+
+/* ADR-0141 carve-out: SIMD main loop + scalar tail share IIR state. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static void vblur_simd_16cols_avx512(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                     float *col_state, const float *in, float *out, unsigned w,
+                                     unsigned h)
+{
+    const size_t xsize = (size_t)w;
+    float *prev1_0 = col_state + 0u * xsize;
+    float *prev1_1 = col_state + 1u * xsize;
+    float *prev1_2 = col_state + 2u * xsize;
+    float *prev2_0 = col_state + 3u * xsize;
+    float *prev2_1 = col_state + 4u * xsize;
+    float *prev2_2 = col_state + 5u * xsize;
+    memset(col_state, 0, 6u * xsize * sizeof(float));
+
+    const __m512 vn2_0 = _mm512_set1_ps(rg_n2[0]);
+    const __m512 vn2_1 = _mm512_set1_ps(rg_n2[1]);
+    const __m512 vn2_2 = _mm512_set1_ps(rg_n2[2]);
+    const __m512 vd1_0 = _mm512_set1_ps(rg_d1[0]);
+    const __m512 vd1_1 = _mm512_set1_ps(rg_d1[1]);
+    const __m512 vd1_2 = _mm512_set1_ps(rg_d1[2]);
+
+    const ptrdiff_t N = (ptrdiff_t)rg_radius;
+    const ptrdiff_t ysize = (ptrdiff_t)h;
+
+    for (ptrdiff_t n = -N + 1; n < ysize; n++) {
+        const ptrdiff_t left = n - N - 1;
+        const ptrdiff_t right = n + N - 1;
+        const float *lrow = (left >= 0) ? (in + (size_t)left * xsize) : NULL;
+        const float *rrow = (right < ysize) ? (in + (size_t)right * xsize) : NULL;
+        float *orow = (n >= 0) ? (out + (size_t)n * xsize) : NULL;
+
+        size_t x = 0;
+        for (; x + 16 <= xsize; x += 16) {
+            const __m512 lv = lrow ? _mm512_loadu_ps(lrow + x) : _mm512_setzero_ps();
+            const __m512 rv = rrow ? _mm512_loadu_ps(rrow + x) : _mm512_setzero_ps();
+            const __m512 sum = _mm512_add_ps(lv, rv);
+            const __m512 p1_0 = _mm512_loadu_ps(prev1_0 + x);
+            const __m512 p1_1 = _mm512_loadu_ps(prev1_1 + x);
+            const __m512 p1_2 = _mm512_loadu_ps(prev1_2 + x);
+            const __m512 p2_0 = _mm512_loadu_ps(prev2_0 + x);
+            const __m512 p2_1 = _mm512_loadu_ps(prev2_1 + x);
+            const __m512 p2_2 = _mm512_loadu_ps(prev2_2 + x);
+            __m512 o0 = _mm512_sub_ps(_mm512_mul_ps(vn2_0, sum), _mm512_mul_ps(vd1_0, p1_0));
+            o0 = _mm512_sub_ps(o0, p2_0);
+            __m512 o1 = _mm512_sub_ps(_mm512_mul_ps(vn2_1, sum), _mm512_mul_ps(vd1_1, p1_1));
+            o1 = _mm512_sub_ps(o1, p2_1);
+            __m512 o2 = _mm512_sub_ps(_mm512_mul_ps(vn2_2, sum), _mm512_mul_ps(vd1_2, p1_2));
+            o2 = _mm512_sub_ps(o2, p2_2);
+            _mm512_storeu_ps(prev2_0 + x, p1_0);
+            _mm512_storeu_ps(prev2_1 + x, p1_1);
+            _mm512_storeu_ps(prev2_2 + x, p1_2);
+            _mm512_storeu_ps(prev1_0 + x, o0);
+            _mm512_storeu_ps(prev1_1 + x, o1);
+            _mm512_storeu_ps(prev1_2 + x, o2);
+            if (orow) {
+                const __m512 res = _mm512_add_ps(_mm512_add_ps(o0, o1), o2);
+                _mm512_storeu_ps(orow + x, res);
+            }
+        }
+        for (; x < xsize; x++) {
+            const float lv = lrow ? lrow[x] : 0.f;
+            const float rv = rrow ? rrow[x] : 0.f;
+            const float sum = lv + rv;
+            const float o0 = rg_n2[0] * sum - rg_d1[0] * prev1_0[x] - prev2_0[x];
+            const float o1 = rg_n2[1] * sum - rg_d1[1] * prev1_1[x] - prev2_1[x];
+            const float o2 = rg_n2[2] * sum - rg_d1[2] * prev1_2[x] - prev2_2[x];
+            prev2_0[x] = prev1_0[x];
+            prev2_1[x] = prev1_1[x];
+            prev2_2[x] = prev1_2[x];
+            prev1_0[x] = o0;
+            prev1_1[x] = o1;
+            prev1_2[x] = o2;
+            if (orow) {
+                orow[x] = o0 + o1 + o2;
+            }
+        }
+    }
+}
+
+void ssimulacra2_blur_plane_avx512(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                   float *col_state, const float *in, float *out, float *scratch,
+                                   unsigned w, unsigned h)
+{
+    assert(col_state != NULL);
+    assert(in != NULL);
+    assert(out != NULL);
+    assert(scratch != NULL);
+    assert(w > 0 && h > 0);
+
+    unsigned y = 0;
+    for (; y + 16 <= h; y += 16) {
+        hblur_16rows_avx512(rg_n2, rg_d1, rg_radius, in, scratch, w, y, 16);
+    }
+    if (y < h) {
+        hblur_16rows_avx512(rg_n2, rg_d1, rg_radius, in, scratch, w, y, h - y);
+    }
+    vblur_simd_16cols_avx512(rg_n2, rg_d1, rg_radius, col_state, scratch, out, w, h);
 }

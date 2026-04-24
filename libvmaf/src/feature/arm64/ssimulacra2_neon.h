@@ -39,4 +39,11 @@ void ssimulacra2_edge_diff_map_neon(const float *img1, const float *mu1, const f
                                     const float *mu2, unsigned w, unsigned h,
                                     double plane_averages[12]);
 
+/* Two-pass FastGaussian IIR blur (ADR-0162). 4-wide aarch64 NEON port.
+ * Horizontal pass batches 4 rows in parallel with per-row gather via 4x
+ * `vld1q_lane_f32`; vertical pass iterates 4 columns at a time. */
+void ssimulacra2_blur_plane_neon(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                 float *col_state, const float *in, float *out, float *scratch,
+                                 unsigned w, unsigned h);
+
 #endif /* ARM64_NEON_SSIMULACRA2_H_ */
