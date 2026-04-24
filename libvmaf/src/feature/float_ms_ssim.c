@@ -23,11 +23,13 @@
 #include "cpu.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
+#include "log.h"
 
 #include "mem.h"
 #include "ms_ssim.h"
 #include "picture_copy.h"
 #include "iqa/ssim_simd.h"
+#include "iqa/ssim_tools.h"
 
 #if ARCH_X86
 #include "x86/ssim_avx2.h"
@@ -77,12 +79,53 @@ static const VmafOption options[] = {
     },
     {0}};
 
+/* Wire the SSIM + convolve SIMD dispatch tables for the host ISA. */
+static void ms_ssim_init_simd_dispatch(void)
+{
+#if ARCH_X86
+    unsigned flags = vmaf_get_cpu_flags();
+    if (flags & VMAF_X86_CPU_FLAG_AVX2) {
+        iqa_ssim_set_dispatch(ssim_precompute_avx2, ssim_variance_avx2, ssim_accumulate_avx2);
+        iqa_convolve_set_dispatch(iqa_convolve_avx2);
+    }
+#if HAVE_AVX512
+    if (flags & VMAF_X86_CPU_FLAG_AVX512) {
+        iqa_ssim_set_dispatch(ssim_precompute_avx512, ssim_variance_avx512, ssim_accumulate_avx512);
+        iqa_convolve_set_dispatch(iqa_convolve_avx512);
+    }
+#endif
+#elif ARCH_AARCH64
+    unsigned flags = vmaf_get_cpu_flags();
+    if (flags & VMAF_ARM_CPU_FLAG_NEON) {
+        iqa_ssim_set_dispatch(ssim_precompute_neon, ssim_variance_neon, ssim_accumulate_neon);
+        iqa_convolve_set_dispatch(iqa_convolve_neon);
+    }
+#endif
+}
+
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
     (void)pix_fmt;
 
     MsSsimState *s = fex->priv;
+
+    /* The 5-level MS-SSIM pyramid with an 11-tap Gaussian needs
+     * every scale to satisfy min(w, h) >= 11. Starting from w, h
+     * and dividing by 2 per scale, the minimum admissible input
+     * dimension is GAUSSIAN_LEN << (SCALES - 1) = 11 << 4 = 176.
+     * Below that the pyramid walks off the kernel footprint at a
+     * mid-level scale and `ms_ssim_check_scale_ok` fails mid-run
+     * with a confusing "scale below 1x1!" print. Reject cleanly
+     * at init with a helpful message. Netflix#1414 / ADR-0153. */
+    const unsigned min_dim = GAUSSIAN_LEN << (SCALES - 1);
+    if (w < min_dim || h < min_dim) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "%s: input resolution %ux%u is too small; the %d-level "
+                 "%d-tap MS-SSIM pyramid requires at least %ux%u (Netflix#1414)\n",
+                 fex->name, w, h, SCALES, GAUSSIAN_LEN, min_dim, min_dim);
+        return -EINVAL;
+    }
 
     const unsigned peak = (1 << bpc) - 1;
     if (s->clip_db) {
@@ -92,31 +135,7 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         s->max_db = INFINITY;
     }
 
-    /* Set up SSIM SIMD dispatch */
-#if ARCH_X86
-    {
-        unsigned flags = vmaf_get_cpu_flags();
-        if (flags & VMAF_X86_CPU_FLAG_AVX2) {
-            iqa_ssim_set_dispatch(ssim_precompute_avx2, ssim_variance_avx2, ssim_accumulate_avx2);
-            iqa_convolve_set_dispatch(iqa_convolve_avx2);
-        }
-#if HAVE_AVX512
-        if (flags & VMAF_X86_CPU_FLAG_AVX512) {
-            iqa_ssim_set_dispatch(ssim_precompute_avx512, ssim_variance_avx512,
-                                  ssim_accumulate_avx512);
-            iqa_convolve_set_dispatch(iqa_convolve_avx512);
-        }
-#endif
-    }
-#elif ARCH_AARCH64
-    {
-        unsigned flags = vmaf_get_cpu_flags();
-        if (flags & VMAF_ARM_CPU_FLAG_NEON) {
-            iqa_ssim_set_dispatch(ssim_precompute_neon, ssim_variance_neon, ssim_accumulate_neon);
-            iqa_convolve_set_dispatch(iqa_convolve_neon);
-        }
-    }
-#endif
+    ms_ssim_init_simd_dispatch();
 
     s->float_stride = ALIGN_CEIL(w * sizeof(float));
     s->ref = aligned_malloc(s->float_stride * h, 32);
