@@ -44,6 +44,22 @@
 
 ### Added
 
+- **`psnr_hvs` AVX2 SIMD path** (fork-local, backlog T3-5). x86_64
+  users with AVX2 now get a vectorized Xiph/Daala 8×8 integer DCT
+  (the hot inner kernel of psnr_hvs). Scalar + AVX2 paths are
+  **byte-identical** on every Netflix golden pair — verified per-
+  frame via `VMAF_CPU_MASK=0` vs default. **3.58× DCT speedup** on
+  a microbenchmark (11.0 → 39.3 Mblocks/s at `-O3 -mavx2 -mfma`);
+  real-world speedup scales with resolution (at 1080p × 3 planes
+  the DCT is the dominant cost). Butterfly network vectorized 8
+  rows in parallel via `__m256i` registers + matrix transpose
+  between row and column passes. Float accumulators (means /
+  variances / mask / error) kept scalar by construction for
+  bit-exactness (ADR-0139 precedent). Includes new unit test
+  `test_psnr_hvs_avx2.c` pinning the bit-exactness contract on 5
+  reproducible inputs. NEON follow-up PR to come. See
+  [ADR-0159](docs/adr/0159-psnr-hvs-avx2-bitexact.md).
+
 - **`vmaf_cuda_state_free()` public API** (Netflix upstream issue
   [#1300](https://github.com/Netflix/vmaf/issues/1300)). New
   symbol in [`libvmaf/include/libvmaf/libvmaf_cuda.h`](libvmaf/include/libvmaf/libvmaf_cuda.h)

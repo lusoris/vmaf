@@ -293,6 +293,7 @@ if is_asm_enabled
           feature_src_dir + 'x86/ciede_avx2.c',
           feature_src_dir + 'x86/ms_ssim_decimate_avx2.c',
           feature_src_dir + 'x86/convolve_avx2.c',
+          feature_src_dir + 'x86/psnr_hvs_avx2.c',
       ]
 
       x86_avx2_static_lib = static_library(

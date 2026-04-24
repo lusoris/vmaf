@@ -2279,6 +2279,89 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0052 — `psnr_hvs` AVX2 bit-exact port (ADR-0159)
+
+- **ADR**: [ADR-0159](adr/0159-psnr-hvs-avx2-bitexact.md)
+- **Upstream source**: fork-local. Upstream Netflix/vmaf has no
+  psnr_hvs SIMD path.
+- **Touches**:
+  - [`libvmaf/src/feature/x86/psnr_hvs_avx2.c`](../libvmaf/src/feature/x86/psnr_hvs_avx2.c)
+    — new TU, AVX2 implementation.
+  - [`libvmaf/src/feature/x86/psnr_hvs_avx2.h`](../libvmaf/src/feature/x86/psnr_hvs_avx2.h)
+    — new header.
+  - [`libvmaf/src/feature/third_party/xiph/psnr_hvs.c`](../libvmaf/src/feature/third_party/xiph/psnr_hvs.c)
+    — add `PsnrHvsState` + runtime dispatch in `init()` +
+    scoped NOLINTBEGIN/END around the upstream Xiph scalar block
+    (kept verbatim as the bit-exact reference).
+  - [`libvmaf/src/meson.build`](../libvmaf/src/meson.build) — add
+    `x86/psnr_hvs_avx2.c` to `x86_avx2_sources`.
+  - [`libvmaf/test/test_psnr_hvs_avx2.c`](../libvmaf/test/test_psnr_hvs_avx2.c)
+    — new bit-exact unit test.
+  - [`libvmaf/test/meson.build`](../libvmaf/test/meson.build) —
+    register new test under `enable_asm`.
+- **Invariants** (load-bearing):
+  1. **Bit-exactness to scalar**: every `od_coeff` (int32) and
+     every final `psnr_hvs_{y,cb,cr,psnr_hvs}` value the AVX2
+     path emits must be byte-identical to the scalar reference
+     on the Netflix golden pairs. If a rebase introduces any
+     pattern that breaks this (e.g. a floating-point horizontal
+     reduce in the mask accumulator), the unit test
+     `test_psnr_hvs_avx2` will fail — don't relax the
+     assertions; fix the SIMD path.
+  2. **DCT butterfly layout**: `butterfly → transpose →
+     butterfly → transpose`. The transpose lives inside
+     `od_bin_fdct8x8_avx2`. Do not move it.
+  3. **Float accumulators stay scalar**: means / variances /
+     mask / error accumulation in `calc_psnrhvs_avx2` use the
+     same per-block scalar loop as scalar psnr_hvs — bit-exact
+     by construction. Do not vectorize these with horizontal
+     reductions without replicating ADR-0139's per-lane
+     scalar-float reduction pattern. The cross-block error
+     accumulator `ret` is threaded through `accumulate_error()`
+     **by pointer**, not returned-then-summed: each of the 64
+     per-coefficient contributions per block must hit the outer
+     `ret` directly, matching scalar's inline `ret += ...` at
+     `third_party/xiph/psnr_hvs.c` line 355. IEEE-754 float
+     add is non-associative — summing into a local float and
+     then adding the per-block total to `ret` changes the
+     summation tree and drifts the Netflix golden by ~5.5e-5.
+  4. **`#pragma STDC FP_CONTRACT OFF`** at the TU header
+     disables FMA formation. Required: `fmaf(a, b, c)` can
+     differ from `(a*b)+c` by 1 ulp, breaking bit-exactness.
+     Do not remove the pragma; do not add `-ffp-contract=fast`
+     to the build flags for this TU.
+  5. **NOLINT suppressions are load-bearing** — each cites
+     ADR-0141 inline (bit-exactness scalar-diff auditability
+     for the 30-butterfly function, scalar float→double
+     promotion for `sqrt`, extractor-registry extern linkage
+     for `vmaf_fex_psnr_hvs`, upstream-Xiph scoped block for
+     rebase parity).
+- **On upstream sync**:
+  - Upstream has no psnr_hvs SIMD as of 2026-04-24. Keep fork's
+    version on conflict.
+  - If upstream ever touches `psnr_hvs.c` for non-SIMD reasons
+    (e.g. a masking-table update), rebase the AVX2 TU to match
+    line-for-line and re-run `test_psnr_hvs_avx2` to confirm
+    bit-exactness survives.
+  - NEON follow-up PR is a sister port; its `arm64/psnr_hvs_neon.c`
+    will mirror this ADR's invariants. On rebase, the two SIMD TUs
+    must stay in lock-step with the scalar reference.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C build
+  meson test -C build test_psnr_hvs_avx2
+  # Expect: 5/5 subtests pass (DCT bit-exact on 3 random seeds +
+  # delta + constant input).
+
+  # CLI-level bit-exactness on Netflix golden (requires the YUV
+  # fixtures in python/test/resource/yuv/):
+  # VMAF_CPU_MASK=0    (scalar)
+  # VMAF_CPU_MASK=255  (AVX2 enabled)
+  # Diff per-frame psnr_hvs_{y,cb,cr,psnr_hvs} XML fields; expect
+  # byte-identical across all 3 golden pairs.
+  ```
+
 ### 0051 — Netflix#1486 motion updates verified present (ADR-0158)
 
 - **ADR**: [ADR-0158](adr/0158-netflix-1486-motion-updates-verified-present.md)
