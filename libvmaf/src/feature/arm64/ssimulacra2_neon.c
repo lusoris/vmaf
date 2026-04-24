@@ -635,7 +635,9 @@ void ssimulacra2_picture_to_linear_rgb_neon(int yuv_matrix, unsigned bpc, unsign
     const float peak = (float)((1u << bpc) - 1u);
     const float inv_peak = 1.0f / peak;
 
-    float kr, kg, kb;
+    float kr;
+    float kg;
+    float kb;
     int limited;
     compute_matrix_coefs_neon(yuv_matrix, &kr, &kg, &kb, &limited);
 

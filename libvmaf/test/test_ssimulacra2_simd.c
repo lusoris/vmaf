@@ -751,6 +751,10 @@ static ptlr_fn_t pick_ptlr(void)
 }
 
 /* Test all 6 common (yuv_matrix × subsampling) combinations on small frames. */
+/* Test helper — drives all 5 format variants (420/422/444 × 8/10-bit)
+ * through one parameterised entry point. Splitting would duplicate
+ * the per-plane fixture setup + 3× xorshift fill + shell. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 static char *test_ptlr_one(int yuv_matrix, unsigned bpc, unsigned uw_div, unsigned uh_div)
 {
     ptlr_fn_t fn = pick_ptlr();
@@ -774,30 +778,33 @@ static char *test_ptlr_one(int yuv_matrix, unsigned bpc, unsigned uw_div, unsign
         s ^= s >> 17;
         s ^= s << 5;
         const unsigned v = s % (maxv + 1);
-        if (bpc > 8)
+        if (bpc > 8) {
             ((uint16_t *)y_buf)[i] = (uint16_t)v;
-        else
+        } else {
             ((uint8_t *)y_buf)[i] = (uint8_t)v;
+        }
     }
     for (size_t i = 0; i < c_sz; i++) {
         s ^= s << 13;
         s ^= s >> 17;
         s ^= s << 5;
         const unsigned v = s % (maxv + 1);
-        if (bpc > 8)
+        if (bpc > 8) {
             ((uint16_t *)u_buf)[i] = (uint16_t)v;
-        else
+        } else {
             ((uint8_t *)u_buf)[i] = (uint8_t)v;
+        }
     }
     for (size_t i = 0; i < c_sz; i++) {
         s ^= s << 13;
         s ^= s >> 17;
         s ^= s << 5;
         const unsigned v = s % (maxv + 1);
-        if (bpc > 8)
+        if (bpc > 8) {
             ((uint16_t *)v_buf)[i] = (uint16_t)v;
-        else
+        } else {
             ((uint8_t *)v_buf)[i] = (uint8_t)v;
+        }
     }
     const simd_plane_t planes[3] = {
         {y_buf, (ptrdiff_t)LW * (ptrdiff_t)elem, LW, LH},
@@ -841,6 +848,9 @@ static char *test_ptlr_422_8(void)
     return test_ptlr_one(2, 8, 2, 1);
 }
 
+/* Flat mu_run_test list — one line per subtest by design, not a
+ * complexity violation. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 char *run_tests(void)
 {
 #if ARCH_X86 || ARCH_AARCH64
