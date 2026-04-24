@@ -39,7 +39,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define M_PI 3.141592653589793238462643
 #endif
 
-static int gaussian_filter_init(unsigned **_kernel, double _sigma, int _max_len)
+static int gaussian_filter_init(unsigned **iqa_kernel, double _sigma, int _max_len)
 {
     unsigned *kernel;
     double scale;
@@ -56,10 +56,11 @@ static int gaussian_filter_init(unsigned **_kernel, double _sigma, int _max_len)
      coefficient is no larger than 0.5*KERNEL_WEIGHT.
     There is no point in going beyond this given our working precision.*/
     s = sqrt(0.5 * M_PI) * _sigma * (1.0 / KERNEL_WEIGHT);
-    if (s >= 1)
+    if (s >= 1) {
         len = 0;
-    else
+    } else {
         len = floor(_sigma * sqrt(-2 * log(s)));
+    }
     kernel_len = len >= _max_len ? _max_len - 1 : (int)len;
     kernel_sz = kernel_len << 1 | 1;
     kernel = (unsigned *)malloc(kernel_sz * sizeof(*kernel));
@@ -70,7 +71,7 @@ static int gaussian_filter_init(unsigned **_kernel, double _sigma, int _max_len)
         sum += kernel[kernel_len - ci];
     }
     kernel[kernel_len] = KERNEL_WEIGHT - (sum << 1);
-    *_kernel = kernel;
+    *iqa_kernel = kernel;
     return kernel_sz;
 }
 
@@ -88,9 +89,106 @@ struct ssim_moments {
 #define SSIM_K1 (0.01 * 0.01)
 #define SSIM_K2 (0.03 * 0.03)
 
+/* Compute a power-of-two ring-buffer size >= kernel size. */
+static int ssim_line_buffer_size(int vkernel_sz)
+{
+    int line_sz;
+    int log_line_sz;
+    for (line_sz = 1, log_line_sz = 0; line_sz < vkernel_sz; line_sz <<= 1, log_line_sz++)
+        ;
+    (void)log_line_sz;
+    return line_sz;
+}
+
+/* Horizontal 1-D accumulation of moments for a single row into `buf`. */
+static void ssim_accumulate_row(const unsigned char *src, const unsigned char *dst, int w,
+                                int depth, const unsigned *hkernel, int hkernel_sz,
+                                int hkernel_offs, ssim_moments *buf)
+{
+    for (int x = 0; x < w; x++) {
+        ssim_moments m;
+        int k;
+        int k_min;
+        int k_max;
+        memset(&m, 0, sizeof(m));
+        k_min = hkernel_offs - x <= 0 ? 0 : hkernel_offs - x;
+        k_max =
+            x + hkernel_offs - w + 1 <= 0 ? hkernel_sz : hkernel_sz - (x + hkernel_offs - w + 1);
+        // k_min/k_max clamp to in-bounds — analyzer can't prove kernel
+        // offsets stay within hkernel[0..hkernel_sz) and src/dst[0.._w) here.
+        // NOLINTBEGIN(clang-analyzer-security.ArrayBound)
+        for (k = k_min; k < k_max; k++) {
+            signed s;
+            signed d;
+            signed window;
+            const ptrdiff_t off = (ptrdiff_t)x - (ptrdiff_t)hkernel_offs + (ptrdiff_t)k;
+            if (depth > 8) {
+                s = src[off * 2] + (src[off * 2 + 1] << 8);
+                d = dst[off * 2] + (dst[off * 2 + 1] << 8);
+            } else {
+                s = src[off];
+                d = dst[off];
+            }
+            window = hkernel[k];
+            m.mux += (int64_t)window * s;
+            m.muy += (int64_t)window * d;
+            m.x2 += (int64_t)window * s * s;
+            m.xy += (int64_t)window * s * d;
+            m.y2 += (int64_t)window * d * d;
+            m.w += window;
+        }
+        // NOLINTEND(clang-analyzer-security.ArrayBound)
+        buf[x] = m;
+    }
+}
+
+/* Vertical 1-D accumulation + SSIM term for one output row. */
+static void ssim_reduce_row_range(ssim_moments *const *lines, int line_mask, int y, int w,
+                                  int vkernel_sz, const unsigned *vkernel, int samplemax, int k_min,
+                                  int k_max, double *ssim, double *ssimw)
+{
+    for (int x = 0; x < w; x++) {
+        ssim_moments m;
+        const ssim_moments *buf;
+        double c1;
+        double c2;
+        double mx2;
+        double mxy;
+        double my2;
+        double w_d;
+        int k;
+        memset(&m, 0, sizeof(m));
+        // k_min/k_max clamp to in-bounds — analyzer can't prove kernel
+        // offsets stay within vkernel[0..vkernel_sz) here.
+        // NOLINTBEGIN(clang-analyzer-security.ArrayBound)
+        for (k = k_min; k < k_max; k++) {
+            signed window;
+            buf = lines[(y + 1 - vkernel_sz + k) & line_mask] + x;
+            window = vkernel[k];
+            m.mux += window * buf->mux;
+            m.muy += window * buf->muy;
+            m.x2 += window * buf->x2;
+            m.xy += window * buf->xy;
+            m.y2 += window * buf->y2;
+            m.w += window * buf->w;
+        }
+        // NOLINTEND(clang-analyzer-security.ArrayBound)
+        w_d = m.w;
+        c1 = samplemax * samplemax * SSIM_K1 * w_d * w_d;
+        c2 = samplemax * samplemax * SSIM_K2 * w_d * w_d;
+        mx2 = m.mux * (double)m.mux;
+        mxy = m.mux * (double)m.muy;
+        my2 = m.muy * (double)m.muy;
+        *ssim += m.w * (2 * mxy + c1) * (c2 + 2 * (m.xy * w_d - mxy)) /
+                 ((mx2 + my2 + c1) * (m.x2 * w_d - mx2 + m.y2 * w_d - my2 + c2));
+        *ssimw += m.w;
+    }
+}
+
 static double calc_ssim(const unsigned char *_src, int _systride, const unsigned char *_dst,
                         int _dystride, double _par, int depth, int _w, int _h)
 {
+    (void)_par;
     ssim_moments *line_buf;
     ssim_moments **lines;
     double ssim;
@@ -101,20 +199,17 @@ static double calc_ssim(const unsigned char *_src, int _systride, const unsigned
     unsigned *vkernel;
     int vkernel_sz;
     int vkernel_offs;
-    int log_line_sz;
     int line_sz;
     int line_mask;
-    int x;
     int y;
     int samplemax;
     samplemax = (1 << depth) - 1;
     vkernel_sz = gaussian_filter_init(&vkernel, 1.5, 5);
     vkernel_offs = vkernel_sz >> 1;
-    for (line_sz = 1, log_line_sz = 0; line_sz < vkernel_sz; line_sz <<= 1, log_line_sz++)
-        ;
+    line_sz = ssim_line_buffer_size(vkernel_sz);
     line_mask = line_sz - 1;
-    lines = (ssim_moments **)malloc(line_sz * sizeof(*lines));
-    lines[0] = line_buf = (ssim_moments *)malloc(line_sz * _w * sizeof(*line_buf));
+    lines = (ssim_moments **)malloc((size_t)line_sz * sizeof(*lines));
+    lines[0] = line_buf = (ssim_moments *)malloc((size_t)line_sz * (size_t)_w * sizeof(*line_buf));
     for (y = 1; y < line_sz; y++)
         lines[y] = lines[y - 1] + _w;
     hkernel_sz = gaussian_filter_init(&hkernel, 1.5, 5);
@@ -122,81 +217,21 @@ static double calc_ssim(const unsigned char *_src, int _systride, const unsigned
     ssim = 0;
     ssimw = 0;
     for (y = 0; y < _h + vkernel_offs; y++) {
-        ssim_moments *buf;
-        int k;
-        int k_min;
-        int k_max;
         if (y < _h) {
-            buf = lines[y & line_mask];
-            for (x = 0; x < _w; x++) {
-                ssim_moments m;
-                memset(&m, 0, sizeof(m));
-                k_min = hkernel_offs - x <= 0 ? 0 : hkernel_offs - x;
-                k_max = x + hkernel_offs - _w + 1 <= 0 ? hkernel_sz :
-                                                         hkernel_sz - (x + hkernel_offs - _w + 1);
-                for (k = k_min; k < k_max; k++) {
-                    signed s;
-                    signed d;
-                    signed window;
-                    if (depth > 8) {
-                        s = _src[(x - hkernel_offs + k) * 2] +
-                            (_src[(x - hkernel_offs + k) * 2 + 1] << 8);
-                        d = _dst[(x - hkernel_offs + k) * 2] +
-                            (_dst[(x - hkernel_offs + k) * 2 + 1] << 8);
-                    } else {
-                        s = _src[(x - hkernel_offs + k)];
-                        d = _dst[(x - hkernel_offs + k)];
-                    }
-                    window = hkernel[k];
-                    m.mux += window * s;
-                    m.muy += window * d;
-                    m.x2 += window * s * s;
-                    m.xy += window * s * d;
-                    m.y2 += window * d * d;
-                    m.w += window;
-                }
-                *(buf + x) = *&m;
-            }
+            ssim_accumulate_row(_src, _dst, _w, depth, hkernel, hkernel_sz, hkernel_offs,
+                                lines[y & line_mask]);
             _src += _systride;
             _dst += _dystride;
         }
         if (y >= vkernel_offs) {
-            k_min = vkernel_sz - y - 1 <= 0 ? 0 : vkernel_sz - y - 1;
-            k_max = y + 1 - _h <= 0 ? vkernel_sz : vkernel_sz - (y + 1 - _h);
-            for (x = 0; x < _w; x++) {
-                ssim_moments m;
-                double c1;
-                double c2;
-                double mx2;
-                double mxy;
-                double my2;
-                double w;
-                memset(&m, 0, sizeof(m));
-                for (k = k_min; k < k_max; k++) {
-                    signed window;
-                    buf = lines[(y + 1 - vkernel_sz + k) & line_mask] + x;
-                    window = vkernel[k];
-                    m.mux += window * buf->mux;
-                    m.muy += window * buf->muy;
-                    m.x2 += window * buf->x2;
-                    m.xy += window * buf->xy;
-                    m.y2 += window * buf->y2;
-                    m.w += window * buf->w;
-                }
-                w = m.w;
-                c1 = samplemax * samplemax * SSIM_K1 * w * w;
-                c2 = samplemax * samplemax * SSIM_K2 * w * w;
-                mx2 = m.mux * (double)m.mux;
-                mxy = m.mux * (double)m.muy;
-                my2 = m.muy * (double)m.muy;
-                ssim += m.w * (2 * mxy + c1) * (c2 + 2 * (m.xy * w - mxy)) /
-                        ((mx2 + my2 + c1) * (m.x2 * w - mx2 + m.y2 * w - my2 + c2));
-                ssimw += m.w;
-            }
+            int k_min = vkernel_sz - y - 1 <= 0 ? 0 : vkernel_sz - y - 1;
+            int k_max = y + 1 - _h <= 0 ? vkernel_sz : vkernel_sz - (y + 1 - _h);
+            ssim_reduce_row_range(lines, line_mask, y, _w, vkernel_sz, vkernel, samplemax, k_min,
+                                  k_max, &ssim, &ssimw);
         }
     }
     free(line_buf);
-    free(lines);
+    free((void *)lines);
     free(vkernel);
     free(hkernel);
     return ssim / ssimw;
@@ -205,6 +240,11 @@ static double calc_ssim(const unsigned char *_src, int _systride, const unsigned
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
+    (void)fex;
+    (void)pix_fmt;
+    (void)bpc;
+    (void)w;
+    (void)h;
     return 0;
 }
 
@@ -212,6 +252,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
 {
+    (void)fex;
     (void)ref_pic_90;
     (void)dist_pic_90;
 
@@ -225,11 +266,17 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
 static int close(VmafFeatureExtractor *fex)
 {
+    (void)fex;
     return 0;
 }
 
 static const char *provided_features[] = {"ssim", NULL};
 
+/* Reference implementation. This file is not in libvmaf/src/meson.build —
+ * the active SSIM path is float_ssim.c + ssim.c. Symbol kept exported so
+ * downstream consumers that hand-register features can still pick it up;
+ * clang-tidy per-TU can't observe such registration. */
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 VmafFeatureExtractor vmaf_fex_ssim = {
     .name = "ssim",
     .init = init,

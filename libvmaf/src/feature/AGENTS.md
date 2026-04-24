@@ -163,11 +163,11 @@ feature/
   [ADR-0145](../../../docs/adr/0145-motion-v2-neon-bitexact.md)
   and [rebase-notes 0038](../../../docs/rebase-notes.md).
 - **IQA / VIF SIMD helper decomposition** (fork-local, ADR-0146):
-  `_iqa_convolve` in
+  `iqa_convolve` in
   [`iqa/convolve.c`](iqa/convolve.c) is split into
   `iqa_convolve_horizontal_pass` + `iqa_convolve_vertical_pass`
   composed by `iqa_convolve_1d_separable` (for `IQA_CONVOLVE_1D`)
-  and `iqa_convolve_2d`; `_iqa_ssim` in
+  and `iqa_convolve_2d`; `iqa_ssim` in
   [`iqa/ssim_tools.c`](iqa/ssim_tools.c) is split into
   `ssim_workspace_alloc` / `_free` + `ssim_compute_stats` +
   `ssim_init_args` around an explicit `struct ssim_workspace`;
@@ -187,6 +187,35 @@ feature/
   TU-static rename `_calc_scale` → `iqa_calc_scale` in
   `iqa/convolve.c` is fork-local — keep on rebase. See
   [ADR-0146](../../../docs/adr/0146-nolint-sweep-function-size.md).
+- **IQA reserved-identifier rename** (fork-local, ADR-0148):
+  every `_iqa_*` / `struct _kernel` / `_ssim_int` /
+  `_map_reduce` / `_map` / `_reduce` / `_context` /
+  `_ms_ssim_*` / `_ssim_*` / `_alloc_buffers` /
+  `_free_buffers` symbol and the four underscore-prefixed
+  header guards (`_CONVOLVE_H_`, `_DECIMATE_H_`,
+  `_SSIM_TOOLS_H_`, `__VMAF_MS_SSIM_DECIMATE_H__`) was renamed
+  to its non-reserved spelling. The IQA tree is now baseline
+  lint-clean. **Load-bearing NOLINTs** (do not collapse on
+  rebase): scoped
+  `NOLINTBEGIN/END(clang-analyzer-security.ArrayBound)` around
+  the inner kernel loops in `ssim_accumulate_row` and
+  `ssim_reduce_row_range` of
+  [`integer_ssim.c`](integer_ssim.c) — the
+  `k_min`/`k_max` clamping is provably correct but the
+  analyzer can't follow it across the helper boundary; scoped
+  `NOLINTBEGIN/END(clang-analyzer-unix.Malloc)` around
+  `check_simd_variant` and `check_case` in
+  [`../../test/test_iqa_convolve.c`](../../test/test_iqa_convolve.c)
+  — test exits process on failure path; small allocations
+  leak by design at test end; cross-TU
+  `NOLINTNEXTLINE(misc-use-internal-linkage)` on `compute_ssim`
+  in [`ssim.c`](ssim.c) and `compute_ms_ssim` in
+  [`ms_ssim.c`](ms_ssim.c) — declared in `ssim.h` /
+  `ms_ssim.h`, called from `float_ssim.c` /
+  `float_ms_ssim.c`; clang-tidy runs per-TU and can't see the
+  bridge. On rebase, keep all these brackets verbatim. See
+  [ADR-0148](../../../docs/adr/0148-iqa-rename-and-cleanup.md)
+  and [rebase-notes 0041](../../../docs/rebase-notes.md).
 
 ## Governing ADRs
 
@@ -202,7 +231,7 @@ feature/
   [ADR-0130](../../../docs/adr/0130-ssimulacra2-scalar-implementation.md)
   — SSIMULACRA 2 extractor scope + scalar implementation.
 - [ADR-0138](../../../docs/adr/0138-iqa-convolve-avx2-bitexact-double.md) —
-  `_iqa_convolve` widen-then-add bit-exactness pattern.
+  `iqa_convolve` widen-then-add bit-exactness pattern.
 - [ADR-0139](../../../docs/adr/0139-ssim-simd-bitexact-double.md) —
   SSIM accumulate per-lane scalar-double reduction pattern.
 - [ADR-0140](../../../docs/adr/0140-simd-dx-framework.md) — SIMD DX

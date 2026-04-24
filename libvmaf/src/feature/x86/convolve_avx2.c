@@ -17,7 +17,7 @@
  */
 
 /*
- * AVX2 bit-exact fast path for `_iqa_convolve` — 1-D separable,
+ * AVX2 bit-exact fast path for `iqa_convolve` — 1-D separable,
  * interior-only (no boundary reflection).
  *
  * Specialised for MS-SSIM / SSIM invariants:
@@ -48,7 +48,7 @@
  *   - Round to float at store via `_mm256_cvtpd_ps`, matching the
  *     scalar's `(float)(sum * 1.0)` store.
  *
- * Primitive-argument signature (no `struct _kernel`) decouples this
+ * Primitive-argument signature (no `struct iqa_kernel`) decouples this
  * translation unit from iqa/convolve.h — keeps the x86_avx2 static
  * library's include set narrow and matches ms_ssim_decimate_avx2.c.
  *
@@ -153,7 +153,7 @@ static void h_pass_avx2(const float *img, int w, int uc, int kw_even, int kh_eve
     VMAF_ASSERT_DEBUG(dst_h >= 1);
 
     const int y_lo = -vc;
-    /* See convolve.c:_iqa_convolve — stop at `dst_h + vc - kh_even` so
+    /* See convolve.c:iqa_convolve — stop at `dst_h + vc - kh_even` so
      * we don't write cache row ky = h on even-tap kernels (OOB by one
      * row). That row is never read by the v-pass. */
     const int y_hi = dst_h + vc - kh_even;
@@ -280,7 +280,7 @@ void iqa_convolve_avx2(float *img, int w, int h, const float *kernel_h, const fl
 
     /* Caller-owned workspace eliminates the per-call calloc (~1200 pairs
      * per 120-frame run at 1080p). NULL triggers an internal alloc for
-     * standalone callers (unit tests); the hot path in _iqa_ssim
+     * standalone callers (unit tests); the hot path in iqa_ssim
      * allocates once and reuses. */
     float *img_cache = workspace;
     int owned = 0;

@@ -36,7 +36,7 @@
  * libvmaf/src/feature/ms_ssim_decimate.c (separable form). The 2-D
  * `g_lpf` array in upstream Netflix/vmaf ms_ssim.c is no longer used
  * on this fork because the decimate path switched from
- * `_iqa_decimate(..., 2, &lpf_2d, ...)` to the separable scalar-FMA
+ * `iqa_decimate(..., 2, &lpf_2d, ...)` to the separable scalar-FMA
  * path `ms_ssim_decimate`. See ADR-0125.
  *
  * REBASE-SENSITIVE INVARIANT: if Netflix upstream modifies `g_lpf`,
@@ -51,7 +51,7 @@ static float g_alphas[] = {0.0000f, 0.0000f, 0.0000f, 0.0000f, 0.1333f};
 static float g_betas[] = {0.0448f, 0.2856f, 0.3001f, 0.2363f, 0.1333f};
 static float g_gammas[] = {0.0448f, 0.2856f, 0.3001f, 0.2363f, 0.1333f};
 
-struct _context {
+struct ms_ssim_context {
     double l; /* Luminance */
     double c; /* Contrast */
     double s; /* Structure */
@@ -61,9 +61,9 @@ struct _context {
 };
 
 /* Called for each pixel */
-int _ms_ssim_map(const struct _ssim_int *si, void *ctx)
+static int ms_ssim_map_fn(const struct iqa_ssim_int *si, void *ctx)
 {
-    struct _context *ms_ctx = (struct _context *)ctx;
+    struct ms_ssim_context *ms_ctx = (struct ms_ssim_context *)ctx;
     ms_ctx->l += si->l;
     ms_ctx->c += si->c;
     ms_ctx->s += si->s;
@@ -71,10 +71,10 @@ int _ms_ssim_map(const struct _ssim_int *si, void *ctx)
 }
 
 /* Called to calculate the final result */
-float _ms_ssim_reduce(int w, int h, void *ctx)
+static float ms_ssim_reduce_fn(int w, int h, void *ctx)
 {
     double size = (double)(w * h);
-    struct _context *ms_ctx = (struct _context *)ctx;
+    struct ms_ssim_context *ms_ctx = (struct ms_ssim_context *)ctx;
     ms_ctx->l = pow(ms_ctx->l / size, (double)ms_ctx->alpha);
     ms_ctx->c = pow(ms_ctx->c / size, (double)ms_ctx->beta);
     ms_ctx->s = pow(fabs(ms_ctx->s / size), (double)ms_ctx->gamma);
@@ -82,7 +82,7 @@ float _ms_ssim_reduce(int w, int h, void *ctx)
 }
 
 /* Releases the scaled buffers */
-void _free_buffers(float **buf, int scales)
+static void ms_ssim_free_buffers(float **buf, int scales)
 {
     int idx;
     for (idx = 0; idx < scales; ++idx)
@@ -90,15 +90,15 @@ void _free_buffers(float **buf, int scales)
 }
 
 /* Allocates the scaled buffers. If error, all buffers are free'd */
-int _alloc_buffers(float **buf, int w, int h, int scales)
+static int ms_ssim_alloc_buffers(float **buf, int w, int h, int scales)
 {
     int idx;
     int cur_w = w;
     int cur_h = h;
     for (idx = 0; idx < scales; ++idx) {
-        buf[idx] = (float *)malloc(cur_w * cur_h * sizeof(float));
+        buf[idx] = (float *)malloc((size_t)cur_w * (size_t)cur_h * sizeof(float));
         if (!buf[idx]) {
-            _free_buffers(buf, idx);
+            ms_ssim_free_buffers(buf, idx);
             return 1;
         }
         cur_w = cur_w / 2 + (cur_w & 1);
@@ -107,145 +107,152 @@ int _alloc_buffers(float **buf, int w, int h, int scales)
     return 0;
 }
 
-int compute_ms_ssim(const float *ref, const float *cmp, int w, int h, int ref_stride,
-                    int cmp_stride, double *score, double *l_scores, double *c_scores,
-                    double *s_scores)
+/* Verify that no scale drops below the kernel footprint. */
+static int ms_ssim_check_scale_ok(int w, int h, int scales, int gauss)
 {
-
-    int ret = 1;
-
-    int wang = 1; /* set default to wang's ms_ssim */
-    int scales = SCALES;
-    int gauss = 1;
-    const float *alphas = g_alphas, *betas = g_betas, *gammas = g_gammas;
-    int idx, x, y, cur_w, cur_h;
-    int offset, src_offset;
-    float **ref_imgs, **cmp_imgs; /* Array of pointers to scaled images */
-    double msssim;
-    float l, c, s;
-    struct _kernel window;
-    struct iqa_ssim_args s_args;
-    struct _map_reduce mr;
-    struct _context ms_ctx;
-
-    /* check stride */
-    int stride = ref_stride; /* stride in bytes */
-    if (stride != cmp_stride) {
-        printf("error: for ms_ssim, ref_stride (%d) != dis_stride (%d) bytes.\n", ref_stride,
-               cmp_stride);
-        fflush(stdout);
-        goto fail_or_end;
-    }
-    stride /= sizeof(float); /* stride_ in pixels */
-
-    /* specify some default parameters */
-    const struct iqa_ms_ssim_args *args = 0; /* 0 for default */
-
-    /* initialize algorithm parameters */
-    if (args) {
-        wang = args->wang;
-        gauss = args->gaussian;
-        scales = args->scales;
-        if (args->alphas)
-            alphas = args->alphas;
-        if (args->betas)
-            betas = args->betas;
-        if (args->gammas)
-            gammas = args->gammas;
-    }
-
-    /* make sure we won't scale below 1x1 */
-    cur_w = w;
-    cur_h = h;
-    for (idx = 0; idx < scales; ++idx) {
+    int cur_w = w;
+    int cur_h = h;
+    for (int idx = 0; idx < scales; ++idx) {
         if (gauss ? cur_w < GAUSSIAN_LEN || cur_h < GAUSSIAN_LEN :
                     cur_w < LPF_LEN || cur_h < LPF_LEN) {
-            printf("error: scale below 1x1!\n");
-            goto fail_or_end;
+            (void)printf("error: scale below 1x1!\n");
+            return 1;
         }
         cur_w /= 2;
         cur_h /= 2;
     }
+    return 0;
+}
 
-    window.kernel = (float *)g_square_window;
-    window.kernel_h = (float *)g_square_window_h; /* zli-nflx */
-    window.kernel_v = (float *)g_square_window_v; /* zli-nflx */
-    window.w = window.h = SQUARE_LEN;
-    window.normalized = 1;
-    window.bnd_opt = KBND_SYMMETRIC;
+/* Populate the SSIM window struct with the selected (square or gaussian) kernel. */
+static void ms_ssim_init_window(struct iqa_kernel *window, int gauss)
+{
+    window->kernel = (float *)g_square_window;
+    window->kernel_h = (float *)g_square_window_h; /* zli-nflx */
+    window->kernel_v = (float *)g_square_window_v; /* zli-nflx */
+    window->w = window->h = SQUARE_LEN;
+    window->normalized = 1;
+    window->bnd_opt = KBND_SYMMETRIC;
     if (gauss) {
-        window.kernel = (float *)g_gaussian_window;
-        window.kernel_h = (float *)g_gaussian_window_h; /* zli-nflx */
-        window.kernel_v = (float *)g_gaussian_window_v; /* zli-nflx */
-        window.w = window.h = GAUSSIAN_LEN;
+        window->kernel = (float *)g_gaussian_window;
+        window->kernel_h = (float *)g_gaussian_window_h; /* zli-nflx */
+        window->kernel_v = (float *)g_gaussian_window_v; /* zli-nflx */
+        window->w = window->h = GAUSSIAN_LEN;
     }
+}
 
-    mr.map = _ms_ssim_map;
-    mr.reduce = _ms_ssim_reduce;
-
-    /* allocate the scaled image buffers */
-    ref_imgs = (float **)malloc(scales * sizeof(float *));
-    cmp_imgs = (float **)malloc(scales * sizeof(float *));
+/* Allocate the per-scale image pointer arrays and their backing storage.
+ * Returns 0 on success; frees everything and returns 1 on any failure. */
+static int ms_ssim_alloc_pyramids(float ***ref_imgs_out, float ***cmp_imgs_out, int w, int h,
+                                  int scales)
+{
+    float **ref_imgs = (float **)malloc((size_t)scales * sizeof(float *));
+    float **cmp_imgs = (float **)malloc((size_t)scales * sizeof(float *));
     if (!ref_imgs || !cmp_imgs) {
-        if (ref_imgs)
-            free(ref_imgs);
-        if (cmp_imgs)
-            free(cmp_imgs);
-        printf("error: unable to malloc ref_imgs or cmp_imgs.\n");
-        fflush(stdout);
-        goto fail_or_end;
+        free((void *)ref_imgs);
+        free((void *)cmp_imgs);
+        (void)printf("error: unable to malloc ref_imgs or cmp_imgs.\n");
+        (void)fflush(stdout);
+        return 1;
     }
-    if (_alloc_buffers(ref_imgs, w, h, scales)) {
-        free(ref_imgs);
-        free(cmp_imgs);
-        printf("error: unable to _alloc_buffers on ref_imgs.\n");
-        fflush(stdout);
-        goto fail_or_end;
+    if (ms_ssim_alloc_buffers(ref_imgs, w, h, scales)) {
+        free((void *)ref_imgs);
+        free((void *)cmp_imgs);
+        (void)printf("error: unable to ms_ssim_alloc_buffers on ref_imgs.\n");
+        (void)fflush(stdout);
+        return 1;
     }
-    if (_alloc_buffers(cmp_imgs, w, h, scales)) {
-        _free_buffers(ref_imgs, scales);
-        free(ref_imgs);
-        free(cmp_imgs);
-        printf("error: unable to _alloc_buffers on cmp_imgs.\n");
-        fflush(stdout);
-        goto fail_or_end;
+    if (ms_ssim_alloc_buffers(cmp_imgs, w, h, scales)) {
+        ms_ssim_free_buffers(ref_imgs, scales);
+        free((void *)ref_imgs);
+        free((void *)cmp_imgs);
+        (void)printf("error: unable to ms_ssim_alloc_buffers on cmp_imgs.\n");
+        (void)fflush(stdout);
+        return 1;
     }
+    *ref_imgs_out = ref_imgs;
+    *cmp_imgs_out = cmp_imgs;
+    return 0;
+}
 
-    /* copy original images into first scale buffer, forcing stride = width. */
-    for (y = 0; y < h; ++y) {
-        src_offset = y * stride;
-        offset = y * w;
-        for (x = 0; x < w; ++x, ++offset, ++src_offset) {
-            ref_imgs[0][offset] = (float)ref[src_offset];
-            cmp_imgs[0][offset] = (float)cmp[src_offset];
+/* Release both pyramids and their pointer arrays. */
+static void ms_ssim_free_pyramids(float **ref_imgs, float **cmp_imgs, int scales)
+{
+    ms_ssim_free_buffers(ref_imgs, scales);
+    ms_ssim_free_buffers(cmp_imgs, scales);
+    free((void *)ref_imgs);
+    free((void *)cmp_imgs);
+}
+
+/* Copy the input planes into the first level of each pyramid, forcing stride = w. */
+static void ms_ssim_seed_pyramid(const float *ref, const float *cmp, int w, int h, int stride,
+                                 float *ref_dst, float *cmp_dst)
+{
+    for (int y = 0; y < h; ++y) {
+        int src_offset = y * stride;
+        int offset = y * w;
+        for (int x = 0; x < w; ++x, ++offset, ++src_offset) {
+            ref_dst[offset] = (float)ref[src_offset];
+            cmp_dst[offset] = (float)cmp[src_offset];
         }
     }
+}
 
-    /*
-     * Create scaled versions of the images via the separable decimate
-     * path (see ADR-0125). Replaces upstream's
-     * `_iqa_decimate(..., 2, &lpf_2d, ...)` 2-D 9x9 kernel.
-     */
-    cur_w = w;
-    cur_h = h;
-    for (idx = 1; idx < scales; ++idx) {
+/* Build the decimation pyramid via the separable path (ADR-0125). */
+static int ms_ssim_build_pyramids(float **ref_imgs, float **cmp_imgs, int w, int h, int scales)
+{
+    int cur_w = w;
+    int cur_h = h;
+    for (int idx = 1; idx < scales; ++idx) {
         if (ms_ssim_decimate(ref_imgs[idx - 1], cur_w, cur_h, ref_imgs[idx], 0, 0) ||
             ms_ssim_decimate(cmp_imgs[idx - 1], cur_w, cur_h, cmp_imgs[idx], &cur_w, &cur_h)) {
-            _free_buffers(ref_imgs, scales);
-            _free_buffers(cmp_imgs, scales);
-            free(ref_imgs);
-            free(cmp_imgs);
-            printf("error: decimation fails on ref_imgs or cmp_imgs.\n");
-            fflush(stdout);
-            goto fail_or_end;
+            (void)printf("error: decimation fails on ref_imgs or cmp_imgs.\n");
+            (void)fflush(stdout);
+            return 1;
         }
     }
+    return 0;
+}
 
-    cur_w = w;
-    cur_h = h;
-    msssim = 1.0;
-    for (idx = 0; idx < scales; ++idx) {
+/* Run a single scale of the SSIM reduction, selecting the Wang vs Rouse/Hemami
+ * variant as upstream does. Fills the per-component scores (l, c, s). */
+static void ms_ssim_run_scale(float *ref_img, float *cmp_img, int cur_w, int cur_h,
+                              struct iqa_kernel *window, struct iqa_map_reduce *mr,
+                              struct ms_ssim_context *ms_ctx, int wang, float *l, float *c,
+                              float *s)
+{
+    if (!wang) {
+        /* MS-SSIM* (Rouse/Hemami) */
+        struct iqa_ssim_args s_args;
+        s_args.alpha = 1.0f;
+        s_args.beta = 1.0f;
+        s_args.gamma = 1.0f;
+        s_args.K1 = 0.0f; /* Force stabilization constants to 0 */
+        s_args.K2 = 0.0f;
+        s_args.L = 255;
+        s_args.f = 1; /* Don't resize */
+        mr->context = ms_ctx;
+        iqa_ssim(ref_img, cmp_img, cur_w, cur_h, window, mr, &s_args, l, c, s);
+    } else {
+        /* MS-SSIM (Wang) — default parameters (args=NULL) per upstream. */
+        iqa_ssim(ref_img, cmp_img, cur_w, cur_h, window, NULL, NULL, l, c, s);
+    }
+}
 
+/* Iterate scales and produce the product-of-scales MS-SSIM score plus the
+ * per-scale l/c/s components. Returns 0 on success; returns 1 (and leaves
+ * msssim_out untouched) if the product reaches INFINITY mid-loop. */
+static int ms_ssim_score_scales(float **ref_imgs, float **cmp_imgs, int w, int h, int scales,
+                                int wang, const float *alphas, const float *betas,
+                                const float *gammas, struct iqa_kernel *window,
+                                struct iqa_map_reduce *mr, double *l_scores, double *c_scores,
+                                double *s_scores, double *msssim_out)
+{
+    int cur_w = w;
+    int cur_h = h;
+    double msssim = 1.0;
+    for (int idx = 0; idx < scales; ++idx) {
+        struct ms_ssim_context ms_ctx;
         ms_ctx.l = 0;
         ms_ctx.c = 0;
         ms_ctx.s = 0;
@@ -253,62 +260,82 @@ int compute_ms_ssim(const float *ref, const float *cmp, int w, int h, int ref_st
         ms_ctx.beta = betas[idx];
         ms_ctx.gamma = gammas[idx];
 
-        if (!wang) {
-            /* MS-SSIM* (Rouse/Hemami) */
-            s_args.alpha = 1.0f;
-            s_args.beta = 1.0f;
-            s_args.gamma = 1.0f;
-            s_args.K1 = 0.0f; /* Force stabilization constants to 0 */
-            s_args.K2 = 0.0f;
-            s_args.L = 255;
-            s_args.f = 1; /* Don't resize */
-            mr.context = &ms_ctx;
-            _iqa_ssim(ref_imgs[idx], cmp_imgs[idx], cur_w, cur_h, &window, &mr, &s_args, &l, &c,
-                      &s);
-        } else {
-            /* MS-SSIM (Wang) */
-            /*
-            s_args.alpha = 1.0f;
-            s_args.beta  = 1.0f;
-            s_args.gamma = 1.0f;
-            s_args.K1 = 0.01f;
-            s_args.K2 = 0.03f;
-            s_args.L  = 255;
-            s_args.f  = 1; // Don't resize
-            mr.context = &ms_ctx;
-            msssim *= _iqa_ssim(ref_imgs[idx], cmp_imgs[idx], cur_w, cur_h, &window, &mr, &s_args, &l, &c, &s);
-            */
+        float l;
+        float c;
+        float s;
+        ms_ssim_run_scale(ref_imgs[idx], cmp_imgs[idx], cur_w, cur_h, window, mr, &ms_ctx, wang, &l,
+                          &c, &s);
 
-            /* above is equivalent to passing default parameter: */
-            _iqa_ssim(ref_imgs[idx], cmp_imgs[idx], cur_w, cur_h, &window, NULL, NULL, &l, &c, &s);
-        }
-
-        msssim *= pow(l, alphas[idx]) * pow(c, betas[idx]) * pow(s, gammas[idx]);
+        msssim *= pow((double)l, (double)alphas[idx]) * pow((double)c, (double)betas[idx]) *
+                  pow((double)s, (double)gammas[idx]);
         l_scores[idx] = l;
         c_scores[idx] = c;
         s_scores[idx] = s;
 
         if (msssim == INFINITY) {
-            _free_buffers(ref_imgs, scales);
-            _free_buffers(cmp_imgs, scales);
-            free(ref_imgs);
-            free(cmp_imgs);
-            printf("error: ms_ssim is INFINITY.\n");
-            fflush(stdout);
-            goto fail_or_end;
+            (void)printf("error: ms_ssim is INFINITY.\n");
+            (void)fflush(stdout);
+            return 1;
         }
         cur_w = cur_w / 2 + (cur_w & 1);
         cur_h = cur_h / 2 + (cur_h & 1);
     }
+    *msssim_out = msssim;
+    return 0;
+}
 
-    _free_buffers(ref_imgs, scales);
-    _free_buffers(cmp_imgs, scales);
-    free(ref_imgs);
-    free(cmp_imgs);
+/* Cross-TU: declared in ms_ssim.h, called from float_ms_ssim.c.
+ * clang-tidy misc-use-internal-linkage runs per-TU and can't see the
+ * header bridge. */
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+int compute_ms_ssim(const float *ref, const float *cmp, int w, int h, int ref_stride,
+                    int cmp_stride, double *score, double *l_scores, double *c_scores,
+                    double *s_scores)
+{
+    const int wang = 1; /* set default to wang's ms_ssim */
+    const int scales = SCALES;
+    const int gauss = 1;
 
+    /* check stride */
+    int stride = ref_stride; /* stride in bytes */
+    if (stride != cmp_stride) {
+        (void)printf("error: for ms_ssim, ref_stride (%d) != dis_stride (%d) bytes.\n", ref_stride,
+                     cmp_stride);
+        (void)fflush(stdout);
+        return 1;
+    }
+    stride /= (int)sizeof(float); /* stride_ in pixels */
+
+    if (ms_ssim_check_scale_ok(w, h, scales, gauss))
+        return 1;
+
+    struct iqa_kernel window;
+    ms_ssim_init_window(&window, gauss);
+
+    struct iqa_map_reduce mr;
+    mr.map = ms_ssim_map_fn;
+    mr.reduce = ms_ssim_reduce_fn;
+
+    float **ref_imgs = NULL;
+    float **cmp_imgs = NULL;
+    if (ms_ssim_alloc_pyramids(&ref_imgs, &cmp_imgs, w, h, scales))
+        return 1;
+
+    ms_ssim_seed_pyramid(ref, cmp, w, h, stride, ref_imgs[0], cmp_imgs[0]);
+
+    if (ms_ssim_build_pyramids(ref_imgs, cmp_imgs, w, h, scales)) {
+        ms_ssim_free_pyramids(ref_imgs, cmp_imgs, scales);
+        return 1;
+    }
+
+    double msssim = 1.0;
+    if (ms_ssim_score_scales(ref_imgs, cmp_imgs, w, h, scales, wang, g_alphas, g_betas, g_gammas,
+                             &window, &mr, l_scores, c_scores, s_scores, &msssim)) {
+        ms_ssim_free_pyramids(ref_imgs, cmp_imgs, scales);
+        return 1;
+    }
+
+    ms_ssim_free_pyramids(ref_imgs, cmp_imgs, scales);
     *score = msssim;
-
-    ret = 0;
-fail_or_end:
-    return ret;
+    return 0;
 }

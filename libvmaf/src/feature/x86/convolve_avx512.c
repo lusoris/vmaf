@@ -17,7 +17,7 @@
  */
 
 /*
- * AVX-512 bit-exact fast path for `_iqa_convolve` — 1-D separable,
+ * AVX-512 bit-exact fast path for `iqa_convolve` — 1-D separable,
  * interior-only (no boundary reflection).
  *
  * Mirrors convolve_avx2.c exactly, widened from 4-lane double accumulate
@@ -121,7 +121,7 @@ static void h_pass_avx512(const float *img, int w, int uc, int kw_even, int kh_e
     VMAF_ASSERT_DEBUG(dst_h >= 1);
 
     const int y_lo = -vc;
-    /* See convolve.c:_iqa_convolve — stop at `dst_h + vc - kh_even` so
+    /* See convolve.c:iqa_convolve — stop at `dst_h + vc - kh_even` so
      * we don't write cache row ky = h on even-tap kernels (OOB by one
      * row). That row is never read by the v-pass. */
     const int y_hi = dst_h + vc - kh_even;

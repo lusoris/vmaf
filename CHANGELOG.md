@@ -24,6 +24,35 @@
 
 ### Changed
 
+- **IQA reserved-identifier rename + touched-file lint cascade
+  cleanup** (refactor, fork-local). Rename every `_iqa_*` /
+  `struct _kernel` / `_ssim_int` / `_map_reduce` / `_map` /
+  `_reduce` / `_context` / `_ms_ssim_map` / `_ssim_map` /
+  `_ms_ssim_reduce` / `_ssim_reduce` / `_alloc_buffers` /
+  `_free_buffers` symbol and the underscore-prefixed header
+  guards (`_CONVOLVE_H_`, `_DECIMATE_H_`, `_SSIM_TOOLS_H_`,
+  `__VMAF_MS_SSIM_DECIMATE_H__`) to their non-reserved
+  spellings across the IQA tree (21 files). Sweeps the
+  ADR-0141 touched-file lint cascade that surfaced
+  (~40 pre-existing warnings across `ssim.c`, `ms_ssim.c`,
+  `integer_ssim.c`, `iqa/*.{c,h}`, `convolve_*.{c,h}`,
+  `test_iqa_convolve.c`): `static` / cross-TU NOLINT for
+  `misc-use-internal-linkage`, `size_t` casts for
+  `bugprone-implicit-widening-of-multiplication-result`,
+  multi-decl splits, function-size refactors of `calc_ssim` /
+  `compute_ssim` / `compute_ms_ssim` / `run_gauss_tests` via
+  small named `static` helpers, `(void)` casts for unused
+  feature-extractor lifecycle parameters, and scoped
+  NOLINTBEGIN/END for `clang-analyzer-security.ArrayBound`
+  false positives on the kernel-offset clamps and for
+  `clang-analyzer-unix.Malloc` on test-helper allocations
+  that leak by design at process exit. Bit-identical VMAF
+  score on Netflix golden pair `src01_hrc00/01_576x324`
+  (scalar vs SIMD, with `--feature float_ssim --feature
+  float_ms_ssim` and the full `vmaf_v0.6.1` model). Closes
+  backlog item T7-6. See
+  [ADR-0148](docs/adr/0148-iqa-rename-and-cleanup.md).
+
 - **Thread-pool job-object recycling** (perf, fork-local port of
   Netflix upstream PR [#1464](https://github.com/Netflix/vmaf/pull/1464),
   thread-pool portion only). `libvmaf/src/thread_pool.c` now recycles

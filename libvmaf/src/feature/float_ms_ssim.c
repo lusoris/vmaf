@@ -97,14 +97,14 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     {
         unsigned flags = vmaf_get_cpu_flags();
         if (flags & VMAF_X86_CPU_FLAG_AVX2) {
-            _iqa_ssim_set_dispatch(ssim_precompute_avx2, ssim_variance_avx2, ssim_accumulate_avx2);
-            _iqa_convolve_set_dispatch(iqa_convolve_avx2);
+            iqa_ssim_set_dispatch(ssim_precompute_avx2, ssim_variance_avx2, ssim_accumulate_avx2);
+            iqa_convolve_set_dispatch(iqa_convolve_avx2);
         }
 #if HAVE_AVX512
         if (flags & VMAF_X86_CPU_FLAG_AVX512) {
-            _iqa_ssim_set_dispatch(ssim_precompute_avx512, ssim_variance_avx512,
-                                   ssim_accumulate_avx512);
-            _iqa_convolve_set_dispatch(iqa_convolve_avx512);
+            iqa_ssim_set_dispatch(ssim_precompute_avx512, ssim_variance_avx512,
+                                  ssim_accumulate_avx512);
+            iqa_convolve_set_dispatch(iqa_convolve_avx512);
         }
 #endif
     }
@@ -112,8 +112,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     {
         unsigned flags = vmaf_get_cpu_flags();
         if (flags & VMAF_ARM_CPU_FLAG_NEON) {
-            _iqa_ssim_set_dispatch(ssim_precompute_neon, ssim_variance_neon, ssim_accumulate_neon);
-            _iqa_convolve_set_dispatch(iqa_convolve_neon);
+            iqa_ssim_set_dispatch(ssim_precompute_neon, ssim_variance_neon, ssim_accumulate_neon);
+            iqa_convolve_set_dispatch(iqa_convolve_neon);
         }
     }
 #endif
@@ -217,6 +217,8 @@ static int close(VmafFeatureExtractor *fex)
 
 static const char *provided_features[] = {"float_ms_ssim", NULL};
 
+// extern-registered in feature_extractor.c registry
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 VmafFeatureExtractor vmaf_fex_float_ms_ssim = {
     .name = "float_ms_ssim",
     .init = init,

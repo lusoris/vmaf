@@ -20,12 +20,12 @@
 #define LIBVMAF_FEATURE_X86_CONVOLVE_AVX2_H
 
 /*
- * AVX2 bit-exact fast path for `_iqa_convolve` — 1-D separable,
+ * AVX2 bit-exact fast path for `iqa_convolve` — 1-D separable,
  * 11-tap Gaussian or 8-tap box kernel, normalised, no border
  * reflection.
  *
  * Primitive-argument signature decouples x86 SIMD sources from the
- * vendored iqa/convolve.h `struct _kernel` (keeps the x86_avx2 static
+ * vendored iqa/convolve.h `struct iqa_kernel` (keeps the x86_avx2 static
  * library's include set narrow, matching the rest of libvmaf/src/feature/x86/).
  *
  * Bit-identical to the scalar reference by construction: `__m256d`

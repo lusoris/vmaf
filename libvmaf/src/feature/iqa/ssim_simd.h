@@ -30,19 +30,19 @@ typedef void (*ssim_accumulate_fn)(const float *ref_mu, const float *cmp_mu,
                                    const float *sigma_both, int n, float C1, float C2, float C3,
                                    double *ssim_sum, double *l_sum, double *c_sum, double *s_sum);
 
-void _iqa_ssim_set_dispatch(ssim_precompute_fn precompute, ssim_variance_fn variance,
-                            ssim_accumulate_fn accumulate);
+void iqa_ssim_set_dispatch(ssim_precompute_fn precompute, ssim_variance_fn variance,
+                           ssim_accumulate_fn accumulate);
 
 /*
- * Fork-local addition: SIMD dispatch for `_iqa_convolve` (the 1-D
+ * Fork-local addition: SIMD dispatch for `iqa_convolve` (the 1-D
  * separable, interior-only fast path under IQA_CONVOLVE_1D). The
  * signature is primitive — decouples SIMD translation units from
- * iqa/convolve.h `struct _kernel`. ssim_tools.c adapts the struct
+ * iqa/convolve.h `struct iqa_kernel`. ssim_tools.c adapts the struct
  * to these primitive args at each call site.
  *
  * `workspace` is a caller-owned `w*h`-float scratch buffer used by the
  * horizontal pass. NULL is accepted — the kernel allocates internally
- * (kept for standalone unit tests). The hot path in `_iqa_ssim`
+ * (kept for standalone unit tests). The hot path in `iqa_ssim`
  * allocates once and reuses across all 5 dispatch sites, eliminating
  * ~1200 calloc/free pairs per 120-frame run at 1080p. See
  * docs/adr/0138-iqa-convolve-avx2-bitexact-double.md.
@@ -51,6 +51,6 @@ typedef void (*iqa_convolve_fn)(float *img, int w, int h, const float *kernel_h,
                                 const float *kernel_v, int kw, int kh, int normalized,
                                 float *workspace, float *result, int *rw, int *rh);
 
-void _iqa_convolve_set_dispatch(iqa_convolve_fn convolve);
+void iqa_convolve_set_dispatch(iqa_convolve_fn convolve);
 
 #endif /* IQA_SSIM_SIMD_H_ */
