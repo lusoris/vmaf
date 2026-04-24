@@ -57,6 +57,8 @@ static char *test_cuda_no_init()
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_read_pictures", !err);
 
+    vmaf_model_destroy(model);
+
     return NULL;
 }
 
@@ -100,6 +102,10 @@ static char *test_cuda_picture_preallocation_method_none()
 
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_read_pictures", !err);
+
+    err = vmaf_cuda_state_free(cu_state);
+    mu_assert("problem during vmaf_cuda_state_free", !err);
+    vmaf_model_destroy(model);
 
     return NULL;
 }
@@ -159,6 +165,10 @@ static char *test_cuda_picture_preallocation_method_host()
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_read_pictures", !err);
 
+    err = vmaf_cuda_state_free(cu_state);
+    mu_assert("problem during vmaf_cuda_state_free", !err);
+    vmaf_model_destroy(model);
+
     return NULL;
 }
 
@@ -217,6 +227,10 @@ static char *test_cuda_picture_preallocation_method_host_pinned()
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_read_pictures", !err);
 
+    err = vmaf_cuda_state_free(cu_state);
+    mu_assert("problem during vmaf_cuda_state_free", !err);
+    vmaf_model_destroy(model);
+
     return NULL;
 }
 
@@ -274,6 +288,10 @@ static char *test_cuda_picture_preallocation_method_device()
 
     err = vmaf_close(vmaf);
     mu_assert("problem during vmaf_read_pictures", !err);
+
+    err = vmaf_cuda_state_free(cu_state);
+    mu_assert("problem during vmaf_cuda_state_free", !err);
+    vmaf_model_destroy(model);
 
     return NULL;
 }

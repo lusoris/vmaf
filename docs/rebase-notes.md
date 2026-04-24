@@ -2279,6 +2279,92 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0050 — CUDA preallocation memory leak fix + `vmaf_cuda_state_free` (ADR-0157)
+
+- **ADR**: [ADR-0157](adr/0157-cuda-preallocation-leak-netflix-1300.md)
+- **Upstream source**: Netflix upstream issue
+  [#1300](https://github.com/Netflix/vmaf/issues/1300) (OPEN since
+  2024; no maintainer fix as of 2026-04-24). User reports GPU
+  memory rises monotonically across init/preallocate/fetch/close
+  cycles.
+- **Touches**:
+  - [`libvmaf/include/libvmaf/libvmaf_cuda.h`](../libvmaf/include/libvmaf/libvmaf_cuda.h)
+    — new public `vmaf_cuda_state_free()` API declaration.
+  - [`libvmaf/src/cuda/common.c`](../libvmaf/src/cuda/common.c)
+    — new `vmaf_cuda_state_free()` implementation;
+    `vmaf_cuda_release()` now calls `cuda_free_functions()`;
+    `vmaf_cuda_state_init()` gets an outer failure unwind;
+    `init_with_primary_context()` releases the retained primary
+    context on `fail_after_pop`.
+  - [`libvmaf/src/cuda/ring_buffer.c`](../libvmaf/src/cuda/ring_buffer.c)
+    — `vmaf_ring_buffer_close()` now unlocks + destroys the mutex
+    before freeing.
+  - [`libvmaf/test/test_cuda_preallocation_leak.c`](../libvmaf/test/test_cuda_preallocation_leak.c)
+    — new GPU-gated reducer (10-cycle loop with full cleanup).
+  - [`libvmaf/test/test_cuda_pic_preallocation.c`](../libvmaf/test/test_cuda_pic_preallocation.c),
+    [`libvmaf/test/test_cuda_buffer_alloc_oom.c`](../libvmaf/test/test_cuda_buffer_alloc_oom.c)
+    — add missing `vmaf_cuda_state_free()` + `vmaf_model_destroy()`
+    calls after `vmaf_close()` in every test that allocates these.
+  - [`libvmaf/test/meson.build`](../libvmaf/test/meson.build)
+    — register the new reducer under `enable_cuda` guard.
+- **Invariants** (load-bearing):
+  1. Public contract: every caller of `vmaf_cuda_state_init()`
+     MUST call `vmaf_cuda_state_free()` AFTER `vmaf_close()` on
+     any VmafContext that imported the state. Informal
+     `free(cu_state)` is a silent double-free hazard AFTER close
+     (vmaf_close's vmaf_cuda_release already memset's + frees
+     CudaFunctions internals; vmaf_cuda_state_free only frees the
+     heap allocation itself).
+  2. `vmaf_cuda_release()` frees `CudaFunctions` via a saved
+     pointer AFTER the `memset`. Order matters — `memset` first
+     so `cu_state->f` is zeroed in the caller's struct, then
+     free via the saved local. Do not re-order.
+  3. `vmaf_ring_buffer_close()` unlocks BEFORE destroying the
+     mutex (POSIX requires the mutex be unlocked for destroy).
+  4. The cold-start unwind in `init_with_primary_context` releases
+     `cuDevicePrimaryCtxRetain`'s retained context if
+     `cuStreamCreateWithPriority` fails.
+  5. The ADR-0122 / ADR-0123 `is_cudastate_empty()` null-guards at
+     the top of every public `vmaf_cuda_*` entry must continue to
+     compose with the new `vmaf_cuda_state_free()` (which accepts
+     NULL directly and doesn't call through to the CUDA API).
+  6. The new free call order in callers is:
+     `vmaf_close(vmaf)` → `vmaf_cuda_state_free(cu_state)` →
+     `vmaf_model_destroy(model)`. Reversing the first two
+     produces a use-after-free.
+- **On upstream sync**:
+  - Upstream has no `vmaf_cuda_state_free()` as of 2026-04-24.
+    Keep the fork's version on any conflict. If upstream eventually
+    lands the same API with a different spelling, prefer
+    upstream's spelling and add a compat alias — but do not break
+    the fork's ABI.
+  - `vmaf_cuda_release()`'s `cuda_free_functions()` call is
+    fork-local. On rebase, keep it.
+  - The ring-buffer `pthread_mutex_unlock` + `pthread_mutex_destroy`
+    pair is fork-local. On rebase, keep it.
+  - If upstream refactors `VmafCudaState` ownership semantics
+    (unlikely — their pattern has been "leaked state in a long-
+    lived process is acceptable" historically), re-audit this
+    ADR and the new public API.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C libvmaf/build-cuda
+  meson test -C libvmaf/build-cuda
+  # Expect: 40/40 pass including test_cuda_preallocation_leak.
+
+  # ASan leak-check:
+  cd libvmaf && meson setup build-asan-cuda \
+      -Db_sanitize=address -Denable_cuda=true -Denable_sycl=false \
+      --buildtype=debug
+  ninja -C build-asan-cuda
+  ASAN_OPTIONS='detect_leaks=1:leak_check_at_exit=1' \
+      build-asan-cuda/test/test_cuda_preallocation_leak
+  # Expect: 0 bytes leaked from libvmaf/src/* frames.
+  # (~180 bytes in libcuda.so.1 is expected — driver's process-
+  #  lifetime cuInit cache, does not grow per cycle.)
+  ```
+
 ### 0049 — CUDA graceful error propagation (ADR-0156)
 
 - **ADR**: [ADR-0156](adr/0156-cuda-graceful-error-propagation-netflix-1420.md)

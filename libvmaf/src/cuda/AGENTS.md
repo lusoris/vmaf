@@ -54,6 +54,31 @@ cuda/
   [ADR-0131](../../../docs/adr/0131-port-netflix-1382-cumemfree.md)
   and [rebase-notes 0031](../../../docs/rebase-notes.md).
 
+- **`vmaf_cuda_state_free()` ownership contract** (fork-local,
+  ADR-0157): the public API at
+  [`include/libvmaf/libvmaf_cuda.h`](../../include/libvmaf/libvmaf_cuda.h)
+  now includes `vmaf_cuda_state_free(VmafCudaState *cu_state)`.
+  Ownership model: `vmaf_cuda_state_init` allocates →
+  `vmaf_cuda_import_state` copies-by-value (no ownership transfer)
+  → `vmaf_close` destroys the CUDA stream + context + frees the
+  `CudaFunctions` driver table (via fork-local
+  `cuda_free_functions()` call in `vmaf_cuda_release`) →
+  `vmaf_cuda_state_free` frees the heap allocation itself. The
+  call order `vmaf_close → vmaf_cuda_state_free → vmaf_model_destroy`
+  is load-bearing; reversing the first two is a
+  use-after-free. Mirrors the SYCL backend's
+  `vmaf_sycl_state_free()` pattern. **On rebase**: keep the
+  fork's public symbol; upstream doesn't have this API as of
+  2026-04-24. See
+  [ADR-0157](../../../docs/adr/0157-cuda-preallocation-leak-netflix-1300.md)
+  and [rebase-notes 0050](../../../docs/rebase-notes.md).
+- **`vmaf_ring_buffer_close` mutex destroy order** (fork-local,
+  ADR-0157): the function now does
+  `pthread_mutex_unlock` → `pthread_mutex_destroy` → `free(pic)`
+  → `free(ring_buffer)`. Destroying a locked mutex is POSIX UB;
+  the old code destroyed it locked. On rebase: keep the
+  unlock-before-destroy order.
+
 - **`CHECK_CUDA` graceful error propagation** (fork-local,
   ADR-0156): the `CHECK_CUDA` macro in
   [`cuda_helper.cuh`](cuda_helper.cuh) does NOT call

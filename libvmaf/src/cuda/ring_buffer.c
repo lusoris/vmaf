@@ -91,6 +91,15 @@ int vmaf_ring_buffer_close(VmafRingBuffer *ring_buffer)
             ring_buffer->cfg.free_picture_callback(&ring_buffer->pic[i], ring_buffer->cfg.cookie);
     }
 
+    /* Netflix#1300 — the original code never called
+     * pthread_mutex_destroy(&ring_buffer->busy), leaking the mutex's
+     * internal state on every ring-buffer close. It also held the lock
+     * while free(ring_buffer) ran, which POSIX classifies as undefined
+     * behaviour (destroying a locked mutex). Unlock first, then
+     * destroy, then free. */
+    err |= pthread_mutex_unlock(&ring_buffer->busy);
+    err |= pthread_mutex_destroy(&ring_buffer->busy);
+
     free(ring_buffer->pic);
     free(ring_buffer);
     return err;

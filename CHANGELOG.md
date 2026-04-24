@@ -42,7 +42,50 @@
   to fail pre-fix and pass post-fix. Closes backlog item T1-4.
   See [ADR-0153](docs/adr/0153-float-ms-ssim-min-dim-netflix-1414.md).
 
+### Added
+
+- **`vmaf_cuda_state_free()` public API** (Netflix upstream issue
+  [#1300](https://github.com/Netflix/vmaf/issues/1300)). New
+  symbol in [`libvmaf/include/libvmaf/libvmaf_cuda.h`](libvmaf/include/libvmaf/libvmaf_cuda.h)
+  that frees a `VmafCudaState` allocated by `vmaf_cuda_state_init()`.
+  Must be called AFTER `vmaf_close()` on any VmafContext that
+  imported the state. Mirrors the SYCL backend's
+  `vmaf_sycl_state_free()` ownership pattern — caller allocates,
+  framework imports by-value, caller frees after close. Safe to
+  pass NULL. Closes the per-cycle host-memory leak where users
+  had no public way to free the struct. See
+  [ADR-0157](docs/adr/0157-cuda-preallocation-leak-netflix-1300.md).
+
 ### Fixed
+
+- **CUDA preallocation memory leak** (Netflix upstream issue
+  [#1300](https://github.com/Netflix/vmaf/issues/1300)). Users
+  running CUDA-accelerated VMAF in init/preallocate/fetch/close
+  loops saw GPU memory rise monotonically across cycles. Four
+  framework-side leaks confirmed by ASan and fixed in this PR:
+  (1) `VmafCudaState` heap allocation had no public free (fixed by
+  the new `vmaf_cuda_state_free()` API above); (2)
+  `vmaf_cuda_release()` destroyed the CUDA stream + context but
+  never called `cuda_free_functions()` to release the dlopen'd
+  driver function-pointer table — fixed by adding the free call
+  after the existing `memset`, via a saved pointer; (3)
+  `vmaf_ring_buffer_close()` locked `pthread_mutex` + freed the
+  buffer but never unlocked or destroyed the mutex (POSIX UB) —
+  fixed by adding `pthread_mutex_unlock` + `pthread_mutex_destroy`
+  before the `free` calls; (4) adjacent cold-start leak in
+  `init_with_primary_context()` where a retained CUDA primary
+  context wasn't released if `cuStreamCreateWithPriority()` failed
+  — fixed in the same commit. New GPU-gated reducer
+  `test_cuda_preallocation_leak.c` does 10x init/preallocate/fetch
+  /close cycles and reports zero framework-side leaked bytes under
+  ASan (183 bytes remain in `libcuda.so.1`'s internal
+  process-lifetime driver cache, matching SYCL behaviour).
+  **Visible behaviour change**: every CUDA caller must now call
+  `vmaf_cuda_state_free(cu_state)` AFTER `vmaf_close(vmaf)` —
+  callers relying on informal `free(cu_state)` will double-free.
+  Preserves ADR-0122 / ADR-0123 null-guards and ADR-0156
+  `CHECK_CUDA_GOTO` cleanup paths verbatim. Closes backlog item
+  T1-7. See [ADR-0157](docs/adr/0157-cuda-preallocation-leak-netflix-1300.md).
 
 - **CUDA backend: graceful error propagation on `cuMemAlloc`
   OOM and all other CUDA failures** (Netflix upstream issue
