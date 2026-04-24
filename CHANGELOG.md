@@ -22,6 +22,33 @@
   `src01_hrc00/01_576x324` pair. See
   [ADR-0145](docs/adr/0145-motion-v2-neon-bitexact.md).
 
+### Changed
+
+- **`vmaf_read_pictures` now rejects non-monotonic indices with
+  `-EINVAL`** (Netflix upstream issue
+  [#910](https://github.com/Netflix/vmaf/issues/910)). The
+  `integer_motion` / motion2 / motion3 extractors keep sliding-
+  window state keyed by `index % N`, so submitting frames out of
+  order or with duplicate indices silently corrupts their
+  ring-buffers. The reported symptom was a missing
+  `integer_motion2_score` on the last frame whenever submission
+  order didn't match frame order. The fix is a monotonic-index
+  guard at the API boundary (new `last_index` + `have_last_index`
+  fields on `VmafContext`, checked inside the existing
+  `read_pictures_validate_and_prep` helper from ADR-0146): strictly
+  increasing indices are accepted (gaps fine); duplicates and
+  regressions return `-EINVAL`. **Visible behaviour change**:
+  duplicates / out-of-order submissions that previously produced
+  silent-wrong-answer now fail with `-EINVAL` — well-defined
+  rejection replaces ill-defined corruption. Zero impact on
+  in-tree callers (vmaf CLI + test suite already iterate strictly
+  increasing); downstream integrations that deliberately submit
+  non-monotonic indices need to either track the next-index
+  themselves or reset the context. 3-subtest reducer in
+  `test_read_pictures_monotonic.c` verified to fail pre-fix and
+  pass post-fix. Closes backlog item T1-2. See
+  [ADR-0152](docs/adr/0152-vmaf-read-pictures-monotonic-index.md).
+
 ### Added
 
 - **i686 (32-bit x86) build-only CI job** (reproduces Netflix

@@ -109,6 +109,15 @@ typedef struct VmafContext {
     } pic_params;
     unsigned pic_cnt;
     bool flushed;
+    /* Track the most recent index accepted by vmaf_read_pictures so
+     * subsequent calls can enforce a monotonically-increasing index.
+     * Several feature extractors (integer_motion's 3-frame blur
+     * ring, motion2/motion3 sliding windows) keep internal state
+     * keyed by `index % N`; submitting frames out of order silently
+     * corrupts that state (Netflix#910, ADR-0152). Zero-initialised
+     * is fine — `have_last_index` guards the first call. */
+    unsigned last_index;
+    bool have_last_index;
     VmafPicture prev_ref; // previous ref pic for PREV_REF extractors (in-order only)
     struct {
         VmafOrtSession *sess;
@@ -1425,8 +1434,17 @@ static int read_pictures_dispatch_one(VmafContext *vmaf, VmafFeatureExtractorCon
 }
 
 /* Upstream dispatch function. Refactoring is tracked in .workingdir2/OPEN.md. */
-static int read_pictures_validate_and_prep(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist)
+static int read_pictures_validate_and_prep(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
+                                           unsigned index)
 {
+    /* Enforce monotonically-increasing index: motion / motion2 / motion3
+     * use sliding windows keyed by `index % N`, so out-of-order submission
+     * silently corrupts their internal state (Netflix#910, ADR-0152).
+     * Duplicate indices are also rejected because the sliding-window
+     * state would be ambiguous. */
+    if (vmaf->have_last_index && index <= vmaf->last_index)
+        return -EINVAL;
+
     int err = validate_pic_params(vmaf, ref, dist);
     if (err)
         return err;
@@ -1440,8 +1458,12 @@ static int read_pictures_validate_and_prep(VmafContext *vmaf, VmafPicture *ref, 
 #endif
 #ifdef HAVE_SYCL
     err = read_pictures_sycl_prep(vmaf, ref, dist);
+    if (err)
+        return err;
 #endif
-    return err;
+    vmaf->last_index = index;
+    vmaf->have_last_index = true;
+    return 0;
 }
 
 static int read_pictures_extractor_loop(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
@@ -1518,7 +1540,7 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
         return flush_context(vmaf);
 
     vmaf->pic_cnt++;
-    int err = read_pictures_validate_and_prep(vmaf, ref, dist);
+    int err = read_pictures_validate_and_prep(vmaf, ref, dist, index);
     if (err)
         return err;
 

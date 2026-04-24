@@ -2279,6 +2279,57 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0045 — `vmaf_read_pictures` monotonic-index guard (ADR-0152)
+
+- **ADR**: [ADR-0152](adr/0152-vmaf-read-pictures-monotonic-index.md)
+- **Upstream source**: Netflix upstream issue
+  [#910](https://github.com/Netflix/vmaf/issues/910) (OPEN as of
+  2026-04-24). No upstream fix has landed; the fork adds the
+  guard independently, per the 2021-10-14 maintainer comment
+  that recommended exactly this shape.
+- **Touches**:
+  - [`libvmaf/src/libvmaf.c`](../libvmaf/src/libvmaf.c) — add
+    `unsigned last_index` + `bool have_last_index` fields to
+    `VmafContext`; prepend a monotonic-index check inside
+    `read_pictures_validate_and_prep` (returns `-EINVAL` on
+    duplicates / regressions); update the two new fields at
+    the tail of the same helper on success.
+  - [`libvmaf/test/test_read_pictures_monotonic.c`](../libvmaf/test/test_read_pictures_monotonic.c)
+    — new 3-subtest reducer covering the Netflix#910
+    sequence and the two classes of rejection (duplicate,
+    out-of-order).
+  - [`libvmaf/test/meson.build`](../libvmaf/test/meson.build)
+    — register the new test executable.
+- **Invariant** (load-bearing, enforced by the reducer):
+  `vmaf_read_pictures(vmaf, ref, dist, index)` returns
+  `-EINVAL` when `have_last_index && index <= last_index`.
+  Flush (`vmaf_read_pictures(vmaf, NULL, NULL, 0)`) routes to
+  `flush_context` *before* the guard runs — flushing remains
+  always-available independent of the last accepted index.
+- **On upstream sync**:
+  - If Netflix upstream eventually lands a similar guard at the
+    API boundary, keep the fork's version — the helper function
+    name (`read_pictures_validate_and_prep`) is fork-local
+    (ADR-0146), upstream's patch will target a different
+    insertion point. Both guards should be compatible; re-verify
+    the reducer after rebase.
+  - If upstream instead lands an internal reordering mechanism
+    (buffer-and-sort frames before dispatch), revisit this
+    decision — the fork's API-level contract is stricter and may
+    need to relax to match. Open a new ADR if so.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C build && meson test -C build test_read_pictures_monotonic
+  # Expect: 3/3 subtests pass.
+
+  # Reducer check (confirms the guard is load-bearing):
+  git stash push libvmaf/src/libvmaf.c
+  ninja -C build && meson test -C build test_read_pictures_monotonic
+  # Expect: Fail: 1 (the test rejects the un-guarded behaviour).
+  git stash pop
+  ```
+
 ### 0044 — i686 (32-bit x86) build-only CI job (ADR-0151)
 
 - **ADR**: [ADR-0151](adr/0151-i686-ci-netflix-1481.md)
