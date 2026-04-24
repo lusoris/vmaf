@@ -4,6 +4,10 @@
 set -euo pipefail
 
 cmd="${CLAUDE_TOOL_INPUT_command:-}"
+if [[ -z "$cmd" ]] && command -v jq >/dev/null 2>&1; then
+  input=$(cat 2>/dev/null || true)
+  [[ -n "$input" ]] && cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+fi
 
 # Patterns that are always blocked. Kept narrow so legitimate work is not impeded.
 blocked_patterns=(

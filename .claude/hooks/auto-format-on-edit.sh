@@ -3,7 +3,18 @@
 # Uses repo-local tool versions when available; silently skips if a formatter is not installed.
 set -euo pipefail
 
+# Claude Code passes hook input as JSON on stdin. Parse tool_input.file_path
+# from it. Older docs referenced CLAUDE_TOOL_INPUT_file_path env var; keep
+# it as a fallback for compatibility with any external caller.
 file="${CLAUDE_TOOL_INPUT_file_path:-}"
+if [[ -z "$file" ]] && command -v jq >/dev/null 2>&1; then
+  # Read stdin (non-blocking — the hook runtime always provides it).
+  input=$(cat 2>/dev/null || true)
+  if [[ -n "$input" ]]; then
+    file=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+  fi
+fi
+
 [[ -z "$file" || ! -f "$file" ]] && exit 0
 
 # Never reformat files that are explicitly upstream-touched or generated
