@@ -49,6 +49,20 @@
 #include "feature_extractor.h"
 #include "mem.h"
 
+#if ARCH_X86 || ARCH_AARCH64
+#include "cpu.h"
+#endif
+#if ARCH_X86
+#include "feature/x86/ssimulacra2_avx2.h"
+#if HAVE_AVX512
+#include "feature/x86/ssimulacra2_avx512.h"
+#endif
+#include "x86/cpu.h"
+#endif
+#if ARCH_AARCH64
+#include "feature/arm64/ssimulacra2_neon.h"
+#endif
+
 /*
  * ---------------------------------------------------------------
  *  Constants — kept identical to the libjxl tools/ssimulacra2.cc
@@ -245,6 +259,19 @@ typedef struct Ssimu2State {
 
     /* Capacities in pixels-per-plane (== w * h at full scale). */
     size_t cap_plane;
+
+    /* SIMD dispatch. Function pointers assigned in init() based on runtime
+     * CPU flags. Scalar fallback is always available; SIMD variants live
+     * in x86/ssimulacra2_{avx2,avx512}.c and arm64/ssimulacra2_neon.c and
+     * must produce byte-identical output to scalar (ADR-0161). */
+    void (*mul3_fn)(const float *a, const float *b, float *mul, unsigned w, unsigned h);
+    void (*xyb_fn)(const float *lin, float *xyb, unsigned w, unsigned h);
+    void (*down_fn)(const float *in, unsigned iw, unsigned ih, float *out, unsigned *ow,
+                    unsigned *oh);
+    void (*ssim_fn)(const float *m1, const float *m2, const float *s11, const float *s22,
+                    const float *s12, unsigned w, unsigned h, double plane_averages[6]);
+    void (*edge_fn)(const float *img1, const float *mu1, const float *img2, const float *mu2,
+                    unsigned w, unsigned h, double plane_averages[12]);
 } Ssimu2State;
 
 /*
@@ -824,6 +851,50 @@ static double pool_score(const double avg_ssim[6][6], const double avg_ed[6][12]
  * ---------------------------------------------------------------
  */
 
+/* Pick SIMD kernels based on runtime CPU flags. Scalar is the default
+ * fallback; AVX2 / AVX-512 override on x86, NEON on aarch64. Kept as a
+ * separate helper so `init` stays under the ADR-0141
+ * readability-function-size threshold. */
+static void init_simd_dispatch(Ssimu2State *s)
+{
+    s->mul3_fn = multiply_3plane;
+    s->xyb_fn = linear_rgb_to_xyb;
+    s->down_fn = downsample_2x2;
+    s->ssim_fn = ssim_map;
+    s->edge_fn = edge_diff_map;
+
+#if ARCH_X86 || ARCH_AARCH64
+    const unsigned flags = vmaf_get_cpu_flags();
+#endif
+#if ARCH_X86
+    if (flags & VMAF_X86_CPU_FLAG_AVX2) {
+        s->mul3_fn = ssimulacra2_multiply_3plane_avx2;
+        s->xyb_fn = ssimulacra2_linear_rgb_to_xyb_avx2;
+        s->down_fn = ssimulacra2_downsample_2x2_avx2;
+        s->ssim_fn = ssimulacra2_ssim_map_avx2;
+        s->edge_fn = ssimulacra2_edge_diff_map_avx2;
+    }
+#if HAVE_AVX512
+    if (flags & VMAF_X86_CPU_FLAG_AVX512) {
+        s->mul3_fn = ssimulacra2_multiply_3plane_avx512;
+        s->xyb_fn = ssimulacra2_linear_rgb_to_xyb_avx512;
+        s->down_fn = ssimulacra2_downsample_2x2_avx512;
+        s->ssim_fn = ssimulacra2_ssim_map_avx512;
+        s->edge_fn = ssimulacra2_edge_diff_map_avx512;
+    }
+#endif
+#endif
+#if ARCH_AARCH64
+    if (flags & VMAF_ARM_CPU_FLAG_NEON) {
+        s->mul3_fn = ssimulacra2_multiply_3plane_neon;
+        s->xyb_fn = ssimulacra2_linear_rgb_to_xyb_neon;
+        s->down_fn = ssimulacra2_downsample_2x2_neon;
+        s->ssim_fn = ssimulacra2_ssim_map_neon;
+        s->edge_fn = ssimulacra2_edge_diff_map_neon;
+    }
+#endif
+}
+
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
@@ -859,6 +930,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         !s->sigma1_sq || !s->sigma2_sq || !s->sigma12 || !s->mul || !s->scratch || !s->col_state) {
         return -ENOMEM;
     }
+
+    init_simd_dispatch(s);
     return 0;
 }
 
@@ -887,33 +960,33 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         if (cw < 8u || ch < 8u)
             break;
 
-        linear_rgb_to_xyb(s->ref_lin, s->ref_xyb, cw, ch);
-        linear_rgb_to_xyb(s->dist_lin, s->dist_xyb, cw, ch);
+        s->xyb_fn(s->ref_lin, s->ref_xyb, cw, ch);
+        s->xyb_fn(s->dist_lin, s->dist_xyb, cw, ch);
 
-        multiply_3plane(s->ref_xyb, s->ref_xyb, s->mul, cw, ch);
+        s->mul3_fn(s->ref_xyb, s->ref_xyb, s->mul, cw, ch);
         blur_3plane(s, s->mul, s->sigma1_sq, cw, ch);
 
-        multiply_3plane(s->dist_xyb, s->dist_xyb, s->mul, cw, ch);
+        s->mul3_fn(s->dist_xyb, s->dist_xyb, s->mul, cw, ch);
         blur_3plane(s, s->mul, s->sigma2_sq, cw, ch);
 
-        multiply_3plane(s->ref_xyb, s->dist_xyb, s->mul, cw, ch);
+        s->mul3_fn(s->ref_xyb, s->dist_xyb, s->mul, cw, ch);
         blur_3plane(s, s->mul, s->sigma12, cw, ch);
 
         blur_3plane(s, s->ref_xyb, s->mu1, cw, ch);
         blur_3plane(s, s->dist_xyb, s->mu2, cw, ch);
 
-        ssim_map(s->mu1, s->mu2, s->sigma1_sq, s->sigma2_sq, s->sigma12, cw, ch, avg_ssim[scale]);
-        edge_diff_map(s->ref_xyb, s->mu1, s->dist_xyb, s->mu2, cw, ch, avg_ed[scale]);
+        s->ssim_fn(s->mu1, s->mu2, s->sigma1_sq, s->sigma2_sq, s->sigma12, cw, ch, avg_ssim[scale]);
+        s->edge_fn(s->ref_xyb, s->mu1, s->dist_xyb, s->mu2, cw, ch, avg_ed[scale]);
         completed++;
 
         if (scale + 1 < kNumScales) {
             unsigned nw = 0, nh = 0;
-            downsample_2x2(s->ref_lin, cw, ch, s->mul, &nw, &nh);
+            s->down_fn(s->ref_lin, cw, ch, s->mul, &nw, &nh);
             /* swap: mul now holds downsampled ref_lin */
             float *tmp = s->ref_lin;
             s->ref_lin = s->mul;
             s->mul = tmp;
-            downsample_2x2(s->dist_lin, cw, ch, s->mul, &nw, &nh);
+            s->down_fn(s->dist_lin, cw, ch, s->mul, &nw, &nh);
             tmp = s->dist_lin;
             s->dist_lin = s->mul;
             s->mul = tmp;

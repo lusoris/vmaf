@@ -228,6 +228,28 @@ test_psnr_hvs_avx2 = executable('test_psnr_hvs_avx2',
 )
 endif
 
+ssimulacra2_simd_test_archs = ['x86_64', 'x86', 'aarch64', 'arm64']
+if ssimulacra2_simd_test_archs.contains(host_machine.cpu_family())
+test_ssimulacra2_simd = executable('test_ssimulacra2_simd',
+    ['test.c', 'test_ssimulacra2_simd.c',
+     '../src/mem.c', '../src/picture.c', '../src/ref.c',
+     '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
+                           include_directories('../src/feature/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
+                    cuda_dependency, sycl_dependency, dnn_deps],
+    objects : [
+      common_cuda_objects,
+      platform_specific_cpu_objects,
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
+    ],
+)
+endif
+
 psnr_hvs_neon_test_archs = ['aarch64', 'arm64']
 if psnr_hvs_neon_test_archs.contains(host_machine.cpu_family())
 test_psnr_hvs_neon = executable('test_psnr_hvs_neon',
@@ -438,6 +460,10 @@ endif
 
 if psnr_hvs_neon_test_archs.contains(host_machine.cpu_family())
 test('test_psnr_hvs_neon', test_psnr_hvs_neon)
+endif
+
+if ssimulacra2_simd_test_archs.contains(host_machine.cpu_family())
+test('test_ssimulacra2_simd', test_ssimulacra2_simd)
 endif
 
 test('test_locale_handling', test_locale_handling)

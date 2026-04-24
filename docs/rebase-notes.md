@@ -2288,6 +2288,84 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0053 — SSIMULACRA 2 SIMD bit-exact ports (ADR-0161)
+
+- **ADR**: [ADR-0161](adr/0161-ssimulacra2-simd-bitexact.md)
+- **Upstream source**: fork-local. Upstream Netflix/vmaf has no
+  SSIMULACRA 2 extractor at all (fork-added in ADR-0130).
+- **Touches**:
+  - [ssimulacra2_avx2.c](../libvmaf/src/feature/x86/ssimulacra2_avx2.c)
+    / [.h](../libvmaf/src/feature/x86/ssimulacra2_avx2.h) — 5 AVX2
+    kernels + per-lane `cbrtf` helper.
+  - [ssimulacra2_avx512.c](../libvmaf/src/feature/x86/ssimulacra2_avx512.c)
+    / [.h](../libvmaf/src/feature/x86/ssimulacra2_avx512.h) — 5
+    AVX-512 kernels; mechanical 16-wide widening of the AVX2 path.
+  - [ssimulacra2_neon.c](../libvmaf/src/feature/arm64/ssimulacra2_neon.c)
+    / [.h](../libvmaf/src/feature/arm64/ssimulacra2_neon.h) — 5
+    NEON kernels; 4-wide aarch64 mirror.
+  - [ssimulacra2.c](../libvmaf/src/feature/ssimulacra2.c) — adds
+    function-pointer dispatch fields to `Ssimu2State` +
+    `init_simd_dispatch()` helper, calls go through the pointers.
+  - [meson.build](../libvmaf/src/meson.build) — registers the
+    three SIMD TUs in `x86_avx2_sources` / `x86_avx512_sources` /
+    `arm64_sources`.
+  - [test_ssimulacra2_simd.c](../libvmaf/test/test_ssimulacra2_simd.c)
+    and `test/meson.build` — new bit-exact test harness.
+- **Invariants** (load-bearing):
+  1. **Byte-for-byte bit-exactness to scalar** on all 5 vectorised
+     kernels under `FLT_EVAL_METHOD == 0`. Regression caught pre-
+     merge: naïve pairing `(a+b)+(c+d)` vs scalar `((a+b)+c)+d`
+     drifts by 1 ULP. Keep sequential scalar-order chains in all
+     three SIMD TUs on rebase.
+  2. **`cbrtf` is per-lane scalar libm**, not a polynomial. Any
+     replacement with a vector cbrt would drift the ssimulacra2
+     score and break the regression test. Keep the spill/reload
+     pattern.
+  3. **`ssim_map` / `edge_diff_map` reductions use the ADR-0139
+     per-lane `double` scalar tail**. Do NOT SIMD-reduce float
+     lanes then lift to double — summation order changes.
+  4. **`downsample_2x2` deinterleave** uses ISA-appropriate ops:
+     AVX2 `vshufps+vpermpd`, AVX-512 `vpermt2ps`, NEON
+     `vuzp1q_f32`+`vuzp2q_f32`. After deinterleave, sum order is
+     `((r0e+r0o)+r1e)+r1o` matching scalar.
+  5. **`#pragma STDC FP_CONTRACT OFF`** at every TU header.
+     Ignored by aarch64 GCC (non-fatal `-Wunknown-pragmas`); kept
+     for portability (clang, MSVC).
+  6. **IIR blur + `picture_to_linear_rgb` stay scalar** in this PR.
+     Follow-up PRs target these; when they land, re-verify
+     bit-exactness via `test_ssimulacra2_simd` expansion.
+  7. Runtime dispatch order: AVX-512 > AVX2 on x86; NEON on
+     aarch64; scalar fallback. Preserve on rebase.
+- **On upstream sync**:
+  - Upstream has no SSIMULACRA 2 extractor; nothing to merge.
+  - If Netflix adopts SSIMULACRA 2 in the future, diff their
+    implementation against the fork's scalar + SIMD TUs; keep
+    the fork's bit-exactness contract absent a specific
+    Netflix-authority carve-out ADR.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_ssimulacra2_simd   # 5/5
+  clang-tidy -p build libvmaf/src/feature/x86/ssimulacra2_avx2.c \
+                       libvmaf/src/feature/x86/ssimulacra2_avx512.c
+  # aarch64:
+  ninja -C build-aarch64
+  qemu-aarch64-static -L /usr/aarch64-linux-gnu/ \
+    build-aarch64/test/test_ssimulacra2_simd   # 5/5
+  clang-tidy -p build-aarch64 \
+    libvmaf/src/feature/arm64/ssimulacra2_neon.c
+  ```
+
+- **Follow-ups**:
+  - **IIR blur vectorisation** (`blur_plane` vertical-pass
+    column batching) — the biggest frame-level wallclock win.
+  - **`picture_to_linear_rgb` per-lane `powf`** — lower ROI but
+    mechanical.
+  - **T3-3 SSIMULACRA 2 snapshot-JSON regression test** —
+    ADR-0130 deferred; still pending.
+
 ### 0052 — `psnr_hvs` SIMD bit-exact ports (ADR-0159 AVX2, ADR-0160 NEON)
 
 - **ADRs**: [ADR-0159](adr/0159-psnr-hvs-avx2-bitexact.md) (AVX2),

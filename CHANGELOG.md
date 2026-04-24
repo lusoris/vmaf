@@ -44,6 +44,26 @@
 
 ### Added
 
+- **SSIMULACRA 2 SIMD fast paths (AVX2 + AVX-512 + NEON)** (fork-local,
+  backlog T3-1 + T3-2). Five of the eight hot kernels in the
+  SSIMULACRA 2 pipeline now run on SIMD: `multiply_3plane`,
+  `linear_rgb_to_xyb` (per-lane scalar `cbrtf` preserves bit-exactness),
+  `downsample_2x2`, `ssim_map`, `edge_diff_map`. All 15 kernels
+  (5 × 3 ISAs) produce **byte-for-byte identical output to scalar**
+  under `FLT_EVAL_METHOD == 0` — verified via new unit test
+  `test_ssimulacra2_simd.c` (5/5 pass on AVX-512 host; 5/5 under
+  `qemu-aarch64-static` on NEON). Scalar summation order preserved
+  left-to-right throughout to avoid IEEE-754 non-associativity drift
+  (caught pre-merge by the bit-exact test). Reductions on
+  `ssim_map` / `edge_diff_map` use the ADR-0139 per-lane `double`
+  scalar tail. Runtime dispatch via function pointers in
+  `Ssimu2State` with AVX-512 > AVX2 > NEON > scalar precedence.
+  **Deferred to follow-up PRs**: IIR blur (`fast_gaussian_1d` / `blur_plane`,
+  serial recurrence + per-column state) and `picture_to_linear_rgb`
+  (`powf` EOTF) — see ADR-0161 §Alternatives. Closes backlog T3-1 + T3-2
+  partially. See
+  [ADR-0161](docs/adr/0161-ssimulacra2-simd-bitexact.md).
+
 - **`psnr_hvs` NEON SIMD path** (fork-local, backlog T3-5-neon).
   Sister port to the AVX2 variant; aarch64 users now get the same
   byte-identical vectorized Xiph/Daala 8×8 integer DCT. NEON's
