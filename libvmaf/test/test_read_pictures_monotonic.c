@@ -33,7 +33,7 @@
 
 static VmafContext *init_context(void)
 {
-    VmafConfiguration cfg = { .log_level = VMAF_LOG_LEVEL_NONE };
+    VmafConfiguration cfg = {.log_level = VMAF_LOG_LEVEL_NONE};
     VmafContext *vmaf = NULL;
     int err = vmaf_init(&vmaf, cfg);
     return err == 0 ? vmaf : NULL;
@@ -66,9 +66,9 @@ static char *test_read_pictures_monotonic_accepts_increasing(void)
     VmafContext *vmaf = init_context();
     mu_assert("init failed", vmaf != NULL);
 
-    mu_assert("frame 0 rejected",  submit_frame(vmaf, 0) == 0);
-    mu_assert("frame 1 rejected",  submit_frame(vmaf, 1) == 0);
-    mu_assert("frame 5 rejected",  submit_frame(vmaf, 5) == 0);  /* gaps OK */
+    mu_assert("frame 0 rejected", submit_frame(vmaf, 0) == 0);
+    mu_assert("frame 1 rejected", submit_frame(vmaf, 1) == 0);
+    mu_assert("frame 5 rejected", submit_frame(vmaf, 5) == 0); /* gaps OK */
     mu_assert("frame 10 rejected", submit_frame(vmaf, 10) == 0);
 
     vmaf_close(vmaf);
@@ -80,9 +80,9 @@ static char *test_read_pictures_monotonic_rejects_duplicate(void)
     VmafContext *vmaf = init_context();
     mu_assert("init failed", vmaf != NULL);
 
-    mu_assert("frame 0 rejected",       submit_frame(vmaf, 0) == 0);
-    mu_assert("frame 1 rejected",       submit_frame(vmaf, 1) == 0);
-    int err = submit_frame(vmaf, 1);  /* duplicate */
+    mu_assert("frame 0 rejected", submit_frame(vmaf, 0) == 0);
+    mu_assert("frame 1 rejected", submit_frame(vmaf, 1) == 0);
+    int err = submit_frame(vmaf, 1); /* duplicate */
     mu_assert("duplicate index accepted (expected -EINVAL)", err == -EINVAL);
 
     vmaf_close(vmaf);
@@ -101,15 +101,12 @@ static char *test_read_pictures_monotonic_rejects_out_of_order(void)
     mu_assert("frame 3970 rejected", submit_frame(vmaf, 3970) == 0);
     mu_assert("frame 3974 rejected", submit_frame(vmaf, 3974) == 0);
     int err_3972 = submit_frame(vmaf, 3972);
-    mu_assert("out-of-order frame 3972 accepted (expected -EINVAL)",
-              err_3972 == -EINVAL);
+    mu_assert("out-of-order frame 3972 accepted (expected -EINVAL)", err_3972 == -EINVAL);
     int err_3973 = submit_frame(vmaf, 3973);
-    mu_assert("out-of-order frame 3973 accepted (expected -EINVAL)",
-              err_3973 == -EINVAL);
+    mu_assert("out-of-order frame 3973 accepted (expected -EINVAL)", err_3973 == -EINVAL);
 
     /* Continuing with a higher-than-last-accepted index still works. */
-    mu_assert("frame 3975 rejected after recovery",
-              submit_frame(vmaf, 3975) == 0);
+    mu_assert("frame 3975 rejected after recovery", submit_frame(vmaf, 3975) == 0);
 
     vmaf_close(vmaf);
     return NULL;

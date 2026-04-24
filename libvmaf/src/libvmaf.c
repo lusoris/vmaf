@@ -1435,7 +1435,7 @@ static int read_pictures_dispatch_one(VmafContext *vmaf, VmafFeatureExtractorCon
 
 /* Upstream dispatch function. Refactoring is tracked in .workingdir2/OPEN.md. */
 static int read_pictures_validate_and_prep(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
-                                            unsigned index)
+                                           unsigned index)
 {
     /* Enforce monotonically-increasing index: motion / motion2 / motion3
      * use sliding windows keyed by `index % N`, so out-of-order submission
