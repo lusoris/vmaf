@@ -75,15 +75,30 @@ generated on a CPU-only build at the current master HEAD.
     manually re-sync + update the pinned values.
 - **Cross-host reproducibility**:
   - Initial PR attempt used `places=4`. First CI run showed ~2e-4
-    drift between the AVX-512 authoring host and the CI GCC/clang
-    hosts — rooted in cross-host FMA-fusion differences (GCC 10+
-    defaults `-ffp-contract=fast` when `-mfma` is on, and the
-    per-lane libm `cbrtf` / `powf` calls live next to scalar glue
-    that can fuse differently). Followed the ADR-0161 NEON
-    precedent and split each ssimulacra2 source (scalar
-    extractor + AVX2 + AVX-512 + NEON SIMD TUs) into dedicated
-    static libs compiled with `-ffp-contract=off`. Pinned values
-    are now stable across hosts and `places=4` holds.
+    drift between the AVX-512 authoring host (Arch Linux, glibc)
+    and the CI GCC/clang hosts (Ubuntu, glibc; macOS, libSystem).
+  - Investigated FMA-fusion as the suspect and hardened the build
+    anyway: every ssimulacra2 source (scalar extractor + AVX2 +
+    AVX-512 + NEON SIMD TUs) now compiles in a dedicated static lib
+    with `-ffp-contract=off`. Mirrors the ADR-0161 NEON carve-out;
+    prevents cross-host FMA-fusion drift as a matter of principle
+    and protects against future fusion-related regressions.
+  - BUT the drift persisted under `-ffp-contract=off`. Root cause
+    is **libm variance**, not fusion: the phase-1 `cbrtf` and
+    phase-3 `powf` per-lane scalar calls hit host libc, and
+    different libm implementations (glibc vs musl vs macOS
+    libSystem) compute the transcendentals with different
+    polynomial approximations that differ by ~1 ulp. Aggregated
+    across 48 frames × 6 scales × 3 planes, this compounds to
+    ~2e-4 in the pooled score.
+  - No compile-flag fix. Settled on `places=3` (1e-3) tolerance,
+    which covers the observed variance with a factor of ~5× margin
+    while still catching material regressions (an actual behaviour
+    change would drift by orders of magnitude more than ulp-level
+    libm polynomial noise).
+  - The fp-contract=off build splits remain in place as a
+    belt-and-suspenders guarantee against any future FMA-fusion
+    drift that would compound with libm variance.
 - **Neutral / follow-ups**:
   - When libjxl releases a new SSIMULACRA 2 reference version or
     `ssimulacra2_rs` becomes installable again, a separate ADR could
