@@ -2279,6 +2279,49 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0046 — `float_ms_ssim` min-dim guard (ADR-0153)
+
+- **ADR**: [ADR-0153](adr/0153-float-ms-ssim-min-dim-netflix-1414.md)
+- **Upstream source**: Netflix upstream issue
+  [#1414](https://github.com/Netflix/vmaf/issues/1414) (OPEN as
+  of 2026-04-24). No upstream fix has landed; fork adds the
+  guard independently.
+- **Touches**:
+  - [`libvmaf/src/feature/float_ms_ssim.c`](../libvmaf/src/feature/float_ms_ssim.c)
+    — add `#include "log.h"` + `#include "iqa/ssim_tools.h"` +
+    a `min_dim = GAUSSIAN_LEN << (SCALES - 1)` check at the
+    start of `init`; extract SIMD dispatch into a new
+    `ms_ssim_init_simd_dispatch` helper to keep `init` within
+    the ADR-0141 60-line budget.
+  - [`libvmaf/test/test_float_ms_ssim_min_dim.c`](../libvmaf/test/test_float_ms_ssim_min_dim.c)
+    — new 3-subtest reducer.
+  - [`libvmaf/test/meson.build`](../libvmaf/test/meson.build)
+    — register the new test executable.
+- **Invariant** (load-bearing, enforced by the reducer):
+  `float_ms_ssim.init` returns `-EINVAL` when
+  `w < 176 || h < 176`, where 176 is computed dynamically from
+  the filter constants. The magic number is not hardcoded —
+  changing `SCALES` or `GAUSSIAN_LEN` upstream will auto-update
+  the minimum.
+- **On upstream sync**: if Netflix upstream lands a similar
+  init-time guard, keep the fork's version — the helper name
+  `ms_ssim_init_simd_dispatch` is fork-local (introduced to
+  satisfy ADR-0141) and upstream's patch won't match. Both
+  guards should be compatible; re-verify the reducer after
+  rebase.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C build && meson test -C build test_float_ms_ssim_min_dim
+  # Expect: 3/3 subtests pass.
+
+  # Reducer check (confirms the guard is load-bearing):
+  git stash push libvmaf/src/feature/float_ms_ssim.c
+  ninja -C build && meson test -C build test_float_ms_ssim_min_dim
+  # Expect: Fail: 1 (tests fail without the guard).
+  git stash pop
+  ```
+
 ### 0045 — `vmaf_read_pictures` monotonic-index guard (ADR-0152)
 
 - **ADR**: [ADR-0152](adr/0152-vmaf-read-pictures-monotonic-index.md)

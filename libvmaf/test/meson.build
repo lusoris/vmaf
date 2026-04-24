@@ -282,6 +282,25 @@ test_read_pictures_monotonic = executable('test_read_pictures_monotonic',
 )
 test('test_read_pictures_monotonic', test_read_pictures_monotonic)
 
+# ADR-0153 — float_ms_ssim init rejects <176x176 (Netflix#1414).
+test_float_ms_ssim_min_dim = executable('test_float_ms_ssim_min_dim',
+    ['test.c', 'test_float_ms_ssim_min_dim.c', '../src/mem.c', '../src/picture.c',
+     '../src/ref.c', '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
+                    cuda_dependency, sycl_dependency, dnn_deps],
+    objects : [
+      common_cuda_objects,
+      platform_specific_cpu_objects,
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
+    ]
+)
+test('test_float_ms_ssim_min_dim', test_float_ms_ssim_min_dim)
+
 if get_option('enable_sycl')
 test_sycl = executable('test_sycl',
     ['test.c', 'test_sycl.c'],

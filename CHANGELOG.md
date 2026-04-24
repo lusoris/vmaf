@@ -22,6 +22,26 @@
   `src01_hrc00/01_576x324` pair. See
   [ADR-0145](docs/adr/0145-motion-v2-neon-bitexact.md).
 
+### Fixed
+
+- **`float_ms_ssim` rejects input below 176×176 at init**
+  (Netflix upstream issue
+  [#1414](https://github.com/Netflix/vmaf/issues/1414)). The
+  5-level 11-tap MS-SSIM pyramid walks off the kernel footprint
+  at a mid-level scale for inputs below 176×176 (QCIF and
+  smaller), previously producing a confusing mid-run `error:
+  scale below 1x1!` + cascading `problem reading pictures` /
+  `problem flushing context`. The fix checks `w < GAUSSIAN_LEN
+  << (SCALES - 1)` at init and returns `-EINVAL` with a helpful
+  error that names the input resolution, the required minimum
+  (176×176), and the upstream issue. Minimum is derived from
+  the existing filter constants so it stays in sync if those
+  ever change. Visible behaviour: init now fails immediately
+  instead of mid-stream; zero impact on inputs ≥176×176. New
+  3-subtest reducer in `test_float_ms_ssim_min_dim.c` verified
+  to fail pre-fix and pass post-fix. Closes backlog item T1-4.
+  See [ADR-0153](docs/adr/0153-float-ms-ssim-min-dim-netflix-1414.md).
+
 ### Changed
 
 - **`vmaf_read_pictures` now rejects non-monotonic indices with
