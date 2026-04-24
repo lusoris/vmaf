@@ -332,10 +332,17 @@ for the contract's correctness-relevant details (NULL-on-first-call,
 end-of-iteration semantics).
 
 `vmaf_model_kind` — the fork added model-kind discrimination
-(`VMAF_MODEL_KIND_SVM`, `VMAF_MODEL_KIND_DNN_FR`, `VMAF_MODEL_KIND_DNN_NR`),
-auto-detected from file extension + sidecar JSON. See
-[ADR-0020](../adr/0020-tinyai-four-capabilities.md) and
+(`VMAF_MODEL_KIND_SVM`, `VMAF_MODEL_KIND_DNN_FR`, `VMAF_MODEL_KIND_DNN_NR`,
+`VMAF_MODEL_KIND_DNN_FILTER`), auto-detected from file extension + sidecar
+JSON. See [ADR-0020](../adr/0020-tinyai-four-capabilities.md) and
 [ADR-0022](../adr/0022-inference-runtime-onnx.md).
+`VMAF_MODEL_KIND_DNN_FILTER` (added in
+[ADR-0168](../adr/0168-tinyai-konvid-baselines.md)) is **registry-only** —
+it identifies pre-/post-processing residual filters (e.g.
+`learned_filter_v1.onnx` consumed by ffmpeg `vmaf_pre`) for the trust-root
+sha256 audit, but is **never loaded by the libvmaf scoring path**;
+`vmaf_score_at_index` / `vmaf_score_pooled` only operate on `DNN_FR` /
+`DNN_NR` / `SVM` kinds.
 
 ### Model collections (bootstrap)
 

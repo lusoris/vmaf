@@ -2,13 +2,28 @@
   "$schema": "./registry.schema.json",
   "models": [
     {
-      "id": "smoke_v0",
-      "kind": "fr",
-      "notes": "CI load-path probe (Conv + Identity). Not a quality model.",
-      "onnx": "smoke_v0.onnx",
+      "id": "learned_filter_v1",
+      "kind": "filter",
+      "notes": "Tiny residual filter baseline for vmaf_pre \u2014 self-supervised on KoNViD-1k frames with synthetic blur+JPEG degradation. ~19K params; opset 17. See docs/adr/0168-tinyai-konvid-baselines.md.",
+      "onnx": "learned_filter_v1.onnx",
       "opset": 17,
-      "sha256": "c83a5f217fa3736bf575c52f7f4c187a6201951e8ddccb51bdcdcc136108fbe0",
-      "smoke": true
+      "sha256": "412d53700704a7aed26908c4fa0c4de9fabab08b6f2ae330ea5b9e4a4c462e27"
+    },
+    {
+      "id": "lpips_sq_v1",
+      "kind": "fr",
+      "notes": "LPIPS-SqueezeNet (richzhang/PerceptualSimilarity v0.1). Two-input model: 'ref' + 'dist' ImageNet-normalised NCHW; scalar 'score' output. Exported via ai/lpips_export.py.",
+      "onnx": "lpips_sq.onnx",
+      "opset": 18,
+      "sha256": "1402626680d5b69a793e647edda2c32f04e192f5cf1e7837bec8bde14187a261"
+    },
+    {
+      "id": "nr_metric_v1",
+      "kind": "nr",
+      "notes": "Tiny NR MobileNet baseline trained on KoNViD-1k (CC BY 4.0; not redistributed). 224\u00d7224 grayscale input; ~19K params; opset 17. See docs/adr/0168-tinyai-konvid-baselines.md.",
+      "onnx": "nr_metric_v1.onnx",
+      "opset": 17,
+      "sha256": "60c2bd59a3bf879a02cb564213ba31e79172437f13261c63a1e1bca711a50e46"
     },
     {
       "id": "smoke_fp16_v0",
@@ -20,12 +35,13 @@
       "smoke": true
     },
     {
-      "id": "lpips_sq_v1",
+      "id": "smoke_v0",
       "kind": "fr",
-      "notes": "LPIPS-SqueezeNet (richzhang/PerceptualSimilarity v0.1). Two-input model: 'ref' + 'dist' ImageNet-normalised NCHW; scalar 'score' output. Exported via ai/lpips_export.py.",
-      "onnx": "lpips_sq.onnx",
-      "opset": 18,
-      "sha256": "1402626680d5b69a793e647edda2c32f04e192f5cf1e7837bec8bde14187a261"
+      "notes": "CI load-path probe (Conv + Identity). Not a quality model.",
+      "onnx": "smoke_v0.onnx",
+      "opset": 17,
+      "sha256": "c83a5f217fa3736bf575c52f7f4c187a6201951e8ddccb51bdcdcc136108fbe0",
+      "smoke": true
     }
   ],
   "schema_version": 0

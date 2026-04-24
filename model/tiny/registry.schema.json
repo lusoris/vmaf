@@ -31,8 +31,8 @@
           "maxLength": 64
         },
         "kind": {
-          "description": "Mirrors VmafModelKind. 'fr' = full-reference, 'nr' = no-reference.",
-          "enum": ["fr", "nr"]
+          "description": "Mirrors VmafModelKind. 'fr' = full-reference scoring, 'nr' = no-reference scoring, 'filter' = pre-/post-processing residual filter (consumed by ffmpeg vmaf_pre, NOT a scoring model loaded by libvmaf's scoring path).",
+          "enum": ["fr", "nr", "filter"]
         },
         "onnx": {
           "description": "Path to the ONNX file, relative to model/tiny/.",

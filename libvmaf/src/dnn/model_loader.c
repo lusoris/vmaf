@@ -233,6 +233,8 @@ int vmaf_dnn_sidecar_load(const char *onnx_path, VmafModelSidecar *out)
             out->kind = VMAF_MODEL_KIND_DNN_NR;
         else if (strcmp(kind_str, "fr") == 0)
             out->kind = VMAF_MODEL_KIND_DNN_FR;
+        else if (strcmp(kind_str, "filter") == 0)
+            out->kind = VMAF_MODEL_KIND_DNN_FILTER;
         free(kind_str);
     }
     out->name = extract_string(buf, "name");
