@@ -18,6 +18,35 @@ Local patches against FFmpeg **n8.1** for integrating this VMAF fork into
 Every patch is guarded by `check_pkg_config` so it degrades gracefully when
 libvmaf was built without the relevant feature (`-Denable_dnn`, `-Denable_sycl`).
 
+## What works without a patch
+
+Any feature extractor registered in the fork's libvmaf — including
+**SSIMULACRA 2**, PSNR-HVS, VIF, ADM, MS-SSIM, motion, CAMBI, etc. — is
+already reachable through upstream FFmpeg's stock `libvmaf` filter via
+its `feature` option. No patch needed:
+
+```bash
+ffmpeg -i ref.mp4 -i dist.mp4 \
+  -lavfi "[0:v][1:v]libvmaf=feature='name=ssimulacra2'" \
+  -f null -
+```
+
+The same `feature=` syntax accepts per-extractor options:
+
+```bash
+# BT.709 full-range matrix
+feature='name=ssimulacra2:yuv_matrix=2'
+```
+
+Works with both the stock `libvmaf` filter and, via CUDA, the
+`libvmaf_cuda` filter (SSIMULACRA 2 currently has no CUDA path; it falls
+back to CPU SIMD — AVX-512 / AVX2 / NEON per ADR-0161 / 0162 / 0163).
+
+The three patches in this directory only cover fork-added surfaces that
+DO NOT fit the generic `feature=` plumbing: the DNN session API
+(`tiny_model`), the learned pre-processing filter (`vmaf_pre`), and the
+SYCL backend selector (`sycl_device`).
+
 ## How to apply
 
 ```bash

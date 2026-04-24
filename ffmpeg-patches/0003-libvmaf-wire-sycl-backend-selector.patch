@@ -1,35 +1,19 @@
-From 78c0a47490fa694d3179c76abd092588f5424268 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
-Date: Wed, 15 Apr 2026 12:10:00 +0000
-Subject: [PATCH 3/3] avfilter/vf_libvmaf: wire SYCL backend selector
+Date: Fri, 24 Apr 2026 22:23:38 +0200
+Subject: [PATCH] libvmaf: wire sycl backend selector (sycl_device /
+ sycl_profile options)
 
-Lusoris libvmaf ships a SYCL / oneAPI GPU backend alongside the existing
-CUDA backend. Expose it to FFmpeg users via two new options:
-
-  sycl_device  - device index (default -1 = disabled; use CPU / CUDA
-                 paths); 0+ selects that SYCL device
-  sycl_profile - enable SYCL queue profiling (default 0)
-
-When sycl_device >= 0 the filter initialises a VmafSyclState via
-vmaf_sycl_state_init() and imports it into the VmafContext before any
-feature extractor runs. The state is torn down in uninit().
-
-Guarded by CONFIG_LIBVMAF_SYCL (detected in configure the same way as
-CONFIG_LIBVMAF_CUDA).
-
-Rebased against FFmpeg n8.1.
-
-Signed-off-by: Lusoris <lusoris@pm.me>
 ---
  configure                |  1 +
  libavfilter/vf_libvmaf.c | 48 ++++++++++++++++++++++++++++++++++++++++
  2 files changed, 49 insertions(+)
 
 diff --git a/configure b/configure
-index 24371d5084..e4a21b0a6b 100755
+index 87a9d35..c1666a9 100755
 --- a/configure
 +++ b/configure
-@@ -7461,6 +7461,7 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
+@@ -7391,6 +7391,7 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
  enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid.stab/libvidstab.h vsMotionDetectInit
  enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
@@ -38,7 +22,7 @@ index 24371d5084..e4a21b0a6b 100755
  enabled libvo_amrwbenc    && { check_pkg_config libvo_amrwbenc vo-amrwbenc vo-amrwbenc/enc_if.h E_IF_init ||
                                 require libvo_amrwbenc vo-amrwbenc/enc_if.h E_IF_init -lvo-amrwbenc; }
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 0b8b3f690d..e3cf572c91 100644
+index 0b8b3f6..e3cf572 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
 @@ -47,6 +47,10 @@
