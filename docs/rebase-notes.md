@@ -2289,7 +2289,7 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
-### 0056 — SSIMULACRA 2 snapshot-JSON regression gate (ADR-0164)
+### 0056 — SSIMULACRA 2 snapshot gate + fp-contract-off split (ADR-0164)
 
 - **ADR**: [ADR-0164](adr/0164-ssimulacra2-snapshot-gate.md)
 - **Upstream source**: fork-local. Netflix/vmaf has no SSIMULACRA 2.
@@ -2307,10 +2307,20 @@ inline.*
   2. **Tolerance is 4 decimal places (`places=4`)** — matches
      1e-4. The CPU paths are bit-exact so actual drift should be
      0; the tolerance is defensive.
-  3. **Fixtures are already-checked-in** — `src01_hrc00/01_576x324`
+  3. **`-ffp-contract=off` everywhere in the ssimulacra2 pipeline**:
+     `libvmaf_ssimulacra2_static_lib` (scalar extractor),
+     `x86_ssimulacra2_avx2_lib`, `x86_ssimulacra2_avx512_lib`, and
+     `arm64_ssimulacra2_lib` (from ADR-0161). All four split out
+     of their umbrella libs so other extractors keep upstream's
+     default FMA policy. **Without this** the CI GCC/clang hosts
+     drifted ~2e-4 from my AVX-512 authoring host — GCC 10+
+     defaults `-ffp-contract=fast` on x86 with `-mfma` and on
+     aarch64, fusing `a*b+c` in scalar glue around the SIMD
+     calls. Do NOT remove any of these carve-outs on rebase.
+  4. **Fixtures are already-checked-in** — `src01_hrc00/01_576x324`
      is also the primary Netflix golden fixture; the 160×90
      derived one stresses the sub-176 pyramid-termination path.
-  4. **Do NOT modify the Netflix golden assertions in
+  5. **Do NOT modify the Netflix golden assertions in
      quality_runner_test.py et al.** — those are upstream-pinned.
      This test is a SEPARATE file that adds fork-specific scores.
 - **On upstream sync**: no upstream interaction. If Netflix adopts

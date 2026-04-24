@@ -73,10 +73,17 @@ generated on a CPU-only build at the current master HEAD.
   - Not cross-checked against an independent reference. If libjxl
     changes their algorithm and we want to track, we'd need to
     manually re-sync + update the pinned values.
-  - Values are CPU-specific: on a host without SIMD support, the
-    scalar path produces the SAME values (bit-exact by ADR-0161/0162/0163
-    design). On a host WITH SIMD but with a compiler that miscompiles
-    the SIMD code, the test will catch it.
+- **Cross-host reproducibility**:
+  - Initial PR attempt used `places=4`. First CI run showed ~2e-4
+    drift between the AVX-512 authoring host and the CI GCC/clang
+    hosts — rooted in cross-host FMA-fusion differences (GCC 10+
+    defaults `-ffp-contract=fast` when `-mfma` is on, and the
+    per-lane libm `cbrtf` / `powf` calls live next to scalar glue
+    that can fuse differently). Followed the ADR-0161 NEON
+    precedent and split each ssimulacra2 source (scalar
+    extractor + AVX2 + AVX-512 + NEON SIMD TUs) into dedicated
+    static libs compiled with `-ffp-contract=off`. Pinned values
+    are now stable across hosts and `places=4` holds.
 - **Neutral / follow-ups**:
   - When libjxl releases a new SSIMULACRA 2 reference version or
     `ssimulacra2_rs` becomes installable again, a separate ADR could
