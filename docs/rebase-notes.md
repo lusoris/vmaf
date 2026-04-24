@@ -2147,3 +2147,60 @@ inline.*
 
   Also run `clang-tidy -p build` on every touched file
   (excluding `arm64/`); expect zero warnings.
+
+### 0042 — Port Netflix #1376 — FIFO-hang fix via Semaphore (ADR-0149)
+
+- **ADR**: [ADR-0149](adr/0149-port-netflix-1376-fifo-semaphore.md)
+- **Upstream commit**: Netflix PR
+  [#1376](https://github.com/Netflix/vmaf/pull/1376),
+  head `1c06ca4f1bb5da38b54db075a27c35ba8ea9d7b7` (OPEN upstream
+  as of 2026-04-24).
+- **Touches**:
+  - [`python/vmaf/core/executor.py`](../python/vmaf/core/executor.py)
+    — base `Executor` class + `ExternalVmafExecutor`-style
+    subclass; delete `_wait_for_workfiles` / `_wait_for_procfiles`
+    polling loops; rewrite `_open_{work,proc}files_in_fifo_mode`
+    around `multiprocessing.Semaphore(0)`; add `open_sem=None`
+    kwarg to every `_open_{ref,dis}_{work,proc}file` and to the
+    `_open_workfile` staticmethod; drop unused
+    `from time import sleep`.
+  - [`python/vmaf/core/raw_extractor.py`](../python/vmaf/core/raw_extractor.py)
+    — `AssetExtractor` + `DisYUVRawVideoExtractor`; add
+    `open_sem=None` to `_open_{ref,dis}_workfile` overrides
+    (release on entry since these are no-ops); delete
+    `_wait_for_workfiles` overrides; drop unused
+    `from time import sleep`.
+- **Fork carve-outs** (load-bearing on rebase):
+  1. **`python/vmaf/__init__.py:__version__`** stays `"3.0.0"` —
+     do NOT port upstream's bump to `"4.0.0"`. The fork tracks
+     its own versioning (`v3.x.y-lusoris.N`) per
+     [ADR-0025](adr/0025-copyright-handling-dual-notice.md).
+  2. **`from time import sleep` is dropped from both files** —
+     upstream leaves the import in place (unused after their
+     patch); the fork removes it because ADR-0141 touched-file
+     rule requires ruff F401 clean.
+  3. **Upstream typo preserved**: the subclass warning message
+     contains "to be created to be created". Comments note the
+     typo inline; do not silently fix on rebase — it's upstream-
+     authored and project policy is verbatim port.
+- **On upstream sync**: upstream PR #1376 is still OPEN. When it
+  merges, re-diff against the merged form; the touched hunks
+  should be conflict-free because the fork now carries the same
+  shape. Re-check whether upstream fixed the "to be created to
+  be created" typo; if so, adopt the fix (it becomes a simple
+  string update).
+- **Re-test**:
+
+  ```bash
+  python3 -m py_compile python/vmaf/core/executor.py \
+                         python/vmaf/core/raw_extractor.py
+  ruff check python/vmaf/core/executor.py python/vmaf/core/raw_extractor.py
+  black --check python/vmaf/core/executor.py python/vmaf/core/raw_extractor.py
+  # all silent
+
+  # No FIFO-mode unit test in the tree; end-to-end harness
+  # exercise (needs libsvm + ffmpeg + fixtures) goes via
+  #   make test-netflix-golden
+  # which doesn't exercise fifo_mode path but does verify the
+  # refactor didn't break executor.py imports.
+  ```

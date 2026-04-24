@@ -22,6 +22,26 @@
   `src01_hrc00/01_576x324` pair. See
   [ADR-0145](docs/adr/0145-motion-v2-neon-bitexact.md).
 
+### Fixed
+
+- **FIFO-mode workfile/procfile opens no longer race-hang on slow
+  systems** (port of Netflix upstream PR
+  [#1376](https://github.com/Netflix/vmaf/pull/1376)). The Python
+  harness under `python/vmaf/core/executor.py` +
+  `python/vmaf/core/raw_extractor.py` previously waited for child
+  processes to create named pipes via a 1-second `os.path.exists()`
+  polling loop, which could time out on loaded CI / virtualised
+  hosts. Replaced with `multiprocessing.Semaphore(0)` signalled
+  by the child processes after `os.mkfifo(...)`; parent acquires
+  with 5-second soft-timeout warning then blocks indefinitely.
+  Applied to both the base `Executor` class and the
+  `ExternalVmafExecutor`-style subclass. Fork carve-outs:
+  upstream's `__version__ = "3.0.0" → "4.0.0"` bump is **not**
+  applied (fork tracks its own versioning per ADR-0025); unused
+  `from time import sleep` imports removed per ADR-0141.
+  Closes backlog item T4-7. See
+  [ADR-0149](docs/adr/0149-port-netflix-1376-fifo-semaphore.md).
+
 ### Changed
 
 - **IQA reserved-identifier rename + touched-file lint cascade
