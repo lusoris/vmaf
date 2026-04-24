@@ -107,14 +107,14 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     {
         unsigned flags = vmaf_get_cpu_flags();
         if (flags & VMAF_X86_CPU_FLAG_AVX2) {
-            _iqa_ssim_set_dispatch(ssim_precompute_avx2, ssim_variance_avx2, ssim_accumulate_avx2);
-            _iqa_convolve_set_dispatch(iqa_convolve_avx2);
+            iqa_ssim_set_dispatch(ssim_precompute_avx2, ssim_variance_avx2, ssim_accumulate_avx2);
+            iqa_convolve_set_dispatch(iqa_convolve_avx2);
         }
 #if HAVE_AVX512
         if (flags & VMAF_X86_CPU_FLAG_AVX512) {
-            _iqa_ssim_set_dispatch(ssim_precompute_avx512, ssim_variance_avx512,
-                                   ssim_accumulate_avx512);
-            _iqa_convolve_set_dispatch(iqa_convolve_avx512);
+            iqa_ssim_set_dispatch(ssim_precompute_avx512, ssim_variance_avx512,
+                                  ssim_accumulate_avx512);
+            iqa_convolve_set_dispatch(iqa_convolve_avx512);
         }
 #endif
     }
@@ -122,8 +122,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     {
         unsigned flags = vmaf_get_cpu_flags();
         if (flags & VMAF_ARM_CPU_FLAG_NEON) {
-            _iqa_ssim_set_dispatch(ssim_precompute_neon, ssim_variance_neon, ssim_accumulate_neon);
-            _iqa_convolve_set_dispatch(iqa_convolve_neon);
+            iqa_ssim_set_dispatch(ssim_precompute_neon, ssim_variance_neon, ssim_accumulate_neon);
+            iqa_convolve_set_dispatch(iqa_convolve_neon);
         }
     }
 #endif
@@ -164,7 +164,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     picture_copy(s->ref, s->float_stride, ref_pic, 0, ref_pic->bpc);
     picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc);
 
-    double score, l_score, c_score, s_score;
+    double score;
+    double l_score;
+    double c_score;
+    double s_score;
     err = compute_ssim(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride,
                        s->float_stride, &score, &l_score, &c_score, &s_score, s->scale);
     if (err)
@@ -195,6 +198,8 @@ static int close(VmafFeatureExtractor *fex)
 
 static const char *provided_features[] = {"float_ssim", NULL};
 
+// extern-registered in feature_extractor.c registry
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 VmafFeatureExtractor vmaf_fex_float_ssim = {
     .name = "float_ssim",
     .init = init,

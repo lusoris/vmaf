@@ -31,10 +31,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CONVOLVE_H_
-#define _CONVOLVE_H_
+#ifndef CONVOLVE_INCLUDED
+#define CONVOLVE_INCLUDED
 
-typedef float (*_iqa_get_pixel)(const float *img, int w, int h, int x, int y, float bnd_const);
+typedef float (*iqa_get_pixel)(const float *img, int w, int h, int x, int y, float bnd_const);
 
 /** Out-of-bounds array values are a mirrored reflection of the border values*/
 float KBND_SYMMETRIC(const float *img, int w, int h, int x, int y, float bnd_const);
@@ -44,14 +44,14 @@ float KBND_REPLICATE(const float *img, int w, int h, int x, int y, float bnd_con
 float KBND_CONSTANT(const float *img, int w, int h, int x, int y, float bnd_const);
 
 /** Defines a convolution kernel */
-struct _kernel {
-    float *kernel;          /**< Pointer to the kernel values */
-    float *kernel_h;        /**< Pointer to horizontal 1D kernel values (zli-nflx) */
-    float *kernel_v;        /**< Pointer to vertical 1D kernel values (zli-nflx) */
-    int w;                  /**< The kernel width */
-    int h;                  /**< The kernel height */
-    int normalized;         /**< 1 if the kernel values add up to 1. 0 otherwise */
-    _iqa_get_pixel bnd_opt; /**< Defines how out-of-bounds image values are handled */
+struct iqa_kernel {
+    float *kernel;         /**< Pointer to the kernel values */
+    float *kernel_h;       /**< Pointer to horizontal 1D kernel values (zli-nflx) */
+    float *kernel_v;       /**< Pointer to vertical 1D kernel values (zli-nflx) */
+    int w;                 /**< The kernel width */
+    int h;                 /**< The kernel height */
+    int normalized;        /**< 1 if the kernel values add up to 1. 0 otherwise */
+    iqa_get_pixel bnd_opt; /**< Defines how out-of-bounds image values are handled */
     float bnd_const; /**< If 'bnd_opt' is KBND_CONSTANT, this specifies the out-of-bounds value */
 };
 
@@ -71,11 +71,11 @@ struct _kernel {
  * @param rw Optional. The width of the resulting image will be stored here.
  * @param rh Optional. The height of the resulting image will be stored here.
  */
-void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw,
-                   int *rh);
+void iqa_convolve(float *img, int w, int h, const struct iqa_kernel *k, float *result, int *rw,
+                  int *rh);
 
 /**
- * The same as _iqa_convolve() except the kernel is applied to the entire image.
+ * The same as iqa_convolve() except the kernel is applied to the entire image.
  * In other words, the kernel is applied to all areas where the top-left corner
  * of the kernel is in the image. Out-of-bound pixel value (off the right and
  * bottom edges) are chosen based on the 'bnd_opt' and 'bnd_const' members of
@@ -91,7 +91,7 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
  *               will be written to the original image buffer.
  * @return 0 if successful. Non-zero otherwise.
  */
-int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *result);
+int iqa_img_filter(float *img, int w, int h, const struct iqa_kernel *k, float *result);
 
 /**
  * Returns the filtered version of the specified pixel. If no kernel is given,
@@ -107,7 +107,7 @@ int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *re
  *               kernels. Required if 'k' is not null.
  * @return The filtered pixel value.
  */
-float _iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct _kernel *k,
-                        const float kscale);
+float iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct iqa_kernel *k,
+                       const float kscale);
 
-#endif /*_CONVOLVE_H_*/
+#endif /*CONVOLVE_INCLUDED*/

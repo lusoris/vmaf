@@ -17,7 +17,7 @@
  */
 
 /*
- * NEON bit-exact fast path for `_iqa_convolve` — 1-D separable,
+ * NEON bit-exact fast path for `iqa_convolve` — 1-D separable,
  * interior-only (no boundary reflection). Port of convolve_avx2.c
  * to aarch64 via the simd_dx.h macros (ADR-0140).
  *
@@ -237,7 +237,7 @@ void iqa_convolve_neon(float *img, int w, int h, const float *kernel_h, const fl
 
     /* Caller-owned workspace eliminates per-call calloc (~1200 pairs
      * per 120-frame run at 1080p). NULL triggers an internal alloc
-     * for standalone callers (unit tests); the hot path in _iqa_ssim
+     * for standalone callers (unit tests); the hot path in iqa_ssim
      * allocates once and reuses. */
     float *img_cache = workspace;
     int owned = 0;

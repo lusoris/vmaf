@@ -2081,3 +2081,69 @@ inline.*
   Also run `clang-tidy -p build libvmaf/src/thread_pool.c` — expect
   zero warnings. Re-run the 500 000-job micro-benchmark from
   ADR-0147 §Decision if performance is under investigation.
+
+### 0041 — IQA reserved-identifier rename + cleanup (ADR-0148)
+
+- **ADR**: [ADR-0148](adr/0148-iqa-rename-and-cleanup.md)
+- **Touches**: 21 files across `libvmaf/src/feature/`
+  (`iqa/{convolve,decimate,ssim_tools}.{c,h}`,
+  `iqa/ssim_simd.h`, `ssim.c`, `integer_ssim.c`,
+  `ms_ssim.c`, `ms_ssim_decimate.h`, `float_ssim.c`,
+  `float_ms_ssim.c`, `x86/convolve_avx2.{c,h}`,
+  `x86/convolve_avx512.{c,h}`, `arm64/convolve_neon.{c,h}`,
+  `AGENTS.md`) plus `libvmaf/test/test_iqa_convolve.c`.
+- **Invariants**:
+  1. Every `_iqa_*` / `_kernel` / `_ssim_int` / `_map_reduce`
+     / `_map` / `_reduce` / `_context` / `_ms_ssim_*` /
+     `_ssim_*` / `_alloc_buffers` / `_free_buffers` symbol
+     and the four underscore-prefixed header guards
+     (`_CONVOLVE_H_`, `_DECIMATE_H_`, `_SSIM_TOOLS_H_`,
+     `__VMAF_MS_SSIM_DECIMATE_H__`) is renamed to its
+     non-reserved spelling. The fork's IQA surface no longer
+     uses C's reserved-identifier name space.
+  2. The `clang-analyzer-security.ArrayBound` NOLINT bracket
+     in `ssim_accumulate_row` and `ssim_reduce_row_range`
+     (integer_ssim.c) is load-bearing — the inner kernel-loop
+     `k_min` / `k_max` clamping is provably correct
+     (`k_min = max(0, hkernel_offs - x)`,
+     `k_max = min(hkernel_sz, hkernel_sz - (x + hkernel_offs - w + 1))`)
+     but the analyzer can't follow it across helper
+     boundaries. Do not collapse the bracket.
+  3. The `clang-analyzer-unix.Malloc` NOLINT bracket in
+     `test_iqa_convolve.c` (`check_simd_variant`,
+     `check_case`) is intentional — test exits process on
+     failure path; small allocations leak by design at test
+     end. Do not refactor to free-on-exit.
+  4. The cross-TU NOLINT pattern on `compute_ssim`
+     (ssim.c) and `compute_ms_ssim` (ms_ssim.c) — clang-tidy
+     `misc-use-internal-linkage` runs per-TU and can't see
+     the header bridge to `float_ssim.c` / `float_ms_ssim.c`.
+     Keep the inline justification comment.
+- **On upstream sync**:
+  - The Netflix upstream IQA library (`tjdistler/iqa`) has
+    been effectively abandoned (last meaningful commit
+    pre-2020). Future rebases will conflict on every renamed
+    symbol; drop the underscore-prefix on each conflict and
+    mirror the fork's `iqa_*` naming.
+  - If upstream Netflix/vmaf ever reincorporates the IQA
+    naming wholesale, prefer the fork's spellings — this PR
+    is a one-shot mechanical rename with no semantic content.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C build && meson test -C build
+  for mask in 0 255; do
+    VMAF_CPU_MASK=$mask ./build/tools/vmaf \
+      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+      -m version=vmaf_v0.6.1 \
+      --feature float_ssim --feature float_ms_ssim \
+      -o /tmp/iqa_$mask.xml
+  done
+  diff <(grep -v fyi /tmp/iqa_0.xml) <(grep -v fyi /tmp/iqa_255.xml)
+  # expect exit 0 (bit-identical scalar vs SIMD on float_ssim/ms_ssim)
+  ```
+
+  Also run `clang-tidy -p build` on every touched file
+  (excluding `arm64/`); expect zero warnings.

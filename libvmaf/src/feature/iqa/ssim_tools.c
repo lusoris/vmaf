@@ -47,33 +47,33 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-/* SIMD dispatch function pointers (set via _iqa_ssim_set_dispatch) */
+/* SIMD dispatch function pointers (set via iqa_ssim_set_dispatch) */
 static ssim_precompute_fn g_ssim_precompute = NULL;
 static ssim_variance_fn g_ssim_variance = NULL;
 static ssim_accumulate_fn g_ssim_accumulate = NULL;
 
-void _iqa_ssim_set_dispatch(ssim_precompute_fn precompute, ssim_variance_fn variance,
-                            ssim_accumulate_fn accumulate)
+void iqa_ssim_set_dispatch(ssim_precompute_fn precompute, ssim_variance_fn variance,
+                           ssim_accumulate_fn accumulate)
 {
     g_ssim_precompute = precompute;
     g_ssim_variance = variance;
     g_ssim_accumulate = accumulate;
 }
 
-/* SIMD dispatch for _iqa_convolve (see ADR-0138) */
+/* SIMD dispatch for iqa_convolve (see ADR-0138) */
 static iqa_convolve_fn g_iqa_convolve = NULL;
 
-void _iqa_convolve_set_dispatch(iqa_convolve_fn convolve)
+void iqa_convolve_set_dispatch(iqa_convolve_fn convolve)
 {
     g_iqa_convolve = convolve;
 }
 
-/* Adapter: feeds the `struct _kernel *` call site into the
+/* Adapter: feeds the `struct iqa_kernel *` call site into the
  * primitive-args SIMD function pointer; falls back to the scalar
- * `_iqa_convolve` when no dispatch is installed. `workspace` is the
+ * `iqa_convolve` when no dispatch is installed. `workspace` is the
  * caller-owned w*h scratch buffer reused across every dispatch site
- * in a single _iqa_ssim invocation (see ADR-0138 §Decision). */
-static inline void iqa_convolve_dispatch(float *img, int w, int h, const struct _kernel *k,
+ * in a single iqa_ssim invocation (see ADR-0138 §Decision). */
+static inline void iqa_convolve_dispatch(float *img, int w, int h, const struct iqa_kernel *k,
                                          float *workspace, float *result, int *rw, int *rh)
 {
     if (g_iqa_convolve) {
@@ -81,7 +81,7 @@ static inline void iqa_convolve_dispatch(float *img, int w, int h, const struct 
                        result, rw, rh);
     } else {
         (void)workspace;
-        _iqa_convolve(img, w, h, k, result, rw, rh);
+        iqa_convolve(img, w, h, k, result, rw, rh);
     }
 }
 
@@ -209,9 +209,9 @@ static float ssim_accumulate_user_args_scalar(float *ref_sigma_sqd, float *cmp_s
                                               float *sigma_both, const float *ref_mu,
                                               const float *cmp_mu, int w, int h, float C1, float C2,
                                               float C3, float alpha, float beta, float gamma,
-                                              const struct _map_reduce *mr)
+                                              const struct iqa_map_reduce *mr)
 {
-    struct _ssim_int sint;
+    struct iqa_ssim_int sint;
     for (int y = 0; y < h; ++y) {
         int offset = y * w;
         for (int x = 0; x < w; ++x, ++offset) {
@@ -245,7 +245,7 @@ struct ssim_workspace {
     /* Shared workspace for the SIMD convolve's horizontal-pass cache.
      * Allocated once and threaded through all 5 dispatch sites below,
      * replacing ~1200 per-call calloc/free pairs on a 120-frame 1080p
-     * run. Scalar `_iqa_convolve` ignores it. See ADR-0138. */
+     * run. Scalar `iqa_convolve` ignores it. See ADR-0138. */
     float *conv_workspace;
 };
 
@@ -274,7 +274,7 @@ static void ssim_workspace_free(struct ssim_workspace *ws)
     free(ws->conv_workspace);
 }
 
-static void ssim_compute_stats(float *ref, float *cmp, int *w, int *h, const struct _kernel *k,
+static void ssim_compute_stats(float *ref, float *cmp, int *w, int *h, const struct iqa_kernel *k,
                                struct ssim_workspace *ws)
 {
     iqa_convolve_dispatch(ref, *w, *h, k, ws->conv_workspace, ws->ref_mu, 0, 0);
@@ -314,9 +314,9 @@ static void ssim_init_args(const struct iqa_ssim_args *args, float *alpha, float
     *K2 = args->K2;
 }
 
-float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
-                const struct _map_reduce *mr, const struct iqa_ssim_args *args, float *l_mean,
-                float *c_mean, float *s_mean /* zli-nflx */
+float iqa_ssim(float *ref, float *cmp, int w, int h, const struct iqa_kernel *k,
+               const struct iqa_map_reduce *mr, const struct iqa_ssim_args *args, float *l_mean,
+               float *c_mean, float *s_mean /* zli-nflx */
 )
 {
     float alpha = 1.0f;

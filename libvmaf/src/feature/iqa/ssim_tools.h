@@ -34,8 +34,8 @@
  * contrast and structure.
  */
 
-#ifndef _SSIM_TOOLS_H_
-#define _SSIM_TOOLS_H_
+#ifndef SSIM_TOOLS_INCLUDED
+#define SSIM_TOOLS_INCLUDED
 
 #include "iqa.h"
 #include "convolve.h"
@@ -105,26 +105,26 @@ static const float g_square_window_v[SQUARE_LEN] = {0.125f, 0.125f, 0.125f, 0.12
                                                     0.125f, 0.125f, 0.125f, 0.125f};
 
 /* Holds intermediate SSIM values for map-reduce operation. */
-struct _ssim_int {
+struct iqa_ssim_int {
     double l;
     double c;
     double s;
 };
 
 /* Defines the pointers to the map-reduce functions. */
-typedef int (*_map)(const struct _ssim_int *, void *);
-typedef float (*_reduce)(int, int, void *);
+typedef int (*iqa_map_fn)(const struct iqa_ssim_int *, void *);
+typedef float (*iqa_reduce)(int, int, void *);
 
 /* Arguments for map-reduce. The 'context' is user-defined. */
-struct _map_reduce {
-    _map map;
-    _reduce reduce;
+struct iqa_map_reduce {
+    iqa_map_fn map;
+    iqa_reduce reduce;
     void *context;
 };
 
-float _iqa_ssim(float *ref, float *cmp, int w, int h, const struct _kernel *k,
-                const struct _map_reduce *mr, const struct iqa_ssim_args *args, float *l_mean,
-                float *c_mean, float *s_mean /* zli-nflx */
+float iqa_ssim(float *ref, float *cmp, int w, int h, const struct iqa_kernel *k,
+               const struct iqa_map_reduce *mr, const struct iqa_ssim_args *args, float *l_mean,
+               float *c_mean, float *s_mean /* zli-nflx */
 );
 
-#endif /* _SSIM_TOOLS_H_ */
+#endif /* SSIM_TOOLS_INCLUDED */

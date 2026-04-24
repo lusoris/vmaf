@@ -16,18 +16,18 @@
  *
  */
 
-#ifndef __VMAF_MS_SSIM_DECIMATE_H__
-#define __VMAF_MS_SSIM_DECIMATE_H__
+#ifndef VMAF_MS_SSIM_DECIMATE_H_INCLUDED
+#define VMAF_MS_SSIM_DECIMATE_H_INCLUDED
 
 /*
  * MS-SSIM 2x decimate with the 9-tap 9/7 biorthogonal wavelet LPF.
  *
- * Replaces `_iqa_decimate(..., factor=2, &lpf_9x9, ...)` for the
+ * Replaces `iqa_decimate(..., factor=2, &lpf_9x9, ...)` for the
  * MS-SSIM hot path. The 2-D 9x9 kernel in ms_ssim.c (`g_lpf`) is
  * replaced by an equivalent separable form using `g_lpf_h` /
  * `g_lpf_v` (IEEE-754 FMA accumulation, KBND_SYMMETRIC border).
  *
- * Numerical contract: the output MAY differ from `_iqa_decimate` by
+ * Numerical contract: the output MAY differ from `iqa_decimate` by
  * up to a few ULPs per pixel because (a) `g_lpf` is precomputed at
  * 6-decimal precision rather than the exact outer product of
  * `g_lpf_h` x `g_lpf_v`, and (b) separable summation order differs
@@ -64,4 +64,4 @@ int ms_ssim_decimate_scalar(const float *src, int w, int h, float *dst, int *rw,
  */
 int ms_ssim_decimate(const float *src, int w, int h, float *dst, int *rw, int *rh);
 
-#endif /* __VMAF_MS_SSIM_DECIMATE_H__ */
+#endif /* VMAF_MS_SSIM_DECIMATE_H_INCLUDED */

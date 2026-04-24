@@ -20,7 +20,7 @@
 #define LIBVMAF_FEATURE_X86_CONVOLVE_AVX512_H
 
 /*
- * AVX-512 bit-exact fast path for `_iqa_convolve` — 1-D separable,
+ * AVX-512 bit-exact fast path for `iqa_convolve` — 1-D separable,
  * 11-tap Gaussian or 8-tap box kernel, normalised, no border
  * reflection.
  *

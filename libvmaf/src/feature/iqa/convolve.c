@@ -30,7 +30,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  *
- * (06/10/2016) Updated by zli-nflx (zli@netflix.com) to optimize _iqa_convolve.
+ * (06/10/2016) Updated by zli-nflx (zli@netflix.com) to optimize iqa_convolve.
  */
 
 #include <stdlib.h>
@@ -94,7 +94,7 @@ float KBND_CONSTANT(const float *img, int w, int h, int x, int y, float bnd_cons
     return img[y * w + x];
 }
 
-static float iqa_calc_scale(const struct _kernel *k)
+static float iqa_calc_scale(const struct iqa_kernel *k)
 {
     if (k->normalized)
         return 1.0f;
@@ -119,7 +119,7 @@ static float iqa_calc_scale(const struct _kernel *k)
  * the v-pass will later read. Rows beyond `dst_h + vc - kh_even` are never
  * consumed; stopping there avoids an OOB row on even-tap kernels (see
  * docs/rebase-notes.md §0033). */
-static void iqa_convolve_horizontal_pass(const float *img, int w, const struct _kernel *k,
+static void iqa_convolve_horizontal_pass(const float *img, int w, const struct iqa_kernel *k,
                                          float *img_cache, int dst_w, int dst_h, float scale)
 {
     const int uc = k->w / 2;
@@ -141,7 +141,7 @@ static void iqa_convolve_horizontal_pass(const float *img, int w, const struct _
     }
 }
 
-static void iqa_convolve_vertical_pass(const float *img_cache, int w, const struct _kernel *k,
+static void iqa_convolve_vertical_pass(const float *img_cache, int w, const struct iqa_kernel *k,
                                        float *dst, int dst_w, int dst_h, float scale)
 {
     const int uc = k->w / 2;
@@ -162,7 +162,7 @@ static void iqa_convolve_vertical_pass(const float *img_cache, int w, const stru
     }
 }
 
-static void iqa_convolve_1d_separable(float *img, int w, int h, const struct _kernel *k,
+static void iqa_convolve_1d_separable(float *img, int w, int h, const struct iqa_kernel *k,
                                       float *result, int dst_w, int dst_h)
 {
     const float scale = iqa_calc_scale(k);
@@ -178,7 +178,7 @@ static void iqa_convolve_1d_separable(float *img, int w, int h, const struct _ke
 
 #else /* use 2D filter */
 
-static void iqa_convolve_2d(float *img, int w, const struct _kernel *k, float *result, int dst_w,
+static void iqa_convolve_2d(float *img, int w, const struct iqa_kernel *k, float *result, int dst_w,
                             int dst_h)
 {
     const int uc = k->w / 2;
@@ -207,8 +207,8 @@ static void iqa_convolve_2d(float *img, int w, const struct _kernel *k, float *r
 
 #endif
 
-void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *result, int *rw,
-                   int *rh)
+void iqa_convolve(float *img, int w, int h, const struct iqa_kernel *k, float *result, int *rw,
+                  int *rh)
 {
     const int dst_w = w - k->w + 1;
     const int dst_h = h - k->h + 1;
@@ -226,7 +226,7 @@ void _iqa_convolve(float *img, int w, int h, const struct _kernel *k, float *res
         *rh = dst_h;
 }
 
-int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *result)
+int iqa_img_filter(float *img, int w, int h, const struct iqa_kernel *k, float *result)
 {
     int x;
     int y;
@@ -247,7 +247,7 @@ int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *re
     /* Kernel is applied to all positions where top-left corner is in the image */
     for (y = 0; y < h; ++y) {
         for (x = 0; x < w; ++x) {
-            dst[y * w + x] = _iqa_filter_pixel(img, w, h, x, y, k, scale);
+            dst[y * w + x] = iqa_filter_pixel(img, w, h, x, y, k, scale);
         }
     }
 
@@ -264,8 +264,8 @@ int _iqa_img_filter(float *img, int w, int h, const struct _kernel *k, float *re
     return 0;
 }
 
-float _iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct _kernel *k,
-                        const float kscale)
+float iqa_filter_pixel(const float *img, int w, int h, int x, int y, const struct iqa_kernel *k,
+                       const float kscale)
 {
     if (!k)
         return img[y * w + x];

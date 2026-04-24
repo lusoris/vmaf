@@ -19,7 +19,7 @@
 /*
  * Bit-exactness contract (ADR-0138, ADR-0140): the SIMD `iqa_convolve_*`
  * variants — AVX2, AVX-512, and NEON — produce byte-for-byte the same
- * output as the scalar reference `_iqa_convolve` under IQA_CONVOLVE_1D,
+ * output as the scalar reference `iqa_convolve` under IQA_CONVOLVE_1D,
  * for any (src, w, h, kernel) in the SSIM/MS-SSIM supported space:
  *   - 11-tap Gaussian (odd kernel, kw_even == 0)
  *   - 8-tap box       (even kernel, kw_even == 1)
@@ -96,6 +96,9 @@ typedef void (*convolve_simd_fn)(float *img, int w, int h, const float *kernel_h
                                  const float *kernel_v, int kw, int kh, int normalized,
                                  float *workspace, float *result, int *rw, int *rh);
 
+// NOLINTBEGIN(clang-analyzer-unix.Malloc)
+// test exits process on failure path via mu_assert; analyzer can't see
+// exit; small allocations leak by design at test end.
 static char *check_simd_variant(const float *src, int w, int h, const float *kernel_h,
                                 const float *kernel_v, int kw, int kh, const float *dst_scalar,
                                 size_t dst_n, convolve_simd_fn fn, int poison, char *fail_cmp)
@@ -119,15 +122,16 @@ static char *check_simd_variant(const float *src, int w, int h, const float *ker
     free(workspace);
     return NULL;
 }
+// NOLINTEND(clang-analyzer-unix.Malloc)
 #endif /* ARCH_X86 || ARCH_AARCH64 */
 
 /* Run the scalar reference convolve into `dst_scalar`. Mutates a
- * disposable copy of `src` because `_iqa_convolve` may touch its
+ * disposable copy of `src` because `iqa_convolve` may touch its
  * input; the caller's `src` buffer is preserved for the SIMD passes. */
 static char *run_scalar_reference(const float *src, int w, int h, int kw, const float *kernel_h,
                                   const float *kernel_v, size_t src_n, float *dst_scalar)
 {
-    struct _kernel k;
+    struct iqa_kernel k;
     k.kernel = NULL;
     k.kernel_h = (float *)kernel_h;
     k.kernel_v = (float *)kernel_v;
@@ -140,7 +144,7 @@ static char *run_scalar_reference(const float *src, int w, int h, int kw, const 
     float *src_scalar_copy = (float *)malloc(src_n * sizeof(float));
     mu_assert("malloc failed", src_scalar_copy != NULL);
     memcpy(src_scalar_copy, src, src_n * sizeof(float));
-    _iqa_convolve(src_scalar_copy, w, h, &k, dst_scalar, NULL, NULL);
+    iqa_convolve(src_scalar_copy, w, h, &k, dst_scalar, NULL, NULL);
     free(src_scalar_copy);
     return NULL;
 }
@@ -189,6 +193,9 @@ static char *check_all_simd_variants(const float *src, int w, int h, int kw, con
     return NULL;
 }
 
+// NOLINTBEGIN(clang-analyzer-unix.Malloc)
+// test exits process on failure path via mu_assert; analyzer can't see
+// exit; small allocations leak by design at test end.
 static char *check_case(int w, int h, int kw, const float *kernel_h, const float *kernel_v,
                         uint32_t seed)
 {
@@ -212,6 +219,7 @@ static char *check_case(int w, int h, int kw, const float *kernel_h, const float
     free(dst_scalar);
     return msg;
 }
+// NOLINTEND(clang-analyzer-unix.Malloc)
 
 /* Gaussian (11-tap, kw_even=0) cases. */
 static char *test_gauss_11x11(void)
@@ -297,18 +305,35 @@ static int detect_simd_support(void)
 #endif
 }
 
-static char *run_gauss_tests(void)
+/* Small (<=25 px/side) Gaussian cases: kernel-footprint minimums and
+ * masked-tail lane counts. */
+static char *run_gauss_small_tests(void)
 {
     mu_run_test(test_gauss_11x11);
     mu_run_test(test_gauss_12x12);
     mu_run_test(test_gauss_19x19);
     mu_run_test(test_gauss_20x20);
     mu_run_test(test_gauss_25x25);
+    return NULL;
+}
+
+/* Medium-and-large Gaussian cases: odd-stride tails plus the two
+ * production-equivalent resolutions. */
+static char *run_gauss_large_tests(void)
+{
     mu_run_test(test_gauss_33x17);
     mu_run_test(test_gauss_61x41);
     mu_run_test(test_gauss_576x324);
     mu_run_test(test_gauss_1920x1080);
     return NULL;
+}
+
+static char *run_gauss_tests(void)
+{
+    char *msg = run_gauss_small_tests();
+    if (msg)
+        return msg;
+    return run_gauss_large_tests();
 }
 
 static char *run_box_tests(void)
