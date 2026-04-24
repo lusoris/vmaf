@@ -273,6 +273,15 @@ test_pic_preallocation = executable('test_pic_preallocation',
 )
 test('test_pic_preallocation', test_pic_preallocation)
 
+# ADR-0152 — monotonic-index guard on vmaf_read_pictures (Netflix#910).
+test_read_pictures_monotonic = executable('test_read_pictures_monotonic',
+    ['test.c', 'test_read_pictures_monotonic.c'],
+    include_directories : [libvmaf_inc, test_inc],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, thread_lib],
+)
+test('test_read_pictures_monotonic', test_read_pictures_monotonic)
+
 if get_option('enable_sycl')
 test_sycl = executable('test_sycl',
     ['test.c', 'test_sycl.c'],
