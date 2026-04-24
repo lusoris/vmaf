@@ -42,6 +42,37 @@
   to fail pre-fix and pass post-fix. Closes backlog item T1-4.
   See [ADR-0153](docs/adr/0153-float-ms-ssim-min-dim-netflix-1414.md).
 
+### Fixed
+
+- **CUDA backend: graceful error propagation on `cuMemAlloc`
+  OOM and all other CUDA failures** (Netflix upstream issue
+  [#1420](https://github.com/Netflix/vmaf/issues/1420)). The
+  `CHECK_CUDA` macro previously fired `assert(0)` on every
+  CUDA error, which aborted the process — two concurrent
+  VMAF-CUDA analyses crashed the second one immediately when
+  it OOMed on `cuMemAlloc`. Wholesale refactor: replaced all
+  178 `CHECK_CUDA(...)` call sites across 7 CUDA TUs
+  (`common.c`, `picture_cuda.c`, `libvmaf.c`,
+  `integer_motion_cuda.c`, `integer_vif_cuda.c`,
+  `integer_adm_cuda.c`, `cuda_helper.cuh`) with two new
+  macros — `CHECK_CUDA_GOTO(label)` (cleanup-aware) and
+  `CHECK_CUDA_RETURN` (immediate-return) — that map `CUresult`
+  to `-errno` via `vmaf_cuda_result_to_errno` and propagate
+  the error through cleanup labels. `cuMemAlloc` OOM now
+  returns `-ENOMEM`; resource exhaustion on
+  `cuStreamCreate` / `cuEventCreate` returns `-EIO`;
+  context / device-loss errors return `-ENODEV`; invalid
+  handle / value / context errors return `-EINVAL`. Twelve
+  `static` helper functions promoted from `void → int` to
+  carry errors upward. New GPU-gated reducer in
+  `test_cuda_buffer_alloc_oom.c` verifies `cuMemAlloc(1 TiB)`
+  now returns `-ENOMEM` (was: `assert(0)`). Fixes the NDEBUG
+  footgun (`assert(0)` was a no-op in release builds →
+  silent continue into segfault). Preserves ADR-0122 /
+  ADR-0123 null-guards on public entry points verbatim.
+  Closes backlog item T1-6. See
+  [ADR-0156](docs/adr/0156-cuda-graceful-error-propagation-netflix-1420.md).
+
 ### Documented (not fixed)
 
 - **ADM `i4_adm_cm` int32 rounding overflow** (Netflix upstream

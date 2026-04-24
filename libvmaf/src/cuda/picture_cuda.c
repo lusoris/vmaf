@@ -49,10 +49,10 @@ int vmaf_cuda_picture_download_async(VmafPicture *cuda_pic, VmafPicture *pic, ui
         m.WidthInBytes = cuda_pic->w[i] * ((pic->bpc + 7) / 8);
         m.Height = cuda_pic->h[i];
         if ((bitmask >> i) & 1)
-            CHECK_CUDA(cu_f, cuMemcpy2DAsync(&m, cuda_priv->cuda.str));
+            CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&m, cuda_priv->cuda.str));
     }
 
-    return CUDA_SUCCESS;
+    return 0;
 }
 
 int vmaf_cuda_picture_upload_async(VmafPicture *cuda_pic, VmafPicture *pic, uint8_t bitmask)
@@ -76,11 +76,11 @@ int vmaf_cuda_picture_upload_async(VmafPicture *cuda_pic, VmafPicture *pic, uint
         m.WidthInBytes = cuda_pic->w[i] * ((pic->bpc + 7) / 8);
         m.Height = cuda_pic->h[i];
         if ((bitmask >> i) & 1)
-            CHECK_CUDA(cu_f, cuMemcpy2DAsync(&m, cuda_priv->cuda.str));
+            CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&m, cuda_priv->cuda.str));
     }
-    CHECK_CUDA(cu_f, cuEventRecord(cuda_priv->cuda.ready, cuda_priv->cuda.str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(cuda_priv->cuda.ready, cuda_priv->cuda.str));
 
-    return CUDA_SUCCESS;
+    return 0;
 }
 
 #define DATA_ALIGN_PINNED 32
@@ -93,11 +93,19 @@ static int default_release_pinned_picture(VmafPicture *pic, void *cookie)
 
     VmafPicturePrivate *priv = pic->priv;
     CudaFunctions *cu_f = priv->cuda.state->f;
-    CHECK_CUDA(cu_f, cuCtxPushCurrent(priv->cuda.ctx));
-    CHECK_CUDA(cu_f, cuMemFreeHost(pic->data[0]));
-    CHECK_CUDA(cu_f, cuCtxPopCurrent(NULL));
-
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(priv->cuda.ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_f, cuMemFreeHost(pic->data[0]), fail);
+    CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
     return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fmt, unsigned bpc,
@@ -133,12 +141,15 @@ int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fm
     const size_t uv_sz = pic->stride[1] * pic->h[1];
     const size_t pic_size = y_sz + 2 * uv_sz;
     CudaFunctions *cu_f = cuda_state->f;
-    CHECK_CUDA(cu_f, cuCtxPushCurrent(cuda_state->ctx));
-    uint8_t *data;
-    CHECK_CUDA(cu_f, cuMemHostAlloc((void **)&data, pic_size, 0x01));
-    CHECK_CUDA(cu_f, cuCtxPopCurrent(NULL));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    uint8_t *data = NULL;
+    CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(cuda_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_f, cuMemHostAlloc((void **)&data, pic_size, 0x01), fail);
+    CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
     if (!data)
-        goto fail;
+        goto fail_no_data;
 
     memset(data, 0, pic_size);
     pic->data[0] = data;
@@ -165,9 +176,15 @@ int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fm
 free_priv:
     free(pic->priv);
 free_data:
-    CHECK_CUDA(cu_f, cuMemFreeHost(data));
-fail:
+    (void)cu_f->cuMemFreeHost(data);
+fail_no_data:
     return -ENOMEM;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
@@ -196,16 +213,20 @@ int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 
     VmafPicturePrivate *priv = pic->priv = malloc(sizeof(VmafPicturePrivate));
-    CHECK_CUDA(cuda_cookie->state->f, cuCtxPushCurrent(cuda_cookie->state->ctx));
     if (!priv)
         return -ENOMEM;
+
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cuda_cookie->state->f, cuCtxPushCurrent(cuda_cookie->state->ctx), fail);
+    ctx_pushed = 1;
     priv->cuda.state = cuda_cookie->state;
     priv->cuda.ctx = cuda_cookie->state->ctx;
     CudaFunctions *cu_f = priv->cuda.state->f;
-    CHECK_CUDA(cu_f, cuStreamCreate(&priv->cuda.str, CU_STREAM_DEFAULT));
-    CHECK_CUDA(cu_f, cuEventCreate(&priv->cuda.ready, CU_EVENT_DEFAULT));
-    CHECK_CUDA(cu_f, cuEventCreate(&priv->cuda.finished, CU_EVENT_DEFAULT));
-    CHECK_CUDA(cu_f, cuEventRecord(priv->cuda.finished, priv->cuda.str));
+    CHECK_CUDA_GOTO(cu_f, cuStreamCreate(&priv->cuda.str, CU_STREAM_DEFAULT), fail);
+    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&priv->cuda.ready, CU_EVENT_DEFAULT), fail);
+    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&priv->cuda.finished, CU_EVENT_DEFAULT), fail);
+    CHECK_CUDA_GOTO(cu_f, cuEventRecord(priv->cuda.finished, priv->cuda.str), fail);
     priv->buf_type = VMAF_PICTURE_BUFFER_TYPE_CUDA_DEVICE;
 
     const int hbd = pic->bpc > 8;
@@ -215,16 +236,26 @@ int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
             pic->data[1] = pic->data[2] = NULL;
             break;
         }
-        CHECK_CUDA(cu_f, cuMemAllocPitch((CUdeviceptr *)&pic->data[i], (size_t *)&pic->stride[i],
-                                         pic->w[i] * ((pic->bpc + 7) / 8), pic->h[i], 8 << hbd));
+        CHECK_CUDA_GOTO(cu_f,
+                        cuMemAllocPitch((CUdeviceptr *)&pic->data[i], (size_t *)&pic->stride[i],
+                                        pic->w[i] * ((pic->bpc + 7) / 8), pic->h[i], 8 << hbd),
+                        fail);
     }
 
-    CHECK_CUDA(cu_f, cuCtxPopCurrent(NULL));
+    CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
     int err = vmaf_ref_init(&pic->ref);
     if (err)
         return err;
 
     return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cuda_cookie->state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    free(priv);
+    pic->priv = NULL;
+    return _cuda_err;
 }
 
 int vmaf_cuda_picture_free(VmafPicture *pic, void *cookie)
@@ -239,24 +270,34 @@ int vmaf_cuda_picture_free(VmafPicture *pic, void *cookie)
     VmafPicturePrivate *priv = pic->priv;
     VmafCudaCookie *cuda_cookie = cookie;
     CudaFunctions *cu_f = cuda_cookie->state->f;
-    CHECK_CUDA(cu_f, cuCtxPushCurrent(cuda_cookie->state->ctx));
-    CHECK_CUDA(cu_f, cuStreamSynchronize(priv->cuda.str));
+
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(cuda_cookie->state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(priv->cuda.str), fail);
 
     for (int i = 0; i < 3; i++) {
         if (pic->data[i]) {
-            CHECK_CUDA(cu_f, cuMemFree((CUdeviceptr)pic->data[i]));
+            CHECK_CUDA_GOTO(cu_f, cuMemFree((CUdeviceptr)pic->data[i]), fail);
         }
     }
 
-    CHECK_CUDA(cu_f, cuEventDestroy(priv->cuda.finished));
-    CHECK_CUDA(cu_f, cuEventDestroy(priv->cuda.ready));
-    CHECK_CUDA(cu_f, cuStreamDestroy(priv->cuda.str));
-    CHECK_CUDA(cu_f, cuCtxPopCurrent(NULL));
+    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(priv->cuda.finished), fail);
+    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(priv->cuda.ready), fail);
+    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(priv->cuda.str), fail);
+    CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
     vmaf_ref_close(pic->ref);
     free(priv);
     memset(pic, 0, sizeof(*pic));
 
     return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_picture_synchronize(VmafPicture *pic, void *cookie)
@@ -267,7 +308,7 @@ int vmaf_cuda_picture_synchronize(VmafPicture *pic, void *cookie)
 
     VmafPicturePrivate *priv = pic->priv;
     CudaFunctions *cu_f = priv->cuda.state->f;
-    CHECK_CUDA(cu_f, cuEventSynchronize(priv->cuda.finished));
+    CHECK_CUDA_RETURN(cu_f, cuEventSynchronize(priv->cuda.finished));
     // cuStreamSynchronize after cuEventSynchronize on the same stream is
     // redundant — the event was recorded on this stream, so the sync
     // already guarantees all prior work on the stream is complete.

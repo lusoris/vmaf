@@ -54,6 +54,30 @@ cuda/
   [ADR-0131](../../../docs/adr/0131-port-netflix-1382-cumemfree.md)
   and [rebase-notes 0031](../../../docs/rebase-notes.md).
 
+- **`CHECK_CUDA` graceful error propagation** (fork-local,
+  ADR-0156): the `CHECK_CUDA` macro in
+  [`cuda_helper.cuh`](cuda_helper.cuh) does NOT call
+  `assert(0)` on CUDA errors — it was replaced wholesale by
+  `CHECK_CUDA_GOTO(funcs, CALL, label)` and
+  `CHECK_CUDA_RETURN(funcs, CALL)` which log + return a
+  `-errno` translated from `CUresult` via
+  `vmaf_cuda_result_to_errno`. Every one of the 178 call
+  sites across `common.c`, `picture_cuda.c`,
+  `libvmaf.c`, and the three `feature/cuda/*.c` feature
+  extractors uses the new macros. Twelve `static` helpers
+  (`calculate_motion_score`, `filter1d_8/16`,
+  `adm_dwt2_*_device`, `adm_csf_device`,
+  `i4_adm_csf_device`, `adm_csf_den_*_device`,
+  `adm_cm_device`, `i4_adm_cm_device`,
+  `integer_compute_adm_cuda`) are `int`-returning to
+  carry errors upward. **On rebase**: keep the fork's macro
+  definitions and every cleanup-label pattern; upstream
+  still uses `assert(0)` as of 2026-04-24. If an upstream
+  port adds new `CHECK_CUDA(...)` sites, rewrite them to
+  the graceful variants inside the port commit. See
+  [ADR-0156](../../../docs/adr/0156-cuda-graceful-error-propagation-netflix-1420.md)
+  and [rebase-notes 0049](../../../docs/rebase-notes.md).
+
 ## Governing ADRs
 
 - [ADR-0022](../../../docs/adr/0022-inference-runtime-onnx.md) — CUDA execution provider mapping.

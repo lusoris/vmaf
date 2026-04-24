@@ -93,48 +93,69 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     VifStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA(cu_f, cuCtxPushCurrent(fex->cu_state->ctx));
-    CHECK_CUDA(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0));
-    CHECK_CUDA(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT));
-    CHECK_CUDA(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
+    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
+    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
     // make this static
     CUmodule filter1d_module;
-    CHECK_CUDA(cu_f, cuModuleLoadData(&filter1d_module, filter1d_ptx));
-    CHECK_CUDA(cu_f,
-               cuModuleGetFunction(&s->func_filter1d_8_vertical_kernel_uint32_t_17_9,
-                                   filter1d_module, "filter1d_8_vertical_kernel_uint32_t_17_9"));
-    CHECK_CUDA(cu_f, cuModuleGetFunction(&s->func_filter1d_8_horizontal_kernel_2_17_9,
-                                         filter1d_module, "filter1d_8_horizontal_kernel_2_17_9"));
-    CHECK_CUDA(cu_f,
-               cuModuleGetFunction(&s->func_filter1d_16_vertical_kernel_uint2_17_9_0,
-                                   filter1d_module, "filter1d_16_vertical_kernel_uint2_17_9_0"));
-    CHECK_CUDA(cu_f,
-               cuModuleGetFunction(&s->func_filter1d_16_vertical_kernel_uint2_9_5_1,
-                                   filter1d_module, "filter1d_16_vertical_kernel_uint2_9_5_1"));
-    CHECK_CUDA(cu_f,
-               cuModuleGetFunction(&s->func_filter1d_16_vertical_kernel_uint2_5_3_2,
-                                   filter1d_module, "filter1d_16_vertical_kernel_uint2_5_3_2"));
-    CHECK_CUDA(cu_f,
-               cuModuleGetFunction(&s->func_filter1d_16_vertical_kernel_uint2_3_0_3,
-                                   filter1d_module, "filter1d_16_vertical_kernel_uint2_3_0_3"));
-    CHECK_CUDA(cu_f,
-               cuModuleGetFunction(&s->func_filter1d_16_horizontal_kernel_2_17_9_0, filter1d_module,
-                                   "filter1d_16_horizontal_kernel_2_17_9_0"));
-    CHECK_CUDA(cu_f, cuModuleGetFunction(&s->func_filter1d_16_horizontal_kernel_2_9_5_1,
-                                         filter1d_module, "filter1d_16_horizontal_kernel_2_9_5_1"));
-    CHECK_CUDA(cu_f, cuModuleGetFunction(&s->func_filter1d_16_horizontal_kernel_2_5_3_2,
-                                         filter1d_module, "filter1d_16_horizontal_kernel_2_5_3_2"));
-    CHECK_CUDA(cu_f, cuModuleGetFunction(&s->func_filter1d_16_horizontal_kernel_2_3_0_3,
-                                         filter1d_module, "filter1d_16_horizontal_kernel_2_3_0_3"));
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&filter1d_module, filter1d_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_8_vertical_kernel_uint32_t_17_9,
+                                        filter1d_module,
+                                        "filter1d_8_vertical_kernel_uint32_t_17_9"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_8_horizontal_kernel_2_17_9,
+                                        filter1d_module, "filter1d_8_horizontal_kernel_2_17_9"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_16_vertical_kernel_uint2_17_9_0,
+                                        filter1d_module,
+                                        "filter1d_16_vertical_kernel_uint2_17_9_0"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_16_vertical_kernel_uint2_9_5_1,
+                                        filter1d_module, "filter1d_16_vertical_kernel_uint2_9_5_1"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_16_vertical_kernel_uint2_5_3_2,
+                                        filter1d_module, "filter1d_16_vertical_kernel_uint2_5_3_2"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_16_vertical_kernel_uint2_3_0_3,
+                                        filter1d_module, "filter1d_16_vertical_kernel_uint2_3_0_3"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_16_horizontal_kernel_2_17_9_0,
+                                        filter1d_module, "filter1d_16_horizontal_kernel_2_17_9_0"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_16_horizontal_kernel_2_9_5_1,
+                                        filter1d_module, "filter1d_16_horizontal_kernel_2_9_5_1"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_16_horizontal_kernel_2_5_3_2,
+                                        filter1d_module, "filter1d_16_horizontal_kernel_2_5_3_2"),
+                    fail);
+    CHECK_CUDA_GOTO(cu_f,
+                    cuModuleGetFunction(&s->func_filter1d_16_horizontal_kernel_2_3_0_3,
+                                        filter1d_module, "filter1d_16_horizontal_kernel_2_3_0_3"),
+                    fail);
 
-    CHECK_CUDA(cu_f, cuCtxPopCurrent(NULL));
+    CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
     (void)pix_fmt;
     const bool hbd = bpc > 8;
 
     int tex_alignment;
-    CHECK_CUDA(cu_f, cuDeviceGetAttribute(&tex_alignment, CU_DEVICE_ATTRIBUTE_TEXTURE_ALIGNMENT,
-                                          fex->cu_state->dev));
+    CHECK_CUDA_GOTO(cu_f,
+                    cuDeviceGetAttribute(&tex_alignment, CU_DEVICE_ATTRIBUTE_TEXTURE_ALIGNMENT,
+                                         fex->cu_state->dev),
+                    fail_after_pop);
     s->buf.stride = tex_alignment * (((w * (1 << (int)hbd) + tex_alignment - 1) / tex_alignment));
     {
         const int rd_w_bytes = ((w + 1) / 2) * sizeof(uint16_t);
@@ -169,6 +190,13 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     data += rd_size;
     s->buf.dis = data;
     data += rd_size;
+    // CUDA device pointers arrive as CUdeviceptr (unsigned long long) and must
+    // be cast to host-visible pointer types to carve the buffer into typed
+    // subregions the launch-time kernel-args struct references. The cast is
+    // inherent to the CUDA Driver API and cannot be refactored away without
+    // changing the public libvmaf-CUDA contract. Per ADR-0141 touched-file
+    // rule, upstream-parity exception.
+    // NOLINTBEGIN(performance-no-int-to-ptr)
     s->buf.mu1 = (uint16_t *)data;
     data += h * s->buf.stride_16;
     s->buf.mu2 = (uint16_t *)data;
@@ -206,6 +234,7 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         goto free_ref;
 
     s->buf.accum = (int64_t *)data_accum;
+    // NOLINTEND(performance-no-int-to-ptr)
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
@@ -225,38 +254,46 @@ free_ref:
     if (s->buf.accum_host) {
         ret |= vmaf_cuda_buffer_host_free(fex->cu_state, s->buf.accum_host);
     }
+    (void)ret; // accumulated cleanup status intentionally discarded on error path
 
     return -ENOMEM;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
-void filter1d_8(VifStateCuda *s, VifBufferCuda *buf, uint8_t *ref_in, uint8_t *dis_in, int w, int h,
-                double vif_enhn_gain_limit, CudaFunctions *cu_f, CUstream stream)
+int filter1d_8(VifStateCuda *s, VifBufferCuda *buf, uint8_t *ref_in, uint8_t *dis_in, int w, int h,
+               double vif_enhn_gain_limit, CudaFunctions *cu_f, CUstream stream)
 {
     {
 
         const int size_of_alignment_type = sizeof(uint32_t), BLOCKX = 128 / size_of_alignment_type,
                   BLOCKY = 128 / (VMAF_CUDA_CACHE_LINE_SIZE / size_of_alignment_type);
         void *args_vert[] = {&*buf, &ref_in, &dis_in, &w, &h, (uint16_t *)&vif_filter1d_table};
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_8_vertical_kernel_uint32_t_17_9,
-                                        DIV_ROUND_UP(w, BLOCKX * size_of_alignment_type),
-                                        DIV_ROUND_UP(h, BLOCKY), 1, BLOCKX, BLOCKY, 1, 0, stream,
-                                        args_vert, NULL));
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_filter1d_8_vertical_kernel_uint32_t_17_9,
+                                               DIV_ROUND_UP(w, BLOCKX * size_of_alignment_type),
+                                               DIV_ROUND_UP(h, BLOCKY), 1, BLOCKX, BLOCKY, 1, 0,
+                                               stream, args_vert, NULL));
     }
     {
         const int BLOCKX = 128, BLOCKY = 1, val_per_thread = 2;
 
         void *args_hori[] = {
             &*buf, &w, &h, (uint16_t *)&vif_filter1d_table, &vif_enhn_gain_limit, &buf->accum};
-        CHECK_CUDA(cu_f,
-                   cuLaunchKernel(s->func_filter1d_8_horizontal_kernel_2_17_9,
-                                  DIV_ROUND_UP(w, BLOCKX * val_per_thread), DIV_ROUND_UP(h, BLOCKY),
-                                  1, BLOCKX, BLOCKY, 1, 0, stream, args_hori, NULL));
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_filter1d_8_horizontal_kernel_2_17_9,
+                                               DIV_ROUND_UP(w, BLOCKX * val_per_thread),
+                                               DIV_ROUND_UP(h, BLOCKY), 1, BLOCKX, BLOCKY, 1, 0,
+                                               stream, args_hori, NULL));
     }
+    return 0;
 }
 
-void filter1d_16(VifStateCuda *s, VifBufferCuda *buf, uint16_t *ref_in, uint16_t *dis_in, int w,
-                 int h, int scale, int bpc, double vif_enhn_gain_limit, CudaFunctions *cu_f,
-                 CUstream stream)
+int filter1d_16(VifStateCuda *s, VifBufferCuda *buf, uint16_t *ref_in, uint16_t *dis_in, int w,
+                int h, int scale, int bpc, double vif_enhn_gain_limit, CudaFunctions *cu_f,
+                CUstream stream)
 {
 
     int32_t add_shift_round_HP, shift_HP;
@@ -309,42 +346,47 @@ void filter1d_16(VifStateCuda *s, VifBufferCuda *buf, uint16_t *ref_in, uint16_t
 
     switch (scale) {
     case 0: {
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_16_vertical_kernel_uint2_17_9_0,
-                                        GRID_VERT_X, GRID_VERT_Y, 1, BLOCK_VERT_X, BLOCK_VERT_Y, 1,
-                                        0, stream, args_vert, NULL));
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_filter1d_16_vertical_kernel_uint2_17_9_0,
+                                               GRID_VERT_X, GRID_VERT_Y, 1, BLOCK_VERT_X,
+                                               BLOCK_VERT_Y, 1, 0, stream, args_vert, NULL));
 
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_16_horizontal_kernel_2_17_9_0, GRID_HORI_X,
-                                        GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream, args_hori, NULL));
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_filter1d_16_horizontal_kernel_2_17_9_0,
+                                               GRID_HORI_X, GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream,
+                                               args_hori, NULL));
         break;
     }
     case 1: {
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_16_vertical_kernel_uint2_9_5_1,
-                                        GRID_VERT_X, GRID_VERT_Y, 1, BLOCK_VERT_X, BLOCK_VERT_Y, 1,
-                                        0, stream, args_vert, NULL));
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_filter1d_16_vertical_kernel_uint2_9_5_1,
+                                               GRID_VERT_X, GRID_VERT_Y, 1, BLOCK_VERT_X,
+                                               BLOCK_VERT_Y, 1, 0, stream, args_vert, NULL));
 
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_16_horizontal_kernel_2_9_5_1, GRID_HORI_X,
-                                        GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream, args_hori, NULL));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuLaunchKernel(s->func_filter1d_16_horizontal_kernel_2_9_5_1, GRID_HORI_X,
+                                         GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream, args_hori, NULL));
         break;
     }
     case 2: {
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_16_vertical_kernel_uint2_5_3_2,
-                                        GRID_VERT_X, GRID_VERT_Y, 1, BLOCK_VERT_X, BLOCK_VERT_Y, 1,
-                                        0, stream, args_vert, NULL));
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_filter1d_16_vertical_kernel_uint2_5_3_2,
+                                               GRID_VERT_X, GRID_VERT_Y, 1, BLOCK_VERT_X,
+                                               BLOCK_VERT_Y, 1, 0, stream, args_vert, NULL));
 
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_16_horizontal_kernel_2_5_3_2, GRID_HORI_X,
-                                        GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream, args_hori, NULL));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuLaunchKernel(s->func_filter1d_16_horizontal_kernel_2_5_3_2, GRID_HORI_X,
+                                         GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream, args_hori, NULL));
         break;
     }
     case 3: {
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_16_vertical_kernel_uint2_3_0_3,
-                                        GRID_VERT_X, GRID_VERT_Y, 1, BLOCK_VERT_X, BLOCK_VERT_Y, 1,
-                                        0, stream, args_vert, NULL));
+        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_filter1d_16_vertical_kernel_uint2_3_0_3,
+                                               GRID_VERT_X, GRID_VERT_Y, 1, BLOCK_VERT_X,
+                                               BLOCK_VERT_Y, 1, 0, stream, args_vert, NULL));
 
-        CHECK_CUDA(cu_f, cuLaunchKernel(s->func_filter1d_16_horizontal_kernel_2_3_0_3, GRID_HORI_X,
-                                        GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream, args_hori, NULL));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuLaunchKernel(s->func_filter1d_16_horizontal_kernel_2_3_0_3, GRID_HORI_X,
+                                         GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream, args_hori, NULL));
         break;
     }
     }
+    return 0;
 }
 
 typedef struct VifScore {
@@ -446,38 +488,48 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     int w = ref_pic->w[0];
     int h = dist_pic->h[0];
 
-    CHECK_CUDA(cu_f, cuMemsetD8Async(s->buf.accum_data->data, 0, sizeof(vif_accums) * 4, s->str));
-    CHECK_CUDA(cu_f, cuStreamWaitEvent(vmaf_cuda_picture_get_stream(ref_pic),
-                                       vmaf_cuda_picture_get_ready_event(dist_pic),
-                                       CU_EVENT_WAIT_DEFAULT));
+    CHECK_CUDA_RETURN(cu_f,
+                      cuMemsetD8Async(s->buf.accum_data->data, 0, sizeof(vif_accums) * 4, s->str));
+    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(vmaf_cuda_picture_get_stream(ref_pic),
+                                              vmaf_cuda_picture_get_ready_event(dist_pic),
+                                              CU_EVENT_WAIT_DEFAULT));
     for (unsigned scale = 0; scale < 4; ++scale) {
         if (scale > 0) {
             w /= 2;
             h /= 2;
         }
 
+        int err = 0;
         if (ref_pic->bpc == 8 && scale == 0) {
-            filter1d_8(s, &s->buf, (uint8_t *)ref_pic->data[0], (uint8_t *)dist_pic->data[0], w, h,
-                       s->vif_enhn_gain_limit, cu_f, vmaf_cuda_picture_get_stream(ref_pic));
+            err =
+                filter1d_8(s, &s->buf, (uint8_t *)ref_pic->data[0], (uint8_t *)dist_pic->data[0], w,
+                           h, s->vif_enhn_gain_limit, cu_f, vmaf_cuda_picture_get_stream(ref_pic));
         } else if (scale == 0) {
-            filter1d_16(s, &s->buf, (uint16_t *)ref_pic->data[0], (uint16_t *)dist_pic->data[0], w,
-                        h, scale, ref_pic->bpc, s->vif_enhn_gain_limit, cu_f,
-                        vmaf_cuda_picture_get_stream(ref_pic));
+            err = filter1d_16(s, &s->buf, (uint16_t *)ref_pic->data[0],
+                              (uint16_t *)dist_pic->data[0], w, h, scale, ref_pic->bpc,
+                              s->vif_enhn_gain_limit, cu_f, vmaf_cuda_picture_get_stream(ref_pic));
         } else {
-            filter1d_16(s, &s->buf, (uint16_t *)s->buf.ref, (uint16_t *)s->buf.dis, w, h, scale,
-                        ref_pic->bpc, s->vif_enhn_gain_limit, cu_f, s->str);
+            // s->buf.ref / s->buf.dis are CUdeviceptr (unsigned long long) carved
+            // from the master buffer in init; the filter1d_16 contract takes a
+            // typed uint16_t* view. Cast is inherent to the CUDA Driver API.
+            // Per ADR-0141 touched-file rule, upstream-parity exception.
+            // NOLINTNEXTLINE(performance-no-int-to-ptr)
+            err = filter1d_16(s, &s->buf, (uint16_t *)s->buf.ref, (uint16_t *)s->buf.dis, w, h,
+                              scale, ref_pic->bpc, s->vif_enhn_gain_limit, cu_f, s->str);
         }
+        if (err)
+            return err;
         if (scale == 0) {
             // This event ensures the input buffer is consumed
-            CHECK_CUDA(cu_f, cuEventRecord(s->event, vmaf_cuda_picture_get_stream(ref_pic)));
-            CHECK_CUDA(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
+            CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, vmaf_cuda_picture_get_stream(ref_pic)));
+            CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
         }
     }
 
     // Queue async download of accumulators
-    CHECK_CUDA(cu_f, cuMemcpyDtoHAsync(s->buf.accum_host, s->buf.accum_data->data,
-                                       sizeof(vif_accums) * 4, s->str));
-    CHECK_CUDA(cu_f, cuEventRecord(s->finished, s->str));
+    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->buf.accum_host, s->buf.accum_data->data,
+                                              sizeof(vif_accums) * 4, s->str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
     return 0;
 }
 
@@ -487,7 +539,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
     VifStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA(cu_f, cuStreamSynchronize(s->str));
+    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
 
     // Results are now in accum_host — compute and write scores
     write_score_parameters_vif data = {
@@ -501,12 +553,18 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     VifStateCuda *s = fex->priv;
-    CHECK_CUDA(fex->cu_state->f, cuStreamSynchronize(s->str));
-    CHECK_CUDA(fex->cu_state->f, cuStreamDestroy(s->str));
-    CHECK_CUDA(fex->cu_state->f, cuEventDestroy(s->event));
-    CHECK_CUDA(fex->cu_state->f, cuEventDestroy(s->finished));
+    /* Close path continues unwinding on CUDA error. */
+    int _cuda_err = 0;
+    CHECK_CUDA_GOTO(fex->cu_state->f, cuStreamSynchronize(s->str), after_sync);
+after_sync:
+    CHECK_CUDA_GOTO(fex->cu_state->f, cuStreamDestroy(s->str), after_stream);
+after_stream:
+    CHECK_CUDA_GOTO(fex->cu_state->f, cuEventDestroy(s->event), after_ev1);
+after_ev1:
+    CHECK_CUDA_GOTO(fex->cu_state->f, cuEventDestroy(s->finished), after_ev2);
+after_ev2:;
 
-    int ret = 0;
+    int ret = _cuda_err;
     if (s->buf.data) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->buf.data);
         free(s->buf.data);
@@ -527,7 +585,7 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
     (void)feature_collector;
     VifStateCuda *s = fex->priv;
 
-    CHECK_CUDA(fex->cu_state->f, cuStreamSynchronize(s->str));
+    CHECK_CUDA_RETURN(fex->cu_state->f, cuStreamSynchronize(s->str));
     return 1;
 }
 

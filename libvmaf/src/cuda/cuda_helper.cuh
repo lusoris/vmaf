@@ -29,6 +29,7 @@
 
 #include "assert.h"
 #include "stdio.h"
+#include <errno.h>
 #ifdef DEVICE_CODE
 #include <cuda.h>
 #else
@@ -39,14 +40,76 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-#define CHECK_CUDA(funcs, CALL)                                                                    \
+/*
+ * Netflix#1420 — CUDA error handling must return a clean errno rather
+ * than abort()-ing the process. The legacy CHECK_CUDA macro that fired
+ * assert(0) on any CUresult != CUDA_SUCCESS turned a recoverable
+ * cuMemAlloc OOM (e.g. two concurrent VMAF-CUDA processes competing for
+ * GPU memory) into a hard SIGABRT on the second caller. The two macros
+ * below replace it across the fork's CUDA sources:
+ *
+ *   CHECK_CUDA_GOTO(funcs, CALL, label) — use when the enclosing
+ *     function has pushed a CUDA context, allocated a CUDA buffer, or
+ *     otherwise established cleanup state that must unwind before the
+ *     function returns. Callers declare `int _cuda_err = 0;` once per
+ *     function and put the unwind sequence under `label:`, then return
+ *     `_cuda_err`.
+ *
+ *   CHECK_CUDA_RETURN(funcs, CALL) — use when no cleanup is pending
+ *     (no pushed context, no allocations). Returns the mapped errno
+ *     directly from the enclosing function.
+ *
+ * Both macros log the failure to stderr with file/line/CUDA error
+ * string before returning. See ADR addressing Netflix#1420 for the
+ * design rationale.
+ */
+
+/* Map CUresult → negative errno used across libvmaf. Takes int (not
+ * CUresult) so host .c files that don't transitively include cuda.h can
+ * still consume the mapping via a thin wrapper if ever needed.
+ */
+static inline int vmaf_cuda_result_to_errno(int cu_err_code)
+{
+    switch (cu_err_code) {
+    case 0: /* CUDA_SUCCESS */
+        return 0;
+    case 2: /* CUDA_ERROR_OUT_OF_MEMORY */
+        return -ENOMEM;
+    case 3: /* CUDA_ERROR_NOT_INITIALIZED */
+    case 4: /* CUDA_ERROR_DEINITIALIZED */
+        return -ENODEV;
+    case 1:   /* CUDA_ERROR_INVALID_VALUE */
+    case 101: /* CUDA_ERROR_INVALID_DEVICE */
+    case 201: /* CUDA_ERROR_INVALID_CONTEXT */
+    case 400: /* CUDA_ERROR_INVALID_HANDLE */
+        return -EINVAL;
+    default:
+        return -EIO;
+    }
+}
+
+#define CHECK_CUDA_GOTO(funcs, CALL, label)                                                        \
     do {                                                                                           \
-        const CUresult cu_err = funcs->CALL;                                                       \
-        if (CUDA_SUCCESS != cu_err) {                                                              \
-            const char *err_txt;                                                                   \
-            funcs->cuGetErrorName(cu_err, &err_txt);                                               \
-            printf("code: %d; description: %s\n", (int)cu_err, err_txt);                           \
-            assert(0);                                                                             \
+        const CUresult _cu_res = (funcs)->CALL;                                                    \
+        if (CUDA_SUCCESS != _cu_res) {                                                             \
+            const char *_err_txt = "?";                                                            \
+            (funcs)->cuGetErrorName(_cu_res, &_err_txt);                                           \
+            fprintf(stderr, "CUDA error at %s:%d: %s (%d) in %s\n", __FILE__, __LINE__, _err_txt,  \
+                    (int)_cu_res, #CALL);                                                          \
+            _cuda_err = vmaf_cuda_result_to_errno((int)_cu_res);                                   \
+            goto label;                                                                            \
+        }                                                                                          \
+    } while (0)
+
+#define CHECK_CUDA_RETURN(funcs, CALL)                                                             \
+    do {                                                                                           \
+        const CUresult _cu_res = (funcs)->CALL;                                                    \
+        if (CUDA_SUCCESS != _cu_res) {                                                             \
+            const char *_err_txt = "?";                                                            \
+            (funcs)->cuGetErrorName(_cu_res, &_err_txt);                                           \
+            fprintf(stderr, "CUDA error at %s:%d: %s (%d) in %s\n", __FILE__, __LINE__, _err_txt,  \
+                    (int)_cu_res, #CALL);                                                          \
+            return vmaf_cuda_result_to_errno((int)_cu_res);                                        \
         }                                                                                          \
     } while (0)
 

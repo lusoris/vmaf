@@ -77,11 +77,28 @@ jobs:
           # Collect the delta for both PR and push events so master-post-merge
           # doesn't re-scan every vendored .c/.cpp (e.g. libvmaf/src/svm.cpp)
           # and surface pre-existing warnings unrelated to the push.
+          #
+          # Excluded path families — the shared reason is that the compile
+          # commands in `build/compile_commands.json` don't cover these TUs
+          # (CPU-only + ARM-only build here), so clang-tidy parses them with
+          # default flags and spurious `clang-diagnostic-error` output:
+          #   - libvmaf/src/feature/arm64/ — NEON, needs cross-toolchain.
+          #   - libvmaf/src/cuda/ + libvmaf/src/feature/cuda/ — require
+          #     `-Denable_cuda=true` meson setup to generate compile_commands
+          #     (follow-up: add a parallel CUDA clang-tidy job once a
+          #     self-hosted CUDA runner lands, backlog T7-3).
+          #   - libvmaf/test/test_cuda_*.c — GPU-gated tests whose build
+          #     entries only exist under the CUDA build.
+          # Local lint on these files runs against `libvmaf/build-cuda/`.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             files=$(git diff --name-only \
               origin/${{ github.base_ref }}...HEAD \
               -- '*.c' '*.h' '*.cpp' '*.hpp' \
-              | grep -v '^libvmaf/src/feature/arm64/' | tr '\n' ' ')
+              | grep -v '^libvmaf/src/feature/arm64/' \
+              | grep -v '^libvmaf/src/cuda/' \
+              | grep -v '^libvmaf/src/feature/cuda/' \
+              | grep -v '^libvmaf/test/test_cuda_' \
+              | tr '\n' ' ')
           elif [ "${{ github.event_name }}" = "push" ]; then
             before="${{ github.event.before }}"
             zero="0000000000000000000000000000000000000000"
@@ -91,20 +108,33 @@ jobs:
               if git rev-parse HEAD~1 >/dev/null 2>&1; then
                 files=$(git diff --name-only HEAD~1..HEAD \
                   -- '*.c' '*.h' '*.cpp' '*.hpp' \
-                  | grep -v '^libvmaf/src/feature/arm64/' | tr '\n' ' ')
+                  | grep -v '^libvmaf/src/feature/arm64/' \
+              | grep -v '^libvmaf/src/cuda/' \
+              | grep -v '^libvmaf/src/feature/cuda/' \
+              | grep -v '^libvmaf/test/test_cuda_' \
+              | tr '\n' ' ')
               else
                 files=""
               fi
             else
               files=$(git diff --name-only "$before"..HEAD \
                 -- '*.c' '*.h' '*.cpp' '*.hpp' \
-                | grep -v '^libvmaf/src/feature/arm64/' | tr '\n' ' ')
+                | grep -v '^libvmaf/src/feature/arm64/' \
+              | grep -v '^libvmaf/src/cuda/' \
+              | grep -v '^libvmaf/src/feature/cuda/' \
+              | grep -v '^libvmaf/test/test_cuda_' \
+              | tr '\n' ' ')
             fi
           else
             # workflow_dispatch and other triggers: scan full tree (slow
             # but deliberate — operator asked for it).
             files=$(git ls-files '*.c' '*.h' '*.cpp' '*.hpp' \
-              | grep -v '^subprojects/' | grep -v '^libvmaf/src/feature/arm64/' | tr '\n' ' ')
+              | grep -v '^subprojects/' \
+              | grep -v '^libvmaf/src/feature/arm64/' \
+              | grep -v '^libvmaf/src/cuda/' \
+              | grep -v '^libvmaf/src/feature/cuda/' \
+              | grep -v '^libvmaf/test/test_cuda_' \
+              | tr '\n' ' ')
           fi
           [ -z "$files" ] && { echo "no C/C++ changes"; exit 0; }
           # Drop empty lines — the `tr '\n' ' ' | tr ' ' '\n'` round-trip
