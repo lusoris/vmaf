@@ -535,3 +535,201 @@ void ssimulacra2_blur_plane_neon(const float rg_n2[3], const float rg_d1[3], int
     }
     vblur_simd_4cols_neon(rg_n2, rg_d1, rg_radius, col_state, scratch, out, w, h);
 }
+
+/* YUV → linear RGB (ADR-0163). 4-wide aarch64 NEON mirror of the AVX2 port. */
+
+static inline float read_plane_scalar_s2_neon(const simd_plane_t *p, unsigned lw, unsigned lh,
+                                              int x, int y, unsigned bpc)
+{
+    const unsigned pw = p->w;
+    const unsigned ph = p->h;
+    int sx;
+    int sy;
+    if (pw == lw) {
+        sx = x;
+    } else if (pw * 2 == lw) {
+        sx = x >> 1;
+    } else {
+        sx = (int)((int64_t)x * (int64_t)pw / (int64_t)lw);
+    }
+    if (ph == lh) {
+        sy = y;
+    } else if (ph * 2 == lh) {
+        sy = y >> 1;
+    } else {
+        sy = (int)((int64_t)y * (int64_t)ph / (int64_t)lh);
+    }
+    if (sx < 0)
+        sx = 0;
+    if (sy < 0)
+        sy = 0;
+    if ((unsigned)sx >= pw)
+        sx = (int)pw - 1;
+    if ((unsigned)sy >= ph)
+        sy = (int)ph - 1;
+    if (bpc > 8) {
+        const uint16_t *row = (const uint16_t *)((const uint8_t *)p->data + (size_t)sy * p->stride);
+        return (float)row[sx];
+    }
+    const uint8_t *row = (const uint8_t *)p->data + (size_t)sy * p->stride;
+    return (float)row[sx];
+}
+
+static inline float32x4_t srgb_to_linear_lane_neon(float32x4_t v)
+{
+    alignas(16) float tmp[4];
+    vst1q_f32(tmp, v);
+    for (int k = 0; k < 4; k++) {
+        const float x = tmp[k];
+        if (x <= 0.04045f) {
+            tmp[k] = x / 12.92f;
+        } else {
+            tmp[k] = powf((x + 0.055f) / 1.055f, 2.4f);
+        }
+    }
+    return vld1q_f32(tmp);
+}
+
+static inline void compute_matrix_coefs_neon(int yuv_matrix, float *kr_out, float *kg_out,
+                                             float *kb_out, int *limited_out)
+{
+    switch (yuv_matrix) {
+    case 2:
+        *limited_out = 0;
+        *kr_out = 0.2126f;
+        *kg_out = 0.7152f;
+        *kb_out = 0.0722f;
+        break;
+    case 0:
+        *limited_out = 1;
+        *kr_out = 0.2126f;
+        *kg_out = 0.7152f;
+        *kb_out = 0.0722f;
+        break;
+    case 3:
+        *limited_out = 0;
+        *kr_out = 0.299f;
+        *kg_out = 0.587f;
+        *kb_out = 0.114f;
+        break;
+    case 1:
+    default:
+        *limited_out = 1;
+        *kr_out = 0.299f;
+        *kg_out = 0.587f;
+        *kb_out = 0.114f;
+        break;
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+void ssimulacra2_picture_to_linear_rgb_neon(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
+                                            const simd_plane_t planes[3], float *out)
+{
+    assert(planes != NULL);
+    assert(out != NULL);
+    assert(w > 0 && h > 0);
+
+    const size_t plane_sz = (size_t)w * (size_t)h;
+    float *rp = out;
+    float *gp = out + plane_sz;
+    float *bp = out + 2 * plane_sz;
+
+    const float peak = (float)((1u << bpc) - 1u);
+    const float inv_peak = 1.0f / peak;
+
+    float kr, kg, kb;
+    int limited;
+    compute_matrix_coefs_neon(yuv_matrix, &kr, &kg, &kb, &limited);
+
+    const float cr_r = 2.0f * (1.0f - kr);
+    const float cb_b = 2.0f * (1.0f - kb);
+    const float cb_g = -(2.0f * kb * (1.0f - kb)) / kg;
+    const float cr_g = -(2.0f * kr * (1.0f - kr)) / kg;
+    const float y_scale = limited ? (255.0f / 219.0f) : 1.0f;
+    const float c_scale = limited ? (255.0f / 224.0f) : 1.0f;
+    const float y_off = limited ? (16.0f / 255.0f) : 0.0f;
+    const float c_off = 0.5f;
+
+    const float32x4_t vinv_peak = vdupq_n_f32(inv_peak);
+    const float32x4_t vy_scale = vdupq_n_f32(y_scale);
+    const float32x4_t vc_scale = vdupq_n_f32(c_scale);
+    const float32x4_t vy_off = vdupq_n_f32(y_off);
+    const float32x4_t vc_off = vdupq_n_f32(c_off);
+    const float32x4_t vcr_r = vdupq_n_f32(cr_r);
+    const float32x4_t vcb_b = vdupq_n_f32(cb_b);
+    const float32x4_t vcb_g = vdupq_n_f32(cb_g);
+    const float32x4_t vcr_g = vdupq_n_f32(cr_g);
+    const float32x4_t vzero = vdupq_n_f32(0.0f);
+    const float32x4_t vone = vdupq_n_f32(1.0f);
+
+    alignas(16) float y_tmp[4];
+    alignas(16) float u_tmp[4];
+    alignas(16) float v_tmp[4];
+
+    for (unsigned y = 0; y < h; y++) {
+        unsigned x = 0;
+        for (; x + 4 <= w; x += 4) {
+            for (int i = 0; i < 4; i++) {
+                y_tmp[i] = read_plane_scalar_s2_neon(&planes[0], w, h, (int)(x + (unsigned)i),
+                                                     (int)y, bpc);
+                u_tmp[i] = read_plane_scalar_s2_neon(&planes[1], w, h, (int)(x + (unsigned)i),
+                                                     (int)y, bpc);
+                v_tmp[i] = read_plane_scalar_s2_neon(&planes[2], w, h, (int)(x + (unsigned)i),
+                                                     (int)y, bpc);
+            }
+            const float32x4_t Y = vmulq_f32(vld1q_f32(y_tmp), vinv_peak);
+            const float32x4_t U = vmulq_f32(vld1q_f32(u_tmp), vinv_peak);
+            const float32x4_t V = vmulq_f32(vld1q_f32(v_tmp), vinv_peak);
+            const float32x4_t Yn = vmulq_f32(vsubq_f32(Y, vy_off), vy_scale);
+            const float32x4_t Un = vmulq_f32(vsubq_f32(U, vc_off), vc_scale);
+            const float32x4_t Vn = vmulq_f32(vsubq_f32(V, vc_off), vc_scale);
+            float32x4_t R = vaddq_f32(Yn, vmulq_f32(vcr_r, Vn));
+            float32x4_t G = vaddq_f32(Yn, vmulq_f32(vcb_g, Un));
+            G = vaddq_f32(G, vmulq_f32(vcr_g, Vn));
+            float32x4_t B = vaddq_f32(Yn, vmulq_f32(vcb_b, Un));
+            R = vmaxq_f32(vminq_f32(R, vone), vzero);
+            G = vmaxq_f32(vminq_f32(G, vone), vzero);
+            B = vmaxq_f32(vminq_f32(B, vone), vzero);
+            R = srgb_to_linear_lane_neon(R);
+            G = srgb_to_linear_lane_neon(G);
+            B = srgb_to_linear_lane_neon(B);
+            vst1q_f32(rp + (size_t)y * w + x, R);
+            vst1q_f32(gp + (size_t)y * w + x, G);
+            vst1q_f32(bp + (size_t)y * w + x, B);
+        }
+        for (; x < w; x++) {
+            const float Ys =
+                read_plane_scalar_s2_neon(&planes[0], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float Us =
+                read_plane_scalar_s2_neon(&planes[1], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float Vs =
+                read_plane_scalar_s2_neon(&planes[2], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float Yn = (Ys - y_off) * y_scale;
+            const float Un = (Us - c_off) * c_scale;
+            const float Vn = (Vs - c_off) * c_scale;
+            float R = Yn + cr_r * Vn;
+            float G = Yn + cb_g * Un + cr_g * Vn;
+            float B = Yn + cb_b * Un;
+            if (R < 0.0f)
+                R = 0.0f;
+            if (R > 1.0f)
+                R = 1.0f;
+            if (G < 0.0f)
+                G = 0.0f;
+            if (G > 1.0f)
+                G = 1.0f;
+            if (B < 0.0f)
+                B = 0.0f;
+            if (B > 1.0f)
+                B = 1.0f;
+            const float Rl = (R <= 0.04045f) ? (R / 12.92f) : powf((R + 0.055f) / 1.055f, 2.4f);
+            const float Gl = (G <= 0.04045f) ? (G / 12.92f) : powf((G + 0.055f) / 1.055f, 2.4f);
+            const float Bl = (B <= 0.04045f) ? (B / 12.92f) : powf((B + 0.055f) / 1.055f, 2.4f);
+            const size_t idx = (size_t)y * w + x;
+            rp[idx] = Rl;
+            gp[idx] = Gl;
+            bp[idx] = Bl;
+        }
+    }
+}

@@ -22,6 +22,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "feature/ssimulacra2_simd_common.h"
+
 /*
  * AVX2 variants of the SSIMULACRA 2 pointwise, reduction, and
  * separable-IIR kernels. Each function produces byte-for-byte
@@ -55,6 +57,20 @@ void ssimulacra2_ssim_map_avx2(const float *m1, const float *m2, const float *s1
 void ssimulacra2_edge_diff_map_avx2(const float *img1, const float *mu1, const float *img2,
                                     const float *mu2, unsigned w, unsigned h,
                                     double plane_averages[12]);
+
+/*
+ * YUV → linear RGB conversion (ADR-0163). Combines BT.709/BT.601
+ * matrix multiplication with the sRGB EOTF. Bit-exact to scalar
+ * `picture_to_linear_rgb` under FLT_EVAL_METHOD == 0.
+ *
+ * `yuv_matrix` is the enum value (0=BT.709 limited, 1=BT.601 limited,
+ * 2=BT.709 full, 3=BT.601 full). `bpc` is bits per component (8–16).
+ * `planes[0..2]` describe the Y, U, V planes (any chroma subsampling);
+ * per-lane scalar fallback handles non-1:1 / non-2:1 chroma ratios.
+ * `out` is `3 * w * h` floats, R|G|B planar.
+ */
+void ssimulacra2_picture_to_linear_rgb_avx2(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
+                                            const simd_plane_t planes[3], float *out);
 
 /*
  * Two-pass separable FastGaussian IIR blur (libjxl reference).

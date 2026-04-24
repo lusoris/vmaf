@@ -22,6 +22,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "feature/ssimulacra2_simd_common.h"
+
 /*
  * AVX-512 variants of the SSIMULACRA 2 SIMD kernels. Same bit-exact
  * contract as the AVX2 TU (ADR-0161) — 16-wide float lanes instead of
@@ -39,6 +41,12 @@ void ssimulacra2_ssim_map_avx512(const float *m1, const float *m2, const float *
 void ssimulacra2_edge_diff_map_avx512(const float *img1, const float *mu1, const float *img2,
                                       const float *mu2, unsigned w, unsigned h,
                                       double plane_averages[12]);
+
+/* YUV → linear RGB (ADR-0163). 16-wide AVX-512 port of
+ * `ssimulacra2_picture_to_linear_rgb_avx2`. See the AVX2 header for the
+ * full contract. */
+void ssimulacra2_picture_to_linear_rgb_avx512(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
+                                              const simd_plane_t planes[3], float *out);
 
 /* Two-pass FastGaussian IIR blur. See ADR-0162 and ssimulacra2_avx2.h for
  * the full contract. 16-wide AVX-512 port. */

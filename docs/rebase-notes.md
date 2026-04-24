@@ -2289,6 +2289,67 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0055 — SSIMULACRA 2 `picture_to_linear_rgb` SIMD (ADR-0163)
+
+- **ADR**: [ADR-0163](adr/0163-ssimulacra2-ptlr-simd.md)
+- **Upstream source**: fork-local. Netflix/vmaf has no SSIMULACRA 2.
+- **Touches**:
+  - [ssimulacra2_avx2.{c,h}](../libvmaf/src/feature/x86/ssimulacra2_avx2.c)
+    — new `ssimulacra2_picture_to_linear_rgb_avx2` + helpers
+    (`read_plane_scalar_s2`, `srgb_to_linear_lane_avx2`,
+    `compute_matrix_coefs`).
+  - [ssimulacra2_avx512.{c,h}](../libvmaf/src/feature/x86/ssimulacra2_avx512.c)
+    — 16-wide AVX-512 port.
+  - [ssimulacra2_neon.{c,h}](../libvmaf/src/feature/arm64/ssimulacra2_neon.c)
+    — 4-wide aarch64 port.
+  - [ssimulacra2.c](../libvmaf/src/feature/ssimulacra2.c) — new
+    `ptlr_fn` field in `Ssimu2State`; dispatch wrapper
+    `convert_picture_to_linear_rgb` unpacks `VmafPicture` into
+    `simd_plane_t[3]`; init assigns AVX2/AVX-512/NEON pointers.
+  - [ssimulacra2_simd_common.h](../libvmaf/src/feature/ssimulacra2_simd_common.h)
+    — new shared header declaring `simd_plane_t`. Decouples SIMD
+    TUs from `VmafPicture` type.
+  - [test_ssimulacra2_simd.c](../libvmaf/test/test_ssimulacra2_simd.c)
+    — new `test_ptlr_420_8`, `test_ptlr_420_10`, `test_ptlr_444_8`,
+    `test_ptlr_444_10`, `test_ptlr_422_8` subtests + scalar
+    references `ref_read_plane`, `ref_srgb_to_linear`,
+    `ref_picture_to_linear_rgb`.
+- **Invariants** (load-bearing):
+  1. **Scalar-order matmul** — `G = Yn + cb_g * Un + cr_g * Vn`
+     chained left-to-right in all three SIMD TUs. Regression test
+     catches reordering drift (~1 ulp).
+  2. **Per-lane scalar `powf`** — vector polynomial approximation
+     would drift scalar bit-exactness. Do not replace the lane
+     spill/reload pattern with a vector libm.
+  3. **`simd_plane_t` layout** — `{data, stride, w, h}` ordering
+     assumed by all three SIMD TUs. The dispatch wrapper builds
+     this from `VmafPicture` fields; layout must match.
+  4. **Bounds clamping in `read_plane_scalar_*`** mirrors scalar
+     reference verbatim (`if (sx < 0) sx = 0; if (sx >= pw) sx =
+     pw-1;` etc.). Do not simplify — removes per-lane safety at
+     plane edges.
+  5. **Arbitrary chroma ratios** fall through to the `int64_t`
+     multiplication branch. Don't remove it — SSIMULACRA 2 is
+     supposed to accept non-standard ratios gracefully.
+- **On upstream sync**: no upstream interaction. If Netflix adopts
+  SSIMULACRA 2 in the future and provides a SIMD YUV→RGB path,
+  diff against the fork's — preserve the bit-exactness contract
+  unless ADR-0142 Netflix-authority carve-out opens.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C build && build/test/test_ssimulacra2_simd     # 11/11
+  ninja -C build-aarch64 && \
+    qemu-aarch64-static -L /usr/aarch64-linux-gnu/ \
+      build-aarch64/test/test_ssimulacra2_simd            # 11/11
+  ```
+
+- **Follow-ups**:
+  - T3-3 SSIMULACRA 2 snapshot-JSON regression test — still
+    pending (gated on `tools/ssimulacra2` availability).
+  - SSIMULACRA 2 now has **zero scalar hot paths**. T3-1 closes in
+    full with phases 1+2+3 (ADR-0161, 0162, 0163).
+
 ### 0054 — SSIMULACRA 2 FastGaussian IIR blur SIMD (ADR-0162)
 
 - **ADR**: [ADR-0162](adr/0162-ssimulacra2-iir-blur-simd.md)

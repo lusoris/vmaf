@@ -47,6 +47,7 @@
 
 #include "feature_collector.h"
 #include "feature_extractor.h"
+#include "feature/ssimulacra2_simd_common.h"
 #include "mem.h"
 
 #if ARCH_X86 || ARCH_AARCH64
@@ -276,6 +277,9 @@ typedef struct Ssimu2State {
      * blur_plane + fast_gaussian_1d with one SIMD entry point (ADR-0162). */
     void (*blur_fn)(const float rg_n2[3], const float rg_d1[3], int rg_radius, float *col_state,
                     const float *in, float *out, float *scratch, unsigned w, unsigned h);
+    /* SIMD YUV → linear RGB (ADR-0163). NULL => scalar fallback. */
+    void (*ptlr_fn)(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
+                    const simd_plane_t planes[3], float *out);
 } Ssimu2State;
 
 /*
@@ -874,6 +878,7 @@ static void init_simd_dispatch(Ssimu2State *s)
     s->ssim_fn = ssim_map;
     s->edge_fn = edge_diff_map;
     s->blur_fn = NULL;
+    s->ptlr_fn = NULL;
 
 #if ARCH_X86 || ARCH_AARCH64
     const unsigned flags = vmaf_get_cpu_flags();
@@ -886,6 +891,7 @@ static void init_simd_dispatch(Ssimu2State *s)
         s->ssim_fn = ssimulacra2_ssim_map_avx2;
         s->edge_fn = ssimulacra2_edge_diff_map_avx2;
         s->blur_fn = ssimulacra2_blur_plane_avx2;
+        s->ptlr_fn = ssimulacra2_picture_to_linear_rgb_avx2;
     }
 #if HAVE_AVX512
     if (flags & VMAF_X86_CPU_FLAG_AVX512) {
@@ -895,6 +901,7 @@ static void init_simd_dispatch(Ssimu2State *s)
         s->ssim_fn = ssimulacra2_ssim_map_avx512;
         s->edge_fn = ssimulacra2_edge_diff_map_avx512;
         s->blur_fn = ssimulacra2_blur_plane_avx512;
+        s->ptlr_fn = ssimulacra2_picture_to_linear_rgb_avx512;
     }
 #endif
 #endif
@@ -906,6 +913,7 @@ static void init_simd_dispatch(Ssimu2State *s)
         s->ssim_fn = ssimulacra2_ssim_map_neon;
         s->edge_fn = ssimulacra2_edge_diff_map_neon;
         s->blur_fn = ssimulacra2_blur_plane_neon;
+        s->ptlr_fn = ssimulacra2_picture_to_linear_rgb_neon;
     }
 #endif
 }
@@ -950,6 +958,23 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     return 0;
 }
 
+/* Dispatch YUV → linear RGB through the SIMD function pointer when set,
+ * otherwise fall back to the scalar `picture_to_linear_rgb`. Kept as a
+ * helper so `extract` stays under the ADR-0141 function-size threshold. */
+static void convert_picture_to_linear_rgb(const Ssimu2State *s, const VmafPicture *pic, float *out)
+{
+    if (s->ptlr_fn) {
+        const simd_plane_t planes[3] = {
+            {pic->data[0], (ptrdiff_t)pic->stride[0], pic->w[0], pic->h[0]},
+            {pic->data[1], (ptrdiff_t)pic->stride[1], pic->w[1], pic->h[1]},
+            {pic->data[2], (ptrdiff_t)pic->stride[2], pic->w[2], pic->h[2]},
+        };
+        s->ptlr_fn(s->yuv_matrix, s->bpc, s->w, s->h, planes, out);
+    } else {
+        picture_to_linear_rgb(s, pic, out);
+    }
+}
+
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
@@ -959,8 +984,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     Ssimu2State *s = fex->priv;
 
     /* Stage 1: YUV → linear RGB for both frames (full resolution). */
-    picture_to_linear_rgb(s, ref_pic, s->ref_lin);
-    picture_to_linear_rgb(s, dist_pic, s->dist_lin);
+    convert_picture_to_linear_rgb(s, ref_pic, s->ref_lin);
+    convert_picture_to_linear_rgb(s, dist_pic, s->dist_lin);
 
     /* Multi-scale loop. Per-scale working buffers are reused; the
      * linear-RGB buffers are down-sampled in-place between scales. */

@@ -620,3 +620,231 @@ void ssimulacra2_blur_plane_avx2(const float rg_n2[3], const float rg_d1[3], int
     /* Vertical pass: 8-column SIMD with scalar tail. */
     vblur_simd_8cols_avx2(rg_n2, rg_d1, rg_radius, col_state, scratch, out, w, h);
 }
+
+/*
+ * YUV → linear RGB SIMD port (ADR-0163).
+ *
+ * Strategy: per-lane scalar `read_plane`-equivalent reads (handles
+ * all chroma subsampling ratios + 8/16-bit uniformly), SIMD matmul
+ * + normalise + clamp, per-lane scalar `srgb_to_linear` (branch +
+ * libm `powf` — bit-exact to scalar reference).
+ *
+ * The scalar-read-per-lane pattern mirrors the ADR-0161 `cbrtf_lane`
+ * approach: SIMD arithmetic is the win; the libm transcendental
+ * and the pixel-format dispatch stay scalar to preserve
+ * bit-exactness and handle arbitrary chroma ratios.
+ */
+
+/* Scalar pixel read with bounds clamping — mirror of scalar read_plane. */
+static inline float read_plane_scalar_s2(const simd_plane_t *p, unsigned lw, unsigned lh, int x,
+                                         int y, unsigned bpc)
+{
+    const unsigned pw = p->w;
+    const unsigned ph = p->h;
+    int sx;
+    int sy;
+    if (pw == lw) {
+        sx = x;
+    } else if (pw * 2 == lw) {
+        sx = x >> 1;
+    } else {
+        sx = (int)((int64_t)x * (int64_t)pw / (int64_t)lw);
+    }
+    if (ph == lh) {
+        sy = y;
+    } else if (ph * 2 == lh) {
+        sy = y >> 1;
+    } else {
+        sy = (int)((int64_t)y * (int64_t)ph / (int64_t)lh);
+    }
+    if (sx < 0)
+        sx = 0;
+    if (sy < 0)
+        sy = 0;
+    if ((unsigned)sx >= pw)
+        sx = (int)pw - 1;
+    if ((unsigned)sy >= ph)
+        sy = (int)ph - 1;
+
+    if (bpc > 8) {
+        const uint16_t *row = (const uint16_t *)((const uint8_t *)p->data + (size_t)sy * p->stride);
+        return (float)row[sx];
+    }
+    const uint8_t *row = (const uint8_t *)p->data + (size_t)sy * p->stride;
+    return (float)row[sx];
+}
+
+/* Per-lane scalar sRGB EOTF. Branch + `powf` per lane; bit-exact to
+ * the scalar reference's `srgb_to_linear`. */
+static inline __m256 srgb_to_linear_lane_avx2(__m256 v)
+{
+    alignas(32) float tmp[8];
+    _mm256_store_ps(tmp, v);
+    for (int k = 0; k < 8; k++) {
+        const float x = tmp[k];
+        if (x <= 0.04045f) {
+            tmp[k] = x / 12.92f;
+        } else {
+            tmp[k] = powf((x + 0.055f) / 1.055f, 2.4f);
+        }
+    }
+    return _mm256_load_ps(tmp);
+}
+
+/* Extract YUV→RGB matrix coefficients for a given enum value. The
+ * scalar reference uses the same formula; we materialise the
+ * derived coefficients here so SIMD callers avoid the scalar
+ * switch inside the hot loop. */
+static inline void compute_matrix_coefs(int yuv_matrix, float *kr_out, float *kg_out, float *kb_out,
+                                        int *limited_out)
+{
+    switch (yuv_matrix) {
+    case 2: /* BT709_FULL */
+        *limited_out = 0;
+        *kr_out = 0.2126f;
+        *kg_out = 0.7152f;
+        *kb_out = 0.0722f;
+        break;
+    case 0: /* BT709_LIMITED */
+        *limited_out = 1;
+        *kr_out = 0.2126f;
+        *kg_out = 0.7152f;
+        *kb_out = 0.0722f;
+        break;
+    case 3: /* BT601_FULL */
+        *limited_out = 0;
+        *kr_out = 0.299f;
+        *kg_out = 0.587f;
+        *kb_out = 0.114f;
+        break;
+    case 1: /* BT601_LIMITED */
+    default:
+        *limited_out = 1;
+        *kr_out = 0.299f;
+        *kg_out = 0.587f;
+        *kb_out = 0.114f;
+        break;
+    }
+}
+
+/* ADR-0141 carve-out: the main loop ties scalar pixel reads + SIMD
+ * matmul + per-lane scalar sRGB EOTF together for the line-for-line
+ * scalar diff. Splitting would force per-iteration spills. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+void ssimulacra2_picture_to_linear_rgb_avx2(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
+                                            const simd_plane_t planes[3], float *out)
+{
+    assert(planes != NULL);
+    assert(out != NULL);
+    assert(w > 0 && h > 0);
+
+    const size_t plane_sz = (size_t)w * (size_t)h;
+    float *rp = out;
+    float *gp = out + plane_sz;
+    float *bp = out + 2 * plane_sz;
+
+    const float peak = (float)((1u << bpc) - 1u);
+    const float inv_peak = 1.0f / peak;
+
+    float kr, kg, kb;
+    int limited;
+    compute_matrix_coefs(yuv_matrix, &kr, &kg, &kb, &limited);
+
+    /* Derived coefficients mirror the scalar reference. */
+    const float cr_r = 2.0f * (1.0f - kr);
+    const float cb_b = 2.0f * (1.0f - kb);
+    const float cb_g = -(2.0f * kb * (1.0f - kb)) / kg;
+    const float cr_g = -(2.0f * kr * (1.0f - kr)) / kg;
+
+    const float y_scale = limited ? (255.0f / 219.0f) : 1.0f;
+    const float c_scale = limited ? (255.0f / 224.0f) : 1.0f;
+    const float y_off = limited ? (16.0f / 255.0f) : 0.0f;
+    const float c_off = 0.5f;
+
+    const __m256 vinv_peak = _mm256_set1_ps(inv_peak);
+    const __m256 vy_scale = _mm256_set1_ps(y_scale);
+    const __m256 vc_scale = _mm256_set1_ps(c_scale);
+    const __m256 vy_off = _mm256_set1_ps(y_off);
+    const __m256 vc_off = _mm256_set1_ps(c_off);
+    const __m256 vcr_r = _mm256_set1_ps(cr_r);
+    const __m256 vcb_b = _mm256_set1_ps(cb_b);
+    const __m256 vcb_g = _mm256_set1_ps(cb_g);
+    const __m256 vcr_g = _mm256_set1_ps(cr_g);
+    const __m256 vzero = _mm256_setzero_ps();
+    const __m256 vone = _mm256_set1_ps(1.0f);
+
+    alignas(32) float y_tmp[8];
+    alignas(32) float u_tmp[8];
+    alignas(32) float v_tmp[8];
+
+    for (unsigned y = 0; y < h; y++) {
+        unsigned x = 0;
+        for (; x + 8 <= w; x += 8) {
+            for (int i = 0; i < 8; i++) {
+                y_tmp[i] =
+                    read_plane_scalar_s2(&planes[0], w, h, (int)(x + (unsigned)i), (int)y, bpc);
+                u_tmp[i] =
+                    read_plane_scalar_s2(&planes[1], w, h, (int)(x + (unsigned)i), (int)y, bpc);
+                v_tmp[i] =
+                    read_plane_scalar_s2(&planes[2], w, h, (int)(x + (unsigned)i), (int)y, bpc);
+            }
+            const __m256 Y = _mm256_mul_ps(_mm256_load_ps(y_tmp), vinv_peak);
+            const __m256 U = _mm256_mul_ps(_mm256_load_ps(u_tmp), vinv_peak);
+            const __m256 V = _mm256_mul_ps(_mm256_load_ps(v_tmp), vinv_peak);
+
+            const __m256 Yn = _mm256_mul_ps(_mm256_sub_ps(Y, vy_off), vy_scale);
+            const __m256 Un = _mm256_mul_ps(_mm256_sub_ps(U, vc_off), vc_scale);
+            const __m256 Vn = _mm256_mul_ps(_mm256_sub_ps(V, vc_off), vc_scale);
+
+            /* Scalar-order matmul: R = Yn + cr_r*Vn; G = Yn + cb_g*Un + cr_g*Vn;
+             * B = Yn + cb_b*Un. Preserve left-to-right associativity. */
+            __m256 R = _mm256_add_ps(Yn, _mm256_mul_ps(vcr_r, Vn));
+            __m256 G = _mm256_add_ps(Yn, _mm256_mul_ps(vcb_g, Un));
+            G = _mm256_add_ps(G, _mm256_mul_ps(vcr_g, Vn));
+            __m256 B = _mm256_add_ps(Yn, _mm256_mul_ps(vcb_b, Un));
+
+            R = _mm256_max_ps(_mm256_min_ps(R, vone), vzero);
+            G = _mm256_max_ps(_mm256_min_ps(G, vone), vzero);
+            B = _mm256_max_ps(_mm256_min_ps(B, vone), vzero);
+
+            R = srgb_to_linear_lane_avx2(R);
+            G = srgb_to_linear_lane_avx2(G);
+            B = srgb_to_linear_lane_avx2(B);
+
+            _mm256_storeu_ps(rp + (size_t)y * w + x, R);
+            _mm256_storeu_ps(gp + (size_t)y * w + x, G);
+            _mm256_storeu_ps(bp + (size_t)y * w + x, B);
+        }
+        /* Scalar tail — identical to scalar reference body. */
+        for (; x < w; x++) {
+            const float Ys = read_plane_scalar_s2(&planes[0], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float Us = read_plane_scalar_s2(&planes[1], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float Vs = read_plane_scalar_s2(&planes[2], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float Yn = (Ys - y_off) * y_scale;
+            const float Un = (Us - c_off) * c_scale;
+            const float Vn = (Vs - c_off) * c_scale;
+            float R = Yn + cr_r * Vn;
+            float G = Yn + cb_g * Un + cr_g * Vn;
+            float B = Yn + cb_b * Un;
+            if (R < 0.0f)
+                R = 0.0f;
+            if (R > 1.0f)
+                R = 1.0f;
+            if (G < 0.0f)
+                G = 0.0f;
+            if (G > 1.0f)
+                G = 1.0f;
+            if (B < 0.0f)
+                B = 0.0f;
+            if (B > 1.0f)
+                B = 1.0f;
+            const float Rl = (R <= 0.04045f) ? (R / 12.92f) : powf((R + 0.055f) / 1.055f, 2.4f);
+            const float Gl = (G <= 0.04045f) ? (G / 12.92f) : powf((G + 0.055f) / 1.055f, 2.4f);
+            const float Bl = (B <= 0.04045f) ? (B / 12.92f) : powf((B + 0.055f) / 1.055f, 2.4f);
+            const size_t idx = (size_t)y * w + x;
+            rp[idx] = Rl;
+            gp[idx] = Gl;
+            bp[idx] = Bl;
+        }
+    }
+}

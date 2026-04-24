@@ -22,6 +22,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "feature/ssimulacra2_simd_common.h"
+
 /*
  * aarch64 NEON variants of the SSIMULACRA 2 SIMD kernels. Same
  * bit-exact contract as the AVX2 / AVX-512 TUs (ADR-0161) — 4-wide
@@ -38,6 +40,12 @@ void ssimulacra2_ssim_map_neon(const float *m1, const float *m2, const float *s1
 void ssimulacra2_edge_diff_map_neon(const float *img1, const float *mu1, const float *img2,
                                     const float *mu2, unsigned w, unsigned h,
                                     double plane_averages[12]);
+
+/* YUV → linear RGB (ADR-0163). 4-wide aarch64 NEON port of
+ * `ssimulacra2_picture_to_linear_rgb_avx2`. See AVX2 header for
+ * the full contract. */
+void ssimulacra2_picture_to_linear_rgb_neon(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
+                                            const simd_plane_t planes[3], float *out);
 
 /* Two-pass FastGaussian IIR blur (ADR-0162). 4-wide aarch64 NEON port.
  * Horizontal pass batches 4 rows in parallel with per-row gather via 4x

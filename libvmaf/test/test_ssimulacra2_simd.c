@@ -36,6 +36,8 @@
 #include "config.h"
 #include "test.h"
 
+#include "feature/ssimulacra2_simd_common.h"
+
 #if ARCH_X86
 #include "feature/x86/ssimulacra2_avx2.h"
 #if HAVE_AVX512
@@ -608,6 +610,238 @@ static char *test_blur(void)
     return NULL;
 }
 
+/* Scalar reference: sRGB EOTF — verbatim copy of extractor's inline helper. */
+static inline float ref_srgb_to_linear(float v)
+{
+    if (v <= 0.04045f)
+        return v / 12.92f;
+    return powf((v + 0.055f) / 1.055f, 2.4f);
+}
+
+/* Scalar reference: read_plane — handles all chroma ratios + 8/16-bit. */
+static inline float ref_read_plane(const simd_plane_t *p, unsigned lw, unsigned lh, int x, int y,
+                                   unsigned bpc)
+{
+    const unsigned pw = p->w;
+    const unsigned ph = p->h;
+    int sx;
+    int sy;
+    if (pw == lw) {
+        sx = x;
+    } else if (pw * 2 == lw) {
+        sx = x >> 1;
+    } else {
+        sx = (int)((int64_t)x * (int64_t)pw / (int64_t)lw);
+    }
+    if (ph == lh) {
+        sy = y;
+    } else if (ph * 2 == lh) {
+        sy = y >> 1;
+    } else {
+        sy = (int)((int64_t)y * (int64_t)ph / (int64_t)lh);
+    }
+    if (sx < 0)
+        sx = 0;
+    if (sy < 0)
+        sy = 0;
+    if ((unsigned)sx >= pw)
+        sx = (int)pw - 1;
+    if ((unsigned)sy >= ph)
+        sy = (int)ph - 1;
+    if (bpc > 8) {
+        const uint16_t *row = (const uint16_t *)((const uint8_t *)p->data + (size_t)sy * p->stride);
+        return (float)row[sx];
+    }
+    const uint8_t *row = (const uint8_t *)p->data + (size_t)sy * p->stride;
+    return (float)row[sx];
+}
+
+/* Scalar reference: picture_to_linear_rgb. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static void ref_picture_to_linear_rgb(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
+                                      const simd_plane_t planes[3], float *out)
+{
+    const size_t plane_sz = (size_t)w * (size_t)h;
+    float *rp = out;
+    float *gp = out + plane_sz;
+    float *bp = out + 2 * plane_sz;
+    const float peak = (float)((1u << bpc) - 1u);
+    const float inv_peak = 1.0f / peak;
+    float kr;
+    float kg;
+    float kb;
+    int limited = 1;
+    switch (yuv_matrix) {
+    case 2:
+        limited = 0; /* fall through */
+        /* fall through */
+    case 0:
+        kr = 0.2126f;
+        kg = 0.7152f;
+        kb = 0.0722f;
+        break;
+    case 3:
+        limited = 0;
+        kr = 0.299f;
+        kg = 0.587f;
+        kb = 0.114f;
+        break;
+    case 1:
+    default:
+        kr = 0.299f;
+        kg = 0.587f;
+        kb = 0.114f;
+        break;
+    }
+    const float cr_r = 2.0f * (1.0f - kr);
+    const float cb_b = 2.0f * (1.0f - kb);
+    const float cb_g = -(2.0f * kb * (1.0f - kb)) / kg;
+    const float cr_g = -(2.0f * kr * (1.0f - kr)) / kg;
+    const float y_scale = limited ? (255.0f / 219.0f) : 1.0f;
+    const float c_scale = limited ? (255.0f / 224.0f) : 1.0f;
+    const float y_off = limited ? (16.0f / 255.0f) : 0.0f;
+    const float c_off = 0.5f;
+    for (unsigned y = 0; y < h; y++) {
+        for (unsigned x = 0; x < w; x++) {
+            const float Y = ref_read_plane(&planes[0], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float U = ref_read_plane(&planes[1], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float V = ref_read_plane(&planes[2], w, h, (int)x, (int)y, bpc) * inv_peak;
+            const float Yn = (Y - y_off) * y_scale;
+            const float Un = (U - c_off) * c_scale;
+            const float Vn = (V - c_off) * c_scale;
+            float R = Yn + cr_r * Vn;
+            float G = Yn + cb_g * Un + cr_g * Vn;
+            float B = Yn + cb_b * Un;
+            if (R < 0.0f)
+                R = 0.0f;
+            if (R > 1.0f)
+                R = 1.0f;
+            if (G < 0.0f)
+                G = 0.0f;
+            if (G > 1.0f)
+                G = 1.0f;
+            if (B < 0.0f)
+                B = 0.0f;
+            if (B > 1.0f)
+                B = 1.0f;
+            const size_t idx = (size_t)y * w + x;
+            rp[idx] = ref_srgb_to_linear(R);
+            gp[idx] = ref_srgb_to_linear(G);
+            bp[idx] = ref_srgb_to_linear(B);
+        }
+    }
+}
+
+typedef void (*ptlr_fn_t)(int, unsigned, unsigned, unsigned, const simd_plane_t[3], float *);
+
+static ptlr_fn_t pick_ptlr(void)
+{
+#if ARCH_X86
+    const unsigned flags = vmaf_get_cpu_flags_x86();
+#if HAVE_AVX512
+    if (flags & VMAF_X86_CPU_FLAG_AVX512)
+        return ssimulacra2_picture_to_linear_rgb_avx512;
+#endif
+    if (flags & VMAF_X86_CPU_FLAG_AVX2)
+        return ssimulacra2_picture_to_linear_rgb_avx2;
+#endif
+#if ARCH_AARCH64
+    return ssimulacra2_picture_to_linear_rgb_neon;
+#endif
+    return NULL;
+}
+
+/* Test all 6 common (yuv_matrix × subsampling) combinations on small frames. */
+static char *test_ptlr_one(int yuv_matrix, unsigned bpc, unsigned uw_div, unsigned uh_div)
+{
+    ptlr_fn_t fn = pick_ptlr();
+    if (!fn)
+        return NULL;
+    const unsigned LW = 24;
+    const unsigned LH = 16;
+    const unsigned UW = LW / uw_div;
+    const unsigned UH = LH / uh_div;
+    const size_t y_sz = (size_t)LW * LH;
+    const size_t c_sz = (size_t)UW * UH;
+    const size_t elem = (bpc > 8) ? sizeof(uint16_t) : sizeof(uint8_t);
+    void *y_buf = calloc(y_sz, elem);
+    void *u_buf = calloc(c_sz, elem);
+    void *v_buf = calloc(c_sz, elem);
+    /* Fill with pseudo-random 8/16-bit pixel values. */
+    uint32_t s = 0xabadcafeu ^ (uint32_t)(yuv_matrix * 7 + bpc * 13 + uw_div * 5 + uh_div);
+    const unsigned maxv = (1u << bpc) - 1u;
+    for (size_t i = 0; i < y_sz; i++) {
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        const unsigned v = s % (maxv + 1);
+        if (bpc > 8)
+            ((uint16_t *)y_buf)[i] = (uint16_t)v;
+        else
+            ((uint8_t *)y_buf)[i] = (uint8_t)v;
+    }
+    for (size_t i = 0; i < c_sz; i++) {
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        const unsigned v = s % (maxv + 1);
+        if (bpc > 8)
+            ((uint16_t *)u_buf)[i] = (uint16_t)v;
+        else
+            ((uint8_t *)u_buf)[i] = (uint8_t)v;
+    }
+    for (size_t i = 0; i < c_sz; i++) {
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        const unsigned v = s % (maxv + 1);
+        if (bpc > 8)
+            ((uint16_t *)v_buf)[i] = (uint16_t)v;
+        else
+            ((uint8_t *)v_buf)[i] = (uint8_t)v;
+    }
+    const simd_plane_t planes[3] = {
+        {y_buf, (ptrdiff_t)LW * (ptrdiff_t)elem, LW, LH},
+        {u_buf, (ptrdiff_t)UW * (ptrdiff_t)elem, UW, UH},
+        {v_buf, (ptrdiff_t)UW * (ptrdiff_t)elem, UW, UH},
+    };
+    const size_t out_sz = 3u * y_sz;
+    float *out_ref = malloc(out_sz * sizeof(float));
+    float *out_simd = malloc(out_sz * sizeof(float));
+    ref_picture_to_linear_rgb(yuv_matrix, bpc, LW, LH, planes, out_ref);
+    fn(yuv_matrix, bpc, LW, LH, planes, out_simd);
+    // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c) ADR-0163 byte-exact
+    const int match = memcmp(out_ref, out_simd, out_sz * sizeof(float)) == 0;
+    free(y_buf);
+    free(u_buf);
+    free(v_buf);
+    free(out_ref);
+    free(out_simd);
+    mu_assert("picture_to_linear_rgb SIMD not bit-identical to scalar", match);
+    return NULL;
+}
+
+static char *test_ptlr_420_8(void)
+{
+    return test_ptlr_one(0, 8, 2, 2);
+}
+static char *test_ptlr_420_10(void)
+{
+    return test_ptlr_one(0, 10, 2, 2);
+}
+static char *test_ptlr_444_8(void)
+{
+    return test_ptlr_one(1, 8, 1, 1);
+}
+static char *test_ptlr_444_10(void)
+{
+    return test_ptlr_one(3, 10, 1, 1);
+}
+static char *test_ptlr_422_8(void)
+{
+    return test_ptlr_one(2, 8, 2, 1);
+}
+
 char *run_tests(void)
 {
 #if ARCH_X86 || ARCH_AARCH64
@@ -617,6 +851,11 @@ char *run_tests(void)
     mu_run_test(test_ssim);
     mu_run_test(test_edge);
     mu_run_test(test_blur);
+    mu_run_test(test_ptlr_420_8);
+    mu_run_test(test_ptlr_420_10);
+    mu_run_test(test_ptlr_444_8);
+    mu_run_test(test_ptlr_444_10);
+    mu_run_test(test_ptlr_422_8);
 #else
     (void)fprintf(stderr, "skipping: arch without ssimulacra2 SIMD\n");
 #endif
