@@ -234,6 +234,21 @@ static inline float dwt_quant_step(const struct dwt_model_params *params, int la
     return Q;
 }
 
+// The 19 ADM_CM_THRESH_* / I4_ADM_CM_THRESH_* / ADM_CM_ACCUM_ROUND /
+// I4_ADM_CM_ACCUM_ROUND macros below are upstream-verbatim from Netflix
+// 966be8d5 (libvmaf/src/feature/integer_adm.c). They intentionally reference
+// their arguments without defensive parentheses to match the upstream
+// bit-exact kernel shape, and they perform int-width multiplications
+// (src_stride * (h - 2), (src_stride * (i - 1)), etc.) inside pointer-offset
+// expressions — both patterns are bit-exactness invariants gated by the
+// Netflix golden-data assertions (ADR-0024, project hard rule #1).
+// Restructuring the macro bodies (adding parens around every arg use, or
+// casting the stride multiplications to ptrdiff_t) would diverge from
+// upstream and complicate future /sync-upstream merges without changing
+// the emitted arithmetic. Scoped suppression block below per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTBEGIN(bugprone-macro-parentheses,bugprone-implicit-widening-of-multiplication-result)
+
 // i = 0, j = 0: indices y: 1,0,1, x: 1,0,1  for Fixed-point
 #define ADM_CM_THRESH_S_0_0(angles, flt_angles, src_stride, accum, w, h, i, j)                     \
     {                                                                                              \
@@ -717,13 +732,22 @@ static inline float dwt_quant_step(const struct dwt_model_params *params, int la
         val = (((int64_t)x_sq * x) + add_shift_cub) >> shift_cub;                                  \
         accum_inner += val;                                                                        \
     }
+// NOLINTEND(bugprone-macro-parentheses,bugprone-implicit-widening-of-multiplication-result)
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static void dwt2_src_indices_filt(int **src_ind_y, int **src_ind_x, int w, int h)
 {
-    int ind0, ind1, ind2, ind3;
+    int ind0;
+    int ind1;
+    int ind2;
+    int ind3;
     const unsigned h_half = (h + 1) / 2;
     const unsigned w_half = (w + 1) / 2;
-    unsigned i, j;
+    unsigned i;
+    unsigned j;
     /* Vertical pass */
     { /* i : 0 */
         src_ind_y[0][0] = 1;
@@ -808,8 +832,17 @@ static void dwt2_src_indices_filt(int **src_ind_y, int **src_ind_x, int w, int h
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 
+// adm_div_lookup kept non-const to match the function-pointer signature in
+// AdmState and the AVX2/AVX-512/NEON SIMD dispatch signatures (see
+// libvmaf/src/feature/x86/adm_avx2.c:adm_decouple_avx2 and friends).
+// Constifying here would force a cross-file signature change across every
+// SIMD backend, diverging from Netflix upstream 966be8d5. The body is
+// upstream-verbatim; refactoring the angle-between-vectors inner loop
+// would diverge from upstream (ADR-0141 upstream-parity exception).
+// NOLINTBEGIN(readability-non-const-parameter,readability-function-size)
 static void adm_decouple(AdmBuffer *buf, int w, int h, int stride, double adm_enhn_gain_limit,
                          int32_t *adm_div_lookup)
+// NOLINTEND(readability-non-const-parameter,readability-function-size)
 {
     const float cos_1deg_sq = cos(1.0 * M_PI / 180.0) * cos(1.0 * M_PI / 180.0);
 
@@ -836,7 +869,9 @@ static void adm_decouple(AdmBuffer *buf, int w, int h, int stride, double adm_en
         bottom = h;
     }
 
-    int64_t ot_dp, o_mag_sq, t_mag_sq;
+    int64_t ot_dp;
+    int64_t o_mag_sq;
+    int64_t t_mag_sq;
 
     for (int i = top; i < bottom; ++i) {
         for (int j = left; j < right; ++j) {
@@ -846,7 +881,9 @@ static void adm_decouple(AdmBuffer *buf, int w, int h, int stride, double adm_en
             int16_t th = dis->band_h[i * stride + j];
             int16_t tv = dis->band_v[i * stride + j];
             int16_t td = dis->band_d[i * stride + j];
-            int16_t rst_h, rst_v, rst_d;
+            int16_t rst_h;
+            int16_t rst_v;
+            int16_t rst_d;
 
             /* Determine if angle between (oh,ov) and (th,tv) is less than 1 degree.
              * Given that u is the angle (oh,ov) and v is the angle (th,tv), this can
@@ -944,8 +981,14 @@ static inline uint16_t get_best15_from32(uint32_t temp, int *x)
     return temp;
 }
 
+// See adm_decouple above: SIMD-parity signature keeps adm_div_lookup
+// non-const to match AdmState function-pointer type and
+// adm_decouple_s123_avx2/avx512 in libvmaf/src/feature/x86/. Body is
+// upstream-verbatim from Netflix 966be8d5; refactoring would diverge.
+// NOLINTBEGIN(readability-non-const-parameter,readability-function-size)
 static void adm_decouple_s123(AdmBuffer *buf, int w, int h, int stride, double adm_enhn_gain_limit,
                               int32_t *adm_div_lookup)
+// NOLINTEND(readability-non-const-parameter,readability-function-size)
 {
     const float cos_1deg_sq = cos(1.0 * M_PI / 180.0) * cos(1.0 * M_PI / 180.0);
 
@@ -973,7 +1016,9 @@ static void adm_decouple_s123(AdmBuffer *buf, int w, int h, int stride, double a
         bottom = h;
     }
 
-    int64_t ot_dp, o_mag_sq, t_mag_sq;
+    int64_t ot_dp;
+    int64_t o_mag_sq;
+    int64_t t_mag_sq;
 
     for (int i = top; i < bottom; ++i) {
         for (int j = left; j < right; ++j) {
@@ -983,7 +1028,9 @@ static void adm_decouple_s123(AdmBuffer *buf, int w, int h, int stride, double a
             int32_t th = dis->band_h[i * stride + j];
             int32_t tv = dis->band_v[i * stride + j];
             int32_t td = dis->band_d[i * stride + j];
-            int32_t rst_h, rst_v, rst_d;
+            int32_t rst_h;
+            int32_t rst_v;
+            int32_t rst_d;
 
             /* Determine if angle between (oh,ov) and (th,tv) is less than 1 degree.
              * Given that u is the angle (oh,ov) and v is the angle (th,tv), this can
@@ -1101,6 +1148,10 @@ static void adm_decouple_s123(AdmBuffer *buf, int w, int h, int stride, double a
     }
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static void adm_csf(AdmBuffer *buf, int w, int h, int stride, double adm_norm_view_dist,
                     int adm_ref_display_height, int adm_csf_mode, double adm_csf_scale,
                     double adm_csf_diag_scale, bool measure_aim)
@@ -1126,7 +1177,8 @@ static void adm_csf(AdmBuffer *buf, int w, int h, int stride, double adm_norm_vi
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
     // 0 is scale zero passed to dwt_quant_step
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(0, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -1221,6 +1273,10 @@ static void adm_csf(AdmBuffer *buf, int w, int h, int stride, double adm_norm_vi
     }
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static void i4_adm_csf(AdmBuffer *buf, int scale, int w, int h, int stride,
                        double adm_norm_view_dist, int adm_ref_display_height, int adm_csf_mode,
                        double adm_csf_scale, double adm_csf_diag_scale, bool measure_aim)
@@ -1245,7 +1301,8 @@ static void i4_adm_csf(AdmBuffer *buf, int scale, int w, int h, int stride,
 
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -1274,7 +1331,8 @@ static void i4_adm_csf(AdmBuffer *buf, int scale, int w, int h, int stride,
     const uint32_t FIX_ONE_BY_30 = 143165577;
     const uint32_t shift_dst[3] = {28, 28, 28};
     const uint32_t shift_flt[3] = {32, 32, 32};
-    int32_t add_bef_shift_dst[3], add_bef_shift_flt[3];
+    int32_t add_bef_shift_dst[3];
+    int32_t add_bef_shift_flt[3];
 
     /* Netflix#955 / ADR-0155: `1u << 31` is `0x80000000`, which wraps
      * to `-2147483648` on assignment into `int32_t add_bef_shift_flt[]`.
@@ -1333,6 +1391,10 @@ static void i4_adm_csf(AdmBuffer *buf, int scale, int w, int h, int stride,
     }
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static float adm_csf_den_scale(const adm_dwt_band_t *src, int w, int h, int src_stride,
                                double adm_norm_view_dist, int adm_ref_display_height,
                                int adm_csf_mode, double adm_csf_scale, double adm_csf_diag_scale,
@@ -1340,7 +1402,8 @@ static float adm_csf_den_scale(const adm_dwt_band_t *src, int w, int h, int src_
 {
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(0, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -1360,7 +1423,9 @@ static float adm_csf_den_scale(const adm_dwt_band_t *src, int w, int h, int src_
     }
     const float rfactor[3] = {factor1, factor1, factor2};
 
-    uint64_t accum_h = 0, accum_v = 0, accum_d = 0;
+    uint64_t accum_h = 0;
+    uint64_t accum_v = 0;
+    uint64_t accum_d = 0;
 
     /* The computation of the denominator scales is not required for the regions
      * which lie outside the frame borders
@@ -1379,9 +1444,9 @@ static float adm_csf_den_scale(const adm_dwt_band_t *src, int w, int h, int src_
      * Because d+ = (a[i]^3)*(r^3)
      * is equivalent to d+=a[i]^3 and d=d*(r^3)
      */
-    int16_t *src_h = src->band_h + top * src_stride;
-    int16_t *src_v = src->band_v + top * src_stride;
-    int16_t *src_d = src->band_d + top * src_stride;
+    int16_t *src_h = src->band_h + (ptrdiff_t)top * src_stride;
+    int16_t *src_v = src->band_v + (ptrdiff_t)top * src_stride;
+    int16_t *src_d = src->band_d + (ptrdiff_t)top * src_stride;
     for (int i = top; i < bottom; ++i) {
         uint64_t accum_inner_h = 0;
         uint64_t accum_inner_v = 0;
@@ -1437,6 +1502,10 @@ static float adm_csf_den_scale(const adm_dwt_band_t *src, int w, int h, int src_
     return (den_scale_h + den_scale_v + den_scale_d);
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static float adm_csf_den_s123(const i4_adm_dwt_band_t *src, int scale, int w, int h, int src_stride,
                               double adm_norm_view_dist, int adm_ref_display_height,
                               int adm_csf_mode, double adm_csf_scale, double adm_csf_diag_scale,
@@ -1444,7 +1513,8 @@ static float adm_csf_den_s123(const i4_adm_dwt_band_t *src, int scale, int w, in
 {
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -1464,7 +1534,9 @@ static float adm_csf_den_s123(const i4_adm_dwt_band_t *src, int scale, int w, in
     }
     const float rfactor[3] = {factor1, factor1, factor2};
 
-    uint64_t accum_h = 0, accum_v = 0, accum_d = 0;
+    uint64_t accum_h = 0;
+    uint64_t accum_v = 0;
+    uint64_t accum_d = 0;
     const uint32_t shift_sq[3] = {31, 30, 31};
     const uint32_t accum_convert_float[3] = {32, 27, 23};
     const uint32_t add_shift_sq[3] = {1u << shift_sq[0], 1u << shift_sq[1], 1u << shift_sq[2]};
@@ -1482,9 +1554,9 @@ static float adm_csf_den_s123(const i4_adm_dwt_band_t *src, int scale, int w, in
     uint32_t shift_accum = (uint32_t)ceil(log2(bottom - top));
     uint32_t add_shift_accum = (uint32_t)pow(2, (shift_accum - 1));
 
-    int32_t *src_h = src->band_h + top * src_stride;
-    int32_t *src_v = src->band_v + top * src_stride;
-    int32_t *src_d = src->band_d + top * src_stride;
+    int32_t *src_h = src->band_h + (ptrdiff_t)top * src_stride;
+    int32_t *src_v = src->band_v + (ptrdiff_t)top * src_stride;
+    int32_t *src_d = src->band_d + (ptrdiff_t)top * src_stride;
     for (int i = top; i < bottom; ++i) {
         uint64_t accum_inner_h = 0;
         uint64_t accum_inner_v = 0;
@@ -1543,6 +1615,10 @@ static float adm_csf_den_s123(const i4_adm_dwt_band_t *src, int scale, int w, in
     return (den_scale_h + den_scale_v + den_scale_d);
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static float adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stride,
                     double adm_norm_view_dist, int adm_ref_display_height, int adm_csf_mode,
                     double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
@@ -1565,7 +1641,8 @@ static float adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stri
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
     // 0 is scale zero passed to dwt_quant_step
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(0, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -1645,12 +1722,22 @@ static float adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stri
     const int start_row = (top > 1) ? top : 1;
     const int end_row = (bottom < (h - 1)) ? bottom : (h - 1);
 
-    int i, j;
+    int i;
+    int j;
     int64_t val;
-    int32_t xh, xv, xd, thr;
-    int32_t xh_sq, xv_sq, xd_sq;
-    int64_t accum_h = 0, accum_v = 0, accum_d = 0;
-    int64_t accum_inner_h = 0, accum_inner_v = 0, accum_inner_d = 0;
+    int32_t xh;
+    int32_t xv;
+    int32_t xd;
+    int32_t thr;
+    int32_t xh_sq;
+    int32_t xv_sq;
+    int32_t xd_sq;
+    int64_t accum_h = 0;
+    int64_t accum_v = 0;
+    int64_t accum_d = 0;
+    int64_t accum_inner_h = 0;
+    int64_t accum_inner_v = 0;
+    int64_t accum_inner_d = 0;
 
     /* i=0,j=0 */
     if ((top <= 0) && (left <= 0)) {
@@ -1747,9 +1834,9 @@ static float adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stri
             accum_inner_d = 0;
 
             /* j = 0 */
-            xh = src->band_h[i * src_stride] * i_rfactor[0];
-            xv = src->band_v[i * src_stride] * i_rfactor[1];
-            xd = src->band_d[i * src_stride] * i_rfactor[2];
+            xh = src->band_h[(ptrdiff_t)i * src_stride] * i_rfactor[0];
+            xv = src->band_v[(ptrdiff_t)i * src_stride] * i_rfactor[1];
+            xd = src->band_d[(ptrdiff_t)i * src_stride] * i_rfactor[2];
             ADM_CM_THRESH_S_I_0(angles, flt_angles, csf_a_stride, &thr, w, h, i, 0);
 
             ADM_CM_ACCUM_ROUND(xh, thr, shift_xhsub, xh_sq, add_shift_xhsq, shift_xhsq, val,
@@ -1822,9 +1909,9 @@ static float adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stri
             accum_inner_d = 0;
 
             /* j = 0 */
-            xh = src->band_h[i * src_stride] * i_rfactor[0];
-            xv = src->band_v[i * src_stride] * i_rfactor[1];
-            xd = src->band_d[i * src_stride] * i_rfactor[2];
+            xh = src->band_h[(ptrdiff_t)i * src_stride] * i_rfactor[0];
+            xv = src->band_v[(ptrdiff_t)i * src_stride] * i_rfactor[1];
+            xd = src->band_d[(ptrdiff_t)i * src_stride] * i_rfactor[2];
             ADM_CM_THRESH_S_I_0(angles, flt_angles, csf_a_stride, &thr, w, h, i, 0);
 
             ADM_CM_ACCUM_ROUND(xh, thr, shift_xhsub, xh_sq, add_shift_xhsq, shift_xhsq, val,
@@ -1872,9 +1959,9 @@ static float adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stri
 
     /* i=h-1,j=0 */
     if ((bottom > (h - 1)) && (left <= 0)) {
-        xh = src->band_h[(h - 1) * src_stride] * i_rfactor[0];
-        xv = src->band_v[(h - 1) * src_stride] * i_rfactor[1];
-        xd = src->band_d[(h - 1) * src_stride] * i_rfactor[2];
+        xh = src->band_h[(ptrdiff_t)(h - 1) * src_stride] * i_rfactor[0];
+        xv = src->band_v[(ptrdiff_t)(h - 1) * src_stride] * i_rfactor[1];
+        xd = src->band_d[(ptrdiff_t)(h - 1) * src_stride] * i_rfactor[2];
         ADM_CM_THRESH_S_H_M_1_0(angles, flt_angles, csf_a_stride, &thr, w, h, (h - 1), 0);
 
         ADM_CM_ACCUM_ROUND(xh, thr, shift_xhsub, xh_sq, add_shift_xhsq, shift_xhsq, val,
@@ -1951,6 +2038,10 @@ static float adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stri
     return (num_scale_h + num_scale_v + num_scale_d);
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stride, int scale,
                        double adm_norm_view_dist, int adm_ref_display_height, int adm_csf_mode,
                        double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
@@ -1971,7 +2062,8 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
 
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -1997,7 +2089,8 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
 
     const uint32_t shift_dst[3] = {28, 28, 28};
     const uint32_t shift_flt[3] = {32, 32, 32};
-    int32_t add_bef_shift_dst[3], add_bef_shift_flt[3];
+    int32_t add_bef_shift_dst[3];
+    int32_t add_bef_shift_flt[3];
 
     /* Netflix#955 / ADR-0155: second occurrence of the same overflow —
      * see note at the earlier `add_bef_shift_flt[]` initialiser loop.
@@ -2036,12 +2129,22 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
     const int start_row = (top > 1) ? top : 1;
     const int end_row = (bottom < (h - 1)) ? bottom : (h - 1);
 
-    int i, j;
-    int32_t xh, xv, xd, thr;
-    int32_t xh_sq, xv_sq, xd_sq;
+    int i;
+    int j;
+    int32_t xh;
+    int32_t xv;
+    int32_t xd;
+    int32_t thr;
+    int32_t xh_sq;
+    int32_t xv_sq;
+    int32_t xd_sq;
     int64_t val;
-    int64_t accum_h = 0, accum_v = 0, accum_d = 0;
-    int64_t accum_inner_h = 0, accum_inner_v = 0, accum_inner_d = 0;
+    int64_t accum_h = 0;
+    int64_t accum_v = 0;
+    int64_t accum_d = 0;
+    int64_t accum_inner_h = 0;
+    int64_t accum_inner_v = 0;
+    int64_t accum_inner_d = 0;
     /* i=0,j=0 */
     if ((top <= 0) && (left <= 0)) {
         xh = (int32_t)((((int64_t)src->band_h[0] * rfactor[0]) + add_bef_shift_dst[scale - 1]) >>
@@ -2150,13 +2253,13 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
             accum_inner_d = 0;
 
             /* j = 0 */
-            xh = (int32_t)((((int64_t)src->band_h[i * src_stride] * rfactor[0]) +
+            xh = (int32_t)((((int64_t)src->band_h[(ptrdiff_t)i * src_stride] * rfactor[0]) +
                             add_bef_shift_dst[scale - 1]) >>
                            shift_dst[scale - 1]);
-            xv = (int32_t)((((int64_t)src->band_v[i * src_stride] * rfactor[1]) +
+            xv = (int32_t)((((int64_t)src->band_v[(ptrdiff_t)i * src_stride] * rfactor[1]) +
                             add_bef_shift_dst[scale - 1]) >>
                            shift_dst[scale - 1]);
-            xd = (int32_t)((((int64_t)src->band_d[i * src_stride] * rfactor[2]) +
+            xd = (int32_t)((((int64_t)src->band_d[(ptrdiff_t)i * src_stride] * rfactor[2]) +
                             add_bef_shift_dst[scale - 1]) >>
                            shift_dst[scale - 1]);
             I4_ADM_CM_THRESH_S_I_0(angles, flt_angles, csf_a_stride, &thr, w, h, i, 0,
@@ -2256,13 +2359,13 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
             accum_inner_d = 0;
 
             /* j = 0 */
-            xh = (int32_t)((((int64_t)src->band_h[i * src_stride] * rfactor[0]) +
+            xh = (int32_t)((((int64_t)src->band_h[(ptrdiff_t)i * src_stride] * rfactor[0]) +
                             add_bef_shift_dst[scale - 1]) >>
                            shift_dst[scale - 1]);
-            xv = (int32_t)((((int64_t)src->band_v[i * src_stride] * rfactor[1]) +
+            xv = (int32_t)((((int64_t)src->band_v[(ptrdiff_t)i * src_stride] * rfactor[1]) +
                             add_bef_shift_dst[scale - 1]) >>
                            shift_dst[scale - 1]);
-            xd = (int32_t)((((int64_t)src->band_d[i * src_stride] * rfactor[2]) +
+            xd = (int32_t)((((int64_t)src->band_d[(ptrdiff_t)i * src_stride] * rfactor[2]) +
                             add_bef_shift_dst[scale - 1]) >>
                            shift_dst[scale - 1]);
             I4_ADM_CM_THRESH_S_I_0(angles, flt_angles, csf_a_stride, &thr, w, h, i, 0,
@@ -2327,13 +2430,13 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
 
     /* i=h-1,j=0 */
     if ((bottom > (h - 1)) && (left <= 0)) {
-        xh = (int32_t)((((int64_t)src->band_h[(h - 1) * src_stride] * rfactor[0]) +
+        xh = (int32_t)((((int64_t)src->band_h[(ptrdiff_t)(h - 1) * src_stride] * rfactor[0]) +
                         add_bef_shift_dst[scale - 1]) >>
                        shift_dst[scale - 1]);
-        xv = (int32_t)((((int64_t)src->band_v[(h - 1) * src_stride] * rfactor[1]) +
+        xv = (int32_t)((((int64_t)src->band_v[(ptrdiff_t)(h - 1) * src_stride] * rfactor[1]) +
                         add_bef_shift_dst[scale - 1]) >>
                        shift_dst[scale - 1]);
-        xd = (int32_t)((((int64_t)src->band_d[(h - 1) * src_stride] * rfactor[2]) +
+        xd = (int32_t)((((int64_t)src->band_d[(ptrdiff_t)(h - 1) * src_stride] * rfactor[2]) +
                         add_bef_shift_dst[scale - 1]) >>
                        shift_dst[scale - 1]);
         I4_ADM_CM_THRESH_S_H_M_1_0(angles, flt_angles, csf_a_stride, &thr, w, h, (h - 1), 0,
@@ -2422,14 +2525,18 @@ static float i4_adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
 static void i16_to_i32(adm_dwt_band_t *src, i4_adm_dwt_band_t *dst, int w, int h, int stride)
 {
     for (int i = 0; i < (h + 1) / 2; ++i) {
-        int16_t *src_band_a_addr = &src->band_a[i * stride];
-        int32_t *dst_band_a_addr = &dst->band_a[i * stride];
+        int16_t *src_band_a_addr = &src->band_a[(ptrdiff_t)i * stride];
+        int32_t *dst_band_a_addr = &dst->band_a[(ptrdiff_t)i * stride];
         for (int j = 0; j < (w + 1) / 2; ++j) {
             *(dst_band_a_addr++) = (int32_t)(*(src_band_a_addr++));
         }
     }
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static void adm_dwt2_8(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *buf, int w, int h,
                        int src_stride, int dst_stride)
 {
@@ -2645,6 +2752,10 @@ static void adm_dwt2_16_lo(const uint16_t *src, const adm_dwt_band_t *dst, AdmBu
     }
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static void adm_dwt2_16(const uint16_t *src, const adm_dwt_band_t *dst, AdmBuffer *buf, int w,
                         int h, int src_stride, int dst_stride, int inp_size_bits)
 {
@@ -2742,6 +2853,10 @@ static void adm_dwt2_16(const uint16_t *src, const adm_dwt_band_t *dst, AdmBuffe
     }
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static void adm_dwt2_s123_combined(const int32_t *i4_ref_scale, const int32_t *i4_curr_dis,
                                    AdmBuffer *buf, int w, int h, int ref_stride, int dis_stride,
                                    int dst_stride, int scale)
@@ -2763,7 +2878,10 @@ static void adm_dwt2_s123_combined(const int32_t *i4_ref_scale, const int32_t *i
     int32_t *tmphi_ref = tmplo_ref + w;
     int32_t *tmplo_dis = tmphi_ref + w;
     int32_t *tmphi_dis = tmplo_dis + w;
-    int32_t s10, s11, s12, s13;
+    int32_t s10;
+    int32_t s11;
+    int32_t s12;
+    int32_t s13;
 
     int64_t accum_ref;
 
@@ -2910,12 +3028,17 @@ static void adm_dwt2_s123_combined(const int32_t *i4_ref_scale, const int32_t *i
     }
 }
 
-void integer_compute_adm(AdmState *s, VmafPicture *ref_pic, VmafPicture *dis_pic, double *score,
-                         double *score_num, double *score_den, double *scores, AdmBuffer *buf,
-                         double adm_enhn_gain_limit, double adm_norm_view_dist,
-                         int adm_ref_display_height, double *score_aim, int adm_csf_mode,
-                         double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
-                         bool adm_skip_aim, bool adm_skip_scale0)
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
+static void integer_compute_adm(AdmState *s, VmafPicture *ref_pic, VmafPicture *dis_pic,
+                                double *score, double *score_num, double *score_den, double *scores,
+                                AdmBuffer *buf, double adm_enhn_gain_limit,
+                                double adm_norm_view_dist, int adm_ref_display_height,
+                                double *score_aim, int adm_csf_mode, double adm_csf_scale,
+                                double adm_csf_diag_scale, double adm_noise_weight,
+                                bool adm_skip_aim, bool adm_skip_scale0)
 {
     int w = ref_pic->w[0];
     int h = ref_pic->h[0];
@@ -3132,6 +3255,10 @@ static inline void *i4_init_dwt_band_hvd(i4_adm_dwt_band_t *band, char *data_top
     return data_top;
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
@@ -3250,6 +3377,10 @@ fail:
     return -ENOMEM;
 }
 
+// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
+// from upstream and complicate future /sync-upstream merges. Per ADR-0141
+// (touched-file lint-clean rule, upstream-parity exception).
+// NOLINTNEXTLINE(readability-function-size)
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
@@ -3260,7 +3391,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)ref_pic_90;
     (void)dist_pic_90;
 
-    double score, score_num, score_den, score_aim;
+    double score;
+    double score_num;
+    double score_den;
+    double score_aim;
     double scores[8];
 
     // current implementation is limited by the 16-bit data pipeline, thus
@@ -3379,6 +3513,9 @@ static const char *provided_features[] = {"VMAF_integer_feature_adm2_score",
                                           "integer_adm_den_scale3",
                                           NULL};
 
+// Registration struct consumed by libvmaf/src/feature/feature_extractor.c
+// (via the fex-registry table); must retain external linkage.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 VmafFeatureExtractor vmaf_fex_integer_adm = {
     .name = "adm",
     .init = init,
