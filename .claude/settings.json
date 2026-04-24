@@ -136,6 +136,7 @@
         "hooks": [
           { "type": "command", "command": ".claude/hooks/auto-format-on-edit.sh" },
           { "type": "command", "command": ".claude/hooks/auto-snapshot-warn.sh" },
+          { "type": "command", "command": ".claude/hooks/docs-drift-warn.sh" },
           { "type": "command", "command": ".claude/hooks/compile-commands-sync.sh" }
         ]
       }

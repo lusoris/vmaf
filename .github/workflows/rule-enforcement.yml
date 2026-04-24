@@ -154,62 +154,115 @@ jobs:
           exit "$fail"
 
   doc-substance-check:
-    name: Doc-Substance Advisory (ADR-0100)
+    name: Doc-Substance Gate (ADR-0100 / 0167)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Advisory: never fails the check. Posts a PR comment listing
-    # user-discoverable surfaces changed without a matching docs/ diff.
-    continue-on-error: true
+    # ADR-0167 (2026-04-25): promoted from advisory to blocking and
+    # tightened to require a *path-mapped* docs hit. ADR additions
+    # alone no longer satisfy — they explain decisions to maintainers,
+    # not usage to users (CLAUDE.md §12 rule 10). Per-PR opt-out is
+    # `no docs needed: REASON` somewhere in the PR description.
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Scan diff for user-discoverable surfaces
+      - name: Path-mapped docs coverage check
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
 
           git diff --name-only "${BASE_SHA}".."${HEAD_SHA}" > /tmp/diff_files.txt
 
-          # Paths per ADR-0100 §"What counts as a user-discoverable change".
-          # A hit here is only suggestive — pure internal refactors in
-          # these trees are also legitimate and don't need docs.
-          surface_hit=0
-          while IFS= read -r pattern; do
-            if grep -qE "${pattern}" /tmp/diff_files.txt; then
-              surface_hit=1
-              break
+          # Per-PR opt-out for refactor / bug-fix / test-only PRs that
+          # genuinely have no user-visible delta. Stripping markdown
+          # emphasis matches the deep-dive-checklist convention.
+          printf '%s' "${PR_BODY:-}" | tr -d '`*_' > /tmp/pr_body.md
+          if grep -qiE 'no docs needed[: ]' /tmp/pr_body.md; then
+            echo "Doc-Substance: opt-out claimed in PR body ('no docs needed: ...')."
+            exit 0
+          fi
+
+          # Surface → expected-docs-path mapping. Each row is
+          #   <surface-regex> <expected-docs-regex>
+          # Multiple surface rows can map to the same docs path.
+          # ADR additions (docs/adr/) explicitly do NOT count as a
+          # docs hit per ADR-0167.
+          violations=()
+          check_pair() {
+            local surface_pat="$1"
+            local docs_pat="$2"
+            local label="$3"
+            if grep -qE "${surface_pat}" /tmp/diff_files.txt; then
+              if ! grep -qE "${docs_pat}" /tmp/diff_files.txt; then
+                violations+=("${label}: surface ${surface_pat} touched but no edit under ${docs_pat}")
+              fi
             fi
-          done <<'EOF'
-          ^libvmaf/include/
-          ^libvmaf/src/feature/feature_.*\.c$
-          ^libvmaf/src/feature/integer_.*\.c$
-          ^libvmaf/tools/
-          ^meson_options\.toml$
-          ^meson_options\.txt$
-          ^mcp-server/
-          ^ai/src/vmaf_train/cli
-          ^ffmpeg-patches/
-          EOF
+          }
 
-          docs_hit=0
-          if grep -qE '^docs/' /tmp/diff_files.txt; then
-            docs_hit=1
-          fi
+          # libvmaf public headers → docs/api/
+          check_pair '^libvmaf/include/libvmaf/libvmaf_cuda\.h$' \
+                     '^docs/api/gpu\.md$' 'CUDA API header'
+          check_pair '^libvmaf/include/libvmaf/libvmaf_sycl\.h$' \
+                     '^docs/api/gpu\.md$' 'SYCL API header'
+          check_pair '^libvmaf/include/libvmaf/libvmaf_dnn\.h$' \
+                     '^docs/api/dnn\.md$' 'DNN API header'
+          check_pair '^libvmaf/include/libvmaf/(libvmaf|picture|model)\.h$' \
+                     '^docs/api/index\.md$' 'core API header'
 
-          if [ "${surface_hit}" -eq 1 ] && [ "${docs_hit}" -eq 0 ]; then
-            echo "ADR-0100 advisory: user-discoverable surface changed without a matching docs/ edit."
-            echo "Changed paths matching surface patterns:"
-            grep -E '^(libvmaf/include/|libvmaf/src/feature/|libvmaf/tools/|meson_options|mcp-server/|ai/src/vmaf_train/cli|ffmpeg-patches/)' /tmp/diff_files.txt || true
+          # feature extractors + their SIMD/GPU twins → docs/metrics/
+          check_pair '^libvmaf/src/feature/(feature_|integer_)[^/]+\.c$' \
+                     '^docs/metrics/' 'feature extractor'
+          check_pair '^libvmaf/src/feature/(x86|arm64)/[^/]+\.(c|h)$' \
+                     '^docs/metrics/' 'SIMD path'
+          check_pair '^libvmaf/src/feature/cuda/[^/]+\.(c|cu|h|cuh)$' \
+                     '^docs/(metrics/|backends/cuda/)' 'CUDA feature kernel'
+          check_pair '^libvmaf/src/feature/sycl/[^/]+\.(cpp|hpp)$' \
+                     '^docs/(metrics/|backends/sycl/)' 'SYCL feature kernel'
+
+          # CLI + tools → docs/usage/
+          check_pair '^libvmaf/tools/(cli_parse|vmaf|vmaf_bench)\.c$' \
+                     '^docs/usage/' 'CLI tool'
+
+          # build flags
+          check_pair '^libvmaf/meson_options\.txt$' \
+                     '^docs/development/build-flags\.md$' 'build flag'
+
+          # MCP server
+          check_pair '^mcp-server/vmaf-mcp/(src/|pyproject\.toml)' \
+                     '^docs/mcp/' 'MCP server'
+
+          # Tiny-AI surface
+          check_pair '^ai/src/vmaf_train/cli/' \
+                     '^docs/ai/' 'tiny-AI CLI'
+
+          # ffmpeg integration
+          check_pair '^ffmpeg-patches/.*\.patch$' \
+                     '^docs/usage/' 'ffmpeg patch'
+
+          if [ ${#violations[@]} -gt 0 ]; then
+            echo "::error title=ADR-0167 doc-drift::${#violations[@]} surface(s) changed without matching docs/ edit:"
+            for v in "${violations[@]}"; do
+              echo "  - $v"
+            done
             echo ""
-            echo "If this PR is a pure internal refactor / bug fix with no user-visible delta,"
-            echo "no docs are required (see ADR-0100 §Context for the exemption)."
-          else
-            echo "ADR-0100 advisory: no user-discoverable surface changed, or docs/ was updated."
+            echo "Per CLAUDE.md §12 rule 10 / ADR-0100, every PR that"
+            echo "changes a user-discoverable surface ships matching"
+            echo "human-readable docs in the SAME PR. ADR additions under"
+            echo "docs/adr/ explain decisions to maintainers, not usage"
+            echo "to users — they do NOT satisfy this check (ADR-0167)."
+            echo ""
+            echo "Either:"
+            echo "  1. Add the docs update under the indicated path, OR"
+            echo "  2. Add 'no docs needed: REASON' to the PR description"
+            echo "     (legitimate for pure internal refactor / bug fix)."
+            exit 1
           fi
+
+          echo "Doc-Substance: every touched user-discoverable surface has a matching docs/ edit."
 
   adr-backfill-check:
     name: ADR-Backfill Advisory (ADR-0106)
