@@ -2278,3 +2278,56 @@ inline.*
   `cuStreamCreateWithPriority`, `cuLaunchHostFunc`, and other
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
+
+### 0044 — i686 (32-bit x86) build-only CI job (ADR-0151)
+
+- **ADR**: [ADR-0151](adr/0151-i686-ci-netflix-1481.md)
+- **Upstream source**: Netflix upstream issue
+  [#1481](https://github.com/Netflix/vmaf/issues/1481) (OPEN as
+  of 2026-04-24). Reports i686 compile failure on
+  `_mm256_extract_epi64`. Workaround documented in the issue:
+  `-Denable_asm=false`.
+- **Touches**:
+  - [`build-aux/i686-linux-gnu.ini`](../build-aux/i686-linux-gnu.ini)
+    — new cross-file; gcc + `-m32` + `cpu_family = 'x86'` /
+    `cpu = 'i686'`. No `exe_wrapper`.
+  - [`.github/workflows/libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml)
+    — new matrix row with `i686: true` flag + new install-deps
+    step for `gcc-multilib` + `g++-multilib`; existing "Run
+    tests" + "Run tox tests (ubuntu)" steps widened with
+    `&& !matrix.i686` guards.
+- **Invariants**:
+  1. The i686 matrix row pins `-Denable_asm=false` — this is the
+     upstream-documented workaround for
+     `_mm256_extract_epi64`'s missing declaration on 32-bit x86
+     targets. Do NOT remove the flag without first gating every
+     `_mm256_extract_epi64` call site in
+     `libvmaf/src/feature/x86/adm_avx2.c` +
+     `motion_avx2.c` + `adm_avx512.c` on `__x86_64__`. Removing
+     the flag naively will re-break the build.
+  2. No `exe_wrapper` in the cross-file: meson marks tests as
+     `SKIP 77` even though the host can run i686 binaries
+     natively. Build-only gate by design.
+- **On upstream sync**:
+  - If upstream Netflix fixes #1481 at source (by gating the
+    intrinsic calls on `__x86_64__` or by emulating via two
+    `_mm256_extract_epi32` halves), sync the fix and **re-enable
+    ASM on the i686 row** (drop `-Denable_asm=false` from
+    `meson_extra`). Re-verify bit-exactness via
+    `/cross-backend-diff` on the x86_64 golden pair.
+  - If upstream marks i686 unsupported in meson (e.g. via a
+    hard error), the fork's i686 row should be removed or
+    downgraded to `continue-on-error: true`.
+- **Re-test on rebase** (Ubuntu host with `gcc-multilib`):
+
+  ```bash
+  meson setup libvmaf libvmaf/build-i686 \
+      --cross-file=build-aux/i686-linux-gnu.ini \
+      -Denable_asm=false \
+      -Denable_cuda=false -Denable_sycl=false
+  ninja -C libvmaf/build-i686
+  file libvmaf/build-i686/tools/vmaf
+  # Expect: ELF 32-bit LSB pie executable, Intel i386
+  ```
+
+  CI runs this same sequence via the new matrix row.

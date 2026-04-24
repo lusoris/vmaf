@@ -24,6 +24,23 @@
 
 ### Added
 
+- **i686 (32-bit x86) build-only CI job** (reproduces Netflix
+  upstream issue [#1481](https://github.com/Netflix/vmaf/issues/1481)).
+  New matrix row in `.github/workflows/libvmaf-build-matrix.yml`
+  (`Build — Ubuntu i686 gcc (CPU, no-asm)`) invokes
+  `meson setup libvmaf libvmaf/build --cross-file=build-aux/i686-linux-gnu.ini -Denable_asm=false`,
+  pinning the workaround documented in upstream's bug report.
+  New cross-file `build-aux/i686-linux-gnu.ini` (gcc + `-m32`,
+  `cpu_family = 'x86'`, `cpu = 'i686'`) + new install-deps step
+  installing `gcc-multilib` + `g++-multilib`. Test + tox steps
+  skipped for the i686 leg because meson marks cross-built tests
+  as `SKIP 77` (the host can run i686 binaries natively but meson
+  doesn't know that). Fixing the underlying AVX2
+  `_mm256_extract_epi64` compile failure (24 call sites in
+  `adm_avx2.c`) is **explicitly out of scope** — this entry adds
+  the CI gate only. Closes backlog item T4-8. See
+  [ADR-0151](docs/adr/0151-i686-ci-netflix-1481.md).
+
 - **Windows MSYS2/MinGW CUDA build support** (port of Netflix
   upstream PR [#1472](https://github.com/Netflix/vmaf/pull/1472),
   birkdev, 2026-03-16, OPEN). Enables
