@@ -62,18 +62,28 @@ static int init_with_primary_context(VmafCudaState *cu_state)
     cu_state->release_ctx = 1;
     cu_state->dev = cu_device;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent((cu_state->ctx)));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent((cu_state->ctx)), fail);
+    ctx_pushed = 1;
 
     int low, high;
-    CHECK_CUDA(cu_state->f, cuCtxGetStreamPriorityRange(&low, &high));
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxGetStreamPriorityRange(&low, &high), fail);
     // Use highest priority for VMAF compute to preempt lower-priority
     // work (e.g., NVENC/NVDEC) when sharing the GPU
     const int prio = high;
     const int prio2 = MAX(low, MIN(high, prio));
-    CHECK_CUDA(cu_state->f,
-               cuStreamCreateWithPriority(&cu_state->str, CU_STREAM_NON_BLOCKING, prio2));
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
+    CHECK_CUDA_GOTO(cu_state->f,
+                    cuStreamCreateWithPriority(&cu_state->str, CU_STREAM_NON_BLOCKING, prio2),
+                    fail);
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
     return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 static int init_with_provided_context(VmafCudaState *cu_state, CUcontext cu_context)
@@ -83,13 +93,17 @@ static int init_with_provided_context(VmafCudaState *cu_state, CUcontext cu_cont
     if (!cu_context)
         return -EINVAL;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent(cu_context));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent(cu_context), fail);
+    ctx_pushed = 1;
 
     CUdevice cu_device = 0;
     int err = cu_state->f->cuCtxGetDevice(&cu_device);
     if (err) {
         vmaf_log(VMAF_LOG_LEVEL_ERROR, "failed to get CUDA device\n");
-        return -EINVAL;
+        _cuda_err = -EINVAL;
+        goto fail;
     }
 
     cu_state->ctx = cu_context;
@@ -97,14 +111,21 @@ static int init_with_provided_context(VmafCudaState *cu_state, CUcontext cu_cont
     cu_state->dev = cu_device;
 
     int low, high;
-    CHECK_CUDA(cu_state->f, cuCtxGetStreamPriorityRange(&low, &high));
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxGetStreamPriorityRange(&low, &high), fail);
     const int prio = 0;
     const int prio2 = MAX(low, MIN(high, prio));
-    CHECK_CUDA(cu_state->f,
-               cuStreamCreateWithPriority(&cu_state->str, CU_STREAM_NON_BLOCKING, prio2));
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
+    CHECK_CUDA_GOTO(cu_state->f,
+                    cuStreamCreateWithPriority(&cu_state->str, CU_STREAM_NON_BLOCKING, prio2),
+                    fail);
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
 
     return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_state_init(VmafCudaState **cu_state, VmafCudaConfiguration cfg)
@@ -164,28 +185,40 @@ int vmaf_cuda_sync(VmafCudaState *cu_state)
     if (is_cudastate_empty(cu_state))
         return -EINVAL;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent((cu_state->ctx)));
+    int _cuda_err = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent((cu_state->ctx)), fail);
     int err = cu_state->f->cuCtxSynchronize();
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail);
 
     return err;
+
+fail:
+    return _cuda_err;
 }
 
 int vmaf_cuda_release(VmafCudaState *cu_state)
 {
     if (is_cudastate_empty(cu_state))
-        return CUDA_SUCCESS;
+        return 0;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent(cu_state->ctx));
-    CHECK_CUDA(cu_state->f, cuStreamDestroy(cu_state->str));
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent(cu_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_state->f, cuStreamDestroy(cu_state->str), fail);
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
 
     if (cu_state->release_ctx)
-        CHECK_CUDA(cu_state->f, cuDevicePrimaryCtxRelease(cu_state->dev));
+        CHECK_CUDA_GOTO(cu_state->f, cuDevicePrimaryCtxRelease(cu_state->dev), fail_after_pop);
 
     memset((void *)cu_state, 0, sizeof(*cu_state));
+    return 0;
 
-    return CUDA_SUCCESS;
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_buffer_alloc(VmafCudaState *cu_state, VmafCudaBuffer **p_buf, size_t size)
@@ -198,15 +231,25 @@ int vmaf_cuda_buffer_alloc(VmafCudaState *cu_state, VmafCudaBuffer **p_buf, size
     VmafCudaBuffer *buf = (VmafCudaBuffer *)calloc(1, sizeof(*buf));
     if (!buf)
         return -ENOMEM;
-
-    *p_buf = buf;
     buf->size = size;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent(cu_state->ctx));
-    CHECK_CUDA(cu_state->f, cuMemAlloc(&buf->data, buf->size));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent(cu_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_state->f, cuMemAlloc(&buf->data, buf->size), fail);
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
 
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
-    return CUDA_SUCCESS;
+    *p_buf = buf;
+    return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    free(buf);
+    *p_buf = NULL;
+    return _cuda_err;
 }
 
 int vmaf_cuda_buffer_free(VmafCudaState *cu_state, VmafCudaBuffer *buf)
@@ -216,12 +259,21 @@ int vmaf_cuda_buffer_free(VmafCudaState *cu_state, VmafCudaBuffer *buf)
     if (!buf)
         return -EINVAL;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent(cu_state->ctx));
-    CHECK_CUDA(cu_state->f, cuMemFree(buf->data));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent(cu_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_state->f, cuMemFree(buf->data), fail);
     memset(buf, 0, sizeof(*buf));
 
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
-    return CUDA_SUCCESS;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
+    return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_buffer_host_alloc(VmafCudaState *cu_state, void **p_buf, size_t size)
@@ -231,14 +283,24 @@ int vmaf_cuda_buffer_host_alloc(VmafCudaState *cu_state, void **p_buf, size_t si
     if (!p_buf)
         return -EINVAL;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent(cu_state->ctx));
-    CHECK_CUDA(cu_state->f, cuMemHostAlloc(p_buf, size, 0x01));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent(cu_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_state->f, cuMemHostAlloc(p_buf, size, 0x01), fail);
     if (!(*p_buf)) {
         vmaf_log(VMAF_LOG_LEVEL_ERROR, "failed to allocate host memory\n");
-        return -ENOMEM;
+        _cuda_err = -ENOMEM;
+        goto fail;
     }
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
-    return CUDA_SUCCESS;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
+    return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_buffer_host_free(VmafCudaState *cu_state, void *buf)
@@ -248,11 +310,19 @@ int vmaf_cuda_buffer_host_free(VmafCudaState *cu_state, void *buf)
     if (!buf)
         return -EINVAL;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent(cu_state->ctx));
-    CHECK_CUDA(cu_state->f, cuMemFreeHost(buf));
-    buf = NULL;
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
-    return CUDA_SUCCESS;
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent(cu_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(cu_state->f, cuMemFreeHost(buf), fail);
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
+    return 0;
+
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_buffer_upload_async(VmafCudaState *cu_state, VmafCudaBuffer *buf, const void *src,
@@ -265,12 +335,22 @@ int vmaf_cuda_buffer_upload_async(VmafCudaState *cu_state, VmafCudaBuffer *buf, 
     if (!src)
         return -EINVAL;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent(cu_state->ctx));
-    CHECK_CUDA(cu_state->f, cuMemcpyHtoDAsync(buf->data, src, buf->size,
-                                              c_stream == 0 ? c_stream : cu_state->str));
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent(cu_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(
+        cu_state->f,
+        cuMemcpyHtoDAsync(buf->data, src, buf->size, c_stream == 0 ? c_stream : cu_state->str),
+        fail);
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
+    return 0;
 
-    return CUDA_SUCCESS;
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_buffer_download_async(VmafCudaState *cu_state, VmafCudaBuffer *buf, void *dst,
@@ -283,12 +363,22 @@ int vmaf_cuda_buffer_download_async(VmafCudaState *cu_state, VmafCudaBuffer *buf
     if (!dst)
         return -EINVAL;
 
-    CHECK_CUDA(cu_state->f, cuCtxPushCurrent(cu_state->ctx));
-    CHECK_CUDA(cu_state->f, cuMemcpyDtoHAsync(dst, buf->data, buf->size,
-                                              c_stream == 0 ? c_stream : cu_state->str));
-    CHECK_CUDA(cu_state->f, cuCtxPopCurrent(NULL));
+    int _cuda_err = 0;
+    int ctx_pushed = 0;
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPushCurrent(cu_state->ctx), fail);
+    ctx_pushed = 1;
+    CHECK_CUDA_GOTO(
+        cu_state->f,
+        cuMemcpyDtoHAsync(dst, buf->data, buf->size, c_stream == 0 ? c_stream : cu_state->str),
+        fail);
+    CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
+    return 0;
 
-    return CUDA_SUCCESS;
+fail:
+    if (ctx_pushed)
+        (void)cu_state->f->cuCtxPopCurrent(NULL);
+fail_after_pop:
+    return _cuda_err;
 }
 
 int vmaf_cuda_buffer_get_dptr(VmafCudaBuffer *buf, CUdeviceptr *ptr)

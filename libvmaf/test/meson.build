@@ -260,6 +260,20 @@ test_cuda_pic_preallocation = executable('test_cuda_pic_preallocation',
 
 test('test_ring_buffer', test_ring_buffer)
 test('test_cuda_pic_preallocation', test_cuda_pic_preallocation)
+
+# Netflix#1420 — graceful-OOM reducer. Exercises the wholesale
+# CHECK_CUDA_GOTO/_RETURN rewrite by requesting an impossible
+# 1 TiB cuMemAlloc and asserting the returned errno is -ENOMEM
+# rather than an aborted process. GPU-gated: skips cleanly if
+# no driver/device is visible to the process.
+test_cuda_buffer_alloc_oom = executable('test_cuda_buffer_alloc_oom',
+    ['test.c', 'test_cuda_buffer_alloc_oom.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, cuda_dependency],
+    c_args: ['-DHAVE_CUDA=1']
+)
+test('test_cuda_buffer_alloc_oom', test_cuda_buffer_alloc_oom)
 endif
 
 # picture pool test - exercises vmaf_preallocate_pictures / vmaf_fetch_preallocated_picture.

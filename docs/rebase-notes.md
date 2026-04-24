@@ -2279,6 +2279,95 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0049 — CUDA graceful error propagation (ADR-0156)
+
+- **ADR**: [ADR-0156](adr/0156-cuda-graceful-error-propagation-netflix-1420.md)
+- **Upstream source**: Netflix upstream issue
+  [#1420](https://github.com/Netflix/vmaf/issues/1420) (OPEN as
+  of 2026-04-24). Reports that two concurrent VMAF-CUDA
+  processes crash the second one at `vmaf_cuda_buffer_alloc`
+  due to `CHECK_CUDA(cuMemAlloc)` → `assert(0)` on OOM.
+- **Touches**:
+  - [`libvmaf/src/cuda/cuda_helper.cuh`](../libvmaf/src/cuda/cuda_helper.cuh)
+    — redefined `CHECK_CUDA` family. New macros
+    `CHECK_CUDA_GOTO` + `CHECK_CUDA_RETURN` + helper
+    `vmaf_cuda_result_to_errno`. Old `assert(0)` semantics
+    removed entirely.
+  - [`libvmaf/src/cuda/common.c`](../libvmaf/src/cuda/common.c),
+    [`libvmaf/src/cuda/picture_cuda.c`](../libvmaf/src/cuda/picture_cuda.c),
+    [`libvmaf/src/libvmaf.c`](../libvmaf/src/libvmaf.c)
+    — all `CHECK_CUDA(...)` sites converted; cleanup labels
+    added where contexts / buffers were pushed / allocated.
+  - [`libvmaf/src/feature/cuda/integer_motion_cuda.c`](../libvmaf/src/feature/cuda/integer_motion_cuda.c),
+    [`integer_vif_cuda.c`](../libvmaf/src/feature/cuda/integer_vif_cuda.c),
+    [`integer_adm_cuda.c`](../libvmaf/src/feature/cuda/integer_adm_cuda.c)
+    — same conversion; 12 `static` helpers promoted `void → int`.
+  - [`libvmaf/test/test_cuda_buffer_alloc_oom.c`](../libvmaf/test/test_cuda_buffer_alloc_oom.c)
+    — new GPU-gated reducer.
+  - [`libvmaf/test/meson.build`](../libvmaf/test/meson.build)
+    — register new test under `enable_cuda` guard.
+- **Invariants** (load-bearing):
+  1. `CHECK_CUDA_GOTO` / `CHECK_CUDA_RETURN` must **never**
+     call `assert(0)` or `abort()` on a CUDA error. Any
+     regression back to the upstream abort-on-error
+     semantics re-introduces Netflix#1420 and the NDEBUG
+     footgun.
+  2. Every `CHECK_CUDA_GOTO` target label must pop any
+     previously-pushed CUDA context and free any
+     partially-constructed buffers before returning the
+     errno. The graceful path must not leak resources.
+  3. `vmaf_cuda_result_to_errno` uses numeric `CUresult`
+     values directly (0 / 1 / 2 / 3 / 4 / 101 / 201 / 400)
+     so host TUs that don't include `<cuda.h>` can
+     transitively consume the mapping via the inline
+     function. If upstream renumbers `CUresult` enum
+     values (historically stable — they've been fixed
+     since CUDA 1.0), re-audit the switch.
+  4. ADR-0122 / ADR-0123 `is_cudastate_empty(...)` guards
+     at the top of every public `vmaf_cuda_*` entry point
+     must stay — they run before the CUDA API is touched
+     and compose cleanly with the new error propagation.
+  5. Twelve `static` helper signatures in the feature
+     extractors are `int`-returning (was `void`): any
+     upstream-port that restores the `void` return silently
+     regresses the error path.
+- **On upstream sync**:
+  - Upstream Netflix still uses `assert(0)` in
+    `CHECK_CUDA` as of 2026-04-24. Keep the fork's macro
+    definitions in `cuda_helper.cuh` on any upstream
+    conflict — this file is fork-local behaviour.
+  - If upstream eventually lands Netflix#1420 with a
+    similar refactor, prefer the fork's version unless
+    upstream's has identical semantics (no `assert(0)` /
+    no `abort()` / translates `CUresult` to `-errno`).
+    Re-verify `test_cuda_buffer_alloc_oom` after rebase.
+  - If upstream adds new `CHECK_CUDA(...)` sites in a
+    port, rewrite them to `CHECK_CUDA_GOTO` /
+    `CHECK_CUDA_RETURN` as part of the port commit.
+  - If upstream changes any of the 12 `static` helper
+    signatures back to `void`, re-promote them to `int`
+    during the merge.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C libvmaf/build-cuda
+  meson test -C libvmaf/build-cuda
+  # Expect: 39/39 pass including test_cuda_buffer_alloc_oom.
+
+  # Reducer check — verify the OOM-to-errno path is live:
+  meson test -C libvmaf/build-cuda test_cuda_buffer_alloc_oom -v
+  # Expect subtests: request 1 TiB → -ENOMEM; request 0 bytes → 0.
+
+  clang-tidy -p libvmaf/build-cuda --quiet \
+      libvmaf/src/cuda/common.c \
+      libvmaf/src/cuda/picture_cuda.c \
+      libvmaf/src/feature/cuda/integer_motion_cuda.c \
+      libvmaf/src/feature/cuda/integer_vif_cuda.c \
+      libvmaf/src/feature/cuda/integer_adm_cuda.c \
+      libvmaf/src/libvmaf.c
+  # Expect exit 0 on every file.
+  ```
+
 ### 0048 — `i4_adm_cm` int32 rounding overflow deliberately preserved (ADR-0155)
 
 - **ADR**: [ADR-0155](adr/0155-adm-i4-rounding-deferred-netflix-955.md)

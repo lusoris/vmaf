@@ -1333,18 +1333,31 @@ static int read_pictures_cuda_cleanup(VmafContext *vmaf, VmafPicture *ref_host,
         err |= vmaf_picture_unref(dist_host);
 
     CudaFunctions *cu_f = vmaf->cuda.state.f;
+    int _cuda_err = 0;
     if (ref_device->priv) {
-        CHECK_CUDA(cu_f, cuEventRecord(vmaf_cuda_picture_get_finished_event(ref_device),
-                                       vmaf_cuda_picture_get_stream(ref_device)));
+        /* Cleanup path: capture CUDA errors via _cuda_err + goto so both
+         * ref_device and dist_device always get unref'd even when the
+         * bookkeeping cuEventRecord fails. The lingering ref on either
+         * device picture would leak CUDA allocations otherwise. */
+        CHECK_CUDA_GOTO(cu_f,
+                        cuEventRecord(vmaf_cuda_picture_get_finished_event(ref_device),
+                                      vmaf_cuda_picture_get_stream(ref_device)),
+                        after_ref_event);
+    after_ref_event:
         //^FIXME: move to picture callback
         err |= vmaf_picture_unref(ref_device);
     }
     if (dist_device->priv) {
-        CHECK_CUDA(cu_f, cuEventRecord(vmaf_cuda_picture_get_finished_event(dist_device),
-                                       vmaf_cuda_picture_get_stream(dist_device)));
+        CHECK_CUDA_GOTO(cu_f,
+                        cuEventRecord(vmaf_cuda_picture_get_finished_event(dist_device),
+                                      vmaf_cuda_picture_get_stream(dist_device)),
+                        after_dist_event);
+    after_dist_event:
         //^FIXME: move to picture callback
         err |= vmaf_picture_unref(dist_device);
     }
+    if (_cuda_err && !err)
+        err = _cuda_err;
     return err;
 }
 #endif
