@@ -16,9 +16,10 @@
  *
  */
 
-#ifndef __VMAF_FEATURE_COLLECTOR_H__
-#define __VMAF_FEATURE_COLLECTOR_H__
+#ifndef VMAF_FEATURE_COLLECTOR_INCLUDED
+#define VMAF_FEATURE_COLLECTOR_INCLUDED
 
+#include <errno.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <time.h>
@@ -84,8 +85,11 @@ FeatureVector *vmaf_feature_collector_find(VmafFeatureCollector *feature_collect
 
 static inline int vmaf_feature_vector_get_score(FeatureVector *fv, double *score, unsigned index)
 {
-    if (!fv || index >= fv->capacity || !fv->score[index].written)
-        return -1;
+    if (!fv || index >= fv->capacity)
+        return -EINVAL;
+    if (!fv->score[index].written)
+        return -EAGAIN; /* Netflix#755 / ADR-0154 — distinguish invalid vs
+                         * not-yet-written (e.g. motion2 retroactive-write). */
     *score = fv->score[index].value;
     return 0;
 }
@@ -98,4 +102,4 @@ int vmaf_feature_collector_get_aggregate(VmafFeatureCollector *feature_collector
 
 void vmaf_feature_collector_destroy(VmafFeatureCollector *feature_collector);
 
-#endif /* __VMAF_FEATURE_COLLECTOR_H__ */
+#endif /* VMAF_FEATURE_COLLECTOR_INCLUDED */

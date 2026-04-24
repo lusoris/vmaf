@@ -44,6 +44,29 @@
 
 ### Changed
 
+- **`vmaf_score_pooled` returns `-EAGAIN` for pending features**
+  (Netflix upstream issue
+  [#755](https://github.com/Netflix/vmaf/issues/755)). Several
+  extractors (integer_motion's motion2/motion3) write frame N's
+  score retroactively when frame N+1 is extracted — or on flush
+  for the tail. Previously `vmaf_score_pooled(vmaf, ..., i, i)`
+  called immediately after `vmaf_read_pictures(vmaf, ref, dist,
+  i)` returned `-EINVAL`, indistinguishable from programmer
+  error. Now: `-EAGAIN` for the transient "valid but not yet
+  written" case; `-EINVAL` stays reserved for genuine misuse
+  (bad pointer, out-of-range, feature-name typo). Inline
+  `vmaf_feature_vector_get_score` previously returned a literal
+  `-1` for both cases; now splits the same way. **Visible
+  behaviour change** for callers that want to distinguish
+  transient from fatal — they can now branch on `-EAGAIN` and
+  retry after one more read or after flush. Callers that treat
+  any non-zero as fatal are unchanged. Drive-by: reserved
+  `__VMAF_FEATURE_COLLECTOR_H__` header guard renamed to
+  `VMAF_FEATURE_COLLECTOR_INCLUDED` (ADR-0141). 4-subtest
+  reducer in `test_score_pooled_eagain.c` verified to fail
+  pre-fix and pass post-fix. Closes backlog item T1-1. See
+  [ADR-0154](docs/adr/0154-score-pooled-eagain-netflix-755.md).
+
 - **`vmaf_read_pictures` now rejects non-monotonic indices with
   `-EINVAL`** (Netflix upstream issue
   [#910](https://github.com/Netflix/vmaf/issues/910)). The
