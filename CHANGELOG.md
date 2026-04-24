@@ -44,6 +44,23 @@
 
 ### Added
 
+- **SSIMULACRA 2 FastGaussian IIR blur SIMD (AVX2 + AVX-512 + NEON)**
+  (fork-local, backlog T3-1 phase 2). `blur_plane` — the single
+  largest wall-clock cost in the SSIMULACRA 2 extractor (30 calls
+  per frame across 5 blur-combinations × 6 scales) — now runs on
+  SIMD. Horizontal pass batches N rows with `_mm256_i32gather_ps` /
+  `_mm512_i32gather_ps` (AVX2 N=8, AVX-512 N=16) or 4 explicit
+  `vsetq_lane_f32` calls (NEON N=4, no native gather on aarch64).
+  Vertical pass uses column-SIMD loads/stores over the per-column
+  IIR state arrays. Byte-for-byte bit-exact to scalar under
+  `FLT_EVAL_METHOD == 0` — verified via new `test_blur` subtest
+  (6/6 on AVX-512 host, 6/6 under `qemu-aarch64-static` for NEON).
+  Dispatched via a new `blur_fn` function pointer in `Ssimu2State`
+  assigned in `init_simd_dispatch()`. Only `picture_to_linear_rgb`
+  remains scalar — deferred to follow-up. Closes backlog T3-1
+  phase 2. See
+  [ADR-0162](docs/adr/0162-ssimulacra2-iir-blur-simd.md).
+
 - **SSIMULACRA 2 SIMD fast paths (AVX2 + AVX-512 + NEON)** (fork-local,
   backlog T3-1 + T3-2). Five of the eight hot kernels in the
   SSIMULACRA 2 pipeline now run on SIMD: `multiply_3plane`,

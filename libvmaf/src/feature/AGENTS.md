@@ -256,6 +256,24 @@ feature/
   [ADR-0159](../../../docs/adr/0159-psnr-hvs-avx2-bitexact.md)
   and [rebase-notes 0052](../../../docs/rebase-notes.md).
 
+- **SSIMULACRA 2 FastGaussian IIR blur SIMD** (fork-local, ADR-0162):
+  `ssimulacra2_blur_plane_{avx2,avx512,neon}` vectorises the 30×/frame
+  2-pass separable IIR blur. Horizontal pass batches rows (AVX2: 8,
+  AVX-512: 16, NEON: 4) and uses gather/lane-set loads to pull
+  column-n values from N rows into a SIMD vector; vertical pass
+  SIMD-iterates columns over the per-column `prev1_*`/`prev2_*`
+  state arrays. **On rebase**: (1) preserve left-to-right summation
+  `(o0 + o1) + o2` and `n2*sum - d1*prev1 - prev2` chaining — any
+  re-grouping drifts by ~1 ulp; (2) `col_state` layout is
+  `[prev1_0|prev1_1|prev1_2|prev2_0|prev2_1|prev2_2]` in 6×w
+  contiguous floats; SIMD loads assume this; (3) NEON lane-set
+  pattern (4 `vsetq_lane_f32` per input) replaces the
+  non-existent aarch64 gather intrinsic; (4) row-batching lane
+  layout: lane i holds row (y_base + i). Regression test
+  `test_blur` in `test_ssimulacra2_simd.c` catches all four. See
+  [ADR-0162](../../../docs/adr/0162-ssimulacra2-iir-blur-simd.md)
+  and [rebase-notes 0054](../../../docs/rebase-notes.md).
+
 - **SSIMULACRA 2 SIMD bit-exactness** (fork-local, ADR-0161):
   [`x86/ssimulacra2_avx2.c`](x86/ssimulacra2_avx2.c),
   [`x86/ssimulacra2_avx512.c`](x86/ssimulacra2_avx512.c) and

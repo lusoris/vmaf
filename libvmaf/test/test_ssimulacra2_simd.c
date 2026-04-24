@@ -434,6 +434,116 @@ static char *test_ssim(void)
     return NULL;
 }
 
+/* Scalar reference: fast_gaussian_1d — verbatim copy of the extractor's
+ * static function. */
+static void ref_fast_gaussian_1d(const float n2[3], const float d1[3], int radius, const float *in,
+                                 float *out, ptrdiff_t xsize)
+{
+    float prev1_0 = 0.f;
+    float prev1_1 = 0.f;
+    float prev1_2 = 0.f;
+    float prev2_0 = 0.f;
+    float prev2_1 = 0.f;
+    float prev2_2 = 0.f;
+    const float n2_0 = n2[0];
+    const float n2_1 = n2[1];
+    const float n2_2 = n2[2];
+    const float d1_0 = d1[0];
+    const float d1_1 = d1[1];
+    const float d1_2 = d1[2];
+    const ptrdiff_t N = (ptrdiff_t)radius;
+    for (ptrdiff_t n = -N + 1; n < xsize; n++) {
+        const ptrdiff_t left = n - N - 1;
+        const ptrdiff_t right = n + N - 1;
+        const float lv = (left >= 0) ? in[left] : 0.f;
+        const float rv = (right < xsize) ? in[right] : 0.f;
+        const float sum = lv + rv;
+        const float o0 = n2_0 * sum - d1_0 * prev1_0 - prev2_0;
+        const float o1 = n2_1 * sum - d1_1 * prev1_1 - prev2_1;
+        const float o2 = n2_2 * sum - d1_2 * prev1_2 - prev2_2;
+        prev2_0 = prev1_0;
+        prev2_1 = prev1_1;
+        prev2_2 = prev1_2;
+        prev1_0 = o0;
+        prev1_1 = o1;
+        prev1_2 = o2;
+        if (n >= 0) {
+            out[n] = o0 + o1 + o2;
+        }
+    }
+}
+
+/* Scalar reference: blur_plane. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static void ref_blur_plane(const float n2[3], const float d1[3], int radius, float *col_state,
+                           const float *in, float *out, float *scratch, unsigned w, unsigned h)
+{
+    for (unsigned y = 0; y < h; y++) {
+        ref_fast_gaussian_1d(n2, d1, radius, in + (size_t)y * w, scratch + (size_t)y * w,
+                             (ptrdiff_t)w);
+    }
+    const size_t xsize = (size_t)w;
+    float *prev1_0 = col_state + 0u * xsize;
+    float *prev1_1 = col_state + 1u * xsize;
+    float *prev1_2 = col_state + 2u * xsize;
+    float *prev2_0 = col_state + 3u * xsize;
+    float *prev2_1 = col_state + 4u * xsize;
+    float *prev2_2 = col_state + 5u * xsize;
+    memset(col_state, 0, 6u * xsize * sizeof(float));
+    const float n2_0 = n2[0];
+    const float n2_1 = n2[1];
+    const float n2_2 = n2[2];
+    const float d1_0 = d1[0];
+    const float d1_1 = d1[1];
+    const float d1_2 = d1[2];
+    const ptrdiff_t N = (ptrdiff_t)radius;
+    const ptrdiff_t ysize = (ptrdiff_t)h;
+    for (ptrdiff_t n = -N + 1; n < ysize; n++) {
+        const ptrdiff_t left = n - N - 1;
+        const ptrdiff_t right = n + N - 1;
+        const float *lrow = (left >= 0) ? (scratch + (size_t)left * xsize) : NULL;
+        const float *rrow = (right < ysize) ? (scratch + (size_t)right * xsize) : NULL;
+        float *orow = (n >= 0) ? (out + (size_t)n * xsize) : NULL;
+        for (size_t x = 0; x < xsize; x++) {
+            const float lv = lrow ? lrow[x] : 0.f;
+            const float rv = rrow ? rrow[x] : 0.f;
+            const float sum = lv + rv;
+            const float o0 = n2_0 * sum - d1_0 * prev1_0[x] - prev2_0[x];
+            const float o1 = n2_1 * sum - d1_1 * prev1_1[x] - prev2_1[x];
+            const float o2 = n2_2 * sum - d1_2 * prev1_2[x] - prev2_2[x];
+            prev2_0[x] = prev1_0[x];
+            prev2_1[x] = prev1_1[x];
+            prev2_2[x] = prev1_2[x];
+            prev1_0[x] = o0;
+            prev1_1[x] = o1;
+            prev1_2[x] = o2;
+            if (orow) {
+                orow[x] = o0 + o1 + o2;
+            }
+        }
+    }
+}
+
+typedef void (*blur_fn_t)(const float n2[3], const float d1[3], int radius, float *col_state,
+                          const float *in, float *out, float *scratch, unsigned w, unsigned h);
+
+static blur_fn_t pick_blur(void)
+{
+#if ARCH_X86
+    const unsigned flags = vmaf_get_cpu_flags_x86();
+#if HAVE_AVX512
+    if (flags & VMAF_X86_CPU_FLAG_AVX512)
+        return ssimulacra2_blur_plane_avx512;
+#endif
+    if (flags & VMAF_X86_CPU_FLAG_AVX2)
+        return ssimulacra2_blur_plane_avx2;
+#endif
+#if ARCH_AARCH64
+    return ssimulacra2_blur_plane_neon;
+#endif
+    return NULL;
+}
+
 static char *test_edge(void)
 {
     edge_fn_t fn = pick_edge();
@@ -461,6 +571,43 @@ static char *test_edge(void)
     return NULL;
 }
 
+/* Blur plane bit-exactness test. Uses realistic IIR coefficients
+ * computed via the libjxl recursive-gaussian formula for sigma=1.5. */
+static char *test_blur(void)
+{
+    blur_fn_t fn = pick_blur();
+    if (!fn)
+        return NULL;
+    /* Pre-computed coefficients for sigma=1.5 (from libjxl create_recursive_gaussian
+     * reference output). Exact values are not critical for the bit-exactness test
+     * — what matters is that scalar ref and SIMD use the same. */
+    const float n2[3] = {-1.15927751f, -0.95251870f, -0.42578530f};
+    const float d1[3] = {-1.89840269f, -1.64985192f, -1.19907868f};
+    const int radius = 4;
+    const size_t plane = PLANE_SZ;
+    float *in = malloc(plane * sizeof(float));
+    float *out_ref = malloc(plane * sizeof(float));
+    float *out_simd = malloc(plane * sizeof(float));
+    float *scratch_ref = malloc(plane * sizeof(float));
+    float *scratch_simd = malloc(plane * sizeof(float));
+    float *col_state_ref = malloc(6u * (size_t)W * sizeof(float));
+    float *col_state_simd = malloc(6u * (size_t)W * sizeof(float));
+    fill_random(in, plane, -0.5f, 0.5f, 0xcafebabeu);
+    ref_blur_plane(n2, d1, radius, col_state_ref, in, out_ref, scratch_ref, W, H);
+    fn(n2, d1, radius, col_state_simd, in, out_simd, scratch_simd, W, H);
+    // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c) ADR-0162 byte-exact
+    const int match = memcmp(out_ref, out_simd, plane * sizeof(float)) == 0;
+    free(in);
+    free(out_ref);
+    free(out_simd);
+    free(scratch_ref);
+    free(scratch_simd);
+    free(col_state_ref);
+    free(col_state_simd);
+    mu_assert("blur_plane SIMD not bit-identical to scalar", match);
+    return NULL;
+}
+
 char *run_tests(void)
 {
 #if ARCH_X86 || ARCH_AARCH64
@@ -469,6 +616,7 @@ char *run_tests(void)
     mu_run_test(test_downsample);
     mu_run_test(test_ssim);
     mu_run_test(test_edge);
+    mu_run_test(test_blur);
 #else
     (void)fprintf(stderr, "skipping: arch without ssimulacra2 SIMD\n");
 #endif

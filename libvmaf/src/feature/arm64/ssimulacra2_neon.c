@@ -32,6 +32,7 @@
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "ssimulacra2_neon.h"
 
@@ -350,4 +351,187 @@ void ssimulacra2_edge_diff_map_neon(const float *img1, const float *mu1, const f
         plane_averages[c * 4 + 2] = one_per_pixels * s2;
         plane_averages[c * 4 + 3] = sqrt(sqrt(one_per_pixels * s3));
     }
+}
+
+/* ADR-0141 carve-out: gather via lane-loads + 3-pole IIR + scalar-store. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static void hblur_4rows_neon(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                             const float *in, float *out, unsigned w, unsigned y_base,
+                             unsigned row_count)
+{
+    const ptrdiff_t N = (ptrdiff_t)rg_radius;
+    const ptrdiff_t W = (ptrdiff_t)w;
+
+    const float32x4_t vn2_0 = vdupq_n_f32(rg_n2[0]);
+    const float32x4_t vn2_1 = vdupq_n_f32(rg_n2[1]);
+    const float32x4_t vn2_2 = vdupq_n_f32(rg_n2[2]);
+    const float32x4_t vd1_0 = vdupq_n_f32(rg_d1[0]);
+    const float32x4_t vd1_1 = vdupq_n_f32(rg_d1[1]);
+    const float32x4_t vd1_2 = vdupq_n_f32(rg_d1[2]);
+
+    float32x4_t prev1_0 = vdupq_n_f32(0.f);
+    float32x4_t prev1_1 = vdupq_n_f32(0.f);
+    float32x4_t prev1_2 = vdupq_n_f32(0.f);
+    float32x4_t prev2_0 = vdupq_n_f32(0.f);
+    float32x4_t prev2_1 = vdupq_n_f32(0.f);
+    float32x4_t prev2_2 = vdupq_n_f32(0.f);
+
+    alignas(16) float store_tmp[4];
+
+    /* Per-lane row base pointer addresses. NEON has no gather so we
+     * assemble the load lane-by-lane. */
+    const float *row_bases[4] = {NULL, NULL, NULL, NULL};
+    for (unsigned i = 0; i < row_count && i < 4; i++) {
+        row_bases[i] = in + ((size_t)y_base + i) * w;
+    }
+
+    for (ptrdiff_t n = -N + 1; n < W; n++) {
+        const ptrdiff_t left = n - N - 1;
+        const ptrdiff_t right = n + N - 1;
+        float32x4_t lv = vdupq_n_f32(0.f);
+        float32x4_t rv = vdupq_n_f32(0.f);
+        if (left >= 0) {
+            if (row_count > 0)
+                lv = vsetq_lane_f32(row_bases[0][left], lv, 0);
+            if (row_count > 1)
+                lv = vsetq_lane_f32(row_bases[1][left], lv, 1);
+            if (row_count > 2)
+                lv = vsetq_lane_f32(row_bases[2][left], lv, 2);
+            if (row_count > 3)
+                lv = vsetq_lane_f32(row_bases[3][left], lv, 3);
+        }
+        if (right < W) {
+            if (row_count > 0)
+                rv = vsetq_lane_f32(row_bases[0][right], rv, 0);
+            if (row_count > 1)
+                rv = vsetq_lane_f32(row_bases[1][right], rv, 1);
+            if (row_count > 2)
+                rv = vsetq_lane_f32(row_bases[2][right], rv, 2);
+            if (row_count > 3)
+                rv = vsetq_lane_f32(row_bases[3][right], rv, 3);
+        }
+        const float32x4_t sum = vaddq_f32(lv, rv);
+
+        float32x4_t o0 = vsubq_f32(vmulq_f32(vn2_0, sum), vmulq_f32(vd1_0, prev1_0));
+        o0 = vsubq_f32(o0, prev2_0);
+        float32x4_t o1 = vsubq_f32(vmulq_f32(vn2_1, sum), vmulq_f32(vd1_1, prev1_1));
+        o1 = vsubq_f32(o1, prev2_1);
+        float32x4_t o2 = vsubq_f32(vmulq_f32(vn2_2, sum), vmulq_f32(vd1_2, prev1_2));
+        o2 = vsubq_f32(o2, prev2_2);
+
+        prev2_0 = prev1_0;
+        prev2_1 = prev1_1;
+        prev2_2 = prev1_2;
+        prev1_0 = o0;
+        prev1_1 = o1;
+        prev1_2 = o2;
+
+        if (n >= 0) {
+            const float32x4_t res = vaddq_f32(vaddq_f32(o0, o1), o2);
+            vst1q_f32(store_tmp, res);
+            for (unsigned i = 0; i < row_count; i++) {
+                out[((size_t)y_base + i) * w + (size_t)n] = store_tmp[i];
+            }
+        }
+    }
+}
+
+/* ADR-0141 carve-out: SIMD main loop + scalar tail share IIR state. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static void vblur_simd_4cols_neon(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                  float *col_state, const float *in, float *out, unsigned w,
+                                  unsigned h)
+{
+    const size_t xsize = (size_t)w;
+    float *prev1_0 = col_state + 0u * xsize;
+    float *prev1_1 = col_state + 1u * xsize;
+    float *prev1_2 = col_state + 2u * xsize;
+    float *prev2_0 = col_state + 3u * xsize;
+    float *prev2_1 = col_state + 4u * xsize;
+    float *prev2_2 = col_state + 5u * xsize;
+    memset(col_state, 0, 6u * xsize * sizeof(float));
+
+    const float32x4_t vn2_0 = vdupq_n_f32(rg_n2[0]);
+    const float32x4_t vn2_1 = vdupq_n_f32(rg_n2[1]);
+    const float32x4_t vn2_2 = vdupq_n_f32(rg_n2[2]);
+    const float32x4_t vd1_0 = vdupq_n_f32(rg_d1[0]);
+    const float32x4_t vd1_1 = vdupq_n_f32(rg_d1[1]);
+    const float32x4_t vd1_2 = vdupq_n_f32(rg_d1[2]);
+
+    const ptrdiff_t N = (ptrdiff_t)rg_radius;
+    const ptrdiff_t ysize = (ptrdiff_t)h;
+
+    for (ptrdiff_t n = -N + 1; n < ysize; n++) {
+        const ptrdiff_t left = n - N - 1;
+        const ptrdiff_t right = n + N - 1;
+        const float *lrow = (left >= 0) ? (in + (size_t)left * xsize) : NULL;
+        const float *rrow = (right < ysize) ? (in + (size_t)right * xsize) : NULL;
+        float *orow = (n >= 0) ? (out + (size_t)n * xsize) : NULL;
+
+        size_t x = 0;
+        for (; x + 4 <= xsize; x += 4) {
+            const float32x4_t lv = lrow ? vld1q_f32(lrow + x) : vdupq_n_f32(0.f);
+            const float32x4_t rv = rrow ? vld1q_f32(rrow + x) : vdupq_n_f32(0.f);
+            const float32x4_t sum = vaddq_f32(lv, rv);
+            const float32x4_t p1_0 = vld1q_f32(prev1_0 + x);
+            const float32x4_t p1_1 = vld1q_f32(prev1_1 + x);
+            const float32x4_t p1_2 = vld1q_f32(prev1_2 + x);
+            const float32x4_t p2_0 = vld1q_f32(prev2_0 + x);
+            const float32x4_t p2_1 = vld1q_f32(prev2_1 + x);
+            const float32x4_t p2_2 = vld1q_f32(prev2_2 + x);
+            float32x4_t o0 = vsubq_f32(vmulq_f32(vn2_0, sum), vmulq_f32(vd1_0, p1_0));
+            o0 = vsubq_f32(o0, p2_0);
+            float32x4_t o1 = vsubq_f32(vmulq_f32(vn2_1, sum), vmulq_f32(vd1_1, p1_1));
+            o1 = vsubq_f32(o1, p2_1);
+            float32x4_t o2 = vsubq_f32(vmulq_f32(vn2_2, sum), vmulq_f32(vd1_2, p1_2));
+            o2 = vsubq_f32(o2, p2_2);
+            vst1q_f32(prev2_0 + x, p1_0);
+            vst1q_f32(prev2_1 + x, p1_1);
+            vst1q_f32(prev2_2 + x, p1_2);
+            vst1q_f32(prev1_0 + x, o0);
+            vst1q_f32(prev1_1 + x, o1);
+            vst1q_f32(prev1_2 + x, o2);
+            if (orow) {
+                const float32x4_t res = vaddq_f32(vaddq_f32(o0, o1), o2);
+                vst1q_f32(orow + x, res);
+            }
+        }
+        for (; x < xsize; x++) {
+            const float lv = lrow ? lrow[x] : 0.f;
+            const float rv = rrow ? rrow[x] : 0.f;
+            const float sum = lv + rv;
+            const float o0 = rg_n2[0] * sum - rg_d1[0] * prev1_0[x] - prev2_0[x];
+            const float o1 = rg_n2[1] * sum - rg_d1[1] * prev1_1[x] - prev2_1[x];
+            const float o2 = rg_n2[2] * sum - rg_d1[2] * prev1_2[x] - prev2_2[x];
+            prev2_0[x] = prev1_0[x];
+            prev2_1[x] = prev1_1[x];
+            prev2_2[x] = prev1_2[x];
+            prev1_0[x] = o0;
+            prev1_1[x] = o1;
+            prev1_2[x] = o2;
+            if (orow) {
+                orow[x] = o0 + o1 + o2;
+            }
+        }
+    }
+}
+
+void ssimulacra2_blur_plane_neon(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                 float *col_state, const float *in, float *out, float *scratch,
+                                 unsigned w, unsigned h)
+{
+    assert(col_state != NULL);
+    assert(in != NULL);
+    assert(out != NULL);
+    assert(scratch != NULL);
+    assert(w > 0 && h > 0);
+
+    unsigned y = 0;
+    for (; y + 4 <= h; y += 4) {
+        hblur_4rows_neon(rg_n2, rg_d1, rg_radius, in, scratch, w, y, 4);
+    }
+    if (y < h) {
+        hblur_4rows_neon(rg_n2, rg_d1, rg_radius, in, scratch, w, y, h - y);
+    }
+    vblur_simd_4cols_neon(rg_n2, rg_d1, rg_radius, col_state, scratch, out, w, h);
 }

@@ -1953,6 +1953,7 @@ inline.*
   diff <(grep -v 'fps=' /tmp/mv2_0.xml) \
        <(grep -v 'fps=' /tmp/mv2_255.xml)  # expect empty
   ```
+
 - **On upstream sync**: upstream has no NEON `motion_v2` and has not
   signalled plans to add one. If they ever do, diff their NEON
   against the fork's: on logical-vs-arithmetic shift, keep the
@@ -2287,6 +2288,67 @@ inline.*
   `cuStreamCreateWithPriority`, `cuLaunchHostFunc`, and other
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
+
+### 0054 — SSIMULACRA 2 FastGaussian IIR blur SIMD (ADR-0162)
+
+- **ADR**: [ADR-0162](adr/0162-ssimulacra2-iir-blur-simd.md)
+- **Upstream source**: fork-local. No SSIMULACRA 2 extractor in
+  upstream Netflix/vmaf.
+- **Touches**:
+  - [ssimulacra2_avx2.{c,h}](../libvmaf/src/feature/x86/ssimulacra2_avx2.c)
+    — new `ssimulacra2_blur_plane_avx2` + 2 helpers (`hblur_8rows_avx2`,
+    `vblur_simd_8cols_avx2`).
+  - [ssimulacra2_avx512.{c,h}](../libvmaf/src/feature/x86/ssimulacra2_avx512.c)
+    — 16-wide port.
+  - [ssimulacra2_neon.{c,h}](../libvmaf/src/feature/arm64/ssimulacra2_neon.c)
+    — 4-wide aarch64 port, uses `vsetq_lane_f32` in place of gather.
+  - [ssimulacra2.c](../libvmaf/src/feature/ssimulacra2.c) — adds
+    `blur_fn` function pointer to `Ssimu2State`, dispatch in
+    `init_simd_dispatch()`, call-site in `blur_3plane`.
+  - [test_ssimulacra2_simd.c](../libvmaf/test/test_ssimulacra2_simd.c)
+    — new `test_blur` + scalar reference (`ref_blur_plane`,
+    `ref_fast_gaussian_1d`).
+- **Invariants** (load-bearing):
+  1. **Row-batching lane layout** — horizontal pass lane `i`
+     MUST hold row `(y_base + i)`. Gather index vector entries
+     are `(y_base + i) * w` (stride-w). Changing this breaks
+     bit-exactness vs scalar.
+  2. **Scalar left-to-right summation order** — `n2_k * sum -
+     d1_k * prev1_k - prev2_k` chained sequentially; `o0 + o1 + o2`
+     at output time is `(o0 + o1) + o2`. Changing to
+     `(o0 + o2) + o1` or `o0 + (o1 + o2)` will drift ~1 ulp and
+     the regression test catches it.
+  3. **`col_state` is 6 * w contiguous floats** — layout is
+     `[prev1_0 | prev1_1 | prev1_2 | prev2_0 | prev2_1 | prev2_2]`.
+     SIMD loads assume this layout; changing field order requires
+     updating all three SIMD TUs in lockstep with `blur_plane`.
+  4. **NEON lane-set pattern** — aarch64 has no gather intrinsic;
+     4 explicit `vsetq_lane_f32` calls per input vector. Do not
+     replace with a `ld1 {v.s}[lane]`-style pseudo-gather without
+     re-verifying bit-exactness.
+  5. **Scalar tail in vertical pass** matches scalar reference
+     body verbatim. Any deviation breaks `memcmp` equality on
+     widths that aren't multiples of the SIMD width.
+- **On upstream sync**: no upstream interaction. If Netflix adopts
+  SSIMULACRA 2 in the future and provides their own IIR blur SIMD,
+  diff against the fork's and preserve the bit-exactness contract
+  unless an ADR-0142 Netflix-authority carve-out is opened.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_ssimulacra2_simd  # 6/6
+  # aarch64:
+  ninja -C build-aarch64
+  qemu-aarch64-static -L /usr/aarch64-linux-gnu/ \
+    build-aarch64/test/test_ssimulacra2_simd  # 6/6
+  ```
+
+- **Follow-ups**:
+  - `picture_to_linear_rgb` SIMD — last scalar hot path in the
+    extractor. 2 calls / frame. Low ROI but mechanical.
+  - T3-3 SSIMULACRA 2 snapshot-JSON regression test — still pending.
 
 ### 0053 — SSIMULACRA 2 SIMD bit-exact ports (ADR-0161)
 

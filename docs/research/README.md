@@ -74,6 +74,7 @@ Conventions:
 | [0013](0013-simd-dx-framework.md) | SIMD DX framework — audit + NEON bit-exactness port | Active | [ADR-0140](../adr/0140-simd-dx-framework.md) |
 | [0014](0014-psnr-hvs-neon.md) | `psnr_hvs` NEON sister port — half-wide split strategy, aarch64 gotchas, QEMU verification limits | Active | [ADR-0160](../adr/0160-psnr-hvs-neon-bitexact.md) |
 | [0015](0015-ssimulacra2-simd.md) | SSIMULACRA 2 AVX2 + AVX-512 + NEON — per-lane `cbrtf`, left-to-right summation, 2×2 downsample deinterleave | Active | [ADR-0161](../adr/0161-ssimulacra2-simd-bitexact.md) |
+| [0016](0016-ssimulacra2-iir-blur-simd.md) | SSIMULACRA 2 IIR blur SIMD — row-batching with gather (horizontal), column-SIMD (vertical), bit-exact to scalar | Active | [ADR-0162](../adr/0162-ssimulacra2-iir-blur-simd.md) |
 
 <!-- Backfill entries for older workstreams land here as their authors
      revisit the corresponding code. -->

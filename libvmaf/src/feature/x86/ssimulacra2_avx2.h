@@ -56,4 +56,25 @@ void ssimulacra2_edge_diff_map_avx2(const float *img1, const float *mu1, const f
                                     const float *mu2, unsigned w, unsigned h,
                                     double plane_averages[12]);
 
+/*
+ * Two-pass separable FastGaussian IIR blur (libjxl reference).
+ * - `rg_n2[3]` / `rg_d1[3]` / `rg_radius` are the Charalampidis 3-pole
+ *   coefficients; pre-computed in Ssimu2State during `init()`.
+ * - `col_state` is a 6*w scratch for the vertical pass's per-column
+ *   IIR state (prev1_{0,1,2}, prev2_{0,1,2}), zeroed inside the fn.
+ * - `scratch` is a w*h temp for horizontal-pass output that the
+ *   vertical pass consumes.
+ * - Output writes to `out` (w*h floats).
+ *
+ * Byte-for-byte identical to the scalar `blur_plane` under
+ * FLT_EVAL_METHOD == 0. The horizontal pass batches 8 rows in
+ * parallel via `vpgatherdd` loads; the vertical pass SIMD-iterates
+ * 8 columns at a time with contiguous state loads/stores. Scalar
+ * tails handle leftover rows (horizontal) and leftover columns
+ * (vertical).
+ */
+void ssimulacra2_blur_plane_avx2(const float rg_n2[3], const float rg_d1[3], int rg_radius,
+                                 float *col_state, const float *in, float *out, float *scratch,
+                                 unsigned w, unsigned h);
+
 #endif /* X86_AVX2_SSIMULACRA2_H_ */

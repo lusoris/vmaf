@@ -272,6 +272,10 @@ typedef struct Ssimu2State {
                     const float *s12, unsigned w, unsigned h, double plane_averages[6]);
     void (*edge_fn)(const float *img1, const float *mu1, const float *img2, const float *mu2,
                     unsigned w, unsigned h, double plane_averages[12]);
+    /* SIMD blur: NULL => scalar fallback via blur_plane; non-NULL replaces
+     * blur_plane + fast_gaussian_1d with one SIMD entry point (ADR-0162). */
+    void (*blur_fn)(const float rg_n2[3], const float rg_d1[3], int rg_radius, float *col_state,
+                    const float *in, float *out, float *scratch, unsigned w, unsigned h);
 } Ssimu2State;
 
 /*
@@ -321,6 +325,8 @@ static inline float srgb_to_linear(float v)
  * Using Truncated Cosine Functions", with k={1,3,5}. Writes n2[], d1[],
  * and radius into the state; the full IIR pass uses symmetric-sum
  * recurrence `out_k = n2[k]*sum - d1[k]*prev_k - prev2_k`. */
+/* ADR-0130-era scalar, pre-existing pre-touched-file rule. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 static void create_recursive_gaussian(Ssimu2State *s, double sigma)
 {
     const double radius = round(3.2795 * sigma + 0.2546); /* (57), "N" */
@@ -723,7 +729,12 @@ static void blur_3plane(const Ssimu2State *s, const float *in, float *out, unsig
 {
     const size_t plane = (size_t)w * (size_t)h;
     for (int c = 0; c < 3; c++) {
-        blur_plane(s, in + (size_t)c * plane, out + (size_t)c * plane, s->scratch, w, h);
+        if (s->blur_fn) {
+            s->blur_fn(s->rg_n2, s->rg_d1, s->rg_radius, s->col_state, in + (size_t)c * plane,
+                       out + (size_t)c * plane, s->scratch, w, h);
+        } else {
+            blur_plane(s, in + (size_t)c * plane, out + (size_t)c * plane, s->scratch, w, h);
+        }
     }
 }
 
@@ -862,6 +873,7 @@ static void init_simd_dispatch(Ssimu2State *s)
     s->down_fn = downsample_2x2;
     s->ssim_fn = ssim_map;
     s->edge_fn = edge_diff_map;
+    s->blur_fn = NULL;
 
 #if ARCH_X86 || ARCH_AARCH64
     const unsigned flags = vmaf_get_cpu_flags();
@@ -873,6 +885,7 @@ static void init_simd_dispatch(Ssimu2State *s)
         s->down_fn = ssimulacra2_downsample_2x2_avx2;
         s->ssim_fn = ssimulacra2_ssim_map_avx2;
         s->edge_fn = ssimulacra2_edge_diff_map_avx2;
+        s->blur_fn = ssimulacra2_blur_plane_avx2;
     }
 #if HAVE_AVX512
     if (flags & VMAF_X86_CPU_FLAG_AVX512) {
@@ -881,6 +894,7 @@ static void init_simd_dispatch(Ssimu2State *s)
         s->down_fn = ssimulacra2_downsample_2x2_avx512;
         s->ssim_fn = ssimulacra2_ssim_map_avx512;
         s->edge_fn = ssimulacra2_edge_diff_map_avx512;
+        s->blur_fn = ssimulacra2_blur_plane_avx512;
     }
 #endif
 #endif
@@ -891,6 +905,7 @@ static void init_simd_dispatch(Ssimu2State *s)
         s->down_fn = ssimulacra2_downsample_2x2_neon;
         s->ssim_fn = ssimulacra2_ssim_map_neon;
         s->edge_fn = ssimulacra2_edge_diff_map_neon;
+        s->blur_fn = ssimulacra2_blur_plane_neon;
     }
 #endif
 }
