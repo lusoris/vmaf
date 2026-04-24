@@ -3221,7 +3221,7 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     data_top = i4_init_dwt_band_hvd(&s->buf.i4_decouple_r, data_top, buf_sz_one);
     data_top = i4_init_dwt_band_hvd(&s->buf.i4_decouple_a, data_top, buf_sz_one);
     data_top = i4_init_dwt_band_hvd(&s->buf.i4_csf_a, data_top, buf_sz_one);
-    data_top = i4_init_dwt_band_hvd(&s->buf.i4_csf_f, data_top, buf_sz_one);
+    i4_init_dwt_band_hvd(&s->buf.i4_csf_f, data_top, buf_sz_one);
 
     void *ind_buf_y = s->buf.buf_y_orig;
     init_index(s->buf.ind_y, ind_buf_y, s->buf.ind_size_y);
