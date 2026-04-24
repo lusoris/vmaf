@@ -312,7 +312,6 @@ if is_asm_enabled
           feature_src_dir + 'x86/ms_ssim_decimate_avx2.c',
           feature_src_dir + 'x86/convolve_avx2.c',
           feature_src_dir + 'x86/psnr_hvs_avx2.c',
-          feature_src_dir + 'x86/ssimulacra2_avx2.c',
       ]
 
       x86_avx2_static_lib = static_library(
@@ -322,7 +321,22 @@ if is_asm_enabled
           c_args : ['-mavx', '-mavx2', '-mfma'] + vmaf_cflags_common,
       )
 
+      # ssimulacra2 AVX2 compiles in its own static lib with
+      # `-ffp-contract=off`. Rationale (mirror of arm64_ssimulacra2_lib
+      # carve-out): GCC 10+ / clang on x86 with `-mfma` auto-fuse plain
+      # C `a*b+c` in scalar tails + per-lane `cbrtf`/`powf` libm paths,
+      # yielding host-dependent drift. Scoped to ssimulacra2 only so
+      # prior AVX2 TUs (psnr_hvs, motion_v2, etc.) keep their
+      # established bit-exact behaviour.
+      x86_ssimulacra2_avx2_lib = static_library(
+          'x86_ssimulacra2_avx2',
+          feature_src_dir + 'x86/ssimulacra2_avx2.c',
+          include_directories : vmaf_base_include,
+          c_args : ['-mavx', '-mavx2', '-mfma', '-ffp-contract=off'] + vmaf_cflags_common,
+      )
+
       platform_specific_cpu_objects += x86_avx2_static_lib.extract_all_objects(recursive: true)
+      platform_specific_cpu_objects += x86_ssimulacra2_avx2_lib.extract_all_objects(recursive: true)
 
       if is_avx512_enabled and is_avx512_supported
         x86_avx512_sources = [
@@ -340,7 +354,6 @@ if is_asm_enabled
             feature_src_dir + 'x86/ciede_avx512.c',
             feature_src_dir + 'x86/ms_ssim_decimate_avx512.c',
             feature_src_dir + 'x86/convolve_avx512.c',
-            feature_src_dir + 'x86/ssimulacra2_avx512.c',
         ]
 
         x86_avx512_static_lib = static_library(
@@ -352,7 +365,19 @@ if is_asm_enabled
                      vmaf_cflags_common,
         )
 
+        # ssimulacra2 AVX-512 — same `-ffp-contract=off` carve-out as
+        # the AVX2 sibling. See x86_ssimulacra2_avx2_lib above.
+        x86_ssimulacra2_avx512_lib = static_library(
+            'x86_ssimulacra2_avx512',
+            feature_src_dir + 'x86/ssimulacra2_avx512.c',
+            include_directories : vmaf_base_include,
+            c_args : ['-mavx512f', '-mavx512dq', '-mavx512bw', '-mavx512cd',
+                      '-mavx512vbmi', '-mavx512vl', '-ffp-contract=off'] +
+                     vmaf_cflags_common,
+        )
+
         platform_specific_cpu_objects += x86_avx512_static_lib.extract_all_objects(recursive: true)
+        platform_specific_cpu_objects += x86_ssimulacra2_avx512_lib.extract_all_objects(recursive: true)
       endif
 
     endif
@@ -749,7 +774,6 @@ libvmaf_feature_sources = [
     feature_src_dir + 'float_ms_ssim.c',
     feature_src_dir + 'ssim.c',
     feature_src_dir + 'ms_ssim.c',
-    feature_src_dir + 'ssimulacra2.c',
     feature_src_dir + 'ms_ssim_decimate.c',
     feature_src_dir + 'iqa/decimate.c',
     feature_src_dir + 'iqa/ssim_tools.c',
@@ -824,12 +848,29 @@ if is_sycl_enabled
     endforeach
 endif
 
+# ssimulacra2.c scalar extractor compiles in its own static lib with
+# `-ffp-contract=off`. Rationale: `compute_vars` / `compute_masks` /
+# `accumulate_error` and the scalar fallback functions mix with the
+# SIMD function-pointer dispatch path; even when `xyb_fn` / `blur_fn`
+# etc. are SIMD, the scalar glue around them (accumulate_error, the
+# main extract loop, float pooling) must use the same FMA-contract
+# policy as the SIMD TUs to avoid cross-host drift. Scoped here so
+# other extractors' bit-exact behaviour is untouched.
+libvmaf_ssimulacra2_static_lib = static_library(
+    'libvmaf_ssimulacra2',
+    feature_src_dir + 'ssimulacra2.c',
+    include_directories : [libvmaf_include, vmaf_include, cuda_dir],
+    dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency],
+    c_args: vmaf_cflags_common + ['-ffp-contract=off'],
+)
+
 libvmaf_feature_static_lib = static_library(
     'libvmaf_feature',
     libvmaf_feature_sources,
     include_directories : [libvmaf_include, vmaf_include, cuda_dir],
     dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency],
-    objects: [common_cuda_objects, common_sycl_objects, sycl_feature_objects]
+    objects: [common_cuda_objects, common_sycl_objects, sycl_feature_objects,
+              libvmaf_ssimulacra2_static_lib.extract_all_objects(recursive: false)]
 )
 
 libsvm_cpp_args = vmaf_cflags_common

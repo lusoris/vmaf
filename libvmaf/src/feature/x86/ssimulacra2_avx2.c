@@ -50,6 +50,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "feature/ssimulacra2_math.h"
 #include "ssimulacra2_avx2.h"
 
 #pragma STDC FP_CONTRACT OFF
@@ -72,7 +73,7 @@ static inline __m256 cbrtf_lane_avx2(__m256 v)
     alignas(32) float tmp[8];
     _mm256_store_ps(tmp, v);
     for (int k = 0; k < 8; k++) {
-        tmp[k] = cbrtf(tmp[k]);
+        tmp[k] = vmaf_ss2_cbrtf(tmp[k]);
     }
     return _mm256_load_ps(tmp);
 }
@@ -112,7 +113,7 @@ void ssimulacra2_linear_rgb_to_xyb_avx2(const float *lin, float *xyb, unsigned w
     const float m01 = 1.0f - kM00 - kM02;
     const float m11 = 1.0f - kM10 - kM12;
     const float m22 = 1.0f - kM20 - kM21;
-    const float cbrt_bias = cbrtf(kOpsinBias);
+    const float cbrt_bias = vmaf_ss2_cbrtf(kOpsinBias);
 
     const __m256 vm00 = _mm256_set1_ps(kM00);
     const __m256 vm01 = _mm256_set1_ps(m01);
@@ -186,9 +187,9 @@ void ssimulacra2_linear_rgb_to_xyb_avx2(const float *lin, float *xyb, unsigned w
             m = 0.0f;
         if (s < 0.0f)
             s = 0.0f;
-        float L = cbrtf(l) - cbrt_bias;
-        float M = cbrtf(m) - cbrt_bias;
-        float S = cbrtf(s) - cbrt_bias;
+        float L = vmaf_ss2_cbrtf(l) - cbrt_bias;
+        float M = vmaf_ss2_cbrtf(m) - cbrt_bias;
+        float S = vmaf_ss2_cbrtf(s) - cbrt_bias;
         float X = 0.5f * (L - M);
         float Y = 0.5f * (L + M);
         float B = S;
@@ -682,11 +683,7 @@ static inline __m256 srgb_to_linear_lane_avx2(__m256 v)
     _mm256_store_ps(tmp, v);
     for (int k = 0; k < 8; k++) {
         const float x = tmp[k];
-        if (x <= 0.04045f) {
-            tmp[k] = x / 12.92f;
-        } else {
-            tmp[k] = powf((x + 0.055f) / 1.055f, 2.4f);
-        }
+        tmp[k] = vmaf_ss2_srgb_eotf(x);
     }
     return _mm256_load_ps(tmp);
 }
@@ -746,7 +743,9 @@ void ssimulacra2_picture_to_linear_rgb_avx2(int yuv_matrix, unsigned bpc, unsign
     const float peak = (float)((1u << bpc) - 1u);
     const float inv_peak = 1.0f / peak;
 
-    float kr, kg, kb;
+    float kr;
+    float kg;
+    float kb;
     int limited;
     compute_matrix_coefs(yuv_matrix, &kr, &kg, &kb, &limited);
 
@@ -838,9 +837,9 @@ void ssimulacra2_picture_to_linear_rgb_avx2(int yuv_matrix, unsigned bpc, unsign
                 B = 0.0f;
             if (B > 1.0f)
                 B = 1.0f;
-            const float Rl = (R <= 0.04045f) ? (R / 12.92f) : powf((R + 0.055f) / 1.055f, 2.4f);
-            const float Gl = (G <= 0.04045f) ? (G / 12.92f) : powf((G + 0.055f) / 1.055f, 2.4f);
-            const float Bl = (B <= 0.04045f) ? (B / 12.92f) : powf((B + 0.055f) / 1.055f, 2.4f);
+            const float Rl = vmaf_ss2_srgb_eotf(R);
+            const float Gl = vmaf_ss2_srgb_eotf(G);
+            const float Bl = vmaf_ss2_srgb_eotf(B);
             const size_t idx = (size_t)y * w + x;
             rp[idx] = Rl;
             gp[idx] = Gl;

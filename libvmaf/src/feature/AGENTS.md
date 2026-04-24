@@ -256,6 +256,16 @@ feature/
   [ADR-0159](../../../docs/adr/0159-psnr-hvs-avx2-bitexact.md)
   and [rebase-notes 0052](../../../docs/rebase-notes.md).
 
+- **SSIMULACRA 2 end-to-end regression gate** (fork-local, ADR-0164):
+  [`python/test/ssimulacra2_test.py`](../../../python/test/ssimulacra2_test.py)
+  pins pooled + per-frame `--feature ssimulacra2` output on two
+  checked-in YUV fixtures. **On rebase**: if the scalar or any SIMD
+  path changes semantically (should never happen per ADR-0161's
+  bit-exact contract), the test will fail with values that differ
+  by more than 1e-4. Don't update the pinned floats unilaterally —
+  figure out which kernel drifted and fix it. The Netflix golden
+  assertions in `quality_runner_test.py` et al. remain untouched.
+
 - **SSIMULACRA 2 `picture_to_linear_rgb` SIMD** (fork-local, ADR-0163):
   `ssimulacra2_picture_to_linear_rgb_{avx2,avx512,neon}` vectorises
   the last scalar hot path (2×/frame). Strategy: per-lane scalar

@@ -38,6 +38,7 @@
  * Scalar-only for now; AVX2/AVX-512/NEON SIMD variants are follow-up PRs.
  */
 
+// NOLINTNEXTLINE(misc-include-cleaner) — ENOMEM at line ~979 in init() bailouts.
 #include <errno.h>
 #include <math.h>
 #include <stddef.h>
@@ -47,6 +48,7 @@
 
 #include "feature_collector.h"
 #include "feature_extractor.h"
+#include "feature/ssimulacra2_math.h"
 #include "feature/ssimulacra2_simd_common.h"
 #include "mem.h"
 
@@ -256,7 +258,7 @@ typedef struct Ssimu2State {
     float *sigma12;   /* blur(ref_xyb*dist_xyb) */
     float *scratch;   /* horizontal-pass temp for separable IIR (one plane). */
     float *col_state; /* 6 * w floats: per-column IIR state for vertical pass. */
-    float *mul;       /* temp product buffer */
+    float *mul_buf;   /* temp product buffer */
 
     /* Capacities in pixels-per-plane (== w * h at full scale). */
     size_t cap_plane;
@@ -316,12 +318,12 @@ static inline float clampf(float v, float lo, float hi)
     return v;
 }
 
-/* sRGB → linear (matches IEC 61966-2-1). */
+/* sRGB → linear (matches IEC 61966-2-1). Uses the fork's deterministic
+ * LUT-based EOTF (ADR-0164) instead of libm `powf` so output is
+ * host-independent across glibc / musl / macOS libSystem. */
 static inline float srgb_to_linear(float v)
 {
-    if (v <= 0.04045f)
-        return v / 12.92f;
-    return powf((v + 0.055f) / 1.055f, 2.4f);
+    return vmaf_ss2_srgb_eotf(v);
 }
 
 /* Port of libjxl CreateRecursiveGaussian (lib/jxl/gauss_blur.cc).
@@ -414,7 +416,8 @@ static inline float read_plane(const VmafPicture *pic, int plane, int x, int y)
     unsigned ph = pic->h[plane];
     unsigned lw = pic->w[0];
     unsigned lh = pic->h[0];
-    int sx, sy;
+    int sx;
+    int sy;
     if (pw == lw) {
         sx = x;
     } else if (pw * 2 == lw) {
@@ -449,6 +452,11 @@ static inline float read_plane(const VmafPicture *pic, int plane, int x, int y)
 
 /* Apply YUV matrix → non-linear sRGB in [0,1], then sRGB EOTF → linear RGB.
  * Writes planar R|G|B, each plane w*h contiguous floats at `out`. */
+/* ADR-0141 carve-out: the matmul + per-pixel YUV-matrix dispatch +
+ * clamp + per-lane sRGB EOTF is a line-for-line port of the libjxl
+ * scalar reference path — splitting would break the scalar-diff
+ * audit story. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 static void picture_to_linear_rgb(const Ssimu2State *s, const VmafPicture *pic, float *out)
 {
     const unsigned w = s->w;
@@ -462,7 +470,14 @@ static void picture_to_linear_rgb(const Ssimu2State *s, const VmafPicture *pic, 
     const float inv_peak = 1.0f / peak;
 
     /* BT.709 limited-range (8-bit reference): Y in [16,235], C in [16,240]. */
-    float kr, kg, kb, ky, kcb_r, kcb_g, kcr_g, kcr_r;
+    float kr;
+    float kg;
+    float kb;
+    float ky;
+    float kcb_r;
+    float kcb_g;
+    float kcr_g;
+    float kcr_r;
     int limited = 1;
     switch (s->yuv_matrix) {
     case YUV_MATRIX_BT709_FULL:
@@ -556,10 +571,12 @@ static void linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsigned
     const float m01 = 1.0f - kM00 - kM02;
     const float m11 = 1.0f - kM10 - kM12;
     const float m22 = 1.0f - kM20 - kM21;
-    const float cbrt_bias = cbrtf(kOpsinBias);
+    const float cbrt_bias = vmaf_ss2_cbrtf(kOpsinBias);
 
     for (size_t i = 0; i < plane_sz; i++) {
-        float r = rp[i], g = gp[i], b = bp[i];
+        float r = rp[i];
+        float g = gp[i];
+        float b = bp[i];
         float l = kM00 * r + m01 * g + kM02 * b + kOpsinBias;
         float m = kM10 * r + m11 * g + kM12 * b + kOpsinBias;
         float s = kM20 * r + kM21 * g + m22 * b + kOpsinBias;
@@ -571,9 +588,9 @@ static void linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsigned
         if (s < 0.0f)
             s = 0.0f;
 
-        float L = cbrtf(l) - cbrt_bias;
-        float M = cbrtf(m) - cbrt_bias;
-        float S = cbrtf(s) - cbrt_bias;
+        float L = vmaf_ss2_cbrtf(l) - cbrt_bias;
+        float M = vmaf_ss2_cbrtf(m) - cbrt_bias;
+        float S = vmaf_ss2_cbrtf(s) - cbrt_bias;
 
         float X = 0.5f * (L - M);
         float Y = 0.5f * (L + M);
@@ -597,6 +614,10 @@ static void linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsigned
  * ---------------------------------------------------------------
  */
 
+/* ADR-0141 carve-out: the 4-deep loop nest (per-plane × per-output-row
+ * × per-output-col × 2×2 input sample) matches the libjxl scalar
+ * reference one-for-one; splitting would obscure the scalar diff. */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 static void downsample_2x2(const float *in, unsigned iw, unsigned ih, float *out, unsigned *ow_out,
                            unsigned *oh_out)
 {
@@ -646,10 +667,18 @@ static void downsample_2x2(const float *in, unsigned iw, unsigned ih, float *out
 static void fast_gaussian_1d(const Ssimu2State *s, const float *restrict in, float *restrict out,
                              ptrdiff_t xsize)
 {
-    float prev1_0 = 0.f, prev1_1 = 0.f, prev1_2 = 0.f;
-    float prev2_0 = 0.f, prev2_1 = 0.f, prev2_2 = 0.f;
-    const float n2_0 = s->rg_n2[0], n2_1 = s->rg_n2[1], n2_2 = s->rg_n2[2];
-    const float d1_0 = s->rg_d1[0], d1_1 = s->rg_d1[1], d1_2 = s->rg_d1[2];
+    float prev1_0 = 0.f;
+    float prev1_1 = 0.f;
+    float prev1_2 = 0.f;
+    float prev2_0 = 0.f;
+    float prev2_1 = 0.f;
+    float prev2_2 = 0.f;
+    const float n2_0 = s->rg_n2[0];
+    const float n2_1 = s->rg_n2[1];
+    const float n2_2 = s->rg_n2[2];
+    const float d1_0 = s->rg_d1[0];
+    const float d1_1 = s->rg_d1[1];
+    const float d1_2 = s->rg_d1[2];
     const ptrdiff_t N = (ptrdiff_t)s->rg_radius;
 
     for (ptrdiff_t n = -N + 1; n < xsize; n++) {
@@ -695,8 +724,12 @@ static void blur_plane(const Ssimu2State *s, const float *in, float *out, float 
     float *prev2_2 = s->col_state + 5u * xsize;
     memset(s->col_state, 0, 6u * xsize * sizeof(float));
 
-    const float n2_0 = s->rg_n2[0], n2_1 = s->rg_n2[1], n2_2 = s->rg_n2[2];
-    const float d1_0 = s->rg_d1[0], d1_1 = s->rg_d1[1], d1_2 = s->rg_d1[2];
+    const float n2_0 = s->rg_n2[0];
+    const float n2_1 = s->rg_n2[1];
+    const float n2_2 = s->rg_n2[2];
+    const float d1_0 = s->rg_d1[0];
+    const float d1_1 = s->rg_d1[1];
+    const float d1_2 = s->rg_d1[2];
     const ptrdiff_t N = (ptrdiff_t)s->rg_radius;
     const ptrdiff_t ysize = (ptrdiff_t)h;
 
@@ -803,7 +836,10 @@ static void edge_diff_map(const float *img1, const float *mu1, const float *img2
     const size_t plane = (size_t)w * (size_t)h;
     const double one_per_pixels = 1.0 / (double)plane;
     for (int c = 0; c < 3; c++) {
-        double s0 = 0.0, s1 = 0.0, s2 = 0.0, s3 = 0.0;
+        double s0 = 0.0;
+        double s1 = 0.0;
+        double s2 = 0.0;
+        double s3 = 0.0;
         const float *r1 = img1 + (size_t)c * plane;
         const float *rm1 = mu1 + (size_t)c * plane;
         const float *r2 = img2 + (size_t)c * plane;
@@ -945,12 +981,13 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->sigma1_sq = aligned_malloc(rgb_bytes, 32);
     s->sigma2_sq = aligned_malloc(rgb_bytes, 32);
     s->sigma12 = aligned_malloc(rgb_bytes, 32);
-    s->mul = aligned_malloc(rgb_bytes, 32);
+    s->mul_buf = aligned_malloc(rgb_bytes, 32);
     s->scratch = aligned_malloc(plane_bytes, 32);
     s->col_state = aligned_malloc(col_state_bytes, 32);
 
     if (!s->ref_lin || !s->dist_lin || !s->ref_xyb || !s->dist_xyb || !s->mu1 || !s->mu2 ||
-        !s->sigma1_sq || !s->sigma2_sq || !s->sigma12 || !s->mul || !s->scratch || !s->col_state) {
+        !s->sigma1_sq || !s->sigma2_sq || !s->sigma12 || !s->mul_buf || !s->scratch ||
+        !s->col_state) {
         return -ENOMEM;
     }
 
@@ -1003,14 +1040,14 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         s->xyb_fn(s->ref_lin, s->ref_xyb, cw, ch);
         s->xyb_fn(s->dist_lin, s->dist_xyb, cw, ch);
 
-        s->mul3_fn(s->ref_xyb, s->ref_xyb, s->mul, cw, ch);
-        blur_3plane(s, s->mul, s->sigma1_sq, cw, ch);
+        s->mul3_fn(s->ref_xyb, s->ref_xyb, s->mul_buf, cw, ch);
+        blur_3plane(s, s->mul_buf, s->sigma1_sq, cw, ch);
 
-        s->mul3_fn(s->dist_xyb, s->dist_xyb, s->mul, cw, ch);
-        blur_3plane(s, s->mul, s->sigma2_sq, cw, ch);
+        s->mul3_fn(s->dist_xyb, s->dist_xyb, s->mul_buf, cw, ch);
+        blur_3plane(s, s->mul_buf, s->sigma2_sq, cw, ch);
 
-        s->mul3_fn(s->ref_xyb, s->dist_xyb, s->mul, cw, ch);
-        blur_3plane(s, s->mul, s->sigma12, cw, ch);
+        s->mul3_fn(s->ref_xyb, s->dist_xyb, s->mul_buf, cw, ch);
+        blur_3plane(s, s->mul_buf, s->sigma12, cw, ch);
 
         blur_3plane(s, s->ref_xyb, s->mu1, cw, ch);
         blur_3plane(s, s->dist_xyb, s->mu2, cw, ch);
@@ -1020,16 +1057,17 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         completed++;
 
         if (scale + 1 < kNumScales) {
-            unsigned nw = 0, nh = 0;
-            s->down_fn(s->ref_lin, cw, ch, s->mul, &nw, &nh);
+            unsigned nw = 0;
+            unsigned nh = 0;
+            s->down_fn(s->ref_lin, cw, ch, s->mul_buf, &nw, &nh);
             /* swap: mul now holds downsampled ref_lin */
             float *tmp = s->ref_lin;
-            s->ref_lin = s->mul;
-            s->mul = tmp;
-            s->down_fn(s->dist_lin, cw, ch, s->mul, &nw, &nh);
+            s->ref_lin = s->mul_buf;
+            s->mul_buf = tmp;
+            s->down_fn(s->dist_lin, cw, ch, s->mul_buf, &nw, &nh);
             tmp = s->dist_lin;
-            s->dist_lin = s->mul;
-            s->mul = tmp;
+            s->dist_lin = s->mul_buf;
+            s->mul_buf = tmp;
             cw = nw;
             ch = nh;
         }
@@ -1053,7 +1091,7 @@ static int close(VmafFeatureExtractor *fex)
     aligned_free(s->sigma1_sq);
     aligned_free(s->sigma2_sq);
     aligned_free(s->sigma12);
-    aligned_free(s->mul);
+    aligned_free(s->mul_buf);
     aligned_free(s->scratch);
     aligned_free(s->col_state);
     return 0;
@@ -1061,6 +1099,9 @@ static int close(VmafFeatureExtractor *fex)
 
 static const char *provided_features[] = {"ssimulacra2", NULL};
 
+/* External linkage is required — the extractor registry iterates over
+ * `vmaf_fex_*` externs in libvmaf/src/feature/feature_extractor.c. */
+// NOLINTNEXTLINE(misc-use-internal-linkage,cppcoreguidelines-avoid-non-const-global-variables)
 VmafFeatureExtractor vmaf_fex_ssimulacra2 = {
     .name = "ssimulacra2",
     .init = init,
