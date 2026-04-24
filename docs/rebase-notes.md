@@ -2279,6 +2279,57 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0051 — Netflix#1486 motion updates verified present (ADR-0158)
+
+- **ADR**: [ADR-0158](adr/0158-netflix-1486-motion-updates-verified-present.md)
+- **Upstream source**: Netflix upstream PR
+  [#1486](https://github.com/Netflix/vmaf/pull/1486) ("Port motion
+  updates"), MERGED 2026-04-20 as commits `a44e5e6` (code) + `62f47d5`
+  (Netflix golden updates).
+- **Touches**: documentation-only; the actual code changes this
+  ADR documents are already in the fork's master via earlier
+  incremental motion3 / blend / five-frame-window commits.
+- **Invariants** (load-bearing for future `/sync-upstream`):
+  1. The `edge_8` mirror fix (`i_tap = height - (i_tap - height + 2)`)
+     is present at `integer_motion.c:240`,
+     `x86/motion_avx2.c:147`, `x86/motion_avx512.c:147`. If
+     upstream's mirror line ever diverges again, this is the
+     hunk to watch.
+  2. The `motion_max_val` feature option is at
+     `integer_motion.c:57,118-120` with default 10000.0 and
+     `FEATURE_PARAM` flag. Upstream's default = fork's default;
+     don't drift.
+  3. `VMAF_integer_feature_motion3_score` output plumbing is in
+     `integer_motion.c` + `alias.c`.
+  4. Fork-local motion extensions (five-frame-window,
+     moving-average, blend, fps_weight) are ADDITIONS on top of
+     Netflix#1486. They are not upstream. Upstream changes to
+     motion extractor internals may conflict with them — diff
+     against `libvmaf/src/feature/integer_motion.c` on every
+     rebase and check that the fork's `MIN(s->score *
+     s->motion_fps_weight, s->motion_max_val)` invocations are
+     preserved (lines ~409, ~503).
+- **On upstream sync**: nothing to port from Netflix#1486 — it's
+  absorbed. If a future upstream PR touches the same code paths,
+  prefer upstream's version for the scalar/edge handling and the
+  fork's version for the five-frame-window / blend extensions.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C build
+  meson test -C build
+  # Expect: 35/35 pass.
+
+  # Verify the upstream markers are still in place after rebase:
+  grep -n "height - (i_tap - height + 2)\|motion_max_val\|VMAF_integer_feature_motion3_score" \
+      libvmaf/src/feature/integer_motion.c \
+      libvmaf/src/feature/alias.c \
+      libvmaf/src/feature/x86/motion_avx2.c \
+      libvmaf/src/feature/x86/motion_avx512.c
+  # Expect: matches at all 4 files. If any missing, the rebase
+  # silently dropped the Netflix#1486 content — investigate.
+  ```
+
 ### 0050 — CUDA preallocation memory leak fix + `vmaf_cuda_state_free` (ADR-0157)
 
 - **ADR**: [ADR-0157](adr/0157-cuda-preallocation-leak-netflix-1300.md)
