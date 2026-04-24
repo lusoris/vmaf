@@ -35,10 +35,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "log.h"
-#if ARCH_X86
+#if ARCH_X86 || ARCH_AARCH64
 #include "cpu.h"
+#endif
+#if ARCH_X86
 #include "feature/x86/psnr_hvs_avx2.h"
 #include "x86/cpu.h"
+#endif
+#if ARCH_AARCH64
+#include "feature/arm64/psnr_hvs_neon.h"
 #endif
 
 typedef int32_t od_coeff;
@@ -407,10 +412,17 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     }
 
     s->calc_psnrhvs = calc_psnrhvs;
-#if ARCH_X86
+#if ARCH_X86 || ARCH_AARCH64
     unsigned flags = vmaf_get_cpu_flags();
+#endif
+#if ARCH_X86
     if (flags & VMAF_X86_CPU_FLAG_AVX2) {
         s->calc_psnrhvs = calc_psnrhvs_avx2;
+    }
+#endif
+#if ARCH_AARCH64
+    if (flags & VMAF_ARM_CPU_FLAG_NEON) {
+        s->calc_psnrhvs = calc_psnrhvs_neon;
     }
 #endif
 

@@ -252,10 +252,29 @@ feature/
   guarantee. The scalar TU
   [`third_party/xiph/psnr_hvs.c`](third_party/xiph/psnr_hvs.c)
   is the bit-exact reference; don't touch its butterfly block
-  without matching changes in the AVX2 TU. NEON follow-up PR
-  (T3-5-neon, pending) will mirror these invariants in
-  `arm64/psnr_hvs_neon.c`. See
+  without matching changes in the AVX2 TU. See
   [ADR-0159](../../../docs/adr/0159-psnr-hvs-avx2-bitexact.md)
+  and [rebase-notes 0052](../../../docs/rebase-notes.md).
+
+- **`psnr_hvs` NEON DCT bit-exactness** (fork-local, ADR-0160):
+  [`arm64/psnr_hvs_neon.c`](arm64/psnr_hvs_neon.c) is the aarch64
+  sister port to the AVX2 TU. NEON's 4-wide `int32x4_t` splits
+  each 8-column row into `r_k_lo` (cols 0-3) + `r_k_hi` (cols
+  4-7); the 30-butterfly runs twice per DCT pass, and 8×8
+  transpose = four `transpose4x4_s32` (via `vtrn1q_s32` /
+  `vtrn2q_s32` / `vtrn1q_s64` / `vtrn2q_s64`) + a top-right
+  ↔ bottom-left block swap. **On rebase**: the two SIMD TUs
+  (AVX2 + NEON) must move in lockstep with the scalar Xiph
+  reference — any change to the butterfly in `psnr_hvs.c`
+  requires matched edits to both SIMD TUs and a re-run of
+  `test_psnr_hvs_{avx2,neon}`. `accumulate_error()` must keep
+  threading the outer `ret` by pointer (ADR-0159 summation-order
+  lesson; a local float accumulator would drift the Netflix
+  golden by ~5.5e-5). `#pragma STDC FP_CONTRACT OFF` is ignored
+  by aarch64 GCC (non-fatal `-Wunknown-pragmas`) but kept for
+  portability; aarch64 GCC does not contract `a + b * c` across
+  statements at default optimization anyway. See
+  [ADR-0160](../../../docs/adr/0160-psnr-hvs-neon-bitexact.md)
   and [rebase-notes 0052](../../../docs/rebase-notes.md).
 
 ## Governing ADRs

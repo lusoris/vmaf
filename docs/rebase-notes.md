@@ -1822,10 +1822,10 @@ inline.*
   "feature/common: generalize avx convolution for arbitrary filter widths"
   (Kyle Swanson, 2026-04-21).
 - **Touches**:
-  - [`libvmaf/src/feature/common/convolution.h`](../libvmaf/src/feature/common/convolution.h) —
-    upstream-tracking: adds `#define MAX_FWIDTH_AVX_CONV 17`.
-  - [`libvmaf/src/feature/common/convolution_avx.c`](../libvmaf/src/feature/common/convolution_avx.c) —
-    upstream-tracking (2,500 LoC deletion) **plus fork-delta cleanup**
+  - [convolution.h](../libvmaf/src/feature/common/convolution.h)
+    — upstream-tracking: adds `#define MAX_FWIDTH_AVX_CONV 17`.
+  - [convolution_avx.c](../libvmaf/src/feature/common/convolution_avx.c)
+    — upstream-tracking (2,500 LoC deletion) **plus fork-delta cleanup**
     per ADR-0141: four scanline helpers `convolution_f32_avx_s_1d_*`
     changed from external linkage to `static` (no other TU uses them
     after the specialised-path removal); stride parameters widened
@@ -1862,6 +1862,7 @@ inline.*
      upstream bumps it, the fork must rebuild + re-run the VIF golden
      test pair.
 - **Re-test**:
+
   ```bash
   meson setup build -Denable_cuda=false -Denable_sycl=false
   ninja -C build
@@ -1869,6 +1870,7 @@ inline.*
   clang-tidy -p build libvmaf/src/feature/common/convolution_avx.c
   # Zero warnings expected on the touched file.
   ```
+
   Netflix CPU golden CI leg exercises the two loosened assertions;
   confirmed locally under meson test.
 - **On upstream sync**: upstream is the source of truth for
@@ -1891,14 +1893,14 @@ inline.*
   Upstream scalar + AVX2 + AVX-512 variants exist; this PR adds the
   missing NEON fourth path. Scalar is the bit-exactness ground truth.
 - **Touches** (fork-local):
-  - [`libvmaf/src/feature/arm64/motion_v2_neon.c`](../libvmaf/src/feature/arm64/motion_v2_neon.c) —
-    new TU, ~300 LoC. 4-wide int32 SIMD over the 5-tap Gaussian
+  - [motion_v2_neon.c](../libvmaf/src/feature/arm64/motion_v2_neon.c)
+    — new TU, ~300 LoC. 4-wide int32 SIMD over the 5-tap Gaussian
     pipeline. Five `static inline` helpers keep every function
     under the ADR-0141 60-line budget.
-  - [`libvmaf/src/feature/arm64/motion_v2_neon.h`](../libvmaf/src/feature/arm64/motion_v2_neon.h) —
-    new header declaring the two public entry points.
-  - [`libvmaf/src/feature/integer_motion_v2.c`](../libvmaf/src/feature/integer_motion_v2.c) —
-    dispatch update: adds an `#if ARCH_AARCH64` block in `init`
+  - [motion_v2_neon.h](../libvmaf/src/feature/arm64/motion_v2_neon.h)
+    — new header declaring the two public entry points.
+  - [integer_motion_v2.c](../libvmaf/src/feature/integer_motion_v2.c)
+    — dispatch update: adds an `#if ARCH_AARCH64` block in `init`
     that selects the NEON variant when `VMAF_ARM_CPU_FLAG_NEON` is
     present, mirroring the existing x86 dispatch blocks.
   - [`libvmaf/src/meson.build`](../libvmaf/src/meson.build) — add
@@ -1926,23 +1928,30 @@ inline.*
      if upstream changes the signature, mirror the change here
      AND in the x86 variants in lockstep.
 - **Re-test**:
+
   ```bash
-  meson setup build-aarch64 libvmaf --cross-file build-aux/aarch64-linux-gnu.ini \
+  meson setup build-aarch64 libvmaf \
+    --cross-file build-aux/aarch64-linux-gnu.ini \
     -Denable_cuda=false -Denable_sycl=false
   ninja -C build-aarch64
-  meson test -C build-aarch64 --no-rebuild            # expect 31/31 OK
-  clang-tidy -p build-aarch64 libvmaf/src/feature/arm64/motion_v2_neon.c
+  meson test -C build-aarch64 --no-rebuild   # expect 31/31 OK
+  clang-tidy -p build-aarch64 \
+    libvmaf/src/feature/arm64/motion_v2_neon.c
   # Zero warnings expected on the touched file.
+
   # NEON-vs-scalar bit-exact diff under QEMU:
+  YUV=python/test/resource/yuv
   for mask in 0 255; do
-    LD_LIBRARY_PATH=build-aarch64/src qemu-aarch64-static -L /usr/aarch64-linux-gnu \
+    LD_LIBRARY_PATH=build-aarch64/src \
+      qemu-aarch64-static -L /usr/aarch64-linux-gnu \
       build-aarch64/tools/vmaf \
-      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
-      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      -r $YUV/src01_hrc00_576x324.yuv \
+      -d $YUV/src01_hrc01_576x324.yuv \
       -w 576 -h 324 -p 420 -b 8 -n --feature motion_v2 \
-      --cpumask $mask --output /tmp/mv2_$mask.xml --precision max
+      --cpumask $mask -o /tmp/mv2_$mask.xml --precision max
   done
-  diff <(grep -v 'fps=' /tmp/mv2_0.xml) <(grep -v 'fps=' /tmp/mv2_255.xml)  # expect empty
+  diff <(grep -v 'fps=' /tmp/mv2_0.xml) \
+       <(grep -v 'fps=' /tmp/mv2_255.xml)  # expect empty
   ```
 - **On upstream sync**: upstream has no NEON `motion_v2` and has not
   signalled plans to add one. If they ever do, diff their NEON
@@ -2279,26 +2288,34 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
-### 0052 — `psnr_hvs` AVX2 bit-exact port (ADR-0159)
+### 0052 — `psnr_hvs` SIMD bit-exact ports (ADR-0159 AVX2, ADR-0160 NEON)
 
-- **ADR**: [ADR-0159](adr/0159-psnr-hvs-avx2-bitexact.md)
+- **ADRs**: [ADR-0159](adr/0159-psnr-hvs-avx2-bitexact.md) (AVX2),
+  [ADR-0160](adr/0160-psnr-hvs-neon-bitexact.md) (NEON sister port).
 - **Upstream source**: fork-local. Upstream Netflix/vmaf has no
   psnr_hvs SIMD path.
 - **Touches**:
   - [`libvmaf/src/feature/x86/psnr_hvs_avx2.c`](../libvmaf/src/feature/x86/psnr_hvs_avx2.c)
-    — new TU, AVX2 implementation.
+    — AVX2 TU.
   - [`libvmaf/src/feature/x86/psnr_hvs_avx2.h`](../libvmaf/src/feature/x86/psnr_hvs_avx2.h)
-    — new header.
+    — AVX2 header.
+  - [`libvmaf/src/feature/arm64/psnr_hvs_neon.c`](../libvmaf/src/feature/arm64/psnr_hvs_neon.c)
+    — NEON TU (sister port, ADR-0160).
+  - [`libvmaf/src/feature/arm64/psnr_hvs_neon.h`](../libvmaf/src/feature/arm64/psnr_hvs_neon.h)
+    — NEON header.
   - [`libvmaf/src/feature/third_party/xiph/psnr_hvs.c`](../libvmaf/src/feature/third_party/xiph/psnr_hvs.c)
-    — add `PsnrHvsState` + runtime dispatch in `init()` +
-    scoped NOLINTBEGIN/END around the upstream Xiph scalar block
-    (kept verbatim as the bit-exact reference).
+    — add `PsnrHvsState` + runtime dispatch in `init()` (AVX2
+    under `ARCH_X86`, NEON under `ARCH_AARCH64`) + scoped
+    NOLINTBEGIN/END around the upstream Xiph scalar block (kept
+    verbatim as the bit-exact reference).
   - [`libvmaf/src/meson.build`](../libvmaf/src/meson.build) — add
-    `x86/psnr_hvs_avx2.c` to `x86_avx2_sources`.
-  - [`libvmaf/test/test_psnr_hvs_avx2.c`](../libvmaf/test/test_psnr_hvs_avx2.c)
-    — new bit-exact unit test.
+    `x86/psnr_hvs_avx2.c` to `x86_avx2_sources` and
+    `arm64/psnr_hvs_neon.c` to `arm64_sources`.
+  - [`libvmaf/test/test_psnr_hvs_avx2.c`](../libvmaf/test/test_psnr_hvs_avx2.c),
+    [`libvmaf/test/test_psnr_hvs_neon.c`](../libvmaf/test/test_psnr_hvs_neon.c)
+    — bit-exact unit tests (x86 and aarch64 respectively).
   - [`libvmaf/test/meson.build`](../libvmaf/test/meson.build) —
-    register new test under `enable_asm`.
+    register both tests under `enable_asm`, arch-gated.
 - **Invariants** (load-bearing):
   1. **Bit-exactness to scalar**: every `od_coeff` (int32) and
      every final `psnr_hvs_{y,cb,cr,psnr_hvs}` value the AVX2
