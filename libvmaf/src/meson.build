@@ -264,7 +264,6 @@ if is_asm_enabled
           feature_src_dir + 'arm64/convolve_neon.c',
           feature_src_dir + 'arm64/motion_v2_neon.c',
           feature_src_dir + 'arm64/psnr_hvs_neon.c',
-          feature_src_dir + 'arm64/ssimulacra2_neon.c',
         ]
 
           arm64_static_lib = static_library(
@@ -274,7 +273,24 @@ if is_asm_enabled
           c_args : vmaf_cflags_common + ['-DARCH_AARCH64']
         )
 
+        # ssimulacra2_neon.c compiles in its own static lib with
+        # `-ffp-contract=off`. Rationale: GCC 10+ / clang default to
+        # `-ffp-contract=fast` on aarch64, which auto-fuses plain C
+        # `a*b+c` in the scalar tail / scalar reference into `fmla`.
+        # NEON intrinsics are opaque to the fusion pass, so the SIMD
+        # loop stays unfused. Without the flag, scalar tail and SIMD
+        # main loop drift by ~1 ulp (ADR-0161 regression seen in CI).
+        # Scoped to ssimulacra2 only so prior NEON TUs (psnr_hvs,
+        # motion_v2, etc.) keep their established bit-exact behaviour.
+        arm64_ssimulacra2_lib = static_library(
+          'arm64_ssimulacra2',
+          feature_src_dir + 'arm64/ssimulacra2_neon.c',
+          include_directories : vmaf_base_include,
+          c_args : vmaf_cflags_common + ['-DARCH_AARCH64', '-ffp-contract=off'],
+        )
+
         platform_specific_cpu_objects += arm64_static_lib.extract_all_objects()
+        platform_specific_cpu_objects += arm64_ssimulacra2_lib.extract_all_objects()
     endif
 
     if host_machine.cpu_family().startswith('x86')

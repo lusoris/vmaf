@@ -230,6 +230,13 @@ endif
 
 ssimulacra2_simd_test_archs = ['x86_64', 'x86', 'aarch64', 'arm64']
 if ssimulacra2_simd_test_archs.contains(host_machine.cpu_family())
+# `-ffp-contract=off` is required for bit-exactness on aarch64:
+# GCC 10+ and clang default to `-ffp-contract=fast` on aarch64, which
+# auto-fuses plain C `a*b+c` into `fmla`. The scalar reference in the
+# test TU would fuse; NEON intrinsics do not fuse (compiler treats
+# them as opaque). x86 avoids this because `-mfma` is scoped to the
+# AVX2/AVX-512 static libs only, so scalar code can't fuse on x86
+# regardless of contract setting. See ADR-0161 follow-up notes.
 test_ssimulacra2_simd = executable('test_ssimulacra2_simd',
     ['test.c', 'test_ssimulacra2_simd.c',
      '../src/mem.c', '../src/picture.c', '../src/ref.c',
@@ -237,7 +244,7 @@ test_ssimulacra2_simd = executable('test_ssimulacra2_simd',
      '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
                            include_directories('../src/feature/'), dnn_inc],
-    c_args : vmaf_cflags_common + dnn_defines,
+    c_args : vmaf_cflags_common + dnn_defines + ['-ffp-contract=off'],
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
                     cuda_dependency, sycl_dependency, dnn_deps],
     objects : [
