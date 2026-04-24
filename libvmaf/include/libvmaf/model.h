@@ -32,18 +32,25 @@ typedef struct VmafModel VmafModel;
 /**
  * Discriminates which runtime owns a loaded model.
  *
- *   - SVM    — upstream libsvm-backed model (default, json/pkl).
- *   - DNN_FR — feature-vector → MOS (tiny FR regressor, .onnx + sidecar).
- *   - DNN_NR — distorted frame → MOS, no reference needed (.onnx + sidecar).
+ *   - SVM        — upstream libsvm-backed model (default, json/pkl).
+ *   - DNN_FR     — feature-vector → MOS (tiny FR regressor, .onnx + sidecar).
+ *   - DNN_NR     — distorted frame → MOS, no reference needed (.onnx + sidecar).
+ *   - DNN_FILTER — degraded → clean residual filter (.onnx + sidecar). Consumed
+ *                  by the ffmpeg `vmaf_pre` filter; NOT loaded by libvmaf's
+ *                  scoring path. Tracked in the tiny registry for trust-root
+ *                  hygiene (sha256-pinned, signed) but never reaches
+ *                  `vmaf_score_*`.
  *
  * Auto-detected by vmaf_model_load_from_path() from the file extension:
  * `.json`/`.pkl` → SVM, `.onnx` → DNN_FR (unless the matching sidecar JSON
- * sets `"kind": "nr"`, in which case DNN_NR).
+ * sets `"kind": "nr"` or `"kind": "filter"`, in which case DNN_NR /
+ * DNN_FILTER).
  */
 typedef enum VmafModelKind {
     VMAF_MODEL_KIND_SVM = 0,
     VMAF_MODEL_KIND_DNN_FR = 1,
     VMAF_MODEL_KIND_DNN_NR = 2,
+    VMAF_MODEL_KIND_DNN_FILTER = 3,
 } VmafModelKind;
 
 enum VmafModelFlags {

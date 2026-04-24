@@ -8,6 +8,29 @@
 
 ### Added
 
+- **Tiny-AI Wave 1 baselines C2 + C3** (fork-local): trained ONNX
+  checkpoints `nr_metric_v1.onnx` (NR MobileNet, ~19K params,
+  224×224 grayscale → MOS) and `learned_filter_v1.onnx` (residual
+  CNN for ffmpeg `vmaf_pre`, ~19K params, denoise-style residual
+  filter) shipped in `model/tiny/`. Both trained on KoNViD-1k:
+  C2 supervised on its MOS labels, C3 self-supervised on
+  synthetic gaussian + JPEG degradation pairs derived from the same
+  middle-frames. Op-allowlist + ORT roundtrip atol 1e-4 both pass.
+  Four new scripts under `ai/scripts/` (`fetch_konvid_1k.py` /
+  `extract_konvid_frames.py` / `train_konvid.py` /
+  `export_tiny_models.py`); two new datamodule classes
+  (`FrameMOSDataset`, `PairedFrameDataset`) in
+  `vmaf_train.data.frame_dataset`. Registry schema +
+  `VmafModelKind` enum extended with `kind: "filter"` to accommodate
+  C3 (registry trust-root for filter models — NOT loaded by
+  libvmaf's scoring path). KoNViD-1k MOS values are not
+  redistributed; populated manifest stays gitignored. **C1
+  (`fr_regressor_v1.onnx`) is deferred** — Netflix Public Dataset
+  is access-gated (Google Drive, manual approval) and cannot be
+  downloaded programmatically; tracked in
+  [`docs/state.md`](docs/state.md). See
+  [ADR-0168](docs/adr/0168-tinyai-konvid-baselines.md). Closes
+  BACKLOG T6-1 partially (2 of 3).
 - **Path-mapped doc-drift enforcement** (fork-local): closes the
   gap surfaced by the 2026-04-25 docs audit. New project hook
   [`.claude/hooks/docs-drift-warn.sh`](.claude/hooks/docs-drift-warn.sh)

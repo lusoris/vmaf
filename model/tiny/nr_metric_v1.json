@@ -1,0 +1,8 @@
+{
+  "id": "nr_metric_v1",
+  "kind": "nr",
+  "onnx": "nr_metric_v1.onnx",
+  "opset": 17,
+  "sha256": "60c2bd59a3bf879a02cb564213ba31e79172437f13261c63a1e1bca711a50e46",
+  "notes": "Tiny NR MobileNet (C2) \u2014 single luma frame \u2192 MOS scalar. Trained on KoNViD-1k middle-frames (1200 clips, ~973 train / ~106 val) at 224\u00d7224 grayscale. Exported via ai/scripts/export_tiny_models.py."
+}

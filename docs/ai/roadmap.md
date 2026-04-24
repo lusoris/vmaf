@@ -42,16 +42,18 @@ Order is rough; "ship baselines" is the blocker on everything else.
 
 ### 2.1 Ship baselines
 
-Without actual ONNX files the surfaces are cosmetic.
+| Model | Role | Status | Target / Result |
+| --- | --- | --- | --- |
+| `fr_regressor_v1.onnx` | C1 FR | **Deferred** — Netflix Public Dataset is access-gated (manual Google Drive request). | Match or beat `vmaf_v0.6.1` PLCC on NFLX public |
+| `nr_metric_v1.onnx` | C2 NR | **Shipped 2026-04-25** ([ADR-0168](../adr/0168-tinyai-konvid-baselines.md)) | KoNViD-1k val/MSE 0.382 (~RMSE 0.62 on 1–5 MOS); MobileNet-tiny ~19K params |
+| `learned_filter_v1.onnx` | C3 filter | **Shipped 2026-04-25** ([ADR-0168](../adr/0168-tinyai-konvid-baselines.md)) | KoNViD-1k self-supervised val/L1 0.019 on normalised luma; 4-block residual CNN ~19K params |
 
-| Model | Role | Target |
-| --- | --- | --- |
-| `fr_regressor_v1.onnx` | C1 FR | Match or beat `vmaf_v0.6.1` PLCC on NFLX public |
-| `nr_metric_v1.onnx` | C2 NR | Useful on live-encode + UGC without a reference |
-| `learned_filter_v1.onnx` | C3 filter | Residual luma denoise, ≤ +2% encode time |
-
-First training run also exercises the `vmaf-train` CLI end-to-end and
-proves the sidecar-JSON round-trip.
+The C2 + C3 first training run exercised the full pipeline end-to-end:
+`fetch_konvid_1k.py` → `vmaf-train manifest-scan` →
+`extract_konvid_frames.py` → `train_konvid.py` →
+`export_tiny_models.py` → `model/tiny/registry.json`. C1 is gated on
+Netflix Public Dataset access; tracked in
+[`docs/state.md`](../state.md).
 
 ### 2.2 LPIPS-SqueezeNet as an FR baseline
 

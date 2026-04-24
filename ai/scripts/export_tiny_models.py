@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""Export trained C2 + C3 Lightning checkpoints to ONNX and update
+``model/tiny/registry.json``.
+
+After ``ai/scripts/train_konvid.py --model both`` finishes, this script:
+
+  1. loads each Lightning ``.ckpt``,
+  2. calls ``vmaf_train.models.exports.export_to_onnx`` with the right
+     input shape (matches the training-time tensor),
+  3. writes the ONNX file under ``model/tiny/``,
+  4. computes its SHA-256,
+  5. patches ``model/tiny/registry.json`` to add (or update) the C2 / C3
+     entries,
+  6. writes the per-model sidecar JSON manifest used by the registry
+     loader.
+
+Idempotent — re-running overwrites the ONNX + sidecar JSON and updates
+the registry row in place.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+import torch
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "ai" / "src"))
+
+from vmaf_train.models import LearnedFilter, NRMetric  # noqa: E402
+from vmaf_train.models.exports import export_to_onnx  # noqa: E402
+
+TINY_DIR = REPO_ROOT / "model" / "tiny"
+REGISTRY = TINY_DIR / "registry.json"
+
+C2_CKPT_DEFAULT = REPO_ROOT / "runs" / "c2_konvid" / "last.ckpt"
+C3_CKPT_DEFAULT = REPO_ROOT / "runs" / "c3_konvid" / "last.ckpt"
+
+C2_INPUT_HW = 224
+C3_INPUT_HW = 224
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            chunk = fh.read(1 << 20)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _load_lightning_ckpt(model_cls, ckpt: Path):
+    state = torch.load(ckpt, map_location="cpu", weights_only=False)
+    hp = state.get("hyper_parameters", {}) or {}
+    model = model_cls(**hp)
+    model.load_state_dict(state["state_dict"])
+    return model.eval()
+
+
+def _export_one(
+    *,
+    model,
+    onnx_path: Path,
+    in_shape: tuple[int, ...],
+    input_name: str,
+    output_name: str,
+) -> None:
+    print(f"[export] {onnx_path.name} from in_shape={in_shape}")
+    export_to_onnx(
+        model,
+        onnx_path,
+        in_shape=in_shape,
+        input_name=input_name,
+        output_name=output_name,
+        atol=1e-4,
+    )
+    # torch.onnx may emit a separate <onnx>.data file when the dynamo
+    # exporter splits weights out as external data. Re-save inline so the
+    # registry sha256 covers the full model bytes (the schema's trust-root
+    # contract assumes a single self-contained .onnx file).
+    import onnx
+
+    model_proto = onnx.load(str(onnx_path))
+    onnx.save(model_proto, str(onnx_path), save_as_external_data=False)
+    sidecar_data = onnx_path.with_suffix(".onnx.data")
+    if sidecar_data.exists():
+        sidecar_data.unlink()
+
+
+def _write_sidecar(model_id: str, onnx_path: Path, kind: str, notes: str) -> Path:
+    sidecar = TINY_DIR / f"{model_id}.json"
+    sidecar.write_text(
+        json.dumps(
+            {
+                "id": model_id,
+                "kind": kind,
+                "onnx": onnx_path.name,
+                "opset": 17,
+                "sha256": _sha256(onnx_path),
+                "notes": notes,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    return sidecar
+
+
+def _update_registry(*entries: dict[str, object]) -> None:
+    if not REGISTRY.exists():
+        sys.exit(f"missing {REGISTRY}")
+    doc = json.loads(REGISTRY.read_text())
+    by_id: dict[str, dict] = {m["id"]: m for m in doc.get("models", [])}
+    for e in entries:
+        by_id[e["id"]] = e
+    doc["models"] = sorted(by_id.values(), key=lambda m: m["id"])
+    REGISTRY.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--c2-ckpt", type=Path, default=C2_CKPT_DEFAULT)
+    parser.add_argument("--c3-ckpt", type=Path, default=C3_CKPT_DEFAULT)
+    parser.add_argument("--c2-id", default="nr_metric_v1")
+    parser.add_argument("--c3-id", default="learned_filter_v1")
+    args = parser.parse_args()
+
+    TINY_DIR.mkdir(parents=True, exist_ok=True)
+    new_entries = []
+
+    if args.c2_ckpt.exists():
+        c2 = _load_lightning_ckpt(NRMetric, args.c2_ckpt)
+        c2_onnx = TINY_DIR / f"{args.c2_id}.onnx"
+        _export_one(
+            model=c2,
+            onnx_path=c2_onnx,
+            in_shape=(1, 1, C2_INPUT_HW, C2_INPUT_HW),
+            input_name="frame",
+            output_name="mos",
+        )
+        _write_sidecar(
+            args.c2_id,
+            c2_onnx,
+            kind="nr",
+            notes=(
+                "Tiny NR MobileNet (C2) — single luma frame → MOS scalar. "
+                "Trained on KoNViD-1k middle-frames (1200 clips, "
+                "~973 train / ~106 val) at 224×224 grayscale. "
+                "Exported via ai/scripts/export_tiny_models.py."
+            ),
+        )
+        new_entries.append(
+            {
+                "id": args.c2_id,
+                "kind": "nr",
+                "notes": (
+                    "Tiny NR MobileNet baseline trained on KoNViD-1k "
+                    "(CC BY 4.0; not redistributed). 224×224 grayscale "
+                    "input; ~19K params; opset 17. See "
+                    "docs/adr/0168-tinyai-konvid-baselines.md."
+                ),
+                "onnx": c2_onnx.name,
+                "opset": 17,
+                "sha256": _sha256(c2_onnx),
+            }
+        )
+
+    if args.c3_ckpt.exists():
+        c3 = _load_lightning_ckpt(LearnedFilter, args.c3_ckpt)
+        c3_onnx = TINY_DIR / f"{args.c3_id}.onnx"
+        _export_one(
+            model=c3,
+            onnx_path=c3_onnx,
+            in_shape=(1, 1, C3_INPUT_HW, C3_INPUT_HW),
+            input_name="degraded",
+            output_name="filtered",
+        )
+        _write_sidecar(
+            args.c3_id,
+            c3_onnx,
+            kind="filter",
+            notes=(
+                "Tiny residual filter (C3) — degraded → clean luma. "
+                "Trained self-supervised on KoNViD-1k middle-frames + "
+                "synthetic gaussian-blur σ=1.2 + JPEG-Q35 degradation. "
+                "Exported via ai/scripts/export_tiny_models.py."
+            ),
+        )
+        new_entries.append(
+            {
+                "id": args.c3_id,
+                "kind": "filter",
+                "notes": (
+                    "Tiny residual filter baseline for vmaf_pre — "
+                    "self-supervised on KoNViD-1k frames with synthetic "
+                    "blur+JPEG degradation. ~19K params; opset 17. See "
+                    "docs/adr/0168-tinyai-konvid-baselines.md."
+                ),
+                "onnx": c3_onnx.name,
+                "opset": 17,
+                "sha256": _sha256(c3_onnx),
+            }
+        )
+
+    if not new_entries:
+        sys.exit("no checkpoints found — nothing to export")
+
+    _update_registry(*new_entries)
+    for e in new_entries:
+        print(f"[registry] {e['id']} sha256={e['sha256'][:16]}…")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
