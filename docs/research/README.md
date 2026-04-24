@@ -72,6 +72,7 @@ Conventions:
 | [0011](0011-iqa-convolve-avx2.md) | `_iqa_convolve` AVX2 — bit-exactness via `__m256d`, kernel invariants, Amdahl | Active | [ADR-0138](../adr/0138-iqa-convolve-avx2-bitexact-double.md) |
 | [0012](0012-ssim-simd-bitexact.md) | SSIM SIMD bit-exactness to scalar — where the ULP drifted | Active | [ADR-0139](../adr/0139-ssim-simd-bitexact-double.md) |
 | [0013](0013-simd-dx-framework.md) | SIMD DX framework — audit + NEON bit-exactness port | Active | [ADR-0140](../adr/0140-simd-dx-framework.md) |
+| [0014](0014-psnr-hvs-neon.md) | `psnr_hvs` NEON sister port — half-wide split strategy, aarch64 gotchas, QEMU verification limits | Active | [ADR-0160](../adr/0160-psnr-hvs-neon-bitexact.md) |
 
 <!-- Backfill entries for older workstreams land here as their authors
      revisit the corresponding code. -->

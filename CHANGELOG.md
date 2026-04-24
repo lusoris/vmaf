@@ -44,6 +44,27 @@
 
 ### Added
 
+- **`psnr_hvs` NEON SIMD path** (fork-local, backlog T3-5-neon).
+  Sister port to the AVX2 variant; aarch64 users now get the same
+  byte-identical vectorized Xiph/Daala 8×8 integer DCT. NEON's
+  4-wide `int32x4_t` means each 8-column row splits into
+  `lo` (cols 0-3) + `hi` (cols 4-7); the 30-butterfly runs twice
+  per DCT pass and the 8×8 transpose decomposes into four 4×4
+  `vtrn1q_s32` / `vtrn2q_s32` / `vtrn1q_s64` / `vtrn2q_s64`
+  stages plus a top-right ↔ bottom-left block swap. Float
+  accumulators stay scalar per ADR-0139/0159 bit-exactness rule;
+  `accumulate_error()` threads the outer `ret` by pointer
+  (ADR-0159 summation-order lesson inherited). New unit test
+  `test_psnr_hvs_neon.c`: 5/5 DCT subtests pass under
+  `qemu-aarch64-static`. 576×324 8-bit Netflix golden pair
+  scalar-vs-NEON diff: byte-identical `psnr_hvs_{y,cb,cr}` scores.
+  1080p 10-bit pairs deferred to native-aarch64 CI (QEMU segfaults
+  on heavy 10-bit threadpool allocations — known emulator limit,
+  not a defect in the port). Runtime dispatch gated by
+  `VMAF_ARM_CPU_FLAG_NEON`. ISA-parity matrix for psnr_hvs now
+  closes: scalar + AVX2 + NEON. See
+  [ADR-0160](docs/adr/0160-psnr-hvs-neon-bitexact.md).
+
 - **`psnr_hvs` AVX2 SIMD path** (fork-local, backlog T3-5). x86_64
   users with AVX2 now get a vectorized Xiph/Daala 8×8 integer DCT
   (the hot inner kernel of psnr_hvs). Scalar + AVX2 paths are
@@ -57,7 +78,8 @@
   variances / mask / error) kept scalar by construction for
   bit-exactness (ADR-0139 precedent). Includes new unit test
   `test_psnr_hvs_avx2.c` pinning the bit-exactness contract on 5
-  reproducible inputs. NEON follow-up PR to come. See
+  reproducible inputs. NEON sister port landed as
+  [ADR-0160](docs/adr/0160-psnr-hvs-neon-bitexact.md). See
   [ADR-0159](docs/adr/0159-psnr-hvs-avx2-bitexact.md).
 
 - **`vmaf_cuda_state_free()` public API** (Netflix upstream issue
