@@ -217,6 +217,26 @@ feature/
   [ADR-0148](../../../docs/adr/0148-iqa-rename-and-cleanup.md)
   and [rebase-notes 0041](../../../docs/rebase-notes.md).
 
+- **`integer_adm.c` i4_adm_cm int32 rounding overflow**
+  (fork-inherited, ADR-0155): both `add_bef_shift_flt[]`
+  initialiser loops in
+  [`integer_adm.c`](integer_adm.c) (scales 1–3) assign
+  `1u << 31 = 0x80000000` into `int32_t`, which wraps to
+  `-2147483648`. The rounding term is sign-negated; every
+  downstream `(prod + add_bef_shift) >> 32` subtracts 2^31
+  instead of adding it. **Deliberately preserved** — the buggy
+  arithmetic is encoded in the Netflix golden
+  `assertAlmostEqual` values (project hard rule #1 /
+  [ADR-0024](../../../docs/adr/0024-netflix-golden-preserved.md)).
+  Do NOT widen `add_bef_shift_flt[]` to `uint32_t` or `int64_t`
+  without a coordinated Netflix-authored golden-number update
+  (the [ADR-0142](../../../docs/adr/0142-port-netflix-18e8f1c5-vif-sigma-nsq.md)
+  carve-out). Netflix upstream #955 is OPEN since 2020 with no
+  maintainer response — until it closes with a fix, the
+  overflow stays. See
+  [ADR-0155](../../../docs/adr/0155-adm-i4-rounding-deferred-netflix-955.md)
+  and [rebase-notes 0048](../../../docs/rebase-notes.md).
+
 ## Governing ADRs
 
 - [ADR-0024](../../../docs/adr/0024-netflix-golden-preserved.md) —

@@ -42,6 +42,25 @@
   to fail pre-fix and pass post-fix. Closes backlog item T1-4.
   See [ADR-0153](docs/adr/0153-float-ms-ssim-min-dim-netflix-1414.md).
 
+### Documented (not fixed)
+
+- **ADM `i4_adm_cm` int32 rounding overflow** (Netflix upstream
+  issue [#955](https://github.com/Netflix/vmaf/issues/955)) is
+  deliberately preserved. `add_bef_shift_flt[idx] = (1u <<
+  (shift_flt[idx] - 1))` in `libvmaf/src/feature/integer_adm.c`
+  scales 1–3 overflows `int32_t` (`1u << 31 = 0x80000000` wraps
+  to `-2147483648`), so every `(prod + add_bef_shift) >> 32`
+  subtracts 2^31 instead of adding it — ADM scales 1–3 biased
+  low by ≈1 LSB per summed term. The buggy arithmetic is encoded
+  in the Netflix golden assertions (project hard rule #1 /
+  [ADR-0024](docs/adr/0024-netflix-golden-preserved.md)); fixing
+  it unilaterally would diverge from every published VMAF number
+  calibrated on these outputs. In-file warning comments, a
+  rebase-notes invariant, and `AGENTS.md` pin the decision.
+  Closes backlog item T1-8 as "verified present, deliberately
+  preserved". See
+  [ADR-0155](docs/adr/0155-adm-i4-rounding-deferred-netflix-955.md).
+
 ### Changed
 
 - **`vmaf_score_pooled` returns `-EAGAIN` for pending features**
