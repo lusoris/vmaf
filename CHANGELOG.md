@@ -44,6 +44,24 @@
 
 ### Added
 
+- **SSIMULACRA 2 `picture_to_linear_rgb` SIMD (AVX2 + AVX-512 + NEON)**
+  (fork-local, backlog T3-1 phase 3 — closes T3-1 in full). The last
+  scalar hot path in the SSIMULACRA 2 extractor is now vectorised on
+  all 3 ISAs. YUV → linear RGB with BT.709/BT.601 matmul + sRGB
+  EOTF, handling all pixel formats: BT.709/BT.601 × limited/full,
+  any chroma subsampling ratio (420/422/444/irregular), 8-16 bpc.
+  Strategy: per-lane scalar pixel reads fill an aligned scratch
+  (handles all chroma ratios + bit depths uniformly); SIMD matmul +
+  normalise + clamp; per-lane scalar `powf` for the sRGB EOTF branch
+  (mirrors the phase-1 `cbrtf` pattern). Byte-for-byte bit-exact to
+  scalar under `FLT_EVAL_METHOD == 0`. New shared header
+  `ssimulacra2_simd_common.h` with `simd_plane_t` decouples SIMD
+  TUs from `VmafPicture`. Five new test subtests
+  (420-8bit/420-10bit/444-8bit/444-10bit/422-8bit) — 11/11 pass on
+  AVX-512 host + 11/11 under `qemu-aarch64-static` (NEON).
+  SSIMULACRA 2 now has **zero scalar hot paths**. See
+  [ADR-0163](docs/adr/0163-ssimulacra2-ptlr-simd.md).
+
 - **SSIMULACRA 2 FastGaussian IIR blur SIMD (AVX2 + AVX-512 + NEON)**
   (fork-local, backlog T3-1 phase 2). `blur_plane` — the single
   largest wall-clock cost in the SSIMULACRA 2 extractor (30 calls

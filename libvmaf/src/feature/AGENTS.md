@@ -256,6 +256,24 @@ feature/
   [ADR-0159](../../../docs/adr/0159-psnr-hvs-avx2-bitexact.md)
   and [rebase-notes 0052](../../../docs/rebase-notes.md).
 
+- **SSIMULACRA 2 `picture_to_linear_rgb` SIMD** (fork-local, ADR-0163):
+  `ssimulacra2_picture_to_linear_rgb_{avx2,avx512,neon}` vectorises
+  the last scalar hot path (2×/frame). Strategy: per-lane scalar
+  reads (all chroma ratios + 8/16-bit), SIMD matmul + normalise +
+  clamp, per-lane scalar `powf` for sRGB EOTF. New decoupling
+  header `ssimulacra2_simd_common.h` defines `simd_plane_t`; the
+  dispatch wrapper in `ssimulacra2.c` unpacks `VmafPicture` into it.
+  **On rebase**: (1) keep scalar-order matmul chain
+  `G = Yn + cb_g*Un; G += cr_g*Vn;` — regrouping drifts ~1 ulp;
+  (2) per-lane scalar `powf` is load-bearing — no vector
+  polynomial; (3) `simd_plane_t` layout `{data, stride, w, h}`
+  is assumed by all three SIMD TUs; (4) arbitrary chroma ratios
+  (non-420/422/444) must still work — don't delete the `int64_t`
+  fallback branch. SSIMULACRA 2 now has **zero scalar hot paths**.
+  See
+  [ADR-0163](../../../docs/adr/0163-ssimulacra2-ptlr-simd.md) and
+  [rebase-notes 0055](../../../docs/rebase-notes.md).
+
 - **SSIMULACRA 2 FastGaussian IIR blur SIMD** (fork-local, ADR-0162):
   `ssimulacra2_blur_plane_{avx2,avx512,neon}` vectorises the 30×/frame
   2-pass separable IIR blur. Horizontal pass batches rows (AVX2: 8,
