@@ -29,6 +29,7 @@
 #include <arm_neon.h>
 #include <assert.h>
 #include <math.h>
+#include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -47,7 +48,7 @@ static const float kC2 = 0.0009f;
 
 static inline float32x4_t cbrtf_lane_neon(float32x4_t v)
 {
-    float tmp[4] __attribute__((aligned(16)));
+    alignas(16) float tmp[4];
     vst1q_f32(tmp, v);
     for (int k = 0; k < 4; k++) {
         tmp[k] = cbrtf(tmp[k]);
@@ -258,9 +259,9 @@ void ssimulacra2_ssim_map_neon(const float *m1, const float *m2, const float *s1
             const float32x4_t denom_s = vaddq_f32(vaddq_f32(vsubq_f32(vld1q_f32(rs11 + i), mu11),
                                                             vsubq_f32(vld1q_f32(rs22 + i), mu22)),
                                                   vc2);
-            float num_m_f[4] __attribute__((aligned(16)));
-            float num_s_f[4] __attribute__((aligned(16)));
-            float denom_s_f[4] __attribute__((aligned(16)));
+            alignas(16) float num_m_f[4];
+            alignas(16) float num_s_f[4];
+            alignas(16) float denom_s_f[4];
             vst1q_f32(num_m_f, num_m);
             vst1q_f32(num_s_f, num_s);
             vst1q_f32(denom_s_f, denom_s);
@@ -317,8 +318,8 @@ void ssimulacra2_edge_diff_map_neon(const float *img1, const float *mu1, const f
             const float32x4_t am2 = vld1q_f32(rm2 + i);
             const float32x4_t d1 = vabsq_f32(vsubq_f32(a1, am1));
             const float32x4_t d2 = vabsq_f32(vsubq_f32(a2, am2));
-            float d1f[4] __attribute__((aligned(16)));
-            float d2f[4] __attribute__((aligned(16)));
+            alignas(16) float d1f[4];
+            alignas(16) float d2f[4];
             vst1q_f32(d1f, d1);
             vst1q_f32(d2f, d2);
             for (int k = 0; k < 4; k++) {

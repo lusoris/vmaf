@@ -45,6 +45,7 @@
 #include <assert.h>
 #include <immintrin.h>
 #include <math.h>
+#include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -67,7 +68,7 @@ static const float kC2 = 0.0009f;
  * lane preserves byte-for-byte parity with the scalar reference. */
 static inline __m256 cbrtf_lane_avx2(__m256 v)
 {
-    float tmp[8] __attribute__((aligned(32)));
+    alignas(32) float tmp[8];
     _mm256_store_ps(tmp, v);
     for (int k = 0; k < 8; k++) {
         tmp[k] = cbrtf(tmp[k]);
@@ -282,8 +283,6 @@ void ssimulacra2_ssim_map_avx2(const float *m1, const float *m2, const float *s1
     const __m256 vone = _mm256_set1_ps(1.0f);
     const __m256 vtwo = _mm256_set1_ps(2.0f);
 
-    float buf_d[8] __attribute__((aligned(32)));
-
     for (int c = 0; c < 3; c++) {
         double sum_l1 = 0.0;
         double sum_l4 = 0.0;
@@ -311,9 +310,9 @@ void ssimulacra2_ssim_map_avx2(const float *m1, const float *m2, const float *s1
             /* Compute d = 1.0 - (num_m * num_s / denom_s) per-lane in double
              * to match scalar's (double)num_m * (double)num_s / (double)denom_s.
              * Spill + per-lane double accumulate for bit-exactness (ADR-0139). */
-            float num_m_f[8] __attribute__((aligned(32)));
-            float num_s_f[8] __attribute__((aligned(32)));
-            float denom_s_f[8] __attribute__((aligned(32)));
+            alignas(32) float num_m_f[8];
+            alignas(32) float num_s_f[8];
+            alignas(32) float denom_s_f[8];
             _mm256_store_ps(num_m_f, num_m);
             _mm256_store_ps(num_s_f, num_s);
             _mm256_store_ps(denom_s_f, denom_s);
@@ -324,7 +323,6 @@ void ssimulacra2_ssim_map_avx2(const float *m1, const float *m2, const float *s1
                 sum_l1 += d;
                 sum_l4 += quartic_d(d);
             }
-            (void)buf_d;
         }
         /* Scalar tail — identical to scalar reference. */
         for (; i < plane; i++) {
@@ -374,8 +372,8 @@ void ssimulacra2_edge_diff_map_avx2(const float *img1, const float *mu1, const f
             const __m256 d1 = _mm256_and_ps(vsignmask, _mm256_sub_ps(a1, am1));
             const __m256 d2 = _mm256_and_ps(vsignmask, _mm256_sub_ps(a2, am2));
             /* Promote to double per-lane for the divide, matching scalar. */
-            float d1f[8] __attribute__((aligned(32)));
-            float d2f[8] __attribute__((aligned(32)));
+            alignas(32) float d1f[8];
+            alignas(32) float d2f[8];
             _mm256_store_ps(d1f, d1);
             _mm256_store_ps(d2f, d2);
             for (int k = 0; k < 8; k++) {

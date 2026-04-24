@@ -34,6 +34,7 @@
 #include <assert.h>
 #include <immintrin.h>
 #include <math.h>
+#include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -52,7 +53,7 @@ static const float kC2 = 0.0009f;
 
 static inline __m512 cbrtf_lane_avx512(__m512 v)
 {
-    float tmp[16] __attribute__((aligned(64)));
+    alignas(64) float tmp[16];
     _mm512_store_ps(tmp, v);
     for (int k = 0; k < 16; k++) {
         tmp[k] = cbrtf(tmp[k]);
@@ -267,9 +268,9 @@ void ssimulacra2_ssim_map_avx512(const float *m1, const float *m2, const float *
                 _mm512_add_ps(_mm512_add_ps(_mm512_sub_ps(_mm512_loadu_ps(rs11 + i), mu11),
                                             _mm512_sub_ps(_mm512_loadu_ps(rs22 + i), mu22)),
                               vc2);
-            float num_m_f[16] __attribute__((aligned(64)));
-            float num_s_f[16] __attribute__((aligned(64)));
-            float denom_s_f[16] __attribute__((aligned(64)));
+            alignas(64) float num_m_f[16];
+            alignas(64) float num_s_f[16];
+            alignas(64) float denom_s_f[16];
             _mm512_store_ps(num_m_f, num_m);
             _mm512_store_ps(num_s_f, num_s);
             _mm512_store_ps(denom_s_f, denom_s);
@@ -327,8 +328,8 @@ void ssimulacra2_edge_diff_map_avx512(const float *img1, const float *mu1, const
             const __m512 am2 = _mm512_loadu_ps(rm2 + i);
             const __m512 d1 = _mm512_and_ps(vsignmask, _mm512_sub_ps(a1, am1));
             const __m512 d2 = _mm512_and_ps(vsignmask, _mm512_sub_ps(a2, am2));
-            float d1f[16] __attribute__((aligned(64)));
-            float d2f[16] __attribute__((aligned(64)));
+            alignas(64) float d1f[16];
+            alignas(64) float d2f[16];
             _mm512_store_ps(d1f, d1);
             _mm512_store_ps(d2f, d2);
             for (int k = 0; k < 16; k++) {
