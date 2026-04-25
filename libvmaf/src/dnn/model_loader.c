@@ -242,6 +242,21 @@ int vmaf_dnn_sidecar_load(const char *onnx_path, VmafModelSidecar *out)
     out->output_name = extract_string(buf, "output_name");
     (void)extract_int(buf, "onnx_opset", &out->opset);
 
+    /* ADR-0173 / T5-3: optional quant_mode field (default fp32). */
+    out->quant_mode = VMAF_QUANT_FP32;
+    char *quant_str = extract_string(buf, "quant_mode");
+    if (quant_str) {
+        if (strcmp(quant_str, "dynamic") == 0) {
+            out->quant_mode = VMAF_QUANT_DYNAMIC;
+        } else if (strcmp(quant_str, "static") == 0) {
+            out->quant_mode = VMAF_QUANT_STATIC;
+        } else if (strcmp(quant_str, "qat") == 0) {
+            out->quant_mode = VMAF_QUANT_QAT;
+        }
+        /* Anything else (including "fp32" or junk) keeps the default. */
+        free(quant_str);
+    }
+
     free(buf);
     return 0;
 }

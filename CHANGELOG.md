@@ -8,6 +8,25 @@
 
 ### Added
 
+- **PTQ int8 audit harness (audit-first)** (fork-local): scaffolds
+  the per-model quantisation pipeline from ADR-0129. Three new
+  optional fields in `model/tiny/registry.schema.json`
+  (`quant_mode` enum `fp32` / `dynamic` / `static` / `qat`;
+  `quant_calibration_set`; `quant_accuracy_budget_plcc` default
+  0.01). Three new scripts under `ai/scripts/` (`ptq_dynamic.py`,
+  `ptq_static.py`, `qat_train.py` — the last is a CLI scaffold that
+  raises `NotImplementedError` until a per-model QAT PR lands the
+  trainer hook). New `VmafModelQuantMode` enum + sidecar parser
+  branch in `libvmaf/src/dnn/model_loader.{h,c}`; default FP32
+  fail-safe on unknown sidecar values. 4 Python smoke tests + 3 C
+  sidecar tests. **No shipped model flips its `quant_mode`** in
+  this PR — runtime `.int8.onnx` redirect + the `ai-quant-accuracy`
+  CI gate land with the first per-model quantisation PR (T5-3b).
+  New
+  [`docs/ai/quantization.md`](docs/ai/quantization.md) user
+  reference. See
+  [ADR-0173](docs/adr/0173-ptq-int8-audit-impl.md). Closes
+  BACKLOG T5-3 audit half (T5-3b queued for the gate).
 - **MCP `describe_worst_frames` tool with VLM fallback**
   (fork-local): new MCP tool that scores a `(ref, dis)` pair, picks
   the N worst-VMAF frames (default 5, capped at 32), extracts each

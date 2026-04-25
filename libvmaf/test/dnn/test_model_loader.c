@@ -453,6 +453,94 @@ static char *test_sidecar_parses_kind_nr(void)
     return NULL;
 }
 
+/* ADR-0173 / T5-3: optional `quant_mode` field defaults to FP32 when
+ * absent, parses the four valid strings, and falls back to FP32 on any
+ * unknown value. */
+static char *test_sidecar_quant_mode_default_fp32(void)
+{
+    char tmpl[] = "/tmp/vmaf-dnn-quant-default-XXXXXX";
+    int fd = mkstemp(tmpl);
+    mu_assert("mkstemp failed", fd >= 0);
+    close(fd);
+    char onnx[1024], sidecar[1024];
+    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    FILE *f = fopen_w_600(onnx);
+    if (f)
+        fclose(f);
+    FILE *s = fopen_w_600(sidecar);
+    mu_assert("fopen sidecar failed", s != NULL);
+    /* No quant_mode field — default branch. */
+    fprintf(s, "{\"kind\": \"fr\"}\n");
+    fclose(s);
+
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(onnx, &meta);
+    mu_assert("sidecar_load default failed", err == 0);
+    mu_assert("absent quant_mode → FP32", meta.quant_mode == VMAF_QUANT_FP32);
+    vmaf_dnn_sidecar_free(&meta);
+    remove(sidecar);
+    remove(onnx);
+    remove(tmpl);
+    return NULL;
+}
+
+static char *test_sidecar_quant_mode_dynamic(void)
+{
+    char tmpl[] = "/tmp/vmaf-dnn-quant-dyn-XXXXXX";
+    int fd = mkstemp(tmpl);
+    mu_assert("mkstemp failed", fd >= 0);
+    close(fd);
+    char onnx[1024], sidecar[1024];
+    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    FILE *f = fopen_w_600(onnx);
+    if (f)
+        fclose(f);
+    FILE *s = fopen_w_600(sidecar);
+    mu_assert("fopen sidecar failed", s != NULL);
+    fprintf(s, "{\"kind\": \"fr\", \"quant_mode\": \"dynamic\"}\n");
+    fclose(s);
+
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(onnx, &meta);
+    mu_assert("sidecar_load dynamic failed", err == 0);
+    mu_assert("quant_mode dynamic", meta.quant_mode == VMAF_QUANT_DYNAMIC);
+    vmaf_dnn_sidecar_free(&meta);
+    remove(sidecar);
+    remove(onnx);
+    remove(tmpl);
+    return NULL;
+}
+
+static char *test_sidecar_quant_mode_unknown_falls_back(void)
+{
+    char tmpl[] = "/tmp/vmaf-dnn-quant-bad-XXXXXX";
+    int fd = mkstemp(tmpl);
+    mu_assert("mkstemp failed", fd >= 0);
+    close(fd);
+    char onnx[1024], sidecar[1024];
+    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    FILE *f = fopen_w_600(onnx);
+    if (f)
+        fclose(f);
+    FILE *s = fopen_w_600(sidecar);
+    mu_assert("fopen sidecar failed", s != NULL);
+    fprintf(s, "{\"kind\": \"fr\", \"quant_mode\": \"int4\"}\n");
+    fclose(s);
+
+    VmafModelSidecar meta;
+    int err = vmaf_dnn_sidecar_load(onnx, &meta);
+    mu_assert("sidecar_load unknown_mode failed", err == 0);
+    mu_assert("unknown quant_mode → FP32 (fail-safe)", meta.quant_mode == VMAF_QUANT_FP32);
+    vmaf_dnn_sidecar_free(&meta);
+    remove(sidecar);
+    remove(onnx);
+    remove(tmpl);
+    return NULL;
+}
+
 static char *test_sidecar_no_dot_onnx_extension(void)
 {
     /* Path that does not end in ".onnx" → falls through to the
@@ -606,6 +694,9 @@ char *run_tests(void)
     mu_run_test(test_sidecar_missing_returns_enoent);
 #ifndef _WIN32
     mu_run_test(test_sidecar_parses_kind_nr);
+    mu_run_test(test_sidecar_quant_mode_default_fp32);
+    mu_run_test(test_sidecar_quant_mode_dynamic);
+    mu_run_test(test_sidecar_quant_mode_unknown_falls_back);
     mu_run_test(test_sidecar_no_dot_onnx_extension);
     mu_run_test(test_sidecar_oversized_path);
     mu_run_test(test_sidecar_malformed_keys_default);

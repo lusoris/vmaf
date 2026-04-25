@@ -18,6 +18,18 @@ extern "C" {
 /** Defaults; override via env VMAF_MAX_MODEL_BYTES (50 MB). */
 #define VMAF_DNN_DEFAULT_MAX_BYTES ((size_t)50u * 1024u * 1024u)
 
+/** Post-training quantisation mode (ADR-0129 / ADR-0173). Tracks the
+ *  per-model registry field of the same name; FP32 means the loader
+ *  uses the .onnx file as shipped, the other three modes mean the
+ *  loader prefers a sibling `<basename>.int8.onnx` produced by
+ *  `ai/scripts/ptq_*.py` / `qat_train.py`. */
+typedef enum VmafModelQuantMode {
+    VMAF_QUANT_FP32 = 0,
+    VMAF_QUANT_DYNAMIC = 1,
+    VMAF_QUANT_STATIC = 2,
+    VMAF_QUANT_QAT = 3,
+} VmafModelQuantMode;
+
 typedef struct VmafModelSidecar {
     VmafModelKind kind; /**< mirrors sidecar "kind" field */
     int opset;
@@ -30,6 +42,7 @@ typedef struct VmafModelSidecar {
     float expected_min;
     float expected_max;
     bool has_range;
+    VmafModelQuantMode quant_mode; /**< default FP32; mirrors sidecar/registry */
 } VmafModelSidecar;
 
 /** Byte-identical magic check. Returns VMAF_MODEL_KIND_SVM for libsvm json/pkl,

@@ -60,6 +60,23 @@
           "description": "True for the CI smoke fixture. Smoke models are load-path probes, not quality models — they're excluded from the quality-metric harness.",
           "type": "boolean",
           "default": false
+        },
+        "quant_mode": {
+          "description": "Post-training quantisation mode (ADR-0129 / ADR-0173). 'fp32' = ship the .onnx as-is. 'static' / 'dynamic' / 'qat' = the runtime loads `<onnx>.int8.onnx` instead, produced by ai/scripts/ptq_*.py / qat_train.py. The fp32 file stays on disk as the regression baseline.",
+          "enum": ["fp32", "static", "dynamic", "qat"],
+          "default": "fp32"
+        },
+        "quant_calibration_set": {
+          "description": "Path to the calibration tensor blob (relative to repo root). Required for `quant_mode: \"static\"`; ignored for the other modes.",
+          "type": "string",
+          "maxLength": 256
+        },
+        "quant_accuracy_budget_plcc": {
+          "description": "Maximum allowed Pearson-linear-correlation drop on the per-model VMAF soak fixture, vs the fp32 baseline. The CI ai-quant-accuracy job fails any quantised model that exceeds this budget. Default 0.01 = 1 PLCC point.",
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.01
         }
       }
     }
