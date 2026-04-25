@@ -8,6 +8,25 @@
 
 ### Added
 
+- **ONNX op-allowlist admits `Loop` + `If`** (fork-local): unblocks
+  MUSIQ / RAFT / small-VLM-class tiny-AI baselines that need
+  control-flow ops. The wire-format scanner in
+  [`onnx_scan.c`](libvmaf/src/dnn/onnx_scan.c) gains mutually-recursive
+  `scan_attribute` / `scan_node` / `scan_graph` helpers that descend
+  into `NodeProto.attribute` → `AttributeProto.g` / `.graphs` so a
+  forbidden op cannot hide inside a `Loop.body` /
+  `If.then_branch` / `If.else_branch` subgraph. Recursion depth-capped
+  at `VMAF_DNN_MAX_SUBGRAPH_DEPTH = 8` as a defence-in-depth bound.
+  Python `vmaf_train.op_allowlist` mirrors the recursion via a new
+  `_collect_op_types` helper so the export-time check and the runtime
+  load-time check stay in lockstep. `Scan` stays off the allowlist
+  (variant-typed input/output binding makes static bound-checking
+  impractical). The bounded-iteration guard for `Loop.M → Constant ≤
+  MAX_LOOP_ITERATIONS` is **explicitly deferred** to a follow-up ADR
+  (T6-5b). 4 existing tests flipped + 4 new subgraph-recursion tests
+  added (2 C, 2 Python). See
+  [ADR-0169](docs/adr/0169-onnx-allowlist-loop-if.md). Closes
+  BACKLOG T6-5.
 - **Tiny-AI Wave 1 baselines C2 + C3** (fork-local): trained ONNX
   checkpoints `nr_metric_v1.onnx` (NR MobileNet, ~19K params,
   224×224 grayscale → MOS) and `learned_filter_v1.onnx` (residual

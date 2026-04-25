@@ -19,10 +19,21 @@ static char *test_common_ops_allowed(void)
     return NULL;
 }
 
+static char *test_control_flow_ops_allowed(void)
+{
+    /* ADR-0169 / T6-5: Loop + If joined the allowlist. Subgraph contents
+     * are validated recursively by the onnx_scan.c walker, so a forbidden
+     * op nested in a Loop body is still rejected at load time. Scan
+     * stays off-list — its variant-typed input/output binding makes
+     * static bound-checking impractical (see ADR-0169 § Alternatives). */
+    mu_assert("Loop should be allowed", vmaf_dnn_op_allowed("Loop"));
+    mu_assert("If should be allowed", vmaf_dnn_op_allowed("If"));
+    mu_assert("Scan must remain rejected", !vmaf_dnn_op_allowed("Scan"));
+    return NULL;
+}
+
 static char *test_custom_ops_rejected(void)
 {
-    mu_assert("If should be rejected", !vmaf_dnn_op_allowed("If"));
-    mu_assert("Loop should be rejected", !vmaf_dnn_op_allowed("Loop"));
     mu_assert("unknown should be rejected", !vmaf_dnn_op_allowed("custom_op_xyz"));
     mu_assert("NULL should be rejected", !vmaf_dnn_op_allowed(NULL));
     mu_assert("empty string should be rejected", !vmaf_dnn_op_allowed(""));
@@ -32,6 +43,7 @@ static char *test_custom_ops_rejected(void)
 char *run_tests(void)
 {
     mu_run_test(test_common_ops_allowed);
+    mu_run_test(test_control_flow_ops_allowed);
     mu_run_test(test_custom_ops_rejected);
     return NULL;
 }

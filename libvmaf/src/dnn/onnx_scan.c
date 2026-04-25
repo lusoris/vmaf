@@ -30,10 +30,22 @@ enum {
 
 /* ONNX field numbers we care about. */
 enum {
-    MODEL_GRAPH_FIELD = 7,  /* ModelProto.graph (GraphProto) */
-    GRAPH_NODE_FIELD = 1,   /* GraphProto.node (repeated NodeProto) */
-    NODE_OP_TYPE_FIELD = 4, /* NodeProto.op_type (string) */
+    MODEL_GRAPH_FIELD = 7,    /* ModelProto.graph (GraphProto) */
+    GRAPH_NODE_FIELD = 1,     /* GraphProto.node (repeated NodeProto) */
+    NODE_OP_TYPE_FIELD = 4,   /* NodeProto.op_type (string) */
+    NODE_ATTRIBUTE_FIELD = 5, /* NodeProto.attribute (repeated AttributeProto) */
+    /* AttributeProto fields with embedded subgraphs — the bodies of
+     * control-flow ops (Loop.body, If.then_branch, If.else_branch).
+     * Recursive scan covers ADR-0169 / T6-5: forbidden ops cannot hide
+     * inside a control-flow subgraph. */
+    ATTR_G_FIELD = 6,       /* AttributeProto.g (single GraphProto) */
+    ATTR_GRAPHS_FIELD = 11, /* AttributeProto.graphs (repeated GraphProto) */
 };
+
+/* Maximum nested subgraph depth permitted. Real models keep nesting
+ * shallow (Loop within If at most). The cap is a defence-in-depth bound
+ * against pathological recursion in malformed input. */
+#define VMAF_DNN_MAX_SUBGRAPH_DEPTH 8
 
 /* Varint max length for uint64 is 10 bytes (64 bits / 7 bits-per-byte, rounded up). */
 #define PB_VARINT_MAX_BYTES 10
@@ -159,9 +171,54 @@ static int read_op_type(const unsigned char *buf, size_t len, size_t *off, char 
     return check_op_name(op_name, (size_t)slen, first_bad);
 }
 
-/* Scan one NodeProto for its op_type field. Returns 0 if all op_types
- * seen are allowed, otherwise propagates the error. */
-static int scan_node(const unsigned char *buf, size_t len, char **first_bad)
+/* Forward decl — scan_node and scan_attribute mutually recurse via
+ * scan_graph for control-flow op subgraphs (Loop.body, If.then_branch,
+ * If.else_branch). */
+static int scan_graph(const unsigned char *buf, size_t len, char **first_bad, unsigned depth);
+
+/* Scan a single AttributeProto. We only care about embedded GraphProto
+ * fields (`g` for Loop.body / If.then_branch / If.else_branch; `graphs`
+ * for the rare repeated-graph case). Everything else is skipped. */
+static int scan_attribute(const unsigned char *buf, size_t len, char **first_bad, unsigned depth)
+{
+    size_t off = 0;
+    while (off < len) {
+        uint64_t tag = 0;
+        int err = pb_read_varint(buf, len, &off, &tag);
+        if (err != 0) {
+            return err;
+        }
+        const unsigned field = (unsigned)(tag >> 3);
+        const unsigned wire = (unsigned)(tag & 0x7u);
+
+        if ((field == ATTR_G_FIELD || field == ATTR_GRAPHS_FIELD) && wire == PB_WIRE_LEN) {
+            uint64_t glen = 0;
+            err = pb_read_varint(buf, len, &off, &glen);
+            if (err != 0) {
+                return err;
+            }
+            if (glen > (uint64_t)(len - off)) {
+                return -EBADMSG;
+            }
+            err = scan_graph(buf + off, (size_t)glen, first_bad, depth + 1u);
+            if (err != 0) {
+                return err;
+            }
+            off += (size_t)glen;
+        } else {
+            err = pb_skip_field(buf, len, &off, wire);
+            if (err != 0) {
+                return err;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Scan one NodeProto. Validates the op_type against the allowlist and,
+ * for ops with embedded subgraphs (Loop / If), recursively scans each
+ * subgraph so forbidden ops can't hide inside a control-flow body. */
+static int scan_node(const unsigned char *buf, size_t len, char **first_bad, unsigned depth)
 {
     size_t off = 0;
     while (off < len) {
@@ -175,6 +232,20 @@ static int scan_node(const unsigned char *buf, size_t len, char **first_bad)
 
         if (field == NODE_OP_TYPE_FIELD && wire == PB_WIRE_LEN) {
             err = read_op_type(buf, len, &off, first_bad);
+        } else if (field == NODE_ATTRIBUTE_FIELD && wire == PB_WIRE_LEN) {
+            uint64_t alen = 0;
+            err = pb_read_varint(buf, len, &off, &alen);
+            if (err != 0) {
+                return err;
+            }
+            if (alen > (uint64_t)(len - off)) {
+                return -EBADMSG;
+            }
+            err = scan_attribute(buf + off, (size_t)alen, first_bad, depth);
+            if (err != 0) {
+                return err;
+            }
+            off += (size_t)alen;
         } else {
             err = pb_skip_field(buf, len, &off, wire);
         }
@@ -186,8 +257,12 @@ static int scan_node(const unsigned char *buf, size_t len, char **first_bad)
 }
 
 /* Scan one GraphProto: iterate its NodeProto children. */
-static int scan_graph(const unsigned char *buf, size_t len, char **first_bad)
+static int scan_graph(const unsigned char *buf, size_t len, char **first_bad, unsigned depth)
 {
+    if (depth > VMAF_DNN_MAX_SUBGRAPH_DEPTH) {
+        /* Defence-in-depth bound on control-flow nesting. */
+        return -EBADMSG;
+    }
     size_t off = 0;
     while (off < len) {
         uint64_t tag = 0;
@@ -207,7 +282,7 @@ static int scan_graph(const unsigned char *buf, size_t len, char **first_bad)
             if (nlen > (uint64_t)(len - off)) {
                 return -EBADMSG;
             }
-            err = scan_node(buf + off, (size_t)nlen, first_bad);
+            err = scan_node(buf + off, (size_t)nlen, first_bad, depth);
             if (err != 0) {
                 return err;
             }
@@ -255,7 +330,7 @@ int vmaf_dnn_scan_onnx(const unsigned char *buf, size_t len, char **first_bad)
                 return -EBADMSG;
             }
             assert(off + (size_t)glen <= len);
-            err = scan_graph(buf + off, (size_t)glen, first_bad);
+            err = scan_graph(buf + off, (size_t)glen, first_bad, 0u);
             if (err != 0) {
                 return err;
             }

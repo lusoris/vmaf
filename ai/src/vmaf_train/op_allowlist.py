@@ -44,12 +44,30 @@ class AllowlistReport:
         return f"allowlist FAIL: {len(self.forbidden)} forbidden op(s): {bad}"
 
 
+def _collect_op_types(graph: "onnx.GraphProto") -> set[str]:
+    """Walk a GraphProto and collect every op_type, recursing into the
+    embedded subgraphs of control-flow ops (Loop.body, If.then_branch,
+    If.else_branch). Mirrors the C-side scanner's recursion in
+    `libvmaf/src/dnn/onnx_scan.c` so the export-time check and the
+    runtime load-time check stay in lockstep (ADR-0169 / T6-5)."""
+    used: set[str] = set()
+    for node in graph.node:
+        used.add(node.op_type)
+        for attr in node.attribute:
+            if attr.type == onnx.AttributeProto.GRAPH:
+                used |= _collect_op_types(attr.g)
+            elif attr.type == onnx.AttributeProto.GRAPHS:
+                for sub in attr.graphs:
+                    used |= _collect_op_types(sub)
+    return used
+
+
 def check_model(onnx_path: Path, allowed: frozenset[str] | None = None) -> AllowlistReport:
     """Walk @p onnx_path and compare its ops against libvmaf's allowlist."""
     if allowed is None:
         allowed = load_allowlist()
     model = onnx.load(str(onnx_path))
-    used = frozenset(node.op_type for node in model.graph.node)
+    used = frozenset(_collect_op_types(model.graph))
     return AllowlistReport(
         allowed=allowed,
         used=used,
@@ -61,7 +79,7 @@ def check_graph(model: onnx.ModelProto, allowed: frozenset[str] | None = None) -
     """Same as check_model() but against an in-memory onnx.ModelProto."""
     if allowed is None:
         allowed = load_allowlist()
-    used = frozenset(node.op_type for node in model.graph.node)
+    used = frozenset(_collect_op_types(model.graph))
     return AllowlistReport(
         allowed=allowed,
         used=used,

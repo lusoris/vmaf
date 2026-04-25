@@ -74,30 +74,87 @@ static char *test_allowed_multiple_ops(void)
     return NULL;
 }
 
-static char *test_disallowed_op_loop(void)
+static char *test_loop_top_level_allowed(void)
 {
+    /* ADR-0169 / T6-5: bare Loop at the top level (no body subgraph
+     * fixture) is now accepted at the op_type layer. A real Loop would
+     * embed a body GraphProto in NodeProto.attribute; that recursion
+     * is exercised by `test_loop_with_forbidden_subgraph` /
+     * `test_loop_with_allowed_subgraph` below. */
     const unsigned char buf[] = {0x3A, 0x08, 0x0A, 0x06, 0x22, 0x04, 'L', 'o', 'o', 'p'};
     char *first_bad = NULL;
     const int err = vmaf_dnn_scan_onnx(buf, sizeof(buf), &first_bad);
-    mu_assert("Loop must be rejected with -EPERM", err == -EPERM);
-    mu_assert("first_bad must be populated", first_bad != NULL);
-    mu_assert("first_bad must equal \"Loop\"", strcmp(first_bad, "Loop") == 0);
+    mu_assert("Loop must be accepted", err == 0);
+    mu_assert("first_bad must remain NULL on success", first_bad == NULL);
+    return NULL;
+}
+
+static char *test_if_after_allowed_now_accepted(void)
+{
+    /* Same fixture as the historical `test_disallowed_op_if_after_allowed`,
+     * but post-ADR-0169 If is on the allowlist. Both nodes accepted. */
+    const unsigned char buf[] = {0x3A, 0x0E, /* graph, len=14         */
+                                 0x0A, 0x06, 0x22, 0x04, 'C',
+                                 'o',  'n',  'v',  0x0A, 0x04, /* node, len=4 */
+                                 0x22, 0x02, 'I',  'f'};
+    char *first_bad = NULL;
+    const int err = vmaf_dnn_scan_onnx(buf, sizeof(buf), &first_bad);
+    mu_assert("Conv+If must both be accepted", err == 0);
+    mu_assert("first_bad must remain NULL on success", first_bad == NULL);
+    return NULL;
+}
+
+static char *test_scan_still_rejected(void)
+{
+    /* Scan stays off the allowlist (ADR-0169 § Alternatives considered). */
+    const unsigned char buf[] = {0x3A, 0x08, 0x0A, 0x06, 0x22, 0x04, 'S', 'c', 'a', 'n'};
+    char *first_bad = NULL;
+    const int err = vmaf_dnn_scan_onnx(buf, sizeof(buf), &first_bad);
+    mu_assert("Scan must be rejected", err == -EPERM);
+    mu_assert("first_bad must equal \"Scan\"", first_bad && strcmp(first_bad, "Scan") == 0);
     free(first_bad);
     return NULL;
 }
 
-static char *test_disallowed_op_if_after_allowed(void)
+/* Hand-crafted ModelProto: ModelProto { graph = { node = Loop with
+ * NodeProto.attribute { name="body", type=GRAPH, g={ node=Conv } } } }
+ * Layout (31 bytes total):
+ *   3A 1D                            ModelProto.graph,    len=29
+ *   0A 1B                            GraphProto.node,     len=27 (Loop node)
+ *   22 04 4C 6F 6F 70                NodeProto.op_type = "Loop"
+ *   2A 13                            NodeProto.attribute, len=19
+ *   0A 04 62 6F 64 79                AttributeProto.name = "body"
+ *   A0 01 05                         AttributeProto.type = GRAPH (5)
+ *   32 08                            AttributeProto.g, len=8
+ *   0A 06                            GraphProto.node, len=6 (inner)
+ *   22 04 43 6F 6E 76                NodeProto.op_type = "Conv" */
+static const unsigned char k_loop_body_conv[] = {
+    0x3A, 0x1D, 0x0A, 0x1B, 0x22, 0x04, 'L',  'o',  'o',  'p',  0x2A, 0x13, 0x0A, 0x04, 'b', 'o',
+    'd',  'y',  0xA0, 0x01, 0x05, 0x32, 0x08, 0x0A, 0x06, 0x22, 0x04, 'C',  'o',  'n',  'v',
+};
+
+/* Same wire layout as k_loop_body_conv but with the inner op_type
+ * replaced by "Fake" (4 bytes — same length, no offset shifts). */
+static const unsigned char k_loop_body_fake[] = {
+    0x3A, 0x1D, 0x0A, 0x1B, 0x22, 0x04, 'L',  'o',  'o',  'p',  0x2A, 0x13, 0x0A, 0x04, 'b', 'o',
+    'd',  'y',  0xA0, 0x01, 0x05, 0x32, 0x08, 0x0A, 0x06, 0x22, 0x04, 'F',  'a',  'k',  'e',
+};
+
+static char *test_loop_with_allowed_subgraph(void)
 {
-    /* Allowed node first, then disallowed — ensures we keep scanning
-     * and that first_bad captures the disallowed one. */
-    const unsigned char buf[] = {0x3A, 0x0E, /* graph, len=14              */
-                                 0x0A, 0x06, 0x22, 0x04, 'C',
-                                 'o',  'n',  'v',  0x0A, 0x04, /* node, len=4                */
-                                 0x22, 0x02, 'I',  'f'};
     char *first_bad = NULL;
-    const int err = vmaf_dnn_scan_onnx(buf, sizeof(buf), &first_bad);
-    mu_assert("If must be rejected", err == -EPERM);
-    mu_assert("first_bad must be \"If\"", first_bad && strcmp(first_bad, "If") == 0);
+    const int err = vmaf_dnn_scan_onnx(k_loop_body_conv, sizeof(k_loop_body_conv), &first_bad);
+    mu_assert("Loop with Conv body must be accepted", err == 0);
+    mu_assert("first_bad must remain NULL on success", first_bad == NULL);
+    return NULL;
+}
+
+static char *test_loop_with_forbidden_subgraph(void)
+{
+    char *first_bad = NULL;
+    const int err = vmaf_dnn_scan_onnx(k_loop_body_fake, sizeof(k_loop_body_fake), &first_bad);
+    mu_assert("Loop body with forbidden op must be rejected", err == -EPERM);
+    mu_assert("first_bad must surface inner op", first_bad && strcmp(first_bad, "Fake") == 0);
     free(first_bad);
     return NULL;
 }
@@ -227,8 +284,11 @@ char *run_tests(void)
     mu_run_test(test_no_graph_field);
     mu_run_test(test_allowed_op_conv);
     mu_run_test(test_allowed_multiple_ops);
-    mu_run_test(test_disallowed_op_loop);
-    mu_run_test(test_disallowed_op_if_after_allowed);
+    mu_run_test(test_loop_top_level_allowed);
+    mu_run_test(test_if_after_allowed_now_accepted);
+    mu_run_test(test_scan_still_rejected);
+    mu_run_test(test_loop_with_allowed_subgraph);
+    mu_run_test(test_loop_with_forbidden_subgraph);
     mu_run_test(test_truncated_varint);
     mu_run_test(test_overlong_varint);
     mu_run_test(test_length_overruns_buffer);
