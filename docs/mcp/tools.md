@@ -283,6 +283,75 @@ a string.
 - Individual model failures show up under the `errors` array, not as a
   top-level error.
 
+## `describe_worst_frames`
+
+Score a `(ref, dis)` pair, pick the N frames with lowest VMAF, extract
+each as PNG via `ffmpeg`, and run a vision-language model
+(SmolVLM → Moondream2 fallback) to describe the visible artefacts.
+Falls back to a metadata-only output when the `vlm` extras aren't
+installed — useful as a debugging affordance for an LLM agent that
+wants narrative context for low-quality regions. Added in
+[ADR-0172](../adr/0172-mcp-describe-worst-frames.md) (T6-6).
+
+### Input schema
+
+| Field      | Type                                                | Required | Default                  |
+|------------|-----------------------------------------------------|----------|--------------------------|
+| `ref`      | string (path to reference YUV)                      | yes      | —                        |
+| `dis`      | string (path to distorted YUV)                      | yes      | —                        |
+| `width`    | integer                                             | yes      | —                        |
+| `height`   | integer                                             | yes      | —                        |
+| `pixfmt`   | `"420"` / `"422"` / `"444"`                         | yes      | —                        |
+| `bitdepth` | 8 / 10 / 12 / 16                                    | yes      | —                        |
+| `model`    | string                                              | no       | `"version=vmaf_v0.6.1"`  |
+| `backend`  | `"auto"` / `"cpu"` / `"cuda"` / `"sycl"`            | no       | `"auto"`                 |
+| `n`        | integer in `[1, 32]`                                | no       | `5`                      |
+
+### Behaviour
+
+1. Run `vmaf_score` to populate per-frame VMAF.
+2. Pick the `n` frames with smallest VMAF.
+3. For each picked frame, run `ffmpeg -f rawvideo` with
+   `select='eq(n,<idx>)'` to emit a single PNG.
+4. Pass the PNG to the cached VLM pipeline. The pipeline is loaded
+   lazily on first call:
+   - Try `HuggingFaceTB/SmolVLM-Instruct` (~2 GB).
+   - Fall back to `vikhyatk/moondream2` (~2 GB).
+   - If neither loads (or `transformers` isn't importable), every
+     frame's `description` carries
+     `"(VLM unavailable — install with pip install vmaf-mcp[vlm])"`.
+5. Return frame metadata + descriptions.
+
+The PNGs are written under `/tmp/vmaf-mcp-worst-<pid>/`. They aren't
+auto-deleted — callers can fetch them at the returned `png` paths
+during the lifetime of the process.
+
+### Response body
+
+```json
+{
+  "model_id": "HuggingFaceTB/SmolVLM-Instruct",
+  "frames": [
+    {
+      "frame_index": 12,
+      "vmaf": 38.4,
+      "png": "/tmp/vmaf-mcp-worst-12345/frame_000012.png",
+      "description": "Heavy DCT blocking on the face and ringing along the chin contour."
+    }
+  ]
+}
+```
+
+`model_id` is `null` when the metadata-only fallback path fired.
+
+### Errors
+
+- `ffmpeg` not on PATH → `{"error": "ffmpeg not on PATH; install ffmpeg to use describe_worst_frames"}`.
+- Unsupported `pixfmt`/`bitdepth` combo → `{"error": "unsupported pixfmt/bitdepth combo: ..."}`.
+- VMAF subprocess failure → bubbles up the underlying `vmaf_score` error.
+- VLM inference exception per-frame → the frame's `description`
+  carries the exception string; other frames still proceed.
+
 ## Cross-tool error conventions
 
 | Situation                               | Shape                                                   |

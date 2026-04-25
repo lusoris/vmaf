@@ -8,6 +8,21 @@
 
 ### Added
 
+- **MCP `describe_worst_frames` tool with VLM fallback**
+  (fork-local): new MCP tool that scores a `(ref, dis)` pair, picks
+  the N worst-VMAF frames (default 5, capped at 32), extracts each
+  as PNG via `ffmpeg`, and runs a vision-language model
+  (SmolVLM → Moondream2 cascade) to describe the visible
+  artefacts. Returns `{model_id, frames: [{frame_index, vmaf, png,
+  description}]}`. Falls back to metadata-only output with a clear
+  hint when the new `vlm` optional dependency group isn't
+  installed. New `[vlm]` extras (`transformers + torch + Pillow +
+  accelerate`); base MCP install stays light. First concrete
+  consumer of ADR-0171's bounded-Loop guard — VLM autoregressive
+  token generation needs `Loop` nodes. 5 new tests; all 17 MCP
+  tests pass. See
+  [ADR-0172](docs/adr/0172-mcp-describe-worst-frames.md). Closes
+  BACKLOG T6-6.
 - **Bounded `Loop.M` trip-count guard** (fork-local): closes the
   follow-up deferred in ADR-0169. Two layers, mirroring the
   ADR-0167 doc-drift enforcement pattern. (1) Python export-time

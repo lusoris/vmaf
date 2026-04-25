@@ -27,6 +27,16 @@ eval = [
   "onnxruntime>=1.18",
   "scipy>=1.12",
 ]
+# Optional: enables `describe_worst_frames` with vision-language fallback
+# (SmolVLM → Moondream2 → metadata-only). Pulls in transformers + torch.
+# Heavy install; off by default so the base MCP keeps a light footprint
+# (ADR-0172 / T6-6).
+vlm = [
+  "transformers>=4.45",
+  "torch>=2.4",
+  "Pillow>=10.4",
+  "accelerate>=0.34",
+]
 
 [project.scripts]
 vmaf-mcp = "vmaf_mcp.server:main"
