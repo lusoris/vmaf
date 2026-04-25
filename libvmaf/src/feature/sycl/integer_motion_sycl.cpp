@@ -51,6 +51,19 @@ extern "C" {
 #include "log.h"
 }
 
+// NOLINTBEGIN(misc-use-anonymous-namespace, misc-use-internal-linkage): the
+// TU-local helpers and the `init_fex_sycl` / `extract_fex_sycl` /
+// `submit_fex_sycl` / `collect_fex_sycl` / `flush_fex_sycl` /
+// `close_fex_sycl` entry-point functions all use C-style `static` instead of
+// an anonymous namespace because their addresses are stored in the
+// `extern "C" VmafFeatureExtractor` struct at the bottom of this file
+// (which the C ABI consumes via function-pointer types declared in
+// `feature_extractor.h`). C++ anon namespace would still work for the type
+// match but moves the helpers further from the `static` idiom that the C-API
+// boundary expects, and clang-tidy's `misc-use-internal-linkage` no-ops
+// against `extern "C"` type aliases anyway. Per CLAUDE.md §12 r12 these are
+// load-bearing invariants of the SYCL ↔ libvmaf C-API ABI.
+
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
 /* ------------------------------------------------------------------ */
@@ -134,6 +147,7 @@ static inline int dev_mirror_motion(int idx, int sup)
 /* This matches the V→H ordering for exact bit-identical results.      */
 /* ------------------------------------------------------------------ */
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int32_t *blur_out,
                                          const int32_t *prev_blur, int64_t *sad_accum,
                                          unsigned width, unsigned height, unsigned bpc,
@@ -261,6 +275,7 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
                     item.barrier(sycl::access::fence_space::local_space);
 
                     if (lid == 0) {
+                        // NOLINTNEXTLINE(misc-const-correctness): atomic_ref / reduction-loop target — clang-tidy cannot see the writes through SYCL atomic_ref or sub-group reductions, but the variable is mutated and must not be const
                         int64_t total = 0;
                         for (uint32_t s = 0; s < n_subgroups; s++)
                             total += lmem[s];
@@ -308,11 +323,11 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     VmafSyclState *state = fex->sycl_state;
 
     // Initialize shared frame buffers (idempotent, first extractor wins)
-    int err = vmaf_sycl_shared_frame_init(state, w, h, bpc);
+    int const err = vmaf_sycl_shared_frame_init(state, w, h, bpc);
     if (err)
         return err;
 
-    size_t buf_size = (size_t)w * h * sizeof(int32_t);
+    size_t const buf_size = (size_t)w * h * sizeof(int32_t);
 
     // Two blur buffers for ping-pong
     s->d_blur[0] = static_cast<int32_t *>(vmaf_sycl_malloc_device(state, buf_size));
@@ -339,8 +354,8 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     s->sycl_state = state;
 
     // Register with combined command graph
-    int err2 = vmaf_sycl_graph_register(state, enqueue_motion_work, motion_pre_graph,
-                                        motion_post_graph, config_motion_slot, s, "MOTION");
+    int const err2 = vmaf_sycl_graph_register(state, enqueue_motion_work, motion_pre_graph,
+                                              motion_post_graph, config_motion_slot, s, "MOTION");
     if (err2)
         return err2;
 
@@ -434,7 +449,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     VmafSyclState *state = fex->sycl_state;
 
     // Combined graph submit (idempotent per frame — first extractor wins)
-    int err = vmaf_sycl_graph_submit(state);
+    int const err = vmaf_sycl_graph_submit(state);
     if (err)
         return err;
 
@@ -444,6 +459,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     return 0;
 }
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
@@ -586,6 +602,8 @@ static int close_fex_sycl(VmafFeatureExtractor *fex)
 
 static const char *provided_features[] = {"VMAF_integer_feature_motion_score",
                                           "VMAF_integer_feature_motion2_score", nullptr};
+
+// NOLINTEND(misc-use-anonymous-namespace, misc-use-internal-linkage)
 
 extern "C" VmafFeatureExtractor vmaf_fex_integer_motion_sycl = {
     .name = "motion_sycl",

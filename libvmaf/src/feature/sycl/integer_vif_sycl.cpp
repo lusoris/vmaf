@@ -52,6 +52,12 @@ extern "C" {
 #include "log.h"
 }
 
+// NOLINTBEGIN(misc-use-anonymous-namespace, misc-use-internal-linkage): see
+// integer_motion_sycl.cpp for the rationale — C-style `static` is required
+// because the entry-point function addresses are consumed via the
+// `extern "C" VmafFeatureExtractor` struct at the bottom of this TU; the
+// C-API boundary is the load-bearing invariant per CLAUDE.md §12 r12.
+
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
 /* ------------------------------------------------------------------ */
@@ -164,7 +170,7 @@ static const VmafOption options[] = {
         .default_val = {.b = false},
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
-    {0}};
+    {nullptr}};
 
 /* ------------------------------------------------------------------ */
 /* Device-side helpers (used inside kernels)                           */
@@ -273,6 +279,7 @@ static inline void sycl_profile_event(VmafSyclState *state, const char *name, sy
  * that skips boundary checks during tile load.
  */
 template <int SCALE>
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, const void *dis_data,
                                         unsigned width, unsigned height, unsigned src_stride,
                                         unsigned bpc, uint32_t *tmp_mu1, uint32_t *tmp_mu2,
@@ -399,6 +406,7 @@ static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, co
             uint64_t acc_ref = 0;
             uint64_t acc_dis = 0;
             uint64_t acc_ref_dis = 0;
+            // NOLINTNEXTLINE(readability-isolate-declaration): SYCL chained zero-init; splitting hides the symmetry of the parallel reduction state.
             uint32_t acc_ref_rd = 0, acc_dis_rd = 0;
 
 #pragma unroll
@@ -510,10 +518,12 @@ static sycl::event launch_vif_vert(sycl::queue &q, const void *ref_data, const v
  */
 template <int SCALE, int SG_SIZE>
 static sycl::event
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above
 launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_enhn_gain_limit,
-                     uint32_t *tmp_mu1, uint32_t *tmp_mu2, uint32_t *tmp_ref, uint32_t *tmp_dis,
-                     uint32_t *tmp_ref_dis, uint32_t *tmp_ref_convol, uint32_t *tmp_dis_convol,
-                     int64_t *accum, uint32_t *rd_ref, uint32_t *rd_dis, const uint32_t *log2_lut)
+                     const uint32_t *tmp_mu1, const uint32_t *tmp_mu2, const uint32_t *tmp_ref,
+                     const uint32_t *tmp_dis, const uint32_t *tmp_ref_dis,
+                     const uint32_t *tmp_ref_convol, const uint32_t *tmp_dis_convol, int64_t *accum,
+                     uint32_t *rd_ref, uint32_t *rd_dis, const uint32_t *log2_lut)
 {
     constexpr int FW = vif_fwidth[SCALE];
     constexpr int FW_RD = vif_fwidth_rd[SCALE];
@@ -770,6 +780,7 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
                 // Only n_subgroups entries to sum (typically 8 for SIMD-32)
                 const int lid = item.get_local_linear_id();
                 if (lid == 0) {
+                    // NOLINTNEXTLINE(misc-const-correctness): atomic_ref / reduction-loop target — clang-tidy cannot see the writes through SYCL atomic_ref or sub-group reductions, but the variable is mutated and must not be const
                     int64_t final_vals[ACCUM_FIELDS] = {};
                     for (uint32_t s = 0; s < n_subgroups; s++) {
                         final_vals[0] += lmem[0 * MAX_SUBGROUPS + s];
@@ -895,6 +906,7 @@ static sycl::event launch_vif_hori_v2_sg16(sycl::queue &q, int scale, unsigned w
  */
 template <int SCALE, int SG_SIZE>
 static sycl::event
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above
 launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data, unsigned width,
                       unsigned height, unsigned src_stride, unsigned bpc, float vif_enhn_gain_limit,
                       int64_t *accum, uint32_t *rd_ref, uint32_t *rd_dis, const uint32_t *log2_lut)
@@ -983,10 +995,11 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
 
                 auto read_global = [&](const void *src, int y, int x) -> uint32_t {
                     if constexpr (SCALE == 0) {
-                        if (e_bpc <= 8)
+                        if (e_bpc <= 8) {
                             return static_cast<const uint8_t *>(src)[y * e_src_stride + x];
-                        else
+                        } else {
                             return static_cast<const uint16_t *>(src)[y * (e_src_stride / 2) + x];
+                        }
                     } else {
                         return static_cast<const uint32_t *>(src)[y * e_src_stride + x] & 0xFFFF;
                     }
@@ -1031,6 +1044,7 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                     uint64_t a_ref = 0;
                     uint64_t a_dis = 0;
                     uint64_t a_ref_dis = 0;
+                    // NOLINTNEXTLINE(readability-isolate-declaration): SYCL chained zero-init; splitting hides the symmetry of the parallel reduction state.
                     uint32_t a_ref_rd = 0, a_dis_rd = 0;
 
 #pragma unroll
@@ -1063,6 +1077,7 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                         (uint32_t)((a_mu1 + add_shift_round_vp) >> shift_vp);
                     s_vert[1 * VERT_TOTAL + base] =
                         (uint32_t)((a_mu2 + add_shift_round_vp) >> shift_vp);
+                    // NOLINTNEXTLINE(bugprone-branch-clone): SYCL template specialization branch — both arms reach the same code today but the conditional pins the bit-exactness contract for future SCALE / SG_SIZE divergence.
                     if (shift_vp_sq > 0) {
                         s_vert[2 * VERT_TOTAL + base] =
                             (uint32_t)((a_ref + add_shift_round_vp_sq) >> shift_vp_sq);
@@ -1099,14 +1114,21 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                 int64_t t_den_log = 0;
                 int64_t t_num_non_log = 0;
                 int64_t t_den_non_log = 0;
+                // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                 uint32_t h_ref_rd = 0;
+                // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                 uint32_t h_dis_rd = 0;
 
                 if (valid) {
+                    // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                     uint32_t h_mu1 = 0;
+                    // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                     uint32_t h_mu2 = 0;
+                    // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                     uint64_t h_ref = 0;
+                    // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                     uint64_t h_dis = 0;
+                    // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                     uint64_t h_ref_dis = 0;
 
                     // Center tap (unpaired)
@@ -1249,6 +1271,7 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                 item.barrier(sycl::access::fence_space::local_space);
 
                 if (lid == 0) {
+                    // NOLINTNEXTLINE(misc-const-correctness): atomic_ref / reduction-loop target — clang-tidy cannot see the writes through SYCL atomic_ref or sub-group reductions, but the variable is mutated and must not be const
                     int64_t final_vals[ACCUM_FIELDS] = {};
                     for (uint32_t s = 0; s < n_subgroups; s++) {
                         final_vals[0] += lmem[0 * MAX_SUBGROUPS + s];
@@ -1339,6 +1362,7 @@ static void enqueue_vif_work(void *queue_ptr, void *priv, void *shared_ref, void
 static void vif_pre_graph(void *queue_ptr, void *priv);
 static void vif_post_graph(void *queue_ptr, void *priv);
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
@@ -1368,7 +1392,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         return err;
 
     // Intermediate buffers: only needed for separate V+H pipeline
-    size_t tmp_size = (size_t)w * h * sizeof(uint32_t);
+    size_t const tmp_size = (size_t)w * h * sizeof(uint32_t);
 
     if (!s->use_fused) {
         s->d_tmp_mu1 = static_cast<uint32_t *>(vmaf_sycl_malloc_device(state, tmp_size));
@@ -1380,17 +1404,18 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         s->d_tmp_dis_convol = static_cast<uint32_t *>(vmaf_sycl_malloc_device(state, tmp_size));
     }
     // Downsampled buffers only need quarter-frame: (w/2)*(h/2) elements
-    size_t rd_size = (size_t)(w / 2) * (h / 2) * sizeof(uint32_t);
+    size_t const rd_size = (size_t)(w / 2) * (h / 2) * sizeof(uint32_t);
     s->d_rd_ref = static_cast<uint32_t *>(vmaf_sycl_malloc_device(state, rd_size));
     s->d_rd_dis = static_cast<uint32_t *>(vmaf_sycl_malloc_device(state, rd_size));
 
     // Accumulators: 4 scales x 7 fields x 8 bytes = 224 bytes
-    size_t accum_size = VIF_NUM_SCALES * ACCUM_FIELDS * sizeof(int64_t);
+    // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
+    size_t const accum_size = VIF_NUM_SCALES * ACCUM_FIELDS * sizeof(int64_t);
     s->d_accum = static_cast<int64_t *>(vmaf_sycl_malloc_device(state, accum_size));
     s->h_accum = static_cast<int64_t *>(vmaf_sycl_malloc_host(state, accum_size));
 
     // Log2 LUT: 32768 entries of uint32
-    size_t lut_size = LOG2_LUT_SIZE * sizeof(uint32_t);
+    size_t const lut_size = LOG2_LUT_SIZE * sizeof(uint32_t);
     s->d_log2_lut = static_cast<uint32_t *>(vmaf_sycl_malloc_device(state, lut_size));
 
     if (!s->use_fused && (!s->d_tmp_mu1 || !s->d_tmp_mu2 || !s->d_tmp_ref || !s->d_tmp_dis ||
@@ -1421,6 +1446,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     {
         auto dev = q.get_device();
         auto sg_sizes = dev.get_info<sycl::info::device::sub_group_sizes>();
+        // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
         bool has_sg16 = false;
         for (auto sz : sg_sizes) {
             if (sz == 16) {
@@ -1453,6 +1479,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 /* Enqueue all VIF compute work (used for both recording and direct)    */
 /* ------------------------------------------------------------------ */
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static void enqueue_vif_work_impl(sycl::queue &q, VifStateSycl *s, void *shared_ref,
                                   void *shared_dis)
 {
@@ -1467,16 +1494,18 @@ static void enqueue_vif_work_impl(sycl::queue &q, VifStateSycl *s, void *shared_
         if (scale == 0) {
             ref_src = shared_ref;
             dis_src = shared_dis;
-            if (s->bpc <= 8)
+            if (s->bpc <= 8) {
                 src_stride = cur_w;
-            else
+            } else {
                 src_stride = cur_w * 2;
+            }
         } else {
             ref_src = s->d_rd_ref;
             dis_src = s->d_rd_dis;
             src_stride = cur_w;
         }
 
+        // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
         int64_t *scale_accum = s->d_accum + scale * ACCUM_FIELDS;
 
         if (s->use_fused) {
@@ -1530,6 +1559,7 @@ static void vif_pre_graph(void *queue_ptr, void *priv)
 {
     sycl::queue &q = *static_cast<sycl::queue *>(queue_ptr);
     auto *s = static_cast<VifStateSycl *>(priv);
+    // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
     size_t accum_size = VIF_NUM_SCALES * ACCUM_FIELDS * sizeof(int64_t);
     q.memset(s->d_accum, 0, accum_size);
 }
@@ -1547,6 +1577,7 @@ static void vif_post_graph(void *queue_ptr, void *priv)
 {
     sycl::queue &q = *static_cast<sycl::queue *>(queue_ptr);
     auto *s = static_cast<VifStateSycl *>(priv);
+    // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
     size_t accum_size = VIF_NUM_SCALES * ACCUM_FIELDS * sizeof(int64_t);
     q.memcpy(s->h_accum, s->d_accum, accum_size);
 }
@@ -1567,7 +1598,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     VmafSyclState *state = fex->sycl_state;
 
     // Combined graph submit (idempotent per frame — first extractor wins)
-    int err = vmaf_sycl_graph_submit(state);
+    int const err = vmaf_sycl_graph_submit(state);
     if (err)
         return err;
 
@@ -1577,6 +1608,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     return 0;
 }
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
@@ -1734,7 +1766,9 @@ static const char *provided_features[] = {"VMAF_integer_feature_vif_scale0_score
                                           "integer_vif_den_scale2",
                                           "integer_vif_num_scale3",
                                           "integer_vif_den_scale3",
-                                          NULL};
+                                          nullptr};
+
+// NOLINTEND(misc-use-anonymous-namespace, misc-use-internal-linkage)
 
 extern "C" VmafFeatureExtractor vmaf_fex_integer_vif_sycl = {
     .name = "vif_sycl",
