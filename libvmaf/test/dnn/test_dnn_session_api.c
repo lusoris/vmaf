@@ -231,6 +231,34 @@ static char *test_session_run_luma8_size_mismatch(void)
     return NULL;
 }
 
+/* ADR-0170 / T6-4: end-to-end happy-path for run_plane16 — opens the
+ * 4x4 smoke model and runs a real ORT inference on a packed uint16
+ * buffer. Drives the from_plane16 → ort_infer → to_plane16 chain
+ * (covers ~30 LoC in dnn_api.c that the rejection-only tests skip). */
+static char *test_session_run_plane16_happy_path(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+
+    /* 10-bit packed uint16 buffer; pin a deterministic input so the
+     * test is byte-exact. */
+    uint16_t in[16];
+    uint16_t out[16] = {0};
+    for (int i = 0; i < 16; ++i)
+        in[i] = (uint16_t)(100 * i);
+    rc = vmaf_dnn_session_run_plane16(sess, in, 4u * sizeof(uint16_t), 4, 4, 10, out,
+                                      4u * sizeof(uint16_t));
+    mu_assert("plane16 happy-path ORT inference ok", rc == 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
 #ifndef _WIN32
 /* ADR-0174 / T5-3b coverage helpers — exercise the runtime int8
  * redirect block in vmaf_dnn_session_open. The fopen-with-0600
@@ -702,6 +730,7 @@ char *run_tests(void)
     mu_run_test(test_session_run_plane16_rejects_null);
     mu_run_test(test_session_run_plane16_rejects_bad_bpc);
     mu_run_test(test_session_run_plane16_size_mismatch);
+    mu_run_test(test_session_run_plane16_happy_path);
 #ifndef _WIN32
     mu_run_test(test_session_open_int8_missing_returns_error);
     mu_run_test(test_session_open_int8_redirect_succeeds);
