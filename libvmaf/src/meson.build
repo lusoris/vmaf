@@ -930,21 +930,39 @@ if is_sycl_enabled
     vmaf_cflags_common += '-DHAVE_SYCL'
 endif
 
-# `-fsycl` is icpx-only.  When the project's C++ compiler is icpx the link
-# driver invokes clang-offload-wrapper and needs `-fsycl` to embed the
-# SPIR-V device code; when it is gcc/clang/msvc (the documented
-# host-compiler-with-sidecar-icpx mode — see comment on line 462) the
-# SYCL device code is already embedded in the icpx-compiled .o files at
-# compile time, and the runtime libraries (libsycl + libsvml + libirc +
-# libze_loader) declared as link dependencies above resolve every symbol.
-# Passing `-fsycl` to a non-icpx linker is a hard error
-# (`g++: error: unrecognized command-line option '-fsycl'`).
+# SYCL device-image registration requires `-fsycl` at the *link* step so
+# that icpx invokes clang-offload-wrapper and embeds the SPIR-V device
+# code into the final .so. Without it, the SYCL runtime cannot find
+# the kernels by mangled name and every `q.submit(...)` raises
+# `No kernel named ... was found` at the first dispatch.
+#
+# `-fsycl` is icpx-only — passing it to gcc/clang/msvc is a hard error
+# (`error: unrecognized command-line option '-fsycl'`). The project's
+# C++ compiler must therefore be icpx whenever `enable_sycl=true`. The
+# previous comment block here claimed that the SYCL device images were
+# already embedded in the icpx-compiled .o files and that gcc could
+# link them transparently; that assumption is wrong with modern SYCL
+# (icpx 2025.x and probably earlier — see the post-T7-8 SYCL revival
+# notes in docs/development/oneapi-install.md).
 vmaf_link_args = []
 if is_sycl_enabled
     cpp = meson.get_compiler('cpp')
-    if cpp.get_id() == 'intel-llvm'
-        vmaf_link_args += ['-fsycl']
+    cpp_id = cpp.get_id()
+    # Linux: icpx → 'intel-llvm'.
+    # Windows MSVC ABI: icx-cl → 'intel-llvm-cl' (newer meson) or
+    #                            'clang-cl' (older meson, when meson
+    #                            falls through to the clang-cl detector).
+    sycl_cpp_ids = ['intel-llvm', 'intel-llvm-cl', 'clang-cl']
+    if cpp_id not in sycl_cpp_ids
+        error('enable_sycl=true requires the project C++ compiler to be ' +
+              'icpx / icx-cl (Intel oneAPI DPC++/C++ Compiler). Re-run ' +
+              'meson setup with `CXX=icpx CC=icx` after sourcing ' +
+              'setvars.sh on Linux, or `set CXX=icx-cl CC=icx-cl` after ' +
+              'calling setvars.bat on Windows. Detected `cpp.get_id()` = ' +
+              '\'' + cpp_id + '\'. See docs/development/oneapi-install.md ' +
+              'for details.')
     endif
+    vmaf_link_args += ['-fsycl']
 endif
 
 libvmaf = library(

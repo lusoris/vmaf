@@ -105,10 +105,18 @@ jobs:
             meson_extra: --default-library static
             name: Build — Ubuntu gcc Static (CPU)
           - os: ubuntu-latest
-            CC: ccache gcc
-            CXX: ccache g++
+            CC: icx
+            CXX: icpx
             sycl: true
-            meson_extra: --default-library static -Denable_sycl=true
+            # b_lto=false: meson's project-level `b_lto=true` adds
+            # `-flto=auto` to compile + link steps, but `-flto=auto` is a
+            # gcc-ism. icx silently maps it differently from how icpx
+            # treats the link step's `-flto`, leaving the static archive
+            # with no LTO bitcode while the linker still expects LTO
+            # objects — undefined references for every libvmaf C symbol
+            # in the test binaries. Disable LTO on SYCL lanes; the SYCL
+            # device-image link path doesn't benefit from host LTO anyway.
+            meson_extra: --default-library static -Denable_sycl=true -Db_lto=false
             name: Build — Ubuntu SYCL Static
           - os: ubuntu-latest
             CC: ccache gcc
@@ -117,12 +125,14 @@ jobs:
             meson_extra: --default-library static -Denable_cuda=true -Denable_nvcc=true
             name: Build — Ubuntu CUDA Static
 
-          # --- SYCL build (gcc host + icpx for SYCL sources) ---
+          # --- SYCL build (icpx for both host + SYCL sources so the device
+          #     image is registered at the .so link step; see post-T7-8
+          #     SYCL revival in libvmaf/src/meson.build) ---
           - os: ubuntu-latest
-            CC: ccache gcc
-            CXX: ccache g++
+            CC: icx
+            CXX: icpx
             sycl: true
-            meson_extra: -Denable_sycl=true
+            meson_extra: -Denable_sycl=true -Db_lto=false
             name: Build — Ubuntu SYCL
 
           # --- CUDA build (gcc + nvcc) ---
@@ -133,13 +143,14 @@ jobs:
             meson_extra: -Denable_cuda=true -Denable_nvcc=true
             name: Build — Ubuntu CUDA
 
-          # --- SYCL + CUDA combined ---
+          # --- SYCL + CUDA combined (icpx host so SYCL link works; nvcc
+          #     handles the CUDA TUs separately via -Denable_nvcc=true) ---
           - os: ubuntu-latest
-            CC: ccache gcc
-            CXX: ccache g++
+            CC: icx
+            CXX: icpx
             sycl: true
             cuda: true
-            meson_extra: -Denable_sycl=true -Denable_cuda=true -Denable_nvcc=true
+            meson_extra: -Denable_sycl=true -Denable_cuda=true -Denable_nvcc=true -Db_lto=false
             name: Build — Ubuntu SYCL + CUDA
 
     name: ${{ matrix.name }}
@@ -228,6 +239,16 @@ jobs:
       # package rather than the unversioned 'latest' to avoid silent bumps.
       - name: Install Intel oneAPI
         if: matrix.sycl
+        # Override the matrix-level CC=icx / CXX=icpx for *this* step only:
+        # the Level Zero loader is plain C and we don't have icx on PATH yet
+        # at this point in the same step (apt installs it below, then the
+        # cmake invocation runs before the next step picks up GITHUB_PATH).
+        # Force gcc here; the meson setup step further down picks up icpx
+        # via the matrix env once setvars.sh adds /opt/intel/oneapi/compiler
+        # to PATH.
+        env:
+          CC: gcc
+          CXX: g++
         run: |
           sudo apt-get update
           sudo -E apt-get -yq install ccache ninja-build nasm gcc g++ gpg-agent
@@ -275,13 +296,24 @@ jobs:
       # ---------- Build ----------
       - name: Configure libvmaf
         run: |
+          # SYCL build needs setvars.sh on PATH/LD_LIBRARY_PATH so meson
+          # can probe libsycl + level-zero headers via icpx -fsycl. CPU
+          # / CUDA matrix entries skip this — they don't have setvars.sh.
+          if [ "${{ matrix.sycl }}" = "true" ]; then
+            source /opt/intel/oneapi/setvars.sh
+          fi
           meson setup libvmaf libvmaf/build --buildtype release \
             --prefix $PWD/install \
             -Denable_float=true \
             ${{ matrix.meson_extra }}
 
       - name: Build libvmaf
-        run: sudo ninja -vC libvmaf/build install
+        run: |
+          if [ "${{ matrix.sycl }}" = "true" ]; then
+            source /opt/intel/oneapi/setvars.sh
+          fi
+          sudo -E PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            ninja -vC libvmaf/build install
 
       # Verify pkgconfig for static linking
       - name: Verify static pkgconfig

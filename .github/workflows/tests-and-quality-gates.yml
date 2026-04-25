@@ -394,11 +394,20 @@ jobs:
           submodules: recursive
       - name: Build with gcov + CUDA + SYCL + AVX-512
         working-directory: libvmaf
+        env:
+          # icpx required for SYCL link — see libvmaf/src/meson.build.
+          CC: icx
+          CXX: icpx
         run: |
           # See CPU coverage job for -fprofile-update=atomic rationale.
           # GPU build also runs SIMD CPU paths, so the same .gcda race applies.
+          source /opt/intel/oneapi/setvars.sh
+          # b_lto=false: see libvmaf-build-matrix.yml note. Coverage build
+          # uses --buildtype=debug which already disables LTO, but make it
+          # explicit to avoid a future buildtype change re-introducing the
+          # icx + -flto=auto incompatibility.
           meson setup build-coverage-gpu --buildtype=debug \
-            -Db_coverage=true \
+            -Db_coverage=true -Db_lto=false \
             -Denable_cuda=true -Denable_sycl=true \
             -Denable_float=true -Denable_avx512=true \
             -Dc_args=-fprofile-update=atomic \
