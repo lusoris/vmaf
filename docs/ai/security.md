@@ -22,10 +22,28 @@ list.
 
 The list includes the common building blocks of C1/C2/C3 architectures
 (`Conv`, `Gemm`, `Relu`, `BatchNormalization`, `GlobalAveragePool`,
-activations, pooling, arithmetic, reshape/transpose) and explicitly
-excludes **control-flow** ops (`If`, `Loop`, `Scan`), custom ops, and
-anything that could touch the filesystem or network. Unknown op names
-(`custom_op_xyz`) are rejected.
+activations, pooling, arithmetic, reshape/transpose) plus the two
+control-flow ops `Loop` and `If` (added in
+[ADR-0169](../adr/0169-onnx-allowlist-loop-if.md) — required by
+MUSIQ / RAFT / small-VLM-class architectures). `Scan` remains rejected
+— its variant-typed input/output binding makes static bound-checking
+impractical for a wire-format scanner. Unknown op names
+(`custom_op_xyz`) are rejected, as is anything that could touch the
+filesystem or network.
+
+For `Loop` / `If`, the wire-format scanner in
+[`onnx_scan.c`](../../libvmaf/src/dnn/onnx_scan.c) recurses into the
+embedded subgraphs (`Loop.body`, `If.then_branch`, `If.else_branch`)
+and applies the same allowlist check at every depth (capped at 8
+levels of nesting as a defence-in-depth bound). A forbidden op cannot
+hide inside a control-flow body.
+
+> **Caveat — bounded-iteration guard not yet enforced.** A `Loop`
+> with an unbounded or attacker-controlled trip count can enter a
+> long-running compute loop at runtime. The fork's load-time scanner
+> does not yet enforce that `Loop.M` traces to a `Constant ≤ MAX`.
+> Operators consuming untrusted models should set an inference
+> timeout via ORT's `RunOptions`. Tracked as backlog item T6-5b.
 
 Extending the list is a conscious, reviewed act — changes to
 `op_allowlist.c` must be called out in the PR description and backed by a

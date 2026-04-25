@@ -83,6 +83,14 @@ static const char *const ALLOWED_OPS[] = {
     /* misc, safe */
     "Constant",
     "ConstantOfShape",
+    /* control flow (ADR-0169 / T6-5) — accepted, but every op inside the
+     * Loop.body / If.then_branch / If.else_branch subgraph must also pass
+     * the allowlist (recursive scan in onnx_scan.c). `Scan` is deliberately
+     * NOT on this list — its variant-typed input/output binding makes
+     * static bound-checking impractical; revisit if a concrete consumer
+     * appears. */
+    "Loop",
+    "If",
     NULL,
 };
 
