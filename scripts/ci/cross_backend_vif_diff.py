@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Cross-backend VIF diff — gates the Vulkan VIF kernel against the CPU
-scalar reference. Runs `vmaf` twice on the same (ref, dist) pair: once
-with the CPU integer-VIF extractor, once with the Vulkan compute kernel
-(`--vulkan_device 0`). Compares per-frame `integer_vif_scale0..3` scores
-at places=4 and prints a per-scale verdict.
+"""Cross-backend feature diff — gates Vulkan compute kernels against the
+CPU scalar reference. Runs `vmaf` twice on the same (ref, dist) pair: once
+with the CPU integer extractor, once with the Vulkan compute kernel
+(`--vulkan_device 0`). Compares per-frame scores at places=4 and prints a
+per-metric verdict.
 
 Default tolerance is places=4 (matches the fork's GPU-vs-CPU snapshot
 contract — see `docs/principles.md` and the user's "GPU is NOT bit-exact"
-invariant). Empirically the GLSL kernel in
-`libvmaf/src/feature/vulkan/shaders/vif.comp` is bit-exact with the
-scalar reference because both use deterministic int64 accumulators; the
+invariant). Empirically the GLSL kernels under
+`libvmaf/src/feature/vulkan/shaders/` are bit-exact with the scalar
+reference because both sides use deterministic int64 accumulators; the
 slack is preserved for forward compatibility (e.g., if Mesa lavapipe
 diverges from a real ICD on a future driver).
+
+Use `--feature vif` (default) or `--feature motion` to choose the
+extractor + metric set. The script keeps its historical name for the
+existing CI lane referencing it; the broader scope is reflected in the
+`--feature` flag.
 
 Exit code 0 on agreement, 1 on a places=4 mismatch, 2 on a binary or
 fixture failure.
@@ -28,12 +33,18 @@ import sys
 import tempfile
 from pathlib import Path
 
-VIF_METRICS = (
-    "integer_vif_scale0",
-    "integer_vif_scale1",
-    "integer_vif_scale2",
-    "integer_vif_scale3",
-)
+FEATURE_METRICS: dict[str, tuple[str, ...]] = {
+    "vif": (
+        "integer_vif_scale0",
+        "integer_vif_scale1",
+        "integer_vif_scale2",
+        "integer_vif_scale3",
+    ),
+    "motion": (
+        "integer_motion",
+        "integer_motion2",
+    ),
+}
 
 
 def run_vmaf(
@@ -44,6 +55,7 @@ def run_vmaf(
     h: int,
     pix_fmt: str,
     bitdepth: int,
+    feature: str,
     output: Path,
     vulkan_device: int | None,
 ) -> None:
@@ -62,7 +74,7 @@ def run_vmaf(
         "--bitdepth",
         str(bitdepth),
         "--feature",
-        "vif",
+        feature,
         "--output",
         str(output),
         "--json",
@@ -81,31 +93,32 @@ def load_frames(path: Path) -> list[dict]:
         return json.load(f)["frames"]
 
 
-def diff(cpu: list[dict], vk: list[dict], places: int) -> int:
+def diff(cpu: list[dict], vk: list[dict], metrics: tuple[str, ...], places: int) -> int:
     if len(cpu) != len(vk):
         print(f"FAIL: frame count mismatch (cpu={len(cpu)}, vk={len(vk)})")
         return 1
 
-    per_scale_max = dict.fromkeys(VIF_METRICS, 0.0)
-    per_scale_mismatch = dict.fromkeys(VIF_METRICS, 0)
+    per_metric_max = dict.fromkeys(metrics, 0.0)
+    per_metric_mismatch = dict.fromkeys(metrics, 0)
 
     for cf, vf in zip(cpu, vk, strict=True):
-        for m in VIF_METRICS:
+        for m in metrics:
             c, v = cf["metrics"][m], vf["metrics"][m]
             d = abs(c - v)
-            per_scale_max[m] = max(per_scale_max[m], d)
+            per_metric_max[m] = max(per_metric_max[m], d)
             if round(c, places) != round(v, places):
-                per_scale_mismatch[m] += 1
+                per_metric_mismatch[m] += 1
 
-    print(f"VIF cross-backend (CPU vs Vulkan), {len(cpu)} frames, " f"tolerance places={places}")
+    print(f"cross-backend diff (CPU vs Vulkan), {len(cpu)} frames, tolerance places={places}")
     print(f"{'metric':<25} {'max_abs_diff':<15} {'places=4 mismatches'}")
     fail = False
-    for m in VIF_METRICS:
-        verdict = "OK" if per_scale_mismatch[m] == 0 else "FAIL"
+    for m in metrics:
+        verdict = "OK" if per_metric_mismatch[m] == 0 else "FAIL"
         print(
-            f"  {m:<25} {per_scale_max[m]:<15.6e} " f"{per_scale_mismatch[m]}/{len(cpu)}  {verdict}"
+            f"  {m:<25} {per_metric_max[m]:<15.6e} "
+            f"{per_metric_mismatch[m]}/{len(cpu)}  {verdict}"
         )
-        if per_scale_mismatch[m] > 0:
+        if per_metric_mismatch[m] > 0:
             fail = True
 
     return 1 if fail else 0
@@ -125,6 +138,12 @@ def main() -> int:
     ap.add_argument("--vulkan-device", type=int, default=0)
     ap.add_argument("--places", type=int, default=4)
     ap.add_argument(
+        "--feature",
+        choices=tuple(FEATURE_METRICS),
+        default="vif",
+        help="extractor to gate (vif | motion)",
+    )
+    ap.add_argument(
         "--workdir",
         type=Path,
         default=Path(tempfile.gettempdir()) / "vmaf_cross_backend",
@@ -140,10 +159,10 @@ def main() -> int:
             return 2
 
     args.workdir.mkdir(parents=True, exist_ok=True)
-    cpu_json = args.workdir / "cpu_vif.json"
-    vk_json = args.workdir / "vk_vif.json"
+    cpu_json = args.workdir / f"cpu_{args.feature}.json"
+    vk_json = args.workdir / f"vk_{args.feature}.json"
 
-    print(f"running CPU VIF → {cpu_json}")
+    print(f"running CPU {args.feature} → {cpu_json}")
     run_vmaf(
         args.vmaf_binary,
         args.reference,
@@ -152,11 +171,12 @@ def main() -> int:
         args.height,
         args.pixel_format,
         args.bitdepth,
+        args.feature,
         cpu_json,
         vulkan_device=None,
     )
 
-    print(f"running Vulkan VIF (device {args.vulkan_device}) → {vk_json}")
+    print(f"running Vulkan {args.feature} (device {args.vulkan_device}) → {vk_json}")
     run_vmaf(
         args.vmaf_binary,
         args.reference,
@@ -165,11 +185,17 @@ def main() -> int:
         args.height,
         args.pixel_format,
         args.bitdepth,
+        args.feature,
         vk_json,
         vulkan_device=args.vulkan_device,
     )
 
-    return diff(load_frames(cpu_json), load_frames(vk_json), args.places)
+    return diff(
+        load_frames(cpu_json),
+        load_frames(vk_json),
+        FEATURE_METRICS[args.feature],
+        args.places,
+    )
 
 
 if __name__ == "__main__":

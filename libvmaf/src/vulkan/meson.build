@@ -25,6 +25,7 @@ glslc = find_program('glslc', required : true)
 # host-side dispatch wrapper.
 vulkan_shader_sources = [
     'shaders/vif.comp',
+    'shaders/motion.comp',
 ]
 
 vulkan_shader_headers = []

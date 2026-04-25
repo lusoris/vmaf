@@ -143,7 +143,16 @@ jobs:
             --vmaf-binary libvmaf/build/tools/vmaf \
             --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
             --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
-            --width 576 --height 324 --places 4
+            --width 576 --height 324 --feature vif --places 4
+      - name: Motion cross-backend diff (CPU vs Vulkan/lavapipe)
+        env:
+          VK_LOADER_DRIVERS_SELECT: '*lvp*'
+        run: |
+          python3 scripts/ci/cross_backend_vif_diff.py \
+            --vmaf-binary libvmaf/build/tools/vmaf \
+            --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+            --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+            --width 576 --height 324 --feature motion --places 4
 
   # ===== Vulkan VIF cross-backend gate (Arc nightly, advisory) =====
   # Same script, runs on the self-hosted Arc A380 runner — catches
@@ -171,7 +180,14 @@ jobs:
             --vmaf-binary libvmaf/build/tools/vmaf \
             --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
             --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
-            --width 576 --height 324 --places 4
+            --width 576 --height 324 --feature vif --places 4
+      - name: Motion cross-backend diff (CPU vs Vulkan/Arc)
+        run: |
+          python3 scripts/ci/cross_backend_vif_diff.py \
+            --vmaf-binary libvmaf/build/tools/vmaf \
+            --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+            --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+            --width 576 --height 324 --feature motion --places 4
 
   # ===== Sanitizer build =====
   sanitizers:
