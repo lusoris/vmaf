@@ -24,27 +24,27 @@ limitations in the same PR as the code.
 
 ## Extractor overview
 
-| Feature name       | Invocation name | Core feature? | Output metrics                                                                                | SIMD                | GPU    |
-|--------------------|-----------------|---------------|-----------------------------------------------------------------------------------------------|---------------------|--------|
-| VIF (fixed-point)  | `vif`           | Yes           | `vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3`                                        | AVX2, AVX-512, NEON | CUDA   |
-| VIF (float)        | `float_vif`     | Yes           | `float_vif_scale0..3`                                                                         | —                   | —      |
-| Motion2 (fixed)    | `motion`        | Yes           | `motion2` (+ `motion` if `debug=true`)                                                        | AVX2, AVX-512, NEON | CUDA   |
-| Motion v2 (fixed)  | `motion_v2`     | No            | `VMAF_integer_feature_motion_v2_sad_score`, `VMAF_integer_feature_motion2_v2_score`           | AVX2, AVX-512, NEON | —      |
-| Motion2 (float)    | `float_motion`  | Yes           | `float_motion2` (+ `float_motion` if `debug=true`)                                            | AVX2, AVX-512, NEON | —      |
-| ADM (fixed-point)  | `adm`           | Yes           | `adm2`, `adm_scale0`, `adm_scale1`, `adm_scale2`, `adm_scale3`                                | AVX2, AVX-512, NEON | CUDA   |
-| ADM (float)        | `float_adm`     | Yes           | `float_adm2`, `float_adm_scale0..3`                                                           | AVX2, AVX-512, NEON | —      |
-| [CAMBI](cambi.md)  | `cambi`         | No            | `cambi`                                                                                       | —                   | —      |
-| CIEDE2000          | `ciede`         | No            | `ciede2000`                                                                                   | AVX2, AVX-512, NEON | —      |
-| PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional)                                       | AVX2, AVX-512, NEON | —      |
-| PSNR (float)       | `float_psnr`    | No            | `float_psnr_y`, `float_psnr_cb`, `float_psnr_cr`                                              | AVX2, AVX-512, NEON | —      |
-| PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | —                   | —      |
-| SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —      |
-| SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | —      |
-| MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | —      |
-| ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | —      |
-| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | —      |
-| Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | —                   | —      |
-| LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —      |
+| Feature name       | Invocation name | Core feature? | Output metrics                                                                                | SIMD                | GPU                |
+|--------------------|-----------------|---------------|-----------------------------------------------------------------------------------------------|---------------------|--------------------|
+| VIF (fixed-point)  | `vif`           | Yes           | `vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3`                                        | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
+| VIF (float)        | `float_vif`     | Yes           | `float_vif_scale0..3`                                                                         | —                   | —                  |
+| Motion2 (fixed)    | `motion`        | Yes           | `motion2` (+ `motion` if `debug=true`)                                                        | AVX2, AVX-512, NEON | CUDA               |
+| Motion v2 (fixed)  | `motion_v2`     | No            | `VMAF_integer_feature_motion_v2_sad_score`, `VMAF_integer_feature_motion2_v2_score`           | AVX2, AVX-512, NEON | —                  |
+| Motion2 (float)    | `float_motion`  | Yes           | `float_motion2` (+ `float_motion` if `debug=true`)                                            | AVX2, AVX-512, NEON | —                  |
+| ADM (fixed-point)  | `adm`           | Yes           | `adm2`, `adm_scale0`, `adm_scale1`, `adm_scale2`, `adm_scale3`                                | AVX2, AVX-512, NEON | CUDA               |
+| ADM (float)        | `float_adm`     | Yes           | `float_adm2`, `float_adm_scale0..3`                                                           | AVX2, AVX-512, NEON | —                  |
+| [CAMBI](cambi.md)  | `cambi`         | No            | `cambi`                                                                                       | —                   | —                  |
+| CIEDE2000          | `ciede`         | No            | `ciede2000`                                                                                   | AVX2, AVX-512, NEON | —                  |
+| PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional)                                       | AVX2, AVX-512, NEON | —                  |
+| PSNR (float)       | `float_psnr`    | No            | `float_psnr_y`, `float_psnr_cb`, `float_psnr_cr`                                              | AVX2, AVX-512, NEON | —                  |
+| PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | —                   | —                  |
+| SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —                  |
+| SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | —                  |
+| MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | —                  |
+| ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | —                  |
+| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | —                  |
+| Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | —                   | —                  |
+| LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —                  |
 
 **Core** extractors are required inputs for the shipped VMAF models (see
 [models/overview.md](../models/overview.md)); non-core extractors are
@@ -91,7 +91,10 @@ Operates on the Y plane only.
 `egl=1.0` disables the enhancement-gain path entirely (matches pre-v1.3
 behaviour).
 
-**Backends** — `vif`: AVX2, AVX-512, NEON, CUDA. `float_vif`: scalar only.
+**Backends** — `vif`: AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan
+(`vif_vulkan`, T5-1b — see
+[backends/vulkan/overview.md](../backends/vulkan/overview.md)).
+`float_vif`: scalar only.
 
 **Reference** — Sheikh H. R., Bovik A. C., "Image information and visual
 quality," IEEE TIP 15(2):430–444, 2006.
