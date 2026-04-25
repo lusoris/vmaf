@@ -770,7 +770,7 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
                 // Only n_subgroups entries to sum (typically 8 for SIMD-32)
                 const int lid = item.get_local_linear_id();
                 if (lid == 0) {
-                    int64_t const final_vals[ACCUM_FIELDS] = {};
+                    int64_t final_vals[ACCUM_FIELDS] = {};
                     for (uint32_t s = 0; s < n_subgroups; s++) {
                         final_vals[0] += lmem[0 * MAX_SUBGROUPS + s];
                         final_vals[1] += lmem[1 * MAX_SUBGROUPS + s];
@@ -1249,7 +1249,7 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                 item.barrier(sycl::access::fence_space::local_space);
 
                 if (lid == 0) {
-                    int64_t const final_vals[ACCUM_FIELDS] = {};
+                    int64_t final_vals[ACCUM_FIELDS] = {};
                     for (uint32_t s = 0; s < n_subgroups; s++) {
                         final_vals[0] += lmem[0 * MAX_SUBGROUPS + s];
                         final_vals[1] += lmem[1 * MAX_SUBGROUPS + s];
@@ -1421,7 +1421,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     {
         auto dev = q.get_device();
         auto sg_sizes = dev.get_info<sycl::info::device::sub_group_sizes>();
-        bool const has_sg16 = false;
+        bool has_sg16 = false;
         for (auto sz : sg_sizes) {
             if (sz == 16) {
                 has_sg16 = true;
@@ -1614,7 +1614,7 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
     for (int i = 0; i < VIF_NUM_SCALES; i++) {
         double const score = (vif_scale_den[i] > 0.0) ? vif_scale_num[i] / vif_scale_den[i] : 1.0;
 
-        static const char const *key_names[] = {
+        static const char *const key_names[] = {
             "VMAF_integer_feature_vif_scale0_score",
             "VMAF_integer_feature_vif_scale1_score",
             "VMAF_integer_feature_vif_scale2_score",

@@ -528,7 +528,7 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
             // Load all 3 bands for ref and dis
             int32_t const o[3] = {ref_h[idx], ref_v[idx], ref_d[idx]};
             int32_t const t[3] = {dis_h[idx], dis_v[idx], dis_d[idx]};
-            int32_t const *cf_ptr[3] = {csf_f_h, csf_f_v, csf_f_d};
+            int32_t *const cf_ptr[3] = {csf_f_h, csf_f_v, csf_f_d};
             uint32_t const irf[3] = {i_rfactor_h, i_rfactor_v, i_rfactor_d};
 
             // --- 2D Angle test using (H, V) bands only ---
@@ -809,12 +809,12 @@ static sycl::event launch_csf_den_cm_3band(
                 const int32_t *ref_band = (band_idx == 0) ? ref_band_h :
                                           (band_idx == 1) ? ref_band_v :
                                                             ref_band_d;
-                int64_t const *csf_accum_ptr = (band_idx == 0) ? csf_accum_h :
-                                               (band_idx == 1) ? csf_accum_v :
-                                                                 csf_accum_d;
-                int64_t const *cm_accum_ptr = (band_idx == 0) ? cm_accum_h :
-                                              (band_idx == 1) ? cm_accum_v :
-                                                                cm_accum_d;
+                int64_t *csf_accum_ptr = (band_idx == 0) ? csf_accum_h :
+                                         (band_idx == 1) ? csf_accum_v :
+                                                           csf_accum_d;
+                int64_t *cm_accum_ptr = (band_idx == 0) ? cm_accum_h :
+                                        (band_idx == 1) ? cm_accum_v :
+                                                          cm_accum_d;
                 uint32_t const i_rfactor = (band_idx == 0) ? i_rfactor_h :
                                            (band_idx == 1) ? i_rfactor_v :
                                                              i_rfactor_d;
@@ -822,7 +822,7 @@ static sycl::event launch_csf_den_cm_3band(
                 auto e_cm_shift_xsq = (band_idx < 2) ? e_cm_shift_xsq0 : e_cm_shift_xsq2;
                 auto e_cm_shift_xcub = (band_idx < 2) ? e_cm_shift_xcub0 : e_cm_shift_xcub2;
 
-                const int32_t const *cf_ptrs[3] = {csf_f_h, csf_f_v, csf_f_d};
+                const int32_t *const cf_ptrs[3] = {csf_f_h, csf_f_v, csf_f_d};
                 // All 3 ref/dis band pointers for inline decouple
                 const int32_t const *ref_ptrs[3] = {ref_band_h, ref_band_v, ref_band_d};
                 const int32_t const *dis_ptrs[3] = {dis_band_h, dis_band_v, dis_band_d};
@@ -1036,8 +1036,8 @@ static sycl::event launch_csf_den_cm_3band(
                 item.barrier(sycl::access::fence_space::local_space);
 
                 if (lid == 0) {
-                    int64_t const total_csf = 0;
-                    int64_t const total_cm = 0;
+                    int64_t total_csf = 0;
+                    int64_t total_cm = 0;
                     for (uint32_t s = 0; s < n_subgroups; s++) {
                         total_csf += lmem[s];
                         total_cm += lmem[MAX_SUBGROUPS + s];

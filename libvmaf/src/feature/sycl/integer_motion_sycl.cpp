@@ -261,7 +261,7 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
                     item.barrier(sycl::access::fence_space::local_space);
 
                     if (lid == 0) {
-                        int64_t const total = 0;
+                        int64_t total = 0;
                         for (uint32_t s = 0; s < n_subgroups; s++)
                             total += lmem[s];
 
