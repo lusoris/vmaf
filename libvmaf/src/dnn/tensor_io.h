@@ -68,6 +68,37 @@ int vmaf_tensor_from_rgb_imagenet(const uint8_t *src_r, size_t stride_r, const u
                                   size_t stride_g, const uint8_t *src_b, size_t stride_b, int width,
                                   int height, float *dst);
 
+/**
+ * 10-/12-/16-bit variant of @ref vmaf_tensor_from_luma for single-plane
+ * input (packed uint16_t little-endian, stride in bytes). Values are
+ * scaled to [0, 1] by dividing by `(1 << bpc) - 1` and, if @p mean and
+ * @p std are non-NULL, standardized. Used by `vmaf_dnn_session_run_plane16`
+ * (ADR-0170 / T6-4) for 10/12/16-bit YUV + per-plane chroma dispatch.
+ *
+ * @param src         uint16 single-plane buffer (little-endian per pixel)
+ * @param stride_src  bytes per source row (>= width * sizeof(uint16_t))
+ * @param width, height  plane dimensions
+ * @param bpc         bits per component in [9, 16]; value range [0, (1<<bpc)-1]
+ * @param layout      NCHW (default) or NHWC
+ * @param dtype       F32 or F16
+ * @param mean, std   per-channel normalization (length 1); NULL = skip
+ * @param dst         destination buffer; size = width*height*sizeof(dtype)
+ *
+ * @return 0 on success, -EINVAL on bad args.
+ */
+int vmaf_tensor_from_plane16(const uint16_t *src, size_t stride_src, int width, int height, int bpc,
+                             VmafTensorLayout layout, VmafTensorDType dtype, const float *mean,
+                             const float *std, void *dst);
+
+/**
+ * Inverse of @ref vmaf_tensor_from_plane16. De-normalizes, multiplies by
+ * `(1 << bpc) - 1` with round-half-to-even, and clamps to
+ * `[0, (1 << bpc) - 1]`. Writes a packed uint16 plane back to @p dst.
+ */
+int vmaf_tensor_to_plane16(const void *src, VmafTensorLayout layout, VmafTensorDType dtype,
+                           int width, int height, int bpc, const float *mean, const float *std,
+                           uint16_t *dst, size_t stride_dst);
+
 /** Convert float32 ↔ float16 in-place element counts. */
 void vmaf_f32_to_f16(const float *src, uint16_t *dst, size_t n);
 void vmaf_f16_to_f32(const uint16_t *src, float *dst, size_t n);

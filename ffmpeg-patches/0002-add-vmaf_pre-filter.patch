@@ -1,14 +1,14 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
 Date: Fri, 24 Apr 2026 22:23:38 +0200
-Subject: [PATCH] add vmaf_pre filter
+Subject: [PATCH] add vmaf_pre filter (8-bit + 10-bit + optional chroma)
 
 ---
  configure                 |   2 +
  libavfilter/Makefile      |   1 +
  libavfilter/allfilters.c  |   1 +
- libavfilter/vf_vmaf_pre.c | 193 ++++++++++++++++++++++++++++++++++++++
- 4 files changed, 197 insertions(+)
+ libavfilter/vf_vmaf_pre.c | 291 ++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 295 insertions(+)
  create mode 100644 libavfilter/vf_vmaf_pre.c
 
 diff --git a/configure b/configure
@@ -60,7 +60,7 @@ new file mode 100644
 index 0000000..b339442
 --- /dev/null
 +++ b/libavfilter/vf_vmaf_pre.c
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,291 @@
 +/*
 + * Copyright 2026 Lusoris and Claude (Anthropic)
 + *
@@ -81,8 +81,11 @@ index 0000000..b339442
 + * @file
 + * vmaf_pre: learned pre-processing filter backed by libvmaf's DNN runtime.
 + * Loads a residual-CNN ONNX model via the standalone vmaf_dnn_session_*
-+ * API and applies it to the luma plane. Chroma planes are copied through
-+ * untouched. 8-bit luma only (matches the current session API scope).
++ * API and applies it to the luma plane. 8-bit (yuv420p / 422p / 444p,
++ * gray8) dispatches to vmaf_dnn_session_run_luma8; 10/12-bit dispatches
++ * to vmaf_dnn_session_run_plane16 (ADR-0170 / T6-4). When chroma=1 is
++ * set, the same session is re-run on the U and V planes at their own
++ * dimensions; otherwise chroma passes through untouched.
 + */
 +
 +#include <libvmaf/dnn.h>
@@ -103,6 +106,7 @@ index 0000000..b339442
 +    char *model_path;
 +    char *device;
 +    int   threads;
++    int   chroma;   /* apply the filter to U/V as well as Y */
 +    VmafDnnSession *session;
 +} VmafPreContext;
 +
@@ -116,6 +120,9 @@ index 0000000..b339442
 +        AV_OPT_TYPE_STRING, {.str="auto"}, 0, 0,       FLAGS },
 +    { "threads", "CPU EP intra-op threads.",              OFFSET(threads),
 +        AV_OPT_TYPE_INT,    {.i64=0},      0, INT_MAX, FLAGS },
++    { "chroma",  "Also filter U/V planes (0/1; default 0 = luma-only).",
++        OFFSET(chroma),
++        AV_OPT_TYPE_BOOL,   {.i64=0},      0, 1,       FLAGS },
 +    { NULL }
 +};
 +
@@ -163,8 +170,9 @@ index 0000000..b339442
 +        return AVERROR(EINVAL);
 +    }
 +    av_log(ctx, AV_LOG_INFO,
-+           "vmaf_pre: loaded %s (device=%s threads=%d)\n",
-+           s->model_path, s->device ? s->device : "auto", s->threads);
++           "vmaf_pre: loaded %s (device=%s threads=%d chroma=%d)\n",
++           s->model_path, s->device ? s->device : "auto",
++           s->threads, s->chroma);
 +    return 0;
 +}
 +
@@ -177,13 +185,40 @@ index 0000000..b339442
 +    }
 +}
 +
++/* Dispatch one plane through the DNN session, picking the luma8 or
++ * plane16 entrypoint by bit-depth. */
++static int run_plane(VmafPreContext *s, int bpc,
++                     const uint8_t *in, size_t in_linesize,
++                     uint8_t *out, size_t out_linesize,
++                     int w, int h)
++{
++    if (bpc == 8) {
++        return vmaf_dnn_session_run_luma8(s->session, in, in_linesize, w, h,
++                                          out, out_linesize);
++    }
++    if (bpc >= 9 && bpc <= 16) {
++        return vmaf_dnn_session_run_plane16(s->session,
++                                            (const uint16_t *)in, in_linesize,
++                                            w, h, bpc,
++                                            (uint16_t *)out, out_linesize);
++    }
++    return AVERROR(EINVAL);
++}
++
 +static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 +{
 +    AVFilterContext *ctx    = inlink->dst;
 +    AVFilterLink    *outlink = ctx->outputs[0];
 +    VmafPreContext  *s       = ctx->priv;
 +    AVFrame *out;
++    const AVPixFmtDescriptor *d = av_pix_fmt_desc_get(in->format);
 +    int err;
++
++    if (!d) {
++        av_frame_free(&in);
++        return AVERROR(EINVAL);
++    }
++    const int bpc = d->comp[0].depth; /* 8, 10, 12 for the formats we admit */
 +
 +    out = ff_get_video_buffer(outlink, in->width, in->height);
 +    if (!out) {
@@ -192,31 +227,60 @@ index 0000000..b339442
 +    }
 +    av_frame_copy_props(out, in);
 +
-+    err = vmaf_dnn_session_run_luma8(s->session,
-+                                     in->data[0], (size_t) in->linesize[0],
-+                                     in->width, in->height,
-+                                     out->data[0], (size_t) out->linesize[0]);
++    /* Luma plane — required for every accepted format. */
++    err = run_plane(s, bpc,
++                    in->data[0],  (size_t) in->linesize[0],
++                    out->data[0], (size_t) out->linesize[0],
++                    in->width, in->height);
 +    if (err < 0) {
 +        av_log(ctx, AV_LOG_ERROR,
-+               "vmaf_pre: inference failed (%d); passing the frame through.\n",
-+               err);
-+        /* Fail closed for the luma plane rather than silently drift. */
++               "vmaf_pre: luma inference failed (%d) at bpc=%d.\n", err, bpc);
 +        av_frame_free(&in);
 +        av_frame_free(&out);
 +        return AVERROR(EIO);
 +    }
 +
-+    /* Chroma (if any) passes through untouched. */
++    /* Chroma: filter when the caller opts in AND we have chroma planes;
++     * otherwise copy through. */
 +    if (in->data[1] && out->data[1]) {
-+        const AVPixFmtDescriptor *d = av_pix_fmt_desc_get(in->format);
-+        int sub_w = d ? d->log2_chroma_w : 0;
-+        int sub_h = d ? d->log2_chroma_h : 0;
-+        int cw = AV_CEIL_RSHIFT(in->width,  sub_w);
-+        int ch = AV_CEIL_RSHIFT(in->height, sub_h);
-+        av_image_copy_plane(out->data[1], out->linesize[1],
-+                            in->data[1],  in->linesize[1], cw, ch);
-+        av_image_copy_plane(out->data[2], out->linesize[2],
-+                            in->data[2],  in->linesize[2], cw, ch);
++        const int sub_w = d->log2_chroma_w;
++        const int sub_h = d->log2_chroma_h;
++        const int cw = AV_CEIL_RSHIFT(in->width,  sub_w);
++        const int ch = AV_CEIL_RSHIFT(in->height, sub_h);
++
++        if (s->chroma) {
++            err = run_plane(s, bpc,
++                            in->data[1],  (size_t) in->linesize[1],
++                            out->data[1], (size_t) out->linesize[1],
++                            cw, ch);
++            if (err < 0) {
++                av_log(ctx, AV_LOG_ERROR,
++                       "vmaf_pre: U inference failed (%d); chroma=off "
++                       "fallback by copy.\n", err);
++                av_image_copy_plane(out->data[1], out->linesize[1],
++                                    in->data[1],  in->linesize[1],
++                                    cw * (bpc > 8 ? 2 : 1), ch);
++            }
++            err = run_plane(s, bpc,
++                            in->data[2],  (size_t) in->linesize[2],
++                            out->data[2], (size_t) out->linesize[2],
++                            cw, ch);
++            if (err < 0) {
++                av_log(ctx, AV_LOG_ERROR,
++                       "vmaf_pre: V inference failed (%d); chroma=off "
++                       "fallback by copy.\n", err);
++                av_image_copy_plane(out->data[2], out->linesize[2],
++                                    in->data[2],  in->linesize[2],
++                                    cw * (bpc > 8 ? 2 : 1), ch);
++            }
++        } else {
++            av_image_copy_plane(out->data[1], out->linesize[1],
++                                in->data[1],  in->linesize[1],
++                                cw * (bpc > 8 ? 2 : 1), ch);
++            av_image_copy_plane(out->data[2], out->linesize[2],
++                                in->data[2],  in->linesize[2],
++                                cw * (bpc > 8 ? 2 : 1), ch);
++        }
 +    }
 +
 +    av_frame_free(&in);
@@ -228,8 +292,15 @@ index 0000000..b339442
 +                         AVFilterFormatsConfig **cfg_out)
 +{
 +    static const enum AVPixelFormat pix_fmts[] = {
++        /* 8-bit */
 +        AV_PIX_FMT_GRAY8,
 +        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV444P,
++        /* 10-bit LE (ADR-0170) */
++        AV_PIX_FMT_GRAY10LE,
++        AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV444P10LE,
++        /* 12-bit LE */
++        AV_PIX_FMT_GRAY12LE,
++        AV_PIX_FMT_YUV420P12LE, AV_PIX_FMT_YUV422P12LE, AV_PIX_FMT_YUV444P12LE,
 +        AV_PIX_FMT_NONE,
 +    };
 +    return ff_set_common_formats_from_list2(ctx, cfg_in, cfg_out, pix_fmts);
@@ -254,6 +325,5 @@ index 0000000..b339442
 +    FILTER_OUTPUTS(ff_video_default_filterpad),
 +    FILTER_QUERY_FUNC2(query_formats),
 +};
--- 
+--
 2.54.0
-

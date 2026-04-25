@@ -92,6 +92,33 @@ int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t i
                                int h, uint8_t *out, size_t out_stride);
 
 /**
+ * 10-/12-/16-bit variant of @ref vmaf_dnn_session_run_luma8 — accepts a
+ * packed uint16 little-endian plane and writes one back. The same model
+ * trained on normalized float [0,1] works for any bit depth because the
+ * loader simply divides by `(1 << bpc) - 1` on the way in and multiplies
+ * on the way out. Used by the ffmpeg `vmaf_pre` filter for
+ * yuv420p10le / yuv422p10le / yuv444p10le (and 12le) formats, and — on
+ * any bit depth — to filter chroma planes with their own dimensions.
+ * ADR-0170 / T6-4.
+ *
+ * @param sess        open session from @ref vmaf_dnn_session_open.
+ * @param in          packed uint16 LE input plane.
+ * @param in_stride   source row stride in **bytes** (>= w * 2).
+ * @param w, h        plane dimensions. Must match the model's static
+ *                    input shape or the chroma-plane dimensions if the
+ *                    model was re-opened at chroma resolution.
+ * @param bpc         bits per component in [9, 16].
+ * @param out         packed uint16 LE output plane.
+ * @param out_stride  destination row stride in **bytes**.
+ *
+ * @return 0 on success; -ENOTSUP if the model shape is not plane-only
+ *         single-channel; -ERANGE if @p w/@p h don't match; -EINVAL on
+ *         a bad @p bpc.
+ */
+int vmaf_dnn_session_run_plane16(VmafDnnSession *sess, const uint16_t *in, size_t in_stride, int w,
+                                 int h, int bpc, uint16_t *out, size_t out_stride);
+
+/**
  * One input tensor passed to vmaf_dnn_session_run(). @p name binds by
  * ONNX graph input name when non-NULL; when NULL, the tensor is bound
  * positionally at the descriptor's array index. Tensors are float32,

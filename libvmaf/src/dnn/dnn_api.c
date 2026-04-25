@@ -162,6 +162,46 @@ int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t i
                                mean, std, out, out_stride);
 }
 
+int vmaf_dnn_session_run_plane16(VmafDnnSession *sess, const uint16_t *in, size_t in_stride, int w,
+                                 int h, int bpc, uint16_t *out, size_t out_stride)
+{
+    if (!sess || !in || !out)
+        return -EINVAL;
+    if (bpc < 9 || bpc > 16)
+        return -EINVAL;
+    if (!sess->in_buf || !sess->out_buf || sess->w == 0 || sess->h == 0)
+        return -ENOTSUP;
+    if (w != sess->w || h != sess->h)
+        return -ERANGE;
+
+    const float *mean = NULL;
+    const float *std = NULL;
+    float m = 0.f, s_ = 1.f;
+    if (sess->has_sidecar && sess->meta.has_norm && sess->meta.norm_std > 0.f) {
+        m = sess->meta.norm_mean;
+        s_ = sess->meta.norm_std;
+        mean = &m;
+        std = &s_;
+    }
+
+    int rc = vmaf_tensor_from_plane16(in, in_stride, w, h, bpc, VMAF_TENSOR_LAYOUT_NCHW,
+                                      VMAF_TENSOR_DTYPE_F32, mean, std, sess->in_buf);
+    if (rc < 0)
+        return rc;
+
+    const int64_t shape[4] = {1, 1, h, w};
+    const size_t n = (size_t)w * (size_t)h;
+    size_t written = 0;
+    rc = vmaf_ort_infer(sess->ort, sess->in_buf, shape, 4, sess->out_buf, n, &written);
+    if (rc < 0)
+        return rc;
+    if (written != n)
+        return -ENOTSUP;
+
+    return vmaf_tensor_to_plane16(sess->out_buf, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, w,
+                                  h, bpc, mean, std, out, out_stride);
+}
+
 int vmaf_dnn_session_run(VmafDnnSession *sess, const VmafDnnInput *inputs, size_t n_inputs,
                          VmafDnnOutput *outputs, size_t n_outputs)
 {
@@ -255,6 +295,22 @@ int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t i
     (void)in_stride;
     (void)w;
     (void)h;
+    (void)out;
+    (void)out_stride;
+    return -ENOSYS;
+}
+
+int vmaf_dnn_session_run_plane16(VmafDnnSession *sess, const uint16_t *in, size_t in_stride, int w,
+                                 int h, int bpc,
+                                 uint16_t *out, // NOLINT(readability-non-const-parameter)
+                                 size_t out_stride)
+{
+    (void)sess;
+    (void)in;
+    (void)in_stride;
+    (void)w;
+    (void)h;
+    (void)bpc;
     (void)out;
     (void)out_stride;
     return -ENOSYS;
