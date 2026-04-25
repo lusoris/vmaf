@@ -224,6 +224,56 @@ static char *test_session_run_luma8_size_mismatch(void)
     return NULL;
 }
 
+/* ADR-0170 / T6-4: drive the input-validation branches of
+ * vmaf_dnn_session_run_plane16 without needing a real ORT session. */
+static char *test_session_run_plane16_rejects_null(void)
+{
+    uint16_t buf[16] = {0};
+    int rc = vmaf_dnn_session_run_plane16(NULL, buf, 8, 4, 4, 10, buf, 8);
+    mu_assert("NULL session rejected by run_plane16", rc < 0);
+    return NULL;
+}
+
+static char *test_session_run_plane16_rejects_bad_bpc(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+    uint16_t in[16] = {0};
+    uint16_t out[16] = {0};
+    /* bpc < 9 not allowed (use _luma8 for 8-bit). */
+    rc = vmaf_dnn_session_run_plane16(sess, in, 8, 4, 4, 8, out, 8);
+    mu_assert("bpc=8 rejected", rc == -EINVAL);
+    /* bpc > 16 also out of range. */
+    rc = vmaf_dnn_session_run_plane16(sess, in, 8, 4, 4, 17, out, 8);
+    mu_assert("bpc=17 rejected", rc == -EINVAL);
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_session_run_plane16_size_mismatch(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("smoke model open ok", rc == 0);
+    /* smoke_v0.onnx pinned at 4x4; 7x7 input must hit the -ERANGE branch
+     * inside run_plane16. */
+    uint16_t in[49] = {0};
+    uint16_t out[49] = {0};
+    rc = vmaf_dnn_session_run_plane16(sess, in, 14, 7, 7, 10, out, 14);
+    mu_assert("w/h mismatch returns negative", rc < 0);
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
 static char *test_session_run_heap_path_for_many_inputs(void)
 {
     /* Drives the heap-allocation branch (n_inputs > 4, lines 175-185 and
@@ -517,6 +567,9 @@ char *run_tests(void)
     mu_run_test(test_session_open_respects_max_bytes_env);
     mu_run_test(test_session_open_ignores_invalid_max_bytes_env);
     mu_run_test(test_session_run_luma8_size_mismatch);
+    mu_run_test(test_session_run_plane16_rejects_null);
+    mu_run_test(test_session_run_plane16_rejects_bad_bpc);
+    mu_run_test(test_session_run_plane16_size_mismatch);
     mu_run_test(test_session_run_heap_path_for_many_inputs);
     mu_run_test(test_attached_ep_after_session_close);
     mu_run_test(test_session_run_unknown_input_name);
