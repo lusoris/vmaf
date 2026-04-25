@@ -87,6 +87,17 @@ jobs:
             name: Build — macOS clang (CPU) + DNN
             experimental: true
 
+          # --- Vulkan scaffold (ADR-0175 / T5-1) ---
+          # Stub-only build — no Vulkan SDK required. Stubs return
+          # -ENOSYS until the kernels land. The lavapipe-driven smoke
+          # path arrives in the first kernel PR; this row pins that
+          # the scaffold compiles cleanly under -Denable_vulkan=enabled.
+          - os: ubuntu-latest
+            CC: ccache gcc
+            CXX: ccache g++
+            meson_extra: -Denable_vulkan=enabled
+            name: Build — Ubuntu Vulkan Scaffold (stub kernels)
+
           # --- Static library builds ---
           - os: ubuntu-latest
             CC: ccache gcc

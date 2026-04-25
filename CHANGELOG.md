@@ -8,6 +8,23 @@
 
 ### Added
 
+- **Vulkan compute backend — scaffold-only audit-first PR**
+  (fork-local): closes BACKLOG T5-1 audit half. New public header
+  [`libvmaf_vulkan.h`](libvmaf/include/libvmaf/libvmaf_vulkan.h)
+  declaring the `VmafVulkanState` API surface (state_init,
+  import_state, state_free, list_devices, available). New
+  `libvmaf/src/vulkan/` + `libvmaf/src/feature/vulkan/` trees with
+  every entry point returning `-ENOSYS`. New `enable_vulkan`
+  feature option (default **disabled**) and conditional
+  `subdir('vulkan')` in libvmaf's meson. New 4-sub-test smoke
+  pinning the stub contract. New CI matrix row compiles with
+  `-Denable_vulkan=enabled`. New ffmpeg patch
+  [`0004-libvmaf-wire-vulkan-backend-selector.patch`](ffmpeg-patches/0004-libvmaf-wire-vulkan-backend-selector.patch)
+  mirroring the SYCL selector — adds a `vulkan_device` libvmaf
+  filter option. **Zero runtime dependencies** for the scaffold;
+  `dependency('vulkan')` + volk + glslc + VMA land with the
+  runtime PR per ADR-0127's "VIF as pathfinder" sequence. See
+  [ADR-0175](docs/adr/0175-vulkan-backend-scaffold.md).
 - **First per-model PTQ — `learned_filter_v1` flips to dynamic int8**
   (fork-local): closes T5-3 fully (audit half via ADR-0173;
   first-model half + CI gate via this PR). 80 KB → 33 KB (2.4×
