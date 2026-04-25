@@ -108,7 +108,15 @@ jobs:
             CC: icx
             CXX: icpx
             sycl: true
-            meson_extra: --default-library static -Denable_sycl=true
+            # b_lto=false: meson's project-level `b_lto=true` adds
+            # `-flto=auto` to compile + link steps, but `-flto=auto` is a
+            # gcc-ism. icx silently maps it differently from how icpx
+            # treats the link step's `-flto`, leaving the static archive
+            # with no LTO bitcode while the linker still expects LTO
+            # objects — undefined references for every libvmaf C symbol
+            # in the test binaries. Disable LTO on SYCL lanes; the SYCL
+            # device-image link path doesn't benefit from host LTO anyway.
+            meson_extra: --default-library static -Denable_sycl=true -Db_lto=false
             name: Build — Ubuntu SYCL Static
           - os: ubuntu-latest
             CC: ccache gcc
@@ -124,7 +132,7 @@ jobs:
             CC: icx
             CXX: icpx
             sycl: true
-            meson_extra: -Denable_sycl=true
+            meson_extra: -Denable_sycl=true -Db_lto=false
             name: Build — Ubuntu SYCL
 
           # --- CUDA build (gcc + nvcc) ---
@@ -142,7 +150,7 @@ jobs:
             CXX: icpx
             sycl: true
             cuda: true
-            meson_extra: -Denable_sycl=true -Denable_cuda=true -Denable_nvcc=true
+            meson_extra: -Denable_sycl=true -Denable_cuda=true -Denable_nvcc=true -Db_lto=false
             name: Build — Ubuntu SYCL + CUDA
 
     name: ${{ matrix.name }}

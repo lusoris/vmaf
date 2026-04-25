@@ -115,9 +115,13 @@ jobs:
           CXX: icpx
         run: |
           source /opt/intel/oneapi/setvars.sh
+          # b_lto=false: see libvmaf-build-matrix.yml note; icx + meson's
+          # -flto=auto leaves the static archive without LTO bitcode and
+          # breaks the .so link.
           meson setup libvmaf libvmaf/build --buildtype release \
-            -Denable_float=true -Denable_sycl=true
-          sudo ninja -vC libvmaf/build install
+            -Denable_float=true -Denable_sycl=true -Db_lto=false
+          sudo -E PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            ninja -vC libvmaf/build install
 
       - name: Build FFmpeg with SYCL patch series
         run: |
