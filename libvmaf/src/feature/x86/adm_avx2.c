@@ -771,7 +771,9 @@ void adm_decouple_avx2(AdmBuffer *buf, int w, int h, int stride, double adm_enhn
         bottom = h;
     }
 
-    int64_t ot_dp, o_mag_sq, t_mag_sq;
+    int64_t ot_dp;
+    int64_t o_mag_sq;
+    int64_t t_mag_sq;
     int right_mod8 = right - (right % 8);
 
     for (int i = top; i < bottom; ++i) {
@@ -1016,7 +1018,9 @@ void adm_decouple_avx2(AdmBuffer *buf, int w, int h, int stride, double adm_enhn
             int16_t th = dis->band_h[i * stride + j];
             int16_t tv = dis->band_v[i * stride + j];
             int16_t td = dis->band_d[i * stride + j];
-            int16_t rst_h, rst_v, rst_d;
+            int16_t rst_h;
+            int16_t rst_v;
+            int16_t rst_d;
 
             /* Determine if angle between (oh,ov) and (th,tv) is less than 1 degree.
             * Given that u is the angle (oh,ov) and v is the angle (th,tv), this can
@@ -1141,9 +1145,15 @@ void adm_dwt2_8_avx2(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *b
 
         for (int j = 0; j < j_vp_end; j = j + 16) {
 
-            __m256i accum_mu2_lo, accum_mu2_hi, accum_mu1_lo, accum_mu1_hi;
+            __m256i accum_mu2_lo;
+            __m256i accum_mu2_hi;
+            __m256i accum_mu1_lo;
+            __m256i accum_mu1_hi;
             accum_mu2_lo = accum_mu2_hi = accum_mu1_lo = accum_mu1_hi = _mm256_setzero_si256();
-            __m256i s0, s1, s2, s3;
+            __m256i s0;
+            __m256i s1;
+            __m256i s2;
+            __m256i s3;
 
             s0 = _mm256_cvtepu8_epi16(
                 _mm_loadu_si128((__m128i *)(src + (ind_y[0][i] * src_stride) + j)));
@@ -1282,10 +1292,16 @@ void adm_dwt2_8_avx2(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *b
         // Horizontal pass
         for (int j = 1; j <= j_hp_end; j = j + 16) {
             {
-                __m256i accum_mu2_lo, accum_mu2_hi, accum_mu1_lo, accum_mu1_hi;
+                __m256i accum_mu2_lo;
+                __m256i accum_mu2_hi;
+                __m256i accum_mu1_lo;
+                __m256i accum_mu1_hi;
                 accum_mu2_lo = accum_mu2_hi = accum_mu1_lo = accum_mu1_hi = _mm256_setzero_si256();
 
-                __m256i s00, s22, s33, s44;
+                __m256i s00;
+                __m256i s22;
+                __m256i s33;
+                __m256i s44;
 
                 s00 = _mm256_loadu_si256((__m256i *)(tmplo + ind_x[0][j]));
                 s22 = _mm256_loadu_si256((__m256i *)(tmplo + ind_x[2][j]));
@@ -1322,10 +1338,16 @@ void adm_dwt2_8_avx2(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *b
             }
 
             {
-                __m256i accum_mu2_lo, accum_mu2_hi, accum_mu1_lo, accum_mu1_hi;
+                __m256i accum_mu2_lo;
+                __m256i accum_mu2_hi;
+                __m256i accum_mu1_lo;
+                __m256i accum_mu1_hi;
                 accum_mu2_lo = accum_mu2_hi = accum_mu1_lo = accum_mu1_hi = _mm256_setzero_si256();
 
-                __m256i s00, s22, s33, s44;
+                __m256i s00;
+                __m256i s22;
+                __m256i s33;
+                __m256i s44;
 
                 __m256i add_shift_HP_vex = _mm256_set1_epi32(32768);
 
@@ -1475,7 +1497,9 @@ void adm_decouple_s123_avx2(AdmBuffer *buf, int w, int h, int stride, double adm
     }
 
     int right_mod8 = right - ((right - left) % 8);
-    int64_t ot_dp, o_mag_sq, t_mag_sq;
+    int64_t ot_dp;
+    int64_t o_mag_sq;
+    int64_t t_mag_sq;
 
     const __m256d const_0_pd = _mm256_set1_pd(0.0);
     const __m256i const_0_epi64 = _mm256_set1_epi64x(0);
@@ -1570,8 +1594,12 @@ void adm_decouple_s123_avx2(AdmBuffer *buf, int w, int h, int stride, double adm
                 _mm256_cmpgt_epi32(_mm256_setzero_si256(), od_epi32), const_1_epi32);
 
             // get_best15_from32 uses builtin_clz, which has not SIMD equivalent. We convert to scalar for the clz
-            uint16_t tmp_kh_msb[8], tmp_kv_msb[8], tmp_kd_msb[8];
-            int32_t tmp_kh_shift[8], tmp_kv_shift[8], tmp_kd_shift[8];
+            uint16_t tmp_kh_msb[8];
+            uint16_t tmp_kv_msb[8];
+            uint16_t tmp_kd_msb[8];
+            int32_t tmp_kh_shift[8];
+            int32_t tmp_kv_shift[8];
+            int32_t tmp_kd_shift[8];
 
             tmp_kh_msb[0] =
                 get_best15_from32(_mm256_extract_epi32(abs_oh_epi32, 0), &tmp_kh_shift[0]);
@@ -2049,7 +2077,9 @@ void adm_decouple_s123_avx2(AdmBuffer *buf, int w, int h, int stride, double adm
             int32_t th = dis->band_h[i * stride + j];
             int32_t tv = dis->band_v[i * stride + j];
             int32_t td = dis->band_d[i * stride + j];
-            int32_t rst_h, rst_v, rst_d;
+            int32_t rst_h;
+            int32_t rst_v;
+            int32_t rst_d;
 
             /* Determine if angle between (oh,ov) and (th,tv) is less than 1 degree.
              * Given that u is the angle (oh,ov) and v is the angle (th,tv), this can
@@ -2221,7 +2251,8 @@ float adm_cm_avx2(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stride
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
     // 0 is scale zero passed to dwt_quant_step
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(0, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -2303,17 +2334,33 @@ float adm_cm_avx2(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stride
 
     int end_col_mod6 = end_col - ((end_col - start_col) % 6);
 
-    int i, j;
+    int i;
+    int j;
     int64_t val;
-    int32_t xh, xv, xd, thr;
-    int32_t xh_sq, xv_sq, xd_sq;
-    int64_t accum_h = 0, accum_v = 0, accum_d = 0;
-    int64_t accum_inner_h = 0, accum_inner_v = 0, accum_inner_d = 0;
+    int32_t xh;
+    int32_t xv;
+    int32_t xd;
+    int32_t thr;
+    int32_t xh_sq;
+    int32_t xv_sq;
+    int32_t xd_sq;
+    int64_t accum_h = 0;
+    int64_t accum_v = 0;
+    int64_t accum_d = 0;
+    int64_t accum_inner_h = 0;
+    int64_t accum_inner_v = 0;
+    int64_t accum_inner_d = 0;
 
     __m256i thr_256;
-    __m256i xh_256, xv_256, xd_256;
-    __m256i accum_inner_h_lo_256, accum_inner_h_hi_256, accum_inner_v_lo_256, accum_inner_v_hi_256,
-        accum_inner_d_lo_256, accum_inner_d_hi_256;
+    __m256i xh_256;
+    __m256i xv_256;
+    __m256i xd_256;
+    __m256i accum_inner_h_lo_256;
+    __m256i accum_inner_h_hi_256;
+    __m256i accum_inner_v_lo_256;
+    __m256i accum_inner_v_hi_256;
+    __m256i accum_inner_d_lo_256;
+    __m256i accum_inner_d_hi_256;
 
     /* i=0,j=0 */
     if ((top <= 0) && (left <= 0)) {
@@ -2688,7 +2735,8 @@ float i4_adm_cm_avx2(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_str
 
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -2714,7 +2762,8 @@ float i4_adm_cm_avx2(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_str
 
     const uint32_t shift_dst[3] = {28, 28, 28};
     const uint32_t shift_flt[3] = {32, 32, 32};
-    int32_t add_bef_shift_dst[3], add_bef_shift_flt[3];
+    int32_t add_bef_shift_dst[3];
+    int32_t add_bef_shift_flt[3];
 
     for (unsigned idx = 0; idx < 3; ++idx) {
         add_bef_shift_dst[idx] = (1u << (shift_dst[idx] - 1));
@@ -2755,16 +2804,30 @@ float i4_adm_cm_avx2(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_str
 
     int end_col_mod2 = end_col - ((end_col - start_col) % 2);
 
-    int i, j;
-    int32_t xh, xv, xd, thr;
-    int32_t xh_sq, xv_sq, xd_sq;
+    int i;
+    int j;
+    int32_t xh;
+    int32_t xv;
+    int32_t xd;
+    int32_t thr;
+    int32_t xh_sq;
+    int32_t xv_sq;
+    int32_t xd_sq;
     int64_t val;
-    int64_t accum_h = 0, accum_v = 0, accum_d = 0;
-    int64_t accum_inner_h = 0, accum_inner_v = 0, accum_inner_d = 0;
+    int64_t accum_h = 0;
+    int64_t accum_v = 0;
+    int64_t accum_d = 0;
+    int64_t accum_inner_h = 0;
+    int64_t accum_inner_v = 0;
+    int64_t accum_inner_d = 0;
 
     __m256i thr_256;
-    __m256i xh_256, xv_256, xd_256;
-    __m256i accum_inner_h_256, accum_inner_v_256, accum_inner_d_256;
+    __m256i xh_256;
+    __m256i xv_256;
+    __m256i xd_256;
+    __m256i accum_inner_h_256;
+    __m256i accum_inner_v_256;
+    __m256i accum_inner_d_256;
 
     /* i=0,j=0 */
     if ((top <= 0) && (left <= 0)) {
@@ -3239,7 +3302,8 @@ void adm_dwt2_16_avx2(const uint16_t *src, const adm_dwt_band_t *dst, AdmBuffer 
     __m256i f23_hi =
         _mm256_set1_epi32(filter_hi[2] + (uint32_t)(filter_hi[3] << 16) /*+ (1 << 16)*/);
 
-    __m256i accum0_lo, accum0_hi;
+    __m256i accum0_lo;
+    __m256i accum0_hi;
 
     int half_w_mod16 = ((w + 1) / 2) - ((((w + 1) / 2) - 1) % 16);
 
@@ -3472,7 +3536,10 @@ void adm_dwt2_s123_combined_avx2(const int32_t *i4_ref_scale, const int32_t *i4_
     int32_t *tmphi_ref = tmplo_ref + w;
     int32_t *tmplo_dis = tmphi_ref + w;
     int32_t *tmphi_dis = tmplo_dis + w;
-    int32_t s10, s11, s12, s13;
+    int32_t s10;
+    int32_t s11;
+    int32_t s12;
+    int32_t s13;
 
     int64_t accum_ref;
 
@@ -3488,7 +3555,10 @@ void adm_dwt2_s123_combined_avx2(const int32_t *i4_ref_scale, const int32_t *i4_
         _mm256_andnot_si256(_mm256_srli_epi64(_mm256_set1_epi64x(0xFFFFFFFFFFFFFFFF), shift_HP),
                             _mm256_set1_epi8((char)0xFF));
 
-    __m256i accum_ref_lo_256, accum_ref_hi_256, accum_dis_lo_256, accum_dis_hi_256;
+    __m256i accum_ref_lo_256;
+    __m256i accum_ref_hi_256;
+    __m256i accum_dis_lo_256;
+    __m256i accum_dis_hi_256;
     __m256i f0_lo = _mm256_set1_epi64x(filter_lo[0]);
     __m256i f1_lo = _mm256_set1_epi64x(filter_lo[1]);
     __m256i f2_lo = _mm256_set1_epi64x(filter_lo[2]);
@@ -4005,7 +4075,8 @@ float adm_csf_den_scale_avx2(const adm_dwt_band_t *src, int w, int h, int src_st
 {
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(0, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -4025,7 +4096,9 @@ float adm_csf_den_scale_avx2(const adm_dwt_band_t *src, int w, int h, int src_st
     }
     const float rfactor[3] = {factor1, factor1, factor2};
 
-    uint64_t accum_h = 0, accum_v = 0, accum_d = 0;
+    uint64_t accum_h = 0;
+    uint64_t accum_v = 0;
+    uint64_t accum_d = 0;
 
     /* The computation of the denominator scales is not required for the regions
      * which lie outside the frame borders
@@ -4054,8 +4127,12 @@ float adm_csf_den_scale_avx2(const adm_dwt_band_t *src, int w, int h, int src_st
         uint64_t accum_inner_h = 0;
         uint64_t accum_inner_v = 0;
         uint64_t accum_inner_d = 0;
-        __m256i accum_inner_h_lo, accum_inner_h_hi, accum_inner_v_lo, accum_inner_v_hi,
-            accum_inner_d_lo, accum_inner_d_hi;
+        __m256i accum_inner_h_lo;
+        __m256i accum_inner_h_hi;
+        __m256i accum_inner_v_lo;
+        __m256i accum_inner_v_hi;
+        __m256i accum_inner_d_lo;
+        __m256i accum_inner_d_hi;
         accum_inner_h_lo = accum_inner_h_hi = accum_inner_v_lo = accum_inner_v_hi =
             accum_inner_d_lo = accum_inner_d_hi = _mm256_setzero_si256();
 
@@ -4176,7 +4253,8 @@ void adm_csf_avx2(AdmBuffer *buf, int w, int h, int stride, double adm_norm_view
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
     // 0 is scale zero passed to dwt_quant_step
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(0, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -4353,7 +4431,8 @@ void i4_adm_csf_avx2(AdmBuffer *buf, int scale, int w, int h, int stride, double
 
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -4382,7 +4461,8 @@ void i4_adm_csf_avx2(AdmBuffer *buf, int scale, int w, int h, int stride, double
     const uint32_t FIX_ONE_BY_30 = 143165577;
     const uint32_t shift_dst[3] = {28, 28, 28};
     const uint32_t shift_flt[3] = {32, 32, 32};
-    int32_t add_bef_shift_dst[3], add_bef_shift_flt[3];
+    int32_t add_bef_shift_dst[3];
+    int32_t add_bef_shift_flt[3];
 
     __m256i mask_msb_shift_dst = _mm256_set1_epi64x(0xFFFFFFF000000000);
 
@@ -4557,7 +4637,8 @@ float adm_csf_den_s123_avx2(const i4_adm_dwt_band_t *src, int scale, int w, int 
 {
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
         factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
                              adm_csf_scale);
@@ -4577,7 +4658,9 @@ float adm_csf_den_s123_avx2(const i4_adm_dwt_band_t *src, int scale, int w, int 
     }
     const float rfactor[3] = {factor1, factor1, factor2};
 
-    uint64_t accum_h = 0, accum_v = 0, accum_d = 0;
+    uint64_t accum_h = 0;
+    uint64_t accum_v = 0;
+    uint64_t accum_d = 0;
     const uint32_t shift_sq[3] = {31, 30, 31};
     const uint32_t accum_convert_float[3] = {32, 27, 23};
     const uint32_t add_shift_sq[3] = {1u << shift_sq[0], 1u << shift_sq[1], 1u << shift_sq[2]};
@@ -4604,7 +4687,9 @@ float adm_csf_den_s123_avx2(const i4_adm_dwt_band_t *src, int scale, int w, int 
         uint64_t accum_inner_h = 0;
         uint64_t accum_inner_v = 0;
         uint64_t accum_inner_d = 0;
-        __m256i accum_inner_h_256, accum_inner_v_256, accum_inner_d_256;
+        __m256i accum_inner_h_256;
+        __m256i accum_inner_v_256;
+        __m256i accum_inner_d_256;
         accum_inner_h_256 = accum_inner_v_256 = accum_inner_d_256 = _mm256_setzero_si256();
         for (int j = left; j < right_mod_4; j += 4) {
             __m256i h =
