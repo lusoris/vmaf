@@ -434,6 +434,20 @@ test('test_sycl', test_sycl)
 test('test_sycl_pic_preallocation', test_sycl_pic_preallocation)
 endif
 
+# ADR-0175 / T5-1: Vulkan backend scaffold smoke. Pins the -ENOSYS
+# contract so a future runtime PR can't accidentally enable the
+# backend without flipping the smoke expectations.
+if get_option('enable_vulkan').enabled()
+test_vulkan_smoke = executable('test_vulkan_smoke',
+    ['test.c', 'test_vulkan_smoke.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+    c_args: ['-DHAVE_VULKAN=1']
+)
+test('test_vulkan_smoke', test_vulkan_smoke)
+endif
+
 test('test_picture', test_picture)
 test('test_feature_collector', test_feature_collector)
 test('test_thread_pool', test_thread_pool)

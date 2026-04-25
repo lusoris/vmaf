@@ -44,6 +44,8 @@ endif
 is_asm_enabled = get_option('enable_asm') == true
 is_cuda_enabled = get_option('enable_cuda') == true
 is_sycl_enabled = get_option('enable_sycl') == true
+# ADR-0175 / T5-1: Vulkan compute backend, scaffold-only for now.
+is_vulkan_enabled = get_option('enable_vulkan').enabled()
 is_avx512_enabled = get_option('enable_avx512') == true
 is_nvtx_enabled = get_option('enable_nvtx') == true
 if is_nvtx_enabled and host_machine.system() == 'windows'
@@ -53,6 +55,17 @@ endif
 
 # DNN runtime (ONNX Runtime) — defines dnn_sources / dnn_defines / dnn_deps.
 subdir('dnn')
+
+# Vulkan compute backend (ADR-0175 / T5-1) — scaffold only. Defines
+# vulkan_sources + vulkan_deps following the dnn_sources pattern; the
+# library() call below pulls them in unconditionally (they're empty
+# arrays when the option is disabled, no-cost on default builds).
+vulkan_sources = []
+vulkan_deps = []
+if is_vulkan_enabled
+    cdata.set10('HAVE_VULKAN', true)
+    subdir('vulkan')
+endif
 if dnn_have_ort
     cdata.set10('HAVE_DNN', true)
     # Propagate VMAF_HAVE_DNN to every libvmaf TU: feature_extractor.c and
@@ -936,7 +949,7 @@ endif
 
 libvmaf = library(
     'vmaf',
-    [libvmaf_sources, rev_target, json_model_c_sources, dnn_sources, dnn_libvmaf_only_sources],
+    [libvmaf_sources, rev_target, json_model_c_sources, dnn_sources, dnn_libvmaf_only_sources, vulkan_sources],
     include_directories : [libvmaf_inc, vmaf_include, dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     link_args : vmaf_link_args,
@@ -948,6 +961,7 @@ libvmaf = library(
       cuda_dependency,
       sycl_dependency,
       dnn_deps,
+      vulkan_deps,
     ],
     objects : [
         platform_specific_cpu_objects,

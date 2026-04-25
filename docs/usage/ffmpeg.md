@@ -77,11 +77,27 @@ The filter publishes the final pooled score to FFmpeg's log as
 
 ### Fork-added options
 
-None currently. The fork-specific `--precision` flag on the `vmaf` CLI
-does not have an FFmpeg filter equivalent; pooled-score precision from
-FFmpeg comes from FFmpeg's own `%f` formatting. Use the `vmaf` CLI
-(not the filter) when you need `--precision=max` round-trip lossless
-output (CLI default is `%.6f` for Netflix-compat per
+The fork's `ffmpeg-patches/0001..0004` series adds five options to
+the `libvmaf` filter beyond the upstream surface — three for tiny-AI
+ONNX inference, one for the SYCL backend selector, one for the
+Vulkan scaffold:
+
+| Option | Default | Notes |
+|---|---|---|
+| `tiny_model=path` | none | ONNX path for the tiny-AI loader (`ffmpeg-patches/0001-...`). |
+| `tiny_device=auto\|cpu\|cuda\|openvino\|rocm` | `auto` | ORT device selector for the tiny model. |
+| `tiny_threads=N` | `0` | CPU-EP intra-op thread count (`0` = ORT default). |
+| `tiny_fp16=0\|1` | `0` | Request fp16 I/O when the device supports it. |
+| `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling (`ffmpeg-patches/0003-...`). |
+
+Backend selectors live alongside in a small dedicated table —
+see "Backend selectors on the libvmaf filter" below.
+
+The fork-specific `--precision` flag on the `vmaf` CLI does not
+have an FFmpeg filter equivalent; pooled-score precision from
+FFmpeg comes from FFmpeg's own `%f` formatting. Use the `vmaf`
+CLI (not the filter) when you need `--precision=max` round-trip
+lossless output (CLI default is `%.6f` for Netflix-compat per
 [ADR-0119](../adr/0119-cli-precision-default-revert.md); pass
 `--precision=max` to opt into `%.17g`).
 
@@ -176,6 +192,22 @@ YUV through the `vmaf` CLI when a SYCL pipeline is needed (SYCL auto-
 selects when `libvmaf` is built with `-Denable_sycl=true`; use
 `--sycl_device N` to pin a device or `--no_sycl` to opt out). See
 [backends/sycl/overview.md](../backends/sycl/overview.md) for details.
+
+The same fork-added selector pattern exists for SYCL and Vulkan on the
+`libvmaf` filter itself, contributed by
+`ffmpeg-patches/0003-libvmaf-wire-sycl-backend-selector.patch` and
+`0004-libvmaf-wire-vulkan-backend-selector.patch`:
+
+| Option | Default | Notes |
+|---|---|---|
+| `sycl_device=N` | `-1` (disabled) | Pick SYCL device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_sycl=true`. |
+| `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling. |
+| `vulkan_device=N` | `-1` (disabled) | Pick Vulkan device ordinal; **scaffold-only** as of v3.0 ([ADR-0175](../adr/0175-vulkan-backend-scaffold.md)). Flipping to `>= 0` returns `-ENOSYS` until the runtime PR lands. Errors out if libvmaf was built without `-Denable_vulkan=enabled`. |
+
+The Vulkan selector lands in the patch series early so the
+ffmpeg-side wiring is in shape when the runtime PR arrives — see
+[ADR-0175](../adr/0175-vulkan-backend-scaffold.md) § "Alternatives
+considered" for why the patch ships ahead of any working kernels.
 
 ## External resources
 
