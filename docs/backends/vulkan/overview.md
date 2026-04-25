@@ -1,27 +1,30 @@
 # Vulkan compute backend
 
-> **Status: T5-1c motion live (vif + motion gated, ADM in flight on PR #120).**
+> **Status: T5-1c closed — full default-model coverage (vif + motion + adm).**
 > `vmaf_vulkan_state_init` / `_import_state` / `_state_free` plumb
 > the public state-level API; the CLI flags `--vulkan_device <N>`
 > (and `--no_vulkan` to disable) drive end-to-end execution on a
-> real Vulkan ICD. Live extractors: `vif_vulkan` (4-scale VIF) and
-> `motion_vulkan` (motion + motion2). Both are gated against the
-> CPU scalar reference at `places=4` by the
+> real Vulkan ICD. Live extractors: `vif_vulkan` (4-scale VIF),
+> `motion_vulkan` (motion + motion2), and `adm_vulkan` (4-scale
+> ADM + adm2). All three are gated against the CPU scalar
+> reference at `places=4` by the
 > `Vulkan VIF Cross-Backend (lavapipe)` CI lane on every PR (one
 > step per feature); the Arc-A380 nightly lane (advisory, parked
 > until the self-hosted runner is registered) catches
 > lavapipe-vs-real-driver drift. Empirical baseline on Intel Arc
-> A380 via Mesa anv: **places=4 clean** for vif and motion, with
-> max_abs ≤ 1e-6 (essentially JSON %f precision noise). The
+> A380 via Mesa anv: **places=4 clean** for vif, motion, and adm,
+> with max_abs ≤ 1e-6 (essentially JSON %f precision noise). The
 > previously-stated "ULP=0" claim was bogus — the gate was running
 > CPU-vs-CPU due to three latent bugs fixed in PR #120 (see ADR-0176
 > errata, ADR-0177 errata, and ADR-0178 § "Bug history" for the
 > matrix and follow-up kernel investigations on CUDA / SYCL /
-> NVIDIA-Vulkan paths). ADM kernel lands next as T5-1c-adm. See
+> NVIDIA-Vulkan paths). The default `vmaf_v0.6.1` model now runs
+> end-to-end on Vulkan. See
 > [ADR-0127](../../adr/0127-vulkan-backend-decision.md),
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md),
 > [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md),
-> [ADR-0177](../../adr/0177-vulkan-motion-kernel.md).
+> [ADR-0177](../../adr/0177-vulkan-motion-kernel.md),
+> [ADR-0178](../../adr/0178-vulkan-adm-kernel.md).
 
 ## What's wired
 
@@ -50,7 +53,13 @@
     blurred-frame storage between calls; motion2 emitted with a
     1-frame lag. `motion3` (5-frame window mode) deliberately
     deferred — no shipped model uses it.
-  - Both kernels use native `int64` accumulators
+  - `adm_vulkan.c` + GLSL shader
+    [`shaders/adm.comp`](../../../libvmaf/src/feature/vulkan/shaders/adm.comp).
+    4-scale CDF 9/7 DWT + decouple+CSF fused pass + per-band CSF
+    denominator and contrast-measure reductions. 16 pipelines per
+    extractor (one per `(scale, stage)`). Produces the standard
+    `integer_adm2` + `integer_adm_scale0..3` outputs.
+  - All three kernels use native `int64` accumulators
     (`GL_EXT_shader_explicit_arithmetic_types_int64`) for
     deterministic reductions matching the CPU integer reference.
 - Build system: `enable_vulkan` feature option (default **disabled**)

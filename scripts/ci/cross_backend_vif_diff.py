@@ -44,6 +44,13 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "integer_motion",
         "integer_motion2",
     ),
+    "adm": (
+        "integer_adm2",
+        "integer_adm_scale0",
+        "integer_adm_scale1",
+        "integer_adm_scale2",
+        "integer_adm_scale3",
+    ),
 }
 
 

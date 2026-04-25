@@ -25,6 +25,25 @@
 
 ### Added
 
+- **Vulkan ADM kernel — T5-1c (closes T5-1c)** (fork-local): replaces
+  the 37-line adm_vulkan.c stub with a real `VmafFeatureExtractor`
+  (~700 LOC) backed by a new GLSL compute shader
+  [`shaders/adm.comp`](libvmaf/src/feature/vulkan/shaders/adm.comp)
+  (~660 LOC). Implements 4-scale CDF 9/7 DWT (vertical pass, then
+  horizontal yielding LL/LH/HL/HH), decouple+CSF fused pass, and
+  per-band CSF-denominator + contrast-measure reductions. 16
+  pipelines per extractor (one per `(scale, stage)`). Provides the
+  standard `integer_adm2`, `integer_adm_scale0..3` outputs (plus
+  num/den intermediates and debug features). Cross-backend gate
+  gains a third "ADM cross-backend diff" step in both lavapipe and
+  Arc-nightly lanes. Empirical baseline: **ULP=0** vs CPU on
+  Netflix normal pair (576x324, 48 frames) AND 1920x1080
+  checkerboard (3 frames); residual on scales 1-3 at full
+  IEEE-754 precision is ~7e-7 from host-side double-summation
+  order, well under the places=4 contract. Closes T5-1c — Vulkan
+  kernel matrix now matches SYCL/CUDA for the default
+  `vmaf_v0.6.1` model. See
+  [ADR-0178](docs/adr/0178-vulkan-adm-kernel.md).
 - **Vulkan motion kernel — T5-1c (motion + motion2)** (fork-local):
   replaces the 37-line motion_vulkan.c stub with a real
   `VmafFeatureExtractor` backed by a new GLSL compute shader
