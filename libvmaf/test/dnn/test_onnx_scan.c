@@ -159,6 +159,52 @@ static char *test_loop_with_forbidden_subgraph(void)
     return NULL;
 }
 
+/* ADR-0171 / T6-5b: many top-level Loop nodes must trip the
+ * VMAF_DNN_MAX_LOOP_NODES cap. The cap is currently 16, so 17 is
+ * the smallest case that should reject. We build the fixture at
+ * runtime to keep the test compact. */
+static char *test_too_many_loop_nodes_rejected(void)
+{
+    /* One NodeProto with op_type "Loop", wrapped in graph.node:
+     *   0x0A 0x06 0x22 0x04 'L' 'o' 'o' 'p'     → 8 bytes per Loop.
+     * 17 Loops = 136 bytes graph payload.
+     * Graph wrapper: 0x3A (model.graph) + varint(136) = 0x88 0x01
+     *   → total = 3 + 136 = 139 bytes. */
+    const unsigned char loop_node[8] = {0x0A, 0x06, 0x22, 0x04, 'L', 'o', 'o', 'p'};
+    const int n_loops = 17;
+    const size_t graph_payload_sz = (size_t)n_loops * sizeof(loop_node);
+    /* Sanity: caps the test on the same constant the production code uses. */
+    mu_assert("test fixture assumes cap = 16", n_loops > 16);
+    mu_assert("graph length still fits in two-byte varint", graph_payload_sz < 16384u);
+
+    unsigned char buf[256];
+    mu_assert("buffer must be large enough", sizeof(buf) >= 3u + graph_payload_sz);
+    size_t off = 0;
+    buf[off++] = 0x3A; /* ModelProto.graph, wire LEN */
+    /* varint(graph_payload_sz). For 136: 0x88 0x01. */
+    uint64_t v = (uint64_t)graph_payload_sz;
+    do {
+        unsigned char b = (unsigned char)(v & 0x7Fu);
+        v >>= 7u;
+        if (v) {
+            b |= 0x80u;
+        }
+        buf[off++] = b;
+    } while (v);
+    for (int i = 0; i < n_loops; ++i) {
+        memcpy(buf + off, loop_node, sizeof(loop_node));
+        off += sizeof(loop_node);
+    }
+
+    char *first_bad = NULL;
+    const int err = vmaf_dnn_scan_onnx(buf, off, &first_bad);
+    mu_assert("17 Loops must be rejected (cap=16)", err == -EPERM);
+    mu_assert("first_bad must surface 'Loop' on cap-trip",
+              first_bad && strcmp(first_bad, "Loop") == 0);
+    free(first_bad);
+    return NULL;
+}
+
 static char *test_truncated_varint(void)
 {
     /* Single byte with continuation bit set, no follow-up byte. */
@@ -289,6 +335,7 @@ char *run_tests(void)
     mu_run_test(test_scan_still_rejected);
     mu_run_test(test_loop_with_allowed_subgraph);
     mu_run_test(test_loop_with_forbidden_subgraph);
+    mu_run_test(test_too_many_loop_nodes_rejected);
     mu_run_test(test_truncated_varint);
     mu_run_test(test_overlong_varint);
     mu_run_test(test_length_overruns_buffer);

@@ -47,6 +47,15 @@ enum {
  * against pathological recursion in malformed input. */
 #define VMAF_DNN_MAX_SUBGRAPH_DEPTH 8
 
+/* Maximum number of `Loop` nodes permitted across the whole ModelProto
+ * (top-level graph + every embedded subgraph). ADR-0171 / T6-5b: the
+ * wire-format scanner can't trace `Loop.M` data flow back to a Constant
+ * (that's the export-time Python check's job), so we bound the worst-
+ * case "thousands of nested Loops within Loops" attack purely by node
+ * count. Real models — diffusion, RAFT, MUSIQ — fit comfortably under
+ * 16 Loop nodes. */
+#define VMAF_DNN_MAX_LOOP_NODES 16
+
 /* Varint max length for uint64 is 10 bytes (64 bits / 7 bits-per-byte, rounded up). */
 #define PB_VARINT_MAX_BYTES 10
 
@@ -148,8 +157,10 @@ static int check_op_name(const char *op_name, size_t slen, char **first_bad)
 }
 
 /* Read the op_type string from a NodeProto field whose tag was already
- * consumed. Advances *off past the string on success. */
-static int read_op_type(const unsigned char *buf, size_t len, size_t *off, char **first_bad)
+ * consumed. Advances *off past the string on success. Increments
+ * *loop_count when the op is "Loop" (ADR-0171 / T6-5b). */
+static int read_op_type(const unsigned char *buf, size_t len, size_t *off, char **first_bad,
+                        unsigned *loop_count)
 {
     uint64_t slen = 0;
     int err = pb_read_varint(buf, len, off, &slen);
@@ -168,18 +179,41 @@ static int read_op_type(const unsigned char *buf, size_t len, size_t *off, char 
     memcpy(op_name, buf + *off, (size_t)slen);
     op_name[slen] = '\0';
     *off += (size_t)slen;
-    return check_op_name(op_name, (size_t)slen, first_bad);
+    err = check_op_name(op_name, (size_t)slen, first_bad);
+    if (err != 0) {
+        return err;
+    }
+    if (loop_count && strcmp(op_name, "Loop") == 0) {
+        if (++(*loop_count) > VMAF_DNN_MAX_LOOP_NODES) {
+            if (first_bad && *first_bad == NULL) {
+                /* Surface the rejection through the same channel as a
+                 * forbidden op — callers already log first_bad. */
+                char *copy = (char *)malloc(slen + 1u);
+                if (!copy) {
+                    return -ENOMEM;
+                }
+                memcpy(copy, op_name, slen + 1u);
+                *first_bad = copy;
+            }
+            return -EPERM;
+        }
+    }
+    return 0;
 }
 
 /* Forward decl — scan_node and scan_attribute mutually recurse via
  * scan_graph for control-flow op subgraphs (Loop.body, If.then_branch,
- * If.else_branch). */
-static int scan_graph(const unsigned char *buf, size_t len, char **first_bad, unsigned depth);
+ * If.else_branch). The shared `loop_count` counter (ADR-0171 / T6-5b)
+ * threads through every level so a nested Loop tree counts toward the
+ * top-level VMAF_DNN_MAX_LOOP_NODES cap. */
+static int scan_graph(const unsigned char *buf, size_t len, char **first_bad, unsigned depth,
+                      unsigned *loop_count);
 
 /* Scan a single AttributeProto. We only care about embedded GraphProto
  * fields (`g` for Loop.body / If.then_branch / If.else_branch; `graphs`
  * for the rare repeated-graph case). Everything else is skipped. */
-static int scan_attribute(const unsigned char *buf, size_t len, char **first_bad, unsigned depth)
+static int scan_attribute(const unsigned char *buf, size_t len, char **first_bad, unsigned depth,
+                          unsigned *loop_count)
 {
     size_t off = 0;
     while (off < len) {
@@ -200,7 +234,7 @@ static int scan_attribute(const unsigned char *buf, size_t len, char **first_bad
             if (glen > (uint64_t)(len - off)) {
                 return -EBADMSG;
             }
-            err = scan_graph(buf + off, (size_t)glen, first_bad, depth + 1u);
+            err = scan_graph(buf + off, (size_t)glen, first_bad, depth + 1u, loop_count);
             if (err != 0) {
                 return err;
             }
@@ -218,7 +252,8 @@ static int scan_attribute(const unsigned char *buf, size_t len, char **first_bad
 /* Scan one NodeProto. Validates the op_type against the allowlist and,
  * for ops with embedded subgraphs (Loop / If), recursively scans each
  * subgraph so forbidden ops can't hide inside a control-flow body. */
-static int scan_node(const unsigned char *buf, size_t len, char **first_bad, unsigned depth)
+static int scan_node(const unsigned char *buf, size_t len, char **first_bad, unsigned depth,
+                     unsigned *loop_count)
 {
     size_t off = 0;
     while (off < len) {
@@ -231,7 +266,7 @@ static int scan_node(const unsigned char *buf, size_t len, char **first_bad, uns
         const unsigned wire = (unsigned)(tag & 0x7u);
 
         if (field == NODE_OP_TYPE_FIELD && wire == PB_WIRE_LEN) {
-            err = read_op_type(buf, len, &off, first_bad);
+            err = read_op_type(buf, len, &off, first_bad, loop_count);
         } else if (field == NODE_ATTRIBUTE_FIELD && wire == PB_WIRE_LEN) {
             uint64_t alen = 0;
             err = pb_read_varint(buf, len, &off, &alen);
@@ -241,7 +276,7 @@ static int scan_node(const unsigned char *buf, size_t len, char **first_bad, uns
             if (alen > (uint64_t)(len - off)) {
                 return -EBADMSG;
             }
-            err = scan_attribute(buf + off, (size_t)alen, first_bad, depth);
+            err = scan_attribute(buf + off, (size_t)alen, first_bad, depth, loop_count);
             if (err != 0) {
                 return err;
             }
@@ -257,7 +292,8 @@ static int scan_node(const unsigned char *buf, size_t len, char **first_bad, uns
 }
 
 /* Scan one GraphProto: iterate its NodeProto children. */
-static int scan_graph(const unsigned char *buf, size_t len, char **first_bad, unsigned depth)
+static int scan_graph(const unsigned char *buf, size_t len, char **first_bad, unsigned depth,
+                      unsigned *loop_count)
 {
     if (depth > VMAF_DNN_MAX_SUBGRAPH_DEPTH) {
         /* Defence-in-depth bound on control-flow nesting. */
@@ -282,7 +318,7 @@ static int scan_graph(const unsigned char *buf, size_t len, char **first_bad, un
             if (nlen > (uint64_t)(len - off)) {
                 return -EBADMSG;
             }
-            err = scan_node(buf + off, (size_t)nlen, first_bad, depth);
+            err = scan_node(buf + off, (size_t)nlen, first_bad, depth, loop_count);
             if (err != 0) {
                 return err;
             }
@@ -310,6 +346,10 @@ int vmaf_dnn_scan_onnx(const unsigned char *buf, size_t len, char **first_bad)
 
     size_t off = 0;
     int graph_found = 0;
+    /* Top-level Loop-node counter. Threaded through scan_graph /
+     * scan_node / scan_attribute so a nested Loop inside a Loop body
+     * still increments the same counter (ADR-0171 / T6-5b). */
+    unsigned loop_count = 0;
     while (off < len) {
         uint64_t tag = 0;
         int err = pb_read_varint(buf, len, &off, &tag);
@@ -330,7 +370,7 @@ int vmaf_dnn_scan_onnx(const unsigned char *buf, size_t len, char **first_bad)
                 return -EBADMSG;
             }
             assert(off + (size_t)glen <= len);
-            err = scan_graph(buf + off, (size_t)glen, first_bad, 0u);
+            err = scan_graph(buf + off, (size_t)glen, first_bad, 0u, &loop_count);
             if (err != 0) {
                 return err;
             }
