@@ -8,6 +8,25 @@
 
 ### Added
 
+- **First per-model PTQ — `learned_filter_v1` flips to dynamic int8**
+  (fork-local): closes T5-3 fully (audit half via ADR-0173;
+  first-model half + CI gate via this PR). 80 KB → 33 KB (2.4×
+  shrink). Drop measurement: PLCC 0.999883 vs fp32 on a 16-sample
+  synthetic input set, drop 0.000117 vs the per-model budget 0.01
+  (100× margin). Runtime `.int8.onnx` redirect wired in
+  `vmaf_dnn_session_open` — when the sidecar declares
+  `quant_mode != FP32`, the loader strips trailing `.onnx`,
+  appends `.int8.onnx`, re-validates, and passes that path to ORT.
+  Fp32 file stays on disk as the regression baseline. New
+  `int8_sha256` registry/sidecar field (required when
+  `quant_mode != fp32`). New `ai/scripts/measure_quant_drop.py`
+  walks the registry and gates each non-fp32 model. New
+  `ai-quant-accuracy` step in the `Tiny AI` CI job runs the gate
+  on every PR. C2 `nr_metric_v1` stays fp32 — its dynamic-batch
+  ONNX export trips ORT's internal shape inference (tracked as
+  T5-3c follow-up). See
+  [ADR-0174](docs/adr/0174-first-model-quantisation.md). Closes
+  BACKLOG T5-3b.
 - **PTQ int8 audit harness (audit-first)** (fork-local): scaffolds
   the per-model quantisation pipeline from ADR-0129. Three new
   optional fields in `model/tiny/registry.schema.json`

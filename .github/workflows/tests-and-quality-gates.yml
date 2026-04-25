@@ -203,6 +203,14 @@ jobs:
       - name: Run ai/ pytests
         run: /tmp/vmaf-train-venv/bin/pytest ai/tests/ -v
 
+      # ADR-0174 / T5-3b: enforce that every quantised model in the
+      # registry stays inside its per-model PLCC drop budget. Skips
+      # entries whose `quant_mode == "fp32"` (nothing to gate).
+      - name: Run ai-quant-accuracy gate
+        run: |
+          /tmp/vmaf-train-venv/bin/pip install onnx onnxruntime numpy
+          /tmp/vmaf-train-venv/bin/python ai/scripts/measure_quant_drop.py --all
+
   # ===== Coverage gate (principles.md §3) =====
   # ≥70% overall line coverage, ≥85% on security-critical files
   # (libvmaf/src/dnn/, opt.c, read_json_model.c).
