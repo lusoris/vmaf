@@ -1,0 +1,111 @@
+/* SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+ *
+ * Pathfinder compute shader for the Vulkan VIF extractor (T5-1b).
+ *
+ * This is the *plumbing-validation* shader, not the full VIF math.
+ * It runs a separable horizontal 7-tap Gaussian blur over the
+ * reference plane and writes a single sum-of-blurred-pixel float
+ * into the output SSBO. The host-side dispatch reads that single
+ * float back to confirm:
+ *
+ *   1. volk + Vulkan instance + VkDevice + compute queue is alive.
+ *   2. SPIR-V loaded into a VkPipeline binds successfully.
+ *   3. Descriptor sets resolve to the host-mapped VMA buffers.
+ *   4. parallel_for-style dispatch (work-group + sub-group ops) runs
+ *      end-to-end and the host can read back results.
+ *
+ * Once this lands and CI proves the pipeline boots on lavapipe + Arc,
+ * the actual VIF arithmetic (4-scale Gaussian pyramid + numerator /
+ * denominator per scale) ports kernel-by-kernel in follow-up PRs
+ * under T5-1b-iv-vif (and T5-1c for ADM / motion / motion_v2).
+ */
+
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_basic : require
+
+layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
+
+/* Input plane — uint8 packed into uint32, 4 pixels per word. */
+layout(set = 0, binding = 0, std430) readonly buffer Ref {
+    uint pixels[];
+} ref_;
+
+/* Per-workgroup partial sum output. The host reduces these into the
+ * final scalar after readback so we don't need GL_EXT_shader_atomic_
+ * float (which is optional and not universally available). */
+layout(set = 0, binding = 1, std430) buffer Out {
+    float wg_sum[];
+} out_;
+
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint stride_uints;  /* row stride in uint32 words */
+} pc;
+
+const float kernel_w[7] = float[7](
+    0.005977,
+    0.060598,
+    0.241732,
+    0.383386,
+    0.241732,
+    0.060598,
+    0.005977
+);
+
+float load_pixel(uint x, uint y)
+{
+    if (x >= pc.width || y >= pc.height)
+        return 0.0;
+    uint word = ref_.pixels[y * pc.stride_uints + (x >> 2u)];
+    uint shift = (x & 3u) * 8u;
+    return float((word >> shift) & 0xffu);
+}
+
+shared float partial[8];
+
+void main()
+{
+    uint gx = gl_GlobalInvocationID.x;
+    uint gy = gl_GlobalInvocationID.y;
+    uint lx = gl_LocalInvocationID.x;
+    uint ly = gl_LocalInvocationID.y;
+
+    if (gy >= pc.height) {
+        if (lx == 0u && gy < pc.height)
+            partial[ly] = 0.0;
+        return;
+    }
+
+    float acc = 0.0;
+    if (gx < pc.width) {
+        for (int t = -3; t <= 3; ++t) {
+            int xi = int(gx) + t;
+            if (xi < 0)
+                xi = 0;
+            else if (xi >= int(pc.width))
+                xi = int(pc.width) - 1;
+            acc += kernel_w[t + 3] * load_pixel(uint(xi), gy);
+        }
+    }
+
+    /* Sub-group reduce across lx within each row of the workgroup,
+     * then thread 0 of each row writes to shared, then thread 0 of
+     * the workgroup writes the per-workgroup sum into the output
+     * buffer at this workgroup's index. The host computes the final
+     * reduction by summing every wg_sum[] slot. */
+    acc = subgroupAdd(acc);
+    if (subgroupElect()) {
+        partial[ly] = acc;
+    }
+    barrier();
+
+    if (lx == 0u && ly == 0u) {
+        float total = 0.0;
+        for (uint i = 0u; i < gl_WorkGroupSize.y; ++i)
+            total += partial[i];
+        uint wg_idx = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+        out_.wg_sum[wg_idx] = total;
+    }
+}

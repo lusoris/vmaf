@@ -7,6 +7,7 @@
 #define LIBVMAF_VULKAN_PICTURE_VULKAN_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "common.h"
 
@@ -14,6 +15,55 @@
 extern "C" {
 #endif
 
+/*
+ * Host-visible Vulkan buffer that backs a single picture plane. The
+ * struct itself is opaque on the public surface; kernel TUs in
+ * libvmaf/src/feature/vulkan/ include `picture_vulkan_internal.h`
+ * for the layout.
+ */
+typedef struct VmafVulkanBuffer VmafVulkanBuffer;
+
+/*
+ * Allocate a host-visible, mappable, compute-shader-readable buffer.
+ *
+ * The buffer is sized exactly `size` bytes, allocated via VMA with
+ * `VMA_MEMORY_USAGE_AUTO_PREFER_HOST`, and exposes:
+ *   - `host_ptr`: persistent mapped pointer (no map/unmap per upload).
+ *   - `vk_buffer`: the VkBuffer handle for descriptor-set binding.
+ *
+ * `*out_buf` receives a freshly allocated VmafVulkanBuffer; release
+ * with vmaf_vulkan_buffer_free(). Returns 0 / -ENOMEM / -EINVAL.
+ */
+int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf, size_t size);
+
+/* Returns the persistent mapped host pointer (writeable). */
+void *vmaf_vulkan_buffer_host(VmafVulkanBuffer *buf);
+
+/* Returns the underlying VkBuffer handle as a uintptr_t so callers
+ * who don't include <vulkan/vulkan.h> can still pass it through to
+ * descriptor-set binding helpers. Internal kernel TUs use the
+ * `picture_vulkan_internal.h` typed accessor instead. */
+uintptr_t vmaf_vulkan_buffer_vkhandle(VmafVulkanBuffer *buf);
+
+/* Returns the buffer size in bytes (as passed to alloc). */
+size_t vmaf_vulkan_buffer_size(VmafVulkanBuffer *buf);
+
+/* Flush host writes to the device. No-op for HOST_COHERENT memory but
+ * we don't assume coherence — VMA may pick a non-coherent heap on
+ * dGPUs (e.g. AMD ReBAR off). Call after every host upload before
+ * dispatch. */
+int vmaf_vulkan_buffer_flush(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
+
+void vmaf_vulkan_buffer_free(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
+
+/* Compatibility shim for the T5-1 scaffold smoke test. The original
+ * picture-alloc API returned a void* directly. We keep the surface so
+ * `libvmaf/test/test_vulkan_smoke.c` still compiles, but route the
+ * call through `vmaf_vulkan_buffer_alloc` and return the host pointer.
+ * Returns 0 / -ENOMEM / -EINVAL; on success `*out` is populated with
+ * the host pointer. The companion buffer handle is opaque and freed
+ * by `vmaf_vulkan_picture_free()` — which scans an internal bookkeeping
+ * map keyed on host pointer. */
 int vmaf_vulkan_picture_alloc(VmafVulkanContext *ctx, void **out, size_t size);
 void vmaf_vulkan_picture_free(VmafVulkanContext *ctx, void *buf);
 

@@ -87,16 +87,19 @@ jobs:
             name: Build — macOS clang (CPU) + DNN
             experimental: true
 
-          # --- Vulkan scaffold (ADR-0175 / T5-1) ---
-          # Stub-only build — no Vulkan SDK required. Stubs return
-          # -ENOSYS until the kernels land. The lavapipe-driven smoke
-          # path arrives in the first kernel PR; this row pins that
-          # the scaffold compiles cleanly under -Denable_vulkan=enabled.
+          # --- Vulkan T5-1b runtime (ADR-0175) ---
+          # Real volk + VMA + glslc + compute dispatch. Needs the
+          # Vulkan loader + headers + glslc shader compiler before
+          # meson setup; lavapipe is the software ICD that exposes
+          # a compute-capable VkPhysicalDevice on headless runners
+          # so the smoke test can run end-to-end. Wraps for volk +
+          # VMA are sha256-pinned in libvmaf/subprojects/.
           - os: ubuntu-latest
             CC: ccache gcc
             CXX: ccache g++
+            vulkan: true
             meson_extra: -Denable_vulkan=enabled
-            name: Build — Ubuntu Vulkan Scaffold (stub kernels)
+            name: Build — Ubuntu Vulkan (T5-1b runtime)
 
           # --- Static library builds ---
           - os: ubuntu-latest
@@ -292,6 +295,28 @@ jobs:
         run: |
           sudo apt-get update
           sudo -E apt-get -yq install ccache ninja-build nasm gcc g++
+
+      # ---------- Vulkan SDK (T5-1b runtime) ----------
+      # libvulkan.so + vulkan-headers + glslc + lavapipe (software
+      # ICD so the headless runner can enumerate a compute-capable
+      # VkPhysicalDevice). volk + VMA come via meson wraps in
+      # libvmaf/subprojects/ — no apt package needed.
+      - name: Install Vulkan SDK
+        if: matrix.vulkan
+        run: |
+          sudo apt-get update
+          sudo -E apt-get -yq install ccache ninja-build nasm gcc g++ \
+            libvulkan-dev vulkan-tools glslang-tools mesa-vulkan-drivers
+          # `glslang-tools` ships glslangValidator; the wrap pipeline
+          # uses `glslc` from `glslc` package or shaderc-compiler.
+          # Try shaderc; fall back to a build-from-source path if the
+          # apt name has changed.
+          if ! command -v glslc >/dev/null; then
+            sudo -E apt-get -yq install glslc || \
+              sudo -E apt-get -yq install vulkan-sdk
+          fi
+          glslc --version | head -2
+          vulkaninfo --summary || true
 
       # ---------- Build ----------
       - name: Configure libvmaf
