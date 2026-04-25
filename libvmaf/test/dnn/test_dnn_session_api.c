@@ -14,8 +14,15 @@
 
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #include "test.h"
 
@@ -223,6 +230,117 @@ static char *test_session_run_luma8_size_mismatch(void)
     vmaf_dnn_session_close(sess);
     return NULL;
 }
+
+#ifndef _WIN32
+/* ADR-0174 / T5-3b coverage helpers — exercise the runtime int8
+ * redirect block in vmaf_dnn_session_open. */
+static int copy_file(const char *src, const char *dst)
+{
+    FILE *fsrc = fopen(src, "rb");
+    if (!fsrc)
+        return -1;
+    FILE *fdst = fopen(dst, "wb");
+    if (!fdst) {
+        (void)fclose(fsrc);
+        return -1;
+    }
+    char buf[4096];
+    size_t n;
+    int rc = 0;
+    while ((n = fread(buf, 1, sizeof(buf), fsrc)) > 0) {
+        if (fwrite(buf, 1, n, fdst) != n) {
+            rc = -1;
+            break;
+        }
+    }
+    (void)fclose(fsrc);
+    (void)fclose(fdst);
+    return rc;
+}
+
+static int write_sidecar_dynamic(const char *path)
+{
+    FILE *s = fopen(path, "wb");
+    if (!s)
+        return -1;
+    const char *json = "{\"kind\": \"fr\", \"quant_mode\": \"dynamic\"}\n";
+    size_t len = strlen(json);
+    int rc = (fwrite(json, 1, len, s) == len) ? 0 : -1;
+    (void)fclose(s);
+    return rc;
+}
+
+/* sidecar declares quant_mode=dynamic but no .int8.onnx sibling →
+ * vmaf_dnn_session_open must surface a negative error. */
+static char *test_session_open_int8_missing_returns_error(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+    char base[] = "/tmp/vmaf-dnn-int8-miss-XXXXXX";
+    int fd = mkstemp(base);
+    if (fd < 0)
+        return NULL;
+    (void)close(fd);
+
+    char onnx[1100];
+    char sidecar[1100];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", base);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", base);
+    if (copy_file(SMOKE_FP32_MODEL, onnx) != 0) {
+        (void)unlink(base);
+        return NULL;
+    }
+    mu_assert("write sidecar ok", write_sidecar_dynamic(sidecar) == 0);
+
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, onnx, NULL);
+    mu_assert("missing .int8.onnx must return negative", rc < 0);
+    mu_assert("session must remain NULL on error", sess == NULL);
+
+    (void)unlink(sidecar);
+    (void)unlink(onnx);
+    (void)unlink(base);
+    return NULL;
+}
+
+/* sidecar declares quant_mode=dynamic and a valid .int8.onnx exists
+ * (we copy the fp32 smoke as a stand-in) → vmaf_dnn_session_open
+ * must succeed via the redirect path. */
+static char *test_session_open_int8_redirect_succeeds(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+    char base[] = "/tmp/vmaf-dnn-int8-ok-XXXXXX";
+    int fd = mkstemp(base);
+    if (fd < 0)
+        return NULL;
+    (void)close(fd);
+
+    char onnx[1100];
+    char int8_onnx[1200];
+    char sidecar[1100];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", base);
+    (void)snprintf(int8_onnx, sizeof int8_onnx, "%s.int8.onnx", base);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", base);
+    if (copy_file(SMOKE_FP32_MODEL, onnx) != 0 || copy_file(SMOKE_FP32_MODEL, int8_onnx) != 0) {
+        (void)unlink(base);
+        return NULL;
+    }
+    mu_assert("write sidecar ok", write_sidecar_dynamic(sidecar) == 0);
+
+    VmafDnnSession *sess = NULL;
+    int rc = vmaf_dnn_session_open(&sess, onnx, NULL);
+    mu_assert("int8 redirect open ok", rc == 0);
+    mu_assert("session populated", sess != NULL);
+    vmaf_dnn_session_close(sess);
+
+    (void)unlink(sidecar);
+    (void)unlink(int8_onnx);
+    (void)unlink(onnx);
+    (void)unlink(base);
+    return NULL;
+}
+#endif /* !_WIN32 */
 
 /* ADR-0170 / T6-4: drive the input-validation branches of
  * vmaf_dnn_session_run_plane16 without needing a real ORT session. */
@@ -570,6 +688,10 @@ char *run_tests(void)
     mu_run_test(test_session_run_plane16_rejects_null);
     mu_run_test(test_session_run_plane16_rejects_bad_bpc);
     mu_run_test(test_session_run_plane16_size_mismatch);
+#ifndef _WIN32
+    mu_run_test(test_session_open_int8_missing_returns_error);
+    mu_run_test(test_session_open_int8_redirect_succeeds);
+#endif
     mu_run_test(test_session_run_heap_path_for_many_inputs);
     mu_run_test(test_attached_ep_after_session_close);
     mu_run_test(test_session_run_unknown_input_name);
