@@ -49,6 +49,12 @@ extern "C" {
 #include "log.h"
 }
 
+// NOLINTBEGIN(misc-use-anonymous-namespace, misc-use-internal-linkage): see
+// integer_motion_sycl.cpp for the rationale — C-style `static` is required
+// because the entry-point function addresses are consumed via the
+// `extern "C" VmafFeatureExtractor` struct at the bottom of this TU; the
+// C-API boundary is the load-bearing invariant per CLAUDE.md §12 r12.
+
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
 /* ------------------------------------------------------------------ */
@@ -824,8 +830,8 @@ static sycl::event launch_csf_den_cm_3band(
 
                 const int32_t *const cf_ptrs[3] = {csf_f_h, csf_f_v, csf_f_d};
                 // All 3 ref/dis band pointers for inline decouple
-                const int32_t const *ref_ptrs[3] = {ref_band_h, ref_band_v, ref_band_d};
-                const int32_t const *dis_ptrs[3] = {dis_band_h, dis_band_v, dis_band_d};
+                const int32_t const const *ref_ptrs[3] = {ref_band_h, ref_band_v, ref_band_d};
+                const int32_t const const *dis_ptrs[3] = {dis_band_h, dis_band_v, dis_band_d};
                 uint32_t const irf_all[3] = {i_rfactor_h, i_rfactor_v, i_rfactor_d};
 
                 // Per-thread accumulators for both reductions
@@ -1036,7 +1042,9 @@ static sycl::event launch_csf_den_cm_3band(
                 item.barrier(sycl::access::fence_space::local_space);
 
                 if (lid == 0) {
+                    // NOLINTNEXTLINE(misc-const-correctness): atomic_ref / reduction-loop target — clang-tidy cannot see the writes through SYCL atomic_ref or sub-group reductions, but the variable is mutated and must not be const
                     int64_t total_csf = 0;
+                    // NOLINTNEXTLINE(misc-const-correctness): atomic_ref / reduction-loop target — clang-tidy cannot see the writes through SYCL atomic_ref or sub-group reductions, but the variable is mutated and must not be const
                     int64_t total_cm = 0;
                     for (uint32_t s = 0; s < n_subgroups; s++) {
                         total_csf += lmem[s];
@@ -1209,11 +1217,11 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     }
 
     // Allocate device buffers
-    size_t dwt_tmp_size = (size_t)w * 2 * half_h * sizeof(int32_t);
+    size_t const dwt_tmp_size = (size_t)w * 2 * half_h * sizeof(int32_t);
     s->d_dwt_tmp_ref = static_cast<int32_t *>(vmaf_sycl_malloc_device(state, dwt_tmp_size));
     s->d_dwt_tmp_dis = static_cast<int32_t *>(vmaf_sycl_malloc_device(state, dwt_tmp_size));
 
-    size_t band_size = (size_t)s->buf_stride * half_h * sizeof(int32_t);
+    size_t const band_size = (size_t)s->buf_stride * half_h * sizeof(int32_t);
     for (int i = 0; i < 4; i++) {
         s->d_ref_band[i] = static_cast<int32_t *>(vmaf_sycl_malloc_device(state, band_size));
         s->d_dis_band[i] = static_cast<int32_t *>(vmaf_sycl_malloc_device(state, band_size));
@@ -1224,11 +1232,11 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     }
 
     // Division LUT: 65537 entries
-    size_t div_size = 65537 * sizeof(int32_t);
+    size_t const div_size = 65537 * sizeof(int32_t);
     s->d_div_lookup = static_cast<int32_t *>(vmaf_sycl_malloc_device(state, div_size));
 
     // Accumulators: 4 scales x 3 bands = 12 int64 each
-    size_t accum_size = ADM_NUM_SCALES * ADM_NUM_BANDS * sizeof(int64_t);
+    size_t const accum_size = ADM_NUM_SCALES * ADM_NUM_BANDS * sizeof(int64_t);
     s->d_cm_accum = static_cast<int64_t *>(vmaf_sycl_malloc_device(state, accum_size));
     s->d_csf_den_accum = static_cast<int64_t *>(vmaf_sycl_malloc_device(state, accum_size));
     s->h_cm_accum = static_cast<int64_t *>(vmaf_sycl_malloc_host(state, accum_size));
@@ -1395,7 +1403,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     VmafSyclState *state = fex->sycl_state;
 
     // Combined graph submit (idempotent per frame — first extractor wins)
-    int err = vmaf_sycl_graph_submit(state);
+    int const err = vmaf_sycl_graph_submit(state);
     if (err)
         return err;
 
@@ -1581,6 +1589,8 @@ static const char *provided_features[] = {"VMAF_integer_feature_adm2_score",
                                           "integer_adm_num_scale3",
                                           "integer_adm_den_scale3",
                                           nullptr};
+
+// NOLINTEND(misc-use-anonymous-namespace, misc-use-internal-linkage)
 
 extern "C" VmafFeatureExtractor vmaf_fex_integer_adm_sycl = {
     .name = "adm_sycl",

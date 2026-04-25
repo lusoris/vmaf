@@ -57,8 +57,8 @@ extern "C" int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst, VmafPic
         return -EINVAL;
 
     size_t const bpp = (pic->bpc + 7) / 8;
-    size_t row_bytes = pic->w[plane] * bpp;
-    size_t total = row_bytes * pic->h[plane];
+    size_t const row_bytes = pic->w[plane] * bpp;
+    size_t const total = row_bytes * pic->h[plane];
 
     if (pic->stride[plane] == (ptrdiff_t)row_bytes) {
         /* Contiguous — single memcpy */
@@ -69,7 +69,7 @@ extern "C" int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst, VmafPic
     const uint8_t *src = (const uint8_t *)pic->data[plane];
     uint8_t *d = (uint8_t *)dst;
     for (unsigned y = 0; y < pic->h[plane]; y++) {
-        int err =
+        int const err =
             vmaf_sycl_memcpy_h2d(state, d + y * row_bytes, src + y * pic->stride[plane], row_bytes);
         if (err)
             return err;
@@ -87,7 +87,7 @@ extern "C" int vmaf_sycl_picture_download(VmafSyclState *state, const void *src,
 
     size_t const bpp = (pic->bpc + 7) / 8;
     size_t const row_bytes = pic->w[plane] * bpp;
-    size_t total = row_bytes * pic->h[plane];
+    size_t const total = row_bytes * pic->h[plane];
 
     if (pic->stride[plane] == (ptrdiff_t)row_bytes) {
         return vmaf_sycl_memcpy_d2h(state, pic->data[plane], src, total);
@@ -98,7 +98,7 @@ extern "C" int vmaf_sycl_picture_download(VmafSyclState *state, const void *src,
     if (!packed)
         return -ENOMEM;
 
-    int err = vmaf_sycl_memcpy_d2h(state, packed, src, total);
+    int const err = vmaf_sycl_memcpy_d2h(state, packed, src, total);
     if (!err) {
         uint8_t *dst_ptr = (uint8_t *)pic->data[plane];
         for (unsigned y = 0; y < pic->h[plane]; y++) {
@@ -122,7 +122,7 @@ extern "C" int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
     assert(c->w > 0 && c->h > 0);
     assert(c->bpc >= 8 && c->bpc <= 16);
     size_t const bpp = (c->bpc + 7) / 8;
-    size_t plane_size = (size_t)c->w * c->h * bpp;
+    size_t const plane_size = (size_t)c->w * c->h * bpp;
 
     /* Y plane only — VMAF operates on luma. DEVICE USM for GPU-resident,
      * HOST USM when the caller wants coherent host-visible buffers. */
@@ -179,7 +179,7 @@ extern "C" int vmaf_sycl_picture_free(VmafPicture *pic, void *cookie)
         return -EINVAL;
 
     VmafSyclCookie const *c = (VmafSyclCookie *)cookie;
-    assert(c->state != NULL);
+    assert(c->state != nullptr);
 
     /* When invoked via vmaf_picture_unref the caller has already detached
      * priv + ref on its side, so only the USM buffers remain to free here.
@@ -238,7 +238,7 @@ extern "C" int vmaf_sycl_picture_pool_init(VmafSyclPicturePool **pool_out, VmafS
     }
 
     for (unsigned i = 0; i < pic_cnt; i++) {
-        int err = vmaf_sycl_picture_alloc(&pool->pic[i], &pool->cookie);
+        int const err = vmaf_sycl_picture_alloc(&pool->pic[i], &pool->cookie);
         if (err) {
             /* unwind already-allocated entries */
             for (unsigned j = 0; j < i; j++) {
