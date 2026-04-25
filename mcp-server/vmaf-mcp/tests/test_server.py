@@ -1,10 +1,10 @@
 """Smoke tests for the vmaf-mcp server — no network, no GPU required."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-
 from vmaf_mcp import server as srv
 
 REPO = Path(__file__).resolve().parents[3]
@@ -76,9 +76,7 @@ def _make_tiny_mlp(path: Path, in_features: int = 6) -> None:
 
     x = helper.make_tensor_value_info("features", TensorProto.FLOAT, ["N", in_features])
     y = helper.make_tensor_value_info("score", TensorProto.FLOAT, ["N", 1])
-    w = helper.make_tensor(
-        "W", TensorProto.FLOAT, [in_features, 1], [0.5] * in_features
-    )
+    w = helper.make_tensor("W", TensorProto.FLOAT, [in_features, 1], [0.5] * in_features)
     b = helper.make_tensor("B", TensorProto.FLOAT, [1], [10.0])
     node = helper.make_node("Gemm", ["features", "W", "B"], ["score"])
     graph = helper.make_graph([node], "mlp", [x], [y], [w, b])
@@ -157,13 +155,9 @@ def test_compare_models_ranks_by_plcc(tmp_path):
     b = helper.make_tensor("B", TensorProto.FLOAT, [1], [10.0])
     node = helper.make_node("Gemm", ["features", "W", "B"], ["score"])
     graph = helper.make_graph([node], "mlp", [x], [y], [w, b])
-    onnx.save(
-        helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), str(bad)
-    )
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), str(bad))
     _make_feature_parquet(feats)
-    report = srv._compare_models(
-        [bad, good], feats, split="all", input_name="features"
-    )
+    report = srv._compare_models([bad, good], feats, split="all", input_name="features")
     assert report["errors"] == []
     assert report["ranked"][0]["model"] == str(good)
     assert report["ranked"][0]["plcc"] > report["ranked"][1]["plcc"]
@@ -176,9 +170,7 @@ def test_compare_models_captures_errors_without_aborting(tmp_path):
     missing = tmp_path / "missing.onnx"
     feats = tmp_path / "f.parquet"
     _make_feature_parquet(feats)
-    report = srv._compare_models(
-        [ok, missing], feats, split="all", input_name="features"
-    )
+    report = srv._compare_models([ok, missing], feats, split="all", input_name="features")
     # One report, one error — the missing model doesn't take the good one down.
     assert len(report["ranked"]) == 1
     assert len(report["errors"]) == 1
@@ -196,3 +188,72 @@ def test_new_tools_registered_in_list_tools():
     names = {t.name for t in tools}
     assert "eval_model_on_split" in names
     assert "compare_models" in names
+    # ADR-0172 / T6-6: VLM-assisted artefact triage tool.
+    assert "describe_worst_frames" in names
+
+
+# ─────────────────────────────────────────────────────────────────────
+# describe_worst_frames (T6-6 / ADR-0172)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_describe_worst_frames_picks_lowest_vmaf():
+    """The picker walks the per-frame array and returns the N with
+    smallest VMAF, sorted ascending."""
+    score_json = {
+        "frames": [
+            {"frameNum": 0, "metrics": {"vmaf": 90.0}},
+            {"frameNum": 1, "metrics": {"vmaf": 30.0}},
+            {"frameNum": 2, "metrics": {"vmaf": 50.0}},
+            {"frameNum": 3, "metrics": {"vmaf": 10.0}},
+            {"frameNum": 4, "metrics": {"vmaf": 70.0}},
+        ],
+    }
+    worst = srv._pick_worst_frames(score_json, n=3)
+    assert worst == [(3, 10.0), (1, 30.0), (2, 50.0)]
+
+
+def test_describe_worst_frames_handles_alternate_metric_keys():
+    """Different VMAF model variants emit different headline-metric
+    keys. The picker recognises the common ones."""
+    score_json = {
+        "frames": [
+            {"frameNum": 0, "metrics": {"vmaf_v0.6.1": 80.0}},
+            {"frameNum": 1, "metrics": {"vmaf_v0.6.1": 20.0}},
+        ],
+    }
+    worst = srv._pick_worst_frames(score_json, n=1)
+    assert worst == [(1, 20.0)]
+
+
+def test_describe_worst_frames_skips_frames_without_a_score():
+    score_json = {
+        "frames": [
+            {"frameNum": 0, "metrics": {}},  # no headline key
+            {"frameNum": 1, "metrics": {"vmaf": 5.0}},
+        ],
+    }
+    worst = srv._pick_worst_frames(score_json, n=2)
+    assert worst == [(1, 5.0)]
+
+
+def test_describe_worst_frames_n_zero_returns_empty_list():
+    score_json = {
+        "frames": [{"frameNum": 0, "metrics": {"vmaf": 99.0}}],
+    }
+    assert srv._pick_worst_frames(score_json, n=0) == []
+
+
+def test_describe_image_falls_back_to_metadata_only_without_extras(monkeypatch):
+    """When the [vlm] extras aren't installed, _load_vlm() returns
+    None and _describe_image_with_vlm surfaces a clear hint."""
+    # Reset the cache so this test isn't influenced by other tests.
+    srv._vlm_state["loaded"] = False
+    srv._vlm_state["pipeline"] = None
+    srv._vlm_state["model_id"] = None
+
+    # Force the import-failure branch by hiding `transformers`.
+    monkeypatch.setitem(__import__("sys").modules, "transformers", None)
+    msg = srv._describe_image_with_vlm(Path("/tmp/nonexistent.png"))
+    assert "VLM unavailable" in msg
+    assert "vmaf-mcp[vlm]" in msg

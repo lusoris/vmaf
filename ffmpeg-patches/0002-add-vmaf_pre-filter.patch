@@ -325,5 +325,5 @@ index 0000000..b339442
 +    FILTER_OUTPUTS(ff_video_default_filterpad),
 +    FILTER_QUERY_FUNC2(query_formats),
 +};
---
+-- 
 2.54.0
