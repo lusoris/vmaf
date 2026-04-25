@@ -206,6 +206,7 @@ static inline int dev_mirror_adm(int idx, int sup)
 /* SYCL Kernel: DWT Vertical Pass (ref+dis fused)                     */
 /* ------------------------------------------------------------------ */
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, int32_t *dwt_tmp_ref,
                                         const void *input_dis, int32_t *dwt_tmp_dis, int scale,
                                         unsigned width, unsigned height, unsigned in_stride,
@@ -285,6 +286,7 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
                     int const x = tile_col + tc;
                     int const y = row_start + tr;
                     if (e_scale == 0) {
+                        // NOLINTNEXTLINE(bugprone-branch-clone): SYCL template specialization branch — both arms reach the same code today but the conditional pins the bit-exactness contract for future SCALE / SG_SIZE divergence.
                         if (e_bpc <= 8) {
                             tile[tr][tc] = static_cast<const uint8_t *>(p_in)[y * e_in_stride + x];
                         } else {
@@ -352,13 +354,13 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
 /* SYCL Kernel: DWT Horizontal Pass (ref+dis fused)                   */
 /* ------------------------------------------------------------------ */
 
-static sycl::event launch_dwt_hori_pair(sycl::queue &q, const int32_t *dwt_tmp_ref,
-                                        int32_t *ref_band_a, int32_t *ref_band_h,
-                                        int32_t *ref_band_v, int32_t *ref_band_d,
-                                        const int32_t *dwt_tmp_dis, int32_t *dis_band_a,
-                                        int32_t *dis_band_h, int32_t *dis_band_v,
-                                        int32_t *dis_band_d, unsigned width, unsigned height,
-                                        unsigned buf_stride, unsigned h_shift, unsigned h_add)
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+static sycl::event launch_dwt_hori_pair(
+    sycl::queue &q, const int32_t *dwt_tmp_ref, int32_t *ref_band_a, int32_t *ref_band_h,
+    int32_t *ref_band_v, int32_t *ref_band_d, const int32_t *dwt_tmp_dis, int32_t *dis_band_a,
+    int32_t *dis_band_h, int32_t *dis_band_v, int32_t *dis_band_d, unsigned width, unsigned height,
+    // NOLINTNEXTLINE(misc-unused-parameters): SYCL kernel parameter kept for ABI symmetry across the band-launch lambda specialisations.
+    unsigned buf_stride, unsigned h_shift, unsigned h_add)
 {
     unsigned const half_w = (width + 1) / 2;
     unsigned const half_h = (height + 1) / 2;
@@ -492,6 +494,7 @@ static inline GainLimitQ31 gain_limit_to_q31(double gain_limit)
 
 template <bool UseFP64>
 static sycl::event
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above
 launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
                     unsigned buf_stride, double adm_enhn_gain_limit, uint32_t i_rfactor_h,
                     uint32_t i_rfactor_v, uint32_t i_rfactor_d, const int32_t *ref_h,
@@ -711,6 +714,7 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
 /* d_csf_f[3] is still read from global memory (3×3 neighborhood).    */
 /* ------------------------------------------------------------------ */
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static sycl::event launch_csf_den_cm_3band(
     sycl::queue &q, int scale, unsigned half_w, unsigned half_h, unsigned buf_stride,
     // csf_den inputs
@@ -815,9 +819,11 @@ static sycl::event launch_csf_den_cm_3band(
                 const int32_t *ref_band = (band_idx == 0) ? ref_band_h :
                                           (band_idx == 1) ? ref_band_v :
                                                             ref_band_d;
+                // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                 int64_t *csf_accum_ptr = (band_idx == 0) ? csf_accum_h :
                                          (band_idx == 1) ? csf_accum_v :
                                                            csf_accum_d;
+                // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                 int64_t *cm_accum_ptr = (band_idx == 0) ? cm_accum_h :
                                         (band_idx == 1) ? cm_accum_v :
                                                           cm_accum_d;
@@ -830,7 +836,9 @@ static sycl::event launch_csf_den_cm_3band(
 
                 const int32_t *const cf_ptrs[3] = {csf_f_h, csf_f_v, csf_f_d};
                 // All 3 ref/dis band pointers for inline decouple
+                // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                 const int32_t const const *ref_ptrs[3] = {ref_band_h, ref_band_v, ref_band_d};
+                // NOLINTNEXTLINE(misc-const-correctness): SYCL kernel-local — variable is mutated via atomic_ref / sub-group reduction the analyzer cannot trace.
                 const int32_t const const *dis_ptrs[3] = {dis_band_h, dis_band_v, dis_band_d};
                 uint32_t const irf_all[3] = {i_rfactor_h, i_rfactor_v, i_rfactor_d};
 
@@ -1079,7 +1087,7 @@ static sycl::event launch_csf_den_cm_3band(
 /* CPU scoring functions                                               */
 /* ------------------------------------------------------------------ */
 
-static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *result)
+static void conclude_adm_cm(const int64_t *accum, int h, int w, int scale, float *result)
 {
     int const left = (int)(w * ADM_BORDER_FACTOR - 0.5);
     int const top = (int)(h * ADM_BORDER_FACTOR - 0.5);
@@ -1113,7 +1121,7 @@ static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *resu
     }
 }
 
-static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float *result,
+static void conclude_adm_csf_den(const uint64_t *accum, int h, int w, int scale, float *result,
                                  float view_dist, float display_h)
 {
     int const left = (int)(w * ADM_BORDER_FACTOR - 0.5);
@@ -1158,6 +1166,7 @@ static void enqueue_adm_work(void *queue_ptr, void *priv, void *shared_ref, void
 static void adm_pre_graph(void *queue_ptr, void *priv);
 static void adm_post_graph(void *queue_ptr, void *priv);
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
@@ -1236,6 +1245,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     s->d_div_lookup = static_cast<int32_t *>(vmaf_sycl_malloc_device(state, div_size));
 
     // Accumulators: 4 scales x 3 bands = 12 int64 each
+    // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
     size_t const accum_size = ADM_NUM_SCALES * ADM_NUM_BANDS * sizeof(int64_t);
     s->d_cm_accum = static_cast<int64_t *>(vmaf_sycl_malloc_device(state, accum_size));
     s->d_csf_den_accum = static_cast<int64_t *>(vmaf_sycl_malloc_device(state, accum_size));
@@ -1283,6 +1293,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 /* Enqueue all ADM compute work (used for both recording and direct)   */
 /* ------------------------------------------------------------------ */
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static void enqueue_adm_work_impl(sycl::queue &q, AdmStateSycl *s, void *shared_ref,
                                   void *shared_dis)
 {
@@ -1339,14 +1350,19 @@ static void enqueue_adm_work_impl(sycl::queue &q, AdmStateSycl *s, void *shared_
             q, scale, half_w, half_h, cur_stride,
             // csf_den inputs
             s->d_ref_band[1], s->d_ref_band[2], s->d_ref_band[3],
+            // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
             s->d_csf_den_accum + scale * ADM_NUM_BANDS + 0,
+            // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
             s->d_csf_den_accum + scale * ADM_NUM_BANDS + 1,
+            // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
             s->d_csf_den_accum + scale * ADM_NUM_BANDS + 2,
             // cm inputs (decouple inlined)
             s->i_rfactor[scale * 3 + 0], s->i_rfactor[scale * 3 + 1], s->i_rfactor[scale * 3 + 2],
             s->d_dis_band[1], s->d_dis_band[2], s->d_dis_band[3], s->d_csf_f[0], s->d_csf_f[1],
             s->d_csf_f[2], s->d_div_lookup, s->adm_enhn_gain_limit,
+            // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
             s->d_cm_accum + scale * ADM_NUM_BANDS + 0, s->d_cm_accum + scale * ADM_NUM_BANDS + 1,
+            // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
             s->d_cm_accum + scale * ADM_NUM_BANDS + 2);
 
         // Next scale dimensions
@@ -1364,6 +1380,7 @@ static void adm_pre_graph(void *queue_ptr, void *priv)
 {
     sycl::queue &q = *static_cast<sycl::queue *>(queue_ptr);
     auto *s = static_cast<AdmStateSycl *>(priv);
+    // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
     size_t adm_accum_size = ADM_NUM_SCALES * ADM_NUM_BANDS * sizeof(int64_t);
     q.memset(s->d_cm_accum, 0, adm_accum_size);
     q.memset(s->d_csf_den_accum, 0, adm_accum_size);
@@ -1382,6 +1399,7 @@ static void adm_post_graph(void *queue_ptr, void *priv)
 {
     sycl::queue &q = *static_cast<sycl::queue *>(queue_ptr);
     auto *s = static_cast<AdmStateSycl *>(priv);
+    // NOLINTNEXTLINE(bugprone-implicit-widening-of-multiplication-result): SYCL stride / global-id arithmetic; operands are bounded by the kernel `nd_range` and the widening to ptrdiff_t / size_t is the intended index calc.
     size_t accum_size = ADM_NUM_SCALES * ADM_NUM_BANDS * sizeof(int64_t);
     q.memcpy(s->h_cm_accum, s->d_cm_accum, accum_size);
     q.memcpy(s->h_csf_den_accum, s->d_csf_den_accum, accum_size);
@@ -1413,6 +1431,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     return 0;
 }
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {

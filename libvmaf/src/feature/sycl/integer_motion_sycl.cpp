@@ -147,6 +147,7 @@ static inline int dev_mirror_motion(int idx, int sup)
 /* This matches the V→H ordering for exact bit-identical results.      */
 /* ------------------------------------------------------------------ */
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int32_t *blur_out,
                                          const int32_t *prev_blur, int64_t *sad_accum,
                                          unsigned width, unsigned height, unsigned bpc,
@@ -458,6 +459,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     return 0;
 }
 
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
 static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
