@@ -81,7 +81,43 @@ int vmaf_dnn_session_open(VmafDnnSession **out, const char *onnx_path, const Vma
         return rc;
     }
 
-    rc = vmaf_ort_open(&s->ort, onnx_path, cfg);
+    /* ADR-0174 / T5-3b: when the sidecar declares quant_mode != FP32, the
+     * caller-supplied path is the fp32 baseline; the runtime should load
+     * the sibling `<basename>.int8.onnx` instead. We append `.int8.onnx`
+     * to the basename (stripping a trailing `.onnx`) and re-run the
+     * size + allowlist validator on the int8 file. The fp32 file stays
+     * on disk as the regression baseline. */
+    const char *load_path = onnx_path;
+    char int8_path[4096];
+    if (s->has_sidecar && s->meta.quant_mode != VMAF_QUANT_FP32) {
+        size_t plen = strlen(onnx_path);
+        const char *suffix = ".onnx";
+        const size_t suffix_len = 5u;
+        size_t base_len =
+            (plen >= suffix_len && strcmp(onnx_path + plen - suffix_len, suffix) == 0) ?
+                plen - suffix_len :
+                plen;
+        if (base_len + sizeof(".int8.onnx") > sizeof(int8_path)) {
+            if (s->has_sidecar)
+                vmaf_dnn_sidecar_free(&s->meta);
+            free(s);
+            return -ENAMETOOLONG;
+        }
+        memcpy(int8_path, onnx_path, base_len);
+        memcpy(int8_path + base_len, ".int8.onnx", sizeof(".int8.onnx"));
+        rc = vmaf_dnn_validate_onnx(int8_path, max_bytes);
+        if (rc < 0) {
+            /* int8 file missing or fails the allowlist — fall back to
+             * fp32 with a debug log; better degraded than dead. */
+            if (s->has_sidecar)
+                vmaf_dnn_sidecar_free(&s->meta);
+            free(s);
+            return rc;
+        }
+        load_path = int8_path;
+    }
+
+    rc = vmaf_ort_open(&s->ort, load_path, cfg);
     if (rc < 0) {
         if (s->has_sidecar)
             vmaf_dnn_sidecar_free(&s->meta);

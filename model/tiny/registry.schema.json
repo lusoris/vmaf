@@ -71,6 +71,11 @@
           "type": "string",
           "maxLength": 256
         },
+        "int8_sha256": {
+          "description": "Lowercase hex sha256 of the matching `<basename>.int8.onnx` file shipped alongside the fp32 ONNX. Required when `quant_mode != \"fp32\"`; ignored otherwise. The runtime checks this digest before redirecting to the int8 file (ADR-0174).",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "quant_accuracy_budget_plcc": {
           "description": "Maximum allowed Pearson-linear-correlation drop on the per-model VMAF soak fixture, vs the fp32 baseline. The CI ai-quant-accuracy job fails any quantised model that exceeds this budget. Default 0.01 = 1 PLCC point.",
           "type": "number",

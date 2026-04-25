@@ -71,13 +71,34 @@ QAT PR that uses it (per ADR-0129's audit-first sequence). Calling it
 today raises `NotImplementedError` with instructions on the missing
 trainer integration.
 
-## CI accuracy gate (planned, T5-3b)
+## CI accuracy gate (`ai-quant-accuracy`)
 
-The `ai-quant-accuracy` CI job will run each quantised model against
-its per-model VMAF soak fixture and assert the PLCC drop is below
-`quant_accuracy_budget_plcc`. Not yet wired — lands with the first
-model that flips its `quant_mode` away from `fp32`. ADR-0173
-intentionally ships the registry + scripts only (audit-first).
+Wired into the `Tiny AI (DNN Suite + ai/ Pytests)` job in
+[`tests-and-quality-gates.yml`](../../.github/workflows/tests-and-quality-gates.yml)
+as of [ADR-0174](../adr/0174-first-model-quantisation.md). The job
+calls `ai/scripts/measure_quant_drop.py --all`, which walks the
+registry, runs each non-`fp32` model through fp32 + int8 ORT
+sessions on a deterministic 16-sample synthetic input set
+(seed 0), and asserts the aggregate Pearson correlation drop is
+below the per-model `quant_accuracy_budget_plcc`. Budget violation
+fails the PR.
+
+Run locally with:
+
+```bash
+python ai/scripts/measure_quant_drop.py --all
+```
+
+## Currently quantised models
+
+| Model id              | Mode      | Size shrink | Measured drop | Budget |
+|-----------------------|-----------|-------------|---------------|--------|
+| `learned_filter_v1`   | dynamic   | 2.4× (80 KB → 33 KB) | 0.000117 (PLCC 0.999883) | 0.01 |
+
+`nr_metric_v1` is queued for a future PR — its dynamic-batch ONNX
+export currently trips ORT's internal shape inference during
+`quantize_dynamic`, needing either a static-batch re-export or an
+upstream ORT fix. Tracked as T5-3c.
 
 ## Per-model PR template
 
