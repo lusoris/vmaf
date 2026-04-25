@@ -63,7 +63,8 @@ static int validate_videos(video_input *vid1, video_input *vid2, bool common_bit
 {
     int err_cnt = 0;
 
-    video_input_info info1, info2;
+    video_input_info info1;
+    video_input_info info2;
     video_input_get_info(vid1, &info1);
     video_input_get_info(vid2, &info2);
 
@@ -278,7 +279,8 @@ int main(int argc, char *argv[])
     if (c.use_yuv) {
         common_bitdepth = c.bitdepth;
     } else {
-        video_input_info info1, info2;
+        video_input_info info1;
+        video_input_info info2;
         video_input_get_info(&vid_ref, &info1);
         video_input_get_info(&vid_dist, &info2);
         common_bitdepth = info1.depth > info2.depth ? info1.depth : info2.depth;
@@ -514,14 +516,15 @@ int main(int argc, char *argv[])
         }
         VmafDnnDevice dev = VMAF_DNN_DEVICE_AUTO;
         if (c.tiny_device) {
-            if (!strcmp(c.tiny_device, "cpu"))
+            if (!strcmp(c.tiny_device, "cpu")) {
                 dev = VMAF_DNN_DEVICE_CPU;
-            else if (!strcmp(c.tiny_device, "cuda"))
+            } else if (!strcmp(c.tiny_device, "cuda")) {
                 dev = VMAF_DNN_DEVICE_CUDA;
-            else if (!strcmp(c.tiny_device, "openvino"))
+            } else if (!strcmp(c.tiny_device, "openvino")) {
                 dev = VMAF_DNN_DEVICE_OPENVINO;
-            else if (!strcmp(c.tiny_device, "rocm"))
+            } else if (!strcmp(c.tiny_device, "rocm")) {
                 dev = VMAF_DNN_DEVICE_ROCM;
+            }
         }
         VmafDnnConfig dnn_cfg = {
             .device = dev,
@@ -537,7 +540,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    VmafPicture pic_ref_skip, pic_dist_skip;
+    VmafPicture pic_ref_skip;
+    VmafPicture pic_dist_skip;
 
     /* Unref each fetched picture: fetch_picture() reserves a slot from the
      * preallocated picture pool, and skipped frames are never handed to
@@ -565,7 +569,8 @@ int main(int argc, char *argv[])
         if (c.frame_cnt && picture_index >= c.frame_cnt)
             break;
 
-        VmafPicture pic_ref, pic_dist;
+        VmafPicture pic_ref;
+        VmafPicture pic_dist;
         int ret1 = fetch_picture(vmaf, &vid_ref, &pic_ref, common_bitdepth);
         int ret2 = fetch_picture(vmaf, &vid_dist, &pic_dist, common_bitdepth);
 

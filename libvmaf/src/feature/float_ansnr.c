@@ -85,7 +85,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     picture_copy(s->ref, s->float_stride, ref_pic, -128, ref_pic->bpc);
     picture_copy(s->dist, s->float_stride, dist_pic, -128, dist_pic->bpc);
 
-    double score, score_psnr;
+    double score;
+    double score_psnr;
     err = compute_ansnr(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride,
                         s->float_stride, &score, &score_psnr, s->peak, s->psnr_max);
 

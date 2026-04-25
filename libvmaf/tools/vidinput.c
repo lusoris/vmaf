@@ -38,8 +38,9 @@ int raw_input_open(video_input *_vid, FILE *_fin, unsigned width, unsigned heigh
         _vid->ctx = ctx;
         _vid->fin = _fin;
         return 0;
-    } else
+    } else {
         fprintf(stderr, "Unknown file type.\n");
+    }
     return -1;
 }
 
@@ -51,8 +52,9 @@ int video_input_open(video_input *_vid, FILE *_fin)
         _vid->ctx = ctx;
         _vid->fin = _fin;
         return 0;
-    } else
+    } else {
         fprintf(stderr, "Unknown file type.\n");
+    }
     return -1;
 }
 

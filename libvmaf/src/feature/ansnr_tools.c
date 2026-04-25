@@ -98,8 +98,10 @@ void ansnr_mse_s(const float *ref, const float *dis, float *sig, float *noise, i
         for (int i = 0; i < h; ++i)
             mse_line(ref + i * ref_px_stride, dis + i * dis_px_stride, &sig_accum, &noise_accum, w);
     } else {
-        int i, j;
-        float ref_val, dis_val;
+        int i;
+        int j;
+        float ref_val;
+        float dis_val;
 
         for (i = 0; i < h; ++i) {
             float sig_accum_inner = 0;
@@ -131,9 +133,15 @@ void ansnr_filter1d_s(const float *f, const float *src, float *dst, int w, int h
     int dst_px_stride = dst_stride / sizeof(float);
 
     float *tmp = aligned_malloc(ALIGN_CEIL(w * sizeof(float)), MAX_ALIGN);
-    float fcoeff, imgcoeff;
+    float fcoeff;
+    float imgcoeff;
 
-    int i, j, fi, fj, ii, jj;
+    int i;
+    int j;
+    int fi;
+    int fj;
+    int ii;
+    int jj;
 
     for (i = 0; i < h; ++i) {
         /* Vertical pass. */
@@ -148,10 +156,11 @@ void ansnr_filter1d_s(const float *f, const float *src, float *dst, int w, int h
                 ii = ii < 0 ? 0 : (ii > h - 1 ? h - 1 : ii);
                 imgcoeff = src[ii * src_px_stride + j];
 #else
-                if (ii < 0)
+                if (ii < 0) {
                     ii = -ii;
-                else if (ii >= h)
+                } else if (ii >= h) {
                     ii = 2 * h - ii - 1;
+                }
                 imgcoeff = src[ii * src_px_stride + j];
 #endif
                 accum += fcoeff * imgcoeff;
@@ -172,10 +181,11 @@ void ansnr_filter1d_s(const float *f, const float *src, float *dst, int w, int h
                 jj = jj < 0 ? 0 : (jj > w - 1 ? w - 1 : jj);
                 imgcoeff = tmp[jj];
 #else
-                if (jj < 0)
+                if (jj < 0) {
                     jj = -jj;
-                else if (jj >= w)
+                } else if (jj >= w) {
                     jj = 2 * w - jj - 1;
+                }
                 imgcoeff = tmp[jj];
 #endif
                 accum += fcoeff * imgcoeff;
@@ -194,8 +204,14 @@ void ansnr_filter2d_s(const float *f, const float *src, float *dst, int w, int h
     int src_px_stride = src_stride / sizeof(float);
     int dst_px_stride = dst_stride / sizeof(float);
 
-    float fcoeff, imgcoeff;
-    int i, j, fi, fj, ii, jj;
+    float fcoeff;
+    float imgcoeff;
+    int i;
+    int j;
+    int fi;
+    int fj;
+    int ii;
+    int jj;
 
     for (i = 0; i < h; ++i) {
         for (j = 0; j < w; ++j) {
@@ -214,14 +230,16 @@ void ansnr_filter2d_s(const float *f, const float *src, float *dst, int w, int h
                     jj = jj < 0 ? 0 : (jj > w - 1 ? w - 1 : jj);
                     imgcoeff = src[ii * src_px_stride + jj];
 #else
-                    if (ii < 0)
+                    if (ii < 0) {
                         ii = -ii;
-                    else if (ii >= h)
+                    } else if (ii >= h) {
                         ii = 2 * h - ii - 1;
-                    if (jj < 0)
+                    }
+                    if (jj < 0) {
                         jj = -jj;
-                    else if (jj >= w)
+                    } else if (jj >= w) {
                         jj = 2 * w - jj - 1;
+                    }
                     imgcoeff = src[ii * src_px_stride + jj];
 #endif
                     accum_inner += fcoeff * imgcoeff;

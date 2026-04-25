@@ -27,7 +27,8 @@ static char *test_picture_alloc_ref_and_unref()
 {
     int err;
 
-    VmafPicture pic_a, pic_b;
+    VmafPicture pic_a;
+    VmafPicture pic_b;
     err = vmaf_picture_alloc(&pic_a, VMAF_PIX_FMT_YUV420P, 8, 1920, 1080);
     mu_assert("problem during vmaf_picture_alloc", !err);
     mu_assert("pic_a.ref->cnt should be 1", vmaf_ref_load(pic_a.ref) == 1);

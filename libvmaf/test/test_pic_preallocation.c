@@ -68,7 +68,8 @@ static char *test_picture_pool_basic()
     mu_assert("problem during vmaf_use_features_from_model", !err);
 
     for (unsigned i = 0; i < 10; i++) {
-        VmafPicture ref, dist;
+        VmafPicture ref;
+        VmafPicture dist;
         err = vmaf_fetch_preallocated_picture(vmaf, &ref);
         mu_assert("problem during vmaf_fetch_preallocated_picture", !err);
         err = vmaf_fetch_preallocated_picture(vmaf, &dist);
@@ -126,7 +127,8 @@ static char *test_picture_pool_small()
 
     // Process fewer frames with small pool
     for (unsigned i = 0; i < 3; i++) {
-        VmafPicture ref, dist;
+        VmafPicture ref;
+        VmafPicture dist;
         err = vmaf_fetch_preallocated_picture(vmaf, &ref);
         mu_assert("problem during vmaf_fetch_preallocated_picture", !err);
         err = vmaf_fetch_preallocated_picture(vmaf, &dist);
@@ -233,7 +235,8 @@ static char *test_picture_pool_yuv444()
     mu_assert("problem during vmaf_use_features_from_model", !err);
 
     for (unsigned i = 0; i < 5; i++) {
-        VmafPicture ref, dist;
+        VmafPicture ref;
+        VmafPicture dist;
         err = vmaf_fetch_preallocated_picture(vmaf, &ref);
         mu_assert("problem during vmaf_fetch_preallocated_picture", !err);
         mu_assert("picture should be YUV444", ref.pix_fmt == VMAF_PIX_FMT_YUV444P);

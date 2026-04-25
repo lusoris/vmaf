@@ -187,9 +187,10 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     return err;
 
 fail_tmp:
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 6; i++) {
         if (s->tmp[i])
             aligned_free(s->tmp[i]);
+    }
     return -ENOMEM;
 }
 
@@ -210,10 +211,11 @@ static float get_delta_h_prime(const float c1, const float c2, const float h_pri
         return 0.0;
     if (fabsf(h_prime_1 - h_prime_2) <= M_PI)
         return h_prime_2 - h_prime_1;
-    if (h_prime_2 <= h_prime_1)
+    if (h_prime_2 <= h_prime_1) {
         return h_prime_2 - h_prime_1 + 2. * M_PI;
-    else
+    } else {
         return h_prime_2 - h_prime_1 - 2. * M_PI;
+    }
 }
 
 static float get_upcase_h_bar_prime(const float h_prime_1, const float h_prime_2)
@@ -387,8 +389,12 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     const KSubArgs default_ksub = {.l = 0.65, .c = 1.0, .h = 4.0};
 
     if (ref->bpc == 8 && s->preprocess_8) {
-        float *ry = s->tmp[0], *ru = s->tmp[1], *rv = s->tmp[2];
-        float *dy = s->tmp[3], *du = s->tmp[4], *dv = s->tmp[5];
+        float *ry = s->tmp[0];
+        float *ru = s->tmp[1];
+        float *rv = s->tmp[2];
+        float *dy = s->tmp[3];
+        float *du = s->tmp[4];
+        float *dv = s->tmp[5];
         for (unsigned i = 0; i < ref->h[0]; i++) {
             const uint8_t *ref_y = (uint8_t *)ref->data[0] + i * ref->stride[0];
             const uint8_t *ref_u = (uint8_t *)ref->data[1] + i * ref->stride[1];
@@ -405,8 +411,12 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             }
         }
     } else if (ref->bpc > 8 && s->preprocess_16) {
-        float *ry = s->tmp[0], *ru = s->tmp[1], *rv = s->tmp[2];
-        float *dy = s->tmp[3], *du = s->tmp[4], *dv = s->tmp[5];
+        float *ry = s->tmp[0];
+        float *ru = s->tmp[1];
+        float *rv = s->tmp[2];
+        float *dy = s->tmp[3];
+        float *du = s->tmp[4];
+        float *dv = s->tmp[5];
         int stride16_r0 = ref->stride[0] / 2;
         int stride16_r1 = ref->stride[1] / 2;
         int stride16_r2 = ref->stride[2] / 2;
@@ -431,7 +441,12 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     } else {
         for (unsigned i = 0; i < ref->h[0]; i++) {
             for (unsigned j = 0; j < ref->w[0]; j++) {
-                float r_y, r_u, r_v, d_y, d_u, d_v;
+                float r_y;
+                float r_u;
+                float r_v;
+                float d_y;
+                float d_u;
+                float d_v;
 
                 switch (ref->bpc) {
                 case 8:
@@ -474,9 +489,10 @@ static int close(VmafFeatureExtractor *fex)
         vmaf_picture_unref(&s->ref);
         vmaf_picture_unref(&s->dist);
     }
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 6; i++) {
         if (s->tmp[i])
             aligned_free(s->tmp[i]);
+    }
     return 0;
 }
 

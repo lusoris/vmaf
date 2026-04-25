@@ -234,10 +234,11 @@ static inline uint32_t edge_8(const uint8_t *src, int height, int stride, int i,
         int i_tap = i - radius + k;
         int j_tap = j;
 
-        if (i_tap < 0)
+        if (i_tap < 0) {
             i_tap = -i_tap;
-        else if (i_tap >= height)
+        } else if (i_tap >= height) {
             i_tap = height - (i_tap - height + 2);
+        }
 
         accum += filter[k] * src[i_tap * stride + j_tap];
     }

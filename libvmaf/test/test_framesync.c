@@ -89,7 +89,8 @@ cleanup:
 
 static char *test_framesync_create_process_and_destroy()
 {
-    int err, frame_index;
+    int err;
+    int frame_index;
 
     VmafThreadPool *pool;
     VmafFrameSyncContext *fs_ctx;

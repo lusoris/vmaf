@@ -134,7 +134,8 @@ uint64_t motion_score_pipeline_16_avx512(const uint8_t *prev_u8, ptrdiff_t prev_
     uint64_t sad = 0;
 
     for (unsigned i = 0; i < h; i++) {
-        const uint16_t *pp[5], *cp[5];
+        const uint16_t *pp[5];
+        const uint16_t *cp[5];
         for (int k = 0; k < 5; k++) {
             int r = mirror((int)i - 2 + k, (int)h);
             pp[k] = prev + r * p_stride;
@@ -226,7 +227,8 @@ uint64_t motion_score_pipeline_8_avx512(const uint8_t *prev, ptrdiff_t prev_stri
     uint64_t sad = 0;
 
     for (unsigned i = 0; i < h; i++) {
-        const uint8_t *p[5], *c[5];
+        const uint8_t *p[5];
+        const uint8_t *c[5];
         for (int k = 0; k < 5; k++) {
             int r = mirror((int)i - 2 + k, (int)h);
             p[k] = prev + r * prev_stride;

@@ -57,7 +57,8 @@ static char *test_pq_eotf()
 
 static char *test_range_foot_head()
 {
-    int foot, head;
+    int foot;
+    int head;
 
     range_foot_head(8, VMAF_PIXEL_RANGE_LIMITED, &foot, &head);
     mu_assert("wrong 'limited' 8b range computation", (foot == 16 && head == 235));

@@ -357,7 +357,8 @@ static char *test_sidecar_parses(void)
     close(fd);
 #endif
 
-    char onnx[1024], sidecar[1024];
+    char onnx[1024];
+    char sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     /* Touch an empty onnx so sidecar_load doesn't key off its existence. */
@@ -429,7 +430,8 @@ static char *test_sidecar_parses_kind_nr(void)
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
 
-    char onnx[1024], sidecar[1024];
+    char onnx[1024];
+    char sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
@@ -462,7 +464,8 @@ static char *test_sidecar_quant_mode_default_fp32(void)
     int fd = mkstemp(tmpl);
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
-    char onnx[1024], sidecar[1024];
+    char onnx[1024];
+    char sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
@@ -491,7 +494,8 @@ static char *test_sidecar_quant_mode_dynamic(void)
     int fd = mkstemp(tmpl);
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
-    char onnx[1024], sidecar[1024];
+    char onnx[1024];
+    char sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
@@ -519,7 +523,8 @@ static char *test_sidecar_quant_mode_unknown_falls_back(void)
     int fd = mkstemp(tmpl);
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
-    char onnx[1024], sidecar[1024];
+    char onnx[1024];
+    char sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
@@ -551,7 +556,8 @@ static char *test_sidecar_no_dot_onnx_extension(void)
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
 
-    char model[1024], sidecar[1024];
+    char model[1024];
+    char sidecar[1024];
     snprintf(model, sizeof model, "%s.bin", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.bin.json", tmpl);
     FILE *f = fopen_w_600(model);
@@ -600,7 +606,8 @@ static char *test_sidecar_malformed_keys_default(void)
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
 
-    char onnx[1024], sidecar[1024];
+    char onnx[1024];
+    char sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
@@ -643,7 +650,8 @@ static char *test_sidecar_extract_string_no_close_quote(void)
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
 
-    char onnx[1024], sidecar[1024];
+    char onnx[1024];
+    char sidecar[1024];
     snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
     snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);

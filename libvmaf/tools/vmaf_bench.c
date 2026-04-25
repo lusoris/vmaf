@@ -105,7 +105,8 @@ typedef struct {
 
 static int yuv_pair_open(YuvPair *yp, unsigned w, unsigned h)
 {
-    char ref_path[1280], dis_path[1280];
+    char ref_path[1280];
+    char dis_path[1280];
     snprintf(ref_path, sizeof(ref_path), "%s/ref_%ux%u.yuv", get_data_dir(), w, h);
     snprintf(dis_path, sizeof(dis_path), "%s/dis_%ux%u.yuv", get_data_dir(), w, h);
 
@@ -154,9 +155,11 @@ static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx, VmafPicture *ref
         return -1;
     }
 
-    unsigned w = yp->width, h = yp->height;
+    unsigned w = yp->width;
+    unsigned h = yp->height;
     size_t y_bytes = (size_t)w * h;
-    unsigned uv_w = w / 2, uv_h = h / 2;
+    unsigned uv_w = w / 2;
+    unsigned uv_h = h / 2;
     size_t uv_bytes = (size_t)uv_w * uv_h;
 
     const int hbd = (g_bpc > 8);
@@ -366,7 +369,8 @@ static int bench_feature(const BenchTarget *target, unsigned w, unsigned h, unsi
                          double *out_init_ms, double *out_avg_ms, double *out_total_ms)
 {
     int err = 0;
-    double t0, t1;
+    double t0;
+    double t1;
     int is_gpu = (target->backend != BACKEND_CPU);
 
     VmafConfiguration cfg = {
@@ -429,7 +433,8 @@ static int bench_feature(const BenchTarget *target, unsigned w, unsigned h, unsi
     }
 
     /* Warm up: first frame also triggers init */
-    VmafPicture ref, dist;
+    VmafPicture ref;
+    VmafPicture dist;
     vmaf_picture_alloc(&ref, VMAF_PIX_FMT_YUV420P, g_bpc, w, h);
     vmaf_picture_alloc(&dist, VMAF_PIX_FMT_YUV420P, g_bpc, w, h);
     if (yuv_pair_read_frame(&yp, 0, &ref, &dist)) {
@@ -451,7 +456,8 @@ static int bench_feature(const BenchTarget *target, unsigned w, unsigned h, unsi
     /* Benchmark: timed extraction loop */
     t0 = now_ms();
     for (unsigned i = 1; i < n_frames; i++) {
-        VmafPicture r, d;
+        VmafPicture r;
+        VmafPicture d;
         vmaf_picture_alloc(&r, VMAF_PIX_FMT_YUV420P, g_bpc, w, h);
         vmaf_picture_alloc(&d, VMAF_PIX_FMT_YUV420P, g_bpc, w, h);
         if (yuv_pair_read_frame(&yp, i, &r, &d)) {
@@ -852,7 +858,8 @@ int main(int argc, char *argv[])
 
     if (gpu_profile_mode) {
         /* Default to 4K if no resolution specified */
-        unsigned pw = 3840, ph = 2160;
+        unsigned pw = 3840;
+        unsigned ph = 2160;
         if (res_idx >= 0) {
             pw = resolutions[res_idx].width;
             ph = resolutions[res_idx].height;
@@ -913,7 +920,9 @@ int main(int argc, char *argv[])
         for (int r = r_start; r < r_end; r++) {
             unsigned w = resolutions[r].width;
             unsigned h = resolutions[r].height;
-            double init_ms = 0, avg_ms = 0, total_ms = 0;
+            double init_ms = 0;
+            double avg_ms = 0;
+            double total_ms = 0;
 
             char res_str[16];
             snprintf(res_str, sizeof(res_str), "%ux%u", w, h);

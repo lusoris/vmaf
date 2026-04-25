@@ -153,7 +153,8 @@ static void subsample_rd_16(VifBuffer buf, unsigned w, unsigned h, int scale, in
 {
     const unsigned fwidth = vif_filter1d_width[scale + 1];
     const uint16_t *vif_filt = vif_filter1d_table[scale + 1];
-    int32_t add_shift_round_VP, shift_VP;
+    int32_t add_shift_round_VP;
+    int32_t shift_VP;
 
     if (scale == 0) {
         add_shift_round_VP = 1 << (bpc - 1);
@@ -347,9 +348,12 @@ void vif_statistic_16(struct VifPublicState *s, float *num, float *den, unsigned
     static const int32_t sigma_nsq = 65536 << 1;
     uint16_t *log2_table = s->log2_table;
     double vif_enhn_gain_limit = s->vif_enhn_gain_limit;
-    int32_t add_shift_round_HP, shift_HP;
-    int32_t add_shift_round_VP, shift_VP;
-    int32_t add_shift_round_VP_sq, shift_VP_sq;
+    int32_t add_shift_round_HP;
+    int32_t shift_HP;
+    int32_t add_shift_round_VP;
+    int32_t shift_VP;
+    int32_t add_shift_round_VP_sq;
+    int32_t shift_VP_sq;
     if (scale == 0) {
         shift_HP = 16;
         add_shift_round_HP = 32768;
@@ -773,10 +777,11 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     VifScore vif_score;
     for (unsigned scale = 0; scale < 4; ++scale) {
         if (scale > 0) {
-            if (ref_pic->bpc == 8 && scale == 1)
+            if (ref_pic->bpc == 8 && scale == 1) {
                 s->subsample_rd_8(s->public.buf, w, h);
-            else
+            } else {
                 s->subsample_rd_16(s->public.buf, w, h, scale - 1, ref_pic->bpc);
+            }
 
             w /= 2;
             h /= 2;

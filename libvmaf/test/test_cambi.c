@@ -129,7 +129,8 @@ static int get_sample_image_8x8(VmafPicture *pic, int pic_index)
 /* Preprocessing functions */
 static char *test_anti_dithering_filter()
 {
-    VmafPicture pic, filtered_pic;
+    VmafPicture pic;
+    VmafPicture filtered_pic;
 
     int err = 0;
     err |= get_sample_image(&pic, 0);
@@ -249,7 +250,8 @@ static char *test_decimate_generic()
 
 static char *test_filter_mode()
 {
-    VmafPicture filtered_image, image;
+    VmafPicture filtered_image;
+    VmafPicture image;
     enum { w = 5, h = 5 };
     uint16_t buffer[3 * w];
 
@@ -328,9 +330,11 @@ static char *test_get_mask_index()
 
 static char *test_get_spatial_mask_for_index()
 {
-    VmafPicture image, mask;
+    VmafPicture image;
+    VmafPicture mask;
     uint16_t filter_size = 3;
-    unsigned width = 4, height = 4;
+    unsigned width = 4;
+    unsigned height = 4;
     // dp_width = width + 2 * (filter_size >> 2) + 1
     // dp_height = 2 * (filter_size >> 2) + 2
     uint32_t mask_dp[7 * 4];
@@ -376,11 +380,13 @@ static char *test_get_spatial_mask_for_index()
 
 static char *test_calculate_c_values()
 {
-    VmafPicture input, mask;
+    VmafPicture input;
+    VmafPicture mask;
     float combined_c_values[16];
     float expected_values[16] = {0.6666667, 2.0,  0.0, 0.0, 2.4, 3.4285715, 2.4, 0.0,
                                  2.6666667, 3.75, 3.0, 0.0, 2.0, 2.4,       2.0, 0.0};
-    unsigned width = 4, height = 4;
+    unsigned width = 4;
+    unsigned height = 4;
     uint16_t tvi_for_diff[4] = {178, 305, 432, 559};
     uint16_t vlt_luma = 0;
     uint16_t window_size = 3;
@@ -407,7 +413,8 @@ static char *test_calculate_c_values()
                   almost_equal(combined_c_values[i], expected_values[i]));
     }
 
-    VmafPicture input_8x8, mask_8x8;
+    VmafPicture input_8x8;
+    VmafPicture mask_8x8;
     float combined_c_values_8x8[64];
     err |= get_sample_image_8x8(&input_8x8, 0);
     mu_assert("test_calculate_c_values alloc #3 error", !err);

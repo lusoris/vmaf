@@ -374,14 +374,15 @@ static int get_tvi_for_diff(int diff, double tvi_threshold, int bitdepth, VmafLu
     while (1) {
         int mid = foot + (head - foot) / 2;
         tvi_bisect = tvi_hard_threshold_condition(mid, diff, tvi_threshold, luma_range, eotf);
-        if (tvi_bisect == CAMBI_TVI_BISECT_TOO_BIG)
+        if (tvi_bisect == CAMBI_TVI_BISECT_TOO_BIG) {
             head = mid;
-        else if (tvi_bisect == CAMBI_TVI_BISECT_TOO_SMALL)
+        } else if (tvi_bisect == CAMBI_TVI_BISECT_TOO_SMALL) {
             foot = mid;
-        else if (tvi_bisect == CAMBI_TVI_BISECT_CORRECT)
+        } else if (tvi_bisect == CAMBI_TVI_BISECT_CORRECT) {
             return mid;
-        else // Should never get here (todo: add assert)
+        } else { // Should never get here (todo: add assert)
             (void)0;
+        }
     }
 }
 
@@ -1051,7 +1052,8 @@ static float c_value_pixel(const uint16_t *histograms, uint16_t value, const int
                            uint16_t vlt_luma, int histogram_col, int histogram_width)
 {
     uint16_t p_0 = histograms[value * histogram_width + histogram_col];
-    float val, c_value = 0.0;
+    float val;
+    float c_value = 0.0;
     for (uint16_t d = 0; d < num_diffs; d++) {
         if ((value <= tvi_thresholds[d]) && ((value + diffs[num_diffs + d + 1]) > vlt_luma)) {
             uint16_t p_1 =

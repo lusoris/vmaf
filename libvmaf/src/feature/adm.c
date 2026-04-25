@@ -92,9 +92,12 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     float *data_buf = 0;
     char *data_top;
 
-    char *ind_buf_y = 0, *buf_y_orig = 0;
-    char *ind_buf_x = 0, *buf_x_orig = 0;
-    int *ind_y[4], *ind_x[4];
+    char *ind_buf_y = 0;
+    char *buf_y_orig = 0;
+    char *ind_buf_x = 0;
+    char *buf_x_orig = 0;
+    int *ind_y[4];
+    int *ind_x[4];
 
     float *ref_scale;
     float *dis_scale;

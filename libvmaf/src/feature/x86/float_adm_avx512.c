@@ -62,7 +62,8 @@ void float_adm_dwt2_avx512(const float *src, const adm_dwt_band_t_s *dst, int **
     __m512 fh2 = _mm512_set1_ps(filter_hi[2]);
     __m512 fh3 = _mm512_set1_ps(filter_hi[3]);
 
-    int i, j;
+    int i;
+    int j;
 
     for (i = 0; i < (h + 1) / 2; ++i) {
         const float *row0 = src + ind_y[0][i] * src_px_stride;
@@ -116,18 +117,24 @@ void float_adm_dwt2_avx512(const float *src, const adm_dwt_band_t_s *dst, int **
 
             /* Scalar: j=0 (left boundary has reflection) */
             {
-                int j0 = ind_x[0][0], j1 = ind_x[1][0];
-                int j2 = ind_x[2][0], j3 = ind_x[3][0];
-                float sl0 = tmplo[j0], sl1 = tmplo[j1];
-                float sl2 = tmplo[j2], sl3 = tmplo[j3];
+                int j0 = ind_x[0][0];
+                int j1 = ind_x[1][0];
+                int j2 = ind_x[2][0];
+                int j3 = ind_x[3][0];
+                float sl0 = tmplo[j0];
+                float sl1 = tmplo[j1];
+                float sl2 = tmplo[j2];
+                float sl3 = tmplo[j3];
 
                 dst->band_a[i * dst_px_stride] = filter_lo[0] * sl0 + filter_lo[1] * sl1 +
                                                  filter_lo[2] * sl2 + filter_lo[3] * sl3;
                 dst->band_v[i * dst_px_stride] = filter_hi[0] * sl0 + filter_hi[1] * sl1 +
                                                  filter_hi[2] * sl2 + filter_hi[3] * sl3;
 
-                float sh0 = tmphi[j0], sh1 = tmphi[j1];
-                float sh2 = tmphi[j2], sh3 = tmphi[j3];
+                float sh0 = tmphi[j0];
+                float sh1 = tmphi[j1];
+                float sh2 = tmphi[j2];
+                float sh3 = tmphi[j3];
 
                 dst->band_h[i * dst_px_stride] = filter_lo[0] * sh0 + filter_lo[1] * sh1 +
                                                  filter_lo[2] * sh2 + filter_lo[3] * sh3;
@@ -189,18 +196,24 @@ void float_adm_dwt2_avx512(const float *src, const adm_dwt_band_t_s *dst, int **
 
             /* Scalar tail: right boundary + remaining positions */
             for (; j < half_w; ++j) {
-                int j0 = ind_x[0][j], j1 = ind_x[1][j];
-                int j2 = ind_x[2][j], j3 = ind_x[3][j];
-                float sl0 = tmplo[j0], sl1 = tmplo[j1];
-                float sl2 = tmplo[j2], sl3 = tmplo[j3];
+                int j0 = ind_x[0][j];
+                int j1 = ind_x[1][j];
+                int j2 = ind_x[2][j];
+                int j3 = ind_x[3][j];
+                float sl0 = tmplo[j0];
+                float sl1 = tmplo[j1];
+                float sl2 = tmplo[j2];
+                float sl3 = tmplo[j3];
 
                 dst->band_a[i * dst_px_stride + j] = filter_lo[0] * sl0 + filter_lo[1] * sl1 +
                                                      filter_lo[2] * sl2 + filter_lo[3] * sl3;
                 dst->band_v[i * dst_px_stride + j] = filter_hi[0] * sl0 + filter_hi[1] * sl1 +
                                                      filter_hi[2] * sl2 + filter_hi[3] * sl3;
 
-                float sh0 = tmphi[j0], sh1 = tmphi[j1];
-                float sh2 = tmphi[j2], sh3 = tmphi[j3];
+                float sh0 = tmphi[j0];
+                float sh1 = tmphi[j1];
+                float sh2 = tmphi[j2];
+                float sh3 = tmphi[j3];
 
                 dst->band_h[i * dst_px_stride + j] = filter_lo[0] * sh0 + filter_lo[1] * sh1 +
                                                      filter_lo[2] * sh2 + filter_lo[3] * sh3;
@@ -223,7 +236,8 @@ void float_adm_csf_avx512(const float *src, float *dst, float *flt, int w, int h
     __m512 vfactor = _mm512_set1_ps(factor);
     __m512 vone_by_30 = _mm512_set1_ps(one_by_30);
 
-    int i, j;
+    int i;
+    int j;
 
     for (i = 0; i < h; ++i) {
         const float *src_row = src + i * src_px_stride;
@@ -258,7 +272,8 @@ float float_adm_csf_den_scale_avx512(const float *src, int w, int h, int src_str
     __m512 vfactor = _mm512_set1_ps(factor);
 
     double accum = 0.0;
-    int i, j;
+    int i;
+    int j;
 
     for (i = top; i < bottom; ++i) {
         const float *row = src + i * src_px_stride;
@@ -295,7 +310,8 @@ float float_adm_sum_cube_avx512(const float *x, int w, int h, int stride, int le
     int px_stride = stride / sizeof(float);
 
     double accum = 0.0;
-    int i, j;
+    int i;
+    int j;
 
     for (i = top; i < bottom; ++i) {
         const float *row = x + i * px_stride;

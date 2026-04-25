@@ -168,7 +168,7 @@ static const VmafOption options[] = {{
                                          .max = 4320.0,
                                          .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
                                      },
-                                     {0}};
+                                     {nullptr}};
 
 /* ------------------------------------------------------------------ */
 /* Helper: DWT quantization step (visibility threshold model)         */
@@ -218,7 +218,8 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
     auto p_ref_in = input_ref;
     auto p_dis_in = input_dis;
 
-    constexpr int WG_X = 32, WG_Y = 8;
+    constexpr int WG_X = 32;
+    constexpr int WG_Y = 8;
     // Each output row n needs input rows 2n-1..2n+2 (4 taps).
     // For WG_Y outputs: 2*WG_Y + 2 input rows in the tile.
     constexpr int TILE_H = 2 * WG_Y + 2; // 18
@@ -323,7 +324,8 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
             }
 
             // Quantize
-            int32_t lo_out, hi_out;
+            int32_t lo_out;
+            int32_t hi_out;
             if (e_v_shift > 0) {
                 lo_out = (int32_t)((lo_val + ((int64_t)1 << (e_v_shift - 1))) >> e_v_shift);
                 hi_out = (int32_t)((hi_val + ((int64_t)1 << (e_v_shift - 1))) >> e_v_shift);
@@ -360,7 +362,8 @@ static sycl::event launch_dwt_hori_pair(sycl::queue &q, const int32_t *dwt_tmp_r
     auto e_buf_stride = buf_stride;
     auto e_h_shift = h_shift;
 
-    constexpr int WG_X = 32, WG_Y = 8;
+    constexpr int WG_X = 32;
+    constexpr int WG_Y = 8;
     // Z=2: ref(0) + dis(1)
     sycl::range<3> global(2, ((half_h + WG_Y - 1) / WG_Y) * WG_Y,
                           ((half_w + WG_X - 1) / WG_X) * WG_X);
@@ -419,7 +422,10 @@ static sycl::event launch_dwt_hori_pair(sycl::queue &q, const int32_t *dwt_tmp_r
                             (int64_t)dwt_hi[2] * h2 + (int64_t)dwt_hi[3] * h3;
 
             // Quantize
-            int32_t a_out, h_out, v_out, d_out;
+            int32_t a_out;
+            int32_t h_out;
+            int32_t v_out;
+            int32_t d_out;
             if (e_h_shift > 0) {
                 int64_t rnd = (int64_t)1 << (e_h_shift - 1);
                 a_out = (int32_t)((a_val + rnd) >> e_h_shift);
@@ -505,7 +511,8 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
 
     constexpr float cos_1deg_sq = 0.99969541789740297f; // cos(pi/180)^2
 
-    constexpr int WG_X = 16, WG_Y = 16;
+    constexpr int WG_X = 16;
+    constexpr int WG_Y = 16;
     sycl::range<2> global(((half_h + WG_Y - 1) / WG_Y) * WG_Y, ((half_w + WG_X - 1) / WG_X) * WG_X);
     sycl::range<2> local(WG_Y, WG_X);
 
@@ -722,7 +729,9 @@ static sycl::event launch_csf_den_cm_3band(
         return sycl::event{};
 
     // csf_den shift params
-    uint32_t csf_shift_sq, csf_shift_cub, csf_shift_accum;
+    uint32_t csf_shift_sq;
+    uint32_t csf_shift_cub;
+    uint32_t csf_shift_accum;
     if (scale == 0) {
         csf_shift_sq = 0;
         csf_shift_cub = 0;
@@ -737,7 +746,9 @@ static sycl::event launch_csf_den_cm_3band(
 
     // cm shift params
     uint32_t cm_shift_inner_accum = (uint32_t)std::ceil(std::log2((double)half_h));
-    uint32_t cm_shift_sub[3], cm_shift_xsq[3], cm_shift_xcub[3];
+    uint32_t cm_shift_sub[3];
+    uint32_t cm_shift_xsq[3];
+    uint32_t cm_shift_xcub[3];
     for (int b = 0; b < 3; b++) {
         if (scale == 0) {
             cm_shift_sub[b] = (b < 2) ? 10 : 12;
@@ -763,9 +774,12 @@ static sycl::event launch_csf_den_cm_3band(
     auto e_csf_shift_accum = csf_shift_accum;
     // cm
     auto e_cm_shift_inner = cm_shift_inner_accum;
-    auto e_cm_shift_sub0 = cm_shift_sub[0], e_cm_shift_sub2 = cm_shift_sub[2];
-    auto e_cm_shift_xsq0 = cm_shift_xsq[0], e_cm_shift_xsq2 = cm_shift_xsq[2];
-    auto e_cm_shift_xcub0 = cm_shift_xcub[0], e_cm_shift_xcub2 = cm_shift_xcub[2];
+    auto e_cm_shift_sub0 = cm_shift_sub[0];
+    auto e_cm_shift_sub2 = cm_shift_sub[2];
+    auto e_cm_shift_xsq0 = cm_shift_xsq[0];
+    auto e_cm_shift_xsq2 = cm_shift_xsq[2];
+    auto e_cm_shift_xcub0 = cm_shift_xcub[0];
+    auto e_cm_shift_xcub2 = cm_shift_xcub[2];
     // decouple gain limit (Q31 fixed-point, same as in launch_decouple_csf)
     GainLimitQ31 e_gain_q31 = gain_limit_to_q31(adm_enhn_gain_limit);
     constexpr float cos_1deg_sq = 0.99969541789740297f;
@@ -1018,7 +1032,8 @@ static sycl::event launch_csf_den_cm_3band(
                 item.barrier(sycl::access::fence_space::local_space);
 
                 if (lid == 0) {
-                    int64_t total_csf = 0, total_cm = 0;
+                    int64_t total_csf = 0;
+                    int64_t total_cm = 0;
                     for (uint32_t s = 0; s < n_subgroups; s++) {
                         total_csf += lmem[s];
                         total_cm += lmem[MAX_SUBGROUPS + s];
@@ -1402,15 +1417,19 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
     std::memcpy(csf_den_results, s->h_csf_den_accum, sizeof(csf_den_results));
 
     // Compute scores
-    double num = 0.0, den = 0.0;
-    double scores_num[ADM_NUM_SCALES], scores_den[ADM_NUM_SCALES];
-    unsigned score_w = s->width, score_h = s->height;
+    double num = 0.0;
+    double den = 0.0;
+    double scores_num[ADM_NUM_SCALES];
+    double scores_den[ADM_NUM_SCALES];
+    unsigned score_w = s->width;
+    unsigned score_h = s->height;
 
     for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
         score_w = (score_w + 1) / 2;
         score_h = (score_h + 1) / 2;
 
-        float num_scale, den_scale;
+        float num_scale;
+        float den_scale;
         conclude_adm_cm(cm_results[scale], score_h, score_w, scale, &num_scale);
         conclude_adm_csf_den((uint64_t *)csf_den_results[scale], score_h, score_w, scale,
                              &den_scale, (float)s->adm_norm_view_dist,
@@ -1557,7 +1576,7 @@ static const char *provided_features[] = {"VMAF_integer_feature_adm2_score",
                                           "integer_adm_den_scale2",
                                           "integer_adm_num_scale3",
                                           "integer_adm_den_scale3",
-                                          NULL};
+                                          nullptr};
 
 extern "C" VmafFeatureExtractor vmaf_fex_integer_adm_sycl = {
     .name = "adm_sycl",

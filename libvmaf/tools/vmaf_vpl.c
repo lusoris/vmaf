@@ -137,7 +137,8 @@ static int vpl_decoder_open(VplDecoder *dec, const char *filename, const char *r
         return -1;
     }
 
-    int va_major, va_minor;
+    int va_major;
+    int va_minor;
     VAStatus va_st = vaInitialize(dec->va_display, &va_major, &va_minor);
     if (va_st != VA_STATUS_SUCCESS) {
         fprintf(stderr, "vaInitialize failed: %s\n", vaErrorStr(va_st));
@@ -445,12 +446,18 @@ static int vpl_host_upload_fallback(VADisplay va_display, VASurfaceID ref_surf,
     assert(w > 0 && h > 0);
     assert(bpc == 8 || bpc == 10);
 
-    VAImage ref_img, dis_img;
-    void *ref_map = NULL, *dis_map = NULL;
-    VmafPicture ref_pic, dis_pic;
-    int have_ref_img = 0, have_dis_img = 0;
-    int have_ref_map = 0, have_dis_map = 0;
-    int have_ref_pic = 0, have_dis_pic = 0;
+    VAImage ref_img;
+    VAImage dis_img;
+    void *ref_map = NULL;
+    void *dis_map = NULL;
+    VmafPicture ref_pic;
+    VmafPicture dis_pic;
+    int have_ref_img = 0;
+    int have_dis_img = 0;
+    int have_ref_map = 0;
+    int have_dis_map = 0;
+    int have_ref_pic = 0;
+    int have_dis_pic = 0;
     int ret = -1;
 
     /* Derive VAImages that alias the surface's backing storage. */
@@ -568,13 +575,13 @@ int main(int argc, char *argv[])
     int use_fallback = 0;
 
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--ref") && i + 1 < argc)
+        if (!strcmp(argv[i], "--ref") && i + 1 < argc) {
             ref_file = argv[++i];
-        else if (!strcmp(argv[i], "--dis") && i + 1 < argc)
+        } else if (!strcmp(argv[i], "--dis") && i + 1 < argc) {
             dis_file = argv[++i];
-        else if (!strcmp(argv[i], "--model") && i + 1 < argc)
+        } else if (!strcmp(argv[i], "--model") && i + 1 < argc) {
             model_name = argv[++i];
-        else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
             char *end = NULL;
             const long v = strtol(argv[++i], &end, 10);
             if (end == argv[i] || *end != '\0' || v < 0 || v > INT_MAX) {
@@ -590,11 +597,11 @@ int main(int argc, char *argv[])
                 return 1;
             }
             device_idx = (int)v;
-        } else if (!strcmp(argv[i], "--render-node") && i + 1 < argc)
+        } else if (!strcmp(argv[i], "--render-node") && i + 1 < argc) {
             render_node = argv[++i];
-        else if (!strcmp(argv[i], "--fallback"))
+        } else if (!strcmp(argv[i], "--fallback")) {
             use_fallback = 1;
-        else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
+        } else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
             print_usage(argv[0]);
             return 0;
         } else {
@@ -611,7 +618,8 @@ int main(int argc, char *argv[])
     }
 
     /* ---- Open VPL decoders ---- */
-    VplDecoder ref_dec, dis_dec;
+    VplDecoder ref_dec;
+    VplDecoder dis_dec;
 
     mfxU32 ref_codec = guess_codec(ref_file);
     mfxU32 dis_codec = guess_codec(dis_file);
@@ -738,8 +746,10 @@ int main(int argc, char *argv[])
     int dmabuf_ok = 1; /* initially assume DMA-BUF import works */
 
     while (max_frames == 0 || frame_idx < max_frames) {
-        mfxFrameSurface1 *ref_held = NULL, *dis_held = NULL;
-        VASurfaceID ref_surf, dis_surf;
+        mfxFrameSurface1 *ref_held = NULL;
+        mfxFrameSurface1 *dis_held = NULL;
+        VASurfaceID ref_surf;
+        VASurfaceID dis_surf;
 
         int r1 = vpl_decode_frame(&ref_dec, &ref_surf, &ref_held);
         int r2 = vpl_decode_frame(&dis_dec, &dis_surf, &dis_held);
@@ -762,9 +772,10 @@ int main(int argc, char *argv[])
         if (dmabuf_ok) {
             err =
                 vmaf_sycl_import_va_surface(sycl_state, ref_dec.va_display, ref_surf, 1, w, h, bpc);
-            if (!err)
+            if (!err) {
                 err = vmaf_sycl_import_va_surface(sycl_state, dis_dec.va_display, dis_surf, 0, w, h,
                                                   bpc);
+            }
             if (err) {
                 fprintf(stderr, "DMA-BUF import failed at frame %d: %d\n", frame_idx, err);
                 if (use_fallback) {
@@ -828,15 +839,18 @@ int main(int argc, char *argv[])
     if (model && frame_idx > 0) {
         double vmaf_score;
         err = vmaf_score_pooled(vmaf, model, VMAF_POOL_METHOD_MEAN, &vmaf_score, 0, frame_idx - 1);
-        if (!err)
+        if (!err) {
             printf("VMAF:   %.6f (mean)\n", vmaf_score);
-        else
+        } else {
             fprintf(stderr, "vmaf_score_pooled failed: %d\n", err);
+        }
     }
 
     /* Print per-frame feature scores */
     for (int f = 0; f < frame_idx && f < 5; f++) {
-        double vif0 = 0, adm2 = 0, motion = 0;
+        double vif0 = 0;
+        double adm2 = 0;
+        double motion = 0;
         vmaf_feature_score_at_index(vmaf, "VMAF_integer_feature_vif_scale0_score", &vif0, f);
         vmaf_feature_score_at_index(vmaf, "VMAF_integer_feature_adm2_score", &adm2, f);
         vmaf_feature_score_at_index(vmaf, "VMAF_integer_feature_motion2_score", &motion, f);

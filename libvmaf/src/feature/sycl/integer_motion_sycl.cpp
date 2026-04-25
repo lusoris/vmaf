@@ -109,7 +109,7 @@ static const VmafOption options[] = {{
                                          .default_val = {.b = false},
                                          .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
                                      },
-                                     {0}};
+                                     {nullptr}};
 
 /* ------------------------------------------------------------------ */
 /* Device helpers                                                      */
@@ -145,7 +145,8 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
     auto e_sad = compute_sad;
     auto p_in = input;
 
-    constexpr int WG_X = 32, WG_Y = 8;
+    constexpr int WG_X = 32;
+    constexpr int WG_Y = 8;
     constexpr int HALF_FW = 2;
     // 2D tile with 2-pixel halo on every edge for the 5-tap filter
     constexpr int TILE_H = WG_Y + 2 * HALF_FW; // 12
@@ -177,10 +178,11 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
                 constexpr unsigned tile_elems = TILE_H * TILE_W; // 432
 
                 auto read_global = [&](int y, int x) -> int32_t {
-                    if (e_bpc <= 8)
+                    if (e_bpc <= 8) {
                         return static_cast<const uint8_t *>(p_in)[y * e_w + x];
-                    else
+                    } else {
                         return static_cast<const uint16_t *>(p_in)[y * e_w + x];
+                    }
                 };
 
                 bool interior_wg = (tile_origin_y >= 0) && (tile_origin_y + TILE_H <= (int)e_h) &&
@@ -521,9 +523,10 @@ static int extract_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
 {
     auto *s = static_cast<MotionStateSycl *>(fex->priv);
 
-    if (s->motion_force_zero)
+    if (s->motion_force_zero) {
         return extract_force_zero(fex, ref_pic, ref_pic_90, dist_pic, dist_pic_90, index,
                                   feature_collector);
+    }
 
     int err = submit_fex_sycl(fex, ref_pic, ref_pic_90, dist_pic, dist_pic_90, index);
     if (err)
@@ -581,7 +584,7 @@ static int close_fex_sycl(VmafFeatureExtractor *fex)
 /* ------------------------------------------------------------------ */
 
 static const char *provided_features[] = {"VMAF_integer_feature_motion_score",
-                                          "VMAF_integer_feature_motion2_score", NULL};
+                                          "VMAF_integer_feature_motion2_score", nullptr};
 
 extern "C" VmafFeatureExtractor vmaf_fex_integer_motion_sycl = {
     .name = "motion_sycl",

@@ -223,9 +223,10 @@ static void error(const char *const app, const char *const optarg, const int opt
     char optname[256];
     int n;
 
-    for (n = 0; long_opts[n].name; n++)
+    for (n = 0; long_opts[n].name; n++) {
         if (long_opts[n].val == option)
             break;
+    }
     assert(long_opts[n].name);
     if (long_opts[n].val < 256) {
         sprintf(optname, "-%c/--%s", long_opts[n].val, long_opts[n].name);
@@ -265,10 +266,11 @@ static enum VmafPixelFormat parse_pix_fmt(const char *const optarg, const int op
     if (!strcmp(optarg, "444"))
         pix_fmt = VMAF_PIX_FMT_YUV444P;
 
-    if (!pix_fmt)
+    if (!pix_fmt) {
         error(app, optarg, option,
               "a valid pixel format "
               "(420/422/444)");
+    }
 
     return pix_fmt;
 }
