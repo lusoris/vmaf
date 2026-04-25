@@ -42,7 +42,8 @@ static char *test_f16_roundtrip(void)
 
 static char *test_luma_roundtrip(void)
 {
-    uint8_t src[64], dst[64];
+    uint8_t src[64];
+    uint8_t dst[64];
     float tensor[64];
     for (int i = 0; i < 64; ++i)
         src[i] = (uint8_t)(i * 4 % 256);

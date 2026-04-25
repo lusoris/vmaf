@@ -568,8 +568,10 @@ void vif_statistic_16_avx512(struct VifPublicState *s, float *num, float *den, u
     const ptrdiff_t stride = buf.stride / sizeof(uint16_t);
     int fwidth_half = fwidth >> 1;
 
-    int32_t add_shift_round_VP, shift_VP;
-    int32_t add_shift_round_VP_sq, shift_VP_sq;
+    int32_t add_shift_round_VP;
+    int32_t shift_VP;
+    int32_t add_shift_round_VP_sq;
+    int32_t shift_VP_sq;
     const uint16_t *log2_table = s->log2_table;
     double vif_enhn_gain_limit = s->vif_enhn_gain_limit;
     __m512i mask2 = _mm512_set_epi32(30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0);
@@ -610,9 +612,27 @@ void vif_statistic_16_avx512(struct VifPublicState *s, float *num, float *den, u
             __m512i mask3 = _mm512_set_epi64(11, 10, 3, 2, 9, 8, 1, 0);   //first half of 512
             __m512i mask4 = _mm512_set_epi64(15, 14, 7, 6, 13, 12, 5, 4); //second half of 512
             int ii_check = ii;
-            __m512i accumr_lo, accumr_hi, accumd_lo, accumd_hi, rmul1, rmul2, dmul1, dmul2,
-                accumref1, accumref2, accumref3, accumref4, accumrefdis1, accumrefdis2,
-                accumrefdis3, accumrefdis4, accumdis1, accumdis2, accumdis3, accumdis4;
+            __m512i accumr_lo;
+            __m512i accumr_hi;
+            __m512i accumd_lo;
+            __m512i accumd_hi;
+            __m512i rmul1;
+            __m512i rmul2;
+            __m512i dmul1;
+            __m512i dmul2;
+            __m512i accumref1;
+            __m512i accumref2;
+            __m512i accumref3;
+            __m512i accumref4;
+            __m512i accumrefdis1;
+            __m512i accumrefdis2;
+            __m512i accumrefdis3;
+            __m512i accumrefdis4;
+            __m512i accumdis1;
+            __m512i accumdis2;
+            __m512i accumdis3;
+            __m512i accumdis4;
+            // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): chained zero-init of every SIMD accumulator (rmul1/rmul2/dmul1/dmul2 included) before the inner fi loop overwrites them. Verbatim from upstream Netflix; preserved to keep the AVX-512 VIF kernel byte-identical to its AVX2 / scalar twins.
             accumr_lo = accumr_hi = accumd_lo = accumd_hi = rmul1 = rmul2 = dmul1 = dmul2 =
                 accumref1 = accumref2 = accumref3 = accumref4 = accumrefdis1 = accumrefdis2 =
                     accumrefdis3 = accumrefdis4 = accumdis1 = accumdis2 = accumdis3 = accumdis4 =
@@ -987,7 +1007,11 @@ void vif_subsample_rd_8_avx512(VifBuffer buf, unsigned w, unsigned h)
     __m512i mask2 = _mm512_set_epi64(11, 10, 3, 2, 9, 8, 1, 0);
     __m512i mask3 = _mm512_set_epi64(15, 14, 7, 6, 13, 12, 5, 4);
     int fwidth_half = fwidth >> 1;
-    __m512i f0, f1, f2, f3, f4;
+    __m512i f0;
+    __m512i f1;
+    __m512i f2;
+    __m512i f3;
+    __m512i f4;
 
     f0 = _mm512_broadcastd_epi32(_mm_loadu_si128((__m128i *)vif_filt_s1));
     f1 = _mm512_broadcastd_epi32(_mm_loadu_si128((__m128i *)(vif_filt_s1 + 2)));
@@ -1008,12 +1032,33 @@ void vif_subsample_rd_8_avx512(VifBuffer buf, unsigned w, unsigned h)
         for (int j = 0; j < n << 5; j = j + 32) {
 
             int ii_check = ii;
-            __m512i accum_mu2_lo, accum_mu1_lo, accum_mu2_hi, accum_mu1_hi;
+            __m512i accum_mu2_lo;
+            __m512i accum_mu1_lo;
+            __m512i accum_mu2_hi;
+            __m512i accum_mu1_hi;
             accum_mu2_lo = accum_mu2_hi = accum_mu1_lo = accum_mu1_hi = _mm512_setzero_si512();
 
             {
-                __m512i g0, g1, g2, g3, g4, g5, g6, g7, g8, g9;
-                __m512i s0, s1, s2, s3, s4, s5, s6, s7, s8, s9;
+                __m512i g0;
+                __m512i g1;
+                __m512i g2;
+                __m512i g3;
+                __m512i g4;
+                __m512i g5;
+                __m512i g6;
+                __m512i g7;
+                __m512i g8;
+                __m512i g9;
+                __m512i s0;
+                __m512i s1;
+                __m512i s2;
+                __m512i s3;
+                __m512i s4;
+                __m512i s5;
+                __m512i s6;
+                __m512i s7;
+                __m512i s8;
+                __m512i s9;
 
                 g0 = _mm512_cvtepu8_epi16(
                     _mm256_loadu_si256((__m256i *)(ref + (buf.stride * ii_check) + j)));
@@ -1139,7 +1184,12 @@ void vif_subsample_rd_8_avx512(VifBuffer buf, unsigned w, unsigned h)
         for (int j = 0; j < n << 4; j = j + 16) {
             int jj = j - fwidth_half;
             int jj_check = jj;
-            __m512i accumrlo, accumdlo, accumrhi, accumdhi, padzero;
+            __m512i accumrlo;
+            __m512i accumdlo;
+            __m512i accumrhi;
+            __m512i accumdhi;
+            __m512i padzero;
+            // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): `padzero` is part of the chained SIMD zero-init reset on every iteration; analyzer can't trace that the value flows into the per-iteration accumulator path.
             accumrlo = accumdlo = accumrhi = accumdhi = padzero = _mm512_setzero_si512();
             {
 
@@ -1292,7 +1342,8 @@ void vif_subsample_rd_16_avx512(VifBuffer buf, unsigned w, unsigned h, int scale
 {
     const unsigned fwidth = vif_filter1d_width[scale + 1];
     const uint16_t *vif_filt = vif_filter1d_table[scale + 1];
-    int32_t add_shift_round_VP, shift_VP;
+    int32_t add_shift_round_VP;
+    int32_t shift_VP;
     int fwidth_half = fwidth >> 1;
     const ptrdiff_t stride = buf.stride / sizeof(uint16_t);
     const ptrdiff_t stride16 = buf.stride_16 / sizeof(uint16_t);
@@ -1314,7 +1365,15 @@ void vif_subsample_rd_16_avx512(VifBuffer buf, unsigned w, unsigned h, int scale
         int ii = i - fwidth_half;
         for (int j = 0; j < n << 4; j = j + 32) {
             int ii_check = ii;
-            __m512i accumr_lo, accumr_hi, accumd_lo, accumd_hi, rmul1, rmul2, dmul1, dmul2;
+            __m512i accumr_lo;
+            __m512i accumr_hi;
+            __m512i accumd_lo;
+            __m512i accumd_hi;
+            __m512i rmul1;
+            __m512i rmul2;
+            __m512i dmul1;
+            __m512i dmul2;
+            // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): chained zero-init reset every fi iteration; upstream-verbatim AVX-512 VIF chunk.
             accumr_lo = accumr_hi = accumd_lo = accumd_hi = rmul1 = rmul2 = dmul1 = dmul2 =
                 _mm512_setzero_si512();
             __m512i mask3 = _mm512_set_epi64(11, 10, 3, 2, 9, 8, 1, 0);   //first half of 512
@@ -1381,7 +1440,10 @@ void vif_subsample_rd_16_avx512(VifBuffer buf, unsigned w, unsigned h, int scale
         for (int j = 0; j < n << 4; j = j + 16) {
             int jj = j - fwidth_half;
             int jj_check = jj;
-            __m512i accumrlo, accumdlo, accumrhi, accumdhi;
+            __m512i accumrlo;
+            __m512i accumdlo;
+            __m512i accumrhi;
+            __m512i accumdhi;
             accumrlo = accumdlo = accumrhi = accumdhi = _mm512_setzero_si512();
             for (unsigned fj = 0; fj < fwidth; ++fj, jj_check = jj + fj) {
 

@@ -92,9 +92,12 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     float *data_buf = 0;
     char *data_top;
 
-    char *ind_buf_y = 0, *buf_y_orig = 0;
-    char *ind_buf_x = 0, *buf_x_orig = 0;
-    int *ind_y[4], *ind_x[4];
+    char *ind_buf_y = 0;
+    char *buf_y_orig = 0;
+    char *ind_buf_x = 0;
+    char *buf_x_orig = 0;
+    int *ind_y[4];
+    int *ind_x[4];
 
     float *ref_scale;
     float *dis_scale;
@@ -132,13 +135,13 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
 #define NUM_BUFS_ADM 20
     if (SIZE_MAX / buf_sz_one < NUM_BUFS_ADM) {
         printf("error: SIZE_MAX / buf_sz_one < NUM_BUFS_ADM, buf_sz_one = %zu.\n", buf_sz_one);
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
 
     if (!(data_buf = aligned_malloc(buf_sz_one * NUM_BUFS_ADM, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for data_buf.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
 
@@ -149,11 +152,12 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     data_top = init_dwt_band_hvd(&decouple_r, data_top, buf_sz_one);
     data_top = init_dwt_band_hvd(&decouple_a, data_top, buf_sz_one);
     data_top = init_dwt_band_hvd(&csf_a, data_top, buf_sz_one);
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): final assignment kept as part of the bump-allocator chain so the line-by-line shape stays auditable; the value is intentionally discarded after the last buffer is carved out.
     data_top = init_dwt_band_hvd(&csf_f, data_top, buf_sz_one);
 
     if (!(buf_y_orig = aligned_malloc(ind_size_y * 4, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for ind_buf_y.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
     ind_buf_y = buf_y_orig;
@@ -164,11 +168,12 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     ind_y[2] = (int *)ind_buf_y;
     ind_buf_y += ind_size_y;
     ind_y[3] = (int *)ind_buf_y;
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): symmetric bump kept for readability (matches the four `ind_y[i]` carve-outs above).
     ind_buf_y += ind_size_y;
 
     if (!(buf_x_orig = aligned_malloc(ind_size_x * 4, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for ind_buf_x.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
     ind_buf_x = buf_x_orig;
@@ -179,6 +184,7 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     ind_x[2] = (int *)ind_buf_x;
     ind_buf_x += ind_size_x;
     ind_x[3] = (int *)ind_buf_x;
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): symmetric bump kept for readability (matches the four `ind_x[i]` carve-outs above).
     ind_buf_x += ind_size_x;
 
     for (scale = 0; scale < 4; ++scale) {

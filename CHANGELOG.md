@@ -6,6 +6,23 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Changed
+
+- **Whole-codebase lint sweep — auto-fix subset (52% findings cleared)**
+  (fork-local): post-T5-1 + docs-sweep follow-up. Baseline clang-tidy
+  whole-codebase scan flagged 1533 unique findings across 84 files.
+  This PR clears the auto-fixable categories —
+  `readability-isolate-declaration`,
+  `readability-braces-around-statements`, `modernize-use-nullptr`,
+  `misc-const-correctness`, and `cert-err33-c` — leaving 736 manual
+  / NOLINT-with-justification findings (widening-mul on stride math,
+  function-size on SIMD reductions per ADR-0138, use-internal-linkage
+  on cross-TU dispatch helpers, anonymous-namespace on C++ helpers,
+  mt-unsafe `getenv`/`strerror`, etc.) for follow-up sweeps. Build
+  green; all 37 meson unit tests pass after each of the four commits;
+  clang-format clean on every touched file. Touched 68 files,
+  ~1500-line diff.
+
 ### Added
 
 - **Whole-codebase docs sweep — close audit-identified gaps**

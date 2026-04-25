@@ -71,18 +71,21 @@ static inline void yuv_bt709_to_rgb8_pixel(int y, int u, int v, uint8_t *r, uint
     float bf = yn + 2.12798f * un;
 
     /* Saturating clamp to [0, 1] then scale to [0, 255] with round-to-nearest. */
-    if (rf < 0.0f)
+    if (rf < 0.0f) {
         rf = 0.0f;
-    else if (rf > 1.0f)
+    } else if (rf > 1.0f) {
         rf = 1.0f;
-    if (gf < 0.0f)
+    }
+    if (gf < 0.0f) {
         gf = 0.0f;
-    else if (gf > 1.0f)
+    } else if (gf > 1.0f) {
         gf = 1.0f;
-    if (bf < 0.0f)
+    }
+    if (bf < 0.0f) {
         bf = 0.0f;
-    else if (bf > 1.0f)
+    } else if (bf > 1.0f) {
         bf = 1.0f;
+    }
 
     *r = (uint8_t)(rf * 255.0f + 0.5f);
     *g = (uint8_t)(gf * 255.0f + 0.5f);

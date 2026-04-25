@@ -656,23 +656,23 @@ static int y4m_input_open_impl(y4m_input *_y4m, FILE *_fin)
     }
     buffer[i] = '\0';
     if (memcmp(buffer, "YUV4MPEG", 8)) {
-        fprintf(stderr, "Incomplete magic for YUV4MPEG file.\n");
+        (void)fprintf(stderr, "Incomplete magic for YUV4MPEG file.\n");
         return -1;
     }
     if (buffer[8] != '2') {
-        fprintf(stderr, "Incorrect YUV input file version; YUV4MPEG2 required.\n");
+        (void)fprintf(stderr, "Incorrect YUV input file version; YUV4MPEG2 required.\n");
     }
     ret = y4m_parse_tags(_y4m, buffer + 5);
     if (ret < 0) {
-        fprintf(stderr, "Error parsing YUV4MPEG2 header.\n");
+        (void)fprintf(stderr, "Error parsing YUV4MPEG2 header.\n");
         return ret;
     }
     if (_y4m->interlace == '?') {
-        fprintf(stderr, "Warning: Input video interlacing format unknown; "
-                        "assuming progressive scan.\n");
+        (void)fprintf(stderr, "Warning: Input video interlacing format unknown; "
+                              "assuming progressive scan.\n");
     } else if (_y4m->interlace != 'p') {
-        fprintf(stderr, "Input video is interlaced; "
-                        "Theora only handles progressive scan.\n");
+        (void)fprintf(stderr, "Input video is interlaced; "
+                              "Theora only handles progressive scan.\n");
         return -1;
     }
     _y4m->depth = 8;
@@ -778,7 +778,7 @@ static int y4m_input_open_impl(y4m_input *_y4m, FILE *_fin)
         _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 0;
         _y4m->convert = y4m_convert_mono_420jpeg;
     } else {
-        fprintf(stderr, "Unknown chroma sampling type: %s\n", _y4m->chroma_type);
+        (void)fprintf(stderr, "Unknown chroma sampling type: %s\n", _y4m->chroma_type);
         return -1;
     }
     xstride = (_y4m->depth > 8) ? 2 : 1;
@@ -804,11 +804,11 @@ static y4m_input *y4m_input_open(FILE *_fin)
 {
     y4m_input *y4m = (y4m_input *)malloc(sizeof(*y4m));
     if (y4m == NULL) {
-        fprintf(stderr, "Could not allocate y4m reader state.\n");
+        (void)fprintf(stderr, "Could not allocate y4m reader state.\n");
         return NULL;
     }
     if (y4m_input_open_impl(y4m, _fin) < 0) {
-        fprintf(stderr, "Error opening y4m file.\n");
+        (void)fprintf(stderr, "Error opening y4m file.\n");
         free(y4m);
         return NULL;
     }
@@ -855,7 +855,7 @@ static int y4m_input_fetch_frame(y4m_input *_y4m, FILE *_fin, video_input_ycbcr 
     if (ret < 6)
         return 0;
     if (memcmp(frame, "FRAME", 5)) {
-        fprintf(stderr, "Loss of framing in YUV input data\n");
+        (void)fprintf(stderr, "Loss of framing in YUV input data\n");
         return -1;
     }
     if (frame[5] != '\n') {
@@ -864,18 +864,18 @@ static int y4m_input_fetch_frame(y4m_input *_y4m, FILE *_fin, video_input_ycbcr 
         for (j = 0; j < 79 && fread(&c, 1, 1, _fin) && c != '\n'; j++)
             ;
         if (j == 79) {
-            fprintf(stderr, "Error parsing YUV frame header\n");
+            (void)fprintf(stderr, "Error parsing YUV frame header\n");
             return -1;
         }
     }
     /*Read the frame data that needs no conversion.*/
     if (fread(_y4m->dst_buf, 1, _y4m->dst_buf_read_sz, _fin) != _y4m->dst_buf_read_sz) {
-        fprintf(stderr, "Error reading YUV frame data.\n");
+        (void)fprintf(stderr, "Error reading YUV frame data.\n");
         return -1;
     }
     /*Read the frame data that does need conversion.*/
     if (fread(_y4m->aux_buf, 1, _y4m->aux_buf_read_sz, _fin) != _y4m->aux_buf_read_sz) {
-        fprintf(stderr, "Error reading YUV frame data.\n");
+        (void)fprintf(stderr, "Error reading YUV frame data.\n");
         return -1;
     }
     /*Now convert the just read frame.*/

@@ -52,7 +52,8 @@ static int get_picture_16b(VmafPicture *pic, int pic_index)
 
 static char *test_16b_large_diff()
 {
-    VmafPicture pic1, pic2;
+    VmafPicture pic1;
+    VmafPicture pic2;
     int err = 0;
     err |= get_picture_16b(&pic1, 0);
     err |= get_picture_16b(&pic2, 1);
@@ -70,11 +71,15 @@ static char *test_16b_large_diff()
     err |= psnr_hbd(&pic1, &pic2, 0, fc, &psnr_state);
     mu_assert("failed psnr_hbd", err == 0);
 
-    double psnr_y, psnr_cb, psnr_cr;
+    double psnr_y;
+    double psnr_cb;
+    double psnr_cr;
     err |= vmaf_feature_collector_get_score(fc, "psnr_y", &psnr_y, 0);
     err |= vmaf_feature_collector_get_score(fc, "psnr_cb", &psnr_cb, 0);
     err |= vmaf_feature_collector_get_score(fc, "psnr_cr", &psnr_cr, 0);
-    double mse_y, mse_cb, mse_cr;
+    double mse_y;
+    double mse_cb;
+    double mse_cr;
     err |= vmaf_feature_collector_get_score(fc, "mse_y", &mse_y, 0);
     err |= vmaf_feature_collector_get_score(fc, "mse_cb", &mse_cb, 0);
     err |= vmaf_feature_collector_get_score(fc, "mse_cr", &mse_cr, 0);

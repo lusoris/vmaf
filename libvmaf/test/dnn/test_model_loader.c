@@ -114,7 +114,7 @@ static char *test_validate_zero_byte(void)
     char *path = write_temp((const unsigned char *)"", 0);
     mu_assert("temp file creation failed", path != NULL);
     const int err = vmaf_dnn_validate_onnx(path, 0);
-    remove(path);
+    (void)remove(path);
     free(path);
     mu_assert("empty file → -EBADMSG", err == -EBADMSG);
     return NULL;
@@ -127,7 +127,7 @@ static char *test_validate_allowed_onnx(void)
     char *path = write_temp(buf, sizeof(buf));
     mu_assert("temp file creation failed", path != NULL);
     const int err = vmaf_dnn_validate_onnx(path, 0);
-    remove(path);
+    (void)remove(path);
     free(path);
     mu_assert("allowed Conv onnx → 0", err == 0);
     return NULL;
@@ -142,7 +142,7 @@ static char *test_validate_disallowed_onnx(void)
     char *path = write_temp(buf, sizeof(buf));
     mu_assert("temp file creation failed", path != NULL);
     const int err = vmaf_dnn_validate_onnx(path, 0);
-    remove(path);
+    (void)remove(path);
     free(path);
     mu_assert("disallowed Scan onnx → -EPERM", err == -EPERM);
     return NULL;
@@ -156,10 +156,10 @@ static char *test_validate_symlink_to_dir(void)
     int fd = mkstemp(link_path);
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
-    remove(link_path);
+    (void)remove(link_path);
     mu_assert("symlink() failed", symlink("/tmp", link_path) == 0);
     const int err = vmaf_dnn_validate_onnx(link_path, 0);
-    remove(link_path);
+    (void)remove(link_path);
     /* /tmp is not a regular file → stat_regular returns -ENOENT. */
     mu_assert("symlink-to-dir → -ENOENT", err == -ENOENT);
     return NULL;
@@ -177,7 +177,7 @@ static char *test_jail_unset_accepts_anywhere(void)
     char *path = write_temp(kAllowedOnnx, sizeof(kAllowedOnnx));
     mu_assert("temp file creation failed", path != NULL);
     const int err = vmaf_dnn_validate_onnx(path, 0);
-    remove(path);
+    (void)remove(path);
     free(path);
     mu_assert("jail unset → allowed model validates", err == 0);
     return NULL;
@@ -190,14 +190,14 @@ static char *test_jail_accepts_model_inside(void)
     mu_assert("mkdtemp failed", mkdtemp(jail) != NULL);
 
     char model_path[PATH_MAX];
-    snprintf(model_path, sizeof(model_path), "%s/allowed.onnx", jail);
+    (void)snprintf(model_path, sizeof(model_path), "%s/allowed.onnx", jail);
     mu_assert("write_file_600 model failed",
               write_file_600(model_path, kAllowedOnnx, sizeof(kAllowedOnnx)) == 0);
 
     mu_assert("setenv failed", setenv("VMAF_TINY_MODEL_DIR", jail, 1) == 0);
     const int err = vmaf_dnn_validate_onnx(model_path, 0);
     unsetenv("VMAF_TINY_MODEL_DIR");
-    remove(model_path);
+    (void)remove(model_path);
     rmdir(jail);
     mu_assert("model inside jail → 0", err == 0);
     return NULL;
@@ -216,7 +216,7 @@ static char *test_jail_rejects_model_outside(void)
     mu_assert("setenv failed", setenv("VMAF_TINY_MODEL_DIR", jail, 1) == 0);
     const int err = vmaf_dnn_validate_onnx(outside, 0);
     unsetenv("VMAF_TINY_MODEL_DIR");
-    remove(outside);
+    (void)remove(outside);
     free(outside);
     rmdir(jail);
     mu_assert("model outside jail → -EACCES", err == -EACCES);
@@ -233,18 +233,18 @@ static char *test_jail_rejects_sibling_prefix(void)
     mu_assert("mkdtemp failed", mkdtemp(jail) != NULL);
 
     char sibling_dir[PATH_MAX];
-    snprintf(sibling_dir, sizeof(sibling_dir), "%s-sibling", jail);
+    (void)snprintf(sibling_dir, sizeof(sibling_dir), "%s-sibling", jail);
     mu_assert("sibling mkdir failed", mkdir(sibling_dir, 0700) == 0);
 
     char model_path[PATH_MAX];
-    snprintf(model_path, sizeof(model_path), "%s/escape.onnx", sibling_dir);
+    (void)snprintf(model_path, sizeof(model_path), "%s/escape.onnx", sibling_dir);
     mu_assert("write_file_600 sibling model failed",
               write_file_600(model_path, kAllowedOnnx, sizeof(kAllowedOnnx)) == 0);
 
     mu_assert("setenv failed", setenv("VMAF_TINY_MODEL_DIR", jail, 1) == 0);
     const int err = vmaf_dnn_validate_onnx(model_path, 0);
     unsetenv("VMAF_TINY_MODEL_DIR");
-    remove(model_path);
+    (void)remove(model_path);
     rmdir(sibling_dir);
     rmdir(jail);
     mu_assert("sibling prefix must be rejected → -EACCES", err == -EACCES);
@@ -264,14 +264,14 @@ static char *test_jail_rejects_symlink_escape(void)
     mu_assert("write_temp failed", outside != NULL);
 
     char link_path[PATH_MAX];
-    snprintf(link_path, sizeof(link_path), "%s/escape.onnx", jail);
+    (void)snprintf(link_path, sizeof(link_path), "%s/escape.onnx", jail);
     mu_assert("symlink() failed", symlink(outside, link_path) == 0);
 
     mu_assert("setenv failed", setenv("VMAF_TINY_MODEL_DIR", jail, 1) == 0);
     const int err = vmaf_dnn_validate_onnx(link_path, 0);
     unsetenv("VMAF_TINY_MODEL_DIR");
-    remove(link_path);
-    remove(outside);
+    (void)remove(link_path);
+    (void)remove(outside);
     free(outside);
     rmdir(jail);
     mu_assert("symlink escape must be rejected → -EACCES", err == -EACCES);
@@ -289,7 +289,7 @@ static char *test_jail_rejects_nonexistent_jail(void)
               setenv("VMAF_TINY_MODEL_DIR", "/tmp/vmaf-does-not-exist-zzzyx", 1) == 0);
     const int err = vmaf_dnn_validate_onnx(model, 0);
     unsetenv("VMAF_TINY_MODEL_DIR");
-    remove(model);
+    (void)remove(model);
     free(model);
     mu_assert("nonexistent jail dir → -EACCES", err == -EACCES);
     return NULL;
@@ -307,8 +307,8 @@ static char *test_jail_rejects_non_directory(void)
     mu_assert("setenv failed", setenv("VMAF_TINY_MODEL_DIR", jail_file, 1) == 0);
     const int err = vmaf_dnn_validate_onnx(model, 0);
     unsetenv("VMAF_TINY_MODEL_DIR");
-    remove(model);
-    remove(jail_file);
+    (void)remove(model);
+    (void)remove(jail_file);
     free(model);
     free(jail_file);
     mu_assert("jail-is-file → -EACCES", err == -EACCES);
@@ -323,17 +323,17 @@ static char *test_jail_accepts_trailing_slash(void)
     mu_assert("mkdtemp failed", mkdtemp(jail) != NULL);
 
     char jail_with_slash[PATH_MAX];
-    snprintf(jail_with_slash, sizeof(jail_with_slash), "%s/", jail);
+    (void)snprintf(jail_with_slash, sizeof(jail_with_slash), "%s/", jail);
 
     char model_path[PATH_MAX];
-    snprintf(model_path, sizeof(model_path), "%s/allowed.onnx", jail);
+    (void)snprintf(model_path, sizeof(model_path), "%s/allowed.onnx", jail);
     mu_assert("write_file_600 model failed",
               write_file_600(model_path, kAllowedOnnx, sizeof(kAllowedOnnx)) == 0);
 
     mu_assert("setenv failed", setenv("VMAF_TINY_MODEL_DIR", jail_with_slash, 1) == 0);
     const int err = vmaf_dnn_validate_onnx(model_path, 0);
     unsetenv("VMAF_TINY_MODEL_DIR");
-    remove(model_path);
+    (void)remove(model_path);
     rmdir(jail);
     mu_assert("jail with trailing slash → 0", err == 0);
     return NULL;
@@ -357,24 +357,25 @@ static char *test_sidecar_parses(void)
     close(fd);
 #endif
 
-    char onnx[1024], sidecar[1024];
-    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
-    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    char onnx[1024];
+    char sidecar[1024];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     /* Touch an empty onnx so sidecar_load doesn't key off its existence. */
     FILE *f = fopen_w_600(onnx);
     if (f)
-        fclose(f);
+        (void)fclose(f);
 
     FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
-    fprintf(s, "{\n"
-               "  \"name\": \"vmaf_tiny_fr_v1\",\n"
-               "  \"kind\": \"fr\",\n"
-               "  \"onnx_opset\": 17,\n"
-               "  \"input_name\":  \"features\",\n"
-               "  \"output_name\": \"score\"\n"
-               "}\n");
-    fclose(s);
+    (void)fprintf(s, "{\n"
+                     "  \"name\": \"vmaf_tiny_fr_v1\",\n"
+                     "  \"kind\": \"fr\",\n"
+                     "  \"onnx_opset\": 17,\n"
+                     "  \"input_name\":  \"features\",\n"
+                     "  \"output_name\": \"score\"\n"
+                     "}\n");
+    (void)fclose(s);
 
     VmafModelSidecar meta;
     int err = vmaf_dnn_sidecar_load(onnx, &meta);
@@ -386,9 +387,9 @@ static char *test_sidecar_parses(void)
     mu_assert("output set", meta.output_name && !strcmp(meta.output_name, "score"));
     vmaf_dnn_sidecar_free(&meta);
 
-    remove(sidecar);
-    remove(onnx);
-    remove(tmpl);
+    (void)remove(sidecar);
+    (void)remove(onnx);
+    (void)remove(tmpl);
     return NULL;
 }
 
@@ -429,17 +430,18 @@ static char *test_sidecar_parses_kind_nr(void)
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
 
-    char onnx[1024], sidecar[1024];
-    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
-    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    char onnx[1024];
+    char sidecar[1024];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
     if (f)
-        fclose(f);
+        (void)fclose(f);
 
     FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
-    fprintf(s, "{\"kind\": \"nr\"}\n");
-    fclose(s);
+    (void)fprintf(s, "{\"kind\": \"nr\"}\n");
+    (void)fclose(s);
 
     VmafModelSidecar meta;
     int err = vmaf_dnn_sidecar_load(onnx, &meta);
@@ -447,9 +449,9 @@ static char *test_sidecar_parses_kind_nr(void)
     mu_assert("kind NR", meta.kind == VMAF_MODEL_KIND_DNN_NR);
     vmaf_dnn_sidecar_free(&meta);
 
-    remove(sidecar);
-    remove(onnx);
-    remove(tmpl);
+    (void)remove(sidecar);
+    (void)remove(onnx);
+    (void)remove(tmpl);
     return NULL;
 }
 
@@ -462,26 +464,27 @@ static char *test_sidecar_quant_mode_default_fp32(void)
     int fd = mkstemp(tmpl);
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
-    char onnx[1024], sidecar[1024];
-    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
-    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    char onnx[1024];
+    char sidecar[1024];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
     if (f)
-        fclose(f);
+        (void)fclose(f);
     FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
     /* No quant_mode field — default branch. */
-    fprintf(s, "{\"kind\": \"fr\"}\n");
-    fclose(s);
+    (void)fprintf(s, "{\"kind\": \"fr\"}\n");
+    (void)fclose(s);
 
     VmafModelSidecar meta;
     int err = vmaf_dnn_sidecar_load(onnx, &meta);
     mu_assert("sidecar_load default failed", err == 0);
     mu_assert("absent quant_mode → FP32", meta.quant_mode == VMAF_QUANT_FP32);
     vmaf_dnn_sidecar_free(&meta);
-    remove(sidecar);
-    remove(onnx);
-    remove(tmpl);
+    (void)remove(sidecar);
+    (void)remove(onnx);
+    (void)remove(tmpl);
     return NULL;
 }
 
@@ -491,25 +494,26 @@ static char *test_sidecar_quant_mode_dynamic(void)
     int fd = mkstemp(tmpl);
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
-    char onnx[1024], sidecar[1024];
-    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
-    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    char onnx[1024];
+    char sidecar[1024];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
     if (f)
-        fclose(f);
+        (void)fclose(f);
     FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
-    fprintf(s, "{\"kind\": \"fr\", \"quant_mode\": \"dynamic\"}\n");
-    fclose(s);
+    (void)fprintf(s, "{\"kind\": \"fr\", \"quant_mode\": \"dynamic\"}\n");
+    (void)fclose(s);
 
     VmafModelSidecar meta;
     int err = vmaf_dnn_sidecar_load(onnx, &meta);
     mu_assert("sidecar_load dynamic failed", err == 0);
     mu_assert("quant_mode dynamic", meta.quant_mode == VMAF_QUANT_DYNAMIC);
     vmaf_dnn_sidecar_free(&meta);
-    remove(sidecar);
-    remove(onnx);
-    remove(tmpl);
+    (void)remove(sidecar);
+    (void)remove(onnx);
+    (void)remove(tmpl);
     return NULL;
 }
 
@@ -519,25 +523,26 @@ static char *test_sidecar_quant_mode_unknown_falls_back(void)
     int fd = mkstemp(tmpl);
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
-    char onnx[1024], sidecar[1024];
-    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
-    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    char onnx[1024];
+    char sidecar[1024];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
     if (f)
-        fclose(f);
+        (void)fclose(f);
     FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
-    fprintf(s, "{\"kind\": \"fr\", \"quant_mode\": \"int4\"}\n");
-    fclose(s);
+    (void)fprintf(s, "{\"kind\": \"fr\", \"quant_mode\": \"int4\"}\n");
+    (void)fclose(s);
 
     VmafModelSidecar meta;
     int err = vmaf_dnn_sidecar_load(onnx, &meta);
     mu_assert("sidecar_load unknown_mode failed", err == 0);
     mu_assert("unknown quant_mode → FP32 (fail-safe)", meta.quant_mode == VMAF_QUANT_FP32);
     vmaf_dnn_sidecar_free(&meta);
-    remove(sidecar);
-    remove(onnx);
-    remove(tmpl);
+    (void)remove(sidecar);
+    (void)remove(onnx);
+    (void)remove(tmpl);
     return NULL;
 }
 
@@ -551,26 +556,27 @@ static char *test_sidecar_no_dot_onnx_extension(void)
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
 
-    char model[1024], sidecar[1024];
-    snprintf(model, sizeof model, "%s.bin", tmpl);
-    snprintf(sidecar, sizeof sidecar, "%s.bin.json", tmpl);
+    char model[1024];
+    char sidecar[1024];
+    (void)snprintf(model, sizeof model, "%s.bin", tmpl);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.bin.json", tmpl);
     FILE *f = fopen_w_600(model);
     if (f)
-        fclose(f);
+        (void)fclose(f);
 
     FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
-    fprintf(s, "{\"kind\": \"fr\"}\n");
-    fclose(s);
+    (void)fprintf(s, "{\"kind\": \"fr\"}\n");
+    (void)fclose(s);
 
     VmafModelSidecar meta;
     int err = vmaf_dnn_sidecar_load(model, &meta);
     mu_assert("non-onnx sidecar suffix branch", err == 0);
     vmaf_dnn_sidecar_free(&meta);
 
-    remove(sidecar);
-    remove(model);
-    remove(tmpl);
+    (void)remove(sidecar);
+    (void)remove(model);
+    (void)remove(tmpl);
     return NULL;
 }
 
@@ -600,12 +606,13 @@ static char *test_sidecar_malformed_keys_default(void)
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
 
-    char onnx[1024], sidecar[1024];
-    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
-    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    char onnx[1024];
+    char sidecar[1024];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
     if (f)
-        fclose(f);
+        (void)fclose(f);
 
     FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
@@ -614,8 +621,8 @@ static char *test_sidecar_malformed_keys_default(void)
      * extract_string returns NULL via strstr-miss branch. "onnx_opset"
      * present but not a number → extract_int returns -EINVAL via the
      * endp == p branch. */
-    fprintf(s, "{\"kind\": 42, \"onnx_opset\": \"abc\"}\n");
-    fclose(s);
+    (void)fprintf(s, "{\"kind\": 42, \"onnx_opset\": \"abc\"}\n");
+    (void)fclose(s);
 
     VmafModelSidecar meta;
     int err = vmaf_dnn_sidecar_load(onnx, &meta);
@@ -628,9 +635,9 @@ static char *test_sidecar_malformed_keys_default(void)
     mu_assert("missing name stays NULL", meta.name == NULL);
     vmaf_dnn_sidecar_free(&meta);
 
-    remove(sidecar);
-    remove(onnx);
-    remove(tmpl);
+    (void)remove(sidecar);
+    (void)remove(onnx);
+    (void)remove(tmpl);
     return NULL;
 }
 
@@ -643,18 +650,19 @@ static char *test_sidecar_extract_string_no_close_quote(void)
     mu_assert("mkstemp failed", fd >= 0);
     close(fd);
 
-    char onnx[1024], sidecar[1024];
-    snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
-    snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
+    char onnx[1024];
+    char sidecar[1024];
+    (void)snprintf(onnx, sizeof onnx, "%s.onnx", tmpl);
+    (void)snprintf(sidecar, sizeof sidecar, "%s.json", tmpl);
     FILE *f = fopen_w_600(onnx);
     if (f)
-        fclose(f);
+        (void)fclose(f);
 
     FILE *s = fopen_w_600(sidecar);
     mu_assert("fopen sidecar failed", s != NULL);
     /* "name" opens a quote that never closes before EOF. */
-    fputs("{\"name\": \"unterminated", s);
-    fclose(s);
+    (void)fputs("{\"name\": \"unterminated", s);
+    (void)fclose(s);
 
     VmafModelSidecar meta;
     int err = vmaf_dnn_sidecar_load(onnx, &meta);
@@ -662,9 +670,9 @@ static char *test_sidecar_extract_string_no_close_quote(void)
     mu_assert("unterminated string returns NULL", meta.name == NULL);
     vmaf_dnn_sidecar_free(&meta);
 
-    remove(sidecar);
-    remove(onnx);
-    remove(tmpl);
+    (void)remove(sidecar);
+    (void)remove(onnx);
+    (void)remove(tmpl);
     return NULL;
 }
 #endif /* !_WIN32 */

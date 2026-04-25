@@ -63,33 +63,35 @@ static int validate_videos(video_input *vid1, video_input *vid2, bool common_bit
 {
     int err_cnt = 0;
 
-    video_input_info info1, info2;
+    video_input_info info1;
+    video_input_info info2;
     video_input_get_info(vid1, &info1);
     video_input_get_info(vid2, &info2);
 
     if ((info1.frame_w != info2.frame_w) || (info1.frame_h != info2.frame_h)) {
-        fprintf(stderr, "dimensions do not match: %dx%d, %dx%d\n", info1.frame_w, info1.frame_h,
-                info2.frame_w, info2.frame_h);
+        (void)fprintf(stderr, "dimensions do not match: %dx%d, %dx%d\n", info1.frame_w,
+                      info1.frame_h, info2.frame_w, info2.frame_h);
         err_cnt++;
     }
 
     if (info1.pixel_fmt != info2.pixel_fmt) {
-        fprintf(stderr, "pixel formats do not match: %d, %d\n", info1.pixel_fmt, info2.pixel_fmt);
+        (void)fprintf(stderr, "pixel formats do not match: %d, %d\n", info1.pixel_fmt,
+                      info2.pixel_fmt);
         err_cnt++;
     }
 
     if (!pix_fmt_map(info1.pixel_fmt) || !pix_fmt_map(info2.pixel_fmt)) {
-        fprintf(stderr, "unsupported pixel format: %d\n", info1.pixel_fmt);
+        (void)fprintf(stderr, "unsupported pixel format: %d\n", info1.pixel_fmt);
         err_cnt++;
     }
 
     if (!common_bitdepth && info1.depth != info2.depth) {
-        fprintf(stderr, "bitdepths do not match: %d, %d\n", info1.depth, info2.depth);
+        (void)fprintf(stderr, "bitdepths do not match: %d, %d\n", info1.depth, info2.depth);
         err_cnt++;
     }
 
     if (info1.depth < 8 || info1.depth > 16) {
-        fprintf(stderr, "unsupported bitdepth: %d\n", info1.depth);
+        (void)fprintf(stderr, "unsupported bitdepth: %d\n", info1.depth);
         err_cnt++;
     }
 
@@ -188,7 +190,7 @@ static int fetch_picture(VmafContext *vmaf, video_input *vid, VmafPicture *pic, 
 
     ret = vmaf_fetch_preallocated_picture(vmaf, pic);
     if (ret) {
-        fprintf(stderr, "problem fetching picture from pool.\n");
+        (void)fprintf(stderr, "problem fetching picture from pool.\n");
         return -1;
     }
 
@@ -223,19 +225,19 @@ int main(int argc, char *argv[])
 #endif
 
     if (istty && !c.quiet) {
-        fprintf(stderr, "VMAF version %s\n", vmaf_version());
+        (void)fprintf(stderr, "VMAF version %s\n", vmaf_version());
     }
 
     file_ref = fopen(c.path_ref, "rb");
     if (!file_ref) {
-        fprintf(stderr, "could not open file: %s\n", c.path_ref);
+        (void)fprintf(stderr, "could not open file: %s\n", c.path_ref);
         ret = -1;
         goto cleanup;
     }
 
     file_dist = fopen(c.path_dist, "rb");
     if (!file_dist) {
-        fprintf(stderr, "could not open file: %s\n", c.path_dist);
+        (void)fprintf(stderr, "could not open file: %s\n", c.path_dist);
         ret = -1;
         goto cleanup;
     }
@@ -246,7 +248,7 @@ int main(int argc, char *argv[])
         err = video_input_open(&vid_ref, file_ref);
     }
     if (err) {
-        fprintf(stderr, "problem with reference file: %s\n", c.path_ref);
+        (void)fprintf(stderr, "problem with reference file: %s\n", c.path_ref);
         ret = -1;
         goto cleanup;
     }
@@ -259,7 +261,7 @@ int main(int argc, char *argv[])
         err = video_input_open(&vid_dist, file_dist);
     }
     if (err) {
-        fprintf(stderr, "problem with distorted file: %s\n", c.path_dist);
+        (void)fprintf(stderr, "problem with distorted file: %s\n", c.path_dist);
         ret = -1;
         goto cleanup;
     }
@@ -268,8 +270,8 @@ int main(int argc, char *argv[])
 
     err = validate_videos(&vid_ref, &vid_dist, c.common_bitdepth);
     if (err) {
-        fprintf(stderr, "videos are incompatible, %d %s.\n", err,
-                err == 1 ? "problem" : "problems");
+        (void)fprintf(stderr, "videos are incompatible, %d %s.\n", err,
+                      err == 1 ? "problem" : "problems");
         ret = -1;
         goto cleanup;
     }
@@ -278,7 +280,8 @@ int main(int argc, char *argv[])
     if (c.use_yuv) {
         common_bitdepth = c.bitdepth;
     } else {
-        video_input_info info1, info2;
+        video_input_info info1;
+        video_input_info info2;
         video_input_get_info(&vid_ref, &info1);
         video_input_get_info(&vid_dist, &info2);
         common_bitdepth = info1.depth > info2.depth ? info1.depth : info2.depth;
@@ -294,7 +297,7 @@ int main(int argc, char *argv[])
 
     err = vmaf_init(&vmaf, cfg);
     if (err) {
-        fprintf(stderr, "problem initializing VMAF context\n");
+        (void)fprintf(stderr, "problem initializing VMAF context\n");
         ret = -1;
         goto cleanup;
     }
@@ -372,13 +375,13 @@ int main(int argc, char *argv[])
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
     if (err) {
-        fprintf(stderr, "problem during vmaf_preallocate_pictures\n");
+        (void)fprintf(stderr, "problem during vmaf_preallocate_pictures\n");
         ret = -1;
         goto cleanup;
     }
 
     if (istty && !c.quiet) {
-        fprintf(stderr, "picture pool: %d pictures pre-allocated\n", pic_cfg.pic_cnt);
+        (void)fprintf(stderr, "picture pool: %d pictures pre-allocated\n", pic_cfg.pic_cnt);
     }
 
     const size_t model_sz = sizeof(*model) * c.model_cnt;
@@ -427,9 +430,9 @@ int main(int argc, char *argv[])
             }
 
             if (err) {
-                fprintf(stderr, "problem loading model: %s\n",
-                        c.model_config[i].version ? c.model_config[i].version :
-                                                    c.model_config[i].path);
+                (void)fprintf(stderr, "problem loading model: %s\n",
+                              c.model_config[i].version ? c.model_config[i].version :
+                                                          c.model_config[i].path);
                 ret = -1;
                 goto cleanup;
             }
@@ -443,11 +446,11 @@ int main(int argc, char *argv[])
                     c.model_config[i].feature_overload[j].name,
                     c.model_config[i].feature_overload[j].opts_dict);
                 if (err) {
-                    fprintf(stderr,
-                            "problem overloading feature extractors from "
-                            "model collection: %s\n",
-                            c.model_config[i].version ? c.model_config[i].version :
-                                                        c.model_config[i].path);
+                    (void)fprintf(stderr,
+                                  "problem overloading feature extractors from "
+                                  "model collection: %s\n",
+                                  c.model_config[i].version ? c.model_config[i].version :
+                                                              c.model_config[i].path);
                     model_collection_cnt++;
                     ret = -1;
                     goto cleanup;
@@ -457,11 +460,11 @@ int main(int argc, char *argv[])
             err = vmaf_use_features_from_model_collection(vmaf,
                                                           model_collection[model_collection_cnt]);
             if (err) {
-                fprintf(stderr,
-                        "problem loading feature extractors from "
-                        "model collection: %s\n",
-                        c.model_config[i].version ? c.model_config[i].version :
-                                                    c.model_config[i].path);
+                (void)fprintf(stderr,
+                              "problem loading feature extractors from "
+                              "model collection: %s\n",
+                              c.model_config[i].version ? c.model_config[i].version :
+                                                          c.model_config[i].path);
                 model_collection_cnt++;
                 ret = -1;
                 goto cleanup;
@@ -475,11 +478,11 @@ int main(int argc, char *argv[])
             err = vmaf_model_feature_overload(model[i], c.model_config[i].feature_overload[j].name,
                                               c.model_config[i].feature_overload[j].opts_dict);
             if (err) {
-                fprintf(stderr,
-                        "problem overloading feature extractors from "
-                        "model: %s\n",
-                        c.model_config[i].version ? c.model_config[i].version :
-                                                    c.model_config[i].path);
+                (void)fprintf(stderr,
+                              "problem overloading feature extractors from "
+                              "model: %s\n",
+                              c.model_config[i].version ? c.model_config[i].version :
+                                                          c.model_config[i].path);
                 ret = -1;
                 goto cleanup;
             }
@@ -487,8 +490,9 @@ int main(int argc, char *argv[])
 
         err = vmaf_use_features_from_model(vmaf, model[i]);
         if (err) {
-            fprintf(stderr, "problem loading feature extractors from model: %s\n",
-                    c.model_config[i].version ? c.model_config[i].version : c.model_config[i].path);
+            (void)fprintf(stderr, "problem loading feature extractors from model: %s\n",
+                          c.model_config[i].version ? c.model_config[i].version :
+                                                      c.model_config[i].path);
             ret = -1;
             goto cleanup;
         }
@@ -497,7 +501,7 @@ int main(int argc, char *argv[])
     for (unsigned i = 0; i < c.feature_cnt; i++) {
         err = vmaf_use_feature(vmaf, c.feature_cfg[i].name, c.feature_cfg[i].opts_dict);
         if (err) {
-            fprintf(stderr, "problem loading feature extractor: %s\n", c.feature_cfg[i].name);
+            (void)fprintf(stderr, "problem loading feature extractor: %s\n", c.feature_cfg[i].name);
             ret = -1;
             goto cleanup;
         }
@@ -505,23 +509,24 @@ int main(int argc, char *argv[])
 
     if (c.tiny_model_path) {
         if (!vmaf_dnn_available()) {
-            fprintf(stderr,
-                    "--tiny-model requested (%s) but libvmaf was built "
-                    "without DNN support (-Denable_dnn=disabled).\n",
-                    c.tiny_model_path);
+            (void)fprintf(stderr,
+                          "--tiny-model requested (%s) but libvmaf was built "
+                          "without DNN support (-Denable_dnn=disabled).\n",
+                          c.tiny_model_path);
             ret = -1;
             goto cleanup;
         }
         VmafDnnDevice dev = VMAF_DNN_DEVICE_AUTO;
         if (c.tiny_device) {
-            if (!strcmp(c.tiny_device, "cpu"))
+            if (!strcmp(c.tiny_device, "cpu")) {
                 dev = VMAF_DNN_DEVICE_CPU;
-            else if (!strcmp(c.tiny_device, "cuda"))
+            } else if (!strcmp(c.tiny_device, "cuda")) {
                 dev = VMAF_DNN_DEVICE_CUDA;
-            else if (!strcmp(c.tiny_device, "openvino"))
+            } else if (!strcmp(c.tiny_device, "openvino")) {
                 dev = VMAF_DNN_DEVICE_OPENVINO;
-            else if (!strcmp(c.tiny_device, "rocm"))
+            } else if (!strcmp(c.tiny_device, "rocm")) {
                 dev = VMAF_DNN_DEVICE_ROCM;
+            }
         }
         VmafDnnConfig dnn_cfg = {
             .device = dev,
@@ -531,13 +536,14 @@ int main(int argc, char *argv[])
         };
         err = vmaf_use_tiny_model(vmaf, c.tiny_model_path, &dnn_cfg);
         if (err) {
-            fprintf(stderr, "problem loading tiny model %s: %d\n", c.tiny_model_path, err);
+            (void)fprintf(stderr, "problem loading tiny model %s: %d\n", c.tiny_model_path, err);
             ret = -1;
             goto cleanup;
         }
     }
 
-    VmafPicture pic_ref_skip, pic_dist_skip;
+    VmafPicture pic_ref_skip;
+    VmafPicture pic_dist_skip;
 
     /* Unref each fetched picture: fetch_picture() reserves a slot from the
      * preallocated picture pool, and skipped frames are never handed to
@@ -547,14 +553,14 @@ int main(int argc, char *argv[])
         if (fetch_picture(vmaf, &vid_ref, &pic_ref_skip, common_bitdepth))
             break;
         if (vmaf_picture_unref(&pic_ref_skip))
-            fprintf(stderr, "\nproblem during vmaf_picture_unref (skip ref)\n");
+            (void)fprintf(stderr, "\nproblem during vmaf_picture_unref (skip ref)\n");
     }
 
     for (unsigned i = 0; i < c.frame_skip_dist; i++) {
         if (fetch_picture(vmaf, &vid_dist, &pic_dist_skip, common_bitdepth))
             break;
         if (vmaf_picture_unref(&pic_dist_skip))
-            fprintf(stderr, "\nproblem during vmaf_picture_unref (skip dist)\n");
+            (void)fprintf(stderr, "\nproblem during vmaf_picture_unref (skip dist)\n");
     }
 
     float fps = 0.;
@@ -565,26 +571,27 @@ int main(int argc, char *argv[])
         if (c.frame_cnt && picture_index >= c.frame_cnt)
             break;
 
-        VmafPicture pic_ref, pic_dist;
+        VmafPicture pic_ref;
+        VmafPicture pic_dist;
         int ret1 = fetch_picture(vmaf, &vid_ref, &pic_ref, common_bitdepth);
         int ret2 = fetch_picture(vmaf, &vid_dist, &pic_dist, common_bitdepth);
 
         if (ret1 && ret2) {
             break;
         } else if (ret1 < 0 || ret2 < 0) {
-            fprintf(stderr, "\nproblem while reading pictures\n");
+            (void)fprintf(stderr, "\nproblem while reading pictures\n");
             break;
         } else if (ret1) {
-            fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c.path_ref, c.path_dist);
+            (void)fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c.path_ref, c.path_dist);
             int err_unref = vmaf_picture_unref(&pic_dist);
             if (err_unref)
-                fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
+                (void)fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
             break;
         } else if (ret2) {
-            fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c.path_dist, c.path_ref);
+            (void)fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c.path_dist, c.path_ref);
             int err_unref = vmaf_picture_unref(&pic_ref);
             if (err_unref)
-                fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
+                (void)fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
             break;
         }
 
@@ -593,23 +600,23 @@ int main(int argc, char *argv[])
                 fps = (picture_index + 1) / (((float)clock() - t0) / CLOCKS_PER_SEC);
             }
 
-            fprintf(stderr, "\r%d frame%s %s %.2f FPS\033[K", picture_index + 1,
-                    picture_index ? "s" : " ", spinner[picture_index % spinner_length], fps);
-            fflush(stderr);
+            (void)fprintf(stderr, "\r%d frame%s %s %.2f FPS\033[K", picture_index + 1,
+                          picture_index ? "s" : " ", spinner[picture_index % spinner_length], fps);
+            (void)fflush(stderr);
         }
 
         err = vmaf_read_pictures(vmaf, &pic_ref, &pic_dist, picture_index);
         if (err) {
-            fprintf(stderr, "\nproblem reading pictures\n");
+            (void)fprintf(stderr, "\nproblem reading pictures\n");
             break;
         }
     }
     if (istty && !c.quiet)
-        fprintf(stderr, "\n");
+        (void)fprintf(stderr, "\n");
 
     err |= vmaf_read_pictures(vmaf, NULL, NULL, 0);
     if (err) {
-        fprintf(stderr, "problem flushing context\n");
+        (void)fprintf(stderr, "problem flushing context\n");
         ret = err;
         goto cleanup;
     }
@@ -620,17 +627,17 @@ int main(int argc, char *argv[])
             err = vmaf_score_pooled(vmaf, model[i], VMAF_POOL_METHOD_MEAN, &vmaf_score, 0,
                                     picture_index - 1);
             if (err) {
-                fprintf(stderr, "problem generating pooled VMAF score\n");
+                (void)fprintf(stderr, "problem generating pooled VMAF score\n");
                 ret = -1;
                 goto cleanup;
             }
 
             if (istty && (!c.quiet || !c.output_path)) {
-                fprintf(stderr, "%s: ",
-                        c.model_config[i].version ? c.model_config[i].version :
-                                                    c.model_config[i].path);
-                fprintf(stderr, c.precision_fmt, vmaf_score);
-                fprintf(stderr, "\n");
+                (void)fprintf(stderr, "%s: ",
+                              c.model_config[i].version ? c.model_config[i].version :
+                                                          c.model_config[i].path);
+                (void)fprintf(stderr, c.precision_fmt, vmaf_score);
+                (void)fprintf(stderr, "\n");
             }
         }
 
@@ -639,7 +646,7 @@ int main(int argc, char *argv[])
             err = vmaf_score_pooled_model_collection(
                 vmaf, model_collection[i], VMAF_POOL_METHOD_MEAN, &score, 0, picture_index - 1);
             if (err) {
-                fprintf(stderr, "problem generating pooled VMAF score\n");
+                (void)fprintf(stderr, "problem generating pooled VMAF score\n");
                 ret = -1;
                 goto cleanup;
             }
@@ -647,15 +654,15 @@ int main(int argc, char *argv[])
             switch (score.type) {
             case VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP:
                 if (istty && (!c.quiet || !c.output_path)) {
-                    fprintf(stderr, "%s: ", model_collection_label[i]);
-                    fprintf(stderr, c.precision_fmt, score.bootstrap.bagging_score);
-                    fprintf(stderr, ", ci.p95: [");
-                    fprintf(stderr, c.precision_fmt, score.bootstrap.ci.p95.lo);
-                    fprintf(stderr, ", ");
-                    fprintf(stderr, c.precision_fmt, score.bootstrap.ci.p95.hi);
-                    fprintf(stderr, "], stddev: ");
-                    fprintf(stderr, c.precision_fmt, score.bootstrap.stddev);
-                    fprintf(stderr, "\n");
+                    (void)fprintf(stderr, "%s: ", model_collection_label[i]);
+                    (void)fprintf(stderr, c.precision_fmt, score.bootstrap.bagging_score);
+                    (void)fprintf(stderr, ", ci.p95: [");
+                    (void)fprintf(stderr, c.precision_fmt, score.bootstrap.ci.p95.lo);
+                    (void)fprintf(stderr, ", ");
+                    (void)fprintf(stderr, c.precision_fmt, score.bootstrap.ci.p95.hi);
+                    (void)fprintf(stderr, "], stddev: ");
+                    (void)fprintf(stderr, c.precision_fmt, score.bootstrap.stddev);
+                    (void)fprintf(stderr, "\n");
                 }
                 break;
             default:
@@ -692,9 +699,9 @@ cleanup:
     if (vid_ref_open)
         video_input_close(&vid_ref);
     if (file_dist)
-        fclose(file_dist);
+        (void)fclose(file_dist);
     if (file_ref)
-        fclose(file_ref);
+        (void)fclose(file_ref);
     cli_free(&c);
     return ret;
 }

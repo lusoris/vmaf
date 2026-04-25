@@ -138,11 +138,16 @@ void vif_statistic_8_avx2(struct VifPublicState *s, float *num, float *den, unsi
         // First consider all blocks of 16 elements until it's not possible anymore
         unsigned n = w >> 4;
         for (unsigned jj = 0; jj < n << 4; jj += 16) {
-            __m256i accum_ref_left, accum_ref_right;
-            __m256i accum_dis_left, accum_dis_right;
-            __m256i accum_ref_dis_left, accum_ref_dis_right;
-            __m256i accum_mu2_left, accum_mu2_right;
-            __m256i accum_mu1_left, accum_mu1_right;
+            __m256i accum_ref_left;
+            __m256i accum_ref_right;
+            __m256i accum_dis_left;
+            __m256i accum_dis_right;
+            __m256i accum_ref_dis_left;
+            __m256i accum_ref_dis_right;
+            __m256i accum_mu2_left;
+            __m256i accum_mu2_right;
+            __m256i accum_mu1_left;
+            __m256i accum_mu1_right;
 
             __m256i f0 = _mm256_set1_epi16(vif_filt_s0[fwidth / 2]);
             __m256i r0 = _mm256_cvtepu8_epi16(
@@ -684,8 +689,10 @@ void vif_statistic_16_avx2(struct VifPublicState *s, float *num, float *den, uns
     const ptrdiff_t stride = buf.stride / sizeof(uint16_t);
     int fwidth_half = fwidth >> 1;
 
-    int32_t add_shift_round_VP, shift_VP;
-    int32_t add_shift_round_VP_sq, shift_VP_sq;
+    int32_t add_shift_round_VP;
+    int32_t shift_VP;
+    int32_t add_shift_round_VP_sq;
+    int32_t shift_VP_sq;
 
     //float equivalent of 2. (2 * 65536)
     static const int32_t sigma_nsq = 65536 << 1;
@@ -724,9 +731,27 @@ void vif_statistic_16_avx2(struct VifPublicState *s, float *num, float *den, uns
 
             uint16_t *ref = buf.ref;
             uint16_t *dis = buf.dis;
-            __m256i accumr_lo, accumr_hi, accumd_lo, accumd_hi, rmul1, rmul2, dmul1, dmul2,
-                accumref1, accumref2, accumref3, accumref4, accumrefdis1, accumrefdis2,
-                accumrefdis3, accumrefdis4, accumdis1, accumdis2, accumdis3, accumdis4;
+            __m256i accumr_lo;
+            __m256i accumr_hi;
+            __m256i accumd_lo;
+            __m256i accumd_hi;
+            __m256i rmul1;
+            __m256i rmul2;
+            __m256i dmul1;
+            __m256i dmul2;
+            __m256i accumref1;
+            __m256i accumref2;
+            __m256i accumref3;
+            __m256i accumref4;
+            __m256i accumrefdis1;
+            __m256i accumrefdis2;
+            __m256i accumrefdis3;
+            __m256i accumrefdis4;
+            __m256i accumdis1;
+            __m256i accumdis2;
+            __m256i accumdis3;
+            __m256i accumdis4;
+            // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): chained zero-init of every SIMD accumulator before the inner loop. The analyzer flags the rmul1/rmul2/dmul1/dmul2 slots because their values are reset on every fi iteration before being read (i.e. the zero-init is never the value that flows into a read), but the chain is preserved verbatim from upstream Netflix to keep the kernel byte-exact.
             accumr_lo = accumr_hi = accumd_lo = accumd_hi = rmul1 = rmul2 = dmul1 = dmul2 =
                 accumref1 = accumref2 = accumref3 = accumref4 = accumrefdis1 = accumrefdis2 =
                     accumrefdis3 = accumrefdis4 = accumdis1 = accumdis2 = accumdis3 = accumdis4 =
@@ -1392,10 +1417,28 @@ void vif_subsample_rd_8_avx2(VifBuffer buf, unsigned w, unsigned h)
         for (unsigned j = 0; j < n << 4; j = j + 16) {
             int ii = i * 2 - fwidth_half;
             int ii_check = ii;
-            __m256i accum_mu1_lo, accum_mu1_hi;
-            __m256i accum_mu2_lo, accum_mu2_hi;
-            __m256i g0, g1, g2, g3, g4, g5, g6, g7, g8;
-            __m256i s0, s1, s2, s3, s4, s5, s6, s7, s8;
+            __m256i accum_mu1_lo;
+            __m256i accum_mu1_hi;
+            __m256i accum_mu2_lo;
+            __m256i accum_mu2_hi;
+            __m256i g0;
+            __m256i g1;
+            __m256i g2;
+            __m256i g3;
+            __m256i g4;
+            __m256i g5;
+            __m256i g6;
+            __m256i g7;
+            __m256i g8;
+            __m256i s0;
+            __m256i s1;
+            __m256i s2;
+            __m256i s3;
+            __m256i s4;
+            __m256i s5;
+            __m256i s6;
+            __m256i s7;
+            __m256i s8;
 
             g0 = _mm256_cvtepu8_epi16(
                 _mm_loadu_si128((__m128i *)(ref + (buf.stride * ii_check) + j)));
@@ -1487,7 +1530,10 @@ void vif_subsample_rd_8_avx2(VifBuffer buf, unsigned w, unsigned h)
         for (unsigned j = 0; j < n << 3; j = j + 8) {
             int jj = j - fwidth_half;
             int jj_check = jj;
-            __m256i accumrlo, accumdlo, accumrhi, accumdhi;
+            __m256i accumrlo;
+            __m256i accumdlo;
+            __m256i accumrhi;
+            __m256i accumdhi;
             accumrlo = accumdlo = accumrhi = accumdhi = _mm256_setzero_si256();
             __m256i refconvol0 = _mm256_loadu_si256((__m256i *)(buf.tmp.ref_convol + jj_check));
             __m256i refconvol4 = _mm256_loadu_si256((__m256i *)(buf.tmp.ref_convol + jj_check + 4));
@@ -1623,7 +1669,8 @@ void vif_subsample_rd_16_avx2(VifBuffer buf, unsigned w, unsigned h, int scale, 
 {
     const unsigned fwidth = vif_filter1d_width[scale + 1];
     const uint16_t *vif_filt = vif_filter1d_table[scale + 1];
-    int32_t add_shift_round_VP, shift_VP;
+    int32_t add_shift_round_VP;
+    int32_t shift_VP;
     int fwidth_half = fwidth >> 1;
     const ptrdiff_t stride = buf.stride / sizeof(uint16_t);
     const ptrdiff_t stride16 = buf.stride_16 / sizeof(uint16_t);
@@ -1646,7 +1693,15 @@ void vif_subsample_rd_16_avx2(VifBuffer buf, unsigned w, unsigned h, int scale, 
         int ii = i * 2 - fwidth_half;
         for (unsigned j = 0; j < n << 4; j = j + 16) {
             int ii_check = ii;
-            __m256i accumr_lo, accumr_hi, accumd_lo, accumd_hi, rmul1, rmul2, dmul1, dmul2;
+            __m256i accumr_lo;
+            __m256i accumr_hi;
+            __m256i accumd_lo;
+            __m256i accumd_hi;
+            __m256i rmul1;
+            __m256i rmul2;
+            __m256i dmul1;
+            __m256i dmul2;
+            // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): chained zero-init reset every fi iteration before the per-element reads inside the inner loop. Upstream-verbatim.
             accumr_lo = accumr_hi = accumd_lo = accumd_hi = rmul1 = rmul2 = dmul1 = dmul2 =
                 _mm256_setzero_si256();
             for (unsigned fi = 0; fi < fwidth; ++fi, ii_check = ii + fi) {
@@ -1709,7 +1764,10 @@ void vif_subsample_rd_16_avx2(VifBuffer buf, unsigned w, unsigned h, int scale, 
         for (unsigned j = 0; j < n << 3; j = j + 8) {
             int jj = j - fwidth_half;
             int jj_check = jj;
-            __m256i accumrlo, accumdlo, accumrhi, accumdhi;
+            __m256i accumrlo;
+            __m256i accumdlo;
+            __m256i accumrhi;
+            __m256i accumdhi;
             accumrlo = accumdlo = accumrhi = accumdhi = _mm256_setzero_si256();
             for (unsigned fj = 0; fj < fwidth; ++fj, jj_check = jj + fj) {
                 __m256i refconvol = _mm256_loadu_si256((__m256i *)(buf.tmp.ref_convol + jj_check));

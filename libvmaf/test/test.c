@@ -25,10 +25,12 @@ int main(void)
 {
     char *msg = run_tests();
 
-    if (msg)
-        fprintf(stderr, "\033[31m, %s\n%d tests run, 1 failed\033[0m\n", msg, mu_tests_run);
-    else
-        fprintf(stderr, "\033[32m%d tests run, %d passed\033[0m\n", mu_tests_run, mu_tests_run);
+    if (msg) {
+        (void)fprintf(stderr, "\033[31m, %s\n%d tests run, 1 failed\033[0m\n", msg, mu_tests_run);
+    } else {
+        (void)fprintf(stderr, "\033[32m%d tests run, %d passed\033[0m\n", mu_tests_run,
+                      mu_tests_run);
+    }
 
     return msg != 0;
 }

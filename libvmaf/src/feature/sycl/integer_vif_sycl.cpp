@@ -228,7 +228,7 @@ static inline uint32_t dev_get_best16_from64(uint64_t val, int &exp_out)
         clz += 1;
     }
 
-    int k = clz;
+    int const k = clz;
     if (k > 48) {
         val <<= (k - 48);
         exp_out = k - 48;
@@ -286,8 +286,10 @@ static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, co
     constexpr int TILE_H = 16 + FW - 1;
     const unsigned stride_tmp = width;
 
-    unsigned shift_vp, add_shift_round_vp;
-    unsigned shift_vp_sq, add_shift_round_vp_sq;
+    unsigned shift_vp;
+    unsigned add_shift_round_vp;
+    unsigned shift_vp_sq;
+    unsigned add_shift_round_vp_sq;
     if constexpr (SCALE == 0) {
         shift_vp = bpc;
         add_shift_round_vp = 1u << (bpc - 1);
@@ -310,7 +312,8 @@ static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, co
             fcoeff_rd[i] = vif_filter1d_table[SCALE + 1][i];
     }
 
-    constexpr int WG_X = 16, WG_Y = 16;
+    constexpr int WG_X = 16;
+    constexpr int WG_Y = 16;
     sycl::range<2> global(((height + WG_Y - 1) / WG_Y) * WG_Y, ((width + WG_X - 1) / WG_X) * WG_X);
     sycl::range<2> local(WG_Y, WG_X);
 
@@ -359,19 +362,19 @@ static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, co
 
             if (interior_wg) {
                 for (unsigned i = lid; i < tile_elems; i += wg_size) {
-                    unsigned tr = i / WG_X;
-                    unsigned tc = i % WG_X;
-                    int px = tile_col_x + (int)tc;
-                    int py = tile_origin_y + (int)tr;
+                    unsigned const tr = i / WG_X;
+                    unsigned const tc = i % WG_X;
+                    int const px = tile_col_x + (int)tc;
+                    int const py = tile_origin_y + (int)tr;
                     s_ref[tr][tc] = read_global(p_ref, py, px);
                     s_dis[tr][tc] = read_global(p_dis, py, px);
                 }
             } else {
                 for (unsigned i = lid; i < tile_elems; i += wg_size) {
-                    unsigned tr = i / WG_X;
-                    unsigned tc = i % WG_X;
+                    unsigned const tr = i / WG_X;
+                    unsigned const tc = i % WG_X;
                     int px = tile_col_x + (int)tc;
-                    int py = dev_mirror(tile_origin_y + (int)tr, (int)e_h);
+                    int const py = dev_mirror(tile_origin_y + (int)tr, (int)e_h);
                     if (px < (int)e_w) {
                         px = dev_mirror(px, (int)e_w);
                         s_ref[tr][tc] = read_global(p_ref, py, px);
@@ -391,8 +394,11 @@ static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, co
 
             // mu and rd accumulators fit uint32 (filter sums to 65536,
             // max pixel 65535 → 65536*65535 < 2^32).
-            uint32_t acc_mu1 = 0, acc_mu2 = 0;
-            uint64_t acc_ref = 0, acc_dis = 0, acc_ref_dis = 0;
+            uint32_t acc_mu1 = 0;
+            uint32_t acc_mu2 = 0;
+            uint64_t acc_ref = 0;
+            uint64_t acc_dis = 0;
+            uint64_t acc_ref_dis = 0;
             uint32_t acc_ref_rd = 0, acc_dis_rd = 0;
 
 #pragma unroll
@@ -400,11 +406,11 @@ static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, co
                 // Thread's local Y + fi maps to the correct tile row
                 uint32_t rv = s_ref[ly + fi][lx];
                 uint32_t dv = s_dis[ly + fi][lx];
-                uint32_t fc = fcoeff[fi];
+                uint32_t const fc = fcoeff[fi];
 
                 // Keep intermediate as uint32 — widen only for squared terms
-                uint32_t img_coeff_ref = fc * rv;
-                uint32_t img_coeff_dis = fc * dv;
+                uint32_t const img_coeff_ref = fc * rv;
+                uint32_t const img_coeff_dis = fc * dv;
 
                 acc_mu1 += img_coeff_ref;
                 acc_mu2 += img_coeff_dis;
@@ -422,11 +428,13 @@ static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, co
             }
 
             // Quantize mu
-            uint32_t mu1_out = (uint32_t)((acc_mu1 + add_shift_round_vp) >> shift_vp);
-            uint32_t mu2_out = (uint32_t)((acc_mu2 + add_shift_round_vp) >> shift_vp);
+            uint32_t const mu1_out = (uint32_t)((acc_mu1 + add_shift_round_vp) >> shift_vp);
+            uint32_t const mu2_out = (uint32_t)((acc_mu2 + add_shift_round_vp) >> shift_vp);
 
             // Quantize squared terms
-            uint32_t ref_out, dis_out, ref_dis_out;
+            uint32_t ref_out;
+            uint32_t dis_out;
+            uint32_t ref_dis_out;
             if (shift_vp_sq > 0) {
                 ref_out = (uint32_t)((acc_ref + add_shift_round_vp_sq) >> shift_vp_sq);
                 dis_out = (uint32_t)((acc_dis + add_shift_round_vp_sq) >> shift_vp_sq);
@@ -438,7 +446,8 @@ static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, co
             }
 
             // Reduction filter output
-            uint32_t ref_rd_out = 0, dis_rd_out = 0;
+            uint32_t ref_rd_out = 0;
+            uint32_t dis_rd_out = 0;
             if constexpr (FW_RD > 0) {
                 ref_rd_out = (uint32_t)((acc_ref_rd + add_shift_round_vp) >> shift_vp);
                 dis_rd_out = (uint32_t)((acc_dis_rd + add_shift_round_vp) >> shift_vp);
@@ -522,7 +531,8 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
             fcoeff_rd[i] = vif_filter1d_table[SCALE + 1][i];
     }
 
-    constexpr int WG_X = 16, WG_Y = 16;
+    constexpr int WG_X = 16;
+    constexpr int WG_Y = 16;
     // Max subgroups: 256 / min_sg_size(8) = 32
     constexpr int MAX_SUBGROUPS = 32;
     sycl::range<2> global(((height + WG_Y - 1) / WG_Y) * WG_Y, ((width + WG_X - 1) / WG_X) * WG_X);
@@ -548,11 +558,16 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
                 const uint32_t n_subgroups = sg.get_group_linear_range();
 
                 // Accumulators (0 for out-of-bounds threads)
-                int64_t t_x = 0, t_x2 = 0, t_num_x = 0;
-                int64_t t_num_log = 0, t_den_log = 0;
-                int64_t t_num_non_log = 0, t_den_non_log = 0;
+                int64_t t_x = 0;
+                int64_t t_x2 = 0;
+                int64_t t_num_x = 0;
+                int64_t t_num_log = 0;
+                int64_t t_den_log = 0;
+                int64_t t_num_non_log = 0;
+                int64_t t_den_non_log = 0;
                 // rd accumulators: uint32 safe (max = 65536 * 65535 < 2^32)
-                uint32_t h_ref_rd = 0, h_dis_rd = 0;
+                uint32_t h_ref_rd = 0;
+                uint32_t h_dis_rd = 0;
 
                 if (valid) {
 
@@ -573,8 +588,11 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
                     // (vert output ≤ 65535 regardless of bpc; filter sums to 65536).
                     // rd accumulators: uint32 safe, same analysis as mu.
                     // ref/dis/ref_dis: need uint64 (vert output can be up to 2^32-1).
-                    uint32_t h_mu1 = 0, h_mu2 = 0;
-                    uint64_t h_ref = 0, h_dis = 0, h_ref_dis = 0;
+                    uint32_t h_mu1 = 0;
+                    uint32_t h_mu2 = 0;
+                    uint64_t h_ref = 0;
+                    uint64_t h_dis = 0;
+                    uint64_t h_ref_dis = 0;
                     constexpr bool DO_RD = (FW_RD > 0);
                     unsigned buf_row = gy * stride_tmp;
 
@@ -600,19 +618,20 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
 // Symmetric pairs
 #pragma unroll
                         for (int fj = 0; fj < HALF_FW; fj++) {
-                            unsigned idx_lo = buf_base + (unsigned)fj;
+                            unsigned const idx_lo = buf_base + (unsigned)fj;
                             unsigned idx_hi = buf_base + (unsigned)(FW - 1 - fj);
-                            uint32_t fc = fcoeff[fj];
+                            uint32_t const fc = fcoeff[fj];
 
-                            uint32_t sum_mu1 = tmp_mu1[idx_lo] + tmp_mu1[idx_hi];
-                            uint32_t sum_mu2 = tmp_mu2[idx_lo] + tmp_mu2[idx_hi];
+                            uint32_t const sum_mu1 = tmp_mu1[idx_lo] + tmp_mu1[idx_hi];
+                            uint32_t const sum_mu2 = tmp_mu2[idx_lo] + tmp_mu2[idx_hi];
                             h_mu1 += fc * sum_mu1;
                             h_mu2 += fc * sum_mu2;
 
                             // uint64 for pair sum: each tmp value can reach ~4.26e9
-                            uint64_t sum_ref = (uint64_t)tmp_ref[idx_lo] + tmp_ref[idx_hi];
-                            uint64_t sum_dis = (uint64_t)tmp_dis[idx_lo] + tmp_dis[idx_hi];
-                            uint64_t sum_rd = (uint64_t)tmp_ref_dis[idx_lo] + tmp_ref_dis[idx_hi];
+                            uint64_t const sum_ref = (uint64_t)tmp_ref[idx_lo] + tmp_ref[idx_hi];
+                            uint64_t const sum_dis = (uint64_t)tmp_dis[idx_lo] + tmp_dis[idx_hi];
+                            uint64_t const sum_rd =
+                                (uint64_t)tmp_ref_dis[idx_lo] + tmp_ref_dis[idx_hi];
                             h_ref += (uint64_t)fc * sum_ref;
                             h_dis += (uint64_t)fc * sum_dis;
                             h_ref_dis += (uint64_t)fc * sum_rd;
@@ -632,8 +651,8 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
 #pragma unroll
                         for (int fi = 0; fi < FW; fi++) {
                             int sx = mx(gx - HALF_FW + fi);
-                            unsigned sidx = buf_row + sx;
-                            uint32_t fc = fcoeff[fi];
+                            unsigned const sidx = buf_row + sx;
+                            uint32_t const fc = fcoeff[fi];
 
                             h_mu1 += fc * tmp_mu1[sidx];
                             h_mu2 += fc * tmp_mu2[sidx];
@@ -652,22 +671,22 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
                     }
 
                     // Horizontal quantization (shift by 16)
-                    uint32_t mu1_val = (uint32_t)h_mu1;
-                    uint32_t mu2_val = (uint32_t)h_mu2;
-                    uint32_t xx_filt = (uint32_t)((h_ref + 32768) >> 16);
-                    uint32_t yy_filt = (uint32_t)((h_dis + 32768) >> 16);
-                    uint32_t xy_filt = (uint32_t)((h_ref_dis + 32768) >> 16);
+                    uint32_t const mu1_val = (uint32_t)h_mu1;
+                    uint32_t const mu2_val = (uint32_t)h_mu2;
+                    uint32_t const xx_filt = (uint32_t)((h_ref + 32768) >> 16);
+                    uint32_t const yy_filt = (uint32_t)((h_dis + 32768) >> 16);
+                    uint32_t const xy_filt = (uint32_t)((h_ref_dis + 32768) >> 16);
 
-                    uint32_t mu1_sq =
+                    uint32_t const mu1_sq =
                         (uint32_t)(((uint64_t)mu1_val * mu1_val + 2147483648ULL) >> 32);
-                    uint32_t mu2_sq =
+                    uint32_t const mu2_sq =
                         (uint32_t)(((uint64_t)mu2_val * mu2_val + 2147483648ULL) >> 32);
-                    uint32_t mu1_mu2 =
+                    uint32_t const mu1_mu2 =
                         (uint32_t)(((uint64_t)mu1_val * mu2_val + 2147483648ULL) >> 32);
 
                     int32_t sigma1_sq = (int32_t)(xx_filt - mu1_sq);
                     int32_t sigma2_sq = (int32_t)(yy_filt - mu2_sq);
-                    int32_t sigma12 = (int32_t)(xy_filt - mu1_mu2);
+                    int32_t const sigma12 = (int32_t)(xy_filt - mu1_mu2);
                     if (sigma1_sq < 0)
                         sigma1_sq = 0;
                     if (sigma2_sq < 0)
@@ -687,28 +706,29 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
                             gg_sigma_f = g * g * (float)sigma1_sq;
                         }
 
-                        uint32_t log_den_stage1 = (uint32_t)((int64_t)SIGMA_NSQ + sigma1_sq);
+                        uint32_t const log_den_stage1 = (uint32_t)((int64_t)SIGMA_NSQ + sigma1_sq);
                         int x_exp = 0;
-                        uint32_t log_den1 = dev_get_best16_from32(log_den_stage1, x_exp);
+                        uint32_t const log_den1 = dev_get_best16_from32(log_den_stage1, x_exp);
 
                         t_num_x += 1;
                         t_x += x_exp;
 
-                        uint32_t den_val = log2_lut[log_den1 - 32768];
+                        uint32_t const den_val = log2_lut[log_den1 - 32768];
 
                         if (sigma12 >= 0) {
-                            uint32_t numer1 = (uint32_t)(sv_sq) + (uint32_t)SIGMA_NSQ;
-                            uint64_t numer1_tmp =
+                            uint32_t const numer1 = (uint32_t)(sv_sq) + (uint32_t)SIGMA_NSQ;
+                            uint64_t const numer1_tmp =
                                 (uint64_t)(int64_t)(gg_sigma_f) + (uint64_t)numer1;
 
-                            int x1 = 0, x2_val = 0;
-                            uint32_t numlog = dev_get_best16_from64(numer1_tmp, x1);
-                            uint32_t denlog = dev_get_best16_from64((uint64_t)numer1, x2_val);
+                            int x1 = 0;
+                            int x2_val = 0;
+                            uint32_t const numlog = dev_get_best16_from64(numer1_tmp, x1);
+                            uint32_t const denlog = dev_get_best16_from64((uint64_t)numer1, x2_val);
 
                             t_x2 += (x2_val - x1);
 
-                            int32_t num_val = (int32_t)log2_lut[numlog - 32768] -
-                                              (int32_t)log2_lut[denlog - 32768];
+                            int32_t const num_val = (int32_t)log2_lut[numlog - 32768] -
+                                                    (int32_t)log2_lut[denlog - 32768];
                             t_num_log += (int64_t)num_val;
                         }
 
@@ -772,11 +792,11 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
                 // Downsample for next scale (even coords, valid threads only)
                 if constexpr (FW_RD > 0) {
                     if (valid && (gx % 2 == 0) && (gy % 2 == 0)) {
-                        uint32_t ref_rd_val = (uint32_t)((h_ref_rd + 32768) >> 16);
-                        uint32_t dis_rd_val = (uint32_t)((h_dis_rd + 32768) >> 16);
+                        uint32_t const ref_rd_val = (uint32_t)((h_ref_rd + 32768) >> 16);
+                        uint32_t const dis_rd_val = (uint32_t)((h_dis_rd + 32768) >> 16);
                         unsigned rd_x = gx / 2;
                         unsigned rd_y = gy / 2;
-                        unsigned rd_stride = e_w / 2;
+                        unsigned const rd_stride = e_w / 2;
                         rd_ref[rd_y * rd_stride + rd_x] = ref_rd_val & 0xFFFF;
                         rd_dis[rd_y * rd_stride + rd_x] = dis_rd_val & 0xFFFF;
                     }
@@ -888,7 +908,8 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
     constexpr bool DO_RD = (FW_RD > 0);
 
     // WG_Y=8 keeps s_vert small enough for good occupancy
-    constexpr int WG_X = 16, WG_Y = 8;
+    constexpr int WG_X = 16;
+    constexpr int WG_Y = 8;
     constexpr int WG_SIZE = WG_X * WG_Y; // 128
     constexpr int MAX_SUBGROUPS = 16;    // ≥ WG_SIZE/min_sg_size
 
@@ -907,8 +928,10 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
             fcoeff_rd[i] = vif_filter1d_table[SCALE + 1][i];
     }
 
-    unsigned shift_vp, add_shift_round_vp;
-    unsigned shift_vp_sq, add_shift_round_vp_sq;
+    unsigned shift_vp;
+    unsigned add_shift_round_vp;
+    unsigned shift_vp_sq;
+    unsigned add_shift_round_vp_sq;
     if constexpr (SCALE == 0) {
         shift_vp = bpc;
         add_shift_round_vp = 1u << (bpc - 1);
@@ -976,8 +999,8 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                     for (unsigned i = lid; i < tile_elems; i += WG_SIZE) {
                         unsigned tr = i / TILE_W;
                         unsigned tc = i % TILE_W;
-                        int py = tile_origin_y + (int)tr;
-                        int px = tile_origin_x + (int)tc;
+                        int const py = tile_origin_y + (int)tr;
+                        int const px = tile_origin_x + (int)tc;
                         s_ref[tr * TILE_W + tc] = read_global(p_ref, py, px);
                         s_dis[tr * TILE_W + tc] = read_global(p_dis, py, px);
                     }
@@ -985,8 +1008,8 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                     for (unsigned i = lid; i < tile_elems; i += WG_SIZE) {
                         unsigned tr = i / TILE_W;
                         unsigned tc = i % TILE_W;
-                        int py = dev_mirror(tile_origin_y + (int)tr, (int)e_h);
-                        int px = dev_mirror(tile_origin_x + (int)tc, (int)e_w);
+                        int const py = dev_mirror(tile_origin_y + (int)tr, (int)e_h);
+                        int const px = dev_mirror(tile_origin_x + (int)tc, (int)e_w);
                         s_ref[tr * TILE_W + tc] = read_global(p_ref, py, px);
                         s_dis[tr * TILE_W + tc] = read_global(p_dis, py, px);
                     }
@@ -1003,8 +1026,11 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                     unsigned r = i / TILE_W;
                     unsigned c = i % TILE_W;
 
-                    uint32_t a_mu1 = 0, a_mu2 = 0;
-                    uint64_t a_ref = 0, a_dis = 0, a_ref_dis = 0;
+                    uint32_t a_mu1 = 0;
+                    uint32_t a_mu2 = 0;
+                    uint64_t a_ref = 0;
+                    uint64_t a_dis = 0;
+                    uint64_t a_ref_dis = 0;
                     uint32_t a_ref_rd = 0, a_dis_rd = 0;
 
 #pragma unroll
@@ -1012,10 +1038,10 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                         unsigned sidx = (r + (unsigned)fi) * TILE_W + c;
                         uint32_t rv = s_ref[sidx];
                         uint32_t dv = s_dis[sidx];
-                        uint32_t fc = fcoeff[fi];
+                        uint32_t const fc = fcoeff[fi];
 
-                        uint32_t icr = fc * rv;
-                        uint32_t icd = fc * dv;
+                        uint32_t const icr = fc * rv;
+                        uint32_t const icd = fc * dv;
                         a_mu1 += icr;
                         a_mu2 += icd;
                         a_ref += (uint64_t)icr * rv;
@@ -1066,14 +1092,22 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
 // Helper macro: read s_vert channel ch at (row, col)
 #define SV(ch, r, c) s_vert[(ch) * VERT_TOTAL + (r) * TILE_W + (c)]
 
-                int64_t t_x = 0, t_x2 = 0, t_num_x = 0;
-                int64_t t_num_log = 0, t_den_log = 0;
-                int64_t t_num_non_log = 0, t_den_non_log = 0;
-                uint32_t h_ref_rd = 0, h_dis_rd = 0;
+                int64_t t_x = 0;
+                int64_t t_x2 = 0;
+                int64_t t_num_x = 0;
+                int64_t t_num_log = 0;
+                int64_t t_den_log = 0;
+                int64_t t_num_non_log = 0;
+                int64_t t_den_non_log = 0;
+                uint32_t h_ref_rd = 0;
+                uint32_t h_dis_rd = 0;
 
                 if (valid) {
-                    uint32_t h_mu1 = 0, h_mu2 = 0;
-                    uint64_t h_ref = 0, h_dis = 0, h_ref_dis = 0;
+                    uint32_t h_mu1 = 0;
+                    uint32_t h_mu2 = 0;
+                    uint64_t h_ref = 0;
+                    uint64_t h_dis = 0;
+                    uint64_t h_ref_dis = 0;
 
                     // Center tap (unpaired)
                     {
@@ -1094,7 +1128,7 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
 // Symmetric pairs
 #pragma unroll
                     for (int fj = 0; fj < HALF_FW_H; fj++) {
-                        uint32_t fc = fcoeff[fj];
+                        uint32_t const fc = fcoeff[fj];
                         unsigned lo_c = lx + (unsigned)fj;
                         unsigned hi_c = lx + (unsigned)(FW_H - 1 - fj);
 
@@ -1116,22 +1150,22 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
 #undef SV
 
                     // Horizontal quantization (shift by 16)
-                    uint32_t mu1_val = (uint32_t)h_mu1;
-                    uint32_t mu2_val = (uint32_t)h_mu2;
-                    uint32_t xx_filt = (uint32_t)((h_ref + 32768) >> 16);
-                    uint32_t yy_filt = (uint32_t)((h_dis + 32768) >> 16);
-                    uint32_t xy_filt = (uint32_t)((h_ref_dis + 32768) >> 16);
+                    uint32_t const mu1_val = (uint32_t)h_mu1;
+                    uint32_t const mu2_val = (uint32_t)h_mu2;
+                    uint32_t const xx_filt = (uint32_t)((h_ref + 32768) >> 16);
+                    uint32_t const yy_filt = (uint32_t)((h_dis + 32768) >> 16);
+                    uint32_t const xy_filt = (uint32_t)((h_ref_dis + 32768) >> 16);
 
-                    uint32_t mu1_sq =
+                    uint32_t const mu1_sq =
                         (uint32_t)(((uint64_t)mu1_val * mu1_val + 2147483648ULL) >> 32);
-                    uint32_t mu2_sq =
+                    uint32_t const mu2_sq =
                         (uint32_t)(((uint64_t)mu2_val * mu2_val + 2147483648ULL) >> 32);
-                    uint32_t mu1_mu2 =
+                    uint32_t const mu1_mu2 =
                         (uint32_t)(((uint64_t)mu1_val * mu2_val + 2147483648ULL) >> 32);
 
                     int32_t sigma1_sq = (int32_t)(xx_filt - mu1_sq);
                     int32_t sigma2_sq = (int32_t)(yy_filt - mu2_sq);
-                    int32_t sigma12 = (int32_t)(xy_filt - mu1_mu2);
+                    int32_t const sigma12 = (int32_t)(xy_filt - mu1_mu2);
                     if (sigma1_sq < 0)
                         sigma1_sq = 0;
                     if (sigma2_sq < 0)
@@ -1151,28 +1185,29 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                             gg_sigma_f = g * g * (float)sigma1_sq;
                         }
 
-                        uint32_t log_den_stage1 = (uint32_t)((int64_t)SIGMA_NSQ + sigma1_sq);
+                        uint32_t const log_den_stage1 = (uint32_t)((int64_t)SIGMA_NSQ + sigma1_sq);
                         int x_exp = 0;
-                        uint32_t log_den1 = dev_get_best16_from32(log_den_stage1, x_exp);
+                        uint32_t const log_den1 = dev_get_best16_from32(log_den_stage1, x_exp);
 
                         t_num_x += 1;
                         t_x += x_exp;
 
-                        uint32_t den_val = log2_lut[log_den1 - 32768];
+                        uint32_t const den_val = log2_lut[log_den1 - 32768];
 
                         if (sigma12 >= 0) {
-                            uint32_t numer1 = (uint32_t)(sv_sq) + (uint32_t)SIGMA_NSQ;
-                            uint64_t numer1_tmp =
+                            uint32_t const numer1 = (uint32_t)(sv_sq) + (uint32_t)SIGMA_NSQ;
+                            uint64_t const numer1_tmp =
                                 (uint64_t)(int64_t)(gg_sigma_f) + (uint64_t)numer1;
 
-                            int x1 = 0, x2_val = 0;
-                            uint32_t numlog = dev_get_best16_from64(numer1_tmp, x1);
-                            uint32_t denlog = dev_get_best16_from64((uint64_t)numer1, x2_val);
+                            int x1 = 0;
+                            int x2_val = 0;
+                            uint32_t const numlog = dev_get_best16_from64(numer1_tmp, x1);
+                            uint32_t const denlog = dev_get_best16_from64((uint64_t)numer1, x2_val);
 
                             t_x2 += (x2_val - x1);
 
-                            int32_t num_val = (int32_t)log2_lut[numlog - 32768] -
-                                              (int32_t)log2_lut[denlog - 32768];
+                            int32_t const num_val = (int32_t)log2_lut[numlog - 32768] -
+                                                    (int32_t)log2_lut[denlog - 32768];
                             t_num_log += (int64_t)num_val;
                         }
 
@@ -1236,8 +1271,8 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
                 // Downsample for next scale
                 if constexpr (FW_RD > 0) {
                     if (valid && (gx % 2 == 0) && (gy % 2 == 0)) {
-                        uint32_t ref_rd_val = (uint32_t)((h_ref_rd + 32768) >> 16);
-                        uint32_t dis_rd_val = (uint32_t)((h_dis_rd + 32768) >> 16);
+                        uint32_t const ref_rd_val = (uint32_t)((h_ref_rd + 32768) >> 16);
+                        uint32_t const dis_rd_val = (uint32_t)((h_dis_rd + 32768) >> 16);
                         unsigned rd_x = gx / 2;
                         unsigned rd_y = gy / 2;
                         rd_ref[rd_y * (e_w / 2) + rd_x] = ref_rd_val & 0xFFFF;
@@ -1556,16 +1591,18 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
     std::memcpy(accums, s->h_accum, sizeof(accums));
 
     // Compute VIF scores per scale (CPU)
-    double score_num = 0.0, score_den = 0.0;
+    double score_num = 0.0;
+    double score_den = 0.0;
     double vif_scale_num[VIF_NUM_SCALES];
     double vif_scale_den[VIF_NUM_SCALES];
 
     for (int scale = 0; scale < VIF_NUM_SCALES; scale++) {
-        double num = accums[scale].num_log / 2048.0 + accums[scale].x2 +
-                     (accums[scale].den_non_log - (accums[scale].num_non_log / 16384.0) / 65025.0);
+        double const num =
+            accums[scale].num_log / 2048.0 + accums[scale].x2 +
+            (accums[scale].den_non_log - (accums[scale].num_non_log / 16384.0) / 65025.0);
 
-        double den = accums[scale].den_log / 2048.0 - (accums[scale].x + accums[scale].num_x * 17) +
-                     accums[scale].den_non_log;
+        double const den = accums[scale].den_log / 2048.0 -
+                           (accums[scale].x + accums[scale].num_x * 17) + accums[scale].den_non_log;
 
         vif_scale_num[scale] = num;
         vif_scale_den[scale] = den;
@@ -1575,24 +1612,24 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
     // Write primary per-scale features
     for (int i = 0; i < VIF_NUM_SCALES; i++) {
-        double score = (vif_scale_den[i] > 0.0) ? vif_scale_num[i] / vif_scale_den[i] : 1.0;
+        double const score = (vif_scale_den[i] > 0.0) ? vif_scale_num[i] / vif_scale_den[i] : 1.0;
 
-        static const char *key_names[] = {
+        static const char *const key_names[] = {
             "VMAF_integer_feature_vif_scale0_score",
             "VMAF_integer_feature_vif_scale1_score",
             "VMAF_integer_feature_vif_scale2_score",
             "VMAF_integer_feature_vif_scale3_score",
         };
 
-        int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                          key_names[i], score, index);
+        int const err = vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, key_names[i], score, index);
         if (err)
             return err;
     }
 
     // Debug features
     if (s->debug) {
-        double vif = (score_den > 0.0) ? score_num / score_den : 1.0;
+        double const vif = (score_den > 0.0) ? score_num / score_den : 1.0;
 
         vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                 "integer_vif", vif, index);
@@ -1603,10 +1640,10 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
         for (int i = 0; i < VIF_NUM_SCALES; i++) {
             char name[64];
-            std::snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
+            (void)std::snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
             vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
                                                     vif_scale_num[i], index);
-            std::snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
+            (void)std::snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
             vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
                                                     vif_scale_den[i], index);
         }
@@ -1621,7 +1658,7 @@ static int extract_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                             VmafPicture *dist_pic_90, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
-    int err = submit_fex_sycl(fex, ref_pic, ref_pic_90, dist_pic, dist_pic_90, index);
+    int const err = submit_fex_sycl(fex, ref_pic, ref_pic_90, dist_pic, dist_pic_90, index);
     if (err)
         return err;
     return collect_fex_sycl(fex, index, feature_collector);

@@ -93,7 +93,8 @@ static char *test_feature_extractor_flush()
     err = vmaf_feature_extractor_context_create(&fex_ctx, fex, NULL);
     mu_assert("problem during vmaf_feature_extractor_context_create", !err);
 
-    VmafPicture ref, dist;
+    VmafPicture ref;
+    VmafPicture dist;
     err = vmaf_picture_alloc(&ref, VMAF_PIX_FMT_YUV420P, 8, 1920, 1080);
     mu_assert("problem during vmaf_picture_alloc", !err);
     err = vmaf_picture_alloc(&dist, VMAF_PIX_FMT_YUV420P, 8, 1920, 1080);
@@ -145,7 +146,8 @@ static char *test_feature_extractor_initialization_options()
     err = vmaf_feature_extractor_context_create(&fex_ctx, fex, opts_dict);
     mu_assert("problem during vmaf_feature_extractor_context_create", !err);
 
-    VmafPicture ref, dist;
+    VmafPicture ref;
+    VmafPicture dist;
     err = vmaf_picture_alloc(&ref, VMAF_PIX_FMT_YUV420P, 8, 1920, 1080);
     mu_assert("problem during vmaf_picture_alloc", !err);
     err = vmaf_picture_alloc(&dist, VMAF_PIX_FMT_YUV420P, 8, 1920, 1080);

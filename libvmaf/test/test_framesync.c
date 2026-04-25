@@ -75,7 +75,7 @@ static void my_worker(void *data, void **tpool_thread_data)
 
     for (ctr = 0; ctr < FRAME_BUF_LEN; ctr++) {
         if (dependent_buf[ctr] != (thread_data->ref[ctr] + thread_data->dist[ctr])) {
-            fprintf(stderr, "verification error in frame index %d\n", thread_data->index);
+            (void)fprintf(stderr, "verification error in frame index %d\n", thread_data->index);
         }
     }
 
@@ -89,7 +89,8 @@ cleanup:
 
 static char *test_framesync_create_process_and_destroy()
 {
-    int err, frame_index;
+    int err;
+    int frame_index;
 
     VmafThreadPool *pool;
     VmafFrameSyncContext *fs_ctx;
@@ -102,12 +103,12 @@ static char *test_framesync_create_process_and_destroy()
     err = vmaf_framesync_init(&fs_ctx);
     mu_assert("problem during vmaf_framesync_init", !err);
 
-    fprintf(stderr, "\n");
+    (void)fprintf(stderr, "\n");
     for (frame_index = 0; frame_index < NUM_TEST_FRAMES; frame_index++) {
         uint8_t *pic_a = malloc(FRAME_BUF_LEN);
         uint8_t *pic_b = malloc(FRAME_BUF_LEN);
 
-        fprintf(stderr, "processing frame %d\r", frame_index);
+        (void)fprintf(stderr, "processing frame %d\r", frame_index);
 
         memset(pic_a, frame_index, FRAME_BUF_LEN);
         memset(pic_b, frame_index, FRAME_BUF_LEN);
@@ -130,7 +131,7 @@ static char *test_framesync_create_process_and_destroy()
             mu_assert("problem during vmaf_thread_pool_wait", !err);
         }
     }
-    fprintf(stderr, "\n");
+    (void)fprintf(stderr, "\n");
 
     err = vmaf_thread_pool_wait(pool);
     mu_assert("problem during vmaf_thread_pool_wait\n", !err);

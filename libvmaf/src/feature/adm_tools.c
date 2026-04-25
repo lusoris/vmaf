@@ -117,7 +117,8 @@ float adm_sum_cube_s(const float *x, int w, int h, int stride, double border_fac
     }
 #endif
 
-    int i, j;
+    int i;
+    int j;
 
     float val;
     double accum = 0;
@@ -172,7 +173,12 @@ void adm_decouple_s(const adm_dwt_band_t_s *ref, const adm_dwt_band_t_s *dis,
         bottom = h;
     }
 
-    float oh, ov, od, th, tv, td;
+    float oh;
+    float ov;
+    float od;
+    float th;
+    float tv;
+    float td;
     float kh, kv, kd, rst_h, rst_v, rst_d;
 #ifdef ADM_OPT_AVOID_ATAN
     float ot_dp, o_mag_sq, t_mag_sq;
@@ -180,7 +186,8 @@ void adm_decouple_s(const adm_dwt_band_t_s *ref, const adm_dwt_band_t_s *dis,
     float oa, ta, diff;
 #endif
     int angle_flag;
-    int i, j;
+    int i;
+    int j;
 
     for (i = top; i < bottom; ++i) {
         for (j = left; j < right; ++j) {
@@ -300,7 +307,8 @@ void adm_csf_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
     // TODO: we will add more CSF functions here
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
                                     adm_ref_display_height);
     factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
@@ -326,7 +334,11 @@ void adm_csf_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
         bottom = h;
     }
 
-    int i, j, theta, src_offset, dst_offset;
+    int i;
+    int j;
+    int theta;
+    int src_offset;
+    int dst_offset;
     float dst_val;
 
 #if ARCH_X86
@@ -340,9 +352,10 @@ void adm_csf_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
             csf_fn = float_adm_csf_avx512;
 #endif
         if (csf_fn) {
-            for (theta = 0; theta < 3; ++theta)
+            for (theta = 0; theta < 3; ++theta) {
                 csf_fn(src_angles[theta], dst_angles[theta], flt_angles[theta], w, h, src_stride,
                        dst_stride, rfactor[theta], FLOAT_ONE_BY_30);
+            }
             return;
         }
     }
@@ -384,23 +397,32 @@ float adm_csf_den_scale_s(const adm_dwt_band_t_s *src, int orig_h, int scale, in
     (void)adm_csf_mode;
     (void)orig_h;
 
-    float *src_h = src->band_h, *src_v = src->band_v, *src_d = src->band_d;
+    float *src_h = src->band_h;
+    float *src_v = src->band_v;
+    float *src_d = src->band_d;
 
     int src_px_stride = src_stride / sizeof(float);
 
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
     // TODO: we will add more CSF functions here
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
                                     adm_ref_display_height);
     factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
                                     adm_ref_display_height);
     float rfactor[3] = {factor1, factor1, factor2};
 
-    double accum_h = 0, accum_v = 0, accum_d = 0;
-    double accum_inner_h, accum_inner_v, accum_inner_d;
-    float den_scale_h, den_scale_v, den_scale_d;
+    double accum_h = 0;
+    double accum_v = 0;
+    double accum_d = 0;
+    double accum_inner_h;
+    double accum_inner_v;
+    double accum_inner_d;
+    float den_scale_h;
+    float den_scale_v;
+    float den_scale_d;
 
     float val;
 
@@ -450,7 +472,8 @@ float adm_csf_den_scale_s(const adm_dwt_band_t_s *src, int orig_h, int scale, in
     }
 #endif
 
-    int i, j;
+    int i;
+    int j;
 
     for (i = top; i < bottom; ++i) {
         accum_inner_h = 0;
@@ -498,7 +521,8 @@ float adm_cm_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *csf_f,
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
     // TODO: we will add more CSF functions here
-    float factor1, factor2;
+    float factor1;
+    float factor2;
     factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
                                     adm_ref_display_height);
     factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
@@ -511,12 +535,21 @@ float adm_cm_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *csf_f,
     int src_px_stride = src_stride / sizeof(float);
     int csf_px_stride = csf_a_stride / sizeof(float);
 
-    float xh, xv, xd, thr;
+    float xh;
+    float xv;
+    float xd;
+    float thr;
 
     float val;
-    float accum_h = 0, accum_v = 0, accum_d = 0;
-    float accum_inner_h, accum_inner_v, accum_inner_d;
-    float num_scale_h, num_scale_v, num_scale_d;
+    float accum_h = 0;
+    float accum_v = 0;
+    float accum_d = 0;
+    float accum_inner_h;
+    float accum_inner_v;
+    float accum_inner_d;
+    float num_scale_h;
+    float num_scale_v;
+    float num_scale_d;
 
     /* The computation of the scales is not required for the regions which lie outside the frame borders */
     int left = w * border_factor - 0.5;
@@ -529,7 +562,8 @@ float adm_cm_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *csf_f,
     int start_row = (top > 1) ? top : 1;
     int end_row = (bottom < (h - 1)) ? bottom : (h - 1);
 
-    int i, j;
+    int i;
+    int j;
 
     /* i=0,j=0 */
     accum_inner_h = 0;
@@ -915,8 +949,12 @@ float adm_cm_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *csf_f,
 // This function stores the imgcoeff values used in adm_dwt2_s in buffers, which reduces the control code cycles.
 void dwt2_src_indices_filt_s(int **src_ind_y, int **src_ind_x, int w, int h)
 {
-    int i, j;
-    int ind0, ind1, ind2, ind3;
+    int i;
+    int j;
+    int ind0;
+    int ind1;
+    int ind2;
+    int ind3;
     /* Vertical pass */
     for (i = 0; i < (h + 1) / 2; ++i) { /* Index = 2 * i - 1 + fi */
         ind0 = 2 * i - 1;
@@ -996,11 +1034,18 @@ void adm_dwt2_s(const float *src, const adm_dwt_band_t_s *dst, int **ind_y, int 
 
     float *tmplo = aligned_malloc(ALIGN_CEIL(sizeof(float) * w), MAX_ALIGN);
     float *tmphi = aligned_malloc(ALIGN_CEIL(sizeof(float) * w), MAX_ALIGN);
-    float s0, s1, s2, s3;
+    float s0;
+    float s1;
+    float s2;
+    float s3;
     float accum;
 
-    int i, j;
-    int j0, j1, j2, j3;
+    int i;
+    int j;
+    int j0;
+    int j1;
+    int j2;
+    int j3;
 
     for (i = 0; i < (h + 1) / 2; ++i) {
         /* Vertical pass. */
@@ -1086,11 +1131,18 @@ void adm_dwt2_d(const double *src, const adm_dwt_band_t_d *dst, int **ind_y, int
 
     double *tmplo = aligned_malloc(ALIGN_CEIL(sizeof(double) * w), MAX_ALIGN);
     double *tmphi = aligned_malloc(ALIGN_CEIL(sizeof(double) * w), MAX_ALIGN);
-    double s0, s1, s2, s3;
+    double s0;
+    double s1;
+    double s2;
+    double s3;
     double accum;
 
-    int i, j;
-    int j0, j1, j2, j3;
+    int i;
+    int j;
+    int j0;
+    int j1;
+    int j2;
+    int j3;
 
     for (i = 0; i < (h + 1) / 2; ++i) {
         /* Vertical pass. */

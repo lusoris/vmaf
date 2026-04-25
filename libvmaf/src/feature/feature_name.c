@@ -140,16 +140,16 @@ char *vmaf_feature_name_from_options(const char *name, const VmafOption *opts, v
 
         switch (opt->type) {
         case VMAF_OPT_TYPE_BOOL:
-            snprintf(buf, buf_sz, "%s", *((bool *)data) ? "true" : "false");
+            (void)snprintf(buf, buf_sz, "%s", *((bool *)data) ? "true" : "false");
             break;
         case VMAF_OPT_TYPE_INT:
-            snprintf(buf, buf_sz, "%d", *((int *)data));
+            (void)snprintf(buf, buf_sz, "%d", *((int *)data));
             break;
         case VMAF_OPT_TYPE_DOUBLE:
-            snprintf(buf, buf_sz, "%g", *((double *)data));
+            (void)snprintf(buf, buf_sz, "%g", *((double *)data));
             break;
         case VMAF_OPT_TYPE_STRING:
-            snprintf(buf, buf_sz, "%s", *((char **)data));
+            (void)snprintf(buf, buf_sz, "%s", *((char **)data));
             break;
         default:
             break;

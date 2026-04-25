@@ -221,7 +221,8 @@ static char *test_ort_io_count_null_args(void)
 {
     if (!vmaf_dnn_available())
         return NULL;
-    size_t a = 0, b = 0;
+    size_t a = 0;
+    size_t b = 0;
     mu_assert("io_count NULL sess", vmaf_ort_io_count(NULL, &a, &b) == -EINVAL);
     /* Need a real session for the other NULL-arg paths. Open one cheaply. */
     VmafOrtSession *sess = NULL;

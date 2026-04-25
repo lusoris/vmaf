@@ -24,7 +24,7 @@
 
 static char *test_vmaf_log()
 {
-    fprintf(stderr, "\n");
+    (void)fprintf(stderr, "\n");
 
     vmaf_set_log_level(VMAF_LOG_LEVEL_DEBUG);
     vmaf_log(VMAF_LOG_LEVEL_ERROR, "this is an example %s log\n", "error");

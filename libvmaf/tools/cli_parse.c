@@ -86,14 +86,14 @@ static const char *resolve_precision_fmt(const char *optarg, const char *app, CL
     char *end;
     long n = strtol(optarg, &end, 10);
     if (*end || end == optarg || n < 1 || n > 17) {
-        fprintf(stderr,
-                "%s: --precision must be an integer 1..17, "
-                "or one of: max, full, legacy (got: %s)\n",
-                app, optarg);
+        (void)fprintf(stderr,
+                      "%s: --precision must be an integer 1..17, "
+                      "or one of: max, full, legacy (got: %s)\n",
+                      app, optarg);
         exit(1);
     }
     s->precision_n = (int)n;
-    snprintf(precision_fmt_buf, sizeof precision_fmt_buf, "%%.%ldg", n);
+    (void)snprintf(precision_fmt_buf, sizeof precision_fmt_buf, "%%.%ldg", n);
     return precision_fmt_buf;
 }
 
@@ -140,17 +140,18 @@ static const struct option long_opts[] = {
     {NULL, 0, NULL, 0},
 };
 
+_Noreturn static void usage(const char *const app, const char *const reason, ...);
 static void usage(const char *const app, const char *const reason, ...)
 {
     if (reason) {
         va_list args;
         va_start(args, reason);
-        vfprintf(stderr, reason, args);
+        (void)vfprintf(stderr, reason, args);
         va_end(args);
-        fprintf(stderr, "\n\n");
+        (void)fprintf(stderr, "\n\n");
     }
-    fprintf(stderr, "Usage: %s [options]\n\n", app);
-    fprintf(
+    (void)fprintf(stderr, "Usage: %s [options]\n\n", app);
+    (void)fprintf(
         stderr,
         "Supported options:\n"
         " --reference/-r $path:        path to reference .y4m or .yuv\n"
@@ -223,14 +224,15 @@ static void error(const char *const app, const char *const optarg, const int opt
     char optname[256];
     int n;
 
-    for (n = 0; long_opts[n].name; n++)
+    for (n = 0; long_opts[n].name; n++) {
         if (long_opts[n].val == option)
             break;
+    }
     assert(long_opts[n].name);
     if (long_opts[n].val < 256) {
-        sprintf(optname, "-%c/--%s", long_opts[n].val, long_opts[n].name);
+        (void)sprintf(optname, "-%c/--%s", long_opts[n].val, long_opts[n].name);
     } else {
-        sprintf(optname, "--%s", long_opts[n].name);
+        (void)sprintf(optname, "--%s", long_opts[n].name);
     }
 
     usage(app, "Invalid argument \"%s\" for option %s; should be %s", optarg, optname, shouldbe);
@@ -265,10 +267,11 @@ static enum VmafPixelFormat parse_pix_fmt(const char *const optarg, const int op
     if (!strcmp(optarg, "444"))
         pix_fmt = VMAF_PIX_FMT_YUV444P;
 
-    if (!pix_fmt)
+    if (!pix_fmt) {
         error(app, optarg, option,
               "a valid pixel format "
               "(420/422/444)");
+    }
 
     return pix_fmt;
 }
@@ -663,7 +666,7 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             settings->quiet = true;
             break;
         case 'v':
-            fprintf(stderr, "%s\n", vmaf_version());
+            (void)fprintf(stderr, "%s\n", vmaf_version());
             exit(0);
         default:
             break;

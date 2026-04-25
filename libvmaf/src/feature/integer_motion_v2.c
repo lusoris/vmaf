@@ -174,24 +174,27 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (!s->y_row)
         return -ENOMEM;
 
-    if (bpc == 8)
+    if (bpc == 8) {
         s->pipeline = motion_score_pipeline_8;
-    else
+    } else {
         s->pipeline = motion_score_pipeline_16;
+    }
 
 #if ARCH_X86
     if (vmaf_get_cpu_flags() & VMAF_X86_CPU_FLAG_AVX2) {
-        if (bpc == 8)
+        if (bpc == 8) {
             s->pipeline = motion_score_pipeline_8_avx2;
-        else
+        } else {
             s->pipeline = motion_score_pipeline_16_avx2;
+        }
     }
 #if HAVE_AVX512
     if (vmaf_get_cpu_flags() & VMAF_X86_CPU_FLAG_AVX512) {
-        if (bpc == 8)
+        if (bpc == 8) {
             s->pipeline = motion_score_pipeline_8_avx512;
-        else
+        } else {
             s->pipeline = motion_score_pipeline_16_avx512;
+        }
     }
 #endif
 #endif
@@ -260,7 +263,8 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
         return 1;
 
     for (unsigned i = 0; i < n_frames; i++) {
-        double score_cur, score_next;
+        double score_cur;
+        double score_next;
         vmaf_feature_collector_get_score(feature_collector,
                                          "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
 
@@ -283,6 +287,7 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
 static const char *provided_features[] = {"VMAF_integer_feature_motion_v2_sad_score",
                                           "VMAF_integer_feature_motion2_v2_score", NULL};
 
+// NOLINTNEXTLINE(misc-use-internal-linkage): extern symbol referenced by feature_extractor.c registry.
 VmafFeatureExtractor vmaf_fex_integer_motion_v2 = {
     .name = "motion_v2",
     .init = init,
