@@ -8,6 +8,24 @@
 
 ### Added
 
+- **Bounded `Loop.M` trip-count guard** (fork-local): closes the
+  follow-up deferred in ADR-0169. Two layers, mirroring the
+  ADR-0167 doc-drift enforcement pattern. (1) Python export-time
+  `vmaf_train.op_allowlist` traces every `Loop`'s first input back
+  to a `Constant` int64 scalar (recurses into subgraphs); rejects
+  graph-input M, non-Constant producers, and values outside
+  `[0, MAX_LOOP_TRIP_COUNT]` (default 1024, per-call overridable).
+  `AllowlistReport.loop_violations` carries actionable diagnostics.
+  (2) C wire-format scanner caps total `Loop` nodes per model at
+  `VMAF_DNN_MAX_LOOP_NODES = 16` via a counter threaded through
+  `scan_graph` / `scan_node` / `scan_attribute`; rejects with
+  `-EPERM` and `first_bad="Loop"` on exceedance. C cap is
+  intentionally coarser than the Python data-flow check —
+  reproducing producer-map lookup would violate the ADR D39
+  "no libprotobuf-c" scanner-scope constraint. 5 new Python tests
+  + 1 new C test. See
+  [ADR-0171](docs/adr/0171-bounded-loop-trip-count.md). Closes
+  BACKLOG T6-5b.
 - **`vmaf_pre` ffmpeg filter handles 10/12-bit + optional chroma**
   (fork-local): new public libvmaf API `vmaf_dnn_session_run_plane16`
   accepts packed `uint16` LE single-plane buffers with a `bpc`

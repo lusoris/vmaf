@@ -38,12 +38,29 @@ and applies the same allowlist check at every depth (capped at 8
 levels of nesting as a defence-in-depth bound). A forbidden op cannot
 hide inside a control-flow body.
 
-> **Caveat — bounded-iteration guard not yet enforced.** A `Loop`
-> with an unbounded or attacker-controlled trip count can enter a
-> long-running compute loop at runtime. The fork's load-time scanner
-> does not yet enforce that `Loop.M` traces to a `Constant ≤ MAX`.
-> Operators consuming untrusted models should set an inference
-> timeout via ORT's `RunOptions`. Tracked as backlog item T6-5b.
+**Bounded-iteration guard** (added in
+[ADR-0171](../adr/0171-bounded-loop-trip-count.md)). Two layers
+mirror the doc-drift enforcement model:
+
+- **Export-time (`vmaf-train`)**: `vmaf_train.op_allowlist` traces
+  every `Loop.M` input back to a `Constant` int64 scalar and
+  rejects when the producer is a graph input, a non-Constant op,
+  or carries a value outside `[0, MAX_LOOP_TRIP_COUNT]` (default
+  1024, per-call overridable for legitimate longer pipelines).
+  Recursion descends into nested subgraphs — a `Loop` inside a
+  `Loop.body` must be statically bounded in its own scope.
+- **Load-time (libvmaf wire scanner)**: a counter threaded through
+  the scanner caps the total number of `Loop` nodes per model at
+  `VMAF_DNN_MAX_LOOP_NODES = 16` across the top-level graph and
+  every embedded subgraph. The cap is coarser than the Python
+  data-flow check by design — reproducing producer-map lookup in
+  a wire-format scanner would violate the ADR D39
+  "bounded-auditable-scope" constraint that keeps the scanner from
+  pulling in `libprotobuf-c`.
+
+A model has to clear **both** layers to load. Models that bypass
+the trainer (HTTP-fetched, MCP-uploaded, third-party tiny-AI
+registries) still hit the load-time cap.
 
 Extending the list is a conscious, reviewed act — changes to
 `op_allowlist.c` must be called out in the PR description and backed by a
