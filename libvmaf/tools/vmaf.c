@@ -44,6 +44,9 @@
 #ifdef HAVE_SYCL
 #include "libvmaf/libvmaf_sycl.h"
 #endif
+#ifdef HAVE_VULKAN
+#include "libvmaf/libvmaf_vulkan.h"
+#endif
 
 static enum VmafPixelFormat pix_fmt_map(int pf)
 {
@@ -223,6 +226,10 @@ int main(int argc, char *argv[])
     bool sycl_active = false;
     VmafSyclState *sycl_state = NULL;
 #endif
+#ifdef HAVE_VULKAN
+    bool vulkan_active = false;
+    VmafVulkanState *vulkan_state = NULL;
+#endif
 
     if (istty && !c.quiet) {
         (void)fprintf(stderr, "VMAF version %s\n", vmaf_version());
@@ -348,6 +355,31 @@ int main(int argc, char *argv[])
         }
     }
     (void)cuda_active;
+#endif
+
+#ifdef HAVE_VULKAN
+    /* Vulkan opt-in: explicit --vulkan_device only. Unlike SYCL/CUDA
+     * the gpumask gate is not consulted; Vulkan is host-pic only and
+     * has no restricted-mode semantics yet. */
+    VmafVulkanConfiguration vulkan_cfg = {
+        .device_index = c.vulkan_device,
+        .enable_validation = 0,
+    };
+    if (c.vulkan_device >= 0 && !c.no_vulkan) {
+        err = vmaf_vulkan_state_init(&vulkan_state, vulkan_cfg);
+        if (err) {
+            (void)fprintf(stderr, "problem during vmaf_vulkan_state_init (%d), using CPU\n", err);
+        } else {
+            err = vmaf_vulkan_import_state(vmaf, vulkan_state);
+            if (err) {
+                (void)fprintf(stderr, "problem during vmaf_vulkan_import_state\n");
+                ret = -1;
+                goto cleanup;
+            }
+            vulkan_active = true;
+        }
+    }
+    (void)vulkan_active;
 #endif
 
     // Preallocate picture pool to avoid allocation overhead
@@ -693,6 +725,10 @@ cleanup:
 #ifdef HAVE_SYCL
     if (sycl_active)
         vmaf_sycl_state_free(&sycl_state);
+#endif
+#ifdef HAVE_VULKAN
+    if (vulkan_state)
+        vmaf_vulkan_state_free(&vulkan_state);
 #endif
     if (vid_dist_open)
         video_input_close(&vid_dist);

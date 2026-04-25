@@ -46,6 +46,15 @@ int vmaf_vulkan_context_new(VmafVulkanContext **ctx, int device_index);
 void vmaf_vulkan_context_destroy(VmafVulkanContext *ctx);
 
 /*
+ * Accessor that lets feature kernels reuse the context owned by an
+ * imported public-API state. Returns NULL on a NULL state. The public
+ * VmafVulkanState handle is opaque in libvmaf_vulkan.h, so this lives
+ * on the internal common.h header.
+ */
+struct VmafVulkanState;
+VmafVulkanContext *vmaf_vulkan_state_get_context(struct VmafVulkanState *state);
+
+/*
  * Number of physical devices that expose a VK_QUEUE_COMPUTE_BIT
  * queue family. Returns 0 if Vulkan is unavailable; negative
  * value (-errno) on enumeration failure.

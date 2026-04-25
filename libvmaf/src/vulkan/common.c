@@ -316,3 +316,61 @@ void vmaf_vulkan_context_destroy(VmafVulkanContext *ctx)
         vkDestroyInstance(ctx->instance, NULL);
     free(ctx);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Public state-level API (libvmaf/include/libvmaf/libvmaf_vulkan.h) */
+/*                                                                    */
+/*  VmafVulkanState is the public opaque handle; it wraps the         */
+/*  internal VmafVulkanContext so the public ABI doesn't expose       */
+/*  volk/VMA types.                                                   */
+/* ------------------------------------------------------------------ */
+
+#include "libvmaf/libvmaf_vulkan.h"
+
+struct VmafVulkanState {
+    VmafVulkanContext *ctx;
+};
+
+int vmaf_vulkan_available(void)
+{
+    return 1;
+}
+
+int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg)
+{
+    if (!out)
+        return -EINVAL;
+    (void)cfg.enable_validation; /* validation layer toggle: T5-1c follow-up */
+
+    VmafVulkanState *s = calloc(1, sizeof(*s));
+    if (!s)
+        return -ENOMEM;
+
+    int err = vmaf_vulkan_context_new(&s->ctx, cfg.device_index);
+    if (err) {
+        free(s);
+        return err;
+    }
+
+    *out = s;
+    return 0;
+}
+
+void vmaf_vulkan_state_free(VmafVulkanState **state)
+{
+    if (!state || !*state)
+        return;
+    vmaf_vulkan_context_destroy((*state)->ctx);
+    free(*state);
+    *state = NULL;
+}
+
+int vmaf_vulkan_list_devices(void)
+{
+    return vmaf_vulkan_device_count();
+}
+
+VmafVulkanContext *vmaf_vulkan_state_get_context(VmafVulkanState *state)
+{
+    return state ? state->ctx : NULL;
+}

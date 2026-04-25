@@ -65,15 +65,18 @@ typedef struct VmafVulkanConfiguration {
 int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg);
 
 /**
- * Hand the Vulkan state to a VmafContext. After import, the context
- * owns the state and frees it via vmaf_close(). Same lifetime model as
- * the CUDA backend.
+ * Hand the Vulkan state to a VmafContext. The context borrows the
+ * state pointer for the duration of its lifetime; the caller still
+ * owns the state and must free it with @ref vmaf_vulkan_state_free
+ * after vmaf_close(). Same lifetime model as the SYCL backend.
  */
 int vmaf_vulkan_import_state(VmafContext *ctx, VmafVulkanState *state);
 
 /**
- * Free a state that was *not* imported into a context. Mirrors
- * vmaf_cuda_state_free()'s pre-import escape hatch.
+ * Release a state previously allocated via @ref vmaf_vulkan_state_init.
+ * Safe to pass `NULL` or a state that was never imported. After import
+ * the caller is still responsible for freeing — call this after
+ * vmaf_close() to avoid using a state the context still references.
  */
 void vmaf_vulkan_state_free(VmafVulkanState **state);
 

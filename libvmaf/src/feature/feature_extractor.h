@@ -50,6 +50,7 @@ enum VmafFeatureExtractorFlags {
     VMAF_FEATURE_FRAME_SYNC = 1 << 2,
     VMAF_FEATURE_EXTRACTOR_PREV_REF = 1 << 3,
     VMAF_FEATURE_EXTRACTOR_SYCL = 1 << 4,
+    VMAF_FEATURE_EXTRACTOR_VULKAN = 1 << 5,
 };
 
 typedef struct VmafFeatureExtractor {
@@ -123,6 +124,9 @@ typedef struct VmafFeatureExtractor {
 #endif
 #ifdef HAVE_SYCL
     struct VmafSyclState *sycl_state; ///< VmafSyclState, set by framework
+#endif
+#ifdef HAVE_VULKAN
+    struct VmafVulkanState *vulkan_state; ///< VmafVulkanState, set by framework
 #endif
 
     VmafFrameSyncContext *framesync;

@@ -54,6 +54,8 @@ enum {
     ARG_NO_CUDA,
     ARG_NO_SYCL,
     ARG_SYCL_DEVICE,
+    ARG_NO_VULKAN,
+    ARG_VULKAN_DEVICE,
     ARG_PRECISION,
     ARG_TINY_MODEL,
     ARG_TINY_DEVICE,
@@ -123,6 +125,8 @@ static const struct option long_opts[] = {
     {"no_cuda", 0, NULL, ARG_NO_CUDA},
     {"no_sycl", 0, NULL, ARG_NO_SYCL},
     {"sycl_device", 1, NULL, ARG_SYCL_DEVICE},
+    {"no_vulkan", 0, NULL, ARG_NO_VULKAN},
+    {"vulkan_device", 1, NULL, ARG_VULKAN_DEVICE},
     {"precision", 1, NULL, ARG_PRECISION},
     {"tiny-model", 1, NULL, ARG_TINY_MODEL},
     {"tiny_model", 1, NULL, ARG_TINY_MODEL},
@@ -180,6 +184,8 @@ static void usage(const char *const app, const char *const reason, ...)
         " --no_cuda:                   disable CUDA backend\n"
         " --no_sycl:                    disable SYCL/oneAPI backend\n"
         " --sycl_device $unsigned:      select SYCL GPU by index (default: auto)\n"
+        " --no_vulkan:                  disable Vulkan backend\n"
+        " --vulkan_device $unsigned:    select Vulkan GPU by index (default: auto)\n"
         " --precision $spec:            score output precision\n"
         "                                  N (1..17) -> printf \"%%.<N>g\"\n"
         "                                  max|full  -> \"%%.17g\" (round-trip lossless)\n"
@@ -547,7 +553,8 @@ static void parse_nflx_ctc(CLISettings *settings, const char *const optarg, cons
 void cli_parse(const int argc, char *const *const argv, CLISettings *const settings)
 {
     memset(settings, 0, sizeof(*settings));
-    settings->sycl_device = -1; // auto-select by default
+    settings->sycl_device = -1;   // auto-select by default
+    settings->vulkan_device = -1; // auto-select by default
     settings->precision_n = -1;
     settings->precision_fmt = VMAF_DEFAULT_PRECISION_FMT;
     settings->tiny_device = "auto";
@@ -636,6 +643,12 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             break;
         case ARG_SYCL_DEVICE:
             settings->sycl_device = (int)parse_unsigned(optarg, ARG_SYCL_DEVICE, argv[0]);
+            break;
+        case ARG_NO_VULKAN:
+            settings->no_vulkan = true;
+            break;
+        case ARG_VULKAN_DEVICE:
+            settings->vulkan_device = (int)parse_unsigned(optarg, ARG_VULKAN_DEVICE, argv[0]);
             break;
         case ARG_PRECISION:
             settings->precision_fmt = resolve_precision_fmt(optarg, argv[0], settings);

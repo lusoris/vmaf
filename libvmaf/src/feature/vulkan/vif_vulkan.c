@@ -84,10 +84,11 @@ typedef struct {
     unsigned height;
     unsigned bpc;
 
-    /* Lazy-init Vulkan context handle. Owned by this extractor for
-   * now (one context per fex); when the framework grows a shared
-   * vk_state (T5-1b-v) this becomes a borrowed pointer. */
+    /* Vulkan context handle. When the framework imports a shared
+     * VmafVulkanState (CLI: --vulkan_device), we borrow its context
+     * and `owns_ctx == 0`. Otherwise we lazy-create one and own it. */
     VmafVulkanContext *ctx;
+    int owns_ctx;
 
     /* Pipelines + descriptor-set layout (one DSL, four pipelines —
    * one per SCALE specialization). */
@@ -358,13 +359,21 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->height = h;
     s->bpc = bpc;
 
-    /* Lazy context creation. Once T5-1b-v lands a vk_state on
-   * VmafFeatureExtractor, replace this with `s->ctx = fex->vk_state->ctx;`. */
-    int err = vmaf_vulkan_context_new(&s->ctx, /*device_index=*/-1);
-    if (err) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "vif_vulkan: cannot create Vulkan context (%d)\n", err);
-        return err;
+    /* Borrow the framework's imported context when available; fall back
+     * to lazy creation for in-process callers that didn't go through
+     * vmaf_vulkan_state_init / _import_state. */
+    s->ctx = vmaf_vulkan_state_get_context(fex->vulkan_state);
+    if (s->ctx) {
+        s->owns_ctx = 0;
+    } else {
+        int err = vmaf_vulkan_context_new(&s->ctx, /*device_index=*/-1);
+        if (err) {
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "vif_vulkan: cannot create Vulkan context (%d)\n", err);
+            return err;
+        }
+        s->owns_ctx = 1;
     }
+    int err = 0;
 
     err = create_pipelines(s);
     if (err)
@@ -686,7 +695,8 @@ static int close_fex(VmafFeatureExtractor *fex)
     if (s->log2_lut)
         vmaf_vulkan_buffer_free(s->ctx, s->log2_lut);
 
-    vmaf_vulkan_context_destroy(s->ctx);
+    if (s->owns_ctx)
+        vmaf_vulkan_context_destroy(s->ctx);
     s->ctx = NULL;
 
     if (s->feature_name_dict)
@@ -723,10 +733,6 @@ VmafFeatureExtractor vmaf_fex_integer_vif_vulkan = {
     .close = close_fex,
     .options = options,
     .priv_size = sizeof(VifVulkanState),
-    /* No VMAF_FEATURE_EXTRACTOR_* flag exists for Vulkan yet. The
-     * runtime PR (T5-1b-v) will introduce VMAF_FEATURE_EXTRACTOR_VULKAN
-     * (= 1 << 5); until then this extractor reports flags = 0 and is
-     * selected only by explicit feature-name match. */
-    .flags = 0,
+    .flags = VMAF_FEATURE_EXTRACTOR_VULKAN,
     .provided_features = provided_features,
 };

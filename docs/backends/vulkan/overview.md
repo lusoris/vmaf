@@ -1,109 +1,162 @@
 # Vulkan compute backend
 
-> **Status: T5-1b runtime live + first kernel (`vif_vulkan`).**
-> `vmaf_vulkan_context_new` / `vmaf_vulkan_buffer_*` initialise +
-> allocate against a real Vulkan loader (volk + VMA + glslc). The
-> first feature kernel — `vif_vulkan` — runs end-to-end on Intel
-> Arc A380 and produces the standard
-> `VMAF_integer_feature_vif_scale0..3_score` outputs. ADM /
-> motion / motion_v2 kernels follow as T5-1c. Cross-backend
-> bit-exactness gate against scalar / SYCL reference is the next
-> milestone (T5-1b-v). See
+> **Status: T5-1b-v runtime live + cross-backend gate (`vif_vulkan`).**
+> `vmaf_vulkan_state_init` / `_import_state` / `_state_free` plumb
+> the public state-level API; the CLI flags `--vulkan_device <N>`
+> (and `--no_vulkan` to disable) drive end-to-end VIF on a real
+> Vulkan ICD. The `vif_vulkan` extractor produces standard
+> `VMAF_integer_feature_vif_scale0..3_score` outputs and is gated
+> against the CPU scalar reference at `places=4` by the
+> `Vulkan VIF Cross-Backend (lavapipe)` CI lane on every PR; the
+> Arc-A380 nightly lane (advisory, parked until the self-hosted
+> runner is registered) catches lavapipe-vs-real-driver drift.
+> Empirical baseline at commit `acf9f5b8` is **ULP=0** vs CPU on
+> Netflix normal + 1920×1080 checkerboard pairs.
+> ADM / motion / motion_v2 kernels follow as T5-1c. See
 > [ADR-0127](../../adr/0127-vulkan-backend-decision.md),
-> [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md).
+> [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md),
+> [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md).
 
-## What's in this PR
+## What's wired
 
-- Public header
-  [`libvmaf/include/libvmaf/libvmaf_vulkan.h`](../../../libvmaf/include/libvmaf/libvmaf_vulkan.h)
-  declaring `VmafVulkanState`, `VmafVulkanConfiguration`,
+- Public state-level API in
+  [`libvmaf/include/libvmaf/libvmaf_vulkan.h`][hdr] —
+  `VmafVulkanState`, `VmafVulkanConfiguration`,
   `vmaf_vulkan_state_init` / `_import_state` / `_state_free`,
   `vmaf_vulkan_list_devices`, `vmaf_vulkan_available`.
-- Backend tree under
-  [`libvmaf/src/vulkan/`](../../../libvmaf/src/vulkan/) — `common.{c,h}`,
-  `picture_vulkan.{c,h}`, plus a `meson.build` that's `subdir()`-included
-  when `-Denable_vulkan=enabled`.
-- Three feature kernel stubs under
+- Backend runtime under
+  [`libvmaf/src/vulkan/`](../../../libvmaf/src/vulkan/) —
+  `common.{c,h}` (volk + VkInstance / VkDevice / compute queue +
+  VMA allocator + command pool), `picture_vulkan.{c,h}` (VkBuffer
+  alloc / flush / mapped-host pointer accessors), `vma_impl.cpp`
+  (VMA C++17 implementation TU).
+- One live feature kernel under
   [`libvmaf/src/feature/vulkan/`](../../../libvmaf/src/feature/vulkan/) —
-  `adm_vulkan.c`, `vif_vulkan.c`, `motion_vulkan.c`. Each declares
-  `_init` / `_run` entry points returning `-ENOSYS` /
-  do-nothing.
-- Build system hookup: new `enable_vulkan` feature option (default
-  **disabled**) in
-  [`libvmaf/meson_options.txt`](../../../libvmaf/meson_options.txt);
+  `vif_vulkan.c` + the GLSL compute shader
+  [`shaders/vif.comp`](../../../libvmaf/src/feature/vulkan/shaders/vif.comp).
+  Four pipelines (one per `SCALE` specialization constant) compiled
+  to SPIR-V via `glslc`, embedded as a byte array, dispatched in a
+  single command buffer with pipeline barriers between scales. The
+  kernel uses native `int64` accumulators (`GL_EXT_shader_explicit_arithmetic_types_int64`)
+  for deterministic reductions matching the CPU integer reference.
+- Build system: `enable_vulkan` feature option (default **disabled**)
+  in [`libvmaf/meson_options.txt`](../../../libvmaf/meson_options.txt);
   conditional `subdir('vulkan')` in
   [`libvmaf/src/meson.build`](../../../libvmaf/src/meson.build);
-  `vulkan_sources` + `vulkan_deps` threaded through the `library()`
-  call alongside the existing CUDA / SYCL / DNN aggregations.
-- Smoke test at
-  [`libvmaf/test/test_vulkan_smoke.c`](../../../libvmaf/test/test_vulkan_smoke.c) —
-  4 sub-tests pinning the scaffold contract (context_new / NULL-out /
-  destroy-NULL noop / device_count returns 0). Wired in
-  [`libvmaf/test/meson.build`](../../../libvmaf/test/meson.build).
-- New CI matrix row "Build — Ubuntu Vulkan Scaffold (stub kernels)"
-  in
-  [`.github/workflows/libvmaf-build-matrix.yml`](../../../.github/workflows/libvmaf-build-matrix.yml)
-  that compiles with `-Denable_vulkan=enabled` to gate the scaffold
-  against bit-rot.
+  `vulkan_sources` folded into `libvmaf_feature_static_lib` so test
+  binaries link them; `vulkan_deps` (volk + VMA + dependency on
+  `glslc`) threaded through.
+- CLI plumbing in
+  [`libvmaf/tools/vmaf.c`](../../../libvmaf/tools/vmaf.c) +
+  [`libvmaf/tools/cli_parse.c`](../../../libvmaf/tools/cli_parse.c) —
+  `--vulkan_device <N>` (auto-pick = `-1`, default disabled) and
+  `--no_vulkan`. Routing happens through
+  `VMAF_FEATURE_EXTRACTOR_VULKAN = 1 << 5` and
+  `compute_fex_flags()` in
+  [`libvmaf/src/libvmaf.c`](../../../libvmaf/src/libvmaf.c) — the
+  dispatcher prefers the Vulkan-flagged extractor over the CPU
+  default whenever a Vulkan state has been imported.
+- Cross-backend gate at [`cross_backend_vif_diff.py`][diff-script] —
+  runs `vmaf` twice on the Netflix normal pair (CPU + Vulkan),
+  diffs `integer_vif_scale0..3` at `places=4`. Two CI lanes: the
+  `lavapipe` lane runs on every PR (Mesa software ICD on
+  `ubuntu-24.04`); the Arc-A380 lane runs nightly (parked until a
+  self-hosted runner with label `vmaf-arc` is registered).
+- Smoke test at [`libvmaf/test/test_vulkan_smoke.c`][smoke-test] —
+  pins the runtime contract (`device_count >= 0`, `context_new`
+  succeeds when devices ≥ 1, NULL-safety, out-of-range rejection).
 
 ## Building
 
 ```bash
 meson setup build -Denable_cuda=false -Denable_sycl=false \
                   -Denable_vulkan=enabled
-ninja -C build src/libvmaf.a
+ninja -C build
 ```
 
-The scaffold has **zero runtime dependencies** — no Vulkan SDK,
-no `volk`, no glslc, no VMA. Adding those is the responsibility
-of the first real-kernel PR per ADR-0175 § "Alternatives
-considered" (the rejected alternative was "pull all build deps in
-now"; doing so would gate the scaffold's CI run on a Vulkan SDK
-that no kernel uses yet).
+Build dependencies: `vulkan-headers`, `glslc` (from the Vulkan SDK
+or `glslang` package), and a Vulkan loader at runtime (`libvulkan.so`
+on Linux, supplied by Mesa for lavapipe / `vulkan-mesa-drivers`
+for Intel anv / NVIDIA's proprietary stack / etc.).
 
-## What lands next (rough sequence per ADR-0127)
+The `volk` and `VulkanMemoryAllocator` (VMA) submodules are pulled
+via Meson wrap files; no system install required.
 
-1. Runtime PR: VkInstance / VkDevice / compute queue selection;
-   wire `volk` for symbol loading; `dependency('vulkan')` becomes
-   the build-time requirement.
-2. **VIF as pathfinder** — first feature on the Vulkan compute
-   path. Picks VIF specifically (per ADR-0127 § "Pathfinder
-   selection") because its bit-exactness contract is well-defined
-   and its arithmetic is easier to GPU-map than ADM's wavelet.
-3. ADM, motion, the rest of the matrix.
-4. CI lavapipe smoke — the Mesa software Vulkan implementation
-   that runs without a real GPU. Lets every PR exercise the
-   compute path on a stock GitHub-hosted Ubuntu runner.
-5. `/cross-backend-diff` ULP gate — once kernels claim
-   bit-exactness, the per-backend ULP diff joins the existing
-   CPU / CUDA / SYCL trio.
+## Using
 
-## What's NOT in this PR
+```bash
+# Auto-pick the first compute-capable device:
+build/tools/vmaf --reference REF.yuv --distorted DIS.yuv \
+                 --width W --height H --pixel_format 420 \
+                 --bitdepth 8 --feature vif \
+                 --vulkan_device 0 --json --output out.json
 
-- No real Vulkan calls. Every entry point's body is a `TODO`.
-- No `volk` / `vulkan-headers` / `glslc` / VMA dependencies.
-- No `lavapipe` CI smoke — that requires the runtime PR's `volk`
-  bring-up first.
-- No bit-exactness claim — the kernels don't exist.
-- No `/cross-backend-diff` integration — same reason.
+# List devices the runtime can see:
+# (implemented as `vmaf_vulkan_list_devices`; CLI surface lands
+# with the next runtime PR if needed.)
+```
+
+`--vulkan_device <N>` selects the Nth compute-capable device.
+Without the flag, libvmaf runs on CPU exactly as before — Vulkan
+is fully opt-in.
+
+## Cross-backend gate
+
+Run the lavapipe-equivalent locally with any Vulkan ICD (Arc anv,
+NVIDIA proprietary, Mesa radv, etc.):
+
+```bash
+python3 scripts/ci/cross_backend_vif_diff.py \
+  --vmaf-binary build/tools/vmaf \
+  --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+  --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+  --width 576 --height 324 --places 4
+```
+
+The script exits 0 when every per-frame `integer_vif_scale0..3`
+score agrees with the CPU scalar reference at the configured
+decimal-place tolerance, 1 on a mismatch, 2 on a binary or
+fixture failure. The default `places=4` matches the fork's GPU vs
+CPU snapshot contract; the `--places` flag tightens (e.g.
+`--places 6` for ULP-strict gating).
+
+## What lands next
+
+- **T5-1c** — ADM, motion, motion_v2 Vulkan kernels using the
+  same `vif_vulkan` scaffolding (lazy-context fallback +
+  imported-state borrow path, `VkSpecializationInfo`-driven
+  pipelines, host-side reduction).
+- Self-hosted Arc runner registration to flip the `Vulkan VIF
+  Cross-Backend (Arc A380, advisory)` lane from `if: false` to
+  active.
 
 ## Caveats
 
 - The `enable_vulkan` option is `feature` (auto/enabled/disabled)
   defaulting to **disabled**. Auto would silently flip on in
-  builds that happen to have a Vulkan SDK installed; we want the
-  scaffold to opt-in only until the runtime PR lands.
-- The kernel stubs intentionally do not register with the feature
-  registry — they would otherwise dispatch to no-op
-  implementations on operators who flip `enable_vulkan` for the
-  scaffold. Registration arrives with the runtime PR.
+  builds that happen to have Vulkan headers installed; we want
+  Vulkan to be explicit opt-in until the kernel matrix matches
+  CUDA/SYCL.
+- The lavapipe lane uses Mesa's software ICD; per-frame timings
+  are not representative of GPU performance. Hardware perf
+  numbers come from the Arc nightly lane (when registered).
+- Vulkan 1.3 is required for the `int64`-arithmetic shader
+  extension; older drivers reject the SPIR-V at pipeline
+  creation. The runtime errors with `-ENOSYS` / `-ENODEV` and
+  the CLI prints `problem during vmaf_vulkan_state_init`.
 
 ## References
 
 - [ADR-0127](../../adr/0127-vulkan-backend-decision.md) — the
   Q2 governance decision to add a Vulkan backend.
 - [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) — the
-  scaffold-only audit-first PR that ships this surface.
+  scaffold-only audit-first PR.
+- [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md) —
+  this gate (T5-1b-v).
 - [`/add-gpu-backend`](../../../.claude/skills/add-gpu-backend/SKILL.md)
   — the skill that produced the initial scaffold (subsequently
   hand-finished here).
+
+[hdr]: ../../../libvmaf/include/libvmaf/libvmaf_vulkan.h
+[smoke-test]: ../../../libvmaf/test/test_vulkan_smoke.c
+[diff-script]: ../../../scripts/ci/cross_backend_vif_diff.py
