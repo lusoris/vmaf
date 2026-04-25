@@ -233,13 +233,27 @@ static char *test_session_run_luma8_size_mismatch(void)
 
 #ifndef _WIN32
 /* ADR-0174 / T5-3b coverage helpers — exercise the runtime int8
- * redirect block in vmaf_dnn_session_open. */
+ * redirect block in vmaf_dnn_session_open. The fopen-with-0600
+ * pattern matches the existing test_model_loader.c helper and
+ * sidesteps `cpp/world-writable-file-creation` CodeQL alerts that
+ * a default `fopen(..., "wb")` would trigger (CWE-732). */
+static FILE *fopen_w_600(const char *path)
+{
+    const int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0)
+        return NULL;
+    FILE *fp = fdopen(fd, "wb");
+    if (!fp)
+        (void)close(fd);
+    return fp;
+}
+
 static int copy_file(const char *src, const char *dst)
 {
     FILE *fsrc = fopen(src, "rb");
     if (!fsrc)
         return -1;
-    FILE *fdst = fopen(dst, "wb");
+    FILE *fdst = fopen_w_600(dst);
     if (!fdst) {
         (void)fclose(fsrc);
         return -1;
@@ -260,7 +274,7 @@ static int copy_file(const char *src, const char *dst)
 
 static int write_sidecar_dynamic(const char *path)
 {
-    FILE *s = fopen(path, "wb");
+    FILE *s = fopen_w_600(path);
     if (!s)
         return -1;
     const char *json = "{\"kind\": \"fr\", \"quant_mode\": \"dynamic\"}\n";
