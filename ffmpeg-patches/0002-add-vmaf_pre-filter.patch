@@ -7,8 +7,8 @@ Subject: [PATCH] add vmaf_pre filter (8-bit + 10-bit + optional chroma)
  configure                 |   2 +
  libavfilter/Makefile      |   1 +
  libavfilter/allfilters.c  |   1 +
- libavfilter/vf_vmaf_pre.c | 291 ++++++++++++++++++++++++++++++++++++++
- 4 files changed, 295 insertions(+)
+ libavfilter/vf_vmaf_pre.c | 264 +++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 268 insertions(+)
  create mode 100644 libavfilter/vf_vmaf_pre.c
 
 diff --git a/configure b/configure
@@ -60,7 +60,7 @@ new file mode 100644
 index 0000000..b339442
 --- /dev/null
 +++ b/libavfilter/vf_vmaf_pre.c
-@@ -0,0 +1,291 @@
+@@ -0,0 +1,264 @@
 +/*
 + * Copyright 2026 Lusoris and Claude (Anthropic)
 + *
