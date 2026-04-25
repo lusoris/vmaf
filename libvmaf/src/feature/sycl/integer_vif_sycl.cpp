@@ -1640,10 +1640,10 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
         for (int i = 0; i < VIF_NUM_SCALES; i++) {
             char name[64];
-            std::snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
+            (void)std::snprintf(name, sizeof(name), "integer_vif_num_scale%d", i);
             vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
                                                     vif_scale_num[i], index);
-            std::snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
+            (void)std::snprintf(name, sizeof(name), "integer_vif_den_scale%d", i);
             vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
                                                     vif_scale_den[i], index);
         }

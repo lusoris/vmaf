@@ -206,7 +206,7 @@ char *run_tests(void)
 
 char *run_tests(void)
 {
-    fprintf(stderr, "SYCL not enabled, skipping tests\n");
+    (void)fprintf(stderr, "SYCL not enabled, skipping tests\n");
     return NULL;
 }
 

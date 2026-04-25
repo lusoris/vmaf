@@ -48,7 +48,7 @@ static yuv_input *yuv_input_open(FILE *_fin, unsigned width, unsigned height,
 {
     yuv_input *yuv = malloc(sizeof(*yuv));
     if (!yuv) {
-        fprintf(stderr, "Could not allocate yuv reader state.\n");
+        (void)fprintf(stderr, "Could not allocate yuv reader state.\n");
         return NULL;
     }
 
@@ -82,7 +82,7 @@ static yuv_input *yuv_input_open(FILE *_fin, unsigned width, unsigned height,
 
     yuv->dst_buf = malloc(yuv->dst_buf_sz);
     if (!yuv->dst_buf) {
-        fprintf(stderr, "Could not allocate yuv reader buffer.\n");
+        (void)fprintf(stderr, "Could not allocate yuv reader buffer.\n");
         goto fail;
     }
 
@@ -122,7 +122,7 @@ static int yuv_input_fetch_frame(yuv_input *yuv, FILE *fin, video_input_ycbcr _y
     if (bytes_read == 0)
         return 0;
     if (bytes_read != yuv->dst_buf_sz) {
-        fprintf(stderr, "Error reading YUV frame data.\n");
+        (void)fprintf(stderr, "Error reading YUV frame data.\n");
         return -1;
     }
 

@@ -135,13 +135,13 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
 #define NUM_BUFS_ADM 20
     if (SIZE_MAX / buf_sz_one < NUM_BUFS_ADM) {
         printf("error: SIZE_MAX / buf_sz_one < NUM_BUFS_ADM, buf_sz_one = %zu.\n", buf_sz_one);
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
 
     if (!(data_buf = aligned_malloc(buf_sz_one * NUM_BUFS_ADM, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for data_buf.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
 
@@ -156,7 +156,7 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
 
     if (!(buf_y_orig = aligned_malloc(ind_size_y * 4, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for ind_buf_y.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
     ind_buf_y = buf_y_orig;
@@ -171,7 +171,7 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
 
     if (!(buf_x_orig = aligned_malloc(ind_size_x * 4, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for ind_buf_x.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
     ind_buf_x = buf_x_orig;

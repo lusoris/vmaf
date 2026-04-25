@@ -614,8 +614,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         int scaled_w = s->enc_width;
         int scaled_h = s->enc_height;
         for (int scale = 0; scale < NUM_SCALES; scale++) {
-            snprintf(path, sizeof(path), "%s%ccambi_heatmap_scale_%d_%dx%d_16b.gray",
-                     s->heatmaps_path, PATH_SEPARATOR, scale, scaled_w, scaled_h);
+            (void)snprintf(path, sizeof(path), "%s%ccambi_heatmap_scale_%d_%dx%d_16b.gray",
+                           s->heatmaps_path, PATH_SEPARATOR, scale, scaled_w, scaled_h);
             s->heatmaps_files[scale] = fopen(path, "w");
             if (!s->heatmaps_files[scale]) {
                 vmaf_log(VMAF_LOG_LEVEL_ERROR, "cambi: could not open heatmaps_path: %s\n", path);
@@ -1355,8 +1355,8 @@ static int dump_c_values(FILE *heatmaps_files[], const float *c_values, int widt
             to_write[j] = (uint16_t)(scaling_value * c_values[i * width + j]);
         }
         ptrdiff_t offset = (frame * height + i) * width * sizeof(uint16_t);
-        fseek(file, offset, SEEK_SET);
-        fwrite((void *)to_write, sizeof(uint16_t), width, file);
+        (void)fseek(file, offset, SEEK_SET);
+        (void)fwrite((void *)to_write, sizeof(uint16_t), width, file);
     }
     free(to_write);
     return 0;
@@ -1509,7 +1509,7 @@ static int close_cambi(VmafFeatureExtractor *fex)
 
     if (s->heatmaps_path) {
         for (int scale = 0; scale < NUM_SCALES; scale++) {
-            fclose(s->heatmaps_files[scale]);
+            (void)fclose(s->heatmaps_files[scale]);
         }
     }
 

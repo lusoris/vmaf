@@ -70,13 +70,13 @@ int compute_motion(const float *ref, const float *dis, int w, int h, int ref_str
     if (ref_stride % sizeof(float) != 0) {
         printf("error: ref_stride %% sizeof(float) != 0, ref_stride = %d, sizeof(float) = %zu.\n",
                ref_stride, sizeof(float));
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
     if (dis_stride % sizeof(float) != 0) {
         printf("error: dis_stride %% sizeof(float) != 0, dis_stride = %d, sizeof(float) = %zu.\n",
                dis_stride, sizeof(float));
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
     // stride for vmaf_image_sad_c is in terms of (sizeof(float) bytes)

@@ -47,7 +47,7 @@ static int locale_available(const char *locale_name)
     int available = (result != NULL);
 
     if (old_locale_buf[0] != '\0') {
-        setlocale(LC_ALL, old_locale_buf);
+        (void)setlocale(LC_ALL, old_locale_buf);
     }
 
     return available;
@@ -83,30 +83,30 @@ static char *test_locale_abstraction_basic(void)
 {
     // Test basic push/pop functionality
     if (!locale_available("es_ES.UTF-8") && !locale_available("es_ES.utf8")) {
-        fprintf(stderr, "Skipping test: Spanish locale not available\n");
+        (void)fprintf(stderr, "Skipping test: Spanish locale not available\n");
         return NULL;
     }
 
     const char *spanish = locale_available("es_ES.UTF-8") ? "es_ES.UTF-8" : "es_ES.utf8";
-    setlocale(LC_ALL, spanish);
+    (void)setlocale(LC_ALL, spanish);
 
     char buffer[100];
-    snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
+    (void)snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
     mu_assert("Spanish locale should use comma", strchr(buffer, ',') != NULL);
 
     VmafThreadLocaleState *state = vmaf_thread_locale_push_c();
     mu_assert("vmaf_thread_locale_push_c should not return NULL", state != NULL);
 
-    snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
+    (void)snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
     mu_assert("C locale should use period", strchr(buffer, '.') != NULL);
     mu_assert("C locale should not use comma", strchr(buffer, ',') == NULL);
 
     vmaf_thread_locale_pop(state);
 
-    snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
+    (void)snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
     mu_assert("Spanish locale should be restored", strchr(buffer, ',') != NULL);
 
-    setlocale(LC_ALL, "C");
+    (void)setlocale(LC_ALL, "C");
 
     return NULL;
 }
@@ -114,7 +114,7 @@ static char *test_locale_abstraction_basic(void)
 static char *test_output_xml_with_comma_locale(void)
 {
     if (!locale_available("fr_FR.UTF-8") && !locale_available("fr_FR.utf8")) {
-        fprintf(stderr, "Skipping test: French locale not available\n");
+        (void)fprintf(stderr, "Skipping test: French locale not available\n");
         return NULL;
     }
 
@@ -137,7 +137,7 @@ static char *test_output_xml_with_comma_locale(void)
     mu_assert("vmaf_feature_collector_append failed", !err);
 
     const char *french = locale_available("fr_FR.UTF-8") ? "fr_FR.UTF-8" : "fr_FR.utf8";
-    setlocale(LC_ALL, french);
+    (void)setlocale(LC_ALL, french);
 
     FILE *tmpf = tmpfile();
     mu_assert("tmpfile creation failed", tmpf != NULL);
@@ -149,19 +149,19 @@ static char *test_output_xml_with_comma_locale(void)
     char output[4096];
     size_t bytes_read = fread(output, 1, sizeof(output) - 1, tmpf);
     output[bytes_read] = '\0';
-    fclose(tmpf);
+    (void)fclose(tmpf);
 
     mu_assert("XML output should contain period decimals", contains_period_decimals(output));
     mu_assert("XML output should not contain 12,345", strstr(output, "12,345") == NULL);
     mu_assert("XML output should contain 12.3", strstr(output, "12.3") != NULL);
 
     char buffer[100];
-    snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
+    (void)snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
     mu_assert("French locale should still be active", strchr(buffer, ',') != NULL);
 
     vmaf_feature_collector_destroy(fc);
     vmaf_close(vmaf);
-    setlocale(LC_ALL, "C");
+    (void)setlocale(LC_ALL, "C");
 
     return NULL;
 }
@@ -169,7 +169,7 @@ static char *test_output_xml_with_comma_locale(void)
 static char *test_output_json_with_comma_locale(void)
 {
     if (!locale_available("it_IT.UTF-8") && !locale_available("it_IT.utf8")) {
-        fprintf(stderr, "Skipping test: Italian locale not available\n");
+        (void)fprintf(stderr, "Skipping test: Italian locale not available\n");
         return NULL;
     }
 
@@ -192,7 +192,7 @@ static char *test_output_json_with_comma_locale(void)
     mu_assert("vmaf_feature_collector_append failed", !err);
 
     const char *italian = locale_available("it_IT.UTF-8") ? "it_IT.UTF-8" : "it_IT.utf8";
-    setlocale(LC_ALL, italian);
+    (void)setlocale(LC_ALL, italian);
 
     FILE *tmpf = tmpfile();
     mu_assert("tmpfile creation failed", tmpf != NULL);
@@ -204,19 +204,19 @@ static char *test_output_json_with_comma_locale(void)
     char output[4096];
     size_t bytes_read = fread(output, 1, sizeof(output) - 1, tmpf);
     output[bytes_read] = '\0';
-    fclose(tmpf);
+    (void)fclose(tmpf);
 
     mu_assert("JSON output should contain period decimals", contains_period_decimals(output));
     mu_assert("JSON output should not contain 98,765", strstr(output, "98,765") == NULL);
 
     // Verify Italian locale still active
     char buffer[100];
-    snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
+    (void)snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
     mu_assert("Italian locale should still be active", strchr(buffer, ',') != NULL);
 
     vmaf_feature_collector_destroy(fc);
     vmaf_close(vmaf);
-    setlocale(LC_ALL, "C");
+    (void)setlocale(LC_ALL, "C");
 
     return NULL;
 }
@@ -224,7 +224,7 @@ static char *test_output_json_with_comma_locale(void)
 static char *test_output_csv_with_comma_locale(void)
 {
     if (!locale_available("es_ES.UTF-8") && !locale_available("es_ES.utf8")) {
-        fprintf(stderr, "Skipping test: Spanish locale not available\n");
+        (void)fprintf(stderr, "Skipping test: Spanish locale not available\n");
         return NULL;
     }
 
@@ -237,7 +237,7 @@ static char *test_output_csv_with_comma_locale(void)
     mu_assert("vmaf_feature_collector_append failed", !err);
 
     const char *spanish = locale_available("es_ES.UTF-8") ? "es_ES.UTF-8" : "es_ES.utf8";
-    setlocale(LC_ALL, spanish);
+    (void)setlocale(LC_ALL, spanish);
 
     FILE *tmpf = tmpfile();
     mu_assert("tmpfile creation failed", tmpf != NULL);
@@ -249,16 +249,16 @@ static char *test_output_csv_with_comma_locale(void)
     char output[4096];
     size_t bytes_read = fread(output, 1, sizeof(output) - 1, tmpf);
     output[bytes_read] = '\0';
-    fclose(tmpf);
+    (void)fclose(tmpf);
 
     mu_assert("CSV output should contain period decimals", contains_period_decimals(output));
 
     char buffer[100];
-    snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
+    (void)snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
     mu_assert("Spanish locale should still be active", strchr(buffer, ',') != NULL);
 
     vmaf_feature_collector_destroy(fc);
-    setlocale(LC_ALL, "C");
+    (void)setlocale(LC_ALL, "C");
 
     return NULL;
 }
@@ -266,7 +266,7 @@ static char *test_output_csv_with_comma_locale(void)
 static char *test_model_parse_with_comma_locale(void)
 {
     if (!locale_available("es_ES.UTF-8") && !locale_available("es_ES.utf8")) {
-        fprintf(stderr, "Skipping test: Spanish locale not available\n");
+        (void)fprintf(stderr, "Skipping test: Spanish locale not available\n");
         return NULL;
     }
 
@@ -282,11 +282,11 @@ static char *test_model_parse_with_comma_locale(void)
                              "}}";
 
     const char *spanish = locale_available("es_ES.UTF-8") ? "es_ES.UTF-8" : "es_ES.utf8";
-    setlocale(LC_ALL, spanish);
+    (void)setlocale(LC_ALL, spanish);
 
     // Verify Spanish locale active
     char buffer[100];
-    snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
+    (void)snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
     mu_assert("Spanish locale should be active", strchr(buffer, ',') != NULL);
 
     VmafModel *model = NULL;
@@ -304,11 +304,11 @@ static char *test_model_parse_with_comma_locale(void)
     mu_assert("intercept should be 0.5", fabs(model->intercept - 0.5) < 0.001);
 
     // Verify Spanish locale still active
-    snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
+    (void)snprintf(buffer, sizeof(buffer), "%.2f", 3.14);
     mu_assert("Spanish locale should still be active", strchr(buffer, ',') != NULL);
 
     vmaf_model_destroy(model);
-    setlocale(LC_ALL, "C");
+    (void)setlocale(LC_ALL, "C");
 
     return NULL;
 }

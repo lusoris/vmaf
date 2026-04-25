@@ -107,22 +107,22 @@ static int yuv_pair_open(YuvPair *yp, unsigned w, unsigned h)
 {
     char ref_path[1280];
     char dis_path[1280];
-    snprintf(ref_path, sizeof(ref_path), "%s/ref_%ux%u.yuv", get_data_dir(), w, h);
-    snprintf(dis_path, sizeof(dis_path), "%s/dis_%ux%u.yuv", get_data_dir(), w, h);
+    (void)snprintf(ref_path, sizeof(ref_path), "%s/ref_%ux%u.yuv", get_data_dir(), w, h);
+    (void)snprintf(dis_path, sizeof(dis_path), "%s/dis_%ux%u.yuv", get_data_dir(), w, h);
 
     yp->ref_fp = fopen(ref_path, "rb");
     yp->dis_fp = fopen(dis_path, "rb");
     if (!yp->ref_fp || !yp->dis_fp) {
-        fprintf(stderr,
-                "Cannot open test data for %ux%u\n"
-                "  ref: %s (%s)\n  dis: %s (%s)\n"
-                "Set VMAF_TEST_DATA or --data-dir to your data directory.\n",
-                w, h, ref_path, yp->ref_fp ? "ok" : "MISSING", dis_path,
-                yp->dis_fp ? "ok" : "MISSING");
+        (void)fprintf(stderr,
+                      "Cannot open test data for %ux%u\n"
+                      "  ref: %s (%s)\n  dis: %s (%s)\n"
+                      "Set VMAF_TEST_DATA or --data-dir to your data directory.\n",
+                      w, h, ref_path, yp->ref_fp ? "ok" : "MISSING", dis_path,
+                      yp->dis_fp ? "ok" : "MISSING");
         if (yp->ref_fp)
-            fclose(yp->ref_fp);
+            (void)fclose(yp->ref_fp);
         if (yp->dis_fp)
-            fclose(yp->dis_fp);
+            (void)fclose(yp->dis_fp);
         memset(yp, 0, sizeof(*yp));
         return -1;
     }
@@ -135,8 +135,8 @@ static int yuv_pair_open(YuvPair *yp, unsigned w, unsigned h)
     if (!yp->ref_buf || !yp->dis_buf) {
         free(yp->ref_buf);
         free(yp->dis_buf);
-        fclose(yp->ref_fp);
-        fclose(yp->dis_fp);
+        (void)fclose(yp->ref_fp);
+        (void)fclose(yp->dis_fp);
         memset(yp, 0, sizeof(*yp));
         return -1;
     }
@@ -146,12 +146,12 @@ static int yuv_pair_open(YuvPair *yp, unsigned w, unsigned h)
 static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx, VmafPicture *ref, VmafPicture *dist)
 {
     size_t offset = (size_t)frame_idx * yp->frame_bytes;
-    fseek(yp->ref_fp, (long)offset, SEEK_SET);
-    fseek(yp->dis_fp, (long)offset, SEEK_SET);
+    (void)fseek(yp->ref_fp, (long)offset, SEEK_SET);
+    (void)fseek(yp->dis_fp, (long)offset, SEEK_SET);
 
     if (fread(yp->ref_buf, 1, yp->frame_bytes, yp->ref_fp) != yp->frame_bytes ||
         fread(yp->dis_buf, 1, yp->frame_bytes, yp->dis_fp) != yp->frame_bytes) {
-        fprintf(stderr, "Short read at frame %u\n", frame_idx);
+        (void)fprintf(stderr, "Short read at frame %u\n", frame_idx);
         return -1;
     }
 
@@ -218,9 +218,9 @@ static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx, VmafPicture *ref
 static void yuv_pair_close(YuvPair *yp)
 {
     if (yp->ref_fp)
-        fclose(yp->ref_fp);
+        (void)fclose(yp->ref_fp);
     if (yp->dis_fp)
-        fclose(yp->dis_fp);
+        (void)fclose(yp->dis_fp);
     free(yp->ref_buf);
     free(yp->dis_buf);
     memset(yp, 0, sizeof(*yp));
@@ -484,8 +484,8 @@ static int bench_feature(const BenchTarget *target, unsigned w, unsigned h, unsi
 static void print_separator(int cols)
 {
     for (int i = 0; i < cols; i++)
-        fputc('-', stdout);
-    fputc('\n', stdout);
+        (void)fputc('-', stdout);
+    (void)fputc('\n', stdout);
 }
 
 /* ==================== Validation mode ==================== */
@@ -741,7 +741,7 @@ int main(int argc, char *argv[])
             char *end = NULL;
             const long v = strtol(argv[++i], &end, 10);
             if (end == argv[i] || *end != '\0' || v < 0 || v > INT_MAX) {
-                fprintf(stderr, "Invalid --frames value: %s\n", argv[i]);
+                (void)fprintf(stderr, "Invalid --frames value: %s\n", argv[i]);
                 return 1;
             }
             n_frames = (unsigned)v;
@@ -752,14 +752,14 @@ int main(int argc, char *argv[])
             char *end = NULL;
             const long rw_l = strtol(argv[i], &end, 10);
             if (end == argv[i] || *end != 'x' || rw_l <= 0 || rw_l > INT_MAX) {
-                fprintf(stderr, "Invalid --resolution: %s\n", argv[i]);
+                (void)fprintf(stderr, "Invalid --resolution: %s\n", argv[i]);
                 return 1;
             }
             char *p = end + 1;
             char *end2 = NULL;
             const long rh_l = strtol(p, &end2, 10);
             if (end2 == p || *end2 != '\0' || rh_l <= 0 || rh_l > INT_MAX) {
-                fprintf(stderr, "Invalid --resolution: %s\n", argv[i]);
+                (void)fprintf(stderr, "Invalid --resolution: %s\n", argv[i]);
                 return 1;
             }
             const unsigned rw = (unsigned)rw_l;
@@ -771,23 +771,23 @@ int main(int argc, char *argv[])
                 }
             }
             if (res_idx < 0) {
-                fprintf(stderr,
-                        "Unknown resolution %ux%u. "
-                        "Supported: 576x324, 640x480, 1280x720, "
-                        "1920x1080, 3840x2160\n",
-                        rw, rh);
+                (void)fprintf(stderr,
+                              "Unknown resolution %ux%u. "
+                              "Supported: 576x324, 640x480, 1280x720, "
+                              "1920x1080, 3840x2160\n",
+                              rw, rh);
                 return 1;
             }
         } else if (!strcmp(argv[i], "--bpc") && i + 1 < argc) {
             char *end = NULL;
             const long v = strtol(argv[++i], &end, 10);
             if (end == argv[i] || *end != '\0' || v < 0 || v > 16) {
-                fprintf(stderr, "Invalid --bpc value: %s\n", argv[i]);
+                (void)fprintf(stderr, "Invalid --bpc value: %s\n", argv[i]);
                 return 1;
             }
             g_bpc = (unsigned)v;
             if (g_bpc != 8 && g_bpc != 10 && g_bpc != 12 && g_bpc != 16) {
-                fprintf(stderr, "Unsupported bpc: %u (use 8, 10, 12, or 16)\n", g_bpc);
+                (void)fprintf(stderr, "Unsupported bpc: %u (use 8, 10, 12, or 16)\n", g_bpc);
                 return 1;
             }
         } else if (!strcmp(argv[i], "--validate")) {
@@ -796,7 +796,7 @@ int main(int argc, char *argv[])
 #if defined(HAVE_SYCL)
             gpu_profile_mode = 1;
 #else
-            fprintf(stderr, "--gpu-profile requires SYCL support\n");
+            (void)fprintf(stderr, "--gpu-profile requires SYCL support\n");
             return 1;
 #endif
         } else if (!strcmp(argv[i], "--gpu-only")) {
@@ -809,7 +809,7 @@ int main(int argc, char *argv[])
 #if defined(HAVE_SYCL)
             g_gpu_device_idx = atoi(argv[++i]);
 #else
-            fprintf(stderr, "--device requires SYCL support\n");
+            (void)fprintf(stderr, "--device requires SYCL support\n");
             return 1;
 #endif
         } else if (!strcmp(argv[i], "--help")) {
@@ -841,15 +841,15 @@ int main(int argc, char *argv[])
         if (n < 0)
             return 1;
 #else
-        fprintf(stderr, "No GPU backend enabled\n");
+        (void)fprintf(stderr, "No GPU backend enabled\n");
 #endif
         return 0;
     }
 
     /* Cap frames at available test data */
     if (n_frames > MAX_TEST_FRAMES) {
-        fprintf(stderr, "Warning: capping --frames %u to %d (available in test data)\n", n_frames,
-                MAX_TEST_FRAMES);
+        (void)fprintf(stderr, "Warning: capping --frames %u to %d (available in test data)\n",
+                      n_frames, MAX_TEST_FRAMES);
         n_frames = MAX_TEST_FRAMES;
     }
 
@@ -872,7 +872,7 @@ int main(int argc, char *argv[])
         }
 #endif
 #if !defined(HAVE_SYCL)
-        fprintf(stderr, "No GPU backend enabled\n");
+        (void)fprintf(stderr, "No GPU backend enabled\n");
         return 1;
 #endif
         return 0;
@@ -898,7 +898,7 @@ int main(int argc, char *argv[])
 
         return total_fail > 0 ? 1 : 0;
 #else
-        fprintf(stderr, "No GPU backend enabled, cannot validate\n");
+        (void)fprintf(stderr, "No GPU backend enabled, cannot validate\n");
         return 1;
 #endif
     }
@@ -925,7 +925,7 @@ int main(int argc, char *argv[])
             double total_ms = 0;
 
             char res_str[16];
-            snprintf(res_str, sizeof(res_str), "%ux%u", w, h);
+            (void)snprintf(res_str, sizeof(res_str), "%ux%u", w, h);
 
             int err = bench_feature(&targets[t], w, h, n_frames, &init_ms, &avg_ms, &total_ms);
             if (err) {
@@ -937,7 +937,7 @@ int main(int argc, char *argv[])
             double fps = (n_frames - 1) / (total_ms / 1000.0);
             printf("%-28s  %8s  %8.1f  %8.2f  %8.1f  %8.1f\n", targets[t].label, res_str, init_ms,
                    avg_ms, total_ms, fps);
-            fflush(stdout);
+            (void)fflush(stdout);
         }
         if (r_end - r_start > 1)
             print_separator(col_w);

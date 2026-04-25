@@ -1466,7 +1466,7 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
     // Per-scale features
     for (int i = 0; i < ADM_NUM_SCALES; i++) {
         char name[64];
-        std::snprintf(name, sizeof(name), "integer_adm_scale%d", i);
+        (void)std::snprintf(name, sizeof(name), "integer_adm_scale%d", i);
         double const scale_score = (scores_den[i] == 0.0) ? 1.0 : scores_num[i] / scores_den[i];
         vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
                                                 scale_score, index);
@@ -1483,10 +1483,10 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
         for (int i = 0; i < ADM_NUM_SCALES; i++) {
             char name[64];
-            std::snprintf(name, sizeof(name), "integer_adm_num_scale%d", i);
+            (void)std::snprintf(name, sizeof(name), "integer_adm_num_scale%d", i);
             vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
                                                     scores_num[i], index);
-            std::snprintf(name, sizeof(name), "integer_adm_den_scale%d", i);
+            (void)std::snprintf(name, sizeof(name), "integer_adm_den_scale%d", i);
             vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
                                                     scores_den[i], index);
         }

@@ -70,21 +70,21 @@ static double now_ms(void)
 
 static void print_usage(const char *argv0)
 {
-    fprintf(stderr,
-            "Usage: %s --ref <file> --dis <file> [options]\n"
-            "\n"
-            "Options:\n"
-            "  --ref <file>        Reference video file\n"
-            "  --dis <file>        Distorted video file\n"
-            "  --model <name>      VMAF model name (default: vmaf_v0.6.1)\n"
-            "  --frames <N>        Max frames to process (0 = all)\n"
-            "  --device <N>        SYCL device index (default: 0)\n"
-            "  --render-node <path> VA-API render node (default: /dev/dri/renderD128)\n"
-            "  --fallback          Use host upload if zero-copy import fails\n"
-            "  --help              Show this help\n"
-            "\n"
-            "Pipeline: VPL decode → VA surface → DMA-BUF → Level Zero → SYCL → VMAF\n",
-            argv0);
+    (void)fprintf(stderr,
+                  "Usage: %s --ref <file> --dis <file> [options]\n"
+                  "\n"
+                  "Options:\n"
+                  "  --ref <file>        Reference video file\n"
+                  "  --dis <file>        Distorted video file\n"
+                  "  --model <name>      VMAF model name (default: vmaf_v0.6.1)\n"
+                  "  --frames <N>        Max frames to process (0 = all)\n"
+                  "  --device <N>        SYCL device index (default: 0)\n"
+                  "  --render-node <path> VA-API render node (default: /dev/dri/renderD128)\n"
+                  "  --fallback          Use host upload if zero-copy import fails\n"
+                  "  --help              Show this help\n"
+                  "\n"
+                  "Pipeline: VPL decode → VA surface → DMA-BUF → Level Zero → SYCL → VMAF\n",
+                  argv0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -126,13 +126,13 @@ static int vpl_decoder_open(VplDecoder *dec, const char *filename, const char *r
     /* ---- VA-API GPU init ---- */
     dec->drm_fd = open(render_node, O_RDWR);
     if (dec->drm_fd < 0) {
-        fprintf(stderr, "Cannot open %s\n", render_node);
+        (void)fprintf(stderr, "Cannot open %s\n", render_node);
         return -1;
     }
 
     dec->va_display = vaGetDisplayDRM(dec->drm_fd);
     if (!dec->va_display) {
-        fprintf(stderr, "vaGetDisplayDRM failed\n");
+        (void)fprintf(stderr, "vaGetDisplayDRM failed\n");
         close(dec->drm_fd);
         return -1;
     }
@@ -141,7 +141,7 @@ static int vpl_decoder_open(VplDecoder *dec, const char *filename, const char *r
     int va_minor;
     VAStatus va_st = vaInitialize(dec->va_display, &va_major, &va_minor);
     if (va_st != VA_STATUS_SUCCESS) {
-        fprintf(stderr, "vaInitialize failed: %s\n", vaErrorStr(va_st));
+        (void)fprintf(stderr, "vaInitialize failed: %s\n", vaErrorStr(va_st));
         close(dec->drm_fd);
         return -1;
     }
@@ -151,7 +151,7 @@ static int vpl_decoder_open(VplDecoder *dec, const char *filename, const char *r
     /* ---- VPL loader + session ---- */
     dec->loader = MFXLoad();
     if (!dec->loader) {
-        fprintf(stderr, "MFXLoad failed\n");
+        (void)fprintf(stderr, "MFXLoad failed\n");
         vpl_cleanup_gpu(dec);
         return -1;
     }
@@ -170,7 +170,7 @@ static int vpl_decoder_open(VplDecoder *dec, const char *filename, const char *r
 
     mfxStatus sts = MFXCreateSession(dec->loader, 0, &dec->session);
     if (sts != MFX_ERR_NONE) {
-        fprintf(stderr, "MFXCreateSession failed: %d\n", sts);
+        (void)fprintf(stderr, "MFXCreateSession failed: %d\n", sts);
         MFXUnload(dec->loader);
         vpl_cleanup_gpu(dec);
         return -1;
@@ -179,14 +179,14 @@ static int vpl_decoder_open(VplDecoder *dec, const char *filename, const char *r
     /* Pass VA display to VPL */
     sts = MFXVideoCORE_SetHandle(dec->session, MFX_HANDLE_VA_DISPLAY, dec->va_display);
     if (sts != MFX_ERR_NONE) {
-        fprintf(stderr, "SetHandle(VA_DISPLAY) failed: %d\n", sts);
+        (void)fprintf(stderr, "SetHandle(VA_DISPLAY) failed: %d\n", sts);
         goto fail_session;
     }
 
     /* Open input file */
     dec->fp = fopen(filename, "rb");
     if (!dec->fp) {
-        fprintf(stderr, "Cannot open %s\n", filename);
+        (void)fprintf(stderr, "Cannot open %s\n", filename);
         goto fail_session;
     }
 
@@ -194,7 +194,7 @@ static int vpl_decoder_open(VplDecoder *dec, const char *filename, const char *r
     dec->bs_buf_size = 2 * 1024 * 1024;
     dec->bs_buf = (uint8_t *)malloc(dec->bs_buf_size);
     if (!dec->bs_buf) {
-        fclose(dec->fp);
+        (void)fclose(dec->fp);
         dec->fp = NULL;
         goto fail_session;
     }
@@ -252,7 +252,7 @@ static int vpl_probe_and_init(VplDecoder *dec, mfxU32 codec_id)
     /* Decode header to get stream info */
     mfxStatus sts = MFXVideoDECODE_DecodeHeader(dec->session, &dec->bs, &dec->decode_params);
     if (sts != MFX_ERR_NONE) {
-        fprintf(stderr, "DecodeHeader failed: %d\n", sts);
+        (void)fprintf(stderr, "DecodeHeader failed: %d\n", sts);
         return -1;
     }
 
@@ -274,7 +274,7 @@ static int vpl_probe_and_init(VplDecoder *dec, mfxU32 codec_id)
     /* Initialize decoder */
     sts = MFXVideoDECODE_Init(dec->session, &dec->decode_params);
     if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
-        fprintf(stderr, "DECODE_Init failed: %d\n", sts);
+        (void)fprintf(stderr, "DECODE_Init failed: %d\n", sts);
         return -1;
     }
 
@@ -316,7 +316,7 @@ static int vpl_decode_frame(VplDecoder *dec, VASurfaceID *out_surface,
             /* Got a frame — sync and return */
             sts = MFXVideoCORE_SyncOperation(dec->session, sync, 60000 /* 60s timeout */);
             if (sts != MFX_ERR_NONE) {
-                fprintf(stderr, "SyncOperation failed: %d\n", sts);
+                (void)fprintf(stderr, "SyncOperation failed: %d\n", sts);
                 if (out_surf)
                     out_surf->FrameInterface->Release(out_surf);
                 return -1;
@@ -333,7 +333,7 @@ static int vpl_decode_frame(VplDecoder *dec, VASurfaceID *out_surface,
             } else if (out_surf->Data.MemId) {
                 *out_surface = *(VASurfaceID *)out_surf->Data.MemId;
             } else {
-                fprintf(stderr, "No VA surface in decoded frame\n");
+                (void)fprintf(stderr, "No VA surface in decoded frame\n");
                 out_surf->FrameInterface->Release(out_surf);
                 return -1;
             }
@@ -356,7 +356,7 @@ static int vpl_decode_frame(VplDecoder *dec, VASurfaceID *out_surface,
         }
 
         if (sts < 0) {
-            fprintf(stderr, "DecodeFrameAsync failed: %d\n", sts);
+            (void)fprintf(stderr, "DecodeFrameAsync failed: %d\n", sts);
             return -1;
         }
 
@@ -381,7 +381,7 @@ static void vpl_decoder_close(VplDecoder *dec)
     if (dec->loader)
         MFXUnload(dec->loader);
     if (dec->fp)
-        fclose(dec->fp);
+        (void)fclose(dec->fp);
     free(dec->bs_buf);
     vpl_cleanup_gpu(dec);
     memset(dec, 0, sizeof(*dec));
@@ -407,12 +407,13 @@ static mfxU32 guess_codec(const char *filename)
         strcasecmp(ext, ".webm") == 0) {
         /* Container → need a demuxer; we only handle elementary streams.
          * Suggest ffmpeg pre-extraction. */
-        fprintf(stderr,
-                "Warning: %s appears to be a container file.\n"
-                "  This tool only handles elementary streams (H.264/H.265).\n"
-                "  Extract with: ffmpeg -i %s -c:v copy -bsf:v hevc_mp4toannexb output.h265\n"
-                "  Or:           ffmpeg -i %s -c:v copy -bsf:v h264_mp4toannexb output.h264\n",
-                filename, filename, filename);
+        (void)fprintf(
+            stderr,
+            "Warning: %s appears to be a container file.\n"
+            "  This tool only handles elementary streams (H.264/H.265).\n"
+            "  Extract with: ffmpeg -i %s -c:v copy -bsf:v hevc_mp4toannexb output.h265\n"
+            "  Or:           ffmpeg -i %s -c:v copy -bsf:v h264_mp4toannexb output.h264\n",
+            filename, filename, filename);
         return MFX_CODEC_HEVC; /* try anyway */
     }
     if (strcasecmp(ext, ".av1") == 0 || strcasecmp(ext, ".ivf") == 0 ||
@@ -463,28 +464,28 @@ static int vpl_host_upload_fallback(VADisplay va_display, VASurfaceID ref_surf,
     /* Derive VAImages that alias the surface's backing storage. */
     VAStatus st = vaDeriveImage(va_display, ref_surf, &ref_img);
     if (st != VA_STATUS_SUCCESS) {
-        fprintf(stderr, "vaDeriveImage(ref) failed: %d\n", st);
+        (void)fprintf(stderr, "vaDeriveImage(ref) failed: %d\n", st);
         goto cleanup;
     }
     have_ref_img = 1;
 
     st = vaDeriveImage(va_display, dis_surf, &dis_img);
     if (st != VA_STATUS_SUCCESS) {
-        fprintf(stderr, "vaDeriveImage(dis) failed: %d\n", st);
+        (void)fprintf(stderr, "vaDeriveImage(dis) failed: %d\n", st);
         goto cleanup;
     }
     have_dis_img = 1;
 
     st = vaMapBuffer(va_display, ref_img.buf, &ref_map);
     if (st != VA_STATUS_SUCCESS || !ref_map) {
-        fprintf(stderr, "vaMapBuffer(ref) failed: %d\n", st);
+        (void)fprintf(stderr, "vaMapBuffer(ref) failed: %d\n", st);
         goto cleanup;
     }
     have_ref_map = 1;
 
     st = vaMapBuffer(va_display, dis_img.buf, &dis_map);
     if (st != VA_STATUS_SUCCESS || !dis_map) {
-        fprintf(stderr, "vaMapBuffer(dis) failed: %d\n", st);
+        (void)fprintf(stderr, "vaMapBuffer(dis) failed: %d\n", st);
         goto cleanup;
     }
     have_dis_map = 1;
@@ -493,14 +494,14 @@ static int vpl_host_upload_fallback(VADisplay va_display, VASurfaceID ref_surf,
      * U/V are left as zeros by vmaf_picture_alloc. */
     if (vmaf_picture_alloc(&ref_pic, VMAF_PIX_FMT_YUV420P, (unsigned)bpc, (unsigned)w,
                            (unsigned)h) != 0) {
-        fprintf(stderr, "vmaf_picture_alloc(ref) failed\n");
+        (void)fprintf(stderr, "vmaf_picture_alloc(ref) failed\n");
         goto cleanup;
     }
     have_ref_pic = 1;
 
     if (vmaf_picture_alloc(&dis_pic, VMAF_PIX_FMT_YUV420P, (unsigned)bpc, (unsigned)w,
                            (unsigned)h) != 0) {
-        fprintf(stderr, "vmaf_picture_alloc(dis) failed\n");
+        (void)fprintf(stderr, "vmaf_picture_alloc(dis) failed\n");
         goto cleanup;
     }
     have_dis_pic = 1;
@@ -538,7 +539,7 @@ static int vpl_host_upload_fallback(VADisplay va_display, VASurfaceID ref_surf,
     have_ref_pic = 0;
     have_dis_pic = 0;
     if (err) {
-        fprintf(stderr, "vmaf_read_pictures failed at frame %u: %d\n", frame_idx, err);
+        (void)fprintf(stderr, "vmaf_read_pictures failed at frame %u: %d\n", frame_idx, err);
         ret = err;
         goto cleanup;
     }
@@ -585,7 +586,7 @@ int main(int argc, char *argv[])
             char *end = NULL;
             const long v = strtol(argv[++i], &end, 10);
             if (end == argv[i] || *end != '\0' || v < 0 || v > INT_MAX) {
-                fprintf(stderr, "Invalid --frames value: %s\n", argv[i]);
+                (void)fprintf(stderr, "Invalid --frames value: %s\n", argv[i]);
                 return 1;
             }
             max_frames = (int)v;
@@ -593,7 +594,7 @@ int main(int argc, char *argv[])
             char *end = NULL;
             const long v = strtol(argv[++i], &end, 10);
             if (end == argv[i] || *end != '\0' || v < 0 || v > INT_MAX) {
-                fprintf(stderr, "Invalid --device value: %s\n", argv[i]);
+                (void)fprintf(stderr, "Invalid --device value: %s\n", argv[i]);
                 return 1;
             }
             device_idx = (int)v;
@@ -605,14 +606,14 @@ int main(int argc, char *argv[])
             print_usage(argv[0]);
             return 0;
         } else {
-            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            (void)fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
             return 1;
         }
     }
 
     if (!ref_file || !dis_file) {
-        fprintf(stderr, "Error: --ref and --dis are required\n");
+        (void)fprintf(stderr, "Error: --ref and --dis are required\n");
         print_usage(argv[0]);
         return 1;
     }
@@ -645,8 +646,8 @@ int main(int argc, char *argv[])
 
     /* Check dimensions match */
     if (ref_dec.width != dis_dec.width || ref_dec.height != dis_dec.height) {
-        fprintf(stderr, "Error: resolution mismatch: ref=%dx%d dis=%dx%d\n", ref_dec.width,
-                ref_dec.height, dis_dec.width, dis_dec.height);
+        (void)fprintf(stderr, "Error: resolution mismatch: ref=%dx%d dis=%dx%d\n", ref_dec.width,
+                      ref_dec.height, dis_dec.width, dis_dec.height);
         vpl_decoder_close(&dis_dec);
         vpl_decoder_close(&ref_dec);
         return 1;
@@ -663,7 +664,7 @@ int main(int argc, char *argv[])
     VmafSyclConfiguration sycl_cfg = {.device_index = device_idx, .enable_profiling = 0};
     int err = vmaf_sycl_state_init(&sycl_state, sycl_cfg);
     if (err) {
-        fprintf(stderr, "vmaf_sycl_state_init failed: %d\n", err);
+        (void)fprintf(stderr, "vmaf_sycl_state_init failed: %d\n", err);
         vpl_decoder_close(&dis_dec);
         vpl_decoder_close(&ref_dec);
         return 1;
@@ -679,7 +680,7 @@ int main(int argc, char *argv[])
     };
     err = vmaf_init(&vmaf, vmaf_cfg);
     if (err) {
-        fprintf(stderr, "vmaf_init failed: %d\n", err);
+        (void)fprintf(stderr, "vmaf_init failed: %d\n", err);
         vmaf_sycl_state_free(&sycl_state);
         vpl_decoder_close(&dis_dec);
         vpl_decoder_close(&ref_dec);
@@ -688,7 +689,7 @@ int main(int argc, char *argv[])
 
     err = vmaf_sycl_import_state(vmaf, sycl_state);
     if (err) {
-        fprintf(stderr, "vmaf_sycl_import_state failed: %d\n", err);
+        (void)fprintf(stderr, "vmaf_sycl_import_state failed: %d\n", err);
         vmaf_close(vmaf);
         vmaf_sycl_state_free(&sycl_state);
         vpl_decoder_close(&dis_dec);
@@ -704,7 +705,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < 3; i++) {
         err = vmaf_use_feature(vmaf, features[i], NULL);
         if (err) {
-            fprintf(stderr, "vmaf_use_feature(%s) failed: %d\n", features[i], err);
+            (void)fprintf(stderr, "vmaf_use_feature(%s) failed: %d\n", features[i], err);
         }
     }
 
@@ -722,14 +723,14 @@ int main(int argc, char *argv[])
         err = vmaf_model_load_from_path(&model, &model_cfg, model_name);
     }
     if (err) {
-        fprintf(stderr, "vmaf_model_load(%s) failed: %d\n", model_name, err);
+        (void)fprintf(stderr, "vmaf_model_load(%s) failed: %d\n", model_name, err);
         /* Continue without model — features still compute */
     }
 
     /* ---- Init frame buffers for zero-copy ---- */
     err = vmaf_sycl_init_frame_buffers(vmaf, w, h, bpc);
     if (err) {
-        fprintf(stderr, "vmaf_sycl_init_frame_buffers failed: %d\n", err);
+        (void)fprintf(stderr, "vmaf_sycl_init_frame_buffers failed: %d\n", err);
         if (model)
             vmaf_model_destroy(model);
         vmaf_close(vmaf);
@@ -761,7 +762,7 @@ int main(int argc, char *argv[])
             break;
         }
         if (r1 < 0 || r2 < 0) {
-            fprintf(stderr, "Decode error at frame %d\n", frame_idx);
+            (void)fprintf(stderr, "Decode error at frame %d\n", frame_idx);
             vpl_release_surface(ref_held);
             vpl_release_surface(dis_held);
             break;
@@ -777,9 +778,9 @@ int main(int argc, char *argv[])
                                                   bpc);
             }
             if (err) {
-                fprintf(stderr, "DMA-BUF import failed at frame %d: %d\n", frame_idx, err);
+                (void)fprintf(stderr, "DMA-BUF import failed at frame %d: %d\n", frame_idx, err);
                 if (use_fallback) {
-                    fprintf(stderr, "Falling back to host upload path\n");
+                    (void)fprintf(stderr, "Falling back to host upload path\n");
                     dmabuf_ok = 0;
                 } else {
                     vpl_release_surface(ref_held);
@@ -797,7 +798,8 @@ int main(int argc, char *argv[])
             vpl_release_surface(ref_held);
             vpl_release_surface(dis_held);
             if (err) {
-                fprintf(stderr, "Host upload fallback failed at frame %d: %d\n", frame_idx, err);
+                (void)fprintf(stderr, "Host upload fallback failed at frame %d: %d\n", frame_idx,
+                              err);
                 break;
             }
             frame_idx++;
@@ -813,7 +815,8 @@ int main(int argc, char *argv[])
         /* Submit frame to VMAF (zero-copy path) */
         err = vmaf_read_pictures_sycl(vmaf, frame_idx);
         if (err) {
-            fprintf(stderr, "vmaf_read_pictures_sycl failed at frame %d: %d\n", frame_idx, err);
+            (void)fprintf(stderr, "vmaf_read_pictures_sycl failed at frame %d: %d\n", frame_idx,
+                          err);
             break;
         }
 
@@ -826,7 +829,7 @@ int main(int argc, char *argv[])
     /* Flush SYCL pipeline */
     err = vmaf_flush_sycl(vmaf);
     if (err)
-        fprintf(stderr, "vmaf_flush_sycl failed: %d\n", err);
+        (void)fprintf(stderr, "vmaf_flush_sycl failed: %d\n", err);
 
     double t_end = now_ms();
     double elapsed_s = (t_end - t_start) / 1000.0;
@@ -842,7 +845,7 @@ int main(int argc, char *argv[])
         if (!err) {
             printf("VMAF:   %.6f (mean)\n", vmaf_score);
         } else {
-            fprintf(stderr, "vmaf_score_pooled failed: %d\n", err);
+            (void)fprintf(stderr, "vmaf_score_pooled failed: %d\n", err);
         }
     }
 
