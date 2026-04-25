@@ -8,6 +8,28 @@
 
 ### Added
 
+- **Whole-codebase docs sweep — close audit-identified gaps**
+  (fork-local): post-T5-1 docs audit identified four undocumented
+  user-discoverable surfaces and one stale CLI flag entry. Adds
+  [`docs/backends/arm/overview.md`](docs/backends/arm/overview.md)
+  for the ARM NEON backend (build, runtime control via `--cpumask`,
+  per-feature coverage table, bit-exactness contracts, CI matrix
+  pointer). Documents the `motion_v2`, `lpips`, and `float_moment`
+  feature extractors in
+  [`docs/metrics/features.md`](docs/metrics/features.md) (table
+  rows + per-feature sections covering invocation, output metrics,
+  output range, input formats, options, backends, limitations).
+  Expands the `--no-reference` flag entry in
+  [`docs/usage/cli.md`](docs/usage/cli.md) with preconditions
+  (`reference_required: false` registry field), failure modes, and
+  report-format implications. Updates
+  [`docs/api/gpu.md`](docs/api/gpu.md) title to include
+  `libvmaf_vulkan.h` and links the new ARM overview from
+  [`docs/backends/index.md`](docs/backends/index.md). No code
+  changes; touched-file lint cleanup converts standalone
+  `**Heading**` lines to `####` H4 (MD036), aligns options
+  tables exactly (MD060), and tags bare fenced code blocks with
+  `text` (MD040).
 - **Vulkan compute backend — scaffold-only audit-first PR**
   (fork-local): closes BACKLOG T5-1 audit half. New public header
   [`libvmaf_vulkan.h`](libvmaf/include/libvmaf/libvmaf_vulkan.h)
