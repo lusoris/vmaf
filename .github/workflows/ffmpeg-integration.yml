@@ -107,7 +107,14 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Build vmaf with SYCL
+        env:
+          # Required by libvmaf/src/meson.build: enable_sycl=true forces
+          # icpx as the project C++ compiler so the .so link step embeds
+          # SPIR-V device images via clang-offload-wrapper.
+          CC: icx
+          CXX: icpx
         run: |
+          source /opt/intel/oneapi/setvars.sh
           meson setup libvmaf libvmaf/build --buildtype release \
             -Denable_float=true -Denable_sycl=true
           sudo ninja -vC libvmaf/build install

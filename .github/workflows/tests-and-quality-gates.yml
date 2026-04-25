@@ -394,9 +394,14 @@ jobs:
           submodules: recursive
       - name: Build with gcov + CUDA + SYCL + AVX-512
         working-directory: libvmaf
+        env:
+          # icpx required for SYCL link — see libvmaf/src/meson.build.
+          CC: icx
+          CXX: icpx
         run: |
           # See CPU coverage job for -fprofile-update=atomic rationale.
           # GPU build also runs SIMD CPU paths, so the same .gcda race applies.
+          source /opt/intel/oneapi/setvars.sh
           meson setup build-coverage-gpu --buildtype=debug \
             -Db_coverage=true \
             -Denable_cuda=true -Denable_sycl=true \

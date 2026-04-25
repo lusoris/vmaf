@@ -105,8 +105,8 @@ jobs:
             meson_extra: --default-library static
             name: Build — Ubuntu gcc Static (CPU)
           - os: ubuntu-latest
-            CC: ccache gcc
-            CXX: ccache g++
+            CC: icx
+            CXX: icpx
             sycl: true
             meson_extra: --default-library static -Denable_sycl=true
             name: Build — Ubuntu SYCL Static
@@ -117,10 +117,12 @@ jobs:
             meson_extra: --default-library static -Denable_cuda=true -Denable_nvcc=true
             name: Build — Ubuntu CUDA Static
 
-          # --- SYCL build (gcc host + icpx for SYCL sources) ---
+          # --- SYCL build (icpx for both host + SYCL sources so the device
+          #     image is registered at the .so link step; see post-T7-8
+          #     SYCL revival in libvmaf/src/meson.build) ---
           - os: ubuntu-latest
-            CC: ccache gcc
-            CXX: ccache g++
+            CC: icx
+            CXX: icpx
             sycl: true
             meson_extra: -Denable_sycl=true
             name: Build — Ubuntu SYCL
@@ -133,10 +135,11 @@ jobs:
             meson_extra: -Denable_cuda=true -Denable_nvcc=true
             name: Build — Ubuntu CUDA
 
-          # --- SYCL + CUDA combined ---
+          # --- SYCL + CUDA combined (icpx host so SYCL link works; nvcc
+          #     handles the CUDA TUs separately via -Denable_nvcc=true) ---
           - os: ubuntu-latest
-            CC: ccache gcc
-            CXX: ccache g++
+            CC: icx
+            CXX: icpx
             sycl: true
             cuda: true
             meson_extra: -Denable_sycl=true -Denable_cuda=true -Denable_nvcc=true
