@@ -231,6 +231,16 @@ jobs:
       # package rather than the unversioned 'latest' to avoid silent bumps.
       - name: Install Intel oneAPI
         if: matrix.sycl
+        # Override the matrix-level CC=icx / CXX=icpx for *this* step only:
+        # the Level Zero loader is plain C and we don't have icx on PATH yet
+        # at this point in the same step (apt installs it below, then the
+        # cmake invocation runs before the next step picks up GITHUB_PATH).
+        # Force gcc here; the meson setup step further down picks up icpx
+        # via the matrix env once setvars.sh adds /opt/intel/oneapi/compiler
+        # to PATH.
+        env:
+          CC: gcc
+          CXX: g++
         run: |
           sudo apt-get update
           sudo -E apt-get -yq install ccache ninja-build nasm gcc g++ gpg-agent
@@ -278,13 +288,24 @@ jobs:
       # ---------- Build ----------
       - name: Configure libvmaf
         run: |
+          # SYCL build needs setvars.sh on PATH/LD_LIBRARY_PATH so meson
+          # can probe libsycl + level-zero headers via icpx -fsycl. CPU
+          # / CUDA matrix entries skip this — they don't have setvars.sh.
+          if [ "${{ matrix.sycl }}" = "true" ]; then
+            source /opt/intel/oneapi/setvars.sh
+          fi
           meson setup libvmaf libvmaf/build --buildtype release \
             --prefix $PWD/install \
             -Denable_float=true \
             ${{ matrix.meson_extra }}
 
       - name: Build libvmaf
-        run: sudo ninja -vC libvmaf/build install
+        run: |
+          if [ "${{ matrix.sycl }}" = "true" ]; then
+            source /opt/intel/oneapi/setvars.sh
+          fi
+          sudo -E PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+            ninja -vC libvmaf/build install
 
       # Verify pkgconfig for static linking
       - name: Verify static pkgconfig
