@@ -24,7 +24,7 @@
 /* Use volk's function-pointer table; VMA picks them up via
  * VmaAllocatorCreateInfo.pVulkanFunctions = vma_fns. */
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
-#define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 
 #define VMA_IMPLEMENTATION
 #include <volk.h>

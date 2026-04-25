@@ -38,26 +38,28 @@ foreach shader : vulkan_shader_sources
     embed = custom_target(shader_name + '_spv.h',
         input : spv,
         output : shader_name + '_spv.h',
-        command : ['python3', '-c',
-            'import sys; data=open(sys.argv[1],"rb").read(); ' +
-            'words=[int.from_bytes(data[i:i+4],"little") for i in range(0,len(data),4)]; ' +
-            'name=sys.argv[3]; ' +
-            'out=open(sys.argv[2],"w"); ' +
-            'out.write("/* Auto-generated from " + name + ".comp by libvmaf/src/vulkan/meson.build */\\n"); ' +
-            'out.write("static const unsigned int " + name + "_spv[] = {\\n  "); ' +
-            'out.write(", ".join(f"0x{w:08x}" for w in words)); ' +
-            'out.write("\\n};\\n"); ' +
-            'out.write(f"static const unsigned int " + name + "_spv_size = " + str(len(words)*4) + ";\\n"); ' +
-            'out.close()',
-            '@INPUT@', '@OUTPUT@', shader_name],
+        command : ['python3',
+                   meson.current_source_dir() / 'spv_embed.py',
+                   '@INPUT@', '@OUTPUT@', shader_name],
     )
     vulkan_shader_headers += embed
 endforeach
 
+# VMA requires C++17 (aligned_alloc); libvmaf's project default is
+# C++11. Compile the VMA implementation TU as its own static lib so
+# the cpp_std override doesn't leak into libvmaf's other C++ TUs.
+vma_impl_lib = static_library(
+    'vma_impl',
+    'vma_impl.cpp',
+    override_options : ['cpp_std=c++17', 'warning_level=0'],
+    dependencies : [vulkan_sdk_dep, volk_dep, vma_dep],
+    pic : true,
+    install : false,
+)
+
 vulkan_sources += files(
     'common.c',
     'picture_vulkan.c',
-    'vma_impl.cpp',
     '../feature/vulkan/adm_vulkan.c',
     '../feature/vulkan/vif_vulkan.c',
     '../feature/vulkan/motion_vulkan.c',
@@ -68,3 +70,4 @@ vulkan_sources += vulkan_shader_headers
 vulkan_deps += vulkan_sdk_dep
 vulkan_deps += volk_dep
 vulkan_deps += vma_dep
+vulkan_deps += declare_dependency(link_with : vma_impl_lib)
