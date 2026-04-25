@@ -135,13 +135,16 @@ static char *test_validate_allowed_onnx(void)
 
 static char *test_validate_disallowed_onnx(void)
 {
-    const unsigned char buf[] = {0x3A, 0x08, 0x0A, 0x06, 0x22, 0x04, 'L', 'o', 'o', 'p'};
+    /* ADR-0169 / T6-5: Loop joined the allowlist, so a bare Loop is no
+     * longer an example of a forbidden op. Use Scan, which stays
+     * rejected by design (see ADR-0169 § Alternatives considered). */
+    const unsigned char buf[] = {0x3A, 0x08, 0x0A, 0x06, 0x22, 0x04, 'S', 'c', 'a', 'n'};
     char *path = write_temp(buf, sizeof(buf));
     mu_assert("temp file creation failed", path != NULL);
     const int err = vmaf_dnn_validate_onnx(path, 0);
     remove(path);
     free(path);
-    mu_assert("disallowed Loop onnx → -EPERM", err == -EPERM);
+    mu_assert("disallowed Scan onnx → -EPERM", err == -EPERM);
     return NULL;
 }
 
