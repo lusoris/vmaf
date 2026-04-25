@@ -1,21 +1,22 @@
 # Vulkan compute backend
 
-> **Status: T5-1b-v runtime live + cross-backend gate (`vif_vulkan`).**
+> **Status: T5-1c motion live (vif + motion gated, ADM next).**
 > `vmaf_vulkan_state_init` / `_import_state` / `_state_free` plumb
 > the public state-level API; the CLI flags `--vulkan_device <N>`
-> (and `--no_vulkan` to disable) drive end-to-end VIF on a real
-> Vulkan ICD. The `vif_vulkan` extractor produces standard
-> `VMAF_integer_feature_vif_scale0..3_score` outputs and is gated
-> against the CPU scalar reference at `places=4` by the
-> `Vulkan VIF Cross-Backend (lavapipe)` CI lane on every PR; the
-> Arc-A380 nightly lane (advisory, parked until the self-hosted
-> runner is registered) catches lavapipe-vs-real-driver drift.
-> Empirical baseline at commit `acf9f5b8` is **ULP=0** vs CPU on
-> Netflix normal + 1920×1080 checkerboard pairs.
-> ADM / motion / motion_v2 kernels follow as T5-1c. See
+> (and `--no_vulkan` to disable) drive end-to-end execution on a
+> real Vulkan ICD. Live extractors: `vif_vulkan` (4-scale VIF) and
+> `motion_vulkan` (motion + motion2). Both are gated against the
+> CPU scalar reference at `places=4` by the
+> `Vulkan VIF Cross-Backend (lavapipe)` CI lane on every PR (one
+> step per feature); the Arc-A380 nightly lane (advisory, parked
+> until the self-hosted runner is registered) catches
+> lavapipe-vs-real-driver drift. Empirical baseline is **ULP=0**
+> vs CPU on Netflix normal + 1920×1080 checkerboard pairs for
+> both vif and motion. ADM kernel lands next as T5-1c-adm. See
 > [ADR-0127](../../adr/0127-vulkan-backend-decision.md),
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md),
-> [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md).
+> [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md),
+> [ADR-0177](../../adr/0177-vulkan-motion-kernel.md).
 
 ## What's wired
 
@@ -30,15 +31,23 @@
   VMA allocator + command pool), `picture_vulkan.{c,h}` (VkBuffer
   alloc / flush / mapped-host pointer accessors), `vma_impl.cpp`
   (VMA C++17 implementation TU).
-- One live feature kernel under
+- Live feature kernels under
   [`libvmaf/src/feature/vulkan/`](../../../libvmaf/src/feature/vulkan/) —
-  `vif_vulkan.c` + the GLSL compute shader
-  [`shaders/vif.comp`](../../../libvmaf/src/feature/vulkan/shaders/vif.comp).
-  Four pipelines (one per `SCALE` specialization constant) compiled
-  to SPIR-V via `glslc`, embedded as a byte array, dispatched in a
-  single command buffer with pipeline barriers between scales. The
-  kernel uses native `int64` accumulators (`GL_EXT_shader_explicit_arithmetic_types_int64`)
-  for deterministic reductions matching the CPU integer reference.
+  - `vif_vulkan.c` + GLSL shader
+    [`shaders/vif.comp`](../../../libvmaf/src/feature/vulkan/shaders/vif.comp).
+    Four pipelines (one per `SCALE` specialization constant) compiled
+    to SPIR-V via `glslc`, embedded as a byte array, dispatched in a
+    single command buffer with pipeline barriers between scales.
+  - `motion_vulkan.c` + GLSL shader
+    [`shaders/motion.comp`](../../../libvmaf/src/feature/vulkan/shaders/motion.comp).
+    Separable 5-tap Gaussian blur (`{3571, 16004, 26386, 16004, 3571}`,
+    sum=65536) + per-workgroup `int64` SAD reduction; ping-pong
+    blurred-frame storage between calls; motion2 emitted with a
+    1-frame lag. `motion3` (5-frame window mode) deliberately
+    deferred — no shipped model uses it.
+  - Both kernels use native `int64` accumulators
+    (`GL_EXT_shader_explicit_arithmetic_types_int64`) for
+    deterministic reductions matching the CPU integer reference.
 - Build system: `enable_vulkan` feature option (default **disabled**)
   in [`libvmaf/meson_options.txt`](../../../libvmaf/meson_options.txt);
   conditional `subdir('vulkan')` in

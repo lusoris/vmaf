@@ -25,6 +25,53 @@
 
 ### Added
 
+- **Vulkan motion kernel — T5-1c (motion + motion2)** (fork-local):
+  replaces the 37-line motion_vulkan.c stub with a real
+  `VmafFeatureExtractor` backed by a new GLSL compute shader
+  [`shaders/motion.comp`](libvmaf/src/feature/vulkan/shaders/motion.comp).
+  Separable 5-tap Gaussian blur (`{3571, 16004, 26386, 16004, 3571}`,
+  sum=65536) + per-WG `int64` SAD reduction; ping-pong blurred-frame
+  storage; `integer_motion2` emitted with the standard 1-frame lag.
+  `motion3` (5-frame window mode) deliberately deferred. Cross-backend
+  diff script generalized: `scripts/ci/cross_backend_vif_diff.py`
+  gains `--feature {vif,motion}`; both lavapipe and Arc-nightly lanes
+  run a second motion diff step. Empirical baseline: **ULP=0** vs CPU
+  on the Netflix normal pair (576x324, 48 frames). See
+  [ADR-0177](docs/adr/0177-vulkan-motion-kernel.md).
+- **Vulkan VIF cross-backend gate + CLI (`--vulkan_device`) — T5-1b-v**
+  (fork-local): wires Vulkan into the libvmaf dispatcher and `vmaf`
+  CLI. New `--vulkan_device <N>` (auto-pick `-1`, default disabled)
+  and `--no_vulkan` flags. Adds `VMAF_FEATURE_EXTRACTOR_VULKAN = 1 << 5`
+  and the public state-level API (`vmaf_vulkan_state_init` / `_free` /
+  `_available` / `_list_devices`). New
+  [`scripts/ci/cross_backend_vif_diff.py`](scripts/ci/cross_backend_vif_diff.py)
+  with two CI lanes: `Vulkan VIF Cross-Backend (lavapipe, places=4)` runs
+  on every PR via Mesa lavapipe (no GPU runner needed), Arc-A380
+  nightly advisory parked behind `if: false` until a self-hosted runner
+  with label `vmaf-arc` is registered. Empirical baseline: **ULP=0**
+  vs CPU on the Netflix normal pair + 1920×1080 checkerboard. See
+  [ADR-0176](docs/adr/0176-vulkan-vif-cross-backend-gate.md).
+- **Vulkan VIF math port — T5-1b-iv (4-scale GLSL kernel)** (fork-local):
+  full numerical port of the SYCL VIF kernel to a GLSL compute shader.
+  `shaders/vif.comp` runs four pipelines (one per `SCALE` specialization
+  constant) compiled to SPIR-V via `glslc`, embedded as a byte array,
+  dispatched in a single command buffer with pipeline barriers between
+  scales. Uses native `int64` accumulators
+  (`GL_EXT_shader_explicit_arithmetic_types_int64`) for deterministic
+  reductions matching the CPU integer reference. First feature kernel
+  to actually run end-to-end on Intel Arc A380.
+- **Vulkan runtime bring-up — T5-1b** (fork-local): replaces the T5-1
+  scaffold's `-ENOSYS` stubs with a real volk + Vulkan 1.3 + VMA bring-up.
+  `vmaf_vulkan_context_new` picks a compute-capable physical device
+  (auto: discrete > integrated > virtual > cpu; override via
+  `device_index`), creates a dedicated compute queue family, attaches
+  a VMA allocator, and exposes a command pool that per-feature dispatch
+  wrappers under `libvmaf/src/feature/vulkan/` reuse. New `vma_impl.cpp`
+  (C++17 TU isolating the VMA implementation), new `picture_vulkan.{c,h}`
+  (VkBuffer alloc / flush / mapped-host pointer accessors). `volk` and
+  `VulkanMemoryAllocator` pulled via Meson wrap files (no system install
+  required); `glslc` becomes a build-time requirement when
+  `-Denable_vulkan=enabled`.
 - **Whole-codebase docs sweep — close audit-identified gaps**
   (fork-local): post-T5-1 docs audit identified four undocumented
   user-discoverable surfaces and one stale CLI flag entry. Adds
@@ -132,7 +179,7 @@
   intentionally coarser than the Python data-flow check —
   reproducing producer-map lookup would violate the ADR D39
   "no libprotobuf-c" scanner-scope constraint. 5 new Python tests
-  + 1 new C test. See
+  plus 1 new C test. See
   [ADR-0171](docs/adr/0171-bounded-loop-trip-count.md). Closes
   BACKLOG T6-5b.
 - **`vmaf_pre` ffmpeg filter handles 10/12-bit + optional chroma**

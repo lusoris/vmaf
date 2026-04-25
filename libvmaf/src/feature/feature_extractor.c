@@ -62,6 +62,7 @@ extern VmafFeatureExtractor vmaf_fex_integer_motion_sycl;
 #endif
 #if HAVE_VULKAN
 extern VmafFeatureExtractor vmaf_fex_integer_vif_vulkan;
+extern VmafFeatureExtractor vmaf_fex_integer_motion_vulkan;
 #endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_null;
@@ -87,7 +88,7 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * set (ADM + motion + VIF) and are bit-exact-tested against the
      * Netflix golden gate. Vulkan is opt-in via explicit feature
      * name selection until the full backend lands (T5-1c). */
-    &vmaf_fex_integer_vif_vulkan,
+    &vmaf_fex_integer_vif_vulkan, &vmaf_fex_integer_motion_vulkan,
 #endif
 #if HAVE_CUDA
     &vmaf_fex_integer_adm_cuda, &vmaf_fex_integer_vif_cuda, &vmaf_fex_integer_motion_cuda,
