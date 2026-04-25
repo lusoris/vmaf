@@ -1,14 +1,16 @@
 # `vmaf` — command-line reference
 
-`vmaf` is the main CLI binary shipped with this fork. It takes a reference / distorted
-video pair, runs one or more VMAF models (plus any additional feature extractors), and
-writes per-frame + pooled scores to an XML / JSON / CSV / subtitle log.
+`vmaf` is the main CLI binary shipped with this fork. It takes a reference /
+distorted video pair, runs one or more VMAF models (plus any additional feature
+extractors), and writes per-frame + pooled scores to an XML / JSON / CSV /
+subtitle log.
 
-> **Scope.** This page is the canonical flag reference for the `vmaf` binary in the
-> Lusoris fork. It supersedes the abbreviated help string in
-> [`libvmaf/tools/README.md`](../../libvmaf/tools/README.md) — the code's `--help` is
-> authoritative for the *set* of flags at any given commit; this page adds defaults,
-> interactions, and runnable examples per [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md).
+> **Scope.** This page is the canonical flag reference for the `vmaf` binary
+> in the Lusoris fork. It supersedes the abbreviated help string in
+> [`libvmaf/tools/README.md`](../../libvmaf/tools/README.md) — the code's
+> `--help` is authoritative for the *set* of flags at any given commit; this
+> page adds defaults, interactions, and runnable examples per
+> [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md).
 >
 > For the `vmaf_bench` micro-benchmark binary, see [bench.md](bench.md).
 > For FFmpeg integration (the `libvmaf` filter), see [ffmpeg.md](ffmpeg.md).
@@ -29,9 +31,9 @@ vmaf \
   --output scores.xml
 ```
 
-Default behaviour when no `--model` is passed: the built-in `vmaf_v0.6.1` model is
-loaded automatically. Default output format when no `--xml|--json|--csv|--sub` is
-passed: XML.
+Default behaviour when no `--model` is passed: the built-in `vmaf_v0.6.1`
+model is loaded automatically. Default output format when no
+`--xml|--json|--csv|--sub` is passed: XML.
 
 ## Required input flags
 
@@ -44,14 +46,14 @@ passed: XML.
 | `--pixel_format` | `-p` | `420` \| `422` \| `444` | **yes for `.yuv`** | 420 covers the overwhelming majority of streamable content. |
 | `--bitdepth` | `-b` | `8` \| `10` \| `12` \| `16` | **yes for `.yuv`** | 10 and 12 bit require a 10-/12-bit aware model (e.g. `vmaf_b_v0.6.3` for banding sensitivity). |
 
-If any of `--width`, `--height`, `--pixel_format`, `--bitdepth` is supplied the input
-is treated as raw YUV and **all four** become mandatory.
+If any of `--width`, `--height`, `--pixel_format`, `--bitdepth` is supplied
+the input is treated as raw YUV and **all four** become mandatory.
 
 ## Models
 
 The `--model / -m` flag takes a colon-delimited key/value string:
 
-```
+```text
 --model path=<file>         # load a .json model from disk
 --model version=<builtin>   # load a built-in model by name
 --model path=...:name=<str> # rename the metric in the output log
@@ -70,9 +72,10 @@ default `true`):
 | `vmaf_4k_v0.6.1` | 4K training set. |
 | `vmaf_4k_v0.6.1neg` | 4K + NEG. |
 
-Float-precision variants (`vmaf_float_v0.6.1`, `vmaf_float_v0.6.1neg`, `vmaf_float_b_v0.6.3`,
-`vmaf_float_4k_v0.6.1`) are also resolvable but are legacy — prefer the integer versions
-for performance, the float versions only for bit-exact comparison with older reports.
+Float-precision variants (`vmaf_float_v0.6.1`, `vmaf_float_v0.6.1neg`,
+`vmaf_float_b_v0.6.3`, `vmaf_float_4k_v0.6.1`) are also resolvable but are
+legacy — prefer the integer versions for performance, the float versions
+only for bit-exact comparison with older reports.
 
 `--model` can be passed multiple times to run several models in one pass; each
 model must have a unique `name=` (or the CLI errors out). Example running VMAF +
@@ -117,7 +120,7 @@ regardless of `--output`.
 
 ### Score precision (fork-added)
 
-```
+```text
 --precision N          # printf "%.<N>g", N in 1..17
 --precision max|full   # printf "%.17g" — IEEE-754 round-trip lossless (opt-in)
 --precision legacy     # printf "%.6f"  — synonym for the default
@@ -155,19 +158,19 @@ which features have GPU/SIMD twins.
 
 ## Frame range
 
-```
+```text
 --frame_cnt <N>           # stop after N frames (both streams)
 --frame_skip_ref <N>      # skip the first N frames of the reference
 --frame_skip_dist <N>     # skip the first N frames of the distorted
 --subsample <N>           # compute scores only every Nth frame (default 1 = all frames)
 ```
 
-`--subsample` trades precision for speed — pooled scores are still computed over the
-sampled subset, so keep it at 1 for final reports.
+`--subsample` trades precision for speed — pooled scores are still computed
+over the sampled subset, so keep it at 1 for final reports.
 
 ## Preset bundles
 
-```
+```text
 --aom_ctc v1.0 | v2.0 | v3.0 | v4.0 | v5.0 | v6.0 | v7.0
 --nflx_ctc v1.0
 ```
@@ -176,7 +179,7 @@ These expand to a canonical model + feature list for
 [AOM](../metrics/ctc/aom.md) and Netflix common-test-conditions reports. For
 example, `--aom_ctc v7.0` is equivalent to:
 
-```
+```text
 --model version=vmaf_v0.6.1:name=vmaf
 --model version=vmaf_v0.6.1neg:name=vmaf_neg
 --feature psnr=reduced_hbd_peak=true:enable_apsnr=true:min_sse=0.5
@@ -192,7 +195,7 @@ example, `--aom_ctc v7.0` is equivalent to:
 
 ## Tiny-AI flags (fork-added)
 
-```
+```text
 --tiny-model <path>            # load a .onnx tiny model alongside classic models
 --tiny-device auto|cpu|cuda|openvino|rocm    # ORT execution provider (default: auto)
 --tiny-threads <N>             # CPU EP intra-op threads (0 = ORT default)
@@ -204,9 +207,17 @@ Underscore aliases (`--tiny_model`, `--tiny_device`, `--tiny_threads`, `--tiny_f
 `--no_reference`) are accepted for scripting symmetry with the underscore flags
 upstream uses.
 
-See [../ai/inference.md](../ai/inference.md) for the full tiny-AI CLI walkthrough
-and the per-model registry (`model/tiny/registry.json`, sha256 pins, known
-limitations).
+`--no-reference` requires a `--tiny-model` whose registry entry declares
+`"reference_required": false`. With no tiny model loaded the flag is
+rejected at parse time; with a reference-required tiny model the run
+fails at init with a diagnostic naming the model. In NR mode the
+classic VMAF score and any reference-needing per-feature outputs are
+omitted from the JSON / XML / CSV report — only the tiny-AI score and
+NR-only metrics are emitted.
+
+See [../ai/inference.md](../ai/inference.md) for the full tiny-AI CLI
+walkthrough and the per-model registry (`model/tiny/registry.json`,
+sha256 pins, known limitations).
 
 ## Logging and misc
 
@@ -223,9 +234,9 @@ limitations).
 | 0 | Success. |
 | 1 | Any parse / I/O / runtime error. `vmaf` writes a diagnostic to stderr before exiting. |
 
-`libvmaf` does not currently surface granular error codes at the process boundary;
-the specific `VMAF_ERR_*` code from the C API is logged to stderr but collapsed to
-exit 1 from the CLI.
+`libvmaf` does not currently surface granular error codes at the process
+boundary; the specific `VMAF_ERR_*` code from the C API is logged to stderr
+but collapsed to exit 1 from the CLI.
 
 ## Worked example — reproducing the upstream golden pair
 
@@ -250,7 +261,7 @@ Run VMAF plus PSNR:
 
 Expected stderr (CPU path):
 
-```
+```text
 VMAF version 3.x.y-lusoris.N
 48 frames  44.72 FPS
 vmaf_v0.6.1: 76.6689050197
@@ -309,7 +320,8 @@ CPU goldens preserved verbatim as a required CI gate — see
 - [python.md](python.md) — Python bindings for the CLI.
 - [precision.md](precision.md) — dedicated `--precision` flag walkthrough.
 - [../backends/index.md](../backends/index.md) — runtime backend dispatch rules.
-- [../metrics/features.md](../metrics/features.md) — per-feature identifiers and options.
+- [../metrics/features.md](../metrics/features.md) — per-feature identifiers
+  and options.
 - [../ai/inference.md](../ai/inference.md) — tiny-AI inference walkthrough.
 - [ADR-0119](../adr/0119-cli-precision-default-revert.md) (current
   precision default; supersedes

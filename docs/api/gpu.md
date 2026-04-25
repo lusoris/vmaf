@@ -1,4 +1,4 @@
-# GPU backends C API — `libvmaf_cuda.h` / `libvmaf_sycl.h`
+# GPU backends C API — `libvmaf_cuda.h` / `libvmaf_sycl.h` / `libvmaf_vulkan.h`
 
 The CUDA and SYCL backends each add their own small API on top of the core
 `libvmaf.h` surface — a state object, picture preallocation helpers, and
@@ -28,7 +28,7 @@ Backend dispatch rules + runtime precedence:
 
 ### Lifecycle addition
 
-```
+```text
   vmaf_init()
   vmaf_cuda_state_init()         ← new
   vmaf_cuda_import_state()       ← new; hands state to ctx
