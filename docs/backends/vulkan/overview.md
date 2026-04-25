@@ -1,11 +1,15 @@
-# Vulkan compute backend (scaffold)
+# Vulkan compute backend
 
-> **Status: scaffold only.** Every entry point in
-> [`libvmaf_vulkan.h`](../../../libvmaf/include/libvmaf/libvmaf_vulkan.h)
-> currently returns `-ENOSYS` pending the first kernel PR. The
-> backend exists to give downstream consumers (and the rebase story)
-> a stable API surface; runtime functionality lands incrementally
-> per [ADR-0127](../../adr/0127-vulkan-backend-decision.md) and
+> **Status: T5-1b runtime live + first kernel (`vif_vulkan`).**
+> `vmaf_vulkan_context_new` / `vmaf_vulkan_buffer_*` initialise +
+> allocate against a real Vulkan loader (volk + VMA + glslc). The
+> first feature kernel — `vif_vulkan` — runs end-to-end on Intel
+> Arc A380 and produces the standard
+> `VMAF_integer_feature_vif_scale0..3_score` outputs. ADM /
+> motion / motion_v2 kernels follow as T5-1c. Cross-backend
+> bit-exactness gate against scalar / SYCL reference is the next
+> milestone (T5-1b-v). See
+> [ADR-0127](../../adr/0127-vulkan-backend-decision.md),
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md).
 
 ## What's in this PR
