@@ -56,7 +56,7 @@ extern "C" int vmaf_sycl_picture_upload(VmafSyclState *state, void *dst, VmafPic
     if (plane >= 3)
         return -EINVAL;
 
-    size_t bpp = (pic->bpc + 7) / 8;
+    size_t const bpp = (pic->bpc + 7) / 8;
     size_t row_bytes = pic->w[plane] * bpp;
     size_t total = row_bytes * pic->h[plane];
 
@@ -85,8 +85,8 @@ extern "C" int vmaf_sycl_picture_download(VmafSyclState *state, const void *src,
     if (plane >= 3)
         return -EINVAL;
 
-    size_t bpp = (pic->bpc + 7) / 8;
-    size_t row_bytes = pic->w[plane] * bpp;
+    size_t const bpp = (pic->bpc + 7) / 8;
+    size_t const row_bytes = pic->w[plane] * bpp;
     size_t total = row_bytes * pic->h[plane];
 
     if (pic->stride[plane] == (ptrdiff_t)row_bytes) {
@@ -118,10 +118,10 @@ extern "C" int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
     if (!pic || !cookie)
         return -EINVAL;
 
-    VmafSyclCookie *c = (VmafSyclCookie *)cookie;
+    VmafSyclCookie const *c = (VmafSyclCookie *)cookie;
     assert(c->w > 0 && c->h > 0);
     assert(c->bpc >= 8 && c->bpc <= 16);
-    size_t bpp = (c->bpc + 7) / 8;
+    size_t const bpp = (c->bpc + 7) / 8;
     size_t plane_size = (size_t)c->w * c->h * bpp;
 
     /* Y plane only — VMAF operates on luma. DEVICE USM for GPU-resident,
@@ -161,7 +161,7 @@ extern "C" int vmaf_sycl_picture_alloc(VmafPicture *pic, void *cookie)
     priv->release_picture = vmaf_sycl_picture_free;
     pic->priv = priv;
 
-    int err = vmaf_ref_init(&pic->ref);
+    int const err = vmaf_ref_init(&pic->ref);
     if (err) {
         free(priv);
         pic->priv = nullptr;
@@ -178,7 +178,7 @@ extern "C" int vmaf_sycl_picture_free(VmafPicture *pic, void *cookie)
     if (!pic || !cookie)
         return -EINVAL;
 
-    VmafSyclCookie *c = (VmafSyclCookie *)cookie;
+    VmafSyclCookie const *c = (VmafSyclCookie *)cookie;
     assert(c->state != NULL);
 
     /* When invoked via vmaf_picture_unref the caller has already detached

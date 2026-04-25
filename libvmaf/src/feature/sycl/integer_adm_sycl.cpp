@@ -176,8 +176,8 @@ static const VmafOption options[] = {{
 
 static float dwt_quant_step(int lambda, int theta, double view_dist, int display_h)
 {
-    float r = (float)(view_dist * display_h * M_PI / 180.0);
-    float temp =
+    float const r = (float)(view_dist * display_h * M_PI / 180.0);
+    float const temp =
         std::log10f(std::powf(2.0f, lambda + 1) * dwt_model_Y.f0 * dwt_model_Y.g[theta] / r);
     return 2.0f * dwt_model_Y.a * std::powf(10.0f, dwt_model_Y.k * temp * temp) /
            dwt_basis_amp[lambda][theta];
@@ -248,7 +248,7 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
             // Tile origin in input space
             int tile_col = (int)(item.get_group(2) * WG_X);
             int n_start = (int)(item.get_group(1) * WG_Y);
-            int row_start = 2 * n_start - 1; // first input row
+            int const row_start = 2 * n_start - 1; // first input row
 
             // Read pixel from source at (x, y) with mirroring
             auto read_px = [&](int x, int y) -> int32_t {
@@ -268,16 +268,16 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
 
             // Cooperative tile load: TILE_H * WG_X elements
             constexpr int TILE_ELEMS = TILE_H * WG_X;
-            bool interior = (row_start >= 0) && (row_start + TILE_H <= (int)e_h) &&
-                            (tile_col + WG_X <= (int)e_w);
+            bool const interior = (row_start >= 0) && (row_start + TILE_H <= (int)e_h) &&
+                                  (tile_col + WG_X <= (int)e_w);
 
             if (interior) {
                 // Fast path: no boundary checks
                 for (int i = lid; i < TILE_ELEMS; i += WG_SIZE) {
-                    int tr = i / WG_X;
-                    int tc = i % WG_X;
-                    int x = tile_col + tc;
-                    int y = row_start + tr;
+                    int const tr = i / WG_X;
+                    int const tc = i % WG_X;
+                    int const x = tile_col + tc;
+                    int const y = row_start + tr;
                     if (e_scale == 0) {
                         if (e_bpc <= 8) {
                             tile[tr][tc] = static_cast<const uint8_t *>(p_in)[y * e_in_stride + x];
@@ -292,8 +292,8 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
             } else {
                 // Boundary path: mirror + bounds check
                 for (int i = lid; i < TILE_ELEMS; i += WG_SIZE) {
-                    int tr = i / WG_X;
-                    int tc = i % WG_X;
+                    int const tr = i / WG_X;
+                    int const tc = i % WG_X;
                     tile[tr][tc] = read_px(tile_col + tc, row_start + tr);
                 }
             }
@@ -315,8 +315,8 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
                              (int64_t)dwt_lo[2] * s2 + (int64_t)dwt_lo[3] * s3;
 
             // Hi-pass: coeffs = {-4240, -7345, 27411, -15826}
-            int64_t hi_val = (int64_t)dwt_hi[0] * s0 + (int64_t)dwt_hi[1] * s1 +
-                             (int64_t)dwt_hi[2] * s2 + (int64_t)dwt_hi[3] * s3;
+            int64_t const hi_val = (int64_t)dwt_hi[0] * s0 + (int64_t)dwt_hi[1] * s1 +
+                                   (int64_t)dwt_hi[2] * s2 + (int64_t)dwt_hi[3] * s3;
 
             // Scale 0: subtract DC offset from lo
             if (e_scale == 0) {
@@ -335,7 +335,7 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
             }
 
             // Interleaved output: lo followed by hi
-            unsigned out_stride = e_w * 2;
+            unsigned const out_stride = e_w * 2;
             dwt_out[gy * out_stride + gx] = lo_out;
             dwt_out[gy * out_stride + e_w + gx] = hi_out;
         });
@@ -354,8 +354,8 @@ static sycl::event launch_dwt_hori_pair(sycl::queue &q, const int32_t *dwt_tmp_r
                                         int32_t *dis_band_d, unsigned width, unsigned height,
                                         unsigned buf_stride, unsigned h_shift, unsigned h_add)
 {
-    unsigned half_w = (width + 1) / 2;
-    unsigned half_h = (height + 1) / 2;
+    unsigned const half_w = (width + 1) / 2;
+    unsigned const half_h = (height + 1) / 2;
     auto e_w = width;
     auto e_half_w = half_w;
     auto e_half_h = half_h;
@@ -400,26 +400,26 @@ static sycl::event launch_dwt_hori_pair(sycl::queue &q, const int32_t *dwt_tmp_r
             int base_x = 2 * gx;
 
             // Horizontal filter on lo row -> band_a, band_h
-            int32_t l0 = read_lo(base_x - 1);
-            int32_t l1 = read_lo(base_x);
-            int32_t l2 = read_lo(base_x + 1);
-            int32_t l3 = read_lo(base_x + 2);
+            int32_t const l0 = read_lo(base_x - 1);
+            int32_t const l1 = read_lo(base_x);
+            int32_t const l2 = read_lo(base_x + 1);
+            int32_t const l3 = read_lo(base_x + 2);
 
-            int64_t a_val = (int64_t)dwt_lo[0] * l0 + (int64_t)dwt_lo[1] * l1 +
-                            (int64_t)dwt_lo[2] * l2 + (int64_t)dwt_lo[3] * l3;
-            int64_t h_val = (int64_t)dwt_hi[0] * l0 + (int64_t)dwt_hi[1] * l1 +
-                            (int64_t)dwt_hi[2] * l2 + (int64_t)dwt_hi[3] * l3;
+            int64_t const a_val = (int64_t)dwt_lo[0] * l0 + (int64_t)dwt_lo[1] * l1 +
+                                  (int64_t)dwt_lo[2] * l2 + (int64_t)dwt_lo[3] * l3;
+            int64_t const h_val = (int64_t)dwt_hi[0] * l0 + (int64_t)dwt_hi[1] * l1 +
+                                  (int64_t)dwt_hi[2] * l2 + (int64_t)dwt_hi[3] * l3;
 
             // Horizontal filter on hi row -> band_v, band_d
-            int32_t h0 = read_hi(base_x - 1);
-            int32_t h1 = read_hi(base_x);
-            int32_t h2 = read_hi(base_x + 1);
-            int32_t h3 = read_hi(base_x + 2);
+            int32_t const h0 = read_hi(base_x - 1);
+            int32_t const h1 = read_hi(base_x);
+            int32_t const h2 = read_hi(base_x + 1);
+            int32_t const h3 = read_hi(base_x + 2);
 
-            int64_t v_val = (int64_t)dwt_lo[0] * h0 + (int64_t)dwt_lo[1] * h1 +
-                            (int64_t)dwt_lo[2] * h2 + (int64_t)dwt_lo[3] * h3;
-            int64_t d_val = (int64_t)dwt_hi[0] * h0 + (int64_t)dwt_hi[1] * h1 +
-                            (int64_t)dwt_hi[2] * h2 + (int64_t)dwt_hi[3] * h3;
+            int64_t const v_val = (int64_t)dwt_lo[0] * h0 + (int64_t)dwt_lo[1] * h1 +
+                                  (int64_t)dwt_lo[2] * h2 + (int64_t)dwt_lo[3] * h3;
+            int64_t const d_val = (int64_t)dwt_hi[0] * h0 + (int64_t)dwt_hi[1] * h1 +
+                                  (int64_t)dwt_hi[2] * h2 + (int64_t)dwt_hi[3] * h3;
 
             // Quantize
             int32_t a_out;
@@ -427,7 +427,7 @@ static sycl::event launch_dwt_hori_pair(sycl::queue &q, const int32_t *dwt_tmp_r
             int32_t v_out;
             int32_t d_out;
             if (e_h_shift > 0) {
-                int64_t rnd = (int64_t)1 << (e_h_shift - 1);
+                int64_t const rnd = (int64_t)1 << (e_h_shift - 1);
                 a_out = (int32_t)((a_val + rnd) >> e_h_shift);
                 h_out = (int32_t)((h_val + rnd) >> e_h_shift);
                 v_out = (int32_t)((v_val + rnd) >> e_h_shift);
@@ -477,7 +477,7 @@ struct GainLimitQ31 {
 
 static inline GainLimitQ31 gain_limit_to_q31(double gain_limit)
 {
-    int64_t gain_q31 = (int64_t)llround(gain_limit * (1LL << 31));
+    int64_t const gain_q31 = (int64_t)llround(gain_limit * (1LL << 31));
     return {
         .gain_hi = (int32_t)(gain_q31 >> 16),
         .gain_lo = (int32_t)(gain_q31 & 0xFFFF),
@@ -507,7 +507,7 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
     // because in SYCL, all kernels from a translation unit share a SPIR-V module.
     // If the module contains fp64 instructions, the runtime rejects the entire
     // module on non-fp64 hardware — even if the fp64 kernel is never submitted.
-    GainLimitQ31 e_gain_q31 = gain_limit_to_q31(adm_enhn_gain_limit);
+    GainLimitQ31 const e_gain_q31 = gain_limit_to_q31(adm_enhn_gain_limit);
 
     constexpr float cos_1deg_sq = 0.99969541789740297f; // cos(pi/180)^2
 
@@ -526,29 +526,29 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
             unsigned idx = gy * e_stride + gx;
 
             // Load all 3 bands for ref and dis
-            int32_t o[3] = {ref_h[idx], ref_v[idx], ref_d[idx]};
-            int32_t t[3] = {dis_h[idx], dis_v[idx], dis_d[idx]};
-            int32_t *cf_ptr[3] = {csf_f_h, csf_f_v, csf_f_d};
-            uint32_t irf[3] = {i_rfactor_h, i_rfactor_v, i_rfactor_d};
+            int32_t const o[3] = {ref_h[idx], ref_v[idx], ref_d[idx]};
+            int32_t const t[3] = {dis_h[idx], dis_v[idx], dis_d[idx]};
+            int32_t const *cf_ptr[3] = {csf_f_h, csf_f_v, csf_f_d};
+            uint32_t const irf[3] = {i_rfactor_h, i_rfactor_v, i_rfactor_d};
 
             // --- 2D Angle test using (H, V) bands only ---
             // Matches CPU: angle between (oh,ov) and (th,tv)
-            int64_t ot_dp = (int64_t)o[0] * t[0] + (int64_t)o[1] * t[1];
-            int64_t o_mag_sq = (int64_t)o[0] * o[0] + (int64_t)o[1] * o[1];
-            int64_t t_mag_sq = (int64_t)t[0] * t[0] + (int64_t)t[1] * t[1];
+            int64_t const ot_dp = (int64_t)o[0] * t[0] + (int64_t)o[1] * t[1];
+            int64_t const o_mag_sq = (int64_t)o[0] * o[0] + (int64_t)o[1] * o[1];
+            int64_t const t_mag_sq = (int64_t)t[0] * t[0] + (int64_t)t[1] * t[1];
 
             // CPU divides by 4096 before float conversion to
             // avoid float precision issues with large int64 values
-            float ot_f = (float)ot_dp / 4096.0f;
-            float om_f = (float)o_mag_sq / 4096.0f;
-            float tm_f = (float)t_mag_sq / 4096.0f;
+            float const ot_f = (float)ot_dp / 4096.0f;
+            float const om_f = (float)o_mag_sq / 4096.0f;
+            float const tm_f = (float)t_mag_sq / 4096.0f;
 
-            bool angle_flag = (ot_f >= 0.0f) && (ot_f * ot_f >= cos_1deg_sq * om_f * tm_f);
+            bool const angle_flag = (ot_f >= 0.0f) && (ot_f * ot_f >= cos_1deg_sq * om_f * tm_f);
 
             // Process each band
             for (int band = 0; band < 3; band++) {
-                int32_t oh = o[band];
-                int32_t th = t[band];
+                int32_t const oh = o[band];
+                int32_t const th = t[band];
 
                 // --- Decouple: project dis onto ref ---
                 int32_t r_val = 0;
@@ -560,8 +560,8 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
                     // r = (32768 * 0 + 16384) >> 15 = 0
                     r_val = 0;
                 } else {
-                    int32_t abs_oh = oh < 0 ? -oh : oh;
-                    int32_t sign_oh = oh < 0 ? -1 : 1;
+                    int32_t const abs_oh = oh < 0 ? -oh : oh;
+                    int32_t const sign_oh = oh < 0 ? -1 : 1;
 
                     int32_t div_val;
                     int kh_shift = 0;
@@ -578,7 +578,7 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
                             div_val = div_lookup[32768 + abs_oh] * sign_oh;
                         } else {
                             // Count how many bits to shift
-                            uint32_t tmp = (uint32_t)abs_oh;
+                            uint32_t const tmp = (uint32_t)abs_oh;
                             // Find MSB position
                             int n = 0;
                             uint32_t v = tmp;
@@ -606,20 +606,20 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
                             }
                             // n is floor(log2(tmp)), so bit width is n+1
                             // clz = 31 - n for 32-bit
-                            int clz = 31 - n;
-                            int ks = 17 - clz;
-                            uint32_t rounded = (tmp + (1u << (ks - 1))) >> ks;
+                            int const clz = 31 - n;
+                            int const ks = 17 - clz;
+                            uint32_t const rounded = (tmp + (1u << (ks - 1))) >> ks;
                             kh_shift = ks;
                             div_val = div_lookup[32768 + rounded] * sign_oh;
                         }
                     }
 
                     // k = clamp((div_val * th) >> shift, 0, 32768)
-                    int64_t k64 = (int64_t)div_val * th;
+                    int64_t const k64 = (int64_t)div_val * th;
                     if (e_scale == 0) {
                         k = (int32_t)((k64 + (1 << 14)) >> 15);
                     } else {
-                        int shift = 15 + kh_shift;
+                        int const shift = 15 + kh_shift;
                         k = (int32_t)((k64 + ((int64_t)1 << (shift - 1))) >> shift);
                     }
 
@@ -637,25 +637,25 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
                 if (angle_flag) {
                     // rst_f = (k/32768) * (oh/64) — sign depends on
                     // k (>=0) and oh, so rst_f > 0 iff oh > 0
-                    float rst_f = ((float)k / 32768.0f) * ((float)oh / 64.0f);
+                    float const rst_f = ((float)k / 32768.0f) * ((float)oh / 64.0f);
 
                     // int64 Q31 split-multiply gain limiting
                     // gained = (r_val * gain_q31) >> 31
                     //        = (r_val*hi << 16 + r_val*lo) >> 31
                     //        = r_val*hi >> 15 + remainder >> 31
-                    int64_t prod_hi = (int64_t)r_val * e_gain_q31.gain_hi;
-                    int64_t prod_lo = (int64_t)r_val * e_gain_q31.gain_lo;
-                    int64_t main_part = prod_hi >> 15;
-                    int64_t rem = ((prod_hi - (main_part << 15)) << 16) + prod_lo;
+                    int64_t const prod_hi = (int64_t)r_val * e_gain_q31.gain_hi;
+                    int64_t const prod_lo = (int64_t)r_val * e_gain_q31.gain_lo;
+                    int64_t const main_part = prod_hi >> 15;
+                    int64_t const rem = ((prod_hi - (main_part << 15)) << 16) + prod_lo;
                     // Keep as int64 — gained can exceed int32 at scales 1-3
                     // where r_val is 32-bit and gain=100 → gained ≈ r*100
-                    int64_t gained = main_part + (rem >> 31);
+                    int64_t const gained = main_part + (rem >> 31);
 
                     if (rst_f > 0.0f) {
-                        int64_t c = (gained < (int64_t)th) ? gained : (int64_t)th;
+                        int64_t const c = (gained < (int64_t)th) ? gained : (int64_t)th;
                         r_val = (int32_t)c;
                     } else if (rst_f < 0.0f) {
-                        int64_t c = (gained > (int64_t)th) ? gained : (int64_t)th;
+                        int64_t const c = (gained > (int64_t)th) ? gained : (int64_t)th;
                         r_val = (int32_t)c;
                     }
                 }
@@ -664,22 +664,24 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
                 // — only csf_f needs to be stored (3×3 neighborhood access)
 
                 // a = dis - r (residual)
-                int32_t a_val = th - r_val;
+                int32_t const a_val = th - r_val;
 
                 // --- Fused CSF ---
                 int32_t csf_f_val;
                 if (e_scale == 0) {
                     // Scale 0: rfactor * 2^21 (h,v) or 2^23 (d)
-                    int shift = (band < 2) ? 15 : 17;
-                    int64_t rnd_csf = ((int64_t)1 << (shift - 1));
-                    int32_t csf_a_val = (int32_t)(((int64_t)irf[band] * a_val + rnd_csf) >> shift);
+                    int const shift = (band < 2) ? 15 : 17;
+                    int64_t const rnd_csf = ((int64_t)1 << (shift - 1));
+                    int32_t const csf_a_val =
+                        (int32_t)(((int64_t)irf[band] * a_val + rnd_csf) >> shift);
                     // csf_f = (4369 * |csf_a| + 2048) >> 12
-                    int32_t abs_csf = csf_a_val < 0 ? -csf_a_val : csf_a_val;
+                    int32_t const abs_csf = csf_a_val < 0 ? -csf_a_val : csf_a_val;
                     csf_f_val = (int32_t)(((int64_t)4369 * abs_csf + 2048) >> 12);
                 } else {
                     // Scales 1-3: rfactor * 2^32
-                    int32_t csf_a_val = (int32_t)(((int64_t)irf[band] * a_val + (1LL << 27)) >> 28);
-                    int32_t abs_csf = csf_a_val < 0 ? -csf_a_val : csf_a_val;
+                    int32_t const csf_a_val =
+                        (int32_t)(((int64_t)irf[band] * a_val + (1LL << 27)) >> 28);
+                    int32_t const abs_csf = csf_a_val < 0 ? -csf_a_val : csf_a_val;
                     csf_f_val = (int32_t)(((int64_t)143165577 * abs_csf + (1LL << 31)) >> 32);
                 }
 
@@ -716,15 +718,15 @@ static sycl::event launch_csf_den_cm_3band(
 {
     int left = (int)(half_w * ADM_BORDER_FACTOR - 0.5);
     int top = (int)(half_h * ADM_BORDER_FACTOR - 0.5);
-    int right = (int)half_w - left;
-    int bottom = (int)half_h - top;
+    int const right = (int)half_w - left;
+    int const bottom = (int)half_h - top;
     if (left < 0)
         left = 0;
     if (top < 0)
         top = 0;
 
-    int active_w = right - left;
-    int active_h = bottom - top;
+    int const active_w = right - left;
+    int const active_h = bottom - top;
     if (active_w <= 0 || active_h <= 0)
         return sycl::event{};
 
@@ -735,7 +737,7 @@ static sycl::event launch_csf_den_cm_3band(
     if (scale == 0) {
         csf_shift_sq = 0;
         csf_shift_cub = 0;
-        int area = active_w * active_h;
+        int const area = active_w * active_h;
         int s = (int)std::ceil(std::log2(area) - 20);
         csf_shift_accum = s > 0 ? (uint32_t)s : 0;
     } else {
@@ -745,7 +747,7 @@ static sycl::event launch_csf_den_cm_3band(
     }
 
     // cm shift params
-    uint32_t cm_shift_inner_accum = (uint32_t)std::ceil(std::log2((double)half_h));
+    uint32_t const cm_shift_inner_accum = (uint32_t)std::ceil(std::log2((double)half_h));
     uint32_t cm_shift_sub[3];
     uint32_t cm_shift_xsq[3];
     uint32_t cm_shift_xcub[3];
@@ -798,51 +800,51 @@ static sycl::event launch_csf_den_cm_3band(
             sycl::nd_range<1>(3 * num_rows * WG_SIZE, WG_SIZE),
             [=](sycl::nd_item<1> item) [[intel::reqd_sub_group_size(32)]] {
                 int wg = item.get_group(0);
-                int band_idx = wg / num_rows;
-                int row_idx = wg % num_rows;
+                int const band_idx = wg / num_rows;
+                int const row_idx = wg % num_rows;
                 int lid = item.get_local_id(0);
-                int row = e_top + row_idx;
+                int const row = e_top + row_idx;
 
                 // Select band-specific pointers
                 const int32_t *ref_band = (band_idx == 0) ? ref_band_h :
                                           (band_idx == 1) ? ref_band_v :
                                                             ref_band_d;
-                int64_t *csf_accum_ptr = (band_idx == 0) ? csf_accum_h :
-                                         (band_idx == 1) ? csf_accum_v :
-                                                           csf_accum_d;
-                int64_t *cm_accum_ptr = (band_idx == 0) ? cm_accum_h :
-                                        (band_idx == 1) ? cm_accum_v :
-                                                          cm_accum_d;
-                uint32_t i_rfactor = (band_idx == 0) ? i_rfactor_h :
-                                     (band_idx == 1) ? i_rfactor_v :
-                                                       i_rfactor_d;
+                int64_t const *csf_accum_ptr = (band_idx == 0) ? csf_accum_h :
+                                               (band_idx == 1) ? csf_accum_v :
+                                                                 csf_accum_d;
+                int64_t const *cm_accum_ptr = (band_idx == 0) ? cm_accum_h :
+                                              (band_idx == 1) ? cm_accum_v :
+                                                                cm_accum_d;
+                uint32_t const i_rfactor = (band_idx == 0) ? i_rfactor_h :
+                                           (band_idx == 1) ? i_rfactor_v :
+                                                             i_rfactor_d;
                 auto e_cm_shift_sub = (band_idx < 2) ? e_cm_shift_sub0 : e_cm_shift_sub2;
                 auto e_cm_shift_xsq = (band_idx < 2) ? e_cm_shift_xsq0 : e_cm_shift_xsq2;
                 auto e_cm_shift_xcub = (band_idx < 2) ? e_cm_shift_xcub0 : e_cm_shift_xcub2;
 
-                const int32_t *cf_ptrs[3] = {csf_f_h, csf_f_v, csf_f_d};
+                const int32_t const *cf_ptrs[3] = {csf_f_h, csf_f_v, csf_f_d};
                 // All 3 ref/dis band pointers for inline decouple
-                const int32_t *ref_ptrs[3] = {ref_band_h, ref_band_v, ref_band_d};
-                const int32_t *dis_ptrs[3] = {dis_band_h, dis_band_v, dis_band_d};
-                uint32_t irf_all[3] = {i_rfactor_h, i_rfactor_v, i_rfactor_d};
+                const int32_t const *ref_ptrs[3] = {ref_band_h, ref_band_v, ref_band_d};
+                const int32_t const *dis_ptrs[3] = {dis_band_h, dis_band_v, dis_band_d};
+                uint32_t const irf_all[3] = {i_rfactor_h, i_rfactor_v, i_rfactor_d};
 
                 // Per-thread accumulators for both reductions
                 int64_t local_csf_sum = 0;
                 int64_t local_cm_sum = 0;
 
                 for (int col = e_left + lid; col < e_right; col += WG_SIZE) {
-                    unsigned idx = row * e_stride + col;
+                    unsigned const idx = row * e_stride + col;
 
                     // ── CSF denominator: |ref|³ ──
-                    int32_t t = ref_band[idx];
-                    int32_t abs_t = t < 0 ? -t : t;
+                    int32_t const t = ref_band[idx];
+                    int32_t const abs_t = t < 0 ? -t : t;
                     int64_t t_cub;
                     if (e_scale == 0) {
                         t_cub = (int64_t)abs_t * abs_t * abs_t;
                     } else {
-                        int64_t rnd_sq = ((int64_t)1 << e_csf_shift_sq);
-                        int64_t t_sq = ((int64_t)abs_t * abs_t + rnd_sq) >> e_csf_shift_sq;
-                        int64_t rnd_cub =
+                        int64_t const rnd_sq = ((int64_t)1 << e_csf_shift_sq);
+                        int64_t const t_sq = ((int64_t)abs_t * abs_t + rnd_sq) >> e_csf_shift_sq;
+                        int64_t const rnd_cub =
                             e_csf_shift_cub > 0 ? ((int64_t)1 << (e_csf_shift_cub - 1)) : 0;
                         t_cub = (t_sq * abs_t + rnd_cub) >> e_csf_shift_cub;
                     }
@@ -850,25 +852,27 @@ static sycl::event launch_csf_den_cm_3band(
 
                     // ── Inline decouple + CSF for all 3 bands ──
                     // Load ref/dis for H,V,D bands
-                    int32_t o[3] = {ref_ptrs[0][idx], ref_ptrs[1][idx], ref_ptrs[2][idx]};
-                    int32_t th_all[3] = {dis_ptrs[0][idx], dis_ptrs[1][idx], dis_ptrs[2][idx]};
+                    int32_t const o[3] = {ref_ptrs[0][idx], ref_ptrs[1][idx], ref_ptrs[2][idx]};
+                    int32_t const th_all[3] = {dis_ptrs[0][idx], dis_ptrs[1][idx],
+                                               dis_ptrs[2][idx]};
 
                     // 2D angle test (uses H,V bands only)
-                    int64_t ot_dp = (int64_t)o[0] * th_all[0] + (int64_t)o[1] * th_all[1];
-                    int64_t o_mag_sq = (int64_t)o[0] * o[0] + (int64_t)o[1] * o[1];
-                    int64_t t_mag_sq =
+                    int64_t const ot_dp = (int64_t)o[0] * th_all[0] + (int64_t)o[1] * th_all[1];
+                    int64_t const o_mag_sq = (int64_t)o[0] * o[0] + (int64_t)o[1] * o[1];
+                    int64_t const t_mag_sq =
                         (int64_t)th_all[0] * th_all[0] + (int64_t)th_all[1] * th_all[1];
-                    float ot_f = (float)ot_dp / 4096.0f;
-                    float om_f = (float)o_mag_sq / 4096.0f;
-                    float tm_f = (float)t_mag_sq / 4096.0f;
-                    bool angle_flag = (ot_f >= 0.0f) && (ot_f * ot_f >= cos_1deg_sq * om_f * tm_f);
+                    float const ot_f = (float)ot_dp / 4096.0f;
+                    float const om_f = (float)o_mag_sq / 4096.0f;
+                    float const tm_f = (float)t_mag_sq / 4096.0f;
+                    bool const angle_flag =
+                        (ot_f >= 0.0f) && (ot_f * ot_f >= cos_1deg_sq * om_f * tm_f);
 
                     // Decouple + CSF for each band → r_val[band], csf_a_val[band]
                     int32_t r_vals[3];
                     int32_t csf_a_vals[3];
                     for (int b = 0; b < 3; b++) {
-                        int32_t oh = o[b];
-                        int32_t bth = th_all[b];
+                        int32_t const oh = o[b];
+                        int32_t const bth = th_all[b];
                         int32_t r_val = 0;
                         int32_t k = 0;
 
@@ -876,8 +880,8 @@ static sycl::event launch_csf_den_cm_3band(
                             k = 32768;
                             r_val = 0;
                         } else {
-                            int32_t abs_oh = oh < 0 ? -oh : oh;
-                            int32_t sign_oh = oh < 0 ? -1 : 1;
+                            int32_t const abs_oh = oh < 0 ? -oh : oh;
+                            int32_t const sign_oh = oh < 0 ? -1 : 1;
                             int32_t div_val;
                             int kh_shift = 0;
 
@@ -887,7 +891,7 @@ static sycl::event launch_csf_den_cm_3band(
                                 if (abs_oh < 32768) {
                                     div_val = div_lookup[32768 + abs_oh] * sign_oh;
                                 } else {
-                                    uint32_t tmp = (uint32_t)abs_oh;
+                                    uint32_t const tmp = (uint32_t)abs_oh;
                                     int n = 0;
                                     uint32_t v = tmp;
                                     if (v >= (1u << 16)) {
@@ -910,19 +914,19 @@ static sycl::event launch_csf_den_cm_3band(
                                         n += 1;
                                         v >>= 1;
                                     }
-                                    int clz = 31 - n;
-                                    int ks = 17 - clz;
-                                    uint32_t rounded = (tmp + (1u << (ks - 1))) >> ks;
+                                    int const clz = 31 - n;
+                                    int const ks = 17 - clz;
+                                    uint32_t const rounded = (tmp + (1u << (ks - 1))) >> ks;
                                     kh_shift = ks;
                                     div_val = div_lookup[32768 + rounded] * sign_oh;
                                 }
                             }
 
-                            int64_t k64 = (int64_t)div_val * bth;
+                            int64_t const k64 = (int64_t)div_val * bth;
                             if (e_scale == 0) {
                                 k = (int32_t)((k64 + (1 << 14)) >> 15);
                             } else {
-                                int shift = 15 + kh_shift;
+                                int const shift = 15 + kh_shift;
                                 k = (int32_t)((k64 + ((int64_t)1 << (shift - 1))) >> shift);
                             }
                             if (k < 0)
@@ -934,18 +938,18 @@ static sycl::event launch_csf_den_cm_3band(
 
                         // Enhancement gain limiting
                         if (angle_flag) {
-                            float rst_f = ((float)k / 32768.0f) * ((float)oh / 64.0f);
-                            int64_t prod_hi = (int64_t)r_val * e_gain_q31.gain_hi;
-                            int64_t prod_lo = (int64_t)r_val * e_gain_q31.gain_lo;
-                            int64_t main_part = prod_hi >> 15;
-                            int64_t rem = ((prod_hi - (main_part << 15)) << 16) + prod_lo;
-                            int64_t gained = main_part + (rem >> 31);
+                            float const rst_f = ((float)k / 32768.0f) * ((float)oh / 64.0f);
+                            int64_t const prod_hi = (int64_t)r_val * e_gain_q31.gain_hi;
+                            int64_t const prod_lo = (int64_t)r_val * e_gain_q31.gain_lo;
+                            int64_t const main_part = prod_hi >> 15;
+                            int64_t const rem = ((prod_hi - (main_part << 15)) << 16) + prod_lo;
+                            int64_t const gained = main_part + (rem >> 31);
 
                             if (rst_f > 0.0f) {
-                                int64_t c = (gained < (int64_t)bth) ? gained : (int64_t)bth;
+                                int64_t const c = (gained < (int64_t)bth) ? gained : (int64_t)bth;
                                 r_val = (int32_t)c;
                             } else if (rst_f < 0.0f) {
-                                int64_t c = (gained > (int64_t)bth) ? gained : (int64_t)bth;
+                                int64_t const c = (gained > (int64_t)bth) ? gained : (int64_t)bth;
                                 r_val = (int32_t)c;
                             }
                         }
@@ -953,10 +957,10 @@ static sycl::event launch_csf_den_cm_3band(
                         r_vals[b] = r_val;
 
                         // CSF: a = dis - r, csf_a = rfactor * a
-                        int32_t a_val = bth - r_val;
+                        int32_t const a_val = bth - r_val;
                         if (e_scale == 0) {
-                            int shift = (b < 2) ? 15 : 17;
-                            int64_t rnd_csf = ((int64_t)1 << (shift - 1));
+                            int const shift = (b < 2) ? 15 : 17;
+                            int64_t const rnd_csf = ((int64_t)1 << (shift - 1));
                             csf_a_vals[b] =
                                 (int32_t)(((int64_t)irf_all[b] * a_val + rnd_csf) >> shift);
                         } else {
@@ -985,7 +989,7 @@ static sycl::event launch_csf_den_cm_3band(
                                 thr += cf_ptrs[b][ny * e_stride + nx];
                             }
                         }
-                        int32_t abs_ca = csf_a_vals[b] < 0 ? -csf_a_vals[b] : csf_a_vals[b];
+                        int32_t const abs_ca = csf_a_vals[b] < 0 ? -csf_a_vals[b] : csf_a_vals[b];
                         if (e_scale == 0) {
                             thr += ((int64_t)ONE_BY_15 * abs_ca + 2048) >> 12;
                         } else {
@@ -993,14 +997,14 @@ static sycl::event launch_csf_den_cm_3band(
                         }
                     }
 
-                    int32_t r_val = r_vals[band_idx];
+                    int32_t const r_val = r_vals[band_idx];
                     int64_t cm;
                     if (e_scale == 0) {
                         cm = (int64_t)i_rfactor * r_val;
                         cm = cm < 0 ? -cm : cm;
                         cm -= (thr << e_cm_shift_sub);
                     } else {
-                        int64_t scaled_r = ((int64_t)i_rfactor * r_val + (1LL << 27)) >> 28;
+                        int64_t const scaled_r = ((int64_t)i_rfactor * r_val + (1LL << 27)) >> 28;
                         cm = scaled_r < 0 ? -scaled_r : scaled_r;
                         cm -= thr;
                     }
@@ -1032,17 +1036,17 @@ static sycl::event launch_csf_den_cm_3band(
                 item.barrier(sycl::access::fence_space::local_space);
 
                 if (lid == 0) {
-                    int64_t total_csf = 0;
-                    int64_t total_cm = 0;
+                    int64_t const total_csf = 0;
+                    int64_t const total_cm = 0;
                     for (uint32_t s = 0; s < n_subgroups; s++) {
                         total_csf += lmem[s];
                         total_cm += lmem[MAX_SUBGROUPS + s];
                     }
 
                     // csf_den: shift and atomic add
-                    int64_t rnd_csf =
+                    int64_t const rnd_csf =
                         e_csf_shift_accum > 0 ? ((int64_t)1 << (e_csf_shift_accum - 1)) : 0;
-                    int64_t shifted_csf = (total_csf + rnd_csf) >> e_csf_shift_accum;
+                    int64_t const shifted_csf = (total_csf + rnd_csf) >> e_csf_shift_accum;
                     sycl::atomic_ref<int64_t, sycl::memory_order::relaxed,
                                      sycl::memory_scope::device,
                                      sycl::access::address_space::global_space>
@@ -1050,9 +1054,9 @@ static sycl::event launch_csf_den_cm_3band(
                     csf_ref.fetch_add(shifted_csf);
 
                     // cm: shift and atomic add
-                    int64_t rnd_cm =
+                    int64_t const rnd_cm =
                         e_cm_shift_inner > 0 ? ((int64_t)1 << (e_cm_shift_inner - 1)) : 0;
-                    int64_t shifted_cm = (total_cm + rnd_cm) >> e_cm_shift_inner;
+                    int64_t const shifted_cm = (total_cm + rnd_cm) >> e_cm_shift_inner;
                     sycl::atomic_ref<int64_t, sycl::memory_order::relaxed,
                                      sycl::memory_scope::device,
                                      sycl::access::address_space::global_space>
@@ -1069,14 +1073,14 @@ static sycl::event launch_csf_den_cm_3band(
 
 static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *result)
 {
-    int left = (int)(w * ADM_BORDER_FACTOR - 0.5);
-    int top = (int)(h * ADM_BORDER_FACTOR - 0.5);
-    int right = w - left;
-    int bottom = h - top;
+    int const left = (int)(w * ADM_BORDER_FACTOR - 0.5);
+    int const top = (int)(h * ADM_BORDER_FACTOR - 0.5);
+    int const right = w - left;
+    int const bottom = h - top;
 
     const uint32_t shift_inner_accum = (uint32_t)std::ceil(std::log2(h));
 
-    float powf_add = std::powf((float)(bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
+    float const powf_add = std::powf((float)(bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
 
     *result = 0;
     for (int i = 0; i < 3; i++) {
@@ -1086,12 +1090,12 @@ static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *resu
             const uint32_t shift_xcub[3] = {(uint32_t)(std::ceil(std::log2((double)w)) - 4),
                                             (uint32_t)(std::ceil(std::log2((double)w)) - 4),
                                             (uint32_t)(std::ceil(std::log2((double)w)) - 3)};
-            int constant_offset[3] = {52, 52, 57};
+            int const constant_offset[3] = {52, 52, 57};
             f_accum = (float)(accum[i] / std::pow(2.0, constant_offset[i] - shift_xcub[i] -
                                                            shift_inner_accum));
         } else {
             // CPU uses w (full band width) for shift_cub, not active_w
-            uint32_t shift_cub = (uint32_t)std::ceil(std::log2((double)w));
+            uint32_t const shift_cub = (uint32_t)std::ceil(std::log2((double)w));
             float final_shift[3] = {std::powf(2.0f, 45.0f - shift_cub - shift_inner_accum),
                                     std::powf(2.0f, 39.0f - shift_cub - shift_inner_accum),
                                     std::powf(2.0f, 36.0f - shift_cub - shift_inner_accum)};
@@ -1104,14 +1108,14 @@ static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *resu
 static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float *result,
                                  float view_dist, float display_h)
 {
-    int left = (int)(w * ADM_BORDER_FACTOR - 0.5);
-    int top = (int)(h * ADM_BORDER_FACTOR - 0.5);
-    int right = w - left;
-    int bottom = h - top;
+    int const left = (int)(w * ADM_BORDER_FACTOR - 0.5);
+    int const top = (int)(h * ADM_BORDER_FACTOR - 0.5);
+    int const right = w - left;
+    int const bottom = h - top;
 
-    float factor1 = dwt_quant_step(scale, 1, view_dist, (int)display_h);
-    float factor2 = dwt_quant_step(scale, 2, view_dist, (int)display_h);
-    float rfactor[3] = {1.0f / factor1, 1.0f / factor1, 1.0f / factor2};
+    float const factor1 = dwt_quant_step(scale, 1, view_dist, (int)display_h);
+    float const factor2 = dwt_quant_step(scale, 2, view_dist, (int)display_h);
+    float const rfactor[3] = {1.0f / factor1, 1.0f / factor1, 1.0f / factor2};
 
     const uint32_t accum_convert[4] = {18, 32, 27, 23};
 
@@ -1128,11 +1132,11 @@ static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float
         shift_csf = std::pow(2.0, accum_convert[scale] - shift_accum - shift_cub);
     }
 
-    float powf_add = std::powf((float)(bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
+    float const powf_add = std::powf((float)(bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
 
     *result = 0;
     for (int i = 0; i < 3; i++) {
-        double csf = (double)(accum[i] / shift_csf) * std::pow(rfactor[i], 3);
+        double const csf = (double)(accum[i] / shift_csf) * std::pow(rfactor[i], 3);
         *result += std::powf((float)csf, 1.0f / 3.0f) + powf_add;
     }
 }
@@ -1169,25 +1173,25 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     if (err)
         return err;
 
-    unsigned half_w = (w + 1) / 2;
-    unsigned half_h = (h + 1) / 2;
+    unsigned const half_w = (w + 1) / 2;
+    unsigned const half_h = (h + 1) / 2;
     s->buf_stride = (half_w + 3) & ~3u; // align to 4
 
     // Compute rfactors
     for (unsigned scale = 0; scale < 4; scale++) {
-        float f1 = dwt_quant_step(scale, 1, s->adm_norm_view_dist, s->adm_ref_display_height);
-        float f2 = dwt_quant_step(scale, 2, s->adm_norm_view_dist, s->adm_ref_display_height);
+        float const f1 = dwt_quant_step(scale, 1, s->adm_norm_view_dist, s->adm_ref_display_height);
+        float const f2 = dwt_quant_step(scale, 2, s->adm_norm_view_dist, s->adm_ref_display_height);
         s->rfactor[scale * 3 + 0] = 1.0f / f1;
         s->rfactor[scale * 3 + 1] = 1.0f / f1;
         s->rfactor[scale * 3 + 2] = 1.0f / f2;
 
-        double pow2_32 = std::pow(2.0, 32);
-        double pow2_21 = std::pow(2.0, 21);
-        double pow2_23 = std::pow(2.0, 23);
+        double const pow2_32 = std::pow(2.0, 32);
+        double const pow2_21 = std::pow(2.0, 21);
+        double const pow2_23 = std::pow(2.0, 23);
 
         if (scale == 0) {
-            double default_check = 3.0 * 1080;
-            double actual = s->adm_norm_view_dist * s->adm_ref_display_height;
+            double const default_check = 3.0 * 1080;
+            double const actual = s->adm_norm_view_dist * s->adm_ref_display_height;
             if (std::fabs(actual - default_check) < 1e-8) {
                 s->i_rfactor[0] = 36453;
                 s->i_rfactor[1] = 36453;
@@ -1245,7 +1249,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         std::memset(lut, 0, div_size);
         static const int32_t Q_factor = 1073741824; // 2^30
         for (int i = 1; i <= 32768; i++) {
-            int32_t recip = (int32_t)(Q_factor / i);
+            int32_t const recip = (int32_t)(Q_factor / i);
             lut[32768 + i] = recip;
             lut[32768 - i] = -recip;
         }
@@ -1442,19 +1446,19 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
     }
 
     // Apply numden_limit
-    double numden_limit = 1e-10 * (score_w * score_h) / (1920.0 * 1080.0);
+    double const numden_limit = 1e-10 * (score_w * score_h) / (1920.0 * 1080.0);
     if (num < numden_limit)
         num = 0.0;
     if (den < numden_limit)
         den = 0.0;
 
-    double score = (den == 0.0) ? 1.0 : num / den;
+    double const score = (den == 0.0) ? 1.0 : num / den;
 
     // Write primary feature
     {
-        int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                          "VMAF_integer_feature_adm2_score", score,
-                                                          index);
+        int const err = vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, "VMAF_integer_feature_adm2_score", score,
+            index);
         if (err)
             return err;
     }
@@ -1463,7 +1467,7 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
     for (int i = 0; i < ADM_NUM_SCALES; i++) {
         char name[64];
         std::snprintf(name, sizeof(name), "integer_adm_scale%d", i);
-        double scale_score = (scores_den[i] == 0.0) ? 1.0 : scores_num[i] / scores_den[i];
+        double const scale_score = (scores_den[i] == 0.0) ? 1.0 : scores_num[i] / scores_den[i];
         vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, name,
                                                 scale_score, index);
     }
@@ -1497,7 +1501,7 @@ static int extract_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                             VmafPicture *dist_pic_90, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
-    int err = submit_fex_sycl(fex, ref_pic, ref_pic_90, dist_pic, dist_pic_90, index);
+    int const err = submit_fex_sycl(fex, ref_pic, ref_pic_90, dist_pic, dist_pic_90, index);
     if (err)
         return err;
     return collect_fex_sycl(fex, index, feature_collector);

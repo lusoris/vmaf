@@ -185,23 +185,24 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
                     }
                 };
 
-                bool interior_wg = (tile_origin_y >= 0) && (tile_origin_y + TILE_H <= (int)e_h) &&
-                                   (tile_origin_x >= 0) && (tile_origin_x + TILE_W <= (int)e_w);
+                bool const interior_wg =
+                    (tile_origin_y >= 0) && (tile_origin_y + TILE_H <= (int)e_h) &&
+                    (tile_origin_x >= 0) && (tile_origin_x + TILE_W <= (int)e_w);
 
                 if (interior_wg) {
                     for (unsigned i = lid; i < tile_elems; i += WG_SIZE) {
-                        unsigned tr = i / TILE_W;
-                        unsigned tc = i % TILE_W;
-                        int py = tile_origin_y + (int)tr;
-                        int px = tile_origin_x + (int)tc;
+                        unsigned const tr = i / TILE_W;
+                        unsigned const tc = i % TILE_W;
+                        int const py = tile_origin_y + (int)tr;
+                        int const px = tile_origin_x + (int)tc;
                         s_tile[tr][tc] = read_global(py, px);
                     }
                 } else {
                     for (unsigned i = lid; i < tile_elems; i += WG_SIZE) {
-                        unsigned tr = i / TILE_W;
-                        unsigned tc = i % TILE_W;
-                        int py = dev_mirror_motion(tile_origin_y + (int)tr, (int)e_h);
-                        int px = dev_mirror_motion(tile_origin_x + (int)tc, (int)e_w);
+                        unsigned const tr = i / TILE_W;
+                        unsigned const tc = i % TILE_W;
+                        int const py = dev_mirror_motion(tile_origin_y + (int)tr, (int)e_h);
+                        int const px = dev_mirror_motion(tile_origin_x + (int)tc, (int)e_w);
                         s_tile[tr][tc] = read_global(py, px);
                     }
                 }
@@ -216,7 +217,7 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
                     //   vtmp[hx] = vert_filter(tile[ly..ly+4][lx+hx])
                     // int32 arithmetic safe for bpc <= 12:
                     //   max vsum = 65535 × 65536 = 4.2B fits in uint32
-                    int32_t round1 = 1 << (e_bpc - 1);
+                    int32_t const round1 = 1 << (e_bpc - 1);
                     int32_t vtmp[5];
 
 #pragma unroll
@@ -230,17 +231,17 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
                     }
 
                     // Step B: horizontal filter on vertically-filtered values
-                    int64_t hsum = (int64_t)blur_filter[0] * (vtmp[0] + vtmp[4]) +
-                                   (int64_t)blur_filter[1] * (vtmp[1] + vtmp[3]) +
-                                   (int64_t)blur_filter[2] * vtmp[2];
-                    int32_t blurred = (int32_t)((hsum + 32768) >> 16);
+                    int64_t const hsum = (int64_t)blur_filter[0] * (vtmp[0] + vtmp[4]) +
+                                         (int64_t)blur_filter[1] * (vtmp[1] + vtmp[3]) +
+                                         (int64_t)blur_filter[2] * vtmp[2];
+                    int32_t const blurred = (int32_t)((hsum + 32768) >> 16);
 
                     blur_out[gy * e_w + gx] = blurred;
 
                     // SAD with previous frame
                     if (e_sad) {
                         int32_t prev = prev_blur[gy * e_w + gx];
-                        int32_t diff = blurred - prev;
+                        int32_t const diff = blurred - prev;
                         abs_diff = (diff < 0) ? -(int64_t)diff : (int64_t)diff;
                     }
                 }
@@ -260,7 +261,7 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
                     item.barrier(sycl::access::fence_space::local_space);
 
                     if (lid == 0) {
-                        int64_t total = 0;
+                        int64_t const total = 0;
                         for (uint32_t s = 0; s < n_subgroups; s++)
                             total += lmem[s];
 
@@ -391,8 +392,8 @@ static void enqueue_motion_work(void *queue_ptr, void *priv, void *shared_ref, v
     auto *s = static_cast<MotionStateSycl *>(priv);
 
     bool compute_sad = (s->frame_index > 0);
-    int cur = s->cur_blur;
-    int prev = 1 - cur;
+    int const cur = s->cur_blur;
+    int const prev = 1 - cur;
 
     launch_blur_sad_fused(q, shared_ref, s->d_blur[cur], s->d_blur[prev], s->d_sad_accum, s->width,
                           s->height, s->bpc, compute_sad);
@@ -455,7 +456,7 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
     double motion_score = 0.0;
 
     if (s->frame_index > 0) {
-        int64_t sad = *s->h_sad_accum;
+        int64_t const sad = *s->h_sad_accum;
         motion_score = (double)sad / 256.0 / ((double)s->width * s->height);
     }
 
@@ -495,7 +496,7 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
         // Don't write motion2 yet (CPU returns early at index 1)
     } else {
         // frame_index >= 2: write motion2 at previous index
-        double motion2 =
+        double const motion2 =
             (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
         err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                        "VMAF_integer_feature_motion2_score",
@@ -528,7 +529,7 @@ static int extract_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                                   feature_collector);
     }
 
-    int err = submit_fex_sycl(fex, ref_pic, ref_pic_90, dist_pic, dist_pic_90, index);
+    int const err = submit_fex_sycl(fex, ref_pic, ref_pic_90, dist_pic, dist_pic_90, index);
     if (err)
         return err;
     return collect_fex_sycl(fex, index, feature_collector);
