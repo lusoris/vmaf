@@ -70,6 +70,10 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #include "sycl/picture_sycl.h"
 #endif
 
+#ifdef HAVE_VULKAN
+#include "libvmaf/libvmaf_vulkan.h"
+#endif
+
 typedef struct VmafContext {
     VmafConfiguration cfg;
     VmafFeatureCollector *feature_collector;
@@ -100,6 +104,11 @@ typedef struct VmafContext {
         VmafSyclState *state;
         VmafSyclPicturePool *pool;
     } sycl;
+#endif
+#ifdef HAVE_VULKAN
+    struct {
+        VmafVulkanState *state;
+    } vulkan;
 #endif
     struct {
         unsigned w, h;
@@ -500,6 +509,26 @@ static int set_fex_sycl_state(VmafFeatureExtractorContext *fex_ctx, VmafContext 
 }
 #endif
 
+#ifdef HAVE_VULKAN
+int vmaf_vulkan_import_state(VmafContext *vmaf, VmafVulkanState *vulkan_state)
+{
+    if (!vmaf)
+        return -EINVAL;
+    if (!vulkan_state)
+        return -EINVAL;
+
+    vmaf->vulkan.state = vulkan_state;
+    return 0;
+}
+
+static int set_fex_vulkan_state(VmafFeatureExtractorContext *fex_ctx, VmafContext *vmaf)
+{
+    if (fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_VULKAN)
+        fex_ctx->fex->vulkan_state = vmaf->vulkan.state;
+    return 0;
+}
+#endif
+
 static int set_fex_framesync(VmafFeatureExtractorContext *fex_ctx, VmafContext *vmaf)
 {
     if (fex_ctx->fex->flags & VMAF_FEATURE_FRAME_SYNC)
@@ -717,17 +746,14 @@ int vmaf_use_feature(VmafContext *vmaf, const char *feature_name, VmafFeatureDic
     return err;
 }
 
-int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
+/* Compose the extractor-selection flag mask from the active backends.
+ * Vulkan is host-pic only (no gpumask gate, no device-picture pool). */
+static unsigned compute_fex_flags(const VmafContext *vmaf)
 {
-    if (!vmaf)
-        return -EINVAL;
-    if (!model)
-        return -EINVAL;
-
-    int err = 0;
-
     unsigned fex_flags = 0;
-
+#if !defined(HAVE_CUDA) && !defined(HAVE_SYCL) && !defined(HAVE_VULKAN)
+    (void)vmaf; /* CPU-only build: no backend slots to inspect. */
+#endif
 #ifdef HAVE_CUDA
     if (!vmaf->cfg.gpumask && vmaf->cuda.state.ctx)
         fex_flags |= VMAF_FEATURE_EXTRACTOR_CUDA;
@@ -736,6 +762,22 @@ int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
     if (!vmaf->cfg.gpumask && vmaf->sycl.state)
         fex_flags |= VMAF_FEATURE_EXTRACTOR_SYCL;
 #endif
+#ifdef HAVE_VULKAN
+    if (vmaf->vulkan.state)
+        fex_flags |= VMAF_FEATURE_EXTRACTOR_VULKAN;
+#endif
+    return fex_flags;
+}
+
+int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
+{
+    if (!vmaf)
+        return -EINVAL;
+    if (!model)
+        return -EINVAL;
+
+    int err = 0;
+    const unsigned fex_flags = compute_fex_flags(vmaf);
 
     RegisteredFeatureExtractors *rfe = &(vmaf->registered_feature_extractors);
 
@@ -761,6 +803,9 @@ int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model)
 #endif
 #ifdef HAVE_SYCL
         err |= set_fex_sycl_state(fex_ctx, vmaf);
+#endif
+#ifdef HAVE_VULKAN
+        err |= set_fex_vulkan_state(fex_ctx, vmaf);
 #endif
         err |= set_fex_framesync(fex_ctx, vmaf);
         if (err)
