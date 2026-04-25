@@ -369,6 +369,77 @@ the enable/disable pair to gate which frame ranges get timed.
 - `vmaf_sycl_init_frame_buffers` is single-resolution. Changing `w`/`h`/`bpc`
   mid-stream requires `vmaf_close` + re-init.
 
+## Vulkan
+
+> **Status: scaffold only as of v3.0.** Every entry point in
+> [`libvmaf_vulkan.h`](../../libvmaf/include/libvmaf/libvmaf_vulkan.h)
+> currently returns `-ENOSYS`. The header lands so downstream
+> consumers can compile against the API surface; the runtime + first
+> kernel arrive in follow-up PRs per
+> [ADR-0127](../adr/0127-vulkan-backend-decision.md) and
+> [ADR-0175](../adr/0175-vulkan-backend-scaffold.md). Build with
+> `-Denable_vulkan=enabled` to compile the scaffold; it has no
+> Vulkan SDK requirement until the runtime PR (T5-1b).
+
+### Header
+
+[`libvmaf/include/libvmaf/libvmaf_vulkan.h`](../../libvmaf/include/libvmaf/libvmaf_vulkan.h)
+
+### State
+
+```c
+typedef struct VmafVulkanState VmafVulkanState;
+
+typedef struct VmafVulkanConfiguration {
+    int device_index;       /* -1 = first device with compute queue */
+    int enable_validation;  /* non-zero: load VK_LAYER_KHRONOS_validation */
+} VmafVulkanConfiguration;
+
+int  vmaf_vulkan_available(void);
+int  vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg);
+int  vmaf_vulkan_import_state(VmafContext *ctx, VmafVulkanState *state);
+void vmaf_vulkan_state_free(VmafVulkanState **state);
+int  vmaf_vulkan_list_devices(void);
+```
+
+The lifetime model mirrors CUDA's: after
+`vmaf_vulkan_import_state(ctx, state)` the context owns the state
+and `vmaf_close(ctx)` frees it. The `_state_free()` helper exists
+for the pre-import escape hatch (caller built a state but never
+imported it — e.g. early `vmaf_init()` failure or a benchmark
+harness that constructs and tears down a state without scoring).
+
+`vmaf_vulkan_available()` returns `1` when libvmaf was built with
+`-Denable_vulkan=enabled` and `0` otherwise. Until the runtime PR
+lands, the helper reports "the build was opted in" rather than "a
+working runtime is available" — operators read the docs for status.
+
+### Lifecycle (planned, post-runtime PR)
+
+```text
+  vmaf_init()
+  vmaf_vulkan_state_init()         ← scaffold returns -ENOSYS today
+  vmaf_vulkan_import_state()       ← state ownership transfers
+  ...
+  vmaf_score_pooled()
+  vmaf_close()                     ← frees the imported state
+```
+
+### Limitations (scaffold-only)
+
+- `vmaf_vulkan_state_init` returns `-ENOSYS` until the runtime PR
+  (T5-1b) wires `volk` + `dependency('vulkan')` + VkInstance /
+  VkDevice / compute queue selection.
+- `vmaf_vulkan_import_state` returns `-ENOSYS` for the same reason.
+- `vmaf_vulkan_list_devices` returns `0` (no devices probed yet).
+- No picture preallocation API surface yet — the runtime PR adds
+  the equivalent of `VmafCudaPicturePreallocationMethod`.
+- The ffmpeg `libvmaf` filter declares a `vulkan_device=N` option
+  (added by `ffmpeg-patches/0004-libvmaf-wire-vulkan-backend-selector.patch`)
+  but flipping it to `>= 0` is currently a no-op until the runtime
+  patch series lands. Documented in
+  [`docs/usage/ffmpeg.md`](../usage/ffmpeg.md).
+
 ## Related
 
 - [index.md](index.md) — core API (everything on this page sits on top of it)

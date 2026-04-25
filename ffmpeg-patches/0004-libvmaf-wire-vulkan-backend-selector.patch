@@ -36,7 +36,7 @@ index e3cf572..f5d29b4 100644
      VmafSyclState *sycl_state;
  #endif
 +    int   vulkan_device;
-
+ 
      VmafContext *vmaf;
      VmafModel **model;
 @@ -98,6 +99,11 @@ static const AVOption libvmaf_options[] = {
@@ -50,6 +50,6 @@ index e3cf572..f5d29b4 100644
 +    {"vulkan_device","Vulkan device index (-1 = disabled; scaffold-only as of v3.0).",  OFFSET(vulkan_device),   AV_OPT_TYPE_INT,    {.i64=-1},    -1, INT_MAX,  FLAGS},
      { NULL }
  };
-
+ 
 -- 
 2.54.0

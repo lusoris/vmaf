@@ -77,11 +77,27 @@ The filter publishes the final pooled score to FFmpeg's log as
 
 ### Fork-added options
 
-None currently. The fork-specific `--precision` flag on the `vmaf` CLI
-does not have an FFmpeg filter equivalent; pooled-score precision from
-FFmpeg comes from FFmpeg's own `%f` formatting. Use the `vmaf` CLI
-(not the filter) when you need `--precision=max` round-trip lossless
-output (CLI default is `%.6f` for Netflix-compat per
+The fork's `ffmpeg-patches/0001..0004` series adds five options to
+the `libvmaf` filter beyond the upstream surface — three for tiny-AI
+ONNX inference, one for the SYCL backend selector, one for the
+Vulkan scaffold:
+
+| Option | Default | Notes |
+|---|---|---|
+| `tiny_model=path` | none | ONNX path for the tiny-AI loader (`ffmpeg-patches/0001-...`). |
+| `tiny_device=auto\|cpu\|cuda\|openvino\|rocm` | `auto` | ORT device selector for the tiny model. |
+| `tiny_threads=N` | `0` | CPU-EP intra-op thread count (`0` = ORT default). |
+| `tiny_fp16=0\|1` | `0` | Request fp16 I/O when the device supports it. |
+| `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling (`ffmpeg-patches/0003-...`). |
+
+Backend selectors live alongside in a small dedicated table —
+see "Backend selectors on the libvmaf filter" below.
+
+The fork-specific `--precision` flag on the `vmaf` CLI does not
+have an FFmpeg filter equivalent; pooled-score precision from
+FFmpeg comes from FFmpeg's own `%f` formatting. Use the `vmaf`
+CLI (not the filter) when you need `--precision=max` round-trip
+lossless output (CLI default is `%.6f` for Netflix-compat per
 [ADR-0119](../adr/0119-cli-precision-default-revert.md); pass
 `--precision=max` to opt into `%.17g`).
 
