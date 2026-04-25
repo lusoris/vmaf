@@ -947,13 +947,20 @@ endif
 vmaf_link_args = []
 if is_sycl_enabled
     cpp = meson.get_compiler('cpp')
-    if cpp.get_id() != 'intel-llvm'
+    cpp_id = cpp.get_id()
+    # Linux: icpx → 'intel-llvm'.
+    # Windows MSVC ABI: icx-cl → 'intel-llvm-cl' (newer meson) or
+    #                            'clang-cl' (older meson, when meson
+    #                            falls through to the clang-cl detector).
+    sycl_cpp_ids = ['intel-llvm', 'intel-llvm-cl', 'clang-cl']
+    if cpp_id not in sycl_cpp_ids
         error('enable_sycl=true requires the project C++ compiler to be ' +
-              'icpx (Intel oneAPI DPC++/C++ Compiler). Re-run meson setup ' +
-              'with `CXX=icpx CC=icx` after sourcing setvars.sh, e.g.\n' +
-              '  source /opt/intel/oneapi/setvars.sh\n' +
-              '  CXX=icpx CC=icx meson setup build libvmaf -Denable_sycl=true\n' +
-              'See docs/development/oneapi-install.md for details.')
+              'icpx / icx-cl (Intel oneAPI DPC++/C++ Compiler). Re-run ' +
+              'meson setup with `CXX=icpx CC=icx` after sourcing ' +
+              'setvars.sh on Linux, or `set CXX=icx-cl CC=icx-cl` after ' +
+              'calling setvars.bat on Windows. Detected `cpp.get_id()` = ' +
+              '\'' + cpp_id + '\'. See docs/development/oneapi-install.md ' +
+              'for details.')
     endif
     vmaf_link_args += ['-fsycl']
 endif
