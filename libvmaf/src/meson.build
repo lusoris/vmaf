@@ -885,9 +885,9 @@ libvmaf_ssimulacra2_static_lib = static_library(
 
 libvmaf_feature_static_lib = static_library(
     'libvmaf_feature',
-    libvmaf_feature_sources,
+    libvmaf_feature_sources + vulkan_sources,
     include_directories : [libvmaf_include, vmaf_include, cuda_dir],
-    dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency],
+    dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
     objects: [common_cuda_objects, common_sycl_objects, sycl_feature_objects,
               libvmaf_ssimulacra2_static_lib.extract_all_objects(recursive: false)]
 )
@@ -973,7 +973,7 @@ endif
 
 libvmaf = library(
     'vmaf',
-    [libvmaf_sources, rev_target, json_model_c_sources, dnn_sources, dnn_libvmaf_only_sources, vulkan_sources],
+    [libvmaf_sources, rev_target, json_model_c_sources, dnn_sources, dnn_libvmaf_only_sources],
     include_directories : [libvmaf_inc, vmaf_include, dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     link_args : vmaf_link_args,

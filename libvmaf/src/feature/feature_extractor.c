@@ -60,6 +60,9 @@ extern VmafFeatureExtractor vmaf_fex_integer_vif_sycl;
 extern VmafFeatureExtractor vmaf_fex_integer_adm_sycl;
 extern VmafFeatureExtractor vmaf_fex_integer_motion_sycl;
 #endif
+#if HAVE_VULKAN
+extern VmafFeatureExtractor vmaf_fex_integer_vif_vulkan;
+#endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_null;
 
@@ -77,6 +80,14 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     // because it supports the widest range of Intel hardware.
     // Use --no_sycl to fall back to CUDA.
     &vmaf_fex_integer_vif_sycl, &vmaf_fex_integer_adm_sycl, &vmaf_fex_integer_motion_sycl,
+#endif
+#if HAVE_VULKAN
+    /* Vulkan is registered AFTER SYCL/CUDA — those backends remain
+     * the preferred GPU paths because they ship the full feature
+     * set (ADM + motion + VIF) and are bit-exact-tested against the
+     * Netflix golden gate. Vulkan is opt-in via explicit feature
+     * name selection until the full backend lands (T5-1c). */
+    &vmaf_fex_integer_vif_vulkan,
 #endif
 #if HAVE_CUDA
     &vmaf_fex_integer_adm_cuda, &vmaf_fex_integer_vif_cuda, &vmaf_fex_integer_motion_cuda,
