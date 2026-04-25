@@ -287,6 +287,7 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
 static const char *provided_features[] = {"VMAF_integer_feature_motion_v2_sad_score",
                                           "VMAF_integer_feature_motion2_v2_score", NULL};
 
+// NOLINTNEXTLINE(misc-use-internal-linkage): extern symbol referenced by feature_extractor.c registry.
 VmafFeatureExtractor vmaf_fex_integer_motion_v2 = {
     .name = "motion_v2",
     .init = init,

@@ -244,39 +244,46 @@ static char *test_piecewise_linear_mapping()
                               {.x = 95.0, .y = 95.0},
                               {.x = 100.0, .y = 100.0}};
 
-    for (double x0 = 0.0; x0 < 95.0; x0 += 0.1) {
+    for (int i = 0; i < 950; ++i) {
+        const double x0 = i * 0.1;
         y0_true = 1.5 * x0 - 55.0;
         piecewise_linear_mapping(x0, knots2160p, 4, &y0);
         mu_assert("returned y0 does not match y0_true", fabs(y0 - y0_true) < 1e-8);
     }
-    for (double x1 = 0.0; x1 < 90.0; x1 += 0.1) {
+    for (int i = 0; i < 900; ++i) {
+        const double x1 = i * 0.1;
         y1_true = 1.33 * x1 - 36.66;
         piecewise_linear_mapping(x1, knots1080p, 4, &y1);
         mu_assert("returned y1 does not match y1_true", fabs(y1 - y1_true) < 1e-8);
     }
 
-    for (double x0 = 95.0; x0 < 105.0; x0 += 0.1) {
+    for (int i = 950; i < 1050; ++i) {
+        const double x0 = i * 0.1;
         y0_true = 1.75 * x0 - 78.75;
         piecewise_linear_mapping(x0, knots2160p, 4, &y0);
         mu_assert("returned y0 does not match y0_true", fabs(y0 - y0_true) < 1e-8);
     }
-    for (double x1 = 90.0; x1 < 95.0; x1 += 0.1) {
+    for (int i = 900; i < 950; ++i) {
+        const double x1 = i * 0.1;
         y1_true = 2.392 * x1 - 132.24;
         piecewise_linear_mapping(x1, knots1080p, 4, &y1);
         mu_assert("returned y1 does not match y1_true", fabs(y1 - y1_true) < 1e-8);
     }
 
-    for (double x0 = 105.0; x0 < 110.0; x0 += 0.1) {
+    for (int i = 1050; i < 1100; ++i) {
+        const double x0 = i * 0.1;
         piecewise_linear_mapping(x0, knots2160p, 4, &y0);
         mu_assert("returned y0 does not match y0_true", fabs(y0 - x0) < 1e-8);
     }
-    for (double x1 = 95.0; x1 < 100.0; x1 += 0.1) {
+    for (int i = 950; i < 1000; ++i) {
+        const double x1 = i * 0.1;
         piecewise_linear_mapping(x1, knots1080p, 4, &y1);
         mu_assert("returned y1 does not match x1", fabs(y1 - x1) < 1e-8);
     }
 
     VmafPoint knots_single[] = {{.x = 10.0, .y = 10.0}, {.x = 50.0, .y = 60.0}};
-    for (double x0 = 0.0; x0 < 110.0; x0 += 0.1) {
+    for (int i = 0; i < 1100; ++i) {
+        const double x0 = i * 0.1;
         piecewise_linear_mapping(x0, knots_single, 2, &y0);
         y0_true = 1.25 * x0 - 2.5;
         mu_assert("returned y0 does not match y0_true", fabs(y0 - y0_true) < 1e-8);

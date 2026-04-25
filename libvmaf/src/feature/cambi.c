@@ -1177,6 +1177,7 @@ static void calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, fl
 {
 
     uint16_t pad_size = window_size >> 1;
+    // NOLINTNEXTLINE(clang-analyzer-core.NullDereference): caller `compute_c_values` is invoked from `cambi_extract` only after `set_contrast_arrays` allocates `s->buffers.all_diffs` (cambi.c:431), and `cambi_extract` checks the `set_contrast_arrays` return value. The analyzer can't track the heap pointer through the multi-frame state struct boundary.
     const uint16_t num_bins = 1024 + (all_diffs[2 * num_diffs] - all_diffs[0]);
 
     uint16_t *image = pic->data[0];

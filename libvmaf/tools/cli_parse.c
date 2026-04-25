@@ -140,6 +140,7 @@ static const struct option long_opts[] = {
     {NULL, 0, NULL, 0},
 };
 
+_Noreturn static void usage(const char *const app, const char *const reason, ...);
 static void usage(const char *const app, const char *const reason, ...)
 {
     if (reason) {

@@ -460,12 +460,14 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
                 case 10:
                 case 12:
                 case 16:
+                    // NOLINTBEGIN(bugprone-integer-division): the `stride / 2` is the byte→element step for a uint16_t array index, not a value flowing into the float `r_*` / `d_*` destinations. clang-tidy flags the integer division because the surrounding subscript result eventually lands in float, but the index arithmetic itself is correct integer math.
                     r_y = ((uint16_t *)ref->data[0])[i * (ref->stride[0] / 2) + j];
                     r_u = ((uint16_t *)ref->data[1])[i * (ref->stride[1] / 2) + j];
                     r_v = ((uint16_t *)ref->data[2])[i * (ref->stride[2] / 2) + j];
                     d_y = ((uint16_t *)dist->data[0])[i * (dist->stride[0] / 2) + j];
                     d_u = ((uint16_t *)dist->data[1])[i * (dist->stride[1] / 2) + j];
                     d_v = ((uint16_t *)dist->data[2])[i * (dist->stride[2] / 2) + j];
+                    // NOLINTEND(bugprone-integer-division)
                     break;
                 default:
                     return -EINVAL;

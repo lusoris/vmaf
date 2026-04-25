@@ -152,6 +152,7 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     data_top = init_dwt_band_hvd(&decouple_r, data_top, buf_sz_one);
     data_top = init_dwt_band_hvd(&decouple_a, data_top, buf_sz_one);
     data_top = init_dwt_band_hvd(&csf_a, data_top, buf_sz_one);
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): final assignment kept as part of the bump-allocator chain so the line-by-line shape stays auditable; the value is intentionally discarded after the last buffer is carved out.
     data_top = init_dwt_band_hvd(&csf_f, data_top, buf_sz_one);
 
     if (!(buf_y_orig = aligned_malloc(ind_size_y * 4, MAX_ALIGN))) {
@@ -167,6 +168,7 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     ind_y[2] = (int *)ind_buf_y;
     ind_buf_y += ind_size_y;
     ind_y[3] = (int *)ind_buf_y;
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): symmetric bump kept for readability (matches the four `ind_y[i]` carve-outs above).
     ind_buf_y += ind_size_y;
 
     if (!(buf_x_orig = aligned_malloc(ind_size_x * 4, MAX_ALIGN))) {
@@ -182,6 +184,7 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     ind_x[2] = (int *)ind_buf_x;
     ind_buf_x += ind_size_x;
     ind_x[3] = (int *)ind_buf_x;
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): symmetric bump kept for readability (matches the four `ind_x[i]` carve-outs above).
     ind_buf_x += ind_size_x;
 
     for (scale = 0; scale < 4; ++scale) {

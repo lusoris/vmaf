@@ -113,6 +113,7 @@ static int close(VmafFeatureExtractor *fex)
 
 static const char *provided_features[] = {"float_ansnr", NULL};
 
+// NOLINTNEXTLINE(misc-use-internal-linkage): extern symbol referenced by feature_extractor.c registry.
 VmafFeatureExtractor vmaf_fex_float_ansnr = {
     .name = "float_ansnr",
     .init = init,

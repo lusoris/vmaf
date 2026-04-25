@@ -23,6 +23,7 @@
 #include "libvmaf/picture.h"
 #include "ref.h"
 
+// NOLINTNEXTLINE(readability-function-size): test scaffolding — explicitly walks every alloc / fill / ref / unref state to keep failures localised; splitting hides the assertion that fired.
 static char *test_picture_alloc_ref_and_unref()
 {
     int err;
