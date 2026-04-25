@@ -289,6 +289,67 @@ static char *test_to_luma_f16_path(void)
     return NULL;
 }
 
+static char *test_plane16_10bit_roundtrip(void)
+{
+    /* ADR-0170 / T6-4: a packed uint16 LE 10-bit plane must round-trip
+     * through vmaf_tensor_from_plane16 + vmaf_tensor_to_plane16 with
+     * value preservation (modulo round-to-even on the exact .5 boundary
+     * which cannot appear for integer inputs divided by 1023). */
+    const int W = 4;
+    const int H = 2;
+    const int BPC = 10;
+    const uint16_t src[8] = {0, 100, 511, 512, 1023, 1022, 256, 768};
+    float tensor[8];
+    uint16_t dst[8] = {0};
+
+    int err =
+        vmaf_tensor_from_plane16(src, W * sizeof(uint16_t), W, H, BPC, VMAF_TENSOR_LAYOUT_NCHW,
+                                 VMAF_TENSOR_DTYPE_F32, NULL, NULL, tensor);
+    mu_assert("from_plane16 failed", err == 0);
+    /* Spot-check normalisation against (1<<bpc)-1 = 1023. */
+    mu_assert("0 → 0.0f", tensor[0] == 0.0f);
+    mu_assert("1023 → 1.0f", tensor[4] == 1.0f);
+
+    err = vmaf_tensor_to_plane16(tensor, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, W, H, BPC,
+                                 NULL, NULL, dst, W * sizeof(uint16_t));
+    mu_assert("to_plane16 failed", err == 0);
+    for (int i = 0; i < W * H; ++i) {
+        mu_assert("10-bit round-trip byte-identical", dst[i] == src[i]);
+    }
+    return NULL;
+}
+
+static char *test_plane16_rejects_bad_bpc(void)
+{
+    const uint16_t src[4] = {0};
+    float tensor[4];
+    int err = vmaf_tensor_from_plane16(src, 4u * sizeof(uint16_t), 2, 2, 8, /* bpc too low */
+                                       VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, NULL, NULL,
+                                       tensor);
+    mu_assert("bpc=8 must be rejected (plane16 is for >=9 bits)", err < 0);
+    err = vmaf_tensor_from_plane16(src, 4u * sizeof(uint16_t), 2, 2, 17, /* bpc too high */
+                                   VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, NULL, NULL,
+                                   tensor);
+    mu_assert("bpc=17 must be rejected", err < 0);
+    return NULL;
+}
+
+static char *test_plane16_12bit_clamps(void)
+{
+    /* 12-bit max = 4095. An out-of-range float should clamp rather than
+     * overflow the uint16 write. */
+    const float tensor[4] = {-0.25f, 0.0f, 1.0f, 1.5f};
+    uint16_t dst[4] = {0};
+    int err = vmaf_tensor_to_plane16(tensor, VMAF_TENSOR_LAYOUT_NCHW, VMAF_TENSOR_DTYPE_F32, 2, 2,
+                                     12, NULL, NULL, dst, 2u * sizeof(uint16_t));
+    mu_assert("to_plane16 12-bit failed", err == 0);
+    mu_assert("-0.25 → clamped to 0", dst[0] == 0);
+    mu_assert("0.0 → 0", dst[1] == 0);
+    mu_assert("1.0 → 4095 (12-bit max)", dst[2] == 4095);
+    mu_assert("1.5 → clamped to 4095", dst[3] == 4095);
+    return NULL;
+}
+
 char *run_tests(void)
 {
     mu_run_test(test_luma_to_f32_unnormalized);
@@ -306,5 +367,8 @@ char *run_tests(void)
     mu_run_test(test_to_luma_rejects_bad_args);
     mu_run_test(test_to_luma_clamps_out_of_range);
     mu_run_test(test_to_luma_f16_path);
+    mu_run_test(test_plane16_10bit_roundtrip);
+    mu_run_test(test_plane16_rejects_bad_bpc);
+    mu_run_test(test_plane16_12bit_clamps);
     return NULL;
 }

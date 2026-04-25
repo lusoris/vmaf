@@ -144,6 +144,39 @@ Errors:
   (`enable_onnx=false`); every DNN entry point returns `-ENOSYS` in that
   configuration.
 
+### 10/12/16-bit convenience call
+
+```c
+int vmaf_dnn_session_run_plane16(VmafDnnSession *sess,
+                                 const uint16_t *in,  size_t in_stride,
+                                 int w, int h, int bpc,
+                                 uint16_t *out,        size_t out_stride);
+```
+
+The bit-depth-extended sibling of `_luma8`. Used by the ffmpeg
+`vmaf_pre` filter for `yuv420p10le` / `yuv422p10le` / `yuv444p10le`
+(and the 12-bit LE counterparts), and — at any supported bit depth —
+to run the same session on chroma planes at their sub-sampled
+dimensions. Added in
+[ADR-0170](../adr/0170-vmaf-pre-10bit-chroma.md) (T6-4).
+
+- `in` / `out` are packed `uint16` little-endian single-plane
+  buffers.
+- `in_stride` / `out_stride` are in **bytes** (not samples) — same
+  convention as `_luma8`, so a 10-bit 1920×1080 plane has
+  `stride ≥ 1920 * 2`.
+- `bpc` in range 9..16 selects the normalisation divisor
+  `(1 << bpc) - 1`. Passing `bpc=8` returns `-EINVAL` — use
+  `_luma8` for 8-bit input.
+
+The model must still declare `[1, 1, H, W]` static shape; the only
+new freedom is the bit depth of the host-side buffer the loader
+normalises from. A single `learned_filter_v1` session works for
+both luma and chroma — re-call with chroma W/H (the shape is
+declared dynamic, see the open() comment).
+
+Errors match `_luma8`, plus `-EINVAL` for a `bpc` outside `[9, 16]`.
+
 ### General named-binding call
 
 For models with multiple inputs / outputs or non-luma shapes, use the

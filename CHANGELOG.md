@@ -8,6 +8,20 @@
 
 ### Added
 
+- **`vmaf_pre` ffmpeg filter handles 10/12-bit + optional chroma**
+  (fork-local): new public libvmaf API `vmaf_dnn_session_run_plane16`
+  accepts packed `uint16` LE single-plane buffers with a `bpc`
+  argument (range 9..16). The ffmpeg filter now admits
+  `yuv{420,422,444}p1{0,2}le` + `gray{10,12}le` pixel formats and
+  dispatches the matching entrypoint by bit-depth. New
+  `chroma=0|1` option (default 0 preserves luma-only back-compat)
+  re-runs the same session on U/V planes at chroma-subsampled
+  dimensions when set. Two new tensor helpers
+  (`vmaf_tensor_from_plane16` / `vmaf_tensor_to_plane16`) with 3
+  round-trip tests pinning 10-bit identity, bpc bounds, and 12-bit
+  clamp behaviour. See
+  [ADR-0170](docs/adr/0170-vmaf-pre-10bit-chroma.md). Closes
+  BACKLOG T6-4.
 - **ONNX op-allowlist admits `Loop` + `If`** (fork-local): unblocks
   MUSIQ / RAFT / small-VLM-class tiny-AI baselines that need
   control-flow ops. The wire-format scanner in
