@@ -10,6 +10,7 @@
  *  without explicit `vkMapMemory` round-trips per frame.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -43,11 +44,14 @@ int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf,
 {
     if (!ctx || !out_buf || size == 0)
         return -EINVAL;
+    assert(ctx->allocator != VK_NULL_HANDLE);
+    assert(ctx->device != VK_NULL_HANDLE);
 
     VmafVulkanBuffer *b = calloc(1, sizeof(*b));
     if (!b)
         return -ENOMEM;
     b->size = size;
+    assert(b->vk_buffer == VK_NULL_HANDLE);
 
     VkBufferCreateInfo bci = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -107,6 +111,7 @@ int vmaf_vulkan_picture_alloc(VmafVulkanContext *ctx, void **out, size_t size)
 {
     if (!ctx || !out || size == 0)
         return -EINVAL;
+    assert(g_shim_count <= VMAF_VK_SHIM_MAX);
     if (g_shim_count >= VMAF_VK_SHIM_MAX)
         return -ENOMEM;
 
@@ -114,6 +119,7 @@ int vmaf_vulkan_picture_alloc(VmafVulkanContext *ctx, void **out, size_t size)
     int err = vmaf_vulkan_buffer_alloc(ctx, &b, size);
     if (err)
         return err;
+    assert(b != NULL);
 
     void *host = vmaf_vulkan_buffer_host(b);
     if (!host) {

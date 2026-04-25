@@ -109,6 +109,9 @@ jobs:
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
               | grep -v '^libvmaf/tools/vmaf_vpl\.c$' \
+              | grep -v '^libvmaf/src/vulkan/' \
+              | grep -v '^libvmaf/src/feature/vulkan/' \
+              | grep -v '^libvmaf/test/test_vulkan' \
               | tr '\n' ' ')
           elif [ "${{ github.event_name }}" = "push" ]; then
             before="${{ github.event.before }}"
@@ -127,6 +130,9 @@ jobs:
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
               | grep -v '^libvmaf/tools/vmaf_vpl\.c$' \
+              | grep -v '^libvmaf/src/vulkan/' \
+              | grep -v '^libvmaf/src/feature/vulkan/' \
+              | grep -v '^libvmaf/test/test_vulkan' \
               | tr '\n' ' ')
               else
                 files=""
@@ -142,6 +148,9 @@ jobs:
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
               | grep -v '^libvmaf/tools/vmaf_vpl\.c$' \
+              | grep -v '^libvmaf/src/vulkan/' \
+              | grep -v '^libvmaf/src/feature/vulkan/' \
+              | grep -v '^libvmaf/test/test_vulkan' \
               | tr '\n' ' ')
             fi
           else
@@ -157,6 +166,9 @@ jobs:
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
               | grep -v '^libvmaf/tools/vmaf_vpl\.c$' \
+              | grep -v '^libvmaf/src/vulkan/' \
+              | grep -v '^libvmaf/src/feature/vulkan/' \
+              | grep -v '^libvmaf/test/test_vulkan' \
               | tr '\n' ' ')
           fi
           [ -z "$files" ] && { echo "no C/C++ changes"; exit 0; }

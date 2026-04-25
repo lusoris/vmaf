@@ -11,6 +11,7 @@
  *  libvmaf/src/feature/vulkan/ reuse.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -193,12 +194,15 @@ int vmaf_vulkan_context_new(VmafVulkanContext **out, int device_index)
     int err = load_volk_once();
     if (err)
         return err;
+    assert(g_volk_loaded == 1);
 
     VmafVulkanContext *ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
         return -ENOMEM;
     ctx->volk_loaded = 1;
     ctx->device_index = device_index;
+    assert(ctx->instance == VK_NULL_HANDLE);
+    assert(ctx->device == VK_NULL_HANDLE);
 
     err = create_instance(&ctx->instance);
     if (err)
@@ -269,6 +273,16 @@ int vmaf_vulkan_context_new(VmafVulkanContext **out, int device_index)
         .queueFamilyIndex = ctx->queue_family_index,
     };
     VK_OR_FAIL(vkCreateCommandPool(ctx->device, &pool_info, NULL, &ctx->command_pool), -ENOMEM);
+
+    /* Power-of-10 §5: pin the post-condition that every handle the
+     * caller may dereference is now non-null. Catches a future
+     * mistake where one of the create calls is moved out of order. */
+    assert(ctx->instance != VK_NULL_HANDLE);
+    assert(ctx->physical_device != VK_NULL_HANDLE);
+    assert(ctx->device != VK_NULL_HANDLE);
+    assert(ctx->queue != VK_NULL_HANDLE);
+    assert(ctx->allocator != VK_NULL_HANDLE);
+    assert(ctx->command_pool != VK_NULL_HANDLE);
 
     *out = ctx;
     return 0;

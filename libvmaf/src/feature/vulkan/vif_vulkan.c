@@ -15,6 +15,7 @@
  *  `/cross-backend-diff` ULP measurements.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -57,8 +58,11 @@ int vmaf_vulkan_vif_init(VmafVulkanContext *ctx)
 {
     if (!ctx)
         return -EINVAL;
+    assert(ctx->device != VK_NULL_HANDLE);
+    assert(ctx->command_pool != VK_NULL_HANDLE);
     if (g_state.initialised)
         return 0;
+    assert(g_state.pipeline == VK_NULL_HANDLE);
 
     VkShaderModuleCreateInfo smci = {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
