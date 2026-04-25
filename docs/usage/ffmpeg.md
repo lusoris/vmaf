@@ -177,6 +177,22 @@ selects when `libvmaf` is built with `-Denable_sycl=true`; use
 `--sycl_device N` to pin a device or `--no_sycl` to opt out). See
 [backends/sycl/overview.md](../backends/sycl/overview.md) for details.
 
+The same fork-added selector pattern exists for SYCL and Vulkan on the
+`libvmaf` filter itself, contributed by
+`ffmpeg-patches/0003-libvmaf-wire-sycl-backend-selector.patch` and
+`0004-libvmaf-wire-vulkan-backend-selector.patch`:
+
+| Option | Default | Notes |
+|---|---|---|
+| `sycl_device=N` | `-1` (disabled) | Pick SYCL device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_sycl=true`. |
+| `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling. |
+| `vulkan_device=N` | `-1` (disabled) | Pick Vulkan device ordinal; **scaffold-only** as of v3.0 ([ADR-0175](../adr/0175-vulkan-backend-scaffold.md)). Flipping to `>= 0` returns `-ENOSYS` until the runtime PR lands. Errors out if libvmaf was built without `-Denable_vulkan=enabled`. |
+
+The Vulkan selector lands in the patch series early so the
+ffmpeg-side wiring is in shape when the runtime PR arrives — see
+[ADR-0175](../adr/0175-vulkan-backend-scaffold.md) § "Alternatives
+considered" for why the patch ships ahead of any working kernels.
+
 ## External resources
 
 Refer to [this page](external-resources.md) for a list of FFmpeg-based 3rd-party tools.
