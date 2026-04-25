@@ -148,9 +148,18 @@ variable that overrides it.
 | `--no_cuda` | off | Forbid CUDA dispatch even if the CUDA backend is built in. |
 | `--no_sycl` | off | Forbid SYCL dispatch even if the SYCL backend is built in. |
 | `--sycl_device <N>` | auto (first GPU) | Pick SYCL device by ordinal from the oneAPI device list. |
+| `--no_vulkan` | off | Forbid Vulkan dispatch even if the Vulkan backend is built in. |
+| `--vulkan_device <N>` | disabled (opt-in) | Pick Vulkan device by ordinal. Pass `0` for the first compute-capable device, `-1` for auto-pick (prefers discrete > integrated > virtual > cpu). Without this flag, Vulkan is never used. |
 | `--cpumask <bitmask>` (`-c`) | all ISAs enabled | Mask out specific CPU ISAs (e.g. force scalar, disable AVX-512). Values are fork-internal — see `libvmaf/src/cpu.h`. |
 | `--gpumask <bitmask>` | all GPU ops enabled | Mask out specific GPU ops. |
 | `--threads <N>` | host `nproc` | CPU-side worker thread count. |
+
+> **Vulkan is opt-in**, unlike CUDA/SYCL — `--vulkan_device <N>` must be
+> passed explicitly even when the backend is built. Currently only the
+> `vif_vulkan` extractor is wired (per-frame `integer_vif_scale0..3`);
+> ADM / motion / motion_v2 fall through to CPU until T5-1c lands. See
+> [../backends/vulkan/overview.md](../backends/vulkan/overview.md) and
+> [ADR-0176](../adr/0176-vulkan-vif-cross-backend-gate.md).
 
 If neither backend is built in, these flags are silently inert. See
 [../backends/index.md](../backends/index.md) for the runtime-dispatch rules and
