@@ -29,6 +29,7 @@ limitations in the same PR as the code.
 | VIF (fixed-point)  | `vif`           | Yes           | `vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3`                                        | AVX2, AVX-512, NEON | CUDA   |
 | VIF (float)        | `float_vif`     | Yes           | `float_vif_scale0..3`                                                                         | —                   | —      |
 | Motion2 (fixed)    | `motion`        | Yes           | `motion2` (+ `motion` if `debug=true`)                                                        | AVX2, AVX-512, NEON | CUDA   |
+| Motion v2 (fixed)  | `motion_v2`     | No            | `VMAF_integer_feature_motion_v2_sad_score`, `VMAF_integer_feature_motion2_v2_score`           | AVX2, AVX-512, NEON | —      |
 | Motion2 (float)    | `float_motion`  | Yes           | `float_motion2` (+ `float_motion` if `debug=true`)                                            | AVX2, AVX-512, NEON | —      |
 | ADM (fixed-point)  | `adm`           | Yes           | `adm2`, `adm_scale0`, `adm_scale1`, `adm_scale2`, `adm_scale3`                                | AVX2, AVX-512, NEON | CUDA   |
 | ADM (float)        | `float_adm`     | Yes           | `float_adm2`, `float_adm_scale0..3`                                                           | AVX2, AVX-512, NEON | —      |
@@ -41,7 +42,9 @@ limitations in the same PR as the code.
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | —      |
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | —      |
 | ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | —      |
-| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | —                   | —      |
+| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | —      |
+| Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | —                   | —      |
+| LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —      |
 
 **Core** extractors are required inputs for the shipped VMAF models (see
 [models/overview.md](../models/overview.md)); non-core extractors are
@@ -59,13 +62,13 @@ Gaussian-pyramid scales. In the original Sheikh/Bovik formulation the scales
 are combined into a single score; in VMAF each scale is kept as a separate
 feature so the model can learn per-scale weights.
 
-**Invocation**
+#### Invocation
 
 - CLI: `--feature vif` (fixed-point, default) or `--feature float_vif`.
 - ffmpeg: `libvmaf=feature=name=vif` / `feature=name=float_vif`.
 - C API: `vmaf_use_feature(ctx, "vif", opts)`.
 
-**Output metrics**
+#### Output metrics
 
 - `vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3` — per-scale fidelity
   ratios in `[0, 1]`. Higher is better (1 = reference-identical).
@@ -77,7 +80,7 @@ feature so the model can learn per-scale weights.
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4 / 4:0:0, 8 / 10 / 12 / 16 bpc.
 Operates on the Y plane only.
 
-**Options**
+#### Options
 
 | Option                 | Alias | Type   | Default | Range      | Effect                                                                 |
 |------------------------|-------|--------|---------|------------|------------------------------------------------------------------------|
@@ -101,13 +104,13 @@ current reference and the previous reference luma. Published as `motion2`
 (the improved version with proper padding / boundary handling); the
 unfixed `motion` is kept behind `debug=true` for back-compat.
 
-**Invocation**
+#### Invocation
 
 - CLI: `--feature motion` (fixed) or `--feature float_motion`.
 - ffmpeg: `libvmaf=feature=name=motion`.
 - C API: `vmaf_use_feature(ctx, "motion", opts)`.
 
-**Output metrics**
+#### Output metrics
 
 - `motion2` — the shipped feature.
 - `motion` — the legacy unfixed variant, only when `debug=true`.
@@ -118,11 +121,11 @@ content. No upper bound.
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc. Y plane
 only.
 
-**Options**
+#### Options
 
-| Option              | Alias     | Type | Default | Effect                                                        |
-|---------------------|-----------|------|---------|---------------------------------------------------------------|
-| `debug`             | —         | bool | `true`  | Emit legacy `motion` alongside `motion2`                      |
+| Option              | Alias     | Type | Default | Effect                                                         |
+|---------------------|-----------|------|---------|----------------------------------------------------------------|
+| `debug`             | —         | bool | `true`  | Emit legacy `motion` alongside `motion2`                       |
 | `motion_force_zero` | `force_0` | bool | `false` | Override all scores to `0.0` — for deterministic test fixtures |
 
 **Backends** — AVX2, AVX-512, NEON; CUDA for `motion` (fixed-point).
@@ -132,6 +135,46 @@ previous blurred references) and has a flush callback that emits the final
 frame's score after the input stream ends. Single-frame scoring is not
 supported; Motion2 on frame 0 is defined as `0.0`.
 
+### Motion v2 — pipelined Motion2
+
+A pipelined re-implementation of Motion2 that exploits the linearity of
+the blur kernel: instead of storing the blurred previous reference across
+frames, it folds the frame difference, blur, and absolute-sum into a
+single row-at-a-time pipeline that needs only one scratch row. The
+score is identical to Motion2 (modulo the SAD vs sum semantics described
+below); the variant is offered as a separate extractor so callers can
+opt into the pipelined arithmetic without touching the legacy
+`motion` registry entry.
+
+#### Invocation
+
+- CLI: `--feature motion_v2`.
+- ffmpeg: `libvmaf=feature=name=motion_v2`.
+- C API: `vmaf_use_feature(ctx, "motion_v2", NULL)`.
+
+#### Output metrics
+
+- `VMAF_integer_feature_motion_v2_sad_score` — per-frame sum of
+  absolute blurred differences. Frame 0 always emits `0.0`.
+- `VMAF_integer_feature_motion2_v2_score` — Motion2-equivalent
+  score (current frame plus the next frame's score, divided by 2,
+  matching the legacy temporal smoothing).
+
+**Output range** — `[0, ∞)`. Same units as Motion2.
+
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
+Y plane only.
+
+**Options** — none.
+
+**Backends** — AVX2, AVX-512, NEON. No GPU twin.
+
+**Limitations** — Temporal: the extractor relies on the framework's
+`prev_ref` slot rather than its own state, but Motion v2 on frame 0
+is still defined as `0.0` and the final frame's smoothed score is
+emitted via the flush callback (same behaviour as `motion`). No
+CUDA / SYCL kernel — use `motion` if you need the GPU path.
+
 ### ADM — Additive Detail Metric (née DLM)
 
 ADM separately measures **detail loss** (the component that affects
@@ -140,13 +183,13 @@ at four wavelet sub-band scales. VMAF uses only the detail-loss branch.
 Numerical edge cases (black frames, flat areas) are handled specifically
 to avoid divide-by-zero.
 
-**Invocation**
+#### Invocation
 
 - CLI: `--feature adm` (fixed-point) or `--feature float_adm`.
 - ffmpeg: `libvmaf=feature=name=adm`.
 - C API: `vmaf_use_feature(ctx, "adm", opts)`.
 
-**Output metrics**
+#### Output metrics
 
 - `adm2` — the fused final value (range `[0, 1]`), published as the
   VMAF-model input.
@@ -159,7 +202,7 @@ to avoid divide-by-zero.
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc. Y plane
 only.
 
-**Options**
+#### Options
 
 | Option                  | Alias | Type   | Default | Range       | Effect                                                           |
 |-------------------------|-------|--------|---------|-------------|------------------------------------------------------------------|
@@ -197,7 +240,7 @@ Converts both YCbCr frames to CIELAB and computes the CIEDE2000 ΔE per pixel,
 averaged. Captures chroma distortion that luma-only metrics miss (chroma
 subsampling, colour-space conversion errors, 4:2:0 vs 4:4:4 differences).
 
-**Invocation**
+#### Invocation
 
 - CLI: `--feature ciede`.
 - C API: `vmaf_use_feature(ctx, "ciede", NULL)`.
@@ -226,7 +269,7 @@ Peak Signal-to-Noise Ratio on each colour plane. The fixed-point `psnr`
 path is the default; the `float_psnr` path is kept for parity with upstream
 consumers of the float pipeline.
 
-**Invocation**
+#### Invocation
 
 - CLI: `--feature psnr` or `--feature float_psnr`.
 - ffmpeg: `libvmaf=feature=name=psnr`.
@@ -241,14 +284,14 @@ identical (MSE=0): 60 dB for 8 bpc, 72 dB for 10 bpc, 84 dB for 12 bpc,
 
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4 / 4:0:0, 8 / 10 / 12 / 16 bpc.
 
-**Options**
+#### Options
 
-| Option             | Type   | Default | Effect                                                                        |
-|--------------------|--------|---------|-------------------------------------------------------------------------------|
-| `enable_chroma`    | bool   | `true`  | Include `psnr_cb` / `psnr_cr`; set `false` for luma-only                      |
-| `enable_mse`       | bool   | `false` | Emit `mse_y/cb/cr` alongside PSNR                                             |
-| `enable_apsnr`     | bool   | `false` | Emit clip-aggregate `apsnr_y/cb/cr` at flush                                  |
-| `reduced_hbd_peak` | bool   | `false` | Scale HBD peak to match 8-bit content                                         |
+| Option             | Type   | Default | Effect                                                                             |
+|--------------------|--------|---------|------------------------------------------------------------------------------------|
+| `enable_chroma`    | bool   | `true`  | Include `psnr_cb` / `psnr_cr`; set `false` for luma-only                           |
+| `enable_mse`       | bool   | `false` | Emit `mse_y/cb/cr` alongside PSNR                                                  |
+| `enable_apsnr`     | bool   | `false` | Emit clip-aggregate `apsnr_y/cb/cr` at flush                                       |
+| `reduced_hbd_peak` | bool   | `false` | Scale HBD peak to match 8-bit content                                              |
 | `min_sse`          | double | `0.0`   | Clamp the minimum MSE (and so the PSNR ceiling) — useful for identical-frame tests |
 
 **Backends** — AVX2, AVX-512, NEON.
@@ -287,13 +330,13 @@ speedup on AVX2.
 Structural Similarity Index on luma. MS-SSIM extends SSIM to five Gaussian-
 pyramid scales and fuses them with the Wang 2003 weights.
 
-**Invocation**
+#### Invocation
 
 - CLI: `--feature ssim` (fixed), `--feature float_ssim`, or
   `--feature float_ms_ssim`.
 - ffmpeg: `libvmaf=feature=name=ssim` etc.
 
-**Output metrics**
+#### Output metrics
 
 - `ssim` (`ssim` invocation) — one scalar in `[0, 1]`.
 - `float_ssim` — scalar in `[0, 1]`. With `enable_lcs=true` also
@@ -318,11 +361,11 @@ smaller inputs with `-EINVAL` and a clear log message — see
 
 **Options** (apply to `float_ssim` / `float_ms_ssim` only)
 
-| Option       | Type | Default | Range  | Effect                                                               |
-|--------------|------|---------|--------|----------------------------------------------------------------------|
-| `enable_lcs` | bool | `false` | —      | Emit the L / C / S components (per-scale for MS-SSIM)                |
-| `enable_db`  | bool | `false` | —      | Report `-10·log10(1-score)` instead of the raw ratio                 |
-| `clip_db`    | bool | `false` | —      | Cap dB values based on the minimum representable MSE                 |
+| Option       | Type | Default | Range  | Effect                                                                |
+|--------------|------|---------|--------|-----------------------------------------------------------------------|
+| `enable_lcs` | bool | `false` | —      | Emit the L / C / S components (per-scale for MS-SSIM)                 |
+| `enable_db`  | bool | `false` | —      | Report `-10·log10(1-score)` instead of the raw ratio                  |
+| `clip_db`    | bool | `false` | —      | Cap dB values based on the minimum representable MSE                  |
 | `scale`      | int  | `0`     | `0–10` | Downsampling factor for `float_ssim`; `0` = auto per Wang 2003        |
 
 **Backends** — `ssim` (fixed): scalar only. `float_ssim` / `float_ms_ssim`:
@@ -426,6 +469,82 @@ mean/min/max/hmean/frame-0/frame-47 values at `places=4` tolerance.
   not guaranteed bit-exact at every σ. The fork pins σ=1.5, matching
   libjxl's `kSigma`.
 - CUDA + SYCL ports are not yet shipped (BACKLOG T3-8).
+
+### Float moment — first / second statistical moments
+
+Computes the per-plane mean (first moment) and mean-of-squares (second
+moment) of the reference and distorted luma planes. Used as a building
+block for higher-level statistical metrics and as a sanity-check
+extractor when validating decoder output.
+
+#### Invocation
+
+- CLI: `--feature float_moment`.
+- ffmpeg: `libvmaf=feature=name=float_moment`.
+- C API: `vmaf_use_feature(ctx, "float_moment", NULL)`.
+
+#### Output metrics
+
+- `float_moment_ref1st`, `float_moment_dis1st` — first moment (mean).
+- `float_moment_ref2nd`, `float_moment_dis2nd` — second moment
+  (mean of squares).
+
+**Output range** — for 8-bit luma, `[0, 255]` for first moment and
+`[0, 65 025]` for second moment; scales with `2^bpc - 1`.
+
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
+Y plane only.
+
+**Options** — none.
+
+**Backends** — scalar only.
+
+**Limitations** — Stateless per-frame. Float pipeline (the picture
+plane is copied to float32 before the moments are computed); the
+fixed-point twin is not currently shipped.
+
+### LPIPS — learned perceptual image patch similarity (tiny-AI)
+
+A perceptual-distance metric backed by an ONNX model with two image
+inputs (`ref`, `dist`). Distinct from the classic VMAF feature
+extractors in that the heavy lifting is delegated to ONNX Runtime via
+the tiny-AI surface. The model is loaded once at extractor init and
+runs per frame.
+
+#### Invocation
+
+- CLI: `--feature lpips=model_path=/path/to/lpips.onnx`.
+- ffmpeg: `libvmaf=feature=name=lpips:model_path=...`.
+- C API: `vmaf_use_feature(ctx, "lpips", opts)` with
+  `model_path` set on the dictionary.
+
+**Output metrics** — `lpips` (one scalar per frame). Lower is more
+similar.
+
+**Output range** — model-defined; the reference LPIPS network produces
+values in roughly `[0, 1]` for natural content but is not bounded by
+construction.
+
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 bpc only. 4:0:0 is
+rejected (chroma is required for the RGB conversion). 10 / 12 / 16
+bpc inputs return `-ENOTSUP` at init.
+
+#### Options
+
+| Option       | Type   | Default | Effect                                                                                                                         |
+|--------------|--------|---------|--------------------------------------------------------------------------------------------------------------------------------|
+| `model_path` | string | unset   | Filesystem path to the LPIPS ONNX model (two-input). If unset, falls back to the `VMAF_LPIPS_MODEL_PATH` environment variable. |
+
+**Backends** — scalar only on the libvmaf side (the ONNX model itself
+is dispatched to whichever ORT execution provider is selected via
+`--tiny-device`; see [`docs/ai/inference.md`](../ai/inference.md)).
+
+**Limitations** — 8-bit only; depends on the
+[tiny-AI runtime](../ai/overview.md). The extractor errors out at
+init if no model path is provided (neither the option nor the
+environment variable); the registry under
+[`model/tiny/registry.json`](../../model/tiny/registry.json) tracks
+the canonical LPIPS ONNX checkpoint.
 
 ## Invoking features from the CLI
 
