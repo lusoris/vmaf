@@ -175,23 +175,78 @@ The final command line will depend on what shell you are running `ffmpeg` throug
 
 ## GPU-accelerated VMAF through FFmpeg (fork-specific)
 
-When `libvmaf` is built with `-Denable_cuda=true`, FFmpeg exposes the
-`libvmaf_cuda` filter, which keeps frames on the GPU end-to-end when the
-decoder is also CUDA-backed (e.g. `-hwaccel cuda`). A minimal pipeline for
-two HEVC inputs decoded on the GPU:
+### Per-backend copy-paste examples
+
+One ready-to-paste invocation per backend. All four use the same input
+pair (`reference.mp4`, `distorted.mp4`); each routes the work to a
+different compute path. The fork-added `sycl_device=` / `vulkan_device=`
+options come from the `ffmpeg-patches/0003..0004` series.
+
+**CPU (default — no hwaccel, no GPU build needed):**
+
+```bash
+ffmpeg -i reference.mp4 -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf=log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+**CUDA (NVIDIA only — built with `-Denable_cuda=true`; uses the
+dedicated `libvmaf_cuda` filter to keep frames device-resident):**
 
 ```bash
 ffmpeg -hwaccel cuda -hwaccel_output_format cuda -i reference.mp4 \
        -hwaccel cuda -hwaccel_output_format cuda -i distorted.mp4 \
-       -filter_complex "[0:v][1:v]libvmaf_cuda" \
+       -filter_complex "[0:v][1:v]libvmaf_cuda=log_fmt=json:log_path=/dev/stdout" \
        -f null -
 ```
 
-There is no dedicated FFmpeg filter for the SYCL backend; route decoded
-YUV through the `vmaf` CLI when a SYCL pipeline is needed (SYCL auto-
-selects when `libvmaf` is built with `-Denable_sycl=true`; use
-`--sycl_device N` to pin a device or `--no_sycl` to opt out). See
-[backends/sycl/overview.md](../backends/sycl/overview.md) for details.
+**SYCL (Intel / Arc — built with `-Denable_sycl=true`; uses the
+fork-added `sycl_device=N` selector on the regular `libvmaf` filter,
+fed by software-decoded frames):**
+
+```bash
+ffmpeg -i reference.mp4 -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf=sycl_device=0:log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+**Vulkan (any compute-capable Vulkan ICD — built with
+`-Denable_vulkan=enabled`; uses the fork-added `vulkan_device=N`
+selector on the regular `libvmaf` filter):**
+
+```bash
+ffmpeg -i reference.mp4 -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf=vulkan_device=0:log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+To list the full set of options the locally-installed `libvmaf` filter
+exposes (useful when an option in this doc has drifted from the binary):
+
+```bash
+ffmpeg -h filter=libvmaf
+```
+
+### Background
+
+When `libvmaf` is built with `-Denable_cuda=true`, FFmpeg exposes the
+`libvmaf_cuda` filter, which keeps frames on the GPU end-to-end when the
+decoder is also CUDA-backed (e.g. `-hwaccel cuda`). The CPU / SYCL /
+Vulkan examples above all use the regular `libvmaf` filter; only the
+selector option (`sycl_device=N` / `vulkan_device=N`) changes which
+compute path libvmaf takes internally. Decoded frames are software-
+decoded in those cases and copied into device memory by libvmaf itself.
+
+For SYCL specifically: `sycl_device=-1` keeps the CPU path. Setting
+`sycl_device=N` (any non-negative ordinal) opts in. See
+[backends/sycl/overview.md](../backends/sycl/overview.md) for device
+enumeration. Vulkan: `vulkan_device=N` is fully wired in libvmaf 3.0
+([ADR-0175](../adr/0175-vulkan-backend-scaffold.md) +
+[ADR-0177](../adr/0177-vulkan-motion-kernel.md) +
+[ADR-0178](../adr/0178-vulkan-adm-kernel.md) for vif/motion/adm,
+[ADR-0182](../adr/0182-gpu-long-tail-batch-1.md) for psnr).
+
+### Selector option reference
 
 The same fork-added selector pattern exists for SYCL and Vulkan on the
 `libvmaf` filter itself, contributed by
@@ -202,12 +257,7 @@ The same fork-added selector pattern exists for SYCL and Vulkan on the
 |---|---|---|
 | `sycl_device=N` | `-1` (disabled) | Pick SYCL device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_sycl=true`. |
 | `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling. |
-| `vulkan_device=N` | `-1` (disabled) | Pick Vulkan device ordinal; **scaffold-only** as of v3.0 ([ADR-0175](../adr/0175-vulkan-backend-scaffold.md)). Flipping to `>= 0` returns `-ENOSYS` until the runtime PR lands. Errors out if libvmaf was built without `-Denable_vulkan=enabled`. |
-
-The Vulkan selector lands in the patch series early so the
-ffmpeg-side wiring is in shape when the runtime PR arrives — see
-[ADR-0175](../adr/0175-vulkan-backend-scaffold.md) § "Alternatives
-considered" for why the patch ships ahead of any working kernels.
+| `vulkan_device=N` | `-1` (disabled) | Pick Vulkan device ordinal; `-1` keeps the CPU path. Vulkan compute is shipping for `vif` / `motion` / `adm` ([ADR-0177](../adr/0177-vulkan-motion-kernel.md) / [ADR-0178](../adr/0178-vulkan-adm-kernel.md)) and `psnr` luma-only ([ADR-0182](../adr/0182-gpu-long-tail-batch-1.md)); other extractors fall through to CPU. Errors out if libvmaf was built without `-Denable_vulkan=enabled`. |
 
 ## External resources
 
