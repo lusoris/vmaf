@@ -94,7 +94,7 @@ index 4e951ca561..f46c695865 100644
  extern const FFFilter ff_vf_limiter;
  extern const FFFilter ff_vf_loop;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index f0ec23605c..086a439dbd 100644
+index f0ec23605c..8fbaef545e 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
 @@ -969,3 +969,280 @@ const FFFilter ff_vf_libvmaf_cuda = {
@@ -120,7 +120,7 @@ index f0ec23605c..086a439dbd 100644
 +    {"feature",   "Set the feature to be used for computing vmaf.",
 +                  OFFSET(feature_cfg), AV_OPT_TYPE_STRING, {.str=NULL}, 0, 1, SYCL_FLAGS},
 +    {"gpu_profile", "Print per-kernel GPU timing breakdown at end.",
-+                    OFFSET(sycl_gpu_profile), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, SYCL_FLAGS},
++                    OFFSET(sycl_profile), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, SYCL_FLAGS},
 +    { NULL }
 +};
 +#undef SYCL_FLAGS
@@ -229,7 +229,7 @@ index f0ec23605c..086a439dbd 100644
 +            vmaf_write_output(s->vmaf, s->log_path, log_fmt_map(s->log_fmt));
 +    }
 +
-+    if (s->sycl_gpu_profile && s->sycl_state) {
++    if (s->sycl_profile && s->sycl_state) {
 +        char *prof = NULL;
 +        err = vmaf_sycl_profiling_get_string(s->sycl_state, &prof);
 +        if (!err && prof) {
@@ -301,7 +301,7 @@ index f0ec23605c..086a439dbd 100644
 +    // Initialise SYCL state
 +    VmafSyclConfiguration sycl_cfg = {
 +        .device_index = -1,
-+        .enable_profiling = s->sycl_gpu_profile,
++        .enable_profiling = s->sycl_profile,
 +    };
 +
 +    VmafConfiguration cfg = {
@@ -321,7 +321,7 @@ index f0ec23605c..086a439dbd 100644
 +        return AVERROR_EXTERNAL;
 +    }
 +
-+    if (s->sycl_gpu_profile) {
++    if (s->sycl_profile) {
 +        err = vmaf_sycl_profiling_enable(s->sycl_state);
 +        if (err)
 +            av_log(ctx, AV_LOG_WARNING,
