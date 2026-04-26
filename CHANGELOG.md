@@ -44,6 +44,33 @@
   surface: GPU long-tail (psnr / ssim / ssimulacra2 / cambi /
   psnr_hvs on CUDA / SYCL / Vulkan).
 
+### Fixed
+
+- **Hide volk / vk* symbols from libvmaf.so's public ABI
+  (T7-31, ADR-0185)** (fork-local): when libvmaf is built with
+  `-Denable_vulkan=enabled`, the bundled volk Vulkan-loader
+  leaked ~30 `volk*` + the full `vk*` API into the .so's
+  exported symbols. Static FFmpeg builds (BtbN-style
+  cross-toolchain releases, glibc-2.28 environments, etc.)
+  that link **both** libvmaf and libvulkan.a got GNU-ld
+  multiple-definition errors at the final link:
+
+  ```text
+  /opt/ffbuild/lib/libvulkan.a(loader.c.o):
+    multiple definition of `vkGetInstanceProcAddr';
+  volk.c.o (symbol from plugin): first defined here
+  ```
+
+  Fixed by passing `-Wl,--exclude-libs,ALL` on the libvmaf.so
+  link command in
+  [`libvmaf/src/meson.build`](libvmaf/src/meson.build); gated
+  off Darwin / Windows where the flag isn't supported (those
+  linkers don't auto-export static-archive symbols anyway).
+  Verified via `nm -D libvmaf.so` (zero `vk*` / `volk*` post-
+  fix); smoke + end-to-end `psnr_vulkan` on Arc A380 unchanged
+  (`psnr_y = 34.760779` matches PR #125's bit-exact reference).
+  See [ADR-0185](docs/adr/0185-vulkan-hide-volk-symbols.md).
+
 ### Added
 
 - **GPU long-tail batch 1b part 2 — `psnr_sycl` extractor
