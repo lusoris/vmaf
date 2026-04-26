@@ -73,6 +73,44 @@
 
 ### Added
 
+- **Vulkan VkImage zero-copy import — implementation + FFmpeg
+  filter (T7-29 parts 2 + 3, ADR-0186)** (fork-local): drops
+  the `-ENOSYS` stubs from PR #128 and ships the matching
+  FFmpeg-side filter in the same PR. libvmaf side: per-state
+  ref/dis staging `VkBuffer` pair (HOST_VISIBLE,
+  `DATA_ALIGN`-strided), `vkCmdCopyImageToBuffer` + timeline-
+  semaphore wait per frame, no-op-release `VmafPicture` builder
+  so `read_imported_pictures` routes through standard
+  `vmaf_read_pictures`. New
+  [`vmaf_vulkan_state_init_external`](libvmaf/include/libvmaf/libvmaf_vulkan.h)
+  adopts the caller's VkInstance/VkDevice (required because
+  source VkImage handles are device-bound). FFmpeg side: new
+  [`ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`](ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch)
+  packages the `libvmaf_vulkan` filter consuming
+  `AV_PIX_FMT_VULKAN` frames, pulling `AVVkFrame *` from
+  `data[0]`, calling `vmaf_vulkan_state_init_external` with
+  the device's compute queue, then `import_image` +
+  `read_imported_pictures` per frame. Synchronous v1 design
+  (fence-wait inside `import_image`); async pending-fence v2
+  deferred. Smoke 10/10 (extends `test_vulkan_smoke.c` with
+  five contract tests for the new surface). float_moment
+  cross-backend gate clean — confirms the state-struct
+  refactor doesn't regress existing kernel paths. Closes T7-29.
+
+- **Fork rule §12 r14 — FFmpeg-patch updates ship in the same
+  PR (ADR-0186)** (fork-local, process): every PR that touches
+  a libvmaf public surface used by `ffmpeg-patches/` (C-API
+  entry points, public headers, CLI flags,
+  `meson_options.txt`, symbols probed by the
+  `enabled libvmaf*` `check_pkg_config` lines) updates the
+  relevant patch in the **same PR**. Pure libvmaf-internal
+  refactors, doc-only, and test-only PRs are exempt. Reviewers
+  verify with
+  `for p in ffmpeg-patches/000*-*.patch; do git -C ffmpeg-8
+  apply --check "$p"; done`. Closes a recurring failure mode
+  where C-API drift broke the patch stack silently for the
+  next rebase.
+
 - **GPU long-tail batch 1d part 1 — `float_moment_vulkan`
   extractor (T7-23 / ADR-0182)** (fork-local): Vulkan twin of
   the CPU `float_moment` extractor. Single GLSL compute kernel

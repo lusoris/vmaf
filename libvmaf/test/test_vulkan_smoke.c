@@ -16,6 +16,7 @@
 
 #include "test.h"
 
+#include "libvmaf/libvmaf_vulkan.h"
 #include "vulkan/vulkan_common.h"
 
 static char *test_context_destroy_null_is_noop(void)
@@ -75,6 +76,67 @@ static char *test_context_new_rejects_out_of_range_index(void)
     return NULL;
 }
 
+/* T7-29 part 2 (ADR-0186): contract checks for the VkImage import
+ * surface. The end-to-end GPU plumbing is validated downstream by
+ * part 3 (the libvmaf_vulkan FFmpeg filter); these unit tests
+ * cover the public-API error paths so callers cannot misuse the
+ * surface silently. */
+
+static char *test_import_image_rejects_null_state(void)
+{
+    int rc = vmaf_vulkan_import_image(NULL, /*vk_image=*/0x1u, /*vk_format=*/0,
+                                      /*vk_layout=*/0,
+                                      /*vk_semaphore=*/0, /*vk_semaphore_value=*/0,
+                                      /*w=*/16, /*h=*/16, /*bpc=*/8, /*is_ref=*/1, /*index=*/0);
+    mu_assert("NULL state → -EINVAL", rc == -EINVAL);
+    return NULL;
+}
+
+static char *test_import_image_rejects_zero_handle(void)
+{
+    if (vmaf_vulkan_device_count() <= 0)
+        return NULL;
+    VmafVulkanConfiguration cfg = {.device_index = -1, .enable_validation = 0};
+    VmafVulkanState *state = NULL;
+    mu_assert("state_init", vmaf_vulkan_state_init(&state, cfg) == 0);
+
+    int rc = vmaf_vulkan_import_image(state, /*vk_image=*/0u, 0, 0, 0, 0, 16, 16, 8, 1, 0);
+    mu_assert("vk_image == 0 → -EINVAL", rc == -EINVAL);
+
+    vmaf_vulkan_state_free(&state);
+    return NULL;
+}
+
+static char *test_wait_compute_null_state(void)
+{
+    int rc = vmaf_vulkan_wait_compute(NULL);
+    mu_assert("NULL state → -EINVAL", rc == -EINVAL);
+    return NULL;
+}
+
+static char *test_wait_compute_idle_is_zero(void)
+{
+    if (vmaf_vulkan_device_count() <= 0)
+        return NULL;
+    VmafVulkanConfiguration cfg = {.device_index = -1, .enable_validation = 0};
+    VmafVulkanState *state = NULL;
+    mu_assert("state_init", vmaf_vulkan_state_init(&state, cfg) == 0);
+
+    /* No imports yet — wait_compute on an idle state must not
+     * touch any uninitialised fence and must return success. */
+    mu_assert("idle wait_compute returns 0", vmaf_vulkan_wait_compute(state) == 0);
+
+    vmaf_vulkan_state_free(&state);
+    return NULL;
+}
+
+static char *test_read_imported_pictures_without_imports(void)
+{
+    int rc = vmaf_vulkan_read_imported_pictures(NULL, 0);
+    mu_assert("NULL ctx → -EINVAL", rc == -EINVAL);
+    return NULL;
+}
+
 char *run_tests(void)
 {
     mu_run_test(test_context_destroy_null_is_noop);
@@ -82,5 +144,10 @@ char *run_tests(void)
     mu_run_test(test_device_count_is_nonnegative);
     mu_run_test(test_context_new_or_skip);
     mu_run_test(test_context_new_rejects_out_of_range_index);
+    mu_run_test(test_import_image_rejects_null_state);
+    mu_run_test(test_import_image_rejects_zero_handle);
+    mu_run_test(test_wait_compute_null_state);
+    mu_run_test(test_wait_compute_idle_is_zero);
+    mu_run_test(test_read_imported_pictures_without_imports);
     return NULL;
 }
