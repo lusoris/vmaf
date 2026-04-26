@@ -969,6 +969,33 @@ endif
 # (icpx 2025.x and probably earlier — see the post-T7-8 SYCL revival
 # notes in docs/development/oneapi-install.md).
 vmaf_link_args = []
+
+# T7-31 — when libvmaf is built with -Denable_vulkan=enabled, the
+# bundled volk loader (a Vulkan function-pointer dispatcher) gets
+# linked into libvmaf.so as a static archive and exports every
+# `vk*` and `volk*` entry point. Downstream binaries that ALSO
+# link the official Vulkan loader (libvulkan.a / libvulkan.so) —
+# e.g. BtbN-style static FFmpeg builds — get multiple-definition
+# errors at link time:
+#
+#   /opt/ffbuild/lib/libvulkan.a(loader.c.o):
+#     multiple definition of `vkGetInstanceProcAddr';
+#   volk.c.o (symbol from plugin): first defined here
+#
+# Hide every symbol coming from a static archive on the libvmaf.so
+# link line; only symbols compiled directly from libvmaf source TUs
+# remain in the public ABI. This contains volk + vk-mem-alloc +
+# any other static deps that bring vulkan/loader symbols.
+#
+# `-Wl,--exclude-libs,ALL` is GNU-ld-specific. Apple-ld accepts a
+# similar `-hidden-l` flag but we currently don't ship libvmaf via
+# the Vulkan code path on macOS. Linker check below keeps the flag
+# off on non-GNU linkers so we don't emit a warning into the build
+# log.
+if host_machine.system() != 'windows' and host_machine.system() != 'darwin'
+    vmaf_link_args += ['-Wl,--exclude-libs,ALL']
+endif
+
 if is_sycl_enabled
     cpp = meson.get_compiler('cpp')
     cpp_id = cpp.get_id()
