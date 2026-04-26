@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "common.h"
+#include "vulkan_common.h"
 #include "vulkan_internal.h"
 
 #define VK_OR_FAIL(call_, errno_)                                                                  \
