@@ -34,11 +34,20 @@ __constant__ int filter_width_d = sizeof(filter_d) / sizeof(filter_d[0]);
 #define TILE_W (BLOCK_X + 2 * RADIUS) // 20
 #define TILE_H (BLOCK_Y + 2 * RADIUS) // 20
 
-// Device function that mirrors an idx along its valid [0,sup) range
+// Device function that mirrors an idx along its valid [0,sup) range.
+// Skip-boundary convention matches CPU integer_motion's edge_8 / edge_16:
+// idx=-1   -> 1   (skip row 0 in the reflection)
+// idx=-2   -> 2
+// idx=sup  -> sup-2  (skip row sup-1; the +2 below, NOT +1, is what
+//                     enforces the skip semantics)
+// idx=sup+1 -> sup-3
+// The previous +1 reflection (idx=sup -> sup-1) repeated the boundary
+// row instead of skipping it, producing a systematic ~2.6e-3 motion
+// drift vs CPU on every frame after the first (T7-15). Fixed in PR #120.
 __device__ __forceinline__ int mirror(const int idx, const int sup)
 {
     int out = abs(idx);
-    return (out < sup) ? out : (sup - (out - sup + 1));
+    return (out < sup) ? out : (sup - (out - sup + 2));
 }
 
 extern "C" {
