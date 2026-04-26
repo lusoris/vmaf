@@ -61,6 +61,7 @@ vma_impl_lib = static_library(
 
 vulkan_sources += files(
     'common.c',
+    'dispatch_strategy.c',
     'picture_vulkan.c',
     '../feature/vulkan/adm_vulkan.c',
     '../feature/vulkan/vif_vulkan.c',

@@ -434,6 +434,7 @@ if is_cuda_enabled
     message(cuda_cu_sources)
     cuda_sources = [
         cuda_dir + 'common.c',
+        cuda_dir + 'dispatch_strategy.c',
         cuda_dir + 'picture_cuda.c',
         cuda_dir + 'ring_buffer.c',
     ]

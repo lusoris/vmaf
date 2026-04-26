@@ -16,6 +16,7 @@
  *
  */
 
+#include "config.h"
 #include "feature_extractor.h"
 
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
@@ -49,4 +50,8 @@ VmafFeatureExtractor vmaf_fex_null = {
     .name = "null",
     .init = init,
     .extract = extract,
+    /* Explicit zero-init so GCC LTO sees the full struct layout
+     * across TUs (silences -Wlto-type-mismatch after the chars
+     * field landed; see ADR-0181). */
+    .chars = {0},
 };
