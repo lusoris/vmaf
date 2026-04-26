@@ -272,11 +272,18 @@ The CUDA pipeline stays on the GPU because there's a dedicated
 `libvmaf_cuda` filter that consumes CUDA frames directly. SYCL and
 Vulkan don't yet have FFmpeg-side dedicated filters; the
 `hwdownload,format=yuv420p` step is the bridge to the regular
-`libvmaf` filter. A true zero-copy SYCL path exists at the C-API
-level via `vmaf_sycl_import_va_surface` /
-`vmaf_sycl_dmabuf_import` (see
-[`libvmaf/include/libvmaf/libvmaf_sycl.h`](../../libvmaf/include/libvmaf/libvmaf_sycl.h));
-it isn't plumbed through the FFmpeg filter today.
+`libvmaf` filter — readback to CPU and re-upload to the compute
+backend, which negates much of the GPU-decode win.
+
+A true zero-copy SYCL path **already exists at the C-API level**
+via `vmaf_sycl_import_va_surface` / `vmaf_sycl_dmabuf_import`
+(see
+[`libvmaf/include/libvmaf/libvmaf_sycl.h`](../../libvmaf/include/libvmaf/libvmaf_sycl.h)),
+but isn't plumbed through the FFmpeg filter today. Wiring it
+through is tracked as **T7-28** (SYCL VAAPI/dmabuf) and **T7-29**
+(Vulkan VkImage import) in the fork backlog. Until those land,
+the FFmpeg filter forces the readback above; users wanting
+zero-copy SYCL today must call the C API directly.
 
 ### Background
 
