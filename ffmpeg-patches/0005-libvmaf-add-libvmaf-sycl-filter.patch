@@ -21,23 +21,19 @@ libvmaf/include/libvmaf/libvmaf_sycl.h:
 
 Closes T7-28 in the fork backlog. Companion to the existing
 0003-libvmaf-wire-sycl-backend-selector.patch (which adds the
-sycl_device option to the regular libvmaf filter for the
-software-frame path); together the two patches give users:
+sycl_device option to the regular libvmaf filter); together the
+two patches give users:
 
   * libvmaf=sycl_device=N      — software frames + SYCL compute
   * libvmaf_sycl=...           — QSV/VAAPI hwdec + zero-copy SYCL
 
 Validated end-to-end on Intel Arc A380 with VAAPI hwdec via QSV
-oneVPL:
-
-  ffmpeg -hwaccel qsv -hwaccel_output_format qsv -i ref.mp4 \
-         -hwaccel qsv -hwaccel_output_format qsv -i dis.mp4 \
-         -filter_complex "[0:v][1:v]libvmaf_sycl=log_fmt=json:log_path=/dev/stdout" \
-         -f null -
+oneVPL. Patch is on top of 0001-0004 (post-vulkan-selector
+baseline).
 
 ---
 diff --git a/configure b/configure
-index 17596942749..521ab22d3de 100755
+index 9b16ddf1e6..41738050f0 100755
 --- a/configure
 +++ b/configure
 @@ -295,6 +295,7 @@ External library support:
@@ -61,20 +57,20 @@ index 17596942749..521ab22d3de 100755
  libvmaf_filter_deps="libvmaf"
  libvmaf_cuda_filter_deps="libvmaf libvmaf_cuda ffnvcodec"
 +libvmaf_sycl_filter_deps="libvmaf libvmaf_sycl libvpl"
+ vmaf_pre_filter_deps="libvmaf"
  zmq_filter_deps="libzmq"
  zoompan_filter_deps="swscale"
- zscale_filter_deps="libzimg const_nan"
-@@ -7390,6 +7393,8 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
+@@ -7391,6 +7394,8 @@ enabled libv4l2           && require_pkg_config libv4l2 libv4l2 libv4l2.h v4l2_i
  enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid.stab/libvidstab.h vsMotionDetectInit
  enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
 +enabled libvmaf_sycl      && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init &&
 +                             check_pkg_config libvmaf_sycl "libvmaf >= 2.0.0" libvmaf_sycl.h vmaf_sycl_state_init
- enabled libvo_amrwbenc    && { check_pkg_config libvo_amrwbenc vo-amrwbenc vo-amrwbenc/enc_if.h E_IF_init ||
-                                require libvo_amrwbenc vo-amrwbenc/enc_if.h E_IF_init -lvo-amrwbenc; }
- enabled libvorbis         && require_pkg_config libvorbis vorbis vorbis/codec.h vorbis_info_init &&
+ enabled libvmaf           && check_pkg_config libvmaf_sycl "libvmaf >= 3.0.0" libvmaf/libvmaf_sycl.h vmaf_sycl_state_init
+ enabled libvmaf           && check_pkg_config libvmaf_vulkan "libvmaf >= 3.0.0" libvmaf/libvmaf_vulkan.h vmaf_vulkan_state_init
+ enabled vmaf_pre_filter   && require_pkg_config libvmaf_dnn "libvmaf >= 3.0.0" libvmaf/dnn.h vmaf_dnn_session_open
 diff --git a/libavfilter/Makefile b/libavfilter/Makefile
-index a530cfae29b..8a19d308277 100644
+index db0e09bd32..f3de17a502 100644
 --- a/libavfilter/Makefile
 +++ b/libavfilter/Makefile
 @@ -376,6 +376,7 @@ OBJS-$(CONFIG_LENSFUN_FILTER)                += vf_lensfun.o
@@ -86,7 +82,7 @@ index a530cfae29b..8a19d308277 100644
  OBJS-$(CONFIG_LIMITER_FILTER)                += vf_limiter.o
  OBJS-$(CONFIG_LOOP_FILTER)                   += f_loop.o
 diff --git a/libavfilter/allfilters.c b/libavfilter/allfilters.c
-index e26859e1591..95240290ba2 100644
+index 4e951ca561..f46c695865 100644
 --- a/libavfilter/allfilters.c
 +++ b/libavfilter/allfilters.c
 @@ -350,6 +350,7 @@ extern const FFFilter ff_vf_lensfun;
@@ -98,39 +94,13 @@ index e26859e1591..95240290ba2 100644
  extern const FFFilter ff_vf_limiter;
  extern const FFFilter ff_vf_loop;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 3ab67d3dba5..ddcf12ccf6a 100644
+index f0ec23605c..086a439dbd 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
-@@ -46,6 +46,12 @@
- #include "libavutil/hwcontext_cuda_internal.h"
- #endif
- 
-+#if CONFIG_LIBVMAF_SYCL_FILTER
-+#include <libvmaf_sycl.h>
-+#include "libavutil/hwcontext.h"
-+#include "libavutil/hwcontext_qsv.h"
-+#endif
-+
- typedef struct LIBVMAFContext {
-     const AVClass *class;
-     FFFrameSync fs;
-@@ -64,6 +70,11 @@ typedef struct LIBVMAFContext {
- #if CONFIG_LIBVMAF_CUDA_FILTER
-     VmafCudaState *cu_state;
- #endif
-+#if CONFIG_LIBVMAF_SYCL_FILTER
-+    VmafSyclState *sycl_state;
-+    void *va_display;
-+    int sycl_gpu_profile;
-+#endif
- } LIBVMAFContext;
- 
- #define OFFSET(x) offsetof(LIBVMAFContext, x)
-@@ -826,3 +837,281 @@ const FFFilter ff_vf_libvmaf_cuda = {
+@@ -969,3 +969,280 @@ const FFFilter ff_vf_libvmaf_cuda = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
-+
 +#if CONFIG_LIBVMAF_SYCL_FILTER
 +
 +#define SYCL_FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
