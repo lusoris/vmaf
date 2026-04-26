@@ -507,4 +507,15 @@ VmafFeatureExtractor vmaf_fex_ciede = {
     .close = close,
     .priv_size = sizeof(CiedeState),
     .provided_features = provided_features,
+    /* Single per-pixel ΔE2000 kernel + double-precision sum
+     * reduction per frame. Math-heavy per-pixel work means the
+     * kernel cost scales with frame size; AUTO + 720p area
+     * (see ADR-0181 / ADR-0182). */
+    .chars =
+        {
+            .n_dispatches_per_frame = 1,
+            .is_reduction_only = false,
+            .min_useful_frame_area = 1280U * 720U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
+        },
 };
