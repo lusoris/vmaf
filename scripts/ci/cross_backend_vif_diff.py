@@ -66,6 +66,15 @@ def run_vmaf(
     output: Path,
     vulkan_device: int | None,
 ) -> None:
+    # Pick the named extractor explicitly: CPU side runs the canonical
+    # extractor (e.g. "adm"); Vulkan side runs the Vulkan-flagged extractor
+    # (e.g. "adm_vulkan"). --no_prediction keeps the default VMAF model
+    # from auto-loading the CPU extractors alongside the Vulkan ones,
+    # which would race them on the same output feature names and silently
+    # drop the second writer's scores. Without --no_prediction the gate
+    # would compare CPU-vs-CPU and trivially pass — that's the bug
+    # uncovered while shipping T5-1c.
+    extractor = feature if vulkan_device is None else f"{feature}_vulkan"
     cmd = [
         str(binary),
         "--reference",
@@ -81,7 +90,8 @@ def run_vmaf(
         "--bitdepth",
         str(bitdepth),
         "--feature",
-        feature,
+        extractor,
+        "--no_prediction",
         "--output",
         str(output),
         "--json",
@@ -105,6 +115,17 @@ def diff(cpu: list[dict], vk: list[dict], metrics: tuple[str, ...], places: int)
         print(f"FAIL: frame count mismatch (cpu={len(cpu)}, vk={len(vk)})")
         return 1
 
+    # places=N means "agreement to N decimal places", which is the same
+    # contract as `assertAlmostEqual(places=N)` from CPython's unittest:
+    # diff is below half a unit at the Nth decimal place. We compute the
+    # threshold directly instead of via round() because Python's banker
+    # rounding flips at the rounding boundary even when the underlying
+    # floats agree to better than the contract (e.g. 0.964751 vs
+    # 0.96474999... both represent "0.9648" to 4 places but Python
+    # rounds them to 0.9648 vs 0.9647 because the float-repr of the
+    # second is 0.96474999..., one ULP shy of 0.96475 exactly).
+    threshold = 0.5 * (10**-places)
+
     per_metric_max = dict.fromkeys(metrics, 0.0)
     per_metric_mismatch = dict.fromkeys(metrics, 0)
 
@@ -113,11 +134,11 @@ def diff(cpu: list[dict], vk: list[dict], metrics: tuple[str, ...], places: int)
             c, v = cf["metrics"][m], vf["metrics"][m]
             d = abs(c - v)
             per_metric_max[m] = max(per_metric_max[m], d)
-            if round(c, places) != round(v, places):
+            if d > threshold:
                 per_metric_mismatch[m] += 1
 
     print(f"cross-backend diff (CPU vs Vulkan), {len(cpu)} frames, tolerance places={places}")
-    print(f"{'metric':<25} {'max_abs_diff':<15} {'places=4 mismatches'}")
+    print(f"{'metric':<25} {'max_abs_diff':<15} {'places={} mismatches'.format(places)}")
     fail = False
     for m in metrics:
         verdict = "OK" if per_metric_mismatch[m] == 0 else "FAIL"

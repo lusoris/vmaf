@@ -734,6 +734,9 @@ int vmaf_use_feature(VmafContext *vmaf, const char *feature_name, VmafFeatureDic
 #ifdef HAVE_SYCL
     err |= set_fex_sycl_state(fex_ctx, vmaf);
 #endif
+#ifdef HAVE_VULKAN
+    err |= set_fex_vulkan_state(fex_ctx, vmaf);
+#endif
     err |= set_fex_framesync(fex_ctx, vmaf);
     if (err)
         return err;
