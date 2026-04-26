@@ -46,6 +46,36 @@
 
 ### Added
 
+- **T7-26 — Global feature-characteristics registry + per-backend
+  dispatch-strategy modules** (fork-local): consolidates the
+  per-context SYCL graph-replay heuristic into a per-feature
+  decision driven by a registry on `VmafFeatureExtractor`. New
+  [`libvmaf/src/feature/feature_characteristics.h`](libvmaf/src/feature/feature_characteristics.h)
+  exposes the descriptor struct (`n_dispatches_per_frame`,
+  `is_reduction_only`, `min_useful_frame_area`,
+  `dispatch_hint`). Per-backend glue under
+  [`libvmaf/src/{cuda,sycl,vulkan}/dispatch_strategy.{c,h}`](libvmaf/src/sycl/dispatch_strategy.cpp)
+  translates the descriptor to backend primitives (SYCL graph
+  replay today; CUDA graph capture and Vulkan secondary-cmdbuf
+  reuse are stubs that ship the env-override surface for a
+  follow-up PR to enable). New env knobs:
+  `VMAF_SYCL_DISPATCH=feature:graph,feature:direct,...`,
+  `VMAF_CUDA_DISPATCH=...`,
+  `VMAF_VULKAN_DISPATCH=feature:reuse,feature:primary,...`.
+  Legacy `VMAF_SYCL_USE_GRAPH` / `VMAF_SYCL_NO_GRAPH` kept as
+  global aliases. Descriptors seeded for vif (4 dispatches),
+  motion (2 dispatches, 1080p area), adm (16 dispatches, 720p
+  area). Empirical: ADM at 576×324 within 0.5% of pre-T7-26
+  behaviour (registry preserves byte-for-byte AUTO + 720p
+  semantics). Foundation for adding the GPU long-tail (14
+  metrics × 3 backends = up to 42 future kernels) without
+  duplicate dispatch logic. Side-fix: pre-existing GCC LTO
+  type-mismatch surfaced by the new `chars` field —
+  `null.c` / `feature_lpips.c` / `ssimulacra2.c` were missing
+  `#include "config.h"` and saw a smaller `VmafFeatureExtractor`
+  struct than `feature_extractor.c`. See
+  [ADR-0181](docs/adr/0181-feature-characteristics-registry.md).
+
 - **`float_moment` SIMD parity (AVX2 + NEON) — T7-19, closes
   the only fully-scalar row in the SIMD-coverage matrix**
   (fork-local): new
