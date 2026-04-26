@@ -46,6 +46,22 @@
 
 ### Added
 
+- **GPU long-tail batch 1b part 1 — `psnr_cuda` extractor
+  (T7-23 / ADR-0182)** (fork-local): CUDA twin of the
+  `psnr_vulkan` kernel shipped in PR #125. Per-pixel int64
+  squared-error reduction with warp-shuffle + atomicAdd
+  (same pattern as `motion_score.cu`'s SAD reduction).
+  Single dispatch per frame; emits luma-only `psnr_y` v1.
+  New
+  [`libvmaf/src/feature/cuda/integer_psnr/psnr_score.cu`](libvmaf/src/feature/cuda/integer_psnr/psnr_score.cu)
+  (~120 LOC PTX) +
+  [`libvmaf/src/feature/cuda/integer_psnr_cuda.{c,h}`](libvmaf/src/feature/cuda/integer_psnr_cuda.c)
+  (~210 LOC host using CUDA's async submit/collect model).
+  Empirical: 48 frames at 576×324 on NVIDIA RTX 4090 vs CPU
+  scalar — `max_abs_diff = 0.0`, `0/48 places=4 mismatches`
+  via `scripts/ci/cross_backend_vif_diff.py --backend cuda`.
+  `psnr_sycl` follows in batch 1b part 2.
+
 - **Vulkan VkImage zero-copy import C-API scaffold — T7-29
   part 1 (ADR-0184)** (fork-local): adds three new entry
   points in
