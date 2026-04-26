@@ -851,7 +851,13 @@ if is_sycl_enabled
         feature_src_dir + 'sycl/integer_motion_sycl.cpp',
     ]
 
-    sycl_feature_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20'] + sycl_pic_arg + ['-fpermissive']
+    # `-ffp-contract=off` matches CPU integer_adm.c's gcc -O2 default and
+    # prevents icpx from fusing the cos(1deg) angle-flag float comparison
+    # into an FMA (which produces a 2.4e-4 adm_scale2 drift on Arc vs CPU
+    # at the rounding boundary; T7-16). The in-source `#pragma clang fp
+    # contract(off)` blocks don't take effect inside SYCL kernel lambdas,
+    # so the file-level flag is what actually pins the contraction.
+    sycl_feature_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20', '-ffp-contract=off'] + sycl_pic_arg + ['-fpermissive']
     sycl_feature_inc = sycl_inc_flags + [
         '-I' + meson.current_source_dir() / 'cuda',
     ]

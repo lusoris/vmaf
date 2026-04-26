@@ -403,7 +403,11 @@ int decouple_one_band(int oh, int bth, out int k_out) {
 /* Apply enhancement-gain limit. Returns updated r_val. */
 int apply_gain_limit(int r_val, int oh, int k, int bth, bool angle_flag) {
     if (!angle_flag) return r_val;
-    float rst_f = (float(k) / 32768.0f) * (float(oh) / 64.0f);
+    /* `precise` matches CPU's `-ffp-contract=off` so the rst_f sign
+     * test agrees with CPU at the rounding boundary (T7-16). */
+    precise float a = float(k) / 32768.0f;
+    precise float b = float(oh) / 64.0f;
+    precise float rst_f = a * b;
     int64_t prod_hi = int64_t(r_val) * int64_t(pc.gain_hi);
     int64_t prod_lo = int64_t(r_val) * int64_t(pc.gain_lo);
     int64_t main_part = prod_hi >> 15;
@@ -457,14 +461,20 @@ void run_stage_decouple_csf() {
     int t1 = read_band_at(1u, 2u, gy, gx);
     int t2 = read_band_at(1u, 3u, gy, gx);
 
-    /* Angle test (uses H,V bands only). */
+    /* Angle test (uses H,V bands only). `precise` blocks FMA
+     * contraction so this matches CPU's `-ffp-contract=off` order
+     * — see the parallel block in launch_decouple_csf for the full
+     * rationale (T7-16). */
     int64_t ot_dp = int64_t(o0) * int64_t(t0) + int64_t(o1) * int64_t(t1);
     int64_t o_mag_sq = int64_t(o0) * int64_t(o0) + int64_t(o1) * int64_t(o1);
     int64_t t_mag_sq = int64_t(t0) * int64_t(t0) + int64_t(t1) * int64_t(t1);
-    float ot_f = float(ot_dp) / 4096.0f;
-    float om_f = float(o_mag_sq) / 4096.0f;
-    float tm_f = float(t_mag_sq) / 4096.0f;
-    bool angle_flag = (ot_f >= 0.0f) && (ot_f * ot_f >= COS_1DEG_SQ * om_f * tm_f);
+    precise float ot_f = float(ot_dp) / 4096.0f;
+    precise float om_f = float(o_mag_sq) / 4096.0f;
+    precise float tm_f = float(t_mag_sq) / 4096.0f;
+    precise float lhs = ot_f * ot_f;
+    precise float rhs_step = COS_1DEG_SQ * om_f;
+    precise float rhs = rhs_step * tm_f;
+    bool angle_flag = (ot_f >= 0.0f) && (lhs >= rhs);
 
     int oarr[3];   oarr[0] = o0; oarr[1] = o1; oarr[2] = o2;
     int tarr[3];   tarr[0] = t0; tarr[1] = t1; tarr[2] = t2;
@@ -544,10 +554,23 @@ void run_stage_csf_cm() {
         int64_t ot_dp = int64_t(o0) * int64_t(b0) + int64_t(o1) * int64_t(b1);
         int64_t o_mag_sq = int64_t(o0) * int64_t(o0) + int64_t(o1) * int64_t(o1);
         int64_t t_mag_sq = int64_t(b0) * int64_t(b0) + int64_t(b1) * int64_t(b1);
-        float ot_f = float(ot_dp) / 4096.0f;
-        float om_f = float(o_mag_sq) / 4096.0f;
-        float tm_f = float(t_mag_sq) / 4096.0f;
-        bool angle_flag = (ot_f >= 0.0f) && (ot_f * ot_f >= COS_1DEG_SQ * om_f * tm_f);
+        /* `precise` blocks FMA contraction so the compiler can't fuse
+         * `cos_sq * om_f * tm_f` into an fma() — different drivers
+         * (NVIDIA proprietary vs Mesa anv) make different fusion
+         * choices, producing different angle_flag at the rounding
+         * boundary. Frame 10 of the Netflix normal pair flips the
+         * boundary and triggers a 2.4e-4 adm_scale2 drift on RTX/SYCL
+         * vs Arc/Vulkan. CPU's `(float)ot_dp / 4096.0` path doesn't
+         * fuse (host gcc `-O2` defaults to `-ffp-contract=off` for
+         * non-`*=`/`+=` operators), so matching that here is the
+         * portable fix. T7-16. */
+        precise float ot_f = float(ot_dp) / 4096.0f;
+        precise float om_f = float(o_mag_sq) / 4096.0f;
+        precise float tm_f = float(t_mag_sq) / 4096.0f;
+        precise float lhs = ot_f * ot_f;
+        precise float rhs_step = COS_1DEG_SQ * om_f;
+        precise float rhs = rhs_step * tm_f;
+        bool angle_flag = (ot_f >= 0.0f) && (lhs >= rhs);
 
         int oarr[3]; oarr[0] = o0; oarr[1] = o1; oarr[2] = o2;
         int tarr[3]; tarr[0] = b0; tarr[1] = b1; tarr[2] = b2;
