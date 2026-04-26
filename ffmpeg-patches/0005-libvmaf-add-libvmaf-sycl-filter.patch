@@ -94,10 +94,32 @@ index 4e951ca561..f46c695865 100644
  extern const FFFilter ff_vf_limiter;
  extern const FFFilter ff_vf_loop;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index f0ec23605c..8fbaef545e 100644
+index f0ec23605c..d9dab0bdd9 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
-@@ -969,3 +969,280 @@ const FFFilter ff_vf_libvmaf_cuda = {
+@@ -51,6 +51,11 @@
+ #include <libvmaf/libvmaf_sycl.h>
+ #endif
+ 
++#if CONFIG_LIBVMAF_SYCL_FILTER
++#include "libavutil/hwcontext.h"
++#include "libavutil/hwcontext_qsv.h"
++#endif
++
+ #if CONFIG_LIBVMAF_VULKAN
+ #include <libvmaf/libvmaf_vulkan.h>
+ #endif
+@@ -73,6 +78,9 @@ typedef struct LIBVMAFContext {
+     int   sycl_profile;
+ #if CONFIG_LIBVMAF_SYCL
+     VmafSyclState *sycl_state;
++#endif
++#if CONFIG_LIBVMAF_SYCL_FILTER
++    void *va_display;
+ #endif
+     int   vulkan_device;
+ #if CONFIG_LIBVMAF_VULKAN
+@@ -969,3 +977,280 @@ const FFFilter ff_vf_libvmaf_cuda = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
