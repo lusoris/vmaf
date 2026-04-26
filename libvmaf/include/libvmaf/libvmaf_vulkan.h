@@ -87,6 +87,73 @@ void vmaf_vulkan_state_free(VmafVulkanState **state);
  */
 int vmaf_vulkan_list_devices(void);
 
+/**
+ * Zero-copy frame import — T7-29 (ADR-0184).
+ *
+ * The next three entry points mirror the SYCL backend's
+ * VAAPI/dmabuf import surface (see libvmaf_sycl.h). They let
+ * an FFmpeg-side filter — or any direct C-API caller — hand
+ * an externally-decoded VkImage straight to the libvmaf
+ * Vulkan compute queue without a CPU readback round-trip.
+ *
+ * **Status: scaffold only (T7-29 part 1).** Every function
+ * returns -ENOSYS pending the real implementation
+ * (vkCmdCopyImageToBuffer + timeline-semaphore wait). The
+ * declarations land so consumers can compile against the
+ * stable contract.
+ *
+ * Header purity: Vulkan handles cross the ABI as `uintptr_t`
+ * to keep this header usable from translation units that
+ * don't have <vulkan/vulkan.h> in scope. Cast from VkImage /
+ * VkSemaphore on the caller side.
+ */
+
+/**
+ * Import an external VkImage into the libvmaf Vulkan compute
+ * pipeline. Caller retains ownership of the underlying VkImage
+ * and VkSemaphore.
+ *
+ * @param state              Vulkan state handle.
+ * @param vk_image           VkImage handle (cast to uintptr_t).
+ * @param vk_format          VkFormat enum value.
+ * @param vk_layout          Current VkImageLayout enum value.
+ * @param vk_semaphore       VkSemaphore handle (cast to uintptr_t).
+ * @param vk_semaphore_value Wait value — libvmaf will wait until
+ *                           the semaphore reaches this value
+ *                           before reading the image.
+ * @param w                  Frame width.
+ * @param h                  Frame height.
+ * @param bpc                Bits per component (8 / 10 / 12 / 16).
+ * @param is_ref             1 = reference frame, 0 = distorted.
+ * @param index              Frame index (matches the index
+ *                           passed to vmaf_vulkan_read_imported_pictures).
+ *
+ * @return 0 on success, -ENOSYS until T7-29 part 2 lands,
+ *         -EINVAL on bad args.
+ */
+int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image, uint32_t vk_format,
+                             uint32_t vk_layout, uintptr_t vk_semaphore,
+                             uint64_t vk_semaphore_value, unsigned w, unsigned h, unsigned bpc,
+                             int is_ref, unsigned index);
+
+/**
+ * Block until all previously-submitted compute work on `state`
+ * has finished. Used by FFmpeg-side filters before reusing
+ * imported images in the next frame.
+ *
+ * @return 0 on success, -ENOSYS until T7-29 part 2 lands.
+ */
+int vmaf_vulkan_wait_compute(VmafVulkanState *state);
+
+/**
+ * Trigger a libvmaf score read for the imported reference +
+ * distorted images at `index`. Mirrors vmaf_read_pictures_sycl
+ * but for Vulkan-imported frames.
+ *
+ * @return 0 on success, -ENOSYS until T7-29 part 2 lands.
+ */
+int vmaf_vulkan_read_imported_pictures(VmafContext *ctx, unsigned index);
+
 #ifdef __cplusplus
 }
 #endif

@@ -46,6 +46,26 @@
 
 ### Added
 
+- **Vulkan VkImage zero-copy import C-API scaffold — T7-29
+  part 1 (ADR-0184)** (fork-local): adds three new entry
+  points in
+  [`libvmaf_vulkan.h`](libvmaf/include/libvmaf/libvmaf_vulkan.h)
+  — `vmaf_vulkan_import_image`, `vmaf_vulkan_wait_compute`,
+  `vmaf_vulkan_read_imported_pictures` — mirroring the SYCL
+  backend's existing import surface. Lets future FFmpeg-side
+  filters consume `AVFrame->format == AV_PIX_FMT_VULKAN`
+  frames without a `hwdownload,format=yuv420p` round-trip.
+  Header purity: Vulkan handles cross the ABI as `uintptr_t`
+  to keep the surface usable from translation units that
+  don't have `<vulkan/vulkan.h>` in scope (matches the
+  libvmaf_cuda.h precedent). **Scaffold only**: every
+  function returns `-ENOSYS`, mirroring how the original
+  Vulkan backend shipped via ADR-0175. T7-29 part 2 (real
+  `vkCmdCopyImageToBuffer` + timeline-semaphore wait) and
+  part 3 (FFmpeg-side `libvmaf_vulkan` filter as
+  `ffmpeg-patches/0006-*`) follow in subsequent PRs. See
+  [ADR-0184](docs/adr/0184-vulkan-image-import-scaffold.md).
+
 - **`libvmaf_sycl` FFmpeg filter — zero-copy QSV/VAAPI import
   (T7-28, ADR-0183)** (fork-local): closes the hwdec ergonomic
   gap exposed by PR #126. New

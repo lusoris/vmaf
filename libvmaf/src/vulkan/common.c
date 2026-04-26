@@ -374,3 +374,40 @@ VmafVulkanContext *vmaf_vulkan_state_get_context(VmafVulkanState *state)
 {
     return state ? state->ctx : NULL;
 }
+
+/* ------------------------------------------------------------------ */
+/* T7-29 — VkImage zero-copy import C-API (scaffold per ADR-0184).    */
+/* All three return -ENOSYS until T7-29 part 2 (real implementation). */
+/* ------------------------------------------------------------------ */
+
+int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image, uint32_t vk_format,
+                             uint32_t vk_layout, uintptr_t vk_semaphore,
+                             uint64_t vk_semaphore_value, unsigned w, unsigned h, unsigned bpc,
+                             int is_ref, unsigned index)
+{
+    (void)state;
+    (void)vk_image;
+    (void)vk_format;
+    (void)vk_layout;
+    (void)vk_semaphore;
+    (void)vk_semaphore_value;
+    (void)w;
+    (void)h;
+    (void)bpc;
+    (void)is_ref;
+    (void)index;
+    return -ENOSYS;
+}
+
+int vmaf_vulkan_wait_compute(VmafVulkanState *state)
+{
+    (void)state;
+    return -ENOSYS;
+}
+
+int vmaf_vulkan_read_imported_pictures(VmafContext *ctx, unsigned index)
+{
+    (void)ctx;
+    (void)index;
+    return -ENOSYS;
+}
