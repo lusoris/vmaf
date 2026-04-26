@@ -283,6 +283,7 @@ if is_asm_enabled
           feature_src_dir + 'arm64/convolve_neon.c',
           feature_src_dir + 'arm64/motion_v2_neon.c',
           feature_src_dir + 'arm64/psnr_hvs_neon.c',
+          feature_src_dir + 'arm64/moment_neon.c',
         ]
 
           arm64_static_lib = static_library(
@@ -331,6 +332,7 @@ if is_asm_enabled
           feature_src_dir + 'x86/ms_ssim_decimate_avx2.c',
           feature_src_dir + 'x86/convolve_avx2.c',
           feature_src_dir + 'x86/psnr_hvs_avx2.c',
+          feature_src_dir + 'x86/moment_avx2.c',
       ]
 
       x86_avx2_static_lib = static_library(
