@@ -46,6 +46,25 @@
 
 ### Added
 
+- **GPU long-tail batch 1a — `psnr_vulkan` extractor (T7-23 /
+  ADR-0182)** (fork-local): first kernel of the GPU long-tail
+  batch. Per-pixel squared-error reduction on the Vulkan compute
+  backend; emits `psnr_y` (luma-only v1; chroma is a focused
+  follow-up since `picture_vulkan` upload is luma-only today).
+  New
+  [`libvmaf/src/feature/vulkan/shaders/psnr.comp`](libvmaf/src/feature/vulkan/shaders/psnr.comp)
+  (89 LOC GLSL, 16×8 WG, subgroup-int64 reduction) +
+  [`libvmaf/src/feature/vulkan/psnr_vulkan.c`](libvmaf/src/feature/vulkan/psnr_vulkan.c)
+  (391 LOC host C, single dispatch/frame, no temporal state).
+  Cross-backend gate gains a 4th step ("PSNR cross-backend diff")
+  on the lavapipe lane. Empirical: 48 frames at 576×324 on
+  Intel Arc A380 / Mesa anv vs CPU scalar — `max_abs_diff = 0.0`,
+  `0/48 places=4 mismatches`. Foundation also adds chars
+  descriptors to the existing scalar `psnr` / `ciede` /
+  `float_moment` registrations ahead of CUDA / SYCL twins
+  landing in batches 1b–1d. See
+  [ADR-0182](docs/adr/0182-gpu-long-tail-batch-1.md).
+
 - **T7-26 — Global feature-characteristics registry + per-backend
   dispatch-strategy modules** (fork-local): consolidates the
   per-context SYCL graph-replay heuristic into a per-feature

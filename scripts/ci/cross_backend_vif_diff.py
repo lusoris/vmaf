@@ -58,6 +58,10 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "integer_adm_scale2",
         "integer_adm_scale3",
     ),
+    # GPU long-tail batch 1 (T7-23 / ADR-0182): luma-only PSNR.
+    # The Vulkan extractor only emits psnr_y; chroma is a focused
+    # follow-up (the picture_vulkan upload path is luma-only today).
+    "psnr": ("psnr_y",),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the
