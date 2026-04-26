@@ -73,6 +73,29 @@
 
 ### Added
 
+- **GPU long-tail batch 1d part 1 — `float_moment_vulkan`
+  extractor (T7-23 / ADR-0182)** (fork-local): Vulkan twin of
+  the CPU `float_moment` extractor. Single GLSL compute kernel
+  ([`libvmaf/src/feature/vulkan/shaders/moment.comp`](libvmaf/src/feature/vulkan/shaders/moment.comp))
+  emits all four metrics — `float_moment_ref1st`,
+  `float_moment_dis1st`, `float_moment_ref2nd`,
+  `float_moment_dis2nd` — in one dispatch via four atomic
+  `int64` counters, using subgroup int64 reduction
+  (`GL_EXT_shader_atomic_int64` +
+  `GL_EXT_shader_explicit_arithmetic_types_int64`) into a
+  shared array, then a single cross-subgroup
+  `atomicAdd` per accumulator. Host divides the four sums by
+  `width × height` to recover the raw moments. New
+  [`libvmaf/src/feature/vulkan/moment_vulkan.c`](libvmaf/src/feature/vulkan/moment_vulkan.c)
+  (~370 LOC) mirrors the `psnr_vulkan` scaffolding (3-binding
+  descriptor set, single dispatch per frame, 8/10/12/16 bpc via
+  spec constants). Empirical: 48 frames at 576×324 on Intel Arc
+  A380 (lavapipe-equivalent) vs CPU scalar — `max_abs = 0.0`,
+  `0/48 places=4 mismatches` × 4 metrics via
+  `scripts/ci/cross_backend_vif_diff.py --feature float_moment
+  --backend vulkan`. CUDA + SYCL twins follow as batch 1d parts
+  2 and 3.
+
 - **GPU long-tail batch 1b part 2 — `psnr_sycl` extractor
   (T7-23 / ADR-0182)** (fork-local): SYCL twin of `psnr_cuda`
   (PR #129) and `psnr_vulkan` (PR #125). Per-pixel int64
