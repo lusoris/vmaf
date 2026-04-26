@@ -3524,14 +3524,17 @@ VmafFeatureExtractor vmaf_fex_integer_adm = {
     .close = close,
     .priv_size = sizeof(AdmState),
     .provided_features = provided_features,
-    /* 16 dispatches per frame (4 scales × 4 stages: DWT + decouple + CSF +
-     * reductions). Highest dispatch density of the shipped GPU features —
-     * benefits most from graph replay (see ADR-0181). */
+    /* 16 dispatches per frame (4 scales × 4 stages: DWT + decouple + CSF
+     * + reductions). Highest dispatch density of the shipped GPU
+     * features — but empirical bench at 576×324 shows DIRECT still beats
+     * graph-replay by ~8% even with 16 dispatches; graph setup cost
+     * dominates below the 720p area threshold. AUTO + 720p area matches
+     * the pre-T7-26 SYCL behaviour byte-for-byte (see ADR-0181). */
     .chars =
         {
             .n_dispatches_per_frame = 16,
             .is_reduction_only = false,
-            .min_useful_frame_area = 0U,
-            .dispatch_hint = VMAF_FEATURE_DISPATCH_BATCHED,
+            .min_useful_frame_area = 1280U * 720U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
         },
 };
