@@ -62,6 +62,17 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # The Vulkan extractor only emits psnr_y; chroma is a focused
     # follow-up (the picture_vulkan upload path is luma-only today).
     "psnr": ("psnr_y",),
+    # GPU long-tail batch 1d (T7-23 / ADR-0182): float_moment.
+    # The CPU extractor is registered as `float_moment`; its GPU twin
+    # is `float_moment_vulkan` (etc.). The 4 emitted metrics — 1st and
+    # 2nd raw moment of ref + dis luma — match byte-for-byte at JSON
+    # precision (int64 sum is exact on integer YUV inputs).
+    "float_moment": (
+        "float_moment_ref1st",
+        "float_moment_dis1st",
+        "float_moment_ref2nd",
+        "float_moment_dis2nd",
+    ),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the

@@ -141,7 +141,8 @@ jobs:
         working-directory: libvmaf
         run: |
           meson setup build -Denable_cuda=false -Denable_sycl=false \
-                            -Denable_vulkan=enabled --buildtype=release
+                            -Denable_vulkan=enabled -Denable_float=true \
+                            --buildtype=release
           meson compile -C build
       - name: Cache Netflix vmaf_resource fixtures
         uses: actions/cache@v5
@@ -191,6 +192,15 @@ jobs:
             --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
             --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
             --width 576 --height 324 --feature adm --places 4
+      - name: float_moment cross-backend diff (CPU vs Vulkan/lavapipe)
+        env:
+          VK_LOADER_DRIVERS_SELECT: '*lvp*'
+        run: |
+          python3 scripts/ci/cross_backend_vif_diff.py \
+            --vmaf-binary libvmaf/build/tools/vmaf \
+            --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+            --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+            --width 576 --height 324 --feature float_moment --places 4
       - name: PSNR cross-backend diff (CPU vs Vulkan/lavapipe)
         env:
           VK_LOADER_DRIVERS_SELECT: '*lvp*'
@@ -218,8 +228,8 @@ jobs:
         working-directory: libvmaf
         run: |
           meson setup build -Denable_cuda=false -Denable_sycl=false \
-                            -Denable_vulkan=enabled --buildtype=release \
-                            --reconfigure
+                            -Denable_vulkan=enabled -Denable_float=true \
+                            --buildtype=release --reconfigure
           meson compile -C build
       - name: VIF cross-backend diff (CPU vs Vulkan/Arc)
         run: |
