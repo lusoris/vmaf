@@ -20,6 +20,10 @@ regexes = [
   '''0{8,}''',
   '''[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''',
   '''vmaf_v\d+\.\d+\.\d+''',
+  # GHA cache keys for the fixture-cache PR — match
+  # `vmaf-fixtures-{yuv,resource}-v\d+` strings the
+  # `generic-api-key` rule flags as high-entropy.
+  '''vmaf-fixtures-[a-z]+-v\d+''',
 ]
 
 stopwords = [

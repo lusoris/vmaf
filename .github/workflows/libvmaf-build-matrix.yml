@@ -375,6 +375,19 @@ jobs:
         if: "!matrix.sycl && !matrix.cuda && !matrix.i686"
         run: sudo ninja -vC libvmaf/build test
 
+      - name: Cache Netflix vmaf_resource fixtures
+        # Insulates the tox lanes from the recurring HTTP-502s on
+        # raw.githubusercontent.com when fetching python/test/resource/
+        # fixtures via download_reactively (python/vmaf/config.py).
+        if: "(startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686) || matrix.os == 'macos-latest'"
+        uses: actions/cache@v5
+        with:
+          path: python/test/resource
+          key: vmaf-fixtures-resource-v1-${{ hashFiles('python/test/*_test.py', 'python/test/resource/test_*.py') }}
+          restore-keys: |
+            vmaf-fixtures-resource-v1-
+            vmaf-fixtures-resource-
+
       - name: Run tox tests (ubuntu)
         if: "startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686"
         run: |

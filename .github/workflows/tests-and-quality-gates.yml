@@ -52,6 +52,21 @@ jobs:
             -Denable_float=true -Denable_avx512=true --buildtype=release
           meson compile -C build
 
+      - name: Cache Netflix vmaf_resource fixtures
+        uses: actions/cache@v5
+        with:
+          # Cache the entire python/test/resource tree — pytest's
+          # download_reactively (python/vmaf/config.py) populates it
+          # lazily and re-uses any pre-existing files. Sized at ~50 MB.
+          path: python/test/resource
+          # Bump the version suffix when test files reference new
+          # fixture URLs. `restore-keys` lets stale caches partially
+          # populate the dir; missing files re-download lazily.
+          key: vmaf-fixtures-resource-v1-${{ hashFiles('python/test/*_test.py', 'python/test/resource/test_*.py') }}
+          restore-keys: |
+            vmaf-fixtures-resource-v1-
+            vmaf-fixtures-resource-
+
       - name: Run Netflix golden test pairs
         env:
           PYTHONPATH: ${{ github.workspace }}/python
@@ -128,11 +143,25 @@ jobs:
           meson setup build -Denable_cuda=false -Denable_sycl=false \
                             -Denable_vulkan=enabled --buildtype=release
           meson compile -C build
-      - name: Fetch Netflix normal-pair fixtures
+      - name: Cache Netflix vmaf_resource fixtures
+        uses: actions/cache@v5
+        with:
+          path: python/test/resource/yuv
+          # Bump the version suffix (-v1 → -v2 etc.) when fixtures change.
+          # `restore-keys` lets older caches partially populate the dir;
+          # missing files re-download lazily via curl on cache miss.
+          key: vmaf-fixtures-yuv-v1
+          restore-keys: vmaf-fixtures-yuv-
+      - name: Fetch Netflix normal-pair fixtures (skips downloads on cache hit)
         run: |
           mkdir -p python/test/resource/yuv
           for name in src01_hrc00_576x324.yuv src01_hrc01_576x324.yuv; do
-            curl -sSL -o "python/test/resource/yuv/$name" \
+            if [ -s "python/test/resource/yuv/$name" ]; then
+              echo "cache hit: $name"
+              continue
+            fi
+            curl -sSL --retry 5 --retry-delay 2 --retry-all-errors \
+              -o "python/test/resource/yuv/$name" \
               "https://github.com/Netflix/vmaf_resource/raw/master/python/test/resource/yuv/$name"
           done
       - name: VIF cross-backend diff (CPU vs Vulkan/lavapipe)
