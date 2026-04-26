@@ -23,6 +23,27 @@
   clang-format clean on every touched file. Touched 68 files,
   ~1500-line diff.
 
+- **CPU coverage matrix audit — closes 5 stale gaps in one pass
+  (no code changes)** (fork-local): post-T7-19 verification
+  exposed five matrix entries and backlog rows that were either
+  already-shipped work or phantom rows from earlier audit
+  snapshots. **T7-22** (`ms_ssim` per-scale SIMD) was already
+  shipped via ADR-0138/0139/0140 — verified 3.2× wall-clock
+  speedup vs `--cpumask 0xfffffffe`. **CAMBI scalar fallback**
+  already exists at
+  [`cambi.c:446-460`](libvmaf/src/feature/cambi.c). **motion_v2
+  NEON** already exists at
+  [`arm64/motion_v2_neon.c`](libvmaf/src/feature/arm64/motion_v2_neon.c).
+  **integer `ansnr`** is a phantom row — no extractor is
+  registered. **T7-21** (`psnr_hvs` AVX-512) closes as **AVX2
+  ceiling** with empirical evidence (1.17× speedup of AVX2 vs
+  scalar; AVX-512 widening would force a 2-block host batch
+  without measurable payoff). Same verdict for deferred
+  float_moment AVX-512. The CPU SIMD column is now closed. See
+  [ADR-0180](docs/adr/0180-cpu-coverage-audit.md). Next gap
+  surface: GPU long-tail (psnr / ssim / ssimulacra2 / cambi /
+  psnr_hvs on CUDA / SYCL / Vulkan).
+
 ### Added
 
 - **`float_moment` SIMD parity (AVX2 + NEON) — T7-19, closes
