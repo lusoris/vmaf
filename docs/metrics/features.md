@@ -35,7 +35,7 @@ limitations in the same PR as the code.
 | ADM (float)        | `float_adm`     | Yes           | `float_adm2`, `float_adm_scale0..3`                                                           | AVX2, AVX-512, NEON | —                  |
 | [CAMBI](cambi.md)  | `cambi`         | No            | `cambi`                                                                                       | —                   | —                  |
 | CIEDE2000          | `ciede`         | No            | `ciede2000`                                                                                   | AVX2, AVX-512, NEON | —                  |
-| PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional); GPU twin `psnr_vulkan` is luma-only  | AVX2, AVX-512, NEON | Vulkan (luma-only) |
+| PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional)                                       | AVX2, AVX-512, NEON | CUDA, Vulkan¹      |
 | PSNR (float)       | `float_psnr`    | No            | `float_psnr_y`, `float_psnr_cb`, `float_psnr_cr`                                              | AVX2, AVX-512, NEON | —                  |
 | PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | —                   | —                  |
 | SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —                  |
@@ -49,6 +49,12 @@ limitations in the same PR as the code.
 **Core** extractors are required inputs for the shipped VMAF models (see
 [models/overview.md](../models/overview.md)); non-core extractors are
 standalone.
+
+¹ The `psnr_cuda` and `psnr_vulkan` GPU extractors emit luma-only
+(`psnr_y`). The CPU `psnr` extractor emits the full
+`psnr_y` / `psnr_cb` / `psnr_cr` set when `enable_chroma=true`
+(default). Chroma support on GPU is a focused follow-up — the
+existing GPU upload paths are luma-only today.
 
 Depending on your build configuration not every backend is available — see
 [`backends/`](../backends/index.md) for the runtime dispatch rules.
