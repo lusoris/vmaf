@@ -137,11 +137,14 @@ void vmaf_vulkan_import_slots_free(struct VmafVulkanState *state)
         return;
     struct VmafVulkanImportSlots *s = &state->import;
     VmafVulkanContext *ctx = state->ctx;
+    assert(ctx != NULL);
+    assert(ctx->device != VK_NULL_HANDLE);
     if (s->fence != VK_NULL_HANDLE) {
         vkDestroyFence(ctx->device, s->fence, NULL);
         s->fence = VK_NULL_HANDLE;
     }
     if (s->cmd != VK_NULL_HANDLE) {
+        assert(ctx->command_pool != VK_NULL_HANDLE);
         vkFreeCommandBuffers(ctx->device, ctx->command_pool, 1, &s->cmd);
         s->cmd = VK_NULL_HANDLE;
     }
@@ -157,6 +160,9 @@ void vmaf_vulkan_import_slots_free(struct VmafVulkanState *state)
     s->stride_bytes = 0u;
     s->ref_pending = s->dis_pending = 0;
     s->ref_index = s->dis_index = 0u;
+    /* Power of 10 §5: post-condition — every cached resource is now released. */
+    assert(s->ref_buf == NULL);
+    assert(s->dis_buf == NULL);
 }
 
 static int record_image_to_buffer_copy(struct VmafVulkanState *state, VkImage image,

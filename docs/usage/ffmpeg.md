@@ -288,15 +288,37 @@ ffmpeg -hwaccel vulkan -hwaccel_output_format vulkan -i reference.mp4 \
        -f null -
 ```
 
-CUDA and SYCL both have dedicated zero-copy filters that consume
-hwdec frames directly: `libvmaf_cuda` for CUDA frames,
-`libvmaf_sycl` for QSV/oneVPL frames (T7-28, closed by
-`ffmpeg-patches/0005-libvmaf-add-libvmaf-sycl-filter.patch`).
+All three GPU backends now ship a dedicated filter that consumes
+hwdec frames directly without the `hwdownload,format=yuv420p`
+round-trip:
 
-Vulkan still needs the `hwdownload,format=yuv420p` bridge — there's
-no `libvmaf_vulkan` dedicated filter yet because the C-API surface
-for `VkImage` import doesn't exist. Tracked as **T7-29** (new
-C-API + new ffmpeg-side filter) in the fork backlog.
+- `libvmaf_cuda` — CUDA frames.
+- `libvmaf_sycl` — QSV / oneVPL frames (T7-28,
+  `ffmpeg-patches/0005-libvmaf-add-libvmaf-sycl-filter.patch`).
+- `libvmaf_vulkan` — `AV_PIX_FMT_VULKAN` frames (T7-29 parts
+  2 + 3, closed by
+  `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`).
+
+**With `libvmaf_vulkan` (drops the bridge entirely):**
+
+```bash
+ffmpeg -hwaccel vulkan -hwaccel_output_format vulkan -i reference.mp4 \
+       -hwaccel vulkan -hwaccel_output_format vulkan -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf_vulkan=log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+Build FFmpeg with `--enable-libvmaf-vulkan` (in addition to
+`--enable-libvmaf`). The filter pulls the `VkImage` Y-plane
+out of `AVFrame->data[0]` (`AVVkFrame *`), waits the decoder's
+timeline semaphore on the GPU, runs `vkCmdCopyImageToBuffer`
+into the libvmaf-internal staging buffer, and routes through
+the standard scoring pipeline. Synchronous v1 design (per-frame
+fence wait); async overlap is a follow-up. Same-device
+requirement: libvmaf compute runs on the FFmpeg decoder's
+`VkInstance` / `VkDevice` via the new
+`vmaf_vulkan_state_init_external` C-API. See
+[ADR-0186](../adr/0186-vulkan-image-import-impl.md).
 
 ### Background
 
