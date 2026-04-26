@@ -43,7 +43,7 @@
 #include "feature_name.h"
 #include "log.h"
 
-#include "../../vulkan/common.h"
+#include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
 

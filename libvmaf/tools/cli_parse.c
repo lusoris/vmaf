@@ -56,6 +56,7 @@ enum {
     ARG_SYCL_DEVICE,
     ARG_NO_VULKAN,
     ARG_VULKAN_DEVICE,
+    ARG_BACKEND,
     ARG_PRECISION,
     ARG_TINY_MODEL,
     ARG_TINY_DEVICE,
@@ -127,6 +128,7 @@ static const struct option long_opts[] = {
     {"sycl_device", 1, NULL, ARG_SYCL_DEVICE},
     {"no_vulkan", 0, NULL, ARG_NO_VULKAN},
     {"vulkan_device", 1, NULL, ARG_VULKAN_DEVICE},
+    {"backend", 1, NULL, ARG_BACKEND},
     {"precision", 1, NULL, ARG_PRECISION},
     {"tiny-model", 1, NULL, ARG_TINY_MODEL},
     {"tiny_model", 1, NULL, ARG_TINY_MODEL},
@@ -186,6 +188,11 @@ static void usage(const char *const app, const char *const reason, ...)
         " --sycl_device $unsigned:      select SYCL GPU by index (default: auto)\n"
         " --no_vulkan:                  disable Vulkan backend\n"
         " --vulkan_device $unsigned:    select Vulkan GPU by index (default: auto)\n"
+        " --backend $name:              exclusive backend selector — auto|cpu|cuda|sycl|vulkan.\n"
+        "                               When set to a specific backend, the others are\n"
+        "                               disabled to avoid the dispatcher first-match-wins\n"
+        "                               race that silently routes to CUDA when both Vulkan\n"
+        "                               and CUDA are active.\n"
         " --precision $spec:            score output precision\n"
         "                                  N (1..17) -> printf \"%%.<N>g\"\n"
         "                                  max|full  -> \"%%.17g\" (round-trip lossless)\n"
@@ -650,6 +657,9 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
         case ARG_VULKAN_DEVICE:
             settings->vulkan_device = (int)parse_unsigned(optarg, ARG_VULKAN_DEVICE, argv[0]);
             break;
+        case ARG_BACKEND:
+            settings->backend = optarg;
+            break;
         case ARG_PRECISION:
             settings->precision_fmt = resolve_precision_fmt(optarg, argv[0], settings);
             break;
@@ -688,6 +698,42 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
 
     if (!settings->output_fmt)
         settings->output_fmt = VMAF_OUTPUT_FORMAT_XML;
+    /* --backend exclusive selector. Apply BEFORE the rest of the
+     * post-parse validation so the per-backend flags are consistent
+     * downstream. Must run before any code path that consumes
+     * settings->no_cuda / no_sycl / no_vulkan. */
+    if (settings->backend) {
+        if (!strcmp(settings->backend, "auto")) {
+            /* Default — leave per-backend flags as-is. */
+        } else if (!strcmp(settings->backend, "cpu")) {
+            settings->no_cuda = true;
+            settings->no_sycl = true;
+            settings->no_vulkan = true;
+        } else if (!strcmp(settings->backend, "cuda")) {
+            settings->no_sycl = true;
+            settings->no_vulkan = true;
+            if (!settings->use_gpumask) {
+                settings->gpumask = 1;
+                settings->use_gpumask = true;
+            }
+        } else if (!strcmp(settings->backend, "sycl")) {
+            settings->no_cuda = true;
+            settings->no_vulkan = true;
+            if (settings->sycl_device < 0)
+                settings->sycl_device = 0;
+        } else if (!strcmp(settings->backend, "vulkan")) {
+            settings->no_cuda = true;
+            settings->no_sycl = true;
+            if (settings->vulkan_device < 0)
+                settings->vulkan_device = 0;
+        } else {
+            usage(argv[0],
+                  "Unknown --backend value '%s' "
+                  "(expected: auto|cpu|cuda|sycl|vulkan)",
+                  settings->backend);
+        }
+    }
+
     if (!settings->path_ref)
         usage(argv[0], "Reference .y4m or .yuv (-r/--reference) is required");
     if (!settings->path_dist)

@@ -128,12 +128,22 @@ static const VmafOption options[] = {{
 /* Device helpers                                                      */
 /* ------------------------------------------------------------------ */
 
+/* Skip-boundary mirror matching CPU integer_motion's edge_8 / edge_16:
+ *   idx=-1    -> 1     (skip row 0 in the reflection)
+ *   idx=-2    -> 2
+ *   idx=sup   -> sup-2  (skip row sup-1; `-2` below, not `-1`, enforces
+ *                        the skip semantics)
+ *   idx=sup+1 -> sup-3
+ * Previously used `2 * sup - idx - 1` which reflected idx=sup back to
+ * sup-1 (repeated the boundary row), producing a systematic ~2.6e-3
+ * motion drift vs CPU on every frame after the first. Same root cause
+ * as the CUDA mirror() bug also fixed in PR #120 (T7-15). */
 static inline int dev_mirror_motion(int idx, int sup)
 {
     if (idx < 0)
         return -idx;
     if (idx >= sup)
-        return 2 * sup - idx - 1;
+        return 2 * sup - idx - 2;
     return idx;
 }
 

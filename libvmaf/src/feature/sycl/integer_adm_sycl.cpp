@@ -547,12 +547,26 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
             int64_t const t_mag_sq = (int64_t)t[0] * t[0] + (int64_t)t[1] * t[1];
 
             // CPU divides by 4096 before float conversion to
-            // avoid float precision issues with large int64 values
-            float const ot_f = (float)ot_dp / 4096.0f;
-            float const om_f = (float)o_mag_sq / 4096.0f;
-            float const tm_f = (float)t_mag_sq / 4096.0f;
-
-            bool const angle_flag = (ot_f >= 0.0f) && (ot_f * ot_f >= cos_1deg_sq * om_f * tm_f);
+            // avoid float precision issues with large int64 values.
+            // The pragma block disables FMA contraction so the
+            // comparison evaluates left-to-right (matching CPU's
+            // gcc -O2 default with -ffp-contract=off) — without it,
+            // icpx fuses the multiplications differently than gcc,
+            // producing a 2.4e-4 adm_scale2 drift on a single
+            // Netflix-normal frame at the cos(1deg)^2 boundary.
+            // The pragma must be at the head of a compound stmt;
+            // braces give it the right scope. T7-16.
+            bool angle_flag;
+            {
+#pragma clang fp contract(off)
+                float const ot_f = (float)ot_dp / 4096.0f;
+                float const om_f = (float)o_mag_sq / 4096.0f;
+                float const tm_f = (float)t_mag_sq / 4096.0f;
+                float const lhs = ot_f * ot_f;
+                float const rhs_step = cos_1deg_sq * om_f;
+                float const rhs = rhs_step * tm_f;
+                angle_flag = (ot_f >= 0.0f) && (lhs >= rhs);
+            }
 
             // Process each band
             for (int band = 0; band < 3; band++) {
@@ -645,8 +659,16 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
                 // clamps against distorted signal (th), not reference
                 if (angle_flag) {
                     // rst_f = (k/32768) * (oh/64) — sign depends on
-                    // k (>=0) and oh, so rst_f > 0 iff oh > 0
-                    float const rst_f = ((float)k / 32768.0f) * ((float)oh / 64.0f);
+                    // k (>=0) and oh, so rst_f > 0 iff oh > 0.
+                    // No-contract block (T7-16): wrapped so the pragma
+                    // sits at the head of a compound statement.
+                    float rst_f;
+                    {
+#pragma clang fp contract(off)
+                        float const a = (float)k / 32768.0f;
+                        float const b = (float)oh / 64.0f;
+                        rst_f = a * b;
+                    }
 
                     // int64 Q31 split-multiply gain limiting
                     // gained = (r_val * gain_q31) >> 31
@@ -875,11 +897,19 @@ static sycl::event launch_csf_den_cm_3band(
                     int64_t const o_mag_sq = (int64_t)o[0] * o[0] + (int64_t)o[1] * o[1];
                     int64_t const t_mag_sq =
                         (int64_t)th_all[0] * th_all[0] + (int64_t)th_all[1] * th_all[1];
-                    float const ot_f = (float)ot_dp / 4096.0f;
-                    float const om_f = (float)o_mag_sq / 4096.0f;
-                    float const tm_f = (float)t_mag_sq / 4096.0f;
-                    bool const angle_flag =
-                        (ot_f >= 0.0f) && (ot_f * ot_f >= cos_1deg_sq * om_f * tm_f);
+                    // No-contract block (T7-16): pragma must sit at
+                    // the head of a compound statement.
+                    bool angle_flag;
+                    {
+#pragma clang fp contract(off)
+                        float const ot_f = (float)ot_dp / 4096.0f;
+                        float const om_f = (float)o_mag_sq / 4096.0f;
+                        float const tm_f = (float)t_mag_sq / 4096.0f;
+                        float const lhs = ot_f * ot_f;
+                        float const rhs_step = cos_1deg_sq * om_f;
+                        float const rhs = rhs_step * tm_f;
+                        angle_flag = (ot_f >= 0.0f) && (lhs >= rhs);
+                    }
 
                     // Decouple + CSF for each band → r_val[band], csf_a_val[band]
                     int32_t r_vals[3];
@@ -952,7 +982,14 @@ static sycl::event launch_csf_den_cm_3band(
 
                         // Enhancement gain limiting
                         if (angle_flag) {
-                            float const rst_f = ((float)k / 32768.0f) * ((float)oh / 64.0f);
+                            // No-contract block (T7-16).
+                            float rst_f;
+                            {
+#pragma clang fp contract(off)
+                                float const a = (float)k / 32768.0f;
+                                float const b = (float)oh / 64.0f;
+                                rst_f = a * b;
+                            }
                             int64_t const prod_hi = (int64_t)r_val * e_gain_q31.gain_hi;
                             int64_t const prod_lo = (int64_t)r_val * e_gain_q31.gain_lo;
                             int64_t const main_part = prod_hi >> 15;

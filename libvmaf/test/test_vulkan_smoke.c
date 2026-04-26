@@ -16,7 +16,7 @@
 
 #include "test.h"
 
-#include "vulkan/common.h"
+#include "vulkan/vulkan_common.h"
 
 static char *test_context_destroy_null_is_noop(void)
 {

@@ -150,16 +150,20 @@ variable that overrides it.
 | `--sycl_device <N>` | auto (first GPU) | Pick SYCL device by ordinal from the oneAPI device list. |
 | `--no_vulkan` | off | Forbid Vulkan dispatch even if the Vulkan backend is built in. |
 | `--vulkan_device <N>` | disabled (opt-in) | Pick Vulkan device by ordinal. Pass `0` for the first compute-capable device, `-1` for auto-pick (prefers discrete > integrated > virtual > cpu). Without this flag, Vulkan is never used. |
+| `--backend <name>` | `auto` | Exclusive backend selector — `auto` (default; whichever backends are built compete by registry order), `cpu`, `cuda`, `sycl`, `vulkan`. Setting a specific backend disables the others via the matching `--no_X` flags BEFORE dispatch and pins the device index for the chosen backend (`gpumask=1` for CUDA, `sycl_device=0` for SYCL, `vulkan_device=0` for Vulkan). Closes the multi-backend dispatcher conflict in which `vmaf_get_feature_extractor_by_feature_name`'s first-match-wins rule silently routed Vulkan-flagged work to CUDA when both backends had state imported. |
 | `--cpumask <bitmask>` (`-c`) | all ISAs enabled | Mask out specific CPU ISAs (e.g. force scalar, disable AVX-512). Values are fork-internal — see `libvmaf/src/cpu.h`. |
 | `--gpumask <bitmask>` | all GPU ops enabled | Mask out specific GPU ops. |
 | `--threads <N>` | host `nproc` | CPU-side worker thread count. |
 
-> **Vulkan is opt-in**, unlike CUDA/SYCL — `--vulkan_device <N>` must be
-> passed explicitly even when the backend is built. Currently only the
-> `vif_vulkan` extractor is wired (per-frame `integer_vif_scale0..3`);
-> ADM / motion / motion_v2 fall through to CPU until T5-1c lands. See
+> **Vulkan is opt-in**, unlike CUDA/SYCL — `--vulkan_device <N>` (or
+> `--backend vulkan`) must be passed explicitly even when the backend
+> is built. As of T5-1c (PR #120) `vif_vulkan`, `motion_vulkan`, and
+> `adm_vulkan` are wired and the default `vmaf_v0.6.1` model runs
+> end-to-end on Vulkan. See
 > [../backends/vulkan/overview.md](../backends/vulkan/overview.md) and
-> [ADR-0176](../adr/0176-vulkan-vif-cross-backend-gate.md).
+> [ADR-0176](../adr/0176-vulkan-vif-cross-backend-gate.md) /
+> [ADR-0177](../adr/0177-vulkan-motion-kernel.md) /
+> [ADR-0178](../adr/0178-vulkan-adm-kernel.md).
 
 If neither backend is built in, these flags are silently inert. See
 [../backends/index.md](../backends/index.md) for the runtime-dispatch rules and

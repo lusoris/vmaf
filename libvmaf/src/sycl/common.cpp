@@ -839,11 +839,31 @@ extern "C" int vmaf_sycl_graph_submit(VmafSyclState *state)
     // Record combined graph on frame 2 for both host-upload and VA-import paths.
     // VA import always uses slot 0 (cur_compute stays 0), so only slot 0 graph
     // gets replayed — but we record both for generality.
-    // Graph replay eliminates per-frame kernel launch overhead (~33% faster on
-    // Arc A380 at 4K).  Set VMAF_SYCL_NO_GRAPH=1 to disable.
+    //
+    // Resolution-aware default (T7-17, 2026-04-26): graph replay
+    // overhead is fixed per frame (~1.1 ms on Arc A380 / oneAPI
+    // 2025.3); for small frames it dominates the per-kernel work it's
+    // trying to amortize. Empirical resolution sweep on Arc:
+    //   res=576x324:    direct beats graph by 100-500% across vif/motion/adm
+    //   res=1280x720:   graph beats direct by ~20% on adm (vif/motion: tie)
+    //   res=1920x1080:  graph beats direct by ~20% on adm (vif/motion: tie)
+    //   res=3840x2160:  tie (within 2%)
+    // Crossover ≈ 720p (921 600 pixels). Below that, default to
+    // direct submission. At/above, default to graph replay.
+    //
+    // Override knobs (only one wins, USE takes precedence over NO):
+    //   VMAF_SYCL_USE_GRAPH=1 — force graph mode (any resolution)
+    //   VMAF_SYCL_NO_GRAPH=1  — force direct submission (any resolution)
     if (frame == 2 && (state->has_uploaded || state->has_imported)) {
-        const char *env_nograph = getenv("VMAF_SYCL_NO_GRAPH");
-        if (!(env_nograph && env_nograph[0] == '1'))
+        const char *env_use_graph = getenv("VMAF_SYCL_USE_GRAPH");
+        const char *env_no_graph = getenv("VMAF_SYCL_NO_GRAPH");
+        const bool force_graph = env_use_graph && env_use_graph[0] == '1';
+        const bool force_direct = env_no_graph && env_no_graph[0] == '1';
+        constexpr unsigned long GRAPH_AREA_THRESHOLD = 1280UL * 720UL; // = 921 600
+        const unsigned long area = (unsigned long)state->frame_w * (unsigned long)state->frame_h;
+        const bool dim_default_graph = area >= GRAPH_AREA_THRESHOLD;
+        const bool use_graph = force_graph || (!force_direct && dim_default_graph);
+        if (use_graph)
             record_combined_graphs(state);
     }
 

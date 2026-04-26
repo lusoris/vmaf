@@ -74,7 +74,15 @@ typedef struct {
     bool no_sycl;
     int sycl_device; // -1 = not requested (default), 0+ = device index
     bool no_vulkan;
-    int vulkan_device;         // -1 = not requested (default), 0+ = device index
+    int vulkan_device; // -1 = not requested (default), 0+ = device index
+    /* --backend exclusive selector: "auto" (default, all enabled
+     * backends compete by registry order), "cpu", "cuda", "sycl",
+     * "vulkan". Setting one disables the others via the existing
+     * --no_X flags before they're consumed; this resolves the
+     * Vulkan+CUDA dispatcher conflict where the model loader's
+     * first-match-wins lookup silently routes to CUDA when both
+     * are active. */
+    const char *backend;
     const char *precision_fmt; // resolved printf format, e.g. "%.6f"
     int precision_n;           // -1 = unset (default %.6f), else user N
     bool precision_max;        // --precision=max|full given (selects %.17g)

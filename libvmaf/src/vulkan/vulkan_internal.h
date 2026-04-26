@@ -4,9 +4,9 @@
  *
  *  Internal-only Vulkan context layout. Kernel TUs in
  *  libvmaf/src/feature/vulkan/ include this header (NOT
- *  libvmaf/src/vulkan/common.h alone) so they can read the
+ *  libvmaf/src/vulkan/vulkan_common.h alone) so they can read the
  *  device / queue / allocator handles. The public surface
- *  (common.h) stays opaque so callers can't accidentally bind to
+ *  (vulkan_common.h) stays opaque so callers can't accidentally bind to
  *  Vulkan-specific types.
  */
 

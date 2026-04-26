@@ -1,26 +1,29 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
-Date: Fri, 24 Apr 2026 22:23:38 +0200
-Subject: [PATCH] libvmaf: declare vulkan_device filter option (scaffold)
+Date: Sun, 26 Apr 2026 13:50:00 +0200
+Subject: [PATCH] libvmaf: wire vulkan backend selector (vulkan_device option)
 
-ADR-0175 / T5-1 — declares the `vulkan_device` integer option on the
-libvmaf filter and adds the matching `check_pkg_config libvmaf_vulkan`
-configure line. Scaffold-only: the option's setter currently does
-nothing. The full state_init / import_state / state_free wiring
-lands with the runtime PR (T5-1b) per ADR-0175 § "Alternatives
-considered" — the scaffold stays narrow so the patch series can
-rebase cleanly against FFmpeg master without dragging in
-unimplemented runtime calls.
+PR #120 (T5-1c-adm) closes the Vulkan runtime + cross-backend gate;
+`vmaf_vulkan_state_init` / `_import_state` / `_state_free` are all
+live.  The libvmaf filter exposes a single integer `vulkan_device`
+option mirroring `sycl_device` from patch 0003 — when ≥ 0 the
+filter inits a Vulkan state on the selected device, imports it
+into the VmafContext, and frees it on cleanup.  When < 0 (default)
+Vulkan is fully disabled at the filter level.
+
+This supersedes the scaffold-only declaration that PR #111 (ADR-
+0175) shipped against FFmpeg master.  The runtime calls are gated
+behind `if (s->vulkan_device >= 0)`, with `CONFIG_LIBVMAF_VULKAN`
+from configure picking the correct branch when libvmaf was built
+without Vulkan support (returns AVERROR(ENOSYS) with a helpful
+message).
 ---
- configure                | 1 +
- libavfilter/vf_libvmaf.c | 6 ++++++
- 2 files changed, 7 insertions(+)
-
 diff --git a/configure b/configure
-index c1666a9..d4e0a8e 100755
+index c1666a9..9b16ddf 100755
 --- a/configure
 +++ b/configure
-@@ -7393,5 +7393,6 @@ enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvm
+@@ -7392,6 +7392,7 @@ enabled libvidstab        && require_pkg_config libvidstab "vidstab >= 0.98" vid
+ enabled libvmaf           && require_pkg_config libvmaf "libvmaf >= 2.0.0" libvmaf.h vmaf_init
  enabled libvmaf           && check_pkg_config libvmaf_cuda "libvmaf >= 2.0.0" libvmaf_cuda.h vmaf_cuda_state_init
  enabled libvmaf           && check_pkg_config libvmaf_sycl "libvmaf >= 3.0.0" libvmaf/libvmaf_sycl.h vmaf_sycl_state_init
 +enabled libvmaf           && check_pkg_config libvmaf_vulkan "libvmaf >= 3.0.0" libvmaf/libvmaf_vulkan.h vmaf_vulkan_state_init
@@ -28,28 +31,88 @@ index c1666a9..d4e0a8e 100755
  enabled libvo_amrwbenc    && { check_pkg_config libvo_amrwbenc vo-amrwbenc vo-amrwbenc/enc_if.h E_IF_init ||
                                 require libvo_amrwbenc vo-amrwbenc/enc_if.h E_IF_init -lvo-amrwbenc; }
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index e3cf572..f5d29b4 100644
+index e3cf572..f0ec236 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
-@@ -71,6 +71,7 @@ typedef struct LIBVMAFContext {
+@@ -51,6 +51,10 @@
+ #include <libvmaf/libvmaf_sycl.h>
+ #endif
+ 
++#if CONFIG_LIBVMAF_VULKAN
++#include <libvmaf/libvmaf_vulkan.h>
++#endif
++
+ typedef struct LIBVMAFContext {
+     const AVClass *class;
+     FFFrameSync fs;
+@@ -70,6 +74,10 @@ typedef struct LIBVMAFContext {
  #if CONFIG_LIBVMAF_SYCL
      VmafSyclState *sycl_state;
  #endif
 +    int   vulkan_device;
++#if CONFIG_LIBVMAF_VULKAN
++    VmafVulkanState *vulkan_state;
++#endif
  
      VmafContext *vmaf;
      VmafModel **model;
-@@ -98,6 +99,11 @@ static const AVOption libvmaf_options[] = {
+@@ -98,6 +106,7 @@ static const AVOption libvmaf_options[] = {
      {"tiny_fp16",    "Request fp16 I/O when the device supports it.",                   OFFSET(tiny_fp16),       AV_OPT_TYPE_BOOL,   {.i64=0},      0, 1,        FLAGS},
      {"sycl_device",  "SYCL device index (-1 = disabled).",                              OFFSET(sycl_device),     AV_OPT_TYPE_INT,    {.i64=-1},    -1, INT_MAX,  FLAGS},
      {"sycl_profile", "Enable SYCL queue profiling.",                                    OFFSET(sycl_profile),    AV_OPT_TYPE_BOOL,   {.i64=0},      0, 1,        FLAGS},
-+    /* ADR-0175 / T5-1: declared here so the option is visible to
-+     * downstream tooling. The libvmaf side returns -ENOSYS until the
-+     * runtime PR (T5-1b) lands; flipping vulkan_device >= 0 today is
-+     * a no-op until that follow-up patch wires state_init. */
-+    {"vulkan_device","Vulkan device index (-1 = disabled; scaffold-only as of v3.0).",  OFFSET(vulkan_device),   AV_OPT_TYPE_INT,    {.i64=-1},    -1, INT_MAX,  FLAGS},
++    {"vulkan_device","Vulkan device index (-1 = disabled, 0+ = device index).",         OFFSET(vulkan_device),   AV_OPT_TYPE_INT,    {.i64=-1},    -1, INT_MAX,  FLAGS},
      { NULL }
  };
  
+@@ -491,6 +500,34 @@ static av_cold int init(AVFilterContext *ctx)
+ #endif
+     }
+ 
++    if (s->vulkan_device >= 0) {
++#if CONFIG_LIBVMAF_VULKAN
++        VmafVulkanConfiguration vulkan_cfg = {
++            .device_index      = s->vulkan_device,
++            .enable_validation = 0,
++        };
++        err = vmaf_vulkan_state_init(&s->vulkan_state, vulkan_cfg);
++        if (err) {
++            av_log(ctx, AV_LOG_ERROR,
++                   "vmaf_vulkan_state_init(%d) failed: %d.\n",
++                   s->vulkan_device, err);
++            return AVERROR(EINVAL);
++        }
++        err = vmaf_vulkan_import_state(s->vmaf, s->vulkan_state);
++        if (err) {
++            av_log(ctx, AV_LOG_ERROR,
++                   "vmaf_vulkan_import_state failed: %d.\n", err);
++            return AVERROR(EINVAL);
++        }
++        av_log(ctx, AV_LOG_INFO,
++               "Vulkan backend active (device=%d)\n", s->vulkan_device);
++#else
++        av_log(ctx, AV_LOG_ERROR,
++               "vulkan_device set but libvmaf was built without Vulkan support.\n");
++        return AVERROR(ENOSYS);
++#endif
++    }
++
+     err = parse_models(ctx);
+     if (err)
+         return err;
+@@ -694,6 +731,13 @@ clean_up:
+         s->sycl_state = NULL;
+     }
+ #endif
++
++#if CONFIG_LIBVMAF_VULKAN
++    if (s->vulkan_state) {
++        vmaf_vulkan_state_free(&s->vulkan_state);
++        s->vulkan_state = NULL;
++    }
++#endif
+ }
+ 
+ static const AVFilterPad libvmaf_inputs[] = {
 -- 
 2.54.0
+

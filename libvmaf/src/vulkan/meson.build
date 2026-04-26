@@ -26,6 +26,7 @@ glslc = find_program('glslc', required : true)
 vulkan_shader_sources = [
     'shaders/vif.comp',
     'shaders/motion.comp',
+    'shaders/adm.comp',
 ]
 
 vulkan_shader_headers = []

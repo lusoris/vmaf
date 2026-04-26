@@ -9,7 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "common.h"
+#include "vulkan_common.h"
 
 #ifdef __cplusplus
 extern "C" {
