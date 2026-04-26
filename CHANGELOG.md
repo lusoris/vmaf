@@ -46,6 +46,27 @@
 
 ### Added
 
+- **`libvmaf_sycl` FFmpeg filter — zero-copy QSV/VAAPI import
+  (T7-28, ADR-0183)** (fork-local): closes the hwdec ergonomic
+  gap exposed by PR #126. New
+  [`ffmpeg-patches/0005-libvmaf-add-libvmaf-sycl-filter.patch`](ffmpeg-patches/0005-libvmaf-add-libvmaf-sycl-filter.patch)
+  adds a dedicated `libvmaf_sycl` filter that consumes oneVPL
+  `mfxFrameSurface1` frames (`AVFrame->data[3]`), extracts the
+  underlying VA surface ID, and routes through
+  `vmaf_sycl_import_va_surface` for zero-copy DMA-BUF import on
+  the Level Zero / SYCL compute queue. Build FFmpeg with
+  `--enable-libvmaf-sycl` (in addition to `--enable-libvmaf`).
+  Removes the `hwdownload,format=yuv420p` round-trip for the
+  common Intel QSV hwdec path. Pairs with the existing
+  `0003-libvmaf-wire-sycl-backend-selector.patch` so users have
+  two paths: `libvmaf=sycl_device=N` for software frames + SYCL
+  compute, `libvmaf_sycl=…` for QSV hwdec + zero-copy SYCL.
+  Validated on Intel Arc A380. **T7-29** (Vulkan VkImage import)
+  remains open — needs new C-API surface in
+  [`libvmaf_vulkan.h`](libvmaf/include/libvmaf/libvmaf_vulkan.h)
+  before the FFmpeg-side filter can land. See
+  [ADR-0183](docs/adr/0183-ffmpeg-libvmaf-sycl-filter.md).
+
 - **GPU long-tail batch 1a — `psnr_vulkan` extractor (T7-23 /
   ADR-0182)** (fork-local): first kernel of the GPU long-tail
   batch. Per-pixel squared-error reduction on the Vulkan compute

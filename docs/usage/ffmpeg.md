@@ -242,9 +242,29 @@ ffmpeg -hwaccel cuda -hwaccel_output_format cuda -i reference.mp4 \
        -f null -
 ```
 
-**VAAPI decode (Intel / AMD) → SYCL compute (CPU readback in
-between because the FFmpeg `libvmaf` filter takes software
-frames):**
+**QSV / VAAPI decode (Intel) → zero-copy SYCL compute via the
+dedicated `libvmaf_sycl` filter (no CPU readback —
+`ffmpeg-patches/0005-libvmaf-add-libvmaf-sycl-filter.patch`):**
+
+```bash
+ffmpeg -hwaccel qsv -hwaccel_output_format qsv -i reference.mp4 \
+       -hwaccel qsv -hwaccel_output_format qsv -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf_sycl=log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+The `libvmaf_sycl` filter consumes oneVPL `mfxFrameSurface1`
+frames directly (`AVFrame->data[3]`), extracts the underlying
+VA surface ID, and routes through `vmaf_sycl_import_va_surface`
+for zero-copy DMA-BUF import on the Level Zero / SYCL compute
+queue. Build FFmpeg with `--enable-libvmaf-sycl` (in addition
+to `--enable-libvmaf`) to enable it. Plain VAAPI decode without
+the QSV wrapping still requires the `hwdownload,format=yuv420p`
+bridge below — the filter currently consumes oneVPL surfaces
+specifically.
+
+**Plain VAAPI decode (AMD or non-QSV Intel paths) → SYCL compute
+(software-frame bridge):**
 
 ```bash
 ffmpeg -hwaccel vaapi -hwaccel_output_format vaapi -i reference.mp4 \
@@ -268,22 +288,15 @@ ffmpeg -hwaccel vulkan -hwaccel_output_format vulkan -i reference.mp4 \
        -f null -
 ```
 
-The CUDA pipeline stays on the GPU because there's a dedicated
-`libvmaf_cuda` filter that consumes CUDA frames directly. SYCL and
-Vulkan don't yet have FFmpeg-side dedicated filters; the
-`hwdownload,format=yuv420p` step is the bridge to the regular
-`libvmaf` filter — readback to CPU and re-upload to the compute
-backend, which negates much of the GPU-decode win.
+CUDA and SYCL both have dedicated zero-copy filters that consume
+hwdec frames directly: `libvmaf_cuda` for CUDA frames,
+`libvmaf_sycl` for QSV/oneVPL frames (T7-28, closed by
+`ffmpeg-patches/0005-libvmaf-add-libvmaf-sycl-filter.patch`).
 
-A true zero-copy SYCL path **already exists at the C-API level**
-via `vmaf_sycl_import_va_surface` / `vmaf_sycl_dmabuf_import`
-(see
-[`libvmaf/include/libvmaf/libvmaf_sycl.h`](../../libvmaf/include/libvmaf/libvmaf_sycl.h)),
-but isn't plumbed through the FFmpeg filter today. Wiring it
-through is tracked as **T7-28** (SYCL VAAPI/dmabuf) and **T7-29**
-(Vulkan VkImage import) in the fork backlog. Until those land,
-the FFmpeg filter forces the readback above; users wanting
-zero-copy SYCL today must call the C API directly.
+Vulkan still needs the `hwdownload,format=yuv420p` bridge — there's
+no `libvmaf_vulkan` dedicated filter yet because the C-API surface
+for `VkImage` import doesn't exist. Tracked as **T7-29** (new
+C-API + new ffmpeg-side filter) in the fork backlog.
 
 ### Background
 
