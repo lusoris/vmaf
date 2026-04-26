@@ -1,9 +1,31 @@
 # ADR-0176: Vulkan VIF cross-backend gate (lavapipe + Arc nightly)
 
-- **Status**: Accepted
+- **Status**: Accepted (errata 2026-04-26 below — body unchanged per ADR-0028)
 - **Date**: 2026-04-25
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: `ci`, `vulkan`, `gpu`, `numerical-correctness`
+
+> **Errata (2026-04-26)** — the "ULP=0" empirical baseline asserted in
+> the original body of this ADR was bogus. The cross-backend gate
+> shipped here was silently exercising **CPU on both sides** because
+> three latent bugs collapsed onto each other:
+> (1) `tools/meson.build` never set `-DHAVE_VULKAN=1`, so every
+> `--vulkan_device` invocation no-op'd and the binary ran CPU;
+> (2) `vmaf_use_feature()` skipped `set_fex_vulkan_state()`, so when
+> the script DID select the Vulkan extractor by name, the imported
+> state never reached it and the lazy fallback auto-picked NVIDIA
+> RTX 4090 instead of the requested device; (3) the script invoked
+> `--feature X` for both CPU and "Vulkan" runs alongside the
+> auto-loaded VMAF model, racing CPU and GPU extractors on the same
+> output names — second writer's score silently dropped.
+>
+> All three are fixed in commits `6167e300`, `de65c0ac`, `2aa79db1`,
+> `05d5a7f5` (PR #120). The corrected gate's actual baseline against
+> the CPU scalar reference, on Intel Arc A380 via Mesa anv, is
+> **places=4 clean with max_abs ≤ 1e-6 (essentially JSON %f
+> precision noise)** for `vif_scale0..3`. Other GPU backends have
+> their own residuals — see ADR-0178 § "Bug history" for the full
+> matrix and the kernel-side follow-ups.
 
 ## Context
 

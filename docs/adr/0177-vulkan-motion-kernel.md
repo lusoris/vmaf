@@ -1,9 +1,27 @@
 # ADR-0177: Vulkan motion kernel + motion cross-backend gate
 
-- **Status**: Accepted
+- **Status**: Accepted (errata 2026-04-26 below — body unchanged per ADR-0028)
 - **Date**: 2026-04-26
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: `vulkan`, `gpu`, `feature-extractor`, `numerical-correctness`
+
+> **Errata (2026-04-26 same-day)** — the "ULP=0 vs CPU on the
+> Netflix normal pair" empirical baseline in the original body
+> inherited the silent-CPU-fallback bug from ADR-0176 (see that
+> ADR's errata block). The Vulkan motion kernel itself IS clean
+> on Arc A380 via Mesa anv (max_abs ≤ 1e-6 vs CPU at places=4).
+>
+> What the corrected gate ALSO surfaced: the **CUDA and SYCL
+> motion kernels both drift by 2.6e-3 against the CPU integer
+> reference across 47/48 frames** of the Netflix normal pair —
+> identical magnitude on both backends, suggesting shared
+> algorithmic inheritance. CUDA's motion uses fused 5×5 Gaussian
+> with uint32 accumulation while CPU integer_motion uses separable
+> y-then-x with uint16 intermediate; the rounding pattern
+> diverges enough to produce a ~0.05% relative drift on the
+> final score. Pre-existing — predates all the Vulkan T5-1
+> work — but only visible now that the gate works. Tracked as
+> a separate kernel investigation (CUDA + SYCL motion drift).
 
 ## Context
 

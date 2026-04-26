@@ -1,6 +1,6 @@
 # Vulkan compute backend
 
-> **Status: T5-1c motion live (vif + motion gated, ADM next).**
+> **Status: T5-1c motion live (vif + motion gated, ADM in flight on PR #120).**
 > `vmaf_vulkan_state_init` / `_import_state` / `_state_free` plumb
 > the public state-level API; the CLI flags `--vulkan_device <N>`
 > (and `--no_vulkan` to disable) drive end-to-end execution on a
@@ -10,9 +10,14 @@
 > `Vulkan VIF Cross-Backend (lavapipe)` CI lane on every PR (one
 > step per feature); the Arc-A380 nightly lane (advisory, parked
 > until the self-hosted runner is registered) catches
-> lavapipe-vs-real-driver drift. Empirical baseline is **ULP=0**
-> vs CPU on Netflix normal + 1920×1080 checkerboard pairs for
-> both vif and motion. ADM kernel lands next as T5-1c-adm. See
+> lavapipe-vs-real-driver drift. Empirical baseline on Intel Arc
+> A380 via Mesa anv: **places=4 clean** for vif and motion, with
+> max_abs ≤ 1e-6 (essentially JSON %f precision noise). The
+> previously-stated "ULP=0" claim was bogus — the gate was running
+> CPU-vs-CPU due to three latent bugs fixed in PR #120 (see ADR-0176
+> errata, ADR-0177 errata, and ADR-0178 § "Bug history" for the
+> matrix and follow-up kernel investigations on CUDA / SYCL /
+> NVIDIA-Vulkan paths). ADM kernel lands next as T5-1c-adm. See
 > [ADR-0127](../../adr/0127-vulkan-backend-decision.md),
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md),
 > [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md),
