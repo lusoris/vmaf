@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Cross-backend feature diff — gates Vulkan compute kernels against the
-CPU scalar reference. Runs `vmaf` twice on the same (ref, dist) pair: once
-with the CPU integer extractor, once with the Vulkan compute kernel
-(`--vulkan_device 0`). Compares per-frame scores at places=4 and prints a
-per-metric verdict.
+"""Cross-backend feature diff — gates GPU compute kernels (CUDA, SYCL,
+Vulkan) against the CPU scalar reference. Runs `vmaf` twice on the
+same (ref, dist) pair: once with the CPU integer extractor, once with
+the chosen GPU backend's named twin (e.g. ``adm_cuda`` /
+``adm_sycl`` / ``adm_vulkan``). Compares per-frame scores at
+``places=4`` and prints a per-metric verdict.
 
-Default tolerance is places=4 (matches the fork's GPU-vs-CPU snapshot
-contract — see `docs/principles.md` and the user's "GPU is NOT bit-exact"
-invariant). Empirically the GLSL kernels under
-`libvmaf/src/feature/vulkan/shaders/` are bit-exact with the scalar
-reference because both sides use deterministic int64 accumulators; the
-slack is preserved for forward compatibility (e.g., if Mesa lavapipe
-diverges from a real ICD on a future driver).
+The script's filename is historical (it started life as the
+VIF-only Vulkan gate from PR #118 / ADR-0176); the broader scope is
+controlled by ``--feature {vif,motion,adm}`` and
+``--backend {cuda,sycl,vulkan}``.
 
-Use `--feature vif` (default) or `--feature motion` to choose the
-extractor + metric set. The script keeps its historical name for the
-existing CI lane referencing it; the broader scope is reflected in the
-`--feature` flag.
+Default tolerance is ``places=4`` (matches the fork's GPU-vs-CPU
+snapshot contract — see ``docs/principles.md`` and the user's "GPU is
+NOT bit-exact" invariant). Empirically the GLSL kernels under
+``libvmaf/src/feature/vulkan/shaders/`` are essentially bit-exact
+with the scalar reference because both sides use deterministic
+``int64`` accumulators. CUDA / SYCL kernels have their own histories.
+
+The gate uses an absolute-tolerance check
+(``abs(cpu - gpu) <= 0.5e-places``) rather than Python's
+``round(cpu, places) == round(gpu, places)`` because banker rounding
+on the IEEE-754 representation flips at the rounding boundary even
+when the underlying floats agree to better than the contract — see
+PR #120's commit message for the worked example.
 
 Exit code 0 on agreement, 1 on a places=4 mismatch, 2 on a binary or
 fixture failure.
@@ -53,6 +60,21 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Per-backend extractor-name suffix and the device-selection flag the
+# CLI uses to actually route to it. CPU is the implicit baseline (no
+# suffix, no device flag). If a future backend uses a different naming
+# convention or a different device-selection flag, add it here.
+BACKEND_SUFFIX: dict[str, str] = {
+    "cuda": "_cuda",
+    "sycl": "_sycl",
+    "vulkan": "_vulkan",
+}
+BACKEND_DEVICE_FLAG: dict[str, str] = {
+    "cuda": "--gpumask",
+    "sycl": "--sycl_device",
+    "vulkan": "--vulkan_device",
+}
+
 
 def run_vmaf(
     binary: Path,
@@ -64,17 +86,16 @@ def run_vmaf(
     bitdepth: int,
     feature: str,
     output: Path,
-    vulkan_device: int | None,
+    backend: str | None,
+    device: int | None,
 ) -> None:
-    # Pick the named extractor explicitly: CPU side runs the canonical
-    # extractor (e.g. "adm"); Vulkan side runs the Vulkan-flagged extractor
-    # (e.g. "adm_vulkan"). --no_prediction keeps the default VMAF model
-    # from auto-loading the CPU extractors alongside the Vulkan ones,
-    # which would race them on the same output feature names and silently
-    # drop the second writer's scores. Without --no_prediction the gate
-    # would compare CPU-vs-CPU and trivially pass — that's the bug
-    # uncovered while shipping T5-1c.
-    extractor = feature if vulkan_device is None else f"{feature}_vulkan"
+    """Invoke `vmaf` with `--feature <feature>` (or its backend twin)
+    and `--no_prediction` so the default model doesn't auto-load the
+    CPU extractor alongside the GPU one and race them on the same
+    feature names. See PR #120 commit message for the silent-CPU bug
+    that motivated this contract.
+    """
+    extractor = feature if backend is None else f"{feature}{BACKEND_SUFFIX[backend]}"
     cmd = [
         str(binary),
         "--reference",
@@ -96,8 +117,8 @@ def run_vmaf(
         str(output),
         "--json",
     ]
-    if vulkan_device is not None:
-        cmd += ["--vulkan_device", str(vulkan_device)]
+    if backend is not None and device is not None:
+        cmd += [BACKEND_DEVICE_FLAG[backend], str(device)]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout)
@@ -110,34 +131,25 @@ def load_frames(path: Path) -> list[dict]:
         return json.load(f)["frames"]
 
 
-def diff(cpu: list[dict], vk: list[dict], metrics: tuple[str, ...], places: int) -> int:
-    if len(cpu) != len(vk):
-        print(f"FAIL: frame count mismatch (cpu={len(cpu)}, vk={len(vk)})")
+def diff(cpu: list[dict], gpu: list[dict], metrics: tuple[str, ...], places: int) -> int:
+    if len(cpu) != len(gpu):
+        print(f"FAIL: frame count mismatch (cpu={len(cpu)}, gpu={len(gpu)})")
         return 1
 
-    # places=N means "agreement to N decimal places", which is the same
-    # contract as `assertAlmostEqual(places=N)` from CPython's unittest:
-    # diff is below half a unit at the Nth decimal place. We compute the
-    # threshold directly instead of via round() because Python's banker
-    # rounding flips at the rounding boundary even when the underlying
-    # floats agree to better than the contract (e.g. 0.964751 vs
-    # 0.96474999... both represent "0.9648" to 4 places but Python
-    # rounds them to 0.9648 vs 0.9647 because the float-repr of the
-    # second is 0.96474999..., one ULP shy of 0.96475 exactly).
     threshold = 0.5 * (10**-places)
 
     per_metric_max = dict.fromkeys(metrics, 0.0)
     per_metric_mismatch = dict.fromkeys(metrics, 0)
 
-    for cf, vf in zip(cpu, vk, strict=True):
+    for cf, gf in zip(cpu, gpu, strict=True):
         for m in metrics:
-            c, v = cf["metrics"][m], vf["metrics"][m]
+            c, v = cf["metrics"][m], gf["metrics"][m]
             d = abs(c - v)
             per_metric_max[m] = max(per_metric_max[m], d)
             if d > threshold:
                 per_metric_mismatch[m] += 1
 
-    print(f"cross-backend diff (CPU vs Vulkan), {len(cpu)} frames, tolerance places={places}")
+    print(f"cross-backend diff, {len(cpu)} frames, tolerance places={places}")
     print(f"{'metric':<25} {'max_abs_diff':<15} {'places={} mismatches'.format(places)}")
     fail = False
     for m in metrics:
@@ -163,20 +175,47 @@ def main() -> int:
     ap.add_argument("--height", type=int, required=True)
     ap.add_argument("--pixel-format", default="420")
     ap.add_argument("--bitdepth", type=int, default=8)
-    ap.add_argument("--vulkan-device", type=int, default=0)
     ap.add_argument("--places", type=int, default=4)
     ap.add_argument(
         "--feature",
         choices=tuple(FEATURE_METRICS),
         default="vif",
-        help="extractor to gate (vif | motion)",
+        help="extractor to gate (vif | motion | adm)",
     )
+    ap.add_argument(
+        "--backend",
+        choices=tuple(BACKEND_SUFFIX),
+        default="vulkan",
+        help="GPU backend to compare against CPU (cuda | sycl | vulkan)",
+    )
+    ap.add_argument(
+        "--device",
+        type=int,
+        default=None,
+        help=(
+            "device index for the chosen backend. Vulkan/SYCL: 0+. "
+            "CUDA: gpumask (e.g. 1 = first GPU). Defaults: vulkan=0, "
+            "sycl=0, cuda=1."
+        ),
+    )
+    # Back-compat alias for the existing CI lane that was wired before
+    # --backend / --device existed. If --vulkan-device is passed, use
+    # it as the Vulkan device index.
+    ap.add_argument("--vulkan-device", type=int, default=None, help=argparse.SUPPRESS)
     ap.add_argument(
         "--workdir",
         type=Path,
         default=Path(tempfile.gettempdir()) / "vmaf_cross_backend",
     )
     args = ap.parse_args()
+
+    if args.vulkan_device is not None:
+        args.backend = "vulkan"
+        args.device = args.vulkan_device
+    if args.device is None:
+        # Per-backend defaults: gpumask=1 picks the first GPU on CUDA;
+        # device 0 is the first compute-capable on SYCL/Vulkan.
+        args.device = 1 if args.backend == "cuda" else 0
 
     if not args.vmaf_binary.exists():
         print(f"vmaf binary not found: {args.vmaf_binary}")
@@ -188,7 +227,7 @@ def main() -> int:
 
     args.workdir.mkdir(parents=True, exist_ok=True)
     cpu_json = args.workdir / f"cpu_{args.feature}.json"
-    vk_json = args.workdir / f"vk_{args.feature}.json"
+    gpu_json = args.workdir / f"{args.backend}_{args.feature}.json"
 
     print(f"running CPU {args.feature} → {cpu_json}")
     run_vmaf(
@@ -201,10 +240,11 @@ def main() -> int:
         args.bitdepth,
         args.feature,
         cpu_json,
-        vulkan_device=None,
+        backend=None,
+        device=None,
     )
 
-    print(f"running Vulkan {args.feature} (device {args.vulkan_device}) → {vk_json}")
+    print(f"running {args.backend} {args.feature} (device {args.device}) " f"→ {gpu_json}")
     run_vmaf(
         args.vmaf_binary,
         args.reference,
@@ -214,13 +254,14 @@ def main() -> int:
         args.pixel_format,
         args.bitdepth,
         args.feature,
-        vk_json,
-        vulkan_device=args.vulkan_device,
+        gpu_json,
+        backend=args.backend,
+        device=args.device,
     )
 
     return diff(
         load_frames(cpu_json),
-        load_frames(vk_json),
+        load_frames(gpu_json),
         FEATURE_METRICS[args.feature],
         args.places,
     )
