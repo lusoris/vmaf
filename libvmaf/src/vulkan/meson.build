@@ -27,6 +27,7 @@ vulkan_shader_sources = [
     'shaders/vif.comp',
     'shaders/motion.comp',
     'shaders/adm.comp',
+    'shaders/psnr.comp',
 ]
 
 vulkan_shader_headers = []
@@ -66,6 +67,7 @@ vulkan_sources += files(
     '../feature/vulkan/adm_vulkan.c',
     '../feature/vulkan/vif_vulkan.c',
     '../feature/vulkan/motion_vulkan.c',
+    '../feature/vulkan/psnr_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers
