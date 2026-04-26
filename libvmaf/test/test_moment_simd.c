@@ -39,6 +39,7 @@
 #include <stdlib.h>
 
 #include "config.h"
+#include "mem.h"
 #include "test.h"
 
 #include "feature/moment.h"
@@ -79,8 +80,8 @@ static void fill_random(float *buf, size_t n_floats, uint32_t seed)
 
 static int alloc_aligned_frame(float **out, size_t bytes)
 {
-    void *p = NULL;
-    if (posix_memalign(&p, ALIGN_BYTES, bytes) != 0) {
+    void *p = aligned_malloc(bytes, ALIGN_BYTES);
+    if (!p) {
         return -1;
     }
     *out = (float *)p;
@@ -124,7 +125,7 @@ static char *check_avx2(uint32_t seed, int w, int h)
 
     float *buf = NULL;
     if (alloc_aligned_frame(&buf, bytes) != 0) {
-        return "posix_memalign failed";
+        return "aligned_malloc failed";
     }
     fill_random(buf, (size_t)stride_floats * (size_t)h, seed);
 
@@ -138,7 +139,7 @@ static char *check_avx2(uint32_t seed, int w, int h)
     (void)compute_2nd_moment(buf, w, h, stride_bytes, &t_scalar);
     (void)compute_2nd_moment_avx2(buf, w, h, stride_bytes, &t_avx2);
 
-    free(buf);
+    aligned_free(buf);
     return check_within_tolerance(s_scalar, s_avx2, t_scalar, t_avx2);
 }
 
@@ -171,7 +172,7 @@ static char *check_neon(uint32_t seed, int w, int h)
 
     float *buf = NULL;
     if (alloc_aligned_frame(&buf, bytes) != 0) {
-        return "posix_memalign failed";
+        return "aligned_malloc failed";
     }
     fill_random(buf, (size_t)stride_floats * (size_t)h, seed);
 
@@ -185,7 +186,7 @@ static char *check_neon(uint32_t seed, int w, int h)
     (void)compute_2nd_moment(buf, w, h, stride_bytes, &t_scalar);
     (void)compute_2nd_moment_neon(buf, w, h, stride_bytes, &t_neon);
 
-    free(buf);
+    aligned_free(buf);
     return check_within_tolerance(s_scalar, s_neon, t_scalar, t_neon);
 }
 
