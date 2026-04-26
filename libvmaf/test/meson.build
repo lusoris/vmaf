@@ -280,7 +280,7 @@ test_psnr_hvs_neon = executable('test_psnr_hvs_neon',
 endif
 
 moment_simd_test_archs = ['x86_64', 'x86', 'aarch64', 'arm64']
-if moment_simd_test_archs.contains(host_machine.cpu_family())
+if float_enabled and moment_simd_test_archs.contains(host_machine.cpu_family())
 test_moment_simd = executable('test_moment_simd',
     ['test.c', 'test_moment_simd.c',
      '../src/mem.c', '../src/picture.c', '../src/ref.c',
@@ -493,7 +493,7 @@ if ms_ssim_decimate_test_archs.contains(host_machine.cpu_family())
 test('test_ms_ssim_decimate', test_ms_ssim_decimate)
 endif
 
-if moment_simd_test_archs.contains(host_machine.cpu_family())
+if float_enabled and moment_simd_test_archs.contains(host_machine.cpu_family())
 test('test_moment_simd', test_moment_simd)
 endif
 
