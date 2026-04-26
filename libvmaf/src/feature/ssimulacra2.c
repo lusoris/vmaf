@@ -46,6 +46,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "config.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature/ssimulacra2_math.h"
@@ -1110,4 +1111,8 @@ VmafFeatureExtractor vmaf_fex_ssimulacra2 = {
     .close = close,
     .priv_size = sizeof(Ssimu2State),
     .provided_features = provided_features,
+    /* Explicit zero-init so GCC LTO sees the full struct layout
+     * across TUs (silences -Wlto-type-mismatch after the chars
+     * field landed; see ADR-0181). */
+    .chars = {0},
 };

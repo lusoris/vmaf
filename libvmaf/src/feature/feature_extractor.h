@@ -34,6 +34,7 @@ using std::atomic_int;
 #include <stdlib.h>
 
 #include "dict.h"
+#include "feature_characteristics.h"
 #include "framesync.h"
 #include "feature_collector.h"
 #include "opt.h"
@@ -131,6 +132,14 @@ typedef struct VmafFeatureExtractor {
 
     VmafFrameSyncContext *framesync;
     VmafPicture prev_ref; ///< Previous reference picture, set by framework.
+
+    /**
+     * Per-feature characteristics descriptor — drives the per-backend
+     * dispatch_strategy modules in libvmaf/src/{cuda,sycl,vulkan}/.
+     * Defaults to all-zero (= no preference) for unseeded extractors;
+     * backends fall back to current global behaviour. See ADR-0181.
+     */
+    VmafFeatureCharacteristics chars;
 
 } VmafFeatureExtractor;
 

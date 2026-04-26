@@ -50,6 +50,8 @@ static double monotonic_ms()
 
 extern "C" {
 #include "common.h"
+#include "dispatch_strategy.h"
+#include "feature/feature_extractor.h"
 #include "log.h"
 }
 
@@ -840,30 +842,37 @@ extern "C" int vmaf_sycl_graph_submit(VmafSyclState *state)
     // VA import always uses slot 0 (cur_compute stays 0), so only slot 0 graph
     // gets replayed — but we record both for generality.
     //
-    // Resolution-aware default (T7-17, 2026-04-26): graph replay
-    // overhead is fixed per frame (~1.1 ms on Arc A380 / oneAPI
-    // 2025.3); for small frames it dominates the per-kernel work it's
-    // trying to amortize. Empirical resolution sweep on Arc:
-    //   res=576x324:    direct beats graph by 100-500% across vif/motion/adm
-    //   res=1280x720:   graph beats direct by ~20% on adm (vif/motion: tie)
-    //   res=1920x1080:  graph beats direct by ~20% on adm (vif/motion: tie)
-    //   res=3840x2160:  tie (within 2%)
-    // Crossover ≈ 720p (921 600 pixels). Below that, default to
-    // direct submission. At/above, default to graph replay.
+    // Per-feature dispatch decision via the global feature-characteristics
+    // registry (ADR-0181 / T7-26). Aggregation rule: if ANY registered
+    // graph_extractor's descriptor selects GRAPH_REPLAY for the current
+    // frame size, the whole state records the combined graph; otherwise
+    // every extractor submits directly. This preserves the existing
+    // "single graph per state" architecture while moving the decision
+    // axis from per-context resolution-area to per-feature-and-area.
     //
-    // Override knobs (only one wins, USE takes precedence over NO):
-    //   VMAF_SYCL_USE_GRAPH=1 — force graph mode (any resolution)
-    //   VMAF_SYCL_NO_GRAPH=1  — force direct submission (any resolution)
+    // Env overrides honoured by vmaf_sycl_select_strategy():
+    //   VMAF_SYCL_DISPATCH=<feature>:graph,<feature>:direct,...
+    //     Per-feature override (highest precedence).
+    //   VMAF_SYCL_USE_GRAPH=1 — legacy global force-graph (deprecated).
+    //   VMAF_SYCL_NO_GRAPH=1  — legacy global force-direct (deprecated).
     if (frame == 2 && (state->has_uploaded || state->has_imported)) {
-        const char *env_use_graph = getenv("VMAF_SYCL_USE_GRAPH");
-        const char *env_no_graph = getenv("VMAF_SYCL_NO_GRAPH");
-        const bool force_graph = env_use_graph && env_use_graph[0] == '1';
-        const bool force_direct = env_no_graph && env_no_graph[0] == '1';
-        constexpr unsigned long GRAPH_AREA_THRESHOLD = 1280UL * 720UL; // = 921 600
-        const unsigned long area = (unsigned long)state->frame_w * (unsigned long)state->frame_h;
-        const bool dim_default_graph = area >= GRAPH_AREA_THRESHOLD;
-        const bool use_graph = force_graph || (!force_direct && dim_default_graph);
-        if (use_graph)
+        bool any_wants_graph = false;
+        for (int i = 0; i < state->num_graph_extractors; ++i) {
+            const auto &ge = state->graph_extractors[i];
+            const VmafFeatureCharacteristics *chars = nullptr;
+            if (ge.name) {
+                VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name(ge.name);
+                if (fex)
+                    chars = &fex->chars;
+            }
+            const VmafSyclDispatchStrategy s =
+                vmaf_sycl_select_strategy(ge.name, chars, state->frame_w, state->frame_h);
+            if (s == VMAF_SYCL_DISPATCH_GRAPH_REPLAY) {
+                any_wants_graph = true;
+                break;
+            }
+        }
+        if (any_wants_graph)
             record_combined_graphs(state);
     }
 

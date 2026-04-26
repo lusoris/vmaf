@@ -53,6 +53,42 @@ standalone.
 Depending on your build configuration not every backend is available — see
 [`backends/`](../backends/index.md) for the runtime dispatch rules.
 
+## Per-feature GPU dispatch hints (T7-26 / ADR-0181)
+
+Each feature carries a small `VmafFeatureCharacteristics` descriptor
+that drives the per-backend dispatch decision (graph-replay vs
+direct submit on SYCL; graph-capture vs streams on CUDA;
+secondary-cmdbuf reuse vs primary on Vulkan). The descriptor lives
+on the extractor and is consumed by the per-backend
+`dispatch_strategy` modules under
+[`libvmaf/src/{cuda,sycl,vulkan}/dispatch_strategy.{c,h}`](../../libvmaf/src/sycl/dispatch_strategy.cpp).
+
+Defaults are calibrated to match pre-T7-26 SYCL behaviour
+byte-for-byte (graph replay above 720p area, direct submit below).
+For tuning, three env-var override surfaces are available — each
+takes a comma-separated list of `feature:strategy` pairs and wins
+over the registry default for the named features:
+
+| Env var | Strategy values | Effect |
+| --- | --- | --- |
+| `VMAF_SYCL_DISPATCH` | `graph` / `direct` | Per-feature SYCL graph-replay override. |
+| `VMAF_CUDA_DISPATCH` | `graph` / `direct` | Per-feature CUDA graph-capture override (today CUDA stub returns DIRECT for every input; the override surface ships now so future graph-capture work doesn't change the user contract). |
+| `VMAF_VULKAN_DISPATCH` | `reuse` / `primary` | Per-feature Vulkan secondary-cmdbuf-reuse override (today the Vulkan stub returns PRIMARY_CMDBUF for every input; same forward-compat reasoning). |
+
+Examples:
+
+```bash
+# Force ADM to direct submit on SYCL (default below 720p, override above):
+VMAF_SYCL_DISPATCH=adm:direct vmaf [...] --feature adm_sycl --backend sycl
+
+# Mix per-feature strategies:
+VMAF_SYCL_DISPATCH=vif:graph,motion:direct,adm:graph vmaf [...]
+```
+
+Legacy global knobs `VMAF_SYCL_USE_GRAPH=1` / `VMAF_SYCL_NO_GRAPH=1`
+are kept as aliases (force every feature to graph / direct
+respectively); per-feature `VMAF_SYCL_DISPATCH` takes precedence.
+
 ## Core features
 
 ### VIF — Visual Information Fidelity

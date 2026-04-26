@@ -833,4 +833,12 @@ VmafFeatureExtractor vmaf_fex_integer_vif = {
     .close = close,
     .priv_size = sizeof(VifState),
     .provided_features = provided_features,
+    /* 4 scales × 1 dispatch per scale on GPU backends (see ADR-0181). */
+    .chars =
+        {
+            .n_dispatches_per_frame = 4,
+            .is_reduction_only = false,
+            .min_useful_frame_area = 1280U * 720U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
+        },
 };

@@ -434,6 +434,7 @@ if is_cuda_enabled
     message(cuda_cu_sources)
     cuda_sources = [
         cuda_dir + 'common.c',
+        cuda_dir + 'dispatch_strategy.c',
         cuda_dir + 'picture_cuda.c',
         cuda_dir + 'ring_buffer.c',
     ]
@@ -697,6 +698,7 @@ if is_sycl_enabled
 
     sycl_sources = [
         sycl_dir + 'common.cpp',
+        sycl_dir + 'dispatch_strategy.cpp',
         sycl_dir + 'picture_sycl.cpp',
         sycl_dir + 'dmabuf_import.cpp',
         sycl_dir + 'd3d11_import.cpp',

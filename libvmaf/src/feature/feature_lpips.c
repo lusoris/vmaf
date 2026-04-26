@@ -36,6 +36,7 @@
 #include "libvmaf/dnn.h"
 #include "libvmaf/picture.h"
 
+#include "config.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "log.h"
@@ -297,4 +298,8 @@ VmafFeatureExtractor vmaf_fex_lpips = {
     .options = lpips_options,
     .priv_size = sizeof(LpipsState),
     .provided_features = lpips_provided_features,
+    /* Explicit zero-init so GCC LTO sees the full struct layout
+     * across TUs (silences -Wlto-type-mismatch after the chars
+     * field landed; see ADR-0181). */
+    .chars = {0},
 };
