@@ -506,8 +506,14 @@ void run_stage_decouple_csf() {
  * (per-WG, 6-slot) int64 accumulators. The host adds slots later.
  * ------------------------------------------------------------------ */
 
-shared int64_t s_csf[16];   /* per-subgroup scratch (max 16 subgroups) */
-shared int64_t s_cm[16];
+/* Worst-case subgroup count: WG is local_size 16x16 = 256 threads.
+ * On NVIDIA / Mesa anv subgroupSize is 32 → n_subgroups = 8.
+ * On Mesa lavapipe subgroupSize can be 1 → n_subgroups = 256.
+ * Sizing for 256 covers every Vulkan-capable driver. The previous
+ * `[16]` overflowed on lavapipe, corrupting the heap (T7-16 follow-up
+ * uncovered by the lavapipe CI gate). */
+shared int64_t s_csf[256];  /* per-subgroup scratch */
+shared int64_t s_cm[256];
 
 void run_stage_csf_cm() {
     uint wg_id = gl_WorkGroupID.x;
