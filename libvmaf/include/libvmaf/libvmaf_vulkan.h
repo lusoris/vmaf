@@ -65,6 +65,48 @@ typedef struct VmafVulkanConfiguration {
 int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg);
 
 /**
+ * Pre-existing Vulkan handles supplied by the caller, used by
+ * @ref vmaf_vulkan_state_init_external so libvmaf compute runs on
+ * the *same* VkDevice as the source VkImages. The handles cross
+ * the ABI as `uintptr_t` to keep the header free of
+ * `<vulkan/vulkan.h>` (same pattern as the import_image surface
+ * — see ADR-0184). Cast from VkInstance / VkPhysicalDevice /
+ * VkDevice / VkQueue on the caller side.
+ *
+ * Lifetime: libvmaf does NOT take ownership of the supplied
+ * handles. The caller (typically FFmpeg's `AVHWDeviceContext` —
+ * `AVVulkanDeviceContext`) keeps them alive at least until
+ * @ref vmaf_vulkan_state_free returns.
+ */
+typedef struct VmafVulkanExternalHandles {
+    uintptr_t instance;        /**< VkInstance */
+    uintptr_t physical_device; /**< VkPhysicalDevice */
+    uintptr_t device;          /**< VkDevice */
+    uintptr_t queue;           /**< VkQueue (compute-capable) */
+    uint32_t queue_family_index;
+    uint32_t api_version; /**< e.g. VK_API_VERSION_1_3 */
+} VmafVulkanExternalHandles;
+
+/**
+ * Allocate a VmafVulkanState that adopts caller-supplied Vulkan
+ * handles instead of creating its own VkInstance / VkDevice.
+ * Required when the caller will pass external VkImage handles
+ * via @ref vmaf_vulkan_import_image — those handles are only
+ * valid on the device that created them, so libvmaf compute must
+ * run on the same device.
+ *
+ * Mutually exclusive with @ref vmaf_vulkan_state_init in a
+ * single process: the volk function-pointer table is global and
+ * gets re-bound to the supplied instance/device. Use one or the
+ * other.
+ *
+ * @return 0 on success, -ENOSYS when built without Vulkan,
+ *         -EINVAL on bad arguments, -ENOMEM on allocation
+ *         failure.
+ */
+int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHandles handles);
+
+/**
  * Hand the Vulkan state to a VmafContext. The context borrows the
  * state pointer for the duration of its lifetime; the caller still
  * owns the state and must free it with @ref vmaf_vulkan_state_free

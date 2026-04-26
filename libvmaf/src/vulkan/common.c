@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "libvmaf/libvmaf_vulkan.h"
 #include "vulkan_common.h"
 #include "vulkan_internal.h"
 
@@ -200,6 +201,7 @@ int vmaf_vulkan_context_new(VmafVulkanContext **out, int device_index)
     if (!ctx)
         return -ENOMEM;
     ctx->volk_loaded = 1;
+    ctx->owns_handles = 1;
     ctx->device_index = device_index;
     assert(ctx->instance == VK_NULL_HANDLE);
     assert(ctx->device == VK_NULL_HANDLE);
@@ -306,15 +308,102 @@ void vmaf_vulkan_context_destroy(VmafVulkanContext *ctx)
 {
     if (!ctx)
         return;
+    /* command_pool + allocator are always libvmaf-owned, even
+     * for externally-supplied instance/device handles. */
     if (ctx->command_pool != VK_NULL_HANDLE)
         vkDestroyCommandPool(ctx->device, ctx->command_pool, NULL);
     if (ctx->allocator != VK_NULL_HANDLE)
         vmaDestroyAllocator(ctx->allocator);
-    if (ctx->device != VK_NULL_HANDLE)
-        vkDestroyDevice(ctx->device, NULL);
-    if (ctx->instance != VK_NULL_HANDLE)
-        vkDestroyInstance(ctx->instance, NULL);
+    if (ctx->owns_handles) {
+        if (ctx->device != VK_NULL_HANDLE)
+            vkDestroyDevice(ctx->device, NULL);
+        if (ctx->instance != VK_NULL_HANDLE)
+            vkDestroyInstance(ctx->instance, NULL);
+    }
     free(ctx);
+}
+
+/* External-handle adoption path (T7-29 part 2 / ADR-0186). The
+ * caller — typically FFmpeg's AVVulkanDeviceContext — supplies a
+ * pre-created VkInstance + VkPhysicalDevice + VkDevice + queue
+ * so the source VkImage handles passed via
+ * vmaf_vulkan_import_image are valid on libvmaf's compute device.
+ *
+ * We still create our own VMA allocator + command pool on the
+ * supplied device. The volk function-pointer table is global,
+ * so we (re-)bind it to the supplied instance/device — see the
+ * "mutually exclusive with vmaf_vulkan_state_init" caveat in
+ * libvmaf_vulkan.h. */
+static int vmaf_vulkan_context_new_external(VmafVulkanContext **out,
+                                            const VmafVulkanExternalHandles *h)
+{
+    if (!out || !h)
+        return -EINVAL;
+    if (h->instance == 0u || h->physical_device == 0u || h->device == 0u || h->queue == 0u)
+        return -EINVAL;
+
+    int err = load_volk_once();
+    if (err)
+        return err;
+
+    VmafVulkanContext *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx)
+        return -ENOMEM;
+    ctx->volk_loaded = 1;
+    ctx->owns_handles = 0;
+    ctx->instance = (VkInstance)h->instance;
+    ctx->physical_device = (VkPhysicalDevice)h->physical_device;
+    ctx->device = (VkDevice)h->device;
+    ctx->queue = (VkQueue)h->queue;
+    ctx->queue_family_index = h->queue_family_index;
+
+    /* Re-bind volk to the supplied instance/device so all later
+     * vk* calls hit the caller's handles, not whatever was loaded
+     * by a prior vmaf_vulkan_context_new(). */
+    volkLoadInstance(ctx->instance);
+    volkLoadDevice(ctx->device);
+
+    vkGetPhysicalDeviceProperties(ctx->physical_device, &ctx->props);
+    vkGetPhysicalDeviceMemoryProperties(ctx->physical_device, &ctx->mem_props);
+
+    VmaVulkanFunctions vma_fns = {
+        .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
+        .vkGetDeviceProcAddr = vkGetDeviceProcAddr,
+    };
+    VmaAllocatorCreateInfo alloc_info = {
+        .vulkanApiVersion = h->api_version ? h->api_version : VK_API_VERSION_1_3,
+        .physicalDevice = ctx->physical_device,
+        .device = ctx->device,
+        .instance = ctx->instance,
+        .pVulkanFunctions = &vma_fns,
+    };
+    if (vmaCreateAllocator(&alloc_info, &ctx->allocator) != VK_SUCCESS) {
+        err = -ENOMEM;
+        goto fail;
+    }
+
+    VkCommandPoolCreateInfo pool_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = ctx->queue_family_index,
+    };
+    if (vkCreateCommandPool(ctx->device, &pool_info, NULL, &ctx->command_pool) != VK_SUCCESS) {
+        err = -ENOMEM;
+        goto fail;
+    }
+
+    *out = ctx;
+    return 0;
+
+fail:
+    if (ctx->command_pool != VK_NULL_HANDLE)
+        vkDestroyCommandPool(ctx->device, ctx->command_pool, NULL);
+    if (ctx->allocator != VK_NULL_HANDLE)
+        vmaDestroyAllocator(ctx->allocator);
+    /* Do NOT destroy the externally-supplied device/instance. */
+    free(ctx);
+    *out = NULL;
+    return err;
 }
 
 /* ------------------------------------------------------------------ */
@@ -325,11 +414,9 @@ void vmaf_vulkan_context_destroy(VmafVulkanContext *ctx)
 /*  volk/VMA types.                                                   */
 /* ------------------------------------------------------------------ */
 
-#include "libvmaf/libvmaf_vulkan.h"
-
-struct VmafVulkanState {
-    VmafVulkanContext *ctx;
-};
+/* `struct VmafVulkanState` was promoted to vulkan_internal.h in T7-29
+ * part 2 (ADR-0186) so the import slots are visible to import.c without
+ * a public ABI change. */
 
 int vmaf_vulkan_available(void)
 {
@@ -356,10 +443,32 @@ int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg)
     return 0;
 }
 
+int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHandles handles)
+{
+    if (!out)
+        return -EINVAL;
+
+    VmafVulkanState *s = calloc(1, sizeof(*s));
+    if (!s)
+        return -ENOMEM;
+
+    int err = vmaf_vulkan_context_new_external(&s->ctx, &handles);
+    if (err) {
+        free(s);
+        return err;
+    }
+
+    *out = s;
+    return 0;
+}
+
 void vmaf_vulkan_state_free(VmafVulkanState **state)
 {
     if (!state || !*state)
         return;
+    /* Release any import-slot resources that survived past the last
+     * read_imported_pictures call (T7-29 part 2 / ADR-0186). */
+    vmaf_vulkan_import_slots_free(*state);
     vmaf_vulkan_context_destroy((*state)->ctx);
     free(*state);
     *state = NULL;
@@ -375,39 +484,7 @@ VmafVulkanContext *vmaf_vulkan_state_get_context(VmafVulkanState *state)
     return state ? state->ctx : NULL;
 }
 
-/* ------------------------------------------------------------------ */
-/* T7-29 — VkImage zero-copy import C-API (scaffold per ADR-0184).    */
-/* All three return -ENOSYS until T7-29 part 2 (real implementation). */
-/* ------------------------------------------------------------------ */
-
-int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image, uint32_t vk_format,
-                             uint32_t vk_layout, uintptr_t vk_semaphore,
-                             uint64_t vk_semaphore_value, unsigned w, unsigned h, unsigned bpc,
-                             int is_ref, unsigned index)
-{
-    (void)state;
-    (void)vk_image;
-    (void)vk_format;
-    (void)vk_layout;
-    (void)vk_semaphore;
-    (void)vk_semaphore_value;
-    (void)w;
-    (void)h;
-    (void)bpc;
-    (void)is_ref;
-    (void)index;
-    return -ENOSYS;
-}
-
-int vmaf_vulkan_wait_compute(VmafVulkanState *state)
-{
-    (void)state;
-    return -ENOSYS;
-}
-
-int vmaf_vulkan_read_imported_pictures(VmafContext *ctx, unsigned index)
-{
-    (void)ctx;
-    (void)index;
-    return -ENOSYS;
-}
+/* T7-29 part 2 (ADR-0186): the real implementations for
+ * vmaf_vulkan_import_image / vmaf_vulkan_wait_compute live in
+ * libvmaf/src/vulkan/import.c. vmaf_vulkan_read_imported_pictures
+ * lives in libvmaf/src/libvmaf.c so it can reach into VmafContext. */

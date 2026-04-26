@@ -72,6 +72,7 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 
 #ifdef HAVE_VULKAN
 #include "libvmaf/libvmaf_vulkan.h"
+#include "vulkan/import_picture.h"
 #endif
 
 typedef struct VmafContext {
@@ -526,6 +527,30 @@ static int set_fex_vulkan_state(VmafFeatureExtractorContext *fex_ctx, VmafContex
     if (fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_VULKAN)
         fex_ctx->fex->vulkan_state = vmaf->vulkan.state;
     return 0;
+}
+
+int vmaf_vulkan_read_imported_pictures(VmafContext *vmaf, unsigned index)
+{
+    if (!vmaf)
+        return -EINVAL;
+    if (!vmaf->vulkan.state)
+        return -EINVAL;
+    if (vmaf->flushed)
+        return -EINVAL;
+
+    /* Build VmafPicture handles whose pixel data points at the
+     * state's HOST_VISIBLE staging buffers. The release callbacks
+     * are no-ops; the buffers are owned by the VmafVulkanState. */
+    VmafPicture ref = {0};
+    VmafPicture dis = {0};
+    int err = vmaf_vulkan_state_build_pictures(vmaf->vulkan.state, index, &ref, &dis);
+    if (err)
+        return err;
+
+    /* vmaf_read_pictures takes ownership and unrefs both pictures
+     * (including on the error path), which routes through our
+     * noop_release_picture callback. */
+    return vmaf_read_pictures(vmaf, &ref, &dis, index);
 }
 #endif
 

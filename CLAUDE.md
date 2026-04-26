@@ -260,6 +260,30 @@ Use `/prep-release` to dry-run locally before merging a release PR.
     carries a checkbox; reviewers verify it. See
     [ADR-0165](docs/adr/0165-state-md-bug-tracking.md). Closes
     Issue #20.
+14. **Every** PR that touches a libvmaf C-API surface, a CLI flag,
+    a `meson_options.txt` entry, a public header, or any other
+    interface that the in-tree `ffmpeg-patches/` patches consume
+    must update **the relevant patch file in the same PR** — no
+    exceptions. The fork ships its FFmpeg integration as a stack
+    of patches against `n8.1` (see
+    [`ffmpeg-patches/series.txt`](ffmpeg-patches/series.txt));
+    when libvmaf adds a new entry point or renames an existing
+    one, the patch that wires it through to FFmpeg's filter has
+    to follow in the same PR. Otherwise the next person who
+    rebases the patch stack inherits a silently-broken build.
+    Applies to: new public C-API entry points used by any patch,
+    renamed/removed entry points, new `--enable-libvmaf-*`
+    configure flags, new `LIBVMAFContext` fields, new
+    `vf_libvmaf.c` filter variants, any change to the symbols the
+    `enabled libvmaf*` `check_pkg_config` lines probe. Does NOT
+    apply to: pure libvmaf-internal refactors that don't change
+    public headers, kernel implementations behind an existing
+    public surface, doc-only changes, test-only changes. The PR
+    template carries a checklist row; reviewers verify by running
+    `for p in ffmpeg-patches/000*-*.patch; do git -C
+    /path/to/ffmpeg-8 apply --check "$p"; done` against the
+    pinned `n8.1` baseline. See
+    [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md).
 
 ## 13. Interaction style — prefer the popup question tool
 

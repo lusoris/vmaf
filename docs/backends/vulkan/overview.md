@@ -33,7 +33,13 @@
   [`libvmaf/include/libvmaf/libvmaf_vulkan.h`][hdr] —
   `VmafVulkanState`, `VmafVulkanConfiguration`,
   `vmaf_vulkan_state_init` / `_import_state` / `_state_free`,
-  `vmaf_vulkan_list_devices`, `vmaf_vulkan_available`.
+  `vmaf_vulkan_list_devices`, `vmaf_vulkan_available`. The
+  zero-copy import surface lands in T7-29: `vmaf_vulkan_state_init_external`
+  (adopts caller-supplied VkInstance/VkDevice handles —
+  required when those handles come from FFmpeg's
+  `AVVulkanDeviceContext`), `vmaf_vulkan_import_image`,
+  `vmaf_vulkan_wait_compute`, `vmaf_vulkan_read_imported_pictures`.
+  See [ADR-0186](../../adr/0186-vulkan-image-import-impl.md).
 - Backend runtime under
   [`libvmaf/src/vulkan/`](../../../libvmaf/src/vulkan/) —
   `common.{c,h}` (volk + VkInstance / VkDevice / compute queue +

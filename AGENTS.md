@@ -192,6 +192,20 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
     that forces it. Historical pre-2026-04-21 NOLINTs are scoped to
     backlog item T7-5 (one sweep-PR). See
     [ADR-0141](docs/adr/0141-touched-file-cleanup-rule.md).
+11. Every PR that touches a libvmaf public surface (C-API entry
+    points, public headers, CLI flags, `meson_options.txt`
+    entries, or any symbol probed by the `enabled libvmaf*`
+    `check_pkg_config` lines) updates the relevant
+    `ffmpeg-patches/000*-*.patch` file in the **same PR**. The
+    fork ships FFmpeg integration as a patch stack against
+    `n8.1`; libvmaf-side surface drift breaks the patches
+    silently for the next rebase. Verify with
+    `for p in ffmpeg-patches/000*-*.patch; do git -C ffmpeg-8
+    apply --check "$p"; done` before pushing. Pure libvmaf
+    internals (kernel impls, refactors that don't change
+    headers), doc-only changes, and test-only changes are
+    exempt. See
+    [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md).
 
 ## 13. Interaction style — prefer structured popup questions
 
