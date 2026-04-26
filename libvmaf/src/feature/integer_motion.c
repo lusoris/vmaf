@@ -590,4 +590,13 @@ VmafFeatureExtractor vmaf_fex_integer_motion = {
     .priv_size = sizeof(MotionState),
     .provided_features = provided_features,
     .flags = VMAF_FEATURE_EXTRACTOR_TEMPORAL,
+    /* 2 dispatches per frame: blur + per-WG int64 SAD reduction. Reduction-
+     * dominated; benefits least from graph replay (see ADR-0181). */
+    .chars =
+        {
+            .n_dispatches_per_frame = 2,
+            .is_reduction_only = false,
+            .min_useful_frame_area = 1920U * 1080U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
+        },
 };
