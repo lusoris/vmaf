@@ -299,4 +299,15 @@ VmafFeatureExtractor vmaf_fex_psnr = {
     .priv_size = sizeof(PsnrState),
     .provided_features = provided_features,
     .flags = VMAF_FEATURE_EXTRACTOR_TEMPORAL,
+    /* Single per-pixel squared-error reduction per frame (per
+     * channel; up to 3 if chroma is enabled). Reduction-dominated
+     * — benefits least from graph replay. AUTO + 1080p area
+     * matches motion's profile (see ADR-0181 / ADR-0182). */
+    .chars =
+        {
+            .n_dispatches_per_frame = 1,
+            .is_reduction_only = true,
+            .min_useful_frame_area = 1920U * 1080U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
+        },
 };

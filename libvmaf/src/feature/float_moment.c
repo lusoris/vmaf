@@ -151,4 +151,15 @@ VmafFeatureExtractor vmaf_fex_float_moment = {
     .close = close,
     .priv_size = sizeof(MomentState),
     .provided_features = provided_features,
+    /* Two trivial reductions per frame: sum of pixels (1st
+     * moment) and sum of squared pixels (2nd moment). Pure
+     * reduction; benefits least from graph replay. AUTO +
+     * 1080p area (see ADR-0181 / ADR-0182). */
+    .chars =
+        {
+            .n_dispatches_per_frame = 2,
+            .is_reduction_only = true,
+            .min_useful_frame_area = 1920U * 1080U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
+        },
 };
