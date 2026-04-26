@@ -227,15 +227,67 @@ exposes (useful when an option in this doc has drifted from the binary):
 ffmpeg -h filter=libvmaf
 ```
 
+### Hardware decode + GPU compute (faster pipeline)
+
+The four examples above use software decode (FFmpeg's CPU codecs).
+For long clips or 4K+ inputs it's usually faster to use FFmpeg's
+hardware decoders, then bridge to the libvmaf compute backend.
+
+**CUDA — zero-copy end-to-end (decode + compute on the same GPU):**
+
+```bash
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -i reference.mp4 \
+       -hwaccel cuda -hwaccel_output_format cuda -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf_cuda=log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+**VAAPI decode (Intel / AMD) → SYCL compute (CPU readback in
+between because the FFmpeg `libvmaf` filter takes software
+frames):**
+
+```bash
+ffmpeg -hwaccel vaapi -hwaccel_output_format vaapi -i reference.mp4 \
+       -hwaccel vaapi -hwaccel_output_format vaapi -i distorted.mp4 \
+       -filter_complex "[0:v]hwdownload,format=yuv420p[r]; \
+                        [1:v]hwdownload,format=yuv420p[d]; \
+                        [r][d]libvmaf=sycl_device=0:log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+**Vulkan decode (where supported by the ICD) → Vulkan compute
+(same readback caveat — the libvmaf filter reads software
+frames):**
+
+```bash
+ffmpeg -hwaccel vulkan -hwaccel_output_format vulkan -i reference.mp4 \
+       -hwaccel vulkan -hwaccel_output_format vulkan -i distorted.mp4 \
+       -filter_complex "[0:v]hwdownload,format=yuv420p[r]; \
+                        [1:v]hwdownload,format=yuv420p[d]; \
+                        [r][d]libvmaf=vulkan_device=0:log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+The CUDA pipeline stays on the GPU because there's a dedicated
+`libvmaf_cuda` filter that consumes CUDA frames directly. SYCL and
+Vulkan don't yet have FFmpeg-side dedicated filters; the
+`hwdownload,format=yuv420p` step is the bridge to the regular
+`libvmaf` filter. A true zero-copy SYCL path exists at the C-API
+level via `vmaf_sycl_import_va_surface` /
+`vmaf_sycl_dmabuf_import` (see
+[`libvmaf/include/libvmaf/libvmaf_sycl.h`](../../libvmaf/include/libvmaf/libvmaf_sycl.h));
+it isn't plumbed through the FFmpeg filter today.
+
 ### Background
 
 When `libvmaf` is built with `-Denable_cuda=true`, FFmpeg exposes the
 `libvmaf_cuda` filter, which keeps frames on the GPU end-to-end when the
 decoder is also CUDA-backed (e.g. `-hwaccel cuda`). The CPU / SYCL /
-Vulkan examples above all use the regular `libvmaf` filter; only the
-selector option (`sycl_device=N` / `vulkan_device=N`) changes which
-compute path libvmaf takes internally. Decoded frames are software-
-decoded in those cases and copied into device memory by libvmaf itself.
+Vulkan examples in the first section all use the regular `libvmaf`
+filter; only the selector option (`sycl_device=N` / `vulkan_device=N`)
+changes which compute path libvmaf takes internally. Decoded frames
+are software-decoded in those cases and copied into device memory
+by libvmaf itself.
 
 For SYCL specifically: `sycl_device=-1` keeps the CPU path. Setting
 `sycl_device=N` (any non-negative ordinal) opts in. See
