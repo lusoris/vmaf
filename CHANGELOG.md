@@ -46,6 +46,20 @@
 
 ### Added
 
+- **GPU long-tail batch 1b part 2 — `psnr_sycl` extractor
+  (T7-23 / ADR-0182)** (fork-local): SYCL twin of `psnr_cuda`
+  (PR #129) and `psnr_vulkan` (PR #125). Per-pixel int64
+  squared-error reduction with `sycl::atomic_ref` accumulation
+  into a shared device counter. Single kernel per frame, rides
+  the existing combined-graph submit/wait machinery via
+  `vmaf_sycl_graph_register`. New
+  [`libvmaf/src/feature/sycl/integer_psnr_sycl.cpp`](libvmaf/src/feature/sycl/integer_psnr_sycl.cpp)
+  (~280 LOC). Empirical: 48 frames at 576×324 on Intel Arc
+  A380 vs CPU scalar — `max_abs_diff = 0.0`, `0/48 places=4
+  mismatches` via `scripts/ci/cross_backend_vif_diff.py
+  --backend sycl`. Closes "psnr on all 3 GPU backends" goal
+  from ADR-0182.
+
 - **GPU long-tail batch 1b part 1 — `psnr_cuda` extractor
   (T7-23 / ADR-0182)** (fork-local): CUDA twin of the
   `psnr_vulkan` kernel shipped in PR #125. Per-pixel int64
