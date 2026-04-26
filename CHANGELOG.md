@@ -73,6 +73,34 @@
 
 ### Added
 
+- **GPU long-tail batch 1d parts 2 + 3 — `float_moment_cuda`
+  and `float_moment_sycl` extractors (T7-23 / ADR-0182)**
+  (fork-local): closes batch 1d. CUDA + SYCL twins of the
+  Vulkan kernel shipped in PR #133 (ADR-0182). Both emit all
+  four metrics — `float_moment_ref1st`, `float_moment_dis1st`,
+  `float_moment_ref2nd`, `float_moment_dis2nd` — in **one
+  kernel pass** via four atomic int64 counters.
+  - **CUDA** (~120 LOC PTX +
+    [`integer_moment_cuda.{c,h}`](libvmaf/src/feature/cuda/integer_moment_cuda.c)
+    ~225 LOC host): warp-shuffle int64 reduction (uint64 via
+    two uint32 shuffles, same trick as `psnr_score.cu`) + four
+    `atomicAdd(unsigned long long *)`. Same async submit /
+    collect model as `psnr_cuda` (PR #129).
+  - **SYCL** (~270 LOC, single TU
+    [`integer_moment_sycl.cpp`](libvmaf/src/feature/sycl/integer_moment_sycl.cpp)):
+    `sycl::atomic_ref<int64_t, ...>` × 4 in a single kernel.
+    Rides the existing combined-graph submit / wait machinery
+    via `vmaf_sycl_graph_register` (mirrors `psnr_sycl`,
+    PR #130).
+  - **Verification**: 48 frames at 576×324 vs CPU scalar —
+    `max_abs = 0.0`, `0/48 places=4 mismatches` × 4 metrics
+    on **NVIDIA RTX 4090** (CUDA) and **Intel Arc A380** (SYCL).
+    Byte-exact at JSON precision; `int64` sum is exact on
+    integer YUV inputs. `scripts/ci/cross_backend_vif_diff.py
+    --feature float_moment --backend {cuda,sycl}`.
+  Closes batch 1d (Vulkan + CUDA + SYCL all done); next is
+  batch 1c (ciede across 3 backends).
+
 - **Vulkan VkImage zero-copy import — implementation + FFmpeg
   filter (T7-29 parts 2 + 3, ADR-0186)** (fork-local): drops
   the `-ENOSYS` stubs from PR #128 and ships the matching

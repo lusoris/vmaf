@@ -431,6 +431,7 @@ if is_cuda_enabled
         'filter1d' : [feature_src_dir + 'cuda/integer_vif/filter1d.cu'],
         'motion_score' : [feature_src_dir + 'cuda/integer_motion/motion_score.cu'],
         'psnr_score' : [feature_src_dir + 'cuda/integer_psnr/psnr_score.cu'],
+        'moment_score' : [feature_src_dir + 'cuda/integer_moment/moment_score.cu'],
     }
     message(cuda_cu_sources)
     cuda_sources = [
@@ -844,6 +845,7 @@ if is_cuda_enabled
         feature_src_dir + 'cuda/integer_vif_cuda.c',
         feature_src_dir + 'cuda/integer_motion_cuda.c',
         feature_src_dir + 'cuda/integer_psnr_cuda.c',
+        feature_src_dir + 'cuda/integer_moment_cuda.c',
     ]
 endif
 
@@ -856,6 +858,7 @@ if is_sycl_enabled
         feature_src_dir + 'sycl/integer_adm_sycl.cpp',
         feature_src_dir + 'sycl/integer_motion_sycl.cpp',
         feature_src_dir + 'sycl/integer_psnr_sycl.cpp',
+        feature_src_dir + 'sycl/integer_moment_sycl.cpp',
     ]
 
     # `-fp-model=precise` is Intel's strict-FP flag: no FMA contraction,
