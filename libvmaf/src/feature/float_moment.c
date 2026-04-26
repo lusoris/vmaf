@@ -20,6 +20,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "config.h"
+#include "cpu.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 
@@ -27,10 +29,20 @@
 #include "moment.h"
 #include "picture_copy.h"
 
+#if ARCH_X86
+#include "x86/moment_avx2.h"
+#endif
+
+#if ARCH_AARCH64
+#include "arm64/moment_neon.h"
+#endif
+
 typedef struct MomentState {
     size_t float_stride;
     float *ref;
     float *dist;
+    int (*moment1)(const float *pic, int w, int h, int stride, double *score);
+    int (*moment2)(const float *pic, int w, int h, int stride, double *score);
 } MomentState;
 
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
@@ -47,6 +59,27 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->dist = aligned_malloc(s->float_stride * h, 32);
     if (!s->dist)
         goto free_ref;
+
+    /* Default to scalar; override with the best available SIMD path. */
+    s->moment1 = compute_1st_moment;
+    s->moment2 = compute_2nd_moment;
+#if ARCH_X86
+    {
+        unsigned cpu_flags = vmaf_get_cpu_flags();
+        if (cpu_flags & VMAF_X86_CPU_FLAG_AVX2) {
+            s->moment1 = compute_1st_moment_avx2;
+            s->moment2 = compute_2nd_moment_avx2;
+        }
+    }
+#elif ARCH_AARCH64
+    {
+        unsigned cpu_flags = vmaf_get_cpu_flags();
+        if (cpu_flags & VMAF_ARM_CPU_FLAG_NEON) {
+            s->moment1 = compute_1st_moment_neon;
+            s->moment2 = compute_2nd_moment_neon;
+        }
+    }
+#endif
 
     return 0;
 
@@ -70,16 +103,16 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc);
 
     double score[4];
-    err = compute_1st_moment(s->ref, ref_pic->w[0], ref_pic->h[0], s->float_stride, &score[0]);
+    err = s->moment1(s->ref, ref_pic->w[0], ref_pic->h[0], s->float_stride, &score[0]);
     if (err)
         return err;
-    err = compute_1st_moment(s->dist, dist_pic->w[0], dist_pic->h[0], s->float_stride, &score[1]);
+    err = s->moment1(s->dist, dist_pic->w[0], dist_pic->h[0], s->float_stride, &score[1]);
     if (err)
         return err;
-    err = compute_2nd_moment(s->ref, ref_pic->w[0], ref_pic->h[0], s->float_stride, &score[2]);
+    err = s->moment2(s->ref, ref_pic->w[0], ref_pic->h[0], s->float_stride, &score[2]);
     if (err)
         return err;
-    err = compute_2nd_moment(s->dist, dist_pic->w[0], dist_pic->h[0], s->float_stride, &score[3]);
+    err = s->moment2(s->dist, dist_pic->w[0], dist_pic->h[0], s->float_stride, &score[3]);
     if (err)
         return err;
 

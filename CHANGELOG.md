@@ -25,6 +25,27 @@
 
 ### Added
 
+- **`float_moment` SIMD parity (AVX2 + NEON) — T7-19, closes
+  the only fully-scalar row in the SIMD-coverage matrix**
+  (fork-local): new
+  [`libvmaf/src/feature/x86/moment_avx2.{c,h}`](libvmaf/src/feature/x86/moment_avx2.c)
+  and [`libvmaf/src/feature/arm64/moment_neon.{c,h}`](libvmaf/src/feature/arm64/moment_neon.c)
+  implement `compute_1st_moment` / `compute_2nd_moment` 8-wide
+  (AVX2) and 4-wide (NEON) following the `ansnr_avx2.c` pattern:
+  square in float, accumulate into `double` via scattered-tmp
+  (AVX2) or lane-pair widening via `vcvt_f64_f32` (NEON).
+  Dispatched from
+  [`float_moment.c::init`](libvmaf/src/feature/float_moment.c)
+  via function pointers selected from `vmaf_get_cpu_flags()`.
+  Tolerance-bounded contract (1e-7 relative — ~500× tighter than
+  the production snapshot gate's `places=4`), matching the
+  established kernel header documentation. New
+  [`test_moment_simd`](libvmaf/test/test_moment_simd.c) runs
+  four cases per arch (two random seeds, an aligned width, and a
+  tiny edge case to exercise the per-row tail). End-to-end CLI
+  output unchanged at JSON `%g` precision. See
+  [ADR-0179](docs/adr/0179-float-moment-simd.md).
+
 - **Vulkan ADM kernel + cross-backend gate fixes — T5-1c (closes T5-1c)**
   (fork-local): replaces the 37-line adm_vulkan.c stub with a real
   `VmafFeatureExtractor` (~700 LOC) backed by a new GLSL compute shader
