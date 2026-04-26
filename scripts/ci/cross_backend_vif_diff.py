@@ -117,8 +117,17 @@ def run_vmaf(
         str(output),
         "--json",
     ]
-    if backend is not None and device is not None:
-        cmd += [BACKEND_DEVICE_FLAG[backend], str(device)]
+    if backend is not None:
+        # --backend forces backend exclusivity (no_cuda / no_sycl /
+        # no_vulkan) so a build with multiple backends doesn't try
+        # to init the unselected ones (which can hang on SYCL when
+        # the device map differs between backends). The device flag
+        # still pins the index for the chosen backend.
+        cmd += ["--backend", backend]
+        if device is not None:
+            cmd += [BACKEND_DEVICE_FLAG[backend], str(device)]
+    if backend is None:
+        cmd += ["--backend", "cpu"]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout)

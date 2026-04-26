@@ -25,24 +25,51 @@
 
 ### Added
 
-- **Vulkan ADM kernel — T5-1c (closes T5-1c)** (fork-local): replaces
-  the 37-line adm_vulkan.c stub with a real `VmafFeatureExtractor`
-  (~700 LOC) backed by a new GLSL compute shader
+- **Vulkan ADM kernel + cross-backend gate fixes — T5-1c (closes T5-1c)**
+  (fork-local): replaces the 37-line adm_vulkan.c stub with a real
+  `VmafFeatureExtractor` (~700 LOC) backed by a new GLSL compute shader
   [`shaders/adm.comp`](libvmaf/src/feature/vulkan/shaders/adm.comp)
-  (~660 LOC). Implements 4-scale CDF 9/7 DWT (vertical pass, then
-  horizontal yielding LL/LH/HL/HH), decouple+CSF fused pass, and
-  per-band CSF-denominator + contrast-measure reductions. 16
-  pipelines per extractor (one per `(scale, stage)`). Provides the
-  standard `integer_adm2`, `integer_adm_scale0..3` outputs (plus
-  num/den intermediates and debug features). Cross-backend gate
-  gains a third "ADM cross-backend diff" step in both lavapipe and
-  Arc-nightly lanes. Empirical baseline: **ULP=0** vs CPU on
-  Netflix normal pair (576x324, 48 frames) AND 1920x1080
-  checkerboard (3 frames); residual on scales 1-3 at full
-  IEEE-754 precision is ~7e-7 from host-side double-summation
-  order, well under the places=4 contract. Closes T5-1c — Vulkan
-  kernel matrix now matches SYCL/CUDA for the default
-  `vmaf_v0.6.1` model. See
+  (~660 LOC). Implements 4-scale CDF 9/7 DWT, decouple+CSF fused
+  pass, and per-band CSF-denominator + contrast-measure reductions.
+  16 pipelines per extractor (one per `(scale, stage)`). Provides the
+  standard `integer_adm2`, `integer_adm_scale0..3` outputs.
+
+  This PR ALSO uncovered and fixed three latent bugs that made the
+  cross-backend gate land bogus ULP=0 results since PR #118:
+  (a) `tools/meson.build` never set `-DHAVE_VULKAN`, so every
+  `--vulkan_device` call silently no-op'd; (b)
+  `vmaf_use_feature()` skipped `set_fex_vulkan_state()` so the
+  imported state never reached the extractor; (c) the script's
+  `--feature X` invocation collided with the default model's CPU
+  extractors, dropping the GPU writer's scores. Plus a header
+  shadowing fix (Vulkan `common.h` → `vulkan_common.h` so
+  CUDA+Vulkan can build together) and a new `--backend
+  {auto,cpu,cuda,sycl,vulkan}` CLI flag that closes the
+  multi-backend dispatcher conflict (first-match-wins favored CUDA
+  over Vulkan).
+
+  Real cross-backend numbers (576x324, 48 frames, post-fix gate):
+
+  | backend (device) | vif | motion | adm |
+  | --- | --- | --- | --- |
+  | CUDA (RTX 4090) | ULP=0 ✓ | **2.6e-3 ❌ 47/48** | ≤1e-6 ✓ |
+  | SYCL (Arc, oneAPI) | ≤1e-6 ✓ | **2.6e-3 ❌ 47/48** | scale2 2.4e-4 ❌ 1/48 |
+  | Vulkan (RTX) | ≤1e-6 ✓ | ≈1e-6 ✓ | scale2 2.4e-4 ❌ 1/48 |
+  | Vulkan (Arc, Mesa anv) | ≤1e-6 ✓ | ≈1e-6 ✓ | ≤3.1e-5 ✓ |
+
+  Three pre-existing kernel-side bugs surfaced by the working gate:
+  (1) CUDA motion AND SYCL motion both drift by 2.6e-3 (47/48
+  frames) vs CPU — same magnitude, likely shared algorithmic
+  inheritance; (2) NVIDIA Vulkan + SYCL `adm_scale2` both drift
+  by 2.4e-4 (1/48 frames) — likely shared host-side reduction
+  order divergence; (3) SYCL on fp64-less GPUs (e.g. Arc A380)
+  uses int64 emulation for gain limiting, causing a 5-10×
+  slowdown vs Vulkan on the same hardware. Each tracked as a
+  follow-up.
+
+  Vulkan-on-Arc (the path under the lavapipe blocking gate via
+  Mesa anv) is the only fully-clean GPU backend in the current
+  matrix. Closes T5-1c. See
   [ADR-0178](docs/adr/0178-vulkan-adm-kernel.md).
 - **Vulkan motion kernel — T5-1c (motion + motion2)** (fork-local):
   replaces the 37-line motion_vulkan.c stub with a real
@@ -53,10 +80,12 @@
   storage; `integer_motion2` emitted with the standard 1-frame lag.
   `motion3` (5-frame window mode) deliberately deferred. Cross-backend
   diff script generalized: `scripts/ci/cross_backend_vif_diff.py`
-  gains `--feature {vif,motion}`; both lavapipe and Arc-nightly lanes
-  run a second motion diff step. Empirical baseline: **ULP=0** vs CPU
-  on the Netflix normal pair (576x324, 48 frames). See
-  [ADR-0177](docs/adr/0177-vulkan-motion-kernel.md).
+  gains `--feature {vif,motion}`. Empirical: ≤1e-6 vs CPU on Arc
+  via Vulkan (Mesa anv); 2.6e-3 drift on CUDA/SYCL motion is a
+  pre-existing kernel bug surfaced by PR #120's gate fix. See
+  [ADR-0177](docs/adr/0177-vulkan-motion-kernel.md). **NOTE**: the
+  original "ULP=0" claim in this entry was bogus — the gate was
+  comparing CPU-vs-CPU due to the build-system bug PR #120 fixes.
 - **Vulkan VIF cross-backend gate + CLI (`--vulkan_device`) — T5-1b-v**
   (fork-local): wires Vulkan into the libvmaf dispatcher and `vmaf`
   CLI. New `--vulkan_device <N>` (auto-pick `-1`, default disabled)
@@ -67,8 +96,12 @@
   with two CI lanes: `Vulkan VIF Cross-Backend (lavapipe, places=4)` runs
   on every PR via Mesa lavapipe (no GPU runner needed), Arc-A380
   nightly advisory parked behind `if: false` until a self-hosted runner
-  with label `vmaf-arc` is registered. Empirical baseline: **ULP=0**
-  vs CPU on the Netflix normal pair + 1920×1080 checkerboard. See
+  with label `vmaf-arc` is registered. **NOTE**: the original
+  "ULP=0 vs CPU" claim in this entry was bogus — the meson glue
+  for `-DHAVE_VULKAN` in `tools/meson.build` was missing, so
+  `--vulkan_device` silently no-op'd. PR #120 fixes the build
+  system, the framework state propagation in `vmaf_use_feature()`,
+  and the script's invocation pattern. See
   [ADR-0176](docs/adr/0176-vulkan-vif-cross-backend-gate.md).
 - **Vulkan VIF math port — T5-1b-iv (4-scale GLSL kernel)** (fork-local):
   full numerical port of the SYCL VIF kernel to a GLSL compute shader.
