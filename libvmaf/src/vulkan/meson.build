@@ -54,6 +54,7 @@ vulkan_shader_sources = [
     'shaders/ms_ssim_decimate.comp',
     'shaders/psnr_hvs.comp',
     'shaders/float_ansnr.comp',
+    'shaders/float_psnr.comp',
 ]
 
 vulkan_shader_headers = []
@@ -115,6 +116,7 @@ vulkan_sources += files(
     '../feature/vulkan/ms_ssim_vulkan.c',
     '../feature/vulkan/psnr_hvs_vulkan.c',
     '../feature/vulkan/float_ansnr_vulkan.c',
+    '../feature/vulkan/float_psnr_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers
