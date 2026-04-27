@@ -107,6 +107,15 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # build_command takes care of routing. Precision target
     # places=2 per ADR-0188 (DCT integer-exact, but per-block float
     # reductions and per-plane log10 limit the floor).
+    # GPU long-tail batch 3 part 2 (T7-23 / ADR-0192 / ADR-0194):
+    # float_ansnr. 3x3 ref filter + 5x5 dis filter + sig/noise
+    # reduction. Float convolution + per-WG float reduction +
+    # log10 final transform; precision target places=3, empirically
+    # lands at places=4+ (max_abs_diff ~6e-6 on 576x324 fixture).
+    "float_ansnr": (
+        "float_ansnr",
+        "float_anpsnr",
+    ),
     "psnr_hvs": (
         "psnr_hvs_y",
         "psnr_hvs_cb",
