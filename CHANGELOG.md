@@ -73,6 +73,37 @@
 
 ### Added
 
+- **GPU long-tail batch 2 part 2a — `float_ms_ssim_vulkan`
+  extractor (T7-23 / ADR-0188 / ADR-0190)** (fork-local):
+  Wang multi-scale SSIM on Vulkan. 5-level pyramid built via
+  9-tap 9/7 biorthogonal LPF + 2× downsample
+  ([`ms_ssim_decimate.comp`](libvmaf/src/feature/vulkan/shaders/ms_ssim_decimate.comp),
+  matches `ms_ssim_decimate_scalar` byte-for-byte). Per-scale
+  SSIM compute via a variant of `ssim.comp` that emits **three**
+  per-WG partials (`l, c, s`) instead of a single combined
+  SSIM
+  ([`ms_ssim.comp`](libvmaf/src/feature/vulkan/shaders/ms_ssim.comp)).
+  Host accumulates partials in `double` per scale, applies the
+  Wang weights `α/β/γ` (matches `ms_ssim.c::g_alphas/g_betas/
+  g_gammas` byte-for-byte) for the
+  `MS-SSIM = ∏_i l[i]^α[i]·c[i]^β[i]·s[i]^γ[i]` combine on host.
+  New
+  [`libvmaf/src/feature/vulkan/ms_ssim_vulkan.c`](libvmaf/src/feature/vulkan/ms_ssim_vulkan.c)
+  (~700 LOC). Min-dim guard mirrors
+  [ADR-0153](docs/adr/0153-float-ms-ssim-min-dim-netflix-1414.md)
+  (176×176 minimum). v1 does **not** implement `enable_lcs` (15
+  extra per-scale metrics) — deferred to a focused follow-up.
+  Surfaced one bring-up bug: `ssim_variance_scalar` clamps
+  `ref_sigma_sqd / cmp_sigma_sqd` to `MAX(0, ...)` before the
+  sqrt at line 165 of `iqa/ssim_tools.c`; missing this clamp
+  produces NaN at scale 0 when float ULP errors push variances
+  slightly negative on flat regions. Empirical: 48 frames at
+  576×324 on **Intel Arc A380** vs CPU scalar — `max_abs =
+  2.0e-6`, `0/48 places=4 mismatches`. New CI step
+  `float_ms_ssim cross-backend diff (CPU vs Vulkan/lavapipe)`
+  on the lavapipe lane. CUDA + SYCL twins follow as batch 2
+  parts 2b + 2c.
+
 - **GPU long-tail batch 2 parts 1b + 1c — `float_ssim_cuda` +
   `float_ssim_sycl` extractors (T7-23 / ADR-0188 / ADR-0189)**
   (fork-local): closes batch 2 part 1. CUDA + SYCL twins of

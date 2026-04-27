@@ -40,7 +40,7 @@ limitations in the same PR as the code.
 | PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | —                   | —                  |
 | SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —                  |
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
-| MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | —                  |
+| MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | Vulkan             |
 | ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | —                  |
 | SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | —                  |
 | Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | AVX2, NEON          | CUDA, SYCL, Vulkan |

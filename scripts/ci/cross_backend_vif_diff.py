@@ -84,6 +84,10 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # places=4 contract per ADR-0189 (measure-then-set-the-contract,
     # relax to places=3 if the gate exceeds 5e-5 max_abs).
     "float_ssim": ("float_ssim",),
+    # GPU long-tail batch 2 part 2 (T7-23 / ADR-0188 / ADR-0190):
+    # float_ms_ssim. 5-level pyramid + Wang product combine. Single
+    # emitted metric in v1 (enable_lcs deferred).
+    "float_ms_ssim": ("float_ms_ssim",),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the
