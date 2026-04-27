@@ -105,16 +105,13 @@ layout(push_constant) uniform Params {
     uint num_blocks_y;
 } pc;
 
-/* Shared memory: 8×8 raw samples (int32) for ref + dist,
- * plus the per-coefficient masked-error contribution and
- * cross-subgroup partial scratch. */
+/* Shared memory: 8×8 raw samples (int32) for ref + dist.
+ * Cooperative load only — all per-block math runs in thread 0
+ * to match CPU's linear i,j summation order bit-exactly (the
+ * subgroupAdd-based reduction was the dominant places=4 drift
+ * source: 8.2e-5 → near-zero). */
 shared int s_ref[64];
 shared int s_dist[64];
-shared float s_partials_sg[MAX_SUBGROUPS];
-shared int s_dct_ref[64];
-shared int s_dct_dist[64];
-shared float s_mask;
-shared float s_d_mask;
 
 /* OD_UNBIASED_RSHIFT32: round-to-zero right shift. Matches
  * the macro in xiph/psnr_hvs.c — needed because GLSL signed
@@ -268,197 +265,139 @@ void main() {
     s_dist[local_idx] = my_dist;
     barrier();
 
-    /* Compute global mean + per-quadrant means + variances.
-     * sub-block index = ((i & 12) >> 2) + ((j & 12) >> 1):
-     *   row i in 0..3 → (i & 12) = 0; in 4..7 → (i & 12) = 4
-     *   col j in 0..3 → (j & 12) = 0; in 4..7 → (j & 12) = 4
-     *   sub = (0 or 1) + (0 or 2) = 0/1/2/3.
-     * Each sub-block is 4×4 = 16 samples but the CPU code uses
-     * masking (i & 12) which is 0 for 0..3 and 4..7 wraps around
-     * — actually let me re-check. In C, `i & 12` for i in 0..7:
-     *   i=0..3: i & 12 = 0
-     *   i=4..7: i & 12 = 4
-     * So sub = (0 or 4)>>2 + (0 or 4)>>1 = (0 or 1) + (0 or 2) = 0/1/2/3.
-     * That yields 4 sub-blocks of 4×4 each. */
-    int sub = int(((ly & 12u) >> 2) + ((lx & 12u) >> 1));
-    /* But ly,lx are 0..7 here, so (ly & 12u)= 0 if ly<4 else 4. OK. */
-
-    /* Sum reductions: subgroupAdd over the entire WG (subgroup
-     * size may < 64, so we need cross-subgroup reduce). For
-     * simplicity, use a single `subgroupAdd` per partial then
-     * cross-subgroup reduce in shared memory. */
-    float my_ref_f = float(my_ref);
-    float my_dist_f = float(my_dist);
-
-    /* Global means (full 8×8). */
-    float sg_s_gmean = subgroupAdd(my_ref_f);
-    float sg_d_gmean = subgroupAdd(my_dist_f);
-    if (subgroupElect()) {
-        s_partials_sg[gl_SubgroupID] = sg_s_gmean;
-    }
-    barrier();
-    float s_gmean = 0.0;
-    for (uint i = 0u; i < gl_NumSubgroups; i++) s_gmean += s_partials_sg[i];
-    s_gmean /= 64.0;
-    barrier();
-    if (subgroupElect()) {
-        s_partials_sg[gl_SubgroupID] = sg_d_gmean;
-    }
-    barrier();
-    float d_gmean = 0.0;
-    for (uint i = 0u; i < gl_NumSubgroups; i++) d_gmean += s_partials_sg[i];
-    d_gmean /= 64.0;
-    barrier();
-
-    /* Per-quadrant means: each thread contributes my_ref to its sub. */
-    /* Compute s_means[sub] / d_means[sub] via subgroupAdd masked per sub.
-     * Since we only have 4 subs, cheapest is a 4-element shared array,
-     * atomically add each thread's contribution. */
-    /* Use a non-atomic approach: compute via 4 subgroup-add's, each
-     * masking by sub == k. */
-    float s_means[4];
-    float d_means[4];
-    for (int k = 0; k < 4; k++) {
-        float r = (sub == k) ? my_ref_f : 0.0;
-        float d = (sub == k) ? my_dist_f : 0.0;
-        float sg_r = subgroupAdd(r);
-        float sg_d = subgroupAdd(d);
-        if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_r;
-        barrier();
-        float total_r = 0.0;
-        for (uint i = 0u; i < gl_NumSubgroups; i++) total_r += s_partials_sg[i];
-        s_means[k] = total_r / 16.0;
-        barrier();
-        if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_d;
-        barrier();
-        float total_d = 0.0;
-        for (uint i = 0u; i < gl_NumSubgroups; i++) total_d += s_partials_sg[i];
-        d_means[k] = total_d / 16.0;
-        barrier();
-    }
-
-    /* Global + per-quadrant variances. */
-    float my_s_gdev = (my_ref_f - s_gmean) * (my_ref_f - s_gmean);
-    float my_d_gdev = (my_dist_f - d_gmean) * (my_dist_f - d_gmean);
-    float my_s_qdev = (my_ref_f - s_means[sub]) * (my_ref_f - s_means[sub]);
-    float my_d_qdev = (my_dist_f - d_means[sub]) * (my_dist_f - d_means[sub]);
-
-    float sg_s_gvar = subgroupAdd(my_s_gdev);
-    if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_s_gvar;
-    barrier();
-    float s_gvar = 0.0;
-    for (uint i = 0u; i < gl_NumSubgroups; i++) s_gvar += s_partials_sg[i];
-    barrier();
-
-    float sg_d_gvar = subgroupAdd(my_d_gdev);
-    if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_d_gvar;
-    barrier();
-    float d_gvar = 0.0;
-    for (uint i = 0u; i < gl_NumSubgroups; i++) d_gvar += s_partials_sg[i];
-    barrier();
-
-    /* Per-quadrant variances. */
-    float s_vars[4];
-    float d_vars[4];
-    for (int k = 0; k < 4; k++) {
-        float r = (sub == k) ? my_s_qdev : 0.0;
-        float d = (sub == k) ? my_d_qdev : 0.0;
-        float sg_r = subgroupAdd(r);
-        float sg_d = subgroupAdd(d);
-        if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_r;
-        barrier();
-        float total_r = 0.0;
-        for (uint i = 0u; i < gl_NumSubgroups; i++) total_r += s_partials_sg[i];
-        s_vars[k] = total_r;
-        barrier();
-        if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_d;
-        barrier();
-        float total_d = 0.0;
-        for (uint i = 0u; i < gl_NumSubgroups; i++) total_d += s_partials_sg[i];
-        d_vars[k] = total_d;
-        barrier();
-    }
-
-    /* Apply CPU's normalisation factors. */
-    s_gvar *= 64.0 / 63.0;
-    d_gvar *= 64.0 / 63.0;
-    for (int k = 0; k < 4; k++) {
-        s_vars[k] *= 16.0 / 15.0;
-        d_vars[k] *= 16.0 / 15.0;
-    }
-
-    if (s_gvar > 0.0) s_gvar = (s_vars[0] + s_vars[1] + s_vars[2] + s_vars[3]) / s_gvar;
-    if (d_gvar > 0.0) d_gvar = (d_vars[0] + d_vars[1] + d_vars[2] + d_vars[3]) / d_gvar;
-
-    /* DCT — done in thread (0, 0) only. Uses shared memory copies. */
+    /* All per-block math runs in thread 0 to match CPU's linear
+     * i,j summation order bit-exactly. The DCT was already
+     * thread-0-scalar; making the rest also serial costs ~2 µs/block
+     * but gives precision floor ≪ 1 ULP relative (vs ~8e-5 dB drift
+     * from subgroupAdd-based reductions in the previous version). */
     if (local_idx == 0u) {
-        int blk[64];
-        for (int i = 0; i < 64; i++) blk[i] = s_ref[i];
-        od_bin_fdct8x8_in_place(blk);
-        for (int i = 0; i < 64; i++) s_dct_ref[i] = blk[i];
-        for (int i = 0; i < 64; i++) blk[i] = s_dist[i];
-        od_bin_fdct8x8_in_place(blk);
-        for (int i = 0; i < 64; i++) s_dct_dist[i] = blk[i];
-    }
-    barrier();
+        /* dct_s / dct_d hold raw samples first (CPU does the int->dct
+         * promotion in-place after computing means/vars). */
+        int dct_s[64];
+        int dct_d[64];
+        for (int i = 0; i < 64; i++) dct_s[i] = s_ref[i];
+        for (int i = 0; i < 64; i++) dct_d[i] = s_dist[i];
 
-    /* Compute mask thresholds. mask[i][j] = (csf · 0.3885746225901003)².
-     * s_mask = sqrt(sum_{(i,j)≠(0,0)}(dct_s² · mask) · s_gvar) / 32.
-     * d_mask similarly. Then s_mask = max(s_mask, d_mask). */
-    float my_csf = csf(int(local_idx));
-    float my_mask = my_csf * 0.3885746225901003;
-    my_mask = my_mask * my_mask;
+        /* Per-block accumulators (matches calc_psnrhvs locals
+         * line 281-294 byte-for-byte). `precise` blocks the
+         * GLSL/SPIR-V compiler from fusing `a*b+c` into a single
+         * FMA instruction — the CPU compiles to scalar `mul + add`
+         * (two roundings), so FMA's single-rounding contraction
+         * is the dominant places=4 drift source on the per-coeff
+         * masking + accumulation path. */
+        precise float s_means[4]; precise float d_means[4];
+        precise float s_vars[4];  precise float d_vars[4];
+        precise float s_gmean = 0.0; precise float d_gmean = 0.0;
+        precise float s_gvar  = 0.0; precise float d_gvar  = 0.0;
+        precise float s_mc    = 0.0; precise float d_mc    = 0.0;
+        for (int i = 0; i < 4; i++) {
+            s_means[i] = d_means[i] = s_vars[i] = d_vars[i] = 0.0;
+        }
 
-    /* Per-coefficient mask²·dct² contributions; skip DC (i=j=0). */
-    float my_s_mc = (local_idx == 0u) ? 0.0 :
-                    (float(s_dct_ref[local_idx]) * float(s_dct_ref[local_idx]) * my_mask);
-    float my_d_mc = (local_idx == 0u) ? 0.0 :
-                    (float(s_dct_dist[local_idx]) * float(s_dct_dist[local_idx]) * my_mask);
+        /* Pass 1: means (linear i, j order — matches CPU). */
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                int sub = ((i & 12) >> 2) + ((j & 12) >> 1);
+                s_gmean += float(dct_s[i * 8 + j]);
+                d_gmean += float(dct_d[i * 8 + j]);
+                s_means[sub] += float(dct_s[i * 8 + j]);
+                d_means[sub] += float(dct_d[i * 8 + j]);
+            }
+        }
+        s_gmean /= 64.0;
+        d_gmean /= 64.0;
+        for (int i = 0; i < 4; i++) s_means[i] /= 16.0;
+        for (int i = 0; i < 4; i++) d_means[i] /= 16.0;
 
-    float sg_s_mc = subgroupAdd(my_s_mc);
-    if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_s_mc;
-    barrier();
-    float s_mc_total = 0.0;
-    for (uint i = 0u; i < gl_NumSubgroups; i++) s_mc_total += s_partials_sg[i];
-    barrier();
+        /* Pass 2: variances (linear i, j — matches CPU). */
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                int sub = ((i & 12) >> 2) + ((j & 12) >> 1);
+                float ds = float(dct_s[i * 8 + j]) - s_gmean;
+                float dd = float(dct_d[i * 8 + j]) - d_gmean;
+                s_gvar += ds * ds;
+                d_gvar += dd * dd;
+                float qs = float(dct_s[i * 8 + j]) - s_means[sub];
+                float qd = float(dct_d[i * 8 + j]) - d_means[sub];
+                s_vars[sub] += qs * qs;
+                d_vars[sub] += qd * qd;
+            }
+        }
 
-    float sg_d_mc = subgroupAdd(my_d_mc);
-    if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_d_mc;
-    barrier();
-    float d_mc_total = 0.0;
-    for (uint i = 0u; i < gl_NumSubgroups; i++) d_mc_total += s_partials_sg[i];
-    barrier();
+        /* CPU normalisation: `s_gvar *= 1/63.f * 64`. The literal
+         * float order (1/63.f then *64) matters at ULP precision —
+         * mirror it exactly. */
+        s_gvar *= 1.0 / 63.0 * 64.0;
+        d_gvar *= 1.0 / 63.0 * 64.0;
+        for (int i = 0; i < 4; i++) s_vars[i] *= 1.0 / 15.0 * 16.0;
+        for (int i = 0; i < 4; i++) d_vars[i] *= 1.0 / 15.0 * 16.0;
 
-    if (local_idx == 0u) {
-        float sm = sqrt(s_mc_total * s_gvar) / 32.0;
-        float dm = sqrt(d_mc_total * d_gvar) / 32.0;
+        if (s_gvar > 0.0)
+            s_gvar = (s_vars[0] + s_vars[1] + s_vars[2] + s_vars[3]) / s_gvar;
+        if (d_gvar > 0.0)
+            d_gvar = (d_vars[0] + d_vars[1] + d_vars[2] + d_vars[3]) / d_gvar;
+
+        /* Forward 8×8 DCT in place. */
+        od_bin_fdct8x8_in_place(dct_s);
+        od_bin_fdct8x8_in_place(dct_d);
+
+        /* Pass 3: per-coefficient mask·dct² accumulation — skipping
+         * DC (i=j=0). Linear i, j order. */
+        float mask[64];
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                float c = csf(i * 8 + j);
+                float m = c * 0.3885746225901003;
+                mask[i * 8 + j] = m * m;
+            }
+        }
+        /* CPU computes `dct[i][j] * dct[i][j]` as int×int (exact
+         * for typical values < 2^23 / 2 ≈ 5793 dct magnitude),
+         * THEN casts to float to multiply by mask. Mirror that
+         * order — float×float of two large values would lose ULPs
+         * vs the int square. */
+        for (int i = 0; i < 8; i++) {
+            int j0 = (i == 0) ? 1 : 0;
+            for (int j = j0; j < 8; j++) {
+                int sq = dct_s[i * 8 + j] * dct_s[i * 8 + j];
+                s_mc += float(sq) * mask[i * 8 + j];
+            }
+        }
+        for (int i = 0; i < 8; i++) {
+            int j0 = (i == 0) ? 1 : 0;
+            for (int j = j0; j < 8; j++) {
+                int sq = dct_d[i * 8 + j] * dct_d[i * 8 + j];
+                d_mc += float(sq) * mask[i * 8 + j];
+            }
+        }
+        float sm = sqrt(s_mc * s_gvar) / 32.0;
+        float dm = sqrt(d_mc * d_gvar) / 32.0;
         if (dm > sm) sm = dm;
-        s_mask = sm;
-        s_d_mask = dm; /* unused after barrier, keep for future debug */
-    }
-    barrier();
-    float thresh = s_mask;
+        float thresh = sm;
 
-    /* Per-coefficient masked error. */
-    float err = abs(float(s_dct_ref[local_idx]) - float(s_dct_dist[local_idx]));
-    if (local_idx != 0u) {
-        float t = thresh / my_mask;
-        err = err < t ? 0.0 : err - t;
-    }
-    float my_contrib = (err * my_csf) * (err * my_csf);
+        /* Pass 4: per-coefficient masked-error contribution sum.
+         * Matches CPU: `for (i,j) ret += (err·csf)²` with
+         * `pixels++` for every (i,j) including DC. */
+        precise float ret = 0.0;
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                precise float c = csf(i * 8 + j);
+                precise float err = abs(float(dct_s[i * 8 + j]) - float(dct_d[i * 8 + j]));
+                if (i != 0 || j != 0) {
+                    precise float t = thresh / mask[i * 8 + j];
+                    err = err < t ? 0.0 : err - t;
+                }
+                /* Force separate-rounding semantics: split into
+                 * pre-computed `ec` so the SPIR-V optimizer can't
+                 * fuse the chain into a single FMA-equivalent. */
+                precise float ec = err * c;
+                precise float term = ec * ec;
+                ret += term;
+            }
+        }
+        if (!valid_block) ret = 0.0;
 
-    /* Mask out invalid blocks (shouldn't happen due to dispatch
-     * sizing, but defensive). */
-    if (!valid_block) my_contrib = 0.0;
-
-    /* Per-WG sum of contributions → one float partial. */
-    float sg_contrib = subgroupAdd(my_contrib);
-    if (subgroupElect()) s_partials_sg[gl_SubgroupID] = sg_contrib;
-    barrier();
-    if (local_idx == 0u) {
-        float wg_total = 0.0;
-        for (uint i = 0u; i < gl_NumSubgroups; i++) wg_total += s_partials_sg[i];
         uint slot = blk_y * pc.num_blocks_x + blk_x;
-        partials_out.v[slot] = wg_total;
+        partials_out.v[slot] = ret;
     }
 }

@@ -188,11 +188,11 @@ table per plane via specialisation constants.
 ## Verification
 
 - **Empirical**: 48 frames at 576×324 on Intel Arc A380 +
-  Mesa anv vs CPU scalar — `max_abs = 8.2e-5` across all four
-  metrics (`psnr_hvs_y` 8.2e-5, `psnr_hvs_cb` 3.2e-5,
-  `psnr_hvs_cr` 3.8e-5, `psnr_hvs` 7.9e-5), `0/48
-  places=3 mismatches`. Better than the ADR-0188 `places=2`
-  floor — gate is set to `places=3` (threshold 5e-4).
+  Mesa anv vs CPU scalar — `max_abs = 8.3e-5` (Y plane is the
+  worst; `psnr_hvs_cb` 2.9e-5, `psnr_hvs_cr` 3.9e-5,
+  combined `psnr_hvs` 8.0e-5). Gate is set to `places=3`
+  (threshold 5e-4 — comfortably above the empirical floor).
+  Better than ADR-0188's `places=2` target.
 - New CI step `psnr_hvs cross-backend diff (CPU vs
   Vulkan/lavapipe)` in
   `.github/workflows/tests-and-quality-gates.yml` runs at
@@ -204,6 +204,39 @@ table per plane via specialisation constants.
   `float_psnr_hvs_vulkan`) — matches the CPU extractor's
   `psnr_hvs` name without a `float_` prefix, since there is
   no fixed-point variant.
+
+### Why not `places=4`
+
+The 8.3e-5 floor on the Y plane is robust: thread-0-serial
+reduction matching CPU's linear `i,j` summation order, the
+`precise` GLSL qualifier on every per-block float
+accumulator, glslc `-O0` (carved out for this shader only),
+explicit pre-computed multiplication splits to prevent
+SPIR-V FMA fusion, integer-square-before-float-cast for
+`dct² * mask`, and host-side float accumulation matching
+CPU's `ret` register pattern — none of these moved the
+needle. The Cb / Cr planes pass `places=4` (2.9e-5 / 3.9e-5)
+because they have ¼ the block count; Y plane's larger
+cumulative float accumulation amplifies the per-block
+divergence past the `5e-5` threshold.
+
+The likely root cause is fp32 rounding-order divergence
+between Mesa anv and gcc x86_64 at the per-coefficient
+masking stage `err < t ? 0 : err - t`, where `t = s_mask /
+mask[i][j]`. Tiny float drift in `s_mask` makes some
+coefficients flip discretely between masked-to-zero and
+unmasked, producing larger-than-ULP per-block differences
+that cumulate over the Y plane's ~3645 blocks.
+
+Going for tighter would require either (a) fp64 GPU compute
+(Arc lacks native fp64 — software emulation is slow and
+shifts the drift unpredictably), (b) reformulating
+`calc_psnrhvs` to reduce threshold-crossing sensitivity (a
+CPU change with model-correlation risk), or (c) accepting
+that bit-exact CPU↔GPU `psnr_hvs` is infeasible at the
+fp32 precision the algorithm runs at — and `places=3` is a
+correct-and-shipping floor that comfortably gates against
+real algorithmic regressions.
 
 ## References
 

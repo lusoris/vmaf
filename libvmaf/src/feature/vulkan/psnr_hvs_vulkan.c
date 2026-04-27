@@ -459,18 +459,25 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     }
     vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
 
-    /* Per-plane reduction + log10 transform. */
+    /* Per-plane reduction + log10 transform. CPU `calc_psnrhvs`
+     * accumulates `ret` in `float` over per-coefficient contribs
+     * (line 360 of psnr_hvs.c), then `ret /= pixels` (float / int)
+     * and `ret /= samplemax²` (float / int). Match that exactly:
+     * sum the per-block partials in float in block iteration
+     * order, divide by `pixels` (int) and `samplemax_sq` (int)
+     * with implicit promotion. Promoting to double here would
+     * be a more-precise-but-different value, surfacing as ~1e-4
+     * dB drift vs CPU at places=4. */
     double plane_score[PSNR_HVS_NUM_PLANES];
     for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
         const float *partials = vmaf_vulkan_buffer_host(s->partials[p]);
-        double total = 0.0;
+        float ret = 0.0f;
         for (unsigned i = 0; i < s->num_blocks[p]; i++)
-            total += (double)partials[i];
-        /* Match CPU's `pixels` accumulator: incremented per
-         * coefficient inside the inner loop = num_blocks · 64. */
-        const double pixels = (double)s->num_blocks[p] * 64.0;
-        const double samplemax_sq = (double)s->samplemax_sq;
-        plane_score[p] = total / pixels / samplemax_sq;
+            ret += partials[i];
+        const int pixels = (int)(s->num_blocks[p] * 64u);
+        ret /= (float)pixels;
+        ret /= (float)s->samplemax_sq;
+        plane_score[p] = (double)ret;
     }
 
     static const char *plane_features[PSNR_HVS_NUM_PLANES] = {"psnr_hvs_y", "psnr_hvs_cb",
