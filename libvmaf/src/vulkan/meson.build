@@ -80,10 +80,16 @@ endforeach
 # VMA requires C++17 (aligned_alloc); libvmaf's project default is
 # C++11. Compile the VMA implementation TU as its own static lib so
 # the cpp_std override doesn't leak into libvmaf's other C++ TUs.
+# vma_impl.cpp also needs the volk priv-remap so its `vk*` calls bind
+# to volk's `vmaf_priv_vk*` PFN dispatchers (some extension functions
+# like `vkGetPhysicalDeviceMemoryProperties2KHR` aren't exported by
+# libvulkan.so directly — only the loader's dlsym path resolves them).
+# Apply via cpp_args here so it's local to this target.
 vma_impl_lib = static_library(
     'vma_impl',
     'vma_impl.cpp',
     override_options : ['cpp_std=c++17', 'warning_level=0'],
+    cpp_args : ['-include', volk_priv_remap_h_path],
     dependencies : [vulkan_sdk_dep, volk_dep, vma_dep],
     pic : true,
     install : false,
