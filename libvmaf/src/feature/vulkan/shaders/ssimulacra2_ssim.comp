@@ -71,38 +71,58 @@ void process_channel(uint c, uint idx, uint lid, bool in_bounds) {
     float my_det4 = 0.0;
 
     if (in_bounds) {
-        float u1 = mu1.v[cidx];
-        float u2 = mu2.v[cidx];
-        float a11 = s11.v[cidx];
-        float a22 = s22.v[cidx];
-        float a12 = s12.v[cidx];
+        /* `precise` blocks the SPIR-V/driver FMA contractor on the
+         * per-pixel SSIMMap and EdgeDiffMap expressions — CPU port
+         * compiles to discrete FMUL/FADD pairs under -O2 without
+         * -mfma; the GPU has to match exactly or the per-pixel `d`
+         * differs by 1-2 ULP, which compounds across the
+         * w*h-pixel sum into the same drift class as the IIR. */
+        precise float u1 = mu1.v[cidx];
+        precise float u2 = mu2.v[cidx];
+        precise float a11 = s11.v[cidx];
+        precise float a22 = s22.v[cidx];
+        precise float a12 = s12.v[cidx];
 
-        float u11 = u1 * u1;
-        float u22 = u2 * u2;
-        float u12 = u1 * u2;
+        precise float u11 = u1 * u1;
+        precise float u22 = u2 * u2;
+        precise float u12 = u1 * u2;
 
-        float num_m = 1.0 - (u1 - u2) * (u1 - u2);
-        float num_s = 2.0 * (a12 - u12) + kC2;
-        float denom_s = (a11 - u11) + (a22 - u22) + kC2;
+        /* Match CPU expression order: `(mu1 - mu2) * (mu1 - mu2)`
+         * is computed as a single FMul of the difference (no FMA
+         * since the operands are equal) — but we explicitly stage
+         * the diff so the compiler can't reassociate. */
+        precise float dmu = u1 - u2;
+        precise float num_m = 1.0 - dmu * dmu;
+        precise float a12_u12 = a12 - u12;
+        precise float num_s = 2.0 * a12_u12 + kC2;
+        precise float a11_u11 = a11 - u11;
+        precise float a22_u22 = a22 - u22;
+        precise float denom_s_pre = a11_u11 + a22_u22;
+        precise float denom_s = denom_s_pre + kC2;
 
-        float d = 1.0 - (num_m * num_s) / denom_s;
+        precise float num_prod = num_m * num_s;
+        precise float ratio = num_prod / denom_s;
+        precise float d = 1.0 - ratio;
         if (d < 0.0) d = 0.0;
         my_ssim_l1 = d;
-        float d2 = d * d;
+        precise float d2 = d * d;
         my_ssim_l4 = d2 * d2;
 
-        float i1 = img1.v[cidx];
-        float i2 = img2.v[cidx];
-        float ed1 = abs(i1 - u1);
-        float ed2 = abs(i2 - u2);
-        float dd  = (1.0 + ed2) / (1.0 + ed1) - 1.0;
-        float art = max(dd, 0.0);
-        float det = max(-dd, 0.0);
+        precise float i1 = img1.v[cidx];
+        precise float i2 = img2.v[cidx];
+        precise float ed1 = abs(i1 - u1);
+        precise float ed2 = abs(i2 - u2);
+        precise float num_e = 1.0 + ed2;
+        precise float den_e = 1.0 + ed1;
+        precise float ratio_e = num_e / den_e;
+        precise float dd  = ratio_e - 1.0;
+        precise float art = max(dd, 0.0);
+        precise float det = max(-dd, 0.0);
         my_art = art;
-        float art2 = art * art;
+        precise float art2 = art * art;
         my_art4 = art2 * art2;
         my_det = det;
-        float det2 = det * det;
+        precise float det2 = det * det;
         my_det4 = det2 * det2;
     }
 

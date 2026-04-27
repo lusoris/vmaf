@@ -47,17 +47,44 @@ layout(push_constant) uniform Params {
 /* Deterministic cube root (port of vmaf_ss2_cbrtf in
  * libvmaf/src/feature/ssimulacra2_math.h). Bit-trick initial
  * estimate (i/3 + 0x2a5137a0) followed by 2 Newton iterations
- * of f(y) = y^3 - x. Negative inputs return 0. */
-float ss2_cbrtf(float x) {
+ * of f(y) = y^3 - x. Negative inputs return 0.
+ *
+ * `precise` on every intermediate prevents the SPIR-V/driver
+ * compiler from FMA-contracting `2*y + x/(y*y)` (the CPU port
+ * compiles to a separate FMUL/FDIV/FADD pair under -O2 without
+ * -ffast-math, so the GPU must match). Without `precise` lavapipe
+ * (and most hw drivers) emit `OpExtInst Fma` and lose ~3 ULP per
+ * iteration, which compounds across the 6-scale pyramid + IIR
+ * blur + SSIM-stats reductions to a 1.5e-2 pooled-score drift. */
+precise float ss2_cbrtf(float x) {
     if (x <= 0.0)
         return 0.0;
     uint bits = floatBitsToUint(x);
     bits = bits / 3u + 0x2a5137a0u;
-    float y = uintBitsToFloat(bits);
-    y = (2.0 * y + x / (y * y)) * (1.0 / 3.0);
-    y = (2.0 * y + x / (y * y)) * (1.0 / 3.0);
+    precise float y = uintBitsToFloat(bits);
+    /* Explicit per-op staging blocks `a + b*c` → `fma(b, c, a)`
+     * fusion that lavapipe and several Mesa back-ends still emit
+     * even with `precise` on the LHS. Mirrors the CPU port:
+     *   y = (2.0f * y + x / (y * y)) * (1.0f / 3.0f);
+     * which under -O2 (no -mfma) compiles to discrete mul / div /
+     * mul / add / mul ops. */
+    precise float ysq = y * y;
+    precise float quot = x / ysq;
+    precise float two_y = 2.0 * y;
+    precise float sum_iter = two_y + quot;
+    y = sum_iter * (1.0 / 3.0);
+    ysq = y * y;
+    quot = x / ysq;
+    two_y = 2.0 * y;
+    sum_iter = two_y + quot;
+    y = sum_iter * (1.0 / 3.0);
     return y;
 }
+
+/* cbrt of the opsin bias: hoisted out of the per-pixel loop (the
+ * CPU reference computes this once outside `linear_rgb_to_xyb`).
+ * Using a `precise` global initialiser would not be guaranteed by
+ * GLSL, so we compute it inside main() once. */
 
 void main() {
     uint x = gl_GlobalInvocationID.x;
@@ -67,30 +94,58 @@ void main() {
 
     uint idx = y * pc.width + x;
 
-    float r = r_in.v[idx];
-    float g = g_in.v[idx];
-    float b = b_in.v[idx];
+    precise float r = r_in.v[idx];
+    precise float g = g_in.v[idx];
+    precise float b = b_in.v[idx];
 
-    float m01 = 1.0 - kM00 - kM02;
-    float m11 = 1.0 - kM10 - kM12;
-    float m22 = 1.0 - kM20 - kM21;
+    /* Constants inlined from CPU `linear_rgb_to_xyb`. */
+    precise float m01 = 1.0 - kM00 - kM02;
+    precise float m11 = 1.0 - kM10 - kM12;
+    precise float m22 = 1.0 - kM20 - kM21;
 
-    float l = kM00 * r + m01 * g + kM02 * b + kOpsinBias;
-    float m = kM10 * r + m11 * g + kM12 * b + kOpsinBias;
-    float s = kM20 * r + kM21 * g + m22 * b + kOpsinBias;
+    /* Matmul + bias: bracket exactly as the CPU C source so the
+     * SPIR-V optimizer cannot reassociate. CPU expression order is
+     *   l = kM00*r + m01*g + kM02*b + kOpsinBias.
+     * Stage every multiply into its own precise temp so the GLSL
+     * compiler / driver back-end never sees `a + b*c` and cannot
+     * emit `OpExtInst Fma`. (The `precise` qualifier alone is
+     * spec-defined to block FMA contraction, but lavapipe and
+     * several Mesa back-ends still emit FMA on `a + b*c` even
+     * with `precise` on the LHS — splitting the multiply into a
+     * named `precise` temp closes that loophole.) */
+    precise float l_r = kM00 * r;
+    precise float l_g = m01  * g;
+    precise float l_b = kM02 * b;
+    precise float l_rg = l_r + l_g;
+    precise float l_rgb = l_rg + l_b;
+    precise float l = l_rgb + kOpsinBias;
+
+    precise float m_r = kM10 * r;
+    precise float m_g = m11  * g;
+    precise float m_b = kM12 * b;
+    precise float m_rg = m_r + m_g;
+    precise float m_rgb = m_rg + m_b;
+    precise float m = m_rgb + kOpsinBias;
+
+    precise float s_r = kM20 * r;
+    precise float s_g = kM21 * g;
+    precise float s_b = m22  * b;
+    precise float s_rg = s_r + s_g;
+    precise float s_rgb = s_rg + s_b;
+    precise float s = s_rgb + kOpsinBias;
 
     if (l < 0.0) l = 0.0;
     if (m < 0.0) m = 0.0;
     if (s < 0.0) s = 0.0;
 
-    float cbrt_bias = ss2_cbrtf(kOpsinBias);
-    float L = ss2_cbrtf(l) - cbrt_bias;
-    float M = ss2_cbrtf(m) - cbrt_bias;
-    float S = ss2_cbrtf(s) - cbrt_bias;
+    precise float cbrt_bias = ss2_cbrtf(kOpsinBias);
+    precise float L = ss2_cbrtf(l) - cbrt_bias;
+    precise float M = ss2_cbrtf(m) - cbrt_bias;
+    precise float S = ss2_cbrtf(s) - cbrt_bias;
 
-    float X = 0.5 * (L - M);
-    float Y = 0.5 * (L + M);
-    float B = S;
+    precise float X = 0.5 * (L - M);
+    precise float Y = 0.5 * (L + M);
+    precise float B = S;
 
     /* MakePositiveXYB: B uses Y BEFORE Y is offset (matches libjxl). */
     B = (B - Y) + 0.55;

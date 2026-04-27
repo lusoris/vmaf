@@ -52,31 +52,57 @@ layout(push_constant) uniform Params {
     uint  out_offset; /* element offset added to every output write */
 } pc;
 
+/* `precise` on the IIR state + per-step intermediates blocks the
+ * SPIR-V/driver compiler from FMA-contracting
+ *   o = n2 * sum - d1 * prev1 - prev2
+ * The CPU port writes this expression with separate FMUL/FSUB ops
+ * under -O2 without -mfma; the GPU MUST match the same order or
+ * the IIR's pole-tracking error compounds across the radius + the
+ * 6-scale pyramid into the 1.5e-2 range we measured pre-fix.
+ *
+ * Each `o_k` is computed as `(n2_k * sum) - (d1_k * prev1_k) - prev2_k`
+ * with explicit temporaries so the SPIR-V output is
+ *   FMul, FMul, FSub, FSub
+ * instead of `OpExtInst Fma` (which produces a different rounding
+ * step on lavapipe and most hardware ICDs).
+ */
 void main_horiz(uint row) {
     if (row >= pc.height) return;
     int xsize = int(pc.width);
     int N = pc.radius;
 
-    float prev1_0 = 0.0, prev1_1 = 0.0, prev1_2 = 0.0;
-    float prev2_0 = 0.0, prev2_1 = 0.0, prev2_2 = 0.0;
+    precise float prev1_0 = 0.0, prev1_1 = 0.0, prev1_2 = 0.0;
+    precise float prev2_0 = 0.0, prev2_1 = 0.0, prev2_2 = 0.0;
 
     uint in_base  = pc.in_offset  + row * pc.width;
     uint out_base = pc.out_offset + row * pc.width;
     for (int n = -N + 1; n < xsize; ++n) {
         int left  = n - N - 1;
         int right = n + N - 1;
-        float lv = (left  >= 0)     ? in_buf.v[in_base + uint(left)]  : 0.0;
-        float rv = (right < xsize)  ? in_buf.v[in_base + uint(right)] : 0.0;
-        float sum = lv + rv;
+        precise float lv = (left  >= 0)     ? in_buf.v[in_base + uint(left)]  : 0.0;
+        precise float rv = (right < xsize)  ? in_buf.v[in_base + uint(right)] : 0.0;
+        precise float sum = lv + rv;
 
-        float o0 = pc.n2_0 * sum - pc.d1_0 * prev1_0 - prev2_0;
-        float o1 = pc.n2_1 * sum - pc.d1_1 * prev1_1 - prev2_1;
-        float o2 = pc.n2_2 * sum - pc.d1_2 * prev1_2 - prev2_2;
+        /* Match CPU expression `n2*sum - d1*prev1 - prev2` ordering. */
+        precise float ns0 = pc.n2_0 * sum;
+        precise float dp0 = pc.d1_0 * prev1_0;
+        precise float t0  = ns0 - dp0;
+        precise float o0  = t0 - prev2_0;
+        precise float ns1 = pc.n2_1 * sum;
+        precise float dp1 = pc.d1_1 * prev1_1;
+        precise float t1  = ns1 - dp1;
+        precise float o1  = t1 - prev2_1;
+        precise float ns2 = pc.n2_2 * sum;
+        precise float dp2 = pc.d1_2 * prev1_2;
+        precise float t2  = ns2 - dp2;
+        precise float o2  = t2 - prev2_2;
         prev2_0 = prev1_0; prev2_1 = prev1_1; prev2_2 = prev1_2;
         prev1_0 = o0;      prev1_1 = o1;      prev1_2 = o2;
 
         if (n >= 0) {
-            out_buf.v[out_base + uint(n)] = o0 + o1 + o2;
+            precise float s01 = o0 + o1;
+            precise float s_total = s01 + o2;
+            out_buf.v[out_base + uint(n)] = s_total;
         }
     }
 }
@@ -87,24 +113,35 @@ void main_vert(uint col) {
     uint W = pc.width;
     int N = pc.radius;
 
-    float prev1_0 = 0.0, prev1_1 = 0.0, prev1_2 = 0.0;
-    float prev2_0 = 0.0, prev2_1 = 0.0, prev2_2 = 0.0;
+    precise float prev1_0 = 0.0, prev1_1 = 0.0, prev1_2 = 0.0;
+    precise float prev2_0 = 0.0, prev2_1 = 0.0, prev2_2 = 0.0;
 
     for (int n = -N + 1; n < ysize; ++n) {
         int left  = n - N - 1;
         int right = n + N - 1;
-        float lv = (left  >= 0)     ? in_buf.v[pc.in_offset  + uint(left)  * W + col] : 0.0;
-        float rv = (right < ysize)  ? in_buf.v[pc.in_offset  + uint(right) * W + col] : 0.0;
-        float sum = lv + rv;
+        precise float lv = (left  >= 0)     ? in_buf.v[pc.in_offset  + uint(left)  * W + col] : 0.0;
+        precise float rv = (right < ysize)  ? in_buf.v[pc.in_offset  + uint(right) * W + col] : 0.0;
+        precise float sum = lv + rv;
 
-        float o0 = pc.n2_0 * sum - pc.d1_0 * prev1_0 - prev2_0;
-        float o1 = pc.n2_1 * sum - pc.d1_1 * prev1_1 - prev2_1;
-        float o2 = pc.n2_2 * sum - pc.d1_2 * prev1_2 - prev2_2;
+        precise float ns0 = pc.n2_0 * sum;
+        precise float dp0 = pc.d1_0 * prev1_0;
+        precise float t0  = ns0 - dp0;
+        precise float o0  = t0 - prev2_0;
+        precise float ns1 = pc.n2_1 * sum;
+        precise float dp1 = pc.d1_1 * prev1_1;
+        precise float t1  = ns1 - dp1;
+        precise float o1  = t1 - prev2_1;
+        precise float ns2 = pc.n2_2 * sum;
+        precise float dp2 = pc.d1_2 * prev1_2;
+        precise float t2  = ns2 - dp2;
+        precise float o2  = t2 - prev2_2;
         prev2_0 = prev1_0; prev2_1 = prev1_1; prev2_2 = prev1_2;
         prev1_0 = o0;      prev1_1 = o1;      prev1_2 = o2;
 
         if (n >= 0) {
-            out_buf.v[pc.out_offset + uint(n) * W + col] = o0 + o1 + o2;
+            precise float s01 = o0 + o1;
+            precise float s_total = s01 + o2;
+            out_buf.v[pc.out_offset + uint(n) * W + col] = s_total;
         }
     }
 }

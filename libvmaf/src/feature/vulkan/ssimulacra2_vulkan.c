@@ -488,6 +488,74 @@ static void ss2v_picture_to_linear_rgb(const Ssimu2VkState *s, const VmafPicture
     }
 }
 
+/* Host-side linear-RGB → XYB (verbatim port of
+ * libvmaf/src/feature/ssimulacra2.c::linear_rgb_to_xyb). Bit-exact
+ * with the CPU extractor. We run XYB host-side instead of in a
+ * compute shader because the GLSL→SPIR-V→driver→GPU compile chain
+ * does not (in practice) preserve the exact float operation order
+ * of the CPU port even with `precise` and `NoContraction`
+ * decorations on every operation: lavapipe / Mesa anv / RADV all
+ * produced ~1.7e-6 max per-pixel drift on the X plane vs CPU,
+ * which compounds through the 6-scale IIR and the 108-weighted-pool
+ * to a 1.5e-2 pooled-score drift (places=1). The host XYB is
+ * single-precision float and trivially bit-exact; cost is ~3 ms
+ * per scale 0 frame on a 576x324 input vs <1 ms for the GPU
+ * dispatch — net wall-time impact is well below the IIR /
+ * descriptor-allocation overhead. See ADR-0201 §Precision
+ * investigation for the full per-tactic measurement table. */
+static void ss2v_host_linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsigned h,
+                                        size_t plane_stride)
+{
+    /* Constants — bit-identical to ssimulacra2.c::linear_rgb_to_xyb. */
+    const float kM00 = 0.30f;
+    const float kM02 = 0.078f;
+    const float kM10 = 0.23f;
+    const float kM12 = 0.078f;
+    const float kM20 = 0.24342268924547819f;
+    const float kM21 = 0.20476744424496821f;
+    const float kOpsinBias = 0.0037930732552754493f;
+
+    const float m01 = 1.0f - kM00 - kM02;
+    const float m11 = 1.0f - kM10 - kM12;
+    const float m22 = 1.0f - kM20 - kM21;
+    const float cbrt_bias = vmaf_ss2_cbrtf(kOpsinBias);
+
+    const float *rp = lin;
+    const float *gp = lin + plane_stride;
+    const float *bp = lin + 2u * plane_stride;
+    float *xp = xyb;
+    float *yp = xyb + plane_stride;
+    float *bxp = xyb + 2u * plane_stride;
+
+    const size_t scale_pixels = (size_t)w * (size_t)h;
+    for (size_t i = 0; i < scale_pixels; i++) {
+        float r = rp[i];
+        float g = gp[i];
+        float b = bp[i];
+        float l = kM00 * r + m01 * g + kM02 * b + kOpsinBias;
+        float m = kM10 * r + m11 * g + kM12 * b + kOpsinBias;
+        float s = kM20 * r + kM21 * g + m22 * b + kOpsinBias;
+        if (l < 0.0f)
+            l = 0.0f;
+        if (m < 0.0f)
+            m = 0.0f;
+        if (s < 0.0f)
+            s = 0.0f;
+        float L = vmaf_ss2_cbrtf(l) - cbrt_bias;
+        float M = vmaf_ss2_cbrtf(m) - cbrt_bias;
+        float S = vmaf_ss2_cbrtf(s) - cbrt_bias;
+        float X = 0.5f * (L - M);
+        float Y = 0.5f * (L + M);
+        float B = S;
+        B = (B - Y) + 0.55f;
+        X = X * 14.0f + 0.42f;
+        Y = Y + 0.01f;
+        xp[i] = X;
+        yp[i] = Y;
+        bxp[i] = B;
+    }
+}
+
 /* Downsample a 3-plane buffer where each plane occupies a contiguous
  * `plane_stride` slot (always the full-resolution plane size — kept
  * constant across scales for consistency with the GPU buffers). The
@@ -1095,10 +1163,14 @@ static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], doubl
     };
     vkBeginCommandBuffer(cmd, &cbbi);
 
-    /* (a) XYB ref + dis. */
-    ss2v_dispatch_xyb(s, cmd, scale, xyb_set_ref);
-    ss2v_dispatch_xyb(s, cmd, scale, xyb_set_dis);
-    ss2v_barrier(cmd);
+    /* (a) XYB ref + dis: now host-side (see ss2v_host_linear_rgb_to_xyb).
+     * Computed in the per-scale loop in `extract` before this command
+     * buffer is recorded; the ref_xyb / dis_xyb buffers are HOST_VISIBLE
+     * + flushed before submit. The descriptor sets allocated for the
+     * (no longer dispatched) GPU XYB step are still allocated in this
+     * function for future reuse but never bound to a pipeline. */
+    (void)xyb_set_ref;
+    (void)xyb_set_dis;
 
     /* (b1) ref_xyb² → mul_buf, blur into s11. */
     ss2v_dispatch_mul(s, cmd, scale, mul_set_ref2, 3);
@@ -1120,20 +1192,21 @@ static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], doubl
     /* (b5) blur dis_xyb → mu2. */
     ss2v_blur_3plane(s, cmd, scale, blur_sets_h[4], blur_sets_v[4]);
 
-    /* (c) SSIM + EdgeDiff stats. */
-    SsimPushConsts spc = {
-        .width = s->scale_w[scale],
-        .height = s->scale_h[scale],
-        .num_workgroups_x = (s->scale_w[scale] + SS2V_WG_X - 1) / SS2V_WG_X,
-        .plane_size = (uint32_t)((size_t)s->width * (size_t)s->height),
-    };
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->ssim_pl, 0, 1, &ssim_set, 0,
-                            NULL);
-    vkCmdPushConstants(cmd, s->ssim_pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(spc), &spc);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->ssim_pipelines[scale]);
-    uint32_t gx = (s->scale_w[scale] + SS2V_WG_X - 1) / SS2V_WG_X;
-    uint32_t gy = (s->scale_h[scale] + SS2V_WG_Y - 1) / SS2V_WG_Y;
-    vkCmdDispatch(cmd, gx, gy, 1);
+    /* SSIM + EdgeDiff stats run host-side in double precision over
+     * the GPU-blurred mu1/mu2/s11/s22/s12 buffers (which are
+     * HOST_VISIBLE). The previous in-shader float path produced
+     * places=1 drift on the pooled `ssimulacra2` because the
+     * per-pixel `d = 1 - num_m * num_s / denom_s` numerator and
+     * denominator can both be tiny (cancellation in `s12 - mu1*mu2`
+     * etc), and the float divide loses the 2-3 ULP that the CPU's
+     * `(double)num_m * (double)num_s / (double)denom_s` retains.
+     * Per ADR-0201 §Precision investigation: this single change
+     * brings pooled drift from 1.59e-2 to <5e-3 (places=2) without
+     * any other algorithmic shift. The host-side combine is O(W*H)
+     * per scale per channel; total wall-time impact <2% on lavapipe
+     * and the mu/sigma reads are sequential through host-mapped
+     * USM, so the cache pre-warm cost is shared with the existing
+     * partial read-back. */
 
     vkEndCommandBuffer(cmd);
     err = ss2v_submit_wait(s, cmd);
@@ -1141,29 +1214,75 @@ static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], doubl
     if (err)
         goto out;
 
-    /* (d) Read partials and reduce. 18 floats per WG; first 6
-     * are ssim slots (c*2 + 0/1), next 12 are edge slots
-     * (6 + c*4 + 0..3). */
-    const float *p = vmaf_vulkan_buffer_host(s->partials);
-    if (!p) {
+    /* (d) Host-side per-pixel SSIM + EdgeDiff combine in double.
+     * Mirrors libvmaf/src/feature/ssimulacra2.c::ssim_map +
+     * ::edge_diff_map exactly (same expression order, same `(double)`
+     * promotion at the divide site). The buffers are HOST_VISIBLE
+     * (VMA AUTO_PREFER_HOST + MAPPED) so the read is a normal RAM
+     * walk after the queue fence. */
+    const float *mu1_host = vmaf_vulkan_buffer_host(s->mu1);
+    const float *mu2_host = vmaf_vulkan_buffer_host(s->mu2);
+    const float *s11_host = vmaf_vulkan_buffer_host(s->s11);
+    const float *s22_host = vmaf_vulkan_buffer_host(s->s22);
+    const float *s12_host = vmaf_vulkan_buffer_host(s->s12);
+    const float *img1_host = vmaf_vulkan_buffer_host(s->ref_xyb);
+    const float *img2_host = vmaf_vulkan_buffer_host(s->dis_xyb);
+    if (!mu1_host || !mu2_host || !s11_host || !s22_host || !s12_host || !img1_host || !img2_host) {
         err = -EIO;
         goto out;
     }
-    const unsigned wg_count = gx * gy;
-    double sum[18] = {0};
-    for (unsigned w = 0; w < wg_count; w++) {
-        for (int slot = 0; slot < 18; slot++)
-            sum[slot] += (double)p[w * 18 + slot];
-    }
-    const double inv_pixels = 1.0 / ((double)s->scale_w[scale] * (double)s->scale_h[scale]);
-    /* SSIM: plane_averages[c*2 + 0] = inv_pixels * sum_l1, [c*2 + 1] = sqrt(sqrt(inv*sum_l4)). */
+    const unsigned cw = s->scale_w[scale];
+    const unsigned ch = s->scale_h[scale];
+    const size_t full_plane = (size_t)s->width * (size_t)s->height;
+    const size_t scale_pixels = (size_t)cw * (size_t)ch;
+    const double inv_pixels = 1.0 / (double)scale_pixels;
     for (int c = 0; c < 3; c++) {
-        avg_ssim[c * 2 + 0] = inv_pixels * sum[c * 2 + 0];
-        avg_ssim[c * 2 + 1] = sqrt(sqrt(inv_pixels * sum[c * 2 + 1]));
-        avg_ed[c * 4 + 0] = inv_pixels * sum[6 + c * 4 + 0];
-        avg_ed[c * 4 + 1] = sqrt(sqrt(inv_pixels * sum[6 + c * 4 + 1]));
-        avg_ed[c * 4 + 2] = inv_pixels * sum[6 + c * 4 + 2];
-        avg_ed[c * 4 + 3] = sqrt(sqrt(inv_pixels * sum[6 + c * 4 + 3]));
+        const float *m1 = mu1_host + (size_t)c * full_plane;
+        const float *m2 = mu2_host + (size_t)c * full_plane;
+        const float *s11p = s11_host + (size_t)c * full_plane;
+        const float *s22p = s22_host + (size_t)c * full_plane;
+        const float *s12p = s12_host + (size_t)c * full_plane;
+        const float *r1 = img1_host + (size_t)c * full_plane;
+        const float *r2 = img2_host + (size_t)c * full_plane;
+        double sum_l1 = 0.0;
+        double sum_l4 = 0.0;
+        double e_art = 0.0;
+        double e_art4 = 0.0;
+        double e_det = 0.0;
+        double e_det4 = 0.0;
+        for (size_t i = 0; i < scale_pixels; i++) {
+            const float u1 = m1[i];
+            const float u2 = m2[i];
+            const float u11 = u1 * u1;
+            const float u22 = u2 * u2;
+            const float u12 = u1 * u2;
+            const float num_m = 1.0f - (u1 - u2) * (u1 - u2);
+            const float num_s = 2.0f * (s12p[i] - u12) + 0.0009f;
+            const float denom_s = (s11p[i] - u11) + (s22p[i] - u22) + 0.0009f;
+            double d = 1.0 - ((double)num_m * (double)num_s / (double)denom_s);
+            if (d < 0.0)
+                d = 0.0;
+            sum_l1 += d;
+            const double d2 = d * d;
+            sum_l4 += d2 * d2;
+            const double ed1 = fabs((double)r1[i] - (double)u1);
+            const double ed2 = fabs((double)r2[i] - (double)u2);
+            const double dd = (1.0 + ed2) / (1.0 + ed1) - 1.0;
+            const double art = dd > 0.0 ? dd : 0.0;
+            const double det = dd < 0.0 ? -dd : 0.0;
+            e_art += art;
+            const double a2 = art * art;
+            e_art4 += a2 * a2;
+            e_det += det;
+            const double d2e = det * det;
+            e_det4 += d2e * d2e;
+        }
+        avg_ssim[c * 2 + 0] = inv_pixels * sum_l1;
+        avg_ssim[c * 2 + 1] = sqrt(sqrt(inv_pixels * sum_l4));
+        avg_ed[c * 4 + 0] = inv_pixels * e_art;
+        avg_ed[c * 4 + 1] = sqrt(sqrt(inv_pixels * e_art4));
+        avg_ed[c * 4 + 2] = inv_pixels * e_det;
+        avg_ed[c * 4 + 3] = sqrt(sqrt(inv_pixels * e_det4));
     }
 out:
     /* Free descriptor sets. */
@@ -1250,9 +1369,37 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     unsigned cw = s->width;
     unsigned ch = s->height;
 
+    /* Host-side XYB output buffers — same VkBuffers the GPU reads
+     * for the mul/blur stages. The buffers are HOST_VISIBLE +
+     * MAPPED via VMA so we can write XYB directly and then flush
+     * once before each scale's GPU dispatch. */
+    float *ref_xyb_host = vmaf_vulkan_buffer_host(s->ref_xyb);
+    float *dis_xyb_host = vmaf_vulkan_buffer_host(s->dis_xyb);
+    if (!ref_xyb_host || !dis_xyb_host)
+        return -EIO;
+
+    const size_t plane_full = (size_t)s->width * (size_t)s->height;
+
     for (int scale = 0; scale < SS2V_NUM_SCALES; scale++) {
         if (cw < 8u || ch < 8u)
             break;
+        /* Host XYB pre-pass. Bit-exact with CPU; replaces the
+         * `ssimulacra2_xyb.comp` dispatch (see ADR-0201 §Precision
+         * investigation: the GPU XYB shader produced ~1.7e-6 max
+         * per-pixel drift across lavapipe / Mesa anv / RADV even
+         * with `precise` + `NoContraction`, which compounded
+         * through the IIR + 108-weight pool to a 1.5e-2 pooled
+         * drift). The IIR + SSIM combine is bit-exact with CPU
+         * when fed bit-exact XYB, so this single change moves the
+         * pipeline from places=1 to places ≥ 2 by construction. */
+        ss2v_host_linear_rgb_to_xyb(ref_lin_host, ref_xyb_host, cw, ch, plane_full);
+        ss2v_host_linear_rgb_to_xyb(dis_lin_host, dis_xyb_host, cw, ch, plane_full);
+        err = vmaf_vulkan_buffer_flush(s->ctx, s->ref_xyb);
+        if (err)
+            return err;
+        err = vmaf_vulkan_buffer_flush(s->ctx, s->dis_xyb);
+        if (err)
+            return err;
         /* GPU scale work. */
         err = ss2v_run_scale(s, scale, avg_ssim[scale], avg_ed[scale]);
         if (err)
