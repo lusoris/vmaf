@@ -73,6 +73,11 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "float_moment_ref2nd",
         "float_moment_dis2nd",
     ),
+    # GPU long-tail batch 1c (T7-23 / ADR-0182 / ADR-0187):
+    # ciede2000 ΔE. The CPU extractor is registered as `ciede`; the
+    # GPU twin is `ciede_vulkan` (etc.). Per-pixel transcendentals
+    # (pow / sqrt / sin / atan2) — places=2 contract, NOT bit-exact.
+    "ciede": ("ciede2000",),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the
