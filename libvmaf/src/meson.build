@@ -447,6 +447,7 @@ if is_cuda_enabled
         'float_ansnr_score' : [feature_src_dir + 'cuda/float_ansnr/float_ansnr_score.cu'],
         'float_psnr_score' : [feature_src_dir + 'cuda/float_psnr/float_psnr_score.cu'],
         'float_motion_score' : [feature_src_dir + 'cuda/float_motion/float_motion_score.cu'],
+        'float_vif_score' : [feature_src_dir + 'cuda/float_vif/float_vif_score.cu'],
     }
     message(cuda_cu_sources)
     cuda_sources = [
@@ -869,6 +870,7 @@ if is_cuda_enabled
         feature_src_dir + 'cuda/float_ansnr_cuda.c',
         feature_src_dir + 'cuda/float_psnr_cuda.c',
         feature_src_dir + 'cuda/float_motion_cuda.c',
+        feature_src_dir + 'cuda/float_vif_cuda.c',
     ]
 endif
 
@@ -884,6 +886,7 @@ if is_sycl_enabled
         feature_src_dir + 'sycl/float_ansnr_sycl.cpp',
         feature_src_dir + 'sycl/float_psnr_sycl.cpp',
         feature_src_dir + 'sycl/float_motion_sycl.cpp',
+        feature_src_dir + 'sycl/float_vif_sycl.cpp',
         feature_src_dir + 'sycl/integer_psnr_sycl.cpp',
         feature_src_dir + 'sycl/integer_moment_sycl.cpp',
         feature_src_dir + 'sycl/integer_ciede_sycl.cpp',

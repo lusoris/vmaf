@@ -64,6 +64,7 @@ extern VmafFeatureExtractor vmaf_fex_psnr_hvs_cuda;
 extern VmafFeatureExtractor vmaf_fex_float_ansnr_cuda;
 extern VmafFeatureExtractor vmaf_fex_float_psnr_cuda;
 extern VmafFeatureExtractor vmaf_fex_float_motion_cuda;
+extern VmafFeatureExtractor vmaf_fex_float_vif_cuda;
 #endif
 #if HAVE_SYCL
 extern VmafFeatureExtractor vmaf_fex_integer_vif_sycl;
@@ -79,6 +80,7 @@ extern VmafFeatureExtractor vmaf_fex_psnr_hvs_sycl;
 extern VmafFeatureExtractor vmaf_fex_float_ansnr_sycl;
 extern VmafFeatureExtractor vmaf_fex_float_psnr_sycl;
 extern VmafFeatureExtractor vmaf_fex_float_motion_sycl;
+extern VmafFeatureExtractor vmaf_fex_float_vif_sycl;
 #endif
 #if HAVE_VULKAN
 extern VmafFeatureExtractor vmaf_fex_integer_vif_vulkan;
@@ -94,6 +96,7 @@ extern VmafFeatureExtractor vmaf_fex_psnr_hvs_vulkan;
 extern VmafFeatureExtractor vmaf_fex_float_ansnr_vulkan;
 extern VmafFeatureExtractor vmaf_fex_float_psnr_vulkan;
 extern VmafFeatureExtractor vmaf_fex_float_motion_vulkan;
+extern VmafFeatureExtractor vmaf_fex_float_vif_vulkan;
 #endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_null;
@@ -117,6 +120,7 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_psnr_hvs_sycl, &vmaf_fex_psnr_sycl, &vmaf_fex_float_moment_sycl, &vmaf_fex_ciede_sycl,
     &vmaf_fex_float_ssim_sycl, &vmaf_fex_float_ms_ssim_sycl, &vmaf_fex_psnr_hvs_sycl,
     &vmaf_fex_float_ansnr_sycl, &vmaf_fex_float_psnr_sycl, &vmaf_fex_float_motion_sycl,
+    &vmaf_fex_float_vif_sycl,
 #endif
 #if HAVE_VULKAN
     /* Vulkan is registered AFTER SYCL/CUDA — those backends remain
@@ -139,6 +143,10 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_integer_motion_vulkan, &vmaf_fex_integer_adm_vulkan, &vmaf_fex_psnr_vulkan,
     &vmaf_fex_float_moment_vulkan, &vmaf_fex_ciede_vulkan, &vmaf_fex_float_ssim_vulkan,
     &vmaf_fex_float_ms_ssim_vulkan, &vmaf_fex_psnr_hvs_vulkan, &vmaf_fex_float_motion_vulkan,
+    &vmaf_fex_float_ms_ssim_vulkan, &vmaf_fex_psnr_hvs_vulkan, &vmaf_fex_integer_vif_vulkan,
+    &vmaf_fex_integer_motion_vulkan, &vmaf_fex_integer_adm_vulkan, &vmaf_fex_psnr_vulkan,
+    &vmaf_fex_float_moment_vulkan, &vmaf_fex_ciede_vulkan, &vmaf_fex_float_ssim_vulkan,
+    &vmaf_fex_float_ms_ssim_vulkan, &vmaf_fex_psnr_hvs_vulkan, &vmaf_fex_float_vif_vulkan,
 #endif
 #if HAVE_CUDA
     &vmaf_fex_integer_adm_cuda, &vmaf_fex_integer_vif_cuda, &vmaf_fex_integer_motion_cuda,
@@ -147,6 +155,7 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_psnr_hvs_cuda, &vmaf_fex_psnr_cuda, &vmaf_fex_float_moment_cuda, &vmaf_fex_ciede_cuda,
     &vmaf_fex_float_ssim_cuda, &vmaf_fex_float_ms_ssim_cuda, &vmaf_fex_psnr_hvs_cuda,
     &vmaf_fex_float_ansnr_cuda, &vmaf_fex_float_psnr_cuda, &vmaf_fex_float_motion_cuda,
+    &vmaf_fex_float_vif_cuda,
 #endif
     &vmaf_fex_lpips, &vmaf_fex_null, NULL};
 

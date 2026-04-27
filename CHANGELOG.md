@@ -267,6 +267,34 @@
   [`float_motion_cuda.{c,h}`](libvmaf/src/feature/cuda/float_motion_cuda.c),
   [`float_motion_sycl.cpp`](libvmaf/src/feature/sycl/float_motion_sycl.cpp).
   New `float_motion` lavapipe gate step + `FEATURE_METRICS` entry.
+- **GPU long-tail batch 3 part 5 — `float_vif_{vulkan,cuda,sycl}`
+  extractors (T7-23 / ADR-0192 / ADR-0197)** (fork-local): third
+  Group B float twin from ADR-0192. 4-scale Gaussian pyramid with
+  separable `{17, 9, 5, 3}`-tap filters at the default
+  `vif_kernelscale = 1.0` (other kernelscale values rejected at
+  init for v1 — production uses 1.0 exclusively). 7 dispatches per
+  frame (4 compute + 3 decimate). CPU's `VIF_OPT_HANDLE_BORDERS`
+  branch: per-scale dims = prev/2 (no border crop), decimation
+  samples at `(2*gx, 2*gy)` with mirror padding handling taps near
+  the edge. **Mirror-asymmetry fix:** CPU has two H-mirror formulas
+  that differ by 1 —
+  [`vif_mirror_tap_h`](libvmaf/src/feature/vif_tools.c) returns
+  `2 * extent - idx - 1` (scalar fallback only), while
+  [`convolution_edge_s`](libvmaf/src/feature/common/convolution_internal.h)
+  returns `2 * width - idx - 2` (AVX2 production border path). The
+  GPU follows the AVX2 form because that's what production runs;
+  using scalar's form drifted `5.46e-4` at scale 1, the AVX2 form
+  closes that to `1.4e-5`. **places=4 across all 4 scales,
+  identical numbers across all three backends** (`1e-6 / 1.4e-5
+  / 1.8e-5 / 3.7e-5` at 8-bit, tighter at 10-bit on Intel Arc A380,
+  Mesa anv, NVIDIA RTX 4090, oneAPI 2025.3). New
+  [`shaders/float_vif.comp`](libvmaf/src/feature/vulkan/shaders/float_vif.comp),
+  [`float_vif_vulkan.c`](libvmaf/src/feature/vulkan/float_vif_vulkan.c),
+  [`float_vif/float_vif_score.cu`](libvmaf/src/feature/cuda/float_vif/float_vif_score.cu),
+  [`float_vif_cuda.{c,h}`](libvmaf/src/feature/cuda/float_vif_cuda.c),
+  [`float_vif_sycl.cpp`](libvmaf/src/feature/sycl/float_vif_sycl.cpp).
+  New `float_vif` lavapipe gate step + `FEATURE_METRICS` entry at
+  places=4.
 
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**
