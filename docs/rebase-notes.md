@@ -3191,3 +3191,39 @@ inline.*
   ```
 
   CI runs this same sequence via the new matrix row.
+
+### 0058 — Tiny-AI Netflix corpus training scaffold (ADR-0199)
+
+- **ADR**: [ADR-0199](adr/0199-tiny-ai-netflix-training-corpus.md).
+- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI training
+  harness or MCP server.
+- **Touches**:
+  - [`ai/`](../ai/) — training harness; `NflxLocalDataset` loader reads
+    from `--data-root` (never from a hardcoded path).
+  - [`docs/ai/training-data.md`](ai/training-data.md) — corpus path
+    convention and loader API docs; purely additive.
+  - [`mcp-server/vmaf-mcp/tests/test_smoke_e2e.py`](../mcp-server/vmaf-mcp/tests/test_smoke_e2e.py)
+    — new e2e smoke test; references only committed golden fixtures.
+- **Invariants** (load-bearing):
+  1. **Data path is local-only.** `.workingdir2/netflix/` is gitignored;
+     no YUV from this corpus is ever committed. The `--data-root` CLI
+     flag must remain the sole mechanism for locating the corpus.
+  2. **Smoke test uses only committed fixtures.** `test_smoke_e2e.py`
+     references `python/test/resource/yuv/src01_hrc00_576x324.yuv` (a
+     committed golden file), never the local corpus path. On upstream
+     sync the golden YUV path must stay stable.
+  3. **No Netflix golden assertion is modified.** The `places=4` tolerance
+     in `test_smoke_e2e.py` asserts against the `vmaf_v0.6.1` CPU
+     reference; it is not a golden assertion and may be adjusted by
+     `/regen-snapshots` with justification.
+- **On upstream sync**: zero interaction with Netflix upstream. The `ai/`
+  subtree and `mcp-server/` are wholly fork-local; upstream merges are
+  conflict-free here. If Netflix ever ships a training harness, reconcile
+  separately.
+- **Re-test on rebase**:
+
+  ```bash
+  cd mcp-server/vmaf-mcp && python -m pytest tests/test_smoke_e2e.py -v
+  # Requires: meson compile -C build (vmaf binary)
+  # Skips automatically if binary or golden YUV is absent.
+  ```

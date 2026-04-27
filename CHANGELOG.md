@@ -295,6 +295,18 @@
   [`float_vif_sycl.cpp`](libvmaf/src/feature/sycl/float_vif_sycl.cpp).
   New `float_vif` lavapipe gate step + `FEATURE_METRICS` entry at
   places=4.
+- **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0199)**
+  (fork-local): scaffold-only PR preparing the tiny-AI training pipeline for
+  the local Netflix VMAF corpus (9 ref / 70 distorted YUVs at
+  `.workingdir2/netflix/`). Ships `docs/ai/training-data.md` with the corpus
+  path convention and `--data-root` loader API; `docs/adr/0199-*.md` with
+  the architecture-choice space and distillation-vs-from-scratch alternatives
+  table; `docs/research/0019-tiny-ai-netflix-training.md` surveying VMAF
+  training methodology and distillation literature; and an MCP end-to-end
+  smoke test (`mcp-server/vmaf-mcp/tests/test_smoke_e2e.py`) that exercises
+  the `vmaf_score` JSON-RPC tool against the Netflix golden fixture. No
+  training runs; no Netflix golden assertions modified. Follow-up PR will
+  select architecture and run training.
 
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**
