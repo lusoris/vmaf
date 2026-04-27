@@ -30,6 +30,7 @@ vulkan_shader_sources = [
     'shaders/psnr.comp',
     'shaders/moment.comp',
     'shaders/ciede.comp',
+    'shaders/ssim.comp',
 ]
 
 vulkan_shader_headers = []
@@ -73,6 +74,7 @@ vulkan_sources += files(
     '../feature/vulkan/psnr_vulkan.c',
     '../feature/vulkan/moment_vulkan.c',
     '../feature/vulkan/ciede_vulkan.c',
+    '../feature/vulkan/ssim_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers
