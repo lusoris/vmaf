@@ -41,6 +41,7 @@ _Bugs closed in the last ~90 days. Older entries roll off into
 
 | Bug | Closed by | ADR | Verification |
 |---|---|---|---|
+| volk / `vk*` symbol clash in BtbN-style fully-static FFmpeg builds (lawrence repro 2026-04-27) | this PR | [ADR-0198](adr/0198-volk-priv-remap-static-archive.md) | Static `nm libvmaf.a` reports 0 GLOBAL `vk*` (was ~700); BtbN-style `gcc -static main.c libvmaf.a libvulkan-stub.a` link succeeds; `test_vulkan_smoke` 10/10 pass |
 | Netflix#755 — `vmaf_score_pooled` interleaves with `vmaf_read_pictures` | #91 `9b983e0a` (2026-04-24) | [ADR-0154](adr/0154-score-pooled-eagain.md) | API contract test + Netflix golden gate (CPU bit-identical) |
 | Netflix#910 — out-of-order flush misses last frame | #88 `f478c65d` (2026-04-24) | [ADR-0152](adr/0152-monotonic-index-rejection.md) | Regression test rejects non-monotonic indices with `-EINVAL` |
 | Netflix#1414 — `float_ms_ssim` broken at <176×176 | #90 `7905ac78` (2026-04-24) | [ADR-0153](adr/0153-float-ms-ssim-min-size.md) | Init-time rejection with `-EINVAL` + regression test |

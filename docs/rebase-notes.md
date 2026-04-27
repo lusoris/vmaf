@@ -2289,6 +2289,56 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0057 — Volk `vk*` priv-remap for static-archive builds (ADR-0198)
+
+- **ADR**: [ADR-0198](adr/0198-volk-priv-remap-static-archive.md);
+  follow-up to [ADR-0185](adr/0185-vulkan-hide-volk-symbols.md).
+- **Upstream source**: fork-local. Netflix/vmaf has no Vulkan
+  backend.
+- **Touches**:
+  - [`libvmaf/subprojects/packagefiles/volk/meson.build`](../libvmaf/subprojects/packagefiles/volk/meson.build)
+    — overlay applied on top of the upstream volk wrap. Adds a
+    `custom_target` that runs `gen_priv_remap.py` to produce
+    `volk_priv_remap.h` from the upstream `volk.h`, and wires
+    `-include` of the generated header into `volk.c`'s `c_args`
+    and `volk_dep`'s `compile_args`.
+  - [`libvmaf/subprojects/packagefiles/volk/gen_priv_remap.py`](../libvmaf/subprojects/packagefiles/volk/gen_priv_remap.py)
+    — fork-added generator script (regex against
+    `extern PFN_vkXxx vkXxx;` declarations).
+- **Invariants** (load-bearing):
+  1. **Force-include must propagate to every libvmaf TU pulling in
+     `volk_dep`** — verified via meson dep graph. Removing the
+     `-include` from `compile_args` re-introduces the static-link
+     multi-def cascade.
+  2. **Generator regex matches every `vk*` PFN declaration in
+     `volk.h`** — confirmed for volk-1.4.341 (`784` declarations,
+     `784` remaps). Bumping the volk wrap version: re-run the
+     generator (it's a configure-time custom target, so it's
+     automatic) and confirm the rename count printed to stdout
+     matches the count of `^extern PFN_vk` lines in the new
+     `volk.h`.
+  3. **The renamed symbols use the `vmaf_priv_` prefix** — chosen
+     to match no upstream Netflix or Vulkan SDK identifier. Don't
+     rename to `_vk*` (collides with reserved-identifier C
+     namespace) or `vkv_*` etc.
+- **On upstream sync**: zero upstream interaction. The volk wrap
+  is a libvmaf-managed subproject; Netflix doesn't ship a Vulkan
+  backend.
+- **Re-test on rebase / after any volk wrap bump**:
+
+  ```bash
+  meson setup build-vk-static libvmaf -Denable_vulkan=enabled \
+      -Denable_cuda=false -Denable_sycl=false \
+      -Ddefault_library=static
+  ninja -C build-vk-static src/libvmaf.a
+  test "$(nm build-vk-static/src/libvmaf.a 2>/dev/null \
+            | grep -cE '^[0-9a-f]* (T|D|B|R) vk[A-Z]')" = "0" \
+      && echo OK
+  ```
+
+  (Followed by the BtbN-style link reproducer in the ADR
+  References section.)
+
 ### 0056 — SSIMULACRA 2 snapshot gate + fp-contract-off split (ADR-0164)
 
 - **ADR**: [ADR-0164](adr/0164-ssimulacra2-snapshot-gate.md)

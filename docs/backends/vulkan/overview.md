@@ -112,6 +112,19 @@ for Intel anv / NVIDIA's proprietary stack / etc.).
 The `volk` and `VulkanMemoryAllocator` (VMA) submodules are pulled
 via Meson wrap files; no system install required.
 
+### Static-archive builds (BtbN-style fully-static FFmpeg)
+
+When libvmaf is built with `default_library=static -Denable_vulkan=enabled`,
+volk's `vk*` PFN dispatchers are renamed to `vmaf_priv_vk*` at the C
+preprocessor level via a force-included header
+([`subprojects/packagefiles/volk/gen_priv_remap.py`](../../../libvmaf/subprojects/packagefiles/volk/gen_priv_remap.py)).
+The rename lets `libvmaf.a` coexist with the Khronos `libvulkan.a`
+in a fully-static link line (`gcc -static main.o libvmaf.a libvulkan.a
+-ldl`) without GNU-ld multi-definition errors. See
+[ADR-0185](../../adr/0185-vulkan-hide-volk-symbols.md) (shared case) +
+[ADR-0198](../../adr/0198-volk-priv-remap-static-archive.md)
+(static case).
+
 ## Using
 
 ```bash
