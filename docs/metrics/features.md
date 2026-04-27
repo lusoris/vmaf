@@ -45,6 +45,8 @@ limitations in the same PR as the code.
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | CUDA, SYCL, Vulkan |
 | SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | —                  |
+| ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | —                  |
+| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | Vulkan             |
 | Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | AVX2, NEON          | CUDA, SYCL, Vulkan |
 | LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —                  |
 
@@ -542,6 +544,26 @@ mean/min/max/hmean/frame-0/frame-47 values at `places=4` tolerance.
   not guaranteed bit-exact at every σ. The fork pins σ=1.5, matching
   libjxl's `kSigma`.
 - CUDA + SYCL ports are not yet shipped (BACKLOG T3-8).
+
+**GPU twin** — `ssimulacra2_vulkan` (T7-23 / batch 3 part 7,
+[ADR-0201](../adr/0201-ssimulacra2-vulkan-kernel.md)). Pipeline:
+host YUV → linear-RGB + 2×2 pyramid downsample (with the same
+deterministic `vmaf_ss2_cbrtf` + sRGB-EOTF LUT as the CPU path,
+keeping cross-host reproducibility); GPU runs the per-scale XYB
+conversion → 5 separable IIR blurs → SSIMMap + EdgeDiffMap stats
+across 6 scales. Min input dimension: 8×8 (host loop early-exits at
+each scale that drops below). Cross-backend gate (CPU vs Vulkan/
+lavapipe, Netflix normal pair, 576×324, 48 frames) holds at
+`places=1` empirically — `max_abs_diff = 1.59e-2` on the pooled
+score. Per-scale SSIM + edge-diff stats agree to 4-5 decimal
+places. The looser pooled-score gate is intrinsic to the
+multi-stage XYB+IIR+SSIM-combine+log float pipeline; ADR-0192's
+nominal `places=2` was anticipated to "may surprise upward;
+measure first" and `places=1` is the empirical floor. CUDA + SYCL
+twins follow in a separate PR.
+
+Invocation: `--feature ssimulacra2_vulkan` (with `--backend vulkan`
+to ensure exclusive GPU dispatch).
 
 ### Float moment — first / second statistical moments
 

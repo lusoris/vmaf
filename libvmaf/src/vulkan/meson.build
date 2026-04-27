@@ -58,6 +58,10 @@ vulkan_shader_sources = [
     'shaders/float_motion.comp',
     'shaders/float_vif.comp',
     'shaders/float_adm.comp',
+    'shaders/ssimulacra2_xyb.comp',
+    'shaders/ssimulacra2_blur.comp',
+    'shaders/ssimulacra2_mul.comp',
+    'shaders/ssimulacra2_ssim.comp',
 ]
 
 vulkan_shader_headers = []
@@ -66,7 +70,27 @@ vulkan_shader_headers = []
 # FMA contraction. psnr_hvs is sensitive at places=4 because the
 # per-coefficient mask threshold ((err - thresh) clamp) flips
 # discretely on tiny float drift.
-psnr_hvs_strict_shaders = ['shaders/psnr_hvs.comp']
+psnr_hvs_strict_shaders = [
+    'shaders/psnr_hvs.comp',
+    # ssimulacra2 blur is a 3-pole recursive IIR — even one FMA
+    # reassociation per pixel compounds across the blur radius and
+    # causes the per-scale SSIM stats to drift at the 1e-2 level.
+    # ADR-0162 sets places=2 for the CPU SIMD twin; we mirror the
+    # `-O0` strict-mode here so the GPU twin doesn't lose another
+    # decimal place to the optimizer.
+    'shaders/ssimulacra2_blur.comp',
+    # XYB cube root + opsin matmul: the SPIR-V optimizer's FMA
+    # contraction on `(2*y + x/(y*y)) / 3.0` and on the per-pixel
+    # 3x3 mat-mul reorders adds vs the CPU's deterministic
+    # vmaf_ss2_cbrtf path, which compounds at the per-scale SSIM
+    # stats stage. Keep at `-O0` for places=2 contract parity.
+    'shaders/ssimulacra2_xyb.comp',
+    # The SSIM/EdgeDiff per-WG reductions sum 128 lanes' contributions
+    # via shared-memory halving fold — independent of pass=H/V order
+    # but the per-pixel stats expression
+    # `(num_m * num_s) / denom_s` is FMA-reorderable. Keep strict.
+    'shaders/ssimulacra2_ssim.comp',
+]
 foreach shader : vulkan_shader_sources
     shader_name = shader.split('/')[-1].replace('.comp', '')
     opt_flag = (shader in psnr_hvs_strict_shaders) ? '-O0' : '-O'
@@ -123,6 +147,7 @@ vulkan_sources += files(
     '../feature/vulkan/float_motion_vulkan.c',
     '../feature/vulkan/float_vif_vulkan.c',
     '../feature/vulkan/float_adm_vulkan.c',
+    '../feature/vulkan/ssimulacra2_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers

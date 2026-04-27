@@ -1,0 +1,103 @@
+/* Copyright 2026 Lusoris and Claude (Anthropic)
+ * SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+ *
+ * Vulkan compute shader for the ssimulacra2 linear-RGB → XYB
+ * conversion (T7-23 / GPU long-tail batch 3 part 7 / ADR-0200).
+ * Mirrors libvmaf/src/feature/ssimulacra2.c::linear_rgb_to_xyb
+ * line-for-line, including the deterministic in-shader cube-root
+ * (vmaf_ss2_cbrtf bit-trick port) and the "MakePositiveXYB"
+ * rescale (B = (B - Y) + 0.55, X = 14X + 0.42, Y += 0.01).
+ *
+ * Three planar float input buffers (R, G, B) → three planar
+ * float output buffers (X, Y, B). All buffers are tightly
+ * packed at the per-scale (W × H) of the current pyramid level.
+ *
+ * Specialization constants:
+ *   constant_id = 0  WIDTH   (per-scale W; informational)
+ *   constant_id = 1  HEIGHT  (per-scale H; informational)
+ */
+#version 460
+
+layout(local_size_x = 16, local_size_y = 8, local_size_z = 1) in;
+
+layout(constant_id = 0) const int WIDTH  = 0;
+layout(constant_id = 1) const int HEIGHT = 0;
+
+/* Opsin mixing matrix and bias — bit-identical to ssimulacra2.c. */
+const float kM00 = 0.30;
+const float kM02 = 0.078;
+const float kM10 = 0.23;
+const float kM12 = 0.078;
+const float kM20 = 0.24342268924547819;
+const float kM21 = 0.20476744424496821;
+const float kOpsinBias = 0.0037930732552754493;
+
+layout(set = 0, binding = 0, std430) readonly buffer RIn { float v[]; } r_in;
+layout(set = 0, binding = 1, std430) readonly buffer GIn { float v[]; } g_in;
+layout(set = 0, binding = 2, std430) readonly buffer BIn { float v[]; } b_in;
+layout(set = 0, binding = 3, std430)          buffer XOut { float v[]; } x_out;
+layout(set = 0, binding = 4, std430)          buffer YOut { float v[]; } y_out;
+layout(set = 0, binding = 5, std430)          buffer BOut { float v[]; } b_out;
+
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+} pc;
+
+/* Deterministic cube root (port of vmaf_ss2_cbrtf in
+ * libvmaf/src/feature/ssimulacra2_math.h). Bit-trick initial
+ * estimate (i/3 + 0x2a5137a0) followed by 2 Newton iterations
+ * of f(y) = y^3 - x. Negative inputs return 0. */
+float ss2_cbrtf(float x) {
+    if (x <= 0.0)
+        return 0.0;
+    uint bits = floatBitsToUint(x);
+    bits = bits / 3u + 0x2a5137a0u;
+    float y = uintBitsToFloat(bits);
+    y = (2.0 * y + x / (y * y)) * (1.0 / 3.0);
+    y = (2.0 * y + x / (y * y)) * (1.0 / 3.0);
+    return y;
+}
+
+void main() {
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+    if (x >= pc.width || y >= pc.height)
+        return;
+
+    uint idx = y * pc.width + x;
+
+    float r = r_in.v[idx];
+    float g = g_in.v[idx];
+    float b = b_in.v[idx];
+
+    float m01 = 1.0 - kM00 - kM02;
+    float m11 = 1.0 - kM10 - kM12;
+    float m22 = 1.0 - kM20 - kM21;
+
+    float l = kM00 * r + m01 * g + kM02 * b + kOpsinBias;
+    float m = kM10 * r + m11 * g + kM12 * b + kOpsinBias;
+    float s = kM20 * r + kM21 * g + m22 * b + kOpsinBias;
+
+    if (l < 0.0) l = 0.0;
+    if (m < 0.0) m = 0.0;
+    if (s < 0.0) s = 0.0;
+
+    float cbrt_bias = ss2_cbrtf(kOpsinBias);
+    float L = ss2_cbrtf(l) - cbrt_bias;
+    float M = ss2_cbrtf(m) - cbrt_bias;
+    float S = ss2_cbrtf(s) - cbrt_bias;
+
+    float X = 0.5 * (L - M);
+    float Y = 0.5 * (L + M);
+    float B = S;
+
+    /* MakePositiveXYB: B uses Y BEFORE Y is offset (matches libjxl). */
+    B = (B - Y) + 0.55;
+    X = X * 14.0 + 0.42;
+    Y = Y + 0.01;
+
+    x_out.v[idx] = X;
+    y_out.v[idx] = Y;
+    b_out.v[idx] = B;
+}

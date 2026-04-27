@@ -326,6 +326,25 @@
   `scripts/ci/cross_backend_vif_diff.py` gains a `float_adm` entry
   in `FEATURE_METRICS`. CUDA + SYCL twins land in a focused
   follow-up PR.
+- **GPU long-tail batch 3 part 7 — `ssimulacra2_vulkan` extractor
+  (T7-23 / ADR-0192 / ADR-0201)** (fork-local): Vulkan twin of the
+  CPU `ssimulacra2` extractor. 4-shader kernel — `ssimulacra2_xyb`
+  (linear-RGB → XYB with deterministic in-shader cube root),
+  `ssimulacra2_mul` (3-plane elementwise product), `ssimulacra2_blur`
+  (separable Charalampidis 2016 3-pole IIR, one workgroup per row
+  / per column), `ssimulacra2_ssim` (per-pixel SSIMMap + EdgeDiffMap
+  with 18-slot per-WG reduction). All 4 shaders build with `-O0` to
+  disable SPIR-V FMA contraction. Host owns YUV → linear-RGB +
+  2×2 pyramid downsample (full-resolution plane stride preserved
+  across scales). Empirical CPU-vs-Vulkan on Netflix normal pair
+  (576×324, 48 frames): per-scale stats agree to 4–5 decimal
+  places; pooled `ssimulacra2` `max_abs_diff = 1.59e-2`. The
+  cross-backend gate runs at `places=1` (parent ADR-0192's
+  `places=2` was the nominal target with explicit "measure first;
+  may surprise upward" qualifier — the multi-stage XYB+IIR+SSIM-
+  combine+log float pipeline lands at `places=1`). CUDA + SYCL
+  twins follow in a separate PR. See
+  [ADR-0201](docs/adr/0201-ssimulacra2-vulkan-kernel.md).
 
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**

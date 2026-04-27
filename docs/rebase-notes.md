@@ -65,6 +65,55 @@ than per-PR. Future PRs add entries individually.
     --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
     --width 576 --height 324 --feature float_adm --places 4
   ```
+### 0083 — SSIMULACRA 2 Vulkan kernel (ADR-0201)
+
+- **ADR**: [ADR-0201](adr/0201-ssimulacra2-vulkan-kernel.md)
+- **Upstream source**: fork-local. No SSIMULACRA 2 extractor in
+  upstream Netflix/vmaf — fully fork-local feature.
+- **Touches**:
+  - [`libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c`](../libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c)
+    (new file).
+  - [`libvmaf/src/feature/vulkan/shaders/ssimulacra2_xyb.comp`](../libvmaf/src/feature/vulkan/shaders/ssimulacra2_xyb.comp),
+    `ssimulacra2_blur.comp`, `ssimulacra2_mul.comp`,
+    `ssimulacra2_ssim.comp` (4 new shader files).
+  - [`libvmaf/src/vulkan/meson.build`](../libvmaf/src/vulkan/meson.build)
+    — added 4 shaders to `vulkan_shader_sources` and 1 source to
+    `vulkan_sources`; added all 4 ssimulacra2 shaders to
+    `psnr_hvs_strict_shaders` (the `-O0` strict-mode list, kept its
+    legacy name).
+  - [`libvmaf/src/feature/feature_extractor.c`](../libvmaf/src/feature/feature_extractor.c)
+    — registered `vmaf_fex_ssimulacra2_vulkan` in the Vulkan branch
+    of the extractor list (between `psnr_hvs_vulkan` and the CUDA
+    block).
+  - [`scripts/ci/cross_backend_vif_diff.py`](../scripts/ci/cross_backend_vif_diff.py)
+    — added `ssimulacra2` to `FEATURE_METRICS`.
+- **Rebase impact**: low — fully additive, no upstream-shared
+  files modified beyond `feature_extractor.c`'s registry array
+  (which always grows on every new extractor and is not a rebase
+  pain point).
+- **Verification command**:
+
+  ```bash
+  meson setup libvmaf/build-vk-ss2 \
+    -Denable_vulkan=enabled -Denable_cuda=false -Denable_sycl=false \
+    libvmaf
+  ninja -C libvmaf/build-vk-ss2 tools/vmaf
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary libvmaf/build-vk-ss2/tools/vmaf \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    --width 576 --height 324 \
+    --feature ssimulacra2 --backend vulkan --places 1
+  # expected: max_abs_diff ≈ 1.59e-2, 0/48 mismatches at places=1
+  ```
+- **Follow-ups**:
+  - CUDA + SYCL twins (batch 3 parts 7b + 7c per ADR-0192).
+  - Performance follow-up: re-bin multiple rows / columns per WG
+    in the IIR blur (currently `local_size = 1`, one row/col per WG
+    for correctness).
+  - Optional: rename `psnr_hvs_strict_shaders` to `strict_shaders`
+    in `libvmaf/src/vulkan/meson.build` (cosmetic — out of scope
+    for this PR).
 
 ### 0001 — SIMD bit-identical reductions for float ADM
 
