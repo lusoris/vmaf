@@ -29,7 +29,7 @@ limitations in the same PR as the code.
 | VIF (fixed-point)  | `vif`           | Yes           | `vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3`                                        | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | VIF (float)        | `float_vif`     | Yes           | `float_vif_scale0..3`                                                                         | —                   | —                  |
 | Motion2 (fixed)    | `motion`        | Yes           | `motion2` (+ `motion` if `debug=true`)                                                        | AVX2, AVX-512, NEON | CUDA, Vulkan       |
-| Motion v2 (fixed)  | `motion_v2`     | No            | `VMAF_integer_feature_motion_v2_sad_score`, `VMAF_integer_feature_motion2_v2_score`           | AVX2, AVX-512, NEON | —                  |
+| Motion v2 (fixed)  | `motion_v2`     | No            | `VMAF_integer_feature_motion_v2_sad_score`, `VMAF_integer_feature_motion2_v2_score`           | AVX2, AVX-512, NEON | Vulkan             |
 | Motion2 (float)    | `float_motion`  | Yes           | `float_motion2` (+ `float_motion` if `debug=true`)                                            | AVX2, AVX-512, NEON | —                  |
 | ADM (fixed-point)  | `adm`           | Yes           | `adm2`, `adm_scale0`, `adm_scale1`, `adm_scale2`, `adm_scale3`                                | AVX2, AVX-512, NEON | CUDA, Vulkan       |
 | ADM (float)        | `float_adm`     | Yes           | `float_adm2`, `float_adm_scale0..3`                                                           | AVX2, AVX-512, NEON | —                  |
@@ -212,13 +212,24 @@ Y plane only.
 
 **Options** — none.
 
-**Backends** — AVX2, AVX-512, NEON. No GPU twin.
+**Backends** — AVX2, AVX-512, NEON, Vulkan
+([`motion_v2_vulkan`](../../libvmaf/src/feature/vulkan/motion_v2_vulkan.c)).
+
+The Vulkan kernel
+([ADR-0193](../adr/0193-motion-v2-vulkan.md)) is **bit-exact** vs
+the CPU scalar reference on 8-bit and 10-bit inputs (max_abs_diff
+= 0.0 across the cross-backend gate fixture). It uses a single
+GLSL dispatch over `(prev_ref - cur_ref)` (exploits convolution
+linearity to skip the per-frame blurred-state buffer that CPU /
+`motion_vulkan` use) plus a host-side `flush()` for the
+`motion2_v2_score` smoothing. CUDA + SYCL twins follow as ADR-0193
+batch 3 parts 1b + 1c.
 
 **Limitations** — Temporal: the extractor relies on the framework's
 `prev_ref` slot rather than its own state, but Motion v2 on frame 0
 is still defined as `0.0` and the final frame's smoothed score is
-emitted via the flush callback (same behaviour as `motion`). No
-CUDA / SYCL kernel — use `motion` if you need the GPU path.
+emitted via the flush callback (same behaviour as `motion`). CUDA
+/ SYCL kernels are pending (ADR-0192 batch 3 parts 1b + 1c).
 
 ### ADM — Additive Detail Metric (née DLM)
 

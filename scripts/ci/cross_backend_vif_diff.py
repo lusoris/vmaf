@@ -51,6 +51,17 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "integer_motion",
         "integer_motion2",
     ),
+    # GPU long-tail batch 3 part 1 (T7-23 / ADR-0192 / ADR-0193):
+    # motion_v2 stateless variant. Same 5-tap separable filter as
+    # motion, applied to (prev_ref - cur_ref) — exploits convolution
+    # linearity so we can compute the score in one dispatch with no
+    # per-frame blurred-state buffer. Bit-exact vs CPU on 8/10-bit
+    # (max_abs_diff = 0.0 across 48 frames at 576x324 on Mesa anv +
+    # Intel Arc A380); precision target places=4 in the gate.
+    "motion_v2": (
+        "VMAF_integer_feature_motion_v2_sad_score",
+        "VMAF_integer_feature_motion2_v2_score",
+    ),
     "adm": (
         "integer_adm2",
         "integer_adm_scale0",
