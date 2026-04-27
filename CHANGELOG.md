@@ -138,6 +138,39 @@
 
 ### Added
 
+- **GPU long-tail batch 3 part 1a — `motion_v2_vulkan` extractor
+  (T7-23 / ADR-0192 / ADR-0193)** (fork-local): first kernel of
+  batch 3, the smallest fork-local Vulkan kernel by far (~280 LOC
+  GLSL + ~360 LOC host glue). Single-dispatch design exploits
+  convolution linearity:
+  `SAD(blur(prev), blur(cur)) == sum(|blur(prev - cur)|)` so the
+  kernel reads both `prev_ref` and `cur_ref` planes, computes the
+  full V→H separable 5-tap Gaussian over the signed diff in one
+  dispatch, and accumulates `|h|` directly into per-WG `int64`
+  partials. No blurred-state buffer (vs `motion_vulkan`'s
+  ping-pong) — replaced by a smaller raw-pixel ping-pong of
+  `ref_buf[2]`. Bit-exact vs CPU on 8-bit and 10-bit (max_abs_diff
+  = 0.0 across 48 frames at 576×324, Intel Arc A380 + Mesa anv);
+  cross-backend gate runs at `places=4`. Mirror padding
+  **diverges** from `motion.comp` — CPU `integer_motion_v2.c`
+  uses edge-replicating reflective mirror (`2*size - idx - 1`)
+  while `integer_motion.c::edge_8`/`edge_16` use the non-
+  replicating variant (`2*(size-1) - idx`); difference is one
+  pixel at the boundary and the GLSL must follow the CPU it's
+  porting. CUDA + SYCL twins follow as ADR-0192 batch 3 parts
+  1b + 1c. New `motion_v2` lavapipe lane step + `FEATURE_METRICS`
+  entry in
+  [`scripts/ci/cross_backend_vif_diff.py`](scripts/ci/cross_backend_vif_diff.py).
+- **GPU long-tail batch 3 scope (T7-23 / ADR-0192)** (fork-local,
+  doc-only PR #145): scoping ADR for batch 3 — closes every
+  remaining metric gap on the matrix. Group A (no GPU twin yet):
+  `integer_motion_v2`, `float_ansnr`, `ssimulacra2`, `cambi`.
+  Group B (float twins of int kernels already on GPU):
+  `float_psnr` / `float_motion` / `float_vif` / `float_adm`,
+  kept native (not aliased to the int kernels — different input
+  domains). 21+ PRs to close (7 metrics × 3 backends). After
+  batch 3, every registered feature extractor in the fork has at
+  least one GPU twin (`lpips` remains ORT-delegated per ADR-0022).
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**
   (fork-local): closes batch 2 part 3 (and batch 2 entirely).
