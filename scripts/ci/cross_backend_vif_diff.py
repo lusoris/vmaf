@@ -78,6 +78,12 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # GPU twin is `ciede_vulkan` (etc.). Per-pixel transcendentals
     # (pow / sqrt / sin / atan2) — places=2 contract, NOT bit-exact.
     "ciede": ("ciede2000",),
+    # GPU long-tail batch 2 part 1 (T7-23 / ADR-0188 / ADR-0189):
+    # float_ssim. Active CPU extractor is `float_ssim`; GPU twin
+    # is `float_ssim_vulkan` (etc.). Single emitted metric;
+    # places=4 contract per ADR-0189 (measure-then-set-the-contract,
+    # relax to places=3 if the gate exceeds 5e-5 max_abs).
+    "float_ssim": ("float_ssim",),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the

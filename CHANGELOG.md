@@ -73,6 +73,34 @@
 
 ### Added
 
+- **GPU long-tail batch 2 part 1a — `float_ssim_vulkan`
+  extractor (T7-23 / ADR-0188 / ADR-0189)** (fork-local):
+  Vulkan twin of the active CPU `float_ssim`. **Two-dispatch
+  design** — horizontal 11-tap separable Gaussian over
+  ref / cmp / ref² / cmp² / ref·cmp into five intermediate
+  float buffers, then vertical 11-tap + per-pixel SSIM
+  combine + per-WG float partial sums. Host accumulates
+  partials in `double` and divides by `(W-10)·(H-10)`
+  (matches CPU's `iqa_ssim` valid-region averaging). 11-tap
+  Gaussian weights baked into GLSL byte-for-byte from
+  `g_gaussian_window_h` in `iqa/ssim_tools.h`. picture_copy
+  host-side normalises uint sample → float `[0, 255]` before
+  upload (matches `float_ssim.c::extract`). New
+  [`libvmaf/src/feature/vulkan/shaders/ssim.comp`](libvmaf/src/feature/vulkan/shaders/ssim.comp)
+  + [`libvmaf/src/feature/vulkan/ssim_vulkan.c`](libvmaf/src/feature/vulkan/ssim_vulkan.c)
+  (~510 LOC host). **v1 limitation**: GPU path supports
+  `scale=1` only — auto-detect rejects `scale > 1` with
+  `-EINVAL`; production 1080p needs
+  `--feature float_ssim_vulkan:scale=1` pinned (or smaller
+  input). Cross-backend gate fixture (576×324) auto-resolves
+  to `scale=1`. GPU-side decimation is a v2 follow-up.
+  Empirical: 48 frames at 576×324 on **Intel Arc A380** vs
+  CPU scalar — `max_abs = 1.0e-6`, `0/48 places=4
+  mismatches`. Comfortably under the `places=4` threshold
+  (5e-5). New CI step `float_ssim cross-backend diff (CPU vs
+  Vulkan/lavapipe)` on the lavapipe lane. CUDA + SYCL twins
+  follow as batch 2 parts 1b + 1c.
+
 - **GPU long-tail batch 1c parts 2 + 3 — `ciede_cuda` +
   `ciede_sycl` extractors (T7-23 / ADR-0182 / ADR-0187)**
   (fork-local): closes batch 1c. CUDA + SYCL twins of the
