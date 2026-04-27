@@ -161,13 +161,26 @@ to a focused follow-up.
   pass if a profiling pass shows submission overhead > 10% of
   per-frame time.
 - **Neutral / follow-ups**:
-  1. **Batch 2 part 2b** — `float_ms_ssim_cuda`. CUDA can
-     fuse the decimate + horizontal pass cheaply via
-     shared-memory tiling; revisit when CUDA ships.
-  2. **Batch 2 part 2c** — `float_ms_ssim_sycl`. Same shape
-     as `ssim_sycl`: self-contained submit/collect, host-
-     pinned USM for picture_copy normalisation, `nd_range<2>`
-     vertical kernels with `sycl::reduce_over_group` × 3.
+  1. **Batch 2 part 2b — DONE.** `float_ms_ssim_cuda` shipped
+     in the batch 2 parts 2b + 2c bundle (sibling PR). Three
+     CUDA kernels (decimate, horiz, vert_lcs) mirror the GLSL
+     shaders byte-for-byte modulo language differences.
+     picture_copy normalisation runs host-side via a 2D D2H
+     of the pitched device plane (`cuMemcpy2DAsync` honouring
+     `srcPitch = stride[0]`) — surfaced a bring-up bug where
+     the naïve `cuMemcpyDtoHAsync` of `width·height·bpc` bytes
+     mis-copied row N≥1 because `cuMemAllocPitch` returns
+     `stride[0] ≥ width·bpc`. Per-block float partials reduced
+     on host in `double`. Empirical: 48 frames at 576×324 on
+     RTX 4090 → `max_abs = 1.0e-6`, `0/48 places=4 mismatches`.
+  2. **Batch 2 part 2c — DONE.** `float_ms_ssim_sycl` shipped
+     alongside part 2b. Self-contained submit/collect (mirrors
+     `ssim_sycl`). Host-pinned USM staging holds the
+     picture_copy-normalised float planes; `nd_range<2>`
+     vert+lcs kernel uses `sycl::reduce_over_group` × 3 for
+     per-WG float partials. fp64-free (Arc A380). Empirical:
+     48 frames at 576×324 on Arc A380 → `max_abs = 1.0e-6`,
+     `0/48 places=4 mismatches`.
   3. **`enable_lcs` mode** (deferred) — 15 extra metrics.
      Trivial follow-up once the gate is green.
 
