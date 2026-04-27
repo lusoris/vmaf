@@ -104,6 +104,8 @@ libvmaf/src/feature/cuda/        # per-feature kernels
   integer_vif/                   # VIF .cu kernels
   integer_adm_cuda.{c,h}         # ADM extractor dispatch
   integer_adm/                   # ADM .cu kernels
+  float_adm_cuda.{c,h}           # float ADM extractor dispatch (ADR-0202)
+  float_adm/                     # float ADM .cu kernels (single fatbin compiled with --fmad=false)
   integer_motion_cuda.{c,h}      # Motion extractor dispatch
   integer_motion/                # Motion .cu kernels
 ```

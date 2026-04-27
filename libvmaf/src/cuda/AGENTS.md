@@ -109,6 +109,13 @@ cuda/
 - [ADR-0027](../../../docs/adr/0027-non-conservative-image-pins.md) — CUDA 13.2 + experimental flags.
 - [ADR-0131](../../../docs/adr/0131-port-netflix-1382-cumemfree.md) —
   `vmaf_cuda_picture_free` synchronous free.
+- [ADR-0202](../../../docs/adr/0202-float-adm-cuda-sycl.md) —
+  `float_adm_cuda` requires `--fmad=false` on its fatbin to
+  match the GLSL `precise` qualifier in `float_adm.comp`. See
+  the per-kernel `cuda_cu_extra_flags` dict in
+  `libvmaf/src/meson.build`. **On rebase**: do not consolidate
+  `float_adm_score` into the global `cuda_flags` block; the
+  FMA-off scope is intentionally one fatbin only.
 
 ## Build
 
