@@ -46,6 +46,40 @@
 
 ### Fixed
 
+- **Volk / `vk*` symbol clash in fully-static link environments
+  (ADR-0198)** (fork-local): follow-up to ADR-0185.
+  `-Wl,--exclude-libs,ALL` only takes effect at the
+  `gcc -shared` step that produces `libvmaf.so` — when libvmaf
+  is built with `default_library=static -Denable_vulkan=enabled`,
+  no link step happens and volk's full `vk*` PFN dispatcher
+  table stays as STB_GLOBAL inside `libvmaf.a`. BtbN-style
+  fully-static FFmpeg builds (lawrence's repro 2026-04-27 on a
+  cross-toolchain glibc-2.28 build) that stitched
+  `libvmaf.a + libvulkan.a` into one binary hit ~700 GNU-ld
+  multi-definition errors:
+
+  ```text
+  ld: volk.c.o (symbol from plugin):
+      multiple definition of `vkGetInstanceProcAddr';
+      libvulkan.a(loader.c.o): first defined here
+  ```
+
+  Fixed by renaming volk's `vk*` symbols to `vmaf_priv_vk*`
+  at the C preprocessor level via a force-included header
+  generated from `volk.h`. The packagefile parses every
+  `extern PFN_vkXxx vkXxx;` declaration, emits
+  `#define vkXxx vmaf_priv_vkXxx` (784 entries for volk-1.4.341),
+  and `-include`s the result on `volk.c` and every libvmaf TU
+  pulling in `volk_dep`. Identical behaviour for shared and
+  static — no per-build-mode meson branches. Verified: shared
+  `nm -D libvmaf.so` reports 0 leaked `vk*` (unchanged from
+  ADR-0185); static `nm libvmaf.a` reports 0 GLOBAL `vk*` (was
+  ~700) and 719 `vmaf_priv_vk*`; BtbN-style
+  `gcc -static main.c libvmaf.a libvulkan-stub.a` link succeeds;
+  `test_vulkan_smoke` 10/10 pass on the renamed build (volk
+  runtime `dlsym` dispatch still functional). See
+  [ADR-0198](docs/adr/0198-volk-priv-remap-static-archive.md).
+
 - **Hide volk / vk* symbols from libvmaf.so's public ABI
   (T7-31, ADR-0185)** (fork-local): when libvmaf is built with
   `-Denable_vulkan=enabled`, the bundled volk Vulkan-loader
