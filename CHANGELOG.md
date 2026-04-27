@@ -73,6 +73,41 @@
 
 ### Added
 
+- **GPU long-tail batch 1c parts 2 + 3 — `ciede_cuda` +
+  `ciede_sycl` extractors (T7-23 / ADR-0182 / ADR-0187)**
+  (fork-local): closes batch 1c. CUDA + SYCL twins of the
+  Vulkan ciede kernel shipped in PR #136. Both emit the
+  `ciede2000` metric (logarithmic transform `45 - 20·log10(mean_ΔE)`).
+  - **CUDA** (~270 LOC PTX +
+    [`integer_ciede_cuda.{c,h}`](libvmaf/src/feature/cuda/integer_ciede_cuda.c)
+    ~245 LOC host): per-pixel float ciede2000 (chroma read
+    inline at the subsampled position — avoids the host-side
+    upscale step), per-block partials reduced on the host in
+    `double`. Surfaced a latent `vmaf_cuda_picture_upload_async`
+    bug: the bitmask was hardcoded to `0x1` (luma only) in
+    `libvmaf.c::translate_picture_host`, leaving chroma device
+    buffers uninitialised — fine for every prior CUDA extractor
+    (psnr / motion / adm / vif / moment all luma-only) but
+    wrong for ciede. Bitmask now picks `0x7` for any pix_fmt
+    other than YUV400P; CUDA chroma-aware kernels are unblocked.
+  - **SYCL** (~470 LOC, single TU
+    [`integer_ciede_sycl.cpp`](libvmaf/src/feature/sycl/integer_ciede_sycl.cpp)):
+    self-contained submit/collect (does **not** register with
+    `vmaf_sycl_graph_register` — `shared_frame` buffers are
+    luma-only). Host-pinned USM staging upscales chroma to
+    luma resolution (mirrors `ciede.c::scale_chroma_planes`);
+    `nd_range<2>` kernel with `sycl::reduce_over_group` builds
+    per-WG float partials; host accumulates in `double`.
+    fp64-free (Intel Arc A380 lacks native fp64 — earlier
+    `sycl::reduction<double>` attempt threw at runtime).
+  - **Verification**: 48 frames at 576×324 vs CPU scalar —
+    `max_abs = 1.2e-5`, `0/48 places=4 mismatches` on
+    **NVIDIA RTX 4090** (CUDA) and **Intel Arc A380** (SYCL).
+    Same precision floor as `ciede_vulkan` (PR #136).
+  Closes batch 1c (Vulkan + CUDA + SYCL all done) — every GPU
+  long-tail metric in [ADR-0182](docs/adr/0182-gpu-long-tail-batch-1.md)
+  now has a working twin on at least one GPU backend.
+
 - **GPU long-tail batch 1c part 1 — `ciede_vulkan` extractor
   (T7-23 / ADR-0187)** (fork-local): Vulkan twin of the CPU
   `ciede` extractor — the first non-bit-exact GPU kernel in

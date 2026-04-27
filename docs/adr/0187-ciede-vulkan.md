@@ -110,17 +110,27 @@ mistake.
   consequence — Vulkan supports up to 8 in a single descriptor
   set on every relevant device.
 - **Neutral / follow-ups**:
-  1. **Batch 1c part 2** — `ciede_cuda` (T7-23 follow-up).
-     CUDA has `atomicAdd(float*)` natively; choose between
-     per-WG partial sums (matches Vulkan's pattern) and the
-     simpler atomic-float reduction.
-  2. **Batch 1c part 3** — `ciede_sycl` follows the same
-     `vmaf_sycl_graph_register` pattern as `psnr_sycl` /
-     `float_moment_sycl`.
+  1. **Batch 1c part 2 — DONE.** `ciede_cuda` shipped in the
+     batch 1c parts 2 + 3 bundle (this PR's sibling). Per-block
+     float partials, host accumulates in `double`. The simpler
+     atomic-float reduction empirically lost ~30% precision at
+     1080p (10⁷ sum magnitude vs float7 floor). Surfaced a
+     latent `vmaf_cuda_picture_upload_async` bug: bitmask was
+     hardcoded to `0x1` (luma only) — fixed to `0x7` for any
+     pix_fmt other than YUV400P, unblocking chroma-aware CUDA
+     extractors.
+  2. **Batch 1c part 3 — DONE.** `ciede_sycl` shipped alongside
+     part 2. Self-contained submit/collect (NOT graph_register
+     — `shared_frame` is luma-only). `nd_range<2>` kernel with
+     `sycl::reduce_over_group` builds per-WG float partials;
+     host accumulates in `double`. fp64-free because Intel Arc
+     A380 lacks native fp64 (initial `sycl::reduction<double>`
+     attempt threw at runtime).
   3. **Closes ADR-0182** — every metric in the GPU long-tail
-     scope has at least one GPU twin (Vulkan); the matrix in
-     `.workingdir2/analysis/metrics-backends-matrix.md` updates
-     accordingly.
+     scope now has at least one GPU twin; ciede has all three
+     (Vulkan + CUDA + SYCL). The matrix in
+     `.workingdir2/analysis/metrics-backends-matrix.md` reflects
+     this.
 
 ## Verification
 
