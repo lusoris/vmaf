@@ -55,6 +55,7 @@ vulkan_shader_sources = [
     'shaders/psnr_hvs.comp',
     'shaders/float_ansnr.comp',
     'shaders/float_psnr.comp',
+    'shaders/float_motion.comp',
 ]
 
 vulkan_shader_headers = []
@@ -117,6 +118,7 @@ vulkan_sources += files(
     '../feature/vulkan/psnr_hvs_vulkan.c',
     '../feature/vulkan/float_ansnr_vulkan.c',
     '../feature/vulkan/float_psnr_vulkan.c',
+    '../feature/vulkan/float_motion_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers
