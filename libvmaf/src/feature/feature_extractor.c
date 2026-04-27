@@ -54,6 +54,7 @@ extern VmafFeatureExtractor vmaf_fex_cambi;
 extern VmafFeatureExtractor vmaf_fex_integer_adm_cuda;
 extern VmafFeatureExtractor vmaf_fex_integer_vif_cuda;
 extern VmafFeatureExtractor vmaf_fex_integer_motion_cuda;
+extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_cuda;
 extern VmafFeatureExtractor vmaf_fex_psnr_cuda;
 extern VmafFeatureExtractor vmaf_fex_float_moment_cuda;
 extern VmafFeatureExtractor vmaf_fex_ciede_cuda;
@@ -65,6 +66,7 @@ extern VmafFeatureExtractor vmaf_fex_psnr_hvs_cuda;
 extern VmafFeatureExtractor vmaf_fex_integer_vif_sycl;
 extern VmafFeatureExtractor vmaf_fex_integer_adm_sycl;
 extern VmafFeatureExtractor vmaf_fex_integer_motion_sycl;
+extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_sycl;
 extern VmafFeatureExtractor vmaf_fex_psnr_sycl;
 extern VmafFeatureExtractor vmaf_fex_float_moment_sycl;
 extern VmafFeatureExtractor vmaf_fex_ciede_sycl;
@@ -101,8 +103,9 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     // because it supports the widest range of Intel hardware.
     // Use --no_sycl to fall back to CUDA.
     &vmaf_fex_integer_vif_sycl, &vmaf_fex_integer_adm_sycl, &vmaf_fex_integer_motion_sycl,
-    &vmaf_fex_psnr_sycl, &vmaf_fex_float_moment_sycl, &vmaf_fex_ciede_sycl,
-    &vmaf_fex_float_ssim_sycl, &vmaf_fex_float_ms_ssim_sycl, &vmaf_fex_psnr_hvs_sycl,
+    &vmaf_fex_integer_motion_v2_sycl, &vmaf_fex_psnr_sycl, &vmaf_fex_float_moment_sycl,
+    &vmaf_fex_ciede_sycl, &vmaf_fex_float_ssim_sycl, &vmaf_fex_float_ms_ssim_sycl,
+    &vmaf_fex_psnr_hvs_sycl,
 #endif
 #if HAVE_VULKAN
     /* Vulkan is registered AFTER SYCL/CUDA — those backends remain
@@ -117,8 +120,9 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
 #endif
 #if HAVE_CUDA
     &vmaf_fex_integer_adm_cuda, &vmaf_fex_integer_vif_cuda, &vmaf_fex_integer_motion_cuda,
-    &vmaf_fex_psnr_cuda, &vmaf_fex_float_moment_cuda, &vmaf_fex_ciede_cuda,
-    &vmaf_fex_float_ssim_cuda, &vmaf_fex_float_ms_ssim_cuda, &vmaf_fex_psnr_hvs_cuda,
+    &vmaf_fex_integer_motion_v2_cuda, &vmaf_fex_psnr_cuda, &vmaf_fex_float_moment_cuda,
+    &vmaf_fex_ciede_cuda, &vmaf_fex_float_ssim_cuda, &vmaf_fex_float_ms_ssim_cuda,
+    &vmaf_fex_psnr_hvs_cuda,
 #endif
     &vmaf_fex_lpips, &vmaf_fex_null, NULL};
 

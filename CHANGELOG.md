@@ -138,6 +138,31 @@
 
 ### Added
 
+- **GPU long-tail batch 3 parts 1b + 1c — `motion_v2_cuda` +
+  `motion_v2_sycl` extractors (T7-23 / ADR-0192 / ADR-0193)**
+  (fork-local): closes batch 3 part 1 (and the integer_motion family
+  GPU coverage). CUDA + SYCL twins of the Vulkan motion_v2 kernel
+  shipped in PR #146. Both inherit the per-WG int64 SAD partial
+  pattern, the raw-pixel ping-pong, and the edge-replicating mirror
+  that diverges by one pixel from the motion kernel's mirror.
+  - **CUDA**: nested 5x5 filter on the (prev - cur) diff loaded into
+    a 20x20 shared int32 tile, warp-reduced via `__shfl_down_sync`,
+    `atomicAdd` to a single int64 device buffer. New
+    [`integer_motion_v2/motion_v2_score.cu`](libvmaf/src/feature/cuda/integer_motion_v2/motion_v2_score.cu)
+    (~180 LOC PTX) +
+    [`integer_motion_v2_cuda.c`](libvmaf/src/feature/cuda/integer_motion_v2_cuda.c)
+    (~290 LOC host glue with submit/collect async stream pattern).
+    Bit-exact vs CPU on 8-bit (48 frames) and 10-bit (3 frames) —
+    `max_abs_diff = 0.0` on RTX 4090.
+  - **SYCL**: separable V→H 5-tap filter on a 12x36 SLM tile, sub-
+    group `reduce_over_group` then SLM cross-subgroup reduction →
+    `atomic_ref::fetch_add` to int64. Self-contained (does NOT
+    register with `vmaf_sycl_graph_register` because motion_v2
+    needs the previous frame's raw ref pixels which the
+    `shared_frame` luma buffer doesn't preserve across calls — same
+    pattern as ciede_sycl). New
+    [`integer_motion_v2_sycl.cpp`](libvmaf/src/feature/sycl/integer_motion_v2_sycl.cpp)
+    (~330 LOC). Bit-exact vs CPU on Intel Arc A380 + oneAPI 2025.3.
 - **GPU long-tail batch 3 part 1a — `motion_v2_vulkan` extractor
   (T7-23 / ADR-0192 / ADR-0193)** (fork-local): first kernel of
   batch 3, the smallest fork-local Vulkan kernel by far (~280 LOC
