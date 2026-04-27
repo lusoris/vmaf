@@ -154,15 +154,24 @@ CPU at the 11-pixel border.
   still does the decimation step (~100 µs/frame). v1 isn't
   fully GPU-resident.
 - **Neutral / follow-ups**:
-  1. **Batch 2 part 1b** — `float_ssim_cuda`. CUDA path can do
-     decimation on-device cheaply (single kernel, no fancy
-     atomics needed); revisit GPU-side decimation when CUDA
-     ships.
-  2. **Batch 2 part 1c** — `float_ssim_sycl`. Same shape as
-     `ciede_sycl`: self-contained submit/collect (no
-     `vmaf_sycl_graph_register` because chroma isn't shared);
-     `nd_range<2>` with `sycl::reduce_over_group` for per-WG
-     partials.
+  1. **Batch 2 part 1b — DONE.** `float_ssim_cuda` shipped in
+     the batch 2 parts 1b + 1c bundle (this PR's sibling).
+     Two CUDA kernels (horiz_8bpc / horiz_16bpc + vert_combine)
+     mirror the GLSL shader byte-for-byte modulo language
+     differences. picture_copy normalisation inlined in the
+     horizontal kernel (uint → float / scaler) — no host-side
+     conversion needed since picture_cuda already uploaded the
+     raw uint plane. Per-block float partials, host accumulates
+     in `double`. Empirical: 48 frames at 576×324 on RTX 4090
+     → `max_abs = 1.0e-6`, `0/48 places=4 mismatches`.
+  2. **Batch 2 part 1c — DONE.** `float_ssim_sycl` shipped
+     alongside part 1b. Self-contained submit/collect (mirrors
+     `ciede_sycl`). Host-pinned USM staging holds the
+     `picture_copy`-normalised float planes; `nd_range<2>`
+     vertical kernel with `sycl::reduce_over_group` builds
+     per-WG float partials. fp64-free (Arc A380). Empirical:
+     48 frames at 576×324 on Arc A380 → `max_abs = 1.0e-6`,
+     `0/48 places=4 mismatches`.
   3. **v2 GPU-side decimation** — single fused kernel that
      does decimation + horizontal SSIM pass. Profile-led; only
      worth shipping if `iqa_decimate` shows up in flame

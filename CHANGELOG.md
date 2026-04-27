@@ -73,6 +73,44 @@
 
 ### Added
 
+- **GPU long-tail batch 2 parts 1b + 1c — `float_ssim_cuda` +
+  `float_ssim_sycl` extractors (T7-23 / ADR-0188 / ADR-0189)**
+  (fork-local): closes batch 2 part 1. CUDA + SYCL twins of
+  the Vulkan ssim kernel shipped in PR #139. Both inherit the
+  two-pass design (horizontal 11-tap separable Gaussian → 5
+  intermediate float buffers, then vertical 11-tap + per-pixel
+  SSIM combine + per-WG / per-block float partial sums; host
+  accumulates in `double`).
+  - **CUDA** (~210 LOC PTX in
+    [`integer_ssim/ssim_score.cu`](libvmaf/src/feature/cuda/integer_ssim/ssim_score.cu)
+    + ~340 LOC host in
+    [`integer_ssim_cuda.{c,h}`](libvmaf/src/feature/cuda/integer_ssim_cuda.c)):
+    `picture_copy` normalisation (uint → float / scaler) inlined
+    in the horizontal kernel — no extra host-side conversion
+    since picture_cuda already uploaded the raw uint plane.
+    Per-block float partials reduced on host in `double`.
+  - **SYCL** (~370 LOC, single TU
+    [`integer_ssim_sycl.cpp`](libvmaf/src/feature/sycl/integer_ssim_sycl.cpp)):
+    self-contained submit/collect (does NOT register with
+    `vmaf_sycl_graph_register` — `shared_frame` is luma-only
+    packed at uint width and SSIM needs `picture_copy`-normalised
+    float planes). Host-pinned USM staging carries the
+    normalised ref/cmp; `nd_range<2>` vertical kernel with
+    `sycl::reduce_over_group` builds per-WG partials. fp64-free
+    (Intel Arc A380 lacks native fp64 — same constraint as
+    ciede_sycl).
+  - **Verification**: 48 frames at 576×324 vs CPU scalar —
+    `max_abs = 1.0e-6`, `0/48 places=4 mismatches` on **NVIDIA
+    RTX 4090** (CUDA) and **Intel Arc A380** (SYCL). Same
+    precision floor as `ssim_vulkan` (PR #139). Comfortably
+    under `places=4` threshold (5e-5).
+  - **v1 limitation** (same as ssim_vulkan): GPU paths support
+    `scale=1` only — auto-detect rejects `scale > 1` with
+    `-EINVAL`. Production 1080p needs
+    `--feature float_ssim_{cuda,sycl}:scale=1` pinned (or
+    smaller input). GPU-side decimation is a v2 follow-up.
+  ms_ssim (batch 2 part 2) follows next.
+
 - **GPU long-tail batch 2 part 1a — `float_ssim_vulkan`
   extractor (T7-23 / ADR-0188 / ADR-0189)** (fork-local):
   Vulkan twin of the active CPU `float_ssim`. **Two-dispatch
