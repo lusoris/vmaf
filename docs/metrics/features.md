@@ -37,7 +37,7 @@ limitations in the same PR as the code.
 | CIEDE2000          | `ciede`         | No            | `ciede2000`                                                                                   | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional)                                       | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan¹|
 | PSNR (float)       | `float_psnr`    | No            | `float_psnr_y`, `float_psnr_cb`, `float_psnr_cr`                                              | AVX2, AVX-512, NEON | —                  |
-| PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | —                   | —                  |
+| PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | AVX2, NEON          | Vulkan             |
 | SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —                  |
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
