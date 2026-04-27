@@ -172,14 +172,31 @@ table per plane via specialisation constants.
   (~100 SPIR-V ops). 3× picture_copy on the host per frame
   for the chroma planes. Negligible at 1080p.
 - **Neutral / follow-ups**:
-  1. **Batch 2 part 3b** — `float_psnr_hvs_cuda`. CUDA can
-     reuse the `0x7` upload bitmask landed in PR #137 to
-     get all three planes uploaded for free; the picture_cuda
-     pipeline already produces the device-side ref/cmp.
-  2. **Batch 2 part 3c** — `float_psnr_hvs_sycl`. Same shape
-     as `ms_ssim_sycl`: self-contained submit/collect,
-     host-pinned USM for picture_copy normalisation,
-     `nd_range<2>` per-block kernel with `sycl::reduce_over_group`.
+  1. **Batch 2 part 3b — DONE.** `psnr_hvs_cuda` shipped in
+     the batch 2 parts 3b + 3c bundle (sibling PR). One CUDA
+     kernel mirrors the GLSL shader byte-for-byte modulo
+     language differences — cooperative load + thread-0-serial
+     reductions. picture_copy normalisation runs host-side via
+     `cuMemcpy2DAsync` D2H per plane (honours the pitched
+     device buffer from `cuMemAllocPitch`). 3 dispatches per
+     frame (Y / Cb / Cr). Empirical: 48 frames at 576×324 on
+     RTX 4090 → `max_abs = 8.3e-5` (Y plane, same floor as
+     Vulkan), `0/48 places=3 mismatches`. Y plane fails
+     places=4 for the same nvcc/glslc fp32 reasons documented
+     above — `--fmad=false` was tried and didn't help, ruling
+     out FMA fusion as the dominant source.
+  2. **Batch 2 part 3c — DONE.** `psnr_hvs_sycl` shipped
+     alongside part 3b. Self-contained submit/collect (mirrors
+     `ms_ssim_sycl`). Host-pinned USM staging + per-plane
+     picture_copy clone (libvmaf's picture_copy hardcodes
+     plane 0). Same kernel structure as the CUDA version
+     (cooperative load + thread-0-serial reductions). icpx
+     compiles with `-fp-model=precise` (project-wide SYCL
+     flag), which produces a markedly tighter precision
+     floor than nvcc default + glslc default — empirical:
+     `max_abs = 1.0e-6` across all four metrics, `0/48
+     places=4 mismatches`. SYCL is the only backend that
+     hits places=4 on psnr_hvs.
   3. **`bpc > 8` precision** — 10/12-bit inputs use the same
      integer DCT but with `(1 << depth) - 1` samplemax. Bake
      `samplemax²` into a specialisation constant so the

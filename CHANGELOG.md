@@ -73,6 +73,51 @@
 
 ### Added
 
+- **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
+  `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**
+  (fork-local): closes batch 2 part 3 (and batch 2 entirely).
+  CUDA + SYCL twins of the Vulkan psnr_hvs kernel shipped in
+  PR #143. Both inherit the per-plane single-dispatch design
+  — one work-group per output 8×8 block (step=7), 64 threads
+  per WG, cooperative load + thread-0-serial reductions
+  matching CPU's exact i,j summation order (locks float
+  bit-order to `calc_psnrhvs`). Three dispatches per frame
+  (Y / Cb / Cr); host accumulates per-plane partials in float
+  matching CPU's `ret` register pattern, then
+  `10·log10(1/score)` per plane and combined
+  `psnr_hvs = 0.8·Y + 0.1·(Cb + Cr)`.
+  - **CUDA** (~270 LOC PTX in
+    [`integer_psnr_hvs/psnr_hvs_score.cu`](libvmaf/src/feature/cuda/integer_psnr_hvs/psnr_hvs_score.cu)
+    + ~330 LOC host in
+    [`integer_psnr_hvs_cuda.{c,h}`](libvmaf/src/feature/cuda/integer_psnr_hvs_cuda.c)):
+    picture_copy host-side via `cuMemcpy2DAsync` D2H per
+    plane (honours pitched `cuMemAllocPitch` device buffer —
+    same fix as ms_ssim_cuda PR #142). Per-plane state arrays
+    (`d_ref[3] / d_dist[3] / d_partials[3]`) + pinned host
+    staging.
+  - **SYCL** (~420 LOC, single TU
+    [`integer_psnr_hvs_sycl.cpp`](libvmaf/src/feature/sycl/integer_psnr_hvs_sycl.cpp)):
+    self-contained submit/collect (mirrors `ms_ssim_sycl`).
+    Host-pinned USM staging carries the picture_copy-
+    normalised float planes per plane. Inline picture_copy
+    clone (libvmaf's `picture_copy` hardcodes plane 0).
+    fp64-free.
+  - **Verification**: 48 frames at 576×324 vs CPU scalar.
+    **CUDA on NVIDIA RTX 4090** → `max_abs = 8.3e-5` (Y plane,
+    same floor as Vulkan), `0/48 places=3 mismatches`.
+    **SYCL on Intel Arc A380** → `max_abs = 1.0e-6` across all
+    four metrics, `0/48 places=4 mismatches`. SYCL is the
+    only backend that hits `places=4` on psnr_hvs — icpx's
+    `-fp-model=precise` flag (project-wide SYCL strict-FP
+    setting) produces tighter CPU-matching precision than
+    nvcc default or glslc default. Investigation in
+    [ADR-0191 §"Why not places=4"](docs/adr/0191-psnr-hvs-vulkan.md)
+    documents what was tried for the CUDA + Vulkan paths;
+    `--fmad=false` was tested for CUDA and didn't help,
+    ruling out FMA fusion as the dominant drift source.
+  - **v1 limitation**: rejects YUV400P (no chroma) and
+    `bpc > 12` (matches CPU). 3 dispatches/frame at 1080p.
+
 - **GPU long-tail batch 2 part 3a — `psnr_hvs_vulkan` extractor
   (T7-23 / ADR-0188 / ADR-0191)** (fork-local): first DCT-based
   GPU kernel in the fork. Vulkan twin of the active CPU
