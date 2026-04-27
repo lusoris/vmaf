@@ -1,8 +1,8 @@
 # Research Digest 0019 — Tiny-AI Training on the Netflix VMAF Corpus
 
-**Date**: 2026-04-27  
-**Author**: Lusoris / Claude (Anthropic)  
-**Status**: Accepted — informs ADR-0199.  
+**Date**: 2026-04-27
+**Author**: Lusoris / Claude (Anthropic)
+**Status**: Accepted — informs ADR-0199.
 **Scope**: Survey of public Netflix VMAF training methodology, distillation
 literature for quality metrics, and architecture search space for the fork's
 tiny-AI FR regressor.
