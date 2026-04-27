@@ -224,6 +224,29 @@
   domains). 21+ PRs to close (7 metrics × 3 backends). After
   batch 3, every registered feature extractor in the fork has at
   least one GPU twin (`lpips` remains ORT-delegated per ADR-0022).
+- **GPU long-tail batch 3 part 3 — `float_psnr_{vulkan,cuda,sycl}`
+  extractors (T7-23 / ADR-0192 / ADR-0195)** (fork-local): first
+  Group B float twin from ADR-0192. Smallest GPU twin in the
+  long-tail (~120 LOC GLSL + ~110 LOC PTX + ~150 LOC SYCL). Single-
+  dispatch kernels — no halo, no shared tile — compute per-pixel
+  `(ref - dis)²` in float, reduce per-WG via sub-group + SLM, host
+  accumulates in `double` and applies CPU formula
+  `MIN(10·log10(peak² / max(noise / (w·h), 1e-10)), psnr_max)`.
+  **Empirically bit-exact** vs CPU on all three backends, both
+  8-bit (48 frames) and 10-bit (3 frames) — `max_abs_diff = 0.0e+00`
+  everywhere on Intel Arc A380 (Vulkan + SYCL) and NVIDIA RTX 4090
+  (CUDA). Float-domain kernel too simple to drift; host-side
+  `double` reduction absorbs any per-WG ULP noise. Drive-by docs
+  fix: features.md row claimed `float_psnr_y / _cb / _cr` plane
+  outputs which were wrong — the CPU extractor only emits a single
+  luma `float_psnr` score; corrected in this PR. New
+  [`shaders/float_psnr.comp`](libvmaf/src/feature/vulkan/shaders/float_psnr.comp),
+  [`float_psnr_vulkan.c`](libvmaf/src/feature/vulkan/float_psnr_vulkan.c),
+  [`float_psnr/float_psnr_score.cu`](libvmaf/src/feature/cuda/float_psnr/float_psnr_score.cu),
+  [`float_psnr_cuda.c`](libvmaf/src/feature/cuda/float_psnr_cuda.c),
+  [`float_psnr_sycl.cpp`](libvmaf/src/feature/sycl/float_psnr_sycl.cpp).
+  New `float_psnr` lavapipe gate step + `FEATURE_METRICS` entry.
+
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**
   (fork-local): closes batch 2 part 3 (and batch 2 entirely).

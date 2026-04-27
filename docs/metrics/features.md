@@ -36,7 +36,7 @@ limitations in the same PR as the code.
 | [CAMBI](cambi.md)  | `cambi`         | No            | `cambi`                                                                                       | —                   | —                  |
 | CIEDE2000          | `ciede`         | No            | `ciede2000`                                                                                   | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional)                                       | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan¹|
-| PSNR (float)       | `float_psnr`    | No            | `float_psnr_y`, `float_psnr_cb`, `float_psnr_cr`                                              | AVX2, AVX-512, NEON | —                  |
+| PSNR (float)       | `float_psnr`    | No            | `float_psnr` (luma only — the CPU extractor emits a single luma score)                        | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | AVX2, NEON          | CUDA, SYCL, Vulkan |
 | SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —                  |
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |

@@ -116,6 +116,12 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "float_ansnr",
         "float_anpsnr",
     ),
+    # GPU long-tail batch 3 part 3 (T7-23 / ADR-0192 / ADR-0195):
+    # float_psnr. Float twin of the integer psnr kernels already on
+    # GPU; per-pixel (ref-dis)² + log10. Bit-exact across all three
+    # backends (max_abs_diff = 0.0 on 8/10-bit) — the kernel is so
+    # simple there's no room for accumulator-order drift.
+    "float_psnr": ("float_psnr",),
     "psnr_hvs": (
         "psnr_hvs_y",
         "psnr_hvs_cb",
