@@ -2289,6 +2289,42 @@ inline.*
   `CudaFunctions` members libvmaf uses. Pre-existing issue, not
   scope of this port.
 
+### 0058 — `libvmaf.pc` Cflags leak fix (ADR-0200)
+
+- **ADR**: [ADR-0200](adr/0200-volk-priv-remap-pkgconfig-leak-fix.md);
+  bug-fix follow-up to entry 0057.
+- **Upstream source**: fork-local. Netflix has no Vulkan backend.
+- **Touches**:
+  - [`libvmaf/subprojects/packagefiles/volk/meson.build`](../libvmaf/subprojects/packagefiles/volk/meson.build)
+    — drops `-include volk_priv_remap.h` from `volk_dep.compile_args`;
+    keeps `-DVK_NO_PROTOTYPES`.
+  - [`libvmaf/src/vulkan/meson.build`](../libvmaf/src/vulkan/meson.build)
+    — pulls `volk_priv_remap_h_path` from the volk subproject and
+    appends `['-include', <path>]` to `vmaf_cflags_common` (private
+    `c_args:` on libvmaf's `library()` call).
+- **Invariants** (load-bearing):
+  1. **`-include` MUST stay off `volk_dep.compile_args`** — otherwise
+     it leaks into static `libvmaf.pc` Cflags. Test on rebase:
+     `meson setup ... -Ddefault_library=static -Denable_vulkan=enabled`,
+     then `grep Cflags meson-private/libvmaf.pc` — must NOT contain
+     `volk_priv_remap` or any build-dir absolute path.
+  2. **`-include` MUST be applied to libvmaf's compile** — every
+     libvmaf TU that calls volk's `vk*` API needs the rename macros
+     active. The `vmaf_cflags_common` injection covers this for
+     all libvmaf sub-libraries (libvmaf_feature, libvmaf_cpu, etc.).
+  3. **The path comes from `subproject('volk').get_variable(...)`,
+     not from a hardcoded string** — survives volk wrap version bumps.
+- **On upstream sync**: zero upstream interaction.
+- **Re-test on rebase / volk wrap bump**:
+
+  ```bash
+  meson setup build-vk-static-test libvmaf -Denable_vulkan=enabled \
+      -Denable_cuda=false -Denable_sycl=false -Ddefault_library=static
+  ninja -C build-vk-static-test src/libvmaf.a
+  grep Cflags build-vk-static-test/meson-private/libvmaf.pc
+  # Expected: no `volk_priv_remap` substring, no build-dir absolute path
+  ```
+
 ### 0057 — Volk `vk*` priv-remap for static-archive builds (ADR-0198)
 
 - **ADR**: [ADR-0198](adr/0198-volk-priv-remap-static-archive.md);

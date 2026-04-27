@@ -32,9 +32,20 @@ volk_lib = static_library('volk',
     pic : true,
     install : false)
 
+# volk_dep is consumed by libvmaf's `library()` call, which means its
+# `compile_args` flow into the generated `libvmaf.pc` Cflags for static
+# builds. We MUST keep the `-include` flag out of `compile_args` here
+# so downstream consumers (FFmpeg, BtbN-style fully-static builds)
+# don't see a `-include /build-dir/path` they can't satisfy after
+# install.
+#
+# Instead, libvmaf's own targets pull `volk_priv_remap_h_path` from
+# this subproject via `subproject('volk').get_variable(...)` and apply
+# the `-include` privately as `c_args:` on their `library()` calls.
+# `c_args` are private to the target and do NOT leak into the generated
+# `libvmaf.pc`. See ADR-0200 (follow-up fix for ADR-0198).
 volk_dep = declare_dependency(
     include_directories : volk_inc,
     link_with : volk_lib,
     sources : volk_priv_remap_h,
-    compile_args : ['-DVK_NO_PROTOTYPES',
-                    '-include', volk_priv_remap_h_path])
+    compile_args : ['-DVK_NO_PROTOTYPES'])

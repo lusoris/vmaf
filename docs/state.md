@@ -41,7 +41,8 @@ _Bugs closed in the last ~90 days. Older entries roll off into
 
 | Bug | Closed by | ADR | Verification |
 |---|---|---|---|
-| volk / `vk*` symbol clash in BtbN-style fully-static FFmpeg builds (lawrence repro 2026-04-27) | this PR | [ADR-0198](adr/0198-volk-priv-remap-static-archive.md) | Static `nm libvmaf.a` reports 0 GLOBAL `vk*` (was ~700); BtbN-style `gcc -static main.c libvmaf.a libvulkan-stub.a` link succeeds; `test_vulkan_smoke` 10/10 pass |
+| `libvmaf.pc` Cflags leak (build-dir `-include` path) on static builds — broke lawrence's BtbN FFmpeg `configure` 2026-04-27 22:19 | this PR | [ADR-0200](adr/0200-volk-priv-remap-pkgconfig-leak-fix.md) | `pkg-config --cflags libvmaf` post-fix returns `-I${includedir} -I${includedir}/libvmaf -DVK_NO_PROTOTYPES -pthread` (no leaked path); rename behaviour byte-for-byte identical (0 GLOBAL `vk*`, 719 `vmaf_priv_vk*` in static `libvmaf.a`); shared `libvmaf.so` Cflags unchanged |
+| volk / `vk*` symbol clash in BtbN-style fully-static FFmpeg builds (lawrence repro 2026-04-27) | #152 (`73620ff5`, 2026-04-27) | [ADR-0198](adr/0198-volk-priv-remap-static-archive.md) | Static `nm libvmaf.a` reports 0 GLOBAL `vk*` (was ~700); BtbN-style `gcc -static main.c libvmaf.a libvulkan-stub.a` link succeeds; `test_vulkan_smoke` 10/10 pass |
 | Netflix#755 — `vmaf_score_pooled` interleaves with `vmaf_read_pictures` | #91 `9b983e0a` (2026-04-24) | [ADR-0154](adr/0154-score-pooled-eagain.md) | API contract test + Netflix golden gate (CPU bit-identical) |
 | Netflix#910 — out-of-order flush misses last frame | #88 `f478c65d` (2026-04-24) | [ADR-0152](adr/0152-monotonic-index-rejection.md) | Regression test rejects non-monotonic indices with `-EINVAL` |
 | Netflix#1414 — `float_ms_ssim` broken at <176×176 | #90 `7905ac78` (2026-04-24) | [ADR-0153](adr/0153-float-ms-ssim-min-size.md) | Init-time rejection with `-EINVAL` + regression test |
