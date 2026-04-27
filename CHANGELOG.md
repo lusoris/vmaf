@@ -171,6 +171,26 @@
   domains). 21+ PRs to close (7 metrics × 3 backends). After
   batch 3, every registered feature extractor in the fork has at
   least one GPU twin (`lpips` remains ORT-delegated per ADR-0022).
+- **GPU long-tail batch 3 part 6 — `float_adm_vulkan` extractor
+  (T7-23 / ADR-0192 / ADR-0199)** (fork-local): sixth and final
+  Group B float twin. Vulkan compute kernel for the float ADM
+  feature extractor. Float twin of `integer_adm_vulkan`
+  ([ADR-0178](docs/adr/0178-integer-adm-vulkan.md)) — same 4-stage
+  / 4-scale wave-of-stages design (16 pipelines) but with float
+  buffers and host-side `double` accumulation. New files:
+  [`libvmaf/src/feature/vulkan/float_adm_vulkan.c`](libvmaf/src/feature/vulkan/float_adm_vulkan.c),
+  [`libvmaf/src/feature/vulkan/shaders/float_adm.comp`](libvmaf/src/feature/vulkan/shaders/float_adm.comp).
+  Mirror-asymmetry status: float_adm has NO trap analogous to
+  [ADR-0197](docs/adr/0197-float-vif-gpu.md) — both the scalar
+  `adm_dwt2_s` and the AVX2 `float_adm_dwt2_avx2` consume the same
+  `dwt2_src_indices_filt_s` index buffer (`2 * sup - idx - 1` for
+  both axes); the GPU follows that. `places=4` cross-backend
+  contract on the lavapipe lane (new step in
+  [`tests-and-quality-gates.yml`](.github/workflows/tests-and-quality-gates.yml)).
+  `scripts/ci/cross_backend_vif_diff.py` gains a `float_adm` entry
+  in `FEATURE_METRICS`. CUDA + SYCL twins land in a focused
+  follow-up PR.
+
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**
   (fork-local): closes batch 2 part 3 (and batch 2 entirely).

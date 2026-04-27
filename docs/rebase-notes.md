@@ -30,6 +30,42 @@ cover several PRs in one workstream; cross-link from the ID heading.
 The pre-ADR-0108 fork-local PRs are summarised by workstream rather
 than per-PR. Future PRs add entries individually.
 
+### 0049 — `float_adm_vulkan` extractor (ADR-0199)
+
+- **ADR**: [ADR-0199](adr/0199-float-adm-vulkan.md)
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/float_adm_vulkan.c` (new)
+  - `libvmaf/src/feature/vulkan/shaders/float_adm.comp` (new)
+  - `libvmaf/src/vulkan/meson.build` (adds the .comp shader and
+    the new .c source)
+  - `libvmaf/src/feature/feature_extractor.c` (extern decl + list
+    entry under `#if HAVE_VULKAN`)
+  - `scripts/ci/cross_backend_vif_diff.py` (`float_adm` entry in
+    `FEATURE_METRICS`)
+  - `.github/workflows/tests-and-quality-gates.yml` (lavapipe
+    `float_adm` step at `places=4`)
+- **Invariant**: float_adm GPU port uses the `2 * sup - idx - 1`
+  mirror form on both axes — matches both the scalar `adm_dwt2_s`
+  and the AVX2 `float_adm_dwt2_avx2`, which both consume the same
+  `dwt2_src_indices_filt_s` index buffer. **This is intentionally
+  different from float_vif's GPU mirror (ADR-0197), which uses
+  `-2` because float_vif's AVX2 path takes a different code branch.**
+  Do not "fix" the asymmetry by analogy with float_vif.
+- **Re-test**:
+
+  ```bash
+  meson setup build-vk -Denable_vulkan=enabled -Denable_cuda=false \
+                       -Denable_sycl=false
+  ninja -C build-vk
+  meson test -C build-vk
+  VK_LOADER_DRIVERS_SELECT='*lvp*' python3 \
+    scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary build-vk/tools/vmaf \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    --width 576 --height 324 --feature float_adm --places 4
+  ```
+
 ### 0001 — SIMD bit-identical reductions for float ADM
 
 - **Workstream PRs**: #18, commits `24c88a32`, `f082cfd3`.
