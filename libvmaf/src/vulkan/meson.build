@@ -33,15 +33,23 @@ vulkan_shader_sources = [
     'shaders/ssim.comp',
     'shaders/ms_ssim.comp',
     'shaders/ms_ssim_decimate.comp',
+    'shaders/psnr_hvs.comp',
 ]
 
 vulkan_shader_headers = []
+# Shaders that need bit-exact float reproduction of CPU semantics
+# build with `-O0` to disable SPIR-V optimizer reassociation /
+# FMA contraction. psnr_hvs is sensitive at places=4 because the
+# per-coefficient mask threshold ((err - thresh) clamp) flips
+# discretely on tiny float drift.
+psnr_hvs_strict_shaders = ['shaders/psnr_hvs.comp']
 foreach shader : vulkan_shader_sources
     shader_name = shader.split('/')[-1].replace('.comp', '')
+    opt_flag = (shader in psnr_hvs_strict_shaders) ? '-O0' : '-O'
     spv = custom_target(shader_name + '.spv',
         input : '../feature/vulkan/' + shader,
         output : shader_name + '.spv',
-        command : [glslc, '--target-env=vulkan1.3', '-O', '@INPUT@', '-o', '@OUTPUT@'],
+        command : [glslc, '--target-env=vulkan1.3', opt_flag, '@INPUT@', '-o', '@OUTPUT@'],
     )
     embed = custom_target(shader_name + '_spv.h',
         input : spv,
@@ -78,6 +86,7 @@ vulkan_sources += files(
     '../feature/vulkan/ciede_vulkan.c',
     '../feature/vulkan/ssim_vulkan.c',
     '../feature/vulkan/ms_ssim_vulkan.c',
+    '../feature/vulkan/psnr_hvs_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers

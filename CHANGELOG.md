@@ -73,6 +73,33 @@
 
 ### Added
 
+- **GPU long-tail batch 2 part 3a — `psnr_hvs_vulkan` extractor
+  (T7-23 / ADR-0188 / ADR-0191)** (fork-local): first DCT-based
+  GPU kernel in the fork. Vulkan twin of the active CPU
+  `psnr_hvs` extractor. Per-plane single-dispatch design — one
+  workgroup per output 8×8 block (step=7 sliding window),
+  64 threads per workgroup. Cooperative load + per-quadrant
+  reductions + scalar Xiph integer DCT (`od_bin_fdct8x8`,
+  lifting + RSHIFT, `int32` arithmetic byte-for-byte against
+  `third_party/xiph/psnr_hvs.c`) + per-coefficient masking +
+  `subgroupAdd` per-block float partial. Host accumulates
+  partials in `double` per plane, applies
+  `score / pixels / samplemax²` then `10·log10(1/score)` per
+  plane. Combined `psnr_hvs = 0.8·Y + 0.1·(Cb + Cr)`. New
+  [`libvmaf/src/feature/vulkan/shaders/psnr_hvs.comp`](libvmaf/src/feature/vulkan/shaders/psnr_hvs.comp)
+  + [`libvmaf/src/feature/vulkan/psnr_hvs_vulkan.c`](libvmaf/src/feature/vulkan/psnr_hvs_vulkan.c)
+  (~540 LOC host). Three pipelines (one per plane, baked-in
+  PLANE + BPC specialisation constants); CSF tables per plane
+  baked into shader as `const float[64]` arrays. Rejects
+  YUV400P (no chroma) and `bpc > 12` (matches CPU). Empirical:
+  48 frames at 576×324 on **Intel Arc A380** vs CPU scalar —
+  `max_abs = 8.2e-5` across all four metrics
+  (`psnr_hvs_y / _cb / _cr / psnr_hvs`), `0/48 places=3
+  mismatches`. Gate runs at `places=3` (better than ADR-0188's
+  `places=2` floor). New CI step `psnr_hvs cross-backend diff
+  (CPU vs Vulkan/lavapipe)` on the lavapipe lane. CUDA + SYCL
+  twins follow as batch 2 parts 3b + 3c.
+
 - **GPU long-tail batch 2 parts 2b + 2c — `float_ms_ssim_cuda` +
   `float_ms_ssim_sycl` extractors (T7-23 / ADR-0188 / ADR-0190)**
   (fork-local): closes batch 2 part 2. CUDA + SYCL twins of the

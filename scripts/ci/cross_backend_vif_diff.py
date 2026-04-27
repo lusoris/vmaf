@@ -88,6 +88,20 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # float_ms_ssim. 5-level pyramid + Wang product combine. Single
     # emitted metric in v1 (enable_lcs deferred).
     "float_ms_ssim": ("float_ms_ssim",),
+    # GPU long-tail batch 2 part 3 (T7-23 / ADR-0188 / ADR-0191):
+    # float_psnr_hvs. DCT-based perceptual PSNR; emits 3 plane scores
+    # + the combined `psnr_hvs`. CPU extractor is `psnr_hvs`; GPU
+    # twin is `float_psnr_hvs_vulkan`. The CPU and GPU paths both
+    # emit identical metric names — the suffix-renaming logic in
+    # build_command takes care of routing. Precision target
+    # places=2 per ADR-0188 (DCT integer-exact, but per-block float
+    # reductions and per-plane log10 limit the floor).
+    "psnr_hvs": (
+        "psnr_hvs_y",
+        "psnr_hvs_cb",
+        "psnr_hvs_cr",
+        "psnr_hvs",
+    ),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the
