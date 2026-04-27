@@ -31,7 +31,9 @@ vma_dep        = dependency('vk-mem-alloc', fallback : ['vk-mem-alloc', 'vk_mem_
 # libvmaf-private c_args, instead of through the dependency.
 volk_subproj           = subproject('volk')
 volk_priv_remap_h_path = volk_subproj.get_variable('volk_priv_remap_h_path')
-vmaf_cflags_common    += ['-include', volk_priv_remap_h_path]
+# Note: the actual `+=` to vmaf_cflags_common is done in the parent
+# meson.build directly after `subdir('vulkan')` for scope-propagation
+# safety. See the block there.
 
 glslc = find_program('glslc', required : true)
 
