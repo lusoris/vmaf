@@ -73,6 +73,47 @@
 
 ### Added
 
+- **GPU long-tail batch 2 parts 2b + 2c — `float_ms_ssim_cuda` +
+  `float_ms_ssim_sycl` extractors (T7-23 / ADR-0188 / ADR-0190)**
+  (fork-local): closes batch 2 part 2. CUDA + SYCL twins of the
+  Vulkan ms_ssim kernel shipped in PR #141. Both inherit the
+  three-kernel design — decimate (9-tap 9/7 biorthogonal LPF +
+  2× downsample), horiz (11-tap separable Gaussian over five
+  SSIM stats), vert+lcs (vertical 11-tap + per-pixel l/c/s +
+  per-WG / per-block float partials × 3). Host accumulates
+  partials in `double` per scale and applies the Wang weights
+  for the `MS-SSIM = ∏_i l[i]^α[i]·c[i]^β[i]·s[i]^γ[i]`
+  combine.
+  - **CUDA** (~210 LOC PTX in
+    [`integer_ms_ssim/ms_ssim_score.cu`](libvmaf/src/feature/cuda/integer_ms_ssim/ms_ssim_score.cu)
+    + ~470 LOC host in
+    [`integer_ms_ssim_cuda.{c,h}`](libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c)):
+    picture_copy normalisation runs on the host (uint → float in
+    `[0, 255]`) via `cuMemcpy2DAsync` D2H of the pitched device
+    plane into a contiguous pinned host buffer, then H2D upload
+    to pyramid level 0. Surfaced one bring-up bug: the device
+    plane is allocated by `cuMemAllocPitch` with `stride[0] ≥
+    width·bpc` — naïve `cuMemcpyDtoHAsync` of `width·height·bpc`
+    bytes mis-copies row N≥1 because it ignores the device
+    pitch. Fix: 2D copy honouring `srcPitch = ref_pic->stride[0]`
+    + `dstPitch = width·bpc` produces the contiguous host buffer
+    `picture_copy` expects.
+  - **SYCL** (~510 LOC, single TU
+    [`integer_ms_ssim_sycl.cpp`](libvmaf/src/feature/sycl/integer_ms_ssim_sycl.cpp)):
+    self-contained submit/collect (does NOT register with
+    `vmaf_sycl_graph_register` — same rationale as ssim_sycl).
+    Host-pinned USM staging carries the picture_copy-normalised
+    float planes; `nd_range<2>` vert+lcs kernel uses
+    `sycl::reduce_over_group` × 3 for per-WG partials.
+    fp64-free (Intel Arc A380).
+  - **Verification**: 48 frames at 576×324 vs CPU scalar —
+    `max_abs = 1.0e-6`, `0/48 places=4 mismatches` on **NVIDIA
+    RTX 4090** (CUDA) and **Intel Arc A380** (SYCL). Same
+    precision floor as `ms_ssim_vulkan` (PR #141).
+  - **v1 limitation** (same as ms_ssim_vulkan): no `enable_lcs`
+    — 15 extra per-scale metrics deferred to a focused
+    follow-up.
+
 - **GPU long-tail batch 2 part 2a — `float_ms_ssim_vulkan`
   extractor (T7-23 / ADR-0188 / ADR-0190)** (fork-local):
   Wang multi-scale SSIM on Vulkan. 5-level pyramid built via

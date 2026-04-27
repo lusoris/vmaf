@@ -49,6 +49,15 @@ ninja -C build
 
 Shortcut: `/build-vmaf --backend=cpu|cuda|sycl|all` (skill).
 
+**IDE note**: `${workspaceFolder}/build/` is the dir the
+clangd / VS Code C/C++ extension reads from
+([`.vscode/c_cpp_properties.json`](.vscode/c_cpp_properties.json)).
+Configure it with every backend you have a toolchain for —
+otherwise `compile_commands.json` won't contain include paths
+for `volk.h` / CUDA / SYCL headers and clangd lights up every
+backend file with "undeclared identifier" errors. See
+[docs/development/ide-setup.md](docs/development/ide-setup.md).
+
 ## 3. How to test
 
 ```bash
