@@ -73,6 +73,29 @@
 
 ### Added
 
+- **GPU long-tail batch 1c part 1 — `ciede_vulkan` extractor
+  (T7-23 / ADR-0187)** (fork-local): Vulkan twin of the CPU
+  `ciede` extractor — the first non-bit-exact GPU kernel in
+  the fork. Per-pixel ciede2000 ΔE uses ~40 transcendental ops
+  (`pow` / `sqrt` / `sin` / `atan2`), so bit-exactness against
+  the libm-based CPU is not on the table. New GLSL shader
+  ([`libvmaf/src/feature/vulkan/shaders/ciede.comp`](libvmaf/src/feature/vulkan/shaders/ciede.comp))
+  emits per-WG `float` partial sums; host accumulates in
+  `double`, divides by W·H, and applies the CPU's logarithmic
+  transform `45 - 20·log10(mean_ΔE)` for the final `ciede2000`
+  metric. 6 storage-buffer bindings (ref + dis Y/U/V at full
+  luma resolution); chroma upscaled host-side via the same
+  pattern as `ciede.c::scale_chroma_planes`. New
+  [`libvmaf/src/feature/vulkan/ciede_vulkan.c`](libvmaf/src/feature/vulkan/ciede_vulkan.c)
+  (~480 LOC). Empirical: 48 frames at 576×324 on **Intel Arc
+  A380** vs CPU scalar — `max_abs = 1.0e-5`, `0/48 places=4
+  mismatches`. Empirical floor lands well under `places=4`
+  threshold (≤5e-5), so the cross-backend gate runs at
+  `places=4` for parity with the existing kernels. New CI
+  step `ciede cross-backend diff (CPU vs Vulkan/lavapipe)` on
+  the lavapipe lane. CUDA + SYCL twins follow as batch 1c
+  parts 2 + 3 (last GPU long-tail rows).
+
 - **GPU long-tail batch 1d parts 2 + 3 — `float_moment_cuda`
   and `float_moment_sycl` extractors (T7-23 / ADR-0182)**
   (fork-local): closes batch 1d. CUDA + SYCL twins of the
