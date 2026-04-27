@@ -65,6 +65,13 @@ vulkan_deps = []
 if is_vulkan_enabled
     cdata.set10('HAVE_VULKAN', true)
     subdir('vulkan')
+    # ADR-0200: apply the volk private-remap `-include` flag here in
+    # parent scope so it composes cleanly with `vmaf_cflags_common`
+    # for every libvmaf sub-library below. (Adding it inside
+    # `subdir('vulkan')` ended up being silently dropped — meson's
+    # variable-propagation behaves oddly when the addition is via an
+    # `subproject().get_variable()` lookup inside a subdir.)
+    vmaf_cflags_common += ['-include', volk_priv_remap_h_path]
 endif
 if dnn_have_ort
     cdata.set10('HAVE_DNN', true)
@@ -920,6 +927,7 @@ libvmaf_feature_static_lib = static_library(
     'libvmaf_feature',
     libvmaf_feature_sources + vulkan_sources,
     include_directories : [libvmaf_include, vmaf_include, cuda_dir],
+    c_args : vmaf_cflags_common,
     dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
     objects: [common_cuda_objects, common_sycl_objects, sycl_feature_objects,
               libvmaf_ssimulacra2_static_lib.extract_all_objects(recursive: false)]

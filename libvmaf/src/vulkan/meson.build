@@ -17,6 +17,24 @@ vulkan_sdk_dep = dependency('vulkan', required : true)
 volk_dep       = dependency('volk',        fallback : ['volk', 'volk_dep'])
 vma_dep        = dependency('vk-mem-alloc', fallback : ['vk-mem-alloc', 'vk_mem_alloc_dep'])
 
+# ADR-0200: pull the volk private-remap header path from the wrap and
+# apply `-include <path>` privately on libvmaf's targets via
+# `vmaf_cflags_common`. ADR-0198's first iteration applied this through
+# `volk_dep.compile_args`, which leaked the build-dir absolute path into
+# the generated `libvmaf.pc` Cflags on **static** builds (lawrence
+# repro 2026-04-27: BtbN-style fully-static FFmpeg build saw
+# `-include /<libvmaf-build-dir>/subprojects/.../volk_priv_remap.h`
+# through `pkg-config --cflags libvmaf` after install — path no longer
+# existed → fatal "No such file or directory" in FFmpeg's `configure`).
+# `c_args` on `library()` calls do NOT propagate to pkg-config; only
+# dependency compile_args do. So we apply the `-include` here, as
+# libvmaf-private c_args, instead of through the dependency.
+volk_subproj           = subproject('volk')
+volk_priv_remap_h_path = volk_subproj.get_variable('volk_priv_remap_h_path')
+# Note: the actual `+=` to vmaf_cflags_common is done in the parent
+# meson.build directly after `subdir('vulkan')` for scope-propagation
+# safety. See the block there.
+
 glslc = find_program('glslc', required : true)
 
 # Compute shaders → SPIR-V → embedded C header. Each `.comp` becomes a
@@ -64,10 +82,16 @@ endforeach
 # VMA requires C++17 (aligned_alloc); libvmaf's project default is
 # C++11. Compile the VMA implementation TU as its own static lib so
 # the cpp_std override doesn't leak into libvmaf's other C++ TUs.
+# vma_impl.cpp also needs the volk priv-remap so its `vk*` calls bind
+# to volk's `vmaf_priv_vk*` PFN dispatchers (some extension functions
+# like `vkGetPhysicalDeviceMemoryProperties2KHR` aren't exported by
+# libvulkan.so directly — only the loader's dlsym path resolves them).
+# Apply via cpp_args here so it's local to this target.
 vma_impl_lib = static_library(
     'vma_impl',
     'vma_impl.cpp',
     override_options : ['cpp_std=c++17', 'warning_level=0'],
+    cpp_args : ['-include', volk_priv_remap_h_path],
     dependencies : [vulkan_sdk_dep, volk_dep, vma_dep],
     pic : true,
     install : false,

@@ -46,6 +46,37 @@
 
 ### Fixed
 
+- **`libvmaf.pc` Cflags leak in static-archive builds (ADR-0200)**
+  (fork-local): bug-fix follow-up to ADR-0198. The
+  `-include volk_priv_remap.h` flag was attached to
+  `volk_dep.compile_args`; on `default_library=static` builds meson
+  copies dependency `compile_args` into the generated `libvmaf.pc`
+  `Cflags:` so downstream consumers can re-link against transitive
+  static deps. Lawrence's BtbN-style fully-static FFmpeg build
+  (cross-toolchain glibc-2.28, 2026-04-27) hit:
+
+  ```text
+  <command-line>: fatal error: /<libvmaf-build-dir>/subprojects/
+    volk-vulkan-sdk-1.4.341.0/volk_priv_remap.h: No such file or directory
+  compilation terminated.
+  ```
+
+  on FFmpeg's `check_func_headers aom/aom_codec.h` probe — the
+  libvmaf-build-dir absolute path no longer existed after libvmaf
+  was installed to `/opt/ffbuild/`. Fix: move the `-include` off
+  `volk_dep.compile_args` and onto libvmaf's private `c_args`
+  via `vmaf_cflags_common += ['-include', volk_priv_remap_h_path]`
+  in `libvmaf/src/vulkan/meson.build`, where the path is pulled
+  from `subproject('volk').get_variable('volk_priv_remap_h_path')`.
+  `c_args:` on a `library()` are private to the target and do
+  NOT leak into the generated pkg-config Cflags; the
+  symbol-rename behaviour from ADR-0198 stays byte-for-byte
+  identical. Post-fix `pkg-config --cflags libvmaf` returns
+  `-I${includedir} -I${includedir}/libvmaf -DVK_NO_PROTOTYPES -pthread`
+  on both shared and static builds. `nm libvmaf.a` still reports
+  0 GLOBAL `vk*` and 719 `vmaf_priv_vk*`. See
+  [ADR-0200](docs/adr/0200-volk-priv-remap-pkgconfig-leak-fix.md).
+
 - **Volk / `vk*` symbol clash in fully-static link environments
   (ADR-0198)** (fork-local): follow-up to ADR-0185.
   `-Wl,--exclude-libs,ALL` only takes effect at the
