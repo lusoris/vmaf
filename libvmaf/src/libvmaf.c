@@ -1310,7 +1310,15 @@ static int translate_picture_host(VmafContext *vmaf, VmafPicture *pic, VmafPictu
         if (!vmaf->cuda.state.ctx)
             return -EINVAL;
         err |= vmaf_ring_buffer_fetch_next_picture(vmaf->cuda.ring_buffer, pic_device);
-        err |= vmaf_cuda_picture_upload_async(pic_device, pic, 0x1);
+        /* Upload luma always; upload chroma when the input has it.
+         * ciede_cuda (T7-23 / batch 1c part 2) is the first
+         * chroma-aware CUDA extractor — older luma-only kernels
+         * (psnr / motion / adm / vif / moment) just don't read
+         * data[1..2]. The mild upload-bandwidth cost (~1 MB/frame
+         * extra at 1080p YUV420) is preferable to a per-extractor
+         * "needs_chroma" flag for now. */
+        const uint8_t upload_mask = (vmaf->pic_params.pix_fmt == VMAF_PIX_FMT_YUV400P) ? 0x1 : 0x7;
+        err |= vmaf_cuda_picture_upload_async(pic_device, pic, upload_mask);
         if (err) {
             vmaf_log(VMAF_LOG_LEVEL_ERROR, "problem moving host pic into cuda device buffer\n");
             return err;
