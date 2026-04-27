@@ -6,6 +6,34 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Added
+
+- **GPU long-tail batch 3 part 2 — `float_ansnr_{vulkan,cuda,sycl}`
+  extractors (T7-23 / ADR-0192 / ADR-0194)** (fork-local): closes
+  the ANSNR matrix gap (was CPU-only float, no GPU twin). Single-
+  dispatch GPU kernels apply the CPU's 3x3 ref filter
+  ([`ansnr_tools.c::ansnr_filter2d_ref_s`](libvmaf/src/feature/ansnr_tools.c))
+  and 5x5 dis filter (Netflix-tuned weights summing to 1.0,
+  `/571`) inline from a 20×20 shared / SLM tile, then accumulate
+  per-pixel `sig = ref_filtr²` and `noise = (ref_filtr - filtd)²`
+  into per-WG float partials. Host reduces in `double` and applies
+  the CPU formulas for `float_ansnr` and `float_anpsnr`. Edge-
+  replicating mirror (`2*size - idx - 1`) matches CPU
+  `ansnr_filter2d_s` — same divergence-from-motion footgun as
+  motion_v2 (ADR-0193). Empirical floor on cross-backend gate
+  fixture: `max_abs_diff = 6e-6` (8-bit, 48 frames) / `2e-6`
+  (10-bit, 3 frames) on **all three backends with identical
+  numbers** (Vulkan = CUDA = SYCL — strong evidence the kernel
+  logic is correct). Files: new
+  [`shaders/float_ansnr.comp`](libvmaf/src/feature/vulkan/shaders/float_ansnr.comp),
+  [`float_ansnr_vulkan.c`](libvmaf/src/feature/vulkan/float_ansnr_vulkan.c),
+  [`float_ansnr/float_ansnr_score.cu`](libvmaf/src/feature/cuda/float_ansnr/float_ansnr_score.cu),
+  [`float_ansnr_cuda.c`](libvmaf/src/feature/cuda/float_ansnr_cuda.c),
+  [`float_ansnr_sycl.cpp`](libvmaf/src/feature/sycl/float_ansnr_sycl.cpp).
+  New `float_ansnr` lavapipe gate step in
+  [`tests-and-quality-gates.yml`](.github/workflows/tests-and-quality-gates.yml)
+  + `FEATURE_METRICS` entry in the cross-backend gate.
+
 ### Changed
 
 - **Whole-codebase lint sweep — auto-fix subset (52% findings cleared)**

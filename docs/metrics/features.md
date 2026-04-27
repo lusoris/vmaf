@@ -41,7 +41,7 @@ limitations in the same PR as the code.
 | SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —                  |
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
-| ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | —                  |
+| ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | CUDA, SYCL, Vulkan |
 | SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | —                  |
 | Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | AVX2, NEON          | CUDA, SYCL, Vulkan |
 | LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —                  |
@@ -466,7 +466,16 @@ shipped model still consumes; kept for back-compat with external callers.
 
 **Options** — none.
 
-**Backends** — scalar only.
+**Backends** — scalar (CPU) plus CUDA, SYCL, Vulkan
+([ADR-0194](../adr/0194-float-ansnr-gpu.md)). All three GPU
+kernels are single-dispatch — they apply the CPU's 3x3 ref filter
+and 5x5 dis filter inline from a 20×20 shared/SLM tile, accumulate
+per-pixel `sig = ref_filtr²` and `noise = (ref_filtr − filtd)²`
+into per-WG float partials, and let the host reduce in `double`
+before applying the `10·log10` transforms. Empirical floor on the
+cross-backend gate fixture: `max_abs_diff = 6e-6` on 8-bit and
+`2e-6` on 10-bit, identical across Vulkan / CUDA / SYCL — well
+below the `places=4` threshold.
 
 ### SSIMULACRA 2 — perceptual similarity in XYB space
 

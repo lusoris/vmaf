@@ -444,6 +444,7 @@ if is_cuda_enabled
         'ssim_score' : [feature_src_dir + 'cuda/integer_ssim/ssim_score.cu'],
         'ms_ssim_score' : [feature_src_dir + 'cuda/integer_ms_ssim/ms_ssim_score.cu'],
         'psnr_hvs_score' : [feature_src_dir + 'cuda/integer_psnr_hvs/psnr_hvs_score.cu'],
+        'float_ansnr_score' : [feature_src_dir + 'cuda/float_ansnr/float_ansnr_score.cu'],
     }
     message(cuda_cu_sources)
     cuda_sources = [
@@ -863,6 +864,7 @@ if is_cuda_enabled
         feature_src_dir + 'cuda/integer_ssim_cuda.c',
         feature_src_dir + 'cuda/integer_ms_ssim_cuda.c',
         feature_src_dir + 'cuda/integer_psnr_hvs_cuda.c',
+        feature_src_dir + 'cuda/float_ansnr_cuda.c',
     ]
 endif
 
@@ -875,6 +877,7 @@ if is_sycl_enabled
         feature_src_dir + 'sycl/integer_adm_sycl.cpp',
         feature_src_dir + 'sycl/integer_motion_sycl.cpp',
         feature_src_dir + 'sycl/integer_motion_v2_sycl.cpp',
+        feature_src_dir + 'sycl/float_ansnr_sycl.cpp',
         feature_src_dir + 'sycl/integer_psnr_sycl.cpp',
         feature_src_dir + 'sycl/integer_moment_sycl.cpp',
         feature_src_dir + 'sycl/integer_ciede_sycl.cpp',
