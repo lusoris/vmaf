@@ -3363,6 +3363,48 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0069 — `libvmaf_vulkan.h` installed under prefix (build bug)
+
+- **No ADR.** Build-system bug fix; matches existing CUDA / SYCL
+  install conditions.
+- **Upstream source**: fork-local. Vulkan backend is fork-only;
+  Netflix/vmaf has no `libvmaf_vulkan.h`.
+- **Touches**:
+  - `libvmaf/include/libvmaf/meson.build` — adds an
+    `is_vulkan_enabled` gate that handles the `feature` option's
+    `enabled` / `auto` states; appends `libvmaf_vulkan.h` to
+    `platform_specific_headers` when active.
+  - `CHANGELOG.md` Unreleased § Fixed.
+- **Invariants** (rebase-relevant):
+  1. **Install rule mirrors the CUDA / SYCL pattern but uses the
+     feature-option API.** The
+     `is_cuda_enabled = get_option('enable_cuda') == true` boolean
+     idiom doesn't apply to `enable_vulkan` because that's a
+     feature option, not a boolean. Use `.enabled() or .auto()`.
+     Don't "simplify" to `== true` — that would silently drop the
+     install in the `auto` state.
+  2. **Pairs with
+     `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`**
+     which probes for the header via
+     `check_pkg_config libvmaf_vulkan "libvmaf >= 3.0.0"
+     libvmaf/libvmaf_vulkan.h vmaf_vulkan_state_init_external`.
+     Removing the install rule re-introduces lawrence's
+     2026-04-28 symptom: FFmpeg silently drops the
+     `libvmaf_vulkan` filter despite `--enable-libvmaf-vulkan`.
+- **On upstream sync**: zero interaction; Vulkan backend is
+  fork-only.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf
+  CC=icx CXX=icpx meson setup build -Denable_vulkan=enabled \
+    -Denable_cuda=true -Denable_sycl=true -Db_lto=false
+  ninja -C build
+  meson install -C build --destdir /tmp/libvmaf-install
+  ls /tmp/libvmaf-install/usr/local/include/libvmaf/libvmaf_vulkan.h
+  # Expect: file exists.
+  ```
+
 ### 0066 — `--backend cuda` inverted-gpumask fix (CLI bug)
 
 - **No ADR.** Bug fix; behaviour now matches the public-header

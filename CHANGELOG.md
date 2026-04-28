@@ -243,6 +243,26 @@
 
 ### Fixed
 
+- **`libvmaf_vulkan.h` now installs under the prefix when
+  `-Denable_vulkan=enabled`** (fork-local): `libvmaf/include/libvmaf/meson.build`
+  had install gates for `is_cuda_enabled` and `is_sycl_enabled` but
+  none for Vulkan, so `meson install` dropped `libvmaf_cuda.h` and
+  `libvmaf_sycl.h` under `<prefix>/include/libvmaf/` but never
+  `libvmaf_vulkan.h`. Symptom (lawrence, 2026-04-28): FFmpeg
+  `configure` accepts `--enable-libvmaf-vulkan` and reports it as
+  enabled, but only `vmaf_pre` and the regular `libvmaf` filter
+  end up built — the `libvmaf_vulkan` filter is silently dropped
+  because `check_pkg_config libvmaf_vulkan "libvmaf >= 3.0.0"
+  libvmaf/libvmaf_vulkan.h vmaf_vulkan_state_init_external` (in
+  ffmpeg-patches/0006) can't find the header. Fix: add an
+  `is_vulkan_enabled` gate (handles the `feature` option's
+  `enabled` and `auto` states), append `libvmaf_vulkan.h` to
+  `platform_specific_headers` when active. Verified: a fresh
+  `meson install --destdir /tmp/x` now drops the header alongside
+  `libvmaf_cuda.h` and `libvmaf_sycl.h`. No CHANGELOG breakage for
+  pre-existing CUDA/SYCL consumers — the install set is purely
+  additive.
+
 - **`--backend cuda` actually engages CUDA now (was silently CPU)**
   (fork-local): the CLI's `--backend cuda` selector previously set
   `gpumask = 1` intending it as a device pin, but
