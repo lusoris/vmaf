@@ -243,6 +243,27 @@
 
 ### Fixed
 
+- **`testdata/bench_all.sh` actually engages the backends it benches**
+  (fork-local): the script's per-row flag pattern (`--no_sycl` for
+  the "CUDA" row, `--no_cuda` for "SYCL", and `--no_cuda --no_sycl`
+  for "CPU") used disable-only singletons that leave the runtime
+  with no actual backend request. The CLI then initialises only CPU
+  for every row, producing bit-exact pools and identical fps across
+  "backends" — exactly the symptom the script is supposed to surface
+  the *opposite* of. Switched to the correct engagement flag sets
+  (`--gpumask=0 --no_sycl --no_vulkan` for CUDA;
+  `--sycl_device=0 --no_cuda --no_vulkan` for SYCL;
+  `--vulkan_device=0 --no_cuda --no_sycl` for Vulkan;
+  `--no_cuda --no_sycl --no_vulkan` for CPU). Added a 4th column
+  (Vulkan) to the per-test comparator and a per-row JSON key-count
+  echo so future runs can spot a silent fallback in one glance.
+  Honours `$VMAF_BIN` (custom binary path) and `$VMAF_ONEAPI_SETVARS`
+  (oneAPI install location) so the script works against fresh local
+  builds without requiring the system-installed `/usr/local/bin/vmaf`
+  to be current. Pairs with PR #170 (CLI fix that makes
+  `--backend cuda` actually engage CUDA) and PR #169
+  (`libvmaf/AGENTS.md` §"Backend-engagement foot-guns").
+
 - **`libvmaf.pc` Cflags leak in static-archive builds (ADR-0200)**
   (fork-local): bug-fix follow-up to ADR-0198. The
   `-include volk_priv_remap.h` flag was attached to

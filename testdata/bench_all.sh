@@ -1,15 +1,44 @@
 #!/bin/bash
 # shellcheck disable=SC1091  # setvars.sh is Intel-provided, not part of the repo
+#
+# Per-backend bench across the three canonical fixture sizes
+# (576×324, 1080p_5f, 4K BBB 200f). For each fixture we engage CPU,
+# CUDA, SYCL, and Vulkan with the **correct** flag set per backend
+# (see libvmaf/AGENTS.md §"Backend-engagement foot-guns").
+#
+# Earlier revisions of this script used `--no_cuda --no_sycl` for CPU
+# and the singletons `--no_sycl` / `--no_cuda` for "CUDA" / "SYCL".
+# Those flags are *disable*-only — they don't engage a backend. So the
+# script silently ran CPU for every row, producing bit-exact pools and
+# identical fps across "backends". Fixed in this revision.
 set -euo pipefail
 
-source /opt/intel/oneapi/setvars.sh 2>/dev/null || true
+# Source the user's preferred oneAPI install if present. Honoured order:
+# (1) explicit $VMAF_ONEAPI_SETVARS, (2) the pinned 2025.3 install, (3) legacy.
+# Skip silently if none are available.
+ONEAPI_CANDIDATES=(
+  "${VMAF_ONEAPI_SETVARS:-}"
+  /opt/intel/oneapi-2025.3/setvars.sh
+  /opt/intel/oneapi/setvars.sh
+)
+for cand in "${ONEAPI_CANDIDATES[@]}"; do
+  if [[ -n "${cand}" && -f "${cand}" ]]; then
+    # shellcheck disable=SC1090  # path resolved at runtime
+    source "${cand}" >/dev/null 2>&1 || true
+    break
+  fi
+done
+
 cd "${VMAF_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo /home/kilian/dev/vmaf)}" || exit 1
 
-VMAF=/usr/local/bin/vmaf
+# Honour $VMAF_BIN if set (e.g. for a fresh local build); otherwise fall
+# back to the system-installed CLI.
+VMAF="${VMAF_BIN:-/usr/local/bin/vmaf}"
 MODEL=model/vmaf_v0.6.1.json
 OUTDIR=testdata/bbb/results
 mkdir -p "$OUTDIR"
 
+# `flags` is intentionally space-split into separate argv entries.
 run() {
   local name="$1" ref="$2" dis="$3" w="$4" h="$5" bd="$6" flags="$7"
   local out="$OUTDIR/${name}.json"
@@ -35,9 +64,16 @@ tag = sys.argv[1]
 outdir = sys.argv[2]
 backends = [
     (f"{tag}_cpu", "CPU"),
-    (f"{tag}_cuda", "CUDA RTX4090"),
-    (f"{tag}_sycl", "SYCL Arc A380"),
+    (f"{tag}_cuda", "CUDA"),
+    (f"{tag}_sycl", "SYCL"),
+    (f"{tag}_vulkan", "Vulkan"),
 ]
+# Per-backend output key counts diverge — CPU emits 14-15 keys
+# (incl. integer_aim / integer_motion3 / integer_adm3); CUDA / SYCL
+# emit ~12; Vulkan emits ~34 (with raw num/den intermediates). A
+# matching key count between two backends is one signal that they
+# ran the same code path — useful when verifying that flags actually
+# engaged the intended backend.
 cpu_scores = None
 for key, name in backends:
     try:
@@ -45,22 +81,52 @@ for key, name in backends:
             d = json.load(f)
         scores = [fr["metrics"]["vmaf"] for fr in d["frames"]]
         mean = d["pooled_metrics"]["vmaf"]["mean"]
+        nkeys = len(d["frames"][0]["metrics"])
         if cpu_scores is None:
             cpu_scores = scores
-            print(f"  {name:20s}: {mean:.6f} (ref, {len(scores)} frames)")
+            print(f"  {name:8s}: {mean:.6f} (ref, {len(scores)} frames, {nkeys} keys)")
         else:
             diffs = [abs(c-g) for c,g in zip(cpu_scores, scores)]
             mx = max(diffs)
             avg = sum(diffs)/len(diffs)
             bad = [(i,d) for i,d in enumerate(diffs) if d > 0.01]
             st = "PASS" if mx < 0.01 else ("WARN" if mx < 0.1 else "FAIL")
-            print(f"  {name:20s}: {mean:.6f}  {st} max_diff={mx:.8f} avg_diff={avg:.8f}")
+            print(f"  {name:8s}: {mean:.6f}  {st} keys={nkeys} max_diff={mx:.8f} avg_diff={avg:.8f}")
             if bad:
-                for i,d in bad[:5]:
+                for i, d in bad[:5]:
                     print(f"      frame {i}: cpu={cpu_scores[i]:.6f} gpu={scores[i]:.6f} diff={d:.6f}")
+    except FileNotFoundError:
+        print(f"  {name:8s}: SKIP (output not produced — backend likely unavailable)")
     except Exception as e:
-        print(f"  {name:20s}: ERROR {e}")
+        print(f"  {name:8s}: ERROR {e}")
 PYEOF
+}
+
+# Backend-engagement flag sets (see libvmaf/AGENTS.md §"Backend-engagement
+# foot-guns"). The `--backend $name` exclusive selector is the canonical
+# CLI surface as of 2026-04-28; the explicit-flag form below is kept
+# because it works even on libvmaf builds without the selector.
+#
+#   CPU:    --no_cuda --no_sycl --no_vulkan
+#   CUDA:   --gpumask=0 --no_sycl --no_vulkan
+#   SYCL:   --sycl_device=0 --no_cuda --no_vulkan
+#   Vulkan: --vulkan_device=0 --no_cuda --no_sycl
+#
+# Verifying engagement after a run: the JSON's `frames[0].metrics`
+# key set differs per backend (CPU 14-15, CUDA 11-12, SYCL ~15,
+# Vulkan ~34). Same key-count + same pool across two rows is a
+# strong signal that both ran the same code path.
+FLAGS_CPU="--no_cuda --no_sycl --no_vulkan"
+FLAGS_CUDA="--gpumask=0 --no_sycl --no_vulkan"
+FLAGS_SYCL="--sycl_device=0 --no_cuda --no_vulkan"
+FLAGS_VULKAN="--vulkan_device=0 --no_cuda --no_sycl"
+
+run_test() {
+  local tag="$1" ref="$2" dis="$3" w="$4" h="$5" bd="$6"
+  run "${tag}_cpu" "$ref" "$dis" "$w" "$h" "$bd" "$FLAGS_CPU"
+  run "${tag}_cuda" "$ref" "$dis" "$w" "$h" "$bd" "$FLAGS_CUDA"
+  run "${tag}_sycl" "$ref" "$dis" "$w" "$h" "$bd" "$FLAGS_SYCL"
+  run "${tag}_vulkan" "$ref" "$dis" "$w" "$h" "$bd" "$FLAGS_VULKAN"
 }
 
 echo "========================================="
@@ -68,23 +134,19 @@ echo "Test 1: Official 576x324 (48 frames, 8-bit)"
 echo "========================================="
 REF=python/test/resource/yuv/src01_hrc00_576x324.yuv
 DIS=python/test/resource/yuv/src01_hrc01_576x324.yuv
-run "t1_cpu" "$REF" "$DIS" 576 324 8 "--no_cuda --no_sycl"
-run "t1_cuda" "$REF" "$DIS" 576 324 8 "--no_sycl"
-run "t1_sycl" "$REF" "$DIS" 576 324 8 "--no_cuda"
+run_test t1 "$REF" "$DIS" 576 324 8
 echo "Comparison:"
-compare "t1"
+compare t1
 
 echo ""
 echo "========================================="
-echo "Test 2: Official 1080p (5 frames, 8-bit)"
+echo "Test 2: 1080p (5 frames, 8-bit)"
 echo "========================================="
 REF=python/test/resource/yuv/src01_hrc00_1920x1080_5frames.yuv
 DIS=python/test/resource/yuv/src01_hrc01_1920x1080_5frames.yuv
-run "t2_cpu" "$REF" "$DIS" 1920 1080 8 "--no_cuda --no_sycl"
-run "t2_cuda" "$REF" "$DIS" 1920 1080 8 "--no_sycl"
-run "t2_sycl" "$REF" "$DIS" 1920 1080 8 "--no_cuda"
+run_test t2 "$REF" "$DIS" 1920 1080 8
 echo "Comparison:"
-compare "t2"
+compare t2
 
 echo ""
 echo "========================================="
@@ -92,11 +154,9 @@ echo "Test 3: BBB 4K (200 frames, 8-bit)"
 echo "========================================="
 REF=testdata/bbb/ref_3840x2160_200f.yuv
 DIS=testdata/bbb/dis_3840x2160_200f.yuv
-run "t3_cpu" "$REF" "$DIS" 3840 2160 8 "--no_cuda --no_sycl"
-run "t3_cuda" "$REF" "$DIS" 3840 2160 8 "--no_sycl"
-run "t3_sycl" "$REF" "$DIS" 3840 2160 8 "--no_cuda"
+run_test t3 "$REF" "$DIS" 3840 2160 8
 echo "Comparison:"
-compare "t3"
+compare t3
 
 echo ""
 echo "========================================="
