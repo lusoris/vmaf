@@ -169,7 +169,97 @@ static char *test_nflx_ctc_v1_0()
     return NULL;
 }
 
-char *run_tests()
+/* `--backend cuda` must end up with gpumask == 0 (NOT 1), because
+ * VmafConfiguration::gpumask is a CUDA-*disable* bitmask — any nonzero
+ * value disables CUDA in compute_fex_flags. The CLI's job is only to
+ * trip use_gpumask so vmaf_cuda_state_init runs; the runtime then
+ * picks the CUDA extractors because gpumask is 0. Earlier revisions
+ * set gpumask = 1 here, which silently routed every "CUDA" run
+ * through the CPU path. */
+static char *test_backend_cuda_engages_cuda()
+{
+    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--backend", "cuda"};
+    int argc = 7;
+    CLISettings settings;
+    optind = 1;
+    cli_parse(argc, argv, &settings);
+    mu_assert("cli_parse: --backend cuda must set use_gpumask = true (so CUDA inits)",
+              settings.use_gpumask);
+    mu_assert("cli_parse: --backend cuda must set gpumask = 0 (any nonzero DISABLES CUDA)",
+              settings.gpumask == 0);
+    mu_assert("cli_parse: --backend cuda must set no_sycl = true", settings.no_sycl);
+    mu_assert("cli_parse: --backend cuda must set no_vulkan = true", settings.no_vulkan);
+    mu_assert("cli_parse: --backend cuda must NOT set no_cuda", !settings.no_cuda);
+    cli_free(&settings);
+    cli_free_dicts(&settings);
+    return NULL;
+}
+
+static char *test_backend_cpu()
+{
+    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--backend", "cpu"};
+    int argc = 7;
+    CLISettings settings;
+    optind = 1;
+    cli_parse(argc, argv, &settings);
+    mu_assert("cli_parse: --backend cpu must set no_cuda = true", settings.no_cuda);
+    mu_assert("cli_parse: --backend cpu must set no_sycl = true", settings.no_sycl);
+    mu_assert("cli_parse: --backend cpu must set no_vulkan = true", settings.no_vulkan);
+    cli_free(&settings);
+    cli_free_dicts(&settings);
+    return NULL;
+}
+
+static char *test_backend_sycl()
+{
+    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--backend", "sycl"};
+    int argc = 7;
+    CLISettings settings;
+    optind = 1;
+    cli_parse(argc, argv, &settings);
+    mu_assert("cli_parse: --backend sycl must set no_cuda = true", settings.no_cuda);
+    mu_assert("cli_parse: --backend sycl must set no_vulkan = true", settings.no_vulkan);
+    mu_assert("cli_parse: --backend sycl must default sycl_device to 0", settings.sycl_device == 0);
+    cli_free(&settings);
+    cli_free_dicts(&settings);
+    return NULL;
+}
+
+static char *test_backend_vulkan()
+{
+    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--backend", "vulkan"};
+    int argc = 7;
+    CLISettings settings;
+    optind = 1;
+    cli_parse(argc, argv, &settings);
+    mu_assert("cli_parse: --backend vulkan must set no_cuda = true", settings.no_cuda);
+    mu_assert("cli_parse: --backend vulkan must set no_sycl = true", settings.no_sycl);
+    mu_assert("cli_parse: --backend vulkan must default vulkan_device to 0",
+              settings.vulkan_device == 0);
+    cli_free(&settings);
+    cli_free_dicts(&settings);
+    return NULL;
+}
+
+/* Explicit `--gpumask=N --backend cuda` must preserve the user's gpumask,
+ * NOT clobber it. Multi-GPU rigs need fine-grained disable bits. */
+static char *test_backend_cuda_preserves_explicit_gpumask()
+{
+    char *argv[8] = {"vmaf", "-r", "ref.y4m", "-d", "dis.y4m", "--gpumask=2", "--backend", "cuda"};
+    int argc = 8;
+    CLISettings settings;
+    optind = 1;
+    cli_parse(argc, argv, &settings);
+    mu_assert("cli_parse: --gpumask=2 --backend cuda must preserve gpumask = 2",
+              settings.gpumask == 2);
+    mu_assert("cli_parse: --gpumask=2 --backend cuda must keep use_gpumask = true",
+              settings.use_gpumask);
+    cli_free(&settings);
+    cli_free_dicts(&settings);
+    return NULL;
+}
+
+static char *run_aom_ctc_tests(void)
 {
     mu_run_test(test_aom_ctc_v1_0);
     mu_run_test(test_aom_ctc_v2_0);
@@ -178,5 +268,26 @@ char *run_tests()
     mu_run_test(test_aom_ctc_v5_0);
     mu_run_test(test_aom_ctc_v6_0);
     mu_run_test(test_nflx_ctc_v1_0);
+    return NULL;
+}
+
+static char *run_backend_tests(void)
+{
+    mu_run_test(test_backend_cpu);
+    mu_run_test(test_backend_cuda_engages_cuda);
+    mu_run_test(test_backend_cuda_preserves_explicit_gpumask);
+    mu_run_test(test_backend_sycl);
+    mu_run_test(test_backend_vulkan);
+    return NULL;
+}
+
+char *run_tests()
+{
+    char *result = run_aom_ctc_tests();
+    if (result)
+        return result;
+    result = run_backend_tests();
+    if (result)
+        return result;
     return NULL;
 }
