@@ -272,6 +272,12 @@ Items mentioned in an ADR or research digest with a clear scope but
 Section A: an audit trail exists, but the backlog has no execution
 hook.
 
+> **Triage status (2026-04-28):** all five items have been evaluated
+> against the canonical backlog (`.workingdir2/BACKLOG.md`):
+> B.1 confirmed already-tracked transitively (T3-9 → closed as T7-21
+> "AVX2 ceiling" per ADR-0180); B.2–B.5 promoted to T7-31..T7-34
+> respectively. No further row-promotion action required.
+
 ### B.1 — `psnr_hvs` AVX-512 follow-up footnote (ADR-0160)
 
 Cited in [`docs/rebase-notes.md:2783`](rebase-notes.md) and ADR-0160.
@@ -292,6 +298,8 @@ peripherally. No T-number.
 
 Recommendation: T-number under Tier 3 (SIMD gap-fill).
 
+**→ promoted as T7-31 (2026-04-28).**
+
 ### B.3 — `motion_v2` AVX2 srlv_epi64 negative-diff audit (rebase-notes 0038)
 
 [`docs/rebase-notes.md:2049-2051`](rebase-notes.md) carries an
@@ -301,6 +309,8 @@ negative-diff corpus."*
 
 Recommendation: pick up the placeholder and assign T7-NN (low effort,
 single bench run).
+
+**→ promoted as T7-32 (2026-04-28).**
 
 ### B.4 — Tiny-AI `tiny-vmaf-v2` prototype Pearson-drop budget (Research-0006)
 
@@ -313,6 +323,8 @@ ADR-0174 cover `learned_filter_v1` and `nr_metric_v1`; "v2" of
 
 Recommendation: clarify in the research digest or open a B-row to
 ratify the model identity.
+
+**→ promoted as T7-33 (2026-04-28).**
 
 ### B.5 — Python (`python/vmaf/routine.py`) `feature_option_dict` FIXME
 
@@ -329,12 +341,18 @@ Recommendation: open a verify-only row under Tier 1 (correctness
 sweep) that confirms whether the inconsistency reproduces. Closes
 either by adding a regression test or by deleting the FIXME.
 
+**→ promoted as T7-34 (2026-04-28).**
+
 ---
 
 ## Section C — Resolved-but-stale (the comment lingers; the work landed)
 
 The TODO / "scaffold" / "follow-up" note is still in source, but the
 referenced work was completed. Comment-only fix.
+
+> **Status (2026-04-28):** all four C-items cleared via PR #164
+> (`chore/section-c-stale-comments`). Listed below for the audit
+> trail; no further action.
 
 ### C.1 — `libvmaf_vulkan.h:141-142` says "scaffold only (T7-29 part 1)"
 
@@ -427,9 +445,13 @@ Action: rewrite the three blurbs to reflect post-T5-1b reality.
 1. Promote Section A items to **T-numbered backlog rows** in
    `.workingdir2/BACKLOG.md` (one row each; group A.1.1–A.1.5 under
    a new "GPU coverage long-tail" sub-tier if desired). Keep A.3.4
-   and A.4.1 on the watch list (no row yet).
+   and A.4.1 on the watch list (no row yet). **Open** — needs
+   per-item user decision.
 2. For **Section B**, stop short of opening rows for B.1 (already
-   tracked transitively) and open rows for B.2–B.5 each.
+   tracked transitively) and open rows for B.2–B.5 each. **Done
+   2026-04-28** — B.2 → T7-31, B.3 → T7-32, B.4 → T7-33,
+   B.5 → T7-34.
 3. For **Section C**, sweep the four files in a single
    chore PR — comment-only, no behaviour change. Pairs naturally
-   with the next non-trivial PR that touches each file.
+   with the next non-trivial PR that touches each file. **Done
+   2026-04-28** — PR #164 (`chore/section-c-stale-comments`).
