@@ -130,6 +130,15 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "motion",
         "motion2",
     ),
+    # GPU long-tail batch 3 part 5 (T7-23 / ADR-0192 / ADR-0197):
+    # float_vif. 4-scale pyramid with 17/9/5/3-tap separable
+    # filters + decimation between scales. places=4 contract.
+    "float_vif": (
+        "vif_scale0",
+        "vif_scale1",
+        "vif_scale2",
+        "vif_scale3",
+    ),
     "psnr_hvs": (
         "psnr_hvs_y",
         "psnr_hvs_cb",
