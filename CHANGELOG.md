@@ -8,6 +8,21 @@
 
 ### Changed
 
+- **`docs/benchmarks.md` `TBD` cells filled with measured numbers
+  (T7-37)**: first end-to-end fork-bench rerun after the bench-script
+  fixes (PR #169 / #170 / #171) and the Vulkan header install (PR
+  #175). New per-backend tables for the Netflix 576×324 normal pair
+  (CPU 598 fps, CUDA 278 fps, SYCL Arc-A380 315 fps, Vulkan 171 fps),
+  the 1920×1080 5-frame pair, and the BBB 4K 200-frame pair (CUDA
+  227 fps = 16.4× CPU). CPU SIMD-ISA breakdown shows AVX-512 buys
+  6.62× over scalar on Zen 5; AVX2 alone gets 2.96×. `--precision`
+  overhead measurement confirms `=max` (`%.17g`) is wall-time-free
+  (<1 % delta) but +25.8 % JSON byte-count vs the `%.6f` default.
+  Hardware-profile table updated to match the actual bench host
+  (`ryzen-4090-arc`: Ryzen 9 9950X3D + RTX 4090 + Arc A380, Linux
+  7.0.x CachyOS). Each backend's `frames[0].metrics` key count was
+  verified per-row (CPU=15, CUDA=12, SYCL/Vulkan=34) to confirm no
+  silent CPU fallback.
 - **Tiny-AI PTQ accuracy across Execution Providers measured (T5-3e,
   retires the deferred GPU-EP open question in
   `docs/research/0006-tinyai-ptq-accuracy-targets.md`)**: empirical

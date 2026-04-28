@@ -30,6 +30,31 @@ cover several PRs in one workstream; cross-link from the ID heading.
 The pre-ADR-0108 fork-local PRs are summarised by workstream rather
 than per-PR. Future PRs add entries individually.
 
+### 0065 — T7-37 Netflix bench rerun + `docs/benchmarks.md` `TBD` fill
+
+- **No ADR.** Empirical fill of pre-existing `TBD` cells; no new
+  decision. The bench *script* fixes that this rerun depends on
+  shipped earlier under PR #169 (libvmaf/AGENTS.md backend-engagement
+  foot-guns), PR #170 (`--backend cuda` actually engages CUDA), and
+  PR #171 (`testdata/bench_all.sh` uses correct flags). Vulkan header
+  install for SDK consumers is PR #175.
+- **Touches** (additive only): `docs/benchmarks.md` (every `TBD`
+  cell replaced with measured numbers; hardware-profile table updated
+  to the `ryzen-4090-arc` host the rerun was performed on; "How to
+  reproduce" section now documents fixture acquisition for the
+  gitignored BBB 4K 200-frame pair). `CHANGELOG.md` Unreleased §
+  Changed entry.
+- **Invariants** (rebase-relevant): none. The numbers are tied to
+  fork commit `41301496` and the `ryzen-4090-arc` profile; an
+  upstream rebase that changes feature pipelines would invalidate
+  the table but not break parsing.
+- **On upstream sync**: zero interaction. Pure docs.
+- **Re-test on rebase**: `bash testdata/bench_all.sh` (after a fresh
+  fork build) — confirms the bench script still drives all four
+  backends and that the per-row metrics-key counts (CPU=15, CUDA=12,
+  SYCL/Vulkan=34) still distinguish them. If they collapse to one
+  count, the new upstream broke a backend dispatcher silently.
+
 ### 0050 — `float_adm_cuda` + `float_adm_sycl` extractors (ADR-0202)
 
 - **ADR**: [ADR-0202](adr/0202-float-adm-cuda-sycl.md)
