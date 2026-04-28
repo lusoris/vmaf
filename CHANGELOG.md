@@ -95,6 +95,34 @@
 
 ### Added
 
+- **Tiny-AI Phase-2 analysis scaffolding: full-feature parquet
+  extractor + correlation/MI/importance harness**
+  (Research-0026 Phase 2 prep, fork-local): new
+  [`ai/scripts/extract_full_features.py`](ai/scripts/extract_full_features.py)
+  walks the Netflix corpus calling `extract_features` with the
+  `FULL_FEATURES` set (21 features), caches per-clip JSON under
+  `$XDG_CACHE_HOME/vmaf-tiny-ai-full/`, and emits a parquet
+  consumed by the analysis stage. New
+  [`ai/scripts/feature_correlation.py`](ai/scripts/feature_correlation.py)
+  reads the parquet and computes (a) pairwise Pearson correlation
+  matrix, (b) redundant-pair list at configurable threshold
+  (default `|r|≥0.95`), (c) mutual-information from each feature
+  to the VMAF target, (d) LASSO + random-forest feature
+  importance, (e) consensus top-K ranking across the three
+  importance methods. Output is a JSON report plus stdout
+  summary. New 5-test smoke under
+  [`ai/tests/test_feature_correlation.py`](ai/tests/test_feature_correlation.py)
+  covers the analytic functions on a synthetic parquet (no
+  libvmaf dependency) so the analysis pipeline is verified
+  without a multi-hour full-feature extraction pass. Phase-2
+  numbers themselves land in Research-0027 once the canonical
+  Netflix-corpus extraction completes (~3 h wall on CPU; cached
+  per-clip so resumable). Bug fixes vs PR #185 v1: dropped `adm`
+  and `vif` aggregates (not emitted as standalone JSON metrics by
+  the integer extractor, the bare-name lookups returned NaN for
+  every frame); fixed `motion3` CLI extractor name from `motion3`
+  to `motion_v2` (the upstream-canonical extractor name).
+
 - **Tiny-AI feature-set registry: `FULL_FEATURES` + `resolve_feature_set`
   (Research-0026 Phase 1)** (fork-local): new
   [`FULL_FEATURES`](ai/data/feature_extractor.py) tuple covering 21

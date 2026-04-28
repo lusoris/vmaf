@@ -3388,6 +3388,52 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0080 — Phase-2 analysis scripts (Research-0026 Phase 2 prep)
+
+- **No ADR.** Pure analysis scaffolding; the architectural
+  decision (which features to ship in v2) is gated on Phase 2's
+  numerical output via Research-0027.
+- **Upstream source**: fork-local. Netflix has no tiny-AI
+  training nor cross-metric correlation tooling.
+- **Touches** (additive only):
+  - `ai/scripts/extract_full_features.py` — parquet extractor
+    over Netflix corpus with `FULL_FEATURES`. Per-clip JSON
+    cache at `$XDG_CACHE_HOME/vmaf-tiny-ai-full/<source>/<dis_stem>.json`.
+  - `ai/scripts/feature_correlation.py` — Pearson + MI + LASSO
+    + RF + consensus top-K analyser; outputs JSON.
+  - `ai/tests/test_feature_correlation.py` — 5 pytest cases
+    against synthetic parquet (no libvmaf dependency).
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **The per-clip JSON cache and the `FULL_FEATURES` tuple
+     must stay in lock-step.** If the tuple grows (or shrinks),
+     pre-existing cache files become stale and silently
+     misalign their stored `per_frame` columns with the new
+     tuple. The extractor MUST be re-run with a cleared cache
+     when `FULL_FEATURES` changes. Regression hint:
+     `test_default_features_unchanged` in
+     `test_feature_sets.py` already guards the canonical 6;
+     extend coverage to `FULL_FEATURES` if rebases touch it.
+  2. **`motion3` resolves to extractor `motion_v2`** in
+     `_METRIC_TO_EXTRACTOR`, not `motion3` (the upstream-canonical
+     extractor name in the integer_motion_v2 module). The CLI
+     `--feature motion3` does NOT exist. The JSON output key is
+     `integer_motion3` which `_lookup` finds via the `integer_`
+     fallback.
+  3. **`adm` and `vif` aggregates are NOT in `FULL_FEATURES`.**
+     The integer extractor emits `integer_adm2` and
+     `integer_vif_scale0..3` but no bare `adm`/`vif`. Listing
+     them produced all-NaN columns in v1 — fixed in PR #185
+     amend.
+- **On upstream sync**: zero interaction. Pure fork-side
+  analysis tooling.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_feature_correlation.py ai/tests/test_feature_sets.py -v
+  # Expect: 14 passed in <1 s.
+  ```
+
 ### 0079 — Tiny-AI feature-set registry (Research-0026 Phase 1)
 
 - **No ADR.** Pure additive extension of an existing module; the
