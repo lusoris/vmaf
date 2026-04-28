@@ -107,11 +107,33 @@ Final validation metrics (720 frames from the held-out `Tennis` source):
 | latency p95 | 6.22 µs / clip-row | |
 | ONNX size | 1.3 KB header + 0.9 KB data | trivially-tiny, ships in-tree |
 
-The PLCC/SROCC numbers say the tiny model **ranks** clips identically to `vmaf_v0.6.1` (≥0.97); the elevated RMSE means the absolute scale is biased / scaled, likely because `mlp_small` lacks the SVR's saturating non-linearity at the high end of the score range. A sensible follow-up is `mlp_medium` (2,561 params) with the same hyperparameters; the loss curve from this run shows convergence well before epoch 30 so a longer run on the small net won't help.
+### Three-arch sweep — full Netflix corpus, val=Tennis, 30 epochs each
 
-Wall-clock time: feature-extraction prewarm 3.5 min on CPU (cache was 4/9 sources warm from a prior aborted run; cold-start would be ~7-8 min); 30 epochs over 720 train samples completed in <30 s.
+| arch | params | PLCC | SROCC | KROCC | RMSE | latency p50 | ONNX |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `linear` | 7 | 0.4284 | 0.4966 | 0.3534 | 67.15 | 4.9 µs | — (sanity floor only) |
+| `mlp_small` | 257 | **0.9750** | **0.9792** | **0.8784** | 10.62 | 5.96 µs | `vmaf_tiny_v1.onnx` (default) |
+| `mlp_medium` | 2,561 | 0.9521 | 0.9475 | 0.8011 | **6.35** | 21.9 µs | `vmaf_tiny_v1_medium.onnx` (alternate) |
 
-ONNX written to `model/tiny/training_runs/run1/mlp_small_final.onnx` and copied to `model/tiny/vmaf_tiny_v1.onnx` (in-tree, since size ≤ 50 MB). Eval report at `model/tiny/training_runs/run1/eval_report.json`.
+What this tells us:
+
+- **Linear is a useful sanity floor, not a viable model.** PLCC 0.43 / RMSE 67 confirms the 6 features *do* carry VMAF-predictive signal (otherwise even the MLPs couldn't do better) but the relationship is strongly non-linear. The SVR's kernel and the MLPs' hidden ReLU non-linearities are doing real work.
+- **`mlp_small` wins on ranking** (PLCC 0.975 / SROCC 0.979). The tiny model **ranks** clips identically to `vmaf_v0.6.1` to within 2.5 %.
+- **`mlp_medium` wins on absolute fit** (RMSE 6.35 vs 10.62, −40 %) but loses ranking (PLCC −0.023, SROCC −0.032). With ~720 train frames on a 2,561-param net, the model memorises per-clip absolute scale (helping RMSE) at the expense of cross-clip ranking — classic small-corpus overfitting.
+- **Latency**: all three sub-25 µs / clip-row on onnxruntime CPU. Even `mlp_medium` is essentially free vs the SVR.
+
+**Recommendation**: `mlp_small` is the default tiny-AI model, shipped as `vmaf_tiny_v1.onnx`. `mlp_medium` ships as `vmaf_tiny_v1_medium.onnx` for users who want absolute-VMAF agreement on the Netflix-corpus distribution and tolerate the ranking loss. The linear baseline is not shipped.
+
+Next experiments (not yet run): leave-one-source-out cross-validation (9 folds × 3 archs) to confirm the RMSE-vs-correlation trade-off generalises across content; longer training with regularisation on `mlp_medium` to see if overfitting can be controlled.
+
+Wall-clock time: feature-extraction prewarm 3.5 min on CPU (cache 4/9 warm from a prior aborted run; cold-start would be ~7–8 min); 30 epochs over 720 train samples completed in <30 s per arch.
+
+ONNX files in-tree (both ≤ 50 MB):
+
+- `model/tiny/vmaf_tiny_v1.onnx` (= run 1 / `mlp_small_final.onnx`)
+- `model/tiny/vmaf_tiny_v1_medium.onnx` (= run 2 / `mlp_medium_final.onnx`)
+
+Eval reports at `model/tiny/training_runs/run{1,2_mlp_medium,3_linear}/eval_report.json`.
 
 ## Consequences
 
