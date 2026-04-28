@@ -71,31 +71,34 @@
 
 ### Added
 
-- **Tiny-AI KoNViD-1k → VMAF-pair acquisition + loader bridge**
-  (fork-local): direct follow-up to Research-0023 §5 (FoxBird-class
-  variance needs a larger / more diverse corpus). New
-  [`ai/scripts/konvid_to_vmaf_pairs.py`](ai/scripts/konvid_to_vmaf_pairs.py)
-  takes raw KoNViD-1k `.mp4` sources from
-  `$VMAF_DATA_ROOT/konvid-1k/`, generates a synthetic distorted
-  variant per clip via libx264 CRF=35 round-trip (same recipe as
-  the Netflix dis-pairs), runs libvmaf on each (ref, dis) pair to
-  extract the 6 `vmaf_v0.6.1` model features + per-frame VMAF
-  teacher score, and dumps to
-  `ai/data/konvid_vmaf_pairs.parquet` (gitignored). Per-clip JSON
-  caches under `$VMAF_TINY_AI_CACHE/konvid-1k/<key>.json` make
-  re-runs idempotent. Smoke (5 clips) takes ~7 s wall; full
-  1 200-clip run ~30 min on the `ryzen-4090` profile. New
-  [`ai/train/konvid_pair_dataset.py::KoNViDPairDataset`](ai/train/konvid_pair_dataset.py)
-  loader bridge mirrors `NetflixFrameDataset`'s interface
-  (`feature_dim=6`, `numpy_arrays() → (X, y)`) so the existing
-  LOSO trainer can ingest KoNViD pairs unchanged. `keep_keys`
-  filter supports LOSO-style holdouts. 5 pytest cases under
-  [`ai/tests/test_konvid_pair_dataset.py`](ai/tests/test_konvid_pair_dataset.py)
-  cover shape, holdout filter, missing-column error, empty-after-
-  filter, and torch tensor item shape — all green. Documented in
-  [`docs/ai/training.md`](docs/ai/training.md) §"C1 (KoNViD-1k
-  corpus)". Future work: a driver that concatenates Netflix +
-  KoNViD `(X, y)` arrays and runs the LOSO sweep on the union.
+- **Tiny-AI Quantization-Aware Training (QAT) implementation
+  (T5-4 / [ADR-0207](docs/adr/0207-tinyai-qat-design.md) +
+  [ADR-0208](docs/adr/0208-learned-filter-v1-qat-impl.md))**
+  (fork-local): replaces the `NotImplementedError` scaffold in
+  `ai/scripts/qat_train.py` with a real CLI driver, plus a new
+  Lightning-compatible trainer hook in `ai/train/qat.py`
+  (`run_qat()` + `QatConfig`). Pipeline runs three phases per
+  ADR-0207 (fp32 warm-start → FX fake-quant insertion via
+  `torch.ao.quantization.quantize_fx.prepare_qat_fx` with the
+  default symmetric per-tensor activation + per-channel weight
+  qconfig → QAT fine-tune at 10× reduced LR), then bridges the
+  two PyTorch 2.11 ONNX-exporter bugs (legacy emits
+  `quantized::conv2d`; TorchDynamo fails on
+  `Conv2dPackedParamsBase.__obj_flatten__`) by copying
+  QAT-conditioned weights into a fresh fp32 module, exporting
+  legacy ONNX, then ORT static-quantizing with a calibration
+  set drawn from the QAT distribution. Output is a QDQ
+  `.int8.onnx` bit-identical in structure to the static-PTQ
+  artefact. New `ai/configs/learned_filter_v1_qat.yaml` example
+  config. Empirical on synthetic-corpus `learned_filter_v1`:
+  within-pipeline (QAT-fp32 vs QAT-int8) PLCC drop **0.000081**
+  (budget 0.002, **PASS** by 25×). On this tiny model static-PTQ
+  is already inside budget so `learned_filter_v1` stays on
+  `quant_mode: "dynamic"`; QAT pipeline is wired and validated
+  for the next model where static misses budget. CI smoke test
+  under `ai/tests/test_qat_smoke.py`. Docs:
+  [`docs/ai/quantization.md`](docs/ai/quantization.md) updated
+  with the QAT tier alongside dynamic / static.
 
 - **Tiny-AI LOSO evaluation harness for `mlp_small`** (fork-local):
   new `ai/scripts/eval_loso_mlp_small.py` scores each of the 9
