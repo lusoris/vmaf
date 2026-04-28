@@ -326,6 +326,23 @@
   `scripts/ci/cross_backend_vif_diff.py` gains a `float_adm` entry
   in `FEATURE_METRICS`. CUDA + SYCL twins land in a focused
   follow-up PR.
+- **GPU long-tail batch 3 part 7 — `ssimulacra2_vulkan` extractor
+  (T7-23 / ADR-0192 / ADR-0201)** (fork-local): Vulkan twin of the
+  CPU `ssimulacra2` extractor with a hybrid host/GPU pipeline. The
+  GPU runs the IIR blur (separable Charalampidis 2016 3-pole, one
+  workgroup per row / per column) and the 3-plane elementwise
+  product. Host runs YUV → linear-RGB, 2×2 pyramid downsample,
+  linear-RGB → XYB (bit-exact port of `linear_rgb_to_xyb`), and
+  the per-pixel SSIM + EdgeDiff combine in double precision over
+  the GPU-blurred mu/sigma buffers. Empirical CPU-vs-Vulkan on
+  Netflix normal pair (576×324, 48 frames): pooled `ssimulacra2`
+  `max_abs_diff = 1.81e-7` (mean 3.65e-8, P95 1.56e-7). The
+  cross-backend gate runs at `places=4` — matching the rest of
+  the Vulkan VIF/MS-SSIM family. ADR-0201 §Precision investigation
+  documents the five-tactic measurement chain that drove the
+  contract from a `places=1` first-iteration shipping condition
+  to `places=4`. CUDA + SYCL twins follow in a separate PR. See
+  [ADR-0201](docs/adr/0201-ssimulacra2-vulkan-kernel.md).
 
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**

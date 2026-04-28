@@ -45,6 +45,8 @@ limitations in the same PR as the code.
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | CUDA, SYCL, Vulkan |
 | SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | —                  |
+| ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | —                  |
+| SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | Vulkan             |
 | Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | AVX2, NEON          | CUDA, SYCL, Vulkan |
 | LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —                  |
 
@@ -542,6 +544,27 @@ mean/min/max/hmean/frame-0/frame-47 values at `places=4` tolerance.
   not guaranteed bit-exact at every σ. The fork pins σ=1.5, matching
   libjxl's `kSigma`.
 - CUDA + SYCL ports are not yet shipped (BACKLOG T3-8).
+
+**GPU twin** — `ssimulacra2_vulkan` (T7-23 / batch 3 part 7,
+[ADR-0201](../adr/0201-ssimulacra2-vulkan-kernel.md)). Hybrid
+host/GPU pipeline: host runs YUV → linear-RGB, 2×2 pyramid
+downsample, linear-RGB → XYB (bit-exact port of CPU
+`linear_rgb_to_xyb`), and the per-pixel SSIM + EdgeDiff combine in
+double precision; GPU runs the 3-plane elementwise multiplies and
+the 5 separable IIR blurs across 6 scales. The host-side XYB +
+SSIM combine is required for `places=4` parity with CPU — the
+GLSL→SPIR-V→driver compile chain does not preserve the exact
+float operation order needed even with `precise` and
+`NoContraction` decorations (see ADR-0201 §Precision investigation
+for the per-tactic measurement chain). Min input dimension: 8×8
+(host loop early-exits at each scale that drops below).
+Cross-backend gate (CPU vs Vulkan/lavapipe, Netflix normal pair,
+576×324, 48 frames) holds at `places=4` —
+`max_abs_diff = 1.81e-7` on the pooled score (mean 3.65e-8, P95
+1.56e-7). CUDA + SYCL twins follow in a separate PR.
+
+Invocation: `--feature ssimulacra2_vulkan` (with `--backend vulkan`
+to ensure exclusive GPU dispatch).
 
 ### Float moment — first / second statistical moments
 

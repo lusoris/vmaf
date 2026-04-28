@@ -157,6 +157,12 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "adm_scale2",
         "adm_scale3",
     ),
+    # GPU long-tail batch 3 part 7 (T7-23 / ADR-0192 / ADR-0200):
+    # ssimulacra2. Single emitted metric. Precision target places=2
+    # per ADR-0192 (XYB cube root + IIR blur reassociation across
+    # 6-scale pyramid; tighten if the kernel actually achieves
+    # places>=3).
+    "ssimulacra2": ("ssimulacra2",),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the
