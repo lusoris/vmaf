@@ -74,3 +74,6 @@ libvmaf/subprojects/*/
 !libvmaf/subprojects/packagefiles/
 libvmaf/subprojects/packagecache/
 libvmaf/subprojects/.wraplock
+
+# Per-run training output (per-epoch ONNX checkpoints)
+model/tiny/training_runs/
