@@ -3313,6 +3313,44 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0063 — Tiny-AI LOSO eval harness for `mlp_small`
+
+- **No ADR.** The methodology fits inside Research Digest 0022;
+  ADR-0203 already covers the training-prep architecture.
+- **Research digest**:
+  [`docs/research/0022-loso-mlp-small-results.md`](research/0022-loso-mlp-small-results.md).
+- **Upstream source**: fork-local. Netflix/vmaf has no LOSO eval
+  surface.
+- **Touches** (additive only):
+  - `ai/scripts/eval_loso_mlp_small.py` — new evaluation harness.
+  - `docs/ai/loso-eval.md` — usage doc.
+  - `docs/research/0022-loso-mlp-small-results.md` — methodology +
+    results.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **`_load_session` workaround for renamed-baseline ONNX.** The
+     shipped baselines `model/tiny/vmaf_tiny_v1*.onnx` reference
+     their pre-rename `external_data.location` values. The
+     workaround in `_load_session` rewrites the entries before
+     handing the proto to ORT. Removing the workaround breaks the
+     baseline phase. The proper fix (re-export with matching
+     names) is tracked as a follow-up; until then this code path
+     is load-bearing.
+  2. **`runs/` and `model/tiny/training_runs/` stay gitignored.**
+     The harness writes to `runs/loso_eval/` by default; do NOT
+     promote any of those outputs into the tree. The 9 fold ONNX
+     and the per-clip JSON cache regenerate from the corpus +
+     trainer + libvmaf CLI.
+- **On upstream sync**: zero interaction. Pure fork-local
+  evaluation harness.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/scripts/eval_loso_mlp_small.py
+  diff <(jq -r '.loso_aggregate.mean_plcc' runs/loso_eval/loso_mlp_small_eval.json) <(echo 0.9808)
+  # Expect: identical line on a populated cache + identical fold ONNX.
+  ```
+
 ### 0062 — ssimulacra2 CUDA + SYCL twins (ADR-0206)
 
 - **ADR**: [ADR-0206](adr/0206-ssimulacra2-cuda-sycl.md).
