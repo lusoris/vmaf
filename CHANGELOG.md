@@ -8,6 +8,21 @@
 
 ### Added
 
+- **Tiny-AI LOSO evaluation harness for `mlp_small`** (fork-local):
+  new `ai/scripts/eval_loso_mlp_small.py` scores each of the 9
+  leave-one-source-out fold checkpoints (`mlp_small_final.onnx`)
+  on its own held-out clip, plus the two shipped baselines
+  (`vmaf_tiny_v1.onnx`, `vmaf_tiny_v1_medium.onnx`) per-clip and
+  on the all-clips concatenation. Reports per-fold +
+  mean ± std PLCC / SROCC / RMSE to JSON and Markdown. Documented
+  in [`docs/ai/loso-eval.md`](docs/ai/loso-eval.md). Numbers from
+  the 2026-04-28 sweep on the Netflix corpus (LOSO mean PLCC
+  0.9808 ± 0.0214, SROCC 0.9848 ± 0.0176) are captured in
+  [Research Digest 0022](docs/research/0022-loso-mlp-small-results.md).
+  Mirrors the per-fold accounting that MCP `compare_models` does
+  for a single split, but respects the LOSO split structure
+  without requiring 9 separate comparison calls.
+
 - **`ssimulacra2_cuda` + `ssimulacra2_sycl` GPU twins
   (ADR-0206)** (fork-local): closes batch 3 part 7 across all
   three GPU backends. CUDA + SYCL extractors are direct ports of
