@@ -103,6 +103,25 @@ cuda/
   [ADR-0156](../../../docs/adr/0156-cuda-graceful-error-propagation-netflix-1420.md)
   and [rebase-notes 0049](../../../docs/rebase-notes.md).
 
+## Per-kernel nvcc flag invariants
+
+- `cuda_cu_extra_flags` map in `libvmaf/src/meson.build` routes
+  per-kernel nvcc flags. Currently inhabited by `float_adm_score`
+  (added in PR #157,
+  [ADR-0202](../../../docs/adr/0202-float-adm-cuda-sycl.md)) and
+  `ssimulacra2_blur` (added in
+  [ADR-0206](../../../docs/adr/0206-ssimulacra2-cuda-sycl.md)).
+  Both pass `-Xcompiler=-ffp-contract=off --fmad=false` so the
+  recursive / cross-band float reductions keep their CPU-port
+  FMUL/FSUB ordering. **On rebase**: never drop these per-kernel
+  entries — without them, `float_adm` drifts past `places=4` at
+  scale 3, and `ssimulacra2`'s pooled score drifts past `places=2`
+  through the IIR + 6-scale pyramid.
+- The matching `ssimulacra2_mul` fatbin is a single FMUL with no
+  fused-add candidate and intentionally does **not** carry the
+  flag — keeping FMA on the kernels where it isn't a precision risk
+  preserves whatever optimisation NVCC can apply.
+
 ## Governing ADRs
 
 - [ADR-0022](../../../docs/adr/0022-inference-runtime-onnx.md) — CUDA execution provider mapping.

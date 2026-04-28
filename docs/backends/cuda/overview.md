@@ -165,10 +165,14 @@ to surface an unexpected delta.
 - **CIEDE2000** — no CUDA kernel (same CPU-fallback behaviour).
 - **SSIM / MS-SSIM / PSNR / PSNR-HVS / ANSNR** — no CUDA kernels; these
   are rare enough in production that the CPU twin is sufficient.
-- **Float-twin extractors (`float_*`)** — the CUDA backend only
-  implements the fixed-point integer extractors. Requesting
-  `--feature float_adm` with `--no_cuda=false` will still dispatch to
-  CPU for that feature.
+- **Float-twin extractors (`float_*`)** — the CUDA backend
+  implements the float twins for ANSNR / PSNR / Motion / VIF / ADM
+  ([ADR-0202](../../adr/0202-float-adm-cuda-sycl.md)). Requesting
+  `--feature float_<x>` with `--no_cuda=false` dispatches to GPU
+  for those metrics.
+- **SSIMULACRA 2** — `ssimulacra2_cuda` shipped per
+  [ADR-0206](../../adr/0206-ssimulacra2-cuda-sycl.md) (hybrid
+  host/GPU pipeline, IIR fatbin pinned with `--fmad=false`).
 - **HIP / AMD** — not yet scaffolded; see
   [backends/index.md](../index.md) for the status row.
 

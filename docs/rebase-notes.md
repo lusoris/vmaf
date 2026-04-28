@@ -3313,6 +3313,75 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0062 — ssimulacra2 CUDA + SYCL twins (ADR-0206)
+
+- **ADR**: [ADR-0206](adr/0206-ssimulacra2-cuda-sycl.md).
+- **Upstream source**: fork-local. Netflix/vmaf has no SSIMULACRA 2
+  GPU implementation; this PR adds the CUDA + SYCL twins of the
+  fork's [ADR-0201](adr/0201-ssimulacra2-vulkan-kernel.md) Vulkan
+  kernel.
+- **Touches** (additive + small wiring edits):
+  - `docs/adr/0206-ssimulacra2-cuda-sycl.md` and the index row in
+    `docs/adr/README.md`.
+  - `libvmaf/src/feature/cuda/ssimulacra2_cuda.{c,h}` — new CUDA
+    dispatch.
+  - `libvmaf/src/feature/cuda/ssimulacra2/ssimulacra2_blur.cu` and
+    `ssimulacra2_mul.cu` — new CUDA fatbins.
+  - `libvmaf/src/feature/sycl/ssimulacra2_sycl.cpp` — new SYCL
+    extractor.
+  - `libvmaf/src/feature/feature_extractor.c` — two new extern
+    declarations + two new entries in `feature_extractor_list[]`.
+  - `libvmaf/src/meson.build` — adds `ssimulacra2_blur` +
+    `ssimulacra2_mul` to `cuda_cu_sources`, introduces (or
+    extends, if PR #157 / [ADR-0202](adr/0202-float-adm-cuda-sycl.md)
+    landed first) the `cuda_cu_extra_flags` map with a
+    `ssimulacra2_blur` entry, threads `per_kernel_flags` into the
+    fatbin custom-target, and lists the two new C / CPP TUs.
+  - `libvmaf/src/cuda/AGENTS.md` and `libvmaf/src/sycl/AGENTS.md` —
+    rebase invariant notes for the per-kernel `--fmad=false` flag
+    and the `-fp-model=precise` SYCL build flag.
+  - `docs/backends/cuda/overview.md`,
+    `docs/backends/sycl/overview.md`,
+    `docs/metrics/features.md` — coverage matrix updates.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (load-bearing on rebase):
+  1. **Per-kernel `--fmad=false` for `ssimulacra2_blur`.** The
+     IIR's `o = n2 * sum - d1 * prev1 - prev2` must NOT fuse
+     into FMAs — without the flag the recursive Gaussian's
+     per-step rounding compounds across the 6-scale pyramid past
+     `places=4`.
+  2. **`-fp-model=precise` on the SYCL feature build line.**
+     Removing it drifts `ssimulacra2_sycl` past `places=2`
+     through the IIR.
+  3. **Hybrid host/GPU split mirrors Vulkan.** Host runs YUV→RGB,
+     XYB, downsample, and SSIM/EdgeDiff combine in double; GPU
+     runs only mul + IIR blur. Any future PR that ports XYB or
+     YUV→RGB onto the GPU MUST land alongside an updated
+     [ADR-0206](adr/0206-ssimulacra2-cuda-sycl.md) and
+     re-validate `places=4` on every Netflix CPU pair.
+  4. **CUDA fex uses `.extract` (synchronous), not
+     `.submit`/`.collect`.** Per-frame raw YUV is D2H-copied
+     from `picture_cuda`'s device-side `VmafPicture.data[]` into
+     pinned host scratch via `cuMemcpy2DAsync`. Skipping the
+     copy segfaults — direct host reads on a `CUdeviceptr` are
+     the failure mode the prior agent's WIP hit.
+- **On upstream sync**: zero interaction with Netflix. The GPU
+  coverage matrix for `ssimulacra2` is wholly fork-local.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build_cuda libvmaf -Denable_cuda=true -Denable_sycl=false
+  ninja -C build_cuda
+
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary ./build_cuda/tools/vmaf \
+    --feature ssimulacra2 --backend cuda --places 4 \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    --width 576 --height 324 --pixel-format 420 --bitdepth 8
+  # Expect: 0/48 mismatches, max_abs_diff ~1e-6.
+  ```
+
 ### 0061 — cambi GPU feasibility spike (ADR-0205)
 
 - **ADR**: [ADR-0205](adr/0205-cambi-gpu-feasibility.md).

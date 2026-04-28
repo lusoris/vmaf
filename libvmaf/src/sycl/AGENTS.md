@@ -29,6 +29,16 @@ sycl/
 - **dmabuf import** is Linux-only and gated at build time; no callers
   should assume the FD path exists on other OSes.
 - **Numerical snapshots**: same rule as CUDA — see CLAUDE.md §9.
+- **`-fp-model=precise` is load-bearing.** The SYCL feature build
+  line in `libvmaf/src/meson.build` adds `-fp-model=precise` to
+  every per-kernel TU. This blocks `icpx` from FMA contraction in
+  the kernel lambdas and matches the GLSL `precise` /
+  `NoContraction` decorations on the Vulkan twins. Removing it
+  drifts `float_adm_sycl` ([ADR-0202](../../../docs/adr/0202-float-adm-cuda-sycl.md))
+  past `places=4` at scale 2 and `ssimulacra2_sycl`
+  ([ADR-0206](../../../docs/adr/0206-ssimulacra2-cuda-sycl.md))
+  past `places=2` through the IIR. **On rebase**: keep this flag
+  on the SYCL feature line.
 
 ## Governing ADRs
 

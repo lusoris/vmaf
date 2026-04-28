@@ -8,6 +8,35 @@
 
 ### Added
 
+- **`ssimulacra2_cuda` + `ssimulacra2_sycl` GPU twins
+  (ADR-0206)** (fork-local): closes batch 3 part 7 across all
+  three GPU backends. CUDA + SYCL extractors are direct ports of
+  the [ADR-0201](docs/adr/0201-ssimulacra2-vulkan-kernel.md)
+  Vulkan hybrid host/GPU pipeline — host runs YUV→linear-RGB,
+  2×2 pyramid downsample, linear-RGB→XYB, and the per-pixel SSIM
+  + EdgeDiff combine in double precision (verbatim ports of
+  `ssimulacra2.c`); GPU runs the 3-plane elementwise multiply
+  (`ssimulacra2_mul3`) and the separable 3-pole IIR Gaussian
+  blur (`ssimulacra2_blur_h` / `ssimulacra2_blur_v`). The CUDA
+  IIR fatbin is pinned with `-Xcompiler=-ffp-contract=off
+  --fmad=false` via a per-kernel `cuda_cu_extra_flags` map in
+  `libvmaf/src/meson.build`; SYCL relies on the existing
+  `-fp-model=precise` for the same effect. Empirical: Netflix
+  normal pair `max_abs_diff = 1.0e-6` on CUDA, both checkerboard
+  pairs **bit-exact** (0.0). New extractor names:
+  `ssimulacra2_cuda`, `ssimulacra2_sycl` (pair with
+  `--backend cuda` / `--backend sycl` for exclusive GPU
+  dispatch). New sources:
+  `libvmaf/src/feature/cuda/ssimulacra2_cuda.{c,h}`,
+  `libvmaf/src/feature/cuda/ssimulacra2/ssimulacra2_blur.cu`,
+  `libvmaf/src/feature/cuda/ssimulacra2/ssimulacra2_mul.cu`,
+  `libvmaf/src/feature/sycl/ssimulacra2_sycl.cpp`. With Vulkan
+  ([ADR-0201](docs/adr/0201-ssimulacra2-vulkan-kernel.md))
+  already in master and float_adm twins
+  ([ADR-0202](docs/adr/0202-float-adm-cuda-sycl.md)) merging in
+  parallel, batch 3 is now feature-complete on every GPU
+  backend.
+
 - **cambi GPU feasibility spike — hybrid host/GPU verdict + Vulkan
   scaffold (ADR-0205)** (fork-local): closes the spike mandated by
   [ADR-0192](docs/adr/0192-gpu-long-tail-batch-3.md) §Consequences.
