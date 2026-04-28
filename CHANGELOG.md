@@ -56,6 +56,34 @@
 
 ### Added
 
+- **Tiny-AI 3-arch LOSO evaluation** (fork-local): new
+  `ai/scripts/eval_loso_3arch.py` extends PR #165's harness to score
+  `mlp_small`, `mlp_medium`, and `linear` regressors on their
+  respective LOSO folds in one pass. Reuses the per-clip JSON cache
+  + `_load_session` helpers from `eval_loso_mlp_small.py`. Results
+  on the Netflix corpus (9 folds × 30 epochs each, mean ± std):
+
+  | arch | params | mean PLCC | mean SROCC | mean RMSE |
+  |---|---:|---:|---:|---:|
+  | `mlp_small` | 257 | **0.9808 ± 0.0214** | **0.9848 ± 0.0176** | 14.907 ± 2.218 |
+  | `mlp_medium` | 2 561 | 0.9727 ± 0.0202 | 0.9794 ± 0.0156 | **10.848 ± 2.302** |
+  | `linear` | 7 | 0.3679 ± 0.0773 | 0.4861 ± 0.0975 | 57.868 ± 5.867 |
+
+  Confirms ADR-0203's earlier single-split finding under proper LOSO:
+  `mlp_small` wins on ranking (default `vmaf_tiny_v1.onnx` stays);
+  `mlp_medium` wins on absolute fit by ~27 % RMSE (alternate
+  `vmaf_tiny_v1_medium.onnx` stays); `linear` is a clear sanity
+  floor (PLCC 0.37 → 6 features carry strong non-linear signal that
+  a linear regressor can't capture). FoxBird is the per-fold outlier
+  on both MLPs (lowest PLCC ≈ 0.93 on both arch — content-
+  distribution mismatch within the existing 9-source Netflix Public
+  corpus, not arch-specific overfitting). The corpus is the full
+  Netflix Public Dataset already at `.workingdir2/netflix/`, so the
+  unblocker for that variance is a **different / larger** corpus
+  (KoNViD-1k, BVI-DVC, AOM-CTC), not more Netflix Public. Methodology
+  + per-fold tables in
+  [Research Digest 0023](docs/research/0023-loso-3arch-results.md).
+
 - **Tiny-AI LOSO evaluation harness for `mlp_small`** (fork-local):
   new `ai/scripts/eval_loso_mlp_small.py` scores each of the 9
   leave-one-source-out fold checkpoints (`mlp_small_final.onnx`)
