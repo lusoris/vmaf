@@ -3363,6 +3363,46 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0072 — Tiny-AI 3-arch LOSO eval harness + Research-0023
+
+- **No ADR.** Methodology fits inside Research-0023; ADR-0203
+  already covers the training-prep architecture and the three-arch
+  sweep concept.
+- **Research digest**:
+  [`docs/research/0023-loso-3arch-results.md`](research/0023-loso-3arch-results.md).
+- **Upstream source**: fork-local. Netflix/vmaf has no LOSO eval
+  surface.
+- **Touches** (additive only):
+  - `ai/scripts/eval_loso_3arch.py` — new harness; reuses the
+    `_load_session` + `_load_clip` + `CLIPS` helpers from
+    `eval_loso_mlp_small.py` (PR #165).
+  - `docs/research/0023-loso-3arch-results.md` — methodology +
+    per-fold tables for `mlp_small` / `mlp_medium` / `linear`.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **Reuse the PR #165 helpers.** Don't fork the
+     `_load_session` external-data workaround into a copy — both
+     scripts must keep using the same import. If a follow-up
+     re-exports the shipped baselines with corrected
+     `external_data.location`, both scripts deprecate the
+     workaround simultaneously.
+  2. **`runs/` and `model/tiny/training_runs/` stay gitignored.**
+     The harness writes `runs/loso_eval/loso_3arch_eval.{json,md}`;
+     the durable record is the table in Research-0023 §2 + the
+     per-fold tables in §3. Regenerate via the loop in §6 of the
+     digest.
+- **On upstream sync**: zero interaction. Pure fork-local
+  evaluation harness.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/scripts/eval_loso_3arch.py
+  diff <(jq -r '.archs.mlp_small.aggregate.mean_plcc' runs/loso_eval/loso_3arch_eval.json) <(echo 0.9808)
+  diff <(jq -r '.archs.mlp_medium.aggregate.mean_plcc' runs/loso_eval/loso_3arch_eval.json) <(echo 0.9727)
+  diff <(jq -r '.archs.linear.aggregate.mean_plcc' runs/loso_eval/loso_3arch_eval.json) <(echo 0.3679)
+  # Expect: identical lines on a populated cache + identical fold ONNX.
+  ```
+
 ### 0071 — T7-16 ADM Vulkan/SYCL drift verified-resolved (doc close)
 
 - **No ADR.** Verification-only close, sister of T7-15.
