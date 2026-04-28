@@ -3388,6 +3388,65 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0076 — Research-0024 vif/adm upstream-divergence digest (Strategy E doc)
+
+- **No ADR.** Pure documentation digest; the divergence
+  decisions it ratifies are already governed by ADR-0138 /
+  0139 / 0142 / 0143 (vif SIMD bit-exactness contract) and
+  ADR-0024 (Netflix golden-data immutability). The digest
+  itself fits the per-PR research-digest deliverable bar from
+  ADR-0108.
+- **Upstream source**: forward-looking — pre-emptively documents
+  the fork's *non-port* of Netflix `4ad6e0ea` / `41d42c9e` /
+  `bc744aa3` / `8c645ce3` (vif chain) and `4dcc2f7c` (float_adm
+  chain). Strategy A on `b949cebf` motion chain stays approved.
+- **Touches** (additive only):
+  - `docs/research/0024-vif-upstream-divergence.md` — 5-strategy
+    decision matrix + numerical-risk analysis for each chain.
+  - `libvmaf/src/feature/AGENTS.md` — two new "rebase-sensitive
+    invariants" entries pinning the vif and adm divergences.
+  - `CHANGELOG.md` Unreleased § Changed.
+- **Invariants** (rebase-relevant — these are the *whole point*):
+  1. **Do not port `4ad6e0ea` (vif runtime helpers) or
+     `8c645ce3` (vif prescale options) verbatim.** They replace
+     the precomputed `vif_filter1d_table_s` table whose frozen
+     `const float` Gaussians make AVX2 == AVX-512 == NEON ==
+     scalar bit-for-bit. A future opt-in second-path port
+     (Strategy C, runtime helpers behind `--vif-prescale != 1`)
+     is allowed but must not touch the default code path.
+  2. **Do not port `4dcc2f7c` float_adm options chain.** The
+     12-parameter `compute_adm` signature change cascades
+     through SIMD (avx2 / avx512 / neon) **and** 3 GPU backends
+     (vulkan / cuda / sycl). The new `aim` feature has no fork-
+     side golden values; defer until concrete user demand.
+  3. **Mirror bugfix `41d42c9e` is a separate decision.** Must
+     come paired with `places=4 → places=3` golden loosening per
+     ADR-0142 Netflix-authority precedent. Not part of Strategy
+     E; eligible for a focused single-purpose PR if any shipped
+     model drifts more than `places=3` because of the missing
+     fix.
+  4. **`b949cebf` motion chain port stays APPROVED** under
+     Strategy A (verbatim, float_motion-side only). Float_motion
+     has no precomputed-table investment to protect; existing
+     fork integer_motion already has 6/9 of these options; cheap
+     to mirror onto float_motion.
+- **On upstream sync**: zero conflict — pure additions to
+  research/ and AGENTS.md.
+- **Re-test on rebase**: documentation-only PR; rendered markdown
+  is the only verification surface.
+
+  ```bash
+  # Re-run the diff scan that produced the digest (catches new
+  # upstream commits since 9dac0a59):
+  git fetch upstream && git log --pretty=format:'%h %s' \
+    upstream/master ^origin/master --since="2026-01-01" \
+    -- libvmaf/src/feature/{float_,integer_,}{vif,motion,adm,cambi}*.{c,h} \
+       libvmaf/src/feature/{vif,motion,adm,cambi}_options.h \
+    | head -30
+  # If new vif / adm option ports appear, update Research-0024 §"Same
+  # divergence test for motion + float_adm" before deciding to port.
+  ```
+
 ### 0075 — Upstream `798409e3` + `314db130` ports (CUDA null-deref + remove `all.c`)
 
 - **No ADR.** Pure upstream cherry-picks per

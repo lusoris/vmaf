@@ -8,6 +8,30 @@
 
 ### Changed
 
+- **Research-0024 + AGENTS.md: deliberately diverge from Netflix
+  upstream `vif` + `float_adm` option-port chains** (fork-local
+  doc): new
+  [`docs/research/0024-vif-upstream-divergence.md`](docs/research/0024-vif-upstream-divergence.md)
+  is a 5-strategy decision matrix on whether to port the Netflix
+  upstream vif chain (`4ad6e0ea` runtime helpers / `8c645ce3`
+  prescale options / `41d42c9e` edge-mirror bugfix) and the
+  float_adm chain (`4dcc2f7c` 12-parameter `compute_adm`
+  signature change + new `score_aim` output). Verdict:
+  **Strategy E (skip + document)** for both vif and float_adm
+  because (a) the fork's `vif_filter1d_table_s` precomputed
+  Gaussian table preserves the ADR-0138/0139/0142/0143 SIMD
+  bit-exactness contract that runtime-computed Gaussians would
+  break, and (b) threading 12 new ADM parameters through the
+  SIMD paths + 3 GPU backends is multi-day work without a
+  concrete user demand for the new `aim` feature. **Strategy A
+  (verbatim)** stays approved for the motion chain
+  (`b949cebf` float_motion-only side) because float_motion has
+  no precomputed-table investment to protect. Two new invariants
+  added to
+  [`libvmaf/src/feature/AGENTS.md`](libvmaf/src/feature/AGENTS.md)
+  documenting the vif and adm divergences so future sessions
+  don't accidentally re-port the chains. No code change.
+
 - **`docs/benchmarks.md` `TBD` cells filled with measured numbers
   (T7-37)**: first end-to-end fork-bench rerun after the bench-script
   fixes (PR #169 / #170 / #171) and the Vulkan header install (PR

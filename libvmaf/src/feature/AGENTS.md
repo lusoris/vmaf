@@ -366,6 +366,40 @@ feature/
   but deferred to a future batch — *do not* attempt to
   optimise it inside the v1 hybrid integration.
 
+- **VIF kernelscale stays on the precomputed
+  `vif_filter1d_table_s` flow — Strategy E in Research-0024.**
+  The fork carries an 11-entry `enum vif_kernelscale_enum`
+  plus `vif_filter1d_table_s[11][4][65]` of frozen `const float`
+  Gaussian taps in [`vif_tools.h`](vif_tools.h). The Netflix
+  upstream chain (`4ad6e0ea` runtime helpers, `8c645ce3`
+  prescale options, `41d42c9e` edge-mirror bugfix) computes
+  Gaussians at runtime — that loses the SIMD bit-exact
+  contract that ADR-0138 / 0139 / 0142 / 0143 froze. **Do not
+  port `4ad6e0ea` / `8c645ce3` verbatim.** A future port that
+  adds runtime helpers as an *opt-in second path* (Strategy C)
+  is allowed; it must not touch the default
+  `vif_kernelscale=1.0` + `vif_prescale=1.0` code path.
+  Mirror bugfix `41d42c9e` is a separate decision — must come
+  with paired `places=4 → places=3` golden loosening per the
+  ADR-0142 Netflix-authority precedent. See
+  [Research-0024](../../../docs/research/0024-vif-upstream-divergence.md)
+  for the full divergence analysis + decision matrix.
+
+- **`compute_adm` signature stays on the fork's parameter
+  list — Strategy E in Research-0024.** Netflix upstream
+  `4dcc2f7c` adds 12 new parameters (`luminance_level`,
+  `adm_csf_scale`, `adm_csf_diag_scale`, `adm_noise_weight`,
+  `adm_bypass_cm`, `adm_p_norm`, `adm_f1s0..3`, `adm_f2s0..3`,
+  `adm_skip_aim_scale`, `adm_skip_scale0`) plus a new
+  `score_aim` output. Threading those through the SIMD paths
+  (`adm_avx2.c` / `adm_avx512.c` / `adm_neon.c`) **and** the
+  GPU twins (`adm_vulkan.c` / `adm_cuda.c` / `adm_sycl.cpp`)
+  is multi-day work, and the new `aim` feature has no fork-
+  side golden values yet. **Do not port `4dcc2f7c` until
+  there is concrete user demand for `aim` and a coordinated
+  cross-backend port plan.** See
+  [Research-0024 §"Same divergence test for motion + float_adm"](../../../docs/research/0024-vif-upstream-divergence.md).
+
 ## Governing ADRs
 
 - [ADR-0024](../../../docs/adr/0024-netflix-golden-preserved.md) —
