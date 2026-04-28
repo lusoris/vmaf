@@ -332,6 +332,17 @@
 
 ### Fixed
 
+- **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
+  (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
+  `Clang-Tidy (Changed C/C++ Files)` step used `git diff --name-only`
+  without `--diff-filter=d`, so a deleted file (e.g.
+  `libvmaf/src/feature/all.c` in this PR's upstream port of
+  `314db130`) was passed to `clang-tidy`, which then failed with
+  `clang-diagnostic-error: no such file or directory`. Added
+  `--diff-filter=d` to all three `git diff` invocations in the
+  Clang-Tidy step (PR / push / push-with-fallback). No effect on
+  Add/Modify paths.
+
 - **Port Netflix upstream `798409e3` — null-deref on `prev_ref` update
   in pure CUDA pipelines** (upstream port, completes fork's earlier
   partial fix): the fork's `read_pictures_update_prev_ref` helper
