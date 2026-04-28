@@ -8,6 +8,40 @@
 
 ### Added
 
+- **cambi GPU feasibility spike — hybrid host/GPU verdict + Vulkan
+  scaffold (ADR-0205)** (fork-local): closes the spike mandated by
+  [ADR-0192](docs/adr/0192-gpu-long-tail-batch-3.md) §Consequences.
+  Verdict: cambi is feasible on GPU as a **hybrid host/GPU pipeline**,
+  mirroring [ADR-0201](docs/adr/0201-ssimulacra2-vulkan-kernel.md)'s
+  precedent. GPU dispatch chain covers preprocessing + per-pixel
+  derivative + 7×7 spatial-mask summed-area table + 2× decimate +
+  3-tap separable mode filter (all integer + bit-exact w.r.t. CPU);
+  the precision-sensitive `calculate_c_values` sliding-histogram
+  pass + top-K spatial pooling stay on the host. Because the GPU
+  buffers are bit-identical to the CPU's and the c-values phase
+  runs the exact CPU code path, the v1 contract tightens to
+  **`places=4`** (ADR-0192 carried `places=2` as a planning
+  placeholder; ADR-0205 ratchets to the fork's canonical `places=4`
+  baseline since the architecture forces ULP=0). Three classical re-formulations
+  evaluated in [research digest 0020](docs/research/0020-cambi-gpu-strategies.md):
+  (I) single-WG direct port — rejected, ~1/64 GPU utilisation;
+  (II) parallel-scan reformulation — rejected for v1, materialises
+  17 GiB intermediate at 4K; (III) direct per-pixel histogram —
+  deferred to v2 as profile-driven perf polish, ~9× CPU bandwidth.
+  Literature surveyed: Blelloch 1990, Sengupta 2007, Merrill &
+  Grimshaw 2016. v1 LOC estimate: ~1230 (host glue ~700 + 6 shaders
+  ~400 + wiring ~130). This PR ships the architecture sketch
+  ([ADR-0205](docs/adr/0205-cambi-gpu-feasibility.md)) + research
+  digest + reference shader scaffolds (`cambi_derivative.comp`,
+  `cambi_decimate.comp`, `cambi_filter_mode.comp` under
+  [`libvmaf/src/feature/vulkan/shaders/`](libvmaf/src/feature/vulkan/shaders/))
+  + dormant `cambi_vulkan.c` host skeleton (not yet build-wired,
+  matching ssimulacra2 precedent). After the integration follow-up
+  PR lands, every registered feature extractor in the fork has at
+  least one GPU twin (lpips remains ORT-delegated per
+  [ADR-0022](docs/adr/0022-inference-runtime-onnx.md)) and the GPU
+  long-tail terminus declared in
+  [ADR-0192](docs/adr/0192-gpu-long-tail-batch-3.md) is closed.
 - **GPU long-tail batch 3 part 2 — `float_ansnr_{vulkan,cuda,sycl}`
   extractors (T7-23 / ADR-0192 / ADR-0194)** (fork-local): closes
   the ANSNR matrix gap (was CPU-only float, no GPU twin). Single-

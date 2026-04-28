@@ -341,6 +341,30 @@ feature/
   statements at default optimization anyway. See
   [ADR-0160](../../../docs/adr/0160-psnr-hvs-neon-bitexact.md)
   and [rebase-notes 0052](../../../docs/rebase-notes.md).
+- **`cambi.c` GPU port is hybrid host/GPU per
+  [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md).**
+  The Vulkan kernel offloads only the embarrassingly-parallel
+  phases (preprocessing, derivative, summed-area-table spatial
+  mask, decimate, 3-tap mode filter) to the GPU; the precision-
+  sensitive `calculate_c_values` sliding-histogram pass + top-K
+  spatial pooling stay on the host. Any CPU-side change to the
+  c-value formula or the histogram update protocol must keep
+  the host residual call site (in the eventual
+  `cambi_vulkan.c::cambi_vulkan_extract`) lock-step with the
+  CPU `calculate_c_values` — they are intentionally the same
+  code, called against the GPU-produced image + mask buffers.
+  The Vulkan scaffold lives in
+  `feature/vulkan/cambi_vulkan.c` (host glue) +
+  `feature/vulkan/shaders/cambi_*.comp` (the shader files);
+  build wiring lands in the integration follow-up PR. Until
+  then the scaffold is dormant — same shape as
+  `ssimulacra2_vulkan.c` was between
+  [ADR-0201](../../../docs/adr/0201-ssimulacra2-vulkan-kernel.md)
+  and its integration PR. Strategy III (fully-on-GPU c-values
+  via direct per-pixel histogram) is documented in
+  [research digest 0020](../../../docs/research/0020-cambi-gpu-strategies.md)
+  but deferred to a future batch — *do not* attempt to
+  optimise it inside the v1 hybrid integration.
 
 ## Governing ADRs
 
