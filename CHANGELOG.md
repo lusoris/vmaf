@@ -260,12 +260,29 @@
 
 ### Fixed
 
+- **T7-16: NVIDIA-Vulkan + SYCL `adm_scale2` 2.4e-4 boundary drift
+  is gone — verified at `places=4` on master** (fork-local doc
+  close, sister of T7-15): the cross-backend gate at PR #120
+  surfaced a 2.4e-4 score offset on 1/48 frames for `adm_scale2`
+  on Vulkan-on-NVIDIA-RTX-4090 (proprietary driver) and SYCL-on-
+  Arc. Re-running on master with the same reproducer
+  (`python3 scripts/ci/cross_backend_vif_diff.py --feature adm
+  --backend vulkan --device 0`) reports `adm_scale2` max_abs_diff
+  = 1e-6 (JSON `%f` print floor; ULP=0) on Vulkan device 0
+  (RTX 4090, NVIDIA proprietary 595.58.3.0), Vulkan device 1
+  (Arc Mesa anv 26.0.5), AND SYCL device 0 (Arc A380). All three
+  pass `places=4` at 0/48 mismatches across all 5 ADM metrics.
+  Same NVCC / driver / SYCL-runtime upgrade hypothesis as T7-15
+  — no `adm_vulkan.c` / `adm_sycl.cpp` commits since PR #120
+  (`7c5b63a2`). Verification-only close; the cross-backend gate
+  locks the contract going forward.
+
 - **T7-15: `motion_cuda` + `motion_sycl` 2.6e-3 drift vs CPU
   `integer_motion` is gone — verified bit-exact on master**
-  (fork-local doc close): the cross-backend gate at PR #120
+  (fork-local doc close, PR #172): the cross-backend gate at PR #120
   surfaced a 2.6e-3 score offset on 47/48 frames for both
   `motion_cuda` and `motion_sycl` on the Netflix golden 576×324
-  pair. Re-running on master `41301496` with the same reproducer
+  pair. Re-running on master with the same reproducer
   (`python3 scripts/ci/cross_backend_vif_diff.py --feature motion
   --backend cuda`) reports `max_abs_diff=0.0` over all 48 frames
   at `places=8`; SYCL on Arc and Vulkan on Arc Mesa anv both show
@@ -275,11 +292,7 @@
   landed between PR #120 (`7c5b63a2`) and master, so the
   resolution is most likely the NVCC 13.x / NVIDIA-driver upgrade
   since PR #120 — the kernel source is unchanged but the emitted
-  SASS now matches CPU rounding bit-exactly. Closure recorded in
-  `docs/state.md` Recently-closed and `.workingdir2/BACKLOG.md`
-  T7-15 row; verification-only close, no code change. If a
-  future driver/NVCC bump re-introduces the drift the gate fires
-  and we reopen as a new T-row.
+  SASS now matches CPU rounding bit-exactly.
 
 - **`libvmaf_vulkan.h` now installs under the prefix when
   `-Denable_vulkan=enabled`** (fork-local): `libvmaf/include/libvmaf/meson.build`
