@@ -3334,4 +3334,52 @@ inline.*
   meson setup build -Denable_vulkan=enabled -Denable_cuda=false -Denable_sycl=false
   ninja -C build
   meson test -C build
+### 0059 — Tiny-AI Netflix corpus training prep (ADR-0203)
+
+- **ADR**: [ADR-0203](adr/0203-tiny-ai-training-prep-impl.md).
+- **Upstream source**: fork-local. Netflix/vmaf has no equivalent
+  training surface.
+- **Touches**:
+  - [`ai/data/`](../ai/data/) — Netflix loader, libvmaf-CLI feature
+    extractor, distillation scoring.
+  - [`ai/train/`](../ai/train/) — PyTorch dataset, eval harness,
+    Lightning-style training entry point.
+  - [`ai/scripts/run_training.sh`](../ai/scripts/run_training.sh) —
+    convenience wrapper.
+  - [`ai/tests/`](../ai/tests/) — five new pytest modules
+    (`test_netflix_loader.py`, `test_dataset.py`, `test_eval.py`,
+    `test_train_smoke.py`, plus `conftest.py`).
+  - [`docs/ai/training.md`](ai/training.md) — new "C1 (Netflix
+    corpus)" section; existing sections untouched.
+  - [`ai/AGENTS.md`](../ai/AGENTS.md) — invariants section added.
+- **Invariants** (load-bearing):
+  1. **Filename ladder regex is fork-specific.**
+     `<source>_<quality>_<height>_<bitrate>.yuv` (dis) +
+     `<source>_<fps>fps.yuv` (ref). Upstream may publish a different
+     naming convention later; do NOT merge them — keep this loader
+     scoped to the Netflix corpus, add a sibling loader for any
+     upstream alternative.
+  2. **Per-clip cache schema is consumed by both dataset and any
+     downstream tooling.** Schema is
+     `{features:{feature_names, per_frame, n_frames},
+       scores:{per_frame, pooled}}`. Any change must invalidate
+     `$VMAF_TINY_AI_CACHE` (delete or version-tag the directory).
+  3. **Smoke command stays runnable without a built `vmaf` binary.**
+     The `_make_zero_payload` helper in `ai.train.dataset` injects
+     a fake payload for `--epochs 0` so CI gates don't drag a libvmaf
+     build into the Python test surface.
+  4. **YUV size probe never silently guesses.** `probe_yuv_dims`
+     either matches the 1920x1080 default, returns ffprobe's answer,
+     or raises. Tests pass `assume_dims=(16, 16)` explicitly for
+     synthetic fixtures.
+- **On upstream sync**: no interaction with upstream. The `ai/`
+  subtree is wholly fork-local.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest ai/tests/test_netflix_loader.py \
+      ai/tests/test_dataset.py ai/tests/test_eval.py \
+      ai/tests/test_train_smoke.py -v
+  python ai/train/train.py --epochs 0 --data-root /tmp/mock_corpus \
+      --assume-dims 16x16 --val-source BetaSrc --out-dir /tmp/out
   ```

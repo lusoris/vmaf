@@ -92,6 +92,125 @@ The sidecar `model/tiny/vmaf_tiny_fr_v1.json` pins:
 }
 ```
 
+## C1 (Netflix corpus) — runnable training prep
+
+Once the local Netflix corpus exists at `.workingdir2/netflix/` (see
+[training-data.md](training-data.md) for the layout and ADR-0199 for
+scope), the prep stack under [`ai/data/`](../../ai/data/) and
+[`ai/train/`](../../ai/train/) replaces the parquet-driven flow above
+with a runnable end-to-end pipeline. ADR-0203 records the
+implementation decisions (distillation source, val-split policy,
+architecture roster, cache layout).
+
+### One-command training
+
+```bash
+# Builds libvmaf if you haven't yet:
+meson setup build -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+
+# Defaults: arch=mlp_small, val-source=Tennis, epochs=10.
+# The first invocation pre-warms the per-clip cache at
+# $VMAF_TINY_AI_CACHE (default ~/.cache/vmaf-tiny-ai); subsequent runs
+# only re-train.
+python ai/train/train.py \
+    --data-root .workingdir2/netflix \
+    --model-arch mlp_small \
+    --epochs 30 \
+    --batch-size 256 \
+    --lr 1e-3 \
+    --out-dir runs/tiny_nflx
+```
+
+Or, equivalently, via the wrapper script:
+
+```bash
+bash ai/scripts/run_training.sh
+```
+
+### CLI flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--data-root` | `.workingdir2/netflix` | Directory with `ref/` and `dis/`. |
+| `--model-arch` | `mlp_small` | One of `linear`, `mlp_small`, `mlp_medium`. |
+| `--epochs` | 10 | `0` runs the smoke-export path and exits. |
+| `--batch-size` | 256 | SGD batch size. |
+| `--lr` | 1e-3 | Adam learning rate. |
+| `--out-dir` | `runs/tiny_nflx` | ONNX checkpoints land at `<out-dir>/<arch>_epoch<n>.onnx` and `<arch>_final.onnx`. |
+| `--val-source` | `Tennis` | Source name held out for validation. |
+| `--max-pairs` | unset | Cap on (ref, dis) pairs (smoke / debugging). |
+| `--no-export-onnx` | unset | Skip per-epoch ONNX dump (final still written). |
+| `--assume-dims WxH` | unset | For tests / mock corpora with non-1080p YUVs. |
+
+### Architectures
+
+| Arch | Layers | Params (feature_dim=6) |
+|---|---|---|
+| `linear` | `Linear(6, 1)` | 7 |
+| `mlp_small` | `Linear(6,16) -> ReLU -> Linear(16,8) -> ReLU -> Linear(8,1)` | 257 |
+| `mlp_medium` | `Linear(6,64) -> ReLU -> Linear(64,32) -> ReLU -> Linear(32,1)` | 2 561 |
+
+### Expected runtime + GPU requirements
+
+| Phase | CPU-only (8-core) | CUDA (RTX 3060) |
+|---|---|---|
+| Cache warm (full corpus, 70 pairs) | 30–60 min (libvmaf-bound) | 5–8 min (libvmaf CUDA backend) |
+| Train 30 epochs `mlp_small` | 1–2 min | <30 s |
+| Train 30 epochs `mlp_medium` | 2–4 min | <60 s |
+| ONNX export | <1 s | <1 s |
+
+The cache is the bottleneck on first run; subsequent training runs
+re-use the JSON cache and skip libvmaf entirely. To force a re-extract,
+delete `$VMAF_TINY_AI_CACHE`.
+
+### Evaluation
+
+```bash
+python -c "
+from pathlib import Path
+import numpy as np
+from ai.train.dataset import NetflixFrameDataset
+from ai.train.eval import evaluate
+
+val = NetflixFrameDataset(Path('.workingdir2/netflix'), split='val')
+X, y = val.numpy_arrays()
+report = evaluate(
+    features=X,
+    targets=y,
+    onnx_path=Path('runs/tiny_nflx/mlp_small_final.onnx'),
+    out_path=Path('runs/tiny_nflx/eval_report.json'),
+)
+print(report)
+"
+```
+
+The JSON report contains `n_samples`, `plcc`, `srocc`, `krocc`, `rmse`,
+`latency_ms_p50_per_clip`, `latency_ms_p95_per_clip`, `model`,
+`feature_dim`. Latency is measured against a synthetic 240-frame clip
+on the CPU EP — the whole point of the tiny model is being meaningfully
+faster than the SVR.
+
+### Smoke command
+
+CI runs only the `--epochs 0` smoke test (the real corpus and a
+real training run are not GitHub-runner-friendly). The smoke command
+lives in `ai/tests/test_train_smoke.py` and the equivalent shell
+invocation is:
+
+```bash
+python ai/train/train.py \
+    --epochs 0 \
+    --data-root /tmp/mock_corpus \
+    --assume-dims 16x16 \
+    --val-source BetaSrc \
+    --out-dir /tmp/tiny_smoke
+```
+
+This exports an initial-weights ONNX file without touching the real
+corpus or invoking libvmaf, and is the documented reproducer in the PR
+template.
+
 ## C2 — NR metric
 
 Same flow, different config: [`ai/configs/nr_mobilenet_v1.yaml`](../../ai/configs/nr_mobilenet_v1.yaml).

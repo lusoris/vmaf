@@ -63,6 +63,48 @@ ai/
 - [ADR-0042](../docs/adr/0042-tinyai-docs-required-per-pr.md) — doc-substance rule.
 - [ADR-0109](../docs/adr/0109-nightly-bisect-model-quality.md) — nightly bisect workflow + synthetic placeholder cache.
 
+## Netflix-corpus training prep (ADR-0199 / ADR-0203)
+
+The top-level [`ai/data/`](data/) and [`ai/train/`](train/) packages
+(distinct from the `vmaf_train` package under `src/`) host the
+runnable Netflix-corpus prep stack:
+
+- [`ai/data/netflix_loader.py`](data/netflix_loader.py) — pair distorted
+  YUVs with their ref by parsing the Netflix ladder filename
+  convention. `iter_pairs(data_root, *, sources=, max_pairs=,
+  assume_dims=)` is the only public surface.
+- [`ai/data/feature_extractor.py`](data/feature_extractor.py) — wraps
+  the libvmaf CLI in JSON mode. Defaults to `build/tools/vmaf`; honours
+  `$VMAF_BIN`. Raises `RuntimeError` with explicit build instructions
+  on missing binary.
+- [`ai/data/scores.py`](data/scores.py) — `vmaf_v0.6.1` distillation
+  scores (per-frame + pooled). Honours `$VMAF_MODEL_PATH`.
+- [`ai/train/dataset.py`](train/dataset.py) — `NetflixFrameDataset`
+  with explicit `payload_provider=` + `assume_dims=` injection points
+  for unit tests.
+- [`ai/train/eval.py`](train/eval.py) — PLCC / SROCC / KROCC / RMSE +
+  latency. Either `onnx_path=` or `predictions=` (exactly one).
+- [`ai/train/train.py`](train/train.py) — CLI entry point. Runs
+  standalone (`python ai/train/train.py …`) or as a module
+  (`python -m ai.train.train`); both forms work because the script
+  fixes `sys.path` when `__package__` is empty.
+
+**Rebase-sensitive invariants** (track when upstream Netflix/vmaf adds
+its own training surface):
+
+- The `iter_pairs` filename regex is fork-specific. If upstream adds a
+  loader with a different ladder convention, do NOT merge them — keep
+  ours under `ai/data/` and theirs under whatever path they pick.
+- The per-clip JSON cache schema (`{features:{feature_names,
+  per_frame, n_frames}, scores:{per_frame, pooled}}`) is consumed by
+  both the dataset and any downstream consumer. Bumping the schema
+  must invalidate `$VMAF_TINY_AI_CACHE` (or version-tag the path).
+- The smoke command `python ai/train/train.py --epochs 0
+  --assume-dims 16x16` MUST stay runnable without a built `vmaf`
+  binary — the `_make_zero_payload` helper in `ai.train.dataset`
+  injects a fake payload so CI gates don't drag a libvmaf build into
+  the Python test surface.
+
 ## Local workflow
 
 ```bash
@@ -70,4 +112,7 @@ pip install -e ai/
 vmaf-train --help
 vmaf-train register model/tiny/lpips_sq.onnx   # adds to registry.json
 python ai/lpips_export.py                      # re-export LPIPS from the reference repo
+
+# Netflix-corpus training (ADR-0203):
+bash ai/scripts/run_training.sh
 ```
