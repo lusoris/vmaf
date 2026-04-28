@@ -3388,6 +3388,52 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0074 — Combined Netflix + KoNViD-1k trainer driver
+
+- **No ADR.** Pure engineering follow-up; the architecture rationale
+  is fully covered by ADR-0203 (training-prep architecture) and
+  Research-0023 §5 (FoxBird-class outlier needs broader corpus).
+- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
+  trainer.
+- **Stacks on** the KoNViD-1k loader bridge (PR #178 / rebase-note
+  0073). Rebase order: land 0073 first.
+- **Touches** (additive only):
+  - `ai/train/train_combined.py` — concatenating trainer that reuses
+    `_build_model` / `_train_loop` / `export_onnx` from
+    `ai/train/train.py`.
+  - `ai/tests/test_train_combined_smoke.py` — 5 pytest cases
+    (key splitter + `--epochs 0` paths, no libvmaf or real corpus
+    required).
+  - `docs/ai/training.md` — "Combining KoNViD with the Netflix
+    corpus" subsection rewritten from "follow-up" to runnable.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **Reuse the canonical training-loop helpers.** Don't fork
+     `_build_model` / `_train_loop` / `export_onnx` into this file.
+     Both trainers must share the model factory so a future change
+     (e.g. adding `mlp_large`) lands in one place.
+  2. **KoNViD train/val splits hold out *whole clip keys*, not
+     random frames.** A frame-level split would let frames from the
+     same clip leak across train/val and inflate PLCC by 5-10 pp
+     (well-known VQA pitfall — same reasoning as ADR-0203's Netflix
+     1-source-out split).
+  3. **Missing data falls back, not errors.** Missing
+     `--konvid-parquet` → Netflix-only path. Missing
+     `--netflix-root` → KoNViD-only path. Both missing → initial-
+     weights ONNX export + `rc=0` so the smoke command always
+     produces a deterministic artefact.
+- **On upstream sync**: zero interaction; pure fork-local trainer.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_train_combined_smoke.py -v
+  # Expect: 5 passed (under ~3 s, no libvmaf required).
+  python ai/train/train_combined.py --epochs 0 \
+    --netflix-root /tmp/missing --konvid-parquet /tmp/missing.parquet \
+    --out-dir /tmp/combined_smoke
+  # Expect: <out-dir>/mlp_small_combined_final.onnx written, rc=0.
+  ```
+
 ### 0073 — KoNViD-1k → VMAF-pair acquisition + loader bridge
 
 - **No ADR.** Acquisition + loader pieces are pure additions; the
