@@ -33,6 +33,7 @@
 
 #include <sycl/sycl.hpp>
 
+#include <cassert>
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
@@ -223,6 +224,8 @@ const double g_weights[108] = {
 
 void ss2s_setup_gaussian(Ssimu2StateSycl *s, double sigma)
 {
+    assert(s != nullptr);
+    assert(sigma > 0.0);
     const double radius = std::round(3.2795 * sigma + 0.2546);
     const double pi_div_2r = SS2S_PI / (2.0 * radius);
     const double omega[3] = {pi_div_2r, 3.0 * pi_div_2r, 5.0 * pi_div_2r};
@@ -320,6 +323,9 @@ inline float ss2s_read_plane(const VmafPicture *pic, int plane, int x, int y)
 
 void ss2s_picture_to_linear_rgb(const Ssimu2StateSycl *s, const VmafPicture *pic, float *out)
 {
+    assert(s != nullptr);
+    assert(pic != nullptr);
+    assert(out != nullptr);
     const unsigned w = s->width;
     const unsigned h = s->height;
     const size_t plane_sz = (size_t)w * (size_t)h;
@@ -604,6 +610,9 @@ void blur_3plane(sycl::queue &q, Ssimu2StateSycl *s, const float *in_buf, float 
  * ports of ssim_map + edge_diff_map in ssimulacra2.c. */
 void ss2s_host_combine(const Ssimu2StateSycl *s, int scale, double avg_ssim[6], double avg_ed[12])
 {
+    assert(s != nullptr);
+    assert(avg_ssim != nullptr && avg_ed != nullptr);
+    assert(scale >= 0 && scale < 6);
     const unsigned cw = s->scale_w[scale];
     const unsigned ch = s->scale_h[scale];
     const size_t full_plane = (size_t)s->width * (size_t)s->height;
@@ -661,6 +670,8 @@ void ss2s_host_combine(const Ssimu2StateSycl *s, int scale, double avg_ssim[6], 
 
 double ss2s_pool_score(const double avg_ssim[6][6], const double avg_ed[6][12], int num_scales)
 {
+    assert(avg_ssim != nullptr && avg_ed != nullptr);
+    assert(num_scales >= 1 && num_scales <= 6);
     double ssim = 0.0;
     size_t i = 0;
     for (int c = 0; c < 3; c++) {
@@ -845,6 +856,7 @@ int extract_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPictur
 
 int close_fex_sycl(VmafFeatureExtractor *fex)
 {
+    assert(fex != nullptr);
     auto *s = static_cast<Ssimu2StateSycl *>(fex->priv);
     if (!s || !s->sycl_state)
         return 0;
