@@ -8,6 +8,23 @@
 
 ### Changed
 
+- **Tiny-AI PTQ accuracy across Execution Providers measured (T5-3e,
+  retires the deferred GPU-EP open question in
+  `docs/research/0006-tinyai-ptq-accuracy-targets.md`)**: empirical
+  PLCC-drop sweep across `CPUExecutionProvider`,
+  `CUDAExecutionProvider` (RTX 4090), and the OpenVINO runtime on
+  Intel Arc A380 plus the OpenVINO CPU plugin. CPU EP and CUDA EP
+  agree to 6 decimal places on every shipped tiny model
+  (`learned_filter_v1`, `vmaf_tiny_v1`, `vmaf_tiny_v1_medium` —
+  PLCC drop ≤ 1.2×10⁻⁴, well under the 1×10⁻² registry budget).
+  OpenVINO CPU plugin agrees to ~10⁻⁴. Intel Arc through OpenVINO
+  2026.1 is currently int8-broken: `Conv`-based int8 graphs fail to
+  compile (`No layout format available for convolution: byxf /
+  i32`); MLP int8 graphs (`MatMulInteger` + `DynamicQuantizeLinear`)
+  compile but emit `inf`/`NaN`. Arc fp32 path is healthy. New
+  harness `ai/scripts/measure_quant_drop_per_ep.py` + user doc
+  `docs/ai/quant-eps.md` document the reproduction recipe and the
+  CUDA-12-ABI `LD_LIBRARY_PATH` shim required on CUDA-13 hosts.
 - **Backlog: 9 promote-to-T-NN rows landed from the 2026-04-28
   Section-A audit** (fork-local docs): converts the 12 untracked
   follow-up items captured in
