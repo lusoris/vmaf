@@ -8,3 +8,4 @@ The Tiny AI surface ships small ONNX perceptual-quality models alongside classic
 - [Benchmarks](benchmarks.md) — latency and accuracy numbers
 - [Security](security.md) — op allowlists, model validation, supply chain
 - [Bisect model quality](bisect-model-quality.md) — binary-search a checkpoint timeline for the first quality regression (also wired as a nightly CI gate)
+- [Training data](training-data.md) — Netflix corpus path convention, `--data-root` loader API, and evaluation harness for fork-local training runs

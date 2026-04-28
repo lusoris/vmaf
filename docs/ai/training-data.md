@@ -1,0 +1,136 @@
+# Tiny AI — training data
+
+This page documents the corpus path convention for the Netflix VMAF training
+corpus, the `--data-root` loader API, and the recommended evaluation harness.
+For the training *workflow* (feature extraction, model fit, export, eval),
+see [training.md](training.md).
+
+## Corpus location
+
+Training data is **never committed**. All YUV files are gitignored. The
+canonical local path for the Netflix corpus is:
+
+```
+.workingdir2/netflix/
+  ref/    # 9 reference YUVs
+  dis/    # 70 distorted YUVs
+```
+
+The `--data-root` flag (or the `VMAF_DATA_ROOT` environment variable) tells
+every training subcommand where to find the dataset. The flag takes
+precedence when both are set.
+
+### Naming convention
+
+Files follow the Netflix encoding-ladder convention:
+
+```
+<source>_<quality_label>_<height>_<bitrate-kbps>.yuv
+```
+
+For example:
+
+```
+ref/
+  BigBuck_0_576_0.yuv        # source, quality 0 = pristine, 576 lines
+dis/
+  BigBuck_1_576_2000.yuv     # source, quality 1, 576 lines, 2000 kbps
+  BigBuck_2_576_1000.yuv     # source, quality 2, 576 lines, 1000 kbps
+```
+
+The `<quality_label>` is an opaque integer assigned at encode time; 0
+conventionally means the lossless or near-lossless reference.
+
+## Loader API
+
+The loader is implemented in
+[`ai/src/vmaf_train/data/datasets.py`](../../ai/src/vmaf_train/data/datasets.py).
+When `--data-root` points to a directory with the layout above, the loader:
+
+1. Scans `<data-root>/ref/` and `<data-root>/dis/` for `.yuv` files.
+2. Pairs each distorted file with its reference by matching the `<source>`
+   component (first underscore-separated token).
+3. Invokes `libvmaf` via subprocess to extract the six-element feature vector
+   per frame: `[ vif_scale0, vif_scale1, vif_scale2, vif_scale3, motion2, adm2 ]`.
+4. Mean-pools the per-frame vectors to produce one clip-level vector.
+5. Caches the result as a Parquet file under
+   `<data-root>/.cache/nflx_features.parquet` so repeated invocations skip
+   the expensive libvmaf pass.
+
+### Invoking the loader
+
+```bash
+# Extract features from the local Netflix corpus.
+vmaf-train extract-features \
+    --data-root .workingdir2/netflix \
+    --dataset nflx-local \
+    --output ai/data/nflx_local_features.parquet
+
+# If VMAF_DATA_ROOT is set instead:
+export VMAF_DATA_ROOT=.workingdir2/netflix
+vmaf-train extract-features --dataset nflx-local \
+    --output ai/data/nflx_local_features.parquet
+```
+
+The `--dataset nflx-local` token tells the loader to use the
+`NflxLocalDataset` class, which reads the directory layout above instead of
+downloading from a URL.
+
+## Evaluation harness
+
+After extraction, fit and evaluate a model against the `vmaf_v0.6.1`
+soft-label baseline:
+
+```bash
+# 1. Train.
+vmaf-train fit \
+    --config ai/configs/fr_tiny_v1.yaml \
+    --features ai/data/nflx_local_features.parquet \
+    --output runs/fr_tiny_v2_nflx/
+
+# 2. Export.
+vmaf-train export \
+    --checkpoint runs/fr_tiny_v2_nflx/last.ckpt \
+    --output model/tiny/vmaf_tiny_fr_v2_nflx.onnx \
+    --opset 17
+
+# 3. Evaluate on the held-out 10-clip test split.
+vmaf-train eval \
+    --model model/tiny/vmaf_tiny_fr_v2_nflx.onnx \
+    --features ai/data/nflx_local_features.parquet \
+    --split test
+# Reports PLCC, SROCC, RMSE vs vmaf_v0.6.1 soft labels.
+
+# 4. One-command MCP server health check (ADR-0199).
+cd mcp-server/vmaf-mcp && python -m pytest tests/test_smoke_e2e.py -v
+```
+
+## Data path safety invariants
+
+- **Never commit YUV files.** The `.gitignore` at the repo root lists
+  `*.yuv` and `.workingdir2/`. Do not override these entries.
+- The training script takes `--data-root` as an explicit CLI flag precisely
+  to avoid hard-coding the local path. CI does not have the corpus; the
+  smoke test in `test_smoke_e2e.py` uses only the committed Netflix golden
+  fixture (`python/test/resource/yuv/src01_hrc00_576x324.yuv`), not the
+  training corpus.
+- The `NflxLocalDataset` class validates that each YUV is under
+  `<data-root>/` before reading it, preventing path-traversal issues
+  (SEI CERT FIO02-C).
+
+## Split reproducibility
+
+The train/test split is keyed by a deterministic hash of the clip's
+relative path within `<data-root>/dis/`. This means the same clip always
+lands in the same split regardless of directory enumeration order,
+satisfying the reproducibility invariant documented in `docs/ai/training.md §
+Determinism`.
+
+## See also
+
+- [training.md](training.md) — full training workflow
+- [inference.md](inference.md) — running the trained ONNX model via C API or CLI
+- [ADR-0199](../adr/0199-tiny-ai-netflix-training-corpus.md) — architecture
+  and distillation policy decisions
+- [Research digest 0019](../research/0019-tiny-ai-netflix-training.md) —
+  literature survey underpinning the architecture choices
