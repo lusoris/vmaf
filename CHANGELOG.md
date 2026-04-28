@@ -127,6 +127,15 @@
 
 ### Changed
 
+- **Audit Section C cleanup — refresh stale "scaffold only" / "follow-up
+  PR" comments** (fork-local): four code surfaces still advertised work
+  that has long since landed. Updated `libvmaf_vulkan.h` (top-level
+  header doc-comment + the T7-29 zero-copy import block), the
+  `ssimulacra2.c` SIMD blurb (ADR-0161 / 0162 / 0164 + GPU twins
+  ADR-0201 / 0206), and the Vulkan blurbs in `libvmaf/src/meson.build`
+  + `libvmaf/meson_options.txt`. Comment-only; no behavioural change.
+  Closes Section C of `docs/backlog-audit-2026-04-28.md`.
+
 - **Whole-codebase lint sweep — auto-fix subset (52% findings cleared)**
   (fork-local): post-T5-1 + docs-sweep follow-up. Baseline clang-tidy
   whole-codebase scan flagged 1533 unique findings across 84 files.
