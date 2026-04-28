@@ -161,8 +161,13 @@ the deviation:
   for CAMBI when the rest of the pipeline is on the GPU.
 - **CIEDE2000** — no SYCL kernel; CPU fallback.
 - **SSIM / MS-SSIM / PSNR / PSNR-HVS / ANSNR** — no SYCL kernels.
-- **Float-twin extractors (`float_*`)** — the SYCL backend only
-  implements the fixed-point integer extractors.
+- **Float-twin extractors (`float_*`)** — the SYCL backend
+  implements ANSNR / PSNR / Motion / VIF / ADM
+  ([ADR-0202](../../adr/0202-float-adm-cuda-sycl.md)).
+- **SSIMULACRA 2** — `ssimulacra2_sycl` shipped per
+  [ADR-0206](../../adr/0206-ssimulacra2-cuda-sycl.md) (hybrid
+  host/GPU pipeline, kernel lambdas held in IEEE-754 strict mode by
+  the existing `-fp-model=precise`).
 - **dmabuf import is Linux-only.** The VA-API → dmabuf fast path is
   gated on `__linux__` and the `ext::oneapi::experimental::external_memory`
   extension. Windows SYCL builds fall back to `malloc_shared` host upload.
