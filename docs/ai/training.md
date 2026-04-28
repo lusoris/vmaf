@@ -193,8 +193,10 @@ faster than the SVR.
 
 ### Smoke command
 
-CI does NOT run training. The smoke command lives in
-`ai/tests/test_train_smoke.py` and the equivalent shell invocation is:
+CI runs only the `--epochs 0` smoke test (the real corpus and a
+real training run are not GitHub-runner-friendly). The smoke command
+lives in `ai/tests/test_train_smoke.py` and the equivalent shell
+invocation is:
 
 ```bash
 python ai/train/train.py \

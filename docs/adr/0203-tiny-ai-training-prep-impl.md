@@ -7,20 +7,15 @@
 
 ## Context
 
-ADR-0199 specified the *scope* for training tiny-AI models on the
-original Netflix VMAF training corpus and deferred the *how* to a
-follow-up. This ADR records the implementation decisions made by the
-follow-up PR (`feat/tiny-ai-netflix-training-prep`) for the loader,
-ground-truth pipeline, dataset adapter, evaluation harness, and
-training entry point under `ai/data/` + `ai/train/`.
-
-The follow-up PR deliberately ships only the *prep*: data loading,
-caching, dataset enumeration, eval metrics, and a runnable training
-script. It does **not** run training. ADR-0199's architecture-search
-table is converted into the three concrete archs registered with the
-new entry point. Training itself remains a manual,
-multi-day, GPU-bound operation that the user kicks off after reviewing
-this ADR.
+ADR-0199 specified the scope for training tiny-AI models on the
+original Netflix VMAF training corpus. This ADR records the
+implementation decisions made by the follow-up PR
+(`feat/tiny-ai-netflix-training-prep`) for the loader, ground-truth
+pipeline, dataset adapter, evaluation harness, and training entry
+point under `ai/data/` + `ai/train/` — and the first concrete
+training run executed against the full corpus (results section
+below). ADR-0199's architecture-search table is converted into the
+three concrete archs registered with the new entry point.
 
 ## Decision
 
@@ -62,7 +57,7 @@ this ADR.
 | Option | Pros | Cons | Status |
 |---|---|---|---|
 | 1-source-out (Tennis_24fps) | Content-disjoint val; single training run; ~9/12 % val by clip/frame | Single-fold; sensitive to which source is held out | **Selected — default** |
-| Leave-one-source-out (9-fold) | Robust generalisation estimate | 9× training cost; user has GPU but explicit "no actual training" policy in this PR | Available manually by re-running with each ``--val-source`` |
+| Leave-one-source-out (9-fold) | Robust generalisation estimate | 9× training cost; one fold suffices for the first canonical run | Available by re-running with each ``--val-source`` |
 | Random per-frame split | Maximises samples in val | Frame-level leakage inflates correlations; well-known VQA pitfall | Rejected |
 | Random per-clip split (stratified by source) | Some content disjointness | Still mixes sources between train/val | Rejected |
 

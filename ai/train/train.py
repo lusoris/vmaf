@@ -26,9 +26,12 @@ Architectures (parameter counts assume ``feature_dim = 6``):
 * ``mlp_small``  — 6 -> 16 -> 8 -> 1, ReLU, 257 params
 * ``mlp_medium`` — 6 -> 64 -> 32 -> 1, ReLU, 2561 params
 
-ADR-0203 documents the architecture-choice rationale. CI does **not**
-run training (it only smoke-tests with ``--epochs 0``); production
-training is a manual ``python ai/train/train.py …`` invocation.
+ADR-0203 documents the architecture-choice rationale and the
+metrics from the first canonical run. CI smoke-tests this script
+with ``--epochs 0`` against a mock fixture; full training runs are
+invoked directly via ``python ai/train/train.py …`` or the wrapper
+``bash ai/scripts/run_training.sh …`` against the local corpus at
+``.workingdir2/netflix/``.
 """
 
 from __future__ import annotations

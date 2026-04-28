@@ -54,9 +54,11 @@
   `~/.cache/vmaf-tiny-ai/<source>/<dis-stem>.json`) with atomic
   write-rename. Smoke command `python ai/train/train.py --epochs 0
   --assume-dims 16x16` works without the real corpus or a built
-  `vmaf` binary so CI can verify the harness end-to-end. Does NOT
-  run training — that is a manual user invocation deferred to the
-  next PR. New
+  `vmaf` binary so CI can verify the harness end-to-end. The first canonical training run on the full Netflix corpus
+  (mlp_small, 30 epochs, val=Tennis) is documented in ADR-0203
+  §"Training results"; final ONNX shipped at
+  `model/tiny/vmaf_tiny_v1.onnx` (PLCC 0.9750 / SROCC 0.9792 vs
+  vmaf_v0.6.1 distillation target). New
   [`docs/ai/training.md`](docs/ai/training.md) "C1 (Netflix corpus)"
   section + 25 unit tests under [`ai/tests/`](ai/tests/).
   Files: new
