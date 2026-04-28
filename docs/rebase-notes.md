@@ -3363,6 +3363,51 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0065 — `testdata/bench_all.sh` correct backend-engagement flags
+
+- **No ADR.** Bug fix; no behavioural surface change beyond
+  "the bench actually engages the backends it claims to now."
+- **Upstream source**: fork-local. `testdata/bench_all.sh` is a
+  fork-only bench harness; not in Netflix/vmaf.
+- **Touches** (additive only):
+  - `testdata/bench_all.sh` — switched per-row flag pattern from the
+    disable-only singletons (`--no_sycl` for "CUDA", etc.) to the
+    correct engagement form (`--gpumask=0 --no_sycl --no_vulkan` for
+    CUDA, `--sycl_device=0 --no_cuda --no_vulkan` for SYCL,
+    `--vulkan_device=0 --no_cuda --no_sycl` for Vulkan, and
+    `--no_cuda --no_sycl --no_vulkan` for CPU). Added a 4th column
+    (Vulkan) to the comparator. Honours `$VMAF_BIN` for the binary
+    path and `$VMAF_ONEAPI_SETVARS` for the oneAPI install location.
+  - `CHANGELOG.md` Unreleased § Fixed.
+- **Invariants** (rebase-relevant):
+  1. **Disable-only singletons don't engage a backend.** `--no_sycl`
+     alone leaves CUDA available *but unrequested*. `--no_cuda` alone
+     leaves SYCL available but unrequested. The CLI inits CUDA only
+     when `c.use_gpumask` is set; SYCL only when `c.sycl_device >= 0`
+     or `c.use_gpumask`; Vulkan only when `c.vulkan_device >= 0`. Any
+     change to those gates that drops one of the per-row flags will
+     re-introduce the silent CPU fallback. Verify after a rebase by
+     inspecting JSON `frames[0].metrics` key counts (CPU 14-15,
+     CUDA 11-12, Vulkan ~34) — see
+     [`libvmaf/AGENTS.md`](../libvmaf/AGENTS.md) §"Backend-engagement
+     foot-guns".
+  2. **`gpumask` semantics are inverted from intuition.** `gpumask=0`
+     enables CUDA dispatch; `gpumask=1` disables it. The per-row
+     CUDA flag is `--gpumask=0`, not `--gpumask=1`. Don't "fix" it
+     to `--gpumask=1` for symmetry with sycl_device/vulkan_device —
+     that's the bug being fixed (parallel to PR #170).
+- **On upstream sync**: zero interaction; `testdata/bench_all.sh`
+  is fork-only.
+- **Re-test on rebase**:
+
+  ```bash
+  bash testdata/bench_all.sh    # smoke
+  # Verify each row's JSON keys match the expected per-backend count:
+  jq '.frames[0].metrics | keys | length' testdata/bbb/results/t1_cpu.json
+  jq '.frames[0].metrics | keys | length' testdata/bbb/results/t1_cuda.json
+  jq '.frames[0].metrics | keys | length' testdata/bbb/results/t1_vulkan.json
+  ```
+
 ### 0063 — Tiny-AI LOSO eval harness for `mlp_small`
 
 - **No ADR.** The methodology fits inside Research Digest 0022;
