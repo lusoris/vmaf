@@ -211,6 +211,77 @@ This exports an initial-weights ONNX file without touching the real
 corpus or invoking libvmaf, and is the documented reproducer in the PR
 template.
 
+## C1 (KoNViD-1k corpus) — synthetic-distortion FR pairs
+
+The 9-source Netflix Public corpus is fully utilised by the LOSO
+sweep — Research-0023 §5 documents how the FoxBird outlier reflects
+content-distribution variance within those 9 clips. To reduce that
+variance the natural unblocker is a *different / larger* training
+corpus. KoNViD-1k (Konstanz natural video database, 1 200 user-
+generated clips at 540p with crowd-sourced MOS) is the natural
+starting point; it's already locally available at
+`$VMAF_DATA_ROOT/konvid-1k/` (downloaded via
+`ai/scripts/fetch_konvid_1k.py`).
+
+KoNViD-1k ships as no-reference (clip + MOS), not as VMAF-style
+(ref, dis) pairs. To turn it into the FR-pair format the LOSO
+trainer expects, the fork adds an acquisition step that synthesises
+a distorted variant per clip via libx264 CRF=35 round-trip — same
+recipe used for the Netflix dis-pairs in the existing corpus —
+and runs libvmaf to extract the 6 `vmaf_v0.6.1` features + per-
+frame VMAF teacher score per (ref, dis) pair.
+
+### Acquisition
+
+```bash
+# smoke (5 clips, ~30 s wall):
+python ai/scripts/konvid_to_vmaf_pairs.py --max-clips 5
+
+# full run (1 200 clips, ~30 min wall on the ryzen-4090 profile):
+python ai/scripts/konvid_to_vmaf_pairs.py
+```
+
+Output: `ai/data/konvid_vmaf_pairs.parquet` (gitignored). Schema
+matches what `NetflixFrameDataset.numpy_arrays()` produces:
+`(key, frame_index, vif_scale0..3, adm2, motion2, vmaf)` per row.
+
+Per-clip JSON caches under `$VMAF_TINY_AI_CACHE/konvid-1k/<key>.json`
+so re-runs are idempotent — only newly-added clips re-extract.
+
+### Loader
+
+[`ai/train/konvid_pair_dataset.py::KoNViDPairDataset`](../../ai/train/konvid_pair_dataset.py)
+mirrors `NetflixFrameDataset`'s interface — same `feature_dim` (6),
+same `numpy_arrays() → (X, y)` shape — so the existing
+`_train_loop` consumes it without modification:
+
+```python
+from ai.train.konvid_pair_dataset import KoNViDPairDataset
+
+# all 1 200 clips
+ds = KoNViDPairDataset("ai/data/konvid_vmaf_pairs.parquet")
+
+# LOSO-style holdout: 1 clip val, rest train
+val_keys = {ds.unique_keys[0]}
+train_keys = set(ds.unique_keys) - val_keys
+val_ds = KoNViDPairDataset("ai/data/konvid_vmaf_pairs.parquet", keep_keys=val_keys)
+train_ds = KoNViDPairDataset("ai/data/konvid_vmaf_pairs.parquet", keep_keys=train_keys)
+
+X, y = train_ds.numpy_arrays()  # (n_train_frames, 6), (n_train_frames,)
+```
+
+### Combining KoNViD with the Netflix corpus
+
+For variance reduction, the natural use is to concatenate the two
+corpora's `(X, y)` arrays and train on the union. The LOSO holdout
+remains per-corpus (e.g. hold out one Netflix source AND one
+KoNViD clip per fold) — `numpy.concatenate` over the per-corpus
+arrays after applying each loader's `keep_keys` filter is enough.
+
+A driver script that wires this end-to-end is a follow-up; the
+loader + acquisition pieces are in master so any session can pick
+it up.
+
 ## C2 — NR metric
 
 Same flow, different config: [`ai/configs/nr_mobilenet_v1.yaml`](../../ai/configs/nr_mobilenet_v1.yaml).
