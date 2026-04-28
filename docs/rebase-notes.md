@@ -3388,6 +3388,41 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0073 — KoNViD-1k → VMAF-pair acquisition + loader bridge
+
+- **No ADR.** Acquisition + loader pieces are pure additions; the
+  methodology fits inside ADR-0203 / Research-0019.
+- **Upstream source**: fork-local. KoNViD-1k integration is a
+  fork-only training-data play.
+- **Touches** (additive only):
+  - `ai/scripts/konvid_to_vmaf_pairs.py` — acquisition pipeline.
+  - `ai/train/konvid_pair_dataset.py` — `KoNViDPairDataset`
+    class mirroring `NetflixFrameDataset`'s interface.
+  - `ai/tests/test_konvid_pair_dataset.py` — 5 pytest cases.
+  - `docs/ai/training.md` — new "C1 (KoNViD-1k corpus)" section.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **`KoNViDPairDataset` mirrors `NetflixFrameDataset` shape.**
+     `feature_dim == 6`, `numpy_arrays() → (X, y)` returns
+     `(n_frames, 6)` + `(n_frames,)`. If `NetflixFrameDataset`'s
+     feature order changes, mirror it here.
+  2. **Acquisition parquet schema is fixed.** Required columns:
+     `key`, `frame_index`, `vif_scale0..3`, `adm2`, `motion2`,
+     `vmaf`. Add freely; do NOT rename / drop those.
+  3. **`ai/data/konvid_vmaf_pairs.parquet` and
+     `$VMAF_TINY_AI_CACHE/konvid-1k/` stay gitignored.** They
+     regenerate from raw KoNViD `.mp4` sources.
+- **On upstream sync**: zero interaction.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_konvid_pair_dataset.py -v
+  # Expect: 5 passed
+  python ai/scripts/konvid_to_vmaf_pairs.py --max-clips 5
+  # Expect: ~7 s wall, ai/data/konvid_vmaf_pairs.parquet with
+  #         5 unique keys × ~200 frames each.
+  ```
+
 ### 0072 — Tiny-AI 3-arch LOSO eval harness + Research-0023
 
 - **No ADR.** Methodology fits inside Research-0023; ADR-0203
