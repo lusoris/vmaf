@@ -3401,6 +3401,37 @@ inline.*
   # Expect: identical line on a populated cache + identical fold ONNX.
   ```
 
+### 0064 — Section-A audit: 9 backlog rows + ADR cross-links
+
+- **No ADR.** Process / docs PR; rows trace back to the
+  individually-cited ADRs / research digests in their own
+  References columns.
+- **Decision dossier**:
+  [`.workingdir2/decisions/section-a-decisions-2026-04-28.md`](../.workingdir2/decisions/section-a-decisions-2026-04-28.md).
+- **Source audit**:
+  [`docs/backlog-audit-2026-04-28.md`](backlog-audit-2026-04-28.md).
+- **Upstream source**: fork-local. Pure backlog hygiene PR; no
+  Netflix code touched.
+- **Touches** (additive only):
+  - `.workingdir2/BACKLOG.md` — 9 new rows: T3-17, T3-18, T5-3e,
+    T5-4, T7-35, T7-36, T7-37, T7-38; T6-1a row extended with the
+    bisect-cache fixture sub-bullet.
+  - `docs/research/0006-tinyai-ptq-accuracy-targets.md` — drops
+    the "defer until first user" framing on the GPU-EP
+    quantisation open question per user direction; cross-links
+    T5-3e.
+  - `docs/research/0020-cambi-gpu-strategies.md` — v2 follow-up
+    section now cites T7-36 as the gate for opening the v2 row.
+  - `docs/adr/0205-cambi-gpu-feasibility.md` — Decision section's
+    "follow-up integration PR" now cites T7-36.
+  - `CHANGELOG.md` Unreleased § Changed.
+- **Invariants** (rebase-relevant): none. Pure backlog text.
+  Rebase-conflict risk is limited to the same `BACKLOG.md` table
+  rows that any future row addition would touch; trivial to
+  re-resolve.
+- **On upstream sync**: zero interaction.
+- **Re-test on rebase**: none — docs-only.
+
 ### 0062 — ssimulacra2 CUDA + SYCL twins (ADR-0206)
 
 - **ADR**: [ADR-0206](adr/0206-ssimulacra2-cuda-sycl.md).

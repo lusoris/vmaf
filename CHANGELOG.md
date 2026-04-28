@@ -6,6 +6,37 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Changed
+
+- **Backlog: 9 promote-to-T-NN rows landed from the 2026-04-28
+  Section-A audit** (fork-local docs): converts the 12 untracked
+  follow-up items captured in
+  [`docs/backlog-audit-2026-04-28.md`](docs/backlog-audit-2026-04-28.md)
+  §A and the user direction frozen in
+  [`.workingdir2/decisions/section-a-decisions-2026-04-28.md`](.workingdir2/decisions/section-a-decisions-2026-04-28.md)
+  into actual `.workingdir2/BACKLOG.md` rows. New rows: **T3-17**
+  (motion3 GPU coverage on Vulkan + CUDA + SYCL), **T3-18** (GPU
+  chroma upload + chroma metrics on Vulkan + CUDA), **T5-3e** (PTQ
+  accuracy investigation on CUDA + Intel Arc — the deferral framing
+  in `docs/research/0006-tinyai-ptq-accuracy-targets.md` is now
+  superseded), **T5-4** (Quantization-Aware Training: implement, do
+  not close — `ai/scripts/qat_train.py` remains scaffold until this
+  ships), **T7-35** (`enable_lcs` MS-SSIM extra metrics on CUDA +
+  Vulkan), **T7-36** (cambi GPU integration PR — replaces ADR-0205
+  spike scaffolds with a real lifecycle), **T7-37** (run Netflix
+  bench + replace `TBD` cells in `docs/benchmarks.md`), **T7-38**
+  (SVE2 SIMD parity for SSIMULACRA 2 PTLR + IIR-blur via
+  `qemu-aarch64-static` — no CI hardware required). T6-1a row
+  extended to fold in §A.2.2 (DMOS-aligned bisect-cache fixture
+  rides along once Netflix Public Dataset access lands). §A.1.2
+  (cambi v2 c-values strategy-III) intentionally not opened — gated
+  on T7-36 landing first, per the audit decisions doc. §A.4.1
+  upstream `libvmaf.c` FIXMEs intentionally not opened — rebase-
+  fidelity carve-out applies; first PR that touches the file sweeps
+  them per CLAUDE.md §12 r12. ADR-0205 + Research-0020 +
+  Research-0006 cross-link the new T-numbers in their respective
+  decision / follow-up sections.
+
 ### Added
 
 - **Tiny-AI LOSO evaluation harness for `mlp_small`** (fork-local):

@@ -249,8 +249,10 @@ Not applicable for v1 (the precision-sensitive c-values phase stays
 on the host). The GPU phases are integer + bit-exact-by-construction
 (all operations are `uint16` arithmetic, comparison, gather; no
 float rounding, no cross-WG float reduction). The follow-up
-integration PR will run the cross-backend gate empirically and
-either confirm bit-exact or document any drift in its own ADR.
+integration PR — tracked as backlog **T7-36** per the
+[Section-A audit decisions](../../.workingdir2/decisions/section-a-decisions-2026-04-28.md)
+§A.1.3 — will run the cross-backend gate empirically and either
+confirm bit-exact or document any drift in its own ADR.
 
 The strategy III v2 PR will need its own precision investigation
 because the order of integer histogram increments in a per-pixel
