@@ -95,6 +95,34 @@
 
 ### Added
 
+- **Research-0029 — Phase-3b: StandardScaler retry validates
+  broader-feature hypothesis** (fork-local doc): empirical retry
+  of the Research-0028 negative result with per-fold StandardScaler.
+  **Subset B (consensus-7 with redundancy pruning) clears the
+  Research-0027 +0.005 PLCC stopping rule by 2× (+0.0106).** Mean
+  LOSO PLCC over 9 folds: canonical-6 = 0.9677, Subset A
+  (canonical+ssimulacra2) = 0.9669, **Subset B = 0.9783**, Subset
+  C (full-21) = 0.9597. The Phase-3a failure was a preprocessing
+  artefact, not a feature-signal artefact — `psnr_*`/`cambi`/
+  `ciede2000` (range 0–100) had been dominating gradient updates
+  over normalised features (range 0–1). With per-fold
+  `(mean, std)` standardisation (statistics fit on train, applied
+  to both train and val so no fold-leakage), the Research-0026
+  hypothesis is confirmed. Two findings: (1) Subset B's feature
+  composition (`adm2`, `adm_scale3`, `vif_scale2`, `motion2`,
+  `ssimulacra2`, `psnr_hvs`, `float_ssim`) validates all four
+  Research-0027 consensus features and the redundancy pruning
+  recommendations; (2) Subset C (full-21) loses even with
+  StandardScaler — including all features without pruning hurts
+  the tiny `mlp_small` architecture. Three gates before
+  `vmaf_tiny_v2.onnx` ships: multi-seed validation
+  (`seed ∈ {0..4}`), KoNViD cross-corpus check, and Phase-3c
+  `lr`-sweep on canonical-6 to verify the +0.0106 holds under
+  matched preprocessing. New `--standardize` flag on
+  [`ai/scripts/phase3_subset_sweep.py`](ai/scripts/phase3_subset_sweep.py).
+  Driver shared with PR #188 (Research-0028); this PR adds the
+  flag + the retry results.
+
 - **Research-0028 — Phase-3 MLP subset sweep (negative-result
   digest)** (fork-local doc): empirical close of Research-0026
   Phase 3. The pre-registered Research-0027 stopping rule fires —

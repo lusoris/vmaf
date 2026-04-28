@@ -154,6 +154,23 @@ def _train_one_fold(
     return {"plcc": plcc, "srocc": srocc, "rmse": rmse}
 
 
+def _standardize_inplace(x_train: np.ndarray, x_val: np.ndarray) -> None:
+    """Per-column standardisation: fit (mean, std) on train, apply to both.
+
+    Uses the train fold's statistics only — never peek at the val fold —
+    so the LOSO methodology stays honest. The constant 1e-8 floor on
+    `std` avoids divide-by-zero on degenerate features (none in the
+    current feature pool, but cheap insurance).
+    """
+    mean = x_train.mean(axis=0)
+    std = x_train.std(axis=0, ddof=0)
+    std = np.where(std < 1e-8, 1.0, std)
+    x_train -= mean
+    x_train /= std
+    x_val -= mean
+    x_val /= std
+
+
 def _loso_sweep(
     df,  # type: ignore[no-untyped-def]
     feature_cols: tuple[str, ...],
@@ -162,6 +179,7 @@ def _loso_sweep(
     batch_size: int,
     lr: float,
     seed: int,
+    standardize: bool = False,
 ) -> dict[str, dict[str, float]]:
     sources = sorted(df["source"].unique())
     per_fold: dict[str, dict[str, float]] = {}
@@ -175,6 +193,8 @@ def _loso_sweep(
         if x_train.shape[0] == 0 or x_val.shape[0] == 0:
             print(f"  [warn] fold={held_out}: empty split; skipping", file=sys.stderr)
             continue
+        if standardize:
+            _standardize_inplace(x_train, x_val)
         m = _train_one_fold(
             x_train,
             y_train,
@@ -222,6 +242,15 @@ def main() -> int:
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--standardize",
+        action="store_true",
+        help=(
+            "Per-fold StandardScaler: fit (mean, std) on train, "
+            "apply to both train and val. Phase-3b config per "
+            "Research-0028 §'Decision'."
+        ),
+    )
     args = ap.parse_args()
 
     import pandas as pd
@@ -250,6 +279,7 @@ def main() -> int:
             batch_size=args.batch_size,
             lr=args.lr,
             seed=args.seed,
+            standardize=args.standardize,
         )
         summary = _summary(per_fold)
         results[name] = {
