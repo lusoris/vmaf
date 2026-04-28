@@ -452,17 +452,28 @@ if is_cuda_enabled
         'float_vif_score' : [feature_src_dir + 'cuda/float_vif/float_vif_score.cu'],
         'ssimulacra2_blur' : [feature_src_dir + 'cuda/ssimulacra2/ssimulacra2_blur.cu'],
         'ssimulacra2_mul' : [feature_src_dir + 'cuda/ssimulacra2/ssimulacra2_mul.cu'],
+        'float_adm_score' : [feature_src_dir + 'cuda/float_adm/float_adm_score.cu'],
     }
-    # Per-kernel extra nvcc flags. ssimulacra2_blur needs `--fmad=false` so
-    # the IIR pole-tracking expression (n2*sum - d1*prev1 - prev2) keeps its
-    # CPU-port FMUL/FSUB ordering — without it, NVCC fuses the multiply +
-    # subtract pair into FMAs and the recursive Gaussian's per-step
-    # rounding compounds across radius * 6-scale pyramid into a places=2
-    # drift versus CPU. The per-pixel multiply kernel does not need it
+    # Per-kernel extra nvcc flags.
+    #
+    # `ssimulacra2_blur` needs `--fmad=false` so the IIR pole-tracking
+    # expression (n2*sum - d1*prev1 - prev2) keeps its CPU-port
+    # FMUL/FSUB ordering — without it, NVCC fuses the multiply + subtract
+    # pair into FMAs and the recursive Gaussian's per-step rounding
+    # compounds across radius * 6-scale pyramid into a places=2 drift
+    # versus CPU. The per-pixel multiply kernel does not need it
     # (single FMUL, no fused-add candidate). Mirrors GLSL `precise` /
     # `NoContraction` decorations on ssimulacra2_blur.comp.
+    #
+    # `float_adm_score` needs `--fmad=false` so the angle-flag and cube
+    # reductions in stage 2/3 keep IEEE-754 add/mul ordering — matches
+    # the GLSL `precise` qualifier in float_adm.comp. Without this,
+    # scale-3 and adm2 drift past places=4 vs CPU adm_decouple_s /
+    # adm_cm_s. The integer ADM kernels use int64 accumulators so FMA
+    # is irrelevant; default FMA-on flags stay for them.
     cuda_cu_extra_flags = {
         'ssimulacra2_blur' : ['-Xcompiler=-ffp-contract=off', '--fmad=false'],
+        'float_adm_score' : ['-Xcompiler=-ffp-contract=off', '--fmad=false'],
     }
     message(cuda_cu_sources)
     cuda_sources = [
@@ -888,6 +899,7 @@ if is_cuda_enabled
         feature_src_dir + 'cuda/float_motion_cuda.c',
         feature_src_dir + 'cuda/float_vif_cuda.c',
         feature_src_dir + 'cuda/ssimulacra2_cuda.c',
+        feature_src_dir + 'cuda/float_adm_cuda.c',
     ]
 endif
 
@@ -911,6 +923,7 @@ if is_sycl_enabled
         feature_src_dir + 'sycl/integer_ms_ssim_sycl.cpp',
         feature_src_dir + 'sycl/integer_psnr_hvs_sycl.cpp',
         feature_src_dir + 'sycl/ssimulacra2_sycl.cpp',
+        feature_src_dir + 'sycl/float_adm_sycl.cpp',
     ]
 
     # `-fp-model=precise` is Intel's strict-FP flag: no FMA contraction,

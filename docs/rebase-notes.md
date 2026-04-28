@@ -30,6 +30,56 @@ cover several PRs in one workstream; cross-link from the ID heading.
 The pre-ADR-0108 fork-local PRs are summarised by workstream rather
 than per-PR. Future PRs add entries individually.
 
+### 0050 — `float_adm_cuda` + `float_adm_sycl` extractors (ADR-0202)
+
+- **ADR**: [ADR-0202](adr/0202-float-adm-cuda-sycl.md)
+- **Touches**:
+  - `libvmaf/src/feature/cuda/float_adm/float_adm_score.cu` (new)
+  - `libvmaf/src/feature/cuda/float_adm_cuda.{c,h}` (new)
+  - `libvmaf/src/feature/sycl/float_adm_sycl.cpp` (new)
+  - `libvmaf/src/meson.build` — three changes: (1) new
+    `float_adm_score` entry in `cuda_cu_sources`, (2) new
+    `cuda_cu_extra_flags` dict that threads `--fmad=false` +
+    `-Xcompiler=-ffp-contract=off` into the `float_adm_score`
+    fatbin only, (3) new SYCL source in `sycl_feature_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` (extern decls +
+    list entries for `vmaf_fex_float_adm_cuda` /
+    `vmaf_fex_float_adm_sycl` under `#if HAVE_CUDA` /
+    `#if HAVE_SYCL`).
+- **Invariant 1 — `--fmad=false` for the float_adm fatbin only**:
+  the angle-flag dot product
+  (`ot_dp = oh*th + ov*tv`) and the cube reductions
+  (`xa*xa*xa`, `csf_o*csf_o*csf_o`) require IEEE-754 add/mul
+  ordering to match the GLSL `precise` qualifier in
+  `float_adm.comp`. NVCC's default `-fmad=true` fuses these and
+  drifts past `places=4` at scale 3 / adm2. The integer ADM
+  kernels share `cuda_flags` but use `int64` accumulators where
+  FMA is irrelevant — keep the FMA-on default for them.
+- **Invariant 2 — parent-LL dimension trap**: stage 0 at
+  `scale > 0` reads the parent's LL band; the mirror/clamp
+  bounds are `scale_w/h[scale]` (= parent's LL output dims =
+  current scale's input dims), NOT `scale_w/h[scale - 1]`
+  (= parent's full image dims). Both `float_adm_cuda.c` and
+  `float_adm_sycl.cpp` cite this inline. Do not "simplify" by
+  using the off-by-one neighbour.
+- **Re-test**:
+
+  ```bash
+  CXX=icpx CC=icx meson setup build-cs -Denable_cuda=true \
+       -Denable_sycl=true -Denable_vulkan=enabled \
+       -Denable_float=true \
+       -Dsycl_compiler=/opt/intel/oneapi/compiler/latest/bin/icpx
+  ninja -C build-cs
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary build-cs/tools/vmaf \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    --width 576 --height 324 --feature float_adm \
+    --backend cuda --places 4
+  # Same with --backend sycl on a host with an SYCL device.
+  # Both must report 0/N mismatches at places=4.
+  ```
+
 ### 0049 — `float_adm_vulkan` extractor (ADR-0199)
 
 - **ADR**: [ADR-0199](adr/0199-float-adm-vulkan.md)

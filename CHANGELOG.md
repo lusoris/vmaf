@@ -407,6 +407,34 @@
   the `vmaf_score` JSON-RPC tool against the Netflix golden fixture. No
   training runs; no Netflix golden assertions modified. Follow-up PR will
   select architecture and run training.
+- **GPU long-tail batch 3 parts 6b + 6c — `float_adm_cuda` +
+  `float_adm_sycl` extractors (T7-23 / ADR-0192 / ADR-0202)**
+  (fork-local): CUDA + SYCL twins of the Vulkan kernel shipped in
+  PR #154 / [ADR-0199](docs/adr/0199-float-adm-vulkan.md). Direct
+  ports of the four-stage / four-scale Vulkan pipeline: same
+  `-1` mirror form, same fused stage 3 with cross-band CM
+  threshold, same per-scale 6-slot WG partials reduced on the
+  host in `double`. New files:
+  [`libvmaf/src/feature/cuda/float_adm/float_adm_score.cu`](libvmaf/src/feature/cuda/float_adm/float_adm_score.cu),
+  [`libvmaf/src/feature/cuda/float_adm_cuda.{c,h}`](libvmaf/src/feature/cuda/float_adm_cuda.c),
+  [`libvmaf/src/feature/sycl/float_adm_sycl.cpp`](libvmaf/src/feature/sycl/float_adm_sycl.cpp).
+  Two precision-critical fixes from bring-up: (1) `--fmad=false`
+  on the `float_adm_score` fatbin via a new per-kernel
+  `cuda_cu_extra_flags` dict in `meson.build` — NVCC's default
+  FMA contraction in the angle-flag dot product cascaded
+  through the cube reductions and pushed scale-3 / adm2 past
+  `places=4` (3.6e-4 max_abs vs CPU before fix). Scoped to this
+  one kernel; integer ADM keeps its existing FMA-on path.
+  (2) Parent-LL dimension trap — stage 0 at `scale > 0` clamps
+  against the **parent's LL output dims** (`scale_w/h[scale]`),
+  NOT the parent's full-resolution image dims
+  (`scale_w/h[scale - 1]`). Verified `max_abs_diff ≤ 6e-6`
+  across all five outputs (adm2, adm_scale0..3) on the Netflix
+  normal pair via `cross_backend_vif_diff.py --backend cuda
+  --feature float_adm --places 4` (0/48 mismatches);
+  checkerboard 1px is bit-exact. SYCL gates on lavapipe-equivalent
+  CI lanes already cover the `float_adm` feature surface from
+  PR #154 ([ADR-0199](docs/adr/0199-float-adm-vulkan.md)).
 - **GPU long-tail batch 3 part 6 — `float_adm_vulkan` extractor
   (T7-23 / ADR-0192 / ADR-0199)** (fork-local): sixth and final
   Group B float twin. Vulkan compute kernel for the float ADM
