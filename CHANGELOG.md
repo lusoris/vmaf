@@ -95,57 +95,27 @@
 
 ### Added
 
-- **Tiny-AI Phase-2 analysis scaffolding: full-feature parquet
-  extractor + correlation/MI/importance harness**
-  (Research-0026 Phase 2 prep, fork-local): new
-  [`ai/scripts/extract_full_features.py`](ai/scripts/extract_full_features.py)
-  walks the Netflix corpus calling `extract_features` with the
-  `FULL_FEATURES` set (21 features), caches per-clip JSON under
-  `$XDG_CACHE_HOME/vmaf-tiny-ai-full/`, and emits a parquet
-  consumed by the analysis stage. New
-  [`ai/scripts/feature_correlation.py`](ai/scripts/feature_correlation.py)
-  reads the parquet and computes (a) pairwise Pearson correlation
-  matrix, (b) redundant-pair list at configurable threshold
-  (default `|r|≥0.95`), (c) mutual-information from each feature
-  to the VMAF target, (d) LASSO + random-forest feature
-  importance, (e) consensus top-K ranking across the three
-  importance methods. Output is a JSON report plus stdout
-  summary. New 5-test smoke under
-  [`ai/tests/test_feature_correlation.py`](ai/tests/test_feature_correlation.py)
-  covers the analytic functions on a synthetic parquet (no
-  libvmaf dependency) so the analysis pipeline is verified
-  without a multi-hour full-feature extraction pass. Phase-2
-  numbers themselves land in Research-0027 once the canonical
-  Netflix-corpus extraction completes (~3 h wall on CPU; cached
-  per-clip so resumable). Bug fixes vs PR #185 v1: dropped `adm`
-  and `vif` aggregates (not emitted as standalone JSON metrics by
-  the integer extractor, the bare-name lookups returned NaN for
-  every frame); fixed `motion3` CLI extractor name from `motion3`
-  to `motion_v2` (the upstream-canonical extractor name).
-
-- **Tiny-AI feature-set registry: `FULL_FEATURES` + `resolve_feature_set`
-  (Research-0026 Phase 1)** (fork-local): new
-  [`FULL_FEATURES`](ai/data/feature_extractor.py) tuple covering 21
-  bit-exact features the fork can extract beyond the canonical 6
-  (`adm2` + scales 0..3, VIF scales 0..3, `motion3` 5-frame variant,
-  PSNR-Y/Cb/Cr, `float_ssim`, `float_ms_ssim`, `cambi`, `ciede2000`,
-  `psnr_hvs`, `ssimulacra2`). Plus a `FEATURE_SETS` registry
-  (`canonical` + `full`) and `resolve_feature_set(name)` helper for
-  upcoming CLI integration. The `_METRIC_TO_EXTRACTOR` table grew
-  from 11 to 25 entries to dispatch each new metric to the right
-  libvmaf CLI extractor. Excludes `lpips` (DNN-based, expensive) and
-  `float_moment` (image stats, not quality-relevant) per Research-0026
-  §"Open questions" Q1. New 9-test smoke under
-  [`ai/tests/test_feature_sets.py`](ai/tests/test_feature_sets.py)
-  verifies registry shape + extractor dispatch + canonical-set
-  immutability (regression guard against quietly broadening the
-  default and breaking shipped tiny-AI ONNX inputs). Default
-  behaviour unchanged: `extract_features()` still uses the 6-feature
-  canonical set unless `features=FULL_FEATURES` (or a custom subset)
-  is passed explicitly. No CLI changes yet — the
-  `--feature-set {canonical,full,custom}` wiring on
-  `ai/scripts/konvid_to_vmaf_pairs.py` and `ai/train/train_combined.py`
-  follows in a stacked PR per Research-0026 Phase 1 §"Deliverable".
+- **Research-0027 — Phase-2 feature correlation, MI, and importance
+  results** (fork-local doc): empirical close of Research-0026
+  Phase 2 on the full Netflix corpus (11 040 frame rows × 21 features
+  extracted via PR #186 over ~118 min wall-clock). **Phase-3 GO
+  signal is clear**: consensus top-10 across MI + LASSO + random-forest
+  importance methods narrows to **4 features** (`adm2`, `adm_scale3`,
+  `ssimulacra2`, `vif_scale2`) — two of which (`adm_scale3`,
+  `ssimulacra2`) are NOT in the canonical `vmaf_v0.6.1` 6-tuple.
+  11 redundant pairs at `|r| ≥ 0.95` reveal that the motion family
+  is internally redundant (motion2 ↔ motion3 r=0.9926), VIF scales
+  1/2/3 are pairwise redundant, and `vif_scale1 ↔ ssimulacra2`
+  cross-family redundancy at r=0.9807 is the most surprising
+  finding. Three Phase-3 candidate subsets recommended:
+  **Subset A** (canonical-6 + ssimulacra2, conservative single-feature
+  add); **Subset B** (consensus-7 = canonical core + adm_scale3 +
+  ssimulacra2 + psnr_hvs + float_ssim, redundant scales dropped);
+  **Subset C** (full-21, sanity ceiling). Stopping rules + per-subset
+  Pareto criteria documented. Aligns with Research-0023 §5 (data
+  axis) + Research-0025 (data resolved) + Research-0026 (feature axis
+  framework) — this digest empirically validates the framework.
+  No code change; pure results document.
 
 - **Research-0025 — FoxBird outlier resolved via Netflix + KoNViD-1k
   combined training** (fork-local doc): empirical close of
