@@ -95,24 +95,29 @@
 
 ### Added
 
-- **Research-0026 — Cross-metric feature fusion for tiny-AI**
-  (fork-local doc): scopes the experimental plan for training
-  tiny-AI on the broader feature set the fork can extract beyond
-  the 6 canonical `vmaf_v0.6.1` features. The fork registers 19
-  extractors producing ~27 distinct per-frame features (PSNR-Y/Cb/Cr,
-  SSIM, MS-SSIM, CAMBI banding, CIEDE 2000, PSNR-HVS, SSIMULACRA 2,
-  LPIPS, float ANSNR/ANPSNR, motion3, adm_scale0..3, etc.) — all
-  bit-exact across CPU + AVX2 + AVX-512 + NEON, most also bit-exact
-  on CUDA / SYCL / Vulkan. The digest defines a 4-phase plan:
-  (1) parquet expansion via `--feature-set {canonical,full,custom}`
-  flag; (2) correlation + mutual-information + feature-importance
-  ranking (LASSO + random-forest + SHAP triangulation); (3) MLP
-  arch sweep on Top-K subsets; (4) latency/size tradeoff. Cost
-  estimate: ~5-7 h focused; Phase 2 alone (~3 h) answers go/no-go.
-  Aligns with Research-0023 §5 + Research-0025 axis: data-side was
-  resolved by KoNViD addition; feature-side is the orthogonal
-  question this digest opens. No code change; pure research-plan
-  document.
+- **Tiny-AI feature-set registry: `FULL_FEATURES` + `resolve_feature_set`
+  (Research-0026 Phase 1)** (fork-local): new
+  [`FULL_FEATURES`](ai/data/feature_extractor.py) tuple covering 21
+  bit-exact features the fork can extract beyond the canonical 6
+  (`adm2` + scales 0..3, VIF scales 0..3, `motion3` 5-frame variant,
+  PSNR-Y/Cb/Cr, `float_ssim`, `float_ms_ssim`, `cambi`, `ciede2000`,
+  `psnr_hvs`, `ssimulacra2`). Plus a `FEATURE_SETS` registry
+  (`canonical` + `full`) and `resolve_feature_set(name)` helper for
+  upcoming CLI integration. The `_METRIC_TO_EXTRACTOR` table grew
+  from 11 to 25 entries to dispatch each new metric to the right
+  libvmaf CLI extractor. Excludes `lpips` (DNN-based, expensive) and
+  `float_moment` (image stats, not quality-relevant) per Research-0026
+  §"Open questions" Q1. New 9-test smoke under
+  [`ai/tests/test_feature_sets.py`](ai/tests/test_feature_sets.py)
+  verifies registry shape + extractor dispatch + canonical-set
+  immutability (regression guard against quietly broadening the
+  default and breaking shipped tiny-AI ONNX inputs). Default
+  behaviour unchanged: `extract_features()` still uses the 6-feature
+  canonical set unless `features=FULL_FEATURES` (or a custom subset)
+  is passed explicitly. No CLI changes yet — the
+  `--feature-set {canonical,full,custom}` wiring on
+  `ai/scripts/konvid_to_vmaf_pairs.py` and `ai/train/train_combined.py`
+  follows in a stacked PR per Research-0026 Phase 1 §"Deliverable".
 
 - **Research-0025 — FoxBird outlier resolved via Netflix + KoNViD-1k
   combined training** (fork-local doc): empirical close of
