@@ -3363,13 +3363,46 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0071 — T7-16 ADM Vulkan/SYCL drift verified-resolved (doc close)
+
+- **No ADR.** Verification-only close, sister of T7-15.
+- **Upstream source**: fork-local. ADM cross-backend gate is a
+  fork-only test surface; Netflix/vmaf has no Vulkan or SYCL
+  backend.
+- **Touches** (additive only):
+  - `docs/state.md` — new "Recently closed" row for T7-16.
+  - `.workingdir2/BACKLOG.md` — T7-16 row marked closed (local-
+    only planning dossier; gitignored).
+  - `CHANGELOG.md` Unreleased § Fixed.
+- **Invariants** (rebase-relevant):
+  1. **`places=4` cross-backend ADM contract.** Empirical
+     `adm_scale2` max_abs_diff is now 1e-6 (print floor; ULP=0)
+     on Vulkan device 0 (NVIDIA), device 1 (Mesa anv on Arc),
+     and SYCL device 0 (Arc); residual `adm_scale1 ≈ 3.1e-5`
+     and `adm2 ≈ 5e-6` on 1/48 frames pass `places=4` (5e-5
+     tolerance) but fail `places=5`. Hold the gate at `places=4`.
+  2. **No ADM kernel source change.** Fix is environmental
+     (NVCC + driver + SYCL runtime).
+- **On upstream sync**: zero interaction.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary libvmaf/build/tools/vmaf \
+    --feature adm --backend vulkan --device 0 --places 4 \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    --width 576 --height 324
+  # Expect: 0/48 mismatches across all 5 ADM metrics.
+  ```
+
 ### 0070 — T7-15 motion CUDA/SYCL drift verified-resolved (doc close)
 
-- **No ADR.** Verification-only close; no code change in this PR.
+- **No ADR.** Verification-only close; no code change in PR #172.
 - **Upstream source**: fork-local. Cross-backend gate is a
   fork-only test surface; not in Netflix/vmaf.
 - **Touches** (additive only):
-  - `docs/state.md` — new "Recently closed" row for T7-15.
+  - `docs/state.md` — "Recently closed" row for T7-15.
   - `.workingdir2/BACKLOG.md` — T7-15 row marked closed (local-
     only planning dossier; gitignored).
   - `CHANGELOG.md` Unreleased § Fixed.
@@ -3380,15 +3413,12 @@ inline.*
      could be tempting but the 1e-6 print-floor would then make
      the SYCL + Vulkan rows fail. Hold at `places=4` until
      `--precision=max` is wired into the diff tool.
-  2. **No motion-kernel source change.** This PR doesn't modify
+  2. **No motion-kernel source change.** PR #172 didn't modify
      `libvmaf/src/feature/cuda/integer_motion/*.cu` or
      `libvmaf/src/feature/sycl/integer_motion_sycl.cpp`. The fix
      is environmental (NVCC + driver), so the next CI run on a
-     fresh image needs to be re-verified against the gate. If a
-     future driver bump re-introduces the drift, the gate fires
-     and we reopen as a new T-row.
-- **On upstream sync**: zero interaction; pure fork-local
-  bookkeeping.
+     fresh image needs to be re-verified against the gate.
+- **On upstream sync**: zero interaction.
 - **Re-test on rebase**:
 
   ```bash
