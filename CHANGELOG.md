@@ -71,6 +71,30 @@
 
 ### Added
 
+- **Tiny-AI feature-set registry: `FULL_FEATURES` + `resolve_feature_set`
+  (Research-0026 Phase 1)** (fork-local): new
+  [`FULL_FEATURES`](ai/data/feature_extractor.py) tuple covering 22
+  bit-exact features the fork can extract beyond the canonical 6
+  (`adm` aggregate + scales 0..3, VIF aggregate, `motion3` 5-frame
+  variant, PSNR-Y/Cb/Cr, `float_ssim`, `float_ms_ssim`, `cambi`,
+  `ciede2000`, `psnr_hvs`, `ssimulacra2`). Plus a `FEATURE_SETS`
+  registry (`canonical` + `full`) and `resolve_feature_set(name)`
+  helper for upcoming CLI integration. The `_METRIC_TO_EXTRACTOR`
+  table grew from 11 to 27 entries to dispatch each new metric to
+  the right libvmaf CLI extractor. Excludes `lpips` (DNN-based,
+  expensive) and `float_moment` (image stats, not quality-relevant)
+  per Research-0026 §"Open questions" Q1. New 9-test smoke under
+  [`ai/tests/test_feature_sets.py`](ai/tests/test_feature_sets.py)
+  verifies registry shape + extractor dispatch + canonical-set
+  immutability (regression guard against quietly broadening the
+  default and breaking shipped tiny-AI ONNX inputs). Default
+  behaviour unchanged: `extract_features()` still uses the 6-feature
+  canonical set unless `features=FULL_FEATURES` (or a custom subset)
+  is passed explicitly. No CLI changes yet — the
+  `--feature-set {canonical,full,custom}` wiring on
+  `ai/scripts/konvid_to_vmaf_pairs.py` and `ai/train/train_combined.py`
+  follows in a stacked PR per Research-0026 Phase 1 §"Deliverable".
+
 - **Tiny-AI 3-arch LOSO evaluation** (fork-local): new
   `ai/scripts/eval_loso_3arch.py` extends PR #165's harness to score
   `mlp_small`, `mlp_medium`, and `linear` regressors on their

@@ -38,21 +38,110 @@ DEFAULT_FEATURES: tuple[str, ...] = (
     "motion2",
 )
 
+# Full feature set the fork's extractors can produce (per Research-0026).
+# Excludes lpips (DNN-based, expensive) and float_moment (image
+# statistics, not quality-relevant). The 22 features below cover the
+# bit-exact CPU + AVX2 + AVX-512 + NEON + (mostly) CUDA / SYCL / Vulkan
+# extractors registered in libvmaf/src/feature/.
+FULL_FEATURES: tuple[str, ...] = (
+    # ADM (5 features) — `adm2` is the detail-loss aggregate; the
+    # bare `adm` is not emitted as a separate JSON metric by the
+    # integer extractor. `adm_scale0..3` carry per-scale signal.
+    "adm2",
+    "adm_scale0",
+    "adm_scale1",
+    "adm_scale2",
+    "adm_scale3",
+    # VIF (4 features) — only per-scale entries are emitted by the
+    # integer extractor. The bare `vif` aggregate is not a separate
+    # metric.
+    "vif_scale0",
+    "vif_scale1",
+    "vif_scale2",
+    "vif_scale3",
+    # Motion (3 features) — frame-to-frame energy + 5-frame-window
+    # variant (Netflix#1486 / motion_v2).
+    "motion",
+    "motion2",
+    "motion3",
+    # PSNR (3 features) — per-plane peak SNR.
+    "psnr_y",
+    "psnr_cb",
+    "psnr_cr",
+    # Structural similarity (2 features).
+    "float_ssim",
+    "float_ms_ssim",
+    # Perceptual (4 features) — banding, color difference, HVS-weighted
+    # PSNR, modern SSIMULACRA 2 (libjxl).
+    "cambi",
+    "ciede2000",
+    "psnr_hvs",
+    "ssimulacra2",
+)
+
+# Predefined feature-set names for CLI / API ergonomics. Custom subsets
+# can still be passed through the ``features=`` keyword argument
+# directly. See Research-0026 for the rationale behind ``full``'s
+# exclusions (lpips, float_moment).
+FEATURE_SETS: dict[str, tuple[str, ...]] = {
+    "canonical": DEFAULT_FEATURES,
+    "full": FULL_FEATURES,
+}
+
+
+def resolve_feature_set(name: str) -> tuple[str, ...]:
+    """Look up a named feature set or raise ``ValueError`` with the
+    list of registered names. Pass-through for the canonical names
+    used by ``ai/train/train_combined.py``'s ``--feature-set`` flag.
+    """
+    try:
+        return FEATURE_SETS[name]
+    except KeyError as e:
+        raise ValueError(f"unknown feature set {name!r}; valid: {sorted(FEATURE_SETS)}") from e
+
+
 # Mapping from the metric names the JSON output uses to the extractor
 # names the CLI's ``--feature`` flag wants. Mirrors ``feature_dump.py``
 # but kept private to this module so tests can exercise it cheaply.
 _METRIC_TO_EXTRACTOR: dict[str, str] = {
+    # ADM
     "adm2": "adm",
     "adm_scale0": "adm",
     "adm_scale1": "adm",
     "adm_scale2": "adm",
     "adm_scale3": "adm",
+    # VIF
     "vif_scale0": "vif",
     "vif_scale1": "vif",
     "vif_scale2": "vif",
     "vif_scale3": "vif",
+    # Motion. ``motion3`` lives in integer_motion_v2 — the CLI
+    # extractor name is ``motion_v2`` (not ``motion3``); the JSON
+    # output key is ``integer_motion3`` which ``_lookup`` finds via
+    # the ``integer_`` fallback.
     "motion": "motion",
     "motion2": "motion",
+    "motion3": "motion_v2",
+    # PSNR (per-plane Y/Cb/Cr emitted by the ``psnr`` extractor).
+    "psnr_y": "psnr",
+    "psnr_cb": "psnr",
+    "psnr_cr": "psnr",
+    # SSIM / MS-SSIM (float variants are the canonical SIMD'd path).
+    "ssim": "float_ssim",
+    "float_ssim": "float_ssim",
+    "float_ms_ssim": "float_ms_ssim",
+    # Perceptual
+    "cambi": "cambi",
+    "ciede2000": "ciede",
+    "psnr_hvs": "psnr_hvs",
+    "psnr_hvs_y": "psnr_hvs",
+    "psnr_hvs_cb": "psnr_hvs",
+    "psnr_hvs_cr": "psnr_hvs",
+    "ssimulacra2": "ssimulacra2",
+    # ANSNR / ANPSNR (float variants only — fork has GPU twins under
+    # ADR-0192, useful for cross-backend feature consistency).
+    "float_ansnr": "float_ansnr",
+    "float_anpsnr": "float_ansnr",
 }
 
 
