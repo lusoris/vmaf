@@ -10,51 +10,151 @@ PR that updates this file alongside the commit that motivates the rerun.
 
 ## Hardware profiles
 
-| Profile | CPU | GPU | Memory | OS |
-|---------|-----|-----|--------|-----|
-| `ryzen-4090` | AMD Ryzen 9 7950X (16c/32t) | NVIDIA RTX 4090 | 64 GB DDR5-6000 | Linux 6.19 (CachyOS) |
-| `xeon-arc` | Intel Xeon w9-3475X | Intel Arc A770 | 128 GB DDR5-4800 | Ubuntu 24.04 |
-| `m4-pro` | Apple M4 Pro | (integrated) | 48 GB unified | macOS 15 |
+|Profile|CPU|GPUs|Memory|OS|
+|---|---|---|---|---|
+|`ryzen-4090-arc`|AMD Ryzen 9 9950X3D (16c/32t, Zen 5, AVX-512)|NVIDIA RTX 4090 (24 GB) + Intel Arc A380 (6 GB, fp64-emulated)|96 GB DDR5-6400|Linux 7.0.x (CachyOS)|
+|`xeon-arc`|Intel Xeon w9-3475X|Intel Arc A770|128 GB DDR5-4800|Ubuntu 24.04|
+|`m4-pro`|Apple M4 Pro|(integrated)|48 GB unified|macOS 15|
 
-## Backend comparison (Netflix normal pair, 576×324)
+The `ryzen-4090-arc` profile is the canonical fork bench host: a single
+machine that exposes CUDA (RTX 4090), SYCL (Arc A380 via oneAPI 2025.3
+Level Zero), and Vulkan (both GPUs visible as separate `vulkan_device`
+indices) so all four backends can run back-to-back from one shell.
+
+## Backend comparison (Netflix normal pair, 576×324, 48 frames)
 
 Source: `python/test/resource/yuv/src01_hrc00_576x324.yuv` vs `…hrc01…`.
-Precision: `--precision=max` (IEEE-754 round-trip lossless `%.17g`; the
-CLI default is `%.6f` per
-[ADR-0119](adr/0119-cli-precision-default-revert.md), so cross-backend
-diffs must opt in explicitly).
+Model: `model/vmaf_v0.6.1.json`. Threads: 1. Precision: CLI default
+`%.6f` per [ADR-0119](adr/0119-cli-precision-default-revert.md).
+Numbers averaged over 5 wall-clock reps after 1 warmup; standard
+deviation in parentheses. Commit `41301496` on `ryzen-4090-arc`.
 
-| Backend | fps (higher better) | vmaf pool | delta vs CPU |
-|---------|---------------------|-----------|--------------|
-| `cpu` (scalar) | `TBD` | `76.66890482443686` | 0 |
-| `cpu` + AVX2 | `TBD` | `76.66890482443686` | 0 ULP |
-| `cpu` + AVX-512 | `TBD` | `76.66890482443686` | 0 ULP |
-| `cuda` (RTX 4090) | `TBD` | `TBD` | ≤ 2 ULP |
-| `sycl` (Arc A770) | `TBD` | `TBD` | ≤ 2 ULP |
+|Backend|fps (higher better)|wall ms / 48f|vmaf pool|metrics-keys|delta vs CPU pool|
+|---|---|---|---|---|---|
+|`cpu` (full ISA, AVX-512)|598 (±21)|80.3|`76.667828`|15|0 (reference)|
+|`cuda` (RTX 4090)|278 (±52)|177.5|`76.667828`|12|0.0 — pool match to 6 dp; per-frame max ULP diff 1.8×10⁻⁵|
+|`sycl` (Arc A380)|315 (±0.9)|152.3|`76.667767`|34|-6.1×10⁻⁵ pool; per-frame max diff 1.11×10⁻³|
+|`vulkan` (RTX 4090)|171 (±3.8)|280.6|`76.667758`|34|-7.0×10⁻⁵ pool; per-frame max diff 1.11×10⁻³|
 
-Fill in `TBD` via a benchmark rerun on the `ryzen-4090` profile and
-commit a PR with the updated table.
+**Key-count check.** Each backend emits a different `frames[0].metrics`
+key set (CPU=15 with `integer_aim`/`integer_motion3`/`integer_adm3`,
+CUDA=12, SYCL/Vulkan=34 with raw `_num`/`_den` intermediates). Identical
+key counts across two rows would indicate a silent-fallback to CPU; the
+counts above confirm each backend actually engaged. See
+[`libvmaf/AGENTS.md` §"Backend-engagement foot-guns"](../libvmaf/AGENTS.md).
 
-## `--precision` overhead
+## Backend comparison (1080p, 5 frames)
 
-String formatting is not on the hot path; switching from `%.6f` (default)
-to `%.17g` (`--precision=max`) changes only the output stage.
+Source: `python/test/resource/yuv/src01_hrc{00,01}_1920x1080_5frames.yuv`.
+Same setup as 576×324.
 
-| `--precision` | output stage ns/frame | output size (JSON) |
-|---------------|-----------------------|--------------------|
-| no flag (`%.6f`) | `TBD` | baseline |
-| `6` | `TBD` | ~baseline |
-| `max` (`%.17g`) | `TBD` | +~20 % chars |
+|Backend|fps|wall ms / 5f|vmaf pool|metrics-keys|
+|---|---|---|---|---|
+|`cpu`|45.6 (±1.0)|109.7|`35.815478`|15|
+|`cuda`|33.6 (±1.1)|148.8|`35.815478`|12|
+|`sycl`|41.1 (±0.7)|121.7|`35.815404`|34|
+|`vulkan`|21.8 (±0.6)|229.5|`35.815399`|34|
+
+CPU outpaces CUDA at 1080p × 5 frames because dispatch overhead
+dominates the workload — only 5 frames doesn't amortise the CUDA
+launch/copy cost. CUDA decisively wins once the workload grows (see 4K
+below).
+
+## Backend comparison (BBB 4K, 200 frames)
+
+Source: `testdata/bbb/{ref,dis}_3840x2160_200f.yuv` (BigBuckBunny 4K
+master, ffmpeg-encoded ref + libx264 CRF=35 round-trip distortion; see
+[How to reproduce](#how-to-reproduce)).
+
+|Backend|fps|wall s / 200f|vmaf pool|speedup vs CPU|
+|---|---|---|---|---|
+|`cpu`|13.9 (±0.5)|14.43|`36.343813`|1.0× (baseline)|
+|`cuda` (RTX 4090)|**227.6** (±11.3)|0.88|`36.343815`|**16.4×**|
+|`sycl` (Arc A380)|32.1 (±0.1)|6.23|`36.343780`|2.3×|
+|`vulkan` (RTX 4090)|14.1 (±0.4)|14.16|`36.343774`|1.0×|
+
+Notes:
+
+- **CUDA at 4K** is the headline number — the RTX 4090 sustains 227 fps
+  on 8-bit 3840×2160 with `vmaf_v0.6.1.json`, ~16× faster than the
+  CPU + AVX-512 baseline.
+- **SYCL on Arc A380** is fp64-emulated (the A380 is a Gen12.7 part
+  without native fp64). The 2.3× headline understates the SIMD path's
+  potential on a fp64-native dGPU; revisit when an Arc B-series or
+  Battlemage host lands. See backlog T7-17.
+- **Vulkan on NVIDIA** is currently dispatch-overhead-bound — 14 fps
+  matches CPU because the per-tile descriptor-set churn dominates. The
+  Vulkan path is correct (per-frame max diff 1.36×10⁻³ vs CPU on 200
+  frames) but not yet performance-tuned. See backlog T7-18.
+
+## CPU SIMD-ISA breakdown (576×324)
+
+Selected via `--cpumask` (bits set = ISAs to *disable*).
+
+|Configuration|`--cpumask`|fps|wall ms / 48f|speedup vs scalar|
+|---|---|---|---|---|
+|Scalar (no SIMD)|`63`|92.4 (±0.8)|519.6|1.0×|
+|Up to AVX2|`48`|273.5 (±0.8)|175.5|2.96×|
+|Default (full, AVX-512)|`0`|611.5 (±8.9)|78.5|**6.62×**|
+
+AVX-512 over AVX2 buys another 2.24× on top of the AVX2 baseline on the
+9950X3D (Zen 5 has 512-bit SIMD pipes). Pools match across all three
+configurations to within `assertAlmostEqual(places=6)` per the Netflix
+golden gate.
+
+## `--precision` overhead (576×324 CPU, 48 frames)
+
+String formatting is not on the hot path; switching from `%.6f`
+(default per [ADR-0119](adr/0119-cli-precision-default-revert.md)) to
+`%.17g` (`--precision=max`) changes only the JSON-emit stage.
+
+|`--precision`|fps|wall ms|JSON output size|size delta vs default|
+|---|---|---|---|---|
+|no flag (`%.6f` default)|613.8 (±6.7)|78.2|31 837 B|baseline|
+|`=6` (explicit)|616.9 (±8.3)|77.8|31 525 B|-1.0 %|
+|`=max` (`%.17g`)|612.8 (±11.2)|78.4|40 041 B|**+25.8 %**|
+
+Wall-time delta is in the noise (<1 % across all three), confirming
+that the per-frame cost of `%.17g` is negligible — the cost shows up in
+JSON byte-count, not in wall time. Use `--precision=max` whenever
+cross-backend numerical diffing or IEEE-754 round-trip determinism
+matters.
 
 ## How to reproduce
 
 ```bash
-make bench PROFILE=ryzen-4090
-# or manually:
-build/tools/vmaf -r ref.yuv -d dis.yuv \
-    -w 576 -h 324 -p 420 -b 8 \
-    --precision=max --output=bench.json
+# 1. Build with all backends (oneAPI 2025.3 sourced for icx/icpx + Arc visibility)
+source /opt/intel/oneapi-2025.3/setvars.sh
+CC=icx CXX=icpx meson setup libvmaf/build libvmaf \
+    -Denable_cuda=true -Denable_sycl=true -Denable_vulkan=enabled \
+    -Db_lto=false --buildtype=release
+ninja -C libvmaf/build
+
+# 2. Acquire fixtures (gitignored — don't commit)
+#    a) Netflix golden 576x324 + 1080p_5frames already live in
+#       python/test/resource/yuv/ in the main checkout.
+#    b) BBB 4K 200-frame pair: download from archive.org and ffmpeg-encode.
+mkdir -p testdata/bbb
+curl -L https://archive.org/download/big-buck-bunny-4k-60fps/BigBuckBunny4k60fps.mp4 \
+    -o /tmp/bbb4k.mp4
+ffmpeg -y -i /tmp/bbb4k.mp4 -frames:v 200 -pix_fmt yuv420p -s 3840x2160 \
+    testdata/bbb/ref_3840x2160_200f.yuv
+ffmpeg -y -i /tmp/bbb4k.mp4 -frames:v 200 -c:v libx264 -crf 35 -preset veryfast \
+    -pix_fmt yuv420p -s 3840x2160 -f rawvideo - \
+    | ffmpeg -y -f rawvideo -pix_fmt yuv420p -s 3840x2160 -i - \
+        -pix_fmt yuv420p -s 3840x2160 testdata/bbb/dis_3840x2160_200f.yuv
+#    Or any equivalent libx264 CRF=35 round-trip; the absolute pool drifts
+#    with codec parameters but the fps numbers don't.
+
+# 3. Run the bench
+VMAF_BIN="$(pwd)/libvmaf/build/tools/vmaf" bash testdata/bench_all.sh
+
+# 4. Verify each backend engaged via per-row metrics-key counts in the
+#    bench output ("CPU 15 keys, CUDA 12 keys, SYCL/Vulkan 34 keys").
+#    Identical key counts across two rows = silent CPU fallback.
 ```
 
-Then append a row with hardware + commit SHA + measured pool to the
-table above.
+For SIMD breakdown / `--precision` overhead numbers, see the harness
+scripts under `testdata/` (or paste the inlined `repeat_bench.py` /
+`simd_bench.py` / `precision_bench.py` from the
+[T7-37 PR description](https://github.com/lusoris/vmaf/pulls?q=T7-37)).
