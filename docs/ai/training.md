@@ -272,15 +272,46 @@ X, y = train_ds.numpy_arrays()  # (n_train_frames, 6), (n_train_frames,)
 
 ### Combining KoNViD with the Netflix corpus
 
-For variance reduction, the natural use is to concatenate the two
-corpora's `(X, y)` arrays and train on the union. The LOSO holdout
-remains per-corpus (e.g. hold out one Netflix source AND one
-KoNViD clip per fold) — `numpy.concatenate` over the per-corpus
-arrays after applying each loader's `keep_keys` filter is enough.
+The combined trainer driver lives at
+[`ai/train/train_combined.py`](../../ai/train/train_combined.py). It
+concatenates the Netflix `NetflixFrameDataset` train slice with the
+KoNViD `KoNViDPairDataset` train slice on the feature axis and feeds
+the union to the same `_build_model` + `_train_loop` + `export_onnx`
+pipeline that `ai/train/train.py` uses, so the model factory and ONNX
+output layout stay identical.
 
-A driver script that wires this end-to-end is a follow-up; the
-loader + acquisition pieces are in master so any session can pick
-it up.
+```bash
+# Default: hold out the Netflix Tennis source for val; KoNViD is
+# fully in training. Mirrors the canonical ADR-0203 split so the
+# result is directly comparable to mlp_small / mlp_medium baselines.
+python ai/train/train_combined.py \
+    --netflix-root .workingdir2/netflix \
+    --konvid-parquet ai/data/konvid_vmaf_pairs.parquet \
+    --model-arch mlp_small \
+    --epochs 30 \
+    --out-dir runs/tiny_combined
+```
+
+`--val-mode` selects the validation split:
+
+| Mode                                | Validation set                              |
+| ----------------------------------- | ------------------------------------------- |
+| `netflix-source` (default)          | Netflix `--val-source` (default `Tennis`)   |
+| `konvid-holdout`                    | Deterministic 10 % of KoNViD clip keys      |
+| `netflix-source-and-konvid-holdout` | Union of the two above                      |
+| `netflix-only`                      | KoNViD slice is omitted entirely            |
+| `konvid-only`                       | Netflix slice is omitted entirely           |
+
+KoNViD train/val splits hold out *whole clips* (not random frames)
+keyed off `--seed` + `--konvid-val-fraction`, so frames from the
+same KoNViD clip cannot leak across the split. ONNX checkpoints
+land at `<out-dir>/<arch>_combined_epoch<n>.onnx` and
+`<arch>_combined_final.onnx`.
+
+When the parquet is missing, the trainer prints a warning and falls
+back to the Netflix-only path; when both corpora are missing it
+exports an initial-weights ONNX and exits 0 so the smoke command
+still produces a deterministic artefact.
 
 ## C2 — NR metric
 
