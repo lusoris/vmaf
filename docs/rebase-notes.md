@@ -3388,6 +3388,45 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0079 — Tiny-AI feature-set registry (Research-0026 Phase 1)
+
+- **No ADR.** Pure additive extension of an existing module; the
+  architectural decision (which features, which model) lives in
+  Research-0026's go/no-go gate after Phase 2.
+- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
+  training pipeline.
+- **Touches** (additive only):
+  - `ai/data/feature_extractor.py` — adds `FULL_FEATURES` (21
+    entries), `FEATURE_SETS` registry, `resolve_feature_set()`
+    helper. `_METRIC_TO_EXTRACTOR` grew 11 → 25 entries.
+  - `ai/tests/test_feature_sets.py` — new 9-test smoke suite.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant — these are load-bearing):
+  1. **`DEFAULT_FEATURES` stays the canonical 6-tuple** matching
+     `vmaf_v0.6.1`'s SVR input layout. Test
+     `test_default_features_unchanged` is the regression guard;
+     any quiet broadening would invalidate every shipped
+     tiny-AI ONNX (input-dim baked into the model). If a future
+     change must broaden the default, ship a paired model swap
+     under ADR-0049 sidecar policy.
+  2. **`FULL_FEATURES` excludes `lpips` and `float_moment`** per
+     Research-0026 §"Open questions" Q1. Test
+     `test_full_features_excludes_lpips_and_moment` enforces.
+     Adding either would re-classify the experiment from "tiny
+     model on classical features" to "ensemble of DNNs".
+  3. **Every entry in `FULL_FEATURES` MUST have an entry in
+     `_METRIC_TO_EXTRACTOR`**. Test
+     `test_every_full_feature_has_extractor_mapping` is the
+     guard — without the mapping the libvmaf CLI silently emits
+     NaN columns for the missing metric.
+- **On upstream sync**: zero interaction. Fork-only training surface.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_feature_sets.py -v
+  # Expect: 9 passed in <1 s.
+  ```
+
 ### 0078 — Research-0026 cross-metric feature fusion plan
 
 - **No ADR.** Pure research-plan digest; the architectural
