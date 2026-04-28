@@ -42,6 +42,32 @@
   [ADR-0022](docs/adr/0022-inference-runtime-onnx.md)) and the GPU
   long-tail terminus declared in
   [ADR-0192](docs/adr/0192-gpu-long-tail-batch-3.md) is closed.
+- **Tiny-AI Netflix-corpus training prep (ADR-0203)** (fork-local):
+  runnable loader + feature extractor + `vmaf_v0.6.1` distillation +
+  PyTorch dataset + PLCC/SROCC/KROCC/RMSE eval harness + Lightning-
+  style training entry point under `ai/data/` and `ai/train/`.
+  Three architectures registered with the entry point: `linear`
+  (7 params), `mlp_small` (257 params, default), `mlp_medium`
+  (2 561 params). Default validation split holds out the
+  `Tennis_24fps` source (1-source-out, content-disjoint). Per-clip
+  JSON cache at `$VMAF_TINY_AI_CACHE` (default
+  `~/.cache/vmaf-tiny-ai/<source>/<dis-stem>.json`) with atomic
+  write-rename. Smoke command `python ai/train/train.py --epochs 0
+  --assume-dims 16x16` works without the real corpus or a built
+  `vmaf` binary so CI can verify the harness end-to-end. Does NOT
+  run training — that is a manual user invocation deferred to the
+  next PR. New
+  [`docs/ai/training.md`](docs/ai/training.md) "C1 (Netflix corpus)"
+  section + 25 unit tests under [`ai/tests/`](ai/tests/).
+  Files: new
+  [`ai/data/netflix_loader.py`](ai/data/netflix_loader.py),
+  [`ai/data/feature_extractor.py`](ai/data/feature_extractor.py),
+  [`ai/data/scores.py`](ai/data/scores.py),
+  [`ai/train/dataset.py`](ai/train/dataset.py),
+  [`ai/train/eval.py`](ai/train/eval.py),
+  [`ai/train/train.py`](ai/train/train.py),
+  [`ai/scripts/run_training.sh`](ai/scripts/run_training.sh).
+
 - **GPU long-tail batch 3 part 2 — `float_ansnr_{vulkan,cuda,sycl}`
   extractors (T7-23 / ADR-0192 / ADR-0194)** (fork-local): closes
   the ANSNR matrix gap (was CPU-only float, no GPU twin). Single-

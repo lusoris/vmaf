@@ -1,0 +1,64 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+"""Shared pytest fixtures for ``ai/tests/``.
+
+Builds tiny synthetic YUV files so unit tests run without the real 37 GB
+corpus. The fixtures are byte-stable across runs (fixed RNG seed) so
+cache-hit tests can compare deterministic outputs.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+# Make the top-level ``ai`` package importable regardless of how pytest
+# was invoked (``pytest ai/tests`` from the repo root, or ``cd ai &&
+# pytest tests``).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+
+# Synthetic 16x16 yuv420p 8-bit frames keep the corpus tiny (384 B / frame).
+SYNTH_W = 16
+SYNTH_H = 16
+SYNTH_FRAMES = 4
+_FRAME_BYTES = SYNTH_W * SYNTH_H * 3 // 2
+
+
+def _write_synth_yuv(path: Path, seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    buf = rng.integers(0, 256, size=(SYNTH_FRAMES, _FRAME_BYTES), dtype=np.uint8)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(buf.tobytes())
+
+
+@pytest.fixture(scope="session")
+def mock_corpus(tmp_path_factory) -> Path:
+    """Build a 2 ref + 4 dis synthetic corpus at a session-scoped tmp dir.
+
+    The synthetic YUV is **not** valid for libvmaf (16x16 is below the
+    feature-extractor minimum), but it exercises the pure-Python loader
+    code paths (filename parsing, ref pairing, dimension probe).
+    """
+    root = tmp_path_factory.mktemp("netflix_mock")
+    ref_dir = root / "ref"
+    dis_dir = root / "dis"
+    ref_dir.mkdir()
+    dis_dir.mkdir()
+
+    # 2 reference sources.
+    _write_synth_yuv(ref_dir / "AlphaSrc_25fps.yuv", seed=1)
+    _write_synth_yuv(ref_dir / "BetaSrc_30fps.yuv", seed=2)
+
+    # 4 distorted clips (2 per source).
+    _write_synth_yuv(dis_dir / "AlphaSrc_20_288_375.yuv", seed=10)
+    _write_synth_yuv(dis_dir / "AlphaSrc_50_480_1050.yuv", seed=11)
+    _write_synth_yuv(dis_dir / "BetaSrc_30_384_550.yuv", seed=12)
+    _write_synth_yuv(dis_dir / "BetaSrc_85_1080_3800.yuv", seed=13)
+
+    return root
