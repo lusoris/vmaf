@@ -260,6 +260,27 @@
 
 ### Fixed
 
+- **T7-15: `motion_cuda` + `motion_sycl` 2.6e-3 drift vs CPU
+  `integer_motion` is gone — verified bit-exact on master**
+  (fork-local doc close): the cross-backend gate at PR #120
+  surfaced a 2.6e-3 score offset on 47/48 frames for both
+  `motion_cuda` and `motion_sycl` on the Netflix golden 576×324
+  pair. Re-running on master `41301496` with the same reproducer
+  (`python3 scripts/ci/cross_backend_vif_diff.py --feature motion
+  --backend cuda`) reports `max_abs_diff=0.0` over all 48 frames
+  at `places=8`; SYCL on Arc and Vulkan on Arc Mesa anv both show
+  1e-6 (the JSON `%f` print-rounding floor; ULP=0). All three
+  pass the existing `places=4` contract and the cross-backend
+  gate now locks it going forward. No motion-kernel commits
+  landed between PR #120 (`7c5b63a2`) and master, so the
+  resolution is most likely the NVCC 13.x / NVIDIA-driver upgrade
+  since PR #120 — the kernel source is unchanged but the emitted
+  SASS now matches CPU rounding bit-exactly. Closure recorded in
+  `docs/state.md` Recently-closed and `.workingdir2/BACKLOG.md`
+  T7-15 row; verification-only close, no code change. If a
+  future driver/NVCC bump re-introduces the drift the gate fires
+  and we reopen as a new T-row.
+
 - **`libvmaf_vulkan.h` now installs under the prefix when
   `-Denable_vulkan=enabled`** (fork-local): `libvmaf/include/libvmaf/meson.build`
   had install gates for `is_cuda_enabled` and `is_sycl_enabled` but

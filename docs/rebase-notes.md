@@ -3363,6 +3363,44 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0070 — T7-15 motion CUDA/SYCL drift verified-resolved (doc close)
+
+- **No ADR.** Verification-only close; no code change in this PR.
+- **Upstream source**: fork-local. Cross-backend gate is a
+  fork-only test surface; not in Netflix/vmaf.
+- **Touches** (additive only):
+  - `docs/state.md` — new "Recently closed" row for T7-15.
+  - `.workingdir2/BACKLOG.md` — T7-15 row marked closed (local-
+    only planning dossier; gitignored).
+  - `CHANGELOG.md` Unreleased § Fixed.
+- **Invariants** (rebase-relevant):
+  1. **The `places=4` cross-backend gate stays at `places=4`.**
+     Empirical max_abs_diff is currently 0.0 (CUDA) or 1e-6 (SYCL/
+     Vulkan, JSON `%f` rounding floor); tightening to `places=5`
+     could be tempting but the 1e-6 print-floor would then make
+     the SYCL + Vulkan rows fail. Hold at `places=4` until
+     `--precision=max` is wired into the diff tool.
+  2. **No motion-kernel source change.** This PR doesn't modify
+     `libvmaf/src/feature/cuda/integer_motion/*.cu` or
+     `libvmaf/src/feature/sycl/integer_motion_sycl.cpp`. The fix
+     is environmental (NVCC + driver), so the next CI run on a
+     fresh image needs to be re-verified against the gate. If a
+     future driver bump re-introduces the drift, the gate fires
+     and we reopen as a new T-row.
+- **On upstream sync**: zero interaction; pure fork-local
+  bookkeeping.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary libvmaf/build/tools/vmaf \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    --width 576 --height 324 --feature motion --backend cuda \
+    --places 4
+  # Expect: 0/48 mismatches, max_abs_diff = 0.0
+  ```
+
 ### 0069 — `libvmaf_vulkan.h` installed under prefix (build bug)
 
 - **No ADR.** Build-system bug fix; matches existing CUDA / SYCL
