@@ -122,6 +122,14 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # backends (max_abs_diff = 0.0 on 8/10-bit) — the kernel is so
     # simple there's no room for accumulator-order drift.
     "float_psnr": ("float_psnr",),
+    # GPU long-tail batch 3 part 4 (T7-23 / ADR-0192 / ADR-0196):
+    # float_motion. CPU emits short keys "motion" + "motion2" for the
+    # float extractor (no `integer_` prefix; see float_motion.c).
+    # places=4 contract — empirical floor 3e-6 (8-bit) / 1e-6 (10-bit).
+    "float_motion": (
+        "motion",
+        "motion2",
+    ),
     "psnr_hvs": (
         "psnr_hvs_y",
         "psnr_hvs_cb",

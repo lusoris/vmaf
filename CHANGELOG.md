@@ -246,6 +246,27 @@
   [`float_psnr_cuda.c`](libvmaf/src/feature/cuda/float_psnr_cuda.c),
   [`float_psnr_sycl.cpp`](libvmaf/src/feature/sycl/float_psnr_sycl.cpp).
   New `float_psnr` lavapipe gate step + `FEATURE_METRICS` entry.
+- **GPU long-tail batch 3 part 4 — `float_motion_{vulkan,cuda,sycl}`
+  extractors (T7-23 / ADR-0192 / ADR-0196)** (fork-local): second
+  Group B float twin from ADR-0192. Float-domain twin of
+  `integer_motion`'s GPU kernels: same V→H 5-tap separable Gaussian
+  blur (FILTER_5_s float weights summing to ~1.0), same 2-buffer
+  ping-pong of blurred refs, same per-WG float SAD partials + host
+  `double` reduction. `motion = sad / (w·h)`,
+  `motion2 = min(prev, cur)` emitted at `index - 1` (delayed-by-one
+  pattern, matches CPU `float_motion.c::extract`). Mirror padding:
+  skip-boundary `2*(sup-1) - idx` matches CPU
+  `convolution_internal.h::convolution_edge_s` (NOT motion_v2's
+  edge-replicating). **Identical** `max_abs_diff = 3e-6` (8-bit, 48
+  frames) / `1e-6` (10-bit, 3 frames) across all three backends —
+  strong correctness signal (any algebraic bug would produce
+  backend-specific drift). New
+  [`shaders/float_motion.comp`](libvmaf/src/feature/vulkan/shaders/float_motion.comp),
+  [`float_motion_vulkan.c`](libvmaf/src/feature/vulkan/float_motion_vulkan.c),
+  [`float_motion/float_motion_score.cu`](libvmaf/src/feature/cuda/float_motion/float_motion_score.cu),
+  [`float_motion_cuda.{c,h}`](libvmaf/src/feature/cuda/float_motion_cuda.c),
+  [`float_motion_sycl.cpp`](libvmaf/src/feature/sycl/float_motion_sycl.cpp).
+  New `float_motion` lavapipe gate step + `FEATURE_METRICS` entry.
 
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**
