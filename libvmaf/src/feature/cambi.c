@@ -126,6 +126,7 @@ typedef struct CambiState {
     uint16_t max_log_contrast;
     char *heatmaps_path;
     char *eotf;
+    char *cambi_eotf;
     bool full_ref;
     int cambi_high_res_speedup;
 
@@ -295,6 +296,16 @@ static const VmafOption options[] = {
         .type = VMAF_OPT_TYPE_STRING,
         .default_val.s = DEFAULT_CAMBI_EOTF,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "cambi_eotf",
+        .help =
+            "Determines the EOTF used to compute the visibility thresholds. Possible values: ['bt1886', 'pq']. Default: 'bt1886'. If both eotf and cambi_eotf are set, cambi_eotf takes precedence.",
+        .offset = offsetof(CambiState, cambi_eotf),
+        .type = VMAF_OPT_TYPE_STRING,
+        .default_val.s = DEFAULT_CAMBI_EOTF,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+        .alias = "ceot",
     },
     {
         .name = "cambi_high_res_speedup",
@@ -559,8 +570,16 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (err)
         return err;
 
+    /* use cambi_eotf if it has a non-default value, else use eotf */
+    const char *effective_eotf;
+    if (strcmp(s->cambi_eotf, DEFAULT_CAMBI_EOTF) != 0) {
+        effective_eotf = s->cambi_eotf;
+    } else {
+        effective_eotf = s->eotf;
+    }
+
     VmafEOTF eotf;
-    err = vmaf_luminance_init_eotf(&eotf, s->eotf);
+    err = vmaf_luminance_init_eotf(&eotf, effective_eotf);
     if (err)
         return err;
 
