@@ -49,6 +49,7 @@ libvmaf/src/sycl/                        # queue, USM, surface import
 libvmaf/src/feature/sycl/                # per-feature kernels
   integer_vif_sycl.cpp
   integer_adm_sycl.cpp
+  float_adm_sycl.cpp                     # float ADM extractor (ADR-0202)
   integer_motion_sycl.cpp
 ```
 
