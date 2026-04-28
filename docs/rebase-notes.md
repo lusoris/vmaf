@@ -3930,3 +3930,54 @@ inline.*
   python ai/train/train.py --epochs 0 --data-root /tmp/mock_corpus \
       --assume-dims 16x16 --val-source BetaSrc --out-dir /tmp/out
   ```
+
+### 0073 — Tiny-AI QAT trainer + first per-model QAT pass (T5-4)
+
+- **ADR**: [ADR-0207](adr/0207-tinyai-qat-design.md) (design),
+  [ADR-0208](adr/0208-learned-filter-v1-qat-impl.md) (per-model impl).
+- **Touches**: `ai/train/qat.py` (new), `ai/scripts/qat_train.py`
+  (rewrite from `NotImplementedError` scaffold),
+  `ai/configs/learned_filter_v1_qat.yaml` (new),
+  `ai/tests/test_qat_smoke.py` (new), `docs/ai/quantization.md`
+  (QAT tier added). All paths are wholly fork-local; no upstream
+  Netflix/vmaf interaction.
+- **Invariants**:
+  1. **Two-step pipeline (PyTorch QAT → fp32 ONNX → ORT
+     static-quantize) is load-bearing.** Both the legacy ONNX
+     exporter (`quantized::conv2d`) and the new TorchDynamo
+     exporter (`Conv2dPackedParamsBase.__obj_flatten__`) refuse
+     to consume `convert_fx` output on PyTorch 2.11. The bridge
+     (state-dict diff to a fresh fp32 module + ORT static-quantize)
+     is the only path that yields a QDQ ONNX. Do NOT collapse to
+     a single-step `convert_fx → torch.onnx.export` until both
+     PyTorch issues are fixed; re-check both exporters on each
+     PyTorch upgrade.
+  2. **State-dict transfer matches by submodule name + shape.**
+     `_copy_qat_weights_into_fp32` walks `fp32_state` keys, finds
+     the same key in the FX-prepared module, copies the tensor.
+     Tiny-AI models today have stable submodule names (`entry`,
+     `body.*`, `exit`); a model architecture that uses
+     top-level `nn.Sequential` would break this because
+     `prepare_qat_fx` renames Sequential children to numeric
+     indices. The `RuntimeError("0 tensors copied")` guard catches
+     the silent failure mode.
+  3. **FX preparation runs on CPU.** PyTorch 2.11's FX symbolic
+     tracer is flaky on CUDA buffers; the trainer migrates the
+     model to CPU before `prepare_qat_fx` and back to the
+     accelerator for the fine-tune phase. The smoke test
+     deliberately exercises the CPU path so this stays covered.
+  4. **`torch.ao.quantization` deprecation will hard-fail in
+     PyTorch 2.10**. Migration target is
+     `torchao.quantization.pt2e` (`prepare_pt2e` /
+     `convert_pt2e`); the two-step pipeline is mostly
+     pt2e-compatible — only the FX-prep call changes.
+- **On upstream sync**: no interaction with upstream. The `ai/`
+  subtree is fully fork-local.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest ai/tests/test_qat_smoke.py -v
+  python ai/scripts/qat_train.py \
+      --config ai/configs/learned_filter_v1_qat.yaml \
+      --output /tmp/qat_smoke.int8.onnx --smoke
+  ```

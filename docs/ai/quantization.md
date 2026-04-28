@@ -26,11 +26,11 @@ regression baseline.
 ## Mode selection
 
 | Mode | Accuracy | Cost to produce | Best for |
-|---|---|---|---|
-| `fp32`     | reference                   | none                       | new models, debug builds |
-| `dynamic`  | small accuracy hit (~0.5%)  | one CLI call               | models without a calibration set; deployment box differs from training box |
-| `static`   | small accuracy hit (~0.2%)  | one calibration pass       | models we own + control + can pin a calibration set |
-| `qat`      | reference (within ~0.05%)   | extra training phase, ~1.5× fp32 train time | models where static drops accuracy past the per-model budget |
+| --- | --- | --- | --- |
+| `fp32` | reference | none | new models, debug builds |
+| `dynamic` | small accuracy hit (~0.5%) | one CLI call | models without a calibration set; deployment box differs from training box |
+| `static` | small accuracy hit (~0.2%) | one calibration pass | models we own + control + can pin a calibration set |
+| `qat` | reference (within ~0.05%) | extra training phase, ~1.5× fp32 train time | models where static drops accuracy past the per-model budget |
 
 Pick the cheapest mode that stays inside the
 `quant_accuracy_budget_plcc` budget.
@@ -62,14 +62,48 @@ the registry's `quant_calibration_set` field.
 ### Quantisation-aware training (QAT)
 
 ```bash
-python ai/scripts/qat_train.py --config ai/configs/c2_qat.yaml \
-    --output model/tiny/nr_metric_v1.int8.onnx
+python ai/scripts/qat_train.py \
+    --config ai/configs/learned_filter_v1_qat.yaml \
+    --output model/tiny/learned_filter_v1.int8.onnx
 ```
 
-**Status:** scaffolded; the trainer hook is filled in by the per-model
-QAT PR that uses it (per ADR-0129's audit-first sequence). Calling it
-today raises `NotImplementedError` with instructions on the missing
-trainer integration.
+QAT is the third quant tier — pick it when static PTQ exceeds the
+per-model `quant_accuracy_budget_plcc` budget, or when the
+QAT-vs-static delta on real content justifies the ~50 % extra
+training-time cost (Research-0006 §4). On tiny models with few
+layers (~10 K parameters and below) QAT and static-PTQ tend to
+agree to inside the 0.002 budget — pick static-PTQ for cost. On
+larger architectures with wider weight distributions QAT typically
+wins; the empirical delta is captured per-model in each model's
+ADR (e.g. [ADR-0208](../adr/0208-learned-filter-v1-qat-impl.md)).
+
+**Pipeline.** Per [ADR-0207](../adr/0207-tinyai-qat-design.md) the
+QAT pass runs in three phases: (1) fp32 warm-start training,
+(2) FX fake-quant insertion via
+`torch.ao.quantization.quantize_fx.prepare_qat_fx` with the default
+symmetric per-tensor activation + per-channel weight qconfig, (3)
+QAT fine-tune at 10× reduced learning rate (defaulting to
+`fp32_lr / 10`). Phase 4 — ONNX export — bridges
+PyTorch 2.11's two broken ONNX exporters by copying the
+QAT-conditioned weights back into a fresh fp32 module, exporting the
+fp32 graph, then running `onnxruntime.quantization.quantize_static`
+with a calibration set drawn from the QAT training distribution.
+The output is a QDQ-format `.int8.onnx` bit-identical in structure
+to the static-PTQ artefact — the QAT effect is preserved entirely
+through weight pre-conditioning.
+
+**CLI knobs.** `--epochs-fp32` (default 20), `--epochs-qat`
+(default 10), `--lr-qat` (default fp32-lr / 10), `--n-calibration`
+(default 64), `--smoke` (skip both training phases — for CI / dev
+round-trip).
+
+**Config.** YAML mirrors the `vmaf-train fit` shape plus a `qat:`
+block. See [`ai/configs/learned_filter_v1_qat.yaml`](../../ai/configs/learned_filter_v1_qat.yaml)
+for a complete example.
+
+**Trainer API.** `ai.train.qat.run_qat(...)` exposes the same
+pipeline for direct Python invocation (used by tests and by future
+`vmaf-train qat` subcommand).
 
 ## CI accuracy gate (`ai-quant-accuracy`)
 
@@ -91,9 +125,9 @@ python ai/scripts/measure_quant_drop.py --all
 
 ## Currently quantised models
 
-| Model id              | Mode      | Size shrink | Measured drop | Budget |
-|-----------------------|-----------|-------------|---------------|--------|
-| `learned_filter_v1`   | dynamic   | 2.4× (80 KB → 33 KB) | 0.000117 (PLCC 0.999883) | 0.01 |
+| Model id | Mode | Size shrink | Measured drop | Budget |
+| --- | --- | --- | --- | --- |
+| `learned_filter_v1` | dynamic | 2.4× (80 KB → 33 KB) | 0.000117 (PLCC 0.999883) | 0.01 |
 
 `nr_metric_v1` is queued for a future PR — its dynamic-batch ONNX
 export currently trips ORT's internal shape inference during

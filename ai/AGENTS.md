@@ -105,6 +105,49 @@ its own training surface):
   injects a fake payload so CI gates don't drag a libvmaf build into
   the Python test surface.
 
+## Quantization-Aware Training (ADR-0207 / ADR-0208)
+
+The QAT trainer hook lives in [`ai/train/qat.py`](train/qat.py) and
+the CLI driver in [`ai/scripts/qat_train.py`](scripts/qat_train.py).
+The default config example is
+[`ai/configs/learned_filter_v1_qat.yaml`](configs/learned_filter_v1_qat.yaml).
+
+**Pipeline (per ADR-0207 + ADR-0208 implementation bridge):**
+
+1. fp32 warm-start training.
+2. FX fake-quant insertion via
+   `torch.ao.quantization.quantize_fx.prepare_qat_fx` with the
+   default symmetric per-tensor activation + per-channel weight
+   qconfig.
+3. QAT fine-tune at 10× reduced LR.
+4. Copy QAT-conditioned weights into a fresh fp32 module, export
+   to ONNX (`dynamo=False`), then ORT static-quantize with a
+   calibration set drawn from the QAT distribution. Output is a
+   QDQ `.int8.onnx`.
+
+**Rebase-sensitive invariants:**
+
+- The two-step pipeline (PyTorch QAT → fp32 ONNX → ORT
+  static-quantize) is load-bearing. Do NOT collapse to
+  `convert_fx → torch.onnx.export` — both PyTorch 2.11 ONNX
+  exporters refuse the `convert_fx` output (legacy emits
+  `quantized::conv2d`; TorchDynamo trips on
+  `Conv2dPackedParamsBase.__obj_flatten__`). Re-check on each
+  PyTorch upgrade.
+- State-dict transfer in `_copy_qat_weights_into_fp32` matches
+  by submodule name + tensor shape. Models using top-level
+  `nn.Sequential` will break this (FX renames Sequential
+  children to numeric indices); the `RuntimeError("0 tensors
+  copied")` guard catches it.
+- FX preparation runs on CPU (PyTorch 2.11's symbolic tracer is
+  flaky on CUDA buffers); the trainer migrates to CPU before
+  `prepare_qat_fx` and back to the accelerator afterwards.
+- `torch.ao.quantization` is deprecated and will be removed in
+  PyTorch 2.10. Migration target is `torchao.quantization.pt2e`
+  (`prepare_pt2e` / `convert_pt2e`); only the FX-prep call
+  changes — the rest of the pipeline (ORT static-quantize) is
+  unaffected.
+
 ## Local workflow
 
 ```bash
