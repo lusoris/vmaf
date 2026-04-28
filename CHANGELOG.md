@@ -95,6 +95,26 @@
 
 ### Added
 
+- **Research-0028 — Phase-3 MLP subset sweep (negative-result
+  digest)** (fork-local doc): empirical close of Research-0026
+  Phase 3. The pre-registered Research-0027 stopping rule fires —
+  Subset A (canonical-6 + ssimulacra2) lands LOSO mean PLCC 0.9655
+  vs canonical-6 0.9845, a 0.019 *deficit* against the required
+  +0.005 to advance. Subsets B (consensus-7) and C (full-21) also
+  fail PLCC. **canonical-6 stays the default; no v2 model ships
+  from this Phase.** Counterintuitive secondary finding: every
+  subset cuts mean RMSE by ~40 % (canonical-6 RMSE 15.20 → A 9.13
+  / B 8.91 / C 8.50), strongly suggesting the PLCC drop is a
+  feature-scale-variance artefact (raw features fed to mlp_small
+  without StandardScaler; psnr / cambi / ciede2000 dominate
+  gradient updates by 2 orders of magnitude). Three follow-up
+  experiments scoped: Phase-3b (StandardScaler retry), Phase-3c
+  (`mlp_medium` / wider epoch sweep), Phase-3d (per-feature
+  ablation in Subset C). New driver
+  [`ai/scripts/phase3_subset_sweep.py`](ai/scripts/phase3_subset_sweep.py)
+  ships with the Phase-3b/c/d follow-ups in mind. No code change
+  to the trainer or sidecar; pure results document.
+
 - **Research-0026 — Cross-metric feature fusion for tiny-AI**
   (fork-local doc): scopes the experimental plan for training
   tiny-AI on the broader feature set the fork can extract beyond

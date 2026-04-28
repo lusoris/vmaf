@@ -3388,6 +3388,30 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0082 — Research-0028 Phase-3 subset sweep (negative-result digest)
+
+- **No ADR.** Empirical research digest. The architectural decision
+  (no v2 model ships from this Phase) is governed by Research-0027's
+  pre-registered stopping rule.
+- **Upstream source**: fork-local. Netflix has no tiny-AI subset-
+  sweep surface.
+- **Touches** (additive only):
+  - `docs/research/0028-phase3-subset-sweep.md` — per-fold tables
+    + headline + standardisation caveat + Phase-3b/c/d follow-ups.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **canonical-6 stays the default** until Phase-3b lands a
+     ≥ 0.005 PLCC win (per Research-0027 stopping rule).
+  2. **The PLCC drop is most likely a feature-scale issue**, not
+     evidence the new features lack signal. Don't cite this digest
+     to retire `ssimulacra2` / `adm_scale3` from the candidate pool;
+     re-test with `StandardScaler` first.
+  3. **Phase-3 results are seed=0 only.** Any v2-shipping decision
+     needs 3-seed mean±std and KoNViD cross-check.
+- **On upstream sync**: zero interaction. Fork-only research.
+- **Re-test on rebase**: documentation-only PR; runs/ files are
+  reproducible from the canonical command in §"Reproducer".
+
 ### 0078 — Research-0026 cross-metric feature fusion plan
 
 - **No ADR.** Pure research-plan digest; the architectural
