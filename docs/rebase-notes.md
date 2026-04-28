@@ -3312,3 +3312,26 @@ inline.*
   # Requires: meson compile -C build (vmaf binary)
   # Skips automatically if binary or golden YUV is absent.
   ```
+
+### 0061 — cambi GPU feasibility spike (ADR-0205)
+
+- **ADR**: [ADR-0205](adr/0205-cambi-gpu-feasibility.md).
+- **Research digest**: [`docs/research/0020-cambi-gpu-strategies.md`](research/0020-cambi-gpu-strategies.md).
+- **Upstream source**: fork-local. Netflix/vmaf has no Vulkan backend.
+- **Touches** (additive only):
+  - `docs/adr/0205-cambi-gpu-feasibility.md`, `docs/research/0020-cambi-gpu-strategies.md`, `docs/adr/README.md` index row.
+  - `libvmaf/src/feature/vulkan/cambi_vulkan.c` — new dormant scaffold (not yet in `vulkan_sources`, not yet registered).
+  - `libvmaf/src/feature/vulkan/shaders/cambi_{derivative,decimate,filter_mode}.comp` — new reference GLSL shaders, not yet in the build's `shaders` list.
+  - `libvmaf/src/feature/AGENTS.md` invariants + `CHANGELOG.md` bullet.
+- **Invariants** (rebase-relevant):
+  1. **Hybrid host/GPU port by decision.** If Netflix upstream tightens the c-value formula or histogram update protocol, the host residual call site in the eventual `cambi_vulkan.c::cambi_vulkan_extract` must be updated alongside `cambi.c::calculate_c_values` — the same code is reused. Do NOT translate the c-values phase to GPU during any upstream-port PR; that optimisation belongs to the v2 strategy-III PR (deferred).
+  2. **Scaffolds dormant in the spike PR.** The `cambi_vulkan.c` extractor returns `-ENOSYS` from `cambi_vulkan_init_stub` until the integration follow-up wires it in. Do NOT register `vmaf_fex_cambi_vulkan_scaffold` in `feature_extractor.c`'s list.
+  3. **Shaders not in the build's shader list.** Adding them to `libvmaf/src/vulkan/meson.build`'s `vulkan_shaders` list before the integration PR produces orphaned `*_spv.h` headers. Leave them alone in this spike PR.
+- **On upstream sync**: zero interaction. cambi.c itself is upstream-mirrored — Netflix changes flow through `port-upstream-commit`; only the integration PR's host residual call site needs paired attention.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_vulkan=enabled -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build
+  ```
