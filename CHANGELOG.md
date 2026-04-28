@@ -95,6 +95,25 @@
 
 ### Added
 
+- **Research-0025 — FoxBird outlier resolved via Netflix + KoNViD-1k
+  combined training** (fork-local doc): empirical close of
+  Research-0023 §5's open question. The canonical combined-trainer
+  run (`mlp_small`, 30 epochs, val=Tennis + 10 % KoNViD-holdout) on
+  the union of the Netflix Public 9-source corpus (9 690 frames) and
+  the KoNViD-1k 1 200-clip parquet (270 051 frames) produces an
+  ONNX whose FoxBird PLCC is **0.9936** (vs Netflix-only mlp_small
+  baseline `vmaf_tiny_v1.onnx` at 0.9632) — a +3.04 percentage-point
+  absolute gain on the canonical outlier. RMSE on FoxBird drops
+  17.296 → 3.216 (5.4× lower); SROCC +0.0233. No regression on the
+  Netflix-native sources (PLCC ≥ 0.998 on 7/9 clips). Validates
+  PR #178 (KoNViD acquisition + loader) + PR #180 (combined trainer
+  driver) infrastructure end-to-end. Closes Research-0023 §5
+  unblocker question: KoNViD-1k is sufficient — no need to acquire
+  BVI-DVC or AOM-CTC for this specific failure mode. Full numbers
+  + caveats + next-experiment list in
+  [`docs/research/0025-foxbird-resolved-via-konvid.md`](docs/research/0025-foxbird-resolved-via-konvid.md).
+  No code change in this PR; docs-only.
+
 - **Tiny-AI combined Netflix + KoNViD-1k trainer driver** (fork-local):
   new [`ai/train/train_combined.py`](ai/train/train_combined.py) feeds
   the union of `NetflixFrameDataset` (Netflix Public 9-source corpus)
