@@ -3388,6 +3388,31 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0078 — Research-0026 cross-metric feature fusion plan
+
+- **No ADR.** Pure research-plan digest; the architectural
+  decision (which features to add) is deferred to Research-0027
+  follow-up after Phase 2 numbers land.
+- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
+  training and no broader-feature-set hypothesis under
+  investigation.
+- **Touches** (additive only):
+  - `docs/research/0026-cross-metric-feature-fusion.md` — 4-phase
+    experimental plan + cost estimate + go/no-go criteria.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **The 6-feature canonical baseline (`adm2`, `vif_scale0..3`,
+     `motion2`) stays the default.** Any v2 model is opt-in via a
+     new `feature_set` field in the sidecar JSON; existing
+     `vmaf_tiny_v1.onnx` users get the same numbers.
+  2. **`lpips` is OUT of the candidate pool** (Phase 1/2). It's
+     DNN-based and would blur the line between "tiny model on
+     classical features" and "ensemble of DNNs". Revisit only if
+     classical features can't close the gap.
+- **On upstream sync**: zero interaction. Pure fork-side
+  research planning.
+- **Re-test on rebase**: documentation-only; no test surface.
+
 ### 0077 — Research-0025 FoxBird outlier resolved via KoNViD combined training
 
 - **No ADR.** Empirical research digest closing the open question
