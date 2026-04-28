@@ -3388,6 +3388,51 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0077 — Research-0025 FoxBird outlier resolved via KoNViD combined training
+
+- **No ADR.** Empirical research digest closing the open question
+  in Research-0023 §5; no architecture or policy decision. Pure
+  documentation of an empirical result.
+- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
+  training, no KoNViD-1k integration, and no LOSO eval surface.
+- **Touches** (additive only):
+  - `docs/research/0025-foxbird-resolved-via-konvid.md` —
+    per-clip table + comparison to Netflix-only baselines +
+    interpretation + caveats + next-experiment list.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **The training-fit per-clip numbers in §"Per-clip result"
+     are NOT held-out generalisation metrics** — FoxBird is in
+     the training set. The proper validation is the LOSO sweep
+     on the combined corpus (§"Next experiments" #1). Don't cite
+     the 0.9936 FoxBird PLCC as a generalisation number; cite it
+     as "training-fit on combined corpus, 5.4× RMSE improvement
+     vs Netflix-only".
+  2. **Combined trainer command line is canonical.** The
+     reproduction recipe in §"Setup" includes `--seed 0`,
+     `--konvid-val-fraction 0.1`, `--val-source Tennis`,
+     `--val-mode netflix-source-and-konvid-holdout`. Changing
+     any knob invalidates the per-clip numbers.
+  3. **`runs/tiny_combined_canonical/` stays gitignored.** The
+     final ONNX is reproducible from the parquet + Netflix
+     corpus + the canonical CLI; the durable record is the
+     digest's table.
+- **On upstream sync**: zero interaction. Research digest is
+  fork-only.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/train/train_combined.py \
+    --netflix-root .workingdir2/netflix \
+    --konvid-parquet ai/data/konvid_vmaf_pairs.parquet \
+    --model-arch mlp_small --epochs 30 --batch-size 256 --lr 1e-3 \
+    --val-mode netflix-source-and-konvid-holdout \
+    --val-source Tennis --konvid-val-fraction 0.1 --seed 0 \
+    --out-dir runs/tiny_combined_canonical
+  # Expect: FoxBird PLCC ≈ 0.9936 ± 1e-3 (numerical-noise floor),
+  # mean PLCC ≥ 0.9983 across 9 Netflix clips.
+  ```
+
 ### 0076 — Research-0024 vif/adm upstream-divergence digest (Strategy E doc)
 
 - **No ADR.** Pure documentation digest; the divergence
