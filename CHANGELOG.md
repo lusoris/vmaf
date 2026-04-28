@@ -275,6 +275,16 @@
 
 ### Changed
 
+- **Port Netflix upstream `314db130` — remove empty translation unit
+  `libvmaf/src/feature/all.c`** (upstream port): the file had been
+  reduced to includes + forward declarations + a `MIN` macro with no
+  active call sites in the fork (`compute_*` entry points are reached
+  via per-extractor TUs, not via `all.c`). Upstream removed it as
+  dead code. Drops the file, the `meson.build` line that compiled it,
+  and updates the trailing `// NOLINTNEXTLINE` comment in
+  `offset.c:22` that listed `all.c` among the per-feature consumers.
+  Build + 37 unit tests green after removal.
+
 - **Audit Section C cleanup — refresh stale "scaffold only" / "follow-up
   PR" comments** (fork-local): four code surfaces still advertised work
   that has long since landed. Updated `libvmaf_vulkan.h` (top-level
@@ -321,6 +331,20 @@
   psnr_hvs on CUDA / SYCL / Vulkan).
 
 ### Fixed
+
+- **Port Netflix upstream `798409e3` — null-deref on `prev_ref` update
+  in pure CUDA pipelines** (upstream port, completes fork's earlier
+  partial fix): the fork's `read_pictures_update_prev_ref` helper
+  (`libvmaf.c:1593`) already carries the `if (ref && ref->ref)` guard
+  for the main `vmaf_read_pictures` path, but the same shape was
+  missing from `threaded_enqueue_one` (line 1057) and
+  `threaded_read_pictures_batch` (line 1105) — both could deref a
+  zero-initialised `ref_host` when every registered extractor carries
+  `VMAF_FEATURE_EXTRACTOR_CUDA` and `translate_picture_device`
+  early-returns without downloading. Patch mirrors lawrence's
+  upstream fix (Netflix/vmaf `798409e3`, 2026-04-20). No behavioural
+  change on non-CUDA pipelines; preserves the existing ADR-0123
+  null-guard rationale across all three call sites.
 
 - **T7-16: NVIDIA-Vulkan + SYCL `adm_scale2` 2.4e-4 boundary drift
   is gone — verified at `places=4` on master** (fork-local doc
