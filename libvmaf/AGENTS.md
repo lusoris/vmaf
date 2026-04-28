@@ -110,3 +110,54 @@ meson test -C build
 ```
 
 Shortcut: `/build-vmaf --backend=cpu|cuda|sycl|all`.
+
+## Backend-engagement foot-guns (read before benching)
+
+Two CLI flags govern backend selection at runtime; the relationship is
+**not** "set the flag for the backend you want". A run that looks like
+it's exercising CUDA can silently fall through to CPU and still produce
+the expected score (because CUDA extractors emit the same logical
+features). Symptoms reviewers see: bit-exact CPU/CUDA/SYCL pools,
+identical fps across backends — **always wrong on a non-trivial fixture
+size unless the flags are right.**
+
+- **`--gpumask` is a CUDA *disable* bitmask, not a device pin.**
+  `compute_fex_flags` ([`src/libvmaf.c::compute_fex_flags`](src/libvmaf.c))
+  enables the CUDA dispatch slot only when `gpumask == 0`. Any
+  nonzero value disables CUDA. Public-header semantics:
+  `if gpumask: disable CUDA` (see
+  [`include/libvmaf/libvmaf.h`](include/libvmaf/libvmaf.h) `VmafConfiguration::gpumask`).
+- **`--backend cuda` currently *initialises* CUDA but disables the
+  dispatch slot.** The CLI sets `gpumask = 1` ([`tools/cli_parse.c::parse_cli_args`](tools/cli_parse.c))
+  intending it as a device pin, but the runtime treats `gpumask = 1`
+  as "disable CUDA". So `--backend cuda` runs CUDA init and then
+  routes the actual feature extractors through the CPU path. The
+  vmaf_v0.6.1-style models then emit identical scores because the
+  CPU code is doing the work. **This is a bug** (tracked separately;
+  do not assume `--backend cuda` works for benching until it lands).
+- **`--no_cuda` / `--no_sycl` are *disable*-only.** Pairing
+  `--no_sycl` alone (without `--gpumask`) does NOT enable CUDA — it
+  just disables SYCL while leaving CUDA unrequested. The CLI inits
+  CUDA only when `c.use_gpumask && !c.no_cuda` (see
+  [`tools/vmaf.c`](tools/vmaf.c) device-init block).
+
+**Correct invocations for backend bench / cross-backend diff:**
+
+| intent | flags |
+|---|---|
+| CPU only | `--no_cuda --no_sycl` |
+| CUDA | `--gpumask=0 --no_sycl` |
+| SYCL | `--sycl_device=0 --no_cuda` |
+| Vulkan | `--vulkan_device=N` (no `--no_cuda`/`--no_sycl` interaction) |
+
+Verify CUDA actually engaged by inspecting the JSON `frames[0].metrics`
+key set: CPU emits 14–15 keys (`integer_aim`, `integer_motion3`,
+`integer_adm3` are CPU-only); CUDA emits 11–12 keys (the CPU-only
+extras absent). Same-key-count + identical pool across two backends =
+both ran the same code path.
+
+The bench script `testdata/bench_all.sh` historically used the wrong
+flag pattern (`--no_sycl` for "CUDA"). Numbers from runs older than
+2026-04-28 in `docs/benchmarks.md` were CPU-on-CPU comparisons. See
+[ADR-0064 in rebase-notes](../docs/rebase-notes.md) and PR #169 for
+the corrected methodology.
