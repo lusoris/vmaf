@@ -145,6 +145,18 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "psnr_hvs_cr",
         "psnr_hvs",
     ),
+    # GPU long-tail batch 3 part 6 (T7-23 / ADR-0192 / ADR-0199):
+    # float_adm. CDF 9/7 (DB2) wavelet + decouple + CSF + Contrast
+    # Measure pipeline (4 scales, 4 stages each). CPU extractor is
+    # `float_adm`; GPU twin is `float_adm_vulkan`. Emits the combined
+    # `adm2` and 4 per-scale ratios. places=4 contract.
+    "float_adm": (
+        "adm2",
+        "adm_scale0",
+        "adm_scale1",
+        "adm_scale2",
+        "adm_scale3",
+    ),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the
