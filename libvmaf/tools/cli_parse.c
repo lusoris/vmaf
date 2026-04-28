@@ -713,7 +713,16 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             settings->no_sycl = true;
             settings->no_vulkan = true;
             if (!settings->use_gpumask) {
-                settings->gpumask = 1;
+                /* `gpumask` is a CUDA-*disable* bitmask per the public
+                 * VmafConfiguration::gpumask contract — `compute_fex_flags`
+                 * routes the CUDA dispatch slot only when `gpumask == 0`.
+                 * Setting `use_gpumask = true` triggers `vmaf_cuda_state_init`
+                 * in the CLI; leaving `gpumask = 0` lets the runtime then
+                 * actually pick the CUDA extractors. Earlier revisions set
+                 * `gpumask = 1` here intending it as a device-pin, which
+                 * silently disabled CUDA and routed everything through the
+                 * CPU path — see test_backend_cuda_engages_cuda below. */
+                settings->gpumask = 0;
                 settings->use_gpumask = true;
             }
         } else if (!strcmp(settings->backend, "sycl")) {

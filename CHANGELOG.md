@@ -243,26 +243,30 @@
 
 ### Fixed
 
-- **`testdata/bench_all.sh` actually engages the backends it benches**
-  (fork-local): the script's per-row flag pattern (`--no_sycl` for
-  the "CUDA" row, `--no_cuda` for "SYCL", and `--no_cuda --no_sycl`
-  for "CPU") used disable-only singletons that leave the runtime
-  with no actual backend request. The CLI then initialises only CPU
-  for every row, producing bit-exact pools and identical fps across
-  "backends" — exactly the symptom the script is supposed to surface
-  the *opposite* of. Switched to the correct engagement flag sets
-  (`--gpumask=0 --no_sycl --no_vulkan` for CUDA;
-  `--sycl_device=0 --no_cuda --no_vulkan` for SYCL;
-  `--vulkan_device=0 --no_cuda --no_sycl` for Vulkan;
-  `--no_cuda --no_sycl --no_vulkan` for CPU). Added a 4th column
-  (Vulkan) to the per-test comparator and a per-row JSON key-count
-  echo so future runs can spot a silent fallback in one glance.
-  Honours `$VMAF_BIN` (custom binary path) and `$VMAF_ONEAPI_SETVARS`
-  (oneAPI install location) so the script works against fresh local
-  builds without requiring the system-installed `/usr/local/bin/vmaf`
-  to be current. Pairs with PR #170 (CLI fix that makes
-  `--backend cuda` actually engage CUDA) and PR #169
-  (`libvmaf/AGENTS.md` §"Backend-engagement foot-guns").
+- **`--backend cuda` actually engages CUDA now (was silently CPU)**
+  (fork-local): the CLI's `--backend cuda` selector previously set
+  `gpumask = 1` intending it as a device pin, but
+  `VmafConfiguration::gpumask` is a CUDA-*disable* bitmask per the
+  public-header contract — `compute_fex_flags` enables the CUDA
+  dispatch slot only when `gpumask == 0`. Net effect: every
+  `--backend cuda` run from CLI initialised CUDA but then routed
+  the actual feature extractors through the CPU path, producing
+  bit-exact CPU-equivalent pools and no GPU speedup. Symptom on
+  bench fixtures: identical fps + identical `vmaf` pool across
+  `cpu` / `cuda` / `sycl` rows. Fix in
+  [`libvmaf/tools/cli_parse.c`](libvmaf/tools/cli_parse.c) — set
+  `gpumask = 0` (default) so the runtime engages CUDA after
+  `vmaf_cuda_state_init` succeeds. `--gpumask=N --backend cuda`
+  combinations preserve the user-supplied N. 5 new regression tests
+  in [`libvmaf/test/test_cli_parse.c`](libvmaf/test/test_cli_parse.c)
+  cover the four backends + the explicit-gpumask case. End-to-end
+  smoke: `--backend cuda` on the Netflix golden 576×324 pair now
+  emits 12 feature keys (CUDA extractor set) instead of 15 (CPU
+  extractor set). The legacy
+  `--gpumask=0 --no_sycl --no_vulkan` invocation continues to work
+  as before. Documented in
+  [`libvmaf/AGENTS.md`](libvmaf/AGENTS.md) §"Backend-engagement
+  foot-guns" — same surface as PR #169.
 
 - **`libvmaf.pc` Cflags leak in static-archive builds (ADR-0200)**
   (fork-local): bug-fix follow-up to ADR-0198. The

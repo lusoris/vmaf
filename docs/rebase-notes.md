@@ -3363,6 +3363,48 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0066 — `--backend cuda` inverted-gpumask fix (CLI bug)
+
+- **No ADR.** Bug fix; behaviour now matches the public-header
+  `VmafConfiguration::gpumask` contract.
+- **Upstream source**: fork-local. The `--backend` CLI selector was
+  added by the fork (Netflix/vmaf has no exclusive-backend selector).
+- **Touches** (additive + 1-line behavioural fix):
+  - `libvmaf/tools/cli_parse.c::parse_cli_args` — `--backend cuda`
+    branch sets `gpumask = 0` (was `gpumask = 1`).
+  - `libvmaf/test/test_cli_parse.c` — 5 new regression tests
+    (`test_backend_{cpu,cuda_engages_cuda,cuda_preserves_explicit_gpumask,sycl,vulkan}`)
+    plus `run_aom_ctc_tests` / `run_backend_tests` helper split to
+    keep `run_tests` under the function-size budget.
+  - `CHANGELOG.md` Unreleased § Fixed.
+- **Invariants** (rebase-relevant):
+  1. **`VmafConfiguration::gpumask` semantics: `if gpumask: disable
+     CUDA`.** `compute_fex_flags` in
+     [`src/libvmaf.c`](../libvmaf/src/libvmaf.c) routes CUDA only
+     when `gpumask == 0`. Any code path that sets a non-zero
+     `gpumask` to "request CUDA" silently disables it. The CLI's
+     `--backend cuda` branch must set `gpumask = 0` and rely on
+     `use_gpumask = true` to trigger `vmaf_cuda_state_init`. Do not
+     "fix" this back to `gpumask = 1` — it's the bug being fixed.
+  2. **Explicit `--gpumask=N --backend cuda` preserves N.** A user
+     who passes `--gpumask=2` already has `use_gpumask = true`, so
+     the `--backend cuda` branch's defaulting block (gated on
+     `!settings->use_gpumask`) is skipped. The
+     `test_backend_cuda_preserves_explicit_gpumask` regression
+     locks this in.
+- **On upstream sync**: zero interaction; `--backend` is fork-only.
+- **Re-test on rebase**:
+
+  ```bash
+  ./build/test/test_cli_parse | grep -E 'backend_'
+  # Expect: 5 backend tests pass.
+  build/tools/vmaf -r REF -d DIS -w 576 -h 324 -p 420 -b 8 \
+    --model "path=model/vmaf_v0.6.1.json" --threads 1 \
+    --backend cuda --output cuda.json --json -q
+  python3 -c "import json; d=json.load(open('cuda.json')); \
+    assert len(d['frames'][0]['metrics']) == 12, 'CUDA not engaged'"
+  ```
+
 ### 0065 — `testdata/bench_all.sh` correct backend-engagement flags
 
 - **No ADR.** Bug fix; no behavioural surface change beyond
