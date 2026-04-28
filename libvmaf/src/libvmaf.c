@@ -1054,7 +1054,8 @@ static int threaded_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPictu
 
     if (vmaf->prev_ref.ref)
         vmaf_picture_unref(&vmaf->prev_ref);
-    vmaf_picture_ref(&vmaf->prev_ref, ref);
+    if (ref && ref->ref)
+        vmaf_picture_ref(&vmaf->prev_ref, ref);
 
     return vmaf_picture_unref(ref) | vmaf_picture_unref(dist);
 }
@@ -1102,7 +1103,8 @@ static int threaded_read_pictures_batch(VmafContext *vmaf, VmafPicture *ref, Vma
 
     if (vmaf->prev_ref.ref)
         vmaf_picture_unref(&vmaf->prev_ref);
-    vmaf_picture_ref(&vmaf->prev_ref, ref);
+    if (ref && ref->ref)
+        vmaf_picture_ref(&vmaf->prev_ref, ref);
 
     return vmaf_picture_unref(ref) | vmaf_picture_unref(dist);
 }

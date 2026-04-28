@@ -3388,6 +3388,51 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0075 — Upstream `798409e3` + `314db130` ports (CUDA null-deref + remove `all.c`)
+
+- **No ADR.** Pure upstream cherry-picks per
+  [ADR-0108](adr/0108-deep-dive-deliverables-rule.md) carve-out
+  ("pure upstream syncs and `port-upstream-commit` PRs are exempt").
+- **Upstream source**:
+  - `798409e3` (Lawrence Curtis, 2026-04-20):
+    "Fix null deref crash on prev_ref update in pure CUDA pipelines"
+  - `314db130` (Kyle Swanson, 2026-04-28):
+    "libvmaf/feature: remove empty translation unit all.c"
+- **Touches** (additive / removal only):
+  - `libvmaf/src/libvmaf.c` — adds `if (ref && ref->ref)` guard
+    before `vmaf_picture_ref(&vmaf->prev_ref, ref)` at the two
+    threaded paths (`threaded_enqueue_one` line 1057 and
+    `threaded_read_pictures_batch` line 1105). Main path at
+    line 1597 already has the guard.
+  - `libvmaf/src/feature/all.c` — file deleted.
+  - `libvmaf/src/meson.build` — drops the `feature_src_dir + 'all.c'`
+    line.
+  - `libvmaf/src/feature/offset.c` — updates the `// NOLINTNEXTLINE`
+    comment to drop `all.c` from the list of per-feature consumers.
+  - `CHANGELOG.md` Unreleased § Fixed (798409e3) + § Changed (314db130).
+- **Invariants** (rebase-relevant):
+  1. **The fork has THREE prev_ref update sites; all need the
+     `if (ref && ref->ref)` guard.** The main `vmaf_read_pictures`
+     path already had it (via `read_pictures_update_prev_ref` helper);
+     the threaded paths (`#ifdef VMAF_BATCH_THREADING`) inherited
+     the unguarded shape from upstream's old code. Future upstream
+     rebases must preserve all three guards even if Netflix
+     refactors the threaded paths.
+  2. **`all.c` deletion is symbol-safe.** All `compute_*` functions
+     it forward-declared are reached via per-extractor TUs that
+     `#include` the relevant `<feature>.h`. No external linker
+     dependency on `all.c`'s symbols.
+- **On upstream sync**: zero conflict expected — fork now matches
+  upstream tip on these two surfaces.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-cpu libvmaf -Denable_cuda=false -Denable_sycl=false \
+    -Denable_vulkan=disabled
+  ninja -C build-cpu
+  meson test -C build-cpu  # 37 tests, all pass.
+  ```
+
 ### 0074 — Combined Netflix + KoNViD-1k trainer driver
 
 - **No ADR.** Pure engineering follow-up; the architecture rationale
