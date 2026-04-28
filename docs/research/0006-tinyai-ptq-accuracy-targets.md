@@ -2,7 +2,8 @@
 
 - **Status**: Active
 - **Workstream**: [ADR-0129](../adr/0129-tinyai-ptq-quantization.md)
-- **Last updated**: 2026-04-20
+- **Last updated**: 2026-04-28 (T5-3e: empirical GPU-EP
+  measurements landed)
 
 ## Question
 
@@ -131,7 +132,7 @@ hits an accuracy-budget failure.
 The `qat_train.py` script wraps the existing Lightning module. The
 developer invocation is:
 
-```
+```bash
 python ai/scripts/qat_train.py \
     --model-config ai/configs/tiny-vmaf-v1.yaml \
     --fp32-checkpoint ai/checkpoints/tiny-vmaf-v1.ckpt \
@@ -159,13 +160,13 @@ message ("tiny-AI: CPU lacks VNNI, falling back to fp32 model").
 
 For each quantised model load, we log once at startup:
 
-```
+```text
 [vmaf-dnn] Loaded model=tiny-vmaf-v1 quant=dynamic int8 fp32_fallback=false
 ```
 
 and per-inference (at `VMAF_LOG_DEBUG` only):
 
-```
+```text
 [vmaf-dnn] tiny-vmaf-v1 int8 inference 0.42 ms (fp32 reference: 1.18 ms)
 ```
 
@@ -187,15 +188,97 @@ benchmark.
 - **Runtime fallback on unsupported CPU?** Yes, fp32 fallback on VNNI-
   less CPUs.
 
+## GPU-EP quantisation (T5-3e, 2026-04-28 — measured, no longer deferred)
+
+Originally listed as an open follow-up "until a user surfaces a
+non-CPU tiny-AI deployment". That framing was retired by the
+[Section-A audit decisions](../../.workingdir2/decisions/section-a-decisions-2026-04-28.md)
+§A.3.4 once the fork's bench host gained both an NVIDIA RTX 4090 and
+an Intel Arc A380. Empirical run on 2026-04-28 with
+`ai/scripts/measure_quant_drop_per_ep.py` (see
+[`docs/ai/quant-eps.md`](../ai/quant-eps.md) for usage), 16 seeded
+synthetic samples per (model, EP) pair, dynamic-PTQ (`QInt8` weights)
+applied on the fly to the fp32-only baselines:
+
+| Model | budget | CPU EP (ORT) | CUDA EP (ORT) | OpenVINO Arc A380 | OpenVINO CPU |
+|---|---:|:---:|:---:|:---:|:---:|
+| `learned_filter_v1` (Conv, shipped int8) | 0.0100 | 0.000117 PASS | 0.000117 PASS | compile-fail | 0.000133 PASS |
+| `vmaf_tiny_v1` (mlp_small, dyn-PTQ) | 0.0100 | 0.000011 PASS | 0.000011 PASS | NaN/Inf | 0.000081 PASS |
+| `vmaf_tiny_v1_medium` (mlp_medium, dyn-PTQ) | 0.0100 | 0.000006 PASS | 0.000006 PASS | NaN/Inf | 0.000052 PASS |
+
+Arc A380 failure modes (intel_gpu plugin in OpenVINO 2026.1):
+
+- `learned_filter_v1.int8.onnx` (ConvInteger + DynamicQuantizeLinear)
+  fails to compile with `No layout format available for convolution:
+  byxf / i32` from `add_required_reorders.cpp`.
+- The MLP int8 graphs (MatMulInteger + DynamicQuantizeLinear) compile
+  but emit `inf`/`NaN` for every input — int8 *correctness* is
+  broken, not just performance.
+
+Headline numbers reflect PLCC drop vs the per-model fp32 baseline.
+Full per-EP detail (PLCC / worst |delta| / wall time) lives in the
+local `runs/quant-eps-2026-04-28/results.{json,md}` (gitignored —
+recreated by the harness).
+
+**Findings.**
+
+1. **CPU EP and CUDA EP agree to 6 decimal places** on all three
+   models. CUDA does not introduce a measurable additional PLCC drop
+   on top of dynamic PTQ; on the MLPs the drop is at most
+   ~1.1×10⁻⁵, well under the 1×10⁻² registry budget. The
+   pre-shipped `learned_filter_v1.int8.onnx` survives migration to
+   CUDA EP unchanged.
+2. **OpenVINO CPU plugin** (Intel's CPU implementation of the same
+   ONNX graph) agrees with ORT CPU to within ~10⁻⁴ PLCC drop. Slight
+   divergence comes from OpenVINO's preferred graph rewrites — still
+   inside budget for every model.
+3. **OpenVINO GPU.0 plugin (Intel Arc A380) is currently
+   int8-broken** for both ONNX-Runtime quantisation outputs we ship
+   or generate. Two distinct failure modes:
+   - The `Conv`-based `learned_filter_v1.int8.onnx` (using
+     ConvInteger + DynamicQuantizeLinear) **fails to compile** —
+     intel_gpu plugin reports `No layout format available for
+     convolution: byxf / i32` from
+     `add_required_reorders.cpp`.
+   - The MLP int8 graphs (`MatMulInteger` + `DynamicQuantizeLinear`)
+     **compile successfully but emit `inf`/`NaN`** for every input.
+     This means int8 *correctness* is broken, not just performance.
+4. **Arc fp32 path is healthy**: the same models run end-to-end on
+   GPU.0 in fp32 and produce values within ~10⁻¹ of the OpenVINO CPU
+   reference, so the issue is specifically the int8-quantisation
+   lowering inside the intel_gpu plugin.
+
+**Decision.** For now: do **not** rely on int8 quantisation when
+targeting Intel Arc through OpenVINO. The runtime should fall back
+to either (a) the OpenVINO CPU plugin or (b) the fp32 ONNX baseline
+when `OpenVINOExecutionProvider` selects an `intel_gpu`-class
+device. CUDA EP needs no special-casing — it runs the existing
+ConvInteger / MatMulInteger graphs cleanly. This finding is the
+basis for follow-up backlog row T5-3e-fix (Arc int8 support: revisit
+when OpenVINO ships a newer intel_gpu plugin or when we explore
+QDQ-format static PTQ, which sidesteps the DynamicQuantizeLinear
+op).
+
+**Reproduction.** Set up the `.venv` with `onnxruntime-gpu`,
+`openvino`, and the bundled `nvidia-cublas-cu12` /
+`nvidia-cudnn-cu12` / `nvidia-cufft-cu12` /
+`nvidia-curand-cu12` / `nvidia-cusolver-cu12` /
+`nvidia-cusparse-cu12` / `nvidia-cuda-runtime-cu12` /
+`nvidia-cuda-cupti-cu12` / `nvidia-nvtx-cu12` /
+`nvidia-nvjitlink-cu12` wheels (CUDA 12 ABI; ORT 1.25 expects this
+even on a CUDA-13 host). Then:
+
+```bash
+SP=$VIRTUAL_ENV/lib/python*/site-packages/nvidia
+export LD_LIBRARY_PATH="$SP/cublas/lib:$SP/cudnn/lib:$SP/cuda_nvrtc/lib:$SP/cuda_runtime/lib:$SP/cufft/lib:$SP/curand/lib:$SP/cusolver/lib:$SP/cusparse/lib:$SP/cuda_cupti/lib:$SP/nvtx/lib:$SP/nvjitlink/lib"
+python ai/scripts/measure_quant_drop_per_ep.py \
+    --eps cpu cuda openvino \
+    --extra-fp32 vmaf_tiny_v1.onnx vmaf_tiny_v1_medium.onnx \
+    --out runs/quant-eps-$(date +%Y-%m-%d)
+```
+
 ## Open questions (for follow-up iterations)
 
-- **GPU-EP quantisation**: the CUDA EP supports int8 only via QDQ at
-  the current ORT version; the CoreML and DirectML EPs are partial.
-  *(Updated 2026-04-28 per the [Section-A audit decisions](../../.workingdir2/decisions/section-a-decisions-2026-04-28.md)
-  §A.3.4: this is no longer deferred. The fork already runs on both a
-  CUDA card and an Intel Arc accelerator, so "we see an actual user on
-  a non-CPU tiny-AI deployment" is satisfied. Tracked as backlog row
-  **T5-3e** — investigation now scheduled, not waiting on first user.)*
 - **Mixed-precision**: some models benefit from keeping the first and
   last layers at fp32 even under PTQ. The `quantize_static` API
   supports `nodes_to_exclude`; we'll expose this via an optional

@@ -3447,6 +3447,68 @@ inline.*
     assert len(d['frames'][0]['metrics']) == 12, 'CUDA not engaged'"
   ```
 
+### 0067 — Tiny-AI PTQ accuracy across Execution Providers (T5-3e)
+
+- **No ADR.** Investigation/measurement PR; ADR-0129 already
+  governs the PTQ workstream. Findings update
+  [`docs/research/0006-tinyai-ptq-accuracy-targets.md`](research/0006-tinyai-ptq-accuracy-targets.md)
+  §"GPU-EP quantisation" — that section was previously a
+  deferred-open-question; it is now the empirical landing spot.
+- **Research digest**: same file (Research-0006).
+- **Upstream source**: fork-local. Netflix/vmaf does not ship a
+  PTQ harness or any tiny-AI ONNX path.
+- **Touches** (additive only):
+  - `ai/scripts/measure_quant_drop_per_ep.py` — new sibling of
+    `measure_quant_drop.py`. CPU+CUDA via ORT;
+    Arc / OpenVINO-CPU via the native `openvino` Python runtime
+    (no `onnxruntime-openvino` because no cp314 wheel exists).
+    Reuses the `_load_session` rename workaround from PR #165 +
+    a `value_info`-strip fix so dynamic-PTQ doesn't choke on
+    the shipped MLP ONNX.
+  - `docs/ai/quant-eps.md` — new user doc; linked from
+    `docs/ai/index.md`.
+  - `docs/research/0006-tinyai-ptq-accuracy-targets.md` —
+    refreshed header, replaced "GPU-EP open question" with the
+    measurement table, fixed pre-existing MD040/MD060 lints
+    surfaced on the touched file.
+  - `docs/ai/index.md` — added the quant-eps row, rewrapped to
+    80 cols.
+  - `CHANGELOG.md` Unreleased § Changed.
+- **Invariants** (rebase-relevant):
+  1. **`measure_quant_drop.py` (the CI gate) is unchanged.**
+     The new script is purely additive. Any rebase that
+     conflates the two scripts must keep the CI gate
+     CPU-only — Arc int8 is broken, so a per-EP gate would
+     red-light every PR.
+  2. **`value_info` strip is required for `vmaf_tiny_v1*`
+     dynamic PTQ.** The shipped MLP ONNX duplicate weight
+     tensors in `value_info`, which makes
+     `quantize_dynamic` raise
+     `Inferred shape and existing shape differ`. The fix
+     is in `_save_inlined`. Don't remove it during a refactor
+     unless the underlying ONNX is regenerated.
+  3. **CUDA-12 ABI shim.** ORT-GPU 1.25 wheels link
+     `libcublasLt.so.12` even on CUDA-13 hosts. The
+     reproduction recipe pins the
+     `nvidia-*-cu12` wheels and prepends them to
+     `LD_LIBRARY_PATH`. If a future ORT wheel drops the cu12
+     ABI we can cut the shim, but the script tolerates either
+     since it doesn't import any CUDA symbol itself.
+- **On upstream sync**: zero interaction; entirely fork-local.
+- **Re-test on rebase**:
+
+  ```bash
+  SP=$VIRTUAL_ENV/lib/python3.14/site-packages/nvidia
+  export LD_LIBRARY_PATH="$SP/cublas/lib:$SP/cudnn/lib:$SP/cuda_nvrtc/lib:$SP/cuda_runtime/lib:$SP/cufft/lib:$SP/curand/lib:$SP/cusolver/lib:$SP/cusparse/lib:$SP/cuda_cupti/lib:$SP/nvtx/lib:$SP/nvjitlink/lib"
+  python ai/scripts/measure_quant_drop_per_ep.py \
+      --eps cpu cuda openvino \
+      --extra-fp32 vmaf_tiny_v1.onnx vmaf_tiny_v1_medium.onnx \
+      --out runs/quant-eps-$(date +%Y-%m-%d)
+  # Expected: CPU + CUDA PASS (drop ≤ 1.2e-4); OpenVINO Arc ERR
+  # (compile failure for Conv-int8) or NaN (MatMul-int8) until a
+  # newer intel_gpu plugin lands.
+  ```
+
 ### 0065 — `testdata/bench_all.sh` correct backend-engagement flags
 
 - **No ADR.** Bug fix; no behavioural surface change beyond
