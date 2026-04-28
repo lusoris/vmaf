@@ -37,6 +37,29 @@
   parallel, batch 3 is now feature-complete on every GPU
   backend.
 
+- **Backlog audit — untracked follow-up items (2026-04-28)**
+  (fork-local, doc-only): one-shot audit of in-tree
+  TODO / FIXME / "deferred" / "scaffold only" / "v2" mentions
+  cross-referenced against the canonical backlog tracking
+  surfaces (`.workingdir2/OPEN.md`, `.workingdir2/BACKLOG.md`,
+  `docs/state.md`, `docs/rebase-notes.md`, ADR Decision /
+  Consequences blocks, open GitHub issues / PRs). Output lands
+  at [`docs/backlog-audit-2026-04-28.md`](docs/backlog-audit-2026-04-28.md);
+  35 distinct clusters across ~1 270 raw hits. Section A lists
+  14 untracked items needing decision (cambi v2 GPU c-values
+  phase, cambi integration PR, Vulkan motion3 GPU gap,
+  `picture_vulkan` luma-only chroma gap, `enable_lcs` GPU stub,
+  QAT trainer hook, `docs/benchmarks.md` `TBD` cells, SVE2
+  SIMD parity, etc.); Section B lists 5 partially-tracked items
+  in ADRs / digests with no T-number (notably
+  `iqa_convolve` AVX-512 ADR-0138 follow-up,
+  `motion_v2` AVX2 srlv_epi64 audit). Section C lists 4
+  resolved-but-stale comments (`libvmaf_vulkan.h` "scaffold
+  only", `ssimulacra2.c` "SIMD variants are follow-up PRs",
+  `meson.build` Vulkan blurbs) — comment-only fixes for the
+  next session that touches each file. No source files
+  modified.
+
 - **cambi GPU feasibility spike — hybrid host/GPU verdict + Vulkan
   scaffold (ADR-0205)** (fork-local): closes the spike mandated by
   [ADR-0192](docs/adr/0192-gpu-long-tail-batch-3.md) §Consequences.
