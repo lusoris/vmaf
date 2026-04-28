@@ -191,8 +191,11 @@ benchmark.
 
 - **GPU-EP quantisation**: the CUDA EP supports int8 only via QDQ at
   the current ORT version; the CoreML and DirectML EPs are partial.
-  Defer to a future ADR once we see an actual user on a non-CPU
-  tiny-AI deployment.
+  *(Updated 2026-04-28 per the [Section-A audit decisions](../../.workingdir2/decisions/section-a-decisions-2026-04-28.md)
+  §A.3.4: this is no longer deferred. The fork already runs on both a
+  CUDA card and an Intel Arc accelerator, so "we see an actual user on
+  a non-CPU tiny-AI deployment" is satisfied. Tracked as backlog row
+  **T5-3e** — investigation now scheduled, not waiting on first user.)*
 - **Mixed-precision**: some models benefit from keeping the first and
   last layers at fp32 even under PTQ. The `quantize_static` API
   supports `nodes_to_exclude`; we'll expose this via an optional
