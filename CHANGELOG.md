@@ -95,6 +95,24 @@
 
 ### Added
 
+- **Research-0030 — Phase-3b multi-seed validation (Gate 1 PASSED)**
+  (fork-local doc): 5-seed retry of Phase-3b confirms the Subset B
+  win is robust and *widens* with more seeds. Aggregate over
+  5 seeds × 9 LOSO folds: canonical-6 mean PLCC 0.9633 (seed-mean-std
+  0.0150) vs **Subset B mean PLCC 0.9807 (seed-mean-std 0.0019)** —
+  **Δ = +0.0175**, 3.5× the Research-0027 stopping-rule threshold of
+  +0.005. Subset B is also **8× more stable across seeds** than
+  canonical-6 — likely because the consensus-7 feature set carries
+  overlapping-but-not-identical signal, acting as an in-network
+  regularizer. canonical-6's seed=4 ran to PLCC 0.9381 (3.6 pp below
+  best seed); Subset B never strays from `[0.9783, 0.9833]`. **Gate 1
+  cleanly passed**; Subset B advances to Gate 2 (KoNViD cross-corpus,
+  ~3h extraction) and Gate 3 (Phase-3c lr-sweep on canonical-6).
+  9.2σ-equivalent margin on the seed-only std means the headline win
+  isn't seed-luck. New `--seeds 0,1,2,3,4` flag on
+  [`ai/scripts/phase3_subset_sweep.py`](ai/scripts/phase3_subset_sweep.py)
+  with seed-mean-std reporting in the summary.
+
 - **Research-0029 — Phase-3b: StandardScaler retry validates
   broader-feature hypothesis** (fork-local doc): empirical retry
   of the Research-0028 negative result with per-fold StandardScaler.

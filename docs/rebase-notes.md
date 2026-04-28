@@ -3388,6 +3388,36 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0085 — Research-0030 Phase-3b multi-seed validation (Gate 1 passed)
+
+- **No ADR.** Empirical research digest closing Gate 1 of the
+  3-gate v2 validation chain. Architecture decision unchanged.
+- **Upstream source**: fork-local. Netflix has no multi-seed
+  validation surface for tiny-AI training.
+- **Touches** (additive only):
+  - `docs/research/0030-phase3b-multiseed-validation.md` —
+    per-seed PLCC tables + stability analysis + Gate 2/3 plan.
+  - `ai/scripts/phase3_subset_sweep.py` — adds `--seeds` flag
+    (comma-separated list) + per-seed result aggregation.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **The +0.0175 Δ is multi-seed mean PLCC**, not seed-0
+     PLCC. Don't cite the +0.0106 from Research-0029 once
+     Research-0030 lands; the multi-seed number is more
+     trustworthy.
+  2. **Subset B is more stable than canonical-6 across seeds**.
+     Don't ship a v2 model citing single-seed numbers — always
+     report multi-seed mean ± seed-mean-std for any tiny-AI
+     metric in a future digest.
+  3. **The `--seeds` flag aggregates by flattening (seed × fold)
+     pairs**. The reported `mean_plcc` is the mean of all
+     `n_seeds × n_folds` measurements; `seed_mean_plcc_std`
+     is the std *across per-seed means*, which is the right
+     number for "is the result seed-stable".
+- **On upstream sync**: zero interaction. Fork-only research.
+- **Re-test on rebase**: documentation-only PR; the runs/ files
+  reproduce from the canonical command.
+
 ### 0084 — Research-0029 Phase-3b StandardScaler retry (positive result)
 
 - **No ADR.** Empirical research digest; revives the Research-0026

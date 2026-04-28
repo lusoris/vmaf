@@ -243,6 +243,17 @@ def main() -> int:
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument(
+        "--seeds",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated seed list for multi-seed validation "
+            "(e.g. '0,1,2,3,4'). When set, overrides --seed and "
+            "aggregates across the listed seeds. Per Research-0029 "
+            "§'Required before shipping' gate 1."
+        ),
+    )
+    ap.add_argument(
         "--standardize",
         action="store_true",
         help=(
@@ -261,6 +272,7 @@ def main() -> int:
 
     requested = [s.strip() for s in args.subsets.split(",")]
     results: dict[str, dict] = {}
+    seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else [args.seed]
     for name in requested:
         if name not in SUBSETS:
             print(f"[phase3] unknown subset {name!r}; valid: {sorted(SUBSETS)}", file=sys.stderr)
@@ -272,23 +284,50 @@ def main() -> int:
             return 2
         print(f"\n=== Subset {name} ({len(feat_cols)} features) ===")
         print(f"  features: {list(feat_cols)}")
-        per_fold = _loso_sweep(
-            df,
-            feat_cols,
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            lr=args.lr,
-            seed=args.seed,
-            standardize=args.standardize,
-        )
-        summary = _summary(per_fold)
+        per_seed: dict[int, dict[str, dict[str, float]]] = {}
+        for s in seeds:
+            print(f"  --- seed={s} ---")
+            per_fold = _loso_sweep(
+                df,
+                feat_cols,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                lr=args.lr,
+                seed=s,
+                standardize=args.standardize,
+            )
+            per_seed[s] = per_fold
+        # Aggregate: mean PLCC etc. across all (seed, fold) pairs.
+        flat = [m for fold_map in per_seed.values() for m in fold_map.values()]
+        plccs = [m["plcc"] for m in flat]
+        sroccs = [m["srocc"] for m in flat]
+        rmses = [m["rmse"] for m in flat]
+        # Per-seed mean PLCC for seed-only variance.
+        seed_means = [
+            float(np.mean([m["plcc"] for m in fold_map.values()])) for fold_map in per_seed.values()
+        ]
+        summary = {
+            "mean_plcc": float(np.mean(plccs)),
+            "std_plcc": float(np.std(plccs, ddof=1)) if len(plccs) > 1 else 0.0,
+            "mean_srocc": float(np.mean(sroccs)),
+            "std_srocc": float(np.std(sroccs, ddof=1)) if len(sroccs) > 1 else 0.0,
+            "mean_rmse": float(np.mean(rmses)),
+            "std_rmse": float(np.std(rmses, ddof=1)) if len(rmses) > 1 else 0.0,
+            "n_folds": len(plccs),
+            "seed_mean_plcc_std": (
+                float(np.std(seed_means, ddof=1)) if len(seed_means) > 1 else 0.0
+            ),
+            "n_seeds": len(seeds),
+        }
         results[name] = {
             "features": list(feat_cols),
-            "per_fold": per_fold,
+            "per_seed": {str(k): v for k, v in per_seed.items()},
             "summary": summary,
         }
         print(
-            f"  → mean PLCC={summary['mean_plcc']:.4f}±{summary['std_plcc']:.4f}  "
+            f"  → mean PLCC={summary['mean_plcc']:.4f}"
+            f" (fold-std {summary['std_plcc']:.4f}, "
+            f"seed-mean-std {summary['seed_mean_plcc_std']:.4f})  "
             f"SROCC={summary['mean_srocc']:.4f}±{summary['std_srocc']:.4f}  "
             f"RMSE={summary['mean_rmse']:.3f}±{summary['std_rmse']:.3f}"
         )
