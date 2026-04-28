@@ -95,6 +95,25 @@
 
 ### Added
 
+- **Research-0026 — Cross-metric feature fusion for tiny-AI**
+  (fork-local doc): scopes the experimental plan for training
+  tiny-AI on the broader feature set the fork can extract beyond
+  the 6 canonical `vmaf_v0.6.1` features. The fork registers 19
+  extractors producing ~27 distinct per-frame features (PSNR-Y/Cb/Cr,
+  SSIM, MS-SSIM, CAMBI banding, CIEDE 2000, PSNR-HVS, SSIMULACRA 2,
+  LPIPS, float ANSNR/ANPSNR, motion3, adm_scale0..3, etc.) — all
+  bit-exact across CPU + AVX2 + AVX-512 + NEON, most also bit-exact
+  on CUDA / SYCL / Vulkan. The digest defines a 4-phase plan:
+  (1) parquet expansion via `--feature-set {canonical,full,custom}`
+  flag; (2) correlation + mutual-information + feature-importance
+  ranking (LASSO + random-forest + SHAP triangulation); (3) MLP
+  arch sweep on Top-K subsets; (4) latency/size tradeoff. Cost
+  estimate: ~5-7 h focused; Phase 2 alone (~3 h) answers go/no-go.
+  Aligns with Research-0023 §5 + Research-0025 axis: data-side was
+  resolved by KoNViD addition; feature-side is the orthogonal
+  question this digest opens. No code change; pure research-plan
+  document.
+
 - **Research-0025 — FoxBird outlier resolved via Netflix + KoNViD-1k
   combined training** (fork-local doc): empirical close of
   Research-0023 §5's open question. The canonical combined-trainer
