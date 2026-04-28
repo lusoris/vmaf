@@ -9,9 +9,11 @@
 ## Question
 
 Can the CAMBI banding metric (Tandon, Cherniavsky, et al., Netflix
-2021) be ported to Vulkan / CUDA / SYCL while preserving its
-numerical contract (`places=2` per ADR-0192)?  If yes, which of the
-three classical GPU re-formulations (direct port, parallel-scan
+2021) be ported to Vulkan / CUDA / SYCL while preserving the fork's
+canonical `places=4` numerical contract (ADR-0192 carried `places=2`
+as a planning placeholder; ADR-0205 ratchets to `places=4` after the
+hybrid architecture decision below)?  If yes, which of the three
+classical GPU re-formulations (direct port, parallel-scan
 reformulation, parallel-tile reformulation) wins on the
 implementation-cost vs. precision vs. utilisation axis?
 
@@ -45,7 +47,7 @@ This shape:
 - Avoids the precision risk of reformulating the histogram phase
   (which is integer-only on CPU; a parallel-scan reformulation
   would either keep it integer — and pay 1024-bin reduction cost
-  per pixel — or float-promote and miss `places=2`).
+  per pixel — or float-promote and miss the `places=4` contract).
 - Leaves the histogram phase as a **future-work** optimisation
   rather than a blocker for closing the long-tail.
 
@@ -355,11 +357,14 @@ ADR:
   explicitly conditions implementation on "a feasibility spike
   (parallel-scan algebra for the range-tracking state)" — this
   digest IS that spike.
-- The "places=2" precision contract in ADR-0192 is satisfied
-  trivially by the hybrid because the GPU phases (preprocessing,
-  derivative, summed-area DP, decimate, mode filter) are all
-  integer + bit-exact w.r.t. the CPU; the precision-sensitive
-  c-value phase stays on the host.
+- The hybrid architecture **tightens the precision contract from
+  ADR-0192's `places=2` planning placeholder to `places=4`** (the
+  same floor as every other GPU twin in the fork). Reason: the GPU
+  phases (preprocessing, derivative, summed-area DP, decimate,
+  mode filter) are all integer + bit-exact w.r.t. the CPU, and the
+  precision-sensitive c-value phase stays on the host running the
+  exact CPU code path. v1 should land at ULP=0 / bit-exact, well
+  under `places=4`. See ADR-0205 §"Precision contract".
 
 ## Conclusion
 

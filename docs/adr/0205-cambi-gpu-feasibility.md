@@ -111,27 +111,34 @@ Concrete shader contracts:
    `double` per scale; the host applies the scale weighting and
    the final `MIN(score, cambi_max_val)` clamp.
 
-### Precision contract
+### Precision contract — `places=4` (tightened from ADR-0192's `places=2`)
 
-Per [ADR-0192](0192-gpu-long-tail-batch-3.md), the floor is
-`places=2` for cambi. The hybrid satisfies this *trivially* because:
+ADR-0192 carried `places=2` as a planning placeholder for cambi
+("measure-first"). The hybrid architecture lets us tighten that to
+**`places=4`** as the canonical floor — same contract as every
+other GPU twin in the fork — for two structural reasons:
 
 - The GPU phases (preprocess, derivative, SAT, decimate, mode
-  filter) are all integer + bit-exact w.r.t. the CPU. The
+  filter) are all **integer + bit-exact** w.r.t. the CPU. The
   derivative output is a single `bool` per pixel; the SAT
   threshold compare is a single `>` against `mask_index`; the
   decimate is a stride-2 gather; the mode filter is a 3-element
-  lookup. None of these operations introduce float rounding.
+  lookup. None of these operations introduce float rounding —
+  the GPU buffer is byte-for-byte identical to what the CPU code
+  path would write.
 - The c-values + pooling phase stays on the host, executing the
-  exact CPU code path against the GPU-produced buffers. Bit-
-  identical to a CPU-only run.
+  **exact CPU code path** against the GPU-produced buffers. Since
+  the input buffers are bit-identical, the output is bit-identical.
 
-Empirical validation will land in the v1 implementation PR (this
-spike does not lower the gate; if the hybrid v1 hits anything
-worse than `places=4` on the cross-backend gate fixture the
-follow-up PR documents why in its own ADR — but we expect bit-
-exact, since the only GPU-vs-CPU difference is the order of
-integer reads from a buffer that has the same contents either way).
+So the v1 implementation should land at **ULP=0** on the cross-
+backend gate fixture, comfortably under `places=4` (5e-5
+threshold). The CI step in `tests-and-quality-gates.yml` lands at
+`--places 4` from day one — no temporary `places=2` lane, no
+"measure first then ratchet" two-step. The contract is set by
+the architecture, not by empirical observation.
+
+Per project rule (`feedback_no_test_weakening`): if v1 misses
+`places=4` we fix the kernel, not the gate.
 
 ### v1 implementation effort estimate
 

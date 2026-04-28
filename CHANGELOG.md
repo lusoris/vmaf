@@ -17,8 +17,12 @@
   derivative + 7×7 spatial-mask summed-area table + 2× decimate +
   3-tap separable mode filter (all integer + bit-exact w.r.t. CPU);
   the precision-sensitive `calculate_c_values` sliding-histogram
-  pass + top-K spatial pooling stay on the host so the `places=2`
-  precision contract holds trivially. Three classical re-formulations
+  pass + top-K spatial pooling stay on the host. Because the GPU
+  buffers are bit-identical to the CPU's and the c-values phase
+  runs the exact CPU code path, the v1 contract tightens to
+  **`places=4`** (ADR-0192 carried `places=2` as a planning
+  placeholder; ADR-0205 ratchets to the fork's canonical `places=4`
+  baseline since the architecture forces ULP=0). Three classical re-formulations
   evaluated in [research digest 0020](docs/research/0020-cambi-gpu-strategies.md):
   (I) single-WG direct port — rejected, ~1/64 GPU utilisation;
   (II) parallel-scan reformulation — rejected for v1, materialises
