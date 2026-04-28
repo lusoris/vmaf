@@ -88,6 +88,65 @@ on Netflix-only:
   held-out **Tennis** clip (PLCC 0.9966 vs 0.9745 / 0.9448 baseline
   reading on Tennis from Research-0023 §3.1).
 
+## LOSO sweep on combined corpus (proper held-out generalisation)
+
+The §"Per-clip result" numbers above are training-fit (FoxBird is in
+the training set). To address the caveat in §"Caveats" #1, this
+section reports the proper LOSO sweep on the combined corpus —
+9 fold ONNXes, each trained on (8 Netflix sources + 90 % of KoNViD
+clip keys) and evaluated on the held-out 9th Netflix source.
+
+Reproducer:
+
+```bash
+bash /tmp/loso_combined_sweep.sh   # ~3.5 min wall on cached corpus
+python3 /tmp/eval_loso_combined.py
+```
+
+Per-fold result (each clip is the held-out source for its fold):
+
+| Fold (held-out) | PLCC | SROCC | RMSE |
+|---|---:|---:|---:|
+| BigBuckBunny | 0.9994 | 0.9997 | 0.802 |
+| BirdsInCage | 0.9999 | 0.9994 | 0.598 |
+| CrowdRun | 0.9973 | 0.9970 | 3.805 |
+| ElFuente1 | 0.9989 | 0.9989 | 1.341 |
+| ElFuente2 | 0.9984 | 0.9996 | 1.752 |
+| **FoxBird** | **0.9932** | 0.9973 | 3.214 |
+| OldTownCross | 0.9991 | 0.9999 | 1.395 |
+| Seeking | 0.9882 | 0.9973 | 6.660 |
+| Tennis | 0.9951 | 0.9992 | 2.094 |
+| **Mean ± std** | **0.9966 ± 0.0038** | **0.9984 ± 0.0014** | 2.518 ± 1.811 |
+
+### Comparison to Research-0023 Netflix-only LOSO
+
+| Metric                      | Netflix-only LOSO (R-0023) |       Combined LOSO |              Δ |
+| --------------------------- | -------------------------: | ------------------: | -------------: |
+| Mean PLCC                   |          0.9808 ± 0.0214   | **0.9966 ± 0.0038** |    **+0.0158** |
+| Mean SROCC                  |          0.9848 ± 0.0176   | **0.9984 ± 0.0014** |        +0.0136 |
+| FoxBird (specifically) PLCC |                    ≈ 0.93  |          **0.9932** |        ≈ +0.06 |
+| PLCC std                    |                    0.0214  |              0.0038 | **5.6×**       |
+
+**The PLCC standard deviation across folds drops 5.6× (0.0214 →
+0.0038)**. That's the most significant finding: not just FoxBird,
+but every fold tightens to within 0.01 of the mean. The combined
+corpus eliminates _content-distribution variance_ across the 9
+Netflix sources — exactly what Research-0023 §5 hypothesised.
+
+### Held-out FoxBird beats Netflix-only baselines
+
+`fold_FoxBird/mlp_small_combined_final.onnx` was trained without
+ever seeing FoxBird frames. Its FoxBird PLCC (**0.9932** held-out)
+is materially better than:
+
+- Research-0023 mlp_small Netflix-only LOSO on FoxBird ≈ 0.93
+- `vmaf_tiny_v1.onnx` (Netflix-only mlp_small training-fit on
+  FoxBird as a non-train sample): 0.9632
+
+This is the proper validation: the model **generalises** to FoxBird
+without ever training on it, because the KoNViD UGC distribution
+covers the same high-motion / heavy-grain regime FoxBird inhabits.
+
 ## Interpretation
 
 The 30× frame-count expansion (9 690 Netflix → 280 K combined) and
