@@ -38,7 +38,7 @@ ninja -C build
 | `enable_sycl`     | bool      | `false`   | Compile the SYCL / oneAPI backend + DPC++ kernels; requires `icpx` on PATH |
 | `sycl_compiler`   | string    | `icpx`    | Path or name of the SYCL compiler — only consulted when `enable_sycl=true` |
 | `enable_dnn`      | feature   | `auto`    | Build the tiny-AI ONNX Runtime surface. `auto` tries to link ORT and silently disables if it's missing; `enabled` fails the configure step when ORT is unavailable; `disabled` omits the `dnn.h` symbols entirely |
-| `enable_vulkan`   | feature   | `disabled`| Compile the Vulkan compute backend (scaffold only as of v3.0; see [ADR-0175](../adr/0175-vulkan-backend-scaffold.md)). Default `disabled` — `auto` would silently flip on in builds with a Vulkan SDK installed and we want opt-in only until the runtime PR lands. Stub kernels return `-ENOSYS`; no Vulkan SDK / volk / glslc / VMA build deps until the first kernel arrives. |
+| `enable_vulkan`   | feature   | `disabled`| Compile the Vulkan compute backend. Scaffold landed via [ADR-0175](../adr/0175-vulkan-backend-scaffold.md), runtime via ADR-0178 (T5-1b), default-model kernel matrix complete per ADR-0193 (VIF + ADM + motion + motion_v2 + ssimulacra2 plus the GPU long-tail batches). Default `disabled` — `auto` would silently flip on in builds with a Vulkan SDK installed and we keep it opt-in. When enabled, requires `volk` + Vulkan SDK ≥ 1.3 + `glslc` + VMA. |
 
 ### Flag interactions
 

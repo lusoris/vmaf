@@ -11,12 +11,12 @@
 
 /**
  * @file libvmaf_vulkan.h
- * @brief Vulkan backend public API — scaffolded by ADR-0175 / T5-1.
+ * @brief Vulkan backend public API.
  *
- * **Status: scaffold only.** Every entry point currently returns -ENOSYS
- * pending a real implementation. The header lands so downstream consumers
- * can compile against the API surface; the kernels (ADM, VIF, motion)
- * arrive in follow-up PRs per ADR-0127's "VIF as pathfinder" sequence.
+ * Scaffolded by ADR-0175 / T5-1; full runtime landed via ADR-0178
+ * (T5-1b). Kernel coverage matrix is complete for the default model
+ * (VIF, ADM, motion, motion_v2, ssimulacra2, plus the GPU long-tail
+ * batches per ADR-0193); see docs/backends/vulkan/overview.md.
  *
  * When libvmaf was built without `-Denable_vulkan=enabled`, every entry
  * point returns -ENOSYS unconditionally and the runtime treats vulkan as
@@ -138,11 +138,10 @@ int vmaf_vulkan_list_devices(void);
  * an externally-decoded VkImage straight to the libvmaf
  * Vulkan compute queue without a CPU readback round-trip.
  *
- * **Status: scaffold only (T7-29 part 1).** Every function
- * returns -ENOSYS pending the real implementation
- * (vkCmdCopyImageToBuffer + timeline-semaphore wait). The
- * declarations land so consumers can compile against the
- * stable contract.
+ * Implementation landed via ADR-0186 (T7-29 parts 2 + 3):
+ * `vkCmdCopyImageToBuffer` + timeline-semaphore wait, plus the
+ * `libvmaf_vulkan` FFmpeg filter wired by
+ * `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`.
  *
  * Header purity: Vulkan handles cross the ABI as `uintptr_t`
  * to keep this header usable from translation units that

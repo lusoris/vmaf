@@ -44,7 +44,8 @@ endif
 is_asm_enabled = get_option('enable_asm') == true
 is_cuda_enabled = get_option('enable_cuda') == true
 is_sycl_enabled = get_option('enable_sycl') == true
-# ADR-0175 / T5-1: Vulkan compute backend, scaffold-only for now.
+# Vulkan compute backend: scaffold ADR-0175 / T5-1, runtime ADR-0178 / T5-1b,
+# kernel matrix complete for the default model per ADR-0193.
 is_vulkan_enabled = get_option('enable_vulkan').enabled()
 is_avx512_enabled = get_option('enable_avx512') == true
 is_nvtx_enabled = get_option('enable_nvtx') == true
@@ -56,7 +57,8 @@ endif
 # DNN runtime (ONNX Runtime) — defines dnn_sources / dnn_defines / dnn_deps.
 subdir('dnn')
 
-# Vulkan compute backend (ADR-0175 / T5-1) — scaffold only. Defines
+# Vulkan compute backend (ADR-0175 / T5-1 scaffold; ADR-0178 / T5-1b
+# runtime; ADR-0193 default-model kernel matrix complete). Defines
 # vulkan_sources + vulkan_deps following the dnn_sources pattern; the
 # library() call below pulls them in unconditionally (they're empty
 # arrays when the option is disabled, no-cost on default builds).

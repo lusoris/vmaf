@@ -35,7 +35,9 @@
  *                         → EdgeDiffMap (ringing + blurring error)
  *                    └► 108 weighted norms + polynomial + pow → 0..100
  *
- * Scalar-only for now; AVX2/AVX-512/NEON SIMD variants are follow-up PRs.
+ * SIMD variants ship under ADR-0161 (AVX2), ADR-0162 (AVX-512 + NEON),
+ * and ADR-0164 (snapshot gate). GPU twins ship under ADR-0201 (Vulkan)
+ * and ADR-0206 (CUDA + SYCL).
  */
 
 // NOLINTNEXTLINE(misc-include-cleaner) — ENOMEM at line ~979 in init() bailouts.
