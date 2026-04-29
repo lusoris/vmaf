@@ -347,6 +347,25 @@ feature/
   statements at default optimization anyway. See
   [ADR-0160](../../../docs/adr/0160-psnr-hvs-neon-bitexact.md)
   and [rebase-notes 0052](../../../docs/rebase-notes.md).
+- **`fastdvdnet_pre.c` 5-frame-window contract** (fork-local,
+  ADR-0210): the FastDVDnet temporal pre-filter extractor is wired
+  to the I/O contract `frames: float32 NCHW [1, 5, H, W]` (channel
+  axis stacks `[t-2, t-1, t, t+1, t+2]`) → `denoised: float32 NCHW
+  [1, 1, H, W]`. Three pieces are load-bearing on rebase: (1) the
+  centre index is 2 (`FASTDVDNET_PRE_CENTRE`) — `gather_window`
+  computes channel-k offsets relative to it; (2) the ring buffer
+  holds 5 slots and replicates the closest available end frame for
+  channel positions outside the available window (clip start +
+  end); (3) the registered feature name is
+  `fastdvdnet_pre_l1_residual` — downstream consumers (FFmpeg
+  `vmaf_pre_temporal` filter shipping with T6-7b, training
+  harnesses) bind to that exact string. The placeholder ONNX
+  shipped under `model/tiny/fastdvdnet_pre.onnx` is smoke-only
+  (`smoke: true` in the registry); when T6-7b swaps in real
+  upstream weights, keep the I/O names (`frames` / `denoised`)
+  byte-identical. See
+  [ADR-0210](../../../docs/adr/0210-fastdvdnet-pre-filter.md).
+
 - **`cambi.c` GPU port is hybrid host/GPU per
   [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md) +
   [ADR-0210](../../../docs/adr/0210-cambi-vulkan-integration.md)

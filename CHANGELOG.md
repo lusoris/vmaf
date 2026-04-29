@@ -49,6 +49,31 @@
   is the long-term replacement for the per-feature
   `cross_backend_vif_diff.py` lane (kept for one release cycle).
   See [ADR-0214](docs/adr/0214-gpu-parity-ci-gate.md).
+- **FastDVDnet temporal pre-filter (T6-7)** — new feature
+  extractor `fastdvdnet_pre` under
+  [`libvmaf/src/feature/fastdvdnet_pre.c`](libvmaf/src/feature/fastdvdnet_pre.c)
+  registers a 5-frame-sliding-window temporal denoiser backed by
+  the public `vmaf_dnn_session_*` API. ONNX I/O contract:
+  `frames` float32 NCHW `[1, 5, H, W]` (channel axis stacks
+  `[t-2, t-1, t, t+1, t+2]`) → `denoised` float32 NCHW
+  `[1, 1, H, W]`. Internal 5-slot ring buffer with replicate-edge
+  clamp at clip start/end; per-frame scalar
+  `fastdvdnet_pre_l1_residual` appended through the existing
+  feature-collector plumbing. Picks up `model_path` from the
+  feature option or `VMAF_FASTDVDNET_PRE_MODEL_PATH` env var
+  (mirrors LPIPS); declines cleanly with `-EINVAL` when neither
+  is set. **Placeholder weights only** —
+  `model/tiny/fastdvdnet_pre.onnx` is a smoke-only ~6 KB
+  randomly-initialised 3-layer CNN with the right I/O shape;
+  real upstream-derived FastDVDnet weights + the FFmpeg
+  `vmaf_pre_temporal` filter that consumes the denoised frame
+  buffer are tracked as **T6-7b**. New ADR
+  [ADR-0210](docs/adr/0210-fastdvdnet-pre-filter.md), user-facing
+  doc [`docs/ai/models/fastdvdnet_pre.md`](docs/ai/models/fastdvdnet_pre.md),
+  registration smoke test
+  [`libvmaf/test/test_fastdvdnet_pre.c`](libvmaf/test/test_fastdvdnet_pre.c)
+  mirroring `test_lpips.c`. Closes backlog item T6-7.
+
 - **Embedded MCP server scaffold (T5-2, audit-first)** — new
   public header
   [`libvmaf/include/libvmaf/libvmaf_mcp.h`](libvmaf/include/libvmaf/libvmaf_mcp.h)

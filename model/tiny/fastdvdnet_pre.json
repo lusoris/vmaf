@@ -1,0 +1,13 @@
+{
+  "id": "fastdvdnet_pre",
+  "kind": "filter",
+  "onnx": "fastdvdnet_pre.onnx",
+  "opset": 17,
+  "input_name": "frames",
+  "output_name": "denoised",
+  "frame_window": 5,
+  "centre_index": 2,
+  "smoke": true,
+  "name": "vmaf_tiny_fastdvdnet_pre_placeholder_v0",
+  "notes": "Placeholder FastDVDnet temporal pre-filter weights (T6-7). 5-frame window [t-2, t-1, t, t+1, t+2] -> denoised frame t. SMOKE-ONLY: random init, not trained. Real upstream weights tracked under T6-7b. See docs/ai/models/fastdvdnet_pre.md."
+}
