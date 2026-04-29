@@ -59,6 +59,8 @@
 #include "mem.h"
 #include "opt.h"
 
+#include "dnn/tiny_extractor_template.h"
+
 #define FASTDVDNET_PRE_WINDOW 5u
 #define FASTDVDNET_PRE_CENTRE 2u
 
@@ -119,20 +121,6 @@ static unsigned slot_for_offset(const FastDvdnetPreState *s, unsigned k)
     return (head + FASTDVDNET_PRE_WINDOW - k) % FASTDVDNET_PRE_WINDOW;
 }
 
-/* Resolve the ONNX path from the feature option or, if unset, the
- * dedicated env var. Returns NULL when neither is provided so the caller
- * can emit a single user-facing error. */
-static const char *resolve_model_path(const FastDvdnetPreState *s)
-{
-    const char *path = s->model_path;
-    if (path && *path)
-        return path;
-    const char *env = getenv("VMAF_FASTDVDNET_PRE_MODEL_PATH");
-    if (env && *env)
-        return env;
-    return NULL;
-}
-
 /* Free every aligned_malloc()-backed buffer hanging off `s` and zero the
  * slot pointers. Called from both the OOM unwind in init() and from
  * close() — keeps the cleanup logic in one place so a future buffer
@@ -181,20 +169,14 @@ static int fastdvdnet_pre_init(VmafFeatureExtractor *fex, enum VmafPixelFormat p
         return -ENOTSUP;
     }
 
-    const char *path = resolve_model_path(s);
-    if (!path) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "fastdvdnet_pre: no model path (set feature option model_path or env "
-                 "VMAF_FASTDVDNET_PRE_MODEL_PATH)\n");
+    const char *path = vmaf_tiny_ai_resolve_model_path("fastdvdnet_pre", s->model_path,
+                                                       "VMAF_FASTDVDNET_PRE_MODEL_PATH");
+    if (!path)
         return -EINVAL;
-    }
 
-    int rc = vmaf_dnn_session_open(&s->sess, path, NULL);
-    if (rc < 0) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "fastdvdnet_pre: vmaf_dnn_session_open(%s) failed: %d\n",
-                 path, rc);
+    int rc = vmaf_tiny_ai_open_session("fastdvdnet_pre", path, &s->sess);
+    if (rc < 0)
         return rc;
-    }
     assert(s->sess != NULL);
 
     s->w = w;
@@ -311,16 +293,10 @@ static int fastdvdnet_pre_close(VmafFeatureExtractor *fex)
 }
 
 static const VmafOption fastdvdnet_pre_options[] = {
-    {
-        .name = "model_path",
-        .help = "Filesystem path to the FastDVDnet ONNX model (5-frame window 'frames' input, "
-                "single-frame 'denoised' output). Overrides the "
-                "VMAF_FASTDVDNET_PRE_MODEL_PATH env var.",
-        .offset = offsetof(FastDvdnetPreState, model_path),
-        .type = VMAF_OPT_TYPE_STRING,
-        .default_val.s = NULL,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
+    VMAF_TINY_AI_MODEL_PATH_OPTION(
+        FastDvdnetPreState,
+        "Filesystem path to the FastDVDnet ONNX model (5-frame window 'frames' input, "
+        "single-frame 'denoised' output). Overrides the VMAF_FASTDVDNET_PRE_MODEL_PATH env var."),
     {NULL},
 };
 
