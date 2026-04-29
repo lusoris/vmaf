@@ -39,6 +39,10 @@ ninja -C build
 | `sycl_compiler`   | string    | `icpx`    | Path or name of the SYCL compiler — only consulted when `enable_sycl=true` |
 | `enable_dnn`      | feature   | `auto`    | Build the tiny-AI ONNX Runtime surface. `auto` tries to link ORT and silently disables if it's missing; `enabled` fails the configure step when ORT is unavailable; `disabled` omits the `dnn.h` symbols entirely |
 | `enable_vulkan`   | feature   | `disabled`| Compile the Vulkan compute backend. Scaffold landed via [ADR-0175](../adr/0175-vulkan-backend-scaffold.md), runtime via ADR-0178 (T5-1b), default-model kernel matrix complete per ADR-0193 (VIF + ADM + motion + motion_v2 + ssimulacra2 plus the GPU long-tail batches). Default `disabled` — `auto` would silently flip on in builds with a Vulkan SDK installed and we keep it opt-in. When enabled, requires `volk` + Vulkan SDK ≥ 1.3 + `glslc` + VMA. |
+| `enable_mcp`      | bool      | `false`   | Compile the embedded MCP (Model Context Protocol) server scaffold ([ADR-0209](../adr/0209-mcp-embedded-scaffold.md)). Audit-first stub: every entry point in `libvmaf_mcp.h` returns `-ENOSYS`. Runtime bodies (cJSON + mongoose, dedicated MCP pthread, SPSC ring buffer, transports) land in T5-2b. See [`docs/mcp/embedded.md`](../mcp/embedded.md). |
+| `enable_mcp_sse`  | bool      | `false`   | Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires `enable_mcp=true`. Stub-only until T5-2b ships transport bodies. |
+| `enable_mcp_uds`  | bool      | `false`   | Compile in the Unix-domain-socket transport. Requires `enable_mcp=true`. POSIX-only; non-POSIX hosts return `-ENODEV` at runtime. Stub-only until T5-2b. |
+| `enable_mcp_stdio`| bool      | `false`   | Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport. Requires `enable_mcp=true`. Stub-only until T5-2b. |
 
 ### Flag interactions
 

@@ -19,6 +19,7 @@
  *  and ADR-0209.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <stddef.h>
 
@@ -49,6 +50,7 @@ int vmaf_mcp_transport_available(VmafMcpTransport transport)
      * per-arm `#ifdef` keeps the body structurally distinct (no
      * `bugprone-branch-clone`) regardless of which sub-flags are
      * on. */
+    assert((unsigned)transport <= 31u);
     unsigned mask = 0u;
 #ifdef HAVE_MCP_SSE
     mask |= 1u << (unsigned)VMAF_MCP_TRANSPORT_SSE;
