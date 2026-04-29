@@ -105,6 +105,28 @@
   registry row in [`model/tiny/registry.json`](model/tiny/registry.json),
   6-subtest smoke at
   [`libvmaf/test/test_transnet_v2.c`](libvmaf/test/test_transnet_v2.c).
+- **Port upstream `8a289703` + `1b6c3886` — 32-bit ADM/cpu fallbacks
+  (T-NEW-3, audit row from PR #205).** Cherry-picks two upstream
+  Netflix/vmaf commits by Christopher Degawa that make the AVX2 /
+  AVX-512 ADM SIMD paths build on 32-bit x86: a portable
+  `extract_epi64` fallback for `_mm256_extract_epi64` (unavailable
+  on i686) in `libvmaf/src/feature/x86/adm_avx2.c` and
+  `libvmaf/src/feature/x86/adm_avx512.c`, and removal of the
+  `#if ARCH_X86_64` guard around the AVX/AVX2/AVX-512 detection
+  block in `libvmaf/src/x86/cpu.c`. Pairs with the existing
+  i686 build-only CI matrix lane (PR #87 / ADR-0151), which
+  currently runs with `-Denable_asm=false`; together with this
+  port the lane can move toward exercising the integer ADM SIMD
+  paths once additional 32-bit intrinsic fallbacks (motion / psnr,
+  not in this PR) land. Conflict resolution preserved the fork's
+  clang-format-100col layout and the `_Alignas(64)` LTO-correctness
+  slot in adm_avx512.c (see
+  [`docs/development/known-upstream-bugs.md`](docs/development/known-upstream-bugs.md)).
+  Verbatim 2-commit upstream port; no fork-local algorithmic
+  changes. Original-commits:
+  [`8a289703`](https://github.com/Netflix/vmaf/commit/8a289703),
+  [`1b6c3886`](https://github.com/Netflix/vmaf/commit/1b6c3886).
+
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame
