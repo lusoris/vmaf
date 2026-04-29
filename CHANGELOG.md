@@ -144,6 +144,34 @@
   Per-feature doc rows + section under
   [`docs/metrics/features.md`](docs/metrics/features.md). Closes
   T-NEW-1 from the T7-4 quarterly upstream audit (PR #205).
+- **BVI-DVC feature-extraction pipeline (corpus-3 for tiny-AI v2).**
+  New
+  [`ai/scripts/bvi_dvc_to_full_features.py`](ai/scripts/bvi_dvc_to_full_features.py)
+  mirrors the canonical-21
+  [`ai/scripts/konvid_to_full_features.py`](ai/scripts/konvid_to_full_features.py)
+  pipeline (PR #178) but sources clips from BVI-DVC Part 1 (Ma,
+  Zhang, Bull 2021) — a 4-tier 4:2:0 10-bit YCbCr reference
+  corpus (A=3840x2176, B=1920x1088, C=960x544, D=480x272, 193
+  clips per tier, 64 frames each). Streams individual `.mp4`
+  entries from the 84 GB zip without unpacking the archive,
+  decodes 10-bit YUV reference, encodes a CRF-35 distorted side,
+  runs libvmaf with the verbatim FULL_FEATURES tuple +
+  vmaf_v0.6.1 model attached for the per-frame teacher score,
+  caches per-clip JSON under
+  `~/.cache/vmaf-tiny-ai-bvi-dvc-full/<key>.json`, and
+  aggregates to `runs/full_features_bvi_dvc_<tier>.parquet`
+  (gitignored). The 10-bit input path is the only structural
+  delta vs. the 8-bit konvid invocation (`-pix_fmt yuv420p10le`
+  and `--bitdepth 10`). `--tier {A,B,C,D,all}` selects the
+  resolution; D-tier wall-clock is ~3 s/clip on CPU, ~10 min
+  for the full 193-clip tier. Reference-only dataset — VMAF
+  score is the teacher signal since BVI-DVC ships no DMOS.
+  Smoke command: `python3 ai/scripts/bvi_dvc_to_full_features.py
+  --tier D --bvi-zip "<path>/BVI-DVC Part 1.zip" --vmaf-bin
+  build-cpu/tools/vmaf --max-clips 5`. Feeds the upcoming
+  3-corpus (Netflix + KoNViD + BVI-DVC) Phase-3b sweep that
+  validates Subset B's win across resolution scales the first
+  two corpora don't cover.
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame
