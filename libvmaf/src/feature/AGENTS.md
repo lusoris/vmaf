@@ -366,7 +366,7 @@ feature/
   byte-identical. See
   [ADR-0215](../../../docs/adr/0215-fastdvdnet-pre-filter.md).
 - **`transnet_v2.c` 100-frame-window contract** (fork-local,
-  ADR-0220): the TransNet V2 shot-boundary detector is wired to
+  ADR-0223 TransNet V2 shot-boundary detector is wired to
   the I/O contract `frames: float32 [1, 100, 3, 27, 48]`
   (100-frame window of 27x48 RGB thumbnails) → `boundary_logits:
   float32 [1, 100]`. Three pieces are load-bearing on rebase:
@@ -388,7 +388,7 @@ feature/
   byte-identical, and switch the `luma_to_thumbnail` path from
   nearest-neighbour + luma-broadcast to bilinear + true RGB
   decode (the published TransNet V2 uses bilinear). See
-  [ADR-0220](../../../docs/adr/0220-transnet-v2-shot-detector.md).
+  [ADR-0220](../../../docs/adr/0223-transnet-v2-shot-detector.md).
 
 - **`cambi.c` GPU port is hybrid host/GPU per
   [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md) +

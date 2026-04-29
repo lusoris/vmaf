@@ -115,7 +115,7 @@ encoder-ingestible sidecar. Does **not** run inside libvmaf — its output
 is a parameter hint, not a quality score.
 
 **Status.** **Shot-boundary contract + placeholder shipped (T6-3a, 2026-04-29)**
-— [ADR-0220](../adr/0220-transnet-v2-shot-detector.md). The libvmaf-side
+— [ADR-0220](../adr/0223-transnet-v2-shot-detector.md). The libvmaf-side
 extractor (`transnet_v2`, 100-slot ring buffer, `[1, 100, 3, 27, 48] →
 [1, 100]` ONNX contract) lands with a smoke-only placeholder checkpoint
 emitting per-frame `shot_boundary_probability` + `shot_boundary` flag;

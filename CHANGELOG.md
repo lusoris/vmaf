@@ -98,7 +98,7 @@
   upstream weights (Soucek & Lokoc 2020 MIT) tracked as
   **T6-3a-followup**, the per-shot CRF predictor +
   `tools/vmaf-perShot` CLI as **T6-3b**. New ADR
-  [ADR-0220](docs/adr/0220-transnet-v2-shot-detector.md), user-facing
+  [ADR-0220](docs/adr/0223-transnet-v2-shot-detector.md), user-facing
   doc [`docs/ai/models/transnet_v2.md`](docs/ai/models/transnet_v2.md),
   placeholder-export driver
   [`ai/scripts/export_transnet_v2_placeholder.py`](ai/scripts/export_transnet_v2_placeholder.py),

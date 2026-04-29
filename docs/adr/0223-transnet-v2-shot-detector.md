@@ -1,4 +1,4 @@
-# ADR-0220: TransNet V2 shot-boundary detector — 100-frame window, placeholder weights
+# ADR-0223 TransNet V2 shot-boundary detector — 100-frame window, placeholder weights
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

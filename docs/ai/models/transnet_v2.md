@@ -12,7 +12,7 @@ through the existing feature collector).
 > with a tiny randomly-initialised MLP that respects the I/O shape
 > contract. It is **not** a working shot detector. The real
 > upstream-derived TransNet V2 weights drop is tracked as backlog item
-> **T6-3a-followup**. See [ADR-0220](../../adr/0220-transnet-v2-shot-detector.md)
+> **T6-3a-followup**. See [ADR-0220](../../adr/0223-transnet-v2-shot-detector.md)
 > for the placeholder rationale.
 
 ## What the outputs mean
@@ -156,7 +156,7 @@ When upstream TransNet V2 weights are vendored:
   [arXiv:2008.04838](https://arxiv.org/abs/2008.04838).
 - Reference implementation:
   [github.com/soCzech/TransNetV2](https://github.com/soCzech/TransNetV2).
-- [ADR-0220](../../adr/0220-transnet-v2-shot-detector.md) — design decision.
+- [ADR-0220](../../adr/0223-transnet-v2-shot-detector.md) — design decision.
 - [Roadmap §2.4](../roadmap.md) — Wave 1 schedule.
 - [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md) — sister
   placeholder-ONNX pattern (5-frame window FastDVDnet).
