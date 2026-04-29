@@ -80,6 +80,35 @@
   [`docs/adr/0210-cambi-vulkan-integration.md`](docs/adr/0210-cambi-vulkan-integration.md)
   + research digest
   [`docs/research/0032-cambi-vulkan-integration.md`](docs/research/0032-cambi-vulkan-integration.md).
+- **T6-9: Tiny-model registry schema + Sigstore `--tiny-model-verify`**
+  ([ADR-0211](docs/adr/0211-model-registry-sigstore.md)). Formal
+  JSON Schema (Draft 2020-12) at
+  [`model/tiny/registry.schema.json`](model/tiny/registry.schema.json)
+  extended with `license`, `license_url`, and `sigstore_bundle`
+  fields per entry; `schema_version` bumped to `1`. New CLI flag
+  `--tiny-model-verify` wires `cosign verify-blob` via
+  `posix_spawnp(3p)` against the registry's `sigstore_bundle` path,
+  failing closed on missing bundle / missing cosign / non-zero exit.
+  Public C entry point: `vmaf_dnn_verify_signature()` in
+  [`libvmaf/include/libvmaf/dnn.h`](libvmaf/include/libvmaf/dnn.h).
+  Python validator at
+  [`ai/scripts/validate_model_registry.py`](ai/scripts/validate_model_registry.py)
+  (Draft 2020-12 with a structural fallback when `jsonschema` is
+  absent) covers schema + cross-file consistency and is a pre-push
+  gate. Documentation: new
+  [`docs/ai/model-registry.md`](docs/ai/model-registry.md), updated
+  [`docs/ai/inference.md`](docs/ai/inference.md) and
+  [`docs/ai/security.md`](docs/ai/security.md). Tests:
+  `python/test/model_registry_schema_test.py` (10 cases) and
+  `libvmaf/test/dnn/test_tiny_model_verify.c` (18 failure-mode
+  cases on Unix + 1 NULL-arg case covering malformed JSON,
+  default-registry
+  derivation, fake-cosign success / non-zero exit, and
+  empty / missing PATH branches — drives `model_loader.c`
+  coverage to ≥85% per the Coverage Gate critical-file rule;
+  ENOSYS smoke on Windows). All five shipped models gain
+  license metadata (BSD-3-Clause-Plus-Patent for fork-trained;
+  BSD-2-Clause for the upstream LPIPS-Sq export).
 
 ### Removed
 

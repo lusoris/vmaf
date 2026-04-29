@@ -42,6 +42,16 @@ Runtime directly.
   [ADR-0041](../../../docs/adr/0041-lpips-sq-extractor.md).
 - **Every tiny-AI change ships docs** under `docs/ai/` in the same PR. See
   [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md).
+- **Registry schema is the trust contract** (T6-9 / [ADR-0211](../../../docs/adr/0211-model-registry-sigstore.md)).
+  Every entry in [`model/tiny/registry.json`](../../../model/tiny/registry.json)
+  must satisfy [`registry.schema.json`](../../../model/tiny/registry.schema.json):
+  required `id` / `kind` / `onnx` / `sha256`, plus `license` and
+  `sigstore_bundle` for `schema_version: 1` entries. New fields are
+  added by extending the schema first, then the registry, then any
+  consumers — never the other way around. The `--tiny-model-verify`
+  path in `model_loader.c` parses the registry inline (no JSON dep) and
+  spawns `cosign` via `posix_spawnp(3p)`; `system(3)` is and stays
+  banned.
 
 ## Governing ADRs
 

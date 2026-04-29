@@ -115,9 +115,15 @@ cosign verify-blob \
     vmaf_tiny_fr_v1.onnx
 ```
 
-A future `--tiny-model-verify` flag will invoke `cosign` at load time and
-fail closed if the signature is missing or bad. Off by default for
-dev-friendliness; strongly recommended on for production deployments.
+**Now implemented (T6-9 / [ADR-0211](../adr/0211-model-registry-sigstore.md))**:
+the `--tiny-model-verify` flag invokes `cosign verify-blob` at load time
+via `posix_spawnp(3p)` and fails closed if the signature is missing or
+bad. Off by default for dev-friendliness; strongly recommended on for
+production deployments. The flag drives `vmaf_dnn_verify_signature()` in
+[`libvmaf/include/libvmaf/dnn.h`](../../libvmaf/include/libvmaf/dnn.h),
+which looks up the model's `sigstore_bundle` field in
+[`model/tiny/registry.json`](../../model/tiny/registry.json) — see
+[model-registry.md](model-registry.md) for the full schema and CLI flow.
 
 ## Reporting
 

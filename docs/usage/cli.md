@@ -232,6 +232,40 @@ See [../ai/inference.md](../ai/inference.md) for the full tiny-AI CLI
 walkthrough and the per-model registry (`model/tiny/registry.json`,
 sha256 pins, known limitations).
 
+### Sigstore bundle verification (fork-added)
+
+```text
+--tiny-model-verify <path>     # verify Sigstore bundle for a tiny-AI ONNX model
+```
+
+`--tiny-model-verify` invokes `cosign verify-blob` against the Sigstore
+bundle attached to a tiny-AI ONNX model **before** the model is loaded
+into ORT. The flag's argument is the path to the `.sigstore` bundle
+(typically `<model>.onnx.sigstore`); the model file itself is the one
+passed via `--tiny-model`. Verification is performed in-process by
+shelling out to the `cosign` binary on the host's `PATH`; on success
+the loader proceeds normally, on failure the process exits non-zero
+with a diagnostic to stderr.
+
+When to use it: production inference pipelines that need supply-chain
+verification of model integrity — e.g. a release runner that pulls a
+fork-signed `.onnx` from an artifact store and refuses to score with
+an unsigned or tampered model. For local development against an
+unsigned checkpoint, omit the flag.
+
+Failure modes (all exit non-zero before any inference runs):
+
+- `cosign` binary not on `PATH`.
+- Bundle path missing, unreadable, or not a valid Sigstore bundle.
+- `cosign verify-blob` reports an invalid signature, mismatched
+  digest, or rejected certificate identity.
+
+See [ADR-0211](../adr/0211-model-registry-sigstore.md)
+for the model-registry schema and the Sigstore-bundle integration
+that this flag consumes, and
+[../ai/inference.md](../ai/inference.md) for the end-to-end signed-model
+workflow.
+
 ## Logging and misc
 
 | Flag | Short | Effect |
