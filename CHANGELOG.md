@@ -66,6 +66,22 @@
 
 ### Changed
 
+- **Quarterly upstream-backlog re-audit (T7-4)** (fork-local doc):
+  new
+  [`docs/upstream-backlog-audit-2026-04-29.md`](docs/upstream-backlog-audit-2026-04-29.md)
+  walks the 12 upstream Netflix/vmaf commits landed since the
+  fork's last `chore(upstream): port` boundary
+  (`798409e3` / `314db130`, PR #181). 8 are already on fork
+  (cherry-picked, ported, or covered by an Accepted ADR /
+  Research digest); 4 are flagged for fork action and surface
+  as 4 recommended new T-rows: port `feature/speed`
+  (`d3647c73`), port adm + vif test deltas from `c70debb1`,
+  port 32-bit ADM/cpu fallbacks (`8a289703` + `1b6c3886`), and
+  schedule the next re-audit for 2026-07-29. No code changes,
+  no `docs/state.md` changes (no upstream commit ruled in/out
+  a fork bug). Doubles as the ADR-0108 research digest for the
+  audit PR.
+
 - **Research-0031: Intel AI-PC NPU/EP applicability digest (T7-9)**
   (fork-local doc): new
   [`docs/research/0031-intel-ai-pc-applicability.md`](docs/research/0031-intel-ai-pc-applicability.md)
