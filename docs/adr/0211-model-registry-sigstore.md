@@ -1,4 +1,4 @@
-# ADR-0209: Tiny-model registry schema + Sigstore `--tiny-model-verify`
+# ADR-0211: Tiny-model registry schema + Sigstore `--tiny-model-verify`
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  T6-9 / ADR-0209 — exercise the failure modes of
+ *  T6-9 / ADR-0211 — exercise the failure modes of
  *  vmaf_dnn_verify_signature() without requiring `cosign` on the test
  *  host. The function fails closed, so every "missing X" path returns a
  *  negative errno and short-circuits before posix_spawnp is reached.

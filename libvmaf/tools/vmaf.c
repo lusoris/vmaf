@@ -548,7 +548,7 @@ int main(int argc, char *argv[])
             ret = -1;
             goto cleanup;
         }
-        /* T6-9 / ADR-0209 — Sigstore-bundle verification. Runs *before*
+        /* T6-9 / ADR-0211 — Sigstore-bundle verification. Runs *before*
          * the model is opened so a verification failure short-circuits
          * load and never touches ORT. Fails closed: missing registry,
          * missing bundle, missing cosign, or any non-zero cosign exit

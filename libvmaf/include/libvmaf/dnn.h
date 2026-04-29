@@ -172,7 +172,7 @@ const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess);
 
 /**
  * Verify the Sigstore bundle for a tiny model against the model registry
- * (T6-9 / ADR-0209). Looks up @p onnx_path's basename in
+ * (T6-9 / ADR-0211). Looks up @p onnx_path's basename in
  * `model/tiny/registry.json` (alongside @p onnx_path unless
  * @p registry_path is non-NULL), reads the entry's `sigstore_bundle`
  * field, and shells out to `cosign verify-blob` via `posix_spawnp(3p)`.

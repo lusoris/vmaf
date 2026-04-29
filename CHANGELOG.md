@@ -81,7 +81,7 @@
   + research digest
   [`docs/research/0032-cambi-vulkan-integration.md`](docs/research/0032-cambi-vulkan-integration.md).
 - **T6-9: Tiny-model registry schema + Sigstore `--tiny-model-verify`**
-  ([ADR-0209](docs/adr/0209-model-registry-sigstore.md)). Formal
+  ([ADR-0211](docs/adr/0211-model-registry-sigstore.md)). Formal
   JSON Schema (Draft 2020-12) at
   [`model/tiny/registry.schema.json`](model/tiny/registry.schema.json)
   extended with `license`, `license_url`, and `sigstore_bundle`

@@ -4687,7 +4687,7 @@ inline.*
       --output /tmp/sycl-fp64less.json --json
   ```
 
-### 0091 — T6-9 model registry schema + `--tiny-model-verify` (ADR-0209)
+### 0091 — T6-9 model registry schema + `--tiny-model-verify` (ADR-0211)
 
 
 - **No rebase impact: 100% fork-local surface.** The registry

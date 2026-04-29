@@ -357,7 +357,7 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
 }
 
 /* ============================================================
- * T6-9 / ADR-0209 — Sigstore-bundle verification of tiny models.
+ * T6-9 / ADR-0211 — Sigstore-bundle verification of tiny models.
  *
  * Operates on the fork's tiny-model registry (model/tiny/registry.json):
  *   1. Resolve the registry alongside the ONNX (or use the caller path).

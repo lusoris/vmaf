@@ -63,7 +63,7 @@ void vmaf_dnn_sidecar_free(VmafModelSidecar *s);
 int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes);
 
 /** Verify an ONNX file's Sigstore bundle by shelling out to `cosign
- *  verify-blob` (T6-9 / ADR-0209). Wired through the CLI by
+ *  verify-blob` (T6-9 / ADR-0211). Wired through the CLI by
  *  ``--tiny-model-verify``. The function:
  *
  *    1. Locates the registry entry whose ``onnx`` field has the same

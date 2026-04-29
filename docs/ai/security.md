@@ -115,7 +115,7 @@ cosign verify-blob \
     vmaf_tiny_fr_v1.onnx
 ```
 
-**Now implemented (T6-9 / [ADR-0209](../adr/0209-model-registry-sigstore.md))**:
+**Now implemented (T6-9 / [ADR-0211](../adr/0211-model-registry-sigstore.md))**:
 the `--tiny-model-verify` flag invokes `cosign verify-blob` at load time
 via `posix_spawnp(3p)` and fails closed if the signature is missing or
 bad. Off by default for dev-friendliness; strongly recommended on for

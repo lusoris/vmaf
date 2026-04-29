@@ -42,7 +42,7 @@ Runtime directly.
   [ADR-0041](../../../docs/adr/0041-lpips-sq-extractor.md).
 - **Every tiny-AI change ships docs** under `docs/ai/` in the same PR. See
   [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md).
-- **Registry schema is the trust contract** (T6-9 / [ADR-0209](../../../docs/adr/0209-model-registry-sigstore.md)).
+- **Registry schema is the trust contract** (T6-9 / [ADR-0211](../../../docs/adr/0211-model-registry-sigstore.md)).
   Every entry in [`model/tiny/registry.json`](../../../model/tiny/registry.json)
   must satisfy [`registry.schema.json`](../../../model/tiny/registry.schema.json):
   required `id` / `kind` / `onnx` / `sha256`, plus `license` and

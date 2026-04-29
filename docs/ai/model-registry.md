@@ -3,7 +3,7 @@
 The registry at [`model/tiny/registry.json`](../../model/tiny/registry.json)
 is the **trust root** for libvmaf's tiny-AI surface. Every ONNX model
 shipped under `model/tiny/` is indexed here with a SHA-256 pin, license
-metadata, and a Sigstore bundle path. T6-9 / [ADR-0209](../adr/0209-model-registry-sigstore.md)
+metadata, and a Sigstore bundle path. T6-9 / [ADR-0211](../adr/0211-model-registry-sigstore.md)
 formalised the schema and wired `--tiny-model-verify` to `cosign verify-blob`.
 
 ## Registry shape
