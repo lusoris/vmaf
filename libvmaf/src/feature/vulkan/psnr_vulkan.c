@@ -3,7 +3,7 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  PSNR feature kernel on the Vulkan backend (T7-23 / ADR-0182,
- *  GPU long-tail batch 1; chroma extension T3-15(b) / ADR-0210).
+ *  GPU long-tail batch 1; chroma extension T3-15(b) / ADR-0216).
  *
  *  Per-pixel squared-error reduction → host-side log10 → score.
  *  One dispatch per plane (Y, Cb, Cr); the same `psnr.comp`
@@ -522,7 +522,7 @@ static int close_fex(VmafFeatureExtractor *fex)
     return 0;
 }
 
-/* Provided features — full luma + chroma per T3-15(b) / ADR-0210.
+/* Provided features — full luma + chroma per T3-15(b) / ADR-0216.
  * For YUV400 sources `init` clamps `n_planes` to 1 and chroma
  * dispatches are skipped, so only `psnr_y` is emitted at runtime —
  * but the static list still claims chroma so the dispatcher routes
@@ -540,7 +540,7 @@ VmafFeatureExtractor vmaf_fex_psnr_vulkan = {
     .provided_features = provided_features,
     /* 3 small dispatches/frame (Y + Cb + Cr in one command buffer),
      * reduction-dominated; AUTO + 1080p area matches motion's
-     * profile (see ADR-0181 / ADR-0182 / ADR-0210). */
+     * profile (see ADR-0181 / ADR-0182 / ADR-0216). */
     .chars =
         {
             .n_dispatches_per_frame = 3,

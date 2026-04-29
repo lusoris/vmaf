@@ -114,7 +114,7 @@ libvmaf/
   See [ADR-0147](../docs/adr/0147-thread-pool-job-pool.md) and
   [rebase-notes 0040](../docs/rebase-notes.md).
 
-- **Vulkan PSNR chroma contract** (fork-local, [ADR-0210](../docs/adr/0210-vulkan-chroma-psnr.md)).
+- **Vulkan PSNR chroma contract** (fork-local, [ADR-0216](../docs/adr/0216-vulkan-chroma-psnr.md)).
   [`src/feature/vulkan/psnr_vulkan.c`](src/feature/vulkan/psnr_vulkan.c)
   carries `ref_in[3] / dis_in[3] / se_partials[3]` arrays in
   `PsnrVulkanState` (Y / Cb / Cr) and dispatches the same

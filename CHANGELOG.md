@@ -83,7 +83,7 @@
   extended to assert all three plane scores at `places=4`;
   measured `max_abs_diff = 0.0` across 48 frames at 576×324 on
   lavapipe (deterministic int64 SSE accumulators on both sides).
-  See [ADR-0210](docs/adr/0210-vulkan-chroma-psnr.md). Doc at
+  See [ADR-0216](docs/adr/0216-vulkan-chroma-psnr.md). Doc at
   [`docs/backends/vulkan/overview.md`](docs/backends/vulkan/overview.md).
 
 - **Embedded MCP server scaffold (T5-2, audit-first)** — new

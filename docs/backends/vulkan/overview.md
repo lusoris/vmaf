@@ -101,7 +101,7 @@
     `psnr_cr`. Bit-exact vs CPU `integer_psnr` on integer YUV
     (`max_abs_diff = 0.0` on the 576×324 lavapipe gate). See
     [ADR-0182](../../adr/0182-gpu-long-tail-batch-1.md) +
-    [ADR-0210](../../adr/0210-vulkan-chroma-psnr.md).
+    [ADR-0216](../../adr/0216-vulkan-chroma-psnr.md).
 - Build system: `enable_vulkan` feature option (default **disabled**)
   in [`libvmaf/meson_options.txt`](../../../libvmaf/meson_options.txt);
   conditional `subdir('vulkan')` in
@@ -191,7 +191,7 @@ python3 scripts/ci/cross_backend_vif_diff.py \
 
 Pass `--feature psnr` to gate `psnr_y`, `psnr_cb`, and `psnr_cr`
 together against the CPU integer PSNR reference (per-plane
-dispatches; ADR-0210).
+dispatches; ADR-0216).
 
 The script exits 0 when every per-frame `integer_vif_scale0..3`
 score agrees with the CPU scalar reference at the configured

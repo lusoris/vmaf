@@ -1,4 +1,4 @@
-# ADR-0210: Vulkan PSNR — chroma extension (psnr_cb / psnr_cr)
+# ADR-0216: Vulkan PSNR — chroma extension (psnr_cb / psnr_cr)
 
 - **Status**: Accepted
 - **Date**: 2026-04-29
