@@ -3388,6 +3388,32 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0081 — Research-0027 Phase-2 feature importance results
+
+- **No ADR.** Empirical research digest closing Research-0026
+  Phase 2; the architectural decision (Subset A / B / C) is
+  deferred to Phase-3 results in a future digest.
+- **Upstream source**: fork-local. Netflix has no cross-metric
+  feature-importance analysis surface.
+- **Touches** (additive only):
+  - `docs/research/0027-phase2-feature-importance.md` — per-method
+    top-10 + consensus + redundancy + Phase-3 subset
+    recommendations.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **Consensus top-10 is the load-bearing finding**:
+     `adm2`, `adm_scale3`, `ssimulacra2`, `vif_scale2`. Phase-3
+     candidate subsets MUST include all four.
+  2. **The 11-pair redundancy table is corpus-specific** —
+     measurements on Netflix Public 9-source. KoNViD-1k cross-
+     check is a Phase-3 prerequisite if Subsets B/C advance.
+  3. **`runs/full_features_netflix.parquet` and
+     `runs/full_features_correlation.json` stay gitignored.**
+     Reproducer in §"Reproducer" regenerates both.
+- **On upstream sync**: zero interaction. Fork-only research.
+- **Re-test on rebase**: documentation-only PR; the `runs/` files
+  are reproducible from the canonical commands.
+
 ### 0080 — Phase-2 analysis scripts (Research-0026 Phase 2 prep)
 
 - **No ADR.** Pure analysis scaffolding; the architectural
