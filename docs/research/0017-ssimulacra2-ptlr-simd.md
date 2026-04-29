@@ -98,7 +98,11 @@ update. ~550 LoC per ISA (mostly the per-lane scalar helpers) +
   scalar-read bottleneck is limiting overall frame time, consider
   adding 420/444 8bit specialised paths. Low priority.
 - **SSIMULACRA 2 snapshot JSON (T3-3)** — still pending.
-- **SVE2 port** — deferred.
+- **SVE2 port** — shipped under [ADR-0213](../adr/0213-ssimulacra2-sve2.md)
+  with qemu validation. The PTLR kernel uses the same per-lane scalar
+  read + per-lane scalar `srgb_eotf` pattern documented in this digest;
+  the SVE2 mirror is byte-identical to NEON under a fixed 4-lane
+  predicate.
 - **`picture_to_linear_rgb` is now T3-1 complete** — SSIMULACRA 2
   has no remaining scalar hot paths. Focus shifts to T3-3 snapshot
   gate + other backlog items.

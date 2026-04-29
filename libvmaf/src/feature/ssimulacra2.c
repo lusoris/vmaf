@@ -67,6 +67,9 @@
 #endif
 #if ARCH_AARCH64
 #include "feature/arm64/ssimulacra2_neon.h"
+#if HAVE_SVE2
+#include "feature/arm64/ssimulacra2_sve2.h"
+#endif
 #endif
 
 /*
@@ -954,6 +957,20 @@ static void init_simd_dispatch(Ssimu2State *s)
         s->blur_fn = ssimulacra2_blur_plane_neon;
         s->ptlr_fn = ssimulacra2_picture_to_linear_rgb_neon;
     }
+#if HAVE_SVE2
+    /* T7-38: SVE2 overrides NEON when available. Each kernel produces
+     * byte-identical output to the NEON sibling — the dispatch is
+     * additive, not perturbative (ADR-NNNN). */
+    if (flags & VMAF_ARM_CPU_FLAG_SVE2) {
+        s->mul3_fn = ssimulacra2_multiply_3plane_sve2;
+        s->xyb_fn = ssimulacra2_linear_rgb_to_xyb_sve2;
+        s->down_fn = ssimulacra2_downsample_2x2_sve2;
+        s->ssim_fn = ssimulacra2_ssim_map_sve2;
+        s->edge_fn = ssimulacra2_edge_diff_map_sve2;
+        s->blur_fn = ssimulacra2_blur_plane_sve2;
+        s->ptlr_fn = ssimulacra2_picture_to_linear_rgb_sve2;
+    }
+#endif
 #endif
 }
 

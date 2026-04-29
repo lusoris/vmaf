@@ -21,6 +21,11 @@
 
 enum CpuFlags {
     VMAF_ARM_CPU_FLAG_NEON = 1 << 0,
+    /* SVE2 (T7-38) — runtime-detected via getauxval(AT_HWCAP2) &
+     * HWCAP2_SVE2 on Linux. Probed only on aarch64 hosts; legacy
+     * 32-bit ARM never sets it. NEON remains the fallback so this
+     * flag is purely additive. */
+    VMAF_ARM_CPU_FLAG_SVE2 = 1 << 1,
 };
 
 unsigned vmaf_get_cpu_flags_arm(void);

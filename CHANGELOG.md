@@ -316,6 +316,33 @@
   `dependency('hip-lang', required: false)` is silently absent on
   stock Ubuntu runners.
 
+- **SSIMULACRA 2 SVE2 SIMD parity (T7-38, ADR-0213)** (fork-local):
+  new aarch64 SVE2 sister TU
+  ([`libvmaf/src/feature/arm64/ssimulacra2_sve2.c`](libvmaf/src/feature/arm64/ssimulacra2_sve2.c))
+  ports the seven SSIMULACRA 2 SIMD entry points (`multiply_3plane`,
+  `linear_rgb_to_xyb`, `downsample_2x2`, `ssim_map`, `edge_diff_map`,
+  `blur_plane`, `picture_to_linear_rgb`) under a fixed 4-lane
+  `svwhilelt_b32(0, 4)` predicate — bit-identical to the NEON sibling
+  irrespective of the runtime vector length, satisfying the
+  [ADR-0138](docs/adr/0138-simd-bit-exactness-policy.md) /
+  [ADR-0139](docs/adr/0139-ssim-simd-bitexact-double.md) /
+  [ADR-0140](docs/adr/0140-ssimulacra2-simd-bitexact.md) byte-exact
+  contract. New runtime probe
+  [`libvmaf/src/arm/cpu.c`](libvmaf/src/arm/cpu.c) reads
+  `getauxval(AT_HWCAP2) & HWCAP2_SVE2`; new build probe in
+  [`libvmaf/src/meson.build`](libvmaf/src/meson.build) runs
+  `cc.compiles(... -march=armv9-a+sve2)` so toolchains without SVE2
+  intrinsics gracefully fall back to NEON. The dispatch table in
+  [`libvmaf/src/feature/ssimulacra2.c`](libvmaf/src/feature/ssimulacra2.c)
+  is purely additive: NEON stays the fallback; SVE2 overrides only
+  when the bit is set. Validated under `qemu-aarch64-static -cpu max`:
+  dispatch reports `NEON=1 SVE2=1`, all 11 `test_ssimulacra2_simd`
+  bit-exactness subtests pass byte-for-byte against the scalar
+  reference (37/37 host x86 + 36/36 cross-aarch64 SVE2 suites green).
+  Closes the "SVE2 deferred pending CI hardware" footnote in
+  [Research-0016](docs/research/0016-ssimulacra2-iir-blur-simd.md) /
+  [Research-0017](docs/research/0017-ssimulacra2-ptlr-simd.md) and
+  backlog row T7-38.
 - **Research-0030 — Phase-3b multi-seed validation (Gate 1 PASSED)**
   (fork-local doc): 5-seed retry of Phase-3b confirms the Subset B
   win is robust and *widens* with more seeds. Aggregate over
