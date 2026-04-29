@@ -43,6 +43,7 @@ ninja -C build
 | `enable_mcp_sse`  | bool      | `false`   | Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires `enable_mcp=true`. Stub-only until T5-2b ships transport bodies. |
 | `enable_mcp_uds`  | bool      | `false`   | Compile in the Unix-domain-socket transport. Requires `enable_mcp=true`. POSIX-only; non-POSIX hosts return `-ENODEV` at runtime. Stub-only until T5-2b. |
 | `enable_mcp_stdio`| bool      | `false`   | Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport. Requires `enable_mcp=true`. Stub-only until T5-2b. |
+| `enable_hip`      | bool      | `false`   | Compile the HIP (AMD ROCm) compute backend scaffold. Default off; every public C-API entry point returns `-ENOSYS` until the runtime PR (T7-10b) lands — see [ADR-0209](../adr/0209-hip-backend-scaffold.md) and [backends/hip/overview.md](../backends/hip/overview.md). The scaffold has no hard runtime dependencies; ROCm 6+ is required only when the kernels arrive. |
 
 ### Flag interactions
 
@@ -69,11 +70,11 @@ ninja -C build
 
 ### Options referenced in docs but not present
 
-- `enable_hip` — referenced in [`.claude/skills/build-vmaf/SKILL.md`](../../.claude/skills/build-vmaf/SKILL.md)
-  for a forthcoming AMD HIP backend. The option is **not yet defined in
-  `meson_options.txt`**; passing it today makes configure fail. Track via
-  [`/add-gpu-backend hip`](../../.claude/skills/add-gpu-backend/SKILL.md)
-  when the backend lands.
+(All build flags referenced elsewhere in the docs are now defined in
+`libvmaf/meson_options.txt`. `enable_hip` was added by ADR-0209
+(T7-10) — the option exists but the backend it enables is a scaffold
+returning `-ENOSYS`; see the table above and
+[backends/hip/overview.md](../backends/hip/overview.md).)
 
 ## Standard Meson options that matter
 

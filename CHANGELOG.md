@@ -283,6 +283,39 @@
 
 ### Added
 
+- **HIP (AMD ROCm) compute backend — scaffold-only audit-first PR
+  (T7-10, ADR-0209)**: new public header
+  [`libvmaf/include/libvmaf/libvmaf_hip.h`](libvmaf/include/libvmaf/libvmaf_hip.h)
+  declaring `VmafHipState`, `VmafHipConfiguration`,
+  `vmaf_hip_state_init` / `_import_state` / `_state_free`,
+  `vmaf_hip_list_devices`, `vmaf_hip_available`. New
+  `libvmaf/src/hip/` (`common.{c,h}`, `picture_hip.{c,h}`,
+  `dispatch_strategy.{c,h}`) + `libvmaf/src/feature/hip/` (3 kernel
+  stubs: `adm_hip.c`, `vif_hip.c`, `motion_hip.c`). All entry points
+  return `-ENOSYS` until the runtime PR (T7-10b) lands. New
+  `enable_hip` boolean option (default **false**) in
+  [`libvmaf/meson_options.txt`](libvmaf/meson_options.txt) with
+  conditional `subdir('hip')` in
+  [`libvmaf/src/meson.build`](libvmaf/src/meson.build). New 9-sub-test
+  smoke at
+  [`libvmaf/test/test_hip_smoke.c`](libvmaf/test/test_hip_smoke.c)
+  pinning the `-ENOSYS` / `-EINVAL` contract for every public
+  C-API entry point. New CI matrix row `Build — Ubuntu HIP (T7-10
+  scaffold)` in
+  [`.github/workflows/libvmaf-build-matrix.yml`](.github/workflows/libvmaf-build-matrix.yml)
+  compiling with `-Denable_hip=true` (no ROCm SDK on the runner —
+  the scaffold has no SDK requirement). New
+  [`docs/backends/hip/overview.md`](docs/backends/hip/overview.md);
+  [`docs/backends/index.md`](docs/backends/index.md) flipped from
+  "planned" to "scaffold only". New
+  [`docs/research/0032-hip-applicability.md`](docs/research/0032-hip-applicability.md)
+  digest covering AMD market share + ROCm 6.x Linux maturity.
+  Mirrors the Vulkan T5-1 scaffold (ADR-0175); validates the
+  abstraction-layer-clean-enough-to-reproduce gating condition for
+  T7-10. **Zero hard runtime dependencies** —
+  `dependency('hip-lang', required: false)` is silently absent on
+  stock Ubuntu runners.
+
 - **Research-0030 — Phase-3b multi-seed validation (Gate 1 PASSED)**
   (fork-local doc): 5-seed retry of Phase-3b confirms the Subset B
   win is robust and *widens* with more seeds. Aggregate over

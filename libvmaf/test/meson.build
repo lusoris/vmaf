@@ -506,6 +506,20 @@ test_mcp_smoke = executable('test_mcp_smoke',
 test('test_mcp_smoke', test_mcp_smoke)
 endif
 
+# ADR-0209 / T7-10: HIP (AMD ROCm) backend scaffold smoke. Same pattern
+# as the Vulkan scaffold above — pins the -ENOSYS contract for every
+# public C-API entry point until the runtime PR lands.
+if get_option('enable_hip') == true
+test_hip_smoke = executable('test_hip_smoke',
+    ['test.c', 'test_hip_smoke.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+    c_args: ['-DHAVE_HIP=1']
+)
+test('test_hip_smoke', test_hip_smoke)
+endif
+
 test('test_picture', test_picture)
 test('test_feature_collector', test_feature_collector)
 test('test_thread_pool', test_thread_pool)

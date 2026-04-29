@@ -101,6 +101,19 @@ jobs:
             meson_extra: -Denable_vulkan=enabled
             name: Build — Ubuntu Vulkan (T5-1b runtime)
 
+          # --- HIP T7-10 scaffold (ADR-0209) ---
+          # Stub-only build — every HIP entry point returns -ENOSYS until
+          # the runtime PR lands. No ROCm SDK is installed; the scaffold's
+          # `dependency('hip-lang', required: false)` probe is silently
+          # absent on a stock Ubuntu runner and the build still succeeds.
+          # The smoke test runs (no real GPU needed — every assertion
+          # checks the -ENOSYS / -EINVAL contract).
+          - os: ubuntu-latest
+            CC: ccache gcc
+            CXX: ccache g++
+            meson_extra: -Denable_hip=true
+            name: Build — Ubuntu HIP (T7-10 scaffold)
+
           # --- Static library builds ---
           - os: ubuntu-latest
             CC: ccache gcc

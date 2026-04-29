@@ -87,3 +87,8 @@ option('enable_mcp_stdio',
     type: 'boolean',
     value: false,
     description: 'Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport for the embedded MCP server. Requires enable_mcp=true. Bodies land in T5-2b.')
+
+option('enable_hip',
+    type: 'boolean',
+    value: false,
+    description: 'Build HIP (AMD ROCm) compute backend (ADR-0209 scaffold / T7-10). Default OFF — every entry point returns -ENOSYS until the runtime PR lands. Requires ROCm 6+ when the kernels arrive; the scaffold has no SDK requirement.')
