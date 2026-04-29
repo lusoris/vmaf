@@ -20,13 +20,17 @@
  *       written at `index - 1` (delayed-by-one pattern from the CPU
  *       extractor — see CPU lines 510-560).
  *
- *  Scope note (matches the .comp file): motion3_score (the 5-frame
- *  window mode in CPU integer_motion.c, gated by
- *  `motion_five_frame_window`) is NOT implemented here. It needs a
- *  5-deep blur ring buffer + the motion_blend / moving-average
- *  post-processing. Defer to a follow-up PR; the extractor's
- *  `provided_features[]` deliberately omits motion3 so the framework
- *  does not select this Vulkan path for callers that ask for it.
+ *  Scope note (T3-15(c) update — motion3_score, default 3-frame
+ *  window): motion3 is now emitted on the Vulkan backend. The CPU
+ *  extractor derives motion3 from motion2 via host-side scalar
+ *  post-processing (`motion_blend` + clip-to-`motion_max_val` +
+ *  optional moving-average) — none of this is on the GPU's critical
+ *  path, so the GPU port is purely a host-side scalar add-on after
+ *  the SAD reduction. See ADR-0219.
+ *
+ *  Still deferred: `motion_five_frame_window=true` mode (5-deep blur
+ *  ring buffer + frame i-2↔i + i-2↔i-4 SAD pair). No shipped model
+ *  uses it; init() rejects it with -ENOTSUP if a caller sets it.
  *
  *  Pattern reference: libvmaf/src/feature/vulkan/vif_vulkan.c (the
  *  canonical Vulkan-backend layout — same lazy-or-borrow context,
@@ -38,6 +42,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+#include "../motion_blend_tools.h"
 
 #include "config.h"
 #include "feature_collector.h"
@@ -62,10 +68,20 @@
 /* Per-extractor state.                                                */
 /* ------------------------------------------------------------------ */
 
+/* Default upper clamp on motion / motion2 / motion3 — mirrors
+ * DEFAULT_MOTION_MAX_VAL in libvmaf/src/feature/integer_motion.c. */
+#define MOTION_VULKAN_DEFAULT_MAX_VAL (10000.0)
+
 typedef struct {
     /* Options. */
     bool debug;
     bool motion_force_zero;
+    bool motion_five_frame_window; /* rejected with -ENOTSUP — see init() */
+    bool motion_moving_average;
+    double motion_blend_factor;
+    double motion_blend_offset;
+    double motion_fps_weight;
+    double motion_max_val;
 
     /* Frame geometry. */
     unsigned width;
@@ -102,34 +118,103 @@ typedef struct {
     /* Frame state. */
     unsigned frame_index;
     double prev_motion_score;
+    /* motion3 post-processing state — mirrors `previous_score` in
+     * the CPU MotionState. Holds the last unaveraged blended
+     * motion3 score so we can apply the moving-average rule on the
+     * next frame. */
+    double prev_motion3_blended;
 
     VmafDictionary *feature_name_dict;
 } MotionVulkanState;
 
 /* ------------------------------------------------------------------ */
-/* Options table — minimal subset that matters for the GPU port.      */
-/* See CPU integer_motion.c for the full set; the post-processing     */
-/* options (motion_blend_factor / motion_max_val / etc.) are paired   */
-/* with motion3 which we don't yet emit.                              */
+/* Options table — mirrors libvmaf/src/feature/integer_motion.c.      */
+/* The post-processing options drive motion3_score, derived on the    */
+/* host from motion2 via `motion_blend(...)` (see extract()).         */
+/* `motion_five_frame_window` is currently rejected — the kernel     */
+/* still uses a 2-deep blur ring (T3-15(c) deferred sub-task).       */
 /* ------------------------------------------------------------------ */
 
-static const VmafOption options[] = {{
-                                         .name = "debug",
-                                         .help = "debug mode: enable additional output",
-                                         .offset = offsetof(MotionVulkanState, debug),
-                                         .type = VMAF_OPT_TYPE_BOOL,
-                                         .default_val.b = true,
-                                     },
-                                     {
-                                         .name = "motion_force_zero",
-                                         .alias = "force_0",
-                                         .help = "force motion score to zero",
-                                         .offset = offsetof(MotionVulkanState, motion_force_zero),
-                                         .type = VMAF_OPT_TYPE_BOOL,
-                                         .default_val.b = false,
-                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-                                     },
-                                     {0}};
+static const VmafOption options[] = {
+    {
+        .name = "debug",
+        .help = "debug mode: enable additional output",
+        .offset = offsetof(MotionVulkanState, debug),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = true,
+    },
+    {
+        .name = "motion_force_zero",
+        .alias = "force_0",
+        .help = "force motion score to zero",
+        .offset = offsetof(MotionVulkanState, motion_force_zero),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_blend_factor",
+        .alias = "mbf",
+        .help = "blend motion score given an offset",
+        .offset = offsetof(MotionVulkanState, motion_blend_factor),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 1.0,
+        .min = 0.0,
+        .max = 1.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_blend_offset",
+        .alias = "mbo",
+        .help = "blend motion score starting from this offset",
+        .offset = offsetof(MotionVulkanState, motion_blend_offset),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 40.0,
+        .min = 0.0,
+        .max = 1000.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_fps_weight",
+        .alias = "mfw",
+        .help = "fps-aware multiplicative weight/correction",
+        .offset = offsetof(MotionVulkanState, motion_fps_weight),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 1.0,
+        .min = 0.0,
+        .max = 5.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_max_val",
+        .alias = "mmxv",
+        .help = "maximum value allowed; larger values will be clipped to this value",
+        .offset = offsetof(MotionVulkanState, motion_max_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = MOTION_VULKAN_DEFAULT_MAX_VAL,
+        .min = 0.0,
+        .max = 10000.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_five_frame_window",
+        .alias = "mffw",
+        .help = "use five-frame temporal window (NOT YET SUPPORTED on Vulkan — T3-15(c) deferred)",
+        .offset = offsetof(MotionVulkanState, motion_five_frame_window),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_moving_average",
+        .alias = "mma",
+        .help = "use moving average for motion3 scores after first frame",
+        .offset = offsetof(MotionVulkanState, motion_moving_average),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {0}};
 
 /* ------------------------------------------------------------------ */
 /* Push constants — must mirror `Params` in motion.comp.              */
@@ -318,11 +403,25 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
 {
     (void)pix_fmt;
     MotionVulkanState *s = fex->priv;
+
+    /* Reject the 5-frame window mode explicitly. The CPU extractor
+     * keeps a 5-deep blur ring and computes a second SAD pair (i-2 ↔
+     * i-4); the GPU port ships only the 3-frame ring today. Failing
+     * loud with -ENOTSUP keeps callers from silently falling back to
+     * a wrong answer. See ADR-0219. */
+    if (s->motion_five_frame_window) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "motion_vulkan: motion_five_frame_window=true is not yet supported on the "
+                 "Vulkan backend (T3-15(c) deferred). Use the CPU extractor `motion` instead.\n");
+        return -ENOTSUP;
+    }
+
     s->width = w;
     s->height = h;
     s->bpc = bpc;
     s->frame_index = 0;
     s->prev_motion_score = 0.0;
+    s->prev_motion3_blended = 0.0;
     s->cur_blur = 0;
 
     /* Borrow the framework's imported context when available, fall
@@ -423,8 +522,37 @@ static int extract_force_zero(MotionVulkanState *s, unsigned index, VmafFeatureC
     }
     err |= vmaf_feature_collector_append_with_dict(
         fc, s->feature_name_dict, "VMAF_integer_feature_motion2_score", 0.0, index);
+    err |= vmaf_feature_collector_append_with_dict(
+        fc, s->feature_name_dict, "VMAF_integer_feature_motion3_score", 0.0, index);
     s->frame_index++;
     return err;
+}
+
+/* ------------------------------------------------------------------ */
+/* motion3 post-processing — pure host-side scalar work.              */
+/*                                                                     */
+/* Mirrors libvmaf/src/feature/integer_motion.c lines 510-560:        */
+/*   processed = min(motion_blend(score2 * fps_weight, blend_factor,  */
+/*                                blend_offset), max_val)              */
+/*   if motion_moving_average:                                         */
+/*       processed = (processed + previous_unaveraged) / 2             */
+/*                                                                     */
+/* `score2` is `motion2_score` (already clipped in our caller).       */
+/* `prev_motion3_blended` keeps the *unaveraged* previous so the       */
+/* moving-average rule cascades correctly across frames — exactly     */
+/* the CPU pattern.                                                    */
+/* ------------------------------------------------------------------ */
+static double motion3_postprocess(MotionVulkanState *s, double score2)
+{
+    double const weighted = score2 * s->motion_fps_weight;
+    double const blended = motion_blend(weighted, s->motion_blend_factor, s->motion_blend_offset);
+    double const clipped = MIN(blended, s->motion_max_val);
+    double const previous_unaveraged = s->prev_motion3_blended;
+    s->prev_motion3_blended = clipped;
+    if (s->motion_moving_average && s->frame_index > 1) {
+        return (clipped + previous_unaveraged) / 2.0;
+    }
+    return clipped;
 }
 
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
@@ -543,7 +671,18 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
                                                           index);
         }
     } else if (s->frame_index == 1) {
-        if (s->debug) {
+        /* Match CPU integer_motion.c lines 510-530: when the second
+         * frame arrives, write motion3_score for index 0 (back-fill
+         * the very first frame) using the current motion as the
+         * substrate (no min(prev, cur) yet — there's no prev). */
+        double const score_clipped = MIN(motion_score * s->motion_fps_weight, s->motion_max_val);
+        double const motion3_score = motion3_postprocess(s, score_clipped);
+        if (!err) {
+            err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                          "VMAF_integer_feature_motion3_score",
+                                                          motion3_score, index - 1);
+        }
+        if (s->debug && !err) {
             err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                           "VMAF_integer_feature_motion_score",
                                                           motion_score, index);
@@ -551,9 +690,16 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     } else {
         double motion2 =
             (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
+        double const motion2_clipped = MIN(motion2 * s->motion_fps_weight, s->motion_max_val);
         err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                       "VMAF_integer_feature_motion2_score", motion2,
                                                       index - 1);
+        if (!err) {
+            double const motion3_score = motion3_postprocess(s, motion2_clipped);
+            err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                          "VMAF_integer_feature_motion3_score",
+                                                          motion3_score, index - 1);
+        }
         if (s->debug && !err) {
             err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                           "VMAF_integer_feature_motion_score",
@@ -587,9 +733,19 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
         return 1;
 
     if (s->frame_index > 1) {
+        double const last_motion2 =
+            MIN(s->prev_motion_score * s->motion_fps_weight, s->motion_max_val);
         ret = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                       "VMAF_integer_feature_motion2_score",
-                                                      s->prev_motion_score, s->frame_index - 1);
+                                                      last_motion2, s->frame_index - 1);
+        if (ret >= 0) {
+            double const motion3_score = motion3_postprocess(s, last_motion2);
+            int ret_m3 = vmaf_feature_collector_append_with_dict(
+                feature_collector, s->feature_name_dict, "VMAF_integer_feature_motion3_score",
+                motion3_score, s->frame_index - 1);
+            if (ret_m3 < 0)
+                ret = ret_m3;
+        }
     }
     return (ret < 0) ? ret : !ret;
 }
@@ -642,13 +798,18 @@ static int close_fex(VmafFeatureExtractor *fex)
 /* ------------------------------------------------------------------ */
 /* Provided features + registration.                                   */
 /*                                                                      */
-/* DELIBERATE: motion3_score is omitted (5-frame window deferred).     */
-/* See file-header scope note.                                         */
+/* T3-15(c): motion3_score is now provided (3-frame window mode only). */
+/* The 5-frame window mode (`motion_five_frame_window=true`) remains  */
+/* deferred — init() rejects it with -ENOTSUP.                        */
 /* ------------------------------------------------------------------ */
 
 static const char *provided_features[] = {"VMAF_integer_feature_motion_score",
-                                          "VMAF_integer_feature_motion2_score", "integer_motion",
-                                          "integer_motion2", NULL};
+                                          "VMAF_integer_feature_motion2_score",
+                                          "VMAF_integer_feature_motion3_score",
+                                          "integer_motion",
+                                          "integer_motion2",
+                                          "integer_motion3",
+                                          NULL};
 
 VmafFeatureExtractor vmaf_fex_integer_motion_vulkan = {
     .name = "motion_vulkan",

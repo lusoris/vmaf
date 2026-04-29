@@ -247,6 +247,28 @@ libvmaf/
   [ADR-0182](../docs/adr/0182-gpu-long-tail-batch-1.md) (1) +
   [ADR-0188](../docs/adr/0188-gpu-long-tail-batch-2.md) (2) +
   [ADR-0192](../docs/adr/0192-gpu-long-tail-batch-3.md) (3).
+- **`motion3_score` GPU contract (T3-15(c) / ADR-0219).** The three GPU
+  motion twins (`src/feature/vulkan/motion_vulkan.c`,
+  `src/feature/cuda/integer_motion_cuda.c`,
+  `src/feature/sycl/integer_motion_sycl.cpp`) emit
+  `VMAF_integer_feature_motion3_score` in 3-frame window mode by
+  applying CPU's host-side post-process to motion2: `clip(motion_blend(
+  motion2 * motion_fps_weight, motion_blend_factor,
+  motion_blend_offset), motion_max_val)` with optional moving-average.
+  No device-side state is added — motion3 is a deterministic scalar
+  function of motion2. Two invariants the rebase story depends on:
+  (1) `motion_five_frame_window=true` returns `-ENOTSUP` at `init()`
+  (the 5-deep blur ring + second SAD pair are still deferred — do
+  not silently fall back to the 3-frame path); (2) any Netflix
+  upstream sync that touches `motion_blend()` in
+  [`motion_blend_tools.h`](src/feature/motion_blend_tools.h), the
+  `motion_max_val` clip, or the moving-average rule MUST mirror the
+  change into `motion3_postprocess_*` across all three GPU files
+  in the same PR. The cross-backend parity gate at `places=4`
+  (`scripts/ci/cross_backend_parity_gate.py` +
+  `scripts/ci/cross_backend_vif_diff.py` `FEATURE_METRICS["motion"]`
+  → `integer_motion3`) catches drift, but only after a full GPU
+  run. See [`docs/rebase-notes.md` §0219](../docs/rebase-notes.md).
 
 Backend-specific orientation:
 

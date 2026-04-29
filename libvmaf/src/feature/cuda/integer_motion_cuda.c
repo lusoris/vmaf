@@ -28,9 +28,15 @@
 #include "feature_name.h"
 #include "cuda/integer_motion_cuda.h"
 #include "mem.h"
+#include "motion_blend_tools.h"
 #include "picture.h"
 #include "picture_cuda.h"
 #include "cuda_helper.cuh"
+
+/* Default upper clamp on motion / motion2 / motion3 — mirrors
+ * DEFAULT_MOTION_MAX_VAL in libvmaf/src/feature/integer_motion.c.
+ * T3-15(c) / ADR-0219. */
+#define MOTION_CUDA_DEFAULT_MAX_VAL (10000.0)
 
 typedef struct MotionStateCuda {
     CUevent event, finished;
@@ -40,10 +46,21 @@ typedef struct MotionStateCuda {
     VmafCudaBuffer *sad;
     uint64_t *sad_host;
     unsigned index;
+    unsigned frame_index;      /* count of frames processed so far (for motion3) */
     unsigned frame_w, frame_h; // stored by submit for collect
     double score;
+    /* motion3 post-processing state — tracks the last *unaveraged*
+     * blended score so the moving-average rule cascades correctly,
+     * mirroring the CPU MotionState.previous_score field. */
+    double prev_motion3_blended;
     bool debug;
     bool motion_force_zero;
+    bool motion_five_frame_window; /* rejected with -ENOTSUP — see init() */
+    bool motion_moving_average;
+    double motion_blend_factor;
+    double motion_blend_offset;
+    double motion_fps_weight;
+    double motion_max_val;
     int (*calculate_motion_score)(const VmafPicture *src, VmafCudaBuffer *src_blurred,
                                   const VmafCudaBuffer *prev_blurred, VmafCudaBuffer *sad,
                                   unsigned width, unsigned height, ptrdiff_t src_stride,
@@ -52,22 +69,88 @@ typedef struct MotionStateCuda {
     VmafDictionary *feature_name_dict;
 } MotionStateCuda;
 
-static const VmafOption options[] = {{
-                                         .name = "debug",
-                                         .help = "debug mode: enable additional output",
-                                         .offset = offsetof(MotionStateCuda, debug),
-                                         .type = VMAF_OPT_TYPE_BOOL,
-                                         .default_val.b = true,
-                                     },
-                                     {
-                                         .name = "motion_force_zero",
-                                         .help = "forcing motion score to zero",
-                                         .offset = offsetof(MotionStateCuda, motion_force_zero),
-                                         .type = VMAF_OPT_TYPE_BOOL,
-                                         .default_val.b = false,
-                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-                                     },
-                                     {0}};
+/* Options table — mirrors libvmaf/src/feature/integer_motion.c.
+ * The motion3-related post-processing options drive a host-side
+ * derivation from motion2 (see collect()). T3-15(c) / ADR-0219. */
+static const VmafOption options[] = {
+    {
+        .name = "debug",
+        .help = "debug mode: enable additional output",
+        .offset = offsetof(MotionStateCuda, debug),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = true,
+    },
+    {
+        .name = "motion_force_zero",
+        .help = "forcing motion score to zero",
+        .offset = offsetof(MotionStateCuda, motion_force_zero),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_blend_factor",
+        .alias = "mbf",
+        .help = "blend motion score given an offset",
+        .offset = offsetof(MotionStateCuda, motion_blend_factor),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 1.0,
+        .min = 0.0,
+        .max = 1.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_blend_offset",
+        .alias = "mbo",
+        .help = "blend motion score starting from this offset",
+        .offset = offsetof(MotionStateCuda, motion_blend_offset),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 40.0,
+        .min = 0.0,
+        .max = 1000.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_fps_weight",
+        .alias = "mfw",
+        .help = "fps-aware multiplicative weight/correction",
+        .offset = offsetof(MotionStateCuda, motion_fps_weight),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 1.0,
+        .min = 0.0,
+        .max = 5.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_max_val",
+        .alias = "mmxv",
+        .help = "maximum value allowed; larger values will be clipped to this value",
+        .offset = offsetof(MotionStateCuda, motion_max_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = MOTION_CUDA_DEFAULT_MAX_VAL,
+        .min = 0.0,
+        .max = 10000.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_five_frame_window",
+        .alias = "mffw",
+        .help = "use five-frame temporal window (NOT YET SUPPORTED on CUDA — T3-15(c) deferred)",
+        .offset = offsetof(MotionStateCuda, motion_five_frame_window),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "motion_moving_average",
+        .alias = "mma",
+        .help = "use moving average for motion3 scores after first frame",
+        .offset = offsetof(MotionStateCuda, motion_moving_average),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {0}};
 
 static int extract_force_zero(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                               VmafPicture *ref_pic_90, VmafPicture *dist_pic,
@@ -85,13 +168,35 @@ static int extract_force_zero(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
     int err = vmaf_feature_collector_append_with_dict(
         feature_collector, s->feature_name_dict, "VMAF_integer_feature_motion2_score", 0., index);
 
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "VMAF_integer_feature_motion3_score", 0., index);
+
     if (!s->debug)
         return err;
 
-    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                  "VMAF_integer_feature_motion_score", 0., index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "VMAF_integer_feature_motion_score", 0., index);
 
     return err;
+}
+
+/* ------------------------------------------------------------------ */
+/* motion3 post-processing — pure host-side scalar work.              */
+/*                                                                     */
+/* Mirrors libvmaf/src/feature/integer_motion.c lines 510-560 and    */
+/* the Vulkan twin in motion_vulkan.c. T3-15(c) / ADR-0219.          */
+/* ------------------------------------------------------------------ */
+static double motion3_postprocess_cuda(MotionStateCuda *s, double score2)
+{
+    double const weighted = score2 * s->motion_fps_weight;
+    double const blended = motion_blend(weighted, s->motion_blend_factor, s->motion_blend_offset);
+    double const clipped = MIN(blended, s->motion_max_val);
+    double const previous_unaveraged = s->prev_motion3_blended;
+    s->prev_motion3_blended = clipped;
+    if (s->motion_moving_average && s->frame_index > 1) {
+        return (clipped + previous_unaveraged) / 2.0;
+    }
+    return clipped;
 }
 
 int calculate_motion_score(const VmafPicture *src, VmafCudaBuffer *src_blurred,
@@ -127,6 +232,15 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     MotionStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
+    /* Reject the 5-frame window mode explicitly. CPU mode keeps a
+     * 5-deep blur ring + computes a second SAD pair (i-2 ↔ i-4); the
+     * GPU ports today still use a 2-deep ring. Failing loud with
+     * -ENOTSUP keeps callers off a silent-wrong-answer code path.
+     * See ADR-0219. */
+    if (s->motion_five_frame_window) {
+        return -ENOTSUP;
+    }
+
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
@@ -161,6 +275,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     int ret = 0;
 
     s->score = 0;
+    s->frame_index = 0;
+    s->prev_motion3_blended = 0.0;
 
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->blur[0], sizeof(uint16_t) * w * h);
     if (ret)
@@ -215,8 +331,16 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
     CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
 
     if (s->index > 0) {
+        double const last_motion2 = MIN(s->score * s->motion_fps_weight, s->motion_max_val);
         ret = vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_score",
                                             s->score, s->index);
+        if (ret >= 0) {
+            double const motion3_score = motion3_postprocess_cuda(s, last_motion2);
+            int ret_m3 = vmaf_feature_collector_append(
+                feature_collector, "VMAF_integer_feature_motion3_score", motion3_score, s->index);
+            if (ret_m3 < 0)
+                ret = ret_m3;
+        }
     }
 
     return (ret < 0) ? ret : !ret;
@@ -284,11 +408,13 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
             err |= vmaf_feature_collector_append(feature_collector,
                                                  "VMAF_integer_feature_motion_score", 0., 0);
         }
+        s->frame_index++;
         return err;
     }
 
     double score_prev = s->score;
     s->score = normalize_and_scale_sad(*s->sad_host, s->frame_w, s->frame_h);
+    s->frame_index++;
 
     int err = 0;
     if (s->debug) {
@@ -296,10 +422,25 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                                              s->score, index);
     }
 
+    /* Match CPU integer_motion.c: at index == 1 the framework
+     * back-fills motion3_score for index 0 using the just-arrived
+     * motion (no prev to take min with yet). At index >= 2 emit
+     * motion2/motion3 at index-1 using min(prev, cur). */
+    if (index == 1) {
+        double const score_clipped = MIN(s->score * s->motion_fps_weight, s->motion_max_val);
+        double const motion3_score = motion3_postprocess_cuda(s, score_clipped);
+        err |= vmaf_feature_collector_append(
+            feature_collector, "VMAF_integer_feature_motion3_score", motion3_score, index - 1);
+    }
+
     if (index > 1) {
-        err |=
-            vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_score",
-                                          score_prev < s->score ? score_prev : s->score, index - 1);
+        double const motion2 = score_prev < s->score ? score_prev : s->score;
+        double const motion2_clipped = MIN(motion2 * s->motion_fps_weight, s->motion_max_val);
+        err |= vmaf_feature_collector_append(
+            feature_collector, "VMAF_integer_feature_motion2_score", motion2, index - 1);
+        double const motion3_score = motion3_postprocess_cuda(s, motion2_clipped);
+        err |= vmaf_feature_collector_append(
+            feature_collector, "VMAF_integer_feature_motion3_score", motion3_score, index - 1);
     }
 
     return err;
@@ -341,8 +482,12 @@ after_event2_destroy:;
     return ret;
 }
 
+/* T3-15(c) / ADR-0219: motion3_score is now provided (3-frame mode
+ * only). The 5-frame window mode remains deferred — init() rejects
+ * it with -ENOTSUP. */
 static const char *provided_features[] = {"VMAF_integer_feature_motion_score",
-                                          "VMAF_integer_feature_motion2_score", NULL};
+                                          "VMAF_integer_feature_motion2_score",
+                                          "VMAF_integer_feature_motion3_score", NULL};
 
 VmafFeatureExtractor vmaf_fex_integer_motion_cuda = {
     .name = "motion_cuda",

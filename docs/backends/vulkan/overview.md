@@ -58,8 +58,12 @@
     Separable 5-tap Gaussian blur (`{3571, 16004, 26386, 16004, 3571}`,
     sum=65536) + per-workgroup `int64` SAD reduction; ping-pong
     blurred-frame storage between calls; motion2 emitted with a
-    1-frame lag. `motion3` (5-frame window mode) deliberately
-    deferred — no shipped model uses it.
+    1-frame lag. `motion3` is now emitted in 3-frame window mode
+    (T3-15(c) / [ADR-0219](../../adr/0219-motion3-gpu-coverage.md))
+    via host-side `motion_blend()` post-processing of motion2
+    plus optional moving-average; the 5-frame window mode
+    (`motion_five_frame_window=true`) returns `-ENOTSUP` at
+    `init()` since the GPU still uses a 2-deep blur ring.
   - `adm_vulkan.c` + GLSL shader
     [`shaders/adm.comp`](../../../libvmaf/src/feature/vulkan/shaders/adm.comp).
     4-scale CDF 9/7 DWT + decouple+CSF fused pass + per-band CSF
