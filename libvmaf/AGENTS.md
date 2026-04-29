@@ -190,6 +190,27 @@ libvmaf/
   / `_avx512` / `_neon`. See
   [`docs/rebase-notes.md` §0049](../docs/rebase-notes.md).
 
+- **icpx-aware clang-tidy wrapper for SYCL TUs** (fork-local,
+  [ADR-0217](../docs/adr/0217-sycl-toolchain-cleanup.md)).
+  [`scripts/ci/clang-tidy-sycl.sh`](../scripts/ci/clang-tidy-sycl.sh)
+  is the single entry point for linting `libvmaf/src/sycl/**` and
+  `libvmaf/src/feature/sycl/**` files; it injects the oneAPI SYCL
+  include path + `-D__SYCL_DEVICE_ONLY__=0` so stock LLVM clang-tidy
+  resolves `<sycl/sycl.hpp>`. The CI lane
+  `Clang-Tidy SYCL (Changed Files, Advisory)` in
+  [`.github/workflows/lint-and-format.yml`](../.github/workflows/lint-and-format.yml)
+  runs the wrapper over a SYCL build tree; do not invoke stock
+  `clang-tidy` directly against SYCL TUs (will surface
+  `'sycl/sycl.hpp' file not found` clang-diagnostic-errors). When
+  adding a new SYCL TU, no AGENTS.md update is needed — the wrapper
+  finds it via the changed-file diff. The wrapper resolves the icpx
+  install via `$ICPX_ROOT` (override) or
+  `/opt/intel/oneapi/compiler/latest` (default); if Intel
+  reorganises this layout in a future release the wrapper's candidate
+  list needs the new path added (see the `for cand in ...` block in
+  the script). Companion bench-time helper:
+  [`scripts/ci/sycl-bench-env.sh`](../scripts/ci/sycl-bench-env.sh).
+
 Backend-specific orientation:
 
 - [src/cuda/AGENTS.md](src/cuda/AGENTS.md) — CUDA backend runtime
