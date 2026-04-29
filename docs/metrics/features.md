@@ -746,6 +746,33 @@ weights are tracked as backlog item T6-7b. Per ADR-0215 the
 placeholder is intentional — the surface, plumbing, and FFmpeg
 patch land first; weights follow.
 
+### `mobilesal` — MobileSal saliency map (tiny-AI, NR / single-input)
+
+Runs the MobileSal RGB saliency network on each distorted frame and
+emits a per-frame saliency mean. Companion ADR
+[`docs/adr/0218-mobilesal-saliency-extractor.md`](../adr/0218-mobilesal-saliency-extractor.md)
+records the extractor design + the synthetic-placeholder ONNX shipped
+in this PR (real upstream Yun-Liu MobileSal weights are tracked as a
+T6-2a-followup row). T6-2b will add the encoder-side `tools/vmaf-roi`
+that consumes the saliency map for per-CTU QP offsets.
+
+#### Invocation
+
+- CLI: `--feature mobilesal=model_path=/path/to/mobilesal.onnx`.
+- ffmpeg: `libvmaf=feature=name=mobilesal:model_path=...`.
+- C API: `vmaf_use_feature(ctx, "mobilesal", opts)` with
+  `model_path` set on the dictionary.
+
+**Output metrics** — `mobilesal` (one scalar per frame: mean saliency
+across the H×W output map).
+
+**Backends** — scalar only on the libvmaf side; ORT-dispatched to the
+selected execution provider.
+
+**Limitations** — placeholder ONNX is smoke-only; real-weight follow-up
+tracked in T6-2a-followup. Depends on the
+[tiny-AI runtime](../ai/overview.md).
+
 ## Invoking features from the CLI
 
 ```bash

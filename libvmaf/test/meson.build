@@ -162,6 +162,27 @@ test_fastdvdnet_pre = executable('test_fastdvdnet_pre',
     ]
 )
 
+# MobileSal saliency registration tests (T6-2a) — same pattern as
+# test_lpips above. Verifies the extractor wires up without depending
+# on a real ORT session; full inference is exercised by the CLI smoke
+# gate against model/tiny/mobilesal.onnx.
+test_mobilesal = executable('test_mobilesal',
+    ['test.c', 'test_mobilesal.c', '../src/mem.c', '../src/picture.c', '../src/ref.c',
+     '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', '../src/thread_locale.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps,
+                    dnn_deps],
+    objects : [
+      common_cuda_objects,
+      platform_specific_cpu_objects,
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
+    ]
+)
+
 test_cambi = executable('test_cambi',
     ['test.c', 'test_cambi.c', '../src/picture.c', '../src/mem.c', '../src/ref.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
@@ -555,6 +576,7 @@ test('test_feature', test_feature)
 test('test_ciede', test_ciede)
 test('test_lpips', test_lpips)
 test('test_fastdvdnet_pre', test_fastdvdnet_pre)
+test('test_mobilesal', test_mobilesal)
 test('test_cambi', test_cambi)
 test('test_luminance_tools', test_luminance_tools)
 test('test_cli_parse', test_cli_parse)
