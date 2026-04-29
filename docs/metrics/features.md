@@ -50,6 +50,7 @@ limitations in the same PR as the code.
 | Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | AVX2, NEON          | CUDA, SYCL, Vulkan |
 | LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —                  |
 | FastDVDnet pre     | `fastdvdnet_pre`| No            | `fastdvdnet_pre_l1_residual`                                                                  | —                   | —                  |
+| TransNet V2        | `transnet_v2`   | No            | `shot_boundary_probability`, `shot_boundary`                                                  | —                   | —                  |
 
 **Core** extractors are required inputs for the shipped VMAF models (see
 [models/overview.md](../models/overview.md)); non-core extractors are
@@ -772,6 +773,48 @@ selected execution provider.
 **Limitations** — placeholder ONNX is smoke-only; real-weight follow-up
 tracked in T6-2a-followup. Depends on the
 [tiny-AI runtime](../ai/overview.md).
+
+### `transnet_v2` — TransNet V2 shot-boundary detector (tiny-AI, NR / single-input)
+
+Runs the TransNet V2 shot-boundary detector on a sliding 100-frame
+window of 27x48 RGB thumbnails (downsampled from the distorted
+stream's luma + reconstructed chroma) and emits a per-frame shot-
+boundary probability plus a thresholded binary flag. Companion ADR
+[`docs/adr/0223-transnet-v2-shot-detector.md`](../adr/0223-transnet-v2-shot-detector.md)
+records the extractor design and the synthetic-placeholder ONNX
+shipped in this PR. Real upstream Soucek & Lokoc 2020 weights
+(MIT-licensed) are tracked as a T6-3a-followup row; the per-shot CRF
+predictor that consumes these features is T6-3b.
+
+#### Invocation
+
+- CLI: `--feature transnet_v2=model_path=/path/to/transnet_v2.onnx`.
+- ffmpeg: `libvmaf=feature=name=transnet_v2:model_path=...`.
+- C API: `vmaf_use_feature(ctx, "transnet_v2", opts)` with
+  `model_path` set on the dictionary.
+
+**Output metrics** — `shot_boundary_probability` (sigmoid of the most
+recent frame's boundary logit, range `[0.0, 1.0]`) and `shot_boundary`
+(binary flag `0.0` / `1.0`, thresholded at `0.5` against
+`shot_boundary_probability`). Downstream consumers (per-shot CRF
+predictor T6-3b, FFmpeg shot-cut filter) bind to these two names.
+
+**Backends** — scalar only on the libvmaf side; ORT-dispatched to
+the selected execution provider.
+
+**Limitations** — Stateful (100-frame sliding window; the first
+99 frames emit boundary probabilities computed against a partially-
+filled window). Depends on the [tiny-AI runtime](../ai/overview.md);
+extractor init fails with `-EINVAL` if no model path is provided
+(neither the `model_path` option nor the
+`VMAF_TRANSNET_V2_MODEL_PATH` env var). Returns `-ENOSYS` from init
+if libvmaf was built without ORT. The shipped checkpoint at
+`model/tiny/transnet_v2.onnx` is a smoke-only placeholder with
+randomly-initialised weights that respects the I/O shape contract;
+it is not a working shot detector. Per
+[ADR-0223](../adr/0223-transnet-v2-shot-detector.md) the placeholder
+is intentional — surface, plumbing, and FFmpeg patch land first;
+weights follow.
 
 ## Invoking features from the CLI
 
