@@ -268,7 +268,7 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
         .data = {tmp_uint, NULL, NULL},
     };
     picture_copy(s->h_ref, (ptrdiff_t)((size_t)s->width * sizeof(float)), &host_pic_ref, 0,
-                 ref_pic->bpc);
+                 ref_pic->bpc, 0);
 
     CUDA_MEMCPY2D m_cmp = m_ref;
     m_cmp.srcDevice = (CUdeviceptr)dist_pic->data[0];
@@ -278,7 +278,7 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     VmafPicture host_pic_cmp = host_pic_ref;
     host_pic_cmp.data[0] = tmp_uint;
     picture_copy(s->h_cmp, (ptrdiff_t)((size_t)s->width * sizeof(float)), &host_pic_cmp, 0,
-                 dist_pic->bpc);
+                 dist_pic->bpc, 0);
 
     /* Upload normalised float planes to pyramid level 0. */
     const size_t input_bytes_float = (size_t)s->width * s->height * sizeof(float);

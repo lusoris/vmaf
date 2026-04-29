@@ -973,6 +973,23 @@
   contract from a `places=1` first-iteration shipping condition
   to `places=4`. CUDA + SYCL twins follow in a separate PR. See
   [ADR-0201](docs/adr/0201-ssimulacra2-vulkan-kernel.md).
+- **Port Netflix upstream b949cebf — feature/motion: port several feature
+  extractor options** (upstream port, Research-0024 Strategy A):
+  Verbatim port of Netflix/vmaf commit b949cebf (Kyle Swanson, 2026-04-27).
+  Adds 8 new options to `float_motion` and 3 missing options to
+  `integer_motion`: `motion_blend_factor` (default 1.0, no-op),
+  `motion_blend_offset` (default 40.0), `motion_fps_weight` (default 1.0,
+  no-op), `motion_add_scale1` (default false, no-op), `motion_filter_size`
+  (default 5, no-op — preserves FILTER_5_s), `motion_add_uv` (default
+  false, no-op), `motion_max_val` (default 10000.0, no-op). Adds
+  `VMAF_feature_motion3_score` and `VMAF_integer_feature_motion3_score`
+  outputs. Adds `FILTER_3_s`, `FILTER_5_NO_OP_s`, and
+  `DEFAULT_MOTION_FILTER_SIZE` to `motion_tools.h`. Adds `motion_decimate`
+  parameter to `compute_motion()` and `motion_add_scale1` to
+  `vmaf_image_sad_c()`. Also ports `picture_copy()` channel-parameter
+  change (from d3647c73) required as prerequisite. All defaults are no-ops:
+  integer_motion2 and float_motion2 scores are bit-identical to pre-port
+  baseline. Netflix golden assertions unaffected.
 
 - **GPU long-tail batch 2 parts 3b + 3c — `psnr_hvs_cuda` +
   `psnr_hvs_sycl` extractors (T7-23 / ADR-0188 / ADR-0191)**

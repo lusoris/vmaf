@@ -375,9 +375,10 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     sycl::queue &q = *qptr;
 
     /* picture_copy host-side → upload to pyramid level 0. */
-    picture_copy(s->h_ref, (ptrdiff_t)((size_t)s->width * sizeof(float)), ref_pic, 0, ref_pic->bpc);
+    picture_copy(s->h_ref, (ptrdiff_t)((size_t)s->width * sizeof(float)), ref_pic, 0, ref_pic->bpc,
+                 0);
     picture_copy(s->h_cmp, (ptrdiff_t)((size_t)s->width * sizeof(float)), dist_pic, 0,
-                 dist_pic->bpc);
+                 dist_pic->bpc, 0);
 
     const size_t input_bytes = (size_t)s->width * s->height * sizeof(float);
     q.memcpy(s->d_pyramid_ref[0], s->h_ref, input_bytes);
