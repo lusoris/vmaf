@@ -8,6 +8,22 @@
 
 ### Added
 
+- **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
+  [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
+  iterates every `(feature, backend-pair)` cell, diffs per-frame
+  metrics with a feature-specific absolute tolerance declared in
+  one place (`FEATURE_TOLERANCE`), and emits one JSON record + one
+  Markdown row per cell. New CI lane `vulkan-parity-matrix-gate`
+  in
+  [`.github/workflows/tests-and-quality-gates.yml`](.github/workflows/tests-and-quality-gates.yml)
+  runs the gate over CPU ↔ Vulkan/lavapipe on every PR (no GPU
+  hardware needed); CUDA / SYCL / hardware-Vulkan are advisory
+  until a self-hosted runner is registered. New user-facing doc
+  at [`docs/development/cross-backend-gate.md`](docs/development/cross-backend-gate.md);
+  `docs/backends/index.md` cross-references it. Generalises and
+  is the long-term replacement for the per-feature
+  `cross_backend_vif_diff.py` lane (kept for one release cycle).
+  See [ADR-0214](docs/adr/0214-gpu-parity-ci-gate.md).
 - **Embedded MCP server scaffold (T5-2, audit-first)** — new
   public header
   [`libvmaf/include/libvmaf/libvmaf_mcp.h`](libvmaf/include/libvmaf/libvmaf_mcp.h)

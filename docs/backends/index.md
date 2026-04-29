@@ -53,6 +53,16 @@ per-backend page below.
 - [Vulkan (scaffold)](vulkan/overview.md) — opt-in scaffold returning
   `-ENOSYS` until the runtime PR (T5-1b)
 
+## Cross-backend parity
+
+Every backend pair is gated on every PR by the **GPU-parity matrix
+gate** (T6-8 / [ADR-0214](../adr/0214-gpu-parity-ci-gate.md)). The
+gate diffs per-frame metrics with a feature-specific absolute
+tolerance and emits one JSON / Markdown report per CI run. See
+[../development/cross-backend-gate.md](../development/cross-backend-gate.md)
+for the tolerance table, how to read failure output, and how to add
+a new feature to the matrix.
+
 ## Related
 
 - [../usage/cli.md](../usage/cli.md) — `--no_cuda` / `--no_sycl` /
