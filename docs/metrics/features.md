@@ -535,13 +535,19 @@ the default YUV→RGB matrix.
 |--------------|------|---------|-------|----------------------------------------------------------------------|
 | `yuv_matrix` | int  | `0`     | `0–3` | 0: BT.709 limited, 1: BT.601 limited, 2: BT.709 full, 3: BT.601 full |
 
-**Backends** — AVX2, AVX-512, NEON. Three SIMD ports landed
+**Backends** — AVX2, AVX-512, NEON, SVE2. Three SIMD ports landed
 2026-04-25: pointwise + reduction kernels
 ([ADR-0161](../adr/0161-ssimulacra2-simd-bitexact.md)),
 IIR blur ([ADR-0162](../adr/0162-ssimulacra2-iir-blur-simd.md)),
 and `picture_to_linear_rgb` ([ADR-0163](../adr/0163-ssimulacra2-ptlr-simd.md)).
-All three SIMD paths build with `-ffp-contract=off` in dedicated
-split static libraries to pin cross-host bit-exactness. CUDA / SYCL
+ARM64 SVE2 ports for IIR-blur and PTLR followed 2026-04-29
+([ADR-0213](../adr/0213-ssimulacra2-sve2.md)), flipping the SVE2
+deferral notes in [Research-0016](../research/0016-ssimulacra2-iir-blur-simd.md)
+and [Research-0017](../research/0017-ssimulacra2-ptlr-simd.md) from
+"deferred" to "shipped"; the SVE2 path runs alongside NEON on hosts
+that advertise the `sve2` HWCAP and falls back to NEON otherwise.
+All SIMD paths build with `-ffp-contract=off` in dedicated split
+static libraries to pin cross-host bit-exactness. CUDA / SYCL
 backends remain optional follow-up work (BACKLOG T3-8).
 
 **Bit-exactness** — scalar and SIMD outputs are byte-identical on the
