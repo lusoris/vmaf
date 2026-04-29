@@ -2242,9 +2242,22 @@ inline.*
   decomposition (the five helpers), adopt upstream's if it's
   smaller; the fork's layout is ADR-0141-driven, not a semantic
   contract.
-- **Follow-up T-N**: audit the fork's AVX2 `motion_v2` variant
-  (`x86/motion_v2_avx2.c`) against scalar on a negative-diff
-  corpus. If `srlv_epi64` causes a delta, open a correctness PR.
+- **Follow-up T7-32 (closed 2026-04-29)**: AVX2 `motion_v2`
+  audit against scalar on a negative-diff corpus is in tree as
+  [`libvmaf/test/test_motion_v2_simd.c`](../libvmaf/test/test_motion_v2_simd.c).
+  The test exercises four adversarial 16-bit fixtures
+  (uniform-negative diffs at bpc 10 and 12, alternating-mixed-sign
+  at bpc 10 and 12) and `memcmp`-equivalent compares the AVX2
+  Phase-1 + Phase-2 SAD against a line-for-line scalar reference
+  duplicated from `integer_motion_v2.c`. On the bench host the
+  AVX2 path agrees with scalar on every fixture: the post-`abs()`
+  Phase-2 aggregation absorbs the per-lane logical-vs-arithmetic
+  shift difference for these inputs. The test stays as a permanent
+  guard — if a future fixture, microarch, or compiler change
+  surfaces a delta, the byte-equal compare will catch it and the
+  divergence becomes a correctness PR. The rebase-time invariant
+  (NEON keeps arithmetic shift, AVX2 keeps logical shift unless a
+  delta surfaces) is unchanged.
 
 ### 0039 — `readability-function-size` NOLINT sweep (ADR-0146)
 

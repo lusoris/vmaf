@@ -118,16 +118,22 @@ git LFS. Anyone can reproduce the calibration set from source clips.
 
 ### 4. QAT re-training cost
 
-For the current largest tiny-AI model (the `tiny-vmaf-v2` prototype
-that doesn't ship yet but lives in `ai/prototypes/`):
+For the current largest shipped tiny-AI model
+(`vmaf_tiny_v1_medium.onnx` — the `mlp_medium` variant landed by
+[PR #158](https://github.com/lusoris/vmaf/pull/158); originally
+referenced in early drafts of this digest as a `tiny-vmaf-v2`
+prototype before the LOSO 3-arch evaluation
+([Research-0023](0023-loso-3arch-results.md)) settled on
+`mlp_medium` as the production architecture and the model was
+renamed under the `vmaf_tiny_v1` family):
 
 - fp32 training: ~45 min on one RTX 4070 for 30 epochs.
 - QAT phase: 10 epochs at ~1.5× per-epoch cost ≈ 25 min additional.
 
 So QAT adds ~50% to total training time. On the smaller fork-trained
-tiny models (`tiny-vmaf-v1.onnx`, ~4 MB), the QAT addition is under
-10 minutes — small enough that QAT becomes the default once a model
-hits an accuracy-budget failure.
+tiny models (`vmaf_tiny_v1.onnx` — `mlp_small`, ~4 MB), the QAT
+addition is under 10 minutes — small enough that QAT becomes the
+default once a model hits an accuracy-budget failure.
 
 The `qat_train.py` script wraps the existing Lightning module. The
 developer invocation is:

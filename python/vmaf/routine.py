@@ -932,9 +932,19 @@ def cv_on_dataset(
     assets = read_dataset(dataset)
     kfold = construct_kfold_list(assets, contentid_groups)
 
+    # Mirror VmafQualityRunner's contract: prefer the per-extractor
+    # options dict declared on the feature param (`feature_optional_dict`)
+    # so cv_on_dataset and explain_model_on_dataset feed identical
+    # options to FeatureAssembler as a real prediction run would. T7-32.
+    feature_option_dict = (
+        feature_param.feature_optional_dict
+        if hasattr(feature_param, "feature_optional_dict")
+        else None
+    )
+
     fassembler = FeatureAssembler(
         feature_dict=feature_param.feature_dict,
-        feature_option_dict=None,  # FIXME: as set to None, potential bug with inconsistent behavior with VmafQualityRunner
+        feature_option_dict=feature_option_dict,
         assets=assets,
         logger=logger,
         delete_workdir=True,
@@ -1104,9 +1114,13 @@ def explain_model_on_dataset(
     print("Assets selected for local explanation: {}".format(test_assets_selected_indexs))
     result_store = FileSystemResultStore(result_store_dir)
     test_assets = [test_assets[i] for i in test_assets_selected_indexs]
+    # VmafQualityRunner reads `feature_opts_dicts` from the model's
+    # serialised `model_dict` to pin per-extractor options at predict
+    # time. Pass it through here too so explain_model_on_dataset's
+    # FeatureAssembler matches the production prediction contract. T7-32.
     test_fassembler = FeatureAssembler(
         feature_dict=model.model_dict["feature_dict"],
-        feature_option_dict=None,  # FIXME: as set to None, potential bug with inconsistent behavior with VmafQualityRunner
+        feature_option_dict=model.model_dict.get("feature_opts_dicts", None),
         assets=test_assets,
         logger=None,
         fifo_mode=True,
