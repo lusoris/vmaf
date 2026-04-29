@@ -69,6 +69,27 @@
   - All three kernels use native `int64` accumulators
     (`GL_EXT_shader_explicit_arithmetic_types_int64`) for
     deterministic reductions matching the CPU integer reference.
+  - `cambi_vulkan.c` (T7-36 / [ADR-0210](../../adr/0210-cambi-vulkan-integration.md))
+    + GLSL shaders
+    [`shaders/cambi_preprocess.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_preprocess.comp),
+    [`cambi_derivative.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_derivative.comp),
+    [`cambi_filter_mode.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_filter_mode.comp),
+    [`cambi_decimate.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_decimate.comp),
+    [`cambi_mask_dp.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_mask_dp.comp).
+    Strategy II hybrid: GPU services preprocess (scaffold, see ADR-0210),
+    per-pixel derivative, the 7×7 spatial-mask SAT (one shader,
+    `PASS=0/1/2` spec const for row-SAT / col-SAT / threshold), 2×
+    decimate, and 3-tap separable mode filter; the
+    precision-sensitive `calculate_c_values` sliding-histogram pass
+    + top-K spatial pooling stay on the host. Bit-exact w.r.t. CPU
+    by construction (every GPU phase is integer arithmetic + the
+    host residual runs the unmodified CPU code on byte-identical
+    buffers); cross-backend gate runs at `places=4`. Closes the
+    GPU long-tail matrix terminus declared in
+    [ADR-0192](../../adr/0192-gpu-long-tail-batch-3.md) — every
+    registered feature extractor in the fork now has at least one
+    GPU twin (lpips delegates to ORT EPs per
+    [ADR-0022](../../adr/0022-inference-runtime-onnx.md)).
 - Build system: `enable_vulkan` feature option (default **disabled**)
   in [`libvmaf/meson_options.txt`](../../../libvmaf/meson_options.txt);
   conditional `subdir('vulkan')` in

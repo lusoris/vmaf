@@ -68,16 +68,16 @@ void write_u16(int y, int x, uint v) {
     atomicOr (dst.pixels[idx], (v & 0xFFFFu) << shift);
 }
 
-uint min3(uint a, uint b, uint c) {
+uint cambi_min3(uint a, uint b, uint c) {
     if (a <= b && a <= c) return a;
     if (b <= c)           return b;
     return c;
 }
 
-uint mode3(uint a, uint b, uint c) {
+uint cambi_mode3(uint a, uint b, uint c) {
     if (a == b || a == c) return a;
     if (b == c)           return b;
-    return min3(a, b, c);
+    return cambi_min3(a, b, c);
 }
 
 void main() {
@@ -95,7 +95,7 @@ void main() {
             uint a = read_u16(y, x - 1);
             uint b = read_u16(y, x);
             uint c = read_u16(y, x + 1);
-            v = mode3(a, b, c);
+            v = cambi_mode3(a, b, c);
         }
     } else {
         /* Vertical pass. */
@@ -105,7 +105,7 @@ void main() {
             uint a = read_u16(y - 1, x);
             uint b = read_u16(y,     x);
             uint c = read_u16(y + 1, x);
-            v = mode3(a, b, c);
+            v = cambi_mode3(a, b, c);
         }
     }
     write_u16(y, x, v);

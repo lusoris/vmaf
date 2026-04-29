@@ -103,6 +103,7 @@ extern VmafFeatureExtractor vmaf_fex_float_motion_vulkan;
 extern VmafFeatureExtractor vmaf_fex_float_vif_vulkan;
 extern VmafFeatureExtractor vmaf_fex_float_adm_vulkan;
 extern VmafFeatureExtractor vmaf_fex_ssimulacra2_vulkan;
+extern VmafFeatureExtractor vmaf_fex_cambi_vulkan;
 #endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_null;
@@ -158,6 +159,8 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_float_moment_vulkan, &vmaf_fex_ciede_vulkan, &vmaf_fex_float_ssim_vulkan,
     &vmaf_fex_float_ms_ssim_vulkan, &vmaf_fex_psnr_hvs_vulkan, &vmaf_fex_float_adm_vulkan,
     &vmaf_fex_float_ms_ssim_vulkan, &vmaf_fex_psnr_hvs_vulkan, &vmaf_fex_ssimulacra2_vulkan,
+    /* T7-36 / ADR-0205: cambi Vulkan twin (Strategy II hybrid). */
+    &vmaf_fex_cambi_vulkan,
 #endif
 #if HAVE_CUDA
     &vmaf_fex_integer_adm_cuda, &vmaf_fex_integer_vif_cuda, &vmaf_fex_integer_motion_cuda,

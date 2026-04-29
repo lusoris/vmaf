@@ -27,6 +27,80 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0090 — `cambi_vulkan` extractor (T7-36 / ADR-0210)
+
+- **ADR**: [ADR-0210](adr/0210-cambi-vulkan-integration.md);
+  predecessor [ADR-0205](adr/0205-cambi-gpu-feasibility.md).
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/cambi_vulkan.c` (replaces the
+    spike scaffold's `init_stub`/`extract_stub`/`close_stub`
+    triple with the full Vulkan-aware lifecycle).
+  - `libvmaf/src/feature/vulkan/shaders/cambi_preprocess.comp`
+    (new), `cambi_mask_dp.comp` (new — unified row-SAT / col-SAT /
+    threshold-compare via `PASS=0/1/2` spec const).
+  - `libvmaf/src/feature/cambi.c` — appends a small block of
+    public trampolines (`vmaf_cambi_*`) at the bottom of the file
+    that thinly wrap the file-static helpers. **No upstream
+    function-static code is renamed or moved**; the entire
+    upstream body of cambi.c above the trampolines stays
+    byte-identical, which keeps Netflix sync straightforward.
+  - `libvmaf/src/feature/cambi_internal.h` (new) — internal-only
+    header exposing `vmaf_cambi_calculate_c_values`,
+    `vmaf_cambi_get_spatial_mask`, etc., to the GPU twin.
+  - `libvmaf/src/vulkan/meson.build` — registers the 5 cambi
+    shaders in `vulkan_shader_sources[]` and `cambi_vulkan.c` in
+    `vulkan_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` — adds the extern
+    decl + registry entry for `vmaf_fex_cambi_vulkan` under
+    `#if HAVE_VULKAN`.
+  - `scripts/ci/cross_backend_vif_diff.py` — `cambi` row in
+    `FEATURE_METRICS` so the cross-backend gate runs at
+    `places=4` against the CPU baseline.
+  - `docs/adr/0210-cambi-vulkan-integration.md`,
+    `docs/research/0031-cambi-vulkan-integration.md`,
+    `docs/backends/vulkan.md`, `CHANGELOG.md`.
+- **Invariant 1 — bit-exactness by construction**. Every GPU
+  phase is integer arithmetic (`uint16` derivative, `int32` SAT,
+  `>` compare, stride-2 gather, 3-element `mode3` lookup). The
+  readback into the host `VmafPicture` pair is byte-identical to
+  what the CPU would have written; the host residual then runs
+  the unmodified CPU `calculate_c_values` + spatial pooling on
+  those buffers. Any rebase that introduces float arithmetic into
+  one of these GPU phases — e.g., a future Netflix change to the
+  derivative kernel that adds a bilinear interpolation step —
+  will silently break `places=4` and must be caught at the
+  cross-backend gate.
+- **Invariant 2 — `cambi_internal.h` signatures must stay in
+  lock-step with cambi.c's file-static helpers**. The Vulkan
+  twin calls `vmaf_cambi_calculate_c_values`, which trampolines
+  to the file-static `calculate_c_values`. Any signature change
+  to the latter (extra parameters, type changes) must update the
+  trampoline + header in the same PR or the GPU build breaks.
+- **On upstream sync**: cambi.c's file-static helpers are
+  sometimes renamed by upstream (e.g., `decimate` →
+  `cambi_decimate` would happen during a Netflix tidy-up). When
+  rebasing, search cambi.c's tail for the trampoline block — its
+  five `static` calls (`get_spatial_mask`, `decimate`,
+  `filter_mode`, `calculate_c_values`, `spatial_pooling`,
+  `weight_scores_per_scale`, `get_pixels_in_window`,
+  `increment_range`, `decrement_range`,
+  `get_derivative_data_for_row`, `cambi_preprocessing`) need to
+  match the upstream symbol names. Update the trampoline body if
+  upstream renames; signatures should not need to change because
+  the trampoline already takes the function-pointer-typedef form
+  (`VmafRangeUpdater` etc.).
+- **Re-test on rebase**:
+  `python3 scripts/ci/cross_backend_vif_diff.py --backend vulkan
+  --feature cambi --ref testdata/ref_576x324_48f.yuv --dist
+  testdata/dis_576x324_48f.yuv --width 576 --height 324
+  --pixel-format 420 --bitdepth 8 --frames 48`. Should emit
+  `places=4 PASS` with `max_abs_diff = 0.0`. If it diverges,
+  bisect the GPU phases by reading back individual buffers
+  (`image_buf` / `mask_buf` / `deriv_buf`) and comparing against
+  the CPU's in-place `pic` plane after the equivalent stage.
+
+
+
 The pre-ADR-0108 fork-local PRs are summarised by workstream rather
 than per-PR. Future PRs add entries individually.
 

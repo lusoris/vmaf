@@ -163,6 +163,15 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # 6-scale pyramid; tighten if the kernel actually achieves
     # places>=3).
     "ssimulacra2": ("ssimulacra2",),
+    # GPU long-tail batch 3 terminus (T7-36 / ADR-0205): cambi
+    # Vulkan twin (Strategy II hybrid). GPU runs the integer phases
+    # (preprocess, derivative, 7x7 SAT mask, decimate, mode filter);
+    # the precision-sensitive sliding-histogram c_values + top-K
+    # pool stay on the host. By construction the GPU output buffers
+    # are byte-identical to the CPU's, so the host residual emits a
+    # bit-identical score — places=4 (canonical floor) per
+    # ADR-0205 §Precision contract.
+    "cambi": ("Cambi_feature_cambi_score",),
 }
 
 # Per-backend extractor-name suffix and the device-selection flag the
