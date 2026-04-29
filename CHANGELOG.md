@@ -54,7 +54,7 @@
   cross-backend gate runs at `places=4`. New ADR
   [`docs/adr/0210-cambi-vulkan-integration.md`](docs/adr/0210-cambi-vulkan-integration.md)
   + research digest
-  [`docs/research/0031-cambi-vulkan-integration.md`](docs/research/0031-cambi-vulkan-integration.md).
+  [`docs/research/0032-cambi-vulkan-integration.md`](docs/research/0032-cambi-vulkan-integration.md).
 
 ### Removed
 

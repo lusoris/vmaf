@@ -1,4 +1,4 @@
-# Research Digest 0031 — cambi Vulkan integration trade-offs
+# Research Digest 0032 — cambi Vulkan integration trade-offs
 
 - **Date**: 2026-04-29
 - **Author**: Claude (Anthropic), reviewed by lusoris@pm.me

@@ -184,7 +184,7 @@ day one.
   precedent for the hybrid host/GPU split.
 - Companion: [docs/research/0020-cambi-gpu-strategies.md](../research/0020-cambi-gpu-strategies.md)
   — strategy comparison.
-- Companion: [docs/research/0031-cambi-vulkan-integration.md](../research/0031-cambi-vulkan-integration.md)
+- Companion: [docs/research/0032-cambi-vulkan-integration.md](../research/0032-cambi-vulkan-integration.md)
   — integration-time trade-offs (this ADR's research digest).
 - CPU reference: [`libvmaf/src/feature/cambi.c`](../../libvmaf/src/feature/cambi.c).
 - Backlog: T7-36 (cambi GPU integration PR).

@@ -57,7 +57,7 @@ cover several PRs in one workstream; cross-link from the ID heading.
     `FEATURE_METRICS` so the cross-backend gate runs at
     `places=4` against the CPU baseline.
   - `docs/adr/0210-cambi-vulkan-integration.md`,
-    `docs/research/0031-cambi-vulkan-integration.md`,
+    `docs/research/0032-cambi-vulkan-integration.md`,
     `docs/backends/vulkan.md`, `CHANGELOG.md`.
 - **Invariant 1 — bit-exactness by construction**. Every GPU
   phase is integer arithmetic (`uint16` derivative, `int32` SAT,
