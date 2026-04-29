@@ -548,6 +548,22 @@ int main(int argc, char *argv[])
             ret = -1;
             goto cleanup;
         }
+        /* T6-9 / ADR-0209 — Sigstore-bundle verification. Runs *before*
+         * the model is opened so a verification failure short-circuits
+         * load and never touches ORT. Fails closed: missing registry,
+         * missing bundle, missing cosign, or any non-zero cosign exit
+         * all refuse to proceed. */
+        if (c.tiny_model_verify) {
+            const int verr = vmaf_dnn_verify_signature(c.tiny_model_path, NULL);
+            if (verr != 0) {
+                (void)fprintf(stderr,
+                              "--tiny-model-verify: signature verification "
+                              "failed for %s (errno %d)\n",
+                              c.tiny_model_path, -verr);
+                ret = -1;
+                goto cleanup;
+            }
+        }
         VmafDnnDevice dev = VMAF_DNN_DEVICE_AUTO;
         if (c.tiny_device) {
             if (!strcmp(c.tiny_device, "cpu")) {

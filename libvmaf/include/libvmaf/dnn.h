@@ -170,6 +170,24 @@ void vmaf_dnn_session_close(VmafDnnSession *sess);
  */
 const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess);
 
+/**
+ * Verify the Sigstore bundle for a tiny model against the model registry
+ * (T6-9 / ADR-0209). Looks up @p onnx_path's basename in
+ * `model/tiny/registry.json` (alongside @p onnx_path unless
+ * @p registry_path is non-NULL), reads the entry's `sigstore_bundle`
+ * field, and shells out to `cosign verify-blob` via `posix_spawnp(3p)`.
+ *
+ * Designed to fail closed: any error short-circuits model load. Wired
+ * through the CLI by `--tiny-model-verify`.
+ *
+ * @return 0 on successful verification, -ENOENT on missing registry /
+ *         missing bundle / no matching entry, -EACCES when `cosign` is
+ *         not on PATH, -EPROTO when cosign exits non-zero, -ENOSYS on
+ *         Windows (the supply-chain workflow runs on Linux/macOS only),
+ *         -EINVAL on a NULL @p onnx_path.
+ */
+int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path);
+
 #ifdef __cplusplus
 }
 #endif

@@ -4686,3 +4686,52 @@ inline.*
       --feature integer_vif --feature integer_adm \
       --output /tmp/sycl-fp64less.json --json
   ```
+
+### 0091 — T6-9 model registry schema + `--tiny-model-verify` (ADR-0209)
+
+
+- **No rebase impact: 100% fork-local surface.** The registry
+  (`model/tiny/registry.json`), its JSON Schema
+  (`model/tiny/registry.schema.json`), the `--tiny-model-verify`
+  CLI flag, and the `vmaf_dnn_verify_signature()` C entry point
+  are entirely fork-local — none of these paths exist in upstream
+  Netflix/vmaf. Listed here for completeness so a future
+  `/sync-upstream` run sees the surface area was acknowledged.
+- **Touches** (additive only): `model/tiny/registry.json`,
+  `model/tiny/registry.schema.json`,
+  `ai/scripts/validate_model_registry.py`,
+  `libvmaf/src/dnn/model_loader.{c,h}` (added
+  `vmaf_dnn_verify_signature()`),
+  `libvmaf/include/libvmaf/dnn.h` (public declaration),
+  `libvmaf/tools/cli_parse.{c,h}` (`ARG_TINY_MODEL_VERIFY` +
+  `tiny_model_verify` field), `libvmaf/tools/vmaf.c` (call site),
+  `libvmaf/test/dnn/test_tiny_model_verify.c`,
+  `python/test/model_registry_schema_test.py`,
+  `docs/ai/model-registry.md`, `docs/ai/inference.md`,
+  `docs/ai/security.md`, `docs/adr/0209-...md`,
+  `docs/adr/README.md` (index row), `CHANGELOG.md`,
+  `libvmaf/src/dnn/AGENTS.md`.
+- **Invariants** (rebase-relevant):
+  1. **Schema is the contract.** New registry fields land in
+     `registry.schema.json` *first*, then in `registry.json`,
+     then in any consumers (the C-side parser, the Python
+     validator, the MCP). Reverse order causes mismatch.
+  2. **`schema_version` is bounded.** The schema accepts only
+     `{0, 1}`; bump the enum *and* the loader's check together
+     when adding `2`.
+  3. **Banned-function rule applies.** The `cosign` invocation
+     uses `posix_spawnp(3p)` with an explicit argv array. Do not
+     replace with `system(3)` / `popen(3)` — both shell-parse the
+     command and would re-introduce injection risk.
+  4. **Bundle-file absence is fail-closed.** When
+     `sigstore_bundle` points at a not-yet-existing file
+     (pre-release state), `vmaf_dnn_verify_signature()` returns
+     `-ENOENT`. The CLI surfaces this as a load failure; do not
+     "soften" to a warning without an explicit ADR.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 ai/scripts/validate_model_registry.py
+  python3 -m pytest python/test/model_registry_schema_test.py -v
+  meson test -C build-cpu --suite=dnn
+  ```

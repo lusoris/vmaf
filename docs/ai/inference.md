@@ -48,6 +48,7 @@ New flags:
 | `--tiny-device STR` | `auto` | `auto` \| `cpu` \| `cuda` \| `openvino` \| `rocm`. |
 | `--tiny-threads N` | `0` | CPU EP intra-op threads; 0 = ORT default. |
 | `--tiny-fp16` | off | Request fp16 I/O when the EP supports it. |
+| `--tiny-model-verify` | off | Require Sigstore-bundle verification (`cosign verify-blob`) before model load. Refuses to load on missing bundle, missing `cosign`, or non-zero exit. See [model-registry.md](model-registry.md) and [security.md](security.md). |
 | `--no-reference` | off | Skip reference loading; only valid with an NR tiny model. |
 
 Output JSON gains a `tiny_model` block alongside `pooled_metrics`:

@@ -62,6 +62,7 @@ enum {
     ARG_TINY_DEVICE,
     ARG_TINY_THREADS,
     ARG_TINY_FP16,
+    ARG_TINY_MODEL_VERIFY,
     ARG_NO_REFERENCE,
 };
 
@@ -138,6 +139,8 @@ static const struct option long_opts[] = {
     {"tiny_threads", 1, NULL, ARG_TINY_THREADS},
     {"tiny-fp16", 0, NULL, ARG_TINY_FP16},
     {"tiny_fp16", 0, NULL, ARG_TINY_FP16},
+    {"tiny-model-verify", 0, NULL, ARG_TINY_MODEL_VERIFY},
+    {"tiny_model_verify", 0, NULL, ARG_TINY_MODEL_VERIFY},
     {"no-reference", 0, NULL, ARG_NO_REFERENCE},
     {"no_reference", 0, NULL, ARG_NO_REFERENCE},
     {"no_prediction", 0, NULL, 'n'},
@@ -201,6 +204,9 @@ static void usage(const char *const app, const char *const reason, ...)
         " --tiny-device $string:        auto|cpu|cuda|openvino|rocm (default: auto)\n"
         " --tiny-threads $unsigned:     CPU EP intra-op threads (0 = ORT default)\n"
         " --tiny-fp16:                  request fp16 IO where the EP supports it\n"
+        " --tiny-model-verify:          require Sigstore-bundle verification (cosign verify-blob)\n"
+        "                               of the loaded tiny model before use; refuses to load\n"
+        "                               on missing bundle, missing cosign, or non-zero exit\n"
         " --no-reference:               no-reference mode; valid only with an NR tiny model\n"
         " --quiet/-q:                  disable FPS meter when run in a TTY\n"
         " --no_prediction/-n:          no prediction, extract features only\n"
@@ -678,6 +684,9 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             break;
         case ARG_TINY_FP16:
             settings->tiny_fp16 = true;
+            break;
+        case ARG_TINY_MODEL_VERIFY:
+            settings->tiny_model_verify = true;
             break;
         case ARG_NO_REFERENCE:
             settings->no_reference = true;

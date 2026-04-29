@@ -93,6 +93,12 @@ typedef struct {
     int tiny_threads;            /* 0 = ORT default */
     bool tiny_fp16;
     bool no_reference; /* skip reference; only meaningful with NR tiny model */
+    /* T6-9 / ADR-0209 — Sigstore-bundle verification of tiny models. When
+     * true, the CLI calls vmaf_dnn_verify_signature() before model load and
+     * exits non-zero on any verification failure (missing registry entry,
+     * missing bundle, cosign exec error, cosign exit non-zero). Off by
+     * default for dev-friendliness; production deployments set it on. */
+    bool tiny_model_verify;
 } CLISettings;
 
 void cli_parse(const int argc, char *const *const argv, CLISettings *const settings);

@@ -243,6 +243,28 @@ jobs:
       - run: isort --check-only python/ ai/ scripts/
       - run: mypy ai/ scripts/ || echo "mypy advisory only on first run"
 
+  registry-validate:
+    # T6-9 / ADR-0209 — schema + cross-file consistency check on
+    # model/tiny/registry.json. Runs jsonschema (Draft 2020-12) when
+    # available, plus cross-file invariants (sha256 matches, sidecars
+    # exist). Fails closed.
+    name: Tiny-Model Registry Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Resolve LFS blobs so the sha256 cross-check sees real ONNX
+          # bytes, not pointer files.
+          lfs: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install jsonschema
+        run: pip install jsonschema
+      - name: Validate model/tiny/registry.json
+        run: python3 ai/scripts/validate_model_registry.py
+
   shellcheck:
     name: ShellCheck + shfmt (All *.sh)
     runs-on: ubuntu-latest

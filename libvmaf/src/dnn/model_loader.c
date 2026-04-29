@@ -355,3 +355,289 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
     free(buf);
     return err;
 }
+
+/* ============================================================
+ * T6-9 / ADR-0209 — Sigstore-bundle verification of tiny models.
+ *
+ * Operates on the fork's tiny-model registry (model/tiny/registry.json):
+ *   1. Resolve the registry alongside the ONNX (or use the caller path).
+ *   2. Find the entry whose `onnx` basename matches the user-supplied
+ *      ONNX path and pull `sigstore_bundle`.
+ *   3. Spawn `cosign verify-blob --bundle=<...> <onnx>` via posix_spawnp.
+ *
+ * Banned-function note (CLAUDE.md §6): system(3) is forbidden. We use
+ * posix_spawnp(3p), check every return value, and pass argv as an array
+ * (no shell, no quoting concerns). Windows builds return -ENOSYS — the
+ * supply-chain workflow runs on Linux/macOS only today.
+ * ============================================================ */
+
+#ifndef _WIN32
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
+extern char **environ;
+
+/* Find the sigstore_bundle path for the model entry whose onnx basename
+ * matches `onnx_basename`. Writes a registry-relative path into `out`
+ * (size `out_sz`) on success, or returns -ENOENT when no match. The
+ * parser reuses the ultra-small extract_string()/strstr() helpers above
+ * to avoid pulling a JSON dep into libvmaf. */
+static int find_bundle_for_onnx(const char *registry_doc, const char *onnx_basename, char *out,
+                                size_t out_sz)
+{
+    if (!registry_doc || !onnx_basename || !out || out_sz == 0u)
+        return -EINVAL;
+
+    /* Iterate over each "id"/"onnx"/"sigstore_bundle" triple. The registry
+     * is small (< 64 entries) so a linear scan is fine. We anchor on the
+     * `"onnx"` key, then read the matching `"sigstore_bundle"` if it
+     * occurs within the same JSON object (i.e. before the next `"onnx"`
+     * or end-of-doc). */
+    const char *cursor = registry_doc;
+    while ((cursor = strstr(cursor, "\"onnx\"")) != NULL) {
+        const char *colon = strchr(cursor, ':');
+        if (!colon)
+            return -ENOENT;
+        const char *p = colon + 1;
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        if (*p != '"')
+            return -EBADMSG;
+        p++;
+        const char *q = strchr(p, '"');
+        if (!q)
+            return -EBADMSG;
+        const size_t len = (size_t)(q - p);
+
+        /* Compare against onnx_basename. */
+        if (strlen(onnx_basename) == len && strncmp(p, onnx_basename, len) == 0) {
+            /* Found the entry — search forward for sigstore_bundle within
+             * the bounded window (next "onnx" key or end-of-doc). */
+            const char *next_onnx = strstr(q, "\"onnx\"");
+            const char *bundle_key = strstr(q, "\"sigstore_bundle\"");
+            if (!bundle_key || (next_onnx && bundle_key > next_onnx))
+                return -ENOENT;
+            const char *bcolon = strchr(bundle_key, ':');
+            if (!bcolon)
+                return -EBADMSG;
+            const char *bp = bcolon + 1;
+            while (*bp && isspace((unsigned char)*bp))
+                bp++;
+            if (*bp != '"')
+                return -EBADMSG;
+            bp++;
+            const char *bq = strchr(bp, '"');
+            if (!bq)
+                return -EBADMSG;
+            const size_t blen = (size_t)(bq - bp);
+            if (blen + 1u > out_sz)
+                return -ENAMETOOLONG;
+            memcpy(out, bp, blen);
+            out[blen] = '\0';
+            return 0;
+        }
+        cursor = q + 1;
+    }
+    return -ENOENT;
+}
+
+/* Slurp the registry JSON into a freshly-allocated NUL-terminated buffer.
+ * Bounded to 1 MiB — the registry is < 8 KiB today; the cap is a defensive
+ * sanity bound. Caller frees. */
+static int slurp_registry(const char *registry_path, char **out_buf)
+{
+    FILE *f = fopen(registry_path, "rb");
+    if (!f)
+        return -errno;
+    if (fseek(f, 0, SEEK_END) != 0) {
+        (void)fclose(f);
+        return -EIO;
+    }
+    long sz_raw = ftell(f);
+    if (sz_raw < 0 || sz_raw > (1L << 20)) {
+        (void)fclose(f);
+        return -EFBIG;
+    }
+    const size_t sz = (size_t)sz_raw;
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        (void)fclose(f);
+        return -EIO;
+    }
+    char *buf = (char *)malloc(sz + 1u);
+    if (!buf) {
+        (void)fclose(f);
+        return -ENOMEM;
+    }
+    const size_t r = fread(buf, 1u, sz, f);
+    (void)fclose(f);
+    if (r != sz) {
+        free(buf);
+        return -EIO;
+    }
+    buf[sz] = '\0';
+    *out_buf = buf;
+    return 0;
+}
+
+#ifdef _WIN32
+int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path)
+{
+    (void)onnx_path;
+    (void)registry_path;
+    /* posix_spawn / cosign supply-chain path is Linux/macOS-only today.
+     * The supply-chain workflow does not run on Windows; document and
+     * fail loud rather than silently bypass. */
+    return -ENOSYS;
+}
+#else
+/* Compute the basename portion of `path` (no allocation; returns a pointer
+ * into the input). Defensive against trailing slashes by stopping at the
+ * first non-slash from the right. */
+static const char *path_basename(const char *path)
+{
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
+/* Locate `cosign` on PATH. Returns 0 on success and writes the resolved
+ * absolute path into `out`; returns -EACCES otherwise. Implemented by
+ * walking PATH manually and stat-checking each candidate so we never need
+ * a shell. */
+static int locate_cosign(char *out, size_t out_sz)
+{
+    const char *path_env = getenv("PATH");
+    if (!path_env || path_env[0] == '\0')
+        return -EACCES;
+    const char *p = path_env;
+    while (*p) {
+        const char *colon = strchr(p, ':');
+        const size_t seg_len = colon ? (size_t)(colon - p) : strlen(p);
+        if (seg_len > 0u && seg_len + sizeof("/cosign") <= out_sz) {
+            memcpy(out, p, seg_len);
+            (void)snprintf(out + seg_len, out_sz - seg_len, "/cosign");
+            struct stat st;
+            if (stat(out, &st) == 0 && S_ISREG(st.st_mode) && (st.st_mode & 0111)) {
+                return 0;
+            }
+        }
+        if (!colon)
+            break;
+        p = colon + 1;
+    }
+    return -EACCES;
+}
+
+int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path)
+{
+    if (!onnx_path)
+        return -EINVAL;
+    assert(onnx_path != NULL);
+
+    /* Default registry: <dirname(onnx_path)>/registry.json. */
+    char default_reg[PATH_MAX];
+    const char *reg_path = registry_path;
+    if (!reg_path) {
+        const char *slash = strrchr(onnx_path, '/');
+        if (slash) {
+            const size_t dlen = (size_t)(slash - onnx_path);
+            if (dlen + sizeof("/registry.json") > sizeof(default_reg))
+                return -ENAMETOOLONG;
+            assert(dlen < sizeof(default_reg));
+            memcpy(default_reg, onnx_path, dlen);
+            (void)snprintf(default_reg + dlen, sizeof(default_reg) - dlen, "/registry.json");
+        } else {
+            const int n = snprintf(default_reg, sizeof(default_reg), "model/tiny/registry.json");
+            if (n < 0 || (size_t)n >= sizeof(default_reg))
+                return -ENAMETOOLONG;
+        }
+        reg_path = default_reg;
+    }
+    assert(reg_path != NULL);
+
+    char *reg_buf = NULL;
+    int err = slurp_registry(reg_path, &reg_buf);
+    if (err != 0)
+        return err;
+    assert(reg_buf != NULL);
+
+    const char *base = path_basename(onnx_path);
+    assert(base != NULL);
+    char bundle_rel[PATH_MAX];
+    err = find_bundle_for_onnx(reg_buf, base, bundle_rel, sizeof(bundle_rel));
+    free(reg_buf);
+    if (err != 0)
+        return err;
+    assert(bundle_rel[0] != '\0');
+
+    /* Resolve the bundle path relative to the registry's directory. */
+    char bundle_abs[PATH_MAX];
+    const char *reg_slash = strrchr(reg_path, '/');
+    if (reg_slash) {
+        const size_t dlen = (size_t)(reg_slash - reg_path);
+        if (dlen + 1u + strlen(bundle_rel) + 1u > sizeof(bundle_abs))
+            return -ENAMETOOLONG;
+        assert(dlen < sizeof(bundle_abs));
+        memcpy(bundle_abs, reg_path, dlen);
+        bundle_abs[dlen] = '/';
+        (void)snprintf(bundle_abs + dlen + 1u, sizeof(bundle_abs) - dlen - 1u, "%s", bundle_rel);
+    } else {
+        const int n = snprintf(bundle_abs, sizeof(bundle_abs), "%s", bundle_rel);
+        if (n < 0 || (size_t)n >= sizeof(bundle_abs))
+            return -ENAMETOOLONG;
+    }
+    assert(bundle_abs[0] != '\0');
+
+    /* The bundle file must exist before we even invoke cosign — otherwise
+     * cosign's error message is opaque. Fail-closed: missing bundle = no
+     * trust. */
+    struct stat bst;
+    if (stat(bundle_abs, &bst) != 0)
+        return -ENOENT;
+    if (!S_ISREG(bst.st_mode))
+        return -ENOENT;
+
+    char cosign_path[PATH_MAX];
+    err = locate_cosign(cosign_path, sizeof(cosign_path));
+    if (err != 0)
+        return err;
+    assert(cosign_path[0] != '\0');
+
+    /* Build the --bundle=<path> argument. */
+    char bundle_arg[PATH_MAX + 16];
+    const int n = snprintf(bundle_arg, sizeof(bundle_arg), "--bundle=%s", bundle_abs);
+    if (n < 0 || (size_t)n >= sizeof(bundle_arg))
+        return -ENAMETOOLONG;
+    assert((size_t)n < sizeof(bundle_arg));
+
+    /* posix_spawnp argv. The certificate-identity-regexp + oidc-issuer
+     * mirror docs/ai/security.md; they pin verification to
+     * lusoris/vmaf's supply-chain workflow identity. */
+    char *argv[] = {
+        (char *)"cosign",
+        (char *)"verify-blob",
+        bundle_arg,
+        (char *)"--certificate-identity-regexp",
+        (char *)"https://github.com/lusoris/vmaf/.github/workflows/.+",
+        (char *)"--certificate-oidc-issuer",
+        (char *)"https://token.actions.githubusercontent.com",
+        (char *)onnx_path,
+        NULL,
+    };
+
+    pid_t pid = 0;
+    const int sp = posix_spawnp(&pid, cosign_path, NULL, NULL, argv, environ);
+    if (sp != 0)
+        return -sp;
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR)
+            return -errno;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        return -EPROTO;
+    return 0;
+}
+#endif /* !_WIN32 */
