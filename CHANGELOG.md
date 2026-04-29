@@ -6,6 +6,31 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Changed
+
+- **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
+  message emitted on devices that lack `sycl::aspect::fp64` (Intel
+  Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
+  reworded from the misleading WARNING-level "device lacks fp64
+  support — using int64 emulation for gain limiting" to an
+  INFO-level "device lacks native fp64 — kernels already use fp32
+  + int64 paths, no emulation overhead". An audit confirmed every
+  SYCL feature kernel is already fp64-free in its device code:
+  ADM gain limiting uses an int64 Q31 split-multiply
+  (`gain_limit_to_q31` + `launch_decouple_csf<false>` in
+  `libvmaf/src/feature/sycl/integer_adm_sycl.cpp`), VIF gain
+  limiting uses fp32 `sycl::fmin`, and accumulators use
+  `sycl::plus<int64_t>`. There is no fp64-emulation fallback — the
+  previous wording suggested one. New
+  [`docs/backends/sycl/overview.md`](docs/backends/sycl/overview.md)
+  § "fp64-less device contract (T7-17)" documents the
+  no-`double`-in-kernel-lambdas rule + the SPIR-V module-taint
+  rationale; new `libvmaf/src/sycl/AGENTS.md` invariant row pins
+  the contract on rebase. The originally reported 5–10× Arc A380
+  vs Vulkan perf gap has a different root cause (kernel geometry,
+  sub-group size, memory pattern) — out of T7-17's scope. See
+  [ADR-0220](docs/adr/0220-sycl-fp64-fallback.md).
+
 ### Added
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New

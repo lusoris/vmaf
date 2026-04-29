@@ -80,6 +80,46 @@ libvmaf/src/feature/sycl/                # per-feature kernels
   event dependencies; dependencies within an extractor are handled by the
   in-order semantics.
 
+## fp64-less device contract (T7-17)
+
+All SYCL feature kernels in this fork are designed to run on devices that
+**lack `sycl::aspect::fp64`** (Intel Arc A-series, most Intel iGPUs, many
+mobile / embedded GPUs). No kernel emits double-precision floating-point
+SPIR-V instructions, so the JIT does not need to fall back to int64
+emulation, and there is no per-kernel performance penalty on fp64-less
+devices.
+
+Concretely:
+
+- **ADM gain limiting** uses an int64 Q31 fixed-point split-multiply
+  (`gain_limit_to_q31` in `integer_adm_sycl.cpp`). The CPU reference
+  multiplies a 32-bit DWT coefficient by a `double` gain in `[1.0, 100.0]`;
+  the device path replaces this with `gain_q31 = round(gain * 2^31)` and a
+  16-bit-split int64 multiply, exact for the production gain values
+  (`1.0`, `100.0`) and within ±1 LSB for fractional gains.
+- **VIF gain limiting** runs entirely in fp32 (`sycl::fmin(g,
+  vif_enhn_gain_limit)` over float operands). The host stores the gain as
+  a `double` for parity with the CPU API; the launcher casts to `float`
+  before kernel submission.
+- **CIEDE / SSIM accumulators** avoid `sycl::reduction<double>`; partials
+  are accumulated in 32-bit fixed point and reduced via
+  `sycl::plus<int64_t>` over subgroups.
+
+`VmafSyclState` records `has_fp64` at queue construction so future
+fp64-only optimisations can branch on it; current kernels do not. The
+init log line at `VMAF_LOG_LEVEL_INFO` confirms which path was taken — on
+an fp64-less device it reads "device lacks native fp64 — kernels already
+use fp32 + int64 paths, no emulation overhead". A previous WARNING-level
+line ("using int64 emulation for gain limiting") was misleading: it
+suggested an emulation-overhead fallback that never existed. See
+[ADR-0220](../../adr/0220-sycl-fp64-fallback.md).
+
+If you add a new SYCL kernel and it captures a `double` operand or calls
+`sycl::reduction<double>`, the entire SPIR-V module is rejected by the
+Level Zero runtime on Arc A-series — even if the offending kernel is
+never submitted. Audit the lambda capture list and any `sycl::reduce*`
+calls before merging.
+
 ## Picture pre-allocation
 
 `vmaf_sycl_preallocate_pictures()` + `vmaf_sycl_picture_fetch()` back a

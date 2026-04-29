@@ -4499,3 +4499,48 @@ inline.*
       --width 576 --height 324 --backends cpu vulkan \
       --json-out /tmp/parity.json --md-out /tmp/parity.md
   ```
+
+### 0220 — SYCL feature kernels are unconditionally fp64-free (T7-17)
+
+- **Touches**: `libvmaf/src/sycl/common.cpp` (init log line),
+  `libvmaf/src/sycl/AGENTS.md` (new invariant row), all SYCL
+  feature kernels under `libvmaf/src/feature/sycl/` (no diff
+  today, but the contract pins their shape going forward).
+- **Invariant**: every SYCL feature-kernel lambda captures and
+  operates on `float` / integer types only. No `double` operand
+  inside a `parallel_for` body, no `sycl::reduction<double>`, no
+  `sycl::plus<double>`. A single fp64 instruction in the TU's
+  SPIR-V module causes the Level Zero runtime to reject the
+  entire module on Intel Arc A-series and other fp64-less
+  devices, even when the offending kernel is never submitted.
+  Host-side `double` (in `extract` / `flush` post-processing,
+  score aggregation, log10 normalisation) remains fine.
+  Concrete patterns in tree: ADM gain limiting via int64 Q31
+  (`gain_limit_to_q31` + `launch_decouple_csf<false>` in
+  `integer_adm_sycl.cpp`); VIF gain limiting via fp32
+  `sycl::fmin`; CIEDE / SSIM accumulators via
+  `sycl::reduction<int64_t>` / `sycl::plus<int64_t>`.
+- **On upstream sync**: Netflix/vmaf has no SYCL backend
+  upstream; conflicts cannot enter via `git merge`. The risk is
+  a fork-local cherry-pick (e.g. a SYCL twin of a new CUDA
+  kernel) bringing a `double` into a kernel lambda. Audit the
+  lambda capture list and any `sycl::reduce*` calls against
+  this invariant before merging.
+- **Re-test on rebase**:
+
+  ```bash
+  # Build SYCL backend
+  meson setup build-sycl libvmaf -Denable_sycl=true CC=icx CXX=icpx
+  ninja -C build-sycl
+
+  # On an fp64-less device (e.g. Intel Arc A380), confirm the
+  # init log line is INFO-level and reads "device lacks native
+  # fp64 — kernels already use fp32 + int64 paths, no emulation
+  # overhead". The SYCL kernels must launch successfully (no
+  # SPIR-V module rejection from the Level Zero runtime).
+  build-sycl/tools/vmaf --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 --backend sycl \
+      --feature integer_vif --feature integer_adm \
+      --output /tmp/sycl-fp64less.json --json
+  ```

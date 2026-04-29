@@ -210,8 +210,16 @@ extern "C" int vmaf_sycl_state_init(VmafSyclState **sycl_state, VmafSyclConfigur
 
         bool has_fp64 = dev.has(sycl::aspect::fp64);
         if (!has_fp64) {
-            vmaf_log(VMAF_LOG_LEVEL_WARNING, "SYCL: device lacks fp64 support — "
-                                             "using int64 emulation for gain limiting\n");
+            // T7-17 (ADR-0220): all SYCL feature kernels are designed to be
+            // fp64-free. ADM gain limiting uses an int64 Q31 fixed-point
+            // path (see integer_adm_sycl.cpp `gain_limit_to_q31`), VIF
+            // gain limiting runs entirely in fp32 (`sycl::fmin` over float
+            // operands), and CIEDE / SSIM accumulators avoid
+            // `sycl::reduction<double>`. No fp64-emulation fallback runs;
+            // the kernels are already native-fast on Intel Arc A-series,
+            // Intel iGPUs, and other fp64-less SPIR-V devices.
+            vmaf_log(VMAF_LOG_LEVEL_INFO, "SYCL: device lacks native fp64 — kernels already use "
+                                          "fp32 + int64 paths, no emulation overhead\n");
         }
 
         sycl::property_list props;
