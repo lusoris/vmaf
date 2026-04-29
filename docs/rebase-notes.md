@@ -5084,6 +5084,29 @@ inline.*
   meson test -C build-cpu test_speed
   meson test -C build-cpu              # full meson suite
   make test-netflix-golden             # 3 CPU canonical pairs
+### 0221 — CHANGELOG + ADR-index fragment-file pattern (T7-39 / ADR-0221)
+
+- **What changed**: the fork stopped editing `CHANGELOG.md` and
+  `docs/adr/README.md` directly. Both files are now rendered from
+  fragment trees:
+  - `changelog.d/<section>/<topic>.md` (Keep-a-Changelog sections),
+    plus the migration archive `changelog.d/_pre_fragment_legacy.md`.
+  - `docs/adr/_index_fragments/<NNNN-slug>.md`, plus
+    `docs/adr/_index_fragments/_order.txt` (frozen commit-merge order
+    manifest) and `docs/adr/_index_fragments/_header.md` (table prelude).
+  Two scripts render the consolidated outputs:
+  - `scripts/release/concat-changelog-fragments.sh --check|--write`
+  - `scripts/docs/concat-adr-index.sh --check|--write`
+- **On upstream sync**: zero interaction — `CHANGELOG.md` is a
+  fork-local Markdown surface (Netflix upstream doesn't ship a
+  Keep-a-Changelog file in this format), and `docs/adr/` is entirely
+  fork-local. A `/sync-upstream` run will not touch the fragment trees.
+- **Re-test on rebase**:
+
+  ```bash
+  bash scripts/release/concat-changelog-fragments.sh --check
+  bash scripts/docs/concat-adr-index.sh --check
+  # both must exit 0; otherwise run --write and re-stage.
   ```
 
 ### 0077 — DISTS extractor proposal (T7-DISTS / ADR-0236)
