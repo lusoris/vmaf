@@ -88,6 +88,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_MSC_VER) || defined(__MINGW32__)
+#include <malloc.h>
+#endif
+
 #include "config.h"
 #include "test.h"
 
@@ -98,6 +102,34 @@
 #endif
 
 #if ARCH_X86
+
+/*
+ * Portable aligned allocator. C11 `aligned_alloc` is unavailable on MinGW
+ * (no feature-test macro exposes it) and on MSVC (which never shipped it).
+ * Mirrors the wrapper in `libvmaf/src/mem.c` so the test stays free of an
+ * internal-header dependency.
+ */
+static void *test_aligned_malloc(size_t size, size_t alignment)
+{
+#if defined(_MSC_VER) || defined(__MINGW32__)
+    return _aligned_malloc(size, alignment);
+#else
+    void *ptr = NULL;
+    if (posix_memalign(&ptr, alignment, size) != 0) {
+        return NULL;
+    }
+    return ptr;
+#endif
+}
+
+static void test_aligned_free(void *ptr)
+{
+#if defined(_MSC_VER) || defined(__MINGW32__)
+    _aligned_free(ptr);
+#else
+    free(ptr);
+#endif
+}
 
 /* xorshift32 PRNG for reproducible adversarial input generation. */
 static uint32_t xorshift32(uint32_t *state)
@@ -230,15 +262,15 @@ static char *check_pipeline_16(unsigned bpc,
                                uint32_t seed, const char *label)
 {
     const ptrdiff_t stride16 = TEST_W; /* tight stride, no row padding */
-    uint16_t *prev = aligned_alloc(ALIGN_BYTES, sizeof(uint16_t) * TEST_W * TEST_H);
-    uint16_t *cur = aligned_alloc(ALIGN_BYTES, sizeof(uint16_t) * TEST_W * TEST_H);
-    int32_t *y_row_scalar = aligned_alloc(ALIGN_BYTES, sizeof(int32_t) * TEST_W);
-    int32_t *y_row_avx2 = aligned_alloc(ALIGN_BYTES, sizeof(int32_t) * TEST_W);
+    uint16_t *prev = test_aligned_malloc(sizeof(uint16_t) * TEST_W * TEST_H, ALIGN_BYTES);
+    uint16_t *cur = test_aligned_malloc(sizeof(uint16_t) * TEST_W * TEST_H, ALIGN_BYTES);
+    int32_t *y_row_scalar = test_aligned_malloc(sizeof(int32_t) * TEST_W, ALIGN_BYTES);
+    int32_t *y_row_avx2 = test_aligned_malloc(sizeof(int32_t) * TEST_W, ALIGN_BYTES);
     if (!prev || !cur || !y_row_scalar || !y_row_avx2) {
-        free(prev);
-        free(cur);
-        free(y_row_scalar);
-        free(y_row_avx2);
+        test_aligned_free(prev);
+        test_aligned_free(cur);
+        test_aligned_free(y_row_scalar);
+        test_aligned_free(y_row_avx2);
         return "allocation failure";
     }
 
@@ -253,10 +285,10 @@ static char *check_pipeline_16(unsigned bpc,
         motion_score_pipeline_16_avx2((const uint8_t *)prev, byte_stride, (const uint8_t *)cur,
                                       byte_stride, y_row_avx2, TEST_W, TEST_H, bpc);
 
-    free(prev);
-    free(cur);
-    free(y_row_scalar);
-    free(y_row_avx2);
+    test_aligned_free(prev);
+    test_aligned_free(cur);
+    test_aligned_free(y_row_scalar);
+    test_aligned_free(y_row_avx2);
 
     if (sad_scalar != sad_avx2) {
         (void)fprintf(
