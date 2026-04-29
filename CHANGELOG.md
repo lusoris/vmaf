@@ -314,6 +314,29 @@
   [`docs/development/oneapi-install.md`](docs/development/oneapi-install.md);
   the existing "Verify SYCL clang-tidy still works" recipe rewritten
   to use the wrapper. See [ADR-0217](docs/adr/0217-sycl-toolchain-cleanup.md).
+
+- **Upstream `c70debb1` partial port — `adm_csf` + `barten_csf`
+  unit tests** (T-NEW-2). Cherry-picks the additive halves of
+  Netflix upstream commit `c70debb1` ("libvmaf/test: port new
+  adm/vif/speed tests", Kyle Swanson, 2026-04-28): the new
+  [`libvmaf/src/feature/adm_csf_tools.h`](libvmaf/src/feature/adm_csf_tools.h)
+  header (declaring the inline `adm_native_csf` DLM-CSF helper)
+  and the two new unit-test files
+  [`libvmaf/test/test_adm_csf.c`](libvmaf/test/test_adm_csf.c)
+  (2 cases) +
+  [`libvmaf/test/test_barten_csf.c`](libvmaf/test/test_barten_csf.c)
+  (23 cases). The other two halves of `c70debb1` — `test_vif_tools.c`
+  and `test_speed_chroma.c` — are deliberately deferred:
+  `test_vif_tools` depends on the upstream `vif` runtime-helper
+  chain (`NUM_KERNELSCALES`, `vif_validate_kernelscale`, etc.) that
+  the fork skips per
+  [Research-0024](docs/research/0024-vif-upstream-divergence.md)
+  Strategy E to protect the ADR-0138 / 0139 / 0142 / 0143 SIMD
+  bit-exactness contract; `test_speed_chroma` `#include`s
+  `feature/speed.c`, which the fork does not yet ship (audit row
+  T-NEW-1). Tracked alongside the
+  [2026-04-29 quarterly upstream-backlog re-audit (PR #205)](docs/upstream-backlog-audit-2026-04-29.md).
+
 - **Research-0031: Intel AI-PC NPU/EP applicability digest (T7-9)**
   (fork-local doc): new
   [`docs/research/0031-intel-ai-pc-applicability.md`](docs/research/0031-intel-ai-pc-applicability.md)

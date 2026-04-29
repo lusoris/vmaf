@@ -241,6 +241,25 @@ test_framesync = executable('test_framesync',
     dependencies : [pthread_dependency, thread_lib, sycl_dependency],
 )
 
+# Ported from upstream Netflix/vmaf c70debb1 ("libvmaf/test: port new
+# adm/vif/speed tests"). The vif_tools and speed_chroma test files from that
+# commit depend on upstream symbols (NUM_KERNELSCALES, vif_validate_kernelscale,
+# speed_get_antialias_filter, the SpEED feature) that have not been ported to
+# the fork; only the adm_csf and barten_csf cases are wired here.
+test_adm_csf = executable('test_adm_csf',
+    ['test.c', 'test_adm_csf.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies : [math_lib, pthread_dependency, sycl_dependency],
+)
+
+test_barten_csf = executable('test_barten_csf',
+    ['test.c', 'test_barten_csf.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies : [math_lib, pthread_dependency, sycl_dependency],
+)
+
 # Bit-exactness between the scalar-separable reference and the arch-
 # specific SIMD paths (x86 AVX2/AVX-512 and arm64 NEON). Links the
 # platform SIMD object libraries directly so the kernels can be called
@@ -604,6 +623,8 @@ test('test_cli_parse', test_cli_parse)
 test('test_psnr', test_psnr)
 test('test_framesync', test_framesync)
 test('test_propagate_metadata', test_propagate_metadata)
+test('test_adm_csf', test_adm_csf)
+test('test_barten_csf', test_barten_csf)
 if ms_ssim_decimate_test_archs.contains(host_machine.cpu_family())
 test('test_ms_ssim_decimate', test_ms_ssim_decimate)
 endif
