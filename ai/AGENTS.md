@@ -107,6 +107,44 @@ its own training surface):
   injects a fake payload so CI gates don't drag a libvmaf build into
   the Python test surface.
 
+## `fr_regressor_v1` (C1 baseline — ADR-0221)
+
+The Wave-1 C1 baseline trainer is
+[`ai/scripts/train_fr_regressor.py`](scripts/train_fr_regressor.py). It
+consumes `runs/full_features_netflix.parquet` (produced by
+`ai/scripts/extract_full_features.py` over the local Netflix Public
+drop at `.workingdir2/netflix/`), runs 9-fold leave-one-source-out
+(LOSO), and exports `model/tiny/fr_regressor_v1.onnx` only when mean
+LOSO PLCC ≥ 0.95 against the `vmaf_v0.6.1` per-frame teacher.
+
+**Contract row** (do not regress without an ADR amendment):
+
+- **Input** — `[N, 6]` float32, feature order
+  `(adm2, vif_scale0, vif_scale1, vif_scale2, vif_scale3, motion2)`,
+  standardised with the per-feature `feature_mean` / `feature_std`
+  vectors pinned in the sidecar JSON. Standardisation is **not**
+  baked into the ONNX so callers can swap feature pools without
+  re-export.
+- **Output** — `[N]` float32, VMAF-scale (0–100 typical).
+- **Architecture** — stock `vmaf_train.models.FRRegressor` with the
+  Wave-1 spec hparams (hidden=64, depth=2, dropout=0.1, GELU). Larger
+  / smaller variants must register a new model id, not overwrite this
+  one.
+- **Ship gate** — mean LOSO PLCC ≥ 0.95 vs `vmaf_v0.6.1`. The trainer
+  exits 3 and refuses to overwrite the registry on failure; lowering
+  the threshold is a soft-fail of policy, not a code change.
+
+**Rebase-sensitive invariants:**
+
+- The canonical-6 feature order is load-bearing — `vmaf_v0.6.1`
+  consumes the same six features in the same order, and the ONNX
+  graph weight matrix is column-aligned to it. Reordering the
+  sidecar `feature_order` field invalidates the checkpoint.
+- Netflix Public Dataset is non-redistributable. CI cannot retrain
+  end-to-end; only the smoke path
+  (`python ai/scripts/train_fr_regressor.py --epochs 3 --no-export`)
+  runs in CI when the parquet is locally available.
+
 ## Quantization-Aware Training (ADR-0207 / ADR-0208)
 
 The QAT trainer hook lives in [`ai/train/qat.py`](train/qat.py) and

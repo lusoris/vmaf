@@ -455,6 +455,28 @@
   T3-17 in the backlog audit (now T3-15(c)) and the "Vulkan motion3
   GPU gap" in [`docs/backlog-audit-2026-04-28.md`](docs/backlog-audit-2026-04-28.md)
   row A.1.4. See [ADR-0219](docs/adr/0219-motion3-gpu-coverage.md).
+- **Tiny-AI Wave-1 C1 baseline `fr_regressor_v1` (T6-1a / ADR-0221).**
+  Ships `model/tiny/fr_regressor_v1.onnx` — a 6-feature canonical
+  MLP (FRRegressor: 2-layer GELU, hidden=64) that maps libvmaf's
+  classical feature vector (`adm2`, `vif_scale0..3`, `motion2`) to a
+  per-frame VMAF score. Trained on the locally-available Netflix
+  Public Dataset (9 ref + 70 dis YUVs at `.workingdir2/netflix/`,
+  unblocked from the access-gated deferral in ADR-0168) with
+  `vmaf_v0.6.1` as the per-frame DMOS-aligned teacher. New trainer
+  [`ai/scripts/train_fr_regressor.py`](ai/scripts/train_fr_regressor.py)
+  runs 9-fold leave-one-source-out (LOSO), refuses to overwrite the
+  registry below mean PLCC 0.95, then re-trains on all sources for
+  the shipping checkpoint. Sidecar
+  [`model/tiny/fr_regressor_v1.json`](model/tiny/fr_regressor_v1.json)
+  pins the per-feature standardisation (`feature_mean` /
+  `feature_std`) so callers can reproduce the input pipeline; the
+  ONNX itself stays standardisation-agnostic. New user doc
+  [`docs/ai/models/fr_regressor_v1.md`](docs/ai/models/fr_regressor_v1.md);
+  Wave-1 roadmap §2.1 row flips from **Deferred** to **Shipped
+  2026-04-29**; `ai/AGENTS.md` carries the `fr_regressor_v1`
+  contract row + rebase-sensitive invariants. See
+  [ADR-0221](docs/adr/0221-fr-regressor-v1.md).
+
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame
