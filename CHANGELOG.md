@@ -16,6 +16,14 @@
   CLI flags, `enable_mcp` Meson option, hooks-install quickstart step,
   and CLAUDE §12 r12-r14 quality-gate rules (touched-file lint-clean,
   state.md updates, ffmpeg-patches sync). No code or schema changes.
+- **User-facing docs refresh (post-session 2026-04-29).** Refreshed
+  [`docs/metrics/features.md`](docs/metrics/features.md) (de-duplicated
+  the extractor overview table; CAMBI Vulkan, integer-SSIM Vulkan,
+  SSIMULACRA 2 CUDA / SYCL twins, PSNR Vulkan chroma WIP all now
+  reflected with footnotes) and [`docs/api/gpu.md`](docs/api/gpu.md)
+  (Vulkan section flipped from "scaffold only" to "T5-1c full
+  default-model coverage"; added pointers to T7-29 image-import API
+  and T7-10 HIP scaffold). No code changes; doc-only.
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
