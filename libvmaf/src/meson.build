@@ -47,6 +47,9 @@ is_sycl_enabled = get_option('enable_sycl') == true
 # Vulkan compute backend: scaffold ADR-0175 / T5-1, runtime ADR-0178 / T5-1b,
 # kernel matrix complete for the default model per ADR-0193.
 is_vulkan_enabled = get_option('enable_vulkan').enabled()
+# HIP (AMD ROCm) compute backend — scaffold ADR-0209 / T7-10. Default OFF;
+# every entry point returns -ENOSYS until the runtime PR lands.
+is_hip_enabled = get_option('enable_hip') == true
 is_avx512_enabled = get_option('enable_avx512') == true
 is_nvtx_enabled = get_option('enable_nvtx') == true
 if is_nvtx_enabled and host_machine.system() == 'windows'
@@ -86,6 +89,17 @@ if is_vulkan_enabled
     # variable-propagation behaves oddly when the addition is via an
     # `subproject().get_variable()` lookup inside a subdir.)
     vmaf_cflags_common += ['-include', volk_priv_remap_h_path]
+endif
+
+# HIP compute backend (ADR-0209 / T7-10 scaffold). Same pattern as the
+# Vulkan scaffold above — empty arrays when the option is off, no-cost
+# on default builds. The dependency() probe inside `subdir('hip')` is
+# `required: false`; the scaffold compiles with no ROCm SDK installed.
+hip_sources = []
+hip_deps = []
+if is_hip_enabled
+    cdata.set10('HAVE_HIP', true)
+    subdir('hip')
 endif
 if dnn_have_ort
     cdata.set10('HAVE_DNN', true)
@@ -982,10 +996,10 @@ libvmaf_ssimulacra2_static_lib = static_library(
 
 libvmaf_feature_static_lib = static_library(
     'libvmaf_feature',
-    libvmaf_feature_sources + vulkan_sources,
+    libvmaf_feature_sources + vulkan_sources + hip_sources,
     include_directories : [libvmaf_include, vmaf_include, cuda_dir],
     c_args : vmaf_cflags_common,
-    dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
     objects: [common_cuda_objects, common_sycl_objects, sycl_feature_objects,
               libvmaf_ssimulacra2_static_lib.extract_all_objects(recursive: false)]
 )
@@ -1111,6 +1125,7 @@ libvmaf = library(
       sycl_dependency,
       dnn_deps,
       vulkan_deps,
+      hip_deps,
     ],
     objects : [
         platform_specific_cpu_objects,

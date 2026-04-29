@@ -4735,3 +4735,88 @@ inline.*
   python3 -m pytest python/test/model_registry_schema_test.py -v
   meson test -C build-cpu --suite=dnn
   ```
+
+### 0074 — HIP (AMD ROCm) backend scaffold (T7-10)
+
+- **ADR**: [ADR-0212](adr/0212-hip-backend-scaffold.md).
+- **Upstream source**: fork-local. HIP backend is fork-only;
+  Netflix/vmaf has no `libvmaf_hip.h` and no `enable_hip` meson
+  option.
+- **Touches**:
+  - `libvmaf/include/libvmaf/libvmaf_hip.h` (new).
+  - `libvmaf/include/libvmaf/meson.build` — adds the
+    `is_hip_enabled` install gate, mirroring `is_cuda_enabled` /
+    `is_sycl_enabled` boolean idioms.
+  - `libvmaf/meson_options.txt` — new `enable_hip` boolean option
+    (default false).
+  - `libvmaf/src/meson.build` — new `is_hip_enabled` flag,
+    conditional `subdir('hip')`, `hip_sources` + `hip_deps`
+    threaded through `libvmaf_feature_static_lib` (alongside the
+    existing CUDA / SYCL / Vulkan aggregations) and the top-level
+    `library('vmaf', ...)` `dependencies` list.
+  - `libvmaf/src/hip/` (new directory: `common.{c,h}`,
+    `picture_hip.{c,h}`, `dispatch_strategy.{c,h}`, `meson.build`).
+  - `libvmaf/src/feature/hip/` (new directory: `adm_hip.c`,
+    `vif_hip.c`, `motion_hip.c`).
+  - `libvmaf/test/test_hip_smoke.c` (new).
+  - `libvmaf/test/meson.build` — registers the smoke test under
+    `if get_option('enable_hip') == true`.
+  - `.github/workflows/libvmaf-build-matrix.yml` — adds
+    `Build — Ubuntu HIP (T7-10 scaffold)` row.
+  - `docs/backends/hip/overview.md` (new),
+    `docs/backends/index.md` (planned → scaffold row),
+    `docs/research/0033-hip-applicability.md` (new),
+    `docs/adr/0212-hip-backend-scaffold.md` (new),
+    `docs/adr/README.md` (new index row).
+  - `libvmaf/AGENTS.md` — new "HIP backend scaffold contract"
+    rebase-sensitive invariant entry.
+  - `CHANGELOG.md` — Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **`enable_hip` is a `boolean` option, not a `feature`.**
+     Mirrors `enable_cuda` / `enable_sycl`; do not "harmonise" with
+     `enable_vulkan`'s `feature` / `disabled` form without an ADR
+     amendment per ADR-0212 § "Decision".
+  2. **Public C-API entry points return `-ENOSYS` for the
+     scaffold.** The smoke test
+     [libvmaf/test/test_hip_smoke.c](../libvmaf/test/test_hip_smoke.c)
+     pins this. A rebase that "succeeds" by accidentally enabling a
+     code path (e.g. a refactor that early-returns 0 from
+     `vmaf_hip_state_init`) breaks the smoke and the runtime PR's
+     contract baseline.
+  3. **`hip_sources` is added to
+     `libvmaf_feature_static_lib`, NOT directly to the top-level
+     `library('vmaf', ...)`.** The static lib is extracted into
+     libvmaf via `objects: [..., libvmaf_feature_static_lib.extract_all_objects(recursive: true), ...]`
+     at the bottom of `libvmaf/src/meson.build`. Adding `hip_sources`
+     to the top library() too would double-link.
+  4. **`hip_deps` IS added to the top library() `dependencies:`
+     list.** The runtime PR will populate `hip_deps` with the real
+     `dependency('hip-lang')` linkage; threading it through the top
+     library() ensures consumers see the transitive dependency.
+  5. **Header purity**: `libvmaf_hip.h` does not include
+     `<hip/hip_runtime.h>`. HIP runtime types cross the public ABI
+     as `uintptr_t` (matches the CUDA / Vulkan precedent;
+     ADR-0212). Don't add `<hip/...>` includes to the public header
+     during a rebase / runtime-PR bring-up.
+- **No FFmpeg patch**: the fork's `ffmpeg-patches/` series does
+  not currently consume the HIP API surface. CLAUDE §12 r14 only
+  requires patch updates when an existing patch consumes the
+  surface; the runtime PR (T7-10b) will add the `hip_device`
+  filter option and the corresponding patch.
+- **On upstream sync**: zero interaction; HIP backend is
+  fork-only.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf
+  meson setup build-hip -Denable_cuda=false -Denable_sycl=false \
+                        -Denable_hip=true
+  ninja -C build-hip
+  meson test -C build-hip test_hip_smoke
+  # Expect: 9/9 pass.
+
+  # Default no-HIP build still works:
+  meson setup build-cpu -Denable_cuda=false -Denable_sycl=false
+  ninja -C build-cpu
+  meson test -C build-cpu --suite=fast
+  ```

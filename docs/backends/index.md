@@ -12,7 +12,7 @@ assessment. Backends are **opt-in at build time** via meson options and
 | ARM NEON | auto-detected on aarch64 | yes | `--cpumask` | stable — see [arm/overview.md](arm/overview.md) |
 | CUDA | `-Denable_cuda=true` | no | `--no_cuda` | stable — see [cuda/overview.md](cuda/overview.md) |
 | SYCL / oneAPI | `-Denable_sycl=true` | no | `--no_sycl` / `--sycl_device N` | stable — see [sycl/overview.md](sycl/overview.md) |
-| HIP (AMD) | _(not yet scaffolded)_ | no | n/a | planned — meson option does not exist yet; `/add-gpu-backend hip` is the scaffolding path |
+| HIP (AMD) | `-Denable_hip=true` | no | n/a | scaffold only — see [hip/overview.md](hip/overview.md); every entry point returns `-ENOSYS` until the runtime PR (ADR-0212 / T7-10) |
 
 ## Runtime selection
 
@@ -52,6 +52,8 @@ per-backend page below.
   runtime
 - [Vulkan (scaffold)](vulkan/overview.md) — opt-in scaffold returning
   `-ENOSYS` until the runtime PR (T5-1b)
+- [HIP / AMD ROCm (scaffold)](hip/overview.md) — opt-in scaffold
+  returning `-ENOSYS` until the runtime PR (T7-10b)
 
 ## Cross-backend parity
 

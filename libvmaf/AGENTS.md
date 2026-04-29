@@ -74,6 +74,27 @@ libvmaf/
   is `push_c()` at entry → body → `pop()` before the `ferror`
   check; dropping the `pop()` leaks a `locale_t` on POSIX and
   leaves the calling thread locked to `"C"` on Windows.
+- **HIP backend scaffold contract** (fork-local, ADR-0212 / T7-10):
+  the `enable_hip=true` build path compiles
+  [src/hip/](src/hip/) and [src/feature/hip/](src/feature/hip/)
+  into `libvmaf_feature_static_lib` and exposes the public C-API
+  entry points in
+  [include/libvmaf/libvmaf_hip.h](include/libvmaf/libvmaf_hip.h)
+  (`vmaf_hip_state_init` / `_import_state` / `_state_free` /
+  `vmaf_hip_list_devices` / `vmaf_hip_available`). Until the
+  runtime PR (T7-10b) lands, every public entry point returns
+  `-ENOSYS` and the smoke test
+  [test/test_hip_smoke.c](test/test_hip_smoke.c) pins that
+  contract. Any rebase or refactor that "succeeds" the scaffold
+  (e.g. accidentally enables a code path) without flipping the
+  smoke expectations breaks the rebase story for the runtime PR.
+  The `dependency('hip-lang')` probe in
+  [src/hip/meson.build](src/hip/meson.build) stays
+  `required: false` for the scaffold; flipping to `true` belongs
+  to the runtime PR. The `enable_hip` option type is
+  `boolean` (matching `enable_cuda` / `enable_sycl`); do NOT
+  convert it to `feature` without an ADR amendment per ADR-0212
+  § "Decision".
 - **Thread-pool job recycling + inline data buffer** (fork-local,
   ADR-0147): [`src/thread_pool.c`](src/thread_pool.c) recycles
   `VmafThreadPoolJob` slots via a `pool->free_jobs` free list

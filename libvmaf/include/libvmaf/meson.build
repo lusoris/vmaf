@@ -9,6 +9,9 @@ version_h_target = configure_file(input: 'version.h.in',
 
 is_cuda_enabled = get_option('enable_cuda') == true
 is_sycl_enabled = get_option('enable_sycl') == true
+# ADR-0209 / T7-10: HIP scaffold — install the public header whenever the
+# scaffold is opted in so downstream consumers can compile against it.
+is_hip_enabled = get_option('enable_hip') == true
 # `enable_vulkan` is a feature option (`disabled`/`enabled`/`auto`), not a
 # boolean — handle accordingly. Treat both `enabled` and `auto` as "install
 # the public header"; otherwise consumers who built with `-Denable_vulkan=
@@ -44,6 +47,10 @@ endif
 # wires the bodies — every entry point returns -ENOSYS until then.
 if get_option('enable_mcp')
   platform_specific_headers += 'libvmaf_mcp.h'
+endif
+
+if is_hip_enabled
+  platform_specific_headers += 'libvmaf_hip.h'
 endif
 
 if get_option('enable_dnn').enabled() or get_option('enable_dnn').auto()
