@@ -67,3 +67,23 @@ option('enable_vulkan',
     type: 'feature',
     value: 'disabled',
     description: 'Build Vulkan compute backend (ADR-0127 design; ADR-0175 scaffold; ADR-0178 / T5-1b runtime; ADR-0193 default-model kernel matrix complete). Default disabled; opt in to use it. Requires volk + Vulkan SDK 1.3+ + glslc + VMA.')
+
+option('enable_mcp',
+    type: 'boolean',
+    value: false,
+    description: 'Build embedded MCP (Model Context Protocol) server inside libvmaf (ADR-0128 design; ADR-0209 / T5-2 scaffold; T5-2b runtime). Default disabled — opt in to use. Header surface lands in T5-2; runtime + transports in T5-2b. The umbrella flag enables the `vmaf_mcp_*` symbols; per-transport availability is gated by the sub-flags below.')
+
+option('enable_mcp_sse',
+    type: 'boolean',
+    value: false,
+    description: 'Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires enable_mcp=true. Bodies land in T5-2b.')
+
+option('enable_mcp_uds',
+    type: 'boolean',
+    value: false,
+    description: 'Compile in the Unix-domain-socket transport for the embedded MCP server. Requires enable_mcp=true. POSIX-only; non-POSIX hosts return -ENODEV at runtime. Bodies land in T5-2b.')
+
+option('enable_mcp_stdio',
+    type: 'boolean',
+    value: false,
+    description: 'Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport for the embedded MCP server. Requires enable_mcp=true. Bodies land in T5-2b.')

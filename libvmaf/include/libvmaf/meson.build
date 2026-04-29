@@ -38,6 +38,14 @@ if is_vulkan_enabled
   platform_specific_headers += 'libvmaf_vulkan.h'
 endif
 
+# Embedded MCP server header (ADR-0209 / T5-2 scaffold). Install
+# whenever `enable_mcp=true` so downstream consumers can compile
+# against the public surface even before the runtime PR (T5-2b)
+# wires the bodies — every entry point returns -ENOSYS until then.
+if get_option('enable_mcp')
+  platform_specific_headers += 'libvmaf_mcp.h'
+endif
+
 if get_option('enable_dnn').enabled() or get_option('enable_dnn').auto()
   platform_specific_headers += 'dnn.h'
 endif

@@ -62,6 +62,18 @@ subdir('dnn')
 # vulkan_sources + vulkan_deps following the dnn_sources pattern; the
 # library() call below pulls them in unconditionally (they're empty
 # arrays when the option is disabled, no-cost on default builds).
+# Embedded MCP server (ADR-0128 design; ADR-0209 / T5-2 scaffold;
+# T5-2b runtime). When `enable_mcp=true`, `subdir('mcp')` exposes
+# `mcp_sources` + `mcp_defines`. When the umbrella flag is off the
+# variables stay empty and the libvmaf TU set is unchanged.
+is_mcp_enabled = get_option('enable_mcp')
+mcp_sources = []
+mcp_defines = []
+if is_mcp_enabled
+    subdir('mcp')
+    vmaf_cflags_common += mcp_defines
+endif
+
 vulkan_sources = []
 vulkan_deps = []
 if is_vulkan_enabled
@@ -1086,7 +1098,7 @@ endif
 
 libvmaf = library(
     'vmaf',
-    [libvmaf_sources, rev_target, json_model_c_sources, dnn_sources, dnn_libvmaf_only_sources],
+    [libvmaf_sources, rev_target, json_model_c_sources, dnn_sources, dnn_libvmaf_only_sources, mcp_sources],
     include_directories : [libvmaf_inc, vmaf_include, dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     link_args : vmaf_link_args,
