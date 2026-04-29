@@ -1,0 +1,41 @@
+{
+  "id": "vmaf_tiny_v2",
+  "kind": "fr",
+  "onnx": "vmaf_tiny_v2.onnx",
+  "opset": 17,
+  "sha256": "946042c2900df9137e1bdd8dfdaae9a32cc6cd0f3874eeb70d10c29afb990c43",
+  "input_name": "features",
+  "input_shape": [
+    -1,
+    6
+  ],
+  "output_name": "vmaf",
+  "output_shape": [
+    -1
+  ],
+  "features": [
+    "adm2",
+    "vif_scale0",
+    "vif_scale1",
+    "vif_scale2",
+    "vif_scale3",
+    "motion2"
+  ],
+  "input_mean": [
+    0.9161774972359811,
+    0.5106291087853069,
+    0.7604737808414294,
+    0.8426749500133006,
+    0.8939429041622461,
+    6.348410333627293
+  ],
+  "input_std": [
+    0.03455697523263313,
+    0.1587175910179103,
+    0.09184272836213704,
+    0.06829860815799946,
+    0.051362109617984854,
+    7.442948775642373
+  ],
+  "notes": "vmaf_tiny_v2 \u2014 canonical-6 + StandardScaler + mlp_small (257 params), 90 epochs Adam @ lr=1e-3, MSE. Scaler (mean, std) baked into the ONNX graph as Constant nodes so the runtime feeds raw feature values. Validated PLCC 0.9978 \u00b1 0.0021 on Netflix LOSO; 0.9998 on KoNViD 5-fold."
+}
