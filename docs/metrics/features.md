@@ -51,6 +51,8 @@ limitations in the same PR as the code.
 | LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —                  |
 | FastDVDnet pre     | `fastdvdnet_pre`| No            | `fastdvdnet_pre_l1_residual`                                                                  | —                   | —                  |
 | TransNet V2        | `transnet_v2`   | No            | `shot_boundary_probability`, `shot_boundary`                                                  | —                   | —                  |
+| Speed (chroma)     | `speed_chroma`  | No            | `speed_chroma_y/u/v_score`, `speed_chroma_uv_score` (only when `VMAF_FLOAT_FEATURES` enabled) | —                   | —                  |
+| Speed (temporal)   | `speed_temporal`| No            | `speed_temporal_score` family (only when `VMAF_FLOAT_FEATURES` enabled)                        | —                   | —                  |
 
 **Core** extractors are required inputs for the shipped VMAF models (see
 [models/overview.md](../models/overview.md)); non-core extractors are
@@ -829,6 +831,61 @@ it is not a working shot detector. Per
 [ADR-0223](../adr/0223-transnet-v2-shot-detector.md) the placeholder
 is intentional — surface, plumbing, and FFmpeg patch land first;
 weights follow.
+
+### Speed (chroma + temporal) — Netflix research extractors
+
+`speed_chroma` and `speed_temporal` are research-stage feature
+extractors ported from Netflix upstream commit
+[`d3647c73`](https://github.com/Netflix/vmaf/commit/d3647c73) (with
+its dependency `4ad6e0ea` for the `vif_tools` helpers). They share a
+common Speed-Of-Light–style spatial-pooling backbone and a per-frame
+neural-network–shaped weighting (see the inline `speed_*` options).
+
+Both extractors only register when `libvmaf` is built with
+`-Denable_float=true` (i.e. `VMAF_FLOAT_FEATURES=1`); the standard
+fixed-point build does not include them.
+
+#### `speed_chroma`
+
+Per-channel chroma fidelity scores. Lifts each of Y / U / V from the
+input pictures (the new `picture_copy(..., channel)` parameter — see
+the same upstream commit) and runs the Speed pooling on each plane,
+plus a combined U+V score.
+
+- **Invocation** — `--feature speed_chroma` (build with
+  `-Denable_float=true`).
+- **Output metrics** — `Speed_chroma_feature_speed_chroma_y_score`,
+  `..._u_score`, `..._v_score`, `..._uv_score`.
+- **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
+- **Backends** — scalar only.
+
+#### `speed_temporal`
+
+Temporal Speed score over a small cyclic frame buffer. Captures
+distortions that only become visible once consecutive frames are
+considered (flicker, judder).
+
+- **Invocation** — `--feature speed_temporal` (build with
+  `-Denable_float=true`).
+- **Output metrics** — `Speed_temporal_*_score` family (see the
+  registered `provided_features[]` in `libvmaf/src/feature/speed.c`).
+- **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
+- **Backends** — scalar only.
+
+#### Options (shared)
+
+The `speed_*` extractors expose a research-grade option surface
+including `speed_kernelscale`, `speed_prescale`,
+`speed_prescale_method` (`nearest` / `bicubic` / `lanczos4` /
+`bilinear`), `speed_sigma_nn`, `speed_nn_floor`, `speed_max_val`,
+`speed_weight_var_mode` (`speed_chroma` only), and
+`speed_use_ref_diff` (`speed_temporal` only). See
+`libvmaf/src/feature/speed.c` for the per-option `help` strings and
+ranges; defaults match Netflix upstream.
+
+**Stability** — research; the option grammar and score scale may
+shift in future Netflix upstream commits. Track upstream releases
+before pinning these features into a downstream pipeline.
 
 ## Invoking features from the CLI
 

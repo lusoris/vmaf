@@ -458,6 +458,34 @@ feature/
   cross-backend port plan.** See
   [Research-0024 §"Same divergence test for motion + float_adm"](../../../docs/research/0024-vif-upstream-divergence.md).
 
+### `picture_copy()` carries a `channel` parameter
+
+Upstream commit `d3647c73` (T-NEW-1, ported via this fork's
+`upstream/port-d3647c73-feature-speed`) widened the
+`picture_copy()` / `picture_copy_hbd()` signatures with a new
+`int channel` argument so the new `speed_chroma` and
+`speed_temporal` extractors can lift U / V planes from
+`VmafPicture`. Every fork-local extractor that calls
+`picture_copy()` (`cuda/integer_ms_ssim_cuda.c`,
+`vulkan/ssim_vulkan.c`, `vulkan/ms_ssim_vulkan.c`) passes
+`channel=0`; the upstream-mirror `float_*` callers already do.
+**If a future upstream commit evolves the signature further
+(extra parameter, type change), update those four fork-local
+call sites in lockstep with the upstream-mirror ones — silently
+trailing the upstream signature change will fail compilation
+on any GPU backend.** See
+[`docs/rebase-notes.md` §0075](../../../docs/rebase-notes.md).
+
+### `speed_chroma` / `speed_temporal` are float-build-only
+
+The two upstream Speed extractors register inside the
+`#if VMAF_FLOAT_FEATURES` block in `feature_extractor.c`. They
+are absent from a default `meson setup` build; users who want
+them must pass `-Denable_float=true`. Do **not** lift them out
+of the `#if` block — they call into the Speed-specific helpers
+in `vif_tools.c` that are themselves only compiled in the
+float-features path.
+
 ## Governing ADRs
 
 - [ADR-0024](../../../docs/adr/0024-netflix-golden-preserved.md) —
