@@ -10,10 +10,11 @@ CUDA **feature kernels** live one level deeper in
 [../feature/cuda/](../feature/cuda/). CUDA execution-provider wiring for
 ONNX Runtime lives in [../dnn/](dnn/AGENTS.md).
 
-```
+```text
 cuda/
   common.c/.h          # CUDA context + stream management
   cuda_helper.cuh      # launch macros, error-check, types
+  kernel_template.h    # per-feature CUDA kernel scaffolding (ADR-0221)
   picture_cuda.c/.h    # VmafPicture on a CUDA device
   ring_buffer.c/.h     # picture buffer pool
 ```
@@ -102,6 +103,23 @@ cuda/
   the graceful variants inside the port commit. See
   [ADR-0156](../../../docs/adr/0156-cuda-graceful-error-propagation-netflix-1420.md)
   and [rebase-notes 0049](../../../docs/rebase-notes.md).
+
+- **`kernel_template.h` is the canonical kernel scaffolding**
+  (fork-local, ADR-0221): the inline helpers
+  `vmaf_cuda_kernel_lifecycle_init/_close`,
+  `vmaf_cuda_kernel_readback_alloc/_free`,
+  `vmaf_cuda_kernel_submit_pre_launch`, and
+  `vmaf_cuda_kernel_collect_wait` capture the private non-blocking
+  stream + 2-event + device-accumulator + pinned-readback shape
+  every fork-added CUDA feature kernel uses. Templates land
+  unused in PR #NNN — each future kernel migration is its own
+  gated PR (`places=4` cross-backend-diff per ADR-0214). **On
+  rebase**: keep both the header and any kernel call-sites that
+  later adopt it; upstream has no equivalent. Reference
+  implementation that mirrors the template's shape lives in
+  `libvmaf/src/feature/cuda/integer_psnr_cuda.c`. See
+  [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) and
+  [docs/backends/kernel-scaffolding.md](../../../docs/backends/kernel-scaffolding.md).
 
 ## Per-kernel nvcc flag invariants
 
