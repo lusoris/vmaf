@@ -158,3 +158,25 @@ results = self.qrunner.results
 self.assertAlmostEqual(results[0]['Cambi_score'],
                         1.218365, places=4)
 ```
+
+## GPU support
+
+cambi has a Vulkan backend (T7-36 / [ADR-0210](../adr/0210-cambi-vulkan-integration.md)).
+The integer phases (preprocess, per-pixel derivative, 7×7 spatial-mask
+SAT, 2× decimate, 3-tap separable mode filter) run on the GPU; the
+precision-sensitive sliding-histogram `calculate_c_values` + top-K
+spatial pool stay on the host. Cross-backend gate runs at `places=4`.
+
+To use it:
+
+```bash
+# Build with Vulkan enabled
+meson setup build-vulkan libvmaf -Denable_vulkan=enabled
+ninja -C build-vulkan
+
+# Run with --backend vulkan
+./build-vulkan/tools/vmaf -r ref.yuv -d dis.yuv -w W -h H \
+    -p 420 -b 8 --backend vulkan --feature cambi
+```
+
+Companion research digest: [Research-0032](../research/0032-cambi-vulkan-integration.md).
