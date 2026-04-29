@@ -217,6 +217,31 @@
   `FeatureAssembler` mock. No behaviour change for callers that did
   not declare per-extractor options.
 
+- **SYCL toolchain cleanup (T7-13 / ADR-0217).** Two thin shims land
+  to unblock SYCL files for the changed-file CI lint gate and to make
+  multi-version oneAPI installs usable for `vmaf_bench`:
+  [`scripts/ci/sycl-bench-env.sh <version>`](scripts/ci/sycl-bench-env.sh)
+  resolves an oneAPI install (side-by-side `/opt/intel/oneapi-<version>/`
+  or default `/opt/intel/oneapi/`), sources its `setvars.sh`, and emits
+  an `eval`-able env block (`CMPLR_ROOT`, `LD_LIBRARY_PATH`,
+  `LIBRARY_PATH`, `PATH`);
+  [`scripts/ci/clang-tidy-sycl.sh`](scripts/ci/clang-tidy-sycl.sh) is
+  an icpx-aware `clang-tidy` wrapper that injects the oneAPI SYCL
+  include path + `-D__SYCL_DEVICE_ONLY__=0` + `-Wno-unknown-warning-option`
+  + `-Wno-unknown-pragmas` so stock LLVM clang-tidy resolves
+  `<sycl/sycl.hpp>` and stops emitting the 4 residual
+  `'sycl/sycl.hpp' file not found` errors that left
+  `libvmaf/src/sycl/**` excluded from the lint gate after T7-7. New CI
+  lane `Clang-Tidy SYCL (Changed Files, Advisory)` in
+  [`.github/workflows/lint-and-format.yml`](.github/workflows/lint-and-format.yml)
+  installs the DPC++/C++ component of oneAPI, configures a
+  `build-sycl/` tree with `CC=icx CXX=icpx -Denable_sycl=true`, and
+  runs the wrapper over changed SYCL TUs. Lane is advisory
+  (`continue-on-error: true`) on this PR; tightens to required after
+  one green run on master. New "Multi-version coexistence" section in
+  [`docs/development/oneapi-install.md`](docs/development/oneapi-install.md);
+  the existing "Verify SYCL clang-tidy still works" recipe rewritten
+  to use the wrapper. See [ADR-0217](docs/adr/0217-sycl-toolchain-cleanup.md).
 - **Research-0031: Intel AI-PC NPU/EP applicability digest (T7-9)**
   (fork-local doc): new
   [`docs/research/0031-intel-ai-pc-applicability.md`](docs/research/0031-intel-ai-pc-applicability.md)

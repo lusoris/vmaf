@@ -72,6 +72,49 @@ Conflicts with the Arch repo `intel-oneapi-basekit` package. Installs
 to `/opt/intel/oneapi/` (not version-suffixed) so it replaces any
 existing install.
 
+## Multi-version coexistence
+
+A common situation: the Arch repo / AUR install at `/opt/intel/oneapi/`
+is held back at an older release (e.g. 2025.0.4) whose device images no
+longer match the system's `level-zero-loader`, while a side-by-side
+2025.3 install at `/opt/intel/oneapi-2025.3/` ships matching binaries.
+`vmaf_bench --device sycl` against the older install silently
+host-falls-back or fails `ze_init` — the symptom is "ran on CPU even
+though a GPU is plugged in".
+
+The bench / lint cycle has to point at the install whose runtime
+matches the loader. The fork ships a helper that resolves the
+appropriate `setvars.sh` and emits an `eval`-able env block:
+
+```bash
+# Activate the 2025.3 side-by-side install for this shell:
+eval "$(scripts/ci/sycl-bench-env.sh 2025.3)"
+icpx --version
+# → Intel(R) oneAPI DPC++/C++ Compiler 2025.3.x
+
+# Run the bench against the right runtime:
+./build-sycl/tools/vmaf_bench --device sycl ...
+```
+
+The helper looks (in order) for:
+
+1. `$ONEAPI_PREFIX` (explicit override).
+2. `/opt/intel/oneapi-<version>/` (canonical side-by-side layout).
+3. `/opt/intel/oneapi/<version>/` (Intel modulefile-style layout).
+4. `/opt/intel/oneapi/` (fallback — emits a warning if the requested
+   version doesn't match the install actually present).
+
+If none resolves, the helper exits 1 with a pointer back to this
+document. The helper only forwards `CMPLR_ROOT`, `LD_LIBRARY_PATH`,
+`LIBRARY_PATH`, and `PATH` — the four variables `vmaf_bench`,
+`icpx`, and `clang-tidy` actually consume — to keep the parent shell's
+environment from accreting the ~40 oneAPI vars `setvars.sh` exports.
+
+For the `clang-tidy` lane there's a parallel wrapper —
+`scripts/ci/clang-tidy-sycl.sh` — that injects the SYCL include path +
+`__SYCL_DEVICE_ONLY__=0` so SYCL TUs lint cleanly. See
+[ADR-0217](../adr/0217-sycl-toolchain-cleanup.md).
+
 ## Verify the SYCL build picks up the new compiler
 
 After installing a new oneAPI version:
@@ -130,18 +173,31 @@ follow-up backlog candidate.
 
 ## Verify SYCL clang-tidy still works
 
+The fork's icpx-aware wrapper (T7-13(b), [ADR-0217](../adr/0217-sycl-toolchain-cleanup.md))
+injects the oneAPI SYCL include path so stock LLVM `clang-tidy` resolves
+`<sycl/sycl.hpp>`:
+
 ```bash
 echo "libvmaf/src/sycl/picture_sycl.cpp
 libvmaf/src/feature/sycl/integer_adm_sycl.cpp
 libvmaf/src/feature/sycl/integer_motion_sycl.cpp
 libvmaf/src/feature/sycl/integer_vif_sycl.cpp" \
-  | parallel -j$(nproc) "clang-tidy -p libvmaf/build-sycl-lint --quiet {}" \
+  | parallel -j$(nproc) "scripts/ci/clang-tidy-sycl.sh \
+      -p libvmaf/build-sycl-lint --quiet {}" \
   | grep -E "warning:|error:" \
-  | grep -v "clang-diagnostic-error" \
   | wc -l
-# Expected: 0 (T7-7 cleared the SYCL findings; the 4 remaining
-# clang-diagnostic-errors for `sycl/sycl.hpp file not found` need an
-# icpx-aware clang-tidy wrapper — see the open T7-* item).
+# Expected: 0 across all four files. T7-7 cleared the SYCL findings;
+# T7-13(b) closes the residual `'sycl/sycl.hpp' file not found`
+# clang-diagnostic-errors that previously left these files excluded
+# from the changed-file CI lint gate.
+```
+
+If the wrapper can't locate `<sycl/sycl.hpp>` automatically, point it
+at the install:
+
+```bash
+ICPX_ROOT=/opt/intel/oneapi-2025.3/compiler/latest/linux \
+  scripts/ci/clang-tidy-sycl.sh -p libvmaf/build-sycl-lint --quiet <file>
 ```
 
 ## CI vs local
