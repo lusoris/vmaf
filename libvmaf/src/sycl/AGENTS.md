@@ -39,6 +39,23 @@ sycl/
   ([ADR-0206](../../../docs/adr/0206-ssimulacra2-cuda-sycl.md))
   past `places=2` through the IIR. **On rebase**: keep this flag
   on the SYCL feature line.
+- **fp64-free kernels are load-bearing
+  ([ADR-0220](../../../docs/adr/0220-sycl-fp64-fallback.md), T7-17).**
+  Every SYCL feature-kernel lambda must capture and operate on
+  `float` / integer types only. No `double` operand inside a
+  `parallel_for` body, no `sycl::reduction<double>`, no
+  `sycl::plus<double>`. This is hard, not soft: a single fp64
+  instruction anywhere in the TU's SPIR-V module causes the
+  Level Zero runtime to reject the entire module on Intel Arc
+  A-series and other fp64-less devices, even when the offending
+  kernel is never submitted. `double` is allowed *outside* the
+  kernel lambda (host-side post-processing in `extract` /
+  `flush` callbacks, score aggregation, log10 normalisation).
+  ADM gain limiting uses int64 Q31 (`gain_limit_to_q31` +
+  `launch_decouple_csf<false>` in `integer_adm_sycl.cpp`); VIF
+  gain limiting uses fp32 `sycl::fmin`. **On rebase**: if an
+  upstream cherry-pick brings a `double` into a kernel lambda,
+  refactor it to int64 / fp32 before merging.
 
 ## Governing ADRs
 
@@ -46,6 +63,7 @@ sycl/
 - [ADR-0016](../../../docs/adr/0016-sycl-to-master-merge-conflict-policy.md) — merge-conflict policy.
 - [ADR-0022](../../../docs/adr/0022-inference-runtime-onnx.md) — OpenVINO EP mapping for SYCL.
 - [ADR-0027](../../../docs/adr/0027-non-conservative-image-pins.md) — experimental SYCL flags.
+- [ADR-0220](../../../docs/adr/0220-sycl-fp64-fallback.md) — SYCL feature kernels are unconditionally fp64-free (T7-17).
 
 ## Build
 
