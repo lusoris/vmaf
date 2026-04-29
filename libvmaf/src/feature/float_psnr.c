@@ -137,7 +137,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
     double noise_ = 0;
     for (int i = 0; i < h; i++)
-        noise_ += s->noise_line(s->ref + i * stride, s->dist + i * stride, w);
+        noise_ += s->noise_line(s->ref + (ptrdiff_t)i * stride, s->dist + (ptrdiff_t)i * stride, w);
     noise_ /= (w * h);
 
     double eps = 1e-10;

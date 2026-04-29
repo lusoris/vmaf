@@ -186,14 +186,18 @@ static double compute_motion_simd(const float *ref, const float *dis, int w, int
     float accum = 0.0f;
 
     for (int i = 0; i < h; i++)
-        accum += sad_line(ref + i * ref_px_stride, dis + i * dis_px_stride, w);
+        accum +=
+            sad_line(ref + (ptrdiff_t)i * ref_px_stride, dis + (ptrdiff_t)i * dis_px_stride, w);
 
     return (double)(accum / (w * h));
 }
 
+// Upstream-port from Netflix b949cebf adds UV/scale1 init paths inline (Research-0024 Strategy A).
+// NOLINTNEXTLINE(readability-function-size)
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
+    (void)bpc;
     MotionState *s = fex->priv;
 
     s->float_stride = ALIGN_CEIL(w * sizeof(float));
@@ -203,7 +207,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->blur[1] = aligned_malloc(s->float_stride * h, 32);
     s->blur[2] = aligned_malloc(s->float_stride * h, 32);
     if (s->motion_add_uv) {
-        unsigned h_u, h_v;
+        unsigned h_u;
+        unsigned h_v;
         switch (pix_fmt) {
         case VMAF_PIX_FMT_UNKNOWN:
         case VMAF_PIX_FMT_YUV400P:
@@ -327,6 +332,8 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
     return (ret < 0) ? ret : !ret;
 }
 
+// Upstream-port from Netflix b949cebf adds UV/scale1 extract paths inline (Research-0024 Strategy A).
+// NOLINTNEXTLINE(readability-function-size)
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
@@ -422,7 +429,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         err = compute_motion(s->blur[blur_idx_2], s->blur[blur_idx_0], ref_pic->w[0], ref_pic->h[0],
                              s->float_stride, s->float_stride, &score, s->motion_add_scale1);
         if (s->motion_add_uv) {
-            double score_u, score_v;
+            double score_u;
+            double score_v;
             err |= compute_motion(s->blur_u[blur_idx_2], s->blur_u[blur_idx_0], ref_pic->w[1],
                                   ref_pic->h[1], s->float_stride, s->float_stride, &score_u,
                                   s->motion_add_scale1);
@@ -463,7 +471,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         err = compute_motion(s->blur[blur_idx_2], s->blur[blur_idx_1], ref_pic->w[0], ref_pic->h[0],
                              s->float_stride, s->float_stride, &score2, s->motion_add_scale1);
         if (s->motion_add_uv) {
-            double score2_u, score2_v;
+            double score2_u;
+            double score2_v;
             err |= compute_motion(s->blur_u[blur_idx_2], s->blur_u[blur_idx_1], ref_pic->w[1],
                                   ref_pic->h[1], s->float_stride, s->float_stride, &score2_u,
                                   s->motion_add_scale1);
@@ -493,6 +502,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     return 0;
 }
 
+// Upstream-port from Netflix b949cebf adds UV/scale1 free paths inline (Research-0024 Strategy A).
+// NOLINTNEXTLINE(readability-function-size)
 static int close(VmafFeatureExtractor *fex)
 {
     MotionState *s = fex->priv;

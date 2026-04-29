@@ -33,7 +33,6 @@ void picture_copy_hbd(float *dst, ptrdiff_t dst_stride, VmafPicture *src, int of
         float_data += dst_stride / sizeof(float);
         data += src->stride[channel] / 2;
     }
-    return;
 }
 
 void picture_copy(float *dst, ptrdiff_t dst_stride, VmafPicture *src, int offset, unsigned bpc,
@@ -60,6 +59,4 @@ void picture_copy(float *dst, ptrdiff_t dst_stride, VmafPicture *src, int offset
         float_data += dst_stride / sizeof(float);
         data += src->stride[channel];
     }
-
-    return;
 }

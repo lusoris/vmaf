@@ -34,10 +34,10 @@
 #include "motion_tools.h"
 
 #define convolution_f32_c convolution_f32_c_s
-#define FILTER_3           FILTER_3_s
-#define FILTER_5           FILTER_5_s
-#define FILTER_5_NO_OP     FILTER_5_NO_OP_s
-#define offset_image       offset_image_s
+#define FILTER_3 FILTER_3_s
+#define FILTER_5 FILTER_5_s
+#define FILTER_5_NO_OP FILTER_5_NO_OP_s
+#define offset_image offset_image_s
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
@@ -63,8 +63,7 @@ static float motion_bilinear_interp(const float *src, int width, int height, int
 
     return ((1.0f - dy) * (1.0f - dx) * src[y1 * src_stride + x1] +
             (1.0f - dy) * dx * src[y1 * src_stride + x2] +
-            dy * (1.0f - dx) * src[y2 * src_stride + x1] +
-            dy * dx * src[y2 * src_stride + x2]);
+            dy * (1.0f - dx) * src[y2 * src_stride + x1] + dy * dx * src[y2 * src_stride + x2]);
 }
 
 static void motion_scale_bilinear(const float *src, float *dst, int src_w, int src_h,
@@ -82,8 +81,7 @@ static void motion_scale_bilinear(const float *src, float *dst, int src_w, int s
         float yy = (y + 0.5f) * ratio_y - 0.5f;
         for (int x = 0; x < dst_w; x++) {
             float xx = (x + 0.5f) * ratio_x - 0.5f;
-            dst[y * dst_stride + x] =
-                motion_bilinear_interp(src, src_w, src_h, src_stride, xx, yy);
+            dst[y * dst_stride + x] = motion_bilinear_interp(src, src_w, src_h, src_stride, xx, yy);
         }
     }
 }
@@ -91,8 +89,8 @@ static void motion_scale_bilinear(const float *src, float *dst, int src_w, int s
 /**
  * Note: img1_stride and img2_stride are in terms of (sizeof(float) bytes)
  */
-float vmaf_image_sad_c(const float *img1, const float *img2, int width, int height,
-                       int img1_stride, int img2_stride, int motion_add_scale1)
+float vmaf_image_sad_c(const float *img1, const float *img2, int width, int height, int img1_stride,
+                       int img2_stride, int motion_add_scale1)
 {
     float motion_scale0 = 0.0;
     float accum = (float)0.0;
@@ -126,8 +124,8 @@ float vmaf_image_sad_c(const float *img1, const float *img2, int width, int heig
         for (int i = 0; i < scaled_height; ++i) {
             float accum_line = (float)0.0;
             for (int j = 0; j < scaled_width; ++j) {
-                float img1px = img1_scaled[i * scaled_float_stride / sizeof(float) + j];
-                float img2px = img2_scaled[i * scaled_float_stride / sizeof(float) + j];
+                float img1px = img1_scaled[(size_t)i * scaled_float_stride / sizeof(float) + j];
+                float img2px = img2_scaled[(size_t)i * scaled_float_stride / sizeof(float) + j];
                 accum_line += fabsf(img1px - img2px);
             }
             accum_scale1 += accum_line;
@@ -147,8 +145,8 @@ float vmaf_image_sad_c(const float *img1, const float *img2, int width, int heig
 /**
  * Note: ref_stride and dis_stride are in terms of bytes
  */
-int compute_motion(const float *ref, const float *dis, int w, int h, int ref_stride,
-                   int dis_stride, double *score, int motion_decimate)
+int compute_motion(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
+                   double *score, int motion_decimate)
 {
     if (ref_stride % sizeof(float) != 0) {
         printf("error: ref_stride %% sizeof(float) != 0, ref_stride = %d, sizeof(float) = %zu.\n",

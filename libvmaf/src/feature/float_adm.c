@@ -129,6 +129,8 @@ fail:
     return -ENOMEM;
 }
 
+// ADR-0141 / T7-5 sweep: pre-2026-04-21 historical debt; this PR only updates picture_copy() signature.
+// NOLINTNEXTLINE(readability-function-size)
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)

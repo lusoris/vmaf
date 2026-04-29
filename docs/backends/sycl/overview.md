@@ -205,6 +205,21 @@ the deviation:
 - **Float-twin extractors (`float_*`)** — the SYCL backend
   implements ANSNR / PSNR / Motion / VIF / ADM
   ([ADR-0202](../../adr/0202-float-adm-cuda-sycl.md)).
+- **`float_motion` extra options (`motion_add_scale1`,
+  `motion_add_uv`, `motion_filter_size`, `motion_max_val`,
+  `motion3_score`)** — these CPU options came in via the upstream
+  port from Netflix/vmaf
+  [`b949cebf`](https://github.com/Netflix/vmaf/commit/b949cebf)
+  (2026-04-29). The fork's SYCL `integer_motion` kernel is
+  unchanged. The `motion_add_uv=true` path exercises `picture_copy(...,
+  1/2)` for U/V planes on the CPU side and is **not yet wired through
+  to the SYCL backend** — UV-plane motion stays CPU-only. The SYCL
+  `picture_copy()` callsites at
+  [`src/feature/sycl/integer_ms_ssim_sycl.cpp`](../../../libvmaf/src/feature/sycl/integer_ms_ssim_sycl.cpp)
+  and
+  [`src/feature/sycl/integer_ssim_sycl.cpp`](../../../libvmaf/src/feature/sycl/integer_ssim_sycl.cpp)
+  pass `0` for the new trailing `channel` argument (Y-plane only,
+  preserving SYCL pre-port behaviour).
 - **SSIMULACRA 2** — `ssimulacra2_sycl` shipped per
   [ADR-0206](../../adr/0206-ssimulacra2-cuda-sycl.md) (hybrid
   host/GPU pipeline, kernel lambdas held in IEEE-754 strict mode by
