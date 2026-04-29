@@ -16,5 +16,7 @@
  *
  */
 
+float vmaf_image_sad_c(const float *img1, const float *img2, int width, int height, int img1_stride,
+                       int img2_stride, int motion_add_scale1);
 int compute_motion(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
-                   double *score);
+                   double *score, int motion_decimate);

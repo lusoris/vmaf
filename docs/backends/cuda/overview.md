@@ -172,6 +172,20 @@ to surface an unexpected delta.
   ([ADR-0202](../../adr/0202-float-adm-cuda-sycl.md)). Requesting
   `--feature float_<x>` with `--no_cuda=false` dispatches to GPU
   for those metrics.
+- **`float_motion` extra options (`motion_add_scale1`,
+  `motion_add_uv`, `motion_filter_size`, `motion_max_val`,
+  `motion3_score`)** — these were added to the CPU `float_motion`
+  extractor by the upstream port from Netflix/vmaf
+  [`b949cebf`](https://github.com/Netflix/vmaf/commit/b949cebf)
+  (2026-04-29). The fork's `integer_motion_cuda` kernel is unchanged
+  and still consumes the existing `motion2_score` only — the new
+  `motion_add_uv=true` path exercises `picture_copy(..., 1/2)` for
+  U/V planes on the CPU side and is **not yet wired through to the
+  CUDA backend**. The CUDA `picture_copy()` callsite at
+  [`src/feature/cuda/integer_ms_ssim_cuda.c`](../../../libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c)
+  passes `0` for the new trailing `channel` argument (Y-plane only,
+  preserving CUDA pre-port behaviour). UV-plane motion on GPU is a
+  follow-up tracked in [docs/state.md](../../state.md).
 - **SSIMULACRA 2** — `ssimulacra2_cuda` shipped per
   [ADR-0206](../../adr/0206-ssimulacra2-cuda-sycl.md) (hybrid
   host/GPU pipeline, IIR fatbin pinned with `--fmad=false`).

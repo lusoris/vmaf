@@ -357,7 +357,7 @@ static int upload_pic(SsimVulkanState *s, VmafVulkanBuffer *dst_buf, VmafPicture
     float *dst = vmaf_vulkan_buffer_host(dst_buf);
     if (!dst)
         return -EIO;
-    picture_copy(dst, (ptrdiff_t)s->float_stride, pic, /*offset=*/0, pic->bpc);
+    picture_copy(dst, (ptrdiff_t)s->float_stride, pic, /*offset=*/0, pic->bpc, 0);
     return vmaf_vulkan_buffer_flush(s->ctx, dst_buf);
 }
 

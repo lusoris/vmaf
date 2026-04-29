@@ -129,6 +129,8 @@ fail:
     return -ENOMEM;
 }
 
+// ADR-0141 / T7-5 sweep: pre-2026-04-21 historical debt; this PR only updates picture_copy() signature.
+// NOLINTNEXTLINE(readability-function-size)
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
@@ -139,8 +141,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)ref_pic_90;
     (void)dist_pic_90;
 
-    picture_copy(s->ref, s->float_stride, ref_pic, -128, ref_pic->bpc);
-    picture_copy(s->dist, s->float_stride, dist_pic, -128, dist_pic->bpc);
+    picture_copy(s->ref, s->float_stride, ref_pic, -128, ref_pic->bpc, 0);
+    picture_copy(s->dist, s->float_stride, dist_pic, -128, dist_pic->bpc, 0);
 
     double score;
     double score_num;

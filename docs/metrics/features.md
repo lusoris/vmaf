@@ -172,12 +172,30 @@ only.
 
 #### Options
 
-| Option              | Alias     | Type | Default | Effect                                                         |
-|---------------------|-----------|------|---------|----------------------------------------------------------------|
-| `debug`             | —         | bool | `true`  | Emit legacy `motion` alongside `motion2`                       |
-| `motion_force_zero` | `force_0` | bool | `false` | Override all scores to `0.0` — for deterministic test fixtures |
+| Option                | Alias     | Type  | Default     | Effect                                                                                                            |
+|-----------------------|-----------|-------|-------------|-------------------------------------------------------------------------------------------------------------------|
+| `debug`               | —         | bool  | `true`      | Emit legacy `motion` alongside `motion2`                                                                          |
+| `motion_force_zero`   | `force_0` | bool  | `false`     | Override all scores to `0.0` — for deterministic test fixtures                                                    |
+| `motion_add_scale1`   | —         | bool  | `false`     | (`float_motion` only) Add a half-resolution bilinear-downsampled SAD term on top of the full-resolution SAD       |
+| `motion_add_uv`       | —         | bool  | `false`     | (`float_motion` only) Sum the U and V plane SADs into the score in addition to the Y plane                        |
+| `motion_filter_size`  | —         | int   | `5`         | (`float_motion` only) Blur kernel size, `3` or `5`. `5` is the original Motion2 filter; `3` is a cheaper variant  |
+| `motion_max_val`      | —         | float | `+∞`        | (`float_motion` only) Upper clamp applied to the emitted `motion2_score` and `motion3_score`                      |
 
-**Backends** — AVX2, AVX-512, NEON; CUDA for `motion` (fixed-point).
+The `motion_add_scale1`, `motion_add_uv`, `motion_filter_size`, and
+`motion_max_val` options were ported from upstream Netflix/vmaf
+[`b949cebf`](https://github.com/Netflix/vmaf/commit/b949cebf) (2026-04-29).
+With the defaults left untouched, output is bit-identical to the pre-port
+baseline on the Y-plane SIMD fast path; non-default options route through
+the scalar `compute_motion()` path. The same port also enables
+`float_motion` to emit a `motion3_score` (a perceptual blend of `motion2`
+described by `motion_blend_factor` / `motion_blend_offset`) on the second
+frame; the trained VMAF models do not consume `motion3_score` and remain
+unchanged.
+
+**Backends** — AVX2, AVX-512, NEON; CUDA for `motion` (fixed-point). The
+`motion_add_uv=true` path is currently CPU-only — see
+[backends/cuda/overview.md §Known gaps](../backends/cuda/overview.md#known-gaps)
+and [backends/sycl/overview.md §Known gaps](../backends/sycl/overview.md#known-gaps).
 
 **Limitations** — Temporal. The extractor carries state across frames (two
 previous blurred references) and has a flush callback that emits the final

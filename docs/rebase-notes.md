@@ -3221,6 +3221,61 @@ inline.*
   # Expect exit 0 on every file.
   ```
 
+### 0049 — `compute_motion` / `picture_copy` signature changes (b949cebf upstream port)
+
+- **Upstream commit**: Netflix/vmaf b949cebf (feature/motion: port several feature extractor options)
+- **Prerequisite commit**: Netflix/vmaf d3647c73 (picture_copy: add channel parameter)
+- **PR**: upstream/port-b949cebf-motion
+
+**Rebase-sensitive invariants:**
+
+1. **`compute_motion` signature change** — `compute_motion()` in
+   `libvmaf/src/feature/motion.c` / `motion.h` now takes an extra
+   `int motion_decimate` parameter (the `motion_add_scale1` flag).
+   Any new caller added in the fork that calls `compute_motion()` must
+   pass this parameter. The SIMD integer motion callers
+   (`motion_avx2.c`, `motion_avx512.c`) do NOT call `compute_motion()`
+   — they use the SAD/convolution dispatch table directly and are
+   unaffected.
+
+2. **`vmaf_image_sad_c` signature change** — similarly gains
+   `int motion_add_scale1`. Any caller in the fork must be updated.
+   Currently only called from `compute_motion()` internally.
+
+3. **`picture_copy` signature change** — gains `int channel` as the
+   last parameter (0=Y, 1=U, 2=V). Every caller in the tree has been
+   updated to pass `0` (luma). When adding new callers that need UV
+   planes, pass `1` or `2`. The fork's CUDA/SYCL/Vulkan callers have
+   been updated in this PR.
+
+4. **Default behavior preserved** — all new options default to no-op
+   values. `motion_add_scale1=false`, `motion_add_uv=false`,
+   `motion_blend_factor=1.0`, `motion_fps_weight=1.0`,
+   `motion_filter_size=5` (= DEFAULT_MOTION_FILTER_SIZE). Integer and
+   float motion2 scores are bit-identical to pre-port baseline.
+
+5. **`vif_scale_frame_s` dependency avoided** — the upstream b949cebf
+   motion.c imports `vif_scale_frame_s` from vif_tools.h. The fork
+   does not have this function yet (vif options chain is deferred,
+   Research-0024 Strategy E). The bilinear downscaler for
+   `motion_add_scale1` is implemented as local static functions in
+   `motion.c` (`motion_scale_bilinear`, `motion_bilinear_interp`,
+   `motion_mirror_f`). When upstream's vif options chain is eventually
+   ported, reconcile by replacing these local functions with
+   `vif_scale_frame_s`.
+
+**Reproducer:**
+```bash
+# verify bit-exactness (default options, scores must be identical):
+./libvmaf/build/tools/vmaf \
+  --reference testdata/ref_576x324_48f.yuv \
+  --distorted testdata/dis_576x324_48f.yuv \
+  --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+  --model path=model/vmaf_v0.6.1.json \
+  --feature motion --no_prediction --json --output /tmp/motion.json
+# integer_motion2 scores must match pre-port baseline at 6 decimal places.
+```
+
 ### 0048 — `i4_adm_cm` int32 rounding overflow deliberately preserved (ADR-0155)
 
 - **ADR**: [ADR-0155](adr/0155-adm-i4-rounding-deferred-netflix-955.md)

@@ -126,6 +126,30 @@ libvmaf/
   (3) a row in
   [`docs/development/cross-backend-gate.md`](../docs/development/cross-backend-gate.md).
 
+- **`float_motion` extra-options surface (upstream port from Netflix
+  b949cebf, 2026-04-29).** [`src/feature/float_motion.c`](src/feature/float_motion.c)
+  exposes four extra options (`motion_add_scale1`, `motion_add_uv`,
+  `motion_filter_size`, `motion_max_val`) and emits a `motion3_score` on
+  the second frame. The default Y-plane / scale-0 path stays bit-identical
+  to the pre-port baseline by routing through `compute_motion_simd()` (the
+  AVX2 / AVX-512 / NEON `float_sad_line` dispatch); the non-default paths
+  (`scale1`, UV) fall through to scalar `compute_motion()` in
+  [`src/feature/motion.c`](src/feature/motion.c). The
+  `picture_copy()` / `picture_copy_hbd()` signature in
+  [`src/feature/picture_copy.{c,h}`](src/feature/picture_copy.h) gained a
+  trailing `int channel` parameter (upstream d3647c73 prerequisite); every
+  fork-local caller (`float_adm.c`, `float_ansnr.c`, `float_moment.c`,
+  `float_ms_ssim.c`, `float_psnr.c`, `float_ssim.c`, `float_vif.c`,
+  `cuda/integer_ms_ssim_cuda.c`, `sycl/integer_ms_ssim_sycl.cpp`,
+  `sycl/integer_ssim_sycl.cpp`, `vulkan/ms_ssim_vulkan.c`,
+  `vulkan/ssim_vulkan.c`) passes `0` for the Y-plane. On future upstream
+  syncs, do not drop the SIMD fast-path wrapper: the NASA/JPL Power-of-10
+  inner-loop budget still demands it, and the Netflix golden-data gate
+  ([ADR-0024](../docs/adr/0024-netflix-golden-preserved.md)) is regression-
+  flagging if the default path stops dispatching to `vmaf_image_sad_avx2`
+  / `_avx512` / `_neon`. See
+  [`docs/rebase-notes.md` §0049](../docs/rebase-notes.md).
+
 Backend-specific orientation:
 
 - [src/cuda/AGENTS.md](src/cuda/AGENTS.md) — CUDA backend runtime

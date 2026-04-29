@@ -99,8 +99,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)ref_pic_90;
     (void)dist_pic_90;
 
-    picture_copy(s->ref, s->float_stride, ref_pic, 0, ref_pic->bpc);
-    picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc);
+    picture_copy(s->ref, s->float_stride, ref_pic, 0, ref_pic->bpc, 0);
+    picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc, 0);
 
     double score[4];
     err = s->moment1(s->ref, ref_pic->w[0], ref_pic->h[0], s->float_stride, &score[0]);

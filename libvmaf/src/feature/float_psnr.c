@@ -128,8 +128,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)ref_pic_90;
     (void)dist_pic_90;
 
-    picture_copy(s->ref, s->float_stride, ref_pic, 0, ref_pic->bpc);
-    picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc);
+    picture_copy(s->ref, s->float_stride, ref_pic, 0, ref_pic->bpc, 0);
+    picture_copy(s->dist, s->float_stride, dist_pic, 0, dist_pic->bpc, 0);
 
     int w = ref_pic->w[0];
     int h = ref_pic->h[0];
@@ -137,7 +137,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
     double noise_ = 0;
     for (int i = 0; i < h; i++)
-        noise_ += s->noise_line(s->ref + i * stride, s->dist + i * stride, w);
+        noise_ += s->noise_line(s->ref + (ptrdiff_t)i * stride, s->dist + (ptrdiff_t)i * stride, w);
     noise_ /= (w * h);
 
     double eps = 1e-10;
