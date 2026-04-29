@@ -110,6 +110,22 @@ libvmaf/
   three transport bodies are stable; the silent-flip risk is
   the same as ADR-0175's Vulkan precedent.
 
+- **GPU-parity matrix gate contract** (fork-local,
+  [ADR-0214](../docs/adr/0214-gpu-parity-ci-gate.md)).
+  [`scripts/ci/cross_backend_parity_gate.py`](../scripts/ci/cross_backend_parity_gate.py)
+  is the single source of truth for the per-feature absolute
+  tolerance every (CPU↔GPU, GPU↔GPU) cell must respect. The CI
+  job `vulkan-parity-matrix-gate` in
+  [tests-and-quality-gates.yml](../.github/workflows/tests-and-quality-gates.yml)
+  runs it on every PR over CPU↔Vulkan/lavapipe; CUDA/SYCL/hardware-
+  Vulkan are advisory until a self-hosted runner exists. Do not
+  tighten a `FEATURE_TOLERANCE` entry without a measurement-driven
+  follow-up ADR (per CLAUDE.md §12 r1). Adding a new feature with
+  a GPU twin requires (1) a `FEATURE_METRICS` entry, (2) a
+  `FEATURE_TOLERANCE` entry if the feature relaxes places=4, and
+  (3) a row in
+  [`docs/development/cross-backend-gate.md`](../docs/development/cross-backend-gate.md).
+
 Backend-specific orientation:
 
 - [src/cuda/AGENTS.md](src/cuda/AGENTS.md) — CUDA backend runtime

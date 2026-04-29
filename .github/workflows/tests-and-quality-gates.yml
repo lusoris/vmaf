@@ -310,6 +310,76 @@ jobs:
             --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
             --width 576 --height 324 --feature ssimulacra2 --places 4
 
+  # ===== GPU-parity matrix gate (T6-8 / ADR-0214) =====
+  # Single matrix gate over every (feature, backend-pair) cell. Uses Mesa
+  # lavapipe so it runs on stock GitHub-hosted Ubuntu — no GPU runner needed.
+  # CUDA / SYCL / hardware-Vulkan are advisory until a self-hosted runner is
+  # plumbed in (the script already supports them via --backends). Emits a
+  # JSON + Markdown report under `parity-gate-report/`.
+  vulkan-parity-matrix-gate:
+    name: "GPU-Parity Matrix Gate (lavapipe, T6-8)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Install build + lavapipe deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build nasm pkg-config \
+            python3-pip glslc \
+            mesa-vulkan-drivers vulkan-tools libvulkan-dev
+      - name: Verify lavapipe is selectable
+        env:
+          VK_LOADER_DRIVERS_SELECT: '*lvp*'
+        run: |
+          vulkaninfo --summary | head -40
+      - name: Build CPU + Vulkan
+        working-directory: libvmaf
+        run: |
+          meson setup build -Denable_cuda=false -Denable_sycl=false \
+                            -Denable_vulkan=enabled -Denable_float=true \
+                            --buildtype=release
+          meson compile -C build
+      - name: Cache Netflix vmaf_resource fixtures
+        uses: actions/cache@v5
+        with:
+          path: python/test/resource/yuv
+          key: vmaf-fixtures-yuv-v1
+          restore-keys: vmaf-fixtures-yuv-
+      - name: Fetch Netflix normal-pair fixtures
+        run: |
+          mkdir -p python/test/resource/yuv
+          for name in src01_hrc00_576x324.yuv src01_hrc01_576x324.yuv; do
+            if [ -s "python/test/resource/yuv/$name" ]; then
+              echo "cache hit: $name"
+              continue
+            fi
+            curl -sSL --retry 5 --retry-delay 2 --retry-all-errors \
+              -o "python/test/resource/yuv/$name" \
+              "https://github.com/Netflix/vmaf_resource/raw/master/python/test/resource/yuv/$name"
+          done
+      - name: Run GPU-parity matrix gate (CPU ↔ Vulkan/lavapipe)
+        env:
+          VK_LOADER_DRIVERS_SELECT: '*lvp*'
+        run: |
+          mkdir -p parity-gate-report
+          python3 scripts/ci/cross_backend_parity_gate.py \
+            --vmaf-binary libvmaf/build/tools/vmaf \
+            --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+            --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+            --width 576 --height 324 \
+            --backends cpu vulkan \
+            --json-out parity-gate-report/parity.json \
+            --md-out parity-gate-report/parity.md
+      - name: Upload parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-parity-matrix-gate-report
+          path: parity-gate-report/
+
   # ===== Vulkan VIF cross-backend gate (Arc nightly, advisory) =====
   # Same script, runs on the self-hosted Arc A380 runner — catches
   # divergence between lavapipe and a real Mesa anv ICD. Parked behind

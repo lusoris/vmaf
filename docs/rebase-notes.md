@@ -4448,3 +4448,54 @@ inline.*
       --config ai/configs/learned_filter_v1_qat.yaml \
       --output /tmp/qat_smoke.int8.onnx --smoke
   ```
+
+### 0074 — GPU-parity matrix CI gate (T6-8 / ADR-0214)
+
+- **Touched surfaces (fork-local)**:
+  `scripts/ci/cross_backend_parity_gate.py` (new),
+  `.github/workflows/tests-and-quality-gates.yml` (new
+  `vulkan-parity-matrix-gate` job),
+  `docs/development/cross-backend-gate.md` (new),
+  `docs/backends/index.md` (cross-backend section),
+  `libvmaf/AGENTS.md` (rebase-sensitive invariant note).
+- **Why this matters on rebase**: the CI lane and the matrix-gate
+  script are entirely fork-local. Upstream Netflix/vmaf has no
+  comparable gate; conflicts on rebase are restricted to the CI
+  workflow file when upstream rearranges its own jobs. The gate's
+  Python script lives outside `libvmaf/src/` so the upstream-sync
+  path doesn't see it.
+- **Invariants the gate enforces**:
+  1. Per-feature absolute tolerance is declared in one place
+     (`FEATURE_TOLERANCE` in
+     [`scripts/ci/cross_backend_parity_gate.py`](../scripts/ci/cross_backend_parity_gate.py)).
+     Tightening a tolerance requires a measurement-driven
+     follow-up ADR; loosening requires a justification ADR
+     (CLAUDE.md §12 r1).
+  2. The legacy single-feature gate
+     [`scripts/ci/cross_backend_vif_diff.py`](../scripts/ci/cross_backend_vif_diff.py)
+     stays for one release cycle. Sister PRs in this session add
+     to it; the T6-8b cleanup PR deletes it once the matrix gate
+     has soaked.
+  3. CUDA / SYCL / hardware-Vulkan are advisory until a
+     self-hosted runner is registered. The script supports them
+     via `--backends`; flipping the CI lane to required is a
+     follow-up wiring change, not a code change.
+- **On upstream sync**: no interaction with upstream
+  `tests-and-quality-gates.yml` (the gate job is fork-added);
+  rebase conflicts limited to insertion-order in the workflow
+  file.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build \
+      -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=enabled -Denable_float=true \
+      --buildtype=release && ninja -C build
+  cd ..
+  python3 scripts/ci/cross_backend_parity_gate.py \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 --backends cpu vulkan \
+      --json-out /tmp/parity.json --md-out /tmp/parity.md
+  ```
