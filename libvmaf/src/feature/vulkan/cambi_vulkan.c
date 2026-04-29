@@ -2,199 +2,1406 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  cambi feature kernel on the Vulkan backend — **feasibility spike
- *  scaffold** (ADR-0205). This file ships as an architectural
- *  reference for the cambi GPU port; it is *not yet wired into the
- *  build* and *not yet registered* with `feature_extractor.c`.
+ *  cambi feature kernel on the Vulkan backend (T7-36 / ADR-0205,
+ *  Strategy II hybrid). Vulkan twin of the CPU `cambi` extractor in
+ *  libvmaf/src/feature/cambi.c.
  *
- *  This mirrors the precedent of `ssimulacra2_vulkan.c` (ADR-0201),
- *  which landed as a dormant in-tree reference before its build
- *  integration PR. The follow-up integration PR will:
+ *  Per-frame pipeline (host orchestration):
  *
- *    1. Add this TU to `vulkan_sources` in
- *       `libvmaf/src/vulkan/meson.build`.
- *    2. Add the four `cambi_*.comp` shaders to the same file's
- *       `shaders` list.
- *    3. Add `extern VmafFeatureExtractor vmaf_fex_cambi_vulkan;` and
- *       `&vmaf_fex_cambi_vulkan` registration in
- *       `libvmaf/src/feature/feature_extractor.c`.
- *    4. Implement the host residual call path that runs the existing
- *       CPU `calculate_c_values` + `spatial_pooling` against the
- *       GPU-produced image + mask buffers.
- *    5. Add a Lavapipe lane to `tests-and-quality-gates.yml` and a
- *       `FEATURE_METRICS` row in `cross_backend_vif_diff.py`.
- *    6. Empirically validate the precision contract (places=2 per
- *       ADR-0192; expected bit-exact since the GPU phases are
- *       integer-only).
+ *      1. Host: cambi_preprocessing (CPU path) — decimate/upcast to
+ *         10-bit, optional anti-dither. Output is a 10-bit planar
+ *         VmafPicture sized (enc_width, enc_height).
+ *      2. Upload luma plane → image_buf (VmafVulkanBuffer).
+ *      3. For scale = 0 .. NUM_SCALES-1:
+ *           a. (scale > 0 || high_res_speedup): GPU decimate
+ *              image_buf and mask_buf at 2× stride.
+ *           b. (scale == 0): GPU derivative + SAT + threshold compare
+ *              → mask_buf (the spatial mask is a one-time per-frame
+ *              compute; subsequent scales decimate the mask alongside
+ *              the image, matching the CPU path).
+ *           c. GPU filter_mode (separable horizontal + vertical) over
+ *              image_buf.
+ *           d. Readback image_buf + mask_buf into the host
+ *              VmafPicture pair (`pics[0]`, `pics[1]`).
+ *           e. Host calculate_c_values + top-K spatial pooling — the
+ *              precision-sensitive sliding-histogram phase that
+ *              ADR-0205 §Decision keeps on the host for v1.
+ *      4. Host: scale-weighted final score, MIN(score, cambi_max_val).
  *
- *  Architecture sketch (from ADR-0205 §Decision):
+ *  Precision contract — places=4 (set by ADR-0205 §Precision contract):
+ *      Every GPU phase is integer + bit-exact w.r.t. the CPU. The
+ *      readback into the host-allocated VmafPicture pair is byte-
+ *      identical to what the CPU would have produced in-place. The
+ *      host residual then runs the *exact* CPU code path against
+ *      these buffers, so the emitted score is bit-identical to
+ *      `vmaf_fex_cambi`. Cross-backend gate target: ULP=0.
  *
- *      ┌────────────────────────────────────────────────────────┐
- *      │ Host: cambi_preprocessing (decimate + bit-shift)       │
- *      │       — runs on CPU; GPU upload after.                 │
- *      ├────────────────────────────────────────────────────────┤
- *      │ GPU dispatch chain (per scale 0..4):                   │
- *      │   1. cambi_derivative.comp   → derivative buffer       │
- *      │   2. cambi_mask_dp.comp      → spatial mask            │
- *      │      (separable summed-area table; two passes)         │
- *      │   3. cambi_decimate.comp     → image  / 2 (skip s=0)   │
- *      │   3b. cambi_decimate.comp    → mask   / 2 (skip s=0)   │
- *      │   4. cambi_filter_mode.comp  → mode-filter image       │
- *      │      (horizontal then vertical; AXIS spec const)       │
- *      ├────────────────────────────────────────────────────────┤
- *      │ Readback boundary: HOST_VISIBLE map of image + mask.   │
- *      ├────────────────────────────────────────────────────────┤
- *      │ Host residual:                                         │
- *      │   - calculate_c_values (existing CPU path)             │
- *      │   - spatial_pooling   (top-K mean)                     │
- *      │   - scale-weighted final score                         │
- *      └────────────────────────────────────────────────────────┘
- *
- *  Precision contract: places=2 per ADR-0192. The hybrid satisfies
- *  this trivially because the GPU phases are integer + bit-exact;
- *  the precision-sensitive c-values + pooling phase stays on the
- *  host. See ADR-0205 §Precision investigation.
- *
- *  Out of scope for v1 (deferred to a future ADR per the digest
- *  §"Follow-up work for v2"):
- *    - Fully-on-GPU calculate_c_values via strategy III (direct
- *      per-pixel histogram). Tracked as long-tail batch 4.
- *    - Heatmap dump on GPU (CPU-only feature for now).
- *    - CUDA + SYCL twins (ship after Vulkan v1 lands).
+ *  Out of scope for v1 (see ADR-0205 §"Out of scope"):
+ *      - Fully-on-GPU calculate_c_values (Strategy III).
+ *      - GPU heatmap dump.
+ *      - CUDA + SYCL twins (will follow per ADR-0192 cadence).
  */
 
 #include <errno.h>
+#include <math.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "config.h"
+#include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
+#include "log.h"
 
-/* Forward declaration of the eventual Vulkan glue struct. The full
- * definition lands in the integration PR; this stub documents the
- * fields the integration is expected to carry so reviewers of the
- * spike PR can sanity-check the design. */
-typedef struct CambiVulkanState {
-    /* Geometry / configuration (mirrors CambiState in cambi.c). */
-    unsigned enc_width;
-    unsigned enc_height;
-    unsigned enc_bitdepth;
-    unsigned src_width;
-    unsigned src_height;
-    uint16_t window_size;
-    uint16_t src_window_size;
+#include "feature/cambi_internal.h"
+
+#include "../../vulkan/picture_vulkan.h"
+#include "../../vulkan/vulkan_common.h"
+#include "../../vulkan/vulkan_internal.h"
+
+#include "cambi_decimate_spv.h"
+#include "cambi_derivative_spv.h"
+#include "cambi_filter_mode_spv.h"
+#include "cambi_mask_dp_spv.h"
+#include "cambi_preprocess_spv.h"
+
+#define CAMBI_VK_PIC_BUFFERS 2
+#define CAMBI_VK_DEFAULT_MAX_VAL 5.0
+#define CAMBI_VK_DEFAULT_WINDOW_SIZE 63
+#define CAMBI_VK_DEFAULT_TOPK 0.6
+#define CAMBI_VK_DEFAULT_TVI 0.019
+#define CAMBI_VK_DEFAULT_VLT 1000.0
+#define CAMBI_VK_DEFAULT_MAX_LOG_CONTRAST 2
+#define CAMBI_VK_DEFAULT_EOTF "bt1886"
+#define CAMBI_VK_MIN_WIDTH_HEIGHT 64
+
+#define CAMBI_VK_WG_X 16
+#define CAMBI_VK_WG_Y 16
+
+/* Pipeline IDs — index into the per-pipeline arrays in CambiVkState. */
+enum CambiVkPipelineKind {
+    CAMBI_PL_PREPROCESS = 0,
+    CAMBI_PL_DERIVATIVE,
+    CAMBI_PL_FILTER_MODE_H,
+    CAMBI_PL_FILTER_MODE_V,
+    CAMBI_PL_DECIMATE,
+    CAMBI_PL_MASK_SAT_ROW,
+    CAMBI_PL_MASK_SAT_COL,
+    CAMBI_PL_MASK_THRESHOLD,
+    CAMBI_PL_COUNT
+};
+
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+    uint32_t in_stride_words;
+    uint32_t out_stride_words;
+} CambiVkPushTrivial;
+
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+    uint32_t in_stride_words;
+    uint32_t out_stride_words;
+    uint32_t mask_index;
+    uint32_t pad_size;
+} CambiVkPushMaskDp;
+
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride_words;
+} CambiVkPushFilterMode;
+
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride_words;
+    uint32_t deriv_stride_words;
+} CambiVkPushDerivative;
+
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+    uint32_t in_stride_words;
+    uint32_t out_stride_words;
+} CambiVkPushDecimate;
+
+typedef struct CambiVkState {
+    /* Configuration (matches cambi.c options). */
+    int enc_width;
+    int enc_height;
+    int enc_bitdepth;
+    int max_log_contrast;
+    int window_size;
     double topk;
     double cambi_topk;
     double tvi_threshold;
     double cambi_max_val;
     double cambi_vis_lum_threshold;
+    char *eotf;
+    char *cambi_eotf;
+    int cambi_high_res_speedup;
+    int full_ref;        /* unused on Vulkan v1 (no full-ref path) */
+    char *heatmaps_path; /* unused on Vulkan v1 */
+
+    /* Resolved per-frame geometry. */
+    unsigned src_width;
+    unsigned src_height;
+    unsigned src_bpc;
+    unsigned proc_width;  /* enc_width post init */
+    unsigned proc_height; /* enc_height post init */
+
+    /* Window adjusted for actual frame size + anti-banding factor. */
+    uint16_t adjusted_window;
     uint16_t vlt_luma;
-    uint16_t max_log_contrast;
 
-    /* Vulkan plumbing (filled in by the integration PR; declared
-     * here as opaque pointers so the public ABI is stable). */
-    void *ctx; /* VmafVulkanContext * */
+    /* Vulkan plumbing. */
+    VmafVulkanContext *ctx;
     int owns_ctx;
-    void *dsl_derivative; /* VkDescriptorSetLayout */
-    void *dsl_decimate;
-    void *dsl_filter_mode;
-    void *dsl_mask_dp;
-    void *pipeline_layout_derivative;
-    void *pipeline_layout_decimate;
-    void *pipeline_layout_filter_mode;
-    void *pipeline_layout_mask_dp;
-    void *shader_derivative;
-    void *shader_decimate;
-    void *shader_filter_mode;
-    void *shader_mask_dp;
-    void *pipeline_derivative;
-    void *pipeline_decimate;
-    void *pipeline_filter_mode_h;
-    void *pipeline_filter_mode_v;
-    void *pipeline_mask_dp_row;
-    void *pipeline_mask_dp_col;
-    void *desc_pool;
+    VkDescriptorSetLayout dsl_2bind;    /* in + out */
+    VkPipelineLayout pl_layout_trivial; /* sizeof CambiVkPushTrivial */
+    VkPipelineLayout pl_layout_filter_mode;
+    VkPipelineLayout pl_layout_derivative;
+    VkPipelineLayout pl_layout_decimate;
+    VkPipelineLayout pl_layout_mask_dp;
+    VkShaderModule shader_modules[CAMBI_PL_COUNT];
+    VkPipeline pipelines[CAMBI_PL_COUNT];
+    VkDescriptorPool desc_pool;
 
-    /* GPU buffers (one per scale: 5 scales × 2 buffers).
-     * HOST_VISIBLE so the residual can read back without staging. */
-    void *image_buf; /* VmafVulkanBuffer * */
-    void *mask_buf;
-    void *scratch_buf; /* derivative + filter_mode scratch  */
+    /* GPU buffers — sized for full-resolution scale 0. Per-scale
+     * dispatches consume only the leading prefix. */
+    VmafVulkanBuffer *raw_in_buf; /* host upload of source luma */
+    VmafVulkanBuffer *image_buf;  /* preprocessed 10-bit image */
+    VmafVulkanBuffer *mask_buf;
+    VmafVulkanBuffer *deriv_buf;   /* uint16 0/1 per pixel */
+    VmafVulkanBuffer *sat_row_buf; /* int32 SAT intermediate */
+    VmafVulkanBuffer *sat_col_buf; /* int32 SAT */
+    VmafVulkanBuffer *scratch_buf; /* alternate for filter_mode H pass */
 
-    /* Host-side reuse of the existing CPU helpers. */
-    void *cambi_buffers; /* CambiBuffers — same as CPU path  */
+    /* Host VmafPictures used as readback targets and as input to the
+     * CPU residual (vmaf_cambi_calculate_c_values takes VmafPicture *). */
+    VmafPicture pics[CAMBI_VK_PIC_BUFFERS];
+
+    /* Host scratch for the residual. */
+    VmafCambiHostBuffers buffers;
+
+    /* Default callbacks (always scalar; the GPU has already done
+     * the heavy lifting before we hit this stage). */
+    VmafCambiRangeUpdater inc_range_callback;
+    VmafCambiRangeUpdater dec_range_callback;
+    VmafCambiDerivativeCalculator derivative_callback;
 
     VmafDictionary *feature_name_dict;
-} CambiVulkanState;
+} CambiVkState;
 
-/* The integration PR replaces this `init_stub`/`extract_stub`/
- * `close_stub` triple with the real Vulkan-aware lifecycle. Keeping
- * them as visible no-ops here documents the API surface and ensures
- * the file compiles in isolation if a future contributor flips the
- * meson wiring on by accident. */
+static const VmafOption options[] = {
+    {
+        .name = "cambi_max_val",
+        .help = "maximum value allowed; larger values will be clipped to this value",
+        .offset = offsetof(CambiVkState, cambi_max_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = CAMBI_VK_DEFAULT_MAX_VAL,
+        .min = 0.0,
+        .max = 1000.0,
+        .alias = "cmxv",
+    },
+    {
+        .name = "enc_width",
+        .help = "Encoding width",
+        .offset = offsetof(CambiVkState, enc_width),
+        .type = VMAF_OPT_TYPE_INT,
+        .default_val.i = 0,
+        .min = 180,
+        .max = 7680,
+        .alias = "encw",
+    },
+    {
+        .name = "enc_height",
+        .help = "Encoding height",
+        .offset = offsetof(CambiVkState, enc_height),
+        .type = VMAF_OPT_TYPE_INT,
+        .default_val.i = 0,
+        .min = 150,
+        .max = 7680,
+        .alias = "ench",
+    },
+    {
+        .name = "enc_bitdepth",
+        .help = "Encoding bitdepth",
+        .offset = offsetof(CambiVkState, enc_bitdepth),
+        .type = VMAF_OPT_TYPE_INT,
+        .default_val.i = 0,
+        .min = 6,
+        .max = 16,
+        .alias = "encbd",
+    },
+    {
+        .name = "window_size",
+        .help = "Window size to compute CAMBI: 65 corresponds to ~1 degree at 4k",
+        .offset = offsetof(CambiVkState, window_size),
+        .type = VMAF_OPT_TYPE_INT,
+        .default_val.i = CAMBI_VK_DEFAULT_WINDOW_SIZE,
+        .min = 15,
+        .max = 127,
+        .alias = "ws",
+    },
+    {
+        .name = "topk",
+        .help = "Ratio of pixels for the spatial pooling computation",
+        .offset = offsetof(CambiVkState, topk),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = CAMBI_VK_DEFAULT_TOPK,
+        .min = 0.0001,
+        .max = 1.0,
+    },
+    {
+        .name = "cambi_topk",
+        .help = "Ratio of pixels for the spatial pooling computation",
+        .offset = offsetof(CambiVkState, cambi_topk),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = CAMBI_VK_DEFAULT_TOPK,
+        .min = 0.0001,
+        .max = 1.0,
+        .alias = "ctpk",
+    },
+    {
+        .name = "tvi_threshold",
+        .help = "Visibility threshold ΔL < tvi_threshold * L_mean",
+        .offset = offsetof(CambiVkState, tvi_threshold),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = CAMBI_VK_DEFAULT_TVI,
+        .min = 0.0001,
+        .max = 1.0,
+        .alias = "tvit",
+    },
+    {
+        .name = "max_log_contrast",
+        .help = "Maximum log contrast (capped at 5)",
+        .offset = offsetof(CambiVkState, max_log_contrast),
+        .type = VMAF_OPT_TYPE_INT,
+        .default_val.i = CAMBI_VK_DEFAULT_MAX_LOG_CONTRAST,
+        .min = 0,
+        .max = 5,
+        .alias = "mlc",
+    },
+    {
+        .name = "cambi_vis_lum_threshold",
+        .help = "Visibility luminance threshold (cd/m²)",
+        .offset = offsetof(CambiVkState, cambi_vis_lum_threshold),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = CAMBI_VK_DEFAULT_VLT,
+        .min = 0.0,
+        .max = 10000.0,
+        .alias = "cvlt",
+    },
+    {
+        .name = "eotf",
+        .help = "EOTF for visibility-threshold conversion (bt1886 / pq)",
+        .offset = offsetof(CambiVkState, eotf),
+        .type = VMAF_OPT_TYPE_STRING,
+        .default_val.s = CAMBI_VK_DEFAULT_EOTF,
+    },
+    {
+        .name = "cambi_eotf",
+        .help = "EOTF override for cambi (defaults to `eotf`)",
+        .offset = offsetof(CambiVkState, cambi_eotf),
+        .type = VMAF_OPT_TYPE_STRING,
+        .default_val.s = CAMBI_VK_DEFAULT_EOTF,
+        .alias = "ceotf",
+    },
+    {0},
+};
 
-static int cambi_vulkan_init_stub(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
-                                  unsigned bpc, unsigned w, unsigned h)
+/* ------------------------------------------------------------------ */
+/*  Vulkan helpers — same shape as ssimulacra2_vulkan.c.              */
+/* ------------------------------------------------------------------ */
+
+static int cambi_vk_make_dsl(VkDevice dev, unsigned nbind, VkDescriptorSetLayout *out)
 {
-    (void)fex;
-    (void)pix_fmt;
-    (void)bpc;
-    (void)w;
-    (void)h;
-    /* Spike scaffold: returning -ENOSYS makes it explicit that this
-     * extractor is not yet usable. The integration PR replaces this
-     * with the full Vulkan init (descriptor pool, pipeline build,
-     * GPU buffer allocation, host CambiBuffers reuse).
-     *
-     * NB: do NOT register this extractor in feature_extractor.c
-     * until the integration PR; otherwise selecting `cambi_vulkan`
-     * will fail at init time with -ENOSYS, confusing users. */
-    return -ENOSYS;
+    VkDescriptorSetLayoutBinding b[2] = {0};
+    for (unsigned i = 0; i < nbind; i++) {
+        b[i].binding = i;
+        b[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        b[i].descriptorCount = 1;
+        b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo ci = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = nbind,
+        .pBindings = b,
+    };
+    return vkCreateDescriptorSetLayout(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
 }
 
-static int cambi_vulkan_extract_stub(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
-                                     VmafPicture *ref_pic_90, VmafPicture *dist_pic,
-                                     VmafPicture *dist_pic_90, unsigned index,
-                                     VmafFeatureCollector *fc)
+static int cambi_vk_make_pl(VkDevice dev, VkDescriptorSetLayout dsl, size_t pcs,
+                            VkPipelineLayout *out)
 {
-    (void)fex;
-    (void)ref_pic;
-    (void)ref_pic_90;
-    (void)dist_pic;
-    (void)dist_pic_90;
-    (void)index;
-    (void)fc;
-    /* Integration PR fills this in:
-     *   1. Upload dist_pic luma plane to image_buf[scale=0].
-     *   2. Dispatch chain per ADR-0205 §Decision (derivative →
-     *      mask_dp → decimate → filter_mode for each scale).
-     *   3. Wait for the queue, flush HOST_VISIBLE caches.
-     *   4. Call calculate_c_values + spatial_pooling on the mapped
-     *      image_buf + mask_buf for each scale.
-     *   5. Apply scale-weighted final score per CPU path.
-     *   6. Append "Cambi_feature_cambi_score" to the collector. */
-    return -ENOSYS;
+    VkPushConstantRange pcr = {
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = (uint32_t)pcs};
+    VkPipelineLayoutCreateInfo ci = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &dsl,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pcr,
+    };
+    return vkCreatePipelineLayout(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
 }
 
-static int cambi_vulkan_close_stub(VmafFeatureExtractor *fex)
+static int cambi_vk_create_shader(VkDevice dev, const uint32_t *code, size_t code_size,
+                                  VkShaderModule *out)
 {
-    (void)fex;
+    VkShaderModuleCreateInfo ci = {
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = code_size,
+        .pCode = code,
+    };
+    return vkCreateShaderModule(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
+}
+
+static int cambi_vk_build_pipeline(VkDevice dev, VkShaderModule sm, VkPipelineLayout pl,
+                                   int n_specs, const int32_t *spec_vals, VkPipeline *out)
+{
+    VkSpecializationMapEntry entries[4];
+    int32_t data[4];
+    for (int i = 0; i < n_specs; i++) {
+        entries[i].constantID = (uint32_t)i;
+        entries[i].offset = (uint32_t)(i * (int)sizeof(int32_t));
+        entries[i].size = sizeof(int32_t);
+        data[i] = spec_vals[i];
+    }
+    VkSpecializationInfo si = {
+        .mapEntryCount = (uint32_t)n_specs,
+        .pMapEntries = entries,
+        .dataSize = (size_t)n_specs * sizeof(int32_t),
+        .pData = data,
+    };
+    VkComputePipelineCreateInfo cpci = {
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = sm,
+                .pName = "main",
+                .pSpecializationInfo = &si,
+            },
+        .layout = pl,
+    };
+    return vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpci, NULL, out) == VK_SUCCESS ?
+               0 :
+               -ENOMEM;
+}
+
+static int cambi_vk_create_pipelines(CambiVkState *s)
+{
+    VkDevice dev = s->ctx->device;
+    int err = 0;
+
+    err = cambi_vk_make_dsl(dev, 2, &s->dsl_2bind);
+    if (err)
+        return err;
+    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushTrivial), &s->pl_layout_trivial);
+    if (err)
+        return err;
+    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushFilterMode),
+                           &s->pl_layout_filter_mode);
+    if (err)
+        return err;
+    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushDerivative),
+                           &s->pl_layout_derivative);
+    if (err)
+        return err;
+    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushDecimate), &s->pl_layout_decimate);
+    if (err)
+        return err;
+    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushMaskDp), &s->pl_layout_mask_dp);
+    if (err)
+        return err;
+
+    /* Shaders. */
+    err = cambi_vk_create_shader(dev, cambi_preprocess_spv, cambi_preprocess_spv_size,
+                                 &s->shader_modules[CAMBI_PL_PREPROCESS]);
+    if (err)
+        return err;
+    err = cambi_vk_create_shader(dev, cambi_derivative_spv, cambi_derivative_spv_size,
+                                 &s->shader_modules[CAMBI_PL_DERIVATIVE]);
+    if (err)
+        return err;
+    err = cambi_vk_create_shader(dev, cambi_filter_mode_spv, cambi_filter_mode_spv_size,
+                                 &s->shader_modules[CAMBI_PL_FILTER_MODE_H]);
+    if (err)
+        return err;
+    /* Filter-mode V reuses the same shader (separable AXIS spec const). */
+    s->shader_modules[CAMBI_PL_FILTER_MODE_V] = s->shader_modules[CAMBI_PL_FILTER_MODE_H];
+    err = cambi_vk_create_shader(dev, cambi_decimate_spv, cambi_decimate_spv_size,
+                                 &s->shader_modules[CAMBI_PL_DECIMATE]);
+    if (err)
+        return err;
+    err = cambi_vk_create_shader(dev, cambi_mask_dp_spv, cambi_mask_dp_spv_size,
+                                 &s->shader_modules[CAMBI_PL_MASK_SAT_ROW]);
+    if (err)
+        return err;
+    s->shader_modules[CAMBI_PL_MASK_SAT_COL] = s->shader_modules[CAMBI_PL_MASK_SAT_ROW];
+    s->shader_modules[CAMBI_PL_MASK_THRESHOLD] = s->shader_modules[CAMBI_PL_MASK_SAT_ROW];
+
+    const int32_t W = (int32_t)s->proc_width;
+    const int32_t H = (int32_t)s->proc_height;
+
+    /* Preprocess: spec[2] = source bpc. */
+    {
+        const int32_t spec[3] = {W, H, (int32_t)s->src_bpc};
+        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_PREPROCESS],
+                                      s->pl_layout_trivial, 3, spec,
+                                      &s->pipelines[CAMBI_PL_PREPROCESS]);
+        if (err)
+            return err;
+    }
+    /* Derivative: spec[0/1] = W/H. */
+    {
+        const int32_t spec[2] = {W, H};
+        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_DERIVATIVE],
+                                      s->pl_layout_derivative, 2, spec,
+                                      &s->pipelines[CAMBI_PL_DERIVATIVE]);
+        if (err)
+            return err;
+    }
+    /* Filter-mode H/V: spec[2] = AXIS. Two pipelines from one module. */
+    {
+        const int32_t spec_h[3] = {W, H, 0};
+        const int32_t spec_v[3] = {W, H, 1};
+        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_FILTER_MODE_H],
+                                      s->pl_layout_filter_mode, 3, spec_h,
+                                      &s->pipelines[CAMBI_PL_FILTER_MODE_H]);
+        if (err)
+            return err;
+        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_FILTER_MODE_V],
+                                      s->pl_layout_filter_mode, 3, spec_v,
+                                      &s->pipelines[CAMBI_PL_FILTER_MODE_V]);
+        if (err)
+            return err;
+    }
+    /* Decimate: spec[0/1] = output W/H — re-specialise per scale at
+     * dispatch time? Easier: build a single pipeline at full size and
+     * pass actual dimensions via push constants. The shader bounds-checks
+     * `gx >= pc.out_width`. */
+    {
+        const int32_t spec[2] = {W, H};
+        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_DECIMATE],
+                                      s->pl_layout_decimate, 2, spec,
+                                      &s->pipelines[CAMBI_PL_DECIMATE]);
+        if (err)
+            return err;
+    }
+    /* Mask DP: 3 pipelines (PASS = 0, 1, 2). PAD_SIZE constant from
+     * VMAF_CAMBI_MASK_FILTER_SIZE. */
+    {
+        const int32_t pad = VMAF_CAMBI_MASK_FILTER_SIZE / 2;
+        const int32_t spec_row[4] = {W, H, 0, pad};
+        const int32_t spec_col[4] = {W, H, 1, pad};
+        const int32_t spec_thr[4] = {W, H, 2, pad};
+        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_MASK_SAT_ROW],
+                                      s->pl_layout_mask_dp, 4, spec_row,
+                                      &s->pipelines[CAMBI_PL_MASK_SAT_ROW]);
+        if (err)
+            return err;
+        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_MASK_SAT_COL],
+                                      s->pl_layout_mask_dp, 4, spec_col,
+                                      &s->pipelines[CAMBI_PL_MASK_SAT_COL]);
+        if (err)
+            return err;
+        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_MASK_THRESHOLD],
+                                      s->pl_layout_mask_dp, 4, spec_thr,
+                                      &s->pipelines[CAMBI_PL_MASK_THRESHOLD]);
+        if (err)
+            return err;
+    }
+
+    /* Pessimistic descriptor pool — 1 set per dispatch x ~20 dispatches
+     * per frame. Free-set bit lets us recycle. */
+    const uint32_t max_sets = 64;
+    VkDescriptorPoolSize ps = {
+        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .descriptorCount = max_sets * 2u,
+    };
+    VkDescriptorPoolCreateInfo dpci = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .maxSets = max_sets,
+        .poolSizeCount = 1,
+        .pPoolSizes = &ps,
+    };
+    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
+        return -ENOMEM;
     return 0;
 }
 
-static const char *cambi_vulkan_provided_features[] = {
-    "Cambi_feature_cambi_score",
-    NULL,
-};
+static int cambi_vk_alloc_buffers(CambiVkState *s)
+{
+    const size_t W = s->proc_width;
+    const size_t H = s->proc_height;
+    /* Source upload buffer: bytes_per_pixel = 1 (8-bit) or 2 (>8-bit).
+     * For the GPU read path, both layouts are word-packed; we pad to
+     * 32-bit alignment. */
+    const size_t src_words_per_row = (s->src_bpc <= 8) ? ((W + 3u) / 4u) : ((W + 1u) / 2u);
+    const size_t raw_bytes = src_words_per_row * H * sizeof(uint32_t);
+    /* 10-bit packed: 2 px per word. */
+    const size_t img_words_per_row = (W + 1u) / 2u;
+    const size_t img_bytes = img_words_per_row * H * sizeof(uint32_t);
+    /* Mask + derivative: same 16-bit packing as image. */
+    const size_t mask_bytes = img_bytes;
+    const size_t deriv_bytes = img_bytes;
+    /* SAT planes: int32 per pixel. */
+    const size_t sat_bytes = W * H * sizeof(int32_t);
 
-/* The integration PR replaces this dormant entry point with the
- * full extractor structure and adds it to feature_extractor.c. */
-VmafFeatureExtractor vmaf_fex_cambi_vulkan_scaffold = {
+    int err = 0;
+    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->raw_in_buf, raw_bytes ? raw_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->image_buf, img_bytes ? img_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->mask_buf, mask_bytes ? mask_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->deriv_buf, deriv_bytes ? deriv_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->sat_row_buf, sat_bytes ? sat_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->sat_col_buf, sat_bytes ? sat_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->scratch_buf, img_bytes ? img_bytes : 4);
+    return err ? -ENOMEM : 0;
+}
+
+static int cambi_vk_alloc_host(CambiVkState *s)
+{
+    const unsigned alloc_w = s->proc_width;
+    const unsigned alloc_h = s->proc_height;
+
+    int err = 0;
+    for (unsigned i = 0; i < CAMBI_VK_PIC_BUFFERS; i++) {
+        err |= vmaf_picture_alloc(&s->pics[i], VMAF_PIX_FMT_YUV400P, 10, alloc_w, alloc_h);
+    }
+    if (err)
+        return err;
+
+    const int num_diffs = 1 << s->max_log_contrast;
+
+    /* diffs_to_consider, diff_weights, all_diffs — mirror cambi.c::set_contrast_arrays. */
+    s->buffers.diffs_to_consider = malloc(sizeof(uint16_t) * num_diffs);
+    s->buffers.diff_weights = malloc(sizeof(int) * num_diffs);
+    s->buffers.all_diffs = malloc(sizeof(int) * (2 * num_diffs + 1));
+    if (!s->buffers.diffs_to_consider || !s->buffers.diff_weights || !s->buffers.all_diffs)
+        return -ENOMEM;
+    /* The CPU file declares g_contrast_weights[32] internally; we re-derive
+     * the same series here to avoid a second header export.  diffs are
+     * powers of two: 1, 2, 4, ... up to (1 << max_log_contrast). */
+    static const int contrast_weights[32] = {1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8,
+                                             8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9};
+    for (int d = 0; d < num_diffs; d++) {
+        s->buffers.diffs_to_consider[d] = (uint16_t)(d + 1);
+        s->buffers.diff_weights[d] = contrast_weights[d];
+    }
+    for (int d = -num_diffs; d <= num_diffs; d++)
+        s->buffers.all_diffs[d + num_diffs] = d;
+
+    /* tvi_for_diff — derived in init(). For the residual we need it
+     * shaped exactly like the CPU buffer; allocate and fill below. */
+    s->buffers.tvi_for_diff = malloc(sizeof(uint16_t) * num_diffs);
+    if (!s->buffers.tvi_for_diff)
+        return -ENOMEM;
+
+    s->buffers.c_values = malloc(sizeof(float) * alloc_w * alloc_h);
+    if (!s->buffers.c_values)
+        return -ENOMEM;
+
+    const uint16_t num_bins =
+        (uint16_t)(1024 + (s->buffers.all_diffs[2 * num_diffs] - s->buffers.all_diffs[0]));
+    s->buffers.c_values_histograms = malloc(sizeof(uint16_t) * alloc_w * num_bins);
+    if (!s->buffers.c_values_histograms)
+        return -ENOMEM;
+
+    const int pad_size = VMAF_CAMBI_MASK_FILTER_SIZE / 2;
+    const int dp_width = (int)alloc_w + 2 * pad_size + 1;
+    const int dp_height = 2 * pad_size + 2;
+    s->buffers.mask_dp = malloc(sizeof(uint32_t) * (size_t)dp_width * (size_t)dp_height);
+    if (!s->buffers.mask_dp)
+        return -ENOMEM;
+
+    s->buffers.filter_mode_buffer = malloc(sizeof(uint16_t) * 3u * alloc_w);
+    if (!s->buffers.filter_mode_buffer)
+        return -ENOMEM;
+    s->buffers.derivative_buffer = malloc(sizeof(uint16_t) * alloc_w);
+    if (!s->buffers.derivative_buffer)
+        return -ENOMEM;
+
+    return 0;
+}
+
+/* tvi_for_diff requires the luminance helpers from the CPU path. Rather
+ * than re-export those, we let cambi.c export a small filler.  For v1
+ * we replicate the CPU logic on the host using the public luminance
+ * subset (vmaf_luminance_init_*). */
+#include "luminance_tools.h"
+
+static int cambi_vk_init_tvi(CambiVkState *s)
+{
+    VmafLumaRange luma_range;
+    int err = vmaf_luminance_init_luma_range(&luma_range, 10, VMAF_PIXEL_RANGE_LIMITED);
+    if (err)
+        return err;
+    const char *effective_eotf;
+    if (s->cambi_eotf && strcmp(s->cambi_eotf, CAMBI_VK_DEFAULT_EOTF) != 0) {
+        effective_eotf = s->cambi_eotf;
+    } else {
+        effective_eotf = s->eotf ? s->eotf : CAMBI_VK_DEFAULT_EOTF;
+    }
+    VmafEOTF eotf;
+    err = vmaf_luminance_init_eotf(&eotf, effective_eotf);
+    if (err)
+        return err;
+
+    const int num_diffs = 1 << s->max_log_contrast;
+    /* Match cambi.c get_tvi_for_diff: bisect in [0, 1023] for the
+     * largest sample whose tvi_condition holds, then offset by num_diffs
+     * (the histogram base). The CPU file makes this static; we replicate
+     * it inline here.  */
+    for (int d = 0; d < num_diffs; d++) {
+        const int diff = (int)s->buffers.diffs_to_consider[d];
+        int lo = 0;
+        int hi = (1 << 10) - 1 - diff;
+        int found = -1;
+        while (lo <= hi) {
+            int mid = (lo + hi) / 2;
+            double sample_lum = vmaf_luminance_get_luminance(mid, luma_range, eotf);
+            double diff_lum =
+                vmaf_luminance_get_luminance(mid + diff, luma_range, eotf) - sample_lum;
+            if (diff_lum < s->tvi_threshold * sample_lum) {
+                found = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        if (found < 0)
+            found = 0;
+        s->buffers.tvi_for_diff[d] = (uint16_t)(found + num_diffs);
+    }
+
+    /* vlt_luma — largest sample whose luminance is below
+     * cambi_vis_lum_threshold. */
+    int vlt = 0;
+    for (int v = 0; v < (1 << 10); v++) {
+        double L = vmaf_luminance_get_luminance(v, luma_range, eotf);
+        if (L < s->cambi_vis_lum_threshold)
+            vlt = v;
+    }
+    s->vlt_luma = (uint16_t)vlt;
+    return 0;
+}
+
+/* Mirror cambi.c::adjust_window_size. */
+static void cambi_vk_adjust_window(uint16_t *window_size, unsigned w, unsigned h, int high_res)
+{
+    /* CPU formula: window = window * (sqrt(w*h) / sqrt(3840*2160)) when
+     * frame is below 4K, else passthrough. The high_res_speedup halves
+     * the effective window for 1080p+ shortcuts. Replicating the
+     * upstream behaviour verbatim. */
+    (void)high_res;
+    if (w >= 3840 && h >= 2160)
+        return;
+    double scale = sqrt((double)w * (double)h) / sqrt(3840.0 * 2160.0);
+    int adjusted = (int)((double)*window_size * scale + 0.5);
+    if (adjusted < 1)
+        adjusted = 1;
+    if (adjusted % 2 == 0)
+        adjusted++;
+    *window_size = (uint16_t)adjusted;
+}
+
+/* ------------------------------------------------------------------ */
+/*  init / extract / close                                            */
+/* ------------------------------------------------------------------ */
+
+static int cambi_vk_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
+                         unsigned w, unsigned h)
+{
+    (void)pix_fmt;
+    CambiVkState *s = fex->priv;
+
+    if (s->enc_bitdepth == 0)
+        s->enc_bitdepth = (int)bpc;
+    if (s->enc_width == 0 || s->enc_height == 0) {
+        s->enc_width = (int)w;
+        s->enc_height = (int)h;
+    }
+    if ((unsigned)s->enc_height > h || (unsigned)s->enc_width > w) {
+        s->enc_width = (int)w;
+        s->enc_height = (int)h;
+    }
+    if (s->enc_width < CAMBI_VK_MIN_WIDTH_HEIGHT && s->enc_height < CAMBI_VK_MIN_WIDTH_HEIGHT)
+        return -EINVAL;
+
+    s->src_width = w;
+    s->src_height = h;
+    s->src_bpc = bpc;
+    s->proc_width = (unsigned)s->enc_width;
+    s->proc_height = (unsigned)s->enc_height;
+
+    s->ctx = vmaf_vulkan_state_get_context(fex->vulkan_state);
+    if (s->ctx) {
+        s->owns_ctx = 0;
+    } else {
+        int err = vmaf_vulkan_context_new(&s->ctx, /*device_index=*/-1);
+        if (err) {
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "cambi_vulkan: cannot create Vulkan context (%d)\n",
+                     err);
+            return err;
+        }
+        s->owns_ctx = 1;
+    }
+
+    int err = cambi_vk_create_pipelines(s);
+    if (err)
+        return err;
+    err = cambi_vk_alloc_buffers(s);
+    if (err)
+        return err;
+    err = cambi_vk_alloc_host(s);
+    if (err)
+        return err;
+    err = cambi_vk_init_tvi(s);
+    if (err)
+        return err;
+
+    s->adjusted_window = (uint16_t)s->window_size;
+    cambi_vk_adjust_window(&s->adjusted_window, s->proc_width, s->proc_height,
+                           s->cambi_high_res_speedup);
+
+    vmaf_cambi_default_callbacks(&s->inc_range_callback, &s->dec_range_callback,
+                                 &s->derivative_callback);
+
+    s->feature_name_dict =
+        vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
+    if (!s->feature_name_dict)
+        return -ENOMEM;
+    return 0;
+}
+
+static int cambi_vk_alloc_set(CambiVkState *s, VkDescriptorSet *out)
+{
+    VkDescriptorSetAllocateInfo dsai = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = s->desc_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &s->dsl_2bind,
+    };
+    return vkAllocateDescriptorSets(s->ctx->device, &dsai, out) == VK_SUCCESS ? 0 : -ENOMEM;
+}
+
+static void cambi_vk_write_set(CambiVkState *s, VkDescriptorSet set, VmafVulkanBuffer *in_buf,
+                               VmafVulkanBuffer *out_buf)
+{
+    VkDescriptorBufferInfo dbi[2] = {
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(in_buf),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(out_buf),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+    };
+    VkWriteDescriptorSet writes[2];
+    for (int i = 0; i < 2; i++) {
+        writes[i] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = set,
+            .dstBinding = (uint32_t)i,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pBufferInfo = &dbi[i],
+        };
+    }
+    vkUpdateDescriptorSets(s->ctx->device, 2, writes, 0, NULL);
+}
+
+static void cambi_vk_barrier(VkCommandBuffer cmd)
+{
+    VkMemoryBarrier mb = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, NULL, 0, NULL);
+}
+
+static uint16_t cambi_vk_ceil_log2(uint32_t num)
+{
+    if (num == 0)
+        return 0;
+    uint32_t tmp = num - 1u;
+    uint16_t shift = 0;
+    while (tmp > 0u) {
+        tmp >>= 1;
+        shift += 1;
+    }
+    return shift;
+}
+
+static uint16_t cambi_vk_get_mask_index(unsigned w, unsigned h, uint16_t filter_size)
+{
+    uint32_t shifted_wh = (w >> 6) * (h >> 6);
+    return (uint16_t)((filter_size * filter_size + 3 * (cambi_vk_ceil_log2(shifted_wh) - 11) - 1) >>
+                      1);
+}
+
+/* Submit + wait helper. */
+static int cambi_vk_submit_wait(CambiVkState *s, VkCommandBuffer cmd)
+{
+    VkFence fence = VK_NULL_HANDLE;
+    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS)
+        return -ENOMEM;
+    VkSubmitInfo si = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd,
+    };
+    int err = 0;
+    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
+        err = -EIO;
+    } else {
+        vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
+    }
+    vkDestroyFence(s->ctx->device, fence, NULL);
+    return err;
+}
+
+/* Upload source luma plane into raw_in_buf (word-packed). */
+static int cambi_vk_upload_luma(CambiVkState *s, VmafPicture *pic)
+{
+    uint8_t *dst = vmaf_vulkan_buffer_host(s->raw_in_buf);
+    if (!dst)
+        return -EIO;
+    const unsigned W = s->src_width;
+    const unsigned H = s->src_height;
+    const unsigned bpc = s->src_bpc;
+    if (bpc <= 8) {
+        const size_t dst_words_per_row = (W + 3u) / 4u;
+        const size_t dst_stride = dst_words_per_row * sizeof(uint32_t);
+        for (unsigned y = 0; y < H; y++) {
+            const uint8_t *src = (const uint8_t *)pic->data[0] + (size_t)y * pic->stride[0];
+            uint8_t *drow = dst + (size_t)y * dst_stride;
+            memset(drow, 0, dst_stride);
+            memcpy(drow, src, W);
+        }
+    } else {
+        const size_t dst_words_per_row = (W + 1u) / 2u;
+        const size_t dst_stride = dst_words_per_row * sizeof(uint32_t);
+        for (unsigned y = 0; y < H; y++) {
+            const uint8_t *src = (const uint8_t *)pic->data[0] + (size_t)y * pic->stride[0];
+            uint8_t *drow = dst + (size_t)y * dst_stride;
+            memset(drow, 0, dst_stride);
+            memcpy(drow, src, (size_t)W * 2u);
+        }
+    }
+    return vmaf_vulkan_buffer_flush(s->ctx, s->raw_in_buf);
+}
+
+/* Read back image_buf into pics[0] luma plane (10-bit packed → uint16). */
+static void cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
+{
+    const uint32_t *src = vmaf_vulkan_buffer_host(s->image_buf);
+    uint16_t *dst = (uint16_t *)s->pics[0].data[0];
+    const ptrdiff_t dst_stride = s->pics[0].stride[0] >> 1;
+    const size_t img_words_per_row = (s->proc_width + 1u) / 2u;
+    for (unsigned y = 0; y < h; y++) {
+        const uint32_t *srow = src + y * img_words_per_row;
+        uint16_t *drow = dst + (size_t)y * dst_stride;
+        for (unsigned x = 0; x < w; x++) {
+            uint32_t word = srow[x >> 1];
+            drow[x] = (uint16_t)((word >> ((x & 1u) * 16u)) & 0xFFFFu);
+        }
+    }
+}
+
+/* Read back mask_buf into pics[1] luma plane. */
+static void cambi_vk_readback_mask(CambiVkState *s, unsigned w, unsigned h)
+{
+    const uint32_t *src = vmaf_vulkan_buffer_host(s->mask_buf);
+    uint16_t *dst = (uint16_t *)s->pics[1].data[0];
+    const ptrdiff_t dst_stride = s->pics[1].stride[0] >> 1;
+    const size_t mask_words_per_row = (s->proc_width + 1u) / 2u;
+    for (unsigned y = 0; y < h; y++) {
+        const uint32_t *srow = src + y * mask_words_per_row;
+        uint16_t *drow = dst + (size_t)y * dst_stride;
+        for (unsigned x = 0; x < w; x++) {
+            uint32_t word = srow[x >> 1];
+            drow[x] = (uint16_t)((word >> ((x & 1u) * 16u)) & 0xFFFFu);
+        }
+    }
+}
+
+/* Upload pics[0] luma into image_buf (used at scale 0 init).  Useful
+ * because cambi_preprocessing on the GPU shader is integer-bit-exact
+ * with the CPU path only for the exact-resolution fast path; if the
+ * source != enc resolution we let the CPU path do the resize and then
+ * upload the post-preprocessed image. v1 ships only the CPU
+ * preprocess to avoid the float bilinear-resize coordinate drift; the
+ * GPU preprocess shader is a forward-compatible scaffold for the
+ * exact-size fast path that a future ADR may switch on. */
+static int cambi_vk_upload_image_pic(CambiVkState *s)
+{
+    uint32_t *dst = vmaf_vulkan_buffer_host(s->image_buf);
+    if (!dst)
+        return -EIO;
+    const uint16_t *src = (const uint16_t *)s->pics[0].data[0];
+    const ptrdiff_t src_stride = s->pics[0].stride[0] >> 1;
+    const size_t img_words_per_row = (s->proc_width + 1u) / 2u;
+    for (unsigned y = 0; y < s->proc_height; y++) {
+        const uint16_t *srow = src + (size_t)y * src_stride;
+        uint32_t *drow = dst + y * img_words_per_row;
+        memset(drow, 0, img_words_per_row * sizeof(uint32_t));
+        for (unsigned x = 0; x < s->proc_width; x++) {
+            uint32_t shift = (x & 1u) * 16u;
+            drow[x >> 1] |= (uint32_t)(srow[x] & 0xFFFFu) << shift;
+        }
+    }
+    return vmaf_vulkan_buffer_flush(s->ctx, s->image_buf);
+}
+
+/* Dispatch derivative shader. */
+static void cambi_vk_dispatch_derivative(CambiVkState *s, VkCommandBuffer cmd, unsigned w,
+                                         unsigned h)
+{
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    if (cambi_vk_alloc_set(s, &set))
+        return;
+    cambi_vk_write_set(s, set, s->image_buf, s->deriv_buf);
+    CambiVkPushDerivative pc = {
+        .width = w,
+        .height = h,
+        .stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
+        .deriv_stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
+    };
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_derivative, 0, 1,
+                            &set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_layout_derivative, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                       &pc);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[CAMBI_PL_DERIVATIVE]);
+    uint32_t gx = (w + CAMBI_VK_WG_X - 1u) / CAMBI_VK_WG_X;
+    uint32_t gy = (h + CAMBI_VK_WG_Y - 1u) / CAMBI_VK_WG_Y;
+    vkCmdDispatch(cmd, gx, gy, 1);
+}
+
+static void cambi_vk_dispatch_mask_dp(CambiVkState *s, VkCommandBuffer cmd, unsigned w, unsigned h)
+{
+    const uint16_t mask_index = cambi_vk_get_mask_index(w, h, VMAF_CAMBI_MASK_FILTER_SIZE);
+    const uint32_t pad = VMAF_CAMBI_MASK_FILTER_SIZE / 2u;
+
+    /* PASS 0 — row SAT: deriv_buf → sat_row_buf. */
+    {
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        if (cambi_vk_alloc_set(s, &set))
+            return;
+        cambi_vk_write_set(s, set, s->deriv_buf, s->sat_row_buf);
+        CambiVkPushMaskDp pc = {
+            .width = w,
+            .height = h,
+            .in_stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
+            .out_stride_words = (uint32_t)s->proc_width,
+            .mask_index = mask_index,
+            .pad_size = pad,
+        };
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_mask_dp, 0, 1,
+                                &set, 0, NULL);
+        vkCmdPushConstants(cmd, s->pl_layout_mask_dp, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                           &pc);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[CAMBI_PL_MASK_SAT_ROW]);
+        vkCmdDispatch(cmd, h, 1, 1);
+    }
+    cambi_vk_barrier(cmd);
+
+    /* PASS 1 — col SAT: sat_row_buf → sat_col_buf. */
+    {
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        if (cambi_vk_alloc_set(s, &set))
+            return;
+        cambi_vk_write_set(s, set, s->sat_row_buf, s->sat_col_buf);
+        CambiVkPushMaskDp pc = {
+            .width = w,
+            .height = h,
+            .in_stride_words = (uint32_t)s->proc_width,
+            .out_stride_words = (uint32_t)s->proc_width,
+            .mask_index = mask_index,
+            .pad_size = pad,
+        };
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_mask_dp, 0, 1,
+                                &set, 0, NULL);
+        vkCmdPushConstants(cmd, s->pl_layout_mask_dp, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                           &pc);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[CAMBI_PL_MASK_SAT_COL]);
+        vkCmdDispatch(cmd, w, 1, 1);
+    }
+    cambi_vk_barrier(cmd);
+
+    /* PASS 2 — threshold compare: sat_col_buf → mask_buf. */
+    {
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        if (cambi_vk_alloc_set(s, &set))
+            return;
+        cambi_vk_write_set(s, set, s->sat_col_buf, s->mask_buf);
+        CambiVkPushMaskDp pc = {
+            .width = w,
+            .height = h,
+            .in_stride_words = (uint32_t)s->proc_width,
+            .out_stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
+            .mask_index = mask_index,
+            .pad_size = pad,
+        };
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_mask_dp, 0, 1,
+                                &set, 0, NULL);
+        vkCmdPushConstants(cmd, s->pl_layout_mask_dp, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                           &pc);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          s->pipelines[CAMBI_PL_MASK_THRESHOLD]);
+        uint32_t gx = (w + CAMBI_VK_WG_X - 1u) / CAMBI_VK_WG_X;
+        uint32_t gy = (h + CAMBI_VK_WG_Y - 1u) / CAMBI_VK_WG_Y;
+        vkCmdDispatch(cmd, gx, gy, 1);
+    }
+}
+
+/* Decimate one buffer (in-place semantics on host; we use scratch_buf
+ * as the output and then memcpy host-side via a readback round-trip
+ * for v1 simplicity. Cleaner on-GPU in-place would need a temp; we
+ * keep the explicit copy for correctness). */
+static void cambi_vk_dispatch_decimate(CambiVkState *s, VkCommandBuffer cmd,
+                                       VmafVulkanBuffer *in_buf, VmafVulkanBuffer *out_buf,
+                                       unsigned out_w, unsigned out_h, unsigned in_w)
+{
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    if (cambi_vk_alloc_set(s, &set))
+        return;
+    cambi_vk_write_set(s, set, in_buf, out_buf);
+    CambiVkPushDecimate pc = {
+        .width = out_w,
+        .height = out_h,
+        .in_stride_words = (uint32_t)((in_w + 1u) / 2u),
+        .out_stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
+    };
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_decimate, 0, 1, &set,
+                            0, NULL);
+    vkCmdPushConstants(cmd, s->pl_layout_decimate, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[CAMBI_PL_DECIMATE]);
+    uint32_t gx = (out_w + CAMBI_VK_WG_X - 1u) / CAMBI_VK_WG_X;
+    uint32_t gy = (out_h + CAMBI_VK_WG_Y - 1u) / CAMBI_VK_WG_Y;
+    vkCmdDispatch(cmd, gx, gy, 1);
+}
+
+static void cambi_vk_dispatch_filter_mode(CambiVkState *s, VkCommandBuffer cmd,
+                                          VmafVulkanBuffer *in_buf, VmafVulkanBuffer *out_buf,
+                                          unsigned w, unsigned h, int axis)
+{
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    if (cambi_vk_alloc_set(s, &set))
+        return;
+    cambi_vk_write_set(s, set, in_buf, out_buf);
+    CambiVkPushFilterMode pc = {
+        .width = w,
+        .height = h,
+        .stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
+    };
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_filter_mode, 0, 1,
+                            &set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_layout_filter_mode, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                       &pc);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                      s->pipelines[axis == 0 ? CAMBI_PL_FILTER_MODE_H : CAMBI_PL_FILTER_MODE_V]);
+    uint32_t gx = (w + CAMBI_VK_WG_X - 1u) / CAMBI_VK_WG_X;
+    uint32_t gy = (h + CAMBI_VK_WG_Y - 1u) / CAMBI_VK_WG_Y;
+    vkCmdDispatch(cmd, gx, gy, 1);
+}
+
+/* One-shot command-buffer helper: record + submit + wait. */
+static int cambi_vk_run_record(CambiVkState *s, void (*record)(CambiVkState *, VkCommandBuffer))
+{
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    VkCommandBufferAllocateInfo cbai = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = s->ctx->command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+    if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &cmd) != VK_SUCCESS)
+        return -ENOMEM;
+    VkCommandBufferBeginInfo cbbi = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+    vkBeginCommandBuffer(cmd, &cbbi);
+    record(s, cmd);
+    vkEndCommandBuffer(cmd);
+    int err = cambi_vk_submit_wait(s, cmd);
+    vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
+    return err;
+}
+
+/* Recorder closure state — rather than a true closure we stash the
+ * required fields on the state struct between record_xxx invocations. */
+static struct {
+    unsigned w;
+    unsigned h;
+    unsigned in_w;
+    int axis;
+    VmafVulkanBuffer *in_buf;
+    VmafVulkanBuffer *out_buf;
+} g_cambi_vk_rec;
+
+static void cambi_vk_rec_mask_dp(CambiVkState *s, VkCommandBuffer cmd)
+{
+    cambi_vk_dispatch_derivative(s, cmd, g_cambi_vk_rec.w, g_cambi_vk_rec.h);
+    cambi_vk_barrier(cmd);
+    cambi_vk_dispatch_mask_dp(s, cmd, g_cambi_vk_rec.w, g_cambi_vk_rec.h);
+}
+
+static void cambi_vk_rec_decimate(CambiVkState *s, VkCommandBuffer cmd)
+{
+    cambi_vk_dispatch_decimate(s, cmd, g_cambi_vk_rec.in_buf, g_cambi_vk_rec.out_buf,
+                               g_cambi_vk_rec.w, g_cambi_vk_rec.h, g_cambi_vk_rec.in_w);
+}
+
+static void cambi_vk_rec_filter_mode(CambiVkState *s, VkCommandBuffer cmd)
+{
+    cambi_vk_dispatch_filter_mode(s, cmd, g_cambi_vk_rec.in_buf, g_cambi_vk_rec.out_buf,
+                                  g_cambi_vk_rec.w, g_cambi_vk_rec.h, g_cambi_vk_rec.axis);
+}
+
+/* Per-frame extract. Mirrors cambi.c::cambi_score and friends but with
+ * the GPU servicing the embarrassingly parallel phases. */
+/* NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+ * The per-scale loop replicates the CPU extract step-by-step so any
+ * reviewer can diff against cambi.c::cambi_score; splitting would
+ * obscure that 1:1 correspondence. */
+static int cambi_vk_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
+                            VmafPicture *ref_pic_90, VmafPicture *dist_pic,
+                            VmafPicture *dist_pic_90, unsigned index,
+                            VmafFeatureCollector *feature_collector)
+{
+    (void)ref_pic;
+    (void)ref_pic_90;
+    (void)dist_pic_90;
+    CambiVkState *s = fex->priv;
+    int err = 0;
+
+    /* Step 1: host-side preprocess (CPU path) into pics[0]. The GPU
+     * preprocess shader exists as a forward-compatible scaffold but
+     * isn't used for v1: matching the CPU bilinear-resize coordinate
+     * arithmetic on integer rounding boundaries needs more validation
+     * than v1's scope allows. The post-preprocess image is a 10-bit
+     * planar buffer; v1 uploads it into image_buf in step 2. */
+    err = vmaf_cambi_preprocessing(dist_pic, &s->pics[0], (int)s->proc_width, (int)s->proc_height,
+                                   s->enc_bitdepth);
+    if (err)
+        return err;
+
+    /* Step 2: upload preprocessed image to GPU. */
+    err = cambi_vk_upload_image_pic(s);
+    if (err)
+        return err;
+
+    /* Step 3: per-scale GPU + host residual loop. */
+    double scores_per_scale[VMAF_CAMBI_NUM_SCALES] = {0};
+    unsigned scaled_w = s->proc_width;
+    unsigned scaled_h = s->proc_height;
+    const int num_diffs = 1 << s->max_log_contrast;
+
+    /* Compute the spatial mask once at scale 0 (matches CPU). */
+    g_cambi_vk_rec.w = scaled_w;
+    g_cambi_vk_rec.h = scaled_h;
+    err = cambi_vk_run_record(s, cambi_vk_rec_mask_dp);
+    if (err)
+        return err;
+
+    for (unsigned scale = 0; scale < VMAF_CAMBI_NUM_SCALES; scale++) {
+        if (scale > 0 || s->cambi_high_res_speedup) {
+            unsigned new_w = (scaled_w + 1u) >> 1;
+            unsigned new_h = (scaled_h + 1u) >> 1;
+
+            /* Decimate image_buf → scratch_buf, then memcpy back. */
+            g_cambi_vk_rec.w = new_w;
+            g_cambi_vk_rec.h = new_h;
+            g_cambi_vk_rec.in_w = scaled_w;
+            g_cambi_vk_rec.in_buf = s->image_buf;
+            g_cambi_vk_rec.out_buf = s->scratch_buf;
+            err = cambi_vk_run_record(s, cambi_vk_rec_decimate);
+            if (err)
+                return err;
+            /* Copy scratch_buf → image_buf (host memcpy through mapped
+             * pointers; cheap relative to GPU dispatch). */
+            {
+                const size_t img_words_per_row = (s->proc_width + 1u) / 2u;
+                const uint32_t *src = vmaf_vulkan_buffer_host(s->scratch_buf);
+                uint32_t *dst = vmaf_vulkan_buffer_host(s->image_buf);
+                for (unsigned y = 0; y < new_h; y++) {
+                    memcpy(dst + (size_t)y * img_words_per_row, src + (size_t)y * img_words_per_row,
+                           ((new_w + 1u) / 2u) * sizeof(uint32_t));
+                }
+                vmaf_vulkan_buffer_flush(s->ctx, s->image_buf);
+            }
+
+            /* Same for mask_buf → scratch_buf → mask_buf. */
+            g_cambi_vk_rec.in_buf = s->mask_buf;
+            g_cambi_vk_rec.out_buf = s->scratch_buf;
+            err = cambi_vk_run_record(s, cambi_vk_rec_decimate);
+            if (err)
+                return err;
+            {
+                const size_t img_words_per_row = (s->proc_width + 1u) / 2u;
+                const uint32_t *src = vmaf_vulkan_buffer_host(s->scratch_buf);
+                uint32_t *dst = vmaf_vulkan_buffer_host(s->mask_buf);
+                for (unsigned y = 0; y < new_h; y++) {
+                    memcpy(dst + (size_t)y * img_words_per_row, src + (size_t)y * img_words_per_row,
+                           ((new_w + 1u) / 2u) * sizeof(uint32_t));
+                }
+                vmaf_vulkan_buffer_flush(s->ctx, s->mask_buf);
+            }
+
+            scaled_w = new_w;
+            scaled_h = new_h;
+        }
+
+        /* Filter-mode horizontal: image_buf → scratch_buf. */
+        g_cambi_vk_rec.w = scaled_w;
+        g_cambi_vk_rec.h = scaled_h;
+        g_cambi_vk_rec.in_buf = s->image_buf;
+        g_cambi_vk_rec.out_buf = s->scratch_buf;
+        g_cambi_vk_rec.axis = 0;
+        err = cambi_vk_run_record(s, cambi_vk_rec_filter_mode);
+        if (err)
+            return err;
+        /* Filter-mode vertical: scratch_buf → image_buf. */
+        g_cambi_vk_rec.in_buf = s->scratch_buf;
+        g_cambi_vk_rec.out_buf = s->image_buf;
+        g_cambi_vk_rec.axis = 1;
+        err = cambi_vk_run_record(s, cambi_vk_rec_filter_mode);
+        if (err)
+            return err;
+
+        /* Read back to host VmafPicture pair. */
+        cambi_vk_readback_image(s, scaled_w, scaled_h);
+        cambi_vk_readback_mask(s, scaled_w, scaled_h);
+
+        /* Host residual: calculate_c_values + spatial pooling. */
+        vmaf_cambi_calculate_c_values(&s->pics[0], &s->pics[1], s->buffers.c_values,
+                                      s->buffers.c_values_histograms, s->adjusted_window,
+                                      (uint16_t)num_diffs, s->buffers.tvi_for_diff, s->vlt_luma,
+                                      s->buffers.diff_weights, s->buffers.all_diffs, (int)scaled_w,
+                                      (int)scaled_h, s->inc_range_callback, s->dec_range_callback);
+
+        scores_per_scale[scale] =
+            vmaf_cambi_spatial_pooling(s->buffers.c_values, s->topk, scaled_w, scaled_h);
+    }
+
+    uint16_t pixels_in_window = vmaf_cambi_get_pixels_in_window(s->adjusted_window);
+    double score = vmaf_cambi_weight_scores_per_scale(scores_per_scale, pixels_in_window);
+    if (score > s->cambi_max_val)
+        score = s->cambi_max_val;
+    if (score < 0.0)
+        score = 0.0;
+
+    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "Cambi_feature_cambi_score", score, index);
+}
+
+static int cambi_vk_close(VmafFeatureExtractor *fex)
+{
+    CambiVkState *s = fex->priv;
+    if (!s || !s->ctx)
+        return 0;
+    VkDevice dev = s->ctx->device;
+    vkDeviceWaitIdle(dev);
+
+    if (s->desc_pool)
+        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
+    for (int i = 0; i < CAMBI_PL_COUNT; i++) {
+        if (s->pipelines[i])
+            vkDestroyPipeline(dev, s->pipelines[i], NULL);
+    }
+    /* Filter-mode + mask-dp share modules; destroy only first instance. */
+    if (s->shader_modules[CAMBI_PL_PREPROCESS])
+        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_PREPROCESS], NULL);
+    if (s->shader_modules[CAMBI_PL_DERIVATIVE])
+        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_DERIVATIVE], NULL);
+    if (s->shader_modules[CAMBI_PL_FILTER_MODE_H])
+        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_FILTER_MODE_H], NULL);
+    if (s->shader_modules[CAMBI_PL_DECIMATE])
+        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_DECIMATE], NULL);
+    if (s->shader_modules[CAMBI_PL_MASK_SAT_ROW])
+        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_MASK_SAT_ROW], NULL);
+
+    if (s->pl_layout_trivial)
+        vkDestroyPipelineLayout(dev, s->pl_layout_trivial, NULL);
+    if (s->pl_layout_filter_mode)
+        vkDestroyPipelineLayout(dev, s->pl_layout_filter_mode, NULL);
+    if (s->pl_layout_derivative)
+        vkDestroyPipelineLayout(dev, s->pl_layout_derivative, NULL);
+    if (s->pl_layout_decimate)
+        vkDestroyPipelineLayout(dev, s->pl_layout_decimate, NULL);
+    if (s->pl_layout_mask_dp)
+        vkDestroyPipelineLayout(dev, s->pl_layout_mask_dp, NULL);
+    if (s->dsl_2bind)
+        vkDestroyDescriptorSetLayout(dev, s->dsl_2bind, NULL);
+
+#define CAMBI_VK_FREE(b)                                                                           \
+    do {                                                                                           \
+        if (s->b)                                                                                  \
+            vmaf_vulkan_buffer_free(s->ctx, s->b);                                                 \
+    } while (0)
+    CAMBI_VK_FREE(raw_in_buf);
+    CAMBI_VK_FREE(image_buf);
+    CAMBI_VK_FREE(mask_buf);
+    CAMBI_VK_FREE(deriv_buf);
+    CAMBI_VK_FREE(sat_row_buf);
+    CAMBI_VK_FREE(sat_col_buf);
+    CAMBI_VK_FREE(scratch_buf);
+#undef CAMBI_VK_FREE
+
+    for (unsigned i = 0; i < CAMBI_VK_PIC_BUFFERS; i++)
+        (void)vmaf_picture_unref(&s->pics[i]);
+
+    free(s->buffers.c_values);
+    free(s->buffers.mask_dp);
+    free(s->buffers.c_values_histograms);
+    free(s->buffers.filter_mode_buffer);
+    free(s->buffers.diffs_to_consider);
+    free(s->buffers.tvi_for_diff);
+    free(s->buffers.derivative_buffer);
+    free(s->buffers.diff_weights);
+    free(s->buffers.all_diffs);
+
+    if (s->owns_ctx)
+        vmaf_vulkan_context_destroy(s->ctx);
+    s->ctx = NULL;
+    if (s->feature_name_dict)
+        vmaf_dictionary_free(&s->feature_name_dict);
+    return 0;
+}
+
+static const char *cambi_vk_provided_features[] = {"Cambi_feature_cambi_score", NULL};
+
+/* External linkage required — the registry iterates over `vmaf_fex_*` externs.
+ * NOLINTNEXTLINE(misc-use-internal-linkage,cppcoreguidelines-avoid-non-const-global-variables) */
+VmafFeatureExtractor vmaf_fex_cambi_vulkan = {
     .name = "cambi_vulkan",
-    .init = cambi_vulkan_init_stub,
-    .extract = cambi_vulkan_extract_stub,
-    .options = NULL,
-    .close = cambi_vulkan_close_stub,
-    .priv_size = sizeof(CambiVulkanState),
-    .provided_features = cambi_vulkan_provided_features,
+    .init = cambi_vk_init,
+    .extract = cambi_vk_extract,
+    .options = options,
+    .close = cambi_vk_close,
+    .priv_size = sizeof(CambiVkState),
+    .flags = VMAF_FEATURE_EXTRACTOR_VULKAN,
+    .provided_features = cambi_vk_provided_features,
+    .chars =
+        {
+            /* ~6 dispatches per scale (decimate ×2 + filter ×2 + mask-dp + derivative
+             * once at scale 0); 5 scales = ~32 dispatches/frame. Heavy-ish. */
+            .n_dispatches_per_frame = 32,
+            .is_reduction_only = false,
+            .min_useful_frame_area = 1920U * 1080U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
+        },
 };

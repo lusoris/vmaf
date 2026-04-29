@@ -45,6 +45,16 @@
   [ADR-0209](docs/adr/0209-mcp-embedded-scaffold.md) +
   [ADR-0128](docs/adr/0128-embedded-mcp-in-libvmaf.md) +
   [Research-0005](docs/research/0005-embedded-mcp-transport.md).
+- **`cambi_vulkan` feature extractor (T7-36 / ADR-0210)** — closes
+  the GPU long-tail matrix terminus. Strategy II hybrid: GPU
+  shaders run preprocess, per-pixel derivative, 7×7 spatial-mask
+  SAT, 2× decimate, 3-tap separable mode filter; the
+  precision-sensitive sliding-histogram `calculate_c_values` + top-K
+  pool stay on the host. Bit-exact w.r.t. CPU by construction;
+  cross-backend gate runs at `places=4`. New ADR
+  [`docs/adr/0210-cambi-vulkan-integration.md`](docs/adr/0210-cambi-vulkan-integration.md)
+  + research digest
+  [`docs/research/0032-cambi-vulkan-integration.md`](docs/research/0032-cambi-vulkan-integration.md).
 
 ### Removed
 

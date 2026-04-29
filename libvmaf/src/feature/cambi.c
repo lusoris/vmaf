@@ -1550,3 +1550,70 @@ VmafFeatureExtractor vmaf_fex_cambi = {
     .priv_size = sizeof(CambiState),
     .provided_features = provided_features,
 };
+
+/* ------------------------------------------------------------------ */
+/*  Internal helpers exposed to GPU twins (T7-36 / ADR-0205).         */
+/*  Header: cambi_internal.h. The wrappers are thin trampolines so    */
+/*  the file-static helpers above stay unchanged and CPU SIMD diff    */
+/*  remains a no-op against upstream.                                 */
+/* ------------------------------------------------------------------ */
+#include "cambi_internal.h"
+
+void vmaf_cambi_get_spatial_mask(const VmafPicture *image, VmafPicture *mask, uint32_t *dp,
+                                 uint16_t *derivative_buffer, unsigned width, unsigned height,
+                                 VmafCambiDerivativeCalculator derivative_callback)
+{
+    get_spatial_mask(image, mask, dp, derivative_buffer, width, height,
+                     (VmafDerivativeCalculator)derivative_callback);
+}
+
+void vmaf_cambi_decimate(VmafPicture *image, unsigned width, unsigned height)
+{
+    decimate(image, width, height);
+}
+
+void vmaf_cambi_filter_mode(const VmafPicture *image, int width, int height, uint16_t *buffer)
+{
+    filter_mode(image, width, height, buffer);
+}
+
+void vmaf_cambi_calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, float *c_values,
+                                   uint16_t *histograms, uint16_t window_size,
+                                   const uint16_t num_diffs, const uint16_t *tvi_for_diff,
+                                   uint16_t vlt_luma, const int *diff_weights, const int *all_diffs,
+                                   int width, int height, VmafCambiRangeUpdater inc_range_callback,
+                                   VmafCambiRangeUpdater dec_range_callback)
+{
+    calculate_c_values(pic, mask_pic, c_values, histograms, window_size, num_diffs, tvi_for_diff,
+                       vlt_luma, diff_weights, all_diffs, width, height,
+                       (VmafRangeUpdater)inc_range_callback, (VmafRangeUpdater)dec_range_callback);
+}
+
+double vmaf_cambi_spatial_pooling(float *c_values, double topk, unsigned width, unsigned height)
+{
+    return spatial_pooling(c_values, topk, width, height);
+}
+
+double vmaf_cambi_weight_scores_per_scale(double *scores_per_scale, uint16_t normalization)
+{
+    return weight_scores_per_scale(scores_per_scale, normalization);
+}
+
+uint16_t vmaf_cambi_get_pixels_in_window(uint16_t window_length)
+{
+    return get_pixels_in_window(window_length);
+}
+
+void vmaf_cambi_default_callbacks(VmafCambiRangeUpdater *inc, VmafCambiRangeUpdater *dec,
+                                  VmafCambiDerivativeCalculator *deriv)
+{
+    *inc = (VmafCambiRangeUpdater)increment_range;
+    *dec = (VmafCambiRangeUpdater)decrement_range;
+    *deriv = (VmafCambiDerivativeCalculator)get_derivative_data_for_row;
+}
+
+int vmaf_cambi_preprocessing(const VmafPicture *image, VmafPicture *preprocessed, int width,
+                             int height, int enc_bitdepth)
+{
+    return cambi_preprocessing(image, preprocessed, width, height, enc_bitdepth);
+}

@@ -62,6 +62,12 @@ vulkan_shader_sources = [
     'shaders/ssimulacra2_blur.comp',
     'shaders/ssimulacra2_mul.comp',
     'shaders/ssimulacra2_ssim.comp',
+    # T7-36 / ADR-0205 — cambi Vulkan integration.
+    'shaders/cambi_preprocess.comp',
+    'shaders/cambi_derivative.comp',
+    'shaders/cambi_filter_mode.comp',
+    'shaders/cambi_decimate.comp',
+    'shaders/cambi_mask_dp.comp',
 ]
 
 vulkan_shader_headers = []
@@ -148,6 +154,7 @@ vulkan_sources += files(
     '../feature/vulkan/float_vif_vulkan.c',
     '../feature/vulkan/float_adm_vulkan.c',
     '../feature/vulkan/ssimulacra2_vulkan.c',
+    '../feature/vulkan/cambi_vulkan.c',
 )
 
 vulkan_sources += vulkan_shader_headers

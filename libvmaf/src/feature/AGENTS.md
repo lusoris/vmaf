@@ -342,29 +342,38 @@ feature/
   [ADR-0160](../../../docs/adr/0160-psnr-hvs-neon-bitexact.md)
   and [rebase-notes 0052](../../../docs/rebase-notes.md).
 - **`cambi.c` GPU port is hybrid host/GPU per
-  [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md).**
-  The Vulkan kernel offloads only the embarrassingly-parallel
-  phases (preprocessing, derivative, summed-area-table spatial
-  mask, decimate, 3-tap mode filter) to the GPU; the precision-
-  sensitive `calculate_c_values` sliding-histogram pass + top-K
-  spatial pooling stay on the host. Any CPU-side change to the
-  c-value formula or the histogram update protocol must keep
-  the host residual call site (in the eventual
-  `cambi_vulkan.c::cambi_vulkan_extract`) lock-step with the
-  CPU `calculate_c_values` — they are intentionally the same
-  code, called against the GPU-produced image + mask buffers.
-  The Vulkan scaffold lives in
-  `feature/vulkan/cambi_vulkan.c` (host glue) +
-  `feature/vulkan/shaders/cambi_*.comp` (the shader files);
-  build wiring lands in the integration follow-up PR. Until
-  then the scaffold is dormant — same shape as
-  `ssimulacra2_vulkan.c` was between
-  [ADR-0201](../../../docs/adr/0201-ssimulacra2-vulkan-kernel.md)
-  and its integration PR. Strategy III (fully-on-GPU c-values
-  via direct per-pixel histogram) is documented in
-  [research digest 0020](../../../docs/research/0020-cambi-gpu-strategies.md)
-  but deferred to a future batch — *do not* attempt to
-  optimise it inside the v1 hybrid integration.
+  [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md) +
+  [ADR-0210](../../../docs/adr/0210-cambi-vulkan-integration.md)
+  (T7-36 integration).** The Vulkan kernel offloads only the
+  embarrassingly-parallel phases (preprocessing scaffold +
+  derivative + 7×7 SAT spatial mask + 2× decimate + 3-tap mode
+  filter) to the GPU; the precision-sensitive
+  `calculate_c_values` sliding-histogram pass + top-K spatial
+  pooling stay on the host. Any CPU-side change to the c-value
+  formula or the histogram update protocol must keep the host
+  residual call site
+  (`cambi_vulkan.c::cambi_vk_extract` → `vmaf_cambi_calculate_c_values`)
+  lock-step with the CPU `calculate_c_values` — they are
+  intentionally the same code, called against the GPU-produced
+  image + mask buffers.
+  - **`cambi_internal.h` invariant**: this internal-only header
+    exposes cambi.c's file-static helpers (`get_spatial_mask`,
+    `decimate`, `filter_mode`, `calculate_c_values`,
+    `spatial_pooling`, `weight_scores_per_scale`,
+    `get_pixels_in_window`, `cambi_preprocessing`,
+    `increment_range` / `decrement_range` /
+    `get_derivative_data_for_row` callbacks) to the GPU twin via
+    a thin trampoline block at the bottom of `cambi.c`. **Do not
+    rename or change the signatures of those helpers without
+    updating the trampoline block + the header in the same PR
+    or the GPU build breaks.** The trampoline body is the *only*
+    fork-added code inside `cambi.c`; the upstream-mirror body
+    above stays byte-identical to keep Netflix sync clean.
+  - Strategy III (fully-on-GPU c-values via direct per-pixel
+    histogram) is documented in
+    [research digest 0020](../../../docs/research/0020-cambi-gpu-strategies.md)
+    but deferred to a future batch — *do not* attempt to
+    optimise it inside the v1 hybrid integration.
 
 - **VIF kernelscale stays on the precomputed
   `vif_filter1d_table_s` flow — Strategy E in Research-0024.**
