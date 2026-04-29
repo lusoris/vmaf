@@ -508,6 +508,18 @@ test_cuda_preallocation_leak = executable('test_cuda_preallocation_leak',
 test('test_cuda_preallocation_leak', test_cuda_preallocation_leak)
 endif
 
+# T6-2b / ADR-0221 — vmaf-roi sidecar core helpers (per-CTU mean reduce
+# + saliency-to-QP-offset). Header-only test that compiles
+# libvmaf/tools/vmaf_roi_core.h and exercises clamp / sign / monotonicity
+# without needing the full binary.
+test_vmaf_roi_libm = cc.find_library('m', required : false)
+test_vmaf_roi = executable('test_vmaf_roi',
+    ['test.c', 'test_vmaf_roi.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../tools/')],
+    dependencies: [pthread_dependency, test_vmaf_roi_libm],
+)
+test('test_vmaf_roi', test_vmaf_roi)
+
 # picture pool test - exercises vmaf_preallocate_pictures / vmaf_fetch_preallocated_picture.
 # These symbols are always linked into libvmaf (no build gate), so this test
 # always runs.

@@ -99,8 +99,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
   (`image_buf` / `mask_buf` / `deriv_buf`) and comparing against
   the CPU's in-place `pic` plane after the equivalent stage.
 
-
-
 The pre-ADR-0108 fork-local PRs are summarised by workstream rather
 than per-PR. Future PRs add entries individually.
 
@@ -5222,4 +5220,52 @@ inline.*
       --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
       --output /tmp/plan.csv
   cat /tmp/plan.csv
+### 0075 — `vmaf-roi` sidecar binary (T6-2b / ADR-0221)
+
+- **Touches**:
+  - `libvmaf/tools/meson.build` — adds the `vmaf_roi` executable
+    target (after the existing `vmaf` target, before `vmaf_bench`).
+    Append-only; no upstream-shared lines moved or removed.
+  - `libvmaf/test/meson.build` — adds the `test_vmaf_roi`
+    executable + `test()` registration. Append-only.
+  - `libvmaf/tools/vmaf_roi.c` — wholly new, fork-local.
+  - `libvmaf/tools/vmaf_roi_core.h` — wholly new, fork-local.
+  - `libvmaf/test/test_vmaf_roi.c` — wholly new, fork-local.
+- **Invariant**: the `vmaf-roi` sidecar emits two byte-exact formats
+  that downstream encoder drivers (x265 `--qpfile`, SVT-AV1
+  `--roi-map-file`) will hard-depend on:
+  1. **x265 ASCII grid** — two `#`-prefixed header lines
+     (`# vmaf-roi qpfile (x265, --qpfile-style)` and
+     `# frame=N ctu=S cols=C rows=R strength=F.FFF`),
+     space-separated signed integers, one row per CTU row, `\n`
+     terminator.
+  2. **SVT-AV1 raw binary** — exactly `cols * rows` bytes of
+     `int8_t`, row-major, **no header**.
+  3. **QP-offset clamp** — `+-12` (`VMAF_ROI_CORE_QP_OFFSET_MAX`).
+  4. **Reduction** — per-CTU **mean** (not max). Switching to max or
+     a percentile changes every downstream encoder result and
+     requires its own ADR.
+  5. **Pure helpers in `vmaf_roi_core.h`** — the per-CTU mean reducer
+     and saliency-to-QP mapper are `static inline` in a header so
+     `test_vmaf_roi` compiles them without dragging the libvmaf
+     link surface in. Moving them into a `.c` TU breaks the test
+     wiring.
+- **On upstream sync**: no interaction with upstream — `tools/` is a
+  fork-local surface from upstream's perspective (upstream ships
+  `vmaf.c` only). An upstream sync that rewrites
+  `libvmaf/tools/meson.build` should preserve the `vmaf_roi`
+  executable block.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-cpu libvmaf \
+      -Denable_cuda=false -Denable_sycl=false -Denable_tools=true
+  ninja -C build-cpu tools/vmaf_roi test/test_vmaf_roi
+  meson test -C build-cpu test_vmaf_roi
+  ./build-cpu/tools/vmaf_roi \
+      --reference testdata/ref_576x324_48f.yuv \
+      --width 576 --height 324 --frame 0 --output - \
+      --encoder x265 --ctu-size 64 --strength 6.0 | head -3
+  # First two lines are the # comment header; row 1 of the grid
+  # should be "4 2 1 -1 -1 -1 1 2 4" (placeholder radial map).
   ```

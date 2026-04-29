@@ -386,6 +386,27 @@
   `libvmaf/tools/AGENTS.md` carries the standalone-sidecar +
   stable-schema invariants. See
   [ADR-0222](docs/adr/0222-vmaf-per-shot-tool.md).
+- **`vmaf-roi` sidecar binary for per-CTU QP offsets (T6-2b /
+  ADR-0221).** New CLI tool at `libvmaf/tools/vmaf_roi.c` that
+  consumes raw planar YUV + a 0-based frame index, optionally runs
+  the `mobilesal` saliency model through the public
+  `vmaf_dnn_session_run_luma8()` API (T6-2a / ADR-0218 / PR #208 is
+  the scoring-side counterpart), reduces the per-pixel saliency
+  map to a per-CTU mean, and emits an encoder-native QP-offset
+  sidecar — ASCII per-row grid for x265 (`--qpfile-style`) or raw
+  `int8_t` binary for SVT-AV1 (`--roi-map-file`). Mapping is
+  `qp = clamp(-strength * (2 * saliency - 1), -12, +12)`: high
+  saliency drives the offset negative (boost quality), low saliency
+  positive (save bits). 8-bit YUV only in T6-2b; 10/12-bit follows
+  the `mobilesal` bit-depth upgrade. When `--saliency-model` is
+  absent the tool falls back to a deterministic center-weighted
+  radial placeholder, documented as smoke-test-only — not for real
+  encodes. New `docs/usage/vmaf-roi.md`. New header-only helper TU
+  `libvmaf/tools/vmaf_roi_core.h` lets the smoke test
+  (`libvmaf/test/test_vmaf_roi.c`) compile the per-CTU mean
+  reducer and QP-offset mapper without dragging libvmaf's link
+  surface in. See [ADR-0221](docs/adr/0221-vmaf-roi-tool.md).
+
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame
