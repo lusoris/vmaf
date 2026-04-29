@@ -120,7 +120,7 @@ ffmpeg -i in.mp4 \
 | --- | --- | --- |
 | `--tiny-device cpu` | CPUExecutionProvider | Always available. |
 | `--tiny-device cuda` | CUDAExecutionProvider | Requires CUDA-enabled ORT; shares context with libvmaf-cuda. |
-| `--tiny-device openvino` | OpenVINOExecutionProvider | Covers Intel GPU / SYCL / oneAPI. Tries GPU device type first, falls back to CPU device type. |
+| `--tiny-device openvino` | OpenVINOExecutionProvider | Covers Intel GPU / SYCL / oneAPI. Tries GPU device type first, falls back to CPU device type. Also covers the integrated Xe / Xe2 GPU on Intel AI-PC platforms (Meteor / Lunar / Arrow Lake) for free; AI-PC *NPU* support is intentionally deferred — see [Research-0031](../research/0031-intel-ai-pc-applicability.md). |
 | `--tiny-device rocm` | ROCmExecutionProvider | Requires ROCm-enabled ORT. |
 | `--tiny-device auto` | best available | Ordered try-chain: CUDA → OpenVINO (GPU then CPU) → ROCm → CPU. |
 

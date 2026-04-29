@@ -26,6 +26,22 @@
 
 ### Changed
 
+- **Research-0031: Intel AI-PC NPU/EP applicability digest (T7-9)**
+  (fork-local doc): new
+  [`docs/research/0031-intel-ai-pc-applicability.md`](docs/research/0031-intel-ai-pc-applicability.md)
+  evaluates whether the tiny-AI surface should add first-class
+  support for the NPU on Intel Meteor / Lunar / Arrow Lake AI-PC
+  platforms. Verdict: **defer the NPU path** until a maintainer
+  has hardware to validate int8 + fp16 accuracy gates against
+  Research-0006's PTQ pipeline. The integrated Xe / Xe2 GPU
+  portion of an AI-PC platform is already reachable today through
+  the existing `--tiny-device openvino` path (same code path the
+  Arc A380 uses), so the iGPU surface costs the fork zero
+  additional code; only the NPU device type is genuinely new
+  surface and is the part that's deferred. One forward-pointer
+  added to [`docs/ai/inference.md`](docs/ai/inference.md) so
+  readers of the EP matrix find the digest. No code change.
+
 - **Research-0024 + AGENTS.md: deliberately diverge from Netflix
   upstream `vif` + `float_adm` option-port chains** (fork-local
   doc): new
