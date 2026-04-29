@@ -1,4 +1,4 @@
-# ADR-0209: SSIMULACRA 2 SVE2 SIMD parity
+# ADR-0213: SSIMULACRA 2 SVE2 SIMD parity
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

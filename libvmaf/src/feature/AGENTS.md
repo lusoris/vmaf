@@ -307,7 +307,7 @@ feature/
   [`x86/ssimulacra2_avx512.c`](x86/ssimulacra2_avx512.c),
   [`arm64/ssimulacra2_neon.c`](arm64/ssimulacra2_neon.c) and
   [`arm64/ssimulacra2_sve2.c`](arm64/ssimulacra2_sve2.c) (T7-38,
-  ADR-0209) all produce byte-identical output to scalar on the 5
+  ADR-0213) all produce byte-identical output to scalar on the 5
   vectorised kernels (`multiply_3plane`, `linear_rgb_to_xyb`,
   `downsample_2x2`, `ssim_map`, `edge_diff_map`) under
   `FLT_EVAL_METHOD == 0`, plus the IIR blur and PTLR ports
@@ -323,7 +323,7 @@ feature/
   do **not** widen to `svptrue_b32()` without a separate ADR
   + snapshot regen, even if it looks like a free perf win. See
   [ADR-0161](../../../docs/adr/0161-ssimulacra2-simd-bitexact.md),
-  [ADR-0209](../../../docs/adr/0209-ssimulacra2-sve2.md), and
+  [ADR-0213](../../../docs/adr/0213-ssimulacra2-sve2.md), and
   [rebase-notes 0053](../../../docs/rebase-notes.md) /
   [rebase-notes 0074](../../../docs/rebase-notes.md).
 

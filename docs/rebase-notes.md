@@ -4823,7 +4823,7 @@ inline.*
 
 ### 0074 — SSIMULACRA 2 SVE2 SIMD parity (T7-38)
 
-- **ADR**: [ADR-0209](adr/0209-ssimulacra2-sve2.md).
+- **ADR**: [ADR-0213](adr/0213-ssimulacra2-sve2.md).
 - **Touches**: `libvmaf/src/feature/arm64/ssimulacra2_sve2.{c,h}`
   (new), `libvmaf/src/feature/ssimulacra2.c` (dispatch table override
   in `init_simd_dispatch`), `libvmaf/src/arm/cpu.{c,h}` (HWCAP2_SVE2

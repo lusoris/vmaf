@@ -316,7 +316,7 @@
   `dependency('hip-lang', required: false)` is silently absent on
   stock Ubuntu runners.
 
-- **SSIMULACRA 2 SVE2 SIMD parity (T7-38, ADR-0209)** (fork-local):
+- **SSIMULACRA 2 SVE2 SIMD parity (T7-38, ADR-0213)** (fork-local):
   new aarch64 SVE2 sister TU
   ([`libvmaf/src/feature/arm64/ssimulacra2_sve2.c`](libvmaf/src/feature/arm64/ssimulacra2_sve2.c))
   ports the seven SSIMULACRA 2 SIMD entry points (`multiply_3plane`,

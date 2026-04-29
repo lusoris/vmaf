@@ -14,7 +14,7 @@ TUs compile alongside the NEON ones and the dispatch table picks
 SVE2 if the runtime probe (`getauxval(AT_HWCAP2) & HWCAP2_SVE2`)
 fires. Otherwise the binary keeps the NEON dispatch entries
 unchanged. SVE2 today covers SSIMULACRA 2 only — see
-[ADR-0209](../../adr/0209-ssimulacra2-sve2.md). Adding more SVE2
+[ADR-0213](../../adr/0213-ssimulacra2-sve2.md). Adding more SVE2
 ports follows the same pattern; per-extractor coverage is in the
 table below.
 
@@ -66,7 +66,7 @@ matches the `Backends` column in
 | `psnr_hvs`     | yes         | no          | bit-identical to scalar — see [ADR-0160](../../adr/0160-psnr-hvs-neon-bitexact.md) |
 | `ssim` / `float_ssim` | yes  | no          | shared decimate kernel                                        |
 | `float_ms_ssim`| yes         | no          | 9-tap 9/7 wavelet decimate via `ms_ssim_decimate_neon`        |
-| `ssimulacra2`  | yes         | yes         | bit-identical to scalar (NEON and SVE2 produce byte-equal output); see [ADR-0161](../../adr/0161-ssimulacra2-simd-bitexact.md), [ADR-0162](../../adr/0162-ssimulacra2-iir-blur-simd.md), [ADR-0163](../../adr/0163-ssimulacra2-ptlr-simd.md), [ADR-0209](../../adr/0209-ssimulacra2-sve2.md) |
+| `ssimulacra2`  | yes         | yes         | bit-identical to scalar (NEON and SVE2 produce byte-equal output); see [ADR-0161](../../adr/0161-ssimulacra2-simd-bitexact.md), [ADR-0162](../../adr/0162-ssimulacra2-iir-blur-simd.md), [ADR-0163](../../adr/0163-ssimulacra2-ptlr-simd.md), [ADR-0213](../../adr/0213-ssimulacra2-sve2.md) |
 | `cambi`        | yes         | no          | scalar fallback also retained                                 |
 | `ansnr` / `float_ansnr` | yes | no         | NEON via shared `ansnr_neon`                                  |
 
@@ -77,7 +77,7 @@ features that ship a determinism contract:
 
 - `psnr_hvs` — pinned by ADR-0160; verified across all three Netflix
   golden pairs.
-- `ssimulacra2` — pinned by ADR-0161 / ADR-0162 / ADR-0163 / ADR-0209;
+- `ssimulacra2` — pinned by ADR-0161 / ADR-0162 / ADR-0163 / ADR-0213;
   cross-host determinism via `vmaf_ss2_cbrtf` and the sRGB-EOTF LUT.
   The SVE2 sister TU is locked to a fixed 4-lane predicate
   (`svwhilelt_b32(0, 4)`) so its arithmetic order matches the NEON
@@ -131,7 +131,7 @@ must remain green — see [`docs/principles.md`](../../principles.md)
 - [ADR-0161](../../adr/0161-ssimulacra2-simd-bitexact.md),
   [ADR-0162](../../adr/0162-ssimulacra2-iir-blur-simd.md),
   [ADR-0163](../../adr/0163-ssimulacra2-ptlr-simd.md),
-  [ADR-0209](../../adr/0209-ssimulacra2-sve2.md) — SSIMULACRA 2
+  [ADR-0213](../../adr/0213-ssimulacra2-sve2.md) — SSIMULACRA 2
   SIMD ports including NEON and SVE2.
 - [`build-aux/aarch64-linux-gnu-sve2.ini`](../../../build-aux/aarch64-linux-gnu-sve2.ini) —
   qemu cross-file driving `qemu-aarch64-static -cpu max` for SVE2
