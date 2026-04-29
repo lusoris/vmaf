@@ -117,6 +117,40 @@
   a fork bug). Doubles as the ADR-0108 research digest for the
   audit PR.
 
+- **T7-32: backlog-hygiene S-task bundle (3 micro-investigations).**
+  One PR closes three S-effort follow-ups identified by the
+  2026-04-28 BACKLOG audit. (a) `motion_v2` AVX2 `srlv_epi64`
+  audit: new fork-local libvmaf C unit test
+  [`libvmaf/test/test_motion_v2_simd.c`](libvmaf/test/test_motion_v2_simd.c)
+  exercises adversarial negative-`accum` 16-bit fixtures (10-bit
+  and 12-bit, uniform-negative and alternating-mixed-sign) against
+  the AVX2 path in
+  [`libvmaf/src/feature/x86/motion_v2_avx2.c`](libvmaf/src/feature/x86/motion_v2_avx2.c);
+  on the bench host the post-`abs()` aggregation absorbs the
+  per-lane logical-vs-arithmetic shift difference and SAD totals
+  match scalar — the test stays as a permanent regression guard
+  and the
+  [`docs/rebase-notes.md`](docs/rebase-notes.md) §0038 placeholder
+  follow-up is closed.  (b)
+  [`docs/research/0006-tinyai-ptq-accuracy-targets.md`](docs/research/0006-tinyai-ptq-accuracy-targets.md)
+  §4 now references the actual shipped `vmaf_tiny_v1_medium.onnx`
+  checkpoint (landed by [PR
+  #158](https://github.com/lusoris/vmaf/pull/158)) instead of the
+  fictional `tiny-vmaf-v2` prototype name; the digest's QAT
+  cost/budget framing is unchanged.  (c)
+  [`python/vmaf/routine.py`](python/vmaf/routine.py) — both
+  `cv_on_dataset` (line ~937) and `explain_model_on_dataset` (line
+  ~1109) now mirror `VmafQualityRunner`'s contract: cv reads
+  `feature_param.feature_optional_dict` when the param exposes it;
+  explain reads `model.model_dict["feature_opts_dicts"]` from the
+  serialised model. The two `# FIXME: as set to None, potential bug
+  with inconsistent behavior with VmafQualityRunner` comments are
+  removed. New regression test
+  [`python/test/routine_feature_option_dict_test.py`](python/test/routine_feature_option_dict_test.py)
+  covers both `None` and populated dict paths via
+  `FeatureAssembler` mock. No behaviour change for callers that did
+  not declare per-extractor options.
+
 - **Research-0031: Intel AI-PC NPU/EP applicability digest (T7-9)**
   (fork-local doc): new
   [`docs/research/0031-intel-ai-pc-applicability.md`](docs/research/0031-intel-ai-pc-applicability.md)
