@@ -37,19 +37,23 @@
  * yielding 1-2 ULP drift in scalar reductions even without FMA
  * emission. The DCT is the only vectorised component and its
  * bit-exactness is directly testable in this TU.
+ *
+ * Boilerplate (xorshift PRNG, bit-exact memcmp assertion) is
+ * provided by `simd_bitexact_test.h` (ADR-0221).
  */
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
 #include "config.h"
 #include "test.h"
+/* clang-format off — `test.h` has no header guard, must precede the
+ * harness include to avoid a `mu_report` redefinition. */
+#include "simd_bitexact_test.h"
+/* clang-format on */
 
 #if ARCH_X86
 #include "feature/x86/psnr_hvs_avx2.h"
-#include "x86/cpu.h"
 #endif
 
 #if ARCH_X86
@@ -133,30 +137,16 @@ static void ref_od_bin_fdct8x8(od_coeff *y, int ystride, const od_coeff *x, int 
     }
 }
 
-/* xorshift32 PRNG for reproducible input generation across runs. */
-static uint32_t xorshift32(uint32_t *state)
-{
-    uint32_t s = *state;
-    s ^= s << 13;
-    s ^= s >> 17;
-    s ^= s << 5;
-    *state = s;
-    return s;
-}
-
 static char *check_dct_block(uint32_t seed)
 {
     od_coeff in[64];
     od_coeff out_scalar[64];
     od_coeff out_avx2[64];
-    uint32_t state = seed;
-    for (int i = 0; i < 64; i++) {
-        in[i] = (int32_t)(xorshift32(&state) % 4096); /* 12-bit range */
-    }
+    simd_test_fill_random_i32_mod(in, 64, 4096, seed); /* 12-bit range */
     ref_od_bin_fdct8x8(out_scalar, 8, in, 8);
     od_bin_fdct8x8_avx2(out_avx2, 8, in, 8);
-    mu_assert("DCT AVX2 not bit-identical to scalar",
-              memcmp(out_scalar, out_avx2, sizeof(out_scalar)) == 0);
+    SIMD_BITEXACT_ASSERT_MEMCMP(out_scalar, out_avx2, sizeof(out_scalar),
+                                "DCT AVX2 not bit-identical to scalar");
     return NULL;
 }
 
@@ -184,8 +174,8 @@ static char *test_dct_delta(void)
     in[0] = 1000;
     ref_od_bin_fdct8x8(out_scalar, 8, in, 8);
     od_bin_fdct8x8_avx2(out_avx2, 8, in, 8);
-    mu_assert("DCT AVX2 delta input not bit-identical",
-              memcmp(out_scalar, out_avx2, sizeof(out_scalar)) == 0);
+    SIMD_BITEXACT_ASSERT_MEMCMP(out_scalar, out_avx2, sizeof(out_scalar),
+                                "DCT AVX2 delta input not bit-identical");
     return NULL;
 }
 
@@ -200,28 +190,16 @@ static char *test_dct_constant(void)
     }
     ref_od_bin_fdct8x8(out_scalar, 8, in, 8);
     od_bin_fdct8x8_avx2(out_avx2, 8, in, 8);
-    mu_assert("DCT AVX2 constant input not bit-identical",
-              memcmp(out_scalar, out_avx2, sizeof(out_scalar)) == 0);
+    SIMD_BITEXACT_ASSERT_MEMCMP(out_scalar, out_avx2, sizeof(out_scalar),
+                                "DCT AVX2 constant input not bit-identical");
     return NULL;
-}
-
-static int g_has_avx2;
-
-static int detect_avx2(void)
-{
-    const unsigned cpu_flags = vmaf_get_cpu_flags_x86();
-    g_has_avx2 = (cpu_flags & VMAF_X86_CPU_FLAG_AVX2) ? 1 : 0;
-    if (!g_has_avx2) {
-        (void)fprintf(stderr, "skipping: CPU lacks AVX2\n");
-    }
-    return g_has_avx2;
 }
 #endif /* ARCH_X86 */
 
 char *run_tests(void)
 {
 #if ARCH_X86
-    if (!detect_avx2()) {
+    if (!simd_test_have_avx2()) {
         return NULL;
     }
     mu_run_test(test_dct_seed_a);

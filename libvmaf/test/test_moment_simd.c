@@ -30,23 +30,26 @@
  * Tolerance: 1e-9 absolute on the post-normalisation score (range
  * 0..2^16 for 8-bit pixel squares), which is ~5 orders of magnitude
  * tighter than the snapshot gate's `places=4`.
+ *
+ * Boilerplate (xorshift PRNG, portable aligned alloc, AVX2 gate,
+ * relative-tolerance assertion) is provided by
+ * `simd_bitexact_test.h` (ADR-0221).
  */
 
-#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 #include "config.h"
-#include "mem.h"
 #include "test.h"
+/* clang-format off — `test.h` has no header guard, must precede the
+ * harness include to avoid a `mu_report` redefinition. */
+#include "simd_bitexact_test.h"
+/* clang-format on */
 
 #include "feature/moment.h"
 
 #if ARCH_X86
 #include "feature/x86/moment_avx2.h"
-#include "x86/cpu.h"
 #endif
 #if ARCH_AARCH64
 #include "feature/arm64/moment_neon.h"
@@ -56,66 +59,18 @@
 #define TEST_W 73 /* not a multiple of 4 or 8 — exercises tail */
 #define TEST_H 17
 
-/* xorshift32 for reproducible float input generation. */
-static uint32_t xorshift32(uint32_t *state)
-{
-    uint32_t s = *state;
-    s ^= s << 13;
-    s ^= s >> 17;
-    s ^= s << 5;
-    *state = s;
-    return s;
-}
-
-static void fill_random(float *buf, size_t n_floats, uint32_t seed)
-{
-    uint32_t state = seed;
-    for (size_t i = 0; i < n_floats; ++i) {
-        const uint32_t r = xorshift32(&state) & 0x00ffffffu;
-        /* values in [0, 256) — matches the post-`picture_copy`
-         * 8-bit pixel range of the float_moment extractor. */
-        buf[i] = (float)r * (256.0f / (float)0x01000000);
-    }
-}
-
-static int alloc_aligned_frame(float **out, size_t bytes)
-{
-    void *p = aligned_malloc(bytes, ALIGN_BYTES);
-    if (!p) {
-        return -1;
-    }
-    *out = (float *)p;
-    return 0;
-}
-
 /* Relative tolerance: 1e-7 of the scalar score. Residual sources:
  * per-row tail order, lane-pair cross-add precision, scalar-TU
  * auto-vectorisation. Still ~500× tighter than the production
  * snapshot gate (`places=4` ⇒ |abs| < 5e-5 on a normalised score). */
 #define MOMENT_REL_TOL 1e-7
 
-static char *check_within_tolerance(double s_scalar, double s_simd, double t_scalar, double t_simd)
-{
-    const double rel1 = fabs(s_simd - s_scalar) / (fabs(s_scalar) + 1e-30);
-    const double rel2 = fabs(t_simd - t_scalar) / (fabs(t_scalar) + 1e-30);
-    mu_assert("compute_1st_moment SIMD outside relative tolerance", rel1 < MOMENT_REL_TOL);
-    mu_assert("compute_2nd_moment SIMD outside relative tolerance", rel2 < MOMENT_REL_TOL);
-    return NULL;
-}
+/* Pixel input range matches the post-`picture_copy` 8-bit float
+ * layout of the float_moment extractor: values in [0, 256). */
+#define MOMENT_FILL_LO 0.0f
+#define MOMENT_FILL_HI 256.0f
 
 #if ARCH_X86
-
-static int g_has_avx2;
-
-static int detect_avx2(void)
-{
-    const unsigned cpu_flags = vmaf_get_cpu_flags_x86();
-    g_has_avx2 = (cpu_flags & VMAF_X86_CPU_FLAG_AVX2) ? 1 : 0;
-    if (!g_has_avx2) {
-        (void)fprintf(stderr, "skipping: CPU lacks AVX2\n");
-    }
-    return g_has_avx2;
-}
 
 static char *check_avx2(uint32_t seed, int w, int h)
 {
@@ -123,11 +78,12 @@ static char *check_avx2(uint32_t seed, int w, int h)
     const size_t bytes = (size_t)stride_floats * (size_t)h * sizeof(float);
     const int stride_bytes = stride_floats * (int)sizeof(float);
 
-    float *buf = NULL;
-    if (alloc_aligned_frame(&buf, bytes) != 0) {
+    float *buf = (float *)simd_test_aligned_malloc(bytes, ALIGN_BYTES);
+    if (!buf) {
         return "aligned_malloc failed";
     }
-    fill_random(buf, (size_t)stride_floats * (size_t)h, seed);
+    simd_test_fill_random_f32(buf, (size_t)stride_floats * (size_t)h, MOMENT_FILL_LO,
+                              MOMENT_FILL_HI, seed);
 
     double s_scalar = 0.0;
     double s_avx2 = 0.0;
@@ -139,8 +95,13 @@ static char *check_avx2(uint32_t seed, int w, int h)
     (void)compute_2nd_moment(buf, w, h, stride_bytes, &t_scalar);
     (void)compute_2nd_moment_avx2(buf, w, h, stride_bytes, &t_avx2);
 
-    aligned_free(buf);
-    return check_within_tolerance(s_scalar, s_avx2, t_scalar, t_avx2);
+    simd_test_aligned_free(buf);
+
+    SIMD_BITEXACT_ASSERT_RELATIVE(s_scalar, s_avx2, MOMENT_REL_TOL,
+                                  "compute_1st_moment_avx2 outside relative tolerance");
+    SIMD_BITEXACT_ASSERT_RELATIVE(t_scalar, t_avx2, MOMENT_REL_TOL,
+                                  "compute_2nd_moment_avx2 outside relative tolerance");
+    return NULL;
 }
 
 static char *test_avx2_seed_a(void)
@@ -170,11 +131,12 @@ static char *check_neon(uint32_t seed, int w, int h)
     const size_t bytes = (size_t)stride_floats * (size_t)h * sizeof(float);
     const int stride_bytes = stride_floats * (int)sizeof(float);
 
-    float *buf = NULL;
-    if (alloc_aligned_frame(&buf, bytes) != 0) {
+    float *buf = (float *)simd_test_aligned_malloc(bytes, ALIGN_BYTES);
+    if (!buf) {
         return "aligned_malloc failed";
     }
-    fill_random(buf, (size_t)stride_floats * (size_t)h, seed);
+    simd_test_fill_random_f32(buf, (size_t)stride_floats * (size_t)h, MOMENT_FILL_LO,
+                              MOMENT_FILL_HI, seed);
 
     double s_scalar = 0.0;
     double s_neon = 0.0;
@@ -186,8 +148,13 @@ static char *check_neon(uint32_t seed, int w, int h)
     (void)compute_2nd_moment(buf, w, h, stride_bytes, &t_scalar);
     (void)compute_2nd_moment_neon(buf, w, h, stride_bytes, &t_neon);
 
-    aligned_free(buf);
-    return check_within_tolerance(s_scalar, s_neon, t_scalar, t_neon);
+    simd_test_aligned_free(buf);
+
+    SIMD_BITEXACT_ASSERT_RELATIVE(s_scalar, s_neon, MOMENT_REL_TOL,
+                                  "compute_1st_moment_neon outside relative tolerance");
+    SIMD_BITEXACT_ASSERT_RELATIVE(t_scalar, t_neon, MOMENT_REL_TOL,
+                                  "compute_2nd_moment_neon outside relative tolerance");
+    return NULL;
 }
 
 static char *test_neon_seed_a(void)
@@ -212,7 +179,7 @@ static char *test_neon_tiny(void)
 char *run_tests(void)
 {
 #if ARCH_X86
-    if (!detect_avx2()) {
+    if (!simd_test_have_avx2()) {
         return NULL;
     }
     mu_run_test(test_avx2_seed_a);

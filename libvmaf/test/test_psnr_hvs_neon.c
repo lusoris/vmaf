@@ -30,15 +30,20 @@
  * Full calc_psnrhvs end-to-end bit-exactness is validated through
  * CLI round-trip against the Netflix golden pair under scalar vs
  * NEON. See the deep-dive digest accompanying this PR.
+ *
+ * Boilerplate (xorshift PRNG, bit-exact memcmp assertion) is
+ * provided by `simd_bitexact_test.h` (ADR-0221).
  */
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
 #include "config.h"
 #include "test.h"
+/* clang-format off — `test.h` has no header guard, must precede the
+ * harness include to avoid a `mu_report` redefinition. */
+#include "simd_bitexact_test.h"
+/* clang-format on */
 
 #if ARCH_AARCH64
 #include "feature/arm64/psnr_hvs_neon.h"
@@ -125,30 +130,16 @@ static void ref_od_bin_fdct8x8(od_coeff *y, int ystride, const od_coeff *x, int 
     }
 }
 
-/* xorshift32 PRNG for reproducible input generation across runs. */
-static uint32_t xorshift32(uint32_t *state)
-{
-    uint32_t s = *state;
-    s ^= s << 13;
-    s ^= s >> 17;
-    s ^= s << 5;
-    *state = s;
-    return s;
-}
-
 static char *check_dct_block(uint32_t seed)
 {
     od_coeff in[64];
     od_coeff out_scalar[64];
     od_coeff out_neon[64];
-    uint32_t state = seed;
-    for (int i = 0; i < 64; i++) {
-        in[i] = (int32_t)(xorshift32(&state) % 4096); /* 12-bit range */
-    }
+    simd_test_fill_random_i32_mod(in, 64, 4096, seed); /* 12-bit range */
     ref_od_bin_fdct8x8(out_scalar, 8, in, 8);
     od_bin_fdct8x8_neon(out_neon, 8, in, 8);
-    mu_assert("DCT NEON not bit-identical to scalar",
-              memcmp(out_scalar, out_neon, sizeof(out_scalar)) == 0);
+    SIMD_BITEXACT_ASSERT_MEMCMP(out_scalar, out_neon, sizeof(out_scalar),
+                                "DCT NEON not bit-identical to scalar");
     return NULL;
 }
 
@@ -176,8 +167,8 @@ static char *test_dct_delta(void)
     in[0] = 1000;
     ref_od_bin_fdct8x8(out_scalar, 8, in, 8);
     od_bin_fdct8x8_neon(out_neon, 8, in, 8);
-    mu_assert("DCT NEON delta input not bit-identical",
-              memcmp(out_scalar, out_neon, sizeof(out_scalar)) == 0);
+    SIMD_BITEXACT_ASSERT_MEMCMP(out_scalar, out_neon, sizeof(out_scalar),
+                                "DCT NEON delta input not bit-identical");
     return NULL;
 }
 
@@ -192,8 +183,8 @@ static char *test_dct_constant(void)
     }
     ref_od_bin_fdct8x8(out_scalar, 8, in, 8);
     od_bin_fdct8x8_neon(out_neon, 8, in, 8);
-    mu_assert("DCT NEON constant input not bit-identical",
-              memcmp(out_scalar, out_neon, sizeof(out_scalar)) == 0);
+    SIMD_BITEXACT_ASSERT_MEMCMP(out_scalar, out_neon, sizeof(out_scalar),
+                                "DCT NEON constant input not bit-identical");
     return NULL;
 }
 
