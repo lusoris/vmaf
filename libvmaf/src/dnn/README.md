@@ -45,7 +45,7 @@ When ORT is missing or disabled, the public symbols still exist but return
 
 ## Security
 
-- Size cap (`VMAF_MAX_MODEL_BYTES`, default 50 MB).
+- Size cap (`VMAF_DNN_DEFAULT_MAX_BYTES`, compile-time 50 MB).
 - `op_allowlist.c` rejects graphs with ops outside a narrow set (conv / gemm /
   elementwise / pool / norm / common activations).
 - Sidecar JSON (`<name>.json` next to `<name>.onnx`) records kind, opset,

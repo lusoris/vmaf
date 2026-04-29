@@ -9,7 +9,7 @@ frame touches a graph.
 | Class | Example | Mitigation |
 | --- | --- | --- |
 | Hostile `.onnx` file | Model with custom op that exfiltrates via network syscall | Operator allowlist (next section). |
-| Memory-exhaustion via huge model | 10 GB `.onnx` passed to `--tiny-model` | Size cap (`VMAF_MAX_MODEL_BYTES`, default 50 MB). |
+| Memory-exhaustion via huge model | 10 GB `.onnx` passed to `--tiny-model` | Size cap (`VMAF_DNN_DEFAULT_MAX_BYTES`, compile-time 50 MB). |
 | Path-traversal via `--tiny-model` | `--tiny-model ../../etc/shadow` | `vmaf_dnn_validate_onnx` requires `S_ISREG` + readable; refuses directories and devices. |
 | Silent model substitution | Attacker replaces signed model with a poisoned one | Opt-in Sigstore (`cosign`) verification against the workflow identity. |
 
@@ -69,8 +69,13 @@ concrete model that needs the addition.
 ## Layer 2 — resource bounds
 
 - **Size cap.** Loader refuses files larger than
-  `VMAF_DEFAULT_MAX_MODEL_BYTES` (50 MB). Override via
-  `VMAF_MAX_MODEL_BYTES=<bytes>` env. Applies before mapping the file.
+  `VMAF_DNN_DEFAULT_MAX_BYTES` (50 MB, compile-time constant in
+  [`libvmaf/src/dnn/model_loader.h`](../../libvmaf/src/dnn/model_loader.h)).
+  Applies before mapping the file. The historical
+  `VMAF_MAX_MODEL_BYTES` env override was retired in T7-12 once two
+  release cycles passed without a shipped model approaching the cap;
+  callers that genuinely need a larger envelope must bump the
+  constant and rebuild.
 - **Path validation.** `vmaf_dnn_validate_onnx`:
   - resolves symlinks,
   - asserts `S_ISREG` (no devices, pipes, directories),

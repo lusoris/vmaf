@@ -65,10 +65,11 @@ actual scores in the sidecar JSON; paste them here on shipping a model.
 | C2 (NR CNN) | ≤ 5 MB | ~2 MB |
 | C3 (learned filter) | ≤ 2 MB | ~800 KB |
 
-Models larger than `VMAF_DEFAULT_MAX_MODEL_BYTES` (50 MB, overridable via
-`VMAF_MAX_MODEL_BYTES`) are rejected at load time. Tiny-AI is tiny by
-definition — if a candidate model balloons past the targets, the design
-is wrong, not the limit.
+Models larger than `VMAF_DNN_DEFAULT_MAX_BYTES` (50 MB, compile-time
+constant) are rejected at load time. The historical
+`VMAF_MAX_MODEL_BYTES` env override was retired in T7-12 — tiny-AI is
+tiny by definition, and if a candidate model balloons past the targets
+the design is wrong, not the limit.
 
 ## Determinism in benchmarks
 

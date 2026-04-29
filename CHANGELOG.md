@@ -6,6 +6,24 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Removed
+
+- **`VMAF_MAX_MODEL_BYTES` env override retired (T7-12)**: the
+  historical environment-variable knob that let callers raise (or
+  lower, for tests) the tiny-AI ONNX file-size cap has been removed
+  from `vmaf_dnn_session_open()` and `vmaf_use_tiny_model()`. Two
+  release cycles passed without a shipped model approaching the cap,
+  so the testing-hatch is retired in favour of the compile-time
+  constant `VMAF_DNN_DEFAULT_MAX_BYTES` (50 MB) as the single source
+  of truth. Callers that genuinely need a larger envelope must bump
+  the constant in
+  [`libvmaf/src/dnn/model_loader.h`](libvmaf/src/dnn/model_loader.h)
+  and rebuild. The two env-driven unit tests
+  (`test_session_open_respects_max_bytes_env`,
+  `test_session_open_ignores_invalid_max_bytes_env`) are removed; all
+  other size-cap coverage (oversize fixture rejection, `S_ISREG`
+  check, allowlist) stays intact.
+
 ### Changed
 
 - **Research-0024 + AGENTS.md: deliberately diverge from Netflix

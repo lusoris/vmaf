@@ -28,29 +28,6 @@
 
 #include "libvmaf/dnn.h"
 
-/* MinGW lacks POSIX setenv/unsetenv. Map to _putenv_s on Windows so the
- * VMAF_MAX_MODEL_BYTES env-cap branch tests stay portable. */
-#ifdef _WIN32
-#include <stdlib.h>
-static int test_setenv(const char *k, const char *v)
-{
-    return _putenv_s(k, v);
-}
-static void test_unsetenv(const char *k)
-{
-    (void)_putenv_s(k, "");
-}
-#else
-static int test_setenv(const char *k, const char *v)
-{
-    return setenv(k, v, 1);
-}
-static void test_unsetenv(const char *k)
-{
-    (void)unsetenv(k);
-}
-#endif
-
 static char *test_stub_returns_enosys_when_disabled(void)
 {
     if (vmaf_dnn_available()) {
@@ -170,43 +147,6 @@ static char *test_run_rejects_zero_n_inputs(void)
 }
 
 #define SMOKE_FP32_MODEL "model/tiny/smoke_v0.onnx"
-
-static char *test_session_open_respects_max_bytes_env(void)
-{
-    /* Drives the VMAF_MAX_MODEL_BYTES env-parse branch (lines 60-67) and
-     * the validate_onnx -> -E2BIG return (line 70). Setting the cap to 1
-     * byte must reject any real ONNX file. */
-    if (!vmaf_dnn_available())
-        return NULL;
-    test_setenv("VMAF_MAX_MODEL_BYTES", "1");
-    VmafDnnSession *sess = NULL;
-    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
-    test_unsetenv("VMAF_MAX_MODEL_BYTES");
-    if (rc == -ENOENT) {
-        /* working tree without testdata — skip. */
-        return NULL;
-    }
-    mu_assert("VMAF_MAX_MODEL_BYTES=1 must reject", rc < 0);
-    mu_assert("session must not leak on reject", sess == NULL);
-    return NULL;
-}
-
-static char *test_session_open_ignores_invalid_max_bytes_env(void)
-{
-    /* Non-numeric env value falls through the strtoul check (endp != '\0')
-     * and keeps the default cap (line 65). Open must succeed. */
-    if (!vmaf_dnn_available())
-        return NULL;
-    test_setenv("VMAF_MAX_MODEL_BYTES", "not-a-number");
-    VmafDnnSession *sess = NULL;
-    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, NULL);
-    test_unsetenv("VMAF_MAX_MODEL_BYTES");
-    if (rc == -ENOENT)
-        return NULL;
-    mu_assert("invalid env ignored, open succeeds", rc == 0);
-    vmaf_dnn_session_close(sess);
-    return NULL;
-}
 
 static char *test_session_run_luma8_size_mismatch(void)
 {
@@ -724,8 +664,6 @@ char *run_tests(void)
     mu_run_test(test_session_close_null_is_noop);
     mu_run_test(test_attached_ep_null_returns_null);
     mu_run_test(test_run_rejects_zero_n_inputs);
-    mu_run_test(test_session_open_respects_max_bytes_env);
-    mu_run_test(test_session_open_ignores_invalid_max_bytes_env);
     mu_run_test(test_session_run_luma8_size_mismatch);
     mu_run_test(test_session_run_plane16_rejects_null);
     mu_run_test(test_session_run_plane16_rejects_bad_bpc);
