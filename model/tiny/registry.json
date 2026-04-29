@@ -39,6 +39,15 @@
       "notes": "LPIPS-SqueezeNet (richzhang/PerceptualSimilarity v0.1). Two-input model: 'ref' + 'dist' ImageNet-normalised NCHW; scalar 'score' output. Exported via ai/lpips_export.py."
     },
     {
+      "id": "mobilesal_placeholder_v0",
+      "kind": "nr",
+      "notes": "MobileSal saliency placeholder (T6-2a smoke-only). Synthetic Conv+Sigmoid matching the upstream MobileSal I/O contract; emits a per-pixel saliency map in [0,1]. Real upstream MIT-licensed weights tracked as T6-2a-followup. See docs/adr/0218-mobilesal-saliency-extractor.md.",
+      "onnx": "mobilesal.onnx",
+      "opset": 17,
+      "sha256": "f122631089977c4be7d60b9bf3d4daf186d275bd0587db2c9878578e006b91d4",
+      "smoke": true
+    },
+    {
       "id": "nr_metric_v1",
       "kind": "nr",
       "onnx": "nr_metric_v1.onnx",

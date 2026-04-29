@@ -82,11 +82,19 @@ Exports cleanly at opset 17. No custom ops. Upstream reference:
 
 **Integration.** Two outputs from one model:
 
-- A new `vmaf_saliency_weighted` feature extractor inside libvmaf.
-- A new CLI `tools/vmaf-roi` that writes an encoder-native sidecar
-  (format matches whatever encoder we're feeding).
+- A new `mobilesal` (scoring-side, T6-2a) feature extractor inside
+  libvmaf — emits a scalar `saliency_mean` per frame today; the
+  saliency-weighted FR variant lands with T6-2b. Shipped — see
+  [`models/mobilesal.md`](models/mobilesal.md) and
+  [ADR-0218](../adr/0218-mobilesal-saliency-extractor.md).
+- A new CLI `tools/vmaf-roi` (encoder-side, T6-2b) that writes an
+  encoder-native sidecar (format matches whatever encoder we're
+  feeding).
 
-**ONNX notes.** MobileSal is MobileNet-V3-based, simple to export.
+**ONNX notes.** MobileSal is MobileNet-V3-based, simple to export. The
+T6-2a PR ships a *synthetic placeholder* `model/tiny/mobilesal.onnx`
+(330 bytes, smoke-only) that matches the upstream I/O contract; real
+upstream MIT-licensed weights are tracked as T6-2a-followup.
 
 ### 2.4 Per-shot CRF predictor + TransNet V2 shot boundaries
 

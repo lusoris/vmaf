@@ -918,6 +918,9 @@ libvmaf_feature_sources = [
     # FastDVDnet temporal pre-filter (T6-7) — same -ENOSYS-stub-friendly
     # libvmaf/dnn.h surface as feature_lpips.c.
     feature_src_dir + 'fastdvdnet_pre.c',
+    # MobileSal saliency extractor (T6-2a). Same -ENOSYS-on-stub pattern
+    # as feature_lpips.c above. See docs/adr/0218-mobilesal-saliency-extractor.md.
+    feature_src_dir + 'feature_mobilesal.c',
 ]
 
 if float_enabled
