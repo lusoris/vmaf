@@ -454,7 +454,13 @@ smaller inputs with `-EINVAL` and a clear log message — see
 | `scale`      | int  | `0`     | `0–10` | Downsampling factor for `float_ssim`; `0` = auto per Wang 2003        |
 
 **Backends** — `ssim` (fixed): scalar only. `float_ssim` / `float_ms_ssim`:
-AVX2, AVX-512, NEON.
+AVX2, AVX-512, NEON, plus the GPU twins `float_ms_ssim_cuda`,
+`float_ms_ssim_sycl` and `float_ms_ssim_vulkan`. The `enable_lcs`
+option ships across **all** backends — CPU + CUDA + Vulkan emit the
+same 15 `float_ms_ssim_{l,c,s}_scale{0..4}` metrics on top of the
+combined score (T7-35 / [ADR-0215](../adr/0215-enable-lcs-gpu.md)).
+The SYCL twin does not expose `enable_lcs` at the option level;
+follow-up work tracked under T7-35.
 
 **MS-SSIM decimate (fork-local)** — the 9-tap 9/7 biorthogonal wavelet
 LPF that produces scales 1–4 runs through `ms_ssim_decimate` in

@@ -25,8 +25,14 @@
  *  scale and applies the Wang weights for the final product
  *  combine.
  *
- *  Min-dim guard: 11 << 4 = 176 (matches ADR-0153). v1 does NOT
- *  implement enable_lcs (15 extra metrics) — defer to follow-up.
+ *  Min-dim guard: 11 << 4 = 176 (matches ADR-0153).
+ *
+ *  enable_lcs (T7-35 / ADR-0215): when set, emits the 15 extra
+ *  per-scale metrics float_ms_ssim_{l,c,s}_scale{0..4}. The
+ *  vert_lcs kernel already produces the per-scale L/C/S means
+ *  (it's where the "_lcs" in its name comes from); gating the
+ *  feature_collector_append calls leaves the default-path
+ *  output bit-identical to the pre-T7-35 binary.
  */
 
 #include <errno.h>
@@ -110,9 +116,20 @@ typedef struct MsSsimStateCuda {
 
     unsigned index;
     VmafDictionary *feature_name_dict;
+
+    bool enable_lcs; /* T7-35 / ADR-0215: emit per-scale L/C/S triples. */
 } MsSsimStateCuda;
 
-static const VmafOption options[] = {{0}};
+static const VmafOption options[] = {
+    {
+        .name = "enable_lcs",
+        .help = "enable luminance, contrast and structure intermediate output",
+        .offset = offsetof(MsSsimStateCuda, enable_lcs),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+    },
+    {0},
+};
 
 static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
@@ -384,8 +401,28 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                   pow(fabs(s_means[i]), (double)g_gammas[i]);
     }
 
-    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "float_ms_ssim", msssim, index);
+    int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "float_ms_ssim", msssim, index);
+    if (s->enable_lcs) {
+        static const char *const l_names[MS_SSIM_SCALES] = {
+            "float_ms_ssim_l_scale0", "float_ms_ssim_l_scale1", "float_ms_ssim_l_scale2",
+            "float_ms_ssim_l_scale3", "float_ms_ssim_l_scale4",
+        };
+        static const char *const c_names[MS_SSIM_SCALES] = {
+            "float_ms_ssim_c_scale0", "float_ms_ssim_c_scale1", "float_ms_ssim_c_scale2",
+            "float_ms_ssim_c_scale3", "float_ms_ssim_c_scale4",
+        };
+        static const char *const s_names[MS_SSIM_SCALES] = {
+            "float_ms_ssim_s_scale0", "float_ms_ssim_s_scale1", "float_ms_ssim_s_scale2",
+            "float_ms_ssim_s_scale3", "float_ms_ssim_s_scale4",
+        };
+        for (int i = 0; i < MS_SSIM_SCALES; i++) {
+            err |= vmaf_feature_collector_append(feature_collector, l_names[i], l_means[i], index);
+            err |= vmaf_feature_collector_append(feature_collector, c_names[i], c_means[i], index);
+            err |= vmaf_feature_collector_append(feature_collector, s_names[i], s_means[i], index);
+        }
+    }
+    return err;
 }
 
 static int close_fex_cuda(VmafFeatureExtractor *fex)
