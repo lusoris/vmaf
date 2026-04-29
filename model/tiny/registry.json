@@ -52,12 +52,15 @@
       "kind": "nr",
       "onnx": "nr_metric_v1.onnx",
       "opset": 17,
-      "sha256": "60c2bd59a3bf879a02cb564213ba31e79172437f13261c63a1e1bca711a50e46",
+      "sha256": "75eff676bff0f0f911fd59ac72c90240e95caff67302b37f6e35bfbeac2b680b",
+      "quant_mode": "dynamic",
+      "int8_sha256": "e5ba2086f53c74539902883b12b01d83f06806f084b692b1d5ad325f9300cab2",
+      "quant_accuracy_budget_plcc": 0.01,
       "license": "BSD-3-Clause-Plus-Patent",
       "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "sigstore_bundle": "nr_metric_v1.onnx.sigstore.json",
       "description": "Tiny no-reference quality metric — single-frame 224×224 grayscale.",
-      "notes": "Tiny NR MobileNet baseline trained on KoNViD-1k (CC BY 4.0; not redistributed). 224×224 grayscale input; ~19K params; opset 17. See docs/adr/0168-tinyai-konvid-baselines.md."
+      "notes": "Tiny NR MobileNet baseline trained on KoNViD-1k (CC BY 4.0; not redistributed). 224×224 grayscale input; ~19K params; opset 17. Dynamic-PTQ int8 sidecar produced via ai/scripts/ptq_dynamic.py (T5-3d). See docs/adr/0168-tinyai-konvid-baselines.md and docs/adr/0174-per-model-ptq.md."
     },
     {
       "id": "smoke_fp16_v0",

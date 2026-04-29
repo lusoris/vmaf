@@ -14,6 +14,14 @@ Output lands at ``<input>.int8.onnx`` next to the fp32 source.
 on the matching entry; the libvmaf loader prefers the int8 file
 when it sees that mode.
 
+Pre-flight: ONNX models exported by ``torch.onnx.export`` (dynamo
+or legacy) often duplicate every initialiser into ``graph.value_info``
+with shape annotations that do not survive the dynamic-batch axis
+substitution. ``onnxruntime.quantization.quantize_dynamic`` then
+trips ``onnx.shape_inference`` with ``Inferred shape and existing
+shape differ`` (see ADR-0174 / PR #174). We strip those duplicates
+into a temporary inlined fp32 model before invoking the quantiser.
+
 Usage::
 
     python ai/scripts/ptq_dynamic.py model/tiny/nr_metric_v1.onnx
@@ -23,7 +31,30 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 from pathlib import Path
+
+
+def _save_inlined_for_quant(src: Path, dst: Path) -> None:
+    """Copy ``src`` to ``dst`` with all initialisers inlined and any
+    ``value_info`` entries that collide with initialiser names removed.
+
+    This is the same workaround introduced in PR #174 (T5-3e) for
+    ``vmaf_tiny_v1*.onnx`` — the ``torch.onnx`` exporter emits
+    ``value_info`` records whose static-shape annotations confuse the
+    quantiser's shape inference once a dynamic batch axis is involved.
+    Initializers carry their own canonical shape, so dropping the
+    duplicate ``value_info`` records is safe.
+    """
+    import onnx
+
+    proto = onnx.load(str(src))
+    init_names = {t.name for t in proto.graph.initializer}
+    survivors = [vi for vi in proto.graph.value_info if vi.name not in init_names]
+    if len(survivors) != len(proto.graph.value_info):
+        del proto.graph.value_info[:]
+        proto.graph.value_info.extend(survivors)
+    onnx.save(proto, str(dst), save_as_external_data=False)
 
 
 def main() -> int:
@@ -57,12 +88,15 @@ def main() -> int:
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"[ptq_dynamic] {src}  ->  {dst}  per-channel={args.per_channel}")
-    quantize_dynamic(
-        model_input=str(src),
-        model_output=str(dst),
-        weight_type=QuantType.QInt8,
-        per_channel=args.per_channel,
-    )
+    with tempfile.TemporaryDirectory(prefix="ptq_dynamic_") as tmp:
+        prepped = Path(tmp) / (src.stem + ".fp32_inlined.onnx")
+        _save_inlined_for_quant(src, prepped)
+        quantize_dynamic(
+            model_input=str(prepped),
+            model_output=str(dst),
+            weight_type=QuantType.QInt8,
+            per_channel=args.per_channel,
+        )
     sz_in = src.stat().st_size
     sz_out = dst.stat().st_size
     print(f"[ptq_dynamic] done — {sz_in:,} -> {sz_out:,} bytes ({sz_out / sz_in:.2f}×)")

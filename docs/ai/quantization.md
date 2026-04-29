@@ -128,11 +128,18 @@ python ai/scripts/measure_quant_drop.py --all
 | Model id | Mode | Size shrink | Measured drop | Budget |
 | --- | --- | --- | --- | --- |
 | `learned_filter_v1` | dynamic | 2.4× (80 KB → 33 KB) | 0.000117 (PLCC 0.999883) | 0.01 |
+| `nr_metric_v1` | dynamic | 2.0× (119 KB → 58 KB) | 0.007674 (PLCC 0.992326) | 0.01 |
 
-`nr_metric_v1` is queued for a future PR — its dynamic-batch ONNX
-export currently trips ORT's internal shape inference during
-`quantize_dynamic`, needing either a static-batch re-export or an
-upstream ORT fix. Tracked as T5-3c.
+The original `nr_metric_v1` ONNX export tripped ORT's internal
+shape inference during `quantize_dynamic` with `Inferred shape and
+existing shape differ in dimension 0: (128) vs (1)`. Root cause:
+`torch.onnx.export` emitted every initialiser into
+`graph.value_info` with static-shape annotations that did not
+survive the dynamic batch axis substitution. The exporter
+(`ai/src/vmaf_train/models/exports.py`) and the dynamic-PTQ entry
+point (`ai/scripts/ptq_dynamic.py`) now strip those duplicates —
+same workaround introduced for `vmaf_tiny_v1*.onnx` in PR #174
+(T5-3e). Tracked as T5-3d.
 
 ## Per-model PR template
 
