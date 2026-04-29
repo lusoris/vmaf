@@ -484,7 +484,12 @@ static int slurp_registry(const char *registry_path, char **out_buf)
 #ifdef _WIN32
 int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path)
 {
-    (void)onnx_path;
+    /* Argument validation runs before the platform-availability probe so
+     * callers get a deterministic -EINVAL on misuse regardless of OS. The
+     * NULL-path contract is part of the public API and must not be masked
+     * by the Windows -ENOSYS short-circuit below. */
+    if (!onnx_path)
+        return -EINVAL;
     (void)registry_path;
     /* posix_spawn / cosign supply-chain path is Linux/macOS-only today.
      * The supply-chain workflow does not run on Windows; document and

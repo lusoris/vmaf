@@ -32,15 +32,27 @@ static char *test_verify_null_path(void)
 }
 
 #ifndef _WIN32
-/* Helper: write a tiny scratch file + return its path inside `out_path`. */
+/* Helper: write a tiny scratch file + return its path inside `out_path`.
+ *
+ * Uses open(O_CREAT|O_WRONLY|O_TRUNC, 0600) instead of fopen("wb") so the
+ * fixture creates the file with owner-only permissions. fopen() defers
+ * mode to the umask (typically 0022, yielding 0644 — and 0666 in some
+ * containerised CI environments), which CodeQL flags as
+ * cpp/world-writable-file-creation. Tightening to 0600 keeps the test's
+ * scratch output out of any other user's reach on shared CI hosts. */
 static int write_tmp(const char *suffix, const char *body, char *out_path, size_t out_sz)
 {
     const int n = snprintf(out_path, out_sz, "/tmp/vmaf_verify_test_%d_%s", (int)getpid(), suffix);
     if (n < 0 || (size_t)n >= out_sz)
         return -1;
-    FILE *f = fopen(out_path, "wb");
-    if (!f)
+    const int fd = open(out_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
+    if (fd < 0)
         return -1;
+    FILE *f = fdopen(fd, "wb");
+    if (!f) {
+        (void)close(fd);
+        return -1;
+    }
     if (body && fputs(body, f) < 0) {
         (void)fclose(f);
         return -1;
