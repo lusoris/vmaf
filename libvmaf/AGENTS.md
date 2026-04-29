@@ -114,6 +114,25 @@ libvmaf/
   See [ADR-0147](../docs/adr/0147-thread-pool-job-pool.md) and
   [rebase-notes 0040](../docs/rebase-notes.md).
 
+- **Vulkan PSNR chroma contract** (fork-local, [ADR-0216](../docs/adr/0216-vulkan-chroma-psnr.md)).
+  [`src/feature/vulkan/psnr_vulkan.c`](src/feature/vulkan/psnr_vulkan.c)
+  carries `ref_in[3] / dis_in[3] / se_partials[3]` arrays in
+  `PsnrVulkanState` (Y / Cb / Cr) and dispatches the same
+  `psnr.comp` shader once per active plane in a single command
+  buffer. The shader is plane-agnostic — it reads
+  `(width, height, num_workgroups_x)` from push constants — so
+  rebases that "simplify" the chroma loop back to a single luma
+  dispatch will silently regress `psnr_cb` / `psnr_cr` to CPU
+  fall-through (and break the `cross_backend_vif_diff.py
+  --feature psnr` gate, which now asserts on Y / Cb / Cr). YUV400
+  is the only supported `n_planes = 1` path; the `pix_fmt`
+  branch in `init` mirrors the `enable_chroma = false` clamp in
+  CPU `integer_psnr.c::init` and must follow it on any future
+  `min_sse` / `psnr_max[p]` divergence. The descriptor pool is
+  sized for 12 sets (4 frames in flight × 3 planes) — do not
+  shrink without re-checking lavapipe behaviour under
+  frames-in-flight > 1.
+
 - **Embedded MCP scaffold contract** (fork-local, [ADR-0209](../docs/adr/0209-mcp-embedded-scaffold.md)).
   [`src/mcp/mcp.c`](src/mcp/mcp.c) is the audit-first stub TU
   for the in-process MCP server declared in

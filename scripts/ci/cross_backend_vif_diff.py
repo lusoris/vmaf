@@ -69,10 +69,13 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "integer_adm_scale2",
         "integer_adm_scale3",
     ),
-    # GPU long-tail batch 1 (T7-23 / ADR-0182): luma-only PSNR.
-    # The Vulkan extractor only emits psnr_y; chroma is a focused
-    # follow-up (the picture_vulkan upload path is luma-only today).
-    "psnr": ("psnr_y",),
+    # GPU long-tail batch 1 (T7-23 / ADR-0182): PSNR. T3-15(b) /
+    # ADR-0210 extended the Vulkan extractor with chroma — the host
+    # loop now runs three dispatches per frame (Y, Cb, Cr) against
+    # per-plane SSBOs. CPU and Vulkan both emit psnr_y/cb/cr at
+    # places=4 byte-exact agreement on integer YUV (int64 SSE
+    # accumulators on both sides).
+    "psnr": ("psnr_y", "psnr_cb", "psnr_cr"),
     # GPU long-tail batch 1d (T7-23 / ADR-0182): float_moment.
     # The CPU extractor is registered as `float_moment`; its GPU twin
     # is `float_moment_vulkan` (etc.). The 4 emitted metrics — 1st and
