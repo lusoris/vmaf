@@ -90,6 +90,18 @@
     registered feature extractor in the fork now has at least one
     GPU twin (lpips delegates to ORT EPs per
     [ADR-0022](../../adr/0022-inference-runtime-onnx.md)).
+  - `psnr_vulkan.c` + GLSL shader
+    [`shaders/psnr.comp`](../../../libvmaf/src/feature/vulkan/shaders/psnr.comp).
+    Single plane-agnostic compute shader (per-pixel `(ref - dis)²`
+    + per-WG `int64` reduction), dispatched three times per frame
+    against per-plane buffers — Y, Cb, Cr. Per-plane width / height
+    arrive via push constants; chroma sizing follows `pix_fmt`
+    (4:2:0 → w/2 × h/2, 4:2:2 → w/2 × h, 4:4:4 → w × h); YUV400
+    clamps to luma-only. Provided features: `psnr_y`, `psnr_cb`,
+    `psnr_cr`. Bit-exact vs CPU `integer_psnr` on integer YUV
+    (`max_abs_diff = 0.0` on the 576×324 lavapipe gate). See
+    [ADR-0182](../../adr/0182-gpu-long-tail-batch-1.md) +
+    [ADR-0210](../../adr/0210-vulkan-chroma-psnr.md).
 - Build system: `enable_vulkan` feature option (default **disabled**)
   in [`libvmaf/meson_options.txt`](../../../libvmaf/meson_options.txt);
   conditional `subdir('vulkan')` in
@@ -176,6 +188,10 @@ python3 scripts/ci/cross_backend_vif_diff.py \
   --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
   --width 576 --height 324 --places 4
 ```
+
+Pass `--feature psnr` to gate `psnr_y`, `psnr_cb`, and `psnr_cr`
+together against the CPU integer PSNR reference (per-plane
+dispatches; ADR-0210).
 
 The script exits 0 when every per-frame `integer_vif_scale0..3`
 score agrees with the CPU scalar reference at the configured

@@ -73,6 +73,18 @@
   registration smoke test
   [`libvmaf/test/test_fastdvdnet_pre.c`](libvmaf/test/test_fastdvdnet_pre.c)
   mirroring `test_lpips.c`. Closes backlog item T6-7.
+- **Vulkan PSNR — chroma extension (T3-15(b))** — `psnr_vulkan`
+  now emits `psnr_cb` and `psnr_cr` alongside `psnr_y`. Three
+  back-to-back dispatches of the existing plane-agnostic
+  `psnr.comp` shader against per-plane SSBOs and per-plane
+  `(width, height, num_workgroups_x)` push constants; YUV400
+  clamps to luma-only at runtime. Cross-backend gate
+  (`scripts/ci/cross_backend_vif_diff.py --feature psnr`)
+  extended to assert all three plane scores at `places=4`;
+  measured `max_abs_diff = 0.0` across 48 frames at 576×324 on
+  lavapipe (deterministic int64 SSE accumulators on both sides).
+  See [ADR-0210](docs/adr/0210-vulkan-chroma-psnr.md). Doc at
+  [`docs/backends/vulkan/overview.md`](docs/backends/vulkan/overview.md).
 
 - **Embedded MCP server scaffold (T5-2, audit-first)** — new
   public header

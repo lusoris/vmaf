@@ -3,26 +3,34 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  PSNR feature kernel on the Vulkan backend (T7-23 / ADR-0182,
- *  GPU long-tail batch 1).
+ *  GPU long-tail batch 1; chroma extension T3-15(b) / ADR-0210).
  *
  *  Per-pixel squared-error reduction → host-side log10 → score.
- *  Single dispatch per channel; this v1 emits luma-only (`psnr_y`).
- *  Chroma support (`psnr_cb` / `psnr_cr`) is a focused follow-up:
- *  the host loop here is plane-agnostic, but the
- *  `picture_vulkan` upload path is luma-only today.
+ *  One dispatch per plane (Y, Cb, Cr); the same `psnr.comp`
+ *  pipeline is invoked three times per frame against per-plane
+ *  buffers and per-plane (width, height) push-constants. Chroma
+ *  buffers are sized for the active subsampling
+ *  (4:2:0 → w/2 × h/2, 4:2:2 → w/2 × h, 4:4:4 → w × h); the
+ *  shader is plane-agnostic and reads its dims out of push
+ *  constants.
  *
  *  Algorithm (mirrors libvmaf/src/feature/integer_psnr.c::extract):
  *      sse = sum_{i,j} (ref[i,j] - dis[i,j])^2;        (per channel)
- *      mse = sse / (w * h);
+ *      mse = sse / (w_p * h_p);
  *      psnr = (sse == 0)
- *             ? psnr_max
+ *             ? psnr_max[p]
  *             : 10 * log10(peak * peak / mse);
  *  Bit-exactness contract: int64 SSE accumulation → places=4 vs CPU.
  *
  *  Pattern reference: libvmaf/src/feature/vulkan/motion_vulkan.c
- *  (single-dispatch + per-WG int64 reduction). PSNR is the simplest
- *  Vulkan extractor in the matrix — 1 dispatch/frame, no temporal
- *  state.
+ *  (single-dispatch + per-WG int64 reduction). PSNR remains the
+ *  simplest Vulkan extractor in the matrix — 3 small dispatches/
+ *  frame, no temporal state.
+ *
+ *  4:0:0 (YUV400) handling: chroma planes are absent, so only the
+ *  luma plane is dispatched and only `psnr_y` is emitted. This
+ *  matches CPU integer_psnr.c::init's `enable_chroma = false`
+ *  branch.
  */
 
 #include <errno.h>
@@ -45,33 +53,41 @@
 
 #define PSNR_WG_X 16
 #define PSNR_WG_Y 8
+#define PSNR_NUM_PLANES 3
 
 typedef struct {
-    /* Frame geometry. */
-    unsigned width;
-    unsigned height;
+    /* Per-plane geometry: [0] luma (full), [1] Cb, [2] Cr (subsampled per pix_fmt). */
+    unsigned width[PSNR_NUM_PLANES];
+    unsigned height[PSNR_NUM_PLANES];
     unsigned bpc;
     uint32_t peak;
-    double psnr_max_y;
+    double psnr_max[PSNR_NUM_PLANES];
+
+    /* Number of active planes (1 for YUV400, 3 otherwise). */
+    unsigned n_planes;
 
     /* Vulkan context handle. Borrow on imported state, lazy-create otherwise. */
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects. */
+    /* Pipeline objects. The shader is plane-agnostic — push constants
+     * carry the per-plane width/height/num_workgroups_x. One pipeline
+     * suffices for all three dispatches; spec-constants pin the *max*
+     * (luma) frame dims for the shared-memory size, runtime guards on
+     * push-constant width/height inside the shader. */
     VkDescriptorSetLayout dsl;
     VkPipelineLayout pipeline_layout;
     VkShaderModule shader;
     VkPipeline pipeline;
     VkDescriptorPool desc_pool;
 
-    /* Per-channel input buffers (host-mapped). v1 uses [0] only. */
-    VmafVulkanBuffer *ref_in;
-    VmafVulkanBuffer *dis_in;
+    /* Per-plane input buffers (host-mapped). */
+    VmafVulkanBuffer *ref_in[PSNR_NUM_PLANES];
+    VmafVulkanBuffer *dis_in[PSNR_NUM_PLANES];
 
-    /* Per-workgroup int64 SE partials. */
-    VmafVulkanBuffer *se_partials;
-    unsigned wg_count;
+    /* Per-plane per-workgroup int64 SE partials. */
+    VmafVulkanBuffer *se_partials[PSNR_NUM_PLANES];
+    unsigned wg_count[PSNR_NUM_PLANES];
 
     VmafDictionary *feature_name_dict;
 } PsnrVulkanState;
@@ -134,12 +150,16 @@ static int create_pipeline(PsnrVulkanState *s)
     if (vkCreateShaderModule(dev, &smci, NULL, &s->shader) != VK_SUCCESS)
         return -ENOMEM;
 
+    /* Spec constants pin the *max* per-plane dims (luma) for the
+     * shared-memory size; runtime guards on push-constant width/height
+     * inside the shader, so chroma's smaller dispatches reuse the same
+     * pipeline safely. */
     struct {
         int32_t width;
         int32_t height;
         int32_t bpc;
         int32_t subgroup_size;
-    } spec_data = {(int32_t)s->width, (int32_t)s->height, (int32_t)s->bpc, 32};
+    } spec_data = {(int32_t)s->width[0], (int32_t)s->height[0], (int32_t)s->bpc, 32};
 
     VkSpecializationMapEntry spec_entries[4] = {
         {.constantID = 0,
@@ -174,14 +194,17 @@ static int create_pipeline(PsnrVulkanState *s)
     if (vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpci, NULL, &s->pipeline) != VK_SUCCESS)
         return -ENOMEM;
 
+    /* 3 dispatches per frame (Y, Cb, Cr) × 3 storage buffers each =
+     * 9 descriptors / 3 sets at peak; size pool for 4 frames in flight
+     * with headroom (12 sets, 36 buffer descriptors). */
     VkDescriptorPoolSize pool_size = {
         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 4 * 3,
+        .descriptorCount = 12 * 3,
     };
     VkDescriptorPoolCreateInfo dpci = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = 4,
+        .maxSets = 12,
         .poolSizeCount = 1,
         .pPoolSizes = &pool_size,
     };
@@ -193,41 +216,64 @@ static int create_pipeline(PsnrVulkanState *s)
 
 static int alloc_buffers(PsnrVulkanState *s)
 {
-    size_t bytes_per_pixel = (s->bpc <= 8) ? 1 : 2;
-    size_t in_bytes = (size_t)s->width * s->height * bytes_per_pixel;
-    int err = vmaf_vulkan_buffer_alloc(s->ctx, &s->ref_in, in_bytes);
-    if (err)
-        return err;
-    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->dis_in, in_bytes);
-    if (err)
-        return err;
+    const size_t bytes_per_pixel = (s->bpc <= 8) ? 1U : 2U;
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        const size_t in_bytes = (size_t)s->width[p] * s->height[p] * bytes_per_pixel;
+        int err = vmaf_vulkan_buffer_alloc(s->ctx, &s->ref_in[p], in_bytes);
+        if (err)
+            return err;
+        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->dis_in[p], in_bytes);
+        if (err)
+            return err;
 
-    uint32_t gx = 0;
-    uint32_t gy = 0;
-    psnr_wg_dims(s->width, s->height, &gx, &gy);
-    s->wg_count = gx * gy;
-    size_t se_bytes = (size_t)s->wg_count * sizeof(int64_t);
-    if (se_bytes == 0)
-        se_bytes = sizeof(int64_t);
-    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->se_partials, se_bytes);
-    return err;
+        uint32_t gx = 0;
+        uint32_t gy = 0;
+        psnr_wg_dims(s->width[p], s->height[p], &gx, &gy);
+        s->wg_count[p] = gx * gy;
+        size_t se_bytes = (size_t)s->wg_count[p] * sizeof(int64_t);
+        if (se_bytes == 0)
+            se_bytes = sizeof(int64_t);
+        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->se_partials[p], se_bytes);
+        if (err)
+            return err;
+    }
+    return 0;
 }
 
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
-    (void)pix_fmt;
     PsnrVulkanState *s = fex->priv;
-    s->width = w;
-    s->height = h;
     s->bpc = bpc;
     s->peak = (1u << bpc) - 1u;
 
-    /* Match CPU integer_psnr.c psnr_max default: peak^2 / min_sse where
-     * min_sse = 0.5 (one ULP for 8-bit). Simplified for Vulkan v1 — the
-     * extractor only emits psnr_y so a single max suffices. */
-    const double peak_d = (double)s->peak;
-    s->psnr_max_y = 10.0 * log10((peak_d * peak_d) / 0.5);
+    /* Per-plane geometry derived from pix_fmt. CPU reference:
+     * libvmaf/src/feature/integer_psnr.c::init computes the same
+     * (ss_hor, ss_ver) split. YUV400 has chroma absent, so n_planes = 1. */
+    s->width[0] = w;
+    s->height[0] = h;
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P) {
+        s->n_planes = 1;
+        s->width[1] = s->width[2] = 0;
+        s->height[1] = s->height[2] = 0;
+    } else {
+        s->n_planes = PSNR_NUM_PLANES;
+        const int ss_hor = (pix_fmt != VMAF_PIX_FMT_YUV444P);
+        const int ss_ver = (pix_fmt == VMAF_PIX_FMT_YUV420P);
+        const unsigned cw = ss_hor ? (w / 2U) : w;
+        const unsigned ch = ss_ver ? (h / 2U) : h;
+        s->width[1] = s->width[2] = cw;
+        s->height[1] = s->height[2] = ch;
+    }
+
+    /* Match CPU integer_psnr.c::init's psnr_max default branch
+     * (`min_sse == 0.0`): psnr_max[p] = (6 * bpc) + 12. The CPU path
+     * uses a per-plane vector to leave room for the `min_sse`-driven
+     * formula; we replicate the array even though all three entries
+     * are identical in the default branch, so a future `min_sse`
+     * option flip stays a one-line change. */
+    for (unsigned p = 0; p < PSNR_NUM_PLANES; p++)
+        s->psnr_max[p] = (double)(6U * bpc) + 12.0;
 
     s->ctx = vmaf_vulkan_state_get_context(fex->vulkan_state);
     if (s->ctx) {
@@ -257,27 +303,30 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     return 0;
 }
 
-static int upload_plane(PsnrVulkanState *s, VmafVulkanBuffer *dst_buf, VmafPicture *pic)
+static int upload_plane(PsnrVulkanState *s, VmafVulkanBuffer *dst_buf, VmafPicture *pic,
+                        unsigned plane)
 {
     uint8_t *dst = vmaf_vulkan_buffer_host(dst_buf);
-    const uint8_t *src = (const uint8_t *)pic->data[0];
-    size_t src_stride = pic->stride[0];
-    size_t dst_stride = (s->bpc <= 8) ? s->width : (s->width * 2);
-    for (unsigned y = 0; y < s->height; y++)
-        memcpy(dst + y * dst_stride, src + y * src_stride, dst_stride);
+    const uint8_t *src = (const uint8_t *)pic->data[plane];
+    const size_t src_stride = (size_t)pic->stride[plane];
+    const unsigned w = s->width[plane];
+    const unsigned h = s->height[plane];
+    const size_t dst_stride = (s->bpc <= 8) ? (size_t)w : (size_t)w * 2U;
+    for (unsigned y = 0; y < h; y++)
+        memcpy(dst + (size_t)y * dst_stride, src + (size_t)y * src_stride, dst_stride);
     return vmaf_vulkan_buffer_flush(s->ctx, dst_buf);
 }
 
-static int write_descriptor_set(PsnrVulkanState *s, VkDescriptorSet set)
+static int write_descriptor_set(PsnrVulkanState *s, VkDescriptorSet set, unsigned plane)
 {
     VkDescriptorBufferInfo dbi[3] = {
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_in),
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_in[plane]),
          .offset = 0,
          .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->dis_in),
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->dis_in[plane]),
          .offset = 0,
          .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->se_partials),
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->se_partials[plane]),
          .offset = 0,
          .range = VK_WHOLE_SIZE},
     };
@@ -296,14 +345,18 @@ static int write_descriptor_set(PsnrVulkanState *s, VkDescriptorSet set)
     return 0;
 }
 
-static double reduce_se_partials(const PsnrVulkanState *s)
+static double reduce_se_partials(const PsnrVulkanState *s, unsigned plane)
 {
-    const int64_t *slots = vmaf_vulkan_buffer_host(s->se_partials);
+    const int64_t *slots = vmaf_vulkan_buffer_host(s->se_partials[plane]);
     int64_t total = 0;
-    for (unsigned i = 0; i < s->wg_count; i++)
+    for (unsigned i = 0; i < s->wg_count[plane]; i++)
         total += slots[i];
     return (double)total;
 }
+
+/* psnr_name[p] — same array as the CPU path
+ * (libvmaf/src/feature/integer_psnr.c::psnr_name). */
+static const char *const psnr_name[PSNR_NUM_PLANES] = {"psnr_y", "psnr_cb", "psnr_cr"};
 
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
@@ -313,32 +366,47 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)dist_pic_90;
     PsnrVulkanState *s = fex->priv;
     int err = 0;
-
-    err = upload_plane(s, s->ref_in, ref_pic);
-    if (err)
-        return err;
-    err = upload_plane(s, s->dis_in, dist_pic);
-    if (err)
-        return err;
-
-    memset(vmaf_vulkan_buffer_host(s->se_partials), 0, (size_t)s->wg_count * sizeof(int64_t));
-    err = vmaf_vulkan_buffer_flush(s->ctx, s->se_partials);
-    if (err)
-        return err;
-
-    VkDescriptorSet set = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo dsai = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &s->dsl,
-    };
-    if (vkAllocateDescriptorSets(s->ctx->device, &dsai, &set) != VK_SUCCESS)
-        return -ENOMEM;
-    write_descriptor_set(s, set);
-
+    VkDescriptorSet sets[PSNR_NUM_PLANES] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
+    unsigned sets_alloc = 0;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
+
+    /* 1) Host → device upload + zero out partials, per active plane. */
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        err = upload_plane(s, s->ref_in[p], ref_pic, p);
+        if (err)
+            return err;
+        err = upload_plane(s, s->dis_in[p], dist_pic, p);
+        if (err)
+            return err;
+
+        memset(vmaf_vulkan_buffer_host(s->se_partials[p]), 0,
+               (size_t)s->wg_count[p] * sizeof(int64_t));
+        err = vmaf_vulkan_buffer_flush(s->ctx, s->se_partials[p]);
+        if (err)
+            return err;
+    }
+
+    /* 2) One descriptor set per plane (different SSBO bindings per
+     * plane; the pipeline layout is shared). */
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        VkDescriptorSetAllocateInfo dsai = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = s->desc_pool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &s->dsl,
+        };
+        if (vkAllocateDescriptorSets(s->ctx->device, &dsai, &sets[p]) != VK_SUCCESS) {
+            err = -ENOMEM;
+            goto cleanup;
+        }
+        sets_alloc++;
+        (void)write_descriptor_set(s, sets[p], p);
+    }
+
+    /* 3) One command buffer carrying n_planes back-to-back dispatches.
+     * No barrier between dispatches — chroma writes go to a different
+     * SE-partials SSBO than luma, so they're independent. */
     VkCommandBufferAllocateInfo cbai = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool = s->ctx->command_pool,
@@ -354,22 +422,23 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     };
     vkBeginCommandBuffer(cmd, &cbbi);
-
-    uint32_t gx = 0;
-    uint32_t gy = 0;
-    psnr_wg_dims(s->width, s->height, &gx, &gy);
-    PsnrPushConsts pc = {
-        .width = s->width,
-        .height = s->height,
-        .bpc = s->bpc,
-        .num_workgroups_x = gx,
-    };
-
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline_layout, 0, 1, &set, 0,
-                            NULL);
-    vkCmdPushConstants(cmd, s->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-    vkCmdDispatch(cmd, gx, gy, 1);
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        uint32_t gx = 0;
+        uint32_t gy = 0;
+        psnr_wg_dims(s->width[p], s->height[p], &gx, &gy);
+        PsnrPushConsts pc = {
+            .width = s->width[p],
+            .height = s->height[p],
+            .bpc = s->bpc,
+            .num_workgroups_x = gx,
+        };
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline_layout, 0, 1,
+                                &sets[p], 0, NULL);
+        vkCmdPushConstants(cmd, s->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                           &pc);
+        vkCmdDispatch(cmd, gx, gy, 1);
+    }
     vkEndCommandBuffer(cmd);
 
     VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
@@ -388,24 +457,30 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     }
     vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
 
-    /* Host-side reduction + score emit. */
-    const double sse = reduce_se_partials(s);
-    const double n_pixels = (double)s->width * (double)s->height;
-    const double mse = sse / n_pixels;
-    double psnr_y = (sse <= 0.0) ? s->psnr_max_y : 10.0 * log10(((double)s->peak * s->peak) / mse);
-    if (psnr_y > s->psnr_max_y)
-        psnr_y = s->psnr_max_y;
+    /* 4) Host-side reduction + score emit, per active plane.
+     * Mirrors integer_psnr.c::psnr emission semantics. */
+    const double peak_sq = (double)s->peak * (double)s->peak;
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        const double sse = reduce_se_partials(s, p);
+        const double n_pixels = (double)s->width[p] * (double)s->height[p];
+        const double mse = sse / n_pixels;
+        double psnr = (sse <= 0.0) ? s->psnr_max[p] : 10.0 * log10(peak_sq / mse);
+        if (psnr > s->psnr_max[p])
+            psnr = s->psnr_max[p];
 
-    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, "psnr_y",
-                                                  psnr_y, index);
+        const int e = vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, psnr_name[p], psnr, index);
+        if (e && !err)
+            err = e;
+    }
 
 cleanup:
     if (fence != VK_NULL_HANDLE)
         vkDestroyFence(s->ctx->device, fence, NULL);
     if (cmd != VK_NULL_HANDLE)
         vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
-    if (set != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, 1, &set);
+    if (sets_alloc > 0)
+        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, sets_alloc, sets);
     return err;
 }
 
@@ -428,12 +503,14 @@ static int close_fex(VmafFeatureExtractor *fex)
     if (s->dsl != VK_NULL_HANDLE)
         vkDestroyDescriptorSetLayout(dev, s->dsl, NULL);
 
-    if (s->ref_in)
-        vmaf_vulkan_buffer_free(s->ctx, s->ref_in);
-    if (s->dis_in)
-        vmaf_vulkan_buffer_free(s->ctx, s->dis_in);
-    if (s->se_partials)
-        vmaf_vulkan_buffer_free(s->ctx, s->se_partials);
+    for (unsigned p = 0; p < PSNR_NUM_PLANES; p++) {
+        if (s->ref_in[p])
+            vmaf_vulkan_buffer_free(s->ctx, s->ref_in[p]);
+        if (s->dis_in[p])
+            vmaf_vulkan_buffer_free(s->ctx, s->dis_in[p]);
+        if (s->se_partials[p])
+            vmaf_vulkan_buffer_free(s->ctx, s->se_partials[p]);
+    }
 
     if (s->owns_ctx)
         vmaf_vulkan_context_destroy(s->ctx);
@@ -445,9 +522,12 @@ static int close_fex(VmafFeatureExtractor *fex)
     return 0;
 }
 
-/* Provided features — luma-only v1. Chroma is a focused follow-up
- * (the `picture_vulkan` upload path is luma-only today). */
-static const char *provided_features[] = {"psnr_y", NULL};
+/* Provided features — full luma + chroma per T3-15(b) / ADR-0210.
+ * For YUV400 sources `init` clamps `n_planes` to 1 and chroma
+ * dispatches are skipped, so only `psnr_y` is emitted at runtime —
+ * but the static list still claims chroma so the dispatcher routes
+ * `psnr_cb` / `psnr_cr` requests through the Vulkan twin. */
+static const char *provided_features[] = {"psnr_y", "psnr_cb", "psnr_cr", NULL};
 
 VmafFeatureExtractor vmaf_fex_psnr_vulkan = {
     .name = "psnr_vulkan",
@@ -458,11 +538,12 @@ VmafFeatureExtractor vmaf_fex_psnr_vulkan = {
     .priv_size = sizeof(PsnrVulkanState),
     .flags = VMAF_FEATURE_EXTRACTOR_VULKAN,
     .provided_features = provided_features,
-    /* 1 dispatch/frame, reduction-dominated; AUTO + 1080p area
-     * matches motion's profile (see ADR-0181 / ADR-0182). */
+    /* 3 small dispatches/frame (Y + Cb + Cr in one command buffer),
+     * reduction-dominated; AUTO + 1080p area matches motion's
+     * profile (see ADR-0181 / ADR-0182 / ADR-0210). */
     .chars =
         {
-            .n_dispatches_per_frame = 1,
+            .n_dispatches_per_frame = 3,
             .is_reduction_only = true,
             .min_useful_frame_area = 1920U * 1080U,
             .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
