@@ -146,6 +146,14 @@ per-frame filters. Deferred if Wave 1 is already too wide.
 **Integration.** New `vmaf_pre_temporal` filter, or a mode flag on
 `vmaf_pre`.
 
+**Status.** **Contract + placeholder shipped (T6-7, 2026-04-29)** —
+[ADR-0215](../adr/0215-fastdvdnet-pre-filter.md). The libvmaf-side
+extractor (`fastdvdnet_pre`, 5-slot ring buffer, `[1, 5, H, W] →
+[1, 1, H, W]` ONNX contract) lands with a smoke-only placeholder
+checkpoint; real upstream weights + the FFmpeg `vmaf_pre_temporal`
+filter that consumes the denoised frame buffer are tracked as
+**T6-7b**. See [`docs/ai/models/fastdvdnet_pre.md`](models/fastdvdnet_pre.md).
+
 ## 4. Op-allowlist expansion — bounded `Loop` / `If`
 
 **Decision.** Whitelist `Loop` and `If` **with a bounded-iteration
