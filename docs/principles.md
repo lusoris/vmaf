@@ -155,8 +155,23 @@ See JPL rule 30 above — enforced by `.semgrep.yml` custom rules +
 - ✅ Conventional commit messages (enforced by commit-msg hook)
 - ✅ CI matrix green on Linux/macOS/Windows
 - ✅ Netflix source-of-truth golden tests pass (CPU, 3 pairs: 1 normal + 2 checkerboard)
+- ✅ GPU-parity matrix gate (T6-8 / ADR-0214) — CPU ↔ Vulkan/lavapipe variance
+  across every enabled feature; CUDA / SYCL / hardware-Vulkan advisory until a
+  self-hosted runner registers. See
+  [development/cross-backend-gate.md](development/cross-backend-gate.md).
 - ✅ Coverage ≥ 70% overall, ≥ 85% for security-critical code (validation, parsing,
   crypto-adjacent)
+- ✅ Touched-file lint-clean rule (ADR-0141) — every hunk in the PR's diff
+  against its merge base must be lint-clean to the fork's strictest profile;
+  `// NOLINT` is reserved for load-bearing invariants and must cite the ADR or
+  digest that forces it.
+- ✅ State-tracking rule (ADR-0165) — every PR that opens, closes, or rules
+  out a Netflix upstream report against the fork updates
+  [`state.md`](state.md) in the same PR.
+- ✅ FFmpeg-patches sync rule (ADR-0186) — every PR touching a libvmaf C-API
+  surface, CLI flag, `meson_options.txt` entry, or any other interface that
+  the in-tree `ffmpeg-patches/` patches consume updates the relevant patch
+  file in the same PR.
 
 ### 3.1 Netflix golden-data gate
 
