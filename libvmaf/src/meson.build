@@ -921,6 +921,10 @@ libvmaf_feature_sources = [
     # MobileSal saliency extractor (T6-2a). Same -ENOSYS-on-stub pattern
     # as feature_lpips.c above. See docs/adr/0218-mobilesal-saliency-extractor.md.
     feature_src_dir + 'feature_mobilesal.c',
+    # TransNet V2 shot-boundary detector — same -ENOSYS-stub story
+    # as feature_lpips.c; compile unconditionally and let init()
+    # decline at runtime on stub builds.
+    feature_src_dir + 'transnet_v2.c',
 ]
 
 if float_enabled

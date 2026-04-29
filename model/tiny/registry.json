@@ -84,6 +84,16 @@
       "sigstore_bundle": "smoke_v0.onnx.sigstore.json",
       "description": "CI load-path probe (Conv + Identity).",
       "notes": "CI load-path probe (Conv + Identity). Not a quality model."
+    },
+    {
+      "id": "transnet_v2",
+      "kind": "shot_detector",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "notes": "Placeholder TransNet V2 shot-boundary detector (T6-3a). 100-frame window of 27x48 RGB thumbnails -> per-frame shot-boundary logits. SMOKE-ONLY: random init, not trained. Real upstream weights (Soucek & Lokoc 2020, MIT) tracked under T6-3a-followup. Per-shot CRF predictor is T6-3b. See docs/adr/0220-transnet-v2-shot-detector.md and docs/ai/models/transnet_v2.md.",
+      "onnx": "transnet_v2.onnx",
+      "opset": 17,
+      "sha256": "7684c1cbbd8a6b40c58c0177ee19683a3f4e894bd559f903b386a52ce2edc9c7",
+      "smoke": true
     }
   ]
 }

@@ -108,6 +108,7 @@ extern VmafFeatureExtractor vmaf_fex_cambi_vulkan;
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_fastdvdnet_pre;
 extern VmafFeatureExtractor vmaf_fex_mobilesal;
+extern VmafFeatureExtractor vmaf_fex_transnet_v2;
 extern VmafFeatureExtractor vmaf_fex_null;
 
 static VmafFeatureExtractor *feature_extractor_list[] = {
@@ -173,7 +174,8 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_float_ansnr_cuda, &vmaf_fex_float_psnr_cuda, &vmaf_fex_float_motion_cuda,
     &vmaf_fex_float_vif_cuda, &vmaf_fex_ssimulacra2_cuda, &vmaf_fex_float_adm_cuda,
 #endif
-    &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_null, NULL};
+    &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2,
+    &vmaf_fex_null, NULL};
 
 VmafFeatureExtractor *vmaf_get_feature_extractor_by_name(const char *name)
 {

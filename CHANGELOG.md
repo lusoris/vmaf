@@ -77,6 +77,34 @@
   (`tools/vmaf-roi`, saliency-weighted L1/L2 FR feature) is the
   T6-2b follow-up. See
   [ADR-0218](docs/adr/0218-mobilesal-saliency-extractor.md).
+- **TransNet V2 shot-boundary detector (T6-3a)** — new feature
+  extractor `transnet_v2` under
+  [`libvmaf/src/feature/transnet_v2.c`](libvmaf/src/feature/transnet_v2.c)
+  registers a 100-frame-sliding-window shot-change detector backed
+  by the public `vmaf_dnn_session_*` API. ONNX I/O contract:
+  `frames` float32 `[1, 100, 3, 27, 48]` (100-frame stack of 27x48
+  RGB thumbnails) → `boundary_logits` float32 `[1, 100]`
+  (per-frame logits before sigmoid). Internal 100-slot ring buffer
+  with head-clamp at clip start; per-frame **two** scalars
+  appended through the existing feature-collector plumbing —
+  `shot_boundary_probability` (sigmoid of the centre-slot logit)
+  and `shot_boundary` (binary 0/1 thresholded at 0.5). Picks up
+  `model_path` from the feature option or
+  `VMAF_TRANSNET_V2_MODEL_PATH` env var (mirrors LPIPS /
+  FastDVDnet); declines cleanly with `-EINVAL` when neither is
+  set. **Placeholder weights only** —
+  `model/tiny/transnet_v2.onnx` is a smoke-only ~125 KB
+  randomly-initialised tiny MLP with the right I/O shape; real
+  upstream weights (Soucek & Lokoc 2020 MIT) tracked as
+  **T6-3a-followup**, the per-shot CRF predictor +
+  `tools/vmaf-perShot` CLI as **T6-3b**. New ADR
+  [ADR-0220](docs/adr/0220-transnet-v2-shot-detector.md), user-facing
+  doc [`docs/ai/models/transnet_v2.md`](docs/ai/models/transnet_v2.md),
+  placeholder-export driver
+  [`ai/scripts/export_transnet_v2_placeholder.py`](ai/scripts/export_transnet_v2_placeholder.py),
+  registry row in [`model/tiny/registry.json`](model/tiny/registry.json),
+  6-subtest smoke at
+  [`libvmaf/test/test_transnet_v2.c`](libvmaf/test/test_transnet_v2.c).
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame
