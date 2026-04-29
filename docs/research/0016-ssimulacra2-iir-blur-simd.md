@@ -79,7 +79,12 @@ for bit-exactness audit.
   scalar `powf`. Low ROI but mechanical. Last scalar hot path in
   the extractor.
 - **T3-3 snapshot-JSON regression test** — still pending.
-- **SVE2 port** — deferred pending CI hardware.
+- **SVE2 port** — shipped under [ADR-0209](../adr/0209-ssimulacra2-sve2.md)
+  with qemu validation; CI hardware is not on the critical path. The
+  fixed 4-lane `svwhilelt_b32(0, 4)` predicate keeps the SVE2 IIR
+  blur byte-identical to the NEON sibling regardless of runtime vector
+  length, so the per-lane reduction order from this digest carries
+  over verbatim.
 - **Benchmark on native aarch64** — QEMU timings aren't
   representative; real hardware numbers are a follow-up once the
   native-aarch64 runner is routinely available.

@@ -47,7 +47,11 @@
 #include "x86/cpu.h"
 #endif
 #if ARCH_AARCH64
+#include "arm/cpu.h"
 #include "feature/arm64/ssimulacra2_neon.h"
+#if HAVE_SVE2
+#include "feature/arm64/ssimulacra2_sve2.h"
+#endif
 #endif
 
 static const float kM00 = 0.30f;
@@ -267,6 +271,10 @@ static mul3_fn_t pick_mul3(void)
         return ssimulacra2_multiply_3plane_avx2;
 #endif
 #if ARCH_AARCH64
+#if HAVE_SVE2
+    if (vmaf_get_cpu_flags_arm() & VMAF_ARM_CPU_FLAG_SVE2)
+        return ssimulacra2_multiply_3plane_sve2;
+#endif
     return ssimulacra2_multiply_3plane_neon;
 #endif
     return NULL;
@@ -283,6 +291,10 @@ static xyb_fn_t pick_xyb(void)
         return ssimulacra2_linear_rgb_to_xyb_avx2;
 #endif
 #if ARCH_AARCH64
+#if HAVE_SVE2
+    if (vmaf_get_cpu_flags_arm() & VMAF_ARM_CPU_FLAG_SVE2)
+        return ssimulacra2_linear_rgb_to_xyb_sve2;
+#endif
     return ssimulacra2_linear_rgb_to_xyb_neon;
 #endif
     return NULL;
@@ -299,6 +311,10 @@ static down_fn_t pick_down(void)
         return ssimulacra2_downsample_2x2_avx2;
 #endif
 #if ARCH_AARCH64
+#if HAVE_SVE2
+    if (vmaf_get_cpu_flags_arm() & VMAF_ARM_CPU_FLAG_SVE2)
+        return ssimulacra2_downsample_2x2_sve2;
+#endif
     return ssimulacra2_downsample_2x2_neon;
 #endif
     return NULL;
@@ -315,6 +331,10 @@ static ssim_fn_t pick_ssim(void)
         return ssimulacra2_ssim_map_avx2;
 #endif
 #if ARCH_AARCH64
+#if HAVE_SVE2
+    if (vmaf_get_cpu_flags_arm() & VMAF_ARM_CPU_FLAG_SVE2)
+        return ssimulacra2_ssim_map_sve2;
+#endif
     return ssimulacra2_ssim_map_neon;
 #endif
     return NULL;
@@ -331,6 +351,10 @@ static edge_fn_t pick_edge(void)
         return ssimulacra2_edge_diff_map_avx2;
 #endif
 #if ARCH_AARCH64
+#if HAVE_SVE2
+    if (vmaf_get_cpu_flags_arm() & VMAF_ARM_CPU_FLAG_SVE2)
+        return ssimulacra2_edge_diff_map_sve2;
+#endif
     return ssimulacra2_edge_diff_map_neon;
 #endif
     return NULL;
@@ -542,6 +566,10 @@ static blur_fn_t pick_blur(void)
         return ssimulacra2_blur_plane_avx2;
 #endif
 #if ARCH_AARCH64
+#if HAVE_SVE2
+    if (vmaf_get_cpu_flags_arm() & VMAF_ARM_CPU_FLAG_SVE2)
+        return ssimulacra2_blur_plane_sve2;
+#endif
     return ssimulacra2_blur_plane_neon;
 #endif
     return NULL;
@@ -745,6 +773,10 @@ static ptlr_fn_t pick_ptlr(void)
         return ssimulacra2_picture_to_linear_rgb_avx2;
 #endif
 #if ARCH_AARCH64
+#if HAVE_SVE2
+    if (vmaf_get_cpu_flags_arm() & VMAF_ARM_CPU_FLAG_SVE2)
+        return ssimulacra2_picture_to_linear_rgb_sve2;
+#endif
     return ssimulacra2_picture_to_linear_rgb_neon;
 #endif
     return NULL;
@@ -853,6 +885,20 @@ static char *test_ptlr_422_8(void)
 // NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 char *run_tests(void)
 {
+#if ARCH_AARCH64
+    /* T7-38 diagnostic: surface which aarch64 SIMD path the dispatcher
+     * has selected so qemu / native runs can be told apart in CI logs.
+     * Pure stderr — no test assertion depends on the value. */
+    const unsigned arm_flags = vmaf_get_cpu_flags_arm();
+    (void)fprintf(stderr, "ssimulacra2 simd dispatch: NEON=%u SVE2=%u\n",
+                  (arm_flags & VMAF_ARM_CPU_FLAG_NEON) ? 1u : 0u,
+#if HAVE_SVE2
+                  (arm_flags & VMAF_ARM_CPU_FLAG_SVE2) ? 1u : 0u
+#else
+                  0u
+#endif
+    );
+#endif
 #if ARCH_X86 || ARCH_AARCH64
     mu_run_test(test_multiply);
     mu_run_test(test_xyb);

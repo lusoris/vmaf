@@ -4820,3 +4820,52 @@ inline.*
   ninja -C build-cpu
   meson test -C build-cpu --suite=fast
   ```
+
+### 0074 — SSIMULACRA 2 SVE2 SIMD parity (T7-38)
+
+- **ADR**: [ADR-0209](adr/0209-ssimulacra2-sve2.md).
+- **Touches**: `libvmaf/src/feature/arm64/ssimulacra2_sve2.{c,h}`
+  (new), `libvmaf/src/feature/ssimulacra2.c` (dispatch table override
+  in `init_simd_dispatch`), `libvmaf/src/arm/cpu.{c,h}` (HWCAP2_SVE2
+  probe + new `VMAF_ARM_CPU_FLAG_SVE2` enum value),
+  `libvmaf/src/meson.build` (cc.compiles probe + optional
+  `arm64_ssimulacra2_sve2` static library),
+  `libvmaf/test/test_ssimulacra2_simd.c` (SVE2 picker overrides on the
+  arm64 path + dispatch diagnostic), `build-aux/aarch64-linux-gnu-sve2.ini`
+  (new cross-file pinning `qemu-aarch64-static -cpu max`). All paths
+  are wholly fork-local; no upstream Netflix/vmaf code is modified.
+- **Invariants**:
+  1. **Fixed 4-lane SVE2 predicate.** Every kernel uses
+     `svwhilelt_b32(0, 4)` so SIMD arithmetic order is identical to
+     the NEON sibling regardless of the runtime vector length. This
+     keeps the [ADR-0138](adr/0138-simd-bit-exactness-policy.md) /
+     [ADR-0139](adr/0139-ssim-simd-bitexact-double.md) /
+     [ADR-0140](adr/0140-ssimulacra2-simd-bitexact.md) byte-exact
+     contract intact. Do NOT widen the predicate to `svptrue_b32()`
+     without a separate ADR + snapshot regen — variable-length lane
+     reductions perturb the per-step rounding order.
+  2. **NEON stays the fallback.** SVE2 is purely additive; the
+     dispatch table assigns NEON first and only overrides on
+     `VMAF_ARM_CPU_FLAG_SVE2`. A toolchain that fails the
+     `cc.compiles(... -march=armv9-a+sve2)` probe leaves
+     `HAVE_SVE2` unset and the legacy NEON-only build is unchanged.
+  3. **`-ffp-contract=off` mirrors the NEON sibling.** Without it
+     GCC fuses the per-lane scalar tail's `a*b+c` patterns into
+     `fmla`, drifting against the SIMD path by ~1 ulp. The
+     `arm64_ssimulacra2_sve2` static library carries the flag like
+     its NEON counterpart.
+- **On upstream sync**: no interaction with upstream — `arm64/`
+  feature TUs and the `arm/cpu.{c,h}` flag enum are fork-local.
+  An upstream sync that rewrites `init_simd_dispatch` in
+  `libvmaf/src/feature/ssimulacra2.c` would also need the SVE2 cases
+  preserved.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-arm64-sve2 libvmaf \
+      --cross-file=build-aux/aarch64-linux-gnu-sve2.ini -Denable_asm=true
+  ninja -C build-arm64-sve2 test/test_ssimulacra2_simd
+  meson test -C build-arm64-sve2 test_ssimulacra2_simd
+  # stderr should report `ssimulacra2 simd dispatch: NEON=1 SVE2=1`
+  # and 11/11 tests should pass.
+  ```

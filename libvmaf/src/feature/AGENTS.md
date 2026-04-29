@@ -304,22 +304,28 @@ feature/
 
 - **SSIMULACRA 2 SIMD bit-exactness** (fork-local, ADR-0161):
   [`x86/ssimulacra2_avx2.c`](x86/ssimulacra2_avx2.c),
-  [`x86/ssimulacra2_avx512.c`](x86/ssimulacra2_avx512.c) and
-  [`arm64/ssimulacra2_neon.c`](arm64/ssimulacra2_neon.c) all produce
-  byte-identical output to scalar on the 5 vectorised kernels
-  (`multiply_3plane`, `linear_rgb_to_xyb`, `downsample_2x2`,
-  `ssim_map`, `edge_diff_map`) under `FLT_EVAL_METHOD == 0`.
-  **On rebase**: (1) preserve left-to-right scalar summation order
-  in every matmul + downsample chain — a `(a+b)+(c+d)` pairing
-  drifts by 1 ULP and the regression test `test_ssimulacra2_simd`
-  catches it; (2) `cbrtf` stays per-lane scalar libm — no vector
-  polynomial; (3) reductions in `ssim_map`/`edge_diff_map` use the
-  ADR-0139 per-lane `double` scalar tail; (4) IIR blur
-  (`fast_gaussian_1d` / `blur_plane`) + `picture_to_linear_rgb`
-  remain scalar — their vectorisation is follow-up work; do not
-  silently vectorise on rebase without an ADR. See
-  [ADR-0161](../../../docs/adr/0161-ssimulacra2-simd-bitexact.md)
-  and [rebase-notes 0053](../../../docs/rebase-notes.md).
+  [`x86/ssimulacra2_avx512.c`](x86/ssimulacra2_avx512.c),
+  [`arm64/ssimulacra2_neon.c`](arm64/ssimulacra2_neon.c) and
+  [`arm64/ssimulacra2_sve2.c`](arm64/ssimulacra2_sve2.c) (T7-38,
+  ADR-0209) all produce byte-identical output to scalar on the 5
+  vectorised kernels (`multiply_3plane`, `linear_rgb_to_xyb`,
+  `downsample_2x2`, `ssim_map`, `edge_diff_map`) under
+  `FLT_EVAL_METHOD == 0`, plus the IIR blur and PTLR ports
+  (ADR-0162 / ADR-0163). **On rebase**: (1) preserve left-to-right
+  scalar summation order in every matmul + downsample chain —
+  a `(a+b)+(c+d)` pairing drifts by 1 ULP and the regression test
+  `test_ssimulacra2_simd` catches it; (2) `cbrtf` stays per-lane
+  scalar libm — no vector polynomial; (3) reductions in
+  `ssim_map`/`edge_diff_map` use the ADR-0139 per-lane `double`
+  scalar tail; (4) the SVE2 sister TU is locked to a fixed 4-lane
+  predicate (`svwhilelt_b32(0, 4)`) so its arithmetic order
+  matches the NEON sibling regardless of runtime vector length —
+  do **not** widen to `svptrue_b32()` without a separate ADR
+  + snapshot regen, even if it looks like a free perf win. See
+  [ADR-0161](../../../docs/adr/0161-ssimulacra2-simd-bitexact.md),
+  [ADR-0209](../../../docs/adr/0209-ssimulacra2-sve2.md), and
+  [rebase-notes 0053](../../../docs/rebase-notes.md) /
+  [rebase-notes 0074](../../../docs/rebase-notes.md).
 
 - **`psnr_hvs` NEON DCT bit-exactness** (fork-local, ADR-0160):
   [`arm64/psnr_hvs_neon.c`](arm64/psnr_hvs_neon.c) is the aarch64

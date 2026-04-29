@@ -129,6 +129,25 @@ if is_asm_enabled
         else
             asm_format = 'elf'
         endif
+
+        # T7-38: probe SVE2 intrinsics support. The SVE2 SSIMULACRA 2 TUs
+        # require a compiler that accepts `-march=armv9-a+sve2` (or
+        # equivalent) and ships `<arm_sve.h>`. Failure leaves HAVE_SVE2
+        # unset; the runtime path falls back to NEON via the dispatch
+        # table in ssimulacra2.c.
+        sve2_test_src = '''
+#include <arm_sve.h>
+int main(void) {
+    svfloat32_t a = svdup_f32(1.0f);
+    svbool_t pg = svptrue_b32();
+    svfloat32_t b = svadd_f32_x(pg, a, a);
+    return (int)svaddv_f32(pg, b);
+}
+'''
+        is_sve2_supported = cc.compiles(sve2_test_src,
+            args: ['-march=armv9-a+sve2'],
+            name: 'aarch64 SVE2 intrinsics')
+        cdata.set10('HAVE_SVE2', is_sve2_supported)
     endif
 
     if host_machine.cpu_family().startswith('x86')
@@ -346,6 +365,22 @@ if is_asm_enabled
 
         platform_specific_cpu_objects += arm64_static_lib.extract_all_objects()
         platform_specific_cpu_objects += arm64_ssimulacra2_lib.extract_all_objects()
+
+        # T7-38: SSIMULACRA 2 SVE2 sister TU. Only built when the
+        # compiler accepts `-march=armv9-a+sve2`; gated by HAVE_SVE2.
+        # `-ffp-contract=off` rationale mirrors the NEON sibling: SVE2
+        # intrinsics are opaque to the contraction pass, but the per-
+        # lane scalar tail must not auto-fuse `a*b+c` into `fmla`. Same
+        # ADR-0161 bit-exact contract.
+        if is_sve2_supported
+            arm64_ssimulacra2_sve2_lib = static_library(
+                'arm64_ssimulacra2_sve2',
+                feature_src_dir + 'arm64/ssimulacra2_sve2.c',
+                include_directories : vmaf_base_include,
+                c_args : vmaf_cflags_common + ['-DARCH_AARCH64', '-march=armv9-a+sve2', '-ffp-contract=off'],
+            )
+            platform_specific_cpu_objects += arm64_ssimulacra2_sve2_lib.extract_all_objects()
+        endif
     endif
 
     if host_machine.cpu_family().startswith('x86')
