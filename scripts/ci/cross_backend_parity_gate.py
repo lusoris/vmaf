@@ -88,6 +88,34 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     "ciede": ("ciede2000",),
     "float_ssim": ("float_ssim",),
     "float_ms_ssim": ("float_ms_ssim",),
+    # T7-35 / ADR-0215: enable_lcs adds 15 per-scale L/C/S triples on
+    # top of the combined float_ms_ssim score. The Vulkan/CUDA kernels
+    # already produce the per-scale L/C/S means; gating only the
+    # feature_collector_append calls keeps default-path output
+    # bit-identical. Cell uses extractor `float_ms_ssim` with the
+    # `enable_lcs=true` option pass-through (resolved by
+    # `cross_backend_vif_diff.py`'s FEATURE_ALIASES on the per-
+    # feature lane). The matrix gate runs the LCS variant only when
+    # opted in via `--features` (skipped by default to keep
+    # vulkan-parity-matrix-gate cheap).
+    "float_ms_ssim_lcs": (
+        "float_ms_ssim",
+        "float_ms_ssim_l_scale0",
+        "float_ms_ssim_l_scale1",
+        "float_ms_ssim_l_scale2",
+        "float_ms_ssim_l_scale3",
+        "float_ms_ssim_l_scale4",
+        "float_ms_ssim_c_scale0",
+        "float_ms_ssim_c_scale1",
+        "float_ms_ssim_c_scale2",
+        "float_ms_ssim_c_scale3",
+        "float_ms_ssim_c_scale4",
+        "float_ms_ssim_s_scale0",
+        "float_ms_ssim_s_scale1",
+        "float_ms_ssim_s_scale2",
+        "float_ms_ssim_s_scale3",
+        "float_ms_ssim_s_scale4",
+    ),
     "float_ansnr": (
         "float_ansnr",
         "float_anpsnr",
@@ -145,6 +173,9 @@ FEATURE_TOLERANCE: dict[str, float] = {
     # Float pipeline, well-conditioned. places=4.
     "float_ssim": 5e-5,
     "float_ms_ssim": 5e-5,
+    # T7-35 / ADR-0215: LCS triples are the same float reductions
+    # that feed the Wang combine — same conditioning, same places=4.
+    "float_ms_ssim_lcs": 5e-5,
     "float_ansnr": 5e-5,
     "float_psnr": 5e-5,
     "float_motion": 5e-5,
@@ -222,10 +253,27 @@ def build_matrix(features: Iterable[str], backends: Iterable[str]) -> list[Cell]
     return cells
 
 
+# Pseudo-features that map to a real extractor + a `:opt=val` option
+# pass-through. T7-35 / ADR-0215: float_ms_ssim_lcs reuses the
+# `float_ms_ssim` extractor with `enable_lcs=true` to gate the 15
+# extra L/C/S metrics.
+FEATURE_ALIASES: dict[str, tuple[str, str]] = {
+    "float_ms_ssim_lcs": ("float_ms_ssim", "enable_lcs=true"),
+}
+
+
 def feature_extractor_name(feature: str, backend: str) -> str:
-    """Map (feature, backend) to the extractor name `--feature` accepts."""
+    """Map (feature, backend) to the extractor name `--feature` accepts.
+
+    Pseudo-features in ``FEATURE_ALIASES`` are resolved to
+    ``base_extractor=opt=val`` so libvmaf's option parser flips the
+    underlying extractor into the right mode (e.g. ``enable_lcs``).
+    """
 
     suffix = BACKEND_SUFFIX[backend]
+    if feature in FEATURE_ALIASES:
+        base_name, opt_string = FEATURE_ALIASES[feature]
+        return f"{base_name}{suffix}={opt_string}"
     return f"{feature}{suffix}"
 
 

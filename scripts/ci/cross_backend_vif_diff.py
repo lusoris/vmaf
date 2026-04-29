@@ -100,8 +100,36 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     "float_ssim": ("float_ssim",),
     # GPU long-tail batch 2 part 2 (T7-23 / ADR-0188 / ADR-0190):
     # float_ms_ssim. 5-level pyramid + Wang product combine. Single
-    # emitted metric in v1 (enable_lcs deferred).
+    # emitted metric (the enable_lcs extras are gated separately
+    # via "float_ms_ssim_lcs" — T7-35 / ADR-0215 — so the default
+    # gate stays cheap).
     "float_ms_ssim": ("float_ms_ssim",),
+    # T7-35 / ADR-0215: enable_lcs adds the 15 per-scale L/C/S
+    # triples on top of the combined `float_ms_ssim` score. The
+    # GPU kernels already produce l_means / c_means / s_means per
+    # scale (the vert pass's "_lcs" suffix); this entry gates the
+    # bit-identical-vs-CPU promise on the extra metrics. Use
+    # `--feature float_ms_ssim_lcs --backend {vulkan,cuda}` and
+    # pass `enable_lcs=true` via the build_command's option-pass
+    # path. places=4 contract per ADR-0215.
+    "float_ms_ssim_lcs": (
+        "float_ms_ssim",
+        "float_ms_ssim_l_scale0",
+        "float_ms_ssim_l_scale1",
+        "float_ms_ssim_l_scale2",
+        "float_ms_ssim_l_scale3",
+        "float_ms_ssim_l_scale4",
+        "float_ms_ssim_c_scale0",
+        "float_ms_ssim_c_scale1",
+        "float_ms_ssim_c_scale2",
+        "float_ms_ssim_c_scale3",
+        "float_ms_ssim_c_scale4",
+        "float_ms_ssim_s_scale0",
+        "float_ms_ssim_s_scale1",
+        "float_ms_ssim_s_scale2",
+        "float_ms_ssim_s_scale3",
+        "float_ms_ssim_s_scale4",
+    ),
     # GPU long-tail batch 2 part 3 (T7-23 / ADR-0188 / ADR-0191):
     # float_psnr_hvs. DCT-based perceptual PSNR; emits 3 plane scores
     # + the combined `psnr_hvs`. CPU extractor is `psnr_hvs`; GPU
@@ -177,6 +205,15 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     "cambi": ("Cambi_feature_cambi_score",),
 }
 
+# Some `--feature` keys here are pseudo-names that map to a real
+# libvmaf extractor plus a `feature=NAME:opt=val` option pass-through.
+# Used today only by `float_ms_ssim_lcs` (T7-35 / ADR-0215) — the
+# enable_lcs option flips the same extractor (`float_ms_ssim`) into
+# 16-metric mode. Each entry is (extractor_base_name, "opt=val").
+FEATURE_ALIASES: dict[str, tuple[str, str]] = {
+    "float_ms_ssim_lcs": ("float_ms_ssim", "enable_lcs=true"),
+}
+
 # Per-backend extractor-name suffix and the device-selection flag the
 # CLI uses to actually route to it. CPU is the implicit baseline (no
 # suffix, no device flag). If a future backend uses a different naming
@@ -212,7 +249,12 @@ def run_vmaf(
     feature names. See PR #120 commit message for the silent-CPU bug
     that motivated this contract.
     """
-    extractor = feature if backend is None else f"{feature}{BACKEND_SUFFIX[backend]}"
+    # Resolve aliases to (extractor_base_name, opt_string) — used by
+    # float_ms_ssim_lcs (T7-35) which gates the same extractor on the
+    # `enable_lcs` boolean.
+    base_name, opt_string = FEATURE_ALIASES.get(feature, (feature, ""))
+    extractor_name = base_name if backend is None else f"{base_name}{BACKEND_SUFFIX[backend]}"
+    extractor = f"{extractor_name}={opt_string}" if opt_string else extractor_name
     cmd = [
         str(binary),
         "--reference",

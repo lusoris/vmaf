@@ -150,6 +150,32 @@ libvmaf/
   three transport bodies are stable; the silent-flip risk is
   the same as ADR-0175's Vulkan precedent.
 
+- **MS-SSIM `enable_lcs` GPU contract** (fork-local,
+  [ADR-0215](../docs/adr/0215-enable-lcs-gpu.md)).
+  [`src/feature/cuda/integer_ms_ssim_cuda.c`](src/feature/cuda/integer_ms_ssim_cuda.c)
+  and
+  [`src/feature/vulkan/ms_ssim_vulkan.c`](src/feature/vulkan/ms_ssim_vulkan.c)
+  emit 15 extra metrics — `float_ms_ssim_{l,c,s}_scale{0..4}` —
+  when the `enable_lcs` option is true, mirroring the CPU
+  `float_ms_ssim` extractor in
+  [`src/feature/float_ms_ssim.c`](src/feature/float_ms_ssim.c#L189-L221).
+  The metric names, ordering (metric-wise — all `l_scale*` first,
+  then `c_*`, then `s_*`), and `places=4` cross-backend contract
+  are part of the public API surface; do not rename, reorder, or
+  introduce per-backend variations. The kernels themselves
+  (`ms_ssim_vert_lcs` CUDA / vert pass in `ms_ssim.comp` Vulkan)
+  already compute the per-scale `l_means[i]` / `c_means[i]` /
+  `s_means[i]` doubles — gating only the host-side
+  `vmaf_feature_collector_append` calls keeps default-path
+  (`enable_lcs=false`) output bit-identical to the pre-T7-35
+  binary. The cross-backend gate's `float_ms_ssim_lcs`
+  pseudo-feature in
+  [`scripts/ci/cross_backend_vif_diff.py`](../scripts/ci/cross_backend_vif_diff.py)
+  and
+  [`scripts/ci/cross_backend_parity_gate.py`](../scripts/ci/cross_backend_parity_gate.py)
+  enforces the contract; do not drop the `FEATURE_ALIASES` entry
+  or the matching `FEATURE_TOLERANCE` row on a rebase.
+
 - **GPU-parity matrix gate contract** (fork-local,
   [ADR-0214](../docs/adr/0214-gpu-parity-ci-gate.md)).
   [`scripts/ci/cross_backend_parity_gate.py`](../scripts/ci/cross_backend_parity_gate.py)

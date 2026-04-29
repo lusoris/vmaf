@@ -33,6 +33,28 @@
 
 ### Added
 
+- **`enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0215).**
+  The Vulkan `float_ms_ssim_vulkan` and CUDA `float_ms_ssim_cuda`
+  extractors now honour the `enable_lcs` option, emitting the same
+  15 per-scale metrics the CPU reference does:
+  `float_ms_ssim_{l,c,s}_scale{0..4}`. The GPU kernels already
+  computed the per-scale L/C/S means (the CUDA vert kernel is even
+  named `ms_ssim_vert_lcs`); only the host-side
+  `vmaf_feature_collector_append` calls were missing. No kernel,
+  shader or device-buffer changes — default-path
+  (`enable_lcs=false`) output is bit-identical to the pre-T7-35
+  binary. The Vulkan option help text is rewritten to drop the
+  "(reserved; not yet implemented in the GPU path)" caveat; the
+  CUDA file-header drops the corresponding "v1 does NOT
+  implement enable_lcs" deferral. New `float_ms_ssim_lcs`
+  pseudo-feature in
+  [`scripts/ci/cross_backend_vif_diff.py`](scripts/ci/cross_backend_vif_diff.py)
+  and
+  [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
+  pins all 16 metrics at `places=4`. The SYCL `float_ms_ssim_sycl`
+  twin does not currently expose `enable_lcs` (empty `options[]`
+  table) and stays out-of-scope for this PR; tracked as a
+  follow-up under T7-35.
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame

@@ -4869,3 +4869,53 @@ inline.*
   # stderr should report `ssimulacra2 simd dispatch: NEON=1 SVE2=1`
   # and 11/11 tests should pass.
   ```
+
+### 0075 — `enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0215)
+
+- **Touched surfaces (fork-local)**:
+  [`libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c`](../libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c)
+  (added `enable_lcs` to `MsSsimStateCuda` + `options[]` + 15 host-side
+  `vmaf_feature_collector_append` calls gated on the bool),
+  [`libvmaf/src/feature/vulkan/ms_ssim_vulkan.c`](../libvmaf/src/feature/vulkan/ms_ssim_vulkan.c)
+  (rewrote `enable_lcs` help text + added `emit_lcs_metrics` helper +
+  gated 15 `vmaf_feature_collector_append` calls),
+  [`scripts/ci/cross_backend_vif_diff.py`](../scripts/ci/cross_backend_vif_diff.py)
+  + [`scripts/ci/cross_backend_parity_gate.py`](../scripts/ci/cross_backend_parity_gate.py)
+  (new `float_ms_ssim_lcs` pseudo-feature + `FEATURE_ALIASES` map
+  + `places=4` tolerance row).
+- **Why this matters on rebase**: the GPU MS-SSIM extractors are
+  fork-local (Netflix upstream has no Vulkan or CUDA MS-SSIM kernel
+  today). The `enable_lcs` semantic and the metric names
+  (`float_ms_ssim_{l,c,s}_scale{0..4}`) **must match** the upstream
+  CPU reference at
+  [`libvmaf/src/feature/float_ms_ssim.c:189-221`](../libvmaf/src/feature/float_ms_ssim.c#L189-L221).
+  If upstream ever renames or reorders those metrics, mirror the
+  change on the GPU side in the same merge — public-API contract.
+- **Invariants the contract enforces**:
+  1. Default-path output (`enable_lcs=false`) stays bit-identical
+     to the pre-T7-35 binary: only the host-side appends are gated;
+     no kernel / shader / device-buffer changes.
+  2. Metric ordering is metric-wise (all `l_scale*` first, then
+     `c_*`, then `s_*`) — matches the CPU emission order.
+  3. `places=4` cross-backend tolerance per
+     [ADR-0190](adr/0190-float-ms-ssim-cuda.md); enforced by the new
+     `float_ms_ssim_lcs` cell in the parity matrix gate
+     ([ADR-0214](adr/0214-gpu-parity-ci-gate.md)).
+- **On upstream sync**: zero interaction; the GPU twins do not
+  exist upstream. The CPU `float_ms_ssim.c` is shared with upstream
+  but `enable_lcs` is upstream-stable since v3.0.0.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build-vulkan \
+      -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=enabled -Denable_float=true \
+      --buildtype=release && ninja -C build-vulkan
+  cd ..
+  python3 scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary libvmaf/build-vulkan/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 \
+      --feature float_ms_ssim_lcs --backend vulkan --places 4
+  ```
