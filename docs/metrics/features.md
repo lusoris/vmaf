@@ -49,6 +49,7 @@ limitations in the same PR as the code.
 | SSIMULACRA 2       | `ssimulacra2`   | No            | `ssimulacra2`                                                                                 | AVX2, AVX-512, NEON | Vulkan             |
 | Float moment       | `float_moment`  | No            | `float_moment_ref1st`, `float_moment_dis1st`, `float_moment_ref2nd`, `float_moment_dis2nd`    | AVX2, NEON          | CUDA, SYCL, Vulkan |
 | LPIPS (tiny-AI)    | `lpips`         | No            | `lpips`                                                                                       | —                   | —                  |
+| FastDVDnet pre     | `fastdvdnet_pre`| No            | `fastdvdnet_pre_l1_residual`                                                                  | —                   | —                  |
 
 **Core** extractors are required inputs for the shipped VMAF models (see
 [models/overview.md](../models/overview.md)); non-core extractors are
@@ -675,6 +676,69 @@ init if no model path is provided (neither the option nor the
 environment variable); the registry under
 [`model/tiny/registry.json`](../../model/tiny/registry.json) tracks
 the canonical LPIPS ONNX checkpoint.
+
+### FastDVDnet pre — temporal denoising pre-filter (tiny-AI)
+
+A *temporal* denoising pre-filter backed by an ONNX model with a
+single input tensor stacking five luma planes
+``[t-2, t-1, t, t+1, t+2]`` along the channel axis; the network emits
+a denoised version of frame ``t``. Structurally a feature extractor
+(registered in `feature_extractor_list[]` and discoverable by name)
+but logically a *pre-filter*, not a quality metric — denoise-before-
+encode is a bitrate lever, not a score. Runs through ORT once at
+init; per-frame inference uses a 5-slot ring buffer of float32 luma
+planes with reflection-pad-light end behaviour.
+
+See also [`docs/ai/models/fastdvdnet_pre.md`](../ai/models/fastdvdnet_pre.md)
+and [ADR-0215](../adr/0215-fastdvdnet-pre-filter.md) for the full
+surface contract and the placeholder-checkpoint rationale.
+
+#### Invocation
+
+- CLI: `--feature fastdvdnet_pre=model_path=/path/to/fastdvdnet_pre.onnx`.
+- ffmpeg: `libvmaf=feature=name=fastdvdnet_pre:model_path=...`.
+- C API: `vmaf_use_feature(ctx, "fastdvdnet_pre", opts)` with
+  `model_path` set on the dictionary.
+
+**Output metrics** — `fastdvdnet_pre_l1_residual` (one scalar per
+frame): mean-absolute difference between the centre frame ``t``
+(normalised to `[0, 1]`) and the denoised output. Exists so libvmaf's
+per-frame plumbing has a scalar to record; **not** a quality metric.
+Downstream pipelines that want the actual denoised pixel data should
+consume the FFmpeg `vmaf_pre_temporal` filter once T6-7b lands.
+
+**Output range** — `[0.0, 1.0]` by construction (mean-absolute on
+normalised luma). Typical values: `~0.0` for the placeholder
+near-identity model or quiet/flat content; `~0.05` for a working
+FastDVDnet on lightly noisy content; `~0.20+` on heavy denoising or
+saturated placeholder passes.
+
+**Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
+Y plane only (chroma is ignored).
+
+#### Options
+
+| Option       | Type   | Default | Effect                                                                                                                                                                      |
+|--------------|--------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `model_path` | string | unset   | Filesystem path to the FastDVDnet ONNX model (5-frame `frames` input, single-frame `denoised` output). Overrides the `VMAF_FASTDVDNET_PRE_MODEL_PATH` environment variable. |
+
+**Backends** — scalar only on the libvmaf side (the ONNX model
+itself is dispatched to whichever ORT execution provider is selected
+via `--tiny-device`; see [`docs/ai/inference.md`](../ai/inference.md)).
+
+**Limitations** — Stateful (5-frame sliding window); not a metric
+(`fastdvdnet_pre_l1_residual` is a diagnostic residual, not a
+perceptual score). Depends on the [tiny-AI runtime](../ai/overview.md);
+extractor init fails with `-EINVAL` if no model path is provided
+(neither the `model_path` option nor the
+`VMAF_FASTDVDNET_PRE_MODEL_PATH` env var). Returns `-ENOSYS` from
+init if libvmaf was built without ORT. The shipped checkpoint at
+`model/tiny/fastdvdnet_pre.onnx` is a smoke-only placeholder with
+randomly-initialised weights that respects the I/O shape contract;
+it is not a working denoiser. Real upstream-derived FastDVDnet
+weights are tracked as backlog item T6-7b. Per ADR-0215 the
+placeholder is intentional — the surface, plumbing, and FFmpeg
+patch land first; weights follow.
 
 ## Invoking features from the CLI
 
