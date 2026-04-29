@@ -5,7 +5,7 @@
     {
       "id": "fastdvdnet_pre",
       "kind": "filter",
-      "notes": "Placeholder FastDVDnet temporal pre-filter (T6-7). 5-frame window [t-2, t-1, t, t+1, t+2] -> denoised frame t. SMOKE-ONLY: random init, not trained. Real upstream weights tracked under T6-7b. See docs/adr/0210-fastdvdnet-pre-filter.md and docs/ai/models/fastdvdnet_pre.md.",
+      "notes": "Placeholder FastDVDnet temporal pre-filter (T6-7). 5-frame window [t-2, t-1, t, t+1, t+2] -> denoised frame t. SMOKE-ONLY: random init, not trained. Real upstream weights tracked under T6-7b. See docs/adr/0215-fastdvdnet-pre-filter.md and docs/ai/models/fastdvdnet_pre.md.",
       "onnx": "fastdvdnet_pre.onnx",
       "opset": 17,
       "sha256": "7cb3196e69c770dabc5507adff26cfada191418fe57a0aa977ca12eda1d72b70",

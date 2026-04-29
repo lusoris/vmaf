@@ -1,4 +1,4 @@
-# ADR-0210: FastDVDnet temporal pre-filter — 5-frame window, placeholder weights
+# ADR-0215: FastDVDnet temporal pre-filter — 5-frame window, placeholder weights
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

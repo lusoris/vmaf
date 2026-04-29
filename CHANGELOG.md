@@ -68,7 +68,7 @@
   real upstream-derived FastDVDnet weights + the FFmpeg
   `vmaf_pre_temporal` filter that consumes the denoised frame
   buffer are tracked as **T6-7b**. New ADR
-  [ADR-0210](docs/adr/0210-fastdvdnet-pre-filter.md), user-facing
+  [ADR-0215](docs/adr/0215-fastdvdnet-pre-filter.md), user-facing
   doc [`docs/ai/models/fastdvdnet_pre.md`](docs/ai/models/fastdvdnet_pre.md),
   registration smoke test
   [`libvmaf/test/test_fastdvdnet_pre.c`](libvmaf/test/test_fastdvdnet_pre.c)

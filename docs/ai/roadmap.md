@@ -147,7 +147,7 @@ per-frame filters. Deferred if Wave 1 is already too wide.
 `vmaf_pre`.
 
 **Status.** **Contract + placeholder shipped (T6-7, 2026-04-29)** —
-[ADR-0210](../adr/0210-fastdvdnet-pre-filter.md). The libvmaf-side
+[ADR-0215](../adr/0215-fastdvdnet-pre-filter.md). The libvmaf-side
 extractor (`fastdvdnet_pre`, 5-slot ring buffer, `[1, 5, H, W] →
 [1, 1, H, W]` ONNX contract) lands with a smoke-only placeholder
 checkpoint; real upstream weights + the FFmpeg `vmaf_pre_temporal`

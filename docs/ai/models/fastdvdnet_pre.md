@@ -14,7 +14,7 @@ files at the same subjective quality.
 > contract. It is **not** a working denoiser. The real upstream-derived
 > FastDVDnet weights drop is tracked as backlog item **T6-7b** alongside
 > the FFmpeg `vmaf_pre_temporal` filter that actually consumes the
-> denoised frame buffer. See [ADR-0210](../../adr/0210-fastdvdnet-pre-filter.md)
+> denoised frame buffer. See [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md)
 > for the placeholder rationale.
 
 ## What the output means
@@ -126,5 +126,5 @@ When upstream FastDVDnet weights are vendored:
   Denoising Without Flow Estimation*, CVPR 2020. arXiv:1907.01361.
 - Reference implementation:
   [github.com/m-tassano/fastdvdnet](https://github.com/m-tassano/fastdvdnet)
-- [ADR-0210](../../adr/0210-fastdvdnet-pre-filter.md) — design decision.
+- [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md) — design decision.
 - [Roadmap §3.3](../roadmap.md) — Wave 1 schedule.

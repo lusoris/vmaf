@@ -348,7 +348,7 @@ feature/
   [ADR-0160](../../../docs/adr/0160-psnr-hvs-neon-bitexact.md)
   and [rebase-notes 0052](../../../docs/rebase-notes.md).
 - **`fastdvdnet_pre.c` 5-frame-window contract** (fork-local,
-  ADR-0210): the FastDVDnet temporal pre-filter extractor is wired
+  ADR-0215): the FastDVDnet temporal pre-filter extractor is wired
   to the I/O contract `frames: float32 NCHW [1, 5, H, W]` (channel
   axis stacks `[t-2, t-1, t, t+1, t+2]`) → `denoised: float32 NCHW
   [1, 1, H, W]`. Three pieces are load-bearing on rebase: (1) the
@@ -364,7 +364,7 @@ feature/
   (`smoke: true` in the registry); when T6-7b swaps in real
   upstream weights, keep the I/O names (`frames` / `denoised`)
   byte-identical. See
-  [ADR-0210](../../../docs/adr/0210-fastdvdnet-pre-filter.md).
+  [ADR-0215](../../../docs/adr/0215-fastdvdnet-pre-filter.md).
 
 - **`cambi.c` GPU port is hybrid host/GPU per
   [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md) +

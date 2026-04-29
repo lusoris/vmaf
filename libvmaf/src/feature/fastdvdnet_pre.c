@@ -12,7 +12,7 @@
  *  where the channel axis stacks the five luma planes
  *  ``[t-2, t-1, t, t+1, t+2]`` and the network emits a denoised version
  *  of frame ``t``. See docs/ai/models/fastdvdnet_pre.md and
- *  docs/adr/0210-fastdvdnet-pre-filter.md for the full surface contract.
+ *  docs/adr/0215-fastdvdnet-pre-filter.md for the full surface contract.
  *
  *  Pre-filter, not a metric
  *  ------------------------
