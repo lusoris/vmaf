@@ -284,7 +284,7 @@
 ### Added
 
 - **HIP (AMD ROCm) compute backend — scaffold-only audit-first PR
-  (T7-10, ADR-0209)**: new public header
+  (T7-10, ADR-0212)**: new public header
   [`libvmaf/include/libvmaf/libvmaf_hip.h`](libvmaf/include/libvmaf/libvmaf_hip.h)
   declaring `VmafHipState`, `VmafHipConfiguration`,
   `vmaf_hip_state_init` / `_import_state` / `_state_free`,
@@ -308,7 +308,7 @@
   [`docs/backends/hip/overview.md`](docs/backends/hip/overview.md);
   [`docs/backends/index.md`](docs/backends/index.md) flipped from
   "planned" to "scaffold only". New
-  [`docs/research/0032-hip-applicability.md`](docs/research/0032-hip-applicability.md)
+  [`docs/research/0033-hip-applicability.md`](docs/research/0033-hip-applicability.md)
   digest covering AMD market share + ROCm 6.x Linux maturity.
   Mirrors the Vulkan T5-1 scaffold (ADR-0175); validates the
   abstraction-layer-clean-enough-to-reproduce gating condition for

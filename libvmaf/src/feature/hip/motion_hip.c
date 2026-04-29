@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Stub motion kernel for the HIP backend. Scaffolded by ADR-0209 /
+ *  Stub motion kernel for the HIP backend. Scaffolded by ADR-0212 /
  *  T7-10 — replace with a real HIP implementation when the runtime
  *  PR lands.
  */

@@ -11,13 +11,13 @@
 
 /**
  * @file libvmaf_hip.h
- * @brief HIP (AMD ROCm) backend public API — scaffolded by ADR-0209 / T7-10.
+ * @brief HIP (AMD ROCm) backend public API — scaffolded by ADR-0212 / T7-10.
  *
  * **Status: scaffold only.** Every entry point currently returns -ENOSYS
  * pending a real implementation. The header lands so downstream consumers
  * can compile against the API surface; the kernels (ADM, VIF, motion)
  * arrive in follow-up PRs. Mirrors the Vulkan scaffold (ADR-0175) — see
- * ADR-0209 for the audit-first decision and rollout sequence.
+ * ADR-0212 for the audit-first decision and rollout sequence.
  *
  * When libvmaf was built without `-Denable_hip=true`, every entry point
  * returns -ENOSYS unconditionally and the runtime treats HIP as

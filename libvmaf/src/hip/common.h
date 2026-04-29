@@ -14,7 +14,7 @@ extern "C" {
 #endif
 
 /*
- * Scaffolded by ADR-0209 / T7-10 (mirrors the Vulkan scaffold ADR-0175).
+ * Scaffolded by ADR-0212 / T7-10 (mirrors the Vulkan scaffold ADR-0175).
  * Replace the stubs in common.c, picture_hip.c, dispatch_strategy.c,
  * and feature/hip/<feature>_hip.c with real HIP runtime implementations.
  */

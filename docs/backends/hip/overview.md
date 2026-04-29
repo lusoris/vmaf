@@ -5,7 +5,7 @@
 > currently returns `-ENOSYS` pending the runtime PR. The backend
 > exists to give downstream consumers (and the rebase story) a
 > stable API surface; runtime functionality lands incrementally per
-> [ADR-0209](../../adr/0209-hip-backend-scaffold.md), mirroring the
+> [ADR-0212](../../adr/0212-hip-backend-scaffold.md), mirroring the
 > Vulkan scaffold-then-runtime split that
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) /
 > [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md) used
@@ -63,7 +63,7 @@ that already has ROCm installed will see the dependency resolve;
 the scaffold compiles cleanly without it.
 
 Adding the real linkage is the responsibility of the first kernel
-PR per [ADR-0209](../../adr/0209-hip-backend-scaffold.md) §
+PR per [ADR-0212](../../adr/0212-hip-backend-scaffold.md) §
 "Alternatives considered" (the rejected alternative was "pull all
 build deps in now"; doing so would gate the scaffold's CI run on a
 ROCm SDK that no kernel uses yet).
@@ -94,7 +94,7 @@ ROCm SDK that no kernel uses yet).
 - No real HIP calls. Every entry point's body is a `TODO` comment.
 - No hard `dependency('hip-lang')` requirement (the `required: false`
   probe stays optional).
-- No `hipify`-based CUDA-to-HIP translation layer — see ADR-0209 §
+- No `hipify`-based CUDA-to-HIP translation layer — see ADR-0212 §
   "Alternatives considered" for why the fork keeps a hand-written
   HIP backend instead of auto-translating the existing CUDA path.
 - No CI runner with a real AMD GPU — none currently exists in
@@ -109,7 +109,7 @@ ROCm SDK that no kernel uses yet).
   `-Denable_hip=true` explicitly. The Vulkan scaffold uses a
   `feature` option instead for parity with `enable_dnn`; HIP follows
   the **boolean** convention used by `enable_cuda` and `enable_sycl`
-  to keep the AMD/NVIDIA/Intel triad uniform — see ADR-0209 §
+  to keep the AMD/NVIDIA/Intel triad uniform — see ADR-0212 §
   "Decision".
 - The kernel stubs intentionally do not register with the feature
   registry — they would otherwise dispatch to no-op implementations
@@ -123,11 +123,11 @@ ROCm SDK that no kernel uses yet).
 
 ## References
 
-- [ADR-0209](../../adr/0209-hip-backend-scaffold.md) — the
+- [ADR-0212](../../adr/0212-hip-backend-scaffold.md) — the
   scaffold-only audit-first PR that ships this surface.
 - [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) — the
   Vulkan precedent this PR mirrors.
-- [Research-0032](../../research/0032-hip-applicability.md) —
+- [Research-0033](../../research/0033-hip-applicability.md) —
   AMD market-share + ROCm Linux maturity check.
 - [`/add-gpu-backend`](../../../.claude/skills/add-gpu-backend/SKILL.md)
   — the skill that produced the initial scaffold (subsequently

@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  HIP backend common surface — scaffold only (ADR-0209 / T7-10).
+ *  HIP backend common surface — scaffold only (ADR-0212 / T7-10).
  *  Mirrors libvmaf/src/vulkan/common.c. Replace the stubs with a real
  *  HIP runtime probe (`hipInit` / `hipGetDeviceCount` /
  *  `hipDeviceGetName`) and stream creation when the kernels land.

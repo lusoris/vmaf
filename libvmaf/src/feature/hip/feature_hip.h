@@ -3,7 +3,7 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  Forward declarations for the HIP feature kernel stubs scaffolded
- *  under ADR-0209 / T7-10. Each kernel exposes the standard
+ *  under ADR-0212 / T7-10. Each kernel exposes the standard
  *  `init` / `run` / `destroy` triplet against an opaque
  *  `VmafHipContext`. The runtime PR (T7-10b) wires these into the
  *  feature registry; the scaffold only declares them so the entry

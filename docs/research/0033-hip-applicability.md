@@ -1,15 +1,15 @@
-# Research-0032: HIP (AMD ROCm) backend applicability
+# Research-0033: HIP (AMD ROCm) backend applicability
 
 - **Date**: 2026-04-29
 - **Author**: Lusoris, Claude (Anthropic)
-- **Companion to**: [ADR-0209](../adr/0209-hip-backend-scaffold.md)
+- **Companion to**: [ADR-0212](../adr/0212-hip-backend-scaffold.md)
 - **Status**: Informational
 
 ## Question
 
 Does the fork need a first-class HIP (AMD ROCm) compute backend?
 Specifically, does the AMD-Linux user base + ROCm 6.x maturity
-justify the audit-first scaffold ADR-0209 lands, or is the existing
+justify the audit-first scaffold ADR-0212 lands, or is the existing
 Vulkan compute path (which runs on AMD GPUs via the AMDGPU Mesa
 stack and the AMDVLK closed driver) sufficient coverage?
 
@@ -57,7 +57,7 @@ dominant that the path needs to ship before the kernels are real.
   ROCm 5.0 → 6.x.
 - `hipify-perl` / `hipify-clang` translate CUDA source to HIP source.
   Acceptable for porting tooling; the fork chooses hand-written HIP
-  per ADR-0209 § "Alternatives considered".
+  per ADR-0212 § "Alternatives considered".
 
 **Read:** ROCm Linux maturity is sufficient for an audit-first
 scaffold today and a runtime PR within the next backlog cycle.
@@ -102,7 +102,7 @@ specifically (server / HPC, performance-tier desktop).
 
 ## Decision
 
-The audit-first scaffold (ADR-0209) lands now. Runtime PR
+The audit-first scaffold (ADR-0212) lands now. Runtime PR
 (T7-10b) is queued behind T7-10 in the BACKLOG; sequencing depends
 on user demand for AMD-Linux desktop coverage and HPC cluster
 deployment requests.
@@ -112,13 +112,13 @@ This digest does **not** justify investing in:
 - HIP-on-Windows support (Windows ROCm is preview-grade as of
   2026-04; revisit when a stable user-mode driver ships).
 - `hipify`-driven auto-translation of the entire CUDA backend
-  (rejected per ADR-0209 § "Alternatives considered").
+  (rejected per ADR-0212 § "Alternatives considered").
 - An `enable_hip=auto` default flip before the kernels prove
   bit-exactness.
 
 ## References
 
-- [ADR-0209](../adr/0209-hip-backend-scaffold.md) — the
+- [ADR-0212](../adr/0212-hip-backend-scaffold.md) — the
   scaffold-only PR this digest informs.
 - [ADR-0175](../adr/0175-vulkan-backend-scaffold.md) — Vulkan
   scaffold pattern this PR mirrors.

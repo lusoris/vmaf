@@ -1,4 +1,4 @@
-# ADR-0209: HIP (AMD ROCm) compute backend — scaffold-only audit-first PR (T7-10)
+# ADR-0212: HIP (AMD ROCm) compute backend — scaffold-only audit-first PR (T7-10)
 
 - **Status**: Accepted
 - **Date**: 2026-04-29
@@ -12,7 +12,7 @@ The fork's GPU portfolio currently covers NVIDIA (CUDA), Intel
 paths. The matrix has a load-bearing gap: AMD GPUs running ROCm have no
 first-class backend. AMD's discrete-GPU share on Linux desktops is
 non-trivial (Steam HW Survey 2026 ~15 % among Linux respondents — see
-[Research-0032](../research/0032-hip-applicability.md)) and ROCm 6.x
+[Research-0033](../research/0033-hip-applicability.md)) and ROCm 6.x
 ships a stable `hip-runtime-amd` user-space that mirrors CUDA's API
 surface closely.
 
@@ -151,7 +151,7 @@ the same syntax (`-Denable_<vendor>=true|false`).
   do not currently expose AMD GPUs; the runtime PR's smoke test will
   skip the device-resident assertions when `vmaf_hip_device_count() == 0`,
   matching the Vulkan-on-lavapipe-less-CI pattern.
-- ADR-0209 will be referenced by every subsequent T7-10X kernel PR for
+- ADR-0212 will be referenced by every subsequent T7-10X kernel PR for
   the rebase-invariant story.
 
 ## Tests
@@ -199,7 +199,7 @@ the same syntax (`-Denable_<vendor>=true|false`).
   second-GPU-backend pattern, gating T7-10 per the BACKLOG row.
 - [ADR-0173](0173-ptq-int8-audit-impl.md) — the same audit-first
   pattern applied to the PTQ harness.
-- [Research-0032](../research/0032-hip-applicability.md) — AMD market
+- [Research-0033](../research/0033-hip-applicability.md) — AMD market
   share + ROCm Linux maturity check.
 - [`/add-gpu-backend`](../../.claude/skills/add-gpu-backend/SKILL.md) —
   the skill that produced the initial scaffold.

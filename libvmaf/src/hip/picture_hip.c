@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Picture allocation / lifecycle for the HIP backend (ADR-0209 / T7-10).
+ *  Picture allocation / lifecycle for the HIP backend (ADR-0212 / T7-10).
  *  Stub only — replace with a real `hipMalloc` / `hipMallocAsync` (ROCm
  *  6+) allocator backed by an arena when the kernels need it. Mirrors
  *  libvmaf/src/vulkan/picture_vulkan.c.

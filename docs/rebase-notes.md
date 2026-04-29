@@ -4738,7 +4738,7 @@ inline.*
 
 ### 0074 — HIP (AMD ROCm) backend scaffold (T7-10)
 
-- **ADR**: [ADR-0209](adr/0209-hip-backend-scaffold.md).
+- **ADR**: [ADR-0212](adr/0212-hip-backend-scaffold.md).
 - **Upstream source**: fork-local. HIP backend is fork-only;
   Netflix/vmaf has no `libvmaf_hip.h` and no `enable_hip` meson
   option.
@@ -4765,8 +4765,8 @@ inline.*
     `Build — Ubuntu HIP (T7-10 scaffold)` row.
   - `docs/backends/hip/overview.md` (new),
     `docs/backends/index.md` (planned → scaffold row),
-    `docs/research/0032-hip-applicability.md` (new),
-    `docs/adr/0209-hip-backend-scaffold.md` (new),
+    `docs/research/0033-hip-applicability.md` (new),
+    `docs/adr/0212-hip-backend-scaffold.md` (new),
     `docs/adr/README.md` (new index row).
   - `libvmaf/AGENTS.md` — new "HIP backend scaffold contract"
     rebase-sensitive invariant entry.
@@ -4775,7 +4775,7 @@ inline.*
   1. **`enable_hip` is a `boolean` option, not a `feature`.**
      Mirrors `enable_cuda` / `enable_sycl`; do not "harmonise" with
      `enable_vulkan`'s `feature` / `disabled` form without an ADR
-     amendment per ADR-0209 § "Decision".
+     amendment per ADR-0212 § "Decision".
   2. **Public C-API entry points return `-ENOSYS` for the
      scaffold.** The smoke test
      [libvmaf/test/test_hip_smoke.c](../libvmaf/test/test_hip_smoke.c)
@@ -4796,7 +4796,7 @@ inline.*
   5. **Header purity**: `libvmaf_hip.h` does not include
      `<hip/hip_runtime.h>`. HIP runtime types cross the public ABI
      as `uintptr_t` (matches the CUDA / Vulkan precedent;
-     ADR-0209). Don't add `<hip/...>` includes to the public header
+     ADR-0212). Don't add `<hip/...>` includes to the public header
      during a rebase / runtime-PR bring-up.
 - **No FFmpeg patch**: the fork's `ffmpeg-patches/` series does
   not currently consume the HIP API surface. CLAUDE §12 r14 only

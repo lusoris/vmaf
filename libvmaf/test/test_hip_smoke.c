@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Build + init smoke test for the HIP backend scaffold (ADR-0209 / T7-10).
+ *  Build + init smoke test for the HIP backend scaffold (ADR-0212 / T7-10).
  *  Every public C-API entry point in libvmaf_hip.h is expected to return
  *  -ENOSYS (or -EINVAL on bad arguments) until the runtime PR lands; this
  *  test pins that contract so a future PR can't accidentally enable the

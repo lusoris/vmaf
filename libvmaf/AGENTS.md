@@ -74,7 +74,7 @@ libvmaf/
   is `push_c()` at entry → body → `pop()` before the `ferror`
   check; dropping the `pop()` leaks a `locale_t` on POSIX and
   leaves the calling thread locked to `"C"` on Windows.
-- **HIP backend scaffold contract** (fork-local, ADR-0209 / T7-10):
+- **HIP backend scaffold contract** (fork-local, ADR-0212 / T7-10):
   the `enable_hip=true` build path compiles
   [src/hip/](src/hip/) and [src/feature/hip/](src/feature/hip/)
   into `libvmaf_feature_static_lib` and exposes the public C-API
@@ -93,7 +93,7 @@ libvmaf/
   `required: false` for the scaffold; flipping to `true` belongs
   to the runtime PR. The `enable_hip` option type is
   `boolean` (matching `enable_cuda` / `enable_sycl`); do NOT
-  convert it to `feature` without an ADR amendment per ADR-0209
+  convert it to `feature` without an ADR amendment per ADR-0212
   § "Decision".
 - **Thread-pool job recycling + inline data buffer** (fork-local,
   ADR-0147): [`src/thread_pool.c`](src/thread_pool.c) recycles

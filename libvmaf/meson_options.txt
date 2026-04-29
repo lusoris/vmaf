@@ -91,4 +91,4 @@ option('enable_mcp_stdio',
 option('enable_hip',
     type: 'boolean',
     value: false,
-    description: 'Build HIP (AMD ROCm) compute backend (ADR-0209 scaffold / T7-10). Default OFF — every entry point returns -ENOSYS until the runtime PR lands. Requires ROCm 6+ when the kernels arrive; the scaffold has no SDK requirement.')
+    description: 'Build HIP (AMD ROCm) compute backend (ADR-0212 scaffold / T7-10). Default OFF — every entry point returns -ENOSYS until the runtime PR lands. Requires ROCm 6+ when the kernels arrive; the scaffold has no SDK requirement.')
