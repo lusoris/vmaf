@@ -56,6 +56,14 @@ sycl/
   gain limiting uses fp32 `sycl::fmin`. **On rebase**: if an
   upstream cherry-pick brings a `double` into a kernel lambda,
   refactor it to int64 / fp32 before merging.
+- **VAAPI / dmabuf zero-copy import surface
+  ([ADR-0183](../../../docs/adr/0183-ffmpeg-libvmaf-sycl-filter.md))**:
+  `vmaf_sycl_import_va_surface` is consumed by the `libvmaf_sycl`
+  FFmpeg filter (`ffmpeg-patches/0005-*.patch`). Symmetric to the
+  Vulkan VkImage import in
+  [ADR-0186](../../../docs/adr/0186-vulkan-image-import-impl.md).
+  Public surface change touches the patch file too — see
+  CLAUDE.md §12 r14.
 
 ## Governing ADRs
 
