@@ -576,21 +576,34 @@ int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path)
         return err;
     assert(bundle_rel[0] != '\0');
 
-    /* Resolve the bundle path relative to the registry's directory. */
+    /* Resolve the bundle path relative to the registry's directory.
+     *
+     * We use memcpy() instead of snprintf("%s", ...) for the rel-component
+     * copy: gcc's -Wformat-truncation cannot prove the destination is wide
+     * enough (it sees `bundle_rel` as a PATH_MAX-sized buffer and the
+     * destination tail as up to `sizeof(bundle_abs) - 1`, then warns about
+     * a theoretical 4095-byte truncation even though the explicit
+     * length-precondition above rules it out at runtime). memcpy + an
+     * explicit NUL keeps the bounds check load-bearing without the false
+     * positive. */
     char bundle_abs[PATH_MAX];
     const char *reg_slash = strrchr(reg_path, '/');
     if (reg_slash) {
         const size_t dlen = (size_t)(reg_slash - reg_path);
-        if (dlen + 1u + strlen(bundle_rel) + 1u > sizeof(bundle_abs))
+        const size_t blen = strlen(bundle_rel);
+        if (dlen + 1u + blen + 1u > sizeof(bundle_abs))
             return -ENAMETOOLONG;
         assert(dlen < sizeof(bundle_abs));
         memcpy(bundle_abs, reg_path, dlen);
         bundle_abs[dlen] = '/';
-        (void)snprintf(bundle_abs + dlen + 1u, sizeof(bundle_abs) - dlen - 1u, "%s", bundle_rel);
+        memcpy(bundle_abs + dlen + 1u, bundle_rel, blen);
+        bundle_abs[dlen + 1u + blen] = '\0';
     } else {
-        const int n = snprintf(bundle_abs, sizeof(bundle_abs), "%s", bundle_rel);
-        if (n < 0 || (size_t)n >= sizeof(bundle_abs))
+        const size_t blen = strlen(bundle_rel);
+        if (blen + 1u > sizeof(bundle_abs))
             return -ENAMETOOLONG;
+        memcpy(bundle_abs, bundle_rel, blen);
+        bundle_abs[blen] = '\0';
     }
     assert(bundle_abs[0] != '\0');
 

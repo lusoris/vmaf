@@ -100,8 +100,13 @@
   [`docs/ai/inference.md`](docs/ai/inference.md) and
   [`docs/ai/security.md`](docs/ai/security.md). Tests:
   `python/test/model_registry_schema_test.py` (10 cases) and
-  `libvmaf/test/dnn/test_tiny_model_verify.c` (5 failure-mode cases
-  on Unix; ENOSYS smoke on Windows). All five shipped models gain
+  `libvmaf/test/dnn/test_tiny_model_verify.c` (18 failure-mode
+  cases on Unix + 1 NULL-arg case covering malformed JSON,
+  default-registry
+  derivation, fake-cosign success / non-zero exit, and
+  empty / missing PATH branches — drives `model_loader.c`
+  coverage to ≥85% per the Coverage Gate critical-file rule;
+  ENOSYS smoke on Windows). All five shipped models gain
   license metadata (BSD-3-Clause-Plus-Patent for fork-trained;
   BSD-2-Clause for the upstream LPIPS-Sq export).
 
