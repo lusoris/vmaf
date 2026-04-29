@@ -470,6 +470,20 @@ test_vulkan_smoke = executable('test_vulkan_smoke',
 test('test_vulkan_smoke', test_vulkan_smoke)
 endif
 
+# ADR-0209 / T5-2: embedded MCP scaffold smoke. Pins the -ENOSYS
+# contract on every public entry point so a future runtime PR
+# (T5-2b) cannot wire a transport without flipping the expectations.
+if get_option('enable_mcp')
+test_mcp_smoke = executable('test_mcp_smoke',
+    ['test.c', 'test_mcp_smoke.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+    c_args: ['-DHAVE_MCP=1']
+)
+test('test_mcp_smoke', test_mcp_smoke)
+endif
+
 test('test_picture', test_picture)
 test('test_feature_collector', test_feature_collector)
 test('test_thread_pool', test_thread_pool)

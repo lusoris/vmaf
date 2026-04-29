@@ -6,6 +6,30 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Added
+
+- **Embedded MCP server scaffold (T5-2, audit-first)** — new
+  public header
+  [`libvmaf/include/libvmaf/libvmaf_mcp.h`](libvmaf/include/libvmaf/libvmaf_mcp.h)
+  declaring the in-process MCP API (`vmaf_mcp_init` /
+  `_start_sse` / `_start_uds` / `_start_stdio` / `_stop` /
+  `_close` / `_available` / `_transport_available`); stub TU at
+  `libvmaf/src/mcp/mcp.c` returning `-ENOSYS` (or `-EINVAL` on
+  bad arguments); new umbrella `enable_mcp` boolean (default
+  `false`) plus per-transport sub-flags `enable_mcp_sse`,
+  `enable_mcp_uds`, `enable_mcp_stdio`; 12-sub-test smoke at
+  `libvmaf/test/test_mcp_smoke.c` pinning the `-ENOSYS` +
+  NULL-guard contract; user-facing doc at
+  [`docs/mcp/embedded.md`](docs/mcp/embedded.md). **Scaffold
+  only** — the T5-2b follow-up PR vendors cJSON + mongoose,
+  spawns the dedicated MCP pthread + SPSC ring buffer, and
+  fills in the SSE / UDS / stdio transport bodies. Same
+  audit-first shape as ADR-0175 (Vulkan T5-1) and ADR-0184
+  (T7-29 part 1). See
+  [ADR-0209](docs/adr/0209-mcp-embedded-scaffold.md) +
+  [ADR-0128](docs/adr/0128-embedded-mcp-in-libvmaf.md) +
+  [Research-0005](docs/research/0005-embedded-mcp-transport.md).
+
 ### Removed
 
 - **`VMAF_MAX_MODEL_BYTES` env override retired (T7-12)**: the

@@ -1,5 +1,20 @@
 # MCP server — `vmaf-mcp`
 
+The Lusoris VMAF fork ships **two** MCP surfaces:
+
+1. **External Python MCP server** (`vmaf-mcp`, this document) —
+   wraps the `vmaf` CLI, recommended for "score a video and hand
+   the result to my agent" workflows. Stable, in production use.
+2. **Embedded MCP server inside libvmaf** — runs in-process on
+   the host that loaded `libvmaf.so`; lets agents introspect or
+   steer a running measurement (mid-stream feature queries, model
+   hot-swap requests). Currently scaffold-only — every entry
+   point returns `-ENOSYS` until the T5-2b runtime PR. See
+   [`docs/mcp/embedded.md`](embedded.md) for the build flags +
+   API reference.
+
+The two surfaces are additive; running both at once is fine.
+
 `vmaf-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
 server that exposes the Lusoris VMAF fork's scoring CLI to LLM tooling
 (Claude Desktop, Cursor, custom MCP clients) over JSON-RPC on stdio.

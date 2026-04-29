@@ -30,6 +30,53 @@ cover several PRs in one workstream; cross-link from the ID heading.
 The pre-ADR-0108 fork-local PRs are summarised by workstream rather
 than per-PR. Future PRs add entries individually.
 
+### 0084 — Embedded MCP server scaffold (T5-2, ADR-0209)
+
+- **ADR**: [ADR-0209](adr/0209-mcp-embedded-scaffold.md) (audit-first
+  scaffold) on top of the [ADR-0128](adr/0128-embedded-mcp-in-libvmaf.md)
+  governance + [Research-0005](research/0005-embedded-mcp-transport.md)
+  design.
+- **Upstream source**: fork-local. Netflix/vmaf has no embedded
+  MCP server (and no plans to add one — the workflow is
+  agent-tooling-specific, well outside upstream's library scope).
+- **Touches**:
+  - `libvmaf/include/libvmaf/libvmaf_mcp.h` — new public header.
+  - `libvmaf/include/libvmaf/meson.build` — new
+    `if get_option('enable_mcp')` install branch.
+  - `libvmaf/src/mcp/` — new directory: `mcp.c` (stub TU) +
+    `meson.build` (exposes `mcp_sources` + `mcp_defines`).
+  - `libvmaf/src/meson.build` — new `is_mcp_enabled` guard +
+    `subdir('mcp')` block; `mcp_sources` threaded into the
+    `library('vmaf', ...)` source list alongside `dnn_sources`.
+  - `libvmaf/test/meson.build` — new `if get_option('enable_mcp')`
+    block wiring `test_mcp_smoke`.
+  - `libvmaf/test/test_mcp_smoke.c` — new 12-sub-test smoke.
+  - `libvmaf/meson_options.txt` — new `enable_mcp` umbrella +
+    three sub-flags (all default `false`).
+- **Invariant**: every public entry point in `libvmaf_mcp.h`
+  (`vmaf_mcp_init` / `_start_sse` / `_start_uds` / `_start_stdio` /
+  `_stop` / `_close`) returns `-ENOSYS` (or `-EINVAL` on bad
+  arguments) until the T5-2b runtime PR lands. The smoke pins
+  this contract — a runtime PR that flips a return code without
+  flipping the smoke expectation regresses the gate.
+- **On upstream sync**: zero interaction with upstream files.
+  Wholly additive directory + boolean build flags. The
+  `subdir('mcp')` insertion in `libvmaf/src/meson.build` lives
+  next to the existing `subdir('dnn')` / Vulkan blocks; an
+  upstream conflict in that area would be confined to those few
+  lines and is mechanical to resolve.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-cpu libvmaf -Denable_cuda=false -Denable_sycl=false -Denable_mcp=false
+  ninja -C build-cpu && meson test -C build-cpu  # baseline still green
+
+  meson setup --reconfigure build-cpu libvmaf -Denable_mcp=true \
+              -Denable_mcp_sse=true -Denable_mcp_uds=true -Denable_mcp_stdio=true
+  ninja -C build-cpu
+  meson test -C build-cpu test_mcp_smoke  # 12/12 sub-tests pass
+  ```
+
 ### 0065 — T7-37 Netflix bench rerun + `docs/benchmarks.md` `TBD` fill
 
 - **No ADR.** Empirical fill of pre-existing `TBD` cells; no new

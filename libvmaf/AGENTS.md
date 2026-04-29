@@ -93,6 +93,23 @@ libvmaf/
   See [ADR-0147](../docs/adr/0147-thread-pool-job-pool.md) and
   [rebase-notes 0040](../docs/rebase-notes.md).
 
+- **Embedded MCP scaffold contract** (fork-local, [ADR-0209](../docs/adr/0209-mcp-embedded-scaffold.md)).
+  [`src/mcp/mcp.c`](src/mcp/mcp.c) is the audit-first stub TU
+  for the in-process MCP server declared in
+  [`include/libvmaf/libvmaf_mcp.h`](include/libvmaf/libvmaf_mcp.h).
+  Every public entry point validates its arguments first
+  (`-EINVAL` on NULLs / negative fds / NULL paths) **then** returns
+  `-ENOSYS`. The 12-sub-test smoke at
+  [`test/test_mcp_smoke.c`](test/test_mcp_smoke.c) pins the
+  contract; the T5-2b runtime PR flips bodies in place and
+  updates the smoke expectations in the same commit. Do not
+  drop the NULL-argument validation when wiring real bodies —
+  the smoke tests for `_init`, `_start_uds`, `_start_stdio`
+  rely on early `-EINVAL` even after the runtime arrives. The
+  `enable_mcp` umbrella flag must default `false` until all
+  three transport bodies are stable; the silent-flip risk is
+  the same as ADR-0175's Vulkan precedent.
+
 Backend-specific orientation:
 
 - [src/cuda/AGENTS.md](src/cuda/AGENTS.md) — CUDA backend runtime

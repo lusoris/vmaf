@@ -96,6 +96,12 @@ jobs:
           #   - libvmaf/tools/vmaf_vpl.c — VAAPI integration; needs
           #     `va/va.h` from libva-dev plus the CUDA/SYCL link path; no
           #     compile_commands entry in the CPU-only build.
+          #   - libvmaf/src/mcp/ + libvmaf/test/test_mcp_smoke.c —
+          #     gated by `-Denable_mcp=true`; the CPU-only lint build
+          #     has the umbrella flag off (ADR-0209 audit-first
+          #     scaffold, T5-2). Local lint runs against a build
+          #     configured with `-Denable_mcp=true -Denable_mcp_sse=true
+          #     -Denable_mcp_uds=true -Denable_mcp_stdio=true`.
           # Local lint on these files runs against `libvmaf/build-cuda/`.
           # `--diff-filter=d` excludes Deleted entries — clang-tidy can't
           # lint a file that no longer exists on disk; without this filter
@@ -116,6 +122,8 @@ jobs:
               | grep -v '^libvmaf/src/vulkan/' \
               | grep -v '^libvmaf/src/feature/vulkan/' \
               | grep -v '^libvmaf/test/test_vulkan' \
+              | grep -v '^libvmaf/src/mcp/' \
+              | grep -v '^libvmaf/test/test_mcp' \
               | tr '\n' ' ')
           elif [ "${{ github.event_name }}" = "push" ]; then
             before="${{ github.event.before }}"
@@ -137,6 +145,8 @@ jobs:
               | grep -v '^libvmaf/src/vulkan/' \
               | grep -v '^libvmaf/src/feature/vulkan/' \
               | grep -v '^libvmaf/test/test_vulkan' \
+              | grep -v '^libvmaf/src/mcp/' \
+              | grep -v '^libvmaf/test/test_mcp' \
               | tr '\n' ' ')
               else
                 files=""
@@ -155,6 +165,8 @@ jobs:
               | grep -v '^libvmaf/src/vulkan/' \
               | grep -v '^libvmaf/src/feature/vulkan/' \
               | grep -v '^libvmaf/test/test_vulkan' \
+              | grep -v '^libvmaf/src/mcp/' \
+              | grep -v '^libvmaf/test/test_mcp' \
               | tr '\n' ' ')
             fi
           else
@@ -173,6 +185,8 @@ jobs:
               | grep -v '^libvmaf/src/vulkan/' \
               | grep -v '^libvmaf/src/feature/vulkan/' \
               | grep -v '^libvmaf/test/test_vulkan' \
+              | grep -v '^libvmaf/src/mcp/' \
+              | grep -v '^libvmaf/test/test_mcp' \
               | tr '\n' ' ')
           fi
           [ -z "$files" ] && { echo "no C/C++ changes"; exit 0; }
