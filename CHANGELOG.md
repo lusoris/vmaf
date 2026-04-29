@@ -368,6 +368,24 @@
     `ssim_vulkan` / `cambi_vulkan`).
 
   See [ADR-0221](docs/adr/0221-gpu-kernel-template.md).
+- **`vmaf-perShot` per-shot CRF predictor sidecar (T6-3b / ADR-0222).**
+  New standalone CLI under `libvmaf/tools/vmaf_per_shot.c` that
+  consumes a YUV reference, segments it into shots via a
+  frame-difference heuristic, computes per-shot complexity +
+  motion-energy + length signals, and emits a per-shot CRF plan as
+  CSV (default) or JSON. v1 uses a transparent linear-blend
+  predictor (no training corpus needed); v2 will swap in a small
+  trained MLP under the same schema. Pairs with the in-flight
+  TransNet V2 extractor (T6-3a / ADR-0220) — once that lands, the
+  tool will accept a pre-computed shot map via `--shots`. Smoke
+  test under `libvmaf/tools/test/test_vmaf_per_shot.sh` runs
+  against the `testdata/ref_576x324_48f.yuv` fixture (≥1 shot
+  detected, all CRFs in `[crf-min, crf-max]`). New user doc
+  [`docs/usage/vmaf-perShot.md`](docs/usage/vmaf-perShot.md);
+  cross-linked from [`docs/usage/cli.md`](docs/usage/cli.md);
+  `libvmaf/tools/AGENTS.md` carries the standalone-sidecar +
+  stable-schema invariants. See
+  [ADR-0222](docs/adr/0222-vmaf-per-shot-tool.md).
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame

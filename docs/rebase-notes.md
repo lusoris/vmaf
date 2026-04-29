@@ -5187,4 +5187,39 @@ inline.*
       -Denable_vulkan=enabled -Denable_cuda=false -Denable_sycl=false
   ninja -C libvmaf/build-vulkan
   meson test -C libvmaf/build-vulkan
+### 0222 — `vmaf-perShot` per-shot CRF predictor sidecar (T6-3b)
+
+- **Touches**: `libvmaf/tools/meson.build` (new executable +
+  test wiring), `libvmaf/tools/vmaf_per_shot.c` (new file —
+  fork-local, no upstream sibling), `libvmaf/tools/test/meson.build`
+  (test row), `libvmaf/tools/test/test_vmaf_per_shot.sh` (new
+  smoke test), `libvmaf/tools/AGENTS.md` (sidecar invariants),
+  `docs/usage/cli.md` (cross-link), `docs/usage/vmaf-perShot.md`
+  (new user doc), `docs/ai/roadmap.md` (T6-3b row update).
+- **Invariant**: the sidecar must stay **standalone** — it does
+  not link the libvmaf metric path. Any upstream patch that tries
+  to fold per-shot CRF prediction into `vmaf_score_*` would
+  collapse the encoder-hint vs. quality-score separation
+  recorded in roadmap §2.4 and ADR-0222 §Decision. The
+  CSV / JSON column set (`shot_id`, `start_frame`, `end_frame`,
+  `frames`, `mean_complexity`, `mean_motion`, `predicted_crf`)
+  is the public schema; downstream encoders consume it directly.
+- **Conflict expectation on `/sync-upstream`**: low. Upstream
+  Netflix has no per-shot CRF predictor in tree, so there is no
+  natural collision point — `tools/meson.build` is the only
+  mutually-edited file and the new `executable('vmaf-perShot', …)`
+  block is appended after `vmaf_bench_deps`, well clear of
+  upstream's likely additions.
+- **Reproducer**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=disabled
+  ninja -C build
+  meson test -C build test_vmaf_per_shot --print-errorlogs
+  ./build/tools/vmaf-perShot \
+      --reference testdata/ref_576x324_48f.yuv \
+      --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+      --output /tmp/plan.csv
+  cat /tmp/plan.csv
   ```

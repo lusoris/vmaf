@@ -40,6 +40,26 @@ vmaf = executable(
     install : true,
 )
 
+# vmaf-perShot — T6-3b per-shot CRF predictor sidecar (ADR-0222).
+# Standalone tool: only links against libvmaf for future transnet_v2
+# integration; v1 itself uses libc-only frame-difference heuristic.
+vmaf_per_shot_deps = [stdatomic_dependency, getopt_dependency]
+vmaf_per_shot_cflags = [vmaf_cflags_common, compat_cflags]
+vmaf_per_shot_link_target = libvmaf
+if get_option('default_library') == 'both'
+    vmaf_per_shot_link_target = libvmaf.get_shared_lib()
+endif
+
+vmaf_per_shot = executable(
+    'vmaf-perShot',
+    ['vmaf_per_shot.c'],
+    include_directories : [libvmaf_inc, vmaf_include],
+    dependencies: vmaf_per_shot_deps,
+    c_args : vmaf_per_shot_cflags,
+    link_with : vmaf_per_shot_link_target,
+    install : true,
+)
+
 vmaf_bench_deps = [stdatomic_dependency]
 vmaf_bench_cflags = vmaf_cflags_common
 vmaf_bench_link_args = []

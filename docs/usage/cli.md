@@ -371,6 +371,8 @@ CPU goldens preserved verbatim as a required CI gate — see
 ## Related
 
 - [bench.md](bench.md) — `vmaf_bench` micro-benchmark harness.
+- [vmaf-perShot.md](vmaf-perShot.md) — per-shot CRF predictor sidecar
+  (T6-3b / [ADR-0222](../adr/0222-vmaf-per-shot-tool.md)).
 - [ffmpeg.md](ffmpeg.md) — using the VMAF filter inside `ffmpeg`.
 - [python.md](python.md) — Python bindings for the CLI.
 - [precision.md](precision.md) — dedicated `--precision` flag walkthrough.
