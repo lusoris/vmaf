@@ -62,7 +62,7 @@ int vmaf_dnn_available(void);
  *
  * @return 0 on success, -ENOSYS if built without DNN support, -EINVAL on bad
  *         args, -ENOENT if the path does not exist, -E2BIG if the file is
- *         larger than VMAF_MAX_MODEL_BYTES (default 50 MB).
+ *         larger than the compile-time 50 MB cap (VMAF_DNN_DEFAULT_MAX_BYTES).
  */
 int vmaf_use_tiny_model(VmafContext *ctx, const char *onnx_path, const VmafDnnConfig *cfg);
 

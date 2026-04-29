@@ -82,9 +82,10 @@ Returns:
 - `-ENOSYS` — built without DNN support.
 - `-EINVAL` — bad args (null `ctx` or `onnx_path`).
 - `-ENOENT` — `onnx_path` does not exist or is not a regular file.
-- `-E2BIG` — file exceeds `VMAF_MAX_MODEL_BYTES` (default 50 MB — defence
-  against adversarial bloat; see
-  [ADR-0039](../adr/0039-onnx-runtime-op-walk-registry.md)).
+- `-E2BIG` — file exceeds the compile-time 50 MB cap
+  (`VMAF_DNN_DEFAULT_MAX_BYTES` — defence against adversarial bloat;
+  see [ADR-0039](../adr/0039-onnx-runtime-op-walk-registry.md)). The
+  historical `VMAF_MAX_MODEL_BYTES` env override was retired in T7-12.
 - `-ENOMEM` — session allocation failed (ORT env, session options, or
   internal buffer allocation).
 - Negative `errno` from the operator-allowlist walk if the model contains a

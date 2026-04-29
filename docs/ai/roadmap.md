@@ -195,8 +195,11 @@ JSON output path, N. Steps:
 to Moondream2 (1.8B quantized Q4 fits in 4 GB VRAM).
 
 **Sandbox.** VLM runs via ONNX Runtime under the extended allowlist
-(§4). Absolute path resolution and ≤ 50 MB cap still apply; larger VLMs
-will need the env-override `VMAF_MAX_MODEL_BYTES` raised at runtime.
+(§4). Absolute path resolution and ≤ 50 MB cap still apply; larger
+VLMs will need the compile-time `VMAF_DNN_DEFAULT_MAX_BYTES` constant
+in [`libvmaf/src/dnn/model_loader.h`](../../libvmaf/src/dnn/model_loader.h)
+bumped and the library rebuilt (the historical
+`VMAF_MAX_MODEL_BYTES` env override was retired in T7-12).
 
 ## 6. Training-side items
 
@@ -226,8 +229,11 @@ Not on the roadmap, for clarity:
 - Adding a second inference runtime (TFLite, ggml). ONNX Runtime is the
   one runtime.
 - Cloud-only / API-dependent models. Everything runs local.
-- Models > 50 MB by default. Raise the cap per-invocation with
-  `VMAF_MAX_MODEL_BYTES` when it genuinely helps.
+- Models > 50 MB. The cap is the compile-time
+  `VMAF_DNN_DEFAULT_MAX_BYTES` constant; bump it in
+  [`libvmaf/src/dnn/model_loader.h`](../../libvmaf/src/dnn/model_loader.h)
+  and rebuild when a use case genuinely needs it (the previous
+  `VMAF_MAX_MODEL_BYTES` env-override hatch was retired in T7-12).
 - `Scan` and arbitrary control flow. See §4 non-goal.
 
 ## 9. Related documents

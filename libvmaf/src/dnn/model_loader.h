@@ -15,7 +15,13 @@
 extern "C" {
 #endif
 
-/** Defaults; override via env VMAF_MAX_MODEL_BYTES (50 MB). */
+/** Compile-time cap for ONNX file size (50 MB).
+ *
+ *  The historical `VMAF_MAX_MODEL_BYTES` env override was removed in
+ *  T7-12 once two release cycles passed without a shipped model
+ *  approaching the cap. The constant is now the single source of
+ *  truth — bump it here (and re-run the size-cap tests) if a future
+ *  use case genuinely needs a larger envelope. */
 #define VMAF_DNN_DEFAULT_MAX_BYTES ((size_t)50u * 1024u * 1024u)
 
 /** Post-training quantisation mode (ADR-0129 / ADR-0173). Tracks the

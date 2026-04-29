@@ -32,15 +32,9 @@ int vmaf_use_tiny_model(VmafContext *ctx, const char *onnx_path, const VmafDnnCo
     assert(ctx != NULL);
     assert(onnx_path != NULL);
 
-    size_t max_bytes = VMAF_DNN_DEFAULT_MAX_BYTES;
-    const char *env = getenv("VMAF_MAX_MODEL_BYTES");
-    if (env && *env) {
-        char *endp = NULL;
-        unsigned long v = strtoul(env, &endp, 10);
-        if (endp && *endp == '\0' && v > 0) {
-            max_bytes = (size_t)v;
-        }
-    }
+    /* T7-12: the historical VMAF_MAX_MODEL_BYTES env override has been
+     * removed; see dnn_api.c for the rationale. */
+    const size_t max_bytes = VMAF_DNN_DEFAULT_MAX_BYTES;
     int rc = vmaf_dnn_validate_onnx(onnx_path, max_bytes);
     if (rc < 0)
         return rc;
