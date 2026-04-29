@@ -3388,6 +3388,41 @@ inline.*
   # Skips automatically if binary or golden YUV is absent.
   ```
 
+### 0084 — Research-0029 Phase-3b StandardScaler retry (positive result)
+
+- **No ADR.** Empirical research digest; revives the Research-0026
+  hypothesis after the Research-0028 negative result. The
+  architectural decision (ship `vmaf_tiny_v2`) is gated on three
+  validation steps documented in the digest §"Required before
+  shipping".
+- **Upstream source**: fork-local. Netflix has no tiny-AI
+  preprocessing-sensitivity analysis surface.
+- **Touches** (additive only):
+  - `docs/research/0029-phase3b-standardscaler-results.md` —
+    per-fold tables + apples-to-apples comparison + 3-gate
+    pre-shipping checklist.
+  - `ai/scripts/phase3_subset_sweep.py` — adds `--standardize`
+    flag + `_standardize_inplace` helper.
+  - `CHANGELOG.md` Unreleased § Added.
+- **Invariants** (rebase-relevant):
+  1. **StandardScaler statistics MUST be fit per-fold on the
+     train split only.** Fitting on the full data would leak
+     held-out information into LOSO; the `_standardize_inplace`
+     helper enforces this by taking only the train slice as input.
+  2. **A shipped `vmaf_tiny_v2.onnx` MUST bundle its scaler
+     `(mean, std)`** in the sidecar JSON per ADR-0049 — otherwise
+     inference applies different normalisation than training and
+     the win evaporates. Currently UN-implemented; tracked as a
+     §"Caveats" #5 follow-up.
+  3. **Subset B's feature list is the load-bearing finding**:
+     `adm2`, `adm_scale3`, `vif_scale2`, `motion2`, `ssimulacra2`,
+     `psnr_hvs`, `float_ssim`. Phase-3c experiments may shift
+     the optimal arch / lr / epochs but should keep this set.
+- **On upstream sync**: zero interaction. Fork-only research.
+- **Re-test on rebase**: documentation-only PR; the runs/ files
+  are reproducible from the `--standardize` invocation in
+  §"Reproducer".
+
 ### 0082 — Research-0028 Phase-3 subset sweep (negative-result digest)
 
 - **No ADR.** Empirical research digest. The architectural decision
