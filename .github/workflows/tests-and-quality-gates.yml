@@ -520,7 +520,11 @@ jobs:
       - name: Set up Python + install vmaf-train
         run: |
           python3 -m venv /tmp/vmaf-train-venv
-          /tmp/vmaf-train-venv/bin/pip install --upgrade pip
+          # Pin pip below 26.1: the 26.1 release (2026-04-30) regresses
+          # transitive resolution for `lightning>=2.5,<3.0` and emits
+          # "No matching distribution found for lightning". Older 25.x
+          # resolves cleanly. Drop this pin once pip ships a fix.
+          /tmp/vmaf-train-venv/bin/pip install --upgrade 'pip<26.1'
           # pytest is a test-time dep, not runtime, so install it explicitly
           # rather than relying on ai/pyproject.toml extras.
           /tmp/vmaf-train-venv/bin/pip install pytest
