@@ -399,92 +399,75 @@ static void create_givens(const float a, const float b, float *c, float *s)
         *s = 0;
     } else if (fabsf(b) > fabsf(a)) {
         float t = -a / b;
-        float s1 = 1.0 / sqrt(1 + t * t);
+        float s1 = 1.0f / sqrtf(1.0f + t * t);
         *s = s1;
         *c = s1 * t;
     } else {
         float t = -b / a;
-        float c1 = 1.0 / sqrt(1 + t * t);
+        float c1 = 1.0f / sqrtf(1.0f + t * t);
         *c = c1;
         *s = c1 * t;
     }
 }
 
-static void qr_step(float *d, float *sd, int n)
+static void qr_step_size2(float *d, float *sd, float x, float z)
 {
-    float mu = trailing_eigenvalue(d, sd, n);
-    if (EIGENVALUE_EPS * fabsf(mu) > fabsf(d[0]) + fabsf(sd[0]))
-        mu = 0;
-
-    float x = d[0] - mu;
-    float z = sd[0];
-
-    float ak = 0;
-    float bk = 0;
-    float zk = 0;
-
     float ap = d[0];
     float bp = sd[0];
-
     float aq = d[1];
 
-    if (n == 2) {
-        float c, s;
-        create_givens(x, z, &c, &s);
+    float c;
+    float s;
+    create_givens(x, z, &c, &s);
 
-        float ap1 = c * (c * ap - s * bp) + s * (s * aq - c * bp);
-        float bp1 = c * (s * ap + c * bp) - s * (s * bp + c * aq);
-        float aq1 = s * (s * ap + c * bp) + c * (s * bp + c * aq);
+    float ak = c * (c * ap - s * bp) + s * (s * aq - c * bp);
+    float bk = c * (s * ap + c * bp) - s * (s * bp + c * aq);
+    float ap_new = s * (s * ap + c * bp) + c * (s * bp + c * aq);
 
-        ak = ap1;
-        bk = bp1;
+    d[0] = ak;
+    sd[0] = bk;
+    d[1] = ap_new;
+}
 
-        ap = aq1;
-
-        d[0] = ak;
-        sd[0] = bk;
-        d[1] = ap;
-
-        return;
-    }
-
+static void qr_step_general(float *d, float *sd, int n, float x, float z)
+{
+    float ak = 0.0f;
+    float bk = 0.0f;
+    float zk = 0.0f;
+    float ap = d[0];
+    float bp = sd[0];
+    float aq = d[1];
     float bq = sd[1];
 
     for (int k = 0; k < n - 1; k++) {
-        float c, s;
+        float c;
+        float s;
         create_givens(x, z, &c, &s);
 
         /* compute G' T G */
         float bk1 = c * bk - s * zk;
-
         float ap1 = c * (c * ap - s * bp) + s * (s * aq - c * bp);
         float bp1 = c * (s * ap + c * bp) - s * (s * bp + c * aq);
         float zp1 = -s * bq;
-
         float aq1 = s * (s * ap + c * bp) + c * (s * bp + c * aq);
         float bq1 = c * bq;
 
         ak = ap1;
         bk = bp1;
         zk = zp1;
-
         ap = aq1;
         bp = bq1;
 
         if (k < n - 2)
             aq = d[k + 2];
-
         if (k < n - 3)
             bq = sd[k + 2];
 
         d[k] = ak;
-
         if (k > 0)
             sd[k - 1] = bk1;
-
-        if (k < n - 2) {
+        if (k < n - 2)
             sd[k + 1] = bp;
-        }
 
         x = bk;
         z = zk;
@@ -492,6 +475,23 @@ static void qr_step(float *d, float *sd, int n)
 
     d[n - 1] = ap;
     sd[n - 2] = bk;
+}
+
+static void qr_step(float *d, float *sd, int n)
+{
+    float mu = trailing_eigenvalue(d, sd, n);
+    if (EIGENVALUE_EPS * fabsf(mu) > fabsf(d[0]) + fabsf(sd[0]))
+        mu = 0.0f;
+
+    const float x = d[0] - mu;
+    const float z = sd[0];
+
+    if (n == 2) {
+        qr_step_size2(d, sd, x, z);
+        return;
+    }
+
+    qr_step_general(d, sd, n, x, z);
 }
 
 // Adapted gsl_eigen_symm: https://github.com/ampl/gsl/blob/master/eigen/symm.c
@@ -538,7 +538,7 @@ static void compute_eigenvalues_tridiagonal(float *d, float *sd, float *eigenval
 static void compute_eigenvalues(float *A_immutable, float *eigenvalues, int size, float *buffer)
 {
     float *A = buffer;
-    buffer += size * size;
+    buffer += (size_t)size * (size_t)size;
     float *d = buffer;
     buffer += size;
     float *sd = buffer;
@@ -546,7 +546,7 @@ static void compute_eigenvalues(float *A_immutable, float *eigenvalues, int size
     float *tmp = buffer;
     /* Final partition of the workspace; no further reads of `buffer`. */
     // Operate on a copy of the matrix
-    memcpy(A, A_immutable, size * size * sizeof(float));
+    memcpy(A, A_immutable, (size_t)size * (size_t)size * sizeof(float));
     // Handle special case
     if (size == 1) {
         eigenvalues[0] = A[0 * size + 0];
@@ -627,15 +627,15 @@ static int solve_linear_system(float *A_data, int A_size, float *B_data, int B_c
                                float *output_data, float *tmp_buffer)
 {
     float *A_buffer = tmp_buffer;
-    tmp_buffer += A_size * A_size;
+    tmp_buffer += (size_t)A_size * (size_t)A_size;
     float *Q_buffer = tmp_buffer;
-    tmp_buffer += A_size * A_size;
+    tmp_buffer += (size_t)A_size * (size_t)A_size;
     float *R_buffer = tmp_buffer;
-    tmp_buffer += A_size * A_size;
+    tmp_buffer += (size_t)A_size * (size_t)A_size;
     float *tmp1_buffer = tmp_buffer;
-    tmp_buffer += A_size * A_size;
+    tmp_buffer += (size_t)A_size * (size_t)A_size;
     float *tmp2_buffer = tmp_buffer;
-    tmp_buffer += A_size * A_size;
+    tmp_buffer += (size_t)A_size * (size_t)A_size;
     float *tmp_rect_buffer = tmp_buffer;
     /* Final workspace partition; no further reads of `tmp_buffer`. */
 
@@ -730,20 +730,27 @@ static void compute_covariance_matrix(SpeedDimensions dim, const float *data, fl
     }
 }
 
+static void compute_independent_term_for_offset(SpeedDimensions dim, const float *data,
+                                                float *independent_term, size_t stride_px,
+                                                size_t start_i, size_t start_j)
+{
+    for (size_t i = start_i; i < dim.truncated_height; i += dim.block_size) {
+        for (size_t j = start_j; j < dim.truncated_width; j += dim.block_size) {
+            size_t out_row = start_i * dim.block_size + start_j;
+            size_t out_col = (((i - start_i) / dim.block_size) * dim.num_blocks_horizontal) +
+                             ((j - start_j) / dim.block_size);
+            independent_term[out_row * dim.num_blocks + out_col] = data[i * stride_px + j];
+        }
+    }
+}
+
 static void compute_independent_term(SpeedDimensions dim, const float *data,
                                      float *independent_term, size_t stride_px)
 {
     for (size_t start_i = 0; start_i < dim.block_size; start_i++) {
         for (size_t start_j = 0; start_j < dim.block_size; start_j++) {
-            for (size_t i = start_i; i < dim.truncated_height; i += dim.block_size) {
-                for (size_t j = start_j; j < dim.truncated_width; j += dim.block_size) {
-                    size_t out_row = start_i * dim.block_size + start_j;
-                    size_t out_col =
-                        (((i - start_i) / dim.block_size) * dim.num_blocks_horizontal) +
-                        ((j - start_j) / dim.block_size);
-                    independent_term[out_row * dim.num_blocks + out_col] = data[i * stride_px + j];
-                }
-            }
+            compute_independent_term_for_offset(dim, data, independent_term, stride_px, start_i,
+                                                start_j);
         }
     }
 }
@@ -774,7 +781,8 @@ static void update_entropy(SpeedDimensions dim, float *entropy, const float *S, 
     for (size_t i = 0; i < dim.num_blocks_vertical; i++) {
         for (size_t j = 0; j < dim.num_blocks_horizontal; j++) {
             entropy[i * dim.num_blocks_horizontal + j] +=
-                log2(L * S[i * dim.num_blocks_horizontal + j] + sigma_nn) + log2(2 * M_PI * M_E);
+                log2f(L * S[i * dim.num_blocks_horizontal + j] + sigma_nn) +
+                log2f(2.0f * (float)M_PI * (float)M_E);
         }
     }
 }
@@ -857,8 +865,8 @@ static float get_speed_score(SpeedDimensions dim, SpeedResultBuffers ref_results
                              int speed_weight_var_mode)
 {
     float score = 0;
-    float base_entropy =
-        dim.elements_in_block * (log2((1 + nn_floor) * sigma_nn) + log2(2 * M_PI * M_E));
+    float base_entropy = dim.elements_in_block * (log2f((1.0f + nn_floor) * sigma_nn) +
+                                                  log2f(2.0f * (float)M_PI * (float)M_E));
     for (size_t i = 0; i < dim.num_blocks; i++) {
         if ((ref_results.entropies[i] < base_entropy) &&
             (dis_results.entropies[i] < base_entropy)) {
@@ -866,36 +874,39 @@ static float get_speed_score(SpeedDimensions dim, SpeedResultBuffers ref_results
             // there is no visible difference
             score += 0;
         } else {
-            float spatial_ref = 0.0;
-            float spatial_dis = 0.0;
+            float spatial_ref = 0.0f;
+            float spatial_dis = 0.0f;
             if (speed_weight_var_mode == 0) {
-                spatial_ref = ref_results.entropies[i] * log2(1 + ref_results.variances[i]);
-                spatial_dis = dis_results.entropies[i] * log2(1 + dis_results.variances[i]);
+                spatial_ref = ref_results.entropies[i] * log2f(1.0f + ref_results.variances[i]);
+                spatial_dis = dis_results.entropies[i] * log2f(1.0f + dis_results.variances[i]);
             } else if (speed_weight_var_mode == 1) {
-                spatial_ref = ref_results.entropies[i] * log2(1 + ref_results.variances[i]);
-                spatial_dis = dis_results.entropies[i] * log2(1 + ref_results.variances[i]);
+                spatial_ref = ref_results.entropies[i] * log2f(1.0f + ref_results.variances[i]);
+                spatial_dis = dis_results.entropies[i] * log2f(1.0f + ref_results.variances[i]);
             } else if (speed_weight_var_mode == 2) {
-                spatial_ref = ref_results.entropies[i] * log2(1 + dis_results.variances[i]);
-                spatial_dis = dis_results.entropies[i] * log2(1 + dis_results.variances[i]);
+                spatial_ref = ref_results.entropies[i] * log2f(1.0f + dis_results.variances[i]);
+                spatial_dis = dis_results.entropies[i] * log2f(1.0f + dis_results.variances[i]);
             } else if (speed_weight_var_mode == 3) {
-                spatial_ref = ref_results.entropies[i] *
-                              log2(1 + (ref_results.variances[i] + dis_results.variances[i]) / 2.0);
-                spatial_dis = dis_results.entropies[i] *
-                              log2(1 + (ref_results.variances[i] + dis_results.variances[i]) / 2.0);
+                spatial_ref =
+                    ref_results.entropies[i] *
+                    log2f(1.0f + (ref_results.variances[i] + dis_results.variances[i]) / 2.0f);
+                spatial_dis =
+                    dis_results.entropies[i] *
+                    log2f(1.0f + (ref_results.variances[i] + dis_results.variances[i]) / 2.0f);
             } else if (speed_weight_var_mode == 4) {
-                spatial_ref = ref_results.entropies[i] * log2(1 + ref_results.variances[i]);
-                spatial_dis = dis_results.entropies[i] *
-                              log2(1 + (ref_results.variances[i] + dis_results.variances[i]) / 2.0);
+                spatial_ref = ref_results.entropies[i] * log2f(1.0f + ref_results.variances[i]);
+                spatial_dis =
+                    dis_results.entropies[i] *
+                    log2f(1.0f + (ref_results.variances[i] + dis_results.variances[i]) / 2.0f);
             } else if (speed_weight_var_mode == 5) {
-                spatial_ref = ref_results.entropies[i] * log2(1 + ref_results.variances[i]);
+                spatial_ref = ref_results.entropies[i] * log2f(1.0f + ref_results.variances[i]);
                 spatial_dis =
-                    dis_results.entropies[i] *
-                    log2(1 + (0.75 * ref_results.variances[i] + 0.25 * dis_results.variances[i]));
+                    dis_results.entropies[i] * log2f(1.0f + (0.75f * ref_results.variances[i] +
+                                                             0.25f * dis_results.variances[i]));
             } else if (speed_weight_var_mode == 6) {
-                spatial_ref = ref_results.entropies[i] * log2(1 + ref_results.variances[i]);
+                spatial_ref = ref_results.entropies[i] * log2f(1.0f + ref_results.variances[i]);
                 spatial_dis =
-                    dis_results.entropies[i] *
-                    log2(1 + (0.25 * ref_results.variances[i] + 0.75 * dis_results.variances[i]));
+                    dis_results.entropies[i] * log2f(1.0f + (0.25f * ref_results.variances[i] +
+                                                             0.75f * dis_results.variances[i]));
             } else {
                 return -EINVAL;
             }
@@ -906,7 +917,7 @@ static float get_speed_score(SpeedDimensions dim, SpeedResultBuffers ref_results
     return score / dim.num_blocks;
 }
 
-static void subtract_image(float *im1, float *im2, int w, int h, size_t stride)
+static void subtract_image(float *im1, const float *im2, int w, int h, size_t stride)
 {
     size_t stride_px = stride / sizeof(float);
     for (int i = 0; i < h; i++) {
@@ -927,7 +938,6 @@ static void filter_and_downscale(SpeedDimensions dim, SpeedOptions *opt, float *
     float *curr_scale = tmp_buffer;
     tmp_buffer += frame_size;
     float *tmpbuf = tmp_buffer;
-    tmp_buffer += frame_size;
 
     // The scaling method has been checked for validity in the init callback
     enum vif_scaling_method scaling_method;
@@ -986,8 +996,8 @@ static int speed_init_dimensions(SpeedDimensions *dim, int w, int h, double spee
 {
     dim->original_height = h;
     dim->original_width = w;
-    dim->scaled_height = (int)(dim->original_height * speed_prescale + 0.5);
-    dim->scaled_width = (int)(dim->original_width * speed_prescale + 0.5);
+    dim->scaled_height = (int)lround((double)dim->original_height * speed_prescale);
+    dim->scaled_width = (int)lround((double)dim->original_width * speed_prescale);
     dim->alloc_height = MAX(dim->original_height, dim->scaled_height);
     dim->alloc_width = MAX(dim->original_width, dim->scaled_width);
     dim->operating_height = dim->scaled_height >> NUM_SCALES;
@@ -1266,7 +1276,8 @@ static int extract_chroma(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafP
 
     SpeedChromaState *s = fex->priv;
 
-    float score_u, score_v;
+    float score_u;
+    float score_v;
     int err_u = extract_channel(s, ref_pic, dist_pic, 1, &score_u);
     int err_v = extract_channel(s, ref_pic, dist_pic, 2, &score_v);
 
