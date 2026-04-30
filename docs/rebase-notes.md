@@ -104,6 +104,70 @@ cover several PRs in one workstream; cross-link from the ID heading.
 The pre-ADR-0108 fork-local PRs are summarised by workstream rather
 than per-PR. Future PRs add entries individually.
 
+### 0085 — Upstream `c70debb1` partial port (adm_csf + barten_csf tests)
+
+- **No ADR.** Pure upstream cherry-pick per
+  [ADR-0108](adr/0108-deep-dive-deliverables-rule.md) carve-out
+  ("pure upstream syncs and `port-upstream-commit` PRs are exempt").
+- **Upstream source**: `c70debb1` (Kyle Swanson, 2026-04-28):
+  "libvmaf/test: port new adm/vif/speed tests". The audit row that
+  flagged the gap is T-NEW-2 in the
+  [2026-04-29 quarterly upstream-backlog re-audit (PR #205)](upstream-backlog-audit-2026-04-29.md).
+- **Touches** (additive only):
+  - `libvmaf/src/feature/adm_csf_tools.h` — new header (verbatim
+    from upstream); declares the inline `adm_native_csf` helper
+    (DLM-paper CSF) used by the new `test_adm_csf` unit.
+  - `libvmaf/test/test_adm_csf.c` — new unit (verbatim from
+    upstream); 2 `mu_assert` cases on `adm_native_csf(3, 3.0,
+    1080, {0, 45})`.
+  - `libvmaf/test/test_barten_csf.c` — new unit (verbatim from
+    upstream); 23 `mu_assert` cases over `barten_rod_cone_sens`,
+    `barten_mtf`, `barten_csf`, `linear_interpolate`,
+    `barten_watson_blend_csf` (all symbols already on the fork).
+  - `libvmaf/test/meson.build` — registers the two new
+    executables + adds `test('test_adm_csf', ...)` and
+    `test('test_barten_csf', ...)`.
+  - `CHANGELOG.md` Unreleased § Changed.
+- **Deliberate scope cuts** (the upstream commit's other halves
+  are not portable verbatim):
+  1. `test_vif_tools.c` — depends on upstream symbols
+     `NUM_KERNELSCALES`, the 21-entry `valid_kernelscales` table,
+     `vif_validate_kernelscale`, `vif_get_filter_size`,
+     `vif_get_filter`, `speed_get_antialias_filter`, and a
+     `[NUM_KERNELSCALES][5][65]` filter table that the fork's
+     `vif_filter1d_table_s [11][4][65]` does not match. Per
+     [Research-0024](research/0024-vif-upstream-divergence.md)
+     Strategy E, the fork deliberately diverges from the
+     upstream `vif` runtime-helper chain to preserve the
+     ADR-0138 / 0139 / 0142 / 0143 SIMD bit-exactness contract.
+     Porting this test requires porting the runtime helpers
+     first.
+  2. `test_speed_chroma.c` — `#include`s `feature/speed.c`
+     directly; the fork has no SpEED extractor (`feature/speed.c`
+     does not exist). Pairs with audit row T-NEW-1 (port the
+     SpEED extractor wholesale, or absorb it into the tiny-AI
+     speed metric).
+- **Invariants** (rebase-relevant):
+  1. The new `adm_csf_tools.h` header is wholly additive and
+     does not conflict with the existing fork `adm_csf_s`
+     non-inline helper in `adm_tools.h` (different signature,
+     different translation units).
+  2. The two new tests do not depend on Netflix golden YUVs —
+     they evaluate the closed-form CSF math directly. No
+     golden-data interaction.
+- **On upstream sync**: a future port of the upstream `vif`
+  runtime-helper chain (Research-0024 Strategy A reversal) or the
+  SpEED extractor (T-NEW-1) unlocks the deferred halves of this
+  commit. Until then, fork-side `test_vif_tools.c` /
+  `test_speed_chroma.c` stay absent.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-cpu libvmaf -Denable_cuda=false -Denable_sycl=false
+  ninja -C build-cpu test_adm_csf test_barten_csf
+  meson test -C build-cpu test_adm_csf test_barten_csf
+  ```
+
 ### 0084 — Embedded MCP server scaffold (T5-2, ADR-0209)
 
 - **ADR**: [ADR-0209](adr/0209-mcp-embedded-scaffold.md) (audit-first
