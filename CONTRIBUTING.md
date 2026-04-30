@@ -1,18 +1,22 @@
 # Contributing to VMAF (Lusoris Fork)
 
-This fork adds SYCL / CUDA / HIP GPU backends, AVX2 / AVX-512 / NEON SIMD,
-full-precision CLI output, tiny-AI integration, and an MCP server. Below is the
-fork-specific contribution guide. The **Netflix upstream contribution guide**
-follows below — still authoritative for algorithmic contributions (new feature
+This fork adds SYCL / CUDA / Vulkan GPU backends (HIP planned),
+AVX2 / AVX-512 / NEON SIMD, full-precision CLI output, tiny-AI integration,
+and embedded + standalone MCP servers. Below is the fork-specific
+contribution guide. The **Netflix upstream contribution guide** follows
+below — still authoritative for algorithmic contributions (new feature
 extractors, quality runners, models).
 
 ## Quickstart
 
 1. Install dev deps: `./scripts/setup/detect.sh` (auto-dispatches per distro).
-2. Configure: `meson setup build -Denable_cuda=false -Denable_sycl=false`
-3. Build: `ninja -C build`
-4. Test: `meson test -C build`
-5. Format + lint before pushing: `make format && make lint`
+2. Install pre-commit hooks: `make hooks-install` (runs `pre-commit install`).
+   Required for fresh clones — missing hooks cause CI round-trips on
+   trivial formatter failures.
+3. Configure: `meson setup build -Denable_cuda=false -Denable_sycl=false`
+4. Build: `ninja -C build`
+5. Test: `meson test -C build`
+6. Format + lint before pushing: `make format && make lint`
 
 ## Core rules
 

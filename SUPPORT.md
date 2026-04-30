@@ -12,17 +12,19 @@ We track upstream but don't duplicate its discussion threads.
 
 ## Is it about this fork specifically?
 
-- **GPU backends (SYCL / CUDA / HIP)** — [open a bug report](https://github.com/lusoris/vmaf/issues/new/choose)
+- **GPU backends (CUDA / SYCL / Vulkan; HIP planned)** —
+  [open a bug report](https://github.com/lusoris/vmaf/issues/new/choose)
 - **SIMD paths (AVX2 / AVX-512 / NEON)** — same
 - **`--precision` flag / IEEE-754 output** — same
 - **Tiny-AI surface / ONNX Runtime integration** — same
-- **MCP server (`vmaf-mcp`)** — same
+- **MCP servers (embedded `libvmaf_mcp.h` + standalone `vmaf-mcp`)** — same
+- **GPU-parity CI gate / cross-backend numerical drift** — same
 - **Build / package / distro issues** — same
 
 ## Security issues
 
 **Do not** open a public issue. See [SECURITY.md](SECURITY.md) — use the
-private advisory flow or email lusoris@pm.me.
+private advisory flow or email <lusoris@pm.me>.
 
 ## How to ask a good question
 

@@ -14,16 +14,27 @@
 [Netflix/vmaf](https://github.com/Netflix/vmaf)** — perceptual video quality
 assessment, Emmy-winning, now with:
 
-- **SYCL / oneAPI** GPU backend (Intel, NVIDIA, AMD via Codeplay plugins).
+- **SYCL / oneAPI** GPU backend (Intel, NVIDIA, AMD via Codeplay plugins),
+  with a fp64-less device fallback path for Intel Arc / iGPU silicon.
 - **CUDA** GPU backend (optimized ADM decouple fusion, VIF rd_stride,
   memory-efficient scoring).
+- **Vulkan** GPU backend — vendor-neutral compute-shader path covering motion,
+  motion2, motion3, ADM, VIF, PSNR, SSIM, MS-SSIM, PSNR-HVS, CAMBI; runs on
+  any GLSL/SPIR-V capable device including lavapipe in CI.
 - **AVX2 / AVX-512 / NEON** SIMD paths for every hot kernel.
 - **`--precision`** CLI flag — default `%.17g` for IEEE-754 round-trip lossless
   scores; `legacy` opts back to upstream `%.6f`.
 - **Tiny-AI** model surface (ONNX Runtime) for lightweight quality-proxy
-  experiments — see [`ai/`](ai/).
-- **MCP server** — expose VMAF scoring to LLM tooling via JSON-RPC. See
-  [`mcp-server/vmaf-mcp/`](mcp-server/vmaf-mcp/).
+  experiments — Netflix + KoNViD-1k combined-corpus trainer, LOSO eval
+  harness, multi-seed validation, QAT + PTQ paths. See [`ai/`](ai/).
+- **MCP servers** — both an in-process embedded scaffold
+  ([`libvmaf/include/libvmaf/libvmaf_mcp.h`](libvmaf/include/libvmaf/libvmaf_mcp.h),
+  flag `-Denable_mcp=true`) and the standalone Python JSON-RPC server
+  under [`mcp-server/vmaf-mcp/`](mcp-server/vmaf-mcp/).
+- **GPU-parity CI gate** — every PR runs a CPU ↔ Vulkan/lavapipe variance
+  matrix across all features; CUDA / SYCL / hardware-Vulkan join when a
+  self-hosted runner is registered. See
+  [`docs/development/cross-backend-gate.md`](docs/development/cross-backend-gate.md).
 - **Signed releases** — every tag carries SBOM (SPDX + CycloneDX), Sigstore
   keyless signatures, and SLSA L3 provenance.
 
@@ -51,19 +62,23 @@ build/tools/vmaf -r ref.yuv -d dis.yuv --width 1920 --height 1080 \
                  -p 420 -b 8 -m version=vmaf_v0.6.1 --precision=17
 ```
 
-Add `-Denable_cuda=true` (requires `/opt/cuda`) or `-Denable_sycl=true`
-(requires oneAPI `icpx`) to bring up a GPU backend.
+Add `-Denable_cuda=true` (requires `/opt/cuda`), `-Denable_sycl=true`
+(requires oneAPI `icpx`), or `-Denable_vulkan=true` (requires
+`glslangValidator` + a Vulkan-capable ICD; lavapipe is sufficient) to
+bring up a GPU backend. The embedded MCP server lands behind
+`-Denable_mcp=true` (scaffold currently returns `-ENOSYS`; transports in
+T5-2b).
 
 ## Backends at a glance
 
-| Backend | Status | Notes                                               |
-| ------- | ------ | --------------------------------------------------- |
-| CPU     | ✅     | Scalar + AVX2 + AVX-512 + NEON. Golden-data truth.  |
-| CUDA    | ✅     | `/opt/cuda`, `nvcc`. Works on RTX 20xx and newer.   |
-| SYCL    | ✅     | oneAPI DPC++, Intel/NVIDIA/AMD via Codeplay.        |
-| HIP     | 🚧     | Planned — infrastructure in place, kernels pending. |
-| Vulkan  | 💭     | Experimental / future.                              |
-| Metal   | 💭     | Apple Silicon — not prioritized, PRs welcome.       |
+| Backend | Status | Notes                                                                                  |
+| ------- | ------ | -------------------------------------------------------------------------------------- |
+| CPU     | ✅     | Scalar + AVX2 + AVX-512 + NEON. Golden-data truth.                                     |
+| CUDA    | ✅     | `/opt/cuda`, `nvcc`. Works on RTX 20xx and newer.                                      |
+| SYCL    | ✅     | oneAPI DPC++; Intel/NVIDIA/AMD via Codeplay; fp64-less device fallback for Arc / iGPU. |
+| Vulkan  | ✅     | Vendor-neutral compute shaders; runs on lavapipe in CI.                                |
+| HIP     | 🚧     | Planned — infrastructure in place, kernels pending.                                    |
+| Metal   | 💭     | Apple Silicon — not prioritized, PRs welcome.                                          |
 
 Cross-backend numerical divergence is held to ≤ 2 ULP in double precision; see
 [`/cross-backend-diff`](.claude/skills/cross-backend-diff/SKILL.md) for the
@@ -78,10 +93,16 @@ verification loop.
         max|full  -> "%.17g" (default; round-trip lossless)
         legacy    -> "%.6f" (pre-fork Netflix output)
 
+--backend $name            cpu|cuda|sycl|vulkan (auto-selects if omitted)
 --no_cuda                  disable CUDA backend
 --no_sycl                  disable SYCL/oneAPI backend
 --sycl_device $unsigned    select SYCL GPU by index (default: auto)
 --gpumask: $bitmask        restrict permitted GPU operations
+
+--tiny-model $path         load a tiny ONNX model alongside classic models
+--tiny-device $string      auto|cpu|cuda|openvino|rocm (default: auto)
+--tiny-threads $unsigned   CPU EP intra-op threads (0 = ORT default)
+--tiny-fp16                request fp16 IO where the EP supports it
 ```
 
 All upstream flags are preserved unchanged.
@@ -102,19 +123,31 @@ through a single ONNX Runtime-backed inference path inside libvmaf.
 - Inference runtime: [`libvmaf/src/dnn/`](libvmaf/src/dnn/) (C, ONNX Runtime).
 - CLI usage: `vmaf --tiny-model model/tiny/vmaf_tiny_fr_v1.onnx [--tiny-device cuda]`.
 - Meson flag: `-Denable_dnn=auto|enabled|disabled` (default `auto`).
-- ffmpeg: apply [`ffmpeg-patches/*.patch`](ffmpeg-patches/) for `tiny_model=...` and the new `vmaf_pre` filter.
+- ffmpeg: apply [`ffmpeg-patches/*.patch`](ffmpeg-patches/) for
+  `tiny_model=...` and the new `vmaf_pre` filter.
 - Docs: [`docs/ai/`](docs/ai/).
 
 ## Documentation
 
 - [`CLAUDE.md`](CLAUDE.md) — orientation for Claude Code sessions.
-- [`AGENTS.md`](AGENTS.md) — same, for tool-agnostic agents (Cursor, Aider, Copilot).
-- [`docs/principles.md`](docs/principles.md) — NASA Power-of-10 + JPL + CERT + MISRA coding standard, Netflix golden gate, quality policy.
-- [`docs/backends/sycl/bundling.md`](docs/backends/sycl/bundling.md) — self-contained SYCL runtime bundling.
-- [`docs/benchmarks.md`](docs/benchmarks.md) — fork-added benchmark numbers (GPU, SIMD, `--precision`).
-- [`docs/ai/`](docs/ai/) — training, inference, benchmarks, security.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute (fork-specific + upstream guide preserved).
-- [`SECURITY.md`](SECURITY.md) — coordinated disclosure, SLA, supply-chain guarantees.
+- [`AGENTS.md`](AGENTS.md) — same, for tool-agnostic agents
+  (Cursor, Aider, Copilot).
+- [`docs/principles.md`](docs/principles.md) — NASA Power-of-10, JPL, CERT,
+  MISRA coding standard, Netflix golden gate, quality policy.
+- [`docs/backends/`](docs/backends/) — per-backend overviews (CUDA, SYCL,
+  Vulkan, x86, arm); SYCL bundling at
+  [`docs/backends/sycl/bundling.md`](docs/backends/sycl/bundling.md).
+- [`docs/development/cross-backend-gate.md`](docs/development/cross-backend-gate.md)
+  — GPU-parity matrix CI gate (T6-8).
+- [`docs/benchmarks.md`](docs/benchmarks.md) — fork-added benchmark numbers
+  (GPU, SIMD, `--precision`).
+- [`docs/ai/`](docs/ai/) — training, inference, LOSO eval, QAT/PTQ,
+  benchmarks, security.
+- [`docs/mcp/`](docs/mcp/) — embedded + standalone MCP server docs.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute (fork-specific +
+  upstream guide preserved).
+- [`SECURITY.md`](SECURITY.md) — coordinated disclosure, SLA, supply-chain
+  guarantees.
 - [Netflix/vmaf upstream docs](docs/index.md) — FAQs, models, AOM CTC usage.
 
 ## Release & signing

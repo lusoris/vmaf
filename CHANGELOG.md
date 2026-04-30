@@ -8,6 +8,14 @@
 
 ### Changed
 
+- **Top-level docs refresh (post-session-2026-04-29).** `README.md`,
+  `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, and `docs/principles.md`
+  refreshed to current codebase reality: Vulkan backend (T5-1 / T7-36),
+  embedded MCP scaffold (T5-2), GPU-parity CI gate (T6-8 / ADR-0214),
+  KoNViD-1k tiny-AI corpus, fp64-less SYCL fallback (T7-17), `--tiny-*`
+  CLI flags, `enable_mcp` Meson option, hooks-install quickstart step,
+  and CLAUDE §12 r12-r14 quality-gate rules (touched-file lint-clean,
+  state.md updates, ffmpeg-patches sync). No code or schema changes.
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is

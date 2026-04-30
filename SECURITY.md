@@ -2,17 +2,18 @@
 
 ## Supported versions
 
-| Version            | Supported          |
-|--------------------|--------------------|
-| `3.x-lusoris`      | :white_check_mark: |
-| `3.x` (upstream)   | see [Netflix/vmaf](https://github.com/Netflix/vmaf/security) |
-| `< 3.0`            | :x:                |
+| Version          | Supported                                                    |
+|------------------|--------------------------------------------------------------|
+| `3.x-lusoris`    | :white_check_mark:                                           |
+| `3.x` (upstream) | see [Netflix/vmaf](https://github.com/Netflix/vmaf/security) |
+| `< 3.0`          | :x:                                                          |
 
 The fork tracks upstream Netflix/vmaf's supported-version policy for the parts
 of the code inherited from upstream. Fork-only code paths
-(`libvmaf/src/{cuda,sycl}/`, `libvmaf/src/feature/{cuda,sycl}/`, GPU backend
-runtime, Tiny-AI / ONNX Runtime surface, MCP server) are supported on the
-current `master` and the latest two tagged releases.
+(`libvmaf/src/{cuda,sycl,vulkan,mcp}/`,
+`libvmaf/src/feature/{cuda,sycl,vulkan}/`, GPU backend runtimes, Tiny-AI /
+ONNX Runtime surface, embedded + standalone MCP servers) are supported on
+the current `master` and the latest two tagged releases.
 
 ## Reporting a vulnerability
 
