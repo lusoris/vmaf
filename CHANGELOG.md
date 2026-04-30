@@ -126,7 +126,24 @@
   changes. Original-commits:
   [`8a289703`](https://github.com/Netflix/vmaf/commit/8a289703),
   [`1b6c3886`](https://github.com/Netflix/vmaf/commit/1b6c3886).
-
+- **`speed_chroma` + `speed_temporal` feature extractors (T-NEW-1,
+  upstream port).** Verbatim cherry-pick of Netflix/vmaf
+  [`d3647c73`](https://github.com/Netflix/vmaf/commit/d3647c73)
+  ("feature/speed: port speed_chroma and speed_temporal extractors")
+  with its dependency
+  [`4ad6e0ea`](https://github.com/Netflix/vmaf/commit/4ad6e0ea)
+  ("feature/vif: port helper functions"). Adds two research-stage
+  float-only extractors: `speed_chroma` (per-channel chroma fidelity
+  on Y / U / V / UV) and `speed_temporal` (temporal Speed score over
+  a small cyclic frame buffer). Registers behind
+  `VMAF_FLOAT_FEATURES` so only `-Denable_float=true` builds ship
+  them. The cherry-pick widens the in-tree `picture_copy()` signature
+  with a new `int channel` parameter; every fork-local caller
+  (CUDA / Vulkan MS-SSIM, SSIM) is updated to pass `channel=0`. New
+  registration smoke test at `libvmaf/test/test_speed.c` (5 cases).
+  Per-feature doc rows + section under
+  [`docs/metrics/features.md`](docs/metrics/features.md). Closes
+  T-NEW-1 from the T7-4 quarterly upstream audit (PR #205).
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame

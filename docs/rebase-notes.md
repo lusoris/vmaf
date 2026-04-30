@@ -5027,3 +5027,42 @@ inline.*
   ninja -C build-cpu
   meson test -C build-cpu
   ```
+
+### 0075 — feature/speed extractors (T-NEW-1, upstream port d3647c73)
+
+- **Touches**: `libvmaf/src/feature/speed.c` (new),
+  `libvmaf/src/feature/picture_copy.{c,h}` (signature change —
+  added `int channel` parameter), `libvmaf/src/feature/float_*.c`
+  call sites updated to pass `channel=0`,
+  `libvmaf/src/feature/feature_extractor.c` registry block,
+  `libvmaf/src/feature/alias.c`, `libvmaf/src/meson.build`,
+  `libvmaf/src/feature/vif_tools.{c,h}` (helper-function port from
+  upstream `4ad6e0ea`).
+- **Upstream source**: verbatim cherry-pick of Netflix/vmaf
+  `d3647c73` ("feature/speed: port speed_chroma and speed_temporal
+  extractors") with its dependency `4ad6e0ea` ("feature/vif: port
+  helper functions"). Both are pre-existing on Netflix master and
+  enter the fork as part of the T7-4 audit catch-up.
+- **Invariant**: `picture_copy()` now takes a `channel` argument —
+  every fork-local extractor that calls it (CUDA `integer_ms_ssim`,
+  Vulkan `ssim` / `ms_ssim`) passes `channel=0`. If upstream later
+  evolves the signature again (e.g. adds bit-depth or stride
+  validation), update those fork-local call sites in lockstep.
+  Speed extractors only register when `VMAF_FLOAT_FEATURES=1`
+  (build with `-Denable_float=true`).
+- **On upstream sync**: future Netflix commits in
+  `libvmaf/src/feature/speed.c` apply cleanly because the file is
+  now a verbatim mirror; conflict potential is limited to the
+  registry block in `feature_extractor.c` (interleave with the
+  fork's Vulkan / SYCL / CUDA blocks) and to any further
+  `picture_copy` signature evolution.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-cpu libvmaf -Denable_cuda=false \
+      -Denable_sycl=false -Denable_float=true
+  ninja -C build-cpu
+  meson test -C build-cpu test_speed
+  meson test -C build-cpu              # full meson suite
+  make test-netflix-golden             # 3 CPU canonical pairs
+  ```
