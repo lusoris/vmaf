@@ -4983,3 +4983,47 @@ inline.*
       --width 576 --height 324 \
       --feature float_ms_ssim_lcs --backend vulkan --places 4
   ```
+
+### 0075 — 32-bit ADM/cpu fallbacks port (T-NEW-3)
+
+- **Touched surfaces (upstream-mirror)**:
+  `libvmaf/src/feature/x86/adm_avx2.c`,
+  `libvmaf/src/feature/x86/adm_avx512.c`,
+  `libvmaf/src/x86/cpu.c`. Cherry-picks of upstream
+  `8a289703` (Christopher Degawa, "adm: add fallback for
+  extract_epi64 for 32-bit") and `1b6c3886` ("x86/cpu:
+  remove limit of avx+ on 32-bit").
+- **Why this matters on rebase**: trivially conflict-free with
+  any future upstream `extract_epi64` work because we land
+  upstream's exact `extract_epi64` macro/inline-fn pair.
+  The conflict surface is the fork's clang-format-100col
+  layout in `adm_avx2.c` / `adm_avx512.c` and the
+  `_Alignas(64)` LTO-correctness slot in `adm_avx512.c`
+  (`docs/development/known-upstream-bugs.md`); both are
+  preserved verbatim.
+- **Invariants the port preserves**:
+  1. `_Alignas(64) int64_t angle_flag[16]` in
+     `adm_decouple_s123_avx512` stays — without it, LTO
+     can promote the unaligned load to `vmovdqa64` and
+     fault under `--buildtype=release -Db_lto=true`.
+  2. The `extract_epi64` symbol must remain resolved on
+     both `__x86_64__` (macro to `_mm256_extract_epi64`)
+     and 32-bit (fallback inline). If a future upstream
+     change inlines the helper differently, keep the
+     conditional definition.
+- **On upstream sync**: if Netflix ships further 32-bit
+  fallbacks (motion / psnr — not in this port), expect a
+  parallel `extract_epi64`-style helper at the top of each
+  affected SIMD file. The fork should mirror those verbatim
+  into the same files.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-i686 libvmaf \
+      --cross-file=build-aux/i686-linux-gnu.ini \
+      -Denable_asm=false
+  ninja -C build-i686
+  meson setup build-cpu libvmaf -Denable_avx512=true
+  ninja -C build-cpu
+  meson test -C build-cpu
+  ```
