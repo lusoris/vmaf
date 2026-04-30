@@ -11,7 +11,15 @@ authors = [
 ]
 dependencies = [
   "torch>=2.8,<3.0",
-  "lightning>=2.5,<3.0",
+  # Lightning AI un-published the `lightning` distribution from PyPI on
+  # 2026-04-30 (yesterday's PR #229 still resolved `lightning-2.6.1`;
+  # today the name returns 404). The same wheel is published as
+  # `pytorch-lightning` with identical contents, and pytorch-lightning
+  # >= 2.0 ships both `import lightning` and `import pytorch_lightning`
+  # entry points, so existing `import lightning as L` code continues to
+  # work without source changes. Switch back to `lightning` if Lightning
+  # AI restores the distribution.
+  "pytorch-lightning>=2.5,<3.0",
   "onnx>=1.17,<2.0",
   "onnxruntime>=1.20,<2.0",
   "onnxscript>=0.2",
