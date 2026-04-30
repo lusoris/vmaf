@@ -520,12 +520,7 @@ jobs:
       - name: Set up Python + install vmaf-train
         run: |
           python3 -m venv /tmp/vmaf-train-venv
-          # Use the runner's pre-installed pip (24.0 as of 2026-04-30) rather
-          # than `--upgrade pip`. pip 26.x (both 26.0.1 and 26.1) regresses
-          # transitive resolution for `lightning>=2.5,<3.0` and emits
-          # "No matching distribution found for lightning". pip 24.0 resolves
-          # cleanly (PR #229 baseline). Re-introduce the upgrade once pip
-          # ships a fix release that resolves lightning correctly.
+          /tmp/vmaf-train-venv/bin/pip install --upgrade pip
           # pytest is a test-time dep, not runtime, so install it explicitly
           # rather than relying on ai/pyproject.toml extras.
           /tmp/vmaf-train-venv/bin/pip install pytest
