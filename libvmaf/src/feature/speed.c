@@ -330,7 +330,8 @@ static void convert_to_tridiagonal(float *A, int size, float *d, float *sd, floa
     float *v = buffer;
     buffer += size;
     float *x = buffer;
-    buffer += size;
+    /* No further use of `buffer` after `x` — drop the trailing increment that upstream
+     * left as a future-extension placeholder. */
 
     // We apply N-2 Householder transformations to zero out the elements
     // outside of the diagonal or subdiagonal of each of the N-2 first columns
@@ -543,7 +544,7 @@ static void compute_eigenvalues(float *A_immutable, float *eigenvalues, int size
     float *sd = buffer;
     buffer += size;
     float *tmp = buffer;
-    buffer += 2 * size;
+    /* Final partition of the workspace; no further reads of `buffer`. */
     // Operate on a copy of the matrix
     memcpy(A, A_immutable, size * size * sizeof(float));
     // Handle special case
@@ -636,7 +637,7 @@ static int solve_linear_system(float *A_data, int A_size, float *B_data, int B_c
     float *tmp2_buffer = tmp_buffer;
     tmp_buffer += A_size * A_size;
     float *tmp_rect_buffer = tmp_buffer;
-    tmp_buffer += A_size * B_cols;
+    /* Final workspace partition; no further reads of `tmp_buffer`. */
 
     Matrix A_immutable;
     matrix_init(&A_immutable, A_size, A_size, A_data);
@@ -706,6 +707,7 @@ static float compute_covariance(SpeedDimensions dim, const float *data, const fl
 static void compute_covariance_matrix(SpeedDimensions dim, const float *data, float *cov_mat,
                                       float *means, size_t stride_px)
 {
+    assert(dim.block_size > 0);
     for (size_t start_row = 0; start_row < dim.block_size; start_row++) {
         for (size_t start_col = 0; start_col < dim.block_size; start_col++) {
             means[start_row * dim.block_size + start_col] =
