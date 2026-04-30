@@ -222,6 +222,20 @@
   sub-group size, memory pattern) — out of T7-17's scope. See
   [ADR-0220](docs/adr/0220-sycl-fp64-fallback.md).
 
+- **Tiny-AI: vmaf_tiny_v2 retrained on full 4-corpus.** The shipped
+  `model/tiny/vmaf_tiny_v2.onnx` is now trained on
+  `runs/full_features_4corpus.parquet` (Netflix + KoNViD + BVI-DVC
+  A+B+C+D, 330 499 rows) instead of the previous 3-corpus parquet
+  (305 795 rows; ADR-0216 originally referenced this set). The
+  hyperparameters, architecture (`mlp_small`, canonical-6,
+  `lr=1e-3`, 90 epochs), bundled-scaler ONNX layout (ADR-0049),
+  opset (17), and registry entry shape are unchanged — only the
+  weights and the embedded `(mean, std)` constants change. Train
+  PLCC `0.9999` / RMSE `0.153`; ship-gate validation on the
+  Netflix slice (first 100 rows) PLCC `0.9999` / RMSE `0.191`.
+  Sha256 updated in `model/tiny/registry.json`. See
+  [`docs/ai/models/vmaf_tiny_v2.md`](docs/ai/models/vmaf_tiny_v2.md).
+
 ### Added
 
 - **GPU-gen ULP calibration head (proposal-stage, T7-GPU-ULP-CAL / ADR-0234).**
