@@ -1,0 +1,17 @@
+{
+  "boundary_threshold": 0.5,
+  "channels": 3,
+  "frame_window": 100,
+  "id": "transnet_v2",
+  "input_name": "frames",
+  "kind": "shot_detector",
+  "license": "BSD-3-Clause-Plus-Patent",
+  "name": "vmaf_tiny_transnet_v2_placeholder_v0",
+  "notes": "Placeholder TransNet V2 shot-boundary detector (T6-3a). 100-frame window of 27x48 RGB thumbnails -> per-frame shot-boundary logits. SMOKE-ONLY: random init, not trained. Real upstream weights (Soucek & Lokoc 2020, MIT) tracked under T6-3a-followup. See docs/ai/models/transnet_v2.md.",
+  "onnx": "transnet_v2.onnx",
+  "opset": 17,
+  "output_name": "boundary_logits",
+  "smoke": true,
+  "thumbnail_h": 27,
+  "thumbnail_w": 48
+}

@@ -365,6 +365,30 @@ feature/
   upstream weights, keep the I/O names (`frames` / `denoised`)
   byte-identical. See
   [ADR-0215](../../../docs/adr/0215-fastdvdnet-pre-filter.md).
+- **`transnet_v2.c` 100-frame-window contract** (fork-local,
+  ADR-0223 TransNet V2 shot-boundary detector is wired to
+  the I/O contract `frames: float32 [1, 100, 3, 27, 48]`
+  (100-frame window of 27x48 RGB thumbnails) → `boundary_logits:
+  float32 [1, 100]`. Three pieces are load-bearing on rebase:
+  (1) the ring buffer holds 100 slots and replicates the *oldest*
+  available frame across pre-clip slots (head-clamp at clip
+  start) — the corresponding output logit is read from
+  `output_logits[WINDOW-1]` because `gather_window` lays the
+  most-recent push at the LAST channel; (2) the dual feature-name
+  surface — the extractor emits both
+  `shot_boundary_probability` (sigmoid of the centre-slot
+  logit) **and** `shot_boundary` (binary 0/1 thresholded at 0.5);
+  downstream consumers (the per-shot CRF predictor T6-3b, the
+  FFmpeg shot-cut filter shipping with T6-3b) bind to *both*
+  exact strings; (3) the placeholder ONNX shipped under
+  `model/tiny/transnet_v2.onnx` is smoke-only (`smoke: true` in
+  the registry); when T6-3a-followup swaps in real upstream
+  weights, keep the I/O names (`frames` / `boundary_logits`) and
+  the shape (`[1, 100, 3, 27, 48]` → `[1, 100]`)
+  byte-identical, and switch the `luma_to_thumbnail` path from
+  nearest-neighbour + luma-broadcast to bilinear + true RGB
+  decode (the published TransNet V2 uses bilinear). See
+  [ADR-0220](../../../docs/adr/0223-transnet-v2-shot-detector.md).
 
 - **`cambi.c` GPU port is hybrid host/GPU per
   [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md) +
