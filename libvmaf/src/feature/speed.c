@@ -16,12 +16,23 @@
  *
  */
 
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#ifndef M_E
+#define M_E 2.71828182845904523536
+#endif
 
 #include "dict.h"
 #include "feature_collector.h"
