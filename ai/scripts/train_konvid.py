@@ -24,9 +24,9 @@ import argparse
 import sys
 from pathlib import Path
 
-import lightning as L
+import pytorch_lightning as L
 import torch
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from torch.utils.data import DataLoader, Subset
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

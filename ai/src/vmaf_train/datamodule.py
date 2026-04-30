@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import lightning as L
 import numpy as np
+import pytorch_lightning as L
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 

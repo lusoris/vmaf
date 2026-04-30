@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import lightning as L
+import pytorch_lightning as L
 import yaml
-from lightning.pytorch.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from .datamodule import VmafTrainDataModule
 from .models import FRRegressor, LearnedFilter, NRMetric

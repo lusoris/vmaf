@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import lightning as L
+import pytorch_lightning as L
 import torch
 from torch import nn
 
