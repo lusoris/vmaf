@@ -150,6 +150,16 @@ repos:
         language: python
         additional_dependencies: ["semgrep>=1.78,<2.0"]
         types_or: [c, c++, cuda, python]
+        # Mirror `check-copyright`'s exclude list — same upstream /
+        # vendored paths that ship with their own hygiene contract:
+        # (a) upstream vendored subprojects, (b) test fixtures,
+        # (c) python/vmaf/resource/ + python/test/resource/ assets,
+        # (d) libvmaf/src/pdjson.{c,h} 3rd-party JSON parser,
+        # (e) python/vmaf/matlab/ — Netflix-upstream MATLAB MEX C
+        # sources (they call `sprintf` / `strcpy` etc., which are
+        # banned by .semgrep.yml but are out of scope for fork-local
+        # hygiene; cleaning them up is an upstream change, not ours).
+        exclude: '^subprojects/|^libvmaf/test/data/|^python/vmaf/resource/|^python/test/resource/|^python/vmaf/matlab/|^libvmaf/src/pdjson\.(c|h)$'
         # Runs at pre-commit time — fast on a single-file diff and the
         # rules in .semgrep.yml are the project's own, not p/cert-c-strict.
         # `pass_filenames: true` (the default) because semgrep accepts
