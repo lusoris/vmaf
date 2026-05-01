@@ -106,6 +106,17 @@
   [`libvmaf/src/vulkan/AGENTS.md`](libvmaf/src/vulkan/AGENTS.md)
   pick up the per-subdirectory invariants. No code change.
 
+- **`docs/state.md` post-2026-04-29-session refresh.** Updated
+  `_Updated:` stamp to 2026-04-29; rewrote the "Tiny-AI C1 baseline
+  `fr_regressor_v1.onnx`" deferral row in the "Deferred (waiting on
+  external dataset access)" section to mark its reopen-trigger as
+  TRIGGERED — the Netflix Public training corpus that gated C1 is
+  now locally available at `.workingdir2/netflix/` (9 ref + 70 dis
+  YUVs, ~37 GB, gitignored; provided by lawrence 2026-04-27),
+  unblocking BACKLOG T6-1a. Other rows verified accurate vs the
+  2026-04-29-session merged PR set (#193–#205, #209) — every PR was
+  feature / chore / docs / perf with no bug-status delta to record
+  per CLAUDE §12 rule 13. No code changes.
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is

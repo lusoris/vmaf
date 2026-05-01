@@ -1,6 +1,6 @@
 # Fork bug-status — `docs/state.md`
 
-_Updated: 2026-04-25._
+_Updated: 2026-04-29._
 
 The tracked, in-tree register of **bug status** for this fork. Per
 [ADR-0165](adr/0165-state-md-bug-tracking.md) and
@@ -32,7 +32,7 @@ landed fix yet._
 
 | Item | Defer rationale | Reopen trigger |
 |---|---|---|
-| Tiny-AI C1 baseline `fr_regressor_v1.onnx` (BACKLOG T6-1 sub-item) | Netflix Public Dataset is access-gated (Google Drive folder requiring manual request to Netflix); cannot be downloaded programmatically. C1's defining target is "match `vmaf_v0.6.1` PLCC on Netflix Public", so substituting another dataset would ship a non-comparable number. | User obtains Drive access and points the training pipeline at the local extracted dataset path. ADR-0168 § "Defer C1" carries the audit trail. |
+| Tiny-AI C1 baseline `fr_regressor_v1.onnx` (BACKLOG T6-1 sub-item) | Netflix Public Dataset was access-gated (Google Drive folder requiring manual request to Netflix); cannot be downloaded programmatically. C1's defining target is "match `vmaf_v0.6.1` PLCC on Netflix Public", so substituting another dataset would ship a non-comparable number. | **TRIGGERED 2026-04-29** — dataset is locally available at `.workingdir2/netflix/` (9 ref + 70 dis YUVs, ~37 GB, gitignored; provided by lawrence 2026-04-27). T6-1a unblocked; training pipeline ready when scheduled. ADR-0168 § "Defer C1" carries the original audit trail. |
 
 ## Recently closed (last ~3 months)
 
