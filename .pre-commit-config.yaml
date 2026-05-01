@@ -142,7 +142,13 @@ repos:
       - id: semgrep-local
         name: semgrep (.semgrep.yml — local rules, error-gated)
         entry: semgrep scan --config=.semgrep.yml --error --quiet
-        language: system
+        # `language: python` so pre-commit creates its own isolated
+        # venv and pip-installs semgrep there. The CI `pre-commit` job
+        # doesn't ship semgrep on PATH; with `language: system` the
+        # hook would fail with `Executable 'semgrep' not found` on
+        # every CI run.
+        language: python
+        additional_dependencies: ["semgrep>=1.78,<2.0"]
         types_or: [c, c++, cuda, python]
         # Runs at pre-commit time — fast on a single-file diff and the
         # rules in .semgrep.yml are the project's own, not p/cert-c-strict.
