@@ -19,7 +19,13 @@ tiny-AI student.
 
 Output schema (one row per (clip, frame) pair):
 
-    key, frame_index, <21 feature columns>, vmaf
+    key, frame_index, codec, <21 feature columns>, vmaf
+
+The ``codec`` column is the encoder family that produced the distorted
+side. BVI-DVC ships reference-only material and this script encodes
+internally with ``libx264``, so the column is a constant ``"x264"`` —
+captured eagerly so the parquet self-describes for the codec-aware FR
+regressor (see [ADR-0235](../../docs/adr/0235-codec-aware-fr-regressor.md)).
 
 Output parquet: ``runs/full_features_bvi_dvc_<tier>.parquet`` (gitignored).
 Per-clip JSON cache: ``$XDG_CACHE_HOME/vmaf-tiny-ai-bvi-dvc-full/<key>.json``
@@ -217,13 +223,13 @@ def _lookup(metrics: dict, name: str) -> float | None:
     return None
 
 
-def _frames_to_rows(key: str, vmaf_json: Path) -> list[dict]:
+def _frames_to_rows(key: str, vmaf_json: Path, codec: str) -> list[dict]:
     with vmaf_json.open() as f:
         d = json.load(f)
     rows = []
     for fr in d["frames"]:
         m = fr["metrics"]
-        row: dict = {"key": key, "frame_index": int(fr["frameNum"])}
+        row: dict = {"key": key, "frame_index": int(fr["frameNum"]), "codec": codec}
         for feat in FULL_FEATURES:
             v = _lookup(m, feat)
             row[feat] = float("nan") if v is None else v
@@ -240,11 +246,12 @@ def _process_clip(
     crf: int,
     cache_dir: Path | None,
     scratch: Path,
+    codec: str,
 ) -> list[dict]:
     if cache_dir is not None:
         cache_path = cache_dir / f"{key}.json"
         if cache_path.is_file():
-            return _frames_to_rows(key, cache_path)
+            return _frames_to_rows(key, cache_path, codec)
     ref_yuv = scratch / f"{key}_ref.yuv"
     dis_yuv = scratch / f"{key}_dis.yuv"
     vmaf_json = scratch / f"{key}_vmaf.json"
@@ -252,7 +259,7 @@ def _process_clip(
         w, h, _nb = _decode_yuv_10bit(src_mp4, ref_yuv)
         _encode_dis_10bit(src_mp4, dis_yuv, crf)
         _run_vmaf_full(vmaf_bin, ref_yuv, dis_yuv, w, h, vmaf_json, model_path)
-        rows = _frames_to_rows(key, vmaf_json)
+        rows = _frames_to_rows(key, vmaf_json, codec)
         if cache_dir is not None:
             cache_dir.mkdir(parents=True, exist_ok=True)
             (cache_dir / f"{key}.json").write_text(vmaf_json.read_text())
@@ -357,6 +364,16 @@ def main() -> int:
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--crf", type=int, default=35)
     ap.add_argument("--max-clips", type=int, default=None)
+    ap.add_argument(
+        "--codec",
+        type=str,
+        default="x264",
+        help="Codec label baked into the parquet's `codec` column. Must "
+        "match an entry in ai/src/vmaf_train/codec.py CODEC_VOCAB (or it "
+        "will bucket to 'unknown' at training time). The script always "
+        "encodes via libx264 today; this flag exists so a future "
+        "multi-codec sweep can reuse the same harness.",
+    )
     args = ap.parse_args()
 
     if not args.bvi_zip.is_file():
@@ -380,7 +397,7 @@ def main() -> int:
         if args.max_clips is not None:
             entries = entries[: args.max_clips]
         print(
-            f"[bvi-dvc-full] tier={args.tier} processing {len(entries)} " f"clips → {out_path}",
+            f"[bvi-dvc-full] tier={args.tier} processing {len(entries)} clips → {out_path}",
             flush=True,
         )
 
@@ -404,6 +421,7 @@ def main() -> int:
                     args.crf,
                     cache_dir,
                     args.scratch,
+                    args.codec,
                 )
             finally:
                 with contextlib.suppress(FileNotFoundError):
@@ -411,7 +429,7 @@ def main() -> int:
             if (i + 1) % 5 == 0 or (i + 1) == len(entries):
                 wt = time.time() - t0
                 print(
-                    f"[bvi-dvc-full] {i+1}/{len(entries)} clips, " f"{len(rows)} frames, {wt:.1f}s",
+                    f"[bvi-dvc-full] {i + 1}/{len(entries)} clips, {len(rows)} frames, {wt:.1f}s",
                     flush=True,
                 )
 
