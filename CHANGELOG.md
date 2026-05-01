@@ -61,6 +61,18 @@
   INFO-level "device lacks native fp64 — kernels already use fp32
   + int64 paths, no emulation overhead". An audit confirmed every
   SYCL feature kernel is already fp64-free in its device code:
+
+- **DISTS extractor proposal (T7-DISTS / ADR-0236).** Proposal-stage
+  scaffolding for a DISTS perceptual-similarity tiny-AI FR
+  extractor ([Ding 2020 PAMI](https://doi.org/10.1109/TPAMI.2020.3045810))
+  mirroring `lpips_sq`'s public surface (`relu1_2`–`relu5_3` VGG-16
+  features, channel-wise SSIM-style texture + structure terms,
+  scalar `dists_sq` per frame). Closes Research-0033 actionable
+  item #5 from the Bristol VI-Lab 2026 NVC review. Status:
+  **Proposed only** — no extractor C code, no ONNX, no registry
+  entry; tracked separately as T7-DISTS for the implementation PR.
+  Companion research digest:
+  [`docs/research/0043-dists-extractor-design.md`](docs/research/0043-dists-extractor-design.md).
   ADM gain limiting uses an int64 Q31 split-multiply
   (`gain_limit_to_q31` + `launch_decouple_csf<false>` in
   `libvmaf/src/feature/sycl/integer_adm_sycl.cpp`), VIF gain

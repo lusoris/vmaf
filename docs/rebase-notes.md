@@ -5085,3 +5085,18 @@ inline.*
   meson test -C build-cpu              # full meson suite
   make test-netflix-golden             # 3 CPU canonical pairs
   ```
+
+### 0077 — DISTS extractor proposal (T7-DISTS / ADR-0236)
+
+- **What landed**: ADR-0236 (Proposed) + Research-0043 design digest
+  + ADR README index row + CHANGELOG entry.
+- **Rebase impact**: pure fork-local proposal-stage docs; no code,
+  no Netflix-mirror file touched, no ffmpeg-patches change, no
+  public C-API surface change.
+- **Reproducer (when implementation lands as T7-DISTS)**:
+
+  ```sh
+  vmaf --feature dists_sq=model_path=model/tiny/dists_sq.onnx \
+       --reference ref.yuv --distorted dist.yuv \
+       --width 1920 --height 1080 --pix_fmt yuv420p
+  ```
