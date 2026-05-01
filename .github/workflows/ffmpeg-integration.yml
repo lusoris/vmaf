@@ -257,27 +257,31 @@ jobs:
             --enable-vulkan --disable-indevs \
             --cc="$CC" --cxx="$CXX" \
             || { tail -80 ffbuild/config.log; exit 1; }
-          # Build only the two filter object files we care about. A full
-          # FFmpeg link is ~5 minutes of CI time we don't need — the
-          # PR #234 failure mode is a compile error in vf_libvmaf.c, which
-          # this narrower target reproduces in seconds.
-          make -j"$(nproc)" \
-            libavfilter/vf_libvmaf.o \
-            libavfilter/vf_libvmaf_vulkan.o
+          # Build only the filter object we care about. The dedicated
+          # `libvmaf_vulkan` filter from patch 0006 lives inside the
+          # same `vf_libvmaf.c` (gated by `#if CONFIG_LIBVMAF_VULKAN_FILTER`,
+          # see the patch's Makefile hunk: both `LIBVMAF_VULKAN_FILTER`
+          # and `LIBVMAF_FILTER` map to `vf_libvmaf.o`). A full FFmpeg
+          # link is ~5 minutes of CI time we don't need — PR #234's
+          # failure mode was a compile error in `vf_libvmaf.c` triggered
+          # by `-DVK_NO_PROTOTYPES` Cflag leakage, and this narrower
+          # target reproduces it in seconds.
+          make -j"$(nproc)" libavfilter/vf_libvmaf.o
 
       - name: Assert Vulkan symbols are wired through
         run: |
           cd ffmpeg
-          # Patch 0004 routes vmaf_vulkan_state_init() into the existing
-          # libvmaf filter when the user passes `vulkan_device >= 0`. If
-          # libvmaf.pc Cflags broke vf_libvmaf.c's compile (PR #234), this
+          # The single `vf_libvmaf.o` carries both filter variants:
+          #   - patch 0004 routes vmaf_vulkan_state_init() into the
+          #     `libvmaf` filter when the user passes `vulkan_device >= 0`.
+          #   - patch 0006 adds the dedicated `libvmaf_vulkan` filter that
+          #     adopts FFmpeg's VkInstance/VkDevice via
+          #     vmaf_vulkan_state_init_external (zero-copy VkImage import).
+          # Both symbols must appear in the compiled object. If
+          # libvmaf.pc Cflags broke vf_libvmaf.c's compile (PR #234), the
           # object would not exist; if Vulkan was silently disabled at
-          # configure time, the symbol reference would be missing.
+          # configure time, neither symbol would be referenced.
           test -f libavfilter/vf_libvmaf.o
           nm libavfilter/vf_libvmaf.o | grep -q vmaf_vulkan_state_init
-          # Patch 0006 adds the dedicated `libvmaf_vulkan` filter that
-          # adopts FFmpeg's VkInstance/VkDevice via the `_external` init.
-          test -f libavfilter/vf_libvmaf_vulkan.o
-          nm libavfilter/vf_libvmaf_vulkan.o \
-            | grep -q vmaf_vulkan_state_init_external
+          nm libavfilter/vf_libvmaf.o | grep -q vmaf_vulkan_state_init_external
           echo "FFmpeg with Vulkan support built successfully"
