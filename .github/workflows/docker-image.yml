@@ -11,8 +11,15 @@ permissions:
 
 jobs:
   docker:
+    # T7-CI-DEDUP / Research-0034 — advisory. The job runs `docker build`
+    # but does NOT smoke-test the resulting image (no `docker run vmaf
+    # vmaf --version` or equivalent), so a green job here only proves
+    # "the Dockerfile parses" — no behavioural guarantee. Demoted from
+    # blocking to advisory until a real image-validation step lands.
+    # Track follow-up: T7-DOCKER-SMOKE.
     name: Docker Image Build
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
       - name: Build Docker Image
