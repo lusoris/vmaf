@@ -13,7 +13,7 @@ documentation in the same PR as the code — this page is that doc.
 ## What is enforced
 
 | ADR | Rule | Enforcement | Where it runs |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | [ADR-0108](../adr/0108-deep-dive-deliverables-rule.md) | Six deep-dive deliverables per fork-local PR | **Blocking** CI check | `.github/workflows/rule-enforcement.yml` job `deep-dive-checklist` |
 | [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md) | Docs ship with every user-discoverable surface change | Advisory CI comment | Same workflow, job `doc-substance-check` |
 | [ADR-0106](../adr/0106-adr-maintenance-rule.md) | One ADR per non-trivial decision, written first | Advisory CI comment | Same workflow, job `adr-backfill-check` |
@@ -179,6 +179,32 @@ pre-commit run --files $(git diff --cached --name-only)
 # All pre-commit hooks against a PR's changed files
 pre-commit run --from-ref origin/master --to-ref HEAD
 ```
+
+### CI-parity hooks (pre-push)
+
+The `.pre-commit-config.yaml` `local` block carries four hooks that
+mirror CI lint gates so contributors catch cheap mistakes before a
+CI round-trip:
+
+| Hook | Stage | What it checks |
+| --- | --- | --- |
+| `assertion-density` | pre-push | NASA Power-of-10 §5 — every fork-added C function ≥20 lines has ≥1 `assert()`. Backed by `scripts/ci/assertion-density.sh`. |
+| `mypy-local` | pre-push | `mypy ai/ scripts/` — same invocation as the `Python Lint` CI job. Requires `pip install mypy` (system tool, not in `pyproject.toml`). |
+| `semgrep-local` | pre-commit | Project-local rules from `.semgrep.yml` (`--error` exit code on match). Standard rule packs (`p/cert-c-strict`, `p/cwe-top-25`) still run in CI only. |
+| `ffmpeg-patches-apply-check` | pre-push | `git apply --check` every patch in `ffmpeg-patches/series.txt` against a cached FFmpeg `release/8.1` checkout under `/tmp/ffmpeg-n81`. Backed by `scripts/ci/ffmpeg-patches-check.sh`. |
+
+Install the pre-push hook (one-time, fresh clones):
+
+```bash
+pre-commit install --install-hooks \
+  --hook-type pre-commit \
+  --hook-type pre-push \
+  --hook-type commit-msg
+```
+
+The ffmpeg-patches gate degrades gracefully when offline: if it
+cannot clone or fetch FFmpeg, it prints a stderr warning and exits
+0 rather than blocking a local push on connectivity.
 
 The deep-dive-checklist, doc-substance, and adr-backfill jobs run
 purely against `git diff --name-only <base>..<head>` and the PR

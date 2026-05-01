@@ -106,3 +106,74 @@ repos:
         # MEX C sources, already excluded from other hygiene hooks.
         exclude: '^subprojects/|^libvmaf/test/data/|^python/vmaf/resource/|^python/test/resource/|^python/vmaf/matlab/|^libvmaf/src/pdjson\.(c|h)$'
         types_or: [c, c++, cuda]
+
+      # ----------------------------------------------------------------
+      # CI-parity gates — keep the local pre-commit/pre-push experience
+      # close to what the lint-and-format / ffmpeg-integration workflows
+      # enforce so contributors catch cheap mistakes before a CI round-trip.
+      # See docs/development/automated-rule-enforcement.md.
+      # ----------------------------------------------------------------
+
+      - id: assertion-density
+        name: Power-of-10 §5 assertion density (fork-added C)
+        entry: scripts/ci/assertion-density.sh
+        language: script
+        types_or: [c, c++]
+        stages: [pre-push]
+        # The script self-discovers fork-added files via the
+        # "Lusoris and Claude" copyright marker; pre-commit must not
+        # pass per-file paths or the awk pass aborts mid-stream.
+        pass_filenames: false
+
+      - id: mypy-local
+        name: mypy (ai/ + scripts/, fork-added Python)
+        entry: mypy
+        language: system
+        files: '^(ai|scripts)/.*\.py$'
+        verbose: true
+        require_serial: true
+        # Pre-push only — running mypy on every commit doubles a
+        # 1-line edit's commit time; the gate is cheap on staged files
+        # but contributors land many small commits per push.
+        # Contributors need `pip install mypy` (system tool, not in
+        # pyproject.toml — same posture as CI's lint-and-format job).
+        stages: [pre-push]
+
+      - id: semgrep-local
+        name: semgrep (.semgrep.yml — local rules, error-gated)
+        entry: semgrep scan --config=.semgrep.yml --error --quiet
+        # `language: python` so pre-commit creates its own isolated
+        # venv and pip-installs semgrep there. The CI `pre-commit` job
+        # doesn't ship semgrep on PATH; with `language: system` the
+        # hook would fail with `Executable 'semgrep' not found` on
+        # every CI run.
+        language: python
+        additional_dependencies: ["semgrep>=1.78,<2.0"]
+        types_or: [c, c++, cuda, python]
+        # Mirror `check-copyright`'s exclude list — same upstream /
+        # vendored paths that ship with their own hygiene contract:
+        # (a) upstream vendored subprojects, (b) test fixtures,
+        # (c) python/vmaf/resource/ + python/test/resource/ assets,
+        # (d) libvmaf/src/pdjson.{c,h} 3rd-party JSON parser,
+        # (e) python/vmaf/matlab/ — Netflix-upstream MATLAB MEX C
+        # sources (they call `sprintf` / `strcpy` etc., which are
+        # banned by .semgrep.yml but are out of scope for fork-local
+        # hygiene; cleaning them up is an upstream change, not ours).
+        exclude: '^subprojects/|^libvmaf/test/data/|^python/vmaf/resource/|^python/test/resource/|^python/vmaf/matlab/|^libvmaf/src/pdjson\.(c|h)$'
+        # Runs at pre-commit time — fast on a single-file diff and the
+        # rules in .semgrep.yml are the project's own, not p/cert-c-strict.
+        # `pass_filenames: true` (the default) because semgrep accepts
+        # explicit file paths and pre-commit's per-file invocation makes
+        # the gate cheap on a single-file diff. For full-tree audits, run
+        # `make lint` (which invokes `semgrep scan` against the worktree
+        # without an explicit file list, picking up .semgrepignore).
+
+      - id: ffmpeg-patches-apply-check
+        name: ffmpeg-patches apply --check (n8.1)
+        entry: scripts/ci/ffmpeg-patches-check.sh
+        language: script
+        files: '^ffmpeg-patches/.*\.patch$'
+        stages: [pre-push]
+        # Script self-discovers via series.txt; passing per-file paths
+        # would re-check each patch once per file in the diff.
+        pass_filenames: false
