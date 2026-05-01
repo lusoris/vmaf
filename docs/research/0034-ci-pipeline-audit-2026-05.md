@@ -22,10 +22,14 @@
    single-file diff: `assertion-density.sh`, `mypy`, `semgrep --error`,
    and `ffmpeg-patches apply --check`. Closed by **PR #236**.
 
-3. **HIP backend has zero CI coverage** beyond the scaffold build
-   matrix entry. `libvmaf/src/hip/` was empty in the worktree at
-   audit time; the audit recommended either deleting the dir or
-   scaffolding a build lane. **Open** — backlog item below.
+3. ~~**HIP backend has zero CI coverage**~~ — **false positive** (the
+   audit agent worked off a stale worktree). Verified post-audit:
+   `libvmaf/src/hip/` ships 7 files on master (common.{c,h},
+   dispatch_strategy.{c,h}, picture_hip.{c,h}, meson.build) plus 4
+   kernel stubs at `libvmaf/src/feature/hip/`, all landed by PR #200
+   (T7-10), and the `Build — Ubuntu HIP (T7-10 scaffold)` CI matrix
+   row already exercises them with `-Denable_hip=true`. Status: not
+   affecting the fork.
 
 ## Deliverable 1 — CI duplicate / low-value scan
 
@@ -57,7 +61,7 @@ nightly TSan/clang-tidy-full pair.
 | --- | --- | --- | --- |
 | **FFmpeg + Vulkan integration** | none | `ffmpeg-vulkan` matrix entry: install `mesa-vulkan-drivers libvulkan-dev glslc lavapipe`, build vmaf with `-Denable_vulkan=enabled`, apply patches, configure FFmpeg `--enable-libvmaf-vulkan`, build `vf_libvmaf_vulkan.o`, `nm` symbol assertion | **urgent — closed by PR #235** |
 | **`ffmpeg-patches/` apply check vs pinned `n8.1`** | partial (covered by `ffmpeg-integration.yml` build) | 2-min job: `git clone -b n8.1 --depth=1 FFmpeg && for p in ffmpeg-patches/000*-*.patch; do git -C ffmpeg apply --check "$p"; done`. Catches CLAUDE §12 r14 drift fast | nice-to-have (covered locally by PR #236 hook) |
-| **HIP backend** | empty dir + reference in `coverage-gpu` comment | clarify status: delete dir + retire comment, or scaffold `Build — Ubuntu HIP` matrix entry with `rocm-hip-runtime-dev` | **urgent (clarify status)** |
+| ~~**HIP backend**~~ | ~~empty dir~~ → **already covered** | n/a — `Build — Ubuntu HIP (T7-10 scaffold)` lane in `libvmaf-build-matrix.yml` exercises the 7-file scaffold from PR #200 + 4 kernel stubs at `libvmaf/src/feature/hip/`. Audit agent's worktree was stale. **False positive.** | n/a (closed) |
 | **MCP server smoke test** | `supply-chain.yml::mcp-build` builds the wheel; nothing runs `pytest mcp-server/vmaf-mcp/tests/` | `mcp-smoke` job: build with `-Denable_mcp=true`, `pip install -e mcp-server/vmaf-mcp[test]`, `pytest`. ~5 min | **urgent** (per CLAUDE §12 r10) |
 | **Tiny-AI training scripts smoke** | `dnn` job runs `ai/tests/`; `ai/scripts/*.py` (parquet producers) have no smoke runs | `ai-scripts-smoke` step: dry-run `--help` + 1-frame `extract_full_features.py` against cached YUV. ~30 s | nice-to-have |
 | **Cross-backend bit-exactness** beyond Vulkan | none usable on hosted runners | document gap in `docs/development/self-hosted-runner.md`; consider Cirun.io / BuildJet for managed GPU minutes. **No new lane** until runner exists | nice-to-have (blocked) |
@@ -117,7 +121,7 @@ single-file diff.
 | `T7-CI-DEDUP` | Drop dead jobs (`cross-backend`, `vulkan-vif-arc-nightly`), drop PR-time TSan, merge per-feature VIF steps into matrix gate, demote docker-image to advisory | S (~3h) |
 | `T7-MCP-SMOKE-CI` | Add `mcp-smoke` job to `tests-and-quality-gates.yml` per CLAUDE §12 r10 | S (~3h) |
 | ~~`T7-REGISTRY-CI`~~ | ~~Add 30-s JSON-schema + sha256 validate job for `model/tiny/registry.json`~~ — **closed as not-affecting-the-fork**: `lint-and-format.yml::registry-validate` already does this. | n/a |
-| `T7-HIP-STATUS` | Clarify HIP backend: delete empty dir or scaffold the runtime PR | S |
+| ~~`T7-HIP-STATUS`~~ | ~~Clarify HIP backend~~ — **closed as not-affecting-the-fork**: PR #200 already shipped the scaffold + CI matrix row. | n/a |
 | `T7-FFMPEG-PATCH-REFRESH` | Refresh `ffmpeg-patches/0003`–`0006` against `release/8.1` (caught by PR #236's new local gate) | S–M |
 
 ## What this audit closed (in flight)
