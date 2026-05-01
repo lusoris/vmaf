@@ -448,6 +448,34 @@ For zero-copy interop with caller-owned VkInstance / VkDevice handles
 [ADR-0186](../adr/0186-vulkan-image-import-impl.md) and
 [`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
 
+#### Async pending-fence pipelining (v2 — ADR-0235)
+
+`vmaf_vulkan_import_image` is **non-blocking** as of T7-29
+part 4. It records the GPU copy, submits to the compute
+queue, and returns immediately — the caller's decoder
+thread can run ahead while libvmaf's transfer queue drains
+in the background. Up to `max_outstanding_frames` (default
+`4`) frames may be in flight before the next
+`import_image` call back-pressures on the oldest fence.
+
+The drain happens automatically inside
+`vmaf_vulkan_state_build_pictures` (called by
+`vmaf_vulkan_read_imported_pictures`); callers who need an
+explicit drain — e.g. before reusing the imported VkImage
+on the decoder side — call `vmaf_vulkan_wait_compute()`,
+which now blocks on every outstanding fence in the ring.
+
+Memory cost: the staging arena scales with
+`max_outstanding_frames`. At the default depth and 1080p
+8-bit Y, the arena is roughly **16 MiB** of host-visible
+buffers per `VmafVulkanState`. Higher resolutions or
+multi-state setups should size accordingly.
+
+The ring depth is currently fixed at the default; a public
+`VmafVulkanConfiguration.max_outstanding_frames` knob is
+the deferred follow-up #3 noted in
+[ADR-0235](../adr/0235-vulkan-async-pending-fence.md).
+
 ### Limitations
 
 - Per-feature picture preallocation API is **not** yet exposed —

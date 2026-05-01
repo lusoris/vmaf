@@ -34,9 +34,46 @@
 extern "C" {
 #endif
 
-/* Per-state import slot for the VkImage zero-copy path (T7-29 part 2,
- * ADR-0186). One ref + one dis staging buffer per state, lazily
- * allocated on first import_image call and reused across frames. */
+/* Maximum frames in flight allowed by the v2 async pending-fence
+ * ring (T7-29 part 4, ADR-0235). The default is 4 — the canonical
+ * Vulkan game-engine "frames in flight" depth. The hard cap is 8
+ * to bound the staging-buffer footprint; callers asking for more
+ * via VmafVulkanConfiguration get clamped silently with an
+ * internal warning. The ring depth is fixed at state init and
+ * never reallocates afterwards (Power of 10 §3 / §6). */
+#define VMAF_VULKAN_RING_DEFAULT 4u
+#define VMAF_VULKAN_RING_MAX 8u
+
+/* One entry of the v2 async pending-fence ring. Each slot owns a
+ * dedicated ref + dis staging buffer pair, a transfer command
+ * buffer, and a fence; they are pre-allocated by lazy_alloc_ring
+ * on the first import_image call and never reallocated. */
+struct VmafVulkanImportSlot {
+    VmafVulkanBuffer *ref_buf;
+    VmafVulkanBuffer *dis_buf;
+    VkCommandBuffer cmd;
+    VkFence fence;
+
+    /* Per-direction "data staged for `*_index`" flags. Cleared by
+     * vmaf_vulkan_state_build_pictures() once the host has consumed
+     * the slot. */
+    int ref_pending;
+    int dis_pending;
+    unsigned ref_index;
+    unsigned dis_index;
+
+    /* Non-zero between vkQueueSubmit and the matching
+     * vkWaitForFences. submit_to_slot waits + resets if a prior
+     * submission is still in flight when the ring wraps; the same
+     * field tells vmaf_vulkan_state_free which fences need a final
+     * drain. */
+    int fence_in_flight;
+};
+
+/* Per-state import-ring for the VkImage zero-copy path. Originally
+ * one fence + one staging-pair (ADR-0186 v1, synchronous); the v2
+ * async pending-fence design (ADR-0235) promotes the single slot
+ * to a ring of N slots keyed by `frame_index % ring_size`. */
 struct VmafVulkanImportSlots {
     /* Frame geometry pinned by the first import_image call. Subsequent
      * calls must match (or return -EINVAL) — same contract as the
@@ -50,25 +87,24 @@ struct VmafVulkanImportSlots {
      * to vmaf_read_pictures with correct geometry. */
     size_t stride_bytes;
 
-    VmafVulkanBuffer *ref_buf;
-    VmafVulkanBuffer *dis_buf;
+    /* Ring depth. Set once at state init, never changes. */
+    unsigned ring_size;
 
-    /* Per-buffer "data has been staged for `index`" flags. read_imported_pictures
-     * verifies both are set for the requested index before triggering scoring. */
-    int ref_pending;
-    int dis_pending;
-    unsigned ref_index;
-    unsigned dis_index;
-
-    /* Reusable transfer command buffer + completion fence for the
-     * synchronous copy. Lazily created alongside the buffers. */
-    VkCommandBuffer cmd;
-    VkFence fence;
+    /* `ring_size` slots; the unused tail (when ring_size <
+     * VMAF_VULKAN_RING_MAX) keeps zero-initialised handles so
+     * the teardown path is uniform. */
+    struct VmafVulkanImportSlot ring[VMAF_VULKAN_RING_MAX];
 };
 
 struct VmafVulkanState {
     VmafVulkanContext *ctx;
     struct VmafVulkanImportSlots import;
+
+    /* Requested ring depth (max_outstanding_frames). Captured from
+     * VmafVulkanConfiguration at init time, clamped to
+     * [1, VMAF_VULKAN_RING_MAX]. Ring is materialised lazily on the
+     * first import_image call (geometry isn't known until then). */
+    unsigned requested_ring_size;
 };
 
 /* import.c — release any lazily-allocated import slot resources.

@@ -132,6 +132,22 @@ vulkan/
   vma_impl.cpp          # VMA allocator instantiation TU
   vulkan_common.h       # opaque public surface
   vulkan_internal.h     # context + import-slot layout (kernel-side)
+The Vulkan-side runtime (volk loader, VkInstance / VkDevice +
+compute queue setup, VMA allocator, command pool, picture
+lifecycle, VkImage zero-copy import). Vulkan **feature
+kernels** live one level deeper in
+[../feature/vulkan/](../feature/vulkan/).
+
+```
+vulkan/
+  common.c                # VkInstance / VkDevice / queue / pool
+  picture_vulkan.{c,h}    # VkBuffer alloc / flush / host-pointer
+  import.c                # T7-29: VkImage zero-copy import
+  import_picture.h        # bridge from import.c → libvmaf.c
+  vulkan_internal.h       # VmafVulkanContext / State / ImportSlots
+  vma_impl.cpp            # VMA C++17 impl TU
+  dispatch_strategy.{c,h} # per-feature dispatch shape selection
+  spv_embed.py            # SPIR-V → C array build helper
 ```
 
 ## Ground rules
@@ -214,3 +230,62 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
   cross-backend `places=4` gate every kernel migration is gated by.
 - [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) —
   per-feature kernel scaffolding template (`kernel_template.h`).
+- **Every Vulkan call has its return checked.** `VK_SUCCESS` is the
+  only success value; everything else maps to `-EIO` / `-ENOMEM` /
+  `-EINVAL` per the import.c convention.
+- **No fence/semaphore handles outlive the device.** Anything created
+  via `vkCreate*` must be paired with the matching `vkDestroy*` in
+  the teardown path; the teardown order is fixed (see Rebase-sensitive
+  invariants below).
+- **Public ABI is opaque-handle.** Vulkan handles cross the
+  `libvmaf_vulkan.h` ABI as `uintptr_t`; never expose `VkImage` /
+  `VkSemaphore` types in the public surface (ADR-0184).
+- **Lavapipe is the CI ICD.** Anything that depends on real
+  hardware queue concurrency, descriptor-indexing, or driver
+  scheduling cannot be CI-gated against lavapipe alone — flag
+  the deferred lane and add a hardware verification note.
+
+## Rebase-sensitive invariants
+
+- **Async pending-fence ring (ADR-0235)**: `VmafVulkanImportSlots`
+  is a ring of `ring_size` slots keyed by `frame_index %
+  ring_size` (default depth 4, max 8 — see
+  `VMAF_VULKAN_RING_DEFAULT` / `VMAF_VULKAN_RING_MAX`). Three
+  invariants are load-bearing:
+  1. Ring depth is fixed at the **first** `vmaf_vulkan_import_image`
+     call (when geometry is also pinned). Subsequent calls with
+     different `w/h/bpc` return `-EINVAL` — same contract as v1.
+     Ring depth is **not** reallocated; if a caller needs a
+     different depth they must `vmaf_vulkan_state_free` and re-init.
+  2. `vkResetFences` runs **only** after a confirmed `VK_SUCCESS`
+     from `vkWaitForFences` — the reset path lives inside
+     `drain_slot_fence` and is the only place `fence_in_flight`
+     is cleared.
+  3. `vmaf_vulkan_state_free` drains every outstanding fence
+     before destroying any resource (`vkQueueWaitIdle` belt-
+     and-braces in case feature kernels submitted on the same
+     queue). Reordering the teardown will leak GPU memory or
+     trigger the validation-layer "destroying in-use object"
+     error.
+- **ABI preservation**: the v2 ring lives entirely inside
+  `VmafVulkanState`; the public `libvmaf_vulkan.h` did not change
+  signatures across the v1 → v2 swap. Future versions that need
+  to expose `max_outstanding_frames` should grow
+  `VmafVulkanConfiguration` rather than break the call sites.
+- **FFmpeg patch coupling**: any change to the
+  `vmaf_vulkan_*` public surface ships the matching update to
+  `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`
+  in the same PR (CLAUDE.md §12 r14). v2 preserves the ABI so
+  the patch is unaffected.
+
+## See also
+
+- [ADR-0186](../../../docs/adr/0186-vulkan-image-import-impl.md)
+  — v1 synchronous design.
+- [ADR-0235](../../../docs/adr/0235-vulkan-async-pending-fence.md)
+  — v2 async ring.
+- [Research-0042](../../../docs/research/0042-vulkan-async-pending-fence.md)
+  — option-space digest.
+- [docs/api/gpu.md](../../../docs/api/gpu.md) — public-API reference.
+- [docs/backends/vulkan/overview.md](../../../docs/backends/vulkan/overview.md)
+  — backend-level overview.

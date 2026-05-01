@@ -439,6 +439,14 @@ int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg)
         return err;
     }
 
+    /* T7-29 part 4 (ADR-0235): default async pending-fence ring depth.
+     * Public VmafVulkanConfiguration does not yet carry a tunable;
+     * follow-up #3 in ADR-0235 plumbs `max_outstanding_frames` through.
+     * For now every state gets the canonical "frames-in-flight = 4". */
+    s->requested_ring_size = VMAF_VULKAN_RING_DEFAULT;
+    assert(s->requested_ring_size > 0);
+    assert(s->ctx != NULL);
+
     *out = s;
     return 0;
 }
@@ -457,6 +465,11 @@ int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHan
         free(s);
         return err;
     }
+
+    /* T7-29 part 4 (ADR-0235): see vmaf_vulkan_state_init. */
+    s->requested_ring_size = VMAF_VULKAN_RING_DEFAULT;
+    assert(s->requested_ring_size > 0);
+    assert(s->ctx != NULL);
 
     *out = s;
     return 0;

@@ -27,6 +27,74 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
+
+- **ADR**: [ADR-0235](adr/0235-vulkan-async-pending-fence.md);
+  predecessor [ADR-0186](adr/0186-vulkan-image-import-impl.md).
+- **Touches**:
+  - `libvmaf/src/vulkan/import.c` — full rewrite of the
+    submission path. Single-fence `submit_and_wait` becomes
+    per-slot `submit_to_slot` + `drain_slot_fence`; the new
+    `slot_alloc` / `slot_release` helpers materialise / tear
+    down a ring slot (staging-pair + cmd buffer + fence).
+    `vmaf_vulkan_import_image` indexes into the ring by
+    `frame_index % ring_size`; `vmaf_vulkan_wait_compute`
+    drains every outstanding fence.
+    `vmaf_vulkan_state_build_pictures` waits the slot's fence
+    before exposing the host pointer. Public-API signatures
+    are unchanged.
+  - `libvmaf/src/vulkan/vulkan_internal.h` — new `struct
+    VmafVulkanImportSlot`; `VmafVulkanImportSlots` becomes a
+    fixed-capacity `VmafVulkanImportSlot ring[VMAF_VULKAN_RING_MAX]`
+    plus geometry + `ring_size`. Two new defines —
+    `VMAF_VULKAN_RING_DEFAULT` (4) and `VMAF_VULKAN_RING_MAX`
+    (8). `VmafVulkanState` gains `requested_ring_size`.
+  - `libvmaf/src/vulkan/common.c` — `vmaf_vulkan_state_init` and
+    `_state_init_external` set
+    `requested_ring_size = VMAF_VULKAN_RING_DEFAULT`.
+  - `libvmaf/test/test_vulkan_async_pending_fence.c` (new,
+    contract smoke for the v1 → v2 swap).
+  - `libvmaf/test/meson.build` — registers the new test under
+    the existing `enable_vulkan` guard.
+  - `libvmaf/src/vulkan/AGENTS.md` (new) — pins the three
+    rebase-sensitive ring invariants.
+  - `docs/adr/0235-vulkan-async-pending-fence.md` (new),
+    `docs/research/0042-vulkan-async-pending-fence.md` (new),
+    `docs/api/gpu.md`, `docs/backends/vulkan/overview.md`,
+    `CHANGELOG.md`, `docs/rebase-notes.md`.
+  - `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`
+    — **unchanged**. The v2 ring is fully internal to
+    `VmafVulkanState`; the public ABI stays byte-identical
+    so the filter consumes the new path transparently.
+- **Invariant 1 — fixed ring depth at first import**.
+  `lazy_alloc_ring` is the only place that materialises the
+  ring; once allocated the depth never changes for the
+  lifetime of the `VmafVulkanState`. Any caller that needs
+  a different depth has to free + re-init. The geometry
+  pinning contract from v1 (ADR-0186) is preserved verbatim.
+- **Invariant 2 — `vkResetFences` only after `VK_SUCCESS`
+  from `vkWaitForFences`**. Sole reset path lives in
+  `drain_slot_fence`; `fence_in_flight` flips back to 0 only
+  after the wait succeeds. A `-EIO` from the wait propagates
+  up without resetting (so a retry would correctly re-wait
+  rather than silently move on).
+- **Invariant 3 — `state_free` drains before destroying**.
+  `vmaf_vulkan_import_slots_free` walks the ring and calls
+  `drain_slot_fence` on every in-flight slot, then issues
+  one `vkQueueWaitIdle` belt-and-braces (any feature kernel
+  that submitted on the same queue may still be running).
+  Reordering this triggers validation-layer
+  "destroying in-use object" errors.
+- **Numerical contract**: unchanged. Async submission only
+  changes when the host can read the staging buffer, not
+  which bytes the GPU writes. Cross-backend parity gate
+  (`scripts/ci/cross_backend_parity_gate.py`, `places=4`) holds.
+- **Memory delta**: staging arena scales `1 → ring_size`
+  per direction. At default depth and 1080p 8-bit Y, the
+  per-state host-visible footprint grows from ~4 MiB to
+  ~16 MiB. Documented in
+  [ADR-0235 §Consequences](adr/0235-vulkan-async-pending-fence.md#consequences).
+
 ### 0090 — `cambi_vulkan` extractor (T7-36 / ADR-0210)
 
 - **ADR**: [ADR-0210](adr/0210-cambi-vulkan-integration.md);

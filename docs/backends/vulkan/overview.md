@@ -40,6 +40,14 @@
   `AVVulkanDeviceContext`), `vmaf_vulkan_import_image`,
   `vmaf_vulkan_wait_compute`, `vmaf_vulkan_read_imported_pictures`.
   See [ADR-0186](../../adr/0186-vulkan-image-import-impl.md).
+  The import path runs the v2 async pending-fence ring
+  (default depth 4, frames-in-flight pipelined) per
+  [ADR-0235](../../adr/0235-vulkan-async-pending-fence.md);
+  `vmaf_vulkan_import_image` is non-blocking and
+  `vmaf_vulkan_wait_compute` drains every outstanding
+  fence in submission order. Staging-buffer footprint
+  scales `2 × ring_size` per state (~16 MiB host-visible
+  at 1080p 8-bit Y, default depth).
 - Backend runtime under
   [`libvmaf/src/vulkan/`](../../../libvmaf/src/vulkan/) —
   `common.{c,h}` (volk + VkInstance / VkDevice / compute queue +
