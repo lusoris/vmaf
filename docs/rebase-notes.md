@@ -5099,4 +5099,16 @@ inline.*
   vmaf --feature dists_sq=model_path=model/tiny/dists_sq.onnx \
        --reference ref.yuv --distorted dist.yuv \
        --width 1920 --height 1080 --pix_fmt yuv420p
+### 0076 — GPU-gen ULP calibration head (proposal-stage, T7-GPU-ULP-CAL / ADR-0234)
+
+- **What landed**: ADR-0234 (Proposed), Research-0041, data-collection
+  scaffold at `ai/scripts/collect_gpu_calibration_data.py`, forward-pointer
+  in `docs/usage/cli.md` for the future `--gpu-calibrated` flag.
+- **Rebase impact**: pure fork-local (proposal docs + Python script);
+  no upstream Netflix/vmaf code touched, no public C-API changes, no
+  ffmpeg-patches changes.
+- **Reproducer**:
+
+  ```sh
+  python3 ai/scripts/collect_gpu_calibration_data.py --smoke
   ```

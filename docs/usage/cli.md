@@ -169,6 +169,14 @@ If neither backend is built in, these flags are silently inert. See
 [../backends/index.md](../backends/index.md) for the runtime-dispatch rules and
 which features have GPU/SIMD twins.
 
+> **Future work — `--gpu-calibrated`** (proposed,
+> [ADR-0234](../adr/0234-gpu-gen-ulp-calibration.md)). A future flag will
+> opt into a per-arch ULP calibration head that maps raw GPU scores to their
+> CPU-equivalent values, closing the ~1e-4 cross-backend divergence
+> currently within `places=4` tolerance. **Not shipped in this release** —
+> the flag does not exist yet; the calibration model is not trained yet.
+> See the ADR for measurement gates that have to clear first.
+
 ## Frame range
 
 ```text
