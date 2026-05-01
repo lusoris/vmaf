@@ -219,7 +219,96 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
     exempt. See
     [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md).
 
-## 13. Interaction style — prefer structured popup questions
+## 13. Rebase-sensitive invariants (project-wide)
+
+Cross-package invariants that any upstream-sync / rebase agent must
+preserve. Per-subtree details (the load-bearing reasons + load-bearing
+mechanics) live in the relevant `AGENTS.md` under that subtree; this
+list is the index. When a rebase touches the cited TUs, walk the
+linked AGENTS.md before resolving conflicts.
+
+- **GPU long-tail terminus reached** — every registered feature
+  extractor has at least one GPU twin (lpips remains ORT-delegated
+  per [ADR-0022](docs/adr/0022-inference-runtime-onnx.md)).
+  Cross-backend tolerances live in
+  `scripts/ci/cross_backend_parity_gate.py`. Governing ADRs:
+  [ADR-0182](docs/adr/0182-gpu-long-tail-batch-1.md) (batch 1: psnr /
+  ciede / moment), [ADR-0188](docs/adr/0188-gpu-long-tail-batch-2.md)
+  (batch 2: ssim / ms_ssim / psnr_hvs),
+  [ADR-0192](docs/adr/0192-gpu-long-tail-batch-3.md) (batch 3:
+  motion_v2 / float_ansnr / float-twins / ssimulacra2 / cambi).
+  See [libvmaf/src/feature/AGENTS.md](libvmaf/src/feature/AGENTS.md).
+- **Vulkan backend (scaffold + image import)**:
+  [ADR-0175](docs/adr/0175-vulkan-backend-scaffold.md) +
+  [ADR-0184](docs/adr/0184-vulkan-image-import-scaffold.md) +
+  [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md). Public
+  symbols in `libvmaf_vulkan.h`. Volk-symbol hiding via
+  [ADR-0185](docs/adr/0185-vulkan-hide-volk-symbols.md) +
+  [ADR-0198](docs/adr/0198-volk-priv-remap-static-archive.md) +
+  [ADR-0200](docs/adr/0200-volk-priv-remap-pkgconfig-leak-fix.md).
+  See [libvmaf/src/vulkan/AGENTS.md](libvmaf/src/vulkan/AGENTS.md).
+- **ssim / ms_ssim Vulkan kernels**:
+  [ADR-0188](docs/adr/0188-gpu-long-tail-batch-2.md) +
+  [ADR-0189](docs/adr/0189-ssim-vulkan.md) +
+  [ADR-0190](docs/adr/0190-ms-ssim-vulkan.md). 11-tap Gaussian baked
+  into GLSL byte-for-byte from `iqa/ssim_tools.h::g_gaussian_window_h`.
+- **motion_v2 GPU port (T3-14)**:
+  [ADR-0193](docs/adr/0193-motion-v2-vulkan.md) — single-dispatch GLSL
+  with edge-replicating mirror that diverges from `motion.comp`'s
+  non-replicating variant; bit-exact vs CPU.
+- **cambi Vulkan integration (T7-36, ADR-0210)**:
+  [ADR-0210](docs/adr/0210-cambi-vulkan-integration.md) — Strategy II
+  hybrid host/GPU; closes ADR-0192 long-tail terminus. See
+  [libvmaf/src/feature/AGENTS.md](libvmaf/src/feature/AGENTS.md).
+- **MCP embedded scaffold (T5-2a, ADR-0209)**:
+  [ADR-0209](docs/adr/0209-mcp-embedded-scaffold.md). Public header
+  `libvmaf_mcp.h`, audit-first `-ENOSYS` stubs in
+  `libvmaf/src/mcp/mcp.c`, `enable_mcp` + 3 transport sub-flags. T5-2b
+  (cJSON + mongoose + transport bodies) is open. See
+  [libvmaf/AGENTS.md §Rebase-sensitive invariants](libvmaf/AGENTS.md).
+- **HIP scaffold (T7-10, ADR-0212 placeholder, PR #200)** —
+  audit-first AMD HIP backend scaffold mirroring Vulkan T5-1 /
+  ADR-0175. Public `libvmaf_hip.h`, stub kernels, `enable_hip` meson
+  option default `false`.
+- **SVE2 SIMD ports (T7-38, ADR-0213 placeholder, PR #201)** —
+  SSIMULACRA 2 PTLR + IIR-blur SVE2 ports developed against
+  `qemu-aarch64-static`. Same bit-exact contract as the existing
+  NEON ports.
+- **GPU-parity CI gate (T6-8, ADR-0214)**:
+  [ADR-0214](docs/adr/0214-gpu-parity-ci-gate.md). Single source of
+  truth for cross-backend tolerances:
+  `scripts/ci/cross_backend_parity_gate.py`. Adding a new GPU twin
+  requires (1) `FEATURE_METRICS` entry, (2) `FEATURE_TOLERANCE` entry
+  if it relaxes places=4, (3) row in
+  `docs/development/cross-backend-gate.md`. See
+  [libvmaf/AGENTS.md](libvmaf/AGENTS.md).
+- **FastDVDnet temporal pre-filter (T6-7, ADR-0215 placeholder,
+  PR #203)** — 5-frame window pre-filter feeding ssim/ms_ssim.
+- **psnr chroma Vulkan (T3-15(b), ADR-0216 placeholder, PR #204)**
+  — `psnr_cb` / `psnr_cr` Vulkan kernels alongside the existing
+  `psnr_y` from [ADR-0182](docs/adr/0182-gpu-long-tail-batch-1.md).
+- **MobileSal saliency extractor (T6-2a, ADR-0218 placeholder,
+  PR #208)** — first half of T6-2 (encoder-side ROI bundle).
+  Saliency-weighted VMAF, sidecar emit for `tools/vmaf-roi`.
+- **TransNet V2 shot-boundary extractor (T6-3a, PR #210)** —
+  ~1M params; feeds `tools/vmaf-perShot` CRF predictor.
+- **SYCL fp64-less device contract (T7-17, ADR-0220)**:
+  [ADR-0220](docs/adr/0220-sycl-fp64-fallback.md). SYCL feature
+  kernels are unconditionally fp64-free; a single fp64 instruction
+  in any lambda blocks the whole TU on Arc A-series. See
+  [libvmaf/src/sycl/AGENTS.md](libvmaf/src/sycl/AGENTS.md).
+- **Model registry + Sigstore (T6-9, ADR-0211 placeholder, PR #199)**:
+  `--tiny-model-verify` flag + registry schema + Sigstore bundle
+  paths. Pairs with
+  [ADR-0010](docs/adr/0010-sigstore-keyless-signing.md) (release
+  signing).
+- **Upstream port — feature/motion options from b949cebf
+  (T-NEW-1)**: PR #197 (`b949cebf`, MERGED 2026-04-29) ported
+  Netflix's feature/motion several-options commit; PR #213 (open)
+  ports `d3647c73` `feature/speed` extractors (`speed_chroma` +
+  `speed_temporal`).
+
+## 14. Interaction style — prefer structured popup questions
 
 When your host agent exposes a structured-question UI (Claude Code's `AskUserQuestion`,
 Cursor's choice prompt, Aider's multi-choice, etc.), **use it instead of posting a

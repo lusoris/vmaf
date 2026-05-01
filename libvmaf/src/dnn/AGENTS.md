@@ -63,6 +63,32 @@ Runtime directly.
 - [ADR-0040](../../../docs/adr/0040-dnn-session-multi-input-api.md) — multi-input/output API with named bindings.
 - [ADR-0041](../../../docs/adr/0041-lpips-sq-extractor.md) — LPIPS-SqueezeNet extractor + ImageNet-in-graph.
 - [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md) — doc-substance rule.
+- [ADR-0169](../../../docs/adr/0169-onnx-allowlist-loop-if.md) +
+  [ADR-0171](../../../docs/adr/0171-bounded-loop-trip-count.md) —
+  `Loop` + `If` admitted with bounded trip-count guard
+  (`VMAF_DNN_MAX_LOOP_NODES = 16`); `Scan` stays rejected.
+- [ADR-0207](../../../docs/adr/0207-tinyai-qat-design.md) +
+  [ADR-0208](../../../docs/adr/0208-learned-filter-v1-qat-impl.md)
+  — QAT pipeline (PyTorch QAT → fp32 ONNX → ORT static-quantize
+  bridge for PyTorch 2.11 ONNX-exporter limitations).
+
+## Rebase-sensitive invariants (DNN-side surfaces in flight)
+
+- **Model registry + Sigstore (T6-9, PR #199 open, ADR-0211
+  placeholder)**: `--tiny-model-verify` flag wires through to
+  `cosign verify-blob` against the Sigstore bundle declared in
+  the registry. Pairs with the `quant_mode` / `int8_sha256`
+  fields from
+  [ADR-0173](../../../docs/adr/0173-ptq-int8-audit-impl.md) /
+  [ADR-0174](../../../docs/adr/0174-first-model-quantisation.md).
+  On merge: every shipped tiny-AI model needs a Sigstore bundle
+  path in `model/tiny/registry.json`.
+- **MobileSal (T6-2a, PR #208 open, ADR-0218 placeholder)** —
+  saliency feature extractor; opens session via `vmaf_dnn_*`.
+- **TransNet V2 (T6-3a, PR #210 open)** — shot-boundary detector
+  ~1M params; uses bounded-Loop guard from ADR-0171.
+- **FastDVDnet (T6-7, PR #203 open, ADR-0215 placeholder)** —
+  5-frame window pre-filter; same DNN session contract.
 
 ## Testing
 

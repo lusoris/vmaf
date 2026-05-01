@@ -236,11 +236,23 @@ libvmaf/
   list needs the new path added (see the `for cand in ...` block in
   the script). Companion bench-time helper:
   [`scripts/ci/sycl-bench-env.sh`](../scripts/ci/sycl-bench-env.sh).
+- **GPU long-tail terminus reached** (fork-local, T7-36 closure
+  via [ADR-0210](../docs/adr/0210-cambi-vulkan-integration.md)).
+  Every registered feature extractor now has at least one GPU twin
+  — cambi was the last remaining gap. lpips remains ORT-delegated
+  per [ADR-0022](../docs/adr/0022-inference-runtime-onnx.md).
+  Adding a new feature extractor without a same-PR GPU twin is now
+  an explicit choice — record the deferral in the ADR body.
+  Governing batches:
+  [ADR-0182](../docs/adr/0182-gpu-long-tail-batch-1.md) (1) +
+  [ADR-0188](../docs/adr/0188-gpu-long-tail-batch-2.md) (2) +
+  [ADR-0192](../docs/adr/0192-gpu-long-tail-batch-3.md) (3).
 
 Backend-specific orientation:
 
 - [src/cuda/AGENTS.md](src/cuda/AGENTS.md) — CUDA backend runtime
 - [src/sycl/AGENTS.md](src/sycl/AGENTS.md) — SYCL backend runtime
+- [src/vulkan/AGENTS.md](src/vulkan/AGENTS.md) — Vulkan backend runtime
 - [src/dnn/AGENTS.md](src/dnn/AGENTS.md) — ONNX Runtime integration (tiny AI)
 - [src/feature/AGENTS.md](src/feature/AGENTS.md) — feature extractors + SIMD
 - [test/AGENTS.md](test/AGENTS.md) — C unit tests

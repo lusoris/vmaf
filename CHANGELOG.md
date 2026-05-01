@@ -79,6 +79,33 @@
   against current behavior and required no edits. No functional
   change to any hook script body. No user-discoverable surface
   changed.
+- **Planning + AGENTS.md refresh** (fork-local doc): root
+  `AGENTS.md` gains a new §13 "Rebase-sensitive invariants
+  (project-wide)" indexing the shipped surfaces from the
+  2026-04-29 session — GPU long-tail terminus
+  ([ADR-0210](docs/adr/0210-cambi-vulkan-integration.md) closes
+  the matrix), Vulkan backend + image import, ssim/ms_ssim
+  Vulkan, motion_v2 GPU port, MCP scaffold (ADR-0209), HIP
+  scaffold (ADR-0212 placeholder), SVE2 SIMD (ADR-0213
+  placeholder), GPU-parity CI gate
+  ([ADR-0214](docs/adr/0214-gpu-parity-ci-gate.md)), MobileSal
+  (ADR-0218 placeholder), TransNet V2, FastDVDnet (ADR-0215
+  placeholder), psnr chroma Vulkan (ADR-0216 placeholder), SYCL
+  fp64-less device contract
+  ([ADR-0220](docs/adr/0220-sycl-fp64-fallback.md)), model
+  registry + Sigstore (ADR-0211 placeholder), and the upstream
+  `feature/motion` port from `b949cebf`
+  ([PR #197](https://github.com/lusoris/vmaf/pull/197)) +
+  `feature/speed` port from `d3647c73`
+  ([PR #213](https://github.com/lusoris/vmaf/pull/213)).
+  [`libvmaf/AGENTS.md`](libvmaf/AGENTS.md),
+  [`libvmaf/src/feature/AGENTS.md`](libvmaf/src/feature/AGENTS.md),
+  [`libvmaf/src/sycl/AGENTS.md`](libvmaf/src/sycl/AGENTS.md),
+  [`libvmaf/src/dnn/AGENTS.md`](libvmaf/src/dnn/AGENTS.md), and
+  the new
+  [`libvmaf/src/vulkan/AGENTS.md`](libvmaf/src/vulkan/AGENTS.md)
+  pick up the per-subdirectory invariants. No code change.
+
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is

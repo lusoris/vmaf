@@ -505,3 +505,53 @@ float-features path.
   SSIM accumulate per-lane scalar-double reduction pattern.
 - [ADR-0140](../../../docs/adr/0140-simd-dx-framework.md) — SIMD DX
   framework (`simd_dx.h` + `/add-simd-path` skill upgrade).
+- [ADR-0182](../../../docs/adr/0182-gpu-long-tail-batch-1.md) +
+  [ADR-0188](../../../docs/adr/0188-gpu-long-tail-batch-2.md) +
+  [ADR-0192](../../../docs/adr/0192-gpu-long-tail-batch-3.md) —
+  GPU long-tail batches 1–3. Every registered feature extractor
+  now has at least one GPU twin (lpips remains ORT-delegated).
+- [ADR-0193](../../../docs/adr/0193-motion-v2-vulkan.md) —
+  `motion_v2` Vulkan kernel; edge-replicating mirror diverges
+  from `motion.comp` non-replicating mirror — load-bearing per
+  the underlying CPU code path.
+- [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md) +
+  [ADR-0210](../../../docs/adr/0210-cambi-vulkan-integration.md) —
+  cambi Vulkan integration (Strategy II, hybrid host/GPU).
+  Precision-sensitive `calculate_c_values` + top-K stay on host;
+  GPU phases are integer + bit-exact.
+- [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) —
+  GPU-parity CI gate: per-feature `FEATURE_TOLERANCE` map in
+  `scripts/ci/cross_backend_parity_gate.py` is single source of
+  truth. Every new GPU twin needs an entry.
+
+## Newly-arrived shipped surfaces (rebase awareness)
+
+- **MS-SSIM `enable_lcs` GPU implementation (T7-35, PR #207 open)**
+  — wires the existing CPU `enable_lcs` 15-extra-metrics through
+  CUDA + Vulkan + SYCL MS-SSIM kernels. On rebase: ensure the
+  option metadata stays declared on the GPU paths even if the
+  body is still TODO.
+- **psnr chroma Vulkan (T3-15(b), PR #204 open, ADR-0216
+  placeholder)** — `psnr_cb` + `psnr_cr` Vulkan twins next to
+  `psnr_y`
+  ([ADR-0182](../../../docs/adr/0182-gpu-long-tail-batch-1.md)).
+- **MobileSal saliency extractor (T6-2a, PR #208 open, ADR-0218
+  placeholder)** — first half of T6-2 (encoder-side ROI bundle).
+  DNN-backed; opens sessions through
+  [`../dnn/`](../dnn/AGENTS.md).
+- **TransNet V2 shot-boundary extractor (T6-3a, PR #210 open)** —
+  second half of T6-2 bundle, ~1M params. DNN-backed.
+- **FastDVDnet temporal pre-filter (T6-7, PR #203 open, ADR-0215
+  placeholder)** — 5-frame window pre-filter feeding
+  ssim/ms_ssim. DNN-backed.
+- **SVE2 SIMD ports (T7-38, PR #201 open, ADR-0213 placeholder)**
+  — SSIMULACRA 2 PTLR + IIR-blur SVE2; same bit-exact contract
+  as the existing NEON ports per
+  [ADR-0161](../../../docs/adr/0161-ssimulacra2-simd-bitexact.md)
+  / [ADR-0162](../../../docs/adr/0162-ssimulacra2-iir-blur-simd.md)
+  / [ADR-0163](../../../docs/adr/0163-ssimulacra2-ptlr-simd.md).
+- **Upstream ports**: `feature/motion` options from `b949cebf`
+  (T-NEW-1) MERGED via PR #197 (2026-04-29). `feature/speed`
+  port from `d3647c73` (`speed_chroma` + `speed_temporal`) is
+  PR #213 (open). 32-bit ADM/cpu fallbacks (`8a289703` +
+  `1b6c3886`) are PR #212 (open).
