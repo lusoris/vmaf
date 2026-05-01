@@ -182,7 +182,7 @@ jobs:
           # `Install Vulkan SDK` step in libvmaf-build-matrix.yml so libvmaf's
           # Vulkan path (volk + VMA via meson wraps in libvmaf/subprojects/)
           # builds the same way here. mesa-vulkan-drivers ships lavapipe.
-          sudo -E apt-get -yq install ninja-build gcc g++ nasm pkg-config \
+          sudo -E apt-get -yq install ninja-build gcc g++ gobjc nasm pkg-config \
             libvulkan-dev vulkan-tools glslang-tools mesa-vulkan-drivers \
             libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
             libavfilter-dev
