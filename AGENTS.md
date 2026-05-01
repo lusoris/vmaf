@@ -84,20 +84,32 @@ These operational workflows are each codified as a Claude skill under `.claude/s
 Agents without slash-command routing should read the corresponding `SKILL.md` and follow
 the steps manually.
 
-| Task                         | See                                               |
-|------------------------------|---------------------------------------------------|
-| Build against a backend      | `.claude/skills/build-vmaf/SKILL.md`              |
-| Add new GPU backend          | `.claude/skills/add-gpu-backend/SKILL.md`         |
-| Add SIMD path                | `.claude/skills/add-simd-path/SKILL.md`           |
-| Add feature extractor        | `.claude/skills/add-feature-extractor/SKILL.md`   |
-| Add a model                  | `.claude/skills/add-model/SKILL.md`               |
-| Cross-backend numeric diff   | `.claude/skills/cross-backend-diff/SKILL.md`      |
-| Profile a hot path           | `.claude/skills/profile-hotpath/SKILL.md`         |
-| Bisect a regression          | `.claude/skills/bisect-regression/SKILL.md`       |
-| Port upstream commit         | `.claude/skills/port-upstream-commit/SKILL.md`    |
-| Sync with upstream master    | `.claude/skills/sync-upstream/SKILL.md`           |
-| Regenerate test snapshots    | `.claude/skills/regen-snapshots/SKILL.md`         |
-| Release dry-run              | `.claude/skills/prep-release/SKILL.md`            |
+| Task                              | See                                               |
+|-----------------------------------|---------------------------------------------------|
+| Build against a backend           | `.claude/skills/build-vmaf/SKILL.md`              |
+| Build ffmpeg w/ libvmaf patches   | `.claude/skills/build-ffmpeg-with-vmaf/SKILL.md`  |
+| Refresh ffmpeg-patches/ series    | `.claude/skills/refresh-ffmpeg-patches/SKILL.md`  |
+| Add new GPU backend               | `.claude/skills/add-gpu-backend/SKILL.md`         |
+| Add SIMD path                     | `.claude/skills/add-simd-path/SKILL.md`           |
+| Add feature extractor             | `.claude/skills/add-feature-extractor/SKILL.md`   |
+| Add a model                       | `.claude/skills/add-model/SKILL.md`               |
+| Cross-backend numeric diff        | `.claude/skills/cross-backend-diff/SKILL.md`      |
+| Validate scores (per-backend ULP) | `.claude/skills/validate-scores/SKILL.md`         |
+| Run Netflix bench harness         | `.claude/skills/run-netflix-bench/SKILL.md`       |
+| Profile a hot path                | `.claude/skills/profile-hotpath/SKILL.md`         |
+| Bisect a code regression          | `.claude/skills/bisect-regression/SKILL.md`       |
+| Bisect ONNX checkpoint quality    | `.claude/skills/bisect-model-quality/SKILL.md`    |
+| Port upstream commit              | `.claude/skills/port-upstream-commit/SKILL.md`    |
+| Sync with upstream master         | `.claude/skills/sync-upstream/SKILL.md`           |
+| Regenerate test snapshots         | `.claude/skills/regen-snapshots/SKILL.md`         |
+| Regenerate Doxygen / Sphinx docs  | `.claude/skills/regen-docs/SKILL.md`              |
+| Format all (clang-format / black) | `.claude/skills/format-all/SKILL.md`              |
+| Lint all (clang-tidy / cppcheck)  | `.claude/skills/lint-all/SKILL.md`                |
+| Local-LLM commit-msg draft        | `.claude/skills/dev-llm-commitmsg/SKILL.md`       |
+| Local-LLM Doxygen docgen          | `.claude/skills/dev-llm-docgen/SKILL.md`          |
+| Local-LLM tiny-AI model card      | `.claude/skills/dev-llm-modelcard/SKILL.md`       |
+| Local-LLM file review             | `.claude/skills/dev-llm-review/SKILL.md`          |
+| Release dry-run                   | `.claude/skills/prep-release/SKILL.md`            |
 
 ## 8. Netflix golden-data gate — never modify
 

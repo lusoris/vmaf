@@ -9,7 +9,7 @@ description: Run identical (ref, dist) through all enabled backends and report p
 
 ```
 /validate-scores --ref=PATH --dist=PATH --width=W --height=H --pixfmt=420p --bitdepth=8
-                 [--backends=cpu,cuda,sycl] [--precision=17]
+                 [--backends=cpu,cuda,sycl,vulkan] [--precision=17]
 ```
 
 ## Steps
@@ -29,5 +29,11 @@ description: Run identical (ref, dist) through all enabled backends and report p
 ## Notes
 
 - Tolerance of 2 ULPs matches the SIMD-vs-scalar requirement in `docs/principles.md`.
+  GPU backends (CUDA / SYCL / Vulkan) are NOT bit-identical to CPU as a class
+  invariant — the per-feature variance budget in
+  [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) (T6-8 GPU-parity gate)
+  is the contract that actually applies to cross-device comparisons. The
+  Netflix golden gate is CPU-only by design.
 - Higher tolerance is NOT permitted without CODEOWNERS approval; backend divergence
   must be explained and justified.
+- Companion skill `/cross-backend-diff` mirrors the T6-8 CI gate locally.

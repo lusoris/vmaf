@@ -53,6 +53,32 @@
   (Vulkan section flipped from "scaffold only" to "T5-1c full
   default-model coverage"; added pointers to T7-29 image-import API
   and T7-10 HIP scaffold). No code changes; doc-only.
+- **AI-tooling docs refresh (`.claude/`).** Skill descriptions and
+  one agent description in `.claude/skills/*/SKILL.md` and
+  `.claude/agents/vulkan-reviewer.md` have been refreshed to
+  match the current state of the fork: `add-gpu-backend` now
+  cites the Vulkan T5-1 scaffold ([ADR-0175](docs/adr/0175-vulkan-backend-scaffold.md))
+  and image-import ([ADR-0186](docs/adr/0186-vulkan-image-import-impl.md))
+  as the canonical recent precedent; `cross-backend-diff` and
+  `validate-scores` mention the T6-8 GPU-parity CI gate
+  ([ADR-0214](docs/adr/0214-gpu-parity-ci-gate.md)) as the
+  contract their local-dev runs mirror, and add `vulkan` to the
+  default backend list; `port-upstream-commit` extends the
+  SIMD/GPU twin list with the Vulkan kernel + GLSL shader
+  surfaces that any upstream port must propagate to. The
+  `vulkan-reviewer` agent description and `## Status` block drop
+  the stale "forward-looking — backend does not yet exist"
+  framing now that `libvmaf/src/vulkan/` and
+  `libvmaf/src/feature/vulkan/` are live across all features.
+  Root `AGENTS.md` §7 skill table extends to cover the
+  AI-tooling skills that existed but were not listed
+  (`build-ffmpeg-with-vmaf`, `refresh-ffmpeg-patches`,
+  `validate-scores`, `run-netflix-bench`, `bisect-model-quality`,
+  `regen-docs`, `format-all`, `lint-all`, the four `dev-llm-*`).
+  Hook header comments in `.claude/hooks/*.sh` were audited
+  against current behavior and required no edits. No functional
+  change to any hook script body. No user-discoverable surface
+  changed.
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is

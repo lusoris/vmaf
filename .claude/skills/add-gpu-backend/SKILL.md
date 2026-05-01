@@ -1,6 +1,6 @@
 ---
 name: add-gpu-backend
-description: Scaffold a complete new GPU backend (vulkan, hip, rocm, metal, opencl, etc.) with runtime, feature kernel stubs, public header, Meson options, CI workflow, doc stub, and smoke test. Flagship scaffolding skill.
+description: Scaffold a complete new GPU backend (hip, rocm, metal, opencl, etc.) with runtime, feature kernel stubs, public header, Meson options, CI workflow, doc stub, and smoke test. Flagship scaffolding skill. Established precedents on the fork — CUDA (legacy), SYCL (legacy), Vulkan (T5-1, ADR-0175 scaffold + ADR-0186 image-import).
 ---
 
 # /add-gpu-backend
@@ -8,6 +8,12 @@ description: Scaffold a complete new GPU backend (vulkan, hip, rocm, metal, open
 Creates a fully-wired new GPU backend directory tree + build integration. Generated
 code compiles as a stub (empty kernels returning zero scores) so the CI/build pipeline
 stays green while the implementation is filled in incrementally.
+
+The Vulkan (T5-1) scaffold is the canonical recent precedent — copy its structure
+when adding a new backend. See
+[ADR-0175](../../../docs/adr/0175-vulkan-backend-scaffold.md) for the scaffold
+shape and [ADR-0186](../../../docs/adr/0186-vulkan-image-import-impl.md) for the
+ffmpeg-patches contract that any new backend with image-import support inherits.
 
 ## Invocation
 
@@ -48,7 +54,8 @@ stays green while the implementation is filled in incrementally.
 Located under `.claude/skills/add-gpu-backend/templates/` (not created by the skill —
 authored by hand once for each candidate backend). Expected templates:
 
-- `templates/vulkan/` — VkInstance, VkDevice, compute queue, SPIR-V shader skeleton.
+- `templates/vulkan/` — VkInstance, VkDevice, compute queue, SPIR-V shader skeleton
+  (live; backs the T5-1 scaffold in `libvmaf/src/vulkan/`).
 - `templates/hip/`    — hipInit, HIP kernel skeleton.
 - `templates/metal/`  — MTLDevice, MTLCommandQueue, metal shader skeleton.
 - `templates/opencl/` — clGetPlatformIDs, kernel skeleton.

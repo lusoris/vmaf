@@ -18,11 +18,13 @@ description: Cherry-pick a single upstream Netflix/vmaf commit onto the fork's m
 3. `git cherry-pick <sha>` (using `-x` so the commit message references upstream).
 4. If conflicts: inspect; for conflicts in a file that has SIMD/GPU twins (e.g. edits
    to `float_adm.c` while we also have `x86/float_adm_avx2.c`, `x86/float_adm_avx512.c`,
-   `arm64/float_adm_neon.c`, `cuda/adm_*.cu`, `sycl/integer_adm_sycl.cpp`), report all
+   `arm64/float_adm_neon.c`, `cuda/adm_*.cu`, `sycl/integer_adm_sycl.cpp`,
+   `feature/vulkan/float_adm_vulkan.c` + `feature/vulkan/shaders/*.comp`), report all
    sibling files to the author so they can propagate the same change. Do NOT attempt
    automatic propagation — SIMD/GPU adaptations are not string-substitutions.
 5. Run `/build-vmaf --backend=cpu` + `meson test -C build --suite=fast`.
-6. Run `/cross-backend-diff` for the affected feature.
+6. Run `/cross-backend-diff` for the affected feature (covers cpu / cuda / sycl /
+   vulkan; mirrors the T6-8 GPU-parity gate, [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
 7. If `--open-pr`: `gh pr create` with title `port(upstream): <original subject>` and
    body including the upstream commit link, conflict summary, and propagation TODO.
 
