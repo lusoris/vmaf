@@ -114,7 +114,7 @@ index d9dab0bdd9..0cfd2d66d8 100644
  typedef struct LIBVMAFContext {
      const AVClass *class;
      FFFrameSync fs;
-@@ -1254,3 +1260,273 @@ const FFFilter ff_vf_libvmaf_sycl = {
+@@ -1254,3 +1260,282 @@ const FFFilter ff_vf_libvmaf_sycl = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
@@ -315,7 +315,16 @@ index d9dab0bdd9..0cfd2d66d8 100644
 +    // to vmaf_vulkan_import_image are valid on libvmaf's compute device.
 +    {
 +        VkQueue queue = VK_NULL_HANDLE;
-+        vkGetDeviceQueue(vk_hwctx->act_dev, compute_qf, 0, &queue);
++        PFN_vkGetDeviceQueue pfn_vkGetDeviceQueue = (PFN_vkGetDeviceQueue)
++            vk_hwctx->get_proc_addr((VkInstance)vk_hwctx->inst, "vkGetDeviceQueue");
++
++        if (!pfn_vkGetDeviceQueue) {
++            av_log(ctx, AV_LOG_ERROR,
++                   "Failed to load vkGetDeviceQueue function pointer.\n");
++            return AVERROR_EXTERNAL;
++        }
++
++        pfn_vkGetDeviceQueue(vk_hwctx->act_dev, compute_qf, 0, &queue);
 +        if (queue == VK_NULL_HANDLE) {
 +            av_log(ctx, AV_LOG_ERROR,
 +                   "vkGetDeviceQueue returned NULL queue.\n");
