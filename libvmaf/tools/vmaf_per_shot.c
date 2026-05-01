@@ -42,6 +42,7 @@
 #include <getopt.h>
 #endif
 
+#include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <math.h>
@@ -705,6 +706,8 @@ cleanup:
 
 int main(int argc, char **argv)
 {
+    assert(argc > 0);
+    assert(argv != NULL);
     struct vmaf_per_shot_settings settings;
     int rc = per_shot_parse_args(argc, argv, &settings);
     if (rc == 1)
@@ -724,12 +727,14 @@ int main(int argc, char **argv)
         free(shots);
         return EXIT_FAILURE;
     }
+    assert(shot_count <= VMAF_PER_SHOT_MAX_SHOTS);
     per_shot_finalise(shots, shot_count, &settings);
     rc = per_shot_write_plan(&settings, shots, shot_count);
     if (rc != 0) {
         free(shots);
         return EXIT_FAILURE;
     }
+    assert(settings.output != NULL);
     (void)fprintf(stdout, "vmaf-perShot: wrote %" PRIu32 " shot(s) to %s\n", shot_count,
                   settings.output);
     free(shots);
