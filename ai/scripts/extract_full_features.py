@@ -13,8 +13,16 @@ The output schema is one row per (pair, frame):
   source           : str   (e.g. "BigBuckBunny")
   dis_basename     : str   (e.g. "BigBuckBunny_30_384_550.yuv")
   frame_index      : int   (0-based per-pair frame number)
+  codec            : str   (encoder family; ``"unknown"`` for this corpus)
   vmaf             : float (vmaf_v0.6.1 teacher score)
   <22 feature columns from FULL_FEATURES>
+
+The Netflix Public corpus ships pre-encoded distorted YUVs with no
+in-band codec metadata, so the ``codec`` column defaults to ``"unknown"``
+— this is the documented limitation cited in
+[ADR-0235](../../docs/adr/0235-codec-aware-fr-regressor.md). Override
+via ``--codec`` when re-extracting against a manifest that does carry
+encoder labels.
 """
 
 from __future__ import annotations
@@ -94,6 +102,16 @@ def main() -> int:
         default=Path("runs/full_features_netflix.parquet"),
     )
     ap.add_argument("--max-pairs", type=int, default=None)
+    ap.add_argument(
+        "--codec",
+        type=str,
+        default="unknown",
+        help="Codec label baked into the parquet's `codec` column. The "
+        "Netflix Public corpus ships pre-encoded distortions without "
+        "in-band codec metadata, so the safe default is 'unknown' "
+        "(bucketed via ai/src/vmaf_train/codec.py). Override when "
+        "re-extracting against a manifest that does carry labels.",
+    )
     args = ap.parse_args()
 
     if not args.vmaf_bin.is_file():
@@ -107,8 +125,7 @@ def main() -> int:
     for i, pair in enumerate(pairs):
         wt = time.time() - t0
         print(
-            f"[extract] {i+1}/{len(pairs)} {pair.source}/{pair.dis_path.name} "
-            f"(elapsed {wt:.0f}s)"
+            f"[extract] {i + 1}/{len(pairs)} {pair.source}/{pair.dis_path.name} (elapsed {wt:.0f}s)"
         )
         payload = _load_or_compute(pair, args.cache_dir, args.vmaf_bin)
         per_frame = np.asarray(payload["per_frame"], dtype=np.float32)
@@ -119,6 +136,7 @@ def main() -> int:
                 "source": pair.source,
                 "dis_basename": pair.dis_path.name,
                 "frame_index": fi,
+                "codec": args.codec,
                 "vmaf": float(teacher_per_frame[fi]),
             }
             for col, val in zip(FULL_FEATURES, per_frame[fi], strict=False):

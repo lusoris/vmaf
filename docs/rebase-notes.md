@@ -5028,6 +5028,25 @@ inline.*
   meson test -C build-cpu
   ```
 
+### 0076 — codec-aware FR regressor surface (T7-CODEC-AWARE / ADR-0235)
+
+- **Touches**: `ai/src/vmaf_train/codec.py` (new),
+  `ai/src/vmaf_train/models/fr_regressor.py` (extended),
+  `ai/scripts/bvi_dvc_to_full_features.py`,
+  `ai/scripts/extract_full_features.py`. No upstream-shared paths.
+- **Invariant**: `CODEC_VOCAB` in `ai/src/vmaf_train/codec.py` is
+  closed and **order-stable** — the index of each codec is the
+  one-hot column index baked into trained ONNX. Adding a codec
+  appends to the tuple and bumps `CODEC_VOCAB_VERSION`; reordering
+  silently invalidates every shipped `fr_regressor_v2_*.onnx`.
+  `FRRegressor(num_codecs=0)` must remain the v1 single-input
+  contract — flipping the default would break every existing
+  `model/tiny/fr_regressor_v1.onnx` consumer.
+- **Re-test**: `pytest ai/tests/test_codec_aware_fr.py -v` (8 sub-tests
+  covering vocabulary contract + alias table + back-compat). Pure
+  fork-local addition; no upstream rebase impact for the next
+  `/sync-upstream`.
+
 ### 0075 — feature/speed extractors (T-NEW-1, upstream port d3647c73)
 
 - **Touches**: `libvmaf/src/feature/speed.c` (new),

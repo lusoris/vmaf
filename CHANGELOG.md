@@ -6,6 +6,35 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Added
+
+- **Codec-aware FR regressor surface (T7-CODEC-AWARE / ADR-0235).**
+  New `ai/src/vmaf_train/codec.py` ships a closed, order-stable
+  6-bucket codec vocabulary (`x264`, `x265`, `libsvtav1`,
+  `libvvenc`, `libvpx-vp9`, `unknown`) with `codec_index` + alias
+  table (`h264` → `x264`, `hevc` → `x265`, `av1` → `libsvtav1`,
+  `vp9` → `libvpx-vp9`, `vvc` / `h266` → `libvvenc`) and one-hot
+  helpers. `FRRegressor` gains an optional `num_codecs` constructor
+  arg that concatenates the one-hot codec id to the
+  `FULL_FEATURES` input vector before the first MLP layer; the
+  default `num_codecs=0` keeps the v1 single-input contract so
+  existing checkpoints load unchanged. Feature-dump scripts
+  (`ai/scripts/bvi_dvc_to_full_features.py`,
+  `ai/scripts/extract_full_features.py`) now emit a `codec` column
+  in their per-clip parquet — BVI-DVC defaults to `"x264"` (the
+  internal libx264 encode), Netflix Public defaults to `"unknown"`
+  (pre-encoded distortions, no in-band metadata). New
+  `docs/adr/0235-codec-aware-fr-regressor.md`,
+  `docs/research/0040-codec-aware-fr-conditioning.md`, and
+  `docs/ai/models/fr_regressor_v2_codec_aware.md`. **Training run
+  + PLCC delta measurement is BLOCKED** in this PR (the cached
+  Netflix Public training corpus is not reachable from the
+  authoring sandbox); the follow-up PR re-runs the trainer +
+  ships `model/tiny/fr_regressor_v2_codec_aware.onnx` only if the
+  empirical PLCC lift exceeds the 0.005 bar. Cites the 2026
+  Bristol VI-Lab review §5.3 + Bampis 2018 (ST-VMAF) + Zhang 2021
+  (Bull lab "Enhancing VMAF").
+
 ### Changed
 
 - **Top-level docs refresh (post-session-2026-04-29).** `README.md`,
