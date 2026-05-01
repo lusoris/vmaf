@@ -154,6 +154,18 @@
 
 ### Added
 
+- **GPU-gen ULP calibration head (proposal-stage, T7-GPU-ULP-CAL / ADR-0234).**
+  Scaffolds a tiny per-arch `(arch_id, raw_gpu_score) → cpu_score`
+  calibration head to close the ~1e-4 cross-backend ULP divergence
+  currently within `places=4` tolerance but observable on float
+  metrics. Status: **Proposed only** — no model trained, no
+  `--gpu-calibrated` CLI flag enabled, no runtime path lit. Future
+  PR (gated on per-arch held-out PLCC ≥ 0.9999 and worst-case
+  residual ≤ 1e-6) flips the flag default once the empirical case
+  is made. Companion research digest:
+  [`docs/research/0041-gpu-gen-ulp-calibration.md`](docs/research/0041-gpu-gen-ulp-calibration.md).
+  Data-collection scaffold lands at
+  [`ai/scripts/collect_gpu_calibration_data.py`](ai/scripts/collect_gpu_calibration_data.py).
 - **`enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0215).**
   The Vulkan `float_ms_ssim_vulkan` and CUDA `float_ms_ssim_cuda`
   extractors now honour the `enable_lcs` option, emitting the same
