@@ -61,7 +61,7 @@ nightly TSan/clang-tidy-full pair.
 | **MCP server smoke test** | `supply-chain.yml::mcp-build` builds the wheel; nothing runs `pytest mcp-server/vmaf-mcp/tests/` | `mcp-smoke` job: build with `-Denable_mcp=true`, `pip install -e mcp-server/vmaf-mcp[test]`, `pytest`. ~5 min | **urgent** (per CLAUDE §12 r10) |
 | **Tiny-AI training scripts smoke** | `dnn` job runs `ai/tests/`; `ai/scripts/*.py` (parquet producers) have no smoke runs | `ai-scripts-smoke` step: dry-run `--help` + 1-frame `extract_full_features.py` against cached YUV. ~30 s | nice-to-have |
 | **Cross-backend bit-exactness** beyond Vulkan | none usable on hosted runners | document gap in `docs/development/self-hosted-runner.md`; consider Cirun.io / BuildJet for managed GPU minutes. **No new lane** until runner exists | nice-to-have (blocked) |
-| **Tiny-Model Registry validation** | none | 30-s job: JSON-schema-validate `model/tiny/registry.json` against `registry.schema.json`, plus sha256 cross-check every entry's `sha256` matches the on-disk ONNX | **urgent** (cheap, currently zero coverage) |
+| **Tiny-Model Registry validation** | ~~none~~ → **already exists** (verified post-audit) | n/a — `lint-and-format.yml::registry-validate` already calls `ai/scripts/validate_model_registry.py`, which does both schema and sha256 cross-check (lines 100-103 of that script). The audit's grep missed the job because the job name `registry-validate` doesn't contain "Tiny-Model" verbatim while the surface label does. **False positive.** | n/a (closed) |
 | **Public C-API ABI** | none | weekly `abidiff` against last released `.so`. Out of scope for this audit | nice-to-have |
 
 ## Deliverable 3 — Pre-commit ↔ CI parity
@@ -116,7 +116,7 @@ single-file diff.
 | --- | --- | --- |
 | `T7-CI-DEDUP` | Drop dead jobs (`cross-backend`, `vulkan-vif-arc-nightly`), drop PR-time TSan, merge per-feature VIF steps into matrix gate, demote docker-image to advisory | S (~3h) |
 | `T7-MCP-SMOKE-CI` | Add `mcp-smoke` job to `tests-and-quality-gates.yml` per CLAUDE §12 r10 | S (~3h) |
-| `T7-REGISTRY-CI` | Add 30-s JSON-schema + sha256 validate job for `model/tiny/registry.json` | S (~1h) |
+| ~~`T7-REGISTRY-CI`~~ | ~~Add 30-s JSON-schema + sha256 validate job for `model/tiny/registry.json`~~ — **closed as not-affecting-the-fork**: `lint-and-format.yml::registry-validate` already does this. | n/a |
 | `T7-HIP-STATUS` | Clarify HIP backend: delete empty dir or scaffold the runtime PR | S |
 | `T7-FFMPEG-PATCH-REFRESH` | Refresh `ffmpeg-patches/0003`–`0006` against `release/8.1` (caught by PR #236's new local gate) | S–M |
 
