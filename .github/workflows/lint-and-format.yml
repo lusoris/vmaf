@@ -336,7 +336,13 @@ jobs:
           path: cppcheck-report.xml
 
   python-lint:
-    name: Python Lint (Ruff + Black + isort + mypy)
+    # T7-CI-DEDUP — mypy-only. Ruff/Black/isort already run in the
+    # `pre-commit` job above (over `--all-files`), so duplicating them
+    # here just doubled the maintenance surface (two pip-pin sources of
+    # truth) without catching anything new. mypy stays because no
+    # pre-commit hook runs it; advisory exit because numpy/torch stubs
+    # are gappy on first run.
+    name: Python Lint (mypy)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -345,10 +351,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install ruff 'black==26.3.1' isort mypy
-      - run: ruff check python/ ai/ scripts/
-      - run: black --check python/ ai/ scripts/
-      - run: isort --check-only python/ ai/ scripts/
+        run: pip install mypy
       - run: mypy ai/ scripts/ || echo "mypy advisory only on first run"
 
   registry-validate:
@@ -373,18 +376,8 @@ jobs:
       - name: Validate model/tiny/registry.json
         run: python3 ai/scripts/validate_model_registry.py
 
-  shellcheck:
-    name: ShellCheck + shfmt (All *.sh)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-          curl -sSL https://github.com/mvdan/sh/releases/download/v3.9.0/shfmt_v3.9.0_linux_amd64 \
-            -o /usr/local/bin/shfmt && chmod +x /usr/local/bin/shfmt
-      - run: |
-          files=$(git ls-files '*.sh')
-          shellcheck $files
-          shfmt -d -i 2 -ci $files
+# T7-CI-DEDUP — the standalone `shellcheck` job that previously
+# lived here was fully redundant with the pre-commit hook chain
+# (`shellcheck-py v0.11.0.1` + `pre-commit-shfmt v3.13.1-1` with the
+# identical `-i 2 -ci` settings; both run over `--all-files` in the
+# `pre-commit` job above). Dropped.
