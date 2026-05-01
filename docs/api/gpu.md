@@ -189,8 +189,9 @@ int main(void) {
   `vmaf_cuda_state_init()` (via `cuCtxSetCurrent` or `cudaSetDevice`).
 - No stream parameter. libvmaf runs its own streams internally; interop with
   an external stream is not exposed in v1.
-- No HIP path in this header. A HIP backend is planned but not yet
-  scaffolded — the `enable_hip` meson option does not exist. See
+- No HIP path in this header. The HIP / AMD-ROCm backend is being
+  scaffolded under T7-10 (PR #200, in flight) — a future
+  `libvmaf_hip.h` will mirror this surface. See
   [backends/index.md](../backends/index.md).
 
 ## SYCL
@@ -371,15 +372,31 @@ the enable/disable pair to gate which frame ranges get timed.
 
 ## Vulkan
 
-> **Status: scaffold only as of v3.0.** Every entry point in
-> [`libvmaf_vulkan.h`](../../libvmaf/include/libvmaf/libvmaf_vulkan.h)
-> currently returns `-ENOSYS`. The header lands so downstream
-> consumers can compile against the API surface; the runtime + first
-> kernel arrive in follow-up PRs per
-> [ADR-0127](../adr/0127-vulkan-backend-decision.md) and
-> [ADR-0175](../adr/0175-vulkan-backend-scaffold.md). Build with
-> `-Denable_vulkan=enabled` to compile the scaffold; it has no
-> Vulkan SDK requirement until the runtime PR (T5-1b).
+> **Status: T5-1c closed — full default-model coverage on Vulkan.**
+> The state-level entry points (`vmaf_vulkan_state_init` /
+> `_import_state` / `_state_free` / `_list_devices` /
+> `_available`) plumb a real volk-backed VkInstance + VkDevice +
+> compute queue. Live extractors: `vif_vulkan`, `motion_vulkan`,
+> `motion_v2_vulkan`, `adm_vulkan`, `float_adm_vulkan`,
+> `float_vif_vulkan`, `float_motion_vulkan`, `psnr_vulkan` (luma;
+> chroma via T3-15(b) PR #204), `psnr_hvs_vulkan`, `ciede_vulkan`,
+> `float_ssim_vulkan`, `float_ms_ssim_vulkan`, `float_ansnr_vulkan`,
+> `float_moment_vulkan`, `ssimulacra2_vulkan`, `cambi_vulkan`. The
+> default `vmaf_v0.6.1` model runs end-to-end on Vulkan against a
+> real ICD. Image-import zero-copy entry points
+> (`vmaf_vulkan_state_init_external` / `_import_image` /
+> `_wait_compute` / `_read_imported_pictures`) landed via T7-29 /
+> [ADR-0186](../adr/0186-vulkan-image-import-impl.md) for FFmpeg
+> AVVulkanDeviceContext interop. Build with
+> `-Denable_vulkan=enabled`; the build picks up `volk` and
+> `dependency('vulkan')` automatically. See
+> [ADR-0127](../adr/0127-vulkan-backend-decision.md),
+> [ADR-0175](../adr/0175-vulkan-backend-scaffold.md),
+> [ADR-0176](../adr/0176-vulkan-vif-cross-backend-gate.md),
+> [ADR-0177](../adr/0177-vulkan-motion-kernel.md),
+> [ADR-0178](../adr/0178-vulkan-adm-kernel.md),
+> [ADR-0186](../adr/0186-vulkan-image-import-impl.md),
+> [ADR-0210](../adr/0210-cambi-vulkan-integration.md).
 
 ### Header
 
@@ -410,35 +427,41 @@ imported it — e.g. early `vmaf_init()` failure or a benchmark
 harness that constructs and tears down a state without scoring).
 
 `vmaf_vulkan_available()` returns `1` when libvmaf was built with
-`-Denable_vulkan=enabled` and `0` otherwise. Until the runtime PR
-lands, the helper reports "the build was opted in" rather than "a
-working runtime is available" — operators read the docs for status.
+`-Denable_vulkan=enabled` and `0` otherwise.
 
-### Lifecycle (planned, post-runtime PR)
+### Lifecycle
 
 ```text
   vmaf_init()
-  vmaf_vulkan_state_init()         ← scaffold returns -ENOSYS today
-  vmaf_vulkan_import_state()       ← state ownership transfers
+  vmaf_vulkan_state_init()         ← creates VkInstance + VkDevice + compute queue
+  vmaf_vulkan_import_state()       ← state ownership transfers to ctx
   ...
   vmaf_score_pooled()
   vmaf_close()                     ← frees the imported state
 ```
 
-### Limitations (scaffold-only)
+For zero-copy interop with caller-owned VkInstance / VkDevice handles
+(typically from FFmpeg's `AVVulkanDeviceContext`), use
+`vmaf_vulkan_state_init_external` together with
+`vmaf_vulkan_import_image` / `vmaf_vulkan_wait_compute` /
+`vmaf_vulkan_read_imported_pictures`. See
+[ADR-0186](../adr/0186-vulkan-image-import-impl.md) and
+[`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
 
-- `vmaf_vulkan_state_init` returns `-ENOSYS` until the runtime PR
-  (T5-1b) wires `volk` + `dependency('vulkan')` + VkInstance /
-  VkDevice / compute queue selection.
-- `vmaf_vulkan_import_state` returns `-ENOSYS` for the same reason.
-- `vmaf_vulkan_list_devices` returns `0` (no devices probed yet).
-- No picture preallocation API surface yet — the runtime PR adds
-  the equivalent of `VmafCudaPicturePreallocationMethod`.
-- The ffmpeg `libvmaf` filter declares a `vulkan_device=N` option
-  (added by `ffmpeg-patches/0004-libvmaf-wire-vulkan-backend-selector.patch`)
-  but flipping it to `>= 0` is currently a no-op until the runtime
-  patch series lands. Documented in
-  [`docs/usage/ffmpeg.md`](../usage/ffmpeg.md).
+### Limitations
+
+- Per-feature picture preallocation API is **not** yet exposed —
+  Vulkan kernels allocate device-side VkBuffers internally per
+  feature. The CUDA/SYCL-style `VmafVulkanPicturePreallocationMethod`
+  surface is a follow-up.
+- The ffmpeg `libvmaf` filter exposes `vulkan_device=N` (set to
+  `>= 0` to enable the Vulkan backend; see
+  [`docs/usage/ffmpeg.md`](../usage/ffmpeg.md)). Image-import
+  zero-copy through `AVVulkanDeviceContext` is wired by
+  `ffmpeg-patches/0004-libvmaf-wire-vulkan-backend-selector.patch`
+  on top of T7-29's `_state_init_external` API.
+- HIP / AMD-ROCm support is scaffolded under T7-10 (PR #200);
+  a public `libvmaf_hip.h` is planned to mirror this surface.
 
 ## Related
 
