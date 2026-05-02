@@ -61,6 +61,8 @@
 #include "mem.h"
 #include "opt.h"
 
+#include "dnn/tiny_extractor_template.h"
+
 #define TRANSNET_V2_WINDOW 100u
 #define TRANSNET_V2_CHANNELS 3u
 #define TRANSNET_V2_HEIGHT 27u
@@ -162,19 +164,9 @@ static unsigned slot_for_offset(const TransNetV2State *s, unsigned k)
     return (head + TRANSNET_V2_WINDOW - k) % TRANSNET_V2_WINDOW;
 }
 
-/* Resolve the ONNX path from the feature option or, if unset, the
- * dedicated env var. Returns NULL when neither is provided so the
- * caller can emit a single user-facing error. */
-static const char *resolve_model_path(const TransNetV2State *s)
-{
-    const char *path = s->model_path;
-    if (path && *path)
-        return path;
-    const char *env = getenv("VMAF_TRANSNET_V2_MODEL_PATH");
-    if (env && *env)
-        return env;
-    return NULL;
-}
+/* Model-path resolution lives in `dnn/tiny_extractor_template.h`
+ * (`vmaf_tiny_ai_resolve_model_path`), shared with feature_lpips.c /
+ * feature_mobilesal.c / fastdvdnet_pre.c. */
 
 /* Free every aligned_malloc()-backed buffer hanging off `s` and zero the
  * slot pointers. Called from both the OOM unwind in init() and from
@@ -225,18 +217,13 @@ static int transnet_v2_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_
         return -ENOTSUP;
     }
 
-    const char *path = resolve_model_path(s);
+    const char *path = vmaf_tiny_ai_resolve_model_path("transnet_v2", s->model_path,
+                                                       "VMAF_TRANSNET_V2_MODEL_PATH");
     if (!path) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "transnet_v2: no model path (set feature option model_path or env "
-                 "VMAF_TRANSNET_V2_MODEL_PATH)\n");
         return -EINVAL;
     }
-
-    int rc = vmaf_dnn_session_open(&s->sess, path, NULL);
+    int rc = vmaf_tiny_ai_open_session("transnet_v2", path, &s->sess);
     if (rc < 0) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "transnet_v2: vmaf_dnn_session_open(%s) failed: %d\n", path,
-                 rc);
         return rc;
     }
     assert(s->sess != NULL);
@@ -348,16 +335,10 @@ static int transnet_v2_close(VmafFeatureExtractor *fex)
 }
 
 static const VmafOption transnet_v2_options[] = {
-    {
-        .name = "model_path",
-        .help = "Filesystem path to the TransNet V2 ONNX model "
-                "(input 'frames' [1, 100, 3, 27, 48], output 'boundary_logits' [1, 100]). "
-                "Overrides the VMAF_TRANSNET_V2_MODEL_PATH env var.",
-        .offset = offsetof(TransNetV2State, model_path),
-        .type = VMAF_OPT_TYPE_STRING,
-        .default_val.s = NULL,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
+    VMAF_TINY_AI_MODEL_PATH_OPTION(
+        TransNetV2State, "Filesystem path to the TransNet V2 ONNX model "
+                         "(input 'frames' [1, 100, 3, 27, 48], output 'boundary_logits' [1, 100]). "
+                         "Overrides the VMAF_TRANSNET_V2_MODEL_PATH env var."),
     {NULL},
 };
 

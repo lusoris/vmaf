@@ -5592,4 +5592,31 @@ inline.*
   #   test_fetch_without_preallocate_falls_back
   #   test_unknown_method_rejected
   #   test_null_args_rejected
+### 0099 — feature_mobilesal.c + transnet_v2.c migrated to tiny_extractor_template.h
+
+- **PR**: refactor/migrate-ai-to-template.
+- **What rebases need to know**: `feature_mobilesal.c` and
+  `transnet_v2.c` previously open-coded the model-path resolution
+  (`getenv` + log block), the YUV→RGB kernel (mobilesal only), the
+  `vmaf_dnn_session_open` + log boilerplate, and the
+  `VmafOption[].model_path` row. They now use the helpers from
+  `dnn/tiny_extractor_template.h` (PR #251) — the same template
+  `feature_lpips.c` and `fastdvdnet_pre.c` already consume. Net
+  −98 LOC of identical boilerplate.
+- **Behavior preserved**: bit-exact YUV→RGB conversion (mobilesal
+  used the literal copy of `feature_lpips.c`'s body that the
+  template hoisted), identical error-log strings, identical
+  option-table flag/type/offset shape. The migrated
+  `mobilesal_options` macro expands to the same struct literal the
+  hand-rolled version produced.
+- **On upstream sync**: zero interaction. Both files are
+  fork-introduced; upstream Netflix has neither extractor.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build --suite=dnn
+  meson test -C build test_lpips test_mobilesal test_transnet_v2 test_fastdvdnet_pre
+  # All 11 dnn-suite + 4 extractor smoke tests must pass.
   ```
