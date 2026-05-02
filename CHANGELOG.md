@@ -217,6 +217,23 @@
   `pic_stream` (not `lc.str`) inline because the kernel reads the
   accumulator before the D2H copy on `lc.str`. Numerical contract
   unchanged.
+- **`integer_ssim_cuda.c` migrated to `cuda/kernel_template.h`
+  (T-GPU-DEDUP-14).** Fifth consumer of the CUDA template (after
+  psnr / ciede / moment / motion_v2). State collapses
+  `CUstream str + CUevent event + CUevent finished + VmafCudaBuffer
+  *partials + float *partials_host` to
+  `VmafCudaKernelLifecycle lc + VmafCudaKernelReadback rb`. The
+  five intermediate float buffers (`h_ref_mu`, `h_cmp_mu`,
+  `h_ref_sq`, `h_cmp_sq`, `h_refcmp`) stay outside the bundle —
+  the template models a single device+host pair, not a
+  five-buffer pyramid. `submit_fex_cuda` keeps the inline
+  `cuStreamWaitEvent + horiz launch + vert launch + DtoH` chain
+  rather than calling `vmaf_cuda_kernel_submit_pre_launch` because
+  the kernel writes one float per block (no atomic) — the
+  template's pre-launch memset is unnecessary. `init_fex_cuda` /
+  `collect_fex_cuda` / `close_fex_cuda` use the matching
+  template helpers. Numerical contract unchanged
+  (`places=4` per the ciede_cuda precision pattern).
 
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
