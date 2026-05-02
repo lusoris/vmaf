@@ -5702,3 +5702,51 @@ inline.*
   # Cross-backend parity gate (places=4):
   python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
+
+### 0105 — `moment_vulkan.c` + `ciede_vulkan.c` migrated to `vulkan/kernel_template.h`
+
+- **PR**: refactor/migrate-motion-vulkan-to-template (note: the
+  branch name reflects the original intent; motion's two-pipeline
+  shape didn't fit the template's single-pipeline contract, so this
+  PR migrates moment + ciede instead).
+- **What rebases need to know**: second + third consumers of
+  `vulkan/kernel_template.h` (after PR #270 = psnr_vulkan, the
+  first consumer). Both files follow the identical migration pattern:
+  - Replace 5 individual pipeline-object fields (`dsl`,
+    `pipeline_layout`, `shader`, `pipeline`, `desc_pool`) with one
+    `VmafVulkanKernelPipeline pl` bundle.
+  - Replace ~100 LOC of `create_pipeline()` body (descriptor-set
+    layout + pipeline layout + shader module + compute pipeline +
+    descriptor pool boilerplate) with a single
+    `vmaf_vulkan_kernel_pipeline_create()` call.
+  - Replace `close_fex()`'s `vkDeviceWaitIdle` + 5×`vkDestroy*`
+    sweep with one `vmaf_vulkan_kernel_pipeline_destroy()` call.
+- **Per-file LOC deltas**:
+  - `moment_vulkan.c`: −60 LOC (450 → 390).
+  - `ciede_vulkan.c`: −59 LOC (536 → 477).
+  - Net: **−119 LOC**.
+- **Bit-exactness preserved**: spec-constants (width/height/bpc/
+  subgroup_size identical across both), push-constant structs
+  (`MomentPushConsts`, `CiedePushConsts`), shader bytecodes
+  (`moment_spv`, `ciede_spv`), dispatch grid math, and host-side
+  reductions are byte-identical to the prior implementation.
+  Cross-backend parity gates (places=4 for moment integer reduce;
+  places=2 for ciede transcendentals per ADR-0187) re-run unchanged.
+- **`motion_vulkan.c` deferred**: motion uses two pipelines (first
+  frame vs subsequent) sharing one DSL + layout + shader + pool.
+  The template's current shape produces one pipeline per descriptor;
+  splitting motion across two `VmafVulkanKernelPipeline` instances
+  would duplicate the shared objects. Tracked as a follow-up
+  template extension (multi-pipeline support).
+- **On upstream sync**: zero interaction. Both files are
+  fork-introduced (T7-23 / ADR-0182 / ADR-0187).
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=enabled
+  ninja -C build
+  meson test -C build  # 50/50 pass on lavapipe (under ASan/UBSan)
+  python scripts/ci/cross_backend_parity_gate.py --feature float_moment_ref1st --places 4
+  python scripts/ci/cross_backend_parity_gate.py --feature ciede2000 --places 2
+  ```
