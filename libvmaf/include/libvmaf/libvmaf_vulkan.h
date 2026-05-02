@@ -53,6 +53,15 @@ typedef struct VmafVulkanState VmafVulkanState;
 typedef struct VmafVulkanConfiguration {
     int device_index;      /**< -1 = first device with compute queue */
     int enable_validation; /**< non-zero: load VK_LAYER_KHRONOS_validation */
+
+    /**
+     * v2 async pending-fence ring depth (max frames in flight). 0 selects
+     * the canonical default (4); values are clamped to [1, 8] internally.
+     * The ring is materialised lazily on the first @ref
+     * vmaf_vulkan_import_image, so this field must be set before that
+     * call to take effect. See ADR-0235.
+     */
+    unsigned max_outstanding_frames;
 } VmafVulkanConfiguration;
 
 /**
@@ -105,6 +114,15 @@ typedef struct VmafVulkanExternalHandles {
  *         failure.
  */
 int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHandles handles);
+
+/**
+ * Inspect the v2 async pending-fence ring depth a state was
+ * initialised with. Returns the clamped value of @ref
+ * VmafVulkanConfiguration::max_outstanding_frames (always in
+ * [1, 8]); 0 when @p state is NULL or libvmaf was built without
+ * Vulkan support. ADR-0235 follow-up #3.
+ */
+unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state);
 
 /**
  * Hand the Vulkan state to a VmafContext. The context borrows the

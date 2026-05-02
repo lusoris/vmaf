@@ -44,6 +44,20 @@ extern "C" {
 #define VMAF_VULKAN_RING_DEFAULT 4u
 #define VMAF_VULKAN_RING_MAX 8u
 
+/* Map a caller-supplied max_outstanding_frames request to a final
+ * ring depth: 0 -> DEFAULT, >MAX -> MAX, else passthrough. Callers
+ * (state init + lazy_alloc_ring) share this so the value stored in
+ * `requested_ring_size` is identical to the one the ring is built
+ * with. ADR-0235 follow-up #3. */
+static inline unsigned vmaf_vulkan_clamp_ring_size(unsigned requested)
+{
+    if (requested == 0u)
+        return VMAF_VULKAN_RING_DEFAULT;
+    if (requested > VMAF_VULKAN_RING_MAX)
+        return VMAF_VULKAN_RING_MAX;
+    return requested;
+}
+
 /* One entry of the v2 async pending-fence ring. Each slot owns a
  * dedicated ref + dis staging buffer pair, a transfer command
  * buffer, and a fence; they are pre-allocated by lazy_alloc_ring

@@ -114,11 +114,87 @@ static char *test_read_imported_null_ctx_after_v2(void)
     return NULL;
 }
 
-char *run_tests(void)
+/* ADR-0235 follow-up #3: max_outstanding_frames is now a public
+ * VmafVulkanConfiguration field. Verify the clamp + readback contract
+ * end-to-end via the public API (no internal-header peeking). */
+static char *test_ring_size_default_when_zero(void)
+{
+    if (vmaf_vulkan_list_devices() <= 0)
+        return NULL;
+    VmafVulkanConfiguration cfg = {.device_index = -1, .enable_validation = 0};
+    /* cfg.max_outstanding_frames left at its zero-initialised value. */
+    VmafVulkanState *state = NULL;
+    mu_assert("state_init", vmaf_vulkan_state_init(&state, cfg) == 0);
+    mu_assert("0 maps to VMAF_VULKAN_RING_DEFAULT (4)",
+              vmaf_vulkan_state_max_outstanding_frames(state) == 4u);
+    vmaf_vulkan_state_free(&state);
+    return NULL;
+}
+
+static char *test_ring_size_passthrough_in_range(void)
+{
+    if (vmaf_vulkan_list_devices() <= 0)
+        return NULL;
+    for (unsigned want = 1u; want <= 8u; want++) {
+        VmafVulkanConfiguration cfg = {
+            .device_index = -1, .enable_validation = 0, .max_outstanding_frames = want};
+        VmafVulkanState *state = NULL;
+        mu_assert("state_init", vmaf_vulkan_state_init(&state, cfg) == 0);
+        mu_assert("in-range value passes through unchanged",
+                  vmaf_vulkan_state_max_outstanding_frames(state) == want);
+        vmaf_vulkan_state_free(&state);
+    }
+    return NULL;
+}
+
+static char *test_ring_size_clamps_to_max(void)
+{
+    if (vmaf_vulkan_list_devices() <= 0)
+        return NULL;
+    const unsigned over[] = {9u, 16u, 64u, 1024u, 0xFFFFFFFFu};
+    for (size_t i = 0; i < sizeof(over) / sizeof(over[0]); i++) {
+        VmafVulkanConfiguration cfg = {
+            .device_index = -1, .enable_validation = 0, .max_outstanding_frames = over[i]};
+        VmafVulkanState *state = NULL;
+        mu_assert("state_init", vmaf_vulkan_state_init(&state, cfg) == 0);
+        mu_assert("over-MAX clamps to VMAF_VULKAN_RING_MAX (8)",
+                  vmaf_vulkan_state_max_outstanding_frames(state) == 8u);
+        vmaf_vulkan_state_free(&state);
+    }
+    return NULL;
+}
+
+static char *test_ring_size_getter_null_safe(void)
+{
+    /* No device probe — the getter is meant to be safe to call on a
+     * NULL state regardless of build/runtime Vulkan availability. */
+    mu_assert("NULL state returns 0 (not undefined behaviour)",
+              vmaf_vulkan_state_max_outstanding_frames(NULL) == 0u);
+    return NULL;
+}
+
+static char *run_v2_contract_tests(void)
 {
     mu_run_test(test_zero_image_still_rejects);
     mu_run_test(test_wait_compute_idle_after_v2);
     mu_run_test(test_state_free_no_imports_v2);
     mu_run_test(test_read_imported_null_ctx_after_v2);
     return NULL;
+}
+
+static char *run_ring_tunable_tests(void)
+{
+    mu_run_test(test_ring_size_default_when_zero);
+    mu_run_test(test_ring_size_passthrough_in_range);
+    mu_run_test(test_ring_size_clamps_to_max);
+    mu_run_test(test_ring_size_getter_null_safe);
+    return NULL;
+}
+
+char *run_tests(void)
+{
+    char *r = run_v2_contract_tests();
+    if (r)
+        return r;
+    return run_ring_tunable_tests();
 }

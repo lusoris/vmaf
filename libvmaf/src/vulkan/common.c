@@ -439,12 +439,17 @@ int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg)
         return err;
     }
 
-    /* T7-29 part 4 (ADR-0235): default async pending-fence ring depth.
-     * Public VmafVulkanConfiguration does not yet carry a tunable;
-     * follow-up #3 in ADR-0235 plumbs `max_outstanding_frames` through.
-     * For now every state gets the canonical "frames-in-flight = 4". */
-    s->requested_ring_size = VMAF_VULKAN_RING_DEFAULT;
+    /* T7-29 part 4 (ADR-0235) + follow-up #3: pick the async
+     * pending-fence ring depth from the public config. A
+     * default-initialised C struct (cfg.max_outstanding_frames == 0)
+     * maps to VMAF_VULKAN_RING_DEFAULT; out-of-range values clamp to
+     * [1, VMAF_VULKAN_RING_MAX]. The clamp happens here so
+     * `requested_ring_size` always reflects the real depth the ring
+     * will be built with — easier debugging than a pre-clamp value
+     * that mismatches the runtime. */
+    s->requested_ring_size = vmaf_vulkan_clamp_ring_size(cfg.max_outstanding_frames);
     assert(s->requested_ring_size > 0);
+    assert(s->requested_ring_size <= VMAF_VULKAN_RING_MAX);
     assert(s->ctx != NULL);
 
     *out = s;
@@ -466,13 +471,26 @@ int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHan
         return err;
     }
 
-    /* T7-29 part 4 (ADR-0235): see vmaf_vulkan_state_init. */
+    /* External callers (FFmpeg's vf_libvmaf_vulkan) currently get the
+     * canonical default. ADR-0235 follow-up #3 only plumbs the tunable
+     * through VmafVulkanConfiguration; extending VmafVulkanExternalHandles
+     * is deferred to a separate ABI bump. */
     s->requested_ring_size = VMAF_VULKAN_RING_DEFAULT;
     assert(s->requested_ring_size > 0);
     assert(s->ctx != NULL);
 
     *out = s;
     return 0;
+}
+
+unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state)
+{
+    if (!state)
+        return 0u;
+    /* requested_ring_size was clamped at state init (or set to
+     * VMAF_VULKAN_RING_DEFAULT for the external-handles path), so it is
+     * already a usable [1, VMAF_VULKAN_RING_MAX] value here. */
+    return state->requested_ring_size;
 }
 
 void vmaf_vulkan_state_free(VmafVulkanState **state)

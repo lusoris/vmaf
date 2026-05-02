@@ -47,7 +47,10 @@
   `vmaf_vulkan_wait_compute` drains every outstanding
   fence in submission order. Staging-buffer footprint
   scales `2 × ring_size` per state (~16 MiB host-visible
-  at 1080p 8-bit Y, default depth).
+  at 1080p 8-bit Y, default depth). Ring depth is tunable
+  via `VmafVulkanConfiguration.max_outstanding_frames` (0
+  = default 4; clamped to [1, 8]); read back the clamped
+  value with `vmaf_vulkan_state_max_outstanding_frames()`.
 - Backend runtime under
   [`libvmaf/src/vulkan/`](../../../libvmaf/src/vulkan/) —
   `common.{c,h}` (volk + VkInstance / VkDevice / compute queue +

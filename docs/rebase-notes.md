@@ -5482,3 +5482,32 @@ inline.*
   meson test -C build-cpu test_lpips test_fastdvdnet_pre
   # All 10 dnn-suite + both extractor tests must pass.
   ```
+
+
+### 0095 — Vulkan ring-depth tunable (ADR-0235 follow-up #3)
+
+- **PR**: feat/t7-29-followup3-ring-tunable.
+- **What rebases need to know**: `VmafVulkanConfiguration` grew an
+  additive `unsigned max_outstanding_frames` field. Existing
+  zero-initialised configs continue to receive the canonical default
+  (`0 → VMAF_VULKAN_RING_DEFAULT == 4`). The clamp helper
+  `vmaf_vulkan_clamp_ring_size` moved from `import.c` (file-local
+  static) to `vulkan_internal.h` (static inline) so `state_init` and
+  `lazy_alloc_ring` share one definition; an upstream sync that
+  re-introduces the static in `import.c` would shadow the header
+  helper — drop the duplicate, keep the inline.
+- **New public symbol**:
+  `vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *)`
+  — read-side accessor for the clamped value. Pure additive surface;
+  no upstream collision.
+- **On upstream sync**: zero interaction. The ring is wholly
+  fork-introduced (ADR-0235); upstream Netflix has no Vulkan backend.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=enabled
+  ninja -C build
+  meson test -C build test_vulkan_async_pending_fence
+  # All 8 cases must pass: 4 v2-contract + 4 ring-tunable.
+  ```

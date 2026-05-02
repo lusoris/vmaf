@@ -269,9 +269,16 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
      error.
 - **ABI preservation**: the v2 ring lives entirely inside
   `VmafVulkanState`; the public `libvmaf_vulkan.h` did not change
-  signatures across the v1 → v2 swap. Future versions that need
-  to expose `max_outstanding_frames` should grow
-  `VmafVulkanConfiguration` rather than break the call sites.
+  signatures across the v1 → v2 swap. ADR-0235 follow-up #3 grew
+  `VmafVulkanConfiguration` with `max_outstanding_frames` (additive
+  field, zero-init compatible) and added a read-side accessor
+  `vmaf_vulkan_state_max_outstanding_frames()`; both keep call-site
+  compatibility with v1 callers. The single clamp helper
+  `vmaf_vulkan_clamp_ring_size` (now in `vulkan_internal.h`) is the
+  one source of truth for the [1, VMAF_VULKAN_RING_MAX] mapping —
+  do not duplicate this logic in `state_init` or `lazy_alloc_ring`,
+  the value stored in `state->requested_ring_size` must match what
+  `lazy_alloc_ring` will use.
 - **FFmpeg patch coupling**: any change to the
   `vmaf_vulkan_*` public surface ships the matching update to
   `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`
