@@ -134,6 +134,22 @@ its own training surface):
   `train_vmaf_tiny_v3.py` / `export_vmaf_tiny_v3.py` /
   `validate_vmaf_tiny_v3.py` / `eval_loso_vmaf_tiny_v3.py` —
   do **not** modify the v2 scripts when iterating on v3.
+- **`vmaf_tiny_v3` and `vmaf_tiny_v4` opt-in tiers
+  (ADR-0241 / ADR-0242).** v3 (`mlp_medium`, 769 params, ADR-0241)
+  and v4 (`mlp_large`, 3 073 params, ADR-0242) ship *alongside* v2,
+  not as replacements. Production default stays `vmaf_tiny_v2`. The
+  three rungs share the canonical-6 input contract, the bundled
+  StandardScaler, and the 90 ep / Adam@1e-3 / MSE / bs=256 recipe;
+  only the architecture differs. **Do NOT modify v2 or v3 scripts
+  when iterating on later rungs** — each version owns its own
+  `train_vmaf_tiny_vN.py` / `export_vmaf_tiny_vN.py` /
+  `validate_vmaf_tiny_vN.py` / `eval_loso_vmaf_tiny_vN.py` quartet.
+  The arch ladder **stops at v4**: the v3 → v4 LOSO PLCC delta is
+  +0.0001 (well below 1 std), demonstrating saturation on the
+  canonical-6 + 4-corpus regime. Future quality gains require
+  regime change (richer features, larger corpus, ensembles), not
+  deeper MLPs. See ADR-0242 § Alternatives considered for the
+  mlp_huge rejection rationale.
 
 ## `fr_regressor_v1` (C1 baseline — ADR-0221)
 

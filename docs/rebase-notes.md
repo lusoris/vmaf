@@ -157,7 +157,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 >>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
 =======
 >>>>>>> 1c8f8566 (refactor(vulkan): T-GPU-DEDUP-21 — migrate adm_vulkan to kernel_template)
-<<<<<<< HEAD
 ### 0120 — float_vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-20)
 
 - **Touches**:
@@ -185,7 +184,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
   `integer_vif` bit-identically to 4 decimals.
 - **Rebase impact**: low. Builds on top of PR #272's
   `_add_variant()` helper.
-<<<<<<< HEAD
 ### 0122 — float_adm_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-22)
 
 - **Touches**:
@@ -225,7 +223,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
   spec-constant tuple (width, height, bpc, scale, stage) +
   push-constants.
 - **Rebase impact**: low. Builds on top of PR #272.
-=======
 ### 0123 — `ms_ssim_vulkan` 2-bundle migration (T-GPU-DEDUP-23)
 
 - **Touches**:
@@ -464,7 +461,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
   consolidation. Netflix-pair smoke reports `motion` mean
   4.049 / `motion2` mean 3.894, identical to pre-migration.
 - **Rebase impact**: low. Upstream Netflix has no Vulkan backend.
-=======
 ### 0108 — Bristol VI-Lab feasibility digest + BVI-CC ingest ADR (Draft)
 
 - **Touches**:
@@ -6288,6 +6284,7 @@ inline.*
   ```
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ### 0106 — `vmaf_tiny_v3` (mlp_medium) shipped alongside v2 (ADR-0241)
 
 - **What changed**: ships `model/tiny/vmaf_tiny_v3.onnx` (4 496 B,
@@ -6314,10 +6311,40 @@ inline.*
   ```bash
   python3 ai/scripts/validate_vmaf_tiny_v3.py \
       --onnx model/tiny/vmaf_tiny_v3.onnx \
+=======
+### 0107 — `vmaf_tiny_v4` (mlp_large) ships as opt-in only (ADR-0242)
+
+- **PR**: feat/vmaf-tiny-v4-mlp-large.
+- **What rebases need to know**: ships a third tiny VMAF fusion model
+  alongside `vmaf_tiny_v2` (production default) and `vmaf_tiny_v3`
+  (opt-in higher tier). New artefacts:
+  `model/tiny/vmaf_tiny_v4.onnx` (14 KB),
+  `model/tiny/vmaf_tiny_v4.json` (sidecar), one entry in
+  `model/tiny/registry.json`. New scripts:
+  `ai/scripts/{train,export,validate,eval_loso}_vmaf_tiny_v4.py` —
+  do **not** modify v2 or v3 scripts when iterating; each rung owns
+  its own quartet (per `ai/AGENTS.md` invariant note + ADR-0242).
+- **On upstream sync**: zero interaction. The model + scripts are
+  fork-only; canonical-6 input contract is the same as v2/v3 so
+  feature-extractor changes upstream cannot break the model
+  silently — the StandardScaler statistics baked into the ONNX
+  pin the calibration to the training-time feature distribution.
+- **Architecture ladder stops here**: ADR-0242 records that the
+  v3 → v4 LOSO PLCC delta is +0.0001 (well below 1 std), i.e. the
+  canonical-6 + 4-corpus regime saturates. Future tiny-VMAF
+  quality work should not pursue mlp_huge / deeper MLPs on the
+  same regime; regime change (richer features, larger corpus,
+  ensembles, distillation) is the lever.
+- **Re-test on rebase** (purely Python; no C build):
+
+  ```bash
+  python3 ai/scripts/validate_vmaf_tiny_v4.py \
+      --onnx model/tiny/vmaf_tiny_v4.onnx \
       --parquet runs/full_features_netflix.parquet \
       --rows 5000 --min-plcc 0.97 \
       --v2-onnx model/tiny/vmaf_tiny_v2.onnx
   python3 ai/scripts/validate_model_registry.py
+<<<<<<< HEAD
 =======
 ### 0106 — HIP first consumer + kernel-template mirror (T7-10 / ADR-0241)
 
@@ -6371,4 +6398,5 @@ inline.*
   meson setup build-cpu -Denable_cuda=false -Denable_sycl=false libvmaf
   ninja -C build-cpu
   meson test -C build-cpu                     # 47/47 pass expected
+=======
   ```

@@ -8,6 +8,22 @@
 
 ### Added
 
+- **`vmaf_tiny_v4` — top-rung opt-in tiny VMAF fusion model
+  (ADR-0242).** Ships `vmaf_tiny_v4.onnx` (mlp_large arch,
+  6 → 64 → 32 → 16 → 1, 3 073 params; 14 KB ONNX) alongside
+  `vmaf_tiny_v2` (production default) and `vmaf_tiny_v3` (opt-in
+  higher tier). Same canonical-6 + bundled StandardScaler + 90 ep /
+  Adam @ lr=1e-3 / MSE / bs=256 recipe as v2 / v3 — only the
+  architecture changes. Netflix 9-fold LOSO PLCC = 0.9987 ± 0.0015
+  (vs v3's 0.9986 ± 0.0015 — flat, +0.0001 mean, identical std).
+  ADR-0242 records "the architecture ladder stops here" — further
+  capacity does not buy headroom on the canonical-6 + 4-corpus
+  regime; future quality gains require regime change (richer
+  features, larger corpus, ensembles), not deeper MLPs. Companion
+  research digest:
+  [`docs/research/0048-vmaf-tiny-v4-mlp-large-evaluation.md`](docs/research/0048-vmaf-tiny-v4-mlp-large-evaluation.md).
+  Production default stays `vmaf_tiny_v2`.
+
 - **Bristol VI-Lab feasibility digest + BVI-CC ingest ADR
   (Draft).** Reconnaissance only — no downloads, no code change.
   [`docs/research/0046-bristol-vi-lab-feasibility.md`](docs/research/0046-bristol-vi-lab-feasibility.md)

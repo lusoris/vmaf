@@ -56,6 +56,21 @@ vmaf -d dis.yuv -w 1920 -h 1080 -p 420 -b 8 \
 > -30 % std). v2 remains the production default; pick v3 for
 > lowest-variance estimates. See [`models/vmaf_tiny_v3.md`](models/vmaf_tiny_v3.md).
 
+**Architecture ladder (2026-05-02).** The tiny VMAF fusion family
+now spans three rungs sharing the canonical-6 input contract:
+
+| Model | Arch | Params | ONNX | NF LOSO PLCC | Status |
+| --- | --- | ---: | ---: | ---: | --- |
+| [`vmaf_tiny_v2`](models/vmaf_tiny_v2.md) | mlp_small | 257 | 2.5 KB | 0.9978 ± 0.0021 | **Production default** |
+| [`vmaf_tiny_v3`](models/vmaf_tiny_v3.md) | mlp_medium | 769 | 4.5 KB | 0.9986 ± 0.0015 | Opt-in (recommended higher tier) |
+| [`vmaf_tiny_v4`](models/vmaf_tiny_v4.md) | mlp_large | 3073 | 14.0 KB | 0.9987 ± 0.0015 | Opt-in (top of measured ladder) |
+
+v4's PLCC win over v3 is +0.0001 (below 1 std) — the ladder
+saturates on the canonical-6 + 4-corpus regime. ADR-0242 records
+"the arch ladder stops here". Pick v3 unless you specifically want
+the absolute top of the measured ladder; pick v2 for the smallest
+bundle.
+
 New flags:
 
 | Flag | Default | Notes |
