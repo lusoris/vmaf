@@ -1923,6 +1923,17 @@
   `feature_name_dict` allocated in `init`. Adds a `close_force_zero`
   callback that calls `vmaf_dictionary_free(&s->feature_name_dict)`. CPU-only
   bookkeeping fix; no numerical impact and no SIMD/GPU twins to propagate.
+- **x86/adm: fix compilation for 32-bit clang** (upstream port,
+  Netflix/vmaf
+  [`7affcb7c`](https://github.com/Netflix/vmaf/commit/7affcb7c53057131f6d8baeb2d270a1c3ffc627b),
+  Christopher Degawa, 2026-04-29). Partner to PR #212.
+  `_mm256_extract_epi64` is unavailable in 32-bit clang. The previous
+  `extract_epi64` fallback in `adm_avx2.c` and `adm_avx512.c` used a
+  computed index passed to `_mm_extract_epi32`, which clang rejects
+  because it requires a compile-time-constant lane index. Replaces the
+  computed-index path with a `switch (index)` that materialises the four
+  constant-index cases (0..3), unblocking 32-bit-clang builds with no
+  64-bit codegen change.
 
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
