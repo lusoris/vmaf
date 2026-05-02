@@ -135,6 +135,29 @@
   round-trip + `provided_features` NULL-termination check). Net
   −286 LOC. Top-leverage non-GPU dedup finding from the
   2026-05-02 whole-codebase audit.
+- **Vulkan kernel template — multi-pipeline support + ssim/motion
+  migration (T-GPU-DEDUP-7).** Extended
+  [`libvmaf/src/vulkan/kernel_template.h`](libvmaf/src/vulkan/kernel_template.h)
+  with `vmaf_vulkan_kernel_pipeline_add_variant()` so kernels that
+  need multiple `VkPipeline`s sharing one layout / shader / DSL /
+  descriptor pool (different spec-constant) can express that
+  without re-implementing the boilerplate. Migrated
+  [`libvmaf/src/feature/vulkan/motion_vulkan.c`](libvmaf/src/feature/vulkan/motion_vulkan.c)
+  and
+  [`libvmaf/src/feature/vulkan/ssim_vulkan.c`](libvmaf/src/feature/vulkan/ssim_vulkan.c)
+  to the template — net duplicated DSL / pipeline layout / shader /
+  pipeline / descriptor-pool create-and-destroy code removed. As
+  part of motion's migration, the dormant `pipelines[2]` array
+  (kept "for SYCL parity" but functionally identical because
+  COMPUTE_SAD is passed via push constants, not spec-constants) was
+  collapsed to a single `VkPipeline`. SSIM still owns two pipelines
+  (horizontal pass=0 / vertical pass=1 differ in spec constant) —
+  pass=0 is the template's base pipeline; pass=1 is attached via
+  `_add_variant()`. Validated against the Netflix-pair smoke
+  (`float_ssim` mean 0.863, 48 frames) + `meson test
+  test_vulkan_smoke test_vulkan_async_pending_fence
+  test_vulkan_pic_preallocation` (all green).
+
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
   `vmaf_tiny_ai_open_session`, `vmaf_tiny_ai_yuv8_to_rgb8_planes`,
