@@ -2323,7 +2323,7 @@
   (T7-23 / ADR-0192 / ADR-0199)** (fork-local): sixth and final
   Group B float twin. Vulkan compute kernel for the float ADM
   feature extractor. Float twin of `integer_adm_vulkan`
-  ([ADR-0178](docs/adr/0178-integer-adm-vulkan.md)) — same 4-stage
+  ([ADR-0178](docs/adr/0178-vulkan-adm-kernel.md)) — same 4-stage
   / 4-scale wave-of-stages design (16 pipelines) but with float
   buffers and host-side `double` accumulation. New files:
   [`libvmaf/src/feature/vulkan/float_adm_vulkan.c`](libvmaf/src/feature/vulkan/float_adm_vulkan.c),
