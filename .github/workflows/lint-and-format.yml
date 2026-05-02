@@ -311,8 +311,10 @@ jobs:
           # clang-tidy needs compile_commands.json + codegen outputs on
           # disk, but doesn't need the link step. Test linking would
           # require the libvmaf .so to be discoverable, which it isn't
-          # at this point in the build (chicken-and-egg).
-          meson compile -C build-sycl libvmaf
+          # at this point in the build (chicken-and-egg). The target name
+          # under meson is the versioned `.so` filename — there is no
+          # phony `libvmaf` alias.
+          meson compile -C build-sycl src/libvmaf.so.3.0.0
       - name: Run clang-tidy-sycl wrapper on changed files
         if: steps.detect.outputs.files != ''
         run: |
