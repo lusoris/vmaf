@@ -48,6 +48,32 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Rebase impact**: low. Builds on top of PR #272's
   `_add_variant()` helper.
 
+<<<<<<< HEAD
+=======
+>>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
+### 0119 — vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-19)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/vif_vulkan.c` — state's
+    `dsl + pipeline_layout + shader + desc_pool + pipelines[4]`
+    collapses to `VmafVulkanKernelPipeline pl +
+    VkPipeline scale_variants[3]`. Scale 0 is the template's
+    base pipeline; scales 1, 2, 3 are siblings via
+    `vmaf_vulkan_kernel_pipeline_add_variant()`.
+  - New `vif_scale_pipeline()` accessor maps scale index to the
+    right `VkPipeline` handle (replaces `s->pipelines[scale]`).
+- **Invariant — variants destroyed before bundle**. `close_fex`
+  must `vkDestroyPipeline()` the 3 scale variants before calling
+  `vmaf_vulkan_kernel_pipeline_destroy(&s->pl)` — same rule as
+  ssim_vulkan in T-GPU-DEDUP-7 and psnr_hvs_vulkan in
+  T-GPU-DEDUP-18.
+- **Numerical contract**: unchanged. Same shaders, same
+  spec-constants, same push-constants as before; only the Vulkan
+  pipeline-bundle scaffolding moved to the template.
+- **Rebase impact**: low. Builds on top of PR #272's
+  `_add_variant()` helper.
+
+>>>>>>> 6b28b4d1 (refactor(vulkan): T-GPU-DEDUP-19 — migrate vif_vulkan to kernel_template)
 ### 0106 — Vulkan kernel template multi-pipeline + ssim/motion migration (T-GPU-DEDUP-7)
 
 - **Touches**:
