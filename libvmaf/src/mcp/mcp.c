@@ -60,6 +60,12 @@ int vmaf_mcp_transport_available(VmafMcpTransport transport)
     if ((unsigned)transport > 31u) {
         return 0;
     }
+    /* Post-guard invariant — same predicate the original assert
+     * checked, but provably true here so it cannot fire.
+     * Preserved for Power-of-10 §5 assertion density (the function
+     * exceeds the 20-line threshold once the per-transport `#ifdef`
+     * blocks expand). */
+    assert((unsigned)transport <= 31u);
     unsigned mask = 0u;
 #ifdef HAVE_MCP_SSE
     mask |= 1u << (unsigned)VMAF_MCP_TRANSPORT_SSE;

@@ -613,15 +613,21 @@ jobs:
           /tmp/mcp-venv/bin/pip install -e mcp-server/vmaf-mcp[dev]
 
       - name: Run Python MCP server pytests
-        # test_smoke_e2e.py auto-skips when libvmaf/build/tools/vmaf is
-        # absent (we built into build-mcp/, not build/) — the smoke
-        # surface still verifies the dispatch path and tool registry
-        # via test_server.py, which is the contract this lane gates.
-        # Symlink build-mcp → build so the e2e CLI checks find the
-        # binary; the test discovers it via the libvmaf/build/tools
-        # path that python/vmaf/__init__.py also hardcodes.
+        # The MCP server's `_vmaf_binary()` defaults to
+        # `<repo-root>/build/tools/vmaf` (`Path(__file__).parents[4]`
+        # is the top-level repo root, not `libvmaf/`). The CI build
+        # lives at `libvmaf/build-mcp/tools/vmaf`, so point
+        # `VMAF_BIN` there explicitly so
+        # test_call_tool_list_backends_includes_cpu's `_list_backends`
+        # probe returns `cpu: True`.
+        env:
+          VMAF_BIN: ${{ github.workspace }}/libvmaf/build-mcp/tools/vmaf
         run: |
-          ln -sfn build-mcp libvmaf/build
+          test -x "$VMAF_BIN" || {
+            echo "vmaf binary missing at $VMAF_BIN" >&2
+            ls -la "$(dirname "$VMAF_BIN")" >&2 || true
+            exit 1
+          }
           /tmp/mcp-venv/bin/pytest mcp-server/vmaf-mcp/tests/ -v --tb=short
 
   # ===== Coverage gate (principles.md §3) =====
