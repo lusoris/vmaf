@@ -89,6 +89,22 @@
 
 ### Changed
 
+- **`psnr_hvs_vulkan.c` migrated to `vulkan/kernel_template.h` +
+  `_add_variant()` (T-GPU-DEDUP-18).** First multi-pipeline-via-variant
+  consumer landed on top of PR #272 (which adds the
+  `vmaf_vulkan_kernel_pipeline_add_variant()` helper). State
+  collapses `dsl + pipeline_layout + shader + desc_pool +
+  pipeline[3]` to `VmafVulkanKernelPipeline pl + VkPipeline
+  pipeline_chroma_u + VkPipeline pipeline_chroma_v`. Plane 0
+  (luma) is the template's base pipeline; planes 1+2 (chroma U/V)
+  are sibling pipelines via `_add_variant()` — same layout +
+  shader + DSL + pool, different `plane` spec-constant.
+  Validated against the Netflix-pair smoke (`psnr_hvs` mean 31.33
+  / `psnr_hvs_y` 30.58 / `psnr_hvs_cb` 37.26 / `psnr_hvs_cr` 38.20
+  across 48 frames) and `meson test test_vulkan_smoke
+  test_vulkan_async_pending_fence test_vulkan_pic_preallocation`
+  (all green). Numerical contract unchanged.
+
 - **`psnr_vulkan.c` migrated to `vulkan/kernel_template.h` (T-GPU-DEDUP-5,
   first consumer).** The dormant `vulkan/kernel_template.h` (410 LOC,
   ADR-0221) shipped with zero consumers; its docstring designated

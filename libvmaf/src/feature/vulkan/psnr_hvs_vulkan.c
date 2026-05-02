@@ -37,6 +37,7 @@
 #include "feature_name.h"
 #include "log.h"
 
+#include "../../vulkan/kernel_template.h"
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
@@ -65,12 +66,15 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects. */
-    VkDescriptorSetLayout dsl;
-    VkPipelineLayout pipeline_layout;
-    VkShaderModule shader;
-    VkPipeline pipeline[PSNR_HVS_NUM_PLANES]; /* one per plane (PLANE + BPC baked) */
-    VkDescriptorPool desc_pool;
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0221).
+     * `pl` carries the shared layout / shader / DSL / pool plus the
+     * plane=0 pipeline. `pipeline_chroma_u` and `pipeline_chroma_v`
+     * are sibling pipelines created via
+     * `vmaf_vulkan_kernel_pipeline_add_variant()` — same layout +
+     * shader + DSL + pool, different `plane` spec-constant. */
+    VmafVulkanKernelPipeline pl;
+    VkPipeline pipeline_chroma_u; /* plane=1 */
+    VkPipeline pipeline_chroma_v; /* plane=2 */
 
     /* Per-plane input buffers (host-mapped float). */
     VmafVulkanBuffer *ref_in[PSNR_HVS_NUM_PLANES];
@@ -89,112 +93,105 @@ typedef struct {
     uint32_t num_blocks_y;
 } PsnrHvsPushConsts;
 
-static int build_pipeline_for_plane(PsnrHvsVulkanState *s, int plane, VkPipeline *out_pipeline)
+static inline VkPipeline psnr_hvs_plane_pipeline(const PsnrHvsVulkanState *s, int plane)
 {
-    struct {
-        int32_t bpc;
-        int32_t plane;
-        int32_t subgroup_size;
-    } spec_data = {(int32_t)s->bpc, (int32_t)plane, 32};
+    if (plane == 0)
+        return s->pl.pipeline;
+    if (plane == 1)
+        return s->pipeline_chroma_u;
+    return s->pipeline_chroma_v;
+}
 
-    VkSpecializationMapEntry spec_entries[3] = {
-        {.constantID = 0, .offset = offsetof(__typeof__(spec_data), bpc), .size = sizeof(int32_t)},
-        {.constantID = 1,
-         .offset = offsetof(__typeof__(spec_data), plane),
-         .size = sizeof(int32_t)},
-        {.constantID = 2,
-         .offset = offsetof(__typeof__(spec_data), subgroup_size),
-         .size = sizeof(int32_t)},
+struct PsnrHvsSpecData {
+    int32_t bpc;
+    int32_t plane;
+    int32_t subgroup_size;
+};
+
+static void psnr_hvs_fill_spec(struct PsnrHvsSpecData *spec_data,
+                               VkSpecializationMapEntry spec_entries[3],
+                               VkSpecializationInfo *spec_info, const PsnrHvsVulkanState *s,
+                               int plane)
+{
+    spec_data->bpc = (int32_t)s->bpc;
+    spec_data->plane = (int32_t)plane;
+    spec_data->subgroup_size = 32;
+    spec_entries[0] = (VkSpecializationMapEntry){
+        .constantID = 0,
+        .offset = offsetof(struct PsnrHvsSpecData, bpc),
+        .size = sizeof(int32_t),
     };
-    VkSpecializationInfo spec_info = {
+    spec_entries[1] = (VkSpecializationMapEntry){
+        .constantID = 1,
+        .offset = offsetof(struct PsnrHvsSpecData, plane),
+        .size = sizeof(int32_t),
+    };
+    spec_entries[2] = (VkSpecializationMapEntry){
+        .constantID = 2,
+        .offset = offsetof(struct PsnrHvsSpecData, subgroup_size),
+        .size = sizeof(int32_t),
+    };
+    *spec_info = (VkSpecializationInfo){
         .mapEntryCount = 3,
         .pMapEntries = spec_entries,
-        .dataSize = sizeof(spec_data),
-        .pData = &spec_data,
+        .dataSize = sizeof(*spec_data),
+        .pData = spec_data,
     };
+}
+
+static int build_pipeline_for_plane(PsnrHvsVulkanState *s, int plane, VkPipeline *out_pipeline)
+{
+    struct PsnrHvsSpecData spec_data = {0};
+    VkSpecializationMapEntry spec_entries[3];
+    VkSpecializationInfo spec_info = {0};
+    psnr_hvs_fill_spec(&spec_data, spec_entries, &spec_info, s, plane);
+
     VkComputePipelineCreateInfo cpci = {
-        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .stage =
             {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = s->shader,
                 .pName = "main",
                 .pSpecializationInfo = &spec_info,
             },
-        .layout = s->pipeline_layout,
     };
-    if (vkCreateComputePipelines(s->ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, out_pipeline) !=
-        VK_SUCCESS)
-        return -ENOMEM;
-    return 0;
+    return vmaf_vulkan_kernel_pipeline_add_variant(s->ctx, &s->pl, &cpci, out_pipeline);
 }
 
 static int create_pipeline(PsnrHvsVulkanState *s)
 {
-    VkDevice dev = s->ctx->device;
+    /* Plane 0 (luma) is the base pipeline — the template owns the
+     * shared layout / shader / DSL / pool plus the plane=0 pipeline.
+     * Pool is sized for 2 × 3 planes = 6 descriptor sets so each
+     * frame can allocate fresh sets and free them at the tail. */
+    struct PsnrHvsSpecData spec_data = {0};
+    VkSpecializationMapEntry spec_entries[3];
+    VkSpecializationInfo spec_info = {0};
+    psnr_hvs_fill_spec(&spec_data, spec_entries, &spec_info, s, /*plane=*/0);
 
-    VkDescriptorSetLayoutBinding bindings[PSNR_HVS_NUM_BINDINGS] = {0};
-    for (int i = 0; i < PSNR_HVS_NUM_BINDINGS; i++) {
-        bindings[i].binding = (uint32_t)i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo dslci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = PSNR_HVS_NUM_BINDINGS,
-        .pBindings = bindings,
+    const VmafVulkanKernelPipelineDesc desc = {
+        .ssbo_binding_count = (uint32_t)PSNR_HVS_NUM_BINDINGS,
+        .push_constant_size = (uint32_t)sizeof(PsnrHvsPushConsts),
+        .spv_bytes = psnr_hvs_spv,
+        .spv_size = psnr_hvs_spv_size,
+        .pipeline_create_info =
+            {
+                .stage =
+                    {
+                        .pName = "main",
+                        .pSpecializationInfo = &spec_info,
+                    },
+            },
+        .max_descriptor_sets = (uint32_t)(2 * PSNR_HVS_NUM_PLANES),
     };
-    if (vkCreateDescriptorSetLayout(dev, &dslci, NULL, &s->dsl) != VK_SUCCESS)
-        return -ENOMEM;
+    int err = vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl);
+    if (err)
+        return err;
 
-    VkPushConstantRange pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(PsnrHvsPushConsts),
-    };
-    VkPipelineLayoutCreateInfo plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &s->dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pcr,
-    };
-    if (vkCreatePipelineLayout(dev, &plci, NULL, &s->pipeline_layout) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkShaderModuleCreateInfo smci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = psnr_hvs_spv_size,
-        .pCode = psnr_hvs_spv,
-    };
-    if (vkCreateShaderModule(dev, &smci, NULL, &s->shader) != VK_SUCCESS)
-        return -ENOMEM;
-
-    for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
-        int err = build_pipeline_for_plane(s, p, &s->pipeline[p]);
-        if (err)
-            return err;
-    }
-
-    /* Three descriptor sets — one per plane — each binding ref / dist /
-     * partials of that plane. Allocated lazily per-extract. */
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = (uint32_t)(2 * PSNR_HVS_NUM_PLANES * PSNR_HVS_NUM_BINDINGS),
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = (uint32_t)(2 * PSNR_HVS_NUM_PLANES),
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
-
-    return 0;
+    /* Planes 1 + 2 (chroma U / V) — same layout/shader/DSL/pool,
+     * different `plane` spec-constant. */
+    err = build_pipeline_for_plane(s, /*plane=*/1, &s->pipeline_chroma_u);
+    if (err)
+        return err;
+    return build_pipeline_for_plane(s, /*plane=*/2, &s->pipeline_chroma_v);
 }
 
 static int alloc_buffers(PsnrHvsVulkanState *s)
@@ -396,10 +393,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
     /* One descriptor set per plane. */
     VkDescriptorSet sets[PSNR_HVS_NUM_PLANES] = {VK_NULL_HANDLE};
-    VkDescriptorSetLayout layouts[PSNR_HVS_NUM_PLANES] = {s->dsl, s->dsl, s->dsl};
+    VkDescriptorSetLayout layouts[PSNR_HVS_NUM_PLANES] = {s->pl.dsl, s->pl.dsl, s->pl.dsl};
     VkDescriptorSetAllocateInfo dsai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
+        .descriptorPool = s->pl.desc_pool,
         .descriptorSetCount = (uint32_t)PSNR_HVS_NUM_PLANES,
         .pSetLayouts = layouts,
     };
@@ -433,11 +430,11 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             .num_blocks_x = s->num_blocks_x[p],
             .num_blocks_y = s->num_blocks_y[p],
         };
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline_layout, 0, 1,
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1,
                                 &sets[p], 0, NULL);
-        vkCmdPushConstants(cmd, s->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+        vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
                            &pc);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline[p]);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, psnr_hvs_plane_pipeline(s, p));
         vkCmdDispatch(cmd, s->num_blocks_x[p], s->num_blocks_y[p], 1);
     }
 
@@ -497,7 +494,7 @@ cleanup:
         vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
     for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
         if (sets[p] != VK_NULL_HANDLE)
-            vkFreeDescriptorSets(s->ctx->device, s->desc_pool, 1, &sets[p]);
+            vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, 1, &sets[p]);
     }
     return err;
 }
@@ -507,21 +504,15 @@ static int close_fex(VmafFeatureExtractor *fex)
     PsnrHvsVulkanState *s = fex->priv;
     if (!s->ctx)
         return 0;
-    VkDevice dev = s->ctx->device;
-    vkDeviceWaitIdle(dev);
+    vkDeviceWaitIdle(s->ctx->device);
 
-    if (s->desc_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
-    for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
-        if (s->pipeline[p] != VK_NULL_HANDLE)
-            vkDestroyPipeline(dev, s->pipeline[p], NULL);
-    }
-    if (s->shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(dev, s->shader, NULL);
-    if (s->pipeline_layout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(dev, s->pipeline_layout, NULL);
-    if (s->dsl != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(dev, s->dsl, NULL);
+    /* Destroy the chroma U/V variants first; the base pipeline +
+     * shared layout/shader/DSL/pool are owned by the template. */
+    if (s->pipeline_chroma_u != VK_NULL_HANDLE)
+        vkDestroyPipeline(s->ctx->device, s->pipeline_chroma_u, NULL);
+    if (s->pipeline_chroma_v != VK_NULL_HANDLE)
+        vkDestroyPipeline(s->ctx->device, s->pipeline_chroma_v, NULL);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
         if (s->ref_in[p])
