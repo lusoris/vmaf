@@ -80,6 +80,12 @@ typedef struct {
     VmafVulkanKernelPipeline pl;
     VkPipeline pipelines[2][4];
 
+    /* Submit-side template (T-GPU-OPT-VK-1 / ADR-0256). */
+    VmafVulkanKernelSubmitPool sub_pool;
+
+    /* Pre-allocated descriptor sets — 7 passes per frame (T-GPU-OPT-VK-4). */
+    VkDescriptorSet pre_sets[7];
+
     /* Raw input buffers (uint8/16). */
     VmafVulkanBuffer *ref_raw;
     VmafVulkanBuffer *dis_raw;
@@ -264,6 +270,10 @@ static void compute_per_scale_dims(FloatVifVulkanState *s)
     }
 }
 
+/* Forward decl — defined after alloc_set_and_bind below. Called
+ * from init() once buffers are allocated. */
+static void prebind_descriptor_sets(FloatVifVulkanState *s);
+
 static int alloc_buffers(FloatVifVulkanState *s)
 {
     size_t bpp = (s->bpc <= 8) ? 1 : 2;
@@ -345,6 +355,20 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (err)
         return err;
 
+    /* Pre-alloc 1 cmd buffer + 1 fence (T-GPU-OPT-VK-1) and 7
+     * descriptor sets — one per pass — for the per-frame loop
+     * (T-GPU-OPT-VK-4). Buffers are init()-time-stable so the
+     * descriptor binding is established once and reused across
+     * frames. */
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/1, &s->sub_pool);
+    if (err)
+        return err;
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl.desc_pool, s->pl.dsl,
+                                                   /*count=*/7, s->pre_sets);
+    if (err)
+        return err;
+    prebind_descriptor_sets(s);
+
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (!s->feature_name_dict)
@@ -363,18 +387,9 @@ static int upload_plane(FloatVifVulkanState *s, VmafPicture *pic, VmafVulkanBuff
     return vmaf_vulkan_buffer_flush(s->ctx, buf);
 }
 
-static int alloc_set_and_bind(FloatVifVulkanState *s, VkDescriptorSet *set,
-                              VmafVulkanBuffer *bufs[8])
+static void bind_descriptor_set(FloatVifVulkanState *s, VkDescriptorSet set,
+                                VmafVulkanBuffer *bufs[8])
 {
-    VkDescriptorSetAllocateInfo dsai = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->pl.desc_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &s->pl.dsl,
-    };
-    if (vkAllocateDescriptorSets(s->ctx->device, &dsai, set) != VK_SUCCESS)
-        return -ENOMEM;
-
     VkDescriptorBufferInfo dbi[8];
     VkWriteDescriptorSet writes[8];
     for (int i = 0; i < 8; i++) {
@@ -385,7 +400,7 @@ static int alloc_set_and_bind(FloatVifVulkanState *s, VkDescriptorSet *set,
         };
         writes[i] = (VkWriteDescriptorSet){
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = *set,
+            .dstSet = set,
             .dstBinding = (uint32_t)i,
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -393,7 +408,75 @@ static int alloc_set_and_bind(FloatVifVulkanState *s, VkDescriptorSet *set,
         };
     }
     vkUpdateDescriptorSets(s->ctx->device, 8, writes, 0, NULL);
-    return 0;
+}
+
+/* Per-pass binding pattern. The 7 passes follow a fixed sequence
+ * (scale 0 compute, scale 1 decimate, scale 1 compute, ...). All
+ * buffers are init()-time-stable, so the descriptor sets can be
+ * bound once at init and reused across every frame. */
+static void prebind_descriptor_sets(FloatVifVulkanState *s)
+{
+    /* Pass 0: scale 0 compute  — bufs[2,3] aliased to ref_buf[0]/dis_buf[0]
+     * (unused), bufs[4,5] same. */
+    VmafVulkanBuffer *bufs[8];
+    /* Pass 0: scale 0 compute. ref_in_idx=-1 dis_in_idx=-1 ref_out_idx=-1 dis_out_idx=-1. */
+    bufs[0] = s->ref_raw;
+    bufs[1] = s->dis_raw;
+    bufs[2] = s->ref_buf[0];
+    bufs[3] = s->dis_buf[0];
+    bufs[4] = s->ref_buf[0];
+    bufs[5] = s->dis_buf[0];
+    bufs[6] = s->num_partials[0];
+    bufs[7] = s->den_partials[0];
+    bind_descriptor_set(s, s->pre_sets[0], bufs);
+    /* Pass 1: scale 1 decimate. ref_in_idx=-1 dis_in_idx=-1 ref_out_idx=0 dis_out_idx=0. */
+    bufs[2] = s->ref_buf[0];
+    bufs[3] = s->dis_buf[0];
+    bufs[4] = s->ref_buf[0];
+    bufs[5] = s->dis_buf[0];
+    bufs[6] = s->num_partials[1];
+    bufs[7] = s->den_partials[1];
+    bind_descriptor_set(s, s->pre_sets[1], bufs);
+    /* Pass 2: scale 1 compute. ref_in_idx=0 dis_in_idx=0 ref_out_idx=-1 dis_out_idx=-1. */
+    bufs[2] = s->ref_buf[0];
+    bufs[3] = s->dis_buf[0];
+    bufs[4] = s->ref_buf[0];
+    bufs[5] = s->dis_buf[0];
+    bufs[6] = s->num_partials[1];
+    bufs[7] = s->den_partials[1];
+    bind_descriptor_set(s, s->pre_sets[2], bufs);
+    /* Pass 3: scale 2 decimate. ref_in_idx=0 dis_in_idx=0 ref_out_idx=1 dis_out_idx=1. */
+    bufs[2] = s->ref_buf[0];
+    bufs[3] = s->dis_buf[0];
+    bufs[4] = s->ref_buf[1];
+    bufs[5] = s->dis_buf[1];
+    bufs[6] = s->num_partials[2];
+    bufs[7] = s->den_partials[2];
+    bind_descriptor_set(s, s->pre_sets[3], bufs);
+    /* Pass 4: scale 2 compute. ref_in_idx=1 dis_in_idx=1 ref_out_idx=-1 dis_out_idx=-1. */
+    bufs[2] = s->ref_buf[1];
+    bufs[3] = s->dis_buf[1];
+    bufs[4] = s->ref_buf[0];
+    bufs[5] = s->dis_buf[0];
+    bufs[6] = s->num_partials[2];
+    bufs[7] = s->den_partials[2];
+    bind_descriptor_set(s, s->pre_sets[4], bufs);
+    /* Pass 5: scale 3 decimate. ref_in_idx=1 dis_in_idx=1 ref_out_idx=0 dis_out_idx=0. */
+    bufs[2] = s->ref_buf[1];
+    bufs[3] = s->dis_buf[1];
+    bufs[4] = s->ref_buf[0];
+    bufs[5] = s->dis_buf[0];
+    bufs[6] = s->num_partials[3];
+    bufs[7] = s->den_partials[3];
+    bind_descriptor_set(s, s->pre_sets[5], bufs);
+    /* Pass 6: scale 3 compute. ref_in_idx=0 dis_in_idx=0 ref_out_idx=-1 dis_out_idx=-1. */
+    bufs[2] = s->ref_buf[0];
+    bufs[3] = s->dis_buf[0];
+    bufs[4] = s->ref_buf[0];
+    bufs[5] = s->dis_buf[0];
+    bufs[6] = s->num_partials[3];
+    bufs[7] = s->den_partials[3];
+    bind_descriptor_set(s, s->pre_sets[6], bufs);
 }
 
 static void cmd_storage_barrier(VkCommandBuffer cmd)
@@ -407,26 +490,10 @@ static void cmd_storage_barrier(VkCommandBuffer cmd)
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, NULL, 0, NULL);
 }
 
-static int dispatch_pass(FloatVifVulkanState *s, VkCommandBuffer cmd, int mode, int scale,
-                         unsigned out_w, unsigned out_h, unsigned in_w, unsigned in_h,
-                         int ref_in_idx, int dis_in_idx, int ref_out_idx, int dis_out_idx,
-                         VkDescriptorSet *set_out)
+static void dispatch_pass(FloatVifVulkanState *s, VkCommandBuffer cmd, int mode, int scale,
+                          unsigned out_w, unsigned out_h, unsigned in_w, unsigned in_h,
+                          VkDescriptorSet pre_set)
 {
-    /* Build bindings array per the shader's binding ABI (see header). */
-    VmafVulkanBuffer *bufs[8];
-    bufs[0] = s->ref_raw;
-    bufs[1] = s->dis_raw;
-    bufs[2] = (ref_in_idx >= 0) ? s->ref_buf[ref_in_idx] : s->ref_buf[0];
-    bufs[3] = (dis_in_idx >= 0) ? s->dis_buf[dis_in_idx] : s->dis_buf[0];
-    bufs[4] = (ref_out_idx >= 0) ? s->ref_buf[ref_out_idx] : s->ref_buf[0];
-    bufs[5] = (dis_out_idx >= 0) ? s->dis_buf[dis_out_idx] : s->dis_buf[0];
-    bufs[6] = s->num_partials[scale];
-    bufs[7] = s->den_partials[scale];
-
-    int err = alloc_set_and_bind(s, set_out, bufs);
-    if (err)
-        return err;
-
     uint32_t gx = 0, gy = 0;
     wg_dims(out_w, out_h, &gx, &gy);
     FloatVifPushConsts pc = {
@@ -439,11 +506,10 @@ static int dispatch_pass(FloatVifVulkanState *s, VkCommandBuffer cmd, int mode, 
     };
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[mode][scale]);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1,
-                            set_out, 0, NULL);
+                            &pre_set, 0, NULL);
     vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     vkCmdDispatch(cmd, gx, gy, 1);
     cmd_storage_barrier(cmd);
-    return 0;
 }
 
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
@@ -476,85 +542,37 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             return err;
     }
 
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-    VkDescriptorSet sets[7] = {VK_NULL_HANDLE};
-    int n_sets = 0;
-    VkCommandBufferAllocateInfo cbai = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = s->ctx->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &cmd) != VK_SUCCESS) {
-        err = -ENOMEM;
-        goto cleanup;
-    }
-    VkCommandBufferBeginInfo cbbi = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-    vkBeginCommandBuffer(cmd, &cbbi);
+    VmafVulkanKernelSubmit submit = {0};
+    err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool, /*pool_slot=*/0, &submit);
+    if (err)
+        return err;
+    VkCommandBuffer cmd = submit.cmd;
 
     /* Scale 0 compute (read raw, write num/den 0). */
-    err = dispatch_pass(s, cmd, /*mode=*/0, /*scale=*/0, s->scale_w[0], s->scale_h[0],
-                        s->scale_w[0], s->scale_h[0], -1, -1, -1, -1, &sets[n_sets++]);
-    if (err)
-        goto cleanup;
-
+    dispatch_pass(s, cmd, /*mode=*/0, /*scale=*/0, s->scale_w[0], s->scale_h[0], s->scale_w[0],
+                  s->scale_h[0], s->pre_sets[0]);
     /* Scale 1 decimate (raw → buf[0]). */
-    err = dispatch_pass(s, cmd, /*mode=*/1, /*scale=*/1, s->scale_w[1], s->scale_h[1],
-                        s->scale_w[0], s->scale_h[0], -1, -1, 0, 0, &sets[n_sets++]);
-    if (err)
-        goto cleanup;
-
+    dispatch_pass(s, cmd, /*mode=*/1, /*scale=*/1, s->scale_w[1], s->scale_h[1], s->scale_w[0],
+                  s->scale_h[0], s->pre_sets[1]);
     /* Scale 1 compute (read buf[0], write num/den 1). */
-    err = dispatch_pass(s, cmd, /*mode=*/0, /*scale=*/1, s->scale_w[1], s->scale_h[1],
-                        s->scale_w[1], s->scale_h[1], 0, 0, -1, -1, &sets[n_sets++]);
-    if (err)
-        goto cleanup;
-
+    dispatch_pass(s, cmd, /*mode=*/0, /*scale=*/1, s->scale_w[1], s->scale_h[1], s->scale_w[1],
+                  s->scale_h[1], s->pre_sets[2]);
     /* Scale 2 decimate (buf[0] → buf[1]). */
-    err = dispatch_pass(s, cmd, /*mode=*/1, /*scale=*/2, s->scale_w[2], s->scale_h[2],
-                        s->scale_w[1], s->scale_h[1], 0, 0, 1, 1, &sets[n_sets++]);
-    if (err)
-        goto cleanup;
-
+    dispatch_pass(s, cmd, /*mode=*/1, /*scale=*/2, s->scale_w[2], s->scale_h[2], s->scale_w[1],
+                  s->scale_h[1], s->pre_sets[3]);
     /* Scale 2 compute. */
-    err = dispatch_pass(s, cmd, /*mode=*/0, /*scale=*/2, s->scale_w[2], s->scale_h[2],
-                        s->scale_w[2], s->scale_h[2], 1, 1, -1, -1, &sets[n_sets++]);
-    if (err)
-        goto cleanup;
-
+    dispatch_pass(s, cmd, /*mode=*/0, /*scale=*/2, s->scale_w[2], s->scale_h[2], s->scale_w[2],
+                  s->scale_h[2], s->pre_sets[4]);
     /* Scale 3 decimate (buf[1] → buf[0]). */
-    err = dispatch_pass(s, cmd, /*mode=*/1, /*scale=*/3, s->scale_w[3], s->scale_h[3],
-                        s->scale_w[2], s->scale_h[2], 1, 1, 0, 0, &sets[n_sets++]);
-    if (err)
-        goto cleanup;
-
+    dispatch_pass(s, cmd, /*mode=*/1, /*scale=*/3, s->scale_w[3], s->scale_h[3], s->scale_w[2],
+                  s->scale_h[2], s->pre_sets[5]);
     /* Scale 3 compute. */
-    err = dispatch_pass(s, cmd, /*mode=*/0, /*scale=*/3, s->scale_w[3], s->scale_h[3],
-                        s->scale_w[3], s->scale_h[3], 0, 0, -1, -1, &sets[n_sets++]);
+    dispatch_pass(s, cmd, /*mode=*/0, /*scale=*/3, s->scale_w[3], s->scale_h[3], s->scale_w[3],
+                  s->scale_h[3], s->pre_sets[6]);
+
+    err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &submit);
     if (err)
         goto cleanup;
-
-    vkEndCommandBuffer(cmd);
-
-    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS) {
-        err = -ENOMEM;
-        goto cleanup;
-    }
-    VkSubmitInfo si = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
-        err = -EIO;
-        goto cleanup;
-    }
-    vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
 
     /* Reduce per-scale partials in double, emit ratios + (debug) totals. */
     double scores[8];
@@ -609,14 +627,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     }
 
 cleanup:
-    if (fence != VK_NULL_HANDLE)
-        vkDestroyFence(s->ctx->device, fence, NULL);
-    if (cmd != VK_NULL_HANDLE)
-        vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
-    for (int i = 0; i < n_sets; i++) {
-        if (sets[i] != VK_NULL_HANDLE)
-            vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, 1, &sets[i]);
-    }
+    vmaf_vulkan_kernel_submit_free(s->ctx, &submit);
     return err;
 }
 
@@ -639,6 +650,7 @@ static int close_fex(VmafFeatureExtractor *fex)
                 vkDestroyPipeline(s->ctx->device, s->pipelines[mode][scale], NULL);
         }
     }
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
     vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     if (s->ref_raw)

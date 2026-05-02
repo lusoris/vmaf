@@ -6391,43 +6391,44 @@ inline.*
   python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
 
-### 0227 — ssimulacra2 GPU XYB shader stays disabled (T-GPU-OPT-VK-3 NO-GO)
+### 0125 — Vulkan submit-side template + fence pool + descriptor pre-alloc bundle (ADR-0256)
 
 - **Touches**:
-  - `libvmaf/src/feature/vulkan/shaders/ssimulacra2_xyb.comp` —
-    fork-introduced; not modified by this PR but its disablement
-    posture is now reaffirmed by a fresh measurement on NVIDIA.
-  - `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` — not
-    modified by this PR; the shader's pipeline allocation + the
-    `(void)xyb_set_ref / (void)xyb_set_dis` sites must stay in
-    place so the shader remains a structurally-valid in-tree
-    reference.
-- **Invariant**: the canonical XYB pre-pass for
-  `ssimulacra2_vulkan` (and, by [ADR-0206](adr/0206-ssimulacra2-cuda-sycl.md),
-  the CUDA + SYCL twins) runs **host-side**. Re-enabling the GPU
-  shader without a fresh precision-rescue mechanism (e.g.
-  `Float64`-gated path) regresses the cross-backend parity gate
-  from `places=4` to `places=1` — a ~5-decade-place loss that
-  silently breaks the `ssimulacra2` row of the parity matrix.
+  - `libvmaf/src/vulkan/kernel_template.h` — fork-local; new
+    `VmafVulkanKernelSubmitPool` struct + `_create` / `_destroy` /
+    `_acquire` helpers + `vmaf_vulkan_kernel_descriptor_sets_alloc`
+    helper. Upstream has no Vulkan backend — no merge surface.
+  - `libvmaf/src/feature/vulkan/{psnr_hvs,vif,float_vif,float_adm}_vulkan.c`
+    — fork-local kernel TUs, also no upstream peer.
+- **Invariant**: the four migrated kernels keep all per-frame
+  `VkFence` + `VkCommandBuffer` + `VkDescriptorSet` resources
+  alive across frames in the pool. Pre-bound descriptor sets rely
+  on the kernel's `VmafVulkanBuffer *` handles being init-time
+  stable (allocated in `init()`, freed only in `close_fex`).
+  `vmaf_vulkan_kernel_pipeline_destroy` destroys the descriptor
+  pool — pre-allocated sets are released implicitly via the pool;
+  callers must NOT call `vkFreeDescriptorSets` on them.
 - **Re-test on rebase**:
 
   ```bash
-  cd libvmaf
-  meson setup build -Denable_vulkan=enabled -Denable_cuda=false \
-    -Denable_sycl=false
+  meson setup build libvmaf -Denable_vulkan=enabled
   ninja -C build
-  cd ..
   VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json \
-    python3 scripts/ci/cross_backend_vif_diff.py \
-      --feature ssimulacra2 --backend vulkan --places 4 \
-      --vmaf-binary libvmaf/build/tools/vmaf \
-      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
-      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
-      --width 576 --height 324 --pixel-format 420 --bitdepth 8
-  # Expect: max_abs_diff ≤ 1e-6, 0/48 mismatches at places=4.
-  # If max_abs_diff jumps to ~1.5e-2 with 47/48 mismatches, the
-  # host XYB call site has been removed or short-circuited —
-  # restore it per Research-0047.
+      meson test -C build test_vulkan_smoke \
+                          test_vulkan_async_pending_fence \
+                          test_vulkan_pic_preallocation
+  python scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+      --feature vif --backend vulkan --places 4
+  python scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+      --feature adm --backend vulkan --places 4
   ```
 
 - **Why this matters on rebase**: an upstream commit that touches
