@@ -50,7 +50,16 @@ int vmaf_mcp_transport_available(VmafMcpTransport transport)
      * per-arm `#ifdef` keeps the body structurally distinct (no
      * `bugprone-branch-clone`) regardless of which sub-flags are
      * on. */
-    assert((unsigned)transport <= 31u);
+    /* Defensively return 0 for out-of-range IDs rather than asserting
+     * — the public contract is "is transport <id> available", which
+     * has a clean answer (no) for unknown IDs.
+     * `test_transport_available_unknown_id_is_zero` exercises this
+     * path; the original assert crashed before the test could verify
+     * the contract. The early return also doubles as a UB guard for
+     * the 32-bit shift below. */
+    if ((unsigned)transport > 31u) {
+        return 0;
+    }
     unsigned mask = 0u;
 #ifdef HAVE_MCP_SSE
     mask |= 1u << (unsigned)VMAF_MCP_TRANSPORT_SSE;
