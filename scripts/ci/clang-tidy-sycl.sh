@@ -91,6 +91,15 @@ esac
 # -extra-arg-before=-Wno-unknown-pragmas
 #                                     — same rationale for icpx pragmas
 #                                       (`#pragma clang fp ...` etc).
+# -extra-arg-before=-std=c++17       — pin the language standard. icpx
+#                                       writes `-std=c++17` into
+#                                       compile_commands.json, but
+#                                       clang-tidy's `-extra-arg-before`
+#                                       chain bypasses that and the
+#                                       stock clang default falls back
+#                                       to C++11, which blows up on
+#                                       SYCL headers that require
+#                                       `std::enable_if_t` etc.
 # ---------------------------------------------------------------------
 exec "$CLANG_TIDY_BIN" \
   "-extra-arg-before=-isystem$SYCL_INCLUDE_BASE" \
@@ -98,4 +107,5 @@ exec "$CLANG_TIDY_BIN" \
   "-extra-arg-before=-D__SYCL_DEVICE_ONLY__=0" \
   "-extra-arg-before=-Wno-unknown-warning-option" \
   "-extra-arg-before=-Wno-unknown-pragmas" \
+  "-extra-arg-before=-std=c++17" \
   "$@"
