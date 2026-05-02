@@ -126,6 +126,32 @@
   (576×324×8-bit, `cambi` mean = 0.0 — content-appropriate; the
   pair has no banding artifacts). Net diff −40 LOC (1407 → 1367).
   See [ADR-0221](docs/adr/0221-gpu-kernel-template.md).
+- **`vulkan/kernel_template.h` SSBO-binding cap is now a named
+  constant.** Replaced the open-coded `8U` upper bound and matching
+  `bindings[8]` stack array with `#define
+  VMAF_VULKAN_KERNEL_MAX_SSBO_BINDINGS 16U`. Current consumers top
+  out at 10 (the SSIM bundle in `ssimulacra2_vulkan.c` uses 8); the
+  new cap of 16 absorbs near-future kernels without further edits.
+  Vulkan's conformant minimum for `maxDescriptorSetStorageBuffers`
+  is 96, so the higher cap remains portable across drivers. No
+  behavioural change — same allowed kernel shapes, same scores,
+  same public C API.
+
+### Fixed
+
+- **`scripts/ci/deliverables-check.sh` now strips backslashes
+  from PR bodies before grepping the deliverable checklist.** The
+  script previously stripped backticks, asterisks, and underscores
+  only; PRs created via heredoc-quoted body strings in `gh pr
+  create` calls escape embedded backticks (the shell emits a
+  literal backslash before each backtick), leaving a stray
+  backslash in the PR body. After the partial strip the body
+  contained "AGENTS.md\ invariant note" (backslash-space), which
+  broke the `- [x].*AGENTS.md invariant note` regex and falsely
+  flagged the deliverable as missing on otherwise-correct PRs.
+  Extending the strip set to also remove backslashes restores the
+  regex match.
+
 - **`ssimulacra2_vulkan.c` migrated to `vulkan/kernel_template.h`
   (T-GPU-DEDUP-24, 4-bundle).** Four distinct pipeline shapes (XYB =
   6 SSBO bindings, MUL = 3, BLUR = 2, SSIM = 8) prevent collapsing

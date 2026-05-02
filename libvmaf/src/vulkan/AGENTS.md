@@ -176,7 +176,13 @@ vulkan/
   pipeline + descriptor pool + per-frame command-buffer + fence
   shape every fork-added Vulkan feature kernel uses. The template
   lands unused — each future kernel migration is its own gated PR
-  (`places=4` cross-backend-diff per ADR-0214). **On rebase**: keep
+  (`places=4` cross-backend-diff per ADR-0214). The maximum
+  SSBO-binding count accepted by `_pipeline_create` is exposed via
+  the named constant `VMAF_VULKAN_KERNEL_MAX_SSBO_BINDINGS`
+  (currently 16); lift the define if a future kernel exceeds it.
+  Both the `desc->ssbo_binding_count` upper-bound check and the
+  on-stack `bindings[]` array size must reference the constant —
+  never open-code the cap. **On rebase**: keep
   the header and any kernel call-sites that later adopt it; upstream
   has no Vulkan backend at all today, so there is nothing to merge
   against. Reference implementation that mirrors the template's
