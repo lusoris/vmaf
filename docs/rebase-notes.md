@@ -27,6 +27,21 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0107 — float_psnr_vulkan migrated to kernel_template (T-GPU-DEDUP-8)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/float_psnr_vulkan.c` — state's
+    `dsl + pipeline_layout + shader + pipeline + desc_pool` quintet
+    is collapsed into a single `VmafVulkanKernelPipeline pl`;
+    `create_pipelines` and `close_fex` shrink to template-driven
+    create + destroy. No shader changes, no spec-constant changes,
+    no push-constant changes.
+- **Numerical contract**: unchanged. The migration is a pure
+  Vulkan-boilerplate consolidation. Cross-backend parity gate
+  at `places=4` holds — Netflix-pair smoke reports `float_psnr`
+  mean 30.755 dB, identical to pre-migration.
+- **Rebase impact**: low. Upstream Netflix has no Vulkan backend.
+
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
 - **ADR**: [ADR-0235](adr/0235-vulkan-async-pending-fence.md);
