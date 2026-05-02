@@ -27,6 +27,7 @@
 #include "feature_extractor.h"
 #include "feature_name.h"
 #include "cuda/integer_motion_cuda.h"
+#include "drain_batch.h"
 #include "mem.h"
 #include "motion_blend_tools.h"
 #include "picture.h"
@@ -45,6 +46,12 @@ typedef struct MotionStateCuda {
     VmafCudaBuffer *blur[2];
     VmafCudaBuffer *sad;
     uint64_t *sad_host;
+    /* Engine-scope fence batching opt-in flag (T-GPU-OPT-1, ADR-0242).
+     * Set by ``vmaf_cuda_drain_batch_flush`` when this submit's
+     * ``finished`` event was waited on as part of the batched drain;
+     * the ``collect()`` path then skips its ``cuStreamSynchronize``
+     * and resets the flag for the next frame. */
+    bool drained;
     unsigned index;
     unsigned frame_index;      /* count of frames processed so far (for motion3) */
     unsigned frame_w, frame_h; // stored by submit for collect
@@ -390,6 +397,10 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->sad_host, (CUdeviceptr)s->sad->data,
                                               sizeof(*s->sad_host), s->str));
     CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    /* Engine-scope fence batching opt-in (T-GPU-OPT-1, ADR-0242).
+     * Best-effort: registration failure (overflow / no batch open)
+     * silently degrades to the per-stream sync below. */
+    (void)vmaf_cuda_drain_batch_register_event(s->finished, &s->drained);
     return 0;
 }
 
@@ -399,7 +410,11 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
     MotionStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    if (s->drained) {
+        s->drained = false;
+    } else {
+        CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    }
 
     if (index == 0) {
         int err = vmaf_feature_collector_append(feature_collector,

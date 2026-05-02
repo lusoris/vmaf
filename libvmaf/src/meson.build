@@ -542,6 +542,7 @@ if is_cuda_enabled
     cuda_sources = [
         cuda_dir + 'common.c',
         cuda_dir + 'dispatch_strategy.c',
+        cuda_dir + 'drain_batch.c',
         cuda_dir + 'picture_cuda.c',
     ]
     gencode = []

@@ -29,6 +29,7 @@
 
 #include "cpu.h"
 #include "cuda/integer_adm_cuda.h"
+#include "drain_batch.h"
 #include "picture_cuda.h"
 
 #include <assert.h>
@@ -55,6 +56,8 @@ typedef struct AdmStateCuda {
                    CUstream c_stream);
     CUstream str;
     CUevent ref_event, dis_event, finished;
+    /* Engine-scope fence batching opt-in flag (T-GPU-OPT-1, ADR-0242). */
+    bool drained;
     VmafDictionary *feature_name_dict;
 
     // adm_dwt kernels
@@ -913,6 +916,10 @@ static int integer_compute_adm_cuda(VmafFeatureExtractor *fex, AdmStateCuda *s,
     CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(buf->results_host, buf->tmp_res->data,
                                               sizeof(int64_t) * RES_BUFFER_SIZE, s->str));
     CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    /* Engine-scope fence batching opt-in (T-GPU-OPT-1, ADR-0242).
+     * Best-effort: registration failure (overflow / no batch open)
+     * silently degrades to the per-stream sync in collect(). */
+    (void)vmaf_cuda_drain_batch_register_event(s->finished, &s->drained);
     return 0;
 }
 
@@ -1247,7 +1254,11 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
     AdmStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    if (s->drained) {
+        s->drained = false;
+    } else {
+        CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    }
 
     // Results are now in results_host — compute and write scores
     write_score_parameters_adm params = {

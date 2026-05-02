@@ -31,6 +31,7 @@
 
 #include "picture.h"
 #include "cuda/integer_vif_cuda.h"
+#include "drain_batch.h"
 #include "picture_cuda.h"
 
 #if ARCH_X86
@@ -44,6 +45,8 @@ typedef struct VifStateCuda {
     VifBufferCuda buf;
     CUevent event, finished;
     CUstream str;
+    /* Engine-scope fence batching opt-in flag (T-GPU-OPT-1, ADR-0242). */
+    bool drained;
     bool debug;
     double vif_enhn_gain_limit;
     void (*filter1d_8)(VifBufferCuda *buf, uint8_t *ref_in, uint8_t *dis_in, unsigned w, unsigned h,
@@ -530,6 +533,8 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->buf.accum_host, s->buf.accum_data->data,
                                               sizeof(vif_accums) * 4, s->str));
     CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    /* Engine-scope fence batching opt-in (T-GPU-OPT-1, ADR-0242). */
+    (void)vmaf_cuda_drain_batch_register_event(s->finished, &s->drained);
     return 0;
 }
 
@@ -539,7 +544,11 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
     VifStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    if (s->drained) {
+        s->drained = false;
+    } else {
+        CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    }
 
     // Results are now in accum_host — compute and write scores
     write_score_parameters_vif data = {

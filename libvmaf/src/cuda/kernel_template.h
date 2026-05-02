@@ -64,6 +64,7 @@
 #ifndef LIBVMAF_CUDA_KERNEL_TEMPLATE_H_
 #define LIBVMAF_CUDA_KERNEL_TEMPLATE_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -89,11 +90,22 @@ extern "C" {
  *               cuStreamSynchronize on `str` in collect() is the
  *               canonical wait point; the event is exposed for
  *               callers that need to chain (e.g. graph capture).
+ * `drained`   — set by ``vmaf_cuda_drain_batch_flush`` (T-GPU-OPT-1,
+ *               ADR-0242) when this lifecycle's finished event was
+ *               waited on as part of the engine-scope batched drain.
+ *               When true, ``vmaf_cuda_kernel_collect_wait`` skips
+ *               its per-stream cuStreamSynchronize and resets the
+ *               flag, so the next frame falls back to the legacy
+ *               per-stream wait if no drain batch is active. The
+ *               flag is byte-sized; the implicit padding after it
+ *               is harmless and explicit zero-init is via
+ *               ``vmaf_cuda_kernel_lifecycle_init``.
  */
 typedef struct VmafCudaKernelLifecycle {
     CUstream str;
     CUevent submit;
     CUevent finished;
+    bool drained;
 } VmafCudaKernelLifecycle;
 
 /*
@@ -208,12 +220,56 @@ static inline int vmaf_cuda_kernel_submit_pre_launch(VmafCudaKernelLifecycle *lc
 /*
  * collect()-side wait point: drains the private stream so the host
  * pinned buffer is safe to read.
+ *
+ * Fence-batching fast path (T-GPU-OPT-1, ADR-0242): when the engine
+ * has already waited on this lifecycle's ``finished`` event as part
+ * of a batched drain (``lc->drained`` is true), the per-stream
+ * cuStreamSynchronize would be redundant — the readback is already
+ * complete on the host. Skip it and reset the flag so the next
+ * frame's collect() falls back to the legacy wait if no batch is
+ * active.
  */
 static inline int vmaf_cuda_kernel_collect_wait(VmafCudaKernelLifecycle *lc,
                                                 VmafCudaState *cu_state)
 {
+    if (lc->drained) {
+        lc->drained = false;
+        return 0;
+    }
     CudaFunctions *cu_f = cu_state->f;
     CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(lc->str));
+    return 0;
+}
+
+/*
+ * submit()-side post-DtoH helper (T-GPU-OPT-1, ADR-0242).
+ *
+ *   1. cuEventRecord(lc->finished, lc->str)  — fence the readback.
+ *   2. vmaf_cuda_drain_batch_register(lc)    — opt into the engine's
+ *                                              batched drain when one
+ *                                              is open. No-op when the
+ *                                              engine has not entered
+ *                                              submit-all mode (legacy
+ *                                              call sites still get the
+ *                                              old per-stream sync via
+ *                                              ``vmaf_cuda_kernel_collect_wait``).
+ *
+ * Calling this at the tail of every template-based ``submit()`` is
+ * what makes the engine-scope fence batching transparent — extractors
+ * register without touching their collect() paths. Forward declared:
+ * the implementation lives in ``drain_batch.c``.
+ */
+int vmaf_cuda_drain_batch_register(VmafCudaKernelLifecycle *lc);
+
+static inline int vmaf_cuda_kernel_submit_post_record(VmafCudaKernelLifecycle *lc,
+                                                      VmafCudaState *cu_state)
+{
+    CudaFunctions *cu_f = cu_state->f;
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(lc->finished, lc->str));
+    /* Best-effort: drain-batch registration failure (overflow, no
+     * batch open) silently degrades to per-stream sync; never
+     * propagated as an error — the extractor is still correct. */
+    (void)vmaf_cuda_drain_batch_register(lc);
     return 0;
 }
 
