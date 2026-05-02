@@ -87,8 +87,10 @@ jobs:
           #     `-Denable_cuda=true` meson setup to generate compile_commands
           #     (follow-up: add a parallel CUDA clang-tidy job once a
           #     self-hosted CUDA runner lands, backlog T7-3).
-          #   - libvmaf/test/test_cuda_*.c — GPU-gated tests whose build
-          #     entries only exist under the CUDA build.
+          #   - libvmaf/test/test_cuda_*.c + test_gpu_picture_pool.c — GPU-gated
+          #     tests whose build entries only exist under the CUDA build.
+          #     test_gpu_picture_pool.c is the renamed test_ring_buffer.c per
+          #     ADR-0239 (still CUDA-only — it pulls in libvmaf_cuda.h).
           #   - libvmaf/src/sycl/ + libvmaf/src/feature/sycl/ +
           #     libvmaf/test/test_sycl* — require `-Denable_sycl=true` and
           #     the `icpx` compiler; no compile_commands in the CPU-only
@@ -115,6 +117,7 @@ jobs:
               | grep -v '^libvmaf/src/cuda/' \
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
+              | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -138,6 +141,7 @@ jobs:
               | grep -v '^libvmaf/src/cuda/' \
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
+              | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -158,6 +162,7 @@ jobs:
               | grep -v '^libvmaf/src/cuda/' \
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
+              | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -178,6 +183,7 @@ jobs:
               | grep -v '^libvmaf/src/cuda/' \
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
+              | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -206,7 +212,21 @@ jobs:
     # stock LLVM clang-tidy resolves <sycl/sycl.hpp>. Advisory until one
     # green run on master proves the wrapper holds across all current SYCL
     # TUs; tightens to required after that. See ADR-0217.
-    name: Clang-Tidy SYCL (Changed Files, Advisory)
+    #
+    # NOTE (T-GPU-DEDUP / 2026-05-02 / commit message): the wrapper
+    # successfully resolves the SYCL include path and parses far enough
+    # to validate the C++17 standard, but stock LLVM clang-tidy cannot
+    # resolve `__ocl_event_t` and `__spirv_ControlBarrier` in
+    # `nd_item.hpp`/`group.hpp` — these are icpx-internal intrinsics
+    # exposed unconditionally regardless of `__SYCL_DEVICE_ONLY__`.
+    # No -D flag fixes it; the only path forward is an icpx-built
+    # clang-tidy (icpx ships `icx` and `icpx` but no `clang-tidy-icpx`
+    # variant today). Hard-skipped via the runs-on sentinel below
+    # until that toolchain story improves; the libvmaf-build-matrix
+    # SYCL job already validates SYCL parse via icpx itself, so we
+    # don't lose the actual signal — only the lint pass on top of it.
+    name: Clang-Tidy SYCL (Changed Files, Advisory — Disabled)
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 35
     continue-on-error: true
@@ -275,9 +295,19 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/oneAPI.list
           sudo apt-get update
           sudo apt-get install -y intel-oneapi-compiler-dpcpp-cpp \
-            meson ninja-build nasm clang-tidy-18 jq parallel
+            cmake meson ninja-build nasm clang-tidy-18 jq parallel
           sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy \
             /usr/bin/clang-tidy-18 100
+          # Level Zero loader: meson hard-requires `cc.find_library('ze_loader')`
+          # under -Denable_sycl=true. Apt has no `level-zero` package on
+          # ubuntu-latest; build from source (same pattern as
+          # libvmaf-build-matrix.yml + ffmpeg-integration.yml).
+          git clone --depth=1 --branch v1.28.0 \
+            https://github.com/oneapi-src/level-zero.git /tmp/level-zero
+          cmake -S /tmp/level-zero -B /tmp/level-zero/build -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build /tmp/level-zero/build -j"$(nproc)"
+          sudo cmake --install /tmp/level-zero/build
+          rm -rf /tmp/level-zero
       - name: Generate SYCL compile_commands.json
         if: steps.detect.outputs.files != ''
         run: |
@@ -291,7 +321,16 @@ jobs:
             -Denable_sycl=true -Denable_cuda=false
           # Build first so codegen outputs (vcs_version.h, model JSONs → .c)
           # exist before clang-tidy parses TUs.
-          meson compile -C build-sycl
+          # Build only the libvmaf shared library, not test binaries —
+          # clang-tidy needs compile_commands.json + codegen outputs on
+          # disk, but doesn't need the link step. Test linking would
+          # require the libvmaf .so to be discoverable, which it isn't
+          # at this point in the build (chicken-and-egg). The target name
+          # under meson disambiguates by `path:type` — `vmaf` is ambiguous
+          # because both a `shared_library` and a `static_library` are
+          # registered under the same name; the executable lives in
+          # `tools/vmaf`.
+          meson compile -C build-sycl src/vmaf:shared_library
       - name: Run clang-tidy-sycl wrapper on changed files
         if: steps.detect.outputs.files != ''
         run: |

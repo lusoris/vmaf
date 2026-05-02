@@ -3,17 +3,23 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  ADR-0238: VmafPicture pool for the public Vulkan preallocation
- *  surface (`VmafVulkanPicturePreallocationMethod`). Mirrors the SYCL
- *  pool in libvmaf/src/sycl/picture_sycl.cpp. Host-method backs each
- *  picture with regular `vmaf_picture_alloc()`; Device-method backs
- *  the luma plane with a host-visible VmafVulkanBuffer (VMA
- *  `AUTO_PREFER_HOST`) so the caller's host writes land in the same
- *  memory the kernel descriptor sets bind.
+ *  surface (`VmafVulkanPicturePreallocationMethod`).
+ *
+ *  ADR-0239 follow-up: the round-robin / mutex / unwind shape now
+ *  lives in the backend-agnostic `VmafGpuPicturePool`
+ *  (`libvmaf/src/gpu_picture_pool.{h,c}`). This file shrank from
+ *  ~180 LOC of hand-rolled lifecycle to ~80 LOC of Vulkan-specific
+ *  alloc/free callbacks plus a thin wrapper struct that owns the
+ *  per-pool state pointer for the callbacks.
+ *
+ *  HOST method backs each picture with regular `vmaf_picture_alloc()`;
+ *  DEVICE method backs the luma plane with a host-visible
+ *  VmafVulkanBuffer (VMA `AUTO_PREFER_HOST`) so the caller's host
+ *  writes land in the same memory the kernel descriptor sets bind.
  */
 
 #include <assert.h>
 #include <errno.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -21,6 +27,7 @@
 #include "picture.h"
 #include "ref.h"
 
+#include "gpu_picture_pool.h"
 #include "picture_vulkan.h"
 #include "vulkan_internal.h"
 
@@ -45,25 +52,29 @@ static int release_device_picture(VmafPicture *pic, void *cookie)
     return 0;
 }
 
+/* Wrapper struct: owns the cookie storage so the alloc/free callbacks
+ * registered with VmafGpuPicturePool have a stable pointer for the
+ * pool's lifetime. The generic pool itself owns the round-robin slots,
+ * the mutex, and the unwind logic. */
 struct VmafVulkanPicturePool {
     VmafVulkanContext *ctx;
     enum VmafVulkanPoolMethod method;
     enum VmafPixelFormat pix_fmt;
     unsigned w, h, bpc;
-
-    unsigned pic_cnt;
-    unsigned curr_idx;
-    pthread_mutex_t lock;
-    VmafPicture *pic;
+    VmafGpuPicturePool *gpool;
 };
 
-static int pool_alloc_one_host(VmafVulkanPicturePool *pool, unsigned i)
+/* Generic-pool alloc callback. The cookie is the wrapper struct
+ * pointer (see init below); the wrapper carries the geometry the
+ * callback needs. */
+static int vulkan_pool_alloc_cb(VmafPicture *pic, void *cookie)
 {
-    return vmaf_picture_alloc(&pool->pic[i], pool->pix_fmt, pool->bpc, pool->w, pool->h);
-}
+    struct VmafVulkanPicturePool *pool = cookie;
+    if (pool->method == VMAF_VULKAN_POOL_HOST) {
+        return vmaf_picture_alloc(pic, pool->pix_fmt, pool->bpc, pool->w, pool->h);
+    }
 
-static int pool_alloc_one_device(VmafVulkanPicturePool *pool, unsigned i)
-{
+    /* DEVICE method: per-picture host-visible VkBuffer. */
     assert(pool->ctx != NULL);
     assert(pool->bpc >= 8u && pool->bpc <= 16u);
 
@@ -75,7 +86,6 @@ static int pool_alloc_one_device(VmafVulkanPicturePool *pool, unsigned i)
     if (err)
         return err;
 
-    VmafPicture *pic = &pool->pic[i];
     memset(pic, 0, sizeof(*pic));
     pic->data[0] = vmaf_vulkan_buffer_host(buf);
     pic->stride[0] = (int)((size_t)pool->w * bpp);
@@ -93,22 +103,22 @@ static int pool_alloc_one_device(VmafVulkanPicturePool *pool, unsigned i)
     priv->buf_type = VMAF_PICTURE_BUFFER_TYPE_VULKAN_DEVICE;
     priv->release_picture = release_device_picture;
 
-    struct VmafVulkanPicReleaseCookie *cookie = calloc(1, sizeof(*cookie));
-    if (!cookie) {
+    struct VmafVulkanPicReleaseCookie *rc = calloc(1, sizeof(*rc));
+    if (!rc) {
         free(priv);
         vmaf_vulkan_buffer_free(pool->ctx, buf);
         pic->data[0] = NULL;
         return -ENOMEM;
     }
-    cookie->ctx = pool->ctx;
-    cookie->buf = buf;
-    priv->cookie = cookie;
+    rc->ctx = pool->ctx;
+    rc->buf = buf;
+    priv->cookie = rc;
 
     pic->priv = priv;
 
     err = vmaf_ref_init(&pic->ref);
     if (err) {
-        free(cookie);
+        free(rc);
         free(priv);
         vmaf_vulkan_buffer_free(pool->ctx, buf);
         pic->data[0] = NULL;
@@ -118,24 +128,26 @@ static int pool_alloc_one_device(VmafVulkanPicturePool *pool, unsigned i)
     return 0;
 }
 
-static void pool_unwind(VmafVulkanPicturePool *pool, unsigned up_to)
+/* Generic-pool free callback. Mirrors the SYCL pattern (PR #266):
+ * the per-method free routine + priv + ref cleanup that the old
+ * hand-rolled close loop did. */
+static int vulkan_pool_free_cb(VmafPicture *pic, void *cookie)
 {
-    for (unsigned j = 0u; j < up_to; j++) {
-        VmafPicture *p = &pool->pic[j];
-        if (pool->method == VMAF_VULKAN_POOL_DEVICE && p->priv) {
-            VmafPicturePrivate *priv = (VmafPicturePrivate *)p->priv;
-            if (priv->release_picture)
-                (void)priv->release_picture(p, priv->cookie);
-            free(priv);
-            p->priv = NULL;
-        } else {
-            (void)vmaf_picture_unref(p);
-        }
-        if (p->ref) {
-            vmaf_ref_close(p->ref);
-            p->ref = NULL;
-        }
+    struct VmafVulkanPicturePool *pool = cookie;
+    if (pool->method == VMAF_VULKAN_POOL_DEVICE && pic->priv) {
+        VmafPicturePrivate *priv = (VmafPicturePrivate *)pic->priv;
+        if (priv->release_picture)
+            (void)priv->release_picture(pic, priv->cookie);
+        free(priv);
+        pic->priv = NULL;
+    } else {
+        (void)vmaf_picture_unref(pic);
     }
+    if (pic->ref) {
+        vmaf_ref_close(pic->ref);
+        pic->ref = NULL;
+    }
+    return 0;
 }
 
 int vmaf_vulkan_picture_pool_init(VmafVulkanPicturePool **pool_out, VmafVulkanContext *ctx,
@@ -161,30 +173,19 @@ int vmaf_vulkan_picture_pool_init(VmafVulkanPicturePool **pool_out, VmafVulkanCo
     pool->w = w;
     pool->h = h;
     pool->bpc = bpc;
-    pool->pic_cnt = pic_cnt;
-    pool->curr_idx = 0u;
-    if (pthread_mutex_init(&pool->lock, NULL) != 0) {
-        free(pool);
-        return -ENOMEM;
-    }
+    pool->gpool = NULL;
 
-    pool->pic = calloc(pic_cnt, sizeof(*pool->pic));
-    if (!pool->pic) {
-        pthread_mutex_destroy(&pool->lock);
-        free(pool);
-        return -ENOMEM;
-    }
+    VmafGpuPicturePoolConfig cfg = {0};
+    cfg.pic_cnt = pic_cnt;
+    cfg.alloc_picture_callback = vulkan_pool_alloc_cb;
+    cfg.free_picture_callback = vulkan_pool_free_cb;
+    cfg.synchronize_picture_callback = NULL;
+    cfg.cookie = pool;
 
-    for (unsigned i = 0u; i < pic_cnt; i++) {
-        const int err = (method == VMAF_VULKAN_POOL_HOST) ? pool_alloc_one_host(pool, i) :
-                                                            pool_alloc_one_device(pool, i);
-        if (err) {
-            pool_unwind(pool, i);
-            free(pool->pic);
-            pthread_mutex_destroy(&pool->lock);
-            free(pool);
-            return err;
-        }
+    const int err = vmaf_gpu_picture_pool_init(&pool->gpool, cfg);
+    if (err) {
+        free(pool);
+        return err;
     }
 
     *pool_out = pool;
@@ -195,23 +196,14 @@ int vmaf_vulkan_picture_pool_fetch(VmafVulkanPicturePool *pool, VmafPicture *pic
 {
     if (!pool || !pic_out)
         return -EINVAL;
-
-    pthread_mutex_lock(&pool->lock);
-    const unsigned idx = pool->curr_idx;
-    pool->curr_idx = (pool->curr_idx + 1u) % pool->pic_cnt;
-    pthread_mutex_unlock(&pool->lock);
-
-    return vmaf_picture_ref(pic_out, &pool->pic[idx]);
+    return vmaf_gpu_picture_pool_fetch(pool->gpool, pic_out);
 }
 
 int vmaf_vulkan_picture_pool_close(VmafVulkanPicturePool *pool)
 {
     if (!pool)
         return 0;
-
-    pool_unwind(pool, pool->pic_cnt);
-    free(pool->pic);
-    pthread_mutex_destroy(&pool->lock);
+    const int err = vmaf_gpu_picture_pool_close(pool->gpool);
     free(pool);
-    return 0;
+    return err;
 }

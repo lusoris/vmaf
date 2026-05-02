@@ -101,6 +101,23 @@
   carried). `feature_lpips.c` and `fastdvdnet_pre.c` were already
   migrated. Closes the AI-template adoption gap noted in the
   2026-05-02 dedup audit. See `dnn/tiny_extractor_template.h`.
+- **GPU picture pool dedup — `cuda/ring_buffer.{c,h}` →
+  `gpu_picture_pool.{c,h}` (ADR-0239).** The CUDA picture-pool
+  primitive is promoted out of `libvmaf/src/cuda/` into the
+  backend-agnostic `libvmaf/src/gpu_picture_pool.{c,h}` (Netflix's
+  `VmafRingBuffer` was always callback-based and shape-agnostic;
+  only the directory and symbol names implied otherwise). Symbols
+  rename: `VmafRingBuffer` → `VmafGpuPicturePool`,
+  `vmaf_ring_buffer_*` → `vmaf_gpu_picture_pool_*`. SYCL's
+  `vmaf_sycl_picture_pool_*` keeps its public-internal API but
+  now delegates to the generic pool — the SYCL wrapper just owns
+  the `VmafSyclCookie` storage; `std::mutex` drops out. Vulkan's
+  `picture_vulkan_pool.c` (added in PR #264) rewrites as a thin
+  wrapper around the generic pool with the same pattern. Net
+  structural win: ONE round-robin / mutex / unwind implementation
+  across all three GPU backends. The `Netflix#1300`
+  mutex-destroy-order fix (ADR-0157) travels with the file. Test
+  renamed `test_ring_buffer.c` → `test_gpu_picture_pool.c`.
 - **ADR-0108 deliverables gate now runnable locally (`make pr-check`).**
   The Deep-Dive Deliverables Checklist gate
   (`.github/workflows/rule-enforcement.yml`) previously inlined ~80

@@ -41,6 +41,7 @@ extern "C" {
 #include "picture.h"
 #include "common.h"
 #include "ref.h"
+#include "gpu_picture_pool.h"
 }
 #include "picture_sycl.h"
 
@@ -198,14 +199,38 @@ extern "C" int vmaf_sycl_picture_free(VmafPicture *pic, void *cookie)
 /* ------------------------------------------------------------------ */
 /* Picture pool                                                        */
 /* ------------------------------------------------------------------ */
+/* ADR-0239: the round-robin slot/lock/init-unwind shape lives in the
+ * backend-agnostic VmafGpuPicturePool. SYCL keeps its public-internal
+ * `VmafSyclPicturePool` typedef + state-aware alloc/free hooks but
+ * delegates the storage and locking to the generic pool. The wrapper
+ * struct only exists to own the per-pool cookie so the
+ * alloc/free/sync callbacks have a stable VmafSyclCookie pointer for
+ * the lifetime of the pool. */
 
 struct VmafSyclPicturePool {
     VmafSyclCookie cookie;
-    unsigned pic_cnt;
-    unsigned curr_idx;
-    std::mutex lock;
-    VmafPicture *pic;
+    VmafGpuPicturePool *gpool;
 };
+
+/* The generic pool's free callback fires both on per-slot init unwind
+ * and on close; vmaf_sycl_picture_free only frees the USM data buffers,
+ * so wrap it with the priv + ref cleanup the old SYCL-specific close
+ * loop did. */
+extern "C" {
+static int sycl_pool_free_cb(VmafPicture *pic, void *cookie)
+{
+    int err = vmaf_sycl_picture_free(pic, cookie);
+    if (pic->priv) {
+        free(pic->priv);
+        pic->priv = nullptr;
+    }
+    if (pic->ref) {
+        vmaf_ref_close(pic->ref);
+        pic->ref = nullptr;
+    }
+    return err;
+}
+}
 
 extern "C" int vmaf_sycl_picture_pool_init(VmafSyclPicturePool **pool_out, VmafSyclState *state,
                                            unsigned pic_cnt, unsigned w, unsigned h, unsigned bpc,
@@ -219,41 +244,31 @@ extern "C" int vmaf_sycl_picture_pool_init(VmafSyclPicturePool **pool_out, VmafS
     if (bpc < 8 || bpc > 16)
         return -EINVAL;
 
-    auto *pool = new (std::nothrow) VmafSyclPicturePool();
-    if (!pool)
+    auto *wrap = new (std::nothrow) VmafSyclPicturePool();
+    if (!wrap)
         return -ENOMEM;
-    pool->cookie.pix_fmt = pix_fmt;
-    pool->cookie.bpc = bpc;
-    pool->cookie.w = w;
-    pool->cookie.h = h;
-    pool->cookie.state = state;
-    pool->cookie.method = method;
-    pool->pic_cnt = pic_cnt;
-    pool->curr_idx = 0;
+    wrap->cookie.pix_fmt = pix_fmt;
+    wrap->cookie.bpc = bpc;
+    wrap->cookie.w = w;
+    wrap->cookie.h = h;
+    wrap->cookie.state = state;
+    wrap->cookie.method = method;
+    wrap->gpool = nullptr;
 
-    pool->pic = (VmafPicture *)calloc(pic_cnt, sizeof(VmafPicture));
-    if (!pool->pic) {
-        delete pool;
-        return -ENOMEM;
+    VmafGpuPicturePoolConfig cfg = {};
+    cfg.pic_cnt = pic_cnt;
+    cfg.alloc_picture_callback = vmaf_sycl_picture_alloc;
+    cfg.free_picture_callback = sycl_pool_free_cb;
+    cfg.synchronize_picture_callback = nullptr;
+    cfg.cookie = &wrap->cookie;
+
+    int const err = vmaf_gpu_picture_pool_init(&wrap->gpool, cfg);
+    if (err) {
+        delete wrap;
+        return err;
     }
 
-    for (unsigned i = 0; i < pic_cnt; i++) {
-        int const err = vmaf_sycl_picture_alloc(&pool->pic[i], &pool->cookie);
-        if (err) {
-            /* unwind already-allocated entries */
-            for (unsigned j = 0; j < i; j++) {
-                (void)vmaf_sycl_picture_free(&pool->pic[j], &pool->cookie);
-                free(pool->pic[j].priv);
-                if (pool->pic[j].ref)
-                    vmaf_ref_close(pool->pic[j].ref);
-            }
-            free(pool->pic);
-            delete pool;
-            return err;
-        }
-    }
-
-    *pool_out = pool;
+    *pool_out = wrap;
     return 0;
 }
 
@@ -261,34 +276,16 @@ extern "C" int vmaf_sycl_picture_pool_fetch(VmafSyclPicturePool *pool, VmafPictu
 {
     if (!pool || !pic_out)
         return -EINVAL;
-
-    unsigned idx;
-    {
-        std::lock_guard<std::mutex> g(pool->lock);
-        idx = pool->curr_idx;
-        pool->curr_idx = (pool->curr_idx + 1u) % pool->pic_cnt;
-    }
-
-    /* vmaf_picture_ref copies the struct and increments the atomic refcount
-     * on the shared backing. The caller owns the returned ref and must
-     * release it via vmaf_picture_unref(). The pool retains its own ref on
-     * each pic[i] until vmaf_sycl_picture_pool_close(). */
-    return vmaf_picture_ref(pic_out, &pool->pic[idx]);
+    /* vmaf_gpu_picture_pool_fetch handles round-robin + the
+     * vmaf_picture_ref the caller will eventually unref. */
+    return vmaf_gpu_picture_pool_fetch(pool->gpool, pic_out);
 }
 
 extern "C" int vmaf_sycl_picture_pool_close(VmafSyclPicturePool *pool)
 {
     if (!pool)
         return -EINVAL;
-
-    int err = 0;
-    for (unsigned i = 0; i < pool->pic_cnt; i++) {
-        err |= vmaf_sycl_picture_free(&pool->pic[i], &pool->cookie);
-        free(pool->pic[i].priv);
-        if (pool->pic[i].ref)
-            vmaf_ref_close(pool->pic[i].ref);
-    }
-    free(pool->pic);
+    int const err = vmaf_gpu_picture_pool_close(pool->gpool);
     delete pool;
     return err;
 }

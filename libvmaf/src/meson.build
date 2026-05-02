@@ -537,11 +537,12 @@ if is_cuda_enabled
         'float_adm_score' : ['-Xcompiler=-ffp-contract=off', '--fmad=false'],
     }
     message(cuda_cu_sources)
+    # gpu_picture_pool.c moved to libvmaf_sources (always-compiled) per
+    # ADR-0239 — SYCL + Vulkan also link against it.
     cuda_sources = [
         cuda_dir + 'common.c',
         cuda_dir + 'dispatch_strategy.c',
         cuda_dir + 'picture_cuda.c',
-        cuda_dir + 'ring_buffer.c',
     ]
     gencode = []
     if get_option('enable_nvcc')
@@ -749,7 +750,7 @@ if is_cuda_enabled
         c_args : vmaf_cflags_common,
         # pthread_dependency is a no-op on POSIX (empty list) and on Windows
         # MSVC routes <pthread.h> to the header-only Win32 shim at
-        # src/compat/win32/pthread.h. ring_buffer.c in this lib still uses
+        # src/compat/win32/pthread.h. gpu_picture_pool.c in this lib still uses
         # pthread directly (even though Netflix#1472 removed it from
         # common.h), so the dependency must be threaded in here.
         dependencies : [pthread_dependency],
@@ -1082,6 +1083,7 @@ libvmaf_sources = [
     src_dir + 'metadata_handler.c',
     src_dir + 'picture_pool.c',
     src_dir + 'thread_locale.c',
+    src_dir + 'gpu_picture_pool.c',
 ]
 
 if is_cuda_enabled
