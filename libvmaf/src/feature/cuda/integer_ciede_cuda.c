@@ -27,19 +27,22 @@
 #include "feature_extractor.h"
 #include "feature_name.h"
 #include "cuda/integer_ciede_cuda.h"
+#include "cuda/kernel_template.h"
 #include "mem.h"
 #include "picture.h"
 #include "picture_cuda.h"
 #include "cuda_helper.cuh"
 
 typedef struct CiedeStateCuda {
-    CUevent event;
-    CUevent finished;
+    /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
+     * (ADR-0221). */
+    VmafCudaKernelLifecycle lc;
+    /* Per-block float partials: device + pinned host. Owned by the
+     * template's readback bundle. */
+    VmafCudaKernelReadback rb;
+
     CUfunction funcbpc8;
     CUfunction funcbpc16;
-    CUstream str;
-    VmafCudaBuffer *partials; /* device: float[n_blocks] */
-    float *partials_host;     /* host pinned: float[n_blocks] */
     unsigned partials_capacity;
     unsigned partials_count;
     unsigned index;
@@ -76,18 +79,21 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 {
     if (pix_fmt == VMAF_PIX_FMT_YUV400P)
         return -EINVAL;
-    (void)w;
-    (void)h;
     CiedeStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
+    /* Stream + event pair via the template — handles ctx push/pop +
+     * rollback on failure. */
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
+    /* Module + function lookup is metric-specific; the template
+     * doesn't (yet) own that step. */
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
 
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, ciede_score_ptx), fail);
@@ -109,36 +115,30 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     const unsigned grid_y = (h + 15u) / 16u;
     s->partials_capacity = grid_x * grid_y;
 
-    int ret = 0;
-    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->partials,
-                                  (size_t)s->partials_capacity * sizeof(float));
-    if (ret)
-        goto free_ref;
-    ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->partials_host,
-                                       (size_t)s->partials_capacity * sizeof(float));
-    if (ret)
+    err = vmaf_cuda_kernel_readback_alloc(&s->rb, fex->cu_state,
+                                          (size_t)s->partials_capacity * sizeof(float));
+    if (err)
         goto free_ref;
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
-    if (!s->feature_name_dict)
+    if (!s->feature_name_dict) {
+        err = -ENOMEM;
         goto free_ref;
+    }
 
     return 0;
 
 free_ref:
-    if (s->partials) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->partials);
-        free(s->partials);
-    }
-    ret |= vmaf_dictionary_free(&s->feature_name_dict);
-    (void)ret;
-    return -ENOMEM;
+    (void)vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    (void)vmaf_dictionary_free(&s->feature_name_dict);
+    return err;
 
 fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -157,25 +157,28 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     const unsigned grid_y = (s->frame_h + 15u) / 16u;
     s->partials_count = grid_x * grid_y;
 
-    /* The kernel writes one float per block (no atomic), so we
-     * don't need a device-side memset before launch. */
-
+    /* Intentionally inline the pre-launch wait rather than calling
+     * vmaf_cuda_kernel_submit_pre_launch — ciede's kernel writes one
+     * float per block (no atomic), so the template's memset is
+     * unnecessary. The lifecycle / readback / collect helpers still
+     * apply. */
     CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(vmaf_cuda_picture_get_stream(ref_pic),
                                               vmaf_cuda_picture_get_ready_event(dist_pic),
                                               CU_EVENT_WAIT_DEFAULT));
 
-    int err = ciede_cuda_dispatch(ref_pic, dist_pic, s->partials, ref_pic->w[0], ref_pic->h[0],
+    int err = ciede_cuda_dispatch(ref_pic, dist_pic, s->rb.device, ref_pic->w[0], ref_pic->h[0],
                                   s->bpc, s->ss_hor, s->ss_ver, s->funcbpc8, s->funcbpc16, cu_f,
                                   vmaf_cuda_picture_get_stream(ref_pic));
     if (err)
         return err;
 
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, vmaf_cuda_picture_get_stream(ref_pic)));
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, vmaf_cuda_picture_get_stream(ref_pic)));
+    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
 
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->partials_host, (CUdeviceptr)s->partials->data,
-                                              (size_t)s->partials_count * sizeof(float), s->str));
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    CHECK_CUDA_RETURN(cu_f,
+                      cuMemcpyDtoHAsync(s->rb.host_pinned, (CUdeviceptr)s->rb.device->data,
+                                        (size_t)s->partials_count * sizeof(float), s->lc.str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
     return 0;
 }
 
@@ -183,18 +186,20 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
     CiedeStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    int err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
+    if (err)
+        return err;
 
     /* Per-block partials → host accumulation in double. Same
      * precision argument as ciede_vulkan (ADR-0187): per-block
      * sums fit in float7 precision (max ~5000 magnitude); the
      * cross-block reduction across thousands of partials needs
      * double to retain places=4. */
+    const float *partials_host = s->rb.host_pinned;
     double total = 0.0;
     for (unsigned i = 0; i < s->partials_count; i++)
-        total += (double)s->partials_host[i];
+        total += (double)partials_host[i];
     const double n_pixels = (double)s->frame_w * (double)s->frame_h;
     const double mean_de = total / n_pixels;
     const double score = 45.0 - 20.0 * log10(mean_de);
@@ -206,24 +211,14 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     CiedeStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1_destroy);
-after_event1_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2_destroy);
-after_event2_destroy:;
-
-    int ret = _cuda_err;
-    if (s->partials) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->partials);
-        free(s->partials);
-    }
-    ret |= vmaf_dictionary_free(&s->feature_name_dict);
-    return ret;
+    int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    int rb_rc = vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    if (rc == 0)
+        rc = rb_rc;
+    int dict_rc = vmaf_dictionary_free(&s->feature_name_dict);
+    if (rc == 0)
+        rc = dict_rc;
+    return rc;
 }
 
 static const char *provided_features[] = {"ciede2000", NULL};
