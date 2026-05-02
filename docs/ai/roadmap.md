@@ -89,7 +89,12 @@ Exports cleanly at opset 17. No custom ops. Upstream reference:
   [ADR-0218](../adr/0218-mobilesal-saliency-extractor.md).
 - A new CLI `tools/vmaf-roi` (encoder-side, T6-2b) that writes an
   encoder-native sidecar (format matches whatever encoder we're
-  feeding).
+  feeding). Shipped — ASCII grid for x265 (`--qpfile-style`) and
+  raw `int8_t` binary for SVT-AV1 (`--roi-map-file`); 8-bit only,
+  one-frame-per-invocation. See
+  [`docs/usage/vmaf-roi.md`](../usage/vmaf-roi.md). Wave-2
+  follow-ups: multi-frame batch mode, `--blend edge-density`,
+  10/12-bit when `mobilesal`'s bit-depth contract lands.
 
 **ONNX notes.** MobileSal is MobileNet-V3-based, simple to export. The
 T6-2a PR ships a *synthetic placeholder* `model/tiny/mobilesal.onnx`

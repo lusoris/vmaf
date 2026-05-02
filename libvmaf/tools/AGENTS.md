@@ -10,6 +10,7 @@ Three C binaries built by libvmaf's Meson tree:
 - `vmaf` — the end-user scoring CLI
 - `vmaf_bench` — micro-benchmark harness for extractors and backends
 - `vmaf-perShot` — per-shot CRF predictor sidecar (T6-3b / ADR-0222)
+- `vmaf_roi` — saliency-driven ROI sidecar emitter for x265 / SVT-AV1 (T6-2b)
 
 ```text
 tools/
@@ -17,6 +18,8 @@ tools/
   vmaf_bench.c        # main() + benchmark harness
   vmaf_per_shot.c     # main() + scan/predict for the perShot sidecar
   cli_parse.c/.h      # shared option parser (--precision, --tiny-model, …)
+  vmaf_roi.c          # main() + sidecar pipeline for vmaf-roi
+  vmaf_roi_core.h     # pure helpers (per-CTU mean reduce, saliency->QP)
 ```
 
 ## Ground rules
@@ -42,6 +45,24 @@ tools/
   `python -m pytest python/test/command_line_test.py
   ::VmafexecCommandLineTest::test_run_vmafexec_with_frame_skipping` — if
   it hangs (timeout, no output), the unref is missing or wrong.
+- **`vmaf_roi` sidecar contract** (T6-2b / ADR-0221) is
+  **rebase-sensitive** — encoder drivers depend on the exact byte
+  layouts:
+  - `--encoder x265` emits ASCII per-row grid with two `#`-prefixed
+    header lines (`# vmaf-roi qpfile (x265, --qpfile-style)` then
+    `# frame=N ctu=S cols=C rows=R strength=F.FFF`), space-separated
+    signed integers, one row per CTU row, `\n` terminator.
+  - `--encoder svt-av1` emits exactly `cols * rows` bytes of `int8_t`,
+    row-major, **no header**.
+  - QP-offset clamp is `+-12` (`VMAF_ROI_CORE_QP_OFFSET_MAX`).
+  - Reduction is per-CTU **mean** (not max — see ADR-0221 alternatives).
+  - Pure helpers (`vmaf_roi_reduce_per_ctu`, `vmaf_roi_saliency_to_qp`)
+    live in `vmaf_roi_core.h` so the smoke test compiles them
+    without dragging libvmaf's link surface in. **Do not** move them
+    into a `.c` TU without revisiting the test wiring.
+  - The placeholder saliency map (when `--saliency-model` is absent)
+    is for smoke-test plumbing only and explicitly documented as
+    not-for-real-encodes in `docs/usage/vmaf-roi.md`.
 
 ## Governing ADRs
 
@@ -67,3 +88,6 @@ tools/
 - [ADR-0104](../../docs/adr/0104-picture-pool-always-on.md) — picture
   pool is always compiled in and sized for the live-picture set; this
   is what makes the `--frame_skip_*` unref invariant load-bearing.
+- [ADR-0221](../../docs/adr/0221-vmaf-roi-tool.md) — `vmaf-roi`
+  sidecar (per-CTU QP offsets for x265 / SVT-AV1). Encoder format
+  contract + per-CTU-mean reduction are rebase-sensitive.

@@ -60,6 +60,18 @@ vmaf_per_shot = executable(
     install : true,
 )
 
+# vmaf-roi — T6-2b per-CTU QP offset sidecar (x265 / SVT-AV1 ROI).
+vmaf_roi = executable(
+    'vmaf_roi',
+    ['vmaf_roi.c'],
+    include_directories : [libvmaf_inc, vmaf_include],
+    dependencies : [stdatomic_dependency, getopt_dependency],
+    c_args : vmaf_tool_cflags,
+    link_args : vmaf_tool_link_args,
+    link_with : vmaf_tool_link_target,
+    install : true,
+)
+
 vmaf_bench_deps = [stdatomic_dependency]
 vmaf_bench_cflags = vmaf_cflags_common
 vmaf_bench_link_args = []
