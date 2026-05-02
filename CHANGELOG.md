@@ -23,6 +23,23 @@
   (`test_ring_size_*` group, 4 cases). See
   [`docs/api/gpu.md`](docs/api/gpu.md) and
   [ADR-0235](docs/adr/0235-vulkan-async-pending-fence.md).
+- **`tools/vmaf-tune/` quality-aware encode automation spec
+  (T-VMAF-TUNE / ADR-0237 — Proposed).** Umbrella spec for a new
+  fork-local automation surface that closes the loop between the
+  fork's quality stack and FFmpeg's encoders. The tool drives FFmpeg
+  with parameter grids, captures bitrate + per-metric quality, and
+  recommends encoder parameters per source × codec × target. Six-phase
+  roadmap (A: harness MVP — `libx264` only, ~1 week; B: target-VMAF
+  bisect; C: per-title CRF predictor; D: per-shot dynamic CRF gated
+  on T6-3b; E: Pareto ABR ladder; F: MCP tools), each phase
+  standalone-shippable. Multi-codec from day one via a codec-adapter
+  interface — `libx264` / `libx265` / `libsvtav1` / `libvpx-vp9` /
+  `libvvenc` / LCEVC / EVC / AVS3 / neural-codec adapters in an
+  opt-in extra. Closes the loop on the codec-aware FR regressor
+  (ADR-0235 codec collision, currently BLOCKED on corpus) and the
+  per-shot CRF predictor (T6-3b). **Spec only — no code in this PR.**
+  Companion research digest:
+  [`docs/research/0044-quality-aware-encode-automation.md`](docs/research/0044-quality-aware-encode-automation.md).
 - **Codec-aware FR regressor surface (T7-CODEC-AWARE / ADR-0235).**
   New `ai/src/vmaf_train/codec.py` ships a closed, order-stable
   6-bucket codec vocabulary (`x264`, `x265`, `libsvtav1`,

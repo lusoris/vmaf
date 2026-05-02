@@ -5510,4 +5510,20 @@ inline.*
   ninja -C build
   meson test -C build test_vulkan_async_pending_fence
   # All 8 cases must pass: 4 v2-contract + 4 ring-tunable.
+### 0096 — `tools/vmaf-tune/` automation umbrella spec (ADR-0237 / Research-0044)
+
+- **PR**: feat/vmaf-tune-spec.
+- **What rebases need to know**: this PR ships only an umbrella ADR
+  + research digest under `docs/`. No tracked source code, no
+  `tools/vmaf-tune/` directory yet, no Meson changes. An upstream
+  sync touching ffmpeg-patches or `libvmaf/` cannot collide with
+  this PR.
+- **On upstream sync**: zero interaction. Spec-only PR.
+- **Re-test on rebase**:
+
+  ```bash
+  # No build/test impact — verify the docs render and links are alive:
+  ls docs/adr/0237-quality-aware-encode-automation.md \
+     docs/research/0044-quality-aware-encode-automation.md
+  grep -c '\[ADR-0237\]' docs/adr/README.md
   ```
