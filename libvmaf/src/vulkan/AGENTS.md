@@ -183,6 +183,19 @@ vulkan/
   shape lives in `libvmaf/src/feature/vulkan/psnr_vulkan.c`. See
   [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) and
   [docs/backends/kernel-scaffolding.md](../../../docs/backends/kernel-scaffolding.md).
+  Multi-bundle kernels — kernels with several distinct
+  descriptor-set-layout shapes (different `ssbo_binding_count`,
+  different push-constant struct, or different shader module) — hold
+  one `VmafVulkanKernelPipeline` per shape, each with its **own**
+  `desc_pool` (the template's `_create()` helper allocates one pool
+  per bundle; do not share across bundles). When per-scale or
+  per-pass variants alias `bundle->pipeline` into the first slot of
+  a `VkPipeline[N]` array, the destroy path must skip slot 0 to avoid
+  double-freeing the aliased base via
+  `vmaf_vulkan_kernel_pipeline_destroy()`. The 4-bundle layout
+  (`pl_xyb` / `pl_mul` / `pl_blur` / `pl_ssim`) in
+  `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` is the reference
+  for this pattern.
 
 - **`VmafVulkanContext` ownership flag** (fork-local, ADR-0186):
   `owns_handles` distinguishes contexts created by libvmaf (true)

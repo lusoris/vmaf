@@ -27,6 +27,49 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0124 — ssimulacra2_vulkan migrated to kernel_template (T-GPU-DEDUP-24, 4-bundle)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` — state's
+    16 long-lived pipeline-object fields (4×
+    `*_dsl + *_pl + *_shader` + the shared `desc_pool`) collapse
+    to four `VmafVulkanKernelPipeline` bundles (`pl_xyb`, `pl_mul`,
+    `pl_blur`, `pl_ssim`), each owning its own descriptor pool.
+    The first slot of each per-bundle pipeline array
+    (`xyb_pipelines[0]`, `mul_pipelines[0]`,
+    `blur_pipelines_h[0]`, `ssim_pipelines[0]`) aliases the
+    bundle's base `VkPipeline`; remaining per-scale / per-pass
+    slots are siblings via
+    `vmaf_vulkan_kernel_pipeline_add_variant()`.
+  - `ss2v_build_pipeline_int3` reroutes through `_add_variant()`
+    instead of calling `vkCreateComputePipelines` directly;
+    `ss2v_alloc_set` takes a bundle pointer (`->desc_pool` /
+    `->dsl`) instead of a separate DSL argument; descriptor-set
+    free sites at the tail of `ss2v_run_scale` route to each
+    bundle's pool.
+  - The `ss2v_make_dsl` / `ss2v_make_pl` / `ss2v_create_shader`
+    helpers are dropped — the template subsumes them.
+- **Invariant — variants destroyed before bundle, slot 0 alias
+  must be skipped**. Four distinct DSL shapes (XYB = 6 SSBOs,
+  MUL = 3, BLUR = 2, SSIM = 8) prevent collapsing to one bundle:
+  `_add_variant()` only siblings pipelines under the same layout.
+  `close_fex` must `vkDestroyPipeline()` the variant slots in
+  `xyb_pipelines[1..N-1]`, `mul_pipelines[1..N-1]`,
+  `ssim_pipelines[1..N-1]`, `blur_pipelines_h[1..N-1]`, and
+  every slot of `blur_pipelines_v[]` *before* calling
+  `vmaf_vulkan_kernel_pipeline_destroy()` on each bundle, and
+  must skip slot 0 of the first three arrays + `blur_pipelines_h`
+  to avoid double-freeing the aliased base.
+- **Numerical contract**: bit-exact preserved. Same shaders +
+  spec-constants + push-constants as before; only the Vulkan
+  pipeline-bundle scaffolding moved to the template. Validated
+  on the Netflix-pair smoke (576×324×8-bit): `ssimulacra2`
+  mean = 24.613842, identical to pre-migration.
+- **Rebase impact**: low. Builds on top of PR #272's
+  `_add_variant()` helper. Upstream Netflix/vmaf has no
+  ssimulacra2 extractor and no Vulkan backend, so there is
+  nothing to merge against.
+
 ### 0118 — psnr_hvs_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-18)
 
 - **Touches**:

@@ -89,6 +89,21 @@
 
 ### Changed
 
+- **`ssimulacra2_vulkan.c` migrated to `vulkan/kernel_template.h`
+  (T-GPU-DEDUP-24, 4-bundle).** Four distinct pipeline shapes (XYB =
+  6 SSBO bindings, MUL = 3, BLUR = 2, SSIM = 8) prevent collapsing
+  to a single bundle — `_add_variant()` only siblings pipelines
+  under the *same* layout. State drops 16 long-lived pipeline-object
+  fields (4× `*_dsl` + `*_pl` + `*_shader` + the shared
+  `desc_pool`) for four `VmafVulkanKernelPipeline` bundles
+  (`pl_xyb` / `pl_mul` / `pl_blur` / `pl_ssim`), each owning its own
+  descriptor pool. The first slot of each per-bundle pipeline array
+  aliases the bundle's base pipeline; remaining slots
+  (per-scale / per-pass variants) are siblings via
+  `_add_variant()`. Validated bit-exact against the pre-migration
+  binary on the Netflix-pair smoke (`ssimulacra2` mean 24.613842 on
+  576×324×8-bit). Net diff −20 LOC (1544 → 1524). See
+  [ADR-0221](docs/adr/0221-gpu-kernel-template.md).
 - **`psnr_hvs_vulkan.c` migrated to `vulkan/kernel_template.h` +
   `_add_variant()` (T-GPU-DEDUP-18).** First multi-pipeline-via-variant
   consumer landed on top of PR #272 (which adds the
