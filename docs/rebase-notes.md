@@ -5766,4 +5766,33 @@ inline.*
   test -f docs/development/gpu-backend-template.md
   test -f libvmaf/include/libvmaf/AGENTS.md
   grep -c 'gpu-backend-template' libvmaf/include/libvmaf/AGENTS.md
+### 0102 — Tiny-AI test registration macro (`tiny_ai_test_template.h`)
+
+- **PR**: refactor/test-registration-macro.
+- **What rebases need to know**: new
+  `libvmaf/test/tiny_ai_test_template.h` emits the four standard
+  registration tests (`<name>_is_registered`,
+  `<name>_provides_primary_feature`,
+  `<name>_options_table_well_formed`,
+  `<name>_init_rejects_missing_model`) via the
+  `VMAF_TINY_AI_DEFINE_REGISTRATION_TESTS(ext, feat, env, prefix)`
+  macro. The four per-extractor test files
+  (`test_lpips.c`, `test_mobilesal.c`, `test_transnet_v2.c`,
+  `test_fastdvdnet_pre.c`) shrank from ~140 LOC each to ~20-50 LOC.
+  Net −286 LOC. Behavior bit-exact preserved (same assertions,
+  same env-var save/restore dance, same setenv shim for MSVCRT).
+  TransNet V2 keeps two extractor-specific extra tests
+  (binary-flag round-trip + provided_features list-termination)
+  that the macro doesn't cover.
+- **On upstream sync**: zero interaction. The four test files are
+  fork-introduced (per ADR-0042 / ADR-0168 / ADR-0220 / ADR-0223 /
+  ADR-0215).
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_lpips test_mobilesal test_transnet_v2 test_fastdvdnet_pre
+  # 4/4 binaries pass; 18 individual tests total (4x4 standard + 2
+  # TransNet V2 extras).
   ```

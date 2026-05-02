@@ -122,6 +122,19 @@
   dispatch grid math, and host-side reductions are byte-identical.
   `motion_vulkan.c` deferred (uses two pipelines sharing a layout;
   needs a multi-pipeline template extension).
+- **Tiny-AI test registration macro (`tiny_ai_test_template.h`).**
+  The four tiny-AI extractor test files (`test_lpips.c`,
+  `test_mobilesal.c`, `test_transnet_v2.c`, `test_fastdvdnet_pre.c`)
+  shipped near-identical ~140 LOC of registration smoke tests each.
+  New `libvmaf/test/tiny_ai_test_template.h` emits the four standard
+  tests via `VMAF_TINY_AI_DEFINE_REGISTRATION_TESTS(ext, feat, env,
+  prefix)`; each per-extractor test file now lands in 20-50 LOC.
+  Behavior bit-exact preserved (same assertions, same env-var
+  save/restore dance, same `_putenv_s` shim for MSVCRT). TransNet V2
+  keeps its two extractor-specific extra tests (binary-flag
+  round-trip + `provided_features` NULL-termination check). Net
+  −286 LOC. Top-leverage non-GPU dedup finding from the
+  2026-05-02 whole-codebase audit.
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
   `vmaf_tiny_ai_open_session`, `vmaf_tiny_ai_yuv8_to_rgb8_planes`,

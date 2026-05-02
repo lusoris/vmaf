@@ -118,6 +118,7 @@ jobs:
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
               | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
+              | grep -v '^libvmaf/test/tiny_ai_test_template\.h$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -142,6 +143,7 @@ jobs:
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
               | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
+              | grep -v '^libvmaf/test/tiny_ai_test_template\.h$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -163,6 +165,7 @@ jobs:
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
               | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
+              | grep -v '^libvmaf/test/tiny_ai_test_template\.h$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -184,6 +187,7 @@ jobs:
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
               | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
+              | grep -v '^libvmaf/test/tiny_ai_test_template\.h$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
