@@ -129,7 +129,6 @@ typedef struct {
      * keeps a clean 2-D lookup. (ADR-0221.) */
     VmafVulkanKernelPipeline pl;
     VkPipeline pipelines[ADM_NUM_STAGES][ADM_NUM_SCALES];
-    VkDescriptorPool desc_pool;
 
     /* GPU buffers. dwt_tmp[]: int32 plane, sized for the largest
      * (scale 0) frame (cur_w*2 × half_h elements). All scales reuse
