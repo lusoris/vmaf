@@ -304,6 +304,14 @@
   push-constant changes. Validated against the Netflix-pair smoke
   (`float_ansnr` mean 23.51 dB, `float_anpsnr` mean 34.16 dB,
   `motion2_v2_score` mean 3.895 across 48 frames) and `meson test
+- **`float_motion_vulkan.c` migrated to `vulkan/kernel_template.h`
+  (T-GPU-DEDUP-10).** Single-pipeline float-motion kernel migrated;
+  state collapses `dsl + pipeline_layout + shader + pipeline +
+  desc_pool` to a single `VmafVulkanKernelPipeline pl`;
+  `create_pipelines` and `close_fex` shrink to template-driven
+  create + destroy. No shader / spec-constant / push-constant
+  changes. Validated against the Netflix-pair smoke (`motion` mean
+  4.049, `motion2` mean 3.894 across 48 frames) and `meson test
   test_vulkan_smoke test_vulkan_async_pending_fence
   test_vulkan_pic_preallocation` (all green). Numerical contract
   unchanged.
