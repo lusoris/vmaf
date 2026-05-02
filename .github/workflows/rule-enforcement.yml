@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   deep-dive-checklist:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Deep-Dive Deliverables Checklist (ADR-0108)
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -56,6 +57,7 @@ jobs:
         run: bash scripts/ci/deliverables-check.sh
 
   doc-substance-check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Doc-Substance Gate (ADR-0100 / 0167)
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -167,6 +169,7 @@ jobs:
           echo "Doc-Substance: every touched user-discoverable surface has a matching docs/ edit."
 
   adr-backfill-check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: ADR-Backfill Advisory (ADR-0106)
     runs-on: ubuntu-latest
     timeout-minutes: 5

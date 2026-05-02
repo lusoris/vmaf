@@ -15,6 +15,7 @@ env:
 
 jobs:
   ffmpeg:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +68,7 @@ jobs:
 
   # Build-only: FFmpeg with SYCL patch (no GPU hardware on runners)
   ffmpeg-sycl:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: FFmpeg — SYCL (Build Only)
     runs-on: ubuntu-latest
     env:
@@ -162,6 +164,7 @@ jobs:
   # symbol-presence assertion below; we don't actually run a Vulkan pipeline
   # because patch 0006 only needs to compile + link, not execute.
   ffmpeg-vulkan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: FFmpeg — Vulkan (Build Only, lavapipe)
     runs-on: ubuntu-24.04
     env:
