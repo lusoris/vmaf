@@ -37,6 +37,20 @@
 
 ### Changed
 
+- **ADR-0108 deliverables gate now runnable locally (`make pr-check`).**
+  The Deep-Dive Deliverables Checklist gate
+  (`.github/workflows/rule-enforcement.yml`) previously inlined ~80
+  lines of bash that parsed PR bodies + verified ticked file
+  references against the PR diff. The check is fundamentally a
+  PR-body-vs-diff coherence test, which pre-commit hooks cannot run
+  (neither artefact exists at commit time). The bash now lives in
+  [`scripts/ci/deliverables-check.sh`](scripts/ci/deliverables-check.sh)
+  as the single source of truth, and the workflow calls the script
+  in one step. New `make pr-check PR=<num>` (or `make pr-check
+  BODY=<file>`) target runs the same gate locally before
+  `gh pr create` — saves the typical 60-second CI round-trip when
+  a checkbox is ticked instead of opted out (the bug that hit
+  PR #260's first run).
 - **Top-level docs refresh (post-session-2026-04-29).** `README.md`,
   `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, and `docs/principles.md`
   refreshed to current codebase reality: Vulkan backend (T5-1 / T7-36),
