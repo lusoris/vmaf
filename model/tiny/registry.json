@@ -14,7 +14,7 @@
     {
       "id": "fr_regressor_v1",
       "kind": "fr",
-      "notes": "Tiny FR regressor (C1) \u2014 6-feature canonical-6 vector (adm2, vif_scale0..3, motion2) \u2192 VMAF teacher score scalar. Trained on the Netflix Public Dataset (9 ref + 70 dis YUVs) with vmaf_v0.6.1 as DMOS-aligned teacher. 9-fold LOSO mean PLCC = 0.9977 \u00b1 0.0025. Shipped checkpoint trained on all 9 sources. Exported via ai/scripts/train_fr_regressor.py. See docs/ai/models/fr_regressor_v1.md + ADR-0221.",
+      "notes": "Tiny FR regressor (C1) — 6-feature canonical-6 vector (adm2, vif_scale0..3, motion2) → VMAF teacher score scalar. Trained on the Netflix Public Dataset (9 ref + 70 dis YUVs) with vmaf_v0.6.1 as DMOS-aligned teacher. 9-fold LOSO mean PLCC = 0.9977 ± 0.0025. Shipped checkpoint trained on all 9 sources. Exported via ai/scripts/train_fr_regressor.py. See docs/ai/models/fr_regressor_v1.md + ADR-0221.",
       "onnx": "fr_regressor_v1.onnx",
       "opset": 17,
       "sha256": "447334948e1cc63497ad3143f2342bd6a334adbb6d9a8dbf3685b1b3595979e9"
@@ -117,7 +117,7 @@
       "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "sigstore_bundle": "vmaf_tiny_v2.onnx.sigstore.json",
       "description": "Tiny VMAF fusion regressor — canonical-6 features + bundled StandardScaler + mlp_small (~257 params).",
-      "notes": "vmaf_tiny_v2 — Phase-3 validated: mlp_small (6 -> 16 -> 8 -> 1) over canonical-6 (adm2, vif_scale0..3, motion2). 90 epochs Adam @ lr=1e-3, MSE, batch 256. StandardScaler (mean, std) baked into the ONNX graph as Constant Sub + Div nodes per ADR-0216. Trained on the 4-corpus parquet (Netflix + KoNViD + BVI-DVC A+B+C+D, 330499 rows). Validated PLCC 0.9978 +- 0.0021 Netflix LOSO; 0.9998 KoNViD 5-fold; 0.9999 ship-gate on Netflix slice. opset 17. See docs/adr/0216-vmaf-tiny-v2.md and docs/ai/models/vmaf_tiny_v2.md."
+      "notes": "vmaf_tiny_v2 — Phase-3 validated mlp_small (6→16→8→1) over canonical-6 (adm2, vif_scale0..3, motion2). 90ep Adam lr=1e-3 MSE bs=256. StandardScaler baked into ONNX graph (ADR-0216). Trained 4-corpus parquet (NF+KV+BVI-DVC A+B+C+D, 330499 rows). PLCC 0.9978±0.0021 NF LOSO; 0.9998 KV 5-fold; 0.9999 ship-gate. See docs/ai/models/vmaf_tiny_v2.md."
     }
   ]
 }
