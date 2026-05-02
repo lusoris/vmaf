@@ -307,7 +307,7 @@ def _export_and_register(
         f"{loso_summary['std_plcc']:.4f}. "
         "Shipped checkpoint trained on all 9 sources. "
         "Exported via ai/scripts/train_fr_regressor.py. See "
-        "docs/ai/models/fr_regressor_v1.md + ADR-0221."
+        "docs/ai/models/fr_regressor_v1.md + ADR-0249."
     )
 
     sidecar = {

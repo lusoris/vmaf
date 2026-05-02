@@ -1,4 +1,4 @@
-# ADR-0221: Tiny-AI extractor template — shared scaffolding header
+# ADR-0250: Tiny-AI extractor template — shared scaffolding header
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

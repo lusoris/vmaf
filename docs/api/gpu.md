@@ -450,7 +450,7 @@ For zero-copy interop with caller-owned VkInstance / VkDevice handles
 [ADR-0186](../adr/0186-vulkan-image-import-impl.md) and
 [`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
 
-#### Async pending-fence pipelining (v2 — ADR-0235)
+#### Async pending-fence pipelining (v2 — ADR-0251)
 
 `vmaf_vulkan_import_image` is **non-blocking** as of T7-29
 part 4. It records the GPU copy, submits to the compute

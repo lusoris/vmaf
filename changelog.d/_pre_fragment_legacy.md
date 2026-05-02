@@ -1066,7 +1066,7 @@
   [`float_vif_sycl.cpp`](libvmaf/src/feature/sycl/float_vif_sycl.cpp).
   New `float_vif` lavapipe gate step + `FEATURE_METRICS` entry at
   places=4.
-- **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0199)**
+- **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0242)**
   (fork-local): scaffold-only PR preparing the tiny-AI training pipeline for
   the local Netflix VMAF corpus (9 ref / 70 distorted YUVs at
   `.workingdir2/netflix/`). Ships `docs/ai/training-data.md` with the corpus

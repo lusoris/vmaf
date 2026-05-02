@@ -31,7 +31,7 @@ under the same name would invite the wrong mental model.
 1. **Three methods, not four** — `NONE` / `HOST` / `DEVICE`. No
    `HOST_PINNED` analogue.
 2. **Compile-time pool depth = 2** — matches SYCL exactly. Growing
-   to a configurable depth is additive (mirror ADR-0235 follow-up
+   to a configurable depth is additive (mirror ADR-0251 follow-up
    #3's pattern of growing `VmafVulkanConfiguration` with an
    optional `unsigned`).
 3. **Y-plane only DEVICE backing** — matches SYCL. Chroma kernel
@@ -108,5 +108,5 @@ where bytes live, not which bytes the kernel reads).
 - CUDA preallocation reference:
   `libvmaf/include/libvmaf/libvmaf_cuda.h`,
   `libvmaf/src/libvmaf.c::vmaf_cuda_preallocate_pictures`.
-- Parallel surfaces: ADR-0186 / ADR-0235 (zero-copy import) — not
+- Parallel surfaces: ADR-0186 / ADR-0251 (zero-copy import) — not
   replaced by this PR; preallocation serves the host-driven path.

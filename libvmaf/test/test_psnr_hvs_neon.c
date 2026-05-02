@@ -32,7 +32,7 @@
  * NEON. See the deep-dive digest accompanying this PR.
  *
  * Boilerplate (xorshift PRNG, bit-exact memcmp assertion) is
- * provided by `simd_bitexact_test.h` (ADR-0221).
+ * provided by `simd_bitexact_test.h` (ADR-0245).
  */
 
 #include <stddef.h>

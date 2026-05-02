@@ -143,7 +143,7 @@ static int create_pipeline(PsnrVulkanState *s)
         .pData = &spec_data,
     };
 
-    /* `vulkan/kernel_template.h` (ADR-0221) owns the boilerplate:
+    /* `vulkan/kernel_template.h` (ADR-0246) owns the boilerplate:
      * descriptor-set layout (3 SSBO bindings — ref, dis, SE partials),
      * pipeline layout (1 set + 1 push-constant range), shader module
      * from psnr_spv, compute pipeline (caller-supplied spec-constants),
@@ -444,7 +444,7 @@ static int close_fex(VmafFeatureExtractor *fex)
     if (!s->ctx)
         return 0;
 
-    /* `vulkan/kernel_template.h` (ADR-0221) collapses the
+    /* `vulkan/kernel_template.h` (ADR-0246) collapses the
      * vkDeviceWaitIdle + 5x vkDestroy* sweep into one call. */
     vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 

@@ -76,7 +76,7 @@ validation methodology, not the deployment recipe.
 
 The shipped weights were retrained on the full 4-corpus union after
 the 3-corpus sweep validated the canonical-6 + `lr=1e-3` + 90ep
-configuration (Phase-3 chain → ADR-0216). Adding the BVI-DVC A + B
+configuration (Phase-3 chain → ADR-0244). Adding the BVI-DVC A + B
 subsets brings the row count from 305 795 to 330 499 (+24 704 rows,
 +8.1 %) and keeps train PLCC at 0.9999 / RMSE 0.153.
 
@@ -172,4 +172,4 @@ python3 ai/scripts/validate_vmaf_tiny_v2.py \
 - [Phase-3 subset sweep](../../research/0028-phase3-subset-sweep.md)
 - [Phase-3b StandardScaler results](../../research/0029-phase3b-standardscaler-results.md)
 - [Phase-3b multi-seed validation](../../research/0030-phase3b-multiseed-validation.md)
-- [ADR-0216 — vmaf_tiny_v2 ship decision](../../adr/0216-vmaf-tiny-v2.md)
+- [ADR-0244 — vmaf_tiny_v2 ship decision](../../adr/0244-vmaf-tiny-v2.md)

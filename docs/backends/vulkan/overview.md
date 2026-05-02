@@ -42,7 +42,7 @@
   See [ADR-0186](../../adr/0186-vulkan-image-import-impl.md).
   The import path runs the v2 async pending-fence ring
   (default depth 4, frames-in-flight pipelined) per
-  [ADR-0235](../../adr/0235-vulkan-async-pending-fence.md);
+  [ADR-0251](../../adr/0251-vulkan-async-pending-fence.md);
   `vmaf_vulkan_import_image` is non-blocking and
   `vmaf_vulkan_wait_compute` drains every outstanding
   fence in submission order. Staging-buffer footprint

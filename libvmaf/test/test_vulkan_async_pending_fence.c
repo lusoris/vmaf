@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  T7-29 part 4 (ADR-0235) — contract-level smoke for the v2
+ *  T7-29 part 4 (ADR-0251) — contract-level smoke for the v2
  *  async pending-fence ring on top of vmaf_vulkan_import_image /
  *  _wait_compute / _state_build_pictures.
  *
@@ -114,7 +114,7 @@ static char *test_read_imported_null_ctx_after_v2(void)
     return NULL;
 }
 
-/* ADR-0235 follow-up #3: max_outstanding_frames is now a public
+/* ADR-0251 follow-up #3: max_outstanding_frames is now a public
  * VmafVulkanConfiguration field. Verify the clamp + readback contract
  * end-to-end via the public API (no internal-header peeking). */
 static char *test_ring_size_default_when_zero(void)

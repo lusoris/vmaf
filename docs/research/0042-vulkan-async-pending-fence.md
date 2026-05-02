@@ -2,7 +2,7 @@
 
 - **Date**: 2026-05-01
 - **Author**: Lusoris, Claude (Anthropic)
-- **Status**: Companion to ADR-0235 (Proposed)
+- **Status**: Companion to ADR-0251 (Proposed)
 - **Tags**: vulkan, ffmpeg, performance, fork-local
 
 ## Problem
@@ -119,7 +119,7 @@ Option 1 (per-frame fence ring, FIFO, default depth 4).
 Implementation lands as
 `libvmaf/src/vulkan/import.c` rewrite preserving the public
 ABI; the ring is keyed by `frame_index % ring_size`. See
-ADR-0235 for the full rationale and the measurement gate
+ADR-0251 for the full rationale and the measurement gate
 that flips Status to Accepted.
 
 ## References

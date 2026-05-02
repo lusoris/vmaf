@@ -94,7 +94,7 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0221).
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0246).
      *
      * Note: prior versions stored `pipelines[2]` for "first frame" /
      * "subsequent frames" parity with the SYCL backend. Inspection
@@ -275,7 +275,7 @@ static int create_pipelines(MotionVulkanState *s)
         .pData = &spec_data,
     };
 
-    /* `vulkan/kernel_template.h` (ADR-0221) owns the descriptor-set
+    /* `vulkan/kernel_template.h` (ADR-0246) owns the descriptor-set
      * layout (4 SSBO bindings: ref, prev_blur, blur, sad_partials),
      * pipeline layout, shader module, compute pipeline, and
      * descriptor pool sizing (4 sets × 4 buffers = 16 descriptors). */

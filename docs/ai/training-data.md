@@ -101,7 +101,7 @@ vmaf-train eval \
     --split test
 # Reports PLCC, SROCC, RMSE vs vmaf_v0.6.1 soft labels.
 
-# 4. One-command MCP server health check (ADR-0199).
+# 4. One-command MCP server health check (ADR-0242).
 cd mcp-server/vmaf-mcp && python -m pytest tests/test_smoke_e2e.py -v
 ```
 
@@ -130,7 +130,7 @@ Determinism`.
 
 - [training.md](training.md) — full training workflow
 - [inference.md](inference.md) — running the trained ONNX model via C API or CLI
-- [ADR-0199](../adr/0199-tiny-ai-netflix-training-corpus.md) — architecture
+- [ADR-0242](../adr/0242-tiny-ai-netflix-training-corpus.md) — architecture
   and distillation policy decisions
 - [Research digest 0019](../research/0019-tiny-ai-netflix-training.md) —
   literature survey underpinning the architecture choices

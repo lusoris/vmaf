@@ -1,4 +1,4 @@
-# ADR-0221: Tiny-AI Wave 1 baseline C1 — `fr_regressor_v1` on Netflix Public
+# ADR-0249: Tiny-AI Wave 1 baseline C1 — `fr_regressor_v1` on Netflix Public
 
 - **Status**: Accepted
 - **Date**: 2026-04-29
@@ -47,7 +47,7 @@ re-fetching the (separately access-gated) DMOS sidecar CSV.
 
 | Option | Pros | Cons | Why not chosen |
 |---|---|---|---|
-| **Use the local Netflix Public drop** *(chosen)* | Same corpus and same per-frame `vmaf_v0.6.1` teacher Netflix used; comparable to upstream baselines; no external dependency | Lawrence's drop is not redistributable (Netflix license); training is local-only by design | Best fit for C1's "match `vmaf_v0.6.1` PLCC on Netflix Public" target; ADR-0199 already accepted local-only training corpora |
+| **Use the local Netflix Public drop** *(chosen)* | Same corpus and same per-frame `vmaf_v0.6.1` teacher Netflix used; comparable to upstream baselines; no external dependency | Lawrence's drop is not redistributable (Netflix license); training is local-only by design | Best fit for C1's "match `vmaf_v0.6.1` PLCC on Netflix Public" target; ADR-0242 already accepted local-only training corpora |
 | Wait for Netflix-Public-via-pip / public mirror | Reproducible by anyone with `pip install` | None published; ADR-0168 audit confirmed no public mirror; indefinite wait | Ships the gun-without-bullets state indefinitely |
 | Substitute KoNViD-1k | Already extracted (`runs/full_features_konvid.parquet`); CC BY 4.0 | C1's target metric is NFLX-Public PLCC against `vmaf_v0.6.1` — KoNViD-1k uses different content + different MOS scale; result would be incomparable to the published target | Defeats the purpose of the C1 row |
 | MLP-medium (hidden=32, depth=2, ~801 params) | Simpler graph | Phase-3 sweep already showed canonical-6 mean PLCC ≈ 0.984 with the FRRegressor recipe; no headroom | Sticking with the published Wave-1 architecture keeps the recipe identical to the spec'd `FRRegressor` |
@@ -80,7 +80,7 @@ re-fetching the (separately access-gated) DMOS sidecar CSV.
 ## References
 
 - [ADR-0168](0168-tinyai-konvid-baselines.md) — Wave-1 C2 + C3 shipped, C1 deferred.
-- [ADR-0199](0199-tiny-ai-netflix-training-corpus.md) — Netflix corpus loader.
+- [ADR-0242](0242-tiny-ai-netflix-training-corpus.md) — Netflix corpus loader.
 - [ADR-0203](0203-tiny-ai-training-prep-impl.md) — feature extractor + scores plumbing.
 - [docs/ai/roadmap.md §2.1](../ai/roadmap.md) — Wave-1 ship-baselines table.
 - BACKLOG row T6-1a (`.workingdir2/BACKLOG.md`).

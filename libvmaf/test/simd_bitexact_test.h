@@ -18,7 +18,7 @@
 
 /*
  * Shared bit-exact / tolerance test harness for SIMD parity tests
- * (ADR-0221).
+ * (ADR-0245).
  *
  * Each `test_*_simd.c` / `test_*_avx2.c` / `test_*_neon.c` repeats
  * roughly the same scaffolding: a `xorshift32` PRNG, a portable

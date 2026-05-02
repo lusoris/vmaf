@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Vulkan per-feature kernel scaffolding template (T7-* — ADR-0221).
+ *  Vulkan per-feature kernel scaffolding template (T7-* — ADR-0246).
  *
  *  This header is **template-only**: no existing kernel includes it
  *  yet. It captures the shape every fork-added Vulkan feature
@@ -59,11 +59,11 @@
  *  Reference implementation: libvmaf/src/feature/vulkan/psnr_vulkan.c.
  *  Migration guide: docs/backends/kernel-scaffolding.md.
  *
- *  Why per-backend (not cross-backend): see ADR-0221. CUDA and
+ *  Why per-backend (not cross-backend): see ADR-0246. CUDA and
  *  Vulkan don't share enough lifecycle shape to make a unified
  *  abstraction worth the added indirection.
  *
- *  Why helper functions (not macros): see ADR-0221. The Vulkan
+ *  Why helper functions (not macros): see ADR-0246. The Vulkan
  *  helpers genuinely benefit from RenderDoc / vkconfig stepping.
  *
  *  Why templates only (no migrations in this PR): each migration

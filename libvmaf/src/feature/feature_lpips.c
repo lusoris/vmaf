@@ -29,7 +29,7 @@
  *  ------------------
  *  Boilerplate (model-path resolution, session open, BT.709 YUV→RGB,
  *  options-table row) lives in
- *  ``libvmaf/src/dnn/tiny_extractor_template.h``. See ADR-0221 and
+ *  ``libvmaf/src/dnn/tiny_extractor_template.h``. See ADR-0250 and
  *  ``docs/ai/extractor-template.md`` for the recipe.
  */
 

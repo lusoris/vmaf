@@ -44,9 +44,9 @@ Order is rough; "ship baselines" is the blocker on everything else.
 
 | Model | Role | Status | Target / Result |
 | --- | --- | --- | --- |
-| `fr_regressor_v1.onnx` | C1 FR | **Shipped 2026-04-29** ([ADR-0221](../adr/0221-fr-regressor-v1.md)) — local Netflix Public drop unblocked the deferral. | Mean LOSO PLCC vs `vmaf_v0.6.1` reported in `model/tiny/fr_regressor_v1.json`; ship gate is ≥ 0.95 |
+| `fr_regressor_v1.onnx` | C1 FR | **Shipped 2026-04-29** ([ADR-0249](../adr/0249-fr-regressor-v1.md)) — local Netflix Public drop unblocked the deferral. | Mean LOSO PLCC vs `vmaf_v0.6.1` reported in `model/tiny/fr_regressor_v1.json`; ship gate is ≥ 0.95 |
 | `fr_regressor_v1.onnx` | C1 FR | **Superseded by `vmaf_tiny_v2`** — original Netflix-only fr_regressor was deferred on dataset access; the 3-corpus parquet (Netflix + KoNViD + BVI-DVC D+C) closed the gap. | Match or beat `vmaf_v0.6.1` PLCC on NFLX public |
-| `vmaf_tiny_v2.onnx` | C1 FR (canonical-6 fusion) | **Shipped 2026-04-29** ([ADR-0216](../adr/0216-vmaf-tiny-v2.md)) | Netflix LOSO PLCC 0.9978 ± 0.0021 (9 folds × 5 seeds); KoNViD 5-fold PLCC 0.9998; ~257-param `mlp_small` with bundled StandardScaler |
+| `vmaf_tiny_v2.onnx` | C1 FR (canonical-6 fusion) | **Shipped 2026-04-29** ([ADR-0244](../adr/0244-vmaf-tiny-v2.md)) | Netflix LOSO PLCC 0.9978 ± 0.0021 (9 folds × 5 seeds); KoNViD 5-fold PLCC 0.9998; ~257-param `mlp_small` with bundled StandardScaler |
 | `nr_metric_v1.onnx` | C2 NR | **Shipped 2026-04-25** ([ADR-0168](../adr/0168-tinyai-konvid-baselines.md)) | KoNViD-1k val/MSE 0.382 (~RMSE 0.62 on 1–5 MOS); MobileNet-tiny ~19K params |
 | `learned_filter_v1.onnx` | C3 filter | **Shipped 2026-04-25** ([ADR-0168](../adr/0168-tinyai-konvid-baselines.md)) | KoNViD-1k self-supervised val/L1 0.019 on normalised luma; 4-block residual CNN ~19K params |
 
@@ -55,7 +55,7 @@ The C2 + C3 first training run exercised the full pipeline end-to-end:
 `extract_konvid_frames.py` → `train_konvid.py` →
 `export_tiny_models.py` → `model/tiny/registry.json`. C1 followed on
 2026-04-29 once the Netflix Public Dataset became locally available
-(see [ADR-0221](../adr/0221-fr-regressor-v1.md)).
+(see [ADR-0249](../adr/0249-fr-regressor-v1.md)).
 
 ### 2.2 LPIPS-SqueezeNet as an FR baseline
 

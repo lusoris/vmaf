@@ -5,7 +5,7 @@
 The :mod:`ai.data` package complements the existing ``vmaf_train.data``
 package (under ``ai/src/vmaf_train/data``) with concrete entry points for
 the **Netflix VMAF training corpus** described in
-`docs/ai/training-data.md` and ADR-0199 / ADR-0203. Modules:
+`docs/ai/training-data.md` and ADR-0242 / ADR-0203. Modules:
 
 * :mod:`ai.data.netflix_loader` — pair distorted YUVs with reference YUVs
   by parsing the ``<source>_<quality>_<height>_<bitrate>.yuv`` ladder

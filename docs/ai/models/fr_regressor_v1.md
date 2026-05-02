@@ -11,7 +11,7 @@ same target — packaged as a 67-op-allowlisted ONNX so it can run inside
 > **Status — shipped 2026-04-29.** Unblocks BACKLOG row T6-1a;
 > closes the `fr_regressor_v1` deferral row in
 > [`docs/state.md`](../../state.md). See
-> [ADR-0221](../../adr/0221-fr-regressor-v1.md).
+> [ADR-0249](../../adr/0249-fr-regressor-v1.md).
 
 ## What the output means
 
@@ -165,4 +165,4 @@ same ONNX bytes (modulo torch / onnx producer-string drift).
 - [security.md](../security.md) — ONNX op-allowlist + registry sha256 pinning.
 - [ADR-0168](../../adr/0168-tinyai-konvid-baselines.md) — C2 + C3
   baselines (sibling).
-- [ADR-0221](../../adr/0221-fr-regressor-v1.md) — this model's decision record.
+- [ADR-0249](../../adr/0249-fr-regressor-v1.md) — this model's decision record.

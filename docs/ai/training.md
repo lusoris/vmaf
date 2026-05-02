@@ -95,7 +95,7 @@ The sidecar `model/tiny/vmaf_tiny_fr_v1.json` pins:
 ## C1 (Netflix corpus) — runnable training prep
 
 Once the local Netflix corpus exists at `.workingdir2/netflix/` (see
-[training-data.md](training-data.md) for the layout and ADR-0199 for
+[training-data.md](training-data.md) for the layout and ADR-0242 for
 scope), the prep stack under [`ai/data/`](../../ai/data/) and
 [`ai/train/`](../../ai/train/) replaces the parquet-driven flow above
 with a runnable end-to-end pipeline. ADR-0203 records the

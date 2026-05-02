@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-27
 **Author**: Lusoris / Claude (Anthropic)
-**Status**: Accepted — informs ADR-0199.
+**Status**: Accepted — informs ADR-0242.
 **Scope**: Survey of public Netflix VMAF training methodology, distillation
 literature for quality metrics, and architecture search space for the fork's
 tiny-AI FR regressor.
@@ -255,7 +255,7 @@ binary to be built at `build/tools/vmaf`.
 
 ---
 
-## 6. Summary of recommendations for ADR-0199 follow-up
+## 6. Summary of recommendations for ADR-0242 follow-up
 
 1. Start with soft-label distillation from `vmaf_v0.6.1` using a 32×2 MLP.
 2. Sweep {32×2, 64×2, 64×3} with Huber loss (δ=5); select by PLCC on the
@@ -293,5 +293,5 @@ binary to be built at `build/tools/vmaf`.
     <https://netflixtechblog.medium.com/vmaf-neg-measuring-the-impact-of-video-enhancement-algorithms-91b07b28301a>
 11. [ADR-0042](../adr/0042-tinyai-docs-required-per-pr.md) — fork tiny-AI
     doc-substance rule.
-12. [ADR-0199](../adr/0199-tiny-ai-netflix-training-corpus.md) — parent ADR
+12. [ADR-0242](../adr/0242-tiny-ai-netflix-training-corpus.md) — parent ADR
     for this scaffold.

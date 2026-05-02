@@ -8,9 +8,11 @@
 #       in this file too).
 #   $REPO_ROOT/docs/adr/_index_fragments/NNNN-slug.md one Markdown table
 #       row per ADR, named by full ADR slug (the same NNNN-kebab-case
-#       used for the ADR file itself). Slug-keyed because the fork has a
-#       legacy ADR-0199 collision (`0199-tiny-ai-netflix-training-corpus.md`
-#       and `0199-float-adm-vulkan.md`); slug filenames keep both rows.
+#       used for the ADR file itself). Slug-keyed for historical
+#       reasons: the 2026-05-02 dedup sweep renumbered duplicate-NNNN
+#       ADRs (`0199-tiny-ai-netflix-training-corpus.md` →
+#       `0242-…`, etc.); slug filenames remain stable across that
+#       remap, so fragments survive the renumber without churn.
 #       Rows render oldest-first by ADR ID (matches the existing
 #       README order — ADR-0001 at the top, latest at the bottom).
 #

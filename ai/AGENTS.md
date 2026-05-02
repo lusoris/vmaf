@@ -65,7 +65,7 @@ ai/
 - [ADR-0109](../docs/adr/0109-nightly-bisect-model-quality.md) — nightly bisect workflow + synthetic placeholder cache.
 - [ADR-0235](../docs/adr/0235-codec-aware-fr-regressor.md) — codec-aware FR regressor (`fr_regressor_v2`). `CODEC_VOCAB` in [`src/vmaf_train/codec.py`](src/vmaf_train/codec.py) is **closed and order-stable** — the index of each codec is the one-hot column index baked into trained ONNX. Adding a codec appends to the tuple and bumps `CODEC_VOCAB_VERSION`; reordering silently invalidates every shipped `fr_regressor_v2_*.onnx`. `FRRegressor(num_codecs=0)` must remain the v1 single-input contract — flipping the default would break every existing `model/tiny/fr_regressor_v1.onnx` consumer. Feature-dump scripts emit a `codec` column tagged at the call site (BVI-DVC: `"x264"`, Netflix Public: `"unknown"`); never silently default to a codec that doesn't match what the script actually encoded.
 
-## Netflix-corpus training prep (ADR-0199 / ADR-0203)
+## Netflix-corpus training prep (ADR-0242 / ADR-0203)
 
 The top-level [`ai/data/`](data/) and [`ai/train/`](train/) packages
 (distinct from the `vmaf_train` package under `src/`) host the
@@ -106,7 +106,7 @@ its own training surface):
   binary — the `_make_zero_payload` helper in `ai.train.dataset`
   injects a fake payload so CI gates don't drag a libvmaf build into
   the Python test surface.
-- **`vmaf_tiny_v2` ONNX contract (ADR-0216).** The shipped ONNX
+- **`vmaf_tiny_v2` ONNX contract (ADR-0244).** The shipped ONNX
   embeds the StandardScaler `(mean, std)` as Constant `Sub` + `Div`
   nodes that run before the MLP. The runtime feeds raw canonical-6
   feature values; do NOT add an external scaler step. Re-exporting
@@ -151,7 +151,7 @@ its own training surface):
   deeper MLPs. See ADR-0242 § Alternatives considered for the
   mlp_huge rejection rationale.
 
-## `fr_regressor_v1` (C1 baseline — ADR-0221)
+## `fr_regressor_v1` (C1 baseline — ADR-0249)
 
 The Wave-1 C1 baseline trainer is
 [`ai/scripts/train_fr_regressor.py`](scripts/train_fr_regressor.py). It

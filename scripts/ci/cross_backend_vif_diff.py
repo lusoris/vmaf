@@ -106,17 +106,17 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # GPU long-tail batch 2 part 2 (T7-23 / ADR-0188 / ADR-0190):
     # float_ms_ssim. 5-level pyramid + Wang product combine. Single
     # emitted metric (the enable_lcs extras are gated separately
-    # via "float_ms_ssim_lcs" — T7-35 / ADR-0215 — so the default
+    # via "float_ms_ssim_lcs" — T7-35 / ADR-0243 — so the default
     # gate stays cheap).
     "float_ms_ssim": ("float_ms_ssim",),
-    # T7-35 / ADR-0215: enable_lcs adds the 15 per-scale L/C/S
+    # T7-35 / ADR-0243: enable_lcs adds the 15 per-scale L/C/S
     # triples on top of the combined `float_ms_ssim` score. The
     # GPU kernels already produce l_means / c_means / s_means per
     # scale (the vert pass's "_lcs" suffix); this entry gates the
     # bit-identical-vs-CPU promise on the extra metrics. Use
     # `--feature float_ms_ssim_lcs --backend {vulkan,cuda}` and
     # pass `enable_lcs=true` via the build_command's option-pass
-    # path. places=4 contract per ADR-0215.
+    # path. places=4 contract per ADR-0243.
     "float_ms_ssim_lcs": (
         "float_ms_ssim",
         "float_ms_ssim_l_scale0",
@@ -212,7 +212,7 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
 
 # Some `--feature` keys here are pseudo-names that map to a real
 # libvmaf extractor plus a `feature=NAME:opt=val` option pass-through.
-# Used today only by `float_ms_ssim_lcs` (T7-35 / ADR-0215) — the
+# Used today only by `float_ms_ssim_lcs` (T7-35 / ADR-0243) — the
 # enable_lcs option flips the same extractor (`float_ms_ssim`) into
 # 16-metric mode. Each entry is (extractor_base_name, "opt=val").
 FEATURE_ALIASES: dict[str, tuple[str, str]] = {

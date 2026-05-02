@@ -47,7 +47,7 @@
 
 typedef struct PsnrHvsStateCuda {
     /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
-     * (ADR-0221). Multi-plane buffer state stays outside the
+     * (ADR-0246). Multi-plane buffer state stays outside the
      * template's single-pair readback bundle. */
     VmafCudaKernelLifecycle lc;
     CUfunction func_psnr_hvs;

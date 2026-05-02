@@ -11,7 +11,7 @@
  *  with motion_cuda.c). Single dispatch per channel; this v1
  *  emits luma-only (`psnr_y`).
  *
- *  Reference consumer of `cuda/kernel_template.h` (ADR-0221) — the
+ *  Reference consumer of `cuda/kernel_template.h` (ADR-0246) — the
  *  per-frame async lifecycle (private stream + submit/finished event
  *  pair) and the (device, pinned-host) readback pair are dispensed
  *  by the template instead of being open-coded here. This was
@@ -40,7 +40,7 @@
 typedef struct PsnrStateCuda {
     /* Lifecycle (private stream + submit/finished event pair) and the
      * (device SSE accumulator, pinned host readback slot) pair are
-     * managed by `cuda/kernel_template.h` (ADR-0221). */
+     * managed by `cuda/kernel_template.h` (ADR-0246). */
     VmafCudaKernelLifecycle lc;
     VmafCudaKernelReadback rb;
     CUfunction funcbpc8;

@@ -1,7 +1,7 @@
 # Tiny-AI extractor template
 
 This page is the recipe for adding a new tiny-AI feature extractor to
-`libvmaf/src/feature/`. It pairs with [ADR-0221](../adr/0221-tiny-ai-extractor-template.md)
+`libvmaf/src/feature/`. It pairs with [ADR-0250](../adr/0250-tiny-ai-extractor-template.md)
 and the shared scaffolding header
 [`libvmaf/src/dnn/tiny_extractor_template.h`](../../libvmaf/src/dnn/tiny_extractor_template.h).
 
@@ -30,7 +30,7 @@ documented inline in
 The `init` / `extract` / `close` lifecycle stays per-extractor — model
 shapes, ring buffers, output names, and emitted score names differ
 enough that a generic lifecycle macro costs more than it saves
-(rationale in ADR-0221's `## Alternatives considered`).
+(rationale in ADR-0250's `## Alternatives considered`).
 
 ## Recipe — single-frame extractor (LPIPS / MobileSal shape)
 

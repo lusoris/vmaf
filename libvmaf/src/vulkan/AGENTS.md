@@ -125,7 +125,7 @@ vulkan/
   dispatch_strategy.c/.h # PRIMARY vs SECONDARY cmdbuf decision
   import.c              # VkImage zero-copy import slots
   import_picture.h      # public-facing import surface
-  kernel_template.h     # per-feature Vulkan kernel scaffolding (ADR-0221)
+  kernel_template.h     # per-feature Vulkan kernel scaffolding (ADR-0246)
   meson.build           # SPIR-V embed chain (glslc + spv_embed.py)
   picture_vulkan.c/.h   # VmafPicture on a Vulkan device + buffers
   spv_embed.py          # generates per-shader <name>_spv.h byte array
@@ -169,7 +169,7 @@ vulkan/
 ## Rebase-sensitive invariants
 
 - **`kernel_template.h` is the canonical kernel scaffolding**
-  (fork-local, ADR-0221): the inline helpers
+  (fork-local, ADR-0246): the inline helpers
   `vmaf_vulkan_kernel_pipeline_create/_destroy`,
   `vmaf_vulkan_kernel_submit_begin/_end_and_wait/_free` capture the
   descriptor-set layout + pipeline layout + shader module + compute
@@ -187,7 +187,7 @@ vulkan/
   has no Vulkan backend at all today, so there is nothing to merge
   against. Reference implementation that mirrors the template's
   shape lives in `libvmaf/src/feature/vulkan/psnr_vulkan.c`. See
-  [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) and
+  [ADR-0246](../../../docs/adr/0246-gpu-kernel-template.md) and
   [docs/backends/kernel-scaffolding.md](../../../docs/backends/kernel-scaffolding.md).
   Multi-bundle kernels — kernels with several distinct
   descriptor-set-layout shapes (different `ssbo_binding_count`,
@@ -270,7 +270,7 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
   T7-29 VkImage zero-copy import.
 - [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) —
   cross-backend `places=4` gate every kernel migration is gated by.
-- [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) —
+- [ADR-0246](../../../docs/adr/0246-gpu-kernel-template.md) —
   per-feature kernel scaffolding template (`kernel_template.h`).
 - **Every Vulkan call has its return checked.** `VK_SUCCESS` is the
   only success value; everything else maps to `-EIO` / `-ENOMEM` /
@@ -289,7 +289,7 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
 
 ## Rebase-sensitive invariants
 
-- **Async pending-fence ring (ADR-0235)**: `VmafVulkanImportSlots`
+- **Async pending-fence ring (ADR-0251)**: `VmafVulkanImportSlots`
   is a ring of `ring_size` slots keyed by `frame_index %
   ring_size` (default depth 4, max 8 — see
   `VMAF_VULKAN_RING_DEFAULT` / `VMAF_VULKAN_RING_MAX`). Three
@@ -311,7 +311,7 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
      error.
 - **ABI preservation**: the v2 ring lives entirely inside
   `VmafVulkanState`; the public `libvmaf_vulkan.h` did not change
-  signatures across the v1 → v2 swap. ADR-0235 follow-up #3 grew
+  signatures across the v1 → v2 swap. ADR-0251 follow-up #3 grew
   `VmafVulkanConfiguration` with `max_outstanding_frames` (additive
   field, zero-init compatible) and added a read-side accessor
   `vmaf_vulkan_state_max_outstanding_frames()`; both keep call-site
@@ -351,7 +351,7 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
 
 - [ADR-0186](../../../docs/adr/0186-vulkan-image-import-impl.md)
   — v1 synchronous design.
-- [ADR-0235](../../../docs/adr/0235-vulkan-async-pending-fence.md)
+- [ADR-0251](../../../docs/adr/0251-vulkan-async-pending-fence.md)
   — v2 async ring.
 - [Research-0042](../../../docs/research/0042-vulkan-async-pending-fence.md)
   — option-space digest.

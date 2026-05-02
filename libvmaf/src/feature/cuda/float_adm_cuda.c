@@ -56,7 +56,7 @@ typedef struct {
     float rfactor[12];
 
     /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
-     * (ADR-0221). Multi-stage DWT + CSF pipeline state stays outside
+     * (ADR-0246). Multi-stage DWT + CSF pipeline state stays outside
      * the template's single-pair readback bundle. */
     VmafCudaKernelLifecycle lc;
     CUfunction func_dwt_vert;

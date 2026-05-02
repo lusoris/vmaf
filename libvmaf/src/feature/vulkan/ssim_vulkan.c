@@ -76,7 +76,7 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0221).
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0246).
      * `pl` carries the shared layout / shader / DSL / pool plus the
      * horizontal-pass pipeline (pass=0). `pipeline_vert` is a sibling
      * pipeline created via `vmaf_vulkan_kernel_pipeline_add_variant()`
@@ -191,7 +191,7 @@ static int create_pipeline(SsimVulkanState *s)
     VkSpecializationInfo spec_info = {0};
     ssim_fill_spec(&spec_data, spec_entries, &spec_info, s, /*pass_id=*/0);
 
-    /* `vulkan/kernel_template.h` (ADR-0221) owns the descriptor-set
+    /* `vulkan/kernel_template.h` (ADR-0246) owns the descriptor-set
      * layout (SSIM_NUM_BINDINGS = 8 SSBO bindings), pipeline layout,
      * shader module, compute pipeline (pass=0), and descriptor pool
      * sizing (4 sets × N buffers). The vertical-pass pipeline is

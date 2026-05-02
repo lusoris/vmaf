@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  CUDA per-feature kernel scaffolding template (T7-* — ADR-0221).
+ *  CUDA per-feature kernel scaffolding template (T7-* — ADR-0246).
  *
  *  This header is **template-only**: no existing kernel includes it
  *  yet. It captures the shape every fork-added CUDA feature
@@ -53,7 +53,7 @@
  *  model and Vulkan's command-buffer + fence + descriptor-pool model
  *  share no concrete shape. A cross-backend abstraction would force
  *  a lowest-common-denominator API that captures neither. See
- *  ADR-0221 § Alternatives considered.
+ *  ADR-0246 § Alternatives considered.
  *
  *  Why helper functions (not macros): step-through in cuda-gdb /
  *  Nsight is materially worse on macros, and the macros that already

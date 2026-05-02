@@ -29,7 +29,7 @@ vmaf --tiny-model /missing.onnx 2>&1   # should print a clear error,
 
 ```bash
 # C1 — drop-in augmentation of the classic SVM. Default tiny FR model
-# is now vmaf_tiny_v2 (ADR-0216) — supersedes the prior vmaf_tiny_v1.
+# is now vmaf_tiny_v2 (ADR-0244) — supersedes the prior vmaf_tiny_v1.
 vmaf -r ref.yuv -d dis.yuv -w 1920 -h 1080 -p 420 -b 8 \
      -m version=vmaf_v0.6.1 \
      --tiny-model model/tiny/vmaf_tiny_v2.onnx \

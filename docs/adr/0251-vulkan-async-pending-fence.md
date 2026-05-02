@@ -1,4 +1,4 @@
-# ADR-0235: Vulkan VkImage import — v2 async pending-fence model (T7-29 part 4)
+# ADR-0251: Vulkan VkImage import — v2 async pending-fence model (T7-29 part 4)
 
 - **Status**: Proposed
 - **Date**: 2026-05-01

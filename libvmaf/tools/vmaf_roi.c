@@ -19,7 +19,7 @@
  *  when no ONNX runtime / no MobileSal weights are available; it MUST NOT
  *  be used to drive a real encode.
  *
- *  T6-2b. ADR-0221.
+ *  T6-2b. ADR-0247.
  */
 
 #include <errno.h>

@@ -1,6 +1,6 @@
 # GPU per-feature kernel scaffolding templates
 
-Status: introduced 2026-04-29 ([ADR-0221](../adr/0221-gpu-kernel-template.md));
+Status: introduced 2026-04-29 ([ADR-0246](../adr/0246-gpu-kernel-template.md));
 templates only — no kernel migrations yet.
 
 This page documents the **per-backend kernel scaffolding templates** that
@@ -278,7 +278,7 @@ Migrations are tracked as `T7-XX-followup-{a,b,c}` in `CHANGELOG.md`.
 
 ## Why per-backend (not cross-backend)
 
-Sister-agent's GPU-template scope analysis (referenced by ADR-0221)
+Sister-agent's GPU-template scope analysis (referenced by ADR-0246)
 established that CUDA's async-stream + event model and Vulkan's
 command-buffer + fence + descriptor-pool model share **no concrete
 shape**. A cross-backend abstraction would force a lowest-common-denominator
@@ -304,7 +304,7 @@ The trade-offs:
 
 ## See also
 
-- [ADR-0221](../adr/0221-gpu-kernel-template.md) — design decision and
+- [ADR-0246](../adr/0246-gpu-kernel-template.md) — design decision and
   alternatives.
 - [`libvmaf/src/cuda/AGENTS.md`](../../libvmaf/src/cuda/AGENTS.md) — kernel
   template invariant row.

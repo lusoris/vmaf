@@ -62,7 +62,7 @@ typedef struct {
 
     /* Single pipeline — kernel always computes the same SAD. Frame 0
      * is short-circuited host-side without a dispatch. Owned by
-     * `vulkan/kernel_template.h` (ADR-0221). */
+     * `vulkan/kernel_template.h` (ADR-0246). */
     VmafVulkanKernelPipeline pl;
 
     /* Ping-pong of raw ref planes. ref_buf[cur_ref_idx] = the frame

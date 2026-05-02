@@ -7,14 +7,14 @@
 
 ## Context
 
-ADR-0199 specified the scope for training tiny-AI models on the
+ADR-0242 specified the scope for training tiny-AI models on the
 original Netflix VMAF training corpus. This ADR records the
 implementation decisions made by the follow-up PR
 (`feat/tiny-ai-netflix-training-prep`) for the loader, ground-truth
 pipeline, dataset adapter, evaluation harness, and training entry
 point under `ai/data/` + `ai/train/` — and the first concrete
 training run executed against the full corpus (results section
-below). ADR-0199's architecture-search table is converted into the
+below). ADR-0242's architecture-search table is converted into the
 three concrete archs registered with the new entry point.
 
 ## Decision
@@ -28,7 +28,7 @@ three concrete archs registered with the new entry point.
    uses them as a content-disjoint validation set (~9 % of the corpus
    by clip count, ~12 % by frame count given Tennis is 24 fps).
 3. **Three architectures are registered with the entry point**:
-   `linear`, `mlp_small`, `mlp_medium`. ADR-0199's "transformer / 1-D
+   `linear`, `mlp_small`, `mlp_medium`. ADR-0242's "transformer / 1-D
    CNN" rows remain deferred.
 4. **Per-clip JSON cache** under
    ``$VMAF_TINY_AI_CACHE`` (default ``~/.cache/vmaf-tiny-ai``) keyed by
@@ -66,10 +66,10 @@ three concrete archs registered with the new entry point.
 | Arch | Layers | Params (feature_dim=6) | Notes |
 |---|---|---|---|
 | `linear` | 6 -> 1 | 7 | Sanity baseline; trains in seconds; matches the SVR's effective capacity bound |
-| `mlp_small` | 6 -> 16 -> 8 -> 1 (ReLU) | 257 | Default; matches ADR-0199's `fr_tiny_v1` Small bracket |
-| `mlp_medium` | 6 -> 64 -> 32 -> 1 (ReLU) | 2 561 | Ceiling for FR on 70 pairs; ADR-0199 Medium bracket |
-| 4-layer MLP + BN | (deferred) | — | ADR-0199 row B; needs careful regularisation on 70 pairs |
-| 1-D CNN over temporal features | (deferred) | — | ADR-0199 row C |
+| `mlp_small` | 6 -> 16 -> 8 -> 1 (ReLU) | 257 | Default; matches ADR-0242's `fr_tiny_v1` Small bracket |
+| `mlp_medium` | 6 -> 64 -> 32 -> 1 (ReLU) | 2 561 | Ceiling for FR on 70 pairs; ADR-0242 Medium bracket |
+| 4-layer MLP + BN | (deferred) | — | ADR-0242 row B; needs careful regularisation on 70 pairs |
+| 1-D CNN over temporal features | (deferred) | — | ADR-0242 row C |
 
 ### D. Caching strategy
 
@@ -162,9 +162,9 @@ Eval reports at `model/tiny/training_runs/run{1,2_mlp_medium,3_linear}/eval_repo
 
 - [ADR-0042](0042-tinyai-docs-required-per-pr.md) — tiny-AI doc-substance rule.
 - [ADR-0108](0108-deep-dive-deliverables-rule.md) — six deep-dive deliverables.
-- [ADR-0199](0199-tiny-ai-netflix-training-corpus.md) — scope of the
+- [ADR-0242](0242-tiny-ai-netflix-training-corpus.md) — scope of the
   Netflix-corpus tiny-AI workstream (parent of this ADR).
 - [Research digest 0019](../research/0019-tiny-ai-netflix-training.md).
 - Source: `req` (direct user instruction in 2026-04-28 daily prep
   routine asking for the runnable loader / eval / Lightning harness on
-  top of the ADR-0199 scaffold).
+  top of the ADR-0242 scaffold).

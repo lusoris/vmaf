@@ -126,7 +126,7 @@ typedef struct {
      * `pipelines[stage][scale]` are sibling pipelines created via
      * `vmaf_vulkan_kernel_pipeline_add_variant()`.
      * `pipelines[0][0]` aliases `pl.pipeline` so the dispatch path
-     * keeps a clean 2-D lookup. (ADR-0221.) */
+     * keeps a clean 2-D lookup. (ADR-0246.) */
     VmafVulkanKernelPipeline pl;
     VkPipeline pipelines[FADM_NUM_STAGES][FADM_NUM_SCALES];
 
