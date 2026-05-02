@@ -8,6 +8,24 @@
 
 ### Added
 
+- **Bristol VI-Lab feasibility digest + BVI-CC ingest ADR
+  (Draft).** Reconnaissance only — no downloads, no code change.
+  [`docs/research/0046-bristol-vi-lab-feasibility.md`](docs/research/0046-bristol-vi-lab-feasibility.md)
+  surveys nine BVI-* datasets (BVI-CC, BVI-DVC, BVI-AOM, BVI-HD,
+  BVI-HFR, BVI-SR, BVI-VFI, BVI-SynTex, BVI-RLV) along axes of
+  size, format, MOS / DMOS availability, licence posture,
+  use-case fit (tiny-AI fr_regressor_v2 codec-aware leg vs.
+  cross-backend parity soak), and effort-to-extract.
+  [ADR-0241](docs/adr/0241-bristol-bvi-cc-ingest.md) (Status:
+  Draft) proposes BVI-CC as the second tiny-AI training corpus
+  alongside Netflix Public — 9 references × 306 distorted across
+  HM / AV1 / VTM, ~250–400 GB raw. The load-bearing risk is the
+  DMOS-vs-MOS scale mismatch (Bristol uses DMOS where higher = worse,
+  Netflix uses MOS where higher = better); the ADR's
+  recommendation makes the explicit `mos_convention` column an
+  in-scope schema change for the first ingest PR rather than a
+  follow-up.
+
 - **Vulkan VmafPicture preallocation surface (T-VULKAN-PREALLOC /
   ADR-0238).** Closes the API parity gap with CUDA / SYCL. New
   public entry points `vmaf_vulkan_preallocate_pictures` +
