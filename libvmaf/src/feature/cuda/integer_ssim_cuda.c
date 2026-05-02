@@ -29,6 +29,7 @@
 #include "feature_extractor.h"
 #include "feature_name.h"
 #include "cuda/integer_ssim_cuda.h"
+#include "cuda/kernel_template.h"
 #include "log.h"
 #include "mem.h"
 #include "picture.h"
@@ -40,23 +41,26 @@
 #define SSIM_K 11
 
 typedef struct SsimStateCuda {
-    CUevent event;
-    CUevent finished;
+    /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
+     * (ADR-0221). */
+    VmafCudaKernelLifecycle lc;
+    /* Per-block float partials: device + pinned host. Owned by the
+     * template's readback bundle. */
+    VmafCudaKernelReadback rb;
+
     CUfunction func_horiz_8;
     CUfunction func_horiz_16;
     CUfunction func_vert;
-    CUstream str;
     int scale_override;
 
-    /* 5 intermediate float buffers + per-block partials + host
-     * pinned partials. Sized at init for the announced (w, h). */
+    /* 5 intermediate float buffers — kept outside the template's
+     * readback bundle since the bundle models a single device+host
+     * pair, not a 5-buffer pyramid. */
     VmafCudaBuffer *h_ref_mu;
     VmafCudaBuffer *h_cmp_mu;
     VmafCudaBuffer *h_ref_sq;
     VmafCudaBuffer *h_cmp_sq;
     VmafCudaBuffer *h_refcmp;
-    VmafCudaBuffer *partials;
-    float *partials_host;
     unsigned partials_capacity;
     unsigned partials_count;
 
@@ -125,14 +129,15 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         return -EINVAL;
     }
 
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
     CudaFunctions *cu_f = fex->cu_state->f;
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
 
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, ssim_score_ptx), fail);
@@ -168,15 +173,19 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->h_ref_sq, horiz_bytes);
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->h_cmp_sq, horiz_bytes);
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->h_refcmp, horiz_bytes);
-    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->partials, partials_bytes);
-    ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->partials_host, partials_bytes);
+    if (ret)
+        goto free_ref;
+
+    ret = vmaf_cuda_kernel_readback_alloc(&s->rb, fex->cu_state, partials_bytes);
     if (ret)
         goto free_ref;
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
-    if (!s->feature_name_dict)
+    if (!s->feature_name_dict) {
+        ret = -ENOMEM;
         goto free_ref;
+    }
     return 0;
 
 free_ref:
@@ -190,15 +199,16 @@ free_ref:
         (void)vmaf_cuda_buffer_free(fex->cu_state, s->h_cmp_sq);
     if (s->h_refcmp)
         (void)vmaf_cuda_buffer_free(fex->cu_state, s->h_refcmp);
-    if (s->partials)
-        (void)vmaf_cuda_buffer_free(fex->cu_state, s->partials);
+    (void)vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
     (void)vmaf_dictionary_free(&s->feature_name_dict);
-    return -ENOMEM;
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    return ret;
 
 fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -268,7 +278,7 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
         (void *)s->h_ref_sq,
         (void *)s->h_cmp_sq,
         (void *)s->h_refcmp,
-        (void *)s->partials,
+        (void *)s->rb.device,
         &s->w_horiz,
         &s->w_final,
         &s->h_final,
@@ -279,11 +289,12 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
                                            SSIM_BLOCK_Y, 1, 0, stream, params2, NULL));
 
     /* DtoH copy of the partials on our private stream. */
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, stream));
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->partials_host, (CUdeviceptr)s->partials->data,
-                                              (size_t)s->partials_count * sizeof(float), s->str));
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, stream));
+    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
+    CHECK_CUDA_RETURN(cu_f,
+                      cuMemcpyDtoHAsync(s->rb.host_pinned, (CUdeviceptr)s->rb.device->data,
+                                        (size_t)s->partials_count * sizeof(float), s->lc.str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
     return 0;
 }
 
@@ -291,12 +302,15 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
     SsimStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
 
+    int sync_err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
+    if (sync_err)
+        return sync_err;
+
+    const float *partials_host = s->rb.host_pinned;
     double total = 0.0;
     for (unsigned i = 0; i < s->partials_count; i++)
-        total += (double)s->partials_host[i];
+        total += (double)partials_host[i];
     const double n_pixels = (double)s->w_final * (double)s->h_final;
     const double score = total / n_pixels;
 
@@ -307,44 +321,46 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     SsimStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1_destroy);
-after_event1_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2_destroy);
-after_event2_destroy:;
 
-    int ret = _cuda_err;
+    int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+
     if (s->h_ref_mu) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->h_ref_mu);
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->h_ref_mu);
         free(s->h_ref_mu);
+        if (rc == 0)
+            rc = e;
     }
     if (s->h_cmp_mu) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->h_cmp_mu);
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->h_cmp_mu);
         free(s->h_cmp_mu);
+        if (rc == 0)
+            rc = e;
     }
     if (s->h_ref_sq) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->h_ref_sq);
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->h_ref_sq);
         free(s->h_ref_sq);
+        if (rc == 0)
+            rc = e;
     }
     if (s->h_cmp_sq) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->h_cmp_sq);
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->h_cmp_sq);
         free(s->h_cmp_sq);
+        if (rc == 0)
+            rc = e;
     }
     if (s->h_refcmp) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->h_refcmp);
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->h_refcmp);
         free(s->h_refcmp);
+        if (rc == 0)
+            rc = e;
     }
-    if (s->partials) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->partials);
-        free(s->partials);
-    }
-    ret |= vmaf_dictionary_free(&s->feature_name_dict);
-    return ret;
+    const int rb_rc = vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    if (rc == 0)
+        rc = rb_rc;
+    const int dict_rc = vmaf_dictionary_free(&s->feature_name_dict);
+    if (rc == 0)
+        rc = dict_rc;
+    return rc;
 }
 
 static const char *provided_features[] = {"float_ssim", NULL};
