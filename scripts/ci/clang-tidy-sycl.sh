@@ -91,15 +91,27 @@ esac
 # -extra-arg-before=-Wno-unknown-pragmas
 #                                     — same rationale for icpx pragmas
 #                                       (`#pragma clang fp ...` etc).
-# -extra-arg-before=-std=c++17       — pin the language standard. icpx
-#                                       writes `-std=c++17` into
-#                                       compile_commands.json, but
-#                                       clang-tidy's `-extra-arg-before`
-#                                       chain bypasses that and the
-#                                       stock clang default falls back
-#                                       to C++11, which blows up on
-#                                       SYCL headers that require
-#                                       `std::enable_if_t` etc.
+# -extra-arg=-std=c++17               — pin the language standard. icpx
+#                                       defaults to C++17 when invoked
+#                                       directly, but the
+#                                       compile_commands.json entry that
+#                                       meson writes for picture_sycl.cpp
+#                                       does NOT contain a `-std=` flag
+#                                       (icpx applies the default
+#                                       implicitly). Stock clang-tidy
+#                                       therefore parses with the C++11
+#                                       default, which blows up on SYCL
+#                                       headers that require
+#                                       `std::enable_if_t` and trip the
+#                                       `static_assert(__cplusplus >=
+#                                       201703L)` guard. `-extra-arg`
+#                                       (appended) is used here rather
+#                                       than `-extra-arg-before` because
+#                                       clang takes the LAST `-std=` it
+#                                       sees on the command line —
+#                                       appending guarantees ours wins
+#                                       over anything compile_commands
+#                                       might inject.
 # ---------------------------------------------------------------------
 exec "$CLANG_TIDY_BIN" \
   "-extra-arg-before=-isystem$SYCL_INCLUDE_BASE" \
@@ -107,5 +119,5 @@ exec "$CLANG_TIDY_BIN" \
   "-extra-arg-before=-D__SYCL_DEVICE_ONLY__=0" \
   "-extra-arg-before=-Wno-unknown-warning-option" \
   "-extra-arg-before=-Wno-unknown-pragmas" \
-  "-extra-arg-before=-std=c++17" \
+  "-extra-arg=-std=c++17" \
   "$@"
