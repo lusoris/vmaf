@@ -1,0 +1,78 @@
+# AGENTS.md — libvmaf/include/libvmaf
+
+Orientation for agents working on libvmaf's public C API headers.
+Parent: [../../AGENTS.md](../../AGENTS.md).
+
+## Scope
+
+Public headers consumed by external callers (FFmpeg patches, MCP
+server, Python bindings, downstream tools). Layout:
+
+```text
+libvmaf/include/libvmaf/
+  libvmaf.h              # core: VmafContext, VmafConfiguration, score paths
+  picture.h              # VmafPicture
+  model.h                # VmafModel
+  feature.h              # VmafFeatureExtractor (selection + collection)
+  dnn.h                  # tiny-AI session API
+  libvmaf_cuda.h         # CUDA backend
+  libvmaf_sycl.h         # SYCL backend
+  libvmaf_vulkan.h       # Vulkan backend
+  libvmaf_hip.h          # HIP / AMD-ROCm backend (scaffold only)
+```
+
+## Ground rules
+
+- **Parent rules** apply in full (see [../../AGENTS.md](../../AGENTS.md)).
+- **ABI is additive only.** Configuration / Picture-configuration
+  structs grow at the end. Zero-initialised callers from any prior
+  version must continue to compile + run with default behaviour.
+  This is a project-wide invariant, not a per-header one.
+- **Never remove or rename a public symbol** without an ADR + a
+  matching `ffmpeg-patches/` update per CLAUDE.md §12 r14. The
+  `enabled libvmaf*` `check_pkg_config` lines in
+  `ffmpeg-patches/000?-*.patch` probe specific symbol names.
+- **Doxygen on every entry point.** `@return` lists every error
+  path, including the `-ENOSYS` "built-without-backend" case where
+  applicable.
+
+## GPU backend public-API template
+
+When adding a new GPU backend (Metal, DirectML, OpenCL, …), follow
+the shape the existing four backends already share. The recipe lives
+at [`docs/development/gpu-backend-template.md`](../../../docs/development/gpu-backend-template.md):
+
+- The shared lifecycle (`vmaf_<backend>_state_init` /
+  `_import_state` / `_state_free`) — every backend ships these.
+- Optional sections (`_list_devices`, `_available`, picture
+  preallocation, zero-copy hwaccel import) — pick the ones the
+  backend actually needs.
+- Doxygen + ABI stability conventions.
+
+The template is **doc-pattern, not codegen** (the 2026-05-02 audit
+found 95 % of each header is backend-specific feature surface;
+codegen would shave ~10 % at the cost of a build-system Python
+dependency — ADR-0239's "headers second" PR consciously ships the
+template doc + AGENTS guidance instead).
+
+The matching internal-side companion files
+(`libvmaf/src/<backend>/`) follow their own pattern; the
+backend-agnostic `gpu_picture_pool.{c,h}` round-robin
+(ADR-0239) is the only currently-extracted shared internal helper.
+
+## Rebase-sensitive invariants
+
+- **Public surface stability**: the four backend headers landed in
+  this order — `libvmaf_cuda.h` (Netflix upstream, baseline),
+  `libvmaf_sycl.h` (fork ADR-0152, T1-7 — SYCL backend scaffold),
+  `libvmaf_vulkan.h` (fork ADR-0175, T5-1 — Vulkan backend
+  scaffold), `libvmaf_hip.h` (fork ADR-0212 / T7-10 — HIP scaffold).
+  An upstream sync that touches `libvmaf_cuda.h` is *expected*; one
+  that touches the other three would be a mis-merge.
+- **Picture preallocation surfaces**: CUDA's
+  `VmafCudaPicturePreallocationMethod` ships
+  `NONE / DEVICE / HOST / HOST_PINNED`; SYCL + Vulkan ship
+  `NONE / HOST / DEVICE` (no `HOST_PINNED` — VMA's
+  `AUTO_PREFER_HOST` isn't pinned in the CUDA sense). New backends
+  follow the SYCL/Vulkan three-method shape; do not introduce a
+  fourth method without an ADR.

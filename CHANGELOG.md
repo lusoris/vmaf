@@ -151,6 +151,24 @@
   across all three GPU backends. The `Netflix#1300`
   mutex-destroy-order fix (ADR-0157) travels with the file. Test
   renamed `test_ring_buffer.c` → `test_gpu_picture_pool.c`.
+
+- **GPU backend public-API pattern doc (ADR-0240).** New
+  [`docs/development/gpu-backend-template.md`](docs/development/gpu-backend-template.md)
+  ships the recipe new GPU backends follow — shared lifecycle
+  (`vmaf_<backend>_state_init` / `_import_state` / `_state_free`),
+  optional sections (`_available` / `_list_devices` / picture
+  preallocation / hwaccel zero-copy import), Doxygen + ABI
+  conventions, and the SYCL/Vulkan `NONE / HOST / DEVICE`
+  three-method picture-preallocation convention as the
+  new-backend default. New
+  [`libvmaf/include/libvmaf/AGENTS.md`](libvmaf/include/libvmaf/AGENTS.md)
+  pins the public-headers-tree invariant (rebase ordering of the
+  four backend headers, ABI-additive rule). PR3 of the GPU dedup
+  sequence — doc-only, not codegen, after a 2026-05-02 audit
+  measured the four headers at ~20 of ~200 lines truly shared
+  (state lifecycle); the rest is genuinely backend-specific
+  feature surface. Mirrors the tiny-AI ADR-0221 "recipe doc +
+  shared helpers, not codegen" precedent.
 - **ADR-0108 deliverables gate now runnable locally (`make pr-check`).**
   The Deep-Dive Deliverables Checklist gate
   (`.github/workflows/rule-enforcement.yml`) previously inlined ~80
