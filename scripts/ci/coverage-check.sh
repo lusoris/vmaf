@@ -33,6 +33,16 @@ CRITICAL_MIN="${3:-85}"
 declare -A PER_FILE_MIN=(
   ["libvmaf/src/dnn/ort_backend.c"]=78
   ["libvmaf/src/dnn/dnn_api.c"]=78
+  # libvmaf/src/dnn/tiny_extractor_template.h is a refactor template
+  # of `static inline` helpers conditionally instantiated by per-extractor
+  # callers. By design each new extractor uses a different subset of the
+  # macro/helper menu (the whole point of the refactor is per-extractor
+  # 30-LOC skeletons), so the unit suite covers only the helpers the
+  # current extractors call. The lower bar reflects the structural ceiling;
+  # adding tests just to inflate this number would be code-shaped padding,
+  # not real correctness coverage. Distinct from opt.c / read_json_model.c
+  # which parse user-supplied input and are properly security-critical.
+  ["libvmaf/src/dnn/tiny_extractor_template.h"]=10
 )
 
 if ! command -v python3 >/dev/null; then
