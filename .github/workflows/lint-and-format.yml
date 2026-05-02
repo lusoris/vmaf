@@ -212,7 +212,21 @@ jobs:
     # stock LLVM clang-tidy resolves <sycl/sycl.hpp>. Advisory until one
     # green run on master proves the wrapper holds across all current SYCL
     # TUs; tightens to required after that. See ADR-0217.
-    name: Clang-Tidy SYCL (Changed Files, Advisory)
+    #
+    # NOTE (T-GPU-DEDUP / 2026-05-02 / commit message): the wrapper
+    # successfully resolves the SYCL include path and parses far enough
+    # to validate the C++17 standard, but stock LLVM clang-tidy cannot
+    # resolve `__ocl_event_t` and `__spirv_ControlBarrier` in
+    # `nd_item.hpp`/`group.hpp` — these are icpx-internal intrinsics
+    # exposed unconditionally regardless of `__SYCL_DEVICE_ONLY__`.
+    # No -D flag fixes it; the only path forward is an icpx-built
+    # clang-tidy (icpx ships `icx` and `icpx` but no `clang-tidy-icpx`
+    # variant today). Hard-skipped via the runs-on sentinel below
+    # until that toolchain story improves; the libvmaf-build-matrix
+    # SYCL job already validates SYCL parse via icpx itself, so we
+    # don't lose the actual signal — only the lint pass on top of it.
+    name: Clang-Tidy SYCL (Changed Files, Advisory — Disabled)
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 35
     continue-on-error: true
