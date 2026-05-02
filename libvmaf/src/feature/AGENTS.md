@@ -327,6 +327,24 @@ feature/
   [rebase-notes 0053](../../../docs/rebase-notes.md) /
   [rebase-notes 0074](../../../docs/rebase-notes.md).
 
+- **SSIMULACRA 2 Vulkan host-path SIMD** (fork-local, ADR-0252):
+  [`x86/ssimulacra2_host_avx2.c`](x86/ssimulacra2_host_avx2.c) and
+  [`arm64/ssimulacra2_host_neon.c`](arm64/ssimulacra2_host_neon.c)
+  are `plane_stride`-parameterised variants of `linear_rgb_to_xyb`
+  and `downsample_2x2` for the Vulkan pyramid layout (channel slot
+  size = full-resolution frame, fixed across downsampled scales).
+  These two TUs carry the **same ADR-0161 bit-exactness contract**
+  as their CPU-extractor siblings: per-lane scalar `vmaf_ss2_cbrtf`,
+  `#pragma STDC FP_CONTRACT OFF`, `-ffp-contract=off`, left-to-right
+  addition order. **On rebase**: if upstream or a follow-up PR
+  changes the scalar `ss2v_host_linear_rgb_to_xyb` or
+  `ss2v_downsample_2x2` arithmetic order in `ssimulacra2_vulkan.c`,
+  the SIMD TUs and their `test_host_xyb` / `test_host_downsample`
+  scalar references must be updated in lockstep — the byte-exact
+  contract breaks silently if the scalar changes without the SIMD.
+  See [ADR-0252](../../../docs/adr/0252-ssimulacra2-host-xyb-simd.md)
+  and [rebase-notes 0106](../../../docs/rebase-notes.md).
+
 - **`psnr_hvs` NEON DCT bit-exactness** (fork-local, ADR-0160):
   [`arm64/psnr_hvs_neon.c`](arm64/psnr_hvs_neon.c) is the aarch64
   sister port to the AVX2 TU. NEON's 4-wide `int32x4_t` splits

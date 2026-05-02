@@ -117,6 +117,20 @@
     (`max_abs_diff = 0.0` on the 576×324 lavapipe gate). See
     [ADR-0182](../../adr/0182-gpu-long-tail-batch-1.md) +
     [ADR-0216](../../adr/0216-vulkan-chroma-psnr.md).
+  - `ssimulacra2_vulkan.c` — 6-scale pyramid extractor. Per-frame
+    pipeline: host YUV→linear-RGB, host linear-RGB→XYB (replaces
+    GPU XYB shader for bit-exactness per ADR-0201), GPU IIR blur
+    (separable, 3-pole), GPU elementwise products, GPU SSIM +
+    EdgeDiff per-WG reductions, host double-precision pooling.
+    Precision: `places=2` (ADR-0192). The three host-side hot
+    paths — YUV→linear-RGB, linear-RGB→XYB, and 2×2 box downsample
+    — are SIMD-accelerated (AVX2 on x86-64, NEON on aarch64) via
+    runtime dispatch in `init()` (ADR-0252). Measured speedup on
+    576×324: 2× for the XYB kernel (cbrtf-bound), 3.2× for the
+    downsample kernel. Bit-exact to the CPU extractor at the
+    `memcmp` level (`test_host_xyb`, `test_host_downsample`). See
+    [ADR-0201](../../adr/0201-ssimulacra2-vulkan-kernel.md) and
+    [ADR-0252](../../adr/0252-ssimulacra2-host-xyb-simd.md).
 - Build system: `enable_vulkan` feature option (default **disabled**)
   in [`libvmaf/meson_options.txt`](../../../libvmaf/meson_options.txt);
   conditional `subdir('vulkan')` in

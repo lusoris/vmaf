@@ -8,21 +8,15 @@
 
 ### Added
 
-- **`vmaf_tiny_v4` — top-rung opt-in tiny VMAF fusion model
-  (ADR-0242).** Ships `vmaf_tiny_v4.onnx` (mlp_large arch,
-  6 → 64 → 32 → 16 → 1, 3 073 params; 14 KB ONNX) alongside
-  `vmaf_tiny_v2` (production default) and `vmaf_tiny_v3` (opt-in
-  higher tier). Same canonical-6 + bundled StandardScaler + 90 ep /
-  Adam @ lr=1e-3 / MSE / bs=256 recipe as v2 / v3 — only the
-  architecture changes. Netflix 9-fold LOSO PLCC = 0.9987 ± 0.0015
-  (vs v3's 0.9986 ± 0.0015 — flat, +0.0001 mean, identical std).
-  ADR-0242 records "the architecture ladder stops here" — further
-  capacity does not buy headroom on the canonical-6 + 4-corpus
-  regime; future quality gains require regime change (richer
-  features, larger corpus, ensembles), not deeper MLPs. Companion
-  research digest:
-  [`docs/research/0048-vmaf-tiny-v4-mlp-large-evaluation.md`](docs/research/0048-vmaf-tiny-v4-mlp-large-evaluation.md).
-  Production default stays `vmaf_tiny_v2`.
+- **ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (T-GPU-OPT-VK-2 / ADR-0252).**
+  Adds `feature/x86/ssimulacra2_host_avx2.c` and `feature/arm64/ssimulacra2_host_neon.c`
+  with `plane_stride`-parameterised `linear_rgb_to_xyb` and `downsample_2x2` SIMD
+  kernels. Wires runtime dispatch (AVX2 / NEON) into `ssimulacra2_vulkan.c` for the
+  three host-side hot paths identified by the 2026-05-02 Vulkan profile: YUV→linear-RGB,
+  linear-RGB→XYB, and 2×2 box downsample. Measured: 2× XYB speedup, 3.2× downsample
+  speedup on the 576×324 benchmark. Bit-exact to scalar reference (`memcmp`-level)
+  verified by two new test cases in `test_ssimulacra2_simd`. AVX-512 omitted — cbrtf
+  is per-lane scalar in both AVX2 and AVX-512 paths so the marginal gain is below 30%.
 
 - **Bristol VI-Lab feasibility digest + BVI-CC ingest ADR
   (Draft).** Reconnaissance only — no downloads, no code change.
@@ -62,7 +56,7 @@
   via T7-10 / [ADR-0241](docs/adr/0241-hip-first-consumer-psnr.md).**
   Lands [`libvmaf/src/hip/kernel_template.{h,c}`](libvmaf/src/hip/kernel_template.h)
   (field-for-field mirror of `cuda/kernel_template.h` from
-  [ADR-0221](docs/adr/0221-gpu-kernel-template.md):
+  [ADR-0221](docs/adr/0246-gpu-kernel-template.md):
   `VmafHipKernelLifecycle` private-stream + 2-event struct,
   `VmafHipKernelReadback` device-accumulator + pinned-host pair,
   six lifecycle helpers) plus
@@ -205,7 +199,7 @@
   against the pre-migration binary on the Netflix-pair smoke
   (576×324×8-bit, `cambi` mean = 0.0 — content-appropriate; the
   pair has no banding artifacts). Net diff −40 LOC (1407 → 1367).
-  See [ADR-0221](docs/adr/0221-gpu-kernel-template.md).
+  See [ADR-0221](docs/adr/0246-gpu-kernel-template.md).
 - **`vulkan/kernel_template.h` SSBO-binding cap is now a named
   constant.** Replaced the open-coded `8U` upper bound and matching
   `bindings[8]` stack array with `#define
@@ -2304,7 +2298,7 @@
   [`float_vif_sycl.cpp`](libvmaf/src/feature/sycl/float_vif_sycl.cpp).
   New `float_vif` lavapipe gate step + `FEATURE_METRICS` entry at
   places=4.
-- **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0242)**
+- **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0252)**
   (fork-local): scaffold-only PR preparing the tiny-AI training pipeline for
   the local Netflix VMAF corpus (9 ref / 70 distorted YUVs at
   `.workingdir2/netflix/`). Ships `docs/ai/training-data.md` with the corpus

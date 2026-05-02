@@ -358,7 +358,11 @@ if is_asm_enabled
         # motion_v2, etc.) keep their established bit-exact behaviour.
         arm64_ssimulacra2_lib = static_library(
           'arm64_ssimulacra2',
-          feature_src_dir + 'arm64/ssimulacra2_neon.c',
+          [
+              feature_src_dir + 'arm64/ssimulacra2_neon.c',
+              # ADR-0242: host-kernel variants (plane_stride form for Vulkan pyramid)
+              feature_src_dir + 'arm64/ssimulacra2_host_neon.c',
+          ],
           include_directories : vmaf_base_include,
           c_args : vmaf_cflags_common + ['-DARCH_AARCH64', '-ffp-contract=off'],
         )
@@ -421,7 +425,11 @@ if is_asm_enabled
       # established bit-exact behaviour.
       x86_ssimulacra2_avx2_lib = static_library(
           'x86_ssimulacra2_avx2',
-          feature_src_dir + 'x86/ssimulacra2_avx2.c',
+          [
+              feature_src_dir + 'x86/ssimulacra2_avx2.c',
+              # ADR-0242: host-kernel variants (plane_stride form for Vulkan pyramid)
+              feature_src_dir + 'x86/ssimulacra2_host_avx2.c',
+          ],
           include_directories : vmaf_base_include,
           c_args : ['-mavx', '-mavx2', '-mfma', '-ffp-contract=off'] + vmaf_cflags_common,
       )

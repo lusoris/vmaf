@@ -53,6 +53,24 @@
 
 #include "feature/ssimulacra2_math.h"
 
+/* ADR-0242: SIMD host-kernel dispatch for the Vulkan extractor's three
+ * CPU-bound host paths (YUV→linRGB, linRGB→XYB, 2×2 downsample). */
+#if ARCH_X86 || ARCH_AARCH64
+#include "cpu.h"
+#endif
+#if ARCH_X86
+#include "feature/ssimulacra2_simd_common.h"
+#include "feature/x86/ssimulacra2_avx2.h"
+#include "feature/x86/ssimulacra2_host_avx2.h"
+#include "x86/cpu.h"
+#endif
+#if ARCH_AARCH64
+#include "feature/ssimulacra2_simd_common.h"
+#include "feature/arm64/ssimulacra2_neon.h"
+#include "feature/arm64/ssimulacra2_host_neon.h"
+#include "arm/cpu.h"
+#endif
+
 #include "../../vulkan/kernel_template.h"
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
@@ -254,6 +272,17 @@ typedef struct {
 
     /* Largest-scale partials wg_count (sizing). */
     unsigned max_wg_count;
+
+    /* ADR-0242: SIMD dispatch for host-side hot paths.
+     * NULL = scalar fallback (non-x86/aarch64 or no AVX2/NEON). */
+    /* YUV → linear RGB (picture-to-planes). Uses simd_plane_t abstraction. */
+    void (*ptlr_fn)(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
+                    const simd_plane_t planes[3], float *out);
+    /* Linear RGB → XYB (plane_stride form for pyramid buffers). */
+    void (*xyb_host_fn)(const float *lin, float *xyb, unsigned w, unsigned h, size_t plane_stride);
+    /* 2×2 box downsample (plane_stride form). */
+    void (*down_host_fn)(const float *in, unsigned iw, unsigned ih, float *out, unsigned ow,
+                         unsigned oh, size_t plane_stride);
 } Ssimu2VkState;
 
 typedef struct {
@@ -824,6 +853,31 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     err = ss2v_alloc_buffers(s);
     if (err)
         return err;
+
+    /* ADR-0242: runtime dispatch — select SIMD host kernels when available. */
+    s->ptlr_fn = NULL;
+    s->xyb_host_fn = NULL;
+    s->down_host_fn = NULL;
+#if ARCH_X86
+    {
+        const unsigned flags = vmaf_get_cpu_flags_x86();
+        if (flags & VMAF_X86_CPU_FLAG_AVX2) {
+            s->ptlr_fn = ssimulacra2_picture_to_linear_rgb_avx2;
+            s->xyb_host_fn = ssimulacra2_host_linear_rgb_to_xyb_avx2;
+            s->down_host_fn = ssimulacra2_host_downsample_2x2_avx2;
+        }
+    }
+#endif
+#if ARCH_AARCH64
+    {
+        const unsigned flags = vmaf_get_cpu_flags_arm();
+        if (flags & VMAF_ARM_CPU_FLAG_NEON) {
+            s->ptlr_fn = ssimulacra2_picture_to_linear_rgb_neon;
+            s->xyb_host_fn = ssimulacra2_host_linear_rgb_to_xyb_neon;
+            s->down_host_fn = ssimulacra2_host_downsample_2x2_neon;
+        }
+    }
+#endif
     return 0;
 }
 
@@ -1343,8 +1397,25 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (!ref_lin_host || !dis_lin_host)
         return -EIO;
 
-    ss2v_picture_to_linear_rgb(s, ref_pic, ref_lin_host);
-    ss2v_picture_to_linear_rgb(s, dist_pic, dis_lin_host);
+    /* ADR-0242: SIMD dispatch — convert YUV→linear RGB via SIMD if available,
+     * otherwise fall back to scalar ss2v_picture_to_linear_rgb. */
+    if (s->ptlr_fn) {
+        const simd_plane_t planes_ref[3] = {
+            {ref_pic->data[0], (ptrdiff_t)ref_pic->stride[0], ref_pic->w[0], ref_pic->h[0]},
+            {ref_pic->data[1], (ptrdiff_t)ref_pic->stride[1], ref_pic->w[1], ref_pic->h[1]},
+            {ref_pic->data[2], (ptrdiff_t)ref_pic->stride[2], ref_pic->w[2], ref_pic->h[2]},
+        };
+        const simd_plane_t planes_dis[3] = {
+            {dist_pic->data[0], (ptrdiff_t)dist_pic->stride[0], dist_pic->w[0], dist_pic->h[0]},
+            {dist_pic->data[1], (ptrdiff_t)dist_pic->stride[1], dist_pic->w[1], dist_pic->h[1]},
+            {dist_pic->data[2], (ptrdiff_t)dist_pic->stride[2], dist_pic->w[2], dist_pic->h[2]},
+        };
+        s->ptlr_fn((int)s->yuv_matrix, s->bpc, s->width, s->height, planes_ref, ref_lin_host);
+        s->ptlr_fn((int)s->yuv_matrix, s->bpc, s->width, s->height, planes_dis, dis_lin_host);
+    } else {
+        ss2v_picture_to_linear_rgb(s, ref_pic, ref_lin_host);
+        ss2v_picture_to_linear_rgb(s, dist_pic, dis_lin_host);
+    }
     int err = vmaf_vulkan_buffer_flush(s->ctx, s->ref_lin);
     if (err)
         return err;
@@ -1385,8 +1456,14 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
          * drift). The IIR + SSIM combine is bit-exact with CPU
          * when fed bit-exact XYB, so this single change moves the
          * pipeline from places=1 to places ≥ 2 by construction. */
-        ss2v_host_linear_rgb_to_xyb(ref_lin_host, ref_xyb_host, cw, ch, plane_full);
-        ss2v_host_linear_rgb_to_xyb(dis_lin_host, dis_xyb_host, cw, ch, plane_full);
+        /* ADR-0242: SIMD host XYB dispatch. */
+        if (s->xyb_host_fn) {
+            s->xyb_host_fn(ref_lin_host, ref_xyb_host, cw, ch, plane_full);
+            s->xyb_host_fn(dis_lin_host, dis_xyb_host, cw, ch, plane_full);
+        } else {
+            ss2v_host_linear_rgb_to_xyb(ref_lin_host, ref_xyb_host, cw, ch, plane_full);
+            ss2v_host_linear_rgb_to_xyb(dis_lin_host, dis_xyb_host, cw, ch, plane_full);
+        }
         err = vmaf_vulkan_buffer_flush(s->ctx, s->ref_xyb);
         if (err)
             return err;
@@ -1412,12 +1489,21 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             float *scratch = malloc(3u * full_plane * sizeof(float));
             if (!scratch)
                 return -ENOMEM;
-            ss2v_downsample_2x2(ref_lin_host, cw, ch, scratch, nw, nh, full_plane);
+            /* ADR-0242: SIMD host downsample dispatch. */
+            if (s->down_host_fn) {
+                s->down_host_fn(ref_lin_host, cw, ch, scratch, nw, nh, full_plane);
+            } else {
+                ss2v_downsample_2x2(ref_lin_host, cw, ch, scratch, nw, nh, full_plane);
+            }
             for (int c = 0; c < 3; c++) {
                 memcpy(ref_lin_host + (size_t)c * full_plane, scratch + (size_t)c * full_plane,
                        (size_t)nw * (size_t)nh * sizeof(float));
             }
-            ss2v_downsample_2x2(dis_lin_host, cw, ch, scratch, nw, nh, full_plane);
+            if (s->down_host_fn) {
+                s->down_host_fn(dis_lin_host, cw, ch, scratch, nw, nh, full_plane);
+            } else {
+                ss2v_downsample_2x2(dis_lin_host, cw, ch, scratch, nw, nh, full_plane);
+            }
             for (int c = 0; c < 3; c++) {
                 memcpy(dis_lin_host + (size_t)c * full_plane, scratch + (size_t)c * full_plane,
                        (size_t)nw * (size_t)nh * sizeof(float));

@@ -4226,9 +4226,9 @@ inline.*
 
   CI runs this same sequence via the new matrix row.
 
-### 0058 — Tiny-AI Netflix corpus training scaffold (ADR-0242)
+### 0058 — Tiny-AI Netflix corpus training scaffold (ADR-0252)
 
-- **ADR**: [ADR-0242](adr/0242-tiny-ai-netflix-training-corpus.md).
+- **ADR**: [ADR-0252](adr/0242-tiny-ai-netflix-training-corpus.md).
 - **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI training
   harness or MCP server.
 - **Touches**:
@@ -6391,26 +6391,40 @@ inline.*
   python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
 
-### 0106 — Duplicate-NNNN ADR dedup sweep (2026-05-02)
+### 0106 — ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (ADR-0252)
 
-- **Touches**: `docs/adr/*.md` only. Pure rename + heading update.
-  Upstream Netflix has no `docs/adr/` tree, so the rebase surface
-  is zero.
-- **Invariant**: ten ADR files were renumbered to satisfy the
-  fork's `docs/adr/README.md` "IDs assigned in commit order and
-  never reused" rule. Mappings (old → new):
-  `0199-tiny-ai-netflix-training-corpus → 0242`,
-  `0215-enable-lcs-gpu → 0243`, `0216-vmaf-tiny-v2 → 0244`,
-  `0221-simd-bitexact-test-harness → 0245`,
-  `0221-gpu-kernel-template → 0246`,
-  `0221-vmaf-roi-tool → 0247`, `0221-nr-metric-v1-ptq → 0248`,
-  `0221-fr-regressor-v1 → 0249`,
-  `0221-tiny-ai-extractor-template → 0250`,
-  `0235-vulkan-async-pending-fence → 0251`. Fork-private dossiers
-  under `.workingdir2/` may still cite the old NNNNs; that
-  text is gitignored and not updated by this PR. ADR body prose
-  was not touched.
-- **Re-test on rebase**: not applicable — no Netflix-shared
-  surface. If a future upstream sync introduces a new ADR row in
-  the index, append at the next free NNNN (0252+) and skip the
-  ten remapped slots.
+- **ADR**: [ADR-0252](adr/0252-ssimulacra2-host-xyb-simd.md)
+- **Touches**:
+  - `libvmaf/src/feature/x86/ssimulacra2_host_avx2.h` (new)
+  - `libvmaf/src/feature/x86/ssimulacra2_host_avx2.c` (new)
+  - `libvmaf/src/feature/arm64/ssimulacra2_host_neon.h` (new)
+  - `libvmaf/src/feature/arm64/ssimulacra2_host_neon.c` (new)
+  - `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` — runtime
+    dispatch added to `init()` and `extract()`; `Ssimu2VkState`
+    gains three function-pointer fields.
+  - `libvmaf/src/meson.build` — new .c files added to the
+    `x86_ssimulacra2_avx2` and `arm64_ssimulacra2` static libs.
+  - `libvmaf/test/test_ssimulacra2_simd.c` — two new test cases:
+    `test_host_xyb`, `test_host_downsample`.
+  - `docs/adr/0252-ssimulacra2-host-xyb-simd.md` (new)
+  - `docs/adr/README.md` — index row.
+  - `CHANGELOG.md` — Added entry.
+- **Bit-exactness contract**: same as ADR-0161. Scalar tail and SIMD
+  main loop use identical arithmetic order; `vmaf_ss2_cbrtf` called
+  per-lane via scalar libm. `memcmp`-level byte-exactness verified
+  by `test_host_xyb` and `test_host_downsample`.
+- **Rebase impact**: the new files are entirely fork-local. The only
+  upstream-touching change is `ssimulacra2_vulkan.c`, which is
+  itself fork-local (ADR-0201). No upstream conflict expected.
+  If upstream ever adds host-side SIMD to `ssimulacra2_vulkan.c`,
+  reconcile the function-pointer fields and dispatch init; the
+  kernel implementations in the new TUs are independent.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_vulkan=disabled
+  ninja -C build
+  meson test -C build test_ssimulacra2_simd
+  # Vulkan parity gate (requires GPU):
+  python scripts/ci/cross_backend_parity_gate.py --feature ssimulacra2 --places 2
+  ```
