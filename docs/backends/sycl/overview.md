@@ -210,11 +210,18 @@ the deviation:
   `motion3_score`)** — these CPU options came in via the upstream
   port from Netflix/vmaf
   [`b949cebf`](https://github.com/Netflix/vmaf/commit/b949cebf)
-  (2026-04-29). The fork's SYCL `integer_motion` kernel is
-  unchanged. The `motion_add_uv=true` path exercises `picture_copy(...,
-  1/2)` for U/V planes on the CPU side and is **not yet wired through
-  to the SYCL backend** — UV-plane motion stays CPU-only. The SYCL
-  `picture_copy()` callsites at
+  (2026-04-29). As of T3-15(c) /
+  [ADR-0219](../../adr/0219-motion3-gpu-coverage.md), the SYCL
+  `integer_motion` extractor emits `motion3_score` in 3-frame
+  window mode via host-side `motion_blend()` post-processing of
+  `motion2_score`; the full options surface
+  (`motion_blend_factor`, `motion_blend_offset`, `motion_fps_weight`,
+  `motion_max_val`, `motion_moving_average`) is exposed.
+  `motion_five_frame_window=true` is rejected with `-ENOTSUP` at
+  `init()` (the 5-deep blur ring is still deferred). The
+  `motion_add_uv=true` path is independent from motion3 and remains
+  **not yet wired through to the SYCL backend** — UV-plane motion
+  stays CPU-only. The SYCL `picture_copy()` callsites at
   [`src/feature/sycl/integer_ms_ssim_sycl.cpp`](../../../libvmaf/src/feature/sycl/integer_ms_ssim_sycl.cpp)
   and
   [`src/feature/sycl/integer_ssim_sycl.cpp`](../../../libvmaf/src/feature/sycl/integer_ssim_sycl.cpp)

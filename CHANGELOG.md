@@ -433,6 +433,28 @@
   reducer and QP-offset mapper without dragging libvmaf's link
   surface in. See [ADR-0221](docs/adr/0221-vmaf-roi-tool.md).
 
+- **`motion3_score` GPU coverage on Vulkan + CUDA + SYCL
+  (T3-15(c) / ADR-0219).** The `motion` extractor's third output
+  (`integer_motion3`) is now emitted by the three GPU twins —
+  `motion_vulkan`, `motion_cuda`, `motion_sycl` — in 3-frame window
+  mode (the default; the 5-frame `motion_five_frame_window=true`
+  mode is now explicitly rejected with `-ENOTSUP` at `init()`).
+  motion3 is a deterministic scalar post-process of `motion2`
+  (`motion_blend(motion2 * motion_fps_weight, motion_blend_factor,
+  motion_blend_offset)` clipped to `motion_max_val`, with optional
+  moving-average), so the GPU port is purely a host-side add-on
+  after the existing SAD reduction — no kernel changes. The full
+  CPU options surface (`motion_blend_factor`, `motion_blend_offset`,
+  `motion_fps_weight`, `motion_max_val`, `motion_moving_average`)
+  is added to each GPU extractor with defaults matching CPU. The
+  cross-backend parity gates
+  ([`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
+  + [`scripts/ci/cross_backend_vif_diff.py`](scripts/ci/cross_backend_vif_diff.py))
+  extend `FEATURE_METRICS["motion"]` to compare `integer_motion3`
+  at `places=4`. Closes the GPU coverage gap that was tracked as
+  T3-17 in the backlog audit (now T3-15(c)) and the "Vulkan motion3
+  GPU gap" in [`docs/backlog-audit-2026-04-28.md`](docs/backlog-audit-2026-04-28.md)
+  row A.1.4. See [ADR-0219](docs/adr/0219-motion3-gpu-coverage.md).
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame

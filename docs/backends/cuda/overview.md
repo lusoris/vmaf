@@ -177,11 +177,18 @@ to surface an unexpected delta.
   `motion3_score`)** — these were added to the CPU `float_motion`
   extractor by the upstream port from Netflix/vmaf
   [`b949cebf`](https://github.com/Netflix/vmaf/commit/b949cebf)
-  (2026-04-29). The fork's `integer_motion_cuda` kernel is unchanged
-  and still consumes the existing `motion2_score` only — the new
-  `motion_add_uv=true` path exercises `picture_copy(..., 1/2)` for
-  U/V planes on the CPU side and is **not yet wired through to the
-  CUDA backend**. The CUDA `picture_copy()` callsite at
+  (2026-04-29). As of T3-15(c) /
+  [ADR-0219](../../adr/0219-motion3-gpu-coverage.md), the
+  `integer_motion_cuda` kernel emits `motion3_score` in 3-frame
+  window mode via host-side `motion_blend()` post-processing of
+  `motion2_score`; the full options surface
+  (`motion_blend_factor`, `motion_blend_offset`, `motion_fps_weight`,
+  `motion_max_val`, `motion_moving_average`) is exposed.
+  `motion_five_frame_window=true` is rejected with `-ENOTSUP` at
+  `init()` (the 5-deep blur ring is still deferred). The
+  `motion_add_uv=true` path is independent from motion3 and
+  remains **not yet wired through to the CUDA backend**. The CUDA
+  `picture_copy()` callsite at
   [`src/feature/cuda/integer_ms_ssim_cuda.c`](../../../libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c)
   passes `0` for the new trailing `channel` argument (Y-plane only,
   preserving CUDA pre-port behaviour). UV-plane motion on GPU is a

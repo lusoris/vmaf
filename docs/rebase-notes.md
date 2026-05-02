@@ -5268,4 +5268,62 @@ inline.*
       --encoder x265 --ctu-size 64 --strength 6.0 | head -3
   # First two lines are the # comment header; row 1 of the grid
   # should be "4 2 1 -1 -1 -1 1 2 4" (placeholder radial map).
+### 0219 — motion3 GPU coverage on Vulkan + CUDA + SYCL (T3-15(c) / ADR-0219)
+
+- **What changed**: The `motion` GPU twins
+  (`libvmaf/src/feature/vulkan/motion_vulkan.c`,
+  `libvmaf/src/feature/cuda/integer_motion_cuda.c`,
+  `libvmaf/src/feature/sycl/integer_motion_sycl.cpp`) now emit
+  `VMAF_integer_feature_motion3_score` in 3-frame window mode
+  (default). Cross-backend gates extended (`scripts/ci/cross_backend_*.py`
+  `FEATURE_METRICS["motion"]`).
+- **Invariants**:
+  1. **`motion3 = host-side scalar post-process of motion2`.** No
+     device-side state changes; motion3 is computed on the host in
+     `extract()` / `collect()` / `flush()` after the existing SAD
+     reduction. The post-processing function
+     (`motion3_postprocess_*`) mirrors CPU `integer_motion.c`
+     lines 510-560 byte-for-byte:
+     `clip(motion_blend(motion2 * fps_weight, blend_factor,
+     blend_offset), max_val)` with optional moving-average against
+     the *unaveraged* prior blended value.
+  2. **`motion_five_frame_window=true` returns `-ENOTSUP` at
+     `init()`** on all three GPU backends. The 5-deep blur ring +
+     second SAD-pair dispatch remain deferred. Do NOT silently
+     fall back to the 3-frame path when the user enables the flag —
+     fail loud per CERT C / CLAUDE.md §12 r4.
+  3. **CPU motion3 algorithm is the source of truth.** Any port of
+     an upstream Netflix change to `integer_motion.c` that touches
+     `motion_blend(...)`, the `motion_max_val` clip, or the
+     moving-average rule MUST be mirrored in
+     `motion3_postprocess_*` across all three GPU files in the
+     same PR. The cross-backend gate at `places=4` will catch
+     drift, but only after a full GPU run.
+- **On upstream sync**: Pure fork-local additions to GPU TUs.
+  Upstream Netflix has no GPU motion extractor. The
+  `motion_blend_tools.h` header is upstream-mirrored — if a sync
+  rewrites the `motion_blend()` formula, regenerate the GPU
+  snapshot and re-run the cross-backend gate.
+- **Re-test on rebase**:
+
+  ```bash
+  # CPU sanity (motion3 emission unchanged)
+  ./libvmaf/build/tools/vmaf \
+      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+      --feature motion --output /tmp/motion.json --json
+  python -c "import json; d=json.load(open('/tmp/motion.json')); \
+      print('motion3 frames:', sum(1 for f in d['frames'] \
+      if 'integer_motion3' in f.get('metrics', {})))"
+  # Expect 49 (one motion3 per frame).
+
+  # Cross-backend gate (Vulkan/lavapipe lane works on every host):
+  python scripts/ci/cross_backend_vif_diff.py \
+      --feature motion --backend vulkan \
+      --ref python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --dis python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --bitdepth 8 \
+      --vmaf-bin libvmaf/build/tools/vmaf
+  # Expect: integer_motion / integer_motion2 / integer_motion3 all OK at places=4.
   ```

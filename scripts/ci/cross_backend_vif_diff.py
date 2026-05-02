@@ -47,9 +47,14 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
         "integer_vif_scale2",
         "integer_vif_scale3",
     ),
+    # T3-15(c) / ADR-0219: GPU motion now emits motion3_score in
+    # 3-frame window mode. The 5-frame window mode
+    # (motion_five_frame_window=true) remains deferred — the GPU
+    # extractors reject it with -ENOTSUP at init().
     "motion": (
         "integer_motion",
         "integer_motion2",
+        "integer_motion3",
     ),
     # GPU long-tail batch 3 part 1 (T7-23 / ADR-0192 / ADR-0193):
     # motion_v2 stateless variant. Same 5-tap separable filter as

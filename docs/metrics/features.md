@@ -209,7 +209,12 @@ described by `motion_blend_factor` / `motion_blend_offset`) on the second
 frame; the trained VMAF models do not consume `motion3_score` and remain
 unchanged.
 
-**Backends** — AVX2, AVX-512, NEON; CUDA for `motion` (fixed-point). The
+**Backends** — AVX2, AVX-512, NEON; CUDA, SYCL, and Vulkan for
+`motion` (fixed-point). All three GPU backends emit `motion`,
+`motion2`, **and** `motion3` (the latter as of T3-15(c) /
+[ADR-0219](../adr/0219-motion3-gpu-coverage.md)) in 3-frame window
+mode; the 5-frame window mode (`motion_five_frame_window=true`)
+returns `-ENOTSUP` at `init()` on GPU. The
 `motion_add_uv=true` path is currently CPU-only — see
 [backends/cuda/overview.md §Known gaps](../backends/cuda/overview.md#known-gaps)
 and [backends/sycl/overview.md §Known gaps](../backends/sycl/overview.md#known-gaps).
