@@ -602,6 +602,19 @@ test_vulkan_smoke = executable('test_vulkan_smoke',
     c_args: ['-DHAVE_VULKAN=1']
 )
 test('test_vulkan_smoke', test_vulkan_smoke)
+
+# T7-29 part 4 (ADR-0235): contract smoke for the v2 async
+# pending-fence ring. Public-API only — the GPU-end-to-end
+# ring-wrap correctness path lives in the FFmpeg filter
+# downstream (T7-29 part 3) and the cross-backend gate.
+test_vulkan_async_pending_fence = executable('test_vulkan_async_pending_fence',
+    ['test.c', 'test_vulkan_async_pending_fence.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+    c_args: ['-DHAVE_VULKAN=1']
+)
+test('test_vulkan_async_pending_fence', test_vulkan_async_pending_fence)
 endif
 
 # ADR-0209 / T5-2: embedded MCP scaffold smoke. Pins the -ENOSYS

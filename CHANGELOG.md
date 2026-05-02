@@ -250,6 +250,36 @@
   [`docs/research/0041-gpu-gen-ulp-calibration.md`](docs/research/0041-gpu-gen-ulp-calibration.md).
   Data-collection scaffold lands at
   [`ai/scripts/collect_gpu_calibration_data.py`](ai/scripts/collect_gpu_calibration_data.py).
+- **Vulkan VkImage import — v2 async pending-fence ring (T7-29
+  part 4 / ADR-0235).** The synchronous in-call fence wait that
+  shipped in [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md)
+  is replaced with a per-frame fence ring keyed by
+  `frame_index % ring_size`. `vmaf_vulkan_import_image` now
+  records, submits, and returns immediately; the FFmpeg
+  `libvmaf_vulkan` filter's decoder thread can run ahead while
+  libvmaf drains in the background. `vmaf_vulkan_wait_compute`
+  blocks on every outstanding fence in submission order and is
+  the natural drain point before
+  `vmaf_vulkan_state_build_pictures` reads the host mappings.
+  Default ring depth is 4 ("frames-in-flight" canonical value);
+  staging arena scales `2 × ring_size` per state (~16 MiB
+  host-visible at 1080p 8-bit Y, default depth). Public ABI
+  preserved — the ring is fully internal to `VmafVulkanState`,
+  so [`ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`](ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch)
+  needs no changes. New contract smoke
+  [`libvmaf/test/test_vulkan_async_pending_fence.c`](libvmaf/test/test_vulkan_async_pending_fence.c)
+  pins the v1 → v2 swap (`-EINVAL` on `vk_image == 0` regardless
+  of slot index, idle `wait_compute` is a no-op, NULL-ctx checks
+  in `read_imported_pictures` for slot 0, ring_size-1, and
+  post-wrap indices). New
+  [`libvmaf/src/vulkan/AGENTS.md`](libvmaf/src/vulkan/AGENTS.md)
+  carries the rebase-sensitive ring invariants (fixed depth,
+  reset-after-wait, drain-before-destroy). Cross-backend gate
+  contract unchanged — async submission only changes when the
+  host can read, not which bytes the staging buffer receives;
+  `places=4` holds. Status flips from Proposed to Accepted
+  after the lavapipe / hardware wall-clock measurement gate
+  (`v2 ≤ 0.7 × v1` on Netflix normal pair) lands.
 - **`enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0215).**
   The Vulkan `float_ms_ssim_vulkan` and CUDA `float_ms_ssim_cuda`
   extractors now honour the `enable_lcs` option, emitting the same

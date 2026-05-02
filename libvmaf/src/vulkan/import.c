@@ -3,24 +3,29 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  T7-29 part 2 — VkImage zero-copy import (ADR-0186).
+ *  T7-29 part 4 — v2 async pending-fence ring (ADR-0235).
  *
  *  Implements the libvmaf_vulkan.h "import" surface that PR #128
  *  scaffolded as -ENOSYS. Caller hands us an externally-decoded
  *  VkImage (e.g. AVVkFrame from FFmpeg's Vulkan hwframes); we wait
  *  the caller's timeline semaphore on the GPU, transition the
  *  image to TRANSFER_SRC_OPTIMAL, vkCmdCopyImageToBuffer the Y
- *  plane into a per-state staging VkBuffer (HOST_VISIBLE +
- *  COHERENT), and signal completion via a fence.
+ *  plane into a per-slot staging VkBuffer (HOST_VISIBLE +
+ *  COHERENT), and signal completion via a per-slot fence.
  *
  *  The staging buffers are allocated to match the DATA_ALIGN-rounded
  *  stride that vmaf_picture_alloc would produce, so
  *  vmaf_vulkan_read_imported_pictures can hand them straight to
  *  vmaf_read_pictures without an extra host memcpy.
  *
- *  Synchronisation model (v1): import_image submits and waits on
- *  the fence in-call. wait_compute is therefore a no-op on the
- *  current path but is kept in the public surface so the v2
- *  async-pending-fence model can drop in without an ABI change.
+ *  Synchronisation model (v2 — ADR-0235): import_image submits
+ *  to slot `frame_index % ring_size` and returns immediately; if
+ *  that slot is still in flight from a prior frame the call waits
+ *  the prior fence first (ring back-pressure). wait_compute drains
+ *  every outstanding fence in submission order so the host can
+ *  read the staging mappings safely. state_build_pictures waits
+ *  the per-slot fence for the requested index before exposing
+ *  the host pointer to vmaf_read_pictures.
  */
 
 #include <assert.h>
@@ -64,10 +69,70 @@ static size_t aligned_stride_bytes(unsigned w, unsigned bpc)
     return (size_t)aw * bpp;
 }
 
-static int alloc_command_resources(struct VmafVulkanState *state)
+static unsigned clamp_ring_size(unsigned requested)
+{
+    if (requested == 0u)
+        return VMAF_VULKAN_RING_DEFAULT;
+    if (requested > VMAF_VULKAN_RING_MAX)
+        return VMAF_VULKAN_RING_MAX;
+    return requested;
+}
+
+/* Drain a single slot's fence if it carries an outstanding
+ * submission. Required before re-recording the slot's command
+ * buffer (Vulkan spec: command buffer must not be in the
+ * pending state). Also called by wait_compute and the teardown
+ * path. */
+static int drain_slot_fence(struct VmafVulkanState *state, struct VmafVulkanImportSlot *slot)
+{
+    if (!slot->fence_in_flight)
+        return 0;
+    VmafVulkanContext *ctx = state->ctx;
+    if (vkWaitForFences(ctx->device, 1, &slot->fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+        return -EIO;
+    if (vkResetFences(ctx->device, 1, &slot->fence) != VK_SUCCESS)
+        return -EIO;
+    slot->fence_in_flight = 0;
+    return 0;
+}
+
+static void slot_release(struct VmafVulkanState *state, struct VmafVulkanImportSlot *slot)
 {
     VmafVulkanContext *ctx = state->ctx;
-    struct VmafVulkanImportSlots *s = &state->import;
+    assert(ctx != NULL);
+    assert(ctx->device != VK_NULL_HANDLE);
+    if (slot->fence != VK_NULL_HANDLE) {
+        vkDestroyFence(ctx->device, slot->fence, NULL);
+        slot->fence = VK_NULL_HANDLE;
+    }
+    if (slot->cmd != VK_NULL_HANDLE) {
+        assert(ctx->command_pool != VK_NULL_HANDLE);
+        vkFreeCommandBuffers(ctx->device, ctx->command_pool, 1, &slot->cmd);
+        slot->cmd = VK_NULL_HANDLE;
+    }
+    if (slot->ref_buf) {
+        vmaf_vulkan_buffer_free(ctx, slot->ref_buf);
+        slot->ref_buf = NULL;
+    }
+    if (slot->dis_buf) {
+        vmaf_vulkan_buffer_free(ctx, slot->dis_buf);
+        slot->dis_buf = NULL;
+    }
+    slot->ref_pending = slot->dis_pending = 0;
+    slot->ref_index = slot->dis_index = 0u;
+    slot->fence_in_flight = 0;
+}
+
+static int slot_alloc(struct VmafVulkanState *state, struct VmafVulkanImportSlot *slot, size_t size)
+{
+    VmafVulkanContext *ctx = state->ctx;
+
+    int err = vmaf_vulkan_buffer_alloc(ctx, &slot->ref_buf, size);
+    if (err)
+        return err;
+    err = vmaf_vulkan_buffer_alloc(ctx, &slot->dis_buf, size);
+    if (err)
+        goto fail;
 
     VkCommandBufferAllocateInfo cbai = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -75,21 +140,26 @@ static int alloc_command_resources(struct VmafVulkanState *state)
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = 1,
     };
-    if (vkAllocateCommandBuffers(ctx->device, &cbai, &s->cmd) != VK_SUCCESS)
-        return -ENOMEM;
+    if (vkAllocateCommandBuffers(ctx->device, &cbai, &slot->cmd) != VK_SUCCESS) {
+        err = -ENOMEM;
+        goto fail;
+    }
 
     VkFenceCreateInfo fci = {
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
     };
-    if (vkCreateFence(ctx->device, &fci, NULL, &s->fence) != VK_SUCCESS) {
-        vkFreeCommandBuffers(ctx->device, ctx->command_pool, 1, &s->cmd);
-        s->cmd = VK_NULL_HANDLE;
-        return -ENOMEM;
+    if (vkCreateFence(ctx->device, &fci, NULL, &slot->fence) != VK_SUCCESS) {
+        err = -ENOMEM;
+        goto fail;
     }
     return 0;
+
+fail:
+    slot_release(state, slot);
+    return err;
 }
 
-static int lazy_alloc_buffers(struct VmafVulkanState *state, unsigned w, unsigned h, unsigned bpc)
+static int lazy_alloc_ring(struct VmafVulkanState *state, unsigned w, unsigned h, unsigned bpc)
 {
     struct VmafVulkanImportSlots *s = &state->import;
     if (s->w != 0u) {
@@ -105,29 +175,22 @@ static int lazy_alloc_buffers(struct VmafVulkanState *state, unsigned w, unsigne
 
     const size_t stride = aligned_stride_bytes(w, bpc);
     const size_t size = stride * (size_t)h;
+    const unsigned ring_size = clamp_ring_size(state->requested_ring_size);
 
-    int err = vmaf_vulkan_buffer_alloc(state->ctx, &s->ref_buf, size);
-    if (err)
-        return err;
-    err = vmaf_vulkan_buffer_alloc(state->ctx, &s->dis_buf, size);
-    if (err) {
-        vmaf_vulkan_buffer_free(state->ctx, s->ref_buf);
-        s->ref_buf = NULL;
-        return err;
-    }
-    err = alloc_command_resources(state);
-    if (err) {
-        vmaf_vulkan_buffer_free(state->ctx, s->ref_buf);
-        vmaf_vulkan_buffer_free(state->ctx, s->dis_buf);
-        s->ref_buf = NULL;
-        s->dis_buf = NULL;
-        return err;
+    for (unsigned i = 0u; i < ring_size; i++) {
+        int err = slot_alloc(state, &s->ring[i], size);
+        if (err) {
+            for (unsigned j = 0u; j < i; j++)
+                slot_release(state, &s->ring[j]);
+            return err;
+        }
     }
 
     s->w = w;
     s->h = h;
     s->bpc = bpc;
     s->stride_bytes = stride;
+    s->ring_size = ring_size;
     return 0;
 }
 
@@ -139,47 +202,46 @@ void vmaf_vulkan_import_slots_free(struct VmafVulkanState *state)
     VmafVulkanContext *ctx = state->ctx;
     assert(ctx != NULL);
     assert(ctx->device != VK_NULL_HANDLE);
-    if (s->fence != VK_NULL_HANDLE) {
-        vkDestroyFence(ctx->device, s->fence, NULL);
-        s->fence = VK_NULL_HANDLE;
+
+    /* Drain every outstanding fence before destroying anything —
+     * vkDestroyFence on a fence still owned by a queue submission
+     * is undefined behaviour. ADR-0235 invariant. */
+    for (unsigned i = 0u; i < s->ring_size; i++) {
+        if (s->ring[i].fence_in_flight) {
+            (void)drain_slot_fence(state, &s->ring[i]);
+        }
     }
-    if (s->cmd != VK_NULL_HANDLE) {
-        assert(ctx->command_pool != VK_NULL_HANDLE);
-        vkFreeCommandBuffers(ctx->device, ctx->command_pool, 1, &s->cmd);
-        s->cmd = VK_NULL_HANDLE;
-    }
-    if (s->ref_buf) {
-        vmaf_vulkan_buffer_free(ctx, s->ref_buf);
-        s->ref_buf = NULL;
-    }
-    if (s->dis_buf) {
-        vmaf_vulkan_buffer_free(ctx, s->dis_buf);
-        s->dis_buf = NULL;
-    }
+    /* Belt-and-braces: idle the queue so any non-tracked work
+     * (e.g. a feature kernel that ran on the same queue) drains
+     * before we release the staging buffers. The non-zero
+     * VmafVulkanContext path may have submitted work outside the
+     * ring; vkQueueWaitIdle is the cheapest universal barrier. */
+    if (ctx->queue != VK_NULL_HANDLE)
+        (void)vkQueueWaitIdle(ctx->queue);
+
+    for (unsigned i = 0u; i < s->ring_size; i++)
+        slot_release(state, &s->ring[i]);
     s->w = s->h = s->bpc = 0u;
     s->stride_bytes = 0u;
-    s->ref_pending = s->dis_pending = 0;
-    s->ref_index = s->dis_index = 0u;
-    /* Power of 10 §5: post-condition — every cached resource is now released. */
-    assert(s->ref_buf == NULL);
-    assert(s->dis_buf == NULL);
+    s->ring_size = 0u;
 }
 
-static int record_image_to_buffer_copy(struct VmafVulkanState *state, VkImage image,
+static int record_image_to_buffer_copy(struct VmafVulkanState *state,
+                                       struct VmafVulkanImportSlot *slot, VkImage image,
                                        VkImageLayout current_layout, VkBuffer dst, unsigned w,
                                        unsigned h)
 {
     struct VmafVulkanImportSlots *s = &state->import;
     const uint32_t aligned_w = (uint32_t)(s->stride_bytes / ((s->bpc > 8u) ? 2u : 1u));
 
-    if (vkResetCommandBuffer(s->cmd, 0) != VK_SUCCESS)
+    if (vkResetCommandBuffer(slot->cmd, 0) != VK_SUCCESS)
         return -EIO;
 
     VkCommandBufferBeginInfo cbbi = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     };
-    if (vkBeginCommandBuffer(s->cmd, &cbbi) != VK_SUCCESS)
+    if (vkBeginCommandBuffer(slot->cmd, &cbbi) != VK_SUCCESS)
         return -EIO;
 
     /* Layout transition into TRANSFER_SRC_OPTIMAL. We do not
@@ -198,8 +260,8 @@ static int record_image_to_buffer_copy(struct VmafVulkanState *state, VkImage im
         .image = image,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    vkCmdPipelineBarrier(s->cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0, 0, NULL, 0, NULL, 1, &to_src);
+    vkCmdPipelineBarrier(slot->cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &to_src);
 
     VkBufferImageCopy region = {
         .bufferOffset = 0,
@@ -209,16 +271,21 @@ static int record_image_to_buffer_copy(struct VmafVulkanState *state, VkImage im
         .imageOffset = {0, 0, 0},
         .imageExtent = {w, h, 1},
     };
-    vkCmdCopyImageToBuffer(s->cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, 1, &region);
+    vkCmdCopyImageToBuffer(slot->cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, 1, &region);
 
-    if (vkEndCommandBuffer(s->cmd) != VK_SUCCESS)
+    if (vkEndCommandBuffer(slot->cmd) != VK_SUCCESS)
         return -EIO;
     return 0;
 }
 
-static int submit_and_wait(struct VmafVulkanState *state, VkSemaphore wait_sem, uint64_t wait_value)
+/* Submit the slot's command buffer and capture the fence for a
+ * later wait. Unlike v1's submit_and_wait, this returns as soon
+ * as vkQueueSubmit accepts the work — the fence is drained later
+ * by drain_slot_fence (called from build_pictures, wait_compute,
+ * or the next ring-wrap that lands on the same slot). */
+static int submit_to_slot(struct VmafVulkanState *state, struct VmafVulkanImportSlot *slot,
+                          VkSemaphore wait_sem, uint64_t wait_value)
 {
-    struct VmafVulkanImportSlots *s = &state->import;
     VmafVulkanContext *ctx = state->ctx;
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
@@ -230,7 +297,7 @@ static int submit_and_wait(struct VmafVulkanState *state, VkSemaphore wait_sem, 
     VkSubmitInfo si = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .commandBufferCount = 1,
-        .pCommandBuffers = &s->cmd,
+        .pCommandBuffers = &slot->cmd,
     };
     if (wait_sem != VK_NULL_HANDLE) {
         si.pNext = &tsi;
@@ -239,12 +306,9 @@ static int submit_and_wait(struct VmafVulkanState *state, VkSemaphore wait_sem, 
         si.pWaitDstStageMask = &wait_stage;
     }
 
-    if (vkResetFences(ctx->device, 1, &s->fence) != VK_SUCCESS)
+    if (vkQueueSubmit(ctx->queue, 1, &si, slot->fence) != VK_SUCCESS)
         return -EIO;
-    if (vkQueueSubmit(ctx->queue, 1, &si, s->fence) != VK_SUCCESS)
-        return -EIO;
-    if (vkWaitForFences(ctx->device, 1, &s->fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
-        return -EIO;
+    slot->fence_in_flight = 1;
     return 0;
 }
 
@@ -261,35 +325,41 @@ int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image, uint32_
     if (vk_image == 0u)
         return -EINVAL;
 
-    int err = lazy_alloc_buffers(state, w, h, bpc);
+    int err = lazy_alloc_ring(state, w, h, bpc);
     if (err)
         return err;
 
     struct VmafVulkanImportSlots *s = &state->import;
-    VmafVulkanBuffer *dst = is_ref ? s->ref_buf : s->dis_buf;
-    err = record_image_to_buffer_copy(state, (VkImage)vk_image, (VkImageLayout)vk_layout,
+    const unsigned slot_idx = index % s->ring_size;
+    struct VmafVulkanImportSlot *slot = &s->ring[slot_idx];
+
+    /* Ring back-pressure: if the slot still holds an in-flight
+     * submission from a previous frame (frame index `index -
+     * ring_size`), wait that fence before re-recording. This is
+     * exactly the "frames-in-flight = ring_size" stall — it
+     * shouldn't happen if the consumer drains in order, but it's
+     * the spec-required guard against re-recording a command
+     * buffer that's still pending. ADR-0235 invariant. */
+    err = drain_slot_fence(state, slot);
+    if (err)
+        return err;
+
+    VmafVulkanBuffer *dst = is_ref ? slot->ref_buf : slot->dis_buf;
+    err = record_image_to_buffer_copy(state, slot, (VkImage)vk_image, (VkImageLayout)vk_layout,
                                       (VkBuffer)vmaf_vulkan_buffer_vkhandle(dst), w, h);
     if (err)
         return err;
 
-    err = submit_and_wait(state, (VkSemaphore)vk_semaphore, vk_semaphore_value);
-    if (err)
-        return err;
-
-    /* HOST_VISIBLE | (potentially) NON_COHERENT memory needs an
-     * explicit invalidate before the host reads back the GPU's
-     * write. VMA's flush helper covers both directions on
-     * coherent and non-coherent heaps. */
-    err = vmaf_vulkan_buffer_flush(state->ctx, dst);
+    err = submit_to_slot(state, slot, (VkSemaphore)vk_semaphore, vk_semaphore_value);
     if (err)
         return err;
 
     if (is_ref) {
-        s->ref_pending = 1;
-        s->ref_index = index;
+        slot->ref_pending = 1;
+        slot->ref_index = index;
     } else {
-        s->dis_pending = 1;
-        s->dis_index = index;
+        slot->dis_pending = 1;
+        slot->dis_index = index;
     }
     return 0;
 }
@@ -298,8 +368,16 @@ int vmaf_vulkan_wait_compute(VmafVulkanState *state)
 {
     if (!state || !state->ctx)
         return -EINVAL;
-    /* v1 is synchronous — submit_and_wait already drained. Kept
-     * in the surface for the v2 async-pending-fence model. */
+    /* v2 (ADR-0235): drain every outstanding ring fence so the
+     * caller can read the staging mappings or reuse the imported
+     * VkImages. v1's no-op contract is preserved when no slot
+     * has work in flight. */
+    struct VmafVulkanImportSlots *s = &state->import;
+    for (unsigned i = 0u; i < s->ring_size; i++) {
+        int err = drain_slot_fence(state, &s->ring[i]);
+        if (err)
+            return err;
+    }
     return 0;
 }
 
@@ -340,23 +418,49 @@ int vmaf_vulkan_state_build_pictures(VmafVulkanState *state, unsigned index, Vma
     if (!state || !out_ref || !out_dis)
         return -EINVAL;
     struct VmafVulkanImportSlots *s = &state->import;
-    if (!s->ref_pending || !s->dis_pending)
-        return -EINVAL;
-    if (s->ref_index != index || s->dis_index != index)
-        return -EINVAL;
-    if (s->w == 0u)
+    if (s->w == 0u || s->ring_size == 0u)
         return -EINVAL;
 
-    int err = build_one_picture(out_ref, s->ref_buf, s->w, s->h, s->bpc, s->stride_bytes);
+    const unsigned slot_idx = index % s->ring_size;
+    struct VmafVulkanImportSlot *slot = &s->ring[slot_idx];
+
+    if (!slot->ref_pending || !slot->dis_pending)
+        return -EINVAL;
+    if (slot->ref_index != index || slot->dis_index != index)
+        return -EINVAL;
+
+    /* v2 (ADR-0235): the slot's fence is the natural drain point
+     * for "host can now read the staging buffers". Wait it
+     * before exposing the host pointers to vmaf_read_pictures —
+     * if the caller already drained via vmaf_vulkan_wait_compute,
+     * fence_in_flight is 0 and this is a no-op. */
+    int err = drain_slot_fence(state, slot);
     if (err)
         return err;
-    err = build_one_picture(out_dis, s->dis_buf, s->w, s->h, s->bpc, s->stride_bytes);
+
+    /* HOST_VISIBLE | (potentially) NON_COHERENT memory needs an
+     * explicit invalidate before the host reads back the GPU's
+     * write. VMA's flush helper covers both directions on
+     * coherent and non-coherent heaps. The flush has to come
+     * AFTER the fence wait so the GPU writes are actually
+     * visible to the device-cache invalidate. */
+    err = vmaf_vulkan_buffer_flush(state->ctx, slot->ref_buf);
+    if (err)
+        return err;
+    err = vmaf_vulkan_buffer_flush(state->ctx, slot->dis_buf);
+    if (err)
+        return err;
+
+    err = build_one_picture(out_ref, slot->ref_buf, s->w, s->h, s->bpc, s->stride_bytes);
+    if (err)
+        return err;
+    err = build_one_picture(out_dis, slot->dis_buf, s->w, s->h, s->bpc, s->stride_bytes);
     if (err) {
         (void)vmaf_picture_unref(out_ref);
         return err;
     }
 
-    s->ref_pending = 0;
-    s->dis_pending = 0;
+    slot->ref_pending = 0;
+    slot->dis_pending = 0;
     return 0;
 }

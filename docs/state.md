@@ -26,7 +26,7 @@ landed fix yet._
 
 | Bug | Summary | Reproducer | Owner | Target |
 |---|---|---|---|---|
-| _(none)_ | All known correctness bugs that affect the fork are either landed or explicitly deferred (see below). New entries go here as discovered. | — | — | — |
+| **#239** — FFmpeg `libvmaf_vulkan` filter wall-clock serialisation (lawrence profile 2026-04-30) | Synchronous fence wait inside `vmaf_vulkan_import_image` (ADR-0186 v1) blocks the FFmpeg decoder thread on every frame, preventing CPU/GPU overlap. The bottleneck is exactly the deferred follow-up the parent ADR predicted. | `ffmpeg -hwaccel vulkan -i ref.mkv -i dis.mkv -filter_complex '[0:v]hwupload[r];[1:v]hwupload[d];[r][d]libvmaf_vulkan' -f null -` against the Netflix normal pair; measure wall-clock against the v1 binary. | T7-29 part 4 / [ADR-0235](adr/0235-vulkan-async-pending-fence.md) | v2 ring lands as ADR-0235 Proposed; bug closes when the measurement gate (`v2 ≤ 0.7 × v1` on lavapipe/hardware) flips ADR-0235 to Accepted. |
 
 ## Deferred (waiting on external dataset access)
 
