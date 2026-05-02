@@ -44,6 +44,7 @@
 #include "feature_name.h"
 #include "log.h"
 
+#include "../../vulkan/kernel_template.h"
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
@@ -120,9 +121,13 @@ typedef struct {
     int owns_ctx;
 
     /* Pipelines: one per (stage, scale) combination = 4 stages × 4 scales = 16. */
-    VkDescriptorSetLayout dsl;
-    VkPipelineLayout pipeline_layout;
-    VkShaderModule shader;
+    /* `pl` carries the shared layout / shader / DSL / pool plus the
+     * (stage=0, scale=0) base pipeline. The other 15 entries in
+     * `pipelines[stage][scale]` are sibling pipelines created via
+     * `vmaf_vulkan_kernel_pipeline_add_variant()`.
+     * `pipelines[0][0]` aliases `pl.pipeline` so the dispatch path
+     * keeps a clean 2-D lookup. (ADR-0221.) */
+    VmafVulkanKernelPipeline pl;
     VkPipeline pipelines[ADM_NUM_STAGES][ADM_NUM_SCALES];
     VkDescriptorPool desc_pool;
 
@@ -254,107 +259,95 @@ static GainQ31 gain_to_q31(double gain_limit)
 /* Pipeline / descriptor-set layout creation.                          */
 /* ------------------------------------------------------------------ */
 
+struct AdmSpecData {
+    int32_t width;
+    int32_t height;
+    int32_t bpc;
+    int32_t scale;
+    int32_t stage;
+};
+
+static void adm_fill_spec(struct AdmSpecData *spec_data, VkSpecializationMapEntry map[5],
+                          VkSpecializationInfo *spec_info, const AdmVulkanState *s, int stage,
+                          int scale)
+{
+    spec_data->width = (int32_t)s->width;
+    spec_data->height = (int32_t)s->height;
+    spec_data->bpc = (int32_t)s->bpc;
+    spec_data->scale = scale;
+    spec_data->stage = stage;
+    map[0] = (VkSpecializationMapEntry){.constantID = 0, .offset = 0, .size = sizeof(int32_t)};
+    map[1] = (VkSpecializationMapEntry){.constantID = 1, .offset = 4, .size = sizeof(int32_t)};
+    map[2] = (VkSpecializationMapEntry){.constantID = 2, .offset = 8, .size = sizeof(int32_t)};
+    map[3] = (VkSpecializationMapEntry){.constantID = 3, .offset = 12, .size = sizeof(int32_t)};
+    map[4] = (VkSpecializationMapEntry){.constantID = 4, .offset = 16, .size = sizeof(int32_t)};
+    *spec_info = (VkSpecializationInfo){
+        .mapEntryCount = 5,
+        .pMapEntries = map,
+        .dataSize = sizeof(*spec_data),
+        .pData = spec_data,
+    };
+}
+
+static int build_pipeline_for(AdmVulkanState *s, int stage, int scale, VkPipeline *out_pipeline)
+{
+    struct AdmSpecData spec_data = {0};
+    VkSpecializationMapEntry map[5];
+    VkSpecializationInfo spec_info = {0};
+    adm_fill_spec(&spec_data, map, &spec_info, s, stage, scale);
+
+    VkComputePipelineCreateInfo cpci = {
+        .stage =
+            {
+                .pName = "main",
+                .pSpecializationInfo = &spec_info,
+            },
+    };
+    return vmaf_vulkan_kernel_pipeline_add_variant(s->ctx, &s->pl, &cpci, out_pipeline);
+}
+
 static int create_pipelines(AdmVulkanState *s)
 {
-    VkDevice dev = s->ctx->device;
+    /* (stage=0, scale=0) is the base pipeline. The template owns
+     * the shared layout / shader / DSL / pool plus this base.
+     * 9 SSBOs per set; pool sized for 4 frames × 16 (stage,scale)
+     * pairs = 64 sets. */
+    struct AdmSpecData spec_data = {0};
+    VkSpecializationMapEntry map[5];
+    VkSpecializationInfo spec_info = {0};
+    adm_fill_spec(&spec_data, map, &spec_info, s, /*stage=*/0, /*scale=*/0);
 
-    /* Nine SSBOs, matching adm.comp bindings 0..8. */
-    VkDescriptorSetLayoutBinding bindings[9] = {0};
-    for (int i = 0; i < 9; i++) {
-        bindings[i].binding = (uint32_t)i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo dslci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = 9,
-        .pBindings = bindings,
-    };
-    if (vkCreateDescriptorSetLayout(dev, &dslci, NULL, &s->dsl) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkPushConstantRange pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(AdmPushConsts),
-    };
-    VkPipelineLayoutCreateInfo plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &s->dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pcr,
-    };
-    if (vkCreatePipelineLayout(dev, &plci, NULL, &s->pipeline_layout) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkShaderModuleCreateInfo smci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = adm_spv_size,
-        .pCode = adm_spv,
-    };
-    if (vkCreateShaderModule(dev, &smci, NULL, &s->shader) != VK_SUCCESS)
-        return -ENOMEM;
-
-    /* 4 stages × 4 scales = 16 pipelines. */
-    for (int stage = 0; stage < ADM_NUM_STAGES; stage++) {
-        for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
-            struct {
-                int32_t width;
-                int32_t height;
-                int32_t bpc;
-                int32_t scale;
-                int32_t stage;
-            } spec_data = {(int32_t)s->width, (int32_t)s->height, (int32_t)s->bpc, scale, stage};
-
-            VkSpecializationMapEntry map[5] = {
-                {.constantID = 0, .offset = 0, .size = sizeof(int32_t)},
-                {.constantID = 1, .offset = 4, .size = sizeof(int32_t)},
-                {.constantID = 2, .offset = 8, .size = sizeof(int32_t)},
-                {.constantID = 3, .offset = 12, .size = sizeof(int32_t)},
-                {.constantID = 4, .offset = 16, .size = sizeof(int32_t)},
-            };
-            VkSpecializationInfo spec_info = {
-                .mapEntryCount = 5,
-                .pMapEntries = map,
-                .dataSize = sizeof(spec_data),
-                .pData = &spec_data,
-            };
-            VkComputePipelineCreateInfo cpci = {
-                .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+    const VmafVulkanKernelPipelineDesc desc = {
+        .ssbo_binding_count = 9U,
+        .push_constant_size = (uint32_t)sizeof(AdmPushConsts),
+        .spv_bytes = adm_spv,
+        .spv_size = adm_spv_size,
+        .pipeline_create_info =
+            {
                 .stage =
                     {
-                        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                        .module = s->shader,
                         .pName = "main",
                         .pSpecializationInfo = &spec_info,
                     },
-                .layout = s->pipeline_layout,
-            };
-            if (vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpci, NULL,
-                                         &s->pipelines[stage][scale]) != VK_SUCCESS)
-                return -ENOMEM;
+            },
+        .max_descriptor_sets = (uint32_t)(ADM_NUM_SCALES * ADM_NUM_STAGES * 4),
+    };
+    int err = vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl);
+    if (err)
+        return err;
+    s->pipelines[0][0] = s->pl.pipeline;
+
+    /* The remaining 15 (stage, scale) variants — same layout,
+     * shader, DSL, pool, different stage/scale spec-constants. */
+    for (int stage = 0; stage < ADM_NUM_STAGES; stage++) {
+        for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
+            if (stage == 0 && scale == 0)
+                continue;
+            err = build_pipeline_for(s, stage, scale, &s->pipelines[stage][scale]);
+            if (err)
+                return err;
         }
     }
-
-    /* Descriptor pool: room for ADM_NUM_SCALES × ADM_NUM_STAGES sets
-     * × 4 frames in flight. Each set has 9 storage buffers. */
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 9 * ADM_NUM_SCALES * ADM_NUM_STAGES * 4,
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = ADM_NUM_SCALES * ADM_NUM_STAGES * 4,
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
-
     return 0;
 }
 
@@ -837,10 +830,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     VkDescriptorSet sets[ADM_NUM_SCALES] = {VK_NULL_HANDLE};
     VkDescriptorSetLayout layouts[ADM_NUM_SCALES];
     for (int i = 0; i < ADM_NUM_SCALES; i++)
-        layouts[i] = s->dsl;
+        layouts[i] = s->pl.dsl;
     VkDescriptorSetAllocateInfo dsai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
+        .descriptorPool = s->pl.desc_pool,
         .descriptorSetCount = ADM_NUM_SCALES,
         .pSetLayouts = layouts,
     };
@@ -941,10 +934,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             uint32_t gx = (cw + ADM_WG_X - 1u) / ADM_WG_X;
             uint32_t gy = (hh + ADM_WG_Y - 1u) / ADM_WG_Y;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[0][scale]);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline_layout, 0, 1,
-                                    &sets[scale], 0, NULL);
-            vkCmdPushConstants(cmd, s->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
-                               &pc);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0,
+                                    1, &sets[scale], 0, NULL);
+            vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(pc), &pc);
             vkCmdDispatch(cmd, gx, gy, 2);
             issue_pipeline_barrier(cmd);
         }
@@ -1004,7 +997,7 @@ cleanup:
     if (cmd != VK_NULL_HANDLE)
         vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
     if (sets[0] != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, ADM_NUM_SCALES, sets);
+        vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, ADM_NUM_SCALES, sets);
     return err;
 }
 
@@ -1020,20 +1013,19 @@ static int close_fex(VmafFeatureExtractor *fex)
     VkDevice dev = s->ctx->device;
     vkDeviceWaitIdle(dev);
 
-    if (s->desc_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
+    /* Destroy the 15 sibling variants first (every (stage, scale)
+     * except the (0, 0) base); the base + shared layout / shader /
+     * DSL / pool are owned by the template. (0, 0) is skipped to
+     * avoid double-freeing — pipelines[0][0] aliases s->pl.pipeline. */
     for (int stage = 0; stage < ADM_NUM_STAGES; stage++) {
         for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
+            if (stage == 0 && scale == 0)
+                continue;
             if (s->pipelines[stage][scale] != VK_NULL_HANDLE)
                 vkDestroyPipeline(dev, s->pipelines[stage][scale], NULL);
         }
     }
-    if (s->shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(dev, s->shader, NULL);
-    if (s->pipeline_layout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(dev, s->pipeline_layout, NULL);
-    if (s->dsl != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(dev, s->dsl, NULL);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     if (s->src_ref)
         vmaf_vulkan_buffer_free(s->ctx, s->src_ref);

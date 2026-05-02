@@ -89,6 +89,19 @@
 
 ### Changed
 
+- **`adm_vulkan.c` migrated to `vulkan/kernel_template.h` +
+  `_add_variant()` (T-GPU-DEDUP-21).** 16-pipeline 2-D
+  `[stage][scale]` array (4 stages × 4 scales). State collapses
+  `dsl + pipeline_layout + shader + desc_pool` to
+  `VmafVulkanKernelPipeline pl`. The
+  `VkPipeline pipelines[4][4]` 2-D lookup is preserved so the
+  per-stage dispatch path stays clean, but `pipelines[0][0]`
+  aliases `s->pl.pipeline` (template's base) and the other 15
+  entries are sibling pipelines via `_add_variant()`. Validated
+  by `meson test test_vulkan_smoke
+  test_vulkan_async_pending_fence test_vulkan_pic_preallocation`
+  (all green) plus clean compile. Numerical contract unchanged.
+
 - **`psnr_vulkan.c` migrated to `vulkan/kernel_template.h` (T-GPU-DEDUP-5,
   first consumer).** The dormant `vulkan/kernel_template.h` (410 LOC,
   ADR-0221) shipped with zero consumers; its docstring designated
