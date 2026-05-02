@@ -166,7 +166,12 @@ static inline int vmaf_vulkan_kernel_pipeline_create(VmafVulkanContext *ctx,
     if (ctx == NULL || desc == NULL || out == NULL) {
         return -EINVAL;
     }
-    if (desc->ssbo_binding_count == 0U || desc->ssbo_binding_count > 8U) {
+    /* 16 = current high-watermark — float_adm_vulkan binds 9 SSBOs
+     * (src + 2× dwt_tmp + 2× band + 2× csf + accum + dis). All
+     * conformant Vulkan devices allow >= 96 storage buffers per set
+     * (maxDescriptorSetStorageBuffers), so 16 is well within
+     * portability bounds. Lift further if a kernel needs more. */
+    if (desc->ssbo_binding_count == 0U || desc->ssbo_binding_count > 16U) {
         return -EINVAL;
     }
     out->dsl = VK_NULL_HANDLE;
@@ -176,7 +181,7 @@ static inline int vmaf_vulkan_kernel_pipeline_create(VmafVulkanContext *ctx,
     out->desc_pool = VK_NULL_HANDLE;
 
     /* 1. Descriptor set layout: N storage-buffer bindings. */
-    VkDescriptorSetLayoutBinding bindings[8] = {0};
+    VkDescriptorSetLayoutBinding bindings[16] = {0};
     for (uint32_t i = 0; i < desc->ssbo_binding_count; i++) {
         bindings[i].binding = i;
         bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
