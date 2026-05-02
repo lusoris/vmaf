@@ -114,9 +114,11 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Rebase impact**: low. Builds on top of PR #272's
   `_add_variant()` helper.
 
-<<<<<<< HEAD
 >>>>>>> 6b28b4d1 (refactor(vulkan): T-GPU-DEDUP-19 — migrate vif_vulkan to kernel_template)
 >>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
+=======
+<<<<<<< HEAD
+>>>>>>> 1c8f8566 (refactor(vulkan): T-GPU-DEDUP-21 — migrate adm_vulkan to kernel_template)
 ### 0120 — float_vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-20)
 
 - **Touches**:
@@ -144,6 +146,7 @@ cover several PRs in one workstream; cross-link from the ID heading.
   `integer_vif` bit-identically to 4 decimals.
 - **Rebase impact**: low. Builds on top of PR #272's
   `_add_variant()` helper.
+<<<<<<< HEAD
 ### 0122 — float_adm_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-22)
 
 - **Touches**:
@@ -162,6 +165,27 @@ cover several PRs in one workstream; cross-link from the ID heading.
   primitives from `adm_tools.c`; same 5-element spec-constant
   tuple; same float partial accumulation reduced in double on
   the host.
+=======
+### 0121 — adm_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-21)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/adm_vulkan.c` — state collapses
+    `dsl + pipeline_layout + shader + desc_pool` to
+    `VmafVulkanKernelPipeline pl`; the
+    `VkPipeline pipelines[4][4]` 2-D lookup is preserved so the
+    per-stage dispatch path stays clean. `pipelines[0][0]`
+    aliases `s->pl.pipeline` (the template's base); the other
+    15 entries are sibling pipelines via
+    `vmaf_vulkan_kernel_pipeline_add_variant()`.
+- **Invariants**:
+  - Variants destroyed before bundle (same rule as
+    ssim_vulkan / psnr_hvs / vif / float_vif).
+  - `pipelines[0][0]` aliasing — destroy loop must skip
+    `(stage=0, scale=0)` to avoid double-freeing the template's
+    pipeline.
+- **Numerical contract**: unchanged. Same shaders + 5-element
+  spec-constant tuple (width, height, bpc, scale, stage) +
+  push-constants.
 - **Rebase impact**: low. Builds on top of PR #272.
 
 ### 0106 — Vulkan kernel template multi-pipeline + ssim/motion migration (T-GPU-DEDUP-7)
