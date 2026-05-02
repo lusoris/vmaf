@@ -28,10 +28,11 @@ vmaf --tiny-model /missing.onnx 2>&1   # should print a clear error,
 ## Surface 1 — the `vmaf` CLI
 
 ```bash
-# C1 — drop-in augmentation of the classic SVM.
+# C1 — drop-in augmentation of the classic SVM. Default tiny FR model
+# is now vmaf_tiny_v2 (ADR-0216) — supersedes the prior vmaf_tiny_v1.
 vmaf -r ref.yuv -d dis.yuv -w 1920 -h 1080 -p 420 -b 8 \
      -m version=vmaf_v0.6.1 \
-     --tiny-model model/tiny/vmaf_tiny_fr_v1.onnx \
+     --tiny-model model/tiny/vmaf_tiny_v2.onnx \
      --tiny-device cuda
 
 # C2 — no-reference.
@@ -39,6 +40,14 @@ vmaf -d dis.yuv -w 1920 -h 1080 -p 420 -b 8 \
      --tiny-model model/tiny/vmaf_nr_mobilenet_v1.onnx \
      --no-reference
 ```
+
+> **Default flip (2026-04-29).** `vmaf_tiny_v2` replaces
+> `vmaf_tiny_v1` as the recommended tiny FR fusion model. Same input
+> contract (canonical-6 features), same output range (0–100 VMAF),
+> +0.005–0.018 PLCC across the Phase-3 validation chain. The v1 file
+> stays on disk as a regression baseline. See
+> [`models/vmaf_tiny_v2.md`](models/vmaf_tiny_v2.md) for the full
+> model card.
 
 New flags:
 

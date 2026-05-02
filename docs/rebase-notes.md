@@ -5326,4 +5326,48 @@ inline.*
       --width 576 --height 324 --bitdepth 8 \
       --vmaf-bin libvmaf/build/tools/vmaf
   # Expect: integer_motion / integer_motion2 / integer_motion3 all OK at places=4.
+### 0216 — vmaf_tiny_v2 (Phase-3-validated tiny VMAF MLP)
+
+- **Touches**: `model/tiny/registry.json`, `model/tiny/vmaf_tiny_v2.{onnx,json}`,
+  `ai/scripts/{train,export,validate}_vmaf_tiny_v2.py`, `ai/AGENTS.md`,
+  `libvmaf/test/dnn/{test_vmaf_tiny_v2.py,meson.build}`,
+  `docs/ai/{models/vmaf_tiny_v2.md,inference.md,roadmap.md}`,
+  `docs/adr/{0216-vmaf-tiny-v2.md,README.md}`, `CHANGELOG.md`. All
+  paths are wholly fork-local; no upstream Netflix/vmaf code is
+  modified.
+- **Invariants**:
+  1. **Bundled scaler stats are part of the trust root.** The shipped
+     ONNX bakes `(input - mean) / std` as Constant `Sub` + `Div`
+     nodes that run before the MLP. Re-exporting **must** go through
+     `ai/scripts/export_vmaf_tiny_v2.py`, which pulls `mean` / `std`
+     from the trainer checkpoint and writes them as graph
+     initialisers. Adding an out-of-band scaler step at runtime
+     (e.g., a sidecar JSON consumed by the loader) is forbidden
+     without a follow-up ADR — it splits the trust root and
+     invalidates the registry sha256 contract.
+  2. **Feature column order is fixed.** The graph reads
+     `(adm2, vif_scale0, vif_scale1, vif_scale2, vif_scale3, motion2)`
+     in exactly this order; reordering breaks the bundled `mean` /
+     `std` constants. Any change to the feature set requires a fresh
+     Phase-3 chain (Research-0027 → 0028 → 0029 → 0030).
+  3. **opset 17.** Matches the sister tiny-AI models
+     (`learned_filter_v1`, `nr_metric_v1`, `fastdvdnet_pre`) and the
+     ORT op-allowlist baseline. Upgrading requires re-validating the
+     `Sub` / `Div` / `Gemm` / `Relu` / `Squeeze` ops against
+     `op_allowlist.c`.
+- **On upstream sync**: zero interaction. Netflix/vmaf has no
+  equivalent surface; an upstream sync that touches
+  `libvmaf/src/dnn/` (op-allowlist or model-loader changes) needs to
+  preserve `Sub` / `Div` / `Gemm` / `Relu` / `Squeeze` in the
+  allowlist for opset 17.
+- **Re-test on rebase**:
+
+  ```bash
+  bash libvmaf/test/dnn/test_registry.sh
+  python3 libvmaf/test/dnn/test_vmaf_tiny_v2.py
+  python3 ai/scripts/validate_vmaf_tiny_v2.py \
+      --onnx model/tiny/vmaf_tiny_v2.onnx \
+      --parquet runs/full_features_netflix.parquet \
+      --rows 100 --min-plcc 0.97
+  meson test -C build-cpu --suite=dnn
   ```

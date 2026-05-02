@@ -133,3 +133,17 @@ if bash_prog.found()
          env  : { 'TINY_DIR' : meson.project_source_root() / '..' / 'model' / 'tiny' },
          suite : 'dnn')
 endif
+
+# vmaf_tiny_v2 ONNX smoke (ADR-0216). Pure-Python; verifies the
+# registry entry, sidecar, and ONNX inference shape. Skips cleanly when
+# python3 / onnxruntime is missing — the registry sha256 is already
+# guarded by test_registry above; this test adds the sidecar contract +
+# onnxruntime load-path coverage.
+python_prog = find_program('python3', required : false)
+if python_prog.found()
+    test('test_vmaf_tiny_v2',
+         python_prog,
+         args : [files('test_vmaf_tiny_v2.py')],
+         workdir : meson.project_source_root() / '..',
+         suite : 'dnn')
+endif

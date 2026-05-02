@@ -106,6 +106,18 @@ its own training surface):
   binary — the `_make_zero_payload` helper in `ai.train.dataset`
   injects a fake payload so CI gates don't drag a libvmaf build into
   the Python test surface.
+- **`vmaf_tiny_v2` ONNX contract (ADR-0216).** The shipped ONNX
+  embeds the StandardScaler `(mean, std)` as Constant `Sub` + `Div`
+  nodes that run before the MLP. The runtime feeds raw canonical-6
+  feature values; do NOT add an external scaler step. Re-exporting
+  via [`ai/scripts/export_vmaf_tiny_v2.py`](scripts/export_vmaf_tiny_v2.py)
+  is the only supported path — it pulls `mean` / `std` from the
+  trainer checkpoint and bakes them as graph initialisers, so the
+  `model/tiny/registry.json` sha256 covers the calibration values
+  too. Input name is `features` ([N, 6] float32), output `vmaf`
+  ([N] float32); feature column order is fixed at
+  `(adm2, vif_scale0, vif_scale1, vif_scale2, vif_scale3, motion2)`
+  and must not be reordered without a full Phase-3 re-validation.
 
 ## `fr_regressor_v1` (C1 baseline — ADR-0221)
 

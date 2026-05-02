@@ -105,6 +105,19 @@
       "opset": 17,
       "sha256": "7684c1cbbd8a6b40c58c0177ee19683a3f4e894bd559f903b386a52ce2edc9c7",
       "smoke": true
+    },
+    {
+      "id": "vmaf_tiny_v2",
+      "kind": "fr",
+      "onnx": "vmaf_tiny_v2.onnx",
+      "opset": 17,
+      "sha256": "946042c2900df9137e1bdd8dfdaae9a32cc6cd0f3874eeb70d10c29afb990c43",
+      "smoke": false,
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "sigstore_bundle": "vmaf_tiny_v2.onnx.sigstore.json",
+      "description": "Tiny VMAF fusion regressor — canonical-6 features + bundled StandardScaler + mlp_small (~257 params).",
+      "notes": "vmaf_tiny_v2 — Phase-3 validated: mlp_small (6 -> 16 -> 8 -> 1) over canonical-6 (adm2, vif_scale0..3, motion2). 90 epochs Adam @ lr=1e-3, MSE, batch 256. StandardScaler (mean, std) baked into the ONNX graph as Constant Sub + Div nodes per ADR-0216. Trained on the 3-corpus parquet (Netflix + KoNViD + BVI-DVC D+C, 305795 rows). Validated PLCC 0.9978 +- 0.0021 Netflix LOSO; 0.9998 KoNViD 5-fold. opset 17. See docs/adr/0216-vmaf-tiny-v2.md and docs/ai/models/vmaf_tiny_v2.md."
     }
   ]
 }

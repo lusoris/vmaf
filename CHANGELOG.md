@@ -476,6 +476,22 @@
   2026-04-29**; `ai/AGENTS.md` carries the `fr_regressor_v1`
   contract row + rebase-sensitive invariants. See
   [ADR-0221](docs/adr/0221-fr-regressor-v1.md).
+- **Tiny-AI: vmaf_tiny_v2 (ADR-0216).** Ship `model/tiny/vmaf_tiny_v2.onnx`
+  — the production-grade tiny VMAF fusion model on the Phase-3 validated
+  configuration: `mlp_small` (6 → 16 → 8 → 1, ~257 params) over the
+  canonical-6 features (`adm2`, `vif_scale0..3`, `motion2`) with the
+  StandardScaler `(mean, std)` baked into the ONNX graph as Constant
+  `Sub` + `Div` nodes (single-file deploy, trust-root sha256 covers
+  calibration values). 90 epochs Adam @ lr=1e-3, MSE, batch 256.
+  Validated PLCC `0.9978 ± 0.0021` on Netflix LOSO; `0.9998` on
+  KoNViD 5-fold; +0.005–0.018 over the prior Subset-B baseline
+  (Phase-3a/b/c chain). Three new scripts: `train_vmaf_tiny_v2.py`,
+  `export_vmaf_tiny_v2.py`, `validate_vmaf_tiny_v2.py`. Registered as
+  `vmaf_tiny_v2` (kind `fr`, `quant_mode: fp32`, `smoke: false`) in
+  `model/tiny/registry.json`. New user-facing doc
+  [`docs/ai/models/vmaf_tiny_v2.md`](docs/ai/models/vmaf_tiny_v2.md);
+  [`docs/ai/inference.md`](docs/ai/inference.md) default flips v1 →
+  v2; [`docs/ai/roadmap.md`](docs/ai/roadmap.md) row marked shipped.
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
