@@ -1934,6 +1934,25 @@
   computed-index path with a `switch (index)` that materialises the four
   constant-index cases (0..3), unblocking 32-bit-clang builds with no
   64-bit codegen change.
+- **libvmaf/predict: chroma_from_luma correction** (upstream port,
+  Netflix/vmaf
+  [`49d46e23`](https://github.com/Netflix/vmaf/commit/49d46e234ba0d0b7f334d20f735278a9445b9110),
+  Kyle Swanson, 2026-04-29). Adds an optional `chroma_from_luma`
+  post-processing step to the SVR prediction pipeline. Models that set
+  the new `chroma_correction_parameter` numeric key in their JSON enable
+  a `post_process_feature_from_another` pass that adjusts the guided
+  feature ("speed_chroma") from the guiding feature ("adm3"),
+  denormalising both, applying `(-c * guiding) + c`, and renormalising
+  before `svm_predict`. New `denormalize_feature` and
+  `post_process_feature_from_another` helpers and a
+  `chroma_from_luma { enabled, chroma_correction_parameter }` field on
+  `VmafModel`. Adapted to the fork's `predict.c` refactor (cached
+  `model->predict_nodes`, no `goto free_node` label) and to the
+  per-key dispatcher in `read_json_model.c` (new
+  `parse_model_dict_chroma_correction` helper). Dormant for the Netflix
+  golden gate — no fork-shipped model JSON sets the new key, so existing
+  assertions remain bit-identical (verified by `make
+  test-netflix-golden`).
 
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
