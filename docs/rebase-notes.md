@@ -5527,3 +5527,31 @@ inline.*
      docs/research/0044-quality-aware-encode-automation.md
   grep -c '\[ADR-0237\]' docs/adr/README.md
   ```
+
+### 0097 — `test_speed` gated on `enable_float` (fix default-build failure)
+
+- **PR**: fix/test-speed-chroma-registration.
+- **What rebases need to know**: `libvmaf/test/meson.build` now wraps
+  the `test_speed` executable + `test()` registration in
+  `if get_option('enable_float')`. The `speed_chroma` /
+  `speed_temporal` extractors live in `speed.c`, which is only
+  compiled when `enable_float=true` (the entries in
+  `feature_extractor.c` are wrapped in `#if VMAF_FLOAT_FEATURES`),
+  so the test's `vmaf_get_feature_extractor_by_name("speed_chroma")`
+  returned NULL on a default build (`enable_float=false`).
+- **On upstream sync**: zero interaction. `test_speed.c` was added
+  fork-side via the Netflix port commit `d3647c73`. The gating
+  pattern matches `test_vulkan_*` (`if get_option('enable_vulkan').enabled()`).
+- **Re-test on rebase**:
+
+  ```bash
+  # default (enable_float=false): test_speed must NOT be in the suite
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false --reconfigure
+  ninja -C build
+  meson test -C build  # expect: NO test_speed in the run
+
+  # CI shape (enable_float=true): test_speed must run + pass
+  meson setup build libvmaf -Denable_float=true --reconfigure
+  ninja -C build
+  meson test -C build test_speed  # expect: 5/5 pass
+  ```
