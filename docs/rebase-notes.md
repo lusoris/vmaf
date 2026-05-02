@@ -27,6 +27,23 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0117 — float_adm + float_vif cuda lifecycle migration (T-GPU-DEDUP-17)
+
+- **Touches**:
+  - `libvmaf/src/feature/cuda/float_adm_cuda.c` —
+    stream + 2-event lifecycle replaced with
+    `VmafCudaKernelLifecycle lc`; multi-stage DWT + CSF
+    pipeline state stays outside the template's single-pair
+    readback bundle.
+  - `libvmaf/src/feature/cuda/float_vif_cuda.c` — same shape;
+    4-level pyramid + per-scale (num, den) pairs remain inline.
+- **Numerical contract**: unchanged. The migration only affects
+  init / close stream-event boilerplate; submit / collect
+  dispatch and host reduction paths are untouched apart from
+  the field renames.
+- **Rebase impact**: low. Upstream Netflix has no equivalent
+  template; this is fork-added.
+
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
 - **ADR**: [ADR-0235](adr/0235-vulkan-async-pending-fence.md);
