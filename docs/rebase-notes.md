@@ -194,6 +194,19 @@ cover several PRs in one workstream; cross-link from the ID heading.
   Vulkan-boilerplate consolidation. Cross-backend parity gate
   at `places=4` holds — Netflix-pair smoke reports `float_psnr`
   mean 30.755 dB, identical to pre-migration.
+### 0109 — float_ansnr_vulkan + motion_v2_vulkan migrated to kernel_template (T-GPU-DEDUP-9)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/float_ansnr_vulkan.c` —
+    single-pipeline state collapses to
+    `VmafVulkanKernelPipeline pl`; `create_pipelines` and
+    `close_fex` shrink to template-driven create + destroy.
+  - `libvmaf/src/feature/vulkan/motion_v2_vulkan.c` — same shape.
+- **Numerical contract**: unchanged. Pure Vulkan-boilerplate
+  consolidation. Cross-backend parity gate at the kernel's
+  contracted precision holds — Netflix-pair smoke reports
+  `float_ansnr` mean 23.51 dB and `motion2_v2_score` mean 3.895,
+  identical to pre-migration.
 - **Rebase impact**: low. Upstream Netflix has no Vulkan backend.
 
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)

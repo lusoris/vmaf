@@ -293,6 +293,20 @@
   test_vulkan_pic_preallocation` (all green). Numerical contract
   unchanged — same shader / spec-constants / push-constants;
   only the Vulkan boilerplate moved to a shared owner.
+- **`float_ansnr_vulkan.c` + `motion_v2_vulkan.c` migrated to
+  `vulkan/kernel_template.h` (T-GPU-DEDUP-9).** Two single-pipeline
+  Vulkan kernels migrated in one PR. State on each side collapses
+  the `dsl + pipeline_layout + shader + pipeline + desc_pool`
+  quintet to a single `VmafVulkanKernelPipeline pl`;
+  `create_pipelines` and `close_fex` shrink to template-driven
+  create + destroy. Net diff is dominated by deletions (~190 LOC of
+  duplicated boilerplate). No shader / spec-constant /
+  push-constant changes. Validated against the Netflix-pair smoke
+  (`float_ansnr` mean 23.51 dB, `float_anpsnr` mean 34.16 dB,
+  `motion2_v2_score` mean 3.895 across 48 frames) and `meson test
+  test_vulkan_smoke test_vulkan_async_pending_fence
+  test_vulkan_pic_preallocation` (all green). Numerical contract
+  unchanged.
 
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
