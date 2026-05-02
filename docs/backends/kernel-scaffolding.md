@@ -4,10 +4,14 @@ Status: introduced 2026-04-29 ([ADR-0221](../adr/0221-gpu-kernel-template.md));
 templates only — no kernel migrations yet.
 
 This page documents the **per-backend kernel scaffolding templates** that
-sit alongside the CUDA and Vulkan backend runtimes:
+sit alongside the CUDA, Vulkan, and HIP backend runtimes:
 
 - [`libvmaf/src/cuda/kernel_template.h`](../../libvmaf/src/cuda/kernel_template.h)
 - [`libvmaf/src/vulkan/kernel_template.h`](../../libvmaf/src/vulkan/kernel_template.h)
+- [`libvmaf/src/hip/kernel_template.h`](../../libvmaf/src/hip/kernel_template.h)
+  (T7-10 / [ADR-0241](../adr/0241-hip-first-consumer-psnr.md);
+  field-for-field mirror of the CUDA template, helper bodies return
+  `-ENOSYS` until the HIP runtime PR T7-10b lands)
 
 These headers exist to absorb the lifecycle boilerplate that every fork-added
 GPU feature kernel currently re-implements by hand. They are **template-only**:

@@ -52,6 +52,12 @@ enum VmafFeatureExtractorFlags {
     VMAF_FEATURE_EXTRACTOR_PREV_REF = 1 << 3,
     VMAF_FEATURE_EXTRACTOR_SYCL = 1 << 4,
     VMAF_FEATURE_EXTRACTOR_VULKAN = 1 << 5,
+    /* Reserved for the HIP runtime PR (T7-10b). The first-consumer PR
+     * (T7-10 / ADR-0241) registers `vmaf_fex_psnr_hip` without setting
+     * this bit — the picture buffer-type plumbing for HIP arrives with
+     * the runtime. The bit number is reserved here so the runtime PR
+     * can adopt it without an enum reshuffle. */
+    VMAF_FEATURE_EXTRACTOR_HIP = 1 << 6,
 };
 
 typedef struct VmafFeatureExtractor {

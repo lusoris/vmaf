@@ -42,6 +42,29 @@
   registry entry kind `fr` `smoke: false`. ONNX size 4 496 B
   (+2 050 B over v2). Companion research digest:
   [`docs/research/0046-vmaf-tiny-v3-mlp-medium-evaluation.md`](docs/research/0046-vmaf-tiny-v3-mlp-medium-evaluation.md).
+- **HIP backend ships first kernel-template consumer (`integer_psnr_hip`)
+  via T7-10 / [ADR-0241](docs/adr/0241-hip-first-consumer-psnr.md).**
+  Lands [`libvmaf/src/hip/kernel_template.{h,c}`](libvmaf/src/hip/kernel_template.h)
+  (field-for-field mirror of `cuda/kernel_template.h` from
+  [ADR-0221](docs/adr/0221-gpu-kernel-template.md):
+  `VmafHipKernelLifecycle` private-stream + 2-event struct,
+  `VmafHipKernelReadback` device-accumulator + pinned-host pair,
+  six lifecycle helpers) plus
+  [`libvmaf/src/feature/hip/integer_psnr_hip.{c,h}`](libvmaf/src/feature/hip/integer_psnr_hip.c)
+  (first consumer; mirrors `integer_psnr_cuda.c`'s
+  init/submit/collect/close call graph verbatim). Template helper
+  bodies and the consumer's submit/collect return `-ENOSYS` while
+  the runtime PR (T7-10b) is pending; bodies flip to live HIP
+  without touching consumer call-sites. New `vmaf_fex_psnr_hip`
+  registered in `feature_extractor_list` under `#if HAVE_HIP` so
+  callers asking for `psnr_hip` by name get "extractor found,
+  runtime not ready" instead of "no such extractor". New
+  `VMAF_FEATURE_EXTRACTOR_HIP = 1 << 6` flag bit reserved (unused
+  until the picture buffer-type plumbing lands in T7-10b). Smoke
+  test `libvmaf/test/test_hip_smoke.c` grows 5 sub-tests pinning
+  the scaffold contract; 14/14 pass under `-Denable_hip=true`. CPU
+  baseline (47/47) + HIP scaffold (48/48) green. No ROCm SDK
+  required.
 - **Vulkan VmafPicture preallocation surface (T-VULKAN-PREALLOC /
   ADR-0238).** Closes the API parity gap with CUDA / SYCL. New
   public entry points `vmaf_vulkan_preallocate_pictures` +

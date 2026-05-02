@@ -156,7 +156,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 >>>>>>> 6b28b4d1 (refactor(vulkan): T-GPU-DEDUP-19 — migrate vif_vulkan to kernel_template)
 >>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
 =======
-<<<<<<< HEAD
 >>>>>>> 1c8f8566 (refactor(vulkan): T-GPU-DEDUP-21 — migrate adm_vulkan to kernel_template)
 <<<<<<< HEAD
 ### 0120 — float_vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-20)
@@ -226,7 +225,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
   spec-constant tuple (width, height, bpc, scale, stage) +
   push-constants.
 - **Rebase impact**: low. Builds on top of PR #272.
-=======
 =======
 ### 0123 — `ms_ssim_vulkan` 2-bundle migration (T-GPU-DEDUP-23)
 
@@ -6289,6 +6287,7 @@ inline.*
   python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
 
+<<<<<<< HEAD
 ### 0106 — `vmaf_tiny_v3` (mlp_medium) shipped alongside v2 (ADR-0241)
 
 - **What changed**: ships `model/tiny/vmaf_tiny_v3.onnx` (4 496 B,
@@ -6319,4 +6318,57 @@ inline.*
       --rows 5000 --min-plcc 0.97 \
       --v2-onnx model/tiny/vmaf_tiny_v2.onnx
   python3 ai/scripts/validate_model_registry.py
+=======
+### 0106 — HIP first consumer + kernel-template mirror (T7-10 / ADR-0241)
+
+- **Touches**: `libvmaf/src/hip/kernel_template.{h,c}` (new),
+  `libvmaf/src/hip/meson.build`,
+  `libvmaf/src/feature/hip/integer_psnr_hip.{c,h}` (new),
+  `libvmaf/src/feature/feature_extractor.{c,h}`,
+  `libvmaf/test/test_hip_smoke.c`,
+  `libvmaf/src/hip/AGENTS.md` (new),
+  `docs/backends/hip/overview.md`,
+  `docs/backends/kernel-scaffolding.md`.
+- **Upstream source**: fork-local. HIP backend is fork-only; upstream
+  Netflix/vmaf has no HIP path. Zero merge-conflict interaction.
+- **Invariant**: `libvmaf/src/hip/kernel_template.h` mirrors
+  `libvmaf/src/cuda/kernel_template.h` field-for-field. Any change
+  to the CUDA template (helper signatures, struct fields, semantics)
+  needs a paired HIP change in the same PR — otherwise the mirror
+  drifts and consumer call sites diverge between the backends. The
+  HIP variant is intentionally out-of-line (`.c` paired with `.h`)
+  while the runtime is absent (the runtime PR T7-10b will swap
+  bodies in one place); revisit the inline-vs-out-of-line split
+  after T7-10b.
+- **Invariant**: `libvmaf/src/feature/hip/integer_psnr_hip.c`
+  mirrors `libvmaf/src/feature/cuda/integer_psnr_cuda.c`
+  call-graph-for-call-graph (same `PsnrStateHip` / `PsnrStateCuda`
+  fields in the same order, same template-helper invocations in
+  the same init/submit/collect/close sequence). Keep the call
+  graph aligned across backends — drift surfaces as a
+  `/cross-backend-diff` failure once the runtime PR ships real
+  numerics.
+- **Invariant**: `vmaf_fex_psnr_hip` is registered in
+  `feature_extractor_list` under `#if HAVE_HIP` but does **not**
+  set the `VMAF_FEATURE_EXTRACTOR_HIP` flag bit (`1 << 6`). The
+  flag bit is reserved in the enum for the runtime PR (T7-10b)
+  which will add the `VMAF_PICTURE_BUFFER_TYPE_HIP_DEVICE` tag and
+  *then* set the flag. Do not flip the flag earlier — the picture
+  buffer-type check in `vmaf_feature_extractor_context_extract`
+  routes a HIP-flagged extractor through a buffer-type branch that
+  doesn't exist yet.
+- **Re-test on rebase**:
+
+  ```bash
+  # Scaffold-only HIP build (no ROCm SDK required):
+  meson setup build-hip -Denable_hip=true \
+                        -Denable_cuda=false -Denable_sycl=false \
+                        libvmaf
+  ninja -C build-hip
+  meson test -C build-hip                     # 48/48 pass expected
+  meson test -C build-hip test_hip_smoke -v   # 14/14 sub-tests
+  # CPU baseline must also stay green:
+  meson setup build-cpu -Denable_cuda=false -Denable_sycl=false libvmaf
+  ninja -C build-cpu
+  meson test -C build-cpu                     # 47/47 pass expected
   ```

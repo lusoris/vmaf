@@ -107,6 +107,12 @@ extern VmafFeatureExtractor vmaf_fex_float_adm_vulkan;
 extern VmafFeatureExtractor vmaf_fex_ssimulacra2_vulkan;
 extern VmafFeatureExtractor vmaf_fex_cambi_vulkan;
 #endif
+#if HAVE_HIP
+/* HIP first-consumer kernel — T7-10 / ADR-0241. Registration succeeds
+ * but `init()` returns -ENOSYS until the runtime PR (T7-10b) replaces
+ * the kernel-template helper bodies with real HIP calls. */
+extern VmafFeatureExtractor vmaf_fex_psnr_hip;
+#endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_fastdvdnet_pre;
 extern VmafFeatureExtractor vmaf_fex_mobilesal;
@@ -176,6 +182,14 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_float_ssim_cuda, &vmaf_fex_float_ms_ssim_cuda, &vmaf_fex_psnr_hvs_cuda,
     &vmaf_fex_float_ansnr_cuda, &vmaf_fex_float_psnr_cuda, &vmaf_fex_float_motion_cuda,
     &vmaf_fex_float_vif_cuda, &vmaf_fex_ssimulacra2_cuda, &vmaf_fex_float_adm_cuda,
+#endif
+#if HAVE_HIP
+    /* T7-10 first consumer (ADR-0241): registration succeeds even on
+     * the scaffold-only build so a caller asking for `psnr_hip` gets
+     * the cleaner "extractor found, runtime not ready (-ENOSYS)"
+     * surface instead of "no such extractor". The runtime PR
+     * (T7-10b) keeps this row verbatim and adds its siblings. */
+    &vmaf_fex_psnr_hip,
 #endif
     &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2,
     &vmaf_fex_null, NULL};
