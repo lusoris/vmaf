@@ -6431,10 +6431,50 @@ inline.*
       --feature adm --backend vulkan --places 4
   ```
 
-- **Why this matters on rebase**: an upstream commit that touches
-  `libvmaf/src/feature/ssimulacra2.c` could prompt a "let's also
-  port the GPU XYB while we're here" follow-up. The ledger entry
-  is the standing answer: don't, the measurement was redone on
-  NVIDIA in May 2026 and the result still failed `places=4` by
-  five decades. See
-  [Research-0047](research/0051-ssimulacra2-gpu-xyb-precision.md).
+### 0107 — `psnr_hvs_cuda` async upload + persistent pinned staging (T-GPU-OPT-2/3)
+
+- **Touches**:
+  - `libvmaf/src/feature/cuda/integer_psnr_hvs_cuda.c` — only
+    consumer; fork-local from inception (T7-23 / ADR-0188 /
+    ADR-0191). State adds `upload_str` (dedicated H2D stream),
+    `upload_done` (cross-stream completion event), and per-plane
+    persistent pinned `h_uint_ref[3]` / `h_uint_dist[3]` staging
+    buffers allocated once in `init_fex_cuda`. The per-call
+    helper `upload_plane_cuda` is split into `issue_d2h_plane`
+    (pic-stream D2H), `convert_plane` (CPU normalise), and
+    `issue_h2d_plane` (upload-stream H2D). `submit_fex_cuda`
+    runs the three phases explicitly and records `upload_done`
+    after the last H2D, then `cuStreamWaitEvent`s on `lc.str`
+    before kernel launches.
+  - `libvmaf/src/cuda/AGENTS.md` — adds a rebase-sensitive
+    invariant entry under §Rebase-sensitive invariants
+    documenting the three-phase flow + persistent staging
+    contract.
+- **Invariant**: the pinned `h_uint_*` and `h_ref` / `h_dist`
+  buffers are never freed and re-allocated mid-stream; the H2Ds
+  must run on `upload_str` (not on `lc.str`) so the
+  `cuStreamWaitEvent` cross-stream link is meaningful; the
+  `upload_done` event is recorded *after the last H2D for the
+  current frame* and waited on once before *the first* kernel
+  launch of that frame. CUDA graph capture (future T-GPU-OPT-N)
+  depends on the no-per-frame-alloc invariant; collapsing the
+  three-phase split or re-introducing per-frame
+  `vmaf_cuda_buffer_host_alloc` calls breaks that follow-up.
+  Bit-exactness gate is `places=3` for `psnr_hvs_y / cb / cr`
+  and the combined `psnr_hvs` (matches the existing matrix; not
+  `places=4`).
+- **On upstream sync**: zero interaction. `integer_psnr_hvs_cuda.c`
+  is fork-introduced (T7-23 / ADR-0188 / ADR-0191).
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=true -Denable_sycl=false
+  ninja -C build
+  meson test -C build
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary libvmaf/build/tools/vmaf \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+    --feature psnr_hvs --backend cuda --places 3
+  ```
