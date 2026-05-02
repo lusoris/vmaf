@@ -27,6 +27,27 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0118 — psnr_hvs_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-18)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/psnr_hvs_vulkan.c` — state's
+    `dsl + pipeline_layout + shader + desc_pool + pipeline[3]`
+    collapses to `VmafVulkanKernelPipeline pl +
+    VkPipeline pipeline_chroma_u + VkPipeline pipeline_chroma_v`.
+    Plane 0 is the template's base pipeline; planes 1+2 are
+    siblings via `vmaf_vulkan_kernel_pipeline_add_variant()`.
+  - New `psnr_hvs_plane_pipeline()` accessor maps plane index to
+    the right `VkPipeline` handle.
+- **Invariant — variants destroyed before bundle**. `close_fex`
+  must `vkDestroyPipeline()` the chroma U/V variants before
+  calling `vmaf_vulkan_kernel_pipeline_destroy(&s->pl)` — same
+  rule as ssim_vulkan in T-GPU-DEDUP-7.
+- **Numerical contract**: unchanged. Same shaders + spec-constants
+  + push-constants as before; only the Vulkan pipeline-bundle
+  scaffolding moved to the template.
+- **Rebase impact**: low. Builds on top of PR #272's
+  `_add_variant()` helper.
+
 ### 0106 — Vulkan kernel template multi-pipeline + ssim/motion migration (T-GPU-DEDUP-7)
 
 - **Touches**:
