@@ -51,6 +51,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /* Per-shot accumulators kept in a static-size array; no dynamic resizing. */
 #define VMAF_PER_SHOT_MAX_SHOTS 4096U
@@ -588,11 +591,22 @@ static int per_shot_write_plan(const struct vmaf_per_shot_settings *s,
 {
     if (s == NULL || s->output == NULL)
         return -EINVAL;
-    FILE *out = fopen(s->output, "w");
+    /* Use open() + fdopen() with explicit 0644 (rw-r--r--) instead of
+     * fopen() so the new file is not created world-writable per the
+     * process umask. CodeQL's "File created without restricting
+     * permissions" alert; the explicit mode is the canonical fix and
+     * matches what every Unix CLI does for user-output files. */
+    int fd = open(s->output, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    if (fd < 0) {
+        (void)fprintf(stderr, "vmaf-perShot: cannot open output %s\n", s->output);
+        return -EIO;
+    }
+    FILE *out = fdopen(fd, "w");
     if (out == NULL) {
         /* strerror() is concurrency-mt-unsafe; the path is enough
          * context for the user to diagnose. */
         (void)fprintf(stderr, "vmaf-perShot: cannot open output %s\n", s->output);
+        (void)close(fd);
         return -EIO;
     }
     int rc = (s->format == VMAF_PER_SHOT_FMT_CSV) ?
