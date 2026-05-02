@@ -32,6 +32,7 @@
 #include "feature_extractor.h"
 #include "feature_name.h"
 #include "cuda/integer_psnr_hvs_cuda.h"
+#include "cuda/kernel_template.h"
 #include "log.h"
 #include "mem.h"
 #include "picture.h"
@@ -45,10 +46,11 @@
 #define PSNR_HVS_BLOCK_DIM 8
 
 typedef struct PsnrHvsStateCuda {
-    CUevent event;
-    CUevent finished;
+    /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
+     * (ADR-0221). Multi-plane buffer state stays outside the
+     * template's single-pair readback bundle. */
+    VmafCudaKernelLifecycle lc;
     CUfunction func_psnr_hvs;
-    CUstream str;
 
     unsigned width[PSNR_HVS_NUM_PLANES];
     unsigned height[PSNR_HVS_NUM_PLANES];
@@ -131,14 +133,15 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         s->num_blocks[p] = s->num_blocks_x[p] * s->num_blocks_y[p];
     }
 
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
     CudaFunctions *cu_f = fex->cu_state->f;
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
 
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, psnr_hvs_score_ptx), fail);
@@ -171,6 +174,7 @@ fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -228,7 +232,7 @@ static int upload_plane_cuda(PsnrHvsStateCuda *s, VmafFeatureExtractor *fex, Vma
 
     const size_t plane_bytes = (size_t)s->width[plane] * s->height[plane] * sizeof(float);
     CHECK_CUDA_RETURN(cu_f,
-                      cuMemcpyHtoDAsync((CUdeviceptr)dst_buf->data, h_buf, plane_bytes, s->str));
+                      cuMemcpyHtoDAsync((CUdeviceptr)dst_buf->data, h_buf, plane_bytes, s->lc.str));
     return 0;
 }
 
@@ -266,7 +270,7 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
             (void *)&nby,        (void *)&plane_arg,   (void *)&bpc_arg,
         };
         CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_psnr_hvs, nbx, nby, 1, PSNR_HVS_BLOCK_DIM,
-                                               PSNR_HVS_BLOCK_DIM, 1, 0, s->str, params, NULL));
+                                               PSNR_HVS_BLOCK_DIM, 1, 0, s->lc.str, params, NULL));
     }
     return 0;
 }
@@ -282,9 +286,9 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
         const size_t partials_bytes = (size_t)s->num_blocks[p] * sizeof(float);
         CHECK_CUDA_RETURN(cu_f,
                           cuMemcpyDtoHAsync(s->h_partials[p], (CUdeviceptr)s->d_partials[p]->data,
-                                            partials_bytes, s->str));
+                                            partials_bytes, s->lc.str));
     }
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
 
     /* Per-plane reduction matching CPU's float `ret` register
      * semantics (see psnr_hvs_vulkan.c for the rationale). */
@@ -315,18 +319,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     PsnrHvsStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1);
-after_event1:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2);
-after_event2:;
-
-    int ret = _cuda_err;
+    int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
         if (s->d_ref[p]) {
             ret |= vmaf_cuda_buffer_free(fex->cu_state, s->d_ref[p]);
