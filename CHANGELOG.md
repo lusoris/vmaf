@@ -122,6 +122,21 @@
   dispatch grid math, and host-side reductions are byte-identical.
   `motion_vulkan.c` deferred (uses two pipelines sharing a layout;
   needs a multi-pipeline template extension).
+- **`float_adm_cuda.c` + `float_vif_cuda.c` lifecycle migrated to
+  `cuda/kernel_template.h` (T-GPU-DEDUP-17).** Eleventh and twelfth
+  consumers of the CUDA template. Both kernels are multi-stage
+  pipelines — float_adm runs 16 launches (4 stages × 4 scales)
+  with DWT + CSF + decouple intermediates, float_vif runs 4
+  compute + 3 decimate launches across a 4-level pyramid — so the
+  template's single-pair readback bundle isn't a fit. The
+  lifecycle helper still applies cleanly: state collapses
+  `CUstream str + CUevent event + CUevent finished` to
+  `VmafCudaKernelLifecycle lc`; init / close call the matching
+  template helpers; submit / collect references updated via
+  mechanical sed (`s->str` → `s->lc.str`, `s->event` →
+  `s->lc.submit`, `s->finished` → `s->lc.finished`). Numerical
+  contracts unchanged.
+
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
   `vmaf_tiny_ai_open_session`, `vmaf_tiny_ai_yuv8_to_rgb8_planes`,

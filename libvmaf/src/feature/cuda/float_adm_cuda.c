@@ -25,6 +25,7 @@
 #include "feature_name.h"
 
 #include "cuda/float_adm_cuda.h"
+#include "cuda/kernel_template.h"
 #include "cuda_helper.cuh"
 #include "picture.h"
 #include "picture_cuda.h"
@@ -54,13 +55,14 @@ typedef struct {
 
     float rfactor[12];
 
-    CUevent event;
-    CUevent finished;
+    /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
+     * (ADR-0221). Multi-stage DWT + CSF pipeline state stays outside
+     * the template's single-pair readback bundle. */
+    VmafCudaKernelLifecycle lc;
     CUfunction func_dwt_vert;
     CUfunction func_dwt_hori;
     CUfunction func_decouple_csf;
     CUfunction func_csf_cm;
-    CUstream str;
 
     VmafCudaBuffer *src_ref;
     VmafCudaBuffer *src_dis;
@@ -195,14 +197,15 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         s->rfactor[scale * 3 + 2] = 1.0f / f2;
     }
 
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, float_adm_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_dwt_vert, module, "float_adm_dwt_vert"),
                     fail);
@@ -311,6 +314,7 @@ fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -522,15 +526,15 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     }
 
     /* Sync over to the secondary stream + D2H copy partials. */
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, pic_stream));
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, pic_stream));
+    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
     for (int scale = 0; scale < FADM_NUM_SCALES; scale++) {
         CHECK_CUDA_RETURN(
             cu_f, cuMemcpyDtoHAsync(s->accum_host[scale], (CUdeviceptr)s->accum[scale]->data,
                                     (size_t)s->wg_count[scale] * FADM_ACCUM_SLOTS * sizeof(float),
-                                    s->str));
+                                    s->lc.str));
     }
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
     return 0;
 }
 
@@ -538,7 +542,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index, VmafFeatu
 {
     FloatAdmStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
 
     /* Per-scale double accumulation across WGs, mirroring the Vulkan
      * host wrapper's reduce_and_emit. */
@@ -626,19 +630,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index, VmafFeatu
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     FloatAdmStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1);
-after_event1:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2);
-after_event2:;
-
-    int ret = _cuda_err;
+    int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     if (s->src_ref) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->src_ref);
         free(s->src_ref);
