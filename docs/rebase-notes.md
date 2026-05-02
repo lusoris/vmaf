@@ -27,6 +27,19 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0108 — Bristol VI-Lab feasibility digest + BVI-CC ingest ADR (Draft)
+
+- **Touches**:
+  - `docs/research/0046-bristol-vi-lab-feasibility.md` (new) —
+    nine-dataset survey + use-case fit + effort estimate.
+  - `docs/adr/0241-bristol-bvi-cc-ingest.md` (new, Status: Draft)
+    — proposal to ingest BVI-CC as the second tiny-AI corpus.
+  - `docs/adr/README.md` — index row for ADR-0241.
+  - `CHANGELOG.md` — Added entry.
+- **Numerical contract**: not applicable (docs-only).
+- **Rebase impact**: none. Pure research deliverables; upstream
+  Netflix has no equivalent surface.
+
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
 - **ADR**: [ADR-0235](adr/0235-vulkan-async-pending-fence.md);
