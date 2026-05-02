@@ -5749,4 +5749,21 @@ inline.*
   meson test -C build  # 50/50 pass on lavapipe (under ASan/UBSan)
   python scripts/ci/cross_backend_parity_gate.py --feature float_moment_ref1st --places 4
   python scripts/ci/cross_backend_parity_gate.py --feature ciede2000 --places 2
+### 0101 — GPU backend pattern doc (ADR-0240)
+
+- **PR**: docs/gpu-backend-template.
+- **What rebases need to know**: doc-only PR. Adds
+  `docs/development/gpu-backend-template.md` (recipe new GPU
+  backends follow) and `libvmaf/include/libvmaf/AGENTS.md`
+  (public-headers-tree invariant note). No source code, no meson
+  changes, no ABI impact.
+- **On upstream sync**: zero interaction. Both files are
+  fork-introduced.
+- **Re-test on rebase**:
+
+  ```bash
+  # Doc-only — verify links resolve:
+  test -f docs/development/gpu-backend-template.md
+  test -f libvmaf/include/libvmaf/AGENTS.md
+  grep -c 'gpu-backend-template' libvmaf/include/libvmaf/AGENTS.md
   ```
