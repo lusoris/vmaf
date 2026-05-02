@@ -81,7 +81,7 @@ cythonize-deps: $(VENV_PIP)
 
 .PHONY: lint lint-c lint-py lint-sh format format-check sec sbom \
         test-netflix-golden test-sanitizers test-fast hooks-install help \
-        coverage coverage-html coverage-check assertion-density
+        coverage coverage-html coverage-check assertion-density pr-check
 
 # Top-level lint — runs every analyzer we own. Uses the meson compile_commands.json.
 lint: lint-c lint-py lint-sh docs-fragments-check
@@ -241,6 +241,29 @@ hooks-install:
 	pre-commit install --install-hooks
 	pre-commit install --hook-type commit-msg
 
+# pr-check — local equivalent of the rule-enforcement.yml deliverables gate.
+# Runs scripts/ci/deliverables-check.sh against an existing PR's body
+# (PR=<num>) or against a local body file (BODY=<path>). Exits non-zero
+# if the six-deliverable checklist or any ticked file reference is
+# inconsistent with the diff vs origin/master.
+#
+# Usage:
+#   make pr-check PR=260
+#   make pr-check BODY=pr-body.md
+pr-check:
+	@if [ -n "$(PR)" ]; then \
+	    echo "--- pr-check: fetching PR $(PR) body via gh ---"; \
+	    PR_BODY="$$(gh pr view $(PR) --json body -q .body)" \
+	        bash scripts/ci/deliverables-check.sh; \
+	elif [ -n "$(BODY)" ]; then \
+	    echo "--- pr-check: reading body from $(BODY) ---"; \
+	    PR_BODY="$$(cat "$(BODY)")" \
+	        bash scripts/ci/deliverables-check.sh; \
+	else \
+	    echo "Usage: make pr-check PR=<number>  OR  make pr-check BODY=<file>" >&2; \
+	    exit 2; \
+	fi
+
 help:
 	@echo "Fork-specific targets:"
 	@echo "  make lint             — clang-tidy + cppcheck + ruff + shellcheck"
@@ -248,6 +271,7 @@ help:
 	@echo "  make format-check     — same, no writes (CI gate)"
 	@echo "  make sec              — semgrep (CERT-C + CWE + fork rules)"
 	@echo "  make sbom             — SPDX + CycloneDX SBOMs via syft"
+	@echo "  make pr-check         — ADR-0108 deliverables gate (PR=<num> or BODY=<file>)"
 	@echo "  make test-netflix-golden — D24 gate: 3 Netflix CPU test pairs"
 	@echo "  make test-sanitizers  — ASan + UBSan build + run"
 	@echo "  make test-fast        — meson --suite=fast (pre-push gate)"
