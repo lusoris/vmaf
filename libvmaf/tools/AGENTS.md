@@ -5,15 +5,17 @@ Orientation for agents working on the CLI binaries. Parent:
 
 ## Scope
 
-Two C binaries built by libvmaf's Meson tree:
+Three C binaries built by libvmaf's Meson tree:
 
 - `vmaf` — the end-user scoring CLI
 - `vmaf_bench` — micro-benchmark harness for extractors and backends
+- `vmaf-perShot` — per-shot CRF predictor sidecar (T6-3b / ADR-0222)
 
-```
+```text
 tools/
   vmaf.c              # main() + option dispatch for the vmaf CLI
   vmaf_bench.c        # main() + benchmark harness
+  vmaf_per_shot.c     # main() + scan/predict for the perShot sidecar
   cli_parse.c/.h      # shared option parser (--precision, --tiny-model, …)
 ```
 
@@ -48,7 +50,20 @@ tools/
   Supersedes ADR-0006.
 - [ADR-0006](../../docs/adr/0006-cli-precision-17g-default.md) — *Superseded.*
   Original `%.17g`-default decision; kept for history.
-- [ADR-0023](../../docs/adr/0023-tinyai-user-surfaces.md) — `--tiny-model` as one of four tiny-AI surfaces.
+- [ADR-0023](../../docs/adr/0023-tinyai-user-surfaces.md) — `--tiny-model`
+  as one of four tiny-AI surfaces.
+- [ADR-0222](../../docs/adr/0222-vmaf-per-shot-tool.md) — `vmaf-perShot`
+  per-shot CRF predictor sidecar (T6-3b).
+  - **Sidecar invariant**: this binary is **standalone** —
+    it does not link the libvmaf metric path; its output is
+    an encoder hint, not a quality score. Any future
+    integration must keep the per-shot prediction outside
+    `vmaf_score_*` to preserve roadmap §2.4's separation.
+  - **Schema invariant**: CSV / JSON columns
+    (`shot_id`, `start_frame`, `end_frame`, `frames`,
+    `mean_complexity`, `mean_motion`, `predicted_crf`)
+    are stable across v1; v2's trained MLP must reuse
+    them to avoid downstream encoder churn.
 - [ADR-0104](../../docs/adr/0104-picture-pool-always-on.md) — picture
   pool is always compiled in and sized for the live-picture set; this
   is what makes the `--frame_skip_*` unref invariant load-bearing.

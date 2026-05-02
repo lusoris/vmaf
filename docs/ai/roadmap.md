@@ -120,8 +120,15 @@ extractor (`transnet_v2`, 100-slot ring buffer, `[1, 100, 3, 27, 48] →
 [1, 100]` ONNX contract) lands with a smoke-only placeholder checkpoint
 emitting per-frame `shot_boundary_probability` + `shot_boundary` flag;
 real upstream weights (Soucek & Lokoc 2020 MIT) are tracked as
-**T6-3a-followup**, the per-shot CRF predictor + `tools/vmaf-perShot`
-CLI as **T6-3b**. See [`docs/ai/models/transnet_v2.md`](models/transnet_v2.md).
+**T6-3a-followup**. See [`docs/ai/models/transnet_v2.md`](models/transnet_v2.md).
+**T6-3b shipped 2026-04-29** —
+[`tools/vmaf-perShot`](../usage/vmaf-perShot.md) sidecar landed under
+[ADR-0222](../adr/0222-vmaf-per-shot-tool.md). v1 uses a transparent
+linear-blend predictor + frame-difference shot detector (fallback path;
+the TransNet V2 extractor wires in once T6-3a / ADR-0220 merges). v2
+will swap the linear blend for a small trained MLP under the same
+CSV / JSON schema (separate ADR, deferred until a labelled per-shot
+CRF corpus is in hand).
 
 ## 3. FFmpeg / encoder expansion
 
