@@ -107,6 +107,84 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   per-kernel records.
 - [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) —
   GPU-parity CI gate.
+Orientation for agents working on the Vulkan backend runtime. Parent:
+[../../AGENTS.md](../../AGENTS.md).
+
+## Scope
+
+The Vulkan-side runtime (instance / device / queue / VMA allocator
+lifecycle, picture buffer pools, dispatch helpers, host-side import
+slots for VkImage zero-copy). Vulkan **feature kernels** live one
+level deeper in [../feature/vulkan/](../feature/vulkan/), with their
+GLSL compute shaders under
+[../feature/vulkan/shaders/](../feature/vulkan/shaders/).
+
+```text
+vulkan/
+  common.c              # context init + global state
+  dispatch_strategy.c/.h # PRIMARY vs SECONDARY cmdbuf decision
+  import.c              # VkImage zero-copy import slots
+  import_picture.h      # public-facing import surface
+  kernel_template.h     # per-feature Vulkan kernel scaffolding (ADR-0221)
+  meson.build           # SPIR-V embed chain (glslc + spv_embed.py)
+  picture_vulkan.c/.h   # VmafPicture on a Vulkan device + buffers
+  spv_embed.py          # generates per-shader <name>_spv.h byte array
+  vma_impl.cpp          # VMA allocator instantiation TU
+  vulkan_common.h       # opaque public surface
+  vulkan_internal.h     # context + import-slot layout (kernel-side)
+```
+
+## Ground rules
+
+- **Parent rules** apply in full (see [../../AGENTS.md](../../AGENTS.md)).
+- **Every Vulkan call has its `VkResult` checked.** No silent drops;
+  feature kernels return `-EIO` / `-ENOMEM` on failure and let the
+  feature collector unwind.
+- **`volk` loads every Vulkan entry point at runtime** — kernel TUs
+  must include `vulkan_internal.h` (which `#define`s
+  `VK_NO_PROTOTYPES` and pulls in `<volk.h>`), never `<vulkan/vulkan.h>`
+  directly. Otherwise you get duplicate definitions.
+- **Numerical snapshots**: kernels that don't bit-match the CPU
+  scalar reference at `places=4` regenerate
+  `testdata/scores_cpu_vulkan.json` via
+  [`/regen-snapshots`](../../../.claude/skills/regen-snapshots/SKILL.md)
+  with a justification in the commit message.
+
+## Rebase-sensitive invariants
+
+- **`kernel_template.h` is the canonical kernel scaffolding**
+  (fork-local, ADR-0221): the inline helpers
+  `vmaf_vulkan_kernel_pipeline_create/_destroy`,
+  `vmaf_vulkan_kernel_submit_begin/_end_and_wait/_free` capture the
+  descriptor-set layout + pipeline layout + shader module + compute
+  pipeline + descriptor pool + per-frame command-buffer + fence
+  shape every fork-added Vulkan feature kernel uses. The template
+  lands unused — each future kernel migration is its own gated PR
+  (`places=4` cross-backend-diff per ADR-0214). **On rebase**: keep
+  the header and any kernel call-sites that later adopt it; upstream
+  has no Vulkan backend at all today, so there is nothing to merge
+  against. Reference implementation that mirrors the template's
+  shape lives in `libvmaf/src/feature/vulkan/psnr_vulkan.c`. See
+  [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) and
+  [docs/backends/kernel-scaffolding.md](../../../docs/backends/kernel-scaffolding.md).
+
+- **`VmafVulkanContext` ownership flag** (fork-local, ADR-0186):
+  `owns_handles` distinguishes contexts created by libvmaf (true)
+  from contexts handed in via the public
+  `vmaf_vulkan_state_init_external` (false). `context_destroy` must
+  honour the flag — do not unconditionally call `vkDestroyDevice` /
+  `vkDestroyInstance`. The VMA allocator and command pool are
+  always libvmaf-owned regardless. **On rebase**: keep the flag
+  and the conditional destroy logic verbatim.
+
+- **Persistent host-mapped buffers** (fork-local, ADR-0175): every
+  feature kernel binds host-visible SSBOs through
+  `vmaf_vulkan_buffer_alloc` + `vmaf_vulkan_buffer_host` rather
+  than `vkMapMemory` / `vkUnmapMemory` per frame. VMA picks a
+  HOST_VISIBLE heap; on non-coherent heaps (some dGPU configs)
+  `vmaf_vulkan_buffer_flush` is the explicit coherence point.
+  **On rebase**: do not introduce per-frame map/unmap; the
+  persistent mapping is the contract.
 
 ## Build
 
@@ -119,3 +197,20 @@ Requires `dependency('vulkan')`, `glslc` (Vulkan SDK or shaderc
 package), and the bundled volk + VMA subprojects. The lavapipe
 software rasteriser (Mesa) is sufficient for the cross-backend
 gate; physical GPUs (Arc A380, RTX 4090) cover the advisory lanes.
+meson setup build -Denable_vulkan=enabled -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+```
+
+Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
+`glslangValidator` as a fallback) on PATH.
+
+## Governing ADRs
+
+- [ADR-0175](../../../docs/adr/0175-vulkan-backend-scaffold.md) —
+  T5-1 Vulkan backend scaffold.
+- [ADR-0186](../../../docs/adr/0186-vulkan-image-import-impl.md) —
+  T7-29 VkImage zero-copy import.
+- [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) —
+  cross-backend `places=4` gate every kernel migration is gated by.
+- [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) —
+  per-feature kernel scaffolding template (`kernel_template.h`).

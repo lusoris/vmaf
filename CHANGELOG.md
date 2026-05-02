@@ -324,6 +324,50 @@
   3-corpus (Netflix + KoNViD + BVI-DVC) Phase-3b sweep that
   validates Subset B's win across resolution scales the first
   two corpora don't cover.
+- **Per-backend GPU kernel scaffolding templates (T7-XX / ADR-0221).**
+  New header-only inline-helper templates
+  [`libvmaf/src/cuda/kernel_template.h`](libvmaf/src/cuda/kernel_template.h)
+  (296 LOC) and
+  [`libvmaf/src/vulkan/kernel_template.h`](libvmaf/src/vulkan/kernel_template.h)
+  (410 LOC) absorb the lifecycle boilerplate every fork-added GPU
+  feature kernel currently hand-rolls. CUDA template captures the
+  private non-blocking stream + 2 events + device accumulator +
+  pinned host readback slot (`VmafCudaKernelLifecycle` +
+  `VmafCudaKernelReadback` + 6 inlines wrapping `cuCtxPushCurrent` /
+  `cuStreamCreateWithPriority` / `cuEventCreate` / `cuMemsetD8Async` /
+  `cuStreamWaitEvent` / destroy ladders). Vulkan template captures
+  the descriptor-set layout + pipeline layout + shader module +
+  compute pipeline + descriptor pool plus per-frame command-buffer
+  + fence pair (`VmafVulkanKernelPipeline` + `VmafVulkanKernelSubmit`
+  + 5 inlines wrapping `vkCreateDescriptorSetLayout` /
+  `vkCreatePipelineLayout` / `vkCreateShaderModule` /
+  `vkCreateComputePipelines` / `vkCreateDescriptorPool` / per-frame
+  `vkAllocateCommandBuffers` / `vkBeginCommandBuffer` /
+  `vkCreateFence` / `vkQueueSubmit` / `vkWaitForFences` and
+  reverse-order destroys). Templates are **template-only** — no
+  existing kernel includes them in this PR. Each future kernel
+  migration ships in its own PR gated by the `places=4`
+  cross-backend-diff lane (per
+  [ADR-0214](docs/adr/0214-gpu-parity-ci-gate.md)) plus the Netflix
+  CPU golden gate. Per-backend (not cross-backend) because CUDA's
+  async-stream + event model and Vulkan's command-buffer + fence +
+  descriptor-pool model share no concrete shape. Helper functions
+  (not macros) for cuda-gdb / Nsight / RenderDoc step-debugging.
+  New user doc
+  [`docs/backends/kernel-scaffolding.md`](docs/backends/kernel-scaffolding.md)
+  covers the helper signatures + a per-kernel migration sketch;
+  AGENTS.md invariant rows added under
+  `libvmaf/src/cuda/AGENTS.md` and a new
+  `libvmaf/src/vulkan/AGENTS.md`. Deferred migrations:
+  - **T7-XX-followup-a**: SYCL kernel-template refactor (deferred
+    — needs icpx host).
+  - **T7-XX-followup-b**: migrate fork-added CUDA kernels to
+    template (`integer_psnr_cuda` first, then `ssimulacra2_cuda`).
+  - **T7-XX-followup-c**: migrate fork-added Vulkan kernels to
+    template (`psnr_vulkan` first, then `motion_vulkan` /
+    `ssim_vulkan` / `cambi_vulkan`).
+
+  See [ADR-0221](docs/adr/0221-gpu-kernel-template.md).
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame

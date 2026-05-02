@@ -5134,4 +5134,57 @@ inline.*
 
   ```sh
   python3 ai/scripts/collect_gpu_calibration_data.py --smoke
+### 0095 — Per-backend GPU kernel scaffolding templates (CUDA + Vulkan, ADR-0221)
+
+- **ADR**: [ADR-0221](adr/0221-gpu-kernel-template.md).
+- **Touches**:
+  - `libvmaf/src/cuda/kernel_template.h` (new, header-only).
+  - `libvmaf/src/vulkan/kernel_template.h` (new, header-only).
+  - `libvmaf/src/cuda/AGENTS.md` (new invariant row + dir listing).
+  - `libvmaf/src/vulkan/AGENTS.md` (new file).
+  - `docs/backends/kernel-scaffolding.md` (new).
+  - `docs/adr/0221-gpu-kernel-template.md` (new).
+  - `CHANGELOG.md`, `docs/adr/README.md`.
+  All paths are wholly fork-local. Upstream Netflix/vmaf has no
+  Vulkan backend at all today and the CUDA backend uses different
+  per-kernel scaffolding shapes; nothing here can collide on a
+  pure upstream sync.
+- **Invariants**:
+  1. **Templates are unused at PR-merge time.** `kernel_template.h`
+     in both `libvmaf/src/cuda/` and `libvmaf/src/vulkan/` lands
+     with zero call-sites. Each future kernel migration is its
+     own gated PR (`places=4` cross-backend-diff per
+     [ADR-0214](adr/0214-gpu-parity-ci-gate.md)). Do not bulk-port
+     existing kernels onto the templates in a single sync — that
+     would short-circuit the per-kernel gate.
+  2. **Per-backend, not cross-backend.** Resist the urge to merge
+     the two templates into a unified `gpu/kernel_template.h`.
+     CUDA async-stream + event vs Vulkan command-buffer + fence +
+     descriptor-pool share no concrete shape; a unified API would
+     be lowest-common-denominator.
+  3. **Helper functions, not macros.** The header bodies are
+     `static inline` functions for cuda-gdb / Nsight / RenderDoc
+     step-debugging. The `CHECK_CUDA_GOTO` / `CHECK_CUDA_RETURN`
+     macros in `cuda_helper.cuh` stay where they pay off (textual
+     `goto label`), and the templates use them internally.
+- **On upstream sync**: no interaction with upstream paths. An
+  upstream sync that touches `libvmaf/src/cuda/common.h` or
+  `picture_cuda.h` may shift the helper signatures the template
+  consumes (`vmaf_cuda_buffer_alloc`, `vmaf_cuda_picture_get_stream`,
+  …); update the template if so.
+- **Re-test on rebase**:
+
+  ```bash
+  # CUDA build (configure inside libvmaf/ — see CLAUDE.md §2 note).
+  meson setup libvmaf/build-cuda libvmaf \
+      -Denable_cuda=true -Denable_nvcc=true \
+      -Denable_vulkan=disabled -Denable_sycl=false
+  ninja -C libvmaf/build-cuda
+  meson test -C libvmaf/build-cuda
+
+  # Vulkan build.
+  meson setup libvmaf/build-vulkan libvmaf \
+      -Denable_vulkan=enabled -Denable_cuda=false -Denable_sycl=false
+  ninja -C libvmaf/build-vulkan
+  meson test -C libvmaf/build-vulkan
   ```
