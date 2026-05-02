@@ -193,6 +193,19 @@
   kernel writes one float without an atomic — the template's
   device-side memset is unnecessary. Numerical contract unchanged
   (`places=4` per ADR-0187).
+- **`integer_moment_cuda.c` migrated to `cuda/kernel_template.h`
+  (T-GPU-DEDUP-12).** Third consumer of the CUDA template (after
+  `integer_psnr_cuda` in PR #269 and `integer_ciede_cuda` in
+  PR #277). State collapses `CUstream + CUevent + CUevent +
+  VmafCudaBuffer + uint64_t*` to
+  `VmafCudaKernelLifecycle lc + VmafCudaKernelReadback rb`.
+  Unlike ciede, moment uses atomic-add reduction (4× uint64
+  counters), so `submit_fex_cuda` calls
+  `vmaf_cuda_kernel_submit_pre_launch` for the mandatory
+  device-side memset + dist-ready wait. init / collect / close
+  use the matching template helpers. Numerical contract
+  unchanged — same atomic accumulators, same
+  `sums_host[i] / n_pixels` host computation.
 
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,

@@ -91,6 +91,18 @@ cover several PRs in one workstream; cross-link from the ID heading.
   consolidation. The host-side reduction in collect still uses
   the same `double` accumulator over per-block float partials —
   `places=4` (ADR-0187) holds.
+### 0112 — integer_moment_cuda migrated to kernel_template (T-GPU-DEDUP-12)
+
+- **Touches**:
+  - `libvmaf/src/feature/cuda/integer_moment_cuda.c` — state's
+    stream/event/device-buffer/host-pinned quintet collapses to
+    `VmafCudaKernelLifecycle lc + VmafCudaKernelReadback rb`.
+    submit calls `vmaf_cuda_kernel_submit_pre_launch` (atomic
+    counters require the device-side memset). init / collect /
+    close call the matching template helpers.
+- **Numerical contract**: unchanged. Same per-frame atomic
+  accumulators (4× uint64), same `sums_host[i] / n_pixels`
+  host division.
 - **Rebase impact**: low. Upstream Netflix has no equivalent
   template; this consolidation is fork-local.
 
