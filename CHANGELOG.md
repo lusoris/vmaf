@@ -89,6 +89,22 @@
 
 ### Changed
 
+- **`psnr_vulkan.c` migrated to `vulkan/kernel_template.h` (T-GPU-DEDUP-5,
+  first consumer).** The dormant `vulkan/kernel_template.h` (410 LOC,
+  ADR-0221) shipped with zero consumers; its docstring designated
+  `psnr_vulkan.c` as the reference implementation. This commit lands
+  that migration. The 5 long-lived pipeline objects (DSL, pipeline
+  layout, shader module, compute pipeline, descriptor pool) collapse
+  to one `VmafVulkanKernelPipeline pl` bundle. `create_pipeline()`
+  shrinks ~104 LOC → ~30 LOC via
+  `vmaf_vulkan_kernel_pipeline_create()`. `close_fex()`'s
+  `vkDeviceWaitIdle` + 5×`vkDestroy*` sweep collapses to one
+  `vmaf_vulkan_kernel_pipeline_destroy()`. Bit-exactness preserved —
+  spec-constants, push-constant struct, shader bytecode, dispatch
+  grid math, and host-side reduction are byte-identical to the prior
+  implementation. **Net −55 LOC.** Pairs with PR #269 (first CUDA
+  template consumer) — both dormant kernel templates now have real
+  consumers.
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
   `vmaf_tiny_ai_open_session`, `vmaf_tiny_ai_yuv8_to_rgb8_planes`,

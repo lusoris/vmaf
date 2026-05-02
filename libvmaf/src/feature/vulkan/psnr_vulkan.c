@@ -48,6 +48,7 @@
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
+#include "../../vulkan/kernel_template.h"
 
 #include "psnr_spv.h" /* generated SPIR-V byte array */
 
@@ -70,16 +71,19 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects. The shader is plane-agnostic — push constants
-     * carry the per-plane width/height/num_workgroups_x. One pipeline
-     * suffices for all three dispatches; spec-constants pin the *max*
-     * (luma) frame dims for the shared-memory size, runtime guards on
-     * push-constant width/height inside the shader. */
-    VkDescriptorSetLayout dsl;
-    VkPipelineLayout pipeline_layout;
-    VkShaderModule shader;
-    VkPipeline pipeline;
-    VkDescriptorPool desc_pool;
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle).
+     *
+     * The shader is plane-agnostic — push constants carry the
+     * per-plane width/height/num_workgroups_x. One pipeline suffices
+     * for all three dispatches; spec-constants pin the *max* (luma)
+     * frame dims for the shared-memory size, runtime guards on
+     * push-constant width/height inside the shader.
+     *
+     * `pl.dsl` / `pl.pipeline_layout` / `pl.shader` / `pl.pipeline` /
+     * `pl.desc_pool` are dispensed by the template's
+     * `vmaf_vulkan_kernel_pipeline_create()` and torn down via
+     * `vmaf_vulkan_kernel_pipeline_destroy()`. */
+    VmafVulkanKernelPipeline pl;
 
     /* Per-plane input buffers (host-mapped). */
     VmafVulkanBuffer *ref_in[PSNR_NUM_PLANES];
@@ -109,47 +113,6 @@ static inline void psnr_wg_dims(unsigned w, unsigned h, uint32_t *gx, uint32_t *
 
 static int create_pipeline(PsnrVulkanState *s)
 {
-    VkDevice dev = s->ctx->device;
-
-    /* 3 storage-buffer bindings: ref, dis, SE partials. */
-    VkDescriptorSetLayoutBinding bindings[3] = {0};
-    for (int i = 0; i < 3; i++) {
-        bindings[i].binding = (uint32_t)i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo dslci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = 3,
-        .pBindings = bindings,
-    };
-    if (vkCreateDescriptorSetLayout(dev, &dslci, NULL, &s->dsl) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkPushConstantRange pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(PsnrPushConsts),
-    };
-    VkPipelineLayoutCreateInfo plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &s->dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pcr,
-    };
-    if (vkCreatePipelineLayout(dev, &plci, NULL, &s->pipeline_layout) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkShaderModuleCreateInfo smci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = psnr_spv_size,
-        .pCode = psnr_spv,
-    };
-    if (vkCreateShaderModule(dev, &smci, NULL, &s->shader) != VK_SUCCESS)
-        return -ENOMEM;
-
     /* Spec constants pin the *max* per-plane dims (luma) for the
      * shared-memory size; runtime guards on push-constant width/height
      * inside the shader, so chroma's smaller dispatches reuse the same
@@ -179,39 +142,30 @@ static int create_pipeline(PsnrVulkanState *s)
         .dataSize = sizeof(spec_data),
         .pData = &spec_data,
     };
-    VkComputePipelineCreateInfo cpci = {
-        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-        .stage =
+
+    /* `vulkan/kernel_template.h` (ADR-0221) owns the boilerplate:
+     * descriptor-set layout (3 SSBO bindings — ref, dis, SE partials),
+     * pipeline layout (1 set + 1 push-constant range), shader module
+     * from psnr_spv, compute pipeline (caller-supplied spec-constants),
+     * and descriptor pool (12 sets × 3 buffers = 36 descriptors —
+     * matches the original psnr_vulkan.c heuristic of 4 frames in
+     * flight × 3 planes). */
+    const VmafVulkanKernelPipelineDesc desc = {
+        .ssbo_binding_count = 3U,
+        .push_constant_size = (uint32_t)sizeof(PsnrPushConsts),
+        .spv_bytes = psnr_spv,
+        .spv_size = psnr_spv_size,
+        .pipeline_create_info =
             {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = s->shader,
-                .pName = "main",
-                .pSpecializationInfo = &spec_info,
+                .stage =
+                    {
+                        .pName = "main",
+                        .pSpecializationInfo = &spec_info,
+                    },
             },
-        .layout = s->pipeline_layout,
+        .max_descriptor_sets = 12U,
     };
-    if (vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpci, NULL, &s->pipeline) != VK_SUCCESS)
-        return -ENOMEM;
-
-    /* 3 dispatches per frame (Y, Cb, Cr) × 3 storage buffers each =
-     * 9 descriptors / 3 sets at peak; size pool for 4 frames in flight
-     * with headroom (12 sets, 36 buffer descriptors). */
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 12 * 3,
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = 12,
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
-
-    return 0;
+    return vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl);
 }
 
 static int alloc_buffers(PsnrVulkanState *s)
@@ -392,9 +346,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     for (unsigned p = 0; p < s->n_planes; p++) {
         VkDescriptorSetAllocateInfo dsai = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = s->desc_pool,
+            .descriptorPool = s->pl.desc_pool,
             .descriptorSetCount = 1,
-            .pSetLayouts = &s->dsl,
+            .pSetLayouts = &s->pl.dsl,
         };
         if (vkAllocateDescriptorSets(s->ctx->device, &dsai, &sets[p]) != VK_SUCCESS) {
             err = -ENOMEM;
@@ -422,7 +376,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     };
     vkBeginCommandBuffer(cmd, &cbbi);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline);
     for (unsigned p = 0; p < s->n_planes; p++) {
         uint32_t gx = 0;
         uint32_t gy = 0;
@@ -433,9 +387,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             .bpc = s->bpc,
             .num_workgroups_x = gx,
         };
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline_layout, 0, 1,
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1,
                                 &sets[p], 0, NULL);
-        vkCmdPushConstants(cmd, s->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+        vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
                            &pc);
         vkCmdDispatch(cmd, gx, gy, 1);
     }
@@ -480,7 +434,7 @@ cleanup:
     if (cmd != VK_NULL_HANDLE)
         vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
     if (sets_alloc > 0)
-        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, sets_alloc, sets);
+        vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, sets_alloc, sets);
     return err;
 }
 
@@ -489,19 +443,10 @@ static int close_fex(VmafFeatureExtractor *fex)
     PsnrVulkanState *s = fex->priv;
     if (!s->ctx)
         return 0;
-    VkDevice dev = s->ctx->device;
-    vkDeviceWaitIdle(dev);
 
-    if (s->desc_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
-    if (s->pipeline != VK_NULL_HANDLE)
-        vkDestroyPipeline(dev, s->pipeline, NULL);
-    if (s->shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(dev, s->shader, NULL);
-    if (s->pipeline_layout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(dev, s->pipeline_layout, NULL);
-    if (s->dsl != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(dev, s->dsl, NULL);
+    /* `vulkan/kernel_template.h` (ADR-0221) collapses the
+     * vkDeviceWaitIdle + 5x vkDestroy* sweep into one call. */
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     for (unsigned p = 0; p < PSNR_NUM_PLANES; p++) {
         if (s->ref_in[p])
