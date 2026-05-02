@@ -220,6 +220,16 @@ ffmpeg -i reference.mp4 -i distorted.mp4 \
        -f null -
 ```
 
+When `vulkan_device >= 0` the filter routes its per-frame picture
+allocation through the Vulkan picture-preallocation pool (ADR-0238) —
+buffers are dispensed round-robin from a depth-2 pool initialised on
+the first frame instead of allocating a fresh `VmafPicture` every
+frame. Today the pool uses the HOST method (matches the existing
+3-plane copy contract); a follow-up PR switches to the DEVICE method
+once the Vulkan kernel set covers chroma. See
+[`docs/api/gpu.md`](../api/gpu.md) and
+[ADR-0238](../adr/0238-vulkan-picture-preallocation.md).
+
 To list the full set of options the locally-installed `libvmaf` filter
 exposes (useful when an option in this doc has drifted from the binary):
 

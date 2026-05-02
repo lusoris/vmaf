@@ -283,7 +283,27 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
   `vmaf_vulkan_*` public surface ships the matching update to
   `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`
   in the same PR (CLAUDE.md §12 r14). v2 preserves the ABI so
-  the patch is unaffected.
+  the patch is unaffected. ADR-0238 added two entry points
+  (`vmaf_vulkan_preallocate_pictures`, `vmaf_vulkan_picture_fetch`)
+  + one enum + one struct — purely additive; the FFmpeg patch is
+  not consuming them today and remains unchanged.
+- **Picture-pool ownership (ADR-0238)**: the
+  `VmafVulkanPicturePool` lives on `VmafContext`, not on
+  `VmafVulkanState`. The state owns the GPU resources (instance,
+  device, queue); the pool borrows the state's
+  `VmafVulkanContext` via the fork-internal accessor
+  `vmaf_vulkan_state_context()` (declared in `vulkan_internal.h`,
+  not the public header). On `vmaf_close()` the pool is closed
+  before the state pointer is cleared; ownership of the state is
+  still the caller's (matches the SYCL pattern). Do not move the
+  pool onto the state — that would force the import-image
+  zero-copy path to pay pool costs it doesn't need.
+- **Single luma plane only**: the DEVICE pool path allocates one
+  VmafVulkanBuffer per picture, sized for the Y plane only
+  (matches SYCL). Adding chroma support is a follow-up — when a
+  Vulkan extractor actually consumes preallocated U/V planes,
+  extend `pool_alloc_one_device` to allocate per-plane buffers
+  and bump the buffer-type tag to a chroma-aware variant.
 
 ## See also
 

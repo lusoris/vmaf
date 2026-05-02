@@ -623,6 +623,17 @@ test_vulkan_async_pending_fence = executable('test_vulkan_async_pending_fence',
     c_args: ['-DHAVE_VULKAN=1']
 )
 test('test_vulkan_async_pending_fence', test_vulkan_async_pending_fence)
+
+# ADR-0238: contract smoke for the public Vulkan picture-preallocation
+# surface (vmaf_vulkan_preallocate_pictures / vmaf_vulkan_picture_fetch).
+test_vulkan_pic_preallocation = executable('test_vulkan_pic_preallocation',
+    ['test.c', 'test_vulkan_pic_preallocation.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+    c_args: ['-DHAVE_VULKAN=1']
+)
+test('test_vulkan_pic_preallocation', test_vulkan_pic_preallocation)
 endif
 
 # ADR-0209 / T5-2: embedded MCP scaffold smoke. Pins the -ENOSYS

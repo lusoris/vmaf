@@ -9,6 +9,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "libvmaf/picture.h"
+
 #include "vulkan_common.h"
 
 #ifdef __cplusplus
@@ -66,6 +68,36 @@ void vmaf_vulkan_buffer_free(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
  * map keyed on host pointer. */
 int vmaf_vulkan_picture_alloc(VmafVulkanContext *ctx, void **out, size_t size);
 void vmaf_vulkan_picture_free(VmafVulkanContext *ctx, void *buf);
+
+/* ---- ADR-0238: VmafPicture pool for the public preallocation surface ---- */
+
+/* Internal pool method — picked from the public
+ * `VmafVulkanPicturePreallocationMethod` by the libvmaf-side wrapper.
+ * `NONE` is never instantiated as a pool (the public API short-circuits
+ * to `vmaf_picture_alloc` directly). */
+enum VmafVulkanPoolMethod {
+    VMAF_VULKAN_POOL_HOST = 0,
+    VMAF_VULKAN_POOL_DEVICE = 1,
+};
+
+typedef struct VmafVulkanPicturePool VmafVulkanPicturePool;
+
+/* Allocate `pic_cnt` VmafPictures up-front. HOST uses regular
+ * `vmaf_picture_alloc`; DEVICE backs each plane with a host-visible
+ * VmafVulkanBuffer (VMA `AUTO_PREFER_HOST`). */
+int vmaf_vulkan_picture_pool_init(VmafVulkanPicturePool **pool, VmafVulkanContext *ctx,
+                                  unsigned pic_cnt, unsigned w, unsigned h, unsigned bpc,
+                                  enum VmafPixelFormat pix_fmt, enum VmafVulkanPoolMethod method);
+
+/* Hand the next VmafPicture to the caller. Round-robins through the
+ * pic_cnt slots; the caller is expected to release ownership back to
+ * the pool via the regular VmafPicture refcount path. Returns 0 /
+ * -EINVAL. */
+int vmaf_vulkan_picture_pool_fetch(VmafVulkanPicturePool *pool, VmafPicture *pic);
+
+/* Release every backing buffer + the pool itself. Safe to call on
+ * NULL. */
+int vmaf_vulkan_picture_pool_close(VmafVulkanPicturePool *pool);
 
 #ifdef __cplusplus
 }

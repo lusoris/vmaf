@@ -133,6 +133,64 @@ unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state);
 int vmaf_vulkan_import_state(VmafContext *ctx, VmafVulkanState *state);
 
 /**
+ * Per-picture-pool preallocation strategy. Mirrors the CUDA / SYCL
+ * surfaces (`VmafCudaPicturePreallocationMethod`,
+ * `VmafSyclPicturePreallocationMethod`).
+ *
+ * - `NONE`: no preallocation; the caller drives `vmaf_picture_alloc`
+ *           or feeds frames via the import-image zero-copy path.
+ * - `HOST`: pictures live in regular host memory (`vmaf_picture_alloc`).
+ *           Useful when the score consumer is CPU-side but the
+ *           upload path runs on the Vulkan compute queue.
+ * - `DEVICE`: pictures are backed by host-visible Vulkan buffers
+ *           (VMA `AUTO_PREFER_HOST`) — the same memory the kernel
+ *           descriptor sets bind to. Lets the caller write directly
+ *           into the buffer the shaders read, removing the host →
+ *           device staging copy.
+ *
+ * ADR-0238 closes the API parity gap with CUDA / SYCL.
+ */
+enum VmafVulkanPicturePreallocationMethod {
+    VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_NONE = 0,
+    VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_HOST,
+    VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_DEVICE,
+};
+
+typedef struct VmafVulkanPictureConfiguration {
+    struct {
+        unsigned w, h;
+        unsigned bpc;
+        enum VmafPixelFormat pix_fmt;
+    } pic_params;
+    enum VmafVulkanPicturePreallocationMethod pic_prealloc_method;
+} VmafVulkanPictureConfiguration;
+
+/**
+ * Configure and preallocate VmafPictures for use with the Vulkan
+ * compute backend. The pool depth is fixed at the canonical
+ * `frames-in-flight = 2` (matches the SYCL preallocation contract);
+ * pictures are dispensed round-robin via @ref vmaf_vulkan_picture_fetch.
+ *
+ * @return 0 on success;
+ *         -EINVAL on bad arguments or unknown method;
+ *         -ENOMEM on allocation failure;
+ *         -EBUSY if a pool already exists on @p vmaf;
+ *         -ENOSYS when libvmaf was built without Vulkan support.
+ */
+int vmaf_vulkan_preallocate_pictures(VmafContext *vmaf, VmafVulkanPictureConfiguration cfg);
+
+/**
+ * Fetch one preallocated VmafPicture. With
+ * `VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_NONE` (or no prior
+ * `preallocate_pictures` call), this falls back to a regular
+ * host-backed `vmaf_picture_alloc` so callers can ignore the
+ * preallocation surface entirely if they want.
+ *
+ * @return 0 on success, or a negative errno on failure.
+ */
+int vmaf_vulkan_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
+
+/**
  * Release a state previously allocated via @ref vmaf_vulkan_state_init.
  * Safe to pass `NULL` or a state that was never imported. After import
  * the caller is still responsible for freeing — call this after

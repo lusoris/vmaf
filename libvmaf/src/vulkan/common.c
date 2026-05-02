@@ -493,6 +493,17 @@ unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state)
     return state->requested_ring_size;
 }
 
+VmafVulkanContext *vmaf_vulkan_state_context(VmafVulkanState *state)
+{
+    /* Fork-internal accessor (declared in vulkan_internal.h, not the
+     * public libvmaf_vulkan.h). ADR-0238: the picture pool borrows the
+     * VkInstance/VkDevice from the already-imported state so the
+     * preallocated buffers live on the same device the kernels run on. */
+    if (!state)
+        return NULL;
+    return state->ctx;
+}
+
 void vmaf_vulkan_state_free(VmafVulkanState **state)
 {
     if (!state || !*state)

@@ -73,6 +73,8 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #ifdef HAVE_VULKAN
 #include "libvmaf/libvmaf_vulkan.h"
 #include "vulkan/import_picture.h"
+#include "vulkan/picture_vulkan.h"
+#include "vulkan/vulkan_internal.h"
 #endif
 
 typedef struct VmafContext {
@@ -109,6 +111,7 @@ typedef struct VmafContext {
 #ifdef HAVE_VULKAN
     struct {
         VmafVulkanState *state;
+        VmafVulkanPicturePool *pool;
     } vulkan;
 #endif
     struct {
@@ -552,6 +555,63 @@ int vmaf_vulkan_read_imported_pictures(VmafContext *vmaf, unsigned index)
      * noop_release_picture callback. */
     return vmaf_read_pictures(vmaf, &ref, &dis, index);
 }
+
+/* ADR-0238: public picture-preallocation surface for the Vulkan
+ * backend. Mirrors vmaf_cuda_preallocate_pictures /
+ * vmaf_sycl_preallocate_pictures. The pool depth is fixed at 2
+ * (matches SYCL); the underlying VmafVulkanPicturePool lives in
+ * libvmaf/src/vulkan/picture_vulkan_pool.c. */
+int vmaf_vulkan_preallocate_pictures(VmafContext *vmaf, VmafVulkanPictureConfiguration cfg)
+{
+    if (!vmaf)
+        return -EINVAL;
+    if (!vmaf->vulkan.state)
+        return -EINVAL;
+    if (vmaf->vulkan.pool)
+        return -EBUSY;
+
+    if (cfg.pic_prealloc_method == VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_NONE)
+        return 0;
+
+    enum VmafVulkanPoolMethod method;
+    switch (cfg.pic_prealloc_method) {
+    case VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_HOST:
+        method = VMAF_VULKAN_POOL_HOST;
+        break;
+    case VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_DEVICE:
+        method = VMAF_VULKAN_POOL_DEVICE;
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    /* Pool depth of 2 matches the SYCL preallocation contract — caller
+     * writes pic N while extractors still consume pic N-1. */
+    const unsigned pic_cnt = 2u;
+
+    VmafVulkanContext *ctx = vmaf_vulkan_state_context(vmaf->vulkan.state);
+    if (!ctx)
+        return -EINVAL;
+
+    return vmaf_vulkan_picture_pool_init(&vmaf->vulkan.pool, ctx, pic_cnt, cfg.pic_params.w,
+                                         cfg.pic_params.h, cfg.pic_params.bpc,
+                                         cfg.pic_params.pix_fmt, method);
+}
+
+int vmaf_vulkan_picture_fetch(VmafContext *vmaf, VmafPicture *pic)
+{
+    if (!vmaf || !pic)
+        return -EINVAL;
+
+    if (vmaf->vulkan.pool)
+        return vmaf_vulkan_picture_pool_fetch(vmaf->vulkan.pool, pic);
+
+    /* No pool configured — fall back to a host-backed picture so callers
+     * that ignored vmaf_vulkan_preallocate_pictures() still receive a
+     * usable buffer. Mirrors the SYCL fallback at vmaf_sycl_picture_fetch. */
+    return vmaf_picture_alloc(pic, vmaf->pic_params.pix_fmt, vmaf->pic_params.bpc,
+                              vmaf->pic_params.w, vmaf->pic_params.h);
+}
 #endif
 
 static int set_fex_framesync(VmafFeatureExtractorContext *fex_ctx, VmafContext *vmaf)
@@ -709,6 +769,16 @@ int vmaf_close(VmafContext *vmaf)
      * vmaf_sycl_import_state(), so we do not free it here.
      * The caller must call vmaf_sycl_state_free() after vmaf_close(). */
     vmaf->sycl.state = NULL;
+#endif
+#ifdef HAVE_VULKAN
+    if (vmaf->vulkan.pool) {
+        (void)vmaf_vulkan_picture_pool_close(vmaf->vulkan.pool);
+        vmaf->vulkan.pool = NULL;
+    }
+    /* Note: ownership of vulkan.state is NOT transferred by
+     * vmaf_vulkan_import_state(), so we do not free it here.
+     * The caller must call vmaf_vulkan_state_free() after vmaf_close(). */
+    vmaf->vulkan.state = NULL;
 #endif
     free(vmaf);
 

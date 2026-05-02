@@ -138,6 +138,7 @@ vulkan_sources += files(
     'dispatch_strategy.c',
     'import.c',
     'picture_vulkan.c',
+    'picture_vulkan_pool.c',
     '../feature/vulkan/adm_vulkan.c',
     '../feature/vulkan/vif_vulkan.c',
     '../feature/vulkan/motion_vulkan.c',
