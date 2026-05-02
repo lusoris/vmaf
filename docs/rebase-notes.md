@@ -5611,6 +5611,35 @@ inline.*
   hand-rolled version produced.
 - **On upstream sync**: zero interaction. Both files are
   fork-introduced; upstream Netflix has neither extractor.
+### 0100 — `cuda/ring_buffer.{c,h}` → `gpu_picture_pool.{c,h}` (ADR-0239)
+
+- **PR**: refactor/gpu-picture-pool-extract.
+- **What rebases need to know**:
+  `libvmaf/src/cuda/ring_buffer.c` and `ring_buffer.h` are removed.
+  The same callback-based round-robin pool lives at
+  `libvmaf/src/gpu_picture_pool.{c,h}` under renamed symbols
+  (`VmafRingBuffer` → `VmafGpuPicturePool`,
+  `vmaf_ring_buffer_*` → `vmaf_gpu_picture_pool_*`,
+  `_fetch_next_picture` → `_fetch`). All call sites in
+  `libvmaf.c` migrated. `libvmaf/test/test_ring_buffer.c` renamed
+  to `test_gpu_picture_pool.c` with the corresponding meson update.
+- **Netflix-upstream interaction**: minimal — Netflix's
+  `cuda/ring_buffer.{c,h}` last touched in commit `cb1d49c6`. An
+  upstream sync that resurrects the old names should be redirected
+  to the new ones; the file move is purely fork-local.
+- **`Netflix#1300` mutex-destroy-order fix preserved** (ADR-0157)
+  — moved verbatim to the new file; the fix remains attached to
+  `vmaf_gpu_picture_pool_close`.
+- **SYCL pool migration**: `vmaf_sycl_picture_pool_*` keeps its
+  public-internal API but now delegates to the generic pool. The
+  SYCL wrapper struct (`VmafSyclPicturePool`) just owns the
+  `VmafSyclCookie` storage. `std::mutex` drops out.
+- **Vulkan pool migration**: bundled into this PR after #264
+  merged. `picture_vulkan_pool.c` rewrites as a thin wrapper
+  around the generic pool — wrapper struct owns per-pool state
+  for the alloc/free callbacks; the generic pool owns the
+  round-robin slots / mutex / unwind. Same pattern as the SYCL
+  migration above.
 - **Re-test on rebase**:
 
   ```bash
@@ -5619,4 +5648,15 @@ inline.*
   meson test -C build --suite=dnn
   meson test -C build test_lpips test_mobilesal test_transnet_v2 test_fastdvdnet_pre
   # All 11 dnn-suite + 4 extractor smoke tests must pass.
+  meson test -C build  # 47/47 pass under ASan/UBSan
+
+  # CUDA build (CI-only; pre-existing local nvcc include-path quirk):
+  meson setup build-cuda libvmaf -Denable_cuda=true
+  ninja -C build-cuda
+  meson test -C build-cuda test_gpu_picture_pool
+
+  # SYCL build:
+  meson setup build-sycl libvmaf -Denable_sycl=true
+  ninja -C build-sycl
+  meson test -C build-sycl
   ```

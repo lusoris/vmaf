@@ -34,7 +34,7 @@
 
 #include "cuda/common.h"
 #include "cuda/picture_cuda.h"
-#include "cuda/ring_buffer.h"
+#include "gpu_picture_pool.h"
 #include "thread_pool.h"
 
 static char *test_ring_buffer()
@@ -52,7 +52,7 @@ static char *test_ring_buffer()
     VmafCudaConfiguration cu_cfg = {0};
     vmaf_cuda_state_init(&my_cookie.state, cu_cfg);
 
-    VmafRingBufferConfig cfg = {
+    VmafGpuPicturePoolConfig cfg = {
         .pic_cnt = 4,
         .cookie = &my_cookie,
         .alloc_picture_callback = vmaf_cuda_picture_alloc,
@@ -60,12 +60,12 @@ static char *test_ring_buffer()
         .synchronize_picture_callback = vmaf_cuda_picture_synchronize,
     };
 
-    VmafRingBuffer *ring_buffer;
-    err = vmaf_ring_buffer_init(&ring_buffer, cfg);
+    VmafGpuPicturePool *ring_buffer;
+    err = vmaf_gpu_picture_pool_init(&ring_buffer, cfg);
     mu_assert("problem during vmaf_picture_pool_init", !err);
 
     VmafPicture pic_1;
-    err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_1);
+    err = vmaf_gpu_picture_pool_fetch(ring_buffer, &pic_1);
     mu_assert("problem during vmaf_picture_pool_request_picture", !err);
     mu_assert("data[0] should have been allocated", pic_1.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_1.data[1]);
@@ -73,7 +73,7 @@ static char *test_ring_buffer()
     mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_1.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     VmafPicture pic_2;
-    err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_2);
+    err = vmaf_gpu_picture_pool_fetch(ring_buffer, &pic_2);
     mu_assert("problem during vmaf_picture_pool_request_picture", !err);
     mu_assert("data[0] should have been allocated", pic_2.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_2.data[1]);
@@ -81,7 +81,7 @@ static char *test_ring_buffer()
     mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_2.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     VmafPicture pic_3;
-    err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_3);
+    err = vmaf_gpu_picture_pool_fetch(ring_buffer, &pic_3);
     mu_assert("problem during vmaf_picture_pool_request_picture", !err);
     mu_assert("data[0] should have been allocated", pic_3.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_3.data[1]);
@@ -89,7 +89,7 @@ static char *test_ring_buffer()
     mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_3.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     VmafPicture pic_4;
-    err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_4);
+    err = vmaf_gpu_picture_pool_fetch(ring_buffer, &pic_4);
     mu_assert("problem during vmaf_picture_pool_request_picture", !err);
     mu_assert("data[0] should have been allocated", pic_4.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_4.data[1]);
@@ -97,7 +97,7 @@ static char *test_ring_buffer()
     mu_assert("pix_fmt should be VMAF_PIX_FMT_YUV400P", pic_4.pix_fmt == VMAF_PIX_FMT_YUV400P);
 
     VmafPicture pic_5;
-    err = vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_5);
+    err = vmaf_gpu_picture_pool_fetch(ring_buffer, &pic_5);
     mu_assert("problem during vmaf_picture_pool_request_picture", !err);
     mu_assert("data[0] should have been allocated", pic_5.data[0]);
     mu_assert("data[1] should not have been allocated", !pic_5.data[1]);
@@ -107,15 +107,15 @@ static char *test_ring_buffer()
     mu_assert("pic_5 should use the same data buffer as pic_1 did.",
               pic_1.data[0] == pic_5.data[0]);
 
-    err = vmaf_ring_buffer_close(ring_buffer);
-    mu_assert("problem during vmaf_ring_buffer_close", !err);
+    err = vmaf_gpu_picture_pool_close(ring_buffer);
+    mu_assert("problem during vmaf_gpu_picture_pool_close", !err);
 
     return NULL;
 }
 
 /*
 typedef struct MyThreadPoolData {
-    VmafRingBuffer *ring_buffer;
+    VmafGpuPicturePool *ring_buffer;
     unsigned i;
     useconds_t timeout;
     VmafCudaCookie my_cookie;
@@ -125,7 +125,7 @@ static void request_picture(void *data, void **thread_data)
 {
     (void) thread_data;
     MyThreadPoolData *my_thread_pool_data = data;
-    VmafRingBuffer *ring_buffer = my_thread_pool_data->ring_buffer;
+    VmafGpuPicturePool *ring_buffer = my_thread_pool_data->ring_buffer;
 
     VmafPicture pic;
     vmaf_picture_alloc(&pic, my_thread_pool_data->my_cookie.pix_fmt,
@@ -135,8 +135,8 @@ static void request_picture(void *data, void **thread_data)
 
     VmafPicture pic_cuda_ref, pic_cuda_dist;
     //fprintf(stderr, "request: %i\n", my_thread_pool_data->i);
-    vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_cuda_ref);
-    vmaf_ring_buffer_fetch_next_picture(ring_buffer, &pic_cuda_dist);
+    vmaf_gpu_picture_pool_fetch(ring_buffer, &pic_cuda_ref);
+    vmaf_gpu_picture_pool_fetch(ring_buffer, &pic_cuda_dist);
     vmaf_cuda_picture_upload_async(&pic_cuda_ref, &pic, 0x1);
     vmaf_cuda_picture_upload_async(&pic_cuda_dist, &pic, 0x1);
     //fprintf(stderr, "usleep=%d: %i\n",
@@ -162,7 +162,7 @@ static char *test_ring_buffer_threaded()
     VmafCudaConfiguration cfg = { 0 };
     vmaf_cuda_state_init(my_cookie.state, cfg);
 
-    VmafRingBufferConfig cfg = {
+    VmafGpuPicturePoolConfig cfg = {
         .pic_cnt = 4,
         .cookie = &my_cookie,
         .alloc_picture_callback = vmaf_cuda_picture_alloc,
@@ -170,8 +170,8 @@ static char *test_ring_buffer_threaded()
         .synchronize_picture_callback = vmaf_cuda_picture_synchronize,
     };
 
-    VmafRingBuffer *ring_buffer;
-    err = vmaf_ring_buffer_init(&ring_buffer, cfg);
+    VmafGpuPicturePool *ring_buffer;
+    err = vmaf_gpu_picture_pool_init(&ring_buffer, cfg);
     mu_assert("problem during vmaf_picture_pool_init", !err);
 
     VmafThreadPool *thread_pool;
@@ -199,8 +199,8 @@ static char *test_ring_buffer_threaded()
     err = vmaf_thread_pool_destroy(thread_pool);
     mu_assert("problem during vmaf_thread_pool_destroy", !err);
 
-    err = vmaf_ring_buffer_close(ring_buffer);
-    mu_assert("problem during vmaf_ring_buffer_close", !err);
+    err = vmaf_gpu_picture_pool_close(ring_buffer);
+    mu_assert("problem during vmaf_gpu_picture_pool_close", !err);
 
     return NULL;
 }

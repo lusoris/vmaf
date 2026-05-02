@@ -87,8 +87,10 @@ jobs:
           #     `-Denable_cuda=true` meson setup to generate compile_commands
           #     (follow-up: add a parallel CUDA clang-tidy job once a
           #     self-hosted CUDA runner lands, backlog T7-3).
-          #   - libvmaf/test/test_cuda_*.c — GPU-gated tests whose build
-          #     entries only exist under the CUDA build.
+          #   - libvmaf/test/test_cuda_*.c + test_gpu_picture_pool.c — GPU-gated
+          #     tests whose build entries only exist under the CUDA build.
+          #     test_gpu_picture_pool.c is the renamed test_ring_buffer.c per
+          #     ADR-0239 (still CUDA-only — it pulls in libvmaf_cuda.h).
           #   - libvmaf/src/sycl/ + libvmaf/src/feature/sycl/ +
           #     libvmaf/test/test_sycl* — require `-Denable_sycl=true` and
           #     the `icpx` compiler; no compile_commands in the CPU-only
@@ -115,6 +117,7 @@ jobs:
               | grep -v '^libvmaf/src/cuda/' \
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
+              | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -138,6 +141,7 @@ jobs:
               | grep -v '^libvmaf/src/cuda/' \
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
+              | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -158,6 +162,7 @@ jobs:
               | grep -v '^libvmaf/src/cuda/' \
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
+              | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -178,6 +183,7 @@ jobs:
               | grep -v '^libvmaf/src/cuda/' \
               | grep -v '^libvmaf/src/feature/cuda/' \
               | grep -v '^libvmaf/test/test_cuda_' \
+              | grep -v '^libvmaf/test/test_gpu_picture_pool\.c$' \
               | grep -v '^libvmaf/src/sycl/' \
               | grep -v '^libvmaf/src/feature/sycl/' \
               | grep -v '^libvmaf/test/test_sycl' \
@@ -275,9 +281,19 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/oneAPI.list
           sudo apt-get update
           sudo apt-get install -y intel-oneapi-compiler-dpcpp-cpp \
-            meson ninja-build nasm clang-tidy-18 jq parallel
+            cmake meson ninja-build nasm clang-tidy-18 jq parallel
           sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy \
             /usr/bin/clang-tidy-18 100
+          # Level Zero loader: meson hard-requires `cc.find_library('ze_loader')`
+          # under -Denable_sycl=true. Apt has no `level-zero` package on
+          # ubuntu-latest; build from source (same pattern as
+          # libvmaf-build-matrix.yml + ffmpeg-integration.yml).
+          git clone --depth=1 --branch v1.28.0 \
+            https://github.com/oneapi-src/level-zero.git /tmp/level-zero
+          cmake -S /tmp/level-zero -B /tmp/level-zero/build -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build /tmp/level-zero/build -j"$(nproc)"
+          sudo cmake --install /tmp/level-zero/build
+          rm -rf /tmp/level-zero
       - name: Generate SYCL compile_commands.json
         if: steps.detect.outputs.files != ''
         run: |
@@ -291,7 +307,12 @@ jobs:
             -Denable_sycl=true -Denable_cuda=false
           # Build first so codegen outputs (vcs_version.h, model JSONs → .c)
           # exist before clang-tidy parses TUs.
-          meson compile -C build-sycl
+          # Build only the libvmaf shared library, not test binaries —
+          # clang-tidy needs compile_commands.json + codegen outputs on
+          # disk, but doesn't need the link step. Test linking would
+          # require the libvmaf .so to be discoverable, which it isn't
+          # at this point in the build (chicken-and-egg).
+          meson compile -C build-sycl libvmaf
       - name: Run clang-tidy-sycl wrapper on changed files
         if: steps.detect.outputs.files != ''
         run: |

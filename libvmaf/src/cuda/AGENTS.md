@@ -16,7 +16,8 @@ cuda/
   cuda_helper.cuh      # launch macros, error-check, types
   kernel_template.h    # per-feature CUDA kernel scaffolding (ADR-0221)
   picture_cuda.c/.h    # VmafPicture on a CUDA device
-  ring_buffer.c/.h     # picture buffer pool
+  # picture-pool round-robin lives in libvmaf/src/gpu_picture_pool.{h,c}
+  # (ADR-0239 — backend-agnostic; CUDA was the original consumer)
 ```
 
 ## Ground rules
@@ -73,12 +74,12 @@ cuda/
   2026-04-24. See
   [ADR-0157](../../../docs/adr/0157-cuda-preallocation-leak-netflix-1300.md)
   and [rebase-notes 0050](../../../docs/rebase-notes.md).
-- **`vmaf_ring_buffer_close` mutex destroy order** (fork-local,
-  ADR-0157): the function now does
+- **`vmaf_gpu_picture_pool_close` mutex destroy order** (fork-local,
+  ADR-0157, promoted out of `cuda/` to `libvmaf/src/gpu_picture_pool.c`
+  per ADR-0239): the function does
   `pthread_mutex_unlock` → `pthread_mutex_destroy` → `free(pic)`
-  → `free(ring_buffer)`. Destroying a locked mutex is POSIX UB;
-  the old code destroyed it locked. On rebase: keep the
-  unlock-before-destroy order.
+  → `free(pool)`. Destroying a locked mutex is POSIX UB; the old code
+  destroyed it locked. On rebase: keep the unlock-before-destroy order.
 
 - **`CHECK_CUDA` graceful error propagation** (fork-local,
   ADR-0156): the `CHECK_CUDA` macro in

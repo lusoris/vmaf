@@ -59,7 +59,7 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #include "cuda/common.h"
 #include "cuda/cuda_helper.cuh"
 #include "cuda/picture_cuda.h"
-#include "cuda/ring_buffer.h"
+#include "gpu_picture_pool.h"
 #endif
 
 #include "picture_pool.h"
@@ -99,7 +99,7 @@ typedef struct VmafContext {
         } cfg;
         VmafCudaState state;
         VmafCudaCookie cookie;
-        VmafRingBuffer *ring_buffer;
+        VmafGpuPicturePool *ring_buffer;
     } cuda;
 #endif
 #ifdef HAVE_SYCL
@@ -243,7 +243,7 @@ static int prepare_ring_buffer(VmafContext *vmaf, unsigned w, unsigned h,
     vmaf->cuda.cookie.bpc = vmaf->pic_params.bpc = bpc;
     vmaf->cuda.cookie.state = &vmaf->cuda.state;
 
-    VmafRingBufferConfig cfg_buf = {
+    VmafGpuPicturePoolConfig cfg_buf = {
         .pic_cnt = 4,
         .cookie = &vmaf->cuda.cookie,
         .synchronize_picture_callback = vmaf_cuda_picture_synchronize,
@@ -251,7 +251,7 @@ static int prepare_ring_buffer(VmafContext *vmaf, unsigned w, unsigned h,
         .free_picture_callback = vmaf_cuda_picture_free,
     };
 
-    return vmaf_ring_buffer_init(&vmaf->cuda.ring_buffer, cfg_buf);
+    return vmaf_gpu_picture_pool_init(&vmaf->cuda.ring_buffer, cfg_buf);
 }
 
 int vmaf_cuda_import_state(VmafContext *vmaf, VmafCudaState *cu_state)
@@ -313,7 +313,7 @@ int vmaf_cuda_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic)
 
     switch (vmaf->cuda.cfg.pic_prealloc_method) {
     case VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_DEVICE:
-        return vmaf_ring_buffer_fetch_next_picture(vmaf->cuda.ring_buffer, pic);
+        return vmaf_gpu_picture_pool_fetch(vmaf->cuda.ring_buffer, pic);
     case VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_HOST:
         return vmaf_picture_alloc(pic, vmaf->cuda.cfg.pic_params.pix_fmt,
                                   vmaf->cuda.cfg.pic_params.bpc, vmaf->cuda.cfg.pic_params.w,
@@ -756,7 +756,7 @@ int vmaf_close(VmafContext *vmaf)
         vmaf_picture_pool_close(vmaf->picture_pool);
 #ifdef HAVE_CUDA
     if (vmaf->cuda.ring_buffer)
-        vmaf_ring_buffer_close(vmaf->cuda.ring_buffer);
+        vmaf_gpu_picture_pool_close(vmaf->cuda.ring_buffer);
     if (vmaf->cuda.state.ctx)
         vmaf_cuda_release(&vmaf->cuda.state);
 #endif
@@ -1381,7 +1381,7 @@ static int translate_picture_host(VmafContext *vmaf, VmafPicture *pic, VmafPictu
     case VMAF_PICTURE_BUFFER_TYPE_CUDA_HOST_PINNED:
         if (!vmaf->cuda.state.ctx)
             return -EINVAL;
-        err |= vmaf_ring_buffer_fetch_next_picture(vmaf->cuda.ring_buffer, pic_device);
+        err |= vmaf_gpu_picture_pool_fetch(vmaf->cuda.ring_buffer, pic_device);
         /* Upload luma always; upload chroma when the input has it.
          * ciede_cuda (T7-23 / batch 1c part 2) is the first
          * chroma-aware CUDA extractor — older luma-only kernels
