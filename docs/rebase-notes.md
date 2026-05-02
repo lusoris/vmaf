@@ -48,7 +48,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Rebase impact**: low. Builds on top of PR #272's
   `_add_variant()` helper.
 
-=======
 >>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
 ### 0119 — vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-19)
 
@@ -73,7 +72,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
   `_add_variant()` helper.
 
 <<<<<<< HEAD
->>>>>>> 6b28b4d1 (refactor(vulkan): T-GPU-DEDUP-19 — migrate vif_vulkan to kernel_template)
 >>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
 =======
 ### 0120 — float_vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-20)
@@ -295,6 +293,20 @@ cover several PRs in one workstream; cross-link from the ID heading.
   consolidation. Netflix-pair smoke reports `motion` mean
   4.049 / `motion2` mean 3.894, identical to pre-migration.
 - **Rebase impact**: low. Upstream Netflix has no Vulkan backend.
+=======
+### 0108 — Bristol VI-Lab feasibility digest + BVI-CC ingest ADR (Draft)
+
+- **Touches**:
+  - `docs/research/0046-bristol-vi-lab-feasibility.md` (new) —
+    nine-dataset survey + use-case fit + effort estimate.
+  - `docs/adr/0241-bristol-bvi-cc-ingest.md` (new, Status: Draft)
+    — proposal to ingest BVI-CC as the second tiny-AI corpus.
+  - `docs/adr/README.md` — index row for ADR-0241.
+  - `CHANGELOG.md` — Added entry.
+- **Numerical contract**: not applicable (docs-only).
+- **Rebase impact**: none. Pure research deliverables; upstream
+  Netflix has no equivalent surface.
+>>>>>>> 6ab4b0df (docs(ai): research-0046 + ADR-0241 — Bristol VI-Lab feasibility (BVI-CC ingest, Draft))
 
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
