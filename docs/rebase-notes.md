@@ -105,6 +105,22 @@ cover several PRs in one workstream; cross-link from the ID heading.
   host division.
 - **Rebase impact**: low. Upstream Netflix has no equivalent
   template; this consolidation is fork-local.
+### 0113 — integer_motion_v2_cuda migrated to kernel_template (T-GPU-DEDUP-13)
+
+- **Touches**:
+  - `libvmaf/src/feature/cuda/integer_motion_v2_cuda.c` —
+    stream/event pair + sad device+host quintet collapses to
+    `lc + rb`. Raw-pixel ping-pong `pix[2]` stays outside the
+    bundle. submit keeps the memset on `pic_stream` inline
+    rather than calling `submit_pre_launch` (the helper would
+    move the memset to `lc.str`, which races with the kernel
+    reading the accumulator). init / collect / close call the
+    matching template helpers.
+- **Numerical contract**: unchanged. Same D2D copy, same
+  conditional kernel launch on frame ≥ 1, same
+  host-side `min(score[i], score[i+1])` flush.
+- **Rebase impact**: low. Upstream Netflix has no equivalent;
+  this is fork-added.
 
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 

@@ -29,25 +29,29 @@
 #include "feature_name.h"
 
 #include "cuda/integer_motion_v2_cuda.h"
+#include "cuda/kernel_template.h"
 #include "cuda_helper.cuh"
 #include "picture.h"
 #include "picture_cuda.h"
 
 typedef struct MotionV2StateCuda {
-    CUevent event;
-    CUevent finished;
+    /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
+     * (ADR-0221). */
+    VmafCudaKernelLifecycle lc;
+    /* Single int64 atomic accumulator per frame: device + pinned
+     * host. Owned by the template's readback bundle. */
+    VmafCudaKernelReadback rb;
+
     CUfunction funcbpc8;
     CUfunction funcbpc16;
-    CUstream str;
 
     /* Ping-pong of raw ref Y planes (uint8 for bpc<=8, uint16 for
      * bpc>8 — bytes_per_pixel * w * h). pix[index%2] is the current
-     * frame's slot; pix[(index+1)%2] is the previous frame's slot. */
+     * frame's slot; pix[(index+1)%2] is the previous frame's slot.
+     * Kept outside the template's readback bundle because the
+     * template models a single device+host pair, not a ping-pong
+     * of device-only buffers. */
     VmafCudaBuffer *pix[2];
-
-    /* Single int64 atomic accumulator per frame. */
-    VmafCudaBuffer *sad;
-    uint64_t *sad_host;
 
     unsigned index;
     unsigned frame_w;
@@ -70,13 +74,14 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     s->bpc = bpc;
     s->plane_bytes = (size_t)w * h * (bpc <= 8 ? 1u : 2u);
 
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
 
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, motion_v2_score_ptx), fail);
@@ -89,15 +94,19 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     int ret = 0;
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->pix[0], s->plane_bytes);
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->pix[1], s->plane_bytes);
-    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->sad, sizeof(uint64_t));
-    ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->sad_host, sizeof(uint64_t));
+    if (ret)
+        goto free_buffers;
+
+    ret = vmaf_cuda_kernel_readback_alloc(&s->rb, fex->cu_state, sizeof(uint64_t));
     if (ret)
         goto free_buffers;
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
-    if (!s->feature_name_dict)
+    if (!s->feature_name_dict) {
+        ret = -ENOMEM;
         goto free_buffers;
+    }
 
     return 0;
 
@@ -105,22 +114,23 @@ free_buffers:
     if (s->pix[0]) {
         (void)vmaf_cuda_buffer_free(fex->cu_state, s->pix[0]);
         free(s->pix[0]);
+        s->pix[0] = NULL;
     }
     if (s->pix[1]) {
         (void)vmaf_cuda_buffer_free(fex->cu_state, s->pix[1]);
         free(s->pix[1]);
+        s->pix[1] = NULL;
     }
-    if (s->sad) {
-        (void)vmaf_cuda_buffer_free(fex->cu_state, s->sad);
-        free(s->sad);
-    }
+    (void)vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
     (void)vmaf_dictionary_free(&s->feature_name_dict);
-    return -ENOMEM;
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    return ret;
 
 fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -165,13 +175,17 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
 
     /* Frame 0: nothing more to do — emit 0 in collect. */
     if (index == 0) {
-        CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, pic_stream));
-        CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
+        CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, pic_stream));
+        CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
         return 0;
     }
 
-    /* Reset device SAD accumulator (single int64). */
-    CHECK_CUDA_RETURN(cu_f, cuMemsetD8Async(s->sad->data, 0, sizeof(uint64_t), pic_stream));
+    /* Reset device SAD accumulator (single int64). The template's
+     * vmaf_cuda_kernel_submit_pre_launch isn't a fit here because
+     * the memset has to run on pic_stream — the kernel reads the
+     * accumulator before the host-side D2H copy on lc.str — and
+     * the wait was already issued earlier in this submit. */
+    CHECK_CUDA_RETURN(cu_f, cuMemsetD8Async(s->rb.device->data, 0, s->rb.bytes, pic_stream));
 
     const unsigned block_dim_x = 16;
     const unsigned block_dim_y = 16;
@@ -182,7 +196,7 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     if (s->bpc == 8u) {
         void *args[] = {
             &s->pix[prev_idx]->data, &s->pix[cur_idx]->data, (void *)&plane_pitch,
-            (void *)&plane_pitch,    (void *)s->sad,         (void *)&s->frame_w,
+            (void *)&plane_pitch,    (void *)s->rb.device,   (void *)&s->frame_w,
             (void *)&s->frame_h,
         };
         CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->funcbpc8, grid_dim_x, grid_dim_y, 1, block_dim_x,
@@ -190,19 +204,19 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     } else {
         void *args[] = {
             &s->pix[prev_idx]->data, &s->pix[cur_idx]->data, (void *)&plane_pitch,
-            (void *)&plane_pitch,    (void *)s->sad,         (void *)&s->frame_w,
+            (void *)&plane_pitch,    (void *)s->rb.device,   (void *)&s->frame_w,
             (void *)&s->frame_h,     (void *)&s->bpc,
         };
         CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->funcbpc16, grid_dim_x, grid_dim_y, 1, block_dim_x,
                                                block_dim_y, 1, 0, pic_stream, args, NULL));
     }
 
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, pic_stream));
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, pic_stream));
+    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
 
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->sad_host, (CUdeviceptr)s->sad->data,
-                                              sizeof(*s->sad_host), s->str));
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->rb.host_pinned, (CUdeviceptr)s->rb.device->data,
+                                              s->rb.bytes, s->lc.str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
     return 0;
 }
 
@@ -210,9 +224,10 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
     MotionV2StateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    int sync_err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
+    if (sync_err)
+        return sync_err;
 
     if (index == 0) {
         return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
@@ -220,7 +235,8 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                                                        0.0, index);
     }
 
-    const double sad_score = (double)*s->sad_host / 256.0 / ((double)s->frame_w * s->frame_h);
+    const uint64_t *sad_host = s->rb.host_pinned;
+    const double sad_score = (double)*sad_host / 256.0 / ((double)s->frame_w * s->frame_h);
     return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_integer_feature_motion_v2_sad_score",
                                                    sad_score, index);
@@ -264,34 +280,29 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     MotionV2StateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
 
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1_destroy);
-after_event1_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2_destroy);
-after_event2_destroy:;
-
-    int ret = _cuda_err;
+    int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
 
     if (s->pix[0]) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->pix[0]);
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->pix[0]);
         free(s->pix[0]);
+        if (rc == 0)
+            rc = e;
     }
     if (s->pix[1]) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->pix[1]);
+        const int e = vmaf_cuda_buffer_free(fex->cu_state, s->pix[1]);
         free(s->pix[1]);
+        if (rc == 0)
+            rc = e;
     }
-    if (s->sad) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->sad);
-        free(s->sad);
-    }
-    ret |= vmaf_dictionary_free(&s->feature_name_dict);
-    return ret;
+
+    const int rb_rc = vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    if (rc == 0)
+        rc = rb_rc;
+    const int dict_rc = vmaf_dictionary_free(&s->feature_name_dict);
+    if (rc == 0)
+        rc = dict_rc;
+    return rc;
 }
 
 static const char *provided_features[] = {"VMAF_integer_feature_motion_v2_sad_score",

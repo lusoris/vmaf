@@ -206,6 +206,17 @@
   use the matching template helpers. Numerical contract
   unchanged — same atomic accumulators, same
   `sums_host[i] / n_pixels` host computation.
+- **`integer_motion_v2_cuda.c` migrated to `cuda/kernel_template.h`
+  (T-GPU-DEDUP-13).** Fourth consumer of the CUDA template. State
+  collapses `CUstream + CUevent + CUevent + sad device buffer +
+  sad host pinned` to
+  `VmafCudaKernelLifecycle lc + VmafCudaKernelReadback rb`, with
+  the ping-pong of raw ref Y planes (`pix[2]`) kept outside the
+  bundle (template models a single device+host pair, not a
+  device-only ring). `submit_fex_cuda` keeps the memset on
+  `pic_stream` (not `lc.str`) inline because the kernel reads the
+  accumulator before the D2H copy on `lc.str`. Numerical contract
+  unchanged.
 
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
