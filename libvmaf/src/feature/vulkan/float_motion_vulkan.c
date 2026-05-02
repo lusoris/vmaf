@@ -29,6 +29,7 @@
 #include "feature_name.h"
 #include "log.h"
 
+#include "../../vulkan/kernel_template.h"
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
@@ -37,6 +38,7 @@
 
 #define FMOTION_WG_X 32
 #define FMOTION_WG_Y 4
+#define FMOTION_NUM_BINDINGS 4
 
 typedef struct {
     bool debug;
@@ -49,11 +51,8 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    VkDescriptorSetLayout dsl;
-    VkPipelineLayout pipeline_layout;
-    VkShaderModule shader;
-    VkPipeline pipeline;
-    VkDescriptorPool desc_pool;
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0221). */
+    VmafVulkanKernelPipeline pl;
 
     VmafVulkanBuffer *ref_in;
     VmafVulkanBuffer *blur[2];
@@ -103,46 +102,6 @@ static inline void fmotion_wg_dims(unsigned w, unsigned h, uint32_t *gx, uint32_
 
 static int create_pipelines(FloatMotionVulkanState *s)
 {
-    VkDevice dev = s->ctx->device;
-
-    VkDescriptorSetLayoutBinding bindings[4] = {0};
-    for (int i = 0; i < 4; i++) {
-        bindings[i].binding = (uint32_t)i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo dslci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = 4,
-        .pBindings = bindings,
-    };
-    if (vkCreateDescriptorSetLayout(dev, &dslci, NULL, &s->dsl) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkPushConstantRange pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(FloatMotionPushConsts),
-    };
-    VkPipelineLayoutCreateInfo plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &s->dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pcr,
-    };
-    if (vkCreatePipelineLayout(dev, &plci, NULL, &s->pipeline_layout) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkShaderModuleCreateInfo smci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = float_motion_spv_size,
-        .pCode = float_motion_spv,
-    };
-    if (vkCreateShaderModule(dev, &smci, NULL, &s->shader) != VK_SUCCESS)
-        return -ENOMEM;
-
     struct {
         int32_t width;
         int32_t height;
@@ -168,32 +127,22 @@ static int create_pipelines(FloatMotionVulkanState *s)
         .dataSize = sizeof(spec_data),
         .pData = &spec_data,
     };
-    VkComputePipelineCreateInfo cpci = {
-        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-        .stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                  .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                  .module = s->shader,
-                  .pName = "main",
-                  .pSpecializationInfo = &spec_info},
-        .layout = s->pipeline_layout,
+    const VmafVulkanKernelPipelineDesc desc = {
+        .ssbo_binding_count = (uint32_t)FMOTION_NUM_BINDINGS,
+        .push_constant_size = (uint32_t)sizeof(FloatMotionPushConsts),
+        .spv_bytes = float_motion_spv,
+        .spv_size = float_motion_spv_size,
+        .pipeline_create_info =
+            {
+                .stage =
+                    {
+                        .pName = "main",
+                        .pSpecializationInfo = &spec_info,
+                    },
+            },
+        .max_descriptor_sets = 4U,
     };
-    if (vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpci, NULL, &s->pipeline) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 4 * 4,
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = 4,
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
-    return 0;
+    return vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl);
 }
 
 static int alloc_buffers(FloatMotionVulkanState *s)
@@ -353,9 +302,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     VkDescriptorSet set = VK_NULL_HANDLE;
     VkDescriptorSetAllocateInfo dsai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
+        .descriptorPool = s->pl.desc_pool,
         .descriptorSetCount = 1,
-        .pSetLayouts = &s->dsl,
+        .pSetLayouts = &s->pl.dsl,
     };
     if (vkAllocateDescriptorSets(s->ctx->device, &dsai, &set) != VK_SUCCESS)
         return -ENOMEM;
@@ -390,10 +339,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         .compute_sad = (uint32_t)compute_sad,
         .num_workgroups_x = gx,
     };
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline_layout, 0, 1, &set, 0,
-                            NULL);
-    vkCmdPushConstants(cmd, s->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1, &set,
+                            0, NULL);
+    vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     vkCmdDispatch(cmd, gx, gy, 1);
     vkEndCommandBuffer(cmd);
 
@@ -455,7 +404,7 @@ cleanup:
     if (cmd != VK_NULL_HANDLE)
         vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
     if (set != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, 1, &set);
+        vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, 1, &set);
     return err;
 }
 
@@ -479,19 +428,8 @@ static int close_fex(VmafFeatureExtractor *fex)
     FloatMotionVulkanState *s = fex->priv;
     if (!s->ctx)
         return 0;
-    VkDevice dev = s->ctx->device;
-    vkDeviceWaitIdle(dev);
-
-    if (s->desc_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
-    if (s->pipeline != VK_NULL_HANDLE)
-        vkDestroyPipeline(dev, s->pipeline, NULL);
-    if (s->shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(dev, s->shader, NULL);
-    if (s->pipeline_layout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(dev, s->pipeline_layout, NULL);
-    if (s->dsl != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(dev, s->dsl, NULL);
+    vkDeviceWaitIdle(s->ctx->device);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     if (s->ref_in)
         vmaf_vulkan_buffer_free(s->ctx, s->ref_in);
