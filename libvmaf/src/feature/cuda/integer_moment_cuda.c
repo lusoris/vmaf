@@ -24,19 +24,22 @@
 #include "feature_extractor.h"
 #include "feature_name.h"
 #include "cuda/integer_moment_cuda.h"
+#include "cuda/kernel_template.h"
 #include "mem.h"
 #include "picture.h"
 #include "picture_cuda.h"
 #include "cuda_helper.cuh"
 
 typedef struct MomentStateCuda {
-    CUevent event;
-    CUevent finished;
+    /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
+     * (ADR-0221). */
+    VmafCudaKernelLifecycle lc;
+    /* Four uint64 atomic counters [ref1, dis1, ref2, dis2]:
+     * device + pinned host. Owned by the template's readback bundle. */
+    VmafCudaKernelReadback rb;
+
     CUfunction funcbpc8;
     CUfunction funcbpc16;
-    CUstream str;
-    VmafCudaBuffer *sums; /* device: 4× uint64 [ref1, dis1, ref2, dis2] */
-    uint64_t *sums_host;  /* host pinned: same layout */
     unsigned index;
     unsigned frame_w;
     unsigned frame_h;
@@ -72,13 +75,14 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     MomentStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
 
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, moment_score_ptx), fail);
@@ -91,35 +95,29 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 
     s->bpc = bpc;
 
-    int ret = 0;
-    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->sums, 4u * sizeof(uint64_t));
-    if (ret)
-        goto free_ref;
-    ret |=
-        vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->sums_host, 4u * sizeof(uint64_t));
-    if (ret)
+    err = vmaf_cuda_kernel_readback_alloc(&s->rb, fex->cu_state, 4u * sizeof(uint64_t));
+    if (err)
         goto free_ref;
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
-    if (!s->feature_name_dict)
+    if (!s->feature_name_dict) {
+        err = -ENOMEM;
         goto free_ref;
+    }
 
     return 0;
 
 free_ref:
-    if (s->sums) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->sums);
-        free(s->sums);
-    }
-    ret |= vmaf_dictionary_free(&s->feature_name_dict);
-    (void)ret;
-    return -ENOMEM;
+    (void)vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    (void)vmaf_dictionary_free(&s->feature_name_dict);
+    return err;
 
 fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -135,25 +133,27 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     s->frame_w = ref_pic->w[0];
     s->frame_h = ref_pic->h[0];
 
-    /* Reset the four device counters to zero. */
-    CHECK_CUDA_RETURN(cu_f, cuMemsetD8Async(s->sums->data, 0, 4u * sizeof(uint64_t), s->str));
-
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(vmaf_cuda_picture_get_stream(ref_pic),
-                                              vmaf_cuda_picture_get_ready_event(dist_pic),
-                                              CU_EVENT_WAIT_DEFAULT));
-
-    int err = moment_cuda_dispatch(ref_pic, dist_pic, s->sums, ref_pic->w[0], ref_pic->h[0], s->bpc,
-                                   s->funcbpc8, s->funcbpc16, cu_f,
-                                   vmaf_cuda_picture_get_stream(ref_pic));
+    /* Pre-launch: zero the four device counters and wait for the
+     * dist-side ready event. The kernel uses atomic adds, so the
+     * memset is mandatory. */
+    int err = vmaf_cuda_kernel_submit_pre_launch(&s->lc, fex->cu_state, &s->rb,
+                                                 vmaf_cuda_picture_get_stream(ref_pic),
+                                                 vmaf_cuda_picture_get_ready_event(dist_pic));
     if (err)
         return err;
 
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, vmaf_cuda_picture_get_stream(ref_pic)));
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
+    err = moment_cuda_dispatch(ref_pic, dist_pic, s->rb.device, ref_pic->w[0], ref_pic->h[0],
+                               s->bpc, s->funcbpc8, s->funcbpc16, cu_f,
+                               vmaf_cuda_picture_get_stream(ref_pic));
+    if (err)
+        return err;
 
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->sums_host, (CUdeviceptr)s->sums->data,
-                                              4u * sizeof(*s->sums_host), s->str));
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, vmaf_cuda_picture_get_stream(ref_pic)));
+    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
+
+    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->rb.host_pinned, (CUdeviceptr)s->rb.device->data,
+                                              s->rb.bytes, s->lc.str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
     return 0;
 }
 
@@ -161,15 +161,17 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
     MomentStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    int sync_err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
+    if (sync_err)
+        return sync_err;
 
+    const uint64_t *sums_host = s->rb.host_pinned;
     const double n_pixels = (double)s->frame_w * (double)s->frame_h;
-    const double ref1 = (double)s->sums_host[0] / n_pixels;
-    const double dis1 = (double)s->sums_host[1] / n_pixels;
-    const double ref2 = (double)s->sums_host[2] / n_pixels;
-    const double dis2 = (double)s->sums_host[3] / n_pixels;
+    const double ref1 = (double)sums_host[0] / n_pixels;
+    const double dis1 = (double)sums_host[1] / n_pixels;
+    const double ref2 = (double)sums_host[2] / n_pixels;
+    const double dis2 = (double)sums_host[3] / n_pixels;
 
     int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                       "float_moment_ref1st", ref1, index);
@@ -188,24 +190,14 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     MomentStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1_destroy);
-after_event1_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2_destroy);
-after_event2_destroy:;
-
-    int ret = _cuda_err;
-    if (s->sums) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->sums);
-        free(s->sums);
-    }
-    ret |= vmaf_dictionary_free(&s->feature_name_dict);
-    return ret;
+    int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    int rb_rc = vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    if (rc == 0)
+        rc = rb_rc;
+    int dict_rc = vmaf_dictionary_free(&s->feature_name_dict);
+    if (rc == 0)
+        rc = dict_rc;
+    return rc;
 }
 
 static const char *provided_features[] = {
