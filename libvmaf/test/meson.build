@@ -212,6 +212,13 @@ test_cambi = executable('test_cambi',
 
 # speed_chroma + speed_temporal registration smoke tests — link against
 # libvmaf_feature_static_lib for the extractor list (mirrors test_lpips).
+# Both extractors live in libvmaf/src/feature/speed.c, which is only
+# compiled when -Denable_float=true (see libvmaf/src/meson.build); the
+# corresponding entries in feature_extractor.c's extractor list are
+# wrapped in `#if VMAF_FLOAT_FEATURES`. Gate the test on the same option
+# so a default `meson setup` (enable_float=false) doesn't fail on a
+# config that legitimately omits these extractors.
+if get_option('enable_float')
 test_speed = executable('test_speed',
     ['test.c', 'test_speed.c', '../src/mem.c', '../src/picture.c', '../src/ref.c',
      '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
@@ -228,6 +235,7 @@ test_speed = executable('test_speed',
       libsvm_static_lib.extract_all_objects(recursive: true),
     ]
 )
+endif
 
 test_luminance_tools = executable('test_luminance_tools',
     ['test.c', 'test_luminance_tools.c'],
@@ -662,7 +670,9 @@ test('test_fastdvdnet_pre', test_fastdvdnet_pre)
 test('test_mobilesal', test_mobilesal)
 test('test_transnet_v2', test_transnet_v2)
 test('test_cambi', test_cambi)
+if get_option('enable_float')
 test('test_speed', test_speed)
+endif
 test('test_luminance_tools', test_luminance_tools)
 test('test_cli_parse', test_cli_parse)
 test('test_psnr', test_psnr)
