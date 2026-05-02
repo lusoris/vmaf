@@ -115,8 +115,8 @@ cover several PRs in one workstream; cross-link from the ID heading.
   `_add_variant()` helper.
 
 <<<<<<< HEAD
+>>>>>>> 6b28b4d1 (refactor(vulkan): T-GPU-DEDUP-19 — migrate vif_vulkan to kernel_template)
 >>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
-=======
 ### 0120 — float_vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-20)
 
 - **Touches**:
@@ -144,6 +144,25 @@ cover several PRs in one workstream; cross-link from the ID heading.
   `integer_vif` bit-identically to 4 decimals.
 - **Rebase impact**: low. Builds on top of PR #272's
   `_add_variant()` helper.
+### 0122 — float_adm_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-22)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/float_adm_vulkan.c` — twin to
+    adm_vulkan (T-GPU-DEDUP-21); 16-pipeline 2-D
+    `[stage][scale]` array. State collapses
+    `dsl + pipeline_layout + shader + desc_pool` to
+    `VmafVulkanKernelPipeline pl`. `pipelines[0][0]` aliases
+    `s->pl.pipeline`; the other 15 entries are siblings via
+    `vmaf_vulkan_kernel_pipeline_add_variant()`.
+- **Invariants**:
+  - Variants destroyed before bundle.
+  - `pipelines[0][0]` aliasing — destroy loop must skip
+    `(stage=0, scale=0)`.
+- **Numerical contract**: unchanged. Same float (`_s` suffix)
+  primitives from `adm_tools.c`; same 5-element spec-constant
+  tuple; same float partial accumulation reduced in double on
+  the host.
+- **Rebase impact**: low. Builds on top of PR #272.
 
 ### 0106 — Vulkan kernel template multi-pipeline + ssim/motion migration (T-GPU-DEDUP-7)
 
@@ -349,7 +368,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Numerical contract**: not applicable (docs-only).
 - **Rebase impact**: none. Pure research deliverables; upstream
   Netflix has no equivalent surface.
->>>>>>> 6ab4b0df (docs(ai): research-0046 + ADR-0241 — Bristol VI-Lab feasibility (BVI-CC ingest, Draft))
 
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
