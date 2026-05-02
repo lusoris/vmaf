@@ -115,6 +115,19 @@
   `VkPipeline` handle. Validated against the Netflix-pair smoke
   (`integer_vif_scale0..3` means 0.364 / 0.767 / 0.863 / 0.916,
   `integer_vif` mean 0.446 across 48 frames). Numerical contract
+- **`float_vif_vulkan.c` migrated to `vulkan/kernel_template.h` +
+  `_add_variant()` (T-GPU-DEDUP-20).** Hardest variant case — 7
+  pipelines across a 2-D `[mode][scale]` array (mode 0 compute
+  scales 0-3, mode 1 decimate scales 1-3). State collapses
+  `dsl + pipeline_layout + shader + desc_pool` to
+  `VmafVulkanKernelPipeline pl`; the
+  `VkPipeline pipelines[2][4]` 2-D lookup is preserved so the
+  dispatch path stays clean, but `pipelines[0][0]` aliases
+  `s->pl.pipeline` (template's base) and the other 6 are
+  variants via `_add_variant()`. Validated against the
+  Netflix-pair smoke (`vif_scale0..3` means 0.364, 0.767,
+  0.863, 0.916 across 48 frames; matches `integer_vif`
+  bit-identically to 4 decimals). Numerical contract
   unchanged.
 
 - **`psnr_vulkan.c` migrated to `vulkan/kernel_template.h` (T-GPU-DEDUP-5,
