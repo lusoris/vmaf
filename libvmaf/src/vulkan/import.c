@@ -69,15 +69,6 @@ static size_t aligned_stride_bytes(unsigned w, unsigned bpc)
     return (size_t)aw * bpp;
 }
 
-static unsigned clamp_ring_size(unsigned requested)
-{
-    if (requested == 0u)
-        return VMAF_VULKAN_RING_DEFAULT;
-    if (requested > VMAF_VULKAN_RING_MAX)
-        return VMAF_VULKAN_RING_MAX;
-    return requested;
-}
-
 /* Drain a single slot's fence if it carries an outstanding
  * submission. Required before re-recording the slot's command
  * buffer (Vulkan spec: command buffer must not be in the
@@ -175,7 +166,7 @@ static int lazy_alloc_ring(struct VmafVulkanState *state, unsigned w, unsigned h
 
     const size_t stride = aligned_stride_bytes(w, bpc);
     const size_t size = stride * (size_t)h;
-    const unsigned ring_size = clamp_ring_size(state->requested_ring_size);
+    const unsigned ring_size = vmaf_vulkan_clamp_ring_size(state->requested_ring_size);
 
     for (unsigned i = 0u; i < ring_size; i++) {
         int err = slot_alloc(state, &s->ring[i], size);

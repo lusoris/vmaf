@@ -88,13 +88,17 @@ destroying any handle.
      model masks the gain (likely — lavapipe has no real
      queue concurrency), document that and re-gate against a
      hardware Arc / RTX / RX run before flipping Accepted.
-  3. **Ring-size tuning**: `max_outstanding_frames = 4` is a
-     game-engine convention; the right number is a workload
-     profile away. Plumb through
-     `VmafVulkanConfiguration.max_outstanding_frames` so the
-     FFmpeg filter (and any direct C-API caller) can tune
-     against their decoder's `framequeue_size`. Default stays
-     4 to keep the smoke-test footprint bounded.
+  3. **Ring-size tuning** *(landed)*:
+     `VmafVulkanConfiguration.max_outstanding_frames` is now a
+     public field — 0 selects the canonical default (4); values
+     clamp to `[1, VMAF_VULKAN_RING_MAX]` internally. The
+     observable readback is
+     `vmaf_vulkan_state_max_outstanding_frames()`. External-handles
+     callers (`vmaf_vulkan_state_init_external`) still receive the
+     default; extending `VmafVulkanExternalHandles` is deferred to
+     a separate ABI bump. Smoke-test contract pinned in
+     `libvmaf/test/test_vulkan_async_pending_fence.c`
+     (`test_ring_size_*` group).
   4. **Timeline semaphore v3**: tracked under T7-29 part 5 once
      a feature kernel actually needs the cross-queue-family
      transfer property timeline semaphores buy us. Fence ring

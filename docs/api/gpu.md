@@ -408,15 +408,17 @@ the enable/disable pair to gate which frame ranges get timed.
 typedef struct VmafVulkanState VmafVulkanState;
 
 typedef struct VmafVulkanConfiguration {
-    int device_index;       /* -1 = first device with compute queue */
-    int enable_validation;  /* non-zero: load VK_LAYER_KHRONOS_validation */
+    int device_index;                /* -1 = first device with compute queue */
+    int enable_validation;           /* non-zero: load VK_LAYER_KHRONOS_validation */
+    unsigned max_outstanding_frames; /* 0 = default (4); clamped to [1, 8] */
 } VmafVulkanConfiguration;
 
-int  vmaf_vulkan_available(void);
-int  vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg);
-int  vmaf_vulkan_import_state(VmafContext *ctx, VmafVulkanState *state);
-void vmaf_vulkan_state_free(VmafVulkanState **state);
-int  vmaf_vulkan_list_devices(void);
+int      vmaf_vulkan_available(void);
+int      vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg);
+unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state);
+int      vmaf_vulkan_import_state(VmafContext *ctx, VmafVulkanState *state);
+void     vmaf_vulkan_state_free(VmafVulkanState **state);
+int      vmaf_vulkan_list_devices(void);
 ```
 
 The lifetime model mirrors CUDA's: after
@@ -471,10 +473,15 @@ Memory cost: the staging arena scales with
 buffers per `VmafVulkanState`. Higher resolutions or
 multi-state setups should size accordingly.
 
-The ring depth is currently fixed at the default; a public
-`VmafVulkanConfiguration.max_outstanding_frames` knob is
-the deferred follow-up #3 noted in
-[ADR-0235](../adr/0235-vulkan-async-pending-fence.md).
+The ring depth is configurable via
+`VmafVulkanConfiguration.max_outstanding_frames` (0 selects
+the canonical default of 4; values are clamped to [1, 8]
+internally). The clamped value is observable via
+`vmaf_vulkan_state_max_outstanding_frames()`. ADR-0235
+follow-up #3, T7-29 part 4 (this knob currently affects only
+`vmaf_vulkan_state_init`; external-handles callers receive
+the default until a separate ABI bump extends
+`VmafVulkanExternalHandles`).
 
 ### Limitations
 

@@ -8,6 +8,21 @@
 
 ### Added
 
+- **`VmafVulkanConfiguration.max_outstanding_frames` knob (ADR-0235
+  follow-up #3, T7-29 part 4).** The v2 async pending-fence ring
+  depth is now caller-tunable via the public Vulkan configuration
+  struct. `0` selects the canonical default (4); values are clamped
+  to `[1, VMAF_VULKAN_RING_MAX]` (currently 8) internally. The
+  clamped result is observable via the new
+  `vmaf_vulkan_state_max_outstanding_frames()` accessor, so callers
+  that pass a value can log what they actually got. External-handles
+  callers (`vmaf_vulkan_state_init_external`) still receive the
+  default — extending `VmafVulkanExternalHandles` is a separate ABI
+  bump. Contract pinned in
+  `libvmaf/test/test_vulkan_async_pending_fence.c`
+  (`test_ring_size_*` group, 4 cases). See
+  [`docs/api/gpu.md`](docs/api/gpu.md) and
+  [ADR-0235](docs/adr/0235-vulkan-async-pending-fence.md).
 - **Codec-aware FR regressor surface (T7-CODEC-AWARE / ADR-0235).**
   New `ai/src/vmaf_train/codec.py` ships a closed, order-stable
   6-bucket codec vocabulary (`x264`, `x265`, `libsvtav1`,
