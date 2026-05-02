@@ -84,8 +84,21 @@ cythonize-deps: $(VENV_PIP)
         coverage coverage-html coverage-check assertion-density
 
 # Top-level lint — runs every analyzer we own. Uses the meson compile_commands.json.
-lint: lint-c lint-py lint-sh
+lint: lint-c lint-py lint-sh docs-fragments-check
 	@echo "=== all lints passed ==="
+
+# Fragment-tree drift check (ADR-0221). Verifies CHANGELOG.md and
+# docs/adr/README.md are in sync with their per-PR fragment trees.
+docs-fragments-check:
+	@echo "--- changelog.d/ vs CHANGELOG.md ---"
+	@bash scripts/release/concat-changelog-fragments.sh --check
+	@echo "--- docs/adr/_index_fragments/ vs docs/adr/README.md ---"
+	@bash scripts/docs/concat-adr-index.sh --check
+
+# Regenerate consolidated outputs from fragments (ADR-0221).
+docs-fragments-write:
+	@bash scripts/release/concat-changelog-fragments.sh --write
+	@bash scripts/docs/concat-adr-index.sh --write
 
 lint-c: $(BUILD_DIR)
 	@command -v clang-tidy >/dev/null || { echo "clang-tidy not found; skipping"; exit 0; }

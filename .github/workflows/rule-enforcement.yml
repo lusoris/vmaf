@@ -58,7 +58,7 @@ jobs:
             "Decision matrix"
             "AGENTS.md invariant note"
             "Reproducer / smoke-test command"
-            "CHANGELOG.md"
+            "CHANGELOG fragment"
             "Rebase note"
           )
 
@@ -90,7 +90,7 @@ jobs:
                 "Decision matrix")            key="alternatives" ;;
                 "AGENTS.md invariant note")   key="rebase-sensitive|AGENTS" ;;
                 "Reproducer / smoke-test command") key="reproducer|smoke" ;;
-                "CHANGELOG.md")               key="changelog" ;;
+                "CHANGELOG fragment")         key="changelog" ;;
                 "Rebase note")                key="rebase" ;;
               esac
               if grep -qiE "no .*(${key})" /tmp/pr_body.md; then
@@ -135,10 +135,12 @@ jobs:
             fi
           fi
 
-          # CHANGELOG entry — if ticked, expect CHANGELOG.md in diff
+          # CHANGELOG entry — if ticked, expect either a new fragment file
+          # under changelog.d/<section>/ (preferred, ADR-0221) OR a hand
+          # edit to CHANGELOG.md itself (legacy fallback during migration).
           if grep -qiE -- '- \[x\].*CHANGELOG' /tmp/pr_body.md; then
-            if ! grep -qE '^CHANGELOG\.md$' /tmp/diff_files.txt; then
-              echo "::error title=ADR-0108 CHANGELOG::Checkbox ticked but CHANGELOG.md is not in this PR."
+            if ! grep -qE '^(CHANGELOG\.md|changelog\.d/[^/]+/.*\.md)$' /tmp/diff_files.txt; then
+              echo "::error title=ADR-0108 CHANGELOG::Checkbox ticked but neither CHANGELOG.md nor a new changelog.d/<section>/*.md fragment is in this PR (see ADR-0221)."
               fail=1
             fi
           fi
