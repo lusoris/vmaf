@@ -53,6 +53,7 @@
 
 #include "feature/ssimulacra2_math.h"
 
+#include "../../vulkan/kernel_template.h"
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
@@ -213,29 +214,26 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipelines (specialised per scale where needed). */
-    VkDescriptorSetLayout xyb_dsl;
-    VkPipelineLayout xyb_pl;
-    VkShaderModule xyb_shader;
+    /* Pipelines (specialised per scale where needed). 4 bundles via
+     * `vulkan/kernel_template.h` (ADR-0221). Each bundle owns its own
+     * descriptor pool + pipeline layout + shader module + DSL +
+     * the scale-0 pipeline. The `*_pipelines[0]` slot of each per-bundle
+     * array aliases the bundle's `pipeline` field; the variant slots
+     * are created via `vmaf_vulkan_kernel_pipeline_add_variant()` and
+     * must be destroyed before `vmaf_vulkan_kernel_pipeline_destroy()`
+     * to avoid double-freeing the aliased base. */
+    VmafVulkanKernelPipeline pl_xyb;
     VkPipeline xyb_pipelines[SS2V_NUM_SCALES];
 
-    VkDescriptorSetLayout mul_dsl;
-    VkPipelineLayout mul_pl;
-    VkShaderModule mul_shader;
+    VmafVulkanKernelPipeline pl_mul;
     VkPipeline mul_pipelines[SS2V_NUM_SCALES];
 
-    VkDescriptorSetLayout blur_dsl;
-    VkPipelineLayout blur_pl;
-    VkShaderModule blur_shader;
+    VmafVulkanKernelPipeline pl_blur;
     VkPipeline blur_pipelines_h[SS2V_NUM_SCALES];
     VkPipeline blur_pipelines_v[SS2V_NUM_SCALES];
 
-    VkDescriptorSetLayout ssim_dsl;
-    VkPipelineLayout ssim_pl;
-    VkShaderModule ssim_shader;
+    VmafVulkanKernelPipeline pl_ssim;
     VkPipeline ssim_pipelines[SS2V_NUM_SCALES];
-
-    VkDescriptorPool desc_pool;
 
     /* GPU buffers (sized for full resolution; per-scale dispatches
      * use only the leading prefix). All planar 3-channel layouts
@@ -592,38 +590,11 @@ static void ss2v_downsample_2x2(const float *in, unsigned iw, unsigned ih, float
 /* Pipeline / descriptor-set / buffer setup                           */
 /* ------------------------------------------------------------------ */
 
-static int ss2v_make_dsl(VkDevice dev, unsigned binding_count, VkDescriptorSetLayout *out)
-{
-    VkDescriptorSetLayoutBinding bindings[8] = {0};
-    for (unsigned i = 0; i < binding_count; i++) {
-        bindings[i].binding = i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo ci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = binding_count,
-        .pBindings = bindings,
-    };
-    return vkCreateDescriptorSetLayout(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
-}
-
-static int ss2v_make_pl(VkDevice dev, VkDescriptorSetLayout dsl, size_t pcs, VkPipelineLayout *out)
-{
-    VkPushConstantRange pcr = {.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = pcs};
-    VkPipelineLayoutCreateInfo ci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pcr,
-    };
-    return vkCreatePipelineLayout(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
-}
-
-/* Build a compute pipeline with up to 3 int spec constants. */
-static int ss2v_build_pipeline_int3(Ssimu2VkState *s, VkShaderModule sm, VkPipelineLayout pl,
+/* Build a sibling compute pipeline with up to 3 int spec constants
+ * via `vmaf_vulkan_kernel_pipeline_add_variant`. The base bundle
+ * supplies the layout + shader module; this helper formats the spec
+ * payload and dispatches to the template. */
+static int ss2v_build_pipeline_int3(Ssimu2VkState *s, const VmafVulkanKernelPipeline *bundle,
                                     int n_specs, const int *spec_vals, VkPipeline *out)
 {
     VkSpecializationMapEntry entries[3];
@@ -641,125 +612,140 @@ static int ss2v_build_pipeline_int3(Ssimu2VkState *s, VkShaderModule sm, VkPipel
         .pData = data,
     };
     VkComputePipelineCreateInfo cpci = {
-        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .stage =
             {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = sm,
                 .pName = "main",
                 .pSpecializationInfo = &si,
             },
-        .layout = pl,
     };
-    return vkCreateComputePipelines(s->ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, out) ==
-                   VK_SUCCESS ?
-               0 :
-               -ENOMEM;
+    return vmaf_vulkan_kernel_pipeline_add_variant(s->ctx, bundle, &cpci, out);
 }
 
-static int ss2v_create_shader(VkDevice dev, const uint32_t *code, size_t code_size,
-                              VkShaderModule *out)
+/* Build the base pipeline of a `VmafVulkanKernelPipeline` bundle for
+ * scale 0. The template helper owns layout + shader + DSL + pool;
+ * the bundle's `pipeline` field becomes the scale-0 pipeline. */
+static int ss2v_build_base_bundle(Ssimu2VkState *s, VmafVulkanKernelPipeline *bundle,
+                                  uint32_t binding_count, uint32_t pc_size, const uint32_t *spv,
+                                  size_t spv_size, uint32_t max_sets, int n_specs,
+                                  const int *spec_vals)
 {
-    VkShaderModuleCreateInfo ci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = code_size,
-        .pCode = code,
+    VkSpecializationMapEntry entries[3];
+    int data[3];
+    for (int i = 0; i < n_specs; i++) {
+        entries[i].constantID = (uint32_t)i;
+        entries[i].offset = (uint32_t)(i * (int)sizeof(int));
+        entries[i].size = sizeof(int);
+        data[i] = spec_vals[i];
+    }
+    VkSpecializationInfo si = {
+        .mapEntryCount = (uint32_t)n_specs,
+        .pMapEntries = entries,
+        .dataSize = (size_t)n_specs * sizeof(int),
+        .pData = data,
     };
-    return vkCreateShaderModule(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
+    const VmafVulkanKernelPipelineDesc desc = {
+        .ssbo_binding_count = binding_count,
+        .push_constant_size = pc_size,
+        .spv_bytes = spv,
+        .spv_size = spv_size,
+        .pipeline_create_info =
+            {
+                .stage =
+                    {
+                        .pName = "main",
+                        .pSpecializationInfo = &si,
+                    },
+            },
+        .max_descriptor_sets = max_sets,
+    };
+    return vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, bundle);
 }
 
 static int ss2v_create_pipelines(Ssimu2VkState *s)
 {
-    VkDevice dev = s->ctx->device;
     int err = 0;
 
-    err = ss2v_make_dsl(dev, SS2V_XYB_BINDINGS, &s->xyb_dsl);
-    if (err)
-        return err;
-    err = ss2v_make_pl(dev, s->xyb_dsl, sizeof(XybPushConsts), &s->xyb_pl);
-    if (err)
-        return err;
-    err = ss2v_create_shader(dev, ssimulacra2_xyb_spv, ssimulacra2_xyb_spv_size, &s->xyb_shader);
-    if (err)
-        return err;
+    /* Per-bundle descriptor pool sizing.
+     *
+     * Per scale, ss2v_run_scale allocates:
+     *   - 2 xyb sets, 3 mul sets, 10 blur sets (5×{H,V}), 1 ssim set
+     *
+     * Each bundle owns its own pool, so size each pool for the
+     * worst case across all SS2V_NUM_SCALES scales of its own
+     * dispatch type. The fork's per-scale loop frees sets at the
+     * tail, but Vulkan's `VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT`
+     * makes per-scale reuse safe — this sizing is the pessimistic
+     * upper bound on simultaneously-allocated sets across the loop's
+     * lifetime (we'd actually only need the per-scale total, but the
+     * extra headroom is cheap and matches the legacy shared-pool slack). */
+    const uint32_t xyb_sets = 2u * SS2V_NUM_SCALES;
+    const uint32_t mul_sets = 3u * SS2V_NUM_SCALES;
+    const uint32_t blur_sets = 5u * 2u * SS2V_NUM_SCALES;
+    const uint32_t ssim_sets = 1u * SS2V_NUM_SCALES;
 
-    err = ss2v_make_dsl(dev, SS2V_MUL_BINDINGS, &s->mul_dsl);
-    if (err)
-        return err;
-    err = ss2v_make_pl(dev, s->mul_dsl, sizeof(MulPushConsts), &s->mul_pl);
-    if (err)
-        return err;
-    err = ss2v_create_shader(dev, ssimulacra2_mul_spv, ssimulacra2_mul_spv_size, &s->mul_shader);
-    if (err)
-        return err;
+    const int wh0[2] = {(int)s->scale_w[0], (int)s->scale_h[0]};
+    const int wh0_blur_h[3] = {(int)s->scale_w[0], (int)s->scale_h[0], 0};
 
-    err = ss2v_make_dsl(dev, SS2V_BLUR_BINDINGS, &s->blur_dsl);
+    /* XYB bundle (6 SSBO bindings). */
+    err = ss2v_build_base_bundle(s, &s->pl_xyb, SS2V_XYB_BINDINGS, sizeof(XybPushConsts),
+                                 ssimulacra2_xyb_spv, ssimulacra2_xyb_spv_size, xyb_sets,
+                                 /*n_specs=*/2, wh0);
     if (err)
         return err;
-    err = ss2v_make_pl(dev, s->blur_dsl, sizeof(BlurPushConsts), &s->blur_pl);
-    if (err)
-        return err;
-    err = ss2v_create_shader(dev, ssimulacra2_blur_spv, ssimulacra2_blur_spv_size, &s->blur_shader);
-    if (err)
-        return err;
+    s->xyb_pipelines[0] = s->pl_xyb.pipeline;
 
-    err = ss2v_make_dsl(dev, SS2V_SSIM_BINDINGS, &s->ssim_dsl);
+    /* MUL bundle (3 SSBO bindings). */
+    err = ss2v_build_base_bundle(s, &s->pl_mul, SS2V_MUL_BINDINGS, sizeof(MulPushConsts),
+                                 ssimulacra2_mul_spv, ssimulacra2_mul_spv_size, mul_sets,
+                                 /*n_specs=*/2, wh0);
     if (err)
         return err;
-    err = ss2v_make_pl(dev, s->ssim_dsl, sizeof(SsimPushConsts), &s->ssim_pl);
-    if (err)
-        return err;
-    err = ss2v_create_shader(dev, ssimulacra2_ssim_spv, ssimulacra2_ssim_spv_size, &s->ssim_shader);
-    if (err)
-        return err;
+    s->mul_pipelines[0] = s->pl_mul.pipeline;
 
-    /* Per-scale specialised pipelines. */
+    /* BLUR bundle (2 SSBO bindings). The base pipeline is the H-pass
+     * for scale 0; the V-pass for scale 0 is a sibling variant. */
+    err = ss2v_build_base_bundle(s, &s->pl_blur, SS2V_BLUR_BINDINGS, sizeof(BlurPushConsts),
+                                 ssimulacra2_blur_spv, ssimulacra2_blur_spv_size, blur_sets,
+                                 /*n_specs=*/3, wh0_blur_h);
+    if (err)
+        return err;
+    s->blur_pipelines_h[0] = s->pl_blur.pipeline;
+
+    /* SSIM bundle (8 SSBO bindings). */
+    err = ss2v_build_base_bundle(s, &s->pl_ssim, SS2V_SSIM_BINDINGS, sizeof(SsimPushConsts),
+                                 ssimulacra2_ssim_spv, ssimulacra2_ssim_spv_size, ssim_sets,
+                                 /*n_specs=*/2, wh0);
+    if (err)
+        return err;
+    s->ssim_pipelines[0] = s->pl_ssim.pipeline;
+
+    /* Variants: scales 1..N-1 for xyb/mul/ssim (2 specs); blur needs
+     * an H + V pipeline per scale, with the H-pass at scale 0
+     * already aliased into the bundle. */
     for (int i = 0; i < SS2V_NUM_SCALES; i++) {
         const int wh[2] = {(int)s->scale_w[i], (int)s->scale_h[i]};
-        err = ss2v_build_pipeline_int3(s, s->xyb_shader, s->xyb_pl, 2, wh, &s->xyb_pipelines[i]);
-        if (err)
-            return err;
-        err = ss2v_build_pipeline_int3(s, s->mul_shader, s->mul_pl, 2, wh, &s->mul_pipelines[i]);
-        if (err)
-            return err;
-        err = ss2v_build_pipeline_int3(s, s->ssim_shader, s->ssim_pl, 2, wh, &s->ssim_pipelines[i]);
-        if (err)
-            return err;
+        if (i > 0) {
+            err = ss2v_build_pipeline_int3(s, &s->pl_xyb, 2, wh, &s->xyb_pipelines[i]);
+            if (err)
+                return err;
+            err = ss2v_build_pipeline_int3(s, &s->pl_mul, 2, wh, &s->mul_pipelines[i]);
+            if (err)
+                return err;
+            err = ss2v_build_pipeline_int3(s, &s->pl_ssim, 2, wh, &s->ssim_pipelines[i]);
+            if (err)
+                return err;
 
-        /* Blur has 2 pipelines per scale (PASS=0/1). */
-        const int wh_h[3] = {(int)s->scale_w[i], (int)s->scale_h[i], 0};
+            const int wh_h[3] = {(int)s->scale_w[i], (int)s->scale_h[i], 0};
+            err = ss2v_build_pipeline_int3(s, &s->pl_blur, 3, wh_h, &s->blur_pipelines_h[i]);
+            if (err)
+                return err;
+        }
         const int wh_v[3] = {(int)s->scale_w[i], (int)s->scale_h[i], 1};
-        err = ss2v_build_pipeline_int3(s, s->blur_shader, s->blur_pl, 3, wh_h,
-                                       &s->blur_pipelines_h[i]);
-        if (err)
-            return err;
-        err = ss2v_build_pipeline_int3(s, s->blur_shader, s->blur_pl, 3, wh_v,
-                                       &s->blur_pipelines_v[i]);
+        err = ss2v_build_pipeline_int3(s, &s->pl_blur, 3, wh_v, &s->blur_pipelines_v[i]);
         if (err)
             return err;
     }
 
-    /* Descriptor pool — pessimistic upper bound. Per scale we
-     * allocate: 2 xyb sets + 3 mul sets + 5*2 blur sets + 1 ssim set = 16.
-     * Total = 16 * SS2V_NUM_SCALES + slack. */
-    const uint32_t per_scale_sets = 2 + 3 + 5 * 2 + 1;
-    const uint32_t max_sets = per_scale_sets * SS2V_NUM_SCALES;
-    /* Largest binding count is 8 (ssim) — pool descriptor count
-     * is bound by max_sets * 8. */
-    VkDescriptorPoolSize ps = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = max_sets * 8u,
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = max_sets,
-        .poolSizeCount = 1,
-        .pPoolSizes = &ps,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
     return 0;
 }
 
@@ -845,13 +831,14 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
 /* Per-frame extract                                                  */
 /* ------------------------------------------------------------------ */
 
-static int ss2v_alloc_set(Ssimu2VkState *s, VkDescriptorSetLayout dsl, VkDescriptorSet *out)
+static int ss2v_alloc_set(Ssimu2VkState *s, const VmafVulkanKernelPipeline *bundle,
+                          VkDescriptorSet *out)
 {
     VkDescriptorSetAllocateInfo dsai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
+        .descriptorPool = bundle->desc_pool,
         .descriptorSetCount = 1,
-        .pSetLayouts = &dsl,
+        .pSetLayouts = &bundle->dsl,
     };
     return vkAllocateDescriptorSets(s->ctx->device, &dsai, out) == VK_SUCCESS ? 0 : -ENOMEM;
 }
@@ -896,8 +883,10 @@ static void ss2v_barrier(VkCommandBuffer cmd)
 static void ss2v_dispatch_xyb(Ssimu2VkState *s, VkCommandBuffer cmd, int scale, VkDescriptorSet set)
 {
     XybPushConsts pc = {.width = s->scale_w[scale], .height = s->scale_h[scale]};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->xyb_pl, 0, 1, &set, 0, NULL);
-    vkCmdPushConstants(cmd, s->xyb_pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_xyb.pipeline_layout, 0, 1,
+                            &set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_xyb.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                       &pc);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->xyb_pipelines[scale]);
     uint32_t gx = (s->scale_w[scale] + SS2V_WG_X - 1) / SS2V_WG_X;
     uint32_t gy = (s->scale_h[scale] + SS2V_WG_Y - 1) / SS2V_WG_Y;
@@ -911,8 +900,10 @@ static void ss2v_dispatch_mul(Ssimu2VkState *s, VkCommandBuffer cmd, int scale, 
                         .height = s->scale_h[scale],
                         .plane_count = plane_count,
                         .plane_stride = s->width * s->height};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->mul_pl, 0, 1, &set, 0, NULL);
-    vkCmdPushConstants(cmd, s->mul_pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_mul.pipeline_layout, 0, 1,
+                            &set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_mul.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                       &pc);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->mul_pipelines[scale]);
     uint32_t gx = (s->scale_w[scale] + SS2V_WG_X - 1) / SS2V_WG_X;
     uint32_t gy = (s->scale_h[scale] + SS2V_WG_Y - 1) / SS2V_WG_Y;
@@ -943,8 +934,10 @@ static void ss2v_dispatch_blur_pass(Ssimu2VkState *s, VkCommandBuffer cmd, int s
         .in_offset = in_off,
         .out_offset = out_off,
     };
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->blur_pl, 0, 1, &set, 0, NULL);
-    vkCmdPushConstants(cmd, s->blur_pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_blur.pipeline_layout, 0, 1,
+                            &set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_blur.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                       &pc);
     VkPipeline p = (pass == 0) ? s->blur_pipelines_h[scale] : s->blur_pipelines_v[scale];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p);
     /* H pass: one workgroup per row → dispatch (1, height, 1).
@@ -1036,16 +1029,16 @@ static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], doubl
     VkDescriptorSet blur_sets_v[5] = {VK_NULL_HANDLE};
     VkDescriptorSet ssim_set = VK_NULL_HANDLE;
 
-    err |= ss2v_alloc_set(s, s->xyb_dsl, &xyb_set_ref);
-    err |= ss2v_alloc_set(s, s->xyb_dsl, &xyb_set_dis);
-    err |= ss2v_alloc_set(s, s->mul_dsl, &mul_set_ref2);
-    err |= ss2v_alloc_set(s, s->mul_dsl, &mul_set_dis2);
-    err |= ss2v_alloc_set(s, s->mul_dsl, &mul_set_rd);
+    err |= ss2v_alloc_set(s, &s->pl_xyb, &xyb_set_ref);
+    err |= ss2v_alloc_set(s, &s->pl_xyb, &xyb_set_dis);
+    err |= ss2v_alloc_set(s, &s->pl_mul, &mul_set_ref2);
+    err |= ss2v_alloc_set(s, &s->pl_mul, &mul_set_dis2);
+    err |= ss2v_alloc_set(s, &s->pl_mul, &mul_set_rd);
     for (int b = 0; b < 5; b++) {
-        err |= ss2v_alloc_set(s, s->blur_dsl, &blur_sets_h[b]);
-        err |= ss2v_alloc_set(s, s->blur_dsl, &blur_sets_v[b]);
+        err |= ss2v_alloc_set(s, &s->pl_blur, &blur_sets_h[b]);
+        err |= ss2v_alloc_set(s, &s->pl_blur, &blur_sets_v[b]);
     }
-    err |= ss2v_alloc_set(s, s->ssim_dsl, &ssim_set);
+    err |= ss2v_alloc_set(s, &s->pl_ssim, &ssim_set);
     if (err)
         goto out;
 
@@ -1285,25 +1278,25 @@ static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], doubl
         avg_ed[c * 4 + 3] = sqrt(sqrt(inv_pixels * e_det4));
     }
 out:
-    /* Free descriptor sets. */
+    /* Free descriptor sets — each set goes back to its bundle's pool. */
     if (xyb_set_ref)
-        vkFreeDescriptorSets(dev, s->desc_pool, 1, &xyb_set_ref);
+        vkFreeDescriptorSets(dev, s->pl_xyb.desc_pool, 1, &xyb_set_ref);
     if (xyb_set_dis)
-        vkFreeDescriptorSets(dev, s->desc_pool, 1, &xyb_set_dis);
+        vkFreeDescriptorSets(dev, s->pl_xyb.desc_pool, 1, &xyb_set_dis);
     if (mul_set_ref2)
-        vkFreeDescriptorSets(dev, s->desc_pool, 1, &mul_set_ref2);
+        vkFreeDescriptorSets(dev, s->pl_mul.desc_pool, 1, &mul_set_ref2);
     if (mul_set_dis2)
-        vkFreeDescriptorSets(dev, s->desc_pool, 1, &mul_set_dis2);
+        vkFreeDescriptorSets(dev, s->pl_mul.desc_pool, 1, &mul_set_dis2);
     if (mul_set_rd)
-        vkFreeDescriptorSets(dev, s->desc_pool, 1, &mul_set_rd);
+        vkFreeDescriptorSets(dev, s->pl_mul.desc_pool, 1, &mul_set_rd);
     for (int b = 0; b < 5; b++) {
         if (blur_sets_h[b])
-            vkFreeDescriptorSets(dev, s->desc_pool, 1, &blur_sets_h[b]);
+            vkFreeDescriptorSets(dev, s->pl_blur.desc_pool, 1, &blur_sets_h[b]);
         if (blur_sets_v[b])
-            vkFreeDescriptorSets(dev, s->desc_pool, 1, &blur_sets_v[b]);
+            vkFreeDescriptorSets(dev, s->pl_blur.desc_pool, 1, &blur_sets_v[b]);
     }
     if (ssim_set)
-        vkFreeDescriptorSets(dev, s->desc_pool, 1, &ssim_set);
+        vkFreeDescriptorSets(dev, s->pl_ssim.desc_pool, 1, &ssim_set);
     return err;
 }
 
@@ -1453,45 +1446,32 @@ static int close_fex(VmafFeatureExtractor *fex)
     VkDevice dev = s->ctx->device;
     vkDeviceWaitIdle(dev);
 
-    if (s->desc_pool)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
-
-    for (int i = 0; i < SS2V_NUM_SCALES; i++) {
+    /* Variant pipelines must be destroyed *before* the bundle's
+     * `_destroy()` (which destroys the shared layout/shader/DSL/pool
+     * and would invalidate the variants). The base pipeline at
+     * `*_pipelines[0]` aliases the bundle's `pipeline` field — skip
+     * slot 0 to avoid double-freeing it via the bundle teardown. */
+    for (int i = 1; i < SS2V_NUM_SCALES; i++) {
         if (s->xyb_pipelines[i])
             vkDestroyPipeline(dev, s->xyb_pipelines[i], NULL);
         if (s->mul_pipelines[i])
             vkDestroyPipeline(dev, s->mul_pipelines[i], NULL);
         if (s->blur_pipelines_h[i])
             vkDestroyPipeline(dev, s->blur_pipelines_h[i], NULL);
-        if (s->blur_pipelines_v[i])
-            vkDestroyPipeline(dev, s->blur_pipelines_v[i], NULL);
         if (s->ssim_pipelines[i])
             vkDestroyPipeline(dev, s->ssim_pipelines[i], NULL);
     }
-    if (s->xyb_shader)
-        vkDestroyShaderModule(dev, s->xyb_shader, NULL);
-    if (s->mul_shader)
-        vkDestroyShaderModule(dev, s->mul_shader, NULL);
-    if (s->blur_shader)
-        vkDestroyShaderModule(dev, s->blur_shader, NULL);
-    if (s->ssim_shader)
-        vkDestroyShaderModule(dev, s->ssim_shader, NULL);
-    if (s->xyb_pl)
-        vkDestroyPipelineLayout(dev, s->xyb_pl, NULL);
-    if (s->mul_pl)
-        vkDestroyPipelineLayout(dev, s->mul_pl, NULL);
-    if (s->blur_pl)
-        vkDestroyPipelineLayout(dev, s->blur_pl, NULL);
-    if (s->ssim_pl)
-        vkDestroyPipelineLayout(dev, s->ssim_pl, NULL);
-    if (s->xyb_dsl)
-        vkDestroyDescriptorSetLayout(dev, s->xyb_dsl, NULL);
-    if (s->mul_dsl)
-        vkDestroyDescriptorSetLayout(dev, s->mul_dsl, NULL);
-    if (s->blur_dsl)
-        vkDestroyDescriptorSetLayout(dev, s->blur_dsl, NULL);
-    if (s->ssim_dsl)
-        vkDestroyDescriptorSetLayout(dev, s->ssim_dsl, NULL);
+    /* The blur V-pass at scale 0 is also a variant — only the H-pass
+     * at slot 0 aliases the bundle's pipeline. Destroy every V slot. */
+    for (int i = 0; i < SS2V_NUM_SCALES; i++) {
+        if (s->blur_pipelines_v[i])
+            vkDestroyPipeline(dev, s->blur_pipelines_v[i], NULL);
+    }
+
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_xyb);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_mul);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_blur);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_ssim);
 
 #define SS2V_FREE(b)                                                                               \
     do {                                                                                           \
