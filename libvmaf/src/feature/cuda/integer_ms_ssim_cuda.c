@@ -47,6 +47,7 @@
 #include "feature_extractor.h"
 #include "feature_name.h"
 #include "cuda/integer_ms_ssim_cuda.h"
+#include "cuda/kernel_template.h"
 #include "log.h"
 #include "mem.h"
 #include "picture.h"
@@ -65,12 +66,13 @@ static const float g_betas[MS_SSIM_SCALES] = {0.0448f, 0.2856f, 0.3001f, 0.2363f
 static const float g_gammas[MS_SSIM_SCALES] = {0.0448f, 0.2856f, 0.3001f, 0.2363f, 0.1333f};
 
 typedef struct MsSsimStateCuda {
-    CUevent event;
-    CUevent finished;
+    /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
+     * (ADR-0221). Multi-buffer pyramid state stays outside the
+     * template's single-pair readback bundle. */
+    VmafCudaKernelLifecycle lc;
     CUfunction func_decimate;
     CUfunction func_horiz;
     CUfunction func_vert_lcs;
-    CUstream str;
 
     unsigned width;
     unsigned height;
@@ -174,14 +176,15 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     s->c2 = (K2 * L) * (K2 * L);
     s->c3 = s->c2 * 0.5f;
 
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
     CudaFunctions *cu_f = fex->cu_state->f;
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
 
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, ms_ssim_score_ptx), fail);
@@ -236,6 +239,7 @@ fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -300,9 +304,9 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     /* Upload normalised float planes to pyramid level 0. */
     const size_t input_bytes_float = (size_t)s->width * s->height * sizeof(float);
     CHECK_CUDA_RETURN(cu_f, cuMemcpyHtoDAsync((CUdeviceptr)s->pyramid_ref[0]->data, s->h_ref,
-                                              input_bytes_float, s->str));
+                                              input_bytes_float, s->lc.str));
     CHECK_CUDA_RETURN(cu_f, cuMemcpyHtoDAsync((CUdeviceptr)s->pyramid_cmp[0]->data, s->h_cmp,
-                                              input_bytes_float, s->str));
+                                              input_bytes_float, s->lc.str));
     (void)vmaf_cuda_buffer_host_free(fex->cu_state, tmp_uint);
 
     /* Build pyramid scales 1..4 via decimate kernel × ref + cmp. */
@@ -322,14 +326,14 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
             };
             CHECK_CUDA_RETURN(cu_f,
                               cuLaunchKernel(s->func_decimate, grid_x, grid_y, 1, MS_SSIM_BLOCK_X,
-                                             MS_SSIM_BLOCK_Y, 1, 0, s->str, params, NULL));
+                                             MS_SSIM_BLOCK_Y, 1, 0, s->lc.str, params, NULL));
         }
     }
 
     /* Per-scale SSIM compute + readback. The intermediates are
      * shared, so SSIM scales must run sequentially with a sync
      * before host readback. */
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
     return 0;
 }
 
@@ -360,7 +364,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
             (void *)&w_horiz,          (void *)&h_horiz,
         };
         CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_horiz, horiz_grid_x, horiz_grid_y, 1,
-                                               MS_SSIM_BLOCK_X, MS_SSIM_BLOCK_Y, 1, 0, s->str,
+                                               MS_SSIM_BLOCK_X, MS_SSIM_BLOCK_Y, 1, 0, s->lc.str,
                                                horiz_params, NULL));
 
         void *vert_params[] = {
@@ -370,18 +374,19 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
             (void *)&w_final,      (void *)&h_final,      (void *)&s->c1,
             (void *)&s->c2,        (void *)&s->c3,
         };
-        CHECK_CUDA_RETURN(cu_f, cuLaunchKernel(s->func_vert_lcs, s->scale_grid_x[i],
-                                               s->scale_grid_y[i], 1, MS_SSIM_BLOCK_X,
-                                               MS_SSIM_BLOCK_Y, 1, 0, s->str, vert_params, NULL));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuLaunchKernel(s->func_vert_lcs, s->scale_grid_x[i], s->scale_grid_y[i],
+                                         1, MS_SSIM_BLOCK_X, MS_SSIM_BLOCK_Y, 1, 0, s->lc.str,
+                                         vert_params, NULL));
 
         const size_t partials_bytes = (size_t)s->scale_block_count[i] * sizeof(float);
         CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_l_partials, (CUdeviceptr)s->l_partials->data,
-                                                  partials_bytes, s->str));
+                                                  partials_bytes, s->lc.str));
         CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_c_partials, (CUdeviceptr)s->c_partials->data,
-                                                  partials_bytes, s->str));
+                                                  partials_bytes, s->lc.str));
         CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_s_partials, (CUdeviceptr)s->s_partials->data,
-                                                  partials_bytes, s->str));
-        CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+                                                  partials_bytes, s->lc.str));
+        CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
 
         double total_l = 0.0, total_c = 0.0, total_s = 0.0;
         for (unsigned j = 0; j < s->scale_block_count[i]; j++) {
@@ -428,18 +433,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     MsSsimStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1);
-after_event1:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2);
-after_event2:;
-
-    int ret = _cuda_err;
+    int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
         if (s->pyramid_ref[i]) {
             ret |= vmaf_cuda_buffer_free(fex->cu_state, s->pyramid_ref[i]);

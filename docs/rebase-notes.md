@@ -137,6 +137,23 @@ cover several PRs in one workstream; cross-link from the ID heading.
   precision pattern) holds.
 - **Rebase impact**: low. Upstream Netflix has no equivalent;
   this is fork-added.
+### 0115 — ms_ssim_cuda + psnr_hvs_cuda lifecycle migration (T-GPU-DEDUP-15)
+
+- **Touches**:
+  - `libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c` —
+    stream + 2-event lifecycle replaced with
+    `VmafCudaKernelLifecycle lc`; multi-level pyramid + SSIM
+    intermediate + 3-partials buffers stay outside the template's
+    single-pair readback bundle.
+  - `libvmaf/src/feature/cuda/integer_psnr_hvs_cuda.c` — same
+    shape; 3-plane ref/dist/partials triples remain inline.
+- **Numerical contract**: unchanged. The migration only affects
+  init / close boilerplate; submit / collect dispatch and host
+  reduction paths are untouched apart from the
+  `s->str` → `s->lc.str` / `s->event` → `s->lc.submit` /
+  `s->finished` → `s->lc.finished` field renames.
+- **Rebase impact**: low. Upstream Netflix has no equivalent
+  template; this is fork-added.
 
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 

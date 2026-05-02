@@ -234,6 +234,20 @@
   `collect_fex_cuda` / `close_fex_cuda` use the matching
   template helpers. Numerical contract unchanged
   (`places=4` per the ciede_cuda precision pattern).
+- **`integer_ms_ssim_cuda.c` + `integer_psnr_hvs_cuda.c` migrated to
+  `cuda/kernel_template.h` (T-GPU-DEDUP-15).** Sixth + seventh
+  consumers of the CUDA template. Both kernels have heavy
+  multi-buffer state (5-level pyramid + 5 SSIM intermediates +
+  3 partials triples for ms_ssim; 3-plane ref/dist/partials triples
+  for psnr_hvs) that doesn't fit the template's single-pair
+  readback bundle, but the lifecycle (stream + submit/finished
+  events) is a clean win on each side. State on each side
+  collapses `CUstream str + CUevent event + CUevent finished` to
+  a single `VmafCudaKernelLifecycle lc`; init / close call the
+  matching template helpers. Submit / collect references updated
+  via mechanical sed (`s->str` → `s->lc.str`, `s->event` →
+  `s->lc.submit`, `s->finished` → `s->lc.finished`). Numerical
+  contracts unchanged.
 
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
