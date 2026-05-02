@@ -177,6 +177,23 @@
   to the prior implementation. Single-consumer net LOC delta is
   +8 (helpers add per-call boilerplate); the dedup win materialises
   as more CUDA feature kernels migrate one-at-a-time in follow-ups.
+- **`integer_ciede_cuda.c` migrated to `cuda/kernel_template.h`
+  (T-GPU-DEDUP-11).** Second consumer of the CUDA template (after
+  `integer_psnr_cuda` in PR #269). State collapses
+  `CUstream str + CUevent event + CUevent finished + VmafCudaBuffer
+  *partials + float *partials_host` to
+  `VmafCudaKernelLifecycle lc + VmafCudaKernelReadback rb`.
+  `init_fex_cuda` calls `vmaf_cuda_kernel_lifecycle_init` and
+  `vmaf_cuda_kernel_readback_alloc`; `collect_fex_cuda` calls
+  `vmaf_cuda_kernel_collect_wait`; `close_fex_cuda` calls
+  `vmaf_cuda_kernel_lifecycle_close` +
+  `vmaf_cuda_kernel_readback_free`. `submit_fex_cuda` keeps the
+  pre-launch `cuStreamWaitEvent` inline rather than calling
+  `vmaf_cuda_kernel_submit_pre_launch` because ciede's per-block
+  kernel writes one float without an atomic — the template's
+  device-side memset is unnecessary. Numerical contract unchanged
+  (`places=4` per ADR-0187).
+
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
   `vmaf_tiny_ai_open_session`, `vmaf_tiny_ai_yuv8_to_rgb8_planes`,

@@ -75,6 +75,24 @@ cover several PRs in one workstream; cross-link from the ID heading.
   predate this change (PR #270 / #271); the new
   `_add_variant` is additive. Upstream Netflix has no Vulkan
   backend to conflict with.
+### 0111 — integer_ciede_cuda migrated to kernel_template (T-GPU-DEDUP-11)
+
+- **Touches**:
+  - `libvmaf/src/feature/cuda/integer_ciede_cuda.c` — state's
+    `CUstream + CUevent + CUevent + VmafCudaBuffer + host-pinned
+    float*` quintet collapses to
+    `VmafCudaKernelLifecycle lc + VmafCudaKernelReadback rb`.
+    init / collect / close call the template's
+    `lifecycle_init`/`readback_alloc`/`collect_wait`/
+    `lifecycle_close`/`readback_free` helpers. submit keeps the
+    pre-launch wait inline (intentional — ciede has no atomic, so
+    the template's pre-launch memset is unnecessary).
+- **Numerical contract**: unchanged. Pure CUDA-boilerplate
+  consolidation. The host-side reduction in collect still uses
+  the same `double` accumulator over per-block float partials —
+  `places=4` (ADR-0187) holds.
+- **Rebase impact**: low. Upstream Netflix has no equivalent
+  template; this consolidation is fork-local.
 
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
