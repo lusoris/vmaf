@@ -54,6 +54,7 @@
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
+#include "../../vulkan/kernel_template.h"
 
 #include "motion_spv.h" /* generated SPIR-V byte array */
 
@@ -93,15 +94,14 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects: pipelines[0] = first frame (no SAD),
-     * pipelines[1] = subsequent frames (compute SAD). Two pipelines
-     * differ only in the COMPUTE_SAD specialization constant. Sharing
-     * a single layout + descriptor-set layout across both. */
-    VkDescriptorSetLayout dsl;
-    VkPipelineLayout pipeline_layout;
-    VkShaderModule shader;
-    VkPipeline pipelines[2];
-    VkDescriptorPool desc_pool;
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0221).
+     *
+     * Note: prior versions stored `pipelines[2]` for "first frame" /
+     * "subsequent frames" parity with the SYCL backend. Inspection
+     * shows the COMPUTE_SAD flag is passed via *push constants*, not
+     * spec-constants, so the two pipelines are functionally
+     * identical. Collapsed to one. (T-GPU-DEDUP-7.) */
+    VmafVulkanKernelPipeline pl;
 
     /* Source plane upload buffer (host-mapped). */
     VmafVulkanBuffer *ref_in;
@@ -244,117 +244,57 @@ static inline void motion_wg_dims(unsigned w, unsigned h, uint32_t *gx, uint32_t
 
 static int create_pipelines(MotionVulkanState *s)
 {
-    VkDevice dev = s->ctx->device;
+    /* Spec-constants pin (width, height, bpc, subgroup_size) for the
+     * shader's shared-memory sizing. COMPUTE_SAD is *not* a spec
+     * constant — it's a runtime push-constant flag — so a single
+     * pipeline is sufficient (collapsed from the prior `pipelines[2]`
+     * "SYCL symmetry" layout per T-GPU-DEDUP-7). */
+    struct {
+        int32_t width;
+        int32_t height;
+        int32_t bpc;
+        int32_t subgroup_size;
+    } spec_data = {(int32_t)s->width, (int32_t)s->height, (int32_t)s->bpc, 32};
 
-    /* Four storage-buffer bindings, one per SSBO in motion.comp. */
-    VkDescriptorSetLayoutBinding bindings[4] = {0};
-    for (int i = 0; i < 4; i++) {
-        bindings[i].binding = (uint32_t)i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo dslci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = 4,
-        .pBindings = bindings,
+    VkSpecializationMapEntry spec_entries[4] = {
+        {.constantID = 0,
+         .offset = offsetof(__typeof__(spec_data), width),
+         .size = sizeof(int32_t)},
+        {.constantID = 1,
+         .offset = offsetof(__typeof__(spec_data), height),
+         .size = sizeof(int32_t)},
+        {.constantID = 2, .offset = offsetof(__typeof__(spec_data), bpc), .size = sizeof(int32_t)},
+        {.constantID = 3,
+         .offset = offsetof(__typeof__(spec_data), subgroup_size),
+         .size = sizeof(int32_t)},
     };
-    if (vkCreateDescriptorSetLayout(dev, &dslci, NULL, &s->dsl) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkPushConstantRange pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(MotionPushConsts),
+    VkSpecializationInfo spec_info = {
+        .mapEntryCount = 4,
+        .pMapEntries = spec_entries,
+        .dataSize = sizeof(spec_data),
+        .pData = &spec_data,
     };
-    VkPipelineLayoutCreateInfo plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &s->dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pcr,
+
+    /* `vulkan/kernel_template.h` (ADR-0221) owns the descriptor-set
+     * layout (4 SSBO bindings: ref, prev_blur, blur, sad_partials),
+     * pipeline layout, shader module, compute pipeline, and
+     * descriptor pool sizing (4 sets × 4 buffers = 16 descriptors). */
+    const VmafVulkanKernelPipelineDesc desc = {
+        .ssbo_binding_count = 4U,
+        .push_constant_size = (uint32_t)sizeof(MotionPushConsts),
+        .spv_bytes = motion_spv,
+        .spv_size = motion_spv_size,
+        .pipeline_create_info =
+            {
+                .stage =
+                    {
+                        .pName = "main",
+                        .pSpecializationInfo = &spec_info,
+                    },
+            },
+        .max_descriptor_sets = 4U,
     };
-    if (vkCreatePipelineLayout(dev, &plci, NULL, &s->pipeline_layout) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkShaderModuleCreateInfo smci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = motion_spv_size,
-        .pCode = motion_spv,
-    };
-    if (vkCreateShaderModule(dev, &smci, NULL, &s->shader) != VK_SUCCESS)
-        return -ENOMEM;
-
-    /* Two pipelines: COMPUTE_SAD = 0 (first frame) and = 1. */
-    for (int variant = 0; variant < 2; variant++) {
-        struct {
-            int32_t width;
-            int32_t height;
-            int32_t bpc;
-            int32_t subgroup_size;
-        } spec_data = {(int32_t)s->width, (int32_t)s->height, (int32_t)s->bpc, 32};
-
-        VkSpecializationMapEntry spec_entries[4] = {
-            {.constantID = 0,
-             .offset = offsetof(__typeof__(spec_data), width),
-             .size = sizeof(int32_t)},
-            {.constantID = 1,
-             .offset = offsetof(__typeof__(spec_data), height),
-             .size = sizeof(int32_t)},
-            {.constantID = 2,
-             .offset = offsetof(__typeof__(spec_data), bpc),
-             .size = sizeof(int32_t)},
-            {.constantID = 3,
-             .offset = offsetof(__typeof__(spec_data), subgroup_size),
-             .size = sizeof(int32_t)},
-        };
-        VkSpecializationInfo spec_info = {
-            .mapEntryCount = 4,
-            .pMapEntries = spec_entries,
-            .dataSize = sizeof(spec_data),
-            .pData = &spec_data,
-        };
-        VkComputePipelineCreateInfo cpci = {
-            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-            .stage =
-                {
-                    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                    .module = s->shader,
-                    .pName = "main",
-                    .pSpecializationInfo = &spec_info,
-                },
-            .layout = s->pipeline_layout,
-        };
-        (void)variant; /* spec data does not encode COMPUTE_SAD —
-                        * the compute_sad flag is passed via push
-                        * constants instead, so a single pipeline
-                        * suffices. We keep the two-slot layout for
-                        * symmetry with the SYCL implementation, in
-                        * case a future PR moves COMPUTE_SAD to a
-                        * spec constant for kernel-fusion purposes. */
-        if (vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpci, NULL, &s->pipelines[variant]) !=
-            VK_SUCCESS)
-            return -ENOMEM;
-    }
-
-    /* Descriptor pool: 4 sets max (room for ~4 frames in flight),
-     * each set has 4 storage buffers. */
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 4 * 4,
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = 4,
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
-
-    return 0;
+    return vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl);
 }
 
 /* ------------------------------------------------------------------ */
@@ -584,9 +524,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     VkDescriptorSet set = VK_NULL_HANDLE;
     VkDescriptorSetAllocateInfo dsai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
+        .descriptorPool = s->pl.desc_pool,
         .descriptorSetCount = 1,
-        .pSetLayouts = &s->dsl,
+        .pSetLayouts = &s->pl.dsl,
     };
     if (vkAllocateDescriptorSets(s->ctx->device, &dsai, &set) != VK_SUCCESS)
         return -ENOMEM;
@@ -626,10 +566,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
      * They share the same SPIR-V; the COMPUTE_SAD branch is gated by
      * the push constant. The 2-pipeline split is symmetric scaffolding
      * for a future spec-constant move (see create_pipelines comment). */
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[compute_sad ? 1 : 0]);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline_layout, 0, 1, &set, 0,
-                            NULL);
-    vkCmdPushConstants(cmd, s->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1, &set,
+                            0, NULL);
+    vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     vkCmdDispatch(cmd, gx, gy, 1);
     vkEndCommandBuffer(cmd);
 
@@ -717,7 +657,7 @@ cleanup:
     if (cmd != VK_NULL_HANDLE)
         vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
     if (set != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, 1, &set);
+        vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, 1, &set);
     return err;
 }
 
@@ -759,22 +699,10 @@ static int close_fex(VmafFeatureExtractor *fex)
     MotionVulkanState *s = fex->priv;
     if (!s->ctx)
         return 0;
-    VkDevice dev = s->ctx->device;
 
-    vkDeviceWaitIdle(dev);
-
-    if (s->desc_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
-    for (int i = 0; i < 2; i++) {
-        if (s->pipelines[i] != VK_NULL_HANDLE)
-            vkDestroyPipeline(dev, s->pipelines[i], NULL);
-    }
-    if (s->shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(dev, s->shader, NULL);
-    if (s->pipeline_layout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(dev, s->pipeline_layout, NULL);
-    if (s->dsl != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(dev, s->dsl, NULL);
+    /* `vulkan/kernel_template.h` collapses the vkDeviceWaitIdle +
+     * 5×vkDestroy* sweep into one call. */
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     if (s->ref_in)
         vmaf_vulkan_buffer_free(s->ctx, s->ref_in);

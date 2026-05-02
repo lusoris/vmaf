@@ -27,6 +27,55 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0106 — Vulkan kernel template multi-pipeline + ssim/motion migration (T-GPU-DEDUP-7)
+
+- **Touches**:
+  - `libvmaf/src/vulkan/kernel_template.h` — new
+    `vmaf_vulkan_kernel_pipeline_add_variant()` helper. Takes the
+    base pipeline bundle (DSL / pipeline layout / shader / pool
+    owned by `vmaf_vulkan_kernel_pipeline_create`) plus a partial
+    `VkComputePipelineCreateInfo` and produces a sibling
+    `VkPipeline` re-using the same layout / shader. The base
+    `_create` and `_destroy` entry points are unchanged; existing
+    consumers (psnr, moment, ciede) keep working.
+  - `libvmaf/src/feature/vulkan/motion_vulkan.c` — state collapses
+    `VkPipeline pipelines[2]` (kept "for SYCL parity" but
+    functionally identical because COMPUTE_SAD goes through push
+    constants, not spec-constants) to a single
+    `VmafVulkanKernelPipeline pl`. `create_pipelines` /
+    `close_fex` shrink to template-driven create + destroy.
+  - `libvmaf/src/feature/vulkan/ssim_vulkan.c` — state becomes
+    `VmafVulkanKernelPipeline pl + VkPipeline pipeline_vert`. Pass
+    0 (horizontal) is the template's base pipeline; pass 1
+    (vertical) is created via `_add_variant()`. `close_fex`
+    destroys the variant first, then calls
+    `vmaf_vulkan_kernel_pipeline_destroy()` on the bundle.
+- **Invariant — no spec-constant drift between base and variant**.
+  `_add_variant()` overwrites `sType` / `stage.sType` /
+  `stage.stage` / `stage.module` / `layout` of the caller's
+  `VkComputePipelineCreateInfo` so the variant is guaranteed to
+  share the base's shader and layout. Callers control the
+  variant's spec-constant via `pSpecializationInfo`. Reordering
+  these overwrites lets a consumer accidentally bind a different
+  shader module under the same layout — UB at descriptor-set time.
+- **Invariant — variant destroyed before bundle**. `close_fex` in
+  ssim must `vkDestroyPipeline(s->pipeline_vert)` before
+  `vmaf_vulkan_kernel_pipeline_destroy(&s->pl)` — the bundle's
+  `_destroy` releases the descriptor pool, which the
+  `vkAllocateDescriptorSets` issued against the variant pipeline's
+  layout cleanly drops only when the variant pipeline is already
+  gone.
+- **Numerical contract**: unchanged. Both kernels run identical
+  shaders + spec-constants + push-constants as before; only the
+  Vulkan boilerplate that creates / destroys the pipeline
+  scaffolding moved to a shared owner. Cross-backend parity gate
+  at `places=4` holds — Netflix-pair `float_ssim` smoke
+  (576×324×48f) reports mean 0.863, identical to pre-migration.
+- **Rebase impact**: low. The base pipeline-bundle helpers
+  predate this change (PR #270 / #271); the new
+  `_add_variant` is additive. Upstream Netflix has no Vulkan
+  backend to conflict with.
+
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
 - **ADR**: [ADR-0235](adr/0235-vulkan-async-pending-fence.md);
