@@ -27,6 +27,26 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0122 — float_adm_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-22)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/float_adm_vulkan.c` — twin to
+    adm_vulkan (T-GPU-DEDUP-21); 16-pipeline 2-D
+    `[stage][scale]` array. State collapses
+    `dsl + pipeline_layout + shader + desc_pool` to
+    `VmafVulkanKernelPipeline pl`. `pipelines[0][0]` aliases
+    `s->pl.pipeline`; the other 15 entries are siblings via
+    `vmaf_vulkan_kernel_pipeline_add_variant()`.
+- **Invariants**:
+  - Variants destroyed before bundle.
+  - `pipelines[0][0]` aliasing — destroy loop must skip
+    `(stage=0, scale=0)`.
+- **Numerical contract**: unchanged. Same float (`_s` suffix)
+  primitives from `adm_tools.c`; same 5-element spec-constant
+  tuple; same float partial accumulation reduced in double on
+  the host.
+- **Rebase impact**: low. Builds on top of PR #272.
+
 ### 0106 — Vulkan kernel template multi-pipeline + ssim/motion migration (T-GPU-DEDUP-7)
 
 - **Touches**:
