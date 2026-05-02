@@ -1258,7 +1258,8 @@ static inline int64_t extract_epi64(__m256i a, const int index)
         __m128i y = _mm256_extractf128_si256(a, 1);
         return ((uint64_t)_mm_extract_epi32(y, 3) << 32) | (unsigned)_mm_extract_epi32(y, 2);
     }
-    default: return 0;
+    default:
+        return 0;
     }
 }
 #endif
