@@ -27,6 +27,25 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0114 — integer_ssim_cuda migrated to kernel_template (T-GPU-DEDUP-14)
+
+- **Touches**:
+  - `libvmaf/src/feature/cuda/integer_ssim_cuda.c` —
+    stream/event/partials device+host quintet collapses to
+    `lc + rb`. Five intermediate float buffers (`h_ref_mu`,
+    `h_cmp_mu`, `h_ref_sq`, `h_cmp_sq`, `h_refcmp`) stay
+    outside the bundle. submit keeps the
+    `cuStreamWaitEvent + horiz + vert + DtoH` chain inline —
+    SSIM writes one float per block (no atomic), so the
+    template's `submit_pre_launch` memset is unnecessary. init /
+    collect / close use the matching template helpers.
+- **Numerical contract**: unchanged. Same horiz-then-vert
+  two-pass pipeline, same per-block float partial reduction in
+  double on the host. `places=4` (matching the ciede_cuda
+  precision pattern) holds.
+- **Rebase impact**: low. Upstream Netflix has no equivalent;
+  this is fork-added.
+
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
 - **ADR**: [ADR-0235](adr/0235-vulkan-async-pending-fence.md);
