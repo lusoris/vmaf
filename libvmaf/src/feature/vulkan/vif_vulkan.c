@@ -43,6 +43,7 @@
 #include "feature_name.h"
 #include "log.h"
 
+#include "../../vulkan/kernel_template.h"
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
@@ -90,13 +91,14 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipelines + descriptor-set layout (one DSL, four pipelines —
-   * one per SCALE specialization). */
-    VkDescriptorSetLayout dsl;
-    VkPipelineLayout pipeline_layout;
-    VkShaderModule shader;
-    VkPipeline pipelines[VIF_NUM_SCALES];
-    VkDescriptorPool desc_pool;
+    /* Pipelines (`vulkan/kernel_template.h` bundle, ADR-0221).
+     * `pl` carries the shared layout / shader / DSL / pool plus the
+     * scale=0 pipeline. `scale_variants[0..2]` are sibling pipelines
+     * for scales 1, 2, 3 — created via
+     * `vmaf_vulkan_kernel_pipeline_add_variant()`, same layout +
+     * shader + DSL + pool, different SCALE spec-constant. */
+    VmafVulkanKernelPipeline pl;
+    VkPipeline scale_variants[VIF_NUM_SCALES - 1]; /* scales 1, 2, 3 */
 
     /* Per-scale GPU resources. */
     struct {
@@ -165,107 +167,100 @@ static inline void vif_wg_dims(unsigned w, unsigned h, uint32_t *gx, uint32_t *g
 /* Pipeline / descriptor-set layout creation.                          */
 /* ------------------------------------------------------------------ */
 
+struct VifSpecData {
+    int32_t scale;
+    int32_t bpc;
+    int32_t subgroup_size;
+};
+
+static void vif_fill_spec(struct VifSpecData *spec_data, VkSpecializationMapEntry spec_entries[3],
+                          VkSpecializationInfo *spec_info, const VifVulkanState *s, int scale)
+{
+    spec_data->scale = scale;
+    spec_data->bpc = (int32_t)s->bpc;
+    spec_data->subgroup_size = 32;
+    spec_entries[0] = (VkSpecializationMapEntry){
+        .constantID = 0,
+        .offset = offsetof(struct VifSpecData, scale),
+        .size = sizeof(int32_t),
+    };
+    spec_entries[1] = (VkSpecializationMapEntry){
+        .constantID = 1,
+        .offset = offsetof(struct VifSpecData, bpc),
+        .size = sizeof(int32_t),
+    };
+    spec_entries[2] = (VkSpecializationMapEntry){
+        .constantID = 2,
+        .offset = offsetof(struct VifSpecData, subgroup_size),
+        .size = sizeof(int32_t),
+    };
+    *spec_info = (VkSpecializationInfo){
+        .mapEntryCount = 3,
+        .pMapEntries = spec_entries,
+        .dataSize = sizeof(*spec_data),
+        .pData = spec_data,
+    };
+}
+
+static int build_pipeline_for_scale(VifVulkanState *s, int scale, VkPipeline *out_pipeline)
+{
+    struct VifSpecData spec_data = {0};
+    VkSpecializationMapEntry spec_entries[3];
+    VkSpecializationInfo spec_info = {0};
+    vif_fill_spec(&spec_data, spec_entries, &spec_info, s, scale);
+
+    VkComputePipelineCreateInfo cpci = {
+        .stage =
+            {
+                .pName = "main",
+                .pSpecializationInfo = &spec_info,
+            },
+    };
+    return vmaf_vulkan_kernel_pipeline_add_variant(s->ctx, &s->pl, &cpci, out_pipeline);
+}
+
+static inline VkPipeline vif_scale_pipeline(const VifVulkanState *s, int scale)
+{
+    return scale == 0 ? s->pl.pipeline : s->scale_variants[scale - 1];
+}
+
 static int create_pipelines(VifVulkanState *s)
 {
-    VkDevice dev = s->ctx->device;
+    /* Scale 0 is the base pipeline — the template owns the shared
+     * layout / shader / DSL / pool plus the scale=0 pipeline. Pool
+     * sized for 4 frames in flight × 4 scales = 16 sets, 6 SSBOs
+     * per set. */
+    struct VifSpecData spec_data = {0};
+    VkSpecializationMapEntry spec_entries[3];
+    VkSpecializationInfo spec_info = {0};
+    vif_fill_spec(&spec_data, spec_entries, &spec_info, s, /*scale=*/0);
 
-    /* Six storage-buffer bindings, one per SSBO in vif.comp. */
-    VkDescriptorSetLayoutBinding bindings[6] = {0};
-    for (int i = 0; i < 6; i++) {
-        bindings[i].binding = (uint32_t)i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    const VmafVulkanKernelPipelineDesc desc = {
+        .ssbo_binding_count = 6U,
+        .push_constant_size = (uint32_t)sizeof(VifPushConsts),
+        .spv_bytes = vif_spv,
+        .spv_size = vif_spv_size,
+        .pipeline_create_info =
+            {
+                .stage =
+                    {
+                        .pName = "main",
+                        .pSpecializationInfo = &spec_info,
+                    },
+            },
+        .max_descriptor_sets = (uint32_t)(VIF_NUM_SCALES * 4),
+    };
+    int err = vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl);
+    if (err)
+        return err;
+
+    /* Scales 1, 2, 3 — same layout/shader/DSL/pool, different SCALE
+     * spec-constant. */
+    for (int scale = 1; scale < VIF_NUM_SCALES; scale++) {
+        err = build_pipeline_for_scale(s, scale, &s->scale_variants[scale - 1]);
+        if (err)
+            return err;
     }
-    VkDescriptorSetLayoutCreateInfo dslci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = 6,
-        .pBindings = bindings,
-    };
-    if (vkCreateDescriptorSetLayout(dev, &dslci, NULL, &s->dsl) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkPushConstantRange pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(VifPushConsts),
-    };
-    VkPipelineLayoutCreateInfo plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &s->dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pcr,
-    };
-    if (vkCreatePipelineLayout(dev, &plci, NULL, &s->pipeline_layout) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkShaderModuleCreateInfo smci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = vif_spv_size,
-        .pCode = vif_spv,
-    };
-    if (vkCreateShaderModule(dev, &smci, NULL, &s->shader) != VK_SUCCESS)
-        return -ENOMEM;
-
-    /* Build four pipelines, one per SCALE specialization constant. */
-    for (int scale = 0; scale < VIF_NUM_SCALES; scale++) {
-        struct {
-            int32_t scale;
-            int32_t bpc;
-            int32_t subgroup_size;
-        } spec_data = {scale, (int32_t)s->bpc, 32};
-
-        VkSpecializationMapEntry spec_entries[3] = {
-            {.constantID = 0,
-             .offset = offsetof(__typeof__(spec_data), scale),
-             .size = sizeof(int32_t)},
-            {.constantID = 1,
-             .offset = offsetof(__typeof__(spec_data), bpc),
-             .size = sizeof(int32_t)},
-            {.constantID = 2,
-             .offset = offsetof(__typeof__(spec_data), subgroup_size),
-             .size = sizeof(int32_t)},
-        };
-        VkSpecializationInfo spec_info = {
-            .mapEntryCount = 3,
-            .pMapEntries = spec_entries,
-            .dataSize = sizeof(spec_data),
-            .pData = &spec_data,
-        };
-        VkComputePipelineCreateInfo cpci = {
-            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-            .stage =
-                {
-                    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                    .module = s->shader,
-                    .pName = "main",
-                    .pSpecializationInfo = &spec_info,
-                },
-            .layout = s->pipeline_layout,
-        };
-        if (vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpci, NULL, &s->pipelines[scale]) !=
-            VK_SUCCESS)
-            return -ENOMEM;
-    }
-
-    /* Descriptor pool: one set per scale per dispatch, room for ~4
-   * frames in flight = 16 sets, each set has 6 storage buffers. */
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = 6 * VIF_NUM_SCALES * 4,
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = VIF_NUM_SCALES * 4,
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
-
     return 0;
 }
 
@@ -553,10 +548,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     VkDescriptorSet sets[VIF_NUM_SCALES] = {VK_NULL_HANDLE};
     VkDescriptorSetLayout layouts[VIF_NUM_SCALES];
     for (int i = 0; i < VIF_NUM_SCALES; i++)
-        layouts[i] = s->dsl;
+        layouts[i] = s->pl.dsl;
     VkDescriptorSetAllocateInfo dsai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
+        .descriptorPool = s->pl.desc_pool,
         .descriptorSetCount = VIF_NUM_SCALES,
         .pSetLayouts = layouts,
     };
@@ -603,10 +598,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             .num_workgroups_x = gx,
         };
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[scale]);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipeline_layout, 0, 1,
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, vif_scale_pipeline(s, scale));
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1,
                                 &sets[scale], 0, NULL);
-        vkCmdPushConstants(cmd, s->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+        vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
                            &pc);
         vkCmdDispatch(cmd, gx, gy, 1);
 
@@ -648,7 +643,7 @@ cleanup:
     if (cmd != VK_NULL_HANDLE)
         vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
     if (sets[0] != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, VIF_NUM_SCALES, sets);
+        vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, VIF_NUM_SCALES, sets);
     return err;
 }
 
@@ -665,18 +660,13 @@ static int close_fex(VmafFeatureExtractor *fex)
 
     vkDeviceWaitIdle(dev);
 
-    if (s->desc_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
-    for (int i = 0; i < VIF_NUM_SCALES; i++) {
-        if (s->pipelines[i] != VK_NULL_HANDLE)
-            vkDestroyPipeline(dev, s->pipelines[i], NULL);
+    /* Destroy the scale 1/2/3 variants first; the base pipeline +
+     * shared layout/shader/DSL/pool are owned by the template. */
+    for (int i = 0; i < VIF_NUM_SCALES - 1; i++) {
+        if (s->scale_variants[i] != VK_NULL_HANDLE)
+            vkDestroyPipeline(dev, s->scale_variants[i], NULL);
     }
-    if (s->shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(dev, s->shader, NULL);
-    if (s->pipeline_layout != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(dev, s->pipeline_layout, NULL);
-    if (s->dsl != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(dev, s->dsl, NULL);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     for (int scale = 0; scale < VIF_NUM_SCALES; scale++) {
         if (scale == 0) {

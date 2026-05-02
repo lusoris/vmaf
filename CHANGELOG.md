@@ -89,6 +89,19 @@
 
 ### Changed
 
+- **`vif_vulkan.c` migrated to `vulkan/kernel_template.h` +
+  `_add_variant()` (T-GPU-DEDUP-19).** State collapses
+  `dsl + pipeline_layout + shader + desc_pool + pipelines[4]` to
+  `VmafVulkanKernelPipeline pl + VkPipeline scale_variants[3]`.
+  Scale 0 is the template's base pipeline; scales 1, 2, 3 are
+  sibling pipelines via `_add_variant()` — same layout, shader,
+  DSL, pool, different `SCALE` spec-constant. New
+  `vif_scale_pipeline()` accessor maps scale index to the right
+  `VkPipeline` handle. Validated against the Netflix-pair smoke
+  (`integer_vif_scale0..3` means 0.364 / 0.767 / 0.863 / 0.916,
+  `integer_vif` mean 0.446 across 48 frames). Numerical contract
+  unchanged.
+
 - **`psnr_vulkan.c` migrated to `vulkan/kernel_template.h` (T-GPU-DEDUP-5,
   first consumer).** The dormant `vulkan/kernel_template.h` (410 LOC,
   ADR-0221) shipped with zero consumers; its docstring designated
