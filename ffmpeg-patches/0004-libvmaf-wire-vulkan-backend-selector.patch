@@ -17,6 +17,18 @@ behind `if (s->vulkan_device >= 0)`, with `CONFIG_LIBVMAF_VULKAN`
 from configure picking the correct branch when libvmaf was built
 without Vulkan support (returns AVERROR(ENOSYS) with a helpful
 message).
+
+ADR-0238: when the Vulkan backend is active the per-frame picture
+allocation routes through `vmaf_vulkan_picture_fetch` instead of
+`vmaf_picture_alloc`.  The pool is lazy-initialised on the first
+frame (geometry isn't known until then), uses the HOST method by
+default (matches the existing 3-plane copy contract), and fixes
+the round-robin depth at the SYCL canonical 2.  DEVICE method is
+deferred until the Vulkan kernel set covers chroma — currently
+the Vulkan VIF / ADM / motion kernels are luma-only, so a
+DEVICE-backed Y-plane buffer would force the chroma path through
+a separate allocation.  Switching to DEVICE is a follow-up gated
+on cross-backend chroma parity.
 ---
 diff --git a/configure b/configure
 index c1666a9..9b16ddf 100755
@@ -37,7 +49,7 @@ index e3cf572..f0ec236 100644
 @@ -51,6 +51,10 @@
  #include <libvmaf/libvmaf_sycl.h>
  #endif
- 
+
 +#if CONFIG_LIBVMAF_VULKAN
 +#include <libvmaf/libvmaf_vulkan.h>
 +#endif
@@ -45,29 +57,90 @@ index e3cf572..f0ec236 100644
  typedef struct LIBVMAFContext {
      const AVClass *class;
      FFFrameSync fs;
-@@ -70,6 +74,10 @@ typedef struct LIBVMAFContext {
+@@ -70,6 +74,11 @@ typedef struct LIBVMAFContext {
  #if CONFIG_LIBVMAF_SYCL
      VmafSyclState *sycl_state;
  #endif
 +    int   vulkan_device;
 +#if CONFIG_LIBVMAF_VULKAN
 +    VmafVulkanState *vulkan_state;
++    int             vulkan_pool_initialised;  /* ADR-0238: deferred until first frame */
 +#endif
- 
+
      VmafContext *vmaf;
      VmafModel **model;
-@@ -98,6 +106,7 @@ static const AVOption libvmaf_options[] = {
+@@ -98,6 +107,7 @@ static const AVOption libvmaf_options[] = {
      {"tiny_fp16",    "Request fp16 I/O when the device supports it.",                   OFFSET(tiny_fp16),       AV_OPT_TYPE_BOOL,   {.i64=0},      0, 1,        FLAGS},
      {"sycl_device",  "SYCL device index (-1 = disabled).",                              OFFSET(sycl_device),     AV_OPT_TYPE_INT,    {.i64=-1},    -1, INT_MAX,  FLAGS},
      {"sycl_profile", "Enable SYCL queue profiling.",                                    OFFSET(sycl_profile),    AV_OPT_TYPE_BOOL,   {.i64=0},      0, 1,        FLAGS},
 +    {"vulkan_device","Vulkan device index (-1 = disabled, 0+ = device index).",         OFFSET(vulkan_device),   AV_OPT_TYPE_INT,    {.i64=-1},    -1, INT_MAX,  FLAGS},
      { NULL }
  };
- 
-@@ -491,6 +500,34 @@ static av_cold int init(AVFilterContext *ctx)
+
+@@ -126,11 +136,40 @@
+     }
+ }
+
+-static int copy_picture_data(AVFrame *src, VmafPicture *dst, unsigned bpc)
++/* ADR-0238: when the Vulkan backend is active, dispense `dst` from the
++ * preallocated picture pool instead of allocating a fresh VmafPicture
++ * per frame. The pool's HOST method produces a 3-plane host-backed
++ * picture compatible with the existing copy loop below; the pool
++ * itself is set up lazily on the first call (geometry isn't known
++ * before the first AVFrame). */
++static int copy_picture_data(LIBVMAFContext *s, AVFrame *src, VmafPicture *dst, unsigned bpc)
+ {
+     const int bytes_per_value = bpc > 8 ? 2 : 1;
+-    int err = vmaf_picture_alloc(dst, pix_fmt_map(src->format), bpc,
+-                                 src->width, src->height);
++    int err = 0;
++#if CONFIG_LIBVMAF_VULKAN
++    if (s->vulkan_state) {
++        if (!s->vulkan_pool_initialised) {
++            VmafVulkanPictureConfiguration vk_pic_cfg = {
++                .pic_params = {
++                    .w       = src->width,
++                    .h       = src->height,
++                    .bpc     = bpc,
++                    .pix_fmt = pix_fmt_map(src->format),
++                },
++                .pic_prealloc_method = VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_HOST,
++            };
++            err = vmaf_vulkan_preallocate_pictures(s->vmaf, vk_pic_cfg);
++            if (err)
++                return AVERROR(ENOMEM);
++            s->vulkan_pool_initialised = 1;
++        }
++        err = vmaf_vulkan_picture_fetch(s->vmaf, dst);
++    } else
++#endif
++    {
++        err = vmaf_picture_alloc(dst, pix_fmt_map(src->format), bpc,
++                                 src->width, src->height);
++    }
+     if (err)
+         return AVERROR(ENOMEM);
+
+@@ -168,13 +207,13 @@ static int do_vmaf(FFFrameSync *fs)
+                av_color_range_name(ref->color_range));
+     }
+
+-    err = copy_picture_data(ref, &pic_ref, s->bpc);
++    err = copy_picture_data(s, ref, &pic_ref, s->bpc);
+     if (err) {
+         av_log(ctx, AV_LOG_ERROR, "problem during vmaf_picture_alloc.\n");
+         return AVERROR(ENOMEM);
+     }
+
+-    err = copy_picture_data(dist, &pic_dist, s->bpc);
++    err = copy_picture_data(s, dist, &pic_dist, s->bpc);
+     if (err) {
+         av_log(ctx, AV_LOG_ERROR, "problem during vmaf_picture_alloc.\n");
+         vmaf_picture_unref(&pic_ref);
+@@ -491,6 +530,34 @@ static av_cold int init(AVFilterContext *ctx)
  #endif
      }
- 
+
 +    if (s->vulkan_device >= 0) {
 +#if CONFIG_LIBVMAF_VULKAN
 +        VmafVulkanConfiguration vulkan_cfg = {
@@ -99,7 +172,7 @@ index e3cf572..f0ec236 100644
      err = parse_models(ctx);
      if (err)
          return err;
-@@ -694,6 +731,13 @@ clean_up:
+@@ -694,6 +761,13 @@ clean_up:
          s->sycl_state = NULL;
      }
  #endif
@@ -111,8 +184,7 @@ index e3cf572..f0ec236 100644
 +    }
 +#endif
  }
- 
- static const AVFilterPad libvmaf_inputs[] = {
--- 
-2.54.0
 
+ static const AVFilterPad libvmaf_inputs[] = {
+--
+2.54.0

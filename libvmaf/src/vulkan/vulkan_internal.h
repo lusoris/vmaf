@@ -126,6 +126,12 @@ struct VmafVulkanState {
  * fields are zero-initialised by calloc in state_init. */
 void vmaf_vulkan_import_slots_free(struct VmafVulkanState *state);
 
+/* common.c — fork-internal accessor used by libvmaf.c's
+ * vmaf_vulkan_preallocate_pictures (ADR-0238) so the picture pool
+ * can borrow the same VkInstance/VkDevice as the imported state.
+ * Returns NULL on a NULL state. NOT part of the public ABI. */
+struct VmafVulkanContext *vmaf_vulkan_state_context(struct VmafVulkanState *state);
+
 struct VmafVulkanContext {
     /* Set to true after `volkInitialize()` succeeds the first time
      * any context is created. Subsequent contexts skip the global

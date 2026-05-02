@@ -483,12 +483,48 @@ follow-up #3, T7-29 part 4 (this knob currently affects only
 the default until a separate ABI bump extends
 `VmafVulkanExternalHandles`).
 
+#### Picture preallocation (ADR-0238)
+
+Mirrors the CUDA / SYCL preallocation surface:
+
+```c
+enum VmafVulkanPicturePreallocationMethod {
+    VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_NONE = 0,
+    VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_HOST,
+    VMAF_VULKAN_PICTURE_PREALLOCATION_METHOD_DEVICE,
+};
+
+typedef struct VmafVulkanPictureConfiguration {
+    struct {
+        unsigned w, h;
+        unsigned bpc;
+        enum VmafPixelFormat pix_fmt;
+    } pic_params;
+    enum VmafVulkanPicturePreallocationMethod pic_prealloc_method;
+} VmafVulkanPictureConfiguration;
+
+int vmaf_vulkan_preallocate_pictures(VmafContext *vmaf, VmafVulkanPictureConfiguration cfg);
+int vmaf_vulkan_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
+```
+
+`HOST` allocates pictures via the regular `vmaf_picture_alloc`;
+`DEVICE` backs each picture's luma plane with a host-visible Vulkan
+buffer (VMA `AUTO_PREFER_HOST`) — the persistent mapped pointer is
+exposed as `pic->data[0]`, so the caller writes once and the kernel
+descriptor sets read the same memory. Pool depth is fixed at the
+canonical `frames-in-flight = 2` (matches SYCL); pictures are
+dispensed round-robin via `vmaf_vulkan_picture_fetch`. Fetch falls
+back to a host-backed picture if the caller skipped
+`preallocate_pictures` entirely.
+
 ### Limitations
 
-- Per-feature picture preallocation API is **not** yet exposed —
-  Vulkan kernels allocate device-side VkBuffers internally per
-  feature. The CUDA/SYCL-style `VmafVulkanPicturePreallocationMethod`
-  surface is a follow-up.
+- Pool depth is currently compile-time `pic_cnt = 2` (matches SYCL).
+  Growing the depth is an additive
+  `VmafVulkanPictureConfiguration` field — gated on a real workload
+  needing more.
+- Pool currently allocates the Y plane only (matches SYCL). Chroma-aware
+  extractors that want preallocated U/V planes need a follow-up.
 - The ffmpeg `libvmaf` filter exposes `vulkan_device=N` (set to
   `>= 0` to enable the Vulkan backend; see
   [`docs/usage/ffmpeg.md`](../usage/ffmpeg.md)). Image-import

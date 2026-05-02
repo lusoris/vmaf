@@ -5555,3 +5555,41 @@ inline.*
   ninja -C build
   meson test -C build test_speed  # expect: 5/5 pass
   ```
+
+### 0098 — Vulkan picture preallocation surface (ADR-0238)
+
+- **PR**: feat/vulkan-picture-preallocation.
+- **What rebases need to know**: ABI grows additively. New public
+  surface in `libvmaf/include/libvmaf/libvmaf_vulkan.h`:
+  `enum VmafVulkanPicturePreallocationMethod`,
+  `VmafVulkanPictureConfiguration`,
+  `vmaf_vulkan_preallocate_pictures`, `vmaf_vulkan_picture_fetch`.
+  New enumerator
+  `VMAF_PICTURE_BUFFER_TYPE_VULKAN_DEVICE` in
+  `libvmaf/src/picture.h::VmafPictureBufferType`. New TU
+  `libvmaf/src/vulkan/picture_vulkan_pool.c` (~180 LOC); registered
+  in `libvmaf/src/vulkan/meson.build`. Fork-internal accessor
+  `vmaf_vulkan_state_context()` (declared in `vulkan_internal.h`)
+  exposes the imported state's VkInstance/VkDevice to the pool —
+  used only by `libvmaf.c::vmaf_vulkan_preallocate_pictures`.
+- **`VmafContext` field added**:
+  `vmaf->vulkan.pool` next to `vmaf->vulkan.state`. The
+  `vmaf_close()` teardown closes the pool before clearing the
+  state pointer (matches SYCL).
+- **On upstream sync**: zero interaction. Vulkan backend is
+  fork-only; upstream Netflix has no Vulkan integration.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=enabled
+  ninja -C build
+  meson test -C build test_vulkan_pic_preallocation
+  # All 6 cases must pass under ASan/UBSan:
+  #   test_method_none_is_a_no_op
+  #   test_method_host_allocates_round_robins
+  #   test_method_device_allocates_round_robins
+  #   test_fetch_without_preallocate_falls_back
+  #   test_unknown_method_rejected
+  #   test_null_args_rejected
+  ```

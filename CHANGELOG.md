@@ -8,6 +8,26 @@
 
 ### Added
 
+- **Vulkan VmafPicture preallocation surface (T-VULKAN-PREALLOC /
+  ADR-0238).** Closes the API parity gap with CUDA / SYCL. New
+  public entry points `vmaf_vulkan_preallocate_pictures` +
+  `vmaf_vulkan_picture_fetch`; new enum
+  `VmafVulkanPicturePreallocationMethod` (`NONE` / `HOST` /
+  `DEVICE`); new struct `VmafVulkanPictureConfiguration`. Mirrors
+  the SYCL surface — `HOST` uses `vmaf_picture_alloc`; `DEVICE`
+  backs each picture's luma plane with a host-visible Vulkan
+  buffer (VMA `AUTO_PREFER_HOST`) so callers write directly into
+  the memory the kernel descriptor sets read. Pool depth is fixed
+  at the canonical `frames-in-flight = 2` (matches SYCL); fetch
+  falls back to a host-backed picture if the caller skipped
+  preallocation. New `VMAF_PICTURE_BUFFER_TYPE_VULKAN_DEVICE`
+  picture buffer-type tag. Six smoke tests in
+  `libvmaf/test/test_vulkan_pic_preallocation.c` pin the contract
+  under ASan/UBSan. FFmpeg-side adoption (per CLAUDE.md §12 r14)
+  is a deliberate follow-up — no in-tree patch consumes the
+  preallocation surface today, matching the SYCL precedent. See
+  [`docs/api/gpu.md`](docs/api/gpu.md) and
+  [ADR-0238](docs/adr/0238-vulkan-picture-preallocation.md).
 - **`VmafVulkanConfiguration.max_outstanding_frames` knob (ADR-0235
   follow-up #3, T7-29 part 4).** The v2 async pending-fence ring
   depth is now caller-tunable via the public Vulkan configuration
