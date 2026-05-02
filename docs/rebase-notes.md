@@ -152,6 +152,19 @@ cover several PRs in one workstream; cross-link from the ID heading.
   reduction paths are untouched apart from the
   `s->str` → `s->lc.str` / `s->event` → `s->lc.submit` /
   `s->finished` → `s->lc.finished` field renames.
+### 0116 — float_psnr/ansnr/motion cuda → kernel_template (T-GPU-DEDUP-16)
+
+- **Touches**:
+  - `libvmaf/src/feature/cuda/float_psnr_cuda.c` —
+    stream/event/partials quintet → `lc + rb`; input upload
+    buffers `ref_in` / `dis_in` stay outside the bundle.
+  - `libvmaf/src/feature/cuda/float_ansnr_cuda.c` — same shape;
+    rb wraps the (sig, noise) interleaved partials.
+  - `libvmaf/src/feature/cuda/float_motion_cuda.c` — same shape;
+    rb wraps the SAD partials, `blur[2]` ping-pong stays outside.
+- **Numerical contract**: unchanged. Same dispatch geometry, same
+  reduction order. Cross-backend parity gate at the kernels'
+  contracted precision (places=3 per ADR-0192) holds.
 - **Rebase impact**: low. Upstream Netflix has no equivalent
   template; this is fork-added.
 

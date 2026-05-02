@@ -248,6 +248,23 @@
   via mechanical sed (`s->str` → `s->lc.str`, `s->event` →
   `s->lc.submit`, `s->finished` → `s->lc.finished`). Numerical
   contracts unchanged.
+- **`float_psnr_cuda.c` + `float_ansnr_cuda.c` + `float_motion_cuda.c`
+  migrated to `cuda/kernel_template.h` (T-GPU-DEDUP-16).** Eighth,
+  ninth, and tenth consumers of the CUDA template. Each kernel
+  follows the same pattern: state collapses
+  `CUstream + CUevent + CUevent + VmafCudaBuffer *partials +
+  float *partials_host` to
+  `VmafCudaKernelLifecycle lc + VmafCudaKernelReadback rb`,
+  with input upload buffers (ref/dis/blur ping-pong) kept outside.
+  `init_fex_cuda` calls `vmaf_cuda_kernel_lifecycle_init` +
+  `vmaf_cuda_kernel_readback_alloc`; `collect_fex_cuda` /
+  `flush_fex_cuda` call `vmaf_cuda_kernel_collect_wait`;
+  `close_fex_cuda` calls `vmaf_cuda_kernel_lifecycle_close` +
+  `vmaf_cuda_kernel_readback_free`. The `cuMemsetD8Async`
+  pre-launch is kept inline on `pic_stream` rather than calling
+  `vmaf_cuda_kernel_submit_pre_launch` because the kernels read
+  the accumulator before the D2H copy on `lc.str` (same rationale
+  as `motion_v2_cuda` in PR #279). Numerical contracts unchanged.
 
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
