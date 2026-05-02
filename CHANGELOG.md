@@ -136,6 +136,32 @@
   (`#include "test.h"` MUST precede `#include "simd_bitexact_test.h"`
   because `test.h` lacks a header guard). See
   [ADR-0221](docs/adr/0221-simd-bitexact-test-harness.md).
+- **`nr_metric_v1` flips to dynamic-PTQ int8 (T5-3d / ADR-0221).**
+  The C2 NR-MOS tiny model joins the dynamic-PTQ family alongside
+  `learned_filter_v1` (ADR-0174). Root cause of the previous
+  `quantize_dynamic` failure (`Inferred shape and existing shape
+  differ in dimension 0: (128) vs (1)`) traced to
+  `torch.onnx.export` duplicating every initialiser into
+  `graph.value_info` with static-shape annotations that do not
+  survive the dynamic-batch axis substitution — same class of bug
+  fixed for `vmaf_tiny_v1*.onnx` in PR #174 (T5-3e). Ported the
+  `_save_inlined` strip pattern into both
+  [`ai/src/vmaf_train/models/exports.py`](ai/src/vmaf_train/models/exports.py)
+  (so future fork-trained tiny models are PTQ-clean by
+  construction) and
+  [`ai/scripts/ptq_dynamic.py`](ai/scripts/ptq_dynamic.py) (so
+  pre-existing on-disk ONNX files quantise without re-export).
+  Re-saved `model/tiny/nr_metric_v1.onnx` with `value_info`
+  duplicates stripped — ORT-CPU produces bit-identical inference
+  before vs after on a deterministic 16-sample input set; the
+  registry sha256 rolls forward `60c2bd59…` → `75eff676…`. Registry
+  entry now carries `quant_mode: "dynamic"`, `int8_sha256:
+  "e5ba2086…"`, and `quant_accuracy_budget_plcc: 0.01`.
+  `ai/scripts/measure_quant_drop.py` reports `[PASS]
+  PLCC=0.992326 drop=0.007674 budget=0.0100`. 2.0× size shrink
+  (119 KB → 58 KB). See
+  [ADR-0221](docs/adr/0221-nr-metric-v1-ptq.md).
+
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is

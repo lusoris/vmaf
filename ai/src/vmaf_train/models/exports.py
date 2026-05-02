@@ -55,6 +55,19 @@ def export_to_onnx(
         opset_version=opset,
     )
     loaded = onnx.load(str(out_path))
+    # torch.onnx duplicates every initialiser into graph.value_info with
+    # static-shape annotations that don't survive the dynamic batch axis;
+    # this trips onnxruntime.quantization.quantize_dynamic's shape
+    # inference with "Inferred shape and existing shape differ" (see
+    # ADR-0174 / PR #174 for the vmaf_tiny_v1 precedent). Initializers
+    # carry their own canonical shape, so dropping the duplicate
+    # value_info records is safe and unblocks downstream PTQ.
+    init_names = {t.name for t in loaded.graph.initializer}
+    survivors = [vi for vi in loaded.graph.value_info if vi.name not in init_names]
+    if len(survivors) != len(loaded.graph.value_info):
+        del loaded.graph.value_info[:]
+        loaded.graph.value_info.extend(survivors)
+        onnx.save(loaded, str(out_path), save_as_external_data=False)
     onnx.checker.check_model(loaded)
 
     report = check_graph(loaded)
