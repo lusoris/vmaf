@@ -370,6 +370,53 @@ static inline void vmaf_vulkan_kernel_submit_free(VmafVulkanContext *ctx,
 }
 
 /*
+ * Create an additional `VkPipeline` that **shares** the existing
+ * pipeline's layout + shader module + descriptor-set layout +
+ * descriptor pool. The base `VmafVulkanKernelPipeline *pl` was
+ * already initialised via `vmaf_vulkan_kernel_pipeline_create`;
+ * this helper builds a sibling pipeline that differs only in
+ * caller-supplied spec-constants (`pipeline_create_info.stage.
+ * pSpecializationInfo`).
+ *
+ * Use case: kernels that ship two pipelines differing in a single
+ * spec-constant — `motion_vulkan.c` (compute-SAD on/off for
+ * first frame vs subsequent), `ssim_vulkan.c` (horizontal vs
+ * vertical pass). The variant pipeline is the caller's
+ * responsibility to destroy *before* calling
+ * `vmaf_vulkan_kernel_pipeline_destroy()` (which destroys the
+ * shared layout + shader and would invalidate the variant).
+ *
+ * Caveat: only the spec-constant payload + pName are taken from
+ * `pipeline_create_info`. The helper overrides `.layout` and
+ * `.stage.module` with the base's values; the rest of the
+ * `VkComputePipelineCreateInfo` defaults to zeroed sType-injected
+ * values. Returns 0 / -EINVAL / -ENOMEM.
+ */
+static inline int vmaf_vulkan_kernel_pipeline_add_variant(
+    VmafVulkanContext *ctx, const VmafVulkanKernelPipeline *base,
+    const VkComputePipelineCreateInfo *variant_info, VkPipeline *out_pipeline)
+{
+    if (ctx == NULL || base == NULL || variant_info == NULL || out_pipeline == NULL) {
+        return -EINVAL;
+    }
+    if (base->pipeline_layout == VK_NULL_HANDLE || base->shader == VK_NULL_HANDLE) {
+        return -EINVAL;
+    }
+    VkComputePipelineCreateInfo cpci = *variant_info;
+    cpci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    cpci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    cpci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    cpci.stage.module = base->shader;
+    cpci.layout = base->pipeline_layout;
+    *out_pipeline = VK_NULL_HANDLE;
+    if (vkCreateComputePipelines(ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, out_pipeline) !=
+        VK_SUCCESS) {
+        return -ENOMEM;
+    }
+    return 0;
+}
+
+/*
  * close_fex()-side sweep: vkDeviceWaitIdle, then destroy the five
  * long-lived pipeline objects in reverse-creation order. Safe to
  * call on a partially-created pipeline.
