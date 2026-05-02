@@ -1934,6 +1934,17 @@
 
 ### Fixed
 
+- **integer_vif: add `vif_skip_scale0` parameter** (upstream port,
+  Netflix/vmaf
+  [`de538216`](https://github.com/Netflix/vmaf/commit/de538216411c3df10f92f03c42589e7108d05ed1),
+  Kyle Swanson, 2026-04-29). Adds the `vif_skip_scale0` feature parameter
+  (alias `ssclz`) to `integer_vif`. When enabled, scale-0 VIF computation
+  is skipped; scale-0 num/den emit `0.0` / `-1.0` sentinels and the
+  aggregate score is computed from scales 1–3 only. Conflict in
+  `libvmaf/src/feature/integer_vif.c` was purely formatting (fork's K&R
+  / 100-col layout vs upstream's 80-col); algorithmic content applied
+  verbatim. VIF + VMAF golden-test set passes (72/72) on the fork. No
+  default-behavior change — the param is opt-in, default `false`.
 - **integer_motion: dict leak in `motion_force_zero` case** (upstream port,
   Netflix/vmaf
   [`4f5e366b`](https://github.com/Netflix/vmaf/commit/4f5e366b4f4167d0b46eb5621990f6f0cc84cdab),
