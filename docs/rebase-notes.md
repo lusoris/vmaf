@@ -5660,3 +5660,45 @@ inline.*
   ninja -C build-sycl
   meson test -C build-sycl
   ```
+
+### 0104 — `psnr_vulkan.c` migrated to `vulkan/kernel_template.h`
+
+- **PR**: refactor/migrate-psnr-vulkan-to-template.
+- **What rebases need to know**: `vulkan/kernel_template.h` (410 LOC,
+  ADR-0221, PR #251) shipped with zero consumers. Its docstring
+  designated `psnr_vulkan.c` as the reference implementation. This
+  PR lands the migration as the **first consumer** of the Vulkan
+  template — paired with PR #269 (the first CUDA template
+  consumer). The 5 long-lived pipeline objects (descriptor-set
+  layout, pipeline layout, shader module, compute pipeline,
+  descriptor pool) collapse from individual struct fields to one
+  `VmafVulkanKernelPipeline pl` bundle. `create_pipeline()`
+  (~104 LOC) collapses to a single
+  `vmaf_vulkan_kernel_pipeline_create()` call (~30 LOC) — the
+  template owns the descriptor-set layout creation, pipeline
+  layout, shader module, compute pipeline, and descriptor-pool
+  sizing. `close_fex()`'s `vkDeviceWaitIdle` + 5×`vkDestroy*` sweep
+  collapses to one `vmaf_vulkan_kernel_pipeline_destroy()` call.
+- **Net LOC delta**: −55 LOC on `psnr_vulkan.c` directly. Unlike
+  the CUDA template (where helper-call boilerplate roughly
+  matches the inline savings), the Vulkan template's pipeline
+  creation is dramatic enough that even the first consumer wins.
+- **Bit-exactness gates**: spec-constants, push-constant struct,
+  shader bytecode, dispatch grid math, and host-side reduction
+  are byte-identical to the prior implementation. The template
+  only owns descriptor-set layout / pipeline layout / shader
+  module / compute pipeline creation / descriptor pool sizing —
+  none of which affects the kernel's mathematical behaviour.
+  Cross-backend parity gate (places=4) re-runs unchanged.
+- **On upstream sync**: zero interaction. `psnr_vulkan.c` is
+  fork-introduced (T7-23 / ADR-0182 / ADR-0216).
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=enabled
+  ninja -C build
+  meson test -C build  # 50/50 pass on lavapipe
+  # Cross-backend parity gate (places=4):
+  python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
+  ```
