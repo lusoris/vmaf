@@ -24,6 +24,7 @@
 #include "feature_name.h"
 
 #include "cuda/float_vif_cuda.h"
+#include "cuda/kernel_template.h"
 #include "cuda_helper.cuh"
 #include "picture.h"
 #include "picture_cuda.h"
@@ -37,11 +38,12 @@ typedef struct FloatVifStateCuda {
     double vif_kernelscale;
     double vif_sigma_nsq;
 
-    CUevent event;
-    CUevent finished;
+    /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
+     * (ADR-0221). Multi-scale 4-pyramid state stays outside the
+     * template's single-pair readback bundle. */
+    VmafCudaKernelLifecycle lc;
     CUfunction func_compute;
     CUfunction func_decimate;
-    CUstream str;
 
     VmafCudaBuffer *ref_raw;
     VmafCudaBuffer *dis_raw;
@@ -121,14 +123,15 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     s->bpc = bpc;
     compute_per_scale_dims(s);
 
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, float_vif_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_compute, module, "float_vif_compute"), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->func_decimate, module, "float_vif_decimate"),
@@ -203,6 +206,7 @@ fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -343,17 +347,17 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     }
 
     /* Sync over to our event-driven stream + D2H copy partials. */
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, pic_stream));
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, pic_stream));
+    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
     for (int i = 0; i < 4; i++) {
         CHECK_CUDA_RETURN(cu_f,
                           cuMemcpyDtoHAsync(s->num_host[i], (CUdeviceptr)s->num_partials[i]->data,
-                                            (size_t)s->wg_count[i] * sizeof(float), s->str));
+                                            (size_t)s->wg_count[i] * sizeof(float), s->lc.str));
         CHECK_CUDA_RETURN(cu_f,
                           cuMemcpyDtoHAsync(s->den_host[i], (CUdeviceptr)s->den_partials[i]->data,
-                                            (size_t)s->wg_count[i] * sizeof(float), s->str));
+                                            (size_t)s->wg_count[i] * sizeof(float), s->lc.str));
     }
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
     return 0;
 }
 
@@ -362,7 +366,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 {
     FloatVifStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
 
     double scores[8];
     for (int i = 0; i < 4; i++) {
@@ -414,19 +418,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     FloatVifStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1);
-after_event1:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2);
-after_event2:;
-
-    int ret = _cuda_err;
+    int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     if (s->ref_raw) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->ref_raw);
         free(s->ref_raw);
