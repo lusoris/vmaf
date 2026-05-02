@@ -102,7 +102,7 @@ void ssimulacra2_multiply_3plane_sve2(const float *a, const float *b, float *mul
 /* ADR-0141 carve-out: lock-step mirror of the NEON XYB loop; splitting
  * mid-iteration would duplicate the per-channel matrix-coefficient
  * setup. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — bit-exactness invariant: splitting would perturb register allocation + reduction order vs scalar (ADR-0138/0139, ADR-0141)
 void ssimulacra2_linear_rgb_to_xyb_sve2(const float *lin, float *xyb, unsigned w, unsigned h)
 {
     assert(lin != NULL);
@@ -203,7 +203,7 @@ void ssimulacra2_linear_rgb_to_xyb_sve2(const float *lin, float *xyb, unsigned w
  * loop iterates per-plane × per-row × per-tile and keeps the
  * deinterleave + scalar-tail together for the line-for-line scalar
  * diff audit. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — bit-exactness invariant: splitting would perturb register allocation + reduction order vs scalar (ADR-0138/0139, ADR-0141)
 void ssimulacra2_downsample_2x2_sve2(const float *in, unsigned iw, unsigned ih, float *out,
                                      unsigned *ow_out, unsigned *oh_out)
 {
@@ -260,7 +260,7 @@ void ssimulacra2_downsample_2x2_sve2(const float *in, unsigned iw, unsigned ih, 
     }
 }
 
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — bit-exactness invariant: splitting would perturb register allocation + reduction order vs scalar (ADR-0138/0139, ADR-0141)
 void ssimulacra2_ssim_map_sve2(const float *m1, const float *m2, const float *s11, const float *s22,
                                const float *s12, unsigned w, unsigned h, double plane_averages[6])
 {
@@ -393,7 +393,7 @@ void ssimulacra2_edge_diff_map_sve2(const float *img1, const float *mu1, const f
 /* ADR-0141 carve-out: gather via lane-loads + 3-pole IIR + scalar-store
  * — IIR state and per-row gather share locality; splitting forces a
  * memory round-trip that defeats the vectorisation. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — bit-exactness invariant: splitting would perturb register allocation + reduction order vs scalar (ADR-0138/0139, ADR-0141)
 static void hblur_4rows_sve2(const float rg_n2[3], const float rg_d1[3], int rg_radius,
                              const float *in, float *out, unsigned w, unsigned y_base,
                              unsigned row_count)
@@ -473,7 +473,7 @@ static void hblur_4rows_sve2(const float rg_n2[3], const float rg_d1[3], int rg_
 }
 
 /* ADR-0141 carve-out: SIMD main loop + scalar tail share IIR state. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — bit-exactness invariant: splitting would perturb register allocation + reduction order vs scalar (ADR-0138/0139, ADR-0141)
 static void vblur_simd_4cols_sve2(const float rg_n2[3], const float rg_d1[3], int rg_radius,
                                   float *col_state, const float *in, float *out, unsigned w,
                                   unsigned h)
@@ -660,7 +660,7 @@ static inline void compute_matrix_coefs_sve2(int yuv_matrix, float *kr_out, floa
     }
 }
 
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — bit-exactness invariant: splitting would perturb register allocation + reduction order vs scalar (ADR-0138/0139, ADR-0141)
 void ssimulacra2_picture_to_linear_rgb_sve2(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
                                             const simd_plane_t planes[3], float *out)
 {

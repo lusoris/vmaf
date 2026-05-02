@@ -138,7 +138,7 @@ static void ref_linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsi
 
 /* Scalar reference: downsample_2x2. Kept as a line-for-line copy of the
  * extractor's scalar reference for bit-exactness auditability. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — test scaffolding (ADR-0141)
 static void ref_downsample_2x2(const float *in, unsigned iw, unsigned ih, float *out,
                                unsigned *ow_out, unsigned *oh_out)
 {
@@ -501,7 +501,7 @@ static void ref_fast_gaussian_1d(const float n2[3], const float d1[3], int radiu
 }
 
 /* Scalar reference: blur_plane. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — test scaffolding (ADR-0141)
 static void ref_blur_plane(const float n2[3], const float d1[3], int radius, float *col_state,
                            const float *in, float *out, float *scratch, unsigned w, unsigned h)
 {
@@ -684,7 +684,7 @@ static inline float ref_read_plane(const simd_plane_t *p, unsigned lw, unsigned 
 }
 
 /* Scalar reference: picture_to_linear_rgb. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — test scaffolding (ADR-0141)
 static void ref_picture_to_linear_rgb(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
                                       const simd_plane_t planes[3], float *out)
 {
@@ -786,7 +786,7 @@ static ptlr_fn_t pick_ptlr(void)
 /* Test helper — drives all 5 format variants (420/422/444 × 8/10-bit)
  * through one parameterised entry point. Splitting would duplicate
  * the per-plane fixture setup + 3× xorshift fill + shell. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — test scaffolding (ADR-0141)
 static char *test_ptlr_one(int yuv_matrix, unsigned bpc, unsigned uw_div, unsigned uh_div)
 {
     ptlr_fn_t fn = pick_ptlr();
@@ -882,7 +882,7 @@ static char *test_ptlr_422_8(void)
 
 /* Flat mu_run_test list — one line per subtest by design, not a
  * complexity violation. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — test scaffolding (ADR-0141)
 char *run_tests(void)
 {
 #if ARCH_AARCH64
