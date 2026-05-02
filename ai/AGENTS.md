@@ -118,6 +118,22 @@ its own training surface):
   ([N] float32); feature column order is fixed at
   `(adm2, vif_scale0, vif_scale1, vif_scale2, vif_scale3, motion2)`
   and must not be reordered without a full Phase-3 re-validation.
+- **`vmaf_tiny_v3` ships alongside v2 (ADR-0241).** Same ONNX
+  contract as v2 (input `features [N, 6]` float32, output
+  `vmaf [N]` float32, opset 17, scaler-baked-into-graph) — only the
+  architecture differs (`mlp_medium` 6 → 32 → 16 → 1, 769 params vs
+  v2's `mlp_small` 257). **Production default stays v2**;
+  [`docs/ai/inference.md`](../docs/ai/inference.md) and the model-card
+  cross-references both keep v2 as the recommended `--tiny-model`.
+  v3 is the higher-PLCC / lower-variance option (Netflix LOSO mean
+  PLCC 0.9986 ± 0.0015 vs v2's 0.9978 ± 0.0021). Do NOT replace v2
+  with v3 wholesale — both file paths are referenced by name in
+  user-facing docs and the registry, and the small mean delta does
+  not justify a default flip without multi-seed + KoNViD 5-fold
+  parity (documented as Phase-3e follow-up). Same scripts pattern:
+  `train_vmaf_tiny_v3.py` / `export_vmaf_tiny_v3.py` /
+  `validate_vmaf_tiny_v3.py` / `eval_loso_vmaf_tiny_v3.py` —
+  do **not** modify the v2 scripts when iterating on v3.
 
 ## `fr_regressor_v1` (C1 baseline — ADR-0221)
 
