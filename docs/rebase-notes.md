@@ -27,6 +27,18 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0110 — float_motion_vulkan migrated to kernel_template (T-GPU-DEDUP-10)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/float_motion_vulkan.c` —
+    single-pipeline state collapses to
+    `VmafVulkanKernelPipeline pl`; `create_pipelines` and
+    `close_fex` shrink to template-driven create + destroy.
+- **Numerical contract**: unchanged. Pure Vulkan-boilerplate
+  consolidation. Netflix-pair smoke reports `motion` mean
+  4.049 / `motion2` mean 3.894, identical to pre-migration.
+- **Rebase impact**: low. Upstream Netflix has no Vulkan backend.
+
 ### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
 
 - **ADR**: [ADR-0235](adr/0235-vulkan-async-pending-fence.md);

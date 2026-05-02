@@ -122,6 +122,18 @@
   dispatch grid math, and host-side reductions are byte-identical.
   `motion_vulkan.c` deferred (uses two pipelines sharing a layout;
   needs a multi-pipeline template extension).
+- **`float_motion_vulkan.c` migrated to `vulkan/kernel_template.h`
+  (T-GPU-DEDUP-10).** Single-pipeline float-motion kernel migrated;
+  state collapses `dsl + pipeline_layout + shader + pipeline +
+  desc_pool` to a single `VmafVulkanKernelPipeline pl`;
+  `create_pipelines` and `close_fex` shrink to template-driven
+  create + destroy. No shader / spec-constant / push-constant
+  changes. Validated against the Netflix-pair smoke (`motion` mean
+  4.049, `motion2` mean 3.894 across 48 frames) and `meson test
+  test_vulkan_smoke test_vulkan_async_pending_fence
+  test_vulkan_pic_preallocation` (all green). Numerical contract
+  unchanged.
+
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
   `vmaf_tiny_ai_open_session`, `vmaf_tiny_ai_yuv8_to_rgb8_planes`,
