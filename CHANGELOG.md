@@ -117,6 +117,25 @@
   2026-04-29-session merged PR set (#193–#205, #209) — every PR was
   feature / chore / docs / perf with no bug-status delta to record
   per CLAUDE §12 rule 13. No code changes.
+- **SIMD bit-exact test harness (ADR-0221).** New
+  [`libvmaf/test/simd_bitexact_test.h`](libvmaf/test/simd_bitexact_test.h)
+  centralises the per-test SIMD-parity scaffolding: `xorshift32` PRNG,
+  portable POSIX/MinGW/MSVC aligned allocator, x86 AVX2 CPUID gate,
+  and `SIMD_BITEXACT_ASSERT_MEMCMP` / `SIMD_BITEXACT_ASSERT_RELATIVE`
+  assertion macros. `test_psnr_hvs_avx2.c`, `test_psnr_hvs_neon.c`,
+  `test_moment_simd.c`, and `test_motion_v2_simd.c` migrate to the
+  harness as proof — net `-106` LOC across the four files. New SIMD
+  parity tests now cost ~20 LOC of test-body code instead of ~50–100
+  LOC of scaffolding + body. `test_ssimulacra2_simd.c` is intentionally
+  unchanged (its `fill_random` FP rounding order is load-bearing for
+  input bit patterns; a separate dedup PR with snapshot rerun under
+  `/cross-backend-diff` can migrate it). All 41 `meson test` cases
+  pass post-refactor; clang-format clean. New
+  [`libvmaf/test/AGENTS.md`](libvmaf/test/AGENTS.md) "New SIMD parity
+  test" rebase-sensitive invariant row pins the include-order rule
+  (`#include "test.h"` MUST precede `#include "simd_bitexact_test.h"`
+  because `test.h` lacks a header guard). See
+  [ADR-0221](docs/adr/0221-simd-bitexact-test-harness.md).
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is

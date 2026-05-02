@@ -82,65 +82,30 @@
  *   AVX2 (mu_run_test reports SKIP via stderr).
  */
 
+/*
+ * Boilerplate (portable aligned allocator, xorshift PRNG, AVX2 gate)
+ * is provided by `simd_bitexact_test.h` (ADR-0221).
+ */
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(_MSC_VER) || defined(__MINGW32__)
-#include <malloc.h>
-#endif
-
 #include "config.h"
 #include "test.h"
+/* clang-format off — `test.h` has no header guard, must precede the
+ * harness include to avoid a `mu_report` redefinition. */
+#include "simd_bitexact_test.h"
+/* clang-format on */
 
 #if ARCH_X86
 #include "feature/integer_motion.h"
 #include "feature/x86/motion_v2_avx2.h"
-#include "x86/cpu.h"
 #endif
 
 #if ARCH_X86
-
-/*
- * Portable aligned allocator. C11 `aligned_alloc` is unavailable on MinGW
- * (no feature-test macro exposes it) and on MSVC (which never shipped it).
- * Mirrors the wrapper in `libvmaf/src/mem.c` so the test stays free of an
- * internal-header dependency.
- */
-static void *test_aligned_malloc(size_t size, size_t alignment)
-{
-#if defined(_MSC_VER) || defined(__MINGW32__)
-    return _aligned_malloc(size, alignment);
-#else
-    void *ptr = NULL;
-    if (posix_memalign(&ptr, alignment, size) != 0) {
-        return NULL;
-    }
-    return ptr;
-#endif
-}
-
-static void test_aligned_free(void *ptr)
-{
-#if defined(_MSC_VER) || defined(__MINGW32__)
-    _aligned_free(ptr);
-#else
-    free(ptr);
-#endif
-}
-
-/* xorshift32 PRNG for reproducible adversarial input generation. */
-static uint32_t xorshift32(uint32_t *state)
-{
-    uint32_t s = *state;
-    s ^= s << 13;
-    s ^= s >> 17;
-    s ^= s << 5;
-    *state = s;
-    return s;
-}
 
 /*
  * Scalar reference for the 16-bit motion_v2 Phase-1+2 pipeline.
@@ -224,9 +189,9 @@ static void fill_adversarial_neg(uint16_t *prev, uint16_t *cur, unsigned w, unsi
     for (unsigned i = 0; i < h; i++) {
         for (unsigned j = 0; j < w; j++) {
             /* prev (ref) low: [0, 64) */
-            prev[i * p_stride + j] = (uint16_t)(xorshift32(&state) & 0x3F);
+            prev[i * p_stride + j] = (uint16_t)(simd_test_xorshift32(&state) & 0x3F);
             /* cur (dis) high: [960, 1024) — 10-bit max range upper end */
-            cur[i * c_stride + j] = (uint16_t)(960 + (xorshift32(&state) & 0x3F));
+            cur[i * c_stride + j] = (uint16_t)(960 + (simd_test_xorshift32(&state) & 0x3F));
         }
     }
 }
@@ -243,8 +208,8 @@ static void fill_adversarial_mixed(uint16_t *prev, uint16_t *cur, unsigned w, un
     uint32_t state = seed;
     for (unsigned i = 0; i < h; i++) {
         for (unsigned j = 0; j < w; j++) {
-            const uint16_t a = (uint16_t)(xorshift32(&state) & 0x3F);
-            const uint16_t b = (uint16_t)(960 + (xorshift32(&state) & 0x3F));
+            const uint16_t a = (uint16_t)(simd_test_xorshift32(&state) & 0x3F);
+            const uint16_t b = (uint16_t)(960 + (simd_test_xorshift32(&state) & 0x3F));
             if ((j & 1) == 0) {
                 prev[i * p_stride + j] = a;
                 cur[i * c_stride + j] = b;
@@ -262,15 +227,19 @@ static char *check_pipeline_16(unsigned bpc,
                                uint32_t seed, const char *label)
 {
     const ptrdiff_t stride16 = TEST_W; /* tight stride, no row padding */
-    uint16_t *prev = test_aligned_malloc(sizeof(uint16_t) * TEST_W * TEST_H, ALIGN_BYTES);
-    uint16_t *cur = test_aligned_malloc(sizeof(uint16_t) * TEST_W * TEST_H, ALIGN_BYTES);
-    int32_t *y_row_scalar = test_aligned_malloc(sizeof(int32_t) * TEST_W, ALIGN_BYTES);
-    int32_t *y_row_avx2 = test_aligned_malloc(sizeof(int32_t) * TEST_W, ALIGN_BYTES);
+    uint16_t *prev =
+        (uint16_t *)simd_test_aligned_malloc(sizeof(uint16_t) * TEST_W * TEST_H, ALIGN_BYTES);
+    uint16_t *cur =
+        (uint16_t *)simd_test_aligned_malloc(sizeof(uint16_t) * TEST_W * TEST_H, ALIGN_BYTES);
+    int32_t *y_row_scalar =
+        (int32_t *)simd_test_aligned_malloc(sizeof(int32_t) * TEST_W, ALIGN_BYTES);
+    int32_t *y_row_avx2 =
+        (int32_t *)simd_test_aligned_malloc(sizeof(int32_t) * TEST_W, ALIGN_BYTES);
     if (!prev || !cur || !y_row_scalar || !y_row_avx2) {
-        test_aligned_free(prev);
-        test_aligned_free(cur);
-        test_aligned_free(y_row_scalar);
-        test_aligned_free(y_row_avx2);
+        simd_test_aligned_free(prev);
+        simd_test_aligned_free(cur);
+        simd_test_aligned_free(y_row_scalar);
+        simd_test_aligned_free(y_row_avx2);
         return "allocation failure";
     }
 
@@ -285,10 +254,10 @@ static char *check_pipeline_16(unsigned bpc,
         motion_score_pipeline_16_avx2((const uint8_t *)prev, byte_stride, (const uint8_t *)cur,
                                       byte_stride, y_row_avx2, TEST_W, TEST_H, bpc);
 
-    test_aligned_free(prev);
-    test_aligned_free(cur);
-    test_aligned_free(y_row_scalar);
-    test_aligned_free(y_row_avx2);
+    simd_test_aligned_free(prev);
+    simd_test_aligned_free(cur);
+    simd_test_aligned_free(y_row_scalar);
+    simd_test_aligned_free(y_row_avx2);
 
     if (sad_scalar != sad_avx2) {
         (void)fprintf(
@@ -321,23 +290,12 @@ static char *test_mixed_diff_bpc12(void)
     return check_pipeline_16(12, fill_adversarial_mixed, 0x12345678u, "mixed-diff bpc12");
 }
 
-static int g_has_avx2;
-
-static int detect_avx2(void)
-{
-    const unsigned cpu_flags = vmaf_get_cpu_flags_x86();
-    g_has_avx2 = (cpu_flags & VMAF_X86_CPU_FLAG_AVX2) ? 1 : 0;
-    if (!g_has_avx2) {
-        (void)fprintf(stderr, "skipping: CPU lacks AVX2\n");
-    }
-    return g_has_avx2;
-}
 #endif /* ARCH_X86 */
 
 char *run_tests(void)
 {
 #if ARCH_X86
-    if (!detect_avx2()) {
+    if (!simd_test_have_avx2()) {
         return NULL;
     }
     mu_run_test(test_neg_diff_bpc10);
