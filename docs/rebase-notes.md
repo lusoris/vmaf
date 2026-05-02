@@ -5370,4 +5370,47 @@ inline.*
       --parquet runs/full_features_netflix.parquet \
       --rows 100 --min-plcc 0.97
   meson test -C build-cpu --suite=dnn
+### 0094 — Tiny-AI extractor template (ADR-0221)
+
+- **Touches**: `libvmaf/src/dnn/tiny_extractor_template.h` (new),
+  `libvmaf/src/feature/feature_lpips.c`,
+  `libvmaf/src/feature/fastdvdnet_pre.c`,
+  `libvmaf/src/dnn/AGENTS.md`, `docs/ai/extractor-template.md` (new),
+  `docs/adr/0221-tiny-ai-extractor-template.md` (new).
+- **Invariants**:
+  1. **Helper signatures are wire-format-stable.**
+     `vmaf_tiny_ai_resolve_model_path(name, option, env_var)` and
+     `vmaf_tiny_ai_open_session(name, path, &out)` produce the
+     user-facing log lines `<name>: no model path …` and
+     `<name>: vmaf_dnn_session_open(<path>) failed: <rc>` —
+     downstream tooling greps these. Don't rename or reorder the
+     parameters without bumping every extractor + the recipe doc.
+  2. **YUV→RGB is bit-exact.** The shared
+     `vmaf_tiny_ai_yuv8_to_rgb8_planes` is a literal move of the
+     pre-existing `feature_lpips.c` body (BT.709 limited-range,
+     nearest-neighbour chroma upsample). LPIPS / saliency / future
+     colour-sensitive tiny-AI scores depend on byte-exact equality
+     with the prior ad-hoc copies. Any change to the conversion
+     constants or the rounding rule needs a separate ADR + a
+     coordinated snapshot regen — `model/tiny/` weights aren't
+     re-trained against new colour math casually.
+  3. **Option-table macro is plain text substitution.** The
+     `VMAF_TINY_AI_MODEL_PATH_OPTION(state_t, help)` macro emits a
+     single struct literal — no control flow, no recursion, no
+     variadic shenanigans (Power-of-10 rule 1 / rule 9). Don't
+     extend it into a multi-option emitter without a fresh ADR.
+- **On upstream sync**: zero interaction with upstream —
+  `feature_lpips.c` and `fastdvdnet_pre.c` are fork-only files,
+  and the new `dnn/tiny_extractor_template.h` lives entirely under
+  fork-introduced `libvmaf/src/dnn/`. An upstream sync that
+  rewrites unrelated `feature_*.c` files won't conflict.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf
+  meson setup build-cpu -Denable_cuda=false -Denable_sycl=false
+  ninja -C build-cpu
+  meson test -C build-cpu --suite=dnn
+  meson test -C build-cpu test_lpips test_fastdvdnet_pre
+  # All 10 dnn-suite + both extractor tests must pass.
   ```

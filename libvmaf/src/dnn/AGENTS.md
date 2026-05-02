@@ -42,6 +42,19 @@ Runtime directly.
   [ADR-0041](../../../docs/adr/0041-lpips-sq-extractor.md).
 - **Every tiny-AI change ships docs** under `docs/ai/` in the same PR. See
   [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md).
+- **Tiny-AI extractor template is the dedup contract**
+  ([ADR-0221](../../../docs/adr/0221-tiny-ai-extractor-template.md)).
+  New tiny-AI feature extractors use the helpers in
+  [`tiny_extractor_template.h`](tiny_extractor_template.h)
+  (`vmaf_tiny_ai_resolve_model_path` / `vmaf_tiny_ai_open_session` /
+  `vmaf_tiny_ai_yuv8_to_rgb8_planes` / `VMAF_TINY_AI_MODEL_PATH_OPTION`).
+  The user-facing log lines (`<name>: no model path …`, `<name>:
+  vmaf_dnn_session_open(<path>) failed: <rc>`) are wire-format-stable
+  across extractors — downstream tooling greps them. Don't introduce
+  per-extractor variants of the path / session-open shape; if the
+  contract needs to change, update the helpers in one place. The recipe
+  lives in
+  [`docs/ai/extractor-template.md`](../../../docs/ai/extractor-template.md).
 - **Registry schema is the trust contract** (T6-9 / [ADR-0211](../../../docs/adr/0211-model-registry-sigstore.md)).
   Every entry in [`model/tiny/registry.json`](../../../model/tiny/registry.json)
   must satisfy [`registry.schema.json`](../../../model/tiny/registry.schema.json):

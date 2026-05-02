@@ -24,6 +24,13 @@
  *  When libvmaf is built with -Denable_dnn=false the session-open call
  *  returns -ENOSYS and init() propagates that, so this extractor simply
  *  cannot be instantiated without a real ORT build.
+ *
+ *  Shared scaffolding
+ *  ------------------
+ *  Boilerplate (model-path resolution, session open, BT.709 YUV→RGB,
+ *  options-table row) lives in
+ *  ``libvmaf/src/dnn/tiny_extractor_template.h``. See ADR-0221 and
+ *  ``docs/ai/extractor-template.md`` for the recipe.
  */
 
 #include <assert.h>
@@ -44,6 +51,7 @@
 #include "opt.h"
 
 #include "dnn/tensor_io.h"
+#include "dnn/tiny_extractor_template.h"
 
 typedef struct LpipsState {
     char *model_path; /**< feature option, owned by opt.c */
@@ -57,76 +65,32 @@ typedef struct LpipsState {
     float *tensor_dist; /**< 3 * w * h floats, NCHW */
 } LpipsState;
 
-/* BT.709 limited-range YUV → RGB in [0, 255]. Writes one output row of
- * three uint8 channels given three Y/U/V pixels. u444 / v444 are the
- * chroma samples already upsampled to 4:4:4. */
-static inline void yuv_bt709_to_rgb8_pixel(int y, int u, int v, uint8_t *r, uint8_t *g, uint8_t *b)
+static void lpips_release(LpipsState *s)
 {
-    /* Studio-swing normalisation: Y∈[16,235], UV∈[16,240]. */
-    const float yn = ((float)y - 16.0f) * (1.0f / 219.0f);
-    const float un = ((float)u - 128.0f) * (1.0f / 224.0f);
-    const float vn = ((float)v - 128.0f) * (1.0f / 224.0f);
-
-    float rf = yn + 1.28033f * vn;
-    float gf = yn - 0.21482f * un - 0.38059f * vn;
-    float bf = yn + 2.12798f * un;
-
-    /* Saturating clamp to [0, 1] then scale to [0, 255] with round-to-nearest. */
-    if (rf < 0.0f) {
-        rf = 0.0f;
-    } else if (rf > 1.0f) {
-        rf = 1.0f;
-    }
-    if (gf < 0.0f) {
-        gf = 0.0f;
-    } else if (gf > 1.0f) {
-        gf = 1.0f;
-    }
-    if (bf < 0.0f) {
-        bf = 0.0f;
-    } else if (bf > 1.0f) {
-        bf = 1.0f;
-    }
-
-    *r = (uint8_t)(rf * 255.0f + 0.5f);
-    *g = (uint8_t)(gf * 255.0f + 0.5f);
-    *b = (uint8_t)(bf * 255.0f + 0.5f);
-}
-
-/* Expand planar YUV (4:2:0 / 4:2:2 / 4:4:4, 8-bit) to packed RGB planes.
- * Chroma is upsampled by nearest-neighbour replication — the same
- * convention used by ciede.c, so LPIPS scores stay comparable with the
- * rest of the CPU pipeline under identical inputs. */
-static int yuv8_to_rgb8_planes(const VmafPicture *pic, uint8_t *dst_r, uint8_t *dst_g,
-                               uint8_t *dst_b)
-{
-    if (pic->bpc != 8)
-        return -ENOTSUP;
-    const int ss_hor = (pic->pix_fmt != VMAF_PIX_FMT_YUV444P) ? 1 : 0;
-    const int ss_ver = (pic->pix_fmt == VMAF_PIX_FMT_YUV420P) ? 1 : 0;
-    const unsigned w = pic->w[0];
-    const unsigned h = pic->h[0];
-    const uint8_t *Y = pic->data[0];
-    const uint8_t *U = pic->data[1];
-    const uint8_t *V = pic->data[2];
-    const size_t sy = pic->stride[0];
-    const size_t su = pic->stride[1];
-    const size_t sv = pic->stride[2];
-
-    for (unsigned i = 0; i < h; ++i) {
-        const uint8_t *yrow = Y + (size_t)i * sy;
-        const unsigned ci = ss_ver ? (i >> 1) : i;
-        const uint8_t *urow = U + (size_t)ci * su;
-        const uint8_t *vrow = V + (size_t)ci * sv;
-        uint8_t *rrow = dst_r + (size_t)i * w;
-        uint8_t *grow = dst_g + (size_t)i * w;
-        uint8_t *brow = dst_b + (size_t)i * w;
-        for (unsigned j = 0; j < w; ++j) {
-            const unsigned cj = ss_hor ? (j >> 1) : j;
-            yuv_bt709_to_rgb8_pixel(yrow[j], urow[cj], vrow[cj], rrow + j, grow + j, brow + j);
+    if (!s)
+        return;
+    for (int i = 0; i < 3; ++i) {
+        if (s->rgb8_ref[i]) {
+            aligned_free(s->rgb8_ref[i]);
+            s->rgb8_ref[i] = NULL;
+        }
+        if (s->rgb8_dist[i]) {
+            aligned_free(s->rgb8_dist[i]);
+            s->rgb8_dist[i] = NULL;
         }
     }
-    return 0;
+    if (s->tensor_ref) {
+        aligned_free(s->tensor_ref);
+        s->tensor_ref = NULL;
+    }
+    if (s->tensor_dist) {
+        aligned_free(s->tensor_dist);
+        s->tensor_dist = NULL;
+    }
+    if (s->sess) {
+        (void)vmaf_dnn_session_close(s->sess);
+        s->sess = NULL;
+    }
 }
 
 static int lpips_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
@@ -142,23 +106,14 @@ static int lpips_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, u
         return -ENOTSUP;
     }
 
-    const char *path = s->model_path;
-    if (!path || !*path) {
-        const char *env = getenv("VMAF_LPIPS_MODEL_PATH");
-        if (env && *env)
-            path = env;
-    }
-    if (!path || !*path) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "lpips: no model path (set feature option model_path or env "
-                                       "VMAF_LPIPS_MODEL_PATH)\n");
+    const char *path =
+        vmaf_tiny_ai_resolve_model_path("lpips", s->model_path, "VMAF_LPIPS_MODEL_PATH");
+    if (!path)
         return -EINVAL;
-    }
 
-    int rc = vmaf_dnn_session_open(&s->sess, path, NULL);
-    if (rc < 0) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "lpips: vmaf_dnn_session_open(%s) failed: %d\n", path, rc);
+    int rc = vmaf_tiny_ai_open_session("lpips", path, &s->sess);
+    if (rc < 0)
         return rc;
-    }
     assert(s->sess != NULL);
 
     s->w = w;
@@ -179,28 +134,7 @@ static int lpips_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, u
     return 0;
 
 oom:
-    for (int i = 0; i < 3; ++i) {
-        if (s->rgb8_ref[i]) {
-            aligned_free(s->rgb8_ref[i]);
-            s->rgb8_ref[i] = NULL;
-        }
-        if (s->rgb8_dist[i]) {
-            aligned_free(s->rgb8_dist[i]);
-            s->rgb8_dist[i] = NULL;
-        }
-    }
-    if (s->tensor_ref) {
-        aligned_free(s->tensor_ref);
-        s->tensor_ref = NULL;
-    }
-    if (s->tensor_dist) {
-        aligned_free(s->tensor_dist);
-        s->tensor_dist = NULL;
-    }
-    if (s->sess) {
-        vmaf_dnn_session_close(s->sess);
-        s->sess = NULL;
-    }
+    lpips_release(s);
     return -ENOMEM;
 }
 
@@ -219,10 +153,12 @@ static int lpips_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPi
     if (dist_pic->w[0] != s->w || dist_pic->h[0] != s->h)
         return -ERANGE;
 
-    int rc = yuv8_to_rgb8_planes(ref_pic, s->rgb8_ref[0], s->rgb8_ref[1], s->rgb8_ref[2]);
+    int rc =
+        vmaf_tiny_ai_yuv8_to_rgb8_planes(ref_pic, s->rgb8_ref[0], s->rgb8_ref[1], s->rgb8_ref[2]);
     if (rc < 0)
         return rc;
-    rc = yuv8_to_rgb8_planes(dist_pic, s->rgb8_dist[0], s->rgb8_dist[1], s->rgb8_dist[2]);
+    rc = vmaf_tiny_ai_yuv8_to_rgb8_planes(dist_pic, s->rgb8_dist[0], s->rgb8_dist[1],
+                                          s->rgb8_dist[2]);
     if (rc < 0)
         return rc;
 
@@ -259,32 +195,15 @@ static int lpips_close(VmafFeatureExtractor *fex)
     LpipsState *s = fex->priv;
     if (!s)
         return 0;
-    for (int i = 0; i < 3; ++i) {
-        if (s->rgb8_ref[i])
-            aligned_free(s->rgb8_ref[i]);
-        if (s->rgb8_dist[i])
-            aligned_free(s->rgb8_dist[i]);
-    }
-    if (s->tensor_ref)
-        aligned_free(s->tensor_ref);
-    if (s->tensor_dist)
-        aligned_free(s->tensor_dist);
-    if (s->sess)
-        vmaf_dnn_session_close(s->sess);
+    lpips_release(s);
     memset(s, 0, sizeof(*s));
     return 0;
 }
 
 static const VmafOption lpips_options[] = {
-    {
-        .name = "model_path",
-        .help = "Filesystem path to the LPIPS ONNX model (two-input, 'ref'/'dist'). "
-                "Overrides the VMAF_LPIPS_MODEL_PATH env var.",
-        .offset = offsetof(LpipsState, model_path),
-        .type = VMAF_OPT_TYPE_STRING,
-        .default_val.s = NULL,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
+    VMAF_TINY_AI_MODEL_PATH_OPTION(
+        LpipsState, "Filesystem path to the LPIPS ONNX model (two-input, 'ref'/'dist'). "
+                    "Overrides the VMAF_LPIPS_MODEL_PATH env var."),
     {NULL},
 };
 

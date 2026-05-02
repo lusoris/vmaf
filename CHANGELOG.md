@@ -161,6 +161,31 @@
   PLCC=0.992326 drop=0.007674 budget=0.0100`. 2.0× size shrink
   (119 KB → 58 KB). See
   [ADR-0221](docs/adr/0221-nr-metric-v1-ptq.md).
+- **Tiny-AI extractor template — shared scaffolding header (ADR-0221).**
+  New
+  [`libvmaf/src/dnn/tiny_extractor_template.h`](libvmaf/src/dnn/tiny_extractor_template.h)
+  ships three `static inline` helpers
+  (`vmaf_tiny_ai_resolve_model_path`, `vmaf_tiny_ai_open_session`,
+  `vmaf_tiny_ai_yuv8_to_rgb8_planes`) plus one struct-literal-emitting
+  macro (`VMAF_TINY_AI_MODEL_PATH_OPTION`) that deduplicate the
+  model-path-option-then-env-var resolution + session-open
+  log-line pattern + BT.709 limited-range YUV→RGB chroma upsample +
+  `model_path` `VmafOption[]` row across the four tiny-AI extractors
+  (`feature_lpips.c`, `fastdvdnet_pre.c`, in-flight
+  `feature_mobilesal.c` from PR #208, planned `feature_transnet_v2.c`).
+  `feature_lpips.c` shrinks 305 → 205 LOC and `fastdvdnet_pre.c`
+  341 → 317 LOC (net −100 lines across the two master extractors);
+  new tiny-AI extractors target ~30 LOC of extractor-specific tensor
+  wiring instead of ~150 LOC where 70 % is plumbing. Bit-exact
+  behaviour preserved (YUV→RGB body and option-table layout are
+  literal moves; all 40 libvmaf CPU-build tests + the 10 dnn-suite
+  smoke tests pass). Power-of-10 friendly — no setjmp/longjmp, no
+  recursion, bounded loops, single struct-literal macro (rule 9
+  compliant). Recipe doc
+  [`docs/ai/extractor-template.md`](docs/ai/extractor-template.md);
+  `libvmaf/src/dnn/AGENTS.md` invariant row pins the contract for
+  rebase. See
+  [ADR-0221](docs/adr/0221-tiny-ai-extractor-template.md).
 
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
