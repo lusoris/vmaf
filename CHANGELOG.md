@@ -107,6 +107,25 @@
 
 ### Changed
 
+- **`cambi_vulkan.c` migrated to `vulkan/kernel_template.h`
+  (T-GPU-DEDUP-25, 5-bundle).** Five distinct push-constant struct
+  sizes (one per pipeline stage — preprocess / derivative /
+  filter_mode / decimate / mask_dp) force five bundles even though
+  every stage uses the same 2-binding SSBO descriptor-set layout
+  shape. State drops the legacy quintet
+  (`dsl_2bind` + 5× `pl_layout_*` + `shader_modules[CAMBI_PL_COUNT]`
+  + shared `desc_pool`) for five `VmafVulkanKernelPipeline` bundles
+  (`pl_trivial` / `pl_derivative` / `pl_filter_mode` /
+  `pl_decimate` / `pl_mask_dp`), each owning its own descriptor
+  pool. The first slot of `pipelines[]` per stage aliases the
+  bundle's base pipeline; remaining slots
+  (`CAMBI_PL_FILTER_MODE_V`, `CAMBI_PL_MASK_SAT_COL`,
+  `CAMBI_PL_MASK_THRESHOLD`) are siblings via
+  `vmaf_vulkan_kernel_pipeline_add_variant()`. Validated bit-exact
+  against the pre-migration binary on the Netflix-pair smoke
+  (576×324×8-bit, `cambi` mean = 0.0 — content-appropriate; the
+  pair has no banding artifacts). Net diff −40 LOC (1407 → 1367).
+  See [ADR-0221](docs/adr/0221-gpu-kernel-template.md).
 - **`ssimulacra2_vulkan.c` migrated to `vulkan/kernel_template.h`
   (T-GPU-DEDUP-24, 4-bundle).** Four distinct pipeline shapes (XYB =
   6 SSBO bindings, MUL = 3, BLUR = 2, SSIM = 8) prevent collapsing

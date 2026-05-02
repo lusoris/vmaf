@@ -27,6 +27,45 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0125 — cambi_vulkan migrated to kernel_template (T-GPU-DEDUP-25, 5-bundle)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/cambi_vulkan.c` — state's quintet
+    (`dsl_2bind` + 5× `pl_layout_*` + `shader_modules[CAMBI_PL_COUNT]`
+    + shared `desc_pool`) collapses to five
+    `VmafVulkanKernelPipeline` bundles (`pl_trivial`,
+    `pl_derivative`, `pl_filter_mode`, `pl_decimate`, `pl_mask_dp`),
+    each owning its own descriptor pool. The first slot of
+    `pipelines[]` per stage aliases the bundle's base pipeline;
+    `CAMBI_PL_FILTER_MODE_V`, `CAMBI_PL_MASK_SAT_COL`, and
+    `CAMBI_PL_MASK_THRESHOLD` are sibling variants built via
+    `vmaf_vulkan_kernel_pipeline_add_variant()`.
+  - `cambi_vk_alloc_set` takes a bundle pointer
+    (`->desc_pool` / `->dsl`) — every dispatch site picks the
+    bundle that matches its push-constant struct.
+  - The `cambi_vk_make_dsl` / `cambi_vk_make_pl` /
+    `cambi_vk_create_shader` / `cambi_vk_build_pipeline` helpers
+    are dropped — the template subsumes them.
+- **Invariant — variants destroyed before bundle, base alias must
+  be skipped**. Five distinct push-constant struct sizes
+  (`CambiVkPushTrivial` / `CambiVkPushDerivative` /
+  `CambiVkPushFilterMode` / `CambiVkPushDecimate` /
+  `CambiVkPushMaskDp`) force five bundles even though every
+  stage's DSL is 2-binding SSBO; `_add_variant()` only siblings
+  pipelines under the *same* layout. `close_fex` must
+  `vkDestroyPipeline()` the variant slots
+  (`CAMBI_PL_FILTER_MODE_V`, `CAMBI_PL_MASK_SAT_COL`,
+  `CAMBI_PL_MASK_THRESHOLD`) *before* calling
+  `vmaf_vulkan_kernel_pipeline_destroy()` on each bundle.
+- **Numerical contract**: bit-exact preserved. Same shaders +
+  spec-constants + push-constants as before; only the Vulkan
+  pipeline-bundle scaffolding moved to the template. Validated
+  on the Netflix-pair smoke (576×324×8-bit): `cambi` mean = 0.0,
+  identical to pre-migration (the pair has no banding artifacts).
+- **Rebase impact**: low. Builds on top of PR #272's
+  `_add_variant()` helper. Upstream Netflix/vmaf has no Vulkan
+  backend, so there is nothing to merge against.
+
 ### 0124 — ssimulacra2_vulkan migrated to kernel_template (T-GPU-DEDUP-24, 4-bundle)
 
 - **Touches**:

@@ -195,7 +195,12 @@ vulkan/
   `vmaf_vulkan_kernel_pipeline_destroy()`. The 4-bundle layout
   (`pl_xyb` / `pl_mul` / `pl_blur` / `pl_ssim`) in
   `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` is the reference
-  for this pattern.
+  for this pattern. The 5-bundle layout
+  (`pl_trivial` / `pl_derivative` / `pl_filter_mode` / `pl_decimate`
+  / `pl_mask_dp`) in `libvmaf/src/feature/vulkan/cambi_vulkan.c`
+  (T-GPU-DEDUP-25) is the largest consumer to date — every stage
+  uses the same 2-binding SSBO DSL, but distinct per-stage
+  push-constant struct sizes force one bundle per stage.
 
 - **Multi-bundle kernels: per-bundle pool + alias-skip on destroy**
   (fork-local, T-GPU-DEDUP-23). Kernels with multiple distinct
