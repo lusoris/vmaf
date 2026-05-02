@@ -66,13 +66,19 @@ features [N, 6]
 
 * Netflix Public Dataset (9 sources × encodings — local extract).
 * KoNViD-1k (5-fold extract; CC BY 4.0; not redistributed).
-* BVI-DVC subsets D + C (5+5 sources).
+* BVI-DVC subsets A + B + C + D (full coverage).
 
-All combined into `runs/full_features_3corpus.parquet` (305 795
+All combined into `runs/full_features_4corpus.parquet` (330 499
 frame-rows × 22 FULL_FEATURES + `vmaf` teacher score from
-`vmaf_v0.6.1`). The 3-corpus union is what we fit the StandardScaler
+`vmaf_v0.6.1`). The 4-corpus union is what we fit the StandardScaler
 and the MLP on for the production export. LOSO + 5-fold are the
 validation methodology, not the deployment recipe.
+
+The shipped weights were retrained on the full 4-corpus union after
+the 3-corpus sweep validated the canonical-6 + `lr=1e-3` + 90ep
+configuration (Phase-3 chain → ADR-0216). Adding the BVI-DVC A + B
+subsets brings the row count from 305 795 to 330 499 (+24 704 rows,
++8.1 %) and keeps train PLCC at 0.9999 / RMSE 0.153.
 
 ## Validation
 
@@ -127,9 +133,9 @@ print(vmaf[:5])  # -> per-frame VMAF estimates
 ## Reproducer
 
 ```bash
-# 1. Train on the 3-corpus parquet (~10 min CPU on a typical dev box).
+# 1. Train on the 4-corpus parquet (~12 min CPU on a typical dev box).
 python3 ai/scripts/train_vmaf_tiny_v2.py \
-    --parquet runs/full_features_3corpus.parquet \
+    --parquet runs/full_features_4corpus.parquet \
     --out-ckpt /tmp/vmaf_tiny_v2.pt \
     --out-stats /tmp/vmaf_tiny_v2_stats.json
 
@@ -153,7 +159,7 @@ python3 ai/scripts/validate_vmaf_tiny_v2.py \
   extraction stage runs first (the regular libvmaf path).
 * Trained on SDR content. HDR coverage is out of scope until the
   upstream HDR feature extractors land.
-* The 3-corpus parquet uses `vmaf_v0.6.1` as the teacher score; v2
+* The 4-corpus parquet uses `vmaf_v0.6.1` as the teacher score; v2
   cannot exceed `vmaf_v0.6.1` in absolute correctness — it
   approximates the SVM with a much smaller MLP.
 * Bit-exactness across CPU/GPU execution providers is not guaranteed

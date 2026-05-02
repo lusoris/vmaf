@@ -9,7 +9,7 @@ Validated configuration from the Phase-3 chain
 * Architecture: ``mlp_small`` (6 → 16 → 8 → 1, ~257 params).
 * Features: canonical-6 = ``(adm2, vif_scale0..3, motion2)``.
 * Preprocessing: per-fold StandardScaler. For the production model
-  we fit on the FULL 3-corpus training set (no holdout), then bake
+  we fit on the FULL 4-corpus training set (no holdout), then bake
   ``mean`` / ``std`` into the exported ONNX.
 * Optimiser: Adam @ lr=1e-3, MSE loss, 90 epochs, batch_size 256.
 * Validated PLCC: 0.9978 ± 0.0021 on Netflix LOSO; 0.9998 on KoNViD
@@ -63,8 +63,8 @@ def _train(
 
     Returns the trained ``torch.nn.Module``. Standardisation must be
     applied by the caller; this function does not touch ``x``. Uses an
-    in-memory minibatch loop (the whole 305 795-row corpus fits
-    comfortably in RAM at float32 — ~7 MB) instead of
+    in-memory minibatch loop (the whole 330 499-row corpus fits
+    comfortably in RAM at float32 — ~8 MB) instead of
     ``torch.utils.data.DataLoader``; the DataLoader's per-batch worker
     overhead dominates wall-time on a model this small.
     """
@@ -128,7 +128,7 @@ def main() -> int:
         "--parquet",
         type=Path,
         required=True,
-        help="3-corpus full-feature parquet (Netflix + KoNViD + BVI-DVC D+C).",
+        help="Full-feature parquet (e.g. 4-corpus: Netflix + KoNViD + BVI-DVC A+B+C+D).",
     )
     ap.add_argument(
         "--out-ckpt",
