@@ -65,6 +65,7 @@
 #include "opt.h"
 
 #include "dnn/tensor_io.h"
+#include "dnn/tiny_extractor_template.h"
 
 typedef struct MobilesalState {
     char *model_path; /**< feature option, owned by opt.c */
@@ -78,73 +79,10 @@ typedef struct MobilesalState {
     float *sal_map;   /**< 1 * w * h floats, NCHW [1,1,H,W] */
 } MobilesalState;
 
-/* BT.709 limited-range YUV → RGB in [0, 255]. Mirrors feature_lpips.c so
- * the two extractors stay numerically comparable on identical inputs. */
-static inline void yuv_bt709_to_rgb8_pixel(int y, int u, int v, uint8_t *r, uint8_t *g, uint8_t *b)
-{
-    const float yn = ((float)y - 16.0f) * (1.0f / 219.0f);
-    const float un = ((float)u - 128.0f) * (1.0f / 224.0f);
-    const float vn = ((float)v - 128.0f) * (1.0f / 224.0f);
-
-    float rf = yn + 1.28033f * vn;
-    float gf = yn - 0.21482f * un - 0.38059f * vn;
-    float bf = yn + 2.12798f * un;
-
-    if (rf < 0.0f) {
-        rf = 0.0f;
-    } else if (rf > 1.0f) {
-        rf = 1.0f;
-    }
-    if (gf < 0.0f) {
-        gf = 0.0f;
-    } else if (gf > 1.0f) {
-        gf = 1.0f;
-    }
-    if (bf < 0.0f) {
-        bf = 0.0f;
-    } else if (bf > 1.0f) {
-        bf = 1.0f;
-    }
-
-    *r = (uint8_t)(rf * 255.0f + 0.5f);
-    *g = (uint8_t)(gf * 255.0f + 0.5f);
-    *b = (uint8_t)(bf * 255.0f + 0.5f);
-}
-
-/* Expand planar YUV (4:2:0 / 4:2:2 / 4:4:4, 8-bit) to RGB planes — same
- * nearest-neighbour chroma upsample as feature_lpips.c / ciede.c. */
-static int yuv8_to_rgb8_planes(const VmafPicture *pic, uint8_t *dst_r, uint8_t *dst_g,
-                               uint8_t *dst_b)
-{
-    if (pic->bpc != 8) {
-        return -ENOTSUP;
-    }
-    const int ss_hor = (pic->pix_fmt != VMAF_PIX_FMT_YUV444P) ? 1 : 0;
-    const int ss_ver = (pic->pix_fmt == VMAF_PIX_FMT_YUV420P) ? 1 : 0;
-    const unsigned w = pic->w[0];
-    const unsigned h = pic->h[0];
-    const uint8_t *Y = pic->data[0];
-    const uint8_t *U = pic->data[1];
-    const uint8_t *V = pic->data[2];
-    const size_t sy = pic->stride[0];
-    const size_t su = pic->stride[1];
-    const size_t sv = pic->stride[2];
-
-    for (unsigned i = 0; i < h; ++i) {
-        const uint8_t *yrow = Y + (size_t)i * sy;
-        const unsigned ci = ss_ver ? (i >> 1) : i;
-        const uint8_t *urow = U + (size_t)ci * su;
-        const uint8_t *vrow = V + (size_t)ci * sv;
-        uint8_t *rrow = dst_r + (size_t)i * w;
-        uint8_t *grow = dst_g + (size_t)i * w;
-        uint8_t *brow = dst_b + (size_t)i * w;
-        for (unsigned j = 0; j < w; ++j) {
-            const unsigned cj = ss_hor ? (j >> 1) : j;
-            yuv_bt709_to_rgb8_pixel(yrow[j], urow[cj], vrow[cj], rrow + j, grow + j, brow + j);
-        }
-    }
-    return 0;
-}
+/* BT.709 limited-range YUV→RGB lives in
+ * `dnn/tiny_extractor_template.h` (`vmaf_tiny_ai_yuv8_to_rgb8_planes`),
+ * shared with feature_lpips.c so the two extractors stay numerically
+ * comparable on identical inputs. */
 
 static void mobilesal_release(MobilesalState *s)
 {
@@ -185,24 +123,13 @@ static int mobilesal_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fm
         return -ENOTSUP;
     }
 
-    const char *path = s->model_path;
-    if (!path || !*path) {
-        const char *env = getenv("VMAF_MOBILESAL_MODEL_PATH");
-        if (env && *env) {
-            path = env;
-        }
-    }
-    if (!path || !*path) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "mobilesal: no model path (set feature option model_path or env "
-                 "VMAF_MOBILESAL_MODEL_PATH)\n");
+    const char *path =
+        vmaf_tiny_ai_resolve_model_path("mobilesal", s->model_path, "VMAF_MOBILESAL_MODEL_PATH");
+    if (!path) {
         return -EINVAL;
     }
-
-    int rc = vmaf_dnn_session_open(&s->sess, path, NULL);
+    int rc = vmaf_tiny_ai_open_session("mobilesal", path, &s->sess);
     if (rc < 0) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "mobilesal: vmaf_dnn_session_open(%s) failed: %d\n", path,
-                 rc);
         return rc;
     }
     assert(s->sess != NULL);
@@ -249,7 +176,7 @@ static int mobilesal_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
         return -ERANGE;
     }
 
-    int rc = yuv8_to_rgb8_planes(dist_pic, s->rgb8[0], s->rgb8[1], s->rgb8[2]);
+    int rc = vmaf_tiny_ai_yuv8_to_rgb8_planes(dist_pic, s->rgb8[0], s->rgb8[1], s->rgb8[2]);
     if (rc < 0) {
         return rc;
     }
@@ -308,16 +235,10 @@ static int mobilesal_close(VmafFeatureExtractor *fex)
 }
 
 static const VmafOption mobilesal_options[] = {
-    {
-        .name = "model_path",
-        .help = "Filesystem path to the MobileSal saliency ONNX model (single input "
-                "'input', single output 'saliency_map'). Overrides the "
-                "VMAF_MOBILESAL_MODEL_PATH env var.",
-        .offset = offsetof(MobilesalState, model_path),
-        .type = VMAF_OPT_TYPE_STRING,
-        .default_val.s = NULL,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
+    VMAF_TINY_AI_MODEL_PATH_OPTION(
+        MobilesalState, "Filesystem path to the MobileSal saliency ONNX model (single input "
+                        "'input', single output 'saliency_map'). Overrides the "
+                        "VMAF_MOBILESAL_MODEL_PATH env var."),
     {NULL},
 };
 

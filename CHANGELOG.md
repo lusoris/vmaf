@@ -89,6 +89,18 @@
 
 ### Changed
 
+- **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
+  PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
+  `vmaf_tiny_ai_open_session`, `vmaf_tiny_ai_yuv8_to_rgb8_planes`,
+  `VMAF_TINY_AI_MODEL_PATH_OPTION`) but left the existing
+  `feature_mobilesal.c` + `transnet_v2.c` open-coding the same
+  boilerplate. Both files now consume the template, eliminating
+  ~98 LOC of duplicated model-path lookup / session-open log /
+  YUV→RGB kernel / VmafOption row. Behavior bit-exact preserved
+  (the template hoists the literal copies the migrated files
+  carried). `feature_lpips.c` and `fastdvdnet_pre.c` were already
+  migrated. Closes the AI-template adoption gap noted in the
+  2026-05-02 dedup audit. See `dnn/tiny_extractor_template.h`.
 - **ADR-0108 deliverables gate now runnable locally (`make pr-check`).**
   The Deep-Dive Deliverables Checklist gate
   (`.github/workflows/rule-enforcement.yml`) previously inlined ~80
