@@ -27,6 +27,53 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0123 — `ms_ssim_vulkan` 2-bundle migration (T-GPU-DEDUP-23)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/ms_ssim_vulkan.c` — state collapses
+    `decimate_dsl + decimate_pl + decimate_shader + ssim_dsl +
+    ssim_pl + ssim_shader + desc_pool` (7 fields) to two bundles
+    `VmafVulkanKernelPipeline pl_decimate` + `pl_ssim`. Each bundle
+    owns its own descriptor pool. The kernel has two distinct
+    pipeline shapes (decimate = 2 SSBO bindings, ssim = 10
+    bindings), so two bundles is the minimum — `_add_variant()`
+    only siblings pipelines under the *same* layout.
+  - `decimate_pipelines[0]` aliases `pl_decimate.pipeline` (the
+    template's base = scale 0). The remaining
+    `MS_SSIM_SCALES - 2` decimate variants (scales 1..3) are
+    siblings via `_add_variant()`.
+  - `ssim_pipeline_horiz[0]` aliases `pl_ssim.pipeline` (base =
+    scale 0, pass 0). The other 9 entries (4× `ssim_pipeline_horiz`
+    for scales 1..4, plus 5× `ssim_pipeline_vert` for scales 0..4)
+    are variants.
+- **Invariant — variants destroyed before bundle**. Same rule as
+  ADR-0106 entry 0106: `close_fex` must destroy
+  `decimate_pipelines[1..3]` and `ssim_pipeline_horiz[1..4]` +
+  `ssim_pipeline_vert[0..4]` *before* calling
+  `vmaf_vulkan_kernel_pipeline_destroy()` on `pl_decimate` /
+  `pl_ssim`.
+- **Invariant — `[0]` aliasing destroy-skip**. `decimate_pipelines[0]`
+  and `ssim_pipeline_horiz[0]` *must not* be passed to
+  `vkDestroyPipeline` in `close_fex` — `_destroy()` already releases
+  them via `pl_decimate.pipeline` / `pl_ssim.pipeline`. Double-free
+  is UB. The destroy loops in `close_fex` start at `i = 1` for
+  decimate and skip `i == 0` for ssim_horiz.
+- **Invariant — per-bundle descriptor pool**. The shared
+  `s->desc_pool` is gone; `alloc_descriptor_set` now takes a
+  `const VmafVulkanKernelPipeline *bundle` and uses
+  `bundle->desc_pool` + `bundle->dsl`. Per-frame
+  `vkFreeDescriptorSets` calls must target the matching pool
+  (`pl_decimate.desc_pool` for decimate sets, `pl_ssim.desc_pool`
+  for ssim sets) — mixing them is undefined behavior.
+- **Numerical contract**: unchanged. Same shaders, spec constants,
+  push constants, and dispatch order as before. `float_ms_ssim`
+  Netflix-pair smoke (576×324×48f) reports mean 0.963241; ssim
+  pyramid intermediate values bit-identical to pre-migration run.
+- **Rebase impact**: low. Upstream Netflix has no Vulkan backend.
+  Conflicts only against the parallel `T-GPU-DEDUP-{18..22}` PRs
+  (#284–#288) on `CHANGELOG.md` / `docs/rebase-notes.md` —
+  auto-resolve keeps both halves.
+
 ### 0106 — Vulkan kernel template multi-pipeline + ssim/motion migration (T-GPU-DEDUP-7)
 
 - **Touches**:

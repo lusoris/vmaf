@@ -89,6 +89,33 @@
 
 ### Changed
 
+- **`ms_ssim_vulkan.c` 2-bundle migration to `vulkan/kernel_template.h`
+  (T-GPU-DEDUP-23).** The kernel has two distinct pipeline shapes —
+  decimate (2 SSBO bindings) and ssim (10 SSBO bindings) — which
+  sibling-only `_add_variant()` cannot collapse to one bundle.
+  State drops 7 long-lived pipeline-object fields (`decimate_dsl`,
+  `decimate_pl`, `decimate_shader`, `ssim_dsl`, `ssim_pl`,
+  `ssim_shader`, shared `desc_pool`) for two
+  `VmafVulkanKernelPipeline` bundles (`pl_decimate` + `pl_ssim`).
+  `decimate_pipelines[0]` aliases `pl_decimate.pipeline` (the
+  template's base = scale 0); the other 3 decimate slots are
+  siblings via `_add_variant()`. `ssim_pipeline_horiz[0]` aliases
+  `pl_ssim.pipeline` (scale 0, pass 0); the other 9 ssim slots
+  (4× horiz scales 1..4 + 5× vert scales 0..4) are variants.
+  `create_pipelines()` shrinks from ~115 LOC of
+  `vkCreateDescriptorSetLayout`/`vkCreatePipelineLayout`/
+  `vkCreateShaderModule`/`vkCreateDescriptorPool` boilerplate to
+  ~75 LOC of two `_pipeline_create()` + variant loops.
+  `close_fex()`'s 8×`vkDestroy*` sweep across two pipeline shapes
+  collapses to two `_pipeline_destroy()` calls plus the
+  per-variant pipeline destroys. `alloc_descriptor_set()` now
+  takes the bundle pointer (per-bundle pool + DSL) instead of the
+  shared `s->desc_pool`. **Net −18 LOC** in `ms_ssim_vulkan.c`
+  (savings concentrated in `create_pipelines()` and `close_fex()`,
+  partly offset by hoisted spec-data fill helpers).
+  Bit-exactness preserved —
+  Netflix-pair `float_ms_ssim` smoke (576×324×48f) reports mean
+  0.963241, identical to pre-migration.
 - **`psnr_vulkan.c` migrated to `vulkan/kernel_template.h` (T-GPU-DEDUP-5,
   first consumer).** The dormant `vulkan/kernel_template.h` (410 LOC,
   ADR-0221) shipped with zero consumers; its docstring designated
