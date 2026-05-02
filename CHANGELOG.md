@@ -158,6 +158,25 @@
   test_vulkan_smoke test_vulkan_async_pending_fence
   test_vulkan_pic_preallocation` (all green).
 
+- **`integer_psnr_cuda.c` migrated to `cuda/kernel_template.h`
+  (T-GPU-DEDUP-4, first consumer).** The dormant
+  `cuda/kernel_template.h` (296 LOC, ADR-0221) shipped with zero
+  consumers; its docstring designated `integer_psnr_cuda.c` as the
+  reference implementation. This commit lands the migration: the
+  per-frame async lifecycle (private stream + submit/finished
+  event pair) and the device + pinned-host readback pair now come
+  from the template helpers
+  (`vmaf_cuda_kernel_lifecycle_init/_close`,
+  `vmaf_cuda_kernel_readback_alloc/_free`,
+  `vmaf_cuda_kernel_submit_pre_launch`,
+  `vmaf_cuda_kernel_collect_wait`). `PsnrStateCuda` shrinks
+  (3 fields → 1 `VmafCudaKernelLifecycle`; 2 fields → 1
+  `VmafCudaKernelReadback`). Bit-exactness preserved — the
+  kernel launch, the per-bpc function lookup, the SSE accumulator
+  math, and the host-side `log10` score formula are byte-identical
+  to the prior implementation. Single-consumer net LOC delta is
+  +8 (helpers add per-call boilerplate); the dedup win materialises
+  as more CUDA feature kernels migrate one-at-a-time in follow-ups.
 - **`feature_mobilesal.c` + `transnet_v2.c` migrated to `tiny_extractor_template.h`.**
   PR #251 shipped the shared template (`vmaf_tiny_ai_resolve_model_path`,
   `vmaf_tiny_ai_open_session`, `vmaf_tiny_ai_yuv8_to_rgb8_planes`,

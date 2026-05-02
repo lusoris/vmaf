@@ -10,6 +10,13 @@
  *  PR #125 but uses CUDA's async submit/collect model (parallel
  *  with motion_cuda.c). Single dispatch per channel; this v1
  *  emits luma-only (`psnr_y`).
+ *
+ *  Reference consumer of `cuda/kernel_template.h` (ADR-0221) — the
+ *  per-frame async lifecycle (private stream + submit/finished event
+ *  pair) and the (device, pinned-host) readback pair are dispensed
+ *  by the template instead of being open-coded here. This was
+ *  documented as the migration target in `kernel_template.h`'s
+ *  docstring; the migration lands the first consumer (T-GPU-DEDUP-4).
  */
 
 #include <errno.h>
@@ -28,15 +35,16 @@
 #include "picture.h"
 #include "picture_cuda.h"
 #include "cuda_helper.cuh"
+#include "kernel_template.h"
 
 typedef struct PsnrStateCuda {
-    CUevent event;
-    CUevent finished;
+    /* Lifecycle (private stream + submit/finished event pair) and the
+     * (device SSE accumulator, pinned host readback slot) pair are
+     * managed by `cuda/kernel_template.h` (ADR-0221). */
+    VmafCudaKernelLifecycle lc;
+    VmafCudaKernelReadback rb;
     CUfunction funcbpc8;
     CUfunction funcbpc16;
-    CUstream str;
-    VmafCudaBuffer *sse;
-    uint64_t *sse_host;
     unsigned index;
     unsigned frame_w;
     unsigned frame_h;
@@ -73,21 +81,25 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     PsnrStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
+    /* Stream + event pair via the template — replaces the
+     * cuCtxPushCurrent → cuStreamCreateWithPriority → cuEventCreate ×2
+     * → cuCtxPopCurrent block every CUDA feature kernel hand-rolled. */
+    int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
+    if (err)
+        return err;
+
+    /* Module load + function lookups stay per-feature (each metric
+     * has its own .ptx blob and entry-point names). */
     int _cuda_err = 0;
     int ctx_pushed = 0;
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&s->str, CU_STREAM_NON_BLOCKING, 0), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->event, CU_EVENT_DEFAULT), fail);
-    CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->finished, CU_EVENT_DEFAULT), fail);
-
     CUmodule module;
     CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, psnr_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "calculate_psnr_kernel_8bpc"),
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "calculate_psnr_kernel_16bpc"),
                     fail);
-
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
     s->bpc = bpc;
@@ -95,12 +107,10 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     const double peak_d = (double)s->peak;
     s->psnr_max_y = 10.0 * log10((peak_d * peak_d) / 0.5);
 
-    int ret = 0;
-    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->sse, sizeof(uint64_t));
-    if (ret)
-        goto free_ref;
-    ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->sse_host, sizeof(uint64_t));
-    if (ret)
+    /* Readback pair (device SSE accumulator + pinned host slot) via
+     * the template. */
+    err = vmaf_cuda_kernel_readback_alloc(&s->rb, fex->cu_state, sizeof(uint64_t));
+    if (err)
         goto free_ref;
 
     s->feature_name_dict =
@@ -111,18 +121,18 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     return 0;
 
 free_ref:
-    if (s->sse) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->sse);
-        free(s->sse);
+    (void)vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    if (s->feature_name_dict) {
+        (void)vmaf_dictionary_free(&s->feature_name_dict);
     }
-    ret |= vmaf_dictionary_free(&s->feature_name_dict);
-    (void)ret;
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return -ENOMEM;
 
 fail:
     if (ctx_pushed)
         (void)cu_f->cuCtxPopCurrent(NULL);
 fail_after_pop:
+    (void)vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
     return _cuda_err;
 }
 
@@ -138,29 +148,30 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     s->frame_w = ref_pic->w[0];
     s->frame_h = ref_pic->h[0];
 
-    /* Reset device SSE counter to zero. */
-    CHECK_CUDA_RETURN(cu_f, cuMemsetD8Async(s->sse->data, 0, sizeof(uint64_t), s->str));
+    /* Pre-launch boilerplate: zero the device accumulator on `lc.str`
+     * and wait for the dist-side ready event on the picture stream. */
+    int err = vmaf_cuda_kernel_submit_pre_launch(&s->lc, fex->cu_state, &s->rb,
+                                                 vmaf_cuda_picture_get_stream(ref_pic),
+                                                 vmaf_cuda_picture_get_ready_event(dist_pic));
+    if (err)
+        return err;
 
-    /* Wait for the dist-side ready event on the ref-side stream
-     * (motion_cuda.c uses the same trick to keep both planes
-     * uploaded before the kernel reads). */
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(vmaf_cuda_picture_get_stream(ref_pic),
-                                              vmaf_cuda_picture_get_ready_event(dist_pic),
-                                              CU_EVENT_WAIT_DEFAULT));
-
-    int err =
-        psnr_cuda_dispatch(ref_pic, dist_pic, s->sse, ref_pic->w[0], ref_pic->h[0], s->bpc,
+    err =
+        psnr_cuda_dispatch(ref_pic, dist_pic, s->rb.device, ref_pic->w[0], ref_pic->h[0], s->bpc,
                            s->funcbpc8, s->funcbpc16, cu_f, vmaf_cuda_picture_get_stream(ref_pic));
     if (err)
         return err;
 
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, vmaf_cuda_picture_get_stream(ref_pic)));
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
-
-    /* DtoH copy of the SSE counter on our private stream. */
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->sse_host, (CUdeviceptr)s->sse->data,
-                                              sizeof(*s->sse_host), s->str));
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->finished, s->str));
+    /* Post-launch readback: record submit on the picture stream, wait
+     * for it on the private readback stream, DtoH copy + record
+     * `finished`. The template documents this exact sequence in its
+     * docstring; left inline for clarity since the kernel
+     * launch + ref_pic stream are inherently per-feature. */
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.submit, vmaf_cuda_picture_get_stream(ref_pic)));
+    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->lc.submit, CU_EVENT_WAIT_DEFAULT));
+    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->rb.host_pinned, (CUdeviceptr)s->rb.device->data,
+                                              s->rb.bytes, s->lc.str));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
     return 0;
 }
 
@@ -168,11 +179,14 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
     PsnrStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
 
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
+    /* Drain the private readback stream so the host pinned buffer is
+     * safe to read. */
+    int err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
+    if (err)
+        return err;
 
-    const double sse = (double)*s->sse_host;
+    const double sse = (double)*(uint64_t *)s->rb.host_pinned;
     const double n_pixels = (double)s->frame_w * (double)s->frame_h;
     const double mse = sse / n_pixels;
     double psnr_y = (sse <= 0.0) ? s->psnr_max_y : 10.0 * log10(((double)s->peak * s->peak) / mse);
@@ -186,24 +200,18 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     PsnrStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-    int _cuda_err = 0;
-    CHECK_CUDA_GOTO(cu_f, cuStreamSynchronize(s->str), after_stream_sync);
-after_stream_sync:
-    CHECK_CUDA_GOTO(cu_f, cuStreamDestroy(s->str), after_stream_destroy);
-after_stream_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->event), after_event1_destroy);
-after_event1_destroy:
-    CHECK_CUDA_GOTO(cu_f, cuEventDestroy(s->finished), after_event2_destroy);
-after_event2_destroy:;
 
-    int ret = _cuda_err;
-    if (s->sse) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->sse);
-        free(s->sse);
-    }
-    ret |= vmaf_dictionary_free(&s->feature_name_dict);
-    return ret;
+    /* Lifecycle teardown via the template (sync → destroy stream →
+     * destroy events). Best-effort error aggregation matches the
+     * old hand-rolled CHECK_CUDA_GOTO chain. */
+    int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
+    int err = vmaf_cuda_kernel_readback_free(&s->rb, fex->cu_state);
+    if (err && rc == 0)
+        rc = err;
+    err = vmaf_dictionary_free(&s->feature_name_dict);
+    if (err && rc == 0)
+        rc = err;
+    return rc;
 }
 
 static const char *provided_features[] = {"psnr_y", NULL};

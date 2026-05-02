@@ -5844,4 +5844,43 @@ inline.*
   meson test -C build test_lpips test_mobilesal test_transnet_v2 test_fastdvdnet_pre
   # 4/4 binaries pass; 18 individual tests total (4x4 standard + 2
   # TransNet V2 extras).
+### 0103 — `integer_psnr_cuda.c` migrated to `cuda/kernel_template.h`
+
+- **PR**: refactor/migrate-psnr-cuda-to-template.
+- **What rebases need to know**: `cuda/kernel_template.h` shipped
+  with no consumers in PR #251 (ADR-0221). This PR migrates the
+  first consumer (`integer_psnr_cuda.c`) — the file the template's
+  own docstring explicitly designated as the reference. The
+  `CUstream + CUevent + CUevent` triple and the
+  `(VmafCudaBuffer device, void *host_pinned, size_t bytes)`
+  readback pair are now dispensed by the template helpers
+  (`vmaf_cuda_kernel_lifecycle_init/_close`,
+  `vmaf_cuda_kernel_readback_alloc/_free`,
+  `vmaf_cuda_kernel_submit_pre_launch`,
+  `vmaf_cuda_kernel_collect_wait`) instead of being open-coded.
+  `PsnrStateCuda` shrinks: replaces three fields
+  (`event` + `finished` + `str`) with one `VmafCudaKernelLifecycle`
+  + replaces (`sse` + `sse_host`) with one `VmafCudaKernelReadback`.
+- **Net LOC delta**: +8 LOC on `integer_psnr_cuda.c` alone — the
+  helpers add per-call boilerplate. The dedup win materialises as
+  more CUDA feature kernels (motion / moment / ssim / vif / adm)
+  migrate one-at-a-time in follow-up PRs. Each subsequent migration
+  saves ~15 LOC.
+- **Bit-exactness gates**: kernel launch + reduction logic
+  unchanged. The migration only touches state-management
+  boilerplate around the kernel; the SSE accumulator math, the
+  per-bpc kernel function lookup, the host-side `log10` score
+  formula, and the dispatch grid-dim calculation are byte-identical
+  to the prior implementation. Netflix golden gate + CPU/CUDA
+  cross-backend parity gate (places=4) re-run unchanged.
+- **On upstream sync**: zero interaction. `integer_psnr_cuda.c` is
+  fork-introduced (T7-23 / ADR-0182).
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=true
+  ninja -C build
+  meson test -C build  # CUDA test suite must pass
+  # Cross-backend parity gate:
+  python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
