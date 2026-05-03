@@ -27,6 +27,29 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0223 — ADR slug-drift repair in CHANGELOG / rebase-notes (PR #304 follow-up)
+
+- **Touches**: `CHANGELOG.md`, `docs/rebase-notes.md`. No code; no
+  upstream-shared path; no public-API surface.
+- **Invariant**: every `[ADR-NNNN](docs/adr/NNNN-slug.md)` link in the
+  fork's tracked docs resolves to an actual on-disk file under
+  `docs/adr/`. Repaired 4 broken slugs that did not exist on disk
+  (`0138-simd-bit-exactness-policy` → `0138-iqa-convolve-avx2-bitexact-double`,
+  `0140-ssimulacra2-simd-bitexact` → `0140-simd-dx-framework`,
+  `0190-float-ms-ssim-cuda` → `0190-ms-ssim-vulkan`,
+  `0178-integer-adm-vulkan` → `0178-vulkan-adm-kernel`). All retained
+  their cited NNNN per ADR-0028 (NNNN is immutable once Accepted).
+- **Re-test on rebase**: from repo root, the following must print no
+  lines:
+
+  ```bash
+  for ref in $(grep -ohE 'docs/adr/[0-9]{4}-[a-z0-9-]+\.md' \
+      CHANGELOG.md docs/rebase-notes.md AGENTS.md docs/state.md \
+      | sort -u); do
+    test -f "$ref" || echo "MISSING: $ref"
+  done
+  ```
+
 ### 0125 — cambi_vulkan migrated to kernel_template (T-GPU-DEDUP-25, 5-bundle)
 
 - **Touches**:
@@ -5415,9 +5438,9 @@ inline.*
   1. **Fixed 4-lane SVE2 predicate.** Every kernel uses
      `svwhilelt_b32(0, 4)` so SIMD arithmetic order is identical to
      the NEON sibling regardless of the runtime vector length. This
-     keeps the [ADR-0138](adr/0138-simd-bit-exactness-policy.md) /
+     keeps the [ADR-0138](adr/0138-iqa-convolve-avx2-bitexact-double.md) /
      [ADR-0139](adr/0139-ssim-simd-bitexact-double.md) /
-     [ADR-0140](adr/0140-ssimulacra2-simd-bitexact.md) byte-exact
+     [ADR-0140](adr/0140-simd-dx-framework.md) byte-exact
      contract intact. Do NOT widen the predicate to `svptrue_b32()`
      without a separate ADR + snapshot regen — variable-length lane
      reductions perturb the per-step rounding order.
@@ -5475,7 +5498,7 @@ inline.*
   2. Metric ordering is metric-wise (all `l_scale*` first, then
      `c_*`, then `s_*`) — matches the CPU emission order.
   3. `places=4` cross-backend tolerance per
-     [ADR-0190](adr/0190-float-ms-ssim-cuda.md); enforced by the new
+     [ADR-0190](adr/0190-ms-ssim-vulkan.md); enforced by the new
      `float_ms_ssim_lcs` cell in the parity matrix gate
      ([ADR-0214](adr/0214-gpu-parity-ci-gate.md)).
 - **On upstream sync**: zero interaction; the GPU twins do not
