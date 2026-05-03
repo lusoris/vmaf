@@ -39,7 +39,7 @@ classic SVM regressor and as v2. Identical interpretation table:
 | Feature order | `adm2, vif_scale0, vif_scale1, vif_scale2, vif_scale3, motion2` |
 | Output | `vmaf` — float32 `[N]` |
 | ONNX opset | 17 |
-| Quantisation | fp32 (size already < 5 KB) |
+| Quantisation | fp32 + dynamic-PTQ int8 sidecar (ADR-0275) |
 | License | BSD-3-Clause-Plus-Patent |
 | Registry entry | `vmaf_tiny_v3` in `model/tiny/registry.json` |
 | Sidecar | `model/tiny/vmaf_tiny_v3.json` |
@@ -175,6 +175,38 @@ python3 ai/scripts/eval_loso_vmaf_tiny_v3.py \
   embedded deploys, very-many-model bundles), or when the
   measurement target is upstream-comparable metrics — v2 is the
   cited baseline in the Phase-3 chain.
+
+## Quantisation (dynamic-PTQ int8 sidecar — ADR-0275)
+
+A dynamic-PTQ int8 sibling lives at
+`model/tiny/vmaf_tiny_v3.int8.onnx`, produced by
+`ai/scripts/ptq_dynamic.py`. The runtime redirect in
+`vmaf_dnn_session_open` (ADR-0174) loads the int8 sidecar when the
+registry entry's `quant_mode != "fp32"`; the fp32 file stays on disk
+as the regression baseline.
+
+| Field | Value |
+| --- | --- |
+| Quant mode | `dynamic` (weights-only int8; activations quantised at runtime) |
+| Sidecar file | `model/tiny/vmaf_tiny_v3.int8.onnx` |
+| sha256 (int8) | `b4bdbb353b1b395adb22b77e890117228de1cfd12b94cb46fd0173c2fd12a343` |
+| File size | 4 267 B int8 vs 4 496 B fp32 (×0.95) — tiny MLP, weights are already a small fraction of the graph |
+| PLCC drop (int8 vs fp32) | 0.000120 (Netflix features parquet, ~11k rows) |
+| Budget | 0.01 (per ADR-0174 / ADR-0173 default) |
+| CI gate | `ai-quant-accuracy` step in `Tiny AI` job |
+
+The 4-KB MLP graph is dominated by op metadata and Constant scaler
+nodes; only the three Linear weight tensors quantise. The size delta
+is therefore small but the PLCC drop is still well inside budget.
+v4's `mlp_large` carries enough weight mass that its int8 sidecar
+shrinks ~45% — see [`vmaf_tiny_v4`](vmaf_tiny_v4.md).
+
+```bash
+# Reproduce
+python ai/scripts/ptq_dynamic.py model/tiny/vmaf_tiny_v3.onnx
+python ai/scripts/measure_quant_drop.py model/tiny/vmaf_tiny_v3.onnx
+# -> [PASS] vmaf_tiny_v3   mode=dynamic PLCC=0.999880  drop=0.000120  budget=0.0100
+```
 
 ## Limitations
 

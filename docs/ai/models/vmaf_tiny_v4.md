@@ -42,7 +42,7 @@ classic SVM regressor and as v2 / v3. Identical interpretation table:
 | Output | `vmaf` — float32 `[N]` |
 | ONNX opset | 17 |
 | ONNX size | 14 046 bytes |
-| Quantisation | fp32 (size still < 16 KB; PTQ would be premature) |
+| Quantisation | fp32 + dynamic-PTQ int8 sidecar (ADR-0275) |
 | License | BSD-3-Clause-Plus-Patent |
 | Registry entry | `vmaf_tiny_v4` in `model/tiny/registry.json` |
 | Sidecar | `model/tiny/vmaf_tiny_v4.json` |
@@ -162,6 +162,39 @@ The +0.0001 mean PLCC delta v3 → v4 is well below 1 std of either model. Train
 - **Pick v4** if you want the absolute top of the measured ladder, are running CPU-only inference where the ~14 KB ONNX is irrelevant, and want maximum train-set fidelity.
 - **Pick v3** if you want the higher-tier model with the smallest ONNX that still beats v2 measurably (since v4's win over v3 is below noise).
 - **Pick v2** (the production default) if you want the tightest possible bundle, lowest dispatch overhead, and the cited Phase-3 baseline.
+
+## Quantisation (dynamic-PTQ int8 sidecar — ADR-0275)
+
+A dynamic-PTQ int8 sibling lives at
+`model/tiny/vmaf_tiny_v4.int8.onnx`, produced by
+`ai/scripts/ptq_dynamic.py`. The runtime redirect in
+`vmaf_dnn_session_open` (ADR-0174) loads the int8 sidecar when the
+registry entry's `quant_mode != "fp32"`; the fp32 file stays on disk
+as the regression baseline.
+
+| Field | Value |
+| --- | --- |
+| Quant mode | `dynamic` (weights-only int8; activations quantised at runtime) |
+| Sidecar file | `model/tiny/vmaf_tiny_v4.int8.onnx` |
+| sha256 (int8) | `203a25905a3797b1cc3e3f347f4f6f491b491000d4424017beef64219767a9e9` |
+| File size | 7 769 B int8 vs 14 046 B fp32 (×0.55) — 45 % smaller |
+| PLCC drop (int8 vs fp32) | 0.000145 (Netflix features parquet, ~11k rows) |
+| Budget | 0.01 (per ADR-0174 / ADR-0173 default) |
+| CI gate | `ai-quant-accuracy` step in `Tiny AI` job |
+
+`mlp_large` carries enough weight mass (3 073 params) that the int8
+weight tensors actually drive the on-disk size. v4 is therefore the
+first MLP-flavoured tiny model where dynamic PTQ delivers a
+meaningful size win — v2 (~257 params) and v3 (~769 params) shrink
+only marginally because their fp32 ONNX is dominated by op metadata
+and Constant scaler nodes rather than weights.
+
+```bash
+# Reproduce
+python ai/scripts/ptq_dynamic.py model/tiny/vmaf_tiny_v4.onnx
+python ai/scripts/measure_quant_drop.py model/tiny/vmaf_tiny_v4.onnx
+# -> [PASS] vmaf_tiny_v4   mode=dynamic PLCC=0.999855  drop=0.000145  budget=0.0100
+```
 
 ## Limitations
 

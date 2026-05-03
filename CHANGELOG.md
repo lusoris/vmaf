@@ -95,6 +95,29 @@
   flag bit; `test_float_ssim_hip_extractor_registered` pins
   `n_dispatches_per_frame == 2`). CPU baseline 47/47 green; HIP
   scaffold build 48/48 green. No ROCm SDK required.
+- **Dynamic-PTQ int8 sidecars for `vmaf_tiny_v3` + `vmaf_tiny_v4`
+  (T5-3d follow-up / ADR-0275).** Adds
+  [`model/tiny/vmaf_tiny_v3.int8.onnx`](model/tiny/vmaf_tiny_v3.int8.onnx)
+  (4 267 B; sha256 `b4bdbb35…`) and
+  [`model/tiny/vmaf_tiny_v4.int8.onnx`](model/tiny/vmaf_tiny_v4.int8.onnx)
+  (7 769 B; sha256 `203a2590…`), produced via
+  `ai/scripts/ptq_dynamic.py`. Both registered with `quant_mode:
+  "dynamic"` + `int8_sha256` + `quant_accuracy_budget_plcc: 0.01` in
+  [`model/tiny/registry.json`](model/tiny/registry.json) and the
+  matching per-model sidecars. v3 PLCC drop = 0.000120 (×83 budget
+  headroom); v4 PLCC drop = 0.000145 (×69) on Netflix canonical-6
+  features (~11k rows); KoNViD cross-corpus drops 0.000177 / 0.000080
+  (~270k rows) — both still well under budget. v4 shrinks 45 % on
+  disk; v3 only 5 % because `mlp_medium`'s fp32 ONNX is dominated by
+  op metadata + Constant scaler nodes rather than weights. The
+  `ai-quant-accuracy` CI gate (ADR-0174) iterates over both
+  transparently. v2 stays fp32 — too little weight mass to be worth
+  quantising. See
+  [`docs/ai/models/vmaf_tiny_v3.md`](docs/ai/models/vmaf_tiny_v3.md)
+  +
+  [`docs/ai/models/vmaf_tiny_v4.md`](docs/ai/models/vmaf_tiny_v4.md)
+  for the per-model PTQ sections, and
+  [ADR-0275](docs/adr/0275-vmaf-tiny-v3-v4-ptq.md) for the rationale.
 
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
