@@ -110,8 +110,9 @@ def write_sidecar(path: Path) -> None:
             "MobileSal saliency placeholder (T6-2a smoke-only). Synthetic 3->1 "
             "Conv+Sigmoid that matches the MobileSal I/O contract: ImageNet-"
             "normalised RGB NCHW [1,3,H,W] -> saliency map NCHW [1,1,H,W] in "
-            "[0,1]. Real upstream weights tracked as T6-2a-followup. See "
-            "docs/ai/models/mobilesal.md."
+            "[0,1]. Real-weights swap deferred per ADR-0257 (MobileSal "
+            "CC BY-NC-SA 4.0) + ADR-0265 (U-2-Net u2netp distribution + "
+            "Resize op blockers). See docs/ai/models/mobilesal.md."
         ),
         "onnx_opset": OPSET,
         "output_name": OUTPUT_NAME,
@@ -125,11 +126,13 @@ def update_registry(path: Path, sha256_hex: str) -> None:
         "id": MODEL_ID,
         "kind": "nr",
         "notes": (
-            "MobileSal saliency placeholder (T6-2a smoke-only). Synthetic Conv"
-            "+Sigmoid matching the upstream MobileSal I/O contract; emits a "
-            "per-pixel saliency map in [0,1]. Real upstream MIT-licensed "
-            "weights tracked as T6-2a-followup. See "
-            "docs/adr/0218-mobilesal-saliency-extractor.md."
+            "MobileSal saliency placeholder (T6-2a smoke-only). Synthetic "
+            "Conv+Sigmoid matching the upstream I/O contract; per-pixel "
+            "saliency map in [0,1]. Real-weights swap deferred: ADR-0257 "
+            "(upstream MobileSal CC BY-NC-SA 4.0 + Drive-walled + RGB-D) "
+            "and ADR-0265 (U-2-Net u2netp replacement: Apache-2.0 OK but "
+            "Drive-walled + Resize op not on allowlist). See ADR-0218 / "
+            "ADR-0257 / ADR-0265 + docs/ai/models/mobilesal.md."
         ),
         "onnx": "mobilesal.onnx",
         "opset": OPSET,
