@@ -6288,3 +6288,35 @@ inline.*
   # Cross-backend parity gate:
   python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
+
+### 0106 — `vmaf_tiny_v3` (mlp_medium) shipped alongside v2 (ADR-0241)
+
+- **What changed**: ships `model/tiny/vmaf_tiny_v3.onnx` (4 496 B,
+  sha256 `57b2b7e0…`) + sidecar `model/tiny/vmaf_tiny_v3.json` + new
+  registry row in `model/tiny/registry.json`. Architecture
+  `mlp_medium` (6 → 32 → 16 → 1, 769 params); same StandardScaler-
+  baked-into-the-graph runtime contract as `vmaf_tiny_v2`. Adds four
+  new scripts under `ai/scripts/`: `train_vmaf_tiny_v3.py`,
+  `export_vmaf_tiny_v3.py`, `validate_vmaf_tiny_v3.py`,
+  `eval_loso_vmaf_tiny_v3.py`. New model card
+  `docs/ai/models/vmaf_tiny_v3.md`; new ADR
+  `docs/adr/0241-vmaf-tiny-v3-mlp-medium.md`; new research digest
+  `docs/research/0046-vmaf-tiny-v3-mlp-medium-evaluation.md`. v2
+  scripts and v2 ONNX are untouched.
+- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
+  fusion-MLP training surface; nothing on the upstream side touches
+  these files.
+- **On upstream sync**: zero interaction. The v3 surface lives
+  entirely under `ai/scripts/` + `model/tiny/` + `docs/ai/` +
+  `docs/adr/` + `docs/research/`, all of which are
+  fork-introduced trees.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 ai/scripts/validate_vmaf_tiny_v3.py \
+      --onnx model/tiny/vmaf_tiny_v3.onnx \
+      --parquet runs/full_features_netflix.parquet \
+      --rows 5000 --min-plcc 0.97 \
+      --v2-onnx model/tiny/vmaf_tiny_v2.onnx
+  python3 ai/scripts/validate_model_registry.py
+  ```

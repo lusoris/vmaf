@@ -118,6 +118,18 @@
       "sigstore_bundle": "vmaf_tiny_v2.onnx.sigstore.json",
       "description": "Tiny VMAF fusion regressor — canonical-6 features + bundled StandardScaler + mlp_small (~257 params).",
       "notes": "vmaf_tiny_v2 — Phase-3 validated mlp_small (6→16→8→1) over canonical-6 (adm2, vif_scale0..3, motion2). 90ep Adam lr=1e-3 MSE bs=256. StandardScaler baked into ONNX graph (ADR-0216). Trained 4-corpus parquet (NF+KV+BVI-DVC A+B+C+D, 330499 rows). PLCC 0.9978±0.0021 NF LOSO; 0.9998 KV 5-fold; 0.9999 ship-gate. See docs/ai/models/vmaf_tiny_v2.md."
+    },
+    {
+      "id": "vmaf_tiny_v3",
+      "kind": "fr",
+      "onnx": "vmaf_tiny_v3.onnx",
+      "opset": 17,
+      "sha256": "57b2b7e0c62e84e3238b266e423e2008da76ec12ce957c173b2bbed11c65eb78",
+      "smoke": false,
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "description": "Tiny VMAF fusion regressor — canonical-6 features + bundled StandardScaler + mlp_medium (~769 params).",
+      "notes": "vmaf_tiny_v3 — mlp_medium (6→32→16→1, 769 params) over canonical-6. Same recipe as v2 (90ep Adam lr=1e-3 MSE bs=256, scaler baked into ONNX). Trained on 4-corpus parquet (NF+KV+BVI-DVC A+B+C+D, 330499 rows). PLCC 0.9986±0.0015 NF LOSO (+0.0008 over v2 0.9978±0.0021). Use v2 by default; v3 for higher-PLCC needs. See docs/ai/models/vmaf_tiny_v3.md + ADR-0241."
     }
   ]
 }

@@ -78,6 +78,7 @@ Conventions:
 | [0017](0017-ssimulacra2-ptlr-simd.md) | SSIMULACRA 2 `picture_to_linear_rgb` SIMD — per-lane scalar reads, SIMD matmul, per-lane scalar `powf` | Active | [ADR-0163](../adr/0163-ssimulacra2-ptlr-simd.md) |
 | [0018](0018-ssimulacra2-snapshot-gate.md) | SSIMULACRA 2 snapshot-JSON regression gate — why fork self-consistency beats libjxl/Pacidus cross-check at this scope | Active | [ADR-0164](../adr/0164-ssimulacra2-snapshot-gate.md) |
 | [0031](0031-intel-ai-pc-applicability.md) | Intel AI-PC NPU + EP applicability to tiny-AI / `dnn/` — verdict: defer NPU; iGPU already covered by OpenVINO EP | Active | — (backlog T7-9) |
+| [0046](0046-vmaf-tiny-v3-mlp-medium-evaluation.md) | `vmaf_tiny_v3` (mlp_medium 6→32→16→1, 769 params) vs v2 (mlp_small 257 params): 4-corpus parquet, identical recipe; Netflix LOSO mean PLCC 0.9986 ± 0.0015 vs v2's 0.9978 ± 0.0021 (+0.0008 mean, -29 % std). Decision matrix + per-fold table; ship-alongside-v2 recommendation. | Active | [ADR-0241](../adr/0241-vmaf-tiny-v3-mlp-medium.md) |
 
 <!-- Backfill entries for older workstreams land here as their authors
      revisit the corresponding code. -->

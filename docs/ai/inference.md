@@ -48,6 +48,13 @@ vmaf -d dis.yuv -w 1920 -h 1080 -p 420 -b 8 \
 > stays on disk as a regression baseline. See
 > [`models/vmaf_tiny_v2.md`](models/vmaf_tiny_v2.md) for the full
 > model card.
+>
+> **`vmaf_tiny_v3` available alongside v2 (2026-05-02, ADR-0241).**
+> A wider/deeper variant (`mlp_medium` 6 → 32 → 16 → 1, ~769 params)
+> trained on the same 4-corpus parquet, same recipe. Netflix LOSO
+> mean PLCC 0.9986 ± 0.0015 vs v2's 0.9978 ± 0.0021 (+0.0008 mean,
+> -30 % std). v2 remains the production default; pick v3 for
+> lowest-variance estimates. See [`models/vmaf_tiny_v3.md`](models/vmaf_tiny_v3.md).
 
 New flags:
 

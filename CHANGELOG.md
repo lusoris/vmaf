@@ -26,6 +26,22 @@
   in-scope schema change for the first ingest PR rather than a
   follow-up.
 
+- **`vmaf_tiny_v3` (mlp_medium, ADR-0241).** Wider/deeper tiny VMAF
+  fusion model shipped alongside (not replacing) `vmaf_tiny_v2`.
+  Architecture `mlp_medium` (6 → 32 → 16 → 1, 769 params vs v2's 257);
+  same input contract (`features [N, 6]` float32 canonical-6 order,
+  output `vmaf [N]` float32, opset 17, StandardScaler baked into
+  graph), same training recipe as v2 (90 ep Adam @ lr=1e-3 MSE bs=256
+  on the 4-corpus parquet, 330 499 rows). Netflix LOSO mean PLCC
+  0.9986 ± 0.0015 vs v2's 0.9978 ± 0.0021 (+0.0008 mean, -29 % std).
+  Production default stays v2; v3 is documented as the higher-PLCC /
+  lower-variance option. New scripts under `ai/scripts/`
+  (`train_vmaf_tiny_v3.py`, `export_vmaf_tiny_v3.py`,
+  `validate_vmaf_tiny_v3.py`, `eval_loso_vmaf_tiny_v3.py`); new
+  model-card [`docs/ai/models/vmaf_tiny_v3.md`](docs/ai/models/vmaf_tiny_v3.md);
+  registry entry kind `fr` `smoke: false`. ONNX size 4 496 B
+  (+2 050 B over v2). Companion research digest:
+  [`docs/research/0046-vmaf-tiny-v3-mlp-medium-evaluation.md`](docs/research/0046-vmaf-tiny-v3-mlp-medium-evaluation.md).
 - **Vulkan VmafPicture preallocation surface (T-VULKAN-PREALLOC /
   ADR-0238).** Closes the API parity gap with CUDA / SYCL. New
   public entry points `vmaf_vulkan_preallocate_pictures` +
