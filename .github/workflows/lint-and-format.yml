@@ -128,6 +128,9 @@ jobs:
               | grep -v '^libvmaf/test/test_vulkan' \
               | grep -v '^libvmaf/src/mcp/' \
               | grep -v '^libvmaf/test/test_mcp' \
+              | grep -v '^libvmaf/src/hip/' \
+              | grep -v '^libvmaf/src/feature/hip/' \
+              | grep -v '^libvmaf/test/test_hip' \
               | tr '\n' ' ')
           elif [ "${{ github.event_name }}" = "push" ]; then
             before="${{ github.event.before }}"
@@ -153,6 +156,9 @@ jobs:
               | grep -v '^libvmaf/test/test_vulkan' \
               | grep -v '^libvmaf/src/mcp/' \
               | grep -v '^libvmaf/test/test_mcp' \
+              | grep -v '^libvmaf/src/hip/' \
+              | grep -v '^libvmaf/src/feature/hip/' \
+              | grep -v '^libvmaf/test/test_hip' \
               | tr '\n' ' ')
               else
                 files=""
@@ -175,6 +181,9 @@ jobs:
               | grep -v '^libvmaf/test/test_vulkan' \
               | grep -v '^libvmaf/src/mcp/' \
               | grep -v '^libvmaf/test/test_mcp' \
+              | grep -v '^libvmaf/src/hip/' \
+              | grep -v '^libvmaf/src/feature/hip/' \
+              | grep -v '^libvmaf/test/test_hip' \
               | tr '\n' ' ')
             fi
           else
@@ -197,6 +206,9 @@ jobs:
               | grep -v '^libvmaf/test/test_vulkan' \
               | grep -v '^libvmaf/src/mcp/' \
               | grep -v '^libvmaf/test/test_mcp' \
+              | grep -v '^libvmaf/src/hip/' \
+              | grep -v '^libvmaf/src/feature/hip/' \
+              | grep -v '^libvmaf/test/test_hip' \
               | tr '\n' ' ')
           fi
           [ -z "$files" ] && { echo "no C/C++ changes"; exit 0; }

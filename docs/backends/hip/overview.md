@@ -1,12 +1,17 @@
-# HIP (AMD ROCm) compute backend (scaffold)
+# HIP (AMD ROCm) compute backend (scaffold + first consumer)
 
-> **Status: scaffold only.** Every entry point in
+> **Status: scaffold + first consumer host scaffolding.** Every entry
+> point in
 > [`libvmaf_hip.h`](../../../libvmaf/include/libvmaf/libvmaf_hip.h)
-> currently returns `-ENOSYS` pending the runtime PR. The backend
-> exists to give downstream consumers (and the rebase story) a
-> stable API surface; runtime functionality lands incrementally per
-> [ADR-0212](../../adr/0212-hip-backend-scaffold.md), mirroring the
-> Vulkan scaffold-then-runtime split that
+> currently returns `-ENOSYS` pending the runtime PR (T7-10b). The
+> first kernel-template consumer (`integer_psnr_hip`) ships its host
+> scaffolding under [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md)
+> on top of the [ADR-0212](../../adr/0212-hip-backend-scaffold.md)
+> base — the consumer registers under the name `psnr_hip` and is
+> looked-up-able from the feature engine, but its `init()` returns
+> `-ENOSYS` because the `kernel_template.c` helper bodies it calls
+> still return `-ENOSYS`. The runtime PR flips both at once.
+> Rollout cadence mirrors the Vulkan scaffold-then-runtime split that
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) /
 > [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md) used
 > (T5-1 → T5-1b).
@@ -111,10 +116,17 @@ ROCm SDK that no kernel uses yet).
   the **boolean** convention used by `enable_cuda` and `enable_sycl`
   to keep the AMD/NVIDIA/Intel triad uniform — see ADR-0212 §
   "Decision".
-- The kernel stubs intentionally do not register with the feature
-  registry — they would otherwise dispatch to no-op implementations
-  on operators who flip `enable_hip` for the scaffold. Registration
-  arrives with the runtime PR.
+- The original ADR-0212 scaffold deliberately did not register the
+  ADM / VIF / motion stubs with the feature registry. ADR-0241
+  flips that posture for **PSNR only**: `vmaf_fex_psnr_hip` is now
+  in `feature_extractor_list` under `#if HAVE_HIP`, so a caller
+  asking for the feature by name (`vmaf --feature psnr_hip` or the
+  C-API equivalent) gets a clean "extractor found, runtime not
+  ready" surface (`-ENOSYS` at `init()`) instead of "no such
+  extractor". The runtime PR (T7-10b) keeps this row verbatim and
+  adds its siblings (ADM, VIF, motion). The remaining stubs stay
+  unregistered until they grow their own first-consumer host
+  scaffolding.
 - HIP runtime types (`hipDevice_t`, `hipStream_t`) cross the public
   ABI as `uintptr_t`. This keeps `libvmaf_hip.h` free of
   `<hip/hip_runtime.h>`, mirroring the pattern Vulkan adopted in
@@ -125,6 +137,10 @@ ROCm SDK that no kernel uses yet).
 
 - [ADR-0212](../../adr/0212-hip-backend-scaffold.md) — the
   scaffold-only audit-first PR that ships this surface.
+- [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md) — first
+  kernel-template consumer (`integer_psnr_hip`); mirrors
+  [ADR-0221](../../adr/0221-gpu-kernel-template.md)'s CUDA template
+  decision onto HIP.
 - [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) — the
   Vulkan precedent this PR mirrors.
 - [Research-0033](../../research/0033-hip-applicability.md) —
