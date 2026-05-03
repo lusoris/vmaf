@@ -43,7 +43,9 @@ a merge.
     # Expand as needed; subjects are the match key.
     git log upstream/master --pretty=format:'%H%x09%s' -50 > /tmp/sync-upstream-candidates.tsv
     ```
-    For each `<sha>\t<subject>` line, search fork master for the subject:
+
+    **Pass 1 — subject-line match (cheap, catches PRs that cite the upstream
+    SHA in their subject):**
     ```bash
     while IFS=$'\t' read -r sha subj; do
       if git log master --pretty=format:'%s' \
@@ -54,7 +56,50 @@ a merge.
       fi
     done < /tmp/sync-upstream-candidates.tsv
     ```
-    - If every listed commit is `PORTED` → exit with
+
+    **Pass 2 — content-hash similarity for `UNPORTED` rows (catches silent
+    ports where the same change was made by a fork dev without citing
+    upstream).** PR #295's 2026-05-02 sync report missed 4 of 6 candidates
+    that turned out to be already on the fork — Pass 2 catches that class:
+    ```bash
+    # For each UNPORTED upstream commit, extract added/changed identifiers
+    # and check if they exist in fork master's HEAD. If yes, it's silently
+    # ported (the change shipped without an SHA citation in the commit subject).
+    for sha in $(awk '/^UNPORTED/ {print $2}' /tmp/sync-upstream-pass1.tsv); do
+        # Extract added/changed identifiers from the upstream commit
+        # (function names, variable names, string literals it INTRODUCES).
+        idents=$(git show "$sha" --no-color --pretty=format:'' \
+                 | grep -E '^\+[^+]' \
+                 | grep -oE '[a-zA-Z_][a-zA-Z0-9_]{4,}' \
+                 | sort -u)
+        # Skip if no useful identifiers (e.g. doc-only or formatting commit).
+        [ -z "$idents" ] && continue
+        # Probe fork master for at least 80% of the identifiers.
+        n_total=$(echo "$idents" | wc -l)
+        n_present=$(echo "$idents" | xargs -I{} sh -c \
+            'git grep -lq "{}" -- master 2>/dev/null && echo present' | wc -l)
+        ratio=$((n_present * 100 / n_total))
+        if [ "$ratio" -ge 80 ]; then
+            echo "PORTED-SILENTLY    $sha  ratio=$ratio% n_total=$n_total"
+        else
+            echo "UNPORTED           $sha  ratio=$ratio%"
+        fi
+    done
+    ```
+    The 80% threshold is empirical: at `ratio=80%+`, the upstream commit's
+    semantic content is overwhelmingly already in fork master; at `<50%` the
+    commit is genuinely missing. The 50–80% band is fuzzy and requires
+    eyeballing the commit's substance vs the fork's tree.
+
+    **Categorise the final output:**
+    - `PORTED` (Pass 1 hit) — fork commit cites the SHA in its subject.
+    - `PORTED-SILENTLY` (Pass 2 hit) — semantic content present, no SHA
+      citation. Surface in the report so the maintainer can decide whether
+      to backfill a citation. NOT a `/port-upstream-commit` candidate.
+    - `UNPORTED` (neither pass hit) — genuinely missing. Recommend
+      `/port-upstream-commit <sha>`.
+
+    - If every listed commit is `PORTED` or `PORTED-SILENTLY` → exit with
       `sync-upstream: no action — fork at parity with upstream/master @ <tip-sha>`.
     - If any are `UNPORTED` → list them and recommend
       `/port-upstream-commit <sha>` for each. Do NOT attempt a merge. This is
