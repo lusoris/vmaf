@@ -76,6 +76,13 @@ def test_known_codecs_includes_x264_and_qsv():
     # ADR-0237 Phase A wired libx264; ADR-0281 added the three Intel
     # QSV hardware adapters. Registry order is alphabetical.
     assert known_codecs() == ("av1_qsv", "h264_qsv", "hevc_qsv", "libx264")
+
+
+def test_known_codecs_includes_x264_baseline():
+    # Phase A wired libx264; later codec-adapter PRs (libvvenc, ...) extend
+    # the registry. The contract is "x264 must be present", not "x264 only".
+    codecs = known_codecs()
+    assert "libx264" in codecs
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True
