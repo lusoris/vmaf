@@ -48,6 +48,22 @@ static int normalize(const VmafModel *model, double slope, double intercept, dou
     return 0;
 }
 
+static int denormalize_feature(const VmafModel *model, double slope, double intercept,
+                               double *feature_score)
+{
+    switch (model->norm_type) {
+    case (VMAF_MODEL_NORMALIZATION_TYPE_NONE):
+        break;
+    case (VMAF_MODEL_NORMALIZATION_TYPE_LINEAR_RESCALE):
+        *feature_score = (*feature_score - intercept) / slope;
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
 static int denormalize(const VmafModel *model, double *prediction)
 {
     switch (model->norm_type) {
@@ -203,6 +219,69 @@ static int clip(const VmafModel *model, double *prediction, enum VmafModelFlags 
     return 0;
 }
 
+static int post_process_feature_from_another(VmafModel *model, struct svm_node *node,
+                                             double correction_parameter,
+                                             double value_to_be_corrected,
+                                             char *guiding_feature_substr,
+                                             char *guided_feature_substr)
+{
+    int err = 0;
+
+    double guiding_score;
+    double guided_score;
+    bool found_guiding_score = false;
+    bool found_guided_score = false;
+    unsigned guided_idx = 0;
+
+    for (unsigned i = 0; i < model->n_features; i++) {
+        if (strstr(model->feature[i].name, guiding_feature_substr) != NULL) {
+            if (found_guiding_score) {
+                vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                         "post_process_feature_from_another(): Substring '%s' "
+                         "corresponds to more than one feature\n",
+                         guiding_feature_substr);
+                return -EINVAL;
+            }
+            guiding_score = node[i].value;
+            found_guiding_score = true;
+            err = denormalize_feature(model, model->feature[i].slope, model->feature[i].intercept,
+                                      &guiding_score);
+            if (err)
+                return -EINVAL;
+        }
+        if (strstr(model->feature[i].name, guided_feature_substr) != NULL) {
+            if (found_guided_score) {
+                vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                         "post_process_feature_from_another(): Substring '%s' "
+                         "corresponds to more than one feature\n",
+                         guided_feature_substr);
+                return -EINVAL;
+            }
+            guided_score = node[i].value;
+            found_guided_score = true;
+            err = denormalize_feature(model, model->feature[i].slope, model->feature[i].intercept,
+                                      &guided_score);
+            if (err)
+                return -EINVAL;
+            if (guided_score == value_to_be_corrected)
+                guided_idx = i;
+            else
+                return 0;
+        }
+    }
+
+    if (!found_guiding_score || !found_guided_score)
+        return 0;
+
+    double corrected_guided_score = (-correction_parameter * guiding_score) + correction_parameter;
+    err = normalize(model, model->feature[guided_idx].slope, model->feature[guided_idx].intercept,
+                    &corrected_guided_score);
+    if (err)
+        return -EINVAL;
+    node[guided_idx].value = corrected_guided_score;
+    return 0;
+}
+
 static int predict_resolve_feature_name(VmafModel *model, unsigned i)
 {
     VmafFeatureExtractor *fex =
@@ -326,6 +405,14 @@ static int predict_build_svm_nodes(VmafModel *model, VmafFeatureCollector *featu
         node[i].index = i + 1;
         node[i].value = feature_score;
     }
+    if (model->chroma_from_luma.enabled && model->chroma_from_luma.chroma_correction_parameter) {
+        int err = post_process_feature_from_another(
+            model, node, model->chroma_from_luma.chroma_correction_parameter, 0.0, "adm3",
+            "speed_chroma");
+        if (err)
+            return err;
+    }
+
     node[model->n_features].index = -1;
     return 0;
 }

@@ -357,6 +357,15 @@ static int parse_model_dict_score_clip(json_stream *s, VmafModel *model, enum Vm
     return 0;
 }
 
+static int parse_model_dict_chroma_correction(json_stream *s, VmafModel *model)
+{
+    if (json_next(s) != JSON_NUMBER)
+        return -EINVAL;
+    model->chroma_from_luma.enabled = true;
+    model->chroma_from_luma.chroma_correction_parameter = json_get_number(s);
+    return 0;
+}
+
 static int parse_model_dict_array_key(json_stream *s, VmafModel *model, const char *key)
 {
     if (!strcmp(key, "slopes")) {
@@ -407,6 +416,8 @@ static int parse_model_dict_entry(json_stream *s, VmafModel *model, enum VmafMod
         return parse_model_dict_norm_type(s, model);
     if (!strcmp(key, "score_clip"))
         return parse_model_dict_score_clip(s, model, flags);
+    if (!strcmp(key, "chroma_correction_parameter"))
+        return parse_model_dict_chroma_correction(s, model);
 
     int r = parse_model_dict_array_key(s, model, key);
     if (r <= 0)
