@@ -145,6 +145,17 @@ typedef struct VmafVulkanKernelPipelineDesc {
 } VmafVulkanKernelPipelineDesc;
 
 /*
+ * Maximum number of SSBO bindings the template's
+ * `vmaf_vulkan_kernel_pipeline_create` will accept in a single
+ * descriptor-set layout. Current consumers top out at 10
+ * (`ssimulacra2_vulkan.c`'s SSIM bundle uses 8); lift this if a
+ * future kernel needs more. The conformant Vulkan minimum for
+ * `maxDescriptorSetStorageBuffers` is 96, so values well above
+ * the current cap remain portable across drivers.
+ */
+#define VMAF_VULKAN_KERNEL_MAX_SSBO_BINDINGS 16U
+
+/*
  * Build the descriptor-set layout, pipeline layout, shader module,
  * compute pipeline, and descriptor pool.
  *
@@ -166,12 +177,8 @@ static inline int vmaf_vulkan_kernel_pipeline_create(VmafVulkanContext *ctx,
     if (ctx == NULL || desc == NULL || out == NULL) {
         return -EINVAL;
     }
-    /* 16 = current high-watermark — float_adm_vulkan binds 9 SSBOs
-     * (src + 2× dwt_tmp + 2× band + 2× csf + accum + dis). All
-     * conformant Vulkan devices allow >= 96 storage buffers per set
-     * (maxDescriptorSetStorageBuffers), so 16 is well within
-     * portability bounds. Lift further if a kernel needs more. */
-    if (desc->ssbo_binding_count == 0U || desc->ssbo_binding_count > 16U) {
+    if (desc->ssbo_binding_count == 0U ||
+        desc->ssbo_binding_count > VMAF_VULKAN_KERNEL_MAX_SSBO_BINDINGS) {
         return -EINVAL;
     }
     out->dsl = VK_NULL_HANDLE;
@@ -181,7 +188,7 @@ static inline int vmaf_vulkan_kernel_pipeline_create(VmafVulkanContext *ctx,
     out->desc_pool = VK_NULL_HANDLE;
 
     /* 1. Descriptor set layout: N storage-buffer bindings. */
-    VkDescriptorSetLayoutBinding bindings[16] = {0};
+    VkDescriptorSetLayoutBinding bindings[VMAF_VULKAN_KERNEL_MAX_SSBO_BINDINGS] = {0};
     for (uint32_t i = 0; i < desc->ssbo_binding_count; i++) {
         bindings[i].binding = i;
         bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;

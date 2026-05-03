@@ -44,12 +44,17 @@ else
 fi
 
 # Strip markdown emphasis/code characters (backticks, asterisks,
-# underscores) before grepping: the PR template wraps labels like
-# `AGENTS.md` in backticks, which would otherwise insert characters
-# between tokens and break the `- [x].*<item>` regex.
+# underscores, backslashes) before grepping: the PR template wraps
+# labels like `AGENTS.md` in backticks, which would otherwise insert
+# characters between tokens and break the `- [x].*<item>` regex.
+# Backslashes appear when `gh pr create` is invoked with a heredoc-
+# quoted body — the shell escapes embedded backticks and the
+# leading backslash survives into the body, breaking the regex
+# with spurious backslash-space separators between tokens.
 tmp_body="$(mktemp)"
 trap 'rm -f "$tmp_body" "${tmp_diff:-}"' EXIT
-printf '%s' "${PR_BODY}" | tr -d '`*_' >"$tmp_body"
+# shellcheck disable=SC1003  # the trailing \\ is a tr-recognised escape for a literal backslash
+printf '%s' "${PR_BODY}" | tr -d '`*_\\' >"$tmp_body"
 
 # ---------- 2. Locate diff base ----------
 
