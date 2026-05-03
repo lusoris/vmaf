@@ -22,6 +22,15 @@
       "sha256": "447334948e1cc63497ad3143f2342bd6a334adbb6d9a8dbf3685b1b3595979e9"
     },
     {
+      "id": "fr_regressor_v2",
+      "kind": "fr",
+      "notes": "Tiny FR regressor v2 (codec-aware) \u2014 6 canonical libvmaf features (adm2, vif_scale0..3, motion2) + 8-D codec block (6 encoder one-hot + preset_norm + crf_norm) -> VMAF teacher score. Trained on the vmaf-tune Phase A JSONL corpus (ADR-0237). SMOKE / placeholder build (synthetic corpus). In-sample PLCC=-0.4072. Exported via ai/scripts/train_fr_regressor_v2.py. See docs/ai/models/fr_regressor_v2.md + ADR-0272 + ADR-0235.",
+      "onnx": "fr_regressor_v2.onnx",
+      "opset": 17,
+      "sha256": "d012cb34bc606d1b9ac041bcbac9d730371a42ebb4eb3615d2f08a37eee224b7",
+      "smoke": true
+    },
+    {
       "description": "Tiny residual filter for vmaf_pre \u2014 degraded \u2192 clean luma.",
       "id": "learned_filter_v1",
       "int8_sha256": "1cff6fe07f89f6c6a2eb498e60ad2699a3538846369c3724c9f30ba9600662d3",

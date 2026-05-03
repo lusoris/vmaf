@@ -251,3 +251,32 @@ python ai/lpips_export.py                      # re-export LPIPS from the refere
 # Netflix-corpus training (ADR-0203):
 bash ai/scripts/run_training.sh
 ```
+
+## fr_regressor_v2 — codec block layout (ADR-0272)
+
+`ai/scripts/train_fr_regressor_v2.py` consumes the vmaf-tune Phase A
+JSONL corpus and emits `model/tiny/fr_regressor_v2.onnx`. The codec
+block layout is **load-bearing** — bumping it requires a re-train.
+Pinned invariants:
+
+- `ENCODER_VOCAB = ("libx264", "libx265", "libsvtav1", "libvvenc",
+  "libvpx-vp9", "unknown")`. Order matches the encoder-onehot index
+  baked into the trained ONNX. Append-only; bump
+  `ENCODER_VOCAB_VERSION` and re-train when adding a new entry.
+- 8-D codec block layout: `[encoder_onehot[0..5], preset_norm,
+  crf_norm]`. Both `preset_norm` and `crf_norm` live in `[0, 1]`.
+- `crf_norm = crf / 63.0` — `63` is the union upper bound across
+  supported encoders (libsvtav1 / libvpx-vp9 max).
+- `preset_norm = preset_ordinal / 9.0` — per-encoder ordinal table
+  in `train_fr_regressor_v2.py::PRESET_ORDINAL`. libsvtav1's numeric
+  0..13 presets are squashed to 0..9.
+- Two-input ONNX: `features` (N, 6) + `codec` (N, 8) -> `score` (N,).
+  Mirrors the LPIPS-Sq two-input precedent (ADR-0040 / ADR-0041).
+- StandardScaler is applied to `features` only; the codec block
+  passes through unscaled. `feature_mean` / `feature_std` ship in
+  the sidecar JSON.
+
+The current shipped ONNX is from `--smoke` mode and is registered
+`smoke: true` in `model/tiny/registry.json`. Production training run
+is gated on a multi-codec Phase A corpus + per-frame feature emission
+in the Phase A schema. See ADR-0272 + Research-0054.

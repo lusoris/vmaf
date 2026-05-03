@@ -1,0 +1,67 @@
+{
+  "codec_aware": true,
+  "codec_block_layout": [
+    "encoder_onehot[libx264]",
+    "encoder_onehot[libx265]",
+    "encoder_onehot[libsvtav1]",
+    "encoder_onehot[libvvenc]",
+    "encoder_onehot[libvpx-vp9]",
+    "encoder_onehot[unknown]",
+    "preset_norm",
+    "crf_norm"
+  ],
+  "encoder_vocab": [
+    "libx264",
+    "libx265",
+    "libsvtav1",
+    "libvvenc",
+    "libvpx-vp9",
+    "unknown"
+  ],
+  "encoder_vocab_version": 1,
+  "feature_mean": [
+    0.7543953657150269,
+    0.4229135513305664,
+    0.5403096675872803,
+    0.6525505185127258,
+    0.7170667052268982,
+    2.0286147594451904
+  ],
+  "feature_order": [
+    "adm2",
+    "vif_scale0",
+    "vif_scale1",
+    "vif_scale2",
+    "vif_scale3",
+    "motion2"
+  ],
+  "feature_std": [
+    0.08122238516807556,
+    0.09745285660028458,
+    0.09050045907497406,
+    0.0800396278500557,
+    0.07402651757001877,
+    0.2860364019870758
+  ],
+  "id": "fr_regressor_v2",
+  "input_names": [
+    "features",
+    "codec"
+  ],
+  "kind": "fr",
+  "notes": "Tiny FR regressor v2 (codec-aware) \u2014 6 canonical libvmaf features (adm2, vif_scale0..3, motion2) + 8-D codec block (6 encoder one-hot + preset_norm + crf_norm) -> VMAF teacher score. Trained on the vmaf-tune Phase A JSONL corpus (ADR-0237). SMOKE / placeholder build (synthetic corpus). In-sample PLCC=-0.4072. Exported via ai/scripts/train_fr_regressor_v2.py. See docs/ai/models/fr_regressor_v2.md + ADR-0272 + ADR-0235.",
+  "onnx": "fr_regressor_v2.onnx",
+  "opset": 17,
+  "output_names": [
+    "score"
+  ],
+  "sha256": "d012cb34bc606d1b9ac041bcbac9d730371a42ebb4eb3615d2f08a37eee224b7",
+  "training": {
+    "dataset": "synthetic-smoke",
+    "in_sample_plcc": -0.4072034667851324,
+    "in_sample_rmse": 68.54827524434474,
+    "in_sample_srocc": -0.4275547554755475,
+    "n_rows": 100,
+    "smoke": true
+  }
+}
