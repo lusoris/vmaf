@@ -171,3 +171,36 @@ makes them functional is itself a separate Phase A follow-up.
 Phases B–F per ADR-0237 (bisect / predictor / ladder / MCP) remain
 explicitly out of scope here; do not add that code into this tree
 without an ADR-0237 follow-up promoting the corresponding phase.
+Phase A (corpus generation): grid sweep + JSONL emit, x264 only.
+Phase D scaffold (per-shot CRF tuning, ADR-0276): orchestrates shot
+detection (via the C-side `vmaf-perShot` binary, ADR-0222) and a
+pluggable per-shot CRF predicate that Phase B's bisect will drop
+into. The scaffold deliberately stops before running encodes — it
+emits an FFmpeg encoding plan as JSON.
+
+Phases B (target-VMAF bisect), C (per-title CRF predictor), E
+(Pareto ABR ladder) and F (MCP tools) per ADR-0237 are explicitly
+out of scope here; do not add bisect / predictor / ladder / MCP code
+into this tree without an ADR-0237 follow-up promoting the
+corresponding phase.
+
+## Phase D rebase-sensitive invariants
+
+- **Predicate signature is the Phase B contract.** The
+  ``PredicateFn`` type alias in ``per_shot.py`` is
+  ``(Shot, target_vmaf: float, encoder: str) -> (crf: int,
+  predicted_vmaf: float)``. Phase B's bisect must conform to this
+  signature; widening the return tuple is a coordinated change that
+  bumps the public-API surface across both modules in the same PR.
+- **Shot ranges are half-open inside Python.** The C-side
+  ``vmaf-perShot`` JSON/CSV sidecar uses inclusive ``end_frame``;
+  ``per_shot.py`` normalises into ``[start_frame, end_frame)`` at
+  the parse boundary. ``Shot.length`` and the
+  ``-frames:v`` arg in ``_segment_command`` both depend on the
+  half-open form. Do not "round-trip back to inclusive" — every
+  downstream consumer assumes the half-open form.
+- **The ``vmaf-perShot`` binary surface is the canonical detector.**
+  Do not add a parallel ONNX-Runtime-from-Python detector path.
+  When TransNet V2 is hot-pathed (e.g. Phase E ladder generation
+  re-running detection), extend ``detect_shots`` to call
+  ``vmaf-perShot`` once and cache, not to bypass the binary.

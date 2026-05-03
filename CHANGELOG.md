@@ -265,6 +265,23 @@
   augmented codec" today and is the natural counterpart to the
   fork's existing tiny-AI *measurement* surface (`vmaf_tiny_v2`,
   `fr_regressor_v1`, `nr_metric_v1`).
+- **`vmaf-tune` Phase D scaffold — per-shot CRF tuning (ADR-0276).**
+  Adds `tools/vmaf-tune/src/vmaftune/per_shot.py` plus the
+  `vmaf-tune tune-per-shot` CLI subcommand. `detect_shots()` wraps
+  the C-side `vmaf-perShot` binary (ADR-0222 / TransNet V2
+  ADR-0223) with a single-shot fallback when the binary is
+  unavailable. `tune_per_shot()` exposes a pluggable predicate
+  seam that Phase B's bisect (PR #347) drops into. `merge_shots()`
+  emits per-segment FFmpeg argv plus a concat-demuxer command.
+  Closes the orchestration layer for Bucket #1 of Research-0061
+  (the Netflix-style table-stakes per-shot encoding feature).
+  Scaffold-only: the default predicate returns the codec
+  adapter's default CRF, and per-codec native emission
+  (`--qpfile`/`--zones`/SVT-AV1 segment tables) is deferred to
+  per-codec PRs. 16 new tests pass with mocked `vmaf-perShot` +
+  mocked encoder; total `vmaf-tune` suite is 29 tests, zero
+  binaries required. First per-phase split off
+  [ADR-0237](docs/adr/0237-quality-aware-encode-automation.md).
 
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**

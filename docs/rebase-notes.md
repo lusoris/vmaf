@@ -7876,3 +7876,33 @@ inline.*
   ```bash
   python -m pytest tools/vmaf-tune/tests/
   ```
+
+### 0228 — `vmaf-tune` Phase D scaffold (ADR-0276)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/per_shot.py`,
+  `tools/vmaf-tune/src/vmaftune/cli.py`,
+  `tools/vmaf-tune/tests/test_per_shot.py`,
+  `docs/usage/vmaf-tune.md`,
+  `docs/adr/0276-vmaf-tune-phase-d-per-shot.md`.
+- **Invariant**: scaffold-only. The module relies on a stable
+  predicate signature ``(shot, target_vmaf, encoder) -> (crf,
+  predicted_vmaf)`` that Phase B's bisect (PR #347) drops into
+  later. ``Shot`` ranges are half-open ``[start_frame, end_frame)``
+  even though the C-side ``vmaf-perShot`` JSON/CSV sidecar uses an
+  inclusive ``end_frame`` — normalisation happens at the parse
+  boundary in ``_parse_per_shot_json`` /
+  ``parse_per_shot_csv``. ``vmaf-perShot`` schema lives in
+  ``docs/usage/vmaf-perShot.md`` and is fork-local
+  (ADR-0222), so upstream cannot drift it; the only rebase risk
+  is fork-internal renames.
+- **Upstream source**: entirely fork-local. ``tools/vmaf-tune/``
+  is fork-introduced (ADR-0237). Netflix/vmaf upstream has no
+  encode-automation surface.
+- **On upstream sync**: zero interaction expected. No file in
+  this PR overlaps an upstream-mirrored path.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/test_per_shot.py -q
+  python tools/vmaf-tune/vmaf-tune tune-per-shot --help
+  ```
