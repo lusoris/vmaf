@@ -6512,3 +6512,30 @@ inline.*
   cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false
   ninja -C build && ./build/test/test_output
   ```
+
+### 0126 — OSSF Scorecard policy (ADR-0263)
+
+- **Touches**: `.github/workflows/scorecard.yml` (line 45 — the
+  `github/codeql-action/upload-sarif@<sha>` pin). The rest of the
+  policy is doc-only (`docs/adr/0263-*.md`,
+  `docs/research/0053-*.md`, `changelog.d/security/`). Upstream
+  Netflix/vmaf does not ship a Scorecard workflow, so the path
+  itself is fork-introduced and won't conflict.
+- **Invariant**: the `upload-sarif` SHA must point to a commit that
+  currently exists in `github/codeql-action`'s git tree. A SHA that
+  was once `v4` head but no longer exists in the action repository
+  triggers Scorecard's "imposter commit" defence and breaks the
+  workflow with a 400 error against `api.scorecard.dev`. Verify on
+  every Dependabot bump by spot-checking
+  `gh api /repos/github/codeql-action/commits/<sha>` returns 200.
+- **On upstream sync**: zero interaction.
+- **Re-test on rebase**:
+
+  ```bash
+  # Confirm the pin still resolves to a real commit:
+  pin=$(grep -oE 'codeql-action/upload-sarif@[a-f0-9]{40}' \
+        .github/workflows/scorecard.yml | head -1 | cut -d@ -f2)
+  gh api "/repos/github/codeql-action/commits/$pin" --jq '.sha'
+  # Then watch the next master push for a green Scorecard run:
+  gh run list --workflow scorecard --repo lusoris/vmaf --limit 1
+  ```

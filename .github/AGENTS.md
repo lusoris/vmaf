@@ -34,7 +34,7 @@ needs a superseding ADR.
 The `deep-dive-checklist` job parses PR bodies for ADR-0108's
 opt-out lines:
 
-```
+```text
 no digest needed: <reason>
 no alternatives: <reason>
 no rebase-sensitive invariants
@@ -87,9 +87,35 @@ etc.) don't clash with upstream's names. On sync:
 3. `PULL_REQUEST_TEMPLATE.md` is fork-authored; upstream has none.
    Never overwrite it on sync.
 
+## OSSF Scorecard pin invariant
+
+`.github/workflows/scorecard.yml` references
+`github/codeql-action/upload-sarif@<sha>`. The Scorecard webapp at
+`api.scorecard.dev` validates the pinned SHA against the action's
+upstream repository on every publish; a SHA that no longer exists
+under the declared tag (e.g. because upstream rewrote a release
+branch or moved a tag) is rejected as an "imposter commit", returning
+HTTP 400 and turning the workflow red. Whenever this pin is updated
+(Dependabot or manual), spot-check that the new SHA still resolves:
+
+```bash
+pin=$(grep -oE 'codeql-action/upload-sarif@[a-f0-9]{40}' \
+      .github/workflows/scorecard.yml | head -1 | cut -d@ -f2)
+gh api "/repos/github/codeql-action/commits/$pin" --jq '.sha'
+```
+
+A 422 response here is the canary that the workflow is about to start
+failing on the next push. See [ADR-0263](../docs/adr/0263-ossf-scorecard-policy.md)
+and [Research-0053](../docs/research/0053-ossf-scorecard-investigation.md).
+
 ## Related
 
 - [ADR-0124](../docs/adr/0124-automated-rule-enforcement.md) — this tooling
+- [ADR-0263](../docs/adr/0263-ossf-scorecard-policy.md) — OSSF Scorecard
+  policy + accepted blockers
 - [Research-0002](../docs/research/0002-automated-rule-enforcement.md) — investigation
-- [`docs/development/automated-rule-enforcement.md`](../docs/development/automated-rule-enforcement.md) — user-facing explainer
+- [Research-0053](../docs/research/0053-ossf-scorecard-investigation.md) —
+  OSSF Scorecard per-check breakdown
+- [`docs/development/automated-rule-enforcement.md`](../docs/development/automated-rule-enforcement.md)
+  — user-facing explainer
 - [`docs/rebase-notes.md` entry 0026](../docs/rebase-notes.md) — sync ledger
