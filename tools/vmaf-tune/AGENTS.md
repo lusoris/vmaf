@@ -153,6 +153,18 @@ for the option-space digest.
   follow-up PR gated on Phase B's target-VMAF bisect. Tests inject a
   synthetic stub. Do not add a "best-effort" default that fakes
   points — silently producing garbage is worse than a clear error.
+- **Saliency signal blend matches `vmaf-roi` (ADR-0293).**
+  `saliency.py` deliberately mirrors `vmaf-roi`'s ADR-0247 signal
+  blend (`offset = (2*sal − 1) * foreground_offset`, clamped to
+  ±12). If `vmaf-roi`'s C-side blend changes, `saliency.py` follows
+  in the same PR — the bit-for-bit equivalence is pinned by
+  `tests/test_saliency.py` and is the contract that lets us swap
+  the Python implementation for a `vmaf-roi` shell-out later
+  without behaviour drift. The ONNX session is the second test
+  seam (`session_factory` parameter) — production callers leave it
+  default; tests inject a fake. Do not import `onnxruntime` at
+  module top-level; lazy-load via `_import_onnxruntime` so the
+  corpus subcommand and unit tests work without it installed.
 
 ## Phase scope
 

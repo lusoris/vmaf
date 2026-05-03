@@ -8018,3 +8018,28 @@ inline.*
   python ai/scripts/eval_probabilistic_proxy.py --smoke
   python ai/scripts/validate_model_registry.py
   ```
+
+### 0287 — `vmaf-tune` saliency-aware ROI tuning (ADR-0293)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
+  `tools/vmaf-tune/src/vmaftune/cli.py` (new `recommend`
+  subcommand), `tools/vmaf-tune/AGENTS.md` (saliency invariant),
+  `docs/usage/vmaf-tune.md` (saliency section).
+- **Upstream source**: fork-local. The `vmaf-tune` tree was
+  introduced in PR #329 (ADR-0237 Phase A) and has no upstream
+  Netflix counterpart.
+- **On upstream sync**: zero interaction — pure fork-local Python
+  package under `tools/vmaf-tune/`.
+- **Invariant**: the saliency-to-QP-offset signal blend
+  (`offset = (2*sal − 1) * foreground_offset`, clamped to ±12)
+  is bit-for-bit equivalent to `vmaf-roi`'s C-side blend
+  (ADR-0247). `tests/test_saliency.py` pins the contract; if
+  `vmaf-roi`'s C blend changes, `saliency.py` follows in the
+  same PR. The test seam contract (`session_factory=…`,
+  `encode_runner=…`) lets the suite run without `onnxruntime`
+  or `ffmpeg`.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/ -q
+  ```

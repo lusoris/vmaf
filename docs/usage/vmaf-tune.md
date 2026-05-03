@@ -563,6 +563,100 @@ encoder; if libmfx / VPL is not compiled in, the harness raises
 `RuntimeError` with a build-time hint rather than letting ffmpeg
 emit an `Encoder not found` line buried in stderr.
 
+## Saliency-aware encoding (`recommend --saliency-aware`)
+
+Bucket #2 of the [PR #354](https://github.com/lusoris/vmaf/pull/354)
+audit (see [ADR-0293](../adr/0293-vmaf-tune-saliency-aware.md)) wires
+the fork-trained `saliency_student_v1` ONNX model
+([ADR-0286](../adr/0286-saliency-student-fork-trained-on-duts.md)) into
+`vmaf-tune` so a single command can produce an encode that biases bits
+toward salient regions (faces, focal subjects, action) and saves bits
+on background.
+
+### Synopsis
+
+```shell
+vmaf-tune recommend \
+    --src ref.yuv --width 1920 --height 1080 --framerate 24 \
+    --target-vmaf 92 \
+    --saliency-aware \
+    [--saliency-offset -4] \
+    [--saliency-model model/tiny/saliency_student_v1.onnx] \
+    [--saliency-frames 8] \
+    --output out.mp4
+```
+
+### How it works
+
+1. `compute_saliency_map()` samples `--saliency-frames` evenly-spaced
+   frames from the source YUV, runs them through
+   `saliency_student_v1.onnx` (ImageNet-normalised RGB derived from
+   luma, NCHW `[1, 3, H, W]`), and averages the per-pixel
+   saliency outputs into one mask in `[0, 1]`.
+2. `saliency_to_qp_map()` linearly maps the mask to per-pixel QP
+   deltas — `--saliency-offset` is the QP delta at peak saliency
+   (negative means **better** quality on salient regions). Background
+   gets the symmetric positive delta. The output is clamped to
+   `[-12, +12]` (matching the [`vmaf-roi`](vmaf-roi.md) sidecar
+   convention from ADR-0247).
+3. The per-pixel map is reduced to per-MB granularity (16×16 luma)
+   and serialised as an x264 `--qpfile` ASCII sidecar.
+4. The qpfile is passed to ffmpeg via `-x264-params qpfile=…` and the
+   normal encode path runs.
+
+### Trade-off
+
+| Axis | Direction |
+| --- | --- |
+| Bitrate (same VMAF) | **−10 % to −20 %** for content with strong attention focus (faces, action, sport). Background-uniform content sees little change. |
+| Encode time | **+5 %** typical (saliency inference + per-MB reduce; per-frame model time is sub-millisecond on CPU at SD/HD). |
+| Decode time | unchanged (the bitstream is plain x264). |
+| Quality (VMAF) | unchanged at the **clip-mean** level; concentrated where the eye looks. |
+
+Numbers are indicative — formal Pareto data lands with Phase B
+(target-VMAF bisect). Today's `recommend` subcommand is a one-shot
+encode at `--crf` (or the adapter default), wired so Phase B can
+swap in a true bisect without changing the flag surface.
+
+### Graceful fallback
+
+If `onnxruntime` is not installed or
+`model/tiny/saliency_student_v1.onnx` cannot be loaded,
+`recommend --saliency-aware` logs a warning and falls back to a
+plain encode. Callers always get a result; the saliency bias is
+opportunistic. This matches the
+[`vmaf-roi`](vmaf-roi.md) C sidecar's posture.
+
+### Caveats
+
+- **Aggregate mask, not per-frame ROI.** The current implementation
+  averages saliency across the sampled frames and applies one
+  per-MB delta pattern across the whole clip. Per-frame ROI is on
+  the roadmap (and is what `vmaf-roi` already does as a sidecar
+  binary for x265 / SVT-AV1).
+- **x264 only in Bucket #2.** x265 and SVT-AV1 already accept the
+  `vmaf-roi` sidecar; folding them into `vmaf-tune recommend` is the
+  natural follow-up — a one-file addition under
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+- **Luma-only saliency input.** For the Bucket #2 deadline we feed
+  the RGB-trained student a luma-replicated triplet. This is enough
+  for foreground-vs-background discrimination; full RGB ingest
+  (chroma upsample) is on the follow-up list once the harness
+  decodes a proper RGB plane.
+- **Don't use the placeholder.** `mobilesal_placeholder_v0` and the
+  radial fallback inside `vmaf-roi` are smoke-test stubs. Pass an
+  explicit `--saliency-model` pointing at the real fork-trained
+  weights when you want a perceptual benefit.
+
+### Reproducer
+
+The test suite mocks the ONNX session and the encode runner so it
+runs without ffmpeg or onnxruntime installed:
+
+```shell
+pytest tools/vmaf-tune/tests/test_saliency.py -v
+```
+
 ## What Phase A does **not** do
 
 - No target-VMAF bisect (Phase B).
