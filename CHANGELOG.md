@@ -8,6 +8,24 @@
 
 ### Added
 
+- **HIP second-consumer kernel — `float_psnr_hip` (T7-10 follow-up /
+  ADR-0254).** Ships
+  [`libvmaf/src/feature/hip/float_psnr_hip.{c,h}`](libvmaf/src/feature/hip/float_psnr_hip.c)
+  — the second consumer of `libvmaf/src/hip/kernel_template.h` after
+  ADR-0241's `integer_psnr_hip`. Mirrors
+  `libvmaf/src/feature/cuda/float_psnr_cuda.c` call-graph-for-call-graph, with
+  the bit-depth-aware `peak` / `psnr_max` table set up at `init()` time.
+  Registers `vmaf_fex_float_psnr_hip` in `feature_extractor_list` under
+  `#if HAVE_HIP`. Same scaffold posture as the first consumer: registration
+  succeeds, `init()` returns `-ENOSYS` until the runtime PR (T7-10b) flips
+  kernel-template helper bodies to live HIP calls. Smoke test grows from 14
+  to 15 sub-tests (new `test_float_psnr_hip_extractor_registered`). CPU
+  baseline + HIP scaffold both green. No ROCm SDK required. Selected
+  `float_psnr_cuda` as the second-consumer twin over `integer_motion_cuda`
+  (stateful) / `integer_motion_v2_cuda` (dual-feature) / promoting an
+  ADR-0212 stub (different ABI shape) — single-dispatch, half the LOC of
+  motion, distinct precision posture (float partials vs int64 SSE).
+
 - **ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (T-GPU-OPT-VK-2 / ADR-0252).**
   Adds `feature/x86/ssimulacra2_host_avx2.c` and `feature/arm64/ssimulacra2_host_neon.c`
   with `plane_stride`-parameterised `linear_rgb_to_xyb` and `downsample_2x2` SIMD

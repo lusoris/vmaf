@@ -112,6 +112,10 @@ extern VmafFeatureExtractor vmaf_fex_cambi_vulkan;
  * but `init()` returns -ENOSYS until the runtime PR (T7-10b) replaces
  * the kernel-template helper bodies with real HIP calls. */
 extern VmafFeatureExtractor vmaf_fex_psnr_hip;
+/* HIP second-consumer kernel — ADR-0253. Same scaffold posture as
+ * the first consumer: registration succeeds, `init()` returns -ENOSYS
+ * until T7-10b. */
+extern VmafFeatureExtractor vmaf_fex_float_psnr_hip;
 #endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_fastdvdnet_pre;
@@ -190,6 +194,10 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * surface instead of "no such extractor". The runtime PR
      * (T7-10b) keeps this row verbatim and adds its siblings. */
     &vmaf_fex_psnr_hip,
+    /* Second consumer (ADR-0253): same scaffold-only registration
+     * posture — `float_psnr_hip` registers, `init()` returns
+     * -ENOSYS until T7-10b. */
+    &vmaf_fex_float_psnr_hip,
 #endif
     &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2,
     &vmaf_fex_null, NULL};
