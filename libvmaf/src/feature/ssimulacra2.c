@@ -338,7 +338,7 @@ static inline float srgb_to_linear(float v)
  * and radius into the state; the full IIR pass uses symmetric-sum
  * recurrence `out_k = n2[k]*sum - d1[k]*prev_k - prev2_k`. */
 /* ADR-0130-era scalar, pre-existing pre-touched-file rule. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — paired SIMD ports (avx2/avx512/neon/sve2) bit-exact-match this scalar; splitting would force matching splits in 4 SIMD files (ADR-0141)
 static void create_recursive_gaussian(Ssimu2State *s, double sigma)
 {
     const double radius = round(3.2795 * sigma + 0.2546); /* (57), "N" */
@@ -462,7 +462,7 @@ static inline float read_plane(const VmafPicture *pic, int plane, int x, int y)
  * clamp + per-lane sRGB EOTF is a line-for-line port of the libjxl
  * scalar reference path — splitting would break the scalar-diff
  * audit story. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — paired SIMD ports (avx2/avx512/neon/sve2) bit-exact-match this scalar; splitting would force matching splits in 4 SIMD files (ADR-0141)
 static void picture_to_linear_rgb(const Ssimu2State *s, const VmafPicture *pic, float *out)
 {
     const unsigned w = s->w;
@@ -623,7 +623,7 @@ static void linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsigned
 /* ADR-0141 carve-out: the 4-deep loop nest (per-plane × per-output-row
  * × per-output-col × 2×2 input sample) matches the libjxl scalar
  * reference one-for-one; splitting would obscure the scalar diff. */
-// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — paired SIMD ports (avx2/avx512/neon/sve2) bit-exact-match this scalar; splitting would force matching splits in 4 SIMD files (ADR-0141)
 static void downsample_2x2(const float *in, unsigned iw, unsigned ih, float *out, unsigned *ow_out,
                            unsigned *oh_out)
 {

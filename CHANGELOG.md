@@ -152,6 +152,20 @@
   Extending the strip set to also remove backslashes restores the
   regex match.
 
+- **T7-5 Sweeps B+C — fork-added ssimulacra2 SIMD + scalar + tests
+  now carry inline ADR citations on every `readability-function-size`
+  NOLINT (cite-only, no code splits).** 30 NOLINTs across 6 files:
+  `ssimulacra2_avx2.c` (5), `ssimulacra2_avx512.c` (5),
+  `ssimulacra2_neon.c` (6), `ssimulacra2_sve2.c` (6) — all cite the
+  bit-exactness invariant (ADR-0138/0139, ADR-0141) since splitting
+  would perturb register allocation + reduction order vs scalar.
+  `ssimulacra2.c` scalar (3) cites the SIMD-parity audit
+  (ADR-0141) — splitting would force matching splits in 4 paired
+  SIMD files. `test_ssimulacra2_simd.c` (5) cites test scaffolding
+  (ADR-0141). Companion to T7-5 Sweep A (PR #82, ADR-0146,
+  upstream-mirror files). Pure documentation change — no
+  behavioural delta; Netflix golden + cross-backend bit-exactness
+  unchanged.
 - **`ssimulacra2_vulkan.c` migrated to `vulkan/kernel_template.h`
   (T-GPU-DEDUP-24, 4-bundle).** Four distinct pipeline shapes (XYB =
   6 SSBO bindings, MUL = 3, BLUR = 2, SSIM = 8) prevent collapsing
