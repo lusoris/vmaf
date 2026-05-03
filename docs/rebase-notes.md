@@ -27,6 +27,34 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0227 — `tools/vmaf-tune/` Phase A scaffold (ADR-0237 Phase A)
+
+- **Touches**:
+  - `tools/vmaf-tune/` (new top-level Python tool tree). Wholly fork-local
+    — no upstream Netflix/vmaf path overlap.
+  - `docs/usage/vmaf-tune.md` (new). User-discoverable surface.
+  - `docs/adr/0237-quality-aware-encode-automation.md` — status flipped
+    from Proposed to Accepted (Phase A) with date metadata; body prose
+    untouched.
+- **Invariant**: the corpus JSONL row schema in
+  `tools/vmaf-tune/src/vmaftune/__init__.py` (`CORPUS_ROW_KEYS`,
+  `SCHEMA_VERSION`) is the API contract Phase B (target-VMAF bisect)
+  and Phase C (per-title CRF predictor) will consume. Adding optional
+  keys with defaults is fine; renaming or removing keys, or changing
+  type/semantics, requires bumping `SCHEMA_VERSION` and updating every
+  downstream consumer in the same PR. The codec-adapter registry in
+  `codec_adapters/__init__.py` is the only allowed branch on codec
+  identity — the harness (`corpus.py`, `encode.py`, `score.py`) must
+  stay codec-agnostic so future adapters drop in without touching the
+  search loop.
+- **Re-test**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/ -q
+  python tools/vmaf-tune/vmaf-tune --version
+  python tools/vmaf-tune/vmaf-tune corpus --help
+  ```
+
 ### 0226 — CUDA drain-batch engine-loop opt (T-GPU-OPT-1)
 
 - **Touches**:

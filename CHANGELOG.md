@@ -361,9 +361,9 @@
   `blur_plane`, `picture_to_linear_rgb`) under a fixed 4-lane
   `svwhilelt_b32(0, 4)` predicate — bit-identical to the NEON sibling
   irrespective of the runtime vector length, satisfying the
-  [ADR-0138](docs/adr/0138-iqa-convolve-avx2-bitexact-double.md) /
+  [ADR-0138](docs/adr/0138-simd-bit-exactness-policy.md) /
   [ADR-0139](docs/adr/0139-ssim-simd-bitexact-double.md) /
-  [ADR-0140](docs/adr/0140-simd-dx-framework.md) byte-exact
+  [ADR-0140](docs/adr/0140-ssimulacra2-simd-bitexact.md) byte-exact
   contract. New runtime probe
   [`libvmaf/src/arm/cpu.c`](libvmaf/src/arm/cpu.c) reads
   `getauxval(AT_HWCAP2) & HWCAP2_SVE2`; new build probe in
@@ -1117,7 +1117,7 @@
   (T7-23 / ADR-0192 / ADR-0199)** (fork-local): sixth and final
   Group B float twin. Vulkan compute kernel for the float ADM
   feature extractor. Float twin of `integer_adm_vulkan`
-  ([ADR-0178](docs/adr/0178-vulkan-adm-kernel.md)) — same 4-stage
+  ([ADR-0178](docs/adr/0178-integer-adm-vulkan.md)) — same 4-stage
   / 4-scale wave-of-stages design (16 pipelines) but with float
   buffers and host-side `double` accumulation. New files:
   [`libvmaf/src/feature/vulkan/float_adm_vulkan.c`](libvmaf/src/feature/vulkan/float_adm_vulkan.c),
@@ -3123,6 +3123,28 @@
 - 11 SYCL files in `libvmaf/{include,src,test}/.../sycl/` from
   `Netflix, Inc.` to `Lusoris and Claude (Anthropic)` — these files were
   authored entirely by the fork.
+### Added
+
+- **`tools/vmaf-tune/` Phase A — quality-aware encode automation scaffold
+  (ADR-0237 Phase A Accepted, Research-0044).** New Python tool that
+  drives FFmpeg over a `(preset, crf)` grid against `libx264`, scores
+  each encode with the libvmaf CLI, and emits a JSONL corpus of
+  `(source, encoder, params, bitrate, vmaf)` rows. Schema versioned via
+  `vmaftune.SCHEMA_VERSION = 1` and exported as `CORPUS_ROW_KEYS`; the
+  schema is the API contract that Phase B (target-VMAF bisect) and
+  Phase C (per-title CRF predictor) will consume. Codec adapter
+  registry (`codec_adapters/`) is multi-codec from day one — Phase A
+  wires `libx264` only; subsequent codecs (`libx265`, `libsvtav1`,
+  `libvpx-vp9`, `libvvenc`, neural extras) are one-file additions
+  without touching the search loop. Subprocess-mocked smoke tests
+  under `tools/vmaf-tune/tests/` (13 cases) cover command shape,
+  version parsing, JSONL round-trip, encode-failure handling, and the
+  schema contract — no `ffmpeg` or built `vmaf` binary required.
+  User docs: [`docs/usage/vmaf-tune.md`](../docs/usage/vmaf-tune.md).
+  Phases B–F remain Proposed under ADR-0237; this PR ships only the
+  Phase A corpus scaffold.
+
+
 ### Changed
 
 - **MobileSal real-weights swap deferred (T6-2a-followup, ADR-0257)** —
