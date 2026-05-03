@@ -27,6 +27,119 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0226 — CUDA drain-batch engine-loop opt (T-GPU-OPT-1)
+
+- **Touches**:
+  - `libvmaf/src/cuda/drain_batch.{h,c}` (new) — TLS drain-batch
+    table + shared drain stream + `_open()/register/_flush()/_close()`
+    API.
+  - `libvmaf/src/libvmaf.c` — engine-side per-frame loop now wraps
+    submit/collect with `_open()` + `_flush()` so all CUDA
+    extractor `finished` events are waited on a single shared
+    drain stream.
+  - All 12 CUDA feature kernels (`libvmaf/src/feature/cuda/*.c`)
+    register their `finished` event + `drained` flag with the
+    drain batch on submit; collect skips its private
+    `cuStreamSynchronize` when `drained` is true.
+- **Invariant — drained-flag contract**. Every CUDA extractor's
+  collect path **must** check the per-frame `drained` flag and
+  skip its own `cuStreamSynchronize` when set; otherwise the
+  drain batching is a no-op. The flag is reset to `false` per
+  frame inside `vmaf_cuda_drain_batch_register()`.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf
+  meson setup build -Denable_cuda=true -Denable_sycl=false
+  ninja -C build
+  meson test -C build --suite=fast cuda
+  ```
+
+  Expected: all CUDA tests green; bench shows ≥5% wall-clock
+  gain on a 7-extractor VMAF model (model.json with all
+  feature extractors enabled).
+
+### 0225 — Netflix bench snapshot regen (upstream a44e5e61 motion fix)
+
+- **Touches**:
+  - `testdata/netflix_benchmark_results.json` — fork-added snapshot.
+    CPU rows now reflect the post-fix motion feature; cuda / sycl
+    rows from the previous regen are preserved unchanged because
+    those backends were not exercised on this rerun (host-environment
+    tooling — wrong renderD path, `libvmaf_cuda` not enabled in the
+    local FFmpeg build). Future full regens should include cuda /
+    sycl.
+  - `testdata/bench_all.sh` — default `VMAF=` no longer points at
+    `/usr/local/bin/vmaf` (which on most dev hosts is stuck at the
+    pre-upstream-`a44e5e61` v3.0.0); now defaults to the in-tree
+    fork build at `libvmaf/build/tools/vmaf`.
+  - `testdata/benchmark_netflix.py` — `FFMPEG`, `YUVDIR` and the
+    hardcoded `LD_LIBRARY_PATH=/usr/local/lib` are now overridable
+    via `VMAF_FFMPEG`, `VMAF_YUVDIR` and any caller-set
+    `LD_LIBRARY_PATH`.
+- **Invariant**: the snapshot's CPU pooled VMAF for
+  `src01_576x324` is 76.667828 (post-fix), not 76.668904 (the
+  upstream-buggy mirror). If `/sync-upstream` ever re-pulls a
+  Netflix change that touches `motion.c` mirror-handling, this
+  number is the reference.
+- **Re-test**:
+
+  ```bash
+  cd libvmaf
+  meson setup build -Denable_cuda=true -Denable_sycl=false
+  ninja -C build
+  LD_LIBRARY_PATH=$(pwd)/build/src python3 \
+      ../testdata/benchmark_netflix.py
+  ```
+
+  Expected CPU pooled rows: 76.667828, 35.068672, 7.985899.
+
+### 0224 — CUDA graph capture feasibility (research-0047, DEFER)
+
+- **Touches**: none — investigation-only; no code lands. The research
+  digest [`docs/research/0047-cuda-graph-capture-feasibility.md`](research/0047-cuda-graph-capture-feasibility.md)
+  documents why a CUDA graph capture path on the per-frame submit chain
+  is **deferred** rather than shipped (realised wall-clock gain capped
+  at ~1-3% vs. the predicted 10-20%, with a 4-slot picture-pool
+  rotation that defeats single-graph capture and forces per-frame
+  `cuGraphExecKernelNodeSetParams` rebinding for `(ref, dis)` device
+  pointers).
+- **Invariant**: the `kernel_template.h` docstring keeps naming
+  `VmafCudaKernelLifecycle.finished` as a graph-capture hook point.
+  Don't prune that comment on rebase — leaving the door open in the
+  template is free, and the digest's "what needs to be true for a
+  future GO" section depends on the hook still being there.
+- **Re-test on rebase**:
+
+  ```bash
+  # Confirm the docstring still references graph capture as the hook
+  # point — wording change is fine, removal is not.
+  grep -q "graph capture" libvmaf/src/cuda/kernel_template.h
+  ```
+
+### 0223 — ADR slug-drift repair in CHANGELOG / rebase-notes (PR #304 follow-up)
+
+- **Touches**: `CHANGELOG.md`, `docs/rebase-notes.md`. No code; no
+  upstream-shared path; no public-API surface.
+- **Invariant**: every `[ADR-NNNN](docs/adr/NNNN-slug.md)` link in the
+  fork's tracked docs resolves to an actual on-disk file under
+  `docs/adr/`. Repaired 4 broken slugs that did not exist on disk
+  (`0138-iqa-convolve-avx2-bitexact-double` → `0138-iqa-convolve-avx2-bitexact-double`,
+  `0140-simd-dx-framework` → `0140-simd-dx-framework`,
+  `0190-ms-ssim-vulkan` → `0190-ms-ssim-vulkan`,
+  `0178-vulkan-adm-kernel` → `0178-vulkan-adm-kernel`). All retained
+  their cited NNNN per ADR-0028 (NNNN is immutable once Accepted).
+- **Re-test on rebase**: from repo root, the following must print no
+  lines:
+
+  ```bash
+  for ref in $(grep -ohE 'docs/adr/[0-9]{4}-[a-z0-9-]+\.md' \
+      CHANGELOG.md docs/rebase-notes.md AGENTS.md docs/state.md \
+      | sort -u); do
+    test -f "$ref" || echo "MISSING: $ref"
+  done
+  ```
+
 ### 0125 — cambi_vulkan migrated to kernel_template (T-GPU-DEDUP-25, 5-bundle)
 
 - **Touches**:
@@ -6320,34 +6433,46 @@ inline.*
   # any feature not yet in the lavapipe row.
   ```
 
-### 0106 — `vmaf_tiny_v3` (mlp_medium) shipped alongside v2 (ADR-0241)
+- **Why this matters on rebase**: an upstream commit that touches
+  `libvmaf/src/feature/ssimulacra2.c` could prompt a "let's also
+  port the GPU XYB while we're here" follow-up. The ledger entry
+  is the standing answer: don't, the measurement was redone on
+  NVIDIA in May 2026 and the result still failed `places=4` by
+  five decades. See
+  [Research-0047](research/0051-ssimulacra2-gpu-xyb-precision.md).
 
-- **What changed**: ships `model/tiny/vmaf_tiny_v3.onnx` (4 496 B,
-  sha256 `57b2b7e0…`) + sidecar `model/tiny/vmaf_tiny_v3.json` + new
-  registry row in `model/tiny/registry.json`. Architecture
-  `mlp_medium` (6 → 32 → 16 → 1, 769 params); same StandardScaler-
-  baked-into-the-graph runtime contract as `vmaf_tiny_v2`. Adds four
-  new scripts under `ai/scripts/`: `train_vmaf_tiny_v3.py`,
-  `export_vmaf_tiny_v3.py`, `validate_vmaf_tiny_v3.py`,
-  `eval_loso_vmaf_tiny_v3.py`. New model card
-  `docs/ai/models/vmaf_tiny_v3.md`; new ADR
-  `docs/adr/0241-vmaf-tiny-v3-mlp-medium.md`; new research digest
-  `docs/research/0046-vmaf-tiny-v3-mlp-medium-evaluation.md`. v2
-  scripts and v2 ONNX are untouched.
-- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
-  fusion-MLP training surface; nothing on the upstream side touches
-  these files.
-- **On upstream sync**: zero interaction. The v3 surface lives
-  entirely under `ai/scripts/` + `model/tiny/` + `docs/ai/` +
-  `docs/adr/` + `docs/research/`, all of which are
-  fork-introduced trees.
+### 0126 — FastDVDnet real upstream weights drop (ADR-0253)
+
+- **What changed**: replaces `model/tiny/fastdvdnet_pre.onnx` with
+  the wrapped real upstream FastDVDnet checkpoint (sha256
+  `eb9444cf6f07eefdc7f4f68d09131074dbd1dcee6f88a331ba684dd2fb5937d4`,
+  ~9.5 MiB), refreshes the sidecar `model/tiny/fastdvdnet_pre.json`,
+  flips the registry row's `smoke: true → false` and adds
+  `license: "MIT"` + the upstream commit pin `c8fdf61`. New exporter
+  `ai/scripts/export_fastdvdnet_pre.py` (the older
+  `_placeholder.py` exporter is retained for reference). New ADR
+  `docs/adr/0255-fastdvdnet-pre-real-weights.md`; user-facing doc
+  `docs/ai/models/fastdvdnet_pre.md` rewritten with provenance,
+  license attribution, and reproduce-the-export instructions.
+- **Upstream source**: fork-local. Netflix/vmaf does not ship a
+  FastDVDnet temporal pre-filter; the C extractor and ONNX surface
+  are entirely fork-introduced (ADR-0215). The wrapped weights are
+  attribution-only (upstream `m-tassano/fastdvdnet` MIT).
+- **On upstream sync**: zero interaction. Every file touched
+  (`ai/scripts/export_fastdvdnet_pre*.py`, `model/tiny/fastdvdnet_pre.*`,
+  `docs/ai/models/fastdvdnet_pre.md`, `docs/adr/0253-*.md`,
+  CHANGELOG fragment, ADR index fragment) lives in fork-introduced
+  trees.
 - **Re-test on rebase**:
 
   ```bash
-  python3 ai/scripts/validate_vmaf_tiny_v3.py \
-      --onnx model/tiny/vmaf_tiny_v3.onnx \
-      --parquet runs/full_features_netflix.parquet \
-      --rows 5000 --min-plcc 0.97 \
-      --v2-onnx model/tiny/vmaf_tiny_v2.onnx
+  # Re-derive the ONNX from the pinned upstream checkpoint.
+  mkdir -p /tmp/fastdvdnet_upstream && cd /tmp/fastdvdnet_upstream
+  curl -L -O https://raw.githubusercontent.com/m-tassano/fastdvdnet/c8fdf61/model.pth
+  curl -L -O https://raw.githubusercontent.com/m-tassano/fastdvdnet/c8fdf61/models.py
+  cd /path/to/vmaf
+  python3 ai/scripts/export_fastdvdnet_pre.py \
+      --upstream-dir /tmp/fastdvdnet_upstream
   python3 ai/scripts/validate_model_registry.py
+  meson test -C build --suite=fast --print-errorlogs test_fastdvdnet_pre
   ```

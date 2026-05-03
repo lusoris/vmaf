@@ -381,8 +381,22 @@ feature/
   shipped under `model/tiny/fastdvdnet_pre.onnx` is smoke-only
   (`smoke: true` in the registry); when T6-7b swaps in real
   upstream weights, keep the I/O names (`frames` / `denoised`)
-  byte-identical. See
-  [ADR-0215](../../../docs/adr/0215-fastdvdnet-pre-filter.md).
+  byte-identical. **T6-7b update (ADR-0253)**: the registry now
+  ships real upstream FastDVDnet weights wrapped by a luma adapter
+  in `ai/scripts/export_fastdvdnet_pre.py`. The C-side contract is
+  unchanged; the wrapper handles `Y → [Y, Y, Y]` tiling, a
+  constant `sigma = 25/255` noise map, and BT.601 RGB→Y collapse
+  internally. Two new rebase-sensitive invariants flow from the
+  wrapper: (4) upstream's `nn.PixelShuffle` is swapped for an
+  allowlist-safe `Reshape`/`Transpose`/`Reshape` decomposition at
+  export time (`DepthToSpace` is not on the ONNX op allowlist —
+  ADR-0253 §Decision); (5) the upstream commit is pinned at
+  `c8fdf6182a0340e89dd18f5df25b47337cbede6f` and the exporter
+  enforces the upstream weights sha256
+  `9d9d8413c33e3d9d961d07c530237befa1197610b9d60602ff42fd77975d2a17`
+  to keep the weights drop reproducible. See
+  [ADR-0215](../../../docs/adr/0215-fastdvdnet-pre-filter.md) and
+  [ADR-0253](../../../docs/adr/0253-fastdvdnet-pre-real-weights.md).
 - **`transnet_v2.c` 100-frame-window contract** (fork-local,
   ADR-0223 TransNet V2 shot-boundary detector is wired to
   the I/O contract `frames: float32 [1, 100, 3, 27, 48]`
