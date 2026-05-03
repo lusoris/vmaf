@@ -224,6 +224,15 @@ for the option-space digest.
   the row is the canonical record, the cache is a sidecar. A cache
   hit must produce a row that is bit-identical to a cache miss
   (modulo `encode_path`, which stays empty unless `--keep-encodes`).
+- **Sample-clip windows are mirrored on both sides** ([ADR-0297](../../docs/adr/0297-vmaf-tune-sample-clip.md)).
+  The encode side uses FFmpeg input-side `-ss <start> -t <N>`
+  (rawvideo demuxer fast-seek); the score side uses libvmaf's
+  `--frame_skip_ref` / `--frame_cnt`. They MUST stay in sync — the
+  centre-anchored window is computed once in `_resolve_sample_clip`
+  and threaded through both `EncodeRequest` and `ScoreRequest`. Do
+  not slice the reference YUV on disk into a temp file (the
+  zero-I/O frame-skip path is the design); do not use output-side
+  `-ss` (it decodes the full source first, defeating the speedup).
 
 ## Phase scope
 

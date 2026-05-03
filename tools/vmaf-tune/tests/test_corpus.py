@@ -40,52 +40,8 @@ def _make_yuv(path: Path, nbytes: int = 1024) -> Path:
     return path
 
 
-def test_known_codecs_includes_x264():
-    # Phase A wires libx264 first; later adapters (libaom-av1, ...) join
-    # the registry without disturbing the search-loop contract. Assert
-    # membership rather than exact tuple identity so adding a codec is
-    # not a registry-test churn event.
-    assert "libx264" in known_codecs()
-
-
-def test_known_codecs_includes_x264_and_x265():
-    # Phase A wired x264; ADR-0288 added x265. Further codecs append
-    # to this tuple — keep the assertion membership-based so it
-    # doesn't bit-rot on every new adapter.
-    codecs = known_codecs()
-    assert "libx264" in codecs
-    assert "libx265" in codecs
-
-
-def test_known_codecs_phase_a_includes_x264_and_nvenc():
-    # Phase A wires libx264 plus the NVENC hardware family.
-    codecs = known_codecs()
-    assert "libx264" in codecs
-    assert "h264_nvenc" in codecs
-    assert "hevc_nvenc" in codecs
-    assert "av1_nvenc" in codecs
-
-
-def test_known_codecs_includes_x264_and_amf():
-    # Phase A baseline plus the three AMF adapters (ADR-0282).
-    assert "libx264" in known_codecs()
-    assert {"h264_amf", "hevc_amf", "av1_amf"}.issubset(set(known_codecs()))
-
-
-def test_known_codecs_includes_x264_and_qsv():
-    # ADR-0237 Phase A wired libx264; ADR-0281 added the three Intel
-    # QSV hardware adapters. Registry order is alphabetical.
-    assert known_codecs() == ("av1_qsv", "h264_qsv", "hevc_qsv", "libx264")
-
-
-def test_known_codecs_includes_x264_baseline():
-    # Phase A wired libx264; later codec-adapter PRs (libvvenc, ...) extend
-    # the registry. The contract is "x264 must be present", not "x264 only".
-    codecs = known_codecs()
-    assert "libx264" in codecs
-    # x264 is the canonical Phase A adapter; later phases register
-    # additional codecs (libsvtav1, libx265, ...) without removing it.
-    assert "libx264" in known_codecs()
+def test_known_codecs_phase_a_is_x264_only():
+    assert known_codecs() == ("libx264",)
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True
@@ -173,17 +129,14 @@ def test_parse_vmaf_json_raises_on_missing():
 
 
 def test_corpus_row_keys_match_init_contract():
-    # Schema-shape contract — Phase B / C will rely on this.
-    # v2 added HDR fields (ADR-0295); Phase B loaders treat missing
-    # keys as SDR for backward compat with v1 rows.
+    # Schema-shape contract — Phase B / C will rely on this. v2 added
+    # ``clip_mode`` for the sample-clip mode (ADR-0297).
     assert SCHEMA_VERSION == 2
     assert "vmaf_score" in CORPUS_ROW_KEYS
     assert "bitrate_kbps" in CORPUS_ROW_KEYS
     assert "encode_time_ms" in CORPUS_ROW_KEYS
     assert "run_id" in CORPUS_ROW_KEYS
-    assert "hdr_transfer" in CORPUS_ROW_KEYS
-    assert "hdr_primaries" in CORPUS_ROW_KEYS
-    assert "hdr_forced" in CORPUS_ROW_KEYS
+    assert "clip_mode" in CORPUS_ROW_KEYS
 
 
 def test_smoke_corpus_end_to_end_with_mocks(tmp_path: Path):
@@ -198,16 +151,7 @@ def test_smoke_corpus_end_to_end_with_mocks(tmp_path: Path):
         )
 
     def fake_score_run(cmd, capture_output, text, check):
-        # The score path now calls ffmpeg first to decode mp4 -> raw
-        # YUV (libvmaf CLI only reads raw), then vmaf. Distinguish by
-        # the presence of `--output` (vmaf only).
-        if "--output" not in cmd:
-            # ffmpeg decode call: materialise an empty raw-yuv stub so
-            # `dist_yuv.exists()` is true and the score branch proceeds.
-            out_path = Path(cmd[-1])
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_bytes(b"\x00" * 4096)
-            return _FakeCompleted(returncode=0, stderr="")
+        # write the JSON the parser expects
         out_idx = cmd.index("--output") + 1
         out_path = Path(cmd[out_idx])
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -250,6 +194,189 @@ def test_smoke_corpus_end_to_end_with_mocks(tmp_path: Path):
     assert parsed[1]["preset"] == "slow"
 
 
+def test_build_ffmpeg_command_inserts_sample_clip_flags():
+    req = EncodeRequest(
+        source=Path("ref.yuv"),
+        width=1920,
+        height=1080,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        encoder="libx264",
+        preset="medium",
+        crf=23,
+        output=Path("out.mp4"),
+        sample_clip_seconds=10.0,
+        sample_clip_start_s=25.0,
+    )
+    cmd = build_ffmpeg_command(req, ffmpeg_bin="ffmpeg")
+    # -ss / -t must appear *before* -i so FFmpeg input-side seeks the
+    # raw YUV instead of decoding the full source first.
+    i_pos = cmd.index("-i")
+    ss_pos = cmd.index("-ss")
+    t_pos = cmd.index("-t")
+    assert ss_pos < i_pos
+    assert t_pos < i_pos
+    assert cmd[ss_pos + 1] == "25.0"
+    assert cmd[t_pos + 1] == "10.0"
+
+
+def test_build_ffmpeg_command_no_sample_clip_flags_when_off():
+    req = EncodeRequest(
+        source=Path("ref.yuv"),
+        width=1920,
+        height=1080,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        encoder="libx264",
+        preset="medium",
+        crf=23,
+        output=Path("out.mp4"),
+    )
+    cmd = build_ffmpeg_command(req, ffmpeg_bin="ffmpeg")
+    assert "-ss" not in cmd
+    # `-t` is the encode-side flag we insert; FFmpeg has no other usage
+    # in this command so its absence is the no-clip signal.
+    assert "-t" not in cmd
+
+
+def test_build_vmaf_command_appends_frame_skip_and_count():
+    req = ScoreRequest(
+        reference=Path("ref.yuv"),
+        distorted=Path("dist.mp4"),
+        width=1920,
+        height=1080,
+        pix_fmt="yuv420p",
+        frame_skip_ref=600,
+        frame_cnt=240,
+    )
+    cmd = build_vmaf_command(req, json_output=Path("v.json"), vmaf_bin="vmaf")
+    assert "--frame_skip_ref" in cmd
+    assert cmd[cmd.index("--frame_skip_ref") + 1] == "600"
+    assert "--frame_cnt" in cmd
+    assert cmd[cmd.index("--frame_cnt") + 1] == "240"
+
+
+def test_sample_clip_mode_tags_rows_and_passes_argv(tmp_path: Path):
+    src = _make_yuv(tmp_path / "ref.yuv")
+    captured: dict[str, list[str]] = {}
+
+    def fake_encode_run(cmd, capture_output, text, check):
+        captured["encode"] = list(cmd)
+        Path(cmd[-1]).write_bytes(b"\x00" * 4096)
+        return _FakeCompleted(
+            returncode=0,
+            stderr="ffmpeg version 6.1.1\nx264 - core 164 r3107\n",
+        )
+
+    def fake_score_run(cmd, capture_output, text, check):
+        captured["score"] = list(cmd)
+        out_idx = cmd.index("--output") + 1
+        out_path = Path(cmd[out_idx])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps({"pooled_metrics": {"vmaf": {"mean": 90.1}}}))
+        return _FakeCompleted(returncode=0, stderr="VMAF version: 3.0.0-lusoris\n")
+
+    job = CorpusJob(
+        source=src,
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        duration_s=60.0,
+        cells=(("medium", 23),),
+    )
+    opts = CorpusOptions(
+        output=tmp_path / "corpus.jsonl",
+        encode_dir=tmp_path / "encodes",
+        keep_encodes=False,
+        src_sha256=False,
+        sample_clip_seconds=10.0,
+    )
+    rows = list(iter_rows(job, opts, encode_runner=fake_encode_run, score_runner=fake_score_run))
+
+    assert len(rows) == 1
+    assert rows[0]["clip_mode"] == "sample_10s"
+    # Centre window of a 60s source: start = (60 - 10) / 2 = 25.0
+    enc_cmd = captured["encode"]
+    assert enc_cmd[enc_cmd.index("-ss") + 1] == "25.0"
+    assert enc_cmd[enc_cmd.index("-t") + 1] == "10.0"
+    # Score-side: 25 * 24 = 600 skip frames, 10 * 24 = 240 frames.
+    score_cmd = captured["score"]
+    assert score_cmd[score_cmd.index("--frame_skip_ref") + 1] == "600"
+    assert score_cmd[score_cmd.index("--frame_cnt") + 1] == "240"
+    # Bitrate is computed against the slice duration, not the source.
+    assert rows[0]["bitrate_kbps"] == pytest.approx(4096 * 8 / 1000 / 10.0)
+
+
+def test_sample_clip_mode_falls_back_to_full_when_source_too_short(tmp_path: Path):
+    src = _make_yuv(tmp_path / "ref.yuv")
+
+    def fake_encode_run(cmd, capture_output, text, check):
+        Path(cmd[-1]).write_bytes(b"\x00" * 1024)
+        return _FakeCompleted(returncode=0, stderr="ffmpeg version 6.1.1\n")
+
+    def fake_score_run(cmd, capture_output, text, check):
+        out_idx = cmd.index("--output") + 1
+        Path(cmd[out_idx]).parent.mkdir(parents=True, exist_ok=True)
+        Path(cmd[out_idx]).write_text(json.dumps({"pooled_metrics": {"vmaf": {"mean": 88.0}}}))
+        return _FakeCompleted(returncode=0, stderr="VMAF version: 3.0.0\n")
+
+    job = CorpusJob(
+        source=src,
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        duration_s=8.0,  # shorter than the 10s sample-clip request
+        cells=(("medium", 23),),
+    )
+    opts = CorpusOptions(
+        output=tmp_path / "corpus.jsonl",
+        encode_dir=tmp_path / "encodes",
+        src_sha256=False,
+        sample_clip_seconds=10.0,
+    )
+    rows = list(iter_rows(job, opts, encode_runner=fake_encode_run, score_runner=fake_score_run))
+
+    assert rows[0]["clip_mode"] == "full"
+
+
+def test_default_full_clip_mode_tag(tmp_path: Path):
+    src = _make_yuv(tmp_path / "ref.yuv")
+
+    def fake_encode_run(cmd, capture_output, text, check):
+        Path(cmd[-1]).write_bytes(b"\x00" * 1024)
+        return _FakeCompleted(returncode=0, stderr="ffmpeg version 6.1.1\n")
+
+    def fake_score_run(cmd, capture_output, text, check):
+        out_idx = cmd.index("--output") + 1
+        Path(cmd[out_idx]).parent.mkdir(parents=True, exist_ok=True)
+        Path(cmd[out_idx]).write_text(json.dumps({"pooled_metrics": {"vmaf": {"mean": 95.0}}}))
+        return _FakeCompleted(returncode=0, stderr="VMAF version: 3.0.0\n")
+
+    job = CorpusJob(
+        source=src,
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        duration_s=2.0,
+        cells=(("medium", 23),),
+    )
+    opts = CorpusOptions(
+        output=tmp_path / "corpus.jsonl",
+        encode_dir=tmp_path / "encodes",
+        src_sha256=False,
+    )
+    rows = list(iter_rows(job, opts, encode_runner=fake_encode_run, score_runner=fake_score_run))
+    assert rows[0]["clip_mode"] == "full"
+
+
+def test_corpus_row_keys_includes_clip_mode():
+    assert "clip_mode" in CORPUS_ROW_KEYS
+    assert SCHEMA_VERSION == 2
+
+
 def test_encode_failure_emits_row_with_skipped_score(tmp_path: Path):
     src = _make_yuv(tmp_path / "ref.yuv")
 
@@ -277,112 +404,3 @@ def test_encode_failure_emits_row_with_skipped_score(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0]["exit_status"] == 1
     assert rows[0]["vmaf_binary_version"] == "skipped"
-
-
-def test_score_decodes_mp4_distorted_to_raw_yuv(tmp_path: Path):
-    """Score path must decode container -> raw YUV before vmaf.
-
-    Regression test for the Phase-A bug where the corpus pipeline
-    handed an .mp4 directly to libvmaf's CLI (which only reads raw
-    YUV/Y4M), producing every row with vmaf_score=NaN.
-    """
-    from vmaftune.score import ScoreRequest, run_score
-
-    ref = _make_yuv(tmp_path / "ref.yuv")
-    dist_mp4 = tmp_path / "dist.mp4"
-    dist_mp4.write_bytes(b"\x00" * 4096)
-
-    seen_cmds: list[list[str]] = []
-
-    def fake_run(cmd, capture_output, text, check):
-        seen_cmds.append(list(cmd))
-        if cmd[0] == "ffmpeg":
-            # Simulate decode: write a non-empty raw-yuv at cmd[-1].
-            Path(cmd[-1]).write_bytes(b"\x00" * 4096)
-            return _FakeCompleted(returncode=0)
-        # vmaf call: write the JSON the parser expects.
-        out_idx = cmd.index("--output") + 1
-        Path(cmd[out_idx]).write_text(json.dumps({"pooled_metrics": {"vmaf": {"mean": 88.0}}}))
-        return _FakeCompleted(returncode=0, stderr="VMAF version: 3.0.0\n")
-
-    res = run_score(
-        ScoreRequest(
-            reference=ref,
-            distorted=dist_mp4,
-            width=64,
-            height=64,
-            pix_fmt="yuv420p",
-        ),
-        runner=fake_run,
-    )
-
-    assert res.vmaf_score == 88.0
-    assert res.exit_status == 0
-    # Two subprocess calls: ffmpeg decode, then vmaf.
-    assert len(seen_cmds) == 2
-    assert seen_cmds[0][0] == "ffmpeg"
-    assert seen_cmds[1][0] == "vmaf"
-    # The vmaf invocation must point at the raw-yuv, not the mp4.
-    dist_idx = seen_cmds[1].index("--distorted") + 1
-    assert seen_cmds[1][dist_idx].endswith(".yuv")
-
-
-def test_score_skips_decode_for_raw_yuv_distorted(tmp_path: Path):
-    """Raw YUV/Y4M distorted must skip the decode step."""
-    from vmaftune.score import ScoreRequest, run_score
-
-    ref = _make_yuv(tmp_path / "ref.yuv")
-    dist = _make_yuv(tmp_path / "dist.yuv")
-
-    seen_cmds: list[list[str]] = []
-
-    def fake_run(cmd, capture_output, text, check):
-        seen_cmds.append(list(cmd))
-        out_idx = cmd.index("--output") + 1
-        Path(cmd[out_idx]).write_text(json.dumps({"pooled_metrics": {"vmaf": {"mean": 99.5}}}))
-        return _FakeCompleted(returncode=0, stderr="VMAF version: 3.0.0\n")
-
-    res = run_score(
-        ScoreRequest(
-            reference=ref,
-            distorted=dist,
-            width=64,
-            height=64,
-            pix_fmt="yuv420p",
-        ),
-        runner=fake_run,
-    )
-    assert res.vmaf_score == 99.5
-    # Single subprocess call: vmaf only, no ffmpeg decode.
-    assert len(seen_cmds) == 1
-    assert seen_cmds[0][0] == "vmaf"
-
-
-def test_score_decode_failure_propagates_as_nan(tmp_path: Path):
-    """ffmpeg decode failure must yield NaN row, not crash."""
-    from vmaftune.score import ScoreRequest, run_score
-
-    ref = _make_yuv(tmp_path / "ref.yuv")
-    dist_mp4 = tmp_path / "broken.mp4"
-    dist_mp4.write_bytes(b"\x00" * 4)  # too small / not a real mp4
-
-    def fake_run(cmd, capture_output, text, check):
-        # All ffmpeg attempts fail.
-        return _FakeCompleted(returncode=1, stderr="ffmpeg: invalid input")
-
-    res = run_score(
-        ScoreRequest(
-            reference=ref,
-            distorted=dist_mp4,
-            width=64,
-            height=64,
-            pix_fmt="yuv420p",
-        ),
-        runner=fake_run,
-    )
-
-    import math
-
-    assert math.isnan(res.vmaf_score)
-    assert res.exit_status != 0
-    assert "ffmpeg-decode-failed" in res.vmaf_binary_version

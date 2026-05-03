@@ -103,6 +103,27 @@ cover several PRs in one workstream; cross-link from the ID heading.
   assert cmd[cmd.index('-crf') + 1] == '23'
   print('x264 dispatcher path OK')
   "
+### 0260 — `vmaf-tune --sample-clip-seconds` (ADR-0297)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/{cli,corpus,encode,score,__init__}.py`
+    — fork-local. No upstream Netflix/vmaf path overlap.
+  - `tools/vmaf-tune/tests/test_corpus.py`, `tools/vmaf-tune/AGENTS.md`,
+    `docs/usage/vmaf-tune.md`, `docs/adr/0297-vmaf-tune-sample-clip.md`,
+    `docs/adr/_index_fragments/0297-vmaf-tune-sample-clip.md`,
+    `docs/adr/_index_fragments/_order.txt`, `docs/adr/README.md`.
+- **Invariant**: corpus JSONL `SCHEMA_VERSION` bumped to `2` —
+  additive `clip_mode` key only. Sample-clip windows are mirrored on
+  both sides via FFmpeg input-side `-ss`/`-t` (encode) and libvmaf's
+  `--frame_skip_ref` / `--frame_cnt` (score). The
+  `_resolve_sample_clip()` helper is the single source of truth for
+  the centre-anchored slice math; do not duplicate the computation
+  elsewhere. Falls back silently to `"full"` when `N >= duration_s`.
+- **Re-test**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/ -q
+  python tools/vmaf-tune/vmaf-tune corpus --help | grep sample-clip
   ```
 
 ### 0227 — `tools/vmaf-tune/` Phase A scaffold (ADR-0237 Phase A)
