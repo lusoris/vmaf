@@ -6441,38 +6441,50 @@ inline.*
   five decades. See
   [Research-0047](research/0051-ssimulacra2-gpu-xyb-precision.md).
 
-### 0126 — FastDVDnet real upstream weights drop (ADR-0253)
 
-- **What changed**: replaces `model/tiny/fastdvdnet_pre.onnx` with
-  the wrapped real upstream FastDVDnet checkpoint (sha256
-  `eb9444cf6f07eefdc7f4f68d09131074dbd1dcee6f88a331ba684dd2fb5937d4`,
-  ~9.5 MiB), refreshes the sidecar `model/tiny/fastdvdnet_pre.json`,
-  flips the registry row's `smoke: true → false` and adds
-  `license: "MIT"` + the upstream commit pin `c8fdf61`. New exporter
-  `ai/scripts/export_fastdvdnet_pre.py` (the older
-  `_placeholder.py` exporter is retained for reference). New ADR
-  `docs/adr/0255-fastdvdnet-pre-real-weights.md`; user-facing doc
-  `docs/ai/models/fastdvdnet_pre.md` rewritten with provenance,
-  license attribution, and reproduce-the-export instructions.
-- **Upstream source**: fork-local. Netflix/vmaf does not ship a
-  FastDVDnet temporal pre-filter; the C extractor and ONNX surface
-  are entirely fork-introduced (ADR-0215). The wrapped weights are
-  attribution-only (upstream `m-tassano/fastdvdnet` MIT).
-- **On upstream sync**: zero interaction. Every file touched
-  (`ai/scripts/export_fastdvdnet_pre*.py`, `model/tiny/fastdvdnet_pre.*`,
-  `docs/ai/models/fastdvdnet_pre.md`, `docs/adr/0253-*.md`,
-  CHANGELOG fragment, ADR index fragment) lives in fork-introduced
-  trees.
+### T7-5 — readability-function-size NOLINT sweep (ADR-0141)
+
+- **ADR**: [ADR-0141](adr/0141-touched-file-cleanup-rule.md)
+- **Touches**:
+  - `libvmaf/src/feature/float_adm.c` — extracted `append_debug_features`
+    helper from `extract` (no behavioural change; the per-scale append
+    order matches the original inline block byte-for-byte).
+  - `libvmaf/tools/vmaf.c` — extracted eight CLI-driver helpers from
+    `main` (`open_input_videos`, `init_gpu_backends`,
+    `allocate_model_arrays`, `model_label`, `load_model_collection_entry`,
+    `load_one_model_entry`, `configure_tiny_model`, `resolve_tiny_device`,
+    `skip_initial_frames`, `run_frame_loop`, `report_pooled_scores`).
+- **Invariant**: the goto-cleanup ownership chain in `main` must
+  unwind in reverse-init order on every exit path; helpers pass
+  cleanup-relevant pointers (`file_ref`, `vid_ref_open`, `sycl_state`,
+  `model_collection_cnt`, ...) by reference to keep that contract.
+  The remaining `// NOLINTNEXTLINE(readability-function-size,...)`
+  on `main`, `init_gpu_backends`, and `copy_picture_data` carries
+  inline justification — further extraction would obscure either
+  the cleanup spine or the conditional-compilation backend
+  priority chain (SYCL > CUDA > Vulkan).
 - **Re-test on rebase**:
 
   ```bash
-  # Re-derive the ONNX from the pinned upstream checkpoint.
-  mkdir -p /tmp/fastdvdnet_upstream && cd /tmp/fastdvdnet_upstream
-  curl -L -O https://raw.githubusercontent.com/m-tassano/fastdvdnet/c8fdf61/model.pth
-  curl -L -O https://raw.githubusercontent.com/m-tassano/fastdvdnet/c8fdf61/models.py
-  cd /path/to/vmaf
-  python3 ai/scripts/export_fastdvdnet_pre.py \
-      --upstream-dir /tmp/fastdvdnet_upstream
-  python3 ai/scripts/validate_model_registry.py
-  meson test -C build --suite=fast --print-errorlogs test_fastdvdnet_pre
+  cd libvmaf
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  cd ..
+  PYTHONPATH=$(pwd)/python python3 -m pytest \
+    python/test/feature_extractor_test.py \
+    python/test/vmafexec_test.py \
+    python/test/vmafexec_feature_extractor_test.py \
+    python/test/quality_runner_test.py \
+    -m "not slow" -k "vmaf or adm or feature" --tb=line -q
+  # Expect: 90 + 57 + 9 VMAF-specific tests PASS;
+  # 7 pypsnr + 1 niqe pre-existing failures unchanged.
   ```
+
+- **Why this matters on rebase**: an upstream merge that touches
+  `tools/vmaf.c` (Netflix CLI tweaks land there occasionally) will
+  conflict on whichever helper boundary the upstream patch crosses.
+  Resolution policy: keep the fork's helper decomposition (the eight
+  extracted functions) and re-port the upstream change *into* the
+  appropriate helper rather than re-inlining it back into `main`.
+  Same for `float_adm.c::extract` — keep `append_debug_features`
+  intact and route any upstream debug-output changes into it.

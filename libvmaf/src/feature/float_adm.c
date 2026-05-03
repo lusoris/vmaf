@@ -129,8 +129,41 @@ fail:
     return -ENOMEM;
 }
 
-// ADR-0141 / T7-5 sweep: pre-2026-04-21 historical debt; this PR only updates picture_copy() signature.
-// NOLINTNEXTLINE(readability-function-size)
+/* Append the per-scale debug features. Called only when s->debug is set;
+ * preserves the exact append order of the historical inline block.
+ */
+static int append_debug_features(VmafFeatureCollector *feature_collector,
+                                 VmafDictionary *feature_name_dict, double score, double score_num,
+                                 double score_den, const double scores[8], unsigned index)
+{
+    int err = 0;
+
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict, "adm",
+                                                   score, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict, "adm_num",
+                                                   score_num, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict, "adm_den",
+                                                   score_den, index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict,
+                                                   "adm_num_scale0", scores[0], index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict,
+                                                   "adm_den_scale0", scores[1], index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict,
+                                                   "adm_num_scale1", scores[2], index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict,
+                                                   "adm_den_scale1", scores[3], index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict,
+                                                   "adm_num_scale2", scores[4], index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict,
+                                                   "adm_den_scale2", scores[5], index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict,
+                                                   "adm_num_scale3", scores[6], index);
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, feature_name_dict,
+                                                   "adm_den_scale3", scores[7], index);
+
+    return err;
+}
+
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
@@ -177,38 +210,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (!s->debug)
         return err;
 
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, "adm",
-                                                   score, index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_num", score_num, index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_den", score_den, index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_num_scale0", scores[0], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_den_scale0", scores[1], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_num_scale1", scores[2], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_den_scale1", scores[3], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_num_scale2", scores[4], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_den_scale2", scores[5], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_num_scale3", scores[6], index);
-
-    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "adm_den_scale3", scores[7], index);
+    err |= append_debug_features(feature_collector, s->feature_name_dict, score, score_num,
+                                 score_den, scores, index);
 
     return err;
 }
@@ -242,6 +245,10 @@ static const char *provided_features[] = {"VMAF_feature_adm2_score",
                                           "adm_den_scale3",
                                           NULL};
 
+// Registered via extern in src/feature/feature_extractor.c — must keep
+// external linkage despite no in-TU users (misc-use-internal-linkage
+// is a false positive for the feature-registry pattern).
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 VmafFeatureExtractor vmaf_fex_float_adm = {
     .name = "float_adm",
     .init = init,
