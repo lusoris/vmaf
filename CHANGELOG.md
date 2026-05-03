@@ -181,6 +181,27 @@
   [Research-0054](docs/research/0064-vmaf-tune-resolution-aware.md).
   17 new tests in
   [`tools/vmaf-tune/tests/test_resolution.py`](tools/vmaf-tune/tests/test_resolution.py).
+- **`vmaf-tune` NVENC codec adapters — `h264_nvenc`, `hevc_nvenc`,
+  `av1_nvenc` (ADR-0290).** Wires the NVIDIA NVENC family into
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/` as three new
+  adapter files plus a shared `_nvenc_common.py` helper that owns
+  the mnemonic preset map (`ultrafast`..`placebo` → `p1`..`p7`)
+  and the constant-quantizer hard window `[0, 51]`. Hardware
+  encoders are 10–100× faster than software at the cost of ~3–5
+  VMAF points at matched bitrate; the R-D curve is codec-distinct
+  not codec-shifted, so they ship as separate codec entries rather
+  than a flag on `libx264`. Registry now exposes
+  `known_codecs() == ("av1_nvenc", "h264_nvenc", "hevc_nvenc",
+  "libx264")`. Test coverage: parametrised suite under
+  `tools/vmaf-tune/tests/test_codec_adapter_nvenc.py` (preset
+  mapping, CQ range validation, encoder-not-found subprocess
+  simulation). Documentation:
+  [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md) "Hardware
+  encoders (NVENC)" section. Follow-up filed: `fr_regressor_v2`
+  codec one-hot expansion from 6 → ≥ 12 slots before training v2
+  on a corpus that includes hardware codecs. Companion research
+  digest:
+  [`docs/research/0065-vmaf-tune-nvenc-adapters.md`](docs/research/0065-vmaf-tune-nvenc-adapters.md).
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

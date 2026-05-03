@@ -62,6 +62,16 @@ for the option-space digest.
   single pattern, so the function dispatches on the encoder name. This
   branch is allowed; the corpus emitter and the search loop must still
   go through the registry.
+  wires `libx264` plus the NVENC family (`h264_nvenc`,
+  `hevc_nvenc`, `av1_nvenc` — see
+  [ADR-0290](../../docs/adr/0290-vmaf-tune-nvenc-adapters.md)).
+  `codec_adapters/__init__.py` exposes a registry the search loop
+  must use uniformly. Do not branch on codec name in `corpus.py` /
+  `encode.py` / `score.py`; route via the adapter. New codecs are
+  one-file additions under `codec_adapters/`. Hardware-encoder
+  families share private helpers (e.g. `_nvenc_common.py`) — keep
+  the mnemonic preset map and CQ window in one place per family so
+  the per-codec files stay thin.
 - **Subprocess boundary is the test seam.** `encode.run_encode` and
   `score.run_score` accept a `runner` argument that defaults to
   `subprocess.run`. Tests inject a fake; production callers leave it

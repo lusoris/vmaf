@@ -55,6 +55,13 @@ def test_known_codecs_includes_x264_and_x265():
     codecs = known_codecs()
     assert "libx264" in codecs
     assert "libx265" in codecs
+def test_known_codecs_phase_a_includes_x264_and_nvenc():
+    # Phase A wires libx264 plus the NVENC hardware family.
+    codecs = known_codecs()
+    assert "libx264" in codecs
+    assert "h264_nvenc" in codecs
+    assert "hevc_nvenc" in codecs
+    assert "av1_nvenc" in codecs
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True
