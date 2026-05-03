@@ -103,7 +103,14 @@ static int validate_videos(video_input *vid1, video_input *vid2, bool common_bit
     return err_cnt;
 }
 
-// Copy video input data to picture buffer
+/* Copy video input data to picture buffer. The four bit-depth × component
+ * branches (8-bit Y/U/V, 10-bit Y/U/V, 16-bit packed) duplicate the per-row
+ * loop with different per-sample casts; folding them through a function
+ * pointer would cost a per-row indirect call on every frame, so the
+ * branches stay inline. The nesting-level warning is structural to YUV
+ * (plane × row × column) — splitting wouldn't reduce it.
+ */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr, video_input_info *info,
                               int depth)
 {
@@ -112,8 +119,9 @@ static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr, video_i
             for (unsigned i = 0; i < 3; i++) {
                 int xdec = i && !(info->pixel_fmt & 1);
                 int ydec = i && !(info->pixel_fmt & 2);
-                uint8_t *ycbcr_data =
-                    ycbcr[i].data + (info->pic_y >> ydec) * ycbcr[i].stride + (info->pic_x >> xdec);
+                uint8_t *ycbcr_data = ycbcr[i].data +
+                                      (size_t)(info->pic_y >> ydec) * ycbcr[i].stride +
+                                      (info->pic_x >> xdec);
                 uint8_t *pic_data = pic->data[i];
 
                 for (unsigned j = 0; j < pic->h[i]; j++) {
@@ -127,7 +135,7 @@ static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr, video_i
                 int xdec = i && !(info->pixel_fmt & 1);
                 int ydec = i && !(info->pixel_fmt & 2);
                 uint16_t *ycbcr_data = (uint16_t *)ycbcr[i].data +
-                                       (info->pic_y >> ydec) * (ycbcr[i].stride / 2) +
+                                       (size_t)(info->pic_y >> ydec) * (ycbcr[i].stride / 2) +
                                        (info->pic_x >> xdec);
                 uint16_t *pic_data = pic->data[i];
 
@@ -146,8 +154,9 @@ static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr, video_i
             for (unsigned i = 0; i < 3; i++) {
                 int xdec = i && !(info->pixel_fmt & 1);
                 int ydec = i && !(info->pixel_fmt & 2);
-                uint8_t *ycbcr_data =
-                    ycbcr[i].data + (info->pic_y >> ydec) * ycbcr[i].stride + (info->pic_x >> xdec);
+                uint8_t *ycbcr_data = ycbcr[i].data +
+                                      (size_t)(info->pic_y >> ydec) * ycbcr[i].stride +
+                                      (info->pic_x >> xdec);
                 uint16_t *pic_data = (uint16_t *)pic->data[i];
 
                 for (unsigned j = 0; j < pic->h[i]; j++) {
@@ -163,7 +172,7 @@ static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr, video_i
                 int xdec = i && !(info->pixel_fmt & 1);
                 int ydec = i && !(info->pixel_fmt & 2);
                 uint16_t *ycbcr_data = (uint16_t *)ycbcr[i].data +
-                                       (info->pic_y >> ydec) * (ycbcr[i].stride / 2) +
+                                       (size_t)(info->pic_y >> ydec) * (ycbcr[i].stride / 2) +
                                        (info->pic_x >> xdec);
                 uint16_t *pic_data = pic->data[i];
 
@@ -201,7 +210,527 @@ static int fetch_picture(VmafContext *vmaf, video_input *vid, VmafPicture *pic, 
     return 0;
 }
 
-/* NOLINTNEXTLINE(readability-function-size) */
+/* Allocate and zero the three parallel arrays the CLI uses to track loaded
+ * models, model-collection slots, and the corresponding labels for status
+ * output. The output pointers are zero-initialised, so the cleanup block
+ * can call vmaf_model_destroy() / vmaf_model_collection_destroy() safely
+ * over arrays that may be partially populated.
+ */
+static int allocate_model_arrays(unsigned model_cnt, VmafModel ***model,
+                                 VmafModelCollection ***model_collection,
+                                 const char ***model_collection_label)
+{
+    const size_t model_sz = sizeof(**model) * model_cnt;
+    *model = (VmafModel **)malloc(model_sz);
+    if (!*model)
+        return -1;
+    memset((void *)*model, 0, model_sz);
+
+    const size_t model_collection_sz = sizeof(**model_collection) * model_cnt;
+    *model_collection = (VmafModelCollection **)malloc(model_collection_sz);
+    if (!*model_collection)
+        return -1;
+    memset((void *)*model_collection, 0, model_collection_sz);
+
+    const size_t label_sz = sizeof(**model_collection_label) * model_cnt;
+    *model_collection_label = (const char **)malloc(label_sz);
+    if (!*model_collection_label)
+        return -1;
+    memset((void *)*model_collection_label, 0, label_sz);
+
+    return 0;
+}
+
+/* Helper: pick the human-readable label (version preferred over path) for
+ * the given model-config entry, used in error messages.
+ */
+static const char *model_label(const CLISettings *c, unsigned i)
+{
+    return c->model_config[i].version ? c->model_config[i].version : c->model_config[i].path;
+}
+
+/* Initialise a model-collection slot for entry `i`. The caller passes the
+ * current `*slot` index; on any failure path this helper bumps `*slot`
+ * before returning so the caller's cleanup loop unwinds the partially
+ * initialised entry. Returns 0 on success.
+ */
+static int load_model_collection_entry(VmafContext *vmaf, CLISettings *c, unsigned i,
+                                       VmafModel **model, VmafModelCollection **model_collection,
+                                       const char **model_collection_label, unsigned *slot)
+{
+    int err;
+
+    if (c->model_config[i].version) {
+        err = vmaf_model_collection_load(&model[i], &model_collection[*slot],
+                                         &c->model_config[i].cfg, c->model_config[i].version);
+    } else {
+        err = vmaf_model_collection_load_from_path(
+            &model[i], &model_collection[*slot], &c->model_config[i].cfg, c->model_config[i].path);
+    }
+
+    if (err) {
+        (void)fprintf(stderr, "problem loading model: %s\n", model_label(c, i));
+        return -1;
+    }
+
+    model_collection_label[*slot] = model_label(c, i);
+
+    for (unsigned j = 0; j < c->model_config[i].overload_cnt; j++) {
+        err = vmaf_model_collection_feature_overload(
+            model[i], &model_collection[*slot], c->model_config[i].feature_overload[j].name,
+            c->model_config[i].feature_overload[j].opts_dict);
+        if (err) {
+            (void)fprintf(stderr,
+                          "problem overloading feature extractors from model collection: %s\n",
+                          model_label(c, i));
+            (*slot)++;
+            return -1;
+        }
+    }
+
+    err = vmaf_use_features_from_model_collection(vmaf, model_collection[*slot]);
+    if (err) {
+        (void)fprintf(stderr, "problem loading feature extractors from model collection: %s\n",
+                      model_label(c, i));
+        (*slot)++;
+        return -1;
+    }
+
+    (*slot)++;
+    return 0;
+}
+
+/* Load a single model entry from the CLI configuration. Handles the model
+ * vs model-collection fallback that the `--model` option's overloaded
+ * semantics require.
+ */
+static int load_one_model_entry(VmafContext *vmaf, CLISettings *c, unsigned i, VmafModel **model,
+                                VmafModelCollection **model_collection,
+                                const char **model_collection_label, unsigned *model_collection_cnt)
+{
+    int err;
+
+    if (c->model_config[i].version) {
+        err = vmaf_model_load(&model[i], &c->model_config[i].cfg, c->model_config[i].version);
+    } else {
+        err =
+            vmaf_model_load_from_path(&model[i], &c->model_config[i].cfg, c->model_config[i].path);
+    }
+
+    /* `--model` is overloaded: if a single-model load fails, fall back to
+     * loading the same identifier as a model collection.
+     */
+    if (err) {
+        return load_model_collection_entry(vmaf, c, i, model, model_collection,
+                                           model_collection_label, model_collection_cnt);
+    }
+
+    for (unsigned j = 0; j < c->model_config[i].overload_cnt; j++) {
+        err = vmaf_model_feature_overload(model[i], c->model_config[i].feature_overload[j].name,
+                                          c->model_config[i].feature_overload[j].opts_dict);
+        if (err) {
+            (void)fprintf(stderr, "problem overloading feature extractors from model: %s\n",
+                          model_label(c, i));
+            return -1;
+        }
+    }
+
+    err = vmaf_use_features_from_model(vmaf, model[i]);
+    if (err) {
+        (void)fprintf(stderr, "problem loading feature extractors from model: %s\n",
+                      model_label(c, i));
+        return -1;
+    }
+
+    return 0;
+}
+
+/* Open both reference and distorted input streams (raw YUV via raw_input_open
+ * when --use_yuv is set, otherwise the codec auto-detection path via
+ * video_input_open). On success transfers FILE* ownership from *file_ref/dist
+ * to the corresponding video_input and zeros the pointers so the cleanup
+ * fclose() doesn't double-close. Sets *vid_ref_open / *vid_dist_open to true
+ * for cleanup unwinding. Returns 0 on success, -1 on any failure (caller
+ * should treat as fatal and `goto cleanup`).
+ */
+static int open_input_videos(const CLISettings *c, FILE **file_ref, FILE **file_dist,
+                             video_input *vid_ref, video_input *vid_dist, bool *vid_ref_open,
+                             bool *vid_dist_open)
+{
+    int err;
+
+    if (c->use_yuv) {
+        err = raw_input_open(vid_ref, *file_ref, c->width, c->height, c->pix_fmt, c->bitdepth);
+    } else {
+        err = video_input_open(vid_ref, *file_ref);
+    }
+    if (err) {
+        (void)fprintf(stderr, "problem with reference file: %s\n", c->path_ref);
+        return -1;
+    }
+    *vid_ref_open = true;
+    *file_ref = NULL; /* ownership transferred to vid_ref */
+
+    if (c->use_yuv) {
+        err = raw_input_open(vid_dist, *file_dist, c->width, c->height, c->pix_fmt, c->bitdepth);
+    } else {
+        err = video_input_open(vid_dist, *file_dist);
+    }
+    if (err) {
+        (void)fprintf(stderr, "problem with distorted file: %s\n", c->path_dist);
+        return -1;
+    }
+    *vid_dist_open = true;
+    *file_dist = NULL; /* ownership transferred to vid_dist */
+
+    err = validate_videos(vid_ref, vid_dist, c->common_bitdepth);
+    if (err) {
+        (void)fprintf(stderr, "videos are incompatible, %d %s.\n", err,
+                      err == 1 ? "problem" : "problems");
+        return -1;
+    }
+
+    return 0;
+}
+
+/* Initialise the GPU backends in declared priority order: SYCL first
+ * (preferred when --sycl_device or --gpumask is set), CUDA second
+ * (consulted only if SYCL was not activated), Vulkan last (explicit
+ * --vulkan_device opt-in, host-pic only). On a hard backend-import failure
+ * returns -1 so the caller can `goto cleanup`; soft init failures
+ * (state_init returning non-zero) silently fall back to CPU. The
+ * sycl/vulkan active flags + state pointers are passed by reference so
+ * the cleanup block can free them.
+ *
+ * The function is intentionally kept in a single TU even though three
+ * #ifdef-guarded backend stanzas push the line count just past the
+ * 60-line threshold. Splitting into per-backend helpers would multiply
+ * the `#if defined(HAVE_X)` decoration without making the activation
+ * priority chain (SYCL > CUDA > Vulkan) any clearer to a reader.
+ */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+static int init_gpu_backends(VmafContext *vmaf, const CLISettings *c
+#ifdef HAVE_SYCL
+                             ,
+                             VmafSyclState **sycl_state, bool *sycl_active
+#endif
+#ifdef HAVE_VULKAN
+                             ,
+                             VmafVulkanState **vulkan_state, bool *vulkan_active
+#endif
+)
+{
+    int err;
+    (void)vmaf;
+    (void)c;
+    (void)err;
+
+    // GPU backend initialization: each backend activates only when its
+    // specific flag is passed.  --gpumask enables the preferred backend
+    // (SYCL > CUDA).  --sycl_device selects
+    // that specific backend.  No flag = CPU only.
+#ifdef HAVE_SYCL
+    VmafSyclConfiguration sycl_cfg = {
+        .device_index = c->sycl_device >= 0 ? c->sycl_device : 0,
+    };
+    if ((c->sycl_device >= 0 || c->use_gpumask) && !c->no_sycl) {
+        err = vmaf_sycl_state_init(sycl_state, sycl_cfg);
+        if (err) {
+            (void)fprintf(stderr, "problem during vmaf_sycl_state_init, using CPU\n");
+        } else {
+            err = vmaf_sycl_import_state(vmaf, *sycl_state);
+            if (err) {
+                (void)fprintf(stderr, "problem during vmaf_sycl_import_state\n");
+                return -1;
+            }
+            *sycl_active = true;
+        }
+    }
+#endif
+#ifdef HAVE_CUDA
+    bool cuda_active = false;
+    VmafCudaState *cu_state;
+    VmafCudaConfiguration cuda_cfg = {0};
+    if (c->use_gpumask && !c->no_cuda
+#ifdef HAVE_SYCL
+        && !*sycl_active
+#endif
+    ) {
+        err = vmaf_cuda_state_init(&cu_state, cuda_cfg);
+        if (err) {
+            (void)fprintf(stderr, "problem during vmaf_cuda_state_init, using CPU\n");
+        } else {
+            err |= vmaf_cuda_import_state(vmaf, cu_state);
+            if (err) {
+                (void)fprintf(stderr, "problem during vmaf_cuda_import_state\n");
+                return -1;
+            }
+            cuda_active = true;
+        }
+    }
+    (void)cuda_active;
+#endif
+
+#ifdef HAVE_VULKAN
+    /* Vulkan opt-in: explicit --vulkan_device only. Unlike SYCL/CUDA
+     * the gpumask gate is not consulted; Vulkan is host-pic only and
+     * has no restricted-mode semantics yet. */
+    VmafVulkanConfiguration vulkan_cfg = {
+        .device_index = c->vulkan_device,
+        .enable_validation = 0,
+    };
+    if (c->vulkan_device >= 0 && !c->no_vulkan) {
+        err = vmaf_vulkan_state_init(vulkan_state, vulkan_cfg);
+        if (err) {
+            (void)fprintf(stderr, "problem during vmaf_vulkan_state_init (%d), using CPU\n", err);
+        } else {
+            err = vmaf_vulkan_import_state(vmaf, *vulkan_state);
+            if (err) {
+                (void)fprintf(stderr, "problem during vmaf_vulkan_import_state\n");
+                return -1;
+            }
+            *vulkan_active = true;
+        }
+    }
+    (void)*vulkan_active;
+#endif
+
+    return 0;
+}
+
+/* Translate the textual --tiny-device flag (cpu / cuda / openvino / rocm)
+ * into the corresponding VmafDnnDevice enum. Unknown values fall back to
+ * VMAF_DNN_DEVICE_AUTO so the runtime picks a default.
+ */
+static VmafDnnDevice resolve_tiny_device(const char *name)
+{
+    if (!name)
+        return VMAF_DNN_DEVICE_AUTO;
+    if (!strcmp(name, "cpu"))
+        return VMAF_DNN_DEVICE_CPU;
+    if (!strcmp(name, "cuda"))
+        return VMAF_DNN_DEVICE_CUDA;
+    if (!strcmp(name, "openvino"))
+        return VMAF_DNN_DEVICE_OPENVINO;
+    if (!strcmp(name, "rocm"))
+        return VMAF_DNN_DEVICE_ROCM;
+    return VMAF_DNN_DEVICE_AUTO;
+}
+
+/* Configure the tiny-AI (DNN) model on the VMAF context when --tiny-model
+ * is passed. Performs the optional Sigstore-bundle verification (T6-9 /
+ * ADR-0211) before opening the model so a signature failure short-circuits
+ * load and never touches ORT. Returns 0 on success, -1 on any failure
+ * (caller should treat as fatal and `goto cleanup`).
+ */
+static int configure_tiny_model(VmafContext *vmaf, const CLISettings *c)
+{
+    if (!c->tiny_model_path)
+        return 0;
+
+    if (!vmaf_dnn_available()) {
+        (void)fprintf(stderr,
+                      "--tiny-model requested (%s) but libvmaf was built "
+                      "without DNN support (-Denable_dnn=disabled).\n",
+                      c->tiny_model_path);
+        return -1;
+    }
+    /* T6-9 / ADR-0211 — Sigstore-bundle verification. Runs *before*
+     * the model is opened so a verification failure short-circuits
+     * load and never touches ORT. Fails closed: missing registry,
+     * missing bundle, missing cosign, or any non-zero cosign exit
+     * all refuse to proceed. */
+    if (c->tiny_model_verify) {
+        const int verr = vmaf_dnn_verify_signature(c->tiny_model_path, NULL);
+        if (verr != 0) {
+            (void)fprintf(stderr,
+                          "--tiny-model-verify: signature verification "
+                          "failed for %s (errno %d)\n",
+                          c->tiny_model_path, -verr);
+            return -1;
+        }
+    }
+    VmafDnnConfig dnn_cfg = {
+        .device = resolve_tiny_device(c->tiny_device),
+        .device_index = 0,
+        .threads = c->tiny_threads,
+        .fp16_io = c->tiny_fp16,
+    };
+    int err = vmaf_use_tiny_model(vmaf, c->tiny_model_path, &dnn_cfg);
+    if (err) {
+        (void)fprintf(stderr, "problem loading tiny model %s: %d\n", c->tiny_model_path, err);
+        return -1;
+    }
+
+    return 0;
+}
+
+/* Skip the first `c->frame_skip_ref` ref frames and `c->frame_skip_dist` dist
+ * frames, releasing each one back to the picture pool. fetch_picture() reserves
+ * a slot from the preallocated pool, and skipped frames are never handed to
+ * vmaf_read_pictures() to release them; without unref the pool is exhausted
+ * after N skips and the next fetch blocks indefinitely.
+ */
+static void skip_initial_frames(VmafContext *vmaf, video_input *vid_ref, video_input *vid_dist,
+                                const CLISettings *c, int common_bitdepth)
+{
+    VmafPicture pic_ref_skip;
+    VmafPicture pic_dist_skip;
+
+    for (unsigned i = 0; i < c->frame_skip_ref; i++) {
+        if (fetch_picture(vmaf, vid_ref, &pic_ref_skip, common_bitdepth))
+            break;
+        if (vmaf_picture_unref(&pic_ref_skip))
+            (void)fprintf(stderr, "\nproblem during vmaf_picture_unref (skip ref)\n");
+    }
+
+    for (unsigned i = 0; i < c->frame_skip_dist; i++) {
+        if (fetch_picture(vmaf, vid_dist, &pic_dist_skip, common_bitdepth))
+            break;
+        if (vmaf_picture_unref(&pic_dist_skip))
+            (void)fprintf(stderr, "\nproblem during vmaf_picture_unref (skip dist)\n");
+    }
+}
+
+/* Drive the main per-frame fetch + process loop. Returns the number of frames
+ * successfully consumed (the post-increment `picture_index` value the original
+ * inline loop used to compute `picture_index - 1` in pooling). Stops at EOF
+ * on either side, on read errors, or when c->frame_cnt is reached.
+ */
+static unsigned run_frame_loop(VmafContext *vmaf, video_input *vid_ref, video_input *vid_dist,
+                               const CLISettings *c, int common_bitdepth, int istty)
+{
+    float fps = 0.;
+    const time_t t0 = clock();
+    unsigned picture_index;
+    for (picture_index = 0;; picture_index++) {
+
+        if (c->frame_cnt && picture_index >= c->frame_cnt)
+            break;
+
+        VmafPicture pic_ref;
+        VmafPicture pic_dist;
+        int ret1 = fetch_picture(vmaf, vid_ref, &pic_ref, common_bitdepth);
+        int ret2 = fetch_picture(vmaf, vid_dist, &pic_dist, common_bitdepth);
+
+        if (ret1 && ret2) {
+            break;
+        } else if (ret1 < 0 || ret2 < 0) {
+            (void)fprintf(stderr, "\nproblem while reading pictures\n");
+            break;
+        } else if (ret1) {
+            (void)fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c->path_ref, c->path_dist);
+            int err_unref = vmaf_picture_unref(&pic_dist);
+            if (err_unref)
+                (void)fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
+            break;
+        } else if (ret2) {
+            (void)fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c->path_dist, c->path_ref);
+            int err_unref = vmaf_picture_unref(&pic_ref);
+            if (err_unref)
+                (void)fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
+            break;
+        }
+
+        if (istty && !c->quiet) {
+            if (picture_index > 0 && !(picture_index % 10)) {
+                fps = (picture_index + 1) / (((float)clock() - t0) / CLOCKS_PER_SEC);
+            }
+
+            (void)fprintf(stderr, "\r%d frame%s %s %.2f FPS\033[K", picture_index + 1,
+                          picture_index ? "s" : " ", spinner[picture_index % spinner_length], fps);
+            (void)fflush(stderr);
+        }
+
+        int err = vmaf_read_pictures(vmaf, &pic_ref, &pic_dist, picture_index);
+        if (err) {
+            (void)fprintf(stderr, "\nproblem reading pictures\n");
+            break;
+        }
+    }
+    if (istty && !c->quiet)
+        (void)fprintf(stderr, "\n");
+
+    return picture_index;
+}
+
+/* Compute and report pooled VMAF scores for all loaded models and model
+ * collections. Called only when c->no_prediction is false. Returns 0 on
+ * success, non-zero on the first per-model scoring failure (caller should
+ * treat as fatal and `goto cleanup`).
+ */
+static int report_pooled_scores(VmafContext *vmaf, const CLISettings *c, VmafModel **model,
+                                VmafModelCollection **model_collection,
+                                const char **model_collection_label, unsigned model_collection_cnt,
+                                unsigned picture_index, int istty)
+{
+    int err = 0;
+
+    for (unsigned i = 0; i < c->model_cnt; i++) {
+        double vmaf_score;
+        err = vmaf_score_pooled(vmaf, model[i], VMAF_POOL_METHOD_MEAN, &vmaf_score, 0,
+                                picture_index - 1);
+        if (err) {
+            (void)fprintf(stderr, "problem generating pooled VMAF score\n");
+            return -1;
+        }
+
+        if (istty && (!c->quiet || !c->output_path)) {
+            (void)fprintf(stderr, "%s: ",
+                          c->model_config[i].version ? c->model_config[i].version :
+                                                       c->model_config[i].path);
+            (void)fprintf(stderr, c->precision_fmt, vmaf_score);
+            (void)fprintf(stderr, "\n");
+        }
+    }
+
+    for (unsigned i = 0; i < model_collection_cnt; i++) {
+        VmafModelCollectionScore score = {0};
+        err = vmaf_score_pooled_model_collection(vmaf, model_collection[i], VMAF_POOL_METHOD_MEAN,
+                                                 &score, 0, picture_index - 1);
+        if (err) {
+            (void)fprintf(stderr, "problem generating pooled VMAF score\n");
+            return -1;
+        }
+
+        switch (score.type) {
+        case VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP:
+            if (istty && (!c->quiet || !c->output_path)) {
+                (void)fprintf(stderr, "%s: ", model_collection_label[i]);
+                (void)fprintf(stderr, c->precision_fmt, score.bootstrap.bagging_score);
+                (void)fprintf(stderr, ", ci.p95: [");
+                (void)fprintf(stderr, c->precision_fmt, score.bootstrap.ci.p95.lo);
+                (void)fprintf(stderr, ", ");
+                (void)fprintf(stderr, c->precision_fmt, score.bootstrap.ci.p95.hi);
+                (void)fprintf(stderr, "], stddev: ");
+                (void)fprintf(stderr, c->precision_fmt, score.bootstrap.stddev);
+                (void)fprintf(stderr, "\n");
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    return 0;
+}
+
+/* CLI driver: orchestrates input opening, VMAF context init, GPU backend
+ * activation, model loading, frame loop, score reporting, and cleanup.
+ * The function is structured around a single goto-cleanup block (not
+ * RAII-style helpers) because each subsystem owns a distinct cleanup
+ * primitive (fclose / video_input_close / vmaf_close /
+ * vmaf_*_state_free / vmaf_model_destroy / cli_free) that must run in
+ * reverse-init order on every exit path. T7-5 sweep extracted the eight
+ * largest sub-blocks into named helpers (open_input_videos,
+ * init_gpu_backends, allocate_model_arrays, load_one_model_entry,
+ * configure_tiny_model, skip_initial_frames, run_frame_loop,
+ * report_pooled_scores). The remaining body is the cleanup-ownership
+ * spine plus inter-step glue; further extraction would require
+ * pointer-aliasing the cleanup-relevant locals through helper signatures
+ * and obscure the unwind chain.
+ */
+// NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 int main(int argc, char *argv[])
 {
     int err = 0;
@@ -249,36 +778,8 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
-    if (c.use_yuv) {
-        err = raw_input_open(&vid_ref, file_ref, c.width, c.height, c.pix_fmt, c.bitdepth);
-    } else {
-        err = video_input_open(&vid_ref, file_ref);
-    }
-    if (err) {
-        (void)fprintf(stderr, "problem with reference file: %s\n", c.path_ref);
-        ret = -1;
-        goto cleanup;
-    }
-    vid_ref_open = true;
-    file_ref = NULL; /* ownership transferred to vid_ref */
-
-    if (c.use_yuv) {
-        err = raw_input_open(&vid_dist, file_dist, c.width, c.height, c.pix_fmt, c.bitdepth);
-    } else {
-        err = video_input_open(&vid_dist, file_dist);
-    }
-    if (err) {
-        (void)fprintf(stderr, "problem with distorted file: %s\n", c.path_dist);
-        ret = -1;
-        goto cleanup;
-    }
-    vid_dist_open = true;
-    file_dist = NULL; /* ownership transferred to vid_dist */
-
-    err = validate_videos(&vid_ref, &vid_dist, c.common_bitdepth);
-    if (err) {
-        (void)fprintf(stderr, "videos are incompatible, %d %s.\n", err,
-                      err == 1 ? "problem" : "problems");
+    if (open_input_videos(&c, &file_ref, &file_dist, &vid_ref, &vid_dist, &vid_ref_open,
+                          &vid_dist_open)) {
         ret = -1;
         goto cleanup;
     }
@@ -309,78 +810,19 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
-    // GPU backend initialization: each backend activates only when its
-    // specific flag is passed.  --gpumask enables the preferred backend
-    // (SYCL > CUDA).  --sycl_device selects
-    // that specific backend.  No flag = CPU only.
+    if (init_gpu_backends(vmaf, &c
 #ifdef HAVE_SYCL
-    VmafSyclConfiguration sycl_cfg = {
-        .device_index = c.sycl_device >= 0 ? c.sycl_device : 0,
-    };
-    if ((c.sycl_device >= 0 || c.use_gpumask) && !c.no_sycl) {
-        err = vmaf_sycl_state_init(&sycl_state, sycl_cfg);
-        if (err) {
-            fprintf(stderr, "problem during vmaf_sycl_state_init, using CPU\n");
-        } else {
-            err = vmaf_sycl_import_state(vmaf, sycl_state);
-            if (err) {
-                fprintf(stderr, "problem during vmaf_sycl_import_state\n");
-                ret = -1;
-                goto cleanup;
-            }
-            sycl_active = true;
-        }
-    }
+                          ,
+                          &sycl_state, &sycl_active
 #endif
-#ifdef HAVE_CUDA
-    bool cuda_active = false;
-    VmafCudaState *cu_state;
-    VmafCudaConfiguration cuda_cfg = {0};
-    if (c.use_gpumask && !c.no_cuda
-#ifdef HAVE_SYCL
-        && !sycl_active
-#endif
-    ) {
-        err = vmaf_cuda_state_init(&cu_state, cuda_cfg);
-        if (err) {
-            fprintf(stderr, "problem during vmaf_cuda_state_init, using CPU\n");
-        } else {
-            err |= vmaf_cuda_import_state(vmaf, cu_state);
-            if (err) {
-                fprintf(stderr, "problem during vmaf_cuda_import_state\n");
-                ret = -1;
-                goto cleanup;
-            }
-            cuda_active = true;
-        }
-    }
-    (void)cuda_active;
-#endif
-
 #ifdef HAVE_VULKAN
-    /* Vulkan opt-in: explicit --vulkan_device only. Unlike SYCL/CUDA
-     * the gpumask gate is not consulted; Vulkan is host-pic only and
-     * has no restricted-mode semantics yet. */
-    VmafVulkanConfiguration vulkan_cfg = {
-        .device_index = c.vulkan_device,
-        .enable_validation = 0,
-    };
-    if (c.vulkan_device >= 0 && !c.no_vulkan) {
-        err = vmaf_vulkan_state_init(&vulkan_state, vulkan_cfg);
-        if (err) {
-            (void)fprintf(stderr, "problem during vmaf_vulkan_state_init (%d), using CPU\n", err);
-        } else {
-            err = vmaf_vulkan_import_state(vmaf, vulkan_state);
-            if (err) {
-                (void)fprintf(stderr, "problem during vmaf_vulkan_import_state\n");
-                ret = -1;
-                goto cleanup;
-            }
-            vulkan_active = true;
-        }
-    }
-    (void)vulkan_active;
+                          ,
+                          &vulkan_state, &vulkan_active
 #endif
+                          )) {
+        ret = -1;
+        goto cleanup;
+    }
 
     // Preallocate picture pool to avoid allocation overhead
     video_input_info info;
@@ -416,115 +858,14 @@ int main(int argc, char *argv[])
         (void)fprintf(stderr, "picture pool: %d pictures pre-allocated\n", pic_cfg.pic_cnt);
     }
 
-    const size_t model_sz = sizeof(*model) * c.model_cnt;
-    model = (VmafModel **)malloc(model_sz);
-    if (!model) {
+    if (allocate_model_arrays(c.model_cnt, &model, &model_collection, &model_collection_label)) {
         ret = -1;
         goto cleanup;
     }
-    memset((void *)model, 0, model_sz);
-
-    const size_t model_collection_sz = sizeof(*model_collection) * c.model_cnt;
-    model_collection = (VmafModelCollection **)malloc(model_collection_sz);
-    if (!model_collection) {
-        ret = -1;
-        goto cleanup;
-    }
-    memset((void *)model_collection, 0, model_collection_sz);
-
-    const size_t label_sz = sizeof(*model_collection_label) * c.model_cnt;
-    model_collection_label = (const char **)malloc(label_sz);
-    if (!model_collection_label) {
-        ret = -1;
-        goto cleanup;
-    }
-    memset((void *)model_collection_label, 0, label_sz);
 
     for (unsigned i = 0; i < c.model_cnt; i++) {
-        if (c.model_config[i].version) {
-            err = vmaf_model_load(&model[i], &c.model_config[i].cfg, c.model_config[i].version);
-        } else {
-            err = vmaf_model_load_from_path(&model[i], &c.model_config[i].cfg,
-                                            c.model_config[i].path);
-        }
-
-        if (err) {
-            // check for model_collection before failing
-            // this is implicit because the `--model` option could take either
-            // a model or model_collection
-            if (c.model_config[i].version) {
-                err = vmaf_model_collection_load(&model[i], &model_collection[model_collection_cnt],
-                                                 &c.model_config[i].cfg, c.model_config[i].version);
-            } else {
-                err = vmaf_model_collection_load_from_path(
-                    &model[i], &model_collection[model_collection_cnt], &c.model_config[i].cfg,
-                    c.model_config[i].path);
-            }
-
-            if (err) {
-                (void)fprintf(stderr, "problem loading model: %s\n",
-                              c.model_config[i].version ? c.model_config[i].version :
-                                                          c.model_config[i].path);
-                ret = -1;
-                goto cleanup;
-            }
-
-            model_collection_label[model_collection_cnt] =
-                c.model_config[i].version ? c.model_config[i].version : c.model_config[i].path;
-
-            for (unsigned j = 0; j < c.model_config[i].overload_cnt; j++) {
-                err = vmaf_model_collection_feature_overload(
-                    model[i], &model_collection[model_collection_cnt],
-                    c.model_config[i].feature_overload[j].name,
-                    c.model_config[i].feature_overload[j].opts_dict);
-                if (err) {
-                    (void)fprintf(stderr,
-                                  "problem overloading feature extractors from "
-                                  "model collection: %s\n",
-                                  c.model_config[i].version ? c.model_config[i].version :
-                                                              c.model_config[i].path);
-                    model_collection_cnt++;
-                    ret = -1;
-                    goto cleanup;
-                }
-            }
-
-            err = vmaf_use_features_from_model_collection(vmaf,
-                                                          model_collection[model_collection_cnt]);
-            if (err) {
-                (void)fprintf(stderr,
-                              "problem loading feature extractors from "
-                              "model collection: %s\n",
-                              c.model_config[i].version ? c.model_config[i].version :
-                                                          c.model_config[i].path);
-                model_collection_cnt++;
-                ret = -1;
-                goto cleanup;
-            }
-
-            model_collection_cnt++;
-            continue;
-        }
-
-        for (unsigned j = 0; j < c.model_config[i].overload_cnt; j++) {
-            err = vmaf_model_feature_overload(model[i], c.model_config[i].feature_overload[j].name,
-                                              c.model_config[i].feature_overload[j].opts_dict);
-            if (err) {
-                (void)fprintf(stderr,
-                              "problem overloading feature extractors from "
-                              "model: %s\n",
-                              c.model_config[i].version ? c.model_config[i].version :
-                                                          c.model_config[i].path);
-                ret = -1;
-                goto cleanup;
-            }
-        }
-
-        err = vmaf_use_features_from_model(vmaf, model[i]);
-        if (err) {
-            (void)fprintf(stderr, "problem loading feature extractors from model: %s\n",
-                          c.model_config[i].version ? c.model_config[i].version :
-                                                      c.model_config[i].path);
+        if (load_one_model_entry(vmaf, &c, i, model, model_collection, model_collection_label,
+                                 &model_collection_cnt)) {
             ret = -1;
             goto cleanup;
         }
@@ -539,128 +880,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (c.tiny_model_path) {
-        if (!vmaf_dnn_available()) {
-            (void)fprintf(stderr,
-                          "--tiny-model requested (%s) but libvmaf was built "
-                          "without DNN support (-Denable_dnn=disabled).\n",
-                          c.tiny_model_path);
-            ret = -1;
-            goto cleanup;
-        }
-        /* T6-9 / ADR-0211 — Sigstore-bundle verification. Runs *before*
-         * the model is opened so a verification failure short-circuits
-         * load and never touches ORT. Fails closed: missing registry,
-         * missing bundle, missing cosign, or any non-zero cosign exit
-         * all refuse to proceed. */
-        if (c.tiny_model_verify) {
-            const int verr = vmaf_dnn_verify_signature(c.tiny_model_path, NULL);
-            if (verr != 0) {
-                (void)fprintf(stderr,
-                              "--tiny-model-verify: signature verification "
-                              "failed for %s (errno %d)\n",
-                              c.tiny_model_path, -verr);
-                ret = -1;
-                goto cleanup;
-            }
-        }
-        VmafDnnDevice dev = VMAF_DNN_DEVICE_AUTO;
-        if (c.tiny_device) {
-            if (!strcmp(c.tiny_device, "cpu")) {
-                dev = VMAF_DNN_DEVICE_CPU;
-            } else if (!strcmp(c.tiny_device, "cuda")) {
-                dev = VMAF_DNN_DEVICE_CUDA;
-            } else if (!strcmp(c.tiny_device, "openvino")) {
-                dev = VMAF_DNN_DEVICE_OPENVINO;
-            } else if (!strcmp(c.tiny_device, "rocm")) {
-                dev = VMAF_DNN_DEVICE_ROCM;
-            }
-        }
-        VmafDnnConfig dnn_cfg = {
-            .device = dev,
-            .device_index = 0,
-            .threads = c.tiny_threads,
-            .fp16_io = c.tiny_fp16,
-        };
-        err = vmaf_use_tiny_model(vmaf, c.tiny_model_path, &dnn_cfg);
-        if (err) {
-            (void)fprintf(stderr, "problem loading tiny model %s: %d\n", c.tiny_model_path, err);
-            ret = -1;
-            goto cleanup;
-        }
+    if (configure_tiny_model(vmaf, &c)) {
+        ret = -1;
+        goto cleanup;
     }
 
-    VmafPicture pic_ref_skip;
-    VmafPicture pic_dist_skip;
+    skip_initial_frames(vmaf, &vid_ref, &vid_dist, &c, common_bitdepth);
 
-    /* Unref each fetched picture: fetch_picture() reserves a slot from the
-     * preallocated picture pool, and skipped frames are never handed to
-     * vmaf_read_pictures() to release them. Without unref the pool is
-     * exhausted after N skips and the next fetch blocks indefinitely. */
-    for (unsigned i = 0; i < c.frame_skip_ref; i++) {
-        if (fetch_picture(vmaf, &vid_ref, &pic_ref_skip, common_bitdepth))
-            break;
-        if (vmaf_picture_unref(&pic_ref_skip))
-            (void)fprintf(stderr, "\nproblem during vmaf_picture_unref (skip ref)\n");
-    }
-
-    for (unsigned i = 0; i < c.frame_skip_dist; i++) {
-        if (fetch_picture(vmaf, &vid_dist, &pic_dist_skip, common_bitdepth))
-            break;
-        if (vmaf_picture_unref(&pic_dist_skip))
-            (void)fprintf(stderr, "\nproblem during vmaf_picture_unref (skip dist)\n");
-    }
-
-    float fps = 0.;
-    const time_t t0 = clock();
-    unsigned picture_index;
-    for (picture_index = 0;; picture_index++) {
-
-        if (c.frame_cnt && picture_index >= c.frame_cnt)
-            break;
-
-        VmafPicture pic_ref;
-        VmafPicture pic_dist;
-        int ret1 = fetch_picture(vmaf, &vid_ref, &pic_ref, common_bitdepth);
-        int ret2 = fetch_picture(vmaf, &vid_dist, &pic_dist, common_bitdepth);
-
-        if (ret1 && ret2) {
-            break;
-        } else if (ret1 < 0 || ret2 < 0) {
-            (void)fprintf(stderr, "\nproblem while reading pictures\n");
-            break;
-        } else if (ret1) {
-            (void)fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c.path_ref, c.path_dist);
-            int err_unref = vmaf_picture_unref(&pic_dist);
-            if (err_unref)
-                (void)fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
-            break;
-        } else if (ret2) {
-            (void)fprintf(stderr, "\n\"%s\" ended before \"%s\".\n", c.path_dist, c.path_ref);
-            int err_unref = vmaf_picture_unref(&pic_ref);
-            if (err_unref)
-                (void)fprintf(stderr, "\nproblem during vmaf_picture_unref\n");
-            break;
-        }
-
-        if (istty && !c.quiet) {
-            if (picture_index > 0 && !(picture_index % 10)) {
-                fps = (picture_index + 1) / (((float)clock() - t0) / CLOCKS_PER_SEC);
-            }
-
-            (void)fprintf(stderr, "\r%d frame%s %s %.2f FPS\033[K", picture_index + 1,
-                          picture_index ? "s" : " ", spinner[picture_index % spinner_length], fps);
-            (void)fflush(stderr);
-        }
-
-        err = vmaf_read_pictures(vmaf, &pic_ref, &pic_dist, picture_index);
-        if (err) {
-            (void)fprintf(stderr, "\nproblem reading pictures\n");
-            break;
-        }
-    }
-    if (istty && !c.quiet)
-        (void)fprintf(stderr, "\n");
+    unsigned picture_index = run_frame_loop(vmaf, &vid_ref, &vid_dist, &c, common_bitdepth, istty);
 
     err |= vmaf_read_pictures(vmaf, NULL, NULL, 0);
     if (err) {
@@ -670,53 +897,10 @@ int main(int argc, char *argv[])
     }
 
     if (!c.no_prediction) {
-        for (unsigned i = 0; i < c.model_cnt; i++) {
-            double vmaf_score;
-            err = vmaf_score_pooled(vmaf, model[i], VMAF_POOL_METHOD_MEAN, &vmaf_score, 0,
-                                    picture_index - 1);
-            if (err) {
-                (void)fprintf(stderr, "problem generating pooled VMAF score\n");
-                ret = -1;
-                goto cleanup;
-            }
-
-            if (istty && (!c.quiet || !c.output_path)) {
-                (void)fprintf(stderr, "%s: ",
-                              c.model_config[i].version ? c.model_config[i].version :
-                                                          c.model_config[i].path);
-                (void)fprintf(stderr, c.precision_fmt, vmaf_score);
-                (void)fprintf(stderr, "\n");
-            }
-        }
-
-        for (unsigned i = 0; i < model_collection_cnt; i++) {
-            VmafModelCollectionScore score = {0};
-            err = vmaf_score_pooled_model_collection(
-                vmaf, model_collection[i], VMAF_POOL_METHOD_MEAN, &score, 0, picture_index - 1);
-            if (err) {
-                (void)fprintf(stderr, "problem generating pooled VMAF score\n");
-                ret = -1;
-                goto cleanup;
-            }
-
-            switch (score.type) {
-            case VMAF_MODEL_COLLECTION_SCORE_BOOTSTRAP:
-                if (istty && (!c.quiet || !c.output_path)) {
-                    (void)fprintf(stderr, "%s: ", model_collection_label[i]);
-                    (void)fprintf(stderr, c.precision_fmt, score.bootstrap.bagging_score);
-                    (void)fprintf(stderr, ", ci.p95: [");
-                    (void)fprintf(stderr, c.precision_fmt, score.bootstrap.ci.p95.lo);
-                    (void)fprintf(stderr, ", ");
-                    (void)fprintf(stderr, c.precision_fmt, score.bootstrap.ci.p95.hi);
-                    (void)fprintf(stderr, "], stddev: ");
-                    (void)fprintf(stderr, c.precision_fmt, score.bootstrap.stddev);
-                    (void)fprintf(stderr, "\n");
-                }
-                break;
-            default:
-                break;
-            }
-        }
+        ret = report_pooled_scores(vmaf, &c, model, model_collection, model_collection_label,
+                                   model_collection_cnt, picture_index, istty);
+        if (ret)
+            goto cleanup;
     }
 
     if (c.output_path)
