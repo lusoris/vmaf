@@ -156,27 +156,123 @@
 
 ### Changed
 
-- **Vulkan kernel-template submit-side migration + fence pool +
-  descriptor pre-allocation bundle (T-GPU-DEDUP-25 +
-  T-GPU-OPT-VK-1 + T-GPU-OPT-VK-4 / ADR-0256).** Replaces per-frame
-  `vkCreateFence` / `vkAllocateCommandBuffers` /
-  `vkAllocateDescriptorSets` with init-time pre-allocation across
-  four migrated kernels: `psnr_hvs_vulkan`, `vif_vulkan`,
-  `float_vif_vulkan`, `float_adm_vulkan`. New surfaces in
-  `libvmaf/src/vulkan/kernel_template.h`:
-  `VmafVulkanKernelSubmitPool` + `_create` / `_destroy` /
-  `_acquire`, plus `vmaf_vulkan_kernel_descriptor_sets_alloc`. The
-  context-level command pool's existing
-  `VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT` flag carries the
-  per-acquire `vkResetCommandBuffer`. Bit-exactness preserved
-  against the prior Vulkan output (max abs diff 0.0 on a 48-frame
-  `vmaf_float_v0.6.1` run; `vif` + `adm` cross-backend `places=4`
-  gates clean). `ssimulacra2_vulkan` skipped because the
-  2026-05-02 Vulkan profile shows it is host-CPU-bound, not
-  Vulkan-API-bound. `adm_vulkan` and `ms_ssim_vulkan` deferred
-  until their template-adoption PRs (#287, #289) merge to `master`.
-  See [ADR-0256](docs/adr/0256-vulkan-submit-opt-batch.md) +
-  [research-0051](docs/research/0052-vulkan-submit-opt-batch.md).
+- **`psnr_hvs_cuda` async H2D upload + persistent pinned staging
+  (T-GPU-OPT-2/3).** Reworks the per-frame upload path of the
+  CUDA `psnr_hvs` feature extractor. Previously each plane upload
+  allocated and freed a pinned host staging buffer per frame and
+  host-blocked between the D2H and the H2D legs; now the staging
+  buffers are sized once in `init_fex_cuda` and reused for the
+  lifetime of the extractor, and the H2Ds run on a dedicated
+  upload stream with a cross-stream `upload_done` event that the
+  kernel stream waits on once before the per-plane kernel
+  launches. Bit-exactness preserved (cross-backend `places=3`
+  gate green for `psnr_hvs_y / cb / cr / psnr_hvs`); fast unit
+  tests + Netflix golden gate green (the same 9 pre-existing
+  pypsnr / niqe / result-store failures observed on `master`
+  are unrelated). Wall-clock impact at the small-frame
+  measurement points used in this PR is below noise floor (CPU
+  `uint→float` convert remains the inner bottleneck), but the
+  no-per-frame-alloc invariant is a prerequisite for the planned
+  CUDA graph capture optimisation tracked in the graph-capture
+  research digest accompanying PR #308. See
+  [`libvmaf/src/cuda/AGENTS.md`](libvmaf/src/cuda/AGENTS.md)
+  §Rebase-sensitive invariants for the rebase invariant.
+
+- **Snapshot `testdata/netflix_benchmark_results.json` regenerated
+  against the fork build to reflect upstream `a44e5e61` motion
+  edge-mirror fix; `bench_all.sh` default `VMAF` pinned to the in-tree
+  fork build (`libvmaf/build/tools/vmaf`) instead of
+  `/usr/local/bin/vmaf` (which on most dev hosts is stuck at v3.0.0,
+  predating the upstream fix). CPU pooled VMAF on `src01_576x324`
+  shifts from 76.668904 → 76.667828 (delta −1.076e-3, motion-driven);
+  checker pairs drift ≤3e-6 (well inside `places=4`). cuda / sycl
+  rows preserved unchanged (those backends were not regenerated this
+  pass — see PR description). See PR #305 for the bisect that
+  identified the upstream commit.
+
+- **Repaired 4 wrong-NNNN ADR refs in CHANGELOG / rebase-notes (PR #304
+  follow-up).** The 11 cases PR #304 deliberately skipped were re-audited
+  against the current `docs/adr/` tree — 7 of them already resolve to
+  existing files (the duplicate-NNNN ADRs landed since #304 ran its scan).
+  The remaining 4 were genuine slug-drift cases where the cited filename
+  did not exist on disk: `0138-simd-bit-exactness-policy.md` →
+  `0138-iqa-convolve-avx2-bitexact-double.md`,
+  `0140-ssimulacra2-simd-bitexact.md` → `0140-simd-dx-framework.md`,
+  `0190-float-ms-ssim-cuda.md` → `0190-ms-ssim-vulkan.md`,
+  `0178-integer-adm-vulkan.md` → `0178-vulkan-adm-kernel.md`. All four
+  retain the original cited NNNN; only the slug was updated to the
+  on-disk filename. No ADR content changed; no NNNN renumbered.
+
+- **`cambi_vulkan.c` migrated to `vulkan/kernel_template.h`
+  (T-GPU-DEDUP-25, 5-bundle).** Five distinct push-constant struct
+  sizes (one per pipeline stage — preprocess / derivative /
+  filter_mode / decimate / mask_dp) force five bundles even though
+  every stage uses the same 2-binding SSBO descriptor-set layout
+  shape. State drops the legacy quintet
+  (`dsl_2bind` + 5× `pl_layout_*` + `shader_modules[CAMBI_PL_COUNT]`
+  + shared `desc_pool`) for five `VmafVulkanKernelPipeline` bundles
+  (`pl_trivial` / `pl_derivative` / `pl_filter_mode` /
+  `pl_decimate` / `pl_mask_dp`), each owning its own descriptor
+  pool. The first slot of `pipelines[]` per stage aliases the
+  bundle's base pipeline; remaining slots
+  (`CAMBI_PL_FILTER_MODE_V`, `CAMBI_PL_MASK_SAT_COL`,
+  `CAMBI_PL_MASK_THRESHOLD`) are siblings via
+  `vmaf_vulkan_kernel_pipeline_add_variant()`. Validated bit-exact
+  against the pre-migration binary on the Netflix-pair smoke
+  (576×324×8-bit, `cambi` mean = 0.0 — content-appropriate; the
+  pair has no banding artifacts). Net diff −40 LOC (1407 → 1367).
+  See [ADR-0221](docs/adr/0246-gpu-kernel-template.md).
+- **`vulkan/kernel_template.h` SSBO-binding cap is now a named
+  constant.** Replaced the open-coded `8U` upper bound and matching
+  `bindings[8]` stack array with `#define
+  VMAF_VULKAN_KERNEL_MAX_SSBO_BINDINGS 16U`. Current consumers top
+  out at 10 (the SSIM bundle in `ssimulacra2_vulkan.c` uses 8); the
+  new cap of 16 absorbs near-future kernels without further edits.
+  Vulkan's conformant minimum for `maxDescriptorSetStorageBuffers`
+  is 96, so the higher cap remains portable across drivers. No
+  behavioural change — same allowed kernel shapes, same scores,
+  same public C API.
+
+### Fixed
+
+- **`scripts/ci/deliverables-check.sh` now strips backslashes
+  from PR bodies before grepping the deliverable checklist.** The
+  script previously stripped backticks, asterisks, and underscores
+  only; PRs created via heredoc-quoted body strings in `gh pr
+  create` calls escape embedded backticks (the shell emits a
+  literal backslash before each backtick), leaving a stray
+  backslash in the PR body. After the partial strip the body
+  contained "AGENTS.md\ invariant note" (backslash-space), which
+  broke the `- [x].*AGENTS.md invariant note` regex and falsely
+  flagged the deliverable as missing on otherwise-correct PRs.
+  Extending the strip set to also remove backslashes restores the
+  regex match.
+
+- **T7-5 Sweeps B+C — fork-added ssimulacra2 SIMD + scalar + tests
+  now carry inline ADR citations on every `readability-function-size`
+  NOLINT (cite-only, no code splits).** 30 NOLINTs across 6 files:
+  `ssimulacra2_avx2.c` (5), `ssimulacra2_avx512.c` (5),
+  `ssimulacra2_neon.c` (6), `ssimulacra2_sve2.c` (6) — all cite the
+  bit-exactness invariant (ADR-0138/0139, ADR-0141) since splitting
+  would perturb register allocation + reduction order vs scalar.
+  `ssimulacra2.c` scalar (3) cites the SIMD-parity audit
+  (ADR-0141) — splitting would force matching splits in 4 paired
+  SIMD files. `test_ssimulacra2_simd.c` (5) cites test scaffolding
+  (ADR-0141). Companion to T7-5 Sweep A (PR #82, ADR-0146,
+  upstream-mirror files). Pure documentation change — no
+  behavioural delta; Netflix golden + cross-backend bit-exactness
+  unchanged.
+- **`vmaf_tiny_v1.onnx` external-data filename ref repaired.** The
+  shipped v1 ONNX referenced an external-data file named
+  `mlp_small_final.onnx.data`, which never existed in `model/tiny/`
+  — only `vmaf_tiny_v1.onnx.data` was committed. ONNXRuntime fails
+  with "External data path validation failed for initializer:
+  0.weight" on load, breaking any consumer that loads v1 directly
+  (including the `v2-vs-v1` diff path in
+  `validate_vmaf_tiny_v2.py`). Rewrites the two `external_data`
+  location entries in the ONNX graph to point at the actual
+  filename. No tensor data changes; the `.data` file on disk is
+  bit-identical.
 
 - **`ssimulacra2_vulkan.c` migrated to `vulkan/kernel_template.h`
   (T-GPU-DEDUP-24, 4-bundle).** Four distinct pipeline shapes (XYB =

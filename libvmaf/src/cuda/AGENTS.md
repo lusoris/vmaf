@@ -105,6 +105,29 @@ cuda/
   [ADR-0156](../../../docs/adr/0156-cuda-graceful-error-propagation-netflix-1420.md)
   and [rebase-notes 0049](../../../docs/rebase-notes.md).
 
+- **`integer_psnr_hvs_cuda.c` async-upload + persistent pinned
+  staging** (fork-local, T-GPU-OPT-2/3): the file deliberately
+  does NOT use `kernel_template.h`'s single-readback shape — it
+  carries its own dedicated H2D `upload_str` stream + cross-stream
+  `upload_done` event, plus per-plane persistent pinned `h_uint_*`
+  staging buffers allocated once in `init_fex_cuda` and reused
+  every frame. The `submit_fex_cuda` flow is three explicit
+  phases: queue all 6 D2H copies on the pic streams → host-block
+  on each pic stream → CPU normalise uint→float → queue all 6
+  H2Ds on `upload_str` → record `upload_done` →
+  `cuStreamWaitEvent(s->lc.str, upload_done, ...)` before kernel
+  launches. This is the only CUDA feature extractor where
+  `upload_plane_cuda` lived as a local helper (the other CUDA
+  extractors upload through the picture pool); the helper is now
+  split into `issue_d2h_plane` / `convert_plane` / `issue_h2d_plane`.
+  **On rebase**: do NOT collapse the three-phase flow back into
+  the per-call sync pattern; do NOT migrate the upload into
+  `kernel_template.h` (the template's single-readback bundle
+  doesn't model 6-buffer multi-plane uploads). Keep the persistent
+  pinned buffer lifecycle in `init` / `close`. CUDA graph capture
+  (future T-GPU-OPT-N) depends on the no-per-frame-alloc invariant
+  from this change.
+
 - **`kernel_template.h` is the canonical kernel scaffolding**
   (fork-local, ADR-0246): the inline helpers
   `vmaf_cuda_kernel_lifecycle_init/_close`,
