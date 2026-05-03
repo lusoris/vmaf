@@ -49,6 +49,16 @@ import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 
+# Calibration loader sits next to this script. Same sys.path tweak
+# as cross_backend_vif_diff.py so direct ``python3 scripts/ci/<this>.py``
+# invocations resolve the sibling module.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cross_backend_calibration import (
+    DEFAULT_CALIBRATION_PATH,
+    CalibrationTable,
+    load_calibration_table,
+)
+
 # ---------------------------------------------------------------------------
 # Feature → metric-name list. Mirror of ``FEATURE_METRICS`` in
 # ``cross_backend_vif_diff.py`` (single source of truth for the
@@ -93,7 +103,7 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     "ciede": ("ciede2000",),
     "float_ssim": ("float_ssim",),
     "float_ms_ssim": ("float_ms_ssim",),
-    # T7-35 / ADR-0243: enable_lcs adds 15 per-scale L/C/S triples on
+    # T7-35 / ADR-0215: enable_lcs adds 15 per-scale L/C/S triples on
     # top of the combined float_ms_ssim score. The Vulkan/CUDA kernels
     # already produce the per-scale L/C/S means; gating only the
     # feature_collector_append calls keeps default-path output
@@ -178,7 +188,7 @@ FEATURE_TOLERANCE: dict[str, float] = {
     # Float pipeline, well-conditioned. places=4.
     "float_ssim": 5e-5,
     "float_ms_ssim": 5e-5,
-    # T7-35 / ADR-0243: LCS triples are the same float reductions
+    # T7-35 / ADR-0215: LCS triples are the same float reductions
     # that feed the Wang combine — same conditioning, same places=4.
     "float_ms_ssim_lcs": 5e-5,
     "float_ansnr": 5e-5,
@@ -237,6 +247,12 @@ class CellResult:
     per_metric_mismatches: dict[str, int]
     status: str  # "OK" | "FAIL" | "SKIP" | "ERROR"
     note: str = ""
+    # ADR-0234 calibration provenance — which calibration entry
+    # supplied the tolerance, or "default" when the gate fell back
+    # to FEATURE_TOLERANCE / DEFAULT_FP32_TOLERANCE. Surfaced in the
+    # JSON / Markdown artefacts so reviewers can audit per-arch
+    # tolerance decisions without re-reading the YAML.
+    tolerance_source: str = "default"
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +275,7 @@ def build_matrix(features: Iterable[str], backends: Iterable[str]) -> list[Cell]
 
 
 # Pseudo-features that map to a real extractor + a `:opt=val` option
-# pass-through. T7-35 / ADR-0243: float_ms_ssim_lcs reuses the
+# pass-through. T7-35 / ADR-0215: float_ms_ssim_lcs reuses the
 # `float_ms_ssim` extractor with `enable_lcs=true` to gate the 15
 # extra L/C/S metrics.
 FEATURE_ALIASES: dict[str, tuple[str, str]] = {
@@ -383,6 +399,50 @@ def diff_frames(
     return per_max, per_mismatch
 
 
+def resolve_cell_tolerance(
+    feature: str,
+    *,
+    fp16_features: Iterable[str],
+    calibration: CalibrationTable | None,
+    gpu_id: str | None,
+) -> tuple[float, str]:
+    """Resolve ``(tolerance_abs, source_label)`` for one cell.
+
+    Source-label vocabulary (recorded on every CellResult):
+
+    * ``"fp16"``      — feature opted into the FP16 contract.
+    * ``"calibrated:<pattern>"`` — calibration table matched and
+      supplied a per-feature override; ``status: calibrated`` row.
+    * ``"placeholder:<pattern>"`` — calibration table matched but
+      the row is a placeholder (no per-feature override); fell back
+      to ``FEATURE_TOLERANCE``.
+    * ``"placeholder-default:<pattern>"`` — match was a placeholder
+      and the matched row also lacked the feature; same numeric
+      fallback as ``placeholder:`` but kept distinct so future
+      audits can tell whether the row was deliberately silent.
+    * ``"no-calibration:<gpu_id>"`` — ``--gpu-id`` supplied but no
+      row matched.
+    * ``"default"``   — neither FP16 nor calibration applied.
+    """
+
+    if feature in fp16_features:
+        return DEFAULT_FP16_TOLERANCE, "fp16"
+
+    feature_default = FEATURE_TOLERANCE.get(feature, DEFAULT_FP32_TOLERANCE)
+    if calibration is None or gpu_id is None:
+        return feature_default, "default"
+
+    entry = calibration.lookup(gpu_id)
+    if entry is None:
+        return feature_default, f"no-calibration:{gpu_id}"
+    if feature in entry.features:
+        label_kind = "calibrated" if entry.status == "calibrated" else "placeholder"
+        return float(entry.features[feature]), f"{label_kind}:{entry.gpu_id_pattern}"
+    # Matched arch row, no per-feature override — typical of placeholder
+    # rows whose ``features:`` block is empty until measured.
+    return feature_default, f"placeholder-default:{entry.gpu_id_pattern}"
+
+
 def run_cell(
     cell: Cell,
     *,
@@ -396,6 +456,7 @@ def run_cell(
     workdir: Path,
     devices: dict[str, int],
     tolerance: float,
+    tolerance_source: str = "default",
 ) -> CellResult:
     """Execute one cell of the parity matrix and diff it."""
 
@@ -427,6 +488,7 @@ def run_cell(
             per_metric_mismatches=dict.fromkeys(metrics, 0),
             status="ERROR",
             note=f"backend_a {cell.backend_a} failed: {err_a.strip()[:200]}",
+            tolerance_source=tolerance_source,
         )
 
     rc_b, err_b = run_one(
@@ -453,6 +515,7 @@ def run_cell(
             per_metric_mismatches=dict.fromkeys(metrics, 0),
             status="ERROR",
             note=f"backend_b {cell.backend_b} failed: {err_b.strip()[:200]}",
+            tolerance_source=tolerance_source,
         )
 
     a_frames = load_frames(out_a)
@@ -468,6 +531,7 @@ def run_cell(
             per_metric_mismatches=dict.fromkeys(metrics, 0),
             status="ERROR",
             note=f"frame-count mismatch a={len(a_frames)} b={len(b_frames)}",
+            tolerance_source=tolerance_source,
         )
 
     per_max, per_mismatch = diff_frames(a_frames, b_frames, metrics, tolerance)
@@ -481,6 +545,7 @@ def run_cell(
         per_metric_max=per_max,
         per_metric_mismatches=per_mismatch,
         status="FAIL" if fail else "OK",
+        tolerance_source=tolerance_source,
     )
 
 
@@ -493,6 +558,7 @@ def emit_json(results: list[CellResult], path: Path) -> None:
                 "backend_a": r.backend_a,
                 "backend_b": r.backend_b,
                 "tolerance_abs": r.tolerance,
+                "tolerance_source": r.tolerance_source,
                 "n_frames": r.n_frames,
                 "status": r.status,
                 "note": r.note,
@@ -511,14 +577,15 @@ def emit_md(results: list[CellResult], path: Path) -> None:
     lines: list[str] = []
     lines.append("# Cross-backend parity gate (T6-8)")
     lines.append("")
-    lines.append("| feature | backend pair | tolerance | frames | max abs diff | status |")
-    lines.append("|---|---|---:|---:|---:|---|")
+    lines.append("| feature | backend pair | tolerance | source | frames | max abs diff | status |")
+    lines.append("|---|---|---:|---|---:|---:|---|")
     for r in results:
         max_diff = max(r.per_metric_max.values()) if r.per_metric_max else 0.0
         pair = f"{r.backend_a} ↔ {r.backend_b}"
         lines.append(
             f"| `{r.feature}` | {pair} | {r.tolerance:.1e} | "
-            f"{r.n_frames} | {max_diff:.3e} | {r.status} |"
+            f"`{r.tolerance_source}` | {r.n_frames} | "
+            f"{max_diff:.3e} | {r.status} |"
         )
     lines.append("")
     fails = [r for r in results if r.status in ("FAIL", "ERROR")]
@@ -606,6 +673,24 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="write Markdown summary to this path",
     )
+    ap.add_argument(
+        "--gpu-id",
+        type=str,
+        default=None,
+        help=(
+            "runtime GPU identifier (Research-0041 schema, e.g. "
+            "'vulkan:0x10005:0x0' for lavapipe, 'cuda:8.6' for Ampere "
+            "RTX 30). Used to look up per-arch tolerances in the "
+            "ADR-0234 calibration table; falls back to "
+            "FEATURE_TOLERANCE when omitted."
+        ),
+    )
+    ap.add_argument(
+        "--calibration-table",
+        type=Path,
+        default=DEFAULT_CALIBRATION_PATH,
+        help=(f"path to the ADR-0234 calibration YAML (default: {DEFAULT_CALIBRATION_PATH})"),
+    )
     return ap.parse_args()
 
 
@@ -632,12 +717,34 @@ def main() -> int:
         sys.stderr.write("empty matrix — supply at least two backends or one feature\n")
         return 2
 
+    # ADR-0234: load the calibration table once. ``None`` is the
+    # backward-compatible signal (pyyaml missing, file absent, or
+    # ``--gpu-id`` not supplied) and forces the per-feature default
+    # path everywhere downstream.
+    calibration: CalibrationTable | None = None
+    if args.gpu_id is not None:
+        calibration = load_calibration_table(args.calibration_table)
+        if calibration is not None:
+            entry = calibration.lookup(args.gpu_id)
+            if entry is None:
+                print(
+                    f"calibration: no row matches gpu_id={args.gpu_id}; "
+                    f"using FEATURE_TOLERANCE defaults"
+                )
+            else:
+                print(
+                    f"calibration: matched '{entry.gpu_id_pattern}' "
+                    f"({entry.label}, status={entry.status})"
+                )
+
     results: list[CellResult] = []
     for cell in cells:
-        if cell.feature in args.fp16_features:
-            tolerance = DEFAULT_FP16_TOLERANCE
-        else:
-            tolerance = FEATURE_TOLERANCE.get(cell.feature, DEFAULT_FP32_TOLERANCE)
+        tolerance, tolerance_source = resolve_cell_tolerance(
+            cell.feature,
+            fp16_features=args.fp16_features,
+            calibration=calibration,
+            gpu_id=args.gpu_id,
+        )
         result = run_cell(
             cell,
             binary=args.vmaf_binary,
@@ -650,13 +757,14 @@ def main() -> int:
             workdir=args.workdir,
             devices=devices,
             tolerance=tolerance,
+            tolerance_source=tolerance_source,
         )
         results.append(result)
         max_diff = max(result.per_metric_max.values()) if result.per_metric_max else 0.0
         print(
             f"{result.feature:<14} "
             f"{result.backend_a:<6} ↔ {result.backend_b:<6}  "
-            f"tol={result.tolerance:.1e}  "
+            f"tol={result.tolerance:.1e} ({result.tolerance_source})  "
             f"max_abs_diff={max_diff:.3e}  "
             f"{result.status}" + (f"  ({result.note})" if result.note else "")
         )
