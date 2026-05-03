@@ -15,11 +15,21 @@ the fly). Phases C (per-title CRF predictor), D (per-shot dynamic
 CRF), E (Pareto ABR ladder) and F (MCP tools) are not implemented yet
 — see ADR-0237. The `recommend` subcommand implements Buckets 4 + 5
 of [Research-0061](../research/0061-vmaf-tune-capability-audit.md).
+This doc covers **Phase A** of the six-phase roadmap: a multi-codec grid
+sweep that produces the corpus the later phases consume. Phases B (target-VMAF
+bisect), C (per-title CRF predictor), D (per-shot dynamic CRF), E (Pareto ABR
+ladder) and F (MCP tools) are not implemented yet — see ADR-0237.
+
+Codecs wired so far: `libx264` (Phase A scaffold) and `libx265`
+([ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)). Adapter
+files live one-per-codec under
+`tools/vmaf-tune/src/vmaftune/codec_adapters/`.
 
 ## Pipeline
 
 ```text
 ref.yuv ──► vmaf-tune corpus ──► encode (libx264) ──► vmaf score ──► corpus.jsonl
+ref.yuv ──► vmaf-tune corpus ──► encode (libx264|libx265) ──► vmaf score ──► corpus.jsonl
               │
               └─► encodes are written to --encode-dir, deleted post-score
                   unless --keep-encodes
@@ -65,13 +75,13 @@ Cartesian product of `--preset × --crf`.
 ## CLI flags
 
 | Flag | Default | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `--source PATH` | — | Required. Repeatable for multi-source sweeps. |
 | `--width / --height` | — | Required. Source resolution. |
 | `--pix-fmt PFMT` | `yuv420p` | Forwarded to ffmpeg `-pix_fmt`. |
 | `--framerate F` | `24.0` | Source framerate. |
 | `--duration S` | `0` | Source duration in seconds (used for bitrate calc). |
-| `--encoder NAME` | `libx264` | Phase A wires `libx264` only. |
+| `--encoder NAME` | `libx264` | One of `libx264`, `libx265`. |
 | `--preset P` | — | Required. Repeatable. x264 preset name. |
 | `--crf N` | — | Required. Repeatable. x264 CRF integer. |
 | `--output PATH` | `corpus.jsonl` | JSONL destination. |
@@ -91,7 +101,7 @@ schema is a coordinated change with Phase B/C; do not edit row shape
 without bumping the version.
 
 | Key | Type | Description |
-|---|---|---|
+| --- | --- | --- |
 | `schema_version` | int | Currently `1`. |
 | `run_id` | str | Per-row UUID4 hex. |
 | `timestamp` | str | UTC ISO-8601 (seconds precision). |
@@ -381,6 +391,33 @@ of these:
 7. Recommendation-quality benchmark — for ≥3 sources, compare
    `fast` vs the slow grid at the recommended CRF; gate Acceptance
    on a small VMAF tolerance (≤ 1.0 VMAF gap median).
+- `libsvtav1` / `libvpx-vp9` / `libvvenc` are still pending —
+  they will land via the codec adapter interface in
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`. `libx264` and
+  `libx265` are wired today.
+
+## x265 example
+
+x265 ships ten presets (`ultrafast` … `placebo`) on the same 0..51 CRF
+scale as x264; the harness routes `--encoder libx265` through ffmpeg's
+`-c:v libx265` path. External `ffmpeg` must be built with
+`--enable-libx265`.
+
+```shell
+vmaf-tune corpus \
+    --encoder libx265 \
+    --source ref.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p \
+    --framerate 24 --duration 10 \
+    --preset medium --preset slow --preset placebo \
+    --crf 23 --crf 28 --crf 34 \
+    --output corpus_x265.jsonl
+```
+
+The 10-bit pipeline is enabled by setting `--pix-fmt yuv420p10le`; the
+adapter reports the corresponding HEVC profile (`main10`) via
+`X265Adapter.profile_for(pix_fmt)` for downstream consumers that need
+it.
 
 ## Tests
 

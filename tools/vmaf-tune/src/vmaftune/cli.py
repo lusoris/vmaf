@@ -5,9 +5,10 @@
 Phase A exposes the ``corpus`` subcommand: it expands a (preset, crf)
 grid against one or more reference YUVs and emits a JSONL row per
 encode. Phase A.5 adds the opt-in ``fast`` subcommand (proxy +
-Bayesian + GPU-verify recommend, ADR-0276 / Research-0060). Phase B
-(``bisect``) and Phase C (``predict``) will register sibling
-subcommands here.
+Bayesian + GPU-verify recommend, ADR-0276 / Research-0060). Codecs
+available today: ``libx264`` (default), ``libaom-av1`` (ADR-0279),
+and ``libx265`` (ADR-0288). Phase B (``bisect``) and Phase C
+(``predict``) will register sibling subcommands here.
 Subcommands:
 
 - ``corpus`` — Phase A grid sweep, emits JSONL rows.
@@ -38,8 +39,8 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="vmaf-tune",
         description=(
             "Quality-aware encode automation harness. Phase A drives a "
-            "(preset, crf) grid through libx264 + libvmaf and emits a JSONL "
-            "corpus."
+            "(preset, crf) grid through the selected codec (libx264, "
+            "libx265) + libvmaf and emits a JSONL corpus."
         ),
     )
     parser.add_argument("--version", action="version", version=__version__)
@@ -67,20 +68,20 @@ def _build_parser() -> argparse.ArgumentParser:
         "--encoder",
         default="libx264",
         choices=list(known_codecs()),
-        help="codec adapter (Phase A: libx264 only)",
+        help="codec adapter (one of libx264, libx265)",
     )
     corpus.add_argument(
         "--preset",
         action="append",
         required=True,
-        help="x264 preset (repeatable)",
+        help="encoder preset (repeatable; codec-specific name)",
     )
     corpus.add_argument(
         "--crf",
         type=int,
         action="append",
         required=True,
-        help="x264 CRF value (repeatable)",
+        help="encoder CRF value (repeatable; codec-specific range)",
     )
     corpus.add_argument(
         "--output",

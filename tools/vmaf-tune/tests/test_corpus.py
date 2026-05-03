@@ -46,6 +46,13 @@ def test_known_codecs_includes_x264():
     # membership rather than exact tuple identity so adding a codec is
     # not a registry-test churn event.
     assert "libx264" in known_codecs()
+def test_known_codecs_includes_x264_and_x265():
+    # Phase A wired x264; ADR-0288 added x265. Further codecs append
+    # to this tuple — keep the assertion membership-based so it
+    # doesn't bit-rot on every new adapter.
+    codecs = known_codecs()
+    assert "libx264" in codecs
+    assert "libx265" in codecs
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True

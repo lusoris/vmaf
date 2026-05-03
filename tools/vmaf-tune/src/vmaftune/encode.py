@@ -1,10 +1,11 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""ffmpeg/libx264 driver — Phase A.
+"""ffmpeg encoder driver — Phase A.
 
 Wraps a single ffmpeg invocation that re-encodes a raw YUV source with
-``libx264`` at a given (preset, crf). Captures wall time, output size,
-and the encoder's reported version string.
+the requested encoder (``libx264``, ``libx265``, …) at a given
+``(preset, crf)``. Captures wall time, output size, and the encoder's
+reported version string.
 
 Subprocess boundary is the integration seam — tests mock
 ``subprocess.run`` rather than running ffmpeg.
@@ -85,20 +86,33 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
 
 _FFMPEG_VERSION_RE = re.compile(r"ffmpeg version (\S+)")
 _X264_VERSION_RE = re.compile(r"x264 - core (\d+)")
+# x265 banner format: "x265 [info]: HEVC encoder version 3.5+1-f0c1022b6"
+# Some builds print "x265 [info]: HEVC encoder version 3.5".
+_X265_VERSION_RE = re.compile(r"x265 \[info\]:\s*HEVC encoder version (\S+)")
 
 
-def parse_versions(stderr: str) -> tuple[str, str]:
-    """Return (ffmpeg_version, x264_version) extracted from stderr.
+def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
+    """Return (ffmpeg_version, encoder_version) extracted from stderr.
 
     Returns ``("unknown", "unknown")`` for missing matches rather than
     raising — corpus rows record what we can detect and move on.
+
+    ``encoder`` selects the per-codec banner regex; defaults to
+    ``libx264`` for backward compatibility with Phase A callers.
     """
     ffm = _FFMPEG_VERSION_RE.search(stderr)
-    enc = _X264_VERSION_RE.search(stderr)
-    return (
-        ffm.group(1) if ffm else "unknown",
-        f"libx264-{enc.group(1)}" if enc else "unknown",
-    )
+    ffmpeg_version = ffm.group(1) if ffm else "unknown"
+
+    if encoder == "libx265":
+        enc = _X265_VERSION_RE.search(stderr)
+        encoder_version = f"libx265-{enc.group(1)}" if enc else "unknown"
+    else:
+        # libx264 (and any future codec without a dedicated branch) falls
+        # back to the x264 regex so old callers keep working.
+        enc = _X264_VERSION_RE.search(stderr)
+        encoder_version = f"libx264-{enc.group(1)}" if enc else "unknown"
+
+    return ffmpeg_version, encoder_version
 
 
 def run_encode(
@@ -127,7 +141,7 @@ def run_encode(
     if rc == 0 and req.output.exists():
         size = os.path.getsize(req.output)
 
-    ffmpeg_v, encoder_v = parse_versions(stderr)
+    ffmpeg_v, encoder_v = parse_versions(stderr, encoder=req.encoder)
     return EncodeResult(
         request=req,
         encode_size_bytes=size,

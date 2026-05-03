@@ -15,6 +15,7 @@ from typing import Protocol
 
 from .libaom import LibaomAdapter
 from .x264 import X264Adapter
+from .x265 import X265Adapter
 
 
 class CodecAdapter(Protocol):
@@ -34,12 +35,13 @@ class CodecAdapter(Protocol):
 _REGISTRY: dict[str, CodecAdapter] = {
     "libx264": X264Adapter(),
     "libaom-av1": LibaomAdapter(),
+    "libx265": X265Adapter(),
 }
 
 
 def get_adapter(name: str) -> CodecAdapter:
     if name not in _REGISTRY:
-        raise KeyError(f"unknown codec {name!r}; phase A wires {sorted(_REGISTRY)}")
+        raise KeyError(f"unknown codec {name!r}; known codecs: {sorted(_REGISTRY)}")
     return _REGISTRY[name]
 
 
@@ -51,6 +53,7 @@ __all__ = [
     "CodecAdapter",
     "LibaomAdapter",
     "X264Adapter",
+    "X265Adapter",
     "get_adapter",
     "known_codecs",
 ]
