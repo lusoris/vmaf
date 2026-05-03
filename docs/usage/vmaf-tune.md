@@ -159,9 +159,14 @@ The mapping is closed and order-stable; see
 | `--vmaf-model NAME` | `vmaf_v0.6.1` | Forwarded to `vmaf --model`. Only used when `--no-resolution-aware` is set; otherwise auto-picked per encode resolution (see "Resolution-aware mode" below). |
 | `--resolution-aware` / `--no-resolution-aware` | on | Auto-pick the VMAF model per encode resolution. Default on. |
 | `--ffmpeg-bin PATH` | `ffmpeg` | Override the ffmpeg binary. |
+| `--ffprobe-bin PATH` | `ffprobe` | Override the ffprobe binary (used for HDR detection). |
 | `--vmaf-bin PATH` | `vmaf` | Override the vmaf binary. |
 | `--score-backend NAME` | `auto` | libvmaf scoring backend — `auto\|cpu\|cuda\|sycl\|vulkan`. See below. |
 | `--no-source-hash` | off | Skip `src_sha256` (faster on large YUVs; loses provenance). |
+| `--auto-hdr` | (default) | Probe each source via ffprobe; inject HDR flags + HDR model when PQ / HLG signaling is detected. |
+| `--force-sdr` | off | Treat all sources as SDR; skip HDR detection. |
+| `--force-hdr-pq` | off | Treat all sources as HDR PQ (SMPTE-2084) without probing. Useful for raw YUV refs that ffprobe cannot read color metadata from. |
+| `--force-hdr-hlg` | off | Treat all sources as HDR HLG (ARIB STD-B67) without probing. |
 
 ## Resolution-aware mode
 
@@ -328,6 +333,9 @@ without bumping the version.
 | `ffmpeg_version` | str | Detected ffmpeg version. |
 | `vmaf_binary_version` | str | Detected vmaf binary version. |
 | `exit_status` | int | First non-zero of (encode, score) exit codes. |
+| `hdr_transfer` | str | `""` (SDR), `"pq"` (SMPTE-2084) or `"hlg"` (ARIB STD-B67). v2+. |
+| `hdr_primaries` | str | Raw ffprobe `color_primaries` (e.g. `bt2020`); empty for SDR. v2+. |
+| `hdr_forced` | bool | `true` iff the user overrode detection via `--force-hdr-*` / `--force-sdr`. v2+. |
 
 ### Example row
 
@@ -856,6 +864,60 @@ sentinel numerics (`-1` for `best_crf`, `NaN` for the floats).
 > comparisons only make sense when every predicate was run on the same
 > hardware in the same configuration — see
 > [Research-0061 Bucket #7](../research/0061-vmaf-tune-capability-audit.md).
+## HDR-aware tuning (Bucket #9, ADR-0295)
+
+Phase A auto-detects HDR sources and injects codec-appropriate HDR
+encode flags + HDR VMAF scoring. Detection runs `ffprobe` against
+each `--source` once at corpus start; the per-source encode argv
+gets the resulting HDR flag set appended.
+
+### What gets detected
+
+A source is classified as HDR iff its first video stream carries
+**both** of:
+
+- `color_transfer` ∈ {`smpte2084` (PQ), `arib-std-b67` / `hlg`} **and**
+- `color_primaries` ∈ {`bt2020`, `bt2020nc`, `bt2020-ncl`, `bt2020c`, `bt2020-cl`}.
+
+Mismatched signaling (e.g. PQ transfer with BT.709 primaries) is
+treated as SDR — misclassifying SDR as HDR is the dangerous failure
+mode. Mastering-display + max-CLL SEI side data is read when present
+and propagated to encoders that accept it (x265, SVT-AV1, NVENC).
+
+### Detection modes
+
+| Mode | When to use |
+| --- | --- |
+| `--auto-hdr` (default) | Mixed corpora; let ffprobe classify each source. |
+| `--force-sdr` | Disable HDR injection entirely (override probe). |
+| `--force-hdr-pq` | Raw YUV refs with no container metadata; you know the source is PQ. |
+| `--force-hdr-hlg` | Same, for HLG. |
+
+The four flags are mutually exclusive.
+
+### Codec dispatch
+
+| Encoder | HDR signaling carrier |
+| --- | --- |
+| `libx264` | Container-level `-color_*` flags only (x264 has no in-stream HDR SEI). |
+| `libx265` | Global `-color_*` + `-x265-params colorprim=bt2020:transfer=...:colormatrix=bt2020nc[:master-display=...:max-cll=...:hdr10-opt=1]`. |
+| `libsvtav1` | Global `-color_*` + `-svtav1-params color-primaries=9:transfer-characteristics=16` (PQ) or `=18` (HLG) `:matrix-coefficients=9`. |
+| `hevc_nvenc` | `-pix_fmt p010le -profile:v main10` + global `-color_*` + `-master_display` / `-max_cll` (when ffmpeg supports them). |
+| `libvvenc` | Global `-color_*` only (SEI options live behind `--vvenc-params` in newer ffmpeg builds). |
+
+Encoders not in the dispatch table emit no HDR flags and the corpus
+row's `hdr_*` fields still record the detection result.
+
+### HDR VMAF scoring (deferred)
+
+If `model/vmaf_hdr_*.json` is shipped, it is selected automatically
+via the `path=...` form of `vmaf --model`. The fork has not yet
+ported Netflix's HDR-trained model; until it does, HDR sources are
+scored against the SDR model with a one-shot warning logged at
+corpus start. Resulting `vmaf_score` values trend low for
+high-luminance regions and are not directly comparable to SDR
+scores. See [ADR-0295](../adr/0295-vmaf-tune-hdr-aware.md) for the
+follow-up backlog item.
 
 ## What Phase A does **not** do
 

@@ -142,6 +142,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     corpus.add_argument("--ffmpeg-bin", default="ffmpeg")
+    corpus.add_argument("--ffprobe-bin", default="ffprobe")
     corpus.add_argument("--vmaf-bin", default="vmaf")
     corpus.add_argument(
         "--score-backend",
@@ -557,6 +558,36 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="write the rendered report to PATH instead of stdout",
     )
+    hdr = corpus.add_mutually_exclusive_group()
+    hdr.add_argument(
+        "--auto-hdr",
+        dest="hdr_mode",
+        action="store_const",
+        const="auto",
+        help="(default) probe each source via ffprobe and inject HDR flags + model when detected",
+    )
+    hdr.add_argument(
+        "--force-sdr",
+        dest="hdr_mode",
+        action="store_const",
+        const="force-sdr",
+        help="treat all sources as SDR; skip HDR detection and flag injection",
+    )
+    hdr.add_argument(
+        "--force-hdr-pq",
+        dest="hdr_mode",
+        action="store_const",
+        const="force-hdr-pq",
+        help="treat all sources as HDR PQ (SMPTE-2084) regardless of probe",
+    )
+    hdr.add_argument(
+        "--force-hdr-hlg",
+        dest="hdr_mode",
+        action="store_const",
+        const="force-hdr-hlg",
+        help="treat all sources as HDR HLG (ARIB STD-B67) regardless of probe",
+    )
+    corpus.set_defaults(hdr_mode="auto")
     return parser
 
 
@@ -580,11 +611,13 @@ def _run_corpus(args: argparse.Namespace) -> int:
         encode_dir=args.encode_dir,
         vmaf_model=args.vmaf_model,
         ffmpeg_bin=args.ffmpeg_bin,
+        ffprobe_bin=args.ffprobe_bin,
         vmaf_bin=args.vmaf_bin,
         keep_encodes=args.keep_encodes,
         src_sha256=not args.no_source_hash,
         resolution_aware=args.resolution_aware,
         score_backend=selected,
+        hdr_mode=args.hdr_mode,
     )
 
     def _all_rows():

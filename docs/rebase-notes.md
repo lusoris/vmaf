@@ -8188,3 +8188,27 @@ inline.*
   # will return {"cpu"} on test_parse_full_backend_line_yields_all_four
   # and the test fails loudly.
   ```
+
+### 0261 — `vmaf-tune` HDR-aware encode + score path (2026-05-03)
+
+- **What changed**: fork-local addition under
+  `tools/vmaf-tune/src/vmaftune/hdr.py` plus wiring into
+  `corpus.py` / `cli.py` / `score.py`. Adds ffprobe-driven HDR
+  detection, codec-specific HDR ffmpeg flag dispatch, schema-v2
+  corpus row keys (`hdr_transfer`, `hdr_primaries`, `hdr_forced`),
+  and four `--auto-hdr` / `--force-*` CLI modes. See
+  [ADR-0295](adr/0295-vmaf-tune-hdr-aware.md).
+- **Upstream source**: zero. `tools/vmaf-tune/` is fork-introduced
+  (Phase A under [ADR-0237](adr/0237-quality-aware-encode-automation.md)).
+- **On upstream sync**: zero interaction. Upstream Netflix/vmaf
+  ships no encode automation surface; this tree is entirely fork-local
+  and lives outside `libvmaf/` and `python/`.
+- **Schema migration note**: `SCHEMA_VERSION` bumped 1 → 2. The
+  three new keys are additive — Phase B / C loaders treat missing
+  keys as SDR for backward compat with v1 rows.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/ -q
+  python -m vmaftune.cli corpus --help  # confirm --auto-hdr surfaces
+  ```

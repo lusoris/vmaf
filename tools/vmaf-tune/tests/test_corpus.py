@@ -174,11 +174,16 @@ def test_parse_vmaf_json_raises_on_missing():
 
 def test_corpus_row_keys_match_init_contract():
     # Schema-shape contract — Phase B / C will rely on this.
-    assert SCHEMA_VERSION == 1
+    # v2 added HDR fields (ADR-0295); Phase B loaders treat missing
+    # keys as SDR for backward compat with v1 rows.
+    assert SCHEMA_VERSION == 2
     assert "vmaf_score" in CORPUS_ROW_KEYS
     assert "bitrate_kbps" in CORPUS_ROW_KEYS
     assert "encode_time_ms" in CORPUS_ROW_KEYS
     assert "run_id" in CORPUS_ROW_KEYS
+    assert "hdr_transfer" in CORPUS_ROW_KEYS
+    assert "hdr_primaries" in CORPUS_ROW_KEYS
+    assert "hdr_forced" in CORPUS_ROW_KEYS
 
 
 def test_smoke_corpus_end_to_end_with_mocks(tmp_path: Path):

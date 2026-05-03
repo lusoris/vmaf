@@ -189,6 +189,24 @@ for the option-space digest.
   silent fallback to `select_backend`; the strict guarantee is
   load-bearing for operator wall-clock expectations. Mock the
   `available` argument or `runner` instead.
+- **HDR detection is fail-safe to SDR (ADR-0295).** `hdr.detect_hdr`
+  returns `None` on any classification ambiguity (missing file,
+  ffprobe failure, malformed JSON, mismatched primaries vs.
+  PQ/HLG transfer). Misclassifying SDR as HDR is the dangerous
+  failure mode (would inject mismatched signaling into a Rec.709
+  encode); misclassifying HDR as SDR is recoverable. Do not relax
+  the BT.2020 primaries gate in `_classify_payload` without an ADR
+  superseding 0261.
+- **The HDR codec dispatch table is the contract for codec adapters.**
+  `hdr.hdr_codec_args` dispatches per `encoder` name. When a new
+  codec adapter (libx265, libsvtav1, ...) lands under
+  `codec_adapters/`, it inherits the dispatch row that already
+  exists; adapters do not roll their own HDR flag set.
+- **`select_hdr_vmaf_model` falls back silently.** When
+  `model/vmaf_hdr_*.json` is absent (current state — fork hasn't
+  ported Netflix's HDR model yet), `_resolve_vmaf_model` logs a
+  warning and returns the SDR model. Do not change this to raise —
+  HDR encode-side correctness ships independently of HDR scoring.
 
 ## Phase scope
 

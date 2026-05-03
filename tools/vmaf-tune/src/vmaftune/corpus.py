@@ -19,6 +19,7 @@ import dataclasses
 import datetime as _dt
 import hashlib
 import json
+import logging
 import os
 import uuid
 from collections.abc import Iterator, Sequence
@@ -27,6 +28,7 @@ from pathlib import Path
 from . import CORPUS_ROW_KEYS, SCHEMA_VERSION
 from .codec_adapters import get_adapter
 from .encode import EncodeRequest, bitrate_kbps, run_encode
+from .hdr import HdrInfo, detect_hdr, hdr_codec_args, select_hdr_vmaf_model
 from .resolution import select_vmaf_model_version
 from .score import ScoreRequest, ScoreResult, run_score
 
@@ -53,6 +55,7 @@ class CorpusOptions:
     encode_dir: Path = Path(".workingdir2/encodes")
     vmaf_model: str = "vmaf_v0.6.1"
     ffmpeg_bin: str = "ffmpeg"
+    ffprobe_bin: str = "ffprobe"
     vmaf_bin: str = "vmaf"
     keep_encodes: bool = False
     src_sha256: bool = True
@@ -63,6 +66,13 @@ class CorpusOptions:
     # baseline. See ADR-0289 + docs/usage/vmaf-tune.md "Resolution-aware mode".
     resolution_aware: bool = True
     score_backend: str | None = None  # libvmaf --backend value; None = binary default
+    # HDR mode (Bucket #9, ADR-0295).
+    # - "auto": probe each source via ffprobe, inject HDR flags + HDR
+    #   model if signaling found. Default — safe for SDR sources.
+    # - "force-sdr": skip detection; treat every source as SDR.
+    # - "force-hdr-pq": treat every source as HDR PQ (overrides probe).
+    # - "force-hdr-hlg": treat every source as HDR HLG.
+    hdr_mode: str = "auto"
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:
@@ -110,6 +120,9 @@ def iter_rows(
         effective_model = select_vmaf_model_version(job.width, job.height)
     else:
         effective_model = opts.vmaf_model
+    hdr_info, hdr_forced = _resolve_hdr(opts, job.source)
+    hdr_extra = hdr_codec_args(adapter.encoder, hdr_info) if hdr_info is not None else ()
+    effective_model = _resolve_vmaf_model(opts, hdr_info)
 
     for preset, crf in job.cells:
         adapter.validate(preset, crf)
@@ -134,6 +147,7 @@ def iter_rows(
             preset=ffmpeg_preset,
             crf=crf,
             output=out,
+            extra_params=hdr_extra,
         )
         enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
 
@@ -171,6 +185,9 @@ def iter_rows(
             src_sha=src_hash,
             enc_res=enc_res,
             score_res=score_res,
+            hdr_info=hdr_info,
+            hdr_forced=hdr_forced,
+            effective_model=effective_model,
         )
         if not opts.keep_encodes and out.exists() and enc_res.exit_status == 0:
             # best-effort cleanup; corpus row stays valid either way
@@ -188,6 +205,9 @@ def _row_for(
     src_sha: str,
     enc_res,
     score_res,
+    hdr_info: HdrInfo | None,
+    hdr_forced: bool,
+    effective_model: str,
 ) -> dict:
     row = {
         "schema_version": SCHEMA_VERSION,
@@ -215,16 +235,72 @@ def _row_for(
         # (e.g. opts says vmaf_v0.6.1 but a 4K row scored against
         # vmaf_4k_v0.6.1). The score request is the source of truth.
         "vmaf_model": score_res.request.model,
+        "vmaf_model": effective_model,
         "score_time_ms": score_res.score_time_ms,
         "ffmpeg_version": enc_res.ffmpeg_version,
         "vmaf_binary_version": score_res.vmaf_binary_version,
         "exit_status": enc_res.exit_status or score_res.exit_status,
+        "hdr_transfer": hdr_info.transfer if hdr_info else "",
+        "hdr_primaries": hdr_info.primaries if hdr_info else "",
+        "hdr_forced": hdr_forced,
     }
     # Schema-shape assertion — catches drift in development; cheap.
     missing = set(CORPUS_ROW_KEYS) - row.keys()
     if missing:
         raise AssertionError(f"corpus row missing keys: {sorted(missing)}")
     return row
+
+
+def _resolve_hdr(opts: CorpusOptions, source: Path) -> tuple[HdrInfo | None, bool]:
+    """Apply ``opts.hdr_mode`` over the source's detected HDR signaling.
+
+    Returns ``(hdr_info, forced)``. ``forced`` is true iff the user
+    overrode the probe via ``--force-hdr-*`` / ``--force-sdr``.
+    """
+    mode = opts.hdr_mode
+    if mode == "force-sdr":
+        return None, True
+    if mode == "force-hdr-pq":
+        return _synthetic_hdr_info("pq"), True
+    if mode == "force-hdr-hlg":
+        return _synthetic_hdr_info("hlg"), True
+    # auto: probe.
+    return detect_hdr(source, ffprobe_bin=opts.ffprobe_bin), False
+
+
+def _synthetic_hdr_info(transfer: str) -> HdrInfo:
+    """Build a minimal :class:`HdrInfo` for ``--force-hdr-*`` overrides."""
+    return HdrInfo(
+        transfer=transfer,
+        primaries="bt2020",
+        matrix="bt2020nc",
+        color_range="tv",
+        pix_fmt="yuv420p10le",
+    )
+
+
+def _resolve_vmaf_model(opts: CorpusOptions, hdr_info: HdrInfo | None) -> str:
+    """Pick the VMAF model: HDR-trained if shipped + source is HDR, else SDR.
+
+    Returns the model identifier string for the ``vmaf --model`` arg.
+    Falls back to ``opts.vmaf_model`` and logs a one-shot warning if
+    HDR was detected but no HDR model is shipped.
+    """
+    if hdr_info is None:
+        return opts.vmaf_model
+    hdr_path = select_hdr_vmaf_model()
+    if hdr_path is None:
+        # Fork hasn't ported Netflix's HDR model yet — see ADR-0295
+        # follow-up backlog item.
+        logging.getLogger(__name__).warning(
+            "hdr-model: source is %s HDR but no vmaf_hdr_*.json found; "
+            "falling back to SDR model %r (scores will trend low)",
+            hdr_info.transfer,
+            opts.vmaf_model,
+        )
+        return opts.vmaf_model
+    # libvmaf accepts a path= form for explicit model JSON paths.
+    return f"path={hdr_path}"
 
 
 def write_jsonl(rows: Sequence[dict] | Iterator[dict], path: Path) -> int:
