@@ -14,7 +14,7 @@ ladder) and F (MCP tools) are not implemented yet — see ADR-0237.
 
 ## Pipeline
 
-```
+```text
 ref.yuv ──► vmaf-tune corpus ──► encode (libx264) ──► vmaf score ──► corpus.jsonl
               │
               └─► encodes are written to --encode-dir, deleted post-score
@@ -146,6 +146,104 @@ without bumping the version.
 - Only `libx264` — `libx265` / `libsvtav1` / `libvpx-vp9` / `libvvenc`
   are next via the codec adapter interface in
   `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+
+## Phase A.5 — opt-in `fast` recommend
+
+The `fast` subcommand
+([ADR-0276](../adr/0276-vmaf-tune-fast-path.md),
+[Research-0060](../research/0060-vmaf-tune-fast-path.md)) is an
+opt-in recommendation surface that combines three acceleration
+levers — VMAF proxy via `fr_regressor_v2`, Bayesian search via
+Optuna's TPE sampler, and GPU-accelerated VMAF for the verify step —
+to replace the exhaustive grid for the *recommendation* use case.
+The slow `corpus` path stays the canonical ground truth.
+
+> **Status: scaffold only.** This PR ships the Optuna search loop,
+> the smoke-mode synthetic predictor, the CLI subcommand, and the
+> production-shape entry point. The real encode-extract-predict loop
+> (real ffmpeg sample encode + canonical-6 extraction + ONNX
+> inference + GPU verify) is a follow-up PR. Run with `--smoke` to
+> exercise the pipeline end-to-end.
+
+### Install
+
+```shell
+pip install -e 'tools/vmaf-tune[fast]'   # adds Optuna
+```
+
+The core install path stays zero-dependency; the `[fast]` extra is
+strictly opt-in.
+
+### Smoke-mode quick start
+
+```shell
+vmaf-tune fast --smoke --target-vmaf 92
+```
+
+Smoke mode runs Optuna over a synthetic x264-shaped CRF→VMAF curve.
+No ffmpeg, no ONNX Runtime, no GPU is touched. Output is a single
+JSON object:
+
+```json
+{
+  "encoder": "libx264",
+  "target_vmaf": 92.0,
+  "recommended_crf": 18,
+  "predicted_vmaf": 92.39,
+  "predicted_kbps": 4121.09,
+  "n_trials": 50,
+  "smoke": true,
+  "notes": "smoke mode — synthetic predictor; ..."
+}
+```
+
+### CLI flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--src PATH` | — | Source video. Required outside `--smoke`. |
+| `--target-vmaf F` | `92.0` | Quality target on VMAF [0, 100] scale. |
+| `--encoder NAME` | `libx264` | Codec adapter (Phase A.5: x264 only). |
+| `--crf-lo N` | `10` | Lower bound of the CRF search. |
+| `--crf-hi N` | `51` | Upper bound of the CRF search. |
+| `--n-trials N` | `50` | Optuna TPE trial count. |
+| `--time-budget-s N` | `300` | Soft wall-clock budget (advisory in scaffold). |
+| `--smoke` | off | Synthetic predictor — exercises the pipeline without ffmpeg / ONNX. |
+
+### Speedup model
+
+Per Research-0060 §Speedup model:
+
+| Combination | Speedup vs Phase A grid |
+| --- | --- |
+| Phase A grid (baseline) | 1× |
+| `fast` (proxy + Bayesian + GPU verify) | ≈20–50× |
+| `fast` + NVENC (lever C, follow-up) | ≈100–500× |
+
+These are upper bounds. The production claim is gated on a
+recommendation-quality benchmark against the slow grid.
+
+### What's needed for production
+
+The scaffold deliberately leaves the following as follow-up PR
+work; flipping ADR-0276 from `Proposed` to `Accepted` requires all
+of these:
+
+1. Real `fr_regressor_v2.onnx` weights trained on the Phase A
+   corpus (gated on PR #347 + corpus generation).
+2. ONNX Runtime wiring for the inference call (the current scaffold
+   exposes a `predictor=` injection seam for follow-up PRs).
+3. Sample-chunk encode loop — encode a 5-second representative
+   chunk per CRF, extract canonical-6 features, feed the proxy.
+4. GPU verify pass — invoke `vmaf` with `--cuda` / `--vulkan` /
+   `--sycl` (auto-detected) at the recommended CRF and report the
+   proxy / verify gap.
+5. NVENC / QSV / AMF auto-detection (lever C, ≈10× more speedup).
+6. Per-shot parallelisation (lever D, integrates with TransNet V2
+   and `vmaf-perShot`).
+7. Recommendation-quality benchmark — for ≥3 sources, compare
+   `fast` vs the slow grid at the recommended CRF; gate Acceptance
+   on a small VMAF tolerance (≤ 1.0 VMAF gap median).
 
 ## Tests
 

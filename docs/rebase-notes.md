@@ -7208,4 +7208,30 @@ inline.*
   # Expected pre-PR-346 (current master): 42/48 mismatches at higher ratio.
   # If the count drops below 5/48 on NVIDIA, ADR-0273 should record the
   # delta and consider closing T-VK-CIEDE-F32-F64.
+### 0229 — `tools/vmaf-tune fast` Phase A.5 scaffold (ADR-0276)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/fast.py` (new),
+  `tools/vmaf-tune/src/vmaftune/cli.py` (new `fast` subcommand
+  branch), `tools/vmaf-tune/pyproject.toml` (new `[fast]` extra),
+  `tools/vmaf-tune/tests/test_fast.py` (new),
+  `tools/vmaf-tune/AGENTS.md` (new invariants),
+  `docs/usage/vmaf-tune.md` (new "Phase A.5" section),
+  `docs/adr/0276-vmaf-tune-fast-path.md` (new ADR),
+  `docs/research/0060-vmaf-tune-fast-path.md` (new digest).
+- **Invariant**: the `fast` subcommand is opt-in and never
+  automatically replaces the Phase A grid path. The slow grid is
+  the ground-truth corpus generator (ADR-0237 contract); fast-path
+  is for the recommendation use case only. Optuna is a lazy-imported
+  optional dep gated behind the `[fast]` extra — importing it at
+  module scope outside `fast.py` (or its tests) breaks the
+  zero-dep core install.
+- **Rebase impact**: entirely fork-local; the tool sits under
+  `tools/vmaf-tune/` which is fork-added, and no upstream files are
+  touched. Upstream Netflix/vmaf has no analogous surface.
+- **Re-test on rebase**:
+
+  ```bash
+  pip install -e 'tools/vmaf-tune[fast]'
+  pytest tools/vmaf-tune/tests/test_fast.py -v
+  vmaf-tune fast --smoke --target-vmaf 92
   ```
