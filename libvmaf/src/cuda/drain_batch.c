@@ -9,6 +9,7 @@
  *  drain stream.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -140,11 +141,16 @@ int vmaf_cuda_drain_batch_flush(VmafCudaState *cu_state)
         return 0;
     }
 
+    /* Power-of-10 §5: invariants on the batch table at flush entry. */
+    assert(g_drain_batch.n <= VMAF_CUDA_DRAIN_BATCH_MAX);
+    assert(cu_state->f != NULL);
+
     int err = drain_stream_ensure(cu_state);
     if (err != 0) {
         return err;
     }
     CudaFunctions *cu_f = cu_state->f;
+    assert(g_drain_batch.drain_str != NULL);
 
     /* Wait on every registered ``finished`` event from the shared
      * drain stream, then synchronize the drain stream once. After
