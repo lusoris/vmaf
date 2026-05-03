@@ -407,6 +407,30 @@
   sweep, only the changed cells re-encode." Twelve new contract
   tests under `tests/test_cache.py` cover key stability, eviction,
   and end-to-end miss-then-hit through the corpus loop.
+- **`vmaf-tune` coarse-to-fine CRF search (ADR-0296).** New
+  `coarse_to_fine_search()` orchestrator in
+  [`tools/vmaf-tune/src/vmaftune/corpus.py`](tools/vmaf-tune/src/vmaftune/corpus.py)
+  drives a 2-pass search instead of the full `0..51` CRF grid. With
+  defaults (`coarse_step=10`, `fine_radius=5`, `fine_step=1`) the
+  search visits 5 coarse + up to 10 fine = 15 encodes per (source,
+  preset) instead of 52 — a 3.46× wall-time speedup. When the
+  highest-CRF coarse point already meets `--target-vmaf` the fine
+  pass is skipped (1-pass shortcut, ~10× speedup). Exposed via
+  `vmaf-tune corpus --coarse-to-fine` (opt-in) and a new
+  `vmaf-tune recommend --target-vmaf VMAF` subcommand which prints
+  the cheapest passing CRF for a quality target. The libx264 codec
+  adapter's `quality_range` widens from the old `(15, 40)`
+  informative window to the codec's nominal `(0, 51)` so the
+  search domain matches the user's CLI; existing full-grid users
+  who only pass `--crf 23..28` are unaffected. JSONL row schema
+  unchanged (`SCHEMA_VERSION=1`). New tests:
+  `test_coarse_to_fine_canonical_visits_15_points` and
+  `test_coarse_to_fine_one_pass_shortcut_when_coarse_max_meets_target`
+  in
+  [`tools/vmaf-tune/tests/test_corpus.py`](tools/vmaf-tune/tests/test_corpus.py).
+  Docs:
+  [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md#coarse-to-fine-crf-search-adr-0296).
+
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

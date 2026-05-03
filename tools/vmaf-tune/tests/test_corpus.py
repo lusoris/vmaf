@@ -16,7 +16,15 @@ sys.path.insert(0, str(_HERE.parent / "src"))
 
 from vmaftune import CORPUS_ROW_KEYS, SCHEMA_VERSION  # noqa: E402
 from vmaftune.codec_adapters import get_adapter, known_codecs  # noqa: E402
-from vmaftune.corpus import CorpusJob, CorpusOptions, iter_rows, write_jsonl  # noqa: E402
+from vmaftune.corpus import (  # noqa: E402
+    CorpusJob,
+    CorpusOptions,
+    coarse_grid_crfs,
+    coarse_to_fine_search,
+    fine_grid_crfs,
+    iter_rows,
+    write_jsonl,
+)
 from vmaftune.encode import (  # noqa: E402
     EncodeRequest,
     build_ffmpeg_command,
@@ -404,3 +412,210 @@ def test_encode_failure_emits_row_with_skipped_score(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0]["exit_status"] == 1
     assert rows[0]["vmaf_binary_version"] == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# Coarse-to-fine search (ADR-0296)
+# ---------------------------------------------------------------------------
+
+
+def test_coarse_grid_crfs_canonical_5_points():
+    # Defaults match the ADR-0296 canonical example.
+    assert coarse_grid_crfs() == (10, 20, 30, 40, 50)
+
+
+def test_coarse_grid_crfs_full_range():
+    # Caller can opt back into the 0..51 sweep at the cost of 1 extra encode.
+    assert coarse_grid_crfs(crf_min=0, crf_max=51, coarse_step=10) == (
+        0,
+        10,
+        20,
+        30,
+        40,
+        50,
+    )
+
+
+def test_coarse_grid_crfs_rejects_bad_step():
+    with pytest.raises(ValueError):
+        coarse_grid_crfs(coarse_step=0)
+    with pytest.raises(ValueError):
+        coarse_grid_crfs(crf_min=40, crf_max=10)
+
+
+def test_fine_grid_crfs_canonical_around_30():
+    # ±5 around CRF=30, step=1, exclude the coarse points -> 10 fine points.
+    fine = fine_grid_crfs(
+        30,
+        fine_radius=5,
+        fine_step=1,
+        exclude=(10, 20, 30, 40, 50),
+    )
+    assert fine == (25, 26, 27, 28, 29, 31, 32, 33, 34, 35)
+    assert len(fine) == 10
+
+
+def test_fine_grid_crfs_clamps_at_boundary():
+    # Best=2, radius=5 -> [-3..7] clamps to [0..7]; exclude=() so 0..7 = 8 pts.
+    fine = fine_grid_crfs(2, fine_radius=5, fine_step=1)
+    assert fine == (0, 1, 2, 3, 4, 5, 6, 7)
+
+
+def _crf_to_score(crf: int) -> float:
+    """Monotone decreasing VMAF model for tests.
+
+    Starts at ~99 at CRF=0 and drops about 1.4 points per CRF unit, so
+    the target=92 example bites at CRF=27 and best-coarse is CRF=30.
+    """
+    return 99.0 - 1.4 * crf
+
+
+def _make_runners(*, scores_by_crf):
+    """Build (encode, score) runners that synthesise rows for given CRFs.
+
+    The score runner inspects the JSON output path's filename for the
+    ``crf<N>`` token written by the encoder filename so each scored
+    encode sees the right VMAF.
+    """
+
+    def fake_encode(cmd, capture_output, text, check):
+        out_path = Path(cmd[-1])
+        out_path.write_bytes(b"\x00" * 4096)
+        # Pull crf from the encode output filename, e.g. ref__libx264__medium__crf30.mp4
+        crf = int(out_path.stem.rsplit("crf", 1)[-1])
+        # Stash the CRF in stderr so the score runner can pick it up.
+        return _FakeCompleted(
+            returncode=0,
+            stderr=(f"ffmpeg version 6.1.1\nx264 - core 164 r3107\n# crf={crf}\n"),
+        )
+
+    def fake_score(cmd, capture_output, text, check):
+        # The score runner's --reference is the source; --distorted is the encode.
+        dist_idx = cmd.index("--distorted") + 1
+        dist = Path(cmd[dist_idx])
+        crf = int(dist.stem.rsplit("crf", 1)[-1])
+        score = scores_by_crf[crf]
+        out_idx = cmd.index("--output") + 1
+        out_path = Path(cmd[out_idx])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps({"pooled_metrics": {"vmaf": {"mean": score}}}))
+        return _FakeCompleted(returncode=0, stderr="VMAF version: 3.0.0-lusoris\n")
+
+    return fake_encode, fake_score
+
+
+def test_coarse_to_fine_canonical_visits_15_points(tmp_path: Path):
+    """Coarse-to-fine with target=92 visits exactly 5 + 10 = 15 encodes."""
+    src = _make_yuv(tmp_path / "ref.yuv")
+    # Synthesise scores: monotone-decreasing in CRF; target=92 gates at ~CRF 5,
+    # but we want best-coarse to be 30 to exercise refinement around the middle.
+    scores = {c: _crf_to_score(c) for c in range(0, 52)}
+    # Make CRF=30 score exactly 95 (passes target=92), CRF=40 score 85 (fails).
+    # That makes best-coarse = 30 (highest CRF still passing).
+    scores[10] = 99.0
+    scores[20] = 96.0
+    scores[30] = 92.5  # <- highest passing
+    scores[40] = 85.0
+    scores[50] = 70.0
+    for c in range(11, 30):
+        scores[c] = 92.5 + (30 - c) * 0.2  # passes
+    for c in range(31, 40):
+        scores[c] = 92.5 - (c - 30) * 0.5  # 31:92.0 ... 35:90.0 ... 39:88.0
+
+    enc_run, score_run = _make_runners(scores_by_crf=scores)
+
+    job = CorpusJob(
+        source=src,
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        duration_s=2.0,
+        cells=(("medium", 0),),  # CRF axis is overridden by coarse-to-fine
+    )
+    opts = CorpusOptions(
+        output=tmp_path / "corpus.jsonl",
+        encode_dir=tmp_path / "encodes",
+        keep_encodes=False,
+        src_sha256=False,
+    )
+    rows = list(
+        coarse_to_fine_search(
+            job,
+            opts,
+            target_vmaf=92.0,
+            encode_runner=enc_run,
+            score_runner=score_run,
+        )
+    )
+
+    assert len(rows) == 15, f"expected 15 visited encodes, got {len(rows)}"
+    visited_crfs = sorted({int(r["crf"]) for r in rows})
+    # 5 coarse + 10 fine (25..29, 31..35) = 15 unique CRFs around the best=30
+    assert visited_crfs == [
+        10,
+        20,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        40,
+        50,
+    ]
+
+
+def test_coarse_to_fine_one_pass_shortcut_when_coarse_max_meets_target(tmp_path: Path):
+    """If the highest-CRF coarse point already meets target, skip the fine pass."""
+    src = _make_yuv(tmp_path / "ref.yuv")
+    # All 5 coarse points pass target=70 -> best-coarse is CRF=50, the
+    # max of the coarse grid -> refinement is skipped (1-pass shortcut).
+    scores = {10: 99.0, 20: 95.0, 30: 90.0, 40: 80.0, 50: 75.0}
+    # Fill rest defensively in case fine pass is wrongly invoked.
+    for c in range(0, 52):
+        scores.setdefault(c, _crf_to_score(c))
+
+    enc_run, score_run = _make_runners(scores_by_crf=scores)
+
+    job = CorpusJob(
+        source=src,
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        duration_s=2.0,
+        cells=(("medium", 0),),
+    )
+    opts = CorpusOptions(
+        output=tmp_path / "corpus.jsonl",
+        encode_dir=tmp_path / "encodes",
+        keep_encodes=False,
+        src_sha256=False,
+    )
+    rows = list(
+        coarse_to_fine_search(
+            job,
+            opts,
+            target_vmaf=70.0,
+            encode_runner=enc_run,
+            score_runner=score_run,
+        )
+    )
+
+    assert len(rows) == 5, f"expected 5 (coarse only), got {len(rows)}"
+    visited_crfs = sorted({int(r["crf"]) for r in rows})
+    assert visited_crfs == [10, 20, 30, 40, 50]
+
+
+def test_coarse_to_fine_speedup_vs_full_grid_is_documented(tmp_path: Path):
+    """Sanity-check the 3.5x speedup claim: 52 / 15 ~= 3.466..."""
+    full_grid_points = 52  # CRF 0..51 step 1
+    canonical_points = 15  # 5 coarse + 10 fine
+    ratio = full_grid_points / canonical_points
+    assert 3.4 < ratio < 3.5
