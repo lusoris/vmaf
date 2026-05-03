@@ -141,6 +141,26 @@
   [docs/research/0061-vmaf-tune-capability-audit.md](docs/research/0061-vmaf-tune-capability-audit.md);
   parent ADR is
   [ADR-0237](docs/adr/0237-quality-aware-encode-automation.md).
+- **`vmaf-tune` codec adapter — libaom-av1 (ADR-0278).** Adds
+  [`tools/vmaf-tune/src/vmaftune/codec_adapters/libaom.py`](tools/vmaf-tune/src/vmaftune/codec_adapters/libaom.py)
+  exposing the canonical adapter contract (name, encoder, quality
+  knob, range, default, invert flag, presets tuple, validation) plus
+  two libaom-specific helpers: `cpu_used(preset) -> int` mapping the
+  shared cross-codec preset vocabulary (`placebo=0, slowest=1, ...,
+  ultrafast=9`) onto libaom's `-cpu-used` integer, and
+  `ffmpeg_codec_args(preset, crf) -> tuple[str, ...]` returning the
+  argv slice that goes after `-c:v libaom-av1`. CRF range is the full
+  libaom window `[0, 63]` with default `35`. Companion to the parallel
+  `libx265` and `libsvtav1` adapter PRs; populates the fourth slot of
+  the `fr_regressor_v2` six-slot codec one-hot
+  (`x264, x265, svtav1, libaom, ?, ?`). User-facing documentation in
+  [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md) covers the
+  preset → cpu-used mapping and the libaom-vs-SVT-AV1 trade-off
+  (libaom is meaningfully slower at matched presets but tends to
+  deliver slightly higher quality at the same bitrate at slow
+  presets per AOM benchmarks). Routing the libaom argv slice through
+  `vmaftune.encode.build_ffmpeg_command` is a follow-up alongside the
+  codec-pluggable encode wiring.
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

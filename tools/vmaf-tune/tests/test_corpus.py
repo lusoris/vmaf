@@ -40,8 +40,12 @@ def _make_yuv(path: Path, nbytes: int = 1024) -> Path:
     return path
 
 
-def test_known_codecs_phase_a_is_x264_only():
-    assert known_codecs() == ("libx264",)
+def test_known_codecs_includes_x264():
+    # Phase A wires libx264 first; later adapters (libaom-av1, ...) join
+    # the registry without disturbing the search-loop contract. Assert
+    # membership rather than exact tuple identity so adding a codec is
+    # not a registry-test churn event.
+    assert "libx264" in known_codecs()
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True

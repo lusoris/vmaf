@@ -7201,6 +7201,35 @@ inline.*
   ```
 
 ### 0229 — `vmaf_tiny_v3` + `vmaf_tiny_v4` dynamic-PTQ int8 sidecars (ADR-0275)
+### 0278 — `vmaf-tune` libaom-av1 codec adapter (2026-05-03)
+
+- **Touches**:
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/libaom.py` (new),
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`
+  (registry row + import),
+  `tools/vmaf-tune/tests/test_corpus.py` (membership assertion
+  relaxed from `== ("libx264",)` to `"libx264" in known_codecs()`),
+  `tools/vmaf-tune/tests/test_codec_adapter_libaom.py` (new),
+  `tools/vmaf-tune/AGENTS.md` (preset-vocabulary invariant).
+- **Invariant**: the cross-codec preset vocabulary
+  (`placebo, slowest, slower, slow, medium, fast, faster,
+  veryfast, superfast, ultrafast`) is shared across AV1-family
+  adapters so one `--preset` axis covers x264 / x265 / svtav1 /
+  libaom-av1. Each adapter maps the human name onto its
+  codec-specific knob; do not introduce per-adapter preset names.
+- **Upstream source**: fork-local. `tools/vmaf-tune/` is the
+  fork-introduced quality-aware encode automation harness
+  ([ADR-0237](adr/0237-quality-aware-encode-automation.md)); it
+  has no upstream Netflix/vmaf counterpart.
+- **On upstream sync**: zero interaction with `upstream/master`.
+  Self-contained in `tools/vmaf-tune/` and `docs/`.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/
+  ```
+
+### 0227 — `ffmpeg-patches/` series re-verified against n8.1 (2026-05-03)
 
 - **ADR**: [ADR-0275](adr/0275-vmaf-tiny-v3-v4-ptq.md)
 - **Touches**:

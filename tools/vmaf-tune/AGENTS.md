@@ -17,11 +17,24 @@ for the option-space digest.
   key list lives in `src/vmaftune/__init__.py` (`CORPUS_ROW_KEYS`)
   and is asserted on every emitted row by `corpus._row_for`.
 - **The codec-adapter contract is multi-codec from day one.** Phase A
-  only wires `libx264`, but `codec_adapters/__init__.py` exposes a
-  registry the search loop must use uniformly. Do not branch on codec
-  name in `corpus.py` / `encode.py` / `score.py`; route via the
-  adapter. New codecs are one-file additions under
-  `codec_adapters/`.
+  wires `libx264` end-to-end; `libaom-av1`
+  ([ADR-0279](../../docs/adr/0279-vmaf-tune-codec-adapter-libaom.md))
+  joins as a metadata-and-argv-helper adapter (its argv shape uses
+  `-cpu-used`, not `-preset`, so the encode driver gains a second
+  argv path when the codec-pluggable encode wiring lands).
+  `codec_adapters/__init__.py` exposes a registry the search loop
+  must use uniformly. Do not branch on codec name in `corpus.py` /
+  `encode.py` / `score.py`; route via the adapter. New codecs are
+  one-file additions under `codec_adapters/`.
+- **Adapter preset vocabulary is the cross-codec sweep axis.** The
+  ten-name preset tuple (`placebo, slowest, slower, slow, medium,
+  fast, faster, veryfast, superfast, ultrafast`) is shared across
+  AV1-family adapters so a single `--preset` axis covers x264 / x265
+  / svtav1 / libaom-av1 in one sweep. Each adapter maps the name
+  onto its codec-specific knob (cpu-used, preset enum, ...). Do not
+  introduce per-adapter preset names; if the codec needs a knob the
+  shared vocabulary cannot express, route it through `extra_params`
+  rather than splitting the preset axis.
 - **Subprocess boundary is the test seam.** `encode.run_encode` and
   `score.run_score` accept a `runner` argument that defaults to
   `subprocess.run`. Tests inject a fake; production callers leave it
