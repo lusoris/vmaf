@@ -57,6 +57,7 @@
 
 #include "feature/cambi_internal.h"
 
+#include "../../vulkan/kernel_template.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/vulkan_internal.h"
@@ -158,18 +159,25 @@ typedef struct CambiVkState {
     uint16_t adjusted_window;
     uint16_t vlt_luma;
 
-    /* Vulkan plumbing. */
+    /* Vulkan plumbing. Five distinct pipeline shapes (per push-constant
+     * struct size), each owning its own DSL + pipeline_layout + shader
+     * module + descriptor pool via the kernel_template bundles. The
+     * shape itself is `dsl_2bind` everywhere (in + out SSBO), but the
+     * template owns one DSL handle per bundle. The first slot of
+     * `pipelines[]` per stage aliases the bundle's base
+     * `VkPipeline`; remaining slots (per-stage spec-constant variants
+     * — FILTER_MODE_V, MASK_SAT_COL, MASK_THRESHOLD) are siblings via
+     * `vmaf_vulkan_kernel_pipeline_add_variant()` and must be
+     * destroyed *before* the bundle's `_destroy()` (see ADR-0221 +
+     * libvmaf/src/vulkan/AGENTS.md "Multi-bundle kernels"). */
     VmafVulkanContext *ctx;
     int owns_ctx;
-    VkDescriptorSetLayout dsl_2bind;    /* in + out */
-    VkPipelineLayout pl_layout_trivial; /* sizeof CambiVkPushTrivial */
-    VkPipelineLayout pl_layout_filter_mode;
-    VkPipelineLayout pl_layout_derivative;
-    VkPipelineLayout pl_layout_decimate;
-    VkPipelineLayout pl_layout_mask_dp;
-    VkShaderModule shader_modules[CAMBI_PL_COUNT];
+    VmafVulkanKernelPipeline pl_trivial;     /* CAMBI_PL_PREPROCESS */
+    VmafVulkanKernelPipeline pl_derivative;  /* CAMBI_PL_DERIVATIVE */
+    VmafVulkanKernelPipeline pl_filter_mode; /* CAMBI_PL_FILTER_MODE_H + variant V */
+    VmafVulkanKernelPipeline pl_decimate;    /* CAMBI_PL_DECIMATE */
+    VmafVulkanKernelPipeline pl_mask_dp;     /* CAMBI_PL_MASK_SAT_ROW + variants COL + THRESHOLD */
     VkPipeline pipelines[CAMBI_PL_COUNT];
-    VkDescriptorPool desc_pool;
 
     /* GPU buffers — sized for full-resolution scale 0. Per-scale
      * dispatches consume only the leading prefix. */
@@ -316,54 +324,15 @@ static const VmafOption options[] = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Vulkan helpers — same shape as ssimulacra2_vulkan.c.              */
+/*  Vulkan helpers — kernel_template-backed (ADR-0221).               */
 /* ------------------------------------------------------------------ */
 
-static int cambi_vk_make_dsl(VkDevice dev, unsigned nbind, VkDescriptorSetLayout *out)
-{
-    VkDescriptorSetLayoutBinding b[2] = {0};
-    for (unsigned i = 0; i < nbind; i++) {
-        b[i].binding = i;
-        b[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        b[i].descriptorCount = 1;
-        b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo ci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = nbind,
-        .pBindings = b,
-    };
-    return vkCreateDescriptorSetLayout(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
-}
-
-static int cambi_vk_make_pl(VkDevice dev, VkDescriptorSetLayout dsl, size_t pcs,
-                            VkPipelineLayout *out)
-{
-    VkPushConstantRange pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = (uint32_t)pcs};
-    VkPipelineLayoutCreateInfo ci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pcr,
-    };
-    return vkCreatePipelineLayout(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
-}
-
-static int cambi_vk_create_shader(VkDevice dev, const uint32_t *code, size_t code_size,
-                                  VkShaderModule *out)
-{
-    VkShaderModuleCreateInfo ci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = code_size,
-        .pCode = code,
-    };
-    return vkCreateShaderModule(dev, &ci, NULL, out) == VK_SUCCESS ? 0 : -ENOMEM;
-}
-
-static int cambi_vk_build_pipeline(VkDevice dev, VkShaderModule sm, VkPipelineLayout pl,
-                                   int n_specs, const int32_t *spec_vals, VkPipeline *out)
+/* Build a sibling compute pipeline with up to 4 int32 spec constants
+ * via `vmaf_vulkan_kernel_pipeline_add_variant`. The base bundle
+ * supplies the layout + shader module; this helper formats the spec
+ * payload and dispatches to the template. */
+static int cambi_vk_build_variant(CambiVkState *s, const VmafVulkanKernelPipeline *bundle,
+                                  int n_specs, const int32_t *spec_vals, VkPipeline *out)
 {
     VkSpecializationMapEntry entries[4];
     int32_t data[4];
@@ -380,162 +349,163 @@ static int cambi_vk_build_pipeline(VkDevice dev, VkShaderModule sm, VkPipelineLa
         .pData = data,
     };
     VkComputePipelineCreateInfo cpci = {
-        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .stage =
             {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = sm,
                 .pName = "main",
                 .pSpecializationInfo = &si,
             },
-        .layout = pl,
     };
-    return vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cpci, NULL, out) == VK_SUCCESS ?
-               0 :
-               -ENOMEM;
+    return vmaf_vulkan_kernel_pipeline_add_variant(s->ctx, bundle, &cpci, out);
+}
+
+/* Build the base pipeline of a `VmafVulkanKernelPipeline` bundle. The
+ * template helper owns layout + shader + DSL + pool; the bundle's
+ * `pipeline` field becomes the bundle's base pipeline. */
+static int cambi_vk_build_base(CambiVkState *s, VmafVulkanKernelPipeline *bundle, uint32_t pc_size,
+                               const uint32_t *spv, size_t spv_size, uint32_t max_sets, int n_specs,
+                               const int32_t *spec_vals)
+{
+    VkSpecializationMapEntry entries[4];
+    int32_t data[4];
+    for (int i = 0; i < n_specs; i++) {
+        entries[i].constantID = (uint32_t)i;
+        entries[i].offset = (uint32_t)(i * (int)sizeof(int32_t));
+        entries[i].size = sizeof(int32_t);
+        data[i] = spec_vals[i];
+    }
+    VkSpecializationInfo si = {
+        .mapEntryCount = (uint32_t)n_specs,
+        .pMapEntries = entries,
+        .dataSize = (size_t)n_specs * sizeof(int32_t),
+        .pData = data,
+    };
+    const VmafVulkanKernelPipelineDesc desc = {
+        .ssbo_binding_count = 2,
+        .push_constant_size = pc_size,
+        .spv_bytes = spv,
+        .spv_size = spv_size,
+        .pipeline_create_info =
+            {
+                .stage =
+                    {
+                        .pName = "main",
+                        .pSpecializationInfo = &si,
+                    },
+            },
+        .max_descriptor_sets = max_sets,
+    };
+    return vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, bundle);
 }
 
 static int cambi_vk_create_pipelines(CambiVkState *s)
 {
-    VkDevice dev = s->ctx->device;
     int err = 0;
 
-    err = cambi_vk_make_dsl(dev, 2, &s->dsl_2bind);
-    if (err)
-        return err;
-    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushTrivial), &s->pl_layout_trivial);
-    if (err)
-        return err;
-    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushFilterMode),
-                           &s->pl_layout_filter_mode);
-    if (err)
-        return err;
-    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushDerivative),
-                           &s->pl_layout_derivative);
-    if (err)
-        return err;
-    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushDecimate), &s->pl_layout_decimate);
-    if (err)
-        return err;
-    err = cambi_vk_make_pl(dev, s->dsl_2bind, sizeof(CambiVkPushMaskDp), &s->pl_layout_mask_dp);
-    if (err)
-        return err;
-
-    /* Shaders. */
-    err = cambi_vk_create_shader(dev, cambi_preprocess_spv, cambi_preprocess_spv_size,
-                                 &s->shader_modules[CAMBI_PL_PREPROCESS]);
-    if (err)
-        return err;
-    err = cambi_vk_create_shader(dev, cambi_derivative_spv, cambi_derivative_spv_size,
-                                 &s->shader_modules[CAMBI_PL_DERIVATIVE]);
-    if (err)
-        return err;
-    err = cambi_vk_create_shader(dev, cambi_filter_mode_spv, cambi_filter_mode_spv_size,
-                                 &s->shader_modules[CAMBI_PL_FILTER_MODE_H]);
-    if (err)
-        return err;
-    /* Filter-mode V reuses the same shader (separable AXIS spec const). */
-    s->shader_modules[CAMBI_PL_FILTER_MODE_V] = s->shader_modules[CAMBI_PL_FILTER_MODE_H];
-    err = cambi_vk_create_shader(dev, cambi_decimate_spv, cambi_decimate_spv_size,
-                                 &s->shader_modules[CAMBI_PL_DECIMATE]);
-    if (err)
-        return err;
-    err = cambi_vk_create_shader(dev, cambi_mask_dp_spv, cambi_mask_dp_spv_size,
-                                 &s->shader_modules[CAMBI_PL_MASK_SAT_ROW]);
-    if (err)
-        return err;
-    s->shader_modules[CAMBI_PL_MASK_SAT_COL] = s->shader_modules[CAMBI_PL_MASK_SAT_ROW];
-    s->shader_modules[CAMBI_PL_MASK_THRESHOLD] = s->shader_modules[CAMBI_PL_MASK_SAT_ROW];
+    /* Per-bundle descriptor-pool sizing.
+     *
+     * Per frame, the cambi orchestration loop runs NUM_SCALES (=5)
+     * iterations; each iteration may run:
+     *   - decimate × 2 (image + mask), at scale > 0 || high-res-speedup
+     *   - filter_mode × 2 (H + V)
+     *   - mask_dp once at scale 0 (3 dispatches: row + col + threshold)
+     *   - derivative once at scale 0
+     *
+     * Each bundle owns its own pool, so size each pool for the
+     * worst case across all NUM_SCALES of its own dispatch type.
+     * `VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT` (set by
+     * the template) lets the per-frame free path recycle, but for
+     * v1 we keep the legacy 64-set pessimistic budget split across
+     * the bundles in proportion to their per-frame dispatch counts. */
+    const uint32_t trivial_sets = 8;      /* preprocess unused on v1; keep small. */
+    const uint32_t derivative_sets = 8;   /* once per frame. */
+    const uint32_t filter_mode_sets = 32; /* 2 per scale × 5 scales × headroom. */
+    const uint32_t decimate_sets = 32;    /* 2 per scale × 5 scales × headroom. */
+    const uint32_t mask_dp_sets = 16;     /* 3 once per frame × headroom. */
 
     const int32_t W = (int32_t)s->proc_width;
     const int32_t H = (int32_t)s->proc_height;
 
-    /* Preprocess: spec[2] = source bpc. */
+    /* Trivial bundle (preprocess) — push: CambiVkPushTrivial.
+     * Spec: W, H, src_bpc. Base pipeline = preprocess. */
     {
         const int32_t spec[3] = {W, H, (int32_t)s->src_bpc};
-        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_PREPROCESS],
-                                      s->pl_layout_trivial, 3, spec,
-                                      &s->pipelines[CAMBI_PL_PREPROCESS]);
+        err = cambi_vk_build_base(s, &s->pl_trivial, sizeof(CambiVkPushTrivial),
+                                  cambi_preprocess_spv, cambi_preprocess_spv_size, trivial_sets,
+                                  /*n_specs=*/3, spec);
         if (err)
             return err;
+        s->pipelines[CAMBI_PL_PREPROCESS] = s->pl_trivial.pipeline;
     }
-    /* Derivative: spec[0/1] = W/H. */
+
+    /* Derivative bundle — push: CambiVkPushDerivative.
+     * Spec: W, H. Base pipeline = derivative. */
     {
         const int32_t spec[2] = {W, H};
-        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_DERIVATIVE],
-                                      s->pl_layout_derivative, 2, spec,
-                                      &s->pipelines[CAMBI_PL_DERIVATIVE]);
+        err = cambi_vk_build_base(s, &s->pl_derivative, sizeof(CambiVkPushDerivative),
+                                  cambi_derivative_spv, cambi_derivative_spv_size, derivative_sets,
+                                  /*n_specs=*/2, spec);
         if (err)
             return err;
+        s->pipelines[CAMBI_PL_DERIVATIVE] = s->pl_derivative.pipeline;
     }
-    /* Filter-mode H/V: spec[2] = AXIS. Two pipelines from one module. */
+
+    /* Filter-mode bundle — push: CambiVkPushFilterMode.
+     * Spec: W, H, AXIS. Two pipelines from one shader module: H is
+     * the bundle's base; V is a sibling variant. */
     {
         const int32_t spec_h[3] = {W, H, 0};
+        err =
+            cambi_vk_build_base(s, &s->pl_filter_mode, sizeof(CambiVkPushFilterMode),
+                                cambi_filter_mode_spv, cambi_filter_mode_spv_size, filter_mode_sets,
+                                /*n_specs=*/3, spec_h);
+        if (err)
+            return err;
+        s->pipelines[CAMBI_PL_FILTER_MODE_H] = s->pl_filter_mode.pipeline;
         const int32_t spec_v[3] = {W, H, 1};
-        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_FILTER_MODE_H],
-                                      s->pl_layout_filter_mode, 3, spec_h,
-                                      &s->pipelines[CAMBI_PL_FILTER_MODE_H]);
-        if (err)
-            return err;
-        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_FILTER_MODE_V],
-                                      s->pl_layout_filter_mode, 3, spec_v,
-                                      &s->pipelines[CAMBI_PL_FILTER_MODE_V]);
-        if (err)
-            return err;
-    }
-    /* Decimate: spec[0/1] = output W/H — re-specialise per scale at
-     * dispatch time? Easier: build a single pipeline at full size and
-     * pass actual dimensions via push constants. The shader bounds-checks
-     * `gx >= pc.out_width`. */
-    {
-        const int32_t spec[2] = {W, H};
-        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_DECIMATE],
-                                      s->pl_layout_decimate, 2, spec,
-                                      &s->pipelines[CAMBI_PL_DECIMATE]);
-        if (err)
-            return err;
-    }
-    /* Mask DP: 3 pipelines (PASS = 0, 1, 2). PAD_SIZE constant from
-     * VMAF_CAMBI_MASK_FILTER_SIZE. */
-    {
-        const int32_t pad = VMAF_CAMBI_MASK_FILTER_SIZE / 2;
-        const int32_t spec_row[4] = {W, H, 0, pad};
-        const int32_t spec_col[4] = {W, H, 1, pad};
-        const int32_t spec_thr[4] = {W, H, 2, pad};
-        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_MASK_SAT_ROW],
-                                      s->pl_layout_mask_dp, 4, spec_row,
-                                      &s->pipelines[CAMBI_PL_MASK_SAT_ROW]);
-        if (err)
-            return err;
-        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_MASK_SAT_COL],
-                                      s->pl_layout_mask_dp, 4, spec_col,
-                                      &s->pipelines[CAMBI_PL_MASK_SAT_COL]);
-        if (err)
-            return err;
-        err = cambi_vk_build_pipeline(dev, s->shader_modules[CAMBI_PL_MASK_THRESHOLD],
-                                      s->pl_layout_mask_dp, 4, spec_thr,
-                                      &s->pipelines[CAMBI_PL_MASK_THRESHOLD]);
+        err = cambi_vk_build_variant(s, &s->pl_filter_mode, 3, spec_v,
+                                     &s->pipelines[CAMBI_PL_FILTER_MODE_V]);
         if (err)
             return err;
     }
 
-    /* Pessimistic descriptor pool — 1 set per dispatch x ~20 dispatches
-     * per frame. Free-set bit lets us recycle. */
-    const uint32_t max_sets = 64;
-    VkDescriptorPoolSize ps = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = max_sets * 2u,
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = max_sets,
-        .poolSizeCount = 1,
-        .pPoolSizes = &ps,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
+    /* Decimate bundle — push: CambiVkPushDecimate.
+     * Spec: W, H. Base pipeline = decimate. The shader bounds-checks
+     * `gx >= pc.out_width`, so a single full-size specialisation
+     * covers all scales. */
+    {
+        const int32_t spec[2] = {W, H};
+        err = cambi_vk_build_base(s, &s->pl_decimate, sizeof(CambiVkPushDecimate),
+                                  cambi_decimate_spv, cambi_decimate_spv_size, decimate_sets,
+                                  /*n_specs=*/2, spec);
+        if (err)
+            return err;
+        s->pipelines[CAMBI_PL_DECIMATE] = s->pl_decimate.pipeline;
+    }
+
+    /* Mask DP bundle — push: CambiVkPushMaskDp.
+     * Spec: W, H, PASS, PAD_SIZE. Three pipelines from one shader
+     * module: ROW (PASS=0) is the bundle's base; COL (PASS=1) and
+     * THRESHOLD (PASS=2) are sibling variants. */
+    {
+        const int32_t pad = VMAF_CAMBI_MASK_FILTER_SIZE / 2;
+        const int32_t spec_row[4] = {W, H, 0, pad};
+        err = cambi_vk_build_base(s, &s->pl_mask_dp, sizeof(CambiVkPushMaskDp), cambi_mask_dp_spv,
+                                  cambi_mask_dp_spv_size, mask_dp_sets,
+                                  /*n_specs=*/4, spec_row);
+        if (err)
+            return err;
+        s->pipelines[CAMBI_PL_MASK_SAT_ROW] = s->pl_mask_dp.pipeline;
+        const int32_t spec_col[4] = {W, H, 1, pad};
+        err = cambi_vk_build_variant(s, &s->pl_mask_dp, 4, spec_col,
+                                     &s->pipelines[CAMBI_PL_MASK_SAT_COL]);
+        if (err)
+            return err;
+        const int32_t spec_thr[4] = {W, H, 2, pad};
+        err = cambi_vk_build_variant(s, &s->pl_mask_dp, 4, spec_thr,
+                                     &s->pipelines[CAMBI_PL_MASK_THRESHOLD]);
+        if (err)
+            return err;
+    }
     return 0;
 }
 
@@ -783,13 +753,14 @@ static int cambi_vk_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     return 0;
 }
 
-static int cambi_vk_alloc_set(CambiVkState *s, VkDescriptorSet *out)
+static int cambi_vk_alloc_set(CambiVkState *s, const VmafVulkanKernelPipeline *bundle,
+                              VkDescriptorSet *out)
 {
     VkDescriptorSetAllocateInfo dsai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
+        .descriptorPool = bundle->desc_pool,
         .descriptorSetCount = 1,
-        .pSetLayouts = &s->dsl_2bind,
+        .pSetLayouts = &bundle->dsl,
     };
     return vkAllocateDescriptorSets(s->ctx->device, &dsai, out) == VK_SUCCESS ? 0 : -ENOMEM;
 }
@@ -970,7 +941,7 @@ static void cambi_vk_dispatch_derivative(CambiVkState *s, VkCommandBuffer cmd, u
                                          unsigned h)
 {
     VkDescriptorSet set = VK_NULL_HANDLE;
-    if (cambi_vk_alloc_set(s, &set))
+    if (cambi_vk_alloc_set(s, &s->pl_derivative, &set))
         return;
     cambi_vk_write_set(s, set, s->image_buf, s->deriv_buf);
     CambiVkPushDerivative pc = {
@@ -979,10 +950,10 @@ static void cambi_vk_dispatch_derivative(CambiVkState *s, VkCommandBuffer cmd, u
         .stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
         .deriv_stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
     };
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_derivative, 0, 1,
-                            &set, 0, NULL);
-    vkCmdPushConstants(cmd, s->pl_layout_derivative, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
-                       &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_derivative.pipeline_layout,
+                            0, 1, &set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_derivative.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(pc), &pc);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[CAMBI_PL_DERIVATIVE]);
     uint32_t gx = (w + CAMBI_VK_WG_X - 1u) / CAMBI_VK_WG_X;
     uint32_t gy = (h + CAMBI_VK_WG_Y - 1u) / CAMBI_VK_WG_Y;
@@ -997,7 +968,7 @@ static void cambi_vk_dispatch_mask_dp(CambiVkState *s, VkCommandBuffer cmd, unsi
     /* PASS 0 — row SAT: deriv_buf → sat_row_buf. */
     {
         VkDescriptorSet set = VK_NULL_HANDLE;
-        if (cambi_vk_alloc_set(s, &set))
+        if (cambi_vk_alloc_set(s, &s->pl_mask_dp, &set))
             return;
         cambi_vk_write_set(s, set, s->deriv_buf, s->sat_row_buf);
         CambiVkPushMaskDp pc = {
@@ -1008,10 +979,10 @@ static void cambi_vk_dispatch_mask_dp(CambiVkState *s, VkCommandBuffer cmd, unsi
             .mask_index = mask_index,
             .pad_size = pad,
         };
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_mask_dp, 0, 1,
-                                &set, 0, NULL);
-        vkCmdPushConstants(cmd, s->pl_layout_mask_dp, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
-                           &pc);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_mask_dp.pipeline_layout,
+                                0, 1, &set, 0, NULL);
+        vkCmdPushConstants(cmd, s->pl_mask_dp.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(pc), &pc);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[CAMBI_PL_MASK_SAT_ROW]);
         vkCmdDispatch(cmd, h, 1, 1);
     }
@@ -1020,7 +991,7 @@ static void cambi_vk_dispatch_mask_dp(CambiVkState *s, VkCommandBuffer cmd, unsi
     /* PASS 1 — col SAT: sat_row_buf → sat_col_buf. */
     {
         VkDescriptorSet set = VK_NULL_HANDLE;
-        if (cambi_vk_alloc_set(s, &set))
+        if (cambi_vk_alloc_set(s, &s->pl_mask_dp, &set))
             return;
         cambi_vk_write_set(s, set, s->sat_row_buf, s->sat_col_buf);
         CambiVkPushMaskDp pc = {
@@ -1031,10 +1002,10 @@ static void cambi_vk_dispatch_mask_dp(CambiVkState *s, VkCommandBuffer cmd, unsi
             .mask_index = mask_index,
             .pad_size = pad,
         };
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_mask_dp, 0, 1,
-                                &set, 0, NULL);
-        vkCmdPushConstants(cmd, s->pl_layout_mask_dp, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
-                           &pc);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_mask_dp.pipeline_layout,
+                                0, 1, &set, 0, NULL);
+        vkCmdPushConstants(cmd, s->pl_mask_dp.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(pc), &pc);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[CAMBI_PL_MASK_SAT_COL]);
         vkCmdDispatch(cmd, w, 1, 1);
     }
@@ -1043,7 +1014,7 @@ static void cambi_vk_dispatch_mask_dp(CambiVkState *s, VkCommandBuffer cmd, unsi
     /* PASS 2 — threshold compare: sat_col_buf → mask_buf. */
     {
         VkDescriptorSet set = VK_NULL_HANDLE;
-        if (cambi_vk_alloc_set(s, &set))
+        if (cambi_vk_alloc_set(s, &s->pl_mask_dp, &set))
             return;
         cambi_vk_write_set(s, set, s->sat_col_buf, s->mask_buf);
         CambiVkPushMaskDp pc = {
@@ -1054,10 +1025,10 @@ static void cambi_vk_dispatch_mask_dp(CambiVkState *s, VkCommandBuffer cmd, unsi
             .mask_index = mask_index,
             .pad_size = pad,
         };
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_mask_dp, 0, 1,
-                                &set, 0, NULL);
-        vkCmdPushConstants(cmd, s->pl_layout_mask_dp, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
-                           &pc);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_mask_dp.pipeline_layout,
+                                0, 1, &set, 0, NULL);
+        vkCmdPushConstants(cmd, s->pl_mask_dp.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(pc), &pc);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           s->pipelines[CAMBI_PL_MASK_THRESHOLD]);
         uint32_t gx = (w + CAMBI_VK_WG_X - 1u) / CAMBI_VK_WG_X;
@@ -1075,7 +1046,7 @@ static void cambi_vk_dispatch_decimate(CambiVkState *s, VkCommandBuffer cmd,
                                        unsigned out_w, unsigned out_h, unsigned in_w)
 {
     VkDescriptorSet set = VK_NULL_HANDLE;
-    if (cambi_vk_alloc_set(s, &set))
+    if (cambi_vk_alloc_set(s, &s->pl_decimate, &set))
         return;
     cambi_vk_write_set(s, set, in_buf, out_buf);
     CambiVkPushDecimate pc = {
@@ -1084,9 +1055,10 @@ static void cambi_vk_dispatch_decimate(CambiVkState *s, VkCommandBuffer cmd,
         .in_stride_words = (uint32_t)((in_w + 1u) / 2u),
         .out_stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
     };
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_decimate, 0, 1, &set,
-                            0, NULL);
-    vkCmdPushConstants(cmd, s->pl_layout_decimate, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_decimate.pipeline_layout, 0,
+                            1, &set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_decimate.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(pc), &pc);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[CAMBI_PL_DECIMATE]);
     uint32_t gx = (out_w + CAMBI_VK_WG_X - 1u) / CAMBI_VK_WG_X;
     uint32_t gy = (out_h + CAMBI_VK_WG_Y - 1u) / CAMBI_VK_WG_Y;
@@ -1098,7 +1070,7 @@ static void cambi_vk_dispatch_filter_mode(CambiVkState *s, VkCommandBuffer cmd,
                                           unsigned w, unsigned h, int axis)
 {
     VkDescriptorSet set = VK_NULL_HANDLE;
-    if (cambi_vk_alloc_set(s, &set))
+    if (cambi_vk_alloc_set(s, &s->pl_filter_mode, &set))
         return;
     cambi_vk_write_set(s, set, in_buf, out_buf);
     CambiVkPushFilterMode pc = {
@@ -1106,10 +1078,10 @@ static void cambi_vk_dispatch_filter_mode(CambiVkState *s, VkCommandBuffer cmd,
         .height = h,
         .stride_words = (uint32_t)((s->proc_width + 1u) / 2u),
     };
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_layout_filter_mode, 0, 1,
-                            &set, 0, NULL);
-    vkCmdPushConstants(cmd, s->pl_layout_filter_mode, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
-                       &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_filter_mode.pipeline_layout,
+                            0, 1, &set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_filter_mode.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(pc), &pc);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                       s->pipelines[axis == 0 ? CAMBI_PL_FILTER_MODE_H : CAMBI_PL_FILTER_MODE_V]);
     uint32_t gx = (w + CAMBI_VK_WG_X - 1u) / CAMBI_VK_WG_X;
@@ -1316,36 +1288,24 @@ static int cambi_vk_close(VmafFeatureExtractor *fex)
     VkDevice dev = s->ctx->device;
     vkDeviceWaitIdle(dev);
 
-    if (s->desc_pool)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
-    for (int i = 0; i < CAMBI_PL_COUNT; i++) {
-        if (s->pipelines[i])
-            vkDestroyPipeline(dev, s->pipelines[i], NULL);
-    }
-    /* Filter-mode + mask-dp share modules; destroy only first instance. */
-    if (s->shader_modules[CAMBI_PL_PREPROCESS])
-        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_PREPROCESS], NULL);
-    if (s->shader_modules[CAMBI_PL_DERIVATIVE])
-        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_DERIVATIVE], NULL);
-    if (s->shader_modules[CAMBI_PL_FILTER_MODE_H])
-        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_FILTER_MODE_H], NULL);
-    if (s->shader_modules[CAMBI_PL_DECIMATE])
-        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_DECIMATE], NULL);
-    if (s->shader_modules[CAMBI_PL_MASK_SAT_ROW])
-        vkDestroyShaderModule(dev, s->shader_modules[CAMBI_PL_MASK_SAT_ROW], NULL);
+    /* Variant pipelines must be destroyed *before* the bundle's
+     * `_destroy()` (which destroys the shared layout/shader/DSL/pool
+     * and would invalidate the variants). The base pipeline at the
+     * stage's primary slot aliases the bundle's `pipeline` field —
+     * skip those slots to avoid double-freeing the aliased base via
+     * the bundle teardown. */
+    if (s->pipelines[CAMBI_PL_FILTER_MODE_V])
+        vkDestroyPipeline(dev, s->pipelines[CAMBI_PL_FILTER_MODE_V], NULL);
+    if (s->pipelines[CAMBI_PL_MASK_SAT_COL])
+        vkDestroyPipeline(dev, s->pipelines[CAMBI_PL_MASK_SAT_COL], NULL);
+    if (s->pipelines[CAMBI_PL_MASK_THRESHOLD])
+        vkDestroyPipeline(dev, s->pipelines[CAMBI_PL_MASK_THRESHOLD], NULL);
 
-    if (s->pl_layout_trivial)
-        vkDestroyPipelineLayout(dev, s->pl_layout_trivial, NULL);
-    if (s->pl_layout_filter_mode)
-        vkDestroyPipelineLayout(dev, s->pl_layout_filter_mode, NULL);
-    if (s->pl_layout_derivative)
-        vkDestroyPipelineLayout(dev, s->pl_layout_derivative, NULL);
-    if (s->pl_layout_decimate)
-        vkDestroyPipelineLayout(dev, s->pl_layout_decimate, NULL);
-    if (s->pl_layout_mask_dp)
-        vkDestroyPipelineLayout(dev, s->pl_layout_mask_dp, NULL);
-    if (s->dsl_2bind)
-        vkDestroyDescriptorSetLayout(dev, s->dsl_2bind, NULL);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_trivial);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_derivative);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_filter_mode);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_decimate);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_mask_dp);
 
 #define CAMBI_VK_FREE(b)                                                                           \
     do {                                                                                           \
