@@ -6630,3 +6630,30 @@ inline.*
   ninja -C build
   meson test -C build test_hip_smoke
   ```
+
+### 0227 — `ffmpeg-patches/` series re-verified against n8.1 (2026-05-03)
+
+- **What changed**: doc-only. No patch refresh; CHANGELOG +
+  rebase-notes entry recording that the six-patch series
+  (`0001-libvmaf-add-tiny-model-option.patch` through
+  `0006-libvmaf-add-libvmaf-vulkan-filter.patch`) still applies
+  cleanly onto a pristine FFmpeg `n8.1` checkout via
+  `git am --3way`, and that recent libvmaf C-API additions did not
+  drift any symbol the patches consume.
+- **Upstream source**: fork-local. The `ffmpeg-patches/` tree is
+  fork-introduced (it ships our libvmaf integration as a stack of
+  patches against pinned FFmpeg n8.1; see
+  [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md)).
+- **On upstream sync**: zero interaction. The patches target an
+  external upstream (FFmpeg), not Netflix/vmaf master.
+- **Re-test on rebase** (canonical reviewer test from ADR-0186):
+
+  ```bash
+  git clone --depth 1 --branch n8.1 \
+      https://github.com/FFmpeg/FFmpeg.git /tmp/ffmpeg-8
+  cd /tmp/ffmpeg-8
+  git reset --hard n8.1
+  for p in /path/to/vmaf/ffmpeg-patches/000*-*.patch; do
+    git am --3way "$p" || break
+  done
+  ```
