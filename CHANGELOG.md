@@ -156,27 +156,21 @@
 
 ### Changed
 
-- **`psnr_hvs_cuda` async H2D upload + persistent pinned staging
-  (T-GPU-OPT-2/3).** Reworks the per-frame upload path of the
-  CUDA `psnr_hvs` feature extractor. Previously each plane upload
-  allocated and freed a pinned host staging buffer per frame and
-  host-blocked between the D2H and the H2D legs; now the staging
-  buffers are sized once in `init_fex_cuda` and reused for the
-  lifetime of the extractor, and the H2Ds run on a dedicated
-  upload stream with a cross-stream `upload_done` event that the
-  kernel stream waits on once before the per-plane kernel
-  launches. Bit-exactness preserved (cross-backend `places=3`
-  gate green for `psnr_hvs_y / cb / cr / psnr_hvs`); fast unit
-  tests + Netflix golden gate green (the same 9 pre-existing
-  pypsnr / niqe / result-store failures observed on `master`
-  are unrelated). Wall-clock impact at the small-frame
-  measurement points used in this PR is below noise floor (CPU
-  `uint→float` convert remains the inner bottleneck), but the
-  no-per-frame-alloc invariant is a prerequisite for the planned
-  CUDA graph capture optimisation tracked in the graph-capture
-  research digest accompanying PR #308. See
-  [`libvmaf/src/cuda/AGENTS.md`](libvmaf/src/cuda/AGENTS.md)
-  §Rebase-sensitive invariants for the rebase invariant.
+- **`ms_ssim_vulkan.c` submit-side migrated to `vulkan/kernel_template.h`
+  submit helpers (T-GPU-DEDUP-26).** The pipeline-side bundles
+  (`pl_decimate`, `pl_ssim` — 2 bundles, 4 decimate variants + 9 SSIM
+  variants total) were already template-managed; this PR replaces the
+  remaining hand-rolled `vkCommandBufferAllocateInfo` /
+  `vkAllocateCommandBuffers` / `vkBeginCommandBuffer` /
+  `vkFenceCreateInfo` / `vkCreateFence` / `vkQueueSubmit` /
+  `vkWaitForFences` / `vkDestroyFence` / `vkFreeCommandBuffers` blocks
+  in `extract()` with `vmaf_vulkan_kernel_submit_begin` /
+  `_end_and_wait` / `_free` triples (one for the pyramid-decimate
+  command buffer, one per scale in the per-scale SSIM loop). Drops the
+  `cleanup_cmd:` label and ~50 lines of boilerplate. Numerical contract
+  unchanged — `places=4` cross-backend gate validated on
+  `testdata/ref_576x324_48f.yuv` ↔ `dis_576x324_48f.yuv` (max abs diff
+  1e-06, 0/48 mismatches; see ADR-0214). Netflix CPU goldens untouched.
 
 - **Snapshot `testdata/netflix_benchmark_results.json` regenerated
   against the fork build to reflect upstream `a44e5e61` motion
