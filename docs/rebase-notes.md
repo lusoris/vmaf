@@ -27,6 +27,38 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0226 — CUDA drain-batch engine-loop opt (T-GPU-OPT-1)
+
+- **Touches**:
+  - `libvmaf/src/cuda/drain_batch.{h,c}` (new) — TLS drain-batch
+    table + shared drain stream + `_open()/register/_flush()/_close()`
+    API.
+  - `libvmaf/src/libvmaf.c` — engine-side per-frame loop now wraps
+    submit/collect with `_open()` + `_flush()` so all CUDA
+    extractor `finished` events are waited on a single shared
+    drain stream.
+  - All 12 CUDA feature kernels (`libvmaf/src/feature/cuda/*.c`)
+    register their `finished` event + `drained` flag with the
+    drain batch on submit; collect skips its private
+    `cuStreamSynchronize` when `drained` is true.
+- **Invariant — drained-flag contract**. Every CUDA extractor's
+  collect path **must** check the per-frame `drained` flag and
+  skip its own `cuStreamSynchronize` when set; otherwise the
+  drain batching is a no-op. The flag is reset to `false` per
+  frame inside `vmaf_cuda_drain_batch_register()`.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf
+  meson setup build -Denable_cuda=true -Denable_sycl=false
+  ninja -C build
+  meson test -C build --suite=fast cuda
+  ```
+
+  Expected: all CUDA tests green; bench shows ≥5% wall-clock
+  gain on a 7-extractor VMAF model (model.json with all
+  feature extractors enabled).
+
 ### 0225 — Netflix bench snapshot regen (upstream a44e5e61 motion fix)
 
 - **Touches**:

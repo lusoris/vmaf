@@ -58,6 +58,7 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 
 #include "cuda/common.h"
 #include "cuda/cuda_helper.cuh"
+#include "cuda/drain_batch.h"
 #include "cuda/picture_cuda.h"
 #include "gpu_picture_pool.h"
 #endif
@@ -757,6 +758,11 @@ int vmaf_close(VmafContext *vmaf)
 #ifdef HAVE_CUDA
     if (vmaf->cuda.ring_buffer)
         vmaf_gpu_picture_pool_close(vmaf->cuda.ring_buffer);
+    /* T-GPU-OPT-1 (ADR-0242): tear down the per-thread drain stream
+     * before releasing the CUDA context — the destroy needs the
+     * still-live context to call cuStreamDestroy. */
+    if (vmaf->cuda.state.ctx)
+        vmaf_cuda_drain_batch_thread_destroy(&vmaf->cuda.state);
     if (vmaf->cuda.state.ctx)
         vmaf_cuda_release(&vmaf->cuda.state);
 #endif
@@ -1265,6 +1271,14 @@ static int flush_context_cuda(VmafContext *vmaf)
     int err = 0;
     if (!vmaf->cuda.state.ctx)
         return 0;
+    /* Final-frame drain: T-GPU-OPT-1 (ADR-0242) leaves the last
+     * frame's submit() events registered with the open drain batch.
+     * Flush them in one syscall before the per-extractor collect()
+     * loop runs, then close the batch so subsequent flush passes
+     * see a clean state. The fall-through to vmaf_cuda_sync below
+     * still catches any non-template-extractor stragglers. */
+    err |= vmaf_cuda_drain_batch_flush(&vmaf->cuda.state);
+    vmaf_cuda_drain_batch_close();
     RegisteredFeatureExtractors rfe = vmaf->registered_feature_extractors;
     for (unsigned i = 0; i < rfe.cnt; i++) {
         if (rfe.fex_ctx[i]->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) {
@@ -1632,6 +1646,90 @@ static int read_pictures_validate_and_prep(VmafContext *vmaf, VmafPicture *ref, 
     return 0;
 }
 
+#ifdef HAVE_CUDA
+/* CUDA fence-batching pass for ``read_pictures_extractor_loop``
+ * (T-GPU-OPT-1, ADR-0242).
+ *
+ *  Phase 1: drain-all + collect-all (prev frame).
+ *           ``vmaf_cuda_drain_batch_flush`` waits on every previously
+ *           registered ``finished`` event in one host-side syscall,
+ *           then per-extractor ``collect()`` runs as a buffer-read
+ *           only (the lifecycle's ``drained`` flag short-circuits
+ *           the per-stream cuStreamSynchronize).
+ *  Phase 2: submit-all (curr frame).
+ *           ``submit()`` records each extractor's ``finished`` event
+ *           and registers it with the open drain batch; the next
+ *           frame's drain_flush will wait on them as a group.
+ *
+ *  Vulkan / SYCL extractors keep their per-frame collect/submit
+ *  ordering — only CUDA participates in the batch.
+ */
+static int read_pictures_extractor_loop_cuda(VmafContext *vmaf, VmafPicture *ref_device,
+                                             VmafPicture *dist_device, unsigned index)
+{
+    if (!vmaf->cuda.state.ctx) {
+        return 0;
+    }
+
+    /* Phase 1: batched drain + per-extractor collect of the prev
+     * frame's pending GPU work. */
+    int err = vmaf_cuda_drain_batch_flush(&vmaf->cuda.state);
+    if (err) {
+        return err;
+    }
+    for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
+        VmafFeatureExtractorContext *fex_ctx = vmaf->registered_feature_extractors.fex_ctx[i];
+        if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA)) {
+            continue;
+        }
+        if (!fex_ctx->gpu_pending) {
+            continue;
+        }
+        err = vmaf_feature_extractor_context_collect(fex_ctx, fex_ctx->gpu_pending_index,
+                                                     vmaf->feature_collector);
+        fex_ctx->gpu_pending = false;
+        if (err) {
+            vmaf_cuda_drain_batch_close();
+            return err;
+        }
+    }
+    vmaf_cuda_drain_batch_close();
+
+    /* Phase 2: batched submit of the curr frame. The drain batch is
+     * re-opened so each extractor's submit() registers its
+     * ``finished`` event for the next frame's drain_flush. */
+    vmaf_cuda_drain_batch_open();
+    for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
+        VmafFeatureExtractorContext *fex_ctx = vmaf->registered_feature_extractors.fex_ctx[i];
+        if (!(fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA)) {
+            continue;
+        }
+        if (read_pictures_should_skip(vmaf, fex_ctx, index)) {
+            continue;
+        }
+        if (!fex_ctx->fex->submit || !fex_ctx->fex->collect) {
+            /* CUDA extractor without async submit/collect — falls back
+             * to ``extract``. The non-CUDA pass below handles those. */
+            continue;
+        }
+        if ((fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_PREV_REF) && vmaf->prev_ref.ref) {
+            fex_ctx->fex->prev_ref = vmaf->prev_ref;
+        }
+        err = vmaf_feature_extractor_context_submit(fex_ctx, ref_device, NULL, dist_device, NULL,
+                                                    index);
+        if (err) {
+            vmaf_cuda_drain_batch_close();
+            return err;
+        }
+        fex_ctx->gpu_pending = true;
+        fex_ctx->gpu_pending_index = index;
+    }
+    /* Drain batch stays open until the next frame's drain_flush —
+     * Phase 1 above closes it before reopening. */
+    return 0;
+}
+#endif /* HAVE_CUDA */
+
 static int read_pictures_extractor_loop(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
 #ifdef HAVE_CUDA
                                         VmafPicture *ref_host, VmafPicture *ref_device,
@@ -1639,17 +1737,37 @@ static int read_pictures_extractor_loop(VmafContext *vmaf, VmafPicture *ref, Vma
 #endif
                                         unsigned index)
 {
+#ifdef HAVE_CUDA
+    /* T-GPU-OPT-1 (ADR-0242): CUDA extractors are dispatched together
+     * so their per-frame ``finished`` events can be drained in one
+     * host-side syscall. Vulkan / SYCL extractors fall through to the
+     * legacy per-extractor loop below (their backends own their own
+     * ordering). */
+    int err = read_pictures_extractor_loop_cuda(vmaf, ref_device, dist_device, index);
+    if (err) {
+        return err;
+    }
+#endif
     for (unsigned i = 0; i < vmaf->registered_feature_extractors.cnt; i++) {
         VmafFeatureExtractorContext *fex_ctx = vmaf->registered_feature_extractors.fex_ctx[i];
         if (read_pictures_should_skip(vmaf, fex_ctx, index))
             continue;
 #ifdef HAVE_CUDA
+        /* CUDA extractors with submit+collect were already handled
+         * in the batched pass above. Skip them here so we don't
+         * double-submit. CUDA extractors WITHOUT async submit/collect
+         * (none today, but possible for purely-synchronous kernels)
+         * still need the legacy dispatch path. */
+        if ((fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA) && fex_ctx->fex->submit &&
+            fex_ctx->fex->collect) {
+            continue;
+        }
         ref = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? ref_device : ref_host;
         dist = fex_ctx->fex->flags & VMAF_FEATURE_EXTRACTOR_CUDA ? dist_device : dist_host;
 #endif
-        int err = read_pictures_dispatch_one(vmaf, fex_ctx, ref, dist, index);
-        if (err)
-            return err;
+        int err_one = read_pictures_dispatch_one(vmaf, fex_ctx, ref, dist, index);
+        if (err_one)
+            return err_one;
     }
     return 0;
 }

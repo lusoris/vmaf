@@ -248,7 +248,7 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
         CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(((float *)s->rb.host_pinned),
                                                   (CUdeviceptr)s->rb.device->data,
                                                   (size_t)s->wg_count * sizeof(float), s->lc.str));
-        CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
+        return vmaf_cuda_kernel_submit_post_record(&s->lc, fex->cu_state);
     }
     return 0;
 }

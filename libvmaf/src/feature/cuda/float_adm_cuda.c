@@ -534,15 +534,20 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
                                     (size_t)s->wg_count[scale] * FADM_ACCUM_SLOTS * sizeof(float),
                                     s->lc.str));
     }
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
-    return 0;
+    return vmaf_cuda_kernel_submit_post_record(&s->lc, fex->cu_state);
 }
 
 static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index, VmafFeatureCollector *fc)
 {
     FloatAdmStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
+    /* Drain via the template helper so engine-scope fence batching
+     * (T-GPU-OPT-1, ADR-0242) can short-circuit the per-stream
+     * cuStreamSynchronize when the engine has already waited on
+     * lc.finished as part of a batched drain. */
+    int sync_err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
+    if (sync_err) {
+        return sync_err;
+    }
 
     /* Per-scale double accumulation across WGs, mirroring the Vulkan
      * host wrapper's reduce_and_emit. */
