@@ -130,6 +130,18 @@
       "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "description": "Tiny VMAF fusion regressor — canonical-6 features + bundled StandardScaler + mlp_medium (~769 params).",
       "notes": "vmaf_tiny_v3 — mlp_medium (6→32→16→1, 769 params) over canonical-6. Same recipe as v2 (90ep Adam lr=1e-3 MSE bs=256, scaler baked into ONNX). Trained on 4-corpus parquet (NF+KV+BVI-DVC A+B+C+D, 330499 rows). PLCC 0.9986±0.0015 NF LOSO (+0.0008 over v2 0.9978±0.0021). Use v2 by default; v3 for higher-PLCC needs. See docs/ai/models/vmaf_tiny_v3.md + ADR-0241."
+    },
+    {
+      "id": "vmaf_tiny_v4",
+      "kind": "fr",
+      "onnx": "vmaf_tiny_v4.onnx",
+      "opset": 17,
+      "sha256": "2bccd339caa08f25433120546e45f2cb435288edeeefeafc56f3668986904e8f",
+      "smoke": false,
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "description": "Tiny VMAF fusion regressor (opt-in) — canonical-6 + bundled StandardScaler + mlp_large (~3 073 params).",
+      "notes": "vmaf_tiny_v4 — mlp_large (6→64→32→16→1, 3073 params) over canonical-6. 90ep Adam lr=1e-3 MSE bs=256. Scaler baked into ONNX. 4-corpus train (NF+KV+BVI-DVC A+B+C+D). NF 9-fold LOSO PLCC=0.9987±0.0015 (v3 was 0.9986±0.0015 — flat). Opt-in only; production default stays v2. Arch ladder stops here. See docs/ai/models/vmaf_tiny_v4.md + ADR-0242."
     }
   ]
 }
