@@ -6514,3 +6514,34 @@ inline.*
     --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
     --feature psnr_hvs --backend cuda --places 3
   ```
+
+
+### 0107 — SpEED-QA defer decision (ADR-0253)
+
+- **ADR**: [ADR-0253](adr/0253-speed-qa-extractor.md) (Proposed)
+- **Touches**:
+  - `docs/research/0051-speed-qa-feasibility.md` (new — feasibility digest)
+  - `docs/adr/0253-speed-qa-extractor.md` (new — Proposed ADR)
+  - `docs/adr/README.md` — index row.
+  - `CHANGELOG.md` — Added entry.
+  - `docs/rebase-notes.md` — this entry.
+- **Invariant**: the fork keeps `speed_chroma` / `speed_temporal` as
+  research-stage extractors gated behind `-Denable_float=true`
+  (status quo — established by PR #213 / rebase-notes 0029). This ADR
+  records *not* extending that surface with a `speed_qa` reduction
+  and *not* registering a SpEED-driven model. Rebase consequence:
+  if upstream ever lands a SpEED-driven model JSON, the
+  ADR-0253 *Trigger 1* condition fires and the deferral has to be
+  re-opened in the same sync PR — do not silently mirror the
+  consuming model.
+- **Rebase impact**: docs-only. No code, no build files, no public
+  headers, no tests. No conflict surface with upstream merges.
+- **Re-test on rebase**: none required (docs-only). On any
+  `/sync-upstream` that pulls Netflix changes touching
+  `model/*.json`, additionally run:
+
+  ```bash
+  # Trigger-1 watchdog: did upstream add a model that consumes SpEED?
+  git grep -lE "Speed_(chroma|temporal)_feature" model/ \
+      || echo "no consumer (ADR-0253 deferral still valid)"
+  ```

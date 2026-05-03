@@ -321,7 +321,7 @@ feature/
   predicate (`svwhilelt_b32(0, 4)`) so its arithmetic order
   matches the NEON sibling regardless of runtime vector length —
   do **not** widen to `svptrue_b32()` without a separate ADR
-  + snapshot regen, even if it looks like a free perf win. See
+  plus snapshot regen, even if it looks like a free perf win. See
   [ADR-0161](../../../docs/adr/0161-ssimulacra2-simd-bitexact.md),
   [ADR-0213](../../../docs/adr/0213-ssimulacra2-sve2.md), and
   [rebase-notes 0053](../../../docs/rebase-notes.md) /
@@ -503,6 +503,12 @@ them must pass `-Denable_float=true`. Do **not** lift them out
 of the `#if` block — they call into the Speed-specific helpers
 in `vif_tools.c` that are themselves only compiled in the
 float-features path.
+
+[ADR-0253](../../../docs/adr/0253-speed-qa-extractor.md)
+(Proposed) records the deferral on extending this surface with a
+SpEED-QA full-frame reduction or a SpEED-driven model. Status quo
+is the binding contract until one of the three named triggers in
+that ADR fires.
 
 ## Governing ADRs
 
