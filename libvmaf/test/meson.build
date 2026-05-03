@@ -268,6 +268,14 @@ test_cli_parse = executable('test_cli_parse',
     dependencies: [pthread_dependency, getopt_dependency, sycl_dependency],
 )
 
+test_y4m_411_oob = executable('test_y4m_411_oob',
+    ['test_y4m_411_oob.c', '../tools/vidinput.c', '../tools/y4m_input.c', '../tools/yuv_input.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), include_directories('../tools/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    c_args : [compat_cflags],
+    dependencies: [pthread_dependency, sycl_dependency],
+)
+
 test_psnr = executable('test_psnr',
     ['test.c', 'test_psnr.c', '../src/picture.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
@@ -703,6 +711,7 @@ test('test_speed', test_speed)
 endif
 test('test_luminance_tools', test_luminance_tools)
 test('test_cli_parse', test_cli_parse)
+test('test_y4m_411_oob', test_y4m_411_oob)
 test('test_psnr', test_psnr)
 test('test_framesync', test_framesync)
 test('test_propagate_metadata', test_propagate_metadata)

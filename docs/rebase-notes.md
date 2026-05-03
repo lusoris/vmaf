@@ -54,6 +54,36 @@ cover several PRs in one workstream; cross-link from the ID heading.
   lavapipe; max abs diff must stay ≤ `5.0e-05` (`places=4`) on all
   three.
 ### 0229 — HIP fifth-consumer kernel `float_ansnr_hip` (ADR-0266)
+### 0228 — `y4m_convert_411_422jpeg` 1-byte heap-buffer-overflow fix
+
+- **Touches**:
+  - `libvmaf/tools/y4m_input.c` — upstream-mirrored Daala-derived Y4M
+    parser. The fix sits inside the 4:1:1 → 4:2:2-jpeg chroma upsample
+    routine `y4m_convert_411_422jpeg`, lines ~500–530 in the function's
+    three sub-loops. Upstream Netflix/vmaf carries the same shape; if
+    upstream lands its own fix during a sync, prefer the upstream
+    version and drop ours.
+  - `libvmaf/test/test_y4m_411_oob.c` (new, fork-local) — drives the
+    minimal W=2 H=4 4:1:1 stream through `video_input_open` +
+    `video_input_fetch_frame`. Wholly fork-added; no upstream collision.
+  - `libvmaf/test/meson.build` — adds `test_y4m_411_oob` executable +
+    `test()` registration.
+- **Invariant**: the **first two** sub-loops of `y4m_convert_411_422jpeg`
+  must guard `_dst[(x << 1) | 1]` writes with `(x << 1 | 1) < dst_c_w`,
+  matching the third sub-loop's existing guard. Without the guard a
+  4:1:1 stream of width 2 (`dst_c_w == 1`) writes one byte past the
+  destination chroma row.
+- **Re-test**:
+  - `cd libvmaf && meson setup ../build-asan --buildtype=debug
+    -Db_sanitize=address -Db_lundef=false -Denable_cuda=false
+    -Denable_sycl=false -Denable_vulkan=disabled`
+  - `ninja -C build-asan test/test_y4m_411_oob`
+  - `ASAN_OPTIONS=detect_leaks=0 ./build-asan/test/test_y4m_411_oob`
+    — must report `1 tests run, 1 passed`. Pre-fix the binary aborts
+    with `AddressSanitizer: heap-buffer-overflow … WRITE of size 1`
+    at `y4m_input.c:507`.
+
+### 0227 — `tools/vmaf-tune/` Phase A scaffold (ADR-0237 Phase A)
 
 - **Touches**:
   - `libvmaf/src/feature/hip/float_ansnr_hip.{c,h}` (new) — fifth

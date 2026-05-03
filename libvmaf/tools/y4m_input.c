@@ -504,22 +504,27 @@ static void y4m_convert_411_422jpeg(y4m_input *_y4m, unsigned char *_dst, unsign
                                               _aux[OC_MINI(2, c_w - 1)] + 64) >>
                                                  7,
                                              255);
-                _dst[x << 1 | 1] =
-                    (unsigned char)OC_CLAMPI(0,
-                                             (47 * _aux[0] + 86 * _aux[OC_MINI(1, c_w - 1)] -
-                                              5 * _aux[OC_MINI(2, c_w - 1)] + 64) >>
-                                                 7,
-                                             255);
+                if ((x << 1 | 1) < dst_c_w) {
+                    _dst[x << 1 | 1] =
+                        (unsigned char)OC_CLAMPI(0,
+                                                 (47 * _aux[0] + 86 * _aux[OC_MINI(1, c_w - 1)] -
+                                                  5 * _aux[OC_MINI(2, c_w - 1)] + 64) >>
+                                                     7,
+                                                 255);
+                }
             }
             for (; x < c_w - 2; x++) {
                 _dst[x << 1] = (unsigned char)OC_CLAMPI(
                     0, (_aux[x - 1] + 110 * _aux[x] + 18 * _aux[x + 1] - _aux[x + 2] + 64) >> 7,
                     255);
-                _dst[x << 1 | 1] = (unsigned char)OC_CLAMPI(
-                    0,
-                    (-3 * _aux[x - 1] + 50 * _aux[x] + 86 * _aux[x + 1] - 5 * _aux[x + 2] + 64) >>
-                        7,
-                    255);
+                if ((x << 1 | 1) < dst_c_w) {
+                    _dst[x << 1 | 1] =
+                        (unsigned char)OC_CLAMPI(0,
+                                                 (-3 * _aux[x - 1] + 50 * _aux[x] +
+                                                  86 * _aux[x + 1] - 5 * _aux[x + 2] + 64) >>
+                                                     7,
+                                                 255);
+                }
             }
             for (; x < c_w; x++) {
                 _dst[x << 1] = (unsigned char)OC_CLAMPI(0,

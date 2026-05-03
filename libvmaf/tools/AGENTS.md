@@ -63,6 +63,18 @@ tools/
   - The placeholder saliency map (when `--saliency-model` is absent)
     is for smoke-test plumbing only and explicitly documented as
     not-for-real-encodes in `docs/usage/vmaf-roi.md`.
+- **`y4m_convert_411_422jpeg` chroma-row write guards are
+  load-bearing** (rebase-sensitive). The 4:1:1 → 4:2:2-jpeg upsample
+  in [y4m_input.c](y4m_input.c) writes both even and odd output
+  sub-pixels per loop iteration. The destination chroma row width
+  `dst_c_w` can be 1 (e.g. a width-2 frame: `dst_c_w = (2 + 2 - 1) /
+  2 = 1`), in which case writing `_dst[(x << 1) | 1]` is a 1-byte
+  heap-buffer-overflow. **All three sub-loops** in this routine must
+  guard the secondary write with `(x << 1 | 1) < dst_c_w`. Upstream
+  Daala / Netflix carry the same code shape; if `/sync-upstream`
+  reintroduces the unguarded write, re-apply the fix. Regression
+  test: `libvmaf/test/test_y4m_411_oob.c` (ASan-required to catch
+  the regression deterministically).
 
 ## Governing ADRs
 
