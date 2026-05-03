@@ -6391,40 +6391,49 @@ inline.*
   python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
 
-### 0106 — ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (ADR-0252)
+### 0227 — ssimulacra2 GPU XYB shader stays disabled (T-GPU-OPT-VK-3 NO-GO)
 
-- **ADR**: [ADR-0252](adr/0252-ssimulacra2-host-xyb-simd.md)
 - **Touches**:
-  - `libvmaf/src/feature/x86/ssimulacra2_host_avx2.h` (new)
-  - `libvmaf/src/feature/x86/ssimulacra2_host_avx2.c` (new)
-  - `libvmaf/src/feature/arm64/ssimulacra2_host_neon.h` (new)
-  - `libvmaf/src/feature/arm64/ssimulacra2_host_neon.c` (new)
-  - `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` — runtime
-    dispatch added to `init()` and `extract()`; `Ssimu2VkState`
-    gains three function-pointer fields.
-  - `libvmaf/src/meson.build` — new .c files added to the
-    `x86_ssimulacra2_avx2` and `arm64_ssimulacra2` static libs.
-  - `libvmaf/test/test_ssimulacra2_simd.c` — two new test cases:
-    `test_host_xyb`, `test_host_downsample`.
-  - `docs/adr/0252-ssimulacra2-host-xyb-simd.md` (new)
-  - `docs/adr/README.md` — index row.
-  - `CHANGELOG.md` — Added entry.
-- **Bit-exactness contract**: same as ADR-0161. Scalar tail and SIMD
-  main loop use identical arithmetic order; `vmaf_ss2_cbrtf` called
-  per-lane via scalar libm. `memcmp`-level byte-exactness verified
-  by `test_host_xyb` and `test_host_downsample`.
-- **Rebase impact**: the new files are entirely fork-local. The only
-  upstream-touching change is `ssimulacra2_vulkan.c`, which is
-  itself fork-local (ADR-0201). No upstream conflict expected.
-  If upstream ever adds host-side SIMD to `ssimulacra2_vulkan.c`,
-  reconcile the function-pointer fields and dispatch init; the
-  kernel implementations in the new TUs are independent.
+  - `libvmaf/src/feature/vulkan/shaders/ssimulacra2_xyb.comp` —
+    fork-introduced; not modified by this PR but its disablement
+    posture is now reaffirmed by a fresh measurement on NVIDIA.
+  - `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` — not
+    modified by this PR; the shader's pipeline allocation + the
+    `(void)xyb_set_ref / (void)xyb_set_dis` sites must stay in
+    place so the shader remains a structurally-valid in-tree
+    reference.
+- **Invariant**: the canonical XYB pre-pass for
+  `ssimulacra2_vulkan` (and, by [ADR-0206](adr/0206-ssimulacra2-cuda-sycl.md),
+  the CUDA + SYCL twins) runs **host-side**. Re-enabling the GPU
+  shader without a fresh precision-rescue mechanism (e.g.
+  `Float64`-gated path) regresses the cross-backend parity gate
+  from `places=4` to `places=1` — a ~5-decade-place loss that
+  silently breaks the `ssimulacra2` row of the parity matrix.
 - **Re-test on rebase**:
 
   ```bash
-  meson setup build libvmaf -Denable_vulkan=disabled
+  cd libvmaf
+  meson setup build -Denable_vulkan=enabled -Denable_cuda=false \
+    -Denable_sycl=false
   ninja -C build
-  meson test -C build test_ssimulacra2_simd
-  # Vulkan parity gate (requires GPU):
-  python scripts/ci/cross_backend_parity_gate.py --feature ssimulacra2 --places 2
+  cd ..
+  VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json \
+    python3 scripts/ci/cross_backend_vif_diff.py \
+      --feature ssimulacra2 --backend vulkan --places 4 \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel-format 420 --bitdepth 8
+  # Expect: max_abs_diff ≤ 1e-6, 0/48 mismatches at places=4.
+  # If max_abs_diff jumps to ~1.5e-2 with 47/48 mismatches, the
+  # host XYB call site has been removed or short-circuited —
+  # restore it per Research-0047.
   ```
+
+- **Why this matters on rebase**: an upstream commit that touches
+  `libvmaf/src/feature/ssimulacra2.c` could prompt a "let's also
+  port the GPU XYB while we're here" follow-up. The ledger entry
+  is the standing answer: don't, the measurement was redone on
+  NVIDIA in May 2026 and the result still failed `places=4` by
+  five decades. See
+  [Research-0047](research/0051-ssimulacra2-gpu-xyb-precision.md).
