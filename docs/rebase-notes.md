@@ -6545,3 +6545,88 @@ inline.*
   meson test -C build test_mobilesal
   python3 ai/scripts/validate_model_registry.py
   ```
+
+### 0227 — HIP third-consumer kernel `ciede_hip` (ADR-0259)
+
+- **ADR**: [ADR-0259](adr/0259-hip-third-consumer-ciede.md)
+- **Touches**:
+  - `libvmaf/src/feature/hip/ciede_hip.c` (new)
+  - `libvmaf/src/feature/hip/ciede_hip.h` (new)
+  - `libvmaf/src/hip/meson.build` — new entry in `hip_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` — extern declaration
+    plus `feature_extractor_list[]` entry under `#if HAVE_HIP`.
+  - `libvmaf/test/test_hip_smoke.c` — new sub-test
+    `test_ciede_hip_extractor_registered` and a row in
+    `test_table[]`.
+  - `docs/adr/0259-hip-third-consumer-ciede.md` (new)
+  - `docs/adr/README.md` — index row.
+  - `docs/backends/hip/overview.md` — third / fourth consumer
+    note.
+  - `libvmaf/src/hip/AGENTS.md` — invariant note.
+  - `CHANGELOG.md` — Added entry (joint with ADR-0260).
+- **Invariant**: `vmaf_get_feature_extractor_by_name("ciede_hip")`
+  returns the registered extractor on `-Denable_hip=true`. The
+  consumer's call graph mirrors `integer_ciede_cuda.c`'s
+  init/submit/collect/close shape, including the **intentional
+  bypass** of `submit_pre_launch` — ciede's kernel writes one float
+  per block (no atomic, no memset), so the template's pre-launch
+  helper is deliberately not called from `submit`. T7-10b will
+  swap helper bodies and keep this call-site shape; if the CUDA
+  twin grows a `submit_pre_launch` call, the HIP twin must follow
+  in the same PR.
+- **Rebase impact**: entirely fork-local. New files are HIP-
+  specific. The only upstream-touching edit is
+  `feature_extractor.c`, but the change sits inside an existing
+  `#if HAVE_HIP` block (ADR-0241); upstream has no `HAVE_HIP` so
+  no conflict is expected.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_hip=true \
+    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C build
+  meson test -C build test_hip_smoke
+  # CPU-only build must also keep working (no HAVE_HIP):
+  meson setup build-cpu libvmaf -Denable_hip=false \
+    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C build-cpu
+  ```
+
+### 0228 — HIP fourth-consumer kernel `float_moment_hip` (ADR-0260)
+
+- **ADR**: [ADR-0260](adr/0260-hip-fourth-consumer-float-moment.md)
+- **Touches**:
+  - `libvmaf/src/feature/hip/float_moment_hip.c` (new)
+  - `libvmaf/src/feature/hip/float_moment_hip.h` (new)
+  - `libvmaf/src/hip/meson.build` — new entry in `hip_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` — extern declaration
+    plus `feature_extractor_list[]` entry under `#if HAVE_HIP`.
+  - `libvmaf/test/test_hip_smoke.c` — new sub-test
+    `test_float_moment_hip_extractor_registered` and a row in
+    `test_table[]`.
+  - `docs/adr/0260-hip-fourth-consumer-float-moment.md` (new)
+  - `docs/adr/README.md` — index row.
+  - `docs/backends/hip/overview.md` — third / fourth consumer
+    note (joint).
+  - `libvmaf/src/hip/AGENTS.md` — invariant note.
+  - `CHANGELOG.md` — Added entry (joint with ADR-0259).
+- **Invariant**:
+  `vmaf_get_feature_extractor_by_name("float_moment_hip")` returns
+  the registered extractor on `-Denable_hip=true`. The consumer's
+  call graph mirrors `integer_moment_cuda.c`'s
+  init/submit/collect/close shape, with a four-uint64 atomic-counter
+  readback (`MOMENT_HIP_COUNTERS = 4u`). The submit path *does*
+  call `vmaf_hip_kernel_submit_pre_launch` (the kernel uses atomic
+  adds, so the memset of all four counters is mandatory). T7-10b
+  will implement that helper as a single `hipMemsetAsync` of
+  `rb.bytes`, covering both 1-counter (psnr_hip) and 4-counter
+  (moment_hip) cases.
+- **Rebase impact**: entirely fork-local; same posture as ADR-0259.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_hip=true \
+    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C build
+  meson test -C build test_hip_smoke
+  ```

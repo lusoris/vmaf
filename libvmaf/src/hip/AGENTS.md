@@ -23,7 +23,8 @@ hip/
 
 ## Backend status
 
-**Scaffold + first + second consumer** — landed across three PRs:
+**Scaffold + first / second / third / fourth consumer** — landed
+across multiple PRs:
 
 1. **T7-10 audit-first scaffold** (ADR-0212) — common, picture, dispatch,
    feature stubs, public header `libvmaf_hip.h`, CI lane
@@ -34,12 +35,20 @@ hip/
    (first kernel-template consumer) + `vmaf_fex_psnr_hip` registration
    under `#if HAVE_HIP`. Template helpers and the consumer's
    submit/collect return `-ENOSYS` until T7-10b.
-3. **T7-10 second consumer** (ADR-0254) — `feature/hip/float_psnr_hip.{c,h}`
-   mirroring `feature/cuda/float_psnr_cuda.c` + `vmaf_fex_float_psnr_hip`
-   registration. Same scaffold posture (registration succeeds, `init()`
-   surfaces `-ENOSYS` through the kernel-template helpers). Proves the
-   template's shape generalises across feature precisions (float partials
-   vs the first consumer's int64 SSE).
+3. **T7-10b second consumer** (ADR-0254, PR #324) —
+   `feature/hip/float_psnr_hip.{c,h}` mirroring
+   `feature/cuda/float_psnr_cuda.c`. Float partials precision posture.
+4. **T7-10b third + fourth consumers** (ADR-0259 / ADR-0260) —
+   `feature/hip/ciede_hip.{c,h}` and
+   `feature/hip/float_moment_hip.{c,h}` mirroring
+   `feature/cuda/integer_ciede_cuda.c` and
+   `feature/cuda/integer_moment_cuda.c`. Validate two pre-runtime
+   contracts: (a) ciede's **intentional bypass** of
+   `submit_pre_launch` (one float per block, no atomic, no memset),
+   (b) moment's four-uint64 atomic-counter readback so
+   `submit_pre_launch` can later memset multiple counters in one
+   call. Same scaffold posture: `init()` returns `-ENOSYS` until
+   T7-10b.
 
 **Pending** — T7-10b (runtime PR) replaces the `kernel_template.c`
 bodies and the consumers' submit/collect kernel-launch chains with
@@ -106,28 +115,41 @@ by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214
   refactor touches the picture buffer-type dispatch, leave the HIP
   extractor's flags at `0` until T7-10b.
 
-- **`float_psnr_hip.c` mirrors `float_psnr_cuda.c` call-graph-for-call-graph**
-  (fork-local, ADR-0254). Same `FloatPsnrStateHip`/`FloatPsnrStateCuda`
-  fields in matching order (modulo CUDA driver-table function
-  pointers and staging buffers, which are runtime-PR territory),
-  same template-helper invocations in the same init/submit/collect/close
-  sequence, same bit-depth-aware `peak`/`psnr_max` table, same
-  `provided_features` contract (`float_psnr` luma-only in v1).
-  `vmaf_fex_float_psnr_hip` registers under `#if HAVE_HIP` with the
-  same `flags = 0` posture as the first consumer. **On rebase**:
-  keep the call graph aligned with the CUDA twin; any drift in
-  `float_psnr_cuda.c`'s lifecycle (extra event, kernel argument
-  reorder, score formula change) requires a paired update to the
-  HIP twin. The same flag-bit invariant from the first consumer
-  applies — `flags = 0` until T7-10b sets the picture buffer-type
-  plumbing.
+## Rebase-sensitive invariants (additional consumers)
+
+- **`ciede_hip.c` mirrors `integer_ciede_cuda.c` call-graph-for-call-graph**
+  (fork-local, ADR-0259). The submit path **intentionally does not
+  call `vmaf_hip_kernel_submit_pre_launch`** because the kernel
+  writes one float per block (no atomic, no memset required) — the
+  CUDA twin makes the same choice. **On rebase**: if a future PR
+  adds a `submit_pre_launch` call to `integer_ciede_cuda.c`'s
+  submit path, the HIP twin must follow in the same PR; the bypass
+  is the load-bearing artefact this consumer pins.
+
+- **`float_moment_hip.c` mirrors `integer_moment_cuda.c`
+  call-graph-for-call-graph** (fork-local, ADR-0260). Four-uint64
+  atomic-counter readback (`MOMENT_HIP_COUNTERS = 4u`) sized at
+  `init()` time. The submit path **does** call
+  `submit_pre_launch` (the kernel uses atomic adds, so the memset
+  of all four counters is mandatory). **On rebase**: keep the
+  four-counter constant aligned with the CUDA twin's
+  `4u * sizeof(uint64_t)` readback size; any drift in the CUDA
+  twin's counter count requires a paired update here.
 
 ## Governing ADRs
 
 - [ADR-0212](../../../docs/adr/0212-hip-backend-scaffold.md) — HIP
   scaffold-only audit-first PR (T7-10).
 - [ADR-0241](../../../docs/adr/0241-hip-first-consumer-psnr.md) —
-  this PR: kernel-template mirror + `integer_psnr_hip` first consumer.
+  kernel-template mirror + `integer_psnr_hip` first consumer.
+- [ADR-0254](../../../docs/adr/0254-hip-second-consumer-float-psnr.md) —
+  second consumer (`float_psnr_hip`); float partials precision posture.
+- [ADR-0259](../../../docs/adr/0259-hip-third-consumer-ciede.md) —
+  third consumer (`ciede_hip`); pins the `submit_pre_launch` bypass
+  shape.
+- [ADR-0260](../../../docs/adr/0260-hip-fourth-consumer-float-moment.md) —
+  fourth consumer (`float_moment_hip`); pins the multi-counter
+  uint64 readback shape.
 - [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) — CUDA
   kernel-template decision; the source the HIP mirror tracks.
 - [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) — `places=4`

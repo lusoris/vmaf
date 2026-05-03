@@ -8,24 +8,37 @@
 
 ### Added
 
-- **`tools/vmaf-tune/` Phase A — quality-aware encode automation scaffold
-  (ADR-0237 Phase A Accepted, Research-0044).** New Python tool that
-  drives FFmpeg over a `(preset, crf)` grid against `libx264`, scores
-  each encode with the libvmaf CLI, and emits a JSONL corpus of
-  `(source, encoder, params, bitrate, vmaf)` rows. Schema versioned via
-  `vmaftune.SCHEMA_VERSION = 1` and exported as `CORPUS_ROW_KEYS`; the
-  schema is the API contract that Phase B (target-VMAF bisect) and
-  Phase C (per-title CRF predictor) will consume. Codec adapter
-  registry (`codec_adapters/`) is multi-codec from day one — Phase A
-  wires `libx264` only; subsequent codecs (`libx265`, `libsvtav1`,
-  `libvpx-vp9`, `libvvenc`, neural extras) are one-file additions
-  without touching the search loop. Subprocess-mocked smoke tests
-  under `tools/vmaf-tune/tests/` (13 cases) cover command shape,
-  version parsing, JSONL round-trip, encode-failure handling, and the
-  schema contract — no `ffmpeg` or built `vmaf` binary required.
-  User docs: [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md).
-  Phases B–F remain Proposed under ADR-0237; this PR ships only the
-  Phase A corpus scaffold.
+- **HIP third + fourth kernel-template consumers — `ciede_hip` and
+  `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
+  Ships
+  [`libvmaf/src/feature/hip/ciede_hip.{c,h}`](libvmaf/src/feature/hip/ciede_hip.c)
+  and
+  [`libvmaf/src/feature/hip/float_moment_hip.{c,h}`](libvmaf/src/feature/hip/float_moment_hip.c)
+  — the third and fourth consumers of
+  `libvmaf/src/hip/kernel_template.h` after `integer_psnr_hip`
+  (ADR-0241) and `float_psnr_hip` (ADR-0254 / PR #324).
+  `ciede_hip` mirrors `libvmaf/src/feature/cuda/integer_ciede_cuda.c`
+  call-graph-for-call-graph including the **intentional bypass** of
+  `submit_pre_launch` (ciede's kernel writes one float per block, no
+  atomic, no memset required) — pinning the kernel-template's
+  "no-memset bypass" path pre-runtime. `float_moment_hip` mirrors
+  `libvmaf/src/feature/cuda/integer_moment_cuda.c` with a four-uint64
+  atomic-counter readback (`MOMENT_HIP_COUNTERS = 4u`), pinning the
+  "memset multiple uint64 counters in one helper call" path pre-runtime.
+  Registers `vmaf_fex_ciede_hip` and `vmaf_fex_float_moment_hip` in
+  `feature_extractor_list` under `#if HAVE_HIP`. Same scaffold posture
+  as the first two consumers: registration succeeds, `init()` returns
+  `-ENOSYS` until the runtime PR (T7-10b) flips the kernel-template
+  helper bodies to live HIP calls. Smoke test grows from 15 to 17
+  sub-tests (new `test_ciede_hip_extractor_registered` +
+  `test_float_moment_hip_extractor_registered`). CPU baseline + HIP
+  scaffold both green. No ROCm SDK required. Picks
+  `integer_ciede_cuda` (243 LOC) and `integer_moment_cuda` (230 LOC) —
+  the two smallest CUDA twins remaining after the two PSNR variants
+  were claimed — over `integer_motion_cuda` (503 LOC, stateful),
+  `integer_motion_v2_cuda` (321 LOC, stateful + dual-feature), and
+  `float_ansnr_cuda` (298 LOC, duplicates ADR-0254's precision
+  posture).
 
 - **ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (T-GPU-OPT-VK-2 / ADR-0252).**
   Adds `feature/x86/ssimulacra2_host_avx2.c` and `feature/arm64/ssimulacra2_host_neon.c`

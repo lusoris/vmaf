@@ -183,18 +183,31 @@ static char *test_psnr_hip_extractor_registered(void)
     return NULL;
 }
 
-static char *test_float_psnr_hip_extractor_registered(void)
+static char *test_ciede_hip_extractor_registered(void)
 {
-    /* Second-consumer PR (ADR-0253) extends the same registration
-     * contract to `float_psnr_hip`: extractor is found by name, with
-     * the matching `.name` string. `init()` is not invoked here — the
-     * scaffold returns -ENOSYS at that layer; the registration
-     * smoke test only pins the lookup contract. The runtime PR
-     * (T7-10b) keeps this assertion green and tightens it to "init
-     * returns 0 with a real device". */
-    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_psnr_hip");
-    mu_assert("float_psnr_hip extractor must be registered", fex != NULL);
-    mu_assert("float_psnr_hip extractor name matches", strcmp(fex->name, "float_psnr_hip") == 0);
+    /* Third-consumer PR (ADR-0257) extends the same registration
+     * contract to `ciede_hip`: extractor is found by name, with the
+     * matching `.name` string. `init()` is not invoked here — the
+     * scaffold returns -ENOSYS at that layer; the registration smoke
+     * test only pins the lookup contract. The runtime PR (T7-10b)
+     * keeps this assertion green and tightens it to "init returns 0
+     * with a real device". */
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("ciede_hip");
+    mu_assert("ciede_hip extractor must be registered", fex != NULL);
+    mu_assert("ciede_hip extractor name matches", strcmp(fex->name, "ciede_hip") == 0);
+    return NULL;
+}
+
+static char *test_float_moment_hip_extractor_registered(void)
+{
+    /* Fourth-consumer PR (ADR-0258) extends the same registration
+     * contract to `float_moment_hip`: extractor is found by name with
+     * the matching `.name` string. Pins the registration shape — the
+     * runtime PR (T7-10b) keeps the assertion green. */
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_moment_hip");
+    mu_assert("float_moment_hip extractor must be registered", fex != NULL);
+    mu_assert("float_moment_hip extractor name matches",
+              strcmp(fex->name, "float_moment_hip") == 0);
     return NULL;
 }
 
@@ -222,8 +235,9 @@ static const test_fn test_table[] = {
     test_kernel_lifecycle_close_is_noop,
     test_kernel_readback_free_is_noop,
     test_psnr_hip_extractor_registered,
-    /* Second consumer (ADR-0253) */
-    test_float_psnr_hip_extractor_registered,
+    /* T7-10b third + fourth consumers (ADR-0257 / ADR-0258) */
+    test_ciede_hip_extractor_registered,
+    test_float_moment_hip_extractor_registered,
 };
 
 static const size_t test_table_len = sizeof(test_table) / sizeof(test_table[0]);
