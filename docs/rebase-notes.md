@@ -56,6 +56,34 @@ cover several PRs in one workstream; cross-link from the ID heading.
 ### 0229 — HIP fifth-consumer kernel `float_ansnr_hip` (ADR-0266)
 ### 0228 — `y4m_convert_411_422jpeg` 1-byte heap-buffer-overflow fix
 ### 0228 — `vmaf-tune` resolution-aware model selection (ADR-0289)
+### 0282 — `vmaf-tune` AMD AMF codec adapters (ADR-0282)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/codec_adapters/{h264_amf,hevc_amf,av1_amf,_amf_common}.py`
+    (new). Wholly fork-local — no upstream Netflix/vmaf path overlap.
+  - `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py` — registry
+    extended with three AMF entries.
+  - `tools/vmaf-tune/tests/test_codec_adapter_amf.py` (new).
+  - `tools/vmaf-tune/tests/test_corpus.py` — Phase A test renamed from
+    `test_known_codecs_phase_a_is_x264_only` to
+    `test_known_codecs_includes_x264_and_amf`.
+  - `tools/vmaf-tune/AGENTS.md` — adds AMF preset-compression invariant.
+  - `docs/usage/vmaf-tune.md` — adds Hardware encoders section.
+- **Invariant**: the 7-into-3 preset compression table in
+  `_amf_common.py` (`_PRESET_TO_AMF`) is the cross-codec axis Phase B / C
+  consumers depend on. Every AMF adapter accepts the canonical 7 preset
+  names (`placebo` … `ultrafast`) and maps them onto the three AMF
+  rungs (`quality` / `balanced` / `speed`). Do not extend the preset
+  vocabulary without amending ADR-0282 — registry uniformity (no
+  codec-identity branching in the harness search loop) rests on every
+  codec accepting the same names.
+- **Re-test**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/ -q
+  ```
+
+### 0227 — `tools/vmaf-tune/` Phase A scaffold (ADR-0237 Phase A)
 
 - **Touches**:
   - `tools/vmaf-tune/src/vmaftune/resolution.py` (new). Wholly

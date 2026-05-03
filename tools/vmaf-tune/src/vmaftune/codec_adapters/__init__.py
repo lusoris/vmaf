@@ -6,7 +6,8 @@ Per ADR-0237, every codec exposes a different parameter shape; the
 harness must not branch on codec identity in the search loop. Each
 adapter declares its quality knob, range, defaults, and FFmpeg encoder
 name. Phase A wires ``libx264`` plus the NVIDIA NVENC family
-(``h264_nvenc``, ``hevc_nvenc``, ``av1_nvenc``) — software and
+(``h264_nvenc``, ``hevc_nvenc``, ``av1_nvenc``) and the AMD AMF
+family (``h264_amf``, ``hevc_amf``, ``av1_amf``) — software and
 hardware encoders share the same adapter contract; later phases add
 one file per codec without touching the search loop.
 
@@ -23,8 +24,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from .av1_amf import AV1AMFAdapter
 from .av1_nvenc import Av1NvencAdapter
+from .h264_amf import H264AMFAdapter
 from .h264_nvenc import H264NvencAdapter
+from .hevc_amf import HEVCAMFAdapter
 from .hevc_nvenc import HevcNvencAdapter
 from .libaom import LibaomAdapter
 from .x264 import X264Adapter
@@ -52,6 +56,9 @@ _REGISTRY: dict[str, CodecAdapter] = {
     "h264_nvenc": H264NvencAdapter(),
     "hevc_nvenc": HevcNvencAdapter(),
     "av1_nvenc": Av1NvencAdapter(),
+    "h264_amf": H264AMFAdapter(),
+    "hevc_amf": HEVCAMFAdapter(),
+    "av1_amf": AV1AMFAdapter(),
 }
 
 
@@ -66,9 +73,12 @@ def known_codecs() -> tuple[str, ...]:
 
 
 __all__ = [
+    "AV1AMFAdapter",
     "Av1NvencAdapter",
     "CodecAdapter",
+    "H264AMFAdapter",
     "H264NvencAdapter",
+    "HEVCAMFAdapter",
     "HevcNvencAdapter",
     "LibaomAdapter",
     "X264Adapter",

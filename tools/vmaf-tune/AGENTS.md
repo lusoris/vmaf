@@ -109,6 +109,14 @@ for the option-space digest.
   flags are mutually exclusive at the argparse layer (exit code 2
   when both are passed). Changing any of these defaults is a
   user-visible behaviour change requiring an ADR.
+- **AMF preset compression is fixed (ADR-0282).** The 7-into-3 preset
+  table in `codec_adapters/_amf_common.py` (`_PRESET_TO_AMF`) is the
+  cross-codec axis Phase B / C consumers depend on. Do not extend
+  `presets` beyond the canonical 7 names without amending ADR-0282 —
+  the registry uniformity that lets the search loop ignore codec
+  identity rests on every codec accepting the same preset vocabulary.
+  AV1 (`av1_amf`) is RDNA3+ only; `ensure_amf_available` is the
+  runtime gate.
 
 ## Phase scope
 

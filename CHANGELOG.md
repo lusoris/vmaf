@@ -202,6 +202,27 @@
   on a corpus that includes hardware codecs. Companion research
   digest:
   [`docs/research/0065-vmaf-tune-nvenc-adapters.md`](docs/research/0065-vmaf-tune-nvenc-adapters.md).
+- **`vmaf-tune` AMD AMF codec adapters — `h264_amf` / `hevc_amf` /
+  `av1_amf` (ADR-0282).** Three new adapters under
+  [`tools/vmaf-tune/src/vmaftune/codec_adapters/`](tools/vmaf-tune/src/vmaftune/codec_adapters/)
+  sharing
+  [`_amf_common.py`](tools/vmaf-tune/src/vmaftune/codec_adapters/_amf_common.py)
+  — companion to the parallel NVENC / QSV adapter PRs. Wires the AMD
+  Advanced Media Framework path through ffmpeg with `-rc cqp` plus
+  matched `-qp_i` / `-qp_p` (closest analogue to x264 CRF). Compresses
+  the canonical 7-level preset vocabulary onto AMF's three quality
+  rungs (`placebo`/`slowest`/`slower`/`slow` → `quality`; `medium` →
+  `balanced`; `fast`/`faster`/`veryfast`/`superfast`/`ultrafast` →
+  `speed`) — the AMF hardware pipeline does not expose finer steps.
+  AV1 (`av1_amf`) requires RDNA3 silicon (Radeon RX 7000 series or
+  newer). `ensure_amf_available` probes `ffmpeg -encoders` for the
+  requested codec and rejects builds without `--enable-amf` or an AMD
+  GPU. Tests mock the subprocess seam end-to-end (50/50 passing
+  without ffmpeg or an AMD GPU on PATH); docs at
+  [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md) §Hardware
+  encoders carry the preset compression table and the silicon
+  requirements.
+
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships
