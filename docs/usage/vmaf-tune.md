@@ -7,10 +7,14 @@ that drives FFmpeg over an encoder parameter grid, scores each encode
 with [`vmaf`](cli.md), and emits a JSONL corpus of
 `(source, encoder, params, bitrate, vmaf)` rows.
 
-This doc covers **Phase A** of the six-phase roadmap: a `libx264` grid
-sweep that produces the corpus the later phases consume. Phases B (target-VMAF
-bisect), C (per-title CRF predictor), D (per-shot dynamic CRF), E (Pareto ABR
-ladder) and F (MCP tools) are not implemented yet — see ADR-0237.
+This doc covers **Phase A** (`corpus`) plus the **Phase B-lite**
+`recommend` subcommand of the six-phase roadmap. `corpus` produces a
+`libx264` grid sweep; `recommend` applies a `--target-vmaf` or
+`--target-bitrate` predicate over an existing corpus (or builds one on
+the fly). Phases C (per-title CRF predictor), D (per-shot dynamic
+CRF), E (Pareto ABR ladder) and F (MCP tools) are not implemented yet
+— see ADR-0237. The `recommend` subcommand implements Buckets 4 + 5
+of [Research-0061](../research/0061-vmaf-tune-capability-audit.md).
 
 ## Pipeline
 
@@ -19,6 +23,9 @@ ref.yuv ──► vmaf-tune corpus ──► encode (libx264) ──► vmaf sco
               │
               └─► encodes are written to --encode-dir, deleted post-score
                   unless --keep-encodes
+
+corpus.jsonl ──► vmaf-tune recommend --target-vmaf T   ──► smallest CRF >= T
+                                    --target-bitrate B ──► CRF closest to B
 ```
 
 ## Install
@@ -136,6 +143,75 @@ without bumping the version.
   "exit_status": 0
 }
 ```
+
+## `recommend` subcommand — target-VMAF / target-bitrate
+
+`vmaf-tune recommend` consumes the corpus (either pre-built via
+`--from-corpus PATH.jsonl` or generated on the fly from `--source` +
+grid flags) and applies one of two predicates:
+
+- `--target-vmaf T` — return the row with the **smallest CRF** whose
+  `vmaf_score >= T`. If no row clears the bar, the row with the
+  highest VMAF is returned and the predicate is annotated `(UNMET)`
+  in the output. Exit code is still `0` for an honest closest-miss.
+- `--target-bitrate KBPS` — return the row whose `bitrate_kbps` is
+  **closest** (absolute distance) to `KBPS`. Ties on distance go to
+  the smaller CRF (higher quality).
+
+The two flags are mutually exclusive — argparse rejects passing both
+with exit code `2`.
+
+### Use a pre-built corpus
+
+```shell
+# Phase A — build once.
+vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
+    --framerate 24 --duration 10 \
+    --preset medium --crf 18 --crf 22 --crf 26 --crf 30 --crf 34 \
+    --output corpus.jsonl
+
+# Smallest CRF whose VMAF >= 92.
+vmaf-tune recommend --from-corpus corpus.jsonl --target-vmaf 92.0
+
+# CRF whose bitrate is closest to 5 Mbps.
+vmaf-tune recommend --from-corpus corpus.jsonl --target-bitrate 5000
+```
+
+### Build the corpus on the fly
+
+```shell
+vmaf-tune recommend \
+    --source ref.yuv --width 1920 --height 1080 \
+    --framerate 24 --duration 10 \
+    --preset medium --crf 18 --crf 22 --crf 26 --crf 30 \
+    --target-vmaf 92.0
+```
+
+If `--preset` and `--crf` are omitted, `recommend` sweeps `medium` ×
+`range(18, 36, 2)` as a sensible default for ad-hoc runs.
+
+### Output
+
+Default output is a single human-readable line on stdout, e.g.
+
+```text
+encoder=libx264 preset=medium crf=22 vmaf=95.000 bitrate_kbps=5000.00 \
+  predicate=target_vmaf>=92.0 margin=+3.000
+```
+
+Pass `--json` to get the full corpus row as a JSON object on stdout
+instead — convenient for piping into other tooling.
+
+### `recommend` flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--target-vmaf T` | — | Smallest CRF whose `vmaf_score >= T`. |
+| `--target-bitrate KBPS` | — | CRF whose `bitrate_kbps` is closest to `KBPS`. |
+| `--from-corpus PATH` | — | Read rows from a pre-built JSONL. Skips encode + score. |
+| `--source / --width / --height / --framerate / --duration` | — | Build a corpus on the fly. Required when `--from-corpus` is omitted. |
+| `--encoder / --preset / --crf` | `libx264` / `medium` / `[18,20,...,34]` | Sweep grid (when building). Filter (when loading). |
+| `--json` | off | Emit the winning row as JSON instead of the prose summary. |
 
 ## What Phase A does **not** do
 

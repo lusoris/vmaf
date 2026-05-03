@@ -7265,3 +7265,28 @@ inline.*
   pytest tools/vmaf-tune/tests/test_fast.py -v
   vmaf-tune fast --smoke --target-vmaf 92
   ```
+
+
+### 0229 — `vmaf-tune recommend` subcommand (ADR-0237 Phase B-lite)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/recommend.py` (new). Wholly
+    fork-local — no upstream Netflix/vmaf path overlap.
+  - `tools/vmaf-tune/src/vmaftune/cli.py` — adds `recommend`
+    subparser; `corpus` subcommand untouched.
+  - `tools/vmaf-tune/tests/test_recommend.py` (new). 13-case smoke
+    suite, mocks all binaries; runs in <100 ms.
+  - `docs/usage/vmaf-tune.md` — adds `## recommend` section.
+- **Invariant**: `recommend` consumes the existing
+  `CORPUS_ROW_KEYS` schema unchanged — `vmaf_score`,
+  `bitrate_kbps`, `crf`, `preset`, `encoder`, `exit_status`. No
+  schema bump. If a future PR bumps `SCHEMA_VERSION`, both the
+  `corpus` writer and the `recommend` reader must be updated in
+  lockstep; tests assert this via `test_corpus_row_keys_match_init_contract`.
+- **Rebase impact**: zero — `tools/vmaf-tune/` is wholly
+  fork-local; no upstream surface touches it.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/
+  ```

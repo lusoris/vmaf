@@ -43,6 +43,22 @@ for the option-space digest.
   on hosts that never run the fast path. The lazy-import guard in
   `fast.py` is the only correct entry point; tests that exercise
   `fast.py` use `pytest.importorskip("optuna")`.
+- **`recommend` is a pure consumer of the corpus schema.** The
+  `recommend` subcommand reads `vmaf_score`, `bitrate_kbps`, `crf`,
+  `preset`, `encoder`, `exit_status` directly from rows produced by
+  `corpus.py` (or loaded via `--from-corpus` from a previous run).
+  No new schema, no parallel data path. If `SCHEMA_VERSION` bumps,
+  `recommend.py`'s row-reader is one of the downstream consumers
+  that must be updated in the same PR — the contract is checked by
+  `test_recommend.py` against `CORPUS_ROW_KEYS`.
+- **Predicate semantics are part of the user-visible contract.**
+  `--target-vmaf T` returns the *smallest CRF* whose `vmaf_score >=
+  T` (falling back to closest-miss when nothing clears, marked
+  `(UNMET)`). `--target-bitrate KBPS` returns the row with minimum
+  `|bitrate_kbps - KBPS|`, ties broken by smaller CRF. The two
+  flags are mutually exclusive at the argparse layer (exit code 2
+  when both are passed). Changing any of these defaults is a
+  user-visible behaviour change requiring an ADR.
 
 ## Phase scope
 

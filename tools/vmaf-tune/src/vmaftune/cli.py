@@ -8,6 +8,15 @@ encode. Phase A.5 adds the opt-in ``fast`` subcommand (proxy +
 Bayesian + GPU-verify recommend, ADR-0276 / Research-0060). Phase B
 (``bisect``) and Phase C (``predict``) will register sibling
 subcommands here.
+Subcommands:
+
+- ``corpus`` — Phase A grid sweep, emits JSONL rows.
+- ``recommend`` — Phase B-lite. Apply ``--target-vmaf`` or
+  ``--target-bitrate`` predicate over a corpus (built on the fly or
+  loaded from a pre-existing JSONL). Implements Buckets #4 and #5 of
+  Research-0061.
+
+Phase C (``predict``) will register a sibling subcommand here.
 """
 
 from __future__ import annotations
@@ -21,6 +30,7 @@ from . import __version__
 from .codec_adapters import known_codecs
 from .corpus import CorpusJob, CorpusOptions, iter_rows, write_jsonl
 from .encode import iter_grid
+from .recommend import RecommendRequest, format_result, load_corpus_jsonl, recommend
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -158,6 +168,80 @@ def _build_parser() -> argparse.ArgumentParser:
         "--smoke",
         action="store_true",
         help="run synthetic-predictor smoke pipeline (no ffmpeg / no ONNX)",
+    rec = sub.add_parser(
+        "recommend",
+        help="apply --target-vmaf / --target-bitrate predicate over a corpus",
+        description=(
+            "Find the (preset, crf) cell that best satisfies a target. "
+            "Either point at a pre-built corpus JSONL (--from-corpus) or "
+            "let the subcommand build one on the fly via the same Phase A "
+            "pipeline (--source + grid flags)."
+        ),
+    )
+    target = rec.add_mutually_exclusive_group(required=True)
+    target.add_argument(
+        "--target-vmaf",
+        type=float,
+        help="return the smallest CRF whose VMAF >= TARGET",
+    )
+    target.add_argument(
+        "--target-bitrate",
+        type=float,
+        metavar="KBPS",
+        help="return the row whose bitrate is closest to KBPS",
+    )
+    rec.add_argument(
+        "--from-corpus",
+        type=Path,
+        default=None,
+        help="read rows from this JSONL instead of building a corpus on the fly",
+    )
+    rec.add_argument(
+        "--source",
+        type=Path,
+        action="append",
+        default=None,
+        help="raw YUV reference (repeatable); ignored when --from-corpus is set",
+    )
+    rec.add_argument("--width", type=int, default=None)
+    rec.add_argument("--height", type=int, default=None)
+    rec.add_argument("--pix-fmt", default="yuv420p")
+    rec.add_argument("--framerate", type=float, default=24.0)
+    rec.add_argument("--duration", type=float, default=0.0)
+    rec.add_argument(
+        "--encoder",
+        default="libx264",
+        choices=list(known_codecs()),
+        help="codec adapter; also filters --from-corpus rows",
+    )
+    rec.add_argument(
+        "--preset",
+        action="append",
+        default=None,
+        help="preset(s) to sweep / filter; repeatable",
+    )
+    rec.add_argument(
+        "--crf",
+        type=int,
+        action="append",
+        default=None,
+        help="CRF integer(s) to sweep; ignored when --from-corpus is set",
+    )
+    rec.add_argument(
+        "--encode-dir",
+        type=Path,
+        default=Path(".workingdir2/encodes"),
+    )
+    rec.add_argument("--keep-encodes", action="store_true")
+    rec.add_argument("--vmaf-model", default="vmaf_v0.6.1")
+    rec.add_argument("--ffmpeg-bin", default="ffmpeg")
+    rec.add_argument("--vmaf-bin", default="vmaf")
+    rec.add_argument("--no-source-hash", action="store_true")
+    rec.add_argument(
+        "--json",
+        dest="emit_json",
+        action="store_true",
+        help="emit the winning row as JSON on stdout (default: human-readable)",
     )
     return parser
 
@@ -214,6 +298,66 @@ def _run_fast(args: argparse.Namespace) -> int:
         sys.stderr.write(f"vmaf-tune fast: {exc}\n")
         return 3
     sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+def _rows_for_recommend(args: argparse.Namespace):
+    """Yield rows for the recommend subcommand.
+
+    Either streams a pre-built corpus (``--from-corpus``) or runs the
+    Phase A pipeline against ``--source`` and yields rows as they're
+    produced.
+    """
+    if args.from_corpus is not None:
+        yield from load_corpus_jsonl(args.from_corpus)
+        return
+    if not args.source or args.width is None or args.height is None:
+        raise SystemExit(
+            "vmaf-tune recommend: pass --from-corpus PATH, "
+            "or supply --source/--width/--height to build a corpus on the fly"
+        )
+    presets = args.preset or ["medium"]
+    crfs = args.crf or list(range(18, 36, 2))
+    cells = tuple(iter_grid(presets, crfs))
+    opts = CorpusOptions(
+        encoder=args.encoder,
+        output=Path("/dev/null"),  # not written here; caller iterates
+        encode_dir=args.encode_dir,
+        vmaf_model=args.vmaf_model,
+        ffmpeg_bin=args.ffmpeg_bin,
+        vmaf_bin=args.vmaf_bin,
+        keep_encodes=args.keep_encodes,
+        src_sha256=not args.no_source_hash,
+    )
+    for src in args.source:
+        job = CorpusJob(
+            source=src,
+            width=args.width,
+            height=args.height,
+            pix_fmt=args.pix_fmt,
+            framerate=args.framerate,
+            duration_s=args.duration,
+            cells=cells,
+        )
+        yield from iter_rows(job, opts)
+
+
+def _run_recommend(args: argparse.Namespace) -> int:
+    import json as _json
+
+    req = RecommendRequest(
+        target_vmaf=args.target_vmaf,
+        target_bitrate_kbps=args.target_bitrate,
+        encoder=args.encoder,
+        preset=(args.preset[0] if args.preset and len(args.preset) == 1 else None),
+    )
+    try:
+        rows = list(_rows_for_recommend(args))
+        result = recommend(rows, req)
+    except ValueError as exc:
+        sys.stderr.write(f"vmaf-tune recommend: {exc}\n")
+        return 2
+    if args.emit_json:
+        sys.stdout.write(_json.dumps(result.row, sort_keys=True) + "\n")
+    else:
+        sys.stdout.write(format_result(result) + "\n")
     return 0
 
 
@@ -224,6 +368,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_corpus(args)
     if args.cmd == "fast":
         return _run_fast(args)
+    if args.cmd == "recommend":
+        return _run_recommend(args)
     parser.print_help()
     return 2
 
