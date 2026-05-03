@@ -44,6 +44,7 @@
 #include "feature_name.h"
 #include "log.h"
 
+#include "../../vulkan/kernel_template.h"
 #include "../../vulkan/vulkan_common.h"
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
@@ -93,20 +94,21 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Decimate pipeline. */
-    VkDescriptorSetLayout decimate_dsl;
-    VkPipelineLayout decimate_pl;
-    VkShaderModule decimate_shader;
+    /* Decimate pipeline. The kernel-template bundle owns the
+     * shared dsl + pipeline_layout + shader + descriptor pool plus
+     * the scale-0 base pipeline; the remaining (MS_SSIM_SCALES - 2)
+     * scales are sibling pipelines created via _add_variant().
+     * decimate_pipelines[0] aliases pl_decimate.pipeline. */
+    VmafVulkanKernelPipeline pl_decimate;
     VkPipeline decimate_pipelines[MS_SSIM_SCALES - 1];
 
-    /* SSIM pipeline (horizontal + vertical-with-l/c/s). */
-    VkDescriptorSetLayout ssim_dsl;
-    VkPipelineLayout ssim_pl;
-    VkShaderModule ssim_shader;
+    /* SSIM pipeline (horizontal + vertical-with-l/c/s) — same
+     * 2-bundle pattern. ssim_pipeline_horiz[0] aliases
+     * pl_ssim.pipeline (base = scale 0, pass 0); the other
+     * MS_SSIM_SCALES * 2 - 1 entries are variants. */
+    VmafVulkanKernelPipeline pl_ssim;
     VkPipeline ssim_pipeline_horiz[MS_SSIM_SCALES];
     VkPipeline ssim_pipeline_vert[MS_SSIM_SCALES];
-
-    VkDescriptorPool desc_pool;
 
     /* Pyramid: 5 ref + 5 cmp float buffers (host-mapped). */
     VmafVulkanBuffer *pyramid_ref[MS_SSIM_SCALES];
@@ -179,210 +181,196 @@ typedef struct {
 
 /* ---- pipeline helpers ---- */
 
+struct DecimateSpecData {
+    int32_t width;
+    int32_t height;
+};
+
+static void decimate_fill_spec(struct DecimateSpecData *spec_data,
+                               VkSpecializationMapEntry spec_entries[2],
+                               VkSpecializationInfo *spec_info, const MsSsimVulkanState *s,
+                               int scale_idx)
+{
+    spec_data->width = (int32_t)s->scale_w[scale_idx];
+    spec_data->height = (int32_t)s->scale_h[scale_idx];
+    spec_entries[0] = (VkSpecializationMapEntry){
+        .constantID = 0,
+        .offset = offsetof(struct DecimateSpecData, width),
+        .size = sizeof(int32_t),
+    };
+    spec_entries[1] = (VkSpecializationMapEntry){
+        .constantID = 1,
+        .offset = offsetof(struct DecimateSpecData, height),
+        .size = sizeof(int32_t),
+    };
+    *spec_info = (VkSpecializationInfo){
+        .mapEntryCount = 2,
+        .pMapEntries = spec_entries,
+        .dataSize = sizeof(*spec_data),
+        .pData = spec_data,
+    };
+}
+
 static int build_decimate_pipeline_for_scale(MsSsimVulkanState *s, int scale_idx,
                                              VkPipeline *out_pipeline)
 {
-    /* Decimate operates on level (scale_idx) input, writing
-     * level (scale_idx + 1). We pass the input width/height as
-     * spec constants for shader-side bounds checks. */
-    struct {
-        int32_t width;
-        int32_t height;
-    } spec_data = {(int32_t)s->scale_w[scale_idx], (int32_t)s->scale_h[scale_idx]};
+    struct DecimateSpecData spec_data = {0};
+    VkSpecializationMapEntry spec_entries[2];
+    VkSpecializationInfo spec_info = {0};
+    decimate_fill_spec(&spec_data, spec_entries, &spec_info, s, scale_idx);
 
-    VkSpecializationMapEntry spec_entries[2] = {
-        {.constantID = 0,
-         .offset = offsetof(__typeof__(spec_data), width),
-         .size = sizeof(int32_t)},
-        {.constantID = 1,
-         .offset = offsetof(__typeof__(spec_data), height),
-         .size = sizeof(int32_t)},
-    };
-    VkSpecializationInfo spec_info = {
-        .mapEntryCount = 2,
-        .pMapEntries = spec_entries,
-        .dataSize = sizeof(spec_data),
-        .pData = &spec_data,
-    };
     VkComputePipelineCreateInfo cpci = {
-        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .stage =
             {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = s->decimate_shader,
                 .pName = "main",
                 .pSpecializationInfo = &spec_info,
             },
-        .layout = s->decimate_pl,
     };
-    if (vkCreateComputePipelines(s->ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, out_pipeline) !=
-        VK_SUCCESS)
-        return -ENOMEM;
-    return 0;
+    return vmaf_vulkan_kernel_pipeline_add_variant(s->ctx, &s->pl_decimate, &cpci, out_pipeline);
+}
+
+struct SsimSpecData {
+    int32_t width;
+    int32_t height;
+    int32_t pass;
+    int32_t subgroup_size;
+};
+
+static void ssim_fill_spec(struct SsimSpecData *spec_data, VkSpecializationMapEntry spec_entries[4],
+                           VkSpecializationInfo *spec_info, const MsSsimVulkanState *s,
+                           int scale_idx, int pass_id)
+{
+    spec_data->width = (int32_t)s->scale_w[scale_idx];
+    spec_data->height = (int32_t)s->scale_h[scale_idx];
+    spec_data->pass = pass_id;
+    spec_data->subgroup_size = 32;
+    spec_entries[0] = (VkSpecializationMapEntry){
+        .constantID = 0,
+        .offset = offsetof(struct SsimSpecData, width),
+        .size = sizeof(int32_t),
+    };
+    spec_entries[1] = (VkSpecializationMapEntry){
+        .constantID = 1,
+        .offset = offsetof(struct SsimSpecData, height),
+        .size = sizeof(int32_t),
+    };
+    spec_entries[2] = (VkSpecializationMapEntry){
+        .constantID = 2,
+        .offset = offsetof(struct SsimSpecData, pass),
+        .size = sizeof(int32_t),
+    };
+    spec_entries[3] = (VkSpecializationMapEntry){
+        .constantID = 3,
+        .offset = offsetof(struct SsimSpecData, subgroup_size),
+        .size = sizeof(int32_t),
+    };
+    *spec_info = (VkSpecializationInfo){
+        .mapEntryCount = 4,
+        .pMapEntries = spec_entries,
+        .dataSize = sizeof(*spec_data),
+        .pData = spec_data,
+    };
 }
 
 static int build_ssim_pipeline_for_scale(MsSsimVulkanState *s, int scale_idx, int pass_id,
                                          VkPipeline *out_pipeline)
 {
-    struct {
-        int32_t width;
-        int32_t height;
-        int32_t pass;
-        int32_t subgroup_size;
-    } spec_data = {(int32_t)s->scale_w[scale_idx], (int32_t)s->scale_h[scale_idx], pass_id, 32};
+    struct SsimSpecData spec_data = {0};
+    VkSpecializationMapEntry spec_entries[4];
+    VkSpecializationInfo spec_info = {0};
+    ssim_fill_spec(&spec_data, spec_entries, &spec_info, s, scale_idx, pass_id);
 
-    VkSpecializationMapEntry spec_entries[4] = {
-        {.constantID = 0,
-         .offset = offsetof(__typeof__(spec_data), width),
-         .size = sizeof(int32_t)},
-        {.constantID = 1,
-         .offset = offsetof(__typeof__(spec_data), height),
-         .size = sizeof(int32_t)},
-        {.constantID = 2, .offset = offsetof(__typeof__(spec_data), pass), .size = sizeof(int32_t)},
-        {.constantID = 3,
-         .offset = offsetof(__typeof__(spec_data), subgroup_size),
-         .size = sizeof(int32_t)},
-    };
-    VkSpecializationInfo spec_info = {
-        .mapEntryCount = 4,
-        .pMapEntries = spec_entries,
-        .dataSize = sizeof(spec_data),
-        .pData = &spec_data,
-    };
     VkComputePipelineCreateInfo cpci = {
-        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .stage =
             {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = s->ssim_shader,
                 .pName = "main",
                 .pSpecializationInfo = &spec_info,
             },
-        .layout = s->ssim_pl,
     };
-    if (vkCreateComputePipelines(s->ctx->device, VK_NULL_HANDLE, 1, &cpci, NULL, out_pipeline) !=
-        VK_SUCCESS)
-        return -ENOMEM;
-    return 0;
+    return vmaf_vulkan_kernel_pipeline_add_variant(s->ctx, &s->pl_ssim, &cpci, out_pipeline);
 }
 
 static int create_pipelines(MsSsimVulkanState *s)
 {
-    VkDevice dev = s->ctx->device;
+    /* Decimate bundle: scale-0 spec drives the base pipeline; the
+     * remaining (MS_SSIM_SCALES - 2) scales are siblings via
+     * _add_variant. decimate_pipelines[0] aliases pl_decimate.pipeline. */
+    {
+        struct DecimateSpecData spec_data = {0};
+        VkSpecializationMapEntry spec_entries[2];
+        VkSpecializationInfo spec_info = {0};
+        decimate_fill_spec(&spec_data, spec_entries, &spec_info, s, /*scale_idx=*/0);
 
-    /* Decimate descriptor set layout (2 bindings). */
-    VkDescriptorSetLayoutBinding dec_bindings[MS_SSIM_DECIMATE_BINDINGS] = {0};
-    for (int i = 0; i < MS_SSIM_DECIMATE_BINDINGS; i++) {
-        dec_bindings[i].binding = (uint32_t)i;
-        dec_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        dec_bindings[i].descriptorCount = 1;
-        dec_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo dec_dslci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = MS_SSIM_DECIMATE_BINDINGS,
-        .pBindings = dec_bindings,
-    };
-    if (vkCreateDescriptorSetLayout(dev, &dec_dslci, NULL, &s->decimate_dsl) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkPushConstantRange dec_pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(DecimatePushConsts),
-    };
-    VkPipelineLayoutCreateInfo dec_plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &s->decimate_dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &dec_pcr,
-    };
-    if (vkCreatePipelineLayout(dev, &dec_plci, NULL, &s->decimate_pl) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkShaderModuleCreateInfo dec_smci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = ms_ssim_decimate_spv_size,
-        .pCode = ms_ssim_decimate_spv,
-    };
-    if (vkCreateShaderModule(dev, &dec_smci, NULL, &s->decimate_shader) != VK_SUCCESS)
-        return -ENOMEM;
-
-    /* Build a decimate pipeline per scale (so spec constants
-     * for input width/height are baked at pipeline-create time). */
-    for (int i = 0; i < MS_SSIM_SCALES - 1; i++) {
-        int err = build_decimate_pipeline_for_scale(s, i, &s->decimate_pipelines[i]);
+        const VmafVulkanKernelPipelineDesc desc = {
+            .ssbo_binding_count = MS_SSIM_DECIMATE_BINDINGS,
+            .push_constant_size = (uint32_t)sizeof(DecimatePushConsts),
+            .spv_bytes = ms_ssim_decimate_spv,
+            .spv_size = ms_ssim_decimate_spv_size,
+            .pipeline_create_info =
+                {
+                    .stage =
+                        {
+                            .pName = "main",
+                            .pSpecializationInfo = &spec_info,
+                        },
+                },
+            /* (MS_SSIM_SCALES - 1) decimations × 2 (ref + cmp). */
+            .max_descriptor_sets = (uint32_t)((MS_SSIM_SCALES - 1) * 2),
+        };
+        int err = vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl_decimate);
         if (err)
             return err;
+        s->decimate_pipelines[0] = s->pl_decimate.pipeline;
+
+        for (int i = 1; i < MS_SSIM_SCALES - 1; i++) {
+            err = build_decimate_pipeline_for_scale(s, i, &s->decimate_pipelines[i]);
+            if (err)
+                return err;
+        }
     }
 
-    /* SSIM descriptor set layout (10 bindings). */
-    VkDescriptorSetLayoutBinding ssim_bindings[MS_SSIM_BINDINGS] = {0};
-    for (int i = 0; i < MS_SSIM_BINDINGS; i++) {
-        ssim_bindings[i].binding = (uint32_t)i;
-        ssim_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        ssim_bindings[i].descriptorCount = 1;
-        ssim_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    VkDescriptorSetLayoutCreateInfo ssim_dslci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = MS_SSIM_BINDINGS,
-        .pBindings = ssim_bindings,
-    };
-    if (vkCreateDescriptorSetLayout(dev, &ssim_dslci, NULL, &s->ssim_dsl) != VK_SUCCESS)
-        return -ENOMEM;
+    /* SSIM bundle: scale 0 / pass 0 drives the base pipeline; the
+     * other (MS_SSIM_SCALES * 2 - 1) entries are siblings via
+     * _add_variant. ssim_pipeline_horiz[0] aliases pl_ssim.pipeline. */
+    {
+        struct SsimSpecData spec_data = {0};
+        VkSpecializationMapEntry spec_entries[4];
+        VkSpecializationInfo spec_info = {0};
+        ssim_fill_spec(&spec_data, spec_entries, &spec_info, s, /*scale_idx=*/0, /*pass_id=*/0);
 
-    VkPushConstantRange ssim_pcr = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(MsSsimPushConsts),
-    };
-    VkPipelineLayoutCreateInfo ssim_plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &s->ssim_dsl,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &ssim_pcr,
-    };
-    if (vkCreatePipelineLayout(dev, &ssim_plci, NULL, &s->ssim_pl) != VK_SUCCESS)
-        return -ENOMEM;
-
-    VkShaderModuleCreateInfo ssim_smci = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = ms_ssim_spv_size,
-        .pCode = ms_ssim_spv,
-    };
-    if (vkCreateShaderModule(dev, &ssim_smci, NULL, &s->ssim_shader) != VK_SUCCESS)
-        return -ENOMEM;
-
-    for (int i = 0; i < MS_SSIM_SCALES; i++) {
-        int err = build_ssim_pipeline_for_scale(s, i, /*pass=*/0, &s->ssim_pipeline_horiz[i]);
+        const VmafVulkanKernelPipelineDesc desc = {
+            .ssbo_binding_count = MS_SSIM_BINDINGS,
+            .push_constant_size = (uint32_t)sizeof(MsSsimPushConsts),
+            .spv_bytes = ms_ssim_spv,
+            .spv_size = ms_ssim_spv_size,
+            .pipeline_create_info =
+                {
+                    .stage =
+                        {
+                            .pName = "main",
+                            .pSpecializationInfo = &spec_info,
+                        },
+                },
+            /* MS_SSIM_SCALES sets (one per scale, written before
+             * both horiz + vert dispatches share the same set). */
+            .max_descriptor_sets = (uint32_t)MS_SSIM_SCALES,
+        };
+        int err = vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl_ssim);
         if (err)
             return err;
-        err = build_ssim_pipeline_for_scale(s, i, /*pass=*/1, &s->ssim_pipeline_vert[i]);
-        if (err)
-            return err;
-    }
+        s->ssim_pipeline_horiz[0] = s->pl_ssim.pipeline;
 
-    /* Descriptor pool — 1 set per scale per pipeline plus a few
-     * spare. Pessimistically size for the biggest binding count
-     * (10) × the number of sets we allocate per frame. */
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = MS_SSIM_BINDINGS * (MS_SSIM_SCALES + MS_SSIM_SCALES - 1) * 2,
-    };
-    VkDescriptorPoolCreateInfo dpci = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = (MS_SSIM_SCALES + MS_SSIM_SCALES - 1) * 2,
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
-    };
-    if (vkCreateDescriptorPool(dev, &dpci, NULL, &s->desc_pool) != VK_SUCCESS)
-        return -ENOMEM;
+        for (int i = 1; i < MS_SSIM_SCALES; i++) {
+            err = build_ssim_pipeline_for_scale(s, i, /*pass=*/0, &s->ssim_pipeline_horiz[i]);
+            if (err)
+                return err;
+        }
+        for (int i = 0; i < MS_SSIM_SCALES; i++) {
+            err = build_ssim_pipeline_for_scale(s, i, /*pass=*/1, &s->ssim_pipeline_vert[i]);
+            if (err)
+                return err;
+        }
+    }
 
     return 0;
 }
@@ -496,14 +484,14 @@ static int upload_pic(MsSsimVulkanState *s, VmafVulkanBuffer *dst_buf, VmafPictu
     return vmaf_vulkan_buffer_flush(s->ctx, dst_buf);
 }
 
-static int alloc_descriptor_set(MsSsimVulkanState *s, VkDescriptorSetLayout dsl,
+static int alloc_descriptor_set(MsSsimVulkanState *s, const VmafVulkanKernelPipeline *bundle,
                                 VkDescriptorSet *out_set)
 {
     VkDescriptorSetAllocateInfo dsai = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->desc_pool,
+        .descriptorPool = bundle->desc_pool,
         .descriptorSetCount = 1,
-        .pSetLayouts = &dsl,
+        .pSetLayouts = &bundle->dsl,
     };
     if (vkAllocateDescriptorSets(s->ctx->device, &dsai, out_set) != VK_SUCCESS)
         return -ENOMEM;
@@ -592,9 +580,10 @@ static int run_one_scale(MsSsimVulkanState *s, VkCommandBuffer cmd, int scale_id
         .c2 = s->c2,
         .c3 = s->c3,
     };
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->ssim_pl, 0, 1, &ssim_set, 0,
-                            NULL);
-    vkCmdPushConstants(cmd, s->ssim_pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_ssim.pipeline_layout, 0, 1,
+                            &ssim_set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_ssim.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                       &pc);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->ssim_pipeline_horiz[scale_idx]);
     const uint32_t gx_h = (s->scale_w_horiz[scale_idx] + MS_SSIM_WG_X - 1) / MS_SSIM_WG_X;
@@ -625,9 +614,10 @@ static int run_decimate(MsSsimVulkanState *s, VkCommandBuffer cmd, int scale_idx
         .w_out = s->scale_w[scale_idx + 1],
         .h_out = s->scale_h[scale_idx + 1],
     };
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->decimate_pl, 0, 1, &dec_set, 0,
-                            NULL);
-    vkCmdPushConstants(cmd, s->decimate_pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_decimate.pipeline_layout, 0,
+                            1, &dec_set, 0, NULL);
+    vkCmdPushConstants(cmd, s->pl_decimate.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(pc), &pc);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->decimate_pipelines[scale_idx]);
     const uint32_t gx = (s->scale_w[scale_idx + 1] + MS_SSIM_WG_X - 1) / MS_SSIM_WG_X;
     const uint32_t gy = (s->scale_h[scale_idx + 1] + MS_SSIM_WG_Y - 1) / MS_SSIM_WG_Y;
@@ -696,8 +686,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     VkDescriptorSet ssim_sets[MS_SSIM_SCALES] = {0};
     int allocated = 0;
     for (int i = 0; i < MS_SSIM_SCALES - 1; i++) {
-        err |= alloc_descriptor_set(s, s->decimate_dsl, &dec_sets_ref[i]);
-        err |= alloc_descriptor_set(s, s->decimate_dsl, &dec_sets_cmp[i]);
+        err |= alloc_descriptor_set(s, &s->pl_decimate, &dec_sets_ref[i]);
+        err |= alloc_descriptor_set(s, &s->pl_decimate, &dec_sets_cmp[i]);
         if (err)
             goto cleanup_sets;
         write_decimate_descriptor_set(s, dec_sets_ref[i], s->pyramid_ref[i], s->pyramid_ref[i + 1]);
@@ -705,7 +695,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         allocated++;
     }
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
-        err = alloc_descriptor_set(s, s->ssim_dsl, &ssim_sets[i]);
+        err = alloc_descriptor_set(s, &s->pl_ssim, &ssim_sets[i]);
         if (err)
             goto cleanup_sets;
         write_ssim_descriptor_set(s, ssim_sets[i], s->pyramid_ref[i], s->pyramid_cmp[i]);
@@ -847,12 +837,12 @@ cleanup_cmd:
         vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
 cleanup_sets:
     for (int i = 0; i < allocated; i++) {
-        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, 1, &dec_sets_ref[i]);
-        vkFreeDescriptorSets(s->ctx->device, s->desc_pool, 1, &dec_sets_cmp[i]);
+        vkFreeDescriptorSets(s->ctx->device, s->pl_decimate.desc_pool, 1, &dec_sets_ref[i]);
+        vkFreeDescriptorSets(s->ctx->device, s->pl_decimate.desc_pool, 1, &dec_sets_cmp[i]);
     }
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
         if (ssim_sets[i] != VK_NULL_HANDLE)
-            vkFreeDescriptorSets(s->ctx->device, s->desc_pool, 1, &ssim_sets[i]);
+            vkFreeDescriptorSets(s->ctx->device, s->pl_ssim.desc_pool, 1, &ssim_sets[i]);
     }
     return err;
 }
@@ -865,30 +855,22 @@ static int close_fex(VmafFeatureExtractor *fex)
     VkDevice dev = s->ctx->device;
     vkDeviceWaitIdle(dev);
 
-    if (s->desc_pool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(dev, s->desc_pool, NULL);
-
-    for (int i = 0; i < MS_SSIM_SCALES - 1; i++)
+    /* Variants must be destroyed before the bundle's _destroy()
+     * frees the shared shader/layout. The base pipelines
+     * (decimate_pipelines[0] and ssim_pipeline_horiz[0]) alias
+     * pl_decimate.pipeline / pl_ssim.pipeline — _destroy() handles
+     * those; skip them here to avoid a double-free. */
+    for (int i = 1; i < MS_SSIM_SCALES - 1; i++)
         if (s->decimate_pipelines[i] != VK_NULL_HANDLE)
             vkDestroyPipeline(dev, s->decimate_pipelines[i], NULL);
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
-        if (s->ssim_pipeline_horiz[i] != VK_NULL_HANDLE)
+        if (i != 0 && s->ssim_pipeline_horiz[i] != VK_NULL_HANDLE)
             vkDestroyPipeline(dev, s->ssim_pipeline_horiz[i], NULL);
         if (s->ssim_pipeline_vert[i] != VK_NULL_HANDLE)
             vkDestroyPipeline(dev, s->ssim_pipeline_vert[i], NULL);
     }
-    if (s->decimate_shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(dev, s->decimate_shader, NULL);
-    if (s->ssim_shader != VK_NULL_HANDLE)
-        vkDestroyShaderModule(dev, s->ssim_shader, NULL);
-    if (s->decimate_pl != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(dev, s->decimate_pl, NULL);
-    if (s->ssim_pl != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(dev, s->ssim_pl, NULL);
-    if (s->decimate_dsl != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(dev, s->decimate_dsl, NULL);
-    if (s->ssim_dsl != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(dev, s->ssim_dsl, NULL);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_decimate);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_ssim);
 
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
         if (s->pyramid_ref[i])

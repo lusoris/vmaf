@@ -197,6 +197,24 @@ vulkan/
   `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` is the reference
   for this pattern.
 
+- **Multi-bundle kernels: per-bundle pool + alias-skip on destroy**
+  (fork-local, T-GPU-DEDUP-23). Kernels with multiple distinct
+  pipeline shapes (different SSBO binding counts → different
+  DSLs) can't fit into a single bundle, since `_add_variant()`
+  only siblings pipelines under the *same* layout. The pattern
+  is: one `VmafVulkanKernelPipeline` per shape (e.g.
+  `pl_decimate` + `pl_ssim` in `ms_ssim_vulkan`), and per-frame
+  descriptor allocation uses *that bundle's* `desc_pool` + `dsl`
+  (no shared pool any more). The first variant slot in each
+  per-pipeline-shape array (e.g. `decimate_pipelines[0]`,
+  `ssim_pipeline_horiz[0]`) **aliases** the bundle's own
+  `pipeline` field — `_pipeline_destroy()` already releases it,
+  so `close_fex` must skip those alias slots in its
+  `vkDestroyPipeline` loop. Variants destroyed before
+  `_pipeline_destroy()`, alias slots skipped, mismatched-pool
+  `vkFreeDescriptorSets` is UB. **On rebase**: keep the alias +
+  skip pattern verbatim.
+
 - **`VmafVulkanContext` ownership flag** (fork-local, ADR-0186):
   `owns_handles` distinguishes contexts created by libvmaf (true)
   from contexts handed in via the public
