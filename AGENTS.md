@@ -218,9 +218,13 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
     `ffmpeg-patches/000*-*.patch` file in the **same PR**. The
     fork ships FFmpeg integration as a patch stack against
     `n8.1`; libvmaf-side surface drift breaks the patches
-    silently for the next rebase. Verify with
-    `for p in ffmpeg-patches/000*-*.patch; do git -C ffmpeg-8
-    apply --check "$p"; done` before pushing. Pure libvmaf
+    silently for the next rebase. Verify with a series replay
+    against a clean `n8.1` checkout
+    (`git -C ffmpeg-8 reset --hard n8.1 && for p in
+    ffmpeg-patches/000*-*.patch; do git -C ffmpeg-8 am
+    --3way "$p" || break; done`) — per-patch
+    `git apply --check` is the wrong gate (patches build on
+    each other). Pure libvmaf
     internals (kernel impls, refactors that don't change
     headers), doc-only changes, and test-only changes are
     exempt. See
