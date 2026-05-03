@@ -6467,81 +6467,53 @@ inline.*
       --feature adm --backend vulkan --places 4
   ```
 
-### 0107 — `psnr_hvs_cuda` async upload + persistent pinned staging (T-GPU-OPT-2/3)
+- **Why this matters on rebase**: an upstream commit that touches
+  `libvmaf/src/feature/ssimulacra2.c` could prompt a "let's also
+  port the GPU XYB while we're here" follow-up. The ledger entry
+  is the standing answer: don't, the measurement was redone on
+  NVIDIA in May 2026 and the result still failed `places=4` by
+  five decades. See
+  [Research-0047](research/0051-ssimulacra2-gpu-xyb-precision.md).
 
+### 0108 — HIP second-consumer kernel `float_psnr_hip` (ADR-0254)
+
+- **ADR**: [ADR-0254](adr/0254-hip-second-consumer-float-psnr.md)
 - **Touches**:
-  - `libvmaf/src/feature/cuda/integer_psnr_hvs_cuda.c` — only
-    consumer; fork-local from inception (T7-23 / ADR-0188 /
-    ADR-0191). State adds `upload_str` (dedicated H2D stream),
-    `upload_done` (cross-stream completion event), and per-plane
-    persistent pinned `h_uint_ref[3]` / `h_uint_dist[3]` staging
-    buffers allocated once in `init_fex_cuda`. The per-call
-    helper `upload_plane_cuda` is split into `issue_d2h_plane`
-    (pic-stream D2H), `convert_plane` (CPU normalise), and
-    `issue_h2d_plane` (upload-stream H2D). `submit_fex_cuda`
-    runs the three phases explicitly and records `upload_done`
-    after the last H2D, then `cuStreamWaitEvent`s on `lc.str`
-    before kernel launches.
-  - `libvmaf/src/cuda/AGENTS.md` — adds a rebase-sensitive
-    invariant entry under §Rebase-sensitive invariants
-    documenting the three-phase flow + persistent staging
-    contract.
-- **Invariant**: the pinned `h_uint_*` and `h_ref` / `h_dist`
-  buffers are never freed and re-allocated mid-stream; the H2Ds
-  must run on `upload_str` (not on `lc.str`) so the
-  `cuStreamWaitEvent` cross-stream link is meaningful; the
-  `upload_done` event is recorded *after the last H2D for the
-  current frame* and waited on once before *the first* kernel
-  launch of that frame. CUDA graph capture (future T-GPU-OPT-N)
-  depends on the no-per-frame-alloc invariant; collapsing the
-  three-phase split or re-introducing per-frame
-  `vmaf_cuda_buffer_host_alloc` calls breaks that follow-up.
-  Bit-exactness gate is `places=3` for `psnr_hvs_y / cb / cr`
-  and the combined `psnr_hvs` (matches the existing matrix; not
-  `places=4`).
-- **On upstream sync**: zero interaction. `integer_psnr_hvs_cuda.c`
-  is fork-introduced (T7-23 / ADR-0188 / ADR-0191).
+  - `libvmaf/src/feature/hip/float_psnr_hip.c` (new)
+  - `libvmaf/src/feature/hip/float_psnr_hip.h` (new)
+  - `libvmaf/src/hip/meson.build` — new entry in `hip_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` — extern declaration
+    plus `feature_extractor_list[]` entry under `#if HAVE_HIP`.
+  - `libvmaf/test/test_hip_smoke.c` — new sub-test
+    `test_float_psnr_hip_extractor_registered` and a row in
+    `test_table[]`.
+  - `docs/adr/0254-hip-second-consumer-float-psnr.md` (new)
+  - `docs/adr/README.md` — index row.
+  - `CHANGELOG.md` — Added entry.
+- **Invariant**: `vmaf_get_feature_extractor_by_name("float_psnr_hip")`
+  returns the registered extractor on `-Denable_hip=true`. The
+  consumer's call-graph (`init → context_new + lifecycle_init +
+  readback_alloc + feature_name_dict`, `submit → submit_pre_launch +
+  …`, `collect → collect_wait + …`, `close → lifecycle_close +
+  readback_free + dictionary_free + context_destroy`) is the
+  load-bearing artefact this entry pins; T7-10b will swap helper
+  bodies and keep this call-site shape.
+- **Rebase impact**: entirely fork-local. The new files are HIP-
+  specific (no upstream HIP backend). The only upstream-touching
+  edit is `feature_extractor.c`, but the change is inside an
+  existing `#if HAVE_HIP` block established by ADR-0241; upstream
+  has no `HAVE_HIP` so no conflict is expected. If upstream ever
+  ships its own HIP backend, reconcile the registration list and
+  the extern declarations.
 - **Re-test on rebase**:
 
   ```bash
-  meson setup build libvmaf -Denable_cuda=true -Denable_sycl=false
+  meson setup build libvmaf -Denable_hip=true \
+    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
   ninja -C build
-  meson test -C build
-  python3 scripts/ci/cross_backend_vif_diff.py \
-    --vmaf-binary libvmaf/build/tools/vmaf \
-    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
-    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
-    --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
-    --feature psnr_hvs --backend cuda --places 3
-  ```
-
-
-### 0107 — SpEED-QA defer decision (ADR-0253)
-
-- **ADR**: [ADR-0253](adr/0253-speed-qa-extractor.md) (Proposed)
-- **Touches**:
-  - `docs/research/0051-speed-qa-feasibility.md` (new — feasibility digest)
-  - `docs/adr/0253-speed-qa-extractor.md` (new — Proposed ADR)
-  - `docs/adr/README.md` — index row.
-  - `CHANGELOG.md` — Added entry.
-  - `docs/rebase-notes.md` — this entry.
-- **Invariant**: the fork keeps `speed_chroma` / `speed_temporal` as
-  research-stage extractors gated behind `-Denable_float=true`
-  (status quo — established by PR #213 / rebase-notes 0029). This ADR
-  records *not* extending that surface with a `speed_qa` reduction
-  and *not* registering a SpEED-driven model. Rebase consequence:
-  if upstream ever lands a SpEED-driven model JSON, the
-  ADR-0253 *Trigger 1* condition fires and the deferral has to be
-  re-opened in the same sync PR — do not silently mirror the
-  consuming model.
-- **Rebase impact**: docs-only. No code, no build files, no public
-  headers, no tests. No conflict surface with upstream merges.
-- **Re-test on rebase**: none required (docs-only). On any
-  `/sync-upstream` that pulls Netflix changes touching
-  `model/*.json`, additionally run:
-
-  ```bash
-  # Trigger-1 watchdog: did upstream add a model that consumes SpEED?
-  git grep -lE "Speed_(chroma|temporal)_feature" model/ \
-      || echo "no consumer (ADR-0253 deferral still valid)"
+  meson test -C build test_hip_smoke
+  # CPU-only build must also keep working (no HAVE_HIP):
+  meson setup build-cpu libvmaf -Denable_hip=false \
+    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C build-cpu
   ```

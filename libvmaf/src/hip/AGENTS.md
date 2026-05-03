@@ -23,7 +23,7 @@ hip/
 
 ## Backend status
 
-**Scaffold + first consumer** — landed across two PRs:
+**Scaffold + first + second consumer** — landed across three PRs:
 
 1. **T7-10 audit-first scaffold** (ADR-0212) — common, picture, dispatch,
    feature stubs, public header `libvmaf_hip.h`, CI lane
@@ -34,9 +34,15 @@ hip/
    (first kernel-template consumer) + `vmaf_fex_psnr_hip` registration
    under `#if HAVE_HIP`. Template helpers and the consumer's
    submit/collect return `-ENOSYS` until T7-10b.
+3. **T7-10 second consumer** (ADR-0254) — `feature/hip/float_psnr_hip.{c,h}`
+   mirroring `feature/cuda/float_psnr_cuda.c` + `vmaf_fex_float_psnr_hip`
+   registration. Same scaffold posture (registration succeeds, `init()`
+   surfaces `-ENOSYS` through the kernel-template helpers). Proves the
+   template's shape generalises across feature precisions (float partials
+   vs the first consumer's int64 SSE).
 
 **Pending** — T7-10b (runtime PR) replaces the `kernel_template.c`
-bodies and the consumer's submit/collect kernel-launch chain with
+bodies and the consumers' submit/collect kernel-launch chains with
 real HIP calls (`hipStreamCreate`, `hipMemcpyAsync`, ...). Remaining
 kernel ports (ADM, VIF, motion, ...) follow as their own PRs gated
 by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
@@ -99,6 +105,22 @@ by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214
   tag and *then* sets the flag on the extractor. **On rebase**: if a
   refactor touches the picture buffer-type dispatch, leave the HIP
   extractor's flags at `0` until T7-10b.
+
+- **`float_psnr_hip.c` mirrors `float_psnr_cuda.c` call-graph-for-call-graph**
+  (fork-local, ADR-0254). Same `FloatPsnrStateHip`/`FloatPsnrStateCuda`
+  fields in matching order (modulo CUDA driver-table function
+  pointers and staging buffers, which are runtime-PR territory),
+  same template-helper invocations in the same init/submit/collect/close
+  sequence, same bit-depth-aware `peak`/`psnr_max` table, same
+  `provided_features` contract (`float_psnr` luma-only in v1).
+  `vmaf_fex_float_psnr_hip` registers under `#if HAVE_HIP` with the
+  same `flags = 0` posture as the first consumer. **On rebase**:
+  keep the call graph aligned with the CUDA twin; any drift in
+  `float_psnr_cuda.c`'s lifecycle (extra event, kernel argument
+  reorder, score formula change) requires a paired update to the
+  HIP twin. The same flag-bit invariant from the first consumer
+  applies — `flags = 0` until T7-10b sets the picture buffer-type
+  plumbing.
 
 ## Governing ADRs
 

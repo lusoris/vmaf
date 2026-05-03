@@ -183,6 +183,21 @@ static char *test_psnr_hip_extractor_registered(void)
     return NULL;
 }
 
+static char *test_float_psnr_hip_extractor_registered(void)
+{
+    /* Second-consumer PR (ADR-0253) extends the same registration
+     * contract to `float_psnr_hip`: extractor is found by name, with
+     * the matching `.name` string. `init()` is not invoked here — the
+     * scaffold returns -ENOSYS at that layer; the registration
+     * smoke test only pins the lookup contract. The runtime PR
+     * (T7-10b) keeps this assertion green and tightens it to "init
+     * returns 0 with a real device". */
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_psnr_hip");
+    mu_assert("float_psnr_hip extractor must be registered", fex != NULL);
+    mu_assert("float_psnr_hip extractor name matches", strcmp(fex->name, "float_psnr_hip") == 0);
+    return NULL;
+}
+
 /* Function-pointer table keeps `run_tests` flat — without it,
  * `mu_run_test` macro-expands to a branching pair per test, blowing
  * past clang-tidy's `readability-function-size` 15-branch budget at
@@ -207,6 +222,8 @@ static const test_fn test_table[] = {
     test_kernel_lifecycle_close_is_noop,
     test_kernel_readback_free_is_noop,
     test_psnr_hip_extractor_registered,
+    /* Second consumer (ADR-0253) */
+    test_float_psnr_hip_extractor_registered,
 };
 
 static const size_t test_table_len = sizeof(test_table) / sizeof(test_table[0]);
