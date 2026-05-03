@@ -46,6 +46,22 @@ and teardown.
 - **New extractor → new test file** following the `test_lpips.c` pattern:
   (a) registered by name, (b) registered by provided feature name,
   (c) options table well-formed, (d) init rejects missing required input.
+- **Output / writer-format tests use `tmpfile()` + slurp.**
+  [`test_output.c`](test_output.c) is the reference for exercising
+  `vmaf_write_output_{xml,json,csv,sub}` (R3 of the
+  [coverage gap analysis](../../docs/development/coverage-gap-analysis-2026-05-02.md)):
+  open a `tmpfile()`, run the writer, `fseek(SEEK_END)` + `ftell` +
+  `fseek(SEEK_SET)` + `fread` to slurp the buffer, then `strstr` for
+  expected markers. To reach `vmaf_feature_score_pooled` the test must
+  use a real `VmafContext` (the writers require it for the
+  `pooled_metrics` block); pull it in via `#include "libvmaf.c"` so
+  `struct VmafContext` becomes complete. **Pooled-metrics invariant**:
+  for the writer to emit per-feature mean/min/max/harmonic_mean
+  entries, *every* index in `[0, pic_cnt)` must have a written value
+  for every feature — `vmaf_feature_score_pooled` returns `-EAGAIN`
+  on the first missing index and the writer skips that feature.
+  Sparse-frame branches (`count_written_at == 0`, `i > capacity`)
+  belong in CSV / SUB tests where pic_cnt isn't a precondition.
 - **New SIMD parity test → use [`simd_bitexact_test.h`](simd_bitexact_test.h)**
   (ADR-0245). The shared harness centralises the `xorshift32` PRNG,
   the portable POSIX/MinGW/MSVC aligned allocator, the x86 AVX2 CPUID
