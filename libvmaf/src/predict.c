@@ -231,7 +231,7 @@ static int post_process_feature_from_another(VmafModel *model, struct svm_node *
     double guided_score;
     bool found_guiding_score = false;
     bool found_guided_score = false;
-    unsigned guided_idx;
+    unsigned guided_idx = 0;
 
     for (unsigned i = 0; i < model->n_features; i++) {
         if (strstr(model->feature[i].name, guiding_feature_substr) != NULL) {
@@ -269,6 +269,9 @@ static int post_process_feature_from_another(VmafModel *model, struct svm_node *
                 return 0;
         }
     }
+
+    if (!found_guiding_score || !found_guided_score)
+        return 0;
 
     double corrected_guided_score = (-correction_parameter * guiding_score) + correction_parameter;
     err = normalize(model, model->feature[guided_idx].slope, model->feature[guided_idx].intercept,
