@@ -57,6 +57,55 @@ cover several PRs in one workstream; cross-link from the ID heading.
 ### 0228 — `y4m_convert_411_422jpeg` 1-byte heap-buffer-overflow fix
 ### 0228 — `vmaf-tune` resolution-aware model selection (ADR-0289)
 ### 0282 — `vmaf-tune` AMD AMF codec adapters (ADR-0282)
+### 0228 — `tools/vmaf-tune/` codec-agnostic encode dispatcher (ADR-0294)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/encode.py` — refactored to look up
+    the codec adapter and delegate argv composition. Wholly fork-local.
+  - `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`,
+    `codec_adapters/x264.py` — adapter contract gains
+    `ffmpeg_codec_args(preset, quality)` and `extra_params()`. Both
+    are duck-typed; missing methods fall back to the legacy x264-CRF
+    shape.
+  - `tools/vmaf-tune/tests/test_encode_multi_codec.py` — new 19-test
+    suite pinning the dispatcher contract per codec.
+  - `docs/usage/vmaf-tune.md` — new "Codec adapter contract"
+    section.
+- **Invariant**: the harness (`encode.py`, `corpus.py`) **must not**
+  branch on codec identity. The only codec-aware code is the
+  per-adapter `codec_adapters/*.py` file. Any future change that
+  adds an `if adapter.encoder == "..."` to the harness regresses
+  ADR-0294's whole-purpose. The corpus row schema stays at
+  SCHEMA_VERSION=1 — `crf` is preserved as the row column even when
+  the underlying codec's quality knob is `-cq` / `-qp` / etc.;
+  `EncodeRequest.quality` is a request-side property only.
+  Adapters that don't yet expose `ffmpeg_codec_args` are
+  intentionally permitted to fall back to the legacy x264-CRF shape;
+  removing that fallback would break in-flight adapter PRs landing
+  one-at-a-time.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/ -q
+  # 32 passed (13 existing + 19 multi-codec)
+
+  python -c "
+  from pathlib import Path
+  from vmaftune.encode import EncodeRequest, build_ffmpeg_command
+  req = EncodeRequest(
+      source=Path('ref.yuv'), width=1920, height=1080, pix_fmt='yuv420p',
+      framerate=24.0, encoder='libx264', preset='medium', crf=23,
+      output=Path('out.mp4'),
+  )
+  cmd = build_ffmpeg_command(req)
+  assert cmd[cmd.index('-c:v') + 1] == 'libx264'
+  assert cmd[cmd.index('-preset') + 1] == 'medium'
+  assert cmd[cmd.index('-crf') + 1] == '23'
+  print('x264 dispatcher path OK')
+  "
+  ```
+
+### 0227 — `tools/vmaf-tune/` Phase A scaffold (ADR-0237 Phase A)
 
 - **Touches**:
   - `tools/vmaf-tune/src/vmaftune/codec_adapters/{h264_amf,hevc_amf,av1_amf,_amf_common}.py`

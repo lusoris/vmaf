@@ -342,6 +342,38 @@
   ranked). Companion docs:
   [`docs/ai/models/fr_regressor_v2_probabilistic.md`](docs/ai/models/fr_regressor_v2_probabilistic.md),
   [`docs/research/0067-fr-regressor-v2-probabilistic.md`](docs/research/0067-fr-regressor-v2-probabilistic.md).
+- **`vmaf-tune` codec-agnostic encode dispatcher (ADR-0294, T-VMAF-TUNE
+  follow-up).** Refactors
+  [`tools/vmaf-tune/src/vmaftune/encode.py`](tools/vmaf-tune/src/vmaftune/encode.py)
+  away from the Phase A hard-coded `libx264` `-c:v / -preset / -crf`
+  argv. `run_encode` now looks up the codec adapter via
+  `codec_adapters.get_adapter(req.encoder)` and asks it for the
+  FFmpeg argv slice via `adapter.ffmpeg_codec_args(preset, quality)`
+  (codec-specific shape — `-cq` / `-qp` / `-global_quality` / `-q:v`
+  / etc.) plus an optional `adapter.extra_params()`. Adapters
+  without `ffmpeg_codec_args` fall back to the legacy x264-CRF
+  shape so partial in-flight adapters stay drivable.
+  `parse_versions(stderr, encoder=...)` selects a per-codec version
+  probe (libx264, libx265, libsvtav1, libvpx-vp9, libaom-av1,
+  libvvenc, NVENC, QSV, AMF, VideoToolbox); unknown encoders return
+  `"unknown"` rather than raising. The `EncodeRequest.crf` field is
+  preserved unchanged for the SCHEMA_VERSION=1 row contract; a
+  `quality` property mirrors it for adapter-side codec-agnostic
+  vocabulary. Existing 13-test x264 suite still green; new 19-test
+  multi-codec suite
+  ([`tools/vmaf-tune/tests/test_encode_multi_codec.py`](tools/vmaf-tune/tests/test_encode_multi_codec.py))
+  covers 9 codec shapes plus the unknown-codec / missing-method
+  fallback paths. **Unblocks 17 in-flight codec adapter PRs**
+  (#360 libaom, #362 libx265, #364 NVENC, #366 AMF, #367 QSV,
+  #368 libvvenc, #370 libsvtav1, #373 VideoToolbox, plus follow-on
+  waves) which now drive end-to-end encodes without copying or
+  mutating the harness. New
+  [`docs/adr/0294-vmaf-tune-encode-multi-codec.md`](docs/adr/0294-vmaf-tune-encode-multi-codec.md),
+  [`docs/research/0069-vmaf-tune-encode-multi-codec.md`](docs/research/0069-vmaf-tune-encode-multi-codec.md);
+  [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md#codec-adapter-contract)
+  gains a "Codec adapter contract" section.
+  [`docs/rebase-notes.md`](docs/rebase-notes.md) entry 0228 pins the
+  codec-agnostic-harness invariant.
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

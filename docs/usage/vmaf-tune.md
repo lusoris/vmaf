@@ -656,6 +656,66 @@ runs without ffmpeg or onnxruntime installed:
 ```shell
 pytest tools/vmaf-tune/tests/test_saliency.py -v
 ```
+## Codec adapter contract
+
+The encode driver
+([`tools/vmaf-tune/src/vmaftune/encode.py`](../../tools/vmaf-tune/src/vmaftune/encode.py))
+is **codec-agnostic** as of [ADR-0294](../adr/0294-vmaf-tune-encode-multi-codec.md).
+It looks up the codec adapter via
+`vmaftune.codec_adapters.get_adapter(req.encoder)` and asks the
+adapter for its FFmpeg argv slice — the harness itself never branches
+on codec identity. Adding a new codec is one file under
+`tools/vmaf-tune/src/vmaftune/codec_adapters/` plus a registry entry;
+the search loop, corpus row schema, and FFmpeg invocation stay
+untouched.
+
+A codec adapter is a frozen dataclass exposing:
+
+| Member | Type | Purpose |
+| --- | --- | --- |
+| `name` | `str` | Human-readable codec id (`"libx264"`). |
+| `encoder` | `str` | FFmpeg `-c:v` value (`"libx264"`, `"h264_nvenc"`, ...). |
+| `quality_knob` | `str` | Name of the quality knob (`"crf"`, `"cq"`, `"qp"`, ...). |
+| `quality_range` | `tuple[int, int]` | Inclusive `(min, max)` for the knob. |
+| `quality_default` | `int` | Default quality value. |
+| `invert_quality` | `bool` | True when a higher value means lower quality (CRF / QP). |
+| `presets` | `tuple[str, ...]` | Allowed preset names. |
+| `validate(preset, quality) -> None` | method | Raises `ValueError` on out-of-range input. |
+| `ffmpeg_codec_args(preset, quality) -> list[str]` | method | Codec-specific argv slice (e.g. `["-c:v", "libx264", "-preset", "medium", "-crf", "23"]`). |
+| `extra_params() -> tuple[str, ...]` | method (optional) | Additional non-codec argv (e.g. `("-svtav1-params", "tune=0")`). |
+
+The dispatcher composes the final ffmpeg command as:
+
+```text
+[ffmpeg, -y, -hide_banner, -loglevel info,
+ -f rawvideo -pix_fmt <pf> -s WxH -r FR -i <src>,
+ *adapter.ffmpeg_codec_args(preset, quality),
+ *adapter.extra_params(),
+ *req.extra_params,
+ <output>]
+```
+
+Adapters that do not yet implement `ffmpeg_codec_args` (or for which
+`get_adapter` raises `KeyError`) fall back to the legacy x264-CRF
+shape (`-c:v <encoder> -preset <p> -crf <q>`) so partial adapters
+stay drivable end-to-end while their per-codec PRs are in flight.
+
+`parse_versions(stderr, encoder=...)` selects a per-codec version
+probe; missing matches degrade to `"unknown"` rather than raising.
+
+### Adapters in flight
+
+| Codec | PR | Status |
+| --- | --- | --- |
+| `libx264` | shipped (Phase A) | green |
+| `libx265` | #362 | adapter ships; dispatcher unblocks end-to-end |
+| `libsvtav1` | #370 | adapter ships; dispatcher unblocks end-to-end |
+| `libaom-av1` | #360 | adapter ships; dispatcher unblocks end-to-end |
+| `libvvenc` | #368 | adapter ships; dispatcher unblocks end-to-end |
+| `h264_nvenc` / `hevc_nvenc` / `av1_nvenc` | #364 | adapter ships; dispatcher unblocks end-to-end |
+| `h264_qsv` / `hevc_qsv` | #367 | adapter ships; dispatcher unblocks end-to-end |
+| `h264_amf` / `hevc_amf` | #366 | adapter ships; dispatcher unblocks end-to-end |
+| `h264_videotoolbox` / `hevc_videotoolbox` | #373 | adapter ships; dispatcher unblocks end-to-end |
 
 ## What Phase A does **not** do
 
@@ -882,6 +942,10 @@ it.
   `libsvtav1` / `libvpx-vp9` / `libvvenc` / NVENC / AMF land via
   one-file additions under
   `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+- Only `libx264` is registered on master; the codec adapter
+  interface is now codec-agnostic so each in-flight adapter PR
+  (#360, #362, #364, #366, #367, #368, #370, #373) can register
+  itself without touching `encode.py`.
 
 ## VVenC (H.266 / VVC + NNVC)
 

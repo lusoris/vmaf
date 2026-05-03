@@ -1,11 +1,27 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""ffmpeg encoder driver — Phase A.
+"""ffmpeg encode driver — codec-agnostic dispatcher.
 
-Wraps a single ffmpeg invocation that re-encodes a raw YUV source with
-the requested encoder (``libx264``, ``libx265``, …) at a given
-``(preset, crf)``. Captures wall time, output size, and the encoder's
-reported version string.
+Phase A originally hard-wired ``libx264`` (single-pass CRF). The
+multi-codec follow-up (ADR-0294) replaces that with a thin dispatcher
+that asks the registered codec adapter for its FFmpeg argv slice and
+plugs it into the encode invocation. The harness itself never branches
+on codec identity — that invariant is what unblocks the parallel
+adapter PRs (libx265, libsvtav1, NVENC, QSV, AMF, libaom, VVenC,
+VideoToolbox, ...).
+
+Adapter contract (duck-typed; see
+``codec_adapters/README.md`` once the per-codec PRs land):
+
+- ``adapter.ffmpeg_codec_args(preset: str, quality: int) -> list[str]``
+  — codec-specific encoder argv slice (``-c:v <enc> -preset <p>
+  <quality-knob> <q>`` or whatever shape that codec needs). Optional;
+  if absent, the dispatcher falls back to the legacy x264-CRF shape so
+  any pre-contract adapter still works.
+- ``adapter.extra_params() -> Sequence[str]`` — additional argv (e.g.
+  ``-pix_fmt yuv420p`` overrides). Optional; defaults to empty.
+- ``adapter.encoder: str`` — the FFmpeg ``-c:v`` value (used by both
+  the fallback path and the version parser).
 
 Subprocess boundary is the integration seam — tests mock
 ``subprocess.run`` rather than running ffmpeg.
@@ -21,10 +37,19 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from . import codec_adapters as _codec_adapters
+
 
 @dataclasses.dataclass(frozen=True)
 class EncodeRequest:
-    """Single (preset, crf) request against one raw YUV source."""
+    """Single (preset, quality) request against one raw YUV source.
+
+    ``crf`` is the historical name of the quality knob (kept verbatim
+    for x264 compatibility and the Phase A row schema). The
+    codec-agnostic dispatcher reads ``quality`` instead — it returns
+    ``crf`` unchanged so x264 callers, tests, and the JSONL row stay
+    bit-identical.
+    """
 
     source: Path
     width: int
@@ -36,6 +61,17 @@ class EncodeRequest:
     crf: int
     output: Path
     extra_params: tuple[str, ...] = ()
+
+    @property
+    def quality(self) -> int:
+        """Codec-agnostic name for the quality knob value.
+
+        Mirrors ``crf`` for x264; for codecs whose knob is ``-cq`` /
+        ``-qp`` / ``--rc cqp -q`` / etc., the adapter still receives a
+        plain integer here and maps it to its own flag in
+        ``ffmpeg_codec_args``.
+        """
+        return self.crf
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,11 +87,51 @@ class EncodeResult:
     stderr_tail: str
 
 
+def _legacy_x264_codec_args(encoder: str, preset: str, quality: int) -> list[str]:
+    """Pre-dispatcher x264 argv slice. Used only as a fallback for
+    adapters that haven't yet exposed ``ffmpeg_codec_args``."""
+    return ["-c:v", encoder, "-preset", preset, "-crf", str(quality)]
+
+
+def _adapter_codec_args(adapter: object, encoder: str, preset: str, quality: int) -> list[str]:
+    fn = getattr(adapter, "ffmpeg_codec_args", None)
+    if fn is None:
+        return _legacy_x264_codec_args(encoder, preset, quality)
+    args = fn(preset, quality)
+    return list(args)
+
+
+def _adapter_extra_params(adapter: object) -> list[str]:
+    fn = getattr(adapter, "extra_params", None)
+    if fn is None:
+        return []
+    if callable(fn):
+        return list(fn())
+    # Some adapters expose extra_params as a tuple/list attribute (legacy).
+    return list(fn)  # type: ignore[arg-type]
+
+
 def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list[str]:
     """Compose the ffmpeg argv for a single encode.
 
     Pure function — no I/O — so tests can pin the exact command line.
+    Looks up the codec adapter via ``codec_adapters.get_adapter`` and
+    asks it for its argv slice. Falls back to the legacy x264-CRF shape
+    when the adapter is missing or doesn't expose
+    ``ffmpeg_codec_args``.
     """
+    try:
+        adapter: object | None = _codec_adapters.get_adapter(req.encoder)
+    except KeyError:
+        adapter = None
+
+    codec_args = (
+        _adapter_codec_args(adapter, req.encoder, req.preset, req.quality)
+        if adapter is not None
+        else _legacy_x264_codec_args(req.encoder, req.preset, req.quality)
+    )
+    extra_from_adapter = _adapter_extra_params(adapter) if adapter is not None else []
+
     cmd: list[str] = [
         ffmpeg_bin,
         "-y",  # overwrite
@@ -72,13 +148,9 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
         f"{req.framerate}",
         "-i",
         str(req.source),
-        "-c:v",
-        req.encoder,
-        "-preset",
-        req.preset,
-        "-crf",
-        str(req.crf),
     ]
+    cmd.extend(codec_args)
+    cmd.extend(extra_from_adapter)
     cmd.extend(req.extra_params)
     cmd.append(str(req.output))
     return cmd
@@ -86,48 +158,76 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
 
 _FFMPEG_VERSION_RE = re.compile(r"ffmpeg version (\S+)")
 _X264_VERSION_RE = re.compile(r"x264 - core (\d+)")
-# x265 banner format: "x265 [info]: HEVC encoder version 3.5+1-f0c1022b6"
-# Some builds print "x265 [info]: HEVC encoder version 3.5".
-_X265_VERSION_RE = re.compile(r"x265 \[info\]:\s*HEVC encoder version (\S+)")
-# SVT-AV1 logs e.g. "SVT [info]: SVT-AV1 Encoder Lib v2.1.0" or
-# "Svt[info]:SVT-AV1 Encoder Lib v1.8.0". Match the version token only;
-# the rest of the banner varies between FFmpeg builds.
-_SVTAV1_VERSION_RE = re.compile(r"SVT-AV1 Encoder Lib\s+v?(\S+)")
+_X265_VERSION_RE = re.compile(r"x265 \[info\]:.*?version (\S+)")
+_SVTAV1_VERSION_RE = re.compile(r"SVT-AV1.*?\sv?(\d+\.\d+(?:\.\d+)?)")
+_LIBVPX_VERSION_RE = re.compile(r"libvpx-vp9.*?(\d+\.\d+\.\d+)|vpxenc\s+v(\d+\.\d+\.\d+)")
+_LIBAOM_VERSION_RE = re.compile(r"libaom.*?(\d+\.\d+\.\d+)|aomenc.*?(\d+\.\d+\.\d+)")
+_VVENC_VERSION_RE = re.compile(r"VVenC.*?Version\s+(\S+)|libvvenc\s+(\S+)")
+_NVENC_VERSION_RE = re.compile(r"\b(h264_nvenc|hevc_nvenc|av1_nvenc)\b")
+_QSV_VERSION_RE = re.compile(r"\b(h264_qsv|hevc_qsv|av1_qsv|vp9_qsv)\b")
+_AMF_VERSION_RE = re.compile(r"\b(h264_amf|hevc_amf|av1_amf)\b")
+_VT_VERSION_RE = re.compile(r"\b(h264_videotoolbox|hevc_videotoolbox|prores_videotoolbox)\b")
+
+
+# Per-encoder version probe table. Each entry maps an FFmpeg ``-c:v``
+# encoder name (or a stem prefix) to (regex, formatter). Adapters ship
+# their own entries when registered; this table is the
+# stdlib-bundled fallback so the harness still extracts versions for
+# the codecs we already wire.
+_ENCODER_VERSION_PROBES: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("libx264", _X264_VERSION_RE, "libx264-{0}"),
+    ("libx265", _X265_VERSION_RE, "libx265-{0}"),
+    ("libsvtav1", _SVTAV1_VERSION_RE, "libsvtav1-{0}"),
+    ("libvpx-vp9", _LIBVPX_VERSION_RE, "libvpx-vp9-{0}"),
+    ("libaom-av1", _LIBAOM_VERSION_RE, "libaom-av1-{0}"),
+    ("libvvenc", _VVENC_VERSION_RE, "libvvenc-{0}"),
+    ("nvenc", _NVENC_VERSION_RE, "{0}"),
+    ("qsv", _QSV_VERSION_RE, "{0}"),
+    ("amf", _AMF_VERSION_RE, "{0}"),
+    ("videotoolbox", _VT_VERSION_RE, "{0}"),
+)
+
+
+def _probe_for(encoder: str) -> tuple[re.Pattern[str], str] | None:
+    """Return the (regex, formatter) probe matching ``encoder``.
+
+    Match is by substring on either side so ``h264_nvenc`` resolves to
+    the ``nvenc`` probe and ``libx264`` resolves to its exact entry.
+    """
+    if not encoder:
+        return None
+    for stem, pat, fmt in _ENCODER_VERSION_PROBES:
+        if stem == encoder or stem in encoder or encoder in stem:
+            return (pat, fmt)
+    return None
 
 
 def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
-    """Return ``(ffmpeg_version, encoder_version)`` extracted from stderr.
+    """Return ``(ffmpeg_version, encoder_version)`` from ffmpeg stderr.
 
-    ``encoder`` selects the per-codec banner regex; defaults to
-    ``libx264`` for backward compatibility with Phase A callers.
-    Returns ``("unknown", "unknown")`` for missing matches rather than
-    raising — corpus rows record what we can detect and move on.
+    The ``encoder`` keyword selects which encoder version probe to run.
+    Defaults to ``libx264`` so the legacy x264 callers stay
+    bit-compatible. Returns ``("unknown", "unknown")`` for missing
+    matches rather than raising — the corpus row records what we
+    detect and moves on.
     """
     ffm = _FFMPEG_VERSION_RE.search(stderr)
-    ffmpeg_version = ffm.group(1) if ffm else "unknown"
+    ffmpeg_v = ffm.group(1) if ffm else "unknown"
 
-    if encoder == "libx265":
-        enc = _X265_VERSION_RE.search(stderr)
-        encoder_version = f"libx265-{enc.group(1)}" if enc else "unknown"
-    elif encoder == "libsvtav1":
-        enc = _SVTAV1_VERSION_RE.search(stderr)
-        encoder_version = f"libsvtav1-{enc.group(1)}" if enc else "unknown"
-    else:
-        # libx264 (and any future codec without a dedicated branch) falls
-        # back to the x264 regex so old callers keep working.
-        enc = _X264_VERSION_RE.search(stderr)
-        encoder_version = f"libx264-{enc.group(1)}" if enc else "unknown"
+    probe = _probe_for(encoder)
+    if probe is None:
+        return (ffmpeg_v, "unknown")
 
-    return ffmpeg_version, encoder_version
-    x264 = _X264_VERSION_RE.search(stderr)
-    if x264 is not None:
-        return ffmpeg_version, f"libx264-{x264.group(1)}"
+    pat, fmt = probe
+    m = pat.search(stderr)
+    if m is None:
+        return (ffmpeg_v, "unknown")
 
-    svtav1 = _SVTAV1_VERSION_RE.search(stderr)
-    if svtav1 is not None:
-        return ffmpeg_version, f"libsvtav1-{svtav1.group(1)}"
-
-    return ffmpeg_version, "unknown"
+    # Pick the first non-empty group so alternation patterns
+    # (``A|B``) collapse to the matched side.
+    groups = [g for g in m.groups() if g]
+    token = groups[0] if groups else m.group(0)
+    return (ffmpeg_v, fmt.format(token))
 
 
 def run_encode(
@@ -135,14 +235,16 @@ def run_encode(
     *,
     ffmpeg_bin: str = "ffmpeg",
     runner: object | None = None,
+    encoder_runner: object | None = None,
 ) -> EncodeResult:
     """Drive ffmpeg to produce ``req.output``.
 
-    ``runner`` defaults to ``subprocess.run`` and is parameterised so
-    tests inject a stub.
+    ``runner`` (or its alias ``encoder_runner``, kept for parity with
+    the dispatcher's documented kwarg) defaults to ``subprocess.run``
+    and is parameterised so tests inject a stub.
     """
     cmd = build_ffmpeg_command(req, ffmpeg_bin=ffmpeg_bin)
-    runner_fn = runner or subprocess.run
+    runner_fn = encoder_runner or runner or subprocess.run
     started = time.monotonic()
     completed = runner_fn(  # type: ignore[operator]
         cmd, capture_output=True, text=True, check=False
