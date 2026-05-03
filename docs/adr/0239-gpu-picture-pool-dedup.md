@@ -113,5 +113,5 @@ round-robin implementation across all three backends.
 - [ADR-0238](0238-vulkan-picture-preallocation.md) — adds
   `picture_vulkan_pool.c`; this ADR's Vulkan-migration follow-up is
   gated on #264 landing.
-- [ADR-0221](0221-tiny-ai-extractor-template.md) — tiny-AI extractor
+- [ADR-0250](0250-tiny-ai-extractor-template.md) — tiny-AI extractor
   template precedent (PR #251), refactor pattern model.

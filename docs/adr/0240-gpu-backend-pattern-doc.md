@@ -23,7 +23,7 @@ Codegenning 10 % of each header would add a build-system Python
 dependency (Jinja2 or hand-rolled emitter) for too little return — the
 divergence between backends is the API surface, not the lifecycle
 boilerplate. The dedup-via-pattern approach the tiny-AI extractor
-template (ADR-0221) uses is a better fit: a *recipe* lives in `docs/`,
+template (ADR-0250) uses is a better fit: a *recipe* lives in `docs/`,
 new backends consult it, no build-system additions.
 
 ## Decision
@@ -51,7 +51,7 @@ so future backends can't reimplement the round-robin lifecycle.
 
 | Option | Pros | Cons | Why not chosen |
 | --- | --- | --- | --- |
-| **Doc-pattern (chosen)** | Mirrors the tiny-AI template precedent (ADR-0221); zero build-system dependency; agent-readable AGENTS guidance | Future backend additions rely on developer discipline (no enforcement) | Picked: 90 % of each header is genuinely backend-specific; codegen is the wrong tool for ~10 % shared shape |
+| **Doc-pattern (chosen)** | Mirrors the tiny-AI template precedent (ADR-0250); zero build-system dependency; agent-readable AGENTS guidance | Future backend additions rely on developer discipline (no enforcement) | Picked: 90 % of each header is genuinely backend-specific; codegen is the wrong tool for ~10 % shared shape |
 | Jinja2 codegen at build time | Forces shared lifecycle into one template; new backends are a one-line spec addition | Adds a Python build dependency; obscures the headers (you edit the template, not the file); high friction for a 20-LOC dedup | Rejected: ROI doesn't justify the build-system addition |
 | Pure-Python codegen with checked-in outputs | No build-time Python; same template + a `make regen-headers` target | Two sources of truth — easy to drift; requires a CI gate that re-renders + diffs | Rejected: same return as Jinja2 with extra drift surface |
 | Thin shared header with macro-emit blocks | Pure C; no codegen; `#define X_BACKEND_LIFECYCLE(prefix)` style | C macro stamping for type names is fragile; readability collapses; Doxygen on macros is brittle | Rejected: cure worse than the disease |
@@ -62,7 +62,7 @@ so future backends can't reimplement the round-robin lifecycle.
 - **Positive**:
   - New GPU backends (Metal, DirectML, future ROCm-replacement)
     have a written recipe to follow — same dedup pattern the
-    tiny-AI extractors use (ADR-0221 / PR #251 → migrated in
+    tiny-AI extractors use (ADR-0250 / PR #251 → migrated in
     PR #265).
   - The four-header rebase invariant note pins which headers
     upstream syncs are *expected* to touch (only `libvmaf_cuda.h`)
@@ -98,7 +98,7 @@ so future backends can't reimplement the round-robin lifecycle.
 - 2026-05-02 GPU dedup audit (in-conversation, agent-produced).
 - [ADR-0239](0239-gpu-picture-pool-dedup.md) — PR2 of the dedup
   sequence (picture-pool extract).
-- [ADR-0221](0221-tiny-ai-extractor-template.md) — the precedent
+- [ADR-0250](0250-tiny-ai-extractor-template.md) — the precedent
   for "recipe doc + shared helpers, not codegen".
 - [`docs/development/gpu-backend-template.md`](../development/gpu-backend-template.md)
   — the recipe.

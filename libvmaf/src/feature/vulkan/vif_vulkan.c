@@ -91,7 +91,7 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipelines (`vulkan/kernel_template.h` bundle, ADR-0221).
+    /* Pipelines (`vulkan/kernel_template.h` bundle, ADR-0246).
      * `pl` carries the shared layout / shader / DSL / pool plus the
      * scale=0 pipeline. `scale_variants[0..2]` are sibling pipelines
      * for scales 1, 2, 3 — created via

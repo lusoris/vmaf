@@ -33,7 +33,7 @@
  *
  * Boilerplate (xorshift PRNG, portable aligned alloc, AVX2 gate,
  * relative-tolerance assertion) is provided by
- * `simd_bitexact_test.h` (ADR-0221).
+ * `simd_bitexact_test.h` (ADR-0245).
  */
 
 #include <stddef.h>

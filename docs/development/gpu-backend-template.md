@@ -179,7 +179,7 @@ extraction in flight as PR4 of the GPU dedup sequence (T-GPU-DEDUP-3,
   GPU picture pool (PR2 of the dedup sequence).
 - [ADR-0238](../adr/0238-vulkan-picture-preallocation.md) — Vulkan
   picture preallocation (the most recent shape adopter).
-- [ADR-0221](../adr/0221-tiny-ai-extractor-template.md) — tiny-AI
+- [ADR-0250](../adr/0250-tiny-ai-extractor-template.md) — tiny-AI
   extractor template (the model for "pattern-doc + shared helpers
   rather than codegen").
 - [`libvmaf/include/libvmaf/AGENTS.md`](../../libvmaf/include/libvmaf/AGENTS.md)

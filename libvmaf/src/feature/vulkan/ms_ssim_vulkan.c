@@ -24,7 +24,7 @@
  *
  *  Min-dim guard: 11 << 4 = 176 (matches ADR-0153).
  *
- *  enable_lcs (T7-35 / ADR-0215): when set, emits the 15 extra
+ *  enable_lcs (T7-35 / ADR-0243): when set, emits the 15 extra
  *  per-scale metrics float_ms_ssim_{l,c,s}_scale{0..4} (luminance
  *  / contrast / structure components). The kernel already produces
  *  l_means / c_means / s_means per scale — gating only the
@@ -66,7 +66,7 @@ static const float g_betas[MS_SSIM_SCALES] = {0.0448f, 0.2856f, 0.3001f, 0.2363f
 static const float g_gammas[MS_SSIM_SCALES] = {0.0448f, 0.2856f, 0.3001f, 0.2363f, 0.1333f};
 
 typedef struct {
-    bool enable_lcs; /* Emit per-scale L/C/S triples (T7-35 / ADR-0215). */
+    bool enable_lcs; /* Emit per-scale L/C/S triples (T7-35 / ADR-0243). */
     bool enable_db;  /* Currently unused; kept for option parity. */
     bool clip_db;
     double max_db;
@@ -635,7 +635,7 @@ static double sum_partials_double(const float *p, unsigned n)
 
 /* Emit the 15 enable_lcs metrics — 5 scales × {l, c, s}. Naming
  * mirrors the CPU host extractor in float_ms_ssim.c (T7-35 /
- * ADR-0215): float_ms_ssim_{l,c,s}_scale{0..4}. */
+ * ADR-0243): float_ms_ssim_{l,c,s}_scale{0..4}. */
 static int emit_lcs_metrics(VmafFeatureCollector *fc, unsigned index, const double l_means[5],
                             const double c_means[5], const double s_means[5])
 {

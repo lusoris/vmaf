@@ -36,7 +36,7 @@
 
 typedef struct MotionV2StateCuda {
     /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
-     * (ADR-0221). */
+     * (ADR-0246). */
     VmafCudaKernelLifecycle lc;
     /* Single int64 atomic accumulator per frame: device + pinned
      * host. Owned by the template's readback bundle. */

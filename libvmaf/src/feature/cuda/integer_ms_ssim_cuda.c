@@ -27,7 +27,7 @@
  *
  *  Min-dim guard: 11 << 4 = 176 (matches ADR-0153).
  *
- *  enable_lcs (T7-35 / ADR-0215): when set, emits the 15 extra
+ *  enable_lcs (T7-35 / ADR-0243): when set, emits the 15 extra
  *  per-scale metrics float_ms_ssim_{l,c,s}_scale{0..4}. The
  *  vert_lcs kernel already produces the per-scale L/C/S means
  *  (it's where the "_lcs" in its name comes from); gating the
@@ -67,7 +67,7 @@ static const float g_gammas[MS_SSIM_SCALES] = {0.0448f, 0.2856f, 0.3001f, 0.2363
 
 typedef struct MsSsimStateCuda {
     /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
-     * (ADR-0221). Multi-buffer pyramid state stays outside the
+     * (ADR-0246). Multi-buffer pyramid state stays outside the
      * template's single-pair readback bundle. */
     VmafCudaKernelLifecycle lc;
     CUfunction func_decimate;
@@ -119,7 +119,7 @@ typedef struct MsSsimStateCuda {
     unsigned index;
     VmafDictionary *feature_name_dict;
 
-    bool enable_lcs; /* T7-35 / ADR-0215: emit per-scale L/C/S triples. */
+    bool enable_lcs; /* T7-35 / ADR-0243: emit per-scale L/C/S triples. */
 } MsSsimStateCuda;
 
 static const VmafOption options[] = {

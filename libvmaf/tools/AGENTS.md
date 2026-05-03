@@ -45,7 +45,7 @@ tools/
   `python -m pytest python/test/command_line_test.py
   ::VmafexecCommandLineTest::test_run_vmafexec_with_frame_skipping` — if
   it hangs (timeout, no output), the unref is missing or wrong.
-- **`vmaf_roi` sidecar contract** (T6-2b / ADR-0221) is
+- **`vmaf_roi` sidecar contract** (T6-2b / ADR-0247) is
   **rebase-sensitive** — encoder drivers depend on the exact byte
   layouts:
   - `--encoder x265` emits ASCII per-row grid with two `#`-prefixed
@@ -55,7 +55,7 @@ tools/
   - `--encoder svt-av1` emits exactly `cols * rows` bytes of `int8_t`,
     row-major, **no header**.
   - QP-offset clamp is `+-12` (`VMAF_ROI_CORE_QP_OFFSET_MAX`).
-  - Reduction is per-CTU **mean** (not max — see ADR-0221 alternatives).
+  - Reduction is per-CTU **mean** (not max — see ADR-0247 alternatives).
   - Pure helpers (`vmaf_roi_reduce_per_ctu`, `vmaf_roi_saliency_to_qp`)
     live in `vmaf_roi_core.h` so the smoke test compiles them
     without dragging libvmaf's link surface in. **Do not** move them
@@ -88,6 +88,6 @@ tools/
 - [ADR-0104](../../docs/adr/0104-picture-pool-always-on.md) — picture
   pool is always compiled in and sized for the live-picture set; this
   is what makes the `--frame_skip_*` unref invariant load-bearing.
-- [ADR-0221](../../docs/adr/0221-vmaf-roi-tool.md) — `vmaf-roi`
+- [ADR-0247](../../docs/adr/0247-vmaf-roi-tool.md) — `vmaf-roi`
   sidecar (per-CTU QP offsets for x265 / SVT-AV1). Encoder format
   contract + per-CTU-mean reduction are rebase-sensitive.

@@ -59,7 +59,7 @@ typedef struct VmafVulkanConfiguration {
      * the canonical default (4); values are clamped to [1, 8] internally.
      * The ring is materialised lazily on the first @ref
      * vmaf_vulkan_import_image, so this field must be set before that
-     * call to take effect. See ADR-0235.
+     * call to take effect. See ADR-0251.
      */
     unsigned max_outstanding_frames;
 } VmafVulkanConfiguration;
@@ -120,7 +120,7 @@ int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHan
  * initialised with. Returns the clamped value of @ref
  * VmafVulkanConfiguration::max_outstanding_frames (always in
  * [1, 8]); 0 when @p state is NULL or libvmaf was built without
- * Vulkan support. ADR-0235 follow-up #3.
+ * Vulkan support. ADR-0251 follow-up #3.
  */
 unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state);
 

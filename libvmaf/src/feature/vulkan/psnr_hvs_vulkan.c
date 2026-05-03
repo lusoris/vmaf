@@ -66,7 +66,7 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0221).
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0246).
      * `pl` carries the shared layout / shader / DSL / pool plus the
      * plane=0 pipeline. `pipeline_chroma_u` and `pipeline_chroma_v`
      * are sibling pipelines created via

@@ -1,4 +1,4 @@
-# ADR-0221: `nr_metric_v1` joins dynamic-PTQ family (T5-3d)
+# ADR-0248: `nr_metric_v1` joins dynamic-PTQ family (T5-3d)
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

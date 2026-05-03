@@ -2,7 +2,7 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Smoke test for the vmaf-roi sidecar core helpers (T6-2b / ADR-0221):
+ *  Smoke test for the vmaf-roi sidecar core helpers (T6-2b / ADR-0247):
  *
  *    - vmaf_roi_reduce_per_ctu(): per-CTU mean reduction handles full
  *      and partial CTUs without out-of-bounds reads.

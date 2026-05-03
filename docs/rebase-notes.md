@@ -211,7 +211,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Rebase impact**: low. Builds on top of PR #272's
   `_add_variant()` helper.
 
->>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
 ### 0119 — vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-19)
 
 - **Touches**:
@@ -234,10 +233,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Rebase impact**: low. Builds on top of PR #272's
   `_add_variant()` helper.
 
->>>>>>> 6b28b4d1 (refactor(vulkan): T-GPU-DEDUP-19 — migrate vif_vulkan to kernel_template)
->>>>>>> af400303 (refactor(vulkan): T-GPU-DEDUP-7 — migrate motion + ssim to kernel_template)
-=======
->>>>>>> 1c8f8566 (refactor(vulkan): T-GPU-DEDUP-21 — migrate adm_vulkan to kernel_template)
 ### 0120 — float_vif_vulkan migrated to kernel_template + `_add_variant` (T-GPU-DEDUP-20)
 
 - **Touches**:
@@ -555,9 +550,9 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Rebase impact**: none. Pure research deliverables; upstream
   Netflix has no equivalent surface.
 
-### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
+### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0251)
 
-- **ADR**: [ADR-0235](adr/0235-vulkan-async-pending-fence.md);
+- **ADR**: [ADR-0251](adr/0251-vulkan-async-pending-fence.md);
   predecessor [ADR-0186](adr/0186-vulkan-image-import-impl.md).
 - **Touches**:
   - `libvmaf/src/vulkan/import.c` — full rewrite of the
@@ -586,7 +581,7 @@ cover several PRs in one workstream; cross-link from the ID heading.
     the existing `enable_vulkan` guard.
   - `libvmaf/src/vulkan/AGENTS.md` (new) — pins the three
     rebase-sensitive ring invariants.
-  - `docs/adr/0235-vulkan-async-pending-fence.md` (new),
+  - `docs/adr/0251-vulkan-async-pending-fence.md` (new),
     `docs/research/0042-vulkan-async-pending-fence.md` (new),
     `docs/api/gpu.md`, `docs/backends/vulkan/overview.md`,
     `CHANGELOG.md`, `docs/rebase-notes.md`.
@@ -621,7 +616,7 @@ cover several PRs in one workstream; cross-link from the ID heading.
   per direction. At default depth and 1080p 8-bit Y, the
   per-state host-visible footprint grows from ~4 MiB to
   ~16 MiB. Documented in
-  [ADR-0235 §Consequences](adr/0235-vulkan-async-pending-fence.md#consequences).
+  [ADR-0251 §Consequences](adr/0251-vulkan-async-pending-fence.md#consequences).
 
 ### 0090 — `cambi_vulkan` extractor (T7-36 / ADR-0210)
 
@@ -4199,9 +4194,9 @@ inline.*
 
   CI runs this same sequence via the new matrix row.
 
-### 0058 — Tiny-AI Netflix corpus training scaffold (ADR-0199)
+### 0058 — Tiny-AI Netflix corpus training scaffold (ADR-0242)
 
-- **ADR**: [ADR-0199](adr/0199-tiny-ai-netflix-training-corpus.md).
+- **ADR**: [ADR-0242](adr/0242-tiny-ai-netflix-training-corpus.md).
 - **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI training
   harness or MCP server.
 - **Touches**:
@@ -5528,7 +5523,7 @@ inline.*
   # and 11/11 tests should pass.
   ```
 
-### 0075 — `enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0215)
+### 0075 — `enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0243)
 
 - **Touched surfaces (fork-local)**:
   [`libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c`](../libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c)
@@ -5728,16 +5723,16 @@ inline.*
 
   ```sh
   python3 ai/scripts/collect_gpu_calibration_data.py --smoke
-### 0095 — Per-backend GPU kernel scaffolding templates (CUDA + Vulkan, ADR-0221)
+### 0095 — Per-backend GPU kernel scaffolding templates (CUDA + Vulkan, ADR-0246)
 
-- **ADR**: [ADR-0221](adr/0221-gpu-kernel-template.md).
+- **ADR**: [ADR-0246](adr/0246-gpu-kernel-template.md).
 - **Touches**:
   - `libvmaf/src/cuda/kernel_template.h` (new, header-only).
   - `libvmaf/src/vulkan/kernel_template.h` (new, header-only).
   - `libvmaf/src/cuda/AGENTS.md` (new invariant row + dir listing).
   - `libvmaf/src/vulkan/AGENTS.md` (new file).
   - `docs/backends/kernel-scaffolding.md` (new).
-  - `docs/adr/0221-gpu-kernel-template.md` (new).
+  - `docs/adr/0246-gpu-kernel-template.md` (new).
   - `CHANGELOG.md`, `docs/adr/README.md`.
   All paths are wholly fork-local. Upstream Netflix/vmaf has no
   Vulkan backend at all today and the CUDA backend uses different
@@ -5816,7 +5811,7 @@ inline.*
       --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
       --output /tmp/plan.csv
   cat /tmp/plan.csv
-### 0075 — `vmaf-roi` sidecar binary (T6-2b / ADR-0221)
+### 0075 — `vmaf-roi` sidecar binary (T6-2b / ADR-0247)
 
 - **Touches**:
   - `libvmaf/tools/meson.build` — adds the `vmaf_roi` executable
@@ -5928,7 +5923,7 @@ inline.*
   `ai/scripts/{train,export,validate}_vmaf_tiny_v2.py`, `ai/AGENTS.md`,
   `libvmaf/test/dnn/{test_vmaf_tiny_v2.py,meson.build}`,
   `docs/ai/{models/vmaf_tiny_v2.md,inference.md,roadmap.md}`,
-  `docs/adr/{0216-vmaf-tiny-v2.md,README.md}`, `CHANGELOG.md`. All
+  `docs/adr/{0244-vmaf-tiny-v2.md,README.md}`, `CHANGELOG.md`. All
   paths are wholly fork-local; no upstream Netflix/vmaf code is
   modified.
 - **Invariants**:
@@ -5966,13 +5961,13 @@ inline.*
       --parquet runs/full_features_netflix.parquet \
       --rows 100 --min-plcc 0.97
   meson test -C build-cpu --suite=dnn
-### 0094 — Tiny-AI extractor template (ADR-0221)
+### 0094 — Tiny-AI extractor template (ADR-0250)
 
 - **Touches**: `libvmaf/src/dnn/tiny_extractor_template.h` (new),
   `libvmaf/src/feature/feature_lpips.c`,
   `libvmaf/src/feature/fastdvdnet_pre.c`,
   `libvmaf/src/dnn/AGENTS.md`, `docs/ai/extractor-template.md` (new),
-  `docs/adr/0221-tiny-ai-extractor-template.md` (new).
+  `docs/adr/0250-tiny-ai-extractor-template.md` (new).
 - **Invariants**:
   1. **Helper signatures are wire-format-stable.**
      `vmaf_tiny_ai_resolve_model_path(name, option, env_var)` and
@@ -6012,7 +6007,7 @@ inline.*
   ```
 
 
-### 0095 — Vulkan ring-depth tunable (ADR-0235 follow-up #3)
+### 0095 — Vulkan ring-depth tunable (ADR-0251 follow-up #3)
 
 - **PR**: feat/t7-29-followup3-ring-tunable.
 - **What rebases need to know**: `VmafVulkanConfiguration` grew an
@@ -6029,7 +6024,7 @@ inline.*
   — read-side accessor for the clamped value. Pure additive surface;
   no upstream collision.
 - **On upstream sync**: zero interaction. The ring is wholly
-  fork-introduced (ADR-0235); upstream Netflix has no Vulkan backend.
+  fork-introduced (ADR-0251); upstream Netflix has no Vulkan backend.
 - **Re-test on rebase**:
 
   ```bash
@@ -6193,7 +6188,7 @@ inline.*
 
 - **PR**: refactor/migrate-psnr-vulkan-to-template.
 - **What rebases need to know**: `vulkan/kernel_template.h` (410 LOC,
-  ADR-0221, PR #251) shipped with zero consumers. Its docstring
+  ADR-0246, PR #251) shipped with zero consumers. Its docstring
   designated `psnr_vulkan.c` as the reference implementation. This
   PR lands the migration as the **first consumer** of the Vulkan
   template — paired with PR #269 (the first CUDA template
@@ -6327,7 +6322,7 @@ inline.*
 
 - **PR**: refactor/migrate-psnr-cuda-to-template.
 - **What rebases need to know**: `cuda/kernel_template.h` shipped
-  with no consumers in PR #251 (ADR-0221). This PR migrates the
+  with no consumers in PR #251 (ADR-0246). This PR migrates the
   first consumer (`integer_psnr_cuda.c`) — the file the template's
   own docstring explicitly designated as the reference. The
   `CUstream + CUevent + CUevent` triple and the
@@ -6364,120 +6359,26 @@ inline.*
   python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-### 0106 — `vmaf_tiny_v3` (mlp_medium) shipped alongside v2 (ADR-0241)
+### 0106 — Duplicate-NNNN ADR dedup sweep (2026-05-02)
 
-- **What changed**: ships `model/tiny/vmaf_tiny_v3.onnx` (4 496 B,
-  sha256 `57b2b7e0…`) + sidecar `model/tiny/vmaf_tiny_v3.json` + new
-  registry row in `model/tiny/registry.json`. Architecture
-  `mlp_medium` (6 → 32 → 16 → 1, 769 params); same StandardScaler-
-  baked-into-the-graph runtime contract as `vmaf_tiny_v2`. Adds four
-  new scripts under `ai/scripts/`: `train_vmaf_tiny_v3.py`,
-  `export_vmaf_tiny_v3.py`, `validate_vmaf_tiny_v3.py`,
-  `eval_loso_vmaf_tiny_v3.py`. New model card
-  `docs/ai/models/vmaf_tiny_v3.md`; new ADR
-  `docs/adr/0241-vmaf-tiny-v3-mlp-medium.md`; new research digest
-  `docs/research/0046-vmaf-tiny-v3-mlp-medium-evaluation.md`. v2
-  scripts and v2 ONNX are untouched.
-- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
-  fusion-MLP training surface; nothing on the upstream side touches
-  these files.
-- **On upstream sync**: zero interaction. The v3 surface lives
-  entirely under `ai/scripts/` + `model/tiny/` + `docs/ai/` +
-  `docs/adr/` + `docs/research/`, all of which are
-  fork-introduced trees.
-- **Re-test on rebase**:
-
-  ```bash
-  python3 ai/scripts/validate_vmaf_tiny_v3.py \
-      --onnx model/tiny/vmaf_tiny_v3.onnx \
-=======
-### 0107 — `vmaf_tiny_v4` (mlp_large) ships as opt-in only (ADR-0242)
-
-- **PR**: feat/vmaf-tiny-v4-mlp-large.
-- **What rebases need to know**: ships a third tiny VMAF fusion model
-  alongside `vmaf_tiny_v2` (production default) and `vmaf_tiny_v3`
-  (opt-in higher tier). New artefacts:
-  `model/tiny/vmaf_tiny_v4.onnx` (14 KB),
-  `model/tiny/vmaf_tiny_v4.json` (sidecar), one entry in
-  `model/tiny/registry.json`. New scripts:
-  `ai/scripts/{train,export,validate,eval_loso}_vmaf_tiny_v4.py` —
-  do **not** modify v2 or v3 scripts when iterating; each rung owns
-  its own quartet (per `ai/AGENTS.md` invariant note + ADR-0242).
-- **On upstream sync**: zero interaction. The model + scripts are
-  fork-only; canonical-6 input contract is the same as v2/v3 so
-  feature-extractor changes upstream cannot break the model
-  silently — the StandardScaler statistics baked into the ONNX
-  pin the calibration to the training-time feature distribution.
-- **Architecture ladder stops here**: ADR-0242 records that the
-  v3 → v4 LOSO PLCC delta is +0.0001 (well below 1 std), i.e. the
-  canonical-6 + 4-corpus regime saturates. Future tiny-VMAF
-  quality work should not pursue mlp_huge / deeper MLPs on the
-  same regime; regime change (richer features, larger corpus,
-  ensembles, distillation) is the lever.
-- **Re-test on rebase** (purely Python; no C build):
-
-  ```bash
-  python3 ai/scripts/validate_vmaf_tiny_v4.py \
-      --onnx model/tiny/vmaf_tiny_v4.onnx \
-      --parquet runs/full_features_netflix.parquet \
-      --rows 5000 --min-plcc 0.97 \
-      --v2-onnx model/tiny/vmaf_tiny_v2.onnx
-  python3 ai/scripts/validate_model_registry.py
-<<<<<<< HEAD
-=======
-### 0106 — HIP first consumer + kernel-template mirror (T7-10 / ADR-0241)
-
-- **Touches**: `libvmaf/src/hip/kernel_template.{h,c}` (new),
-  `libvmaf/src/hip/meson.build`,
-  `libvmaf/src/feature/hip/integer_psnr_hip.{c,h}` (new),
-  `libvmaf/src/feature/feature_extractor.{c,h}`,
-  `libvmaf/test/test_hip_smoke.c`,
-  `libvmaf/src/hip/AGENTS.md` (new),
-  `docs/backends/hip/overview.md`,
-  `docs/backends/kernel-scaffolding.md`.
-- **Upstream source**: fork-local. HIP backend is fork-only; upstream
-  Netflix/vmaf has no HIP path. Zero merge-conflict interaction.
-- **Invariant**: `libvmaf/src/hip/kernel_template.h` mirrors
-  `libvmaf/src/cuda/kernel_template.h` field-for-field. Any change
-  to the CUDA template (helper signatures, struct fields, semantics)
-  needs a paired HIP change in the same PR — otherwise the mirror
-  drifts and consumer call sites diverge between the backends. The
-  HIP variant is intentionally out-of-line (`.c` paired with `.h`)
-  while the runtime is absent (the runtime PR T7-10b will swap
-  bodies in one place); revisit the inline-vs-out-of-line split
-  after T7-10b.
-- **Invariant**: `libvmaf/src/feature/hip/integer_psnr_hip.c`
-  mirrors `libvmaf/src/feature/cuda/integer_psnr_cuda.c`
-  call-graph-for-call-graph (same `PsnrStateHip` / `PsnrStateCuda`
-  fields in the same order, same template-helper invocations in
-  the same init/submit/collect/close sequence). Keep the call
-  graph aligned across backends — drift surfaces as a
-  `/cross-backend-diff` failure once the runtime PR ships real
-  numerics.
-- **Invariant**: `vmaf_fex_psnr_hip` is registered in
-  `feature_extractor_list` under `#if HAVE_HIP` but does **not**
-  set the `VMAF_FEATURE_EXTRACTOR_HIP` flag bit (`1 << 6`). The
-  flag bit is reserved in the enum for the runtime PR (T7-10b)
-  which will add the `VMAF_PICTURE_BUFFER_TYPE_HIP_DEVICE` tag and
-  *then* set the flag. Do not flip the flag earlier — the picture
-  buffer-type check in `vmaf_feature_extractor_context_extract`
-  routes a HIP-flagged extractor through a buffer-type branch that
-  doesn't exist yet.
-- **Re-test on rebase**:
-
-  ```bash
-  # Scaffold-only HIP build (no ROCm SDK required):
-  meson setup build-hip -Denable_hip=true \
-                        -Denable_cuda=false -Denable_sycl=false \
-                        libvmaf
-  ninja -C build-hip
-  meson test -C build-hip                     # 48/48 pass expected
-  meson test -C build-hip test_hip_smoke -v   # 14/14 sub-tests
-  # CPU baseline must also stay green:
-  meson setup build-cpu -Denable_cuda=false -Denable_sycl=false libvmaf
-  ninja -C build-cpu
-  meson test -C build-cpu                     # 47/47 pass expected
-=======
-  ```
+- **Touches**: `docs/adr/*.md` only. Pure rename + heading update.
+  Upstream Netflix has no `docs/adr/` tree, so the rebase surface
+  is zero.
+- **Invariant**: ten ADR files were renumbered to satisfy the
+  fork's `docs/adr/README.md` "IDs assigned in commit order and
+  never reused" rule. Mappings (old → new):
+  `0199-tiny-ai-netflix-training-corpus → 0242`,
+  `0215-enable-lcs-gpu → 0243`, `0216-vmaf-tiny-v2 → 0244`,
+  `0221-simd-bitexact-test-harness → 0245`,
+  `0221-gpu-kernel-template → 0246`,
+  `0221-vmaf-roi-tool → 0247`, `0221-nr-metric-v1-ptq → 0248`,
+  `0221-fr-regressor-v1 → 0249`,
+  `0221-tiny-ai-extractor-template → 0250`,
+  `0235-vulkan-async-pending-fence → 0251`. Fork-private dossiers
+  under `.workingdir2/` may still cite the old NNNNs; that
+  text is gitignored and not updated by this PR. ADR body prose
+  was not touched.
+- **Re-test on rebase**: not applicable — no Netflix-shared
+  surface. If a future upstream sync introduces a new ADR row in
+  the index, append at the next free NNNN (0252+) and skip the
+  ten remapped slots.

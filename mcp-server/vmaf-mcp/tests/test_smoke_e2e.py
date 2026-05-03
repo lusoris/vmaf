@@ -26,7 +26,6 @@ from typing import Any
 
 import pytest
 import pytest_asyncio  # noqa: F401 — needed for asyncio mode auto-detection
-
 from vmaf_mcp import server as srv
 
 REPO = Path(__file__).resolve().parents[3]
@@ -129,7 +128,7 @@ async def test_call_tool_vmaf_score_golden_pair() -> None:
     """``vmaf_score`` on the smallest Netflix golden pair returns a score
     within places=4 of the vmaf_v0.6.1 CPU reference (≈ 76.6993).
 
-    This is the one-command MCP-server health check documented in ADR-0199.
+    This is the one-command MCP-server health check documented in ADR-0242.
     """
     contents = await srv._call_tool(
         "vmaf_score",

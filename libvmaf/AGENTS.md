@@ -151,7 +151,7 @@ libvmaf/
   the same as ADR-0175's Vulkan precedent.
 
 - **MS-SSIM `enable_lcs` GPU contract** (fork-local,
-  [ADR-0215](../docs/adr/0215-enable-lcs-gpu.md)).
+  [ADR-0243](../docs/adr/0243-enable-lcs-gpu.md)).
   [`src/feature/cuda/integer_ms_ssim_cuda.c`](src/feature/cuda/integer_ms_ssim_cuda.c)
   and
   [`src/feature/vulkan/ms_ssim_vulkan.c`](src/feature/vulkan/ms_ssim_vulkan.c)

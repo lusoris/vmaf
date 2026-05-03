@@ -39,7 +39,7 @@
  * bit-exactness is directly testable in this TU.
  *
  * Boilerplate (xorshift PRNG, bit-exact memcmp assertion) is
- * provided by `simd_bitexact_test.h` (ADR-0221).
+ * provided by `simd_bitexact_test.h` (ADR-0245).
  */
 
 #include <stddef.h>

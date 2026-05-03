@@ -3,7 +3,7 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  T7-29 part 2 — VkImage zero-copy import (ADR-0186).
- *  T7-29 part 4 — v2 async pending-fence ring (ADR-0235).
+ *  T7-29 part 4 — v2 async pending-fence ring (ADR-0251).
  *
  *  Implements the libvmaf_vulkan.h "import" surface that PR #128
  *  scaffolded as -ENOSYS. Caller hands us an externally-decoded
@@ -18,7 +18,7 @@
  *  vmaf_vulkan_read_imported_pictures can hand them straight to
  *  vmaf_read_pictures without an extra host memcpy.
  *
- *  Synchronisation model (v2 — ADR-0235): import_image submits
+ *  Synchronisation model (v2 — ADR-0251): import_image submits
  *  to slot `frame_index % ring_size` and returns immediately; if
  *  that slot is still in flight from a prior frame the call waits
  *  the prior fence first (ring back-pressure). wait_compute drains
@@ -196,7 +196,7 @@ void vmaf_vulkan_import_slots_free(struct VmafVulkanState *state)
 
     /* Drain every outstanding fence before destroying anything —
      * vkDestroyFence on a fence still owned by a queue submission
-     * is undefined behaviour. ADR-0235 invariant. */
+     * is undefined behaviour. ADR-0251 invariant. */
     for (unsigned i = 0u; i < s->ring_size; i++) {
         if (s->ring[i].fence_in_flight) {
             (void)drain_slot_fence(state, &s->ring[i]);
@@ -330,7 +330,7 @@ int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image, uint32_
      * exactly the "frames-in-flight = ring_size" stall — it
      * shouldn't happen if the consumer drains in order, but it's
      * the spec-required guard against re-recording a command
-     * buffer that's still pending. ADR-0235 invariant. */
+     * buffer that's still pending. ADR-0251 invariant. */
     err = drain_slot_fence(state, slot);
     if (err)
         return err;
@@ -359,7 +359,7 @@ int vmaf_vulkan_wait_compute(VmafVulkanState *state)
 {
     if (!state || !state->ctx)
         return -EINVAL;
-    /* v2 (ADR-0235): drain every outstanding ring fence so the
+    /* v2 (ADR-0251): drain every outstanding ring fence so the
      * caller can read the staging mappings or reuse the imported
      * VkImages. v1's no-op contract is preserved when no slot
      * has work in flight. */
@@ -420,7 +420,7 @@ int vmaf_vulkan_state_build_pictures(VmafVulkanState *state, unsigned index, Vma
     if (slot->ref_index != index || slot->dis_index != index)
         return -EINVAL;
 
-    /* v2 (ADR-0235): the slot's fence is the natural drain point
+    /* v2 (ADR-0251): the slot's fence is the natural drain point
      * for "host can now read the staging buffers". Wait it
      * before exposing the host pointers to vmaf_read_pictures —
      * if the caller already drained via vmaf_vulkan_wait_compute,

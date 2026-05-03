@@ -1,4 +1,4 @@
-# ADR-0221: SIMD bit-exact test harness shared header
+# ADR-0245: SIMD bit-exact test harness shared header
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

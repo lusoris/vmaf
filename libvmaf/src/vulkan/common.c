@@ -439,7 +439,7 @@ int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg)
         return err;
     }
 
-    /* T7-29 part 4 (ADR-0235) + follow-up #3: pick the async
+    /* T7-29 part 4 (ADR-0251) + follow-up #3: pick the async
      * pending-fence ring depth from the public config. A
      * default-initialised C struct (cfg.max_outstanding_frames == 0)
      * maps to VMAF_VULKAN_RING_DEFAULT; out-of-range values clamp to
@@ -472,7 +472,7 @@ int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHan
     }
 
     /* External callers (FFmpeg's vf_libvmaf_vulkan) currently get the
-     * canonical default. ADR-0235 follow-up #3 only plumbs the tunable
+     * canonical default. ADR-0251 follow-up #3 only plumbs the tunable
      * through VmafVulkanConfiguration; extending VmafVulkanExternalHandles
      * is deferred to a separate ABI bump. */
     s->requested_ring_size = VMAF_VULKAN_RING_DEFAULT;

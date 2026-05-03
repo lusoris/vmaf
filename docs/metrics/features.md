@@ -503,7 +503,7 @@ twins `float_ms_ssim_cuda`, `float_ms_ssim_sycl` and
 `float_ms_ssim_vulkan`. The `enable_lcs` option ships across **all**
 backends — CPU + CUDA + Vulkan emit the same 15
 `float_ms_ssim_{l,c,s}_scale{0..4}` metrics on top of the combined
-score (T7-35 / [ADR-0215](../adr/0215-enable-lcs-gpu.md)). The SYCL
+score (T7-35 / [ADR-0243](../adr/0243-enable-lcs-gpu.md)). The SYCL
 twin does not expose `enable_lcs` at the option level; follow-up
 work tracked under T7-35.
 

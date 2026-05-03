@@ -62,7 +62,7 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0221). */
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0246). */
     VmafVulkanKernelPipeline pl;
 
     /* Per-plane input buffers (host-mapped). Six planes — Y/U/V
@@ -117,7 +117,7 @@ static int create_pipeline(CiedeVulkanState *s)
         .pData = &spec_data,
     };
 
-    /* `vulkan/kernel_template.h` (ADR-0221) owns the descriptor-set
+    /* `vulkan/kernel_template.h` (ADR-0246) owns the descriptor-set
      * layout (CIEDE_NUM_BINDINGS = 7 SSBO bindings: 6 input planes +
      * 1 partial-sums output), pipeline layout, shader module, compute
      * pipeline, and descriptor pool sizing. */

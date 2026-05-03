@@ -1,4 +1,4 @@
-# ADR-0216: vmaf_tiny_v2 — canonical-6 + StandardScaler tiny VMAF MLP
+# ADR-0244: vmaf_tiny_v2 — canonical-6 + StandardScaler tiny VMAF MLP
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

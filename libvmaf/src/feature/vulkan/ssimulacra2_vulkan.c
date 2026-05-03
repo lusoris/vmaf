@@ -215,7 +215,7 @@ typedef struct {
     int owns_ctx;
 
     /* Pipelines (specialised per scale where needed). 4 bundles via
-     * `vulkan/kernel_template.h` (ADR-0221). Each bundle owns its own
+     * `vulkan/kernel_template.h` (ADR-0246). Each bundle owns its own
      * descriptor pool + pipeline layout + shader module + DSL +
      * the scale-0 pipeline. The `*_pipelines[0]` slot of each per-bundle
      * array aliases the bundle's `pipeline` field; the variant slots

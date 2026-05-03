@@ -93,7 +93,7 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     "ciede": ("ciede2000",),
     "float_ssim": ("float_ssim",),
     "float_ms_ssim": ("float_ms_ssim",),
-    # T7-35 / ADR-0215: enable_lcs adds 15 per-scale L/C/S triples on
+    # T7-35 / ADR-0243: enable_lcs adds 15 per-scale L/C/S triples on
     # top of the combined float_ms_ssim score. The Vulkan/CUDA kernels
     # already produce the per-scale L/C/S means; gating only the
     # feature_collector_append calls keeps default-path output
@@ -178,7 +178,7 @@ FEATURE_TOLERANCE: dict[str, float] = {
     # Float pipeline, well-conditioned. places=4.
     "float_ssim": 5e-5,
     "float_ms_ssim": 5e-5,
-    # T7-35 / ADR-0215: LCS triples are the same float reductions
+    # T7-35 / ADR-0243: LCS triples are the same float reductions
     # that feed the Wang combine — same conditioning, same places=4.
     "float_ms_ssim_lcs": 5e-5,
     "float_ansnr": 5e-5,
@@ -259,7 +259,7 @@ def build_matrix(features: Iterable[str], backends: Iterable[str]) -> list[Cell]
 
 
 # Pseudo-features that map to a real extractor + a `:opt=val` option
-# pass-through. T7-35 / ADR-0215: float_ms_ssim_lcs reuses the
+# pass-through. T7-35 / ADR-0243: float_ms_ssim_lcs reuses the
 # `float_ms_ssim` extractor with `enable_lcs=true` to gate the 15
 # extra L/C/S metrics.
 FEATURE_ALIASES: dict[str, tuple[str, str]] = {

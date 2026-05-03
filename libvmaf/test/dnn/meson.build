@@ -134,7 +134,7 @@ if bash_prog.found()
          suite : 'dnn')
 endif
 
-# vmaf_tiny_v2 ONNX smoke (ADR-0216). Pure-Python; verifies the
+# vmaf_tiny_v2 ONNX smoke (ADR-0244). Pure-Python; verifies the
 # registry entry, sidecar, and ONNX inference shape. Skips cleanly when
 # python3 / onnxruntime is missing — the registry sha256 is already
 # guarded by test_registry above; this test adds the sidecar contract +

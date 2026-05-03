@@ -43,7 +43,7 @@ Runtime directly.
 - **Every tiny-AI change ships docs** under `docs/ai/` in the same PR. See
   [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md).
 - **Tiny-AI extractor template is the dedup contract**
-  ([ADR-0221](../../../docs/adr/0221-tiny-ai-extractor-template.md)).
+  ([ADR-0250](../../../docs/adr/0250-tiny-ai-extractor-template.md)).
   New tiny-AI feature extractors use the helpers in
   [`tiny_extractor_template.h`](tiny_extractor_template.h)
   (`vmaf_tiny_ai_resolve_model_path` / `vmaf_tiny_ai_open_session` /

@@ -47,7 +47,7 @@ and teardown.
   (a) registered by name, (b) registered by provided feature name,
   (c) options table well-formed, (d) init rejects missing required input.
 - **New SIMD parity test → use [`simd_bitexact_test.h`](simd_bitexact_test.h)**
-  (ADR-0221). The shared harness centralises the `xorshift32` PRNG,
+  (ADR-0245). The shared harness centralises the `xorshift32` PRNG,
   the portable POSIX/MinGW/MSVC aligned allocator, the x86 AVX2 CPUID
   gate, and the `SIMD_BITEXACT_ASSERT_MEMCMP` /
   `SIMD_BITEXACT_ASSERT_RELATIVE` assertion macros. Do not re-implement
@@ -67,5 +67,5 @@ and teardown.
   matrix (tests run under ASan + UBSan).
 - [ADR-0024](../../docs/adr/0024-netflix-golden-preserved.md) — Netflix
   goldens (Python-side) never change.
-- [ADR-0221](../../docs/adr/0221-simd-bitexact-test-harness.md) — SIMD
+- [ADR-0245](../../docs/adr/0245-simd-bitexact-test-harness.md) — SIMD
   bit-exact test harness shared header (`simd_bitexact_test.h`).

@@ -32,7 +32,7 @@
 
 typedef struct MomentStateCuda {
     /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
-     * (ADR-0221). */
+     * (ADR-0246). */
     VmafCudaKernelLifecycle lc;
     /* Four uint64 atomic counters [ref1, dis1, ref2, dis2]:
      * device + pinned host. Owned by the template's readback bundle. */

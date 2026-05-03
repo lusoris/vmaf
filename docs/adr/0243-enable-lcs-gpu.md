@@ -1,4 +1,4 @@
-# ADR-0215: `enable_lcs` MS-SSIM extras on CUDA + Vulkan
+# ADR-0243: `enable_lcs` MS-SSIM extras on CUDA + Vulkan
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

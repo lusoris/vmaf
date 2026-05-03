@@ -32,7 +32,7 @@ The gap blocks two real use cases:
    tracking per-feature internal allocators.
 
 Closing the parity gap is purely additive — the existing import-image
-zero-copy path (ADR-0186 / ADR-0235) remains the right answer for
+zero-copy path (ADR-0186 / ADR-0251) remains the right answer for
 external-VkImage callers; preallocation serves the host-driven path.
 
 ## Decision
@@ -54,7 +54,7 @@ cross-backend extractors can refuse mixed backings.
 
 Pool depth is fixed at the canonical `frames-in-flight = 2` (matches
 SYCL's compile-time constant); the depth is not part of the public
-surface in this PR. ADR-0235's `max_outstanding_frames` knob is
+surface in this PR. ADR-0251's `max_outstanding_frames` knob is
 unrelated — that controls the import-image fence ring, not the
 preallocation pool. A separate follow-up can grow the configuration
 struct if a real workload needs depth > 2.
@@ -95,7 +95,7 @@ struct if a real workload needs depth > 2.
   - Pool depth tunable. The current 2 matches SYCL's compile-time
     constant; if a workload needs depth > 2, grow the
     `VmafVulkanPictureConfiguration` struct additively (mirroring
-    ADR-0235 follow-up #3's pattern).
+    ADR-0251 follow-up #3's pattern).
   - Chroma plane preallocation. Out of scope here; tracked as a
     separate item once a Vulkan kernel actually consumes
     pre-allocated chroma.
@@ -128,7 +128,7 @@ separate optimization with two distinct angles:
   `vmaf_vulkan_preallocate_pictures(DEVICE)` would let FFmpeg's
   frame data land directly in the kernel-read buffer. Real perf win,
   but it's a separate PR with its own benchmark gate (mirrors the
-  pattern of ADR-0235's measurement-gate flip). For symmetry with
+  pattern of ADR-0251's measurement-gate flip). For symmetry with
   SYCL — which also ships preallocation but whose FFmpeg filter
   doesn't consume it yet — we deliberately keep this PR's scope at
   "API parity surface" rather than "FFmpeg integration
@@ -155,7 +155,7 @@ unmodified.
 - [ADR-0186](0186-vulkan-image-import-impl.md) — the existing
   zero-copy import path; preallocation is a parallel surface, not a
   replacement.
-- [ADR-0235](0235-vulkan-async-pending-fence.md) — `max_outstanding_frames`
+- [ADR-0251](0251-vulkan-async-pending-fence.md) — `max_outstanding_frames`
   knob. Orthogonal to this ADR (controls the fence ring, not the
   picture pool).
 - Companion research digest: [`docs/research/0045-vulkan-picture-preallocation.md`](../research/0045-vulkan-picture-preallocation.md).

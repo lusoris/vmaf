@@ -35,7 +35,7 @@
 
 typedef struct CiedeStateCuda {
     /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
-     * (ADR-0221). */
+     * (ADR-0246). */
     VmafCudaKernelLifecycle lc;
     /* Per-block float partials: device + pinned host. Owned by the
      * template's readback bundle. */

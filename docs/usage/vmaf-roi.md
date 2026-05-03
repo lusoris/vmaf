@@ -145,6 +145,6 @@ done
 
 ## See also
 
-- [ADR-0221](../adr/0221-vmaf-roi-tool.md) — the decision record (sidecar format, encoder coverage, signal blend).
+- [ADR-0247](../adr/0247-vmaf-roi-tool.md) — the decision record (sidecar format, encoder coverage, signal blend).
 - [`docs/ai/roadmap.md` §2.3](../ai/roadmap.md) — Wave 1 saliency surface.
 - [`docs/usage/cli.md`](cli.md) — index of fork CLIs.

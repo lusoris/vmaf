@@ -1,4 +1,4 @@
-# ADR-0221: vmaf-roi sidecar binary for per-CTU QP offsets
+# ADR-0247: vmaf-roi sidecar binary for per-CTU QP offsets
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

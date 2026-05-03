@@ -35,7 +35,7 @@ extern "C" {
 #endif
 
 /* Maximum frames in flight allowed by the v2 async pending-fence
- * ring (T7-29 part 4, ADR-0235). The default is 4 — the canonical
+ * ring (T7-29 part 4, ADR-0251). The default is 4 — the canonical
  * Vulkan game-engine "frames in flight" depth. The hard cap is 8
  * to bound the staging-buffer footprint; callers asking for more
  * via VmafVulkanConfiguration get clamped silently with an
@@ -48,7 +48,7 @@ extern "C" {
  * ring depth: 0 -> DEFAULT, >MAX -> MAX, else passthrough. Callers
  * (state init + lazy_alloc_ring) share this so the value stored in
  * `requested_ring_size` is identical to the one the ring is built
- * with. ADR-0235 follow-up #3. */
+ * with. ADR-0251 follow-up #3. */
 static inline unsigned vmaf_vulkan_clamp_ring_size(unsigned requested)
 {
     if (requested == 0u)
@@ -86,7 +86,7 @@ struct VmafVulkanImportSlot {
 
 /* Per-state import-ring for the VkImage zero-copy path. Originally
  * one fence + one staging-pair (ADR-0186 v1, synchronous); the v2
- * async pending-fence design (ADR-0235) promotes the single slot
+ * async pending-fence design (ADR-0251) promotes the single slot
  * to a ring of N slots keyed by `frame_index % ring_size`. */
 struct VmafVulkanImportSlots {
     /* Frame geometry pinned by the first import_image call. Subsequent

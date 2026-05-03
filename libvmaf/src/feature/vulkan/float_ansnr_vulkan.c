@@ -57,7 +57,7 @@ typedef struct {
     VmafVulkanContext *ctx;
     int owns_ctx;
 
-    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0221). */
+    /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0246). */
     VmafVulkanKernelPipeline pl;
 
     /* Per-frame upload of ref + dis raw pixels. */

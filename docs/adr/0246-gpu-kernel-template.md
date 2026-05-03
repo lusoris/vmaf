@@ -1,4 +1,4 @@
-# ADR-0221: Per-backend GPU kernel scaffolding templates (CUDA + Vulkan)
+# ADR-0246: Per-backend GPU kernel scaffolding templates (CUDA + Vulkan)
 
 - **Status**: Accepted
 - **Date**: 2026-04-29

@@ -39,7 +39,7 @@ typedef struct FloatVifStateCuda {
     double vif_sigma_nsq;
 
     /* Stream + event pair owned by `cuda/kernel_template.h` lifecycle
-     * (ADR-0221). Multi-scale 4-pyramid state stays outside the
+     * (ADR-0246). Multi-scale 4-pyramid state stays outside the
      * template's single-pair readback bundle. */
     VmafCudaKernelLifecycle lc;
     CUfunction func_compute;

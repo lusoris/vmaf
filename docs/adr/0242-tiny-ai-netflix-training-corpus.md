@@ -1,4 +1,4 @@
-# ADR-0199: Tiny-AI training on the original Netflix VMAF training corpus
+# ADR-0242: Tiny-AI training on the original Netflix VMAF training corpus
 
 - **Status**: Accepted
 - **Date**: 2026-04-27

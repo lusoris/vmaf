@@ -84,7 +84,7 @@
 
 /*
  * Boilerplate (portable aligned allocator, xorshift PRNG, AVX2 gate)
- * is provided by `simd_bitexact_test.h` (ADR-0221).
+ * is provided by `simd_bitexact_test.h` (ADR-0245).
  */
 
 #include <stddef.h>

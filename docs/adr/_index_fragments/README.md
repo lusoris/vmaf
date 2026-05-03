@@ -12,9 +12,10 @@ docs/adr/_index_fragments/
                  append their slug to the bottom.
   <NNNN-slug>.md one Markdown table row per ADR, named by the same
                  NNNN-kebab-case used for the ADR file itself. Slug-keyed
-                 (not bare-NNNN) because the fork has a legacy ADR-0199
-                 collision (`0199-tiny-ai-netflix-training-corpus.md`
-                 and `0199-float-adm-vulkan.md`).
+                 (not bare-NNNN) so renumbering events (e.g. the
+                 2026-05-02 dedup sweep that moved ten duplicate-NNNN
+                 files into 0242–0251) don't churn fragment filenames
+                 — the slug stays stable across the remap.
 ```
 
 ## How to add a row
@@ -39,7 +40,8 @@ at the bottom in lexical order.
 
 ## Why fragments
 
-See [ADR-0221](../0221-changelog-adr-fragment-pattern.md). Short
+See [ADR-0221](../0221-changelog-adr-fragment-pattern.md) (the
+fragment-file pattern itself). Short
 version: PR-pairs editing the `README.md` index table directly fight a
 merge conflict on the final-row context line. Fragment files are
 per-path, so two PRs in flight don't collide.

@@ -517,7 +517,7 @@ test_cuda_preallocation_leak = executable('test_cuda_preallocation_leak',
 test('test_cuda_preallocation_leak', test_cuda_preallocation_leak)
 endif
 
-# T6-2b / ADR-0221 — vmaf-roi sidecar core helpers (per-CTU mean reduce
+# T6-2b / ADR-0247 — vmaf-roi sidecar core helpers (per-CTU mean reduce
 # + saliency-to-QP-offset). Header-only test that compiles
 # libvmaf/tools/vmaf_roi_core.h and exercises clamp / sign / monotonicity
 # without needing the full binary.
@@ -612,7 +612,7 @@ test_vulkan_smoke = executable('test_vulkan_smoke',
 )
 test('test_vulkan_smoke', test_vulkan_smoke)
 
-# T7-29 part 4 (ADR-0235): contract smoke for the v2 async
+# T7-29 part 4 (ADR-0251): contract smoke for the v2 async
 # pending-fence ring. Public-API only — the GPU-end-to-end
 # ring-wrap correctness path lives in the FFmpeg filter
 # downstream (T7-29 part 3) and the cross-backend gate.

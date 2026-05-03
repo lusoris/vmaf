@@ -14,7 +14,7 @@ ONNX Runtime lives in [../dnn/](dnn/AGENTS.md).
 cuda/
   common.c/.h          # CUDA context + stream management
   cuda_helper.cuh      # launch macros, error-check, types
-  kernel_template.h    # per-feature CUDA kernel scaffolding (ADR-0221)
+  kernel_template.h    # per-feature CUDA kernel scaffolding (ADR-0246)
   picture_cuda.c/.h    # VmafPicture on a CUDA device
   # picture-pool round-robin lives in libvmaf/src/gpu_picture_pool.{h,c}
   # (ADR-0239 — backend-agnostic; CUDA was the original consumer)
@@ -106,7 +106,7 @@ cuda/
   and [rebase-notes 0049](../../../docs/rebase-notes.md).
 
 - **`kernel_template.h` is the canonical kernel scaffolding**
-  (fork-local, ADR-0221): the inline helpers
+  (fork-local, ADR-0246): the inline helpers
   `vmaf_cuda_kernel_lifecycle_init/_close`,
   `vmaf_cuda_kernel_readback_alloc/_free`,
   `vmaf_cuda_kernel_submit_pre_launch`, and
@@ -119,7 +119,7 @@ cuda/
   later adopt it; upstream has no equivalent. Reference
   implementation that mirrors the template's shape lives in
   `libvmaf/src/feature/cuda/integer_psnr_cuda.c`. See
-  [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) and
+  [ADR-0246](../../../docs/adr/0246-gpu-kernel-template.md) and
   [docs/backends/kernel-scaffolding.md](../../../docs/backends/kernel-scaffolding.md).
 
 ## Per-kernel nvcc flag invariants
