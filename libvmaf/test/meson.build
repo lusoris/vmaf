@@ -739,3 +739,4 @@ endif
 test('test_locale_handling', test_locale_handling)
 
 subdir('dnn')
+subdir('fuzz')

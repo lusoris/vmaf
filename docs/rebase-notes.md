@@ -6971,3 +6971,55 @@ inline.*
   python ai/scripts/train_fr_regressor_v2.py --smoke
   python ai/scripts/validate_model_registry.py
   ```
+
+### 0229 — libFuzzer scaffold for the YUV4MPEG2 parser (ADR-0270)
+
+- **ADR**: [ADR-0270](adr/0270-fuzzing-scaffold.md)
+- **Touches**:
+  - `libvmaf/test/fuzz/fuzz_y4m_input.c` (new)
+  - `libvmaf/test/fuzz/meson.build` (new)
+  - `libvmaf/test/fuzz/README.md` (new)
+  - `libvmaf/test/fuzz/y4m_input_corpus/*` (new — six seeds)
+  - `libvmaf/test/fuzz/y4m_input_known_crashes/*` (new — one
+    411-chroma OOB reproducer; **excluded** from CI corpus)
+  - `libvmaf/test/meson.build` — `subdir('fuzz')` line.
+  - `libvmaf/meson_options.txt` — new `option('fuzz', ...)`.
+  - `.github/workflows/fuzz.yml` (new — nightly 5-minute job).
+  - `docs/development/fuzzing.md` (new — operator runbook).
+  - `docs/adr/0270-fuzzing-scaffold.md` (new)
+  - `docs/research/0059-libfuzzer-scaffold-y4m.md` (new)
+  - `docs/state.md` — new Open-bug row for the 411-chroma
+    OOB write.
+  - `CHANGELOG.md` — Added entry.
+- **Invariant**: the fuzz scaffold is *opt-in* — every default
+  `meson setup` invocation must continue to skip it. The harness
+  links statically against `libvmaf/tools/{y4m_input,yuv_input,vidinput}.c`
+  rather than `libvmaf.so` so the public C-API surface stays
+  unchanged.
+- **Rebase impact**: the harness re-includes `libvmaf/tools/y4m_input.c`
+  as a build input. Any upstream Netflix/vmaf change that splits
+  or renames the tool sources (e.g. moves the parser into
+  `libvmaf/src/`) needs the corresponding `meson.build` source
+  list update *and* the harness re-test below. The
+  `y4m_input_known_crashes/y4m_411_w2_h4_oob_dst.y4m` reproducer
+  is the regression gate for the parser fix; do not delete it
+  on upstream sync — if upstream lands the same fix, port the
+  reproducer back into `y4m_input_corpus/` as a permanent seed.
+- **Re-test on rebase**:
+
+  ```bash
+  CC=clang CXX=clang++ \
+    meson setup build-fuzz libvmaf \
+      --buildtype=debug \
+      -Db_sanitize=address \
+      -Db_lundef=false \
+      -Dfuzz=true \
+      -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C build-fuzz test/fuzz/fuzz_y4m_input
+  ./build-fuzz/test/fuzz/fuzz_y4m_input \
+      -max_total_time=60 \
+      libvmaf/test/fuzz/y4m_input_corpus/
+  # Verify the known-crash reproducer still triggers (until the fix lands):
+  ./build-fuzz/test/fuzz/fuzz_y4m_input \
+      libvmaf/test/fuzz/y4m_input_known_crashes/y4m_411_w2_h4_oob_dst.y4m
+  ```

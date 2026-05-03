@@ -1,0 +1,125 @@
+# Fuzzing libvmaf
+
+Operator runbook for the libFuzzer harnesses under
+[`libvmaf/test/fuzz/`](../../libvmaf/test/fuzz/). Tracked under
+[ADR-0270](../adr/0270-fuzzing-scaffold.md); the harnesses satisfy
+the OSSF Scorecard
+[`Fuzzing`](https://github.com/ossf/scorecard/blob/main/docs/checks.md#fuzzing)
+check.
+
+## What is shipped
+
+| Harness          | Surface                                                                     | Source                                                                                | Known crashes |
+|------------------|-----------------------------------------------------------------------------|---------------------------------------------------------------------------------------|---------------|
+| `fuzz_y4m_input` | YUV4MPEG2 parser exposed via `video_input_open` / `_fetch_frame` / `_close` | [`libvmaf/test/fuzz/fuzz_y4m_input.c`](../../libvmaf/test/fuzz/fuzz_y4m_input.c) | 1 (411-chroma OOB write — see ADR-0270 §Consequences). |
+
+New harnesses follow the README at
+[`libvmaf/test/fuzz/README.md`](../../libvmaf/test/fuzz/README.md).
+
+## Build the harness
+
+The fuzz harnesses are opt-in and require **clang** (libFuzzer is
+a clang-only feature). They pair best with AddressSanitizer.
+
+```bash
+CC=clang CXX=clang++ \
+  meson setup build-fuzz libvmaf \
+    --buildtype=debug \
+    -Db_sanitize=address \
+    -Db_lundef=false \
+    -Dfuzz=true \
+    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+ninja -C build-fuzz test/fuzz/fuzz_y4m_input
+```
+
+Two non-default Meson flags are load-bearing:
+
+- `-Dfuzz=true` — opts the `libvmaf/test/fuzz/` subdirectory into
+  the build (default `false`).
+- `-Db_lundef=false` — clang's libFuzzer runtime defines symbols
+  that resolve at final-link time; the default `b_lundef=true`
+  errors them out at setup. The harness `meson.build` would
+  emit a clear warning at setup time if this is forgotten.
+
+## Run a 60-second smoke
+
+```bash
+mkdir -p /tmp/fuzz-smoke-y4m
+./build-fuzz/test/fuzz/fuzz_y4m_input \
+    -max_total_time=60 \
+    -rss_limit_mb=2048 \
+    -malloc_limit_mb=1024 \
+    -timeout=10 \
+    /tmp/fuzz-smoke-y4m \
+    libvmaf/test/fuzz/y4m_input_corpus/
+```
+
+Expected output on a clean run:
+
+```text
+INFO: Running with entropic power schedule (0xFF, 100).
+…
+Done <N> runs in 60 second(s)
+```
+
+If the harness aborts with `==<pid>==ERROR: AddressSanitizer …`
+and writes a `crash-<sha>` / `oom-<sha>` / `timeout-<sha>` file
+in the working directory, treat that as a real bug. Re-run the
+single artefact for a clean stack trace:
+
+```bash
+./build-fuzz/test/fuzz/fuzz_y4m_input crash-<sha>
+```
+
+Then file the bug per the
+[bug-tracking workflow in `docs/state.md`](../state.md), park the
+reproducer under `libvmaf/test/fuzz/<target>_known_crashes/`
+(see [`libvmaf/test/fuzz/README.md` § Known crashes](../../libvmaf/test/fuzz/README.md#known-crashes))
+so the regression is caught the moment the fix lands.
+
+## Continuous fuzzing in CI
+
+The [`fuzz.yml` GitHub Actions workflow](../../.github/workflows/fuzz.yml)
+runs each harness for 5 minutes per night against the committed
+seed corpus and uploads any crash / oom / timeout artefacts. It is
+the gate that satisfies the Scorecard `Fuzzing` check. Adjust the
+nightly duration via the workflow's `MAX_TOTAL_TIME` env, not by
+editing the harness invocations.
+
+## Adding a new harness
+
+See the step list in
+[`libvmaf/test/fuzz/README.md` § Add a new harness](../../libvmaf/test/fuzz/README.md#add-a-new-harness).
+The summary is: drop `fuzz_<target>.c` next to the existing
+harnesses, add an `executable(...)` block in
+[`libvmaf/test/fuzz/meson.build`](../../libvmaf/test/fuzz/meson.build),
+ship a small seed corpus under `<target>_corpus/`, register the
+target in the matrix in `.github/workflows/fuzz.yml`, and update
+the table at the top of this file.
+
+## Known limitations
+
+- The fuzz build is x86_64 / aarch64 + clang only. gcc has no
+  libFuzzer; the Meson option errors cleanly when `cc.get_id()`
+  is not `clang`.
+- The harness caps input size at 64 KiB and rejects header lines
+  whose `W` / `H` tag has more than 6 consecutive digits. This
+  is a *fuzzer-stability* bound to keep allocator-probe inputs
+  from dominating the corpus, not a real-world cap on the
+  parser. Real bugs reachable through unbounded dimensions are
+  still in scope; we just don't waste fuzzer cycles probing
+  malloc-fragmentation paths.
+- Coverage feedback is libFuzzer's intrinsic edge counter; we
+  do not produce an LCOV report from fuzz runs today. Coverage
+  is exercised separately by the unit-test gate.
+
+## References
+
+- [ADR-0270](../adr/0270-fuzzing-scaffold.md) — decision matrix
+  and rejected alternatives (OSS-Fuzz onboarding, AFL++,
+  defer-until-OSS-Fuzz, driver-only psnr_y harness).
+- [Research digest 0054](../research/0059-libfuzzer-scaffold-y4m.md)
+  — surface survey, smoke-run command, and the 411-chroma OOB
+  finding.
+- [libFuzzer (LLVM)](https://llvm.org/docs/LibFuzzer.html).
+- [OSSF Scorecard `Fuzzing` check](https://github.com/ossf/scorecard/blob/main/docs/checks.md#fuzzing).
