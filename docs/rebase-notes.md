@@ -27,6 +27,69 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0228 — Vulkan 1.4 bump deferred (ADR-0264, docs-only)
+
+- **Touches**: none (docs-only PR). Future Step A of T-VK-1.4-BUMP
+  will touch `libvmaf/src/feature/vulkan/shaders/vif.comp` and
+  `libvmaf/src/feature/vulkan/shaders/ciede.comp`; Step B will touch
+  the three `apiVersion` sites in `libvmaf/src/vulkan/common.c` (lines
+  54, 264, 374) and the `VMA_VULKAN_VERSION` define in
+  `libvmaf/src/vulkan/vma_impl.cpp` (line 22).
+- **Invariant**: `master` stays on `VK_API_VERSION_1_3` and
+  `VMA_VULKAN_VERSION = 1003000`. Lifting the constant in any future
+  upstream sync (Netflix doesn't ship a Vulkan backend, so the
+  conflict is improbable) without first auditing `precise` /
+  `OpDecorate ... NoContraction` decoration on `vif.comp` and
+  `ciede.comp` will reintroduce the NVIDIA-driver regression captured
+  in [research-0053](research/0053-vulkan-1-4-nvidia-fp-contraction-regression.md).
+  The `psnr_hvs_strict_shaders` `-O0` list in
+  [`libvmaf/src/vulkan/meson.build`](../libvmaf/src/vulkan/meson.build)
+  is the existing precedent for shader-side bit-exactness mitigations
+  and should be the place a 1.4-era audit lands its results
+  (potentially expanding to cover `vif.comp` + `ciede.comp` if the
+  `precise` audit decides the optimizer is the right place to gate).
+- **Re-test**: when Step B lands, the gate is
+  `python3 scripts/ci/cross_backend_vif_diff.py --feature vif --backend vulkan`
+  and the same with `--feature ciede` against NVIDIA + RADV +
+  lavapipe; max abs diff must stay ≤ `5.0e-05` (`places=4`) on all
+  three.
+
+### 0227 — ms_ssim_vulkan submit-side migrated to kernel_template (T-GPU-DEDUP-26)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/ms_ssim_vulkan.c` — `extract()`'s
+    raw `VkCommandBuffer` / `VkFence` / `vkAllocateCommandBuffers` /
+    `vkBeginCommandBuffer` / `vkCreateFence` / `vkQueueSubmit` /
+    `vkWaitForFences` / `vkDestroyFence` / `vkFreeCommandBuffers`
+    blocks become `VmafVulkanKernelSubmit` triples
+    (`vmaf_vulkan_kernel_submit_begin` /
+    `_submit_end_and_wait` / `_submit_free`). One triple covers the
+    decimate-pyramid command buffer; one triple per scale covers the
+    per-scale SSIM submit. The pipeline-side bundles
+    (`pl_decimate` 2-binding 4-variant + `pl_ssim` 10-binding
+    9-variant) and their `_add_variant()` chains are unchanged from
+    the prior migration.
+- **Invariant**: any future submit-side template change (timeline
+  semaphores, deferred fence release, queue-family parameterisation)
+  must keep the helpers' synchronous-wait + per-frame fence + per-frame
+  command-buffer contract intact, since `ms_ssim_vulkan.c` does host
+  readback of the `l_partials` / `c_partials` / `s_partials` buffers
+  immediately after `_submit_end_and_wait` returns. The submit-side
+  contract is the same one already documented in
+  `libvmaf/src/vulkan/AGENTS.md`'s "Rebase-sensitive invariants"
+  section for `kernel_template.h`.
+- **Re-test**:
+
+  ```bash
+  cd libvmaf && meson test -C build
+  python scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 \
+      --feature float_ms_ssim --backend vulkan --places 4
+  ```
+
 ### 0226 — CUDA drain-batch engine-loop opt (T-GPU-OPT-1)
 
 - **Touches**:
