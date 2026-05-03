@@ -235,11 +235,11 @@
   against the current `docs/adr/` tree — 7 of them already resolve to
   existing files (the duplicate-NNNN ADRs landed since #304 ran its scan).
   The remaining 4 were genuine slug-drift cases where the cited filename
-  did not exist on disk: `0138-simd-bit-exactness-policy.md` →
+  did not exist on disk: `0138-iqa-convolve-avx2-bitexact-double.md` →
   `0138-iqa-convolve-avx2-bitexact-double.md`,
-  `0140-ssimulacra2-simd-bitexact.md` → `0140-simd-dx-framework.md`,
+  `0140-simd-dx-framework.md` → `0140-simd-dx-framework.md`,
   `0190-float-ms-ssim-cuda.md` → `0190-ms-ssim-vulkan.md`,
-  `0178-integer-adm-vulkan.md` → `0178-vulkan-adm-kernel.md`. All four
+  `0178-vulkan-adm-kernel.md` → `0178-vulkan-adm-kernel.md`. All four
   retain the original cited NNNN; only the slug was updated to the
   on-disk filename. No ADR content changed; no NNNN renumbered.
 

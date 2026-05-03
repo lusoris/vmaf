@@ -99,14 +99,15 @@
       "smoke": true
     },
     {
+      "description": "TransNet V2 shot-boundary detector (Soucek & Lokoc 2020) \u2014 100-frame window of 27x48 RGB thumbnails -> per-frame logits.",
       "id": "transnet_v2",
       "kind": "nr",
-      "license": "BSD-3-Clause-Plus-Patent",
-      "notes": "Placeholder TransNet V2 shot-boundary detector (T6-3a). 100-frame window of 27x48 RGB thumbnails -> per-frame shot-boundary logits. SMOKE-ONLY: random init, not trained. Real upstream weights (Soucek & Lokoc 2020, MIT) tracked under T6-3a-followup. Per-shot CRF predictor is T6-3b. See docs/adr/0223-transnet-v2-shot-detector.md and docs/ai/models/transnet_v2.md.",
+      "license": "MIT",
+      "license_url": "https://github.com/soCzech/TransNetV2/blob/77498b8e4a6d61ed7c3d9bd56f4de2b29ab7f4db/LICENSE",
+      "notes": "TransNet V2 shot-boundary detector (T6-3a-followup). 100-frame window of 27x48 RGB thumbnails -> per-frame shot-boundary logits. Real upstream weights from Soucek & Lokoc 2020 (MIT, https://github.com/soCzech/TransNetV2 commit 77498b8e4a6d). Wrapper transposes NTCHW->NTHWC and selects only the single-frame logits; ColorHistograms's rank-2 UnsortedSegmentSum rewritten as ScatterND for ONNX opset-17 compatibility. Per-shot CRF predictor is T6-3b. See docs/adr/0223-transnet-v2-shot-detector.md, docs/adr/0261-transnet-v2-real-weights.md, and docs/ai/models/transnet_v2.md.",
       "onnx": "transnet_v2.onnx",
       "opset": 17,
-      "sha256": "7684c1cbbd8a6b40c58c0177ee19683a3f4e894bd559f903b386a52ce2edc9c7",
-      "smoke": true
+      "sha256": "89280a199327871a0eb2c52914449ce339b7d8e8846a6245e4eb72d23d21cfc9"
     },
     {
       "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_small (~257 params).",
