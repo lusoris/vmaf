@@ -6630,3 +6630,44 @@ inline.*
   ninja -C build
   meson test -C build test_hip_smoke
   ```
+
+### 0270 — vmaf_tiny_v5 corpus-expansion experiment (deferred, docs-only)
+
+- **Touches**: `ai/scripts/fetch_youtube_ugc_subset.py`,
+  `ai/scripts/extract_ugc_features.py`,
+  `ai/scripts/train_vmaf_tiny_v5.py`,
+  `ai/scripts/eval_loso_vmaf_tiny_v5.py`,
+  `ai/scripts/export_vmaf_tiny_v5.py`,
+  `docs/adr/0270-vmaf-tiny-v5-corpus-expansion.md`,
+  `docs/research/0057-vmaf-tiny-v5-corpus-expansion.md`.
+- **Invariant**: this is a research experiment that did **not** ship a
+  v5 ONNX. `model/tiny/vmaf_tiny_v5.onnx` does not exist;
+  `model/tiny/registry.json` has no `vmaf_tiny_v5` entry; the
+  production default is unchanged (`vmaf_tiny_v2`). The five new
+  scripts land for reproducibility but consume gitignored data
+  (`runs/full_features_ugc.parquet`, `.workingdir2/ugc/...`) so
+  they cannot be exercised on a fresh checkout without re-fetching
+  the YouTube UGC bucket.
+- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
+  fusion-MLP training surface; nothing on the upstream side
+  touches these files.
+- **On upstream sync**: zero interaction. The v5 surface lives
+  entirely under `ai/scripts/` + `docs/adr/` + `docs/research/`,
+  all of which are fork-introduced trees.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 ai/scripts/fetch_youtube_ugc_subset.py \
+      --out-dir .workingdir2/ugc/download \
+      --n-stems 30 \
+      --manifest .workingdir2/ugc/manifest.json
+  python3 ai/scripts/extract_ugc_features.py \
+      --manifest .workingdir2/ugc/manifest.json \
+      --yuv-dir .workingdir2/ugc/yuv \
+      --vmaf-bin build-cpu/tools/vmaf \
+      --out-parquet runs/full_features_ugc.parquet
+  python3 ai/scripts/eval_loso_vmaf_tiny_v5.py \
+      --parquet-base  runs/full_features_4corpus.parquet \
+      --parquet-extra runs/full_features_ugc.parquet \
+      --out-json      runs/vmaf_tiny_v5_loso_metrics.json
+  ```

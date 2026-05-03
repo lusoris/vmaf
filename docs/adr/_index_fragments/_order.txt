@@ -160,3 +160,4 @@
 0221-changelog-adr-fragment-pattern
 0241-hip-first-consumer-psnr
 0257-mobilesal-real-weights-deferred
+0270-vmaf-tiny-v5-corpus-expansion
