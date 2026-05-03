@@ -460,6 +460,55 @@ def _build_parser() -> argparse.ArgumentParser:
         help="manifest destination (default: stdout)",
     )
 
+    compare = sub.add_parser(
+        "compare",
+        help=(
+            "compare codec adapters at a target VMAF — runs the "
+            "Phase B-lite predicate per encoder, ranks by smallest "
+            "bitrate, emits a markdown / JSON / CSV report"
+        ),
+    )
+    compare.add_argument(
+        "--src",
+        type=Path,
+        required=True,
+        help="reference video (raw YUV or any FFmpeg-readable container)",
+    )
+    compare.add_argument(
+        "--target-vmaf",
+        type=float,
+        default=92.0,
+        help="VMAF target each codec aims for (default 92)",
+    )
+    compare.add_argument(
+        "--encoders",
+        required=True,
+        help="comma-separated list of encoders to compare (e.g. ``libx264,libx265,libsvtav1``)",
+    )
+    compare.add_argument(
+        "--format",
+        default="markdown",
+        choices=("markdown", "json", "csv"),
+        help="report format (default markdown)",
+    )
+    compare.add_argument(
+        "--no-parallel",
+        action="store_true",
+        help="dispatch encoders sequentially (default: thread pool, one worker per encoder)",
+    )
+    compare.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="override thread-pool size (default: len(encoders))",
+    )
+    compare.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="report destination (default: stdout)",
+    )
+
     return parser
 
 
@@ -1065,6 +1114,49 @@ def _run_ladder(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_compare(args: argparse.Namespace) -> int:
+    """Compare codec adapters at a target VMAF — Phase B-lite ranking.
+
+    Parses the comma-separated ``--encoders`` list, delegates to
+    :func:`vmaftune.compare.compare_codecs` (which runs the per-codec
+    predicate in a thread pool and ranks by smallest bitrate), then
+    emits a markdown / JSON / CSV report via
+    :func:`vmaftune.compare.emit_report`. Falls back to the module's
+    default predicate (which raises ``NotImplementedError`` pending the
+    Phase B bisect wiring); production callers inject their own via
+    the module-level Python API.
+    """
+    from .compare import compare_codecs, emit_report, supported_formats
+
+    encoders = [token.strip() for token in args.encoders.split(",") if token.strip()]
+    if not encoders:
+        sys.stderr.write("vmaf-tune compare: --encoders is empty\n")
+        return 2
+    if args.format not in supported_formats():
+        sys.stderr.write(
+            f"vmaf-tune compare: unsupported --format {args.format!r}; "
+            f"expected one of {supported_formats()}\n"
+        )
+        return 2
+    report = compare_codecs(
+        src=args.src,
+        target_vmaf=args.target_vmaf,
+        encoders=encoders,
+        parallel=not args.no_parallel,
+        max_workers=args.max_workers,
+    )
+    rendered = emit_report(report, format=args.format)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8")
+        sys.stderr.write(f"wrote compare report -> {args.output}\n")
+    else:
+        sys.stdout.write(rendered)
+        if not rendered.endswith("\n"):
+            sys.stdout.write("\n")
+    return 0 if report.best() is not None else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1080,6 +1172,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_recommend_saliency(args)
     if args.cmd == "ladder":
         return _run_ladder(args)
+    if args.cmd == "compare":
+        return _run_compare(args)
     parser.print_help()
     return 2
 
