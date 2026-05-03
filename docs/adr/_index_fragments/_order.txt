@@ -165,3 +165,4 @@
 0265-u2netp-saliency-replacement-blocked
 0255-fastdvdnet-pre-real-weights
 0258-onnx-allowlist-resize
+0269-vif-ciede-precise-step-a

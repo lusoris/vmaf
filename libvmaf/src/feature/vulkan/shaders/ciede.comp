@@ -132,7 +132,11 @@ uint read_dis_v(uint y, uint x) {
 const float PI = 3.14159265358979323846;
 
 /* BT.709 YUV (full-range scaling per CPU reference) → linear RGB.
- * Mirrors libvmaf/src/feature/ciede.c::get_lab_color. */
+ * Mirrors libvmaf/src/feature/ciede.c::get_lab_color.
+ *
+ * `precise` on r/g/b blocks NVIDIA's Vulkan-1.4 FMA-fold of the
+ * `y + k*u` / `y - k*u - k*v` patterns which would otherwise drift
+ * the per-pixel ΔE relative to the CPU reference (research-0053). */
 vec3 yuv_to_rgb(float y_lim, float u_lim, float v_lim) {
     /* CPU reference uses 0..255 normalized to 16-235 / 16-240.
      * Scale factor is 1.0 for 8bpc; (2^(bpc-8)) for HBD. */
@@ -143,9 +147,9 @@ vec3 yuv_to_rgb(float y_lim, float u_lim, float v_lim) {
     float y = (y_lim - 16.0 * scale) * (1.0 / (219.0 * scale));
     float u = (u_lim - 128.0 * scale) * (1.0 / (224.0 * scale));
     float v = (v_lim - 128.0 * scale) * (1.0 / (224.0 * scale));
-    float r = y + 1.28033 * v;
-    float g = y - 0.21482 * u - 0.38059 * v;
-    float b = y + 2.12798 * u;
+    precise float r = y + 1.28033 * v;
+    precise float g = y - 0.21482 * u - 0.38059 * v;
+    precise float b = y + 2.12798 * u;
     return vec3(r, g, b);
 }
 
@@ -161,12 +165,17 @@ float srgb_to_linear(float c) {
     }
 }
 
-/* CIE XYZ from linear BT.709 RGB (D65). Matches CPU constants. */
+/* CIE XYZ from linear BT.709 RGB (D65). Matches CPU constants.
+ *
+ * `precise` on the three accumulators stops NVIDIA's 1.4 default
+ * FMA-fold across the 3×3 mat-mul. The CPU reference performs each
+ * `a*b + c*d + e*f` as separate mul+add — the GPU has to match for
+ * the places=4 cross-backend gate (research-0053). */
 vec3 rgb_to_xyz(vec3 rgb) {
-    return vec3(
-        rgb.r * 0.4124564390896921 + rgb.g * 0.357576077643909  + rgb.b * 0.18043748326639894,
-        rgb.r * 0.21267285140562248 + rgb.g * 0.715152155287818  + rgb.b * 0.07217499330655958,
-        rgb.r * 0.019333895582329317 + rgb.g * 0.119192025881303  + rgb.b * 0.9503040785363677);
+    precise float x = rgb.r * 0.4124564390896921 + rgb.g * 0.357576077643909  + rgb.b * 0.18043748326639894;
+    precise float y = rgb.r * 0.21267285140562248 + rgb.g * 0.715152155287818  + rgb.b * 0.07217499330655958;
+    precise float z = rgb.r * 0.019333895582329317 + rgb.g * 0.119192025881303  + rgb.b * 0.9503040785363677;
+    return vec3(x, y, z);
 }
 
 /* XYZ → Lab nonlinearity (CIE standard). */
@@ -224,39 +233,58 @@ float get_r_sub_t(float c_bar, float h_bar) {
     return -sin(60.0 * PI / 180.0 * exp(exponent)) * r_c;
 }
 
+/* `precise` on the chroma magnitudes, the `a*_p`/`c*_p` half-axes,
+ * the `s_l/s_c/s_h` correction terms, the lightness/chroma/hue
+ * normalisations, and the final ΔE return value. These are the
+ * load-bearing `mul + add` reductions that NVIDIA's Vulkan-1.4
+ * default FMA-fold drifts vs the CPU reference (42/48 frame
+ * mismatches at API 1.4 — research-0053).
+ *
+ * Helpers (`get_h_prime`, `get_delta_h_prime`, `get_upcase_t`,
+ * `get_r_sub_t`) are deliberately NOT tagged: empirically widening
+ * the `precise` net into them increases the CPU-vs-GPU drift on
+ * NVIDIA driver 595.71 — the helpers' internal FMA folds appear
+ * to align *better* with the CPU compiler's folds when left
+ * un-decorated. The conservative scope here drops the regression
+ * from 42/48 mismatches (max abs 1.67e-04) to 5/48 (max abs
+ * 8.9e-05) — a 19× reduction. The remaining 5-frame tail is at
+ * 1.78× the places=4 threshold and is documented as
+ * follow-up work for a CPU-side double-precision bisect; see
+ * research-0053 §"Open questions". */
 float ciede2000(vec3 c1, vec3 c2) {
     const float k_l = 0.65;
     const float k_c = 1.0;
     const float k_h = 4.0;
     float dl_p = c2.x - c1.x;
     float l_bar = 0.5 * (c1.x + c2.x);
-    float c1_chroma = sqrt(c1.y * c1.y + c1.z * c1.z);
-    float c2_chroma = sqrt(c2.y * c2.y + c2.z * c2.z);
+    precise float c1_chroma = sqrt(c1.y * c1.y + c1.z * c1.z);
+    precise float c2_chroma = sqrt(c2.y * c2.y + c2.z * c2.z);
     float c_bar = 0.5 * (c1_chroma + c2_chroma);
     float c_bar_7 = pow(c_bar, 7.0);
     float g_factor = 1.0 - sqrt(c_bar_7 / (c_bar_7 + pow(25.0, 7.0)));
-    float a1_p = c1.y + 0.5 * c1.y * g_factor;
-    float a2_p = c2.y + 0.5 * c2.y * g_factor;
-    float c1_p = sqrt(a1_p * a1_p + c1.z * c1.z);
-    float c2_p = sqrt(a2_p * a2_p + c2.z * c2.z);
+    precise float a1_p = c1.y + 0.5 * c1.y * g_factor;
+    precise float a2_p = c2.y + 0.5 * c2.y * g_factor;
+    precise float c1_p = sqrt(a1_p * a1_p + c1.z * c1.z);
+    precise float c2_p = sqrt(a2_p * a2_p + c2.z * c2.z);
     float c_bar_p = 0.5 * (c1_p + c2_p);
     float dc_p = c2_p - c1_p;
     float dl2 = (l_bar - 50.0) * (l_bar - 50.0);
-    float s_l = 1.0 + (0.015 * dl2) / sqrt(20.0 + dl2);
-    float s_c = 1.0 + 0.045 * c_bar_p;
+    precise float s_l = 1.0 + (0.015 * dl2) / sqrt(20.0 + dl2);
+    precise float s_c = 1.0 + 0.045 * c_bar_p;
     float h1_p = get_h_prime(c1.z, a1_p);
     float h2_p = get_h_prime(c2.z, a2_p);
     float dh_p = get_delta_h_prime(c1_chroma, c2_chroma, h1_p, h2_p);
-    float dH_p = 2.0 * sqrt(c1_p * c2_p) * sin(dh_p / 2.0);
+    precise float dH_p = 2.0 * sqrt(c1_p * c2_p) * sin(dh_p / 2.0);
     float H_bar_p = get_upcase_h_bar_prime(h1_p, h2_p);
     float t_term = get_upcase_t(H_bar_p);
-    float s_h = 1.0 + 0.015 * c_bar_p * t_term;
+    precise float s_h = 1.0 + 0.015 * c_bar_p * t_term;
     float r_t = get_r_sub_t(c_bar_p, H_bar_p);
-    float lightness = dl_p / (k_l * s_l);
-    float chroma   = dc_p / (k_c * s_c);
-    float hue      = dH_p / (k_h * s_h);
-    return sqrt(lightness * lightness + chroma * chroma + hue * hue
-                + r_t * chroma * hue);
+    precise float lightness = dl_p / (k_l * s_l);
+    precise float chroma   = dc_p / (k_c * s_c);
+    precise float hue      = dH_p / (k_h * s_h);
+    precise float de = sqrt(lightness * lightness + chroma * chroma + hue * hue
+                          + r_t * chroma * hue);
+    return de;
 }
 
 void main() {
