@@ -1,7 +1,7 @@
 # ADR-0237: Quality-aware encode automation surface (`vmaf-tune`)
 
-- **Status**: Proposed
-- **Date**: 2026-05-02
+- **Status**: Accepted (Phase A only; Phases B–F remain Proposed)
+- **Date**: 2026-05-02 (Proposed); 2026-05-03 (Phase A acceptance)
 - **Deciders**: Lusoris
 - **Tags**: tooling, ai, ffmpeg, codec, automation, fork-local
 

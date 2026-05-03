@@ -58,6 +58,12 @@ python/vmaf/matlab/**/*.o
 .workingdir/
 .workingdir2/
 
+# vmaf-tune Phase A scratch outputs (ADR-0237)
+corpus.jsonl
+tools/vmaf-tune/build/
+tools/vmaf-tune/dist/
+tools/vmaf-tune/*.egg-info/
+
 # Claude Code local (machine-specific) settings
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

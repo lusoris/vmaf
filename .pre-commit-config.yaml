@@ -47,7 +47,7 @@ repos:
     rev: 26.3.1
     hooks:
       - id: black
-        files: '^(python|ai|scripts)/.*\.py$'
+        files: '^(python|ai|scripts|tools)/.*\.py$'
         # Upstream Netflix training-harness tree — not authored by us; see
         # pyproject.toml [tool.black] extend-exclude. Black's extend-exclude
         # only filters during directory walks, not explicitly-passed files,
@@ -58,14 +58,14 @@ repos:
     rev: 5.13.2
     hooks:
       - id: isort
-        files: '^(python|ai|scripts)/.*\.py$'
+        files: '^(python|ai|scripts|tools)/.*\.py$'
         exclude: '^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.10
     hooks:
       - id: ruff-check
-        files: '^(python|ai|scripts)/.*\.py$'
+        files: '^(python|ai|scripts|tools)/.*\.py$'
         exclude: '^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/'
         args: ["--fix"]
 
