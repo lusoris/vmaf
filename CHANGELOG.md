@@ -58,6 +58,27 @@
   FP ops `precise` in `libvmaf/src/feature/vulkan/shaders/vif.comp` and
   `ciede.comp`, (B) bump only after the gate is clean on all three
   drivers. `master` stays on Vulkan 1.3; no code change in this PR.
+- **HIP fifth + sixth kernel-template consumers (T7-10b / ADR-0266 +
+  ADR-0267).** Adds `feature/hip/float_ansnr_hip.{c,h}` and
+  `feature/hip/integer_motion_v2_hip.{c,h}` as the fifth and sixth
+  consumers of `libvmaf/src/hip/kernel_template.h`, mirroring
+  `feature/cuda/float_ansnr_cuda.c` (297 LOC, smallest unported
+  CUDA twin) and `feature/cuda/integer_motion_v2_cuda.c` (320 LOC,
+  smallest unported temporal CUDA twin) call-graph-for-call-graph.
+  `float_ansnr_hip` pins the **interleaved (sig, noise) per-block
+  float-partial readback** shape — same `submit_pre_launch` bypass
+  as `ciede_hip` (ADR-0259), doubled per-block partial width, two
+  features (`float_ansnr` + `float_anpsnr`) emitted from one kernel
+  pass. `motion_v2_hip` pins the **temporal-extractor shape** —
+  `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag, `flush()` callback,
+  `uintptr_t[2]` ping-pong buffer slots that the runtime PR (T7-10b)
+  will swap for real device-buffer handles. Both consumers register
+  under `#if HAVE_HIP`; `init()` returns `-ENOSYS` until T7-10b
+  flips kernel-template helper bodies to live HIP calls. Smoke test
+  grows from 14 to 16 sub-tests
+  (`test_float_ansnr_hip_extractor_registered` +
+  `test_motion_v2_hip_extractor_registered`). CPU baseline 47/47
+  green; HIP scaffold build 48/48 green. No ROCm SDK required.
 
 - **`iqa_convolve` block-of-N tap widen — failed-attempt research
   digest (Research-0053).** Records the bit-exactness post-mortem for

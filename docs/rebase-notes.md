@@ -53,6 +53,73 @@ cover several PRs in one workstream; cross-link from the ID heading.
   and the same with `--feature ciede` against NVIDIA + RADV +
   lavapipe; max abs diff must stay ≤ `5.0e-05` (`places=4`) on all
   three.
+### 0229 — HIP fifth-consumer kernel `float_ansnr_hip` (ADR-0266)
+
+- **Touches**:
+  - `libvmaf/src/feature/hip/float_ansnr_hip.{c,h}` (new) — fifth
+    consumer of `libvmaf/src/hip/kernel_template.h`. Mirrors
+    `libvmaf/src/feature/cuda/float_ansnr_cuda.c`
+    call-graph-for-call-graph; `init/submit/collect/close` invoke
+    the kernel-template helpers in the same order; the submit
+    body intentionally bypasses
+    `vmaf_hip_kernel_submit_pre_launch` (no atomic, kernel writes
+    per-block (sig, noise) interleaved float partials directly).
+  - `libvmaf/src/hip/meson.build` — adds the new TU to
+    `hip_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` — adds the
+    `extern VmafFeatureExtractor vmaf_fex_float_ansnr_hip;`
+    declaration and the registry row under `#if HAVE_HIP`.
+  - `libvmaf/test/test_hip_smoke.c` — adds
+    `test_float_ansnr_hip_extractor_registered` sub-test pinning
+    the lookup contract.
+- **Invariant — the `submit_pre_launch` bypass is load-bearing**.
+  The CUDA twin makes the same choice for the same reason. If a
+  future PR adds a `submit_pre_launch` call to
+  `float_ansnr_cuda.c`'s submit path, the HIP twin must follow in
+  the same PR. Likewise the readback shape
+  (`wg_count * 2u * sizeof(float)`) and the bpc table
+  (peak/psnr_max for 8/10/12/16-bit) mirror the CUDA twin
+  verbatim — keep aligned on rebase.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf
+  meson setup build -Denable_hip=true -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build  # 48/48 green (47 CPU + HIP smoke)
+  ```
+
+### 0230 — HIP sixth-consumer kernel `motion_v2_hip` (ADR-0267)
+
+- **Touches**:
+  - `libvmaf/src/feature/hip/integer_motion_v2_hip.{c,h}` (new) —
+    sixth consumer of `libvmaf/src/hip/kernel_template.h`. Mirrors
+    `libvmaf/src/feature/cuda/integer_motion_v2_cuda.c`
+    call-graph-for-call-graph; carries the
+    `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag and a `flush()`
+    callback. The state struct has a `uintptr_t pix[2]` ping-pong
+    slot pair tracked outside the kernel-template (the template
+    models a single device+host pair only).
+  - `libvmaf/src/hip/meson.build` — adds the new TU to
+    `hip_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` — adds the
+    `extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_hip;`
+    declaration and the registry row under `#if HAVE_HIP`.
+  - `libvmaf/test/test_hip_smoke.c` — adds
+    `test_motion_v2_hip_extractor_registered` sub-test pinning
+    the lookup contract (extractor name is `motion_v2_hip`,
+    matching the CUDA twin's `motion_v2_cuda` naming).
+- **Invariant — temporal-extractor + ping-pong shape**. The
+  `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag bit, the `flush()`
+  callback registration, and the `uintptr_t pix[2]` slot pair are
+  load-bearing for the runtime PR (T7-10b). The runtime PR will
+  swap `uintptr_t pix[2]` for a real device-buffer handle pair
+  matching the CUDA twin's `VmafCudaBuffer *pix[2]`. On rebase:
+  if the CUDA twin's flush-pass shape changes (currently
+  `min(score[i], score[i+1])`), update the HIP twin's
+  `flush_fex_hip` body in the same PR.
+- **Re-test on rebase**: same as 0229 — `meson test -C build`
+  with `enable_hip=true` exercises the smoke contract.
 
 ### 0227 — ms_ssim_vulkan submit-side migrated to kernel_template (T-GPU-DEDUP-26)
 

@@ -34,6 +34,22 @@
 # Same scaffold posture as the third consumer; emits four features
 # (`float_moment_ref{1st,2nd}`, `float_moment_dis{1st,2nd}`) once
 # the runtime kernel arrives.
+# `feature/hip/float_ansnr_hip.c` is the fifth kernel-template
+# consumer (ADR-0266) — registers `vmaf_fex_float_ansnr_hip` and
+# mirrors the CUDA twin (`feature/cuda/float_ansnr_cuda.c`). Same
+# scaffold posture as the prior consumers; the submit path
+# intentionally bypasses `vmaf_hip_kernel_submit_pre_launch`
+# because the kernel writes per-block (sig, noise) float partials
+# directly (no atomic, no memset).
+#
+# `feature/hip/integer_motion_v2_hip.c` is the sixth kernel-template
+# consumer (ADR-0267) — registers `vmaf_fex_integer_motion_v2_hip`
+# and mirrors the CUDA twin
+# (`feature/cuda/integer_motion_v2_cuda.c`). Pins the **temporal**
+# extractor shape (`VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag,
+# `flush()` callback) and the ping-pong buffer carry-over needed
+# for motion-class metrics. Same scaffold posture: `init()`
+# returns -ENOSYS until T7-10b.
 hip_sources += files(
     'common.c',
     'picture_hip.c',
@@ -45,6 +61,8 @@ hip_sources += files(
     '../feature/hip/integer_psnr_hip.c',
     '../feature/hip/ciede_hip.c',
     '../feature/hip/float_moment_hip.c',
+    '../feature/hip/float_ansnr_hip.c',
+    '../feature/hip/integer_motion_v2_hip.c',
 )
 
 # Optional probe — does not gate the build. Real linkage against

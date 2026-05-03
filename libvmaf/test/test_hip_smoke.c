@@ -211,6 +211,40 @@ static char *test_float_moment_hip_extractor_registered(void)
     return NULL;
 }
 
+/* ---- Fifth/sixth consumer extractor registration (T7-10b /
+ * ADR-0266 / ADR-0267) ---- */
+
+static char *test_float_ansnr_hip_extractor_registered(void)
+{
+    /* Fifth-consumer PR (ADR-0266) extends the same registration
+     * contract to `float_ansnr_hip`: extractor is found by name,
+     * with the matching `.name` string. `init()` is not invoked
+     * here — the scaffold returns -ENOSYS at that layer; the
+     * registration smoke test only pins the lookup contract. The
+     * runtime PR (T7-10b) keeps this assertion green and tightens
+     * it to "init returns 0 with a real device". */
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_ansnr_hip");
+    mu_assert("float_ansnr_hip extractor must be registered", fex != NULL);
+    mu_assert("float_ansnr_hip extractor name matches", strcmp(fex->name, "float_ansnr_hip") == 0);
+    return NULL;
+}
+
+static char *test_motion_v2_hip_extractor_registered(void)
+{
+    /* Sixth-consumer PR (ADR-0267) extends the same registration
+     * contract to `motion_v2_hip`. The CUDA twin's name is
+     * `motion_v2_cuda` (without the `integer_` prefix on the
+     * extractor name even though the source file is
+     * `integer_motion_v2_cuda.c`); the HIP twin keeps the same
+     * naming choice. Smoke test only pins the lookup contract;
+     * the runtime PR (T7-10b) wires the kernel and tightens this
+     * assertion to "init returns 0 with a real device". */
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("motion_v2_hip");
+    mu_assert("motion_v2_hip extractor must be registered", fex != NULL);
+    mu_assert("motion_v2_hip extractor name matches", strcmp(fex->name, "motion_v2_hip") == 0);
+    return NULL;
+}
+
 /* Function-pointer table keeps `run_tests` flat — without it,
  * `mu_run_test` macro-expands to a branching pair per test, blowing
  * past clang-tidy's `readability-function-size` 15-branch budget at
@@ -238,6 +272,9 @@ static const test_fn test_table[] = {
     /* T7-10b third + fourth consumers (ADR-0257 / ADR-0258) */
     test_ciede_hip_extractor_registered,
     test_float_moment_hip_extractor_registered,
+    /* T7-10b fifth/sixth consumers (ADR-0266 / ADR-0267) */
+    test_float_ansnr_hip_extractor_registered,
+    test_motion_v2_hip_extractor_registered,
 };
 
 static const size_t test_table_len = sizeof(test_table) / sizeof(test_table[0]);

@@ -25,6 +25,8 @@ hip/
 
 **Scaffold + first / second / third / fourth consumer** — landed
 across multiple PRs:
+**Scaffold + first / fifth / sixth consumer** — landed across multiple
+PRs (second through fourth in flight as of 2026-05-03):
 
 1. **T7-10 audit-first scaffold** (ADR-0212) — common, picture, dispatch,
    feature stubs, public header `libvmaf_hip.h`, CI lane
@@ -49,11 +51,27 @@ across multiple PRs:
    `submit_pre_launch` can later memset multiple counters in one
    call. Same scaffold posture: `init()` returns `-ENOSYS` until
    T7-10b.
+3. **T7-10b second consumer** (ADR-0254, PR #324, in flight) —
+   `feature/hip/float_psnr_hip.{c,h}`. Float partials precision posture.
+4. **T7-10b third + fourth consumers** (ADR-0259 / ADR-0260, PR #330,
+   in flight) — `ciede_hip` (`submit_pre_launch` bypass shape) and
+   `float_moment_hip` (four-uint64 atomic-counter readback shape).
+5. **T7-10b fifth + sixth consumers** (ADR-0266 / ADR-0267, this PR) —
+   `feature/hip/float_ansnr_hip.{c,h}` and
+   `feature/hip/integer_motion_v2_hip.{c,h}` mirroring
+   `feature/cuda/float_ansnr_cuda.c` and
+   `feature/cuda/integer_motion_v2_cuda.c`. Validate two further
+   pre-runtime contracts: (a) `float_ansnr`'s **interleaved
+   (sig, noise) per-block float partials** (same `submit_pre_launch`
+   bypass as `ciede_hip` but doubled per-block partial width), (b)
+   `motion_v2`'s **temporal-extractor shape** (`flush()` callback +
+   `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag + ping-pong buffer carry).
+   Same scaffold posture: `init()` returns `-ENOSYS` until T7-10b.
 
 **Pending** — T7-10b (runtime PR) replaces the `kernel_template.c`
 bodies and the consumers' submit/collect kernel-launch chains with
 real HIP calls (`hipStreamCreate`, `hipMemcpyAsync`, ...). Remaining
-kernel ports (ADM, VIF, motion, ...) follow as their own PRs gated
+kernel ports (ADM, VIF, full motion, ...) follow as their own PRs gated
 by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
 
 ## Ground rules
@@ -135,6 +153,31 @@ by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214
   four-counter constant aligned with the CUDA twin's
   `4u * sizeof(uint64_t)` readback size; any drift in the CUDA
   twin's counter count requires a paired update here.
+## Rebase-sensitive invariants (fifth + sixth consumers)
+
+- **`float_ansnr_hip.c` mirrors `float_ansnr_cuda.c`
+  call-graph-for-call-graph** (fork-local, ADR-0266). The submit
+  path **intentionally does not call
+  `vmaf_hip_kernel_submit_pre_launch`** — same bypass as `ciede_hip`
+  (ADR-0259) — because the kernel writes per-block (sig, noise)
+  interleaved float partials directly (no atomic, no memset). The
+  partials buffer is sized `wg_count * 2u * sizeof(float)`; any
+  drift in the CUDA twin's partial shape requires a paired update
+  here. **On rebase**: if a future PR adds a `submit_pre_launch`
+  call to `float_ansnr_cuda.c`'s submit path, the HIP twin must
+  follow in the same PR.
+
+- **`integer_motion_v2_hip.c` mirrors `integer_motion_v2_cuda.c`
+  call-graph-for-call-graph** (fork-local, ADR-0267). Carries the
+  `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag and the `flush()` callback.
+  The `uintptr_t pix[2]` ping-pong slots are a fork-local
+  scaffold-shape — the runtime PR (T7-10b) will land a HIP
+  device-buffer allocator and replace these with real handles
+  matching the CUDA twin's `VmafCudaBuffer *pix[2]` field shape.
+  **On rebase**: keep the field count and slot type aligned with
+  the CUDA twin; the ping-pong contract (cur = `index % 2`, prev =
+  `(index + 1) % 2`) is load-bearing for the eventual cross-backend
+  numeric gate.
 
 ## Governing ADRs
 
@@ -151,6 +194,17 @@ by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214
   fourth consumer (`float_moment_hip`); pins the multi-counter
   uint64 readback shape.
 - [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) — CUDA
+- [ADR-0254](../../../docs/adr/0254-hip-second-consumer-float-psnr.md)
+  — second consumer (`float_psnr_hip`).
+- [ADR-0259](../../../docs/adr/0259-hip-third-consumer-ciede.md) —
+  third consumer (`ciede_hip`).
+- [ADR-0260](../../../docs/adr/0260-hip-fourth-consumer-float-moment.md)
+  — fourth consumer (`float_moment_hip`).
+- [ADR-0266](../../../docs/adr/0266-hip-fifth-consumer-float-ansnr.md)
+  — fifth consumer (`float_ansnr_hip`, this PR).
+- [ADR-0267](../../../docs/adr/0267-hip-sixth-consumer-motion-v2.md)
+  — sixth consumer (`motion_v2_hip`, this PR).
+- [ADR-0246](../../../docs/adr/0246-gpu-kernel-template.md) — GPU
   kernel-template decision; the source the HIP mirror tracks.
 - [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) — `places=4`
   cross-backend gate; the runtime PR's incoming numerics gate.
