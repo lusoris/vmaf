@@ -18,6 +18,13 @@ from . import __version__
 from .codec_adapters import known_codecs
 from .corpus import CorpusJob, CorpusOptions, coarse_to_fine_search, iter_rows, write_jsonl
 from .encode import iter_grid
+from .per_shot import (
+    detect_shots,
+    merge_shots,
+    plan_to_shell_script,
+    tune_per_shot,
+    write_concat_listing,
+)
 from .score_backend import ALL_BACKENDS, BackendUnavailableError, select_backend
 
 
@@ -216,6 +223,85 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="emit the validation report (verdict + residuals) to this path; default: stdout",
+    )
+
+    per_shot = sub.add_parser(
+        "tune-per-shot",
+        help=(
+            "Phase D scaffold — detect shots via vmaf-perShot/TransNet V2, "
+            "tune CRF per shot, and emit an FFmpeg encoding plan."
+        ),
+    )
+    per_shot.add_argument(
+        "--src",
+        type=Path,
+        required=True,
+        help="reference video (raw YUV or any FFmpeg-readable container)",
+    )
+    per_shot.add_argument("--width", type=int, required=True)
+    per_shot.add_argument("--height", type=int, required=True)
+    per_shot.add_argument("--pix-fmt", default="yuv420p")
+    per_shot.add_argument("--framerate", type=float, default=24.0)
+    per_shot.add_argument(
+        "--target-vmaf",
+        type=float,
+        default=92.0,
+        help="target pooled-mean VMAF for the per-shot predicate (default 92)",
+    )
+    per_shot.add_argument(
+        "--encoder",
+        default="libx264",
+        choices=list(known_codecs()),
+        help="codec adapter (Phase D scaffold: libx264 only)",
+    )
+    per_shot.add_argument(
+        "--bitdepth",
+        type=int,
+        default=8,
+        choices=(8, 10, 12),
+        help="source YUV bit depth (forwarded to vmaf-perShot)",
+    )
+    per_shot.add_argument(
+        "--total-frames",
+        type=int,
+        default=0,
+        help=(
+            "frame count for the single-shot fallback (used when " "vmaf-perShot is unavailable)"
+        ),
+    )
+    per_shot.add_argument(
+        "--per-shot-bin",
+        default="vmaf-perShot",
+        help="path to the vmaf-perShot binary (default vmaf-perShot on PATH)",
+    )
+    per_shot.add_argument(
+        "--ffmpeg-bin",
+        default="ffmpeg",
+        help="path to the ffmpeg binary (default ffmpeg on PATH)",
+    )
+    per_shot.add_argument(
+        "--output",
+        type=Path,
+        default=Path("per_shot_encode.mp4"),
+        help="final concatenated encode destination (default per_shot_encode.mp4)",
+    )
+    per_shot.add_argument(
+        "--segment-dir",
+        type=Path,
+        default=None,
+        help="directory for per-shot segment files (default <output>.parent/segments)",
+    )
+    per_shot.add_argument(
+        "--plan-out",
+        type=Path,
+        default=None,
+        help="emit the JSON plan to this path; default: stdout",
+    )
+    per_shot.add_argument(
+        "--script-out",
+        type=Path,
+        default=None,
+        help="optional: write a copy-paste shell script of the plan",
     )
 
     return parser
@@ -651,6 +737,67 @@ def _run_predict(args: argparse.Namespace) -> int:
     return 0 if report.verdict != Verdict.FALL_BACK else 2
 
 
+def _run_tune_per_shot(args: argparse.Namespace) -> int:
+    total_frames = args.total_frames if args.total_frames > 0 else None
+    shots = detect_shots(
+        args.src,
+        width=args.width,
+        height=args.height,
+        pix_fmt=args.pix_fmt,
+        bitdepth=args.bitdepth,
+        total_frames=total_frames,
+        per_shot_bin=args.per_shot_bin,
+    )
+    recs = tune_per_shot(
+        shots,
+        target_vmaf=args.target_vmaf,
+        encoder=args.encoder,
+    )
+    plan = merge_shots(
+        recs,
+        source=args.src,
+        output=args.output,
+        framerate=args.framerate,
+        encoder=args.encoder,
+        segment_dir=args.segment_dir,
+        ffmpeg_bin=args.ffmpeg_bin,
+    )
+
+    plan_doc = {
+        "encoder": plan.encoder,
+        "framerate": plan.framerate,
+        "target_vmaf": args.target_vmaf,
+        "shots": [
+            {
+                "start_frame": r.shot.start_frame,
+                "end_frame": r.shot.end_frame,
+                "crf": r.crf,
+                "predicted_vmaf": r.predicted_vmaf,
+            }
+            for r in plan.recommendations
+        ],
+        "segment_commands": [list(c) for c in plan.segment_commands],
+        "concat_command": list(plan.concat_command),
+    }
+    rendered = json.dumps(plan_doc, indent=2, sort_keys=True)
+    if args.plan_out is None:
+        sys.stdout.write(rendered)
+        sys.stdout.write("\n")
+    else:
+        args.plan_out.parent.mkdir(parents=True, exist_ok=True)
+        args.plan_out.write_text(rendered + "\n", encoding="utf-8")
+        sys.stderr.write(f"wrote plan -> {args.plan_out}\n")
+
+    if args.script_out is not None:
+        args.script_out.parent.mkdir(parents=True, exist_ok=True)
+        args.script_out.write_text(plan_to_shell_script(plan), encoding="utf-8")
+        sys.stderr.write(f"wrote shell script -> {args.script_out}\n")
+
+    seg_dir = args.segment_dir or args.output.parent / "segments"
+    write_concat_listing(plan, seg_dir / "concat.txt")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -660,6 +807,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_recommend(args)
     if args.cmd == "predict":
         return _run_predict(args)
+    if args.cmd == "tune-per-shot":
+        return _run_tune_per_shot(args)
     parser.print_help()
     return 2
 
