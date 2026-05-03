@@ -704,24 +704,17 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     /* Record one big command buffer: decimate (scale 0→1, 1→2, 2→3, 3→4)
      * for ref + cmp, with barriers between pyramid-build stages and the
      * SSIM dispatches. SSIM at scale i runs after decimate finishes the
-     * ref + cmp pair at scale i. */
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo cbai = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = s->ctx->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &cmd) != VK_SUCCESS) {
-        err = -ENOMEM;
+     * ref + cmp pair at scale i.
+     *
+     * Submit scratch via the kernel_template (T-GPU-DEDUP-26):
+     * `vmaf_vulkan_kernel_submit_begin` allocates the primary command
+     * buffer, calls vkBeginCommandBuffer, and creates the per-frame
+     * fence; `_end_and_wait` ends, submits, and waits on the fence;
+     * `_free` returns both handles to the device. */
+    VmafVulkanKernelSubmit decimate_sub = {0};
+    err = vmaf_vulkan_kernel_submit_begin(s->ctx, &decimate_sub);
+    if (err)
         goto cleanup_sets;
-    }
-    VkCommandBufferBeginInfo cbbi = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-    vkBeginCommandBuffer(cmd, &cbbi);
 
     VkMemoryBarrier rw_barrier = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -731,9 +724,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
     /* Build pyramid scales 1..4 (decimate scales 0..3). */
     for (int i = 0; i < MS_SSIM_SCALES - 1; i++) {
-        run_decimate(s, cmd, i, dec_sets_ref[i]);
-        run_decimate(s, cmd, i, dec_sets_cmp[i]);
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        run_decimate(s, decimate_sub.cmd, i, dec_sets_ref[i]);
+        run_decimate(s, decimate_sub.cmd, i, dec_sets_cmp[i]);
+        vkCmdPipelineBarrier(decimate_sub.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &rw_barrier, 0, NULL, 0,
                              NULL);
     }
@@ -754,59 +747,28 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
      * The cleanest is to allocate per-scale partials buffers.
      * But we sized them for scale 0 alone (largest). Solution:
      * separate command buffer per scale + readback after each. */
-    err = vkEndCommandBuffer(cmd);
-    if (err != VK_SUCCESS) {
-        err = -EIO;
-        goto cleanup_cmd;
-    }
-
-    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS) {
-        err = -ENOMEM;
-        goto cleanup_cmd;
-    }
-    VkSubmitInfo si = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
-        err = -EIO;
-        goto cleanup_cmd;
-    }
-    vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
+    err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &decimate_sub);
+    vmaf_vulkan_kernel_submit_free(s->ctx, &decimate_sub);
+    if (err)
+        goto cleanup_sets;
 
     /* Now run SSIM per scale in separate command buffers, reading
      * back l/c/s partials between scales. The pyramid is fully
-     * built so each scale's input is ready. */
+     * built so each scale's input is ready. Each per-scale submit
+     * goes through the kernel_template submit helpers (T-GPU-DEDUP-26). */
     double l_means[MS_SSIM_SCALES] = {0};
     double c_means[MS_SSIM_SCALES] = {0};
     double s_means[MS_SSIM_SCALES] = {0};
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
-        VkCommandBuffer scmd = VK_NULL_HANDLE;
-        VkFence sfence = VK_NULL_HANDLE;
-        if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &scmd) != VK_SUCCESS) {
-            err = -ENOMEM;
+        VmafVulkanKernelSubmit ssim_sub = {0};
+        err = vmaf_vulkan_kernel_submit_begin(s->ctx, &ssim_sub);
+        if (err)
             break;
-        }
-        vkBeginCommandBuffer(scmd, &cbbi);
-        run_one_scale(s, scmd, i, ssim_sets[i]);
-        vkEndCommandBuffer(scmd);
-
-        if (vkCreateFence(s->ctx->device, &fci, NULL, &sfence) != VK_SUCCESS) {
-            vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &scmd);
-            err = -ENOMEM;
+        run_one_scale(s, ssim_sub.cmd, i, ssim_sets[i]);
+        err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &ssim_sub);
+        vmaf_vulkan_kernel_submit_free(s->ctx, &ssim_sub);
+        if (err)
             break;
-        }
-        VkSubmitInfo ssi = {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .commandBufferCount = 1,
-            .pCommandBuffers = &scmd,
-        };
-        vkQueueSubmit(s->ctx->queue, 1, &ssi, sfence);
-        vkWaitForFences(s->ctx->device, 1, &sfence, VK_TRUE, UINT64_MAX);
-        vkDestroyFence(s->ctx->device, sfence, NULL);
-        vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &scmd);
 
         const float *lp = vmaf_vulkan_buffer_host(s->l_partials);
         const float *cp = vmaf_vulkan_buffer_host(s->c_partials);
@@ -830,11 +792,6 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (s->enable_lcs)
         err |= emit_lcs_metrics(feature_collector, index, l_means, c_means, s_means);
 
-cleanup_cmd:
-    if (fence != VK_NULL_HANDLE)
-        vkDestroyFence(s->ctx->device, fence, NULL);
-    if (cmd != VK_NULL_HANDLE)
-        vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
 cleanup_sets:
     for (int i = 0; i < allocated; i++) {
         vkFreeDescriptorSets(s->ctx->device, s->pl_decimate.desc_pool, 1, &dec_sets_ref[i]);

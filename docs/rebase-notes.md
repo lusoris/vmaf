@@ -27,6 +27,42 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0227 — ms_ssim_vulkan submit-side migrated to kernel_template (T-GPU-DEDUP-26)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/ms_ssim_vulkan.c` — `extract()`'s
+    raw `VkCommandBuffer` / `VkFence` / `vkAllocateCommandBuffers` /
+    `vkBeginCommandBuffer` / `vkCreateFence` / `vkQueueSubmit` /
+    `vkWaitForFences` / `vkDestroyFence` / `vkFreeCommandBuffers`
+    blocks become `VmafVulkanKernelSubmit` triples
+    (`vmaf_vulkan_kernel_submit_begin` /
+    `_submit_end_and_wait` / `_submit_free`). One triple covers the
+    decimate-pyramid command buffer; one triple per scale covers the
+    per-scale SSIM submit. The pipeline-side bundles
+    (`pl_decimate` 2-binding 4-variant + `pl_ssim` 10-binding
+    9-variant) and their `_add_variant()` chains are unchanged from
+    the prior migration.
+- **Invariant**: any future submit-side template change (timeline
+  semaphores, deferred fence release, queue-family parameterisation)
+  must keep the helpers' synchronous-wait + per-frame fence + per-frame
+  command-buffer contract intact, since `ms_ssim_vulkan.c` does host
+  readback of the `l_partials` / `c_partials` / `s_partials` buffers
+  immediately after `_submit_end_and_wait` returns. The submit-side
+  contract is the same one already documented in
+  `libvmaf/src/vulkan/AGENTS.md`'s "Rebase-sensitive invariants"
+  section for `kernel_template.h`.
+- **Re-test**:
+
+  ```bash
+  cd libvmaf && meson test -C build
+  python scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 \
+      --feature float_ms_ssim --backend vulkan --places 4
+  ```
+
 ### 0226 — CUDA drain-batch engine-loop opt (T-GPU-OPT-1)
 
 - **Touches**:
