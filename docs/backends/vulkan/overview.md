@@ -253,6 +253,23 @@ CPU snapshot contract; the `--places` flag tightens (e.g.
   extension; older drivers reject the SPIR-V at pipeline
   creation. The runtime errors with `-ENOSYS` / `-ENODEV` and
   the CLI prints `problem during vmaf_vulkan_state_init`.
+- **NVIDIA-hardware ciede2000 places=4 5/48 fork debt
+  (T-VK-CIEDE-F32-F64).** On NVIDIA proprietary drivers (verified
+  on RTX 4090 + driver 595.71.05 with PR #346 shader changes
+  applied), `cross_backend_vif_diff.py --feature ciede --backend
+  vulkan` reports 5/48 mismatches at max abs `8.9e-05` (1.78× the
+  places=4 threshold). This is a **structural f32 vs f64
+  precision gap** on the highest-ΔE frames — the CPU reference's
+  `ciede.c::get_lab_color` runs the BT.709 → linear-RGB → XYZ →
+  Lab chain in `double` while every Vulkan kernel runs in
+  `float`. See
+  [ADR-0273](../../adr/0273-ciede-vulkan-nvidia-f32-f64-precision-gap.md)
+  +
+  [research-0055](../../research/0055-ciede-vulkan-nvidia-f32-f64-root-cause.md).
+  The CI lavapipe parity gate (places=4, 0/48) remains
+  authoritative; NVIDIA hardware validation is a manual local
+  gate. Tracked under
+  [`docs/state.md`](../../state.md) Open bugs.
 
 ## References
 
