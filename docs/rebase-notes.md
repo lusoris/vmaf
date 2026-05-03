@@ -8212,3 +8212,29 @@ inline.*
   python -m pytest tools/vmaf-tune/tests/ -q
   python -m vmaftune.cli corpus --help  # confirm --auto-hdr surfaces
   ```
+
+### 0298 — vmaf-tune content-addressed cache (ADR-0298)
+
+- **What changed**: fork-local. New module
+  `tools/vmaf-tune/src/vmaftune/cache.py`; cache integration in
+  `tools/vmaf-tune/src/vmaftune/corpus.py` (`iter_rows` now consults
+  the cache before encode/score); new CLI flags `--no-cache`,
+  `--cache-dir`, `--cache-size-gb` in `cli.py`. Codec-adapter
+  `Protocol` gains `adapter_version: str`; the lone Phase-A x264
+  adapter pins `"1"`.
+- **Upstream source**: none. `tools/vmaf-tune/` is fork-introduced
+  (ADR-0237) and has no upstream counterpart.
+- **On upstream sync**: zero interaction with Netflix/vmaf master.
+  The module sits entirely under `tools/vmaf-tune/`, which upstream
+  does not ship.
+- **Invariant for future codec adapters**: every `CodecAdapter`
+  must declare `adapter_version: str`. Bump it whenever the
+  adapter's argv shape, preset list, or quality range changes —
+  otherwise the cache returns stale results post-upgrade. The
+  contract is asserted by `test_cache_key_diffs_on_each_field` in
+  `tests/test_cache.py`.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/test_cache.py -v
+  ```

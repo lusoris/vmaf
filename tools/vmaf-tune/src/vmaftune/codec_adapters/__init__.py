@@ -59,6 +59,9 @@ class CodecAdapter(Protocol):
     quality_range: tuple[int, int]
     quality_default: int
     invert_quality: bool
+    # Bumps when the adapter's argv shape / preset list / quality
+    # window changes — see ADR-0298 (vmaf-tune cache key).
+    adapter_version: str
 
     def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
         """FFmpeg ``-c:v ...`` argv slice for one encode."""

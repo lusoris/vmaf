@@ -286,3 +286,34 @@ def bitrate_kbps(size_bytes: int, duration_s: float) -> float:
 def iter_grid(presets: Sequence[str], crfs: Sequence[int]) -> list[tuple[str, int]]:
     """Cartesian product of presets x crfs as a deterministic list."""
     return [(p, c) for p in presets for c in crfs]
+
+
+def probe_ffmpeg_version(
+    ffmpeg_bin: str = "ffmpeg",
+    *,
+    runner: object | None = None,
+) -> str:
+    """Return the ffmpeg version string, or ``"unknown"`` on probe
+    failure.
+
+    Used by the cache layer (ADR-0298) to fold the host ffmpeg
+    version into the trial key before any encode runs. A failed
+    probe surfaces as ``"unknown"`` — callers should treat that as
+    "cache disabled for this run" rather than a hard error, because
+    a missing ffmpeg will fail the encode shortly anyway.
+    """
+    runner_fn = runner or subprocess.run
+    try:
+        completed = runner_fn(  # type: ignore[operator]
+            [ffmpeg_bin, "-hide_banner", "-version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, FileNotFoundError):
+        return "unknown"
+    stdout = getattr(completed, "stdout", "") or ""
+    stderr = getattr(completed, "stderr", "") or ""
+    blob = stdout + "\n" + stderr
+    match = _FFMPEG_VERSION_RE.search(blob)
+    return match.group(1) if match else "unknown"

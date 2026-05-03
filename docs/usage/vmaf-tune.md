@@ -298,6 +298,9 @@ vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
 vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
     --preset medium --crf 22 --score-backend cpu
 ```
+| `--no-cache` | off | Disable the content-addressed encode/score cache (default: ON). |
+| `--cache-dir PATH` | `$XDG_CACHE_HOME/vmaf-tune` | Override cache location (falls back to `~/.cache/vmaf-tune`). |
+| `--cache-size-gb N` | `10` | LRU eviction cap in GiB. |
 
 ## Corpus JSONL schema
 
@@ -918,6 +921,66 @@ corpus start. Resulting `vmaf_score` values trend low for
 high-luminance regions and are not directly comparable to SDR
 scores. See [ADR-0300](../adr/0300-vmaf-tune-hdr-aware.md) for the
 follow-up backlog item.
+## Content-addressed cache
+
+Re-running a corpus sweep after adjusting an unrelated flag should
+not re-encode and re-score tuples that have not changed. The
+content-addressed cache turns repeated `(src, encoder, preset, crf)`
+combinations into a free hit on the second run, restoring the parsed
+`(bitrate, vmaf, encode_time, score_time)` tuple from disk and
+skipping both subprocess calls. See
+[ADR-0298](../adr/0298-vmaf-tune-cache.md) for the design.
+
+### Key composition
+
+The cache key is `sha256` of the canonical-JSON-encoded six-tuple:
+
+1. `src_sha256` — content hash of the reference YUV
+2. `encoder` — adapter name (`libx264`, …)
+3. `preset` — encoder preset string
+4. `crf` — quality knob value (int)
+5. `adapter_version` — bumps when the codec adapter's argv shape changes
+6. `ffmpeg_version` — host ffmpeg version string
+
+Dropping any one of these would let stale entries shadow real
+results when the adapter or ffmpeg is upgraded — the test suite
+asserts each field flips the key.
+
+### Layout
+
+The cache lives at `$XDG_CACHE_HOME/vmaf-tune/` (or
+`~/.cache/vmaf-tune/` if the env var is unset). Override with
+`--cache-dir`. Layout:
+
+```text
+<cache-dir>/
+  meta/<key>.json     — parsed (bitrate, vmaf, encode_time, ...) tuple
+  blobs/<key>.bin     — opaque encoded artifact
+  __index__.json      — last-access timestamps for LRU eviction
+```
+
+### Eviction
+
+LRU with a default 10 GiB cap (configurable via `--cache-size-gb`).
+On every `put`, the oldest entries are dropped until the total
+on-disk size sits at or below the cap.
+
+### Disabling
+
+Pass `--no-cache` to force a re-encode/re-score on every cell. The
+cache is also automatically skipped when `--no-source-hash` is
+active (no stable content key) or when `ffmpeg -version` cannot be
+probed before the run.
+
+### Caveats
+
+- The cache is **not** baked into the JSONL row; the row stays the
+  canonical record, the cache is an opaque sidecar.
+- Cache hits do not write a synthetic `encode_path` — that field
+  remains empty unless `--keep-encodes` is set.
+- Concurrent runs against a shared cache dir (e.g. NFS) work for
+  reads; writes are last-writer-wins and both writers' bytes are
+  valid by content addressing.
 
 ## What Phase A does **not** do
 

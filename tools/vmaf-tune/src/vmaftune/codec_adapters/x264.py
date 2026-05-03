@@ -19,6 +19,10 @@ class X264Adapter:
     name: str = "libx264"
     encoder: str = "libx264"
     quality_knob: str = "crf"
+    # Bumps when the adapter's argv shape / preset list / CRF window
+    # changes. Folded into the cache key so an adapter upgrade
+    # invalidates older entries (ADR-0298).
+    adapter_version: str = "1"
     # x264 nominally accepts 0..51; we surface the perceptually
     # informative window — ADR-0237 Phase A grid generation lives here.
     quality_range: tuple[int, int] = (15, 40)

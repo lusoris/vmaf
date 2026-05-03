@@ -207,6 +207,23 @@ for the option-space digest.
   ported Netflix's HDR model yet), `_resolve_vmaf_model` logs a
   warning and returns the SDR model. Do not change this to raise —
   HDR encode-side correctness ships independently of HDR scoring.
+- **Cache key fields are load-bearing
+  ([ADR-0298](../../docs/adr/0298-vmaf-tune-cache.md)).** The
+  `cache_key()` function in `cache.py` digests six fields:
+  `src_sha256`, `encoder`, `preset`, `crf`, `adapter_version`,
+  `ffmpeg_version`. Dropping any one of them is a silent
+  correctness bug — stale entries shadow real results when the
+  adapter or ffmpeg is upgraded. The contract is asserted by
+  `test_cache_key_diffs_on_each_field`. When adding a new codec
+  adapter, set `adapter_version: str` on the dataclass; the
+  registry `Protocol` already requires it. Bump the string when
+  the adapter's argv shape, preset list, or quality range changes.
+- **Cache content stays opaque.** The cache value is the parsed
+  `(bitrate, vmaf, encode_time, score_time)` tuple plus an opaque
+  `<key>.bin` blob. Do not bake cache contents into the JSONL row —
+  the row is the canonical record, the cache is a sidecar. A cache
+  hit must produce a row that is bit-identical to a cache miss
+  (modulo `encode_path`, which stays empty unless `--keep-encodes`).
 
 ## Phase scope
 
