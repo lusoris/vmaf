@@ -33,12 +33,14 @@ subcommands here later.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import sys
 from pathlib import Path
 
 from . import __version__
 from .codec_adapters import get_adapter, known_codecs
+from .compare import PredicateFn, compare_codecs, default_encoders, emit_report, supported_formats
 from .corpus import CorpusJob, CorpusOptions, iter_rows, write_jsonl
 from .encode import EncodeRequest, iter_grid, run_encode
 from .ladder import build_and_emit
@@ -485,6 +487,65 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     rec.add_argument("--ffmpeg-bin", default="ffmpeg")
 
+    # ----- compare subcommand (research-0061 Bucket #7) -----
+    compare = sub.add_parser(
+        "compare",
+        help=("rank codecs by smallest file at a target VMAF " "(codec-comparison mode)"),
+    )
+    compare.add_argument(
+        "--src",
+        type=Path,
+        required=True,
+        help="raw YUV / mezzanine reference passed to each codec's recommend",
+    )
+    compare.add_argument(
+        "--target-vmaf",
+        type=float,
+        required=True,
+        help="target VMAF score the per-codec recommend bisects toward",
+    )
+    compare.add_argument(
+        "--encoders",
+        default=",".join(default_encoders()),
+        help=(
+            "comma-separated codec list (default: every adapter currently "
+            "registered in codec_adapters/). Phase A wires libx264 only; "
+            "x265 / svtav1 / libaom / libvvenc adapters are upcoming."
+        ),
+    )
+    compare.add_argument(
+        "--format",
+        default="markdown",
+        choices=list(supported_formats()),
+        help="output format (default markdown)",
+    )
+    compare.add_argument(
+        "--no-parallel",
+        action="store_true",
+        help="run codecs sequentially (default: thread-pool, one per codec)",
+    )
+    compare.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="cap on the parallel thread pool (default: len(encoders))",
+    )
+    compare.add_argument(
+        "--predicate-module",
+        default="",
+        help=(
+            "MODULE:CALLABLE pointing at a per-codec recommend predicate "
+            "(signature: codec, src, target_vmaf -> RecommendResult). "
+            "Omit to use the placeholder predicate that reports "
+            "'Phase B pending' for every codec."
+        ),
+    )
+    compare.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="write the rendered report to PATH instead of stdout",
+    )
     return parser
 
 
@@ -766,6 +827,43 @@ def _run_recommend(args: argparse.Namespace) -> int:
     return result.exit_status
 
 
+def _resolve_predicate(spec: str) -> PredicateFn | None:
+    """Resolve ``MODULE:CALLABLE`` to a callable, or ``None`` if empty."""
+    if not spec:
+        return None
+    if ":" not in spec:
+        raise ValueError(f"--predicate-module expected MODULE:CALLABLE, got {spec!r}")
+    module_name, _, attr = spec.partition(":")
+    module = importlib.import_module(module_name)
+    fn = getattr(module, attr, None)
+    if fn is None or not callable(fn):
+        raise ValueError(f"--predicate-module {spec!r}: attribute {attr!r} is not callable")
+    return fn  # type: ignore[return-value]
+
+
+def _run_compare(args: argparse.Namespace) -> int:
+    encoders = tuple(e.strip() for e in args.encoders.split(",") if e.strip())
+    if not encoders:
+        sys.stderr.write("compare: --encoders resolved to an empty list\n")
+        return 2
+    predicate = _resolve_predicate(args.predicate_module)
+    report = compare_codecs(
+        src=args.src,
+        target_vmaf=args.target_vmaf,
+        encoders=encoders,
+        predicate=predicate,
+        parallel=not args.no_parallel,
+        max_workers=args.max_workers,
+    )
+    rendered = emit_report(report, format=args.format)
+    if args.output is not None:
+        args.output.write_text(rendered)
+        sys.stderr.write(f"wrote {args.format} report -> {args.output}\n")
+    else:
+        sys.stdout.write(rendered)
+    return 0 if report.best() is not None else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -781,6 +879,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_ladder(args)
     if args.cmd == "recommend":
         return _run_recommend(args)
+    if args.cmd == "compare":
+        return _run_compare(args)
     parser.print_help()
     return 2
 

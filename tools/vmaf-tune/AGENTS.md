@@ -165,6 +165,20 @@ for the option-space digest.
   default; tests inject a fake. Do not import `onnxruntime` at
   module top-level; lazy-load via `_import_onnxruntime` so the
   corpus subcommand and unit tests work without it installed.
+- **Compare predicate is the recommend seam.** `compare.compare_codecs`
+  takes a `predicate(codec, src, target_vmaf) -> RecommendResult`
+  callable; the default predicate reports "Phase B pending" until the
+  target-VMAF bisect lands. `tests/test_compare.py` injects a fake
+  predicate so the comparison ranking is exercised without `ffmpeg` /
+  `vmaf` binaries; production callers will route the real recommend
+  backend in via the same seam. Do not branch on codec name inside
+  `compare.py` — route every per-codec call through the predicate /
+  adapter registry.
+- **`COMPARE_ROW_KEYS` is the JSON / CSV output contract** for
+  `vmaf-tune compare`. Same maintenance discipline as
+  `CORPUS_ROW_KEYS`: adding optional keys with a default is fine,
+  renaming or removing keys requires bumping the schema and updating
+  every downstream consumer in the same PR.
 
 ## Phase scope
 

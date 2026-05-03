@@ -8127,3 +8127,33 @@ inline.*
   ```bash
   pytest tools/vmaf-roi-score/tests
   ```
+
+### 0228 — `vmaf-tune compare` codec-comparison mode (research-0061 Bucket #7)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/compare.py` (new). Wholly fork-local;
+    no upstream Netflix/vmaf path overlap.
+  - `tools/vmaf-tune/src/vmaftune/cli.py` — adds the `compare`
+    subparser and `_run_compare` router.
+  - `tools/vmaf-tune/tests/test_compare.py` (new). Mocked predicate;
+    no `ffmpeg` / `vmaf` binaries required.
+  - `tools/vmaf-tune/AGENTS.md` — invariant note for the predicate
+    seam and `COMPARE_ROW_KEYS` contract.
+  - `docs/usage/vmaf-tune.md` — new "Codec comparison" section.
+- **Invariant**: `compare.compare_codecs` orchestrates per-codec
+  ranking via an injected `predicate(codec, src, target_vmaf) ->
+  RecommendResult` callable. The orchestration must not branch on
+  codec name; new codecs land as one-file additions under
+  `codec_adapters/` and are picked up automatically by the registry.
+  `COMPARE_ROW_KEYS` is the JSON / CSV column contract — same
+  maintenance discipline as `CORPUS_ROW_KEYS`.
+- **Rebase impact**: entirely fork-local. The Phase A + Phase B
+  recommend backend (ADR-0237) is fork-internal; upstream
+  Netflix/vmaf has no `tools/vmaf-tune/` tree.
+- **Re-test on rebase**:
+
+  ```shell
+  pytest tools/vmaf-tune/tests/test_compare.py -v
+  PYTHONPATH=tools/vmaf-tune/src python -m vmaftune.cli compare \
+      --src /tmp/ref.yuv --target-vmaf 92 --format markdown
+  ```

@@ -1390,6 +1390,8 @@
 
 ### Changed
 
+### Changed
+
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
@@ -1764,9 +1766,9 @@
   `blur_plane`, `picture_to_linear_rgb`) under a fixed 4-lane
   `svwhilelt_b32(0, 4)` predicate — bit-identical to the NEON sibling
   irrespective of the runtime vector length, satisfying the
-  [ADR-0138](docs/adr/0138-iqa-convolve-avx2-bitexact-double.md) /
+  [ADR-0138](docs/adr/0138-simd-bit-exactness-policy.md) /
   [ADR-0139](docs/adr/0139-ssim-simd-bitexact-double.md) /
-  [ADR-0140](docs/adr/0140-simd-dx-framework.md) byte-exact
+  [ADR-0140](docs/adr/0140-ssimulacra2-simd-bitexact.md) byte-exact
   contract. New runtime probe
   [`libvmaf/src/arm/cpu.c`](libvmaf/src/arm/cpu.c) reads
   `getauxval(AT_HWCAP2) & HWCAP2_SVE2`; new build probe in
@@ -2520,7 +2522,7 @@
   (T7-23 / ADR-0192 / ADR-0199)** (fork-local): sixth and final
   Group B float twin. Vulkan compute kernel for the float ADM
   feature extractor. Float twin of `integer_adm_vulkan`
-  ([ADR-0178](docs/adr/0178-vulkan-adm-kernel.md)) — same 4-stage
+  ([ADR-0178](docs/adr/0178-integer-adm-vulkan.md)) — same 4-stage
   / 4-scale wave-of-stages design (16 pipelines) but with float
   buffers and host-side `double` accumulation. New files:
   [`libvmaf/src/feature/vulkan/float_adm_vulkan.c`](libvmaf/src/feature/vulkan/float_adm_vulkan.c),
@@ -4546,6 +4548,28 @@
   [`docs/research/0051-speed-qa-feasibility.md`](docs/research/0051-speed-qa-feasibility.md).
 
 
+- **`vmaf-tune compare` — codec-comparison mode (research-0061
+  Bucket #7, ADR-0237 Phase A follow-up).** Given a single source and
+  a target VMAF, `vmaf-tune compare --src REF.yuv --target-vmaf 92
+  --encoders libx264,libx265,libsvtav1,libaom,libvvenc` runs each
+  codec's recommend predicate in a thread pool and emits a ranked
+  `(codec, best_crf, bitrate_kbps, encode_time_ms, vmaf_score)` table
+  sorted by smallest file. Supports `--format markdown|json|csv` and
+  `--output PATH`. Until Phase B's recommend backend lands, point
+  `--predicate-module MODULE:CALLABLE` at any importable
+  `(codec, src, target_vmaf) -> RecommendResult` callable to drive the
+  ranking from a shim. Default `--encoders` resolves to every adapter
+  currently registered in `codec_adapters/` — Phase A wires `libx264`
+  only, so the canonical four / five codec invocation only ranks
+  codecs whose adapters have already merged. New module
+  `tools/vmaf-tune/src/vmaftune/compare.py` (predicate-driven
+  orchestration + markdown / JSON / CSV renderers); 13 mocked smoke
+  tests under `tools/vmaf-tune/tests/test_compare.py` (no `ffmpeg`,
+  no built `vmaf` required). Schema exported as
+  `vmaftune.compare.COMPARE_ROW_KEYS`. User docs:
+  [`docs/usage/vmaf-tune.md`](../docs/usage/vmaf-tune.md) §"Codec
+  comparison".
+
 - **`tools/vmaf-tune/` Phase A — quality-aware encode automation scaffold
   (ADR-0237 Phase A Accepted, Research-0044).** New Python tool that
   drives FFmpeg over a `(preset, crf)` grid against `libx264`, scores
@@ -4585,8 +4609,6 @@
   digest in
   [Research-0054](docs/research/0062-saliency-student-from-scratch-on-duts.md).
   Trainer at `ai/scripts/train_saliency_student.py`.
-
-
 ### Changed
 
 - **Per-GPU-generation ULP calibration table for the cross-backend
@@ -4716,6 +4738,23 @@
   [Research-0041](docs/research/0041-gpu-gen-ulp-calibration.md),
   and the rebase-notes entry under
   [`docs/rebase-notes.md`](docs/rebase-notes.md).
+
+
+- **AI / DNN:** Replaced the `fastdvdnet_pre` smoke-only placeholder
+  ONNX with real upstream FastDVDnet weights (Tassano, Delon, Veit
+  2020; MIT license) pinned at `m-tassano/fastdvdnet` commit `c8fdf61`.
+  The new graph wraps upstream's RGB+noise-map model in a `LumaAdapter`
+  that preserves the C-side `[1, 5, H, W]` luma I/O contract from
+  ADR-0215: `Y → [Y, Y, Y]` tiling for the upstream 15-channel input,
+  a constant `sigma = 25/255` noise map, and BT.601 RGB→Y collapse on
+  the output. Upstream `nn.PixelShuffle` is swapped at export time for
+  an allowlist-safe `Reshape`/`Transpose`/`Reshape` decomposition
+  (`DepthToSpace` is deliberately not on the ONNX op allowlist).
+  Registry row `model/tiny/registry.json` flips `smoke: false` with
+  the new MIT license, upstream commit pin, and refreshed sha256.
+  9.5 MiB ONNX, opset 17. New exporter
+  `ai/scripts/export_fastdvdnet_pre.py`. See ADR-0253 and
+  `docs/ai/models/fastdvdnet_pre.md`.
 
 
 - **AI / DNN:** Replaced the `fastdvdnet_pre` smoke-only placeholder
