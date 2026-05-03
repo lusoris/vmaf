@@ -11,10 +11,21 @@ follow-up.
 
 > The shipped checkpoint is a **smoke-only synthetic placeholder** that
 > matches the upstream MobileSal I/O contract bit-for-bit, but emits
-> ~constant saliency. Real upstream weights from
-> [yun-liu/MobileSal](https://github.com/yun-liu/MobileSal) are tracked
-> as the T6-2a-followup task. Use the placeholder to wire pipelines up
-> end-to-end; swap in the real `.onnx` once it lands.
+> ~constant saliency. The original plan to swap in real upstream
+> weights from
+> [yuhuan-wu/MobileSal](https://github.com/yuhuan-wu/MobileSal) is
+> **deferred indefinitely** (see
+> [ADR-0257](../../adr/0257-mobilesal-real-weights-deferred.md) +
+> [Research-0053](../../research/0053-mobilesal-real-weights-blocker.md)):
+> upstream is licensed CC BY-NC-SA 4.0 (incompatible with the fork's
+> BSD-3-Clause-Plus-Patent), distributes weights through Google Drive
+> viewer URLs (no GitHub release, no raw-download URL the export
+> script can pin), and is an RGB-D model (the C contract is RGB-only).
+> The recommended replacement path is to swap the underlying model
+> family to U-2-Net's `u2netp` variant under Apache-2.0; that work
+> is tracked as backlog row T6-2a-replace-with-u2netp. Until then,
+> use the placeholder to wire pipelines up end-to-end and treat
+> `saliency_mean` as a content-independent constant.
 
 Upstream paper: Wu, Liu, Cheng, Lu, Cheng, *"MobileSal: Extremely
 Efficient RGB-D Salient Object Detection"*, IEEE TPAMI 2021.
@@ -52,9 +63,9 @@ model in T6-2b and exports the map in encoder-native format.
 | Size | 330 bytes (synthetic placeholder) |
 | SHA-256 | `f122631089977c4be7d60b9bf3d4daf186d275bd0587db2c9878578e006b91d4` |
 | ONNX opset | 17 |
-| Upstream source | [yun-liu/MobileSal](https://github.com/yun-liu/MobileSal) (real weights, follow-up) |
+| Upstream source (paper) | [yuhuan-wu/MobileSal](https://github.com/yuhuan-wu/MobileSal) (HEAD `8f42ded5`; not currently shippable — see ADR-0257) |
 | License (placeholder) | BSD-3-Clause-Plus-Patent (this fork) |
-| License (upstream weights, when shipped) | MIT (yun-liu/MobileSal) |
+| License (upstream MobileSal weights) | CC BY-NC-SA 4.0 — **incompatible with the fork**; per `yuhuan-wu/MobileSal/README.md` §License. ADR-0218's MIT claim was inaccurate; corrected here and in ADR-0257. |
 | Exporter (placeholder) | `scripts/gen_mobilesal_placeholder_onnx.py` |
 | Registry entry | `mobilesal_placeholder_v0` in `model/tiny/registry.json` (smoke=true) |
 | Status | Placeholder — real weights tracked as T6-2a-followup |
@@ -175,5 +186,9 @@ output. CI verifies the sha256 against `registry.json` before
 - [ADR-0218](../../adr/0218-mobilesal-saliency-extractor.md) — design
   notes (smoke-only placeholder, scoring-vs-encoder split, scalar-vs-map
   output).
+- [ADR-0257](../../adr/0257-mobilesal-real-weights-deferred.md) —
+  blocker decision deferring the T6-2a-followup real-weights swap.
+- [Research-0053](../../research/0053-mobilesal-real-weights-blocker.md)
+  — upstream survey, licence analysis, and alternatives walk.
 - [ADR-0042](../../adr/0042-tinyai-docs-required-per-pr.md) — tiny-AI
   doc-substance rule this page satisfies.

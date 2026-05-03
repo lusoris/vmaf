@@ -51,7 +51,7 @@
     {
       "id": "mobilesal_placeholder_v0",
       "kind": "nr",
-      "notes": "MobileSal saliency placeholder (T6-2a smoke-only). Synthetic Conv+Sigmoid matching the upstream MobileSal I/O contract; emits a per-pixel saliency map in [0,1]. Real upstream MIT-licensed weights tracked as T6-2a-followup. See docs/adr/0218-mobilesal-saliency-extractor.md.",
+      "notes": "MobileSal saliency placeholder (T6-2a smoke-only). Synthetic Conv+Sigmoid matching the MobileSal I/O contract; emits per-pixel saliency in [0,1]. Real-weights swap deferred per ADR-0257 (upstream yuhuan-wu/MobileSal is CC BY-NC-SA 4.0 + Google-Drive-walled + RGB-D); recommended replacement is U-2-Net u2netp (Apache-2.0). See docs/adr/0218-mobilesal-saliency-extractor.md, docs/adr/0257-mobilesal-real-weights-deferred.md, docs/research/0053-mobilesal-real-weights-blocker.md.",
       "onnx": "mobilesal.onnx",
       "opset": 17,
       "sha256": "f122631089977c4be7d60b9bf3d4daf186d275bd0587db2c9878578e006b91d4",

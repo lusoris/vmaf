@@ -6480,11 +6480,40 @@ inline.*
   # 7 pypsnr + 1 niqe pre-existing failures unchanged.
   ```
 
-- **Why this matters on rebase**: an upstream merge that touches
-  `tools/vmaf.c` (Netflix CLI tweaks land there occasionally) will
-  conflict on whichever helper boundary the upstream patch crosses.
-  Resolution policy: keep the fork's helper decomposition (the eight
-  extracted functions) and re-port the upstream change *into* the
-  appropriate helper rather than re-inlining it back into `main`.
-  Same for `float_adm.c::extract` — keep `append_debug_features`
-  intact and route any upstream debug-output changes into it.
+### 0227 — MobileSal real-weights swap deferred (ADR-0257)
+
+- **Touches**: docs-only.
+  - `docs/adr/0257-mobilesal-real-weights-deferred.md` — new ADR
+    superseding the T6-2a-followup commitment from
+    `docs/adr/0218-mobilesal-saliency-extractor.md`.
+  - `docs/research/0053-mobilesal-real-weights-blocker.md` — new
+    research digest.
+  - `docs/ai/models/mobilesal.md` — corrected upstream-license
+    record (CC BY-NC-SA 4.0, not MIT) + blocker pointer.
+  - `model/tiny/registry.json` — `mobilesal_placeholder_v0`
+    `notes` field updated to point at ADR-0257 and Research-0053
+    (no schema / sha256 / file changes).
+  - `model/tiny/mobilesal.json` — sidecar `notes` field updated
+    in lockstep with the registry.
+- **Invariant**: zero C-side surface change. The
+  `feature_mobilesal.c` extractor's tensor name contract (input
+  `input` → output `saliency_map`, NCHW float32 `[1, 3, H, W]` →
+  `[1, 1, H, W]`) is unchanged; the on-disk
+  `model/tiny/mobilesal.onnx` (sha256
+  `f1226310…`) is unchanged; `mobilesal_placeholder_v0`'s
+  `smoke: true` flag is unchanged. Any future drop-in (U-2-Net
+  export under T6-2a-replace-with-u2netp, distilled student, or
+  an upstream relicense) replaces the `.onnx` and bumps the
+  registry sha256 without touching the C side.
+- **On upstream sync**: zero interaction. `feature_mobilesal.c`,
+  the registry, the ADR, and the research digest are all
+  fork-local (T6-2a; ADR-0218 / ADR-0257; not present in
+  Netflix upstream).
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_mobilesal
+  python3 ai/scripts/validate_model_registry.py
+  ```
