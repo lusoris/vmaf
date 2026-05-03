@@ -56,7 +56,8 @@ python tools/vmaf-tune/vmaf-tune --help
 
 External binaries required at runtime:
 
-- `ffmpeg` with `--enable-libx264` on `PATH` (or `--ffmpeg-bin`).
+- `ffmpeg` with `--enable-libx264` (and `--enable-libsvtav1` if you
+  pass `--encoder libsvtav1`) on `PATH` (or `--ffmpeg-bin`).
 - `vmaf` (this fork's CLI, built via meson) on `PATH` (or `--vmaf-bin`).
 
 ## Quick start
@@ -77,6 +78,58 @@ vmaf-tune corpus \
 `--source` is repeatable — pass one flag per source clip. The grid is the
 Cartesian product of `--preset × --crf`.
 
+### SVT-AV1 example (ADR-0278)
+
+The `libsvtav1` adapter accepts the same x264-style preset names — they
+are translated to SVT-AV1's integer presets internally. AV1 CRF values
+live in `0..63`; the Phase A informative window is `(20, 50)`:
+
+```shell
+vmaf-tune corpus \
+    --source ref.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p \
+    --framerate 24 --duration 10 \
+    --encoder libsvtav1 \
+    --preset medium --preset slow \
+    --crf 28 --crf 35 --crf 42 \
+    --output corpus_av1.jsonl
+```
+
+The corpus row records the human-readable preset name (`"medium"`),
+while the FFmpeg argv carries the integer SVT-AV1 expects
+(`-preset 7`).
+
+## Codec adapter parameter ranges
+
+Each adapter declares its own quality knob, range, and preset
+vocabulary. The harness validates `(preset, crf)` against the adapter
+before invoking FFmpeg.
+
+| Encoder | CRF (absolute) | Phase A CRF window | Default CRF | Presets |
+| --- | --- | --- | --- | --- |
+| `libx264` | `0..51` | `(15, 40)` | `23` | `ultrafast`, `superfast`, `veryfast`, `faster`, `fast`, `medium`, `slow`, `slower`, `veryslow` |
+| `libsvtav1` | `0..63` | `(20, 50)` | `35` | `placebo`, `slowest`, `slower`, `slow`, `medium`, `fast`, `faster`, `veryfast` |
+
+### SVT-AV1 preset name -> integer mapping
+
+SVT-AV1 uses integer presets `0..13` (`0` = slowest / best,
+`13` = fastest). The harness maps the x264-style names below to AV1
+integers so the corpus row schema is codec-independent:
+
+| Name | SVT-AV1 integer | Notes |
+| --- | --- | --- |
+| `placebo` | `0` | Slowest; research-grade only. |
+| `slowest` | `1` | |
+| `slower` | `3` | |
+| `slow` | `5` | |
+| `medium` | `7` | SVT-AV1 default. |
+| `fast` | `9` | |
+| `faster` | `11` | |
+| `veryfast` | `13` | Fastest. |
+
+The mapping is closed and order-stable; see
+[ADR-0278](../adr/0278-vmaf-tune-codec-adapter-svtav1.md).
+
 ## CLI flags
 
 | Flag | Default | Notes |
@@ -90,6 +143,9 @@ Cartesian product of `--preset × --crf`.
 | `--encoder NAME` | `libx264` | One of `libx264`, `h264_amf`, `hevc_amf`, `av1_amf`. |
 | `--preset P` | — | Required. Repeatable. x264 preset name. |
 | `--crf N` | — | Required. Repeatable. x264 CRF integer. |
+| `--encoder NAME` | `libx264` | Currently wired: `libx264`, `libsvtav1` (ADR-0278). |
+| `--preset P` | — | Required. Repeatable. Preset name (see codec table below). |
+| `--crf N` | — | Required. Repeatable. CRF integer (range varies by codec). |
 | `--output PATH` | `corpus.jsonl` | JSONL destination. |
 | `--encode-dir PATH` | `.workingdir2/encodes` | Scratch dir; gitignored by convention. |
 | `--keep-encodes` | off | Retain encoded files after scoring. |

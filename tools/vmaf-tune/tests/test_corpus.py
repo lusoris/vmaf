@@ -83,6 +83,9 @@ def test_known_codecs_includes_x264_baseline():
     # the registry. The contract is "x264 must be present", not "x264 only".
     codecs = known_codecs()
     assert "libx264" in codecs
+    # x264 is the canonical Phase A adapter; later phases register
+    # additional codecs (libsvtav1, libx265, ...) without removing it.
+    assert "libx264" in known_codecs()
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True

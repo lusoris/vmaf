@@ -99,6 +99,20 @@ def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
 
     ``encoder`` selects the per-codec banner regex; defaults to
     ``libx264`` for backward compatibility with Phase A callers.
+# SVT-AV1 logs e.g. "SVT [info]: SVT-AV1 Encoder Lib v2.1.0" or
+# "Svt[info]:SVT-AV1 Encoder Lib v1.8.0". Match the version token only;
+# the rest of the banner varies between FFmpeg builds.
+_SVTAV1_VERSION_RE = re.compile(r"SVT-AV1 Encoder Lib\s+v?(\S+)")
+
+
+def parse_versions(stderr: str) -> tuple[str, str]:
+    """Return ``(ffmpeg_version, encoder_version)`` extracted from stderr.
+
+    The encoder-version probe walks a small list of known banner
+    patterns (x264, then SVT-AV1) so the same hook works across the
+    Phase A codec set. Returns ``("unknown", "unknown")`` for missing
+    matches rather than raising — corpus rows record what we can detect
+    and move on.
     """
     ffm = _FFMPEG_VERSION_RE.search(stderr)
     ffmpeg_version = ffm.group(1) if ffm else "unknown"
@@ -113,6 +127,15 @@ def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
         encoder_version = f"libx264-{enc.group(1)}" if enc else "unknown"
 
     return ffmpeg_version, encoder_version
+    x264 = _X264_VERSION_RE.search(stderr)
+    if x264 is not None:
+        return ffmpeg_version, f"libx264-{x264.group(1)}"
+
+    svtav1 = _SVTAV1_VERSION_RE.search(stderr)
+    if svtav1 is not None:
+        return ffmpeg_version, f"libsvtav1-{svtav1.group(1)}"
+
+    return ffmpeg_version, "unknown"
 
 
 def run_encode(
