@@ -161,6 +161,26 @@
   presets per AOM benchmarks). Routing the libaom argv slice through
   `vmaftune.encode.build_ffmpeg_command` is a follow-up alongside the
   codec-pluggable encode wiring.
+- **`vmaf-tune` resolution-aware model selection + per-resolution CRF
+  offsets (ADR-0289, PR #354 audit Bucket #8).** New module
+  [`tools/vmaf-tune/src/vmaftune/resolution.py`](tools/vmaf-tune/src/vmaftune/resolution.py)
+  exposes `select_vmaf_model_version(width, height) -> str` (height
+  ≥ 2160 picks `vmaf_4k_v0.6.1`, else `vmaf_v0.6.1`),
+  `select_vmaf_model(width, height) -> Path`, and
+  `crf_offset_for_resolution(width, height) -> int` (4K → -2,
+  1080p → 0, 720p → +2, sub-720p → +4 — codec-agnostic conservative
+  defaults; Phase B/C/D will learn per-codec offsets via the same
+  signature). The `corpus` subcommand auto-picks the model per
+  encode resolution by default; pass `--no-resolution-aware` to
+  force a single model via `--vmaf-model`. The emitted JSONL row's
+  `vmaf_model` field now records the *effective* model used per
+  row, not the global option — required for mixed-ladder corpora to
+  be unambiguous downstream. Decision rule mirrors Netflix's
+  published guidance; see
+  [ADR-0289](docs/adr/0289-vmaf-tune-resolution-aware.md) and
+  [Research-0054](docs/research/0064-vmaf-tune-resolution-aware.md).
+  17 new tests in
+  [`tools/vmaf-tune/tests/test_resolution.py`](tools/vmaf-tune/tests/test_resolution.py).
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

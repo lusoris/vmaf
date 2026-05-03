@@ -55,6 +55,39 @@ cover several PRs in one workstream; cross-link from the ID heading.
   three.
 ### 0229 — HIP fifth-consumer kernel `float_ansnr_hip` (ADR-0266)
 ### 0228 — `y4m_convert_411_422jpeg` 1-byte heap-buffer-overflow fix
+### 0228 — `vmaf-tune` resolution-aware model selection (ADR-0289)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/resolution.py` (new). Wholly
+    fork-local — no upstream Netflix/vmaf path overlap.
+  - `tools/vmaf-tune/src/vmaftune/corpus.py` — adds
+    `CorpusOptions.resolution_aware: bool = True` and pipes the
+    effective model through `score_res.request.model` into the
+    JSONL row.
+  - `tools/vmaf-tune/src/vmaftune/cli.py` — adds
+    `--resolution-aware` / `--no-resolution-aware`
+    (`BooleanOptionalAction`, default on).
+  - `tools/vmaf-tune/tests/test_resolution.py` (new).
+  - `docs/usage/vmaf-tune.md` — new "Resolution-aware mode" section.
+  - `docs/adr/0289-vmaf-tune-resolution-aware.md` (new) +
+    `docs/research/0064-vmaf-tune-resolution-aware.md` (new).
+  - `tools/vmaf-tune/AGENTS.md` — two new invariant notes.
+- **Invariant**: the height-only decision rule (`height >= 2160` →
+  `vmaf_4k_v0.6.1`, else `vmaf_v0.6.1`) is the documented contract.
+  The JSONL `vmaf_model` field is now per-row (not per-job) — mixed
+  ladder corpora legitimately contain multiple distinct values across
+  rows. Downstream consumers (Phase B / C / D) must group/filter by
+  `vmaf_model` rather than assuming a constant. Width is accepted in
+  the API for symmetry but ignored in the body; do not branch on it
+  without a follow-up ADR.
+- **Re-test**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/ -q
+  python tools/vmaf-tune/vmaf-tune corpus --help | grep resolution-aware
+  ```
+
+### 0227 — `tools/vmaf-tune/` Phase A scaffold (ADR-0237 Phase A)
 
 - **Touches**:
   - `libvmaf/tools/y4m_input.c` — upstream-mirrored Daala-derived Y4M

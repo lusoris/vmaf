@@ -87,10 +87,75 @@ Cartesian product of `--preset × --crf`.
 | `--output PATH` | `corpus.jsonl` | JSONL destination. |
 | `--encode-dir PATH` | `.workingdir2/encodes` | Scratch dir; gitignored by convention. |
 | `--keep-encodes` | off | Retain encoded files after scoring. |
-| `--vmaf-model NAME` | `vmaf_v0.6.1` | Forwarded to `vmaf --model`. |
+| `--vmaf-model NAME` | `vmaf_v0.6.1` | Forwarded to `vmaf --model`. Only used when `--no-resolution-aware` is set; otherwise auto-picked per encode resolution (see "Resolution-aware mode" below). |
+| `--resolution-aware` / `--no-resolution-aware` | on | Auto-pick the VMAF model per encode resolution. Default on. |
 | `--ffmpeg-bin PATH` | `ffmpeg` | Override the ffmpeg binary. |
 | `--vmaf-bin PATH` | `vmaf` | Override the vmaf binary. |
 | `--no-source-hash` | off | Skip `src_sha256` (faster on large YUVs; loses provenance). |
+
+## Resolution-aware mode
+
+VMAF is a resolution-aware metric: the fork ships two production-grade
+pooled-mean models — `vmaf_v0.6.1` (trained on a 1080p viewing setup)
+and `vmaf_4k_v0.6.1` (re-fit for a 4K display). Scoring 4K content
+against the 1080p model under-counts spatial detail; scoring 1080p
+content against the 4K model over-counts coding artefacts. The bias is
+several VMAF points either way — large enough to poison a
+mixed-resolution ABR-ladder corpus.
+
+When `--resolution-aware` is on (the default), `vmaf-tune` picks the
+model per encode according to a height-only rule that mirrors Netflix's
+published guidance:
+
+| Encode height | Selected model |
+| --- | --- |
+| `≥ 2160` (UHD-1 and up) | `vmaf_4k_v0.6.1` |
+| `< 2160` (everything else, including 1440p / 720p / SD) | `vmaf_v0.6.1` |
+
+The fork has no 720p / 1440p / SD model — `vmaf_v0.6.1` is the
+canonical fallback for all sub-2160p content (matches Netflix's
+recommendation).
+
+The emitted JSONL row's `vmaf_model` field now records the **effective**
+model used for *that row*, not the global `--vmaf-model` opt. Mixed-ladder
+corpora legitimately contain multiple distinct `vmaf_model` values across
+rows; downstream consumers should group / filter by `vmaf_model` rather
+than assume a constant.
+
+To force a single model regardless of resolution (e.g. to reproduce a
+legacy single-model corpus), pass `--no-resolution-aware`:
+
+```shell
+vmaf-tune corpus \
+    --source ref_4k.yuv --width 3840 --height 2160 \
+    --preset medium --crf 23 \
+    --no-resolution-aware --vmaf-model vmaf_v0.6.1 \
+    --output corpus.jsonl
+```
+
+The Python API exposes the decision rule directly for callers that
+need to consult it outside the corpus loop:
+
+```python
+from vmaftune.resolution import (
+    select_vmaf_model_version,    # str: "vmaf_v0.6.1" or "vmaf_4k_v0.6.1"
+    select_vmaf_model,            # Path: in-tree model JSON file
+    crf_offset_for_resolution,    # int: -2 / 0 / +2 / +4 by resolution band
+)
+
+assert select_vmaf_model_version(3840, 2160) == "vmaf_4k_v0.6.1"
+assert select_vmaf_model_version(1920, 1080) == "vmaf_v0.6.1"
+```
+
+`crf_offset_for_resolution` returns a small integer offset that the
+future search layer (Phase B target-VMAF bisect) can apply when seeding
+bisect bounds across an ABR ladder. The shipped defaults are
+codec-agnostic and conservative; Phase B/C/D will learn per-codec
+offsets from real corpora and override them via the same function
+signature. See
+[ADR-0289](../adr/0289-vmaf-tune-resolution-aware.md) and
+[Research-0054](../research/0064-vmaf-tune-resolution-aware.md) for the
+full rationale.
 
 ## Corpus JSONL schema
 

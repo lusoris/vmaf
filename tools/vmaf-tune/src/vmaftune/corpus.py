@@ -27,6 +27,7 @@ from pathlib import Path
 from . import CORPUS_ROW_KEYS, SCHEMA_VERSION
 from .codec_adapters import get_adapter
 from .encode import EncodeRequest, bitrate_kbps, run_encode
+from .resolution import select_vmaf_model_version
 from .score import ScoreRequest, ScoreResult, run_score
 
 
@@ -55,6 +56,12 @@ class CorpusOptions:
     vmaf_bin: str = "vmaf"
     keep_encodes: bool = False
     src_sha256: bool = True
+    # When True (default), the scorer auto-picks the resolution-appropriate
+    # VMAF model (1080p vs 4K) per ``resolution.select_vmaf_model_version``.
+    # When False, every row scores against ``vmaf_model`` regardless of
+    # encode dimensions — useful for legacy corpora that need a single-model
+    # baseline. See ADR-0289 + docs/usage/vmaf-tune.md "Resolution-aware mode".
+    resolution_aware: bool = True
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:
@@ -94,6 +101,15 @@ def iter_rows(
 
     opts.encode_dir.mkdir(parents=True, exist_ok=True)
 
+    # Resolve the VMAF model once per job — encode dimensions are fixed
+    # across all (preset, crf) cells, so the model never changes inside
+    # the loop. When --resolution-aware is off, fall back to the user's
+    # explicit `opts.vmaf_model`.
+    if opts.resolution_aware:
+        effective_model = select_vmaf_model_version(job.width, job.height)
+    else:
+        effective_model = opts.vmaf_model
+
     for preset, crf in job.cells:
         adapter.validate(preset, crf)
 
@@ -117,7 +133,7 @@ def iter_rows(
             width=job.width,
             height=job.height,
             pix_fmt=job.pix_fmt,
-            model=opts.vmaf_model,
+            model=effective_model,
         )
         if enc_res.exit_status == 0:
             score_res = run_score(score_req, vmaf_bin=opts.vmaf_bin, runner=score_runner)
@@ -179,7 +195,11 @@ def _row_for(
         "bitrate_kbps": bitrate_kbps(enc_res.encode_size_bytes, job.duration_s),
         "encode_time_ms": enc_res.encode_time_ms,
         "vmaf_score": score_res.vmaf_score,
-        "vmaf_model": opts.vmaf_model,
+        # Record the *effective* model used for this row — when
+        # `resolution_aware` is on, this can differ from `opts.vmaf_model`
+        # (e.g. opts says vmaf_v0.6.1 but a 4K row scored against
+        # vmaf_4k_v0.6.1). The score request is the source of truth.
+        "vmaf_model": score_res.request.model,
         "score_time_ms": score_res.score_time_ms,
         "ffmpeg_version": enc_res.ffmpeg_version,
         "vmaf_binary_version": score_res.vmaf_binary_version,
