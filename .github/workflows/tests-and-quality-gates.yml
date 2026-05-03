@@ -26,6 +26,7 @@ jobs:
   # The 3 Netflix CPU test pairs (1 normal + 2 checkerboard) are the source of
   # truth for VMAF correctness. They MUST pass on every PR. No skips, no excuses.
   netflix-golden:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Netflix CPU Golden Tests (D24)"
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -92,7 +93,7 @@ jobs:
   # runners. Disabled until a self-hosted GPU runner is available.
   cross-backend:
     name: "Cross-Backend ULP Diff (CPU Sanity)"
-    if: false
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (false)
     runs-on: ubuntu-latest
     needs: netflix-golden
     timeout-minutes: 20
@@ -119,6 +120,7 @@ jobs:
   # runs on stock GitHub-hosted Ubuntu — no self-hosted GPU runner needed.
   # See ADR-0176 § "Lavapipe vs hardware ICD" for the rationale.
   vulkan-vif-cross-backend:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Vulkan VIF Cross-Backend (lavapipe, places=4)"
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -317,6 +319,7 @@ jobs:
   # plumbed in (the script already supports them via --backends). Emits a
   # JSON + Markdown report under `parity-gate-report/`.
   vulkan-parity-matrix-gate:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "GPU-Parity Matrix Gate (lavapipe, T6-8)"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -386,7 +389,7 @@ jobs:
   # `if: false` until a self-hosted runner with label vmaf-arc is registered.
   vulkan-vif-arc-nightly:
     name: "Vulkan VIF Cross-Backend (Arc A380, advisory)"
-    if: false
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (false)
     runs-on: [self-hosted, vmaf-arc]
     timeout-minutes: 30
     steps:
@@ -424,6 +427,7 @@ jobs:
 
   # ===== Sanitizer build =====
   sanitizers:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Sanitizers — ASan + UBSan + MSan"
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -466,6 +470,7 @@ jobs:
   # NOT require ORT at configure time — stub branch is exercised when the
   # ubuntu runner doesn't have onnxruntime available via pkg-config.
   dnn:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Tiny AI (DNN Suite + ai/ Pytests)"
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -559,6 +564,7 @@ jobs:
   #   /tmp/mcp-venv/bin/pip install -e .[dev] && \
   #   /tmp/mcp-venv/bin/pytest tests/ -v
   mcp-smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "MCP Smoke (Embedded C + Python Server)"
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -634,6 +640,7 @@ jobs:
   # ≥70% overall line coverage, ≥85% on security-critical files
   # (libvmaf/src/dnn/, opt.c, read_json_model.c).
   coverage:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Coverage Gate (Ramping to 70% / 85% Critical)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -804,7 +811,7 @@ jobs:
   coverage-gpu:
     name: "Coverage Gate — GPU Backends (Advisory)"
     runs-on: [self-hosted, linux, gpu-full]
-    if: ${{ vars.GPU_COVERAGE_ENABLED == 'true' }}
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (${{ vars.GPU_COVERAGE_ENABLED == 'true' }})
     continue-on-error: true
     timeout-minutes: 45
     steps:
@@ -885,6 +892,7 @@ jobs:
   # ===== Power of 10 rule 5 — assertion density =====
   # Every fork-added (non-trivial) function must contain ≥1 assert().
   assertion-density:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Assertion Density (Power of 10 §5)"
     runs-on: ubuntu-latest
     timeout-minutes: 5

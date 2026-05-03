@@ -21,6 +21,7 @@ env:
 jobs:
   # ===== Linux / macOS / ARM builds =====
   libvmaf-build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
@@ -444,6 +445,7 @@ jobs:
   # re-pinned to `Build — Windows MinGW64 (CPU)` immediately after this
   # workflow lands (see ADR-0116 §Consequences).
   windows:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Build — Windows MinGW64 (CPU)
     runs-on: windows-latest
     timeout-minutes: 45
@@ -553,6 +555,7 @@ jobs:
   # The two job names are pinned to required status checks on master
   # immediately after merge (see ADR-0121 §Consequences).
   windows-gpu-build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: ${{ matrix.name }}
     runs-on: windows-latest
     timeout-minutes: 60
