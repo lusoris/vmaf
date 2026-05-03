@@ -21,13 +21,19 @@
 # template helper in init/submit/collect/close. -ENOSYS at the
 # template layer surfaces verbatim through the consumer.
 #
-# `feature/hip/float_psnr_hip.c` is the second kernel-template
-# consumer (ADR-0253) — registers `vmaf_fex_float_psnr_hip` and
-# mirrors the CUDA twin (`feature/cuda/float_psnr_cuda.c`) in shape.
-# Same scaffold posture: the consumer compiles host-only and
-# `init()` surfaces -ENOSYS through the kernel-template helpers
-# until the runtime PR (T7-10b) lands real `hipStreamCreate` /
-# `hipMemcpyAsync` bodies.
+# `feature/hip/ciede_hip.c` is the third kernel-template consumer
+# (ADR-0257) — registers `vmaf_fex_ciede_hip` and mirrors the CUDA
+# twin (`feature/cuda/integer_ciede_cuda.c`). Same scaffold posture:
+# the consumer compiles host-only and `init()` surfaces -ENOSYS
+# through the kernel-template helpers until T7-10b lands real
+# `hipStreamCreate` / `hipMemcpyAsync` bodies.
+#
+# `feature/hip/float_moment_hip.c` is the fourth kernel-template
+# consumer (ADR-0258) — registers `vmaf_fex_float_moment_hip` and
+# mirrors the CUDA twin (`feature/cuda/integer_moment_cuda.c`).
+# Same scaffold posture as the third consumer; emits four features
+# (`float_moment_ref{1st,2nd}`, `float_moment_dis{1st,2nd}`) once
+# the runtime kernel arrives.
 hip_sources += files(
     'common.c',
     'picture_hip.c',
@@ -37,7 +43,8 @@ hip_sources += files(
     '../feature/hip/vif_hip.c',
     '../feature/hip/motion_hip.c',
     '../feature/hip/integer_psnr_hip.c',
-    '../feature/hip/float_psnr_hip.c',
+    '../feature/hip/ciede_hip.c',
+    '../feature/hip/float_moment_hip.c',
 )
 
 # Optional probe — does not gate the build. Real linkage against

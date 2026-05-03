@@ -1,21 +1,29 @@
-# HIP (AMD ROCm) compute backend (scaffold + first + second consumer)
+# HIP (AMD ROCm) compute backend (scaffold + four kernel-template consumers)
 
-> **Status: scaffold + two kernel-template consumers (host scaffolding
-> only).** Every entry point in
+> **Status: scaffold + four kernel-template consumers (host
+> scaffolding only).** Every entry point in
 > [`libvmaf_hip.h`](../../../libvmaf/include/libvmaf/libvmaf_hip.h)
 > currently returns `-ENOSYS` pending the runtime PR (T7-10b). The
-> first kernel-template consumer (`integer_psnr_hip`, name `psnr_hip`)
-> ships its host scaffolding under
-> [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md). The second
-> consumer (`float_psnr_hip`, name `float_psnr_hip`) follows the
-> same scaffold posture under
-> [ADR-0254](../../adr/0254-hip-second-consumer-float-psnr.md) on top
-> of the [ADR-0212](../../adr/0212-hip-backend-scaffold.md) base.
-> Both consumers register and are looked-up-able from the feature
-> engine, but their `init()` returns `-ENOSYS` because the
+> kernel-template consumers shipped so far are:
+>
+> 1. `integer_psnr_hip` (name `psnr_hip`) under
+>    [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md).
+> 2. `float_psnr_hip` (name `float_psnr_hip`) under
+>    [ADR-0254](../../adr/0254-hip-second-consumer-float-psnr.md).
+> 3. `ciede_hip` (name `ciede_hip`) under
+>    [ADR-0259](../../adr/0259-hip-third-consumer-ciede.md) — pins
+>    the kernel-template's "no-memset bypass" path (single float per
+>    block, no atomic).
+> 4. `float_moment_hip` (name `float_moment_hip`) under
+>    [ADR-0260](../../adr/0260-hip-fourth-consumer-float-moment.md) —
+>    pins the kernel-template's "memset multiple uint64 counters"
+>    path (four atomic counters in one kernel pass).
+>
+> All four register and are looked-up-able from the feature engine,
+> but their `init()` returns `-ENOSYS` because the
 > `kernel_template.c` helper bodies they call still return `-ENOSYS`.
-> The runtime PR flips both at once. Rollout cadence mirrors the
-> Vulkan scaffold-then-runtime split that
+> The runtime PR flips all of them at once. Rollout cadence mirrors
+> the Vulkan scaffold-then-runtime split that
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) /
 > [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md) used
 > (T5-1 → T5-1b).
@@ -122,17 +130,21 @@ ROCm SDK that no kernel uses yet).
   "Decision".
 - The original ADR-0212 scaffold deliberately did not register the
   ADM / VIF / motion stubs with the feature registry. ADR-0241
-  flipped that posture for **integer PSNR**: `vmaf_fex_psnr_hip` is
-  in `feature_extractor_list` under `#if HAVE_HIP`. ADR-0254
-  extends it to **float PSNR**: `vmaf_fex_float_psnr_hip` follows
-  the same posture so a caller asking for `vmaf --feature
-  float_psnr_hip` gets the same "extractor found, runtime not
-  ready" surface (`-ENOSYS` at `init()`). The runtime PR (T7-10b)
-  keeps both rows verbatim and adds the remaining siblings (ADM,
-  VIF, motion). The remaining stubs (`adm_hip.c` / `vif_hip.c` /
+  flipped that posture for **integer PSNR**, ADR-0254 extended it
+  to **float PSNR**, and ADR-0259 / ADR-0260 extended it to
+  **ciede** and **float moment**. All four extractors
+  (`vmaf_fex_psnr_hip`, `vmaf_fex_float_psnr_hip`,
+  `vmaf_fex_ciede_hip`, `vmaf_fex_float_moment_hip`) are now in
+  `feature_extractor_list` under `#if HAVE_HIP`, so a caller asking
+  for any of those features by name (`vmaf --feature psnr_hip`,
+  `--feature ciede_hip`, ...) gets a clean "extractor found, runtime
+  not ready" surface (`-ENOSYS` at `init()`) instead of "no such
+  extractor". The runtime PR (T7-10b) keeps these rows verbatim
+  and adds the remaining siblings (ADM, VIF, motion). The
+  remaining scaffold stubs (`adm_hip.c` / `vif_hip.c` /
   `motion_hip.c`) stay unregistered until they grow their own
   kernel-template consumer host scaffolding the same way these
-  two have.
+  four have.
 - HIP runtime types (`hipDevice_t`, `hipStream_t`) cross the public
   ABI as `uintptr_t`. This keeps `libvmaf_hip.h` free of
   `<hip/hip_runtime.h>`, mirroring the pattern Vulkan adopted in
@@ -148,9 +160,16 @@ ROCm SDK that no kernel uses yet).
   [ADR-0221](../../adr/0221-gpu-kernel-template.md)'s CUDA template
   decision onto HIP.
 - [ADR-0254](../../adr/0254-hip-second-consumer-float-psnr.md) —
-  second kernel-template consumer (`float_psnr_hip`); proves the
-  template's shape generalises across feature precisions
-  (float partials vs the first consumer's int64 SSE).
+  second kernel-template consumer (`float_psnr_hip`); float
+  partials precision posture.
+- [ADR-0259](../../adr/0259-hip-third-consumer-ciede.md) — third
+  kernel-template consumer (`ciede_hip`); pins the
+  kernel-template's `submit_pre_launch` bypass shape (no atomic,
+  no memset).
+- [ADR-0260](../../adr/0260-hip-fourth-consumer-float-moment.md) —
+  fourth kernel-template consumer (`float_moment_hip`); pins the
+  multi-counter uint64 readback shape so `submit_pre_launch` can
+  later memset multiple counters in one helper call.
 - [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) — the
   Vulkan precedent this PR mirrors.
 - [Research-0033](../../research/0033-hip-applicability.md) —

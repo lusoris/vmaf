@@ -112,10 +112,14 @@ extern VmafFeatureExtractor vmaf_fex_cambi_vulkan;
  * but `init()` returns -ENOSYS until the runtime PR (T7-10b) replaces
  * the kernel-template helper bodies with real HIP calls. */
 extern VmafFeatureExtractor vmaf_fex_psnr_hip;
-/* HIP second-consumer kernel — ADR-0253. Same scaffold posture as
- * the first consumer: registration succeeds, `init()` returns -ENOSYS
- * until T7-10b. */
-extern VmafFeatureExtractor vmaf_fex_float_psnr_hip;
+/* HIP third-consumer kernel — T7-10b follow-up / ADR-0257. Same
+ * scaffold posture as the first consumer: registration succeeds,
+ * `init()` returns -ENOSYS until T7-10b. Mirrors
+ * `vmaf_fex_ciede_cuda` field-for-field. */
+extern VmafFeatureExtractor vmaf_fex_ciede_hip;
+/* HIP fourth-consumer kernel — T7-10b follow-up / ADR-0258. Same
+ * scaffold posture; emits four `float_moment_*` features. */
+extern VmafFeatureExtractor vmaf_fex_float_moment_hip;
 #endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_fastdvdnet_pre;
@@ -194,10 +198,15 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * surface instead of "no such extractor". The runtime PR
      * (T7-10b) keeps this row verbatim and adds its siblings. */
     &vmaf_fex_psnr_hip,
-    /* Second consumer (ADR-0253): same scaffold-only registration
-     * posture — `float_psnr_hip` registers, `init()` returns
-     * -ENOSYS until T7-10b. */
-    &vmaf_fex_float_psnr_hip,
+    /* Third consumer (ADR-0257): `ciede_hip` mirrors
+     * `integer_ciede_cuda.c`'s call graph. Same scaffold-only
+     * registration posture — registers, `init()` returns -ENOSYS
+     * until T7-10b. */
+    &vmaf_fex_ciede_hip,
+    /* Fourth consumer (ADR-0258): `float_moment_hip` mirrors
+     * `integer_moment_cuda.c`'s call graph; emits four
+     * `float_moment_*` features once the runtime kernel arrives. */
+    &vmaf_fex_float_moment_hip,
 #endif
     &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2,
     &vmaf_fex_null, NULL};
