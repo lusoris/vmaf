@@ -1,7 +1,8 @@
-# ADR-0234: GPU-generation-aware ULP calibration head (proposal)
+# ADR-0234: GPU-generation-aware ULP calibration head
 
-- **Status**: Proposed
-- **Date**: 2026-05-01
+- **Status**: Accepted (2026-05-03 — calibration-table tier landed; ONNX-head
+  tier remains scoped per "Decision" §)
+- **Date**: 2026-05-01 (proposed) / 2026-05-03 (accepted)
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, gpu, vulkan, cuda, sycl, cross-backend, fork-local, t7-gpu-ulp-cal
 
@@ -132,3 +133,30 @@ least one real GPU.
   estimate, smallest viable training set.
 - Companion code: [`ai/scripts/collect_gpu_calibration_data.py`](../../ai/scripts/collect_gpu_calibration_data.py).
 - Related PRs: this ADR's PR.
+
+## Implementation status (2026-05-03)
+
+The calibration-table tier of this ADR shipped under the PR
+"feat(ci): T-GPU-ULP — per-GPU-gen calibration table". That PR adds
+[`scripts/ci/gpu_ulp_calibration.yaml`](../../scripts/ci/gpu_ulp_calibration.yaml)
+and wires both
+[`scripts/ci/cross_backend_vif_diff.py`](../../scripts/ci/cross_backend_vif_diff.py)
+and
+[`scripts/ci/cross_backend_parity_gate.py`](../../scripts/ci/cross_backend_parity_gate.py)
+to a per-GPU-id tolerance lookup. Coverage on land:
+
+- 1 calibrated row (Mesa lavapipe — hosted-CI baseline; tolerances
+  match the gate's pre-existing `FEATURE_TOLERANCE` defaults so
+  behaviour is unchanged).
+- 11 placeholder rows (NVIDIA Ampere/Turing/Ada/Hopper, AMD
+  RDNA2/RDNA3, Intel Arc Alchemist/Battlemage, generic Intel SYCL).
+  Placeholder rows fall back to the per-feature default until a
+  real-hardware corpus replaces their `features:` block.
+
+The `--gpu-calibrated` CLI flag and the ONNX calibration head
+described in §Decision remain deferred to the follow-up PR
+`feat(ai): T7-GPU-ULP-CAL — calibration-head v0`, gated on the
+data-collection script producing a real corpus on at least one
+real GPU. The table tier is the prerequisite plumbing — it
+establishes the per-arch identification surface and the
+threshold-lookup contract that the head will reuse.

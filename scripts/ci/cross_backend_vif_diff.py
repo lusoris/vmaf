@@ -40,6 +40,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+# The calibration loader lives next to this script; ensure the
+# script directory is on sys.path so ``python3 scripts/ci/<this>.py``
+# (which doesn't add the script's parent to sys.path the way
+# ``-m`` invocation would) finds the sibling module reliably.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cross_backend_calibration import DEFAULT_CALIBRATION_PATH, load_calibration_table
+
 FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     "vif": (
         "integer_vif_scale0",
@@ -106,17 +113,17 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
     # GPU long-tail batch 2 part 2 (T7-23 / ADR-0188 / ADR-0190):
     # float_ms_ssim. 5-level pyramid + Wang product combine. Single
     # emitted metric (the enable_lcs extras are gated separately
-    # via "float_ms_ssim_lcs" — T7-35 / ADR-0243 — so the default
+    # via "float_ms_ssim_lcs" — T7-35 / ADR-0215 — so the default
     # gate stays cheap).
     "float_ms_ssim": ("float_ms_ssim",),
-    # T7-35 / ADR-0243: enable_lcs adds the 15 per-scale L/C/S
+    # T7-35 / ADR-0215: enable_lcs adds the 15 per-scale L/C/S
     # triples on top of the combined `float_ms_ssim` score. The
     # GPU kernels already produce l_means / c_means / s_means per
     # scale (the vert pass's "_lcs" suffix); this entry gates the
     # bit-identical-vs-CPU promise on the extra metrics. Use
     # `--feature float_ms_ssim_lcs --backend {vulkan,cuda}` and
     # pass `enable_lcs=true` via the build_command's option-pass
-    # path. places=4 contract per ADR-0243.
+    # path. places=4 contract per ADR-0215.
     "float_ms_ssim_lcs": (
         "float_ms_ssim",
         "float_ms_ssim_l_scale0",
@@ -212,7 +219,7 @@ FEATURE_METRICS: dict[str, tuple[str, ...]] = {
 
 # Some `--feature` keys here are pseudo-names that map to a real
 # libvmaf extractor plus a `feature=NAME:opt=val` option pass-through.
-# Used today only by `float_ms_ssim_lcs` (T7-35 / ADR-0243) — the
+# Used today only by `float_ms_ssim_lcs` (T7-35 / ADR-0215) — the
 # enable_lcs option flips the same extractor (`float_ms_ssim`) into
 # 16-metric mode. Each entry is (extractor_base_name, "opt=val").
 FEATURE_ALIASES: dict[str, tuple[str, str]] = {
@@ -304,12 +311,29 @@ def load_frames(path: Path) -> list[dict]:
         return json.load(f)["frames"]
 
 
-def diff(cpu: list[dict], gpu: list[dict], metrics: tuple[str, ...], places: int) -> int:
+def diff(
+    cpu: list[dict],
+    gpu: list[dict],
+    metrics: tuple[str, ...],
+    places: int,
+    tolerance_override: float | None = None,
+    tolerance_source: str = "places",
+) -> int:
+    """Per-metric absolute-tolerance comparison.
+
+    ``places`` retains the legacy contract — ``threshold = 0.5 * 10**-places``.
+    ``tolerance_override``, when supplied, replaces that with an
+    explicit absolute ceiling (used by the ADR-0234 calibration-table
+    path). ``tolerance_source`` is the human-readable label printed
+    in the verdict header so reviewers can see *why* the gate picked
+    its threshold (places, calibrated arch, placeholder fallback).
+    """
+
     if len(cpu) != len(gpu):
         print(f"FAIL: frame count mismatch (cpu={len(cpu)}, gpu={len(gpu)})")
         return 1
 
-    threshold = 0.5 * (10**-places)
+    threshold = tolerance_override if tolerance_override is not None else 0.5 * (10**-places)
 
     per_metric_max = dict.fromkeys(metrics, 0.0)
     per_metric_mismatch = dict.fromkeys(metrics, 0)
@@ -322,14 +346,16 @@ def diff(cpu: list[dict], gpu: list[dict], metrics: tuple[str, ...], places: int
             if d > threshold:
                 per_metric_mismatch[m] += 1
 
-    print(f"cross-backend diff, {len(cpu)} frames, tolerance places={places}")
-    print(f"{'metric':<25} {'max_abs_diff':<15} {'places={} mismatches'.format(places)}")
+    print(
+        f"cross-backend diff, {len(cpu)} frames, "
+        f"tolerance={threshold:.3e} (source={tolerance_source})"
+    )
+    print(f"{'metric':<25} {'max_abs_diff':<15} mismatches")
     fail = False
     for m in metrics:
         verdict = "OK" if per_metric_mismatch[m] == 0 else "FAIL"
         print(
-            f"  {m:<25} {per_metric_max[m]:<15.6e} "
-            f"{per_metric_mismatch[m]}/{len(cpu)}  {verdict}"
+            f"  {m:<25} {per_metric_max[m]:<15.6e} {per_metric_mismatch[m]}/{len(cpu)}  {verdict}"
         )
         if per_metric_mismatch[m] > 0:
             fail = True
@@ -349,6 +375,24 @@ def main() -> int:
     ap.add_argument("--pixel-format", default="420")
     ap.add_argument("--bitdepth", type=int, default=8)
     ap.add_argument("--places", type=int, default=4)
+    ap.add_argument(
+        "--gpu-id",
+        type=str,
+        default=None,
+        help=(
+            "runtime GPU identifier (Research-0041 schema, e.g. "
+            "'vulkan:0x10005:0x0' for lavapipe, 'cuda:8.6' for Ampere "
+            "RTX 30). When supplied, the per-feature tolerance is "
+            "looked up in the ADR-0234 calibration table; otherwise "
+            "--places remains authoritative."
+        ),
+    )
+    ap.add_argument(
+        "--calibration-table",
+        type=Path,
+        default=DEFAULT_CALIBRATION_PATH,
+        help=(f"path to the ADR-0234 calibration YAML (default: {DEFAULT_CALIBRATION_PATH})"),
+    )
     ap.add_argument(
         "--feature",
         choices=tuple(FEATURE_METRICS),
@@ -417,7 +461,7 @@ def main() -> int:
         device=None,
     )
 
-    print(f"running {args.backend} {args.feature} (device {args.device}) " f"→ {gpu_json}")
+    print(f"running {args.backend} {args.feature} (device {args.device}) → {gpu_json}")
     run_vmaf(
         args.vmaf_binary,
         args.reference,
@@ -432,11 +476,39 @@ def main() -> int:
         device=args.device,
     )
 
+    # ADR-0234: when ``--gpu-id`` is supplied, look up the per-arch
+    # tolerance for this feature. Falls back to ``--places`` when:
+    #  - no --gpu-id was given (legacy callers, default behaviour);
+    #  - pyyaml is unavailable (loader returns None);
+    #  - the gpu_id matches no row;
+    #  - the matched row has no override for ``args.feature``
+    #    (placeholder rows: registered arch, no calibration data).
+    tolerance_override: float | None = None
+    tolerance_source = f"places={args.places}"
+    if args.gpu_id is not None:
+        table = load_calibration_table(args.calibration_table)
+        if table is not None:
+            entry = table.lookup(args.gpu_id)
+            if entry is not None and args.feature in entry.features:
+                tolerance_override = float(entry.features[args.feature])
+                tolerance_source = f"calibration {entry.gpu_id_pattern} ({entry.status})"
+            elif entry is not None:
+                tolerance_source = (
+                    f"calibration {entry.gpu_id_pattern} "
+                    f"(no per-feature override; places={args.places} fallback)"
+                )
+            else:
+                tolerance_source = (
+                    f"no calibration entry for {args.gpu_id}; places={args.places} fallback"
+                )
+
     return diff(
         load_frames(cpu_json),
         load_frames(gpu_json),
         FEATURE_METRICS[args.feature],
         args.places,
+        tolerance_override=tolerance_override,
+        tolerance_source=tolerance_source,
     )
 
 
