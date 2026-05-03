@@ -318,6 +318,30 @@
   5-rung 1080p/720p/480p/360p/240p ladder. See
   [`docs/usage/vmaf-tune.md` § "Per-title ladder"](docs/usage/vmaf-tune.md).
 
+- **`fr_regressor_v2` probabilistic head — deep-ensemble + conformal
+  scaffold (ADR-0279).** Adds the trainer
+  [`ai/scripts/train_fr_regressor_v2_ensemble.py`](ai/scripts/train_fr_regressor_v2_ensemble.py),
+  the evaluator
+  [`ai/scripts/eval_probabilistic_proxy.py`](ai/scripts/eval_probabilistic_proxy.py),
+  and the manifest sidecar `model/tiny/fr_regressor_v2_ensemble_v1.json`.
+  Trains N=5 copies of the v2 architecture under distinct seeds,
+  exports each as a separate two-input ONNX
+  (`fr_regressor_v2_ensemble_v1_seed{0..4}.onnx`), and aggregates
+  outputs into `(mu, sigma)` at inference. Optional split-conformal
+  calibration on a held-out fraction yields a distribution-free
+  marginal coverage guarantee at 1 − α (Vovk 2005, Romano 2019).
+  Surfaces the prediction interval the in-flight `vmaf-tune
+  --quality-confidence 0.95` flag (ADR-0237) needs to answer
+  "smallest CRF where the lower 95 % VMAF bound is ≥ 92". Smoke-only
+  ship — synthetic 100-row corpus, 1 epoch / member; production
+  training is gated on the multi-codec Phase A corpus and tracked as
+  backlog item T7-FR-REGRESSOR-V2-PROBABILISTIC. Five new ensemble
+  members register as `kind: "fr"` rows in
+  `model/tiny/registry.json`; the manifest is the higher-level
+  ensemble entry point. Closes PR #354 audit Bucket #18 (top-3
+  ranked). Companion docs:
+  [`docs/ai/models/fr_regressor_v2_probabilistic.md`](docs/ai/models/fr_regressor_v2_probabilistic.md),
+  [`docs/research/0067-fr-regressor-v2-probabilistic.md`](docs/research/0067-fr-regressor-v2-probabilistic.md).
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships
