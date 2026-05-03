@@ -162,6 +162,19 @@
 
 ### Changed
 
+- **Repaired 4 wrong-NNNN ADR refs in CHANGELOG / rebase-notes (PR #304
+  follow-up).** The 11 cases PR #304 deliberately skipped were re-audited
+  against the current `docs/adr/` tree — 7 of them already resolve to
+  existing files (the duplicate-NNNN ADRs landed since #304 ran its scan).
+  The remaining 4 were genuine slug-drift cases where the cited filename
+  did not exist on disk: `0138-simd-bit-exactness-policy.md` →
+  `0138-iqa-convolve-avx2-bitexact-double.md`,
+  `0140-ssimulacra2-simd-bitexact.md` → `0140-simd-dx-framework.md`,
+  `0190-float-ms-ssim-cuda.md` → `0190-ms-ssim-vulkan.md`,
+  `0178-integer-adm-vulkan.md` → `0178-vulkan-adm-kernel.md`. All four
+  retain the original cited NNNN; only the slug was updated to the
+  on-disk filename. No ADR content changed; no NNNN renumbered.
+
 - **`cambi_vulkan.c` migrated to `vulkan/kernel_template.h`
   (T-GPU-DEDUP-25, 5-bundle).** Five distinct push-constant struct
   sizes (one per pipeline stage — preprocess / derivative /
@@ -1528,9 +1541,9 @@
   `blur_plane`, `picture_to_linear_rgb`) under a fixed 4-lane
   `svwhilelt_b32(0, 4)` predicate — bit-identical to the NEON sibling
   irrespective of the runtime vector length, satisfying the
-  [ADR-0138](docs/adr/0138-simd-bit-exactness-policy.md) /
+  [ADR-0138](docs/adr/0138-iqa-convolve-avx2-bitexact-double.md) /
   [ADR-0139](docs/adr/0139-ssim-simd-bitexact-double.md) /
-  [ADR-0140](docs/adr/0140-ssimulacra2-simd-bitexact.md) byte-exact
+  [ADR-0140](docs/adr/0140-simd-dx-framework.md) byte-exact
   contract. New runtime probe
   [`libvmaf/src/arm/cpu.c`](libvmaf/src/arm/cpu.c) reads
   `getauxval(AT_HWCAP2) & HWCAP2_SVE2`; new build probe in
