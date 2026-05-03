@@ -179,6 +179,16 @@ for the option-space digest.
   `CORPUS_ROW_KEYS`: adding optional keys with a default is fine,
   renaming or removing keys requires bumping the schema and updating
   every downstream consumer in the same PR.
+- **Score backend selection is strict-by-default
+  ([ADR-0299](../../docs/adr/0299-vmaf-tune-gpu-score.md)).**
+  `score_backend.select_backend(prefer)` honours `cuda` / `vulkan` /
+  `sycl` / `cpu` exactly — if the requested backend is not available,
+  it raises `BackendUnavailableError` rather than silently falling back
+  to CPU. Only `prefer="auto"` walks the fallback chain. Do not "fix"
+  a strict-mode test that fails on a CI runner without GPU by adding
+  silent fallback to `select_backend`; the strict guarantee is
+  load-bearing for operator wall-clock expectations. Mock the
+  `available` argument or `runner` instead.
 
 ## Phase scope
 

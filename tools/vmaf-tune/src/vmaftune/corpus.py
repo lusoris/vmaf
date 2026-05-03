@@ -62,6 +62,7 @@ class CorpusOptions:
     # encode dimensions — useful for legacy corpora that need a single-model
     # baseline. See ADR-0289 + docs/usage/vmaf-tune.md "Resolution-aware mode".
     resolution_aware: bool = True
+    score_backend: str | None = None  # libvmaf --backend value; None = binary default
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:
@@ -145,7 +146,12 @@ def iter_rows(
             model=effective_model,
         )
         if enc_res.exit_status == 0:
-            score_res = run_score(score_req, vmaf_bin=opts.vmaf_bin, runner=score_runner)
+            score_res = run_score(
+                score_req,
+                vmaf_bin=opts.vmaf_bin,
+                runner=score_runner,
+                backend=opts.score_backend,
+            )
         else:
             # Skip scoring on encode failure; row records the failure.
             score_res = ScoreResult(

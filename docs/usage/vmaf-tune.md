@@ -160,8 +160,10 @@ The mapping is closed and order-stable; see
 | `--resolution-aware` / `--no-resolution-aware` | on | Auto-pick the VMAF model per encode resolution. Default on. |
 | `--ffmpeg-bin PATH` | `ffmpeg` | Override the ffmpeg binary. |
 | `--vmaf-bin PATH` | `vmaf` | Override the vmaf binary. |
+| `--score-backend NAME` | `auto` | libvmaf scoring backend — `auto\|cpu\|cuda\|sycl\|vulkan`. See below. |
 | `--no-source-hash` | off | Skip `src_sha256` (faster on large YUVs; loses provenance). |
 
+<<<<<<< HEAD
 ## Resolution-aware mode
 
 VMAF is a resolution-aware metric: the fork ships two production-grade
@@ -226,6 +228,75 @@ signature. See
 [Research-0054](../research/0064-vmaf-tune-resolution-aware.md) for the
 full rationale.
 
+=======
+## GPU scoring backend
+
+Per [ADR-0299](../adr/0299-vmaf-tune-gpu-score.md), `vmaf-tune corpus`
+forwards a `--backend NAME` argument to the libvmaf CLI so scoring runs
+on a GPU when one is present. CPU VMAF runs at ~1–2 fps on 1080p; the
+CUDA / Vulkan / SYCL backends shipped with this fork
+([ADR-0127](../adr/0127-vulkan-compute-backend.md),
+[ADR-0175](../adr/0175-vulkan-backend-scaffold.md),
+[ADR-0186](../adr/0186-vulkan-image-import-impl.md)) deliver
+**10–30× speedup** on the score axis.
+
+### Modes
+
+| Value | Behaviour |
+| --- | --- |
+| `auto` (default) | Detect what the local `vmaf` binary supports + what the host hardware advertises, then pick the fastest available backend in the order `cuda → vulkan → sycl → cpu`. Falls back to CPU silently only because no GPU was found. |
+| `cuda` / `vulkan` / `sycl` | Strict mode. Errors out with `BackendUnavailableError` if the local `vmaf` binary does not support the requested backend or the host hardware is missing. **No silent downgrade to CPU** — that would mask hardware/build mismatches and lie about wall-clock expectations. |
+| `cpu` | Force the CPU path. Useful for reproducibility against the Netflix golden-data gate or to bypass a known-bad GPU driver day. |
+
+### Detection heuristics
+
+`vmaf-tune` inspects the `vmaf --help` output to learn which backends
+the binary advertises (the CLI prints a line of the form
+`--backend $name: ...auto|cpu|cuda|sycl|vulkan`), then runs cheap
+hardware probes:
+
+- **CUDA**: `nvidia-smi -L` returns at least one `GPU` line.
+- **Vulkan**: `vulkaninfo --summary` reports a `deviceName`.
+- **SYCL**: `sycl-ls` lists at least one `:gpu` device.
+
+Missing tools degrade to "backend not available" — they never raise
+hard errors. CPU is always considered available even if the help line
+is missing.
+
+### Wall-clock expectation (60 s 1080p source, indicative)
+
+| Score backend | Hardware | Wall-clock | Throughput |
+| --- | --- | --- | --- |
+| `cpu` | AVX2 desktop CPU | ~600–1200 s | ~1.2–2.5 fps |
+| `cuda` | RTX 30/40-class GPU | ~50–120 s | ~12–30 fps |
+| `vulkan` | RTX 30/40 / RDNA3 | ~60–140 s | ~10–25 fps |
+| `sycl` | Intel Arc / Iris Xe | ~80–180 s | ~8–18 fps |
+
+Numbers are order-of-magnitude only; exact figures depend on the
+specific feature extractors enabled by the model
+(`vmaf_v0.6.1` versus tiny-AI variants), whether `--keep-encodes` is
+on, and host I/O bandwidth. Cross-backend numerical parity is
+guaranteed to `places=4` by the
+[ADR-0214](../adr/0214-gpu-parity-ci-gate.md) CI gate.
+
+### Examples
+
+```shell
+# Default — auto-pick the fastest backend.
+vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
+    --preset medium --crf 22 --crf 28
+
+# Force CUDA. Errors out clearly if /opt/cuda is missing or the
+# vmaf binary was built without CUDA support.
+vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
+    --preset medium --crf 22 --score-backend cuda
+
+# Pin CPU for reproducibility against the Netflix golden gate.
+vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
+    --preset medium --crf 22 --score-backend cpu
+```
+
+>>>>>>> 5f8eaba2 (feat(tools): vmaf-tune GPU score backend (--score-backend cuda, ~10-30x faster))
 ## Corpus JSONL schema
 
 Each row is one JSON object on its own line. The full key list is
