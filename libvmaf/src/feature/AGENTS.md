@@ -110,6 +110,23 @@ feature/
      upstream ever changes the `2.0` literal to `2.0f` (or
      restructures the l/c numerators), all three SIMD variants
      need a matching rewrite.
+  3. **AVX-512 vector-double per-lane reduction**: the AVX-512
+     accumulator (`x86/ssim_avx512.c`) computes `lv`, `cv`, `sv`,
+     and `lv*cv*sv` lane-wise in two 8-wide `__m512d` passes via
+     `_mm512_cvtps_pd` widening + plain `_mm512_mul_pd` /
+     `_mm512_add_pd` / `_mm512_div_pd` (no `_mm512_fmadd_pd`),
+     then spills to `_Alignas(64) double[16]×4` and accumulates
+     left-to-right scalar into `local_*`. The vector-double form
+     is bit-identical to scalar lane-wise by IEEE-754, but only
+     because: (a) op order matches scalar's parse — `((2*rm)*cm
+     + C1)/l_den`, etc.; (b) no FMA contraction; (c) the running
+     sum stays scalar left-to-right, lane 0 → lane 15. Tree
+     reductions over the 16-lane block break ADR-0139's
+     running-sum invariant against scalar and are forbidden
+     unless scalar itself is rewritten in lockstep. AVX2 and NEON
+     stay on the per-lane scalar path (`ssim_accumulate_lane`)
+     for now — vectorising them with the same `__m256d` /
+     `float64x2_t` widening would follow the same three rules.
 - **`simd_dx.h` DX macros** (fork-local, ADR-0140): the header
   [`simd_dx.h`](simd_dx.h) is fork-internal and has no upstream
   equivalent. On rebase, keep the fork's version. The macros
