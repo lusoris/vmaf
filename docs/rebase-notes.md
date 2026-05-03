@@ -27,6 +27,29 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0224 — CUDA graph capture feasibility (research-0047, DEFER)
+
+- **Touches**: none — investigation-only; no code lands. The research
+  digest [`docs/research/0047-cuda-graph-capture-feasibility.md`](research/0047-cuda-graph-capture-feasibility.md)
+  documents why a CUDA graph capture path on the per-frame submit chain
+  is **deferred** rather than shipped (realised wall-clock gain capped
+  at ~1-3% vs. the predicted 10-20%, with a 4-slot picture-pool
+  rotation that defeats single-graph capture and forces per-frame
+  `cuGraphExecKernelNodeSetParams` rebinding for `(ref, dis)` device
+  pointers).
+- **Invariant**: the `kernel_template.h` docstring keeps naming
+  `VmafCudaKernelLifecycle.finished` as a graph-capture hook point.
+  Don't prune that comment on rebase — leaving the door open in the
+  template is free, and the digest's "what needs to be true for a
+  future GO" section depends on the hook still being there.
+- **Re-test on rebase**:
+
+  ```bash
+  # Confirm the docstring still references graph capture as the hook
+  # point — wording change is fine, removal is not.
+  grep -q "graph capture" libvmaf/src/cuda/kernel_template.h
+  ```
+
 ### 0223 — ADR slug-drift repair in CHANGELOG / rebase-notes (PR #304 follow-up)
 
 - **Touches**: `CHANGELOG.md`, `docs/rebase-notes.md`. No code; no
