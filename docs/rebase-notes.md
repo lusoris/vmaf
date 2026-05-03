@@ -27,6 +27,41 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0225 — Netflix bench snapshot regen (upstream a44e5e61 motion fix)
+
+- **Touches**:
+  - `testdata/netflix_benchmark_results.json` — fork-added snapshot.
+    CPU rows now reflect the post-fix motion feature; cuda / sycl
+    rows from the previous regen are preserved unchanged because
+    those backends were not exercised on this rerun (host-environment
+    tooling — wrong renderD path, `libvmaf_cuda` not enabled in the
+    local FFmpeg build). Future full regens should include cuda /
+    sycl.
+  - `testdata/bench_all.sh` — default `VMAF=` no longer points at
+    `/usr/local/bin/vmaf` (which on most dev hosts is stuck at the
+    pre-upstream-`a44e5e61` v3.0.0); now defaults to the in-tree
+    fork build at `libvmaf/build/tools/vmaf`.
+  - `testdata/benchmark_netflix.py` — `FFMPEG`, `YUVDIR` and the
+    hardcoded `LD_LIBRARY_PATH=/usr/local/lib` are now overridable
+    via `VMAF_FFMPEG`, `VMAF_YUVDIR` and any caller-set
+    `LD_LIBRARY_PATH`.
+- **Invariant**: the snapshot's CPU pooled VMAF for
+  `src01_576x324` is 76.667828 (post-fix), not 76.668904 (the
+  upstream-buggy mirror). If `/sync-upstream` ever re-pulls a
+  Netflix change that touches `motion.c` mirror-handling, this
+  number is the reference.
+- **Re-test**:
+
+  ```bash
+  cd libvmaf
+  meson setup build -Denable_cuda=true -Denable_sycl=false
+  ninja -C build
+  LD_LIBRARY_PATH=$(pwd)/build/src python3 \
+      ../testdata/benchmark_netflix.py
+  ```
+
+  Expected CPU pooled rows: 76.667828, 35.068672, 7.985899.
+
 ### 0224 — CUDA graph capture feasibility (research-0047, DEFER)
 
 - **Touches**: none — investigation-only; no code lands. The research

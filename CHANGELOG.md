@@ -162,6 +162,18 @@
 
 ### Changed
 
+- **Snapshot `testdata/netflix_benchmark_results.json` regenerated
+  against the fork build to reflect upstream `a44e5e61` motion
+  edge-mirror fix; `bench_all.sh` default `VMAF` pinned to the in-tree
+  fork build (`libvmaf/build/tools/vmaf`) instead of
+  `/usr/local/bin/vmaf` (which on most dev hosts is stuck at v3.0.0,
+  predating the upstream fix). CPU pooled VMAF on `src01_576x324`
+  shifts from 76.668904 → 76.667828 (delta −1.076e-3, motion-driven);
+  checker pairs drift ≤3e-6 (well inside `places=4`). cuda / sycl
+  rows preserved unchanged (those backends were not regenerated this
+  pass — see PR description). See PR #305 for the bisect that
+  identified the upstream commit.
+
 - **Repaired 4 wrong-NNNN ADR refs in CHANGELOG / rebase-notes (PR #304
   follow-up).** The 11 cases PR #304 deliberately skipped were re-audited
   against the current `docs/adr/` tree — 7 of them already resolve to
