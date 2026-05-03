@@ -7820,3 +7820,36 @@ inline.*
       --parquet-extra runs/full_features_ugc.parquet \
       --out-json      runs/vmaf_tiny_v5_loso_metrics.json
   ```
+
+### 0227 — `vmaf-tune` Intel QSV codec adapters (ADR-0281)
+
+- **What changed**: fork-local additions under
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/` —
+  `_qsv_common.py`, `h264_qsv.py`, `hevc_qsv.py`, `av1_qsv.py`,
+  plus registry rows in `codec_adapters/__init__.py` and a new
+  test file `tools/vmaf-tune/tests/test_codec_adapter_qsv.py`.
+  Doc updates: `docs/usage/vmaf-tune.md` (Hardware encoders
+  section), `docs/adr/0281-vmaf-tune-qsv-adapters.md`,
+  `docs/research/0054-vmaf-tune-qsv-adapters.md`,
+  `tools/vmaf-tune/AGENTS.md`, `CHANGELOG.md`.
+- **Upstream source**: fork-local. `tools/vmaf-tune/` is
+  fork-introduced under ADR-0237; Netflix/vmaf has no
+  corresponding tree.
+- **On upstream sync**: zero interaction. Upstream cannot
+  conflict with this PR's paths.
+- **Invariant**: the registry exposes exactly four codecs
+  (`av1_qsv`, `h264_qsv`, `hevc_qsv`, `libx264` —
+  alphabetical), each adapter validates its
+  `(preset, quality)` pair, and the QSV preset vocabulary is
+  the seven x264-style names (`veryslow…veryfast`, no
+  `ultrafast` / `superfast`). The encode pipeline
+  (`encode.py`) remains x264-CRF-tied and will be widened in a
+  separate PR — the QSV adapters are inert until then. Future
+  codec families that share parameter shape (NVENC, AMF)
+  follow the same `_<family>_common.py` + N thin adapters
+  pattern.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/
+  ```
