@@ -182,6 +182,18 @@
   upstream-mirror files). Pure documentation change — no
   behavioural delta; Netflix golden + cross-backend bit-exactness
   unchanged.
+- **`vmaf_tiny_v1.onnx` external-data filename ref repaired.** The
+  shipped v1 ONNX referenced an external-data file named
+  `mlp_small_final.onnx.data`, which never existed in `model/tiny/`
+  — only `vmaf_tiny_v1.onnx.data` was committed. ONNXRuntime fails
+  with "External data path validation failed for initializer:
+  0.weight" on load, breaking any consumer that loads v1 directly
+  (including the `v2-vs-v1` diff path in
+  `validate_vmaf_tiny_v2.py`). Rewrites the two `external_data`
+  location entries in the ONNX graph to point at the actual
+  filename. No tensor data changes; the `.data` file on disk is
+  bit-identical.
+
 - **`ssimulacra2_vulkan.c` migrated to `vulkan/kernel_template.h`
   (T-GPU-DEDUP-24, 4-bundle).** Four distinct pipeline shapes (XYB =
   6 SSBO bindings, MUL = 3, BLUR = 2, SSIM = 8) prevent collapsing
