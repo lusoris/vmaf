@@ -52,6 +52,17 @@ static const char *const ALLOWED_OPS[] = {
     "ConvTranspose",
     "MaxPool",
     "AveragePool",
+    /* spatial sampling (ADR-0258 / T7-32) — admitted for saliency,
+     * segmentation, and feature-pyramid models. `Resize` itself has no
+     * filesystem / network side effects; the wire scanner gates op-type,
+     * not attributes. ORT executes whatever `mode` the model declares
+     * (`nearest`, `linear`, `cubic`). Consumers shipping their own ONNX
+     * are expected to keep `mode in ("nearest", "linear")` — `cubic` is
+     * numerically less stable on quantised inputs and not exercised by
+     * any in-tree consumer. Unblocks U-2-Net (PR #341 follow-up) and
+     * the wider saliency / segmentation surface (mobilesal, BASNet,
+     * PiDiNet, FPN-style detectors). */
+    "Resize",
     /* normalization */
     "BatchNormalization",
     "LayerNormalization",

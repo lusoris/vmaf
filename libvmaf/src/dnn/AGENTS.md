@@ -80,6 +80,11 @@ Runtime directly.
   [ADR-0171](../../../docs/adr/0171-bounded-loop-trip-count.md) —
   `Loop` + `If` admitted with bounded trip-count guard
   (`VMAF_DNN_MAX_LOOP_NODES = 16`); `Scan` stays rejected.
+- [ADR-0258](../../../docs/adr/0258-onnx-allowlist-resize.md) —
+  `Resize` admitted (op-type-only gate) for U-2-Net / mobilesal /
+  saliency / segmentation models. Wire scanner stays op-type-only
+  per ADR D39; consumers shipping their own ONNX should keep
+  `mode in ("nearest", "linear")` (`cubic` not exercised in-tree).
 - [ADR-0207](../../../docs/adr/0207-tinyai-qat-design.md) +
   [ADR-0208](../../../docs/adr/0208-learned-filter-v1-qat-impl.md)
   — QAT pipeline (PyTorch QAT → fp32 ONNX → ORT static-quantize

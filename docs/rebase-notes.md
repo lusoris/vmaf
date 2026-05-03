@@ -6828,3 +6828,64 @@ inline.*
   NVIDIA in May 2026 and the result still failed `places=4` by
   five decades. See
   [Research-0047](research/0051-ssimulacra2-gpu-xyb-precision.md).
+
+### 0126 — FastDVDnet real upstream weights drop (ADR-0253)
+
+- **What changed**: replaces `model/tiny/fastdvdnet_pre.onnx` with
+  the wrapped real upstream FastDVDnet checkpoint (sha256
+  `eb9444cf6f07eefdc7f4f68d09131074dbd1dcee6f88a331ba684dd2fb5937d4`,
+  ~9.5 MiB), refreshes the sidecar `model/tiny/fastdvdnet_pre.json`,
+  flips the registry row's `smoke: true → false` and adds
+  `license: "MIT"` + the upstream commit pin `c8fdf61`. New exporter
+  `ai/scripts/export_fastdvdnet_pre.py` (the older
+  `_placeholder.py` exporter is retained for reference). New ADR
+  `docs/adr/0255-fastdvdnet-pre-real-weights.md`; user-facing doc
+  `docs/ai/models/fastdvdnet_pre.md` rewritten with provenance,
+  license attribution, and reproduce-the-export instructions.
+- **Upstream source**: fork-local. Netflix/vmaf does not ship a
+  FastDVDnet temporal pre-filter; the C extractor and ONNX surface
+  are entirely fork-introduced (ADR-0215). The wrapped weights are
+  attribution-only (upstream `m-tassano/fastdvdnet` MIT).
+- **On upstream sync**: zero interaction. Every file touched
+  (`ai/scripts/export_fastdvdnet_pre*.py`, `model/tiny/fastdvdnet_pre.*`,
+  `docs/ai/models/fastdvdnet_pre.md`, `docs/adr/0253-*.md`,
+  CHANGELOG fragment, ADR index fragment) lives in fork-introduced
+  trees.
+- **Re-test on rebase**:
+
+  ```bash
+  # Re-derive the ONNX from the pinned upstream checkpoint.
+  mkdir -p /tmp/fastdvdnet_upstream && cd /tmp/fastdvdnet_upstream
+  curl -L -O https://raw.githubusercontent.com/m-tassano/fastdvdnet/c8fdf61/model.pth
+  curl -L -O https://raw.githubusercontent.com/m-tassano/fastdvdnet/c8fdf61/models.py
+  cd /path/to/vmaf
+  python3 ai/scripts/export_fastdvdnet_pre.py \
+      --upstream-dir /tmp/fastdvdnet_upstream
+  python3 ai/scripts/validate_model_registry.py
+  meson test -C build --suite=fast --print-errorlogs test_fastdvdnet_pre
+  ```
+
+### 0127 — ONNX op-allowlist gains `Resize` (ADR-0258)
+
+- **Touches**:
+  - `libvmaf/src/dnn/op_allowlist.c` — fork-local file (no upstream
+    counterpart). One new entry `"Resize"` under the
+    `/* convolutional */` block.
+  - `libvmaf/test/dnn/test_op_allowlist.c`,
+    `libvmaf/test/dnn/test_onnx_scan.c` — fork-local DNN tests.
+  - `ai/tests/test_op_allowlist.py` — fork-local Python parity test.
+- **Invariant**: the C allowlist is the single source of truth; the
+  Python regex parser in `ai/src/vmaf_train/op_allowlist.py` walks
+  the same `op_allowlist.c` file. Any future entry only needs the
+  C edit — Python symmetry is automatic.
+- **Upstream source**: fork-local. Netflix/vmaf has no ONNX op-
+  allowlist surface; the entire `libvmaf/src/dnn/` tree is fork-
+  introduced.
+- **On upstream sync**: zero interaction. Every file touched lives
+  in fork-introduced trees.
+- **Re-test on rebase**:
+
+  ```bash
+  meson test -C build test_op_allowlist test_onnx_scan
+  PYTHONPATH=ai/src python -m pytest ai/tests/test_op_allowlist.py
+  ```
