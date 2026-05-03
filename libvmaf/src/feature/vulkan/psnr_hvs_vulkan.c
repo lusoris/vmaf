@@ -76,6 +76,17 @@ typedef struct {
     VkPipeline pipeline_chroma_u; /* plane=1 */
     VkPipeline pipeline_chroma_v; /* plane=2 */
 
+    /* Submit-side template (T-GPU-OPT-VK-1 / ADR-0256):
+     * 1-slot pool — single dispatch per frame batches all 3 planes
+     * into one command buffer, one fence. Replaces per-frame
+     * vkCreateFence / vkAllocateCommandBuffers. */
+    VmafVulkanKernelSubmitPool sub_pool;
+
+    /* Pre-allocated descriptor sets (T-GPU-OPT-VK-4 / ADR-0256).
+     * One set per plane, allocated in init() once and updated
+     * (vkUpdateDescriptorSets) with the current frame's buffers. */
+    VkDescriptorSet pre_sets[PSNR_HVS_NUM_PLANES];
+
     /* Per-plane input buffers (host-mapped float). */
     VmafVulkanBuffer *ref_in[PSNR_HVS_NUM_PLANES];
     VmafVulkanBuffer *dist_in[PSNR_HVS_NUM_PLANES];
@@ -291,6 +302,18 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (err)
         return err;
 
+    /* Submit pool: 1 fence + 1 cmdbuf for the per-frame combined
+     * dispatch (all 3 planes batched into one cmd buffer). */
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/1, &s->sub_pool);
+    if (err)
+        return err;
+
+    /* Pre-allocate one descriptor set per plane (3 sets total). */
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl.desc_pool, s->pl.dsl,
+                                                   (uint32_t)PSNR_HVS_NUM_PLANES, s->pre_sets);
+    if (err)
+        return err;
+
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (!s->feature_name_dict)
@@ -391,37 +414,18 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             return err;
     }
 
-    /* One descriptor set per plane. */
-    VkDescriptorSet sets[PSNR_HVS_NUM_PLANES] = {VK_NULL_HANDLE};
-    VkDescriptorSetLayout layouts[PSNR_HVS_NUM_PLANES] = {s->pl.dsl, s->pl.dsl, s->pl.dsl};
-    VkDescriptorSetAllocateInfo dsai = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->pl.desc_pool,
-        .descriptorSetCount = (uint32_t)PSNR_HVS_NUM_PLANES,
-        .pSetLayouts = layouts,
-    };
-    if (vkAllocateDescriptorSets(s->ctx->device, &dsai, sets) != VK_SUCCESS)
-        return -ENOMEM;
+    /* Pre-allocated descriptor sets — just rebind the buffer
+     * pointers per frame (T-GPU-OPT-VK-4 / ADR-0256). */
     for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++)
-        write_descriptor_set(s, sets[p], p);
+        write_descriptor_set(s, s->pre_sets[p], p);
 
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo cbai = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = s->ctx->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &cmd) != VK_SUCCESS) {
-        err = -ENOMEM;
-        goto cleanup;
-    }
-    VkCommandBufferBeginInfo cbbi = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-    vkBeginCommandBuffer(cmd, &cbbi);
+    /* Acquire the pre-allocated cmd buffer + fence (slot 0) from
+     * the submit pool. Reset + begin happens inside acquire. */
+    VmafVulkanKernelSubmit submit = {0};
+    err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool, /*pool_slot=*/0, &submit);
+    if (err)
+        return err;
+    VkCommandBuffer cmd = submit.cmd;
 
     for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
         PsnrHvsPushConsts pc = {
@@ -431,30 +435,16 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             .num_blocks_y = s->num_blocks_y[p],
         };
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1,
-                                &sets[p], 0, NULL);
+                                &s->pre_sets[p], 0, NULL);
         vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
                            &pc);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, psnr_hvs_plane_pipeline(s, p));
         vkCmdDispatch(cmd, s->num_blocks_x[p], s->num_blocks_y[p], 1);
     }
 
-    vkEndCommandBuffer(cmd);
-
-    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS) {
-        err = -ENOMEM;
+    err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &submit);
+    if (err)
         goto cleanup;
-    }
-    VkSubmitInfo si = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
-        err = -EIO;
-        goto cleanup;
-    }
-    vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
 
     /* Per-plane reduction + log10 transform. CPU `calc_psnrhvs`
      * accumulates `ret` in `float` over per-coefficient contribs
@@ -488,14 +478,11 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
                                          convert_score_db(combined, 1.0), index);
 
 cleanup:
-    if (fence != VK_NULL_HANDLE)
-        vkDestroyFence(s->ctx->device, fence, NULL);
-    if (cmd != VK_NULL_HANDLE)
-        vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
-    for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
-        if (sets[p] != VK_NULL_HANDLE)
-            vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, 1, &sets[p]);
-    }
+    /* Pool-borrowed submit: free is a no-op for the underlying
+     * cmd buffer + fence (they live in s->sub_pool); just clears
+     * the local handles. Pre-allocated descriptor sets are
+     * released by close_fex via vmaf_vulkan_kernel_pipeline_destroy. */
+    vmaf_vulkan_kernel_submit_free(s->ctx, &submit);
     return err;
 }
 
@@ -512,6 +499,9 @@ static int close_fex(VmafFeatureExtractor *fex)
         vkDestroyPipeline(s->ctx->device, s->pipeline_chroma_u, NULL);
     if (s->pipeline_chroma_v != VK_NULL_HANDLE)
         vkDestroyPipeline(s->ctx->device, s->pipeline_chroma_v, NULL);
+    /* Drain + free the submit pool before destroying the pipeline
+     * (which destroys the descriptor pool that owns pre_sets too). */
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
     vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {

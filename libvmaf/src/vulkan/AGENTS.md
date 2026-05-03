@@ -169,12 +169,41 @@ vulkan/
 ## Rebase-sensitive invariants
 
 - **`kernel_template.h` is the canonical kernel scaffolding**
-  (fork-local, ADR-0246): the inline helpers
+  (fork-local, ADR-0221, extended by ADR-0256): the inline helpers
   `vmaf_vulkan_kernel_pipeline_create/_destroy`,
-  `vmaf_vulkan_kernel_submit_begin/_end_and_wait/_free` capture the
+  `vmaf_vulkan_kernel_submit_begin/_end_and_wait/_free` plus the
+  ADR-0256 additions
+  `vmaf_vulkan_kernel_submit_pool_create/_destroy/_acquire`,
+  `vmaf_vulkan_kernel_descriptor_sets_alloc` capture the
   descriptor-set layout + pipeline layout + shader module + compute
   pipeline + descriptor pool + per-frame command-buffer + fence
-  shape every fork-added Vulkan feature kernel uses. The template
+  shape every fork-added Vulkan feature kernel uses.
+
+  Submit-pool / descriptor-pre-alloc invariants (ADR-0256):
+  1. `VmafVulkanKernelSubmitPool` is created in `init()` with a
+     `slot_count` matching the ops-per-frame the kernel issues.
+     For single-dispatch kernels (psnr_hvs, vif, adm, float_vif,
+     float_adm) `slot_count = 1`. For multi-fence kernels (e.g.
+     ms_ssim's 1 pyramid + 5 SSIM scales = 6) the slot count is
+     bounded by `VMAF_VULKAN_KERNEL_POOL_MAX_SLOTS` (8).
+  2. `vmaf_vulkan_kernel_submit_acquire` requires the context's
+     command pool to carry `VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT`
+     (set in `vulkan/common.c`); `vkResetCommandBuffer(cmd, 0)` is
+     the per-acquire entry.
+  3. `vmaf_vulkan_kernel_descriptor_sets_alloc` allocates from the
+     existing `pl.desc_pool` sized via `max_descriptor_sets` in the
+     pipeline-create descriptor; the pool keeps
+     `VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT` so legacy
+     callers that still call `vkFreeDescriptorSets` continue to
+     work. Pre-allocated sets are destroyed implicitly by
+     `vmaf_vulkan_kernel_pipeline_destroy` via the pool — callers
+     must NOT call `vkFreeDescriptorSets` on them.
+  4. Pre-bound descriptor-set buffers must be init-time-stable —
+     i.e. the `VmafVulkanBuffer *` handles do not change between
+     `init()` and `close_fex()`. This is the case for every
+     migrated kernel today; if a future kernel needs to rebind
+     buffers per frame (e.g. dynamic per-scale sizing), it falls
+     back to the per-frame `vkUpdateDescriptorSets` pattern. The template
   lands unused — each future kernel migration is its own gated PR
   (`places=4` cross-backend-diff per ADR-0214). The maximum
   SSBO-binding count accepted by `_pipeline_create` is exposed via

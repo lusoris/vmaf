@@ -105,14 +105,66 @@ typedef struct VmafVulkanKernelPipeline {
 
 /*
  * Per-frame submission scratch — one command buffer + fence
- * lifetime tied to a single extract() call. Allocated and freed
- * per frame; cheap on every implementation we've measured (lavapipe,
- * Mesa anv, RADV, Nvidia / proprietary).
+ * lifetime tied to a single extract() call.
+ *
+ * Two ownership modes (see ADR-0256 / T-GPU-OPT-VK-1):
+ *
+ *   1. Pool-owned (preferred for kernels migrated to the
+ *      submit-side template): `cmd` and `fence` are *acquired* from
+ *      a `VmafVulkanKernelSubmitPool` pre-allocated at init() time.
+ *      The pool resets the fence + command buffer between frames
+ *      instead of recreating them. Per-frame
+ *      `vkAllocateCommandBuffers` / `vkFreeCommandBuffers` /
+ *      `vkCreateFence` / `vkDestroyFence` overhead is eliminated.
+ *
+ *   2. Self-owned (legacy / one-off paths): the helper allocates
+ *      a fresh fence + command buffer per call and the caller
+ *      releases them via `vmaf_vulkan_kernel_submit_free`. This is
+ *      what `vmaf_vulkan_kernel_submit_begin` did before pool
+ *      support was added; preserved for paths that have not yet
+ *      migrated.
  */
 typedef struct VmafVulkanKernelSubmit {
     VkCommandBuffer cmd;
     VkFence fence;
+    /* Non-NULL when this submit borrows from a pool (mode 1). NULL
+     * when it owns its own resources (mode 2). */
+    struct VmafVulkanKernelSubmitPool *pool;
+    uint32_t pool_slot;
 } VmafVulkanKernelSubmit;
+
+/*
+ * Pre-allocated fence + command-buffer pool that lives across
+ * frames. Created once in init() via
+ * `vmaf_vulkan_kernel_submit_pool_create`, drained + freed in
+ * close_fex() via `vmaf_vulkan_kernel_submit_pool_destroy`.
+ *
+ * Slot count = ops-per-frame. Single-dispatch extractors
+ * (psnr_hvs, vif, adm, float_vif, float_adm) need 1; multi-fence
+ * extractors that want intra-frame readback (ms_ssim has 6 = 1
+ * pyramid + 5 scales) declare more.
+ *
+ * Slots are cycled round-robin via an internal `next` cursor —
+ * acquire returns the next slot, end_and_wait blocks until the
+ * fence signals, then release marks the slot reusable. The pool
+ * is single-threaded by design (every Vulkan kernel TU calls
+ * `extract()` from a single feature-thread).
+ *
+ * Why no reusable command buffers across frames inside a single
+ * extract(): the per-slot command buffer is reset (not freed) on
+ * each acquire via `VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT`
+ * — see vmaf_vulkan_kernel_submit_acquire below. The
+ * `VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT` flag stays for
+ * driver hint correctness; the saved cost is the
+ * allocate / free pair, not the recording.
+ */
+#define VMAF_VULKAN_KERNEL_POOL_MAX_SLOTS 8u
+
+typedef struct VmafVulkanKernelSubmitPool {
+    VkCommandBuffer cmd[VMAF_VULKAN_KERNEL_POOL_MAX_SLOTS];
+    VkFence fence[VMAF_VULKAN_KERNEL_POOL_MAX_SLOTS];
+    uint32_t slot_count;
+} VmafVulkanKernelSubmitPool;
 
 /*
  * Pipeline-creation descriptor.
@@ -287,10 +339,151 @@ static inline int vmaf_vulkan_kernel_pipeline_create(VmafVulkanContext *ctx,
 }
 
 /*
- * Begin a one-time-submit primary command buffer on the context's
- * command pool. After this returns the caller emits its
- * vkCmdBindPipeline / vkCmdDispatch sequence and then calls
- * vmaf_vulkan_kernel_submit_end_and_wait.
+ * Pre-allocate a submit pool with `slot_count` reusable
+ * command buffers + fences. Call this once in init().
+ *
+ * `slot_count` must be in [1, VMAF_VULKAN_KERNEL_POOL_MAX_SLOTS].
+ * Pass 1 for single-dispatch extractors (most kernels), 6 for
+ * `ms_ssim_vulkan` (1 pyramid + 5 scales). Beyond that, refactor
+ * to fewer dispatches first — the limit is a sanity bound.
+ *
+ * On failure all partially-allocated handles are released; the
+ * caller's close_fex path (vmaf_vulkan_kernel_submit_pool_destroy)
+ * is a safe no-op on a zeroed pool. Returns 0 / -EINVAL / -ENOMEM.
+ *
+ * Implementation note: command buffers are *not* allocated with
+ * VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT here — the
+ * context-level command pool is created in vulkan_common.c with
+ * that flag (see ADR-0256). vkResetCommandBuffer() on each acquire
+ * recycles the buffer in-place.
+ */
+static inline int vmaf_vulkan_kernel_submit_pool_create(VmafVulkanContext *ctx, uint32_t slot_count,
+                                                        VmafVulkanKernelSubmitPool *out)
+{
+    if (ctx == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    if (slot_count == 0U || slot_count > VMAF_VULKAN_KERNEL_POOL_MAX_SLOTS) {
+        return -EINVAL;
+    }
+    for (uint32_t i = 0; i < VMAF_VULKAN_KERNEL_POOL_MAX_SLOTS; i++) {
+        out->cmd[i] = VK_NULL_HANDLE;
+        out->fence[i] = VK_NULL_HANDLE;
+    }
+    out->slot_count = slot_count;
+
+    VkCommandBufferAllocateInfo cbai = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = ctx->command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = slot_count,
+    };
+    if (vkAllocateCommandBuffers(ctx->device, &cbai, out->cmd) != VK_SUCCESS) {
+        return -ENOMEM;
+    }
+    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    for (uint32_t i = 0; i < slot_count; i++) {
+        if (vkCreateFence(ctx->device, &fci, NULL, &out->fence[i]) != VK_SUCCESS) {
+            for (uint32_t j = 0; j < i; j++) {
+                vkDestroyFence(ctx->device, out->fence[j], NULL);
+                out->fence[j] = VK_NULL_HANDLE;
+            }
+            vkFreeCommandBuffers(ctx->device, ctx->command_pool, slot_count, out->cmd);
+            for (uint32_t j = 0; j < slot_count; j++) {
+                out->cmd[j] = VK_NULL_HANDLE;
+            }
+            return -ENOMEM;
+        }
+    }
+    return 0;
+}
+
+/*
+ * close_fex()-side: drain + destroy every per-slot fence + cmd
+ * buffer. Safe on a partially-initialised pool. Caller must have
+ * already vkDeviceWaitIdle (or this will block in vkWaitForFences
+ * implicitly via vkFreeCommandBuffers spec semantics).
+ */
+static inline void vmaf_vulkan_kernel_submit_pool_destroy(VmafVulkanContext *ctx,
+                                                          VmafVulkanKernelSubmitPool *pool)
+{
+    if (ctx == NULL || pool == NULL || ctx->device == VK_NULL_HANDLE) {
+        return;
+    }
+    for (uint32_t i = 0; i < pool->slot_count; i++) {
+        if (pool->fence[i] != VK_NULL_HANDLE) {
+            vkDestroyFence(ctx->device, pool->fence[i], NULL);
+            pool->fence[i] = VK_NULL_HANDLE;
+        }
+    }
+    /* Free the cmd buffers in one batch — the context's command
+     * pool was created with VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+     * (see vulkan/common.c) so per-buffer free is supported. */
+    for (uint32_t i = 0; i < pool->slot_count; i++) {
+        if (pool->cmd[i] != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(ctx->device, ctx->command_pool, 1, &pool->cmd[i]);
+            pool->cmd[i] = VK_NULL_HANDLE;
+        }
+    }
+    pool->slot_count = 0;
+}
+
+/*
+ * Acquire slot `pool_slot` from the pool, reset its fence + cmd
+ * buffer, begin recording. After this returns the caller emits
+ * its `vkCmdBindPipeline` / `vkCmdDispatch` sequence and then calls
+ * `vmaf_vulkan_kernel_submit_end_and_wait`.
+ *
+ * Caller is responsible for using each slot index at most once
+ * per `extract()` call (or for explicitly reusing the same slot
+ * after a prior `submit_end_and_wait`, which leaves the fence in
+ * the signalled state ready to be reset on the next acquire).
+ *
+ * Returns 0 / -EINVAL / -EIO.
+ */
+static inline int vmaf_vulkan_kernel_submit_acquire(VmafVulkanContext *ctx,
+                                                    VmafVulkanKernelSubmitPool *pool,
+                                                    uint32_t pool_slot, VmafVulkanKernelSubmit *out)
+{
+    if (ctx == NULL || pool == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    if (pool_slot >= pool->slot_count) {
+        return -EINVAL;
+    }
+    out->cmd = pool->cmd[pool_slot];
+    out->fence = pool->fence[pool_slot];
+    out->pool = pool;
+    out->pool_slot = pool_slot;
+
+    /* Reset the command buffer in place (requires
+     * VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT on the pool).
+     * Spec § 6.1: vkResetCommandBuffer is only valid when the cmd
+     * buffer is not in the pending state — fence-wait on the prior
+     * frame's submission ensures that. */
+    if (vkResetCommandBuffer(out->cmd, 0) != VK_SUCCESS) {
+        return -EIO;
+    }
+    VkCommandBufferBeginInfo cbbi = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+    if (vkBeginCommandBuffer(out->cmd, &cbbi) != VK_SUCCESS) {
+        return -EIO;
+    }
+    /* Reset the fence to unsignalled before the next submit. */
+    if (vkResetFences(ctx->device, 1, &out->fence) != VK_SUCCESS) {
+        (void)vkEndCommandBuffer(out->cmd);
+        return -EIO;
+    }
+    return 0;
+}
+
+/*
+ * Self-owning submit_begin (legacy mode 2). Allocates a fresh
+ * cmdbuf + fence per call. Use only for paths that have not yet
+ * adopted a `VmafVulkanKernelSubmitPool`. Pool-aware kernels
+ * should call `vmaf_vulkan_kernel_submit_acquire` instead.
  *
  * Returns 0 / -ENOMEM. The fence is created here too so submit_end
  * has nothing to allocate.
@@ -303,6 +496,8 @@ static inline int vmaf_vulkan_kernel_submit_begin(VmafVulkanContext *ctx,
     }
     out->cmd = VK_NULL_HANDLE;
     out->fence = VK_NULL_HANDLE;
+    out->pool = NULL;
+    out->pool_slot = 0;
 
     VkCommandBufferAllocateInfo cbai = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -339,8 +534,9 @@ static inline int vmaf_vulkan_kernel_submit_begin(VmafVulkanContext *ctx,
  * End recording, submit on the context's queue, wait on the fence.
  * Synchronous submit — matches the existing kernels' behaviour.
  *
- * Caller is responsible for vmaf_vulkan_kernel_submit_free even on
- * failure, so this routine never half-frees.
+ * Works for both pool-owned and self-owned submits. Caller is
+ * responsible for vmaf_vulkan_kernel_submit_free even on failure,
+ * so this routine never half-frees.
  *
  * Returns 0 / -EIO.
  */
@@ -365,12 +561,26 @@ static inline int vmaf_vulkan_kernel_submit_end_and_wait(VmafVulkanContext *ctx,
 }
 
 /*
- * Release per-frame submit scratch. Safe on a partially-initialised
- * struct (handles that are VK_NULL_HANDLE are skipped).
+ * Release per-frame submit scratch. For pool-borrowed submits
+ * this is a near-no-op (just clears the local handles); the pool
+ * keeps the underlying fence + cmd buffer alive across frames.
+ * For self-owned submits this destroys the fence and frees the
+ * cmd buffer, matching the pre-pool behaviour. Safe on a
+ * partially-initialised struct (handles that are VK_NULL_HANDLE
+ * are skipped).
  */
 static inline void vmaf_vulkan_kernel_submit_free(VmafVulkanContext *ctx,
                                                   VmafVulkanKernelSubmit *sub)
 {
+    if (sub->pool != NULL) {
+        /* Pool owns the resources; just clear the local handles
+         * so a subsequent stray free is a safe no-op. */
+        sub->cmd = VK_NULL_HANDLE;
+        sub->fence = VK_NULL_HANDLE;
+        sub->pool = NULL;
+        sub->pool_slot = 0;
+        return;
+    }
     if (sub->fence != VK_NULL_HANDLE) {
         vkDestroyFence(ctx->device, sub->fence, NULL);
         sub->fence = VK_NULL_HANDLE;
@@ -379,6 +589,61 @@ static inline void vmaf_vulkan_kernel_submit_free(VmafVulkanContext *ctx,
         vkFreeCommandBuffers(ctx->device, ctx->command_pool, 1, &sub->cmd);
         sub->cmd = VK_NULL_HANDLE;
     }
+}
+
+/*
+ * Pre-allocate `count` descriptor sets from a pool with a single
+ * shared layout. Use this in init() once the pipeline + pool are
+ * created; subsequent frames update the bindings via
+ * `vkUpdateDescriptorSets` instead of re-allocating per frame
+ * (T-GPU-OPT-VK-4 / ADR-0256).
+ *
+ * `count` is bounded by the pool's `maxSets` — passing more than
+ * the pool was sized for returns -ENOMEM. The descriptor sets are
+ * destroyed implicitly when the pool is destroyed
+ * (`vmaf_vulkan_kernel_pipeline_destroy`), so callers do *not*
+ * call `vkFreeDescriptorSets` on them at close time.
+ *
+ * Returns 0 / -EINVAL / -ENOMEM. On failure `out_sets` is left
+ * with `VK_NULL_HANDLE` entries.
+ */
+static inline int vmaf_vulkan_kernel_descriptor_sets_alloc(VmafVulkanContext *ctx,
+                                                           VkDescriptorPool pool,
+                                                           VkDescriptorSetLayout layout,
+                                                           uint32_t count,
+                                                           VkDescriptorSet *out_sets)
+{
+    if (ctx == NULL || out_sets == NULL || pool == VK_NULL_HANDLE || layout == VK_NULL_HANDLE) {
+        return -EINVAL;
+    }
+    if (count == 0U) {
+        return -EINVAL;
+    }
+    /* 32 covers the largest in-tree caller (ssimulacra2's pyramid +
+     * blur sets). Compile-time-bounded array keeps Power-of-10 §3
+     * happy. */
+    enum { MAX_PRE_ALLOC_SETS = 32 };
+    if (count > (uint32_t)MAX_PRE_ALLOC_SETS) {
+        return -EINVAL;
+    }
+    VkDescriptorSetLayout layouts[MAX_PRE_ALLOC_SETS];
+    for (uint32_t i = 0; i < count; i++) {
+        layouts[i] = layout;
+        out_sets[i] = VK_NULL_HANDLE;
+    }
+    VkDescriptorSetAllocateInfo dsai = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = pool,
+        .descriptorSetCount = count,
+        .pSetLayouts = layouts,
+    };
+    if (vkAllocateDescriptorSets(ctx->device, &dsai, out_sets) != VK_SUCCESS) {
+        for (uint32_t i = 0; i < count; i++) {
+            out_sets[i] = VK_NULL_HANDLE;
+        }
+        return -ENOMEM;
+    }
+    return 0;
 }
 
 /*
