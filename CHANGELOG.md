@@ -188,29 +188,14 @@
 
 ### Changed
 
-- **`ffmpeg-patches/` series verified against pinned n8.1
-  (2026-05-03).** Doc-only verification PR: replayed all six
-  patches (0001..0006) onto a pristine FFmpeg `n8.1` checkout with
-  `git am --3way` and confirmed every patch applies cleanly without
-  context drift. Audited the libvmaf C-API symbols referenced by
-  the patches (`vmaf_use_tiny_model`, `VmafDnnConfig`,
-  `vmaf_vulkan_state_init_external`, `VmafVulkanExternalHandles`,
-  `vmaf_vulkan_import_image`, `vmaf_vulkan_read_imported_pictures`,
-  `vmaf_sycl_state_init`, `vmaf_sycl_dmabuf_import`, …) against
-  `libvmaf/include/libvmaf/`; all symbols still exported, no
-  renames or signature drift detected. Recent libvmaf API
-  additions (PR #264 picture preallocation surface
-  `vmaf_vulkan_preallocate_pictures` / `vmaf_vulkan_picture_fetch`,
-  PR #260 `max_outstanding_frames` knob, PR #319 vulkan submit-side
-  template, PR #320 cuda async upload) were reviewed for
-  ffmpeg-side exposure: the preallocation surface is an alternative
-  to the import path that the FFmpeg filter does not need (the
-  filter is firmly on the zero-copy `vmaf_vulkan_import_image`
-  path); the submit-side and CUDA changes are libvmaf-internal
-  and do not affect the public surface the patches consume.
-  No patch refresh required. See
-  [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md) for the
-  series-replay invariant.
+- **CI: `actions/upload-artifact` aligned to `@v7` across all
+  workflows.** One leftover `@v4` pin in `.github/workflows/
+  tests-and-quality-gates.yml` (the GPU parity-gate report upload
+  step) is bumped to match the rest of the workflow tree, which is
+  already pinned to `@v7` (or its commit-SHA equivalent
+  `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`). Pure CI maintenance —
+  no library or runtime change.
+
 - **`psnr_hvs_cuda` async H2D upload + persistent pinned staging
   (T-GPU-OPT-2/3).** Reworks the per-frame upload path of the
   CUDA `psnr_hvs` feature extractor. Previously each plane upload
