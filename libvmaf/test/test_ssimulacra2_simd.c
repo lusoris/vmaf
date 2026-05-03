@@ -41,6 +41,7 @@
 
 #if ARCH_X86
 #include "feature/x86/ssimulacra2_avx2.h"
+#include "feature/x86/ssimulacra2_host_avx2.h"
 #if HAVE_AVX512
 #include "feature/x86/ssimulacra2_avx512.h"
 #endif
@@ -49,6 +50,7 @@
 #if ARCH_AARCH64
 #include "arm/cpu.h"
 #include "feature/arm64/ssimulacra2_neon.h"
+#include "feature/arm64/ssimulacra2_host_neon.h"
 #if HAVE_SVE2
 #include "feature/arm64/ssimulacra2_sve2.h"
 #endif
@@ -880,6 +882,177 @@ static char *test_ptlr_422_8(void)
     return test_ptlr_one(2, 8, 2, 1);
 }
 
+/* ------------------------------------------------------------------ */
+/* ADR-0242: host-kernel bit-exactness tests (plane_stride form).     */
+/* These cover the Vulkan extractor's pyramid buffer layout where each  */
+/* plane slot is plane_stride floats wide even at downsampled scales.  */
+/* ------------------------------------------------------------------ */
+
+/* Scalar reference: linear_rgb_to_xyb with explicit plane_stride. */
+static void ref_host_linear_rgb_to_xyb(const float *lin, float *xyb, unsigned w, unsigned h,
+                                       size_t plane_stride)
+{
+    const float m01 = 1.0f - kM00 - kM02;
+    const float m11 = 1.0f - kM10 - kM12;
+    const float m22 = 1.0f - kM20 - kM21;
+    const float cbrt_bias = vmaf_ss2_cbrtf(kOpsinBias);
+    const float *rp = lin;
+    const float *gp = lin + plane_stride;
+    const float *bp = lin + 2u * plane_stride;
+    float *xp = xyb;
+    float *yp = xyb + plane_stride;
+    float *bxp = xyb + 2u * plane_stride;
+    const size_t scale_pixels = (size_t)w * (size_t)h;
+    for (size_t i = 0; i < scale_pixels; i++) {
+        float r = rp[i];
+        float g = gp[i];
+        float b = bp[i];
+        float l = kM00 * r + m01 * g + kM02 * b + kOpsinBias;
+        float mv = kM10 * r + m11 * g + kM12 * b + kOpsinBias;
+        float sv = kM20 * r + kM21 * g + m22 * b + kOpsinBias;
+        if (l < 0.0f)
+            l = 0.0f;
+        if (mv < 0.0f)
+            mv = 0.0f;
+        if (sv < 0.0f)
+            sv = 0.0f;
+        float L = vmaf_ss2_cbrtf(l) - cbrt_bias;
+        float M = vmaf_ss2_cbrtf(mv) - cbrt_bias;
+        float S = vmaf_ss2_cbrtf(sv) - cbrt_bias;
+        float X = 0.5f * (L - M);
+        float Y = 0.5f * (L + M);
+        float B = S;
+        B = (B - Y) + 0.55f;
+        X = X * 14.0f + 0.42f;
+        Y = Y + 0.01f;
+        xp[i] = X;
+        yp[i] = Y;
+        bxp[i] = B;
+    }
+}
+
+/* Scalar reference: downsample_2x2 with explicit plane_stride. */
+static void ref_host_downsample_2x2(const float *in, unsigned iw, unsigned ih, float *out,
+                                    unsigned ow, unsigned oh, size_t plane_stride)
+{
+    for (int c = 0; c < 3; c++) {
+        const float *ip = in + (size_t)c * plane_stride;
+        float *op = out + (size_t)c * plane_stride;
+        for (unsigned oy = 0; oy < oh; oy++) {
+            for (unsigned ox = 0; ox < ow; ox++) {
+                unsigned ix0 = ox * 2;
+                unsigned iy0 = oy * 2;
+                unsigned ix1 = (ix0 + 1 < iw) ? ix0 + 1 : iw - 1;
+                unsigned iy1 = (iy0 + 1 < ih) ? iy0 + 1 : ih - 1;
+                float sum = ip[(size_t)iy0 * iw + ix0] + ip[(size_t)iy0 * iw + ix1] +
+                            ip[(size_t)iy1 * iw + ix0] + ip[(size_t)iy1 * iw + ix1];
+                op[(size_t)oy * ow + ox] = sum * 0.25f;
+            }
+        }
+    }
+}
+
+typedef void (*host_xyb_fn_t)(const float *, float *, unsigned, unsigned, size_t);
+typedef void (*host_down_fn_t)(const float *, unsigned, unsigned, float *, unsigned, unsigned,
+                               size_t);
+
+static host_xyb_fn_t pick_host_xyb(void)
+{
+#if ARCH_X86
+    const unsigned flags = vmaf_get_cpu_flags_x86();
+    if (flags & VMAF_X86_CPU_FLAG_AVX2)
+        return ssimulacra2_host_linear_rgb_to_xyb_avx2;
+#endif
+#if ARCH_AARCH64
+    return ssimulacra2_host_linear_rgb_to_xyb_neon;
+#endif
+    return NULL;
+}
+
+static host_down_fn_t pick_host_down(void)
+{
+#if ARCH_X86
+    const unsigned flags = vmaf_get_cpu_flags_x86();
+    if (flags & VMAF_X86_CPU_FLAG_AVX2)
+        return ssimulacra2_host_downsample_2x2_avx2;
+#endif
+#if ARCH_AARCH64
+    return ssimulacra2_host_downsample_2x2_neon;
+#endif
+    return NULL;
+}
+
+/* Use a plane_stride larger than w*h to exercise the Vulkan pyramid layout
+ * where the slot is fixed at full-resolution even at downsampled scales. */
+#define HOST_W 17
+#define HOST_H 11
+#define HOST_STRIDE (HOST_W * HOST_H + 64u) /* deliberately oversized */
+#define HOST_PLANE_SZ ((size_t)HOST_STRIDE)
+#define HOST_BUF_SZ (3u * HOST_PLANE_SZ)
+
+static char *test_host_xyb(void)
+{
+    host_xyb_fn_t fn = pick_host_xyb();
+    if (!fn)
+        return NULL;
+    float *lin = calloc(HOST_BUF_SZ, sizeof(float));
+    float *out_ref = calloc(HOST_BUF_SZ, sizeof(float));
+    float *out_simd = calloc(HOST_BUF_SZ, sizeof(float));
+    /* Fill only the active pixel region of each plane. */
+    for (int c = 0; c < 3; c++) {
+        uint32_t seed = 0xdeadbeefu ^ (uint32_t)(c * 0x1234u);
+        fill_random(lin + (size_t)c * HOST_PLANE_SZ, (size_t)HOST_W * HOST_H, 0.0f, 1.0f, seed);
+    }
+    ref_host_linear_rgb_to_xyb(lin, out_ref, HOST_W, HOST_H, HOST_PLANE_SZ);
+    fn(lin, out_simd, HOST_W, HOST_H, HOST_PLANE_SZ);
+    /* Compare only the active pixel region of each output plane — the
+     * padding slots beyond w*h are not written by either implementation. */
+    int match = 1;
+    for (int c = 0; c < 3; c++) {
+        // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c) ADR-0242
+        if (memcmp(out_ref + (size_t)c * HOST_PLANE_SZ, out_simd + (size_t)c * HOST_PLANE_SZ,
+                   (size_t)HOST_W * HOST_H * sizeof(float)) != 0) {
+            match = 0;
+        }
+    }
+    free(lin);
+    free(out_ref);
+    free(out_simd);
+    mu_assert("host_linear_rgb_to_xyb SIMD not bit-identical to scalar (plane_stride form)", match);
+    return NULL;
+}
+
+static char *test_host_downsample(void)
+{
+    host_down_fn_t fn = pick_host_down();
+    if (!fn)
+        return NULL;
+    const unsigned OW = (HOST_W + 1) / 2;
+    const unsigned OH = (HOST_H + 1) / 2;
+    float *in = calloc(HOST_BUF_SZ, sizeof(float));
+    float *out_ref = calloc(HOST_BUF_SZ, sizeof(float));
+    float *out_simd = calloc(HOST_BUF_SZ, sizeof(float));
+    for (int c = 0; c < 3; c++) {
+        uint32_t seed = 0x5a5a5a5au ^ (uint32_t)(c * 0x789u);
+        fill_random(in + (size_t)c * HOST_PLANE_SZ, (size_t)HOST_W * HOST_H, -1.0f, 1.0f, seed);
+    }
+    ref_host_downsample_2x2(in, HOST_W, HOST_H, out_ref, OW, OH, HOST_PLANE_SZ);
+    fn(in, HOST_W, HOST_H, out_simd, OW, OH, HOST_PLANE_SZ);
+    int match = 1;
+    for (int c = 0; c < 3; c++) {
+        // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c) ADR-0242
+        if (memcmp(out_ref + (size_t)c * HOST_PLANE_SZ, out_simd + (size_t)c * HOST_PLANE_SZ,
+                   (size_t)OW * OH * sizeof(float)) != 0) {
+            match = 0;
+        }
+    }
+    free(in);
+    free(out_ref);
+    free(out_simd);
+    mu_assert("host_downsample_2x2 SIMD not bit-identical to scalar (plane_stride form)", match);
+    return NULL;
+}
+
 /* Flat mu_run_test list — one line per subtest by design, not a
  * complexity violation. */
 // NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — test scaffolding (ADR-0141)
@@ -911,6 +1084,9 @@ char *run_tests(void)
     mu_run_test(test_ptlr_444_8);
     mu_run_test(test_ptlr_444_10);
     mu_run_test(test_ptlr_422_8);
+    /* ADR-0242: host-kernel tests (Vulkan pyramid plane_stride layout). */
+    mu_run_test(test_host_xyb);
+    mu_run_test(test_host_downsample);
 #else
     (void)fprintf(stderr, "skipping: arch without ssimulacra2 SIMD\n");
 #endif
