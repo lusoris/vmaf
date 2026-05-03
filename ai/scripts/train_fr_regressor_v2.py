@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+<<<<<<< HEAD
 """Train ``fr_regressor_v2`` — codec-aware FR regressor (Phase B prereq).
 
 Scaffold-only. Consumes the JSONL corpus emitted by the
@@ -54,6 +55,40 @@ Reproducer (real corpus, once Phase A has produced one):
   python ai/scripts/train_fr_regressor_v2.py \\
          --corpus runs/vmaf_tune_corpus.jsonl \\
          --epochs 30
+=======
+"""Train ``fr_regressor_v2_hw`` — codec-aware FR regressor (16-slot vocab).
+
+This is the hardware-aware successor to ``fr_regressor_v1``. The input
+contract is::
+
+    features:     float32 [N, 6]    # canonical-6 (adm2, vif_scale0..3, motion2)
+    codec_onehot: float32 [N, 16]   # v2 codec vocabulary (ADR-0284)
+    preset_norm:  float32 [N, 1]    # preset normalised to [0, 1]
+    crf_norm:     float32 [N, 1]    # quality knob normalised to [0, 1]
+
+For training simplicity these four inputs are concatenated into a
+single 24-D feature vector (``6 + 16 + 1 + 1``) and the underlying
+``FRRegressor`` is instantiated with ``in_features=24, num_codecs=0``
+— the codec one-hot lives inside the concatenated vector rather than
+arriving on a second ONNX input. This keeps the export single-input
+and the v1 ONNX I/O contract reusable. ADR-0284 §Alternatives explains
+why we chose the wide-input shape over a two-input session here.
+
+This script ships in **smoke-only** mode — it synthesises a tiny
+deterministic training set so the export + sidecar + registry update
+path is exercised end-to-end without requiring a parquet drop. The
+T7-CODEC-AWARE-V2 follow-up swaps the synthetic loader for the real
+multi-codec corpus and reports empirical PLCC/SROCC.
+
+Reproducer (smoke):
+
+    python ai/scripts/train_fr_regressor_v2.py --smoke
+
+Reproducer (full, requires multi-codec parquet):
+
+    python ai/scripts/train_fr_regressor_v2.py \\
+        --parquet runs/full_features_multi_codec.parquet
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
 """
 
 from __future__ import annotations
@@ -62,9 +97,13 @@ import argparse
 import hashlib
 import json
 import sys
+<<<<<<< HEAD
 import time
 from pathlib import Path
 from typing import Any
+=======
+from pathlib import Path
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
 
 import numpy as np
 
@@ -73,9 +112,13 @@ if str(REPO_ROOT / "ai" / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "ai" / "src"))
 
 
+<<<<<<< HEAD
 # Canonical-6 feature subset, identical to v1 so the libvmaf input
 # contract stays stable between the two regressor checkpoints.
 CANONICAL6: tuple[str, ...] = (
+=======
+CANONICAL_6 = (
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
     "adm2",
     "vif_scale0",
     "vif_scale1",
@@ -84,6 +127,7 @@ CANONICAL6: tuple[str, ...] = (
     "motion2",
 )
 
+<<<<<<< HEAD
 # Closed encoder vocabulary. Order is load-bearing — index baked into
 # the trained ONNX. Append-only; bump SCHEMA_VERSION to retrain.
 ENCODER_VOCAB: tuple[str, ...] = (
@@ -408,6 +452,35 @@ def _train(
 
     scaler = {"feature_mean": mean.tolist(), "feature_std": std.tolist()}
     return model, scaler
+=======
+
+# Canonical preset ordering — matches both libx264 and the
+# VideoToolbox adapter's nine-name preset list. Index in this tuple
+# defines the normalised value (i // (len-1)).
+PRESET_ORDER = (
+    "ultrafast",
+    "superfast",
+    "veryfast",
+    "faster",
+    "fast",
+    "medium",
+    "slow",
+    "slower",
+    "veryslow",
+)
+
+# Quality knobs span different ranges per codec (CRF 0..51 vs q:v
+# 0..100). For the wide-input regressor we normalise per-codec at
+# feature-extraction time using each adapter's quality_range; the
+# training script accepts pre-normalised columns ``preset_norm`` and
+# ``crf_norm`` already in [0, 1].
+
+
+def preset_norm(name: str) -> float:
+    if name not in PRESET_ORDER:
+        return 0.5  # unknown preset → middle of the range
+    return PRESET_ORDER.index(name) / (len(PRESET_ORDER) - 1)
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
 
 
 def _sha256(path: Path) -> str:
@@ -421,6 +494,7 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+<<<<<<< HEAD
 def _export_onnx_combined(
     model,  # type: ignore[no-untyped-def]
     *,
@@ -433,12 +507,84 @@ def _export_onnx_combined(
     Mirrors the LPIPS-Sq two-input precedent (ADR-0040 / ADR-0041) so
     libvmaf's ``vmaf_dnn_session_run`` can wire both tensors at inference.
     """
+=======
+def _build_smoke_data(n_per_codec: int = 64, seed: int = 0):
+    """Synthesise a small deterministic training set for export smoke.
+
+    Returns ``(X, y)`` where ``X`` is shape ``(N, 24)`` and ``y`` is
+    a synthetic MOS scalar in roughly the [20, 95] range.
+    """
+    from vmaf_train.codec import CODEC_VOCAB, NUM_CODECS, codec_one_hot
+
+    rng = np.random.default_rng(seed)
+
+    # Drive a labelled subset of the v2 vocabulary so each shipped
+    # codec column receives at least one row of training signal.
+    labelled = ("x264", "x265", "libsvtav1", "h264_videotoolbox", "hevc_videotoolbox")
+    rows: list[np.ndarray] = []
+    targets: list[float] = []
+    for label in labelled:
+        feats = rng.normal(loc=0.7, scale=0.1, size=(n_per_codec, 6)).astype(np.float32)
+        codec = np.tile(codec_one_hot(label), (n_per_codec, 1)).astype(np.float32)
+        preset_v = rng.uniform(0.0, 1.0, size=(n_per_codec, 1)).astype(np.float32)
+        crf_v = rng.uniform(0.0, 1.0, size=(n_per_codec, 1)).astype(np.float32)
+        x = np.concatenate([feats, codec, preset_v, crf_v], axis=1)
+        rows.append(x)
+        # Smoke-only target — feature mean shifted by codec-specific bias.
+        bias = {
+            "x264": 90.0,
+            "x265": 91.5,
+            "libsvtav1": 92.0,
+            "h264_videotoolbox": 87.0,
+            "hevc_videotoolbox": 88.5,
+        }[label]
+        targets.extend([bias - 10.0 * float(crf_v[i, 0]) for i in range(n_per_codec)])
+
+    X = np.concatenate(rows, axis=0).astype(np.float32)
+    y = np.asarray(targets, dtype=np.float32)
+    assert X.shape[1] == 6 + NUM_CODECS + 1 + 1 == 24, (
+        f"input dim mismatch: {X.shape[1]} != 24 "
+        f"(6 features + {NUM_CODECS} codec + 1 preset + 1 crf); "
+        f"vocab snapshot: {CODEC_VOCAB}"
+    )
+    return X, y
+
+
+def _train(X: np.ndarray, y: np.ndarray, *, epochs: int, lr: float, seed: int):
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
+
+    from vmaf_train.models import FRRegressor
+
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    in_features = X.shape[1]
+    model = FRRegressor(in_features=in_features, hidden=64, depth=2, dropout=0.0, lr=lr)
+    ds = TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
+    loader = DataLoader(ds, batch_size=64, shuffle=True, drop_last=False)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr)
+    loss_fn = torch.nn.MSELoss()
+    model.train()
+    for _ep in range(epochs):
+        for xb, yb in loader:
+            opt.zero_grad()
+            loss = loss_fn(model(xb), yb)
+            loss.backward()
+            opt.step()
+    model.eval()
+    return model
+
+
+def _export_onnx(model, out_path: Path, in_features: int, atol: float = 1e-5) -> None:
+    """Export the regressor to a single-input ONNX (24-D)."""
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
     import onnx
     import onnxruntime as ort
     import torch
 
     from vmaf_train.op_allowlist import check_graph
 
+<<<<<<< HEAD
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
     model = model.eval()
     dummy_feat = torch.zeros(1, 6, dtype=torch.float32)
@@ -454,10 +600,21 @@ def _export_onnx_combined(
         (dummy_feat, dummy_codec),
         str(onnx_path),
         input_names=["features", "codec"],
+=======
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    dummy = torch.zeros(1, in_features, dtype=torch.float32)
+    dynamic_axes = {"features": {0: "batch"}, "score": {0: "batch"}}
+    torch.onnx.export(
+        model,
+        dummy,
+        str(out_path),
+        input_names=["features"],
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
         output_names=["score"],
         dynamic_axes=dynamic_axes,
         opset_version=17,
     )
+<<<<<<< HEAD
 
     loaded = onnx.load(str(onnx_path))
     init_names = {t.name for t in loaded.graph.initializer}
@@ -495,10 +652,44 @@ def _metrics(pred: np.ndarray, target: np.ndarray) -> dict[str, float]:
 
 
 def _write_sidecar_and_registry(
+=======
+    loaded = onnx.load(str(out_path), load_external_data=True)
+    init_names = {t.name for t in loaded.graph.initializer}
+    survivors = [vi for vi in loaded.graph.value_info if vi.name not in init_names]
+    del loaded.graph.value_info[:]
+    loaded.graph.value_info.extend(survivors)
+    # Force inlining of any external-data initialisers so the shipped
+    # ONNX is a single self-contained file (no .onnx.data sidecar).
+    for tensor in loaded.graph.initializer:
+        if tensor.HasField("data_location") and tensor.data_location == onnx.TensorProto.EXTERNAL:
+            onnx.external_data_helper.load_external_data_for_tensor(tensor, str(out_path.parent))
+            tensor.data_location = onnx.TensorProto.DEFAULT
+            del tensor.external_data[:]
+    onnx.save(loaded, str(out_path), save_as_external_data=False)
+    # Clean up any stale .data sidecar from a prior export run.
+    sidecar_data = out_path.with_suffix(out_path.suffix + ".data")
+    if sidecar_data.exists():
+        sidecar_data.unlink()
+    onnx.checker.check_model(loaded)
+    report = check_graph(loaded)
+    if not report.ok:
+        raise RuntimeError(f"exported graph uses ops not on libvmaf's allowlist: {report.pretty()}")
+    sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+    with torch.no_grad():
+        ref = model(dummy).cpu().numpy()
+    got = sess.run(None, {"features": dummy.numpy()})[0]
+    drift = float(np.abs(ref - got).max())
+    if drift > atol:
+        raise RuntimeError(f"torch vs onnxruntime drift {drift:g} exceeds atol {atol:g}")
+
+
+def _update_registry(
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
     *,
     onnx_path: Path,
     sidecar_path: Path,
     registry_path: Path,
+<<<<<<< HEAD
     scaler: dict,
     in_sample: dict[str, float],
     n_rows: int,
@@ -521,11 +712,30 @@ def _write_sidecar_and_registry(
 
     sidecar = {
         "id": "fr_regressor_v2",
+=======
+    digest: str,
+    in_features: int,
+) -> None:
+    from vmaf_train.codec import CODEC_VOCAB, CODEC_VOCAB_VERSION
+
+    notes = (
+        "Codec-aware FR regressor (v2_hw, ADR-0284) — wide-input "
+        f"{in_features}-D vector (canonical-6 features + 16-slot codec "
+        "one-hot + preset_norm + crf_norm) → MOS scalar. SMOKE export — "
+        "trained on synthetic deterministic data; real multi-codec "
+        "corpus training tracked under T7-CODEC-AWARE-V2. Vocabulary "
+        f"version {CODEC_VOCAB_VERSION}; v1 single-input "
+        "fr_regressor_v1.onnx remains shipped and unaffected."
+    )
+    sidecar = {
+        "id": "fr_regressor_v2_hw",
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
         "kind": "fr",
         "onnx": onnx_path.name,
         "opset": 17,
         "sha256": digest,
         "notes": notes,
+<<<<<<< HEAD
         "input_names": ["features", "codec"],
         "output_names": ["score"],
         "feature_order": list(CANONICAL6),
@@ -555,24 +765,54 @@ def _write_sidecar_and_registry(
     models = registry.get("models", [])
     new_entry = {
         "id": "fr_regressor_v2",
+=======
+        "input_names": ["features"],
+        "output_names": ["score"],
+        "in_features": in_features,
+        "feature_layout": {
+            "canonical6": {"start": 0, "len": 6},
+            "codec_one_hot": {"start": 6, "len": 16},
+            "preset_norm": {"start": 22, "len": 1},
+            "crf_norm": {"start": 23, "len": 1},
+        },
+        "codec_vocab_version": CODEC_VOCAB_VERSION,
+        "codec_vocab": list(CODEC_VOCAB),
+        "smoke": True,
+    }
+    sidecar_path.write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
+
+    registry = json.loads(registry_path.read_text())
+    models = [m for m in registry.get("models", []) if m.get("id") != "fr_regressor_v2_hw"]
+    new_entry = {
+        "id": "fr_regressor_v2_hw",
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
         "kind": "fr",
         "onnx": onnx_path.name,
         "opset": 17,
         "sha256": digest,
         "notes": notes,
+<<<<<<< HEAD
         "smoke": smoke,
     }
     models = [m for m in models if m.get("id") != "fr_regressor_v2"]
+=======
+        "smoke": True,
+    }
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
     models.append(new_entry)
     models.sort(key=lambda e: e.get("id", ""))
     registry["models"] = models
     registry_path.write_text(json.dumps(registry, indent=2, sort_keys=True) + "\n")
+<<<<<<< HEAD
     return sidecar
+=======
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(prog="train_fr_regressor_v2.py")
     ap.add_argument(
+<<<<<<< HEAD
         "--corpus",
         type=Path,
         default=None,
@@ -594,22 +834,39 @@ def main() -> int:
         help="MLP hidden width. v2 default 16 (matches the user's 6->16->8->1 spec).",
     )
     ap.add_argument("--depth", type=int, default=2)
+=======
+        "--smoke",
+        action="store_true",
+        help="Run the synthetic smoke-only path (no parquet required).",
+    )
+    ap.add_argument("--epochs", type=int, default=20)
+    ap.add_argument("--lr", type=float, default=1e-3)
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument(
         "--out-onnx",
         type=Path,
+<<<<<<< HEAD
         default=REPO_ROOT / "model" / "tiny" / "fr_regressor_v2.onnx",
+=======
+        default=REPO_ROOT / "model" / "tiny" / "fr_regressor_v2_hw.onnx",
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
     )
     ap.add_argument(
         "--out-sidecar",
         type=Path,
+<<<<<<< HEAD
         default=REPO_ROOT / "model" / "tiny" / "fr_regressor_v2.json",
+=======
+        default=REPO_ROOT / "model" / "tiny" / "fr_regressor_v2_hw.json",
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
     )
     ap.add_argument(
         "--registry",
         type=Path,
         default=REPO_ROOT / "model" / "tiny" / "registry.json",
     )
+<<<<<<< HEAD
     ap.add_argument(
         "--metrics-out",
         type=Path,
@@ -726,6 +983,41 @@ def main() -> int:
         smoke=args.smoke,
     )
     print(f"[fr-v2] shipped: {args.out_onnx} (sha256={_sha256(args.out_onnx)})")
+=======
+    ap.add_argument("--no-export", action="store_true")
+    args = ap.parse_args()
+
+    if not args.smoke:
+        print(
+            "error: only --smoke mode is implemented in this PR; the "
+            "real-corpus training path lands in T7-CODEC-AWARE-V2.",
+            file=sys.stderr,
+        )
+        return 2
+
+    print("[fr-v2-hw] building synthetic 24-D smoke training set ...", flush=True)
+    X, y = _build_smoke_data()
+    print(f"[fr-v2-hw] X={X.shape} y={y.shape} (in_features={X.shape[1]})", flush=True)
+
+    print(f"[fr-v2-hw] training {args.epochs} epochs lr={args.lr} ...", flush=True)
+    model = _train(X, y, epochs=args.epochs, lr=args.lr, seed=args.seed)
+
+    if args.no_export:
+        print("[fr-v2-hw] --no-export set; skipping ONNX export.")
+        return 0
+
+    print(f"[fr-v2-hw] exporting ONNX → {args.out_onnx} ...", flush=True)
+    _export_onnx(model, args.out_onnx, in_features=X.shape[1])
+    digest = _sha256(args.out_onnx)
+    _update_registry(
+        onnx_path=args.out_onnx,
+        sidecar_path=args.out_sidecar,
+        registry_path=args.registry,
+        digest=digest,
+        in_features=X.shape[1],
+    )
+    print(f"[fr-v2-hw] shipped: {args.out_onnx} (sha256={digest})")
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
     return 0
 
 

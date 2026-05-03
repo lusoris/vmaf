@@ -1,0 +1,81 @@
+# ADR-0283: `vmaf-tune` Apple VideoToolbox codec adapters
+
+- **Status**: Accepted
+- **Date**: 2026-05-03
+- **Deciders**: lusoris (with Claude)
+- **Tags**: tooling, ai, ffmpeg, codec, hardware-encoder, apple, fork-local
+
+## Context
+
+`tools/vmaf-tune/` (the quality-aware encode automation harness from
+[ADR-0237](0237-quality-aware-encode-automation.md)) ships Phase A
+with `libx264` only. Adding hardware encoders is a prerequisite for
+`fr_regressor_v2_hw` (codec-aware FR regressor with hardware-encoder
+distortion-signature awareness, see
+[ADR-0284](0284-fr-regressor-v2-codec-schema-expansion.md)) and for
+the per-title CRF predictor's coverage on Apple Silicon hosts.
+
+Apple's VideoToolbox is the only hardware path on M-series and on
+Intel Macs with a T2 chip. FFmpeg exposes two encoders backed by it
+(`h264_videotoolbox`, `hevc_videotoolbox`); AV1 hardware encoding
+is not available on Apple Silicon as of 2026 and is intentionally
+omitted from this PR.
+
+The harness's codec-adapter contract
+(`tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`) is
+multi-codec from day one (per
+[`tools/vmaf-tune/AGENTS.md`](../../tools/vmaf-tune/AGENTS.md)) — new
+codecs are one-file additions under `codec_adapters/` and the search
+loop never branches on codec identity. This PR adds the two
+VideoToolbox adapters in line with that contract.
+
+## Decision
+
+Add `H264VideoToolboxAdapter` and `HEVCVideoToolboxAdapter` under
+`tools/vmaf-tune/src/vmaftune/codec_adapters/`, sharing a single
+`_videotoolbox_common.py` for the quality-knob and preset mapping.
+Both adapters carry `invert_quality=False` and a `[0, 100]` quality
+range — the harness's `crf` row slot now carries whatever native
+quality value each adapter declares, with downstream consumers
+interpreting the knob via the adapter registry.
+
+The nine-name preset taxonomy maps onto VT's coarser `-realtime` flag:
+`ultrafast`/`superfast`/`veryfast`/`faster`/`fast` → `-realtime 1`;
+`medium`/`slow`/`slower`/`veryslow` → `-realtime 0`. The mapping is
+intentionally lossy — VT cannot expose a finer dial.
+
+## Alternatives considered
+
+| Option | Pros | Cons | Why not chosen |
+|---|---|---|---|
+| Two adapters sharing `_videotoolbox_common.py` (chosen) | Codec-specific files stay tiny (~30 LOC each); shared preset/quality logic deduplicated; matches the per-codec one-file-per-adapter convention from AGENTS.md. | One extra module file. | Best fit for the codec-adapter contract. |
+| Single `videotoolbox.py` with two classes | One file. | Mixes h264 + hevc encoder names in one module; breaks the "one file per codec" convention; harder to grep for. | Convention drift. |
+| Inline `-realtime` mapping inside each adapter | No shared file. | Duplicated preset → realtime logic between two adapters; preset list copy-pasted. | DRY violation. |
+| Map presets to a synthetic `-prio_speed`/`-allow_sw` matrix | More expressive than `-realtime`. | VideoToolbox does not expose those as encoder options uniformly across macOS versions; brittle. | Out-of-band knobs, not stable. |
+| Skip VideoToolbox until a macOS CI runner exists | Avoid adding code that can't be exercised on Linux CI. | Blocks `fr_regressor_v2_hw`'s hardware-codec coverage; macOS contributors can already exercise locally. | Test-mockable; subprocess boundary is the seam. |
+
+## Consequences
+
+- **Positive**: `fr_regressor_v2_hw` can include Apple-Silicon-encoded
+  distortions in its corpus once the harness runs on a macOS host;
+  the codec-adapter contract is exercised by three live adapters
+  rather than one (proves the registry pattern). Tests mock
+  `subprocess.run` so the suite stays Linux-CI-runnable.
+- **Negative**: VT's `-realtime` is a coarse preset axis; the harness
+  cannot drive a finer speed/quality dial on Apple hardware. The
+  `-q:v` quality scale (0..100, higher = better) differs from CRF's
+  scale (0..51, lower = better) so corpus consumers must read
+  `encoder` + `crf` together via the adapter registry — documented
+  in [`docs/usage/vmaf-tune.md`](../usage/vmaf-tune.md).
+- **Neutral / follow-ups**: a real macOS CI runner is out of scope
+  here; the smoke gate runs on Linux against mocked subprocess. AV1
+  hardware encoding will land when `av1_videotoolbox` ships in
+  FFmpeg + a supported macOS version.
+
+## References
+
+- [ADR-0237](0237-quality-aware-encode-automation.md) — `vmaf-tune` umbrella spec.
+- [ADR-0284](0284-fr-regressor-v2-codec-schema-expansion.md) — companion 16-slot codec one-hot expansion.
+- [`tools/vmaf-tune/AGENTS.md`](../../tools/vmaf-tune/AGENTS.md) — codec-adapter contract invariants.
+- [`docs/usage/vmaf-tune.md`](../usage/vmaf-tune.md) — user-facing CLI surface.
+- Source: `req` (paraphrased) — user requested Apple VideoToolbox encoder adapters and the 16-slot codec one-hot expansion in one PR.

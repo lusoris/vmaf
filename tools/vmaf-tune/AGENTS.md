@@ -165,6 +165,18 @@ for the option-space digest.
   default; tests inject a fake. Do not import `onnxruntime` at
   module top-level; lazy-load via `_import_onnxruntime` so the
   corpus subcommand and unit tests work without it installed.
+- **Codec one-hot ordering is load-bearing across the harness and
+  `ai/`.** `tools/vmaf-tune/tests/test_codec_one_hot.py` pins each
+  registered adapter name → `ai/src/vmaf_train/codec.CODEC_VOCAB`
+  column index. Reordering `CODEC_VOCAB` silently invalidates every
+  shipped `fr_regressor_v2_*.onnx`; appending is the only safe path
+  and must bump `CODEC_VOCAB_VERSION`. See
+  [ADR-0284](../../docs/adr/0284-fr-regressor-v2-codec-schema-expansion.md).
+- **VideoToolbox quality scale is `[0, 100]`, not CRF.** The harness's
+  `crf` row slot carries native quality values per adapter; downstream
+  consumers must read `encoder` + `crf` together via the adapter
+  registry. See `_videotoolbox_common.py` and
+  [ADR-0283](../../docs/adr/0283-vmaf-tune-videotoolbox-adapters.md).
 
 ## Phase scope
 

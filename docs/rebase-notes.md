@@ -8078,3 +8078,29 @@ inline.*
   ```bash
   pytest tools/vmaf-roi-score/tests
   ```
+
+### 0283 / 0284 — `vmaf-tune` VideoToolbox + 16-slot codec one-hot (2026-05-03)
+
+- **What changed**: fork-local additions only.
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/h264_videotoolbox.py`,
+  `hevc_videotoolbox.py`, `_videotoolbox_common.py` (new files);
+  `codec_adapters/__init__.py` registry update;
+  `ai/src/vmaf_train/codec.py` `CODEC_VOCAB` expanded from 6 to 16
+  slots (`CODEC_VOCAB_VERSION` 1 → 2; v1 vocab preserved as
+  `CODEC_VOCAB_V1`); `model/tiny/registry.json` gains a
+  `fr_regressor_v2_hw` smoke entry.
+- **Upstream source**: fork-local. `tools/vmaf-tune/` and
+  `ai/src/vmaf_train/` are fork-introduced trees with no upstream
+  Netflix/vmaf counterpart.
+- **On upstream sync**: zero interaction. None of the touched paths
+  exist upstream.
+- **Re-train invariant**: any future codec added to `CODEC_VOCAB`
+  must append at the end and bump `CODEC_VOCAB_VERSION`. Reordering
+  silently invalidates every shipped `fr_regressor_v2_*.onnx`.
+- **Re-test on rebase**:
+
+  ```bash
+  PYTHONPATH=ai/src python -m pytest \
+      ai/tests/test_codec_aware_fr.py \
+      tools/vmaf-tune/tests/
+  ```

@@ -1,0 +1,53 @@
+{
+  "codec_vocab": [
+    "x264",
+    "x265",
+    "libsvtav1",
+    "libaom",
+    "h264_nvenc",
+    "hevc_nvenc",
+    "av1_nvenc",
+    "h264_qsv",
+    "hevc_qsv",
+    "av1_qsv",
+    "h264_amf",
+    "hevc_amf",
+    "av1_amf",
+    "h264_videotoolbox",
+    "hevc_videotoolbox",
+    "reserved"
+  ],
+  "codec_vocab_version": 2,
+  "feature_layout": {
+    "canonical6": {
+      "len": 6,
+      "start": 0
+    },
+    "codec_one_hot": {
+      "len": 16,
+      "start": 6
+    },
+    "crf_norm": {
+      "len": 1,
+      "start": 23
+    },
+    "preset_norm": {
+      "len": 1,
+      "start": 22
+    }
+  },
+  "id": "fr_regressor_v2_hw",
+  "in_features": 24,
+  "input_names": [
+    "features"
+  ],
+  "kind": "fr",
+  "notes": "Codec-aware FR regressor (v2_hw, ADR-0284) \u2014 wide-input 24-D vector (canonical-6 features + 16-slot codec one-hot + preset_norm + crf_norm) \u2192 MOS scalar. SMOKE export \u2014 trained on synthetic deterministic data; real multi-codec corpus training tracked under T7-CODEC-AWARE-V2. Vocabulary version 2; v1 single-input fr_regressor_v1.onnx remains shipped and unaffected.",
+  "onnx": "fr_regressor_v2_hw.onnx",
+  "opset": 17,
+  "output_names": [
+    "score"
+  ],
+  "sha256": "c3ec697ae42b596354167edec041ee4d43b920ce82e5757e244be3223cbca57e",
+  "smoke": true
+}

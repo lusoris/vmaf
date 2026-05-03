@@ -73,6 +73,12 @@
       "onnx": "fr_regressor_v2_ensemble_v1_seed4.onnx",
       "opset": 17,
       "sha256": "584ad69bfbdb9250faef824af5c73eaf94b258fab51d38fbc167665a9a262d9c",
+      "id": "fr_regressor_v2_hw",
+      "kind": "fr",
+      "notes": "Codec-aware FR regressor (v2_hw, ADR-0284) \u2014 wide-input 24-D vector (canonical-6 features + 16-slot codec one-hot + preset_norm + crf_norm) \u2192 MOS scalar. SMOKE export \u2014 trained on synthetic deterministic data; real multi-codec corpus training tracked under T7-CODEC-AWARE-V2. Vocabulary version 2; v1 single-input fr_regressor_v1.onnx remains shipped and unaffected.",
+      "onnx": "fr_regressor_v2_hw.onnx",
+      "opset": 17,
+      "sha256": "c3ec697ae42b596354167edec041ee4d43b920ce82e5757e244be3223cbca57e",
       "smoke": true
     },
     {

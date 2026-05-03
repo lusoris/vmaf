@@ -8,6 +8,7 @@
 
 ### Added
 
+<<<<<<< HEAD
 - **`fr_regressor_v2` codec-aware scaffold — first downstream consumer
   of the vmaf-tune Phase A JSONL corpus (ADR-0272, prereq for
   Phase B).** Ships
@@ -342,6 +343,28 @@
   ranked). Companion docs:
   [`docs/ai/models/fr_regressor_v2_probabilistic.md`](docs/ai/models/fr_regressor_v2_probabilistic.md),
   [`docs/research/0067-fr-regressor-v2-probabilistic.md`](docs/research/0067-fr-regressor-v2-probabilistic.md).
+=======
+- **`vmaf-tune` Apple VideoToolbox adapters + 16-slot codec one-hot
+  schema expansion (ADR-0283 + ADR-0284).** Adds
+  `H264VideoToolboxAdapter` and `HEVCVideoToolboxAdapter` under
+  [`tools/vmaf-tune/src/vmaftune/codec_adapters/`](tools/vmaf-tune/src/vmaftune/codec_adapters/),
+  sharing `_videotoolbox_common.py` for the `-q:v` (0..100, higher =
+  better) quality knob and the nine-name preset → `-realtime` boolean
+  mapping. AV1 hardware encoding intentionally omitted (unsupported
+  on Apple Silicon as of 2026). The codec-aware FR regressor
+  vocabulary expands from 6 → 16 slots in
+  [`ai/src/vmaf_train/codec.py`](ai/src/vmaf_train/codec.py)
+  (`CODEC_VOCAB_VERSION` 1 → 2): software (x264, x265, libsvtav1,
+  libaom) + NVENC ×3 + QSV ×3 + AMF ×3 + VideoToolbox ×2 + reserved.
+  Ships a SMOKE `fr_regressor_v2_hw.onnx` (24-D wide-input vector =
+  6 features + 16 codec one-hot + 1 preset_norm + 1 crf_norm) trained
+  on synthetic deterministic data; T7-CODEC-AWARE-V2 follow-up
+  retrains against a real multi-codec corpus. v1 ONNX
+  (`fr_regressor_v1.onnx`) and the `CODEC_VOCAB_V1` tuple stay shipped
+  and unaffected. New tests under
+  [`tools/vmaf-tune/tests/`](tools/vmaf-tune/tests/):
+  `test_codec_adapter_videotoolbox.py` and `test_codec_one_hot.py`.
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

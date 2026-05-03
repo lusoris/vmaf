@@ -5,11 +5,11 @@
 Covers ai/src/vmaf_train/codec.py + the ``num_codecs`` extension to
 ``FRRegressor``. We exercise:
 
-  1. The codec vocabulary contract (closed, ordered, includes
-     ``"unknown"``).
+  1. The codec vocabulary contract (closed, ordered, 16 slots in v2 —
+     see ADR-0284).
   2. ``codec_index`` aliases (h264 → x264, hevc → x265, av1 →
-     libsvtav1, vp9 → libvpx-vp9, vvc/h266 → libvvenc) and
-     ``UNKNOWN_INDEX`` fallback.
+     libsvtav1) and ``UNKNOWN_INDEX`` fallback for v1-only labels
+     (vp9, vvc, h266) plus garbage input.
   3. ``FRRegressor(num_codecs=0)`` is bit-equivalent to the v1
      contract — accepts a single tensor input.
   4. ``FRRegressor(num_codecs=NUM_CODECS)`` requires the second
@@ -37,9 +37,10 @@ from vmaf_train.codec import (  # noqa: E402
 
 
 def test_codec_vocab_contract() -> None:
-    assert "unknown" in CODEC_VOCAB
-    assert CODEC_VOCAB[UNKNOWN_INDEX] == "unknown"
-    assert len(CODEC_VOCAB) == NUM_CODECS
+    # v2 schema (ADR-0284): 16-slot vocabulary with software, NVENC,
+    # QSV, AMF, VideoToolbox buckets + a trailing reserved slot.
+    assert len(CODEC_VOCAB) == NUM_CODECS == 16
+    assert CODEC_VOCAB[UNKNOWN_INDEX] == "reserved"
     # No duplicates.
     assert len(set(CODEC_VOCAB)) == NUM_CODECS
 
@@ -49,8 +50,10 @@ def test_codec_index_aliases() -> None:
     assert codec_index("h264") == CODEC_VOCAB.index("x264")
     assert codec_index("hevc") == CODEC_VOCAB.index("x265")
     assert codec_index("AV1") == CODEC_VOCAB.index("libsvtav1")
-    assert codec_index("vp9") == CODEC_VOCAB.index("libvpx-vp9")
-    assert codec_index("h266") == CODEC_VOCAB.index("libvvenc")
+    # v2: vp9 / vvc no longer have first-class slots; they collapse
+    # to the trailing reserved bucket via the unknown-fallback path.
+    assert codec_index("vp9") == UNKNOWN_INDEX
+    assert codec_index("h266") == UNKNOWN_INDEX
     # Unknown / missing labels collapse to UNKNOWN_INDEX.
     assert codec_index(None) == UNKNOWN_INDEX
     assert codec_index("") == UNKNOWN_INDEX
@@ -67,8 +70,8 @@ def test_codec_one_hot_shape_and_sum() -> None:
     batch = codec_one_hot_batch(["x264", None, "av1", "garbage"])
     assert batch.shape == (4, NUM_CODECS)
     assert (batch.sum(axis=1) == 1.0).all()
-    assert batch[1, UNKNOWN_INDEX] == 1.0
-    assert batch[3, UNKNOWN_INDEX] == 1.0
+    assert batch[1, UNKNOWN_INDEX] == 1.0  # None → reserved/unknown
+    assert batch[3, UNKNOWN_INDEX] == 1.0  # garbage → reserved/unknown
 
 
 def test_fr_regressor_num_codecs_zero_is_v1_contract() -> None:

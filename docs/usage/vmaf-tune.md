@@ -742,6 +742,7 @@ VMAF gaps, matching how viewers perceive quality steps.
 - No real-corpus end-to-end ladder validation against a Netflix per-
   title baseline — that's gated on Phase B merging.
 - No MCP tools wiring (Phase F).
+<<<<<<< HEAD
 - The shipped `encode.py` driver only wires the `-preset` argv shape
   used by x264/x265. The libaom-av1 adapter's metadata + preset
   mapping land here; routing its codec-specific argv through the
@@ -882,6 +883,96 @@ it.
   `libsvtav1` / `libvpx-vp9` / `libvvenc` / NVENC / AMF land via
   one-file additions under
   `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+=======
+- Only `libx264` (CPU) and `h264_videotoolbox` / `hevc_videotoolbox`
+  (Apple-Silicon hardware) are wired today — `libx265` / `libsvtav1` /
+  `libaom` / NVENC / QSV / AMF adapters land alongside `fr_regressor_v2_hw`
+  (see [ADR-0283](../adr/0283-vmaf-tune-videotoolbox-adapters.md) and
+  [ADR-0284](../adr/0284-fr-regressor-v2-codec-schema-expansion.md)).
+  All adapters live under `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+
+## Apple VideoToolbox adapters
+
+Hardware-accelerated encoding on Apple Silicon (M-series) and Intel Macs
+with a T2 chip. FFmpeg exposes `h264_videotoolbox` and `hevc_videotoolbox`
+backed by Apple's VideoToolbox API. AV1 hardware encoding is not
+available on Apple Silicon as of 2026 and is intentionally not surfaced.
+
+```shell
+vmaf-tune corpus \
+    --source ref.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p \
+    --framerate 24 --duration 10 \
+    --encoder h264_videotoolbox \
+    --preset medium --preset fast \
+    --crf 50 --crf 70 \
+    --output corpus_vt.jsonl
+```
+
+### Quality knob — `-q:v`, not CRF
+
+VideoToolbox accepts `-q:v` on the **`[0, 100]` integer scale** (higher =
+better quality), in contrast to libx264 / libx265 which use `-crf` on
+`[0, 51]` (lower = better). The harness's `crf` row slot carries
+whatever native quality value each adapter declares; downstream
+consumers read `encoder` + `crf` together via the adapter registry to
+interpret the knob:
+
+| Codec                 | Knob   | Range     | Direction         |
+|-----------------------|--------|-----------|-------------------|
+| libx264 / libx265     | `crf`  | 0..51     | lower = better    |
+| `h264_videotoolbox`   | `q:v`  | 0..100    | higher = better   |
+| `hevc_videotoolbox`   | `q:v`  | 0..100    | higher = better   |
+
+A reasonable Phase A grid for both VT encoders is `q:v ∈ {40, 55, 70, 85}`
+— values below 40 produce mostly-artefact output, values above 85
+explode the bitrate without a meaningful quality lift.
+
+### Preset mapping
+
+VideoToolbox has no x264-style preset axis. The closest knob is the
+`-realtime` boolean. The harness maps the standard nine-name preset
+list onto `-realtime` so callers can drive every codec from one preset
+list:
+
+| Preset                                                 | `-realtime` |
+| ------------------------------------------------------ | ----------- |
+| `ultrafast`, `superfast`, `veryfast`, `faster`, `fast` | `1`         |
+| `medium`, `slow`, `slower`, `veryslow`                 | `0`         |
+
+The mapping is intentionally lossy — VT cannot expose a finer dial.
+For per-title encoding the `q:v` axis carries the bulk of the
+search-space signal; preset mostly affects throughput, not quality.
+
+## Codec one-hot schema (16 slots)
+
+The codec-aware FR regressor (`fr_regressor_v2_hw`,
+[ADR-0284](../adr/0284-fr-regressor-v2-codec-schema-expansion.md))
+consumes a 16-slot one-hot codec id alongside its feature vector. The
+vocabulary lives in
+[`ai/src/vmaf_train/codec.py`](../../ai/src/vmaf_train/codec.py)
+(`CODEC_VOCAB`):
+
+| Index | Codec               | | Index | Codec               |
+|-------|---------------------|-|-------|---------------------|
+| 0     | `x264`              | | 8     | `hevc_qsv`          |
+| 1     | `x265`              | | 9     | `av1_qsv`           |
+| 2     | `libsvtav1`         | | 10    | `h264_amf`          |
+| 3     | `libaom`            | | 11    | `hevc_amf`          |
+| 4     | `h264_nvenc`        | | 12    | `av1_amf`           |
+| 5     | `hevc_nvenc`        | | 13    | `h264_videotoolbox` |
+| 6     | `av1_nvenc`         | | 14    | `hevc_videotoolbox` |
+| 7     | `h264_qsv`          | | 15    | `reserved`          |
+
+Index 15 is reserved for the next codec added without forcing a third
+schema bump. Unrecognised labels (including `vp9`, `vvc`, `h266`, and
+the v1 `libvvenc` / `libvpx-vp9` slots) bucket to `reserved` via the
+unknown-fallback path.
+
+The `fr_regressor_v1.onnx` ships unchanged and continues to use the v1
+6-slot vocabulary preserved as `CODEC_VOCAB_V1` in the same module —
+v1 consumers without codec metadata see no behaviour change.
+>>>>>>> e393bfe8 (feat(tools): VideoToolbox adapters + 16-slot codec schema expansion)
 
 ## VVenC (H.266 / VVC + NNVC)
 

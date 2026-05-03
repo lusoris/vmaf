@@ -86,6 +86,14 @@ def test_known_codecs_includes_x264_baseline():
     # x264 is the canonical Phase A adapter; later phases register
     # additional codecs (libsvtav1, libx265, ...) without removing it.
     assert "libx264" in known_codecs()
+
+
+def test_known_codecs_includes_x264_and_videotoolbox():
+    # libx264 stays the Phase A baseline; VideoToolbox adapters were
+    # added alongside the 16-slot codec one-hot (ADR-0283 / ADR-0284).
+    assert "libx264" in known_codecs()
+    assert "h264_videotoolbox" in known_codecs()
+    assert "hevc_videotoolbox" in known_codecs()
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True
