@@ -1915,6 +1915,15 @@
 
 ### Fixed
 
+- **integer_motion: dict leak in `motion_force_zero` case** (upstream port,
+  Netflix/vmaf
+  [`4f5e366b`](https://github.com/Netflix/vmaf/commit/4f5e366b4f4167d0b46eb5621990f6f0cc84cdab),
+  rcombs, 2025-11-04). When `motion_force_zero=true`, the integer_motion
+  feature extractor wired `fex->close = NULL`, leaking the
+  `feature_name_dict` allocated in `init`. Adds a `close_force_zero`
+  callback that calls `vmaf_dictionary_free(&s->feature_name_dict)`. CPU-only
+  bookkeeping fix; no numerical impact and no SIMD/GPU twins to propagate.
+
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
   `Clang-Tidy (Changed C/C++ Files)` step used `git diff --name-only`
