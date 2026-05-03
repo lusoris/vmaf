@@ -1485,6 +1485,27 @@
   other size-cap coverage (oversize fixture rejection, `S_ISREG`
   check, allowlist) stays intact.
 
+### Investigated (deferred)
+
+- **VIF AVX-512 `vpgatherdq` polynomial-replacement attempt — bit-exact
+  contract forbids.** The post-merge CPU profile (Research-0053, PR #333)
+  attributed 13% of VIF AVX-512 samples to the first `vpgatherdq` log2
+  lookup in `vif_statistic_8_avx512`, and proposed swapping the gather
+  for an inline 5th-order minimax polynomial (estimated +3–6%
+  end-to-end). An empirical bit-equivalence test
+  ([`scripts/dev/vif_log2_poly_check.py`](scripts/dev/vif_log2_poly_check.py))
+  shows a degree-5 polynomial diverges from the scalar
+  `log2_table[i] = round(log2f((float)i) * 2048)` at 428 of 32,768
+  inputs by ±1 quantum; even degree 8 misses 2 entries. Bit-equivalence
+  first reaches zero mismatches at degree 10, where the FMA cost
+  cancels the gather win on Skylake-X / Ice Lake. The optimisation
+  cannot ship without violating the SIMD bit-exactness precedent set
+  by ADR-0138 / ADR-0145 and would shift Netflix golden scores. Full
+  analysis + follow-up paths (smaller L1d-resident table + linear
+  interpolation; revisit on Sapphire Rapids / Granite Rapids where
+  gather throughput is materially better) in
+  [`docs/research/0055-vif-polynomial-log2-attempt.md`](docs/research/0055-vif-polynomial-log2-attempt.md).
+
 ### Changed
 
 - **Quarterly upstream-backlog re-audit (T7-4)** (fork-local doc):
