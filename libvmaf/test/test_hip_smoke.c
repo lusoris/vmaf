@@ -242,6 +242,37 @@ static char *test_motion_v2_hip_extractor_registered(void)
     VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("motion_v2_hip");
     mu_assert("motion_v2_hip extractor must be registered", fex != NULL);
     mu_assert("motion_v2_hip extractor name matches", strcmp(fex->name, "motion_v2_hip") == 0);
+static char *test_float_motion_hip_extractor_registered(void)
+{
+    /* Seventh-consumer PR (ADR-0273) extends the same registration
+     * contract to `float_motion_hip`: extractor is found by name with
+     * the matching `.name` string, and carries the TEMPORAL flag bit
+     * (load-bearing for the feature engine's collect-before-next-submit
+     * scheduling that motion-class metrics rely on). The runtime PR
+     * (T7-10b) keeps these assertions green. */
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_motion_hip");
+    mu_assert("float_motion_hip extractor must be registered", fex != NULL);
+    mu_assert("float_motion_hip extractor name matches",
+              strcmp(fex->name, "float_motion_hip") == 0);
+    mu_assert("float_motion_hip extractor must carry the TEMPORAL flag",
+              (fex->flags & VMAF_FEATURE_EXTRACTOR_TEMPORAL) != 0);
+    return NULL;
+}
+
+static char *test_float_ssim_hip_extractor_registered(void)
+{
+    /* Eighth-consumer PR (ADR-0274) extends the same registration
+     * contract to `float_ssim_hip`: extractor is found by name with
+     * the matching `.name` string. Pins the two-dispatch shape via
+     * `chars.n_dispatches_per_frame == 2` so the runtime PR's
+     * dispatch-counter accounting (and the `places=4` cross-backend
+     * gate's per-frame-cost model) inherits a consumer that exercises
+     * the multi-dispatch path. */
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_ssim_hip");
+    mu_assert("float_ssim_hip extractor must be registered", fex != NULL);
+    mu_assert("float_ssim_hip extractor name matches", strcmp(fex->name, "float_ssim_hip") == 0);
+    mu_assert("float_ssim_hip extractor reports two dispatches per frame",
+              fex->chars.n_dispatches_per_frame == 2);
     return NULL;
 }
 
@@ -275,6 +306,9 @@ static const test_fn test_table[] = {
     /* T7-10b fifth/sixth consumers (ADR-0266 / ADR-0267) */
     test_float_ansnr_hip_extractor_registered,
     test_motion_v2_hip_extractor_registered,
+    /* T7-10b seventh + eighth consumers (ADR-0273 / ADR-0274) */
+    test_float_motion_hip_extractor_registered,
+    test_float_ssim_hip_extractor_registered,
 };
 
 static const size_t test_table_len = sizeof(test_table) / sizeof(test_table[0]);

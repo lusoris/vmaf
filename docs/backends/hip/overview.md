@@ -1,10 +1,10 @@
-# HIP (AMD ROCm) compute backend (scaffold + four kernel-template consumers)
+# HIP (AMD ROCm) compute backend (scaffold + eight kernel-template consumers)
 
-> **Status: scaffold + four kernel-template consumers (host
+> **Status: scaffold + eight kernel-template consumers (host
 > scaffolding only).** Every entry point in
 > [`libvmaf_hip.h`](../../../libvmaf/include/libvmaf/libvmaf_hip.h)
 > currently returns `-ENOSYS` pending the runtime PR (T7-10b). The
-> kernel-template consumers shipped so far are:
+> kernel-template consumers shipped or in flight are:
 >
 > 1. `integer_psnr_hip` (name `psnr_hip`) under
 >    [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md).
@@ -18,10 +18,31 @@
 >    [ADR-0260](../../adr/0260-hip-fourth-consumer-float-moment.md) —
 >    pins the kernel-template's "memset multiple uint64 counters"
 >    path (four atomic counters in one kernel pass).
+> 5. `float_ansnr_hip` (name `float_ansnr_hip`) under
+>    [ADR-0266](../../adr/0266-hip-fifth-consumer-float-ansnr.md) —
+>    pins the **interleaved (sig, noise) per-block float-partial**
+>    readback shape (PR #340 in flight as of this PR).
+> 6. `motion_v2_hip` (name `motion_v2_hip`) under
+>    [ADR-0267](../../adr/0267-hip-sixth-consumer-motion-v2.md) —
+>    pins the **temporal-extractor** shape (`flush()` callback +
+>    ping-pong buffer carry, PR #340 in flight as of this PR).
+> 7. `float_motion_hip` (name `float_motion_hip`) under
+>    [ADR-0273](../../adr/0273-hip-seventh-consumer-float-motion.md) —
+>    pins the **three-buffer ping-pong** (raw-pixel cache plus
+>    blurred-frame ping-pong) and the `motion_force_zero` short-circuit
+>    posture (this PR).
+> 8. `float_ssim_hip` (name `float_ssim_hip`) under
+>    [ADR-0274](../../adr/0274-hip-eighth-consumer-float-ssim.md) —
+>    first **multi-dispatch** HIP consumer
+>    (`chars.n_dispatches_per_frame == 2`); pins the five-intermediate
+>    float-buffer pyramid and the v1 `scale=1` `-EINVAL` validation
+>    surface (this PR).
 >
-> All four register and are looked-up-able from the feature engine,
+> All eight register and are looked-up-able from the feature engine,
 > but their `init()` returns `-ENOSYS` because the
-> `kernel_template.c` helper bodies they call still return `-ENOSYS`.
+> `kernel_template.c` helper bodies they call still return `-ENOSYS`
+> (`float_ssim_hip` may instead return `-EINVAL` if the input
+> dimensions trigger auto-decimation, mirroring `ssim_cuda`).
 > The runtime PR flips all of them at once. Rollout cadence mirrors
 > the Vulkan scaffold-then-runtime split that
 # HIP (AMD ROCm) compute backend (scaffold + six host-scaffolded consumers)
@@ -119,6 +140,8 @@ ROCm SDK that no kernel uses yet).
    is well-defined and its arithmetic GPU-maps cleanly).
 3. **ADM, motion, the long tail**: parity with the CPU + CUDA + SYCL,
    Vulkan kernel matrix.
+3. **ADM, motion, the long tail**: parity with the CPU + CUDA + SYCL
+   plus Vulkan kernel matrix.
 4. **CI ROCm runner** (post-runtime): if and when GitHub Actions
    exposes AMD GPU runners — until then the runtime PR's smoke test
    skips cleanly on hosts with no devices, matching the
