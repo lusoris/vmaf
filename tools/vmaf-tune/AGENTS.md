@@ -138,6 +138,22 @@ for the option-space digest.
   AV1 (`av1_amf`) is RDNA3+ only; `ensure_amf_available` is the
   runtime gate.
 
+- **Phase E ladder math is two-pass and order-sensitive.** `convex_hull`
+  in `ladder.py` runs (1) Pareto filter sorted by bitrate ascending,
+  vmaf descending tie-break; (2) upper-convex envelope with `cross >= 0`
+  pop predicate (drops accelerating-returns interior points so the
+  hull is concave / diminishing-returns end-to-end). Re-deriving the
+  hull from a different starting condition is easy to get subtly
+  wrong — the algorithm is pinned by `test_ladder.py` invariants
+  (monotonic both axes, no domination). Don't refactor without
+  re-running that suite.
+- **Phase E sampler is pluggable; default raises by design.** The
+  `SamplerFn` callback in `ladder.build_ladder` defaults to a stub
+  that raises `NotImplementedError`. Production wiring lives in a
+  follow-up PR gated on Phase B's target-VMAF bisect. Tests inject a
+  synthetic stub. Do not add a "best-effort" default that fakes
+  points — silently producing garbage is worse than a clear error.
+
 ## Phase scope
 
 Phase A (this scaffold): grid sweep + JSONL emit, x264 only.
@@ -229,3 +245,9 @@ far: `libx264` (ADR-0237) and `libsvtav1` (ADR-0294). Phases B–F per
 ADR-0237 are explicitly out of scope here; do not add bisect /
 predictor / ladder / MCP code into this tree without an ADR-0237
 follow-up promoting the corresponding phase.
+Phase A (the corpus scaffold): grid sweep + JSONL emit, x264 only.
+Phase E (this scaffold): per-title bitrate-ladder generator (Pareto
+hull + manifest emit), sampler-pluggable, smoke-only until Phase B
+merges. Phases B / C / D / F per ADR-0237 are explicitly out of scope
+here; do not add bisect / predictor / per-shot / MCP code into this
+tree without an ADR-0237 follow-up promoting the corresponding phase.

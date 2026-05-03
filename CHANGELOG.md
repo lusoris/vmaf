@@ -300,6 +300,24 @@
   mocks in `tools/vmaf-tune/tests/test_codec_adapter_svtav1.py`
   (27 tests pass total); real-binary integration smoke deferred to
   the CI runner that ships libsvtav1.
+- **vmaf-tune Phase E — per-title bitrate-ladder generator
+  (ADR-0277).** Ships
+  [`tools/vmaf-tune/src/vmaftune/ladder.py`](tools/vmaf-tune/src/vmaftune/ladder.py)
+  and a `vmaf-tune ladder` CLI subcommand that mirrors the Netflix
+  per-title encoding paper: sample the (resolution × target-VMAF)
+  plane via a pluggable `SamplerFn`, take the Pareto upper-convex
+  hull on (bitrate, vmaf), pick `n` rungs along the hull (log-bitrate
+  or VMAF spacing), and emit an ABR manifest (HLS master playlist /
+  DASH MPD / JSON descriptor). PR #354 capability audit Bucket #6
+  flagged this as the single biggest "game-changer" for the fork.
+  Currently scaffold-only: the production sampler that drives Phase
+  B's target-VMAF bisect (PR #347) wires up in a follow-up PR; the
+  default sampler raises `NotImplementedError` and tests inject a
+  synthetic stub. 15 new ladder tests + 28 total in
+  `tools/vmaf-tune/tests/`. Default rendition set is the canonical
+  5-rung 1080p/720p/480p/360p/240p ladder. See
+  [`docs/usage/vmaf-tune.md` § "Per-title ladder"](docs/usage/vmaf-tune.md).
+
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

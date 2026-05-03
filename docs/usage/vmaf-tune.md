@@ -24,6 +24,13 @@ sweep that produces the corpus the later phases consume) and the
 [ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md)). Phases B
 (target-VMAF bisect), C (per-title CRF predictor), E (Pareto ABR
 ladder) and F (MCP tools) are not implemented yet — see ADR-0237.
+This doc covers **Phase A** of the six-phase roadmap (a `libx264` grid
+sweep that produces the corpus the later phases consume) and **Phase E**
+(per-title bitrate-ladder generator — scaffold-only until Phase B's
+target-VMAF bisect merges). Phases B (target-VMAF bisect), C (per-title
+CRF predictor), D (per-shot dynamic CRF), and F (MCP tools) are not
+implemented yet — see [ADR-0237](../adr/0237-quality-aware-encode-automation.md)
+and [ADR-0277](../adr/0277-vmaf-tune-phase-e-bitrate-ladder.md).
 
 Codecs wired so far: `libx264` (Phase A scaffold) and `libx265`
 ([ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)). Adapter
@@ -561,6 +568,85 @@ emit an `Encoder not found` line buried in stderr.
 - No target-VMAF bisect (Phase B).
 - No per-title CRF prediction (Phase C).
 - No Pareto ABR ladder generation (Phase E).
+## Per-title ladder (Phase E)
+
+Phase E ships the `vmaf-tune ladder` subcommand — given one source,
+sample (resolution × target-VMAF) points, take the Pareto upper-convex
+hull on (bitrate, vmaf), pick `n` evenly-spaced rungs along the hull,
+and emit the result as an HLS master playlist, DASH MPD, or JSON
+descriptor. This is the
+"[per-title encoding](https://netflixtechblog.com/per-title-encode-optimization-7e99442b62a2)"
+loop in one command — a fixed authoring-spec ladder is replaced by the
+ladder that's actually optimal for *this* title.
+
+See [ADR-0277](../adr/0277-vmaf-tune-phase-e-bitrate-ladder.md) for
+the design and the alternatives considered (geometric ladder, JND-
+spaced, fixed Apple HLS).
+
+> Phase E is currently **scaffold-only**: the production sampler that
+> drives Phase B's target-VMAF bisect lands once PR #347 merges. Until
+> then, the CLI raises `NotImplementedError` for the default sampler.
+> Tests inject a synthetic sampler — see
+> `tools/vmaf-tune/tests/test_ladder.py` for the smoke path.
+
+### Canonical 5-rung invocation
+
+The default rendition set is the canonical 5-rung
+1080p/720p/480p/360p/240p ladder against VMAF targets
+{95, 90, 85, 75, 65}:
+
+```shell
+vmaf-tune ladder \
+    --src episode01.yuv \
+    --encoder libx264 \
+    --resolutions 1920x1080,1280x720,854x480,640x360,426x240 \
+    --target-vmafs 95,90,85,75,65 \
+    --quality-tiers 5 \
+    --format hls \
+    --output episode01_ladder.m3u8
+```
+
+The output is an HLS master playlist with one `#EXT-X-STREAM-INF` per
+rung; bandwidth (in bps) is monotonically increasing. Variant URIs are
+placeholders — re-point them at your per-rendition playlists when
+packaging the encoded segments.
+
+### Other manifest formats
+
+```shell
+# DASH MPD
+vmaf-tune ladder --src ep01.yuv --format dash --output ladder.mpd
+
+# JSON descriptor (machine-readable, vmaf-tune-ladder/v1 schema)
+vmaf-tune ladder --src ep01.yuv --format json --output ladder.json
+```
+
+### Rung spacing
+
+`--spacing log_bitrate` (default) doubles bandwidth per rung — Apple
+HLS authoring-spec convention. `--spacing vmaf` spaces rungs by equal
+VMAF gaps, matching how viewers perceive quality steps.
+
+### Phase E ladder CLI flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--src PATH` | — | Required. Source label (sampling currently mocked). |
+| `--encoder NAME` | `libx264` | Codec adapter (Phase A wires `libx264` only). |
+| `--resolutions WxH,...` | `1920x1080,1280x720,854x480,640x360,426x240` | Canonical 5-rung. |
+| `--target-vmafs F,...` | `95,90,85,75,65` | VMAF targets per resolution. |
+| `--quality-tiers N` | `5` | Rungs to pick from the Pareto hull. |
+| `--spacing` | `log_bitrate` | `log_bitrate` (HLS spec) or `vmaf` (perceptual). |
+| `--format` | `hls` | `hls`, `dash`, or `json`. |
+| `--output PATH` | stdout | Manifest destination. |
+
+## What Phase A / E do **not** do
+
+- No target-VMAF bisect (Phase B). Phase E currently mocks the
+  sampler.
+- No per-title or per-shot CRF prediction (Phase C / D).
+- No real-corpus end-to-end ladder validation against a Netflix per-
+  title baseline — that's gated on Phase B merging.
 - No MCP tools wiring (Phase F).
 - The shipped `encode.py` driver only wires the `-preset` argv shape
   used by x264/x265. The libaom-av1 adapter's metadata + preset
