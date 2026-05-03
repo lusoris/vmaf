@@ -7656,3 +7656,46 @@ inline.*
 - **Re-test on rebase**: `python3 ai/scripts/train_fr_regressor_v2.py
   --corpus <jsonl> --epochs 200 --no-export` — expect PLCC > 0.95 on
   a multi-codec corpus.
+### 0276 — `vmaf_tiny_v5` corpus-expansion probe (ADR-0287) — defer
+
+- **What changed**: research-only addition. New scripts under
+  `ai/scripts/` (`fetch_youtube_ugc_subset.py`,
+  `extract_ugc_features.py`, `train_vmaf_tiny_v5.py`,
+  `eval_loso_vmaf_tiny_v5.py`), new ADR `docs/adr/0276-*.md`, new
+  research digest `docs/research/0057-*.md`, and one CHANGELOG
+  entry. **No new ONNX artefact** under `model/tiny/`, **no
+  registry change**, **no public C-API / CLI / meson_options
+  change**. The probe trained an architecturally identical
+  mlp_small on a 5-corpus parquet (4-corpus + 27 000 UGC rows);
+  the 1-σ ship gate did not clear (Δ PLCC = +0.00005), so the
+  exporter that the prior agent had drafted
+  (`export_vmaf_tiny_v5.py`) was discarded before the commit.
+- **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI
+  corpus-expansion surface; nothing on the upstream side touches
+  these files.
+- **On upstream sync**: zero interaction. The v5 surface lives
+  entirely under `ai/scripts/` + `docs/adr/` + `docs/research/`,
+  all of which are fork-introduced trees. The shipped v2 model
+  (`model/tiny/vmaf_tiny_v2.onnx`) and its registry row are
+  untouched.
+- **Re-test on rebase**:
+
+  ```bash
+  # No code under test on rebase — purely research artefacts.
+  # If revisiting the corpus expansion, the reproducer is in the
+  # research digest:
+  python3 ai/scripts/fetch_youtube_ugc_subset.py \
+      --out-dir .workingdir2/ugc/download \
+      --n-stems 30 \
+      --manifest .workingdir2/ugc/manifest.json
+  python3 ai/scripts/extract_ugc_features.py \
+      --manifest .workingdir2/ugc/manifest.json \
+      --yuv-dir .workingdir2/ugc/yuv \
+      --vmaf-bin build-cpu/tools/vmaf \
+      --out-parquet runs/full_features_ugc.parquet \
+      --max-height 360 --max-frames 300 --threads 8
+  python3 ai/scripts/eval_loso_vmaf_tiny_v5.py \
+      --parquet-base  runs/full_features_4corpus.parquet \
+      --parquet-extra runs/full_features_ugc.parquet \
+      --out-json      runs/vmaf_tiny_v5_loso_metrics.json
+  ```

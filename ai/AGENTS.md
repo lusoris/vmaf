@@ -308,3 +308,26 @@ The current shipped ONNX is from `--smoke` mode and is registered
 `smoke: true` in `model/tiny/registry.json`. Production training run
 is gated on a multi-codec Phase A corpus + per-frame feature emission
 in the Phase A schema. See ADR-0272 + Research-0054.
+## v5 corpus-expansion probe — research-only (ADR-0287)
+
+The `*_vmaf_tiny_v5.py` scripts
+(`fetch_youtube_ugc_subset.py`, `extract_ugc_features.py`,
+`train_vmaf_tiny_v5.py`, `eval_loso_vmaf_tiny_v5.py`) are
+research infrastructure for the deferred v5 corpus-expansion
+probe. **No `vmaf_tiny_v5.onnx` ships** — the 1-σ ship gate did
+not clear (Δ PLCC = +0.00005 at seed=0, far below the 1-σ_v2
+threshold). When extending these scripts:
+
+- Do not add a `vmaf_tiny_v5` row to
+  `model/tiny/registry.json` unless a follow-up run actually
+  clears the ship gate documented in
+  [ADR-0287](../docs/adr/0287-vmaf-tiny-v5-corpus-expansion.md).
+- The fetcher hits a public GCS bucket (`gs://ugc-dataset/`,
+  CC-BY); raw videos and the resulting
+  `runs/full_features_ugc.parquet` must NEVER be committed
+  (the `runs/` and `.workingdir2/` trees are gitignored).
+- The dual-arm LOSO trains 18 mlp_small models
+  (9 v2-baseline plus 9 v5-candidate); single invocation
+  wall-time is ~10–25 min depending on CPU. Do NOT launch it
+  concurrently with another training process — the two share
+  BLAS threads and serialise badly.
