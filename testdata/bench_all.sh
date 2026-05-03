@@ -31,9 +31,15 @@ done
 
 cd "${VMAF_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo /home/kilian/dev/vmaf)}" || exit 1
 
-# Honour $VMAF_BIN if set (e.g. for a fresh local build); otherwise fall
-# back to the system-installed CLI.
-VMAF="${VMAF_BIN:-/usr/local/bin/vmaf}"
+# Honour $VMAF_BIN if set (e.g. for an out-of-tree build); otherwise default
+# to the in-tree fork build at libvmaf/build/tools/vmaf. Earlier revisions
+# fell back to /usr/local/bin/vmaf, which on most dev hosts is stuck at
+# v3.0.0 (predates upstream a44e5e61's motion edge-mirror fix). Bench rows
+# captured against that stale binary then drifted ~1e-3 from every fork
+# build that has ever existed; see PR #305 for the bisect. Operators who
+# really want the system binary should set VMAF_BIN=/usr/local/bin/vmaf
+# explicitly.
+VMAF="${VMAF_BIN:-libvmaf/build/tools/vmaf}"
 MODEL=model/vmaf_v0.6.1.json
 OUTDIR=testdata/bbb/results
 mkdir -p "$OUTDIR"

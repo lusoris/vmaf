@@ -19,18 +19,33 @@ python/test/quality_runner_test.py):
   checkerboard 1080p (_10_0):  7.985898744818505
 """
 
-import subprocess, json, os, sys, time, tempfile
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
 
-FFMPEG = "/home/kilian/dev/ffmpeg-8/install/bin/ffmpeg"
+# Paths are overridable via env vars so a worktree / CI runner can point at a
+# freshly-built libvmaf instead of the system install. Defaults match the
+# author's local layout. See PR #305 (2026-05-02) for why the snapshot must be
+# regenerated against the fork build, not against /usr/local/bin/vmaf v3.0.0.
+FFMPEG = os.environ.get("VMAF_FFMPEG", "/home/kilian/dev/ffmpeg-8/ffmpeg")
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-YUVDIR = os.path.join(os.path.dirname(BASEDIR), "python", "test", "resource", "yuv")
+# YUV fixtures live in the upstream-mirror python/test/resource/yuv/ tree.
+# When invoked from a git worktree (where those files aren't checked out),
+# point at the primary checkout via VMAF_YUVDIR.
+YUVDIR = os.environ.get(
+    "VMAF_YUVDIR",
+    os.path.join(os.path.dirname(BASEDIR), "python", "test", "resource", "yuv"),
+)
 
 # Netflix reference scores (vmaf_v0.6.1, integer path)
 # From python/test/quality_runner_test.py
 EXPECTED = {
-    "src01_576x324":        76.66890519623612,
-    "checker_1080p_mild":   35.06866714286451,
-    "checker_1080p_heavy":   7.985898744818505,
+    "src01_576x324": 76.66890519623612,
+    "checker_1080p_mild": 35.06866714286451,
+    "checker_1080p_heavy": 7.985898744818505,
 }
 
 TESTS = [
@@ -38,22 +53,28 @@ TESTS = [
         "name": "src01_576x324",
         "ref": os.path.join(YUVDIR, "src01_hrc00_576x324.yuv"),
         "dis": os.path.join(YUVDIR, "src01_hrc01_576x324.yuv"),
-        "width": 576, "height": 324,
-        "pix_fmt": "yuv420p", "frames": 48,
+        "width": 576,
+        "height": 324,
+        "pix_fmt": "yuv420p",
+        "frames": 48,
     },
     {
         "name": "checker_1080p_mild",
         "ref": os.path.join(YUVDIR, "checkerboard_1920_1080_10_3_0_0.yuv"),
         "dis": os.path.join(YUVDIR, "checkerboard_1920_1080_10_3_1_0.yuv"),
-        "width": 1920, "height": 1080,
-        "pix_fmt": "yuv420p", "frames": 3,
+        "width": 1920,
+        "height": 1080,
+        "pix_fmt": "yuv420p",
+        "frames": 3,
     },
     {
         "name": "checker_1080p_heavy",
         "ref": os.path.join(YUVDIR, "checkerboard_1920_1080_10_3_0_0.yuv"),
         "dis": os.path.join(YUVDIR, "checkerboard_1920_1080_10_3_10_0.yuv"),
-        "width": 1920, "height": 1080,
-        "pix_fmt": "yuv420p", "frames": 3,
+        "width": 1920,
+        "height": 1080,
+        "pix_fmt": "yuv420p",
+        "frames": 3,
     },
 ]
 
@@ -78,9 +99,12 @@ BACKENDS = [
         "name": "sycl",
         "filter": "libvmaf_sycl",
         "extra_args": [
-            "-init_hw_device", "vaapi=va:/dev/dri/renderD130",
-            "-init_hw_device", "qsv=qsv@va",
-            "-filter_hw_device", "qsv",
+            "-init_hw_device",
+            "vaapi=va:/dev/dri/renderD130",
+            "-init_hw_device",
+            "qsv=qsv@va",
+            "-filter_hw_device",
+            "qsv",
         ],
         "lavfi": "[0:v]hwupload=extra_hw_frames=128[dis];[1:v]hwupload=extra_hw_frames=128[ref];[dis][ref]libvmaf_sycl=log_path={log}:log_fmt=json:model=version=vmaf_v0.6.1",
         "env_extra": {"LIBVA_DRIVER_NAME": "iHD"},
@@ -98,16 +122,38 @@ def run_vmaf(test, backend, log_path):
     lavfi = backend["lavfi"].format(log=log_path)
 
     cmd = [
-        FFMPEG, "-y",
+        FFMPEG,
+        "-y",
         *backend["extra_args"],
-        "-f", "rawvideo", "-pix_fmt", test["pix_fmt"], "-s", size, "-i", test["dis"],
-        "-f", "rawvideo", "-pix_fmt", test["pix_fmt"], "-s", size, "-i", test["ref"],
-        "-lavfi", lavfi,
-        "-f", "null", "-"
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        test["pix_fmt"],
+        "-s",
+        size,
+        "-i",
+        test["dis"],
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        test["pix_fmt"],
+        "-s",
+        size,
+        "-i",
+        test["ref"],
+        "-lavfi",
+        lavfi,
+        "-f",
+        "null",
+        "-",
     ]
 
     env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = "/usr/local/lib"
+    # Honour caller-provided LD_LIBRARY_PATH so a worktree / CI run can point at
+    # a freshly-built libvmaf.so rather than /usr/local/lib (which historically
+    # held v3.0.0 — pre-upstream-a44e5e61 motion edge-mirror fix; see PR #305).
+    if "LD_LIBRARY_PATH" not in env:
+        env["LD_LIBRARY_PATH"] = "/usr/local/lib"
     if "env_extra" in backend:
         env.update(backend["env_extra"])
 
@@ -200,7 +246,9 @@ def main():
     print(f"\n\n{'=' * 119}")
     print("SCORE COMPARISON — Netflix Reference (vmaf_v0.6.1)")
     print(f"{'=' * 119}")
-    print(f"{'Test':>25} | {'Backend':>12} | {'Pooled VMAF':>18} | {'Expected':>18} | {'Delta':>16} | {'PASS':>6} | {'Best FPS':>10}")
+    print(
+        f"{'Test':>25} | {'Backend':>12} | {'Pooled VMAF':>18} | {'Expected':>18} | {'Delta':>16} | {'PASS':>6} | {'Best FPS':>10}"
+    )
     print(f"{'-' * 119}")
 
     for test in TESTS:
@@ -209,33 +257,45 @@ def main():
             bname = backend["name"]
             r = results[test["name"]].get(bname)
             if not r or "error" in r:
-                print(f"{test['name']:>25} | {bname:>12} | {'FAILED':>18} | {expected:>18.14f} | {'':>16} | {'FAIL':>6} | {'':>10}")
+                print(
+                    f"{test['name']:>25} | {bname:>12} | {'FAILED':>18} | {expected:>18.14f} | {'':>16} | {'FAIL':>6} | {'':>10}"
+                )
                 continue
 
             delta = r["pooled"] - expected
             # Netflix tests use places=4 tolerance -> 5e-5
             passed = abs(delta) < 5e-5
             tag = "OK" if passed else "DIFF"
-            print(f"{test['name']:>25} | {bname:>12} | {r['pooled']:>18.14f} | {expected:>18.14f} | {delta:>+16.14f} | {tag:>6} | {r['best_fps']:>10.1f}")
+            print(
+                f"{test['name']:>25} | {bname:>12} | {r['pooled']:>18.14f} | {expected:>18.14f} | {delta:>+16.14f} | {tag:>6} | {r['best_fps']:>10.1f}"
+            )
         print(f"{'-' * 119}")
 
     # === Per-frame cross-backend comparison ===
     print(f"\n{'=' * 118}")
     print("PER-FRAME CROSS-BACKEND COMPARISON (max absolute difference)")
     print(f"{'=' * 118}")
-    print(f"{'Test':>25} | {'A':>12} vs {'B':>12} | {'Max Diff':>16} | {'Mean Diff':>16} | {'Match':>8}")
+    print(
+        f"{'Test':>25} | {'A':>12} vs {'B':>12} | {'Max Diff':>16} | {'Mean Diff':>16} | {'Match':>8}"
+    )
     print(f"{'-' * 118}")
 
     for test in TESTS:
-        have = [(b["name"], results[test["name"]][b["name"]]) for b in BACKENDS
-                if b["name"] in results[test["name"]] and "frames" in results[test["name"]].get(b["name"], {})]
+        have = [
+            (b["name"], results[test["name"]][b["name"]])
+            for b in BACKENDS
+            if b["name"] in results[test["name"]]
+            and "frames" in results[test["name"]].get(b["name"], {})
+        ]
 
         for i in range(len(have)):
             for j in range(i + 1, len(have)):
                 name_a, r_a = have[i]
                 name_b, r_b = have[j]
                 if len(r_a["frames"]) != len(r_b["frames"]):
-                    print(f"{test['name']:>25} | {name_a:>12} vs {name_b:>12} | {'FRAME COUNT MISMATCH':>16}")
+                    print(
+                        f"{test['name']:>25} | {name_a:>12} vs {name_b:>12} | {'FRAME COUNT MISMATCH':>16}"
+                    )
                     continue
 
                 diffs = [abs(a - b) for a, b in zip(r_a["frames"], r_b["frames"])]
@@ -243,7 +303,9 @@ def main():
                 mean_d = sum(diffs) / len(diffs)
                 exact = max_d == 0.0
                 tag = "EXACT" if exact else ("OK" if max_d < 0.01 else "DIFF")
-                print(f"{test['name']:>25} | {name_a:>12} vs {name_b:>12} | {max_d:>16.12f} | {mean_d:>16.12f} | {tag:>8}")
+                print(
+                    f"{test['name']:>25} | {name_a:>12} vs {name_b:>12} | {max_d:>16.12f} | {mean_d:>16.12f} | {tag:>8}"
+                )
 
     # Save results
     out_path = os.path.join(BASEDIR, "netflix_benchmark_results.json")
