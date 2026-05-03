@@ -8,14 +8,16 @@ extractor consumes a 5-frame sliding window
 sensor noise and grain before the encoder sees them produces smaller
 files at the same subjective quality.
 
-> **Status — placeholder weights only.** The ONNX shipped under
-> `model/tiny/fastdvdnet_pre.onnx` in this PR is a smoke-only stand-in
-> with a tiny randomly-initialised CNN that respects the I/O shape
-> contract. It is **not** a working denoiser. The real upstream-derived
-> FastDVDnet weights drop is tracked as backlog item **T6-7b** alongside
-> the FFmpeg `vmaf_pre_temporal` filter that actually consumes the
-> denoised frame buffer. See [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md)
-> for the placeholder rationale.
+> **Status — real upstream weights (T6-7b).** Since T6-7b the shipped
+> ONNX under `model/tiny/fastdvdnet_pre.onnx` carries real
+> [m-tassano/fastdvdnet](https://github.com/m-tassano/fastdvdnet)
+> weights (Tassano, Delon, Veit 2020; MIT license) wrapped by a thin
+> luma adapter that preserves the C-side I/O contract. The previous
+> smoke-only placeholder is documented in
+> [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md); the weights swap
+> rationale and the luma adapter design are recorded in
+> ADR-0246 (T6-7b). The downstream FFmpeg `vmaf_pre_temporal` filter
+> that consumes the denoised frame buffer is still tracked separately.
 
 ## What the output means
 
@@ -25,31 +27,98 @@ between the input centre frame `t` (normalised to `[0, 1]`) and the
 denoised output. It exists so libvmaf's per-frame plumbing has a scalar
 to record; it is **not** a quality metric. Downstream pipelines that
 want the actual denoised pixel data should consume the FFmpeg
-`vmaf_pre_temporal` filter once T6-7b lands — that filter writes the
+`vmaf_pre_temporal` filter once it lands — that filter writes the
 denoised frame buffer to its output stream.
 
 | Value | Interpretation |
 | --- | --- |
-| **~0.0** | Output ≈ input centre (placeholder near-identity, or quiet/flat content). |
-| **~0.05** | Typical residual on a working FastDVDnet model and lightly noisy content. |
-| **~0.20+** | Heavy denoising (working model on grainy / film content) — or a saturated placeholder pass. |
+| **~0.0** | Output ≈ input centre (quiet / flat content; little to denoise). |
+| **~0.05** | Typical residual on lightly noisy content. |
+| **~0.20+** | Heavy denoising on grainy / film content. |
 
 ## Shipped checkpoint
 
 | Field | Value |
 | --- | --- |
-| Model name | `vmaf_tiny_fastdvdnet_pre_placeholder_v0` |
+| Model name | `vmaf_tiny_fastdvdnet_pre_v1` |
 | Location | `model/tiny/fastdvdnet_pre.onnx` |
-| Size | ~6 KB (placeholder; real weights drop in T6-7b will be ~10 MB) |
+| Size | ~9.5 MiB (2.48M parameters from upstream FastDVDnet) |
 | ONNX opset | 17 |
-| Input | `frames` — float32 NCHW `[1, 5, H, W]` (5-frame stack along channel axis) |
+| Input | `frames` — float32 NCHW `[1, 5, H, W]` (5-frame luma stack along channel axis) |
 | Output | `denoised` — float32 NCHW `[1, 1, H, W]` (denoised frame `t`) |
-| Smoke flag | `smoke: true` in registry — load-path probe, not a quality model |
-| License path | T6-7b will inherit upstream MIT (m-tassano/fastdvdnet) when real weights ship |
+| License | MIT (upstream m-tassano/fastdvdnet, see provenance below) |
+| Smoke flag | `smoke: false` in registry — real working denoiser |
 
 The sidecar JSON at `model/tiny/fastdvdnet_pre.json` carries the input /
 output names plus `frame_window: 5`, `centre_index: 2` so downstream
-consumers can validate the contract without parsing the ONNX graph.
+consumers can validate the contract without parsing the ONNX graph. It
+also records the upstream commit pin and weight checksum for
+reproducibility.
+
+## Provenance and license attribution
+
+The shipped weights are the verbatim trained parameters from upstream
+FastDVDnet, repackaged for the fork's luma I/O contract. License terms
+are unchanged from upstream MIT.
+
+| Field | Value |
+| --- | --- |
+| Upstream repo | [github.com/m-tassano/fastdvdnet](https://github.com/m-tassano/fastdvdnet) |
+| Upstream commit | `c8fdf6182a0340e89dd18f5df25b47337cbede6f` (2024-02-01) |
+| Upstream weights file | `model.pth` |
+| Upstream weights sha256 | `9d9d8413c33e3d9d961d07c530237befa1197610b9d60602ff42fd77975d2a17` |
+| Upstream license | MIT, Copyright 2024 Matias Tassano `<mtassano@meta.com>` |
+| Citation | Tassano, Delon, Veit. *FastDVDnet: Towards Real-Time Deep Video Denoising Without Flow Estimation*, CVPR 2020. arXiv:1907.01361. |
+
+## Luma adapter design
+
+Upstream FastDVDnet was trained on RGB inputs with an explicit per-pixel
+noise map; the fork's C extractor was scoped luma-only with a fixed
+`(1, 5, H, W)` input contract (ADR-0215). To ship real weights without
+breaking the C surface, the export script
+(`ai/scripts/export_fastdvdnet_pre.py`) wraps upstream's RGB graph in a
+small `LumaAdapter` module:
+
+1. **Y → [Y, Y, Y] tile.** Each of the five luma planes is replicated
+   into the three RGB channels via `Concat` (allowlist-safe), producing
+   the upstream-expected `(1, 15, H, W)` tensor.
+2. **Constant noise map.** A constant `sigma = 25/255 ≈ 0.098` (the
+   reference inference noise level used by upstream's
+   `test_fastdvdnet.py`) is broadcast to `(1, 1, H, W)` via
+   `ones_like(centre) * sigma` and fed as the second upstream input.
+3. **RGB → Y collapse.** The upstream RGB output is converted back to
+   luma using BT.601 weights `Y = 0.299 R + 0.587 G + 0.114 B`.
+
+Trade-offs:
+
+- **Pros**: real working denoiser; zero changes to the C extractor or
+  its tests; upstream weights drop is reproducible from the pinned
+  `model.pth` checksum.
+- **Cons**: the network was not trained on luma-tiled-into-RGB inputs,
+  so the denoising quality on luma alone is below what a luma-native
+  retrain would achieve. The adapter remains numerically identical to
+  the upstream graph for any RGB content; it is the input-domain
+  mismatch that costs quality.
+- **Follow-up**: a luma-native retrain (or chroma-aware variant) is
+  tracked under T6-7c — depends on the FFmpeg `vmaf_pre_temporal`
+  filter shipping first so the retrain target reflects the real
+  consumer.
+
+## Op allowlist compliance
+
+`PixelShuffle` in upstream's UpBlocks would export to `DepthToSpace`,
+which is NOT on the fork's strict ONNX op allowlist
+([`libvmaf/src/dnn/op_allowlist.c`](../../../libvmaf/src/dnn/op_allowlist.c)).
+The export script swaps every `nn.PixelShuffle` instance for an
+allowlist-safe `Reshape`/`Transpose`/`Reshape` decomposition before
+exporting. PixelShuffle has zero learned parameters, so the swap is
+numerically identical (verified in CI: `max abs diff < 1e-6` between
+upstream PyTorch and exported ONNX on random inputs).
+
+The full op set in the shipped graph is `Add`, `Cast`, `Clip`,
+`Concat`, `Constant`, `ConstantOfShape`, `Conv`, `Div`, `Gather`,
+`Identity`, `Mul`, `ReduceSum`, `Relu`, `Reshape`, `Shape`, `Slice`,
+`Sub`, `Transpose`, `Unsqueeze` — every one already on the allowlist.
 
 ## Frame window contract
 
@@ -91,34 +160,40 @@ The extractor declines cleanly (non-fatal `-EINVAL`) if neither
 `model_path` nor `VMAF_FASTDVDNET_PRE_MODEL_PATH` is set, the same
 contract as the LPIPS extractor.
 
+## Reproducing the export
+
+```bash
+# 1. Fetch upstream pinned at the recorded commit.
+mkdir -p /tmp/fastdvdnet_upstream
+cd /tmp/fastdvdnet_upstream
+curl -L -O https://raw.githubusercontent.com/m-tassano/fastdvdnet/c8fdf61/model.pth
+curl -L -O https://raw.githubusercontent.com/m-tassano/fastdvdnet/c8fdf61/models.py
+
+# 2. Verify the upstream weights checksum (export script also enforces this).
+sha256sum model.pth
+# expect: 9d9d8413c33e3d9d961d07c530237befa1197610b9d60602ff42fd77975d2a17
+
+# 3. Run the exporter from the fork root.
+cd /path/to/vmaf
+python3 ai/scripts/export_fastdvdnet_pre.py \
+    --upstream-dir /tmp/fastdvdnet_upstream \
+    --output model/tiny/fastdvdnet_pre.onnx
+```
+
+The script auto-updates `model/tiny/registry.json` and writes the
+sidecar `model/tiny/fastdvdnet_pre.json`. Rerunning is idempotent
+provided the upstream checksum matches.
+
 ## Smoke test
 
 The C-side registration + options-table contract is exercised by
 `libvmaf/test/test_fastdvdnet_pre.c`, which runs in every build (no ORT
-session required). To exercise the live ORT path against the placeholder
+session required). To exercise the live ORT path against the shipped
 ONNX, enable DNN and run the suite:
 
 ```bash
 meson test -C build --suite=fast --print-errorlogs test_fastdvdnet_pre
 ```
-
-## Path to real weights (T6-7b)
-
-When upstream FastDVDnet weights are vendored:
-
-1. Replace `model/tiny/fastdvdnet_pre.onnx` with the trained checkpoint
-   (re-export from PyTorch with the same input/output names).
-2. Update the `sha256` digest, `notes`, `name`, and remove `smoke: true`
-   from `model/tiny/registry.json`.
-3. Update the sidecar JSON `model/tiny/fastdvdnet_pre.json` (drop the
-   `smoke: true` flag, refresh `name`).
-4. Add the FFmpeg `vmaf_pre_temporal` filter under
-   `ffmpeg-patches/0005-add-vmaf_pre_temporal-filter.patch`.
-5. Verify the op allowlist in
-   [`libvmaf/src/dnn/op_allowlist.c`](../../../libvmaf/src/dnn/op_allowlist.c)
-   covers every op in the trained graph — FastDVDnet's published
-   architecture uses `Conv`, `Relu`, `BatchNormalization`,
-   `PixelShuffle`, and `Concat`, all of which are already allowed.
 
 ## References
 
@@ -126,5 +201,7 @@ When upstream FastDVDnet weights are vendored:
   Denoising Without Flow Estimation*, CVPR 2020. arXiv:1907.01361.
 - Reference implementation:
   [github.com/m-tassano/fastdvdnet](https://github.com/m-tassano/fastdvdnet)
-- [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md) — design decision.
+- [ADR-0215](../../adr/0215-fastdvdnet-pre-filter.md) — placeholder
+  rationale and contract design.
+- ADR-0246 — T6-7b real-weights drop and luma adapter design.
 - [Roadmap §3.3](../roadmap.md) — Wave 1 schedule.
