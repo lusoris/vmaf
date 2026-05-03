@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           submodules: recursive
 
@@ -53,7 +53,7 @@ jobs:
           meson compile -C build
 
       - name: Cache Netflix vmaf_resource fixtures
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           # Cache the entire python/test/resource tree — pytest's
           # download_reactively (python/vmaf/config.py) populates it
@@ -97,7 +97,7 @@ jobs:
     needs: netflix-golden
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Install deps
         run: |
           sudo apt-get update
@@ -123,7 +123,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           submodules: recursive
       - name: Install build + lavapipe deps
@@ -145,7 +145,7 @@ jobs:
                             --buildtype=release
           meson compile -C build
       - name: Cache Netflix vmaf_resource fixtures
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: python/test/resource/yuv
           # Bump the version suffix (-v1 → -v2 etc.) when fixtures change.
@@ -321,7 +321,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           submodules: recursive
       - name: Install build + lavapipe deps
@@ -343,7 +343,7 @@ jobs:
                             --buildtype=release
           meson compile -C build
       - name: Cache Netflix vmaf_resource fixtures
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: python/test/resource/yuv
           key: vmaf-fixtures-yuv-v1
@@ -381,7 +381,7 @@ jobs:
             --md-out parity-gate-report/parity.md
       - name: Upload parity report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: gpu-parity-matrix-gate-report
           path: parity-gate-report/
@@ -396,7 +396,7 @@ jobs:
     runs-on: [self-hosted, vmaf-arc]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           submodules: recursive
       - name: Build CPU + Vulkan
@@ -438,7 +438,7 @@ jobs:
       matrix:
         sanitizer: [address, undefined, thread]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Install deps
         run: |
           sudo apt-get update
@@ -476,7 +476,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Install build deps
         run: |
           sudo apt-get update
@@ -569,7 +569,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           submodules: recursive
 
@@ -644,7 +644,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Install deps
         run: |
           sudo apt-get update
@@ -789,7 +789,7 @@ jobs:
           scripts/ci/coverage-check.sh libvmaf/build-coverage/coverage.json 40 85
       - name: Upload coverage artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-cpu
           path: |
@@ -814,7 +814,7 @@ jobs:
     continue-on-error: true
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           submodules: recursive
       - name: Build with gcov + CUDA + SYCL + AVX-512
@@ -879,7 +879,7 @@ jobs:
           scripts/ci/coverage-check.sh libvmaf/build-coverage-gpu/coverage.json 70 85
       - name: Upload GPU coverage artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-gpu
           path: |
@@ -895,6 +895,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Run assertion density scanner
         run: bash scripts/ci/assertion-density.sh

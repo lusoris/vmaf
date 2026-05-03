@@ -23,14 +23,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           # Resolve LFS blobs (e.g. model/tiny/*.onnx) so pre-commit's final
           # "changes made by hooks" diff doesn't report pointer-vs-blob noise
           # against files no hook actually touched.
           lfs: true
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
       # pre-commit/action@v3.0.1 is the latest release (Feb 2024) and still
@@ -38,7 +38,7 @@ jobs:
       # warning (Node 20 removed from runners 2026-09-16). Inline the
       # three steps it would have run, using actions/cache@v5.
       - name: Cache pre-commit environments
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-py3.12-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           # Need history for the push-delta diff on master. fetch-depth: 2
           # is enough for a squash-merge FF (one new commit), but use 0 to
@@ -249,7 +249,7 @@ jobs:
     timeout-minutes: 35
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
       - name: Detect changed SYCL files
@@ -369,7 +369,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Install
         run: sudo apt-get update && sudo apt-get install -y cppcheck meson ninja-build nasm
       - name: Generate compile_commands
@@ -387,7 +387,7 @@ jobs:
             --project=build/compile_commands.json \
             --error-exitcode=1 \
             --xml --output-file=cppcheck-report.xml 2>&1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         if: always()
         with:
           name: cppcheck-report
@@ -410,8 +410,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
       - name: Install
@@ -428,12 +428,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           # Resolve LFS blobs so the sha256 cross-check sees real ONNX
           # bytes, not pointer files.
           lfs: true
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
       - name: Install jsonschema

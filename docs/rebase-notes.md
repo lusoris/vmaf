@@ -155,6 +155,50 @@ cover several PRs in one workstream; cross-link from the ID heading.
       --distorted testdata/dis_576x324_48f.yuv \
       --width 576 --height 324 \
       --feature float_ms_ssim --backend vulkan --places 4
+### 0231 — SHA-pin GitHub Actions (OSSF `Pinned-Dependencies`)
+
+- **Touches**: every workflow file under `.github/workflows/`.
+  All 13 fork workflows (`docker-image.yml`, `docs.yml`,
+  `ffmpeg-integration.yml`, `libvmaf-build-matrix.yml`,
+  `lint-and-format.yml`, `nightly-bisect.yml`, `nightly.yml`,
+  `release-please.yml`, `rule-enforcement.yml`, `scorecard.yml`,
+  `security-scans.yml`, `supply-chain.yml`,
+  `tests-and-quality-gates.yml`) had their `uses:` directives
+  rewritten from `<owner>/<repo>@vN[.M.K]` to
+  `<owner>/<repo>@<40-char-sha>  # vN.M.K`. 97 references converted;
+  the SLSA reusable-workflow ref in `supply-chain.yml` is the single
+  documented holdout (see `Invariant` below).
+- **Invariant — SHA-pin policy for `uses:`**. Every action reference
+  in `.github/workflows/*.yml` MUST be a 40-char commit SHA with the
+  semver tag preserved as a trailing `# vN.M.K` comment. The OSSF
+  Scorecard `Pinned-Dependencies` check parses both forms and a
+  floating tag (`@vN`) is treated as unpinned and counts against the
+  aggregate score. **Single permitted exception**: the SLSA generator
+  reusable workflow
+  (`slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml`)
+  must keep its `vX.Y.Z` tag form because GitHub Actions consumers
+  cannot SHA-pin reusable-workflow refs in every code path; the
+  exception is documented inline in `supply-chain.yml` and survives
+  on each rebase. **Why this matters on upstream sync**: Netflix
+  upstream does not ship the fork's CI tree, so a `/sync-upstream`
+  run that drags new workflow content (e.g. via repository templates
+  or bot-authored bumps) into `.github/workflows/` can re-introduce
+  floating-tag references unnoticed. The post-rebase check below is
+  the standing gate — anything that lights up needs to be re-pinned
+  before merging the sync.
+- **Re-test on rebase**:
+
+  ```bash
+  # Anything that prints is a regression — every uses: must be either
+  # already SHA-pinned (40 hex) or, for the documented SLSA exception,
+  # the slsa-github-generator reusable-workflow ref.
+  grep -hnE '^\s*(- )?uses:\s+[^@]+@[^ #]+\s*$' .github/workflows/*.yml \
+    | grep -vE '@[a-f0-9]{40}' \
+    | grep -v 'slsa-framework/slsa-github-generator/.github/workflows/'
+  # SHA-resolution sanity for any new pin (per-action):
+  gh api repos/<owner>/<repo>/git/ref/tags/<vN.M.K> --jq '.object.sha'
+  # If the result is a "tag" object (annotated tag), deref:
+  gh api repos/<owner>/<repo>/git/tags/<sha-from-prev> --jq '.object.sha'
   ```
 
 ### 0226 — CUDA drain-batch engine-loop opt (T-GPU-OPT-1)
@@ -6777,3 +6821,10 @@ inline.*
   diff <(grep -v 'fyi fps' /tmp/m0.xml) <(grep -v 'fyi fps' /tmp/m16.xml)   # empty
   diff <(grep -v 'fyi fps' /tmp/m0.xml) <(grep -v 'fyi fps' /tmp/m255.xml)  # empty
   ```
+- **Why this matters on rebase**: an upstream commit that touches
+  `libvmaf/src/feature/ssimulacra2.c` could prompt a "let's also
+  port the GPU XYB while we're here" follow-up. The ledger entry
+  is the standing answer: don't, the measurement was redone on
+  NVIDIA in May 2026 and the result still failed `places=4` by
+  five decades. See
+  [Research-0047](research/0051-ssimulacra2-gpu-xyb-precision.md).

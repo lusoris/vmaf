@@ -31,7 +31,7 @@ jobs:
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           submodules: recursive
@@ -55,7 +55,7 @@ jobs:
         run: |
           cd artifacts
           echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: release-artifacts
           path: artifacts/
@@ -69,10 +69,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with: { name: release-artifacts, path: artifacts/ }
       - uses: anchore/sbom-action@55dc4ee22412511ee8c3142cbea40418e6cec693  # v0.17.8
         with:
@@ -84,7 +84,7 @@ jobs:
           format: cyclonedx-json
           output-file: artifacts/sbom.cdx.json
           path: .
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom
           path: artifacts/sbom.*.json
@@ -98,7 +98,7 @@ jobs:
       id-token: write   # Sigstore keyless OIDC
       contents: read
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with: { name: release-artifacts, path: artifacts/ }
       # cosign-installer v4 + cosign v3: sign-blob now emits a Sigstore
       # bundle (single .bundle file containing signature + certificate
@@ -114,7 +114,7 @@ jobs:
               --bundle "$f.bundle" \
               "$f"
           done
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: signatures
           path: artifacts/*.bundle
@@ -147,10 +147,10 @@ jobs:
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
       - name: Install build deps
@@ -163,7 +163,7 @@ jobs:
         run: |
           cd mcp-dist
           echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: mcp-dist
           path: mcp-dist/
@@ -178,7 +178,7 @@ jobs:
       id-token: write   # Sigstore keyless OIDC
       contents: read
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with: { name: mcp-dist, path: mcp-dist/ }
       - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003  # v4.1.1
         with: { cosign-release: "v3.0.6" }
@@ -190,7 +190,7 @@ jobs:
               --bundle "$f.bundle" \
               "$f"
           done
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: mcp-signatures
           path: mcp-dist/*.bundle
@@ -206,11 +206,11 @@ jobs:
       id-token: write             # OIDC token for Trusted Publishing
       contents: read
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with: { name: mcp-dist, path: dist/ }
       # PEP 740 attestations: emit Sigstore-signed provenance the index
       # stores alongside the artifact.
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
         with:
           attestations: true
 
@@ -222,7 +222,7 @@ jobs:
     permissions:
       contents: write   # upload files to the GitHub Release
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with: { path: dist/ }
       - uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:

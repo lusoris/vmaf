@@ -71,6 +71,51 @@ ADR adds a new user-discoverable or policy-surface path, update the
 grep patterns in `rule-enforcement.yml` in the same PR — otherwise
 the advisory goes silent on the new surface.
 
+### SHA-pin invariant for `uses:` directives
+
+Every `uses:` directive in `.github/workflows/*.yml` MUST reference a
+40-char commit SHA, with the original semver tag preserved as a
+trailing `# vN.M.K` comment. Floating-tag references (`@v4`,
+`@release/v1`) trip the OSSF Scorecard `Pinned-Dependencies` check
+and are rejected by the sync gate below.
+
+**Single permitted exception**:
+`slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml`
+keeps its `vX.Y.Z` tag form because GitHub Actions consumers cannot
+SHA-pin reusable-workflow refs in every code path; the carve-out is
+documented inline in
+[`workflows/supply-chain.yml`](workflows/supply-chain.yml) and
+mirrored in
+[`docs/rebase-notes.md` entry 0231](../docs/rebase-notes.md).
+
+**Sync gate** (run before merging any `/sync-upstream` that touches
+`.github/workflows/`):
+
+```bash
+grep -hnE '^\s*(- )?uses:\s+[^@]+@[^ #]+\s*$' .github/workflows/*.yml \
+  | grep -vE '@[a-f0-9]{40}' \
+  | grep -v 'slsa-framework/slsa-github-generator/.github/workflows/'
+# Empty output = clean. Anything that prints needs to be SHA-pinned
+# before the sync PR can merge.
+```
+
+**Resolution recipe** when adding a new action or bumping an existing
+pin:
+
+```bash
+# Lightweight tag (most actions):
+gh api repos/<owner>/<repo>/git/ref/tags/<vN.M.K> --jq '.object.sha'
+# Annotated tag (e.g. github/codeql-action, ilammy/msvc-dev-cmd,
+# pypa/gh-action-pypi-publish) — first call returns
+# `object.type == "tag"`; dereference it:
+gh api repos/<owner>/<repo>/git/tags/<sha-from-prev> --jq '.object.sha'
+```
+
+See [ADR-0263](../docs/adr/0263-ossf-scorecard-policy.md) for the
+project-level Scorecard policy (introduced by PR #337) and entry 0231
+of [`docs/rebase-notes.md`](../docs/rebase-notes.md) for the standing
+re-test command.
+
 ## Upstream-merge guidance
 
 Netflix/vmaf ships its own workflows under `.github/workflows/`

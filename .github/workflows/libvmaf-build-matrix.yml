@@ -170,10 +170,10 @@ jobs:
       CC: ${{ matrix.CC }}
       CXX: ${{ matrix.CXX }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Setup python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: 3.11
 
@@ -286,7 +286,7 @@ jobs:
       # with a `<13` version check. Minimum driver for 13.x is >= 580.
       - name: Install CUDA toolkit
         if: matrix.cuda
-        uses: Jimver/cuda-toolkit@v0.2.35
+        uses: Jimver/cuda-toolkit@3d45d157f327c09c04b50ee6ccdea2d9d017ec76  # v0.2.35
         with:
           cuda: '13.0.0'
           method: network
@@ -388,7 +388,7 @@ jobs:
         # raw.githubusercontent.com when fetching python/test/resource/
         # fixtures via download_reactively (python/vmaf/config.py).
         if: "(startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686) || matrix.os == 'macos-latest'"
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: python/test/resource
           key: vmaf-fixtures-resource-v1-${{ hashFiles('python/test/*_test.py', 'python/test/resource/test_*.py') }}
@@ -429,7 +429,7 @@ jobs:
       # ---------- Artifacts ----------
       - name: Upload vmaf binary
         if: "!contains(matrix.meson_extra, 'static')"
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ matrix.name }}-vmaf
           path: ./install/bin/vmaf
@@ -468,12 +468,12 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
 
       - name: Cache ccache files
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: .ccache
           key: ${{ runner.os }}-${{ matrix.msystem }}-0-${{ hashFiles('**/*.c') }}
@@ -481,7 +481,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.msystem }}-0-
             ${{ runner.os }}-${{ matrix.msystem }}-
 
-      - uses: msys2/setup-msys2@v2
+      - uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c  # v2.31.1
         with:
           msystem: ${{ matrix.msystem }}
           install: >-
@@ -524,7 +524,7 @@ jobs:
           echo "path=$(cygpath -m "$PWD/artifact/vmaf.exe")" >> "$GITHUB_OUTPUT"
 
       - name: Upload vmaf.exe artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ matrix.msystem }}-vmaf
           path: ${{ steps.stage.outputs.path }}
@@ -577,12 +577,12 @@ jobs:
             meson_extra: --default-library=static -Denable_cuda=false -Denable_sycl=true
             name: Build — Windows MSVC + oneAPI SYCL (build only)
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 1
 
       - name: Setup python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: '3.11'
 
@@ -596,7 +596,7 @@ jobs:
       # INCLUDE / LIB. Required by both backends (CUDA's nvcc shells
       # out to cl.exe; oneAPI's icx-cl wraps cl.exe).
       - name: Setup MSVC dev environment
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1.13.0
 
       # ---------- CUDA toolkit (CUDA leg only) ----------
       # Same pin as the Linux CUDA legs: CUDA 13.0.0, Maxwell/Pascal/Volta
@@ -604,7 +604,7 @@ jobs:
       # `version < 13`).
       - name: Install CUDA toolkit (windows)
         if: matrix.backend == 'cuda'
-        uses: Jimver/cuda-toolkit@v0.2.35
+        uses: Jimver/cuda-toolkit@3d45d157f327c09c04b50ee6ccdea2d9d017ec76  # v0.2.35
         with:
           cuda: '13.0.0'
           method: network

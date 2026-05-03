@@ -4562,6 +4562,26 @@
 - 11 SYCL files in `libvmaf/{include,src,test}/.../sycl/` from
   `Netflix, Inc.` to `Lusoris and Claude (Anthropic)` — these files were
   authored entirely by the fork.
+### Added
+
+- **SpEED-QA feasibility digest + Proposed ADR (research-0051 / ADR-0253).**
+  Closes the user's 2026-04-21 deep-research queued track on SpEED-QA as a
+  candidate full-reference metric. Recommends DEFER over GO / SCAFFOLD-ONLY:
+  the fork keeps the existing `speed_chroma` / `speed_temporal` research-stage
+  extractors (PR #213, port of upstream `d3647c73`) and does not add a
+  `speed_qa` reduction. Three findings drive the call —
+  (1) SpEED-QA's GSM-entropy backbone overlaps `vif` substantially with no new
+  perceptual axis; (2) the "10–40× faster than VIF" headline inverts on the
+  fork's AVX-512 / CUDA / SYCL VIF stack; (3) the assumed-but-missing
+  `model/speed_4_v0.6.0.json` upstream binary the brief referenced does not
+  exist anywhere in `upstream/master`, `upstream/speed_ported`, or any open
+  Netflix PR. Decision is reversible on three named triggers (see ADR-0253
+  *Consequences → Follow-ups*). Docs-only PR — no code, no model registry
+  change, no CLI flag, no behavioural delta. See
+  [ADR-0253](docs/adr/0253-speed-qa-extractor.md) +
+  [`docs/research/0051-speed-qa-feasibility.md`](docs/research/0051-speed-qa-feasibility.md).
+
+
 ### Changed
 
 - **MobileSal real-weights swap deferred (T6-2a-followup, ADR-0257)** —
@@ -4588,6 +4608,89 @@
   variant (Apache-2.0, 4.7 MB, pure RGB), tracked as new backlog row
   T6-2a-replace-with-u2netp; that scope shift is deliberately not
   bundled into this docs-only PR.
+- **SHA-pin every GitHub Actions reference in `.github/workflows/*.yml`
+  (OSSF Scorecard `Pinned-Dependencies` remediation).** Every
+  `uses: <owner>/<repo>@<tag>` reference in the 13 fork workflows is
+  now resolved to a 40-char commit SHA with the original semver
+  preserved as a trailing `# vN.M.K` comment, mirroring the pattern
+  already established for `ossf/scorecard-action`,
+  `sigstore/cosign-installer`, `softprops/action-gh-release`, and
+  `anchore/sbom-action`. 97 first-party and third-party action
+  references converted across `docker-image.yml`, `docs.yml`,
+  `ffmpeg-integration.yml`, `libvmaf-build-matrix.yml`,
+  `lint-and-format.yml`, `nightly-bisect.yml`, `nightly.yml`,
+  `release-please.yml`, `rule-enforcement.yml`, `scorecard.yml`,
+  `security-scans.yml`, `supply-chain.yml`, and
+  `tests-and-quality-gates.yml`. **Single documented holdout**: the
+  `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0`
+  reusable-workflow ref in `supply-chain.yml` keeps its `vX.Y.Z` form
+  per the SLSA generator maintainers' published guidance — GitHub
+  Actions consumers cannot currently SHA-pin reusable-workflow refs in
+  every code path, and the existing inline comment in
+  `supply-chain.yml` already calls this out. **Why this matters**: the
+  `vN` floating tag is an attacker-rotatable handle (a compromised
+  upstream maintainer or a tag-overwrite supply-chain incident silently
+  swaps the executed code under us); SHA pinning fixes the executed
+  bytes and lets Dependabot surface bumps as reviewable diffs rather
+  than as silent rotations. The change is a pure ref substitution — no
+  action versions are bumped — so workflow behaviour is unchanged. See
+  [ADR-0263](docs/adr/0263-ossf-scorecard-policy.md) (created by
+  PR #337) and the OSSF Scorecard
+  [Pinned-Dependencies check documentation](https://github.com/ossf/scorecard/blob/main/docs/checks.md#pinned-dependencies).
+
+
+- **Per-GPU-generation ULP calibration table for the cross-backend
+  parity gate (T-GPU-ULP / ADR-0234).** New
+  [`scripts/ci/gpu_ulp_calibration.yaml`](scripts/ci/gpu_ulp_calibration.yaml)
+  maps a runtime GPU identifier (Research-0041 schema:
+  `vulkan:0xVVVV:0xDDDD` / `cuda:M.m` / `sycl:0xVVVV:DRIVER`) to a
+  per-feature absolute tolerance. Both
+  [`scripts/ci/cross_backend_vif_diff.py`](scripts/ci/cross_backend_vif_diff.py)
+  and
+  [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
+  now accept `--gpu-id <runtime_id>` and `--calibration-table <path>`;
+  when omitted, behaviour is identical to before (per-feature
+  `FEATURE_TOLERANCE` defaults remain authoritative). Lookup picks
+  the most-specific glob match (`vulkan:0x10005:*` for lavapipe;
+  trailing `*` is supported). The hosted-CI lavapipe lane in
+  [`.github/workflows/tests-and-quality-gates.yml`](.github/workflows/tests-and-quality-gates.yml)
+  passes `--gpu-id "vulkan:0x10005:0x0"` so the gate's tolerance
+  decisions are now per-arch annotated in the parity report's JSON
+  + Markdown artefacts. Initial coverage: 1 calibrated row (Mesa
+  lavapipe — tolerances match the gate's pre-existing
+  `FEATURE_TOLERANCE` defaults so behaviour is unchanged) plus 11
+  placeholder rows (NVIDIA Ampere / Turing / Ada / Hopper, AMD
+  RDNA2 / RDNA3, Intel Arc Alchemist / Battlemage, generic Intel
+  SYCL); placeholders are functional no-ops until a real-hardware
+  corpus replaces their `features:` block. New unit test
+  [`scripts/ci/test_calibration.py`](scripts/ci/test_calibration.py)
+  (19 cases) covers the loader, glob semantics, specificity ranking,
+  and the shipped-table round-trip. The ONNX calibration head and
+  `--gpu-calibrated` CLI flag from ADR-0234's "Decision" §
+  remain deferred to the follow-up PR `feat(ai):
+  T7-GPU-ULP-CAL — calibration-head v0`. See
+  [ADR-0234](docs/adr/0234-gpu-gen-ulp-calibration.md) (now
+  Accepted),
+  [Research-0041](docs/research/0041-gpu-gen-ulp-calibration.md),
+  and the rebase-notes entry under
+  [`docs/rebase-notes.md`](docs/rebase-notes.md).
+
+
+- **AI / DNN:** Replaced the `fastdvdnet_pre` smoke-only placeholder
+  ONNX with real upstream FastDVDnet weights (Tassano, Delon, Veit
+  2020; MIT license) pinned at `m-tassano/fastdvdnet` commit `c8fdf61`.
+  The new graph wraps upstream's RGB+noise-map model in a `LumaAdapter`
+  that preserves the C-side `[1, 5, H, W]` luma I/O contract from
+  ADR-0215: `Y → [Y, Y, Y]` tiling for the upstream 15-channel input,
+  a constant `sigma = 25/255` noise map, and BT.601 RGB→Y collapse on
+  the output. Upstream `nn.PixelShuffle` is swapped at export time for
+  an allowlist-safe `Reshape`/`Transpose`/`Reshape` decomposition
+  (`DepthToSpace` is deliberately not on the ONNX op allowlist).
+  Registry row `model/tiny/registry.json` flips `smoke: false` with
+  the new MIT license, upstream commit pin, and refreshed sha256.
+  9.5 MiB ONNX, opset 17. New exporter
+  `ai/scripts/export_fastdvdnet_pre.py`. See ADR-0253 and
+  `docs/ai/models/fastdvdnet_pre.md`.
 
 
 - **CHANGELOG + ADR-index fragment files (T7-39 / ADR-0221)** — every PR
