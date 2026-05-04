@@ -44,6 +44,7 @@ ninja -C build
 | `enable_mcp_uds`  | bool      | `false`   | Compile in the Unix-domain-socket transport. Requires `enable_mcp=true`. POSIX-only; non-POSIX hosts return `-ENODEV` at runtime. Stub-only until T5-2b. |
 | `enable_mcp_stdio`| bool      | `false`   | Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport. Requires `enable_mcp=true`. Stub-only until T5-2b. |
 | `enable_hip`      | bool      | `false`   | Compile the HIP (AMD ROCm) compute backend scaffold. Default off; every public C-API entry point returns `-ENOSYS` until the runtime PR (T7-10b) lands — see [ADR-0212](../adr/0212-hip-backend-scaffold.md) and [backends/hip/overview.md](../backends/hip/overview.md). The scaffold has no hard runtime dependencies; ROCm 6+ is required only when the kernels arrive. |
+| `fuzz`            | bool      | `false`   | Build libFuzzer harnesses under `libvmaf/test/fuzz/` ([ADR-0270](../adr/0270-libfuzzer-y4m-input.md), OSSF Scorecard `Fuzzing` remediation). Requires `clang`. Pair with `-Db_sanitize=address` for heap coverage. Default off — opt-in only. |
 
 ### Flag interactions
 
