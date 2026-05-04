@@ -303,6 +303,24 @@
   graph that would look like real weights but couldn't be. Companion
   to [ADR-0218](docs/adr/0218-mobilesal-saliency-extractor.md) and
   [ADR-0257](docs/adr/0257-mobilesal-real-weights-deferred.md).
+- **`ssim_accumulate_avx512` per-lane double reduction vectorised in
+  `__m512d` (PR #333 opt #2).** Replaces the 16-iteration scalar
+  per-lane loop (and the 384-byte `_Alignas(64) float[16]×6` stack
+  spill) with two 8-wide `__m512d` passes that compute `lv`, `cv`,
+  `sv`, and `lv*cv*sv` per lane in vector double, then spill to
+  `_Alignas(64) double[16]×4` for a final left-to-right scalar
+  accumulation into `local_ssim/l/c/s`. The lane-by-lane summation
+  order is unchanged — the running-sum associativity invariant from
+  ADR-0139 is preserved, so per-frame XML output is byte-for-byte
+  identical at `--precision max` against scalar, AVX2, and the prior
+  AVX-512 implementation on both Netflix `src01_hrc00/01_576x324`
+  and the `checkerboard_1920_1080_10_3_0_0/1_0` pair. AVX2 / NEON
+  twins kept on the existing per-lane scalar path (verified
+  bit-identical against the new AVX-512). Wall-clock end-to-end
+  delta on the 30-frame 1920×1080 `float_ms_ssim` workload sits in
+  the noise floor (~±0.3% across 15 reps); the change is a register-
+  pressure / stack-spill reduction and the per-lane scalar
+  divisions were not the dominant cost on this microbenchmark.
 
 - **`ms_ssim_vulkan.c` submit-side migrated to `vulkan/kernel_template.h`
   submit helpers (T-GPU-DEDUP-26).** The pipeline-side bundles

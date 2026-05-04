@@ -6714,3 +6714,66 @@ inline.*
   bash scripts/docs/concat-adr-index.sh --check
   bash scripts/release/concat-changelog-fragments.sh --check
   ```
+
+
+### 0108 — `ssim_accumulate_avx512` per-lane double reduction vectorised
+
+- **ADR**: [ADR-0139](adr/0139-ssim-simd-bitexact-double.md)
+  (existing; no new ADR — the per-lane reduction order is unchanged).
+- **Touches**:
+  - [`libvmaf/src/feature/x86/ssim_avx512.c`](../libvmaf/src/feature/x86/ssim_avx512.c)
+    — the `ssim_accumulate_block_avx512` body. The per-lane scalar
+    `ssim_accumulate_lane` calls (16 of them) are replaced by two
+    8-wide `__m512d` passes that compute `lv`, `cv`, `sv`, and
+    `lv*cv*sv` lane-wise in vector double. Aligned `double[16]`
+    spill buffers replace the previous `_Alignas(64) float[16]×6`
+    spill, and the scalar accumulation loop now does 4×16
+    `vaddsd` instead of 16 invocations of the per-lane helper.
+  - `CHANGELOG.md` — Changed entry.
+  - This file — this entry.
+- **Invariant** (load-bearing for ADR-0139 bit-exactness):
+  1. **Per-lane double computation order is byte-identical**:
+     `((2.0 * rm) * cm + C1) / l_den`, then
+     `(2.0 * srsc + C2) / c_den`, then `(lv * cv) * sv`. No FMA
+     contraction (separate `_mm512_mul_pd` + `_mm512_add_pd` —
+     `_mm512_fmadd_pd` is forbidden because it changes the
+     rounding count and would diverge from scalar's two-step
+     `mul`+`add`).
+  2. **Float→double widening uses `_mm512_cvtps_pd`** which is
+     IEEE-754-exact for finite floats (52-bit mantissa fits 23-bit
+     float losslessly).
+  3. **Lane-by-lane left-to-right reduction order preserved**:
+     `local_ssim += t_ssim[k]` for `k = 0..15`. Tree reductions
+     (pairwise add, dual-accumulator unroll) are forbidden — they
+     break running-sum associativity against scalar.
+  4. **AVX2 / NEON twins kept on the per-lane scalar path**.
+     Verified bit-identical against the new AVX-512 at
+     `--precision max` on the Netflix `src01_hrc00/01_576x324`
+     and the `checkerboard_1920_1080_10_3_*_0` pairs. The
+     bit-exactness contract (ADR-0139) is per-lane, not per-ISA
+     algorithm — so AVX2 / NEON stay scalar-per-lane until a
+     dedicated PR vectorises them with the same care.
+- **Rebase impact**: zero conflict with Netflix upstream — the
+  whole SSIM SIMD surface is fork-local (no upstream SSIM SIMD
+  exists). Conflicts only arise if upstream changes
+  `ssim_accumulate_default_scalar` in `iqa/ssim_tools.c`; in that
+  case both the AVX2 / NEON per-lane helper **and** the AVX-512
+  vector-double block need a coordinated update preserving the
+  three invariants above.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build
+  # Bit-exact at --precision max, scalar vs AVX2 vs AVX-512:
+  for MASK in 0 16 255; do
+    libvmaf/build/tools/vmaf -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      -w 576 -h 324 -p 420 -b 8 \
+      --feature float_ms_ssim --feature float_ssim \
+      --xml -o /tmp/m${MASK}.xml --precision max --cpumask $MASK
+  done
+  diff <(grep -v 'fyi fps' /tmp/m0.xml) <(grep -v 'fyi fps' /tmp/m16.xml)   # empty
+  diff <(grep -v 'fyi fps' /tmp/m0.xml) <(grep -v 'fyi fps' /tmp/m255.xml)  # empty
+  ```

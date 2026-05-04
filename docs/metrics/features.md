@@ -63,7 +63,10 @@ build. CUDA / SYCL chroma support is a focused follow-up.
 
 ² SSIM (fixed-point) ships a Vulkan kernel via T7-24 (ADR-pending);
 the CPU integer path is scalar-only by design. The `float_ssim` /
-`float_ms_ssim` paths cover all three GPU backends.
+`float_ms_ssim` paths cover all three GPU backends. The
+`ssim_accumulate_avx512` reduction is vectorised (per ADR-0268,
+PR #342) — bit-exact vs scalar, ~7-11% wall-clock reduction on the
+SSIM/MS-SSIM hot path.
 
 ³ LPIPS dispatches the underlying ONNX graph through the ORT
 execution provider selected via `--tiny-device` (CPU / CUDA /
