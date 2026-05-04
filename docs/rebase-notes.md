@@ -6714,3 +6714,31 @@ inline.*
   bash scripts/docs/concat-adr-index.sh --check
   bash scripts/release/concat-changelog-fragments.sh --check
   ```
+
+### 0229 — `vmaf_tiny_v3` registry promotion (ADR-0275)
+
+- **Touches**: `model/tiny/registry.json` (one new row,
+  `id: vmaf_tiny_v3`); `docs/adr/_index_fragments/_order.txt` (one
+  appended slug). Sidecar `model/tiny/vmaf_tiny_v3.json`, ONNX
+  `model/tiny/vmaf_tiny_v3.onnx`, model card
+  `docs/ai/models/vmaf_tiny_v3.md`, and `ai/scripts/*` are
+  unchanged from their ADR-0241 prep landing.
+- **Invariant**: the registry row sha256
+  (`57b2b7e0c62e84e3238b266e423e2008da76ec12ce957c173b2bbed11c65eb78`)
+  is the trust root the runtime tiny-model loader cross-checks
+  before `Ort::CreateSession`. Re-exporting `vmaf_tiny_v3.onnx`
+  for any reason (e.g. multi-seed sweep, KoNViD eval re-train,
+  PTQ) MUST update both the registry sha256 and (where
+  applicable) the int8_sha256 sidecar fields together. Production
+  default stays `vmaf_tiny_v2` per ADR-0241; do not flip the
+  default during an upstream sync.
+- **On upstream sync**: zero interaction. The whole tiny-AI
+  surface (`model/tiny/`, `ai/`, `docs/ai/`) is fork-local; not
+  present in Netflix upstream.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 ai/scripts/validate_model_registry.py
+  bash scripts/docs/concat-adr-index.sh --check
+  bash scripts/release/concat-changelog-fragments.sh --check
+  ```

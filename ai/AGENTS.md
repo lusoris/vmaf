@@ -142,6 +142,11 @@ its own training surface):
   `train_vmaf_tiny_v3.py` / `export_vmaf_tiny_v3.py` /
   `validate_vmaf_tiny_v3.py` / `eval_loso_vmaf_tiny_v3.py` —
   do **not** modify the v2 scripts when iterating on v3.
+  Registry promotion landed in [ADR-0275](../docs/adr/0275-vmaf-tiny-v3-registry-promotion.md):
+  `vmaf_tiny_v3` is now selectable via `--tiny-model=vmaf_tiny_v3`
+  through `model/tiny/registry.json` and the runtime sha256 trust
+  root covers it. PTQ for v3 is out-of-scope (model is < 5 KB; PR
+  #383 owns the int8 follow-up).
 - **`vmaf_tiny_v3` and `vmaf_tiny_v4` opt-in tiers
   (ADR-0241 / ADR-0242).** v3 (`mlp_medium`, 769 params, ADR-0241)
   and v4 (`mlp_large`, 3 073 params, ADR-0242) ship *alongside* v2,

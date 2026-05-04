@@ -163,3 +163,4 @@
 0263-ossf-scorecard-policy
 0253-speed-qa-extractor
 0265-u2netp-saliency-replacement-blocked
+0275-vmaf-tiny-v3-registry-promotion

@@ -146,4 +146,13 @@ if python_prog.found()
          args : [files('test_vmaf_tiny_v2.py')],
          workdir : meson.project_source_root() / '..',
          suite : 'dnn')
+
+    # vmaf_tiny_v3 ONNX smoke (ADR-0275 — registry promotion). Same
+    # registry / sidecar / onnxruntime contract as vmaf_tiny_v2; mirror
+    # test for parity coverage of the v3 row added by ADR-0275.
+    test('test_vmaf_tiny_v3',
+         python_prog,
+         args : [files('test_vmaf_tiny_v3.py')],
+         workdir : meson.project_source_root() / '..',
+         suite : 'dnn')
 endif
