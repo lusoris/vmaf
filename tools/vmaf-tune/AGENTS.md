@@ -27,10 +27,29 @@ for the option-space digest.
   `subprocess.run`. Tests inject a fake; production callers leave it
   default. Do not reach for `os.system` / `popen` shortcuts —
   `tests/test_corpus.py` will silently stop covering the path.
+- **Fast-path is opt-in; the grid stays canonical
+  ([ADR-0276](../../docs/adr/0276-vmaf-tune-fast-path.md)).** The
+  `fast` subcommand under `src/vmaftune/fast.py` accelerates the
+  *recommendation* use case via proxy + Bayesian + GPU-verify, but
+  must never automatically replace the Phase A grid path. The grid
+  is the ground-truth corpus generator that Phase B/C/D consume;
+  removing or re-routing it breaks the Phase A.5 → Phase A
+  fallback contract for proxy-OOD sources. The `fast` subcommand
+  surfaces its smoke vs production mode in the CLI output's
+  `notes` field — keep that visibility when extending the loop.
+- **Optuna is an optional runtime dep.** Importing it at module
+  scope outside `src/vmaftune/fast.py` (or its tests) is a bug —
+  the core install path stays zero-dep so corpus generation works
+  on hosts that never run the fast path. The lazy-import guard in
+  `fast.py` is the only correct entry point; tests that exercise
+  `fast.py` use `pytest.importorskip("optuna")`.
 
 ## Phase scope
 
 Phase A (this scaffold): grid sweep + JSONL emit, x264 only.
-Phases B–F per ADR-0237 are explicitly out of scope here; do not
-add bisect / predictor / ladder / MCP code into this tree without an
-ADR-0237 follow-up promoting the corresponding phase.
+Phase A.5 (this PR): opt-in `fast` subcommand scaffold (proxy +
+Bayesian + GPU-verify, smoke-mode validated; production loop
+deferred to follow-up). Phases B–F per ADR-0237 are explicitly out
+of scope here; do not add bisect / predictor / ladder / MCP code
+into this tree without an ADR-0237 follow-up promoting the
+corresponding phase.

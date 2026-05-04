@@ -2,15 +2,18 @@
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """argparse entry-point for ``vmaf-tune``.
 
-Phase A exposes one subcommand: ``corpus``. It expands a (preset, crf)
+Phase A exposes the ``corpus`` subcommand: it expands a (preset, crf)
 grid against one or more reference YUVs and emits a JSONL row per
-encode. Phase B (``bisect``) and Phase C (``predict``) will register
-sibling subcommands here.
+encode. Phase A.5 adds the opt-in ``fast`` subcommand (proxy +
+Bayesian + GPU-verify recommend, ADR-0276 / Research-0060). Phase B
+(``bisect``) and Phase C (``predict``) will register sibling
+subcommands here.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -98,6 +101,64 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip src_sha256 (faster on huge YUVs; loses provenance)",
     )
+
+    fast = sub.add_parser(
+        "fast",
+        help="proxy-based recommend (ADR-0276, Phase A.5 scaffold)",
+        description=(
+            "Fast-path recommend: Bayesian search over CRF using a tiny-AI "
+            "VMAF proxy in place of the encode-decode-score loop. Production "
+            "wiring is scaffold-only in this PR; --smoke exercises the "
+            "pipeline end-to-end without ffmpeg / ONNX. See ADR-0276."
+        ),
+    )
+    fast.add_argument(
+        "--src",
+        type=Path,
+        default=None,
+        help="source video (only required outside --smoke mode)",
+    )
+    fast.add_argument(
+        "--target-vmaf",
+        type=float,
+        default=92.0,
+        help="quality target on VMAF [0, 100] scale (default 92.0)",
+    )
+    fast.add_argument(
+        "--encoder",
+        default="libx264",
+        choices=list(known_codecs()),
+        help="codec adapter (Phase A.5: libx264 only; defaults to host's available)",
+    )
+    fast.add_argument(
+        "--crf-lo",
+        type=int,
+        default=10,
+        help="lower bound of the CRF search range (inclusive, default 10)",
+    )
+    fast.add_argument(
+        "--crf-hi",
+        type=int,
+        default=51,
+        help="upper bound of the CRF search range (inclusive, default 51)",
+    )
+    fast.add_argument(
+        "--n-trials",
+        type=int,
+        default=50,
+        help="number of Optuna TPE trials (default 50)",
+    )
+    fast.add_argument(
+        "--time-budget-s",
+        type=int,
+        default=300,
+        help="soft wall-clock budget in seconds (advisory in scaffold)",
+    )
+    fast.add_argument(
+        "--smoke",
+        action="store_true",
+        help="run synthetic-predictor smoke pipeline (no ffmpeg / no ONNX)",
+    )
     return parser
 
 
@@ -132,11 +193,37 @@ def _run_corpus(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_fast(args: argparse.Namespace) -> int:
+    # Lazy import: keeps Optuna optional on the core install path.
+    from .fast import fast_recommend
+
+    try:
+        result = fast_recommend(
+            src=args.src,
+            target_vmaf=args.target_vmaf,
+            encoder=args.encoder,
+            time_budget_s=args.time_budget_s,
+            crf_range=(args.crf_lo, args.crf_hi),
+            n_trials=args.n_trials,
+            smoke=args.smoke,
+        )
+    except RuntimeError as exc:
+        sys.stderr.write(f"vmaf-tune fast: {exc}\n")
+        return 2
+    except NotImplementedError as exc:
+        sys.stderr.write(f"vmaf-tune fast: {exc}\n")
+        return 3
+    sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.cmd == "corpus":
         return _run_corpus(args)
+    if args.cmd == "fast":
+        return _run_fast(args)
     parser.print_help()
     return 2
 
