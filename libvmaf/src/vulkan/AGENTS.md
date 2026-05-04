@@ -89,6 +89,23 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   PR. Adding a new GLSL kernel requires a `FEATURE_TOLERANCE`
   entry if it relaxes places=4, plus a row in
   [`docs/development/cross-backend-gate.md`](../../../docs/development/cross-backend-gate.md).
+- **Instance / VMA Vulkan API version pinned at 1.3
+  ([ADR-0264](../../../docs/adr/0264-vulkan-1-4-bump-blocked-on-fp-contraction.md))**:
+  the four sites — `apiVersion` on lines 54, 264, 374 of
+  `common.c` and `VMA_VULKAN_VERSION` (`1003000`) on line 22 of
+  `vma_impl.cpp` — must stay at 1.3 until the shader-side
+  FP-contraction audit (T-VK-1.4-BUMP step A) tags load-bearing
+  float ops `precise` in `feature/vulkan/shaders/vif.comp` and
+  `feature/vulkan/shaders/ciede.comp`. Bumping without that audit
+  reintroduces NVIDIA driver ≥ 1.4.329's FMA-contraction default
+  flip captured in
+  [research-0053](../../../docs/research/0053-vulkan-1-4-nvidia-fp-contraction-regression.md):
+  `integer_vif_scale2` 45/48 frame mismatches (max abs 1.527e-02)
+  and `ciede2000` 42/48 frame mismatches (max abs 1.67e-04) above
+  the `places=4` cross-backend gate. Compiled SPIR-V is
+  byte-identical at vulkan1.3 vs vulkan1.4; the regression is
+  purely runtime, mediated by core `shaderFloatControls2` on
+  Vulkan 1.4.
 
 ## Governing ADRs
 

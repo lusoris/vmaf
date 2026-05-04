@@ -39,6 +39,25 @@
   `integer_motion_v2_cuda` (321 LOC, stateful + dual-feature), and
   `float_ansnr_cuda` (298 LOC, duplicates ADR-0254's precision
   posture).
+- **Vulkan 1.4 API-version bump deferred — root-cause investigation
+  (ADR-0264 / research-0053).** Docs-only PR. An exploratory
+  `VK_API_VERSION_1_3` → `VK_API_VERSION_1_4` bump on
+  `VkApplicationInfo.apiVersion` and `VmaAllocatorCreateInfo.vulkanApiVersion`
+  moves NVIDIA driver ≥ 1.4.329 output above the `places=4` cross-backend
+  gate (ADR-0214) on `integer_vif_scale2` (45/48 mismatches, max abs
+  1.527e-02) and `ciede2000` (42/48 mismatches, max abs 1.67e-04); RADV
+  (Mesa 26.0.6) and lavapipe stay clean. The investigation proves the
+  compiled SPIR-V is byte-identical at `--target-env=vulkan1.3` vs
+  `vulkan1.4` (verified by `cmp` after glslc 2026.1), so the regression
+  is purely NVIDIA's runtime shader compiler flipping its default FMA
+  contraction policy under core `shaderFloatControls2` (promoted to
+  Vulkan 1.4). Vulkan SPIR-V exposes no module-wide `ContractionOff`
+  execution mode (Kernel-only); the only knob is per-result
+  `OpDecorate ... NoContraction` (GLSL `precise`). Backlog item
+  **T-VK-1.4-BUMP** captures the two-step fix path: (A) tag load-bearing
+  FP ops `precise` in `libvmaf/src/feature/vulkan/shaders/vif.comp` and
+  `ciede.comp`, (B) bump only after the gate is clean on all three
+  drivers. `master` stays on Vulkan 1.3; no code change in this PR.
 
 - **ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (T-GPU-OPT-VK-2 / ADR-0252).**
   Adds `feature/x86/ssimulacra2_host_avx2.c` and `feature/arm64/ssimulacra2_host_neon.c`
