@@ -104,6 +104,23 @@ static char *test_if_after_allowed_now_accepted(void)
     return NULL;
 }
 
+static char *test_resize_top_level_allowed(void)
+{
+    /* ADR-0258 / T7-32: Resize joined the allowlist for U-2-Net /
+     * mobilesal / saliency / segmentation models. Wire-format check that
+     * a top-level Resize node is accepted by the scanner.
+     *
+     *   3A 0A                     ModelProto.graph,    len=10
+     *   0A 08                     GraphProto.node,     len=8
+     *   22 06 'R' 'e' 's' 'i' 'z' 'e'  NodeProto.op_type = "Resize" */
+    const unsigned char buf[] = {0x3A, 0x0A, 0x0A, 0x08, 0x22, 0x06, 'R', 'e', 's', 'i', 'z', 'e'};
+    char *first_bad = NULL;
+    const int err = vmaf_dnn_scan_onnx(buf, sizeof(buf), &first_bad);
+    mu_assert("Resize must be accepted", err == 0);
+    mu_assert("first_bad must remain NULL on success", first_bad == NULL);
+    return NULL;
+}
+
 static char *test_scan_still_rejected(void)
 {
     /* Scan stays off the allowlist (ADR-0169 § Alternatives considered). */
@@ -323,27 +340,64 @@ static char *test_unsupported_wire_type(void)
     return NULL;
 }
 
-char *run_tests(void)
+/* Split into per-category groups so the dispatcher stays under the
+ * ADR-0141 / clang-tidy `readability-function-size` budget. Each
+ * `mu_run_test` macro expands to ~6 statements + a branch, so a
+ * 21-call list trips the 120-statement / 15-branch ceiling. */
+static char *run_tests_basic(void)
 {
     mu_run_test(test_null_buffer);
     mu_run_test(test_zero_length);
     mu_run_test(test_no_graph_field);
     mu_run_test(test_allowed_op_conv);
     mu_run_test(test_allowed_multiple_ops);
+    return NULL;
+}
+
+static char *run_tests_op_allowlist(void)
+{
     mu_run_test(test_loop_top_level_allowed);
     mu_run_test(test_if_after_allowed_now_accepted);
+    mu_run_test(test_resize_top_level_allowed);
     mu_run_test(test_scan_still_rejected);
     mu_run_test(test_loop_with_allowed_subgraph);
     mu_run_test(test_loop_with_forbidden_subgraph);
     mu_run_test(test_too_many_loop_nodes_rejected);
+    return NULL;
+}
+
+static char *run_tests_malformed_varints(void)
+{
     mu_run_test(test_truncated_varint);
     mu_run_test(test_overlong_varint);
     mu_run_test(test_length_overruns_buffer);
     mu_run_test(test_node_length_overruns);
     mu_run_test(test_op_type_overruns);
+    return NULL;
+}
+
+static char *run_tests_malformed_op_names(void)
+{
     mu_run_test(test_op_name_too_long);
     mu_run_test(test_zero_length_op_name);
     mu_run_test(test_skip_unrelated_fields);
     mu_run_test(test_unsupported_wire_type);
     return NULL;
+}
+
+char *run_tests(void)
+{
+    char *err = run_tests_basic();
+    if (err) {
+        return err;
+    }
+    err = run_tests_op_allowlist();
+    if (err) {
+        return err;
+    }
+    err = run_tests_malformed_varints();
+    if (err) {
+        return err;
+    }
+    return run_tests_malformed_op_names();
 }

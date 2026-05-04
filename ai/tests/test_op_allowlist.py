@@ -33,6 +33,14 @@ def test_scan_still_rejected() -> None:
     assert "Scan" not in allowed
 
 
+def test_resize_now_allowed() -> None:
+    """ADR-0258 / T7-32: Resize joined the allowlist to unblock U-2-Net
+    (PR #341) and the wider saliency / segmentation surface (mobilesal,
+    BASNet, PiDiNet, FPN-style detectors)."""
+    allowed = load_allowlist()
+    assert "Resize" in allowed
+
+
 def _build_model(op_type: str) -> onnx.ModelProto:
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])

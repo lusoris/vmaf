@@ -25,11 +25,20 @@ The list includes the common building blocks of C1/C2/C3 architectures
 activations, pooling, arithmetic, reshape/transpose) plus the two
 control-flow ops `Loop` and `If` (added in
 [ADR-0169](../adr/0169-onnx-allowlist-loop-if.md) — required by
-MUSIQ / RAFT / small-VLM-class architectures). `Scan` remains rejected
-— its variant-typed input/output binding makes static bound-checking
-impractical for a wire-format scanner. Unknown op names
-(`custom_op_xyz`) are rejected, as is anything that could touch the
-filesystem or network.
+MUSIQ / RAFT / small-VLM-class architectures) and the spatial
+sampler `Resize` (added in
+[ADR-0258](../adr/0258-onnx-allowlist-resize.md) — required by
+U-2-Net / mobilesal / BASNet / PiDiNet / FPN-style detectors).
+`Scan` remains rejected — its variant-typed input/output binding
+makes static bound-checking impractical for a wire-format scanner.
+Unknown op names (`custom_op_xyz`) are rejected, as is anything
+that could touch the filesystem or network.
+
+`Resize` carries multiple `mode` settings — `nearest`, `linear`,
+`cubic`. Per ADR-0258 the wire scanner gates op-type only, not
+attributes; consumers shipping their own ONNX are expected to keep
+`mode in ("nearest", "linear")` (`cubic` is numerically less stable
+on quantised inputs and not exercised by any in-tree consumer).
 
 For `Loop` / `If`, the wire-format scanner in
 [`onnx_scan.c`](../../libvmaf/src/dnn/onnx_scan.c) recurses into the

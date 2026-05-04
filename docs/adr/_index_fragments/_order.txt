@@ -163,3 +163,5 @@
 0263-ossf-scorecard-policy
 0253-speed-qa-extractor
 0265-u2netp-saliency-replacement-blocked
+0255-fastdvdnet-pre-real-weights
+0258-onnx-allowlist-resize
