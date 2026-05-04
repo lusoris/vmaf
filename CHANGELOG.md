@@ -33,6 +33,36 @@
   opset-17 two-input ONNX, op-allowlist clean, torch-vs-ORT roundtrip
   within 1e-4 atol). No upstream-mirror file touched; pure additive
   fork-local PR.
+- **libFuzzer scaffold for the YUV4MPEG2 parser — `fuzz_y4m_input`
+  (ADR-0270, OSSF Scorecard `Fuzzing` remediation).**
+  Lands [`libvmaf/test/fuzz/`](libvmaf/test/fuzz/) with one
+  initial harness (`fuzz_y4m_input.c`) wrapping the public
+  `video_input_open` / `video_input_fetch_frame` /
+  `video_input_close` triple via POSIX `fmemopen`. Opt-in
+  via the new `-Dfuzz=true` Meson option (default OFF; requires
+  clang). Ships a six-input seed corpus covering 420, 422,
+  420p10, monochrome, 411, and empty inputs; an operator
+  runbook at [`docs/development/fuzzing.md`](docs/development/fuzzing.md);
+  and a nightly GitHub Actions job
+  ([`.github/workflows/fuzz.yml`](.github/workflows/fuzz.yml))
+  that runs each harness for 5 minutes per night and uploads
+  any `crash-*` / `oom-*` / `timeout-*` artefacts. Intended to
+  flip the OSSF Scorecard `Fuzzing` check off zero (PR #337
+  remediation tracker).
+
+  **The 60-second smoke run already surfaced a real heap-buffer-
+  overflow** in `y4m_convert_411_422jpeg`
+  ([`libvmaf/tools/y4m_input.c:507`](libvmaf/tools/y4m_input.c)):
+  the first sub-loop of the 411-to-422 upsample writes
+  `_dst[1]` unconditionally when `c_w == 1` and the destination
+  chroma width `dst_c_w == 1`, missing the
+  `(x << 1 | 1) < dst_c_w` guard that the third sub-loop
+  carries. Reproducer parked under
+  [`libvmaf/test/fuzz/y4m_input_known_crashes/y4m_411_w2_h4_oob_dst.y4m`](libvmaf/test/fuzz/y4m_input_known_crashes/);
+  excluded from the nightly job until the fix lands. Tracked in
+  [`docs/state.md`](docs/state.md) as a new Open bug. The fix
+  ships as a follow-up PR (separate ADR) per the project's
+  "harness + bug-report PR first, fix PR second" convention.
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

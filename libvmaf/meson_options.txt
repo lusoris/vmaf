@@ -92,3 +92,8 @@ option('enable_hip',
     type: 'boolean',
     value: false,
     description: 'Build HIP (AMD ROCm) compute backend (ADR-0212 scaffold / T7-10). Default OFF — every entry point returns -ENOSYS until the runtime PR lands. Requires ROCm 6+ when the kernels arrive; the scaffold has no SDK requirement.')
+
+option('fuzz',
+    type: 'boolean',
+    value: false,
+    description: 'Build libFuzzer harnesses under libvmaf/test/fuzz/ (ADR-0270, OSSF Scorecard `Fuzzing` remediation). Requires clang. Pair with `-Db_sanitize=address` for heap coverage. Default OFF — opt-in only.')
