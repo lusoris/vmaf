@@ -9,13 +9,13 @@ Python package for training, exporting, and registering tiny-AI
 checkpoints that are then consumed by [libvmaf/src/dnn/](../libvmaf/src/dnn/AGENTS.md)
 at runtime. Stack: PyTorch + Lightning → ONNX.
 
-```
+```text
 ai/
-  pyproject.toml          # package metadata (training-only deps)
-  src/                    # vmaf-train CLI + model definitions + dataset loaders
-  tests/                  # pytest unit tests
-  configs/                # dataset manifests + training recipes
-  lpips_export.py         # re-exports richzhang/PerceptualSimilarity → ONNX (example)
+  pyproject.toml   # package metadata (training-only deps)
+  src/             # vmaf-train CLI + model defs + dataset loaders
+  tests/           # pytest unit tests
+  configs/         # dataset manifests + training recipes
+  lpips_export.py  # re-export richzhang/PerceptualSimilarity → ONNX
 ```
 
 ## Ground rules
@@ -196,6 +196,33 @@ LOSO PLCC ≥ 0.95 against the `vmaf_v0.6.1` per-frame teacher.
   end-to-end; only the smoke path
   (`python ai/scripts/train_fr_regressor.py --epochs 3 --no-export`)
   runs in CI when the parquet is locally available.
+
+## Dynamic-PTQ tiny-MLP family (ADR-0275)
+
+`vmaf_tiny_v3` and `vmaf_tiny_v4` carry dynamic-PTQ int8 sidecars
+produced by `ai/scripts/ptq_dynamic.py`. The recipe is identical to
+`learned_filter_v1` (ADR-0174) and `nr_metric_v1` (ADR-0248): a
+single CLI invocation, no calibration data. The on-disk size win is
+proportional to weight mass — `mlp_large` (v4) shrinks 45 %,
+`mlp_medium` (v3) shrinks 5 % because Constant scaler nodes and op
+metadata dominate that graph. v2 (`mlp_small`) stays fp32: too
+little weight mass for an int8 sidecar to be worth the audit cost.
+
+**Invariants:**
+
+- The fp32 `<basename>.onnx` stays on disk as the regression
+  baseline; the runtime redirect from ADR-0174 picks the
+  `.int8.onnx` sibling only when the registry overlay declares
+  `quant_mode != "fp32"`.
+- `python ai/scripts/measure_quant_drop.py --all` is the gate. Both
+  v3 and v4 sit two orders of magnitude under the 0.01 PLCC
+  budget; treat any future drop > 1e-3 as a regression worth
+  investigating before merging an int8 refresh.
+- Re-running `ptq_dynamic.py` is deterministic on a fixed fp32
+  input — but the sha256 of the int8 output can shift across ORT
+  versions. When ORT is bumped, regenerate both sidecars and
+  refresh `int8_sha256` in `model/tiny/registry.json` +
+  `vmaf_tiny_v{3,4}.json` in the same PR.
 
 ## Quantization-Aware Training (ADR-0207 / ADR-0208)
 

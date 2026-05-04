@@ -7132,3 +7132,37 @@ inline.*
   ninja -C build
   meson test -C build test_hip_smoke
   ```
+
+### 0229 — `vmaf_tiny_v3` + `vmaf_tiny_v4` dynamic-PTQ int8 sidecars (ADR-0275)
+
+- **ADR**: [ADR-0275](adr/0275-vmaf-tiny-v3-v4-ptq.md)
+- **Touches**:
+  - `model/tiny/vmaf_tiny_v3.int8.onnx` (new, 4 267 B)
+  - `model/tiny/vmaf_tiny_v4.int8.onnx` (new, 7 769 B)
+  - `model/tiny/registry.json` — new `vmaf_tiny_v3` and `vmaf_tiny_v4`
+    rows with `quant_mode`, `int8_sha256`,
+    `quant_accuracy_budget_plcc` fields.
+  - `model/tiny/vmaf_tiny_v3.json`,
+    `model/tiny/vmaf_tiny_v4.json` — same fields mirrored into the
+    per-model sidecars.
+  - `docs/ai/models/vmaf_tiny_v3.md`,
+    `docs/ai/models/vmaf_tiny_v4.md` — new "Quantisation" sections.
+  - `docs/adr/0275-vmaf-tiny-v3-v4-ptq.md` (new) and ADR index row.
+  - `CHANGELOG.md` — Added entry.
+- **Invariant**: `python ai/scripts/measure_quant_drop.py --all`
+  reports `[PASS]` for both `vmaf_tiny_v3` (drop ≤ 0.001 on Netflix
+  features) and `vmaf_tiny_v4` (drop ≤ 0.001), inside the 0.01
+  per-model budget. The runtime redirect from ADR-0174 picks the
+  `.int8.onnx` sibling when an operator's registry overlay declares
+  `quant_mode: dynamic`.
+- **Rebase impact**: entirely fork-local — neither v3 nor v4 nor
+  the dynamic-PTQ harness exists upstream. The new int8 ONNX bytes
+  ship as committed binaries (mirroring `learned_filter_v1` and
+  `nr_metric_v1`); they are well below the few-MB external-data
+  threshold and don't require the sigstore + `.onnx.data` pattern.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/scripts/validate_model_registry.py
+  python ai/scripts/measure_quant_drop.py --all
+  ```
