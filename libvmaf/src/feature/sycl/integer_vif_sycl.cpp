@@ -279,7 +279,7 @@ static inline void sycl_profile_event(VmafSyclState *state, const char *name, sy
  * that skips boundary checks during tile load.
  */
 template <int SCALE>
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static sycl::event launch_vif_vert_impl(sycl::queue &q, const void *ref_data, const void *dis_data,
                                         unsigned width, unsigned height, unsigned src_stride,
                                         unsigned bpc, uint32_t *tmp_mu1, uint32_t *tmp_mu2,
@@ -518,7 +518,7 @@ static sycl::event launch_vif_vert(sycl::queue &q, const void *ref_data, const v
  */
 template <int SCALE, int SG_SIZE>
 static sycl::event
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278)
 launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_enhn_gain_limit,
                      const uint32_t *tmp_mu1, const uint32_t *tmp_mu2, const uint32_t *tmp_ref,
                      const uint32_t *tmp_dis, const uint32_t *tmp_ref_dis,
@@ -906,7 +906,7 @@ static sycl::event launch_vif_hori_v2_sg16(sycl::queue &q, int scale, unsigned w
  */
 template <int SCALE, int SG_SIZE>
 static sycl::event
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278)
 launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data, unsigned width,
                       unsigned height, unsigned src_stride, unsigned bpc, float vif_enhn_gain_limit,
                       int64_t *accum, uint32_t *rd_ref, uint32_t *rd_dis, const uint32_t *log2_lut)
@@ -1362,7 +1362,7 @@ static void enqueue_vif_work(void *queue_ptr, void *priv, void *shared_ref, void
 static void vif_pre_graph(void *queue_ptr, void *priv);
 static void vif_post_graph(void *queue_ptr, void *priv);
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
@@ -1479,7 +1479,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 /* Enqueue all VIF compute work (used for both recording and direct)    */
 /* ------------------------------------------------------------------ */
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static void enqueue_vif_work_impl(sycl::queue &q, VifStateSycl *s, void *shared_ref,
                                   void *shared_dis)
 {
@@ -1608,7 +1608,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     return 0;
 }
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {

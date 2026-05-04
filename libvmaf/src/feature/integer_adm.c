@@ -984,7 +984,9 @@ static inline uint16_t get_best15_from32(uint32_t temp, int *x)
 // See adm_decouple above: SIMD-parity signature keeps adm_div_lookup
 // non-const to match AdmState function-pointer type and
 // adm_decouple_s123_avx2/avx512 in libvmaf/src/feature/x86/. Body is
-// upstream-verbatim from Netflix 966be8d5; refactoring would diverge.
+// upstream-verbatim from Netflix 966be8d5; refactoring would diverge
+// (ADR-0141 §2 upstream-parity load-bearing invariant; T7-5 sweep
+// closeout — ADR-0278).
 // NOLINTBEGIN(readability-non-const-parameter,readability-function-size)
 static void adm_decouple_s123(AdmBuffer *buf, int w, int h, int stride, double adm_enhn_gain_limit,
                               int32_t *adm_div_lookup)

@@ -108,7 +108,9 @@ static int validate_videos(video_input *vid1, video_input *vid2, bool common_bit
  * loop with different per-sample casts; folding them through a function
  * pointer would cost a per-row indirect call on every frame, so the
  * branches stay inline. The nesting-level warning is structural to YUV
- * (plane × row × column) — splitting wouldn't reduce it.
+ * (plane × row × column) — splitting wouldn't reduce it
+ * (ADR-0141 §2 load-bearing invariant: per-frame indirect-call cost;
+ * T7-5 sweep closeout — ADR-0278).
  */
 // NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 static void copy_picture_data(VmafPicture *pic, video_input_ycbcr ycbcr, video_input_info *info,
@@ -406,7 +408,9 @@ static int open_input_videos(const CLISettings *c, FILE **file_ref, FILE **file_
  * #ifdef-guarded backend stanzas push the line count just past the
  * 60-line threshold. Splitting into per-backend helpers would multiply
  * the `#if defined(HAVE_X)` decoration without making the activation
- * priority chain (SYCL > CUDA > Vulkan) any clearer to a reader.
+ * priority chain (SYCL > CUDA > Vulkan) any clearer to a reader
+ * (ADR-0141 §2 load-bearing invariant: backend-priority chain
+ * readability + #ifdef discipline; T7-5 sweep closeout — ADR-0278).
  */
 // NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 static int init_gpu_backends(VmafContext *vmaf, const CLISettings *c
@@ -728,7 +732,9 @@ static int report_pooled_scores(VmafContext *vmaf, const CLISettings *c, VmafMod
  * report_pooled_scores). The remaining body is the cleanup-ownership
  * spine plus inter-step glue; further extraction would require
  * pointer-aliasing the cleanup-relevant locals through helper signatures
- * and obscure the unwind chain.
+ * and obscure the unwind chain
+ * (ADR-0141 §2 load-bearing invariant: goto-cleanup ownership chain;
+ * T7-5 sweep closeout — ADR-0278; ADR-0146 prior sweep precedent).
  */
 // NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
 int main(int argc, char *argv[])
