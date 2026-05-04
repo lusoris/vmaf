@@ -7209,3 +7209,21 @@ inline.*
   # If the count drops below 5/48 on NVIDIA, ADR-0273 should record the
   # delta and consider closing T-VK-CIEDE-F32-F64.
   ```
+
+### 0235 — `fr_regressor_v2` ENCODER_VOCAB v2 (hw codec extension)
+
+- **Touches**: `ai/scripts/train_fr_regressor_v2.py` — `ENCODER_VOCAB`
+  gains 6 hw-codec entries (3 NVENC + 3 QSV); `ENCODER_VOCAB_VERSION`
+  bumps 1 -> 2; `PRESET_ORDINAL` gains 6 sub-tables for `p1..p7`
+  (NVENC) and the libx264-aligned QSV preset family.
+- **Invariant**: vocab order is load-bearing — index of every entry is
+  baked into trained model graphs as a one-hot column position. New
+  entries MUST be appended (never inserted into the middle), and the
+  `unknown` sentinel MUST stay last (`UNKNOWN_ENCODER_INDEX = N - 1`).
+  Bumping `ENCODER_VOCAB_VERSION` signals that any v1-graph ONNX
+  needs re-export against v2 before consuming v2 training rows.
+- **On upstream sync**: zero interaction. `train_fr_regressor_v2.py`
+  is fork-only (Phase B prereq, ADR-0237 / ADR-0272).
+- **Re-test on rebase**: `python3 ai/scripts/train_fr_regressor_v2.py
+  --corpus <jsonl> --epochs 200 --no-export` — expect PLCC > 0.95 on
+  a multi-codec corpus.
