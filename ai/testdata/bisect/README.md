@@ -15,10 +15,20 @@ Total committed size: ~16 KB.
 ## Why these bytes are committed
 
 CI re-runs `build_bisect_cache.py --check` before exercising the bisect.
-The check regenerates everything from fixed seeds and asserts byte-equality
-against the committed tree. This guards against silent drift in
-`pandas` / `pyarrow` / `onnx` serialisers between Python versions and
-catches accidental edits.
+The check regenerates everything from fixed seeds and asserts content
+equality against the committed tree:
+
+- `features.parquet` is compared via `pyarrow.Table.equals` (schema +
+  row count + values). The parquet header's `created_by` writer-version
+  string is intentionally ignored — see
+  [ADR-0262](../../../docs/adr/0262-bisect-cache-logical-comparison.md).
+- `models/model_NN.onnx` is compared byte-for-byte. ONNX serialisation
+  is deterministic here because `producer_name`, `producer_version`, and
+  `ir_version` are pinned in `_save_linear_fr`.
+
+This catches silent drift in row values, schema, model weights, opset,
+or graph topology between Python / pyarrow / onnx versions and catches
+accidental edits, while tolerating cosmetic writer-version churn.
 
 ## Why the timeline is regression-free
 
