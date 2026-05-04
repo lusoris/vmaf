@@ -38,7 +38,7 @@ jobs:
       # banner on the repo Security tab.
       image: semgrep/semgrep:latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Run semgrep (local rules — gate on ERRORs)
         run: |
           # Local .semgrep.yml only: our custom rules for VMAF-specific
@@ -68,13 +68,13 @@ jobs:
             --sarif --output=semgrep-registry.sarif || true
       - name: Upload local-rules SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           sarif_file: semgrep-local.sarif
           category: semgrep-local
       - name: Upload registry-rules SARIF
         if: always() && hashFiles('semgrep-registry.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           sarif_file: semgrep-registry.sarif
           category: semgrep-registry
@@ -91,8 +91,8 @@ jobs:
       contents: read
       security-events: write   # codeql-action/analyze uploads SARIF
     steps:
-      - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           languages: cpp
           queries: security-and-quality
@@ -104,7 +104,7 @@ jobs:
           sudo apt-get install -y meson ninja-build nasm
           meson setup build -Denable_cuda=false -Denable_sycl=false
           meson compile -C build
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           category: "/language:cpp"
 
@@ -117,13 +117,13 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           languages: python
           queries: security-and-quality
           config-file: ./.github/codeql-config.yml
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           category: "/language:python"
 
@@ -140,13 +140,13 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           languages: actions
           queries: security-and-quality
           config-file: ./.github/codeql-config.yml
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           category: "/language:actions"
 
@@ -159,10 +159,10 @@ jobs:
       contents: read
       security-events: write   # gitleaks-action uploads SARIF
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2.3.9
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -172,8 +172,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
