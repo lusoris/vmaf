@@ -6935,3 +6935,39 @@ inline.*
   Expected on NVIDIA 595.71+: vif 0/48 OK, ciede 5/48 FAIL (max abs
   8.9e-05 — pre-existing fork debt at API 1.3, see ADR-0269). On
   RADV / lavapipe: bit-exact (`precise` is a no-op there).
+### 0229 — `fr_regressor_v2` codec-aware scaffold (ADR-0272)
+
+- **ADR**: [ADR-0272](adr/0272-fr-regressor-v2-codec-aware-scaffold.md)
+- **Touches**:
+  - `ai/scripts/train_fr_regressor_v2.py` (new) — Phase A JSONL
+    consumer; trains the codec-aware FRRegressor.
+  - `model/tiny/fr_regressor_v2.onnx` (new, smoke) — placeholder
+    ONNX from `--smoke` mode; re-baked on production training.
+  - `model/tiny/fr_regressor_v2.json` (new) — sidecar.
+  - `model/tiny/registry.json` — new entry with `smoke: true`.
+  - `docs/adr/0272-fr-regressor-v2-codec-aware-scaffold.md` (new).
+  - `docs/adr/README.md` — index row.
+  - `docs/research/0058-fr-regressor-v2-feasibility.md` (new).
+  - `docs/ai/models/fr_regressor_v2.md` (new) — model card.
+  - `ai/AGENTS.md` — invariant note (codec block layout +
+    ENCODER_VOCAB ordering).
+  - `CHANGELOG.md` — Added entry.
+- **Invariant**: the 8-D codec block layout is
+  `[encoder_onehot(6), preset_norm, crf_norm]` with
+  `ENCODER_VOCAB = (libx264, libx265, libsvtav1, libvvenc, libvpx-vp9, unknown)`
+  in load-bearing order. CRF normaliser is `/63` (union upper bound).
+  Preset normaliser is `/9`. Bumping the vocabulary requires a
+  re-train; existing checkpoints pin the order they were trained
+  against via `encoder_vocab_version` in the sidecar. The two-input
+  ONNX (`features`, `codec`) follows the LPIPS-Sq precedent
+  (ADR-0040 / ADR-0041).
+- **Rebase impact**: entirely fork-local; pure additive; no
+  upstream-mirror file is touched. Phase A schema (consumed by this
+  trainer) is itself fork-local (`tools/vmaf-tune/`). No conflict
+  expected on `/sync-upstream`.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/scripts/train_fr_regressor_v2.py --smoke
+  python ai/scripts/validate_model_registry.py
+  ```

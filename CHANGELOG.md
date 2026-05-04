@@ -8,6 +8,31 @@
 
 ### Added
 
+- **`fr_regressor_v2` codec-aware scaffold — first downstream consumer
+  of the vmaf-tune Phase A JSONL corpus (ADR-0272, prereq for
+  Phase B).** Ships
+  [`ai/scripts/train_fr_regressor_v2.py`](ai/scripts/train_fr_regressor_v2.py)
+  — a scaffold-only trainer that consumes the JSONL corpus emitted by
+  `vmaf-tune corpus` (ADR-0237 Phase A) and trains the codec-aware
+  variant of the v1 FR regressor. Two-input ONNX (`features` shape
+  `(N, 6)` canonical-6 + `codec` shape `(N, 8)` block —
+  `[encoder_onehot(6), preset_norm, crf_norm]`); reuses the existing
+  `FRRegressor(num_codecs=8)` class plumbed by ADR-0235. A `--smoke`
+  mode synthesises 100 fake corpus rows and trains 1 epoch so the
+  pipeline is end-to-end exercisable in CI without hours of encode
+  time. Registers `fr_regressor_v2` in `model/tiny/registry.json`
+  with `smoke: true` until a follow-up PR runs production training on
+  a real Phase A corpus and clears the ADR-0235 ship gate (≥0.005
+  multi-codec PLCC lift over v1's 0.95 LOSO floor). Doc surface:
+  [model card](docs/ai/models/fr_regressor_v2.md),
+  [research digest](docs/research/0058-fr-regressor-v2-feasibility.md),
+  [ADR-0272](docs/adr/0272-fr-regressor-v2-codec-aware-scaffold.md),
+  `ai/AGENTS.md` invariant note pinning the codec block layout and
+  encoder vocabulary. Smoke validated locally (`python
+  ai/scripts/train_fr_regressor_v2.py --smoke` produces a valid
+  opset-17 two-input ONNX, op-allowlist clean, torch-vs-ORT roundtrip
+  within 1e-4 atol). No upstream-mirror file touched; pure additive
+  fork-local PR.
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships
