@@ -7166,3 +7166,35 @@ inline.*
   python ai/scripts/validate_model_registry.py
   python ai/scripts/measure_quant_drop.py --all
   ```
+
+### 0233 — CUDA motion `flush_fex_cuda` idempotency guard
+
+- **Touches**: `libvmaf/src/feature/cuda/integer_motion_cuda.c` —
+  factored an `append_if_unwritten` helper and routed the two
+  motion2 / motion3 final-frame writes through it.
+- **Invariant**: under T-GPU-OPT-1 (PR #312 / ADR-0242), the
+  pending-collect inside `flush_context_cuda` may already have
+  written `motion2_score[s->index]` / `motion3_score[s->index]`
+  before `flush_fex_cuda` runs. Any future motion-cuda flush logic
+  that emits the same (feature, index) pair must keep this
+  idempotency contract or `flush_context_cuda` will mis-surface as
+  "context could not be synchronized".
+- **On upstream sync**: the bug only exists because the fork's
+  `flush_context_cuda` runs the pending-collect *before* the
+  per-extractor flush. Netflix/vmaf upstream doesn't have the
+  T-GPU-OPT-1 drain pattern, so the pre-#312 code path didn't
+  duplicate-write. If Netflix lands a similar pattern, the fix
+  shape mirrors what's done here.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C libvmaf/build-cuda
+  ./libvmaf/build-cuda/tools/vmaf --gpumask=0 --no_sycl --no_vulkan \
+    -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    -w 576 -h 324 -p 420 -b 8 \
+    --model path=model/vmaf_v0.6.1.json --threads 1 -q \
+    --output /tmp/cuda.json --json
+  # Expect: clean run, no "cannot be overwritten" warning,
+  # no "problem flushing context" error.
+  ```
