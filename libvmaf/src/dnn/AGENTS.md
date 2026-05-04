@@ -87,6 +87,15 @@ Runtime directly.
 
 ## Rebase-sensitive invariants (DNN-side surfaces in flight)
 
+- **Op-allowlist additions for TransNet V2 (ADR-0257)**:
+  `BitShift`, `GatherND`, `Pad`, `Reciprocal`, `ReduceProd`,
+  and `ScatterND` are now load-bearing for
+  `model/tiny/transnet_v2.onnx` (the upstream ColorHistograms +
+  FrameSimilarity branches require all six). On rebase: removing
+  any of them from `op_allowlist.c` is a model-breakage event;
+  keep the trailing block above the `Loop` / `If` control-flow
+  block intact. Future tiny-AI models that want to leverage
+  these ops inherit them transparently.
 - **Model registry + Sigstore (T6-9, PR #199 open, ADR-0211
   placeholder)**: `--tiny-model-verify` flag wires through to
   `cosign verify-blob` against the Sigstore bundle declared in

@@ -398,10 +398,10 @@ feature/
   [ADR-0215](../../../docs/adr/0215-fastdvdnet-pre-filter.md) and
   [ADR-0253](../../../docs/adr/0253-fastdvdnet-pre-real-weights.md).
 - **`transnet_v2.c` 100-frame-window contract** (fork-local,
-  ADR-0223 TransNet V2 shot-boundary detector is wired to
-  the I/O contract `frames: float32 [1, 100, 3, 27, 48]`
+  ADR-0223 + ADR-0257) — TransNet V2 shot-boundary detector is
+  wired to the I/O contract `frames: float32 [1, 100, 3, 27, 48]`
   (100-frame window of 27x48 RGB thumbnails) → `boundary_logits:
-  float32 [1, 100]`. Three pieces are load-bearing on rebase:
+  float32 [1, 100]`. Four pieces are load-bearing on rebase:
   (1) the ring buffer holds 100 slots and replicates the *oldest*
   available frame across pre-clip slots (head-clamp at clip
   start) — the corresponding output logit is read from
@@ -412,15 +412,19 @@ feature/
   logit) **and** `shot_boundary` (binary 0/1 thresholded at 0.5);
   downstream consumers (the per-shot CRF predictor T6-3b, the
   FFmpeg shot-cut filter shipping with T6-3b) bind to *both*
-  exact strings; (3) the placeholder ONNX shipped under
-  `model/tiny/transnet_v2.onnx` is smoke-only (`smoke: true` in
-  the registry); when T6-3a-followup swaps in real upstream
-  weights, keep the I/O names (`frames` / `boundary_logits`) and
-  the shape (`[1, 100, 3, 27, 48]` → `[1, 100]`)
-  byte-identical, and switch the `luma_to_thumbnail` path from
-  nearest-neighbour + luma-broadcast to bilinear + true RGB
-  decode (the published TransNet V2 uses bilinear). See
-  [ADR-0220](../../../docs/adr/0223-transnet-v2-shot-detector.md).
+  exact strings; (3) the shipped ONNX under
+  `model/tiny/transnet_v2.onnx` is real upstream weights as of
+  ADR-0257 (`smoke: false`, MIT, upstream commit pin
+  `77498b8e`); the wrapper layer that adapts NTCHW→NTHWC and
+  selects only `output_1` lives in
+  `ai/scripts/export_transnet_v2.py` and must be re-run if the
+  upstream commit pin moves; (4) the export pipeline replaces a
+  rank-2 `UnsortedSegmentSum` in upstream's `ColorHistograms`
+  branch with an equivalent `ScatterND` reduction='add'
+  subgraph — semantics-preserving but a load-bearing rewrite that
+  any future upstream-graph re-conversion has to repeat. See
+  [ADR-0223](../../../docs/adr/0223-transnet-v2-shot-detector.md)
+  + [ADR-0257](../../../docs/adr/0257-transnet-v2-real-weights.md).
 
 - **`cambi.c` GPU port is hybrid host/GPU per
   [ADR-0205](../../../docs/adr/0205-cambi-gpu-feasibility.md) +
@@ -577,8 +581,10 @@ that ADR fires.
   placeholder)** — first half of T6-2 (encoder-side ROI bundle).
   DNN-backed; opens sessions through
   [`../dnn/`](../dnn/AGENTS.md).
-- **TransNet V2 shot-boundary extractor (T6-3a, PR #210 open)** —
-  second half of T6-2 bundle, ~1M params. DNN-backed.
+- **TransNet V2 shot-boundary extractor (T6-3a + T6-3a-followup,
+  ADR-0223 + ADR-0257)** — second half of T6-2 bundle. Now ships
+  real upstream weights via NTCHW adapter (see
+  `transnet_v2.c 100-frame-window contract` invariant above).
 - **FastDVDnet temporal pre-filter (T6-7, PR #203 open, ADR-0215
   placeholder)** — 5-frame window pre-filter feeding
   ssim/ms_ssim. DNN-backed.

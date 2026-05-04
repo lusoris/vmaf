@@ -6657,3 +6657,59 @@ inline.*
     git am --3way "$p" || break
   done
   ```
+
+### 0227 — TransNet V2 real upstream weights via NTCHW adapter (ADR-0261)
+
+- **Touches**:
+  - `model/tiny/transnet_v2.onnx` — replaced; smoke-only
+    placeholder swapped for ~30 MiB upstream-weights export.
+  - `model/tiny/transnet_v2.json`, `model/tiny/registry.json` —
+    `smoke: false`, MIT license, upstream commit pin
+    `77498b8e`, refreshed sha256.
+  - `ai/scripts/export_transnet_v2.py` — new exporter
+    superseding `export_transnet_v2_placeholder.py` (kept for
+    reference). Wraps upstream `tf.saved_model` with NTCHW
+    adapter, runs `tf2onnx --continue_on_error`, post-processes
+    the resulting ONNX to splice `ScatterND` reduction='add' in
+    place of the rank-2 `UnsortedSegmentSum`.
+  - `libvmaf/src/dnn/op_allowlist.c` — six new ops added
+    (`BitShift`, `GatherND`, `Pad`, `Reciprocal`, `ReduceProd`,
+    `ScatterND`).
+  - `libvmaf/src/feature/AGENTS.md` + `libvmaf/src/dnn/AGENTS.md`
+    — invariant notes refreshed.
+  - `docs/ai/models/transnet_v2.md` — full provenance + reproduce-
+    the-export section + wrapper-layer design notes.
+  - `docs/adr/0261-transnet-v2-real-weights.md` (new) +
+    `docs/adr/README.md` (index row).
+- **Invariant**: keep the wrapper transpose
+  `perm=[0, 1, 3, 4, 2]` and the `output_1`-only selection in
+  `_wrap_to_savedmodel` exactly as written; selecting both
+  outputs would break the `[1, 100]` C contract. The
+  `_replace_segmentsum` rewrite is mechanical (no learned
+  params) and must run after every tf2onnx invocation; skipping
+  it leaves an unloadable graph (ORT rejects rank-2
+  `SegmentSum`). The six op-allowlist additions are
+  load-bearing for the shipped ONNX and must not be reverted on
+  rebase. Upstream commit pin
+  (`UPSTREAM_COMMIT = 77498b8e…`) plus the two upstream sha256s
+  in the exporter are enforced at run-time; bumping them is a
+  deliberate weights swap with its own ADR follow-up.
+- **On upstream sync**: zero interaction. Netflix upstream has
+  no shot detector; `transnet_v2.c` is fork-introduced
+  (T6-3a / ADR-0223) and this PR is the T6-3a-followup.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_transnet_v2 test_op_allowlist
+
+  # Re-run the export end-to-end (Python 3.11 venv with
+  # tensorflow + tf2onnx + onnx + onnxruntime):
+  git clone --depth=1 https://github.com/soCzech/TransNetV2.git \
+      /tmp/transnetv2_upstream
+  git -C /tmp/transnetv2_upstream lfs pull \
+      -I inference/transnetv2-weights
+  python3.11 ai/scripts/export_transnet_v2.py \
+      --upstream-dir /tmp/transnetv2_upstream/inference/transnetv2-weights
+  ```
