@@ -59,6 +59,26 @@
   `ciede.comp`, (B) bump only after the gate is clean on all three
   drivers. `master` stays on Vulkan 1.3; no code change in this PR.
 
+- **`iqa_convolve` block-of-N tap widen — failed-attempt research
+  digest (Research-0053).** Records the bit-exactness post-mortem for
+  the proposed AVX-512 block-of-4 reorder targeted at the largest
+  CPU hot-spot (`iqa_convolve_avx512`, ~39.5 % self-time on the
+  post-merge CPU profile). The hypothesis was to amortise the
+  per-tap `vcvtps2pd` widen over a block of 4 taps (4+4+3 stagger
+  on the 11-tap Gaussian) to cut widen count 3.7× and recover an
+  expected +6–10 % end-to-end on `float_ssim` / `float_ms_ssim`.
+  A 10 M random-input Monte Carlo on the actual Gaussian
+  coefficients shows block-of-4 mismatches the scalar reference's
+  float-cast output on **27.67 %** of pixels; block-of-2 mismatches
+  on 16.68 %. Per-tap widen is load-bearing — collapsing N
+  intermediate doubles into one before adding to the accumulator
+  changes rounding by construction. The
+  [ADR-0138](docs/adr/0138-iqa-convolve-avx2-bitexact-double.md)
+  bit-exact contract holds; the SIMD path stays as-is. Future
+  options sketched: widen earlier in the pipeline (carry `__m512d`
+  across the h/v split), or negotiate a per-path ULP budget under
+  [ADR-0140](docs/adr/0140-simd-dx-framework.md). No code change in
+  this PR. Companion: [`docs/research/0054-iqa-convolve-block-widen-attempt.md`](docs/research/0054-iqa-convolve-block-widen-attempt.md).
 - **ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (T-GPU-OPT-VK-2 / ADR-0252).**
   Adds `feature/x86/ssimulacra2_host_avx2.c` and `feature/arm64/ssimulacra2_host_neon.c`
   with `plane_stride`-parameterised `linear_rgb_to_xyb` and `downsample_2x2` SIMD
