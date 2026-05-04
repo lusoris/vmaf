@@ -81,9 +81,9 @@ Depending on your build configuration not every backend is available — see
 [`backends/`](../backends/index.md) for the runtime dispatch rules.
 
 ⁵ HIP backend (T7-10b) — `psnr_hip` (ADR-0241), `ciede_hip` /
-`float_moment_hip` (ADR-0257 / ADR-0258), and the in-flight
-fifth/sixth consumers `float_ansnr_hip` / `motion_v2_hip`
-(ADR-0266 / ADR-0267) register at the extractor level under
+`float_moment_hip` (ADR-0257 / ADR-0258), and the fifth/sixth
+host-scaffolded consumers `float_ansnr_hip` / `motion_v2_hip`
+(ADR-0266 / ADR-0267) all register at the extractor level under
 `#if HAVE_HIP` so callers asking by name get the cleaner
 "extractor found, runtime not ready (`-ENOSYS`)" surface; kernels
 go live once the runtime PR (T7-10b) lands. See
