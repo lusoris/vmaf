@@ -35,7 +35,7 @@ classic SVM regressor.
 | Feature order | `adm2, vif_scale0, vif_scale1, vif_scale2, vif_scale3, motion2` |
 | Output | `vmaf` — float32 `[N]` |
 | ONNX opset | 17 |
-| Quantisation | fp32 (size already <2 KB; 8-bit has no shipping payoff) |
+| Quantisation | `quant_mode: "dynamic"` (ADR-0270). int8 sidecar at `model/tiny/vmaf_tiny_v2.int8.onnx`; fp32 stays as the audit baseline. |
 | License | BSD-3-Clause-Plus-Patent |
 | Registry entry | `vmaf_tiny_v2` in `model/tiny/registry.json` |
 | Sidecar | `model/tiny/vmaf_tiny_v2.json` |
@@ -166,6 +166,38 @@ python3 ai/scripts/validate_vmaf_tiny_v2.py \
   (ADR-0042 / ADR-0119 — places=4 tolerance applies to tiny-AI
   models too).
 
+## int8 sidecar (ADR-0270)
+
+The runtime can prefer an int8 build of the same graph when the
+sidecar declares a non-`fp32` quant mode (per ADR-0173 / ADR-0174):
+
+| Field | Value |
+| --- | --- |
+| Sidecar artefact | `model/tiny/vmaf_tiny_v2.int8.onnx` (3 680 bytes) |
+| sha256 (`int8_sha256`) | `db2272c0dd942371fdf39987c85c3ba8de2b277621fa1ea8e937442792156c96` |
+| `quant_mode` | `dynamic` |
+| `quant_accuracy_budget_plcc` | `0.01` |
+| Measured PLCC drop | `0.000245` (canonical 16-sample seed-0 harness via `ai/scripts/measure_quant_drop.py`) |
+| PTQ tool | `ai/scripts/ptq_dynamic.py` (default per-tensor; no `--per-channel`) |
+
+The fp32 file stays on disk as the audit baseline. The runtime
+loader (`vmaf_dnn_session_open`) appends `.int8.onnx` to the
+caller-supplied path and uses the int8 graph when the sidecar's
+`quant_mode != fp32`. The deployment win is the int8 kernel
+speedup (AVX-VNNI on x86, NEON-DotProduct on ARMv8.4-A+); the file
+itself is *larger* than fp32 because the 257-parameter weight
+budget is smaller than the QDQ scaffolding ORT emits — see
+[Research-0060](../../research/0060-vmaf-tiny-v3-ptq-int8-feasibility.md)
+for the breakdown.
+
+To reproduce:
+
+```bash
+python ai/scripts/ptq_dynamic.py model/tiny/vmaf_tiny_v2.onnx
+python ai/scripts/measure_quant_drop.py model/tiny/vmaf_tiny_v2.onnx
+# Expected: PASS, drop ~ 0.000245.
+```
+
 ## See also
 
 - [Phase-3 research chain](../../research/0027-phase2-feature-importance.md)
@@ -173,3 +205,5 @@ python3 ai/scripts/validate_vmaf_tiny_v2.py \
 - [Phase-3b StandardScaler results](../../research/0029-phase3b-standardscaler-results.md)
 - [Phase-3b multi-seed validation](../../research/0030-phase3b-multiseed-validation.md)
 - [ADR-0244 — vmaf_tiny_v2 ship decision](../../adr/0244-vmaf-tiny-v2.md)
+- [ADR-0270 — vmaf_tiny_v2 PTQ int8 sidecar](../../adr/0270-vmaf-tiny-v3-ptq-int8-sidecar.md)
+- [Research-0060 — PTQ int8 feasibility](../../research/0060-vmaf-tiny-v3-ptq-int8-feasibility.md)

@@ -6539,3 +6539,36 @@ inline.*
   # Then watch the next master push for a green Scorecard run:
   gh run list --workflow scorecard --repo lusoris/vmaf --limit 1
   ```
+
+## ADR-0270 — `vmaf_tiny_v2` PTQ int8 sidecar (T5-3d-followup, 2026-05-04)
+
+- **Touches**: `model/tiny/vmaf_tiny_v2.int8.onnx` (new artefact),
+  `model/tiny/registry.json` (entry edit; +`quant_mode`,
+  `int8_sha256`, `quant_accuracy_budget_plcc`),
+  `model/tiny/vmaf_tiny_v2.json` (sidecar edit; same three fields),
+  `docs/ai/models/vmaf_tiny_v2.md` (int8 paragraph),
+  `docs/adr/0270-*.md`, `docs/research/0060-*.md`,
+  `changelog.d/added/T5-3d-followup-*.md`. All paths are fork-local
+  (the entire `model/tiny/` tree, the registry schema, and the PTQ
+  harness are fork additions; upstream Netflix/vmaf does not ship a
+  tiny-AI surface).
+- **Invariant**: registry + sidecar `int8_sha256` MUST match the
+  on-disk SHA of `vmaf_tiny_v2.int8.onnx`. Any re-export of the
+  fp32 model triggers a re-quantisation and a sha bump. The PTQ is
+  deterministic for a fixed input fp32 model, but flipping the
+  fp32's training recipe will change the int8 SHA.
+- **On upstream sync**: zero interaction. `model/tiny/` is fork-only.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/scripts/measure_quant_drop.py model/tiny/vmaf_tiny_v2.onnx
+  # Expected: PASS, drop ~ 0.000245.
+  python -c "
+  import json, jsonschema
+  schema = json.load(open('model/tiny/registry.schema.json'))
+  reg    = json.load(open('model/tiny/registry.json'))
+  jsonschema.validate(reg, schema); print('OK')
+  "
+  sha256sum model/tiny/vmaf_tiny_v2.int8.onnx
+  # Expected: db2272c0dd942371fdf39987c85c3ba8de2b277621fa1ea8e937442792156c96
+  ```

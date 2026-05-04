@@ -161,3 +161,4 @@
 0241-hip-first-consumer-psnr
 0257-mobilesal-real-weights-deferred
 0263-ossf-scorecard-policy
+0270-vmaf-tiny-v3-ptq-int8-sidecar
