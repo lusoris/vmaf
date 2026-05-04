@@ -125,6 +125,16 @@ extern VmafFeatureExtractor vmaf_fex_float_moment_hip;
  * -ENOSYS until T7-10b. */
 extern VmafFeatureExtractor vmaf_fex_float_ansnr_hip;
 extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_hip;
+/* HIP seventh-consumer kernel — T7-10b follow-up / ADR-0273. Same
+ * scaffold posture; mirrors the CUDA twin
+ * `feature/cuda/float_motion_cuda.c` and pins the temporal-extractor
+ * shape with a raw-pixel cache + blurred-frame ping-pong slot pair. */
+extern VmafFeatureExtractor vmaf_fex_float_motion_hip;
+/* HIP eighth-consumer kernel — T7-10b follow-up / ADR-0274. Same
+ * scaffold posture; mirrors the CUDA twin
+ * `feature/cuda/integer_ssim_cuda.c` and pins the two-dispatch +
+ * five intermediate float buffers shape. v1: scale=1 only. */
+extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
 #endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_fastdvdnet_pre;
@@ -215,6 +225,19 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     /* T7-10b fifth + sixth consumers (ADR-0266 / ADR-0267): same
      * scaffold-posture registration as the first consumer. */
     &vmaf_fex_float_ansnr_hip, &vmaf_fex_integer_motion_v2_hip,
+    /* Seventh consumer (ADR-0273): `float_motion_hip` mirrors
+     * `float_motion_cuda.c`'s call graph (TEMPORAL flag,
+     * raw-pixel cache + blurred-frame ping-pong, `flush()`
+     * tail-frame motion2 emission); emits two features
+     * (`VMAF_feature_motion_score`, `VMAF_feature_motion2_score`)
+     * once the runtime kernel arrives. */
+    &vmaf_fex_float_motion_hip,
+    /* Eighth consumer (ADR-0274): `float_ssim_hip` mirrors
+     * `integer_ssim_cuda.c`'s call graph (two-dispatch separable
+     * Gaussian, five intermediate float buffers, per-block
+     * float-partial readback); emits one feature (`float_ssim`)
+     * once the runtime kernel arrives. v1 is scale=1 only. */
+    &vmaf_fex_float_ssim_hip,
 #endif
     &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2,
     &vmaf_fex_null, NULL};

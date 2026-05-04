@@ -27,6 +27,8 @@ hip/
 across multiple PRs:
 **Scaffold + first / fifth / sixth consumer** — landed across multiple
 PRs (second through fourth in flight as of 2026-05-03):
+**Scaffold + first through eighth consumer** — landed across multiple
+PRs:
 
 1. **T7-10 audit-first scaffold** (ADR-0212) — common, picture, dispatch,
    feature stubs, public header `libvmaf_hip.h`, CI lane
@@ -67,6 +69,26 @@ PRs (second through fourth in flight as of 2026-05-03):
    `motion_v2`'s **temporal-extractor shape** (`flush()` callback +
    `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag + ping-pong buffer carry).
    Same scaffold posture: `init()` returns `-ENOSYS` until T7-10b.
+5. **T7-10b fifth + sixth consumers** (ADR-0266 / ADR-0267, PR #340) —
+   `feature/hip/float_ansnr_hip.{c,h}` and
+   `feature/hip/integer_motion_v2_hip.{c,h}` mirroring
+   `feature/cuda/float_ansnr_cuda.c` and
+   `feature/cuda/integer_motion_v2_cuda.c`. Pin (a) interleaved
+   (sig, noise) per-block float partials, (b) the temporal-extractor
+   shape with `flush()` callback + ping-pong buffer carry. Same
+   scaffold posture.
+6. **T7-10b seventh + eighth consumers** (ADR-0273 / ADR-0274, this
+   PR) — `feature/hip/float_motion_hip.{c,h}` and
+   `feature/hip/float_ssim_hip.{c,h}` mirroring
+   `feature/cuda/float_motion_cuda.c` and
+   `feature/cuda/integer_ssim_cuda.c`. Pin (a) the three-buffer
+   ping-pong (raw-pixel cache + blurred-frame ping-pong) plus the
+   `motion_force_zero` short-circuit posture (`fex->extract` swap),
+   (b) the multi-dispatch shape (`chars.n_dispatches_per_frame == 2`)
+   with five intermediate float buffers and a `validate_dims` /
+   `init_dims` helper split for the `readability-function-size`
+   budget. Same scaffold posture: `init()` returns `-ENOSYS` after
+   dimension validation, until T7-10b.
 
 **Pending** — T7-10b (runtime PR) replaces the `kernel_template.c`
 bodies and the consumers' submit/collect kernel-launch chains with
@@ -179,6 +201,44 @@ by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214
   `(index + 1) % 2`) is load-bearing for the eventual cross-backend
   numeric gate.
 
+## Rebase-sensitive invariants (seventh + eighth consumers)
+
+- **`float_motion_hip.c` mirrors `float_motion_cuda.c`
+  call-graph-for-call-graph** (fork-local, ADR-0273). The state
+  struct carries three `uintptr_t` buffer slots (`ref_in`,
+  `blur[2]`) tracked outside the kernel-template's readback bundle;
+  the runtime PR (T7-10b) will swap them for real device-buffer
+  handles matching the CUDA twin's `VmafCudaBuffer *ref_in` +
+  `VmafCudaBuffer *blur[2]` field shape. The submit path
+  **intentionally does not call `vmaf_hip_kernel_submit_pre_launch`**
+  (kernel writes per-WG SAD float partials directly, no atomic,
+  no memset) — same bypass as `ciede_hip` and `float_ansnr_hip`.
+  The `motion_force_zero` short-circuit (`fex->extract` swap with
+  `submit / collect / flush / close` nulled) is load-bearing and
+  must stay aligned with the CUDA twin. **On rebase**: any drift
+  in the CUDA twin's buffer-slot count or the `motion_force_zero`
+  posture requires a paired update here.
+
+- **`float_ssim_hip.c` mirrors `integer_ssim_cuda.c`
+  call-graph-for-call-graph** (fork-local, ADR-0274). The state
+  struct carries five `uintptr_t` intermediate float buffer slots
+  (`h_ref_mu`, `h_cmp_mu`, `h_ref_sq`, `h_cmp_sq`, `h_refcmp`)
+  tracked outside the kernel-template's readback bundle; the
+  runtime PR (T7-10b) will swap them for real device-buffer
+  handles matching the CUDA twin's `VmafCudaBuffer *h_*` field
+  shape. The extractor reports `chars.n_dispatches_per_frame == 2`
+  (first multi-dispatch HIP consumer); the smoke test pins this
+  value explicitly. The v1 `scale=1` constraint surfaces as
+  `-EINVAL` at init time before the kernel-template's `-ENOSYS`
+  would surface, mirroring the CUDA twin's `compute_scale` /
+  `vmaf_log` validation. The HIP twin extracts `validate_dims_hip`
+  / `init_dims_hip` helpers from `init()` to fit the
+  `readability-function-size` budget — the CUDA twin keeps
+  everything inline. **On rebase**: keep the five-slot count and
+  the `n_dispatches_per_frame == 2` characteristic aligned with
+  the CUDA twin; do not re-inline the helpers without verifying
+  the budget still passes.
+
 ## Governing ADRs
 
 - [ADR-0212](../../../docs/adr/0212-hip-backend-scaffold.md) — HIP
@@ -193,6 +253,20 @@ by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214
 - [ADR-0260](../../../docs/adr/0260-hip-fourth-consumer-float-moment.md) —
   fourth consumer (`float_moment_hip`); pins the multi-counter
   uint64 readback shape.
+- [ADR-0266](../../../docs/adr/0266-hip-fifth-consumer-float-ansnr.md) —
+  fifth consumer (`float_ansnr_hip`); pins the interleaved
+  (sig, noise) per-block float-partial readback shape.
+- [ADR-0267](../../../docs/adr/0267-hip-sixth-consumer-motion-v2.md) —
+  sixth consumer (`motion_v2_hip`); pins the temporal-extractor
+  `flush()` callback + ping-pong buffer carry shape.
+- [ADR-0273](../../../docs/adr/0273-hip-seventh-consumer-float-motion.md) —
+  seventh consumer (`float_motion_hip`); pins the three-buffer
+  ping-pong (raw-pixel cache + blurred-frame ping-pong) and the
+  `motion_force_zero` short-circuit posture.
+- [ADR-0274](../../../docs/adr/0274-hip-eighth-consumer-float-ssim.md) —
+  eighth consumer (`float_ssim_hip`); pins the multi-dispatch
+  shape (`chars.n_dispatches_per_frame == 2`) and the
+  five-intermediate-float-buffer pyramid.
 - [ADR-0221](../../../docs/adr/0221-gpu-kernel-template.md) — CUDA
 - [ADR-0254](../../../docs/adr/0254-hip-second-consumer-float-psnr.md)
   — second consumer (`float_psnr_hip`).

@@ -50,6 +50,24 @@
 # `flush()` callback) and the ping-pong buffer carry-over needed
 # for motion-class metrics. Same scaffold posture: `init()`
 # returns -ENOSYS until T7-10b.
+#
+# `feature/hip/float_motion_hip.c` is the seventh kernel-template
+# consumer (ADR-0270) — registers `vmaf_fex_float_motion_hip` and
+# mirrors the CUDA twin (`feature/cuda/float_motion_cuda.c`). Pins
+# the temporal-extractor shape with a raw-pixel cache + blurred-frame
+# ping-pong (`uintptr_t ref_in` + `uintptr_t blur[2]` slots tracked
+# outside the kernel-template's readback bundle); emits two features
+# (`VMAF_feature_motion_score`, `VMAF_feature_motion2_score`) once
+# the runtime kernel arrives.
+#
+# `feature/hip/float_ssim_hip.c` is the eighth kernel-template
+# consumer (ADR-0271) — registers `vmaf_fex_float_ssim_hip` and
+# mirrors the CUDA twin (`feature/cuda/integer_ssim_cuda.c`, despite
+# its filename emits `float_ssim`). Pins the two-dispatch + five
+# intermediate float buffers shape; emits one feature
+# (`float_ssim`) once the runtime kernel arrives. v1: scale=1 only,
+# auto-decimation rejected at init with -EINVAL (mirrors the CUDA
+# twin's validation).
 hip_sources += files(
     'common.c',
     'picture_hip.c',
@@ -63,6 +81,8 @@ hip_sources += files(
     '../feature/hip/float_moment_hip.c',
     '../feature/hip/float_ansnr_hip.c',
     '../feature/hip/integer_motion_v2_hip.c',
+    '../feature/hip/float_motion_hip.c',
+    '../feature/hip/float_ssim_hip.c',
 )
 
 # Optional probe — does not gate the build. Real linkage against

@@ -7023,3 +7023,112 @@ inline.*
   ./build-fuzz/test/fuzz/fuzz_y4m_input \
       libvmaf/test/fuzz/y4m_input_known_crashes/y4m_411_w2_h4_oob_dst.y4m
   ```
+
+### 0231 — HIP seventh-consumer kernel `float_motion_hip` (ADR-0273)
+
+- **ADR**: [ADR-0273](adr/0273-hip-seventh-consumer-float-motion.md)
+- **Touches**:
+  - `libvmaf/src/feature/hip/float_motion_hip.c` (new) — seventh
+    consumer of `libvmaf/src/hip/kernel_template.h`. Mirrors
+    `libvmaf/src/feature/cuda/float_motion_cuda.c`
+    call-graph-for-call-graph; `init/submit/collect/close` invoke
+    the kernel-template helpers in the same order; `flush()`
+    callback for tail-frame motion2 emission; `motion_force_zero`
+    short-circuit posture (`fex->extract` swap with
+    `submit / collect / flush / close` nulled). Submit path
+    intentionally bypasses `vmaf_hip_kernel_submit_pre_launch`
+    (kernel writes per-WG SAD float partials directly, no atomic,
+    no memset).
+  - `libvmaf/src/feature/hip/float_motion_hip.h` (new)
+  - `libvmaf/src/hip/meson.build` — new entry in `hip_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` — extern declaration
+    plus `feature_extractor_list[]` entry under `#if HAVE_HIP`.
+  - `libvmaf/test/test_hip_smoke.c` — new sub-test
+    `test_float_motion_hip_extractor_registered` (also asserts the
+    `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag bit) and a row in
+    `test_table[]`.
+  - `docs/adr/0273-hip-seventh-consumer-float-motion.md` (new)
+  - `docs/adr/README.md` — index row.
+  - `docs/backends/hip/overview.md` — seventh / eighth consumer
+    note.
+  - `libvmaf/src/hip/AGENTS.md` — invariant note.
+  - `CHANGELOG.md` — Added entry (joint with ADR-0274).
+- **Invariant — three-buffer ping-pong + `motion_force_zero`
+  short-circuit are load-bearing**. The state struct carries three
+  `uintptr_t` buffer slots (`ref_in`, `blur[2]`) that the runtime
+  PR (T7-10b) will swap for real device-buffer handles matching
+  the CUDA twin's `VmafCudaBuffer *ref_in` + `VmafCudaBuffer *blur[2]`
+  field shape. The `motion_force_zero` short-circuit (`fex->extract`
+  swap, kernel-template helpers nulled) must stay aligned with the
+  CUDA twin on every refactor — otherwise the runtime PR's
+  helper-body flip diverges between the two backends. The
+  `submit_pre_launch` bypass mirrors the CUDA twin; if a future PR
+  adds a `submit_pre_launch` call to `float_motion_cuda.c`'s submit
+  path, the HIP twin must follow in the same PR.
+- **Rebase impact**: entirely fork-local. New files are
+  HIP-specific. The only upstream-touching edit is
+  `feature_extractor.c`, but the change sits inside an existing
+  `#if HAVE_HIP` block (ADR-0241); upstream has no `HAVE_HIP` so
+  no conflict is expected.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_hip=true \
+    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C build
+  meson test -C build test_hip_smoke
+  ```
+
+### 0232 — HIP eighth-consumer kernel `float_ssim_hip` (ADR-0274)
+
+- **ADR**: [ADR-0274](adr/0274-hip-eighth-consumer-float-ssim.md)
+- **Touches**:
+  - `libvmaf/src/feature/hip/float_ssim_hip.c` (new) — eighth
+    consumer of `libvmaf/src/hip/kernel_template.h`. Mirrors
+    `libvmaf/src/feature/cuda/integer_ssim_cuda.c`
+    call-graph-for-call-graph (the CUDA file registers
+    `vmaf_fex_float_ssim_cuda` despite its `integer_` filename).
+    First multi-dispatch HIP consumer
+    (`chars.n_dispatches_per_frame == 2`). Submit path
+    intentionally bypasses `vmaf_hip_kernel_submit_pre_launch`
+    (kernel writes per-block float partials directly). State
+    struct carries five `uintptr_t` intermediate float buffer slots
+    (`h_ref_mu`, `h_cmp_mu`, `h_ref_sq`, `h_cmp_sq`, `h_refcmp`)
+    tracked outside the kernel-template's readback bundle.
+    `validate_dims_hip` and `init_dims_hip` helpers extracted from
+    `init()` to fit the `readability-function-size` budget.
+  - `libvmaf/src/feature/hip/float_ssim_hip.h` (new)
+  - `libvmaf/src/hip/meson.build` — new entry in `hip_sources`.
+  - `libvmaf/src/feature/feature_extractor.c` — extern declaration
+    plus `feature_extractor_list[]` entry under `#if HAVE_HIP`.
+  - `libvmaf/test/test_hip_smoke.c` — new sub-test
+    `test_float_ssim_hip_extractor_registered` (also asserts
+    `chars.n_dispatches_per_frame == 2`) and a row in `test_table[]`.
+  - `docs/adr/0274-hip-eighth-consumer-float-ssim.md` (new)
+  - `docs/adr/README.md` — index row.
+  - `docs/backends/hip/overview.md` — seventh / eighth consumer
+    note (joint).
+  - `libvmaf/src/hip/AGENTS.md` — invariant note.
+  - `CHANGELOG.md` — Added entry (joint with ADR-0273).
+- **Invariant — multi-dispatch + five-slot buffer pyramid + v1
+  `scale=1` validation are load-bearing**. The state struct carries
+  five `uintptr_t` intermediate float buffer slots that the runtime
+  PR (T7-10b) will swap for real device-buffer handles matching
+  the CUDA twin's `VmafCudaBuffer *h_*` field shape — any drift in
+  the CUDA twin's slot count requires a paired update here. The
+  `chars.n_dispatches_per_frame == 2` characteristic is asserted
+  in the smoke test; do not silently lower it. The v1 `scale=1`
+  `-EINVAL` validation surface (in `validate_dims_hip`) must stay
+  aligned with the CUDA twin's `compute_scale` / `vmaf_log` chain.
+  The HIP twin's `validate_dims_hip` / `init_dims_hip` extraction
+  is intentional for the function-size budget; do not re-inline
+  without verifying the budget still passes.
+- **Rebase impact**: entirely fork-local; same posture as ADR-0273.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_hip=true \
+    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C build
+  meson test -C build test_hip_smoke
+  ```

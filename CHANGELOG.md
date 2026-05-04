@@ -63,6 +63,39 @@
   [`docs/state.md`](docs/state.md) as a new Open bug. The fix
   ships as a follow-up PR (separate ADR) per the project's
   "harness + bug-report PR first, fix PR second" convention.
+- **HIP seventh + eighth kernel-template consumers — `float_motion_hip`
+  and `float_ssim_hip` (T7-10b follow-up / ADR-0273 + ADR-0274).**
+  Ships
+  [`libvmaf/src/feature/hip/float_motion_hip.{c,h}`](libvmaf/src/feature/hip/float_motion_hip.c)
+  and
+  [`libvmaf/src/feature/hip/float_ssim_hip.{c,h}`](libvmaf/src/feature/hip/float_ssim_hip.c)
+  — the seventh and eighth consumers of
+  `libvmaf/src/hip/kernel_template.h` after the six already shipped
+  (ADR-0241 / -0254 / -0259 / -0260) or in flight (ADR-0266 /
+  -0267, PR #340). `float_motion_hip` mirrors
+  `libvmaf/src/feature/cuda/float_motion_cuda.c` (361 LOC,
+  smallest unported CUDA twin) call-graph-for-call-graph; pins the
+  **three-buffer ping-pong** (raw-pixel cache `uintptr_t ref_in` +
+  blurred-frame ping-pong `uintptr_t blur[2]`) and the
+  `motion_force_zero` short-circuit posture (`fex->extract` swap
+  with the kernel-template helpers nulled). `float_ssim_hip` mirrors
+  `libvmaf/src/feature/cuda/integer_ssim_cuda.c` (384 LOC, registers
+  `vmaf_fex_float_ssim_cuda` despite the integer_ filename); first
+  **multi-dispatch** HIP consumer (`chars.n_dispatches_per_frame ==
+  2`); pins the five-intermediate-float-buffer pyramid
+  (`uintptr_t h_{ref_mu,cmp_mu,ref_sq,cmp_sq,refcmp}`) and the v1
+  `scale=1` `-EINVAL` validation surface. Both consumers register
+  under `#if HAVE_HIP`; `init()` returns `-ENOSYS` until T7-10b
+  flips kernel-template helper bodies to live HIP calls
+  (`float_ssim_hip` may instead return `-EINVAL` from
+  `validate_dims_hip` if the input dimensions trigger
+  auto-decimation, mirroring the CUDA twin's validation). Smoke
+  test grows from 16 to 18 sub-tests
+  (`test_float_motion_hip_extractor_registered` pins the TEMPORAL
+  flag bit; `test_float_ssim_hip_extractor_registered` pins
+  `n_dispatches_per_frame == 2`). CPU baseline 47/47 green; HIP
+  scaffold build 48/48 green. No ROCm SDK required.
+
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships
