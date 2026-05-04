@@ -6479,43 +6479,36 @@ inline.*
     --feature psnr_hvs --backend cuda --places 3
   ```
 
-### 0227 — Bisect-cache `--check` parquet leg uses logical comparison (ADR-0262)
+### 0227 — `output.c` writer-format unit tests (R3 of coverage-gap-2026-05-02)
 
 - **Touches**:
-  - `ai/scripts/build_bisect_cache.py` — fork-local; gains
-    `_compare_parquet` (typed-Arrow-Table content compare) and
-    `_compare_onnx` (byte compare). The `check()` driver dispatches by
-    file suffix. No upstream peer.
-  - `scripts/ci/post-bisect-comment.py` — fork-local; new
-    `--wiring-broke` mode + `--error-log` flag for the cache-check
-    failure path. No upstream peer.
-  - `.github/workflows/nightly-bisect.yml` — fork-local; cache-check
-    step decoupled from sticky-comment update so a `--check` failure
-    still posts a "WIRING BROKE" verdict to issue #40 before exiting
-    non-zero. No upstream peer.
-  - `ai/testdata/bisect/features.parquet` and
-    `ai/testdata/bisect/models/model_*.onnx` — unchanged; the policy
-    move is in the verifier, not the fixture.
-- **Invariant**: ONNX bytes still compare via `filecmp.cmp(shallow=False)`
-  in `_compare_onnx`. ONNX byte-stability across host `onnx` versions
-  depends on `_save_linear_fr` keeping `model.producer_name = "vmaf-train.bisect-cache"`,
-  `model.producer_version = "1"`, and `model.ir_version = 9` pinned.
-  Removing any of those three lines re-opens the same
-  writer-version-string drift that ADR-0262 fixed for parquet — but
-  on the ONNX side, where Arrow-Table-style content equality is not
-  available. The fallback in `check()` for unknown extensions is
-  byte-only by design; if a future artefact format ships, add a
-  per-format `_compare_<ext>` helper rather than widening the byte
-  fallback.
-- **On upstream sync**: zero interaction. The bisect cache, the cache
-  builder, the workflow, and the sticky-comment writer are all
-  fork-introduced (ADR-0109). Upstream does not run `vmaf-train` or
-  ship `ai/testdata/bisect/`.
+  - `libvmaf/test/test_output.c` (new) — exercises the four writers
+    in `libvmaf/src/output.c` (XML / JSON / CSV / SUB) end-to-end via
+    `tmpfile()`-backed sinks and a synthetic `VmafFeatureCollector`.
+    Pure test-only; no production code change.
+  - `libvmaf/test/meson.build` — registers `test_output` next to
+    `test_feature_collector` (mirrors that test's wiring:
+    `link_with: libvmaf` + libsvm objects + log/predict/metadata
+    helpers).
+- **Invariant**: the test pulls `libvmaf.c` and `output.c` in via
+  `#include "*.c"` (mirroring the precedent in
+  `test_feature_collector.c`) so the per-translation-unit `.gcno`
+  lands in the test build dir and gcovr aggregates output.c's
+  coverage. The mu-test framework macro (`mu_assert`) deliberately
+  early-returns from each `static char *test_*()` body — that's why
+  every test body trips `clang-analyzer-unix.Malloc` "potential leak"
+  notes (cleanup runs only on the success-tail path). This pattern
+  is shared across every `libvmaf/test/test_*.c` file and is *load-
+  bearing* (per ADR-0141 NOLINT carve-out): replacing it with goto-
+  cleanup would obscure the per-assertion failure message.
+- **On upstream sync**: zero interaction. `output.c` is upstream-
+  mirrored, but this PR doesn't touch it. The test only depends on
+  the four public function signatures (`vmaf_write_output_{xml,
+  json,csv,sub}`); if Netflix renames or reorders those, the test
+  fails to compile and the rebase author updates it then.
 - **Re-test on rebase**:
 
   ```bash
-  python ai/scripts/build_bisect_cache.py --check
-  python -m pytest ai/tests/test_bisect_model_quality.py -q
-  # Sanity: post-bisect-comment.py still imports and parses --help
-  python scripts/ci/post-bisect-comment.py --help >/dev/null
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build && ./build/test/test_output
   ```

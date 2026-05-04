@@ -31,6 +31,21 @@ test_feature_collector = executable('test_feature_collector',
     objects : libsvm_static_lib.extract_all_objects(recursive: true),
 )
 
+# Coverage follow-up to PR #313 (R3 from
+# docs/development/coverage-gap-analysis-2026-05-02.md): exercise
+# libvmaf/src/output.c writers (XML / JSON / CSV / SUB) end-to-end through
+# tmpfile-backed FILE* sinks. test_output.c #include's output.c directly so
+# the per-translation-unit .gcno lands in this test's build dir and gcovr
+# picks it up. Mirrors the test_feature_collector wiring (link_with libvmaf
+# + libsvm objects) for the supporting symbols.
+test_output = executable('test_output',
+    ['test.c', 'test_output.c', '../src/log.c', '../src/predict.c', '../src/metadata_handler.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/feature/'), include_directories('../src')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
+    objects : libsvm_static_lib.extract_all_objects(recursive: true),
+)
+
 test_log = executable('test_log',
     ['test.c', 'test_log.c', '../src/log.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
@@ -667,6 +682,7 @@ endif
 
 test('test_picture', test_picture)
 test('test_feature_collector', test_feature_collector)
+test('test_output', test_output)
 test('test_thread_pool', test_thread_pool)
 test('test_model', test_model)
 test('test_predict', test_predict)
