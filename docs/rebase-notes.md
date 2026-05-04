@@ -6568,7 +6568,7 @@ inline.*
 ### 0125 — Vulkan submit-side template + fence pool + descriptor pre-alloc bundle (ADR-0256)
 
 - **Touches**:
-  - `libvmaf/src/vulkan/kernel_template.h` — fork-local; new
+  - `libvmaf/src/vulkan/kernel_template.h` — fork-local. Output landing in `runs/phase_a/` is gitignored — rerun the script to reproduce.
     `VmafVulkanKernelSubmitPool` struct + `_create` / `_destroy` /
     `_acquire` helpers + `vmaf_vulkan_kernel_descriptor_sets_alloc`
     helper. Upstream has no Vulkan backend — no merge surface.
@@ -7165,4 +7165,33 @@ inline.*
   ```bash
   python ai/scripts/validate_model_registry.py
   python ai/scripts/measure_quant_drop.py --all
+  ```
+
+### 0234 — `hw_encoder_corpus.py` Phase A real-corpus runner
+
+- **Touches**: new `scripts/dev/hw_encoder_corpus.py` (no existing
+  caller; opt-in tooling). Output landing in `runs/phase_a/` is gitignored — rerun the script to reproduce.
+  `docs/development/intel-arc-vaapi-driver-priority.md`. Output landing in `runs/phase_a/` is gitignored — rerun the script to reproduce.
+  stratified sample, 58 KiB).
+- **Invariant**: the script's QSV path forces
+  `env['LIBVA_DRIVER_NAME']='iHD'` (set by the calling shell, not
+  inside the script) when targeting `/dev/dri/renderD129` on a
+  multi-card host that has NVIDIA's libva-driver-nvidia shim
+  installed. Without that, libva picks up NVIDIA's NVDEC-VAAPI
+  translation and the MFX session handshake fails with -9. See the
+  companion doc for the failure mode + fix.
+- **On upstream sync**: zero interaction. The script lives under
+  `scripts/dev/` (fork-only); upstream Netflix/vmaf has no comparable
+  Phase A corpus tooling.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 scripts/dev/hw_encoder_corpus.py \
+    --vmaf-bin libvmaf/build-cuda/tools/vmaf \
+    --source .workingdir2/netflix/ref/BigBuckBunny_25fps.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p --framerate 25 \
+    --encoder h264_nvenc --cq 25 \
+    --out /tmp/smoke.jsonl
+  # Expect: 1 cell × ~150 frames, per-frame canonical-6 + vmaf,
+  # encoder=h264_nvenc, cq=25.
   ```
