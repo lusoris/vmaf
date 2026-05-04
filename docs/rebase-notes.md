@@ -6668,4 +6668,49 @@ inline.*
   gh api "/repos/github/codeql-action/commits/$pin" --jq '.sha'
   # Then watch the next master push for a green Scorecard run:
   gh run list --workflow scorecard --repo lusoris/vmaf --limit 1
+### 0228 — U-2-Net `u2netp` saliency replacement deferred (ADR-0265)
+
+- **Touches**: docs-only.
+  - `docs/adr/0265-u2netp-saliency-replacement-blocked.md` — new
+    ADR continuing the deferral chain started by ADR-0257.
+  - `docs/research/0055-u2netp-saliency-replacement-survey.md` —
+    new research digest (upstream survey + license + distribution
+    + op-allowlist audit + alternatives walk).
+  - `docs/ai/models/mobilesal.md` — pointer block updated to
+    reference both ADR-0257 (first blocker) and ADR-0265 (second
+    blocker).
+  - `model/tiny/registry.json` — `mobilesal_placeholder_v0` `notes`
+    field updated to reference ADR-0265 alongside ADR-0257 (no
+    schema / sha256 / file changes).
+  - `model/tiny/mobilesal.json` — sidecar `notes` field updated in
+    lockstep.
+  - `scripts/gen_mobilesal_placeholder_onnx.py` — generator notes
+    string updated so re-running is idempotent against the new
+    sidecar / registry text.
+  - `CHANGELOG.md` — Changed entry via
+    `changelog.d/changed/T6-2a-followup-u2netp-replacement-deferred.md`.
+  - `docs/adr/README.md` — index row via
+    `docs/adr/_index_fragments/0265-u2netp-saliency-replacement-blocked.md`.
+- **Invariant**: zero C-side surface change. `feature_mobilesal.c`
+  tensor-name contract (input `input` → output `saliency_map`,
+  NCHW float32 `[1, 3, H, W]` → `[1, 1, H, W]`) is unchanged; the
+  on-disk `model/tiny/mobilesal.onnx` (sha256
+  `f1226310…`) is unchanged; `mobilesal_placeholder_v0`'s
+  `smoke: true` flag is unchanged. Any future drop-in (U-2-Net via
+  `T6-2a-mirror-u2netp-via-release` + `T6-2a-widen-allowlist-resize`,
+  distilled student, or BASNet / PoolNet survey result) replaces the
+  `.onnx` and bumps the registry sha256 without touching the C side.
+- **On upstream sync**: zero interaction. `feature_mobilesal.c`,
+  the registry, the ADR, and the research digest are all fork-local
+  (T6-2a; ADR-0218 / ADR-0257 / ADR-0265; not present in Netflix
+  upstream).
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_mobilesal
+  python3 ai/scripts/validate_model_registry.py
+  bash scripts/docs/concat-adr-index.sh --check
+  bash scripts/release/concat-changelog-fragments.sh --check
   ```

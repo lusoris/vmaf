@@ -26,6 +26,21 @@ follow-up.
 > is tracked as backlog row T6-2a-replace-with-u2netp. Until then,
 > use the placeholder to wire pipelines up end-to-end and treat
 > `saliency_mean` as a content-independent constant.
+> ~constant saliency. Two real-weights swap attempts have been
+> deferred — first MobileSal itself
+> ([ADR-0257](../../adr/0257-mobilesal-real-weights-deferred.md):
+> upstream is CC BY-NC-SA 4.0, Google-Drive-walled, RGB-D), then the
+> recommended U-2-Net `u2netp` replacement
+> ([ADR-0265](../../adr/0265-u2netp-saliency-replacement-blocked.md):
+> Apache-2.0 license is fine, but `u2netp.pth` is also Google-Drive-
+> walled and U-2-Net's bilinear `F.upsample` lowers to the ONNX
+> `Resize` op which is not on the fork's allowlist). Use the
+> placeholder to wire pipelines up end-to-end and treat
+> `saliency_mean` as a content-independent constant. Unblock paths
+> are tracked in ADR-0265 §"Neutral / follow-ups"
+> (`T6-2a-widen-allowlist-resize`,
+> `T6-2a-mirror-u2netp-via-release`,
+> `T6-2a-train-saliency-student`).
 
 Upstream paper: Wu, Liu, Cheng, Lu, Cheng, *"MobileSal: Extremely
 Efficient RGB-D Salient Object Detection"*, IEEE TPAMI 2021.
@@ -190,5 +205,12 @@ output. CI verifies the sha256 against `registry.json` before
   blocker decision deferring the T6-2a-followup real-weights swap.
 - [Research-0053](../../research/0053-mobilesal-real-weights-blocker.md)
   — upstream survey, licence analysis, and alternatives walk.
+  first blocker: upstream MobileSal license + distribution +
+  RGB-D mismatch.
+- [ADR-0265](../../adr/0265-u2netp-saliency-replacement-blocked.md)
+  — second blocker: U-2-Net `u2netp` distribution + op-allowlist
+  mismatch.
+- [Research-0054](../../research/0055-u2netp-saliency-replacement-survey.md)
+  — companion survey for ADR-0265.
 - [ADR-0042](../../adr/0042-tinyai-docs-required-per-pr.md) — tiny-AI
   doc-substance rule this page satisfies.

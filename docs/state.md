@@ -31,8 +31,9 @@ landed fix yet._
 ## Deferred (waiting on external dataset access)
 
 | Item | Defer rationale | Reopen trigger |
-|---|---|---|
+| --- | --- | --- |
 | Tiny-AI C1 baseline `fr_regressor_v1.onnx` (BACKLOG T6-1 sub-item) | Netflix Public Dataset was access-gated (Google Drive folder requiring manual request to Netflix); cannot be downloaded programmatically. C1's defining target is "match `vmaf_v0.6.1` PLCC on Netflix Public", so substituting another dataset would ship a non-comparable number. | **TRIGGERED 2026-04-29** — dataset is locally available at `.workingdir2/netflix/` (9 ref + 70 dis YUVs, ~37 GB, gitignored; provided by lawrence 2026-04-27). T6-1a unblocked; training pipeline ready when scheduled. ADR-0168 § "Defer C1" carries the original audit trail. |
+| **T6-2a-followup'** — `mobilesal_placeholder_v0` real-weights swap (recommended replacement = U-2-Net `u2netp`) | First MobileSal attempt blocked on CC BY-NC-SA 4.0 licence + Google-Drive-walled distribution + RGB-D mismatch ([ADR-0257](adr/0257-mobilesal-real-weights-deferred.md), PR #328). Recommended U-2-Net `u2netp` replacement also blocked: license is fine (Apache-2.0) but `u2netp.pth` is again Google-Drive-walled (no GitHub release, no pinnable raw URL), and U-2-Net's bilinear `F.upsample` lowers to ONNX `Resize` which is **not** on the fork's `libvmaf/src/dnn/op_allowlist.c`. See [ADR-0265](adr/0265-u2netp-saliency-replacement-blocked.md) + [Research-0054](research/0055-u2netp-saliency-replacement-survey.md). | Any of: (a) `T6-2a-widen-allowlist-resize` lands (separate ADR-scope decision adding `Resize` to the allowlist under bounded attributes); (b) `T6-2a-mirror-u2netp-via-release` lands (fork-local release artefact mirroring `u2netp.pth` under Apache-2.0 §4 NOTICE); (c) `T6-2a-train-saliency-student` produces a fork-owned saliency model. Smoke-only placeholder remains shipped meanwhile; `saliency_mean` stays content-independent. |
 
 ## Recently closed (last ~3 months)
 

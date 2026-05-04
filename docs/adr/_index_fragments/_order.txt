@@ -161,3 +161,5 @@
 0241-hip-first-consumer-psnr
 0257-mobilesal-real-weights-deferred
 0263-ossf-scorecard-policy
+0253-speed-qa-extractor
+0265-u2netp-saliency-replacement-blocked

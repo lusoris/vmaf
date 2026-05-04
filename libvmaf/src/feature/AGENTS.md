@@ -585,6 +585,22 @@ that ADR fires.
   ADR-0223 + ADR-0257)** — second half of T6-2 bundle. Now ships
   real upstream weights via NTCHW adapter (see
   `transnet_v2.c 100-frame-window contract` invariant above).
+- **MobileSal saliency extractor (T6-2a, ADR-0218; smoke-only
+  placeholder shipped, real-weights swap deferred per
+  [ADR-0257](../../../docs/adr/0257-mobilesal-real-weights-deferred.md)
+  + [ADR-0265](../../../docs/adr/0265-u2netp-saliency-replacement-blocked.md))**
+  — first half of T6-2 (encoder-side ROI bundle). DNN-backed;
+  opens sessions through [`../dnn/`](../dnn/AGENTS.md). Two
+  real-weights swap attempts blocked: upstream MobileSal is
+  CC BY-NC-SA 4.0 + Google-Drive-walled + RGB-D (ADR-0257), and
+  the recommended U-2-Net `u2netp` replacement is also
+  Google-Drive-walled and uses ONNX `Resize` which is not on the
+  fork's `op_allowlist.c` (ADR-0265). The C-side `input` →
+  `saliency_map` tensor-name contract is invariant across both
+  blockers; any future drop-in replaces the `.onnx` and bumps the
+  registry sha256 without touching this file.
+- **TransNet V2 shot-boundary extractor (T6-3a, PR #210 open)** —
+  second half of T6-2 bundle, ~1M params. DNN-backed.
 - **FastDVDnet temporal pre-filter (T6-7, PR #203 open, ADR-0215
   placeholder)** — 5-frame window pre-filter feeding
   ssim/ms_ssim. DNN-backed.
