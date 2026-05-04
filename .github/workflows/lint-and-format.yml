@@ -133,6 +133,7 @@ jobs:
               | grep -v '^libvmaf/src/hip/' \
               | grep -v '^libvmaf/src/feature/hip/' \
               | grep -v '^libvmaf/test/test_hip' \
+              | grep -v '^libvmaf/test/fuzz/' \
               | tr '\n' ' ')
           elif [ "${{ github.event_name }}" = "push" ]; then
             before="${{ github.event.before }}"
@@ -161,6 +162,7 @@ jobs:
               | grep -v '^libvmaf/src/hip/' \
               | grep -v '^libvmaf/src/feature/hip/' \
               | grep -v '^libvmaf/test/test_hip' \
+              | grep -v '^libvmaf/test/fuzz/' \
               | tr '\n' ' ')
               else
                 files=""
@@ -186,6 +188,7 @@ jobs:
               | grep -v '^libvmaf/src/hip/' \
               | grep -v '^libvmaf/src/feature/hip/' \
               | grep -v '^libvmaf/test/test_hip' \
+              | grep -v '^libvmaf/test/fuzz/' \
               | tr '\n' ' ')
             fi
           else
@@ -211,6 +214,7 @@ jobs:
               | grep -v '^libvmaf/src/hip/' \
               | grep -v '^libvmaf/src/feature/hip/' \
               | grep -v '^libvmaf/test/test_hip' \
+              | grep -v '^libvmaf/test/fuzz/' \
               | tr '\n' ' ')
           fi
           [ -z "$files" ] && { echo "no C/C++ changes"; exit 0; }
