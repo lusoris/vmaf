@@ -148,6 +148,14 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   per-kernel records.
 - [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) —
   GPU-parity CI gate.
+- [ADR-0273](../../../docs/adr/0273-ciede-vulkan-nvidia-f32-f64-precision-gap.md) —
+  ciede2000 NVIDIA-Vulkan places=4 5/48 fork debt is a structural
+  f32/f64 colour-space-chain precision gap (CPU `get_lab_color`
+  runs in `double`, shader runs in `float`). **Do not** promote the
+  ciede shader to f64 — `shaderFloat64` is optional and runs at
+  1/64 fp32 throughput on RTX 4090. **Do not** narrow the CPU
+  reference to f32 — that changes Netflix golden ground truth.
+  See ADR-0273 + research-0055 before "fixing" the 5/48 tail.
 Orientation for agents working on the Vulkan backend runtime. Parent:
 [../../AGENTS.md](../../AGENTS.md).
 

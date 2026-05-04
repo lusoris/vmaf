@@ -7165,4 +7165,47 @@ inline.*
   ```bash
   python ai/scripts/validate_model_registry.py
   python ai/scripts/measure_quant_drop.py --all
+### 0229 — NVIDIA-Vulkan ciede2000 places=4 fork debt root-cause (ADR-0273)
+
+- **Touched files**: docs-only.
+  - `docs/adr/0273-...precision-gap.md` (new) +
+    `_index_fragments/` row + `_order.txt` append.
+  - `docs/research/0055-ciede-vulkan-nvidia-f32-f64-root-cause.md`
+    (new) + `docs/research/README.md` index row.
+  - `docs/state.md` — Open-bugs row `T-VK-CIEDE-F32-F64`.
+  - `docs/backends/vulkan/overview.md` — NVIDIA-hardware caveat.
+  - `changelog.d/changed/ciede-vulkan-nvidia-f32-f64-precision-gap.md` (new).
+  - `libvmaf/src/vulkan/AGENTS.md` — invariant cross-link.
+- **Invariant**: the ciede.comp shader's f32 precision contract is
+  load-bearing — promoting to f64 would silently change scores on
+  every Vulkan device that supports `shaderFloat64` and create a
+  per-device-feature-bit divergence (RTX 4090 has it; many consumer
+  GPUs don't). The CPU `ciede.c::get_lab_color` doing its
+  colour-space chain in `double` is upstream Netflix behaviour and
+  must not be narrowed to f32 to "fix" the GPU gap (would change
+  Netflix golden ground truth). The 5/48 NVIDIA places=4 mismatch
+  on the highest-ΔE frames is *expected* and documented; do not
+  attempt to "fix" it without re-reading ADR-0273 first.
+- **Rebase impact**: zero — docs-only. The CPU and shader sources
+  this ADR analyses are unchanged by this PR. If a future upstream
+  rebase touches `ciede.c::get_lab_color` (the `double` chain) the
+  ADR's reasoning still holds; if upstream changes the CPU
+  reference's precision posture, ADR-0273 needs a `Status:
+  Superseded` entry.
+- **Re-test on rebase**: a manual NVIDIA-hardware run if available:
+
+  ```bash
+  cd libvmaf && meson setup build \
+    -Denable_vulkan=enabled -Denable_cuda=false && ninja -C build
+  cd ..
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary $PWD/libvmaf/build/tools/vmaf \
+    --reference testdata/ref_576x324_48f.yuv \
+    --distorted testdata/dis_576x324_48f.yuv \
+    --width 576 --height 324 \
+    --feature ciede --backend vulkan --device 0 --places 4
+  # Expected post-PR-346 (when merged): 5/48 mismatches at 1.78× threshold.
+  # Expected pre-PR-346 (current master): 42/48 mismatches at higher ratio.
+  # If the count drops below 5/48 on NVIDIA, ADR-0273 should record the
+  # delta and consider closing T-VK-CIEDE-F32-F64.
   ```
