@@ -120,6 +120,11 @@ extern VmafFeatureExtractor vmaf_fex_ciede_hip;
 /* HIP fourth-consumer kernel — T7-10b follow-up / ADR-0258. Same
  * scaffold posture; emits four `float_moment_*` features. */
 extern VmafFeatureExtractor vmaf_fex_float_moment_hip;
+/* HIP fifth/sixth consumers — ADR-0266 / ADR-0267. Same posture as
+ * the first consumer: registration succeeds, `init()` returns
+ * -ENOSYS until T7-10b. */
+extern VmafFeatureExtractor vmaf_fex_float_ansnr_hip;
+extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_hip;
 #endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_fastdvdnet_pre;
@@ -207,6 +212,9 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * `integer_moment_cuda.c`'s call graph; emits four
      * `float_moment_*` features once the runtime kernel arrives. */
     &vmaf_fex_float_moment_hip,
+    /* T7-10b fifth + sixth consumers (ADR-0266 / ADR-0267): same
+     * scaffold-posture registration as the first consumer. */
+    &vmaf_fex_float_ansnr_hip, &vmaf_fex_integer_motion_v2_hip,
 #endif
     &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2,
     &vmaf_fex_null, NULL};

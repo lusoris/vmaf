@@ -80,6 +80,15 @@ under [ADR-0205](../adr/0205-cambi-gpu-feasibility.md).
 Depending on your build configuration not every backend is available — see
 [`backends/`](../backends/index.md) for the runtime dispatch rules.
 
+⁵ HIP backend (T7-10b) — `psnr_hip` (ADR-0241), `ciede_hip` /
+`float_moment_hip` (ADR-0257 / ADR-0258), and the fifth/sixth
+host-scaffolded consumers `float_ansnr_hip` / `motion_v2_hip`
+(ADR-0266 / ADR-0267) all register at the extractor level under
+`#if HAVE_HIP` so callers asking by name get the cleaner
+"extractor found, runtime not ready (`-ENOSYS`)" surface; kernels
+go live once the runtime PR (T7-10b) lands. See
+[`backends/hip/overview.md`](../backends/hip/overview.md).
+
 ## Per-feature GPU dispatch hints (T7-26 / ADR-0181)
 
 Each feature carries a small `VmafFeatureCharacteristics` descriptor
