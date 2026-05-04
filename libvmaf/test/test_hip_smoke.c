@@ -242,6 +242,9 @@ static char *test_motion_v2_hip_extractor_registered(void)
     VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("motion_v2_hip");
     mu_assert("motion_v2_hip extractor must be registered", fex != NULL);
     mu_assert("motion_v2_hip extractor name matches", strcmp(fex->name, "motion_v2_hip") == 0);
+    return NULL;
+}
+
 static char *test_float_motion_hip_extractor_registered(void)
 {
     /* Seventh-consumer PR (ADR-0273) extends the same registration
