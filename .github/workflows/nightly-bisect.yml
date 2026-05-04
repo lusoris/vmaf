@@ -38,14 +38,26 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ai
 
-      - name: Verify committed cache regenerates byte-for-byte
-        run: python ai/scripts/build_bisect_cache.py --check
+      - name: Verify committed cache regenerates (logical content)
+        id: cache_check
+        run: |
+          mkdir -p bisect-out
+          # Don't fail the job here — the wiring step below posts a
+          # "wiring broke" sticky-comment update to issue #40 when
+          # --check fails, then exits non-zero so the run is still red.
+          # See ADR-0262.
+          if python ai/scripts/build_bisect_cache.py --check 2>bisect-out/cache-check.err; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            cat bisect-out/cache-check.err
+          fi
 
       - name: Run bisect-model-quality
         id: bisect
+        if: steps.cache_check.outputs.ok == 'true'
         run: |
           set -euo pipefail
-          mkdir -p bisect-out
           vmaf-train bisect-model-quality \
             ai/testdata/bisect/models/model_*.onnx \
             --features ai/testdata/bisect/features.parquet \
@@ -59,9 +71,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bisect-report
-          path: bisect-out/result.json
+          path: bisect-out/
 
-      - name: Update sticky tracker comment
+      - name: Update sticky tracker comment (success / quality verdict)
         if: always() && hashFiles('bisect-out/result.json') != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,3 +81,15 @@ jobs:
           python scripts/ci/post-bisect-comment.py \
             --issue "${BISECT_TRACKER_ISSUE}" \
             --report bisect-out/result.json
+
+      - name: Update sticky tracker comment (wiring broke)
+        if: always() && steps.cache_check.outputs.ok == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/ci/post-bisect-comment.py \
+            --issue "${BISECT_TRACKER_ISSUE}" \
+            --wiring-broke \
+            --error-log bisect-out/cache-check.err
+          # Re-fail the job so branch view + Actions tab stay red.
+          exit 1

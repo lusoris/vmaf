@@ -41,14 +41,22 @@ ai/
 - **Docs**: every new model or training recipe ships a page under
   `docs/ai/` in the same PR. See
   [ADR-0042](../docs/adr/0042-tinyai-docs-required-per-pr.md).
-- **Bisect-cache fixture is byte-stable** — `ai/testdata/bisect/` is
-  the deterministic placeholder for the nightly `bisect-model-quality`
-  workflow. Regenerate via `python ai/scripts/build_bisect_cache.py`
-  with seeds `FEATURE_SEED=20260418` / `MODEL_SEED=20260419`. CI runs
-  the same script with `--check` and asserts byte-equality before the
-  bisect; toolchain bumps that change `pandas` / `pyarrow` / `onnx`
-  serialisation will fail the workflow until the cache is regenerated
-  and committed. See
+- **Bisect-cache fixture is content-stable** — `ai/testdata/bisect/`
+  is the deterministic placeholder for the nightly
+  `bisect-model-quality` workflow. Regenerate via
+  `python ai/scripts/build_bisect_cache.py` with seeds
+  `FEATURE_SEED=20260418` / `MODEL_SEED=20260419`. CI runs the same
+  script with `--check`. As of ADR-0262 the parquet leg of the check
+  uses logical `pyarrow.Table.equals` content comparison (schema + row
+  count + values), tolerating writer-version-string drift in the
+  `created_by` parquet header — but ONNX still compares byte-for-byte
+  via `filecmp.cmp(shallow=False)`, which means ONNX-side determinism
+  must stay intact. **Do not** remove the
+  `model.producer_name = "vmaf-train.bisect-cache"`,
+  `model.producer_version = "1"`, or `model.ir_version = 9` pins in
+  `_save_linear_fr`: those three lines are what stabilises ONNX bytes
+  across `onnx` minor versions. See
+  [ADR-0262](../docs/adr/0262-bisect-cache-logical-comparison.md) +
   [ADR-0109](../docs/adr/0109-nightly-bisect-model-quality.md) +
   [Research-0001](../docs/research/0001-bisect-model-quality-cache.md).
 

@@ -28,6 +28,11 @@ from pathlib import Path
 
 STICKY_HEADER = "<!-- bisect-tracker -->"
 
+# Cap the cache-check stderr we inline into the wiring-broke comment so a
+# pathological run (e.g. unbounded log) doesn't blow past GitHub's 65 536-char
+# issue-comment limit. Keeps the visible diagnostic compact for issue #40.
+WIRING_BROKE_LOG_MAX_CHARS = 4000
+
 
 def _gh(*args: str) -> str:
     """Run `gh` and return stdout; raise on non-zero exit."""
@@ -37,6 +42,43 @@ def _gh(*args: str) -> str:
     cmd = ["gh", *args]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
     return result.stdout
+
+
+def _format_wiring_broke_body(error_log: str, run_url: str) -> str:
+    """Render the sticky body when the cache `--check` step itself failed.
+
+    Distinct from a quality-regression verdict: the bisect never ran, so
+    there are no per-step PLCC numbers. We surface the cache-check stderr
+    so a maintainer scanning issue #40 sees the failure mode at a glance
+    (toolchain drift, missing file, schema mismatch). See ADR-0262.
+    """
+    truncated = error_log.strip()
+    if len(truncated) > WIRING_BROKE_LOG_MAX_CHARS:
+        truncated = truncated[:WIRING_BROKE_LOG_MAX_CHARS] + "\n…(truncated)"
+    return "\n".join(
+        [
+            STICKY_HEADER,
+            "## Latest nightly bisect-model-quality run",
+            "",
+            "**WIRING BROKE** — fixture cache check failed; the bisect did "
+            "not execute. See workflow logs for the full traceback; the "
+            "cache-check stderr is captured below.",
+            "",
+            f"- workflow run: {run_url}",
+            "- typical fix: regenerate the committed cache",
+            "  (`python ai/scripts/build_bisect_cache.py`) and commit, *or* "
+            "  diagnose the toolchain drift if regeneration alone does not "
+            "  restore parity.",
+            "",
+            "<details><summary>cache-check stderr</summary>",
+            "",
+            "```",
+            truncated or "(empty)",
+            "```",
+            "",
+            "</details>",
+        ]
+    )
 
 
 def _format_body(report: dict, run_url: str) -> str:
@@ -139,7 +181,23 @@ def _gh_with_stdin(args: list[str], body: str) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--issue", type=int, required=True, help="Tracking issue number")
-    p.add_argument("--report", type=Path, required=True, help="Path to bisect JSON report")
+    p.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Path to bisect JSON report (omit when --wiring-broke is used)",
+    )
+    p.add_argument(
+        "--wiring-broke",
+        action="store_true",
+        help="Post a 'cache-check failed; bisect did not run' sticky update.",
+    )
+    p.add_argument(
+        "--error-log",
+        type=Path,
+        default=None,
+        help="Path to a stderr log captured during the failing step " "(used with --wiring-broke).",
+    )
     p.add_argument(
         "--repo",
         default=os.environ.get("GITHUB_REPOSITORY", "lusoris/vmaf"),
@@ -147,16 +205,26 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    if not args.report.is_file():
-        print(f"report not found: {args.report}", file=sys.stderr)
-        return 1
-    report = json.loads(args.report.read_text(encoding="utf-8"))
-
     server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
     run_id = os.environ.get("GITHUB_RUN_ID", "?")
     run_url = f"{server_url}/{args.repo}/actions/runs/{run_id}"
 
-    body = _format_body(report, run_url)
+    if args.wiring_broke:
+        log = ""
+        if args.error_log is not None and args.error_log.is_file():
+            log = args.error_log.read_text(encoding="utf-8", errors="replace")
+        body = _format_wiring_broke_body(log, run_url)
+    else:
+        if args.report is None or not args.report.is_file():
+            print(
+                f"report not found: {args.report} (pass --wiring-broke for the "
+                "cache-check-failed path)",
+                file=sys.stderr,
+            )
+            return 1
+        report = json.loads(args.report.read_text(encoding="utf-8"))
+        body = _format_body(report, run_url)
+
     _write_comment(args.repo, args.issue, body)
     return 0
 

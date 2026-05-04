@@ -27,34 +27,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
-### 0227 — `tools/vmaf-tune/` Phase A scaffold (ADR-0237 Phase A)
-
-- **Touches**:
-  - `tools/vmaf-tune/` (new top-level Python tool tree). Wholly fork-local
-    — no upstream Netflix/vmaf path overlap.
-  - `docs/usage/vmaf-tune.md` (new). User-discoverable surface.
-  - `docs/adr/0237-quality-aware-encode-automation.md` — status flipped
-    from Proposed to Accepted (Phase A) with date metadata; body prose
-    untouched.
-- **Invariant**: the corpus JSONL row schema in
-  `tools/vmaf-tune/src/vmaftune/__init__.py` (`CORPUS_ROW_KEYS`,
-  `SCHEMA_VERSION`) is the API contract Phase B (target-VMAF bisect)
-  and Phase C (per-title CRF predictor) will consume. Adding optional
-  keys with defaults is fine; renaming or removing keys, or changing
-  type/semantics, requires bumping `SCHEMA_VERSION` and updating every
-  downstream consumer in the same PR. The codec-adapter registry in
-  `codec_adapters/__init__.py` is the only allowed branch on codec
-  identity — the harness (`corpus.py`, `encode.py`, `score.py`) must
-  stay codec-agnostic so future adapters drop in without touching the
-  search loop.
-- **Re-test**:
-
-  ```bash
-  pytest tools/vmaf-tune/tests/ -q
-  python tools/vmaf-tune/vmaf-tune --version
-  python tools/vmaf-tune/vmaf-tune corpus --help
-  ```
-
 ### 0226 — CUDA drain-batch engine-loop opt (T-GPU-OPT-1)
 
 - **Touches**:
@@ -610,9 +582,9 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Rebase impact**: none. Pure research deliverables; upstream
   Netflix has no equivalent surface.
 
-### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0235)
+### 0094 — Vulkan VkImage import v2 async pending-fence (T7-29 part 4 / ADR-0251)
 
-- **ADR**: [ADR-0235](adr/0251-vulkan-async-pending-fence.md);
+- **ADR**: [ADR-0251](adr/0251-vulkan-async-pending-fence.md);
   predecessor [ADR-0186](adr/0186-vulkan-image-import-impl.md).
 - **Touches**:
   - `libvmaf/src/vulkan/import.c` — full rewrite of the
@@ -676,7 +648,7 @@ cover several PRs in one workstream; cross-link from the ID heading.
   per direction. At default depth and 1080p 8-bit Y, the
   per-state host-visible footprint grows from ~4 MiB to
   ~16 MiB. Documented in
-  [ADR-0235 §Consequences](adr/0251-vulkan-async-pending-fence.md#consequences).
+  [ADR-0251 §Consequences](adr/0251-vulkan-async-pending-fence.md#consequences).
 
 ### 0090 — `cambi_vulkan` extractor (T7-36 / ADR-0210)
 
@@ -4254,9 +4226,9 @@ inline.*
 
   CI runs this same sequence via the new matrix row.
 
-### 0058 — Tiny-AI Netflix corpus training scaffold (ADR-0199)
+### 0058 — Tiny-AI Netflix corpus training scaffold (ADR-0252)
 
-- **ADR**: [ADR-0199](adr/0199-tiny-ai-netflix-training-corpus.md).
+- **ADR**: [ADR-0252](adr/0242-tiny-ai-netflix-training-corpus.md).
 - **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI training
   harness or MCP server.
 - **Touches**:
@@ -5583,7 +5555,7 @@ inline.*
   # and 11/11 tests should pass.
   ```
 
-### 0075 — `enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0215)
+### 0075 — `enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0243)
 
 - **Touched surfaces (fork-local)**:
   [`libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c`](../libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c)
@@ -5783,9 +5755,9 @@ inline.*
 
   ```sh
   python3 ai/scripts/collect_gpu_calibration_data.py --smoke
-### 0095 — Per-backend GPU kernel scaffolding templates (CUDA + Vulkan, ADR-0221)
+### 0095 — Per-backend GPU kernel scaffolding templates (CUDA + Vulkan, ADR-0246)
 
-- **ADR**: [ADR-0221](adr/0246-gpu-kernel-template.md).
+- **ADR**: [ADR-0246](adr/0246-gpu-kernel-template.md).
 - **Touches**:
   - `libvmaf/src/cuda/kernel_template.h` (new, header-only).
   - `libvmaf/src/vulkan/kernel_template.h` (new, header-only).
@@ -5871,7 +5843,7 @@ inline.*
       --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
       --output /tmp/plan.csv
   cat /tmp/plan.csv
-### 0075 — `vmaf-roi` sidecar binary (T6-2b / ADR-0221)
+### 0075 — `vmaf-roi` sidecar binary (T6-2b / ADR-0247)
 
 - **Touches**:
   - `libvmaf/tools/meson.build` — adds the `vmaf_roi` executable
@@ -5983,7 +5955,7 @@ inline.*
   `ai/scripts/{train,export,validate}_vmaf_tiny_v2.py`, `ai/AGENTS.md`,
   `libvmaf/test/dnn/{test_vmaf_tiny_v2.py,meson.build}`,
   `docs/ai/{models/vmaf_tiny_v2.md,inference.md,roadmap.md}`,
-  `docs/adr/{0216-vmaf-tiny-v2.md,README.md}`, `CHANGELOG.md`. All
+  `docs/adr/{0244-vmaf-tiny-v2.md,README.md}`, `CHANGELOG.md`. All
   paths are wholly fork-local; no upstream Netflix/vmaf code is
   modified.
 - **Invariants**:
@@ -6021,7 +5993,7 @@ inline.*
       --parquet runs/full_features_netflix.parquet \
       --rows 100 --min-plcc 0.97
   meson test -C build-cpu --suite=dnn
-### 0094 — Tiny-AI extractor template (ADR-0221)
+### 0094 — Tiny-AI extractor template (ADR-0250)
 
 - **Touches**: `libvmaf/src/dnn/tiny_extractor_template.h` (new),
   `libvmaf/src/feature/feature_lpips.c`,
@@ -6067,7 +6039,7 @@ inline.*
   ```
 
 
-### 0095 — Vulkan ring-depth tunable (ADR-0235 follow-up #3)
+### 0095 — Vulkan ring-depth tunable (ADR-0251 follow-up #3)
 
 - **PR**: feat/t7-29-followup3-ring-tunable.
 - **What rebases need to know**: `VmafVulkanConfiguration` grew an
@@ -6084,7 +6056,7 @@ inline.*
   — read-side accessor for the clamped value. Pure additive surface;
   no upstream collision.
 - **On upstream sync**: zero interaction. The ring is wholly
-  fork-introduced (ADR-0235); upstream Netflix has no Vulkan backend.
+  fork-introduced (ADR-0251); upstream Netflix has no Vulkan backend.
 - **Re-test on rebase**:
 
   ```bash
@@ -6248,7 +6220,7 @@ inline.*
 
 - **PR**: refactor/migrate-psnr-vulkan-to-template.
 - **What rebases need to know**: `vulkan/kernel_template.h` (410 LOC,
-  ADR-0221, PR #251) shipped with zero consumers. Its docstring
+  ADR-0246, PR #251) shipped with zero consumers. Its docstring
   designated `psnr_vulkan.c` as the reference implementation. This
   PR lands the migration as the **first consumer** of the Vulkan
   template — paired with PR #269 (the first CUDA template
@@ -6382,7 +6354,7 @@ inline.*
 
 - **PR**: refactor/migrate-psnr-cuda-to-template.
 - **What rebases need to know**: `cuda/kernel_template.h` shipped
-  with no consumers in PR #251 (ADR-0221). This PR migrates the
+  with no consumers in PR #251 (ADR-0246). This PR migrates the
   first consumer (`integer_psnr_cuda.c`) — the file the template's
   own docstring explicitly designated as the reference. The
   `CUstream + CUevent + CUevent` triple and the
@@ -6419,297 +6391,131 @@ inline.*
   python scripts/ci/cross_backend_parity_gate.py --feature psnr_y --places 4
   ```
 
-### 0107 — Per-GPU-gen ULP calibration table for the parity gate (ADR-0234)
+### 0125 — Vulkan submit-side template + fence pool + descriptor pre-alloc bundle (ADR-0256)
 
 - **Touches**:
-  - `scripts/ci/cross_backend_vif_diff.py` and
-    `scripts/ci/cross_backend_parity_gate.py` — both gate scripts
-    grew a `--gpu-id` / `--calibration-table` pair plus a
-    `sys.path.insert(0, ...)` shim to import the sibling
-    `cross_backend_calibration` module. The shim is fork-local
-    plumbing; upstream Netflix/vmaf does not ship either gate.
-  - `scripts/ci/gpu_ulp_calibration.yaml` — new file, fork-local.
-  - `scripts/ci/cross_backend_calibration.py` — new file,
-    fork-local.
-  - `scripts/ci/test_calibration.py` — new file, fork-local.
-  - `.github/workflows/tests-and-quality-gates.yml` — adds
-    `--gpu-id "vulkan:0x10005:0x0"` to the lavapipe parity-gate
-    invocation. This workflow file is rebase-sensitive: changes
-    here propagate to required-status-check names. The flag is a
-    pure addition (existing checks unaffected) but any rename of
-    `--gpu-id` would need a workflow update in the same PR.
-- **Invariant**: the calibration loader `tolerance_for(feature,
-  gpu_id, default)` must return the caller-supplied default when
-  `gpu_id` is None *or* no row matches *or* the matched row lacks
-  the feature. Backward compatibility for callers that pre-date
-  ADR-0234 (every existing CI lane other than the lavapipe
-  parity-gate one) depends on this. The unit test
-  `test_calibration.py` enforces all four fallback paths.
+  - `libvmaf/src/vulkan/kernel_template.h` — fork-local; new
+    `VmafVulkanKernelSubmitPool` struct + `_create` / `_destroy` /
+    `_acquire` helpers + `vmaf_vulkan_kernel_descriptor_sets_alloc`
+    helper. Upstream has no Vulkan backend — no merge surface.
+  - `libvmaf/src/feature/vulkan/{psnr_hvs,vif,float_vif,float_adm}_vulkan.c`
+    — fork-local kernel TUs, also no upstream peer.
+- **Invariant**: the four migrated kernels keep all per-frame
+  `VkFence` + `VkCommandBuffer` + `VkDescriptorSet` resources
+  alive across frames in the pool. Pre-bound descriptor sets rely
+  on the kernel's `VmafVulkanBuffer *` handles being init-time
+  stable (allocated in `init()`, freed only in `close_fex`).
+  `vmaf_vulkan_kernel_pipeline_destroy` destroys the descriptor
+  pool — pre-allocated sets are released implicitly via the pool;
+  callers must NOT call `vkFreeDescriptorSets` on them.
 - **Re-test on rebase**:
 
   ```bash
-  python3 -m pytest scripts/ci/test_calibration.py -v
-  # And, with a built vmaf binary:
-  python3 scripts/ci/cross_backend_parity_gate.py \
-      --vmaf-binary libvmaf/build/tools/vmaf \
-      --reference  python/test/resource/yuv/src01_hrc00_576x324.yuv \
-      --distorted  python/test/resource/yuv/src01_hrc01_576x324.yuv \
-      --width 576 --height 324 --backends cpu vulkan \
-      --gpu-id "vulkan:0x10005:0x0"
-  # Tolerance source column should report `calibrated:vulkan:0x10005:*`
-  # for every cell with a per-feature override and `default` for
-  # any feature not yet in the lavapipe row.
-  ```
-
-- **Why this matters on rebase**: an upstream commit that touches
-  `libvmaf/src/feature/ssimulacra2.c` could prompt a "let's also
-  port the GPU XYB while we're here" follow-up. The ledger entry
-  is the standing answer: don't, the measurement was redone on
-  NVIDIA in May 2026 and the result still failed `places=4` by
-  five decades. See
-  [Research-0047](research/0051-ssimulacra2-gpu-xyb-precision.md).
-
-
-### T7-5 — readability-function-size NOLINT sweep (ADR-0141)
-
-- **ADR**: [ADR-0141](adr/0141-touched-file-cleanup-rule.md)
-- **Touches**:
-  - `libvmaf/src/feature/float_adm.c` — extracted `append_debug_features`
-    helper from `extract` (no behavioural change; the per-scale append
-    order matches the original inline block byte-for-byte).
-  - `libvmaf/tools/vmaf.c` — extracted eight CLI-driver helpers from
-    `main` (`open_input_videos`, `init_gpu_backends`,
-    `allocate_model_arrays`, `model_label`, `load_model_collection_entry`,
-    `load_one_model_entry`, `configure_tiny_model`, `resolve_tiny_device`,
-    `skip_initial_frames`, `run_frame_loop`, `report_pooled_scores`).
-- **Invariant**: the goto-cleanup ownership chain in `main` must
-  unwind in reverse-init order on every exit path; helpers pass
-  cleanup-relevant pointers (`file_ref`, `vid_ref_open`, `sycl_state`,
-  `model_collection_cnt`, ...) by reference to keep that contract.
-  The remaining `// NOLINTNEXTLINE(readability-function-size,...)`
-  on `main`, `init_gpu_backends`, and `copy_picture_data` carries
-  inline justification — further extraction would obscure either
-  the cleanup spine or the conditional-compilation backend
-  priority chain (SYCL > CUDA > Vulkan).
-- **Re-test on rebase**:
-
-  ```bash
-  cd libvmaf
-  meson setup build -Denable_cuda=false -Denable_sycl=false
+  meson setup build libvmaf -Denable_vulkan=enabled
   ninja -C build
-  cd ..
-  PYTHONPATH=$(pwd)/python python3 -m pytest \
-    python/test/feature_extractor_test.py \
-    python/test/vmafexec_test.py \
-    python/test/vmafexec_feature_extractor_test.py \
-    python/test/quality_runner_test.py \
-    -m "not slow" -k "vmaf or adm or feature" --tb=line -q
-  # Expect: 90 + 57 + 9 VMAF-specific tests PASS;
-  # 7 pypsnr + 1 niqe pre-existing failures unchanged.
+  VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json \
+      meson test -C build test_vulkan_smoke \
+                          test_vulkan_async_pending_fence \
+                          test_vulkan_pic_preallocation
+  python scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+      --feature vif --backend vulkan --places 4
+  python scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+      --feature adm --backend vulkan --places 4
   ```
 
-### 0227 — MobileSal real-weights swap deferred (ADR-0257)
-
-- **Touches**: docs-only.
-  - `docs/adr/0257-mobilesal-real-weights-deferred.md` — new ADR
-    superseding the T6-2a-followup commitment from
-    `docs/adr/0218-mobilesal-saliency-extractor.md`.
-  - `docs/research/0053-mobilesal-real-weights-blocker.md` — new
-    research digest.
-  - `docs/ai/models/mobilesal.md` — corrected upstream-license
-    record (CC BY-NC-SA 4.0, not MIT) + blocker pointer.
-  - `model/tiny/registry.json` — `mobilesal_placeholder_v0`
-    `notes` field updated to point at ADR-0257 and Research-0053
-    (no schema / sha256 / file changes).
-  - `model/tiny/mobilesal.json` — sidecar `notes` field updated
-    in lockstep with the registry.
-- **Invariant**: zero C-side surface change. The
-  `feature_mobilesal.c` extractor's tensor name contract (input
-  `input` → output `saliency_map`, NCHW float32 `[1, 3, H, W]` →
-  `[1, 1, H, W]`) is unchanged; the on-disk
-  `model/tiny/mobilesal.onnx` (sha256
-  `f1226310…`) is unchanged; `mobilesal_placeholder_v0`'s
-  `smoke: true` flag is unchanged. Any future drop-in (U-2-Net
-  export under T6-2a-replace-with-u2netp, distilled student, or
-  an upstream relicense) replaces the `.onnx` and bumps the
-  registry sha256 without touching the C side.
-- **On upstream sync**: zero interaction. `feature_mobilesal.c`,
-  the registry, the ADR, and the research digest are all
-  fork-local (T6-2a; ADR-0218 / ADR-0257; not present in
-  Netflix upstream).
-- **Re-test on rebase**:
-
-  ```bash
-  meson setup build -Denable_cuda=false -Denable_sycl=false
-  ninja -C build
-  meson test -C build test_mobilesal
-  python3 ai/scripts/validate_model_registry.py
-  ```
-
-### 0227 — HIP third-consumer kernel `ciede_hip` (ADR-0259)
-
-- **ADR**: [ADR-0259](adr/0259-hip-third-consumer-ciede.md)
-- **Touches**:
-  - `libvmaf/src/feature/hip/ciede_hip.c` (new)
-  - `libvmaf/src/feature/hip/ciede_hip.h` (new)
-  - `libvmaf/src/hip/meson.build` — new entry in `hip_sources`.
-  - `libvmaf/src/feature/feature_extractor.c` — extern declaration
-    plus `feature_extractor_list[]` entry under `#if HAVE_HIP`.
-  - `libvmaf/test/test_hip_smoke.c` — new sub-test
-    `test_ciede_hip_extractor_registered` and a row in
-    `test_table[]`.
-  - `docs/adr/0259-hip-third-consumer-ciede.md` (new)
-  - `docs/adr/README.md` — index row.
-  - `docs/backends/hip/overview.md` — third / fourth consumer
-    note.
-  - `libvmaf/src/hip/AGENTS.md` — invariant note.
-  - `CHANGELOG.md` — Added entry (joint with ADR-0260).
-- **Invariant**: `vmaf_get_feature_extractor_by_name("ciede_hip")`
-  returns the registered extractor on `-Denable_hip=true`. The
-  consumer's call graph mirrors `integer_ciede_cuda.c`'s
-  init/submit/collect/close shape, including the **intentional
-  bypass** of `submit_pre_launch` — ciede's kernel writes one float
-  per block (no atomic, no memset), so the template's pre-launch
-  helper is deliberately not called from `submit`. T7-10b will
-  swap helper bodies and keep this call-site shape; if the CUDA
-  twin grows a `submit_pre_launch` call, the HIP twin must follow
-  in the same PR.
-- **Rebase impact**: entirely fork-local. New files are HIP-
-  specific. The only upstream-touching edit is
-  `feature_extractor.c`, but the change sits inside an existing
-  `#if HAVE_HIP` block (ADR-0241); upstream has no `HAVE_HIP` so
-  no conflict is expected.
-- **Re-test on rebase**:
-
-  ```bash
-  meson setup build libvmaf -Denable_hip=true \
-    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
-  ninja -C build
-  meson test -C build test_hip_smoke
-  # CPU-only build must also keep working (no HAVE_HIP):
-  meson setup build-cpu libvmaf -Denable_hip=false \
-    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
-  ninja -C build-cpu
-  ```
-
-### 0228 — HIP fourth-consumer kernel `float_moment_hip` (ADR-0260)
-
-- **ADR**: [ADR-0260](adr/0260-hip-fourth-consumer-float-moment.md)
-- **Touches**:
-  - `libvmaf/src/feature/hip/float_moment_hip.c` (new)
-  - `libvmaf/src/feature/hip/float_moment_hip.h` (new)
-  - `libvmaf/src/hip/meson.build` — new entry in `hip_sources`.
-  - `libvmaf/src/feature/feature_extractor.c` — extern declaration
-    plus `feature_extractor_list[]` entry under `#if HAVE_HIP`.
-  - `libvmaf/test/test_hip_smoke.c` — new sub-test
-    `test_float_moment_hip_extractor_registered` and a row in
-    `test_table[]`.
-  - `docs/adr/0260-hip-fourth-consumer-float-moment.md` (new)
-  - `docs/adr/README.md` — index row.
-  - `docs/backends/hip/overview.md` — third / fourth consumer
-    note (joint).
-  - `libvmaf/src/hip/AGENTS.md` — invariant note.
-  - `CHANGELOG.md` — Added entry (joint with ADR-0259).
-- **Invariant**:
-  `vmaf_get_feature_extractor_by_name("float_moment_hip")` returns
-  the registered extractor on `-Denable_hip=true`. The consumer's
-  call graph mirrors `integer_moment_cuda.c`'s
-  init/submit/collect/close shape, with a four-uint64 atomic-counter
-  readback (`MOMENT_HIP_COUNTERS = 4u`). The submit path *does*
-  call `vmaf_hip_kernel_submit_pre_launch` (the kernel uses atomic
-  adds, so the memset of all four counters is mandatory). T7-10b
-  will implement that helper as a single `hipMemsetAsync` of
-  `rb.bytes`, covering both 1-counter (psnr_hip) and 4-counter
-  (moment_hip) cases.
-- **Rebase impact**: entirely fork-local; same posture as ADR-0259.
-- **Re-test on rebase**:
-
-  ```bash
-  meson setup build libvmaf -Denable_hip=true \
-    -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
-  ninja -C build
-  meson test -C build test_hip_smoke
-  ```
-
-### 0227 — `ffmpeg-patches/` series re-verified against n8.1 (2026-05-03)
-
-- **What changed**: doc-only. No patch refresh; CHANGELOG +
-  rebase-notes entry recording that the six-patch series
-  (`0001-libvmaf-add-tiny-model-option.patch` through
-  `0006-libvmaf-add-libvmaf-vulkan-filter.patch`) still applies
-  cleanly onto a pristine FFmpeg `n8.1` checkout via
-  `git am --3way`, and that recent libvmaf C-API additions did not
-  drift any symbol the patches consume.
-- **Upstream source**: fork-local. The `ffmpeg-patches/` tree is
-  fork-introduced (it ships our libvmaf integration as a stack of
-  patches against pinned FFmpeg n8.1; see
-  [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md)).
-- **On upstream sync**: zero interaction. The patches target an
-  external upstream (FFmpeg), not Netflix/vmaf master.
-- **Re-test on rebase** (canonical reviewer test from ADR-0186):
-
-  ```bash
-  git clone --depth 1 --branch n8.1 \
-      https://github.com/FFmpeg/FFmpeg.git /tmp/ffmpeg-8
-  cd /tmp/ffmpeg-8
-  git reset --hard n8.1
-  for p in /path/to/vmaf/ffmpeg-patches/000*-*.patch; do
-    git am --3way "$p" || break
-  done
-  ```
-
-### 0227 — TransNet V2 real upstream weights via NTCHW adapter (ADR-0261)
+### 0107 — `psnr_hvs_cuda` async upload + persistent pinned staging (T-GPU-OPT-2/3)
 
 - **Touches**:
-  - `model/tiny/transnet_v2.onnx` — replaced; smoke-only
-    placeholder swapped for ~30 MiB upstream-weights export.
-  - `model/tiny/transnet_v2.json`, `model/tiny/registry.json` —
-    `smoke: false`, MIT license, upstream commit pin
-    `77498b8e`, refreshed sha256.
-  - `ai/scripts/export_transnet_v2.py` — new exporter
-    superseding `export_transnet_v2_placeholder.py` (kept for
-    reference). Wraps upstream `tf.saved_model` with NTCHW
-    adapter, runs `tf2onnx --continue_on_error`, post-processes
-    the resulting ONNX to splice `ScatterND` reduction='add' in
-    place of the rank-2 `UnsortedSegmentSum`.
-  - `libvmaf/src/dnn/op_allowlist.c` — six new ops added
-    (`BitShift`, `GatherND`, `Pad`, `Reciprocal`, `ReduceProd`,
-    `ScatterND`).
-  - `libvmaf/src/feature/AGENTS.md` + `libvmaf/src/dnn/AGENTS.md`
-    — invariant notes refreshed.
-  - `docs/ai/models/transnet_v2.md` — full provenance + reproduce-
-    the-export section + wrapper-layer design notes.
-  - `docs/adr/0261-transnet-v2-real-weights.md` (new) +
-    `docs/adr/README.md` (index row).
-- **Invariant**: keep the wrapper transpose
-  `perm=[0, 1, 3, 4, 2]` and the `output_1`-only selection in
-  `_wrap_to_savedmodel` exactly as written; selecting both
-  outputs would break the `[1, 100]` C contract. The
-  `_replace_segmentsum` rewrite is mechanical (no learned
-  params) and must run after every tf2onnx invocation; skipping
-  it leaves an unloadable graph (ORT rejects rank-2
-  `SegmentSum`). The six op-allowlist additions are
-  load-bearing for the shipped ONNX and must not be reverted on
-  rebase. Upstream commit pin
-  (`UPSTREAM_COMMIT = 77498b8e…`) plus the two upstream sha256s
-  in the exporter are enforced at run-time; bumping them is a
-  deliberate weights swap with its own ADR follow-up.
-- **On upstream sync**: zero interaction. Netflix upstream has
-  no shot detector; `transnet_v2.c` is fork-introduced
-  (T6-3a / ADR-0223) and this PR is the T6-3a-followup.
+  - `libvmaf/src/feature/cuda/integer_psnr_hvs_cuda.c` — only
+    consumer; fork-local from inception (T7-23 / ADR-0188 /
+    ADR-0191). State adds `upload_str` (dedicated H2D stream),
+    `upload_done` (cross-stream completion event), and per-plane
+    persistent pinned `h_uint_ref[3]` / `h_uint_dist[3]` staging
+    buffers allocated once in `init_fex_cuda`. The per-call
+    helper `upload_plane_cuda` is split into `issue_d2h_plane`
+    (pic-stream D2H), `convert_plane` (CPU normalise), and
+    `issue_h2d_plane` (upload-stream H2D). `submit_fex_cuda`
+    runs the three phases explicitly and records `upload_done`
+    after the last H2D, then `cuStreamWaitEvent`s on `lc.str`
+    before kernel launches.
+  - `libvmaf/src/cuda/AGENTS.md` — adds a rebase-sensitive
+    invariant entry under §Rebase-sensitive invariants
+    documenting the three-phase flow + persistent staging
+    contract.
+- **Invariant**: the pinned `h_uint_*` and `h_ref` / `h_dist`
+  buffers are never freed and re-allocated mid-stream; the H2Ds
+  must run on `upload_str` (not on `lc.str`) so the
+  `cuStreamWaitEvent` cross-stream link is meaningful; the
+  `upload_done` event is recorded *after the last H2D for the
+  current frame* and waited on once before *the first* kernel
+  launch of that frame. CUDA graph capture (future T-GPU-OPT-N)
+  depends on the no-per-frame-alloc invariant; collapsing the
+  three-phase split or re-introducing per-frame
+  `vmaf_cuda_buffer_host_alloc` calls breaks that follow-up.
+  Bit-exactness gate is `places=3` for `psnr_hvs_y / cb / cr`
+  and the combined `psnr_hvs` (matches the existing matrix; not
+  `places=4`).
+- **On upstream sync**: zero interaction. `integer_psnr_hvs_cuda.c`
+  is fork-introduced (T7-23 / ADR-0188 / ADR-0191).
 - **Re-test on rebase**:
 
   ```bash
-  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+  meson setup build libvmaf -Denable_cuda=true -Denable_sycl=false
   ninja -C build
-  meson test -C build test_transnet_v2 test_op_allowlist
+  meson test -C build
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary libvmaf/build/tools/vmaf \
+    --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+    --feature psnr_hvs --backend cuda --places 3
+  ```
 
-  # Re-run the export end-to-end (Python 3.11 venv with
-  # tensorflow + tf2onnx + onnx + onnxruntime):
-  git clone --depth=1 https://github.com/soCzech/TransNetV2.git \
-      /tmp/transnetv2_upstream
-  git -C /tmp/transnetv2_upstream lfs pull \
-      -I inference/transnetv2-weights
-  python3.11 ai/scripts/export_transnet_v2.py \
-      --upstream-dir /tmp/transnetv2_upstream/inference/transnetv2-weights
+### 0227 — Bisect-cache `--check` parquet leg uses logical comparison (ADR-0262)
+
+- **Touches**:
+  - `ai/scripts/build_bisect_cache.py` — fork-local; gains
+    `_compare_parquet` (typed-Arrow-Table content compare) and
+    `_compare_onnx` (byte compare). The `check()` driver dispatches by
+    file suffix. No upstream peer.
+  - `scripts/ci/post-bisect-comment.py` — fork-local; new
+    `--wiring-broke` mode + `--error-log` flag for the cache-check
+    failure path. No upstream peer.
+  - `.github/workflows/nightly-bisect.yml` — fork-local; cache-check
+    step decoupled from sticky-comment update so a `--check` failure
+    still posts a "WIRING BROKE" verdict to issue #40 before exiting
+    non-zero. No upstream peer.
+  - `ai/testdata/bisect/features.parquet` and
+    `ai/testdata/bisect/models/model_*.onnx` — unchanged; the policy
+    move is in the verifier, not the fixture.
+- **Invariant**: ONNX bytes still compare via `filecmp.cmp(shallow=False)`
+  in `_compare_onnx`. ONNX byte-stability across host `onnx` versions
+  depends on `_save_linear_fr` keeping `model.producer_name = "vmaf-train.bisect-cache"`,
+  `model.producer_version = "1"`, and `model.ir_version = 9` pinned.
+  Removing any of those three lines re-opens the same
+  writer-version-string drift that ADR-0262 fixed for parquet — but
+  on the ONNX side, where Arrow-Table-style content equality is not
+  available. The fallback in `check()` for unknown extensions is
+  byte-only by design; if a future artefact format ships, add a
+  per-format `_compare_<ext>` helper rather than widening the byte
+  fallback.
+- **On upstream sync**: zero interaction. The bisect cache, the cache
+  builder, the workflow, and the sticky-comment writer are all
+  fork-introduced (ADR-0109). Upstream does not run `vmaf-train` or
+  ship `ai/testdata/bisect/`.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/scripts/build_bisect_cache.py --check
+  python -m pytest ai/tests/test_bisect_model_quality.py -q
+  # Sanity: post-bisect-comment.py still imports and parses --help
+  python scripts/ci/post-bisect-comment.py --help >/dev/null
   ```
