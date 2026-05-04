@@ -21,9 +21,9 @@
  *  float in [0, 255]), uploaded to the pyramid level 0 buffer.
  *  CUDA decimate kernels build levels 1-4. Per-scale SSIM
  *  compute reads levels and writes into shared intermediate +
- *  partials buffers; host accumulates partials in `double` per
- *  scale and applies the Wang weights for the final product
- *  combine.
+ *  per-scale partials buffers; host accumulates partials in
+ *  `double` per scale and applies the Wang weights for the final
+ *  product combine.
  *
  *  Min-dim guard: 11 << 4 = 176 (matches ADR-0153).
  *
@@ -33,6 +33,20 @@
  *  (it's where the "_lcs" in its name comes from); gating the
  *  feature_collector_append calls leaves the default-path
  *  output bit-identical to the pre-T7-35 binary.
+ *
+ *  Engine-scope fence batching (T-GPU-OPT-2 / ADR-0271): all 5
+ *  scales' horiz + vert_lcs launches and DtoH partial readbacks
+ *  are enqueued in submit() onto the lifecycle's private stream
+ *  (s->lc.str). Same-stream ordering serialises kernels and
+ *  copies in dependency order without per-scale syncs, and the
+ *  partials buffers are now allocated per-scale to avoid the
+ *  cross-scale aliasing that previously forced a host-blocking
+ *  cuStreamSynchronize after each scale. The final
+ *  cuEventRecord(s->lc.finished, s->lc.str) opts the lifecycle
+ *  into the engine's drain batch (drain_batch.h) so the
+ *  per-frame readbacks coalesce with the rest of the CUDA
+ *  feature stack — collect() then becomes a host-side reduction
+ *  only.
  */
 
 #include <errno.h>
@@ -46,6 +60,7 @@
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
+#include "cuda/drain_batch.h"
 #include "cuda/integer_ms_ssim_cuda.h"
 #include "cuda/kernel_template.h"
 #include "log.h"
@@ -107,14 +122,22 @@ typedef struct MsSsimStateCuda {
     VmafCudaBuffer *h_cmp_sq;
     VmafCudaBuffer *h_refcmp;
 
-    /* 3 partials buffers sized for scale 0 block_count. */
-    VmafCudaBuffer *l_partials;
-    VmafCudaBuffer *c_partials;
-    VmafCudaBuffer *s_partials;
-    /* Pinned host partials for D2H. */
-    float *h_l_partials;
-    float *h_c_partials;
-    float *h_s_partials;
+    /* Per-scale partials buffers (T-GPU-OPT-2 / ADR-0271).
+     * Previously a single buffer reused across scales; that aliasing
+     * forced a per-scale cuStreamSynchronize before the host could
+     * walk the partials. Allocating per scale lets all 5 scales'
+     * horiz + vert_lcs launches and DtoH copies queue back-to-back
+     * on s->lc.str so the readbacks coalesce with the engine's
+     * drain batch. */
+    VmafCudaBuffer *l_partials[MS_SSIM_SCALES];
+    VmafCudaBuffer *c_partials[MS_SSIM_SCALES];
+    VmafCudaBuffer *s_partials[MS_SSIM_SCALES];
+    /* Pinned host partials for DtoH (per scale; safe to read after
+     * the lifecycle's finished event has been waited on, either
+     * via the engine's drain_batch or the legacy per-stream sync). */
+    float *h_l_partials[MS_SSIM_SCALES];
+    float *h_c_partials[MS_SSIM_SCALES];
+    float *h_s_partials[MS_SSIM_SCALES];
 
     unsigned index;
     VmafDictionary *feature_name_dict;
@@ -209,21 +232,33 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->h_cmp_sq, horiz_bytes_max);
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->h_refcmp, horiz_bytes_max);
 
-    const size_t partials_bytes_max = (size_t)s->scale_block_count[0] * sizeof(float);
-    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->l_partials, partials_bytes_max);
-    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->c_partials, partials_bytes_max);
-    ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->s_partials, partials_bytes_max);
+    /* Per-scale partials buffers (T-GPU-OPT-2 / ADR-0271). Each scale
+     * sized to its own block_count so the device DtoH copies are
+     * exactly one float per work block; no aliasing across scales. */
+    for (int i = 0; i < MS_SSIM_SCALES; i++) {
+        const size_t scale_bytes = (size_t)s->scale_block_count[i] * sizeof(float);
+        ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->l_partials[i], scale_bytes);
+        ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->c_partials[i], scale_bytes);
+        ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->s_partials[i], scale_bytes);
+    }
 
-    /* Pinned host buffers. */
+    /* Pinned host buffers — input planes (scale 0) + per-scale
+     * partials triples. Pinned host memory is the precondition for
+     * cuMemcpyDtoHAsync to actually run async with the device side
+     * (pageable host buffers force the driver to stage internally and
+     * defeat the drain-batch coalesce). */
     const size_t input_bytes = (size_t)w * h * sizeof(float);
     ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_ref, input_bytes);
     ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_cmp, input_bytes);
-    ret |=
-        vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_l_partials, partials_bytes_max);
-    ret |=
-        vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_c_partials, partials_bytes_max);
-    ret |=
-        vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_s_partials, partials_bytes_max);
+    for (int i = 0; i < MS_SSIM_SCALES; i++) {
+        const size_t scale_bytes = (size_t)s->scale_block_count[i] * sizeof(float);
+        ret |=
+            vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_l_partials[i], scale_bytes);
+        ret |=
+            vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_c_partials[i], scale_bytes);
+        ret |=
+            vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_s_partials[i], scale_bytes);
+    }
 
     if (ret)
         return -ENOMEM;
@@ -330,23 +365,14 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
         }
     }
 
-    /* Per-scale SSIM compute + readback. The intermediates are
-     * shared, so SSIM scales must run sequentially with a sync
-     * before host readback. */
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
-    return 0;
-}
-
-static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
-                            VmafFeatureCollector *feature_collector)
-{
-    MsSsimStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
-
-    /* Sequential per-scale loop with stream sync between scales
-     * so the host readback gets fresh partials. */
-    double l_means[MS_SSIM_SCALES] = {0}, c_means[MS_SSIM_SCALES] = {0},
-           s_means[MS_SSIM_SCALES] = {0};
+    /* Per-scale SSIM compute + readback (T-GPU-OPT-2 / ADR-0271).
+     * All 5 scales' horiz + vert_lcs launches and DtoH copies are
+     * enqueued back-to-back on s->lc.str. CUDA serialises kernels +
+     * copies on the same stream in submission order, so the shared
+     * SSIM intermediates (h_ref_mu / h_cmp_mu / ...) are safely
+     * read-after-write across scales without explicit sync; the
+     * partials buffers are now per-scale (see init) so the DtoH
+     * copies don't alias either. */
     for (int i = 0; i < MS_SSIM_SCALES; i++) {
         const unsigned width = s->scale_w[i];
         const unsigned w_horiz = s->scale_w_horiz[i];
@@ -368,11 +394,11 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                                                horiz_params, NULL));
 
         void *vert_params[] = {
-            (void *)s->h_ref_mu,   (void *)s->h_cmp_mu,   (void *)s->h_ref_sq,
-            (void *)s->h_cmp_sq,   (void *)s->h_refcmp,   (void *)s->l_partials,
-            (void *)s->c_partials, (void *)s->s_partials, (void *)&w_horiz,
-            (void *)&w_final,      (void *)&h_final,      (void *)&s->c1,
-            (void *)&s->c2,        (void *)&s->c3,
+            (void *)s->h_ref_mu,      (void *)s->h_cmp_mu,      (void *)s->h_ref_sq,
+            (void *)s->h_cmp_sq,      (void *)s->h_refcmp,      (void *)s->l_partials[i],
+            (void *)s->c_partials[i], (void *)s->s_partials[i], (void *)&w_horiz,
+            (void *)&w_final,         (void *)&h_final,         (void *)&s->c1,
+            (void *)&s->c2,           (void *)&s->c3,
         };
         CHECK_CUDA_RETURN(cu_f,
                           cuLaunchKernel(s->func_vert_lcs, s->scale_grid_x[i], s->scale_grid_y[i],
@@ -380,19 +406,51 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                                          vert_params, NULL));
 
         const size_t partials_bytes = (size_t)s->scale_block_count[i] * sizeof(float);
-        CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_l_partials, (CUdeviceptr)s->l_partials->data,
-                                                  partials_bytes, s->lc.str));
-        CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_c_partials, (CUdeviceptr)s->c_partials->data,
-                                                  partials_bytes, s->lc.str));
-        CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_s_partials, (CUdeviceptr)s->s_partials->data,
-                                                  partials_bytes, s->lc.str));
-        CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync(s->h_l_partials[i], (CUdeviceptr)s->l_partials[i]->data,
+                                            partials_bytes, s->lc.str));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync(s->h_c_partials[i], (CUdeviceptr)s->c_partials[i]->data,
+                                            partials_bytes, s->lc.str));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync(s->h_s_partials[i], (CUdeviceptr)s->s_partials[i]->data,
+                                            partials_bytes, s->lc.str));
+    }
 
+    /* Fence the final readback and opt the lifecycle into the
+     * engine's drain batch. drain_batch_register is best-effort:
+     * when no batch is open or the cap is hit, lc.drained stays
+     * false and collect() falls back to the legacy per-stream
+     * cuStreamSynchronize via vmaf_cuda_kernel_collect_wait. */
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->lc.finished, s->lc.str));
+    (void)vmaf_cuda_drain_batch_register(&s->lc);
+    return 0;
+}
+
+static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
+                            VmafFeatureCollector *feature_collector)
+{
+    MsSsimStateCuda *s = fex->priv;
+
+    /* Wait for all 5 scales' DtoH copies to land. Fast path
+     * (T-GPU-OPT-2 / ADR-0271): when the engine has already drained
+     * lc.finished as part of its batched flush, this is a no-op
+     * (lc.drained is true → reset and return). Otherwise falls back
+     * to cuStreamSynchronize(lc.str). */
+    int wait_err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
+    if (wait_err)
+        return wait_err;
+
+    double l_means[MS_SSIM_SCALES] = {0}, c_means[MS_SSIM_SCALES] = {0},
+           s_means[MS_SSIM_SCALES] = {0};
+    for (int i = 0; i < MS_SSIM_SCALES; i++) {
+        const unsigned w_final = s->scale_w_final[i];
+        const unsigned h_final = s->scale_h_final[i];
         double total_l = 0.0, total_c = 0.0, total_s = 0.0;
         for (unsigned j = 0; j < s->scale_block_count[i]; j++) {
-            total_l += (double)s->h_l_partials[j];
-            total_c += (double)s->h_c_partials[j];
-            total_s += (double)s->h_s_partials[j];
+            total_l += (double)s->h_l_partials[i][j];
+            total_c += (double)s->h_c_partials[i][j];
+            total_s += (double)s->h_s_partials[i][j];
         }
         const double n_pixels = (double)w_final * (double)h_final;
         l_means[i] = total_l / n_pixels;
@@ -464,17 +522,23 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->h_refcmp);
         free(s->h_refcmp);
     }
-    if (s->l_partials) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->l_partials);
-        free(s->l_partials);
-    }
-    if (s->c_partials) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->c_partials);
-        free(s->c_partials);
-    }
-    if (s->s_partials) {
-        ret |= vmaf_cuda_buffer_free(fex->cu_state, s->s_partials);
-        free(s->s_partials);
+    /* Per-scale partials triples (T-GPU-OPT-2 / ADR-0271). */
+    for (int i = 0; i < MS_SSIM_SCALES; i++) {
+        if (s->l_partials[i]) {
+            ret |= vmaf_cuda_buffer_free(fex->cu_state, s->l_partials[i]);
+            free(s->l_partials[i]);
+            s->l_partials[i] = NULL;
+        }
+        if (s->c_partials[i]) {
+            ret |= vmaf_cuda_buffer_free(fex->cu_state, s->c_partials[i]);
+            free(s->c_partials[i]);
+            s->c_partials[i] = NULL;
+        }
+        if (s->s_partials[i]) {
+            ret |= vmaf_cuda_buffer_free(fex->cu_state, s->s_partials[i]);
+            free(s->s_partials[i]);
+            s->s_partials[i] = NULL;
+        }
     }
     ret |= vmaf_dictionary_free(&s->feature_name_dict);
     return ret;

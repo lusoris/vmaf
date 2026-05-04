@@ -166,5 +166,6 @@
 0255-fastdvdnet-pre-real-weights
 0258-onnx-allowlist-resize
 0269-vif-ciede-precise-step-a
+0271-cuda-drain-batch-ms-ssim
 0273-ciede-vulkan-nvidia-f32-f64-precision-gap
 0276-vmaf-tune-fast-path

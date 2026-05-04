@@ -126,6 +126,22 @@ Adding a new CUDA extractor: see [`/add-feature-extractor`](../../../.claude/ski
 - **Shared primary context.** We retain the device's primary context with
   `cuDevicePrimaryCtxRetain` so FFmpeg and VMAF share one GPU context rather
   than fighting over time-sliced contexts.
+- **Engine-scope fence batching (T-GPU-OPT).** Each feature extractor owns
+  a private non-blocking stream + a `finished` event for its DtoH readback;
+  the engine collects every frame's pending events in a single thread-local
+  drain batch
+  ([`src/cuda/drain_batch.c`](../../../libvmaf/src/cuda/drain_batch.c))
+  and waits on them in one `cuStreamSynchronize(drain_str)` between submit
+  and collect phases. A frame's per-extractor `collect()` calls then become
+  host-side buffer reads only — the per-stream sync is short-circuited via
+  `vmaf_cuda_kernel_collect_wait`'s `lc->drained` fast path. Participating
+  extractors at time of writing: `psnr_cuda`, `motion_cuda`, `adm_cuda`,
+  `vif_cuda`, `ssimulacra2_cuda`, and `integer_ms_ssim_cuda`
+  ([ADR-0271](../../adr/0271-cuda-drain-batch-ms-ssim.md), the most recent
+  joiner — its 5-scale pyramid required allocating per-scale partials
+  buffers so all DtoH copies could enqueue back-to-back on the same stream).
+  Bit-exactness is preserved (same kernels, same stream order — only the
+  host wait point moves).
 
 ## Profiling
 
