@@ -7485,4 +7485,29 @@ inline.*
       --encoder libx264 --preset medium --crf 23 \
       --output /tmp/smoke.jsonl --no-source-hash
   # expect: vmaf_score is a real number, not NaN.
+### 0232 — CUDA build pins nvcc `--std c++20`
+
+- **Touches**: `libvmaf/src/meson.build` line 686 (`cuda_flags = [...]`).
+- **Invariant**: nvcc 12.x clamps host C++ at C++17 by default; 13.x
+  accepts up to C++20. Bumping the host stdlib past nvcc's default (any
+  gcc >= 16, libstdc++ ships C++23 features) breaks the host-side parse
+  in `<type_traits>` / `<bits/utility.h>`. Forcing `--std c++20` on
+  CUDA 13+ keeps the host headers parseable. **Do not** drop this flag
+  without first checking the host gcc version against nvcc's default.
+- **On upstream sync**: zero interaction. Netflix/vmaf doesn't ship the
+  `cuda_flags` list shape we use (their CUDA build is the original
+  pre-fork pattern); a sync that touches `libvmaf/src/meson.build`
+  around the `is_cuda_enabled` branch should keep the `--std c++20`
+  injection.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup libvmaf/build-cuda -Denable_cuda=true \
+      -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C libvmaf/build-cuda
+  # smoke
+  ./libvmaf/build-cuda/tools/vmaf --gpumask=0 --no_sycl --no_vulkan \
+      -r .workingdir2/netflix/ref/BigBuckBunny_25fps.yuv \
+      -d .workingdir2/netflix/ref/BigBuckBunny_25fps.yuv \
+      -w 1920 -h 1080 -p 420 -b 8
   ```

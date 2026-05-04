@@ -683,7 +683,11 @@ if is_cuda_enabled
     message('CUDA gencode = @0@'.format(gencode))
 
 
-    cuda_flags = ['-D_USE_MATH_DEFINES']
+    # --std c++20: required when the host libstdc++ is gcc >= 16, whose
+    # bundled headers use C++20 features (char8_t, constexpr semantics)
+    # that nvcc's default C++17 host parser cannot consume. CUDA 13+
+    # supports c++20 natively; 12.x clamps at c++17 and loses on gcc-16.
+    cuda_flags = ['-D_USE_MATH_DEFINES', '--std', 'c++20']
     if get_option('buildtype') == 'debug'
         cuda_flags += ['-DCUDA_DEBUG', '-G']
     else
