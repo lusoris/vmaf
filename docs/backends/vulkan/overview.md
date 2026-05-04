@@ -239,6 +239,52 @@ CPU snapshot contract; the `--places` flag tightens (e.g.
   Cross-Backend (Arc A380, advisory)` lane from `if: false` to
   active.
 
+## FP-contraction policy on float-heavy shaders
+
+The shader-side audit landed in two phases. `psnr_hvs.comp`,
+`ssimulacra2_blur.comp`, `ssimulacra2_xyb.comp`, and
+`ssimulacra2_ssim.comp` build with `-O0` (see
+`libvmaf/src/vulkan/meson.build`'s `psnr_hvs_strict_shaders` list)
+to disable SPIR-V optimizer reassociation and FMA contraction at
+the build level — it's a coarse gate that costs perf but trivially
+guarantees CPU parity.
+
+`vif.comp` and `ciede.comp` instead carry per-result `precise`
+decorations (-> SPIR-V `OpDecorate ... NoContraction`) on the
+specific FMA-contractable mul+add chains identified by the
+[research-0062](../../research/0062-vulkan-precise-decoration-audit.md)
+audit. The decorations are no-ops at the current Vulkan 1.3
+baseline — `places=4` cross-backend numbers are unchanged on
+RADV / lavapipe / Intel anv — but they unblock the future
+`VK_API_VERSION_1_3 → VK_API_VERSION_1_4` bump, which under
+NVIDIA driver 595.x flips the default codegen and otherwise
+drifts `integer_vif_scale2` by up to 1.527e-02 (45/48 frames)
+and `ciede2000` by up to 1.67e-04 (42/48 frames). See
+[ADR-0264](../../adr/0264-vulkan-1-4-bump-blocked-on-fp-contraction.md)
+(the parent backlog item, **T-VK-1.4-BUMP**) and
+[ADR-0272](../../adr/0272-vulkan-vif-ciede-precise-decorations.md)
+(this audit). The audit is **Step A** of T-VK-1.4-BUMP; **Step
+B** is the actual `apiVersion` bump and lands as a follow-up PR
+once the audit is verified clean across NVIDIA + RADV + lavapipe.
+
+The decoration set is targeted, not wholesale — over-decorating
+costs perf because it disables the FMA fast path on every
+contraction site. The audit picks the chains the CPU reference
+computes as scalar mul+add (libvmaf/src/feature/vif.c and
+libvmaf/src/feature/ciede.c — both float, no FMA): the four-term
+cosine accumulator in `get_upcase_t`, the `r_sub_t` chain, the
+YUV→RGB / RGB→XYZ matrix multiplies, the `xyz_to_lab_map` linear
+branch, and the per-pixel ΔE2000 composition itself. VIF gets
+the `g`, `sv_sq`, `gg_sigma_f` results from the
+`integer_vif_scale2` output expression block. Run
+
+```bash
+spirv-dis libvmaf/build/src/vulkan/{vif,ciede}.spv | grep -c NoContraction
+```
+
+after a Vulkan-enabled build to confirm the decorations are
+present (62 in `vif.spv`, ~179 in `ciede.spv`).
+
 ## Caveats
 
 - The `enable_vulkan` option is `feature` (auto/enabled/disabled)

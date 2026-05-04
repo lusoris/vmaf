@@ -6889,3 +6889,66 @@ inline.*
   meson test -C build test_op_allowlist test_onnx_scan
   PYTHONPATH=ai/src python -m pytest ai/tests/test_op_allowlist.py
   ```
+
+### 0228 — Vulkan vif + ciede `precise` decorations (T-VK-1.4-BUMP step A, ADR-0272)
+
+- **Touches**:
+  - `libvmaf/src/feature/vulkan/shaders/vif.comp` — three
+    `precise float` declarations in the `integer_vif_scale2`
+    output block (`g`, `sv_sq`, `gg_sigma_f`).
+  - `libvmaf/src/feature/vulkan/shaders/ciede.comp` —
+    `precise` decorations across the YUV→Lab→ΔE2000 path
+    (yuv_to_rgb, rgb_to_xyz, xyz_to_lab_map, yuv_to_lab,
+    get_upcase_t, get_r_sub_t, ciede2000).
+  - `docs/backends/vulkan/overview.md` — new
+    "FP-contraction policy on float-heavy shaders" section.
+  - Doc-only: `docs/adr/0272-*.md` + index fragment +
+    `_order.txt` append, `docs/research/0062-*.md`,
+    `changelog.d/changed/T-VK-1.4-BUMP-step-a-precise-decorations.md`.
+- **Invariant**: every `precise` decoration site corresponds
+  to a CPU-reference chain that the C compiler emits as scalar
+  mul + add (no FMA). If upstream Netflix/vmaf changes the
+  scalar reference for VIF or ciede2000 to use FMA-equivalent
+  intrinsics or to reorder the accumulators, the matching
+  GPU-side `precise` site must follow OR be removed — leaving
+  the GPU pinned to non-FMA semantics that the CPU has flipped
+  to FMA produces drift in the *other* direction. The
+  decoration is also load-bearing for the deferred
+  `VK_API_VERSION_1_3 → 1_4` bump (Step B): removing decorations
+  re-opens the NVIDIA 595.x codegen-flip regression catalogued
+  in ADR-0264.
+- **On upstream sync**: low interaction. `vif.comp` and
+  `ciede.comp` are fork-introduced (Vulkan backend doesn't
+  exist upstream). The CPU references
+  (`libvmaf/src/feature/vif.c`, `libvmaf/src/feature/ciede.c`)
+  are upstream-mirrored and an upstream change to either
+  scalar implementation requires re-validating the GPU-side
+  precision contract on this PR's footprint.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build \
+      -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=enabled --wipe
+  ninja -C build && cd ..
+
+  spirv-dis libvmaf/build/src/vulkan/vif.spv   | grep -c NoContraction  # expect 62
+  spirv-dis libvmaf/build/src/vulkan/ciede.spv | grep -c NoContraction  # expect ~179
+
+  python3 scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 \
+      --feature vif --backend vulkan
+  # Expected: integer_vif_scale0..3 max_abs ≤ 2e-6, 0/48 mismatches.
+  ```
+
+- **Conflict notice (PR #338 in flight)**: PR #338
+  (`chore/vulkan-1-4-regression-investigation`) lands ADR-0264
+  + research-0053 + adds rebase-note ID 0227 to this same
+  ledger. This PR's ID 0228 trivially serialises after
+  whichever PR lands first; if PR #338 lands second, the
+  in-flight rebase will need to renumber its 0227 entry and
+  this 0228 entry stays. No data conflict — both PRs append;
+  only the integer ID at the heading line changes.
