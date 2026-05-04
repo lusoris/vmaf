@@ -111,14 +111,61 @@ def parse_vmaf_json(payload: dict) -> float:
     raise ValueError("vmaf JSON missing pooled_metrics.vmaf.mean")
 
 
+_RAW_DIST_EXTS = {".yuv", ".y4m"}
+
+
+def _decode_to_raw_yuv(
+    src: Path,
+    dst: Path,
+    pix_fmt: str,
+    *,
+    ffmpeg_bin: str = "ffmpeg",
+    runner_fn=subprocess.run,
+) -> tuple[int, str]:
+    """Decode an encoded container (mp4/webm/etc.) back to raw YUV.
+
+    libvmaf's CLI only accepts raw YUV/Y4M on `--distorted`; the
+    encoder adapter produces mp4. Without this decode-back step every
+    score call returns NaN. See ADR-0237 §"score-path requires raw
+    distorted" (Phase A bug-fix).
+    """
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        str(src),
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        pix_fmt,
+        str(dst),
+    ]
+    completed = runner_fn(cmd, capture_output=True, text=True, check=False)
+    rc = int(getattr(completed, "returncode", 1))
+    stderr = getattr(completed, "stderr", "") or ""
+    return rc, stderr
+
+
+def _needs_decode(distorted: Path) -> bool:
+    return distorted.suffix.lower() not in _RAW_DIST_EXTS
+
+
 def run_score(
     req: ScoreRequest,
     *,
     vmaf_bin: str = "vmaf",
+    ffmpeg_bin: str = "ffmpeg",
     runner: object | None = None,
     workdir: Path | None = None,
 ) -> ScoreResult:
-    """Drive the vmaf CLI for a single (ref, dist) pair."""
+    """Drive the vmaf CLI for a single (ref, dist) pair.
+
+    If the distorted path is an encoded container (mp4/webm/...), it is
+    transparently decoded to a raw YUV in the scratch workdir first;
+    libvmaf's CLI only consumes raw YUV/Y4M.
+    """
     runner_fn = runner or subprocess.run
 
     if workdir is None:
@@ -130,7 +177,31 @@ def run_score(
         workdir_path.mkdir(parents=True, exist_ok=True)
 
     json_path = workdir_path / "vmaf.json"
-    cmd = build_vmaf_command(req, json_path, vmaf_bin=vmaf_bin)
+
+    score_req = req
+    if _needs_decode(req.distorted):
+        dist_yuv = workdir_path / "dist.yuv"
+        dec_rc, dec_stderr = _decode_to_raw_yuv(
+            req.distorted,
+            dist_yuv,
+            req.pix_fmt,
+            ffmpeg_bin=ffmpeg_bin,
+            runner_fn=runner_fn,
+        )
+        if dec_rc != 0 or not dist_yuv.exists():
+            if workdir_ctx is not None:
+                workdir_ctx.cleanup()
+            return ScoreResult(
+                request=req,
+                vmaf_score=float("nan"),
+                score_time_ms=0.0,
+                vmaf_binary_version="ffmpeg-decode-failed",
+                exit_status=dec_rc or 65,
+                stderr_tail=("ffmpeg decode failed:\n" + dec_stderr)[-2048:],
+            )
+        score_req = dataclasses.replace(req, distorted=dist_yuv)
+
+    cmd = build_vmaf_command(score_req, json_path, vmaf_bin=vmaf_bin)
 
     try:
         started = time.monotonic()

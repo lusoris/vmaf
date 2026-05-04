@@ -7458,4 +7458,31 @@ inline.*
   meson setup build -Denable_cuda=false -Denable_sycl=false
   ninja -C build
   make test-netflix-golden
+### 0231 — `vmaf-tune` score path decodes mp4 -> raw YUV
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/score.py` (new
+  `_decode_to_raw_yuv` + `_needs_decode` helpers, `run_score`
+  shells out to ffmpeg when `req.distorted.suffix not in
+  {.yuv, .y4m}`); `tools/vmaf-tune/tests/test_corpus.py` (3 new
+  regression tests + the smoke-end-to-end mock now also stubs the
+  ffmpeg decode call).
+- **Invariant**: the decode-back is the contract the libvmaf CLI
+  imposes — mp4/webm/etc. `--distorted` is silently rejected as
+  raw-yuv with the wrong byte count, surfacing as `exit_status=234`.
+  Future encoder adapters that emit non-raw containers inherit this
+  decode automatically. **Do not** "optimise" the temp YUV away
+  without first migrating the corpus pipeline to the
+  `ffmpeg+libvmaf` filter (which can pipe an mp4 stream in directly).
+- **On upstream sync**: zero interaction. `vmaf-tune` is fork-only
+  tooling; upstream Netflix/vmaf has no analogue.
+- **Re-test on rebase**:
+
+  ```bash
+  cd tools/vmaf-tune && python3 -m pytest tests/
+  # plus an end-to-end smoke (needs a real raw YUV + ffmpeg + vmaf):
+  ./vmaf-tune corpus --source /path/to/ref.yuv --width 1920 \
+      --height 1080 --pix-fmt yuv420p --framerate 25 --duration 6 \
+      --encoder libx264 --preset medium --crf 23 \
+      --output /tmp/smoke.jsonl --no-source-hash
+  # expect: vmaf_score is a real number, not NaN.
   ```
