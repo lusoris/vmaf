@@ -50,6 +50,30 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   `--fmad=false` and SYCL `-fp-model=precise`). Whenever you add
   a new GPU twin, run the cross-backend gate at the contracted
   `places` precision target before declaring success.
+- **`precise` is NOT a substitute for the cross-backend gate on
+  NVIDIA at API ≥ 1.4** ([ADR-0264](../../../docs/adr/0264-vulkan-1-4-bump-blocked-on-fp-contraction.md)
+  + [ADR-0269](../../../docs/adr/0269-vif-ciede-precise-step-a.md)
+  + [research-0054](../../../docs/research/0056-vif-ciede-precise-step-a-implementation.md)):
+  driver 595.71 has been observed to drift on `vif.comp` scale-2
+  (45/48 mismatches, max abs `1.527e-02`) under a 1.4 bump *despite*
+  every load-bearing FP op being correctly decorated with
+  `OpDecorate ... NoContraction` (verified at the SPIR-V `OpFDiv` /
+  `OpFMul` / `OpFSub` ID level). Either the driver doesn't honour
+  the decoration on those ops, or the regression is in something
+  other than FMA contraction. Do not assume `precise` alone makes
+  the 1.4 bump safe — re-run `/cross-backend-diff` against the
+  actual NVIDIA lane after any change that touches a float-heavy
+  shader. The four `apiVersion` sites
+  ([`common.c:54/264/374`](common.c) + [`vma_impl.cpp:22`](vma_impl.cpp))
+  remain pinned at `VK_API_VERSION_1_3` until Step B's gating
+  conditions in ADR-0264 are met.
+- **Conservative `precise` scope on `ciede.comp` is empirically
+  optimal**: widening it into the helper functions (`get_h_prime`,
+  `get_upcase_t`, `get_r_sub_t`, `srgb_to_linear`, `xyz_to_lab_map`)
+  or onto the Lab axes makes the cross-backend gate strictly worse
+  on NVIDIA (5/48 → 46/48 mismatches). The shader carries inline
+  comments recording this empirical bound; do not widen the scope
+  without re-measuring against the NVIDIA lane.
 
 ## Rebase-sensitive invariants
 

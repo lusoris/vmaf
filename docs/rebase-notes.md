@@ -6889,3 +6889,49 @@ inline.*
   meson test -C build test_op_allowlist test_onnx_scan
   PYTHONPATH=ai/src python -m pytest ai/tests/test_op_allowlist.py
   ```
+### 0231 — `vif.comp` + `ciede.comp` `precise` decorations (ADR-0269 / Step A of Vulkan 1.4 bump)
+
+- **Touches**:
+  [`libvmaf/src/feature/vulkan/shaders/vif.comp`](../libvmaf/src/feature/vulkan/shaders/vif.comp)
+  (3 local-variable type qualifiers: `g`, `sv_sq`, `gg_sigma_f` →
+  `precise float`),
+  [`libvmaf/src/feature/vulkan/shaders/ciede.comp`](../libvmaf/src/feature/vulkan/shaders/ciede.comp)
+  (`yuv_to_rgb` outputs, `rgb_to_xyz` matmul accumulators, `ciede2000`
+  chroma magnitudes + half-axes + s_l/c/h + lightness/chroma/hue +
+  final ΔE).
+- **Invariant**: Both shaders are fork-local (Vulkan backend is
+  fork-added; upstream Netflix/vmaf has no Vulkan compute kernels).
+  The `precise` keyword is GLSL 4.50 standard syntax; glslc 2026.1
+  lowers it to per-result `OpDecorate NoContraction`. The decorations
+  are *load-bearing for the cross-backend gate* on NVIDIA driver
+  595.71+ — removing them would re-introduce the 42/48 ciede
+  regression at API 1.3 documented in research-0054.
+- **On upstream sync**: zero interaction. Both shader files are
+  entirely fork-introduced; upstream has no Vulkan compute path.
+- **Re-test on rebase**:
+
+  ```bash
+  # Re-confirm the cross-backend gate on a Vulkan-capable host.
+  meson setup libvmaf/build -Denable_vulkan=enabled
+  ninja -C libvmaf/build
+  python3 scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+      --feature vif --backend vulkan --places 4
+  python3 scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+      --feature ciede --backend vulkan --places 4
+  # Confirm SPIR-V still emits NoContraction post-rebase.
+  glslc --target-env=vulkan1.3 -O \
+      libvmaf/src/feature/vulkan/shaders/vif.comp -o /tmp/vif.spv
+  spirv-dis /tmp/vif.spv | grep -c NoContraction   # expect ≥ 60
+  ```
+
+  Expected on NVIDIA 595.71+: vif 0/48 OK, ciede 5/48 FAIL (max abs
+  8.9e-05 — pre-existing fork debt at API 1.3, see ADR-0269). On
+  RADV / lavapipe: bit-exact (`precise` is a no-op there).
