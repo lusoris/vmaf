@@ -8296,3 +8296,44 @@ inline.*
   ```bash
   pytest tools/vmaf-tune/tests/test_corpus.py -k coarse_to_fine
   ```
+### 0303 — fr_regressor_v2 ensemble prod flip (ADR-0303)
+
+- **ADR**: [ADR-0303](adr/0303-fr-regressor-v2-ensemble-prod-flip.md)
+- **Touches**: entirely fork-local.
+  - `ai/scripts/train_fr_regressor_v2_ensemble_loso.py` (new — 9-fold
+    LOSO trainer over the five ensemble seeds; emits
+    `loso_seed{N}.json` artefacts).
+  - `scripts/ci/ensemble_prod_gate.py` (new — reads five
+    `loso_seed{N}.json` files, returns exit 0 iff
+    `mean(PLCC_i) ≥ 0.95` AND `max - min ≤ 0.005`).
+  - `ai/AGENTS.md` — appended "Ensemble registry invariant"
+    paragraph under the existing
+    `fr_regressor_v2_ensemble_v1` section.
+  - `docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md` (new),
+    `docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md` (new),
+    `changelog.d/added/fr-regressor-v2-ensemble-prod-flip.md` (new).
+- **Rebase invariant**: the production ship gate is **two-part** —
+  `mean_i(PLCC_i) ≥ 0.95` AND `max_i(PLCC_i) - min_i(PLCC_i) ≤ 0.005`
+  over five seeds. The variance bound is load-bearing: removing it
+  silently allows a one-seed-wins-four-seeds-tie configuration that
+  invalidates the ensemble's predictive-distribution semantics. Both
+  thresholds live in `scripts/ci/ensemble_prod_gate.py`; do not
+  weaken either without superseding ADR-0303.
+- **Rebase invariant (registry)**: the five
+  `fr_regressor_v2_ensemble_v1_seed{0..4}` registry rows are
+  `smoke: true` on master at this commit; flipping them to `false`
+  is the **follow-up flip PR**'s job, gated on a real-corpus LOSO
+  run + the CI gate. Do not flip seed rows during a rebase merge
+  conflict resolution.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -c "import ast; ast.parse(open('ai/scripts/train_fr_regressor_v2_ensemble_loso.py').read())"
+  python3 -c "import ast; ast.parse(open('scripts/ci/ensemble_prod_gate.py').read())"
+  python ai/scripts/train_fr_regressor_v2_ensemble_loso.py --help
+  python scripts/ci/ensemble_prod_gate.py --help
+  ```
+
+- **Upstream source**: zero. `fr_regressor_v2` and its ensemble are
+  fork-introduced (parent ADR-0272 / ADR-0279).
+- **On upstream sync**: zero interaction.

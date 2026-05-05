@@ -276,6 +276,21 @@ model card:
   benchmark them against real VMAF. Production training is gated on
   the multi-codec Phase A corpus and is tracked as backlog item
   T7-FR-REGRESSOR-V2-PROBABILISTIC.
+- **Ensemble registry invariant (ADR-0303)**: each ensemble member's
+  `smoke: true` registry row flips to `false` **only after** that
+  individual seed clears the `PLCC_i ≥ 0.95` LOSO ship gate
+  (ADR-0235 / ADR-0291). The ensemble-mean entry — if/when one is
+  added to `model/tiny/registry.json` as a `fr_ensemble`-kind row —
+  flips **only after all five seeds clear** the per-seed gate *and*
+  the variance bound `max_i(PLCC_i) - min_i(PLCC_i) ≤ 0.005` holds.
+  The decision lives in [`scripts/ci/ensemble_prod_gate.py`](../scripts/ci/ensemble_prod_gate.py);
+  the trainer that emits the per-seed `loso_seed{N}.json` artefacts
+  the gate consumes is
+  [`ai/scripts/train_fr_regressor_v2_ensemble_loso.py`](scripts/train_fr_regressor_v2_ensemble_loso.py).
+  Do NOT flip individual seed rows by hand without running the gate
+  against a real-corpus LOSO output — the variance bound is what
+  protects the predictive-distribution semantics; flipping seeds
+  ad-hoc would silently bake in an unbounded across-seed spread.
 
 ## Quantization-Aware Training (ADR-0207 / ADR-0208)
 
