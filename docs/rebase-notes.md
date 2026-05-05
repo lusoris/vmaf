@@ -8043,3 +8043,38 @@ inline.*
   ```bash
   pytest tools/vmaf-tune/tests/ -q
   ```
+
+### 0229 — `tools/vmaf-roi-score/` Option C scaffold (ADR-0296)
+
+- **ADR**: [ADR-0296](adr/0296-vmaf-roi-saliency-weighted.md)
+- **Touches**:
+  - `tools/vmaf-roi-score/pyproject.toml` (new)
+  - `tools/vmaf-roi-score/vmaf-roi-score` (new console shim)
+  - `tools/vmaf-roi-score/src/vmafroiscore/__init__.py` (new)
+  - `tools/vmaf-roi-score/src/vmafroiscore/cli.py` (new)
+  - `tools/vmaf-roi-score/src/vmafroiscore/score.py` (new)
+  - `tools/vmaf-roi-score/src/vmafroiscore/mask.py` (new)
+  - `tools/vmaf-roi-score/tests/test_combine.py` (new)
+  - `tools/vmaf-roi-score/README.md` (new)
+  - `tools/vmaf-roi-score/AGENTS.md` (new)
+  - `docs/adr/0296-vmaf-roi-saliency-weighted.md` (new)
+  - `docs/adr/_index_fragments/0296-vmaf-roi-saliency-weighted.md` (new)
+  - `docs/adr/_index_fragments/_order.txt` — append-only.
+  - `docs/research/0069-vmaf-roi-saliency-weighted.md` (new)
+  - `docs/usage/vmaf-roi-score.md` (new)
+  - `changelog.d/added/T6-2c-vmaf-roi-score-scaffold.md` (new)
+- **Invariant**: `tools/vmaf-roi-score/` is wholly fork-local.
+  No upstream Netflix/vmaf surface owns or interacts with this
+  directory. The combine math is a pure linear blend on Python
+  `float`; the JSON schema is pinned by `ROI_RESULT_KEYS` and
+  `SCHEMA_VERSION = 1`. Schema bumps require an ADR-0288 supersession.
+  **Naming guard**: do **not** confuse with `libvmaf/tools/vmaf_roi.c`
+  (ADR-0247) — that's the encoder-steering binary. The scoring tool
+  here is `vmaf-roi-score`; the names diverge deliberately.
+- **Rebase impact**: zero. Pure-Python tool under `tools/`; not part
+  of the libvmaf C build, not part of any Netflix-mirrored surface.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-roi-score/tests
+  ```
