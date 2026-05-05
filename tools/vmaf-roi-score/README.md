@@ -18,7 +18,7 @@ roi_vmaf = (1 - w) * vmaf_full + w * vmaf_masked
 
 Option A (per-pixel feature pooling weighted by saliency in libvmaf C
 code) is **not** in this PR — see
-[ADR-0288](../../docs/adr/0288-vmaf-roi-saliency-weighted.md) for the
+[ADR-0296](../../docs/adr/0296-vmaf-roi-saliency-weighted.md) for the
 phased roadmap and the reasons Option C ships first.
 
 User documentation: [`docs/usage/vmaf-roi-score.md`](../../docs/usage/vmaf-roi-score.md).
@@ -71,7 +71,7 @@ The tests mock `subprocess.run` so no `vmaf` binary is needed.
 
 ## See also
 
-- ADR-0288 — vmaf-roi-score saliency-weighted (this scaffold + Option A roadmap)
+- ADR-0296 — vmaf-roi-score saliency-weighted (this scaffold + Option A roadmap)
 - Research-0063 — option-space digest (Option A vs B vs C)
 - ADR-0247 — `libvmaf/tools/vmaf_roi.c` (the encoder-steering sibling)
 - ADR-0286 — `saliency_student_v1` (the upstream-of-this saliency model)

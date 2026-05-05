@@ -16,7 +16,7 @@ important.
 > | Tool | Output | Surface |
 > |---|---|---|
 > | `vmaf-roi` (ADR-0247) | per-CTU QP offsets (encoder steering) | C binary |
-> | `vmaf-roi-score` (ADR-0288) | saliency-weighted VMAF score | Python tool |
+> | `vmaf-roi-score` (ADR-0296) | saliency-weighted VMAF score | Python tool |
 
 ## What it computes
 
@@ -140,9 +140,9 @@ this path will materialise the masked YUV and score it for real.
 
 ## See also
 
-- [ADR-0288](../adr/0288-vmaf-roi-saliency-weighted.md) — the design ADR
+- [ADR-0296](../adr/0296-vmaf-roi-saliency-weighted.md) — the design ADR
   for this tool.
-- [Research-0063](../research/0063-vmaf-roi-saliency-weighted.md) —
+- [Research-0069](../research/0069-vmaf-roi-saliency-weighted.md) —
   Option A vs B vs C decision matrix.
 - [`docs/usage/vmaf-roi.md`](vmaf-roi.md) — the encoder-steering
   sibling tool (different surface, related model).

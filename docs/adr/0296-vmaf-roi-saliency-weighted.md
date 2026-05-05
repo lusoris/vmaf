@@ -1,4 +1,4 @@
-# ADR-0288: Region-of-interest VMAF scoring (`vmaf-roi-score`) — saliency-weighted scaffold
+# ADR-0296: Region-of-interest VMAF scoring (`vmaf-roi-score`) — saliency-weighted scaffold
 
 - **Status**: Accepted (Option C scaffold only; Option A remains Proposed)
 - **Date**: 2026-05-03

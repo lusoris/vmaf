@@ -8044,9 +8044,9 @@ inline.*
   pytest tools/vmaf-tune/tests/ -q
   ```
 
-### 0229 — `tools/vmaf-roi-score/` Option C scaffold (ADR-0288)
+### 0229 — `tools/vmaf-roi-score/` Option C scaffold (ADR-0296)
 
-- **ADR**: [ADR-0288](adr/0288-vmaf-roi-saliency-weighted.md)
+- **ADR**: [ADR-0296](adr/0296-vmaf-roi-saliency-weighted.md)
 - **Touches**:
   - `tools/vmaf-roi-score/pyproject.toml` (new)
   - `tools/vmaf-roi-score/vmaf-roi-score` (new console shim)
@@ -8057,10 +8057,10 @@ inline.*
   - `tools/vmaf-roi-score/tests/test_combine.py` (new)
   - `tools/vmaf-roi-score/README.md` (new)
   - `tools/vmaf-roi-score/AGENTS.md` (new)
-  - `docs/adr/0288-vmaf-roi-saliency-weighted.md` (new)
-  - `docs/adr/_index_fragments/0288-vmaf-roi-saliency-weighted.md` (new)
+  - `docs/adr/0296-vmaf-roi-saliency-weighted.md` (new)
+  - `docs/adr/_index_fragments/0296-vmaf-roi-saliency-weighted.md` (new)
   - `docs/adr/_index_fragments/_order.txt` — append-only.
-  - `docs/research/0063-vmaf-roi-saliency-weighted.md` (new)
+  - `docs/research/0069-vmaf-roi-saliency-weighted.md` (new)
   - `docs/usage/vmaf-roi-score.md` (new)
   - `changelog.d/added/T6-2c-vmaf-roi-score-scaffold.md` (new)
 - **Invariant**: `tools/vmaf-roi-score/` is wholly fork-local.
