@@ -8704,3 +8704,27 @@ inline.*
   make -j$(nproc) ffmpeg
   ./ffmpeg -hide_banner -h encoder=libx264 2>&1 | grep -i qpfile
   ```
+
+### 0315 — Vendor-neutral VVC encode strategy (ADR-0315 / Research-0085)
+
+- **ADR**: [ADR-0315](adr/0315-vendor-neutral-vvc-encode-strategy.md)
+- **Digest**: [Research-0085](research/0085-vendor-neutral-vvc-encode-landscape.md)
+- **Touches**: docs-only.
+  - `docs/research/0085-vendor-neutral-vvc-encode-landscape.md` (new).
+  - `docs/adr/0315-vendor-neutral-vvc-encode-strategy.md` (new).
+  - `docs/adr/_index_fragments/0315-vendor-neutral-vvc-encode-strategy.md` (new).
+  - `docs/adr/_index_fragments/_order.txt` (one-line append).
+  - `changelog.d/added/research-0085-vendor-neutral-vvc-encode.md` (new).
+  - `docs/rebase-notes.md` (this entry).
+- **Rebase invariant**: none. The research digest and ADR are pure
+  surveys with no code dependencies; nothing in the fork's source
+  tree references them in a way that breaks on upstream rebase.
+- **Upstream source**: zero. VVC encode strategy is a fork-local
+  decision; upstream Netflix/vmaf has no codec adapter or
+  encode-automation surface.
+- **On upstream sync**: zero interaction. Pure docs.
+- **Re-test on rebase**:
+
+  ```bash
+  mkdocs build --strict 2>&1 | grep -E "(WARNING|ERROR)" || echo "docs build clean"
+  ```

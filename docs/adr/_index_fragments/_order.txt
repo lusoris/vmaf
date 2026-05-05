@@ -182,3 +182,4 @@
 0301-vmaf-tune-sample-clip
 0313-ci-required-checks-aggregator
 0310-bvi-dvc-corpus-ingestion
+0315-vendor-neutral-vvc-encode-strategy
