@@ -44,9 +44,13 @@ from .x265 import X265Adapter
 
 
 class CodecAdapter(Protocol):
-    """Phase A codec-adapter contract (subset of the ADR-0237 sketch).
+    """Codec-adapter contract (ADR-0237 Phase A + ADR-0294 dispatcher).
 
-    Phase B+ extends with two-pass / log-parsing / per-shot emit hooks.
+    The encode dispatcher (``encode.run_encode``) consumes the
+    runtime-shaped subset (``encoder``, ``ffmpeg_codec_args``,
+    ``extra_params``) and never branches on the adapter's ``name`` —
+    that's the invariant that lets new codec adapters drop in
+    one-PR-at-a-time without touching the search loop.
     """
 
     name: str
@@ -55,6 +59,18 @@ class CodecAdapter(Protocol):
     quality_range: tuple[int, int]
     quality_default: int
     invert_quality: bool
+
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg ``-c:v ...`` argv slice for one encode."""
+        ...
+
+    def extra_params(self) -> tuple[str, ...]:
+        """Additional non-codec argv (e.g. tile flags). May be empty."""
+        ...
+
+    def validate(self, preset: str, quality: int) -> None:
+        """Raise ``ValueError`` if ``(preset, quality)`` is unsupported."""
+        ...
 
 
 _REGISTRY: dict[str, CodecAdapter] = {
