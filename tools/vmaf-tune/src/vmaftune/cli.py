@@ -52,6 +52,7 @@ from .per_shot import (
     write_concat_listing,
 )
 from .recommend import RecommendRequest, format_result, load_corpus_jsonl, recommend
+from .score_backend import ALL_BACKENDS, BackendUnavailableError, select_backend
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -142,6 +143,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     corpus.add_argument("--ffmpeg-bin", default="ffmpeg")
     corpus.add_argument("--vmaf-bin", default="vmaf")
+    corpus.add_argument(
+        "--score-backend",
+        default="auto",
+        choices=("auto", *ALL_BACKENDS),
+        help=(
+            "libvmaf scoring backend (default: auto). 'auto' picks the "
+            "fastest available (cuda > vulkan > sycl > cpu); a specific "
+            "name is honoured strictly and errors out if unavailable."
+        ),
+    )
     corpus.add_argument(
         "--no-source-hash",
         action="store_true",
@@ -551,6 +562,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run_corpus(args: argparse.Namespace) -> int:
     cells = tuple(iter_grid(args.preset, args.crf))
+
+    # Resolve the user's --score-backend choice up-front so an unavailable
+    # backend errors out before we burn cycles on encodes. Strict-mode
+    # (non-auto) failures propagate as a non-zero exit; auto walks the
+    # fallback chain and downgrades silently to cpu only as a last resort.
+    try:
+        selected = select_backend(prefer=args.score_backend, vmaf_bin=args.vmaf_bin)
+    except BackendUnavailableError as exc:
+        sys.stderr.write(f"vmaf-tune: {exc}\n")
+        return 2
+    sys.stderr.write(f"vmaf-tune: scoring backend = {selected}\n")
+
     opts = CorpusOptions(
         encoder=args.encoder,
         output=args.output,
@@ -561,6 +584,7 @@ def _run_corpus(args: argparse.Namespace) -> int:
         keep_encodes=args.keep_encodes,
         src_sha256=not args.no_source_hash,
         resolution_aware=args.resolution_aware,
+        score_backend=selected,
     )
 
     def _all_rows():

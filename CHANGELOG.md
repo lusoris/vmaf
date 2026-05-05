@@ -374,6 +374,22 @@
   gains a "Codec adapter contract" section.
   [`docs/rebase-notes.md`](docs/rebase-notes.md) entry 0228 pins the
   codec-agnostic-harness invariant.
+- **`vmaf-tune` GPU scoring backend — `--score-backend {auto|cpu|cuda|sycl|vulkan}`
+  (ADR-0299).** Wires the libvmaf CLI's existing `--backend NAME` selector
+  ([ADR-0127](docs/adr/0127-vulkan-compute-backend.md) /
+  [ADR-0175](docs/adr/0175-vulkan-backend-scaffold.md) /
+  [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md)) into Phase A
+  scoring. Default `auto` walks `cuda → vulkan → sycl → cpu`, intersecting
+  vmaf-binary advertised support (parsed from `vmaf --help`) with cheap
+  host probes (`nvidia-smi -L`, `vulkaninfo --summary`, `sycl-ls`).
+  Explicit non-auto requests are strict — `--score-backend cuda` on a
+  CPU-only host raises `BackendUnavailableError` rather than silently
+  downgrading. Removes the CPU-only score floor (1–2 fps at 1080p) and
+  delivers ~10–30× speedup on the score axis. Ships
+  `tools/vmaf-tune/src/vmaftune/score_backend.py`, CLI flag wiring, 22
+  unit tests against the mocked help/probe runners, and a docs/usage
+  section with a wall-clock expectation table.
+
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

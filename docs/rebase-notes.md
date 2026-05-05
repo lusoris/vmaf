@@ -8156,4 +8156,35 @@ inline.*
   pytest tools/vmaf-tune/tests/test_compare.py -v
   PYTHONPATH=tools/vmaf-tune/src python -m vmaftune.cli compare \
       --src /tmp/ref.yuv --target-vmaf 92 --format markdown
+### 0229 — `vmaf-tune --score-backend` GPU score wiring (ADR-0299)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/score_backend.py` (new). Wholly
+    fork-local — `tools/vmaf-tune/` has no upstream Netflix/vmaf
+    overlap.
+  - `tools/vmaf-tune/src/vmaftune/{score,corpus,cli}.py` (additive
+    kwargs, no API removals).
+  - `tools/vmaf-tune/tests/test_score_backend.py` (new).
+  - `docs/usage/vmaf-tune.md` (new GPU section + flag row).
+  - `docs/adr/0299-vmaf-tune-gpu-score.md` (new).
+  - `docs/research/0071-vmaf-tune-gpu-score-backend.md` (new).
+- **Invariant**: the libvmaf CLI exposes `--backend NAME` with values
+  `auto|cpu|cuda|sycl|vulkan` exactly. Help-text parser in
+  `score_backend.parse_supported_backends` pins this format. If
+  upstream renames the flag or reformats the help line on merge, the
+  parser silently degrades to "CPU only" — the test fixtures in
+  `test_score_backend.py` will catch the format change but only if
+  re-run.
+- **Upstream source**: fork-local. Netflix upstream's CLI does not
+  ship a `--backend` selector (CPU-only).
+- **On upstream sync**: zero interaction. `vmaf-tune` lives entirely
+  in fork-introduced paths and consumes only the fork's
+  `--backend` flag.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/test_score_backend.py -v
+  # If the libvmaf help text reformats, parse_supported_backends
+  # will return {"cpu"} on test_parse_full_backend_line_yields_all_four
+  # and the test fails loudly.
   ```

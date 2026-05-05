@@ -51,9 +51,16 @@ def build_vmaf_command(
     json_output: Path,
     *,
     vmaf_bin: str = "vmaf",
+    backend: str | None = None,
 ) -> list[str]:
-    """Compose the libvmaf CLI argv. Pure function for test pinning."""
-    return [
+    """Compose the libvmaf CLI argv. Pure function for test pinning.
+
+    When ``backend`` is set (one of ``cpu|cuda|sycl|vulkan``), append
+    ``--backend NAME`` so the libvmaf CLI engages the GPU dispatch.
+    ``None`` (the default) leaves the binary in its built-in ``auto``
+    mode for full backwards compatibility.
+    """
+    cmd = [
         vmaf_bin,
         "--reference",
         str(req.reference),
@@ -73,6 +80,9 @@ def build_vmaf_command(
         "--output",
         str(json_output),
     ]
+    if backend:
+        cmd.extend(["--backend", backend])
+    return cmd
 
 
 def _pixfmt_to_vmaf(pix_fmt: str) -> str:
@@ -159,12 +169,16 @@ def run_score(
     ffmpeg_bin: str = "ffmpeg",
     runner: object | None = None,
     workdir: Path | None = None,
+    backend: str | None = None,
 ) -> ScoreResult:
     """Drive the vmaf CLI for a single (ref, dist) pair.
 
     If the distorted path is an encoded container (mp4/webm/...), it is
     transparently decoded to a raw YUV in the scratch workdir first;
     libvmaf's CLI only consumes raw YUV/Y4M.
+    ``backend`` selects the libvmaf dispatch path
+    (``cpu|cuda|sycl|vulkan``). ``None`` preserves legacy behaviour
+    (binary picks its own default).
     """
     runner_fn = runner or subprocess.run
 
@@ -202,6 +216,7 @@ def run_score(
         score_req = dataclasses.replace(req, distorted=dist_yuv)
 
     cmd = build_vmaf_command(score_req, json_path, vmaf_bin=vmaf_bin)
+    cmd = build_vmaf_command(req, json_path, vmaf_bin=vmaf_bin, backend=backend)
 
     try:
         started = time.monotonic()
