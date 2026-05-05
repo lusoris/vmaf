@@ -60,11 +60,23 @@
     {
       "id": "mobilesal_placeholder_v0",
       "kind": "nr",
-      "notes": "MobileSal saliency placeholder (T6-2a smoke-only). Synthetic Conv+Sigmoid matching the upstream I/O contract; per-pixel saliency map in [0,1]. Real-weights swap deferred: ADR-0257 (upstream MobileSal CC BY-NC-SA 4.0 + Drive-walled + RGB-D) and ADR-0265 (U-2-Net u2netp replacement: Apache-2.0 OK but Drive-walled + Resize op not on allowlist). See ADR-0218 / ADR-0257 / ADR-0265 + docs/ai/models/mobilesal.md.",
+      "notes": "Superseded by saliency_student_v1 (ADR-0286) for production use; retained as the historical smoke-only placeholder ADR-0218 / ADR-0257 referenced. Synthetic Conv+Sigmoid matching the MobileSal I/O contract; emits per-pixel saliency in [0,1]. Real-weights swap from upstream MobileSal was deferred per ADR-0257 (CC BY-NC-SA 4.0 + Google-Drive-walled + RGB-D); the fork-trained saliency_student_v1 replaces it. See docs/ai/models/saliency_student_v1.md.",
       "onnx": "mobilesal.onnx",
       "opset": 17,
       "sha256": "f122631089977c4be7d60b9bf3d4daf186d275bd0587db2c9878578e006b91d4",
       "smoke": true
+    },
+    {
+      "description": "Fork-trained tiny U-Net saliency student trained on DUTS-TR — production weights for the mobilesal extractor.",
+      "id": "saliency_student_v1",
+      "kind": "nr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "Fork-trained tiny U-Net (~113K params) trained from scratch on DUTS-TR (Wang et al. 2017). Drop-in for mobilesal_placeholder_v0; same input/saliency_map names + NCHW shapes. ConvTranspose stride-2 upsample (every op on the allowlist). 50ep Adam lr=1e-3 BCE+Dice bs=32 crop=256 seed=42; best val IoU=0.6558; PT<->ORT max-abs-diff=1.49e-6. DUTS images not redistributed; weights are. See docs/ai/models/saliency_student_v1.md and docs/adr/0270.",
+      "onnx": "saliency_student_v1.onnx",
+      "opset": 17,
+      "sha256": "1edc64772498ab73ebdb17e21f49679ce5ded82534d47f557cd15fd36e1b46e7",
+      "smoke": false
     },
     {
       "description": "Tiny no-reference quality metric \u2014 single-frame 224\u00d7224 grayscale.",

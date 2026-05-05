@@ -1155,6 +1155,8 @@
   rebase. See
   [ADR-0250](docs/adr/0250-tiny-ai-extractor-template.md).
 
+### Changed
+
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
@@ -1163,18 +1165,6 @@
   INFO-level "device lacks native fp64 — kernels already use fp32
   + int64 paths, no emulation overhead". An audit confirmed every
   SYCL feature kernel is already fp64-free in its device code:
-
-- **DISTS extractor proposal (T7-DISTS / ADR-0236).** Proposal-stage
-  scaffolding for a DISTS perceptual-similarity tiny-AI FR
-  extractor ([Ding 2020 PAMI](https://doi.org/10.1109/TPAMI.2020.3045810))
-  mirroring `lpips_sq`'s public surface (`relu1_2`–`relu5_3` VGG-16
-  features, channel-wise SSIM-style texture + structure terms,
-  scalar `dists_sq` per frame). Closes Research-0033 actionable
-  item #5 from the Bristol VI-Lab 2026 NVC review. Status:
-  **Proposed only** — no extractor C code, no ONNX, no registry
-  entry; tracked separately as T7-DISTS for the implementation PR.
-  Companion research digest:
-  [`docs/research/0043-dists-extractor-design.md`](docs/research/0043-dists-extractor-design.md).
   ADM gain limiting uses an int64 Q31 split-multiply
   (`gain_limit_to_q31` + `launch_decouple_csf<false>` in
   `libvmaf/src/feature/sycl/integer_adm_sycl.cpp`), VIF gain
@@ -1190,345 +1180,7 @@
   sub-group size, memory pattern) — out of T7-17's scope. See
   [ADR-0220](docs/adr/0220-sycl-fp64-fallback.md).
 
-- **Tiny-AI: vmaf_tiny_v2 retrained on full 4-corpus.** The shipped
-  `model/tiny/vmaf_tiny_v2.onnx` is now trained on
-  `runs/full_features_4corpus.parquet` (Netflix + KoNViD + BVI-DVC
-  A+B+C+D, 330 499 rows) instead of the previous 3-corpus parquet
-  (305 795 rows; ADR-0244 originally referenced this set). The
-  hyperparameters, architecture (`mlp_small`, canonical-6,
-  `lr=1e-3`, 90 epochs), bundled-scaler ONNX layout (ADR-0049),
-  opset (17), and registry entry shape are unchanged — only the
-  weights and the embedded `(mean, std)` constants change. Train
-  PLCC `0.9999` / RMSE `0.153`; ship-gate validation on the
-  Netflix slice (first 100 rows) PLCC `0.9999` / RMSE `0.191`.
-  Sha256 updated in `model/tiny/registry.json`. See
-  [`docs/ai/models/vmaf_tiny_v2.md`](docs/ai/models/vmaf_tiny_v2.md).
-
 ### Added
-
-- **GPU-gen ULP calibration head (proposal-stage, T7-GPU-ULP-CAL / ADR-0234).**
-  Scaffolds a tiny per-arch `(arch_id, raw_gpu_score) → cpu_score`
-  calibration head to close the ~1e-4 cross-backend ULP divergence
-  currently within `places=4` tolerance but observable on float
-  metrics. Status: **Proposed only** — no model trained, no
-  `--gpu-calibrated` CLI flag enabled, no runtime path lit. Future
-  PR (gated on per-arch held-out PLCC ≥ 0.9999 and worst-case
-  residual ≤ 1e-6) flips the flag default once the empirical case
-  is made. Companion research digest:
-  [`docs/research/0041-gpu-gen-ulp-calibration.md`](docs/research/0041-gpu-gen-ulp-calibration.md).
-  Data-collection scaffold lands at
-  [`ai/scripts/collect_gpu_calibration_data.py`](ai/scripts/collect_gpu_calibration_data.py).
-- **Vulkan VkImage import — v2 async pending-fence ring (T7-29
-  part 4 / ADR-0251).** The synchronous in-call fence wait that
-  shipped in [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md)
-  is replaced with a per-frame fence ring keyed by
-  `frame_index % ring_size`. `vmaf_vulkan_import_image` now
-  records, submits, and returns immediately; the FFmpeg
-  `libvmaf_vulkan` filter's decoder thread can run ahead while
-  libvmaf drains in the background. `vmaf_vulkan_wait_compute`
-  blocks on every outstanding fence in submission order and is
-  the natural drain point before
-  `vmaf_vulkan_state_build_pictures` reads the host mappings.
-  Default ring depth is 4 ("frames-in-flight" canonical value);
-  staging arena scales `2 × ring_size` per state (~16 MiB
-  host-visible at 1080p 8-bit Y, default depth). Public ABI
-  preserved — the ring is fully internal to `VmafVulkanState`,
-  so [`ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`](ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch)
-  needs no changes. New contract smoke
-  [`libvmaf/test/test_vulkan_async_pending_fence.c`](libvmaf/test/test_vulkan_async_pending_fence.c)
-  pins the v1 → v2 swap (`-EINVAL` on `vk_image == 0` regardless
-  of slot index, idle `wait_compute` is a no-op, NULL-ctx checks
-  in `read_imported_pictures` for slot 0, ring_size-1, and
-  post-wrap indices). New
-  [`libvmaf/src/vulkan/AGENTS.md`](libvmaf/src/vulkan/AGENTS.md)
-  carries the rebase-sensitive ring invariants (fixed depth,
-  reset-after-wait, drain-before-destroy). Cross-backend gate
-  contract unchanged — async submission only changes when the
-  host can read, not which bytes the staging buffer receives;
-  `places=4` holds. Status flips from Proposed to Accepted
-  after the lavapipe / hardware wall-clock measurement gate
-  (`v2 ≤ 0.7 × v1` on Netflix normal pair) lands.
-- **`enable_lcs` MS-SSIM extras on CUDA + Vulkan (T7-35 / ADR-0243).**
-  The Vulkan `float_ms_ssim_vulkan` and CUDA `float_ms_ssim_cuda`
-  extractors now honour the `enable_lcs` option, emitting the same
-  15 per-scale metrics the CPU reference does:
-  `float_ms_ssim_{l,c,s}_scale{0..4}`. The GPU kernels already
-  computed the per-scale L/C/S means (the CUDA vert kernel is even
-  named `ms_ssim_vert_lcs`); only the host-side
-  `vmaf_feature_collector_append` calls were missing. No kernel,
-  shader or device-buffer changes — default-path
-  (`enable_lcs=false`) output is bit-identical to the pre-T7-35
-  binary. The Vulkan option help text is rewritten to drop the
-  "(reserved; not yet implemented in the GPU path)" caveat; the
-  CUDA file-header drops the corresponding "v1 does NOT
-  implement enable_lcs" deferral. New `float_ms_ssim_lcs`
-  pseudo-feature in
-  [`scripts/ci/cross_backend_vif_diff.py`](scripts/ci/cross_backend_vif_diff.py)
-  and
-  [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
-  pins all 16 metrics at `places=4`. The SYCL `float_ms_ssim_sycl`
-  twin does not currently expose `enable_lcs` (empty `options[]`
-  table) and stays out-of-scope for this PR; tracked as a
-  follow-up under T7-35.
-- **MobileSal saliency feature extractor (T6-2a / ADR-0218).** New
-  no-reference scoring-side extractor `mobilesal` under
-  [`libvmaf/src/feature/feature_mobilesal.c`](libvmaf/src/feature/feature_mobilesal.c).
-  Emits scalar `saliency_mean` per frame via
-  `vmaf_feature_collector_append`. The session binds tensors by name —
-  input `input` (NCHW float32 RGB, ImageNet-normalised) and output
-  `saliency_map` (NCHW float32 [1,1,H,W]) — so a future drop-in replaces
-  the placeholder without C changes. Shipped checkpoint
-  [`model/tiny/mobilesal.onnx`](model/tiny/mobilesal.onnx) is a
-  smoke-only synthetic placeholder (330 bytes; 3→1 1×1 Conv + Sigmoid)
-  generated by
-  [`scripts/gen_mobilesal_placeholder_onnx.py`](scripts/gen_mobilesal_placeholder_onnx.py)
-  and labelled `smoke: true` in
-  [`model/tiny/registry.json`](model/tiny/registry.json); real upstream
-  [`yun-liu/MobileSal`](https://github.com/yun-liu/MobileSal) (MIT)
-  weights are tracked as T6-2a-followup. Per-model docs at
-  [`docs/ai/models/mobilesal.md`](docs/ai/models/mobilesal.md). Smoke
-  test [`libvmaf/test/test_mobilesal.c`](libvmaf/test/test_mobilesal.c)
-  mirrors `test_lpips.c`. The encoder-side per-CTU QP-offset sidecar
-  (`tools/vmaf-roi`, saliency-weighted L1/L2 FR feature) is the
-  T6-2b follow-up. See
-  [ADR-0218](docs/adr/0218-mobilesal-saliency-extractor.md).
-- **TransNet V2 shot-boundary detector (T6-3a)** — new feature
-  extractor `transnet_v2` under
-  [`libvmaf/src/feature/transnet_v2.c`](libvmaf/src/feature/transnet_v2.c)
-  registers a 100-frame-sliding-window shot-change detector backed
-  by the public `vmaf_dnn_session_*` API. ONNX I/O contract:
-  `frames` float32 `[1, 100, 3, 27, 48]` (100-frame stack of 27x48
-  RGB thumbnails) → `boundary_logits` float32 `[1, 100]`
-  (per-frame logits before sigmoid). Internal 100-slot ring buffer
-  with head-clamp at clip start; per-frame **two** scalars
-  appended through the existing feature-collector plumbing —
-  `shot_boundary_probability` (sigmoid of the centre-slot logit)
-  and `shot_boundary` (binary 0/1 thresholded at 0.5). Picks up
-  `model_path` from the feature option or
-  `VMAF_TRANSNET_V2_MODEL_PATH` env var (mirrors LPIPS /
-  FastDVDnet); declines cleanly with `-EINVAL` when neither is
-  set. **Placeholder weights only** —
-  `model/tiny/transnet_v2.onnx` is a smoke-only ~125 KB
-  randomly-initialised tiny MLP with the right I/O shape; real
-  upstream weights (Soucek & Lokoc 2020 MIT) tracked as
-  **T6-3a-followup**, the per-shot CRF predictor +
-  `tools/vmaf-perShot` CLI as **T6-3b**. New ADR
-  [ADR-0220](docs/adr/0223-transnet-v2-shot-detector.md), user-facing
-  doc [`docs/ai/models/transnet_v2.md`](docs/ai/models/transnet_v2.md),
-  placeholder-export driver
-  [`ai/scripts/export_transnet_v2_placeholder.py`](ai/scripts/export_transnet_v2_placeholder.py),
-  registry row in [`model/tiny/registry.json`](model/tiny/registry.json),
-  6-subtest smoke at
-  [`libvmaf/test/test_transnet_v2.c`](libvmaf/test/test_transnet_v2.c).
-- **Port upstream `8a289703` + `1b6c3886` — 32-bit ADM/cpu fallbacks
-  (T-NEW-3, audit row from PR #205).** Cherry-picks two upstream
-  Netflix/vmaf commits by Christopher Degawa that make the AVX2 /
-  AVX-512 ADM SIMD paths build on 32-bit x86: a portable
-  `extract_epi64` fallback for `_mm256_extract_epi64` (unavailable
-  on i686) in `libvmaf/src/feature/x86/adm_avx2.c` and
-  `libvmaf/src/feature/x86/adm_avx512.c`, and removal of the
-  `#if ARCH_X86_64` guard around the AVX/AVX2/AVX-512 detection
-  block in `libvmaf/src/x86/cpu.c`. Pairs with the existing
-  i686 build-only CI matrix lane (PR #87 / ADR-0151), which
-  currently runs with `-Denable_asm=false`; together with this
-  port the lane can move toward exercising the integer ADM SIMD
-  paths once additional 32-bit intrinsic fallbacks (motion / psnr,
-  not in this PR) land. Conflict resolution preserved the fork's
-  clang-format-100col layout and the `_Alignas(64)` LTO-correctness
-  slot in adm_avx512.c (see
-  [`docs/development/known-upstream-bugs.md`](docs/development/known-upstream-bugs.md)).
-  Verbatim 2-commit upstream port; no fork-local algorithmic
-  changes. Original-commits:
-  [`8a289703`](https://github.com/Netflix/vmaf/commit/8a289703),
-  [`1b6c3886`](https://github.com/Netflix/vmaf/commit/1b6c3886).
-- **`speed_chroma` + `speed_temporal` feature extractors (T-NEW-1,
-  upstream port).** Verbatim cherry-pick of Netflix/vmaf
-  [`d3647c73`](https://github.com/Netflix/vmaf/commit/d3647c73)
-  ("feature/speed: port speed_chroma and speed_temporal extractors")
-  with its dependency
-  [`4ad6e0ea`](https://github.com/Netflix/vmaf/commit/4ad6e0ea)
-  ("feature/vif: port helper functions"). Adds two research-stage
-  float-only extractors: `speed_chroma` (per-channel chroma fidelity
-  on Y / U / V / UV) and `speed_temporal` (temporal Speed score over
-  a small cyclic frame buffer). Registers behind
-  `VMAF_FLOAT_FEATURES` so only `-Denable_float=true` builds ship
-  them. The cherry-pick widens the in-tree `picture_copy()` signature
-  with a new `int channel` parameter; every fork-local caller
-  (CUDA / Vulkan MS-SSIM, SSIM) is updated to pass `channel=0`. New
-  registration smoke test at `libvmaf/test/test_speed.c` (5 cases).
-  Per-feature doc rows + section under
-  [`docs/metrics/features.md`](docs/metrics/features.md). Closes
-  T-NEW-1 from the T7-4 quarterly upstream audit (PR #205).
-- **BVI-DVC feature-extraction pipeline (corpus-3 for tiny-AI v2).**
-  New
-  [`ai/scripts/bvi_dvc_to_full_features.py`](ai/scripts/bvi_dvc_to_full_features.py)
-  mirrors the canonical-21
-  [`ai/scripts/konvid_to_full_features.py`](ai/scripts/konvid_to_full_features.py)
-  pipeline (PR #178) but sources clips from BVI-DVC Part 1 (Ma,
-  Zhang, Bull 2021) — a 4-tier 4:2:0 10-bit YCbCr reference
-  corpus (A=3840x2176, B=1920x1088, C=960x544, D=480x272, 193
-  clips per tier, 64 frames each). Streams individual `.mp4`
-  entries from the 84 GB zip without unpacking the archive,
-  decodes 10-bit YUV reference, encodes a CRF-35 distorted side,
-  runs libvmaf with the verbatim FULL_FEATURES tuple +
-  vmaf_v0.6.1 model attached for the per-frame teacher score,
-  caches per-clip JSON under
-  `~/.cache/vmaf-tiny-ai-bvi-dvc-full/<key>.json`, and
-  aggregates to `runs/full_features_bvi_dvc_<tier>.parquet`
-  (gitignored). The 10-bit input path is the only structural
-  delta vs. the 8-bit konvid invocation (`-pix_fmt yuv420p10le`
-  and `--bitdepth 10`). `--tier {A,B,C,D,all}` selects the
-  resolution; D-tier wall-clock is ~3 s/clip on CPU, ~10 min
-  for the full 193-clip tier. Reference-only dataset — VMAF
-  score is the teacher signal since BVI-DVC ships no DMOS.
-  Smoke command: `python3 ai/scripts/bvi_dvc_to_full_features.py
-  --tier D --bvi-zip "<path>/BVI-DVC Part 1.zip" --vmaf-bin
-  build-cpu/tools/vmaf --max-clips 5`. Feeds the upcoming
-  3-corpus (Netflix + KoNViD + BVI-DVC) Phase-3b sweep that
-  validates Subset B's win across resolution scales the first
-  two corpora don't cover.
-- **Per-backend GPU kernel scaffolding templates (T7-XX / ADR-0246).**
-  New header-only inline-helper templates
-  [`libvmaf/src/cuda/kernel_template.h`](libvmaf/src/cuda/kernel_template.h)
-  (296 LOC) and
-  [`libvmaf/src/vulkan/kernel_template.h`](libvmaf/src/vulkan/kernel_template.h)
-  (410 LOC) absorb the lifecycle boilerplate every fork-added GPU
-  feature kernel currently hand-rolls. CUDA template captures the
-  private non-blocking stream + 2 events + device accumulator +
-  pinned host readback slot (`VmafCudaKernelLifecycle` +
-  `VmafCudaKernelReadback` + 6 inlines wrapping `cuCtxPushCurrent` /
-  `cuStreamCreateWithPriority` / `cuEventCreate` / `cuMemsetD8Async` /
-  `cuStreamWaitEvent` / destroy ladders). Vulkan template captures
-  the descriptor-set layout + pipeline layout + shader module +
-  compute pipeline + descriptor pool plus per-frame command-buffer
-  + fence pair (`VmafVulkanKernelPipeline` + `VmafVulkanKernelSubmit`
-  + 5 inlines wrapping `vkCreateDescriptorSetLayout` /
-  `vkCreatePipelineLayout` / `vkCreateShaderModule` /
-  `vkCreateComputePipelines` / `vkCreateDescriptorPool` / per-frame
-  `vkAllocateCommandBuffers` / `vkBeginCommandBuffer` /
-  `vkCreateFence` / `vkQueueSubmit` / `vkWaitForFences` and
-  reverse-order destroys). Templates are **template-only** — no
-  existing kernel includes them in this PR. Each future kernel
-  migration ships in its own PR gated by the `places=4`
-  cross-backend-diff lane (per
-  [ADR-0214](docs/adr/0214-gpu-parity-ci-gate.md)) plus the Netflix
-  CPU golden gate. Per-backend (not cross-backend) because CUDA's
-  async-stream + event model and Vulkan's command-buffer + fence +
-  descriptor-pool model share no concrete shape. Helper functions
-  (not macros) for cuda-gdb / Nsight / RenderDoc step-debugging.
-  New user doc
-  [`docs/backends/kernel-scaffolding.md`](docs/backends/kernel-scaffolding.md)
-  covers the helper signatures + a per-kernel migration sketch;
-  AGENTS.md invariant rows added under
-  `libvmaf/src/cuda/AGENTS.md` and a new
-  `libvmaf/src/vulkan/AGENTS.md`. Deferred migrations:
-  - **T7-XX-followup-a**: SYCL kernel-template refactor (deferred
-    — needs icpx host).
-  - **T7-XX-followup-b**: migrate fork-added CUDA kernels to
-    template (`integer_psnr_cuda` first, then `ssimulacra2_cuda`).
-  - **T7-XX-followup-c**: migrate fork-added Vulkan kernels to
-    template (`psnr_vulkan` first, then `motion_vulkan` /
-    `ssim_vulkan` / `cambi_vulkan`).
-
-  See [ADR-0246](docs/adr/0246-gpu-kernel-template.md).
-- **`vmaf-perShot` per-shot CRF predictor sidecar (T6-3b / ADR-0222).**
-  New standalone CLI under `libvmaf/tools/vmaf_per_shot.c` that
-  consumes a YUV reference, segments it into shots via a
-  frame-difference heuristic, computes per-shot complexity +
-  motion-energy + length signals, and emits a per-shot CRF plan as
-  CSV (default) or JSON. v1 uses a transparent linear-blend
-  predictor (no training corpus needed); v2 will swap in a small
-  trained MLP under the same schema. Pairs with the in-flight
-  TransNet V2 extractor (T6-3a / ADR-0220) — once that lands, the
-  tool will accept a pre-computed shot map via `--shots`. Smoke
-  test under `libvmaf/tools/test/test_vmaf_per_shot.sh` runs
-  against the `testdata/ref_576x324_48f.yuv` fixture (≥1 shot
-  detected, all CRFs in `[crf-min, crf-max]`). New user doc
-  [`docs/usage/vmaf-perShot.md`](docs/usage/vmaf-perShot.md);
-  cross-linked from [`docs/usage/cli.md`](docs/usage/cli.md);
-  `libvmaf/tools/AGENTS.md` carries the standalone-sidecar +
-  stable-schema invariants. See
-  [ADR-0222](docs/adr/0222-vmaf-per-shot-tool.md).
-- **`vmaf-roi` sidecar binary for per-CTU QP offsets (T6-2b /
-  ADR-0247).** New CLI tool at `libvmaf/tools/vmaf_roi.c` that
-  consumes raw planar YUV + a 0-based frame index, optionally runs
-  the `mobilesal` saliency model through the public
-  `vmaf_dnn_session_run_luma8()` API (T6-2a / ADR-0218 / PR #208 is
-  the scoring-side counterpart), reduces the per-pixel saliency
-  map to a per-CTU mean, and emits an encoder-native QP-offset
-  sidecar — ASCII per-row grid for x265 (`--qpfile-style`) or raw
-  `int8_t` binary for SVT-AV1 (`--roi-map-file`). Mapping is
-  `qp = clamp(-strength * (2 * saliency - 1), -12, +12)`: high
-  saliency drives the offset negative (boost quality), low saliency
-  positive (save bits). 8-bit YUV only in T6-2b; 10/12-bit follows
-  the `mobilesal` bit-depth upgrade. When `--saliency-model` is
-  absent the tool falls back to a deterministic center-weighted
-  radial placeholder, documented as smoke-test-only — not for real
-  encodes. New `docs/usage/vmaf-roi.md`. New header-only helper TU
-  `libvmaf/tools/vmaf_roi_core.h` lets the smoke test
-  (`libvmaf/test/test_vmaf_roi.c`) compile the per-CTU mean
-  reducer and QP-offset mapper without dragging libvmaf's link
-  surface in. See [ADR-0247](docs/adr/0247-vmaf-roi-tool.md).
-
-- **`motion3_score` GPU coverage on Vulkan + CUDA + SYCL
-  (T3-15(c) / ADR-0219).** The `motion` extractor's third output
-  (`integer_motion3`) is now emitted by the three GPU twins —
-  `motion_vulkan`, `motion_cuda`, `motion_sycl` — in 3-frame window
-  mode (the default; the 5-frame `motion_five_frame_window=true`
-  mode is now explicitly rejected with `-ENOTSUP` at `init()`).
-  motion3 is a deterministic scalar post-process of `motion2`
-  (`motion_blend(motion2 * motion_fps_weight, motion_blend_factor,
-  motion_blend_offset)` clipped to `motion_max_val`, with optional
-  moving-average), so the GPU port is purely a host-side add-on
-  after the existing SAD reduction — no kernel changes. The full
-  CPU options surface (`motion_blend_factor`, `motion_blend_offset`,
-  `motion_fps_weight`, `motion_max_val`, `motion_moving_average`)
-  is added to each GPU extractor with defaults matching CPU. The
-  cross-backend parity gates
-  ([`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
-  + [`scripts/ci/cross_backend_vif_diff.py`](scripts/ci/cross_backend_vif_diff.py))
-  extend `FEATURE_METRICS["motion"]` to compare `integer_motion3`
-  at `places=4`. Closes the GPU coverage gap that was tracked as
-  T3-17 in the backlog audit (now T3-15(c)) and the "Vulkan motion3
-  GPU gap" in [`docs/backlog-audit-2026-04-28.md`](docs/backlog-audit-2026-04-28.md)
-  row A.1.4. See [ADR-0219](docs/adr/0219-motion3-gpu-coverage.md).
-- **Tiny-AI Wave-1 C1 baseline `fr_regressor_v1` (T6-1a / ADR-0249).**
-  Ships `model/tiny/fr_regressor_v1.onnx` — a 6-feature canonical
-  MLP (FRRegressor: 2-layer GELU, hidden=64) that maps libvmaf's
-  classical feature vector (`adm2`, `vif_scale0..3`, `motion2`) to a
-  per-frame VMAF score. Trained on the locally-available Netflix
-  Public Dataset (9 ref + 70 dis YUVs at `.workingdir2/netflix/`,
-  unblocked from the access-gated deferral in ADR-0168) with
-  `vmaf_v0.6.1` as the per-frame DMOS-aligned teacher. New trainer
-  [`ai/scripts/train_fr_regressor.py`](ai/scripts/train_fr_regressor.py)
-  runs 9-fold leave-one-source-out (LOSO), refuses to overwrite the
-  registry below mean PLCC 0.95, then re-trains on all sources for
-  the shipping checkpoint. Sidecar
-  [`model/tiny/fr_regressor_v1.json`](model/tiny/fr_regressor_v1.json)
-  pins the per-feature standardisation (`feature_mean` /
-  `feature_std`) so callers can reproduce the input pipeline; the
-  ONNX itself stays standardisation-agnostic. New user doc
-  [`docs/ai/models/fr_regressor_v1.md`](docs/ai/models/fr_regressor_v1.md);
-  Wave-1 roadmap §2.1 row flips from **Deferred** to **Shipped
-  2026-04-29**; `ai/AGENTS.md` carries the `fr_regressor_v1`
-  contract row + rebase-sensitive invariants. See
-  [ADR-0249](docs/adr/0249-fr-regressor-v1.md).
-- **Tiny-AI: vmaf_tiny_v2 (ADR-0244).** Ship `model/tiny/vmaf_tiny_v2.onnx`
-  — the production-grade tiny VMAF fusion model on the Phase-3 validated
-  configuration: `mlp_small` (6 → 16 → 8 → 1, ~257 params) over the
-  canonical-6 features (`adm2`, `vif_scale0..3`, `motion2`) with the
-  StandardScaler `(mean, std)` baked into the ONNX graph as Constant
-  `Sub` + `Div` nodes (single-file deploy, trust-root sha256 covers
-  calibration values). 90 epochs Adam @ lr=1e-3, MSE, batch 256.
-  Validated PLCC `0.9978 ± 0.0021` on Netflix LOSO; `0.9998` on
-  KoNViD 5-fold; +0.005–0.018 over the prior Subset-B baseline
-  (Phase-3a/b/c chain). Three new scripts: `train_vmaf_tiny_v2.py`,
-  `export_vmaf_tiny_v2.py`, `validate_vmaf_tiny_v2.py`. Registered as
-  `vmaf_tiny_v2` (kind `fr`, `quant_mode: fp32`, `smoke: false`) in
-  `model/tiny/registry.json`. New user-facing doc
-  [`docs/ai/models/vmaf_tiny_v2.md`](docs/ai/models/vmaf_tiny_v2.md);
-  [`docs/ai/inference.md`](docs/ai/inference.md) default flips v1 →
-  v2; [`docs/ai/roadmap.md`](docs/ai/roadmap.md) row marked shipped.
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
@@ -1734,54 +1386,6 @@
   covers both `None` and populated dict paths via
   `FeatureAssembler` mock. No behaviour change for callers that did
   not declare per-extractor options.
-
-- **SYCL toolchain cleanup (T7-13 / ADR-0217).** Two thin shims land
-  to unblock SYCL files for the changed-file CI lint gate and to make
-  multi-version oneAPI installs usable for `vmaf_bench`:
-  [`scripts/ci/sycl-bench-env.sh <version>`](scripts/ci/sycl-bench-env.sh)
-  resolves an oneAPI install (side-by-side `/opt/intel/oneapi-<version>/`
-  or default `/opt/intel/oneapi/`), sources its `setvars.sh`, and emits
-  an `eval`-able env block (`CMPLR_ROOT`, `LD_LIBRARY_PATH`,
-  `LIBRARY_PATH`, `PATH`);
-  [`scripts/ci/clang-tidy-sycl.sh`](scripts/ci/clang-tidy-sycl.sh) is
-  an icpx-aware `clang-tidy` wrapper that injects the oneAPI SYCL
-  include path + `-D__SYCL_DEVICE_ONLY__=0` + `-Wno-unknown-warning-option`
-  + `-Wno-unknown-pragmas` so stock LLVM clang-tidy resolves
-  `<sycl/sycl.hpp>` and stops emitting the 4 residual
-  `'sycl/sycl.hpp' file not found` errors that left
-  `libvmaf/src/sycl/**` excluded from the lint gate after T7-7. New CI
-  lane `Clang-Tidy SYCL (Changed Files, Advisory)` in
-  [`.github/workflows/lint-and-format.yml`](.github/workflows/lint-and-format.yml)
-  installs the DPC++/C++ component of oneAPI, configures a
-  `build-sycl/` tree with `CC=icx CXX=icpx -Denable_sycl=true`, and
-  runs the wrapper over changed SYCL TUs. Lane is advisory
-  (`continue-on-error: true`) on this PR; tightens to required after
-  one green run on master. New "Multi-version coexistence" section in
-  [`docs/development/oneapi-install.md`](docs/development/oneapi-install.md);
-  the existing "Verify SYCL clang-tidy still works" recipe rewritten
-  to use the wrapper. See [ADR-0217](docs/adr/0217-sycl-toolchain-cleanup.md).
-
-- **Upstream `c70debb1` partial port — `adm_csf` + `barten_csf`
-  unit tests** (T-NEW-2). Cherry-picks the additive halves of
-  Netflix upstream commit `c70debb1` ("libvmaf/test: port new
-  adm/vif/speed tests", Kyle Swanson, 2026-04-28): the new
-  [`libvmaf/src/feature/adm_csf_tools.h`](libvmaf/src/feature/adm_csf_tools.h)
-  header (declaring the inline `adm_native_csf` DLM-CSF helper)
-  and the two new unit-test files
-  [`libvmaf/test/test_adm_csf.c`](libvmaf/test/test_adm_csf.c)
-  (2 cases) +
-  [`libvmaf/test/test_barten_csf.c`](libvmaf/test/test_barten_csf.c)
-  (23 cases). The other two halves of `c70debb1` — `test_vif_tools.c`
-  and `test_speed_chroma.c` — are deliberately deferred:
-  `test_vif_tools` depends on the upstream `vif` runtime-helper
-  chain (`NUM_KERNELSCALES`, `vif_validate_kernelscale`, etc.) that
-  the fork skips per
-  [Research-0024](docs/research/0024-vif-upstream-divergence.md)
-  Strategy E to protect the ADR-0138 / 0139 / 0142 / 0143 SIMD
-  bit-exactness contract; `test_speed_chroma` `#include`s
-  `feature/speed.c`, which the fork does not yet ship (audit row
-  T-NEW-1). Tracked alongside the
-  [2026-04-29 quarterly upstream-backlog re-audit (PR #205)](docs/upstream-backlog-audit-2026-04-29.md).
 
 - **Research-0031: Intel AI-PC NPU/EP applicability digest (T7-9)**
   (fork-local doc): new
@@ -2314,56 +1918,6 @@
 
 ### Fixed
 
-- **integer_vif: add `vif_skip_scale0` parameter** (upstream port,
-  Netflix/vmaf
-  [`de538216`](https://github.com/Netflix/vmaf/commit/de538216411c3df10f92f03c42589e7108d05ed1),
-  Kyle Swanson, 2026-04-29). Adds the `vif_skip_scale0` feature parameter
-  (alias `ssclz`) to `integer_vif`. When enabled, scale-0 VIF computation
-  is skipped; scale-0 num/den emit `0.0` / `-1.0` sentinels and the
-  aggregate score is computed from scales 1–3 only. Conflict in
-  `libvmaf/src/feature/integer_vif.c` was purely formatting (fork's K&R
-  / 100-col layout vs upstream's 80-col); algorithmic content applied
-  verbatim. VIF + VMAF golden-test set passes (72/72) on the fork. No
-  default-behavior change — the param is opt-in, default `false`.
-- **integer_motion: dict leak in `motion_force_zero` case** (upstream port,
-  Netflix/vmaf
-  [`4f5e366b`](https://github.com/Netflix/vmaf/commit/4f5e366b4f4167d0b46eb5621990f6f0cc84cdab),
-  rcombs, 2025-11-04). When `motion_force_zero=true`, the integer_motion
-  feature extractor wired `fex->close = NULL`, leaking the
-  `feature_name_dict` allocated in `init`. Adds a `close_force_zero`
-  callback that calls `vmaf_dictionary_free(&s->feature_name_dict)`. CPU-only
-  bookkeeping fix; no numerical impact and no SIMD/GPU twins to propagate.
-- **x86/adm: fix compilation for 32-bit clang** (upstream port,
-  Netflix/vmaf
-  [`7affcb7c`](https://github.com/Netflix/vmaf/commit/7affcb7c53057131f6d8baeb2d270a1c3ffc627b),
-  Christopher Degawa, 2026-04-29). Partner to PR #212.
-  `_mm256_extract_epi64` is unavailable in 32-bit clang. The previous
-  `extract_epi64` fallback in `adm_avx2.c` and `adm_avx512.c` used a
-  computed index passed to `_mm_extract_epi32`, which clang rejects
-  because it requires a compile-time-constant lane index. Replaces the
-  computed-index path with a `switch (index)` that materialises the four
-  constant-index cases (0..3), unblocking 32-bit-clang builds with no
-  64-bit codegen change.
-- **libvmaf/predict: chroma_from_luma correction** (upstream port,
-  Netflix/vmaf
-  [`49d46e23`](https://github.com/Netflix/vmaf/commit/49d46e234ba0d0b7f334d20f735278a9445b9110),
-  Kyle Swanson, 2026-04-29). Adds an optional `chroma_from_luma`
-  post-processing step to the SVR prediction pipeline. Models that set
-  the new `chroma_correction_parameter` numeric key in their JSON enable
-  a `post_process_feature_from_another` pass that adjusts the guided
-  feature ("speed_chroma") from the guiding feature ("adm3"),
-  denormalising both, applying `(-c * guiding) + c`, and renormalising
-  before `svm_predict`. New `denormalize_feature` and
-  `post_process_feature_from_another` helpers and a
-  `chroma_from_luma { enabled, chroma_correction_parameter }` field on
-  `VmafModel`. Adapted to the fork's `predict.c` refactor (cached
-  `model->predict_nodes`, no `goto free_node` label) and to the
-  per-key dispatcher in `read_json_model.c` (new
-  `parse_model_dict_chroma_correction` helper). Dormant for the Netflix
-  golden gate — no fork-shipped model JSON sets the new key, so existing
-  assertions remain bit-identical (verified by `make
-  test-netflix-golden`).
-
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
   `Clang-Tidy (Changed C/C++ Files)` step used `git diff --name-only`
@@ -2689,7 +2243,7 @@
   [`float_vif_sycl.cpp`](libvmaf/src/feature/sycl/float_vif_sycl.cpp).
   New `float_vif` lavapipe gate step + `FEATURE_METRICS` entry at
   places=4.
-- **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0252)**
+- **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0242)**
   (fork-local): scaffold-only PR preparing the tiny-AI training pipeline for
   the local Netflix VMAF corpus (9 ref / 70 distorted YUVs at
   `.workingdir2/netflix/`). Ships `docs/ai/training-data.md` with the corpus
@@ -4759,7 +4313,85 @@
   [`docs/research/0051-speed-qa-feasibility.md`](docs/research/0051-speed-qa-feasibility.md).
 
 
+- **`tools/vmaf-tune/` Phase A — quality-aware encode automation scaffold
+  (ADR-0237 Phase A Accepted, Research-0044).** New Python tool that
+  drives FFmpeg over a `(preset, crf)` grid against `libx264`, scores
+  each encode with the libvmaf CLI, and emits a JSONL corpus of
+  `(source, encoder, params, bitrate, vmaf)` rows. Schema versioned via
+  `vmaftune.SCHEMA_VERSION = 1` and exported as `CORPUS_ROW_KEYS`; the
+  schema is the API contract that Phase B (target-VMAF bisect) and
+  Phase C (per-title CRF predictor) will consume. Codec adapter
+  registry (`codec_adapters/`) is multi-codec from day one — Phase A
+  wires `libx264` only; subsequent codecs (`libx265`, `libsvtav1`,
+  `libvpx-vp9`, `libvvenc`, neural extras) are one-file additions
+  without touching the search loop. Subprocess-mocked smoke tests
+  under `tools/vmaf-tune/tests/` (13 cases) cover command shape,
+  version parsing, JSONL round-trip, encode-failure handling, and the
+  schema contract — no `ffmpeg` or built `vmaf` binary required.
+  User docs: [`docs/usage/vmaf-tune.md`](../docs/usage/vmaf-tune.md).
+  Phases B–F remain Proposed under ADR-0237; this PR ships only the
+  Phase A corpus scaffold.
+
+
+- **Tiny-AI / saliency**: Added `saliency_student_v1` — a fork-trained
+  tiny U-Net (~113 K parameters, ONNX opset 17, BSD-3-Clause-Plus-Patent)
+  trained from scratch on the DUTS-TR public saliency-detection corpus
+  (Wang et al. 2017). Replaces the smoke-only
+  `mobilesal_placeholder_v0` as the recommended weights for the
+  `mobilesal` feature extractor. The C-side `feature_mobilesal.c`
+  extractor is unchanged (same `input` / `saliency_map` tensor names,
+  same NCHW shapes); the new model is a true drop-in. The decoder uses
+  `ConvTranspose` for stride-2 upsampling so every op in the graph is
+  on `libvmaf/src/dnn/op_allowlist.c` without an allowlist patch in
+  the same PR. DUTS images are not redistributed in-tree; only the
+  trained weights are. The placeholder remains in the registry with
+  `smoke: true` for legacy reasons. New model card at
+  [`docs/ai/models/saliency_student_v1.md`](docs/ai/models/saliency_student_v1.md);
+  decision in
+  [ADR-0286](docs/adr/0286-saliency-student-fork-trained-on-duts.md);
+  digest in
+  [Research-0054](docs/research/0062-saliency-student-from-scratch-on-duts.md).
+  Trainer at `ai/scripts/train_saliency_student.py`.
+
+
 ### Changed
+
+- **Per-GPU-generation ULP calibration table for the cross-backend
+  parity gate (T-GPU-ULP / ADR-0234).** New
+  [`scripts/ci/gpu_ulp_calibration.yaml`](scripts/ci/gpu_ulp_calibration.yaml)
+  maps a runtime GPU identifier (Research-0041 schema:
+  `vulkan:0xVVVV:0xDDDD` / `cuda:M.m` / `sycl:0xVVVV:DRIVER`) to a
+  per-feature absolute tolerance. Both
+  [`scripts/ci/cross_backend_vif_diff.py`](scripts/ci/cross_backend_vif_diff.py)
+  and
+  [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
+  now accept `--gpu-id <runtime_id>` and `--calibration-table <path>`;
+  when omitted, behaviour is identical to before (per-feature
+  `FEATURE_TOLERANCE` defaults remain authoritative). Lookup picks
+  the most-specific glob match (`vulkan:0x10005:*` for lavapipe;
+  trailing `*` is supported). The hosted-CI lavapipe lane in
+  [`.github/workflows/tests-and-quality-gates.yml`](.github/workflows/tests-and-quality-gates.yml)
+  passes `--gpu-id "vulkan:0x10005:0x0"` so the gate's tolerance
+  decisions are now per-arch annotated in the parity report's JSON
+  + Markdown artefacts. Initial coverage: 1 calibrated row (Mesa
+  lavapipe — tolerances match the gate's pre-existing
+  `FEATURE_TOLERANCE` defaults so behaviour is unchanged) plus 11
+  placeholder rows (NVIDIA Ampere / Turing / Ada / Hopper, AMD
+  RDNA2 / RDNA3, Intel Arc Alchemist / Battlemage, generic Intel
+  SYCL); placeholders are functional no-ops until a real-hardware
+  corpus replaces their `features:` block. New unit test
+  [`scripts/ci/test_calibration.py`](scripts/ci/test_calibration.py)
+  (19 cases) covers the loader, glob semantics, specificity ranking,
+  and the shipped-table round-trip. The ONNX calibration head and
+  `--gpu-calibrated` CLI flag from ADR-0234's "Decision" §
+  remain deferred to the follow-up PR `feat(ai):
+  T7-GPU-ULP-CAL — calibration-head v0`. See
+  [ADR-0234](docs/adr/0234-gpu-gen-ulp-calibration.md) (now
+  Accepted),
+  [Research-0041](docs/research/0041-gpu-gen-ulp-calibration.md),
+  and the rebase-notes entry under
+  [`docs/rebase-notes.md`](docs/rebase-notes.md).
+
 
 - **MobileSal real-weights swap deferred (T6-2a-followup, ADR-0257)** —
   the original plan to swap the smoke-only `mobilesal_placeholder_v0`
@@ -4870,6 +4502,23 @@
   `docs/ai/models/fastdvdnet_pre.md`.
 
 
+- **AI / DNN:** Replaced the `fastdvdnet_pre` smoke-only placeholder
+  ONNX with real upstream FastDVDnet weights (Tassano, Delon, Veit
+  2020; MIT license) pinned at `m-tassano/fastdvdnet` commit `c8fdf61`.
+  The new graph wraps upstream's RGB+noise-map model in a `LumaAdapter`
+  that preserves the C-side `[1, 5, H, W]` luma I/O contract from
+  ADR-0215: `Y → [Y, Y, Y]` tiling for the upstream 15-channel input,
+  a constant `sigma = 25/255` noise map, and BT.601 RGB→Y collapse on
+  the output. Upstream `nn.PixelShuffle` is swapped at export time for
+  an allowlist-safe `Reshape`/`Transpose`/`Reshape` decomposition
+  (`DepthToSpace` is deliberately not on the ONNX op allowlist).
+  Registry row `model/tiny/registry.json` flips `smoke: false` with
+  the new MIT license, upstream commit pin, and refreshed sha256.
+  9.5 MiB ONNX, opset 17. New exporter
+  `ai/scripts/export_fastdvdnet_pre.py`. See ADR-0253 and
+  `docs/ai/models/fastdvdnet_pre.md`.
+
+
 - **CHANGELOG + ADR-index fragment files (T7-39 / ADR-0221)** — every PR
   in flight before this change fought merge conflicts in
   [`CHANGELOG.md`](CHANGELOG.md) and
@@ -4893,6 +4542,36 @@
   `changelog.d/<section>/<row>.md` as a CHANGELOG entry. See
   [ADR-0221](docs/adr/0221-changelog-adr-fragment-pattern.md) +
   [`docs/research/0034-changelog-fragment-pattern.md`](docs/research/0034-changelog-fragment-pattern.md).
+
+
+- T7-5 — readability-function-size NOLINT sweep. Refactored
+  `float_adm.c::extract` (debug-feature appends extracted into
+  `append_debug_features` helper) and `tools/vmaf.c::main` (eight
+  helpers extracted: `open_input_videos`, `init_gpu_backends`,
+  `allocate_model_arrays`, `model_label`, `load_model_collection_entry`,
+  `load_one_model_entry`, `configure_tiny_model`, `resolve_tiny_device`,
+  `skip_initial_frames`, `run_frame_loop`, `report_pooled_scores`).
+  Two pre-2026-04-21 historical-debt NOLINTs removed; remaining NOLINTs
+  in `tools/vmaf.c` (`copy_picture_data`, `init_gpu_backends`, `main`)
+  carry inline justification per ADR-0141 §2 — load-bearing CLI
+  cleanup-ownership chain and conditional-compilation backend stanzas
+  that further extraction would obscure. Netflix CPU golden assertions
+  byte-exact (90/90 + 57/57 VMAF-specific tests pass; pre-existing
+  pypsnr/niqe Python-3.14 failures unchanged). Closes T7-5.
+
+
+- **Dedup duplicate-NNNN ADRs (bookkeeping).** Renumbered ten ADR files
+  that violated the `docs/adr/README.md` "IDs assigned in commit order
+  and never reused" rule (5 NNNN values had 2–7 sharing files;
+  earliest-committed file at each colliding NNNN kept its number, the
+  rest moved into the next free range 0242–0251). Filenames, H1
+  headings, in-tree citations (`docs/`, `libvmaf/src/`, `ai/`,
+  `scripts/`, `model/`, `mcp-server/`), and `docs/adr/README.md` index
+  rows updated; ADR body prose is unchanged. Mappings recorded in
+  [`docs/adr/README.md`](docs/adr/README.md) Conventions section under
+  "2026-05-02 dedup sweep". Fork-private planning dossiers may still
+  cite old NNNNs — consult the mapping table when resolving
+  pre-sweep references.
 
 ## (2022-04-11) [v2.3.1]
 
