@@ -13,15 +13,18 @@ optimal ladder for one title is *not* a fixed grid — it is the set of
 (resolution, bitrate) points that maximise quality per byte for *that*
 title.
 
-Phase E is **scaffold-only**: real (resolution, quality) sampling
-requires Phase B's target-VMAF bisect (PR #347 in flight) and Phase A's
-encode harness. The smoke path here mocks the corpus generator — see
-``tools/vmaf-tune/tests/test_ladder.py``. End-to-end wiring against the
-real bisect lands in a follow-up PR once Phase B merges.
+Production sampling is wired by composing Phase A's
+:func:`vmaftune.corpus.iter_rows` (encode + score) with the
+:func:`vmaftune.recommend.pick_target_vmaf` predicate from Phase B's
+recommend surface (ADR-0306 / Research-0079). The :data:`SamplerFn`
+seam stays open so callers can substitute a finer grid, a Bayesian
+bisect, or a precomputed corpus row stream.
 
 See ``docs/adr/0295-vmaf-tune-phase-e-bitrate-ladder.md`` for the
 design rationale and the alternatives considered (geometric ladder,
-fixed Apple HLS authoring spec, JND-based, etc.).
+fixed Apple HLS authoring spec, JND-based, etc.) and
+``docs/adr/0307-vmaf-tune-ladder-default-sampler.md`` for the
+default-sampler wiring decision.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import tempfile
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
@@ -103,13 +107,12 @@ def build_ladder(
 
     For each (resolution, target_vmaf) cell, ``sampler`` produces a
     :class:`LadderPoint`. Production callers leave ``sampler`` ``None``
-    to dispatch to Phase B's target-VMAF bisect; tests inject a stub.
-
-    Phase E does not run encodes itself — it composes Phase A
-    (encoding) and Phase B (bisect) and turns their output into a
-    ladder. Until Phase B is merged, ``sampler`` must be supplied
-    explicitly; the default raises :class:`NotImplementedError` rather
-    than silently producing garbage.
+    to dispatch to :func:`_default_sampler`, which composes the Phase A
+    corpus encode+score loop with :func:`recommend.pick_target_vmaf` to
+    pick the (preset_default, CRF) row whose VMAF is closest to
+    ``target_vmaf`` over the canonical 5-point CRF sweep
+    ``(18, 23, 28, 33, 38)`` (ADR-0307, Research-0079). Tests inject a
+    stub via ``sampler=`` to avoid live encoder runs.
     """
     if sampler is None:
         sampler = _default_sampler
@@ -122,12 +125,95 @@ def build_ladder(
     return Ladder(src=src, encoder=encoder, points=tuple(points))
 
 
+# Canonical 5-point CRF sweep used by the default sampler (ADR-0307).
+# Spans the perceptually-informative range for libx264; non-x264
+# adapters validate the points against their own ``quality_range``
+# inside ``corpus.iter_rows``. Callers needing a finer grid pass an
+# explicit ``sampler=`` to ``build_ladder``.
+DEFAULT_SAMPLER_CRF_SWEEP: tuple[int, ...] = (18, 23, 28, 33, 38)
+
+
+def _default_sampler_preset(encoder: str) -> str:
+    """Pick the codec adapter's mid-range preset for the default sweep.
+
+    Most adapters expose ``"medium"`` in their ``presets`` tuple; the
+    fallback walks the tuple and returns its midpoint name.
+    """
+    # Lazy import — keeps the corpus / codec_adapters dependency off
+    # the import path for callers that only use ``convex_hull`` /
+    # ``select_knees`` / ``emit_manifest``.
+    from .codec_adapters import get_adapter
+
+    adapter = get_adapter(encoder)
+    presets = tuple(adapter.presets)
+    if "medium" in presets:
+        return "medium"
+    if not presets:
+        raise ValueError(f"adapter {encoder!r} declares no presets")
+    return presets[len(presets) // 2]
+
+
 def _default_sampler(
     src: Path, encoder: str, width: int, height: int, target_vmaf: float
-) -> LadderPoint:  # pragma: no cover - guard
-    raise NotImplementedError(
-        "Phase E build_ladder() requires Phase B's target-VMAF bisect "
-        "(PR #347 in flight). Pass `sampler=` explicitly until that lands."
+) -> LadderPoint:
+    """Production sampler — encode the canonical CRF sweep, pick by VMAF.
+
+    Composes :func:`vmaftune.corpus.iter_rows` (Phase A encode+score)
+    with :func:`vmaftune.recommend.pick_target_vmaf` (Phase B-equivalent
+    smallest-CRF-meeting-target predicate). The JSONL corpus is
+    written to a tempfile that's discarded after the call returns; the
+    encode-side temp dir lives under the same prefix and is cleaned up
+    on exit.
+
+    The source is treated as a raw YUV at ``yuv420p`` / 24 fps with a
+    1-second nominal duration — these are placeholder defaults for
+    rows whose ``bitrate_kbps`` is computed against the encoded
+    duration; callers needing a different framerate / pix_fmt /
+    duration should pass an explicit ``sampler=`` (the seam is
+    deliberately preserved per ADR-0307).
+    """
+    # Lazy imports — see ``_default_sampler_preset``.
+    from .corpus import CorpusJob, CorpusOptions, iter_rows
+    from .recommend import pick_target_vmaf
+
+    preset = _default_sampler_preset(encoder)
+    cells = tuple((preset, crf) for crf in DEFAULT_SAMPLER_CRF_SWEEP)
+
+    with tempfile.TemporaryDirectory(prefix="vmaftune-ladder-") as tmp:
+        tmp_path = Path(tmp)
+        job = CorpusJob(
+            source=src,
+            width=width,
+            height=height,
+            pix_fmt="yuv420p",
+            framerate=24.0,
+            duration_s=1.0,
+            cells=cells,
+        )
+        opts = CorpusOptions(
+            encoder=encoder,
+            output=tmp_path / "corpus.jsonl",
+            encode_dir=tmp_path / "encodes",
+            keep_encodes=False,
+            src_sha256=False,
+        )
+        rows = [r for r in iter_rows(job, opts) if int(r.get("exit_status", 0)) == 0]
+
+    if not rows:
+        raise RuntimeError(
+            f"default sampler produced no scorable encodes for "
+            f"{src} at {width}x{height} (encoder={encoder}); pass an "
+            f"explicit sampler= to build_ladder() to debug."
+        )
+
+    pick = pick_target_vmaf(rows, target_vmaf)
+    row = pick.row
+    return LadderPoint(
+        width=width,
+        height=height,
+        bitrate_kbps=float(row["bitrate_kbps"]),
+        vmaf=float(row["vmaf_score"]),
+        crf=int(row["crf"]),
     )
 
 

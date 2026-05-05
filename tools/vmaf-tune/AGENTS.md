@@ -169,12 +169,23 @@ for the option-space digest.
   wrong — the algorithm is pinned by `test_ladder.py` invariants
   (monotonic both axes, no domination). Don't refactor without
   re-running that suite.
-- **Phase E sampler is pluggable; default raises by design.** The
-  `SamplerFn` callback in `ladder.build_ladder` defaults to a stub
-  that raises `NotImplementedError`. Production wiring lives in a
-  follow-up PR gated on Phase B's target-VMAF bisect. Tests inject a
-  synthetic stub. Do not add a "best-effort" default that fakes
-  points — silently producing garbage is worse than a clear error.
+- **Phase E sampler is pluggable; default is a 5-point CRF sweep
+  (ADR-0307).** `ladder.build_ladder` accepts an explicit `sampler=`
+  callback; when omitted, `_default_sampler` composes
+  `corpus.iter_rows` (Phase A encode+score) with
+  `recommend.pick_target_vmaf` (smallest CRF clearing the target VMAF)
+  over the canonical sweep
+  `DEFAULT_SAMPLER_CRF_SWEEP = (18, 23, 28, 33, 38)` at the codec
+  adapter's mid-range preset (`"medium"` for libx264 / libx265 /
+  libsvtav1). The 5-point sweep is the load-bearing default; do not
+  widen it without an ADR-0307 follow-up — Phase E callers downstream
+  size their wall-time budget against five encodes per
+  (resolution, target_vmaf) cell. Callers needing a finer grid, a
+  Bayesian bisect, or a precomputed corpus stream pass an explicit
+  `sampler=` — that seam stays open. Tests stub `iter_rows` via
+  `monkeypatch.setattr(corpus_module, "iter_rows", ...)`; the lazy
+  `from .corpus import iter_rows` inside `_default_sampler` resolves
+  through the patched module attribute on every call.
 - **Saliency signal blend matches `vmaf-roi` (ADR-0293).**
   `saliency.py` deliberately mirrors `vmaf-roi`'s ADR-0247 signal
   blend (`offset = (2*sal − 1) * foreground_offset`, clamped to

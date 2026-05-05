@@ -163,8 +163,96 @@ def test_build_ladder_visits_full_grid():
     assert ladder.encoder == "libx264"
 
 
-def test_build_ladder_default_sampler_raises_until_phase_b():
-    with pytest.raises(NotImplementedError, match="Phase B"):
+def test_build_ladder_default_sampler_uses_corpus_and_recommend(monkeypatch):
+    """Default sampler composes ``iter_rows`` + ``pick_target_vmaf``.
+
+    Wiring closes the Phase B/E gap: ``_default_sampler`` no longer
+    raises ``NotImplementedError`` — it drives a 5-point CRF sweep via
+    :func:`vmaftune.corpus.iter_rows` and picks the row closest to
+    ``target_vmaf`` via :func:`vmaftune.recommend.pick_target_vmaf`.
+    Live encoder runs are stubbed by monkeypatching ``iter_rows`` to
+    yield synthetic rows.
+    """
+    from vmaftune import corpus as corpus_module
+    from vmaftune import ladder as ladder_module
+
+    captured_cells: list[tuple[str, int]] = []
+
+    def fake_iter_rows(job, opts, **_kwargs):
+        captured_cells.extend(job.cells)
+        # Synthetic R-D curve: lower CRF -> higher VMAF, higher bitrate.
+        for preset, crf in job.cells:
+            yield {
+                "preset": preset,
+                "crf": crf,
+                "vmaf_score": 100.0 - (crf - 18) * 1.5,
+                "bitrate_kbps": 100.0 * (40 - crf),
+                "encoder": opts.encoder,
+                "exit_status": 0,
+            }
+
+    monkeypatch.setattr(corpus_module, "iter_rows", fake_iter_rows)
+    # ``_default_sampler`` does ``from .corpus import iter_rows`` at
+    # call time, so the patched attribute on the corpus module is the
+    # function it actually invokes.
+
+    pt = ladder_module._default_sampler(Path("dummy.yuv"), "libx264", 640, 360, target_vmaf=92.0)
+    assert isinstance(pt, LadderPoint)
+    assert pt.width == 640 and pt.height == 360
+    # Expected cells = (18, 23, 28, 33, 38) at preset "medium".
+    assert {c for _p, c in captured_cells} == {18, 23, 28, 33, 38}
+    assert all(p == "medium" for p, _c in captured_cells)
+    # ``pick_target_vmaf`` returns the smallest CRF whose VMAF clears
+    # the target. With target=92.0 and the synthetic curve the rows
+    # CRF=18 (vmaf=100.0) and CRF=23 (vmaf=92.5) both clear; smallest
+    # CRF wins -> CRF=18, VMAF=100.0.
+    assert pt.crf == 18
+    assert pt.vmaf == pytest.approx(100.0)
+
+
+def test_build_ladder_default_sampler_no_longer_raises(monkeypatch):
+    """``build_ladder(sampler=None)`` runs end-to-end with stubbed encodes."""
+    from vmaftune import corpus as corpus_module
+
+    def fake_iter_rows(job, opts, **_kwargs):
+        for preset, crf in job.cells:
+            yield {
+                "preset": preset,
+                "crf": crf,
+                "vmaf_score": 100.0 - (crf - 18) * 1.0,
+                "bitrate_kbps": 200.0 * (40 - crf),
+                "encoder": opts.encoder,
+                "exit_status": 0,
+            }
+
+    monkeypatch.setattr(corpus_module, "iter_rows", fake_iter_rows)
+    ladder = build_ladder(
+        src=Path("foo.yuv"),
+        encoder="libx264",
+        resolutions=[(640, 360)],
+        target_vmafs=[80.0],
+    )
+    assert len(ladder.points) == 1
+    assert isinstance(ladder.points[0], LadderPoint)
+
+
+def test_build_ladder_default_sampler_propagates_no_scorable_rows(monkeypatch):
+    """Empty / all-failing row stream surfaces a clear RuntimeError."""
+    from vmaftune import corpus as corpus_module
+
+    def fake_iter_rows(job, opts, **_kwargs):
+        for preset, crf in job.cells:
+            yield {
+                "preset": preset,
+                "crf": crf,
+                "vmaf_score": float("nan"),
+                "bitrate_kbps": 0.0,
+                "encoder": opts.encoder,
+                "exit_status": 1,
+            }
+
+    monkeypatch.setattr(corpus_module, "iter_rows", fake_iter_rows)
+    with pytest.raises(RuntimeError, match="no scorable encodes"):
         build_ladder(
             src=Path("foo.yuv"),
             encoder="libx264",
