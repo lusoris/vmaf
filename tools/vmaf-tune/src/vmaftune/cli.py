@@ -168,6 +168,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--smoke",
         action="store_true",
         help="run synthetic-predictor smoke pipeline (no ffmpeg / no ONNX)",
+    )
+
     rec = sub.add_parser(
         "recommend",
         help="apply --target-vmaf / --target-bitrate predicate over a corpus",
@@ -298,6 +300,8 @@ def _run_fast(args: argparse.Namespace) -> int:
         sys.stderr.write(f"vmaf-tune fast: {exc}\n")
         return 3
     sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+
+
 def _rows_for_recommend(args: argparse.Namespace):
     """Yield rows for the recommend subcommand.
 
