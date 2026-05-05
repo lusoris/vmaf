@@ -22,6 +22,12 @@ Phase A: ``corpus`` (grid sweep -> JSONL). Phase E: ``ladder``
 (per-title bitrate-ladder generator -> HLS / DASH / JSON manifest).
 Phase B (``bisect``), Phase C (``predict``), and Phase D
 (``per-shot``) will register sibling subcommands here.
+Phase A exposes the ``corpus`` subcommand (grid sweep -> JSONL).
+Bucket #2 of the PR #354 audit (ADR-0293) adds the ``recommend``
+subcommand: a one-shot encode at a target VMAF, optionally
+saliency-aware via the fork's `saliency_student_v1` model. Phase B
+(``bisect``) and Phase C (``predict``) will register sibling
+subcommands here later.
 """
 
 from __future__ import annotations
@@ -32,9 +38,9 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .codec_adapters import known_codecs
+from .codec_adapters import get_adapter, known_codecs
 from .corpus import CorpusJob, CorpusOptions, iter_rows, write_jsonl
-from .encode import iter_grid
+from .encode import EncodeRequest, iter_grid, run_encode
 from .ladder import build_and_emit
 from .per_shot import (
     detect_shots,
@@ -238,6 +244,25 @@ def _build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--pix-fmt", default="yuv420p")
     rec.add_argument("--framerate", type=float, default=24.0)
     rec.add_argument("--duration", type=float, default=0.0)
+    rec = sub.add_parser(
+        "recommend",
+        help=(
+            "encode at a target VMAF; pass --saliency-aware to bias "
+            "bits toward salient regions via saliency_student_v1 "
+            "(Bucket #2 / ADR-0293)"
+        ),
+    )
+    rec.add_argument("--src", type=Path, required=True, help="raw YUV reference")
+    rec.add_argument("--width", type=int, required=True)
+    rec.add_argument("--height", type=int, required=True)
+    rec.add_argument("--pix-fmt", default="yuv420p")
+    rec.add_argument("--framerate", type=float, default=24.0)
+    rec.add_argument(
+        "--target-vmaf",
+        type=float,
+        default=92.0,
+        help="VMAF target the recommended encode aims for (default 92)",
+    )
     rec.add_argument(
         "--encoder",
         default="libx264",
@@ -249,6 +274,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="append",
         default=None,
         help="preset(s) to sweep / filter; repeatable",
+    )
+    rec.add_argument(
+        "--preset",
+        default="medium",
+        help="encoder preset (default medium)",
     )
     rec.add_argument(
         "--crf",
@@ -407,6 +437,54 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="write manifest to PATH (default: stdout)",
     )
+
+    rec.add_argument(
+        "--crf",
+        type=int,
+        default=None,
+        help=(
+            "explicit CRF; if omitted the codec adapter's default is "
+            "used as a one-shot starting point (Phase B will replace "
+            "this with a target-VMAF bisect)"
+        ),
+    )
+    rec.add_argument(
+        "--saliency-aware",
+        action="store_true",
+        help=(
+            "enable saliency-aware ROI tuning via "
+            "saliency_student_v1.onnx (Bucket #2 / ADR-0293)"
+        ),
+    )
+    rec.add_argument(
+        "--saliency-offset",
+        type=int,
+        default=-4,
+        help="QP delta at peak saliency (default -4 = better quality there)",
+    )
+    rec.add_argument(
+        "--saliency-model",
+        type=Path,
+        default=None,
+        help=(
+            "path to saliency_student_v1.onnx; defaults to "
+            "model/tiny/saliency_student_v1.onnx if present"
+        ),
+    )
+    rec.add_argument(
+        "--saliency-frames",
+        type=int,
+        default=8,
+        help="number of frames sampled for the aggregate saliency mask",
+    )
+    rec.add_argument(
+        "--output",
+        type=Path,
+        default=Path("recommend.mp4"),
+        help="encoded output path (default recommend.mp4)",
+    )
+    rec.add_argument("--ffmpeg-bin", default="ffmpeg")
+
     return parser
 
 
@@ -633,6 +711,61 @@ def _run_ladder(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_recommend(args: argparse.Namespace) -> int:
+    """One-shot recommended encode; saliency-aware on opt-in.
+
+    Phase B will replace the explicit-CRF / adapter-default path
+    with a true target-VMAF bisect. The CLI shape, including the
+    ``--target-vmaf`` flag, is wired now so the bisect change is
+    behaviour-only, not a flag-rename.
+    """
+    adapter = get_adapter(args.encoder)
+    crf = args.crf if args.crf is not None else adapter.quality_default
+    adapter.validate(args.preset, crf)
+
+    request = EncodeRequest(
+        source=args.src,
+        width=args.width,
+        height=args.height,
+        pix_fmt=args.pix_fmt,
+        framerate=args.framerate,
+        encoder=adapter.encoder,
+        preset=args.preset,
+        crf=crf,
+        output=args.output,
+    )
+
+    if args.saliency_aware:
+        # Local import keeps the saliency stack (numpy / onnxruntime)
+        # off the critical path of the corpus subcommand.
+        from .saliency import SaliencyConfig, saliency_aware_encode  # noqa: PLC0415
+
+        cfg = SaliencyConfig(
+            foreground_offset=args.saliency_offset,
+            frame_samples=args.saliency_frames,
+        )
+        # Frame count derives from file size; saliency_aware_encode
+        # consumes it for the qpfile per-frame line count.
+        from .saliency import _frame_count  # noqa: PLC0415
+
+        nframes = _frame_count(args.src, args.width, args.height)
+        result = saliency_aware_encode(
+            request,
+            duration_frames=max(1, nframes),
+            model_path=args.saliency_model,
+            config=cfg,
+            ffmpeg_bin=args.ffmpeg_bin,
+        )
+    else:
+        result = run_encode(request, ffmpeg_bin=args.ffmpeg_bin)
+
+    sys.stderr.write(
+        f"encoded {result.encode_size_bytes} bytes -> {args.output} "
+        f"(target VMAF {args.target_vmaf}, exit {result.exit_status})\n"
+    )
+    return result.exit_status
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -646,6 +779,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_tune_per_shot(args)
     if args.cmd == "ladder":
         return _run_ladder(args)
+    if args.cmd == "recommend":
+        return _run_recommend(args)
     parser.print_help()
     return 2
 
