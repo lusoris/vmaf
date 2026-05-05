@@ -8274,3 +8274,25 @@ inline.*
   ```bash
   python -m pytest tools/vmaf-tune/tests/test_codec_adapter_videotoolbox.py -q
   ```
+
+### 0228 — `vmaf-tune` coarse-to-fine CRF search (ADR-0306)
+
+- **What changed**: fork-local tooling. Adds
+  `coarse_to_fine_search()` to
+  `tools/vmaf-tune/src/vmaftune/corpus.py`, plumbs new CLI flags onto
+  `vmaf-tune corpus` (`--coarse-to-fine`, `--coarse-step`,
+  `--fine-radius`, `--fine-step`, `--target-vmaf`), and ships a new
+  `vmaf-tune recommend` subcommand. Widens
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/x264.py`
+  `quality_range` from `(15, 40)` to `(0, 51)`. JSONL row schema
+  unchanged (`SCHEMA_VERSION=1`).
+- **Upstream source**: fork-local. The whole `tools/vmaf-tune/` tree
+  is fork-introduced (ADR-0237); upstream Netflix/vmaf has no
+  encode-automation surface.
+- **On upstream sync**: zero interaction. `tools/vmaf-tune/` is not
+  mirrored from upstream.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/test_corpus.py -k coarse_to_fine
+  ```

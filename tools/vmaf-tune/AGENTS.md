@@ -233,6 +233,22 @@ for the option-space digest.
   not slice the reference YUV on disk into a temp file (the
   zero-I/O frame-skip path is the design); do not use output-side
   `-ss` (it decodes the full source first, defeating the speedup).
+- **Coarse-to-fine search is layered on `iter_rows`, not duplicated
+  (ADR-0296).** `corpus.coarse_to_fine_search()` builds two
+  `dataclasses.replace(job, cells=...)` jobs (coarse + fine) and
+  delegates to `iter_rows` for each. Do **not** factor out a parallel
+  encoder dispatch path inside the search loop — the JSONL row schema,
+  encode-failure handling, and `keep_encodes` cleanup all live in
+  `iter_rows`, and forking the search loop loses them. New search
+  strategies (binary, Bayesian) should follow the same pattern: build
+  a list of `(preset, crf)` cells, call `iter_rows`, post-process the
+  emitted rows.
+- **Adapter `quality_range` is the search-space boundary, not a
+  user-input gate (ADR-0296).** Widening libx264's range from `(15,
+  40)` to `(0, 51)` was deliberate: the recommend / coarse-to-fine
+  flow must be allowed to probe boundary CRFs to bracket the answer.
+  If a future codec adapter wants to restrict the *user-visible* range
+  on `--crf NNN`, do that at the CLI layer, not in `adapter.validate`.
 
 ## Phase scope
 
