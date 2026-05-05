@@ -222,6 +222,17 @@ for the option-space digest.
   silent fallback to `select_backend`; the strict guarantee is
   load-bearing for operator wall-clock expectations. Mock the
   `available` argument or `runner` instead.
+- **`--score-backend` argparse choices are kept in sync with
+  `score_backend.ALL_BACKENDS` and libvmaf's `--backend NAME`
+  vocabulary ([ADR-0314](../../docs/adr/0314-vmaf-tune-score-backend-vulkan.md)).**
+  Do NOT add a new value (e.g. `hip`, `metal`) to the argparse
+  `choices` tuple in `cli.py` without the corresponding libvmaf-side
+  wiring landing in the same release. The four current values
+  (`cpu`, `cuda`, `sycl`, `vulkan`) are the exact set the libvmaf CLI
+  accepts; widening the harness without widening the binary produces
+  silent strict-mode failures on hosts that probe positively for the
+  new value. Cross-reference: `libvmaf/tools/cli_parse.c` `--backend`
+  alternation.
 - **HDR detection is fail-safe to SDR (ADR-0295).** `hdr.detect_hdr`
   returns `None` on any classification ambiguity (missing file,
   ffprobe failure, malformed JSON, mismatched primaries vs.

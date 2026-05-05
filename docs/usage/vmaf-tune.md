@@ -298,6 +298,64 @@ vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
 vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
     --preset medium --crf 22 --score-backend cpu
 ```
+
+### Vulkan score backend (`--score-backend=vulkan`)
+
+Per [ADR-0314](../adr/0314-vmaf-tune-score-backend-vulkan.md), the
+`vulkan` value of `--score-backend` is the **vendor-neutral** GPU
+score path. Use it whenever the host is not an NVIDIA box (or when
+the NVIDIA box has no CUDA toolkit installed).
+
+#### Supported platforms
+
+| Host | Driver | Status |
+| --- | --- | --- |
+| Linux + AMD RDNA2/RDNA3 | Mesa RADV | Production. |
+| Linux + Intel Arc / Iris Xe | Mesa anv | Production. |
+| Linux + NVIDIA | Mesa NVK or proprietary `nvidia` driver | Production; coexists with `--score-backend=cuda`. |
+| Linux CI / no GPU | Mesa lavapipe (software rasteriser) | Slow but functional — the cross-backend parity gate ([ADR-0214](../adr/0214-gpu-parity-ci-gate.md)) runs on lavapipe. |
+| macOS (Apple Silicon + Intel) | MoltenVK 1.2 layered over Metal | Functional. |
+| Windows | Vendor-supplied Vulkan ICD | Functional; not gated in CI yet. |
+
+The libvmaf binary needs to be built with `-Denable_vulkan=true`
+(default in fork release artefacts). The `vulkan` value will fail
+strict-mode validation otherwise — `vmaf --help` will not advertise
+`vulkan` in its `--backend` alternation.
+
+#### Verifying Vulkan availability
+
+`vmaf-tune` runs the same probe libvmaf does — `vulkaninfo --summary`
+must succeed and report at least one `deviceName`:
+
+```shell
+$ vulkaninfo --summary | grep deviceName
+        deviceName        = AMD Radeon RX 7900 XTX (RADV NAVI31)
+```
+
+If that command is missing, install the Vulkan SDK loader (Linux:
+`vulkan-tools` package; macOS: `brew install vulkan-tools`).
+
+#### Example
+
+```shell
+# Vendor-neutral GPU scoring on AMD / Intel Arc / MoltenVK hosts.
+vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
+    --preset medium --crf 22 --crf 28 --score-backend vulkan
+```
+
+Failure mode (no Vulkan loader installed):
+
+```text
+vmaf-tune: backend 'vulkan' requested but not available on this host
+(available: cpu). Check that the local vmaf binary was built with the
+matching backend support and the corresponding runtime/driver is
+installed.
+```
+
+The exit code is `2` and no encodes are dispatched — the strict-mode
+guarantee from [ADR-0299](../adr/0299-vmaf-tune-gpu-score.md) (no
+silent CPU downgrade) is preserved across all four backend values.
+
 | `--no-cache` | off | Disable the content-addressed encode/score cache (default: ON). |
 | `--cache-dir PATH` | `$XDG_CACHE_HOME/vmaf-tune` | Override cache location (falls back to `~/.cache/vmaf-tune`). |
 | `--cache-size-gb N` | `10` | LRU eviction cap in GiB. |

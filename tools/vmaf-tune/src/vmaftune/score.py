@@ -60,8 +60,16 @@ def build_vmaf_command(
     json_output: Path,
     *,
     vmaf_bin: str = "vmaf",
+    backend: str | None = None,
 ) -> list[str]:
-    """Compose the libvmaf CLI argv. Pure function for test pinning."""
+    """Compose the libvmaf CLI argv. Pure function for test pinning.
+
+    ``backend`` (when set) is forwarded as the libvmaf CLI's
+    ``--backend NAME`` selector — values ``cpu`` / ``cuda`` / ``sycl``
+    / ``vulkan`` per ADR-0127 / ADR-0175 / ADR-0186 / ADR-0299. When
+    ``None`` the flag is omitted so the libvmaf binary picks its own
+    default (CPU on a stock build).
+    """
     cmd = [
         vmaf_bin,
         "--reference",
@@ -82,6 +90,8 @@ def build_vmaf_command(
         "--output",
         str(json_output),
     ]
+    if backend:
+        cmd.extend(["--backend", backend])
     # Sample-clip mode (ADR-0301): align reference window with the
     # encoded slice so VMAF compares matching frames. The distorted is
     # already a clip-length encode, so no --frame_skip_dist is needed.
@@ -134,8 +144,13 @@ def run_score(
     vmaf_bin: str = "vmaf",
     runner: object | None = None,
     workdir: Path | None = None,
+    backend: str | None = None,
 ) -> ScoreResult:
-    """Drive the vmaf CLI for a single (ref, dist) pair."""
+    """Drive the vmaf CLI for a single (ref, dist) pair.
+
+    ``backend`` is forwarded to :func:`build_vmaf_command`; when ``None``
+    no ``--backend`` flag is emitted (libvmaf picks its own default).
+    """
     runner_fn = runner or subprocess.run
 
     if workdir is None:
@@ -147,7 +162,7 @@ def run_score(
         workdir_path.mkdir(parents=True, exist_ok=True)
 
     json_path = workdir_path / "vmaf.json"
-    cmd = build_vmaf_command(req, json_path, vmaf_bin=vmaf_bin)
+    cmd = build_vmaf_command(req, json_path, vmaf_bin=vmaf_bin, backend=backend)
 
     try:
         started = time.monotonic()

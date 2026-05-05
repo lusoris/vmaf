@@ -235,3 +235,94 @@ def test_build_vmaf_command_accepts_every_known_backend(backend):
     )
     cmd = build_vmaf_command(req, json_output=Path("v.json"), vmaf_bin="vmaf", backend=backend)
     assert cmd[cmd.index("--backend") + 1] == backend
+
+
+# --------------------------------------------------------------------- #
+# Vulkan vendor-neutral dispatch (ADR-0314)                             #
+# --------------------------------------------------------------------- #
+#
+# The Vulkan path is the vendor-neutral GPU score backend — it runs on
+# Mesa anv/RADV/lavapipe (Linux), NVIDIA proprietary, and MoltenVK
+# (macOS). These tests guard the wiring that lets non-NVIDIA hosts
+# drive vmaf-tune end-to-end on a GPU without falling through to CPU.
+
+
+def test_score_backend_choices_include_vulkan():
+    """argparse must accept 'vulkan' as a --score-backend value."""
+    assert "vulkan" in ALL_BACKENDS
+
+
+def test_score_backend_choices_reject_unknown_value():
+    """Hard-rule: spelling errors fail loud, never silently downgrade."""
+    with pytest.raises(ValueError):
+        select_backend(prefer="moltenvk", available=["cpu", "vulkan"])
+
+
+def test_select_explicit_vulkan_succeeds_when_available():
+    """Vendor-neutral path: vulkan resolves to vulkan, not cuda or cpu."""
+    chosen = select_backend(prefer="vulkan", available=["cpu", "cuda", "vulkan"])
+    assert chosen == "vulkan"
+
+
+def test_select_explicit_vulkan_raises_on_amd_host_without_mesa():
+    """Strict-mode: vulkan request on a host with no Vulkan must fail."""
+    with pytest.raises(BackendUnavailableError) as exc:
+        select_backend(prefer="vulkan", available=["cpu"])
+    assert "vulkan" in str(exc.value)
+
+
+def test_build_vmaf_command_with_vulkan_emits_backend_flag():
+    """Argv must contain `--backend vulkan` for the vmaf CLI."""
+    req = ScoreRequest(
+        reference=Path("ref.yuv"),
+        distorted=Path("dist.mp4"),
+        width=1920,
+        height=1080,
+        pix_fmt="yuv420p",
+    )
+    cmd = build_vmaf_command(req, json_output=Path("v.json"), vmaf_bin="vmaf", backend="vulkan")
+    idx = cmd.index("--backend")
+    assert cmd[idx + 1] == "vulkan"
+
+
+def test_detect_vulkan_when_binary_supports_and_vulkaninfo_succeeds():
+    """End-to-end probe path on an AMD/Intel host with no nvidia-smi."""
+
+    def runner(cmd, capture_output, text, check, timeout=None):
+        if cmd[0] == "vmaf":
+            return _FakeCompleted(0, stdout=_HELP_FULL)
+        if cmd[0] == "vulkaninfo":
+            # Indicative output from `vulkaninfo --summary` on Mesa RADV.
+            return _FakeCompleted(0, stdout="deviceName = AMD Radeon RX 7900 XTX (RADV)\n")
+        return _FakeCompleted(1)
+
+    def fake_which(binary):
+        return f"/usr/bin/{binary}" if binary in {"vmaf", "vulkaninfo"} else None
+
+    with mock.patch("vmaftune.score_backend.shutil.which", side_effect=fake_which):
+        avail = detect_available_backends(vmaf_bin="vmaf", runner=runner)
+    assert "vulkan" in avail
+    assert "cuda" not in avail  # AMD host: no nvidia-smi on PATH.
+
+
+def test_score_with_backend_vulkan_dispatches_through_run_score():
+    """Stubbed end-to-end: run_score forwards backend='vulkan' into argv."""
+    from vmaftune.score import run_score  # noqa: E402
+
+    captured: dict[str, list[str]] = {}
+
+    def stub_runner(cmd, capture_output, text, check):
+        captured["argv"] = list(cmd)
+        return _FakeCompleted(1, stderr="vulkan device init failed")
+
+    req = ScoreRequest(
+        reference=Path("ref.yuv"),
+        distorted=Path("dist.mp4"),
+        width=1280,
+        height=720,
+        pix_fmt="yuv420p",
+    )
+    run_score(req, vmaf_bin="vmaf", runner=stub_runner, backend="vulkan")
+    assert "--backend" in captured["argv"]
+    idx = captured["argv"].index("--backend")
+    assert captured["argv"][idx + 1] == "vulkan"
