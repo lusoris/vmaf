@@ -7939,7 +7939,7 @@ inline.*
   `model/tiny/registry.json` (smoke flag flip, sha256 update),
   `runs/phase_a/full_grid/per_frame_canonical6.jsonl` (training corpus —
   fork-local artefact under `runs/`), companion docs.
-- **Re-test recipe**: see Research-0067 §Reproducer. Ship gate is
+- **Re-test recipe**: see Research-0068 §Reproducer. Ship gate is
   LOSO PLCC ≥ 0.95 on the per-source folds; current run reports
   0.9681 ± 0.0207.
 - **Rebase invariant**: the per-frame canonical-6 corpus must be rebuilt
@@ -7947,3 +7947,29 @@ inline.*
   do not re-train against the cell-only `comprehensive.jsonl` (it lacks
   the per-frame features and produces PLCC ≈ 0.7 — the smoke baseline).
 - **No upstream interaction**: `fr_regressor_v2` is fork-local (ADR-0272).
+
+### 0229 — vmaf-tune Phase E ladder generator (ADR-0295)
+
+- **ADR**: [ADR-0295](adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)
+- **Touches**: entirely fork-local under `tools/vmaf-tune/`. New
+  module `tools/vmaf-tune/src/vmaftune/ladder.py`, new test file
+  `tools/vmaf-tune/tests/test_ladder.py`, two new subcommand blocks
+  in `tools/vmaf-tune/src/vmaftune/cli.py`. No upstream-shared paths
+  touched.
+- **Invariant**: `vmaftune.ladder.convex_hull` returns a strictly
+  monotonic Pareto frontier (both bitrate and vmaf monotonically
+  increasing); `select_knees` returns exactly `min(n, len(hull))`
+  rungs in ascending bitrate order; `emit_manifest("hls")` produces
+  one `#EXT-X-STREAM-INF` per rung with monotonically-increasing
+  `BANDWIDTH=` values. The default `_default_sampler` is intentionally
+  `NotImplementedError` — production callers must inject a Phase B
+  bisect-driven sampler. Phase B integration PR (gated on PR #347)
+  swaps the default; the test suite continues to inject a synthetic
+  stub.
+- **Rebase impact**: none — fork-local Python tool; upstream
+  Netflix/vmaf does not ship a `tools/vmaf-tune/` tree.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/test_ladder.py -v
+  ```

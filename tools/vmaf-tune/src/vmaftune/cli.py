@@ -18,6 +18,10 @@ Subcommands:
   Research-0061.
 
 Phase C (``predict``) will register a sibling subcommand here.
+Phase A: ``corpus`` (grid sweep -> JSONL). Phase E: ``ladder``
+(per-title bitrate-ladder generator -> HLS / DASH / JSON manifest).
+Phase B (``bisect``), Phase C (``predict``), and Phase D
+(``per-shot``) will register sibling subcommands here.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from . import __version__
 from .codec_adapters import known_codecs
 from .corpus import CorpusJob, CorpusOptions, iter_rows, write_jsonl
 from .encode import iter_grid
+from .ladder import build_and_emit
 from .per_shot import (
     detect_shots,
     merge_shots,
@@ -345,6 +350,63 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="optional: write a copy-paste shell script of the plan",
     )
+
+    ladder = sub.add_parser(
+        "ladder",
+        help=(
+            "Phase E — generate a per-title ABR bitrate ladder from the "
+            "Pareto hull of (resolution, vmaf) samples"
+        ),
+    )
+    ladder.add_argument(
+        "--src",
+        type=Path,
+        required=True,
+        help="source video (used to label the manifest; sampling is currently "
+        "Phase B / Phase A driven)",
+    )
+    ladder.add_argument(
+        "--encoder",
+        default="libx264",
+        choices=list(known_codecs()),
+        help="codec adapter (Phase E uses Phase A's adapters)",
+    )
+    ladder.add_argument(
+        "--resolutions",
+        default="1920x1080,1280x720,854x480,640x360,426x240",
+        help="comma-separated WxH list; default is the canonical 5-rung "
+        '"1080p/720p/480p/360p/240p" set',
+    )
+    ladder.add_argument(
+        "--target-vmafs",
+        default="95,90,85,75,65",
+        help="comma-separated VMAF targets to bisect against per resolution; "
+        "Phase B's bisect logic resolves each to a (bitrate, crf)",
+    )
+    ladder.add_argument(
+        "--quality-tiers",
+        type=int,
+        default=5,
+        help="number of rungs to pick from the Pareto hull (default 5)",
+    )
+    ladder.add_argument(
+        "--spacing",
+        choices=["log_bitrate", "vmaf"],
+        default="log_bitrate",
+        help="rung spacing on the hull (default: log-bitrate, Apple HLS spec)",
+    )
+    ladder.add_argument(
+        "--format",
+        choices=["hls", "dash", "json"],
+        default="hls",
+        help="manifest format to emit (default: hls)",
+    )
+    ladder.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="write manifest to PATH (default: stdout)",
+    )
     return parser
 
 
@@ -523,6 +585,51 @@ def _run_tune_per_shot(args: argparse.Namespace) -> int:
 
     seg_dir = args.segment_dir or args.output.parent / "segments"
     write_concat_listing(plan, seg_dir / "concat.txt")
+
+
+def _parse_resolutions(raw: str) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "x" not in token:
+            raise ValueError(f"resolution {token!r} must be WxH (e.g. 1920x1080)")
+        w_s, h_s = token.split("x", 1)
+        out.append((int(w_s), int(h_s)))
+    if not out:
+        raise ValueError("empty --resolutions list")
+    return out
+
+
+def _parse_target_vmafs(raw: str) -> list[float]:
+    out = [float(t) for t in raw.split(",") if t.strip()]
+    if not out:
+        raise ValueError("empty --target-vmafs list")
+    return out
+
+
+def _run_ladder(args: argparse.Namespace) -> int:
+    resolutions = _parse_resolutions(args.resolutions)
+    target_vmafs = _parse_target_vmafs(args.target_vmafs)
+    # No production sampler is wired yet — Phase B's target-VMAF bisect
+    # (PR #347) lands the integration. Until then, the CLI errors out
+    # clearly rather than silently faking points.
+    manifest = build_and_emit(
+        src=args.src,
+        encoder=args.encoder,
+        resolutions=resolutions,
+        target_vmafs=target_vmafs,
+        quality_tiers=args.quality_tiers,
+        format=args.format,
+        spacing=args.spacing,
+    )
+    if args.output is None:
+        sys.stdout.write(manifest)
+    else:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(manifest)
+        sys.stderr.write(f"wrote ladder manifest -> {args.output}\n")
     return 0
 
 
@@ -537,6 +644,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_recommend(args)
     if args.cmd == "tune-per-shot":
         return _run_tune_per_shot(args)
+    if args.cmd == "ladder":
+        return _run_ladder(args)
     parser.print_help()
     return 2
 
