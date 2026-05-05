@@ -30,7 +30,7 @@ sweep that produces the corpus the later phases consume) and **Phase E**
 target-VMAF bisect merges). Phases B (target-VMAF bisect), C (per-title
 CRF predictor), D (per-shot dynamic CRF), and F (MCP tools) are not
 implemented yet — see [ADR-0237](../adr/0237-quality-aware-encode-automation.md)
-and [ADR-0277](../adr/0277-vmaf-tune-phase-e-bitrate-ladder.md).
+and [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md).
 
 Codecs wired so far: `libx264` (Phase A scaffold) and `libx265`
 ([ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)). Adapter
@@ -579,7 +579,7 @@ descriptor. This is the
 loop in one command — a fixed authoring-spec ladder is replaced by the
 ladder that's actually optimal for *this* title.
 
-See [ADR-0277](../adr/0277-vmaf-tune-phase-e-bitrate-ladder.md) for
+See [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md) for
 the design and the alternatives considered (geometric ladder, JND-
 spaced, fixed Apple HLS).
 

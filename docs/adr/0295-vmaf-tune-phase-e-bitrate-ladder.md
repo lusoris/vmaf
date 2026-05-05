@@ -1,4 +1,4 @@
-# ADR-0277: vmaf-tune Phase E — per-title bitrate-ladder generator
+# ADR-0295: vmaf-tune Phase E — per-title bitrate-ladder generator
 
 - **Status**: Proposed
 - **Date**: 2026-05-03

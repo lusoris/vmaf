@@ -19,7 +19,7 @@ encode harness. The smoke path here mocks the corpus generator — see
 ``tools/vmaf-tune/tests/test_ladder.py``. End-to-end wiring against the
 real bisect lands in a follow-up PR once Phase B merges.
 
-See ``docs/adr/0277-vmaf-tune-phase-e-bitrate-ladder.md`` for the
+See ``docs/adr/0295-vmaf-tune-phase-e-bitrate-ladder.md`` for the
 design rationale and the alternatives considered (geometric ladder,
 fixed Apple HLS authoring spec, JND-based, etc.).
 """

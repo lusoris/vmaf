@@ -2,7 +2,7 @@
 
 - **Date**: 2026-05-03
 - **Author**: Lusoris (with Claude assistance)
-- **Companion**: [ADR-0277](../adr/0277-vmaf-tune-phase-e-bitrate-ladder.md)
+- **Companion**: [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)
 
 ## Question
 

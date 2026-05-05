@@ -7939,7 +7939,7 @@ inline.*
   `model/tiny/registry.json` (smoke flag flip, sha256 update),
   `runs/phase_a/full_grid/per_frame_canonical6.jsonl` (training corpus —
   fork-local artefact under `runs/`), companion docs.
-- **Re-test recipe**: see Research-0067 §Reproducer. Ship gate is
+- **Re-test recipe**: see Research-0068 §Reproducer. Ship gate is
   LOSO PLCC ≥ 0.95 on the per-source folds; current run reports
   0.9681 ± 0.0207.
 - **Rebase invariant**: the per-frame canonical-6 corpus must be rebuilt
@@ -7948,9 +7948,9 @@ inline.*
   the per-frame features and produces PLCC ≈ 0.7 — the smoke baseline).
 - **No upstream interaction**: `fr_regressor_v2` is fork-local (ADR-0272).
 
-### 0229 — vmaf-tune Phase E ladder generator (ADR-0277)
+### 0229 — vmaf-tune Phase E ladder generator (ADR-0295)
 
-- **ADR**: [ADR-0277](adr/0277-vmaf-tune-phase-e-bitrate-ladder.md)
+- **ADR**: [ADR-0295](adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)
 - **Touches**: entirely fork-local under `tools/vmaf-tune/`. New
   module `tools/vmaf-tune/src/vmaftune/ladder.py`, new test file
   `tools/vmaf-tune/tests/test_ladder.py`, two new subcommand blocks
