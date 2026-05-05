@@ -24,7 +24,7 @@ class ScoreRequest:
     """Pair to score: reference YUV vs distorted encode.
 
     ``frame_skip_ref`` / ``frame_cnt`` mirror the libvmaf CLI flags
-    (``--frame_skip_ref`` / ``--frame_cnt``). Sample-clip mode (ADR-0297)
+    (``--frame_skip_ref`` / ``--frame_cnt``). Sample-clip mode (ADR-0301)
     sets these so VMAF compares the same time window of the reference
     that was fed to the encoder, instead of slicing the reference YUV
     on disk. Both ``0`` (default) keeps the legacy full-source scoring.
@@ -82,7 +82,7 @@ def build_vmaf_command(
         "--output",
         str(json_output),
     ]
-    # Sample-clip mode (ADR-0297): align reference window with the
+    # Sample-clip mode (ADR-0301): align reference window with the
     # encoded slice so VMAF compares matching frames. The distorted is
     # already a clip-length encode, so no --frame_skip_dist is needed.
     if req.frame_skip_ref > 0:

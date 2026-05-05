@@ -308,7 +308,7 @@ vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
 Set `--sample-clip-seconds N` to evaluate each grid cell on the centre
 `N`-second slice of the source instead of the full reference. This is a
 runtime/accuracy trade-off, formalised in
-[ADR-0297](../adr/0297-vmaf-tune-sample-clip.md).
+[ADR-0301](../adr/0301-vmaf-tune-sample-clip.md).
 
 - **Speedup.** Encode wall-time scales roughly linearly with slice
   length, so e.g. a 10-second slice of a 60-second source is a ~6x
@@ -355,7 +355,7 @@ differently, or rescore the chosen cell on the full source.
 Each row is one JSON object on its own line. The full key list is
 exported as `vmaftune.CORPUS_ROW_KEYS` for programmatic consumers and
 versioned via `vmaftune.SCHEMA_VERSION` (currently `2` — v2 added
-`clip_mode` for sample-clip mode, ADR-0297). Bumping the schema is a
+`clip_mode` for sample-clip mode, ADR-0301). Bumping the schema is a
 coordinated change with Phase B/C; do not edit row shape without
 bumping the version.
 

@@ -1,4 +1,4 @@
-# ADR-0297: `vmaf-tune --sample-clip-seconds` (sample-clip mode)
+# ADR-0301: `vmaf-tune --sample-clip-seconds` (sample-clip mode)
 
 - **Status**: Accepted
 - **Date**: 2026-05-03

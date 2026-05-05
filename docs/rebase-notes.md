@@ -103,14 +103,14 @@ cover several PRs in one workstream; cross-link from the ID heading.
   assert cmd[cmd.index('-crf') + 1] == '23'
   print('x264 dispatcher path OK')
   "
-### 0260 — `vmaf-tune --sample-clip-seconds` (ADR-0297)
+### 0260 — `vmaf-tune --sample-clip-seconds` (ADR-0301)
 
 - **Touches**:
   - `tools/vmaf-tune/src/vmaftune/{cli,corpus,encode,score,__init__}.py`
     — fork-local. No upstream Netflix/vmaf path overlap.
   - `tools/vmaf-tune/tests/test_corpus.py`, `tools/vmaf-tune/AGENTS.md`,
-    `docs/usage/vmaf-tune.md`, `docs/adr/0297-vmaf-tune-sample-clip.md`,
-    `docs/adr/_index_fragments/0297-vmaf-tune-sample-clip.md`,
+    `docs/usage/vmaf-tune.md`, `docs/adr/0301-vmaf-tune-sample-clip.md`,
+    `docs/adr/_index_fragments/0301-vmaf-tune-sample-clip.md`,
     `docs/adr/_index_fragments/_order.txt`, `docs/adr/README.md`.
 - **Invariant**: corpus JSONL `SCHEMA_VERSION` bumped to `2` —
   additive `clip_mode` key only. Sample-clip windows are mirrored on

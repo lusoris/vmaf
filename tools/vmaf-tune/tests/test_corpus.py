@@ -130,7 +130,7 @@ def test_parse_vmaf_json_raises_on_missing():
 
 def test_corpus_row_keys_match_init_contract():
     # Schema-shape contract — Phase B / C will rely on this. v2 added
-    # ``clip_mode`` for the sample-clip mode (ADR-0297).
+    # ``clip_mode`` for the sample-clip mode (ADR-0301).
     assert SCHEMA_VERSION == 2
     assert "vmaf_score" in CORPUS_ROW_KEYS
     assert "bitrate_kbps" in CORPUS_ROW_KEYS
