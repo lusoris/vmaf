@@ -149,7 +149,16 @@ def test_smoke_corpus_end_to_end_with_mocks(tmp_path: Path):
         )
 
     def fake_score_run(cmd, capture_output, text, check):
-        # write the JSON the parser expects
+        # The score path now calls ffmpeg first to decode mp4 -> raw
+        # YUV (libvmaf CLI only reads raw), then vmaf. Distinguish by
+        # the presence of `--output` (vmaf only).
+        if "--output" not in cmd:
+            # ffmpeg decode call: materialise an empty raw-yuv stub so
+            # `dist_yuv.exists()` is true and the score branch proceeds.
+            out_path = Path(cmd[-1])
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(b"\x00" * 4096)
+            return _FakeCompleted(returncode=0, stderr="")
         out_idx = cmd.index("--output") + 1
         out_path = Path(cmd[out_idx])
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -219,3 +228,112 @@ def test_encode_failure_emits_row_with_skipped_score(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0]["exit_status"] == 1
     assert rows[0]["vmaf_binary_version"] == "skipped"
+
+
+def test_score_decodes_mp4_distorted_to_raw_yuv(tmp_path: Path):
+    """Score path must decode container -> raw YUV before vmaf.
+
+    Regression test for the Phase-A bug where the corpus pipeline
+    handed an .mp4 directly to libvmaf's CLI (which only reads raw
+    YUV/Y4M), producing every row with vmaf_score=NaN.
+    """
+    from vmaftune.score import ScoreRequest, run_score
+
+    ref = _make_yuv(tmp_path / "ref.yuv")
+    dist_mp4 = tmp_path / "dist.mp4"
+    dist_mp4.write_bytes(b"\x00" * 4096)
+
+    seen_cmds: list[list[str]] = []
+
+    def fake_run(cmd, capture_output, text, check):
+        seen_cmds.append(list(cmd))
+        if cmd[0] == "ffmpeg":
+            # Simulate decode: write a non-empty raw-yuv at cmd[-1].
+            Path(cmd[-1]).write_bytes(b"\x00" * 4096)
+            return _FakeCompleted(returncode=0)
+        # vmaf call: write the JSON the parser expects.
+        out_idx = cmd.index("--output") + 1
+        Path(cmd[out_idx]).write_text(json.dumps({"pooled_metrics": {"vmaf": {"mean": 88.0}}}))
+        return _FakeCompleted(returncode=0, stderr="VMAF version: 3.0.0\n")
+
+    res = run_score(
+        ScoreRequest(
+            reference=ref,
+            distorted=dist_mp4,
+            width=64,
+            height=64,
+            pix_fmt="yuv420p",
+        ),
+        runner=fake_run,
+    )
+
+    assert res.vmaf_score == 88.0
+    assert res.exit_status == 0
+    # Two subprocess calls: ffmpeg decode, then vmaf.
+    assert len(seen_cmds) == 2
+    assert seen_cmds[0][0] == "ffmpeg"
+    assert seen_cmds[1][0] == "vmaf"
+    # The vmaf invocation must point at the raw-yuv, not the mp4.
+    dist_idx = seen_cmds[1].index("--distorted") + 1
+    assert seen_cmds[1][dist_idx].endswith(".yuv")
+
+
+def test_score_skips_decode_for_raw_yuv_distorted(tmp_path: Path):
+    """Raw YUV/Y4M distorted must skip the decode step."""
+    from vmaftune.score import ScoreRequest, run_score
+
+    ref = _make_yuv(tmp_path / "ref.yuv")
+    dist = _make_yuv(tmp_path / "dist.yuv")
+
+    seen_cmds: list[list[str]] = []
+
+    def fake_run(cmd, capture_output, text, check):
+        seen_cmds.append(list(cmd))
+        out_idx = cmd.index("--output") + 1
+        Path(cmd[out_idx]).write_text(json.dumps({"pooled_metrics": {"vmaf": {"mean": 99.5}}}))
+        return _FakeCompleted(returncode=0, stderr="VMAF version: 3.0.0\n")
+
+    res = run_score(
+        ScoreRequest(
+            reference=ref,
+            distorted=dist,
+            width=64,
+            height=64,
+            pix_fmt="yuv420p",
+        ),
+        runner=fake_run,
+    )
+    assert res.vmaf_score == 99.5
+    # Single subprocess call: vmaf only, no ffmpeg decode.
+    assert len(seen_cmds) == 1
+    assert seen_cmds[0][0] == "vmaf"
+
+
+def test_score_decode_failure_propagates_as_nan(tmp_path: Path):
+    """ffmpeg decode failure must yield NaN row, not crash."""
+    from vmaftune.score import ScoreRequest, run_score
+
+    ref = _make_yuv(tmp_path / "ref.yuv")
+    dist_mp4 = tmp_path / "broken.mp4"
+    dist_mp4.write_bytes(b"\x00" * 4)  # too small / not a real mp4
+
+    def fake_run(cmd, capture_output, text, check):
+        # All ffmpeg attempts fail.
+        return _FakeCompleted(returncode=1, stderr="ffmpeg: invalid input")
+
+    res = run_score(
+        ScoreRequest(
+            reference=ref,
+            distorted=dist_mp4,
+            width=64,
+            height=64,
+            pix_fmt="yuv420p",
+        ),
+        runner=fake_run,
+    )
+
+    import math
+
+    assert math.isnan(res.vmaf_score)
+    assert res.exit_status != 0
+    assert "ffmpeg-decode-failed" in res.vmaf_binary_version
