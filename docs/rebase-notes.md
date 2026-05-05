@@ -7202,6 +7202,33 @@ inline.*
 
 ### 0229 — `vmaf_tiny_v3` + `vmaf_tiny_v4` dynamic-PTQ int8 sidecars (ADR-0275)
 ### 0278 — `vmaf-tune` libaom-av1 codec adapter (2026-05-03)
+### 0228 — `vmaf-tune` libx265 codec adapter (ADR-0288)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/x265.py`
+  (new), `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`
+  (registry add), `tools/vmaf-tune/src/vmaftune/encode.py`
+  (`parse_versions(stderr, encoder=…)` gains a per-codec branch),
+  `tools/vmaf-tune/src/vmaftune/cli.py` (help-text wording only),
+  `tools/vmaf-tune/tests/test_codec_adapter_x265.py` (new),
+  `tools/vmaf-tune/tests/test_corpus.py` (membership-based codec
+  list assertion).
+- **Invariant**: the codec-adapter contract documented in
+  `tools/vmaf-tune/AGENTS.md` (multi-codec from day one; the search
+  loop never branches on codec identity). The `parse_versions`
+  signature is still backward-compatible — `encoder` defaults to
+  `libx264` so callers from before this PR keep working.
+- **Upstream source**: fork-local. `tools/vmaf-tune/` is fork-only;
+  upstream Netflix/vmaf does not ship encode automation.
+- **On upstream sync**: zero interaction. Confirm the
+  `_index_fragments/_order.txt` row for `0288-vmaf-tune-codec-adapter-x265`
+  remains present after any cross-merge.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/ -x
+  ```
+
+### 0227 — `ffmpeg-patches/` series re-verified against n8.1 (2026-05-03)
 
 - **Touches**:
   `tools/vmaf-tune/src/vmaftune/codec_adapters/libaom.py` (new),

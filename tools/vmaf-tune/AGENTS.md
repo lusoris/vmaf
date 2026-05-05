@@ -35,6 +35,18 @@ for the option-space digest.
   introduce per-adapter preset names; if the codec needs a knob the
   shared vocabulary cannot express, route it through `extra_params`
   rather than splitting the preset axis.
+- **The codec-adapter contract is multi-codec from day one.**
+  `codec_adapters/__init__.py` exposes a registry the search loop must
+  use uniformly. Do not branch on codec name in `corpus.py` /
+  `encode.py` / `score.py`; route via the adapter. New codecs are
+  one-file additions under `codec_adapters/`. Wired today: `libx264`
+  (Phase A scaffold) and `libx265` (ADR-0288). One narrow exception
+  lives in `encode.parse_versions(stderr, encoder=…)` — the per-codec
+  banner regex (x264's `x264 - core <N>` vs x265's
+  `x265 [info]: HEVC encoder version <V>`) cannot be expressed as a
+  single pattern, so the function dispatches on the encoder name. This
+  branch is allowed; the corpus emitter and the search loop must still
+  go through the registry.
 - **Subprocess boundary is the test seam.** `encode.run_encode` and
   `score.run_score` accept a `runner` argument that defaults to
   `subprocess.run`. Tests inject a fake; production callers leave it
@@ -82,3 +94,10 @@ deferred to follow-up). Phases B–F per ADR-0237 are explicitly out
 of scope here; do not add bisect / predictor / ladder / MCP code
 into this tree without an ADR-0237 follow-up promoting the
 corresponding phase.
+Phase A (this scaffold): grid sweep + JSONL emit. Wired codecs:
+`libx264` (initial scaffold) and `libx265` (ADR-0288). Further codecs
+(`libsvtav1`, `libvpx-vp9`, `libvvenc`, `libaom`, neural-codec extras)
+are one-file adapter additions under `codec_adapters/` per ADR-0237.
+Phases B–F per ADR-0237 are explicitly out of scope here; do not add
+bisect / predictor / ladder / MCP code into this tree without an
+ADR-0237 follow-up promoting the corresponding phase.

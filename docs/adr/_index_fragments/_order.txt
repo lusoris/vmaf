@@ -172,3 +172,4 @@
 0277-ffmpeg-patches-refresh-2026-05-04
 0278-t7-5-nolint-sweep
 0286-saliency-student-fork-trained-on-duts
+0288-vmaf-tune-codec-adapter-x265
