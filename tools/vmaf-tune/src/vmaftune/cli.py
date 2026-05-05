@@ -31,7 +31,6 @@ from . import __version__
 from .codec_adapters import known_codecs
 from .corpus import CorpusJob, CorpusOptions, iter_rows, write_jsonl
 from .encode import iter_grid
-from .recommend import RecommendRequest, format_result, load_corpus_jsonl, recommend
 from .per_shot import (
     detect_shots,
     merge_shots,
@@ -39,6 +38,7 @@ from .per_shot import (
     tune_per_shot,
     write_concat_listing,
 )
+from .recommend import RecommendRequest, format_result, load_corpus_jsonl, recommend
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -267,6 +267,8 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="emit_json",
         action="store_true",
         help="emit the winning row as JSON on stdout (default: human-readable)",
+    )
+
     per_shot = sub.add_parser(
         "tune-per-shot",
         help=(
@@ -461,6 +463,8 @@ def _run_recommend(args: argparse.Namespace) -> int:
         sys.stdout.write(_json.dumps(result.row, sort_keys=True) + "\n")
     else:
         sys.stdout.write(format_result(result) + "\n")
+
+
 def _run_tune_per_shot(args: argparse.Namespace) -> int:
     total_frames = args.total_frames if args.total_frames > 0 else None
     shots = detect_shots(
