@@ -223,6 +223,25 @@
   encoders carry the preset compression table and the silicon
   requirements.
 
+- **`vmaf-tune` Intel QSV codec adapters — `h264_qsv`, `hevc_qsv`,
+  `av1_qsv` (ADR-0281).** Three thin frozen-dataclass adapters under
+  [`tools/vmaf-tune/src/vmaftune/codec_adapters/`](tools/vmaf-tune/src/vmaftune/codec_adapters/),
+  backed by a shared private `_qsv_common.py` that pins the QSV
+  preset vocabulary (`veryslow…veryfast`, x264-style names verbatim),
+  the ICQ `global_quality` window (`1..51`), the preset identity
+  check, the range validator, and an `ffmpeg -encoders` probe that
+  fails fast when libmfx / VPL is not compiled in. Registry widened
+  from libx264-only to four codecs; the search loop continues to
+  route through the registry without branching on codec identity.
+  Hardware availability matrix documented in
+  [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md): H.264 / HEVC
+  on Intel iGPU 7th-gen+ (Kaby Lake or newer) or Arc / Battlemage;
+  AV1 on 12th-gen+ iGPU only or Arc / Battlemage. Encode pipeline
+  (`encode.py`) widening to dispatch on `adapter.quality_knob`
+  deferred to a follow-up PR — adapter classes are valid but inert
+  until that lands. Sibling NVENC + AMF adapter PRs run in parallel.
+  Companion research digest:
+  [`docs/research/0054-vmaf-tune-qsv-adapters.md`](docs/research/0054-vmaf-tune-qsv-adapters.md).
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

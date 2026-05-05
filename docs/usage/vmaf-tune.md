@@ -465,6 +465,35 @@ ffmpeg -i ref.yuv -c:v h264_amf \
        -quality balanced -rc cqp -qp_i 23 -qp_p 23 \
        -an out.mkv
 ```
+## Hardware encoders
+
+Beyond `libx264`, the registry exposes the three Intel QSV (Quick Sync
+Video) hardware adapters added in
+[ADR-0281](../adr/0281-vmaf-tune-qsv-adapters.md). They share the QSV
+preset vocabulary (`veryslow, slower, slow, medium, fast, faster,
+veryfast` — same names as x264's medium-and-down subset) and use
+`-global_quality N` (ICQ rate control, range `1..51`, semantically
+similar to CRF).
+
+| Adapter name | FFmpeg encoder | Quality knob | Hardware required |
+| --- | --- | --- | --- |
+| `h264_qsv` | `h264_qsv` | `global_quality` (1–51) | Intel iGPU 7th-gen+ (Kaby Lake or newer) or Arc / Battlemage |
+| `hevc_qsv` | `hevc_qsv` | `global_quality` (1–51) | Intel iGPU 7th-gen+ (10-bit needs 11th-gen+) or Arc / Battlemage |
+| `av1_qsv` | `av1_qsv` | `global_quality` (1–51) | Intel iGPU 12th-gen+ only or Arc / Battlemage |
+
+The underlying FFmpeg invocations look like:
+
+```shell
+ffmpeg -i src.mkv -c:v h264_qsv -preset medium -global_quality 23 -an out.mkv
+ffmpeg -i src.mkv -c:v hevc_qsv -preset medium -global_quality 23 -an out.mkv
+ffmpeg -i src.mkv -c:v av1_qsv  -preset medium -global_quality 23 -an out.mkv
+```
+
+`vmaf-tune` validates the `(preset, global_quality)` pair before
+spawning ffmpeg and probes `ffmpeg -encoders` for the requested
+encoder; if libmfx / VPL is not compiled in, the harness raises
+`RuntimeError` with a build-time hint rather than letting ffmpeg
+emit an `Encoder not found` line buried in stderr.
 
 ## What Phase A does **not** do
 
@@ -608,6 +637,10 @@ it.
   `libvpx-vp9` / `libvvenc` are next via the codec adapter interface in
   `tools/vmaf-tune/src/vmaftune/codec_adapters/`. NVENC / QSV adapters
   ship in companion PRs.
+- Beyond `libx264` + the three QSV adapters above, `libx265` /
+  `libsvtav1` / `libvpx-vp9` / `libvvenc` / NVENC / AMF land via
+  one-file additions under
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
 
 ## Tests
 

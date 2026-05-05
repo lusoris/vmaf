@@ -134,3 +134,40 @@ are one-file adapter additions under `codec_adapters/` per ADR-0237.
 Phases B–F per ADR-0237 are explicitly out of scope here; do not add
 bisect / predictor / ladder / MCP code into this tree without an
 ADR-0237 follow-up promoting the corresponding phase.
+  wired `libx264`; ADR-0281 widened the registry with the three
+  Intel QSV adapters (`h264_qsv`, `hevc_qsv`, `av1_qsv`). The
+  search loop must use the registry uniformly. Do not branch on
+  codec name in `corpus.py` / `encode.py` / `score.py`; route via
+  the adapter. New codecs are one-file additions under
+  `codec_adapters/`.
+- **The QSV adapters share `_qsv_common.py`.** Three encoders with
+  identical parameter shape (preset vocabulary, ICQ
+  `global_quality` window) is a deliberate exception to the
+  "one file per codec, nothing shared" Phase A convention. Per
+  ADR-0281, future codec families that share parameter shape
+  (NVENC's three encoders, AMF's three encoders) follow the same
+  pattern: one `_<family>_common.py` private module, three thin
+  dataclass adapters. Single-codec families stay flat.
+- **The encode pipeline (`encode.py`) is still x264-CRF-tied.**
+  ADR-0281 added the QSV adapter classes but did not widen
+  `build_ffmpeg_command` to dispatch on `adapter.quality_knob`.
+  Until that follow-up lands, the QSV adapters validate
+  `(preset, global_quality)` correctly but the harness will not
+  yet successfully drive a QSV encode end-to-end.
+- **Subprocess boundary is the test seam.** `encode.run_encode`,
+  `score.run_score`, and the QSV `ffmpeg_supports_encoder` probe
+  accept a `runner` argument that defaults to `subprocess.run`.
+  Tests inject a fake; production callers leave it default. Do
+  not reach for `os.system` / `popen` shortcuts —
+  `tests/test_corpus.py` and `tests/test_codec_adapter_qsv.py`
+  will silently stop covering the path.
+
+## Phase scope
+
+Phase A (the original scaffold): grid sweep + JSONL emit, x264
+only. ADR-0281 added the three QSV codec adapters as a one-file
+extension off the registry; the encode-pipeline widening that
+makes them functional is itself a separate Phase A follow-up.
+Phases B–F per ADR-0237 (bisect / predictor / ladder / MCP) remain
+explicitly out of scope here; do not add that code into this tree
+without an ADR-0237 follow-up promoting the corresponding phase.

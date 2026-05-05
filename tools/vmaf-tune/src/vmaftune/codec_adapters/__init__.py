@@ -6,10 +6,11 @@ Per ADR-0237, every codec exposes a different parameter shape; the
 harness must not branch on codec identity in the search loop. Each
 adapter declares its quality knob, range, defaults, and FFmpeg encoder
 name. Phase A wires ``libx264`` plus the NVIDIA NVENC family
-(``h264_nvenc``, ``hevc_nvenc``, ``av1_nvenc``) and the AMD AMF
-family (``h264_amf``, ``hevc_amf``, ``av1_amf``) — software and
-hardware encoders share the same adapter contract; later phases add
-one file per codec without touching the search loop.
+(``h264_nvenc``, ``hevc_nvenc``, ``av1_nvenc``), the AMD AMF family
+(``h264_amf``, ``hevc_amf``, ``av1_amf``), and the Intel QSV family
+(``h264_qsv``, ``hevc_qsv``, ``av1_qsv``) — software and hardware
+encoders share the same adapter contract; later phases add one file
+per codec without touching the search loop.
 
 Mnemonic preset names (``ultrafast``..``placebo``) are normalised
 across software and hardware encoders. NVENC's seven hardware presets
@@ -26,10 +27,13 @@ from typing import Protocol
 
 from .av1_amf import AV1AMFAdapter
 from .av1_nvenc import Av1NvencAdapter
+from .av1_qsv import Av1QsvAdapter
 from .h264_amf import H264AMFAdapter
 from .h264_nvenc import H264NvencAdapter
+from .h264_qsv import H264QsvAdapter
 from .hevc_amf import HEVCAMFAdapter
 from .hevc_nvenc import HevcNvencAdapter
+from .hevc_qsv import HevcQsvAdapter
 from .libaom import LibaomAdapter
 from .x264 import X264Adapter
 from .x265 import X265Adapter
@@ -59,6 +63,9 @@ _REGISTRY: dict[str, CodecAdapter] = {
     "h264_amf": H264AMFAdapter(),
     "hevc_amf": HEVCAMFAdapter(),
     "av1_amf": AV1AMFAdapter(),
+    "h264_qsv": H264QsvAdapter(),
+    "hevc_qsv": HevcQsvAdapter(),
+    "av1_qsv": Av1QsvAdapter(),
 }
 
 
@@ -75,11 +82,14 @@ def known_codecs() -> tuple[str, ...]:
 __all__ = [
     "AV1AMFAdapter",
     "Av1NvencAdapter",
+    "Av1QsvAdapter",
     "CodecAdapter",
     "H264AMFAdapter",
     "H264NvencAdapter",
+    "H264QsvAdapter",
     "HEVCAMFAdapter",
     "HevcNvencAdapter",
+    "HevcQsvAdapter",
     "LibaomAdapter",
     "X264Adapter",
     "X265Adapter",
