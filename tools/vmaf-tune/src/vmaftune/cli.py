@@ -103,7 +103,22 @@ def _build_parser() -> argparse.ArgumentParser:
     corpus.add_argument(
         "--vmaf-model",
         default="vmaf_v0.6.1",
-        help="vmaf model version string (default vmaf_v0.6.1)",
+        help=(
+            "vmaf model version string (default vmaf_v0.6.1). Only used "
+            "when --no-resolution-aware is set; otherwise the model is "
+            "auto-picked per encode resolution."
+        ),
+    )
+    corpus.add_argument(
+        "--resolution-aware",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "auto-pick the VMAF model per encode resolution "
+            "(height>=2160 -> vmaf_4k_v0.6.1, else vmaf_v0.6.1). "
+            "Default: on. Disable with --no-resolution-aware to force "
+            "a single model via --vmaf-model."
+        ),
     )
     corpus.add_argument("--ffmpeg-bin", default="ffmpeg")
     corpus.add_argument("--vmaf-bin", default="vmaf")
@@ -260,6 +275,7 @@ def _run_corpus(args: argparse.Namespace) -> int:
         vmaf_bin=args.vmaf_bin,
         keep_encodes=args.keep_encodes,
         src_sha256=not args.no_source_hash,
+        resolution_aware=args.resolution_aware,
     )
 
     def _all_rows():

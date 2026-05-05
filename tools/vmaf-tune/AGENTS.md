@@ -16,6 +16,21 @@ for the option-space digest.
   updating every downstream consumer in the same PR. The canonical
   key list lives in `src/vmaftune/__init__.py` (`CORPUS_ROW_KEYS`)
   and is asserted on every emitted row by `corpus._row_for`.
+- **The `vmaf_model` JSONL field is now per-row, not per-job.** Since
+  ADR-0289 (resolution-aware model selection), `corpus._row_for`
+  populates `vmaf_model` from `score_res.request.model`, which in
+  turn comes from `resolution.select_vmaf_model_version(width, height)`
+  when `CorpusOptions.resolution_aware` is True. Mixed-ladder corpora
+  legitimately contain multiple distinct `vmaf_model` values across
+  rows. Downstream consumers (Phase B/C/D) must group/filter by
+  `vmaf_model` rather than assuming a constant.
+- **`resolution.py` decision rule is height-only.** `height >= 2160`
+  picks `vmaf_4k_v0.6.1`; everything else picks `vmaf_v0.6.1`. Width
+  is accepted in the API for symmetry but ignored in the body. Do not
+  add per-codec / per-pixel-count branches without an ADR-0289
+  follow-up — the rule mirrors Netflix's published guidance and is
+  the only defensible default until the fork ships its own
+  intermediate models.
 - **The codec-adapter contract is multi-codec from day one.** Phase A
   wires `libx264` end-to-end; `libaom-av1`
   ([ADR-0279](../../docs/adr/0279-vmaf-tune-codec-adapter-libaom.md))
