@@ -8337,3 +8337,33 @@ inline.*
 - **Upstream source**: zero. `fr_regressor_v2` and its ensemble are
   fork-introduced (parent ADR-0272 / ADR-0279).
 - **On upstream sync**: zero interaction.
+
+### 0313 — CI required-checks aggregator (2026-05-05)
+
+- **What changed**: fork-local CI policy. New
+  `.github/workflows/required-aggregator.yml` — single workflow that
+  runs on every non-draft PR and verifies the 23 named required checks
+  reported `success`/`skipped`/`neutral` (or didn't appear at all,
+  which is the path-filter-rejection semantics). Aggregator becomes
+  the single branch-protection required check, replacing the 23-name
+  list from ADR-0037.
+- **Touches**: `.github/workflows/required-aggregator.yml` (new),
+  `docs/adr/0313-ci-required-checks-aggregator.md` (new),
+  `changelog.d/added/ci-required-checks-aggregator.md` (new),
+  `docs/adr/README.md` (+1 row), `docs/adr/_index_fragments/_order.txt`
+  (+1 line + new fragment file).
+- **Upstream source**: zero. Branch-protection policy is fork-only.
+- **On upstream sync**: zero interaction with Netflix/vmaf master.
+- **Manual operator step at adoption**:
+
+  ```bash
+  gh api -X PUT "repos/lusoris/vmaf/branches/master/protection/required_status_checks" \
+    -F 'strict=true' -F 'contexts=["Required Checks Aggregator"]'
+  ```
+
+- **Re-test on rebase**:
+
+  ```bash
+  # YAML lint passes
+  python3 -c "import yaml; yaml.safe_load(open('.github/workflows/required-aggregator.yml'))"
+  ```
