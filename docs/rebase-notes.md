@@ -8296,6 +8296,7 @@ inline.*
   ```bash
   pytest tools/vmaf-tune/tests/test_corpus.py -k coarse_to_fine
   ```
+
 ### 0303 — fr_regressor_v2 ensemble prod flip (ADR-0303)
 
 - **ADR**: [ADR-0303](adr/0303-fr-regressor-v2-ensemble-prod-flip.md)
@@ -8404,4 +8405,34 @@ inline.*
 
   ```bash
   pytest ai/tests/test_knob_sweep_analysis.py -v
+  ```
+
+### 0302 — ENCODER_VOCAB v3 schema expansion (ADR-0302)
+
+- **Touches**: `ai/scripts/train_fr_regressor_v2.py` (adds an
+  `ENCODER_VOCAB_V3` parallel constant; does not modify the live
+  `ENCODER_VOCAB` or `ENCODER_VOCAB_VERSION`).
+- **Invariant**: `ENCODER_VOCAB` is append-only and order-stable
+  (per ADR-0235). The v3 scaffold preserves the v2 slot ordering
+  verbatim — slots 0..12 are bit-identical to the v2 vocab; slots
+  13/14/15 append `libsvtav1`, `h264_videotoolbox`,
+  `hevc_videotoolbox`. The live `ENCODER_VOCAB_VERSION = 2`
+  remains the source of truth until the follow-up retrain PR
+  clears the LOSO PLCC ship gate.
+- **Upstream interaction**: zero. `ai/scripts/train_fr_regressor_v2.py`
+  is fork-introduced (ADR-0272) and has no upstream counterpart.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -c "
+  import importlib.util, pathlib
+  spec = importlib.util.spec_from_file_location(
+      't', pathlib.Path('ai/scripts/train_fr_regressor_v2.py')
+  )
+  m = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(m)
+  assert len(m.ENCODER_VOCAB_V3) == 16
+  assert m.ENCODER_VOCAB_VERSION == 2
+  print('OK')
+  "
   ```
