@@ -7,10 +7,11 @@ harness must not branch on codec identity in the search loop. Each
 adapter declares its quality knob, range, defaults, and FFmpeg encoder
 name. Phase A wires ``libx264`` plus the NVIDIA NVENC family
 (``h264_nvenc``, ``hevc_nvenc``, ``av1_nvenc``), the AMD AMF family
-(``h264_amf``, ``hevc_amf``, ``av1_amf``), and the Intel QSV family
-(``h264_qsv``, ``hevc_qsv``, ``av1_qsv``) — software and hardware
-encoders share the same adapter contract; later phases add one file
-per codec without touching the search loop.
+(``h264_amf``, ``hevc_amf``, ``av1_amf``), the Intel QSV family
+(``h264_qsv``, ``hevc_qsv``, ``av1_qsv``), and the Fraunhofer VVenC
+H.266 encoder (``libvvenc``) — software and hardware encoders share
+the same adapter contract; later phases add one file per codec
+without touching the search loop.
 
 Mnemonic preset names (``ultrafast``..``placebo``) are normalised
 across software and hardware encoders. NVENC's seven hardware presets
@@ -35,6 +36,7 @@ from .hevc_amf import HEVCAMFAdapter
 from .hevc_nvenc import HevcNvencAdapter
 from .hevc_qsv import HevcQsvAdapter
 from .libaom import LibaomAdapter
+from .vvenc import VVenCAdapter
 from .x264 import X264Adapter
 from .x265 import X265Adapter
 
@@ -66,6 +68,7 @@ _REGISTRY: dict[str, CodecAdapter] = {
     "h264_qsv": H264QsvAdapter(),
     "hevc_qsv": HevcQsvAdapter(),
     "av1_qsv": Av1QsvAdapter(),
+    "libvvenc": VVenCAdapter(),
 }
 
 
@@ -91,6 +94,7 @@ __all__ = [
     "HevcNvencAdapter",
     "HevcQsvAdapter",
     "LibaomAdapter",
+    "VVenCAdapter",
     "X264Adapter",
     "X265Adapter",
     "get_adapter",

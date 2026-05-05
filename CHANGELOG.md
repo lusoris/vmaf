@@ -242,6 +242,30 @@
   until that lands. Sibling NVENC + AMF adapter PRs run in parallel.
   Companion research digest:
   [`docs/research/0054-vmaf-tune-qsv-adapters.md`](docs/research/0054-vmaf-tune-qsv-adapters.md).
+- **`vmaf-tune` libvvenc + NN-VC codec adapter (ADR-0285).** Adds
+  [`tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py`](tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py)
+  as a Phase A codec adapter on the ADR-0237 contract: drives
+  Fraunhofer HHI's VVC / H.266 encoder via FFmpeg's `-c:v libvvenc`
+  wrapper. `quality_knob = "qp"`, `quality_range = (17, 50)`, default
+  `32`. The harness's canonical 7-name preset vocabulary
+  (`placebo / slowest / slower / slow / medium / fast / faster /
+  veryfast / superfast / ultrafast`) compresses onto VVenC's native
+  5-level scale (`faster / fast / medium / slow / slower`) via a
+  static map. First-class **NN-VC (neural-network video coding)**
+  surface: `nnvc_intra: bool = False` toggle that emits
+  `-vvenc-params IntraNN=1` to enable VVC's learned 5×5 / 7×7 / 9×9
+  conv intra-prediction (~1-3% bitrate gain at iso-VMAF, ~5-10×
+  slower intra encode); NN loop filter and NN super-resolution
+  toggles deferred to follow-up ADRs once the corpus carries enough
+  VVenC rows to estimate quality / cost separately. Companion docs
+  in [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md). Sibling
+  to the parallel x264 / x265 / svt-av1 / libaom + NVENC / QSV /
+  AMF / VideoToolbox adapter PRs landing 2026-05-03. NN-VC is the
+  closest thing the open-source video stack has to a "neural-
+  augmented codec" today and is the natural counterpart to the
+  fork's existing tiny-AI *measurement* surface (`vmaf_tiny_v2`,
+  `fr_regressor_v1`, `nr_metric_v1`).
+
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

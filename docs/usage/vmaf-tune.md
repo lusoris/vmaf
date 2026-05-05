@@ -642,6 +642,81 @@ it.
   one-file additions under
   `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
 
+## VVenC (H.266 / VVC + NNVC)
+
+`vmaf-tune` ships a `libvvenc` codec adapter
+([ADR-0285](../adr/0285-vmaf-tune-vvenc-nnvc.md)) that drives
+Fraunhofer HHI's open-source VVC encoder via FFmpeg's `-c:v libvvenc`
+wrapper. VVC is the ITU-T / ISO standard that succeeds HEVC and
+delivers roughly 30-50% better compression at equal quality. As a
+rough rule of thumb, VVenC `slow` is ~5-10% better quality than HEVC
+`slower` at the same bitrate but ~3-5× slower wall-clock — VVC is the
+"opt in to longer encodes for tighter bitrates" branch of the adapter
+set.
+
+### Quality knob and presets
+
+| Property | Value |
+| --- | --- |
+| Quality knob | `qp` (forwarded as the integer that the harness's `--crf` flag carries; VVenC's wrapper accepts the value regardless of label) |
+| Quality range | `[17, 50]` (perceptually informative window; full VVenC scale is 0..63) |
+| Default | `32` |
+| Native presets | `faster, fast, medium, slow, slower` (5 levels) |
+
+The harness's canonical 7-name preset vocabulary
+(`placebo / slowest / slower / slow / medium / fast /
+faster / veryfast / superfast / ultrafast`) compresses onto VVenC's
+native 5 levels via a static map: anything strictly slower than `slow`
+pins to `slower`; anything strictly faster than `fast` pins to
+`faster`; the central three names map identically. This matches the
+projection rule used by the parallel HEVC and AV1 adapters so that
+predictor inputs stay codec-uniform.
+
+### Neural-network video coding (NN-VC)
+
+VVC is the first standardised codec on the harness's adapter set with
+first-class **NN-VC** tools exposed through the encoder CLI. The
+adapter wires the deterministic intra-prediction toggle in this PR;
+the loop filter and super-resolution toggles are deferred to follow-up
+ADRs once the corpus carries enough VVenC rows to estimate their
+quality / cost curves separately.
+
+- **NN-based intra prediction** (`nnvc_intra=True` →
+  `-vvenc-params IntraNN=1`) — replaces VVC's handcrafted intra
+  prediction modes (planar / DC / 65 directional) with a learned
+  5×5 / 7×7 / 9×9 convolutional layer that predicts each block's
+  pixels from its causal neighbourhood. Typical effect at 1080p
+  natural content: ~1-3% bitrate reduction at iso-VMAF, ~5-10×
+  slower intra encode time.
+- **NN-based loop filter** (deferred) — a learned post-processing CNN
+  that augments or replaces VVC's deblocking + SAO + ALF cascade.
+  Quality gain ~2-4% bitrate at iso-VMAF; cost is incurred decoder-
+  side as well as encoder-side.
+- **NN-based super-resolution** (deferred) — encode at low resolution,
+  decode and run a learned upsampler. Gain skews to low-bitrate
+  regimes; cost is decoder-side.
+
+These tools are the closest thing the open-source video stack has to
+a "neural-augmented codec" today and are the natural counterpart to
+the fork's existing tiny-AI *measurement* surface (`vmaf_tiny_v2`,
+`fr_regressor_v1`, `nr_metric_v1`): NN-VC is end-to-end *generation*,
+the fork's tiny-AI is end-to-end *measurement*. Putting both behind
+the same `vmaf-tune` harness lets future Phase B / C predictors learn
+when the NN-VC tools are worth their compute cost.
+
+### External binary requirements
+
+Running the VVenC adapter end-to-end requires:
+
+- `ffmpeg` compiled with `--enable-libvvenc` on `PATH` (or
+  `--ffmpeg-bin`).
+- The `libvvenc` shared library and headers from
+  <https://github.com/fraunhoferhhi/vvenc>.
+
+The shipped unit tests mock `subprocess.run` so the adapter can be
+exercised without either binary present; integration smoke is gated
+to a CI runner that has a `libvvenc`-enabled FFmpeg.
+
 ## Tests
 
 ```shell

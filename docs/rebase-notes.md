@@ -7853,3 +7853,26 @@ inline.*
   ```bash
   pytest tools/vmaf-tune/tests/
   ```
+
+### 0229 — `vmaf-tune` libvvenc + NN-VC codec adapter (ADR-0285)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py`
+  (new fork-only file), `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`
+  (registry edit, fork-only), `tools/vmaf-tune/tests/test_codec_adapter_vvenc.py`
+  (new), `tools/vmaf-tune/tests/test_corpus.py` (relaxes the
+  `known_codecs() == ("libx264",)` assertion to `"libx264" in
+  known_codecs()` since the registry now spans multiple codecs).
+- **Invariant**: the codec-adapter registry is fork-introduced
+  (Phase A of ADR-0237) and lives entirely outside the upstream
+  Netflix tree, so `tools/vmaf-tune/` does not touch upstream
+  paths. The only rebase-sensitive surface is the
+  `CORPUS_ROW_KEYS` schema in `src/vmaftune/__init__.py` (per the
+  Phase A invariant in `tools/vmaf-tune/AGENTS.md`); this PR adds
+  the adapter without changing the schema.
+- **Upstream interaction**: none. `tools/vmaf-tune/` is not in
+  Netflix/vmaf upstream.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/
+  ```
