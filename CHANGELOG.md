@@ -8,6 +8,37 @@
 
 ### Added
 
+- **`fr_regressor_v2` ensemble — real-corpus retrain harness +
+  flip workflow (ADR-0309).** Follow-up to
+  [ADR-0303](docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md) /
+  PR #399 that ships the operational harness for actually running
+  the 5-seed × 9-fold LOSO retrain against the locally available
+  Netflix Public Dataset (`.workingdir2/netflix/`) and emitting a
+  machine-checkable verdict file. Adds
+  [`ai/scripts/run_ensemble_v2_real_corpus_loso.sh`](ai/scripts/run_ensemble_v2_real_corpus_loso.sh)
+  (Bash wrapper that validates the corpus, loops the seeds through
+  `train_fr_regressor_v2_ensemble_loso.py`, and tees timestamped
+  per-seed logs under `runs/ensemble_v2_real/logs/`),
+  [`ai/scripts/validate_ensemble_seeds.py`](ai/scripts/validate_ensemble_seeds.py)
+  (Python validator that calls the ADR-0303 gate, snapshots the
+  corpus YUV file list as sha256 over sorted `relpath\tsize`, and
+  writes `PROMOTE.json` on gate-pass with a recommendation to flip
+  the five `fr_regressor_v2_ensemble_v1_seed{0..4}` rows in
+  `model/tiny/registry.json` from `smoke: true` to `smoke: false`,
+  or `HOLD.json` on gate-fail with the failing-seed details and a
+  recommendation to keep `smoke: true` and investigate diversity /
+  hyperparameters), unit tests for both verdict paths, and a
+  runbook
+  [`docs/ai/ensemble-v2-real-corpus-retrain-runbook.md`](docs/ai/ensemble-v2-real-corpus-retrain-runbook.md)
+  covering prerequisites, the two-command run, verdict
+  interpretation, and rollback. The harness deliberately does
+  **not** run the LOSO inside the PR (6–12 h GPU work) and does
+  **not** flip the registry — the registry flip is a separate
+  follow-up PR gated on a passing `PROMOTE.json` (preserves a clean
+  revert surface and honours the new `ai/AGENTS.md` invariant that
+  registry-flip never happens during a rebase). Companion research
+  digest:
+  [Research-0081](docs/research/0081-fr-regressor-v2-ensemble-real-corpus-methodology.md).
 - **`fr_regressor_v2` codec-aware scaffold — first downstream consumer
   of the vmaf-tune Phase A JSONL corpus (ADR-0272, prereq for
   Phase B).** Ships

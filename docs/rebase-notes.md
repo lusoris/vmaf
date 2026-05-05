@@ -8494,3 +8494,41 @@ inline.*
   ```bash
   pytest tools/vmaf-tune/tests/test_ladder.py -v
   ```
+
+### 0309 — fr_regressor_v2 ensemble real-corpus retrain harness (ADR-0309)
+
+- **ADR**: [ADR-0309](adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md)
+- **Touches**: entirely fork-local.
+  - `ai/scripts/run_ensemble_v2_real_corpus_loso.sh` (new — Bash
+    wrapper that loops the five seeds over the existing
+    `train_fr_regressor_v2_ensemble_loso.py` against
+    `.workingdir2/netflix/`).
+  - `ai/scripts/validate_ensemble_seeds.py` (new — calls the
+    ADR-0303 gate and writes `PROMOTE.json` / `HOLD.json` with a
+    corpus sha256 snapshot).
+  - `ai/tests/test_validate_ensemble_seeds.py` (new — 7 tests,
+    synthetic JSON fixtures for both verdict paths).
+  - `ai/AGENTS.md` — appended "Registry-flip is a separate PR
+    (ADR-0309)" paragraph under the existing
+    `fr_regressor_v2_ensemble_v1` section.
+  - `docs/adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md`,
+    `docs/research/0081-fr-regressor-v2-ensemble-real-corpus-methodology.md`,
+    `docs/ai/ensemble-v2-real-corpus-retrain-runbook.md` (all new).
+- **Rebase invariant**: the harness is **decoupled from the
+  registry mutation**. Neither the wrapper nor the validator
+  touches `model/tiny/registry.json`; the registry flip is a
+  separate follow-up PR gated on a passing `PROMOTE.json`.
+  Auto-flipping on PROMOTE was rejected in ADR-0309's
+  alternatives matrix specifically because rebase-time mutation
+  of shipped registry rows is the foot-gun this invariant
+  exists to prevent.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest ai/tests/test_validate_ensemble_seeds.py -v
+  python ai/scripts/validate_ensemble_seeds.py --help
+  bash -n ai/scripts/run_ensemble_v2_real_corpus_loso.sh
+  ```
+
+- **Upstream source**: zero.
+- **On upstream sync**: zero interaction.
