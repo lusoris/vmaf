@@ -92,9 +92,21 @@ ENCODER_VOCAB: tuple[str, ...] = (
     "libsvtav1",
     "libvvenc",
     "libvpx-vp9",
+    # Hardware encoders (T-VMAF-TUNE Phase A real-corpus runner via
+    # `scripts/dev/hw_encoder_corpus.py` — see ADR-0237 + Research-0061).
+    # NVIDIA NVENC + Intel Arc QSV. Vocab extension bumps
+    # ENCODER_VOCAB_VERSION to 2 — the previous vocab v1 model graphs
+    # are forward-compatible (extra one-hot bits are zero-padded for
+    # legacy callers) but new training runs target v2.
+    "h264_nvenc",
+    "hevc_nvenc",
+    "av1_nvenc",
+    "h264_qsv",
+    "hevc_qsv",
+    "av1_qsv",
     "unknown",
 )
-ENCODER_VOCAB_VERSION = 1
+ENCODER_VOCAB_VERSION = 2
 N_ENCODERS = len(ENCODER_VOCAB)
 UNKNOWN_ENCODER_INDEX = ENCODER_VOCAB.index("unknown")
 
@@ -133,6 +145,41 @@ PRESET_ORDINAL: dict[str, dict[str, int]] = {
     "libvvenc": {"faster": 1, "fast": 3, "medium": 5, "slow": 7, "slower": 8},
     # libvpx-vp9 "deadline" + cpu-used; treat as ordinal best-effort.
     "libvpx-vp9": {"realtime": 0, "good": 5, "best": 9},
+    # NVIDIA NVENC presets are p1..p7 (p1=fastest, p7=slowest).
+    # Squash 1..7 -> 0..9 ordinal scale to keep PRESET_MAX_ORDINAL=9
+    # invariant. p4 (the default for NVENC) maps to 5 (median).
+    "h264_nvenc": {"p1": 0, "p2": 2, "p3": 3, "p4": 5, "p5": 6, "p6": 7, "p7": 9},
+    "hevc_nvenc": {"p1": 0, "p2": 2, "p3": 3, "p4": 5, "p5": 6, "p6": 7, "p7": 9},
+    "av1_nvenc": {"p1": 0, "p2": 2, "p3": 3, "p4": 5, "p5": 6, "p6": 7, "p7": 9},
+    # Intel QSV presets share the libx264 vocabulary but only ship
+    # veryfast/faster/fast/medium/slow/slower/veryslow on Arc.
+    "h264_qsv": {
+        "veryfast": 2,
+        "faster": 3,
+        "fast": 4,
+        "medium": 5,
+        "slow": 6,
+        "slower": 7,
+        "veryslow": 8,
+    },
+    "hevc_qsv": {
+        "veryfast": 2,
+        "faster": 3,
+        "fast": 4,
+        "medium": 5,
+        "slow": 6,
+        "slower": 7,
+        "veryslow": 8,
+    },
+    "av1_qsv": {
+        "veryfast": 2,
+        "faster": 3,
+        "fast": 4,
+        "medium": 5,
+        "slow": 6,
+        "slower": 7,
+        "veryslow": 8,
+    },
     "unknown": {},
 }
 PRESET_MAX_ORDINAL = 9.0  # all tables are normalised by this
