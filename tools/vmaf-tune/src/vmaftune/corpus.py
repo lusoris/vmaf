@@ -234,7 +234,6 @@ def _row_for(
         # `resolution_aware` is on, this can differ from `opts.vmaf_model`
         # (e.g. opts says vmaf_v0.6.1 but a 4K row scored against
         # vmaf_4k_v0.6.1). The score request is the source of truth.
-        "vmaf_model": score_res.request.model,
         "vmaf_model": effective_model,
         "score_time_ms": score_res.score_time_ms,
         "ffmpeg_version": enc_res.ffmpeg_version,
