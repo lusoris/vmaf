@@ -270,6 +270,30 @@ libvmaf/
   → `integer_motion3`) catches drift, but only after a full GPU
   run. See [`docs/rebase-notes.md` §0219](../docs/rebase-notes.md).
 
+- **Fuzz-harness coverage rule** (fork-local,
+  [ADR-0270](../docs/adr/0270-fuzzing-scaffold.md) +
+  [ADR-0311](../docs/adr/0311-libfuzzer-harness-expansion.md)): every
+  attacker-reachable parser added under `libvmaf/tools/` must ship
+  with a matching libFuzzer harness under
+  [`test/fuzz/`](test/fuzz/) before merge — the convention is one
+  `fuzz_<surface>.c` + a 3–6-seed corpus + a row in
+  `test/fuzz/meson.build` and the
+  [`.github/workflows/fuzz.yml`](../.github/workflows/fuzz.yml)
+  nightly matrix. Three harnesses currently ship: `fuzz_y4m_input`
+  (Y4M parser), `fuzz_yuv_input` (raw-YUV reader), `fuzz_cli_parse`
+  (CLI argv tokeniser + colon-delimited model/feature parsers).
+  The harnesses re-include `tools/{y4m_input,yuv_input,vidinput,
+  cli_parse}.c` as build inputs (via the static-source path, not
+  `libvmaf.so`); upstream sync that splits or renames any of those
+  source files needs the corresponding `meson.build` source-list
+  update *and* a 60-second smoke run per harness against the seed
+  corpus. The `__wrap_exit` longjmp shim in `fuzz_cli_parse.c` is
+  GNU-ld / lld-specific and ships with a `-Wl,--wrap=exit` link
+  arg; document any platform expansion. A pre-commit hook
+  enforcing the new-parser-needs-new-harness contract is *not*
+  yet wired — it can be added later once at least 5 parsers carry
+  harnesses.
+
 Backend-specific orientation:
 
 - [src/cuda/AGENTS.md](src/cuda/AGENTS.md) — CUDA backend runtime

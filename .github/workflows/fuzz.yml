@@ -5,7 +5,8 @@
 # corpus for `MAX_TOTAL_TIME` seconds per night. Crash / OOM /
 # timeout artefacts are uploaded for triage.
 #
-# Tracked under ADR-0270; operator runbook in
+# Tracked under ADR-0270 (initial scaffold) and ADR-0311
+# (yuv_input + cli_parse harness expansion); operator runbook in
 # docs/development/fuzzing.md.
 
 name: Nightly Fuzz — libFuzzer
@@ -22,7 +23,7 @@ on:
       max_total_time:
         description: "Per-target wall-clock seconds (libFuzzer -max_total_time)."
         required: false
-        default: "300"
+        default: "60"
 
 permissions:
   contents: read
@@ -42,8 +43,17 @@ jobs:
         include:
           - target: fuzz_y4m_input
             corpus: libvmaf/test/fuzz/y4m_input_corpus
+          - target: fuzz_yuv_input
+            corpus: libvmaf/test/fuzz/yuv_input_corpus
+          - target: fuzz_cli_parse
+            corpus: libvmaf/test/fuzz/cli_parse_corpus
     env:
-      MAX_TOTAL_TIME: ${{ github.event.inputs.max_total_time || '300' }}
+      # Per-harness wall-clock seconds. ADR-0311 picked 60s/harness
+      # × 3 harnesses ≈ 180s of fuzz wall time per night, so the
+      # nightly window stays well under the 15-minute timeout-minutes
+      # cap above. Operators wanting a deeper run can dispatch the
+      # workflow manually with a higher `max_total_time` input.
+      MAX_TOTAL_TIME: ${{ github.event.inputs.max_total_time || '60' }}
       # ASan returns NULL instead of aborting on out-of-memory
       # alloc requests; libFuzzer treats that as a normal failed
       # input and continues. Without this, a single oversized
