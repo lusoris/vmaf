@@ -642,6 +642,46 @@ encoder; if libmfx / VPL is not compiled in, the harness raises
 `RuntimeError` with a build-time hint rather than letting ffmpeg
 emit an `Encoder not found` line buried in stderr.
 
+## Apple VideoToolbox adapters (`h264_videotoolbox`, `hevc_videotoolbox`)
+
+The `h264_videotoolbox` and `hevc_videotoolbox` registry entries cover
+Apple Silicon (M-series) and T2-equipped Intel Macs via the
+`VideoToolbox.framework` hardware encoder (added in
+[ADR-0283](../adr/0283-vmaf-tune-videotoolbox-adapters.md)). Both
+share `_videotoolbox_common.py` for the `-q:v` quality knob and the
+preset → `-realtime` mapping.
+
+| Adapter name | FFmpeg encoder | Quality knob | Hardware required |
+| --- | --- | --- | --- |
+| `h264_videotoolbox` | `h264_videotoolbox` | `q:v` (0..100, higher = better) | Apple Silicon or Intel Mac with T2 |
+| `hevc_videotoolbox` | `hevc_videotoolbox` | `q:v` (0..100, higher = better) | Apple Silicon or Intel Mac with T2 |
+
+VideoToolbox exposes only a binary `-realtime {0,1}` flag instead of
+a multi-valued preset, so the harness's nine-name preset vocabulary
+collapses onto that boolean per the table in
+`_videotoolbox_common.py`:
+`ultrafast`/`superfast`/`veryfast`/`faster`/`fast` → `realtime=1`
+(low-latency fast path); `medium`/`slow`/`slower`/`veryslow` →
+`realtime=0` (offline / quality-priority). The mapping is
+intentionally lossy — VT cannot expose a finer dial.
+
+The underlying FFmpeg invocations look like:
+
+```shell
+ffmpeg -i src.mkv -c:v h264_videotoolbox -realtime 0 -q:v 60 -an out.mkv
+ffmpeg -i src.mkv -c:v hevc_videotoolbox -realtime 0 -q:v 60 -an out.mkv
+```
+
+AV1 hardware encoding is intentionally **not wired** — Apple Silicon
+has no AV1 hardware encoder block as of 2026 and FFmpeg exposes no
+`av1_videotoolbox`. Use `libaom-av1` or `libsvtav1` for AV1 on
+macOS.
+
+`vmaf-tune` validates the `(preset, q:v)` pair via the adapter and
+probes `ffmpeg -encoders` for the requested encoder; if VideoToolbox
+is unavailable (e.g. the host is Linux), the harness raises
+`RuntimeError` rather than letting ffmpeg emit `Encoder not found`.
+
 ## Saliency-aware encoding (`recommend --saliency-aware`)
 
 Bucket #2 of the [PR #354](https://github.com/lusoris/vmaf/pull/354)
