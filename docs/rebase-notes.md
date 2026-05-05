@@ -82,6 +82,43 @@ cover several PRs in one workstream; cross-link from the ID heading.
     — must report `1 tests run, 1 passed`. Pre-fix the binary aborts
     with `AddressSanitizer: heap-buffer-overflow … WRITE of size 1`
     at `y4m_input.c:507`.
+### 0270 — `saliency_student_v1` fork-trained on DUTS-TR (ADR-0286)
+
+- **Touches**:
+  - `model/tiny/registry.json` — adds the `saliency_student_v1` row.
+    Fork-local registry; no upstream overlap.
+  - `model/tiny/saliency_student_v1.onnx` (+ `.json` sidecar) — new
+    weights and metadata. Fork-local.
+  - `ai/scripts/train_saliency_student.py` — new training script.
+    Wholly fork-local under `ai/`, which has no upstream counterpart.
+  - `docs/ai/models/saliency_student_v1.md`,
+    `docs/research/0062-saliency-student-from-scratch-on-duts.md`,
+    `docs/adr/0286-saliency-student-fork-trained-on-duts.md` — new
+    docs under fork-local trees.
+- **Invariant**: the C-side `feature_mobilesal.c` extractor's
+  tensor-name contract — `input` (NCHW `[1, 3, H, W]`) and
+  `saliency_map` (NCHW `[1, 1, H, W]`) — must continue to match the
+  ONNX graph for both `saliency_student_v1.onnx` and the legacy
+  `mobilesal.onnx` placeholder. Future weights swaps can change the
+  graph internals freely but must keep these names + shapes; the
+  smoke test asserts the registration. The op-allowlist constraint
+  (graph uses only ops in `libvmaf/src/dnn/op_allowlist.c`) carries
+  over from ADR-0218 — `Resize` is *not* used; `ConvTranspose` is the
+  upsample op for v1 to keep the graph load-clean against vanilla
+  origin/master.
+- **Re-test**:
+
+  ```bash
+  .venv/bin/python ai/scripts/validate_model_registry.py
+  .venv/bin/python -c "
+  from ai.src.vmaf_train.op_allowlist import check_model
+  from pathlib import Path
+  r = check_model(Path('model/tiny/saliency_student_v1.onnx'))
+  assert r.ok, r.pretty()
+  print('allowlist OK')
+  "
+  meson test -C build --suite=fast mobilesal
+  ```
 
 ### 0227 — `tools/vmaf-tune/` Phase A scaffold (ADR-0237 Phase A)
 
