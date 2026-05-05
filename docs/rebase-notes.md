@@ -8354,11 +8354,12 @@ inline.*
   (+1 line + new fragment file).
 - **Upstream source**: zero. Branch-protection policy is fork-only.
 - **On upstream sync**: zero interaction with Netflix/vmaf master.
-- **Manual operator step at adoption**:
+- **Manual operator step at adoption** (uses PATCH, not PUT — corrected
+  from the original ADR-0313 body which had the wrong verb):
 
   ```bash
-  gh api -X PUT "repos/lusoris/vmaf/branches/master/protection/required_status_checks" \
-    -F 'strict=true' -F 'contexts=["Required Checks Aggregator"]'
+  echo '{"strict": false, "contexts": ["Required Checks Aggregator"]}' | \
+    gh api -X PATCH "repos/lusoris/vmaf/branches/master/protection/required_status_checks" --input -
   ```
 
 - **Re-test on rebase**:
@@ -8366,4 +8367,41 @@ inline.*
   ```bash
   # YAML lint passes
   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/required-aggregator.yml'))"
+  ```
+
+### 0305 — encoder knob-space Pareto analysis (2026-05-05)
+
+- **What changed**: fork-local. New analysis scaffold for the
+  12,636-cell encoder knob sweep that backs
+  `tools/vmaf-tune/codec_adapters/*` recipe defaults. New files:
+  `ai/scripts/analyze_knob_sweep.py` (per-`(source, codec,
+  rc_mode)` Pareto hull on `(bitrate_kbps, vmaf_score)`,
+  `encode_time_ms` tiebreaker, regression-detection check),
+  `ai/tests/test_knob_sweep_analysis.py` (synthetic 20-row JSONL
+  fixture). Methodology + scaffolded findings: see
+  [ADR-0305](adr/0305-encoder-knob-space-pareto-analysis.md) +
+  [Research-0077](research/0077-encoder-knob-space-pareto-frontiers.md).
+  Companion to [Research-0063](research/0063-encoder-knob-space-cq-vs-vbr-stratification.md).
+- **Touches**: none upstream-shared. Sits entirely under `ai/`
+  (fork-local since the tiny-AI training surface, ADR-0021) and
+  `docs/{adr,research}/` (fork ledger).
+- **Upstream source**: zero. The 12,636-cell sweep, the Pareto
+  scaffold, and the regression-detection invariant are
+  fork-introduced; Netflix/vmaf master ships no encoder
+  knob-sweep tooling.
+- **On upstream sync**: zero interaction with Netflix/vmaf
+  master.
+- **Invariant for future codec adapter PRs**: per the
+  `ai/AGENTS.md` knob-sweep corpus invariant (ADR-0305), recipes
+  that regress vs the bare encoder at matched bitrate within the
+  same `(source, codec, rc_mode)` slice MUST NOT ship as adapter
+  defaults. New adapter PRs cite the per-slice hull row from
+  `reports/summary.md` (or "no hull entry yet — bare default")
+  in their PR description. The `comprehensive.jsonl` sweep file
+  is generated locally and lives under `runs/phase_a/full_grid/`
+  (gitignored — never committed).
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_knob_sweep_analysis.py -v
   ```
