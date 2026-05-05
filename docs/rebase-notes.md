@@ -7830,7 +7830,7 @@ inline.*
   test file `tools/vmaf-tune/tests/test_codec_adapter_qsv.py`.
   Doc updates: `docs/usage/vmaf-tune.md` (Hardware encoders
   section), `docs/adr/0281-vmaf-tune-qsv-adapters.md`,
-  `docs/research/0054-vmaf-tune-qsv-adapters.md`,
+  `docs/research/0066-vmaf-tune-qsv-adapters.md`,
   `tools/vmaf-tune/AGENTS.md`, `CHANGELOG.md`.
 - **Upstream source**: fork-local. `tools/vmaf-tune/` is
   fork-introduced under ADR-0237; Netflix/vmaf has no
