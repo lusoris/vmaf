@@ -252,9 +252,20 @@ ADR-0237 follow-up promoting the corresponding phase.
   `global_quality` window) is a deliberate exception to the
   "one file per codec, nothing shared" Phase A convention. Per
   ADR-0281, future codec families that share parameter shape
-  (NVENC's three encoders, AMF's three encoders) follow the same
-  pattern: one `_<family>_common.py` private module, three thin
-  dataclass adapters. Single-codec families stay flat.
+  (NVENC's three encoders, AMF's three encoders, VideoToolbox's
+  two H.264 + HEVC encoders) follow the same pattern: one
+  `_<family>_common.py` private module, thin dataclass adapters.
+  Single-codec families stay flat.
+- **Apple VideoToolbox adapters share `_videotoolbox_common.py`
+  (ADR-0283).** Two encoders (`h264_videotoolbox`,
+  `hevc_videotoolbox`) reuse a single `-q:v` 0..100 quality knob
+  (higher = better; `invert_quality=False`) and the nine-name
+  preset → `-realtime` boolean mapping. AV1 hardware encoding is
+  intentionally absent — Apple Silicon has no AV1 hardware encoder
+  block as of 2026 and FFmpeg exposes no `av1_videotoolbox`. Tests
+  mock `subprocess.run`; the suite runs on Linux CI without macOS.
+  End-to-end VT exercise is left to contributors with macOS +
+  VideoToolbox available locally.
 - **The encode pipeline (`encode.py`) is still x264-CRF-tied.**
   ADR-0281 added the QSV adapter classes but did not widen
   `build_ffmpeg_command` to dispatch on `adapter.quality_knob`.

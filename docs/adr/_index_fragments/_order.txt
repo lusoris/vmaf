@@ -177,3 +177,4 @@
 0293-vmaf-tune-saliency-aware
 0296-vmaf-roi-saliency-weighted
 0300-vmaf-tune-hdr-aware
+0283-vmaf-tune-videotoolbox-adapters

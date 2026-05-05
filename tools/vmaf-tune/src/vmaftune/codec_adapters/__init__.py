@@ -8,8 +8,9 @@ adapter declares its quality knob, range, defaults, and FFmpeg encoder
 name. Phase A wires ``libx264`` plus the NVIDIA NVENC family
 (``h264_nvenc``, ``hevc_nvenc``, ``av1_nvenc``), the AMD AMF family
 (``h264_amf``, ``hevc_amf``, ``av1_amf``), the Intel QSV family
-(``h264_qsv``, ``hevc_qsv``, ``av1_qsv``), the Fraunhofer VVenC
-H.266 encoder (``libvvenc``), and the SVT-AV1 software encoder
+(``h264_qsv``, ``hevc_qsv``, ``av1_qsv``), the Apple VideoToolbox
+family (``h264_videotoolbox``, ``hevc_videotoolbox``), the Fraunhofer
+VVenC H.266 encoder (``libvvenc``), and the SVT-AV1 software encoder
 (``libsvtav1``) — software and hardware encoders share the same
 adapter contract; later phases add one file per codec without
 touching the search loop.
@@ -33,9 +34,11 @@ from .av1_qsv import Av1QsvAdapter
 from .h264_amf import H264AMFAdapter
 from .h264_nvenc import H264NvencAdapter
 from .h264_qsv import H264QsvAdapter
+from .h264_videotoolbox import H264VideoToolboxAdapter
 from .hevc_amf import HEVCAMFAdapter
 from .hevc_nvenc import HevcNvencAdapter
 from .hevc_qsv import HevcQsvAdapter
+from .hevc_videotoolbox import HEVCVideoToolboxAdapter
 from .libaom import LibaomAdapter
 from .svtav1 import SvtAv1Adapter
 from .vvenc import VVenCAdapter
@@ -89,6 +92,8 @@ _REGISTRY: dict[str, CodecAdapter] = {
     "h264_qsv": H264QsvAdapter(),
     "hevc_qsv": HevcQsvAdapter(),
     "av1_qsv": Av1QsvAdapter(),
+    "h264_videotoolbox": H264VideoToolboxAdapter(),
+    "hevc_videotoolbox": HEVCVideoToolboxAdapter(),
     "libvvenc": VVenCAdapter(),
     "libsvtav1": SvtAv1Adapter(),
 }
@@ -112,7 +117,9 @@ __all__ = [
     "H264AMFAdapter",
     "H264NvencAdapter",
     "H264QsvAdapter",
+    "H264VideoToolboxAdapter",
     "HEVCAMFAdapter",
+    "HEVCVideoToolboxAdapter",
     "HevcNvencAdapter",
     "HevcQsvAdapter",
     "LibaomAdapter",

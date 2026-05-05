@@ -8237,4 +8237,19 @@ inline.*
 
   ```bash
   pytest tools/vmaf-tune/tests/test_cache.py -v
+### 0283 — `vmaf-tune` Apple VideoToolbox adapters (2026-05-05)
+
+- **What changed**: fork-local addition under
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`. New files:
+  `h264_videotoolbox.py`, `hevc_videotoolbox.py`,
+  `_videotoolbox_common.py`, plus the registry hook in
+  `__init__.py`. See
+  [ADR-0283](adr/0283-vmaf-tune-videotoolbox-adapters.md).
+- **Upstream source**: zero. `tools/vmaf-tune/` is fork-introduced
+  (Phase A under [ADR-0237](adr/0237-quality-aware-encode-automation.md)).
+- **On upstream sync**: zero interaction.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/test_codec_adapter_videotoolbox.py -q
   ```
