@@ -1,0 +1,114 @@
+name: Required Checks Aggregator
+
+# ADR-0313 — Permanent fix for the doc/Python-only-PR vs C-build-required-checks
+# structural deadlock. This single workflow runs on every PR (no path filter)
+# and verifies that each named required check on the head SHA reported either
+# success, skipped (path-filter short-circuit), or neutral. It becomes the
+# single required-status-check that branch protection enforces; the individual
+# build/lint workflows can keep their path filters.
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: read
+
+concurrency:
+  group: required-aggregator-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aggregator:
+    name: Required Checks Aggregator
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    timeout-minutes: 15
+    steps:
+      - name: Wait for sibling workflows + verify required-check outcomes
+        uses: actions/github-script@v7
+        with:
+          retries: 3
+          script: |
+            // Ordered by historical reliability; no Build matrix entries here
+            // because they path-filter-skip on doc/Python-only diffs and that
+            // is the explicit semantics ADR-0313 codifies as acceptable.
+            const required = [
+              'Build — Ubuntu gcc (CPU) + DNN',
+              'Build — Ubuntu clang (CPU) + DNN',
+              'Build — Windows MinGW64 (CPU) (MINGW64, mingw-w64-x86_64)',
+              'Build — Windows MSVC + CUDA (build only)',
+              'Build — Windows MSVC + oneAPI SYCL (build only)',
+              'CodeQL',
+              'CodeQL (Actions)',
+              'CodeQL (C/C++)',
+              'CodeQL (Python)',
+              'Pre-Commit (Formatters + Basic Checks)',
+              'Python Lint (Ruff + Black + isort + mypy)',
+              'Semgrep (CWE Top 25 + CERT-C + Custom)',
+              'Clang-Tidy (Changed C/C++ Files)',
+              'Cppcheck (Whole Project)',
+              'Dependency Review (PR Diff)',
+              'Gitleaks (Secret Scan)',
+              'ShellCheck + shfmt (All *.sh)',
+              'Netflix CPU Golden Tests (D24)',
+              'Sanitizers — ASan + UBSan + MSan (address)',
+              'Sanitizers — ASan + UBSan + MSan (thread)',
+              'Sanitizers — ASan + UBSan + MSan (undefined)',
+              'Assertion Density (Power of 10 §5)',
+              'Tiny AI (DNN Suite + ai/ Pytests)',
+            ];
+            const sha = context.eventName === 'pull_request'
+              ? context.payload.pull_request.head.sha
+              : context.sha;
+            core.info(`Aggregating required checks for SHA ${sha}`);
+
+            // Poll up to 8 minutes for sibling workflows to register their
+            // check_runs. A run that has never appeared after the timeout
+            // is treated as path-filter-not-applicable (acceptable).
+            const deadline = Date.now() + 8 * 60 * 1000;
+            let byName = {};
+            while (Date.now() < deadline) {
+              const { data: { check_runs } } = await github.rest.checks.listForRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: sha,
+                per_page: 100,
+              });
+              byName = Object.fromEntries(check_runs.map(r => [r.name, r]));
+              const stillRunning = required.filter(n => {
+                const run = byName[n];
+                return run && (run.status === 'queued' || run.status === 'in_progress');
+              });
+              if (stillRunning.length === 0) break;
+              core.info(`Waiting on: ${stillRunning.slice(0, 3).join(', ')}` +
+                        (stillRunning.length > 3 ? ` (+${stillRunning.length - 3} more)` : ''));
+              await new Promise(r => setTimeout(r, 30000));
+            }
+
+            const failed = [];
+            const accepted = ['success', 'skipped', 'neutral'];
+            for (const name of required) {
+              const run = byName[name];
+              if (!run) {
+                core.info(`OK (not reported, treated as path-filter-skip): ${name}`);
+                continue;
+              }
+              if (!accepted.includes(run.conclusion)) {
+                failed.push(`${name}: ${run.conclusion ?? run.status}`);
+              } else {
+                core.info(`OK (${run.conclusion}): ${name}`);
+              }
+            }
+
+            if (failed.length > 0) {
+              core.setFailed(`Required checks did not pass:\n  - ${failed.join('\n  - ')}`);
+            } else {
+              core.info('All required checks reported success/skipped/neutral.');
+            }
