@@ -7331,3 +7331,64 @@ inline.*
   # Cross-backend parity (places=4 gate, ADR-0214):
   /cross-backend-diff
   ```
+### 0277 — ffmpeg-patches refresh against `n8.1` — 2026-05-04 (ADR-0277)
+
+- **Touches**: `ffmpeg-patches/` is unchanged (no content drift).
+  Doc-only entries land in:
+  - [`docs/adr/0277-ffmpeg-patches-refresh-2026-05-04.md`](adr/0277-ffmpeg-patches-refresh-2026-05-04.md) — new ADR.
+  - [`docs/adr/_index_fragments/0277-ffmpeg-patches-refresh-2026-05-04.md`](adr/_index_fragments/0277-ffmpeg-patches-refresh-2026-05-04.md) — index row.
+  - `docs/adr/_index_fragments/_order.txt` — manifest append.
+  - `changelog.d/changed/ffmpeg-patches-refresh-2026-05-04.md` — Changed entry.
+  - This file — this entry.
+- **Invariant**: `ffmpeg-patches/series.txt` order is load-bearing —
+  patches `0002…0006` build on each other and only apply cleanly
+  cumulatively. The verification gate is a **series replay**, not
+  a per-patch `git apply --check` (per ADR-0118 + CLAUDE.md §12 r14).
+- **On upstream sync**: zero interaction. Netflix/vmaf has no
+  `ffmpeg-patches/` tree; this is a fork-local integration surface.
+- **Re-test on rebase** (also: re-replay procedure for the next
+  refresh):
+
+  ```bash
+  # Clone pristine n8.1
+  git -C /tmp clone --depth 1 --branch n8.1 \
+    https://github.com/FFmpeg/FFmpeg.git ff-replay-$(date +%F)
+  cd /tmp/ff-replay-$(date +%F)
+  git switch -c refresh-$(date +%F)
+  git config user.email refresh@local && git config user.name "Refresh Bot"
+
+  # Replay the series cumulatively
+  for p in /path/to/vmaf/ffmpeg-patches/000*-*.patch; do
+    git am --3way "$p" || break
+  done
+
+  # Regenerate and compare to in-tree
+  mkdir -p /tmp/ff-regen-$(date +%F)
+  git format-patch n8.1.. -o /tmp/ff-regen-$(date +%F)/
+
+  # Diff old vs new excluding pure format-patch noise
+  for i in 1 2 3 4 5 6; do
+    orig=$(ls /path/to/vmaf/ffmpeg-patches/000${i}-*.patch)
+    regen=$(ls /tmp/ff-regen-$(date +%F)/000${i}-*.patch)
+    diff -u \
+      <(grep -v "^From [0-9a-f]\|^Date:\|^index " "$orig") \
+      <(grep -v "^From [0-9a-f]\|^Date:\|^index " "$regen") \
+      | head -40
+  done
+  ```
+
+  If only stylistic diffs surface (`PATCH N/M` numbering, MIME
+  headers, hunk-context counts, hunk offset shifts against
+  cumulative state), keep originals — record a no-drift refresh
+  ADR. If real content drift surfaces, regenerate and ship the
+  refresh PR with the regenerated patches plus a content-summary
+  ADR.
+
+  End-to-end `vf_libvmaf` smoke is best run from CI
+  ([`ffmpeg-integration.yml`](../.github/workflows/ffmpeg-integration.yml))
+  against an installed libvmaf prefix — the meson-uninstalled
+  `.pc` does not satisfy FFmpeg's `#include <libvmaf.h>` probe
+  (the headers live under `libvmaf/libvmaf.h` only; the
+  system-installed `.pc` carries an extra
+  `-I${includedir}/libvmaf` shortcut that the uninstalled `.pc`
+  omits).

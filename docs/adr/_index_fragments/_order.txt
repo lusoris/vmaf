@@ -169,3 +169,4 @@
 0271-cuda-drain-batch-ms-ssim
 0273-ciede-vulkan-nvidia-f32-f64-precision-gap
 0276-vmaf-tune-fast-path
+0277-ffmpeg-patches-refresh-2026-05-04
