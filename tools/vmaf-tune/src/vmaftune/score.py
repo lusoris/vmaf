@@ -75,7 +75,7 @@ def build_vmaf_command(
         "--bitdepth",
         str(_bitdepth_for(req.pix_fmt)),
         "--model",
-        f"version={req.model}",
+        _model_arg(req.model),
         "--json",
         "--output",
         str(json_output),
@@ -83,6 +83,20 @@ def build_vmaf_command(
     if backend:
         cmd.extend(["--backend", backend])
     return cmd
+
+
+def _model_arg(model: str) -> str:
+    """Format the ``--model`` argument for the libvmaf CLI.
+
+    Accepts either a bare version identifier (``"vmaf_v0.6.1"``) or a
+    pre-formatted ``key=value`` string (``"path=/abs/model.json"``,
+    ``"version=vmaf_v0.6.1"``). Bare identifiers are wrapped as
+    ``version=...``; pre-formatted strings pass through. Used by
+    ``corpus.py`` to inject HDR-model paths (see ADR-0295).
+    """
+    if "=" in model:
+        return model
+    return f"version={model}"
 
 
 def _pixfmt_to_vmaf(pix_fmt: str) -> str:

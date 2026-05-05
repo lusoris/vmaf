@@ -17,7 +17,10 @@ from __future__ import annotations
 __version__ = "0.0.1"
 
 # Bump on any backward-incompatible row-schema change.
-SCHEMA_VERSION = 1
+# v2 adds HDR-classification fields populated by ``hdr.detect_hdr``
+# (Bucket #9, ADR-0295). Phase B / C loaders must tolerate v1 rows
+# (treat missing keys as SDR).
+SCHEMA_VERSION = 2
 
 # Canonical row-key tuple — exposed so tests, downstream loaders, and
 # the Phase B bisect can verify the contract programmatically.
@@ -47,6 +50,10 @@ CORPUS_ROW_KEYS: tuple[str, ...] = (
     "ffmpeg_version",
     "vmaf_binary_version",
     "exit_status",
+    # v2 HDR fields — see ADR-0295 (Bucket #9).
+    "hdr_transfer",  # "" | "pq" | "hlg"
+    "hdr_primaries",  # raw ffprobe value, "" if SDR
+    "hdr_forced",  # bool — true iff --force-hdr / --force-sdr overrode detection
 )
 
 __all__ = ["CORPUS_ROW_KEYS", "SCHEMA_VERSION", "__version__"]
