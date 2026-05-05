@@ -7236,6 +7236,39 @@ inline.*
 ### 0229 — `vmaf_tiny_v3` + `vmaf_tiny_v4` dynamic-PTQ int8 sidecars (ADR-0275)
 ### 0278 — `vmaf-tune` libaom-av1 codec adapter (2026-05-03)
 ### 0228 — `vmaf-tune` libx265 codec adapter (ADR-0288)
+### 0280 — `vmaf-tune` NVENC codec adapters (ADR-0290)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/codec_adapters/{h264_nvenc,hevc_nvenc,av1_nvenc,_nvenc_common}.py`
+    (new). Wholly fork-local — no upstream Netflix/vmaf overlap.
+  - `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py` —
+    registry expanded.
+  - `tools/vmaf-tune/tests/test_codec_adapter_nvenc.py` (new).
+  - `tools/vmaf-tune/tests/test_corpus.py` — Phase-A registry
+    assertion updated.
+  - `tools/vmaf-tune/AGENTS.md` — invariant note expanded.
+  - `docs/usage/vmaf-tune.md` — "Hardware encoders (NVENC)" section.
+  - `docs/adr/0290-vmaf-tune-nvenc-adapters.md` (new) +
+    `docs/adr/README.md` index row.
+  - `docs/research/0065-vmaf-tune-nvenc-adapters.md` (new).
+  - `CHANGELOG.md` — Added entry.
+- **Invariant**: `known_codecs()` returns the four-codec tuple
+  `("av1_nvenc", "h264_nvenc", "hevc_nvenc", "libx264")`; the
+  mnemonic preset map (`ultrafast`/`superfast`/`veryfast` → `p1`,
+  `faster` → `p2`, `fast` → `p3`, `medium` → `p4`, `slow` →
+  `p5`, `slower` → `p6`, `slowest`/`placebo` → `p7`) is the
+  canonical cross-codec preset alignment that downstream Phase B/C
+  consumers assume. The CQ window is the hardware-permitted
+  `[0, 51]`; the Phase A informative window is `[15, 40]`.
+- **Rebase impact**: zero — `tools/vmaf-tune/` is wholly fork-local
+  and has no upstream Netflix/vmaf path overlap.
+- **Re-test on rebase**:
+
+  ```bash
+  cd tools/vmaf-tune && python -m pytest tests/ -q
+  ```
+
+### 0227 — `ffmpeg-patches/` series re-verified against n8.1 (2026-05-03)
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/x265.py`
   (new), `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`

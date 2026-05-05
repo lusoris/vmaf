@@ -347,6 +347,67 @@ The fork's `vmaf-tune` corpus rows record the exact `(encoder, preset,
 crf, vmaf_score, encode_time_ms, bitrate_kbps)` tuple, so Phase C/D
 predictors can pick whichever encoder dominates the relevant region of
 the rate-distortion plane on a given source.
+## Hardware encoders (NVENC)
+
+Phase A also wires the NVIDIA NVENC family for hardware-accelerated
+sweeps:
+
+| Adapter `--encoder` | FFmpeg encoder | Hardware required |
+|---|---|---|
+| `h264_nvenc` | `h264_nvenc` | NVIDIA Kepler+ (most modern GPUs) |
+| `hevc_nvenc` | `hevc_nvenc` | NVIDIA Maxwell 2nd-gen+ (GTX 960+) |
+| `av1_nvenc` | `av1_nvenc` | NVIDIA Ada Lovelace+ (RTX 40-series, L40, L4) |
+
+NVENC's quality knob is `-cq` (constant quantizer), the closest
+analogue to libx264 CRF. The fork's CQ window is the same `[15, 40]`
+perceptually informative range used for `libx264`; the hardware
+accepts `[0, 51]`.
+
+NVENC has seven preset levels (`p1` fastest → `p7` slowest). The CLI
+takes the same mnemonic preset names as `libx264` and maps them:
+
+| Mnemonic | NVENC preset |
+|---|---|
+| `ultrafast`, `superfast`, `veryfast` | `p1` |
+| `faster` | `p2` |
+| `fast` | `p3` |
+| `medium` (default) | `p4` |
+| `slow` | `p5` |
+| `slower` | `p6` |
+| `slowest`, `placebo` | `p7` |
+
+```shell
+vmaf-tune corpus \
+    --source ref.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p \
+    --framerate 24 --duration 10 \
+    --encoder h264_nvenc \
+    --preset medium --preset slow \
+    --crf 23 --crf 28 --crf 34 \
+    --output corpus_nvenc.jsonl
+```
+
+(The `--crf` flag carries the quality value regardless of whether the
+encoder names it CRF or CQ; the adapter forwards it as `-cq` for
+NVENC.)
+
+### Hardware vs software trade-off
+
+NVENC is **10–100× faster** than the software encoders at the cost of
+quality. Empirically, `h264_nvenc` at `medium` typically loses
+**3–5 VMAF points** versus `libx264 medium` at the same bitrate,
+depending on content complexity. The Pareto frontier is genuinely
+different — that is precisely why the harness treats NVENC as
+separate codec entries rather than a flag on `libx264`. Use NVENC
+when you need a large corpus quickly or when the production pipeline
+is GPU-encoded; use software when you need the perceptually best
+encode at a given bitrate.
+
+If FFmpeg reports `Encoder h264_nvenc not found` (or one of the
+sibling encoders), the FFmpeg build wasn't compiled with
+`--enable-nvenc` or the GPU lacks the relevant generation. The
+harness records the failure as `exit_status != 0` and skips scoring,
+so a partial corpus over a heterogeneous fleet is still well-formed.
 
 ## What Phase A does **not** do
 
@@ -483,6 +544,9 @@ The 10-bit pipeline is enabled by setting `--pix-fmt yuv420p10le`; the
 adapter reports the corresponding HEVC profile (`main10`) via
 `X265Adapter.profile_for(pix_fmt)` for downstream consumers that need
 it.
+- Software adapters beyond `libx264` (`libx265` / `libsvtav1` /
+  `libvpx-vp9` / `libvvenc`) ship in parallel PRs via the codec
+  adapter interface in `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
 
 ## Tests
 
