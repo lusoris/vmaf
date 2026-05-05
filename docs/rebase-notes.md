@@ -8436,3 +8436,32 @@ inline.*
   print('OK')
   "
   ```
+
+### 0304 — vmaf-tune fast-path prod wiring (ADR-0304)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/fast.py` (replaces the
+  ADR-0276 scaffold's `NotImplementedError` paths with concrete
+  Optuna TPE + v2 proxy + GPU verify wiring); new module
+  `tools/vmaf-tune/src/vmaftune/proxy.py` (centralised seam for
+  `fr_regressor_v2` ONNX inference); expanded
+  `tools/vmaf-tune/tests/test_fast.py`. Doc-side: ADR-0304,
+  Research-0076, `tools/vmaf-tune/AGENTS.md` invariant note.
+- **Upstream source**: zero. `tools/vmaf-tune/` and
+  `model/tiny/fr_regressor_v2.onnx` are both fork-introduced
+  (ADR-0237 / ADR-0291).
+- **Invariant**: the production proxy is **always**
+  `fr_regressor_v2` (no smoke models in the production path) and a
+  **single** GPU verify pass at recommend-end is mandatory — proxy
+  alone never wins. The `vmaftune.proxy.run_proxy` helper is the
+  single seam every fast-path consumer goes through; future
+  probabilistic-head / ensemble migrations land in that one
+  module. ENCODER_VOCAB v2 one-hot ordering is frozen by ADR-0291
+  and pinned in `proxy.ENCODER_VOCAB_V2` — keep in sync with
+  `ai/scripts/train_fr_regressor_v2.py`; drift raises `ProxyError`
+  at inference time before bad predictions ship.
+- **On upstream sync**: zero interaction with Netflix/vmaf master.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/test_fast.py -v
+  ```

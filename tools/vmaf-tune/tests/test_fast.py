@@ -1,18 +1,22 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Phase A.5 fast-path smoke tests (ADR-0276).
+"""Phase A.5 fast-path smoke + production-wiring tests
+(ADR-0276 scaffold + ADR-0304 prod wiring).
 
-Validates the Optuna-driven search loop end-to-end without needing
-ffmpeg, ONNX Runtime, or a GPU. Production wiring (real encode +
-fr_regressor_v2 inference + GPU verify) is gated behind a
-``predictor=`` injection in :func:`vmaftune.fast.fast_recommend` and
-covered by follow-up integration tests once the corpus exists.
+Validates two surfaces:
+
+1. The Optuna-driven smoke search loop end-to-end without needing
+   ffmpeg, ONNX Runtime, or a GPU (scaffold contract from ADR-0276).
+2. The production wiring seams: TPE → v2 proxy → GPU verify pass
+   (ADR-0304). Each seam is tested with an injected fake so the
+   suite runs on any host.
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -25,10 +29,16 @@ optuna = pytest.importorskip("optuna")  # noqa: F841 — gate the whole module
 from vmaftune.fast import (  # noqa: E402
     DEFAULT_CRF_HI,
     DEFAULT_CRF_LO,
+    DEFAULT_PROXY_TOLERANCE,
+    PROD_N_TRIALS,
     SMOKE_N_TRIALS,
     TrialSample,
     fast_recommend,
 )
+
+# ---------------------------------------------------------------------------
+# Smoke-mode tests — preserved from the ADR-0276 scaffold contract.
+# ---------------------------------------------------------------------------
 
 
 def test_smoke_recommendation_hits_target_within_tolerance() -> None:
@@ -39,6 +49,9 @@ def test_smoke_recommendation_hits_target_within_tolerance() -> None:
     assert result["n_trials"] == SMOKE_N_TRIALS
     assert DEFAULT_CRF_LO <= result["recommended_crf"] <= DEFAULT_CRF_HI
     assert abs(result["predicted_vmaf"] - 92.0) < 1.5
+    # Smoke mode never runs the verify pass.
+    assert result["verify_vmaf"] is None
+    assert result["proxy_verify_gap"] is None
 
 
 def test_smoke_low_target_picks_higher_crf() -> None:
@@ -49,22 +62,17 @@ def test_smoke_low_target_picks_higher_crf() -> None:
     assert low_q["predicted_kbps"] < high_q["predicted_kbps"]
 
 
-def test_production_loop_raises_until_implemented() -> None:
-    """Calling ``fast_recommend`` without ``smoke`` and without an injected
-    predictor must raise NotImplementedError — production wiring lands in a
-    follow-up PR (ADR-0276 'What is deferred')."""
-    with pytest.raises(NotImplementedError):
-        fast_recommend(src=Path("any.mp4"), target_vmaf=92.0, smoke=False)
-
-
 def test_predictor_injection_drives_search() -> None:
     """A custom predictor closes the loop without needing smoke mode."""
     calls: list[int] = []
 
     def _flat_predictor(crf: int) -> TrialSample:
         calls.append(crf)
-        # Constant 88 VMAF, bitrate scales linearly with CRF inversely.
         return TrialSample(crf=crf, predicted_vmaf=88.0, predicted_kbps=float(60 - crf))
+
+    def _fake_encode_runner(src: Path, encoder: str, crf: int, backend: str) -> tuple[float, float]:
+        # Return (kbps, vmaf) with vmaf close to the proxy's 88.
+        return (1500.0, 88.05)
 
     result = fast_recommend(
         src=Path("any.mp4"),
@@ -72,11 +80,14 @@ def test_predictor_injection_drives_search() -> None:
         smoke=False,
         n_trials=10,
         predictor=_flat_predictor,
+        encode_runner=_fake_encode_runner,
     )
-    # Optuna must have called the predictor at least once.
     assert len(calls) > 0
     assert result["predicted_vmaf"] == 88.0
     assert DEFAULT_CRF_LO <= result["recommended_crf"] <= DEFAULT_CRF_HI
+    assert result["verify_vmaf"] == pytest.approx(88.05)
+    assert result["proxy_verify_gap"] is not None
+    assert result["proxy_verify_gap"] < DEFAULT_PROXY_TOLERANCE
 
 
 def test_crf_range_is_respected() -> None:
@@ -88,3 +99,197 @@ def test_crf_range_is_respected() -> None:
         n_trials=20,
     )
     assert 20 <= result["recommended_crf"] <= 30
+
+
+# ---------------------------------------------------------------------------
+# ADR-0304 production-wiring tests — TPE / proxy / verify seams.
+# ---------------------------------------------------------------------------
+
+
+def test_production_loop_requires_extractor_or_predictor() -> None:
+    """`smoke=False` without a predictor or sample_extractor must raise.
+
+    The scaffold contract from ADR-0276 stays intact: the production
+    path requires either a real sample extractor (encode + canonical-6)
+    or an injected predictor. There is no automatic "best-effort"
+    default — silently producing a recommendation with no proxy is
+    worse than a clear error.
+    """
+    with pytest.raises(NotImplementedError):
+        fast_recommend(src=Path("any.mp4"), target_vmaf=92.0, smoke=False)
+
+
+def test_tpe_search_smoke_uses_prod_default_when_unset() -> None:
+    """In production mode without n_trials override, default is PROD_N_TRIALS."""
+
+    def _flat(crf: int) -> TrialSample:
+        return TrialSample(crf=crf, predicted_vmaf=90.0, predicted_kbps=2000.0)
+
+    def _fake_runner(src: Path, encoder: str, crf: int, backend: str) -> tuple[float, float]:
+        return (2000.0, 90.0)
+
+    result = fast_recommend(
+        src=Path("ignored.mp4"),
+        target_vmaf=90.0,
+        smoke=False,
+        predictor=_flat,
+        encode_runner=_fake_runner,
+    )
+    assert result["n_trials"] == PROD_N_TRIALS
+    assert result["smoke"] is False
+
+
+def test_proxy_score_calls_v2_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The production predictor seam must call vmaftune.proxy.run_proxy.
+
+    We monkey-patch ``vmaftune.proxy.run_proxy`` to a recording fake,
+    then build the production predictor via ``sample_extractor`` and
+    confirm Optuna drives the proxy through the seam (not directly via
+    onnxruntime). This is the contract the ADR-0304 fast-path proxy
+    invariant pins.
+    """
+    proxy_module = pytest.importorskip("vmaftune.proxy")
+
+    captured: list[dict] = []
+
+    def _fake_run_proxy(
+        features,
+        *,
+        encoder: str,
+        preset_norm: float,
+        crf_norm: float,
+        **_kwargs,
+    ) -> float:
+        captured.append(
+            {
+                "features": list(features),
+                "encoder": encoder,
+                "preset_norm": preset_norm,
+                "crf_norm": crf_norm,
+            }
+        )
+        # Return a deterministic VMAF that depends on crf_norm so TPE
+        # has an objective.
+        return 100.0 - 30.0 * crf_norm
+
+    monkeypatch.setattr(proxy_module, "run_proxy", _fake_run_proxy)
+
+    def _fake_extractor(src: Path, crf: int, encoder: str) -> tuple[list[float], float]:
+        # Six canonical-6 features (post-scaler).
+        return ([0.5, 0.4, 0.3, 0.2, 0.1, 0.05], float(8000 - 100 * crf))
+
+    def _fake_runner(src: Path, encoder: str, crf: int, backend: str) -> tuple[float, float]:
+        return (2000.0, 85.0)
+
+    result = fast_recommend(
+        src=Path("any.mp4"),
+        target_vmaf=85.0,
+        smoke=False,
+        n_trials=8,
+        sample_extractor=_fake_extractor,
+        encode_runner=_fake_runner,
+    )
+    assert result["smoke"] is False
+    # Proxy was called for each TPE trial.
+    assert len(captured) >= 1
+    assert all(c["encoder"] == "libx264" for c in captured)
+    assert all(0.0 <= c["crf_norm"] <= 1.0 for c in captured)
+    assert all(len(c["features"]) == 6 for c in captured)
+
+
+def test_gpu_verify_pass_at_end() -> None:
+    """The verify pass must run exactly once at the end of the search.
+
+    Proxy alone never wins (ADR-0304 invariant). This test confirms
+    that ``encode_runner`` is invoked exactly once after TPE completes
+    and that the verify_vmaf field reflects its return value.
+    """
+    runner_calls: list[tuple] = []
+
+    def _flat_predictor(crf: int) -> TrialSample:
+        # Proxy thinks every CRF gives 92.0.
+        return TrialSample(crf=crf, predicted_vmaf=92.0, predicted_kbps=1800.0)
+
+    def _runner(src: Path, encoder: str, crf: int, backend: str) -> tuple[float, float]:
+        runner_calls.append((str(src), encoder, crf, backend))
+        # Real libvmaf disagrees with the proxy: returns 89.5.
+        return (1800.0, 89.5)
+
+    result = fast_recommend(
+        src=Path("source.mp4"),
+        target_vmaf=92.0,
+        smoke=False,
+        n_trials=5,
+        predictor=_flat_predictor,
+        encode_runner=_runner,
+    )
+    # Exactly one verify pass.
+    assert len(runner_calls) == 1
+    assert result["verify_vmaf"] == pytest.approx(89.5)
+    # Gap = |92.0 - 89.5| = 2.5, exceeds the 1.5 default tolerance.
+    assert result["proxy_verify_gap"] == pytest.approx(2.5)
+    assert "FLAG" in result["notes"]
+
+
+def test_gpu_verify_within_tolerance_no_flag() -> None:
+    """When proxy and verify agree, no OOD flag in notes."""
+
+    def _good_predictor(crf: int) -> TrialSample:
+        return TrialSample(crf=crf, predicted_vmaf=90.0, predicted_kbps=1500.0)
+
+    def _runner(src: Path, encoder: str, crf: int, backend: str) -> tuple[float, float]:
+        # Verify says 90.3 — gap of 0.3, well within 1.5 tolerance.
+        return (1500.0, 90.3)
+
+    result = fast_recommend(
+        src=Path("source.mp4"),
+        target_vmaf=90.0,
+        smoke=False,
+        n_trials=5,
+        predictor=_good_predictor,
+        encode_runner=_runner,
+    )
+    assert result["proxy_verify_gap"] == pytest.approx(0.3, abs=1e-6)
+    assert "FLAG" not in result["notes"]
+
+
+def test_proxy_module_uses_lazy_import_seam() -> None:
+    """vmaftune.proxy.run_proxy must accept a session_factory test seam.
+
+    Tests should be able to inject a fake InferenceSession-shaped
+    object without ever importing onnxruntime. This confirms the
+    ADR-0304 single-seam discipline.
+    """
+    proxy_module = pytest.importorskip("vmaftune.proxy")
+    np = pytest.importorskip("numpy")  # noqa: F841 — proxy needs numpy
+
+    captured_inputs: list = []
+
+    class _FakeSession:
+        def get_inputs(self) -> list:
+            inp = MagicMock()
+            inp.name = "input"
+            return [inp]
+
+        def run(self, output_names, input_feed):
+            captured_inputs.append(input_feed)
+            # Return one scalar VMAF.
+            import numpy as _np
+
+            return [_np.asarray([[88.5]], dtype=_np.float32)]
+
+    def _factory(_path):
+        return _FakeSession()
+
+    score = proxy_module.run_proxy(
+        [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+        encoder="libx264",
+        preset_norm=0.5,
+        crf_norm=0.3,
+        session_factory=_factory,
+    )
+    assert score == pytest.approx(88.5)
+    # Confirm the input was the 20-D combined feature + codec block.
+    assert len(captured_inputs) == 1
+    fed = list(captured_inputs[0].values())[0]
+    assert fed.shape == (1, 20)
