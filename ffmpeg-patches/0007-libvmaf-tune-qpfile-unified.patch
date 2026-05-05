@@ -1,0 +1,583 @@
+From daa0bb960ab97e638a96e4575bd79c16a3f7e10f Mon Sep 17 00:00:00 2001
+From: Lusoris <lusoris@pm.me>
+Date: Tue, 5 May 2026 23:24:55 +0200
+Subject: [PATCH 7/9] libavcodec: unified -qpfile across
+ libx264/libsvtav1/libaom (vmaf-tune)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Adds an -qpfile <path> AVOption on libx264, libsvtav1, and libaom-av1
+that consumes the qpfile format emitted by vmaf-tune's saliency.py
+(<frame_idx> <I|P|B> <qp> + per-MB-row deltas).
+
+The new shared parser at libavcodec/qpfile_parser.{c,h} reads the file
+once into a VmafTuneQpFile struct so each adapter can map it into its
+native ROI / per-block QP-offset API:
+
+  * libx264: forwards the path as qpfile=<path> via x264_param_parse,
+    re-using x264's own qpfile reader (per-MB extension since r2390).
+  * libsvtav1: SCAFFOLD - parse, log; SVT-AV1 ROI translation deferred.
+  * libaom-av1: SCAFFOLD - parse, log; AV1E_SET_ROI_MAP wiring
+    deferred (requires per-frame 4-segment quantizer map).
+
+Parser is bounded (NASA POW10), uses strtol + portable fgetc-based
+line reader (no POSIX getline dependency, no banned-API per CLAUDE.md
+§6), clamps offsets to [-12,+12] matching
+tools/vmaf-tune/src/vmaftune/saliency.py.
+
+ADR: docs/adr/0312-ffmpeg-patches-vmaf-tune-integration.md
+Research: docs/research/0084-ffmpeg-patch-vmaf-tune-integration-survey.md
+---
+ libavcodec/Makefile        |   4 +-
+ libavcodec/libaomenc.c     |  20 +++
+ libavcodec/libsvtav1.c     |  21 +++
+ libavcodec/libx264.c       |  18 +++
+ libavcodec/qpfile_parser.c | 302 +++++++++++++++++++++++++++++++++++++
+ libavcodec/qpfile_parser.h |  55 +++++++
+ 6 files changed, 419 insertions(+), 1 deletion(-)
+ create mode 100644 libavcodec/qpfile_parser.c
+ create mode 100644 libavcodec/qpfile_parser.h
+
+diff --git a/libavcodec/Makefile b/libavcodec/Makefile
+index 12a8265025..4cc0e2b46a 100644
+--- a/libavcodec/Makefile
++++ b/libavcodec/Makefile
+@@ -1225,7 +1225,9 @@ OBJS-$(CONFIG_LIBVVENC_ENCODER)           += libvvenc.o
+ OBJS-$(CONFIG_LIBWEBP_ENCODER)            += libwebpenc_common.o libwebpenc.o
+ OBJS-$(CONFIG_LIBWEBP_ANIM_ENCODER)       += libwebpenc_common.o libwebpenc_animencoder.o
+ OBJS-$(CONFIG_LIBX262_ENCODER)            += libx264.o
+-OBJS-$(CONFIG_LIBX264_ENCODER)            += libx264.o
++OBJS-$(CONFIG_LIBX264_ENCODER)            += libx264.o qpfile_parser.o
++OBJS-$(CONFIG_LIBSVTAV1_ENCODER)          += qpfile_parser.o
++OBJS-$(CONFIG_LIBAOM_AV1_ENCODER)         += qpfile_parser.o
+ OBJS-$(CONFIG_LIBX265_ENCODER)            += libx265.o
+ OBJS-$(CONFIG_LIBXAVS_ENCODER)            += libxavs.o
+ OBJS-$(CONFIG_LIBXAVS2_ENCODER)           += libxavs2.o
+diff --git a/libavcodec/libaomenc.c b/libavcodec/libaomenc.c
+index 20e97e5d43..eaaedec278 100644
+--- a/libavcodec/libaomenc.c
++++ b/libavcodec/libaomenc.c
+@@ -50,6 +50,7 @@
+ #include "itut35.h"
+ #include "libaom.h"
+ #include "profiles.h"
++#include "qpfile_parser.h"
+ 
+ /*
+  * Portion of struct aom_codec_cx_pkt from aom_encoder.h.
+@@ -107,6 +108,7 @@ typedef struct AOMEncoderContext {
+     int enable_global_motion;
+     int enable_intrabc;
+     int enable_restoration;
++    char *qpfile_path;
+     int usage;
+     int tune;
+     int still_picture;
+@@ -997,6 +999,23 @@ static av_cold int aom_init(AVCodecContext *avctx,
+     }
+ #endif
+ 
++    if (ctx->qpfile_path && *ctx->qpfile_path) {
++        VmafTuneQpFile qpf;
++        int qret = ff_qpfile_load(ctx->qpfile_path, &qpf);
++        if (qret < 0) {
++            av_log(avctx, AV_LOG_ERROR, "libaom: qpfile=%s parse failed (%d).\n",
++                   ctx->qpfile_path, qret);
++            return qret;
++        }
++        av_log(avctx, AV_LOG_WARNING,
++               "libaom: qpfile=%s parsed (frames=%u, %ux%u blocks); "
++               "AV1E_SET_ROI_MAP application deferred (ADR-0312). See "
++               "docs/usage/vmaf-tune-ffmpeg.md.\n",
++               ctx->qpfile_path, qpf.frame_count,
++               qpf.block_cols, qpf.block_rows);
++        ff_qpfile_free(&qpf);
++    }
++
+     // provide dummy value to initialize wrapper, values will be updated each _encode()
+     aom_img_wrap(&ctx->rawimg, img_fmt, avctx->width, avctx->height, 1,
+                  (unsigned char*)1);
+@@ -1519,6 +1538,7 @@ static const AVOption options[] = {
+     { "tune",            "The metric that the encoder tunes for. Automatically chosen by the encoder by default", OFFSET(tune), AV_OPT_TYPE_INT, {.i64 = -1}, -1, AOM_TUNE_SSIM, VE, .unit = "tune"},
+     { "psnr",            NULL,         0, AV_OPT_TYPE_CONST, {.i64 = AOM_TUNE_PSNR}, 0, 0, VE, .unit = "tune"},
+     { "ssim",            NULL,         0, AV_OPT_TYPE_CONST, {.i64 = AOM_TUNE_SSIM}, 0, 0, VE, .unit = "tune"},
++    { "qpfile", "Path to a vmaf-tune qpfile (SCAFFOLD: parsed but ROI bridge deferred — see docs/usage/vmaf-tune-ffmpeg.md, ADR-0312).", OFFSET(qpfile_path), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, VE },
+     FF_AV1_PROFILE_OPTS
+     { "still-picture", "Encode in single frame mode (typically used for still AVIF images).", OFFSET(still_picture), AV_OPT_TYPE_BOOL, {.i64 = 0}, -1, 1, VE },
+     { "dolbyvision",     "Enable Dolby Vision RPU coding", OFFSET(dovi.enable), AV_OPT_TYPE_BOOL, {.i64 = FF_DOVI_AUTOMATIC }, -1, 1, VE, .unit = "dovi" },
+diff --git a/libavcodec/libsvtav1.c b/libavcodec/libsvtav1.c
+index fec2ed596e..d06b8ad7da 100644
+--- a/libavcodec/libsvtav1.c
++++ b/libavcodec/libsvtav1.c
+@@ -42,6 +42,7 @@
+ #include "encode.h"
+ #include "avcodec.h"
+ #include "profiles.h"
++#include "qpfile_parser.h"
+ 
+ typedef enum eos_status {
+     EOS_NOT_REACHED = 0,
+@@ -74,6 +75,7 @@ typedef struct SvtContext {
+     int enc_mode;
+     int crf;
+     int qp;
++    char *qpfile_path;
+ } SvtContext;
+ 
+ static const struct {
+@@ -492,6 +494,24 @@ static av_cold int eb_enc_init(AVCodecContext *avctx)
+         return svt_print_error(avctx, svt_ret, "Error setting encoder parameters");
+     }
+ 
++    if (svt_enc->qpfile_path && *svt_enc->qpfile_path) {
++        VmafTuneQpFile qpf;
++        int qret = ff_qpfile_load(svt_enc->qpfile_path, &qpf);
++        if (qret < 0) {
++            av_log(avctx, AV_LOG_ERROR, "libsvtav1: qpfile=%s parse failed (%d).\n",
++                   svt_enc->qpfile_path, qret);
++            return qret;
++        }
++        av_log(avctx, AV_LOG_WARNING,
++               "libsvtav1: qpfile=%s parsed (frames=%u, %ux%u blocks); "
++               "SVT-AV1 ROI translation deferred (ADR-0312). See "
++               "docs/usage/vmaf-tune-ffmpeg.md.\n",
++               svt_enc->qpfile_path, qpf.frame_count,
++               qpf.block_cols, qpf.block_rows);
++        ff_qpfile_free(&qpf);
++    }
++
++
+     svt_ret = svt_av1_enc_init(svt_enc->svt_handle);
+     if (svt_ret != EB_ErrorNone) {
+         return svt_print_error(avctx, svt_ret, "Error initializing encoder");
+@@ -810,6 +830,7 @@ static const AVOption options[] = {
+     { "qp", "Initial Quantizer level value", OFFSET(qp),
+       AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 63, VE },
+     { "svtav1-params", "Set the SVT-AV1 configuration using a :-separated list of key=value parameters", OFFSET(svtav1_opts), AV_OPT_TYPE_DICT, { 0 }, 0, 0, VE },
++    { "qpfile",        "Path to a vmaf-tune qpfile (SCAFFOLD: parsed but ROI bridge deferred — see docs/usage/vmaf-tune-ffmpeg.md, ADR-0312).", OFFSET(qpfile_path), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, VE },
+ 
+     { "dolbyvision", "Enable Dolby Vision RPU coding", OFFSET(dovi.enable), AV_OPT_TYPE_BOOL, {.i64 = FF_DOVI_AUTOMATIC }, -1, 1, VE, .unit = "dovi" },
+     {   "auto", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = FF_DOVI_AUTOMATIC}, .flags = VE, .unit = "dovi" },
+diff --git a/libavcodec/libx264.c b/libavcodec/libx264.c
+index b688d4f321..44a6bacbd2 100644
+--- a/libavcodec/libx264.c
++++ b/libavcodec/libx264.c
+@@ -39,6 +39,8 @@
+ #include "sei.h"
+ #include "golomb.h"
+ 
++#include "qpfile_parser.h"
++
+ #include <x264.h>
+ #include <float.h>
+ #include <math.h>
+@@ -126,6 +128,8 @@ typedef struct X264Context {
+     int roi_warned;
+ 
+     int mb_info;
++
++    char *qpfile_path;
+ } X264Context;
+ 
+ static void X264_log(void *p, int level, const char *fmt, va_list args)
+@@ -1395,6 +1399,19 @@ static av_cold int X264_init(AVCodecContext *avctx)
+ 
+     x4->params.analyse.b_mb_info = x4->mb_info;
+ 
++
++    if (x4->qpfile_path && *x4->qpfile_path) {
++        ret = x264_param_parse(&x4->params, "qpfile", x4->qpfile_path);
++        if (ret < 0) {
++            av_log(avctx, AV_LOG_ERROR,
++                   "libx264: failed to load qpfile=%s (x264 ret=%d).\n",
++                   x4->qpfile_path, ret);
++            return AVERROR(EINVAL);
++        }
++        av_log(avctx, AV_LOG_INFO, "libx264: qpfile=%s loaded.\n",
++               x4->qpfile_path);
++    }
++
+     // update AVCodecContext with x264 parameters
+     avctx->has_b_frames = x4->params.i_bframe ?
+         x4->params.i_bframe_pyramid ? 2 : 1 : 0;
+@@ -1570,6 +1587,7 @@ static const AVOption options[] = {
+     { "udu_sei",      "Use user data unregistered SEI if available",      OFFSET(udu_sei),  AV_OPT_TYPE_BOOL,   { .i64 = 0 }, 0, 1, VE },
+     { "x264-params",  "Override the x264 configuration using a :-separated list of key=value parameters", OFFSET(x264_params), AV_OPT_TYPE_DICT, { 0 }, 0, 0, VE },
+     { "mb_info",      "Set mb_info data through AVSideData, only useful when used from the API", OFFSET(mb_info), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VE },
++    { "qpfile",       "Path to a vmaf-tune qpfile (per-frame + per-MB QP offsets, see docs/usage/vmaf-tune-ffmpeg.md).", OFFSET(qpfile_path), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, VE },
+     { NULL },
+ };
+ 
+diff --git a/libavcodec/qpfile_parser.c b/libavcodec/qpfile_parser.c
+new file mode 100644
+index 0000000000..cf781305ac
+--- /dev/null
++++ b/libavcodec/qpfile_parser.c
+@@ -0,0 +1,302 @@
++/*
++ * Copyright 2026 Lusoris and Claude (Anthropic)
++ *
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or modify it under
++ * the terms of the GNU Lesser General Public License as published by the
++ * Free Software Foundation; either version 2.1 of the License, or (at
++ * your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
++ * License for more details.
++ */
++
++/**
++ * @file
++ * Shared parser for the vmaf-tune qpfile format consumed by libx264,
++ * libsvtav1, and libaom-av1 encoder adapters. See ADR-0312 and
++ * tools/vmaf-tune/src/vmaftune/saliency.py for the format definition.
++ *
++ * Format (ASCII, one logical record per frame):
++ *
++ *     <frame_idx> <I|P|B> <baseline_qp>
++ *     <delta_0_0> <delta_0_1> ... <delta_0_(bw-1)>
++ *     ...
++ *
++ * NASA POW10 / SEI CERT C: bounded loops, no recursion, no banned
++ * functions (uses strtol, never atoi/sprintf/strcpy). Line reading
++ * uses a portable fgetc loop (not POSIX getline) so we don't drag
++ * in feature-test macros.
++ */
++
++#include <errno.h>
++#include <limits.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "libavutil/error.h"
++#include "libavutil/mem.h"
++
++#include "qpfile_parser.h"
++
++#define QPFILE_MAX_FRAMES         (1u << 20)
++#define QPFILE_MAX_BLOCKS_PER_DIM (1u << 14)
++#define QPFILE_MAX_LINE_BYTES     (1u << 20)
++
++static int parse_long(const char *s, char **end, long *out)
++{
++    long v;
++    errno = 0;
++    v = strtol(s, end, 10);
++    if (errno == ERANGE)
++        return AVERROR(ERANGE);
++    if (*end == s)
++        return AVERROR(EINVAL);
++    *out = v;
++    return 0;
++}
++
++static int clamp_offset(long v)
++{
++    if (v < QPFILE_DELTA_MIN) return QPFILE_DELTA_MIN;
++    if (v > QPFILE_DELTA_MAX) return QPFILE_DELTA_MAX;
++    return (int)v;
++}
++
++static int looks_like_header(const char *line)
++{
++    const char *p = line;
++    while (*p == ' ' || *p == '\t') p++;
++    if (*p < '0' || *p > '9') return 0;
++    while (*p >= '0' && *p <= '9') p++;
++    while (*p == ' ' || *p == '\t') p++;
++    return (*p == 'I' || *p == 'P' || *p == 'B' ||
++            *p == 'i' || *p == 'p' || *p == 'b');
++}
++
++static int parse_header(const char *line, VmafTuneQpFrame *f)
++{
++    char *p = NULL;
++    long idx = 0, qp = 0;
++    char kind = 0;
++    const char *cur = line;
++    int err;
++
++    err = parse_long(cur, &p, &idx);
++    if (err < 0) return err;
++    if (idx < 0 || (unsigned long)idx > QPFILE_MAX_FRAMES)
++        return AVERROR(EINVAL);
++    cur = p;
++    while (*cur == ' ' || *cur == '\t') cur++;
++    kind = *cur;
++    if (kind != 'I' && kind != 'P' && kind != 'B' &&
++        kind != 'i' && kind != 'p' && kind != 'b')
++        return AVERROR(EINVAL);
++    cur++;
++    while (*cur == ' ' || *cur == '\t') cur++;
++    err = parse_long(cur, &p, &qp);
++    if (err < 0) return err;
++    if (qp < 0 || qp > 63) return AVERROR(EINVAL);
++
++    f->frame_index   = (unsigned)idx;
++    f->frame_type    = (char)((kind >= 'a' && kind <= 'z') ? kind - 32 : kind);
++    f->baseline_qp   = (int)qp;
++    f->block_offsets = NULL;
++    f->block_cols    = 0;
++    f->block_rows    = 0;
++    return 0;
++}
++
++static unsigned count_tokens(const char *line)
++{
++    unsigned n = 0;
++    int in_tok = 0;
++    for (const char *p = line; *p; p++) {
++        if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
++            in_tok = 0;
++        } else if (!in_tok) {
++            in_tok = 1;
++            n++;
++            if (n > QPFILE_MAX_BLOCKS_PER_DIM)
++                return n;
++        }
++    }
++    return n;
++}
++
++static int parse_row(const char *line, int *row_out, unsigned bw)
++{
++    char *p = NULL;
++    const char *cur = line;
++    long v = 0;
++    int err;
++    for (unsigned i = 0; i < bw; i++) {
++        err = parse_long(cur, &p, &v);
++        if (err < 0) return err;
++        row_out[i] = clamp_offset(v);
++        cur = p;
++        while (*cur == ' ' || *cur == '\t') cur++;
++    }
++    return 0;
++}
++
++/* Portable line reader (no POSIX getline dependency). */
++static int qpfile_getline(char **buf, size_t *cap, FILE *fp, ssize_t *out_len)
++{
++    size_t pos = 0;
++    if (*cap == 0 || !*buf) {
++        *cap = 4096;
++        *buf = av_realloc(*buf, *cap);
++        if (!*buf) return AVERROR(ENOMEM);
++    }
++    while (1) {
++        if (pos + 1 >= *cap) {
++            size_t nc = (*cap) * 2u;
++            char *nb = av_realloc(*buf, nc);
++            if (!nb) return AVERROR(ENOMEM);
++            *buf = nb;
++            *cap = nc;
++        }
++        int c = fgetc(fp);
++        if (c == EOF) {
++            if (pos == 0) { *out_len = -1; return 0; }
++            (*buf)[pos] = 0;
++            *out_len = (ssize_t)pos;
++            return 0;
++        }
++        (*buf)[pos++] = (char)c;
++        if (c == '\n') {
++            (*buf)[pos] = 0;
++            *out_len = (ssize_t)pos;
++            return 0;
++        }
++        if (pos > QPFILE_MAX_LINE_BYTES)
++            return AVERROR(EINVAL);
++    }
++}
++
++int ff_qpfile_load(const char *path, VmafTuneQpFile *out)
++{
++    FILE *fp = NULL;
++    char *line = NULL;
++    size_t line_cap = 0;
++    int ret = 0;
++    unsigned bw = 0, bh = 0, cap_frames = 0;
++    int *row_buf = NULL;
++    unsigned row_count = 0;
++    VmafTuneQpFrame *cur_frame = NULL;
++
++    if (!path || !out) return AVERROR(EINVAL);
++    memset(out, 0, sizeof(*out));
++
++    fp = fopen(path, "rb");
++    if (!fp) return AVERROR(errno ? errno : ENOENT);
++
++    cap_frames = 16;
++    out->frames = av_calloc(cap_frames, sizeof(*out->frames));
++    if (!out->frames) { ret = AVERROR(ENOMEM); goto fail; }
++
++    while (1) {
++        ssize_t got = 0;
++        ret = qpfile_getline(&line, &line_cap, fp, &got);
++        if (ret < 0) goto fail;
++        if (got < 0) break;
++        if ((size_t)got > QPFILE_MAX_LINE_BYTES) { ret = AVERROR(EINVAL); goto fail; }
++        if (got == 0 || line[0] == '#' || line[0] == '\n' || line[0] == '\r')
++            continue;
++
++        if (looks_like_header(line)) {
++            if (cur_frame && row_count > 0) {
++                if (bw == 0) { bw = cur_frame->block_cols; bh = row_count; }
++                else if (row_count != bh) { ret = AVERROR(EINVAL); goto fail; }
++                cur_frame->block_offsets = av_calloc((size_t)bh * bw, sizeof(int));
++                if (!cur_frame->block_offsets) { ret = AVERROR(ENOMEM); goto fail; }
++                memcpy(cur_frame->block_offsets, row_buf,
++                       (size_t)bh * bw * sizeof(int));
++                cur_frame->block_rows = bh;
++                cur_frame->block_cols = bw;
++            }
++
++            if (out->frame_count == cap_frames) {
++                unsigned nc = cap_frames * 2u;
++                if (nc > QPFILE_MAX_FRAMES) { ret = AVERROR(EINVAL); goto fail; }
++                VmafTuneQpFrame *nf = av_realloc_array(out->frames, nc, sizeof(*nf));
++                if (!nf) { ret = AVERROR(ENOMEM); goto fail; }
++                memset(nf + cap_frames, 0, (nc - cap_frames) * sizeof(*nf));
++                out->frames = nf;
++                cap_frames = nc;
++            }
++
++            cur_frame = &out->frames[out->frame_count];
++            ret = parse_header(line, cur_frame);
++            if (ret < 0) goto fail;
++            out->frame_count++;
++            row_count = 0;
++        } else {
++            if (!cur_frame) { ret = AVERROR(EINVAL); goto fail; }
++            unsigned tokens = count_tokens(line);
++            if (tokens == 0) continue;
++            if (tokens > QPFILE_MAX_BLOCKS_PER_DIM) { ret = AVERROR(EINVAL); goto fail; }
++            if (cur_frame->block_cols == 0) {
++                cur_frame->block_cols = tokens;
++                if (bw && tokens != bw) { ret = AVERROR(EINVAL); goto fail; }
++            } else if (tokens != cur_frame->block_cols) {
++                ret = AVERROR(EINVAL); goto fail;
++            }
++            unsigned this_bw = cur_frame->block_cols;
++            unsigned needed = (row_count + 1) * this_bw;
++            int *nrow = av_realloc_array(row_buf, needed, sizeof(int));
++            if (!nrow) { ret = AVERROR(ENOMEM); goto fail; }
++            row_buf = nrow;
++            ret = parse_row(line, &row_buf[row_count * this_bw], this_bw);
++            if (ret < 0) goto fail;
++            row_count++;
++            if (row_count > QPFILE_MAX_BLOCKS_PER_DIM) { ret = AVERROR(EINVAL); goto fail; }
++        }
++    }
++
++    if (cur_frame && row_count > 0) {
++        if (bw == 0) { bw = cur_frame->block_cols; bh = row_count; }
++        else if (row_count != bh) { ret = AVERROR(EINVAL); goto fail; }
++        cur_frame->block_offsets = av_calloc((size_t)bh * bw, sizeof(int));
++        if (!cur_frame->block_offsets) { ret = AVERROR(ENOMEM); goto fail; }
++        memcpy(cur_frame->block_offsets, row_buf,
++               (size_t)bh * bw * sizeof(int));
++        cur_frame->block_rows = bh;
++        cur_frame->block_cols = bw;
++    }
++    av_freep(&row_buf);
++
++    out->block_cols = bw;
++    out->block_rows = bh;
++
++    if (out->frame_count == 0) { ret = AVERROR(EINVAL); goto fail; }
++
++    av_free(line);
++    fclose(fp);
++    return 0;
++
++fail:
++    av_freep(&row_buf);
++    av_free(line);
++    if (fp) fclose(fp);
++    ff_qpfile_free(out);
++    return ret;
++}
++
++void ff_qpfile_free(VmafTuneQpFile *qpf)
++{
++    if (!qpf) return;
++    if (qpf->frames) {
++        for (unsigned i = 0; i < qpf->frame_count; i++)
++            av_freep(&qpf->frames[i].block_offsets);
++        av_freep(&qpf->frames);
++    }
++    qpf->frame_count = 0;
++    qpf->block_cols  = 0;
++    qpf->block_rows  = 0;
++}
+diff --git a/libavcodec/qpfile_parser.h b/libavcodec/qpfile_parser.h
+new file mode 100644
+index 0000000000..bfc4af0cc8
+--- /dev/null
++++ b/libavcodec/qpfile_parser.h
+@@ -0,0 +1,55 @@
++/*
++ * Copyright 2026 Lusoris and Claude (Anthropic)
++ *
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or modify it under
++ * the terms of the GNU Lesser General Public License as published by the
++ * Free Software Foundation; either version 2.1 of the License, or (at
++ * your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
++ * License for more details.
++ */
++
++/**
++ * @file
++ * Shared parser for the vmaf-tune qpfile format. Consumed by libx264,
++ * libsvtav1, and libaom-av1 encoder adapters via the new -qpfile
++ * AVOption.
++ *
++ * Patches 0007-0009 of ffmpeg-patches/ must keep this parser shared
++ * so future encoder additions inherit it (vmaf-tune patch invariant -
++ * see ffmpeg-patches/README.md and ADR-0312).
++ */
++
++#ifndef AVCODEC_QPFILE_PARSER_H
++#define AVCODEC_QPFILE_PARSER_H
++
++#include <stddef.h>
++
++#define QPFILE_DELTA_MIN (-12)
++#define QPFILE_DELTA_MAX (12)
++
++typedef struct VmafTuneQpFrame {
++    unsigned int frame_index;
++    char         frame_type;
++    int          baseline_qp;
++    int         *block_offsets;
++    unsigned int block_cols;
++    unsigned int block_rows;
++} VmafTuneQpFrame;
++
++typedef struct VmafTuneQpFile {
++    VmafTuneQpFrame *frames;
++    unsigned int     frame_count;
++    unsigned int     block_cols;
++    unsigned int     block_rows;
++} VmafTuneQpFile;
++
++int  ff_qpfile_load(const char *path, VmafTuneQpFile *out);
++void ff_qpfile_free(VmafTuneQpFile *qpf);
++
++#endif /* AVCODEC_QPFILE_PARSER_H */
+-- 
+2.54.0
+

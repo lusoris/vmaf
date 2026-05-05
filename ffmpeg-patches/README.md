@@ -107,3 +107,35 @@ the tracked upstream base and rewrite the numbered patches in place.
 BSD-3-Clause-Plus-Patent for patches authored in this repo; patches are
 applied against FFmpeg (LGPL / GPL) — the resulting linked binary's
 distribution terms are governed by FFmpeg's license, not this one.
+
+## vmaf-tune integration patches (ADR-0312)
+
+The 0007–0009 patches wire the in-tree `tools/vmaf-tune/` orchestrator
+into FFmpeg's encoder-side and CLI-side surfaces:
+
+- **`0007-libvmaf-tune-qpfile-unified.patch`** — adds an `-qpfile <path>`
+  AVOption to `libx264`, `libsvtav1`, and `libaom-av1`. The shared
+  parser at `libavcodec/qpfile_parser.{c,h}` reads vmaf-tune's
+  `saliency.py` qpfile format once; libx264 forwards it to x264's
+  native per-MB qpfile reader; SVT-AV1 / libaom currently parse + log
+  (full ROI bridge deferred — see ADR-0312 §Alternatives).
+- **`0008-add-libvmaf_tune-filter.patch`** — new `libvmaf_tune` 2-input
+  filter (`libavfilter/vf_libvmaf_tune.c`). Scaffold: pass-through on
+  the main pad, framesync ref pad, AVOptions
+  (`recommend_target_vmaf` / `recommend_crf_min` / `recommend_crf_max`),
+  and a final-line `recommended_crf=…` log at uninit. Linear
+  CRF↔VMAF interpolation; the full Optuna TPE recommend loop stays
+  in `tools/vmaf-tune/src/vmaftune/recommend.py`.
+- **`0009-pass-autotune-cli-glue.patch`** — adds a `-pass-autotune`
+  flag to `fftools/ffmpeg_opt.c` that emits an advisory log line
+  pointing at `docs/usage/vmaf-tune-ffmpeg.md`. Glue only — real
+  orchestration stays in vmaf-tune.
+
+### vmaf-tune patch invariant
+
+Patches **0007–0009** must keep the qpfile parser shared at
+`libavcodec/qpfile_parser.{c,h}`. New encoder adapters that grow a
+`-qpfile` AVOption inherit the same parser; do not fork it. When
+`tools/vmaf-tune/src/vmaftune/saliency.py`'s `write_x264_qpfile`
+output format changes, patch 0007's parser must change in the same
+PR (CLAUDE.md §12 r14).
