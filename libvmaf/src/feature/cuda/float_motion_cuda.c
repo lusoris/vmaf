@@ -315,9 +315,19 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
 
     int ret = 0;
     if (s->index > 0) {
-        ret = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                      "VMAF_feature_motion2_score",
-                                                      s->prev_motion_score, s->index);
+        /* Idempotency guard: same rationale as integer_motion_cuda's
+         * flush — the post-#312 flush_context_cuda may have already
+         * written motion2_score[s->index] via the pending-collect.
+         * Probe and skip in that case (re-append would trip the
+         * "cannot be overwritten" warning and surface as
+         * "context could not be synchronized"). */
+        double existing;
+        if (vmaf_feature_collector_get_score(feature_collector, "VMAF_feature_motion2_score",
+                                             &existing, s->index) != 0) {
+            ret = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                          "VMAF_feature_motion2_score",
+                                                          s->prev_motion_score, s->index);
+        }
     }
     return (ret < 0) ? ret : !ret;
 }

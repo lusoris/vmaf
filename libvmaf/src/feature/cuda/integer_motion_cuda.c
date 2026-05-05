@@ -330,6 +330,19 @@ fail_after_pop:
     return _cuda_err;
 }
 
+/* Idempotent append-if-not-written. Probes via get_score to suppress the
+ * duplicate-write warning that fires when `flush_context_cuda`'s pending
+ * collect (T-GPU-OPT-1 / PR #312) already wrote the same (feature, index)
+ * pair. Returns 0 on success, negative errno on real failure. */
+static int append_if_unwritten(VmafFeatureCollector *fc, const char *feature, double value,
+                               unsigned index)
+{
+    double existing;
+    if (vmaf_feature_collector_get_score(fc, feature, &existing, index) == 0)
+        return 0;
+    return vmaf_feature_collector_append(fc, feature, value, index);
+}
+
 static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
     MotionStateCuda *s = fex->priv;
@@ -339,11 +352,11 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
 
     if (s->index > 0) {
         double const last_motion2 = MIN(s->score * s->motion_fps_weight, s->motion_max_val);
-        ret = vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_score",
-                                            s->score, s->index);
+        ret = append_if_unwritten(feature_collector, "VMAF_integer_feature_motion2_score", s->score,
+                                  s->index);
         if (ret >= 0) {
             double const motion3_score = motion3_postprocess_cuda(s, last_motion2);
-            int ret_m3 = vmaf_feature_collector_append(
+            int ret_m3 = append_if_unwritten(
                 feature_collector, "VMAF_integer_feature_motion3_score", motion3_score, s->index);
             if (ret_m3 < 0)
                 ret = ret_m3;
