@@ -1,0 +1,279 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+"""Codec-comparison smoke tests (research-0061 Bucket #7).
+
+The recommend predicate is mocked; no ffmpeg / vmaf binaries required.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+# Make src/ importable without an editable install.
+_HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE.parent / "src"))
+
+from vmaftune.compare import (  # noqa: E402
+    COMPARE_ROW_KEYS,
+    ComparisonReport,
+    RecommendResult,
+    compare_codecs,
+    default_encoders,
+    emit_report,
+    supported_formats,
+)
+
+# Synthetic per-codec results: x265 wins on bitrate, libaom slowest, x264
+# baseline, svtav1 mid-pack. Numbers are illustrative, not measured.
+_FAKE_TABLE: dict[str, RecommendResult] = {
+    "libx264": RecommendResult(
+        codec="libx264",
+        best_crf=23,
+        bitrate_kbps=2400.0,
+        encode_time_ms=1500.0,
+        vmaf_score=92.1,
+        encoder_version="libx264-164",
+    ),
+    "libx265": RecommendResult(
+        codec="libx265",
+        best_crf=26,
+        bitrate_kbps=1700.0,
+        encode_time_ms=4200.0,
+        vmaf_score=92.0,
+        encoder_version="libx265-3.5",
+    ),
+    "libsvtav1": RecommendResult(
+        codec="libsvtav1",
+        best_crf=32,
+        bitrate_kbps=1900.0,
+        encode_time_ms=2800.0,
+        vmaf_score=92.3,
+        encoder_version="libsvtav1-1.7.0",
+    ),
+    "libaom": RecommendResult(
+        codec="libaom",
+        best_crf=30,
+        bitrate_kbps=1500.0,
+        encode_time_ms=18000.0,
+        vmaf_score=92.4,
+        encoder_version="libaom-3.8.0",
+    ),
+}
+
+
+def _fake_predicate(codec: str, src: Path, target_vmaf: float) -> RecommendResult:
+    if codec not in _FAKE_TABLE:
+        return RecommendResult(
+            codec=codec,
+            best_crf=-1,
+            bitrate_kbps=float("nan"),
+            encode_time_ms=float("nan"),
+            vmaf_score=float("nan"),
+            ok=False,
+            error=f"no fake adapter for {codec!r}",
+        )
+    return _FAKE_TABLE[codec]
+
+
+def test_default_encoders_tracks_registry():
+    # Phase A wires libx264 only; the default codec set follows the
+    # registry so adapter PRs auto-extend the CLI default.
+    assert default_encoders() == ("libx264",)
+
+
+def test_compare_codecs_sorts_by_bitrate():
+    report = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=("libx264", "libx265", "libsvtav1", "libaom"),
+        predicate=_fake_predicate,
+    )
+    ranked_codecs = [r.codec for r in report.rows]
+    # Smallest bitrate wins: libaom (1500) < libx265 (1700) < svtav1 (1900) < x264 (2400).
+    assert ranked_codecs == ["libaom", "libx265", "libsvtav1", "libx264"]
+    assert report.best() is not None
+    assert report.best().codec == "libaom"
+    assert report.target_vmaf == 92.0
+    assert report.tool_version  # non-empty
+
+
+def test_compare_codecs_serial_matches_parallel():
+    encoders = ("libx264", "libx265", "libsvtav1", "libaom")
+    par = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=encoders,
+        predicate=_fake_predicate,
+        parallel=True,
+    )
+    seq = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=encoders,
+        predicate=_fake_predicate,
+        parallel=False,
+    )
+    assert [r.codec for r in par.rows] == [r.codec for r in seq.rows]
+
+
+def test_compare_codecs_unknown_codec_carries_error():
+    report = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=("libx264", "libfoobar"),
+        predicate=_fake_predicate,
+    )
+    by_codec = {r.codec: r for r in report.rows}
+    assert by_codec["libx264"].ok is True
+    assert by_codec["libfoobar"].ok is False
+    assert "no fake adapter" in by_codec["libfoobar"].error
+    # Failed rows trail successful ones in the ranking.
+    assert report.rows[-1].codec == "libfoobar"
+
+
+def test_compare_codecs_predicate_exception_is_captured():
+    def boom(codec: str, src: Path, target_vmaf: float) -> RecommendResult:
+        if codec == "libx264":
+            return _FAKE_TABLE["libx264"]
+        raise RuntimeError(f"adapter for {codec} crashed")
+
+    report = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=("libx264", "libx265"),
+        predicate=boom,
+    )
+    by_codec = {r.codec: r for r in report.rows}
+    assert by_codec["libx264"].ok is True
+    assert by_codec["libx265"].ok is False
+    assert "RuntimeError" in by_codec["libx265"].error
+
+
+def test_compare_codecs_empty_encoder_list_raises():
+    with pytest.raises(ValueError):
+        compare_codecs(
+            src=Path("ref.yuv"),
+            target_vmaf=92.0,
+            encoders=(),
+            predicate=_fake_predicate,
+        )
+
+
+def test_default_predicate_reports_phase_b_pending():
+    report = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=("libx264",),
+    )
+    assert report.rows[0].ok is False
+    assert "Phase B pending" in report.rows[0].error
+    # No best row when every codec fails.
+    assert report.best() is None
+
+
+def test_emit_report_supported_formats_advertised():
+    assert set(supported_formats()) == {"markdown", "json", "csv"}
+
+
+def test_emit_report_markdown_renders_table_and_winner():
+    report = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=("libx264", "libx265"),
+        predicate=_fake_predicate,
+    )
+    md = emit_report(report, format="markdown")
+    assert "| Rank | Codec |" in md
+    assert "libx265" in md
+    assert "libx264" in md
+    assert "Smallest file" in md
+    # Winner is libx265 (1700 < 2400).
+    assert "libx265" in md.split("Smallest file")[1].splitlines()[0]
+
+
+def test_emit_report_json_round_trip():
+    report = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=("libx264", "libx265"),
+        predicate=_fake_predicate,
+    )
+    payload = json.loads(emit_report(report, format="json"))
+    assert payload["src"] == "ref.yuv"
+    assert payload["target_vmaf"] == 92.0
+    assert len(payload["rows"]) == 2
+    # Same key set as COMPARE_ROW_KEYS.
+    for row in payload["rows"]:
+        assert set(row.keys()) == set(COMPARE_ROW_KEYS)
+
+
+def test_emit_report_csv_has_header_and_rows():
+    report = compare_codecs(
+        src=Path("ref.yuv"),
+        target_vmaf=92.0,
+        encoders=("libx264", "libx265"),
+        predicate=_fake_predicate,
+    )
+    text = emit_report(report, format="csv")
+    reader = csv.DictReader(io.StringIO(text))
+    assert reader.fieldnames == list(COMPARE_ROW_KEYS)
+    rows = list(reader)
+    assert len(rows) == 2
+    assert {r["codec"] for r in rows} == {"libx264", "libx265"}
+
+
+def test_emit_report_unknown_format_raises():
+    report = ComparisonReport(
+        src="ref.yuv",
+        target_vmaf=92.0,
+        tool_version="0.0.1",
+        wall_time_ms=0.0,
+        rows=(),
+    )
+    with pytest.raises(ValueError):
+        emit_report(report, format="yaml")
+
+
+def test_cli_compare_stdout_smoke(capsys, monkeypatch, tmp_path):
+    """End-to-end CLI smoke through ``--predicate-module``."""
+    # Inject a shim module the CLI can import via --predicate-module.
+    import types
+
+    shim = types.ModuleType("_compare_shim")
+
+    def predicate(codec, src, target_vmaf):
+        return _fake_predicate(codec, src, target_vmaf)
+
+    shim.predicate = predicate  # type: ignore[attr-defined]
+    sys.modules["_compare_shim"] = shim
+
+    from vmaftune.cli import main
+
+    rc = main(
+        [
+            "compare",
+            "--src",
+            str(tmp_path / "ref.yuv"),
+            "--target-vmaf",
+            "92",
+            "--encoders",
+            "libx264,libx265,libsvtav1",
+            "--format",
+            "csv",
+            "--predicate-module",
+            "_compare_shim:predicate",
+        ]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    reader = csv.DictReader(io.StringIO(out))
+    assert reader.fieldnames == list(COMPARE_ROW_KEYS)
+    codecs = [r["codec"] for r in reader]
+    # Ranked by bitrate: libx265 (1700) < libsvtav1 (1900) < libx264 (2400).
+    assert codecs == ["libx265", "libsvtav1", "libx264"]

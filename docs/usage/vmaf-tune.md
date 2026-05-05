@@ -716,6 +716,78 @@ probe; missing matches degrade to `"unknown"` rather than raising.
 | `h264_qsv` / `hevc_qsv` | #367 | adapter ships; dispatcher unblocks end-to-end |
 | `h264_amf` / `hevc_amf` | #366 | adapter ships; dispatcher unblocks end-to-end |
 | `h264_videotoolbox` / `hevc_videotoolbox` | #373 | adapter ships; dispatcher unblocks end-to-end |
+## Codec comparison
+
+`vmaf-tune compare` answers the perennial *"should I migrate from x264
+to SVT-AV1 yet?"* question per-source: given one reference and a target
+VMAF, run each codec's recommend predicate in parallel and rank the
+results by smallest file. This is Bucket #7 of the
+[`vmaf-tune` capability audit](../research/0061-vmaf-tune-capability-audit.md);
+the orchestration is here today, the per-codec recommend backend lands
+with Phase B (target-VMAF bisect) per
+[ADR-0237](../adr/0237-quality-aware-encode-automation.md).
+
+```shell
+vmaf-tune compare \
+    --src ref.yuv \
+    --target-vmaf 92 \
+    --encoders libx264,libx265,libsvtav1,libaom,libvvenc \
+    --format markdown
+```
+
+By default `--encoders` resolves to every adapter currently registered
+in `codec_adapters/` — Phase A wires `libx264` only, so the canonical
+four / five codec invocation above only ranks codecs whose adapters
+have already merged. Until Phase B's recommend backend lands, point
+`--predicate-module MODULE:CALLABLE` at any importable
+`(codec, src, target_vmaf) -> RecommendResult` callable to drive the
+ranking from a shim.
+
+Sample output (`--format markdown`, abridged):
+
+```markdown
+# Codec comparison — target VMAF 92
+
+- Source: `ref.yuv`
+- Tool: `vmaf-tune 0.0.1`
+- Wall time: 6421.3 ms
+
+| Rank | Codec    | Encoder         | Best CRF | Bitrate (kbps) | Encode time (ms) | VMAF  | Status |
+|---:|---|---|---:|---:|---:|---:|---|
+| 1  | libaom    | libaom-3.8.0    | 30       |         1500.0 |          18000.0 | 92.40 | ok     |
+| 2  | libx265   | libx265-3.5     | 26       |         1700.0 |           4200.0 | 92.00 | ok     |
+| 3  | libsvtav1 | libsvtav1-1.7.0 | 32       |         1900.0 |           2800.0 | 92.30 | ok     |
+| 4  | libx264   | libx264-164     | 23       |         2400.0 |           1500.0 | 92.10 | ok     |
+
+**Smallest file**: `libaom` at CRF 30 → 1500.0 kbps (VMAF 92.40).
+```
+
+### `compare` CLI flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--src PATH` | — | Required. Single reference clip. |
+| `--target-vmaf F` | — | Required. VMAF the recommend predicate bisects toward. |
+| `--encoders LIST` | every registered adapter | Comma-separated codec names; e.g. `libx264,libx265,libsvtav1,libaom`. |
+| `--format` | `markdown` | One of `markdown`, `json`, `csv`. |
+| `--no-parallel` | off | Run codecs sequentially (default: thread pool, one per codec). |
+| `--max-workers N` | `len(encoders)` | Cap on the parallel thread pool. |
+| `--predicate-module MOD:FN` | placeholder | Inject a recommend predicate while Phase B is pending. |
+| `--output PATH` | stdout | Write the rendered report to PATH instead of stdout. |
+
+### `compare` output schema
+
+The JSON / CSV columns are exported as `vmaftune.compare.COMPARE_ROW_KEYS`:
+`codec`, `encoder_version`, `best_crf`, `bitrate_kbps`, `encode_time_ms`,
+`vmaf_score`, `target_vmaf`, `ok`, `error`. Failed rows trail successful
+ones in the ranking; `ok=False` rows carry a human-readable `error` and
+sentinel numerics (`-1` for `best_crf`, `NaN` for the floats).
+
+> **Encode-time normalisation**: the `encode_time_ms` column is
+> wall-clock on whatever machine ran the predicate. Cross-codec time
+> comparisons only make sense when every predicate was run on the same
+> hardware in the same configuration — see
+> [Research-0061 Bucket #7](../research/0061-vmaf-tune-capability-audit.md).
 
 ## What Phase A does **not** do
 
