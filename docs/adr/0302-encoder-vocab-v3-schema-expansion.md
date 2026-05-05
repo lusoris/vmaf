@@ -2,7 +2,7 @@
 
 - **Status**: Proposed
 - **Date**: 2026-05-05
-- **Companion research digest**: [Research-0075](../research/0075-encoder-vocab-v3-schema-expansion.md)
+- **Companion research digest**: [Research-0078](../research/0078-encoder-vocab-v3-schema-expansion.md)
 - **Related**: ADR-0235 (codec-aware FRRegressor + 0.95 LOSO PLCC ship gate),
   ADR-0272 (`fr_regressor_v2` smoke scaffold),
   ADR-0291 (`fr_regressor_v2` flip from smoke to production)
@@ -129,6 +129,6 @@ acceptance criterion.
   adapters that motivate slots 14/15.
 - [ADR-0294](0294-vmaf-tune-codec-adapter-svtav1.md) — `libsvtav1`
   adapter that motivates slot 13.
-- [Research-0075](../research/0075-encoder-vocab-v3-schema-expansion.md)
+- [Research-0078](../research/0078-encoder-vocab-v3-schema-expansion.md)
   — companion research digest with retrain plan, ship gate,
   reproducer.

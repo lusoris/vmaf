@@ -115,7 +115,7 @@ ENCODER_VOCAB_VERSION = 2
 # `ENCODER_VOCAB` in place with the 16-slot tuple, and remove the
 # `ENCODER_VOCAB_V3` parallel constant. See
 # docs/adr/0302-encoder-vocab-v3-schema-expansion.md and
-# docs/research/0075-encoder-vocab-v3-schema-expansion.md.
+# docs/research/0078-encoder-vocab-v3-schema-expansion.md.
 N_ENCODERS = len(ENCODER_VOCAB)
 UNKNOWN_ENCODER_INDEX = ENCODER_VOCAB.index("unknown")
 
