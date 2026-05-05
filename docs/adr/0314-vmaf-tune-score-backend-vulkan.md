@@ -1,6 +1,10 @@
 # ADR-0314: vmaf-tune `--score-backend=vulkan` (vendor-neutral GPU scoring)
 
+<<<<<<< HEAD
 - **Status**: Accepted
+=======
+- **Status**: Proposed
+>>>>>>> 599bb187 (feat(tools): vmaf-tune — --score-backend=vulkan (vendor-neutral GPU scoring) (ADR-0314))
 - **Date**: 2026-05-05
 - **Deciders**: lusoris, lawrence (raised the non-NVIDIA scoring question)
 - **Tags**: tooling, vmaf-tune, vulkan, gpu, fork-local
