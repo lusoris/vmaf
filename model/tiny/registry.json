@@ -28,7 +28,9 @@
       "onnx": "fr_regressor_v2.onnx",
       "opset": 17,
       "sha256": "67934b0b61c73eb852d84ffb34e3333756e8da2530179ecc830336133e63e69e",
-      "smoke": false,
+      "smoke": false
+    },
+    {
       "id": "fr_regressor_v2_ensemble_v1_seed0",
       "kind": "fr",
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=0). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
