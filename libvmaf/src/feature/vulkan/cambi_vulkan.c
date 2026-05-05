@@ -1144,11 +1144,12 @@ static void cambi_vk_rec_filter_mode(CambiVkState *s, VkCommandBuffer cmd)
 }
 
 /* Per-frame extract. Mirrors cambi.c::cambi_score and friends but with
- * the GPU servicing the embarrassingly parallel phases. */
-/* NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+ * the GPU servicing the embarrassingly parallel phases.
  * The per-scale loop replicates the CPU extract step-by-step so any
  * reviewer can diff against cambi.c::cambi_score; splitting would
- * obscure that 1:1 correspondence. */
+ * obscure that 1:1 correspondence (ADR-0141 §2 upstream-parity
+ * load-bearing invariant; T7-5 sweep closeout — ADR-0278). */
+/* NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static int cambi_vk_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                             VmafPicture *ref_pic_90, VmafPicture *dist_pic,
                             VmafPicture *dist_pic_90, unsigned index,

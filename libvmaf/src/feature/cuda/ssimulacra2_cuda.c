@@ -374,7 +374,10 @@ static inline float ss2c_read_plane(const VmafPicture *pic, int plane, int x, in
     return (float)row[sx];
 }
 
-/* Verbatim port of ssimulacra2.c::picture_to_linear_rgb.
+/* Verbatim port of ssimulacra2.c::picture_to_linear_rgb. Splitting
+ * would break the line-for-line scalar-diff audit trail
+ * (ADR-0141 §2 upstream-parity load-bearing invariant; T7-5
+ * sweep closeout — ADR-0278).
  * NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static void ss2c_picture_to_linear_rgb(const Ssimu2StateCuda *s, const VmafPicture *pic, float *out)
 {
@@ -677,6 +680,9 @@ static int ss2c_blur_3plane(Ssimu2StateCuda *s, CudaFunctions *cu_f, CUdeviceptr
 
 /* Per-pixel SSIM + EdgeDiff combine in double precision. Mirrors
  * libvmaf/src/feature/ssimulacra2.c::ssim_map + ::edge_diff_map.
+ * Splitting would break the line-for-line scalar-diff audit trail
+ * (ADR-0141 §2 upstream-parity load-bearing invariant; T7-5 sweep
+ * closeout — ADR-0278).
  * NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static void ss2c_host_combine(const Ssimu2StateCuda *s, int scale, double avg_ssim[6],
                               double avg_ed[12])
@@ -767,6 +773,10 @@ static double ss2c_pool_score(const double avg_ssim[6][6], const double avg_ed[6
 
 /* Per-scale GPU work: 3 mul + 5 blur. After this returns the host
  * mu/sigma buffers are populated and the host combine can run.
+ * Body mirrors the CPU dispatch ordering step-by-step; splitting
+ * would obscure the dispatch sequence required for parity audit
+ * (ADR-0141 §2 upstream-parity load-bearing invariant; T7-5 sweep
+ * closeout — ADR-0278).
  * NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static int ss2c_run_scale_gpu(Ssimu2StateCuda *s, CudaFunctions *cu_f, int scale)
 {
@@ -831,9 +841,11 @@ static int ss2c_run_scale_gpu(Ssimu2StateCuda *s, CudaFunctions *cu_f, int scale
     return 0;
 }
 
-/* NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
- * Per-scale orchestration mirrors the CPU extract loop step-by-step;
- * splitting would obscure the dispatch ordering. */
+/* Per-scale orchestration mirrors the CPU extract loop step-by-step;
+ * splitting would obscure the dispatch ordering required for parity
+ * audit (ADR-0141 §2 upstream-parity load-bearing invariant; T7-5
+ * sweep closeout — ADR-0278).
+ * NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static int extract_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                             VmafPicture *ref_pic_90, VmafPicture *dist_pic,
                             VmafPicture *dist_pic_90, unsigned index,

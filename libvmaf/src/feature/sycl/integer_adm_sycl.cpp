@@ -206,7 +206,7 @@ static inline int dev_mirror_adm(int idx, int sup)
 /* SYCL Kernel: DWT Vertical Pass (ref+dis fused)                     */
 /* ------------------------------------------------------------------ */
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, int32_t *dwt_tmp_ref,
                                         const void *input_dis, int32_t *dwt_tmp_dis, int scale,
                                         unsigned width, unsigned height, unsigned in_stride,
@@ -354,7 +354,7 @@ static sycl::event launch_dwt_vert_pair(sycl::queue &q, const void *input_ref, i
 /* SYCL Kernel: DWT Horizontal Pass (ref+dis fused)                   */
 /* ------------------------------------------------------------------ */
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static sycl::event launch_dwt_hori_pair(
     sycl::queue &q, const int32_t *dwt_tmp_ref, int32_t *ref_band_a, int32_t *ref_band_h,
     int32_t *ref_band_v, int32_t *ref_band_d, const int32_t *dwt_tmp_dis, int32_t *dis_band_a,
@@ -494,7 +494,7 @@ static inline GainLimitQ31 gain_limit_to_q31(double gain_limit)
 
 template <bool UseFP64>
 static sycl::event
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch lambda body, see comment block above (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278)
 launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
                     unsigned buf_stride, double adm_enhn_gain_limit, uint32_t i_rfactor_h,
                     uint32_t i_rfactor_v, uint32_t i_rfactor_d, const int32_t *ref_h,
@@ -736,7 +736,7 @@ launch_decouple_csf(sycl::queue &q, int scale, unsigned half_w, unsigned half_h,
 /* d_csf_f[3] is still read from global memory (3×3 neighborhood).    */
 /* ------------------------------------------------------------------ */
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static sycl::event launch_csf_den_cm_3band(
     sycl::queue &q, int scale, unsigned half_w, unsigned half_h, unsigned buf_stride,
     // csf_den inputs
@@ -1203,7 +1203,7 @@ static void enqueue_adm_work(void *queue_ptr, void *priv, void *shared_ref, void
 static void adm_pre_graph(void *queue_ptr, void *priv);
 static void adm_post_graph(void *queue_ptr, void *priv);
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
@@ -1330,7 +1330,7 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 /* Enqueue all ADM compute work (used for both recording and direct)   */
 /* ------------------------------------------------------------------ */
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static void enqueue_adm_work_impl(sycl::queue &q, AdmStateSycl *s, void *shared_ref,
                                   void *shared_dis)
 {
@@ -1468,7 +1468,7 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     return 0;
 }
 
-// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork.
+// NOLINTNEXTLINE(readability-function-size): SYCL kernel-launch / lifecycle entry — body is dominated by accessor declarations + a single `parallel_for` lambda. Splitting either inlines via macro (no readability win) or introduces a free function the compiler cannot inline back into the device kernel. Keeping it large is the pattern shared across every SYCL TU in this fork (ADR-0141 §2 load-bearing invariant; T7-5 sweep closeout — ADR-0278).
 static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {

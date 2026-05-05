@@ -7392,3 +7392,70 @@ inline.*
   system-installed `.pc` carries an extra
   `-I${includedir}/libvmaf` shortcut that the uninstalled `.pc`
   omits).
+### 0229 — T7-5 NOLINT-sweep closeout (ADR-0278)
+
+- **Touched files**:
+  - `libvmaf/src/feature/integer_adm.c` (1 NOLINT cite, line ~988
+    `adm_decouple_s123` — upstream-mirror Netflix `966be8d5`).
+  - `libvmaf/src/feature/cuda/ssimulacra2_cuda.c` (3 NOLINT cites:
+    `ss2c_picture_to_linear_rgb`, `ss2c_host_combine`,
+    `ss2c_run_scale_gpu` / `extract_fex_cuda`).
+  - `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c` (3 NOLINT
+    cites: `ss2v_setup_gaussian`, `ss2v_picture_to_linear_rgb`,
+    `ss2v_run_scale`).
+  - `libvmaf/src/feature/vulkan/cambi_vulkan.c` (1 NOLINT cite:
+    `cambi_vk_extract`).
+  - `libvmaf/src/feature/sycl/integer_adm_sycl.cpp` (6 cites,
+    SYCL kernel-launch entries).
+  - `libvmaf/src/feature/sycl/integer_motion_sycl.cpp` (2 cites).
+  - `libvmaf/src/feature/sycl/integer_vif_sycl.cpp` (4 cites).
+  - `libvmaf/tools/vmaf.c` (3 cites: `copy_picture_data`,
+    `init_gpu_backends`, `main`).
+- **Invariant**: zero behavioural change. Edits are inside
+  comment blocks — appended `(ADR-0141 §2 ... load-bearing
+  invariant; T7-5 sweep closeout — ADR-0278)` to existing
+  prose justifications. No function bodies split. The 12 SYCL
+  sites share an identical justification string verbatim;
+  preserving the byte-for-byte duplicate is the load-bearing
+  documentation pattern (grep-able across the SYCL TUs).
+- **On upstream sync**: minimal interaction. The cite-only
+  edits live inside comment blocks above the function
+  signatures; rebases will surface them as touched lines but
+  the function bodies are unchanged. For `integer_adm.c`'s
+  upstream-mirror block (Netflix `966be8d5`), the comment
+  edit at line 984–991 is cosmetic — keep the fork's version
+  on conflict (it merely names the ADR; the underlying prose
+  is unchanged).
+- **Re-test on rebase**:
+
+  ```bash
+  # 1. Programmatic audit must report 0 missing citations
+  python3 - <<'PY'
+  import re, os
+  paths = [os.path.join(r, f) for r, _, fs in os.walk('libvmaf/src')
+           for f in fs if f.endswith(('.c','.cpp','.h'))]
+  paths.append('libvmaf/tools/vmaf.c')
+  miss = total = 0
+  for p in paths:
+      with open(p) as fh: ls = fh.readlines()
+      for i, line in enumerate(ls):
+          if 'NOLINT' in line and 'readability-function-size' in line and 'NOLINTEND' not in line:
+              total += 1
+              ctx = [line]; j = i - 1
+              while j >= 0 and j > i - 14:
+                  s = ls[j].strip()
+                  if not s: break
+                  if s.startswith(('//','/*','*')):
+                      ctx.insert(0, ls[j]); j -= 1
+                  else: break
+              buf = ''.join(ctx)
+              if 'ADR-' not in buf and not re.search(r'[Rr]esearch-?\d', buf):
+                  miss += 1
+  print(f"sites={total} missing={miss}")
+  PY
+
+  # 2. Build + Netflix golden gate
+  meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  make test-netflix-golden
+  ```

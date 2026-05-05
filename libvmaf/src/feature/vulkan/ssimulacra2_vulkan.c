@@ -337,9 +337,11 @@ static const VmafOption options[] = {
  * create_recursive_gaussian in ssimulacra2.c.                        */
 /* ------------------------------------------------------------------ */
 
-/* NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
- * Verbatim port of the libjxl Charalampidis 2016 derivation; splitting
- * the linear-system solve would obscure the scalar-diff audit trail. */
+/* Verbatim port of the libjxl Charalampidis 2016 derivation; splitting
+ * the linear-system solve would obscure the scalar-diff audit trail
+ * (ADR-0141 §2 upstream-parity load-bearing invariant; T7-5 sweep
+ * closeout — ADR-0278).
+ * NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static void ss2v_setup_gaussian(Ssimu2VkState *s, double sigma)
 {
     const double radius = round(3.2795 * sigma + 0.2546);
@@ -440,7 +442,9 @@ static inline float ss2v_read_plane(const VmafPicture *pic, int plane, int x, in
 }
 
 /* Verbatim port of ssimulacra2.c::picture_to_linear_rgb — identical
- * float order so host outputs bit-match the CPU path.
+ * float order so host outputs bit-match the CPU path
+ * (ADR-0141 §2 upstream-parity load-bearing invariant; T7-5 sweep
+ * closeout — ADR-0278).
  * NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static void ss2v_picture_to_linear_rgb(const Ssimu2VkState *s, const VmafPicture *pic, float *out)
 {
@@ -1064,10 +1068,12 @@ static int ss2v_submit_wait(Ssimu2VkState *s, VkCommandBuffer cmd)
 
 /* Per-scale orchestration. Records a fresh command buffer that
  * runs xyb → mul (3 products) → blur (5 outputs) → ssim. After
- * the buffer completes, host reads partials and accumulates. */
-/* NOLINTNEXTLINE(readability-function-size,google-readability-function-size)
+ * the buffer completes, host reads partials and accumulates.
  * Per-scale pipeline orchestration mirrors the CPU extract loop
- * step-by-step; splitting would obscure the dispatch ordering. */
+ * step-by-step; splitting would obscure the dispatch ordering
+ * (ADR-0141 §2 upstream-parity load-bearing invariant; T7-5 sweep
+ * closeout — ADR-0278). */
+/* NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], double avg_ed[12])
 {
     VkDevice dev = s->ctx->device;
