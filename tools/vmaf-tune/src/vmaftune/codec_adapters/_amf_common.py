@@ -1,0 +1,177 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+"""Shared logic for AMD AMF (Advanced Media Framework) hardware encoders.
+
+AMF is AMD's video-encoding API exposed by FFmpeg through three
+encoder names: ``h264_amf``, ``hevc_amf``, and ``av1_amf`` (the last
+of which requires RDNA3 silicon, i.e. Radeon RX 7000 series and
+newer). Per ADR-0282 the three adapters share a common base because
+their CLI shape is identical at the FFmpeg level — only the encoder
+binding name differs.
+
+Two AMF specifics shape this module:
+
+1. **Quality is coarser than NVENC / QSV.** AMF exposes only three
+   ``-quality`` levels — ``quality``, ``balanced``, ``speed`` —
+   versus the seven typical x264 / NVENC / QSV preset names. We map
+   the seven canonical preset names down onto the three AMF rungs;
+   the mapping is opinionated and documented in ``_PRESET_TO_AMF``.
+2. **Rate control is constant-QP.** AMF ``-rc cqp`` plus
+   ``-qp_i`` / ``-qp_p`` is the closest analogue to x264 CRF. Range
+   is 0..51 (matching H.264 / HEVC quantiser space). The Phase A
+   harness window of (15, 40) is preserved for cross-codec
+   comparability with x264.
+
+The adapter does not check for runtime AMF availability — that is
+handled by ``ensure_amf_available`` which probes ``ffmpeg
+-hide_banner -encoders`` and is exercised in the unit tests via a
+mocked subprocess runner.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import subprocess
+from collections.abc import Callable
+from typing import Final
+
+# Canonical 7-level preset vocabulary used by x264 / NVENC / QSV.
+# Mapped to AMF's 3 quality levels as follows:
+#   placebo / slowest / slower / slow -> quality (slowest, best quality)
+#   medium                            -> balanced (default)
+#   fast / faster / veryfast / superfast / ultrafast -> speed (fastest)
+# The 7-into-3 compression is intentional: AMF's hardware pipeline
+# does not expose finer steps. Callers that need finer granularity
+# should pin ``-qp_i`` / ``-qp_p`` (the quality knob) instead of the
+# preset.
+_PRESET_TO_AMF: Final[dict[str, str]] = {
+    "placebo": "quality",
+    "slowest": "quality",
+    "slower": "quality",
+    "slow": "quality",
+    "medium": "balanced",
+    "fast": "speed",
+    "faster": "speed",
+    "veryfast": "speed",
+    "superfast": "speed",
+    "ultrafast": "speed",
+}
+
+# The three AMF quality rungs in slow->fast order.
+_AMF_QUALITIES: Final[tuple[str, ...]] = ("quality", "balanced", "speed")
+
+
+def map_preset_to_amf_quality(preset: str) -> str:
+    """Compress a 7-level preset name onto AMF's 3 quality rungs.
+
+    Raises ``ValueError`` for unknown preset names so the search
+    loop fails loudly rather than silently substituting ``balanced``.
+    """
+    if preset not in _PRESET_TO_AMF:
+        raise ValueError(f"unknown AMF preset {preset!r}; expected one of {sorted(_PRESET_TO_AMF)}")
+    return _PRESET_TO_AMF[preset]
+
+
+def ensure_amf_available(
+    ffmpeg_bin: str = "ffmpeg",
+    encoder: str = "h264_amf",
+    *,
+    runner: Callable[..., object] | None = None,
+) -> None:
+    """Probe ``ffmpeg -encoders`` for the requested AMF encoder.
+
+    Raises ``RuntimeError`` if the encoder is not in the FFmpeg
+    build (no AMD GPU / driver / FFmpeg without ``--enable-amf``).
+    Tests inject a stubbed ``runner`` to exercise both branches.
+    """
+    runner_fn = runner or subprocess.run
+    completed = runner_fn(  # type: ignore[operator]
+        [ffmpeg_bin, "-hide_banner", "-encoders"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    rc = int(getattr(completed, "returncode", 1))
+    stdout = getattr(completed, "stdout", "") or ""
+    if rc != 0 or encoder not in stdout:
+        raise RuntimeError(
+            f"AMF encoder {encoder!r} is unavailable in ffmpeg "
+            f"({ffmpeg_bin!r}). Confirm an AMD GPU is present and "
+            f"ffmpeg was built with --enable-amf."
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class _AMFAdapterBase:
+    """Common AMF adapter scaffold — concrete subclasses pin ``encoder``.
+
+    The seven canonical preset names are accepted at the harness
+    layer and compressed to AMF's three quality rungs at command
+    build time. ``quality_knob`` is ``qp`` (constant-QP),
+    ``quality_range`` matches the Phase A x264 window for
+    cross-codec comparability, and ``invert_quality`` is True
+    because higher QP yields lower visual quality (mirroring CRF).
+    """
+
+    name: str = "amf"
+    encoder: str = "h264_amf"
+    quality_knob: str = "qp"
+    # AMF cqp accepts 0..51; surface the Phase A informative window
+    # so the search loop's grid generator stays aligned with x264.
+    quality_range: tuple[int, int] = (15, 40)
+    quality_default: int = 23
+    invert_quality: bool = True  # higher qp = lower quality
+
+    presets: tuple[str, ...] = (
+        "ultrafast",
+        "superfast",
+        "veryfast",
+        "faster",
+        "fast",
+        "medium",
+        "slow",
+        "slower",
+        "slowest",
+        "placebo",
+    )
+
+    def validate(self, preset: str, qp: int) -> None:
+        """Raise ``ValueError`` if ``(preset, qp)`` is unsupported."""
+        if preset not in self.presets:
+            raise ValueError(f"unknown AMF preset {preset!r}; expected one of {self.presets}")
+        lo, hi = self.quality_range
+        if not lo <= qp <= hi:
+            raise ValueError(f"qp {qp} outside Phase A range [{lo}, {hi}] for {self.encoder}")
+
+    def amf_quality(self, preset: str) -> str:
+        """Resolve the AMF ``-quality`` argument for a preset name."""
+        return map_preset_to_amf_quality(preset)
+
+    def extra_params(self, preset: str, qp: int) -> tuple[str, ...]:
+        """FFmpeg argv tail covering AMF-specific switches.
+
+        Returns the full ``-quality / -rc / -qp_i / -qp_p`` block
+        ready to be appended after ``-c:v <encoder>``. The harness
+        builds the ``-c:v`` / ``-preset`` portion itself; AMF doesn't
+        use the generic ``-preset`` flag, so callers that go through
+        ``encode.build_ffmpeg_command`` can pass these via
+        ``EncodeRequest.extra_params``.
+        """
+        return (
+            "-quality",
+            self.amf_quality(preset),
+            "-rc",
+            "cqp",
+            "-qp_i",
+            str(qp),
+            "-qp_p",
+            str(qp),
+        )
+
+
+__all__ = [
+    "_AMF_QUALITIES",
+    "_AMFAdapterBase",
+    "ensure_amf_available",
+    "map_preset_to_amf_quality",
+]

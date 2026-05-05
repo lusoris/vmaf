@@ -64,6 +64,12 @@ def test_known_codecs_phase_a_includes_x264_and_nvenc():
     assert "h264_nvenc" in codecs
     assert "hevc_nvenc" in codecs
     assert "av1_nvenc" in codecs
+
+
+def test_known_codecs_includes_x264_and_amf():
+    # Phase A baseline plus the three AMF adapters (ADR-0282).
+    assert "libx264" in known_codecs()
+    assert {"h264_amf", "hevc_amf", "av1_amf"}.issubset(set(known_codecs()))
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True

@@ -82,6 +82,7 @@ Cartesian product of `--preset × --crf`.
 | `--framerate F` | `24.0` | Source framerate. |
 | `--duration S` | `0` | Source duration in seconds (used for bitrate calc). |
 | `--encoder NAME` | `libx264` | One of `libx264`, `libx265`. |
+| `--encoder NAME` | `libx264` | One of `libx264`, `h264_amf`, `hevc_amf`, `av1_amf`. |
 | `--preset P` | — | Required. Repeatable. x264 preset name. |
 | `--crf N` | — | Required. Repeatable. x264 CRF integer. |
 | `--output PATH` | `corpus.jsonl` | JSONL destination. |
@@ -375,6 +376,49 @@ takes the same mnemonic preset names as `libx264` and maps them:
 | `slow` | `p5` |
 | `slower` | `p6` |
 | `slowest`, `placebo` | `p7` |
+## Hardware encoders
+
+`vmaf-tune` ships software (`libx264`) and hardware adapters under one
+codec-adapter contract — the harness search loop is identical for all of
+them. AMD AMF (Advanced Media Framework) covers H.264, HEVC, and AV1 on
+AMD GPUs (see [ADR-0282](../adr/0282-vmaf-tune-amf-adapters.md)):
+
+| Encoder | Codec | Hardware | FFmpeg flag | Quality knob |
+| --- | --- | --- | --- | --- |
+| `h264_amf` | H.264 / AVC | Any AMD GPU with AMF | `-c:v h264_amf` | `-qp_i / -qp_p` (cqp) |
+| `hevc_amf` | HEVC / H.265 | Any AMD GPU with AMF | `-c:v hevc_amf` | `-qp_i / -qp_p` (cqp) |
+| `av1_amf` | AV1 | RDNA3+ only (RX 7000 series and newer) | `-c:v av1_amf` | `-qp_i / -qp_p` (cqp) |
+
+Requirements:
+
+- AMD GPU with AMF support (AV1 needs RDNA3 silicon or newer).
+- FFmpeg built with `--enable-amf`.
+- The AMF runtime / driver installed (Adrenalin on Windows; the
+  open-source Mesa AMF stack or AMD Pro driver on Linux).
+
+Behavioural notes:
+
+- **Preset compression — 7 levels collapse to 3.** AMF exposes only
+  three `-quality` rungs (`quality`, `balanced`, `speed`) where
+  `libx264` / NVENC / QSV expose seven preset names. The adapter maps
+  preset names onto AMF rungs as follows:
+
+  | Preset names | AMF `-quality` |
+  | --- | --- |
+  | `placebo`, `slowest`, `slower`, `slow` | `quality` |
+  | `medium` (default) | `balanced` |
+  | `fast`, `faster`, `veryfast`, `superfast`, `ultrafast` | `speed` |
+
+  This is opinionated: AMF's hardware pipeline does not expose finer
+  steps. Callers that need finer granularity should pin `-qp_i` / `-qp_p`
+  (the `qp` quality knob) instead of the preset.
+
+- **Rate control is constant-QP.** AMF `-rc cqp` plus matched
+  `-qp_i` / `-qp_p` is the closest analogue to x264 CRF. Range is 0..51;
+  the harness exposes the (15, 40) Phase A informative window for
+  cross-codec comparability.
+
+Example:
 
 ```shell
 vmaf-tune corpus \
@@ -408,6 +452,19 @@ sibling encoders), the FFmpeg build wasn't compiled with
 `--enable-nvenc` or the GPU lacks the relevant generation. The
 harness records the failure as `exit_status != 0` and skips scoring,
 so a partial corpus over a heterogeneous fleet is still well-formed.
+    --encoder h264_amf \
+    --preset slow --preset medium --preset fast \
+    --crf 23 --crf 28 --crf 34 \
+    --output corpus_amf.jsonl
+```
+
+The raw FFmpeg invocation the adapter emits looks like:
+
+```shell
+ffmpeg -i ref.yuv -c:v h264_amf \
+       -quality balanced -rc cqp -qp_i 23 -qp_p 23 \
+       -an out.mkv
+```
 
 ## What Phase A does **not** do
 
@@ -547,6 +604,10 @@ it.
 - Software adapters beyond `libx264` (`libx265` / `libsvtav1` /
   `libvpx-vp9` / `libvvenc`) ship in parallel PRs via the codec
   adapter interface in `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+- Software codecs other than `libx264` — `libx265` / `libsvtav1` /
+  `libvpx-vp9` / `libvvenc` are next via the codec adapter interface in
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/`. NVENC / QSV adapters
+  ship in companion PRs.
 
 ## Tests
 
