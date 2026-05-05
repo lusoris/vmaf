@@ -224,6 +224,58 @@ little weight mass for an int8 sidecar to be worth the audit cost.
   versions. When ORT is bumped, regenerate both sidecars and
   refresh `int8_sha256` in `model/tiny/registry.json` +
   `vmaf_tiny_v{3,4}.json` in the same PR.
+## `fr_regressor_v2_ensemble_v1` — probabilistic head (ADR-0279)
+
+The probabilistic successor to the codec-aware
+`fr_regressor_v2` is a deep ensemble of N=5 v2 members trained under
+distinct seeds, packaged as 5 ONNX files plus a manifest sidecar
+`model/tiny/fr_regressor_v2_ensemble_v1.json`. Trainer:
+[`ai/scripts/train_fr_regressor_v2_ensemble.py`](scripts/train_fr_regressor_v2_ensemble.py);
+evaluator: [`ai/scripts/eval_probabilistic_proxy.py`](scripts/eval_probabilistic_proxy.py);
+model card:
+[`docs/ai/models/fr_regressor_v2_probabilistic.md`](../docs/ai/models/fr_regressor_v2_probabilistic.md).
+
+**Rebase-sensitive invariants:**
+
+- **Per-member ONNX I/O contract is the v2 two-input shape**: inputs
+  `features [N, 6]` (canonical-6, StandardScaler-normalised by the
+  manifest's `feature_mean` / `feature_std`) + `codec_onehot
+  [N, NUM_CODECS]`; output `score [N]` float32. Each member is a
+  stock `FRRegressor(num_codecs=NUM_CODECS)` — flipping that to a
+  single-input v1-shaped graph silently invalidates every shipped
+  ensemble.
+- **Manifest layout is the runtime entry point**, not the registry
+  rows. Each member is also added to `model/tiny/registry.json` as
+  `kind: "fr"` (with id `<ensemble_id>_seed<N>`) so the existing
+  tiny-model verifier can SHA-256-check each member without a
+  schema bump, but the manifest sidecar's `members[]` list is the
+  canonical ordered set the C-side adapter iterates over. Adding a
+  schema-version field to `registry.schema.json` for a `fr_ensemble`
+  kind is a future option; until then, ensemble lookups go through
+  the manifest, not the registry.
+- **Ensemble size is part of the contract.** The manifest's
+  `ensemble_size` field pins N; the C-side adapter must open
+  `ensemble_size` sessions. Changing N requires a new ensemble id +
+  manifest, not an in-place mutation.
+- **Confidence rule is a one-of**: `confidence.method` is either
+  `"ensemble"` (use `gaussian_z` as the multiplier on `sigma`) or
+  `"ensemble+conformal"` (use `conformal_q_residual` instead). The
+  trainer emits the conformal scalar only when
+  `--conformal-calibration-frac > 0` and the calibration split is
+  large enough; otherwise the field stays `null` and the Gaussian
+  rule applies.
+- **`CODEC_VOCAB` parity with v2 is required.** The manifest pins
+  `codec_vocab` + `codec_vocab_version`; the runtime must refuse to
+  load when these disagree with the live `ai/src/vmaf_train/codec.py`
+  vocabulary. Bumping the vocabulary requires retraining the
+  ensemble; the existing closed-vocabulary invariant from ADR-0235
+  carries over verbatim.
+- **Smoke artefact is a load-path probe**, not a quality model. The
+  shipped `model/tiny/fr_regressor_v2_ensemble_v1*.onnx` files come
+  from a synthetic 100-row corpus + 1 epoch / member; do NOT
+  benchmark them against real VMAF. Production training is gated on
+  the multi-codec Phase A corpus and is tracked as backlog item
+  T7-FR-REGRESSOR-V2-PROBABILISTIC.
 
 ## Quantization-Aware Training (ADR-0207 / ADR-0208)
 

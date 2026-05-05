@@ -7973,3 +7973,48 @@ inline.*
   ```bash
   python -m pytest tools/vmaf-tune/tests/test_ladder.py -v
   ```
+
+### 0229 — `fr_regressor_v2` probabilistic head scaffold (ADR-0279)
+
+- **Touches**:
+  - `ai/scripts/train_fr_regressor_v2_ensemble.py` (new — fork-local).
+  - `ai/scripts/eval_probabilistic_proxy.py` (new — fork-local).
+  - `model/tiny/fr_regressor_v2_ensemble_v1*.onnx`,
+    `fr_regressor_v2_ensemble_v1.json` (new artefacts; smoke probes).
+  - `model/tiny/registry.json` — five new `kind: "fr"` rows
+    (`fr_regressor_v2_ensemble_v1_seed{0..4}`); existing entries
+    untouched.
+  - `ai/AGENTS.md` — new "fr_regressor_v2_ensemble_v1 — probabilistic
+    head" section pinning the per-member ONNX I/O contract,
+    manifest-as-runtime-entry-point invariant, ensemble-size pin,
+    confidence-rule one-of, codec-vocab parity, and smoke-artefact
+    posture.
+  - `docs/ai/models/fr_regressor_v2_probabilistic.md` (new model
+    card).
+  - `docs/research/0067-fr-regressor-v2-probabilistic.md` (new audit
+    digest).
+  - `docs/adr/0279-fr-regressor-v2-probabilistic.md` (new ADR;
+    Proposed). Index row appended to `docs/adr/README.md`.
+  - `CHANGELOG.md` — `### Added` row under "Unreleased — lusoris
+    fork".
+- **Invariant**: the per-member ONNX I/O contract (two inputs:
+  `features [N, 6]` standardised + `codec_onehot [N, NUM_CODECS]`;
+  one output `score [N]`) and the manifest's `confidence` rule
+  (one-of `"ensemble"` / `"ensemble+conformal"`) are the C-side
+  adapter's load-bearing contract. Per-member ensembles are stock
+  `FRRegressor(num_codecs=NUM_CODECS)` calls — flipping to a
+  v1-shaped single-input graph silently invalidates the manifest.
+  `CODEC_VOCAB` parity with `ai/src/vmaf_train/codec.py` is required.
+- **On upstream sync**: zero interaction expected. Wholly
+  fork-local; no upstream Netflix/vmaf path overlap. The `ai/`
+  package is fork-introduced (see ADR-0021, ADR-0036) — upstream has
+  no probabilistic-regressor surface. If upstream ever ships its own
+  `fr_regressor_v2` variant, do NOT merge — register both ids
+  side-by-side.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/scripts/train_fr_regressor_v2_ensemble.py --smoke
+  python ai/scripts/eval_probabilistic_proxy.py --smoke
+  python ai/scripts/validate_model_registry.py
+  ```
