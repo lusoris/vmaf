@@ -9,19 +9,33 @@
 
 The fork ships VVC (H.266) encode today through a CPU-only adapter
 ([`tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py`](../../tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py))
-that wraps Fraunhofer HHI's reference encoder. NVIDIA's Video Codec
-SDK 13.0 added hardware H.266 encode on Ada-Lovelace silicon and
-newer; AMD AMF and Intel QSV expose VVC **decode** but not encode.
+that wraps Fraunhofer HHI's reference encoder.
+
+**Verified at write time** (2026-05-05, WebFetch of NVIDIA's NVENC
+Application Note for Video Codec SDK 13.0): NVENC supports
+**only H.264, HEVC 8-bit, HEVC 10-bit, AV1 8-bit, AV1 10-bit**.
+There is **no H.266/VVC encode** in any documented NVENC version.
+AMD AMF and Intel QSV silicon support claims are `[UNVERIFIED]` in
+Research-0085 (skeleton); indicative search suggests the same
+("no shipping hardware VVC encode on any vendor in 2026"), but the
+specific shipping-version capability checks have not been re-run for
+this ADR.
+
 The user (lawrence, 2026-05-05) asked whether a GPU-accelerated
 VVC encode path that does not require NVIDIA hardware is feasible.
+The honest answer today: **no vendor ships hardware VVC encode**, so
+the question reduces to "which non-NVIDIA-tied software encoder +
+GPU-accelerated tooling around it can the fork integrate".
 
-Research-0085 surveyed the landscape and identified four practical
-candidate paths: (a) ship NVENC h266 anyway (closed silicon, helps
-RTX-40 users only), (b) HIP-port VVenC's hot kernels (open-source,
-3–6 eng-months, vendor-coverage AMD), (c) wait for Vulkan Video
-`VK_KHR_video_encode_h266` ratification + driver landing
-(~24+ months out), or (d) document NN-VC + the existing Vulkan
-scoring backend as the de-facto vendor-neutral story today.
+Research-0085 (skeleton) surveyed the landscape and identified four
+candidate paths: (a) wait for some vendor to ship hardware VVC
+encode silicon (passive), (b) HIP-port VVenC's hot kernels
+(open-source software acceleration; eng-months `[UNVERIFIED]`,
+vendor-coverage AMD), (c) wait for Vulkan Video
+`VK_KHR_video_encode_h266` ratification + driver landing (~24+
+months out, `[UNVERIFIED]` whether even provisional today), or (d)
+document NN-VC + the existing Vulkan **scoring** backend as the
+de-facto vendor-neutral story today.
 
 Forces:
 
@@ -60,12 +74,12 @@ decision artifact that points back to it.
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
-|---|---|---|---|
-| **A. Ship CUDA-VVC NVENC adapter only** (mirror [ADR-0290](0290-vmaf-tune-nvenc-adapters.md) for h266) | Trivial effort (~0.25 eng-month); reuses existing NVENC adapter ladder; helps real RTX-40 users | Does **not** answer the user's question — non-NVIDIA users get nothing; reinforces the NVIDIA dependency the user flagged | Will land as a separate small PR; rejected as the *answer* to the vendor-neutrality question. |
-| **B. Wait for `VK_KHR_video_encode_h266` ratification** | Zero effort; eventually delivers vendor-neutral hardware encode on every Vulkan 1.4+ driver; reuses the fork's existing Vulkan loader / queue / DMABUF plumbing | Spec is unratified at write time; AV1 precedent suggests 24+ month spec-to-driver lag; no Mesa MR exists yet; abandons users who need a non-NVIDIA path **today** | Rejected as a standalone strategy. Reframed as Tier 3 (revisit quarterly) inside the chosen tiered approach. |
-| **C. HIP port of VVenC hot kernels (immediate)** | Genuinely vendor-neutral on AMD silicon; precedent for fork-side GPU ports exists ([ADR-0033](0033-hip-applicability.md)) | 3–6 eng-months; rebase burden against vvenc's quarterly cadence; no CI hardware available; no demand signal yet beyond the question itself | Rejected as immediate Tier 1; queued as Tier 2 with explicit demand-pull triggers. |
-| **D. Tiered approach (chosen)** | Ships *something* vendor-neutral today (NN-VC docs + Vulkan scoring); preserves option value on the HIP port without burning engineering hours speculatively; revisits Vulkan Video on a calendar | Communicates "we don't have a hardware encoder for AMD yet"; relies on NN-VC + CPU encode for the near-term throughput story | **Chosen.** Matches the fork's demand-pull pattern; gives users an honest answer + a non-zero GPU contribution (NN-VC + scoring) immediately; preserves room for Tier 2 / Tier 3 to arrive when the triggers fire. |
-| **E. ZLUDA-hosted hypothetical CUDA-VVC** | In theory runs CUDA codecs on AMD/Intel | No open-source CUDA VVC encoder exists; ZLUDA is experimental and uncovered for codec workloads; reviewers would reasonably reject the production posture | Rejected as not actionable. |
+| --- | --- | --- | --- |
+| **A. Ship CUDA-VVC NVENC adapter** (mirror [ADR-0290](0290-vmaf-tune-nvenc-adapters.md) for h266) | Would help RTX-40 users **if NVENC supported H.266**; reuses adapter ladder pattern | **Verified false premise**: NVENC SDK 13.0 supports only H.264 / HEVC / AV1 (no H.266 encode). There is no `h266_nvenc` to wire up. | **Rejected** as factually impossible at write time. Re-evaluate if NVIDIA ships VVC encode silicon in a future SDK. |
+| **B. Wait for `VK_KHR_video_encode_h266` ratification** | Zero effort; eventually delivers vendor-neutral hardware encode on every Vulkan 1.4+ driver; reuses the fork's existing Vulkan loader / queue / DMABUF plumbing | Spec ratification status `[UNVERIFIED]`; AV1 precedent suggests multi-month spec-to-driver lag; abandons users who need a non-NVIDIA path **today** | Rejected as a standalone strategy. Reframed as Tier 3 (revisit quarterly) inside the chosen tiered approach. |
+| **C. HIP port of VVenC hot kernels (immediate)** | Vendor-neutral on AMD silicon; precedent for fork-side GPU ports exists ([ADR-0033](0033-hip-applicability.md)) | Eng-months `[UNVERIFIED]`; rebase burden against vvenc's release cadence; no CI hardware available; no demand signal yet beyond the question itself | Rejected as immediate Tier 1; queued as Tier 2 with explicit demand-pull triggers. |
+| **D. Tiered approach (chosen)** | Ships *something* vendor-neutral today (NN-VC docs + Vulkan scoring); preserves option value on the HIP port without burning engineering hours speculatively; revisits Vulkan Video on a calendar | Communicates "no GPU vendor ships VVC encode silicon in 2026; we mitigate via NN-VC + Vulkan scoring"; relies on CPU encode for near-term throughput | **Chosen.** Matches the fork's demand-pull pattern; gives users an honest answer + a non-zero GPU contribution (NN-VC + scoring) immediately; preserves room for Tier 2 / Tier 3 to arrive when triggers fire. |
+| **E. ZLUDA-hosted hypothetical CUDA-VVC** | In theory runs CUDA codecs on AMD/Intel | No open-source CUDA VVC encoder exists; ZLUDA codec-workload coverage `[UNVERIFIED]`; reviewers would reasonably reject the production posture | Rejected as not actionable. |
 
 ## Consequences
 
@@ -78,16 +92,19 @@ decision artifact that points back to it.
   - Tier 2 / Tier 3 stay tracked in the backlog with explicit
     triggers, preventing them from being silently forgotten.
 - **Negative**:
-  - Non-NVIDIA users do not get *hardware* VVC encode acceleration
-    in the near term; the only real lever for them is NN-VC quality
-    and CPU SIMD throughput.
+  - **No** users — NVIDIA, AMD, or Intel — get *hardware* VVC encode
+    acceleration in the near term; no GPU vendor ships VVC encode
+    silicon in 2026 per write-time verification (NVIDIA SDK 13.0
+    docs) and indicative search for AMD / Intel. The only real
+    levers are NN-VC quality (any-GPU) and CPU SIMD throughput.
   - The fork's "vendor-neutral codec story" is partial — strong on
     AV1 and HEVC (NVENC + AMF + QSV adapters all exist), weaker on
-    H.266 (NVENC only at the hardware tier).
+    H.266 (no GPU vendor ships VVC encode hardware).
 - **Neutral / follow-ups**:
-  - A separate small PR may land an `h266_nvenc` adapter for
-    RTX-40-class users (analogue of [ADR-0290](0290-vmaf-tune-nvenc-adapters.md));
-    it is **not** part of this strategy ADR.
+  - **No** `h266_nvenc` adapter follow-up is planned: NVENC silicon
+    does not ship VVC encode at write time. If NVIDIA adds it in a
+    future SDK, an analogue of [ADR-0290](0290-vmaf-tune-nvenc-adapters.md)
+    would land then.
   - Tier 2 trigger conditions live in Research-0085 §"Tier-1 → Tier-2
     transition gate"; reviewers monitor user reports for the binding
     signal.
