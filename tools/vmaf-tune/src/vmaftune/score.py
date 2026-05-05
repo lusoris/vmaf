@@ -21,7 +21,14 @@ from pathlib import Path
 
 @dataclasses.dataclass(frozen=True)
 class ScoreRequest:
-    """Pair to score: reference YUV vs distorted encode."""
+    """Pair to score: reference YUV vs distorted encode.
+
+    ``frame_skip_ref`` / ``frame_cnt`` mirror the libvmaf CLI flags
+    (``--frame_skip_ref`` / ``--frame_cnt``). Sample-clip mode (ADR-0301)
+    sets these so VMAF compares the same time window of the reference
+    that was fed to the encoder, instead of slicing the reference YUV
+    on disk. Both ``0`` (default) keeps the legacy full-source scoring.
+    """
 
     reference: Path
     distorted: Path
@@ -29,6 +36,8 @@ class ScoreRequest:
     height: int
     pix_fmt: str
     model: str = "vmaf_v0.6.1"
+    frame_skip_ref: int = 0
+    frame_cnt: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,15 +60,8 @@ def build_vmaf_command(
     json_output: Path,
     *,
     vmaf_bin: str = "vmaf",
-    backend: str | None = None,
 ) -> list[str]:
-    """Compose the libvmaf CLI argv. Pure function for test pinning.
-
-    When ``backend`` is set (one of ``cpu|cuda|sycl|vulkan``), append
-    ``--backend NAME`` so the libvmaf CLI engages the GPU dispatch.
-    ``None`` (the default) leaves the binary in its built-in ``auto``
-    mode for full backwards compatibility.
-    """
+    """Compose the libvmaf CLI argv. Pure function for test pinning."""
     cmd = [
         vmaf_bin,
         "--reference",
@@ -75,28 +77,19 @@ def build_vmaf_command(
         "--bitdepth",
         str(_bitdepth_for(req.pix_fmt)),
         "--model",
-        _model_arg(req.model),
+        f"version={req.model}",
         "--json",
         "--output",
         str(json_output),
     ]
-    if backend:
-        cmd.extend(["--backend", backend])
+    # Sample-clip mode (ADR-0301): align reference window with the
+    # encoded slice so VMAF compares matching frames. The distorted is
+    # already a clip-length encode, so no --frame_skip_dist is needed.
+    if req.frame_skip_ref > 0:
+        cmd.extend(["--frame_skip_ref", str(req.frame_skip_ref)])
+    if req.frame_cnt > 0:
+        cmd.extend(["--frame_cnt", str(req.frame_cnt)])
     return cmd
-
-
-def _model_arg(model: str) -> str:
-    """Format the ``--model`` argument for the libvmaf CLI.
-
-    Accepts either a bare version identifier (``"vmaf_v0.6.1"``) or a
-    pre-formatted ``key=value`` string (``"path=/abs/model.json"``,
-    ``"version=vmaf_v0.6.1"``). Bare identifiers are wrapped as
-    ``version=...``; pre-formatted strings pass through. Used by
-    ``corpus.py`` to inject HDR-model paths (see ADR-0295).
-    """
-    if "=" in model:
-        return model
-    return f"version={model}"
 
 
 def _pixfmt_to_vmaf(pix_fmt: str) -> str:
@@ -135,65 +128,14 @@ def parse_vmaf_json(payload: dict) -> float:
     raise ValueError("vmaf JSON missing pooled_metrics.vmaf.mean")
 
 
-_RAW_DIST_EXTS = {".yuv", ".y4m"}
-
-
-def _decode_to_raw_yuv(
-    src: Path,
-    dst: Path,
-    pix_fmt: str,
-    *,
-    ffmpeg_bin: str = "ffmpeg",
-    runner_fn=subprocess.run,
-) -> tuple[int, str]:
-    """Decode an encoded container (mp4/webm/etc.) back to raw YUV.
-
-    libvmaf's CLI only accepts raw YUV/Y4M on `--distorted`; the
-    encoder adapter produces mp4. Without this decode-back step every
-    score call returns NaN. See ADR-0237 §"score-path requires raw
-    distorted" (Phase A bug-fix).
-    """
-    cmd = [
-        ffmpeg_bin,
-        "-y",
-        "-loglevel",
-        "error",
-        "-i",
-        str(src),
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        pix_fmt,
-        str(dst),
-    ]
-    completed = runner_fn(cmd, capture_output=True, text=True, check=False)
-    rc = int(getattr(completed, "returncode", 1))
-    stderr = getattr(completed, "stderr", "") or ""
-    return rc, stderr
-
-
-def _needs_decode(distorted: Path) -> bool:
-    return distorted.suffix.lower() not in _RAW_DIST_EXTS
-
-
 def run_score(
     req: ScoreRequest,
     *,
     vmaf_bin: str = "vmaf",
-    ffmpeg_bin: str = "ffmpeg",
     runner: object | None = None,
     workdir: Path | None = None,
-    backend: str | None = None,
 ) -> ScoreResult:
-    """Drive the vmaf CLI for a single (ref, dist) pair.
-
-    If the distorted path is an encoded container (mp4/webm/...), it is
-    transparently decoded to a raw YUV in the scratch workdir first;
-    libvmaf's CLI only consumes raw YUV/Y4M.
-    ``backend`` selects the libvmaf dispatch path
-    (``cpu|cuda|sycl|vulkan``). ``None`` preserves legacy behaviour
-    (binary picks its own default).
-    """
+    """Drive the vmaf CLI for a single (ref, dist) pair."""
     runner_fn = runner or subprocess.run
 
     if workdir is None:
@@ -205,32 +147,7 @@ def run_score(
         workdir_path.mkdir(parents=True, exist_ok=True)
 
     json_path = workdir_path / "vmaf.json"
-
-    score_req = req
-    if _needs_decode(req.distorted):
-        dist_yuv = workdir_path / "dist.yuv"
-        dec_rc, dec_stderr = _decode_to_raw_yuv(
-            req.distorted,
-            dist_yuv,
-            req.pix_fmt,
-            ffmpeg_bin=ffmpeg_bin,
-            runner_fn=runner_fn,
-        )
-        if dec_rc != 0 or not dist_yuv.exists():
-            if workdir_ctx is not None:
-                workdir_ctx.cleanup()
-            return ScoreResult(
-                request=req,
-                vmaf_score=float("nan"),
-                score_time_ms=0.0,
-                vmaf_binary_version="ffmpeg-decode-failed",
-                exit_status=dec_rc or 65,
-                stderr_tail=("ffmpeg decode failed:\n" + dec_stderr)[-2048:],
-            )
-        score_req = dataclasses.replace(req, distorted=dist_yuv)
-
-    cmd = build_vmaf_command(score_req, json_path, vmaf_bin=vmaf_bin)
-    cmd = build_vmaf_command(req, json_path, vmaf_bin=vmaf_bin, backend=backend)
+    cmd = build_vmaf_command(req, json_path, vmaf_bin=vmaf_bin)
 
     try:
         started = time.monotonic()

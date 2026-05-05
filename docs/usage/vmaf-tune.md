@@ -301,18 +301,68 @@ vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
 | `--no-cache` | off | Disable the content-addressed encode/score cache (default: ON). |
 | `--cache-dir PATH` | `$XDG_CACHE_HOME/vmaf-tune` | Override cache location (falls back to `~/.cache/vmaf-tune`). |
 | `--cache-size-gb N` | `10` | LRU eviction cap in GiB. |
+| `--sample-clip-seconds N` | `0` | Encode/score only the centre `N`-second slice of each source. `0` (default) keeps the legacy full-source behaviour. See [Sample-clip mode](#sample-clip-mode). |
+
+## Sample-clip mode
+
+Set `--sample-clip-seconds N` to evaluate each grid cell on the centre
+`N`-second slice of the source instead of the full reference. This is a
+runtime/accuracy trade-off, formalised in
+[ADR-0301](../adr/0301-vmaf-tune-sample-clip.md).
+
+- **Speedup.** Encode wall-time scales roughly linearly with slice
+  length, so e.g. a 10-second slice of a 60-second source is a ~6x
+  speedup per grid point. The libvmaf scoring pass shrinks by the same
+  factor (it reads only the matching reference window via
+  `--frame_skip_ref` / `--frame_cnt`).
+- **Accuracy delta.** Expect ~1-2 VMAF points of drift versus
+  full-clip on diverse content (mixed-shot trailers, sports, action),
+  tighter (~0.3-0.5 VMAF points) on uniform content (single-shot
+  interviews, animation, static stills). The delta is per-cell
+  consistent — relative ordering between (preset, crf) cells survives,
+  which is what Phase B (target-VMAF bisect) and Phase C (per-title
+  CRF predictor) actually consume. Full-clip rescoring of the
+  predictor's pick is the recommended Phase C epilogue.
+- **Window placement.** Naive centre-anchored: the slice is
+  `(duration_s − N) / 2 .. (duration_s + N) / 2`. Smarter shot-aware
+  placement (e.g. via `transnet_v2`) is on the follow-up backlog.
+- **Fallback.** If `N >= duration_s` the harness silently falls back
+  to full-clip mode and tags the row `clip_mode="full"` — the request
+  is treated as "use the whole source", not as an error.
+- **Bitrate semantics.** `bitrate_kbps` is computed against the
+  encoded duration, so sample-clip rows aren't biased low by dividing
+  slice-bytes by full-source seconds. `duration_s` keeps the original
+  source provenance.
+
+```shell
+# 6x faster grid sweep — 10s of a 60s source per cell.
+vmaf-tune corpus \
+    --source ref.yuv \
+    --width 1920 --height 1080 --pix-fmt yuv420p \
+    --framerate 24 --duration 60 \
+    --preset medium --preset slow \
+    --crf 22 --crf 28 --crf 34 \
+    --sample-clip-seconds 10 \
+    --output corpus.jsonl
+```
+
+Each emitted row carries `clip_mode="sample_10s"` (or `"full"`),
+letting Phase B/C either filter sample rows out, weight them
+differently, or rescore the chosen cell on the full source.
 
 ## Corpus JSONL schema
 
 Each row is one JSON object on its own line. The full key list is
 exported as `vmaftune.CORPUS_ROW_KEYS` for programmatic consumers and
-versioned via `vmaftune.SCHEMA_VERSION` (currently `1`). Bumping the
-schema is a coordinated change with Phase B/C; do not edit row shape
-without bumping the version.
+versioned via `vmaftune.SCHEMA_VERSION` (currently `2` — v2 added
+`clip_mode` for sample-clip mode, ADR-0301). Bumping the schema is a
+coordinated change with Phase B/C; do not edit row shape without
+bumping the version.
 
 | Key | Type | Description |
 | --- | --- | --- |
 | `schema_version` | int | Currently `1`. |
+| `schema_version` | int | Currently `2`. |
 | `run_id` | str | Per-row UUID4 hex. |
 | `timestamp` | str | UTC ISO-8601 (seconds precision). |
 | `src` | str | Path to the reference YUV. |
@@ -339,12 +389,13 @@ without bumping the version.
 | `hdr_transfer` | str | `""` (SDR), `"pq"` (SMPTE-2084) or `"hlg"` (ARIB STD-B67). v2+. |
 | `hdr_primaries` | str | Raw ffprobe `color_primaries` (e.g. `bt2020`); empty for SDR. v2+. |
 | `hdr_forced` | bool | `true` iff the user overrode detection via `--force-hdr-*` / `--force-sdr`. v2+. |
+| `clip_mode` | str | `"full"` (default) or `"sample_<N>s"` per `--sample-clip-seconds`. Schema v2+. |
 
 ### Example row
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "run_id": "0a3b1c8b...",
   "timestamp": "2026-05-03T16:00:00+00:00",
   "src": "ref.yuv",
@@ -363,7 +414,8 @@ without bumping the version.
   "score_time_ms": 1820.5,
   "ffmpeg_version": "6.1.1",
   "vmaf_binary_version": "3.0.0-lusoris.0",
-  "exit_status": 0
+  "exit_status": 0,
+  "clip_mode": "full"
 }
 ```
 

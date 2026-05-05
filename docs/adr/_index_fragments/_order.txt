@@ -178,3 +178,5 @@
 0296-vmaf-roi-saliency-weighted
 0300-vmaf-tune-hdr-aware
 0283-vmaf-tune-videotoolbox-adapters
+0297-vmaf-tune-sample-clip
+0301-vmaf-tune-sample-clip

@@ -44,7 +44,7 @@ class X264Adapter:
     def validate(self, preset: str, crf: int) -> None:
         """Raise ``ValueError`` if ``(preset, crf)`` is unsupported."""
         if preset not in self.presets:
-            raise ValueError(f"unknown x264 preset {preset!r}; expected one of " f"{self.presets}")
+            raise ValueError(f"unknown x264 preset {preset!r}; expected one of {self.presets}")
         lo, hi = self.quality_range
         if not lo <= crf <= hi:
             raise ValueError(f"crf {crf} outside Phase A range [{lo}, {hi}]")
