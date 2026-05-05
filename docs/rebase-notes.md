@@ -7290,3 +7290,44 @@ inline.*
   ```bash
   pytest tools/vmaf-tune/tests/
   ```
+
+### 0228 — `integer_ms_ssim_cuda.c` joins drain_batch (T-GPU-OPT-2 / ADR-0271)
+
+- **Touches**: `libvmaf/src/feature/cuda/integer_ms_ssim_cuda.c`. No
+  upstream Netflix/vmaf changes expected here — the file is
+  fork-added (CUDA twin of the upstream-port `ms_ssim_score.cu`) and
+  the surface this PR redrew (per-scale `l_partials[i]` /
+  `c_partials[i]` / `s_partials[i]` arrays + the per-scale
+  `h_l_partials[i]` / `h_c_partials[i]` / `h_s_partials[i]` pinned
+  host shadows + the `submit()` <→ `collect()` work redistribution +
+  the `cuEventRecord(s->lc.finished, s->lc.str)` +
+  `vmaf_cuda_drain_batch_register(&s->lc)` tail) is also entirely
+  fork-local.
+- **Invariant**: the engine-scope drain-batch contract from ADR-0271
+  / drain_batch.h. The kernel-launch order on `s->lc.str` must stay
+  stable: `decimate (× 4)` then **for each scale `i ∈ 0..4`**
+  `horiz` ⇒ `vert_lcs` ⇒ DtoH(l_partials[i]) ⇒ DtoH(c_partials[i])
+  ⇒ DtoH(s_partials[i])` then `cuEventRecord(s->lc.finished, s->lc.str)`
+  then `vmaf_cuda_drain_batch_register(&s->lc)`. Same-stream
+  ordering is what makes the shared SSIM intermediates
+  (`h_ref_mu`, `h_cmp_mu`, `h_ref_sq`, `h_cmp_sq`, `h_refcmp`)
+  safe across scales without explicit sync — any change that
+  parallelises the per-scale work onto multiple streams **breaks
+  bit-exactness** unless per-scale intermediates are also added.
+- **On upstream sync**: zero interaction (the file is fork-added).
+  If a future upstream PR adds an `integer_ms_ssim_cuda.c` of its
+  own, the merger must reconcile the per-scale partials topology +
+  the drain_batch tail with whatever the new upstream shape brings.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build  # confirms the CPU build still links cleanly
+  # If the dev host has a working nvcc / host-compiler pair:
+  meson setup build_cuda -Denable_cuda=true -Denable_sycl=false
+  ninja -C build_cuda src/liblibvmaf_feature.a.p/feature_cuda_integer_ms_ssim_cuda.c.o
+  # Netflix CPU golden gate (CPU is the bit-exactness ground truth):
+  make test-netflix-golden
+  # Cross-backend parity (places=4 gate, ADR-0214):
+  /cross-backend-diff
+  ```

@@ -128,6 +128,30 @@ cuda/
   (future T-GPU-OPT-N) depends on the no-per-frame-alloc invariant
   from this change.
 
+- **`integer_ms_ssim_cuda.c` per-scale partials topology**
+  (fork-local, T-GPU-OPT-2 / ADR-0271): the file allocates
+  **per-scale** device + pinned-host partials buffers
+  (`l_partials[MS_SSIM_SCALES]`, `c_partials[...]`, `s_partials[...]`
+  + the matching `h_*_partials[...]`). All 5 SSIM scales' `horiz` +
+  `vert_lcs` launches and DtoH copies enqueue back-to-back on
+  `s->lc.str` inside `submit()`; `cuEventRecord(s->lc.finished, s->lc.str)`
+  is recorded once after the last DtoH and registered with
+  `vmaf_cuda_drain_batch_register(&s->lc)` so the engine's batched
+  drain (`drain_batch.h`) covers this extractor. The shared SSIM
+  intermediate buffers (`h_ref_mu`, `h_cmp_mu`, `h_ref_sq`,
+  `h_cmp_sq`, `h_refcmp`) stay shared because same-stream ordering
+  serialises the per-scale `horiz ⇒ vert_lcs ⇒ DtoH` chain
+  naturally. **On rebase**: do NOT collapse the per-scale partials
+  arrays back to single buffers — the host-side reduction loop in
+  `collect()` walks all 5 scales' `h_*_partials[i]` after the engine
+  drains, and aliasing the buffers would force a per-scale
+  `cuStreamSynchronize` and break the drain_batch coalesce. Do NOT
+  parallelise the per-scale work onto multiple streams — that would
+  break the same-stream serialisation that makes the shared
+  intermediates safe. See
+  [ADR-0271](../../../docs/adr/0271-cuda-drain-batch-ms-ssim.md)
+  and [rebase-notes 0228](../../../docs/rebase-notes.md).
+
 - **`kernel_template.h` is the canonical kernel scaffolding**
   (fork-local, ADR-0246): the inline helpers
   `vmaf_cuda_kernel_lifecycle_init/_close`,
