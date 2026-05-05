@@ -26,8 +26,9 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 from . import CORPUS_ROW_KEYS, SCHEMA_VERSION
+from .cache import CachedResult, TuneCache, cache_key
 from .codec_adapters import get_adapter
-from .encode import EncodeRequest, bitrate_kbps, run_encode
+from .encode import EncodeRequest, EncodeResult, bitrate_kbps, probe_ffmpeg_version, run_encode
 from .hdr import HdrInfo, detect_hdr, hdr_codec_args, select_hdr_vmaf_model
 from .resolution import select_vmaf_model_version
 from .score import ScoreRequest, ScoreResult, run_score
@@ -73,6 +74,11 @@ class CorpusOptions:
     # - "force-hdr-pq": treat every source as HDR PQ (overrides probe).
     # - "force-hdr-hlg": treat every source as HDR HLG.
     hdr_mode: str = "auto"
+    # ADR-0298: content-addressed cache. Default ON; honours
+    # XDG_CACHE_HOME via cache.default_cache_dir().
+    cache_enabled: bool = True
+    cache_dir: Path | None = None
+    cache_size_bytes: int = 10 * 1024 * 1024 * 1024
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:
@@ -101,11 +107,14 @@ def iter_rows(
     *,
     encode_runner: object | None = None,
     score_runner: object | None = None,
+    probe_runner: object | None = None,
 ) -> Iterator[dict]:
     """Yield one JSONL row per (preset, crf) cell.
 
     ``encode_runner`` / ``score_runner`` are subprocess-runner stubs
     parameterised for tests. Production callers leave them ``None``.
+    ``probe_runner`` is the matching seam for the one-shot
+    ``ffmpeg -version`` probe used by the cache layer.
     """
     adapter = get_adapter(opts.encoder)
     src_hash = _sha256_of(job.source) if (opts.src_sha256 and job.source.exists()) else ""
@@ -124,76 +133,201 @@ def iter_rows(
     hdr_extra = hdr_codec_args(adapter.encoder, hdr_info) if hdr_info is not None else ()
     effective_model = _resolve_vmaf_model(opts, hdr_info)
 
+    cache, ffmpeg_v = _maybe_build_cache(opts, src_hash, probe_runner=probe_runner)
+
     for preset, crf in job.cells:
         adapter.validate(preset, crf)
-
-        # Some codecs (SVT-AV1) want an integer preset on the argv even
-        # though the corpus row records the human-readable name. The
-        # adapter exposes a translator when it needs one; absent the
-        # hook we forward the name verbatim (libx264 path).
-        ffmpeg_preset = preset
-        translator = getattr(adapter, "ffmpeg_preset_token", None)
-        if callable(translator):
-            ffmpeg_preset = translator(preset)
-
-        out = _encode_path(opts, job.source, preset, crf)
-        enc_req = EncodeRequest(
-            source=job.source,
-            width=job.width,
-            height=job.height,
-            pix_fmt=job.pix_fmt,
-            framerate=job.framerate,
-            encoder=adapter.encoder,
-            preset=ffmpeg_preset,
-            crf=crf,
-            output=out,
-            extra_params=hdr_extra,
-        )
-        enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
-
-        score_req = ScoreRequest(
-            reference=job.source,
-            distorted=out,
-            width=job.width,
-            height=job.height,
-            pix_fmt=job.pix_fmt,
-            model=effective_model,
-        )
-        if enc_res.exit_status == 0:
-            score_res = run_score(
-                score_req,
-                vmaf_bin=opts.vmaf_bin,
-                runner=score_runner,
-                backend=opts.score_backend,
-            )
-        else:
-            # Skip scoring on encode failure; row records the failure.
-            score_res = ScoreResult(
-                request=score_req,
-                vmaf_score=float("nan"),
-                score_time_ms=0.0,
-                vmaf_binary_version="skipped",
-                exit_status=enc_res.exit_status,
-                stderr_tail="encode failed; score skipped",
-            )
-
-        row = _row_for(
+        yield _row_for_cell(
             job=job,
             opts=opts,
+            adapter=adapter,
             preset=preset,
             crf=crf,
             src_sha=src_hash,
-            enc_res=enc_res,
-            score_res=score_res,
             hdr_info=hdr_info,
             hdr_forced=hdr_forced,
+            hdr_extra=hdr_extra,
             effective_model=effective_model,
+            cache=cache,
+            ffmpeg_v=ffmpeg_v,
+            encode_runner=encode_runner,
+            score_runner=score_runner,
         )
-        if not opts.keep_encodes and out.exists() and enc_res.exit_status == 0:
-            # best-effort cleanup; corpus row stays valid either way
-            with contextlib.suppress(OSError):
-                out.unlink()
-        yield row
+
+
+def _maybe_build_cache(
+    opts: CorpusOptions,
+    src_hash: str,
+    *,
+    probe_runner: object | None,
+) -> tuple[TuneCache | None, str]:
+    """Construct a ``TuneCache`` and probe ffmpeg version, or return
+    ``(None, "")`` if caching is off / unusable.
+
+    Caching is disabled when:
+    - ``opts.cache_enabled`` is False, or
+    - the source hash is empty (no stable content key), or
+    - ffmpeg version cannot be probed (the encode would fail anyway).
+    """
+    if not opts.cache_enabled or not src_hash:
+        return None, ""
+    ffmpeg_v = probe_ffmpeg_version(opts.ffmpeg_bin, runner=probe_runner)
+    if ffmpeg_v == "unknown":
+        return None, ""
+    cache = TuneCache(opts.cache_dir, size_bytes=opts.cache_size_bytes)
+    return cache, ffmpeg_v
+
+
+def _row_for_cell(
+    *,
+    job: CorpusJob,
+    opts: CorpusOptions,
+    adapter,
+    preset: str,
+    crf: int,
+    src_hash: str,
+    cache: TuneCache | None,
+    ffmpeg_v: str,
+    encode_runner: object | None,
+    score_runner: object | None,
+) -> dict:
+    """Encode + score one cell, with cache lookup on the front end.
+
+    On cache hit: synthesise ``EncodeResult`` / ``ScoreResult`` from
+    the cached tuple and skip both subprocess calls. On miss: run
+    encode + score normally and write back to the cache before
+    returning.
+    """
+    out = _encode_path(opts, job.source, preset, crf)
+    enc_req = EncodeRequest(
+        source=job.source,
+        width=job.width,
+        height=job.height,
+        pix_fmt=job.pix_fmt,
+        framerate=job.framerate,
+        encoder=adapter.encoder,
+        preset=preset,
+        crf=crf,
+        output=out,
+    )
+
+    key = ""
+    if cache is not None:
+        key = cache_key(
+            src_sha256=src_hash,
+            encoder=opts.encoder,
+            preset=preset,
+            crf=crf,
+            adapter_version=getattr(adapter, "adapter_version", "1"),
+            ffmpeg_version=ffmpeg_v,
+        )
+        hit = cache.get(key)
+        if hit is not None:
+            enc_res, score_res = _results_from_cache(enc_req, opts, hit)
+            return _row_for(
+                job=job,
+                opts=opts,
+                preset=preset,
+                crf=crf,
+                src_sha=src_hash,
+                enc_res=enc_res,
+                score_res=score_res,
+            )
+
+    enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
+    score_req = ScoreRequest(
+        reference=job.source,
+        distorted=out,
+        width=job.width,
+        height=job.height,
+        pix_fmt=job.pix_fmt,
+        model=opts.vmaf_model,
+    )
+    if enc_res.exit_status == 0:
+        score_res = run_score(score_req, vmaf_bin=opts.vmaf_bin, runner=score_runner)
+    else:
+        score_res = ScoreResult(
+            request=score_req,
+            vmaf_score=float("nan"),
+            score_time_ms=0.0,
+            vmaf_binary_version="skipped",
+            exit_status=enc_res.exit_status,
+            stderr_tail="encode failed; score skipped",
+        )
+
+    if (
+        cache is not None
+        and key
+        and enc_res.exit_status == 0
+        and score_res.exit_status == 0
+        and out.exists()
+    ):
+        cache.put(
+            key,
+            CachedResult(
+                encode_size_bytes=enc_res.encode_size_bytes,
+                encode_time_ms=enc_res.encode_time_ms,
+                encoder_version=enc_res.encoder_version,
+                ffmpeg_version=enc_res.ffmpeg_version,
+                vmaf_score=score_res.vmaf_score,
+                vmaf_model=opts.vmaf_model,
+                score_time_ms=score_res.score_time_ms,
+                vmaf_binary_version=score_res.vmaf_binary_version,
+                artifact_path=out,
+            ),
+            artifact_path=out,
+        )
+
+    row = _row_for(
+        job=job,
+        opts=opts,
+        preset=preset,
+        crf=crf,
+        src_sha=src_hash,
+        enc_res=enc_res,
+        score_res=score_res,
+    )
+    if not opts.keep_encodes and out.exists() and enc_res.exit_status == 0:
+        with contextlib.suppress(OSError):
+            out.unlink()
+    return row
+
+
+def _results_from_cache(
+    enc_req: EncodeRequest,
+    opts: CorpusOptions,
+    hit: CachedResult,
+) -> tuple[EncodeResult, ScoreResult]:
+    """Reconstruct ``EncodeResult`` / ``ScoreResult`` from a cache hit
+    so the row-builder downstream doesn't need to know the cache
+    exists.
+    """
+    enc_res = EncodeResult(
+        request=enc_req,
+        encode_size_bytes=hit.encode_size_bytes,
+        encode_time_ms=hit.encode_time_ms,
+        encoder_version=hit.encoder_version,
+        ffmpeg_version=hit.ffmpeg_version,
+        exit_status=0,
+        stderr_tail="cache hit; encode skipped",
+    )
+    score_req = ScoreRequest(
+        reference=enc_req.source,
+        distorted=enc_req.output,
+        width=enc_req.width,
+        height=enc_req.height,
+        pix_fmt=enc_req.pix_fmt,
+        model=opts.vmaf_model,
+    )
+    score_res = ScoreResult(
+        request=score_req,
+        vmaf_score=hit.vmaf_score,
+        score_time_ms=hit.score_time_ms,
+        vmaf_binary_version=hit.vmaf_binary_version,
+        exit_status=0,
+        stderr_tail="cache hit; score skipped",
+    )
+    return enc_res, score_res
 
 
 def _row_for(

@@ -588,6 +588,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="treat all sources as HDR HLG (ARIB STD-B67) regardless of probe",
     )
     corpus.set_defaults(hdr_mode="auto")
+    corpus.add_argument(
+        "--no-cache",
+        action="store_true",
+        help=("disable the content-addressed encode/score cache " "(default: ON; see ADR-0298)"),
+    )
+    corpus.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=None,
+        help=(
+            "override cache location " "(default: $XDG_CACHE_HOME/vmaf-tune or ~/.cache/vmaf-tune)"
+        ),
+    )
+    corpus.add_argument(
+        "--cache-size-gb",
+        type=float,
+        default=10.0,
+        help="LRU eviction cap in GiB (default 10)",
+    )
     return parser
 
 
@@ -618,6 +637,9 @@ def _run_corpus(args: argparse.Namespace) -> int:
         resolution_aware=args.resolution_aware,
         score_backend=selected,
         hdr_mode=args.hdr_mode,
+        cache_enabled=not args.no_cache,
+        cache_dir=args.cache_dir,
+        cache_size_bytes=int(args.cache_size_gb * 1024 * 1024 * 1024),
     )
 
     def _all_rows():

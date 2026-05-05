@@ -390,6 +390,23 @@
   unit tests against the mocked help/probe runners, and a docs/usage
   section with a wall-clock expectation table.
 
+- **vmaf-tune content-addressed encode/score cache (ADR-0298).**
+  Adds
+  [`tools/vmaf-tune/src/vmaftune/cache.py`](tools/vmaf-tune/src/vmaftune/cache.py),
+  a content-addressed cache keyed on
+  `sha256(src_content) + encoder + preset + crf + adapter_version + ffmpeg_version`
+  that short-circuits both the encode and score subprocesses on a
+  hit. Cache lives at `$XDG_CACHE_HOME/vmaf-tune/` (or
+  `~/.cache/vmaf-tune/`) with LRU eviction at a 10 GiB default cap.
+  Wired into the corpus loop with default-ON; `--no-cache`,
+  `--cache-dir`, and `--cache-size-gb` opt-out and override. JSONL
+  row schema unchanged (`SCHEMA_VERSION` stays at 1) — the cache is
+  an opaque sidecar, not baked into the row. Re-runs of the same
+  `(preset, crf)` sweep collapse from minutes to milliseconds; the
+  intended workflow win is "user adjusts a flag, re-runs the same
+  sweep, only the changed cells re-encode." Twelve new contract
+  tests under `tests/test_cache.py` cover key stability, eviction,
+  and end-to-end miss-then-hit through the corpus loop.
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships
