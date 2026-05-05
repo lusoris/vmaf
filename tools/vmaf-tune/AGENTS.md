@@ -72,7 +72,7 @@ for the option-space digest.
   families share private helpers (e.g. `_nvenc_common.py`) — keep
   the mnemonic preset map and CQ window in one place per family so
   the per-codec files stay thin.
-  wires `libx264` and `libsvtav1` (ADR-0278); `codec_adapters/__init__.py`
+  wires `libx264` and `libsvtav1` (ADR-0294); `codec_adapters/__init__.py`
   exposes a registry the search loop must use uniformly. Do not branch
   on codec name in `corpus.py` / `encode.py` / `score.py`; route via
   the adapter. New codecs are one-file additions under
@@ -225,7 +225,7 @@ corresponding phase.
   re-running detection), extend ``detect_shots`` to call
   ``vmaf-perShot`` once and cache, not to bypass the binary.
 Phase A (this scaffold): grid sweep + JSONL emit. Codecs wired so
-far: `libx264` (ADR-0237) and `libsvtav1` (ADR-0278). Phases B–F per
+far: `libx264` (ADR-0237) and `libsvtav1` (ADR-0294). Phases B–F per
 ADR-0237 are explicitly out of scope here; do not add bisect /
 predictor / ladder / MCP code into this tree without an ADR-0237
 follow-up promoting the corresponding phase.

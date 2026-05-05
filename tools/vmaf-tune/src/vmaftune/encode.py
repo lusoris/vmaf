@@ -89,30 +89,19 @@ _X264_VERSION_RE = re.compile(r"x264 - core (\d+)")
 # x265 banner format: "x265 [info]: HEVC encoder version 3.5+1-f0c1022b6"
 # Some builds print "x265 [info]: HEVC encoder version 3.5".
 _X265_VERSION_RE = re.compile(r"x265 \[info\]:\s*HEVC encoder version (\S+)")
-
-
-def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
-    """Return (ffmpeg_version, encoder_version) extracted from stderr.
-
-    Returns ``("unknown", "unknown")`` for missing matches rather than
-    raising — corpus rows record what we can detect and move on.
-
-    ``encoder`` selects the per-codec banner regex; defaults to
-    ``libx264`` for backward compatibility with Phase A callers.
 # SVT-AV1 logs e.g. "SVT [info]: SVT-AV1 Encoder Lib v2.1.0" or
 # "Svt[info]:SVT-AV1 Encoder Lib v1.8.0". Match the version token only;
 # the rest of the banner varies between FFmpeg builds.
 _SVTAV1_VERSION_RE = re.compile(r"SVT-AV1 Encoder Lib\s+v?(\S+)")
 
 
-def parse_versions(stderr: str) -> tuple[str, str]:
+def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
     """Return ``(ffmpeg_version, encoder_version)`` extracted from stderr.
 
-    The encoder-version probe walks a small list of known banner
-    patterns (x264, then SVT-AV1) so the same hook works across the
-    Phase A codec set. Returns ``("unknown", "unknown")`` for missing
-    matches rather than raising — corpus rows record what we can detect
-    and move on.
+    ``encoder`` selects the per-codec banner regex; defaults to
+    ``libx264`` for backward compatibility with Phase A callers.
+    Returns ``("unknown", "unknown")`` for missing matches rather than
+    raising — corpus rows record what we can detect and move on.
     """
     ffm = _FFMPEG_VERSION_RE.search(stderr)
     ffmpeg_version = ffm.group(1) if ffm else "unknown"
@@ -120,6 +109,9 @@ def parse_versions(stderr: str) -> tuple[str, str]:
     if encoder == "libx265":
         enc = _X265_VERSION_RE.search(stderr)
         encoder_version = f"libx265-{enc.group(1)}" if enc else "unknown"
+    elif encoder == "libsvtav1":
+        enc = _SVTAV1_VERSION_RE.search(stderr)
+        encoder_version = f"libsvtav1-{enc.group(1)}" if enc else "unknown"
     else:
         # libx264 (and any future codec without a dedicated branch) falls
         # back to the x264 regex so old callers keep working.

@@ -128,7 +128,7 @@ integers so the corpus row schema is codec-independent:
 | `veryfast` | `13` | Fastest. |
 
 The mapping is closed and order-stable; see
-[ADR-0278](../adr/0278-vmaf-tune-codec-adapter-svtav1.md).
+[ADR-0294](../adr/0294-vmaf-tune-codec-adapter-svtav1.md).
 
 ## CLI flags
 
@@ -143,7 +143,7 @@ The mapping is closed and order-stable; see
 | `--encoder NAME` | `libx264` | One of `libx264`, `h264_amf`, `hevc_amf`, `av1_amf`. |
 | `--preset P` | — | Required. Repeatable. x264 preset name. |
 | `--crf N` | — | Required. Repeatable. x264 CRF integer. |
-| `--encoder NAME` | `libx264` | Currently wired: `libx264`, `libsvtav1` (ADR-0278). |
+| `--encoder NAME` | `libx264` | Currently wired: `libx264`, `libsvtav1` (ADR-0294). |
 | `--preset P` | — | Required. Repeatable. Preset name (see codec table below). |
 | `--crf N` | — | Required. Repeatable. CRF integer (range varies by codec). |
 | `--output PATH` | `corpus.jsonl` | JSONL destination. |
