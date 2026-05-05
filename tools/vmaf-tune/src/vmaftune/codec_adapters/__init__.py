@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from .libaom import LibaomAdapter
 from .x264 import X264Adapter
 
 
@@ -32,6 +33,7 @@ class CodecAdapter(Protocol):
 
 _REGISTRY: dict[str, CodecAdapter] = {
     "libx264": X264Adapter(),
+    "libaom-av1": LibaomAdapter(),
 }
 
 
@@ -45,4 +47,10 @@ def known_codecs() -> tuple[str, ...]:
     return tuple(sorted(_REGISTRY))
 
 
-__all__ = ["CodecAdapter", "X264Adapter", "get_adapter", "known_codecs"]
+__all__ = [
+    "CodecAdapter",
+    "LibaomAdapter",
+    "X264Adapter",
+    "get_adapter",
+    "known_codecs",
+]

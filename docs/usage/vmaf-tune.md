@@ -212,6 +212,66 @@ instead — convenient for piping into other tooling.
 | `--source / --width / --height / --framerate / --duration` | — | Build a corpus on the fly. Required when `--from-corpus` is omitted. |
 | `--encoder / --preset / --crf` | `libx264` / `medium` / `[18,20,...,34]` | Sweep grid (when building). Filter (when loading). |
 | `--json` | off | Emit the winning row as JSON instead of the prose summary. |
+## Codec adapters
+
+Phase A wires `libx264` end-to-end through the search loop. Additional
+codec adapters land as one-file additions under
+`tools/vmaf-tune/src/vmaftune/codec_adapters/` and join the registry
+without touching the search loop. The currently-registered adapters are
+discoverable via `vmaftune.codec_adapters.known_codecs()`.
+
+### `libaom-av1`
+
+Google's reference AV1 encoder. Adapter shipped via
+[ADR-0279](../adr/0279-vmaf-tune-codec-adapter-libaom.md).
+
+- Encoder name (FFmpeg): `libaom-av1`.
+- Quality knob: `-crf` integer in `[0, 63]` (default `35`); higher CRF
+  is lower quality.
+- Speed knob: `-cpu-used` integer in `[0, 9]` (0 = slowest/best,
+  9 = fastest). The adapter exposes a human-readable preset vocabulary
+  that matches x264/x265 so a single sweep axis covers all four
+  encoders.
+
+| `--preset` name | libaom `-cpu-used` |
+|---|---|
+| `placebo`   | 0 (slowest, highest quality) |
+| `slowest`   | 1 |
+| `slower`    | 2 |
+| `slow`      | 3 |
+| `medium`    | 4 (default) |
+| `fast`      | 5 |
+| `faster`    | 6 |
+| `veryfast`  | 7 |
+| `superfast` | 8 |
+| `ultrafast` | 9 (fastest) |
+
+Sample FFmpeg invocation produced by the adapter (Phase B+ wires the
+codec args into `vmaftune.encode`):
+
+```shell
+ffmpeg -i ref.y4m -c:v libaom-av1 -crf 35 -cpu-used 4 -an -y out.mkv
+```
+
+### libaom vs SVT-AV1 trade-offs
+
+`libaom-av1` and `libsvtav1` both target the AV1 bitstream but sit at
+different points on the speed/quality curve. Use the table below as a
+rough decision aid; the per-corpus numbers belong in your local sweep
+output, not here.
+
+| Concern | libaom-av1 | libsvtav1 |
+|---|---|---|
+| Encode wall time at matched preset | meaningfully slower | meaningfully faster |
+| Quality at slow presets (matched bitrate) | slightly higher per AOM benchmarks | slightly lower |
+| Quality at fast presets | comparable | comparable, sometimes ahead |
+| CRF range | `0..63` | `0..63` |
+| Best fit | offline / high-quality archive encodes | live, batch, large catalog |
+
+The fork's `vmaf-tune` corpus rows record the exact `(encoder, preset,
+crf, vmaf_score, encode_time_ms, bitrate_kbps)` tuple, so Phase C/D
+predictors can pick whichever encoder dominates the relevant region of
+the rate-distortion plane on a given source.
 
 ## What Phase A does **not** do
 
@@ -219,9 +279,10 @@ instead — convenient for piping into other tooling.
 - No per-title or per-shot CRF prediction (Phase C / D).
 - No Pareto ABR ladder generation (Phase E).
 - No MCP tools wiring (Phase F).
-- Only `libx264` — `libx265` / `libsvtav1` / `libvpx-vp9` / `libvvenc`
-  are next via the codec adapter interface in
-  `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+- The shipped `encode.py` driver only wires the `-preset` argv shape
+  used by x264/x265. The libaom-av1 adapter's metadata + preset
+  mapping land here; routing its codec-specific argv through the
+  driver follows when the codec-pluggable encode path lands.
 
 ## Phase A.5 — opt-in `fast` recommend
 
