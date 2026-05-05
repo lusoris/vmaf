@@ -1,6 +1,6 @@
 # Research-0054: `vmaf-tune` codec-agnostic encode dispatcher
 
-- **Status**: digest for [ADR-0294](../adr/0294-vmaf-tune-encode-multi-codec.md)
+- **Status**: digest for [ADR-0297](../adr/0297-vmaf-tune-encode-multi-codec.md)
 - **Date**: 2026-05-03
 
 ## Problem

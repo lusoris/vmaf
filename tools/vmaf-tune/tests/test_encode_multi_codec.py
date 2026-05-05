@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Multi-codec dispatcher tests for ``encode.py`` (ADR-0294).
+"""Multi-codec dispatcher tests for ``encode.py`` (ADR-0297).
 
 Covers:
 

@@ -368,8 +368,8 @@
   #368 libvvenc, #370 libsvtav1, #373 VideoToolbox, plus follow-on
   waves) which now drive end-to-end encodes without copying or
   mutating the harness. New
-  [`docs/adr/0294-vmaf-tune-encode-multi-codec.md`](docs/adr/0294-vmaf-tune-encode-multi-codec.md),
-  [`docs/research/0069-vmaf-tune-encode-multi-codec.md`](docs/research/0069-vmaf-tune-encode-multi-codec.md);
+  [`docs/adr/0297-vmaf-tune-encode-multi-codec.md`](docs/adr/0297-vmaf-tune-encode-multi-codec.md),
+  [`docs/research/0070-vmaf-tune-encode-multi-codec.md`](docs/research/0070-vmaf-tune-encode-multi-codec.md);
   [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md#codec-adapter-contract)
   gains a "Codec adapter contract" section.
   [`docs/rebase-notes.md`](docs/rebase-notes.md) entry 0228 pins the

@@ -660,7 +660,7 @@ pytest tools/vmaf-tune/tests/test_saliency.py -v
 
 The encode driver
 ([`tools/vmaf-tune/src/vmaftune/encode.py`](../../tools/vmaf-tune/src/vmaftune/encode.py))
-is **codec-agnostic** as of [ADR-0294](../adr/0294-vmaf-tune-encode-multi-codec.md).
+is **codec-agnostic** as of [ADR-0297](../adr/0297-vmaf-tune-encode-multi-codec.md).
 It looks up the codec adapter via
 `vmaftune.codec_adapters.get_adapter(req.encoder)` and asks the
 adapter for its FFmpeg argv slice — the harness itself never branches

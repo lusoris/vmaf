@@ -111,7 +111,7 @@ row schema.
 - [ADR-0237](0237-quality-aware-encode-automation.md) — parent.
 - [Research-0044](../research/0044-quality-aware-encode-automation.md) —
   option-space digest.
-- [Research-0054](../research/0069-vmaf-tune-encode-multi-codec.md) —
+- [Research-0054](../research/0070-vmaf-tune-encode-multi-codec.md) —
   this PR's research digest.
 - [`docs/usage/vmaf-tune.md`](../usage/vmaf-tune.md#codec-adapter-contract) —
   user-facing adapter contract docs.
