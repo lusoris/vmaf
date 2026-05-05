@@ -24,11 +24,11 @@
     {
       "id": "fr_regressor_v2",
       "kind": "fr",
-      "notes": "Tiny FR regressor v2 (codec-aware) \u2014 6 canonical libvmaf features (adm2, vif_scale0..3, motion2) + 8-D codec block (6 encoder one-hot + preset_norm + crf_norm) -> VMAF teacher score. Trained on the vmaf-tune Phase A JSONL corpus (ADR-0237). SMOKE / placeholder build (synthetic corpus). In-sample PLCC=-0.4072. Exported via ai/scripts/train_fr_regressor_v2.py. See docs/ai/models/fr_regressor_v2.md + ADR-0272 + ADR-0235.",
+      "notes": "Tiny FR regressor v2 (codec-aware) \u2014 6 canonical libvmaf features (adm2, vif_scale0..3, motion2) + 8-D codec block (6 encoder one-hot + preset_norm + crf_norm) -> VMAF teacher score. Trained on the vmaf-tune Phase A JSONL corpus (ADR-0237). Production checkpoint. In-sample PLCC=0.9794. Exported via ai/scripts/train_fr_regressor_v2.py. See docs/ai/models/fr_regressor_v2.md + ADR-0272 + ADR-0235.",
       "onnx": "fr_regressor_v2.onnx",
       "opset": 17,
-      "sha256": "d012cb34bc606d1b9ac041bcbac9d730371a42ebb4eb3615d2f08a37eee224b7",
-      "smoke": true
+      "sha256": "67934b0b61c73eb852d84ffb34e3333756e8da2530179ecc830336133e63e69e",
+      "smoke": false
     },
     {
       "description": "Tiny residual filter for vmaf_pre \u2014 degraded \u2192 clean luma.",
@@ -67,18 +67,6 @@
       "smoke": true
     },
     {
-      "description": "Fork-trained tiny U-Net saliency student trained on DUTS-TR — production weights for the mobilesal extractor.",
-      "id": "saliency_student_v1",
-      "kind": "nr",
-      "license": "BSD-3-Clause-Plus-Patent",
-      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
-      "notes": "Fork-trained tiny U-Net (~113K params) trained from scratch on DUTS-TR (Wang et al. 2017). Drop-in for mobilesal_placeholder_v0; same input/saliency_map names + NCHW shapes. ConvTranspose stride-2 upsample (every op on the allowlist). 50ep Adam lr=1e-3 BCE+Dice bs=32 crop=256 seed=42; best val IoU=0.6558; PT<->ORT max-abs-diff=1.49e-6. DUTS images not redistributed; weights are. See docs/ai/models/saliency_student_v1.md and docs/adr/0270.",
-      "onnx": "saliency_student_v1.onnx",
-      "opset": 17,
-      "sha256": "1edc64772498ab73ebdb17e21f49679ce5ded82534d47f557cd15fd36e1b46e7",
-      "smoke": false
-    },
-    {
       "description": "Tiny no-reference quality metric \u2014 single-frame 224\u00d7224 grayscale.",
       "id": "nr_metric_v1",
       "int8_sha256": "e5ba2086f53c74539902883b12b01d83f06806f084b692b1d5ad325f9300cab2",
@@ -92,6 +80,18 @@
       "quant_mode": "dynamic",
       "sha256": "75eff676bff0f0f911fd59ac72c90240e95caff67302b37f6e35bfbeac2b680b",
       "sigstore_bundle": "nr_metric_v1.onnx.sigstore.json"
+    },
+    {
+      "description": "Fork-trained tiny U-Net saliency student trained on DUTS-TR \u2014 production weights for the mobilesal extractor.",
+      "id": "saliency_student_v1",
+      "kind": "nr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "Fork-trained tiny U-Net (~113K params) trained from scratch on DUTS-TR (Wang et al. 2017). Drop-in for mobilesal_placeholder_v0; same input/saliency_map names + NCHW shapes. ConvTranspose stride-2 upsample (every op on the allowlist). 50ep Adam lr=1e-3 BCE+Dice bs=32 crop=256 seed=42; best val IoU=0.6558; PT<->ORT max-abs-diff=1.49e-6. DUTS images not redistributed; weights are. See docs/ai/models/saliency_student_v1.md and docs/adr/0270.",
+      "onnx": "saliency_student_v1.onnx",
+      "opset": 17,
+      "sha256": "1edc64772498ab73ebdb17e21f49679ce5ded82534d47f557cd15fd36e1b46e7",
+      "smoke": false
     },
     {
       "description": "fp16 I/O round-trip CI probe (Identity op).",

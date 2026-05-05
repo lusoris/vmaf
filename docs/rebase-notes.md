@@ -7931,3 +7931,19 @@ inline.*
   ```bash
   python -m pytest tools/vmaf-tune/tests/ -v
   ```
+### 0230 — fr_regressor_v2 PROD ship (ADR-0291)
+
+- **ADR**: [ADR-0291](adr/0291-fr-regressor-v2-prod-ship.md)
+- **Touches**: `model/tiny/fr_regressor_v2.onnx` (binary, refreshed),
+  `model/tiny/fr_regressor_v2.json` (sidecar, sha256 + metrics),
+  `model/tiny/registry.json` (smoke flag flip, sha256 update),
+  `runs/phase_a/full_grid/per_frame_canonical6.jsonl` (training corpus —
+  fork-local artefact under `runs/`), companion docs.
+- **Re-test recipe**: see Research-0067 §Reproducer. Ship gate is
+  LOSO PLCC ≥ 0.95 on the per-source folds; current run reports
+  0.9681 ± 0.0207.
+- **Rebase invariant**: the per-frame canonical-6 corpus must be rebuilt
+  from `runs/phase_a/{nvenc,qsv}_pf.jsonl` (PR #392) before any retrain;
+  do not re-train against the cell-only `comprehensive.jsonl` (it lacks
+  the per-frame features and produces PLCC ≈ 0.7 — the smoke baseline).
+- **No upstream interaction**: `fr_regressor_v2` is fork-local (ADR-0272).
