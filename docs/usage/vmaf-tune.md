@@ -18,6 +18,11 @@ of [Research-0061](../research/0061-vmaf-tune-capability-audit.md).
 This doc covers **Phase A** of the six-phase roadmap: a multi-codec grid
 sweep that produces the corpus the later phases consume. Phases B (target-VMAF
 bisect), C (per-title CRF predictor), D (per-shot dynamic CRF), E (Pareto ABR
+This doc covers **Phase A** of the six-phase roadmap (a `libx264` grid
+sweep that produces the corpus the later phases consume) and the
+**Phase D scaffold** (per-shot CRF tuning, see
+[ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md)). Phases B
+(target-VMAF bisect), C (per-title CRF predictor), E (Pareto ABR
 ladder) and F (MCP tools) are not implemented yet — see ADR-0237.
 
 Codecs wired so far: `libx264` (Phase A scaffold) and `libx265`
@@ -498,7 +503,7 @@ emit an `Encoder not found` line buried in stderr.
 ## What Phase A does **not** do
 
 - No target-VMAF bisect (Phase B).
-- No per-title or per-shot CRF prediction (Phase C / D).
+- No per-title CRF prediction (Phase C).
 - No Pareto ABR ladder generation (Phase E).
 - No MCP tools wiring (Phase F).
 - The shipped `encode.py` driver only wires the `-preset` argv shape
@@ -716,6 +721,114 @@ Running the VVenC adapter end-to-end requires:
 The shipped unit tests mock `subprocess.run` so the adapter can be
 exercised without either binary present; integration smoke is gated
 to a CI runner that has a `libvvenc`-enabled FFmpeg.
+## Phase D — per-shot CRF tuning (scaffold)
+
+The `tune-per-shot` subcommand is the orchestration scaffold for the
+Netflix-style per-shot encoding feature. It cuts the source into shots
+(via the C-side [`vmaf-perShot`](vmaf-perShot.md) binary, which wraps
+TransNet V2 — see [ADR-0223](../adr/0223-transnet-v2-shot-detector.md)),
+picks a CRF per shot, and emits an FFmpeg encoding plan that produces
+one segment per shot plus a final concat-demuxer command.
+
+Phase D ships **scaffolding**: the orchestration shape is stable, but
+two integration seams remain pluggable while the underlying components
+land:
+
+- The **target-VMAF predicate** defaults to the codec adapter's
+  default CRF; production wiring will use Phase B's bisect once it
+  lands as code.
+- The **codec emission** uses per-segment encodes plus concat instead
+  of native per-shot mechanisms (`--qpfile` for x264, `--zones` for
+  x265, the SVT-AV1 segment table). Native emission lands per-codec
+  alongside each new adapter.
+
+Design rationale and the decision matrix live in
+[ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md).
+
+### Quick start
+
+```shell
+vmaf-tune tune-per-shot \
+    --src ref.mp4 \
+    --width 1920 --height 1080 \
+    --framerate 24 \
+    --target-vmaf 92 \
+    --encoder libx264 \
+    --output per_shot_encode.mp4 \
+    --plan-out plan.json
+```
+
+The plan is emitted to stdout as JSON unless `--plan-out` is
+specified. Pass `--script-out plan.sh` to also receive a copy-paste
+shell script of the per-segment + concat commands.
+
+### CLI flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--src PATH` | — | Required. Source video (raw YUV or container). |
+| `--width / --height` | — | Required. Source resolution. |
+| `--pix-fmt PFMT` | `yuv420p` | Forwarded to `vmaf-perShot`. |
+| `--framerate F` | `24.0` | Used to translate frame counts to `-ss` seek seconds. |
+| `--target-vmaf V` | `92.0` | Per-shot quality target. |
+| `--encoder NAME` | `libx264` | Phase D scaffold: `libx264` only. |
+| `--bitdepth N` | `8` | Forwarded to `vmaf-perShot` (`8`, `10`, or `12`). |
+| `--total-frames N` | `0` | Frame count for the single-shot fallback when `vmaf-perShot` is unavailable. |
+| `--per-shot-bin PATH` | `vmaf-perShot` | Override the shot detector binary. |
+| `--ffmpeg-bin PATH` | `ffmpeg` | Override the FFmpeg binary. |
+| `--output PATH` | `per_shot_encode.mp4` | Final concatenated encode destination. |
+| `--segment-dir PATH` | `<output>.parent/segments` | Directory for per-shot segment files. |
+| `--plan-out PATH` | stdout | Write the JSON plan here instead of stdout. |
+| `--script-out PATH` | — | Optional: also emit a copy-paste shell script. |
+
+### Plan JSON schema
+
+```json
+{
+  "encoder": "libx264",
+  "framerate": 24.0,
+  "target_vmaf": 92.0,
+  "shots": [
+    {"start_frame": 0, "end_frame": 24, "crf": 22, "predicted_vmaf": 93.0},
+    {"start_frame": 24, "end_frame": 72, "crf": 26, "predicted_vmaf": 92.5}
+  ],
+  "segment_commands": [
+    ["ffmpeg", "-y", "-hide_banner", "-ss", "0.000000", "-i", "ref.mp4",
+     "-frames:v", "24", "-c:v", "libx264", "-crf", "22",
+     "/tmp/segments/shot_0000.mp4"]
+  ],
+  "concat_command": [
+    "ffmpeg", "-y", "-hide_banner", "-f", "concat", "-safe", "0",
+    "-i", "/tmp/segments/concat.txt", "-c", "copy", "out.mp4"
+  ]
+}
+```
+
+`start_frame` is inclusive, `end_frame` is exclusive (Python-slice
+convention). The `vmaf-perShot` CSV/JSON sidecar uses inclusive
+`end_frame`; the scaffold normalises into the half-open form and the
+segment commands honour the half-open semantics via `-frames:v`.
+
+### Single-shot fallback
+
+If the `vmaf-perShot` binary is not on PATH, or it exits non-zero, the
+scaffold falls back to a single shot covering the whole clip
+(`[0, --total-frames)`). This keeps `tune-per-shot` usable as a smoke
+test on machines that have not built the shot-detector binary yet.
+
+### What Phase D does **not** do
+
+- Does not run the encodes — only emits the plan. Pipe
+  `--script-out plan.sh` through `sh` to execute it manually.
+- Does not yet drive Phase B's bisect; the default predicate returns
+  the codec adapter's default CRF for every shot. Inject a custom
+  predicate via the Python API (`tune_per_shot(..., predicate=...)`)
+  to experiment with real per-shot tuning.
+- Does not emit native per-codec per-shot mechanisms (x264 `--qpfile`,
+  x265 `--zones`, SVT-AV1 segment tables). Per-segment encode plus
+  concat-demuxer is the scaffold's portable fallback.
+- Does not handle GOP-aligned shot boundaries — the per-segment
+  approach side-steps this by re-encoding each shot from frame 0.
 
 ## Tests
 
