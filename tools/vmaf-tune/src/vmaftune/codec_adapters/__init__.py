@@ -23,13 +23,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-<<<<<<< HEAD
-from .libaom import LibaomAdapter
-=======
 from .av1_nvenc import Av1NvencAdapter
 from .h264_nvenc import H264NvencAdapter
 from .hevc_nvenc import HevcNvencAdapter
->>>>>>> f3e73397 (feat(tools): vmaf-tune — NVENC adapters (h264/hevc/av1))
+from .libaom import LibaomAdapter
 from .x264 import X264Adapter
 from .x265 import X265Adapter
 
@@ -50,14 +47,11 @@ class CodecAdapter(Protocol):
 
 _REGISTRY: dict[str, CodecAdapter] = {
     "libx264": X264Adapter(),
-<<<<<<< HEAD
     "libaom-av1": LibaomAdapter(),
     "libx265": X265Adapter(),
-=======
     "h264_nvenc": H264NvencAdapter(),
     "hevc_nvenc": HevcNvencAdapter(),
     "av1_nvenc": Av1NvencAdapter(),
->>>>>>> f3e73397 (feat(tools): vmaf-tune — NVENC adapters (h264/hevc/av1))
 }
 
 
@@ -72,18 +66,13 @@ def known_codecs() -> tuple[str, ...]:
 
 
 __all__ = [
-<<<<<<< HEAD
-    "CodecAdapter",
-    "LibaomAdapter",
-    "X264Adapter",
-    "X265Adapter",
-=======
     "Av1NvencAdapter",
     "CodecAdapter",
     "H264NvencAdapter",
     "HevcNvencAdapter",
+    "LibaomAdapter",
     "X264Adapter",
->>>>>>> f3e73397 (feat(tools): vmaf-tune — NVENC adapters (h264/hevc/av1))
+    "X265Adapter",
     "get_adapter",
     "known_codecs",
 ]
