@@ -451,3 +451,46 @@ ADR-0291 + ADR-0302):
   exactly (`libsvtav1`, `h264_videotoolbox`, `hevc_videotoolbox`).
   ADR-0235 §References pins this rule globally for all corpus
   emitters.
+
+## Knob-sweep recipe-regression policy (ADR-0308)
+
+Cited from the regression-detection invariant in
+[ADR-0305](../docs/adr/0305-encoder-knob-space-pareto-analysis.md)
+and the policy decision in
+[ADR-0308](../docs/adr/0308-encoder-knob-sweep-recipe-regression-policy.md);
+populated findings are in
+[Research-0080](../docs/research/0080-encoder-knob-sweep-findings.md).
+When extending `ai/scripts/analyze_knob_sweep.py` or anything that
+consumes its output:
+
+- A recipe regression is *structural* iff it reproduces on **≥7 of
+  the 9** corpus sources within a single
+  `(codec, rc_mode, recipe, preset, q)` cell. Structural regressions
+  are forbidden as `tools/vmaf-tune/codec_adapters/*` defaults and
+  forbidden as `vmaf-tune recommend` outputs without explicit
+  override. The known-structural cells are listed in
+  Research-0080 §Aggregated-bad-recipe-patterns; do not promote any
+  of them to an adapter-level default in a follow-up PR.
+- A recipe regression that hits 1-6 sources is *content-dependent*
+  and is filtered at recommend-time via the per-slice hull lookup,
+  not at adapter-default time.
+- Do NOT modify `ai/scripts/analyze_knob_sweep.py` to relax
+  `bitrate_tol_pct` (default 5.0) or `vmaf_tol` (default 0.1)
+  without an ADR — those tolerances are calibrated against the
+  per-frame VMAF noise floor and bitrate quantisation in
+  libavformat muxers, and loosening them silently masks the
+  structural cluster (see ADR-0305 §Consequences).
+- The detector is an **offline** gate (3-hour sweep, ~2 GiB JSONL,
+  single-host variance); do not wire it into CI without first
+  designing a smaller stratified sample that reproduces the
+  structural patterns. Tracked as a follow-up in ADR-0308 §Decision
+  point 4.
+- The corpus producer (`hw_encoder_corpus.py`) currently emits
+  `(src, actual_kbps, vmaf, enc_ms, recipe)` while
+  `analyze_knob_sweep.SweepRow` consumes
+  `(source, bitrate_kbps, vmaf_score, encode_time_ms,
+  is_bare_default)`. Until the producer-side rename lands
+  (SCHEMA_VERSION=3 follow-up per ADR-0308 §Decision point 5),
+  any analysis run goes through a throw-away wrapper that performs
+  the rename in-process — do NOT modify
+  `analyze_knob_sweep.py` to accept both spellings.
