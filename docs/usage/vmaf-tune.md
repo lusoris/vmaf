@@ -618,7 +618,7 @@ Behavioural notes:
   cross-codec comparability.
 
 Example:
-## Coarse-to-fine CRF search (ADR-0296)
+## Coarse-to-fine CRF search (ADR-0306)
 
 Sweeping every CRF from 0..51 (52 encodes per source × preset) is
 wasteful when the only question is *"what's the smallest CRF whose

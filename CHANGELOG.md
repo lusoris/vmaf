@@ -407,7 +407,7 @@
   sweep, only the changed cells re-encode." Twelve new contract
   tests under `tests/test_cache.py` cover key stability, eviction,
   and end-to-end miss-then-hit through the corpus loop.
-- **`vmaf-tune` coarse-to-fine CRF search (ADR-0296).** New
+- **`vmaf-tune` coarse-to-fine CRF search (ADR-0306).** New
   `coarse_to_fine_search()` orchestrator in
   [`tools/vmaf-tune/src/vmaftune/corpus.py`](tools/vmaf-tune/src/vmaftune/corpus.py)
   drives a 2-pass search instead of the full `0..51` CRF grid. With

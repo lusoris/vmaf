@@ -415,7 +415,7 @@ def test_encode_failure_emits_row_with_skipped_score(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Coarse-to-fine search (ADR-0296)
+# Coarse-to-fine search (ADR-0306)
 # ---------------------------------------------------------------------------
 
 

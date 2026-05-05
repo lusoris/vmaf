@@ -266,7 +266,7 @@ def write_jsonl(rows: Sequence[dict] | Iterator[dict], path: Path) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Coarse-to-fine search (ADR-0296)
+# Coarse-to-fine search (ADR-0306)
 # ---------------------------------------------------------------------------
 #
 # Full-grid sweep over CRF 0..51 step 1 = 52 encodes per (source, preset).

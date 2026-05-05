@@ -1,4 +1,4 @@
-# ADR-0296: `vmaf-tune` coarse-to-fine CRF search
+# ADR-0306: `vmaf-tune` coarse-to-fine CRF search
 
 - **Status**: Accepted
 - **Date**: 2026-05-03

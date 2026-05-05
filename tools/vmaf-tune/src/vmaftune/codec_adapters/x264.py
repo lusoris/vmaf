@@ -27,7 +27,7 @@ class X264Adapter:
     # informative window — ADR-0237 Phase A grid generation lives here.
     quality_range: tuple[int, int] = (15, 40)
     # x264 nominally accepts 0..51 and that's the search domain for
-    # ADR-0296 coarse-to-fine. The perceptually-informative window
+    # ADR-0306 coarse-to-fine. The perceptually-informative window
     # for the recommend / target-VMAF flows is narrower (~15..40
     # in practice) but we let the search loop discover that rather
     # than refuse out-of-band candidates up front.

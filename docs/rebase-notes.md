@@ -8275,7 +8275,7 @@ inline.*
   python -m pytest tools/vmaf-tune/tests/test_codec_adapter_videotoolbox.py -q
   ```
 
-### 0228 — `vmaf-tune` coarse-to-fine CRF search (ADR-0296)
+### 0228 — `vmaf-tune` coarse-to-fine CRF search (ADR-0306)
 
 - **What changed**: fork-local tooling. Adds
   `coarse_to_fine_search()` to
