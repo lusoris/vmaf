@@ -864,7 +864,7 @@ sentinel numerics (`-1` for `best_crf`, `NaN` for the floats).
 > comparisons only make sense when every predicate was run on the same
 > hardware in the same configuration — see
 > [Research-0061 Bucket #7](../research/0061-vmaf-tune-capability-audit.md).
-## HDR-aware tuning (Bucket #9, ADR-0295)
+## HDR-aware tuning (Bucket #9, ADR-0300)
 
 Phase A auto-detects HDR sources and injects codec-appropriate HDR
 encode flags + HDR VMAF scoring. Detection runs `ffprobe` against
@@ -916,7 +916,7 @@ ported Netflix's HDR-trained model; until it does, HDR sources are
 scored against the SDR model with a one-shot warning logged at
 corpus start. Resulting `vmaf_score` values trend low for
 high-luminance regions and are not directly comparable to SDR
-scores. See [ADR-0295](../adr/0295-vmaf-tune-hdr-aware.md) for the
+scores. See [ADR-0300](../adr/0300-vmaf-tune-hdr-aware.md) for the
 follow-up backlog item.
 
 ## What Phase A does **not** do

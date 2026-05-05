@@ -4,7 +4,7 @@
   scoring deferred (no fork-local model JSON yet).
 - **Date**: 2026-05-03
 - **Author**: Lusoris / Claude
-- **Companion ADR**: [ADR-0295](../adr/0295-vmaf-tune-hdr-aware.md).
+- **Companion ADR**: [ADR-0300](../adr/0300-vmaf-tune-hdr-aware.md).
 - **Parent**: [ADR-0237](../adr/0237-quality-aware-encode-automation.md)
   (vmaf-tune Phase A umbrella).
 

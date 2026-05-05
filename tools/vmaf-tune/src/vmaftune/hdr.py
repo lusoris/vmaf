@@ -23,7 +23,7 @@ gamma-2.4 encode); misclassifying HDR as SDR is recoverable (encode
 proceeds without HDR signaling, scores trend low, user re-runs with
 ``--force-hdr``).
 
-See :doc:`docs/adr/0295-vmaf-tune-hdr-aware.md`.
+See :doc:`docs/adr/0300-vmaf-tune-hdr-aware.md`.
 """
 
 from __future__ import annotations

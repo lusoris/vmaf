@@ -1,4 +1,4 @@
-- **`vmaf-tune` HDR-aware encoding + scoring (ADR-0295, Bucket #9 of
+- **`vmaf-tune` HDR-aware encoding + scoring (ADR-0300, Bucket #9 of
   the PR #354 capability audit).** New `vmaftune.hdr` module exposes
   `detect_hdr` (ffprobe-driven PQ / HLG classification with strict
   BT.2020 primaries gate so malformed signaling falls back to SDR),

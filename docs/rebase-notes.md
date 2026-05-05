@@ -8197,7 +8197,7 @@ inline.*
   detection, codec-specific HDR ffmpeg flag dispatch, schema-v2
   corpus row keys (`hdr_transfer`, `hdr_primaries`, `hdr_forced`),
   and four `--auto-hdr` / `--force-*` CLI modes. See
-  [ADR-0295](adr/0295-vmaf-tune-hdr-aware.md).
+  [ADR-0300](adr/0300-vmaf-tune-hdr-aware.md).
 - **Upstream source**: zero. `tools/vmaf-tune/` is fork-introduced
   (Phase A under [ADR-0237](adr/0237-quality-aware-encode-automation.md)).
 - **On upstream sync**: zero interaction. Upstream Netflix/vmaf

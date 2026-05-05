@@ -1,4 +1,4 @@
-# ADR-0295: `vmaf-tune` HDR-aware encoding + scoring
+# ADR-0300: `vmaf-tune` HDR-aware encoding + scoring
 
 - **Status**: Accepted (encode-side flags); HDR-VMAF scoring deferred (no fork-local model JSON yet)
 - **Date**: 2026-05-03
