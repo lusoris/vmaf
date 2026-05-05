@@ -7906,3 +7906,28 @@ inline.*
   python -m pytest tools/vmaf-tune/tests/test_per_shot.py -q
   python tools/vmaf-tune/vmaf-tune tune-per-shot --help
   ```
+
+### 0229 — `vmaf-tune` SVT-AV1 codec adapter (ADR-0278)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/svtav1.py`
+  (new), `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`
+  (registry), `tools/vmaf-tune/src/vmaftune/encode.py`
+  (`parse_versions` extended for the SVT-AV1 banner pattern),
+  `tools/vmaf-tune/src/vmaftune/corpus.py` (optional
+  `ffmpeg_preset_token` hook).
+- **Invariant**: `PRESET_NAME_TO_INT` is closed and order-stable; the
+  integer values are baked into corpus rows that downstream
+  `fr_regressor_v2` (ADR-0235) trains on. Reordering or rewriting the
+  table silently changes the integer SVT-AV1 receives. The codec key
+  `"libsvtav1"` matches `CODEC_VOCAB[2]` in `ai/src/vmaf_train/codec.py`
+  — keep them aligned on any rename.
+- **Upstream source**: fork-local. `tools/vmaf-tune/` is a
+  fork-introduced tree (see entry 0227 — Phase A scaffold). No
+  Netflix/vmaf upstream interaction.
+- **On upstream sync**: zero interaction. Lives entirely under the
+  fork-local `tools/vmaf-tune/` tree.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/ -v
+  ```

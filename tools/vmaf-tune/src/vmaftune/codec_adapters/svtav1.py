@@ -1,0 +1,147 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+"""SVT-AV1 (``libsvtav1``) codec adapter — Phase A companion.
+
+Mirrors the :class:`X264Adapter` interface for the AV1 reference encoder
+(Intel / Netflix / Meta SVT-AV1). Drives the encoder via FFmpeg's
+``-c:v libsvtav1`` so the corpus harness keeps a single subprocess seam.
+
+Key differences from x264 (encoded as data, not branches):
+
+* CRF range is 0..63 (x264 / x265 use 0..51). The Phase A informative
+  window is pinned to ``(20, 50)`` — VMAF responds monotonically across
+  that window for typical OTT bitrates.
+* Presets are integers 0..13 (0 = slowest / best, 13 = fastest). To stay
+  compatible with the x264-style preset *names* the harness already
+  accepts on the command line, this adapter keeps a deterministic
+  name -> int mapping (see :data:`PRESET_NAME_TO_INT`).
+* The default preset (``"medium"``) maps to integer ``7`` — the upstream
+  SVT-AV1 default and the most common reference point in published
+  AV1-vs-x264 quality plots.
+
+The adapter is intentionally a thin policy object: validation and the
+name-to-int lookup are pure functions. The actual FFmpeg command is
+shared with x264 via :func:`vmaftune.encode.build_ffmpeg_command`; the
+preset value emitted into argv is the *integer string* (e.g. ``"7"``)
+because FFmpeg's libsvtav1 wrapper accepts integer presets through
+``-preset``.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from collections.abc import Mapping
+
+# x264-style preset names mapped onto SVT-AV1's 0..13 integer scale.
+# Chosen to span the SVT-AV1 range with the same "slowest..fastest"
+# semantics x264 users already have in their muscle memory:
+#
+#   placebo  -> 0   (slowest, research-grade only)
+#   slowest  -> 1
+#   slower   -> 3
+#   slow     -> 5
+#   medium   -> 7   (SVT-AV1 default)
+#   fast     -> 9
+#   faster   -> 11
+#   veryfast -> 13  (fastest)
+#
+# The integers are the values FFmpeg's libsvtav1 wrapper forwards to
+# SvtAv1EncApp's ``--preset`` argument unchanged.
+PRESET_NAME_TO_INT: Mapping[str, int] = {
+    "placebo": 0,
+    "slowest": 1,
+    "slower": 3,
+    "slow": 5,
+    "medium": 7,
+    "fast": 9,
+    "faster": 11,
+    "veryfast": 13,
+}
+
+
+def preset_to_int(preset: str) -> int:
+    """Translate an x264-style preset *name* to the SVT-AV1 integer.
+
+    Raises :class:`ValueError` if ``preset`` is not in
+    :data:`PRESET_NAME_TO_INT`.
+    """
+    if preset not in PRESET_NAME_TO_INT:
+        raise ValueError(
+            f"unknown svtav1 preset {preset!r}; expected one of " f"{tuple(PRESET_NAME_TO_INT)}"
+        )
+    return PRESET_NAME_TO_INT[preset]
+
+
+@dataclasses.dataclass(frozen=True)
+class SvtAv1Adapter:
+    """``libsvtav1`` single-pass CRF adapter.
+
+    Parameter semantics match :class:`X264Adapter` so the corpus loop
+    can stay codec-agnostic. AV1-specific shape lives in the field
+    defaults below — the adapter is configuration, not behaviour.
+    """
+
+    name: str = "libsvtav1"
+    encoder: str = "libsvtav1"
+    quality_knob: str = "crf"
+    # SVT-AV1 nominally accepts CRF 0..63. Phase A surfaces the
+    # perceptually informative window — ADR-0277 covers the choice.
+    quality_range: tuple[int, int] = (20, 50)
+    quality_default: int = 35
+    invert_quality: bool = True  # higher CRF = lower quality
+
+    # Phase-A-supported preset *names* (compatibility shim — see
+    # PRESET_NAME_TO_INT). Order is "slowest -> fastest" to match the
+    # x264 presets tuple.
+    presets: tuple[str, ...] = (
+        "placebo",
+        "slowest",
+        "slower",
+        "slow",
+        "medium",
+        "fast",
+        "faster",
+        "veryfast",
+    )
+
+    # Hard limits per the SVT-AV1 spec, surfaced for callers that need
+    # to reason about the full encoder range (e.g. CI integration).
+    crf_min: int = 0
+    crf_max: int = 63
+    preset_min: int = 0
+    preset_max: int = 13
+
+    def validate(self, preset: str, crf: int) -> None:
+        """Raise :class:`ValueError` if ``(preset, crf)`` is unsupported.
+
+        Two layers of validation:
+
+        1. ``crf`` must be in the absolute SVT-AV1 range ``[0, 63]`` —
+           anything outside is an encoder-level invalid argument and
+           the harness must reject it before spawning FFmpeg.
+        2. ``crf`` must lie inside the Phase A informative window. The
+           absolute-range check fires first so users get a clear
+           "CRF > 63 is invalid for AV1" rather than a Phase-A
+           message that suggests it might still be a legal value.
+        """
+        if preset not in self.presets:
+            raise ValueError(
+                f"unknown svtav1 preset {preset!r}; expected one of " f"{self.presets}"
+            )
+        if not self.crf_min <= crf <= self.crf_max:
+            raise ValueError(
+                f"crf {crf} outside SVT-AV1 absolute range " f"[{self.crf_min}, {self.crf_max}]"
+            )
+        lo, hi = self.quality_range
+        if not lo <= crf <= hi:
+            raise ValueError(f"crf {crf} outside Phase A range [{lo}, {hi}]")
+
+    def ffmpeg_preset_token(self, preset: str) -> str:
+        """Return the string the FFmpeg ``-preset`` argv slot expects.
+
+        SVT-AV1 takes integer presets, so the corpus harness translates
+        the x264-style name to its integer equivalent before invoking
+        FFmpeg. Returned as a string because that is what the argv list
+        already carries elsewhere.
+        """
+        return str(preset_to_int(preset))

@@ -283,6 +283,23 @@
   binaries required. First per-phase split off
   [ADR-0237](docs/adr/0237-quality-aware-encode-automation.md).
 
+- **`vmaf-tune` SVT-AV1 codec adapter (ADR-0278).** Adds
+  [`tools/vmaf-tune/src/vmaftune/codec_adapters/svtav1.py`](tools/vmaf-tune/src/vmaftune/codec_adapters/svtav1.py)
+  wired into the registry as `"libsvtav1"`, the second codec the
+  Phase A corpus harness can sweep after `libx264`. AV1 specifics
+  encoded as data: CRF range `0..63` (vs x264's `0..51`) with Phase A
+  informative window pinned to `(20, 50)`, integer presets `0..13`
+  translated from x264-style names via a closed `PRESET_NAME_TO_INT`
+  table (`medium`→`7`, the SVT-AV1 default). The corpus loop emits
+  the integer into FFmpeg's `-preset` argv slot via an optional
+  `ffmpeg_preset_token()` adapter hook while keeping the human name
+  on the JSONL row, so downstream `fr_regressor_v2` consumers
+  (ADR-0235) read libsvtav1 rows unchanged via
+  `CODEC_VOCAB[2] = "libsvtav1"`. `parse_versions()` learns the
+  SVT-AV1 banner pattern alongside the x264 one. Pure subprocess
+  mocks in `tools/vmaf-tune/tests/test_codec_adapter_svtav1.py`
+  (27 tests pass total); real-binary integration smoke deferred to
+  the CI runner that ships libsvtav1.
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships

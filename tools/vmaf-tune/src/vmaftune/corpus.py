@@ -113,6 +113,15 @@ def iter_rows(
     for preset, crf in job.cells:
         adapter.validate(preset, crf)
 
+        # Some codecs (SVT-AV1) want an integer preset on the argv even
+        # though the corpus row records the human-readable name. The
+        # adapter exposes a translator when it needs one; absent the
+        # hook we forward the name verbatim (libx264 path).
+        ffmpeg_preset = preset
+        translator = getattr(adapter, "ffmpeg_preset_token", None)
+        if callable(translator):
+            ffmpeg_preset = translator(preset)
+
         out = _encode_path(opts, job.source, preset, crf)
         enc_req = EncodeRequest(
             source=job.source,
@@ -121,7 +130,7 @@ def iter_rows(
             pix_fmt=job.pix_fmt,
             framerate=job.framerate,
             encoder=adapter.encoder,
-            preset=preset,
+            preset=ffmpeg_preset,
             crf=crf,
             output=out,
         )
