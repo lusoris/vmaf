@@ -52,7 +52,6 @@ from .per_shot import (
     write_concat_listing,
 )
 from .recommend import RecommendRequest, format_result, load_corpus_jsonl, recommend
-from .encode import iter_grid
 from .score_backend import ALL_BACKENDS, BackendUnavailableError, select_backend
 
 

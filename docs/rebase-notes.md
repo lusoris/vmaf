@@ -8167,7 +8167,7 @@ inline.*
   - `tools/vmaf-tune/tests/test_score_backend.py` (new).
   - `docs/usage/vmaf-tune.md` (new GPU section + flag row).
   - `docs/adr/0299-vmaf-tune-gpu-score.md` (new).
-  - `docs/research/0070-vmaf-tune-gpu-score-backend.md` (new).
+  - `docs/research/0071-vmaf-tune-gpu-score-backend.md` (new).
 - **Invariant**: the libvmaf CLI exposes `--backend NAME` with values
   `auto|cpu|cuda|sycl|vulkan` exactly. Help-text parser in
   `score_backend.parse_supported_backends` pins this format. If

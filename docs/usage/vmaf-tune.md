@@ -163,7 +163,6 @@ The mapping is closed and order-stable; see
 | `--score-backend NAME` | `auto` | libvmaf scoring backend — `auto\|cpu\|cuda\|sycl\|vulkan`. See below. |
 | `--no-source-hash` | off | Skip `src_sha256` (faster on large YUVs; loses provenance). |
 
-<<<<<<< HEAD
 ## Resolution-aware mode
 
 VMAF is a resolution-aware metric: the fork ships two production-grade
@@ -228,7 +227,6 @@ signature. See
 [Research-0054](../research/0064-vmaf-tune-resolution-aware.md) for the
 full rationale.
 
-=======
 ## GPU scoring backend
 
 Per [ADR-0299](../adr/0299-vmaf-tune-gpu-score.md), `vmaf-tune corpus`
@@ -296,7 +294,6 @@ vmaf-tune corpus --source ref.yuv --width 1920 --height 1080 \
     --preset medium --crf 22 --score-backend cpu
 ```
 
->>>>>>> 5f8eaba2 (feat(tools): vmaf-tune GPU score backend (--score-backend cuda, ~10-30x faster))
 ## Corpus JSONL schema
 
 Each row is one JSON object on its own line. The full key list is
