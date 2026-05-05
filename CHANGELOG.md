@@ -119,6 +119,28 @@
   for the per-model PTQ sections, and
   [ADR-0275](docs/adr/0275-vmaf-tiny-v3-v4-ptq.md) for the rationale.
 
+- **`vmaf-tune recommend` subcommand — `--target-vmaf` and
+  `--target-bitrate` flags (Phase B-lite, Research-0061 Buckets 4 +
+  5).** New `recommend` subcommand on `tools/vmaf-tune/` that consumes
+  the Phase A corpus (either pre-built JSONL via `--from-corpus` or
+  generated on the fly from `--source` + grid flags) and applies a
+  user-supplied predicate. `--target-vmaf T` returns the row with the
+  smallest CRF whose `vmaf_score >= T`; `--target-bitrate KBPS`
+  returns the row whose `bitrate_kbps` is closest to `KBPS`. The two
+  flags are mutually exclusive (argparse rejects both with exit 2).
+  When no row clears `--target-vmaf`, the closest miss is returned
+  with the predicate annotated `(UNMET)`. Default output is a single
+  human-readable line; `--json` switches to the full corpus row as a
+  JSON object on stdout. No new schema — `recommend` reuses the
+  existing `bitrate_kbps` + `vmaf_score` columns; new code paths are
+  contained to `tools/vmaf-tune/src/vmaftune/recommend.py` and the
+  CLI wrapper. 13-test suite under
+  `tools/vmaf-tune/tests/test_recommend.py` covers predicate
+  semantics, encoder/preset filtering, NaN/failed-encode rejection,
+  and CLI exit codes. Implements Buckets 4 + 5 from
+  [docs/research/0061-vmaf-tune-capability-audit.md](docs/research/0061-vmaf-tune-capability-audit.md);
+  parent ADR is
+  [ADR-0237](docs/adr/0237-quality-aware-encode-automation.md).
 - **HIP third + fourth kernel-template consumers — `ciede_hip` and
   `float_moment_hip` (T7-10b follow-up / ADR-0259 + ADR-0260).**
   Ships
