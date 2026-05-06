@@ -8758,6 +8758,25 @@ inline.*
   ./ffmpeg -hide_banner -h encoder=libx264 2>&1 | grep -i qpfile
   ```
 
+- **2026-05-06 update — patch 0007 SVT-AV1 ROI bridge promoted from
+  scaffold to full impl**: the libsvtav1 hunk now sets
+  `enc_params.enable_roi_map = true`, builds one `SvtAv1RoiMapEvt`
+  per qpfile frame upfront in `eb_enc_init` (per-MB qp_offsets
+  averaged into per-64×64-SB `b64_seg_map` of up to 8 segment QPs;
+  uniform binning when the value span exceeds the segment budget),
+  and attaches each event as a `ROI_MAP_EVENT` priv-data node from
+  `eb_send_frame()` with `node->size = sizeof(SvtAv1RoiMapEvt*)`
+  (the validation contract enforced by SVT-AV1's
+  `resource_coordination_process.c`). Lifetime invariant: events +
+  maps live for the entire encode session because SVT-AV1 reads
+  ROI_MAP_EVENT data via shallow-copied pointers on async pipeline
+  threads (per `enc_handle.c::copy_private_data_list`); `eb_enc_close`
+  frees them. Wiring is gated on `SVT_AV1_CHECK_VERSION(1, 6, 0)`;
+  older SVT-AV1 builds keep the log-and-continue fallback. libaom
+  remains scaffold-only — its `AV1E_SET_ROI_MAP` bridge stays a
+  separate follow-up. No new ADR per CLAUDE.md §12 r8 (executes
+  the existing ADR-0312 decision).
+
 ### 0315 — Vendor-neutral VVC encode strategy (ADR-0315 / Research-0085)
 
 - **ADR**: [ADR-0315](adr/0315-vendor-neutral-vvc-encode-strategy.md)
