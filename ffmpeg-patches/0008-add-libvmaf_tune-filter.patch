@@ -30,8 +30,8 @@ ADR: docs/adr/0312-ffmpeg-patches-vmaf-tune-integration.md
  configure                     |   1 +
  libavfilter/Makefile          |   1 +
  libavfilter/allfilters.c      |   1 +
- libavfilter/vf_libvmaf_tune.c | 217 ++++++++++++++++++++++++++++++++++
- 4 files changed, 220 insertions(+)
+ libavfilter/vf_libvmaf_tune.c | 219 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 222 insertions(+)
  create mode 100644 libavfilter/vf_libvmaf_tune.c
 
 diff --git a/configure b/configure
@@ -75,7 +75,7 @@ new file mode 100644
 index 0000000000..99dd012c74
 --- /dev/null
 +++ b/libavfilter/vf_libvmaf_tune.c
-@@ -0,0 +1,217 @@
+@@ -0,0 +1,219 @@
 +/*
 + * Copyright 2026 Lusoris and Claude (Anthropic)
 + *
@@ -245,6 +245,8 @@ index 0000000000..99dd012c74
 +    AVFilterContext   *ctx = outlink->src;
 +    LibVmafTuneContext *s   = ctx->priv;
 +    AVFilterLink *mainlink = ctx->inputs[0];
++    FilterLink *outl = ff_filter_link(outlink);
++    FilterLink *mainl = ff_filter_link(mainlink);
 +    int ret;
 +
 +    ret = ff_framesync_init_dualinput(&s->fs, ctx);
@@ -253,7 +255,7 @@ index 0000000000..99dd012c74
 +    outlink->w          = mainlink->w;
 +    outlink->h          = mainlink->h;
 +    outlink->time_base  = mainlink->time_base;
-+    outlink->frame_rate = mainlink->frame_rate;
++    outl->frame_rate    = mainl->frame_rate;
 +
 +    return ff_framesync_configure(&s->fs);
 +}

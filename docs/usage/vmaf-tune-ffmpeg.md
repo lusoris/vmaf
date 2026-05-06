@@ -92,6 +92,11 @@ end-to-end ROI behaviour until the `AV1E_SET_ROI_MAP` bridge lands.
 
 ## Hook 2: `-vf libvmaf_tune` (patch 0008)
 
+> **FFmpeg version**: requires FFmpeg `n7.0` or newer. Patch 0008
+> uses the post-n7 libavfilter API (`ff_filter_link()` accessor for
+> per-link metadata such as `frame_rate`); building against `n6.x`
+> trees fails to compile.
+
 A new 2-input video filter that runs alongside a 1-pass encode and
 emits a recommended CRF for the next pass:
 
