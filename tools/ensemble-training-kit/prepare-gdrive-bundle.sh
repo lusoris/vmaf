@@ -185,7 +185,7 @@ encode_lossless() {
 
   case "$ENC_AVAILABLE" in
     libx265)
-      ffmpeg -y -hide_banner -loglevel warning \
+      ffmpeg -nostdin -y -hide_banner -loglevel warning \
         "${thread_arg[@]}" \
         -f rawvideo -pix_fmt "$PIX_FMT" -s "${WIDTH}x${HEIGHT}" \
         -framerate "$FPS" -i "$in_yuv" \
@@ -193,7 +193,7 @@ encode_lossless() {
         -an "$out_mkv"
       ;;
     ffv1)
-      ffmpeg -y -hide_banner -loglevel warning \
+      ffmpeg -nostdin -y -hide_banner -loglevel warning \
         "${thread_arg[@]}" \
         -f rawvideo -pix_fmt "$PIX_FMT" -s "${WIDTH}x${HEIGHT}" \
         -framerate "$FPS" -i "$in_yuv" \
@@ -207,14 +207,14 @@ encode_lossless() {
       # accidentally introduce inter-frame coding (libsvtav1
       # honours --tune lossless directly).
       if [[ "$ENC_AVAILABLE" == "libaom-av1" ]]; then
-        ffmpeg -y -hide_banner -loglevel warning \
+        ffmpeg -nostdin -y -hide_banner -loglevel warning \
           "${thread_arg[@]}" \
           -f rawvideo -pix_fmt "$PIX_FMT" -s "${WIDTH}x${HEIGHT}" \
           -framerate "$FPS" -i "$in_yuv" \
           -c:v libaom-av1 -aom-params lossless=1 -cpu-used 4 \
           -an "$out_mkv"
       else
-        ffmpeg -y -hide_banner -loglevel warning \
+        ffmpeg -nostdin -y -hide_banner -loglevel warning \
           "${thread_arg[@]}" \
           -f rawvideo -pix_fmt "$PIX_FMT" -s "${WIDTH}x${HEIGHT}" \
           -framerate "$FPS" -i "$in_yuv" \
@@ -247,7 +247,11 @@ for src in "${CORPUS_DIRS[@]}"; do
   out_corpus="$OUT_DIR/lossless/$corpus_name"
   mkdir -p "$out_corpus"
   echo "==> compressing $src -> $out_corpus ($CODEC, $ENC_AVAILABLE)"
-  while IFS= read -r -d '' yuv; do
+  # Read find output via FD 3 — keeps stdin (FD 0) free so any
+  # subprocess inside the loop (ffmpeg, sha256sum, ...) can't
+  # accidentally consume bytes from the find pipe and corrupt the
+  # next iteration's path.
+  while IFS= read -r -d '' yuv <&3; do
     rel="${yuv#"$src"/}"
     out_mkv="$out_corpus/${rel%.yuv}.mkv"
     mkdir -p "$(dirname "$out_mkv")"
@@ -287,7 +291,7 @@ for src in "${CORPUS_DIRS[@]}"; do
     fi
 
     total_yuvs=$((total_yuvs + 1))
-  done < <(find "$src" -maxdepth 4 -type f -name "*.yuv" -print0)
+  done 3< <(find "$src" -maxdepth 4 -type f -name "*.yuv" -print0)
 done
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
