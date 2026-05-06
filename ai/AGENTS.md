@@ -306,6 +306,22 @@ model card:
   alternatives matrix specifically because rebase-time mutation of
   shipped registry rows is the foot-gun this invariant exists to
   prevent.
+- **Canonical-6 JSONL schema is load-bearing (ADR-0319)**: the LOSO
+  trainer's `_load_corpus` accepts the schema emitted by
+  [`scripts/dev/hw_encoder_corpus.py`](../scripts/dev/hw_encoder_corpus.py)
+  bit-for-bit — required keys per row are
+  `(src, encoder, cq, frame_index, vmaf, adm2, vif_scale0..3, motion2)`.
+  The codec block is materialised as 12-slot `ENCODER_VOCAB` v2
+  one-hot (mirrors `train_fr_regressor_v2.py`) + a constant
+  `preset_norm = 0.5` (the corpus does not record preset) +
+  `crf_norm` = `(cq - cq_min) / (cq_max - cq_min)`. Schema changes
+  — column rename, encoder-vocab reorder, new required field —
+  require an `ENCODER_VOCAB_VERSION` bump and full ensemble retrain
+  per the existing closed-vocabulary invariant. The fold-level
+  StandardScaler is fit on the training rows only (mirrors
+  `eval_loso_vmaf_tiny_v3.py`); leaking the held-out source's
+  distribution into the scaler would silently inflate per-fold
+  PLCC. See ADR-0319 §Decision and `_load_corpus`'s docstring.
 
 ## Quantization-Aware Training (ADR-0207 / ADR-0208)
 
