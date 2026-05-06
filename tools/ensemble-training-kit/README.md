@@ -44,6 +44,10 @@ the iHD driver, the corpus generator silently skips QSV encoders and
 runs NVENC-only. The model trains successfully on NVENC-only data;
 the `encoder` one-hot collapses onto a single column.
 
+The kit also runs on Intel Arc / Intel iGPU and macOS (Apple Silicon +
+Intel) — see the **Multi-platform layout** section below for the
+per-box recipe and the corpus-shard merge step.
+
 ## How to run
 
 ```bash
@@ -192,6 +196,97 @@ re-checksums the per-seed ONNX exports and updates
 
 Do **not** include the original `.yuv` reference files — they're not
 part of the kit's output and are typically several GiB.
+
+## Multi-platform layout
+
+The kit runs on four host families. Each box generates its own
+canonical-6 corpus shard; the lead user merges the shards via
+`ai/scripts/merge_corpora.py` before training the production model.
+
+The orchestrator auto-detects the platform and picks the right encoder
+default; pass `--encoders` explicitly to override.
+
+| Platform tag             | Auto-detect signal                | Default encoders                                  | libvmaf binary                       |
+|--------------------------|-----------------------------------|---------------------------------------------------|--------------------------------------|
+| `linux-x86_64-cuda`      | `nvidia-smi` exits 0              | `h264_nvenc,hevc_nvenc,av1_nvenc`                 | `binaries/linux-x86_64-cuda/vmaf`    |
+| `linux-x86_64-sycl`      | `vainfo` shows iHD, no NVIDIA     | `h264_qsv,hevc_qsv,av1_qsv`                       | `binaries/linux-x86_64-sycl/vmaf`    |
+| `linux-x86_64-vulkan`    | Linux without NVIDIA / iHD        | `libx264` (CPU baseline)                          | `binaries/linux-x86_64-vulkan/vmaf`  |
+| `darwin-arm64-cpu`       | `uname -s` = Darwin, `-m` = arm64 | `h264_videotoolbox,hevc_videotoolbox`             | `binaries/darwin-arm64-cpu/vmaf`     |
+| `darwin-x86_64-cpu`      | `uname -s` = Darwin, `-m` = x86_64| `h264_videotoolbox,hevc_videotoolbox`             | `binaries/darwin-x86_64-cpu/vmaf`    |
+
+Both NVIDIA + iHD signals firing on the same box (e.g. a workstation
+with an NVIDIA dGPU and an Intel iGPU) tags the platform as
+`linux-x86_64-cuda` but populates the encoder default with **both**
+families so the corpus picks up NVENC and QSV rows in one pass.
+
+### Per-box recipe
+
+#### NVIDIA CUDA Linux box
+
+```bash
+bash tools/ensemble-training-kit/build-libvmaf-binaries.sh --platform linux-x86_64-cuda
+bash tools/ensemble-training-kit/run-full-pipeline.sh --ref-dir /path/to/netflix/ref
+```
+
+Encoders auto-detected: `h264_nvenc,hevc_nvenc,av1_nvenc`. Encodes ALL
+9 Netflix sources × 4 CQ values × 3 encoder lanes; the trainer's
+`encoder` one-hot lights up the NVENC columns.
+
+#### Intel Arc 310 Linux box
+
+```bash
+bash tools/ensemble-training-kit/build-libvmaf-binaries.sh --platform linux-x86_64-sycl
+bash tools/ensemble-training-kit/run-full-pipeline.sh --ref-dir /path/to/netflix/ref
+```
+
+Encoders auto-detected: `h264_qsv,hevc_qsv,av1_qsv`. Same source set as
+NVIDIA box; rows tagged with `encoder=h264_qsv` etc. so the merged
+corpus carries one-hot rows for both families. AV1-QSV requires Arc
+A-series or newer; if Arc 310 lacks AV1 the corpus generator skips that
+encoder lane silently.
+
+#### Intel iGPU Linux box
+
+Same recipe as Intel Arc — the iGPU also exposes the iHD VA-API driver
+when the i965 fallback is not in use. Override `--encoders` to
+`h264_qsv,hevc_qsv` if AV1-QSV is unavailable on the iGPU generation
+(11th-gen Tiger Lake and earlier).
+
+#### macOS (Apple Silicon or Intel)
+
+```bash
+bash tools/ensemble-training-kit/build-libvmaf-binaries.sh --platform darwin-arm64-cpu
+# or --platform darwin-x86_64-cpu on Intel Macs
+bash tools/ensemble-training-kit/run-full-pipeline.sh --ref-dir /path/to/netflix/ref
+```
+
+Encoders auto-detected: `h264_videotoolbox,hevc_videotoolbox`. AV1 is
+**not** available on Apple Silicon hardware as of 2026 — the kit
+omits `av1_videotoolbox` from the default list. The CQ grid maps onto
+VideoToolbox's `-q:v` axis via `q = clamp(100 - 2*cq, 1, 100)` so the
+standard `--cqs 19,25,31,37` produces sensible quality points on the
+VT scale.
+
+### Merging per-box shards
+
+After every box produces its
+`runs/phase_a/full_grid/per_frame_canonical6.jsonl`, gather the JSONLs
+on the lead user's box and merge:
+
+```bash
+python3 ai/scripts/merge_corpora.py \
+    --inputs runs/phase_a/nvidia_box.jsonl \
+             runs/phase_a/intel_arc_box.jsonl \
+             runs/phase_a/intel_igpu_box.jsonl \
+             runs/phase_a/macbook.jsonl \
+    --output runs/phase_a/multi_platform_corpus.jsonl
+```
+
+The merger validates each row carries the canonical-6 schema and
+de-duplicates by `src_sha256`. Re-run the LOSO trainer with
+`CORPUS_JSONL=runs/phase_a/multi_platform_corpus.jsonl` to retrain on
+the multi-encoder pool — encoder vocab v3 (16 slots, ADR-0302) lights
+up NVENC + QSV + VAAPI + VideoToolbox columns simultaneously.
 
 ## Generating a portable bundle (lead user only)
 

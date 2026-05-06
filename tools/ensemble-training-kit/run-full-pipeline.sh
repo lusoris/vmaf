@@ -26,8 +26,15 @@ set -euo pipefail
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$KIT_DIR/../.." && pwd)}"
 
+# shellcheck source=tools/ensemble-training-kit/_platform_detect.sh
+# shellcheck disable=SC1091
+source "$KIT_DIR/_platform_detect.sh"
+
 REF_DIR=""
-ENCODERS="h264_nvenc"
+# Empty = auto-detect from platform; the operator can still override via
+# --encoders. The auto-default is computed AFTER flag parsing so an
+# explicit --encoders wins.
+ENCODERS=""
 CQS="19,25,31,37"
 OUT_DIR="$REPO_ROOT/runs/ensemble_v2_real"
 SEEDS="0,1,2,3,4"
@@ -82,6 +89,14 @@ fi
 if [[ -z "$(find "$REF_DIR" -maxdepth 1 -type f -name '*.yuv' -print -quit)" ]]; then
   echo "[pipeline] error: --ref-dir '$REF_DIR' has no *.yuv files" >&2
   exit 2
+fi
+
+# Auto-default encoders from platform detection if the operator did not
+# supply --encoders. Detection branches: NVIDIA -> *_nvenc, iHD -> *_qsv,
+# Darwin -> *_videotoolbox, otherwise libx264.
+if [[ -z "$ENCODERS" ]]; then
+  ENCODERS="$(detect_default_encoders)"
+  echo "[pipeline] auto-detected encoders for platform $(detect_platform): $ENCODERS"
 fi
 
 # Hard-coded seed list invariant: run_ensemble_v2_real_corpus_loso.sh

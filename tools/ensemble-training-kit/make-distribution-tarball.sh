@@ -28,6 +28,7 @@ includes=(
   "ai/scripts/train_fr_regressor_v2_ensemble.py"
   "ai/scripts/validate_ensemble_seeds.py"
   "ai/scripts/export_ensemble_v2_seeds.py"
+  "ai/scripts/merge_corpora.py"
   "scripts/ci/ensemble_prod_gate.py"
   "ai/src"
   "ai/pyproject.toml"

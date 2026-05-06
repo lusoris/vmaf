@@ -96,6 +96,23 @@ def encode_hw(
             "-qp",
             str(cq),
         ]
+    elif encoder.endswith("_videotoolbox"):
+        # Apple VideoToolbox uses -q:v on the [0, 100] axis (higher =
+        # better), opposite direction to x264's CRF [0, 51] (lower =
+        # better). Mirror the canonical adapter at
+        # tools/vmaf-tune/src/vmaftune/codec_adapters/_videotoolbox_common.py.
+        # The harness's `cq` slot is reused as the quality knob; map a
+        # CRF-shaped input (0..51) onto the VT scale linearly so the
+        # same `--cq 19,25,31,37` grid lights up sensible quality
+        # points across both codec families:
+        #     q = clamp(100 - 2*cq, 1, 100)
+        # When the operator already supplies a VT-native value
+        # (cq above _VT_SCALE_PIVOT, where 100 - 2*cq <= 0) we treat
+        # the input as already-VT-scale and pass it through clamped
+        # to [1, 100].
+        _VT_SCALE_PIVOT = 50  # CRF axis -> VT axis crossover.
+        q = max(1, min(100, cq)) if cq >= _VT_SCALE_PIVOT else max(1, min(100, 100 - 2 * cq))
+        post = ["-c:v", encoder, "-q:v", str(q), "-realtime", "0"]
     else:
         # CPU fallback (libx264) — the corpus may want a CPU baseline row.
         post = ["-c:v", encoder, "-crf", str(cq), "-preset", "medium"]
@@ -215,8 +232,22 @@ def main() -> int:
     ap.add_argument(
         "--encoder",
         required=True,
-        help="h264_nvenc / hevc_nvenc / av1_nvenc / h264_qsv / hevc_qsv / "
-        "av1_qsv / h264_vaapi / hevc_vaapi / libx264 (CPU baseline)",
+        choices=[
+            "h264_nvenc",
+            "hevc_nvenc",
+            "av1_nvenc",
+            "h264_qsv",
+            "hevc_qsv",
+            "av1_qsv",
+            "h264_vaapi",
+            "hevc_vaapi",
+            "h264_videotoolbox",
+            "hevc_videotoolbox",
+            "libx264",
+        ],
+        help="hardware encoder family. NVENC (NVIDIA), QSV (Intel iHD), "
+        "VAAPI (Intel/AMD), VideoToolbox (Apple Silicon / Intel Mac T2), "
+        "or libx264 CPU baseline.",
     )
     ap.add_argument(
         "--cq",
@@ -224,7 +255,8 @@ def main() -> int:
         action="append",
         required=True,
         help="quality knob (NVENC: -cq, QSV: -global_quality, "
-        "VAAPI: -qp, libx264: -crf). Repeatable.",
+        "VAAPI: -qp, VideoToolbox: -q:v derived via 100-2*cq, "
+        "libx264: -crf). Repeatable.",
     )
     ap.add_argument("--qsv-device", type=Path, default=Path("/dev/dri/renderD129"))
     ap.add_argument("--vaapi-device", type=Path, default=Path("/dev/dri/renderD129"))

@@ -24,8 +24,15 @@ set -euo pipefail
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$KIT_DIR/../.." && pwd)}"
 
+# shellcheck source=tools/ensemble-training-kit/_platform_detect.sh
+# shellcheck disable=SC1091
+source "$KIT_DIR/_platform_detect.sh"
+PLATFORM="$(detect_platform)"
+
 REF_DIR="${REF_DIR:?must set REF_DIR to the directory containing reference YUVs}"
-ENCODERS="${ENCODERS:-h264_nvenc}"
+# When ENCODERS is unset, default per-platform: NVIDIA -> *_nvenc, Intel
+# iHD -> *_qsv, macOS -> *_videotoolbox, otherwise libx264.
+ENCODERS="${ENCODERS:-$(detect_default_encoders)}"
 CQS="${CQS:-19,25,31,37}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/runs/ensemble_v2_real}"
 PHASE_A_DIR="${PHASE_A_DIR:-$REPO_ROOT/runs/phase_a/full_grid}"
@@ -50,7 +57,7 @@ mkdir -p "$PHASE_A_DIR/per_source" "$OUT_DIR/logs"
 IFS=',' read -ra ENCODER_LIST <<<"$ENCODERS"
 IFS=',' read -ra CQ_LIST <<<"$CQS"
 
-echo "[corpus] sources=${#YUVS[@]} encoders=${ENCODERS} cqs=${CQS}"
+echo "[corpus] platform=$PLATFORM sources=${#YUVS[@]} encoders=${ENCODERS} cqs=${CQS}"
 echo "[corpus] phase_a=$PHASE_A_DIR libvmaf=$LIBVMAF_BIN"
 echo
 
@@ -59,6 +66,13 @@ have_ihd=0
 if command -v vainfo >/dev/null 2>&1 && vainfo --display drm 2>/dev/null | grep -q iHD; then
   have_ihd=1
 fi
+# VideoToolbox gate: only available on Darwin with VT-linked ffmpeg.
+have_vt=0
+if [[ "$PLATFORM" == darwin-* ]] &&
+  command -v ffmpeg >/dev/null 2>&1 &&
+  ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_videotoolbox; then
+  have_vt=1
+fi
 
 t_total=$(date -u +%s)
 for yuv in "${YUVS[@]}"; do
@@ -66,6 +80,10 @@ for yuv in "${YUVS[@]}"; do
   for enc in "${ENCODER_LIST[@]}"; do
     if [[ "$enc" == *_qsv ]] && [[ "$have_ihd" -eq 0 ]]; then
       echo "[corpus] skip $src_stem $enc (no iHD/QSV runtime)"
+      continue
+    fi
+    if [[ "$enc" == *_videotoolbox ]] && [[ "$have_vt" -eq 0 ]]; then
+      echo "[corpus] skip $src_stem $enc (VideoToolbox not available — Darwin + ffmpeg-VT required)"
       continue
     fi
     out_jsonl="$PHASE_A_DIR/per_source/${src_stem}_${enc}.jsonl"

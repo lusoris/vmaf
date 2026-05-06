@@ -57,6 +57,33 @@ The bundling on PROMOTE re-uses the existing
 final-production weights on the FULL corpus and writes ONNX + sidecar
 artefacts) — no changes to `_train_one_seed` are required.
 
+### Status update 2026-05-06: kit extended for multi-platform
+
+The original kit assumed an NVIDIA-only Linux box (lead user's
+hardware). Lawrence's collaborator workstation has four boxes that
+need to participate: an NVIDIA CUDA card, an Intel Arc 310, an Intel
+iGPU, and a Mac. The kit now supports four host families:
+
+- `linux-x86_64-cuda` — `h264_nvenc,hevc_nvenc,av1_nvenc` (existing)
+- `linux-x86_64-sycl` — `h264_qsv,hevc_qsv,av1_qsv` (Intel Arc / iGPU)
+- `linux-x86_64-vulkan` — `libx264` CPU baseline (no GPU detected)
+- `darwin-{arm64,x86_64}-cpu` — `h264_videotoolbox,hevc_videotoolbox`
+
+A new `_platform_detect.sh` helper auto-defaults the encoder list per
+box; `01-prereqs.sh` skips NVIDIA-specific gates on non-CUDA platforms
+and probes ffmpeg-VideoToolbox availability on Darwin instead. A new
+`build-libvmaf-binaries.sh` script lets each operator build a libvmaf
+binary for their box once and rsync it into `binaries/<platform>/`;
+binaries are not bundled in source control. The
+`scripts/dev/hw_encoder_corpus.py` encoder vocabulary now covers
+`{h264,hevc}_videotoolbox` with the canonical adapter's argv shape
+(`-c:v <name> -q:v <quality> -realtime 0`) verified against
+`tools/vmaf-tune/src/vmaftune/codec_adapters/_videotoolbox_common.py`.
+
+Each box generates its own canonical-6 corpus shard; the lead user
+merges shards via `ai/scripts/merge_corpora.py` (de-duplicates by
+`src_sha256`) before the cross-platform LOSO retrain.
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
