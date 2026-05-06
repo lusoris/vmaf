@@ -63,6 +63,24 @@ tools/
   - The placeholder saliency map (when `--saliency-model` is absent)
     is for smoke-test plumbing only and explicitly documented as
     not-for-real-encodes in `docs/usage/vmaf-roi.md`.
+- **Long-only options must not pass synthesised short-option
+  chars to `error()`** (rebase-sensitive). Handlers for
+  `ARG_THREADS`, `ARG_SUBSAMPLE`, `ARG_CPUMASK`, and any
+  future `ARG_*` enum value `>= 256` MUST pass that enum value
+  (not a fabricated `'t'` / `'s'` / `'c'`) into
+  `parse_unsigned()` / `parse_bitdepth()` / `error()`. The
+  `error()` table-walk over `long_opts[]` for a non-existent
+  short-option char trips `assert(long_opts[n].name)` and
+  takes the binary down with `SIGABRT`. The
+  `error()` `< 256` branch already handles long-only options
+  via the `--name` path; passing the real enum value is
+  required to reach it. See
+  [ADR-0316](../../docs/adr/0316-cli-parse-long-only-error-fix.md);
+  the parked-then-promoted reproducer
+  `libvmaf/test/fuzz/cli_parse_corpus/cli_threads_abbrev_assert.argv`
+  protects the rebase, and
+  `libvmaf/test/test_cli_parse_long_only_args.c` protects
+  the unit-test path.
 - **`y4m_convert_411_422jpeg` chroma-row write guards are
   load-bearing** (rebase-sensitive). The 4:1:1 → 4:2:2-jpeg upsample
   in [y4m_input.c](y4m_input.c) writes both even and odd output
