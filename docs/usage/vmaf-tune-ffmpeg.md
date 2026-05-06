@@ -102,10 +102,39 @@ SVT-AV1 < 1.6.0 lacks the ROI ABI; encoding without ROI bias.
 Upgrade SVT-AV1 to activate the bridge (ADR-0312).
 ```
 
-### libaom-av1 — scaffold
+### libaom-av1 — full ROI bridge
 
-Same posture: parses, validates, logs. Use vmaf-tune's CLI for
-end-to-end ROI behaviour until the `AV1E_SET_ROI_MAP` bridge lands.
+```bash
+ffmpeg -f rawvideo ... -c:v libaom-av1 -crf 32 -qpfile clip.qpfile.txt clip.av1
+```
+
+Today this loads the qpfile, allocates a per-mi-cell segment-id map
+sized at libaom's mode-info grid (`ALIGN_POWER_OF_TWO(dim, 8) >> 2`,
+i.e. each dimension aligned up to a multiple of 8 px and divided by
+4), and on every encoded frame issues
+`aom_codec_control(AOME_SET_ROI_MAP, ...)` with up to 8 segment QPs:
+
+```text
+[libaom-av1 @ 0x…] libaom: qpfile=clip.qpfile.txt loaded
+(frames=240, 120x68 qpfile blocks -> 480x272 mi grid); ROI bridge enabled.
+```
+
+The adapter expands each per-16×16-MB qp_offset (emitted by
+`saliency.py`) to a 4×4 block of mi cells, since libaom's mi grid is
+at 4×4-luma-pixel granularity (`av1/common/enums.h::MI_SIZE`). For
+each frame, the qp_offset value range is sampled and at most 8 distinct
+segment QPs are picked: when the span fits within `AOM_MAX_SEGMENTS`
+(== 8) each distinct value becomes its own segment; otherwise the
+span is uniformly binned across 8 segments and each MB rounds to its
+nearest segment QP. libaom deep-copies the segment map and `delta_q[]`
+table on every control call (per
+`av1/encoder/encoder.c::av1_set_roi_map`), so the same buffer is
+reused across frames.
+
+Trade-off: the 8-segment limit is a quantisation step that rounds
+nearby QP offsets together. For fine-grained per-MB control or
+arbitrary segment counts, drive the encode through `vmaf-tune corpus`,
+which uses libaom's lower-level rate-control plumbing instead.
 
 ## Hook 2: `-vf libvmaf_tune` (patch 0008)
 
