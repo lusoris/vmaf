@@ -181,19 +181,22 @@ def test_tune_per_shot_three_shots_yields_three_distinct_crfs():
 
 
 def test_tune_per_shot_clamps_to_codec_quality_range():
-    """Adapter range for libx264 is [15, 40] — predicate values outside clamp."""
+    """Predicate values outside the adapter's `quality_range` clamp."""
+    from vmaftune.codec_adapters import get_adapter
+
+    lo, hi = get_adapter("libx264").quality_range
 
     def predicate(shot, target_vmaf, encoder):
-        return (5, 95.0)  # below libx264's lower clamp
+        return (lo - 10, 95.0)  # below libx264's lower clamp
 
     recs = tune_per_shot([Shot(0, 24)], target_vmaf=92.0, predicate=predicate)
-    assert recs[0].crf == 15  # clamped to lo
+    assert recs[0].crf == lo
 
     def predicate_high(shot, target_vmaf, encoder):
-        return (99, 50.0)  # above upper clamp
+        return (hi + 50, 50.0)  # above upper clamp
 
     recs = tune_per_shot([Shot(0, 24)], target_vmaf=92.0, predicate=predicate_high)
-    assert recs[0].crf == 40
+    assert recs[0].crf == hi
 
 
 def test_tune_per_shot_default_predicate_returns_codec_default():
