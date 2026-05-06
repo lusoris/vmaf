@@ -502,6 +502,22 @@ ADR-0291 + ADR-0302):
   the gate ADR-0291 cleared on v2). The trainer must exit non-zero
   and refuse to overwrite the registry entry on failure — same
   pattern `fr_regressor_v1` already enforces.
+
+  **Status (ADR-0323, 2026-05-06):** The first v3 LOSO run shipped
+  under [`ai/scripts/train_fr_regressor_v3.py`](scripts/train_fr_regressor_v3.py)
+  on the NVENC-only Phase A corpus (5,640 rows, 9 sources × 4 CQs).
+  Mean LOSO PLCC = **0.9975 ± 0.0018** (every source above 0.99) —
+  comfortably clears the 0.95 ship gate. The model ships under
+  `model/tiny/fr_regressor_v3.onnx` with `smoke: false`. The live
+  `ENCODER_VOCAB_VERSION = 2` in [`scripts/train_fr_regressor_v2.py`](scripts/train_fr_regressor_v2.py)
+  **stays authoritative for `fr_regressor_v2.onnx`** until a separate
+  "promote v3 to authoritative" PR — this PR ships v3 as a parallel
+  checkpoint, not a v2 replacement. Future v3 retrains (on a
+  multi-codec corpus drop) must continue to clear the 0.95 floor and
+  must additionally measure the ADR-0235 multi-codec lift floor
+  (≥+0.005 PLCC over `fr_regressor_v1`); the lift floor is not yet
+  measurable on the NVENC-only corpus, so this PR's gate is the 0.95
+  floor only.
 - Multi-codec lift over the v1 single-input regressor must remain
   **≥ +0.005 PLCC**. ADR-0235 set this as the codec-block invariant;
   the v2 production checkpoint cleared it comfortably and v3 must

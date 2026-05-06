@@ -8974,6 +8974,44 @@ inline.*
   bash -n ai/scripts/run_ensemble_v2_real_corpus_loso.sh
   ```
 
+## ADR-0323 — `fr_regressor_v3` train + register on `ENCODER_VOCAB` v3 (2026-05-06)
+
+- **Scope**: `ai/scripts/train_fr_regressor_v3.py` (new),
+  `ai/tests/test_train_fr_regressor_v3.py` (new),
+  `model/tiny/fr_regressor_v3.onnx` (new, real-weight checkpoint
+  from a 9-fold LOSO gate-pass at mean PLCC 0.9975),
+  `model/tiny/fr_regressor_v3.json` (new sidecar with
+  `encoder_vocab_version: 3` and full per-fold trace),
+  `model/tiny/registry.json` (new `fr_regressor_v3` row, `smoke:
+  false`), `ai/AGENTS.md` (v3 retrain invariant section gains a
+  "Status" subsection recording the gate result),
+  `docs/ai/models/fr_regressor_v3.md` (new model card),
+  `docs/adr/0323-fr-regressor-v3-train-and-register.md` + index row,
+  `changelog.d/added/fr-regressor-v3-train-register.md`.
+- **Rebase impact**: zero. Fork-local feature; no upstream
+  Netflix/vmaf surface is touched. The 16-slot `ENCODER_VOCAB_V3`
+  imported from `train_fr_regressor_v2.py` was already landed by
+  PR #401 (ADR-0302).
+- **On upstream sync**: no action required. The v3 model ships
+  alongside v2 — `fr_regressor_v2.onnx` and its sidecar are
+  unchanged; the v3 row is appended to the registry and sorted
+  alphabetically. If a future upstream sync ever lands a competing
+  `fr_regressor_v3` model under `python/vmaf/`, do NOT cross-link
+  them — the fork's training stack lives under `ai/`.
+- **Watch out for**: the live `ENCODER_VOCAB_VERSION` in
+  `ai/scripts/train_fr_regressor_v2.py` **stays at 2** (per
+  ADR-0302's invariant). Do not bump it to 3 in this PR or in any
+  downstream port; the in-place promotion of v3 over v2 is a
+  separate "promote v3 to authoritative" PR per ADR-0302's
+  production-flip checklist.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_train_fr_regressor_v3.py -v
+  bash libvmaf/test/dnn/test_registry.sh   # must report OK: 20+
+  python -c "import onnx; onnx.checker.check_model(onnx.load('model/tiny/fr_regressor_v3.onnx')); print('OK')"
+  ```
+
 ## ADR-0321 — `fr_regressor_v2_ensemble_v1` full production flip (2026-05-06)
 
 - **Scope**: `ai/scripts/export_ensemble_v2_seeds.py` (new),
