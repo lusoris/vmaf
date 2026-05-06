@@ -8840,6 +8840,22 @@ inline.*
   mkdocs build --strict 2>&1 | grep -E "(WARNING|ERROR)" || echo "docs build clean"
   ```
 
+- **2026-05-06 follow-up (Research-0085 verification pass)**:
+  - `docs/research/0085-vendor-neutral-vvc-encode-landscape.md`
+    flipped from `Status: SKELETON` to `Status: Active`. Most
+    `[UNVERIFIED]` claims are now backed by primary-source URLs
+    (NVIDIA SDK 13.0 docs, AMD AMF GitHub, Intel oneVPL GitHub +
+    `mfxstructures.h` + `CHANGELOG.md`, Khronos registry,
+    Phoronix Mesa/RADV coverage, VVenC issue tracker, ZLUDA repo).
+  - ADR-0315's `## Context` and `## Alternatives considered`
+    refreshed with the verified data points. Status stays
+    `Proposed`.
+  - `[UNVERIFIED]` count in the digest dropped 25 → 10; remaining
+    items are legitimate gaps (NN-VC quality lift, vvenc per-kernel
+    profile, HHI's non-public roadmap).
+  - No code touched. No rebase impact beyond the existing docs-only
+    posture.
+
 ### 0316 — `cli_parse.c` `error()` long-only-option fix (ADR-0316)
 
 - **ADR**: [ADR-0316](adr/0316-cli-parse-long-only-error-fix.md) (follow-up to [ADR-0311](adr/0311-libfuzzer-harness-expansion.md)).
