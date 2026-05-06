@@ -8957,3 +8957,32 @@ inline.*
          ai/tests/test_train_fr_regressor_v2_ensemble_loso_train.py -v
   bash -n ai/scripts/run_ensemble_v2_real_corpus_loso.sh
   ```
+
+## ADR-0321 — `fr_regressor_v2_ensemble_v1` full production flip (2026-05-06)
+
+- **Scope**: `ai/scripts/export_ensemble_v2_seeds.py` (new),
+  `model/tiny/fr_regressor_v2_ensemble_v1_seed{0..4}.onnx` (real
+  full-corpus-trained weights replacing the 3025-byte synthetic
+  scaffold bytes), `model/tiny/fr_regressor_v2_ensemble_v1_seed{0..4}.json`
+  (new per-seed sidecars), `model/tiny/registry.json` (sha256 +
+  `smoke: false` on the five seed rows), `ai/AGENTS.md` (new
+  invariant: the registry-flip is now done; future re-flips require
+  a fresh PROMOTE.json + re-run of the export driver).
+- **Rebase impact**: zero. This is a fork-local production-flip; no
+  upstream Netflix/vmaf surface is touched. The 12-slot
+  `ENCODER_VOCAB` v2 carried in each sidecar is the same one the
+  LOSO trainer (ADR-0319) bakes into the codec-block layout, so
+  there is no rebase-time vocabulary drift to worry about.
+- **Watch out for**: if a future upstream sync ever introduces a
+  competing `fr_regressor_v2_ensemble_*` model under
+  `python/vmaf/`, do NOT cross-link them — the fork's ensemble
+  weights are gated on `runs/ensemble_v2_real/PROMOTE.json` and
+  are not portable to a different training stack.
+- **Re-test on rebase**:
+
+  ```bash
+  bash libvmaf/test/dnn/test_registry.sh   # must report OK: 19
+  python -c "import onnx; \
+    [onnx.checker.check_model(onnx.load(f'model/tiny/fr_regressor_v2_ensemble_v1_seed{i}.onnx')) \
+     for i in range(5)]; print('OK')"
+  ```

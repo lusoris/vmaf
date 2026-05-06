@@ -8,13 +8,26 @@ form _"give me the CRF where the **lower** bound of the 95 % interval is
 still ≥ 92"_ — driving the new `vmaf-tune --quality-confidence` flag
 (planned, see [ADR-0237](../../adr/0237-quality-aware-encode-automation.md)).
 
-> **Status — smoke-only scaffold.** The shipped artifact is the
-> trainer's `--smoke` output (synthetic 100-row corpus, 1 epoch per
-> member). It is a load-path probe, not a quality model. Production
-> training is gated on the multi-codec Phase A corpus + clearing the
-> v2 deterministic ship floor and is tracked as backlog item
-> **T7-FR-REGRESSOR-V2-PROBABILISTIC**. See
-> [ADR-0279](../../adr/0279-fr-regressor-v2-probabilistic.md).
+> **Status — production (per-seed `smoke: false`).** As of 2026-05-06
+> the five `fr_regressor_v2_ensemble_v1_seed{0..4}` rows in
+> `model/tiny/registry.json` carry **production** ONNX weights:
+> trained on the 5,640-row Phase A canonical-6 corpus (9 Netflix
+> sources × `h264_nvenc`) after the 9-fold LOSO ship-gate cleared
+> with mean PLCC 0.997 (spread 0.001) per
+> `runs/ensemble_v2_real/PROMOTE.json`. Each non-smoke ONNX has a
+> matching sidecar `fr_regressor_v2_ensemble_v1_seed{N}.json` with
+> the canonical encoder-vocab-v2 + codec-block layout + training
+> recipe + per-seed gate evidence. The shared
+> `fr_regressor_v2_ensemble_v1.json` manifest is unchanged. See
+> [ADR-0303](../../adr/0303-fr-regressor-v2-ensemble-prod-flip.md)
+> (gate definition),
+> [ADR-0309](../../adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md)
+> (separate-PR rule),
+> [ADR-0319](../../adr/0319-ensemble-loso-trainer-real-impl.md) (LOSO
+> trainer), and
+> [ADR-0321](../../adr/0321-fr-regressor-v2-ensemble-full-prod-flip.md)
+> (this flip). The scaffold-era ADR-0279 entry point is preserved
+> for history.
 
 ## What the output means
 
