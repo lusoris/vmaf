@@ -8811,3 +8811,42 @@ inline.*
   ninja -C libvmaf/build test/test_cli_parse_long_only_args
   meson test -C libvmaf/build test_cli_parse_long_only_args -v
   ```
+
+## ADR-0317 — CI flake fix: doc-only PR path-filter (2026-05-06)
+
+- **Touched files**:
+  - `.github/workflows/docker-image.yml` — added `paths:` filter on
+    both `push:` and `pull_request:` triggers.
+  - `.github/workflows/ffmpeg-integration.yml` — added `paths:` filter
+    on both `push:` and `pull_request:` triggers (covers all four
+    matrix lanes: gcc, clang, SYCL, Vulkan).
+  - `docs/adr/0317-ci-doc-only-pr-flake-fix.md`,
+    `docs/adr/README.md` (index row),
+    `changelog.d/fixed/ci-doc-only-pr-flakes.md`.
+- **Rebase invariant**: not load-bearing. Workflow-only change. Both
+  files are fork-local CI; upstream Netflix/vmaf does not ship a
+  Docker workflow or an FFmpeg-integration matrix in this shape, so
+  rebase conflicts are unlikely. If a future upstream sync introduces
+  an overlapping `docker-image.yml` or FFmpeg matrix, prefer the
+  fork's path-filtered form — the rationale (ADR-0313 aggregator
+  posture, doc-only-PR runner-time burn) is fork-specific.
+- **Upstream source**: none — fork-local CI workflows.
+- **On upstream sync**: no action required. If reviewers later add new
+  build inputs (e.g. a top-level `docker-compose.yml`, a new
+  `ffmpeg-patches/*.txt` config file), extend the `paths:` lists in
+  the same PR that adds the input.
+- **Follow-up not in this ADR**: patch
+  `ffmpeg-patches/0008-add-libvmaf_tune-filter.patch` line 256
+  (`outlink->frame_rate = mainlink->frame_rate;`) needs to migrate to
+  the `ff_filter_link()` accessor introduced in FFmpeg n7+, matching
+  the pattern already in patches 0005 / 0006. Tracked separately;
+  the path-filter does not hide it (any libvmaf/ or ffmpeg-patches/
+  PR will still trip the SYCL lane).
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -c "import yaml; \
+    yaml.safe_load(open('.github/workflows/docker-image.yml')); \
+    yaml.safe_load(open('.github/workflows/ffmpeg-integration.yml')); \
+    print('OK')"
+  ```

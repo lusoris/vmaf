@@ -2,8 +2,27 @@ name: Docker Image Build
 on:
   push:
     branches: [master]
+    paths:
+      # Path-filter introduced in ADR-0317. Only fire when the Docker
+      # build inputs actually change. Doc-only / Python-only PRs do not
+      # need a Docker rebuild, and apt-mirror flakes (`apt-get install`
+      # exit 100) on the runner produced 10–15 min of red noise on every
+      # push during the doc/Python merge train (#409, #411, #412).
+      - "Dockerfile"
+      - ".dockerignore"
+      - "libvmaf/**"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/docker-image.yml"
   pull_request:
     branches: [master]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "libvmaf/**"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/docker-image.yml"
   workflow_dispatch:
 
 permissions:
