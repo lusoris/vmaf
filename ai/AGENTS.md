@@ -399,3 +399,41 @@ threshold). When extending these scripts:
   wall-time is ~10–25 min depending on CPU. Do NOT launch it
   concurrently with another training process — the two share
   BLAS threads and serialise badly.
+
+## v3 retrain invariant — `ENCODER_VOCAB` 13 → 16 (ADR-0302)
+
+The `ENCODER_VOCAB_V3` parallel constant in
+[`scripts/train_fr_regressor_v2.py`](scripts/train_fr_regressor_v2.py)
+documents the target 16-slot vocab (adds `libsvtav1`,
+`h264_videotoolbox`, `hevc_videotoolbox` to v2's 13 slots). The
+**live `ENCODER_VOCAB` and `ENCODER_VOCAB_VERSION = 2` are the source
+of truth** until the follow-up retrain PR clears the LOSO PLCC
+ship gate.
+
+**Invariants that the v3 retrain PR must honour** (per ADR-0235 +
+ADR-0291 + ADR-0302):
+
+- A schema bump (v2 → v3) requires a fresh LOSO run that clears
+  **mean LOSO PLCC ≥ 0.95** across all 9 Netflix sources (matches
+  the gate ADR-0291 cleared on v2). The trainer must exit non-zero
+  and refuse to overwrite the registry entry on failure — same
+  pattern `fr_regressor_v1` already enforces.
+- Multi-codec lift over the v1 single-input regressor must remain
+  **≥ +0.005 PLCC**. ADR-0235 set this as the codec-block invariant;
+  the v2 production checkpoint cleared it comfortably and v3 must
+  not regress.
+- The in-tree v2 ONNX (`model/tiny/fr_regressor_v2.onnx`) **must
+  not be replaced** until the new v3 ONNX clears the gate. The
+  load-fallback shim collapses unknown v3 strings into the v2
+  `unknown` column and lets v2 keep serving every consumer in the
+  meantime.
+- Append-only ordering is load-bearing — the 13 v2 slot indices
+  (0..12) keep their column positions verbatim under v3; the three
+  new slots append at indices 13/14/15. Reordering silently
+  invalidates every shipped `fr_regressor_v2_*.onnx`. ADR-0235
+  documents this rule for `CODEC_VOCAB`; ADR-0302 §Decision
+  re-asserts it for `ENCODER_VOCAB`.
+- Slot strings must match the vmaf-tune codec-adapter registry keys
+  exactly (`libsvtav1`, `h264_videotoolbox`, `hevc_videotoolbox`).
+  ADR-0235 §References pins this rule globally for all corpus
+  emitters.

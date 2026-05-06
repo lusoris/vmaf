@@ -107,8 +107,54 @@ ENCODER_VOCAB: tuple[str, ...] = (
     "unknown",
 )
 ENCODER_VOCAB_VERSION = 2
+# NOTE (ADR-0302 — Proposed): the v3 16-slot schema is documented as
+# `ENCODER_VOCAB_V3` below. The live `ENCODER_VOCAB_VERSION` stays at
+# 2 until the follow-up retrain PR clears the LOSO PLCC ship gate
+# (mean LOSO PLCC >= 0.95 + multi-codec lift >= +0.005 over v1 per
+# ADR-0235). When that PR lands, bump this to 3, replace
+# `ENCODER_VOCAB` in place with the 16-slot tuple, and remove the
+# `ENCODER_VOCAB_V3` parallel constant. See
+# docs/adr/0302-encoder-vocab-v3-schema-expansion.md and
+# docs/research/0078-encoder-vocab-v3-schema-expansion.md.
 N_ENCODERS = len(ENCODER_VOCAB)
 UNKNOWN_ENCODER_INDEX = ENCODER_VOCAB.index("unknown")
+
+# Target schema for the v3 retrain (ADR-0302, scaffold only).
+#
+# This tuple is **information-only** in this PR — no inference path
+# consumes it yet. It documents the 16-slot vocab the follow-up
+# retrain PR will train against:
+#
+#   - slots 0..12 mirror the user-facing v2 layout documented in
+#     ADR-0291 (libx264, libaom-av1, libx265, h264_nvenc, hevc_nvenc,
+#     av1_nvenc, h264_amf, hevc_amf, av1_amf, h264_qsv, hevc_qsv,
+#     av1_qsv, libvvenc).
+#   - slots 13/14/15 append `libsvtav1`, `h264_videotoolbox`,
+#     `hevc_videotoolbox` — three codec adapters that landed on
+#     master after `fr_regressor_v2` shipped to production
+#     (ADR-0283 for VT, ADR-0294 for SVT-AV1).
+#
+# Append-only ordering is load-bearing per ADR-0235 — the 13 v2
+# indices stay verbatim; never reorder.
+ENCODER_VOCAB_V3: tuple[str, ...] = (
+    "libx264",
+    "libaom-av1",
+    "libx265",
+    "h264_nvenc",
+    "hevc_nvenc",
+    "av1_nvenc",
+    "h264_amf",
+    "hevc_amf",
+    "av1_amf",
+    "h264_qsv",
+    "hevc_qsv",
+    "av1_qsv",
+    "libvvenc",
+    "libsvtav1",
+    "h264_videotoolbox",
+    "hevc_videotoolbox",
+)
+assert len(ENCODER_VOCAB_V3) == 16, "ADR-0302 schema invariant: 16 slots"
 
 # Preset ordinal table per encoder. The ordinal is scaled to [0, 1] in
 # the feature vector so the MLP sees a continuous "speed knob" rather
