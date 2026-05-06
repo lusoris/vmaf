@@ -292,6 +292,20 @@ model card:
   against a real-corpus LOSO output — the variance bound is what
   protects the predictive-distribution semantics; flipping seeds
   ad-hoc would silently bake in an unbounded across-seed spread.
+- **Registry-flip is a separate PR (ADR-0309)**: the
+  `fr_regressor_v2_ensemble_v1_seed{0..4}` rows in
+  `model/tiny/registry.json` flip `smoke: true → false` **only** in a
+  dedicated follow-up PR that cites a passing
+  `runs/ensemble_v2_real/PROMOTE.json` produced by
+  [`ai/scripts/validate_ensemble_seeds.py`](scripts/validate_ensemble_seeds.py).
+  **Never** flip these rows during a `/sync-upstream` rebase or as a
+  side-effect of any other PR — the harness in
+  [`ai/scripts/run_ensemble_v2_real_corpus_loso.sh`](scripts/run_ensemble_v2_real_corpus_loso.sh)
+  and the validator emit the verdict file but **do not** mutate the
+  registry. Auto-flipping on PROMOTE was rejected in ADR-0309's
+  alternatives matrix specifically because rebase-time mutation of
+  shipped registry rows is the foot-gun this invariant exists to
+  prevent.
 
 ## Quantization-Aware Training (ADR-0207 / ADR-0208)
 

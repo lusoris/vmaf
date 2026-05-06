@@ -85,6 +85,7 @@ Conventions:
 | [0055](0055-ciede-vulkan-nvidia-f32-f64-root-cause.md) | Root-causes the residual 5/48 NVIDIA-Vulkan ciede2000 places=4 mismatch (1.78× threshold, max abs `8.9e-05`) deferred from PR #346. Triangulates double-CPU vs experimental float-CPU vs NVIDIA-Vulkan: f32-CPU matches NVIDIA-GPU to ~6e-7 on the 5 failing high-ΔE frames. Conclusion: structural f32/f64 colour-space-chain precision gap, not a driver fast-math bug. Mitigations rejected; documented as fork debt. | Active | [ADR-0273](../adr/0273-ciede-vulkan-nvidia-f32-f64-precision-gap.md) |
 
 | [0053](0053-post-merge-cpu-profile-2026-05-03.md) | Post-merge CPU profile 2026-05-03 — perf top-10 after PRs #310–#321; surfaces 3 new opt targets (convolve widen, SSIM double reduction, VIF gather elimination) | Active | — |
+| [0081](0081-fr-regressor-v2-ensemble-real-corpus-methodology.md) | Real-corpus retrain methodology for the `fr_regressor_v2` deep ensemble — corpus-size sufficiency (9 ref + 70 dis @ `.workingdir2/netflix/`), 9-fold LOSO sizing inherited from the deterministic ADR-0291 baseline, seed-diversity hyperparameters, and the `Seeking_25fps` weak-fold diagnostic for HOLD-on-spread cases. | Active | [ADR-0309](../adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md) |
 <!-- Backfill entries for older workstreams land here as their authors
      revisit the corresponding code. -->
 
