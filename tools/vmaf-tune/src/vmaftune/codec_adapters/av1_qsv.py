@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 
+from . import _gop_common
 from ._qsv_common import (
     QSV_PRESETS,
     QSV_QUALITY_DEFAULT,
@@ -38,9 +39,32 @@ class Av1QsvAdapter:
     quality_default: int = QSV_QUALITY_DEFAULT
     invert_quality: bool = True
 
+    probe_preset: str = "veryfast"
+    probe_quality: int = 23
+    supports_qpfile: bool = False
+
     presets: tuple[str, ...] = QSV_PRESETS
 
     def validate(self, preset: str, quality: int) -> None:
         """Raise ``ValueError`` if ``(preset, quality)`` is unsupported."""
         preset_to_qsv(preset)
         validate_global_quality(quality)
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by QSV."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` with comma-separated seconds."""
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: QSV ``veryfast`` preset, fixed ICQ."""
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            preset_to_qsv(self.probe_preset),
+            "-global_quality",
+            str(self.probe_quality),
+        ]

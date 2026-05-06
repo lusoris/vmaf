@@ -66,6 +66,13 @@ class CodecAdapter(Protocol):
     # window changes — see ADR-0298 (vmaf-tune cache key).
     adapter_version: str
 
+    # Predictor probe-encode knobs (see _gop_common docstring).
+    # The per-shot predictor consumes these to run one fast probe encode
+    # per shot and read its bitrate as the complexity barometer.
+    probe_preset: str
+    probe_quality: int
+    supports_qpfile: bool
+
     def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
         """FFmpeg ``-c:v ...`` argv slice for one encode."""
         ...
@@ -76,6 +83,18 @@ class CodecAdapter(Protocol):
 
     def validate(self, preset: str, quality: int) -> None:
         """Raise ``ValueError`` if ``(preset, quality)`` is unsupported."""
+        ...
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg argv slice that pins the GOP / keyint. Empty tuple = leave default."""
+        ...
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg argv slice that pins keyframes at the given seconds. Empty tuple = no override."""
+        ...
+
+    def probe_args(self) -> list[str]:
+        """FFmpeg argv slice for a fast probe encode (predictor complexity barometer)."""
         ...
 
 

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import dataclasses
 
+from . import _gop_common
+
 
 @dataclasses.dataclass(frozen=True)
 class X264Adapter:
@@ -34,6 +36,13 @@ class X264Adapter:
     quality_range: tuple[int, int] = (0, 51)
     quality_default: int = 23
     invert_quality: bool = True  # higher CRF = lower quality
+
+    # Predictor probe-encode knobs (see _gop_common docstring).
+    probe_preset: str = "ultrafast"
+    probe_quality: int = 28
+    # libx264 honours --qpfile via FFmpeg's -x264-params, so the saliency
+    # QP-offset map (saliency.py) drives x264 directly.
+    supports_qpfile: bool = True
 
     presets: tuple[str, ...] = (
         "ultrafast",
@@ -67,3 +76,15 @@ class X264Adapter:
     def extra_params(self) -> tuple[str, ...]:
         """Additional ffmpeg argv slices (none for libx264 Phase A)."""
         return ()
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by libx264 verbatim."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` with comma-separated seconds."""
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: ultrafast preset, fixed CRF."""
+        return _gop_common.default_probe_args(self)

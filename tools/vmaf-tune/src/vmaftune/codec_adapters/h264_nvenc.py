@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 
+from . import _gop_common
 from . import _nvenc_common as _nvc
 
 
@@ -26,6 +27,11 @@ class H264NvencAdapter:
     quality_default: int = 23
     invert_quality: bool = True  # higher CQ = lower quality
 
+    # Predictor probe-encode knobs. "ultrafast" maps to NVENC ``p1``.
+    probe_preset: str = "ultrafast"
+    probe_quality: int = 28
+    supports_qpfile: bool = False
+
     presets: tuple[str, ...] = _nvc.NVENC_PRESETS
 
     def validate(self, preset: str, cq: int) -> None:
@@ -35,3 +41,29 @@ class H264NvencAdapter:
     def nvenc_preset(self, preset: str) -> str:
         """Translate a mnemonic preset to its NVENC ``pN`` name."""
         return _nvc.nvenc_preset(preset)
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by NVENC."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` plus NVENC's ``-forced-idr 1``.
+
+        NVENC honours ``-force_key_frames`` only when ``-forced-idr 1`` is
+        also set; otherwise the encoder may emit non-IDR keyframes that
+        downstream players treat as non-seekable.
+        """
+        if not timestamps:
+            return ()
+        return _gop_common.default_force_keyframes_args(timestamps) + ("-forced-idr", "1")
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: NVENC ``p1`` preset, fixed CQ."""
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.nvenc_preset(self.probe_preset),
+            "-cq",
+            str(self.probe_quality),
+        ]

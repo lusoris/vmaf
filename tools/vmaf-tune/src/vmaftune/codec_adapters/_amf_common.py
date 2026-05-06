@@ -35,6 +35,8 @@ import subprocess
 from collections.abc import Callable
 from typing import Final
 
+from . import _gop_common
+
 # Canonical 7-level preset vocabulary used by x264 / NVENC / QSV.
 # Mapped to AMF's 3 quality levels as follows:
 #   placebo / slowest / slower / slow -> quality (slowest, best quality)
@@ -122,6 +124,11 @@ class _AMFAdapterBase:
     quality_default: int = 23
     invert_quality: bool = True  # higher qp = lower quality
 
+    # Predictor probe-encode knobs. "ultrafast" maps to AMF "speed".
+    probe_preset: str = "ultrafast"
+    probe_quality: int = 28
+    supports_qpfile: bool = False
+
     presets: tuple[str, ...] = (
         "ultrafast",
         "superfast",
@@ -167,6 +174,44 @@ class _AMFAdapterBase:
             "-qp_p",
             str(qp),
         )
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by AMF."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` for AMF.
+
+        AMF honours ``-force_key_frames`` when ``-rc cqp`` is in effect
+        (the Phase A rate-control mode this adapter pins via
+        ``extra_params``). No equivalent of NVENC's ``-forced-idr`` is
+        documented on the AMF side; if downstream decoders trip on
+        non-IDR keyframes the workaround is to set ``-bf 0``.
+        """
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: AMF ``speed`` quality, fixed cqp.
+
+        AMF does not honour FFmpeg's generic ``-preset``; the equivalent
+        is the ``-quality {quality,balanced,speed}`` switch threaded
+        through ``extra_params``. We inline the speed-mode probe shape
+        here rather than calling ``extra_params`` so the probe stays a
+        single stable string regardless of any future AMF rate-control
+        change.
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-quality",
+            self.amf_quality(self.probe_preset),
+            "-rc",
+            "cqp",
+            "-qp_i",
+            str(self.probe_quality),
+            "-qp_p",
+            str(self.probe_quality),
+        ]
 
 
 __all__ = [

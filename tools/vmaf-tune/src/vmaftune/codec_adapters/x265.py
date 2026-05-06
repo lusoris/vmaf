@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import dataclasses
 
+from . import _gop_common
+
 # Pixel-format → x265 profile mapping. Keys cover the common YUV
 # fixture shapes the harness ingests; unmapped formats fall back to
 # ``main`` (8-bit) to keep the adapter forgiving.
@@ -45,6 +47,14 @@ class X265Adapter:
     quality_default: int = 28  # x265 default; ~visually-lossless on most content
     invert_quality: bool = True  # higher CRF = lower quality
 
+    # Predictor probe-encode knobs.
+    probe_preset: str = "ultrafast"
+    probe_quality: int = 28
+    # libx265 supports --qpfile via -x265-params, but the saliency.py
+    # qpfile writer is libx264-format only — flip to True once a
+    # codec-aware qpfile emitter lands.
+    supports_qpfile: bool = False
+
     # x265 ships ten presets — one more than x264 (adds ``placebo``).
     presets: tuple[str, ...] = (
         "ultrafast",
@@ -66,6 +76,18 @@ class X265Adapter:
         lo, hi = self.quality_range
         if not lo <= crf <= hi:
             raise ValueError(f"crf {crf} outside Phase A range [{lo}, {hi}]")
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by libx265 verbatim."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` with comma-separated seconds."""
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: ultrafast preset, fixed CRF."""
+        return ["-c:v", self.encoder, "-preset", self.probe_preset, "-crf", str(self.probe_quality)]
 
     def profile_for(self, pix_fmt: str) -> str:
         """Return the canonical x265 profile string for ``pix_fmt``.

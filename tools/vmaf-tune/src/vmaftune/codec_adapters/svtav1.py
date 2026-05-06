@@ -32,6 +32,8 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping
 
+from . import _gop_common
+
 # x264-style preset names mapped onto SVT-AV1's 0..13 integer scale.
 # Chosen to span the SVT-AV1 range with the same "slowest..fastest"
 # semantics x264 users already have in their muscle memory:
@@ -90,6 +92,12 @@ class SvtAv1Adapter:
     quality_default: int = 35
     invert_quality: bool = True  # higher CRF = lower quality
 
+    # Predictor probe-encode knobs. svtav1 maps "veryfast" to integer 13
+    # (the fastest preset) via PRESET_NAME_TO_INT.
+    probe_preset: str = "veryfast"
+    probe_quality: int = 35
+    supports_qpfile: bool = False
+
     # Phase-A-supported preset *names* (compatibility shim — see
     # PRESET_NAME_TO_INT). Order is "slowest -> fastest" to match the
     # x264 presets tuple.
@@ -135,6 +143,25 @@ class SvtAv1Adapter:
         lo, hi = self.quality_range
         if not lo <= crf <= hi:
             raise ValueError(f"crf {crf} outside Phase A range [{lo}, {hi}]")
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by libsvtav1."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` with comma-separated seconds."""
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: fastest preset (integer), fixed CRF."""
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.ffmpeg_preset_token(self.probe_preset),
+            "-crf",
+            str(self.probe_quality),
+        ]
 
     def ffmpeg_preset_token(self, preset: str) -> str:
         """Return the string the FFmpeg ``-preset`` argv slot expects.

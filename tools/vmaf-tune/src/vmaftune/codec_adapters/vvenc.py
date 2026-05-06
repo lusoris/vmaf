@@ -48,6 +48,8 @@ from __future__ import annotations
 
 import dataclasses
 
+from . import _gop_common
+
 # Compress the fork's canonical 7-name preset vocabulary onto VVenC's
 # 5-level scale. The 7-name vocabulary is the union of x264's 10
 # presets minus duplicates and is the one the search loop emits;
@@ -90,6 +92,16 @@ class VVenCAdapter:
     quality_range: tuple[int, int] = (17, 50)
     quality_default: int = 32
     invert_quality: bool = True  # higher QP = lower quality
+
+    # Predictor probe-encode knobs. VVenC has no "ultrafast" — "faster"
+    # is the fastest native preset. Even "faster" is meaningfully slower
+    # than other codecs' ultrafast: the predictor's complexity barometer
+    # for VVenC is therefore noisier than for x264 / x265 and validation
+    # may legitimately fall back. ADR's `## Alternatives considered`
+    # documents this.
+    probe_preset: str = "faster"
+    probe_quality: int = 32
+    supports_qpfile: bool = False
 
     # Vocabulary the search loop sees — the canonical 7-name superset.
     # The adapter compresses to VVenC's 5-level native vocabulary at
@@ -156,6 +168,25 @@ class VVenCAdapter:
         if not toggles:
             return ()
         return ("-vvenc-params", ":".join(toggles))
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by libvvenc."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` with comma-separated seconds."""
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: native VVenC ``faster`` preset, fixed QP."""
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.native_preset(self.probe_preset),
+            "-qp",
+            str(self.probe_quality),
+        ]
 
 
 def native_presets() -> tuple[str, ...]:
