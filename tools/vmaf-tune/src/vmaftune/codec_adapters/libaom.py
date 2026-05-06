@@ -31,6 +31,8 @@ import dataclasses
 from types import MappingProxyType
 from typing import Mapping
 
+from . import _gop_common
+
 # Canonical preset-name -> cpu-used mapping. Frozen via MappingProxyType
 # so tests and downstream phases can rely on its identity. The names
 # parallel x264's preset vocabulary so a search-loop sweep over
@@ -64,6 +66,12 @@ class LibaomAdapter:
     quality_range: tuple[int, int] = (0, 63)
     quality_default: int = 35
     invert_quality: bool = True  # higher CRF = lower quality
+
+    # Predictor probe-encode knobs. libaom uses cpu-used, not -preset; the
+    # canonical preset name maps to cpu-used 9 in _PRESET_CPU_USED.
+    probe_preset: str = "ultrafast"
+    probe_quality: int = 35
+    supports_qpfile: bool = False
 
     presets: tuple[str, ...] = (
         "placebo",
@@ -110,3 +118,28 @@ class LibaomAdapter:
             str(self.cpu_used(preset)),
             "-an",
         )
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by libaom-av1."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` with comma-separated seconds."""
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: fastest cpu-used, fixed CRF.
+
+        libaom does not honour FFmpeg's generic ``-preset`` so the probe
+        builds the cpu-used integer directly rather than going through
+        ``ffmpeg_codec_args`` (which validates the CRF against the Phase A
+        window the probe deliberately exits).
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-cpu-used",
+            str(self.cpu_used(self.probe_preset)),
+            "-crf",
+            str(self.probe_quality),
+        ]

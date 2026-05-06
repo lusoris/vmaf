@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 
+from . import _gop_common
 from ._videotoolbox_common import (
     VIDEOTOOLBOX_PRESETS,
     VIDEOTOOLBOX_QUALITY_DEFAULT,
@@ -45,6 +46,10 @@ class HEVCVideoToolboxAdapter:
     quality_default: int = VIDEOTOOLBOX_QUALITY_DEFAULT
     invert_quality: bool = False  # higher q:v = higher quality
 
+    probe_preset: str = "ultrafast"
+    probe_quality: int = 60
+    supports_qpfile: bool = False
+
     presets: tuple[str, ...] = VIDEOTOOLBOX_PRESETS
 
     def validate(self, preset: str, crf: int) -> None:
@@ -73,3 +78,15 @@ class HEVCVideoToolboxAdapter:
     def extra_params(self) -> tuple[str, ...]:
         """No additional non-codec argv for VideoToolbox."""
         return ()
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by VideoToolbox."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` with comma-separated seconds."""
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: realtime mode + middle q:v."""
+        return _gop_common.default_probe_args(self)
