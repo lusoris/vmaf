@@ -9040,3 +9040,16 @@ inline.*
     [onnx.checker.check_model(onnx.load(f'model/tiny/fr_regressor_v2_ensemble_v1_seed{i}.onnx')) \
      for i in range(5)]; print('OK')"
   ```
+
+## ADR-0324 — Ensemble training kit (2026-05-06)
+
+- **Touches**: `tools/ensemble-training-kit/` (new), `docs/adr/0324-ensemble-training-kit.md` (new), `docs/adr/README.md` (index row), `changelog.d/added/0324-ensemble-training-kit.md` (new). No engine code touched; no upstream-shared paths.
+- **Invariant**: the kit assumes the LOSO wrapper hard-codes seeds `(0 1 2 3 4)`. The orchestrator surfaces a warning if `--seeds` deviates but still hands off to the wrapper. If a future PR parameterises the wrapper's seed list, update both the wrapper and the kit's pass-through logic in lockstep.
+- **On upstream sync**: no action required. The kit lives entirely under `tools/ensemble-training-kit/` (a fork-local path) and only invokes other fork-local scripts (`ai/scripts/`, `scripts/dev/`, `scripts/ci/`).
+- **Re-test on rebase**:
+
+  ```bash
+  bash -n tools/ensemble-training-kit/*.sh
+  bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/kit-test.tar.gz
+  tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
+  ```
