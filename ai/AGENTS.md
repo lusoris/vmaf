@@ -292,14 +292,23 @@ model card:
   against a real-corpus LOSO output — the variance bound is what
   protects the predictive-distribution semantics; flipping seeds
   ad-hoc would silently bake in an unbounded across-seed spread.
-- **Registry-flip is a separate PR (ADR-0309)**: the
+- **Registry-flip happened in ADR-0320**: the five
   `fr_regressor_v2_ensemble_v1_seed{0..4}` rows in
-  `model/tiny/registry.json` flip `smoke: true → false` **only** in a
-  dedicated follow-up PR that cites a passing
-  `runs/ensemble_v2_real/PROMOTE.json` produced by
+  `model/tiny/registry.json` flipped `smoke: true → false` on
+  2026-05-06 against a passing
+  `runs/ensemble_v2_real/PROMOTE.json` (mean PLCC = 0.9973,
+  spread = 9.5e-4, both gate components green) produced by
   [`ai/scripts/validate_ensemble_seeds.py`](scripts/validate_ensemble_seeds.py).
-  **Never** flip these rows during a `/sync-upstream` rebase or as a
-  side-effect of any other PR — the harness in
+  The verdict file is committed at
+  [`model/tiny/fr_regressor_v2_ensemble_v1_seed_flip_PROMOTE.json`](../model/tiny/fr_regressor_v2_ensemble_v1_seed_flip_PROMOTE.json)
+  as the immutable audit trail. **Going-forward invariant**: any
+  future registry change for these `ensemble_v1` seed rows (sha256
+  bump after retraining, smoke-flag mutation, ONNX path change)
+  requires a fresh `PROMOTE.json` verdict with mean PLCC ≥ 0.95 AND
+  spread ≤ 0.005 — the same two-part gate ADR-0303 defined and
+  ADR-0320 honoured. **Never** flip or mutate these rows during a
+  `/sync-upstream` rebase or as a side-effect of any other PR — the
+  harness in
   [`ai/scripts/run_ensemble_v2_real_corpus_loso.sh`](scripts/run_ensemble_v2_real_corpus_loso.sh)
   and the validator emit the verdict file but **do not** mutate the
   registry. Auto-flipping on PROMOTE was rejected in ADR-0309's

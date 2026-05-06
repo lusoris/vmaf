@@ -37,7 +37,7 @@
       "onnx": "fr_regressor_v2_ensemble_v1_seed0.onnx",
       "opset": 17,
       "sha256": "fa89df1b2567184b301a7e0bc116d85de7c9c3e48cd3247e56060a8adb776b69",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed1",
@@ -46,7 +46,7 @@
       "onnx": "fr_regressor_v2_ensemble_v1_seed1.onnx",
       "opset": 17,
       "sha256": "48b0b9f386fde1e601d6984ed8ddb3c4fae603b4650ce060c432b88c43935e55",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed2",
@@ -55,7 +55,7 @@
       "onnx": "fr_regressor_v2_ensemble_v1_seed2.onnx",
       "opset": 17,
       "sha256": "927a23fe14aa70f4136a57ae006ebdf727712a16234fce7dbae1c6941f5629cc",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed3",
@@ -64,7 +64,7 @@
       "onnx": "fr_regressor_v2_ensemble_v1_seed3.onnx",
       "opset": 17,
       "sha256": "1be056b08df322515724c874caedbe09728ae5e8a311bbb72a9dd7ad4fa5490e",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed4",
@@ -73,7 +73,7 @@
       "onnx": "fr_regressor_v2_ensemble_v1_seed4.onnx",
       "opset": 17,
       "sha256": "584ad69bfbdb9250faef824af5c73eaf94b258fab51d38fbc167665a9a262d9c",
-      "smoke": true
+      "smoke": false
     },
     {
       "description": "Tiny residual filter for vmaf_pre \u2014 degraded \u2192 clean luma.",
