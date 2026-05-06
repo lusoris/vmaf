@@ -66,24 +66,41 @@ ffmpeg -f rawvideo -s 1920x1080 -pix_fmt yuv420p -i clip.yuv \
 x264 honours per-MB QP deltas natively (since r2390); the patch
 forwards `-qpfile <path>` to `x264_param_parse(... "qpfile", path)`.
 
-### libsvtav1 — scaffold (parses, doesn't apply)
+### libsvtav1 — full ROI bridge (SVT-AV1 ≥ 1.6.0)
 
 ```bash
 ffmpeg -f rawvideo ... -c:v libsvtav1 -crf 32 -qpfile clip.qpfile.txt clip.av1
 ```
 
-Today this **logs a warning** and continues without applying the
-ROI map:
+Today this loads the qpfile, sets `enable_roi_map`, and attaches a
+per-frame `ROI_MAP_EVENT` priv-data node to each picture sent to
+SVT-AV1:
 
 ```text
-[libsvtav1 @ 0x…] libsvtav1: qpfile=clip.qpfile.txt parsed
-(frames=240, 120x68 blocks); SVT-AV1 ROI translation deferred
-(ADR-0312). See docs/usage/vmaf-tune-ffmpeg.md.
+[libsvtav1 @ 0x…] libsvtav1: qpfile=clip.qpfile.txt loaded
+(frames=240, 120x68 qpfile blocks → 30x17 SB ROI grid); ROI bridge enabled.
 ```
 
-For end-to-end behaviour today, drive the encode through
-`vmaf-tune corpus` (which uses SVT-AV1's existing
-`-svtav1-params roi-map=…` plumbing).
+The adapter downsamples the per-16×16-MB qp_offsets emitted by
+`saliency.py` to SVT-AV1's per-64×64-superblock `b64_seg_map` by
+averaging the four MBs that overlap each SB and snapping to up to 8
+segment QPs (uniform binning when the value span exceeds the
+segment budget). The trade-off is that ROIs smaller than 64×64 px
+get averaged with their surroundings — acceptable for the
+`saliency_student_v1` model's object-sized ROIs (faces, focal
+subjects), but if you need finer granularity, drive the encode
+through `vmaf-tune corpus` instead, which uses SVT-AV1's existing
+`-svtav1-params roi-map=…` plumbing.
+
+The bridge is gated on the SVT-AV1 1.6.0+ ROI ABI (the
+`enable_roi_map` flag and the `ROI_MAP_EVENT` priv-data type). On
+older releases the adapter falls back to log-and-continue:
+
+```text
+[libsvtav1 @ 0x…] libsvtav1: qpfile=clip.qpfile.txt parsed but
+SVT-AV1 < 1.6.0 lacks the ROI ABI; encoding without ROI bias.
+Upgrade SVT-AV1 to activate the bridge (ADR-0312).
+```
 
 ### libaom-av1 — scaffold
 
@@ -188,11 +205,14 @@ Either the file does not exist, or its format does not match
 x264's qpfile reader. Run `python -m vmaftune.saliency --validate
 <path>` to round-trip the file through the parser.
 
-### `libsvtav1: qpfile=… parsed (…); SVT-AV1 ROI translation deferred`
+### `libsvtav1: qpfile=… parsed but SVT-AV1 < 1.6.0 lacks the ROI ABI`
 
-Expected today — the parser ran but the bridge to SVT-AV1's ROI
-input is not yet wired. Use `vmaf-tune corpus --codec svtav1` for
-end-to-end behaviour, or wait for the ADR-0312 follow-up patch.
+The full ROI bridge requires SVT-AV1 1.6.0 or newer (where the
+`enable_roi_map` configuration flag and the `ROI_MAP_EVENT`
+priv-data type were added). Upgrade your SVT-AV1 install, or in
+the meantime use `vmaf-tune corpus --codec svtav1` for end-to-end
+behaviour through SVT-AV1's existing `-svtav1-params roi-map=…`
+plumbing.
 
 ## See also
 
