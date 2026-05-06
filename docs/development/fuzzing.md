@@ -2,16 +2,20 @@
 
 Operator runbook for the libFuzzer harnesses under
 [`libvmaf/test/fuzz/`](../../libvmaf/test/fuzz/). Tracked under
-[ADR-0270](../adr/0270-fuzzing-scaffold.md); the harnesses satisfy
-the OSSF Scorecard
+[ADR-0270](../adr/0270-fuzzing-scaffold.md) (initial scaffold) and
+[ADR-0311](../adr/0311-libfuzzer-harness-expansion.md) (`fuzz_yuv_input`
+and `fuzz_cli_parse` expansion). The harnesses satisfy the OSSF
+Scorecard
 [`Fuzzing`](https://github.com/ossf/scorecard/blob/main/docs/checks.md#fuzzing)
 check.
 
 ## What is shipped
 
-| Harness          | Surface                                                                     | Source                                                                                | Known crashes |
-|------------------|-----------------------------------------------------------------------------|---------------------------------------------------------------------------------------|---------------|
-| `fuzz_y4m_input` | YUV4MPEG2 parser exposed via `video_input_open` / `_fetch_frame` / `_close` | [`libvmaf/test/fuzz/fuzz_y4m_input.c`](../../libvmaf/test/fuzz/fuzz_y4m_input.c) | 1 (411-chroma OOB write — see ADR-0270 §Consequences). |
+| Harness          | Surface                                                                     | Source                                                                           | Seed corpus                                                                | Known crashes                                                                                  |
+|------------------|-----------------------------------------------------------------------------|----------------------------------------------------------------------------------|----------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| `fuzz_y4m_input` | YUV4MPEG2 parser exposed via `video_input_open` / `_fetch_frame` / `_close` | [`libvmaf/test/fuzz/fuzz_y4m_input.c`](../../libvmaf/test/fuzz/fuzz_y4m_input.c) | [`y4m_input_corpus/`](../../libvmaf/test/fuzz/y4m_input_corpus/) (6 seeds) | 1 (411-chroma OOB write — see ADR-0270 §Consequences).                                         |
+| `fuzz_yuv_input` | Headerless raw-YUV reader exposed via `raw_input_open` / `_fetch_frame`     | [`libvmaf/test/fuzz/fuzz_yuv_input.c`](../../libvmaf/test/fuzz/fuzz_yuv_input.c) | [`yuv_input_corpus/`](../../libvmaf/test/fuzz/yuv_input_corpus/) (6 seeds) | 0                                                                                              |
+| `fuzz_cli_parse` | `cli_parse` argv tokeniser + colon-delimited `--feature` / `--model` parser | [`libvmaf/test/fuzz/fuzz_cli_parse.c`](../../libvmaf/test/fuzz/fuzz_cli_parse.c) | [`cli_parse_corpus/`](../../libvmaf/test/fuzz/cli_parse_corpus/) (6 seeds) | 1 (`--threads=<garbage>` abbreviation tripping `error()` assert — see ADR-0311 §Consequences). |
 
 New harnesses follow the README at
 [`libvmaf/test/fuzz/README.md`](../../libvmaf/test/fuzz/README.md).
@@ -29,7 +33,9 @@ CC=clang CXX=clang++ \
     -Db_lundef=false \
     -Dfuzz=true \
     -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
-ninja -C build-fuzz test/fuzz/fuzz_y4m_input
+ninja -C build-fuzz test/fuzz/fuzz_y4m_input \
+                    test/fuzz/fuzz_yuv_input \
+                    test/fuzz/fuzz_cli_parse
 ```
 
 Two non-default Meson flags are load-bearing:
@@ -43,15 +49,22 @@ Two non-default Meson flags are load-bearing:
 
 ## Run a 60-second smoke
 
+Each harness is independent; pick one, or run all three back-to-back:
+
 ```bash
-mkdir -p /tmp/fuzz-smoke-y4m
+mkdir -p /tmp/fuzz-smoke-y4m /tmp/fuzz-smoke-yuv /tmp/fuzz-smoke-cli
+
 ./build-fuzz/test/fuzz/fuzz_y4m_input \
-    -max_total_time=60 \
-    -rss_limit_mb=2048 \
-    -malloc_limit_mb=1024 \
-    -timeout=10 \
-    /tmp/fuzz-smoke-y4m \
-    libvmaf/test/fuzz/y4m_input_corpus/
+    -max_total_time=60 -rss_limit_mb=2048 -malloc_limit_mb=1024 -timeout=10 \
+    /tmp/fuzz-smoke-y4m libvmaf/test/fuzz/y4m_input_corpus/
+
+./build-fuzz/test/fuzz/fuzz_yuv_input \
+    -max_total_time=60 -rss_limit_mb=2048 -malloc_limit_mb=1024 -timeout=10 \
+    /tmp/fuzz-smoke-yuv libvmaf/test/fuzz/yuv_input_corpus/
+
+./build-fuzz/test/fuzz/fuzz_cli_parse \
+    -max_total_time=60 -rss_limit_mb=2048 -malloc_limit_mb=1024 -timeout=10 \
+    /tmp/fuzz-smoke-cli libvmaf/test/fuzz/cli_parse_corpus/
 ```
 
 Expected output on a clean run:

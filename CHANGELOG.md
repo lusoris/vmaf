@@ -8,6 +8,7 @@
 
 ### Added
 
+<<<<<<< HEAD
 - **`fr_regressor_v2` ensemble — real-corpus retrain harness +
   flip workflow (ADR-0309).** Follow-up to
   [ADR-0303](docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md) /
@@ -39,6 +40,37 @@
   registry-flip never happens during a rebase). Companion research
   digest:
   [Research-0081](docs/research/0081-fr-regressor-v2-ensemble-real-corpus-methodology.md).
+=======
+- **libFuzzer harness expansion — `fuzz_yuv_input` + `fuzz_cli_parse`
+  (ADR-0311, extends ADR-0270).** Lands two additional harnesses
+  alongside [`fuzz_y4m_input`](libvmaf/test/fuzz/fuzz_y4m_input.c):
+  [`fuzz_yuv_input.c`](libvmaf/test/fuzz/fuzz_yuv_input.c) wraps
+  the headerless raw-YUV reader (`tools/yuv_input.c`) via
+  `raw_input_open` against a fixed 32x32 envelope, rotating
+  through six (pix_fmt, bitdepth) combos selected from the
+  fuzzer's first input byte; up to 8 frames per iteration.
+  [`fuzz_cli_parse.c`](libvmaf/test/fuzz/fuzz_cli_parse.c) wraps
+  the CLI argv tokeniser + the colon-delimited
+  `parse_model_config` / `parse_feature_config` sub-parsers
+  (`tools/cli_parse.c`); treats fuzzer bytes as a NUL-separated
+  argv vector (capped at 64 args) and uses a `-Wl,--wrap=exit`
+  linker shim with a `setjmp`/`longjmp` trampoline to intercept
+  `usage()`'s `exit(1)` so a single bad input does not terminate
+  the fuzzer process. Each harness ships 6 hand-crafted seeds
+  (8/10-bit × 4:2:0/4:2:2/4:4:4 plus a truncated-frame seed for
+  YUV; minimal/feature/model/yuv-flag/help shapes for CLI). The
+  nightly [`.github/workflows/fuzz.yml`](.github/workflows/fuzz.yml)
+  matrix gains the two new targets at 60 s/harness/night
+  (≈ 3 minutes wall total, well under the 15-minute job cap).
+  Operator runbook updated in
+  [`docs/development/fuzzing.md`](docs/development/fuzzing.md);
+  ADR-0270 stays the parent scaffold ADR. Companion research
+  digest:
+  [`docs/research/0083-libfuzzer-harness-expansion-target-survey.md`](docs/research/0083-libfuzzer-harness-expansion-target-survey.md)
+  ranks the wider surface inventory and queues `fuzz_model_load`
+  + `fuzz_sidecar` as the next follow-up pair.
+
+>>>>>>> 00d26013 (feat(security): libFuzzer harnesses — yuv_input + cli_parse (extends ADR-0270))
 - **`fr_regressor_v2` codec-aware scaffold — first downstream consumer
   of the vmaf-tune Phase A JSONL corpus (ADR-0272, prereq for
   Phase B).** Ships

@@ -7205,6 +7205,79 @@ inline.*
   python ai/scripts/validate_model_registry.py
   ```
 
+### 0311 — libFuzzer harness expansion: yuv_input + cli_parse (ADR-0311)
+
+- **ADR**: [ADR-0311](adr/0311-libfuzzer-harness-expansion.md);
+  parent [ADR-0270](adr/0270-fuzzing-scaffold.md).
+- **Touches**:
+  - `libvmaf/test/fuzz/fuzz_yuv_input.c` (new)
+  - `libvmaf/test/fuzz/fuzz_cli_parse.c` (new)
+  - `libvmaf/test/fuzz/meson.build` — two new `executable(...)` blocks
+    for the harnesses, plus a shared `fuzz_vidinput_sources` list.
+  - `libvmaf/test/fuzz/yuv_input_corpus/*` (new — 6 seeds covering
+    8/10-bit × 4:2:0 / 4:2:2 / 4:4:4 plus a truncated-frame seed).
+  - `libvmaf/test/fuzz/cli_parse_corpus/*` (new — 6 seeds covering
+    the `--feature`, `--model`, `--reference`, YUV-flag, and
+    `--help` shapes).
+  - `libvmaf/test/fuzz/README.md` — Targets table extended.
+  - `.github/workflows/fuzz.yml` — matrix gains
+    `fuzz_yuv_input` + `fuzz_cli_parse`; per-harness wall-clock
+    budget reduced from 300 s to 60 s so the 3-target matrix
+    fits the existing `timeout-minutes: 15` cap.
+  - `docs/development/fuzzing.md` — runbook table + smoke
+    commands extended.
+  - `docs/adr/0311-libfuzzer-harness-expansion.md` (new)
+  - `docs/research/0083-libfuzzer-harness-expansion-target-survey.md`
+    (new)
+  - `libvmaf/AGENTS.md` — new invariant block for the
+    one-parser-one-harness rule.
+  - `CHANGELOG.md` — Added entry.
+- **Invariant**:
+  - The fuzz scaffold remains *opt-in* (`-Dfuzz=true`) — every
+    default `meson setup` invocation must continue to skip it.
+  - `fuzz_yuv_input` re-includes `tools/yuv_input.c` and the rest
+    of the vidinput trio as build inputs. Upstream Netflix/vmaf
+    splits or renames of those source files need the matching
+    `meson.build` source-list update.
+  - `fuzz_cli_parse` re-includes `tools/cli_parse.c` as a build
+    input and links against `libvmaf` for `vmaf_version()` and
+    feature-dictionary symbols. The `-Wl,--wrap=exit` link arg
+    is load-bearing — without it, `usage()`'s `exit(1)` would
+    terminate the fuzzer process on first bad input.
+  - `LLVMFuzzerTestOneInput` keeps external linkage; the
+    scaffold-wide `// NOLINTNEXTLINE(misc-use-internal-linkage)`
+    pattern is correct for libFuzzer's name-resolved entry-point
+    ABI.
+- **Rebase impact**: any upstream sync that touches
+  `libvmaf/tools/{yuv_input,cli_parse}.c` must re-run the 60 s
+  smoke per harness on the merged tip; record any new-found
+  crash-* artefact under the matching `<target>_known_crashes/`
+  dir, not in `<target>_corpus/`. The `__wrap_exit` shim in
+  `fuzz_cli_parse.c` is GNU-ld / lld-only; do not assume it
+  works on Apple ld without an `-undefined,dynamic_lookup`
+  fallback.
+- **Re-test on rebase**:
+
+  ```bash
+  CC=clang CXX=clang++ \
+    meson setup build-fuzz libvmaf \
+      --buildtype=debug \
+      -Db_sanitize=address \
+      -Db_lundef=false \
+      -Dfuzz=true \
+      -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=disabled
+  ninja -C build-fuzz \
+      test/fuzz/fuzz_y4m_input \
+      test/fuzz/fuzz_yuv_input \
+      test/fuzz/fuzz_cli_parse
+  ./build-fuzz/test/fuzz/fuzz_yuv_input \
+      -seed=0 -runs=1000 \
+      libvmaf/test/fuzz/yuv_input_corpus/
+  ./build-fuzz/test/fuzz/fuzz_cli_parse \
+      -seed=0 -runs=1000 \
+      libvmaf/test/fuzz/cli_parse_corpus/
+  ```
+
 ### 0229 — libFuzzer scaffold for the YUV4MPEG2 parser (ADR-0270)
 
 - **ADR**: [ADR-0270](adr/0270-fuzzing-scaffold.md)

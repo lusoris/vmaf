@@ -7,9 +7,11 @@ in [`docs/development/fuzzing.md`](../../../docs/development/fuzzing.md).
 
 ## Targets
 
-| Harness          | Surface under test                                                            | Corpus              |
-|------------------|-------------------------------------------------------------------------------|---------------------|
-| `fuzz_y4m_input` | `video_input_open` / `_fetch_frame` (Y4M parser, `libvmaf/tools/y4m_input.c`) | `y4m_input_corpus/` |
+| Harness          | Surface under test                                                                               | Corpus              |
+|------------------|--------------------------------------------------------------------------------------------------|---------------------|
+| `fuzz_y4m_input` | `video_input_open` / `_fetch_frame` (Y4M parser, `libvmaf/tools/y4m_input.c`)                    | `y4m_input_corpus/` |
+| `fuzz_yuv_input` | `raw_input_open` / `_fetch_frame` (raw YUV reader, `libvmaf/tools/yuv_input.c`)                  | `yuv_input_corpus/` |
+| `fuzz_cli_parse` | `cli_parse` argv tokeniser + colon-delimited model/feature parsers (`libvmaf/tools/cli_parse.c`) | `cli_parse_corpus/` |
 
 ## Build
 
@@ -69,12 +71,25 @@ lands:
 for f in libvmaf/test/fuzz/y4m_input_known_crashes/*.y4m; do
     ./build-fuzz/test/fuzz/fuzz_y4m_input "$f"
 done
+
+for f in libvmaf/test/fuzz/cli_parse_known_crashes/*.argv; do
+    ./build-fuzz/test/fuzz/fuzz_cli_parse "$f"
+done
 ```
+
+The `fuzz_cli_parse` harness additionally carries an in-source
+**early-reject filter** for tokens whose getopt-abbreviation prefix
+would route through one of the three known-buggy `parse_unsigned`
+call sites (`--th*`, `--s*`, `--c*`); see the
+`known_assert_in_input` helper in
+[`fuzz_cli_parse.c`](fuzz_cli_parse.c) and the bug write-up in
+[ADR-0311 §Consequences](../../../docs/adr/0311-libfuzzer-harness-expansion.md#consequences).
+Remove the filter once the cli_parse fix lands.
 
 ## CI
 
 The nightly [`.github/workflows/fuzz.yml`](../../../.github/workflows/fuzz.yml)
-job runs each harness for 5 minutes against the seed corpus and
+job runs each harness for 60 seconds against the seed corpus and
 uploads any `crash-*` / `oom-*` / `timeout-*` artefacts. It is the
 gate that satisfies the OSSF Scorecard
 [`Fuzzing`](https://github.com/ossf/scorecard/blob/main/docs/checks.md#fuzzing)
