@@ -1,8 +1,6 @@
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
 __license__ = "BSD+Patent"
 
-import unittest
-
 from vmaf.config import VmafConfig
 from vmaf.core.asset import Asset, NorefAsset
 
@@ -33,6 +31,32 @@ def set_default_flat_1920_1080_videos_for_testing():
     return ref_path, dis_path, asset, asset_original
 
 
+def set_default_1300_900_videos_for_testing_5frames():
+    ref_path = VmafConfig.test_resource_path("yuv", "src01_hrc00_1300x900_5frames.yuv")
+    dis_path = VmafConfig.test_resource_path("yuv", "src01_hrc01_1300x900_5frames.yuv")
+    asset = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=0,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=ref_path,
+        dis_path=dis_path,
+        asset_dict={"width": 1300, "height": 900},
+    )
+
+    asset_original = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=1,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=ref_path,
+        dis_path=ref_path,
+        asset_dict={"width": 1300, "height": 900},
+    )
+
+    return ref_path, dis_path, asset, asset_original
+
+
 def set_default_576_324_videos_for_testing():
     ref_path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv")
     dis_path = VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv")
@@ -57,6 +81,88 @@ def set_default_576_324_videos_for_testing():
     )
 
     return ref_path, dis_path, asset, asset_original
+
+
+def set_default_576_324_videos_for_testing_5frames():
+    ref_path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324_5frames.yuv")
+    dis_path = VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324_5frames.yuv")
+    asset = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=0,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=ref_path,
+        dis_path=dis_path,
+        asset_dict={"width": 576, "height": 324},
+    )
+
+    asset_original = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=1,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=ref_path,
+        dis_path=ref_path,
+        asset_dict={"width": 576, "height": 324},
+    )
+
+    return ref_path, dis_path, asset, asset_original
+
+
+def set_default_576_324_videos_for_testing_1frames():
+    path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324_1frames.yuv")
+    asset = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=0,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=path,
+        dis_path=path,
+        asset_dict={"width": 576, "height": 324},
+    )
+    return path, path, asset, asset
+
+
+def set_default_576_324_videos_for_testing_2frames():
+    path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324_2frames.yuv")
+    asset = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=0,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=path,
+        dis_path=path,
+        asset_dict={"width": 576, "height": 324},
+    )
+    return path, path, asset, asset
+
+
+def set_default_576_324_videos_for_testing_3frames():
+    path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324_3frames.yuv")
+    asset = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=0,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=path,
+        dis_path=path,
+        asset_dict={"width": 576, "height": 324},
+    )
+    return path, path, asset, asset
+
+
+def set_default_576_324_videos_for_testing_4frames():
+    path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324_4frames.yuv")
+    asset = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=0,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=path,
+        dis_path=path,
+        asset_dict={"width": 576, "height": 324},
+    )
+    return path, path, asset, asset
 
 
 def set_default_576_324_videos_for_testing_workfile_yuv_10b():
@@ -111,6 +217,46 @@ def set_default_576_324_videos_for_testing_scaled():
     return ref_path, dis_path, asset, asset_original
 
 
+def set_default_576_324_videos_for_testing_scaled_5frames():
+    ref_path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv")
+    dis_path = VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv")
+    asset = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=0,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=ref_path,
+        dis_path=dis_path,
+        asset_dict={
+            "width": 576,
+            "height": 324,
+            "dis_enc_width": 480,
+            "dis_enc_height": 270,
+            "start_frame": 0,
+            "end_frame": 4,
+        },
+    )
+
+    asset_original = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=1,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=ref_path,
+        dis_path=ref_path,
+        asset_dict={
+            "width": 576,
+            "height": 324,
+            "dis_enc_width": 480,
+            "dis_enc_height": 270,
+            "start_frame": 0,
+            "end_frame": 4,
+        },
+    )
+
+    return ref_path, dis_path, asset, asset_original
+
+
 def set_default_576_324_10bit_videos_for_testing():
     ref_path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv422p10le.yuv")
     dis_path = VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv422p10le.yuv")
@@ -132,6 +278,44 @@ def set_default_576_324_10bit_videos_for_testing():
         ref_path=ref_path,
         dis_path=ref_path,
         asset_dict={"width": 576, "height": 324, "yuv_type": "yuv422p10le"},
+    )
+
+    return ref_path, dis_path, asset, asset_original
+
+
+def set_default_576_324_10bit_videos_for_testing_5frames():
+    ref_path = VmafConfig.test_resource_path("yuv", "src01_hrc00_576x324.yuv422p10le.yuv")
+    dis_path = VmafConfig.test_resource_path("yuv", "src01_hrc01_576x324.yuv422p10le.yuv")
+    asset = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=0,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=ref_path,
+        dis_path=dis_path,
+        asset_dict={
+            "width": 576,
+            "height": 324,
+            "yuv_type": "yuv422p10le",
+            "start_frame": 0,
+            "end_frame": 4,
+        },
+    )
+
+    asset_original = Asset(
+        dataset="test",
+        content_id=0,
+        asset_id=1,
+        workdir_root=VmafConfig.workdir_path(),
+        ref_path=ref_path,
+        dis_path=ref_path,
+        asset_dict={
+            "width": 576,
+            "height": 324,
+            "yuv_type": "yuv422p10le",
+            "start_frame": 0,
+            "end_frame": 4,
+        },
     )
 
     return ref_path, dis_path, asset, asset_original
