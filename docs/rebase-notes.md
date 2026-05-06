@@ -8465,3 +8465,32 @@ inline.*
   ```bash
   python -m pytest tools/vmaf-tune/tests/test_fast.py -v
   ```
+
+### 0307 — `vmaf-tune` ladder default sampler wiring (ADR-0307)
+
+- **What changed**: fork-local tooling.
+  `tools/vmaf-tune/src/vmaftune/ladder.py::_default_sampler` no
+  longer raises `NotImplementedError`; it composes
+  `corpus.iter_rows` (Phase A encode + score) with
+  `recommend.pick_target_vmaf` (smallest CRF clearing target VMAF)
+  over `DEFAULT_SAMPLER_CRF_SWEEP = (18, 23, 28, 33, 38)` at the
+  adapter's mid-range preset. Module-level docstring + AGENTS.md
+  invariant updated. New tests in
+  `tools/vmaf-tune/tests/test_ladder.py` stub `iter_rows` via
+  `monkeypatch.setattr` so no live ffmpeg / vmaf binaries are needed.
+- **Upstream source**: fork-local. The whole `tools/vmaf-tune/` tree
+  is fork-introduced (ADR-0237); upstream Netflix/vmaf has no
+  encode-automation / ladder surface.
+- **On upstream sync**: zero interaction. `tools/vmaf-tune/` is not
+  mirrored from upstream.
+- **Rebase invariant**: the 5-point sweep
+  `(18, 23, 28, 33, 38)` is the load-bearing default; downstream
+  Phase E callers size their wall-time budget against five encodes
+  per `(resolution, target_vmaf)` cell. Do not widen / narrow it
+  without an ADR-0307 follow-up. The `SamplerFn` seam stays open —
+  callers needing finer grids pass an explicit `sampler=`.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/test_ladder.py -v
+  ```
