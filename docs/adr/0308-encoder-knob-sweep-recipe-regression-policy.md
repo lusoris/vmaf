@@ -1,6 +1,6 @@
 # ADR-0308: Encoder knob-sweep recipe-regression revision policy
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: Lusoris, Claude
 - **Tags**: ai, vmaf-tune, codec-adapters, knob-sweep, fork-local

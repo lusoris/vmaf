@@ -1,6 +1,6 @@
 # ADR-0303: `fr_regressor_v2` ensemble — production flip trainer + CI gate
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Companion research digest**: [Research-0075](../research/0075-fr-regressor-v2-ensemble-prod-flip.md)

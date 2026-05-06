@@ -1,6 +1,6 @@
 # ADR-0319: `fr_regressor_v2` ensemble LOSO trainer — real loader + per-fold training
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-06
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, fr-regressor, ensemble, loso, fork-local

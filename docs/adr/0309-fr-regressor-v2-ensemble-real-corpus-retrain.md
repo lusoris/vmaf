@@ -1,6 +1,6 @@
 # ADR-0309: `fr_regressor_v2` ensemble — real-corpus retrain harness + flip workflow
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Companion research digest**: [Research-0081](../research/0081-fr-regressor-v2-ensemble-real-corpus-methodology.md)
