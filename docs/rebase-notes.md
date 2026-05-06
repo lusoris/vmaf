@@ -8769,3 +8769,45 @@ inline.*
   ```bash
   mkdocs build --strict 2>&1 | grep -E "(WARNING|ERROR)" || echo "docs build clean"
   ```
+
+### 0316 — `cli_parse.c` `error()` long-only-option fix (ADR-0316)
+
+- **ADR**: [ADR-0316](adr/0316-cli-parse-long-only-error-fix.md) (follow-up to [ADR-0311](adr/0311-libfuzzer-harness-expansion.md)).
+- **Digest**: none — bug-fix; fix shape fits in the ADR/commit body.
+- **Touches**:
+  - `libvmaf/tools/cli_parse.c` (3 lines — call-site arg change at the
+    `ARG_THREADS` / `ARG_SUBSAMPLE` / `ARG_CPUMASK` handlers).
+  - `libvmaf/test/fuzz/fuzz_cli_parse.c` (removed
+    `known_assert_in_input` early-reject filter).
+  - `libvmaf/test/fuzz/cli_parse_corpus/cli_threads_abbrev_assert.argv`
+    (promoted from `cli_parse_known_crashes/`).
+  - `libvmaf/test/test_cli_parse_long_only_args.c` (new fork()-based
+    regression test).
+  - `libvmaf/test/meson.build` (new test wiring, gated off Windows
+    alongside `test_y4m_411_oob`).
+  - `libvmaf/tools/AGENTS.md` (added a long-only-options invariant
+    note next to the existing `cli_parse.c` rules).
+- **Rebase invariant**: load-bearing. `cli_parse.c` is upstream-mirror
+  with fork additions; the three handlers carry the **fork-local
+  shape** of passing the `ARG_*` enum value (not `'t'` / `'s'` / `'c'`)
+  to `parse_unsigned()`. If an upstream sync re-introduces the
+  original short-option char shape, the assert returns and the
+  parked-then-promoted reproducer
+  (`cli_parse_corpus/cli_threads_abbrev_assert.argv`) will surface
+  it in the next nightly fuzz run.
+- **Upstream source**: the bug shape exists in Netflix/vmaf master
+  too (long-only options were added upstream with the same
+  short-option-char placeholder). When the fork ports an upstream
+  fix that overlaps these handlers, prefer the
+  `parse_unsigned(optarg, ARG_*, argv[0])` form already on the fork.
+- **On upstream sync**: re-apply the three-line change in
+  `cli_parse.c` if upstream resets the call-site args. The unit
+  test is fork-local and stays.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup libvmaf/build libvmaf -Denable_tests=true \
+      -Denable_cuda=false -Denable_sycl=false
+  ninja -C libvmaf/build test/test_cli_parse_long_only_args
+  meson test -C libvmaf/build test_cli_parse_long_only_args -v
+  ```

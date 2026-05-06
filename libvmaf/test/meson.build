@@ -281,6 +281,20 @@ if host_machine.system() != 'windows'
         c_args : [compat_cflags],
         dependencies: [pthread_dependency, sycl_dependency],
     )
+
+    # test_cli_parse_long_only_args forks a child to drive
+    # cli_parse() with intentionally-bad argv and asserts the
+    # child exits with status 1 + a "usage error" stderr line
+    # — instead of dying from the SIGABRT the pre-ADR-0316
+    # `error()` assertion would raise. POSIX fork()/waitpid()
+    # required; gated off Windows alongside test_y4m_411_oob.
+    test_cli_parse_long_only_args = executable('test_cli_parse_long_only_args',
+        ['test.c', 'test_cli_parse_long_only_args.c', '../tools/cli_parse.c'],
+        include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), include_directories('../tools/')],
+        link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+        c_args : [compat_cflags],
+        dependencies: [pthread_dependency, getopt_dependency, sycl_dependency],
+    )
 endif
 
 test_psnr = executable('test_psnr',
@@ -720,6 +734,7 @@ test('test_luminance_tools', test_luminance_tools)
 test('test_cli_parse', test_cli_parse)
 if host_machine.system() != 'windows'
     test('test_y4m_411_oob', test_y4m_411_oob)
+    test('test_cli_parse_long_only_args', test_cli_parse_long_only_args)
 endif
 test('test_psnr', test_psnr)
 test('test_framesync', test_framesync)

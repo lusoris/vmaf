@@ -117,43 +117,6 @@ void __wrap_exit(int code)
     __real_exit(code);
 }
 
-/* Best-effort early reject for argv vectors that hit the known
- * `error()`-assert bug class in cli_parse.c. The bug: handlers
- * for the long-only options `ARG_THREADS` / `ARG_SUBSAMPLE` /
- * `ARG_CPUMASK` call `parse_unsigned(optarg, 't' / 's' / 'c',
- * argv[0])` with a hardcoded short-option char that is not
- * registered in `long_opts[]`. When the optarg fails to parse,
- * `error()` walks long_opts looking for the impossible char and
- * trips its `assert(long_opts[n].name)`. Captured reproducer in
- * `cli_parse_known_crashes/cli_threads_abbrev_assert.argv`;
- * tracked as a follow-up bug fix.
- *
- * The filter rejects any token whose prefix could route through
- * one of the three buggy handlers via getopt's unique-prefix
- * abbreviation matching: `--th*` (only matches `--threads`),
- * `--s*` (would match `--subsample` and friends), `--c*` (would
- * match `--cpumask` and friends). The over-broad shape is the
- * point — we want every variation of the abbreviation-driven
- * path silenced until the upstream-mirror fix lands. Other
- * crashes still escape the filter. Returns 1 if the input
- * should be skipped. */
-static int known_assert_in_input(char *const *argv, unsigned argc)
-{
-    static const char *const known_bad_prefixes[] = {"--th", "--s", "--c"};
-    static const size_t known_bad_n = sizeof(known_bad_prefixes) / sizeof(known_bad_prefixes[0]);
-
-    for (unsigned i = 1u; i < argc; i++) {
-        if (argv[i] == NULL)
-            continue;
-        for (size_t k = 0u; k < known_bad_n; k++) {
-            const size_t pfx_len = strlen(known_bad_prefixes[k]);
-            if (strncmp(argv[i], known_bad_prefixes[k], pfx_len) == 0)
-                return 1;
-        }
-    }
-    return 0;
-}
-
 /* Tokenise the fuzzer input on NUL bytes into an argv vector.
  * Returns argc on success, 0 if the input has no usable tokens.
  * The returned `argv` is a heap allocation; `argv[i]` pointers
@@ -261,7 +224,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     char *argv[FUZZ_MAX_ARGC];
     memset(argv, 0, sizeof(argv));
     const unsigned argc = tokenise_argv(buf, size, argv, FUZZ_MAX_ARGC);
-    if (argc < 2u || known_assert_in_input(argv, argc)) {
+    if (argc < 2u) {
         free(buf);
         return 0;
     }

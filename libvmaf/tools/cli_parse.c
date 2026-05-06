@@ -620,14 +620,22 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             CHECKED_APPEND(settings->feature_cfg, settings->feature_cnt,
                            parse_feature_config(optarg, argv[0]), argv[0], "features");
             break;
+        /* The three handlers below pass the long-only enum value (not a
+         * synthesised short-option char) to parse_unsigned() so that
+         * error()'s walk over long_opts[] finds a matching entry. The
+         * earlier 't' / 's' / 'c' shape tripped error()'s
+         * assert(long_opts[n].name) for any non-numeric optarg
+         * (e.g. `--threads abc`), turning a clean usage() error into a
+         * SIGABRT — surfaced by the libFuzzer harness in PR #408
+         * (ADR-0311). See ADR-0316. */
         case ARG_THREADS:
-            settings->thread_cnt = parse_unsigned(optarg, 't', argv[0]);
+            settings->thread_cnt = parse_unsigned(optarg, ARG_THREADS, argv[0]);
             break;
         case ARG_SUBSAMPLE:
-            settings->subsample = parse_unsigned(optarg, 's', argv[0]);
+            settings->subsample = parse_unsigned(optarg, ARG_SUBSAMPLE, argv[0]);
             break;
         case ARG_CPUMASK:
-            settings->cpumask = parse_unsigned(optarg, 'c', argv[0]);
+            settings->cpumask = parse_unsigned(optarg, ARG_CPUMASK, argv[0]);
             break;
         case ARG_GPUMASK:
             settings->gpumask = parse_unsigned(optarg, ARG_GPUMASK, argv[0]);
