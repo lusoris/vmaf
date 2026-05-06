@@ -116,6 +116,19 @@ typedef struct CambiBuffers {
 typedef void (*VmafRangeUpdater)(uint16_t *arr, int left, int right);
 typedef void (*VmafDerivativeCalculator)(const uint16_t *image_data, uint16_t *derivative_buffer,
                                          int width, int height, int row, int stride);
+typedef void (*VmafCalcCValuesRow)(float *c_values, const uint16_t *histograms,
+                                   const uint16_t *image, const uint16_t *mask, int row, int width,
+                                   ptrdiff_t stride, const uint16_t num_diffs,
+                                   const uint16_t *tvi_thresholds, uint16_t vlt_luma,
+                                   const int *diff_weights, const int *all_diffs,
+                                   const float *reciprocal_lut);
+
+static void calculate_c_values_row(float *c_values, const uint16_t *histograms,
+                                   const uint16_t *image, const uint16_t *mask, int row, int width,
+                                   ptrdiff_t stride, const uint16_t num_diffs,
+                                   const uint16_t *tvi_for_diff, uint16_t vlt_luma,
+                                   const int *diff_weights, const int *all_diffs,
+                                   const float *reciprocal_lut);
 
 typedef struct CambiState {
     VmafPicture pics[PICS_BUFFER_SIZE];
@@ -143,6 +156,7 @@ typedef struct CambiState {
     VmafRangeUpdater inc_range_callback;
     VmafRangeUpdater dec_range_callback;
     VmafDerivativeCalculator derivative_callback;
+    VmafCalcCValuesRow calc_c_values_row_callback;
     CambiBuffers buffers;
     VmafDictionary *feature_name_dict;
 } CambiState;
@@ -727,6 +741,7 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->inc_range_callback = increment_range;
     s->dec_range_callback = decrement_range;
     s->derivative_callback = get_derivative_data_for_row;
+    s->calc_c_values_row_callback = calculate_c_values_row;
 
 #if ARCH_X86
     unsigned flags = vmaf_get_cpu_flags();
@@ -734,6 +749,7 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         s->inc_range_callback = cambi_increment_range_avx2;
         s->dec_range_callback = cambi_decrement_range_avx2;
         s->derivative_callback = get_derivative_data_for_row_avx2;
+        s->calc_c_values_row_callback = calculate_c_values_row_avx2;
     }
     if (flags & VMAF_X86_CPU_FLAG_AVX512) {
         s->inc_range_callback = cambi_increment_range_avx512;
@@ -1280,12 +1296,14 @@ update_histogram_add_first_pass(uint16_t *histograms, uint16_t *image, uint16_t 
     }
 }
 
-static FORCE_INLINE inline void
-calculate_c_values_row(float *c_values, uint16_t *histograms, uint16_t *image, uint16_t *mask,
-                       int row, int width, ptrdiff_t stride, const uint16_t num_diffs,
-                       const uint16_t *tvi_for_diff, uint16_t vlt_luma, const int *diff_weights,
-                       const int *all_diffs)
+static void calculate_c_values_row(float *c_values, const uint16_t *histograms,
+                                   const uint16_t *image, const uint16_t *mask, int row, int width,
+                                   ptrdiff_t stride, const uint16_t num_diffs,
+                                   const uint16_t *tvi_for_diff, uint16_t vlt_luma,
+                                   const int *diff_weights, const int *all_diffs,
+                                   const float *reciprocal_lut)
 {
+    (void)reciprocal_lut; // scalar version uses the file-scope LUT directly
     for (int col = 0; col < width; col++) {
         if (mask[row * stride + col]) {
             c_values[row * width + col] =
@@ -1300,7 +1318,8 @@ static void calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, fl
                                const uint16_t *tvi_for_diff, uint16_t vlt_luma,
                                const int *diff_weights, const int *all_diffs, int width, int height,
                                VmafRangeUpdater inc_range_callback,
-                               VmafRangeUpdater dec_range_callback)
+                               VmafRangeUpdater dec_range_callback,
+                               VmafCalcCValuesRow calc_c_values_row_callback)
 {
 
     uint16_t pad_size = window_size >> 1;
@@ -1350,8 +1369,8 @@ static void calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, fl
                                           num_diffs, inc_range_callback);
             }
         }
-        calculate_c_values_row(c_values, histograms, image, mask, i, width, stride, num_diffs,
-                               tvi_for_diff, vlt_luma, diff_weights, all_diffs);
+        calc_c_values_row_callback(c_values, histograms, image, mask, i, width, stride, num_diffs,
+                                   tvi_for_diff, vlt_luma, diff_weights, all_diffs, reciprocal_lut);
     }
     for (int i = pad_size + 1; i < height - pad_size; i++) {
         for (int j = 0; j < pad_size; j++) {
@@ -1372,8 +1391,8 @@ static void calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, fl
             update_histogram_add_edge(histograms, image, mask, i, j, width, stride, pad_size,
                                       num_diffs, inc_range_callback);
         }
-        calculate_c_values_row(c_values, histograms, image, mask, i, width, stride, num_diffs,
-                               tvi_for_diff, vlt_luma, diff_weights, all_diffs);
+        calc_c_values_row_callback(c_values, histograms, image, mask, i, width, stride, num_diffs,
+                                   tvi_for_diff, vlt_luma, diff_weights, all_diffs, reciprocal_lut);
     }
     for (int i = height - pad_size; i < height; i++) {
         if (i - pad_size - 1 >= 0) {
@@ -1390,8 +1409,8 @@ static void calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, fl
                                                pad_size, num_diffs, dec_range_callback);
             }
         }
-        calculate_c_values_row(c_values, histograms, image, mask, i, width, stride, num_diffs,
-                               tvi_for_diff, vlt_luma, diff_weights, all_diffs);
+        calc_c_values_row_callback(c_values, histograms, image, mask, i, width, stride, num_diffs,
+                                   tvi_for_diff, vlt_luma, diff_weights, all_diffs, reciprocal_lut);
     }
 }
 
@@ -1494,7 +1513,8 @@ static int cambi_score(VmafPicture *pics, uint16_t window_size, double topk,
                        const uint16_t num_diffs, const uint16_t *tvi_for_diff, uint16_t vlt_luma,
                        const CambiBuffers *buffers, VmafRangeUpdater inc_range_callback,
                        VmafRangeUpdater dec_range_callback,
-                       VmafDerivativeCalculator derivative_callback, double *score,
+                       VmafDerivativeCalculator derivative_callback,
+                       VmafCalcCValuesRow calc_c_values_row_callback, double *score,
                        bool write_heatmaps, FILE *heatmaps_files[], int width, int height,
                        int frame, bool cambi_high_res_speedup)
 {
@@ -1518,10 +1538,10 @@ static int cambi_score(VmafPicture *pics, uint16_t window_size, double topk,
 
         filter_mode(image, scaled_width, scaled_height, buffers->filter_mode_buffer);
 
-        calculate_c_values(image, mask, buffers->c_values, buffers->c_values_histograms,
-                           window_size, num_diffs, tvi_for_diff, vlt_luma, buffers->diff_weights,
-                           buffers->all_diffs, scaled_width, scaled_height, inc_range_callback,
-                           dec_range_callback);
+        calculate_c_values(image, mask, buffers.c_values, buffers.c_values_histograms, window_size,
+                           num_diffs, tvi_for_diff, vlt_luma, buffers.diff_weights,
+                           buffers.all_diffs, scaled_width, scaled_height, inc_range_callback,
+                           dec_range_callback, calc_c_values_row_callback);
 
         if (write_heatmaps) {
             int err = dump_c_values(heatmaps_files, buffers->c_values, scaled_width, scaled_height,
@@ -1560,9 +1580,9 @@ static int preprocess_and_extract_cambi(CambiState *s, VmafPicture *pic, double 
         topk = s->cambi_topk;
     }
     err = cambi_score(s->pics, window_size, topk, num_diffs, s->buffers.tvi_for_diff, s->vlt_luma,
-                      &s->buffers, s->inc_range_callback, s->dec_range_callback,
-                      s->derivative_callback, score, write_heatmaps, s->heatmaps_files, width,
-                      height, frame, (bool)s->cambi_high_res_speedup);
+                      s->buffers, s->inc_range_callback, s->dec_range_callback,
+                      s->derivative_callback, s->calc_c_values_row_callback, score, write_heatmaps,
+                      s->heatmaps_files, width, height, frame, (bool)s->cambi_high_res_speedup);
 
     if (err)
         return err;
@@ -1692,9 +1712,12 @@ void vmaf_cambi_calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic
                                    int width, int height, VmafCambiRangeUpdater inc_range_callback,
                                    VmafCambiRangeUpdater dec_range_callback)
 {
+    /* GPU-twin shim always runs the scalar c-values row on the host residual; ADR-0205
+     * Strategy II keeps the precision-sensitive sequential stage on host. */
     calculate_c_values(pic, mask_pic, c_values, histograms, window_size, num_diffs, tvi_for_diff,
                        vlt_luma, diff_weights, all_diffs, width, height,
-                       (VmafRangeUpdater)inc_range_callback, (VmafRangeUpdater)dec_range_callback);
+                       (VmafRangeUpdater)inc_range_callback, (VmafRangeUpdater)dec_range_callback,
+                       calculate_c_values_row);
 }
 
 double vmaf_cambi_spatial_pooling(float *c_values, double topk, unsigned width, unsigned height)
