@@ -306,6 +306,24 @@ model card:
   alternatives matrix specifically because rebase-time mutation of
   shipped registry rows is the foot-gun this invariant exists to
   prevent.
+- **Ensemble production-flip is now done (ADR-0321)**: as of
+  2026-05-06 the five `fr_regressor_v2_ensemble_v1_seed{0..4}` rows
+  carry `smoke: false` and point at LOSO-gated, full-corpus-trained
+  ONNX weights produced by
+  [`ai/scripts/export_ensemble_v2_seeds.py`](scripts/export_ensemble_v2_seeds.py).
+  Each row has a sidecar
+  `model/tiny/fr_regressor_v2_ensemble_v1_seed{N}.json` that mirrors
+  the canonical `fr_regressor_v2.json` shape (encoder vocab v2, codec
+  block layout, scaler params) plus seed-specific gate evidence from
+  `runs/ensemble_v2_real/PROMOTE.json`. **Going-forward rule**: any
+  future flip (re-train + re-export) requires a fresh
+  `PROMOTE.json` from the LOSO trainer and a re-run of
+  `export_ensemble_v2_seeds.py` — both the ONNX bytes and the
+  per-seed sidecars must be regenerated together so the
+  `test_registry.sh` sha256 + sidecar-presence check stays green.
+  Editing one without the other is a foot-gun: the registry test
+  catches the sha256 drift, but a stale sidecar's gate-evidence block
+  would silently lie about provenance.
 - **Canonical-6 JSONL schema is load-bearing (ADR-0319)**: the LOSO
   trainer's `_load_corpus` accepts the schema emitted by
   [`scripts/dev/hw_encoder_corpus.py`](../scripts/dev/hw_encoder_corpus.py)
