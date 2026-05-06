@@ -74,6 +74,14 @@ class CorpusOptions:
     keep_encodes: bool = False
     src_sha256: bool = True
     sample_clip_seconds: float = 0.0
+    # ADR-0299 / ADR-0314: libvmaf scoring backend. ``None`` (default)
+    # omits the ``--backend`` flag so libvmaf picks its own default
+    # (CPU on a stock build); ``"cuda"`` / ``"vulkan"`` / ``"sycl"`` /
+    # ``"cpu"`` engage the corresponding backend explicitly. The CLI
+    # resolves ``--score-backend auto`` to a concrete value before
+    # populating this field; ``CorpusOptions`` itself never walks the
+    # fallback chain.
+    score_backend: str | None = None
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:
@@ -170,7 +178,12 @@ def iter_rows(
             frame_cnt=frame_cnt,
         )
         if enc_res.exit_status == 0:
-            score_res = run_score(score_req, vmaf_bin=opts.vmaf_bin, runner=score_runner)
+            score_res = run_score(
+                score_req,
+                vmaf_bin=opts.vmaf_bin,
+                runner=score_runner,
+                backend=opts.score_backend,
+            )
         else:
             # Skip scoring on encode failure; row records the failure.
             score_res = ScoreResult(

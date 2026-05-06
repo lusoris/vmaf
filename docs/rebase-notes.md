@@ -8405,6 +8405,47 @@ inline.*
   pytest tools/vmaf-tune/tests/test_corpus.py -k coarse_to_fine
   ```
 
+### 0314 — `vmaf-tune --score-backend=vulkan` (ADR-0314)
+
+- **Touches**:
+  - `tools/vmaf-tune/src/vmaftune/cli.py` (additive argparse flag on
+    `corpus` + `recommend` subparsers; resolves `select_backend` and
+    catches `BackendUnavailableError` for clean exit-2).
+  - `tools/vmaf-tune/src/vmaftune/score.py` (additive `backend` kwarg
+    on `build_vmaf_command` and `run_score`; `None` = no flag emitted).
+  - `tools/vmaf-tune/src/vmaftune/corpus.py` (new
+    `CorpusOptions.score_backend` field, default `None`; forwarded
+    into `run_score`).
+  - `tools/vmaf-tune/tests/test_score_backend.py` (additive
+    Vulkan-specific tests; pre-existing tests now pass after the
+    `backend=` kwarg lands).
+  - `docs/adr/0314-vmaf-tune-score-backend-vulkan.md` (new).
+  - `docs/usage/vmaf-tune.md` (new "Vulkan score backend" subsection
+    under the existing GPU-scoring section).
+  - `tools/vmaf-tune/AGENTS.md` (invariant note: argparse choices
+    stay in sync with libvmaf `--backend` vocabulary).
+  - `changelog.d/added/vmaf-tune-score-backend-vulkan.md` (new).
+- **Invariant**: `score_backend.ALL_BACKENDS = ("cpu", "cuda",
+  "sycl", "vulkan")` is the exact set libvmaf's
+  `libvmaf/tools/cli_parse.c` `--backend` alternation accepts. Adding
+  a new harness-side value without the libvmaf-side wiring produces
+  silent strict-mode failures on hosts that probe positively for it.
+- **Upstream source**: zero. Netflix upstream's CLI does not ship a
+  `--backend` selector; both `tools/vmaf-tune/` and
+  `libvmaf/src/vulkan/` are fork-introduced.
+- **On upstream sync**: zero interaction. No upstream-mirror file is
+  touched.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest tools/vmaf-tune/tests/test_score_backend.py -v -k vulkan
+  pytest tools/vmaf-tune/tests/test_score_backend.py -v
+  ```
+
+  Failures here usually indicate the libvmaf help-text format
+  changed; `score_backend.parse_supported_backends` test fixtures
+  pin the format and will fail loudly.
+
 ### 0303 — fr_regressor_v2 ensemble prod flip (ADR-0303)
 
 - **ADR**: [ADR-0303](adr/0303-fr-regressor-v2-ensemble-prod-flip.md)

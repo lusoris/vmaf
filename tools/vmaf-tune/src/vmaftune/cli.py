@@ -18,6 +18,7 @@ from . import __version__
 from .codec_adapters import known_codecs
 from .corpus import CorpusJob, CorpusOptions, coarse_to_fine_search, iter_rows, write_jsonl
 from .encode import iter_grid
+from .score_backend import ALL_BACKENDS, BackendUnavailableError, select_backend
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -96,6 +97,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     corpus.add_argument("--ffmpeg-bin", default="ffmpeg")
     corpus.add_argument("--vmaf-bin", default="vmaf")
+    corpus.add_argument(
+        "--score-backend",
+        default="auto",
+        choices=("auto", *ALL_BACKENDS),
+        help=(
+            "libvmaf scoring backend (default: auto). 'auto' picks the "
+            "fastest available (cuda > vulkan > sycl > cpu); a specific "
+            "name is honoured strictly and errors out if unavailable. "
+            "Use 'vulkan' on AMD / Intel Arc / Apple-MoltenVK hosts "
+            "(ADR-0314)."
+        ),
+    )
     corpus.add_argument(
         "--no-source-hash",
         action="store_true",
@@ -201,11 +214,27 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--vmaf-model", default="vmaf_v0.6.1")
     p.add_argument("--ffmpeg-bin", default="ffmpeg")
     p.add_argument("--vmaf-bin", default="vmaf")
+    p.add_argument(
+        "--score-backend",
+        default="auto",
+        choices=("auto", *ALL_BACKENDS),
+        help=(
+            "libvmaf scoring backend (default: auto; cuda > vulkan > "
+            "sycl > cpu). See `vmaf-tune corpus --help`."
+        ),
+    )
     p.add_argument("--no-source-hash", action="store_true")
     _add_coarse_to_fine_flags(p)
 
 
 def _build_opts(args: argparse.Namespace) -> CorpusOptions:
+    # ADR-0299 / ADR-0314: resolve --score-backend up-front so an
+    # unavailable backend errors out before we burn cycles on encodes.
+    # `select_backend` raises `BackendUnavailableError` (caught by the
+    # caller) when a non-auto backend is requested but the host can't
+    # provide it.
+    selected = select_backend(prefer=args.score_backend, vmaf_bin=args.vmaf_bin)
+    sys.stderr.write(f"vmaf-tune: scoring backend = {selected}\n")
     return CorpusOptions(
         encoder=args.encoder,
         output=args.output,
@@ -215,7 +244,8 @@ def _build_opts(args: argparse.Namespace) -> CorpusOptions:
         vmaf_bin=args.vmaf_bin,
         keep_encodes=args.keep_encodes,
         src_sha256=not args.no_source_hash,
-        sample_clip_seconds=args.sample_clip_seconds,
+        sample_clip_seconds=getattr(args, "sample_clip_seconds", 0.0),
+        score_backend=selected,
     )
 
 
@@ -232,7 +262,11 @@ def _build_job(args: argparse.Namespace, src: Path, cells: tuple) -> CorpusJob:
 
 
 def _run_corpus(args: argparse.Namespace) -> int:
-    opts = _build_opts(args)
+    try:
+        opts = _build_opts(args)
+    except BackendUnavailableError as exc:
+        sys.stderr.write(f"vmaf-tune: {exc}\n")
+        return 2
 
     if args.coarse_to_fine:
         # Coarse-to-fine ignores --crf and uses the configured grid.
@@ -279,7 +313,11 @@ def _run_recommend(args: argparse.Namespace) -> int:
         sys.stderr.write("recommend requires --target-vmaf\n")
         return 2
 
-    opts = _build_opts(args)
+    try:
+        opts = _build_opts(args)
+    except BackendUnavailableError as exc:
+        sys.stderr.write(f"vmaf-tune: {exc}\n")
+        return 2
     sentinel_cells = tuple((p, 0) for p in args.preset)
 
     visited: list[dict] = []
