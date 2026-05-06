@@ -117,8 +117,12 @@ into FFmpeg's encoder-side and CLI-side surfaces:
   AVOption to `libx264`, `libsvtav1`, and `libaom-av1`. The shared
   parser at `libavcodec/qpfile_parser.{c,h}` reads vmaf-tune's
   `saliency.py` qpfile format once; libx264 forwards it to x264's
-  native per-MB qpfile reader; SVT-AV1 / libaom currently parse + log
-  (full ROI bridge deferred — see ADR-0312 §Alternatives).
+  native per-MB qpfile reader; SVT-AV1 wires it through to the
+  per-picture `ROI_MAP_EVENT` priv-data ABI (gated on SVT-AV1 ≥ 1.6.0;
+  older releases log-and-continue); libaom-av1 wires it through to
+  `aom_codec_control(AOME_SET_ROI_MAP, ...)` per frame, with up to 8
+  segment QPs and uniform binning when the qp_offset value span
+  exceeds the segment budget.
 - **`0008-add-libvmaf_tune-filter.patch`** — new `libvmaf_tune` 2-input
   filter (`libavfilter/vf_libvmaf_tune.c`). Scaffold: pass-through on
   the main pad, framesync ref pad, AVOptions

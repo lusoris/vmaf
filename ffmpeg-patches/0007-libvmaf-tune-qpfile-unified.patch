@@ -1,4 +1,4 @@
-From 2712eb773256ec087ff1a11f29fc240b2ee41e41 Mon Sep 17 00:00:00 2001
+From 104a81396d3d580a943a14fef05f57705d15a067 Mon Sep 17 00:00:00 2001
 From: Lusoris <lusoris@pm.me>
 Date: Tue, 5 May 2026 23:24:55 +0200
 Subject: [PATCH 7/9] libavcodec: unified -qpfile across
@@ -28,8 +28,16 @@ native ROI / per-block QP-offset API:
     ROI_MAP_EVENT data via shallow-copied pointers on async pipeline
     threads (resource_coordination_process.c, enc_handle.c). Retires
     the SVT-AV1 deferral noted in ADR-0312.
-  * libaom-av1: SCAFFOLD - parse, log; AV1E_SET_ROI_MAP wiring
-    deferred (requires per-frame 4-segment quantizer map).
+  * libaom-av1: full ROI bridge. Parses the qpfile, allocates an
+    encoder-grid-sized segment-id map (mi grid: ALIGN_POWER_OF_TWO(dim,
+    8) >> 2), and per frame in aom_encode() picks up to 8 segment QPs
+    (uniform linear binning when the value span exceeds AOM_MAX_SEGMENTS),
+    paints the per-mi segment map, and issues
+    aom_codec_control(AOME_SET_ROI_MAP). libaom deep-copies the segment
+    map and delta_q[] table on every control call (see
+    av1/encoder/encoder.c::av1_set_roi_map memcpy), so a single buffer
+    is reused across frames. Retires the libaom-av1 deferral noted in
+    ADR-0312.
 
 Parser is bounded (NASA POW10), uses strtol + portable fgetc-based
 line reader (no POSIX getline dependency, no banned-API per CLAUDE.md
@@ -40,12 +48,12 @@ ADR: docs/adr/0312-ffmpeg-patches-vmaf-tune-integration.md
 Research: docs/research/0084-ffmpeg-patch-vmaf-tune-integration-survey.md
 ---
  libavcodec/Makefile        |   4 +-
- libavcodec/libaomenc.c     |  20 +++
+ libavcodec/libaomenc.c     | 229 ++++++++++++++++++++++++++++
  libavcodec/libsvtav1.c     | 303 +++++++++++++++++++++++++++++++++++++
  libavcodec/libx264.c       |  18 +++
  libavcodec/qpfile_parser.c | 302 ++++++++++++++++++++++++++++++++++++
  libavcodec/qpfile_parser.h |  55 +++++++
- 6 files changed, 701 insertions(+), 1 deletion(-)
+ 6 files changed, 910 insertions(+), 1 deletion(-)
  create mode 100644 libavcodec/qpfile_parser.c
  create mode 100644 libavcodec/qpfile_parser.h
 
@@ -65,54 +73,284 @@ index 12a8265025..4cc0e2b46a 100644
  OBJS-$(CONFIG_LIBXAVS_ENCODER)            += libxavs.o
  OBJS-$(CONFIG_LIBXAVS2_ENCODER)           += libxavs2.o
 diff --git a/libavcodec/libaomenc.c b/libavcodec/libaomenc.c
-index 20e97e5d43..eaaedec278 100644
+index 20e97e5d43..a93d01483b 100644
 --- a/libavcodec/libaomenc.c
 +++ b/libavcodec/libaomenc.c
-@@ -50,6 +50,7 @@
+@@ -50,6 +50,10 @@
  #include "itut35.h"
  #include "libaom.h"
  #include "profiles.h"
 +#include "qpfile_parser.h"
++
++#include <inttypes.h>
++#include <limits.h>
  
  /*
   * Portion of struct aom_codec_cx_pkt from aom_encoder.h.
-@@ -107,6 +108,7 @@ typedef struct AOMEncoderContext {
+@@ -107,6 +111,30 @@ typedef struct AOMEncoderContext {
      int enable_global_motion;
      int enable_intrabc;
      int enable_restoration;
 +    char *qpfile_path;
++
++    /* vmaf-tune qpfile -> libaom AOME_SET_ROI_MAP bridge (ADR-0312).
++     * Populated by ff_qpfile_load() in aom_init() when qpfile_path is set,
++     * consumed per-frame in aom_encode(), released in aom_free().
++     *
++     * libaom requires the segment-id map to match its mode-info grid
++     * exactly: rows == mi_rows, cols == mi_cols (4x4-luma cells; see
++     * av1/encoder/encoder.c::av1_set_roi_map). The qpfile rows are at
++     * 16x16-MB granularity, so each MB cell expands into a 4x4 block of
++     * mi cells. delta_q[8] holds up to AOM_MAX_SEGMENTS distinct QP
++     * deltas; per-frame qp_offsets are quantised into <=8 segment ids
++     * (uniform binning when the value span exceeds the segment budget).
++     *
++     * roi_seg_map is allocated once at the encoder grid size; libaom
++     * deep-copies it on every aom_codec_control() call, so the buffer
++     * can be reused across frames.
++     */
++    VmafTuneQpFile qpfile;
++    int            qpfile_loaded;
++    uint8_t       *roi_seg_map;
++    unsigned int   roi_mi_rows;
++    unsigned int   roi_mi_cols;
++
      int usage;
      int tune;
      int still_picture;
-@@ -997,6 +999,23 @@ static av_cold int aom_init(AVCodecContext *avctx,
+@@ -458,6 +486,13 @@ static av_cold int aom_free(AVCodecContext *avctx)
+ 
+     aom_codec_destroy(&ctx->encoder);
+     aom_img_remove_metadata(&ctx->rawimg);
++    if (ctx->qpfile_loaded) {
++        ff_qpfile_free(&ctx->qpfile);
++        ctx->qpfile_loaded = 0;
++    }
++    av_freep(&ctx->roi_seg_map);
++    ctx->roi_mi_rows = 0;
++    ctx->roi_mi_cols = 0;
+     av_freep(&ctx->twopass_stats.buf);
+     av_freep(&avctx->stats_out);
+     free_frame_list(ctx->coded_frame_list);
+@@ -997,6 +1032,34 @@ static av_cold int aom_init(AVCodecContext *avctx,
      }
  #endif
  
 +    if (ctx->qpfile_path && *ctx->qpfile_path) {
-+        VmafTuneQpFile qpf;
-+        int qret = ff_qpfile_load(ctx->qpfile_path, &qpf);
++        int qret = ff_qpfile_load(ctx->qpfile_path, &ctx->qpfile);
 +        if (qret < 0) {
 +            av_log(avctx, AV_LOG_ERROR, "libaom: qpfile=%s parse failed (%d).\n",
 +                   ctx->qpfile_path, qret);
 +            return qret;
 +        }
-+        av_log(avctx, AV_LOG_WARNING,
-+               "libaom: qpfile=%s parsed (frames=%u, %ux%u blocks); "
-+               "AV1E_SET_ROI_MAP application deferred (ADR-0312). See "
-+               "docs/usage/vmaf-tune-ffmpeg.md.\n",
-+               ctx->qpfile_path, qpf.frame_count,
-+               qpf.block_cols, qpf.block_rows);
-+        ff_qpfile_free(&qpf);
++        ctx->qpfile_loaded = 1;
++        /* libaom's segmentation map is sized at the mode-info grid:
++         * size_in_mi(x) == ALIGN_POWER_OF_TWO(x, 3) >> MI_SIZE_LOG2,
++         * i.e. each dim aligned up to a multiple of 8 px and divided
++         * by 4. Mirror that here so av1_set_roi_map's (rows, cols)
++         * equality check passes. */
++        ctx->roi_mi_cols = ((unsigned)((avctx->width  + 7) & ~7)) >> 2;
++        ctx->roi_mi_rows = ((unsigned)((avctx->height + 7) & ~7)) >> 2;
++        ctx->roi_seg_map = av_calloc((size_t)ctx->roi_mi_rows *
++                                         ctx->roi_mi_cols,
++                                     sizeof(*ctx->roi_seg_map));
++        if (!ctx->roi_seg_map)
++            return AVERROR(ENOMEM);
++        av_log(avctx, AV_LOG_INFO,
++               "libaom: qpfile=%s loaded (frames=%u, %ux%u qpfile blocks "
++               "-> %ux%u mi grid); ROI bridge enabled.\n",
++               ctx->qpfile_path, ctx->qpfile.frame_count,
++               ctx->qpfile.block_cols, ctx->qpfile.block_rows,
++               ctx->roi_mi_cols, ctx->roi_mi_rows);
 +    }
 +
      // provide dummy value to initialize wrapper, values will be updated each _encode()
      aom_img_wrap(&ctx->rawimg, img_fmt, avctx->width, avctx->height, 1,
                   (unsigned char*)1);
-@@ -1519,6 +1538,7 @@ static const AVOption options[] = {
+@@ -1256,6 +1319,165 @@ static enum AVPixelFormat aomfmt_to_pixfmt(struct aom_image *img)
+     return AV_PIX_FMT_NONE;
+ }
+ 
++/* libaom-av1 ROI bridge helpers. Convert one VmafTuneQpFrame into a
++ * libaom aom_roi_map_t whose (rows, cols, roi_map, delta_q) match the
++ * encoder's mode-info grid (4x4-luma cells). Bounded loops per NASA
++ * Power of 10. ADR-0312 (libaom ROI deferral retired).
++ *
++ * Quantisation: per-MB qp_offsets are clipped to [-12, +12] by the
++ * shared parser. Per frame, we discover the actual value range and
++ * either emit one segment per distinct value (if the span is <=
++ * AOM_MAX_SEGMENTS), or do uniform linear binning across the span
++ * (lossy: each MB rounds to its nearest segment QP). For libaom's
++ * 8-segment limit this matches the SVT-AV1 bridge's binning policy
++ * (ffmpeg-patches/0007 SVT-AV1 hunk). */
++
++#define QPFILE_AOM_MAX_SEGMENTS  AOM_MAX_SEGMENTS  /* 8, see aomcx.h */
++#define QPFILE_AOM_MI_PER_MB     4                 /* 16 px MB / 4 px mi */
++
++static int qpfile_aom_pick_segments(const VmafTuneQpFrame *qf,
++                                    int seg_q[QPFILE_AOM_MAX_SEGMENTS],
++                                    unsigned *out_n_seg)
++{
++    unsigned i, j;
++    unsigned mb_rows = qf->block_rows;
++    unsigned mb_cols = qf->block_cols;
++    int min_off = QPFILE_DELTA_MAX, max_off = QPFILE_DELTA_MIN;
++    unsigned n = 0;
++
++    if (!qf->block_offsets || mb_rows == 0 || mb_cols == 0)
++        return AVERROR(EINVAL);
++
++    for (i = 0; i < mb_rows; i++) {
++        for (j = 0; j < mb_cols; j++) {
++            int v = qf->block_offsets[i * mb_cols + j];
++            if (v < min_off) min_off = v;
++            if (v > max_off) max_off = v;
++        }
++    }
++
++    if (max_off == min_off) {
++        seg_q[0] = min_off;
++        n = 1;
++    } else {
++        int span = max_off - min_off + 1;
++        if (span <= QPFILE_AOM_MAX_SEGMENTS) {
++            for (int v = min_off; v <= max_off; v++)
++                seg_q[n++] = v;
++        } else {
++            for (i = 0; i < QPFILE_AOM_MAX_SEGMENTS; i++) {
++                seg_q[i] = min_off +
++                    (int)((unsigned long)(max_off - min_off) * i /
++                          (QPFILE_AOM_MAX_SEGMENTS - 1u));
++            }
++            n = QPFILE_AOM_MAX_SEGMENTS;
++        }
++    }
++    *out_n_seg = n;
++    return 0;
++}
++
++static void qpfile_aom_paint_seg_map(const VmafTuneQpFrame *qf,
++                                     uint8_t *seg_map,
++                                     unsigned mi_rows, unsigned mi_cols,
++                                     const int *seg_q, unsigned n_seg)
++{
++    unsigned mi_y, mi_x;
++    unsigned mb_rows = qf->block_rows;
++    unsigned mb_cols = qf->block_cols;
++    /* For each mi cell, pick the qpfile MB it overlaps, then snap that
++     * MB's QP-offset to the nearest segment id. mi index / 4 = mb idx. */
++    for (mi_y = 0; mi_y < mi_rows; mi_y++) {
++        unsigned mb_y = mi_y / QPFILE_AOM_MI_PER_MB;
++        if (mb_y >= mb_rows) mb_y = mb_rows - 1u;
++        for (mi_x = 0; mi_x < mi_cols; mi_x++) {
++            unsigned mb_x = mi_x / QPFILE_AOM_MI_PER_MB;
++            int v, best_dist = INT_MAX, best_idx = 0;
++            unsigned k;
++            if (mb_x >= mb_cols) mb_x = mb_cols - 1u;
++            v = qf->block_offsets[mb_y * mb_cols + mb_x];
++            for (k = 0; k < n_seg; k++) {
++                int d = v - seg_q[k];
++                if (d < 0) d = -d;
++                if (d < best_dist) {
++                    best_dist = d;
++                    best_idx  = (int)k;
++                }
++            }
++            seg_map[mi_y * mi_cols + mi_x] = (uint8_t)best_idx;
++        }
++    }
++}
++
++static const VmafTuneQpFrame *qpfile_aom_frame_for_pts(const AOMContext *ctx,
++                                                      int64_t pts)
++{
++    /* Match qpfile frame_index to PTS; bounded linear scan (qpfiles are
++     * short for vmaf-tune). Falls back to the last entry when the
++     * qpfile is shorter than the stream — mirrors saliency.py's
++     * "one mask, all frames" pattern. */
++    unsigned k;
++    if (ctx->qpfile.frame_count == 0)
++        return NULL;
++    if (pts < 0)
++        return &ctx->qpfile.frames[0];
++    for (k = 0; k < ctx->qpfile.frame_count; k++) {
++        if (ctx->qpfile.frames[k].frame_index == (unsigned)pts)
++            return &ctx->qpfile.frames[k];
++    }
++    return &ctx->qpfile.frames[ctx->qpfile.frame_count - 1u];
++}
++
++static int qpfile_aom_apply_roi(AVCodecContext *avctx, int64_t pts)
++{
++    AOMContext *ctx = avctx->priv_data;
++    aom_roi_map_t roi;
++    const VmafTuneQpFrame *qf;
++    int seg_q[QPFILE_AOM_MAX_SEGMENTS] = { 0 };
++    unsigned n_seg = 0;
++    int qret, res;
++    unsigned i;
++
++    if (!ctx->qpfile_loaded || !ctx->roi_seg_map ||
++        ctx->roi_mi_rows == 0 || ctx->roi_mi_cols == 0)
++        return 0;
++
++    qf = qpfile_aom_frame_for_pts(ctx, pts);
++    if (!qf || !qf->block_offsets ||
++        qf->block_rows == 0 || qf->block_cols == 0)
++        return 0;
++
++    qret = qpfile_aom_pick_segments(qf, seg_q, &n_seg);
++    if (qret < 0 || n_seg == 0)
++        return qret;
++
++    qpfile_aom_paint_seg_map(qf, ctx->roi_seg_map,
++                             ctx->roi_mi_rows, ctx->roi_mi_cols,
++                             seg_q, n_seg);
++
++    memset(&roi, 0, sizeof(roi));
++    roi.enabled  = 1;
++    roi.roi_map  = ctx->roi_seg_map;
++    roi.rows     = ctx->roi_mi_rows;
++    roi.cols     = ctx->roi_mi_cols;
++    for (i = 0; i < QPFILE_AOM_MAX_SEGMENTS; i++) {
++        roi.delta_q[i]   = (i < n_seg) ? seg_q[i] : 0;
++        roi.delta_lf[i]  = 0;
++        roi.skip[i]      = 0;
++        roi.ref_frame[i] = -1;
++    }
++    roi.delta_qp_enabled = 1;
++
++    res = aom_codec_control(&ctx->encoder, AOME_SET_ROI_MAP, &roi);
++    if (res != AOM_CODEC_OK) {
++        av_log(avctx, AV_LOG_WARNING,
++               "libaom: AOME_SET_ROI_MAP failed for pts=%"PRId64" (res=%d); "
++               "continuing without ROI bias for this frame.\n", pts, res);
++        return 0;  /* non-fatal: skip ROI for this frame */
++    }
++    return 0;
++}
++
+ static int aom_encode(AVCodecContext *avctx, AVPacket *pkt,
+                       const AVFrame *frame, int *got_packet)
+ {
+@@ -1326,6 +1548,12 @@ static int aom_encode(AVCodecContext *avctx, AVPacket *pkt,
+             return res;
+     }
+ 
++    if (ctx->qpfile_loaded && frame) {
++        int qret = qpfile_aom_apply_roi(avctx, frame->pts);
++        if (qret < 0)
++            return qret;
++    }
++
+     res = aom_codec_encode(&ctx->encoder, rawimg, timestamp, duration, flags);
+     if (res != AOM_CODEC_OK) {
+         log_encoder_error(avctx, "Error encoding frame");
+@@ -1519,6 +1747,7 @@ static const AVOption options[] = {
      { "tune",            "The metric that the encoder tunes for. Automatically chosen by the encoder by default", OFFSET(tune), AV_OPT_TYPE_INT, {.i64 = -1}, -1, AOM_TUNE_SSIM, VE, .unit = "tune"},
      { "psnr",            NULL,         0, AV_OPT_TYPE_CONST, {.i64 = AOM_TUNE_PSNR}, 0, 0, VE, .unit = "tune"},
      { "ssim",            NULL,         0, AV_OPT_TYPE_CONST, {.i64 = AOM_TUNE_SSIM}, 0, 0, VE, .unit = "tune"},
-+    { "qpfile", "Path to a vmaf-tune qpfile (SCAFFOLD: parsed but ROI bridge deferred — see docs/usage/vmaf-tune-ffmpeg.md, ADR-0312).", OFFSET(qpfile_path), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, VE },
++    { "qpfile", "Path to a vmaf-tune qpfile (per-frame AOME_SET_ROI_MAP ROI bridge; lossy: per-MB qp_offsets are quantised to <=8 segment QPs). See docs/usage/vmaf-tune-ffmpeg.md, ADR-0312.", OFFSET(qpfile_path), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, VE },
      FF_AV1_PROFILE_OPTS
      { "still-picture", "Encode in single frame mode (typically used for still AVIF images).", OFFSET(still_picture), AV_OPT_TYPE_BOOL, {.i64 = 0}, -1, 1, VE },
      { "dolbyvision",     "Enable Dolby Vision RPU coding", OFFSET(dovi.enable), AV_OPT_TYPE_BOOL, {.i64 = FF_DOVI_AUTOMATIC }, -1, 1, VE, .unit = "dovi" },

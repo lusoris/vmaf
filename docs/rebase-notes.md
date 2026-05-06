@@ -8773,9 +8773,31 @@ inline.*
   threads (per `enc_handle.c::copy_private_data_list`); `eb_enc_close`
   frees them. Wiring is gated on `SVT_AV1_CHECK_VERSION(1, 6, 0)`;
   older SVT-AV1 builds keep the log-and-continue fallback. libaom
-  remains scaffold-only — its `AV1E_SET_ROI_MAP` bridge stays a
+  remains scaffold-only — its `AOME_SET_ROI_MAP` bridge stays a
   separate follow-up. No new ADR per CLAUDE.md §12 r8 (executes
   the existing ADR-0312 decision).
+
+- **2026-05-06 update — patch 0007 libaom-av1 ROI bridge promoted from
+  scaffold to full impl**: the libaom-av1 hunk now caches the parsed
+  `VmafTuneQpFile` in `AOMContext`, allocates a segment-id map at
+  libaom's mode-info grid (`ALIGN_POWER_OF_TWO(dim, 8) >> 2`, since
+  `av1/common/enums.h::MI_SIZE == 4`), and on every encoded frame
+  picks up to 8 segment QPs from the per-frame qp_offset value range
+  (uniform linear binning when the span exceeds
+  `AOM_MAX_SEGMENTS == 8`), paints the per-mi segment map by expanding
+  each per-16×16-MB qp_offset into a 4×4 block of mi cells, and
+  issues `aom_codec_control(&ctx->encoder, AOME_SET_ROI_MAP, &roi_map)`.
+  Lifetime invariant: libaom deep-copies the segment map and
+  `delta_q[]` table on every control call (per
+  `av1/encoder/encoder.c::av1_set_roi_map memcpy`), so a single
+  buffer is reused across frames and freed in `aom_free()`. The
+  qpfile is also freed there. Trade-off: the 8-segment cap rounds
+  nearby qp_offsets together when the saliency model emits more
+  than 8 distinct values per frame; finer granularity requires
+  `vmaf-tune corpus` instead. This retires the libaom-av1 deferral
+  noted under ADR-0312 — both AV1 encoder hooks (libsvtav1 and
+  libaom-av1) are now full-impl. No new ADR per CLAUDE.md §12 r8
+  (executes the existing ADR-0312 decision).
 
 ### 0315 — Vendor-neutral VVC encode strategy (ADR-0315 / Research-0085)
 
