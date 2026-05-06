@@ -9232,6 +9232,11 @@ inline.*
          ai/tests/test_train_fr_regressor_v2_ensemble_loso_train.py -v
   bash -n ai/scripts/run_ensemble_v2_real_corpus_loso.sh
   ```
+
+
+
+
+
 ## ADR-0323 — `fr_regressor_v3` train + register on `ENCODER_VOCAB` v3 (2026-05-06)
 - **Scope**: `ai/scripts/train_fr_regressor_v3.py` (new),
   `ai/tests/test_train_fr_regressor_v3.py` (new),
@@ -32219,6 +32224,7 @@ build-system paths changed; no new symbols were added.
          python/test/feature_extractor_test.py python/test/result_test.py \
          --collect-only -q   # 173 tests collected, no errors
 
+
 ## ADR-0318 — `fr_regressor_v2` ensemble retrain harness fix (2026-05-06)
 
 - **Touched files**:
@@ -32251,6 +32257,56 @@ build-system paths changed; no new symbols were added.
     bash ai/scripts/run_ensemble_v2_real_corpus_loso.sh 2>&1 | \
     grep -q "unrecognized arguments" && echo "REGRESSED" || echo "OK"
   rm -rf runs/phase_a runs/ensemble_v2_real
+
+### 0320 — fr_regressor_v2 ensemble seeds — production flip (ADR-0320)
+
+- **Touches**: `model/tiny/registry.json` (five
+  `fr_regressor_v2_ensemble_v1_seed{0..4}` rows flipped from
+  `smoke: true` to `smoke: false`),
+  `model/tiny/fr_regressor_v2_ensemble_v1_seed_flip_PROMOTE.json`
+  (new — committed verdict from the ADR-0319 harness run),
+  `ai/AGENTS.md` (registry-flip invariant updated to record the flip
+  + the going-forward "fresh PROMOTE.json required" rule),
+  `docs/state.md` (Recently closed row),
+  `docs/adr/0320-fr-regressor-v2-ensemble-seed-flip.md` (new ADR).
+  Closes the deferral tracked in rebase-notes §0303 / §0309 /
+  §0319.
+- **Upstream source**: none — fork-local registry mutation honouring
+  ADR-0303's flip contract. Netflix/vmaf upstream has no
+  `fr_regressor_v2` ensemble surface.
+- **Invariant**: any future change to the
+  `fr_regressor_v2_ensemble_v1_seed{0..4}` registry rows (sha256
+  bump after retraining, smoke-flag mutation, ONNX path change)
+  requires a fresh `runs/ensemble_v2_real/PROMOTE.json` verdict with
+  mean per-seed LOSO PLCC ≥ 0.95 AND `max - min` spread ≤ 0.005 —
+  the same two-part gate ADR-0303 defined and ADR-0320 honoured.
+  Never mutate these rows during a `/sync-upstream` rebase or as a
+  side-effect of any other PR; the harness emits the verdict file
+  but does not mutate the registry. The committed verdict at
+  `model/tiny/fr_regressor_v2_ensemble_v1_seed_flip_PROMOTE.json`
+  is the audit-trail anchor for the 2026-05-06 flip.
+- **On upstream sync**: no action required. The five rows live in
+  `model/tiny/registry.json` which is fork-local; upstream has no
+  competing entries. If upstream ever ships its own
+  `fr_regressor_v2_ensemble_v1_*` registry rows, **stop and consult
+  the rebase reviewer** — naming collision implies an architectural
+  divergence that needs a Supersedes-ADR, not a mechanical merge.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -c "import json; \
+    d = json.load(open('model/tiny/registry.json')); \
+    seeds = [m for m in d['models'] \
+             if m['id'].startswith('fr_regressor_v2_ensemble_v1_seed')]; \
+    assert len(seeds) == 5, seeds; \
+    assert all(m['smoke'] is False for m in seeds), seeds; \
+    print('OK: 5 ensemble seeds at smoke=false')"
+  python3 -c "import json; \
+    v = json.load(open('model/tiny/fr_regressor_v2_ensemble_v1_seed_flip_PROMOTE.json')); \
+    assert v['verdict'] == 'PROMOTE'; \
+    assert v['gate']['passed'] is True; \
+    print('OK: verdict still PROMOTE')"
+
 
   ```
 
