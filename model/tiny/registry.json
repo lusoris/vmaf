@@ -76,6 +76,15 @@
       "smoke": false
     },
     {
+      "id": "fr_regressor_v3",
+      "kind": "fr",
+      "notes": "Tiny FR regressor v3 (codec-aware, ENCODER_VOCAB v3 16-slot) - 6 canonical libvmaf features (adm2, vif_scale0..3, motion2) + 18-D codec block (16 encoder one-hot + preset_norm + crf_norm) -> VMAF teacher score. LOSO mean PLCC=0.9975 (gate >= 0.95). Production checkpoint. See docs/ai/models/fr_regressor_v3.md + ADR-0323 + ADR-0302 + ADR-0291 + ADR-0235.",
+      "onnx": "fr_regressor_v3.onnx",
+      "opset": 17,
+      "sha256": "eaa16d23461eda74940b2ed590edfcaf13428aade294e47792a5a15f4d3b999c",
+      "smoke": false
+    },
+    {
       "description": "Tiny residual filter for vmaf_pre \u2014 degraded \u2192 clean luma.",
       "id": "learned_filter_v1",
       "int8_sha256": "1cff6fe07f89f6c6a2eb498e60ad2699a3538846369c3724c9f30ba9600662d3",

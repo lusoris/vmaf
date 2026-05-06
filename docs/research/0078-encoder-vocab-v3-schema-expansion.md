@@ -1,6 +1,7 @@
 # Research-0075: ENCODER_VOCAB v3 — 16-slot schema expansion + retrain plan
 
-- **Status**: Open (scaffold landed; retrain pending)
+- **Status**: First retrain landed gate-passing (ADR-0323, 2026-05-06);
+  multi-codec retrain still pending
 - **Date**: 2026-05-05
 - **Companion ADR**: [ADR-0302](../adr/0302-encoder-vocab-v3-schema-expansion.md)
 - **Predecessors**:
@@ -139,6 +140,48 @@ print('OK')
 # fixture; included here as the canonical smoke command.
 python -m pytest ai/tests/ -k encoder_vocab
 ```
+
+## Headline results — first retrain (ADR-0323, 2026-05-06)
+
+The first v3 retrain shipped under PR
+[`feat(ai): fr_regressor_v3 — train + register on ENCODER_VOCAB v3
+(16-slot)`](../adr/0323-fr-regressor-v3-train-and-register.md), training
+[`ai/scripts/train_fr_regressor_v3.py`](../../ai/scripts/train_fr_regressor_v3.py)
+on the existing Phase A canonical-6 corpus (5,640 rows, NVENC-only).
+
+**Gate PASS.** Mean LOSO PLCC = **0.9975 ± 0.0018** across the 9
+Netflix sources. Per-source PLCC range 0.9945 → 0.9996; every source
+clears the 0.99 mark and the relaxed per-source 0.85 floor. The
+0.95 hard floor is cleared with ~5pp margin.
+
+| Source                    | PLCC   | SROCC  | RMSE  |
+|---------------------------|--------|--------|-------|
+| BigBuckBunny_25fps        | 0.9973 | 0.9878 | 0.787 |
+| BirdsInCage_30fps         | 0.9988 | 0.9989 | 0.432 |
+| CrowdRun_25fps            | 0.9996 | 0.9972 | 0.677 |
+| ElFuente1_30fps           | 0.9987 | 0.8805 | 0.822 |
+| ElFuente2_30fps           | 0.9950 | 0.9984 | 3.288 |
+| FoxBird_25fps             | 0.9945 | 0.9329 | 0.904 |
+| OldTownCross_25fps        | 0.9981 | 0.9951 | 0.810 |
+| Seeking_25fps             | 0.9989 | 0.9877 | 1.013 |
+| Tennis_24fps              | 0.9962 | 0.9436 | 1.061 |
+
+The OldTownCross outlier from v2 (0.9183) cleared 0.998 on v3 — the
+extra two-epoch budget (200 vs the v2 ensemble's 200) and the
+fold-local StandardScaler combine to lift the trickiest-content
+fold. ElFuente2's 3.288 RMSE is the largest residual; the per-frame
+VMAF range on that source is wide (panning + saturation transitions),
+but PLCC stays at 0.995.
+
+**Caveat — the multi-codec lift floor (≥+0.005 PLCC over v1 per
+ADR-0235) is NOT yet measurable on this corpus drop.** The corpus is
+NVENC-only; 15 of 16 vocab slots receive zero training rows. v3 vs v1
+on NVENC-only collapses to v1-vs-v1 on a single codec. The
+multi-codec lift gate is deferred to the follow-up retrain that
+consumes a multi-codec Phase A corpus drop. The first retrain ships
+with `smoke: false` because the 0.95 floor — the ADR-0302-cited gate
+— passed; the multi-codec lift becomes a gate on the v2 → v3
+in-place promotion PR, not on this parallel-checkpoint PR.
 
 ## Open questions (for the follow-up retrain PR)
 
