@@ -113,6 +113,28 @@ for the option-space digest.
   on hosts that never run the fast path. The lazy-import guard in
   `fast.py` is the only correct entry point; tests that exercise
   `fast.py` use `pytest.importorskip("optuna")`.
+- **Fast-path proxy invariant
+  ([ADR-0304](../../docs/adr/0304-vmaf-tune-fast-path-prod-wiring.md)).**
+  The production proxy is **always** `fr_regressor_v2` (no smoke
+  models in the production path; ADR-0291 flipped v2 to
+  production). Every consumer goes through
+  `vmaftune.proxy.run_proxy(...)` — a single seam over
+  onnxruntime + the 14-D codec block (12-way ENCODER_VOCAB v2
+  one-hot + preset_norm + crf_norm). Do not call onnxruntime
+  directly from `fast.py` / `recommend.py` / `per_shot.py`; future
+  probabilistic-head / ensemble migrations (ADR-0279 follow-up)
+  must land in `proxy.py` so callers see no diff. Onnxruntime and
+  numpy stay lazy-imported inside `proxy.py` so the corpus path
+  on hosts without those deps stays zero-dep. A **single** GPU
+  verify pass at `fast_recommend` end is mandatory — proxy alone
+  never wins, regardless of how confident the proxy looks.
+  Verification uses the existing `score_backend.select_backend`
+  selector (ADR-0299); `verify_vmaf` and `proxy_verify_gap` ride
+  on the result dict. When the gap exceeds the configured
+  tolerance the result is flagged OOD; the operator falls back to
+  the slow Phase A grid (ADR-0276 fallback contract).
+  `ENCODER_VOCAB_V2` ordering is frozen by ADR-0291; reordering
+  silently invalidates every shipped v2 inference.
 - **`recommend` is a pure consumer of the corpus schema.** The
   `recommend` subcommand reads `vmaf_score`, `bitrate_kbps`, `crf`,
   `preset`, `encoder`, `exit_status` directly from rows produced by

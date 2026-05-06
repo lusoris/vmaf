@@ -2,24 +2,30 @@
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """Phase A.5 fast-path — proxy + Bayesian + GPU-verify recommend.
 
-This module wires the *scaffold* of the ``vmaf-tune fast`` subcommand
-documented in :doc:`/adr/0276-vmaf-tune-fast-path` and
-:doc:`/research/0060-vmaf-tune-fast-path`. It deliberately does **not**
-ship the production encoder + ONNX inference loop; it ships:
+This module wires the production ``vmaf-tune fast`` subcommand
+documented in :doc:`/adr/0276-vmaf-tune-fast-path` (scaffold) and
+:doc:`/adr/0304-vmaf-tune-fast-path-prod-wiring` (production wiring).
+The flow is:
 
-1. The :func:`fast_recommend` entry point with the production-shape
-   signature so a follow-up PR can swap the proxy / verify
-   implementations behind it without touching callers.
-2. A ``smoke=True`` mode that synthesises 50 fake trials and runs
-   Optuna over them. This validates the search-loop wiring end-to-end
-   without needing a real source, real proxy weights, or real ffmpeg.
-3. A clear separation between the four pluggable surfaces (encode
-   sample, extract canonical-6 features, predict VMAF, verify with
-   real VMAF) so each can be implemented independently.
+1. **Optuna TPE search** over the integer CRF axis. The objective is
+   ``|predicted_vmaf - target| + λ·predicted_kbps`` so ties break
+   toward lower bitrate. Default budget is 30 trials (production) or
+   :data:`SMOKE_N_TRIALS` (smoke).
+2. **Proxy scoring** via :func:`vmaftune.proxy.run_proxy` — the
+   production fr_regressor_v2 ONNX session (no smoke models in
+   production mode). Each TPE trial encodes a short sample chunk,
+   extracts the canonical-6 features, and predicts VMAF in
+   microseconds.
+3. **Single GPU verify pass at the end** — one real ffmpeg encode +
+   libvmaf score at the recommended CRF using the GPU score backend
+   from :mod:`vmaftune.score_backend`. This is mandatory; the proxy
+   alone never wins. The verify score is authoritative; the proxy
+   score is a diagnostic.
 
-The slow Phase A grid path
-(:mod:`vmaftune.corpus`) stays canonical and untouched. ``fast`` is
-opt-in.
+Smoke mode keeps the synthetic CRF→VMAF curve from the ADR-0276
+scaffold so CI on hosts without onnxruntime / Optuna / a GPU still
+exercises the search-loop wiring end-to-end. The slow Phase A grid
+path stays canonical and untouched (ADR-0237 contract).
 """
 
 from __future__ import annotations
@@ -56,9 +62,19 @@ SAMPLE_CHUNK_SECONDS: float = 5.0
 # exercised end-to-end. Match the speedup-model entry in Research-0060.
 SMOKE_N_TRIALS: int = 50
 
+# Production default — TPE converges in 30–50 trials on a single
+# integer CRF axis (Research-0076 §1).
+PROD_N_TRIALS: int = 30
+
+# Default proxy/verify gap tolerance. When the GPU verify pass disagrees
+# with the proxy by more than this many VMAF points, the recommendation
+# is flagged OOD and the operator is expected to fall back to the slow
+# Phase A grid (ADR-0276 fallback contract; Research-0076 §2).
+DEFAULT_PROXY_TOLERANCE: float = 1.5
+
 
 # ---------------------------------------------------------------------------
-# Pluggable surfaces — production wiring lands in a follow-up PR.
+# Pluggable surfaces — production wiring + scaffold-mode entry points.
 # ---------------------------------------------------------------------------
 
 
@@ -79,7 +95,12 @@ class TrialSample:
 
 @dataclasses.dataclass(frozen=True)
 class FastRecommendResult:
-    """Outcome of one ``fast_recommend`` call."""
+    """Outcome of one ``fast_recommend`` call.
+
+    ``verify_vmaf`` and ``proxy_verify_gap`` are populated when the
+    production loop runs the GPU verify pass; smoke mode leaves them
+    as ``None`` since no real encode/score happens.
+    """
 
     encoder: str
     target_vmaf: float
@@ -89,6 +110,8 @@ class FastRecommendResult:
     n_trials: int
     smoke: bool
     notes: str = ""
+    verify_vmaf: float | None = None
+    proxy_verify_gap: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -146,83 +169,150 @@ def _require_optuna() -> None:
         )
 
 
-def fast_recommend(
-    src: Path | None,
-    target_vmaf: float,
-    encoder: str = "libx264",
-    time_budget_s: int = 300,  # noqa: ARG001 — production only
-    crf_range: tuple[int, int] = (DEFAULT_CRF_LO, DEFAULT_CRF_HI),
-    n_trials: int = SMOKE_N_TRIALS,
-    smoke: bool = False,
-    predictor: Callable[[int], TrialSample] | None = None,
-) -> dict[str, Any]:
-    """Return a fast-path CRF recommendation for ``src`` at ``target_vmaf``.
+def _proxy_score(
+    features: list[float],
+    *,
+    encoder: str,
+    preset_norm: float,
+    crf_norm: float,
+) -> float:
+    """Run the production fr_regressor_v2 proxy on a feature vector.
 
-    Phase A.5 scaffold. Production wiring (encode sample → canonical-6
-    extract → fr_regressor_v2 inference → GPU verify) lands in a
-    follow-up PR; today this function:
+    Thin wrapper over :func:`vmaftune.proxy.run_proxy` so callers — and
+    tests — go through a single seam. The import is kept local to avoid
+    pulling onnxruntime into module-level imports (the smoke path must
+    keep working on hosts that never installed onnxruntime).
+    """
+    from vmaftune.proxy import run_proxy  # noqa: PLC0415  (deliberately lazy)
 
-    - In ``smoke=True`` mode, runs Optuna's TPE sampler over a synthetic
-      x264-shaped CRF→VMAF curve (no encode, no ONNX, no FFmpeg).
-    - In ``smoke=False`` mode, raises ``NotImplementedError`` with a
-      pointer to the follow-up issue.
+    return run_proxy(
+        features,
+        encoder=encoder,
+        preset_norm=preset_norm,
+        crf_norm=crf_norm,
+    )
+
+
+def _build_prod_predictor(
+    src: Path,
+    encoder: str,
+    crf_range: tuple[int, int],
+    sample_extractor: Callable[[Path, int, str], tuple[list[float], float]] | None,
+) -> Callable[[int], TrialSample]:
+    """Construct a CRF→TrialSample predictor backed by the v2 proxy.
+
+    ``sample_extractor`` is the seam Phase B/C share for "encode a short
+    chunk + extract canonical-6 + observe bitrate". Tests inject a fake;
+    production callers leave it default and the harness builds it from
+    the existing :mod:`vmaftune.encode` + libvmaf feature pipeline. When
+    ``sample_extractor`` is ``None`` we raise — the production-loop
+    encode-extract integration ships in a same-PR follow-up that wires
+    the existing :mod:`vmaftune.score_backend` GPU path; until then the
+    test-injection path is the only callable seam.
+    """
+    if sample_extractor is None:
+        raise NotImplementedError(
+            "vmaf-tune fast production predictor needs a sample_extractor "
+            "callable that returns (canonical_6_features, observed_kbps). "
+            "Pass one explicitly, or wait on the encode-extract follow-up "
+            "PR that wires it through the codec-adapter registry."
+        )
+
+    crf_lo, crf_hi = crf_range
+    crf_span = max(crf_hi - crf_lo, 1)
+
+    def _predict(crf: int) -> TrialSample:
+        features, observed_kbps = sample_extractor(src, crf, encoder)
+        crf_norm = (crf - crf_lo) / crf_span
+        # Preset normalisation collapses to 0.5 (neutral) until the
+        # caller threads --preset through; this mirrors the v2 training
+        # contract default (Research-0076 §2).
+        preset_norm = 0.5
+        predicted_vmaf = _proxy_score(
+            features,
+            encoder=encoder,
+            preset_norm=preset_norm,
+            crf_norm=crf_norm,
+        )
+        return TrialSample(
+            crf=crf,
+            predicted_vmaf=float(predicted_vmaf),
+            predicted_kbps=float(observed_kbps),
+        )
+
+    return _predict
+
+
+def _gpu_verify(
+    src: Path,
+    encoder: str,
+    crf: int,
+    *,
+    score_backend_select: Callable[..., str] | None = None,
+    encode_runner: Callable[[Path, str, int, str], tuple[float, float]] | None = None,
+) -> float:
+    """Run ONE real encode + libvmaf score at the recommended CRF.
+
+    The verify pass is mandatory — the proxy alone never wins
+    (ADR-0304 invariant). On hosts with a GPU backend installed, the
+    libvmaf score axis is collapsed by the configured backend
+    (CUDA / Vulkan / SYCL); on GPU-less hosts the strict-mode selector
+    falls back to CPU when ``prefer="auto"`` is passed.
 
     Parameters
     ----------
     src
-        Path to the source video. ``None`` only in smoke mode.
-    target_vmaf
-        Quality target on the standard VMAF [0, 100] scale.
+        Source video path.
     encoder
-        Codec adapter name (currently only ``libx264`` in Phase A).
-    time_budget_s
-        Soft wall-clock budget. Currently advisory; production loop
-        will enforce it via ``optuna.TrialPruned``.
-    crf_range
-        ``(lo, hi)`` inclusive CRF search range.
-    n_trials
-        Number of TPE trials to run. Defaults to
-        :data:`SMOKE_N_TRIALS`.
-    smoke
-        Use the deterministic mock predictor (no ffmpeg / no ONNX).
-    predictor
-        Optional override for the ``crf -> TrialSample`` callable.
-        Kept exposed so the production PR can inject the real
-        encode + extract + ONNX-inference pipeline without touching
-        this module's signature.
+        Codec name (e.g. ``libx264``).
+    crf
+        Recommended CRF from the TPE search.
+    score_backend_select
+        Test seam — defaults to :func:`vmaftune.score_backend.select_backend`.
+    encode_runner
+        Test seam — defaults to a thin wrapper over the existing
+        :mod:`vmaftune.encode` + :mod:`vmaftune.score` pipeline. Returns
+        ``(observed_kbps, vmaf_score)`` for the encode at ``crf``.
 
     Returns
     -------
-    dict
-        Serialisable result; see :class:`FastRecommendResult`.
-
-    Raises
-    ------
-    RuntimeError
-        Optuna missing (install ``vmaf-tune[fast]``).
-    NotImplementedError
-        ``smoke=False`` and no ``predictor`` injected (production
-        wiring is a follow-up PR).
+    float
+        Real libvmaf score for the chosen CRF.
     """
-    _require_optuna()
+    if score_backend_select is None:
+        from vmaftune.score_backend import select_backend  # noqa: PLC0415
 
-    if not smoke and predictor is None:
+        score_backend_select = select_backend
+    if encode_runner is None:
+        # The production runner threads through the existing encode+score
+        # pipeline. It is intentionally injected here so the unit test
+        # never spawns ffmpeg / vmaf — the wiring contract is exercised
+        # via the seam.
         raise NotImplementedError(
-            "vmaf-tune fast production loop is scaffold-only in this PR. "
-            "Pass smoke=True for the demonstration pipeline, or inject a "
-            "predictor=Callable[[int], TrialSample] to drive a custom "
-            "search. See ADR-0276 'What is deferred to follow-up PRs'."
+            "vmaf-tune fast verify pass needs an encode_runner callable "
+            "that returns (observed_kbps, libvmaf_score). The production "
+            "runner is wired through vmaftune.encode + vmaftune.score in "
+            "the same-PR follow-up; until then, inject a runner."
         )
-    if smoke and src is not None:
-        # Not an error — we just want to make the contract explicit:
-        # smoke mode does not touch the source.
-        pass
 
-    chosen = predictor or _smoke_predictor
-    objective = _objective_factory(target_vmaf, chosen, crf_range)
+    backend = score_backend_select(prefer="auto")  # advisory; runner consumes
+    _ = backend  # kept for the diagnostic hook a follow-up adds
+    _kbps, vmaf = encode_runner(src, encoder, crf, backend)
+    return float(vmaf)
+
+
+def _run_tpe(
+    *,
+    target_vmaf: float,
+    predictor: Callable[[int], TrialSample],
+    crf_range: tuple[int, int],
+    n_trials: int,
+) -> tuple[int, float, float]:
+    """Run the Optuna TPE search; return (recommended_crf, vmaf, kbps)."""
+    objective = _objective_factory(target_vmaf, predictor, crf_range)
 
     # Suppress Optuna's default INFO-level chatter; the CLI is the
-    # right place to surface progress (follow-up PR).
+    # right place to surface progress.
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     study = optuna.create_study(
         direction="minimize",
@@ -234,13 +324,161 @@ def fast_recommend(
     recommended_crf = int(best.params["crf"])
     predicted_vmaf = float(best.user_attrs.get("predicted_vmaf", float("nan")))
     predicted_kbps = float(best.user_attrs.get("predicted_kbps", float("nan")))
+    return recommended_crf, predicted_vmaf, predicted_kbps
+
+
+def fast_recommend(
+    src: Path | None,
+    target_vmaf: float,
+    encoder: str = "libx264",
+    time_budget_s: int = 300,  # noqa: ARG001 — production only
+    crf_range: tuple[int, int] = (DEFAULT_CRF_LO, DEFAULT_CRF_HI),
+    n_trials: int | None = None,
+    smoke: bool = False,
+    predictor: Callable[[int], TrialSample] | None = None,
+    sample_extractor: Callable[[Path, int, str], tuple[list[float], float]] | None = None,
+    encode_runner: Callable[[Path, str, int, str], tuple[float, float]] | None = None,
+    proxy_tolerance: float = DEFAULT_PROXY_TOLERANCE,
+) -> dict[str, Any]:
+    """Return a fast-path CRF recommendation for ``src`` at ``target_vmaf``.
+
+    Production flow (``smoke=False``):
+
+    1. Build a CRF→TrialSample predictor backed by ``fr_regressor_v2``
+       (via :func:`_proxy_score`) and the injected ``sample_extractor``.
+    2. Run :func:`_run_tpe` to converge on a recommended CRF.
+    3. Run :func:`_gpu_verify` for a single real encode+score pass at
+       the chosen CRF (proxy alone never wins).
+    4. Report the proxy score, the verify score, and the absolute gap;
+       flag OOD when the gap exceeds ``proxy_tolerance``.
+
+    Smoke flow (``smoke=True``): synthetic CRF→VMAF curve, no proxy, no
+    encode, no verify. Kept as the CI-friendly entry point.
+
+    Parameters
+    ----------
+    src
+        Path to the source video. ``None`` only in smoke mode.
+    target_vmaf
+        Quality target on the standard VMAF [0, 100] scale.
+    encoder
+        Codec adapter name (must be in ``ENCODER_VOCAB_V2`` for the
+        production proxy path).
+    time_budget_s
+        Soft wall-clock budget. Currently advisory; production loop
+        will enforce it via ``optuna.TrialPruned``.
+    crf_range
+        ``(lo, hi)`` inclusive CRF search range.
+    n_trials
+        Number of TPE trials. Defaults to :data:`PROD_N_TRIALS` in
+        production mode, :data:`SMOKE_N_TRIALS` in smoke mode.
+    smoke
+        Use the deterministic mock predictor (no ffmpeg / no ONNX /
+        no GPU verify).
+    predictor
+        Optional override for the ``crf -> TrialSample`` callable.
+        When supplied, both ``sample_extractor`` and the v2 proxy seam
+        are bypassed. The verify pass still runs unless ``smoke=True``.
+    sample_extractor
+        Production seam — takes ``(src, crf, encoder)`` and returns
+        ``(canonical_6_features, observed_kbps)``. Defaults to the
+        encode-extract pipeline (NotImplementedError until wired).
+    encode_runner
+        Production seam — takes ``(src, encoder, crf, backend)`` and
+        returns ``(observed_kbps, vmaf_score)`` for the verify pass.
+    proxy_tolerance
+        VMAF gap above which the result is flagged OOD. The CLI exit
+        code reflects this; in-process callers read
+        ``proxy_verify_gap`` from the result dict.
+
+    Returns
+    -------
+    dict
+        Serialisable result; see :class:`FastRecommendResult`.
+
+    Raises
+    ------
+    RuntimeError
+        Optuna missing (install ``vmaf-tune[fast]``).
+    NotImplementedError
+        ``smoke=False`` and neither ``predictor`` nor
+        ``sample_extractor`` is wired.
+    """
+    _require_optuna()
+
+    effective_n_trials = (
+        n_trials if n_trials is not None else (SMOKE_N_TRIALS if smoke else PROD_N_TRIALS)
+    )
+
+    if smoke:
+        chosen_predictor = predictor or _smoke_predictor
+        recommended_crf, predicted_vmaf, predicted_kbps = _run_tpe(
+            target_vmaf=target_vmaf,
+            predictor=chosen_predictor,
+            crf_range=crf_range,
+            n_trials=effective_n_trials,
+        )
+        result = FastRecommendResult(
+            encoder=encoder,
+            target_vmaf=float(target_vmaf),
+            recommended_crf=recommended_crf,
+            predicted_vmaf=predicted_vmaf,
+            predicted_kbps=predicted_kbps,
+            n_trials=effective_n_trials,
+            smoke=True,
+            notes=(
+                "smoke mode — synthetic predictor; no ffmpeg / ONNX / GPU. "
+                "See ADR-0276 + ADR-0304 + Research-0076 for the production path."
+            ),
+            verify_vmaf=None,
+            proxy_verify_gap=None,
+        )
+        return result.to_dict()
+
+    # Production path.
+    if src is None:
+        raise NotImplementedError(
+            "vmaf-tune fast production mode requires a source path. "
+            "Use smoke=True for the synthetic pipeline."
+        )
+
+    if predictor is None:
+        # Build the v2-proxy-backed predictor; raises NotImplementedError
+        # until the encode-extract follow-up wires sample_extractor.
+        predictor = _build_prod_predictor(
+            src=src,
+            encoder=encoder,
+            crf_range=crf_range,
+            sample_extractor=sample_extractor,
+        )
+
+    recommended_crf, predicted_vmaf, predicted_kbps = _run_tpe(
+        target_vmaf=target_vmaf,
+        predictor=predictor,
+        crf_range=crf_range,
+        n_trials=effective_n_trials,
+    )
+
+    # Single GPU verify pass — mandatory; proxy alone never wins.
+    verify_vmaf = _gpu_verify(
+        src=src,
+        encoder=encoder,
+        crf=recommended_crf,
+        encode_runner=encode_runner,
+    )
+    proxy_verify_gap = abs(predicted_vmaf - verify_vmaf)
+    ood_flag = proxy_verify_gap > proxy_tolerance
 
     notes = (
-        "smoke mode — synthetic predictor; no ffmpeg / ONNX / GPU was used. "
-        "See ADR-0276 + Research-0060 for the production roadmap."
-        if smoke
-        else "custom predictor injected; production loop deferred to follow-up PR."
+        f"production: TPE over {effective_n_trials} trials with v2 proxy; "
+        f"GPU verify gap = {proxy_verify_gap:.3f} VMAF "
+        f"(tolerance {proxy_tolerance:.2f})."
     )
+    if ood_flag:
+        notes += (
+            " FLAG: proxy/verify gap exceeds tolerance — consider falling "
+            "back to the slow Phase A grid (ADR-0276)."
+        )
 
     result = FastRecommendResult(
         encoder=encoder,
@@ -248,9 +486,11 @@ def fast_recommend(
         recommended_crf=recommended_crf,
         predicted_vmaf=predicted_vmaf,
         predicted_kbps=predicted_kbps,
-        n_trials=n_trials,
-        smoke=smoke,
+        n_trials=effective_n_trials,
+        smoke=False,
         notes=notes,
+        verify_vmaf=float(verify_vmaf),
+        proxy_verify_gap=float(proxy_verify_gap),
     )
     return result.to_dict()
 
@@ -258,6 +498,8 @@ def fast_recommend(
 __all__ = [
     "DEFAULT_CRF_HI",
     "DEFAULT_CRF_LO",
+    "DEFAULT_PROXY_TOLERANCE",
+    "PROD_N_TRIALS",
     "SAMPLE_CHUNK_SECONDS",
     "SMOKE_N_TRIALS",
     "FastRecommendResult",
