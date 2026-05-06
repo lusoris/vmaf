@@ -8725,6 +8725,18 @@ inline.*
   `tools/vmaf-tune/src/vmaftune/saliency.py`'s qpfile output format
   changes (new column, different frame-type alphabet, …), patch 0007
   must change in the same PR (CLAUDE.md §12 r14).
+- **n7+ API migration (2026-05-06)**: patch 0008 originally referenced
+  the removed `AVFilterLink::frame_rate` member directly (n6-era API);
+  in n7+ that field moved off `AVFilterLink` onto a new `FilterLink`
+  struct accessed via `ff_filter_link(AVFilterLink *)` from
+  `libavfilter/filters.h`. Patch 0008 now uses
+  `ff_filter_link(outlink)->frame_rate = ff_filter_link(mainlink)->frame_rate;`
+  in `config_output()`, mirroring patches 0005/0006 which were already
+  written against the post-n7 API. The bug slipped through CI because
+  the FFmpeg-Vulkan lane only builds `vf_libvmaf.o`, not
+  `vf_libvmaf_tune.c`; the full SYCL lane catches it now that PR #415
+  added `ffmpeg-patches/**` to the integration workflow's path filter.
+  Discovery: PR #415 / ADR-0317.
 - **Upstream source**: zero. The vmaf-tune integration is
   fork-introduced; pure upstream syncs are unaffected.
 - **On upstream sync**: zero interaction with libvmaf master.
