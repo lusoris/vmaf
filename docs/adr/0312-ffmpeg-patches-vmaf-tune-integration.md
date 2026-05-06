@@ -1,6 +1,6 @@
 # ADR-0312: FFmpeg-patch series for vmaf-tune integration (qpfile + libvmaf_tune + pass-autotune)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: Lusoris
 - **Tags**: tooling, ffmpeg, vmaf-tune, patch-series, scaffold
@@ -41,8 +41,14 @@ series (0007 / 0008 / 0009):
    `libsvtav1`, and `libaom-av1`. A new shared parser at
    `libavcodec/qpfile_parser.{c,h}` reads the vmaf-tune qpfile format
    once. libx264 forwards the path to x264's native per-MB qpfile
-   reader (supported since r2390). SVT-AV1 and libaom **scaffold**:
-   parse, validate, log; full ROI-bridge wiring is deferred.
+   reader (supported since r2390). SVT-AV1 and libaom were **scaffold**
+   at the time of this ADR (parse, validate, log; full ROI-bridge
+   wiring deferred). Both deferrals have since been retired:
+   SVT-AV1 ROI bridge via PR #417 (per-frame `ROI_MAP_EVENT` priv-data
+   + `enable_roi_map`, gated on SVT-AV1 1.6.0+); libaom-av1 ROI bridge
+   via PR #419 (`AOME_SET_ROI_MAP` per frame with 8-segment uniform
+   binning of qp_offsets). Patch 0007 is now full-impl across all
+   three encoders.
 2. **Patch 0008** — new `libvmaf_tune` 2-input video filter
    (`libavfilter/vf_libvmaf_tune.c`). **Scaffold**: filter skeleton,
    AVOption table, init/uninit, frame pass-through with framesync,
@@ -74,9 +80,10 @@ existing FFmpeg/LGPL headers.
 
 ### Positive
 
-- vmaf-tune's saliency path becomes encoder-agnostic at the CLI level
-  (the `-qpfile` flag works the same way across libx264, libsvtav1,
-  libaom-av1 — even if SVT-AV1 / libaom are scaffold-only today).
+- vmaf-tune's saliency path is encoder-agnostic at the CLI level: the
+  `-qpfile` flag works the same way across libx264, libsvtav1, and
+  libaom-av1, with full ROI-bridge behaviour on each (PRs #409 + #417 +
+  #419 closed all three encoder branches end-to-end).
 - The shared parser at `libavcodec/qpfile_parser.{c,h}` is a single
   point of evolution when the qpfile format grows new columns.
 - The `libvmaf_tune` filter and `-pass-autotune` flag give vmaf-tune
@@ -84,10 +91,14 @@ existing FFmpeg/LGPL headers.
 
 ### Negative
 
-- Two of the three patches are scaffold; users following the
-  `-qpfile` path on SVT-AV1 or libaom get a log warning, not actual
-  ROI behaviour. The deferred work is tracked under ADR-0312
-  follow-up items.
+- Patches 0008 (`vf_libvmaf_tune` filter) and 0009 (`-pass-autotune`
+  CLI glue) remain scaffold by design. Patch 0008's recommend logic is
+  a linear CRF↔VMAF interpolation; the Optuna TPE loop stays in
+  vmaf-tune. Patch 0009 emits a stderr advisory only. Both are
+  reviewable seams for future expansion. *(Status update 2026-05-06:
+  patch 0007's two original scaffold hunks are now full-impl per the
+  decision-section update above. Patches 0008/0009 stay scaffold; that
+  was always the intent and is not tracked as deferred work.)*
 - Patches 0007–0009 must be kept consistent with vmaf-tune's
   `saliency.py` qpfile format — see CLAUDE.md §12 r14 and the
   vmaf-tune patch invariant in `ffmpeg-patches/README.md`.
