@@ -1,6 +1,6 @@
 # ADR-0304: `vmaf-tune fast` — production wiring (Optuna TPE + v2 proxy + GPU verify)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: Lusoris
 - **Tags**: tooling, ai, ffmpeg, codec, automation, fork-local

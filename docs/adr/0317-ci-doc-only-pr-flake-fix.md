@@ -1,6 +1,6 @@
 # ADR-0317: Path-filter Docker + FFmpeg-integration on doc/Python-only PRs
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-06
 - **Deciders**: Lusoris, Claude
 - **Tags**: `ci`, `build`

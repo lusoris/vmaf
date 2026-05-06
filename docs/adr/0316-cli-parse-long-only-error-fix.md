@@ -1,6 +1,6 @@
 # ADR-0316: cli_parse — handle long-only options in `error()`
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-06
 - **Deciders**: lusoris, Claude
 - **Tags**: cli, security, fork-local, fuzzing

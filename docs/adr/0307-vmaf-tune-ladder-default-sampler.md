@@ -1,6 +1,6 @@
 # ADR-0307: `vmaf-tune` ladder default sampler — wire Phase B/E gap
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: Lusoris
 - **Tags**: tooling, automation, vmaf-tune, ladder, fork-local

@@ -1,6 +1,6 @@
 # ADR-0302: ENCODER_VOCAB v3 — 16-slot schema expansion + retrain plan
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Companion research digest**: [Research-0078](../research/0078-encoder-vocab-v3-schema-expansion.md)
 - **Related**: ADR-0235 (codec-aware FRRegressor + 0.95 LOSO PLCC ship gate),

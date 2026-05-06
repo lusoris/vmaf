@@ -1,6 +1,6 @@
 # ADR-0311: libFuzzer harness expansion — `fuzz_yuv_input` + `fuzz_cli_parse`
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: lusoris, Claude
 - **Tags**: security, build, ci, docs, fork-local

@@ -1,6 +1,6 @@
 # ADR-0305: Encoder knob-space Pareto-frontier analysis stratified per (source, codec, rc_mode)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: lusoris, Claude
 - **Tags**: ai, vmaf-tune, research, encoder, pareto, fork-local
