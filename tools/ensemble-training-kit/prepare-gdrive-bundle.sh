@@ -174,9 +174,12 @@ parse_yuv_geometry() {
 }
 
 encode_lossless() {
+  # Caller is responsible for invoking parse_yuv_geometry "$in_yuv"
+  # first so PIX_FMT / WIDTH / HEIGHT / FPS are populated. We don't
+  # re-parse here so the main loop can also use those globals for
+  # the per-file manifest row even on a skip-already-encoded path.
   local in_yuv="$1"
   local out_mkv="$2"
-  parse_yuv_geometry "$in_yuv"
 
   local thread_arg=()
   if [[ "$THREADS" != "0" ]]; then
@@ -257,6 +260,10 @@ for src in "${CORPUS_DIRS[@]}"; do
     mkdir -p "$(dirname "$out_mkv")"
     in_size="$(stat -c %s "$yuv")"
     total_in_bytes=$((total_in_bytes + in_size))
+
+    # Always parse geometry — the manifest needs PIX_FMT / FPS /
+    # WIDTH / HEIGHT regardless of whether we re-encode or skip.
+    parse_yuv_geometry "$yuv"
 
     if [[ -f "$out_mkv" ]] && [[ "$out_mkv" -nt "$yuv" ]]; then
       echo "  skip (already encoded): $rel"
