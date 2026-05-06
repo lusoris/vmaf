@@ -10,6 +10,54 @@ Parent design: [ADR-0303](../../docs/adr/0303-fr-regressor-v2-ensemble-prod-flip
 (LOSO trainer real impl), [ADR-0321](../../docs/adr/0321-fr-regressor-v2-ensemble-full-prod-flip.md)
 (full production flip + ONNX export script).
 
+## I received a Google Drive bundle — what now?
+
+If the lead user shared a Google Drive folder containing this kit
+plus a `corpus/` directory of `.yuv` reference files (~200 GiB), the
+end-to-end runbook is:
+
+1. **Download** every file from the shared drive folder into a single
+   directory on your machine. Use Google Drive Desktop or `rclone` for
+   the YUV files — the browser's "Download all" sometimes silently
+   drops files larger than 10 GB.
+2. **Verify the bundle** — every `.yuv` should match the size +
+   sha256 listed in `corpus/manifest.json`:
+
+   ```bash
+   sha256sum -c corpus/manifest.sha256
+   ```
+
+   If any line FAILs, redownload that file (don't proceed; the trainer
+   needs every byte).
+3. **Run the prereq check** (it will list anything missing for your
+   platform):
+
+   ```bash
+   bash 01-prereqs.sh
+   ```
+
+4. **Run the pipeline**, pointing `--ref-dir` at the unpacked YUVs:
+
+   ```bash
+   bash run-full-pipeline.sh --ref-dir ./corpus
+   ```
+
+   On NVIDIA hardware this typically takes 4–10 hours wall-time
+   depending on the GPU; on Apple Silicon / Intel Arc closer to a
+   day. The script prints progress + a final verdict to stderr.
+5. **Send the result tarball back** — exactly one file:
+
+   ```text
+   lawrence-ensemble-results-<ts>.tar.gz
+   ```
+
+   Upload it to the same Google Drive folder (or whatever the lead
+   user asked you to use). See "How to send back the results" below
+   for what's in the tarball and how the lead user uses it.
+
+That's the whole loop — the kit emits one file, you upload one file,
+the lead user takes it from there.
+
 ## What this kit does
 
 - Generates a Phase-A canonical-6 JSONL corpus from operator-supplied
