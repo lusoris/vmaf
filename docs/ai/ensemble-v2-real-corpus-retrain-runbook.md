@@ -20,26 +20,66 @@ back if the registry was flipped prematurely.
 
 | Requirement      | Expected value                                                                 |
 |------------------|--------------------------------------------------------------------------------|
-| Corpus location  | `.workingdir2/netflix/` (overridable via `$CORPUS_ROOT`)                       |
-| Corpus contents  | ≥ 1 reference YUV + ≥ 1 distorted YUV (full Netflix Public Dataset = 9 + 70)   |
-| GPU memory       | ≥ 8 GB VRAM (NVIDIA / SYCL — the trainer is single-GPU per seed)               |
-| Free disk        | ≥ 5 GB under `runs/ensemble_v2_real/` (logs + per-seed JSON, no model weights) |
-| Wall time        | 6–12 h on a single 8 GB GPU (5 seeds × 9 LOSO folds, sequential)               |
+| Source YUVs      | `.workingdir2/netflix/ref/*.yuv` (9 sources)                                   |
+| Phase A corpus   | `runs/phase_a/full_grid/per_frame_canonical6.jsonl` (overridable via `$CORPUS_JSONL`) |
+| Corpus rows      | ≥ 100 (full canonical-6 corpus = ~5,640 NVENC rows × 9 sources × 4 CQs)        |
+| GPU memory       | ≥ 4 GB VRAM (canonical-6 + 14-D codec block fits comfortably)                  |
+| Free disk        | ≥ 1 GB under `runs/ensemble_v2_real/` (logs + per-seed JSON, no model weights) |
+| Wall time        | ~5 min per seed on RTX 4090; ~25 min for the full 5-seed run                   |
 | Python deps      | `ai/pyproject.toml` editable install (`pip install -e ai/`)                    |
 
-The corpus is gitignored — it was provided locally by lawrence on
-2026-04-27 (memory-pinned in
-`feedback_netflix_training_corpus_local`). Do **not** check it in.
+The Netflix YUVs and the canonical-6 JSONL are gitignored — both
+stay local. Do **not** check them in.
 
 ---
 
 ## Step-by-step run
 
+### 0. Generate the Phase A canonical-6 corpus
+
+The trainer consumes a per-frame canonical-6 JSONL emitted by
+[`scripts/dev/hw_encoder_corpus.py`](../../scripts/dev/hw_encoder_corpus.py).
+Generate it once over the 9 Netflix ref YUVs at the standard CQ grid
+`{19, 25, 31, 37}`:
+
+```bash
+mkdir -p runs/phase_a/full_grid/per_source
+
+# h264_nvenc lane (required) — adjust framerate / dims per source if
+# your YUVs differ from 1920x1080@25fps.
+for src in BigBuckBunny_25fps BirdsInCage_30fps CrowdRun_25fps \
+           ElFuente1_30fps ElFuente2_30fps FoxBird_25fps \
+           OldTownCross_25fps Seeking_25fps Tennis_24fps; do
+  python scripts/dev/hw_encoder_corpus.py \
+    --vmaf-bin libvmaf/build-cuda/tools/vmaf \
+    --source ".workingdir2/netflix/ref/${src}.yuv" \
+    --width 1920 --height 1080 --pix-fmt yuv420p --framerate 25 \
+    --encoder h264_nvenc --cq 19 --cq 25 --cq 31 --cq 37 \
+    --out "runs/phase_a/full_grid/per_source/${src}_h264_nvenc.jsonl"
+done
+
+# Concatenate per-source shards into the canonical corpus.
+cat runs/phase_a/full_grid/per_source/*.jsonl \
+  > runs/phase_a/full_grid/per_frame_canonical6.jsonl
+
+wc -l runs/phase_a/full_grid/per_frame_canonical6.jsonl
+# Expected: ~5,640 rows (9 sources × 4 CQs × ~150 frames/clip)
+```
+
+QSV is optional — skip the `_qsv` lanes if iHD / Intel Arc isn't
+available on the host. The NVENC-only corpus still trains; the
+`encoder` one-hot collapses onto a single column and the model
+generalises across content rather than across encoders. For
+cross-encoder LOSO, regenerate with both NVENC and QSV lanes
+populated.
+
+Wall time: ~1 minute on RTX 4090 for the full 9-source NVENC corpus.
+
 ### 1. Verify the corpus
 
 ```bash
-ls -d .workingdir2/netflix/  # should exist
-find .workingdir2/netflix/ -name '*.yuv' | wc -l  # should be > 0
+ls runs/phase_a/full_grid/per_frame_canonical6.jsonl  # should exist
+wc -l runs/phase_a/full_grid/per_frame_canonical6.jsonl  # should be > 100
 ```
 
 ### 2. Kick off the wrapper
@@ -50,11 +90,12 @@ bash ai/scripts/run_ensemble_v2_real_corpus_loso.sh
 
 The wrapper:
 
-1. Validates `$CORPUS_ROOT` exists and contains ≥ 1 ref + ≥ 1 dis YUV.
+1. Validates `$CORPUS_JSONL` exists and has ≥ 100 rows
+   (default: `runs/phase_a/full_grid/per_frame_canonical6.jsonl`).
 2. Loops `seed ∈ {0,1,2,3,4}`, calling
-   `train_fr_regressor_v2_ensemble_loso.py --seed N
-   --corpus-root $CORPUS_ROOT
-   --output runs/ensemble_v2_real/loso_seed{N}.json` per seed.
+   `train_fr_regressor_v2_ensemble_loso.py --seeds N
+   --corpus $CORPUS_JSONL --out-dir runs/ensemble_v2_real/`
+   per seed.
 3. Tees a timestamped log per seed under
    `runs/ensemble_v2_real/logs/seed{N}_<UTC>.log`.
 4. Prints a one-line summary on completion (elapsed seconds + next

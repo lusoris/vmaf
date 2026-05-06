@@ -8920,3 +8920,40 @@ inline.*
     yaml.safe_load(open('.github/workflows/ffmpeg-integration.yml')); \
     print('OK')"
   ```
+
+### 0319 — fr_regressor_v2 ensemble LOSO trainer — real loader + per-fold training (ADR-0319)
+
+- **Touches**: `ai/scripts/train_fr_regressor_v2_ensemble_loso.py`
+  (real `_load_corpus` + `_train_one_seed` bodies),
+  `ai/scripts/run_ensemble_v2_real_corpus_loso.sh` (wrapper argv
+  fix), `docs/ai/ensemble-v2-real-corpus-retrain-runbook.md`
+  (Step 0 corpus-generation section), `ai/AGENTS.md` (canonical-6
+  schema invariant note), `ai/tests/test_train_fr_regressor_v2_ensemble_loso_*.py`
+  (loader + train schema tests). Closes the deferrals tracked in
+  rebase-notes §0303 + §0309.
+- **Upstream source**: none — fork-local ML training infrastructure.
+  Netflix/vmaf upstream has no `fr_regressor_v2` surface, no LOSO
+  trainer, and no canonical-6 corpus tooling.
+- **Invariant**: the trainer's `_load_corpus` accepts the
+  canonical-6 JSONL schema emitted by
+  `scripts/dev/hw_encoder_corpus.py` bit-for-bit — required keys per
+  row are `(src, encoder, cq, frame_index, vmaf, adm2,
+  vif_scale0..3, motion2)`. Codec block layout is 12-slot
+  `ENCODER_VOCAB` v2 one-hot + constant `preset_norm = 0.5` +
+  `crf_norm = (cq - cq_min) / (cq_max - cq_min)`. Schema changes
+  require an `ENCODER_VOCAB_VERSION` bump and full ensemble retrain
+  per the existing closed-vocabulary rule (ADR-0235 / ADR-0291).
+  Fold-level StandardScaler is fit on the training rows only;
+  leaking the held-out source's distribution into the scaler would
+  silently inflate per-fold PLCC.
+- **On upstream sync**: no action required. If upstream Netflix/vmaf
+  ever adds a competing LOSO trainer under `python/vmaf/`, do NOT
+  merge them — keep the fork's training stack under `ai/` per the
+  AGENTS.md scope rule.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_train_fr_regressor_v2_ensemble_loso_loader.py \
+         ai/tests/test_train_fr_regressor_v2_ensemble_loso_train.py -v
+  bash -n ai/scripts/run_ensemble_v2_real_corpus_loso.sh
+  ```
