@@ -11,15 +11,22 @@ The fork ships VVC (H.266) encode today through a CPU-only adapter
 ([`tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py`](../../tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py))
 that wraps Fraunhofer HHI's reference encoder.
 
-**Verified at write time** (2026-05-05, WebFetch of NVIDIA's NVENC
-Application Note for Video Codec SDK 13.0): NVENC supports
-**only H.264, HEVC 8-bit, HEVC 10-bit, AV1 8-bit, AV1 10-bit**.
-There is **no H.266/VVC encode** in any documented NVENC version.
-AMD AMF and Intel QSV silicon support claims are `[UNVERIFIED]` in
-Research-0085 (skeleton); indicative search suggests the same
-("no shipping hardware VVC encode on any vendor in 2026"), but the
-specific shipping-version capability checks have not been re-run for
-this ADR.
+**Verified at write time** (2026-05-06 follow-up; supersedes the
+2026-05-05 partial verification): NVENC SDK 13.0 supports only
+H.264 / HEVC / AV1 (no H.266 encode); AMD AMF SDK v1.5.0
+(2025-10-29) ships only `VideoEncoderVCE.h` (H.264) /
+`VideoEncoderHEVC.h` / `VideoEncoderAV1.h` — no
+`VideoEncoderH266.h` / `VideoEncoderVVC.h`; Intel oneVPL 2.16.0
+(2025-12-08) public API defines `MFX_CODEC_VVC` plus full VVC
+profile/level enums (added in 2.15.0, 2025-04-11), but the runtime
+(`intel/vpl-gpu-rt`) wires VVC through to **decode** only, on Lunar
+Lake silicon. **No vendor ships hardware VVC encode** in any
+shipping SDK at write time. Intel Lunar Lake (Core Ultra 200V,
+Xe2 iGPU) is the first/only consumer silicon with hardware VVC
+**decode**; Battlemage (Arc B-series) does not ship VVC decode.
+`VK_KHR_video_encode_h266` does not exist in the Khronos registry
+(verified 404). See Research-0085's "Verification status" table
+for primary-source links.
 
 The user (lawrence, 2026-05-05) asked whether a GPU-accelerated
 VVC encode path that does not require NVIDIA hardware is feasible.
@@ -27,15 +34,18 @@ The honest answer today: **no vendor ships hardware VVC encode**, so
 the question reduces to "which non-NVIDIA-tied software encoder +
 GPU-accelerated tooling around it can the fork integrate".
 
-Research-0085 (skeleton) surveyed the landscape and identified four
-candidate paths: (a) wait for some vendor to ship hardware VVC
-encode silicon (passive), (b) HIP-port VVenC's hot kernels
-(open-source software acceleration; eng-months `[UNVERIFIED]`,
-vendor-coverage AMD), (c) wait for Vulkan Video
-`VK_KHR_video_encode_h266` ratification + driver landing (~24+
-months out, `[UNVERIFIED]` whether even provisional today), or (d)
-document NN-VC + the existing Vulkan **scoring** backend as the
-de-facto vendor-neutral story today.
+Research-0085 (now Active, 2026-05-06) surveyed the landscape and
+identified four candidate paths: (a) wait for some vendor to ship
+hardware VVC encode silicon (passive); (b) HIP-port VVenC's hot
+kernels (open-source software acceleration; eng-months
+`[UNVERIFIED]` until profiled, vendor-coverage AMD); (c) wait for
+Vulkan Video `VK_KHR_video_encode_h266` ratification + driver
+landing — verified that the extension does **not exist today**
+(Khronos registry 404), and the AV1 precedent (Nov-2024 ratification
+→ Aug-2025 RADV implementation) puts realistic delivery multi-quarter
+beyond any future ratification; or (d) document NN-VC + the existing
+Vulkan **scoring** backend as the de-facto vendor-neutral story
+today.
 
 Forces:
 
@@ -76,10 +86,10 @@ decision artifact that points back to it.
 | Option | Pros | Cons | Why not chosen |
 | --- | --- | --- | --- |
 | **A. Ship CUDA-VVC NVENC adapter** (mirror [ADR-0290](0290-vmaf-tune-nvenc-adapters.md) for h266) | Would help RTX-40 users **if NVENC supported H.266**; reuses adapter ladder pattern | **Verified false premise**: NVENC SDK 13.0 supports only H.264 / HEVC / AV1 (no H.266 encode). There is no `h266_nvenc` to wire up. | **Rejected** as factually impossible at write time. Re-evaluate if NVIDIA ships VVC encode silicon in a future SDK. |
-| **B. Wait for `VK_KHR_video_encode_h266` ratification** | Zero effort; eventually delivers vendor-neutral hardware encode on every Vulkan 1.4+ driver; reuses the fork's existing Vulkan loader / queue / DMABUF plumbing | Spec ratification status `[UNVERIFIED]`; AV1 precedent suggests multi-month spec-to-driver lag; abandons users who need a non-NVIDIA path **today** | Rejected as a standalone strategy. Reframed as Tier 3 (revisit quarterly) inside the chosen tiered approach. |
-| **C. HIP port of VVenC hot kernels (immediate)** | Vendor-neutral on AMD silicon; precedent for fork-side GPU ports exists ([ADR-0033](0033-hip-applicability.md)) | Eng-months `[UNVERIFIED]`; rebase burden against vvenc's release cadence; no CI hardware available; no demand signal yet beyond the question itself | Rejected as immediate Tier 1; queued as Tier 2 with explicit demand-pull triggers. |
+| **B. Wait for `VK_KHR_video_encode_h266` ratification** | Zero effort; eventually delivers vendor-neutral hardware encode on every Vulkan 1.4+ driver; reuses the fork's existing Vulkan loader / queue / DMABUF plumbing | **Verified non-existent** at write time (Khronos registry 404; zero Vulkan-Docs issues); AV1 precedent (`VK_KHR_video_encode_av1` ratified Nov-2024, Vulkan 1.3.302 → Mesa RADV implementation Aug-2025) shows ~9-month spec-to-driver lag *after* eventual ratification; abandons users who need a non-NVIDIA path **today** | Rejected as a standalone strategy. Reframed as Tier 3 (revisit quarterly) inside the chosen tiered approach. |
+| **C. HIP port of VVenC hot kernels (immediate)** | Vendor-neutral on AMD silicon; precedent for fork-side GPU ports exists ([ADR-0033](0033-hip-applicability.md)) | Eng-months `[UNVERIFIED]` until profile run; rebase burden against vvenc's release cadence; no CI hardware available; no demand signal yet beyond the question itself; verified that VVenC upstream has **no public CUDA/HIP/SYCL/OpenCL/Vulkan port** in its issue tracker | Rejected as immediate Tier 1; queued as Tier 2 with explicit demand-pull triggers. |
 | **D. Tiered approach (chosen)** | Ships *something* vendor-neutral today (NN-VC docs + Vulkan scoring); preserves option value on the HIP port without burning engineering hours speculatively; revisits Vulkan Video on a calendar | Communicates "no GPU vendor ships VVC encode silicon in 2026; we mitigate via NN-VC + Vulkan scoring"; relies on CPU encode for near-term throughput | **Chosen.** Matches the fork's demand-pull pattern; gives users an honest answer + a non-zero GPU contribution (NN-VC + scoring) immediately; preserves room for Tier 2 / Tier 3 to arrive when triggers fire. |
-| **E. ZLUDA-hosted hypothetical CUDA-VVC** | In theory runs CUDA codecs on AMD/Intel | No open-source CUDA VVC encoder exists; ZLUDA codec-workload coverage `[UNVERIFIED]`; reviewers would reasonably reject the production posture | Rejected as not actionable. |
+| **E. ZLUDA-hosted hypothetical CUDA-VVC** | In theory runs CUDA codecs on AMD/Intel | No open-source CUDA VVC encoder exists; verified that ZLUDA's module tree covers cuBLAS / cuFFT / cuDNN / cuSPARSE / Driver+Runtime APIs only — **no NVENC/NVDEC module**, so even if a CUDA VVC encoder appeared it could not run on ZLUDA without further work; reviewers would reasonably reject the production posture | Rejected as not actionable. |
 
 ## Consequences
 
@@ -94,9 +104,10 @@ decision artifact that points back to it.
 - **Negative**:
   - **No** users — NVIDIA, AMD, or Intel — get *hardware* VVC encode
     acceleration in the near term; no GPU vendor ships VVC encode
-    silicon in 2026 per write-time verification (NVIDIA SDK 13.0
-    docs) and indicative search for AMD / Intel. The only real
-    levers are NN-VC quality (any-GPU) and CPU SIMD throughput.
+    silicon in 2026 per write-time verification (NVIDIA SDK 13.0,
+    AMD AMF v1.5.0, Intel oneVPL 2.16.0 all checked directly). The
+    only real levers are NN-VC quality (any-GPU) and CPU SIMD
+    throughput.
   - The fork's "vendor-neutral codec story" is partial — strong on
     AV1 and HEVC (NVENC + AMF + QSV adapters all exist), weaker on
     H.266 (no GPU vendor ships VVC encode hardware).
