@@ -8725,6 +8725,23 @@ inline.*
   `tools/vmaf-tune/src/vmaftune/saliency.py`'s qpfile output format
   changes (new column, different frame-type alphabet, …), patch 0007
   must change in the same PR (CLAUDE.md §12 r14).
+- **vf_libvmaf_tune full-scoring promotion (2026-05-06)**: patch 0008
+  originally shipped as a scaffold (linear CRF↔VMAF interpolation, no
+  libvmaf scoring) per ADR-0312's deferred-alternatives column. The
+  filter now mirrors `vf_libvmaf.c`'s CPU framesync pipeline end-to-end
+  (`vmaf_init` + `vmaf_model_load` + `vmaf_use_features_from_model` in
+  init(); per-frame `vmaf_picture_alloc` + memcpy + `vmaf_read_pictures`;
+  flush + `vmaf_score_pooled(MEAN)` in uninit()). The CRF
+  recommendation remains a piece-wise linear projection from the
+  observed VMAF; per-clip Optuna TPE search stays in
+  `tools/vmaf-tune/src/vmaftune/recommend.py`. Rebase-side: the new
+  filter still depends only on libvmaf's CPU C-API (`vmaf_init`,
+  `vmaf_model_load`, `vmaf_use_features_from_model`,
+  `vmaf_read_pictures`, `vmaf_score_pooled`, `vmaf_close`,
+  `vmaf_picture_alloc/unref`); zero new symbols beyond what
+  `vf_libvmaf.c` already requires, so future libvmaf rebases that pass
+  the existing libvmaf filter pass this one too. ADR-0312
+  sub-decision retired.
 - **n7+ API migration (2026-05-06)**: patch 0008 originally referenced
   the removed `AVFilterLink::frame_rate` member directly (n6-era API);
   in n7+ that field moved off `AVFilterLink` onto a new `FilterLink`

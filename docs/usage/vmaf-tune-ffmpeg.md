@@ -155,30 +155,36 @@ ffmpeg -i input.mp4 -i reference.mp4 \
 At the end of the run the filter logs:
 
 ```text
-[Parsed_libvmaf_tune_0 @ 0x…] recommended_crf=24.3 (target_vmaf=92.0, n_frames=240)
+[Parsed_libvmaf_tune_0 @ 0x…] recommended_crf=24.3 (target_vmaf=92.0, observed_vmaf=93.6, n_frames=240)
 ```
 
 ### Options
 
-| Option                    | Default  | Notes                                                       |
-|---------------------------|----------|-------------------------------------------------------------|
-| `model`                   | `version=vmaf_v0.6.1` | libvmaf model spec.                                       |
-| `feature`                 | (none)   | Optional `:`-separated feature spec.                         |
-| `n_threads`               | `0`      | Worker threads (0 = libvmaf default).                        |
-| `recommend_target_vmaf`   | `95.0`   | Target score the recommendation aims for.                    |
-| `recommend_crf_min`       | `18.0`   | Lower CRF bound considered.                                  |
-| `recommend_crf_max`       | `51.0`   | Upper CRF bound considered.                                  |
-| `recommend_passes`        | `1`      | Probe-pass count (scaffold: ignored).                        |
+| Option                  | Default               | Notes                                                     |
+|-------------------------|-----------------------|-----------------------------------------------------------|
+| `model`                 | `version=vmaf_v0.6.1` | libvmaf model spec (also accepts `path=…`).               |
+| `feature`               | (none)                | Optional `:`-separated feature spec.                      |
+| `n_threads`             | `0`                   | Worker threads (0 = libvmaf default).                     |
+| `recommend_target_vmaf` | `95.0`                | Target score the recommendation aims for.                 |
+| `recommend_crf_min`     | `18.0`                | Lower CRF bound considered.                               |
+| `recommend_crf_max`     | `51.0`                | Upper CRF bound considered.                               |
+| `recommend_passes`      | `1`                   | Probe-pass count (advisory; ignored in single-pass impl). |
 
-### Scaffold caveat
+### Scoring (full impl)
 
-The recommended CRF is a **linear interpolation** between the
-configured min/max around the target. The full Optuna TPE search
-that vmaf-tune uses internally
-(`tools/vmaf-tune/src/vmaftune/recommend.py`) is **not** invoked by
-this filter — that orchestration stays in the Python tool. The
-filter is the FFmpeg-side ABI surface that future iterations can
-grow into.
+The filter runs real libvmaf scoring in-process: every (main, ref)
+frame pair is queued via `vmaf_read_pictures()`; at uninit() the
+filter flushes and calls `vmaf_score_pooled(VMAF_POOL_METHOD_MEAN)`
+to extract the mean over the seen frames. The `observed_vmaf` field
+in the final-line log is the real pooled score, not a placeholder.
+
+The CRF recommendation is still a **piece-wise linear** projection
+from the observed VMAF onto `[recommend_crf_min, recommend_crf_max]`
+(slope ≈ 0.4 CRF / VMAF point near the 90–96 sweet spot, calibrated
+roughly against libx264 medium-preset). Per-clip calibration data
+that would replace this heuristic stays in the Python tool —
+`tools/vmaf-tune/src/vmaftune/recommend.py` sweeps real CRF→VMAF
+rows from a corpus rather than projecting from a single observation.
 
 ## Hook 3: `-pass-autotune` (patch 0009)
 
