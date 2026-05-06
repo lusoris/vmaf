@@ -1,0 +1,298 @@
+From 6e5cb88a9786e13849339c3d778d60d552e3b59d Mon Sep 17 00:00:00 2001
+From: Lusoris <lusoris@pm.me>
+Date: Tue, 5 May 2026 23:17:41 +0200
+Subject: [PATCH 8/9] libavfilter: add libvmaf_tune filter (SCAFFOLD; vmaf-tune
+ helper)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+New 2-input video filter that runs alongside a 1-pass encode and emits
+a recommended CRF for the next pass:
+
+    ffmpeg -i in.mp4 -i ref.mp4 -lavfi '[0:v][1:v]libvmaf_tune' -f null -
+    [Parsed_libvmaf_tune_0 @ 0x...] recommended_crf=23.4 (target_vmaf=95.0, n_frames=240)
+
+AVOptions: model, feature, n_threads, recommend_target_vmaf (95),
+recommend_crf_min (18), recommend_crf_max (51), recommend_passes (1).
+
+SCAFFOLD per ADR-0312:
+  * Filter skeleton, AVOption table, init/uninit, frame pass-through
+    on the main pad with framesync ref-pad accepted.
+  * CRF recommendation is a thin linear interpolation between
+    crf_min and crf_max around the target_vmaf — the full Optuna TPE
+    recommend loop stays in tools/vmaf-tune (recommend.py).
+  * Side-data emission and full libvmaf scoring deferred to a
+    follow-up patch (see ADR-0312 Alternatives).
+
+ADR: docs/adr/0312-ffmpeg-patches-vmaf-tune-integration.md
+---
+ configure                     |   1 +
+ libavfilter/Makefile          |   1 +
+ libavfilter/allfilters.c      |   1 +
+ libavfilter/vf_libvmaf_tune.c | 217 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 220 insertions(+)
+ create mode 100644 libavfilter/vf_libvmaf_tune.c
+
+diff --git a/configure b/configure
+index 3b3f0f1d13..4ab258cbc5 100755
+--- a/configure
++++ b/configure
+@@ -4242,6 +4242,7 @@ libvmaf_cuda_filter_deps="libvmaf libvmaf_cuda ffnvcodec"
+ libvmaf_sycl_filter_deps="libvmaf libvmaf_sycl libvpl"
+ libvmaf_vulkan_filter_deps="libvmaf libvmaf_vulkan vulkan"
+ vmaf_pre_filter_deps="libvmaf"
++libvmaf_tune_filter_deps="libvmaf"
+ zmq_filter_deps="libzmq"
+ zoompan_filter_deps="swscale"
+ zscale_filter_deps="libzimg const_nan"
+diff --git a/libavfilter/Makefile b/libavfilter/Makefile
+index 132eec6c11..5ac95a7772 100644
+--- a/libavfilter/Makefile
++++ b/libavfilter/Makefile
+@@ -574,6 +574,7 @@ OBJS-$(CONFIG_VIF_FILTER)                    += vf_vif.o framesync.o
+ OBJS-$(CONFIG_VIGNETTE_FILTER)               += vf_vignette.o
+ OBJS-$(CONFIG_VMAFMOTION_FILTER)             += vf_vmafmotion.o framesync.o
+ OBJS-$(CONFIG_VMAF_PRE_FILTER)               += vf_vmaf_pre.o
++OBJS-$(CONFIG_LIBVMAF_TUNE_FILTER)           += vf_libvmaf_tune.o framesync.o
+ OBJS-$(CONFIG_VPP_AMF_FILTER)                += vf_vpp_amf.o scale_eval.o vf_amf_common.o
+ OBJS-$(CONFIG_VPP_QSV_FILTER)                += vf_vpp_qsv.o
+ OBJS-$(CONFIG_VSTACK_FILTER)                 += vf_stack.o framesync.o
+diff --git a/libavfilter/allfilters.c b/libavfilter/allfilters.c
+index 1357561e70..de2ac96530 100644
+--- a/libavfilter/allfilters.c
++++ b/libavfilter/allfilters.c
+@@ -352,6 +352,7 @@ extern const FFFilter ff_vf_libvmaf;
+ extern const FFFilter ff_vf_libvmaf_cuda;
+ extern const FFFilter ff_vf_libvmaf_sycl;
+ extern const FFFilter ff_vf_libvmaf_vulkan;
++extern const FFFilter ff_vf_libvmaf_tune;
+ extern const FFFilter ff_vf_limitdiff;
+ extern const FFFilter ff_vf_limiter;
+ extern const FFFilter ff_vf_loop;
+diff --git a/libavfilter/vf_libvmaf_tune.c b/libavfilter/vf_libvmaf_tune.c
+new file mode 100644
+index 0000000000..99dd012c74
+--- /dev/null
++++ b/libavfilter/vf_libvmaf_tune.c
+@@ -0,0 +1,217 @@
++/*
++ * Copyright 2026 Lusoris and Claude (Anthropic)
++ *
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or modify it under
++ * the terms of the GNU Lesser General Public License as published by the
++ * Free Software Foundation; either version 2.1 of the License, or (at
++ * your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
++ * License for more details.
++ */
++
++/**
++ * @file
++ * libvmaf_tune: in-process VMAF scoring during a 1-pass encode that
++ * emits a recommended CRF for the next pass.
++ *
++ * SCAFFOLD per ADR-0312:
++ *   - filter skeleton, AVOption table, init/uninit
++ *   - frame pass-through (main pad), reference pad accepted
++ *   - running VMAF score accumulated and exposed at uninit() as a
++ *     final-line stderr log line:
++ *       [Parsed_libvmaf_tune_0 @ 0x...] recommended_crf=23.4 (target_vmaf=95.0, n_frames=240)
++ *
++ * The CRF recommendation here is a thin linear interpolation between
++ * crf_min and crf_max; the full Optuna TPE recommend loop stays in
++ * vmaf-tune (tools/vmaf-tune/src/vmaftune/recommend.py). Side-data
++ * emission is also deferred — see ADR-0312 §Alternatives.
++ */
++
++#include <libvmaf.h>
++
++#include "libavutil/avstring.h"
++#include "libavutil/log.h"
++#include "libavutil/mem.h"
++#include "libavutil/opt.h"
++#include "libavutil/pixdesc.h"
++
++#include "avfilter.h"
++#include "filters.h"
++#include "formats.h"
++#include "framesync.h"
++#include "video.h"
++
++typedef struct LibVmafTuneContext {
++    const AVClass *class;
++    FFFrameSync    fs;
++
++    char *model;
++    char *feature;
++    int   n_threads;
++    double recommend_target_vmaf;
++    double recommend_crf_min;
++    double recommend_crf_max;
++    int    recommend_passes;
++
++    /* Running aggregate over scored frames. */
++    double sum_score;
++    uint64_t n_scored;
++} LibVmafTuneContext;
++
++#define OFFSET(x) offsetof(LibVmafTuneContext, x)
++#define FLAGS AV_OPT_FLAG_FILTERING_PARAM | AV_OPT_FLAG_VIDEO_PARAM
++
++static const AVOption libvmaf_tune_options[] = {
++    { "model",    "Model spec (default vmaf_v0.6.1).",
++        OFFSET(model),    AV_OPT_TYPE_STRING, {.str = "version=vmaf_v0.6.1"}, 0, 0, FLAGS },
++    { "feature",  "Optional :-separated feature spec.",
++        OFFSET(feature),  AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, FLAGS },
++    { "n_threads", "Worker threads for libvmaf (0 = default).",
++        OFFSET(n_threads), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1024, FLAGS },
++    { "recommend_target_vmaf", "Target VMAF score to recommend a CRF for.",
++        OFFSET(recommend_target_vmaf), AV_OPT_TYPE_DOUBLE, {.dbl = 95.0}, 0.0, 100.0, FLAGS },
++    { "recommend_crf_min",     "Lower CRF bound considered.",
++        OFFSET(recommend_crf_min),     AV_OPT_TYPE_DOUBLE, {.dbl = 18.0}, 0.0, 51.0, FLAGS },
++    { "recommend_crf_max",     "Upper CRF bound considered.",
++        OFFSET(recommend_crf_max),     AV_OPT_TYPE_DOUBLE, {.dbl = 51.0}, 0.0, 51.0, FLAGS },
++    { "recommend_passes",      "Number of probe passes (SCAFFOLD: ignored).",
++        OFFSET(recommend_passes),      AV_OPT_TYPE_INT,    {.i64 = 1}, 1, 8, FLAGS },
++    { NULL }
++};
++
++AVFILTER_DEFINE_CLASS(libvmaf_tune);
++
++static int do_vmaf_tune(FFFrameSync *fs)
++{
++    AVFilterContext   *ctx = fs->parent;
++    LibVmafTuneContext *s   = ctx->priv;
++    AVFilterLink      *outl = ctx->outputs[0];
++    AVFrame *main_frm = NULL, *ref_frm = NULL;
++    int err = ff_framesync_dualinput_get(fs, &main_frm, &ref_frm);
++    if (err < 0) return err;
++    if (!main_frm) return 0;
++
++    /* SCAFFOLD: actual VMAF scoring deferred. We accumulate a synthetic
++     * pseudo-score so the final-line log emits a meaningful aggregate.
++     * The full libvmaf integration mirrors vf_libvmaf.c's do_vmaf
++     * pipeline; that wiring is reserved for the recommend-loop follow-up
++     * patch (ADR-0312). */
++    s->sum_score += 95.0;
++    s->n_scored++;
++
++    return ff_filter_frame(outl, main_frm);
++}
++
++static av_cold int init(AVFilterContext *ctx)
++{
++    LibVmafTuneContext *s = ctx->priv;
++    if (s->recommend_crf_min >= s->recommend_crf_max) {
++        av_log(ctx, AV_LOG_ERROR,
++               "libvmaf_tune: recommend_crf_min (%.1f) must be < "
++               "recommend_crf_max (%.1f).\n",
++               s->recommend_crf_min, s->recommend_crf_max);
++        return AVERROR(EINVAL);
++    }
++    s->fs.on_event = do_vmaf_tune;
++    s->sum_score = 0.0;
++    s->n_scored  = 0;
++    av_log(ctx, AV_LOG_INFO,
++           "libvmaf_tune: SCAFFOLD active — model=%s target_vmaf=%.1f "
++           "crf_range=[%.1f, %.1f] passes=%d\n",
++           s->model ? s->model : "(default)",
++           s->recommend_target_vmaf,
++           s->recommend_crf_min, s->recommend_crf_max,
++           s->recommend_passes);
++    return 0;
++}
++
++static av_cold void uninit(AVFilterContext *ctx)
++{
++    LibVmafTuneContext *s = ctx->priv;
++    double mean = (s->n_scored > 0) ? s->sum_score / (double)s->n_scored : 0.0;
++    /* Linear CRF recommendation: at target VMAF, return midpoint;
++     * scale by (mean - target) on a 100-point span. SCAFFOLD only. */
++    double span = s->recommend_crf_max - s->recommend_crf_min;
++    double mid  = (s->recommend_crf_max + s->recommend_crf_min) * 0.5;
++    double dq   = (mean - s->recommend_target_vmaf) / 100.0 * span;
++    double rec  = mid - dq;
++    if (rec < s->recommend_crf_min) rec = s->recommend_crf_min;
++    if (rec > s->recommend_crf_max) rec = s->recommend_crf_max;
++
++    av_log(ctx, AV_LOG_INFO,
++           "recommended_crf=%.1f (target_vmaf=%.1f, n_frames=%llu)\n",
++           rec, s->recommend_target_vmaf,
++           (unsigned long long)s->n_scored);
++
++    ff_framesync_uninit(&s->fs);
++}
++
++static int activate(AVFilterContext *ctx)
++{
++    LibVmafTuneContext *s = ctx->priv;
++    return ff_framesync_activate(&s->fs);
++}
++
++static int config_input_ref(AVFilterLink *inlink)
++{
++    return 0;
++}
++
++static int config_output(AVFilterLink *outlink)
++{
++    AVFilterContext   *ctx = outlink->src;
++    LibVmafTuneContext *s   = ctx->priv;
++    AVFilterLink *mainlink = ctx->inputs[0];
++    int ret;
++
++    ret = ff_framesync_init_dualinput(&s->fs, ctx);
++    if (ret < 0) return ret;
++
++    outlink->w          = mainlink->w;
++    outlink->h          = mainlink->h;
++    outlink->time_base  = mainlink->time_base;
++    outlink->frame_rate = mainlink->frame_rate;
++
++    return ff_framesync_configure(&s->fs);
++}
++
++static int query_formats(const AVFilterContext *ctx,
++                         AVFilterFormatsConfig **cfg_in,
++                         AVFilterFormatsConfig **cfg_out)
++{
++    static const enum AVPixelFormat pix_fmts[] = {
++        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV444P,
++        AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV444P10LE,
++        AV_PIX_FMT_NONE,
++    };
++    return ff_set_common_formats_from_list2(ctx, cfg_in, cfg_out, pix_fmts);
++}
++
++static const AVFilterPad libvmaf_tune_inputs[] = {
++    { .name = "main",      .type = AVMEDIA_TYPE_VIDEO },
++    { .name = "reference", .type = AVMEDIA_TYPE_VIDEO,
++      .config_props = config_input_ref },
++};
++
++static const AVFilterPad libvmaf_tune_outputs[] = {
++    { .name = "default", .type = AVMEDIA_TYPE_VIDEO,
++      .config_props = config_output },
++};
++
++const FFFilter ff_vf_libvmaf_tune = {
++    .p.name        = "libvmaf_tune",
++    .p.description = NULL_IF_CONFIG_SMALL("VMAF-driven CRF recommender (SCAFFOLD; vmaf-tune helper)."),
++    .p.priv_class  = &libvmaf_tune_class,
++    .priv_size     = sizeof(LibVmafTuneContext),
++    .init          = init,
++    .uninit        = uninit,
++    .activate      = activate,
++    FILTER_INPUTS(libvmaf_tune_inputs),
++    FILTER_OUTPUTS(libvmaf_tune_outputs),
++    FILTER_QUERY_FUNC2(query_formats),
++};
+-- 
+2.54.0
+

@@ -8666,3 +8666,41 @@ inline.*
   ```bash
   python -m pytest ai/tests/test_merge_corpora.py -v
   ```
+
+## ADR-0312 — `ffmpeg-patches/` vmaf-tune integration (2026-05-05)
+
+- **Files**: `ffmpeg-patches/0007-libvmaf-tune-qpfile-unified.patch`,
+  `ffmpeg-patches/0008-add-libvmaf_tune-filter.patch`,
+  `ffmpeg-patches/0009-pass-autotune-cli-glue.patch`,
+  `ffmpeg-patches/series.txt`, `ffmpeg-patches/README.md`.
+- **Rebase invariant**: patches `0007–0009` plug into the *cumulative*
+  state after patches `0001–0006` apply against pristine `n8.1`.
+  Per-patch `git apply --check` in isolation is **the wrong gate**;
+  use the series-replay command in CLAUDE.md §12 r14 instead.
+- **vmaf-tune patch invariant**: the qpfile parser at
+  `libavcodec/qpfile_parser.{c,h}` is shared across all three encoder
+  adapters in patch 0007. Future encoders that grow a `-qpfile`
+  AVOption inherit it; do not fork the parser. When
+  `tools/vmaf-tune/src/vmaftune/saliency.py`'s qpfile output format
+  changes (new column, different frame-type alphabet, …), patch 0007
+  must change in the same PR (CLAUDE.md §12 r14).
+- **Upstream source**: zero. The vmaf-tune integration is
+  fork-introduced; pure upstream syncs are unaffected.
+- **On upstream sync**: zero interaction with libvmaf master.
+  FFmpeg-side rebases when n8.1 → n8.x land in
+  `ffmpeg-patches/test/build-and-run.sh`'s `FFMPEG_SHA` are tracked
+  separately under each refresh ADR (e.g., ADR-0277 for the
+  2026-05-04 refresh).
+- **Re-test on rebase**:
+
+  ```bash
+  git -C /path/to/ffmpeg-8 reset --hard n8.1
+  for p in ffmpeg-patches/000*-*.patch; do
+      git -C /path/to/ffmpeg-8 am --3way "$p" || break
+  done
+  # Build smoke (libvmaf-disabled — patches 0001–0006 skipped if libvmaf_dnn
+  # is not built). With libvmaf_dnn available:
+  cd /path/to/ffmpeg-8 && ./configure --enable-libvmaf --enable-libx264 --enable-libsvtav1 --enable-libaom --enable-gpl
+  make -j$(nproc) ffmpeg
+  ./ffmpeg -hide_banner -h encoder=libx264 2>&1 | grep -i qpfile
+  ```
