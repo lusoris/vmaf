@@ -92,6 +92,8 @@ static const int g_contrast_weights[32] = {1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 7, 7
 #define PICS_BUFFER_SIZE 2
 #define MASK_FILTER_SIZE 7
 
+#include "cambi_reciprocal_lut.h"
+
 typedef struct CambiBuffers {
     float *c_values;
     uint32_t *mask_dp;
@@ -600,6 +602,14 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
                        (bool)s->cambi_high_res_speedup);
     adjust_window_size(&s->src_window_size, s->src_width, s->src_height,
                        (bool)s->cambi_high_res_speedup);
+
+    int max_window = MAX(s->window_size, s->src_window_size);
+    if (max_window * max_window >= CAMBI_RECIPROCAL_LUT_SIZE) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "cambi: window_size %d too large for reciprocal LUT\n",
+                 max_window);
+        return -EINVAL;
+    }
+
     s->buffers.c_values = aligned_malloc(ALIGN_CEIL(alloc_w * sizeof(float)) * alloc_h, 32);
     if (!s->buffers.c_values)
         return -ENOMEM;
@@ -1080,9 +1090,9 @@ static float c_value_pixel(const uint16_t *histograms, uint16_t value, const int
             uint16_t p_2 =
                 histograms[(value + diffs[num_diffs - d - 1]) * histogram_width + histogram_col];
             if (p_1 > p_2) {
-                val = (float)(diff_weights[d] * p_0 * p_1) / (p_1 + p_0);
+                val = (float)(diff_weights[d] * p_0 * p_1) * reciprocal_lut[p_1 + p_0];
             } else {
-                val = (float)(diff_weights[d] * p_0 * p_2) / (p_2 + p_0);
+                val = (float)(diff_weights[d] * p_0 * p_2) * reciprocal_lut[p_2 + p_0];
             }
 
             if (val > c_value) {
