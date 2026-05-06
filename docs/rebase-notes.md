@@ -27,6 +27,41 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0308 — encoder knob-sweep recipe-regression policy (ADR-0308, docs-only)
+
+- **Touches**: `docs/research/0080-encoder-knob-sweep-findings.md`,
+  `docs/adr/0308-encoder-knob-sweep-recipe-regression-policy.md`,
+  `docs/adr/README.md` (index row), `ai/AGENTS.md` (knob-sweep
+  invariant section), `changelog.d/changed/encoder-knob-sweep-findings.md`.
+  No code touched; companion to PR #400 (ADR-0305 + Research-0077 +
+  `ai/scripts/analyze_knob_sweep.py`). Upstream Netflix/vmaf has no
+  encoder-knob-sweep surface, so conflict probability is zero —
+  this entry exists only because the policy threshold (7-of-9
+  structural cut) is rebase-sensitive on the corpus shape.
+- **Invariant**: the 7-of-9 source-count threshold from
+  ADR-0308 §Decision point 1 is calibrated against the **current
+  9-source Netflix Public Dataset corpus**. If the corpus grows
+  past 9 sources (e.g. UGC expansion per ADR-0287, or HDR additions),
+  re-derive the absolute threshold as a fraction (≥7/9 ≈ 78 %).
+  The structural cluster is sharp on the current corpus (top-15
+  cells all hit 9-of-9, no observed cells in 4-6 range), so a
+  fractional cut at ~75 % is robust. Do NOT relax
+  `bitrate_tol_pct` (default 5.0) or `vmaf_tol` (default 0.1) in
+  `ai/scripts/analyze_knob_sweep.py` without an ADR — those
+  tolerances are calibrated against the per-frame VMAF noise floor
+  and bitrate quantisation in libavformat muxers.
+- **Re-test**: `pytest ai/tests/test_knob_sweep_analysis.py -v`
+  (script logic; ships in PR #400). Policy gate is offline: regenerate
+  `runs/phase_a/full_grid/comprehensive.jsonl` via
+  `tools/vmaf-tune/src/vmaftune/hw_encoder_corpus.py` (3-hour run on
+  a single host with NVENC + QSV) then re-run
+  `python ai/scripts/analyze_knob_sweep.py --jsonl
+  <adapted.jsonl> --out-dir runs/phase_a/full_grid/reports/` and
+  diff the resulting `summary.md` against
+  `docs/research/0080-encoder-knob-sweep-findings.md` headline
+  table. Structural cluster (top-15 cells, all 9-of-9) is the
+  invariant to defend.
+
 ### 0228 — Vulkan 1.4 bump deferred (ADR-0264, docs-only)
 
 - **Touches**: none (docs-only PR). Future Step A of T-VK-1.4-BUMP
