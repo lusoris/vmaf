@@ -20,7 +20,6 @@ from vmaf.tools.scanf import FormatError, IncompleteCaptureError, sscanf
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
 __license__ = "BSD+Patent"
 
-
 try:
     multiprocessing.set_start_method("fork")
 except ValueError:  # noqa, If platform does not support, just ignore
@@ -513,7 +512,6 @@ def dedup_value_in_dict(d):
 
 
 class MyTestCase(unittest.TestCase):
-
     def setUp(self):
         self.verificationErrors = []
         self.maxDiff = None
