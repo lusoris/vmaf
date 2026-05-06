@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .codec_adapters import known_codecs
+from .codec_adapters import get_adapter, known_codecs
 from .corpus import CorpusJob, CorpusOptions, coarse_to_fine_search, iter_rows, write_jsonl
 from .encode import iter_grid
 from .per_shot import (
@@ -303,6 +303,63 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="optional: write a copy-paste shell script of the plan",
+    )
+
+    rec_sal = sub.add_parser(
+        "recommend-saliency",
+        help=(
+            "saliency-aware ROI encode — biases bits toward salient regions "
+            "via the fork-trained ``saliency_student_v1`` ONNX model "
+            "(Bucket #2 / ADR-0287)"
+        ),
+    )
+    rec_sal.add_argument("--src", type=Path, required=True, help="raw YUV reference")
+    rec_sal.add_argument("--width", type=int, required=True)
+    rec_sal.add_argument("--height", type=int, required=True)
+    rec_sal.add_argument("--pix-fmt", default="yuv420p")
+    rec_sal.add_argument("--framerate", type=float, default=24.0)
+    rec_sal.add_argument(
+        "--encoder",
+        default="libx264",
+        choices=list(known_codecs()),
+        help="codec adapter (saliency QP-offset map is currently x264-only)",
+    )
+    rec_sal.add_argument("--preset", default="medium", help="encoder preset")
+    rec_sal.add_argument(
+        "--crf",
+        type=int,
+        default=None,
+        help="explicit CRF; defaults to the codec adapter's quality_default",
+    )
+    rec_sal.add_argument(
+        "--duration-frames",
+        type=int,
+        required=True,
+        help="frame count to score saliency over (typical: full clip length)",
+    )
+    rec_sal.add_argument(
+        "--saliency-aware",
+        action="store_true",
+        help="enable saliency biasing (no-op when off; falls back to plain encode)",
+    )
+    rec_sal.add_argument(
+        "--saliency-offset",
+        type=int,
+        default=-4,
+        help="QP delta applied to salient blocks (default -4; clamped to ±12)",
+    )
+    rec_sal.add_argument(
+        "--saliency-model",
+        type=Path,
+        default=None,
+        help="path to saliency_student_v1.onnx (default: shipped fork model)",
+    )
+    rec_sal.add_argument("--ffmpeg-bin", default="ffmpeg")
+    rec_sal.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="encode destination (mp4 / mkv / ...)",
     )
 
     return parser
@@ -799,6 +856,57 @@ def _run_tune_per_shot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_recommend_saliency(args: argparse.Namespace) -> int:
+    """Bucket #2 — single saliency-aware encode (ADR-0287).
+
+    Builds an :class:`~vmaftune.encode.EncodeRequest` from the CLI
+    flags and delegates to :func:`vmaftune.saliency.saliency_aware_encode`,
+    which runs the fork's ``saliency_student_v1`` ONNX model over the
+    source, materialises an x264 ``--qpfile``, and runs one encode
+    biased toward salient regions. Falls back to a plain encode when
+    onnxruntime / the model are unavailable so the caller always gets
+    a result.
+    """
+    from .encode import EncodeRequest
+    from .saliency import SaliencyConfig, saliency_aware_encode
+
+    adapter = get_adapter(args.encoder)
+    crf = args.crf if args.crf is not None else adapter.quality_default
+    request = EncodeRequest(
+        source=args.src,
+        width=args.width,
+        height=args.height,
+        pix_fmt=args.pix_fmt,
+        framerate=args.framerate,
+        encoder=args.encoder,
+        preset=args.preset,
+        crf=crf,
+        output=args.output,
+    )
+    cfg = SaliencyConfig(qp_offset=args.saliency_offset) if args.saliency_aware else None
+    result = saliency_aware_encode(
+        request,
+        duration_frames=args.duration_frames,
+        model_path=args.saliency_model,
+        config=cfg,
+        ffmpeg_bin=args.ffmpeg_bin,
+    )
+    payload = {
+        "encoder": result.request.encoder,
+        "preset": result.request.preset,
+        "crf": result.request.crf,
+        "output": str(result.request.output),
+        "encode_size_bytes": result.encode_size_bytes,
+        "encode_time_ms": result.encode_time_ms,
+        "ffmpeg_version": result.ffmpeg_version,
+        "encoder_version": result.encoder_version,
+        "saliency_aware": bool(args.saliency_aware),
+        "exit_status": result.exit_status,
+    }
+    sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return result.exit_status
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -810,6 +918,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_predict(args)
     if args.cmd == "tune-per-shot":
         return _run_tune_per_shot(args)
+    if args.cmd == "recommend-saliency":
+        return _run_recommend_saliency(args)
     parser.print_help()
     return 2
 
