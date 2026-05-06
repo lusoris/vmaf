@@ -8567,3 +8567,29 @@ inline.*
 
 - **Upstream source**: zero.
 - **On upstream sync**: zero interaction.
+
+### 0310 — BVI-DVC corpus ingestion for `fr_regressor_v2` (ADR-0310)
+
+- **Touches**: `ai/scripts/bvi_dvc_to_corpus_jsonl.py` (new
+  fork-only adapter), `ai/scripts/merge_corpora.py` (new fork-only
+  shard merger), `ai/tests/test_merge_corpora.py` (new),
+  `docs/ai/bvi-dvc-corpus-ingestion.md` (new),
+  `docs/adr/0310-bvi-dvc-corpus-ingestion.md` (new),
+  `docs/research/0082-bvi-dvc-corpus-feasibility.md` (new),
+  `ai/AGENTS.md` (BVI-DVC invariant note).
+- **Invariant**: the BVI-DVC archive and any extracted artefacts
+  (parquet, cached libvmaf JSON, JSONL corpus shard) are
+  research-only and stay local — only derived
+  `fr_regressor_v2_*.onnx` weights ship. The merge utility validates
+  every row against the canonical `vmaftune.CORPUS_ROW_KEYS` tuple;
+  the schema is the merge contract. Re-shape here is a pure
+  transform on the cached libvmaf JSON; no ffmpeg / vmaf binary is
+  invoked. The `(src_sha256, encoder, preset, crf)` natural key is
+  load-bearing for de-duplication across mirrors and re-encodes.
+- **Upstream interaction**: none. `ai/` is fork-introduced; BVI-DVC
+  is not part of Netflix/vmaf upstream.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest ai/tests/test_merge_corpora.py -v
+  ```

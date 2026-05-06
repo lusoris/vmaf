@@ -390,6 +390,42 @@ The current shipped ONNX is from `--smoke` mode and is registered
 `smoke: true` in `model/tiny/registry.json`. Production training run
 is gated on a multi-codec Phase A corpus + per-frame feature emission
 in the Phase A schema. See ADR-0272 + Research-0054.
+
+## BVI-DVC corpus ingestion (ADR-0310)
+
+The Bristol VI Lab BVI-DVC reference corpus is a second training
+shard for `fr_regressor_v2` alongside the Netflix Public drop.
+Pipeline: `bvi_dvc_to_full_features.py` (parquet + cached libvmaf
+JSON) → `bvi_dvc_to_corpus_jsonl.py` (vmaf-tune `CORPUS_ROW_KEYS`
+rows) → `merge_corpora.py` (concatenate with Netflix shard, dedup
+by `(src_sha256, encoder, preset, crf)`).
+
+**Rebase-sensitive invariants:**
+
+- BVI-DVC is research-only. The archive
+  (`.workingdir2/BVI-DVC Part 1.zip`), the extracted MP4s
+  (`.workingdir2/bvi-dvc-extracted/`), the feature parquet
+  (`runs/full_features_bvi_dvc_*.parquet`), the JSONL corpus shard
+  (`runs/bvi_dvc_corpus.jsonl`), and the cached vmaf JSON
+  (`~/.cache/vmaf-tiny-ai-bvi-dvc-full/`) are **never committed**.
+  The fork redistributes derived `fr_regressor_v2_*.onnx` weights
+  only — corpus-must-be-license-compatible-or-stay-local applies
+  uniformly across `ai/` corpora (Netflix Public, BVI-DVC, KoNViD,
+  YouTube-UGC).
+- The merge contract is `vmaftune.CORPUS_ROW_KEYS` from
+  `tools/vmaf-tune/src/vmaftune/__init__.py`. Bumping
+  `SCHEMA_VERSION` means re-running the BVI-DVC adapter to backfill
+  the new fields. The merge utility refuses any row missing a
+  required key — fail-loud is by design.
+- The natural-key tuple `(src_sha256, encoder, preset, crf)` is the
+  dedup contract. Re-encodes of the same source under a new
+  `(preset, crf)` legitimately appear as distinct rows; do not
+  fold them by `src_sha256` alone.
+- Production-weights flip stays gated on
+  [ADR-0303](../docs/adr/0303-fr-regressor-v2-ensemble-flip.md).
+  Adding BVI-DVC to the corpus does NOT authorise re-shipping
+  `fr_regressor_v2.onnx` without re-running the ensemble gate.
+
 ## v5 corpus-expansion probe — research-only (ADR-0287)
 
 The `*_vmaf_tiny_v5.py` scripts

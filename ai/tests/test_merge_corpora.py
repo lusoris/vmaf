@@ -1,0 +1,139 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+"""Unit tests for :mod:`ai.scripts.merge_corpora` (ADR-0310).
+
+Covers the contract the BVI-DVC ingestion path depends on:
+
+* concatenating two valid corpus shards de-duplicates by the
+  ``(src_sha256, encoder, preset, crf)`` natural key;
+* a row missing any required :data:`CORPUS_ROW_KEYS` field aborts the
+  merge with ``SystemExit(1)`` rather than silently writing a
+  schema-bad output the trainer would later mis-parse.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_VMAFTUNE_SRC = _REPO_ROOT / "tools" / "vmaf-tune" / "src"
+if str(_VMAFTUNE_SRC) not in sys.path:
+    sys.path.insert(0, str(_VMAFTUNE_SRC))
+
+from vmaftune import CORPUS_ROW_KEYS  # noqa: E402
+
+_MERGE_PATH = _REPO_ROOT / "ai" / "scripts" / "merge_corpora.py"
+
+
+def _load_merge_module():
+    spec = importlib.util.spec_from_file_location("merge_corpora", _MERGE_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _fixture_row(idx: int, *, src_sha: str | None = None) -> dict:
+    """Build a minimal :data:`CORPUS_ROW_KEYS`-complete row."""
+    base = {
+        "schema_version": 2,
+        "run_id": f"run{idx:04x}",
+        "timestamp": "2026-05-05T00:00:00Z",
+        "src": f"/tmp/src_{idx}.yuv",
+        "src_sha256": src_sha if src_sha is not None else f"{idx:064x}",
+        "width": 1920,
+        "height": 1080,
+        "pix_fmt": "yuv420p",
+        "framerate": 24.0,
+        "duration_s": 5.0,
+        "encoder": "libx264",
+        "encoder_version": "0.164",
+        "preset": "medium",
+        "crf": 23 + (idx % 4),
+        "extra_params": "",
+        "encode_path": f"/tmp/out_{idx}.mkv",
+        "encode_size_bytes": 12345,
+        "bitrate_kbps": 1234.5,
+        "encode_time_ms": 100,
+        "vmaf_score": 90.0 + idx * 0.1,
+        "vmaf_model": "vmaf_v0.6.1",
+        "score_time_ms": 50,
+        "ffmpeg_version": "n8.1",
+        "vmaf_binary_version": "v3.0.0-lusoris.1",
+        "exit_status": 0,
+        "clip_mode": "full",
+    }
+    # Sanity: every fixture row must satisfy the schema we test against.
+    assert set(base.keys()) >= set(CORPUS_ROW_KEYS)
+    return base
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fp:
+        for row in rows:
+            fp.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def test_merge_dedupes_by_natural_key(tmp_path: Path) -> None:
+    """5 + 5 rows with one cross-shard duplicate → 9 rows out, 1 dupe."""
+    merge_mod = _load_merge_module()
+
+    shard_a = [_fixture_row(i) for i in range(5)]
+    # Shard B starts at idx=4 so its first row collides with shard A's
+    # last row on (src_sha256, encoder, preset, crf).
+    shard_b = [_fixture_row(i) for i in range(4, 9)]
+
+    a_path = tmp_path / "a.jsonl"
+    b_path = tmp_path / "b.jsonl"
+    out_path = tmp_path / "merged.jsonl"
+    _write_jsonl(a_path, shard_a)
+    _write_jsonl(b_path, shard_b)
+
+    rows_in, rows_out, dupes, sources = merge_mod.merge([a_path, b_path], out_path)
+
+    assert rows_in == 10
+    assert rows_out == 9
+    assert dupes == 1
+    assert sources == 9
+
+    written = [json.loads(ln) for ln in out_path.read_text().splitlines() if ln]
+    assert len(written) == 9
+    # Every written row carries the full schema.
+    for row in written:
+        assert set(row.keys()) >= set(CORPUS_ROW_KEYS)
+
+
+def test_merge_rejects_schema_violation(tmp_path: Path) -> None:
+    """A row with a missing required key triggers SystemExit(1)."""
+    merge_mod = _load_merge_module()
+
+    good = _fixture_row(0)
+    bad = _fixture_row(1)
+    del bad["src_sha256"]  # canonical-key field — must reject
+
+    a_path = tmp_path / "good.jsonl"
+    b_path = tmp_path / "bad.jsonl"
+    out_path = tmp_path / "merged.jsonl"
+    _write_jsonl(a_path, [good])
+    _write_jsonl(b_path, [bad])
+
+    with pytest.raises(SystemExit) as exc:
+        merge_mod.merge([a_path, b_path], out_path)
+    assert exc.value.code == 1
+
+
+def test_merge_missing_input_exits_2(tmp_path: Path) -> None:
+    merge_mod = _load_merge_module()
+    out_path = tmp_path / "merged.jsonl"
+    with pytest.raises(SystemExit) as exc:
+        merge_mod.merge(
+            [tmp_path / "does_not_exist.jsonl", tmp_path / "also_no.jsonl"],
+            out_path,
+        )
+    assert exc.value.code == 2
