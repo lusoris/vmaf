@@ -83,9 +83,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#CORPUS_DIRS[@]} -eq 0 ]]; then
+  # Netflix's `dis/` directory is derived encodes at multiple
+  # resolutions — not what the ensemble kit's ``--ref-dir`` consumes.
+  # Restrict to `ref/` so the bundle stays a pure reference-corpus.
   CORPUS_DIRS=(
     "$REPO_ROOT/.workingdir2/bvi-dvc-raw"
-    "$REPO_ROOT/.workingdir2/netflix"
+    "$REPO_ROOT/.workingdir2/netflix/ref"
   )
 fi
 
@@ -122,41 +125,78 @@ fi
 
 # ---- helpers ---------------------------------------------------------
 
-# Parse "Name_3840x2176_25fps_10bit_420.yuv" into geometry. The
-# BVI-DVC + Netflix filename conventions both use this shape; if a
-# corpus has a different naming scheme, plumb a sidecar JSON instead.
+# Cross-validate the NPD-1080p assumption: file size must be an
+# exact multiple of one 1920 x 1080 yuv420p 8-bit frame
+# (1920 * 1080 * 1.5 = 3,110,400 bytes). Returns 0 (true) when the
+# file's byte count divides cleanly, 1 otherwise — so we don't
+# silently mis-encode an exotic-resolution YUV that happened to
+# carry an NPD-style name.
+_looks_like_npd_1080p() {
+  local fname="$1"
+  local size
+  size="$(stat -c %s "$fname" 2>/dev/null || echo 0)"
+  local bytes_per_frame=$((1920 * 1080 * 3 / 2))
+  if [[ "$size" -gt 0 ]] && [[ $((size % bytes_per_frame)) -eq 0 ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# Parse a YUV filename / file size into geometry globals
+# (WIDTH / HEIGHT / FPS / BITS / CHROMA / PIX_FMT).
+#
+# Two filename conventions are recognised:
+#
+# 1. BVI-DVC: ``Name_WxH_FPSfps_BITbit_CHROMA.yuv`` — geometry
+#    encoded fully in the stem.
+# 2. Netflix Public Dataset (NPD): ``Name_FPSfps.yuv`` — no W x H
+#    in the stem. Every shipped NPD reference YUV (BigBuckBunny,
+#    ElFuente1/2, OldTownCross, Tennis, ...) is 1920 x 1080
+#    yuv420p 8-bit; we cross-validate that assumption against the
+#    file's byte size before accepting it.
+#
+# If neither pattern matches, error with the source path so the
+# operator can drop a sidecar JSON or rename.
 parse_yuv_geometry() {
   local fname="$1"
   local base
   base="$(basename "$fname")"
   # Strip extension.
   local stem="${base%.yuv}"
-  # Pull width x height.
-  if [[ "$stem" =~ _([0-9]+)x([0-9]+)_ ]]; then
-    WIDTH="${BASH_REMATCH[1]}"
-    HEIGHT="${BASH_REMATCH[2]}"
-  else
-    echo "could not parse W x H from $fname" >&2
-    return 1
-  fi
   # Pull fps (default 25 if absent).
   if [[ "$stem" =~ _([0-9]+)fps ]]; then
     FPS="${BASH_REMATCH[1]}"
   else
     FPS=25
   fi
-  # Pull bit depth (8 / 10 / 12; default 8).
-  if [[ "$stem" =~ _([0-9]+)bit ]]; then
-    BITS="${BASH_REMATCH[1]}"
-  else
+
+  # ---- Pattern 1: BVI-DVC (W x H in the stem) ----
+  if [[ "$stem" =~ _([0-9]+)x([0-9]+)_ ]]; then
+    WIDTH="${BASH_REMATCH[1]}"
+    HEIGHT="${BASH_REMATCH[2]}"
+    # Bit depth (8 / 10 / 12; default 8).
+    if [[ "$stem" =~ _([0-9]+)bit ]]; then
+      BITS="${BASH_REMATCH[1]}"
+    else
+      BITS=8
+    fi
+    # Chroma subsampling — BVI-DVC encodes "_420" / "_422" / "_444"
+    # in the stem; default to 4:2:0.
+    if [[ "$stem" =~ _(420|422|444) ]]; then
+      CHROMA="${BASH_REMATCH[1]}"
+    else
+      CHROMA="420"
+    fi
+  # ---- Pattern 2: Netflix Public Dataset (1920x1080 yuv420p 8-bit) ----
+  elif [[ -f "$fname" ]] && _looks_like_npd_1080p "$fname"; then
+    WIDTH=1920
+    HEIGHT=1080
     BITS=8
-  fi
-  # Chroma subsampling — BVI-DVC encodes "_420" / "_422" / "_444"
-  # in the stem; Netflix omits and is implicitly 4:2:0.
-  if [[ "$stem" =~ _(420|422|444) ]]; then
-    CHROMA="${BASH_REMATCH[1]}"
-  else
     CHROMA="420"
+  else
+    echo "could not parse W x H from $fname" >&2
+    echo "  (filename matches neither BVI-DVC nor NPD-1080p; supply a sidecar)" >&2
+    return 1
   fi
   case "$BITS:$CHROMA" in
     8:420) PIX_FMT="yuv420p" ;;
