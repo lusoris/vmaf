@@ -480,20 +480,21 @@ def _run_predict(args: argparse.Namespace) -> int:
         binary if available; one-shot fallback otherwise).
     2.  Build a :class:`predictor.Predictor` (ONNX or analytical
         fallback).
-    3.  Validate the predictor on K stratified shots against real
-        libvmaf scores.
+    3.  Validate the predictor on K stratified shots — for each, run
+        the real ffmpeg encode at the predictor-picked CRF + libvmaf
+        score, compute residuals.
     4.  Emit the verdict + residuals + recommended per-shot CRFs as a
         JSON report.
-
-    This subcommand is a *report*-style entry point — it does not run
-    the final per-shot encode. Plumbing the verdict + recommendations
-    through to a real encoder integration lands in a follow-up; the
-    contract is already shaped for it.
     """
-    from .per_shot import detect_shots
+    import subprocess
+    import tempfile
+
+    from .encode import EncodeRequest, run_encode
+    from .per_shot import Shot, detect_shots
     from .predictor import Predictor
-    from .predictor_features import FeatureExtractorConfig, extract_features
+    from .predictor_features import FeatureExtractorConfig, _probe_video_geometry, extract_features
     from .predictor_validate import Verdict, validate_predictor
+    from .score import ScoreRequest, run_score
 
     shots = detect_shots(
         source=args.source,
@@ -508,11 +509,25 @@ def _run_predict(args: argparse.Namespace) -> int:
         print("predict: no shots detected; nothing to do", file=sys.stderr)
         return 1
 
-    predictor = Predictor(model_path=args.model)
     feat_cfg = FeatureExtractorConfig(
         ffmpeg_bin=args.ffmpeg_bin,
         use_saliency=args.use_saliency,
     )
+
+    # Probe geometry once — every validation shot reuses the same
+    # width/height/fps/pix_fmt for both reference extraction and the
+    # encode dispatch.
+    width, height, fps = _probe_video_geometry(args.source, feat_cfg, subprocess.run)
+    if width <= 0 or height <= 0:
+        print(
+            "predict: ffprobe could not read source geometry "
+            "(width/height); falling back is not safe — aborting.",
+            file=sys.stderr,
+        )
+        return 1
+    pix_fmt = "yuv420p"  # canonical reference format; matches saliency.py + the corpus loop
+
+    predictor = Predictor(model_path=args.model)
 
     def _features(shot):
         return extract_features(
@@ -522,25 +537,91 @@ def _run_predict(args: argparse.Namespace) -> int:
             config=feat_cfg,
         )
 
-    def _real_encode_and_score(shot, crf, codec):
-        # Stub for the predictor PR — wire to the real encode + libvmaf
-        # path in the follow-up that integrates with tune-per-shot.
-        # Synthesise a measured-equals-predicted sample so the report
-        # shape is exercised in CI without requiring ffmpeg+libvmaf
-        # on the runner.
-        feats = _features(shot)
-        return Path("/dev/null"), predictor.predict_vmaf(feats, crf, codec)
+    # Validation work-area lives for the lifetime of _run_predict so
+    # ``run_score``'s lazy decode of the distorted output finds the
+    # encoded file still on disk. Cleaned at function exit.
+    workdir = Path(tempfile.mkdtemp(prefix="vmaf-tune-predict-"))
 
-    report = validate_predictor(
-        predictor=predictor,
-        shots=shots,
-        target_vmaf=args.target_vmaf,
-        codec=args.codec,
-        feature_extractor=_features,
-        real_encode_and_score=_real_encode_and_score,
-        k=args.validate_k,
-        residual_threshold_vmaf=args.residual_threshold,
-    )
+    def _real_encode_and_score(shot: Shot, crf: int, codec: str) -> tuple[Path, float]:
+        """Run the actual encode + libvmaf score for one validation shot.
+
+        Workflow: extract the shot range from ``args.source`` to a raw
+        YUV reference, encode that reference at the predictor-picked CRF
+        via :func:`encode.run_encode`, score with
+        :func:`score.run_score` (which handles the distorted-side
+        decode internally), and return ``(encoded_path, vmaf_score)``.
+        """
+        ref_yuv = workdir / f"ref_{shot.start_frame}_{shot.end_frame}.yuv"
+        dist_path = workdir / f"dist_{shot.start_frame}_{shot.end_frame}.mp4"
+
+        if fps > 0.0:
+            ss_arg = f"{shot.start_frame / fps:.6f}"
+        else:
+            ss_arg = str(shot.start_frame)
+        extract_cmd = [
+            args.ffmpeg_bin,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            ss_arg,
+            "-i",
+            str(args.source),
+            "-frames:v",
+            str(shot.length),
+            "-pix_fmt",
+            pix_fmt,
+            "-f",
+            "rawvideo",
+            str(ref_yuv),
+        ]
+        completed = subprocess.run(extract_cmd, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not ref_yuv.exists():
+            return dist_path, float("nan")
+
+        encode_req = EncodeRequest(
+            source=ref_yuv,
+            width=width,
+            height=height,
+            pix_fmt=pix_fmt,
+            framerate=fps if fps > 0.0 else 24.0,
+            encoder=codec,
+            preset="medium",
+            crf=crf,
+            output=dist_path,
+        )
+        encode_result = run_encode(encode_req, ffmpeg_bin=args.ffmpeg_bin)
+        if encode_result.exit_status != 0 or not dist_path.exists():
+            return dist_path, float("nan")
+
+        score_req = ScoreRequest(
+            reference=ref_yuv,
+            distorted=dist_path,
+            width=width,
+            height=height,
+            pix_fmt=pix_fmt,
+        )
+        score_result = run_score(score_req, ffmpeg_bin=args.ffmpeg_bin)
+        return dist_path, float(score_result.vmaf_score)
+
+    try:
+        report = validate_predictor(
+            predictor=predictor,
+            shots=shots,
+            target_vmaf=args.target_vmaf,
+            codec=args.codec,
+            feature_extractor=_features,
+            real_encode_and_score=_real_encode_and_score,
+            k=args.validate_k,
+            residual_threshold_vmaf=args.residual_threshold,
+        )
+    finally:
+        # Clean the per-run scratch dir even on interrupt — the encoded
+        # distorted files can run to gigabytes for long shots.
+        import shutil
+
+        shutil.rmtree(workdir, ignore_errors=True)
 
     payload = {
         "verdict": report.verdict.value,
