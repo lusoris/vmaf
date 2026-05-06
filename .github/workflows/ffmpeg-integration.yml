@@ -2,8 +2,27 @@ name: FFmpeg Integration — Linux/macOS × gcc/clang + SYCL + Vulkan
 on:
   push:
     branches: [master]
+    paths:
+      # Path-filter introduced in ADR-0317. The FFmpeg-integration matrix
+      # (gcc / clang / SYCL / Vulkan) only needs to fire when the inputs
+      # it actually consumes change: the libvmaf sources it builds, the
+      # ffmpeg-patches/ series it applies, the meson options that gate
+      # the build, or this workflow file itself. Doc-only / Python-only
+      # / vmaf-tune-only PRs (#409, #411, #412) were burning 10–15 min
+      # of runner time per push without exercising any of these inputs.
+      - "libvmaf/**"
+      - "ffmpeg-patches/**"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/ffmpeg-integration.yml"
   pull_request:
     branches: [master]
+    paths:
+      - "libvmaf/**"
+      - "ffmpeg-patches/**"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/ffmpeg-integration.yml"
   workflow_dispatch:
 
 permissions:
