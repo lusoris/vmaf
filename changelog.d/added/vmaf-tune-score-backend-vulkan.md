@@ -1,14 +1,11 @@
-- **vmaf-tune `--score-backend=vulkan`** — vendor-neutral GPU
-  scoring path on top of libvmaf's existing Vulkan backend
-  (ADR-0127 / ADR-0175 / ADR-0186). Restores the `--score-backend`
-  argparse wiring that was lost between PR #378 and HEAD (post-#378
-  rebases dropped the `cli.py` hunks) and admits `vulkan` as a
-  fourth strict-mode value alongside `cpu` / `cuda` / `sycl`. Runs
-  on Mesa anv/RADV/lavapipe (Linux), the proprietary NVIDIA driver,
-  and macOS via MoltenVK — the obvious answer for AMD, Intel Arc,
-  and any contributor box without `nvidia-smi`. `auto` mode still
-  walks `cuda → vulkan → sycl → cpu`, so existing NVIDIA
-  configurations see no behaviour change. Strict-mode failures
-  (e.g. `--score-backend vulkan` on a host without a Vulkan loader)
-  raise `BackendUnavailableError` and exit 2 — no silent CPU
-  downgrade. ADR-0314.
+- **`vmaf-tune --score-backend=vulkan` — vendor-neutral GPU scoring
+  ([ADR-0314](../docs/adr/0314-vmaf-tune-score-backend-vulkan.md)).**
+  Adds `vulkan` as a `--score-backend` choice (alongside `cuda` /
+  `sycl` / `cpu`) so AMD, Intel Arc, and Apple-MoltenVK hosts can run
+  GPU-accelerated VMAF scoring without the NVIDIA-only CUDA path. The
+  auto-detection chain becomes `cuda > vulkan > sycl > cpu`; existing
+  NVIDIA boxes see no behaviour change. Strict-mode failures stay
+  strict per ADR-0299 — no silent CPU downgrade. The CLI flag, the
+  detection plumbing in `score_backend.py`, and the libvmaf Vulkan
+  backend (ADR-0127 / 0175 / 0186) all shipped earlier; this entry
+  captures the operator-facing flip.
