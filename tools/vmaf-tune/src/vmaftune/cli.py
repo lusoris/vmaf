@@ -362,6 +362,61 @@ def _build_parser() -> argparse.ArgumentParser:
         help="encode destination (mp4 / mkv / ...)",
     )
 
+    ladder = sub.add_parser(
+        "ladder",
+        help=(
+            "Phase E — build a per-title bitrate ladder (convex-hull "
+            "sweep over (resolution × target-VMAF), pick K knees, "
+            "emit HLS / DASH / JSON manifest)"
+        ),
+    )
+    ladder.add_argument(
+        "--src",
+        type=Path,
+        required=True,
+        help="source video (raw YUV or any FFmpeg-readable container)",
+    )
+    ladder.add_argument(
+        "--encoder",
+        default="libx264",
+        choices=list(known_codecs()),
+        help="codec adapter (default libx264)",
+    )
+    ladder.add_argument(
+        "--resolutions",
+        required=True,
+        help="comma-separated WxH list, e.g. ``1920x1080,1280x720,854x480``",
+    )
+    ladder.add_argument(
+        "--target-vmafs",
+        required=True,
+        help="comma-separated VMAF target list, e.g. ``95,90,85``",
+    )
+    ladder.add_argument(
+        "--quality-tiers",
+        type=int,
+        default=5,
+        help="number of ladder rungs to select from the convex hull (default 5)",
+    )
+    ladder.add_argument(
+        "--format",
+        default="hls",
+        choices=("hls", "dash", "json"),
+        help="manifest format (default hls)",
+    )
+    ladder.add_argument(
+        "--spacing",
+        default="log_bitrate",
+        choices=("log_bitrate", "uniform"),
+        help="knee spacing strategy on the hull (default log_bitrate)",
+    )
+    ladder.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="manifest destination (default: stdout)",
+    )
+
     return parser
 
 
@@ -907,6 +962,64 @@ def _run_recommend_saliency(args: argparse.Namespace) -> int:
     return result.exit_status
 
 
+def _parse_resolutions(raw: str) -> list[tuple[int, int]]:
+    """Parse ``--resolutions`` ``WxH,WxH,...`` into a list of int pairs."""
+    out: list[tuple[int, int]] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "x" not in token:
+            raise SystemExit(f"vmaf-tune ladder: bad resolution {token!r}; expected WxH")
+        w_str, _, h_str = token.partition("x")
+        out.append((int(w_str), int(h_str)))
+    return out
+
+
+def _parse_target_vmafs(raw: str) -> list[float]:
+    """Parse ``--target-vmafs`` ``95,90,85`` into a list of floats."""
+    out: list[float] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        out.append(float(token))
+    return out
+
+
+def _run_ladder(args: argparse.Namespace) -> int:
+    """Phase E — per-title bitrate ladder (ADR-0295).
+
+    Builds the convex hull of (resolution × target-VMAF) sample points,
+    selects ``--quality-tiers`` knees by the chosen spacing strategy,
+    and emits an HLS / DASH / JSON manifest. The Phase B sampler is
+    used by default; tests can inject a stub via the ``ladder.SamplerFn``
+    parameter.
+    """
+    from .ladder import build_and_emit
+
+    resolutions = _parse_resolutions(args.resolutions)
+    target_vmafs = _parse_target_vmafs(args.target_vmafs)
+    manifest = build_and_emit(
+        src=args.src,
+        encoder=args.encoder,
+        resolutions=resolutions,
+        target_vmafs=target_vmafs,
+        quality_tiers=args.quality_tiers,
+        format=args.format,
+        spacing=args.spacing,
+    )
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(manifest, encoding="utf-8")
+        sys.stderr.write(f"wrote ladder manifest -> {args.output}\n")
+    else:
+        sys.stdout.write(manifest)
+        if not manifest.endswith("\n"):
+            sys.stdout.write("\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -920,6 +1033,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_tune_per_shot(args)
     if args.cmd == "recommend-saliency":
         return _run_recommend_saliency(args)
+    if args.cmd == "ladder":
+        return _run_ladder(args)
     parser.print_help()
     return 2
 
