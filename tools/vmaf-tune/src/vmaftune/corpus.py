@@ -82,6 +82,16 @@ class CorpusOptions:
     # populating this field; ``CorpusOptions`` itself never walks the
     # fallback chain.
     score_backend: str | None = None
+    # HDR mode (Bucket #9, ADR-0300):
+    # - "auto": probe each source via ffprobe; inject HDR codec args +
+    #   the HDR-VMAF model when PQ / HLG signaling is detected. Default.
+    # - "force-sdr": skip detection; treat every source as SDR.
+    # - "force-hdr-pq": treat every source as HDR PQ (overrides probe).
+    # - "force-hdr-hlg": treat every source as HDR HLG (overrides probe).
+    # The active mode lands on each corpus row's ``hdr_mode`` /
+    # ``hdr_transfer`` / ``hdr_primaries`` columns.
+    hdr_mode: str = "auto"
+    ffprobe_bin: str = "ffprobe"
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:

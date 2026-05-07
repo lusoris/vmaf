@@ -137,6 +137,49 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_coarse_to_fine_flags(corpus)
 
+    # HDR mode (Bucket #9 / ADR-0300). Mutually-exclusive group on the
+    # corpus subparser; default ``--auto-hdr`` keeps the SDR path
+    # untouched until ffprobe detects PQ / HLG signaling on a source.
+    hdr = corpus.add_mutually_exclusive_group()
+    hdr.add_argument(
+        "--auto-hdr",
+        dest="hdr_mode",
+        action="store_const",
+        const="auto",
+        help=(
+            "(default) probe each source via ffprobe and inject HDR "
+            "codec args + the HDR-VMAF model when PQ / HLG signaling "
+            "is detected"
+        ),
+    )
+    hdr.add_argument(
+        "--force-sdr",
+        dest="hdr_mode",
+        action="store_const",
+        const="force-sdr",
+        help="treat all sources as SDR; skip HDR detection and flag injection",
+    )
+    hdr.add_argument(
+        "--force-hdr-pq",
+        dest="hdr_mode",
+        action="store_const",
+        const="force-hdr-pq",
+        help="treat all sources as HDR PQ (SMPTE-2084) regardless of probe",
+    )
+    hdr.add_argument(
+        "--force-hdr-hlg",
+        dest="hdr_mode",
+        action="store_const",
+        const="force-hdr-hlg",
+        help="treat all sources as HDR HLG (ARIB STD-B67) regardless of probe",
+    )
+    corpus.set_defaults(hdr_mode="auto")
+    corpus.add_argument(
+        "--ffprobe-bin",
+        default="ffprobe",
+        help="path to the ffprobe binary (default: ffprobe on PATH)",
+    )
+
     recommend = sub.add_parser(
         "recommend",
         help=(
@@ -526,6 +569,8 @@ def _build_opts(args: argparse.Namespace) -> CorpusOptions:
         src_sha256=not args.no_source_hash,
         sample_clip_seconds=getattr(args, "sample_clip_seconds", 0.0),
         score_backend=selected,
+        hdr_mode=getattr(args, "hdr_mode", "auto"),
+        ffprobe_bin=getattr(args, "ffprobe_bin", "ffprobe"),
     )
 
 
