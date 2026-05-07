@@ -29,13 +29,21 @@
 // making each extract call stateless with respect to pixel data.
 
 #include <errno.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "cpu.h"
+#include "dict.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
+#include "feature_name.h"
 #include "integer_motion.h"
+
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+
+/* Default maximum value allowed for motion */
+#define DEFAULT_MOTION_MAX_VAL (10000.0)
 
 #if ARCH_X86
 #include "x86/motion_v2_avx2.h"
@@ -54,7 +62,23 @@ typedef struct MotionV2State {
     int32_t *y_row;
     unsigned w, h, bpc;
     motion_pipeline_fn pipeline;
+    double motion_max_val;
+    VmafDictionary *feature_name_dict;
 } MotionV2State;
+
+static const VmafOption options[] = {
+    {
+        .name = "motion_max_val",
+        .help = "maximum value allowed; larger values will be clipped to this value",
+        .offset = offsetof(MotionV2State, motion_max_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_MOTION_MAX_VAL,
+        .min = 0.0,
+        .max = 10000.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+        .alias = "mmxv",
+    },
+    {0}};
 
 static inline int mirror(int idx, int size)
 {
@@ -170,6 +194,11 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->h = h;
     s->bpc = bpc;
 
+    s->feature_name_dict =
+        vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
+    if (!s->feature_name_dict)
+        return -ENOMEM;
+
     s->y_row = malloc(sizeof(*s->y_row) * w);
     if (!s->y_row)
         return -ENOMEM;
@@ -221,8 +250,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     (void)dist_pic_90;
 
     if (index == 0) {
-        return vmaf_feature_collector_append(feature_collector,
-                                             "VMAF_integer_feature_motion_v2_sad_score", 0., index);
+        return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                       "VMAF_integer_feature_motion_v2_sad_score",
+                                                       0., index);
     }
 
     if (!fex->prev_ref.ref)
@@ -238,25 +268,29 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
     double score = (double)sad / 256. / (w * h);
 
-    return vmaf_feature_collector_append(feature_collector,
-                                         "VMAF_integer_feature_motion_v2_sad_score", score, index);
+    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "VMAF_integer_feature_motion_v2_sad_score",
+                                                   MIN(score, s->motion_max_val), index);
 }
 
 static int close_fex(VmafFeatureExtractor *fex)
 {
     MotionV2State *s = fex->priv;
     free(s->y_row);
-    return 0;
+    return vmaf_dictionary_free(&s->feature_name_dict);
 }
 
 static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
-    (void)fex;
+    MotionV2State *s = fex->priv;
+
+    VmafDictionaryEntry *e_sad =
+        vmaf_dictionary_get(&s->feature_name_dict, "VMAF_integer_feature_motion_v2_sad_score", 0);
+    const char *sad_name = e_sad ? e_sad->val : "VMAF_integer_feature_motion_v2_sad_score";
 
     unsigned n_frames = 0;
     double dummy;
-    while (!vmaf_feature_collector_get_score(
-        feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &dummy, n_frames))
+    while (!vmaf_feature_collector_get_score(feature_collector, sad_name, &dummy, n_frames))
         n_frames++;
 
     if (n_frames < 2)
@@ -265,20 +299,19 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
     for (unsigned i = 0; i < n_frames; i++) {
         double score_cur;
         double score_next;
-        vmaf_feature_collector_get_score(feature_collector,
-                                         "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
+        vmaf_feature_collector_get_score(feature_collector, sad_name, &score_cur, i);
 
         double motion2;
         if (i + 1 < n_frames) {
-            vmaf_feature_collector_get_score(
-                feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &score_next, i + 1);
+            vmaf_feature_collector_get_score(feature_collector, sad_name, &score_next, i + 1);
             motion2 = score_cur < score_next ? score_cur : score_next;
         } else {
             motion2 = score_cur;
         }
 
-        vmaf_feature_collector_append(feature_collector, "VMAF_integer_feature_motion2_v2_score",
-                                      motion2, i);
+        vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                "VMAF_integer_feature_motion2_v2_score", motion2,
+                                                i);
     }
 
     return 1;
@@ -290,6 +323,7 @@ static const char *provided_features[] = {"VMAF_integer_feature_motion_v2_sad_sc
 // NOLINTNEXTLINE(misc-use-internal-linkage): extern symbol referenced by feature_extractor.c registry.
 VmafFeatureExtractor vmaf_fex_integer_motion_v2 = {
     .name = "motion_v2",
+    .options = options,
     .init = init,
     .extract = extract,
     .flush = flush,
