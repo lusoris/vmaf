@@ -31693,3 +31693,49 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
       --allow-codecs libx264 --sample-clip-seconds 10 --smoke
   ```
 
+
+
+## ADR-0325 — `vmaf-tune auto` Phase F.3 confidence-aware fallbacks (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (F.3 helpers,
+  `_confidence_aware_escalation`, `ConfidenceThresholds`,
+  `ConfidenceDecision`, `load_confidence_thresholds`, per-cell
+  wiring in `run_auto`),
+  `tools/vmaf-tune/tests/test_auto_confidence_aware.py` (new, 28
+  tests), `tools/vmaf-tune/AGENTS.md` (invariant note),
+  `docs/usage/vmaf-tune.md` (new `### Confidence-aware fallbacks
+  (F.3)` subsection under `## auto`),
+  `docs/adr/0325-vmaf-tune-phase-f-auto.md` (status update appended
+  per ADR-0028; already-Accepted body untouched),
+  `changelog.d/added/phase-f3-confidence-aware-fallbacks.md` (new).
+  No upstream-shared paths.
+- **Invariant**: `DEFAULT_TIGHT_INTERVAL_MAX_WIDTH = 2.0` and
+  `DEFAULT_WIDE_INTERVAL_MIN_WIDTH = 5.0` are an emergency floor
+  (Research-0067), not a target. The production values come from a
+  JSON calibration sidecar produced by the conformal-VQA pipeline
+  (ADR-0279) with the canonical keys `tight_interval_max_width` and
+  `wide_interval_min_width`. `load_confidence_thresholds` falls back
+  to the defaults with a one-line WARNING when no sidecar is found;
+  do not silence the warning. `_confidence_aware_escalation` is a
+  pure function of its three inputs and is exposed in `__all__` so
+  downstream tools (the MCP server's `auto` proxy, the CI corpus
+  collector) can embed it directly. The JSON schema records per-cell
+  decisions in `plan.metadata.confidence_aware_escalations[]` (one
+  entry per `(rung, codec)` cell with keys `rung`, `codec`,
+  `verdict`, `interval_width`, `decision`); each cell in
+  `plan.cells[]` also carries `confidence_decision` +
+  `interval_width` so consumers don't need to cross-reference the
+  metadata array index. Adding a fourth `ConfidenceDecision` value
+  is a schema bump — coordinate with downstream JSON consumers.
+- **On upstream sync**: no action required. `tools/vmaf-tune/` is
+  fork-only; the conformal-VQA prediction surface (ADR-0279) and
+  the F.1 + F.2 scaffold (ADR-0325) are both fork-local.
+- **Re-test on rebase**:
+
+  ```bash
+  cd tools/vmaf-tune && python -m pytest \
+      tests/test_auto_confidence_aware.py \
+      tests/test_auto_short_circuits.py \
+      tests/test_conformal.py -v
+  ```
+

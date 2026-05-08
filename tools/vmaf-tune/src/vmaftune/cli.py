@@ -591,7 +591,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "auto",
         help=(
             "Phase F — adaptive recipe-aware tuning entry point "
-            "(ADR-0325). Composes the per-phase subcommands into one "
+            "(ADR-0364). Composes the per-phase subcommands into one "
             "deterministic decision tree with seven short-circuits "
             "(F.1 scaffold + F.2 short-circuits)."
         ),
@@ -1439,7 +1439,7 @@ def _run_compare(args: argparse.Namespace) -> int:
 
 
 def _run_auto(args: argparse.Namespace) -> int:
-    """Phase F — ``vmaf-tune auto`` (ADR-0325).
+    """Phase F — ``vmaf-tune auto`` (ADR-0364).
 
     F.1 scaffold + F.2 short-circuits. The non-smoke path raises
     :class:`NotImplementedError` until the production probe wiring

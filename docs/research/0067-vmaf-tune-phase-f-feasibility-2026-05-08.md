@@ -1,7 +1,7 @@
 # Research-0067: `vmaf-tune` Phase F — adaptive recipe-aware composition feasibility
 
 - **Date**: 2026-05-08
-- **Companion ADR**: [ADR-0325](../adr/0325-vmaf-tune-phase-f-auto.md) (Proposed)
+- **Companion ADR**: [ADR-0364](../adr/0364-vmaf-tune-phase-f-auto.md) (Proposed)
 - **Parent ADR**: [ADR-0237](../adr/0237-quality-aware-encode-automation.md)
   (umbrella)
 - **Status**: Snapshot at proposal time. Implementation PRs (F.1+) will

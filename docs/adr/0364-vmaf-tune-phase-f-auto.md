@@ -178,3 +178,20 @@ fires its corresponding stage-skip and records the firing in
 F.3 empirical fit. F.3 (per-cell `recommend.coarse_to_fine`
 escalation on `FALL_BACK`) and F.4 (per-content-type recipe
 overrides) remain deferred per the original phased rollout.
+
+### Status update 2026-05-08: F.3 confidence-aware fallbacks landed
+
+F.3 ships `_confidence_aware_escalation(verdict, interval, thresholds)`
+in `tools/vmaf-tune/src/vmaftune/auto.py`, returning one of
+`SKIP_ESCALATION` / `RECOMMEND_ESCALATION` / `FORCE_ESCALATION`. The
+helper consumes the conformal interval width emitted by
+`Predictor.predict_vmaf_with_uncertainty` (ADR-0279) at every
+`(rung, codec)` cell. Two width gates carve the half-width axis into
+three regions; `tight_interval_max_width` overrides FALL_BACK to skip,
+`wide_interval_min_width` overrides GOSPEL to escalate, the middle
+band defers to the F.2 verdict. Thresholds load from a calibration
+JSON sidecar via `load_confidence_thresholds`; missing-sidecar paths
+fall back to the documented Research-0067 defaults (2.0 / 5.0 VMAF)
+and emit a one-line warning. Per-cell decisions are recorded in
+`plan.metadata.confidence_aware_escalations[]`. F.4 (per-content-type
+recipe overrides) remains deferred.

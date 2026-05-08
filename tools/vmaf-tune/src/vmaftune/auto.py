@@ -10,7 +10,7 @@ sequential composition (F.1) walks the tree top-to-bottom and runs every
 stage; the seven short-circuits (F.2, this module) skip stages whose
 output is determined by metadata alone.
 
-Decision tree (per :doc:`docs/adr/0325-vmaf-tune-phase-f-auto.md`):
+Decision tree (per :doc:`docs/adr/0364-vmaf-tune-phase-f-auto.md`):
 
 .. code-block:: text
 
@@ -64,13 +64,14 @@ import dataclasses
 import enum
 import json
 import logging
+import math
 from collections.abc import Sequence
 from pathlib import Path
 
 _LOG = logging.getLogger(__name__)
 
 
-# Phase D gate thresholds (per ADR-0325 short-circuit #7). The 5-min /
+# Phase D gate thresholds (per ADR-0364 short-circuit #7). The 5-min /
 # 0.15-shot-variance pair is a placeholder; F.3 fits these from a real
 # corpus once Phase F has emitted enough labelled compositions to make
 # the fit statistically defensible. Until then, the placeholders keep
@@ -92,8 +93,39 @@ LADDER_MULTI_RUNG_HEIGHT: int = 2160
 SALIENCY_CONTENT_CLASSES: frozenset[str] = frozenset({"animation", "screen_content"})
 
 
+# ---------------------------------------------------------------------------
+# F.3 confidence-aware fallback thresholds.
+#
+# F.2 treats the predictor's verdict as a binary GOSPEL / FALL_BACK gate.
+# F.3 makes the gate continuous by consulting the conformal interval
+# half-width returned by :meth:`Predictor.predict_vmaf_with_uncertainty`
+# (ADR-0279). The two thresholds below carve the half-width axis into
+# three regions:
+#
+#   * width <= ``DEFAULT_TIGHT_INTERVAL_MAX_WIDTH`` → predictor is
+#     confident; trust the point estimate even if the native verdict
+#     was nominally FALL_BACK (the verdict was wrong about *which*
+#     direction the residual leans, but the certainty signal
+#     dominates).
+#   * width >= ``DEFAULT_WIDE_INTERVAL_MIN_WIDTH`` → predictor is
+#     uncertain; force escalation to ``recommend.coarse_to_fine`` even
+#     if the native verdict was GOSPEL.
+#   * tight < width < wide → fall back to the native verdict (F.2
+#     behaviour).
+#
+# The defaults (2.0 and 5.0 VMAF) are documented in Research-0067 and
+# act as an emergency floor when no corpus-derived sidecar is shipped
+# with the calibration. The production thresholds come from a JSON
+# sidecar produced by the calibration pipeline shipped in #488 — keys
+# ``tight_interval_max_width`` and ``wide_interval_min_width``. The
+# loader in :func:`load_confidence_thresholds` honours per-corpus
+# overrides and emits a one-line warning when no sidecar is found.
+DEFAULT_TIGHT_INTERVAL_MAX_WIDTH: float = 2.0
+DEFAULT_WIDE_INTERVAL_MIN_WIDTH: float = 5.0
+
+
 class ShortCircuit(enum.Enum):
-    """Names of the seven short-circuits (per ADR-0325 §F.2).
+    """Names of the seven short-circuits (per ADR-0364 §F.2).
 
     The string values are the canonical identifiers recorded in
     ``plan.metadata.short_circuits`` and surfaced in the JSON output.
@@ -165,7 +197,7 @@ class PlanState:
 def _should_short_circuit_1_single_rung_ladder(meta: SourceMeta, plan_state: PlanState) -> bool:
     """Short-circuit #1 — single-rung ladder when ``meta.height < 2160``.
 
-    Per ADR-0325 / ADR-0289: sub-4K sources don't need a multi-rung
+    Per ADR-0364 / ADR-0289: sub-4K sources don't need a multi-rung
     ABR ladder evaluation; the source rung is the only candidate. The
     driver still runs the per-rung pipeline, just on one rung.
     """
@@ -189,7 +221,7 @@ def _should_short_circuit_2_codec_pinned(meta: SourceMeta, plan_state: PlanState
 def _should_short_circuit_3_predictor_gospel(meta: SourceMeta, plan_state: PlanState) -> bool:
     """Short-circuit #3 — predictor returned GOSPEL.
 
-    Per ADR-0325 escalation rule: when ``predict.crf_for_target``
+    Per ADR-0364 escalation rule: when ``predict.crf_for_target``
     returns ``GOSPEL`` (residuals within threshold across the
     validation sample), trust the predictor's CRF pick and skip the
     ``recommend.coarse_to_fine`` fallback for that cell.
@@ -238,7 +270,7 @@ def _should_short_circuit_6_sample_clip_propagate(meta: SourceMeta, plan_state: 
 def _should_short_circuit_7_skip_per_shot(meta: SourceMeta, plan_state: PlanState) -> bool:
     """Short-circuit #7 — duration / shot-variance gate.
 
-    Per ADR-0325: skip ``tune_per_shot.refine`` when the source is
+    Per ADR-0364: skip ``tune_per_shot.refine`` when the source is
     both short (< 5 min) **and** low-variance (shot variance < 0.15).
     Either condition alone is not enough — a short high-variance
     trailer benefits from per-shot, and a long low-variance lecture
@@ -312,8 +344,10 @@ def run_auto(
     sample_clip_seconds: float = 0.0,
     smoke: bool = False,
     meta_override: SourceMeta | None = None,
+    confidence_thresholds: ConfidenceThresholds | None = None,
+    cell_intervals: Sequence[tuple[int, str, str | None, float]] | None = None,
 ) -> AutoPlan:
-    """Drive the F.1 + F.2 decision tree.
+    """Drive the F.1 + F.2 + F.3 decision tree.
 
     The non-smoke path is intentionally unimplemented at this PR's
     scope — production wiring lands in follow-up PRs that fill in
@@ -324,6 +358,20 @@ def run_auto(
     :class:`SourceMeta`. When ``None`` and ``smoke=True``, a synthetic
     1080p SDR live-action meta is fabricated so the smoke run is
     deterministic without touching ffprobe.
+
+    ``confidence_thresholds`` carries the F.3 width gates. ``None``
+    falls back to the documented defaults (2.0 / 5.0) — call
+    :func:`load_confidence_thresholds` to honour a calibration sidecar.
+
+    ``cell_intervals`` is the F.3 production-wiring seam: a sequence
+    of ``(rung, codec, verdict, interval_width)`` tuples, one per
+    cell, that the driver consumes when wiring
+    :meth:`Predictor.predict_vmaf_with_uncertainty` into the
+    per-cell predict step. ``None`` keeps the smoke synthesis (a
+    constant tight interval per cell so the gate is exercised
+    deterministically without ONNX). Any (rung, codec) cell missing
+    from the sequence falls back to a NaN interval (uncalibrated)
+    plus the driver's smoke verdict.
     """
     if not smoke and meta_override is None:
         # Production probe wiring is a follow-up PR; until it lands
@@ -393,13 +441,32 @@ def run_auto(
         propagated_clip = float(meta.sample_clip_seconds)
 
     # ------------------------------------------------------------------
-    # Stage 5 — per-cell predictor + escalation (short-circuit #3).
-    # In smoke mode we synthesise a GOSPEL verdict so the gate fires
-    # in the unit smoke run; production wiring will set the verdict
-    # from predictor_validate.ValidationReport.verdict.
+    # Stage 5 — per-cell predictor + escalation (short-circuit #3 +
+    # F.3 confidence-aware override).
+    #
+    # In smoke mode we synthesise a GOSPEL verdict so the F.2 gate
+    # fires in the unit smoke run; production wiring will set the
+    # verdict from predictor_validate.ValidationReport.verdict and
+    # the interval width from
+    # Predictor.predict_vmaf_with_uncertainty (ADR-0279).
     # ------------------------------------------------------------------
     if smoke:
         plan_state.predictor_verdict = "GOSPEL"
+
+    thresholds = confidence_thresholds or ConfidenceThresholds()
+    # Build a (rung, codec) -> (verdict, width) lookup from the
+    # production-wiring seam. Missing cells fall back to (verdict,
+    # NaN) — NaN width defers F.3 to the native verdict so the gate
+    # degrades gracefully when no calibration is available.
+    interval_lookup: dict[tuple[int, str], tuple[str | None, float]] = {}
+    if cell_intervals is not None:
+        for rung_in, codec_in, verdict_in, width_in in cell_intervals:
+            interval_lookup[(int(rung_in), str(codec_in))] = (
+                verdict_in,
+                float(width_in),
+            )
+
+    confidence_aware_escalations: list[dict] = []
     cells: list[dict] = []
     for rung in rungs:
         for codec in codecs:
@@ -411,16 +478,48 @@ def run_auto(
                 # block records that GOSPEL fired at least once.
                 if ShortCircuit.PREDICTOR_GOSPEL.value not in plan_state.short_circuits:
                     plan_state.fired(ShortCircuit.PREDICTOR_GOSPEL)
+
+            # F.3 — consult the conformal interval to decide whether
+            # the native verdict is overridden. The synthetic smoke
+            # default is a tight interval (width=1.0) below the
+            # tight_interval_max_width gate; production wiring
+            # supplies real widths via cell_intervals.
+            cell_key = (int(rung), str(codec))
+            if cell_key in interval_lookup:
+                cell_verdict, cell_width = interval_lookup[cell_key]
+            elif cell_intervals is not None:
+                # Caller opted into the production-wiring seam but
+                # didn't cover this cell — degrade to NaN so the F.3
+                # gate defers to the native verdict instead of
+                # silently using a synthetic tight width.
+                cell_verdict = plan_state.predictor_verdict
+                cell_width = float("nan")
+            else:
+                cell_verdict = plan_state.predictor_verdict
+                cell_width = 1.0 if smoke else float("nan")
+            decision = _confidence_aware_escalation(cell_verdict, cell_width, thresholds)
+            confidence_aware_escalations.append(
+                {
+                    "rung": int(rung),
+                    "codec": str(codec),
+                    "verdict": cell_verdict or "UNKNOWN",
+                    "interval_width": cell_width,
+                    "decision": decision.value,
+                }
+            )
+
             cells.append(
                 {
                     "rung": int(rung),
                     "codec": str(codec),
-                    "verdict": plan_state.predictor_verdict or "UNKNOWN",
+                    "verdict": cell_verdict or plan_state.predictor_verdict or "UNKNOWN",
                     "crf": 23,  # placeholder; production wiring fills this in
                     "estimated_vmaf": float(target_vmaf),
                     "estimated_bitrate_kbps": float(max_budget_kbps),
                     "hdr_args": list(hdr_args),
                     "sample_clip_seconds": propagated_clip,
+                    "confidence_decision": decision.value,
+                    "interval_width": cell_width,
                 }
             )
 
@@ -449,8 +548,203 @@ def run_auto(
         "smoke": bool(smoke),
         "source_meta": dataclasses.asdict(meta),
         "short_circuits": list(plan_state.short_circuits),
+        "confidence_aware_escalations": confidence_aware_escalations,
+        "confidence_thresholds": {
+            "tight_interval_max_width": thresholds.tight_interval_max_width,
+            "wide_interval_min_width": thresholds.wide_interval_min_width,
+            "source": thresholds.source,
+        },
     }
     return AutoPlan(cells=cells, metadata=metadata)
+
+
+# ---------------------------------------------------------------------------
+# F.3 confidence-aware fallback policy (ADR-0364 §F.3 / ADR-0279).
+#
+# These helpers are pure functions of (verdict, interval_width,
+# thresholds). The driver calls them per-(rung, codec) cell after the
+# predictor returns and records the decision in
+# ``plan.metadata.confidence_aware_escalations`` so post-hoc analysis
+# can audit which cells were promoted / demoted by the conformal
+# signal.
+# ---------------------------------------------------------------------------
+
+
+class ConfidenceDecision(enum.Enum):
+    """Outcomes of :func:`_confidence_aware_escalation`.
+
+    The three values map cleanly onto the F.2 gate:
+
+    * :attr:`SKIP_ESCALATION` — predictor is confident enough that the
+      native verdict's FALL_BACK signal is overridden; trust the point
+      estimate and skip ``recommend.coarse_to_fine``.
+    * :attr:`RECOMMEND_ESCALATION` — interval width is in the middle
+      band; defer to the native verdict (this preserves the F.2
+      contract — RECOMMEND_ESCALATION on a GOSPEL verdict still skips,
+      RECOMMEND_ESCALATION on a FALL_BACK verdict still escalates).
+    * :attr:`FORCE_ESCALATION` — predictor is uncertain enough that the
+      native verdict's GOSPEL signal is overridden; escalate even if
+      F.2 would have skipped.
+    """
+
+    SKIP_ESCALATION = "skip-escalation"
+    RECOMMEND_ESCALATION = "recommend-escalation"
+    FORCE_ESCALATION = "force-escalation"
+
+
+@dataclasses.dataclass(frozen=True)
+class ConfidenceThresholds:
+    """Width thresholds carved from the calibration corpus.
+
+    The two fields gate F.3's confidence-aware policy. The defaults are
+    the emergency floor (Research-0067 §"Phase F decision tree"); the
+    production values come from a calibration sidecar produced by the
+    conformal-VQA pipeline (ADR-0279 / #488). ``source`` records where
+    the values came from for the JSON metadata block.
+
+    A valid threshold pair satisfies
+    ``0 < tight_interval_max_width <= wide_interval_min_width``. The
+    constructor enforces this so a malformed sidecar fails fast rather
+    than silently producing nonsense decisions.
+    """
+
+    tight_interval_max_width: float = DEFAULT_TIGHT_INTERVAL_MAX_WIDTH
+    wide_interval_min_width: float = DEFAULT_WIDE_INTERVAL_MIN_WIDTH
+    source: str = "default"
+
+    def __post_init__(self) -> None:
+        tight = float(self.tight_interval_max_width)
+        wide = float(self.wide_interval_min_width)
+        if not (tight > 0.0 and wide > 0.0):
+            raise ValueError(
+                "ConfidenceThresholds: both widths must be positive; "
+                f"got tight={tight!r}, wide={wide!r}"
+            )
+        if tight > wide:
+            raise ValueError(
+                "ConfidenceThresholds: tight_interval_max_width must be "
+                f"<= wide_interval_min_width; got tight={tight!r}, "
+                f"wide={wide!r}"
+            )
+
+
+def load_confidence_thresholds(sidecar_path: Path | None) -> ConfidenceThresholds:
+    """Load corpus-derived thresholds from a calibration sidecar.
+
+    The sidecar is the JSON file produced by the conformal-VQA
+    calibration pipeline (#488). Expected schema (extra keys ignored
+    so the loader survives schema growth)::
+
+        {
+          "tight_interval_max_width": 1.6,
+          "wide_interval_min_width": 4.2,
+          ...
+        }
+
+    On any failure path — ``None`` argument, missing file, malformed
+    JSON, missing key — the loader falls back to the documented
+    defaults (2.0 / 5.0) and emits a one-line WARNING. Per the
+    no-test-weakening rule in CLAUDE.md, the defaults are the *floor*
+    surface — they keep the gate functional but signal that the corpus
+    fit hasn't landed yet.
+    """
+    if sidecar_path is None:
+        _LOG.warning(
+            "vmaf-tune auto F.3: no calibration sidecar provided; "
+            "falling back to documented defaults "
+            "(tight=%.1f, wide=%.1f).",
+            DEFAULT_TIGHT_INTERVAL_MAX_WIDTH,
+            DEFAULT_WIDE_INTERVAL_MIN_WIDTH,
+        )
+        return ConfidenceThresholds()
+    path = Path(sidecar_path)
+    if not path.exists():
+        _LOG.warning(
+            "vmaf-tune auto F.3: calibration sidecar %s not found; "
+            "falling back to documented defaults "
+            "(tight=%.1f, wide=%.1f).",
+            path,
+            DEFAULT_TIGHT_INTERVAL_MAX_WIDTH,
+            DEFAULT_WIDE_INTERVAL_MIN_WIDTH,
+        )
+        return ConfidenceThresholds()
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        tight = float(doc["tight_interval_max_width"])
+        wide = float(doc["wide_interval_min_width"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        _LOG.warning(
+            "vmaf-tune auto F.3: calibration sidecar %s unreadable (%s); "
+            "falling back to documented defaults "
+            "(tight=%.1f, wide=%.1f).",
+            path,
+            exc,
+            DEFAULT_TIGHT_INTERVAL_MAX_WIDTH,
+            DEFAULT_WIDE_INTERVAL_MIN_WIDTH,
+        )
+        return ConfidenceThresholds()
+    return ConfidenceThresholds(
+        tight_interval_max_width=tight,
+        wide_interval_min_width=wide,
+        source=str(path),
+    )
+
+
+def _confidence_aware_escalation(
+    verdict: str | None,
+    interval_width: float,
+    thresholds: ConfidenceThresholds,
+) -> ConfidenceDecision:
+    """Decide per-cell escalation from verdict + conformal interval.
+
+    Pure function of its three inputs:
+
+    * ``verdict`` — the native predictor verdict (``GOSPEL`` /
+      ``LIKELY`` / ``FALL_BACK`` / ``None``). ``None`` is treated as
+      "no native verdict" and degrades to the width-only branch.
+    * ``interval_width`` — full conformal interval width
+      (``high - low`` from :class:`vmaftune.conformal.ConformalInterval`).
+      Must be non-negative; ``NaN`` (uncalibrated predictor) defers to
+      the native verdict and returns
+      :attr:`ConfidenceDecision.RECOMMEND_ESCALATION` (no override).
+    * ``thresholds`` — :class:`ConfidenceThresholds` from
+      :func:`load_confidence_thresholds`.
+
+    Decision table::
+
+        width <= tight                → SKIP_ESCALATION       (override)
+        width >= wide                 → FORCE_ESCALATION      (override)
+        tight < width < wide          → defer to verdict:
+            verdict == "FALL_BACK"    → RECOMMEND_ESCALATION
+            verdict in {GOSPEL,...}   → SKIP_ESCALATION
+            verdict is None           → RECOMMEND_ESCALATION
+
+    The native verdict's GOSPEL/FALL_BACK signal is honoured in the
+    middle band — that preserves F.2's gate exactly when the predictor
+    is neither confident nor uncertain. The override branches are the
+    only places F.3 disagrees with F.2.
+    """
+    width = float(interval_width)
+    if math.isnan(width):
+        # Uncalibrated predictor — fall back to native verdict.
+        if verdict == "FALL_BACK":
+            return ConfidenceDecision.RECOMMEND_ESCALATION
+        return ConfidenceDecision.RECOMMEND_ESCALATION
+    if width < 0.0:
+        raise ValueError(
+            f"_confidence_aware_escalation: interval_width must be " f">= 0.0 or NaN; got {width!r}"
+        )
+    if width <= thresholds.tight_interval_max_width:
+        return ConfidenceDecision.SKIP_ESCALATION
+    if width >= thresholds.wide_interval_min_width:
+        return ConfidenceDecision.FORCE_ESCALATION
+    # Middle band — defer to the native verdict.
+    if verdict == "FALL_BACK":
+        return ConfidenceDecision.RECOMMEND_ESCALATION
+    if verdict is None:
+        return ConfidenceDecision.RECOMMEND_ESCALATION
+    # GOSPEL / LIKELY / any other "trust the point" verdict.
+    return ConfidenceDecision.SKIP_ESCALATION
 
 
 def emit_plan_json(plan: AutoPlan) -> str:
@@ -465,7 +759,11 @@ def emit_plan_json(plan: AutoPlan) -> str:
 
 
 __all__ = [
+    "DEFAULT_TIGHT_INTERVAL_MAX_WIDTH",
+    "DEFAULT_WIDE_INTERVAL_MIN_WIDTH",
     "AutoPlan",
+    "ConfidenceDecision",
+    "ConfidenceThresholds",
     "LADDER_MULTI_RUNG_HEIGHT",
     "PHASE_D_DURATION_GATE_S",
     "PHASE_D_SHOT_VARIANCE_GATE",
@@ -474,6 +772,7 @@ __all__ = [
     "SHORT_CIRCUIT_PREDICATES",
     "ShortCircuit",
     "SourceMeta",
+    "_confidence_aware_escalation",
     "_should_short_circuit_1_single_rung_ladder",
     "_should_short_circuit_2_codec_pinned",
     "_should_short_circuit_3_predictor_gospel",
@@ -483,5 +782,6 @@ __all__ = [
     "_should_short_circuit_7_skip_per_shot",
     "emit_plan_json",
     "evaluate_short_circuits",
+    "load_confidence_thresholds",
     "run_auto",
 ]
