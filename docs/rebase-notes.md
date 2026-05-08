@@ -27,6 +27,134 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0320 — motion_v2 upstream port cluster — mirror fix + option-port deferrals
+
+- **Workstream PR**: `feat/upstream-port-motion-v2-cluster-2026-05-08`
+  (this PR). Sister to Batches A (cambi), C (cambi docs), and E
+  (python tests) of the 2026-05-08 upstream-sync split.
+- **Upstream commits porting status**:
+  - `c17dd898` — `libvmaf/motion_v2: add motion_max_val`. **Effectively
+    silent-port**: the fork's chosen architecture puts `motion_max_val`
+    on `integer_motion.c` (motion v1) per ADR-0158, not on
+    `integer_motion_v2.c`. The user-visible feature option is
+    therefore present in the fork via the v1 extractor; the v2
+    pipeline does not duplicate it. **No source change applied** — this
+    entry is the SHA citation backfill the
+    `docs/research/0089-upstream-sync-coverage-2026-05-08.md` survey
+    asked for. If a future rebase drops `motion_max_val` from
+    `integer_motion.c`, the fork loses the user-visible knob; that's
+    the rebase-sensitive invariant.
+  - `856d3835` — `libvmaf/motion_v2: fix mirroring behavior, since
+    a44e5e61`. **Ported**. Vertical-edge mirror in `mirror()` flipped
+    from `2 * size - idx - 1` (edge-replicating, a-b-c|c-b-a) to
+    `2 * size - idx - 2` (skip-boundary, a-b-c|b-a) across CPU
+    scalar + AVX2 + AVX-512 + arm64 NEON twins of motion_v2 in
+    lockstep. NEON had no upstream and is fork-local; it gets the
+    same fix because the original NEON port copied the (now-buggy)
+    formula from the v2 scalar.
+  - `a2b59b77` — `libvmaf/motion_v2: add motion_five_frame_window`.
+    **Deferred — listed in Known follow-ups**. The fork's v1
+    extractor already carries `motion_five_frame_window` per
+    ADR-0158 §1; replicating it onto v2 conflicts with the v2
+    pipelined / stateless design (no five-frame ring buffer in
+    the fork's v2). Porting requires an architectural decision
+    (extend v2 with state, or keep five-frame on v1 only) that's
+    outside this PR's blast radius.
+  - `4e469601` — `libvmaf/motion_v2: port remaining options`.
+    **Deferred — listed in Known follow-ups**. Same architectural
+    constraint as `a2b59b77`. This commit also touches the libvmaf
+    public C-API option surface in upstream's v2; the fork has
+    those options on v1, so the public API surface is already
+    exposed. Porting to v2 would create duplicate option names
+    (`motion_force_zero` on both v1 and v2) which is a behavioural
+    decision pending an ADR.
+- **Touches**:
+  - [`libvmaf/src/feature/integer_motion_v2.c`](../libvmaf/src/feature/integer_motion_v2.c)
+    — `mirror()` formula.
+  - [`libvmaf/src/feature/x86/motion_v2_avx2.c`](../libvmaf/src/feature/x86/motion_v2_avx2.c)
+    — `mirror()` formula.
+  - [`libvmaf/src/feature/x86/motion_v2_avx512.c`](../libvmaf/src/feature/x86/motion_v2_avx512.c)
+    — `mirror()` formula.
+  - [`libvmaf/src/feature/arm64/motion_v2_neon.c`](../libvmaf/src/feature/arm64/motion_v2_neon.c)
+    — `mirror()` formula (fork-local twin; no upstream commit).
+- **Invariants** (load-bearing for next `/sync-upstream`):
+  1. **All five `motion_v2` mirror sites use `2 * size - idx - 2`.**
+     The fifth site is the GPU-twin cluster (cuda + sycl + hip +
+     vulkan + the `motion_v2.comp` shader); see Known follow-ups
+     below — that cluster is intentionally still on the old
+     formula in this PR. Cross-backend places=4 gates pin the
+     scalar↔GPU bit-equality; the GPU cluster will need to flip
+     in the same PR that regenerates `scores_cpu_motion_v2_*.json`
+     snapshots. If the GPU cluster lands the flip without a CPU
+     scalar change, the cross-backend gate breaks; if the CPU
+     scalar lands without GPU, the gate also breaks.
+  2. **`motion_max_val` lives on the v1 extractor only.** Fork-local
+     decision per ADR-0158 §1 invariant 2. If a future upstream
+     change adds it to v2 with non-trivial semantics (different
+     default, different clip site), prefer v1's existing
+     implementation.
+  3. **AVX2 / AVX-512 motion_v2 SIMD files are fork-mirrors of
+     upstream** — they exist in both trees but have diverged
+     stylistically (whitespace + per-line formatting per fork's
+     clang-format profile) without semantic difference. Diff -w
+     will show only braces / line breaks. On sync, `--theirs` for
+     pure formatting, `--ours` for semantic.
+- **Re-test on rebase**:
+
+  ```bash
+  ninja -C build
+  ./build/test/test_motion_v2_simd        # T7-32 guard test
+  # baseline pre-existing failure on the negative-diff bpc=10 fixture
+  # is unchanged by this PR (reproduces on master HEAD too).
+
+  ./build/tools/vmaf \
+    -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    -w 576 -h 324 -p 420 -b 8 \
+    --feature motion_v2 -o /tmp/mv2.json --json
+  python3 -c "import json; d=json.load(open('/tmp/mv2.json'))['pooled_metrics'];\
+    print(d['VMAF_integer_feature_motion_v2_sad_score']['mean'],\
+          d['VMAF_integer_feature_motion2_v2_score']['mean'])"
+  # Expect: 4.322764  3.296707  on Netflix golden 576x324 pair
+  # (no shift after the mirror fix because the affected pixels
+  # at idx >= height land in the bottom-2 rows of the 5-tap window
+  # whose post-shift / SAD aggregation absorbs the 1-pixel offset
+  # at this resolution and source).
+  ```
+
+- **Known follow-ups** (file-tracked here so the next sync agent
+  picks them up):
+  - **GPU twin mirror sync**: flip `2 * size - idx - 1` →
+    `2 * size - idx - 2` in
+    `libvmaf/src/feature/cuda/integer_motion_v2/motion_v2_score.cu`,
+    `libvmaf/src/feature/sycl/integer_motion_v2_sycl.cpp`,
+    `libvmaf/src/feature/hip/integer_motion_v2_hip.c`,
+    `libvmaf/src/feature/vulkan/motion_v2_vulkan.c`, and
+    `libvmaf/src/feature/vulkan/shaders/motion_v2.comp`. Update
+    each TU's "DIFFERS by one pixel from motion's CUDA kernel"
+    comment to note convergence. Regen
+    `testdata/scores_cpu_motion_v2_*.json` snapshots and run the
+    full `/cross-backend-diff` matrix at places=4. Risk of GPU-vs-
+    CPU drift; needs its own PR with an ADR.
+  - **Port motion_v2 option surface**: decide whether
+    `motion_force_zero` / `motion_blend_factor` /
+    `motion_blend_offset` / `motion_fps_weight` /
+    `motion_five_frame_window` / `motion_moving_average` should
+    live on v1 only (status quo, ADR-0158) or be duplicated to v2
+    to match upstream's recent commits (`a2b59b77`, `4e469601`).
+    Five-frame-window in particular requires a 5-deep blur ring
+    that's incompatible with the fork's stateless-pipelined v2 —
+    porting means a new state-carrying v2 variant. Tracked as a
+    fork-internal architectural decision; do NOT silently absorb
+    on `/sync-upstream` without explicit user direction.
+  - **`ffmpeg-patches/` series replay**: this PR does NOT touch
+    the libvmaf public C-API, the CLI flag set, `meson_options.txt`,
+    or any new `LIBVMAFContext` field; the `vf_libvmaf.c` filter
+    consumes motion via the existing feature-name string surface
+    which is unchanged. CLAUDE.md §14 ffmpeg-patches replay is
+    therefore not triggered. If a follow-up PR ports the deferred
+    option surface to v2, that PR DOES need the §14 replay.
+
 ### 0308 — encoder knob-sweep recipe-regression policy (ADR-0308, docs-only)
 
 - **Touches**: `docs/research/0080-encoder-knob-sweep-findings.md`,
