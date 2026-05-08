@@ -8,7 +8,7 @@ baseline.
 
 Audited and scaffolded in
 [ADR-0173](../adr/0173-ptq-int8-audit-impl.md); policy origin
-[ADR-0129](../adr/0129-tinyai-ptq-int8-modes.md).
+[ADR-0129](../adr/0129-tinyai-ptq-quantization.md).
 
 ## Per-model registry fields
 

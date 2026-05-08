@@ -128,7 +128,10 @@ Adding a new CUDA extractor: see [`/add-feature-extractor`](../../../.claude/ski
 - **Non-default streams per extractor.** Each feature extractor owns its own
   stream so submit/collect for different features can overlap.
 - **Ring-buffered double-buffer submit.** Frame N+1 starts uploading while
-  frame N is still on the device — see [ring_buffer.c](../../../libvmaf/src/cuda/ring_buffer.c).
+  frame N is still on the device. The legacy `ring_buffer.c` was folded
+  into the per-stream dispatch strategy and event-drain machinery — see
+  [`dispatch_strategy.c`](../../../libvmaf/src/cuda/dispatch_strategy.c)
+  and [`drain_batch.c`](../../../libvmaf/src/cuda/drain_batch.c).
 - **Shared primary context.** We retain the device's primary context with
   `cuDevicePrimaryCtxRetain` so FFmpeg and VMAF share one GPU context rather
   than fighting over time-sliced contexts.

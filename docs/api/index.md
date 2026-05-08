@@ -8,6 +8,7 @@ their own page:
 - [core](index.md) — this page
 - [gpu.md](gpu.md) — `libvmaf_cuda.h`, `libvmaf_sycl.h`
 - [dnn.md](dnn.md) — `libvmaf/dnn.h` (tiny-AI ONNX session)
+- [mcp.md](mcp.md) — `libvmaf_mcp.h` (embedded MCP server)
 
 ## What each header exposes
 
@@ -20,6 +21,7 @@ their own page:
 | [`dnn.h`](../../libvmaf/include/libvmaf/dnn.h) | `VmafDnnSession`, `VmafDnnConfig`, tiny-model attach | Tiny-AI (ONNX Runtime) surface. [Deep dive](dnn.md). |
 | [`libvmaf_cuda.h`](../../libvmaf/include/libvmaf/libvmaf_cuda.h) | `VmafCudaState`, CUDA picture prealloc | CUDA backend. Only usable in a build with `-Denable_cuda=true`. [Deep dive](gpu.md#cuda). |
 | [`libvmaf_sycl.h`](../../libvmaf/include/libvmaf/libvmaf_sycl.h) | `VmafSyclState`, zero-copy frame buffers, dmabuf / VA / D3D11 import | SYCL backend. Only usable in a build with `-Denable_sycl=true`. [Deep dive](gpu.md#sycl). |
+| [`libvmaf_mcp.h`](../../libvmaf/include/libvmaf/libvmaf_mcp.h) | `VmafMcpServer`, `VmafMcpConfig`, transport start/stop | Embedded MCP server. Only usable in a build with `-Denable_mcp=true`. [Deep dive](mcp.md). |
 | [`vmaf_assert.h`](../../libvmaf/include/libvmaf/vmaf_assert.h) | `VMAF_ASSERT*` macros | Internal assertion helpers. Not for public use — may disappear. |
 | [`version.h`](../../libvmaf/include/libvmaf/libvmaf.h) (generated) | `VMAF_VERSION_MAJOR` etc. | Compile-time version constants. Run-time: `vmaf_version()`. |
 
@@ -92,7 +94,7 @@ Every non-void function returns `int` with these conventions:
     `vmaf_score_pooled_model_collection` /
     `vmaf_score_at_index` when the requested frame range has been read
     via `vmaf_read_pictures` but the feature extractor has not yet
-    completed. See [ADR-0154](../adr/0154-score-pooled-eagain.md). Not
+    completed. See [ADR-0154](../adr/0154-score-pooled-eagain-netflix-755.md). Not
     a fatal error — the typical fix is either flushing
     (`vmaf_read_pictures(NULL, NULL, 0)`) before scoring, or polling
     until success.
@@ -188,7 +190,7 @@ typedef struct VmafConfiguration {
 | `vmaf_use_features_from_model_collection(ctx, coll)` | 0 / -errno | Same, for a bootstrap model collection. |
 | `vmaf_use_feature(ctx, "psnr", opts)` | 0 / -errno | Register an extra feature not required by any loaded model. Context takes ownership of `opts`; on success never free it yourself. |
 | `vmaf_import_feature_score(ctx, name, value, index)` | 0 / -errno | Inject a pre-computed feature value (e.g. from a different pipeline). |
-| `vmaf_read_pictures(ctx, ref, dist, index)` | 0 / -errno | Feed a frame pair. `ctx` takes ownership via `vmaf_picture_unref()`. `index` must be **strictly increasing** across successive calls — non-monotonic indices return `-EINVAL` (see [ADR-0152](../adr/0152-monotonic-index-rejection.md)). Pass `NULL, NULL, 0` to flush after the last frame. |
+| `vmaf_read_pictures(ctx, ref, dist, index)` | 0 / -errno | Feed a frame pair. `ctx` takes ownership via `vmaf_picture_unref()`. `index` must be **strictly increasing** across successive calls — non-monotonic indices return `-EINVAL` (see [ADR-0152](../adr/0152-vmaf-read-pictures-monotonic-index.md)). Pass `NULL, NULL, 0` to flush after the last frame. |
 | `vmaf_score_at_index(ctx, model, *score, index)` | 0 / -errno | Per-frame VMAF score. |
 | `vmaf_score_at_index_model_collection(ctx, coll, *score, index)` | 0 / -errno | Per-frame bootstrap score (mean + stddev + 95% CI). |
 | `vmaf_feature_score_at_index(ctx, name, *score, index)` | 0 / -errno | Per-frame feature score (e.g. `"psnr_y"`). |

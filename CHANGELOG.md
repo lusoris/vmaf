@@ -649,9 +649,9 @@
   `blur_plane`, `picture_to_linear_rgb`) under a fixed 4-lane
   `svwhilelt_b32(0, 4)` predicate — bit-identical to the NEON sibling
   irrespective of the runtime vector length, satisfying the
-  [ADR-0138](docs/adr/0138-simd-bit-exactness-policy.md) /
+  [ADR-0138](docs/adr/0138-iqa-convolve-avx2-bitexact-double.md) /
   [ADR-0139](docs/adr/0139-ssim-simd-bitexact-double.md) /
-  [ADR-0140](docs/adr/0140-ssimulacra2-simd-bitexact.md) byte-exact
+  [ADR-0161](docs/adr/0161-ssimulacra2-simd-bitexact.md) byte-exact
   contract. New runtime probe
   [`libvmaf/src/arm/cpu.c`](libvmaf/src/arm/cpu.c) reads
   `getauxval(AT_HWCAP2) & HWCAP2_SVE2`; new build probe in
@@ -1405,7 +1405,7 @@
   (T7-23 / ADR-0192 / ADR-0199)** (fork-local): sixth and final
   Group B float twin. Vulkan compute kernel for the float ADM
   feature extractor. Float twin of `integer_adm_vulkan`
-  ([ADR-0178](docs/adr/0178-integer-adm-vulkan.md)) — same 4-stage
+  ([ADR-0178](docs/adr/0178-vulkan-adm-kernel.md)) — same 4-stage
   / 4-scale wave-of-stages design (16 pipelines) but with float
   buffers and host-side `double` accumulation. New files:
   [`libvmaf/src/feature/vulkan/float_adm_vulkan.c`](libvmaf/src/feature/vulkan/float_adm_vulkan.c),
@@ -3012,7 +3012,9 @@
   [`libvmaf/tools/vmaf.c`](libvmaf/tools/vmaf.c);
   (v) `<unistd.h>` → `<windows.h>` + `Sleep` macros
   added to
-  [`libvmaf/test/test_ring_buffer.c`](libvmaf/test/test_ring_buffer.c)
+  `libvmaf/test/test_ring_buffer.c` (since removed; the
+  ring-buffer test logic was folded into the CUDA-buffer /
+  pic-preallocation suites)
   and
   [`libvmaf/test/test_pic_preallocation.c`](libvmaf/test/test_pic_preallocation.c)
   for `usleep` / `sleep`;
@@ -3414,8 +3416,8 @@
 ### Added
 
 - **BVI-DVC corpus ingestion for `fr_regressor_v2`
-  ([ADR-0310](../docs/adr/0310-bvi-dvc-corpus-ingestion.md),
-  [Research-0082](../docs/research/0082-bvi-dvc-corpus-feasibility.md)).**
+  ([ADR-0310](docs/adr/0310-bvi-dvc-corpus-ingestion.md),
+  [Research-0082](docs/research/0082-bvi-dvc-corpus-feasibility.md)).**
   Adopt the Bristol VI Lab BVI-DVC reference corpus (Ma, Zhang, Bull
   2021) as a second training shard alongside the Netflix Public drop.
   New `ai/scripts/bvi_dvc_to_corpus_jsonl.py` re-shapes the existing
@@ -3427,9 +3429,9 @@
   License is research-only — corpus stays local under
   `.workingdir2/`; only derived `fr_regressor_v2_*.onnx` weights ship.
   Production-weights flip stays gated on
-  [ADR-0303](../docs/adr/0303-fr-regressor-v2-ensemble-flip.md). User
+  [ADR-0303](docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md). User
   docs:
-  [`docs/ai/bvi-dvc-corpus-ingestion.md`](../docs/ai/bvi-dvc-corpus-ingestion.md).
+  [`docs/ai/bvi-dvc-corpus-ingestion.md`](docs/ai/bvi-dvc-corpus-ingestion.md).
   Tests under `ai/tests/test_merge_corpora.py` cover concat-with-dedup
   and schema-violation rejection on synthetic fixtures (no GPU / heavy
   feature extraction in CI).
@@ -3596,7 +3598,7 @@
   sports, action), tighter (~0.3–0.5 points) on uniform content
   (single-shot interviews, animation). Default off; legacy callers
   see no behaviour change. User docs:
-  [`docs/usage/vmaf-tune.md`](../docs/usage/vmaf-tune.md#sample-clip-mode).
+  [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md#sample-clip-mode).
 
 
 - **FFmpeg-patch series for vmaf-tune integration (ADR-0312, patches 0007–0009).**
@@ -3638,7 +3640,7 @@
   tests under `tools/vmaf-tune/tests/test_compare.py` (no `ffmpeg`,
   no built `vmaf` required). Schema exported as
   `vmaftune.compare.COMPARE_ROW_KEYS`. User docs:
-  [`docs/usage/vmaf-tune.md`](../docs/usage/vmaf-tune.md) §"Codec
+  [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md) §"Codec
   comparison".
 
 
@@ -3662,7 +3664,7 @@
   HLG / mismatched-primaries / missing-file / ffprobe-failure /
   invalid-JSON, codec dispatch shape per encoder, and end-to-end
   corpus integration with `force-hdr-pq` / `force-sdr`. User docs:
-  [`docs/usage/vmaf-tune.md` § HDR-aware tuning](../docs/usage/vmaf-tune.md).
+  [`docs/usage/vmaf-tune.md` § HDR-aware tuning](docs/usage/vmaf-tune.md).
 
 
 - **`tools/vmaf-tune/` Phase A — quality-aware encode automation scaffold
@@ -3680,7 +3682,7 @@
   under `tools/vmaf-tune/tests/` (13 cases) cover command shape,
   version parsing, JSONL round-trip, encode-failure handling, and the
   schema contract — no `ffmpeg` or built `vmaf` binary required.
-  User docs: [`docs/usage/vmaf-tune.md`](../docs/usage/vmaf-tune.md).
+  User docs: [`docs/usage/vmaf-tune.md`](docs/usage/vmaf-tune.md).
   Phases B–F remain Proposed under ADR-0237; this PR ships only the
   Phase A corpus scaffold.
 
@@ -3699,14 +3701,14 @@
   without a built libvmaf dependency; graceful fallback to plain
   encode when `onnxruntime` or the model file is unavailable.
   13 new unit tests under
-  [`tools/vmaf-tune/tests/test_saliency.py`](../tools/vmaf-tune/tests/test_saliency.py)
+  [`tools/vmaf-tune/tests/test_saliency.py`](tools/vmaf-tune/tests/test_saliency.py)
   cover the qp-map signal blend (saliency=1.0 → −4, saliency=0.0
   → +4, saliency=0.5 → 0, clamped to ±12), per-MB block reduce,
   x264 qpfile emission, end-to-end encode-command shape, and the
   unavailable-fallback path. x264 only in this PR; x265 / SVT-AV1
   inherit `vmaf-roi`'s C sidecar today and become a one-file
   codec-adapter follow-up. User docs:
-  [`docs/usage/vmaf-tune.md` §"Saliency-aware encoding"](../docs/usage/vmaf-tune.md).
+  [`docs/usage/vmaf-tune.md` §"Saliency-aware encoding"](docs/usage/vmaf-tune.md).
 
 
 - `vmaf-tune` Apple VideoToolbox codec adapters (ADR-0283). Adds
@@ -3768,7 +3770,7 @@
   Netflix golden gate and cross-backend ULP-diff burden entirely.
   **No MOS-correlation claim** is made; validation against a
   labelled saliency-MOS corpus is research follow-up. User docs:
-  [`docs/usage/vmaf-roi-score.md`](../docs/usage/vmaf-roi-score.md).
+  [`docs/usage/vmaf-roi-score.md`](docs/usage/vmaf-roi-score.md).
 
 
 - **AGENTS.md per-package coverage audit + backfill.**
@@ -3888,20 +3890,20 @@
   `fr_regressor_v2` regressor's encoder vocabulary expands from 13
   slots to 16 to cover three vmaf-tune codec adapters that landed
   since `fr_regressor_v2` shipped to production
-  ([ADR-0291](../docs/adr/0291-fr-regressor-v2-prod-ship.md)):
+  ([ADR-0291](docs/adr/0291-fr-regressor-v2-prod-ship.md)):
   `libsvtav1` (slot 13), `h264_videotoolbox` (slot 14),
   `hevc_videotoolbox` (slot 15). This PR ships **scaffold only** —
   a parallel `ENCODER_VOCAB_V3` constant in
-  [`ai/scripts/train_fr_regressor_v2.py`](../ai/scripts/train_fr_regressor_v2.py)
+  [`ai/scripts/train_fr_regressor_v2.py`](ai/scripts/train_fr_regressor_v2.py)
   that documents the target schema; the live `ENCODER_VOCAB` and
   `ENCODER_VOCAB_VERSION = 2` remain the source of truth. The
   in-tree v2 ONNX continues to serve every consumer; the
   load-fallback shim collapses unknown v3 strings into the
   `unknown` one-hot column. The follow-up retrain PR is gated on
   clearing the same mean LOSO PLCC ≥ 0.95 ship gate
-  [ADR-0291](../docs/adr/0291-fr-regressor-v2-prod-ship.md)
+  [ADR-0291](docs/adr/0291-fr-regressor-v2-prod-ship.md)
   cleared on v2, plus the
-  [ADR-0235](../docs/adr/0235-codec-aware-fr-regressor.md)
+  [ADR-0235](docs/adr/0235-codec-aware-fr-regressor.md)
   multi-codec lift floor (≥ +0.005 PLCC over the v1 single-input
   regressor). Append-only ordering is preserved — the 13 v2 slot
   indices keep their column positions verbatim. Re-scopes PR #373
@@ -3926,23 +3928,23 @@
 
 
 - **`fr_regressor_v2` ensemble LOSO trainer — real loader + per-fold
-  training ([ADR-0319](../docs/adr/0319-ensemble-loso-trainer-real-impl.md),
+  training ([ADR-0319](docs/adr/0319-ensemble-loso-trainer-real-impl.md),
   closes ADR-0303 + ADR-0309 deferrals).** Replaces the
   `NotImplementedError` stubs in
-  [`ai/scripts/train_fr_regressor_v2_ensemble_loso.py`](../ai/scripts/train_fr_regressor_v2_ensemble_loso.py)
+  [`ai/scripts/train_fr_regressor_v2_ensemble_loso.py`](ai/scripts/train_fr_regressor_v2_ensemble_loso.py)
   with a real `_load_corpus` (pandas-based, validates the canonical-6
   schema emitted by `scripts/dev/hw_encoder_corpus.py`) + a real
   `_train_one_seed` (9-fold LOSO with `FRRegressor(num_codecs=14)`,
   Adam@5e-4, MSE, fold-local StandardScaler). Trainer emits
   `loso_seed{N}.json` matching the `mean_plcc` schema
-  [`scripts/ci/ensemble_prod_gate.py`](../scripts/ci/ensemble_prod_gate.py)
+  [`scripts/ci/ensemble_prod_gate.py`](scripts/ci/ensemble_prod_gate.py)
   consumes plus per-fold PLCC/SROCC/RMSE traces per Research-0075.
-  Wrapper [`ai/scripts/run_ensemble_v2_real_corpus_loso.sh`](../ai/scripts/run_ensemble_v2_real_corpus_loso.sh)
+  Wrapper [`ai/scripts/run_ensemble_v2_real_corpus_loso.sh`](ai/scripts/run_ensemble_v2_real_corpus_loso.sh)
   drops the obsolete `--corpus-root` / `--output` argv and passes
   `--corpus $CORPUS_JSONL --out-dir $OUT_DIR` matching the trainer's
   interface; adds a ≥100-row prereq check.
   Runbook
-  [`docs/ai/ensemble-v2-real-corpus-retrain-runbook.md`](../docs/ai/ensemble-v2-real-corpus-retrain-runbook.md)
+  [`docs/ai/ensemble-v2-real-corpus-retrain-runbook.md`](docs/ai/ensemble-v2-real-corpus-retrain-runbook.md)
   gains "Step 0: Generate Phase A canonical-6 corpus" with the
   `hw_encoder_corpus.py` for-loop pattern. QSV is optional — NVENC-only
   corpus still trains. Wall time: ~5 min per seed on RTX 4090 (~25 min
@@ -3979,9 +3981,9 @@
   parse cleanly without the corpus present. CI workflow wiring of
   the gate is intentionally deferred to the flip PR (no real
   `loso_seed{N}.json` artefacts exist yet to gate on master). Docs:
-  [`docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md`](../../docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md),
-  [`docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md`](../../docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md),
-  [`ai/AGENTS.md`](../../ai/AGENTS.md) "Ensemble registry invariant".
+  [`docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md`](docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md),
+  [`docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md`](docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md),
+  [`ai/AGENTS.md`](ai/AGENTS.md) "Ensemble registry invariant".
 
 
 - **`fr_regressor_v3` namespace map + `fr_regressor_v3plus_features`
@@ -4056,7 +4058,7 @@
   and emits one JSONL row per (source, encoder, cq, frame) carrying
   canonical-6 features (`integer_adm2`, `integer_vif_scale0..3`,
   `integer_motion2`) + per-frame VMAF + encode metadata. This is the
-  per-frame schema [`fr_regressor_v2`](../../ai/scripts/train_fr_regressor_v2.py)
+  per-frame schema [`fr_regressor_v2`](ai/scripts/train_fr_regressor_v2.py)
   needs for real (non-smoke) training; the existing
   `vmaf-tune corpus` CLI emits only pooled VMAF and was a Phase A
   scope-cut. Smoke evidence: a local 9 sources × 6 hardware codecs
@@ -4901,8 +4903,8 @@
   one full-corpus FRRegressor per seed. Going forward, any re-flip
   (corpus refresh, recipe change) must regenerate ONNX bytes +
   sidecars together via the same driver — see
-  [`ai/AGENTS.md`](../../ai/AGENTS.md) and
-  [ADR-0321](../../docs/adr/0321-fr-regressor-v2-ensemble-full-prod-flip.md).
+  [`ai/AGENTS.md`](ai/AGENTS.md) and
+  [ADR-0321](docs/adr/0321-fr-regressor-v2-ensemble-full-prod-flip.md).
 
 
 - **`fr_regressor_v2` ENCODER_VOCAB extended with hardware encoders.**
@@ -5257,7 +5259,7 @@
   underlying patch-0008 bug is tracked as a follow-up — the path-filter
   does not suppress it; it surfaces on the next libvmaf/ or
   ffmpeg-patches/ touching PR. See
-  [ADR-0317](../../docs/adr/0317-ci-doc-only-pr-flake-fix.md).
+  [ADR-0317](docs/adr/0317-ci-doc-only-pr-flake-fix.md).
 
 
 - **`vmaf` CLI assertion crash on bad `--threads` / `--subsample` /
@@ -5290,7 +5292,7 @@
   `cli_parse_known_crashes/` to `cli_parse_corpus/`;
   `known_assert_in_input` early-reject filter removed from
   `fuzz_cli_parse.c`. See
-  [ADR-0316](../../docs/adr/0316-cli-parse-long-only-error-fix.md).
+  [ADR-0316](docs/adr/0316-cli-parse-long-only-error-fix.md).
 
 
 - Fixed two master-side CI breaks blocking every open PR:

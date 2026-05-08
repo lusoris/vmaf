@@ -70,7 +70,7 @@ After `vmaf_cuda_import_state(ctx, state)`, the **context owns the
 state** — `vmaf_close(ctx)` frees it. Do not import the same state into
 two contexts.
 
-`vmaf_cuda_state_free(VmafCudaState **state)` (added in [ADR-0157](../adr/0157-cuda-state-free-api.md))
+`vmaf_cuda_state_free(VmafCudaState **state)` (added in [ADR-0157](../adr/0157-cuda-preallocation-leak-netflix-1300.md))
 is the **escape hatch for the pre-import path**: the caller built a
 `VmafCudaState` via `vmaf_cuda_state_init()` but never handed it to a
 context (e.g. early `vmaf_init()` failure, or a benchmark harness that
@@ -390,7 +390,7 @@ the enable/disable pair to gate which frame ranges get timed.
 > AVVulkanDeviceContext interop. Build with
 > `-Denable_vulkan=enabled`; the build picks up `volk` and
 > `dependency('vulkan')` automatically. See
-> [ADR-0127](../adr/0127-vulkan-backend-decision.md),
+> [ADR-0127](../adr/0127-vulkan-compute-backend.md),
 > [ADR-0175](../adr/0175-vulkan-backend-scaffold.md),
 > [ADR-0176](../adr/0176-vulkan-vif-cross-backend-gate.md),
 > [ADR-0177](../adr/0177-vulkan-motion-kernel.md),

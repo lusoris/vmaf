@@ -222,8 +222,8 @@ Intel oneAPI releases.
 
 ## Related
 
-- [ADR-0127](../adr/0127-vif-as-sycl-pathfinder.md) — SYCL backend
-  introduction; `icpx` was the chosen DPC++ implementation.
+- [ADR-0217](../adr/0217-sycl-toolchain-cleanup.md) — SYCL toolchain
+  consolidation; `icpx` is the chosen DPC++ implementation.
 - [`docs/backends/sycl/overview.md`](../backends/sycl/overview.md) —
   user-facing SYCL backend reference (`--sycl_device` etc.).
 - [`docs/backends/sycl/bundling.md`](../backends/sycl/bundling.md) —

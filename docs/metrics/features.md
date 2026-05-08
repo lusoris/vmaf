@@ -33,12 +33,12 @@ limitations in the same PR as the code.
 | Motion2 (float)    | `float_motion`  | Yes           | `float_motion2` (+ `float_motion` if `debug=true`)                                            | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | ADM (fixed-point)  | `adm`           | Yes           | `adm2`, `adm_scale0`, `adm_scale1`, `adm_scale2`, `adm_scale3`                                | AVX2, AVX-512, NEON | CUDA, Vulkan       |
 | ADM (float)        | `float_adm`     | Yes           | `float_adm2`, `float_adm_scale0..3`                                                           | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
-| [CAMBI](cambi.md)  | `cambi`         | No            | `cambi`                                                                                       | —                   | CUDA⁴, Vulkan⁴     |
+| [CAMBI](cambi.md)  | `cambi`         | No            | `cambi`                                                                                       | —                   | Vulkan⁴            |
 | CIEDE2000          | `ciede`         | No            | `ciede2000`                                                                                   | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional)                                       | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan¹|
 | PSNR (float)       | `float_psnr`    | No            | `float_psnr` (luma only — the CPU extractor emits a single luma score)                        | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | AVX2, NEON          | CUDA, SYCL, Vulkan |
-| SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —²                 |
+| SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | Vulkan²            |
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | CUDA, SYCL, Vulkan |
@@ -54,33 +54,20 @@ limitations in the same PR as the code.
 [models/overview.md](../models/overview.md)); non-core extractors are
 standalone.
 
+¹ The `psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
+(`psnr_y`). `psnr_vulkan` adds `psnr_cb` / `psnr_cr` chroma metrics
+when `enable_chroma=true` (default) — see T3-15(b) work-in-progress
+PR #204 / [`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
+The CPU `psnr` extractor emits the full luma + chroma set on every
+build. CUDA / SYCL chroma support is a focused follow-up.
 
-¹ All three GPU `psnr` extractors (`psnr_cuda`, `psnr_sycl`,
-`psnr_vulkan`) emit the full luma + chroma set
-(`psnr_y` / `psnr_cb` / `psnr_cr`), matching the CPU `psnr` extractor.
-`psnr_vulkan` chroma shipped in PR #204 /
-[ADR-0216](../adr/0216-vulkan-chroma-psnr.md); `psnr_cuda` chroma in
-PR #520 (T3-15(a)); `psnr_sycl` chroma in T3-15(b). YUV400 sources
-clamp to luma-only at runtime — chroma dispatches and emits are
-skipped when the input has no chroma planes.
-
-¹ `psnr_cuda` and `psnr_vulkan` emit the full luma + chroma set
-(`psnr_y` / `psnr_cb` / `psnr_cr`) on YUV420 / 422 / 444 inputs;
-both clamp to luma-only on YUV400P. `psnr_sycl` remains luma-only
-today. CUDA chroma landed in T3-15(b) /
-[ADR-0351](../adr/0351-cuda-chroma-psnr.md); the Vulkan twin in
-[ADR-0216](../adr/0216-vulkan-chroma-psnr.md). The CPU `psnr`
-extractor emits the full set on every build.
-
-
-² SSIM (fixed-point, the `ssim` extractor) is CPU-scalar-only — the
-fixed-point integer path has no SIMD or GPU twin today. The
-`float_ssim` / `float_ms_ssim` paths cover all three GPU backends
-and pick up AVX2 / AVX-512 / NEON. Callers that want a GPU SSIM
-should select `float_ssim` instead. The `ssim_accumulate_avx512`
-reduction (per ADR-0268, PR #342) sits on the `float_ssim` /
-`float_ms_ssim` AVX-512 path — bit-exact vs scalar, ~7-11%
-wall-clock reduction on the SSIM/MS-SSIM hot path.
+² SSIM (fixed-point) ships a Vulkan kernel via T7-24 (ADR-pending);
+the CPU integer path is scalar-only by design. The `float_ssim` /
+`float_ms_ssim` paths cover all three GPU backends. The
+`ssim_accumulate_avx512` reduction is vectorised (per
+[ADR-0139](../adr/0139-ssim-simd-bitexact-double.md), PR #342) —
+bit-exact vs scalar, ~7-11% wall-clock reduction on the SSIM/MS-SSIM
+hot path.
 
 ³ LPIPS dispatches the underlying ONNX graph through the ORT
 execution provider selected via `--tiny-device` (CPU / CUDA /
@@ -88,12 +75,11 @@ OpenVINO / ROCm); libvmaf itself does not own a SIMD or GPU
 specialisation of the pre-/post-processing today. See
 [`docs/ai/inference.md`](../ai/inference.md).
 
-⁴ CAMBI ships Strategy II hybrid kernels for both CUDA (T3-15a /
-[ADR-0360](../adr/0360-cambi-cuda.md)) and Vulkan (T7-36 /
-[ADR-0210](../adr/0210-cambi-vulkan-integration.md)). GPU services
-the spatial mask, 2× decimate, and 3-tap mode filter; host CPU
-runs `calculate_c_values` + top-K spatial pooling for `places=4`
-bit-exactness. SYCL port tracked as T3-15b.
+⁴ CAMBI ships a Vulkan kernel via T7-36 ([ADR-0210](../adr/0210-cambi-vulkan-integration.md))
+in a hybrid Strategy II (GPU services preprocess + per-pixel
+derivative + 7×7 spatial-mask SAT, host runs decimation +
+mask DP). CUDA / SYCL CAMBI ports remain optional follow-ups
+under [ADR-0205](../adr/0205-cambi-gpu-feasibility.md).
 
 Depending on your build configuration not every backend is available — see
 [`backends/`](../backends/index.md) for the runtime dispatch rules.
@@ -381,12 +367,11 @@ Quick facts:
 - **Output** — `cambi` in `[0, ∞)`; 0 = no banding, larger = more visible
   banding. Typical "bad" content sits in `1–10`.
 - **Input formats** — YUV 4:2:0, 8 / 10 bpc.
-- **Backends** — scalar (CPU), CUDA (T3-15a /
-  [ADR-0360](../adr/0360-cambi-cuda.md)), and Vulkan (T7-36 /
-  [ADR-0210](../adr/0210-cambi-vulkan-integration.md)). Both GPU paths
-  use Strategy II hybrid: GPU kernels handle the spatial mask, 2× decimate,
-  and 3-tap mode filter; host CPU runs `calculate_c_values` + top-K spatial
-  pooling for `places=4` bit-exactness. SYCL port tracked as T3-15b.
+- **Backends** — scalar (CPU) and Vulkan (T7-36 / [ADR-0210](../adr/0210-cambi-vulkan-integration.md));
+  the Vulkan path is a hybrid Strategy II (GPU does preprocess + per-pixel
+  derivative + 7×7 spatial-mask SAT, host runs decimation + mask DP). CUDA
+  and SYCL ports remain optional follow-ups under
+  [ADR-0205](../adr/0205-cambi-gpu-feasibility.md).
 
 ### CIEDE2000 — colour-difference metric
 
@@ -449,13 +434,10 @@ identical (MSE=0): 60 dB for 8 bpc, 72 dB for 10 bpc, 84 dB for 12 bpc,
 | `min_sse`          | double | `0.0`   | Clamp the minimum MSE (and so the PSNR ceiling) — useful for identical-frame tests |
 
 **Backends** — AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan. The
-`psnr_cuda` and `psnr_vulkan` extractors emit the full luma +
-chroma set (`psnr_y` / `psnr_cb` / `psnr_cr`); CUDA chroma landed
-via T3-15(b) ([ADR-0351](../adr/0351-cuda-chroma-psnr.md)) and the
-Vulkan twin via [ADR-0216](../adr/0216-vulkan-chroma-psnr.md).
-`psnr_sycl` remains luma-only (focused follow-up).
-`float_psnr` adds CUDA / SYCL / Vulkan twins on the float
-pipeline.
+`psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
+(`psnr_y`); `psnr_vulkan` is gaining `psnr_cb` / `psnr_cr` chroma
+support via T3-15(b) (PR #204, in flight). `float_psnr` adds
+CUDA / SYCL / Vulkan twins on the float pipeline.
 
 **Limitations** — Temporal flag set only because of `apsnr` accumulation;
 per-frame PSNR itself is stateless.
@@ -485,20 +467,6 @@ butterfly→transpose; float accumulators stay scalar by construction
 to preserve byte-identity with the reference. Verified bit-identical
 to scalar on all three Netflix golden pairs; ~3.58× DCT microbench
 speedup on AVX2.
-
-**No AVX-512 path** — closed as ceiling under T3-9 (a) per
-[ADR-0350](../adr/0350-psnr-hvs-avx512-ceiling.md) /
-[ADR-0180](../adr/0180-cpu-coverage-audit.md). On a Zen 5 host with
-full AVX-512, `perf record` on the Netflix normal pair shows
-`calc_psnrhvs_avx2` at 78.42 % cycle share (per-block scalar tail —
-means, variances, mask fold, error accumulator — locked
-per-lane-scalar by ADR-0138 / ADR-0139 to preserve IEEE-754
-summation parity with scalar) versus `od_bin_fdct8x8_avx2` at
-14.82 % (the only piece a 16-lane widening could attack). Amdahl
-ceiling caps wall-clock improvement at 17.4 % (1.17× over AVX2);
-realistic 2-block-batched 16-lane DCT projects 1.07–1.08× —
-comfortably below the 1.3× T3-9 ship gate. Re-bench reproducer
-in [Research-0091 §7](../research/0091-psnr-hvs-avx512-bench-2026-05-09.md).
 
 ### SSIM / MS-SSIM
 
@@ -531,7 +499,7 @@ luma. The five Gaussian-pyramid scales force a `2⁴ = 16`× downsample
 on the smallest level; sub-176×176 inputs (e.g. QCIF) cause the
 decimate kernel to produce undefined output. The init path rejects
 smaller inputs with `-EINVAL` and a clear log message — see
-[ADR-0153](../adr/0153-float-ms-ssim-min-size.md). `ssim` /
+[ADR-0153](../adr/0153-float-ms-ssim-min-dim-netflix-1414.md). `ssim` /
 `float_ssim` have no such constraint.
 
 **Options** (apply to `float_ssim` / `float_ms_ssim` only)

@@ -122,7 +122,7 @@ python ai/scripts/train_fr_regressor_v2.py \
 ## 5. Expected impact on fr_regressor_v2
 
 The Netflix-only LOSO baseline (see
-[ADR-0303](../adr/0303-fr-regressor-v2-ensemble-flip.md)) leaves
+[ADR-0303](../adr/0303-fr-regressor-v2-ensemble-prod-flip.md)) leaves
 9 folds × ~24 rows / fold (216 rows total). Adding BVI-DVC's tier-D
 clips (~120 sources) roughly **triples** the training corpus and
 expands the LOSO partition from 9 source-folds to 9 + N folds, where
@@ -132,7 +132,7 @@ LOSO methodology is unchanged: each fold holds out one source, trains
 on the remainder, and reports per-fold PLCC / SROCC / RMSE against the
 `vmaf_v0.6.1` per-frame teacher. Aggregate quality is the mean ± std
 across folds. This is the same gate
-[ADR-0303](../adr/0303-fr-regressor-v2-ensemble-flip.md) uses for the
+[ADR-0303](../adr/0303-fr-regressor-v2-ensemble-prod-flip.md) uses for the
 production-flip decision.
 
 Ship-gate posture: a corpus expansion that **does not raise** mean

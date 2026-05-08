@@ -7,35 +7,29 @@ that drives FFmpeg over an encoder parameter grid, scores each encode
 with [`vmaf`](cli.md), and emits a JSONL corpus of
 `(source, encoder, params, bitrate, vmaf)` rows.
 
-This doc covers **Phase A** (`corpus`) plus the **Phase B-lite**
-`recommend` subcommand of the six-phase roadmap. `corpus` produces a
-`libx264` grid sweep; `recommend` applies a `--target-vmaf` or
-`--target-bitrate` predicate over an existing corpus (or builds one on
-the fly). Phases C (per-title CRF predictor), D (per-shot dynamic
-CRF), E (Pareto ABR ladder) and F (MCP tools) are not implemented yet
-— see ADR-0237. The `recommend` subcommand implements Buckets 4 + 5
-of [Research-0061](../research/0061-vmaf-tune-capability-audit.md).
-This doc covers **Phase A** of the six-phase roadmap: a multi-codec grid
-sweep that produces the corpus the later phases consume. Phases B (target-VMAF
-bisect), C (per-title CRF predictor), D (per-shot dynamic CRF), E (Pareto ABR
-This doc covers **Phase A** of the six-phase roadmap (a `libx264` grid
-sweep that produces the corpus the later phases consume) and the
-**Phase D scaffold** (per-shot CRF tuning, see
-[ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md)). Phases B
-(target-VMAF bisect), C (per-title CRF predictor), E (Pareto ABR
-ladder) and F (MCP tools) are not implemented yet — see ADR-0237.
-This doc covers **Phase A** of the six-phase roadmap (a `libx264` grid
-sweep that produces the corpus the later phases consume) and **Phase E**
-(per-title bitrate-ladder generator — scaffold-only until Phase B's
-target-VMAF bisect merges). Phases B (target-VMAF bisect), C (per-title
-CRF predictor), D (per-shot dynamic CRF), and F (MCP tools) are not
-implemented yet — see [ADR-0237](../adr/0237-quality-aware-encode-automation.md)
-and [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md).
+## Subcommands at a glance
 
-Codecs wired so far: `libx264` (Phase A scaffold) and `libx265`
-([ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)). Adapter
-files live one-per-codec under
-`tools/vmaf-tune/src/vmaftune/codec_adapters/`.
+| Subcommand            | Purpose                                                | ADR / research                                                                                       |
+|-----------------------|--------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| `corpus`              | Multi-codec encoder grid sweep + scoring               | [ADR-0237](../adr/0237-quality-aware-encode-automation.md)                                           |
+| `recommend`           | Target-VMAF / target-bitrate predicate (Phase B)       | [Research-0061](../research/0061-vmaf-tune-capability-audit.md), buckets 4+5                         |
+| `tune-per-shot`       | Per-shot CRF zones                                     | [ADR-0276](../adr/0276-vmaf-tune-phase-d-per-shot.md)                                                |
+| `recommend-saliency`  | Saliency-aware ROI tuning                              | [ADR-0287](../adr/0287-vmaf-tiny-v5-corpus-expansion.md) ecosystem; consumes `vmaf-roi` sidecars     |
+| `ladder`              | Per-title bitrate ladder (Pareto ABR)                  | [ADR-0295](../adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)                                          |
+| `fast`                | Predicted-CRF fast path                                | [ADR-0276](../adr/0276-vmaf-tune-fast-path.md)                                                       |
+| `hdr`                 | HDR-aware tuning + HDR-VMAF scoring                    | (PR #434, bucket #9)                                                                                 |
+| `compare`             | Apples-to-apples codec comparison at matched VMAF      | (PR #435)                                                                                            |
+
+## Codec adapters
+
+17 adapters under `tools/vmaf-tune/src/vmaftune/codec_adapters/`:
+
+| Family | Software           | NVIDIA NVENC                                                                                               | Intel QSV     | AMD AMF       | Apple VideoToolbox    |
+|--------|--------------------|------------------------------------------------------------------------------------------------------------|---------------|---------------|-----------------------|
+| AV1    | `libaom`, `svtav1` | `av1_nvenc` ([ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md))                                          | `av1_qsv`     | `av1_amf`     | —                     |
+| H.264  | `x264` (Phase A)   | `h264_nvenc`                                                                                               | `h264_qsv`    | `h264_amf`    | `h264_videotoolbox`   |
+| HEVC   | `x265` ([ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)) | `hevc_nvenc`                                                              | `hevc_qsv`    | `hevc_amf`    | `hevc_videotoolbox`   |
+| VVC    | `vvenc`            | —                                                                                                          | —             | —             | —                     |
 
 ## Pipeline
 

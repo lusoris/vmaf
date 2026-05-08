@@ -2,7 +2,7 @@
 
 `vmaf-roi` is a sidecar binary that consumes a per-frame saliency map and
 emits an encoder-native per-CTU QP-offset file. It complements
-[`mobilesal`](../metrics/mobilesal.md) (the scoring-side saliency
+[`mobilesal`](../ai/models/mobilesal.md) (the scoring-side saliency
 extractor): same model, two surfaces — scoring the residual vs steering
 the encoder.
 
