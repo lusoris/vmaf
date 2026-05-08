@@ -9053,3 +9053,26 @@ inline.*
   bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/kit-test.tar.gz
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
+
+### 0320 — port upstream cambi_high_res_speedup doc + motion2 score refresh (2026-05-08)
+
+- **Touches**: `docs/metrics/cambi.md`, `docs/metrics/confidence-interval.md`,
+  `docs/usage/python.md`. Cherry-pick of upstream `721569bc` (Netflix/vmaf
+  `resource/doc:` add `cambi_high_res_speedup` parameter and update motion2
+  score). The fork keeps these docs under `docs/` (not upstream's
+  `resource/doc/`) per the docs-tree convention; mapping was applied manually.
+- **Invariant**: the motion2 sample value (`3.8943597291666667`) is upstream's
+  current canonical CPU number for the `src01_hrc00 ↔ src01_hrc01` 576x324
+  pair when run with `vmaf_float_b_v0.6.3`. The fork has no cross-backend
+  parity claim on this snippet (it is documentation prose, not a tested
+  golden); the fork's actual numerical-correctness gate is the Netflix
+  golden assertions in `python/test/` (untouched). If a future upstream
+  drift updates this number again, this doc gets refreshed in the same way.
+- **On upstream sync**: trivial — these three files already exist on both
+  sides; if upstream edits them again the conflict is a 1-line rebase.
+- **Re-test on rebase**:
+
+  ```bash
+  grep -F '3.8943597291666667' docs/metrics/confidence-interval.md docs/usage/python.md
+  grep -F 'cambi_high_res_speedup' docs/metrics/cambi.md
+  ```
