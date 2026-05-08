@@ -783,8 +783,26 @@ if is_sycl_enabled
     # Override with -Dsycl_compiler=/path/to/icpx if not in PATH.
     # This lets the project C/C++ compiler be gcc/clang while SYCL
     # feature extractors are compiled with icpx -fsycl.
-    icpx = find_program(get_option('sycl_compiler'), required : true)
+    #
+    # ADR-0335: AdaptiveCpp (acpp / syclcc, formerly OpenSYCL / hipSYCL)
+    # is a supported alternative toolchain. We detect it from the
+    # configured `sycl_compiler` name and switch flags + runtime
+    # libraries accordingly. icpx remains the primary toolchain.
+    sycl_compiler_opt = get_option('sycl_compiler')
+    icpx = find_program(sycl_compiler_opt, required : true)
     fs = import('fs')
+
+    sycl_compiler_basename = fs.name(sycl_compiler_opt)
+    is_sycl_acpp = (
+        sycl_compiler_basename == 'acpp'
+        or sycl_compiler_basename == 'syclcc'
+        or sycl_compiler_basename == 'syclcc-clang'
+    )
+    if is_sycl_acpp
+        message('SYCL toolchain: AdaptiveCpp (' + sycl_compiler_basename + ') — ADR-0335')
+    else
+        message('SYCL toolchain: Intel oneAPI (' + sycl_compiler_basename + ')')
+    endif
 
     # Include paths as explicit -I flags (custom_target cannot use
     # include_directories objects)
@@ -816,7 +834,18 @@ if is_sycl_enabled
         ]
     endif
 
-    sycl_common_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20'] + sycl_pic_arg
+    # Toolchain-specific compile flags.
+    #   icpx:  `-fsycl` enables single-source SYCL.
+    #   acpp:  `--acpp-targets=<targets>` selects backend(s); the
+    #          equivalent of `-fsycl` is implicit.
+    if is_sycl_acpp
+        acpp_targets = get_option('sycl_acpp_targets')
+        sycl_toolchain_args = ['--acpp-targets=' + acpp_targets]
+    else
+        sycl_toolchain_args = ['-fsycl']
+    endif
+
+    sycl_common_args = vmaf_cflags_common + ['-c'] + sycl_toolchain_args + ['-std=c++20'] + sycl_pic_arg
 
     sycl_sources = [
         sycl_dir + 'common.cpp',
@@ -867,24 +896,51 @@ if is_sycl_enabled
         )
     endforeach
 
-    # Derive the SYCL runtime library directory from the icpx location
-    # so that gcc/g++ can link against libsycl without needing -fsycl.
+    # Derive the SYCL runtime library directory from the compiler
+    # location so that gcc/g++ can link against the SYCL runtime
+    # without needing the toolchain-specific driver flag.
     icpx_bindir = fs.parent(icpx.full_path())
     sycl_lib_dir = fs.parent(icpx_bindir) / 'lib'
-    sycl_lib = cc.find_library('sycl', dirs : [sycl_lib_dir], required : true)
-    # icpx-compiled objects reference Intel runtime symbols (_intel_fast_memcpy,
-    # __svml_*) that gcc/g++ won't find.  Link the Intel runtime libraries
-    # explicitly so a non-Intel host linker can resolve them. On Windows
-    # the host C/C++ compiler is icx-cl (the same Intel toolchain), which
-    # auto-injects svml/irc at link time — and the Windows lib names
-    # differ (svml_dispmd.lib, libirc.lib) — so skip the explicit lookup
-    # there.
+
     sycl_extra_runtime_deps = []
-    if host_machine.system() != 'windows'
-        svml_lib = cc.find_library('svml', dirs : [sycl_lib_dir], required : true)
-        irc_lib = cc.find_library('irc', dirs : [sycl_lib_dir], required : true)
-        sycl_extra_runtime_deps += [svml_lib, irc_lib]
+    if is_sycl_acpp
+        # AdaptiveCpp installs its runtime as `libacpp-rt.so` (and the
+        # legacy alias `libhipSYCL-rt.so`). Try the modern name first,
+        # then the legacy one for older packages. ADR-0335.
+        sycl_lib = cc.find_library('acpp-rt',
+            dirs : [sycl_lib_dir], required : false)
+        if not sycl_lib.found()
+            sycl_lib = cc.find_library('hipSYCL-rt',
+                dirs : [sycl_lib_dir], required : true)
+        endif
+        # AdaptiveCpp does not ship Intel SVML / libirc; skip the
+        # icpx-only Intel-runtime lookup. AdaptiveCpp objects also
+        # don't depend on the Level Zero loader unless the host has
+        # explicitly opted in via `--acpp-targets` containing
+        # `spirv` against an L0 backend; we keep `libze_dep` in
+        # `dependencies` below so the existing `common.cpp`
+        # `get_native<ext_oneapi_level_zero>` path still resolves
+        # at link time when targeting Intel HW under acpp.
+    else
+        sycl_lib = cc.find_library('sycl',
+            dirs : [sycl_lib_dir], required : true)
+        # icpx-compiled objects reference Intel runtime symbols
+        # (_intel_fast_memcpy, __svml_*) that gcc/g++ won't find.
+        # Link the Intel runtime libraries explicitly so a non-Intel
+        # host linker can resolve them. On Windows the host C/C++
+        # compiler is icx-cl (the same Intel toolchain), which
+        # auto-injects svml/irc at link time — and the Windows lib
+        # names differ (svml_dispmd.lib, libirc.lib) — so skip the
+        # explicit lookup there.
+        if host_machine.system() != 'windows'
+            svml_lib = cc.find_library('svml',
+                dirs : [sycl_lib_dir], required : true)
+            irc_lib = cc.find_library('irc',
+                dirs : [sycl_lib_dir], required : true)
+            sycl_extra_runtime_deps += [svml_lib, irc_lib]
+        endif
     endif
+
     sycl_dependency += declare_dependency(
         dependencies : [sycl_lib, libze_dep] + sycl_extra_runtime_deps + sycl_surface_deps,
     )
@@ -1027,9 +1083,23 @@ if is_sycl_enabled
     # in the source files were not sufficient — those flags don't
     # propagate to icpx's device-side codegen pass for SYCL kernel
     # lambdas; `-fp-model=precise` does.
-    sycl_feature_args = vmaf_cflags_common + ['-c', '-fsycl', '-std=c++20', '-fp-model=precise'] + sycl_pic_arg + ['-fpermissive']
+    # `-fp-model=precise` is icpx's strict-FP flag (see comment above).
+    # AdaptiveCpp doesn't accept `-fp-model=precise`; it uses the
+    # underlying clang's `-ffp-contract=off` plus the source-level
+    # `precise` decoration on per-kernel arithmetic. Per
+    # `libvmaf/src/sycl/AGENTS.md`, the precise-FP contract is
+    # load-bearing for places=4 conformance, so emit `-ffp-contract=off`
+    # under acpp; the residual numerical drift vs icpx is documented
+    # in ADR-0335 §"Numerical conformance".
+    if is_sycl_acpp
+        sycl_strict_fp_args = ['-ffp-contract=off']
+    else
+        sycl_strict_fp_args = ['-fp-model=precise']
+    endif
+    sycl_feature_args = vmaf_cflags_common + ['-c'] + sycl_toolchain_args + ['-std=c++20'] + sycl_strict_fp_args + sycl_pic_arg + ['-fpermissive']
     sycl_feature_inc = sycl_inc_flags + [
         '-I' + meson.current_source_dir() / 'cuda',
+        '-I' + meson.current_source_dir() / 'feature' / 'sycl',
     ]
 
     foreach src : sycl_feature_sources

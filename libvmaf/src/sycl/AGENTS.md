@@ -8,7 +8,7 @@ Orientation for agents working on the SYCL / DPC++ backend runtime. Parent:
 The SYCL-side runtime (queue management, USM, dmabuf import). SYCL
 **feature kernels** live in [../feature/sycl/](../feature/sycl/).
 
-```
+```text
 sycl/
   common.cpp/.h             # queue creation, device selection, error-check
   picture_sycl.cpp/.h       # VmafPicture on a SYCL device (USM-backed)
@@ -18,8 +18,18 @@ sycl/
 ## Ground rules
 
 - **Parent rules** apply in full (see [../../AGENTS.md](../../AGENTS.md)).
-- **Compiler is `icpx` (Intel oneAPI) or `clang++` with `-fsycl`.** Do not
-  assume MSVC-style extensions.
+- **Compiler is `icpx` (Intel oneAPI) or AdaptiveCpp `acpp` / `syclcc`
+  (ADR-0335).** `clang++ -fsycl` is also accepted in spirit but is not
+  CI-tested. Do not assume MSVC-style extensions.
+- **Intel-specific kernel attributes go through
+  `libvmaf/src/feature/sycl/sycl_compat.h`** (ADR-0335). The
+  `VMAF_SYCL_REQD_SG_SIZE(N)` macro expands to
+  `[[intel::reqd_sub_group_size(N)]]` under icpx and to a no-op under
+  AdaptiveCpp. New kernel sites that need an Intel-specific attribute
+  add a new macro to `sycl_compat.h` rather than hard-coding the
+  attribute. **On rebase**: if an upstream cherry-pick brings in a
+  bare `[[intel::*]]` attribute on a SYCL kernel lambda, wrap it in a
+  compat macro before merging.
 - **Experimental flags enabled**: `-fsycl-unnamed-lambda`,
   `-fsycl-allow-func-ptr`, `-fsycl-device-code-split=per_kernel`. See
   [ADR-0027](../../../docs/adr/0027-non-conservative-image-pins.md).
@@ -83,11 +93,20 @@ sycl/
 
 ## Governing ADRs
 
-- [ADR-0002](../../../docs/adr/0002-merge-path-master-default.md) — sycl branch → master merge history.
-- [ADR-0016](../../../docs/adr/0016-sycl-to-master-merge-conflict-policy.md) — merge-conflict policy.
-- [ADR-0022](../../../docs/adr/0022-inference-runtime-onnx.md) — OpenVINO EP mapping for SYCL.
-- [ADR-0027](../../../docs/adr/0027-non-conservative-image-pins.md) — experimental SYCL flags.
-- [ADR-0220](../../../docs/adr/0220-sycl-fp64-fallback.md) — SYCL feature kernels are unconditionally fp64-free (T7-17).
+- [ADR-0002](../../../docs/adr/0002-merge-path-master-default.md) —
+  sycl branch → master merge history.
+- [ADR-0016](../../../docs/adr/0016-sycl-to-master-merge-conflict-policy.md)
+  — merge-conflict policy.
+- [ADR-0022](../../../docs/adr/0022-inference-runtime-onnx.md) —
+  OpenVINO EP mapping for SYCL.
+- [ADR-0027](../../../docs/adr/0027-non-conservative-image-pins.md) —
+  experimental SYCL flags.
+- [ADR-0220](../../../docs/adr/0220-sycl-fp64-fallback.md) — SYCL
+  feature kernels are unconditionally fp64-free (T7-17).
+- [ADR-0335](../../../docs/adr/0335-adaptivecpp-second-sycl-toolchain.md)
+  — AdaptiveCpp added as a second SYCL toolchain alongside icpx;
+  Intel-specific kernel attributes routed through
+  `feature/sycl/sycl_compat.h`.
 
 ## Build
 
@@ -96,5 +115,18 @@ meson setup build -Denable_cuda=false -Denable_sycl=true
 ninja -C build
 ```
 
-Requires oneAPI (`source /opt/intel/oneapi/setvars.sh`) or equivalent DPC++
-toolchain with `icpx` on PATH.
+Requires oneAPI (`source /opt/intel/oneapi/setvars.sh`) or equivalent
+DPC++ toolchain with `icpx` on PATH.
+
+Alternative: AdaptiveCpp (open-source, ADR-0335).
+
+```bash
+meson setup build-acpp -Denable_cuda=false -Denable_sycl=true \
+    -Dsycl_compiler=acpp -Dsycl_acpp_targets=generic
+ninja -C build-acpp
+```
+
+See
+[`docs/development/sycl-toolchains.md`](../../../docs/development/sycl-toolchains.md)
+for the per-toolchain capability matrix and numerical conformance
+notes.

@@ -16,6 +16,8 @@
 
 #include <sycl/sycl.hpp>
 
+#include "sycl_compat.h"
+
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
@@ -414,7 +416,7 @@ static sycl::event launch_csf_cm(sycl::queue &q, const float *ref_band, const fl
         sycl::local_accessor<float, 1> s_csf(sycl::range<1>(WG_SIZE / 32), cgh);
         sycl::local_accessor<float, 1> s_cm(sycl::range<1>(WG_SIZE / 32), cgh);
         cgh.parallel_for(sycl::nd_range<1>(sycl::range<1>(global_x), sycl::range<1>(WG_SIZE)),
-                         [=](sycl::nd_item<1> item) [[intel::reqd_sub_group_size(32)]] {
+                         [=](sycl::nd_item<1> item) VMAF_SYCL_REQD_SG_SIZE(32) {
                              const unsigned wg_id = (unsigned)item.get_group(0);
                              const unsigned lid = (unsigned)item.get_local_id(0);
                              const unsigned band_idx = wg_id / e_active_h;

@@ -51,12 +51,17 @@ option('enable_nvcc',
 option('enable_sycl',
     type: 'boolean',
     value: false,
-    description: 'Enable Intel oneAPI SYCL/DPC++ support for GPU-accelerated feature extraction')
+    description: 'Enable SYCL/DPC++ support for GPU-accelerated feature extraction (icpx default; ADR-0335 adds AdaptiveCpp/acpp)')
 
 option('sycl_compiler',
     type: 'string',
     value: 'icpx',
-    description: 'Path or name of the SYCL compiler (Intel icpx from oneAPI)')
+    description: 'Path or name of the SYCL compiler. Supported toolchains: Intel icpx (default), AdaptiveCpp acpp/syclcc (ADR-0335).')
+
+option('sycl_acpp_targets',
+    type: 'string',
+    value: 'generic',
+    description: 'AdaptiveCpp --acpp-targets argument (e.g. "generic", "omp", "omp;cuda:sm_75", "omp;hip:gfx1100"). Ignored when sycl_compiler is icpx. See ADR-0335.')
 
 option('enable_dnn',
     type: 'feature',

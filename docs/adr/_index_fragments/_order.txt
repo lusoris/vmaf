@@ -252,6 +252,7 @@
 
 0334-state-md-touch-check-ci-gate
 
+0335-adaptivecpp-second-sycl-toolchain
 
 0348-codeql-poorly-documented-function-suppressed
 
