@@ -844,13 +844,16 @@ int main(int argc, char *argv[])
             },
         /* Liveness budget per frame:
          *   2  — ref + dist currently held by the CLI fetch/process step
-         *   1  — `vmaf->prev_ref` keeps the previous frame's ref picture
-         *        live across the frame boundary (for motion features)
+         *   2  — `vmaf->prev_ref` (n-1) and `vmaf->prev_prev_ref` (n-2)
+         *        keep the two most recent ref pictures live across the
+         *        frame boundary (for motion / motion_v2 features, including
+         *        the five-frame-window mode added in upstream commit
+         *        a2b59b77 ported alongside this change)
          *   2*thread_cnt — worker threads may hold (ref, dist) on in-flight
          *        frames that haven't finished processing yet
-         * The `+ 1` term covers prev_ref uniformly. Undersizing deadlocks
-         * vmaf_picture_pool_fetch on frame N+1. */
-        .pic_cnt = 2 * (c.thread_cnt + 1) + 1,
+         * The `+ 2` term covers prev_ref and prev_prev_ref uniformly.
+         * Undersizing deadlocks vmaf_picture_pool_fetch on frame N+2. */
+        .pic_cnt = 2 * (c.thread_cnt + 1) + 2,
     };
 
     err = vmaf_preallocate_pictures(vmaf, pic_cfg);
