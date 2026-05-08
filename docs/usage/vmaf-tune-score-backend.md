@@ -1,0 +1,96 @@
+# `vmaf-tune --score-backend` — GPU acceleration of the scoring loop
+
+`vmaf-tune corpus` and `vmaf-tune per-shot` invoke the
+[`vmaf`](cli.md) CLI for every grid cell to compute the VMAF score
+of an encoded variant against the reference. By default the score
+loop runs on the CPU, which dominates wall time on long sweeps.
+`--score-backend` selects an accelerated backend for the score axis
+without changing the encode axis at all.
+
+The flag is governed by [ADR-0299](../adr/0299-vmaf-tune-gpu-score.md)
+(initial CUDA / SYCL / CPU shape) and
+[ADR-0314](../adr/0314-vmaf-tune-score-backend-vulkan.md) (Vulkan
+addition for vendor-neutral GPU scoring).
+
+## Usage
+
+```shell
+vmaf-tune corpus \
+    --source ref.yuv --width 1920 --height 1080 \
+    --pix-fmt yuv420p --framerate 24 \
+    --encoder libx264 --preset medium --crf 22 --crf 28 \
+    --score-backend cuda \
+    --out corpus.jsonl
+```
+
+## Accepted values
+
+| Value    | Behaviour                                                                                                                                                                                                          |
+|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `auto`   | (default) probe the host and pick the fastest available, in the order `cuda → vulkan → sycl → cpu`.                                                                                                                |
+| `cuda`   | NVIDIA GPU score path. Errors out if the local `vmaf` was built without CUDA, or if `nvidia-smi` is missing / reports no devices.                                                                                  |
+| `vulkan` | Vendor-neutral GPU path (per [ADR-0127](../adr/0127-vulkan-compute-backend.md)). Use on AMD, Intel Arc, or Apple-MoltenVK hosts. Errors out if `vmaf` was built without Vulkan or `vulkaninfo` reports no devices. |
+| `sycl`   | Intel oneAPI SYCL path. Errors out if `vmaf` was built without SYCL or `sycl-ls` reports no devices.                                                                                                               |
+| `cpu`    | Force CPU scoring. Always available; useful as a baseline reference when chasing a numeric divergence.                                                                                                             |
+
+## Hard-failure semantics
+
+A non-`auto` value is **strict**: an explicit `--score-backend cuda`
+on a host without CUDA fails with a clear error rather than silently
+falling back. This avoids the most common GPU-pipeline footgun —
+running a "GPU sweep" that quietly produced CPU numbers because the
+GPU wasn't actually engaged.
+
+`auto` walks the fallback chain (`cuda → vulkan → sycl → cpu`) and
+picks the first entry that is **both** advertised by the local `vmaf`
+binary's `--help` *and* probe-confirmed via the appropriate vendor
+tool. The probe results print to stderr at log-level INFO so a
+post-hoc reader can see which backend was selected.
+
+## Cross-backend numeric drift
+
+Per the project's GPU-parity gate ([ADR-0214](../adr/0214-gpu-parity-ci-gate.md)),
+GPU score backends produce results that are *close* to the CPU floor
+but **not bit-identical**. The CPU is the numerical-correctness
+floor — for a strict numeric comparison run the same corpus twice,
+once with `--score-backend cpu` and once with `--score-backend
+<gpu>`, then diff the JSONL `vmaf_score` column. Typical drift is
+under 1e-3 VMAF points on 1080p / 24 fps content; the precise
+per-feature ULP envelopes live in
+[`docs/development/cross-backend-gate.md`](../development/cross-backend-gate.md).
+
+## Performance
+
+The GPU score path is ~10–30× faster than the CPU path on 1080p / 24
+fps content (the roughly-quoted figure from the CUDA backend's
+header docstring). The encode path is untouched by this flag — if
+the encode dominates wall time (e.g. AV1 with `libsvtav1 --preset
+0`), enabling a GPU score backend has only marginal effect on total
+sweep time.
+
+## Implementation notes
+
+- The flag is wired in `tools/vmaf-tune/src/vmaftune/cli.py` and
+  resolves to a concrete backend via
+  `tools/vmaf-tune/src/vmaftune/score_backend.py`'s `select_backend`.
+- The resolved backend is passed to the underlying `vmaf` invocation
+  as `--backend <name>`; the libvmaf-side selector is per-feature
+  per [ADR-0127](../adr/0127-vulkan-compute-backend.md) /
+  [ADR-0175](../adr/0175-vulkan-backend-scaffold.md) /
+  [ADR-0212](../adr/0212-hip-backend-scaffold.md).
+- For one-shot single-encode scoring, the same `--backend` flag is
+  available on the `vmaf` CLI directly — see
+  [`docs/usage/cli.md`](cli.md).
+
+## See also
+
+- [`vmaf-tune.md`](vmaf-tune.md) — the base tool.
+- [`vmaf-tune-codec-adapters.md`](vmaf-tune-codec-adapters.md) — the
+  encoder side (the `--score-backend` flag is orthogonal to
+  `--encoder`).
+- [`docs/backends/cuda/overview.md`](../backends/cuda/overview.md) /
+  [`vulkan/overview.md`](../backends/vulkan/overview.md) /
+  [`sycl/overview.md`](../backends/sycl/overview.md) — backend
+  build / runtime requirements.
+- [Research-0086](../research/0086-usage-doc-coverage-audit-2026-05-08.md)
+  — audit that triggered this page.
