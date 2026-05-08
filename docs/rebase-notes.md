@@ -29283,6 +29283,31 @@ inline.*
   python -m vmaftune.cli corpus --help  # confirm --auto-hdr surfaces
   ```
 
+### HP-2 — vmaf-tune HDR `iter_rows` integration (2026-05-08)
+
+- **What changed**: fork-local. `tools/vmaf-tune/src/vmaftune/corpus.py`
+  now imports `vmaftune.hdr` and wires `detect_hdr` /
+  `hdr_codec_args` / `select_hdr_vmaf_model` into the
+  per-source encode + score loop. The 0300 PR landed `hdr.py`
+  and the four CLI flags but never imported the module — PQ
+  sources silently encoded as SDR. Schema bumps v2 → v3 because
+  the originally-promised `hdr_transfer` / `hdr_primaries` /
+  `hdr_forced` row columns finally land. See ADR-0300 § Status
+  update 2026-05-08.
+- **Upstream source**: zero. Fork-only.
+- **On upstream sync**: zero interaction. `tools/vmaf-tune/` is
+  fork-introduced.
+- **Schema migration note**: `SCHEMA_VERSION` 2 → 3 (additive).
+  The three HDR keys default to `""` / `""` / `False` for SDR
+  rows; Phase B / C loaders that ignore unknown keys keep
+  working against v3 rows.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest tools/vmaf-tune/tests/test_hdr.py -q
+  python -m pytest tools/vmaf-tune/tests/test_corpus.py::test_corpus_row_keys_match_init_contract -q
+  ```
+
 ### 0298 — vmaf-tune content-addressed cache (ADR-0298)
 
 - **What changed**: fork-local. New module

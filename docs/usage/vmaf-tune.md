@@ -413,15 +413,17 @@ differently, or rescore the chosen cell on the full source.
 
 Each row is one JSON object on its own line. The full key list is
 exported as `vmaftune.CORPUS_ROW_KEYS` for programmatic consumers and
-versioned via `vmaftune.SCHEMA_VERSION` (currently `2` — v2 added
-`clip_mode` for sample-clip mode, ADR-0301). Bumping the schema is a
-coordinated change with Phase B/C; do not edit row shape without
-bumping the version.
+versioned via `vmaftune.SCHEMA_VERSION` (currently `3` — v2 added
+`clip_mode` for sample-clip mode under ADR-0301; v3 added the HDR
+provenance triple `hdr_transfer` / `hdr_primaries` / `hdr_forced`
+when `corpus.iter_rows` was wired to `hdr.detect_hdr` +
+`hdr.hdr_codec_args` per the ADR-0300 status update of 2026-05-08).
+Bumping the schema is a coordinated change with Phase B/C; do not
+edit row shape without bumping the version.
 
 | Key | Type | Description |
 | --- | --- | --- |
-| `schema_version` | int | Currently `1`. |
-| `schema_version` | int | Currently `2`. |
+| `schema_version` | int | Currently `3`. |
 | `run_id` | str | Per-row UUID4 hex. |
 | `timestamp` | str | UTC ISO-8601 (seconds precision). |
 | `src` | str | Path to the reference YUV. |
@@ -445,16 +447,16 @@ bumping the version.
 | `ffmpeg_version` | str | Detected ffmpeg version. |
 | `vmaf_binary_version` | str | Detected vmaf binary version. |
 | `exit_status` | int | First non-zero of (encode, score) exit codes. |
-| `hdr_transfer` | str | `""` (SDR), `"pq"` (SMPTE-2084) or `"hlg"` (ARIB STD-B67). v2+. |
-| `hdr_primaries` | str | Raw ffprobe `color_primaries` (e.g. `bt2020`); empty for SDR. v2+. |
-| `hdr_forced` | bool | `true` iff the user overrode detection via `--force-hdr-*` / `--force-sdr`. v2+. |
+| `hdr_transfer` | str | `""` (SDR), `"pq"` (SMPTE-2084) or `"hlg"` (ARIB STD-B67). Schema v3+. |
+| `hdr_primaries` | str | Raw ffprobe `color_primaries` (e.g. `bt2020`); empty for SDR. Schema v3+. |
+| `hdr_forced` | bool | `true` iff the user overrode detection via `--force-hdr-*` / `--force-sdr`. Schema v3+. |
 | `clip_mode` | str | `"full"` (default) or `"sample_<N>s"` per `--sample-clip-seconds`. Schema v2+. |
 
 ### Example row
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "run_id": "0a3b1c8b...",
   "timestamp": "2026-05-03T16:00:00+00:00",
   "src": "ref.yuv",

@@ -26,6 +26,7 @@ import dataclasses
 import datetime as _dt
 import hashlib
 import json
+import logging
 import math
 import os
 import uuid
@@ -35,7 +36,10 @@ from pathlib import Path
 from . import CORPUS_ROW_KEYS, SCHEMA_VERSION
 from .codec_adapters import get_adapter
 from .encode import EncodeRequest, bitrate_kbps, run_encode, run_two_pass_encode
+from .hdr import HdrInfo, detect_hdr, hdr_codec_args, select_hdr_vmaf_model
 from .score import ScoreRequest, ScoreResult, run_score
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,6 +152,94 @@ def _resolve_sample_clip(
     return (requested, start_s, frame_skip_ref, frame_cnt, label)
 
 
+_VALID_HDR_MODES = frozenset({"auto", "force-sdr", "force-hdr-pq", "force-hdr-hlg"})
+
+
+def _synthetic_hdr_info(transfer: str, *, pix_fmt: str) -> HdrInfo:
+    """Build an :class:`HdrInfo` for ``--force-hdr-pq`` / ``--force-hdr-hlg``.
+
+    Used when the user knows the source carries the named transfer but
+    the container can't surface it (raw YUV refs are the canonical
+    case). Mastering-display + max-CLL stay ``None`` — without ffprobe
+    we have no way to read them and emitting fabricated values would be
+    worse than emitting none.
+    """
+    forced_pix_fmt = pix_fmt if ("10" in pix_fmt or "12" in pix_fmt) else "yuv420p10le"
+    return HdrInfo(
+        transfer=transfer,
+        primaries="bt2020",
+        matrix="bt2020nc",
+        color_range="tv",
+        pix_fmt=forced_pix_fmt,
+    )
+
+
+def _resolve_hdr(job: "CorpusJob", opts: "CorpusOptions") -> tuple[HdrInfo | None, bool]:
+    """Resolve the effective HDR signaling for ``job`` per ``opts.hdr_mode``.
+
+    Returns ``(info, forced)`` where ``info`` is the HdrInfo to drive
+    encoder + scorer wiring (``None`` for SDR), and ``forced`` records
+    whether the user overrode auto-detection via one of the
+    ``--force-*`` flags. The flag lands on the corpus row's
+    ``hdr_forced`` column so Phase B/C consumers can distinguish a
+    detected HDR row from a user-asserted one.
+
+    Unknown ``hdr_mode`` values fall back to ``auto`` with a one-shot
+    warning — corpus runs shouldn't crash on a typoed CLI flag.
+    """
+    mode = opts.hdr_mode
+    if mode not in _VALID_HDR_MODES:
+        _LOG.warning("vmaf-tune: unknown hdr_mode %r; falling back to 'auto'", mode)
+        mode = "auto"
+
+    if mode == "force-sdr":
+        return (None, True)
+    if mode == "force-hdr-pq":
+        return (_synthetic_hdr_info("pq", pix_fmt=job.pix_fmt), True)
+    if mode == "force-hdr-hlg":
+        return (_synthetic_hdr_info("hlg", pix_fmt=job.pix_fmt), True)
+
+    # auto: probe the source via ffprobe. detect_hdr returns None for
+    # SDR / probe-failure / missing-binary, all of which are OK — the
+    # encode proceeds without HDR signaling.
+    info = detect_hdr(job.source, ffprobe_bin=opts.ffprobe_bin)
+    return (info, False)
+
+
+def _resolve_hdr_score_model(
+    info: HdrInfo | None,
+    sdr_model: str,
+    *,
+    warned: list[bool],
+) -> str:
+    """Pick the VMAF model to score against given HDR provenance.
+
+    Returns a string passable to :class:`ScoreRequest.model`. When
+    ``info`` is None the SDR model is used unchanged. When ``info`` is
+    set we look for an HDR model JSON shipped under ``model/``; if
+    none is present we warn once per corpus run and fall back to the
+    SDR model — see ADR-0300 (HDR-VMAF model port is a backlog item).
+    The ``warned`` list is a one-element mutable flag so the warning
+    fires exactly once per ``iter_rows`` invocation rather than per
+    cell.
+    """
+    if info is None:
+        return sdr_model
+    hdr_model = select_hdr_vmaf_model()
+    if hdr_model is not None:
+        return f"path={hdr_model}"
+    if not warned[0]:
+        _LOG.warning(
+            "vmaf-tune: HDR source detected (transfer=%s) but no HDR VMAF "
+            "model is shipped; scoring against SDR model %r — scores will "
+            "trend low for high-luminance regions (see ADR-0300)",
+            info.transfer,
+            sdr_model,
+        )
+        warned[0] = True
+    return sdr_model
+
+
 def iter_rows(
     job: CorpusJob,
     opts: CorpusOptions,
@@ -167,6 +259,16 @@ def iter_rows(
 
     clip_seconds, start_s, frame_skip_ref, frame_cnt, clip_mode = _resolve_sample_clip(job, opts)
 
+    # HDR resolution happens once per source: detection (or the forced
+    # synthetic info) is constant across the (preset, crf) grid for a
+    # given input. Re-probing per cell would burn an ffprobe per encode
+    # for no signal gain.
+    hdr_info, hdr_forced = _resolve_hdr(job, opts)
+    hdr_extra_params: tuple[str, ...] = ()
+    if hdr_info is not None:
+        hdr_extra_params = hdr_codec_args(opts.encoder, hdr_info)
+    score_model_warned = [False]
+
     for preset, crf in job.cells:
         adapter.validate(preset, crf)
 
@@ -181,6 +283,7 @@ def iter_rows(
             preset=preset,
             crf=crf,
             output=out,
+            extra_params=hdr_extra_params,
             sample_clip_seconds=clip_seconds,
             sample_clip_start_s=start_s,
         )
@@ -196,13 +299,14 @@ def iter_rows(
         else:
             enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
 
+        score_model = _resolve_hdr_score_model(hdr_info, opts.vmaf_model, warned=score_model_warned)
         score_req = ScoreRequest(
             reference=job.source,
             distorted=out,
             width=job.width,
             height=job.height,
             pix_fmt=job.pix_fmt,
-            model=opts.vmaf_model,
+            model=score_model,
             frame_skip_ref=frame_skip_ref,
             frame_cnt=frame_cnt,
         )
@@ -233,6 +337,8 @@ def iter_rows(
             enc_res=enc_res,
             score_res=score_res,
             clip_mode=clip_mode,
+            hdr_info=hdr_info,
+            hdr_forced=hdr_forced,
         )
         if not opts.keep_encodes and out.exists() and enc_res.exit_status == 0:
             # best-effort cleanup; corpus row stays valid either way
@@ -251,6 +357,8 @@ def _row_for(
     enc_res,
     score_res,
     clip_mode: str = "full",
+    hdr_info: HdrInfo | None = None,
+    hdr_forced: bool = False,
 ) -> dict:
     # Bitrate is computed against the *encoded* duration so sample-clip
     # rows aren't biased low by dividing slice-bytes by full-source
@@ -287,6 +395,9 @@ def _row_for(
         "vmaf_binary_version": score_res.vmaf_binary_version,
         "exit_status": enc_res.exit_status or score_res.exit_status,
         "clip_mode": clip_mode,
+        "hdr_transfer": hdr_info.transfer if hdr_info is not None else "",
+        "hdr_primaries": hdr_info.primaries if hdr_info is not None else "",
+        "hdr_forced": bool(hdr_forced),
     }
     # Schema-shape assertion — catches drift in development; cheap.
     missing = set(CORPUS_ROW_KEYS) - row.keys()

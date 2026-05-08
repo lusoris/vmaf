@@ -138,13 +138,18 @@ def test_parse_vmaf_json_raises_on_missing():
 
 def test_corpus_row_keys_match_init_contract():
     # Schema-shape contract — Phase B / C will rely on this. v2 added
-    # ``clip_mode`` for the sample-clip mode (ADR-0301).
-    assert SCHEMA_VERSION == 2
+    # ``clip_mode`` for the sample-clip mode (ADR-0301); v3 added the
+    # HDR provenance triple wired up by the ``corpus.iter_rows`` HDR
+    # integration (HP-2, ADR-0300 status update 2026-05-08).
+    assert SCHEMA_VERSION == 3
     assert "vmaf_score" in CORPUS_ROW_KEYS
     assert "bitrate_kbps" in CORPUS_ROW_KEYS
     assert "encode_time_ms" in CORPUS_ROW_KEYS
     assert "run_id" in CORPUS_ROW_KEYS
     assert "clip_mode" in CORPUS_ROW_KEYS
+    assert "hdr_transfer" in CORPUS_ROW_KEYS
+    assert "hdr_primaries" in CORPUS_ROW_KEYS
+    assert "hdr_forced" in CORPUS_ROW_KEYS
 
 
 def test_smoke_corpus_end_to_end_with_mocks(tmp_path: Path):
@@ -382,7 +387,7 @@ def test_default_full_clip_mode_tag(tmp_path: Path):
 
 def test_corpus_row_keys_includes_clip_mode():
     assert "clip_mode" in CORPUS_ROW_KEYS
-    assert SCHEMA_VERSION == 2
+    assert SCHEMA_VERSION == 3
 
 
 def test_encode_failure_emits_row_with_skipped_score(tmp_path: Path):

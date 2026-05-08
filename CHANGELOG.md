@@ -65,6 +65,23 @@
   Step B unblock. State.md row T-VK-VIF-1.4-RESIDUAL updated with
   bisect outcome; ADR-0269 carries a 2026-05-08 status-update
   appendix. No code changes.
+- **vmaf-tune HDR encoder + scorer wiring (HP-2 / ADR-0300 status
+  update 2026-05-08).** `corpus.iter_rows` now consults the
+  fork-local `vmaftune.hdr` module — the `detect_hdr` /
+  `hdr_codec_args` / `select_hdr_vmaf_model` triple shipped under
+  PR #434 / ADR-0300 but was never imported. PQ-tagged sources
+  silently encoded as SDR with their mastering-display + max-CLL
+  SEI metadata stripped, and the SDR-vs-HDR provenance promised
+  by the corpus row schema never materialised. The follow-up
+  resolves `opts.hdr_mode` once per source (auto / force-sdr /
+  force-hdr-pq / force-hdr-hlg), injects the codec-appropriate
+  HDR ffmpeg argv into `EncodeRequest.extra_params`, swaps in an
+  HDR VMAF model when one is shipped (else warns once and keeps
+  the SDR model), and populates the new `hdr_transfer` /
+  `hdr_primaries` / `hdr_forced` row columns. Schema bumps
+  v2 → v3 (additive — readers that ignore the new keys keep
+  working). The two integration tests previously gated by
+  `_HDR_ITER_ROWS_DEFERRED` are un-skipped.
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is

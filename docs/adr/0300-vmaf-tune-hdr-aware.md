@@ -141,3 +141,33 @@ This status update does not change the ADR's Decision; the ADR's
 SDR-on-HDR delta measurement called out in the digest's follow-up
 backlog is the smaller next step that does not require gated
 corpora.
+
+### Status update 2026-05-08: iter_rows integration
+
+Phase-A audit item HP-2 closed. The original PR landed `hdr.py` and
+the four CLI flags but never wired `detect_hdr` /
+`hdr_codec_args` / `select_hdr_vmaf_model` into
+`corpus.iter_rows` — `grep -nE "from.*\.hdr|import.*hdr"
+tools/vmaf-tune/src/vmaftune/*.py` returned zero hits. PQ sources
+silently encoded as SDR with PQ metadata stripped. The follow-up
+PR wires the integration:
+
+- `corpus.iter_rows` now resolves the effective HDR mode once per
+  source via the new `_resolve_hdr` helper, then injects
+  `hdr_codec_args(opts.encoder, info)` into `EncodeRequest.extra_params`
+  and swaps in an HDR VMAF model when `select_hdr_vmaf_model()`
+  returns one (else logs a one-shot warning and keeps the SDR
+  model).
+- `_row_for` populates the schema-v3 `hdr_transfer` /
+  `hdr_primaries` / `hdr_forced` columns so Phase B/C consumers
+  can distinguish detected vs user-asserted HDR rows.
+- `SCHEMA_VERSION` bumped 2 → 3 (additive); the original ADR
+  body claimed "schema bumped to v2" but the v2 bump consumed the
+  `clip_mode` slot first — the HDR triple lands as v3.
+- The two integration tests previously gated by
+  `_HDR_ITER_ROWS_DEFERRED` (`test_corpus_emits_hdr_fields_when_source_is_hdr`,
+  `test_corpus_force_sdr_skips_hdr_path`) are un-skipped and pass.
+
+The HDR VMAF scoring story is unchanged — model port still
+backlog. Encode-side correctness is now active for every PQ /
+HLG source the harness sees.
