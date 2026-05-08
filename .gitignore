@@ -68,6 +68,13 @@ tools/vmaf-tune/build/
 tools/vmaf-tune/dist/
 tools/vmaf-tune/*.egg-info/
 
+# external-bench harness scratch / binary downloads (ADR-0332)
+tools/external-bench/**/build/
+tools/external-bench/**/dist/
+tools/external-bench/**/*.bin
+tools/external-bench/**/output*.json
+tools/external-bench/**/__pycache__/
+
 # Claude Code local (machine-specific) settings
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
