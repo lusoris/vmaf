@@ -9070,3 +9070,16 @@ inline.*
     grep -c "pull_request.draft == false" ".github/workflows/${f}.yml"
   done  # Each must report >= 1.
   ```
+
+## ADR-0209 v1 stdio runtime (T5-2b) — Embedded MCP server (2026-05-08)
+
+- **Touches**: `libvmaf/src/mcp/{mcp.c,dispatcher.c,transport_stdio.c,mcp_internal.h,meson.build,3rdparty/cJSON/{cJSON.c,cJSON.h,LICENSE}}`, `libvmaf/test/test_mcp_smoke.c`, `libvmaf/test/meson.build`. All paths are fork-local. cJSON is vendored verbatim from upstream `DaveGamble/cJSON@v1.7.18` under its MIT license.
+- **Invariant**: every TU under `libvmaf/src/mcp/` (other than the vendored cJSON dir) is fork-local with the `Copyright 2026 Lusoris and Claude (Anthropic)` header; cJSON keeps its upstream MIT header verbatim. The public ABI in `libvmaf/include/libvmaf/libvmaf_mcp.h` is unchanged from T5-2 — only function bodies flipped from `-ENOSYS` to working implementations. SSE / UDS still return `-ENOSYS` so the v2 PR can wire them without touching the public surface.
+- **On upstream sync**: no action required. Netflix/vmaf upstream has no embedded MCP surface; the entire `libvmaf/src/mcp/` subtree is fork-local. If upstream ever adds an MCP surface, expect a port-only sync since names will collide.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false \
+                                  -Denable_mcp=true -Denable_mcp_stdio=true
+  ninja -C build && meson test -C build test_mcp_smoke -v
+  ```
