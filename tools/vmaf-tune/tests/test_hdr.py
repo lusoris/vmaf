@@ -292,8 +292,16 @@ def test_select_hdr_vmaf_model_handles_missing_dir(tmp_path: Path):
 # follow-up that wires ``detect_hdr`` + ``hdr_codec_args`` +
 # ``select_hdr_vmaf_model`` into ``iter_rows``. Skipped here so CI
 # Tests & Quality Gates stay green; un-skip in the follow-up PR.
+#
+# Reopen trigger: PR #466 (feat(vmaf-tune): wire HDR detection +
+# codec args into corpus.iter_rows, HP-2). See
+# ``docs/state.md`` row "T-HDR-ITER-ROWS" and
+# ``docs/research/0086-stale-marker-sweep-2026-05-08.md``.
 _HDR_ITER_ROWS_DEFERRED = pytest.mark.skip(
-    reason="iter_rows HDR integration deferred to follow-up; only CLI surface in this PR"
+    reason=(
+        "iter_rows HDR integration deferred to follow-up PR #466 (HP-2); "
+        "only CLI surface in this PR. See docs/state.md T-HDR-ITER-ROWS."
+    )
 )
 
 
