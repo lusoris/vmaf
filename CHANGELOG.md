@@ -35,6 +35,25 @@
 
 ### Added
 
+- **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
+  (ADR-0325, design-only).** Ships
+  [`docs/adr/0325-vmaf-tune-phase-f-auto.md`](docs/adr/0325-vmaf-tune-phase-f-auto.md)
+  and
+  [`docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md`](docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md)
+  proposing a single `vmaf-tune auto --src ref.mkv --target-vmaf 92`
+  CLI verb that composes the existing phase subcommands (`corpus`,
+  `recommend`, `fast`, `predict`, `tune-per-shot`,
+  `recommend-saliency`, `ladder`, `compare`) plus the orthogonal
+  modes (HDR auto-detect, sample-clip, resolution-aware) into one
+  deterministic decision tree. No code yet — the rollout is split
+  into F.1 (sequential scaffold), F.2 (short-circuits), F.3
+  (confidence-aware fallbacks), F.4 (per-content-type recipe
+  overrides). Explicitly rejects a learned-policy at runtime in
+  favour of an explainable hand-coded tree (≤ 30 lines pseudocode);
+  the user's "adaptive encoding ecosystem" vision text routes to
+  the deterministic tree first, learned-policy as a deferred
+  research follow-up. Companion to ADR-0237 (umbrella).
+
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame
