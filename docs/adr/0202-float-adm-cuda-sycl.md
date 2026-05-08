@@ -185,3 +185,40 @@ python3 scripts/ci/cross_backend_vif_diff.py \
   precedent (CUDA + SYCL pattern, fmad-off, mirror-trap notes).
 - [ADR-0178](0178-integer-adm-vulkan.md) — integer ADM Vulkan
   parent (algorithm shape, dispatch grid).
+
+### Status update 2026-05-08: SYCL DWT rewrite to group_load
+
+Per [ADR-0028](0028-adr-maintenance-rule.md) the body above is
+frozen. This appendix records a downstream investigation outcome
+that touches the same SYCL TU.
+
+[Research-0086 §A.4](../research/0086-sycl-toolchain-audit-2026-05-08.md)
+emitted a GO recommendation to rewrite the ADM DWT vertical and
+horizontal passes in
+[`integer_adm_sycl.cpp`](../../libvmaf/src/feature/sycl/integer_adm_sycl.cpp)
+on top of `sycl::ext::oneapi::experimental::group_load`. The rewrite
+was attempted on 2026-05-08 and **deferred** under
+[ADR-0332](0332-sycl-adm-dwt-group-load-deferral.md). Two blockers
+forced the deferral:
+
+1. The vertical-pass tile (`TILE_H × WG_X = 18 × 32 = 576` int32
+   elements, `WG_SIZE = 256` work-items) does not satisfy the SYCL
+   ext contract `total = WG_SIZE × ElementsPerWorkItem` for any
+   integer `ElementsPerWorkItem`. The general expression
+   `2 × (WG_Y + 1) / WG_Y` is integer only for `WG_Y ∈ {1, 2}`,
+   neither viable for the current 8-row output stride.
+2. `group_load` requires a contiguous `InputIteratorT`; the
+   multi-row tile load is contiguous only within a single tile row
+   (`WG_X = 32` ints), separated by full `in_stride` between rows.
+
+The horizontal pass at line 358 carries no SLM tile and was a
+non-target.
+
+The Battlemage register-pressure delta that motivated the digest's
+GO recommendation is unverifiable on the dev host (Arc A380
+Alchemist; no Xe2 available). The kernel remains bit-exact-untouched
+on this dimension; the cross-backend gate
+(`scripts/ci/cross_backend_vif_diff.py --feature adm --backend sycl`,
+`places=4`) continues to apply against the unchanged manual
+cooperative tile load. See [ADR-0332](0332-sycl-adm-dwt-group-load-deferral.md)
+for the full alternatives matrix and re-open conditions.

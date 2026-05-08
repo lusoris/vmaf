@@ -4877,6 +4877,7 @@
   [ADR-0028](docs/adr/0028-adr-maintenance-rule.md) immutability
   rule. Coordinates with PR #455 (state.md audit-backfill, also
   draft); whichever lands first, the other rebases.
+
 - Closed out the Research-0090 PORT_LATER bucket (18 upstream SHAs)
   with explicit per-commit verdicts and reopen triggers in
   [`docs/state.md`](docs/state.md) + [`docs/rebase-notes.md`](docs/rebase-notes.md).
@@ -4894,6 +4895,18 @@
   tolerances byte-for-byte on the three Netflix CPU golden pairs per
   CLAUDE §8 / ADR-0024. No code touched in this PR; no rebase impact
   beyond the documentation entries themselves.
+
+- ADR-0332 records the deferral of the SYCL ADM DWT `group_load`
+  rewrite recommended by research-0086 §A.4. The kernel
+  ([`integer_adm_sycl.cpp`](libvmaf/src/feature/sycl/integer_adm_sycl.cpp))
+  is unchanged at runtime; the deferral surfaces a divisibility
+  blocker (`TILE_ELEMS / WG_SIZE = 576 / 256 = 2.25`, not integer)
+  and a source-contiguity blocker (multi-row tile is non-contiguous)
+  that defeat the digest's sketched rewrite shape. ADR-0202 gains a
+  Status-update appendix recording the investigation outcome per
+  the ADR-0028 immutability rule. No user-visible behavioural delta;
+  no score change.
+
 
 
 - **`vif.comp` + `ciede.comp` shaders — `precise` decorations on the
