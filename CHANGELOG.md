@@ -3708,6 +3708,7 @@
   deferral noted in ADR-0312; no new ADR.
 
 
+
 - **macOS Vulkan-via-MoltenVK CI lane (advisory)
   ([ADR-0338](../docs/adr/0338-macos-vulkan-via-moltenvk-lane.md)).**
   Adds `Build — macOS Vulkan via MoltenVK (advisory)` to
@@ -3741,6 +3742,8 @@
   multi-retry feedback cycle the strict parser caused on PRs #461,
   #438, #470, #473, #486, #511, #468, and #526. Bypass via
   `git push --no-verify`. See `docs/development/pr-body-validator.md`.
+
+
 - **`vmaf-tune recommend-saliency` CLI subcommand
   ([ADR-0287](../docs/adr/0287-vmaf-tune-saliency-aware-encoding.md)).**
   Surfaces the existing saliency-aware encode pipeline (Bucket #2)
@@ -4218,6 +4221,7 @@
   it; fixed inline.
 
 
+
 - **docs**: ADR `Proposed` → final-status sweep covering the 26 ADRs
   whose front-matter still carried `**Status**: Proposed` at HEAD on
   2026-05-08 (deliberate exclusion: ADR-0325, contested by in-flight
@@ -4245,6 +4249,26 @@
   ~3–5 min/cell (~4 min PR-end-to-end, ~50 runner-min/PR). No coverage
   change — `ccache -s` is logged after every build so the warm-up curve is
   visible in CI. See `docs/research/0089-ci-cost-optimization-audit-2026-05-09.md`.
+
+- **CHANGELOG.md drift sweep — 2026-05-08
+  ([ADR-0221](../docs/adr/0221-changelog-adr-fragment-pattern.md)).**
+  Reconciled accumulated skew between `changelog.d/<section>/*.md`
+  fragments and the rendered `## [Unreleased]` block of
+  [`CHANGELOG.md`](../CHANGELOG.md). Thirteen fragments had landed in
+  in-flight PRs without `--write` being run; one entry (vmaf-tune
+  `--score-backend=vulkan`) had a verbose inline form that drifted from
+  its canonical fragment; one entry (FastDVDnet `smoke: false` flip)
+  was duplicated twice in the rendered block; and the `### Changed`
+  header itself was duplicated. Regenerated via
+  `scripts/release/concat-changelog-fragments.sh --write` after manual
+  inspection of every removal — no genuine orphans were found. Also
+  documents the fragment-vs-rendered drift policy + drift-class table
+  in [`docs/development/release.md`](../docs/development/release.md).
+  Companion to PR #476 on the ADR-index side; both PRs touch the
+  fragment-pattern ecosystem ADR-0221 establishes.
+
+
+
 - **NVIDIA-Vulkan ciede2000 places=4 5/48 mismatch root-caused as f32/f64 fork debt (ADR-0273)** —
   closes the deferred follow-up reserved by PR #346 ("vif + ciede
   shaders — precise decorations") for the residual 5/48
@@ -4438,6 +4462,7 @@
   10+-draft-PR work-in-progress queue. See ADR-0331.
 
 
+
 - **Stale-marker sweep 2026-05-08 — full-tree audit
   ([Research-0086](docs/research/0086-stale-marker-sweep-2026-05-08.md))** —
   classified every `@pytest.mark.skip` / `@unittest.skip` / `pytest.skip` /
@@ -4456,6 +4481,8 @@
   with the wiring PR. Zero TODO/FIXME/XXX comments remain in fork-added
   Python (`tools/`, `ai/`, `mcp-server/`); the seven survivors are all in
   upstream-mirrored files, untouched by policy.
+
+
 
 
 - **`docs/state.md`**: audit cleanup (2026-05-05). Moved `Y4M-411-OOB`
