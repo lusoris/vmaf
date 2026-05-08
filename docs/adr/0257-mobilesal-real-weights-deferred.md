@@ -87,6 +87,25 @@ shift in its own right.
 | Train a from-scratch saliency student on a permissive corpus (e.g. DUTS) | Fully fork-owned weights with clean provenance | Engineering effort comparable to the rest of T6-2a put together; no in-tree training harness for SOD; calibration story is a research project on its own | Deferred — too large for a "swap weights" follow-up |
 | Keep silently shipping the placeholder without documenting the blocker | Smallest diff | Future researchers re-walk the same survey; ADR-0218's incorrect MIT claim stays in the user-facing docs; violates the project doc-substance rule (CLAUDE.md §12 r10) | Rejected — the corrected licence record is itself user-discoverable |
 
+### Status update 2026-05-08: path B scaffold landed
+
+[ADR-0325](0325-u2netp-fork-mirror-scaffold.md) lands the
+fork-local release-artefact mirror scaffold for `u2netp.pth`,
+named in [ADR-0265](0265-u2netp-saliency-replacement-blocked.md)'s
+T6-2a path (b) follow-up
+(`T6-2a-mirror-u2netp-via-release`). The scaffold is the
+fallback path; the **primary** replacement for this ADR's
+deferred real-weights swap is now
+[`saliency_student_v1`](../ai/models/saliency_student_v1.md)
+([ADR-0286](0286-saliency-student-fork-trained-on-duts.md), a
+fork-trained DUTS student under BSD-3-Clause-Plus-Patent), which
+exited this ADR's "Negative consequences" content-independent
+saliency note as of PR #341.
+
+This ADR's body remains immutable per
+[ADR-0028](0028-adr-maintenance-rule.md); this appendix records
+status only.
+
 ## Consequences
 
 - **Positive**:

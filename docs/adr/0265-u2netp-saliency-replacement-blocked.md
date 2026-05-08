@@ -94,6 +94,33 @@ shapes carry over to any future drop-in unchanged.
 | Train a from-scratch saliency student on a permissive corpus (DUTS / DUT-OMRON) | Fully fork-owned weights with clean provenance; sidesteps every distribution-channel question; can be designed within the existing op allowlist from the start | Engineering effort comparable to the rest of T6-2a put together; no in-tree SOD training harness; quality-vs-baseline calibration is a research project on its own | Deferred — too large for a "swap weights" follow-up; revisit if both blockers above remain unresolved at the next tiny-AI roadmap planning round |
 | Ship u2netp anyway with a fake/random `.pth` proxy and document it as a placeholder | Pattern matches the original placeholder | Conflates "smoke" and "real weights" — already what `mobilesal_placeholder_v0` is; adds nothing; explicitly forbidden by the task brief ("don't push fake weights") | Rejected — duplicate of the existing placeholder |
 
+### Status update 2026-05-08: path B scaffold landed
+
+[ADR-0325](0325-u2netp-fork-mirror-scaffold.md) lands the
+**fork-local release-artefact mirror scaffold** named in this
+ADR's "Neutral / follow-ups" §`T6-2a-mirror-u2netp-via-release`.
+The scaffold ships the licence text
+(`LICENSES/Apache-2.0-u2netp.txt`), the model-card stub
+(`docs/ai/models/u2netp_mirror_card.md`), the operator workflow
+doc (`docs/ai/u2netp-mirror.md`), and an idempotent
+release-pipeline guard in `.github/workflows/supply-chain.yml`
+that activates when the binary is uploaded. The binary itself is
+deferred to a sibling PR pending three open compliance answers
+from the user.
+
+Independently, the **op-allowlist axis** of this ADR was already
+resolved by [ADR-0258](0258-onnx-allowlist-resize.md), and the
+**primary saliency path** is now
+[`saliency_student_v1`](../ai/models/saliency_student_v1.md)
+([ADR-0286](0286-saliency-student-fork-trained-on-duts.md), a
+fork-trained DUTS student) — the mirror exists as a *fallback*
+for upstream-lineage citation / comparative evaluation, not as
+the recommended path.
+
+This ADR's body remains immutable per
+[ADR-0028](0028-adr-maintenance-rule.md); this appendix records
+status only.
+
 ## Consequences
 
 - **Positive**:

@@ -683,3 +683,42 @@ consumes its output:
   any analysis run goes through a throw-away wrapper that performs
   the rename in-process — do NOT modify
   `analyze_knob_sweep.py` to accept both spellings.
+
+## `u2netp` fork-local mirror invariants (ADR-0325)
+
+The fork ships a release-artefact mirror for the upstream U-2-Net
+`u2netp` checkpoint via GitHub Release attachments. The scaffold
+(license, model card, operator doc, supply-chain staging step)
+landed in PR scope ADR-0325; the binary upload is a separate PR.
+
+- **Never commit `model/u2netp_mirror.onnx` or
+  `model/u2netp_mirror.pth` to git.** Both paths are gitignored
+  (see `.gitignore`). The binary lives in GitHub Release assets
+  only — signed via Sigstore, hashed for SLSA, paired with
+  `LICENSES/Apache-2.0-u2netp.txt` at upload time. If a binary
+  upload PR ever attempts to commit either file, the ADR-0325
+  contract is broken; reject the PR.
+- **The recommended saliency weights remain
+  `saliency_student_v1`** (ADR-0286, fork-trained DUTS student
+  under BSD-3-Clause-Plus-Patent). `u2netp_mirror` is the named
+  *fallback* for upstream-lineage citation, comparative
+  evaluation, or downstream pipelines pinned to upstream
+  behaviour. Do NOT flip `model/tiny/registry.json`'s default
+  `mobilesal` resolution to `u2netp_mirror_v1` without an ADR
+  superseding ADR-0286.
+- **Apache-2.0 §4 (a) + (c) compliance is non-negotiable.**
+  Every release that carries `u2netp_mirror_v*` must also carry
+  `LICENSES/Apache-2.0-u2netp.txt` with its attribution block
+  intact. The supply-chain.yml staging step pairs them
+  automatically; if a future refactor decouples them, downstream
+  operators inherit a license-non-compliant artefact. §4 (b)
+  applies only to ONNX rewraps (the export script writes a
+  `metadata_props` block recording the conversion provenance);
+  verbatim `.pth` redistribution does not trigger (b). §4 (d) is
+  moot — upstream ships no NOTICE file.
+- **The binary upload PR re-pins the upstream commit.** The
+  scaffold-time pin is HEAD `ac7e1c81`; the binary upload PR
+  must verify the upstream `LICENSE` SPDX is still Apache-2.0
+  and the tree still carries no NOTICE file at the
+  upload-time HEAD, then bump the model card's commit pin
+  accordingly.
