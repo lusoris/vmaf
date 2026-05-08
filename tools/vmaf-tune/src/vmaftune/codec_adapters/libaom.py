@@ -72,6 +72,7 @@ class LibaomAdapter:
     probe_preset: str = "ultrafast"
     probe_quality: int = 35
     supports_qpfile: bool = False
+    qpfile_format: str = "none"
 
     presets: tuple[str, ...] = (
         "placebo",

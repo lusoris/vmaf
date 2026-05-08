@@ -37,6 +37,7 @@ class HevcQsvAdapter:
     probe_preset: str = "veryfast"
     probe_quality: int = 23
     supports_qpfile: bool = False
+    qpfile_format: str = "none"
 
     presets: tuple[str, ...] = QSV_PRESETS
 

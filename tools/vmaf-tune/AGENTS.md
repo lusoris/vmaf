@@ -402,3 +402,27 @@ hull + manifest emit), sampler-pluggable, smoke-only until Phase B
 merges. Phases B / C / D / F per ADR-0237 are explicitly out of scope
 here; do not add bisect / predictor / per-shot / MCP code into this
 tree without an ADR-0237 follow-up promoting the corresponding phase.
+
+## Saliency-aware ROI dispatch invariants (ADR-0293 amendment, 2026-05-08)
+
+- **Every codec adapter must declare `qpfile_format: str`.** The
+  saliency dispatcher in `saliency.saliency_aware_encode` keys on
+  this field; legal values are `"x264-mb"`, `"x265-zones"`,
+  `"svtav1-roi"`, `"vvenc-qp-delta"`, `"none"`. Adding a new codec
+  adapter without an explicit declaration trips
+  `tests/test_saliency_roi.py::test_every_adapter_declares_qpfile_format`.
+- **`supports_qpfile` and `qpfile_format` must agree.**
+  `supports_qpfile is True` iff `qpfile_format != "none"`. Pinned by
+  `test_supports_qpfile_consistent_with_format`.
+- **SVT-AV1 ROI map is byte-for-byte identical to `vmaf-roi`.**
+  `saliency.write_svtav1_roi_map` and
+  `libvmaf/tools/vmaf_roi.c::emit_svtav1` emit the same binary
+  signed-int8 grid for the same saliency input. Users may switch
+  between the Python harness and the C sidecar at will; do not
+  diverge the formats.
+- **x265 surface is intentionally lossy.** ffmpeg's libx265 wrapper
+  exposes only the temporal `zones=` syntax; the per-CTU saliency
+  map is reduced to one clip-level mean QP offset and emitted as a
+  single zone. True per-CTU x265 ROI lives in the C-side `vmaf-roi`
+  sidecar (ADR-0247). Document any future per-CTU x265 path as a
+  superseding follow-up rather than reshaping the existing emitter.

@@ -50,10 +50,16 @@ class X265Adapter:
     # Predictor probe-encode knobs.
     probe_preset: str = "ultrafast"
     probe_quality: int = 28
-    # libx265 supports --qpfile via -x265-params, but the saliency.py
-    # qpfile writer is libx264-format only — flip to True once a
-    # codec-aware qpfile emitter lands.
-    supports_qpfile: bool = False
+    # libx265 accepts saliency-driven biasing via the ``zones=…`` token
+    # on ``-x265-params``. saliency.write_x265_zones() aggregates the
+    # per-CTU saliency map into one clip-level mean offset and emits
+    # a single ``zones=0,N,q=<qp>`` line — a deliberate granularity
+    # loss versus x264's per-MB qpfile, documented in
+    # docs/usage/vmaf-tune-saliency.md. Users who need true per-CTU
+    # granularity should drive x265 via the C-side ``vmaf-roi``
+    # sidecar (ADR-0247).
+    supports_qpfile: bool = True
+    qpfile_format: str = "x265-zones"
 
     # x265 ships ten presets — one more than x264 (adds ``placebo``).
     presets: tuple[str, ...] = (

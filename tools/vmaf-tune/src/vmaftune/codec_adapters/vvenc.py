@@ -101,7 +101,14 @@ class VVenCAdapter:
     # documents this.
     probe_preset: str = "faster"
     probe_quality: int = 32
-    supports_qpfile: bool = False
+    # libvvenc reads a per-CTU QP-delta sidecar via the
+    # ``QpaperROIFile`` config-key on ``-vvenc-params``. The saliency
+    # emitter is keyed to the 128x128 CTU grid (VVenC's default for
+    # the ``faster``..``slower`` presets exposed here). VVenC also
+    # ships a coarser 4-tier saliency-tier mode that is too coarse to
+    # be worth wiring; see docs/usage/vmaf-tune-saliency.md.
+    supports_qpfile: bool = True
+    qpfile_format: str = "vvenc-qp-delta"
 
     # Vocabulary the search loop sees — the canonical 7-name superset.
     # The adapter compresses to VVenC's 5-level native vocabulary at

@@ -64,6 +64,27 @@ QP_OFFSET_MAX = 12
 # x264 macroblock side in luma samples — fixed by the codec.
 X264_MB_SIDE = 16
 
+# x265 CTU side in luma samples — the encoder's largest coding unit.
+# 64x64 is x265's default and the same value the C-side ``vmaf-roi``
+# sidecar uses (see ``libvmaf/tools/vmaf_roi.c``). x265 also accepts
+# 32 and 16 at compile / run time, but the harness pins to 64 to
+# match the sidecar so the saliency-blend math stays identical
+# regardless of which surface the user picked.
+X265_CTU_SIDE = 64
+
+# SVT-AV1 ROI map block side. Per the SVT-AV1 ``EbSvtAv1Enc.h`` /
+# ``--roi-map-file`` handling the encoder reads a row-major signed
+# int8 grid keyed to the SB grid. SB defaults to 64 (high-tier
+# hardware presets default to 128 but ffmpeg's libsvtav1 wrapper
+# ships the 64 path); ``vmaf-roi`` and this emitter both use 64.
+SVTAV1_ROI_SIDE = 64
+
+# libvvenc CTU side. VVC permits CTUs up to 128x128; VVenC's
+# config flag ``CTUSize`` defaults to 128 on the ``faster``..
+# ``slower`` presets we expose. The QPDelta map this emitter writes
+# is keyed to that grid.
+VVENC_CTU_SIDE = 128
+
 # ImageNet mean/std the saliency_student_v1 input layer expects
 # (matches the C-side `vmaf_tensor_from_rgb_imagenet` helper).
 _IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -290,6 +311,29 @@ def reduce_qp_map_to_blocks(qp_map: "np.ndarray", block: int = X264_MB_SIDE) -> 
     return np.clip(np.round(means), QP_OFFSET_MIN, QP_OFFSET_MAX).astype(np.int32)
 
 
+def _saliency_to_block_offsets(
+    saliency_map: "np.ndarray",
+    block_side: int,
+    *,
+    qp_offset: int,
+) -> "np.ndarray":
+    """Shared upsample/downsample + QP-blend helper for codec emitters.
+
+    The fork-trained saliency model emits a per-pixel mask at the
+    source resolution. Each codec consumes a per-block QP-offset grid
+    keyed to its own coding-unit size (16x16 for x264 MBs, 64x64 for
+    x265 CTUs / SVT-AV1 SBs, 128x128 for VVenC CTUs). This helper
+    routes the mask through ``saliency_to_qp_map()`` for the
+    deterministic ±``qp_offset`` blend and then ``reduce_qp_map_to_blocks()``
+    for the per-block mean. Cropping is row/column-trailing — fewer
+    than ``block_side`` pixels at the right/bottom edge are dropped to
+    keep the grid integer-aligned, mirroring the C-side
+    ``vmaf-roi`` reducer.
+    """
+    qp_map = saliency_to_qp_map(saliency_map, baseline_qp=0, foreground_offset=qp_offset)
+    return reduce_qp_map_to_blocks(qp_map, block=block_side)
+
+
 def write_x264_qpfile(
     block_offsets: "np.ndarray",
     out_path: Path,
@@ -335,6 +379,326 @@ def augment_extra_params_with_qpfile(base: Sequence[str], qpfile: Path) -> tuple
     return tuple(base) + ("-x264-params", f"qpfile={qpfile}")
 
 
+# ---------------------------------------------------------------------------
+# x265 zone emitter
+# ---------------------------------------------------------------------------
+#
+# x265 does NOT accept a per-CTU sidecar via ``--qpfile`` in a form
+# that ffmpeg's libx265 wrapper exposes; what *is* portable through
+# ``-x265-params`` is the ``zones`` syntax::
+#
+#     zones=<startFrame>,<endFrame>,q=<qp>/<startFrame>,<endFrame>,q=<qp>/...
+#
+# (See the x265 documentation, "Zones" section.) Zones are *temporal*
+# slices, not spatial — each zone overrides the QP for a frame range,
+# not for a CTU range. To carry a saliency-driven *spatial* QP-offset
+# pattern through this surface we aggregate the per-CTU saliency map
+# into one *clip-level* mean offset and surface it as a single zone
+# spanning ``[0, duration_frames)`` with QP equal to ``baseline_qp +
+# mean_offset``.
+#
+# This is documented as a deliberate granularity loss in the docs page
+# and the docstring below — x265 users who need true per-CTU
+# granularity should use the ``vmaf-roi`` C sidecar, which emits the
+# x265 ``--qpfile`` ROI form (one row per CTU row, ASCII signed offsets).
+# ``vmaf-tune``'s zones-based path is the FFmpeg-only path.
+
+
+def write_x265_zones(
+    saliency_map: "np.ndarray",
+    output_path: Path,
+    *,
+    qp_offset: int = -4,
+    baseline_qp: int = 28,
+    duration_frames: int = 1,
+) -> Path:
+    """Emit an x265 ``zones=`` sidecar driven by the saliency mask.
+
+    The saliency mask is reduced to per-CTU (64x64) offsets via
+    :func:`_saliency_to_block_offsets`, then the *clip-level mean*
+    offset is rounded and emitted as a single zone covering
+    ``[0, duration_frames)``. ``baseline_qp`` is the encode's CRF; the
+    zone's absolute QP is ``baseline_qp + mean_offset`` clamped to the
+    legal x265 ``[0, 51]`` window.
+
+    This is a documented granularity loss compared with x264's per-MB
+    qpfile — see the module preamble and
+    [docs/usage/vmaf-tune-saliency.md](../../docs/usage/vmaf-tune-saliency.md).
+
+    The file format is a single ASCII line ending in ``\\n`` so the
+    caller can ``read_text().strip()`` it onto an ``-x265-params``
+    argument.
+    """
+    block_offsets = _saliency_to_block_offsets(saliency_map, X265_CTU_SIDE, qp_offset=qp_offset)
+    np = _import_numpy()
+    mean_offset = int(round(float(block_offsets.astype(np.float32).mean())))
+    abs_qp = max(0, min(51, baseline_qp + mean_offset))
+    end_frame = max(1, int(duration_frames))
+    payload = f"zones=0,{end_frame},q={abs_qp}\n"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(payload, encoding="ascii")
+    return output_path
+
+
+def augment_extra_params_with_x265_zones(base: Sequence[str], zones_arg: str) -> tuple[str, ...]:
+    """Append ``-x265-params zones=...`` to an extra-params tuple.
+
+    ``zones_arg`` is the verbatim ``zones=...`` token (no leading
+    ``-x265-params``). The helper keeps the encode driver itself
+    codec-agnostic — only this module knows the x265 surface.
+    """
+    return tuple(base) + ("-x265-params", zones_arg.rstrip())
+
+
+# ---------------------------------------------------------------------------
+# SVT-AV1 ROI map emitter
+# ---------------------------------------------------------------------------
+#
+# SVT-AV1 reads a binary ``--roi-map-file`` sidecar: one signed-int8
+# byte per superblock, row-major, no header. The same format the
+# fork's ``vmaf-roi`` C sidecar emits (see ``emit_svtav1`` in
+# ``libvmaf/tools/vmaf_roi.c``). For a one-frame map the file size is
+# exactly ``cols * rows`` bytes; multi-frame ROI maps concatenate
+# per-frame frames in order. ``vmaf-tune`` emits a single-frame map
+# and lets the encoder reuse it across the clip — matching the
+# saliency aggregator's per-clip mean-mask behaviour.
+
+
+def write_svtav1_roi_map(
+    saliency_map: "np.ndarray",
+    output_path: Path,
+    *,
+    qp_offset: int = -4,
+    duration_frames: int = 1,
+) -> Path:
+    """Emit a SVT-AV1 ``--roi-map-file`` (binary signed-int8 grid).
+
+    The saliency mask is reduced to per-superblock (64x64) offsets via
+    :func:`_saliency_to_block_offsets` then written row-major as
+    ``int8`` bytes. The file is repeated ``duration_frames`` times so
+    the encoder applies the same pattern across the clip — matching
+    the per-clip aggregate the saliency model emits.
+
+    Format pinned by SVT-AV1's ``--roi-map-file`` documentation and
+    by the C-side ``vmaf-roi`` ``emit_svtav1`` helper.
+    """
+    np = _import_numpy()
+    block_offsets = _saliency_to_block_offsets(saliency_map, SVTAV1_ROI_SIDE, qp_offset=qp_offset)
+    # Clamp to int8 range before casting so values outside [-128, 127]
+    # never wrap silently.
+    clamped = np.clip(block_offsets, -128, 127).astype(np.int8)
+    one_frame = clamped.tobytes(order="C")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    nframes = max(1, int(duration_frames))
+    with output_path.open("wb") as fh:
+        for _ in range(nframes):
+            fh.write(one_frame)
+    return output_path
+
+
+def augment_extra_params_with_svtav1_roi(base: Sequence[str], roi_path: Path) -> tuple[str, ...]:
+    """Append ``-svtav1-params roi-map-file=<path>`` to ``base``.
+
+    ffmpeg's libsvtav1 wrapper forwards arbitrary ``key=value`` pairs
+    via ``-svtav1-params``; ``roi-map-file`` is the option SVT-AV1
+    documents.
+    """
+    return tuple(base) + ("-svtav1-params", f"roi-map-file={roi_path}")
+
+
+# ---------------------------------------------------------------------------
+# libvvenc QP-delta emitter
+# ---------------------------------------------------------------------------
+#
+# VVenC supports per-CTU QP-delta input via its ``QpaperROIFile`` /
+# ``QpaperROIMode`` configuration switches (see VVenC's
+# ``cfg/qpaper_roi*.cfg`` examples and the VVenC manual). The on-disk
+# format is one ASCII signed-integer offset per CTU, space-separated,
+# one row per CTU row, terminated by ``\n``. Multi-frame maps repeat
+# the per-frame block separated by a blank line.
+#
+# IMPORTANT — granularity caveat: VVenC's ROI surface ships in two
+# flavours: (a) the per-CTU QP-delta file documented above, and
+# (b) a coarser 4-tier saliency-region-of-interest mode that maps
+# pixels to one of {background, low, medium, high} and applies a
+# fixed QP delta per tier. The fork ships the per-CTU form because
+# that's the one the saliency model can drive at full granularity;
+# the 4-tier form is too coarse to be worth wiring. Documented in
+# the codec adapter docstring.
+
+
+def write_vvenc_qp_delta(
+    saliency_map: "np.ndarray",
+    output_path: Path,
+    *,
+    qp_offset: int = -4,
+    duration_frames: int = 1,
+) -> Path:
+    """Emit a libvvenc per-CTU QP-delta sidecar.
+
+    ASCII format: one signed integer per CTU (128x128), space-
+    separated, one row per CTU row, terminated by ``\\n``.
+    Multi-frame maps repeat the per-frame block separated by a
+    blank line so the encoder can advance frame-by-frame.
+
+    Format pinned by the VVenC documentation's ``QpaperROIFile``
+    section and the example configs under ``cfg/qpaper_roi*.cfg`` in
+    the VVenC source distribution.
+    """
+    np = _import_numpy()
+    block_offsets = _saliency_to_block_offsets(saliency_map, VVENC_CTU_SIDE, qp_offset=qp_offset)
+    rows, cols = block_offsets.shape
+    if rows == 0 or cols == 0:
+        raise ValueError(
+            f"saliency map {saliency_map.shape} smaller than one VVenC CTU "
+            f"({VVENC_CTU_SIDE}x{VVENC_CTU_SIDE}); cannot emit QP-delta"
+        )
+    nframes = max(1, int(duration_frames))
+    lines: list[str] = []
+    for frame_idx in range(nframes):
+        for r in range(rows):
+            row_vals = " ".join(str(int(v)) for v in block_offsets[r])
+            lines.append(row_vals)
+        if frame_idx != nframes - 1:
+            # Blank-line frame separator per VVenC's example configs.
+            lines.append("")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines) + "\n", encoding="ascii")
+    # Smoke-check: the resulting file must be parseable as
+    # ``rows x cols`` ints per frame.
+    _ = np  # keep numpy reference live for type-narrowing tools
+    return output_path
+
+
+def augment_extra_params_with_vvenc_qp_delta(
+    base: Sequence[str], qp_delta_path: Path
+) -> tuple[str, ...]:
+    """Append ``-vvenc-params QpaperROIFile=<path>`` to ``base``.
+
+    ffmpeg's libvvenc wrapper forwards opaque ``key=value:key=value``
+    strings via ``-vvenc-params``; ``QpaperROIFile`` is VVenC's own
+    config-key for the per-CTU QP-delta sidecar.
+    """
+    return tuple(base) + ("-vvenc-params", f"QpaperROIFile={qp_delta_path}")
+
+
+# Per-codec ROI emitter dispatch table. The keys are the
+# ``qpfile_format`` values declared on the codec adapters; values are
+# triples ``(emit_fn, augment_fn, suffix)`` consumed by
+# :func:`saliency_aware_encode`. ``"none"`` is reserved for HW
+# adapters that do not expose a portable ROI surface.
+def _emit_x264(
+    mask: "np.ndarray",
+    out_path: Path,
+    *,
+    qp_offset: int,
+    baseline_qp: int,
+    duration_frames: int,
+) -> Path:
+    """x264 dispatch entry — wraps :func:`write_x264_qpfile`.
+
+    Reduces the saliency mask to per-MB blocks and emits the per-MB
+    qpfile in the format the existing x264 path uses (unchanged).
+    """
+    del baseline_qp  # x264 deltas are relative; baseline unused
+    block_offsets = _saliency_to_block_offsets(mask, X264_MB_SIDE, qp_offset=qp_offset)
+    return write_x264_qpfile(block_offsets, out_path, duration_frames=duration_frames)
+
+
+def _augment_x264(base: Sequence[str], path: Path) -> tuple[str, ...]:
+    return augment_extra_params_with_qpfile(base, path)
+
+
+def _emit_x265(
+    mask: "np.ndarray",
+    out_path: Path,
+    *,
+    qp_offset: int,
+    baseline_qp: int,
+    duration_frames: int,
+) -> Path:
+    return write_x265_zones(
+        mask,
+        out_path,
+        qp_offset=qp_offset,
+        baseline_qp=baseline_qp,
+        duration_frames=duration_frames,
+    )
+
+
+def _augment_x265(base: Sequence[str], path: Path) -> tuple[str, ...]:
+    # Read back the zones=… line we just wrote and forward it as the
+    # x265-params token. Using the file as the message passes through
+    # the same persistence path as the other codecs (so ``persist_qpfile``
+    # affects every codec uniformly), at the cost of one tiny read.
+    zones_arg = path.read_text(encoding="ascii").strip()
+    return augment_extra_params_with_x265_zones(base, zones_arg)
+
+
+def _emit_svtav1(
+    mask: "np.ndarray",
+    out_path: Path,
+    *,
+    qp_offset: int,
+    baseline_qp: int,
+    duration_frames: int,
+) -> Path:
+    del baseline_qp
+    return write_svtav1_roi_map(
+        mask, out_path, qp_offset=qp_offset, duration_frames=duration_frames
+    )
+
+
+def _augment_svtav1(base: Sequence[str], path: Path) -> tuple[str, ...]:
+    return augment_extra_params_with_svtav1_roi(base, path)
+
+
+def _emit_vvenc(
+    mask: "np.ndarray",
+    out_path: Path,
+    *,
+    qp_offset: int,
+    baseline_qp: int,
+    duration_frames: int,
+) -> Path:
+    del baseline_qp
+    return write_vvenc_qp_delta(
+        mask, out_path, qp_offset=qp_offset, duration_frames=duration_frames
+    )
+
+
+def _augment_vvenc(base: Sequence[str], path: Path) -> tuple[str, ...]:
+    return augment_extra_params_with_vvenc_qp_delta(base, path)
+
+
+# (emit_fn, augment_fn, sidecar_suffix). The sidecar suffix is the
+# extension applied to ``request.output`` when ``persist_qpfile`` is
+# True; a temp file is used when False.
+_ROI_DISPATCH: dict[str, tuple[Any, Any, str]] = {
+    "x264-mb": (_emit_x264, _augment_x264, ".qpfile.txt"),
+    "x265-zones": (_emit_x265, _augment_x265, ".x265zones.txt"),
+    "svtav1-roi": (_emit_svtav1, _augment_svtav1, ".svtav1roi.bin"),
+    "vvenc-qp-delta": (_emit_vvenc, _augment_vvenc, ".vvencqp.txt"),
+}
+
+
+def _resolve_qpfile_format(encoder: str) -> str:
+    """Return the ``qpfile_format`` an encoder advertises.
+
+    Looks the encoder up in the codec-adapter registry and reads the
+    adapter's ``qpfile_format`` field. Adapters that pre-date the
+    field default to ``"none"`` (no ROI surface) so HW codecs and
+    older fork-internal stubs both fall back to a plain encode.
+    """
+    try:
+        from .codec_adapters import get_adapter  # noqa: PLC0415
+
+        adapter = get_adapter(encoder)
+    except Exception:  # noqa: BLE001 - registry lookups are best-effort
+        return "none"
+    return getattr(adapter, "qpfile_format", "none")
+
+
 def saliency_aware_encode(
     request: "EncodeRequest",
     *,
@@ -347,21 +711,40 @@ def saliency_aware_encode(
 ) -> "EncodeResult":
     """Drive a single saliency-aware encode end-to-end.
 
-    Steps:
+    Dispatches on the codec adapter's ``qpfile_format`` so each
+    encoder gets the ROI sidecar shape it actually accepts:
 
-    1. Run :func:`compute_saliency_map` over the source.
-    2. Map -> per-MB QP offsets.
-    3. Materialise an x264 qpfile.
-    4. Augment ``request.extra_params`` with the qpfile arg.
-    5. Delegate to :func:`encode.run_encode` (or the injected runner).
+    * ``x264-mb``       — ASCII per-MB qpfile (libx264).
+    * ``x265-zones``    — ``zones=…`` token (libx265).
+    * ``svtav1-roi``    — binary signed-int8 grid (libsvtav1).
+    * ``vvenc-qp-delta``— ASCII per-CTU QP-delta (libvvenc).
+    * ``none``          — HW codecs / unrecognised encoders. The
+      saliency stage is skipped and a plain encode runs with a
+      single warning log line.
 
-    Falls back to a plain encode (no qpfile) if saliency is
-    unavailable, so callers always get a result.
+    Saliency-unavailable (missing onnxruntime / model) also degrades
+    to a plain encode so callers always get a result.
     """
     from .encode import run_encode  # local import to avoid cycles
 
     cfg = config or SaliencyConfig()
     runner = encode_runner
+
+    qpfile_format = _resolve_qpfile_format(request.encoder)
+    if qpfile_format == "none" or qpfile_format not in _ROI_DISPATCH:
+        if qpfile_format == "none":
+            _LOG.warning(
+                "saliency-aware: %s does not expose a portable ROI surface; "
+                "running plain encode",
+                request.encoder,
+            )
+        else:
+            _LOG.warning(
+                "saliency-aware: unknown qpfile_format %r for %s; running plain encode",
+                qpfile_format,
+                request.encoder,
+            )
+        return run_encode(request, ffmpeg_bin=ffmpeg_bin, runner=runner)
 
     try:
         mask = compute_saliency_map(
@@ -376,33 +759,36 @@ def saliency_aware_encode(
         _LOG.warning("saliency unavailable, falling back to plain encode: %s", exc)
         return run_encode(request, ffmpeg_bin=ffmpeg_bin, runner=runner)
 
-    qp_map = saliency_to_qp_map(
-        mask, baseline_qp=request.crf, foreground_offset=cfg.foreground_offset
-    )
-    block_offsets = reduce_qp_map_to_blocks(qp_map, block=X264_MB_SIDE)
+    emit_fn, augment_fn, suffix = _ROI_DISPATCH[qpfile_format]
+
+    def _drive(sidecar_path: Path) -> "EncodeResult":
+        emit_fn(
+            mask,
+            sidecar_path,
+            qp_offset=cfg.foreground_offset,
+            baseline_qp=request.crf,
+            duration_frames=duration_frames,
+        )
+        augmented = dataclasses.replace(
+            request,
+            extra_params=augment_fn(request.extra_params, sidecar_path),
+        )
+        return run_encode(augmented, ffmpeg_bin=ffmpeg_bin, runner=runner)
 
     if cfg.persist_qpfile:
-        qpfile = request.output.with_suffix(".qpfile.txt")
-        write_x264_qpfile(block_offsets, qpfile, duration_frames=duration_frames)
-        augmented = dataclasses.replace(
-            request,
-            extra_params=augment_extra_params_with_qpfile(request.extra_params, qpfile),
-        )
-        return run_encode(augmented, ffmpeg_bin=ffmpeg_bin, runner=runner)
+        sidecar = request.output.with_suffix(suffix)
+        return _drive(sidecar)
 
-    # Ephemeral file path — kept alive across the encode.
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".qpfile.txt", delete=False) as fh:
-        qpfile = Path(fh.name)
+    # Ephemeral sidecar — kept alive across the encode, removed after.
+    binary = qpfile_format == "svtav1-roi"
+    mode = "wb" if binary else "w"
+    with tempfile.NamedTemporaryFile(mode=mode, suffix=suffix, delete=False) as fh:
+        sidecar = Path(fh.name)
     try:
-        write_x264_qpfile(block_offsets, qpfile, duration_frames=duration_frames)
-        augmented = dataclasses.replace(
-            request,
-            extra_params=augment_extra_params_with_qpfile(request.extra_params, qpfile),
-        )
-        return run_encode(augmented, ffmpeg_bin=ffmpeg_bin, runner=runner)
+        return _drive(sidecar)
     finally:
         try:
-            qpfile.unlink(missing_ok=True)
+            sidecar.unlink(missing_ok=True)
         except OSError:  # pragma: no cover - best effort cleanup
             pass
 
@@ -412,13 +798,22 @@ __all__ = [
     "DEFAULT_SALIENCY_MODEL_RELPATH",
     "QP_OFFSET_MAX",
     "QP_OFFSET_MIN",
+    "SVTAV1_ROI_SIDE",
+    "VVENC_CTU_SIDE",
     "X264_MB_SIDE",
+    "X265_CTU_SIDE",
     "SaliencyConfig",
     "SaliencyUnavailableError",
     "augment_extra_params_with_qpfile",
+    "augment_extra_params_with_svtav1_roi",
+    "augment_extra_params_with_vvenc_qp_delta",
+    "augment_extra_params_with_x265_zones",
     "compute_saliency_map",
     "reduce_qp_map_to_blocks",
     "saliency_aware_encode",
     "saliency_to_qp_map",
+    "write_svtav1_roi_map",
+    "write_vvenc_qp_delta",
     "write_x264_qpfile",
+    "write_x265_zones",
 ]

@@ -43,6 +43,8 @@ class X264Adapter:
     # libx264 honours --qpfile via FFmpeg's -x264-params, so the saliency
     # QP-offset map (saliency.py) drives x264 directly.
     supports_qpfile: bool = True
+    # ASCII per-MB qpfile — see saliency.write_x264_qpfile.
+    qpfile_format: str = "x264-mb"
 
     presets: tuple[str, ...] = (
         "ultrafast",

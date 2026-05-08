@@ -72,6 +72,22 @@ class CodecAdapter(Protocol):
     probe_preset: str
     probe_quality: int
     supports_qpfile: bool
+    # ROI-sidecar format the codec accepts. Consumed by
+    # ``vmaftune.saliency.saliency_aware_encode`` to dispatch the right
+    # emitter (see ``saliency._ROI_DISPATCH``). Legal values:
+    #
+    #   * ``"x264-mb"``       — ASCII per-MB qpfile (libx264).
+    #   * ``"x265-zones"``    — ``zones=<frame-range>,q=<qp>`` token
+    #                           appended to ``-x265-params``.
+    #   * ``"svtav1-roi"``    — binary signed-int8 grid passed via
+    #                           ``-svtav1-params roi-map-file=…``.
+    #   * ``"vvenc-qp-delta"`` — ASCII per-CTU QP-delta passed via
+    #                           ``-vvenc-params QpaperROIFile=…``.
+    #   * ``"none"``          — codec exposes no portable ROI surface
+    #                           (HW encoders, libaom). Saliency-aware
+    #                           encodes degrade to plain encodes with
+    #                           a one-line warning.
+    qpfile_format: str
 
     def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
         """FFmpeg ``-c:v ...`` argv slice for one encode."""

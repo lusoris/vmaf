@@ -91,3 +91,35 @@ seam, mirroring the existing subprocess seam in `encode.py` /
 - [ADR-0257](0257-mobilesal-real-weights-deferred.md) — why upstream MobileSal weights were rejected (license).
 - [Research-0046](../research/0046-vmaf-tune-saliency-roi.md) — bucket #2 design digest (this PR).
 - Source: PR #354 audit Bucket #2 (paraphrased: wire saliency-aware ROI into `vmaf-tune`'s recommend path).
+
+### Status update 2026-05-08: codec extension
+
+The original ADR closed Bucket #2 with x264-only ROI support and
+flagged x265 / SVT-AV1 / VVenC as a "one-file follow-up". That
+follow-up has now landed. `saliency_aware_encode()` dispatches on a
+new `qpfile_format` field on the codec-adapter Protocol and hands
+each codec the ROI sidecar shape it actually accepts on disk:
+
+| Codec | `qpfile_format` | Encoder surface | Block size |
+| --- | --- | --- | --- |
+| `libx264` | `x264-mb` | `-x264-params qpfile=…` | 16×16 (MB) |
+| `libx265` | `x265-zones` | `-x265-params zones=…` | 64×64 (CTU), aggregated to clip mean |
+| `libsvtav1` | `svtav1-roi` | `-svtav1-params roi-map-file=…` | 64×64 (SB) |
+| `libvvenc` | `vvenc-qp-delta` | `-vvenc-params QpaperROIFile=…` | 128×128 (CTU) |
+| HW codecs / `libaom-av1` | `none` | — | plain encode + warning |
+
+x265 is a deliberate granularity loss: the ffmpeg libx265 wrapper
+exposes only the temporal `zones=` syntax, so the per-CTU saliency
+map is reduced to a single clip-level mean QP offset. Users who
+require true per-CTU x265 ROI continue to drive the C-side
+[`vmaf-roi`](../usage/vmaf-roi.md) sidecar (ADR-0247), whose
+`--qpfile`-style x265 emitter is unchanged. SVT-AV1's binary format
+is byte-for-byte identical to `vmaf-roi`'s `emit_svtav1` helper
+(pinned by a regression test), so the two surfaces produce the same
+ROI map for the same saliency input.
+
+The amendment does not change the original decision; it extends the
+codec coverage along the dispatch seam the original architecture
+left open. User docs landed at
+[`docs/usage/vmaf-tune-saliency.md`](../usage/vmaf-tune-saliency.md);
+codec-by-codec format references are cited there.

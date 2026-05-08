@@ -96,7 +96,12 @@ class SvtAv1Adapter:
     # (the fastest preset) via PRESET_NAME_TO_INT.
     probe_preset: str = "veryfast"
     probe_quality: int = 35
-    supports_qpfile: bool = False
+    # libsvtav1 reads a binary ``--roi-map-file`` (signed-int8 grid,
+    # row-major, no header). saliency.write_svtav1_roi_map() emits
+    # exactly this format keyed to the 64x64 superblock grid; the
+    # bit-for-bit pin lives in ``vmaf-roi``'s ``emit_svtav1`` helper.
+    supports_qpfile: bool = True
+    qpfile_format: str = "svtav1-roi"
 
     # Phase-A-supported preset *names* (compatibility shim — see
     # PRESET_NAME_TO_INT). Order is "slowest -> fastest" to match the

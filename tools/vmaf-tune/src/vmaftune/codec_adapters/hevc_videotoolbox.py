@@ -49,6 +49,7 @@ class HEVCVideoToolboxAdapter:
     probe_preset: str = "ultrafast"
     probe_quality: int = 60
     supports_qpfile: bool = False
+    qpfile_format: str = "none"
 
     presets: tuple[str, ...] = VIDEOTOOLBOX_PRESETS
 

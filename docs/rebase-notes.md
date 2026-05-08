@@ -9053,3 +9053,39 @@ inline.*
   bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/kit-test.tar.gz
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
+
+## ADR-0293 amendment — saliency-aware ROI codec extension (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/` (Protocol +
+  per-adapter `qpfile_format` declarations),
+  `docs/usage/vmaf-tune-saliency.md` (new),
+  `docs/adr/0293-vmaf-tune-saliency-aware.md` (status-update
+  appendix; body unchanged per ADR-0028),
+  `changelog.d/added/saliency-roi-codec-extension.md`,
+  `tools/vmaf-tune/tests/test_saliency_roi.py` (new). No upstream
+  Netflix/vmaf surface is touched.
+- **Invariant**: the SVT-AV1 binary ROI sidecar emitted by
+  `saliency.write_svtav1_roi_map` must stay byte-for-byte identical
+  to `libvmaf/tools/vmaf_roi.c::emit_svtav1`. Both paths are
+  documented as drop-in interchangeable; users switching between the
+  Python harness and the C sidecar must get the same encoder result
+  for the same saliency input. The regression test
+  `test_write_svtav1_roi_map_binary_format` pins this; do not relax
+  it.
+- **Invariant**: the codec-adapter Protocol now requires a
+  `qpfile_format: str` field (one of `x264-mb`, `x265-zones`,
+  `svtav1-roi`, `vvenc-qp-delta`, `none`). Any new codec adapter
+  added on rebase must declare it explicitly. The dispatcher in
+  `saliency.saliency_aware_encode` falls back to `"none"` only on
+  registry-lookup failure — fork-internal adapters are gated by
+  `tests/test_saliency_roi.py::test_every_adapter_declares_qpfile_format`.
+- **On upstream sync**: zero rebase impact. Everything lives under
+  `tools/vmaf-tune/` (a fork-local path) and `docs/`. The C-side
+  `vmaf-roi` sidecar is unchanged.
+- **Re-test on rebase**:
+
+  ```bash
+  cd tools/vmaf-tune
+  python -m pytest tests/test_saliency.py tests/test_saliency_roi.py -v
+  ```
