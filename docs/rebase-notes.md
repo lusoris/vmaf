@@ -9069,4 +9069,41 @@ inline.*
            required-aggregator; do
     grep -c "pull_request.draft == false" ".github/workflows/${f}.yml"
   done  # Each must report >= 1.
+## SSIM extractor registration fix (2026-05-08)
+
+- **Touches**: `libvmaf/src/feature/feature_extractor.c` (upstream-mirror —
+  adds one extern + one registry-array entry near the existing SSIM rows),
+  `libvmaf/src/feature/integer_ssim.c` (upstream-mirror — adds
+  `#include "config.h"` and refreshes the file-scope comment above
+  `vmaf_fex_ssim`), `libvmaf/src/meson.build` (adds `integer_ssim.c` to
+  the source list — fork-local diff), `libvmaf/test/test_feature_extractor.c`
+  (adds one regression test alongside the existing tests),
+  `docs/metrics/features.md` (table row + footnote ²), `docs/state.md`,
+  `changelog.d/fixed/ssim-extractor-registration.md`.
+- **Invariant on the upstream-mirror files**: the registry-array entry
+  must remain inside the unconditional CPU block (the same block as
+  `&vmaf_fex_float_ssim` / `&vmaf_fex_float_ms_ssim`) — `vmaf_fex_ssim`
+  is CPU-only with no SIMD or GPU twin. The `config.h` include in
+  `integer_ssim.c` is load-bearing on Vulkan-enabled LTO builds because
+  `feature_extractor.c` and `integer_ssim.c` must agree on `HAVE_VULKAN`
+  / `HAVE_CUDA` / `HAVE_SYCL` for the `VmafFeatureExtractor` struct
+  layout to match across TUs.
+- **On upstream sync**: if Netflix ever lands its own integer-SSIM
+  registry row, drop the fork's row in favour of upstream's; the file
+  structure is identical. If upstream removes `integer_ssim.c` entirely
+  (the file has been dormant on master for years), revert the
+  meson.build addition. Otherwise no action.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_cuda=false -Denable_sycl=false && ninja -C build
+  ./build/test/test_feature_extractor    # 5/5 pass, includes new ssim row
+  ./build/tools/vmaf --reference testdata/ref_576x324_48f.yuv \
+                    --distorted testdata/dis_576x324_48f.yuv \
+                    --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+                    --feature ssim --output /tmp/ssim_smoke.json && \
+    grep -q '<metric name="ssim"' /tmp/ssim_smoke.json
+  # Vulkan-enabled LTO build (-Wlto-type-mismatch must stay clean)
+  meson setup build-vulkan -Denable_vulkan=enabled --reconfigure && \
+    ninja -C build-vulkan tools/vmaf
   ```

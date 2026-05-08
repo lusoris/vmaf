@@ -529,6 +529,26 @@ trailing the upstream signature change will fail compilation
 on any GPU backend.** See
 [`docs/rebase-notes.md` §0075](../../../docs/rebase-notes.md).
 
+### `vmaf_fex_ssim` is registered fork-side, not upstream
+
+Upstream Netflix's `feature_extractor.c` does **not** list
+`&vmaf_fex_ssim` in its `feature_extractor_list[]`, and upstream
+does not compile `integer_ssim.c` either — both are dormant on the
+upstream master branch. The fork wires both paths up so that
+`vmaf --feature ssim` resolves at the CLI; the
+fix-up touches three upstream-mirror surfaces (the registry-array
+row in `feature_extractor.c`, the matching `extern` declaration,
+and the `#include "config.h"` in `integer_ssim.c`) plus one
+fork-local meson-build line. **On every upstream sync, re-check
+that the fork's three additions remain in place.** If upstream
+ever lands its own integer-SSIM registration, drop the fork's row
+in favour of upstream's; the file structure is identical so the
+diff should resolve cleanly in `git rebase`. The `config.h` include
+in `integer_ssim.c` is load-bearing on Vulkan-enabled LTO builds —
+without it the `VmafFeatureExtractor` struct layout disagrees
+between TUs (different `HAVE_CUDA` / `HAVE_SYCL` / `HAVE_VULKAN`
+visibility) and GCC fires `-Wlto-type-mismatch` at link time.
+
 ### `speed_chroma` / `speed_temporal` are float-build-only
 
 The two upstream Speed extractors register inside the

@@ -176,11 +176,50 @@ static char *test_feature_extractor_initialization_options()
     return NULL;
 }
 
+/* Regression test for the missing-symbol bug fixed in
+ * `feature_extractor.c`'s registry: `vmaf_fex_ssim` was defined in
+ * `integer_ssim.c` but never listed in `feature_extractor_list[]`,
+ * so `--feature ssim` could not resolve. This asserts that the
+ * extractor is now reachable by name and emits a non-empty `ssim`
+ * score for two identical 16x16 pictures. */
+static char *test_ssim_extractor_registered_and_extracts(void)
+{
+    int err = 0;
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("ssim");
+    mu_assert("ssim extractor must be registered in feature_extractor_list[]",
+              fex && !strcmp(fex->name, "ssim"));
+
+    VmafFeatureExtractorContext *fex_ctx;
+    err = vmaf_feature_extractor_context_create(&fex_ctx, fex, NULL);
+    VmafPicture ref;
+    VmafPicture dist;
+    err |= vmaf_picture_alloc(&ref, VMAF_PIX_FMT_YUV420P, 8, 16, 16);
+    err |= vmaf_picture_alloc(&dist, VMAF_PIX_FMT_YUV420P, 8, 16, 16);
+    VmafFeatureCollector *vfc;
+    err |= vmaf_feature_collector_init(&vfc);
+    err |= vmaf_feature_extractor_context_extract(fex_ctx, &ref, NULL, &dist, NULL, 0, vfc);
+    mu_assert("problem during ssim setup/extract", !err);
+
+    double score = -1.0;
+    err = vmaf_feature_collector_get_score(vfc, "ssim", &score, 0);
+    mu_assert("ssim score must be retrievable from collector", !err);
+
+    err = vmaf_feature_extractor_context_close(fex_ctx);
+    err |= vmaf_feature_extractor_context_destroy(fex_ctx);
+    mu_assert("problem during ssim teardown", !err);
+
+    vmaf_feature_collector_destroy(vfc);
+    vmaf_picture_unref(&ref);
+    vmaf_picture_unref(&dist);
+    return NULL;
+}
+
 char *run_tests()
 {
     mu_run_test(test_get_feature_extractor_by_name_and_feature_name);
     mu_run_test(test_feature_extractor_context_pool);
     mu_run_test(test_feature_extractor_flush);
     mu_run_test(test_feature_extractor_initialization_options);
+    mu_run_test(test_ssim_extractor_registered_and_extracts);
     return NULL;
 }

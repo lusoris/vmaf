@@ -915,6 +915,7 @@ libvmaf_feature_sources = [
 
     feature_src_dir + 'float_ssim.c',
     feature_src_dir + 'float_ms_ssim.c',
+    feature_src_dir + 'integer_ssim.c',
     feature_src_dir + 'ssim.c',
     feature_src_dir + 'ms_ssim.c',
     feature_src_dir + 'ms_ssim_decimate.c',
