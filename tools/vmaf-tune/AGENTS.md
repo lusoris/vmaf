@@ -503,3 +503,20 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   unit-testable; keep it pure when extending the decision table.
   empirical fit — change them via an ADR-0325 follow-up, not a
   drive-by tweak. See [ADR-0325](../../docs/adr/0325-vmaf-tune-phase-f-auto.md).
+
+- **F.3 confidence-aware thresholds are corpus-derived; do not
+  hand-pick.** `DEFAULT_TIGHT_INTERVAL_MAX_WIDTH = 2.0` and
+  `DEFAULT_WIDE_INTERVAL_MIN_WIDTH = 5.0` in `auto.py` are an
+  emergency floor (Research-0067), not a target. The production
+  thresholds load from a calibration JSON sidecar emitted by the
+  conformal-VQA pipeline (ADR-0279) — keys
+  `tight_interval_max_width` and `wide_interval_min_width`.
+  `load_confidence_thresholds` falls back to the defaults with a
+  one-line WARNING when no sidecar is found; do not silence that
+  warning, and do not "tune" the defaults to make a failing
+  integration test pass. The fix for surprising cell escalations on
+  real data is a recalibration PR, not a threshold loosening here
+  (CLAUDE.md `feedback_no_test_weakening`). The decision helper
+  `_confidence_aware_escalation` is a pure function of
+  `(verdict, interval_width, thresholds)` so it stays trivially
+  unit-testable; keep it pure when extending the decision table.

@@ -356,7 +356,7 @@ def run_auto(
 ) -> AutoPlan:
     """Drive the F.1 + F.2 + F.3 decision tree.
 ) -> AutoPlan:
-    """Drive the F.1 + F.2 decision tree.
+    """Drive the F.1 + F.2 + F.3 decision tree.
 
     The non-smoke path is intentionally unimplemented at this PR's
     scope — production wiring lands in follow-up PRs that fill in
@@ -483,6 +483,21 @@ def run_auto(
     # ------------------------------------------------------------------
     if smoke:
         plan_state.predictor_verdict = "GOSPEL"
+
+    thresholds = confidence_thresholds or ConfidenceThresholds()
+    # Build a (rung, codec) -> (verdict, width) lookup from the
+    # production-wiring seam. Missing cells fall back to (verdict,
+    # NaN) — NaN width defers F.3 to the native verdict so the gate
+    # degrades gracefully when no calibration is available.
+    interval_lookup: dict[tuple[int, str], tuple[str | None, float]] = {}
+    if cell_intervals is not None:
+        for rung_in, codec_in, verdict_in, width_in in cell_intervals:
+            interval_lookup[(int(rung_in), str(codec_in))] = (
+                verdict_in,
+                float(width_in),
+            )
+
+    confidence_aware_escalations: list[dict] = []
     cells: list[dict] = []
     for rung in rungs:
         for codec in codecs:
@@ -529,7 +544,6 @@ def run_auto(
                     "rung": int(rung),
                     "codec": str(codec),
                     "verdict": cell_verdict or plan_state.predictor_verdict or "UNKNOWN",
-                    "verdict": plan_state.predictor_verdict or "UNKNOWN",
                     "crf": 23,  # placeholder; production wiring fills this in
                     "estimated_vmaf": float(target_vmaf),
                     "estimated_bitrate_kbps": float(max_budget_kbps),
@@ -577,6 +591,7 @@ def run_auto(
 
 # ---------------------------------------------------------------------------
 # F.3 confidence-aware fallback policy (ADR-0364 §F.3 / ADR-0279).
+# F.3 confidence-aware fallback policy (ADR-0325 §F.3 / ADR-0279).
 #
 # These helpers are pure functions of (verdict, interval_width,
 # thresholds). The driver calls them per-(rung, codec) cell after the
@@ -782,6 +797,8 @@ __all__ = [
     "ConfidenceDecision",
     "ConfidenceThresholds",
     "AutoPlan",
+    "ConfidenceDecision",
+    "ConfidenceThresholds",
     "LADDER_MULTI_RUNG_HEIGHT",
     "PHASE_D_DURATION_GATE_S",
     "PHASE_D_SHOT_VARIANCE_GATE",
