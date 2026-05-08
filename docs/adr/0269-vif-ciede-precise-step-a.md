@@ -157,3 +157,32 @@ don't repeat the experiment.
   with GLSL `precise` (lowers to SPIR-V `OpDecorate ... NoContraction`).
   After Step A lands, the API-version bump becomes safe (Step B is a
   separate PR).*
+
+### Status update 2026-05-08: bisect attempt on residual vif 1.4 regression
+
+State.md row **T-VK-VIF-1.4-RESIDUAL** captured the residual 45/48
+`integer_vif_scale2` `places=4` mismatch on NVIDIA at API 1.4 that
+this ADR's Step A did not close. A follow-up bisect digest landed
+under [research-0089](../research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md)
+recording the static-analysis outcome:
+
+- Re-verified glslc 2026.1 emits exactly 5 floating-point arithmetic
+  ops in optimised `vif.comp` SPIR-V (`OpFDiv` + 3× `OpFMul` +
+  `OpFSub`), all 5 carrying `OpDecorate NoContraction`. PR #346's
+  Step A is *complete on the SPIR-V surface*; there is no further
+  load-bearing FP op to decorate.
+- Cross-checked SYCL's `vif_sycl` — same all-`float` precision
+  contract, passes the `places=4` gate on every backend the fork
+  ships against. Rules out a pure f32-vs-f64 class issue (analog of
+  T-VK-CIEDE-F32-F64) as the sole driver of the API-1.4 residual.
+- Localised root cause: NVIDIA's `shaderFloatControls2`-v2 codegen
+  default (core in 1.4) appears to flip a non-IEEE-bound choice
+  (e.g., reciprocal-multiply for divide, fast-rsq for `g*g`) that
+  the SPIR-V surface cannot bind — `NoContraction` blocks FMA
+  fusion only.
+
+ADR body (above) remains frozen per ADR-0028. The decision to ship
+Step A as a partial fix and leave Step B blocked stands; the
+research-0089 digest expands the *runner-up* options (per-stage
+NVIDIA dynamic dump, `places=3` override, driver-team escalation)
+without amending the original decision matrix.

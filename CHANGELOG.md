@@ -10,6 +10,29 @@
 
 ### Changed
 
+- **Vulkan VIF API-1.4 NVIDIA residual — bisect digest landed
+  (T-VK-VIF-1.4-RESIDUAL).** New research digest
+  [`docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`](docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md)
+  documents the static CPU-`double`-vs-Vulkan-`float` stage bisect
+  on the residual 45/48 `integer_vif_scale2` `places=4` mismatch on
+  NVIDIA RTX 4090 + driver 595.71.05 at API 1.4 that PR #346's
+  Step A did not close. Re-verified via glslc 2026.1 + spirv-dis
+  that `vif.comp` emits exactly 5 floating-point arithmetic ops in
+  optimised SPIR-V and all 5 are `NoContraction`-decorated — the
+  SPIR-V mitigation surface is exhausted. Cross-checked against
+  SYCL's `vif_sycl` (same f32 contract, passes the gate) — rules
+  out a pure f32-vs-f64 class issue analog of T-VK-CIEDE-F32-F64.
+  Localises root cause to NVIDIA's `shaderFloatControls2`-v2
+  codegen flip at API 1.4 on a non-IEEE-bound default that the
+  SPIR-V surface cannot bind (e.g., reciprocal-multiply for divide,
+  fast-rsq selection). Empirical per-stage NVIDIA dynamic dump not
+  run this session (needs ~1 day of SSBO instrumentation +
+  hardware lane); values tagged `[UNVERIFIED]` per the
+  no-fabrication rule. Phase-2 shader fix not warranted —
+  recommends per-stage NVIDIA dump or `places=3` override ADR for
+  Step B unblock. State.md row T-VK-VIF-1.4-RESIDUAL updated with
+  bisect outcome; ADR-0269 carries a 2026-05-08 status-update
+  appendix. No code changes.
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
