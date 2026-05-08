@@ -167,9 +167,6 @@
 - **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
   (ADR-0364, design-only).** Ships
   [`docs/adr/0364-vmaf-tune-phase-f-auto.md`](docs/adr/0364-vmaf-tune-phase-f-auto.md)
-- **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
-  (ADR-0325, design-only).** Ships
-  [`docs/adr/0325-vmaf-tune-phase-f-auto.md`](docs/adr/0325-vmaf-tune-phase-f-auto.md)
   and
   [`docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md`](docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md)
   proposing a single `vmaf-tune auto --src ref.mkv --target-vmaf 92`
@@ -183,6 +180,26 @@
   overrides). Explicitly rejects a learned-policy at runtime in
   favour of an explainable hand-coded tree (≤ 30 lines pseudocode).
   Companion to ADR-0237 (umbrella).
+
+- **OpenVINO NPU execution provider wired into the tiny-AI dispatch layer
+  ([ADR-0332](../docs/adr/0332-openvino-npu-ep-wiring.md),
+  [Research-0031](../docs/research/0031-intel-ai-pc-applicability.md)).**
+  Adds three new `--tiny-device` keywords — `openvino-npu`,
+  `openvino-cpu`, and `openvino-gpu` — that pin the
+  `OpenVINOExecutionProvider` to a single `device_type` (`NPU`, `CPU`,
+  `GPU`) with no fallback inside the explicit-selector branches. The
+  existing `--tiny-device openvino` keeps its GPU→CPU fallback chain
+  unchanged. NPU is intentionally NOT added to the `--tiny-device auto`
+  try-chain because of NPU power-state latency floor on small graphs.
+  The public `VmafDnnDevice` enum gains `VMAF_DNN_DEVICE_OPENVINO_NPU`
+  / `_CPU` / `_GPU`; `vmaf_dnn_session_attached_ep()` gains
+  `"OpenVINO:NPU"` as a stable return string. Targets the Intel AI-PC
+  neural processing unit on Meteor / Lunar / Arrow Lake silicon. The
+  graceful CPU-EP fallback in `vmaf_ort_open()` covers hosts where the
+  EP is registered but the device isn't physically present, so
+  `--tiny-device=openvino-cpu` is a safe fallback selector on
+  hardware-less hosts. End-to-end NPU silicon validation deferred to a
+  contributor with Meteor / Lunar / Arrow Lake hardware.
 
 - **AdaptiveCpp / hipSYCL as a second SYCL toolchain
   ([ADR-0335](../docs/adr/0335-adaptivecpp-second-sycl-toolchain.md),

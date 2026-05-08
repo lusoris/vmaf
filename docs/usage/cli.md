@@ -218,8 +218,12 @@ example, `--aom_ctc v7.0` is equivalent to:
 
 ```text
 --tiny-model <path>            # load a .onnx tiny model alongside classic models
---tiny-device auto|cpu|cuda|openvino|coreml|coreml-ane|coreml-gpu|coreml-cpu|rocm
+--tiny-device auto|cpu|cuda|openvino|coreml|coreml-ane|coreml-gpu|coreml-cpu|openvino-npu|openvino-cpu|openvino-gpu|rocm
                                 # ORT execution provider (default: auto)
+                                # openvino-npu pins device_type=NPU (Intel AI-PC);
+                                # openvino-cpu / openvino-gpu pin the OpenVINO
+                                # CPU / GPU plugin with no fallback. See
+                                # docs/ai/inference.md for the full matrix.
 --tiny-threads <N>             # CPU EP intra-op threads (0 = ORT default)
 --tiny-fp16                    # request fp16 I/O where the EP supports it
 --no-reference                 # NR mode; requires a no-reference tiny model

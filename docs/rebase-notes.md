@@ -31631,6 +31631,22 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   python ai/scripts/train_predictor_v2_realcorpus.py --synthetic-smoke --report-out /tmp/p2.json
 
 
+## ADR-0332 — OpenVINO NPU EP wired into tiny-AI dispatch (2026-05-08)
+
+- **Touches**: `libvmaf/include/libvmaf/dnn.h`, `libvmaf/src/dnn/ort_backend.{c,h}`, `libvmaf/tools/vmaf.c`, `libvmaf/tools/cli_parse.{c,h}`, `libvmaf/test/dnn/test_ep_fp16.c`, `libvmaf/test/dnn/test_cli.sh`, `docs/ai/inference.md`, `docs/usage/cli.md`, `docs/development/oneapi-install.md`, `docs/adr/0332-openvino-npu-ep-wiring.md` (new), `docs/adr/_index_fragments/0332-openvino-npu-ep-wiring.md` (new), `changelog.d/added/openvino-npu-ep.md` (new). The libvmaf `dnn/` and tools surfaces are fork-local additions; upstream Netflix/vmaf has no tiny-AI / ONNX Runtime dispatch layer, so conflict probability on `dnn/` is zero.
+- **Invariant**: `VmafDnnDevice` enum values `9..11` (`OPENVINO_NPU` / `OPENVINO_CPU` / `OPENVINO_GPU`) are appended after CoreML `5..8`. ABI requires these values stay stable across releases — append-only; never renumber. The `--tiny-device` validator in `cli_parse.c::ARG_TINY_DEVICE` enumerates the keyword set; new keywords append to the validator AND to the help string AND to `resolve_tiny_device()` in `vmaf.c` together. The `vmaf_dnn_session_attached_ep()` stable-string list (`docs/ai/inference.md` + `dnn.h` doxygen) gains `"OpenVINO:NPU"` — consumers asserting on the returned string MUST update.
+- **On upstream sync**: no action required for upstream Netflix/vmaf. If a future Netflix sync introduces an unrelated tiny-AI surface (unlikely), reconcile the EP-name list at the merge.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && \
+    CC=icx CXX=icpx meson setup build -Denable_sycl=true -Denable_cuda=false && \
+    ninja -C build && \
+    ./build/test/dnn/test_ep_fp16 && \
+    ./build/tools/vmaf --tiny-device=openvino-npu --tiny-device=openvino-cpu \
+      --tiny-device=openvino-gpu  # validator must accept all three keywords
+  ```
+
 ## ADR-0365 — CoreML execution provider wiring (2026-05-09)
 
 - **Touches**: `libvmaf/include/libvmaf/dnn.h`,
@@ -31639,12 +31655,12 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   `libvmaf/test/dnn/test_ep_fp16.c`,
   `libvmaf/test/dnn/test_cli.sh`, `docs/ai/inference.md`,
   `docs/usage/cli.md`. Coordinates with ADR-0332 (OpenVINO NPU
-  EP, draft PR #496) — both touch the same files; conflicts are
+  EP, PR #496) — both touch the same files; conflicts are
   mechanical (adjacent enum values, adjacent switch cases,
-  adjacent CLI keyword strings).
+  adjacent CLI keyword strings). OpenVINO NPU/CPU/GPU values
+  are 9..11 (after CoreML 5..8).
 - **Invariant**: `VmafDnnDevice` enum is append-only. CoreML values
-  are 5..8 in this PR; if ADR-0332 lands first and takes 5..7, this
-  branch rebases to 8..11. The
+  are 5..8; OpenVINO pinned variants are 9..11. The
   `SessionOptionsAppendExecutionProvider("CoreMLExecutionProvider", …)`
   generic form is deliberate so the Linux build needs no
   `coreml_provider_factory.h` include. The `MLComputeUnits` key
@@ -31669,7 +31685,6 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
 
   python3 -m pytest tools/external-bench/tests/ -q   # must report 7 passed
   bash -n tools/external-bench/*/run.sh
-
   ```
 
 

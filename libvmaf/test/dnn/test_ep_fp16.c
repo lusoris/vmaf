@@ -113,6 +113,38 @@ static char *test_explicit_coreml_graceful_fallback(void)
     return NULL;
 }
 
+static char *test_explicit_openvino_npu_graceful_fallback(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+
+    /* `--tiny-device openvino-npu` (VMAF_DNN_DEVICE_OPENVINO_NPU) requests
+     * the OpenVINOExecutionProvider with `device_type=NPU`. On hosts
+     * without Intel NPU silicon (e.g. Ryzen / Arc-only / AMD-only dev
+     * machines) the EP either is not compiled into the linked ORT or
+     * fails CreateSession with no NPU device — the two-stage fallback in
+     * vmaf_ort_open() must downgrade to the CPU EP rather than failing
+     * the open. This is the "skip-when-no-NPU" behaviour the test
+     * locks in: the session opens, attached_ep is reported, and
+     * cleanup is clean. The exact returned EP string is host-dependent
+     * (CPU when ORT is stubbed or has no OpenVINO; "OpenVINO:NPU" only
+     * when both the EP and the silicon are present). */
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_OPENVINO_NPU};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("OPENVINO_NPU request does not fail open", rc == 0);
+
+    const char *ep = vmaf_dnn_session_attached_ep(sess);
+    mu_assert("EP is reported", ep != NULL);
+    mu_assert("EP name matches known set",
+              strcmp(ep, "CPU") == 0 || strcmp(ep, "OpenVINO:NPU") == 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
 static char *test_explicit_coreml_ane_graceful_fallback(void)
 {
     if (!vmaf_dnn_available())
@@ -139,6 +171,33 @@ static char *test_explicit_coreml_ane_graceful_fallback(void)
     return NULL;
 }
 
+static char *test_explicit_openvino_cpu_fallback_ep(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+
+    /* `--tiny-device openvino-cpu` pins OpenVINO's CPU device type. On a
+     * stock CI ORT build (no OpenVINO compiled in) we still expect the
+     * open to succeed via the two-stage CPU-EP fallback; the attached
+     * EP will be either "OpenVINO:CPU" (when OV is present) or "CPU"
+     * (stub / no-OV ORT). This is the recommended NPU-absent fallback
+     * and the test that runs end-to-end on the hardware-less host. */
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_OPENVINO_CPU};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("OPENVINO_CPU request does not fail open", rc == 0);
+
+    const char *ep = vmaf_dnn_session_attached_ep(sess);
+    mu_assert("EP is reported", ep != NULL);
+    mu_assert("EP name matches known set",
+              strcmp(ep, "CPU") == 0 || strcmp(ep, "OpenVINO:CPU") == 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
 static char *test_explicit_coreml_cpu_graceful_fallback(void)
 {
     if (!vmaf_dnn_available())
@@ -160,6 +219,30 @@ static char *test_explicit_coreml_cpu_graceful_fallback(void)
     const char *ep = vmaf_dnn_session_attached_ep(sess);
     mu_assert("EP is reported", ep != NULL);
     mu_assert("EP name matches known set", strcmp(ep, "CPU") == 0 || strcmp(ep, "CoreML:CPU") == 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_explicit_openvino_gpu_graceful_fallback(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+
+    /* `--tiny-device openvino-gpu` pins OpenVINO's GPU device type
+     * (`GPU.0` alias). Without an Intel iGPU/dGPU plus the OpenVINO
+     * intel_gpu plugin the open downgrades to CPU. */
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_OPENVINO_GPU};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("OPENVINO_GPU request does not fail open", rc == 0);
+
+    const char *ep = vmaf_dnn_session_attached_ep(sess);
+    mu_assert("EP is reported", ep != NULL);
+    mu_assert("EP name matches known set",
+              strcmp(ep, "CPU") == 0 || strcmp(ep, "OpenVINO:GPU") == 0);
 
     vmaf_dnn_session_close(sess);
     return NULL;
@@ -313,6 +396,9 @@ char *run_tests(void)
     mu_run_test(test_explicit_coreml_graceful_fallback);
     mu_run_test(test_explicit_coreml_ane_graceful_fallback);
     mu_run_test(test_explicit_coreml_cpu_graceful_fallback);
+    mu_run_test(test_explicit_openvino_npu_graceful_fallback);
+    mu_run_test(test_explicit_openvino_cpu_fallback_ep);
+    mu_run_test(test_explicit_openvino_gpu_graceful_fallback);
     mu_run_test(test_explicit_cuda_graceful_fallback);
     mu_run_test(test_fp16_io_round_trip);
     mu_run_test(test_fp16_io_edge_values);

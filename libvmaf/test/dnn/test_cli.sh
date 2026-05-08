@@ -33,7 +33,8 @@ printf '%s\n' "$help_text" | grep -q -- '--no-reference' || {
 }
 
 # 2. Invalid device string must be rejected with a useful message.
-# The keyword list grew with coreml / coreml-{ane,gpu,cpu} (ADR-0365);
+# The keyword list grew with coreml / coreml-{ane,gpu,cpu} (ADR-0365)
+# and openvino-{npu,cpu,gpu} (Research-0031 / A.5);
 # match the stable head + tail rather than the verbatim middle so this
 # stays passing across future grammar additions.
 if "$VMAF_BIN" --tiny-model /nonexistent.onnx --tiny-device bogus 2>&1 |
@@ -50,6 +51,19 @@ fi
 # argument" if the keyword itself were unknown. We only assert the
 # keyword does not surface as a validation error.
 for dev in coreml coreml-ane coreml-gpu coreml-cpu; do
+  out="$("$VMAF_BIN" --tiny-device "$dev" 2>&1 || true)"
+  if printf '%s\n' "$out" | grep -q "Invalid argument \"$dev\""; then
+    echo "validator wrongly rejected --tiny-device $dev"
+    exit 1
+  fi
+done
+
+# 4. The new openvino-{npu,cpu,gpu} keywords must be accepted by the
+# validator. `vmaf` exits non-zero because we don't supply a reference
+# YUV, but the rejection message would mention "Invalid argument" if the
+# keyword itself were unknown. We only assert the keyword does not
+# surface as a validation error.
+for dev in openvino-npu openvino-cpu openvino-gpu; do
   out="$("$VMAF_BIN" --tiny-device "$dev" 2>&1 || true)"
   if printf '%s\n' "$out" | grep -q "Invalid argument \"$dev\""; then
     echo "validator wrongly rejected --tiny-device $dev"

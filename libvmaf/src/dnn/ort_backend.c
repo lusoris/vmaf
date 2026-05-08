@@ -264,6 +264,13 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
      * actually bound can check sess->ep_name via vmaf_ort_attached_ep()
      * (exposed for diagnostics / tests).
      */
+    /* OpenVINO EP option set is documented at:
+     *   https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html
+     *   (accessed 2026-05-08).
+     * device_type values understood by OpenVINOExecutionProvider include
+     * "CPU", "GPU" (alias for GPU.0), "GPU.0", "GPU.1", and "NPU". The NPU
+     * value targets the Intel AI-PC neural processing unit on Meteor /
+     * Lunar / Arrow Lake silicon. */
     sess->ep_name = "CPU";
     switch (dev) {
     case VMAF_DNN_DEVICE_CUDA:
@@ -276,6 +283,18 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
         } else if (try_append_openvino(sess, "CPU", sess->fp16_io) == 0) {
             sess->ep_name = "OpenVINO:CPU";
         }
+        break;
+    case VMAF_DNN_DEVICE_OPENVINO_NPU:
+        if (try_append_openvino(sess, "NPU", sess->fp16_io) == 0)
+            sess->ep_name = "OpenVINO:NPU";
+        break;
+    case VMAF_DNN_DEVICE_OPENVINO_CPU:
+        if (try_append_openvino(sess, "CPU", sess->fp16_io) == 0)
+            sess->ep_name = "OpenVINO:CPU";
+        break;
+    case VMAF_DNN_DEVICE_OPENVINO_GPU:
+        if (try_append_openvino(sess, "GPU", sess->fp16_io) == 0)
+            sess->ep_name = "OpenVINO:GPU";
         break;
     case VMAF_DNN_DEVICE_ROCM:
         if (try_append_rocm(sess) == 0)
@@ -320,6 +339,10 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
              * ANE perf note in docs/ai/inference.md. */
             sess->ep_name = "CoreML";
         }
+        /* NPU is intentionally NOT in the AUTO chain. NPU has surprising
+         * latency floors on small graphs (power-state-transition cost
+         * dominates sub-ms inferences) and is opt-in only via the
+         * explicit `--tiny-device openvino-npu` selector. */
         break;
     case VMAF_DNN_DEVICE_CPU:
     default:

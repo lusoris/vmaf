@@ -170,11 +170,14 @@ follow-up backlog candidate.
   when (a) a tile-geometry redesign yields integer divisibility and
   (b) Xe2 / Battlemage hardware is available to confirm the
   register-pressure delta.
-- [ ] OpenVINO EP version bump — newer ORT bundled with the basekit
-  may add NPU EP support (relevant to T7-9 Intel AI-PC research).
-  Smoke-test `--tiny-device=openvino` against `learned_filter_v1` and
-  the int8 sidecar. If the NPU EP appears, `--tiny-device=npu` is the
-  follow-on path.
+- [x] OpenVINO EP version bump — newer ORT bundled with the basekit
+  exposes the NPU plugin via `device_type=NPU` on the existing
+  `OpenVINOExecutionProvider`. **Done 2026-05-08** in
+  [ADR-0332](../adr/0332-openvino-npu-ep-wiring.md): adds
+  `--tiny-device=openvino-npu` (plus `openvino-cpu` / `openvino-gpu`
+  for explicit OpenVINO device-type pinning). End-to-end NPU
+  silicon validation still pending a contributor with Meteor /
+  Lunar / Arrow Lake hardware.
 - [ ] C++23 surface — icpx 2025.3 is LLVM-20-based; C++23 features
   (`std::expected`, `std::print`, `if consteval`) are usable but not
   yet adopted in any fork-local TU. Defer until a clear use case
