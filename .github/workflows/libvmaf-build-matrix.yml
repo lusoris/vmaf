@@ -148,18 +148,22 @@ jobs:
             experimental: true
             name: Build — macOS Vulkan via MoltenVK (advisory)
 
-          # --- HIP T7-10 scaffold (ADR-0209) ---
-          # Stub-only build — every HIP entry point returns -ENOSYS until
-          # the runtime PR lands. No ROCm SDK is installed; the scaffold's
-          # `dependency('hip-lang', required: false)` probe is silently
-          # absent on a stock Ubuntu runner and the build still succeeds.
-          # The smoke test runs (no real GPU needed — every assertion
-          # checks the -ENOSYS / -EINVAL contract).
+          # --- HIP T7-10b runtime (ADR-0212) ---
+          # Real HIP runtime build — compiles + links against
+          # `amdhip64` from `rocm-hip-runtime-dev`. The package is
+          # apt-installed from the official AMD repo at
+          # `repo.radeon.com/rocm/apt/<ver>` (~200 MB, +3-5 min per
+          # run). No AMD GPU on the runner, so kernel-launch tests are
+          # skipped (`vmaf_hip_device_count() == 0` short-circuits the
+          # device-resident smoke assertions, mirroring the
+          # Vulkan-on-lavapipe-less-CI pattern from ADR-0175). See
+          # ADR-0212 §"Status update 2026-05-09: CI lane enabled".
           - os: ubuntu-latest
             CC: ccache gcc
             CXX: ccache g++
+            hip: true
             meson_extra: -Denable_hip=true
-            name: Build — Ubuntu HIP (T7-10 scaffold)
+            name: Build — Ubuntu HIP (T7-10b runtime)
 
           # --- Static library builds ---
           - os: ubuntu-latest
@@ -262,7 +266,7 @@ jobs:
           pip install meson
 
       - name: Install dependencies (ubuntu)
-        if: startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686
+        if: startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686 && !matrix.hip
         run: |
           sudo apt-get update
           sudo -E apt-get -yq install ccache ninja-build nasm libomp-dev pkg-config
@@ -466,6 +470,49 @@ jobs:
           fi
           glslc --version | head -2
 
+      # ---------- ROCm / HIP runtime (T7-10b) ----------
+      # Installs `rocm-hip-runtime-dev` from the official AMD apt repo
+      # at `repo.radeon.com/rocm/apt/<ver>`. ROCm 7.2.3 matches the
+      # version under test on the maintainer's local box; the apt URL
+      # carries the version path component, so bumping ROCm here is a
+      # one-line change. `noble` is the codename for `ubuntu-24.04`,
+      # which is what GitHub's `ubuntu-latest` resolves to on this
+      # runner image (`ubuntu-24.04` since 2024-04). Pin priority 600
+      # keeps Ubuntu base packages preferred where versions overlap so
+      # the HIP install doesn't drag in a parallel toolchain.
+      #
+      # Cost: ~200 MB download + ~3-5 min wall-clock per HIP-lane run.
+      # Acceptable because HIP is opt-in (`-Denable_hip=true`) and the
+      # lane runs only when its matrix row is selected.
+      - name: Install ROCm / HIP runtime
+        if: matrix.hip
+        env:
+          ROCM_VERSION: "7.2.3"
+        run: |
+          sudo apt-get update
+          sudo -E apt-get -yq install ccache ninja-build nasm libomp-dev \
+            pkg-config gcc g++ wget gnupg lsb-release
+          sudo install -d -m 0755 /etc/apt/keyrings
+          wget -qO- https://repo.radeon.com/rocm/rocm.gpg.key \
+            | gpg --dearmor \
+            | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
+          UBUNTU_CODENAME="$(lsb_release -cs)"
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/${ROCM_VERSION} ${UBUNTU_CODENAME} main" \
+            | sudo tee /etc/apt/sources.list.d/rocm.list
+          printf 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600\n' \
+            | sudo tee /etc/apt/preferences.d/rocm-pin-600
+          sudo apt-get update
+          sudo -E apt-get -yq install --no-install-recommends rocm-hip-runtime-dev
+          # Surface the ROCm tooling on PATH / pkg-config / ld so
+          # meson's `dependency('hip-lang')` and the link of
+          # `amdhip64` resolve without per-step exports.
+          echo "/opt/rocm/bin"                          | sudo tee -a "$GITHUB_PATH"
+          echo "/opt/rocm/lib"                          | sudo tee /etc/ld.so.conf.d/rocm.conf
+          echo "PKG_CONFIG_PATH=/opt/rocm/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
+            | sudo tee -a "$GITHUB_ENV"
+          sudo ldconfig
+          /opt/rocm/bin/hipconfig --version || true
+
       # ---------- Configure ccache cap + stats reset ----------
       # ccache dir is restored above by `actions/cache`; size-cap it so
       # stale objects evict in LRU order rather than the cache growing
@@ -544,7 +591,7 @@ jobs:
       # whether the host can actually run them; the build itself is
       # what Netflix#1481 needs to pin).
       - name: Run tests
-        if: "!matrix.sycl && !matrix.cuda && !matrix.i686 && !matrix.moltenvk"
+        if: "!matrix.sycl && !matrix.cuda && !matrix.hip && !matrix.i686 && !matrix.moltenvk"
         run: sudo ninja -vC libvmaf/build test
 
       # ---------- Vulkan smoke test (macOS MoltenVK lane) ----------
@@ -588,7 +635,7 @@ jobs:
         # Insulates the tox lanes from the recurring HTTP-502s on
         # raw.githubusercontent.com when fetching python/test/resource/
         # fixtures via download_reactively (python/vmaf/config.py).
-        if: "((startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686) || matrix.os == 'macos-latest') && !matrix.moltenvk"
+        if: "((startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.hip && !matrix.i686) || matrix.os == 'macos-latest') && !matrix.moltenvk"
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: python/test/resource
@@ -598,7 +645,7 @@ jobs:
             vmaf-fixtures-resource-
 
       - name: Run tox tests (ubuntu)
-        if: "startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.i686"
+        if: "startsWith(matrix.os, 'ubuntu') && !matrix.sycl && !matrix.cuda && !matrix.hip && !matrix.i686"
         run: |
           mkdir -p ~/.ccache && sudo chown -R $(whoami) ~/.ccache
           pip install tox
@@ -626,6 +673,16 @@ jobs:
             echo "=== $t ==="
             ./test/$t
           done
+
+      # HIP runtime build: runs the HIP smoke test (no GPU needed —
+      # the smoke harness short-circuits on `vmaf_hip_device_count() == 0`
+      # per ADR-0212). Skips kernel-launch tests entirely; the GHA
+      # runner has no AMD GPU.
+      - name: Run HIP smoke test (no GPU)
+        if: matrix.hip
+        run: |
+          cd libvmaf/build
+          ./test/test_hip_smoke
 
       # ---------- Artifacts ----------
       - name: Upload vmaf binary

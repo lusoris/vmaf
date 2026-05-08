@@ -20117,10 +20117,6 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
-
-
-
-
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -31189,3 +31185,40 @@ immediately rather than at the *next* sync.
 benefit: the gate hardens `ffmpeg-patches/` against silent drift, so
 the patch-stack invariants tracked elsewhere in this file (entries
 referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
+### 0320 — HIP CI lane apt-installs ROCm runtime (ADR-0212 status update)
+
+- **Touches**:
+  [`.github/workflows/libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml)
+  (HIP lane `if: matrix.hip` install step + base-deps gate),
+  [`.github/workflows/required-aggregator.yml`](../.github/workflows/required-aggregator.yml)
+  (HIP lane added to required-check allow-list). Upstream Netflix/vmaf
+  has no HIP backend and no equivalent CI matrix; conflict
+  probability against `upstream/master` is zero. Entry exists to flag
+  the rebase-sensitive ROCm-version pin for future maintainers.
+- **Invariant**: the ROCm version pin (`ROCM_VERSION: "7.2.3"`) in
+  the `Install ROCm / HIP runtime` step **must match** the version
+  the maintainer's local box runs against. The apt URL is
+  `https://repo.radeon.com/rocm/apt/<ver>` — the version is part of
+  the path, so AMD effectively snapshots each ROCm release as its
+  own apt repo. Bumping the pin is a one-line change but requires
+  re-validating that `rocm-hip-runtime-dev` still pulls the same
+  symbol set; in particular, `amdhip64` major-version changes have
+  historically broken `dlopen` consumers. `noble` is the codename
+  for `ubuntu-24.04`, which is what `ubuntu-latest` resolves to on
+  GitHub-hosted runners as of 2024-04. If `ubuntu-latest` rolls
+  forward to a newer LTS, the apt repo path component
+  (`https://repo.radeon.com/rocm/apt/<ver> <codename> main`) needs
+  to be re-checked against
+  https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/install-methods/package-manager/package-manager-ubuntu.html
+  for the current AMD-supported codename list.
+- **Re-test on rebase**:
+
+  ```bash
+  # Locally, mirror what CI does (assumes ROCm /opt/rocm install on dev box):
+  meson setup build -Denable_hip=true -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  ./build/test/test_hip_smoke   # passes with device_count == 0
+  # Apt-side: verify the URL still resolves (versioned path)
+  curl -sfI https://repo.radeon.com/rocm/apt/7.2.3/dists/noble/Release \
+    && echo OK || echo "ROCm apt URL drifted — bump ROCM_VERSION"
+  ```

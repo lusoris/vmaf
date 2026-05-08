@@ -63,6 +63,7 @@ jobs:
               'Sanitizers — ASan + UBSan + MSan (undefined)',
               'Assertion Density (Power of 10 §5)',
               'Tiny AI (DNN Suite + ai/ Pytests)',
+              'Build — Ubuntu HIP (T7-10b runtime)',
             ];
             const sha = context.eventName === 'pull_request'
               ? context.payload.pull_request.head.sha
