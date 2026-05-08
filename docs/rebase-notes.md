@@ -155,7 +155,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
   are unrelated and predate HP-1.
 
 ### 0310 — Vulkan VIF int64 reduction race condition Phase 3 fix
-
 - **Touches**: `libvmaf/src/feature/vulkan/shaders/vif.comp`
   (replaces all three bare `barrier()` calls with explicit
   `memoryBarrierShared(); barrier();` pairs covering the Phase-1
@@ -199,7 +198,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
   `--vulkan_device 0` on this multi-GPU host is the Intel Arc
   A380 lane and **will still fail** at API 1.4 (separate
   `T-VK-VIF-1.4-RESIDUAL-ARC` row Open).
-
 ### 0309 — Vulkan VIF API-1.4 Phase 2 dump (T-VK-VIF-1.4-RESIDUAL)
 
 - **Touches**: `docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`
