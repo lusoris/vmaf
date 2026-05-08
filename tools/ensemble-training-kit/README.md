@@ -10,6 +10,85 @@ Parent design: [ADR-0303](../../docs/adr/0303-fr-regressor-v2-ensemble-prod-flip
 (LOSO trainer real impl), [ADR-0321](../../docs/adr/0321-fr-regressor-v2-ensemble-full-prod-flip.md)
 (full production flip + ONNX export script).
 
+## I received a Google Drive bundle — what now?
+
+The lead user ships **one zstd-compressed tarball** named
+`ensemble-bundle-<ts>.tar.zst` plus its `.sha256` sidecar. The tarball
+contains the kit + a `corpus/` tree of lossless-HEVC `.mkv` files
+(~100 GiB transit-compressed; expands to ~229 GiB of bit-exact `.yuv`
+references on extract). End-to-end runbook:
+
+1. **Download** the `.tar.zst` and its `.sha256` from the shared drive
+   folder. Use Google Drive Desktop or `rclone` — the browser's
+   "Download all" sometimes silently drops files larger than 10 GB.
+2. **Verify the tarball** before unpacking:
+
+   ```bash
+   sha256sum -c ensemble-bundle-<ts>.tar.zst.sha256
+   ```
+
+   If the line FAILs, redownload (don't proceed; the trainer needs
+   bit-exact bytes).
+3. **Untar** into an empty working directory:
+
+   ```bash
+   mkdir ensemble-run && cd ensemble-run
+   tar --use-compress-program=unzstd -xf /path/to/ensemble-bundle-<ts>.tar.zst
+   cd ensemble-training-kit
+   ```
+
+4. **Decode the corpus** back to raw YUV (one-time, ~30–60 min on a
+   decent CPU; the script verifies every recovered YUV against the
+   bundled manifest sha256, so you'll catch a bad download here even
+   if step 2 passed):
+
+   ```bash
+   bash extract-corpus.sh --parallel 8
+   ```
+
+   On success it prints `verified: N / N YUVs match manifest.sha256`
+   and (by default) deletes the intermediate `.mkv` files to free
+   disk. Pass `--keep-mkv` if you want to retain them.
+5. **Run the prereq check**:
+
+   ```bash
+   bash 01-prereqs.sh
+   ```
+
+6. **Run the pipeline**:
+
+   ```bash
+   bash run-full-pipeline.sh --ref-dir ./corpus
+   ```
+
+   On NVIDIA hardware this typically takes 4–10 hours wall-time
+   depending on the GPU; on Apple Silicon / Intel Arc closer to a
+   day. The script prints progress + a final verdict to stderr.
+7. **Send the result tarball back** — exactly one file:
+
+   ```text
+   lawrence-ensemble-results-<ts>.tar.gz
+   ```
+
+   Upload it to the same Google Drive folder. See "How to send back
+   the results" below for what's in the tarball and how the lead user
+   uses it.
+
+That's the whole loop — the kit emits one file, you upload one file,
+the lead user takes it from there.
+
+### Compressed corpus rationale
+
+The lead user generates the tarball with
+`prepare-gdrive-bundle.sh`, which encodes every reference YUV to
+**lossless HEVC** (libx265 with `lossless=1`). Lossless HEVC gets
+~55 % size reduction on natural content vs raw YUV; the
+`extract-corpus.sh` step decodes back to the **bit-exact** YUV (the
+manifest's per-file `yuv_sha256` proves this) before the trainer
+ever sees the file. Alternative codecs (FFV1, AV1-lossless) are
+selectable via `--codec` on the prep side; the extract side
+auto-handles whichever container the bundle was built with.
+
 ## What this kit does
 
 - Generates a Phase-A canonical-6 JSONL corpus from operator-supplied
@@ -93,7 +172,7 @@ Each step honours the same env vars (`REF_DIR`, `OUT_DIR`,
 
 After a successful run:
 
-```
+```text
 $OUT_DIR/
 ├── PROMOTE.json (or HOLD.json)        # ADR-0303 verdict file
 ├── loso_seed0.json … loso_seed4.json  # per-seed LOSO artefacts
@@ -185,7 +264,7 @@ empty, step 02 silently skipped every source; re-run with the
 
 The lead user needs **only** the bundled tarball:
 
-```
+```text
 lawrence-ensemble-results-<ts>.tar.gz
 ```
 
