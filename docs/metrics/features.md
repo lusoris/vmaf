@@ -281,7 +281,7 @@ Y plane only.
 
 **Options** (all opt-in via `--feature motion_v2=name=value:...`,
 ported from upstream Netflix/vmaf — see
-[ADR-0325](../adr/0325-port-upstream-motion-v2-cluster-2026-05-08.md)):
+[ADR-0328](../adr/0328-port-upstream-motion-v2-cluster-2026-05-08.md)):
 
 | Option                     | Alias     | Type   | Default | Range          | Effect                                                                                              |
 |----------------------------|-----------|--------|---------|----------------|-----------------------------------------------------------------------------------------------------|
@@ -309,7 +309,7 @@ frame's Y plane; per-WG `int64` SAD partials reduce on the host;
 `motion2_v2_score = min(score[i], score[i+1])` is emitted in
 `flush()`. Mirror padding **matches** the corresponding `motion_*`
 kernels after upstream commit `856d3835` (May 2026, ported in
-[ADR-0325](../adr/0325-port-upstream-motion-v2-cluster-2026-05-08.md)):
+[ADR-0328](../adr/0328-port-upstream-motion-v2-cluster-2026-05-08.md)):
 all backends use the skip-boundary form `2 * size - idx - 2` for
 `idx >= size`.
 

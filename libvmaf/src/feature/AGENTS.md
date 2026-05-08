@@ -165,7 +165,7 @@ feature/
   See [ADR-0143](../../../docs/adr/0143-port-netflix-f3a628b4-generalized-avx-convolve.md)
   and [rebase-notes 0036](../../../docs/rebase-notes.md).
 - **`motion_v2` mirror parity across CPU/SIMD/GPU/Vulkan twins**
-  (upstream-aligned, ADR-0325): the scalar `mirror`,
+  (upstream-aligned, ADR-0328): the scalar `mirror`,
   `arm64/motion_v2_neon.c::mirror`, `x86/motion_v2_avx2.c::mirror`,
   `x86/motion_v2_avx512.c::mirror`,
   `cuda/integer_motion_v2/motion_v2_score.cu::mv2_mirror`,
@@ -181,7 +181,7 @@ feature/
   eight sites in the same PR — partial updates trip
   `/cross-backend-diff motion_v2` and the GPU-parity CI gate
   (ADR-0214). See
-  [ADR-0325](../../../docs/adr/0325-port-upstream-motion-v2-cluster-2026-05-08.md).
+  [ADR-0328](../../../docs/adr/0328-port-upstream-motion-v2-cluster-2026-05-08.md).
 - **`motion_v2` NEON shift semantics** (fork-local, ADR-0145):
   [`arm64/motion_v2_neon.c`](arm64/motion_v2_neon.c) uses
   **arithmetic** right-shift throughout (`vshrq_n_s64(v, 16)` for

@@ -1,4 +1,4 @@
-# ADR-0325: Port upstream motion_v2 four-commit cluster (2026-05-08)
+# ADR-0328: Port upstream motion_v2 four-commit cluster (2026-05-08)
 
 - **Status**: Accepted
 - **Date**: 2026-05-08

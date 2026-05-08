@@ -11,4 +11,4 @@
   backends stay aligned with the new CPU semantics. CLI
   `--feature motion_v2=...` interface is unchanged; the new options
   are opt-in via the existing `:key=value` syntax. See
-  [ADR-0325](../docs/adr/0325-port-upstream-motion-v2-cluster-2026-05-08.md).
+  [ADR-0328](../docs/adr/0328-port-upstream-motion-v2-cluster-2026-05-08.md).

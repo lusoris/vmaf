@@ -9054,7 +9054,7 @@ inline.*
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
 
-## ADR-0325 — Port upstream motion_v2 four-commit cluster (2026-05-08)
+## ADR-0328 — Port upstream motion_v2 four-commit cluster (2026-05-08)
 
 - **Touches**: `libvmaf/src/feature/integer_motion_v2.c`,
   `libvmaf/src/feature/feature_extractor.h`,
