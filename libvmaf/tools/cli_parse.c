@@ -201,7 +201,8 @@ static void usage(const char *const app, const char *const reason, ...)
         "                                  max|full  -> \"%%.17g\" (round-trip lossless)\n"
         "                                  legacy    -> \"%%.6f\" (default; Netflix-compatible)\n"
         " --tiny-model $path:           load a tiny ONNX model alongside classic models\n"
-        " --tiny-device $string:        auto|cpu|cuda|openvino|rocm (default: auto)\n"
+        " --tiny-device $string:        auto|cpu|cuda|openvino|coreml|coreml-ane|\n"
+        "                                  coreml-gpu|coreml-cpu|rocm (default: auto)\n"
         " --tiny-threads $unsigned:     CPU EP intra-op threads (0 = ORT default)\n"
         " --tiny-fp16:                  request fp16 IO where the EP supports it\n"
         " --tiny-model-verify:          require Sigstore-bundle verification (cosign verify-blob)\n"
@@ -682,8 +683,12 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             break;
         case ARG_TINY_DEVICE:
             if (strcmp(optarg, "auto") && strcmp(optarg, "cpu") && strcmp(optarg, "cuda") &&
-                strcmp(optarg, "openvino") && strcmp(optarg, "rocm")) {
-                error(argv[0], optarg, ARG_TINY_DEVICE, "one of auto|cpu|cuda|openvino|rocm");
+                strcmp(optarg, "openvino") && strcmp(optarg, "coreml") &&
+                strcmp(optarg, "coreml-ane") && strcmp(optarg, "coreml-gpu") &&
+                strcmp(optarg, "coreml-cpu") && strcmp(optarg, "rocm")) {
+                error(argv[0], optarg, ARG_TINY_DEVICE,
+                      "one of auto|cpu|cuda|openvino|coreml|coreml-ane|coreml-gpu|"
+                      "coreml-cpu|rocm");
             }
             settings->tiny_device = optarg;
             break;

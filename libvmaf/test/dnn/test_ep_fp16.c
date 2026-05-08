@@ -84,6 +84,87 @@ static char *test_explicit_openvino_graceful_fallback(void)
     return NULL;
 }
 
+static char *test_explicit_coreml_graceful_fallback(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+
+    /* `--tiny-device coreml` (VMAF_DNN_DEVICE_COREML) requests the
+     * CoreMLExecutionProvider with no MLComputeUnits pin (CoreML
+     * auto-routes across ANE / GPU / CPU). On Linux CI runners the
+     * CoreML EP is not compiled into the linked ORT — the EP register
+     * call returns non-null OrtStatus, the session keeps ep_name="CPU",
+     * and CreateSession runs on the CPU EP. On macOS hosts with a
+     * CoreML-enabled ORT build the open succeeds with ep="CoreML".
+     * Either way the session must open without erroring; this test
+     * locks in the graceful-fallback behaviour. */
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_COREML};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("COREML request does not fail open", rc == 0);
+
+    const char *ep = vmaf_dnn_session_attached_ep(sess);
+    mu_assert("EP is reported", ep != NULL);
+    mu_assert("EP name matches known set", strcmp(ep, "CPU") == 0 || strcmp(ep, "CoreML") == 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_explicit_coreml_ane_graceful_fallback(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+
+    /* `--tiny-device coreml-ane` pins CoreML's MLComputeUnits to
+     * CPUAndNeuralEngine — the highest-perf path on M-series silicon.
+     * On non-Apple hosts the EP is absent and the open downgrades to
+     * CPU; on macOS without ANE the EP loads but routes work to CPU+GPU
+     * (CoreML's ANE-or-fallback policy). The exact attached_ep string
+     * is host-dependent; we only assert open + a known EP name. */
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_COREML_ANE};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("COREML_ANE request does not fail open", rc == 0);
+
+    const char *ep = vmaf_dnn_session_attached_ep(sess);
+    mu_assert("EP is reported", ep != NULL);
+    mu_assert("EP name matches known set", strcmp(ep, "CPU") == 0 || strcmp(ep, "CoreML:ANE") == 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
+static char *test_explicit_coreml_cpu_graceful_fallback(void)
+{
+    if (!vmaf_dnn_available())
+        return NULL;
+
+    /* `--tiny-device coreml-cpu` pins CoreML's MLComputeUnits to
+     * CPUOnly — universal fallback, exercised end-to-end on the
+     * hardware-less Linux CI host (the EP is not compiled in but
+     * the two-stage CPU-EP fallback in vmaf_ort_open keeps the
+     * open succeeding). On macOS the EP loads and runs on the CPU
+     * compute unit with attached_ep="CoreML:CPU". */
+    VmafDnnSession *sess = NULL;
+    VmafDnnConfig cfg = {.device = VMAF_DNN_DEVICE_COREML_CPU};
+    int rc = vmaf_dnn_session_open(&sess, SMOKE_FP32_MODEL, &cfg);
+    if (rc == -ENOENT)
+        return NULL;
+    mu_assert("COREML_CPU request does not fail open", rc == 0);
+
+    const char *ep = vmaf_dnn_session_attached_ep(sess);
+    mu_assert("EP is reported", ep != NULL);
+    mu_assert("EP name matches known set", strcmp(ep, "CPU") == 0 || strcmp(ep, "CoreML:CPU") == 0);
+
+    vmaf_dnn_session_close(sess);
+    return NULL;
+}
+
 static char *test_explicit_cuda_graceful_fallback(void)
 {
     if (!vmaf_dnn_available())
@@ -229,6 +310,9 @@ char *run_tests(void)
 {
     mu_run_test(test_auto_falls_through_to_cpu);
     mu_run_test(test_explicit_openvino_graceful_fallback);
+    mu_run_test(test_explicit_coreml_graceful_fallback);
+    mu_run_test(test_explicit_coreml_ane_graceful_fallback);
+    mu_run_test(test_explicit_coreml_cpu_graceful_fallback);
     mu_run_test(test_explicit_cuda_graceful_fallback);
     mu_run_test(test_fp16_io_round_trip);
     mu_run_test(test_fp16_io_edge_values);

@@ -59,8 +59,9 @@ int vmaf_ort_input_shape(VmafOrtSession *sess, int64_t *out_shape, size_t max_ra
 /**
  * Name of the ONNX Runtime execution provider that actually attached to
  * the session. Populated at open time; owned by the session. Stable
- * strings: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU", "ROCm".
- * Returns NULL if @p sess is NULL.
+ * strings: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU", "CoreML",
+ * "CoreML:ANE", "CoreML:GPU", "CoreML:CPU", "ROCm". Returns NULL if
+ * @p sess is NULL.
  */
 const char *vmaf_ort_attached_ep(const VmafOrtSession *sess);
 

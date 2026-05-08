@@ -92,6 +92,29 @@ Runtime directly.
 
 ## Rebase-sensitive invariants (DNN-side surfaces in flight)
 
+- **CoreML EP wiring (ADR-0365, this PR)** — `VmafDnnDevice`
+  values 5..8 (`COREML`, `COREML_ANE`, `COREML_GPU`, `COREML_CPU`)
+  and the `--tiny-device=coreml{,-ane,-gpu,-cpu}` CLI keywords are
+  append-only. The wiring uses the generic
+  `SessionOptionsAppendExecutionProvider("CoreMLExecutionProvider", …)`
+  form deliberately so the Linux build needs no `coreml_provider_factory.h`
+  conditional include; if a future change switches to the typed
+  factory, also add a `#if defined(__APPLE__)` guard around the
+  include and the call site. The `MLComputeUnits` key string values
+  (`CPUAndNeuralEngine` / `CPUAndGPU` / `CPUOnly`) are part of the
+  CoreML EP public contract — do not mutate them.
+- **CoreML EP coexists with OpenVINO NPU EP (ADR-0332, draft PR
+  \#496)**: both ADRs touch the same enum, switch, and CLI grammar
+  files. On rebase against either ADR's branch, the conflicts are
+  mechanical (adjacent enum values, adjacent switch cases, adjacent
+  keyword strings). Keep the enum values in append-only order
+  (OpenVINO NPU/_CPU/_GPU = 5..7; CoreML = 5..8 — collision at 5..7
+  is resolved by whichever branch lands first taking 5..7 and the
+  other taking 8..11). The OpenVINO + CoreML AUTO-chain ordering
+  (CUDA → OpenVINO-GPU → ROCm → CoreML → CPU) is
+  ADR-0365-Decision-load-bearing.
+
+
 - **Op-allowlist additions for TransNet V2 (ADR-0257)**:
   `BitShift`, `GatherND`, `Pad`, `Reciprocal`, `ReduceProd`,
   and `ScatterND` are now load-bearing for

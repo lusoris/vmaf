@@ -31496,6 +31496,42 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   python -m pytest ai/tests/test_train_predictor_v2_realcorpus.py -q
   bash -n ai/scripts/run_predictor_v2_training.sh
   python ai/scripts/train_predictor_v2_realcorpus.py --synthetic-smoke --report-out /tmp/p2.json
+
+## ADR-0365 — CoreML execution provider wiring (2026-05-09)
+
+- **Touches**: `libvmaf/include/libvmaf/dnn.h`,
+  `libvmaf/src/dnn/ort_backend.{c,h}`,
+  `libvmaf/tools/cli_parse.{c,h}`, `libvmaf/tools/vmaf.c`,
+  `libvmaf/test/dnn/test_ep_fp16.c`,
+  `libvmaf/test/dnn/test_cli.sh`, `docs/ai/inference.md`,
+  `docs/usage/cli.md`. Coordinates with ADR-0332 (OpenVINO NPU
+  EP, draft PR #496) — both touch the same files; conflicts are
+  mechanical (adjacent enum values, adjacent switch cases,
+  adjacent CLI keyword strings).
+- **Invariant**: `VmafDnnDevice` enum is append-only. CoreML values
+  are 5..8 in this PR; if ADR-0332 lands first and takes 5..7, this
+  branch rebases to 8..11. The
+  `SessionOptionsAppendExecutionProvider("CoreMLExecutionProvider", …)`
+  generic form is deliberate so the Linux build needs no
+  `coreml_provider_factory.h` include. The `MLComputeUnits` key
+  string values (`CPUAndNeuralEngine` / `CPUAndGPU` / `CPUOnly`)
+  are part of the CoreML EP public contract — upstream renames
+  would break the wiring. The AUTO chain inserts CoreML at the
+  **last** position (after CUDA / OpenVINO / ROCm); reordering
+  changes the Apple-silicon AUTO outcome.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build -Denable_dnn=auto \
+    -Denable_cuda=false -Denable_sycl=false \
+    -Dbuilt_in_models=false && \
+    ninja -C build && \
+    ./build/test/dnn/test_ep_fp16 && \
+    VMAF_BIN=$PWD/build/tools/vmaf bash test/dnn/test_cli.sh && \
+    ./build/tools/vmaf --tiny-device coreml-ane 2>&1 | \
+      grep -q 'Reference' && \
+    ./build/tools/vmaf --tiny-device bogus 2>&1 | \
+      grep -q 'coreml'
   ```
 
 ### 0361 — Metal (Apple Silicon) backend scaffold (ADR-0361)

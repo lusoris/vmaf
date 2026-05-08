@@ -218,7 +218,8 @@ example, `--aom_ctc v7.0` is equivalent to:
 
 ```text
 --tiny-model <path>            # load a .onnx tiny model alongside classic models
---tiny-device auto|cpu|cuda|openvino|rocm    # ORT execution provider (default: auto)
+--tiny-device auto|cpu|cuda|openvino|coreml|coreml-ane|coreml-gpu|coreml-cpu|rocm
+                                # ORT execution provider (default: auto)
 --tiny-threads <N>             # CPU EP intra-op threads (0 = ORT default)
 --tiny-fp16                    # request fp16 I/O where the EP supports it
 --no-reference                 # NR mode; requires a no-reference tiny model
