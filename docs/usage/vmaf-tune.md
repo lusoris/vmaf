@@ -451,6 +451,9 @@ edit row shape without bumping the version.
 | `hdr_primaries` | str | Raw ffprobe `color_primaries` (e.g. `bt2020`); empty for SDR. Schema v3+. |
 | `hdr_forced` | bool | `true` iff the user overrode detection via `--force-hdr-*` / `--force-sdr`. Schema v3+. |
 | `clip_mode` | str | `"full"` (default) or `"sample_<N>s"` per `--sample-clip-seconds`. Schema v2+. |
+| `shot_count` | int | Number of TransNet-V2 shots in the source (`0` when shot detection unavailable). v2+. |
+| `shot_avg_duration_sec` | float | Mean shot length in seconds (`0.0` when unavailable). v2+. |
+| `shot_duration_std_sec` | float | Population std of shot lengths in seconds — content-class proxy (animation: low; live action: high). v2+. |
 
 ### Example row
 
@@ -476,7 +479,10 @@ edit row shape without bumping the version.
   "ffmpeg_version": "6.1.1",
   "vmaf_binary_version": "3.0.0-lusoris.0",
   "exit_status": 0,
-  "clip_mode": "full"
+  "clip_mode": "full",
+  "shot_count": 12,
+  "shot_avg_duration_sec": 0.83,
+  "shot_duration_std_sec": 0.41
 }
 ```
 
@@ -1117,16 +1123,29 @@ The four flags are mutually exclusive.
 Encoders not in the dispatch table emit no HDR flags and the corpus
 row's `hdr_*` fields still record the detection result.
 
-### HDR VMAF scoring (deferred)
+### HDR VMAF scoring (model-port slot)
 
-If `model/vmaf_hdr_*.json` is shipped, it is selected automatically
-via the `path=...` form of `vmaf --model`. The fork has not yet
-ported Netflix's HDR-trained model; until it does, HDR sources are
-scored against the SDR model with a one-shot warning logged at
-corpus start. Resulting `vmaf_score` values trend low for
+`vmaftune.hdr.select_hdr_vmaf_model(model_dir, transfer="pq"|"hlg")`
+resolves an HDR-trained model JSON via a two-stage lookup:
+
+1. canonical filename — `model/vmaf_hdr_v0.6.1.json` (the Netflix
+   research artefact name); preferred when `transfer` is `"pq"` or
+   `"hlg"`.
+2. glob fallback — `model/vmaf_hdr_*.json` (so future revisions can
+   land without code changes).
+
+The fork **does not ship the JSON** in this PR. Verified
+2026-05-08 against `Netflix/vmaf` master `model/`: no
+`vmaf_hdr_*.json` is present in the upstream public tree; Netflix
+publishes the artefact in a separate research bundle outside the
+repo. A fork-local license review is the gating follow-up
+([ADR-0300 § Status update 2026-05-08](../adr/0300-vmaf-tune-hdr-aware.md#status-update-2026-05-08-hdr-vmaf-model-port-landed)).
+Until then, HDR sources are scored against the SDR model with a
+**one-shot warning** logged on the first miss (subsequent misses
+stay quiet). Resulting `vmaf_score` values trend low for
 high-luminance regions and are not directly comparable to SDR
-scores. See [ADR-0300](../adr/0300-vmaf-tune-hdr-aware.md) for the
-follow-up backlog item.
+scores. Drop a licensed copy at `model/vmaf_hdr_v0.6.1.json` and
+the harness picks it up automatically — no code change required.
 ## Content-addressed cache
 
 Re-running a corpus sweep after adjusting an unrelated flag should

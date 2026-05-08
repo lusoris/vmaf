@@ -27,6 +27,40 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0086 — TransNet shot-metadata columns + HDR VMAF model port slot (Research-0086, ADR-0300 follow-up)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/__init__.py`
+  (CORPUS_ROW_KEYS additive trio, no `SCHEMA_VERSION` bump),
+  `tools/vmaf-tune/src/vmaftune/per_shot.py`
+  (`summarise_shots`, `_detect_shots_with_status`,
+  `ShotMetadata`), `tools/vmaf-tune/src/vmaftune/corpus.py`
+  (`_resolve_shot_metadata`, row population, new `shot_runner`
+  kwarg on `iter_rows`),
+  `tools/vmaf-tune/src/vmaftune/hdr.py` (transfer-aware
+  `select_hdr_vmaf_model`, `hdr_model_name_for`,
+  `HDR_MODEL_FILENAME`, single-shot warning helper),
+  tests + docs.
+- **Invariant**: `iter_rows` runs `vmaf-perShot` exactly **once
+  per source** — the cost of TransNet inference is too high to
+  pay per (preset, crf) cell. If a future PR moves shot detection
+  inside the cell loop the corpus-generation wall time roughly
+  doubles. Keep the per-source resolution at the top of
+  `iter_rows` and pass `ShotMetadata` down to `_row_for`.
+  Additionally: `_detect_shots_with_status` is the *only* call
+  site that distinguishes "real one-shot source" from "fallback
+  because the binary failed" — the public `detect_shots` shape
+  cannot carry that boolean and downstream consumers depend on
+  the `(shots, ok)` tuple to emit `(0, 0.0, 0.0)` sentinel rows.
+- **Upstream conflict probability**: zero. Upstream Netflix/vmaf
+  does not carry a `vmaf-tune` directory, an `hdr.py`, or a
+  shot-detection harness. The HDR VMAF model port slot
+  (`vmaf_hdr_v0.6.1.json`) is fork-internal scaffolding — Netflix
+  publishes the canonical artefact outside their public `model/`
+  tree. No upstream rebase will touch any of these files.
+- **Re-test**: `pytest tools/vmaf-tune/tests/test_hdr.py
+  tools/vmaf-tune/tests/test_shot_metadata_columns.py
+  tools/vmaf-tune/tests/test_per_shot.py`.
+
 ### 0358 — CUDA `motion` race + leak + motion2/motion3 precision parity (ADR-0358)
 
 - **Touches**: `libvmaf/src/feature/cuda/integer_motion_cuda.c`

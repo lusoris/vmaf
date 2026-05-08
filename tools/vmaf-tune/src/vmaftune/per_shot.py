@@ -40,7 +40,9 @@ from __future__ import annotations
 import csv
 import dataclasses
 import json
+import math
 import shutil
+import statistics
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from io import StringIO
@@ -128,9 +130,41 @@ def detect_shots(
     ``total_frames`` is required for the fallback path; the
     ``vmaf-perShot`` path infers it from the YUV size.
     """
+    shots, _ok = _detect_shots_with_status(
+        video_path,
+        width=width,
+        height=height,
+        pix_fmt=pix_fmt,
+        bitdepth=bitdepth,
+        total_frames=total_frames,
+        per_shot_bin=per_shot_bin,
+        runner=runner,
+    )
+    return shots
+
+
+def _detect_shots_with_status(
+    video_path: Path,
+    *,
+    width: int,
+    height: int,
+    pix_fmt: str = "yuv420p",
+    bitdepth: int = 8,
+    total_frames: int | None = None,
+    per_shot_bin: str = "vmaf-perShot",
+    runner: object | None = None,
+) -> tuple[list[Shot], bool]:
+    """Like :func:`detect_shots` but also returns ``ok`` — ``True`` iff
+    the ``vmaf-perShot`` invocation succeeded and yielded shot data.
+
+    Internal helper for :func:`_resolve_shot_metadata` (corpus.py): the
+    summarise step needs to distinguish "real one-shot source" from
+    "fallback because the binary failed", which the public list-only
+    return shape can't carry.
+    """
     binary = _which(per_shot_bin) if runner is None else per_shot_bin
     if binary is None:
-        return _single_shot_fallback(total_frames)
+        return _single_shot_fallback(total_frames), False
 
     cmd = [
         per_shot_bin,
@@ -157,9 +191,9 @@ def detect_shots(
     rc = int(getattr(completed, "returncode", 1))
     stdout = getattr(completed, "stdout", "") or ""
     if rc != 0 or not stdout.strip():
-        return _single_shot_fallback(total_frames)
+        return _single_shot_fallback(total_frames), False
 
-    return _parse_per_shot_json(stdout)
+    return _parse_per_shot_json(stdout), True
 
 
 def _bitdepth_aware_pix(pix_fmt: str) -> str:
@@ -399,15 +433,103 @@ def _shell_join(parts: Iterable[str]) -> str:
     return " ".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Shot-metadata aggregation (research-0086 / contributor-pack)
+# ---------------------------------------------------------------------------
+#
+# TransNet-V2 cuts a source into shot ranges; the per-shot CRF tuner is
+# the primary consumer. The corpus orchestrator wants a *summary* of
+# the shot distribution — count, mean shot length in seconds, and the
+# population std of shot lengths. Animation tends toward short shots
+# with low variance, live-action drama toward longer shots with higher
+# variance; the std column gives Phase B / C predictors a content-class
+# proxy that costs nothing extra to compute (we already ran TransNet
+# for the per-shot tuner).
+#
+# When ``detect_shots`` falls back to a single-shot range (binary
+# missing or run failed), :func:`summarise_shots` returns the
+# ``(0, 0.0, 0.0)`` sentinel so downstream consumers can filter the
+# row out of any analysis that requires real shot data — see
+# ``docs/usage/vmaf-tune.md`` § Shot metadata.
+
+
+@dataclasses.dataclass(frozen=True)
+class ShotMetadata:
+    """Aggregate shot statistics for one source.
+
+    All fields are zero when shot detection is unavailable
+    (single-shot fallback). ``count > 0`` with ``avg_duration_sec > 0``
+    is the contract for "real shot data was captured".
+    """
+
+    count: int
+    avg_duration_sec: float
+    duration_std_sec: float
+
+
+_FALLBACK_METADATA = ShotMetadata(count=0, avg_duration_sec=0.0, duration_std_sec=0.0)
+
+
+def _is_fallback_shotlist(shots: Sequence[Shot]) -> bool:
+    """Heuristic: detect the ``[Shot(0, 1)]`` / single-shot fallback.
+
+    ``detect_shots`` emits either:
+
+    * a sentinel ``Shot(0, 1)`` when no frame count is known, or
+    * a single shot spanning the whole clip when the binary failed.
+
+    Both cases mean "shot detection was not real"; the caller should
+    treat the metadata as missing rather than as "one giant shot".
+    """
+    if len(shots) != 1:
+        return False
+    only = shots[0]
+    return only.start_frame == 0 and only.length <= 1
+
+
+def summarise_shots(
+    shots: Sequence[Shot],
+    *,
+    framerate: float,
+) -> ShotMetadata:
+    """Compute (count, mean, std) of shot lengths in seconds.
+
+    ``framerate`` must be positive. Returns the all-zero sentinel for
+    single-shot fallback lists or for any non-finite framerate. Uses
+    the *population* standard deviation (``statistics.pstdev``) so the
+    result is well-defined for ``count == 1``; sample std would emit
+    ``NaN`` and force the caller to special-case the singleton.
+    """
+    if not shots:
+        return _FALLBACK_METADATA
+    if not math.isfinite(framerate) or framerate <= 0.0:
+        return _FALLBACK_METADATA
+    if _is_fallback_shotlist(shots):
+        return _FALLBACK_METADATA
+
+    durations = [shot.length / framerate for shot in shots]
+    mean = sum(durations) / len(durations)
+    # ``pstdev`` returns 0.0 for a one-element sequence which matches
+    # the desired "no spread" semantic; ``stdev`` would raise.
+    std = statistics.pstdev(durations) if len(durations) > 1 else 0.0
+    return ShotMetadata(
+        count=len(shots),
+        avg_duration_sec=float(mean),
+        duration_std_sec=float(std),
+    )
+
+
 __all__ = [
     "EncodingPlan",
     "PredicateFn",
     "Shot",
+    "ShotMetadata",
     "ShotRecommendation",
     "detect_shots",
     "merge_shots",
     "parse_per_shot_csv",
     "plan_to_shell_script",
+    "summarise_shots",
     "tune_per_shot",
     "write_concat_listing",
 ]

@@ -370,22 +370,122 @@ def _hdr_args_vvenc(info: HdrInfo) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 
-def select_hdr_vmaf_model(model_dir: Path | None = None) -> Path | None:
+# ---------------------------------------------------------------------------
+# HDR VMAF model registration
+# ---------------------------------------------------------------------------
+#
+# Netflix maintains an HDR-trained VMAF model under the name
+# ``vmaf_hdr_v0.6.1.json`` in research artefacts published outside
+# their public ``model/`` tree (verified 2026-05-08 — the upstream
+# ``Netflix/vmaf`` master ``model/`` directory ships no HDR-tagged
+# JSON). The fork registers the *slot* here so that:
+#
+#   1. operators can drop a licensed copy of the JSON at the documented
+#      path and the harness will pick it up automatically;
+#   2. ``select_hdr_vmaf_model()`` always returns the SDR fallback
+#      when the slot is empty, with a single-shot warning logged once
+#      per process so noisy corpus runs don't drown the operator.
+#
+# When a real HDR model lands in the fork ``model/`` tree, this module
+# is the only knob to flip — all callers go through
+# ``select_hdr_vmaf_model``.
+
+# Canonical filename for the HDR model JSON. Matches Netflix's research
+# artefact name so a future port is a verbatim file drop.
+HDR_MODEL_FILENAME = "vmaf_hdr_v0.6.1.json"
+
+# Per-transfer dispatch: PQ and HLG share the HDR-trained model
+# upstream (vmaf_hdr_v0.6.1 was trained on a mixed PQ + HLG corpus).
+# Future Dolby-Vision-specific models would extend this map.
+_HDR_MODEL_BY_TRANSFER: dict[str, str] = {
+    "pq": HDR_MODEL_FILENAME,
+    "hlg": HDR_MODEL_FILENAME,
+}
+
+# Module-scoped flag for the "HDR model not shipped" warning. We log
+# once per process so repeated corpus rows don't spam stderr.
+_HDR_MODEL_MISSING_WARNED = False
+
+
+def hdr_model_name_for(transfer: str | None) -> str | None:
+    """Return the HDR VMAF model JSON filename for a transfer string.
+
+    ``transfer`` is the canonical fork-local identifier (``"pq"`` or
+    ``"hlg"``); any other value (including ``None`` for SDR sources)
+    returns ``None`` so the caller picks the SDR model.
+    """
+    if not transfer:
+        return None
+    return _HDR_MODEL_BY_TRANSFER.get(transfer.lower())
+
+
+def select_hdr_vmaf_model(
+    model_dir: Path | None = None,
+    *,
+    transfer: str | None = None,
+) -> Path | None:
     """Return the HDR-trained VMAF model JSON if shipped, else ``None``.
 
-    Looks for ``vmaf_hdr_*.json`` under ``model/`` (or ``model_dir`` if
-    provided — useful for tests). Netflix maintains an HDR VMAF model
-    in their internal repo (``vmaf_hdr_v0.6.1.json``); this fork has
-    not yet ported it. Callers should fall back to the SDR model and
-    log a warning when this returns ``None``.
+    Looks under ``model/`` (or ``model_dir`` if provided — useful for
+    tests). When ``transfer`` is set to ``"pq"`` / ``"hlg"`` the
+    canonical filename ``vmaf_hdr_v0.6.1.json`` is preferred; falls
+    back to a ``vmaf_hdr_*.json`` glob so operators can ship newer
+    revisions without breaking the resolver.
+
+    Returns ``None`` when no HDR model is shipped — callers fall back
+    to the SDR model and a one-shot warning is logged at module scope.
+    The transfer routing keeps the SDR fork-local default
+    (``vmaf_v0.6.1``) intact for non-HDR sources.
     """
     base = model_dir if model_dir is not None else _default_model_dir()
     if base is None or not base.exists():
+        _warn_hdr_model_missing_once(reason="model directory not found")
         return None
+
+    # Prefer the canonical name when transfer routing is requested.
+    canonical = hdr_model_name_for(transfer)
+    if canonical is not None:
+        canonical_path = base / canonical
+        if canonical_path.is_file():
+            return canonical_path
+
     candidates = sorted(base.glob("vmaf_hdr_*.json"))
     if not candidates:
+        _warn_hdr_model_missing_once(
+            reason=(
+                "no vmaf_hdr_*.json shipped — Netflix's vmaf_hdr_v0.6.1.json "
+                "is published outside the upstream model/ tree and awaits a "
+                "fork-local license review (ADR-0300 follow-up)"
+            )
+        )
         return None
     return candidates[-1]
+
+
+def _warn_hdr_model_missing_once(*, reason: str) -> None:
+    """Emit a single-shot warning that the HDR model is unavailable.
+
+    Idempotent — repeated calls within a process are no-ops. Tests that
+    need to re-trigger the warning (or assert the no-warning path) can
+    call :func:`reset_hdr_model_warning` from this module.
+    """
+    global _HDR_MODEL_MISSING_WARNED
+    if _HDR_MODEL_MISSING_WARNED:
+        return
+    _HDR_MODEL_MISSING_WARNED = True
+    _LOG.warning(
+        "select_hdr_vmaf_model: HDR VMAF model unavailable (%s); "
+        "falling back to SDR model. Drop %s into model/ when a "
+        "licensed copy is available.",
+        reason,
+        HDR_MODEL_FILENAME,
+    )
+
+
+def reset_hdr_model_warning() -> None:
+    """Test-only helper — clears the once-per-process warning flag."""
+    global _HDR_MODEL_MISSING_WARNED
+    _HDR_MODEL_MISSING_WARNED = False
 
 
 def _default_model_dir() -> Path | None:

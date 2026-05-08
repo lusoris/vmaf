@@ -27,7 +27,11 @@ __version__ = "0.0.2"
 #   ``adm2_mean``, ``vif_scale[0..3]_mean``, ``motion2_mean`` + matching
 #   ``_std`` counterparts — see ADR-0366). HDR keys default to SDR-equivalent
 #   values (``""`` / ``""`` / ``False``); canonical-6 columns carry ``NaN``
-#   when libvmaf does not expose a pooled feature.
+#   when libvmaf does not expose a pooled feature. The TransNet-V2 shot
+#   metadata trio (``shot_count`` / ``shot_avg_duration_sec`` /
+#   ``shot_duration_std_sec``) is also additive in v3 — keys default to
+#   ``0`` / ``0.0`` / ``0.0`` when shot detection is unavailable (ADR-0223
+#   / research-0086).
 SCHEMA_VERSION = 3
 
 # Canonical-6 libvmaf feature names. Mirrors the trainer-side
@@ -83,6 +87,13 @@ CORPUS_ROW_KEYS: tuple[str, ...] = (
     "hdr_transfer",
     "hdr_primaries",
     "hdr_forced",
+    # TransNet-V2 shot-metadata trio (ADR-0223 / research-0086). All
+    # additive; ``shot_count == 0`` flags "shot detection unavailable
+    # for this source" so downstream consumers can opt out without
+    # a schema-version bump.
+    "shot_count",
+    "shot_avg_duration_sec",
+    "shot_duration_std_sec",
     *CANONICAL6_AGGREGATE_KEYS,
 )
 
