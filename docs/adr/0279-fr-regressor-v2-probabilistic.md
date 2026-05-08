@@ -1,6 +1,6 @@
 # ADR-0279: `fr_regressor_v2` probabilistic head — deep-ensemble + conformal scaffold
 
-- **Status**: Accepted
+- **Status**: Proposed
 - **Date**: 2026-05-03
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, fr-regressor, probabilistic, ensemble, conformal, fork-local
@@ -132,20 +132,32 @@ multi-codec Phase A corpus and tracked as backlog item
   the v2 ensemble member graph follows.
 - Source: `req` (PR #354 audit Bucket #18, top-3 ranked).
 
-### Status update 2026-05-08: Accepted
+### Status update 2026-05-08: implementation landed
 
-Audited as part of the 2026-05-08 ADR `Proposed` sweep
-([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+Per ADR-0028 immutability, the body above is frozen at proposal time.
+The `Status` line at the head of this ADR remains `Proposed` until
+the production training run lands; this section records the
+implementation deliverables that ship today as a non-binding addendum.
 
-Acceptance criteria verified in tree at HEAD `0a8b539e`:
+**What landed:** the conformal-prediction surface itself. New
+`tools/vmaf-tune/src/vmaftune/conformal.py` ships
+`SplitConformalCalibration` (Lei et al. 2018 Theorem 2.2) and
+`CVPlusConformalCalibration` (Barber et al. 2021 Theorem 1) as a
+pure-Python, dependency-free wrapper around the existing
+`Predictor` surface. The CLI gains `vmaf-tune predict
+--with-uncertainty --calibration-sidecar <path> [--alpha <a>]` per
+the Decision section above; without a sidecar the wrapper degrades
+to `low == high == point` and the report is flagged
+`uncalibrated` so consumers don't silently treat a width-zero
+interval as a real coverage guarantee. Empirical coverage on the
+synthetic Gaussian-noise corpus matches the nominal `1 - alpha`
+within ~0.01 (0.9515 vs 0.95 nominal on a 2000-point probe with a
+400-point calibration set), confirming the marginal-coverage proof
+in operation.
 
-- `model/tiny/fr_regressor_v2_ensemble_v1.json` — manifest present.
-- Five seeded members
-  `model/tiny/fr_regressor_v2_ensemble_v1_seed{0..4}.{onnx,onnx.data,json}`
-  — all present.
-- `ai/scripts/eval_probabilistic_proxy.py` and
-  `ai/scripts/export_ensemble_v2_seeds.py` — present.
-- Verification command:
-  `ls model/tiny/fr_regressor_v2_ensemble_v1*
-  ai/scripts/eval_probabilistic_proxy.py
-  ai/scripts/export_ensemble_v2_seeds.py`.
+**What remains gated:** the deep-ensemble member training run, the
+C-side runtime adapter (`vmaf_dnn_score_with_interval`), and the
+`vmaf-tune --quality-confidence` Phase B consumer. Those land
+under `T7-FR-REGRESSOR-V2-PROBABILISTIC` once the multi-codec
+Phase A corpus is available; flipping `Status` to `Accepted` is
+gated on that PR.

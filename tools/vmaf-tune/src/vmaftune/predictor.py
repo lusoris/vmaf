@@ -272,14 +272,26 @@ class Predictor:
         which is the default until the real-corpus retrain lands —
         we fall back to a documented linear approximation that
         rescales the existing VMAF predictor's output:
-        ``mos = (predicted_vmaf - 30) / 14`` clamped to ``[1, 5]``.
+
+        .. math:: \\widehat{\\text{MOS}} = (\\widehat{\\text{VMAF}} - 30) / 14
+
+        The fallback is deliberately conservative: it maps VMAF 30
+        (visibly distorted) to MOS 0 and VMAF 100 (transparent) to
+        MOS 5, so callers that don't have the MOS head still get a
+        plausible 5-point estimate. Per ADR-0325 §Phase 3 the
+        fallback is documented as approximate, not authoritative.
 
         ``target_quality`` is the CRF the caller plans to encode at;
-        when ``None`` we pick the codec's default CRF.
+        when ``None`` we pick the codec's default CRF. The MOS head
+        itself is encode-agnostic — it consumes the canonical-6
+        features + saliency + shot metadata of the *encoded* clip —
+        but the fallback path needs a CRF to feed the VMAF predictor.
         """
         head_session = _maybe_load_mos_head()
         if head_session is not None:
             return _predict_mos_via_head(head_session, features)
+        # Fallback path. Use the codec's default CRF when none
+        # provided so the call site can supply features alone.
         if target_quality is None:
             adapter = get_adapter(codec)
             target_quality = adapter.quality_default
@@ -307,6 +319,43 @@ class Predictor:
         See :func:`pick_keyint`.
         """
         return pick_keyint(features, fps)
+
+    def predict_vmaf_with_uncertainty(
+        self,
+        features: ShotFeatures,
+        target_quality: int,
+        codec: str,
+        *,
+        calibration: object | None = None,
+        alpha: float | None = None,
+    ) -> tuple[float, float, float]:
+        """Predict VMAF and return ``(point, low, high)``.
+
+        Wraps the point estimate from :meth:`predict_vmaf` in a
+        conformal prediction interval. ``calibration`` is a
+        :class:`vmaftune.conformal.SplitConformalCalibration` or
+        :class:`vmaftune.conformal.CVPlusConformalCalibration` instance;
+        ``None`` returns ``(point, point, point)`` so the
+        ``--with-uncertainty`` flag's degraded path stays well-typed
+        when no calibration sidecar ships with the model.
+
+        Coverage guarantee under exchangeability:
+        ``P(target in [low, high]) >= 1 - alpha`` per Lei et al. 2018
+        Theorem 2.2 (split conformal) and Barber et al. 2021 Theorem 1
+        (CV+).
+        """
+        # Lazy import keeps the conformal module out of the import
+        # graph for callers that don't ask for uncertainty.
+        from .conformal import ConformalPredictor
+
+        cal = calibration
+        if alpha is not None and cal is not None:
+            # Honour an explicit alpha override by rebuilding the
+            # frozen calibration tuple.
+            cal = dataclasses.replace(cal, alpha=alpha)  # type: ignore[arg-type]
+        wrapper = ConformalPredictor(base=self, calibration=cal)  # type: ignore[arg-type]
+        interval = wrapper.predict(features, target_quality, codec)
+        return interval.point, interval.low, interval.high
 
 
 def pick_crf(
@@ -417,7 +466,8 @@ _MOS_HEAD_RELPATH: Path = Path("model/konvid_mos_head_v1.onnx")
 def _resolve_mos_head_path() -> Path | None:
     """Locate ``konvid_mos_head_v1.onnx`` relative to the repo root.
 
-    Walks up from this file until it finds the model file. Returns
+    Walks up from this file until it finds either the model file or
+    a directory that *isn't* a parent of the repo root. Returns
     ``None`` when the model isn't shipped — that's the documented
     fallback case.
     """
@@ -442,6 +492,7 @@ def _maybe_load_mos_head() -> object | None:
     """
     global _MOS_HEAD_CACHE
     if _MOS_HEAD_CACHE is not None:
+        # Sentinel object means "we tried already and it failed; don't retry."
         if _MOS_HEAD_CACHE is _MOS_HEAD_FAILED:
             return None
         return _MOS_HEAD_CACHE
@@ -480,7 +531,11 @@ def _predict_mos_via_head(head_session: object, features: ShotFeatures) -> float
     :mod:`ai.scripts.train_konvid_mos_head` and the 1-D ENCODER_VOCAB v4
     one-hot (``[1.0]`` — the single ``ugc-mixed`` slot). Defaults to
     zero for the canonical-6 + saliency + shot-metadata fields the
-    :class:`ShotFeatures` dataclass does not currently expose.
+    :class:`ShotFeatures` dataclass does not currently expose; that
+    is acceptable because today's call sites are vmaf-tune per-shot
+    paths that haven't yet been wired to the canonical-6 extractor —
+    they get the head's no-op behaviour and the linear-approximation
+    consumers keep working.
     """
     import numpy as np  # type: ignore[import-not-found]
 
@@ -489,6 +544,10 @@ def _predict_mos_via_head(head_session: object, features: ShotFeatures) -> float
     x = np.zeros((1, 11), dtype=np.float32)
     x[0, 6] = float(features.saliency_mean)
     x[0, 7] = float(features.saliency_var)
+    # Canonical-6 + shot-metadata default to zero (training corpus
+    # mean is non-zero; downstream callers that have these signals
+    # available pass them through a richer feature extractor in a
+    # follow-up PR).
     encoder = np.ones((1, 1), dtype=np.float32)
     inputs = head_session.get_inputs()  # type: ignore[attr-defined]
     feed: dict[str, object] = {inputs[0].name: x, inputs[1].name: encoder}
