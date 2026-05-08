@@ -9548,6 +9548,9 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
+
+
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -9689,6 +9692,7 @@ trips on ≥ 5.5e-5 drift per ADR-0160 §Context). The ADR-0350
 §Verification reproducer is the gate — re-run it if the cycle
 share shifts, the Netflix normal-pair fixture changes, or a new
 host class (e.g. wide-issue Granite Rapids) goes into CI.
+
 
 ### 0320 — FFmpeg n8.1 → n8.1.1 base bump (2026-05-09)
 - **Touches**: `ffmpeg-patches/series.txt` (header comment),
@@ -10212,4 +10216,66 @@ compiles).
       libvmaf/src/vulkan/common.c
   sed -i 's/VMA_VULKAN_VERSION 1004000/VMA_VULKAN_VERSION 1003000/' \
       libvmaf/src/vulkan/vma_impl.cpp
+
+### Upstream-port-later batch — Research-0090 18-commit triage close-out (2026-05-09)
+- **Touches**: `docs/state.md` (one row in "Deferred (waiting on
+  external trigger)"), this file, `changelog.d/changed/upstream-port-later-batch-2026-05-09.md`.
+  No code touched. Companion to PR #446 (Research-0090) and the
+  in-flight PRs #497 (MyTestCase super-PR), #443 / #444 (cambi-docs
+  duplicate pair).
+- **Per-commit classification (input set: 18 PORT_LATER SHAs from
+  Research-0090)**:
+  | # | Upstream SHA | Subject (truncated) | Verdict | Reopen / forward path |
+  | --- | --- | --- | --- | --- |
+  | 1 | `38e905d1` | adopt MyTestCase + reformat BD-rate test data | PORT_DEFERRED | Subsumed by PR #497 commit `e1dbdc09`; close out when #497 merges |
+  | 2 | `005988ea` | adopt MyTestCase + port new tests + align fifo_mode | PORT_DEFERRED | Subsumed by PR #497 commit `6c05afe2`; close out when #497 merges |
+  | 3 | `4679db83` | fix VMAFEXEC_score tolerances for macOS FP precision | PORT_DEFERRED **w/ Netflix-golden guard** | PR #497 commit `0004d2cf` — must preserve fork's golden `places=` values byte-for-byte (CLAUDE §8 / ADR-0024) |
+  | 4 | `3e075107` | adopt MyTestCase + update score values in vmafexec tests | PORT_DEFERRED | Subsumed by PR #497 commit `0004d2cf`; close out when #497 merges |
+  | 5 | `e3827e4d` | adopt MyTestCase + port new tests in asset/bootstrap/local_explainer | PORT_DEFERRED | Subsumed by PR #497 commit `6c05afe2`; close out when #497 merges |
+  | 6 | `25ff9f18` | remove empty `VmafossexecCommandLineTest` stub | PORT_DEFERRED → CHERRY-PICK after #497 | Pure 13-line deletion. PR #497 currently RE-EMITS the stub; once #497 lands, cherry-pick this commit standalone (zero-conflict against post-#497 tip). |
+  | 7 | `3a041a97` | adopt MyTestCase + update score values | PORT_DEFERRED | Subsumed by PR #497 commit `d52d9221`; close out when #497 merges |
+  | 8 | `ead2d12b` | fix vif_scale3 + adm3_egl_1 tolerances for macOS FP precision | PORT_DEFERRED **w/ Netflix-golden guard** | PR #497 commit `b5a3f61b` — Netflix-golden tolerance guard same as row 3 |
+  | 9 | `6c097fc4` | reduce ADM/VIF tolerances for macOS FP precision | PORT_DEFERRED **w/ Netflix-golden guard** | PR #497 commit `f3881d5c` — Netflix-golden tolerance guard same as row 3 |
+  | 10 | `7df50f3a` | align testutil with full set of fixture functions | PORT_DEFERRED | Subsumed by PR #497 commit `f1ae0495`; close out when #497 merges |
+  | 11 | `322ca041` | replace temporal slicing with pre-sliced YUV fixtures | PORT_DEFERRED | Subsumed by PR #497 commit `7d9d9a10`; close out when #497 merges. Sequencing matters: this commit must land before rows 12, 14, 15, 17 (the YUV-fixture consumers); #497 already orders them correctly. |
+  | 12 | `74bdce1b` | align vmafexec_feature_extractor_test (aim/adm3/motion3) | PORT_DEFERRED | Subsumed by PR #497 commit `07e7cb48`; close out when #497 merges |
+  | 13 | `a3776335` | align feature_extractor_test (aim/adm3/motion3) | PORT_DEFERRED | Subsumed by PR #497 commit `15a6874d`; close out when #497 merges |
+  | 14 | `0341f730` | remove duplicate `test_run_vmaf_integer_fextractor` | PORT_DEFERRED → CHERRY-PICK after #497 | Pure 76-line deletion. Same disposition as row 6 — #497 currently re-emits the duplicate; cherry-pick standalone after #497. |
+  | 15 | `9fa593eb` | port feature_extractor tests for aim/adm3/motion3 + new options | PORT_DEFERRED | Subsumed by PR #497 commit `ab21b694`; close out when #497 merges |
+  | 16 | `d93495f5` | reduce tolerance for VMAF scores in quality_runner tests | PORT_DEFERRED **w/ Netflix-golden guard** | PR #497 — Netflix-golden tolerance guard same as row 3 |
+  | 17 | `7d1ad54b` | port feature extractor tests for aim/adm3/motion3 | PORT_DEFERRED | Subsumed by PR #497 commit `44b9e626`; close out when #497 merges |
+  | 18 | `721569bc` | resource/doc: cambi_high_res_speedup + motion2 score | PORT_DEFERRED → DEDUP | Already in flight on TWO branches (PR #443 + PR #444). Maintainer picks one and abandons the other per Research-0090 §Recommended action #4. No third port-PR opened. |
+- **Invariant**: after PR #497 merges, the Research-0090 PORT_LATER
+  bucket reduces to exactly two follow-up cherry-picks against
+  post-#497 master:
+  1. `git cherry-pick 25ff9f18` (delete empty `VmafossexecCommandLineTest`).
+  2. `git cherry-pick 0341f730` (delete duplicate
+     `test_run_vmaf_integer_fextractor`).
+  Both are pure deletions on `python/test/command_line_test.py`
+  and `python/test/feature_extractor_test.py` respectively; no
+  score change, no Netflix-golden interaction. They were excluded
+  from PR #497 because the v2 super-PR's diff state currently
+  RE-EMITS those identifiers (likely because #497 cherry-picked
+  from an earlier upstream tip than `25ff9f18` / `0341f730`).
+- **Netflix-golden guard (binding)**: per CLAUDE §8 / ADR-0024, the
+  three Netflix CPU golden pairs in `python/test/quality_runner_test.py`,
+  `vmafexec_test.py`, `vmafexec_feature_extractor_test.py`,
+  `feature_extractor_test.py`, `result_test.py` (1 normal
+  `src01_hrc00↔hrc01` + 2 checkerboard) carry hard-coded
+  `assertAlmostEqual` rows that are NEVER modified by a fork PR.
+  Upstream commits `4679db83`, `ead2d12b`, `6c097fc4`, `d93495f5`
+  explicitly LOWER `places=` on a subset of those rows (their stated
+  motivation is macOS FP precision drift, not a true score change).
+  Reviewer of PR #497 must verify that the 3 golden pairs retain
+  fork tolerances byte-for-byte; only non-golden rows may adopt
+  the relaxations.
+- **On upstream sync**: future `/sync-upstream` runs that re-detect
+  these 18 SHAs should match this entry via the SHA list and
+  short-circuit Pass-2 classification (skip re-triage).
+- **Re-test on rebase**: none required at the time of this commit
+  (no code touched); after the two follow-up cherry-picks
+  (`25ff9f18` + `0341f730`) eventually land, run
+  meson test -C build --suite=fast
+  make test-netflix-golden  # 3/3 CPU goldens still pass
+
 

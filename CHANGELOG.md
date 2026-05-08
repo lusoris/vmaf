@@ -8,6 +8,63 @@
 
 ### Changed
 
+- **Vulkan VIF API-1.4 NVIDIA residual — Phase 2 dynamic dump
+  refutes FP-precision hypothesis, localises bug to SCALE=2
+  memory-model regression (T-VK-VIF-1.4-RESIDUAL).** Phase 2
+  empirical run on RTX 4090 + driver 595.71.05 + Vulkan 1.4.341 in
+  this session (2026-05-09) replaces the `[UNVERIFIED]` cells
+  research-0089 §5 carried with real numbers and **refutes** the
+  digest body's FP-arithmetic / `shaderFloatControls2`-v2 codegen
+  hypothesis. The 45/48 `integer_vif_scale2` `places=4` failure is
+  not an FP-precision drift on the 5 SPIR-V FP ops — the
+  `vif_vulkan` `debug=true` host channel surfaces it at the
+  accumulator level: `den_scale2 ≈ -10¹⁶` vs CPU's `+2.5e+04`,
+  `num_scale2 ≈ +10¹⁵` (10¹¹× magnitude flip + sign flip), with
+  full run-to-run **non-determinism** across 5 repeat runs (5
+  distinct `(num, den)` pairs). The score collapses to
+  `1.000000` because the host reduction's `den <= 0` fallback in
+  `reduce_and_emit()` returns 1.0. Bug **isolated to SCALE = 2**
+  specialisation; scales 0/1/3 deterministic + sane. API 1.3
+  control on the same machine is fully deterministic and
+  bit-exact 0/48 across the same 5 runs. Signature is a memory
+  race in the Phase-4 cross-subgroup int64 reduction (`vif.comp`
+  lines 547–592, `subgroupAdd` + `barrier()` + thread-0 read of
+  `s_lmem`) that Vulkan 1.4's stricter NVIDIA default memory
+  model exposes. The `places=3` override path is **eliminated** —
+  non-deterministic accumulators cannot meet any tolerance. Phase
+  3 fix candidate documented in research-0089 2026-05-09 status
+  appendix: replace bare `barrier()` with explicit
+  `controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup,
+  gl_StorageSemanticsShared, gl_SemanticsAcquireRelease)` (or
+  `memoryBarrierShared() + barrier()`) before the thread-0
+  reduction read. State.md row T-VK-VIF-1.4-RESIDUAL updated with
+  the localisation; reproduction recipe documented for Phase 3.
+  No production code changes — this PR is the digest update +
+  state.md row update; the shader fix lands separately under
+  Phase 3 with a 5-run determinism gate.
+- **Vulkan VIF API-1.4 NVIDIA residual — bisect digest landed
+  (T-VK-VIF-1.4-RESIDUAL).** New research digest
+  [`docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`](docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md)
+  documents the static CPU-`double`-vs-Vulkan-`float` stage bisect
+  on the residual 45/48 `integer_vif_scale2` `places=4` mismatch on
+  NVIDIA RTX 4090 + driver 595.71.05 at API 1.4 that PR #346's
+  Step A did not close. Re-verified via glslc 2026.1 + spirv-dis
+  that `vif.comp` emits exactly 5 floating-point arithmetic ops in
+  optimised SPIR-V and all 5 are `NoContraction`-decorated — the
+  SPIR-V mitigation surface is exhausted. Cross-checked against
+  SYCL's `vif_sycl` (same f32 contract, passes the gate) — rules
+  out a pure f32-vs-f64 class issue analog of T-VK-CIEDE-F32-F64.
+  Localises root cause to NVIDIA's `shaderFloatControls2`-v2
+  codegen flip at API 1.4 on a non-IEEE-bound default that the
+  SPIR-V surface cannot bind (e.g., reciprocal-multiply for divide,
+  fast-rsq selection). Empirical per-stage NVIDIA dynamic dump not
+  run this session (needs ~1 day of SSBO instrumentation +
+  hardware lane); values tagged `[UNVERIFIED]` per the
+  no-fabrication rule. Phase-2 shader fix not warranted —
+  recommends per-stage NVIDIA dump or `places=3` override ADR for
+  Step B unblock. State.md row T-VK-VIF-1.4-RESIDUAL updated with
+  bisect outcome; ADR-0269 carries a 2026-05-08 status-update
+  appendix. No code changes.
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
@@ -4365,8 +4422,6 @@
   unchanged; status flips land as a `### Status update 2026-05-08`
   appendix that records the verification trail. Companion research
   digest: `docs/research/0086-adr-proposed-status-sweep-2026-05-08.md`.
-
-
 - **CI:** `actions/cache` now persists `~/.ccache` for every Linux + macOS
   build leg in `libvmaf-build-matrix.yml` (previously only the MinGW64 leg
   cached its `.ccache`). After warm-up, ccache hit rate of 60–85% is expected
@@ -4725,6 +4780,9 @@
 
 
 
+
+
+
 - **`docs/state.md`**: audit cleanup (2026-05-05). Moved `Y4M-411-OOB`
   heap-buffer-overflow row from Open to Recently closed (PR #357 /
   commit `05ba29a6` landed the guard fix on 2026-05-04); removed the
@@ -4819,6 +4877,23 @@
   [ADR-0028](docs/adr/0028-adr-maintenance-rule.md) immutability
   rule. Coordinates with PR #455 (state.md audit-backfill, also
   draft); whichever lands first, the other rebases.
+- Closed out the Research-0090 PORT_LATER bucket (18 upstream SHAs)
+  with explicit per-commit verdicts and reopen triggers in
+  [`docs/state.md`](docs/state.md) + [`docs/rebase-notes.md`](docs/rebase-notes.md).
+  All 18 commits remain DEFERRED — 17 are subsumed by the in-flight
+  PR #497 (`chore/upstream-port-mytestcase-migration-v2-2026-05-08`,
+  +7372/-652) and the eighteenth (`721569bc`, cambi docs) is already
+  duplicate-covered by PR #443 and PR #444. Two pure-deletion commits
+  (`25ff9f18` empty `VmafossexecCommandLineTest` stub; `0341f730`
+  duplicate `test_run_vmaf_integer_fextractor`) are flagged as
+  cherry-pick-after-#497 follow-ups because PR #497's diff state
+  currently re-emits both identifiers. Netflix-golden guard reaffirmed:
+  the four upstream macOS-FP tolerance commits (`4679db83`,
+  `ead2d12b`, `6c097fc4`, `d93495f5`) explicitly LOWER `places=` on
+  a subset of golden assertions and PR #497 must preserve fork
+  tolerances byte-for-byte on the three Netflix CPU golden pairs per
+  CLAUDE §8 / ADR-0024. No code touched in this PR; no rebase impact
+  beyond the documentation entries themselves.
 
 
 - **`vif.comp` + `ciede.comp` shaders — `precise` decorations on the
