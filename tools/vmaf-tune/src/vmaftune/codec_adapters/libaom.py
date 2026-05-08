@@ -103,21 +103,27 @@ class LibaomAdapter:
         if not lo <= crf <= hi:
             raise ValueError(f"crf {crf} outside libaom range [{lo}, {hi}]")
 
-    def ffmpeg_codec_args(self, preset: str, crf: int) -> tuple[str, ...]:
-        """Return the codec-specific argv fragment.
+    def ffmpeg_codec_args(self, preset: str, crf: int) -> list[str]:
+        """FFmpeg argv slice for libaom-av1 single-pass CRF.
 
-        Yields the slice that goes after ``-c:v libaom-av1`` in the
-        final ffmpeg command. Tests pin this to the exact byte
-        sequence; downstream encode wiring should call this verbatim.
+        libaom uses ``-cpu-used`` (not ``-preset``); the canonical
+        preset name is mapped via :data:`_PRESET_CPU_USED`. ``-c:v
+        libaom-av1`` is included so the dispatcher (HP-1 / ADR-0326)
+        can splice the slice in verbatim, mirroring the contract used
+        by every other adapter.
         """
-        self.validate(preset, crf)
-        return (
-            "-crf",
-            str(crf),
+        return [
+            "-c:v",
+            self.encoder,
             "-cpu-used",
             str(self.cpu_used(preset)),
-            "-an",
-        )
+            "-crf",
+            str(crf),
+        ]
+
+    def extra_params(self) -> tuple[str, ...]:
+        """No additional non-codec argv for libaom-av1."""
+        return ()
 
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by libaom-av1."""

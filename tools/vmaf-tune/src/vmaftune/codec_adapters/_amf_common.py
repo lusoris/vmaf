@@ -154,6 +154,28 @@ class _AMFAdapterBase:
         """Resolve the AMF ``-quality`` argument for a preset name."""
         return map_preset_to_amf_quality(preset)
 
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for AMD AMF single-pass constant-QP.
+
+        AMF does not honour FFmpeg's generic ``-preset``; the rate
+        control is constant-QP via ``-rc cqp -qp_i N -qp_p N`` and the
+        speed dial is the 3-level ``-quality {speed,balanced,quality}``
+        switch. The 7-name canonical preset vocabulary is compressed
+        to those three rungs by :func:`map_preset_to_amf_quality`.
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-quality",
+            self.amf_quality(preset),
+            "-rc",
+            "cqp",
+            "-qp_i",
+            str(quality),
+            "-qp_p",
+            str(quality),
+        ]
+
     def extra_params(self, preset: str, qp: int) -> tuple[str, ...]:
         """FFmpeg argv tail covering AMF-specific switches.
 

@@ -263,6 +263,22 @@ class VVenCAdapter:
             pairs.append(f"CCALF={1 if self.ccalf else 0}")
         return pairs
 
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for libvvenc single-pass constant-QP.
+
+        VVenC's quality knob is ``-qp`` (not ``-crf``); the canonical
+        preset name is compressed onto the 5-level native vocabulary
+        via :meth:`native_preset`.
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.native_preset(preset),
+            "-qp",
+            str(quality),
+        ]
+
     def extra_params(self) -> tuple[str, ...]:
         """FFmpeg ``-c:v libvvenc`` arg suffix for VVenC tuning knobs.
 

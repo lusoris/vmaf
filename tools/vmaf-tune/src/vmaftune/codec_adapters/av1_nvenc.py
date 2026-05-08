@@ -44,6 +44,21 @@ class Av1NvencAdapter:
         """Translate a mnemonic preset to its NVENC ``pN`` name."""
         return _nvc.nvenc_preset(preset)
 
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for ``av1_nvenc`` constant-quality."""
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.nvenc_preset(preset),
+            "-cq",
+            str(quality),
+        ]
+
+    def extra_params(self) -> tuple[str, ...]:
+        """No additional non-codec argv for av1_nvenc."""
+        return ()
+
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by NVENC."""
         return _gop_common.default_gop_args(keyint, min_keyint)
