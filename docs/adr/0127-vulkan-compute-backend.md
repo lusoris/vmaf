@@ -172,3 +172,28 @@ Acceptance criteria verified in tree at HEAD `0a8b539e`:
   sweep) shipped the async pending-fence v2 model.
 - Verification command:
   `ls libvmaf/include/libvmaf/libvmaf_vulkan.h libvmaf/src/vulkan/`.
+### Status update 2026-05-09: MoltenVK validation lane added
+
+Added an advisory CI lane on `macos-latest` (Apple Silicon) that
+validates the **MoltenVK passthrough route** for the existing Vulkan
+backend on macOS, complementary to the planned native Metal backend.
+Per ADR-0028 immutability the body above is preserved verbatim; this
+appendix records the operational follow-through:
+
+- New CI job `Build — macOS Vulkan via MoltenVK (advisory)` in
+  [`libvmaf-build-matrix.yml`](../../.github/workflows/libvmaf-build-matrix.yml)
+  installs `molten-vk` + `vulkan-loader` + `vulkan-headers` +
+  `shaderc` via Homebrew, points the loader at MoltenVK via
+  `VK_ICD_FILENAMES=/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json`,
+  and runs the three Vulkan smoke binaries
+  (`test_vulkan_smoke`, `test_vulkan_pic_preallocation`,
+  `test_vulkan_async_pending_fence`) against the Apple GPU.
+- Lane is `continue-on-error: true` (advisory) until one green run
+  on `master`. Not a required check; not in
+  `required-aggregator.yml`.
+- Operator-facing documentation lives at
+  [`docs/backends/vulkan/moltenvk.md`](../backends/vulkan/moltenvk.md)
+  with the install matrix, known-limitations table, and
+  failure-mode playbook.
+- See [ADR-0338](0338-macos-vulkan-via-moltenvk-lane.md) for the
+  full decision record.

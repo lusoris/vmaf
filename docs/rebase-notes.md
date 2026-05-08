@@ -9337,3 +9337,54 @@ train without touching the underlying matrix.
 **Why**: opt-in graceful migration; ADR-0359 + docs/development/ci-runners.md
 document the flip-the-variable recipe when the cluster is degraded.
 **Rebase-sensitivity**: zero — workflow file is fork-local.
+
+## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
+
+- **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
+  — adds `Build — macOS Vulkan via MoltenVK (advisory)` lane, adds
+  `continue-on-error` plumbing on `matrix.experimental && matrix.moltenvk`,
+  adds `Install MoltenVK + Vulkan loader/headers (macOS)` step, adds
+  `Run Vulkan smoke tests (macOS MoltenVK)` step, gates the existing
+  test/cache/tox steps on `!matrix.moltenvk`),
+  `docs/backends/vulkan/moltenvk.md` (new fork-local doc),
+  `docs/adr/0127-vulkan-compute-backend.md` (status-update appendix
+  per the ADR's Proposed status — body untouched),
+  `docs/adr/0338-macos-vulkan-via-moltenvk-lane.md` (new),
+  `docs/adr/_index_fragments/0338-macos-vulkan-via-moltenvk-lane.md`
+  plus `_order.txt` append (new),
+  `docs/research/0089-moltenvk-feasibility-on-fork-shaders.md` (new),
+  `changelog.d/added/macos-vulkan-via-moltenvk-lane.md` (new).
+- **Invariant on the upstream-mirror file**: none —
+  `libvmaf-build-matrix.yml` is fork-local. The new lane's
+  `continue-on-error` clause MUST stay scoped to `matrix.experimental
+  == true && matrix.moltenvk == true` so existing `experimental: true`
+  matrix entries (e.g. the macOS DNN lane) keep their default
+  fail-fast behaviour. `VK_ICD_FILENAMES` MUST point at
+  `/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json` — note the
+  `etc/vulkan` segment, NOT `share/vulkan` (the homebrew formula's
+  install layout uses `etc/`; verified against
+  `Formula/m/molten-vk.rb`).
+- **On upstream sync**: Netflix upstream has no macOS Vulkan lane and
+  no MoltenVK awareness; nothing to reconcile. If a future MoltenVK
+  release drops support for `GL_EXT_shader_atomic_int64` translation,
+  `moment.comp` will fail on the lane; the fix path is in
+  ADR-0338 §Decision (lane is `continue-on-error` so it does not
+  block PRs) — update the known-limitations table in
+  `docs/backends/vulkan/moltenvk.md` and either pin a working
+  MoltenVK version in the brew install line or rewrite the shader.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -c "import yaml; yaml.safe_load(open('.github/workflows/libvmaf-build-matrix.yml'))" && \
+    echo "YAML parse OK"
+  # Confirm the lane is still in the matrix:
+  grep -q "Build — macOS Vulkan via MoltenVK (advisory)" \
+    .github/workflows/libvmaf-build-matrix.yml
+  # Confirm the lane is NOT promoted to required-aggregator until one
+  # green run on master (per ADR-0338):
+  ! grep -q "macOS Vulkan via MoltenVK" \
+    .github/workflows/required-aggregator.yml
+  # Confirm the ICD path is the etc/ one, not share/:
+  grep -q "etc/vulkan/icd.d/MoltenVK_icd.json" \
+    .github/workflows/libvmaf-build-matrix.yml
+  ```

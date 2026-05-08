@@ -153,14 +153,46 @@ A 422 response here is the canary that the workflow is about to start
 failing on the next push. See [ADR-0263](../docs/adr/0263-ossf-scorecard-policy.md)
 and [Research-0053](../docs/research/0053-ossf-scorecard-investigation.md).
 
+## macOS Vulkan-via-MoltenVK lane (ADR-0338)
+
+`libvmaf-build-matrix.yml` carries an advisory lane
+`Build — macOS Vulkan via MoltenVK (advisory)` that runs on
+`macos-latest` (Apple Silicon). Rebase-sensitive invariants:
+
+- The lane is gated `continue-on-error: ${{ matrix.experimental ==
+  true && matrix.moltenvk == true }}`. The compound predicate is
+  load-bearing — the matrix has other `experimental: true` rows
+  (the macOS DNN lane) that must keep their default fail-fast
+  behaviour. A naive simplification to `${{ matrix.experimental }}`
+  would silently make those other rows advisory.
+- `VK_ICD_FILENAMES` MUST point at
+  `/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json` — the homebrew
+  formula `molten-vk` lays the JSON under `etc/vulkan/`, NOT
+  `share/vulkan/`. Do not "fix" the path; verify against
+  `Formula/m/molten-vk.rb` if in doubt.
+- The lane must NOT be added to `required-aggregator.yml` until one
+  green run lands on `master`. See ADR-0338 §Decision.
+- The existing `Run tests` / cache / tox steps gate on
+  `!matrix.moltenvk` — the moltenvk lane runs its own dedicated
+  Vulkan-only smoke step. Do not unify or the lane will try to run
+  tox tests against an Apple-Vulkan build, which is not the lane's
+  contract.
+
+See [ADR-0338](../docs/adr/0338-macos-vulkan-via-moltenvk-lane.md)
+and [`docs/backends/vulkan/moltenvk.md`](../docs/backends/vulkan/moltenvk.md).
+
 ## Related
 
 - [ADR-0124](../docs/adr/0124-automated-rule-enforcement.md) — this tooling
 - [ADR-0263](../docs/adr/0263-ossf-scorecard-policy.md) — OSSF Scorecard
   policy + accepted blockers
+- [ADR-0338](../docs/adr/0338-macos-vulkan-via-moltenvk-lane.md) — macOS
+  Vulkan-via-MoltenVK advisory lane
 - [Research-0002](../docs/research/0002-automated-rule-enforcement.md) — investigation
 - [Research-0053](../docs/research/0053-ossf-scorecard-investigation.md) —
   OSSF Scorecard per-check breakdown
+- [Research-0089](../docs/research/0089-moltenvk-feasibility-on-fork-shaders.md)
+  — MoltenVK feasibility against the fork's shader inventory
 - [`docs/development/automated-rule-enforcement.md`](../docs/development/automated-rule-enforcement.md)
   — user-facing explainer
 - [`docs/rebase-notes.md` entry 0026](../docs/rebase-notes.md) — sync ledger
