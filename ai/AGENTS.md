@@ -742,6 +742,7 @@ landed in PR scope ADR-0325; the binary upload is a separate PR.
   accordingly.
 
 - The MOS-corpus row schema emitted by
+
   `ai/scripts/lsvq_to_corpus_jsonl.py` (ADR-0367) is byte-identical
   to the KonViD-150k Phase 2 adapter
   (`ai/scripts/konvid_150k_to_corpus_jsonl.py`) modulo the
@@ -749,4 +750,18 @@ landed in PR scope ADR-0325; the binary upload is a separate PR.
   through one trainer-side data loader. Do NOT widen the schema
   in only one adapter — adding or removing a column means a
   lockstep edit across both, plus a `corpus_version` bump.
+
+  `ai/scripts/youtube_ugc_to_corpus_jsonl.py` (ADR-0368) is
+  byte-identical to the LSVQ adapter
+  (`ai/scripts/lsvq_to_corpus_jsonl.py`, ADR-0333) and the
+  KonViD-150k Phase 2 adapter modulo the `corpus` and
+  `corpus_version` literals. All three are consumed through one
+  trainer-side data loader. Do NOT widen the schema in only one
+  adapter — adding or removing a column means a lockstep edit
+  across all three, plus a `corpus_version` bump. The synthesised
+  bucket-URL path (`--bucket-prefix` flag) is YouTube-UGC-specific
+  because the canonical `original_videos.csv` ships without a
+  `url` column; do not back-port that synthesis seam to the LSVQ
+  / KonViD-150k adapters where it would mask manifest-CSV bugs.
+
 

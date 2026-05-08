@@ -9386,7 +9386,7 @@ inline.*
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
 
-<<<<<<< HEAD
+
 ## ADR-0335 — Hardware-capability priors (2026-05-08)
 
 - **Touches**: `ai/data/hardware_caps.csv` (new),
@@ -32029,6 +32029,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   python -m pytest ai/tests/test_hardware_caps.py -v   # must report 23 passed
   python ai/scripts/hardware_caps_loader.py            # JSON dump, 6+ rows
 
+
 ## ADR-0367 — LSVQ corpus ingestion (2026-05-08)
 
 - **Touches**: `ai/scripts/lsvq_to_corpus_jsonl.py` (new),
@@ -32064,4 +32065,32 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
 
   ```bash
   cd tools/vmaf-tune && python -m pytest tests/test_sidecar.py -v
+
+## ADR-0368 — YouTube UGC corpus ingestion (2026-05-08)
+
+- **Touches**: `ai/scripts/youtube_ugc_to_corpus_jsonl.py` (new),
+  `ai/tests/test_youtube_ugc.py` (new),
+  `docs/adr/0368-youtube-ugc-corpus-ingestion.md` (new),
+  `docs/adr/_index_fragments/0368-youtube-ugc-corpus-ingestion.md` (new),
+  `docs/adr/_index_fragments/_order.txt` (one-line append),
+  `docs/adr/README.md` (regenerated index),
+  `docs/ai/youtube-ugc-ingestion.md` (new),
+  `docs/research/0091-youtube-ugc-corpus-feasibility.md` (new),
+  `changelog.d/added/0368-youtube-ugc-ingestion.md` (new),
+  `ai/AGENTS.md` (one-paragraph invariant). No engine code
+  touched; no upstream-shared paths.
+- **Invariant**: the JSONL row schema emitted by this adapter is
+  byte-identical to the LSVQ adapter
+  (`ai/scripts/lsvq_to_corpus_jsonl.py`, ADR-0367) and the
+  KonViD-150k Phase 2 adapter modulo the `corpus` and
+  `corpus_version` literals. If a future PR widens the row
+  contract (new column, type change), all adapters must
+  follow in lockstep.
+- **On upstream sync**: no action required.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_youtube_ugc.py -v
+
+
   ```
