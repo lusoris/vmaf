@@ -18,3 +18,6 @@ alongside classic VMAF SVM models.
   fork-local training runs
 - [PTQ across EPs](quant-eps.md) — investigate int8 PLCC drop on
   CPU vs CUDA vs OpenVINO (Arc / CPU) Execution Providers
+- [Conformal VQA](conformal-vqa.md) — distribution-free prediction
+  intervals on top of any vmaf-tune predictor (split-conformal + CV+,
+  no new dependencies, ADR-0279 implementation surface)

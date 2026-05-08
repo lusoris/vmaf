@@ -27,6 +27,84 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0326 — `vmaf-tune` codec-adapter dispatcher pivot (ADR-0326, HP-1)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/encode.py`
+  (`build_ffmpeg_command` + new `_resolve_codec_args` /
+  `_legacy_codec_args` helpers), `tools/vmaf-tune/src/vmaftune/per_shot.py`
+  (`_segment_command` signature + body, new
+  `_default_segment_preset`),
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/` (11 adapters gain
+  `ffmpeg_codec_args` + `extra_params`; libaom slice normalised),
+  `tools/vmaf-tune/tests/test_encode_dispatcher_per_adapter.py`
+  (new), `tools/vmaf-tune/tests/test_codec_adapter_libaom.py`
+  (slice expectations updated for new contract). Upstream Netflix/vmaf
+  has no `vmaf-tune` surface, so conflict probability is zero — this
+  entry exists because the dispatcher contract is fork-local and any
+  future adapter PRs need to land both `ffmpeg_codec_args` and a
+  matching fixture row.
+- **Invariant**: every entry in
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py::_REGISTRY`
+  ships an `ffmpeg_codec_args(preset, quality) -> list[str]` method
+  that returns the codec-correct argv slice (with `-c:v <encoder>` as
+  the first two tokens). The runtime contract is enforced by
+  `tests/test_encode_dispatcher_per_adapter.py::test_fixture_table_covers_every_registered_adapter`
+  — adding an adapter without a fixture row fails this meta-test.
+  x264 and x265 argv shapes stay byte-for-byte
+  `["-c:v", encoder, "-preset", preset, "-crf", str(quality)]`
+  (defended by the `test_x{264,265}_argv_byte_for_byte_legacy_shape`
+  pinning tests). The legacy fallback in `encode._resolve_codec_args`
+  returns the historic libx264 shape for unregistered encoders so
+  callers that bypass the registry stay invocable.
+- **Re-test**: `cd tools/vmaf-tune && pytest
+  tests/test_encode_dispatcher_per_adapter.py
+  tests/test_per_shot.py
+  tests/test_codec_adapter_libaom.py -v` (36 + 16 + 12 = 64 tests
+  green on this branch). For a wider check, run the full vmaf-tune
+  suite — pre-existing failures in `test_recommend.py`,
+  `test_resolution.py`, `test_encode_multi_codec.py`
+  (`parse_versions(encoder=...)` + `encoder_runner=`), and
+  `test_codec_adapter_{x265,svtav1}.py` (`parse_versions(encoder=...)`)
+  are unrelated and predate HP-1.
+
+### 0309 — `vmaf-tune fast` CLI surface (ADR-0276 status-update appendix, HP-3)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/cli.py` (new `fast`
+  subparser + `_run_fast` + `_build_fast_sample_extractor` +
+  `_build_fast_encode_runner` + `_parse_canonical6_means`),
+  `tools/vmaf-tune/tests/test_cli_fast.py` (new),
+  `tools/vmaf-tune/AGENTS.md` (new exit-code-contract invariant
+  bullet under the fast-path section), `docs/adr/0276-vmaf-tune-fast-path.md`
+  (status-update appendix), `docs/usage/vmaf-tune.md` (new
+  `## fast` section). Upstream Netflix/vmaf has no fast-path
+  surface, so conflict probability is zero — entry exists because
+  the canonical-6 parsing path off `pooled_metrics.<feature>.mean`
+  is sensitive to libvmaf's JSON output shape.
+- **Invariant**: The libvmaf JSON layout the
+  `_parse_canonical6_means` helper consumes is the
+  `pooled_metrics.<feature>.mean` shape (modern libvmaf 3.x), with
+  a per-frame `frames[].metrics.<feature>` fallback. Both shapes
+  are covered by `parse_vmaf_json` for the headline VMAF score in
+  `score.py`; canonical-6 means re-use the same surface. If
+  upstream changes the JSON schema (e.g. nests `pooled_metrics`
+  under a new key), `_parse_canonical6_means` follows in the same
+  PR — the fast-path proxy depends on the canonical-6 vector
+  being correctly extracted from libvmaf's output. The OOD-gap
+  exit code `3` from `_run_fast` is the documented fall-back
+  signal in `docs/usage/vmaf-tune.md` § "Fall-back idiom"; do not
+  silently downgrade it to `0`. The CLI is the only seam that
+  injects `sample_extractor` and `encode_runner` into
+  `fast.fast_recommend`; the Python API still raises
+  `NotImplementedError` when called without them.
+- **Re-test**: `PYTHONPATH=tools/vmaf-tune/src python -m pytest
+  tools/vmaf-tune/tests/test_cli_fast.py
+  tools/vmaf-tune/tests/test_fast.py -v` (21 tests). Smoke
+  end-to-end without ffmpeg / ONNX / GPU:
+  `vmaf-tune fast --target-vmaf 92 --smoke --n-trials 8` should
+  emit a JSON payload whose `smoke` is `true` and `verify_vmaf`
+  is `null`. `vmaf-tune fast --help` lists every flag in
+  `_DOCUMENTED_FAST_FLAGS` from `test_cli_fast.py`.
+
 ### 0308 — encoder knob-sweep recipe-regression policy (ADR-0308, docs-only)
 
 - **Touches**: `docs/research/0080-encoder-knob-sweep-findings.md`,
@@ -88,10 +166,15 @@ cover several PRs in one workstream; cross-link from the ID heading.
   and the same with `--feature ciede` against NVIDIA + RADV +
   lavapipe; max abs diff must stay ≤ `5.0e-05` (`places=4`) on all
   three.
+
 ### 0229 — HIP fifth-consumer kernel `float_ansnr_hip` (ADR-0266)
+
 ### 0228 — `y4m_convert_411_422jpeg` 1-byte heap-buffer-overflow fix
+
 ### 0228 — `vmaf-tune` resolution-aware model selection (ADR-0289)
+
 ### 0282 — `vmaf-tune` AMD AMF codec adapters (ADR-0282)
+
 ### 0228 — `tools/vmaf-tune/` codec-agnostic encode dispatcher (ADR-0294)
 
 - **Touches**:
@@ -9054,19 +9137,62 @@ inline.*
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
 
-## ADR-0331 — Skip CI on draft pull requests (2026-05-08)
+## ADR-0332 — External-competitor benchmark harness (2026-05-08)
 
-- **Touches**: `.github/workflows/{docker-image,security-scans,lint-and-format,ffmpeg-integration,libvmaf-build-matrix,rule-enforcement,tests-and-quality-gates}.yml` (per-job `if:` clause + `pull_request.types` list). `required-aggregator.yml` is unchanged — it already adopted the pattern under ADR-0313. No upstream-shared paths.
-- **Invariant**: every top-level job in the eight fork workflows that trigger on `pull_request` carries `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false`. The `pull_request:` block lists `ready_for_review` in `types:` so promotion of a draft fires CI exactly once. The second clause keeps `push:` triggers (no PR object) intact. If an upstream merge introduces a new top-level job, that job MUST inherit the gate; otherwise drafts will silently consume one matrix slot per push.
-- **On upstream sync**: Netflix/vmaf upstream does not gate on draft state; if a sync brings in new `pull_request` workflow content, replay the gate on every newly-introduced top-level job. Composing with an existing `if:` follows the `coverage-gpu` pattern — wrap both predicates in `${{ ... && ( ... ) }}`.
+- **Touches**: `tools/external-bench/` (new),
+  `docs/adr/0332-external-bench-wrapper-only.md` (new),
+  `docs/adr/_index_fragments/0332-external-bench-wrapper-only.md` (new),
+  `docs/adr/_index_fragments/_order.txt` (one-line append),
+  `docs/adr/README.md` (regenerated),
+  `changelog.d/added/external-bench-harness.md` (new),
+  `docs/research/0087-external-bench-competitor-survey-2026-05-08.md`
+  (new). No engine code touched; no upstream-shared paths.
+- **Invariant**: the harness is wrapper-only — never vendor or link
+  `x264-pVMAF` (GPL-2.0) into this fork. Future competitors follow the
+  same pattern (`tools/external-bench/<competitor>/run.sh` invokes a
+  user-installed binary via env var; output schema-shimmed into the
+  canonical JSON shape). The output schema (`frames[].{frame_idx,
+  predicted_vmaf_or_mos, runtime_ms}` + `summary.{competitor, plcc,
+  srocc, rmse, runtime_total_ms, params, gflops}`) is the contract
+  between every wrapper and `compare.py`. `run_wrapper`'s `runner`
+  parameter MUST stay resolved at call time (not via default-arg
+  binding) so monkeypatch-based tests work.
+- **On upstream sync**: no action required. The harness lives entirely
+  under `tools/external-bench/` (a fork-local path) and never touches
+  Netflix-shared code.
 - **Re-test on rebase**:
 
   ```bash
-  python3 -c "import yaml; names=['docker-image','security-scans','lint-and-format','required-aggregator','ffmpeg-integration','libvmaf-build-matrix','rule-enforcement','tests-and-quality-gates']; [yaml.safe_load(open(f'.github/workflows/{n}.yml')) for n in names]; print('OK')"
-  # Spot-check the gate is present on every top-level job:
-  for f in docker-image security-scans lint-and-format ffmpeg-integration \
-           libvmaf-build-matrix rule-enforcement tests-and-quality-gates \
-           required-aggregator; do
-    grep -c "pull_request.draft == false" ".github/workflows/${f}.yml"
-  done  # Each must report >= 1.
+  python3 -m pytest tools/external-bench/tests/ -q   # must report 7 passed
+  bash -n tools/external-bench/*/run.sh
+  ```
+
+### 0327 — Conformal-VQA prediction surface for `vmaf-tune` (ADR-0279)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/conformal.py` (new),
+  `tools/vmaf-tune/src/vmaftune/predictor.py`
+  (`Predictor.predict_vmaf_with_uncertainty`),
+  `tools/vmaf-tune/src/vmaftune/cli.py` (`predict` subcommand gains
+  `--with-uncertainty` / `--calibration-sidecar` / `--alpha`),
+  `tools/vmaf-tune/tests/test_conformal.py` (new),
+  `docs/ai/conformal-vqa.md` (new). No engine code touched; no
+  upstream-shared paths.
+- **Invariant**: the conformal wrapper sits *outside* the ONNX graph
+  and adds no new runtime dependency — `conformal.py` imports only
+  the standard library (`math`, `statistics`, `dataclasses`,
+  `json`, `warnings`). Future calibration-sidecar shapes use the
+  `method` discriminator string for versioning; do not rename
+  `"split-conformal"` / `"cv-plus"` without bumping the loader.
+  The `Predictor.predict_vmaf_with_uncertainty` signature is the
+  Python-API contract consumed by `vmaf-tune predict
+  --with-uncertainty`; renaming or reordering its keyword args
+  breaks the CLI in lockstep.
+- **On upstream sync**: no action required. `vmaf-tune` is a
+  fork-local tool; upstream Netflix/vmaf has no per-shot prediction
+  surface.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -m pytest tools/vmaf-tune/tests/test_conformal.py -q
+  python3 -m pytest tools/vmaf-tune/tests/test_predictor.py -q
   ```
