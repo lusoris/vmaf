@@ -299,3 +299,4 @@
 0325-vmaf-tune-phase-f-auto
 0367-u2netp-fork-mirror-scaffold
 0368-external-bench-wrapper-only
+0335-hardware-capability-priors
