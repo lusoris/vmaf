@@ -138,3 +138,23 @@ redistributed in-tree; only the trained weights are.
 - Source: paraphrased — task brief directive "train a small
   saliency-student model from scratch on a permissively-licensed
   public saliency dataset, replacing the placeholder."
+
+### Status update 2026-05-09: v2 trained
+
+[ADR-0332](0332-saliency-student-v2-resize-decoder.md) (Accepted
+2026-05-09) ships `saliency_student_v2` — the Resize-decoder
+ablation on the v1 recipe — as a parallel artefact under
+`model/tiny/`. v2 swaps v1's `ConvTranspose` decoder upsampler for
+the standard "Resize + 3×3 Conv" pattern admitted by ADR-0258 (which
+ADR-0286's "Alternatives considered" table flagged as the obvious
+follow-up once `Resize` was on the allowlist). v2 held the rest of
+the v1 recipe identical so the ablation is single-variable. **Result:
+v2 best held-out IoU = 0.7105 vs v1's 0.6558 (+0.0547 / +8.3 %)** on
+the same 5 % DUTS-TR validation fold under `seed=42`. v1 stays as
+the production weights for the C-side `mobilesal` extractor; the
+v2 production-flip is a separate follow-up PR after empirical
+validation in real ROI encodes. The "follow-ups" row above for
+`saliency_student_v2` is closed by ADR-0332 in its limited scope
+(architecture ablation); the multi-dataset / larger-student variant
+flagged in the same row is now `saliency_student_v3` and stays in
+the backlog.
