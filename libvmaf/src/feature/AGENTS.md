@@ -164,6 +164,36 @@ feature/
   the fork's `static` and `ptrdiff_t` unless upstream adopts them.
   See [ADR-0143](../../../docs/adr/0143-port-netflix-f3a628b4-generalized-avx-convolve.md)
   and [rebase-notes 0036](../../../docs/rebase-notes.md).
+- **`motion_v2` public option-surface duplicates motion v1**
+  (fork-local, ADR-0337):
+  [`integer_motion_v2.c`](integer_motion_v2.c) registers its own
+  `VmafOption[]` table for the seven motion knobs
+  (`motion_force_zero`, `motion_blend_factor`, `motion_blend_offset`,
+  `motion_fps_weight`, `motion_max_val`, `motion_five_frame_window`,
+  `motion_moving_average`) — duplicating motion v1's
+  [`integer_motion.c`](integer_motion.c) surface byte-for-byte
+  against upstream Netflix `4e469601`. The duplication is
+  deliberate; v1 and v2 are independent extractors with independent
+  output namespaces (`VMAF_integer_feature_motion*_score` vs
+  `…_v2_score`). On rebase: when touching one extractor's option
+  help string, touch the other; when upstream touches the option
+  table, port the change to **both** extractors. ADR-0141 catches
+  drift on the next edit.
+- **`motion_v2` rejects `motion_five_frame_window=true`**
+  (fork-local, ADR-0337): `init()` returns `-ENOTSUP` and logs a
+  pointer at the ADR. The 5-frame mode requires a `prev_prev_ref`
+  field on `VmafFeatureExtractor` plus `n_threads * 2 + 2`
+  picture-pool sizing in `vmaf_read_pictures` (upstream `a2b59b77`)
+  that conflicts with the fork's [ADR-0152](../../../docs/adr/0152-vmaf-read-pictures-monotonic-index.md)
+  `read_pictures*` decomposition. The picture-pool refactor is
+  deferred to its own PR. Mirrors [ADR-0219](../../../docs/adr/0219-motion3-gpu-coverage.md)
+  §Decision's GPU motion3 `-ENOTSUP` precedent. On rebase: when
+  the picture-pool refactor PR lands, flip the `-ENOTSUP` guard to
+  a `prev_prev_ref` lookup and reinstate the `min_idx = 5? 2 : 1`
+  branching in `flush()` (currently collapsed to `min_idx = 1`
+  per ADR-0337's deferral). See
+  [rebase-notes ADR-0337](../../../docs/rebase-notes.md) for the
+  deferred-hunks ledger.
 - **`motion_v2` NEON shift semantics** (fork-local, ADR-0145):
   [`arm64/motion_v2_neon.c`](arm64/motion_v2_neon.c) uses
   **arithmetic** right-shift throughout (`vshrq_n_s64(v, 16)` for
