@@ -1032,7 +1032,7 @@ def _run_recommend_saliency(args: argparse.Namespace) -> int:
         crf=crf,
         output=args.output,
     )
-    cfg = SaliencyConfig(qp_offset=args.saliency_offset) if args.saliency_aware else None
+    cfg = SaliencyConfig(foreground_offset=args.saliency_offset) if args.saliency_aware else None
     result = saliency_aware_encode(
         request,
         duration_frames=args.duration_frames,
