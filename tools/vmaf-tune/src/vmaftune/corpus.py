@@ -33,7 +33,13 @@ import uuid
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
-from . import CORPUS_ROW_KEYS, SCHEMA_VERSION
+from . import (
+    CANONICAL6_FEATURES,
+    CANONICAL6_MEAN_KEYS,
+    CANONICAL6_STD_KEYS,
+    CORPUS_ROW_KEYS,
+    SCHEMA_VERSION,
+)
 from .codec_adapters import get_adapter
 from .encode import EncodeRequest, bitrate_kbps, run_encode, run_two_pass_encode
 from .hdr import HdrInfo, detect_hdr, hdr_codec_args, select_hdr_vmaf_model
@@ -399,6 +405,18 @@ def _row_for(
         "hdr_primaries": hdr_info.primaries if hdr_info is not None else "",
         "hdr_forced": bool(hdr_forced),
     }
+    # v3 canonical-6 aggregate columns (ADR-0366). Missing features
+    # (model didn't expose them, or scoring was skipped) become NaN —
+    # callers may filter on isnan() / pandas .dropna() rather than
+    # train on synthetic zeros. Iteration is in canonical order so
+    # downstream positional consumers stay stable.
+    feature_means = score_res.feature_means or {}
+    feature_stds = score_res.feature_stds or {}
+    for feature, mean_key, std_key in zip(
+        CANONICAL6_FEATURES, CANONICAL6_MEAN_KEYS, CANONICAL6_STD_KEYS, strict=True
+    ):
+        row[mean_key] = float(feature_means.get(feature, float("nan")))
+        row[std_key] = float(feature_stds.get(feature, float("nan")))
     # Schema-shape assertion — catches drift in development; cheap.
     missing = set(CORPUS_ROW_KEYS) - row.keys()
     if missing:
@@ -416,6 +434,50 @@ def write_jsonl(rows: Sequence[dict] | Iterator[dict], path: Path) -> int:
             fh.write(os.linesep)
             n += 1
     return n
+
+
+def read_jsonl(path: Path, *, upgrade_to_current: bool = True) -> list[dict]:
+    """Read a corpus JSONL with forward / backward schema compatibility.
+
+    Rows whose ``schema_version <= 2`` predate the canonical-6 column
+    addition (ADR-0366). When ``upgrade_to_current`` is True (the
+    default), the reader fills the missing v3 columns with ``NaN`` so
+    downstream consumers can treat every row as v3-shaped without
+    crashing on ``KeyError``. ``schema_version`` itself is *not*
+    rewritten — the original value is preserved so callers that want
+    to filter ``< 3`` (e.g. trainers requiring real per-feature data)
+    can do so.
+
+    Pass ``upgrade_to_current=False`` to get the bare on-disk row.
+    """
+    rows: list[dict] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            if upgrade_to_current:
+                _upgrade_row_in_place(row)
+            rows.append(row)
+    return rows
+
+
+def _upgrade_row_in_place(row: dict) -> None:
+    """Fill missing v3 canonical-6 columns with NaN on legacy rows."""
+    sv = row.get("schema_version")
+    try:
+        sv_int = int(sv) if sv is not None else 0
+    except (TypeError, ValueError):
+        sv_int = 0
+    if sv_int >= SCHEMA_VERSION:
+        # Even if the row is current, defensively backfill any missing
+        # column (a partial write would otherwise crash positional code).
+        for key in (*CANONICAL6_MEAN_KEYS, *CANONICAL6_STD_KEYS):
+            row.setdefault(key, float("nan"))
+        return
+    for key in (*CANONICAL6_MEAN_KEYS, *CANONICAL6_STD_KEYS):
+        row.setdefault(key, float("nan"))
 
 
 # ---------------------------------------------------------------------------
