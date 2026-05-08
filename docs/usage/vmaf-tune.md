@@ -1735,6 +1735,7 @@ test on machines that have not built the shot-detector binary yet.
 ## auto
 
 `vmaf-tune auto` is the Phase F entry point (ADR-0364). One CLI verb
+`vmaf-tune auto` is the Phase F entry point (ADR-0325). One CLI verb
 composes the per-phase subcommands (`corpus`, `recommend`, `predict`,
 `tune-per-shot`, `recommend-saliency`, `ladder`, `compare`) plus the
 orthogonal modes (HDR auto-detect, sample-clip, resolution-aware) into

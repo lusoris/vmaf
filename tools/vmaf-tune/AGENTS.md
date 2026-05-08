@@ -501,3 +501,5 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   `_confidence_aware_escalation` is a pure function of
   `(verdict, interval_width, thresholds)` so it stays trivially
   unit-testable; keep it pure when extending the decision table.
+  empirical fit — change them via an ADR-0325 follow-up, not a
+  drive-by tweak. See [ADR-0325](../../docs/adr/0325-vmaf-tune-phase-f-auto.md).

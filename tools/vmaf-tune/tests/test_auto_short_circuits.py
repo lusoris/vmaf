@@ -1,6 +1,7 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """Unit tests for the seven F.2 short-circuit predicates (ADR-0364).
+"""Unit tests for the seven F.2 short-circuit predicates (ADR-0325).
 
 Each predicate is a pure function of (meta, plan_state); the tests
 mock both inputs and assert the branch fires (or doesn't) at the

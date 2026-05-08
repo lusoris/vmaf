@@ -11,6 +11,7 @@ stage; the seven short-circuits (F.2, this module) skip stages whose
 output is determined by metadata alone.
 
 Decision tree (per :doc:`docs/adr/0364-vmaf-tune-phase-f-auto.md`):
+Decision tree (per :doc:`docs/adr/0325-vmaf-tune-phase-f-auto.md`):
 
 .. code-block:: text
 
@@ -72,6 +73,7 @@ _LOG = logging.getLogger(__name__)
 
 
 # Phase D gate thresholds (per ADR-0364 short-circuit #7). The 5-min /
+# Phase D gate thresholds (per ADR-0325 short-circuit #7). The 5-min /
 # 0.15-shot-variance pair is a placeholder; F.3 fits these from a real
 # corpus once Phase F has emitted enough labelled compositions to make
 # the fit statistically defensible. Until then, the placeholders keep
@@ -126,6 +128,8 @@ DEFAULT_WIDE_INTERVAL_MIN_WIDTH: float = 5.0
 
 class ShortCircuit(enum.Enum):
     """Names of the seven short-circuits (per ADR-0364 §F.2).
+class ShortCircuit(enum.Enum):
+    """Names of the seven short-circuits (per ADR-0325 §F.2).
 
     The string values are the canonical identifiers recorded in
     ``plan.metadata.short_circuits`` and surfaced in the JSON output.
@@ -198,6 +202,7 @@ def _should_short_circuit_1_single_rung_ladder(meta: SourceMeta, plan_state: Pla
     """Short-circuit #1 — single-rung ladder when ``meta.height < 2160``.
 
     Per ADR-0364 / ADR-0289: sub-4K sources don't need a multi-rung
+    Per ADR-0325 / ADR-0289: sub-4K sources don't need a multi-rung
     ABR ladder evaluation; the source rung is the only candidate. The
     driver still runs the per-rung pipeline, just on one rung.
     """
@@ -222,6 +227,7 @@ def _should_short_circuit_3_predictor_gospel(meta: SourceMeta, plan_state: PlanS
     """Short-circuit #3 — predictor returned GOSPEL.
 
     Per ADR-0364 escalation rule: when ``predict.crf_for_target``
+    Per ADR-0325 escalation rule: when ``predict.crf_for_target``
     returns ``GOSPEL`` (residuals within threshold across the
     validation sample), trust the predictor's CRF pick and skip the
     ``recommend.coarse_to_fine`` fallback for that cell.
@@ -271,6 +277,7 @@ def _should_short_circuit_7_skip_per_shot(meta: SourceMeta, plan_state: PlanStat
     """Short-circuit #7 — duration / shot-variance gate.
 
     Per ADR-0364: skip ``tune_per_shot.refine`` when the source is
+    Per ADR-0325: skip ``tune_per_shot.refine`` when the source is
     both short (< 5 min) **and** low-variance (shot variance < 0.15).
     Either condition alone is not enough — a short high-variance
     trailer benefits from per-shot, and a long low-variance lecture
@@ -348,6 +355,8 @@ def run_auto(
     cell_intervals: Sequence[tuple[int, str, str | None, float]] | None = None,
 ) -> AutoPlan:
     """Drive the F.1 + F.2 + F.3 decision tree.
+) -> AutoPlan:
+    """Drive the F.1 + F.2 decision tree.
 
     The non-smoke path is intentionally unimplemented at this PR's
     scope — production wiring lands in follow-up PRs that fill in
@@ -467,6 +476,13 @@ def run_auto(
             )
 
     confidence_aware_escalations: list[dict] = []
+    # Stage 5 — per-cell predictor + escalation (short-circuit #3).
+    # In smoke mode we synthesise a GOSPEL verdict so the gate fires
+    # in the unit smoke run; production wiring will set the verdict
+    # from predictor_validate.ValidationReport.verdict.
+    # ------------------------------------------------------------------
+    if smoke:
+        plan_state.predictor_verdict = "GOSPEL"
     cells: list[dict] = []
     for rung in rungs:
         for codec in codecs:
@@ -513,6 +529,7 @@ def run_auto(
                     "rung": int(rung),
                     "codec": str(codec),
                     "verdict": cell_verdict or plan_state.predictor_verdict or "UNKNOWN",
+                    "verdict": plan_state.predictor_verdict or "UNKNOWN",
                     "crf": 23,  # placeholder; production wiring fills this in
                     "estimated_vmaf": float(target_vmaf),
                     "estimated_bitrate_kbps": float(max_budget_kbps),
@@ -764,6 +781,7 @@ __all__ = [
     "AutoPlan",
     "ConfidenceDecision",
     "ConfidenceThresholds",
+    "AutoPlan",
     "LADDER_MULTI_RUNG_HEIGHT",
     "PHASE_D_DURATION_GATE_S",
     "PHASE_D_SHOT_VARIANCE_GATE",
