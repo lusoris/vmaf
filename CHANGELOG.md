@@ -8,7 +8,40 @@
 
 ### Changed
 
-### Changed
+- **Vulkan VIF API-1.4 NVIDIA residual — Phase 2 dynamic dump
+  refutes FP-precision hypothesis, localises bug to SCALE=2
+  memory-model regression (T-VK-VIF-1.4-RESIDUAL).** Phase 2
+  empirical run on RTX 4090 + driver 595.71.05 + Vulkan 1.4.341 in
+  this session (2026-05-09) replaces the `[UNVERIFIED]` cells
+  research-0089 §5 carried with real numbers and **refutes** the
+  digest body's FP-arithmetic / `shaderFloatControls2`-v2 codegen
+  hypothesis. The 45/48 `integer_vif_scale2` `places=4` failure is
+  not an FP-precision drift on the 5 SPIR-V FP ops — the
+  `vif_vulkan` `debug=true` host channel surfaces it at the
+  accumulator level: `den_scale2 ≈ -10¹⁶` vs CPU's `+2.5e+04`,
+  `num_scale2 ≈ +10¹⁵` (10¹¹× magnitude flip + sign flip), with
+  full run-to-run **non-determinism** across 5 repeat runs (5
+  distinct `(num, den)` pairs). The score collapses to
+  `1.000000` because the host reduction's `den <= 0` fallback in
+  `reduce_and_emit()` returns 1.0. Bug **isolated to SCALE = 2**
+  specialisation; scales 0/1/3 deterministic + sane. API 1.3
+  control on the same machine is fully deterministic and
+  bit-exact 0/48 across the same 5 runs. Signature is a memory
+  race in the Phase-4 cross-subgroup int64 reduction (`vif.comp`
+  lines 547–592, `subgroupAdd` + `barrier()` + thread-0 read of
+  `s_lmem`) that Vulkan 1.4's stricter NVIDIA default memory
+  model exposes. The `places=3` override path is **eliminated** —
+  non-deterministic accumulators cannot meet any tolerance. Phase
+  3 fix candidate documented in research-0089 2026-05-09 status
+  appendix: replace bare `barrier()` with explicit
+  `controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup,
+  gl_StorageSemanticsShared, gl_SemanticsAcquireRelease)` (or
+  `memoryBarrierShared() + barrier()`) before the thread-0
+  reduction read. State.md row T-VK-VIF-1.4-RESIDUAL updated with
+  the localisation; reproduction recipe documented for Phase 3.
+  No production code changes — this PR is the digest update +
+  state.md row update; the shader fix lands separately under
+  Phase 3 with a 5-run determinism gate.
 
 - **Vulkan VIF API-1.4 NVIDIA residual — bisect digest landed
   (T-VK-VIF-1.4-RESIDUAL).** New research digest

@@ -27,6 +27,45 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0309 — Vulkan VIF API-1.4 Phase 2 dump (T-VK-VIF-1.4-RESIDUAL)
+
+- **Touches**: `docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`
+  (2026-05-09 status appendix with empirical numbers from the live
+  RTX 4090), `docs/state.md` (T-VK-VIF-1.4-RESIDUAL row updated with
+  the localisation), `libvmaf/src/vulkan/AGENTS.md` (new invariant
+  row pinning the SCALE = 2 cross-subgroup-reduction memory-model
+  finding), `CHANGELOG.md` (lusoris fork "Changed" entry).
+  No code touched; the Phase 3 shader memory-model fix lands in a
+  separate PR. Upstream Netflix/vmaf has no Vulkan backend so
+  conflict probability for the AGENTS.md row is zero — entry
+  exists because the empirical localisation flips the open
+  state-row hypothesis from FP-precision to memory-model and
+  retires the `places=3` override path that earlier rebase
+  scaffolding might have suggested.
+- **Invariant**: `vif.comp` SCALE = 2 specialisation's Phase-4
+  cross-subgroup int64 reduction is non-deterministic on NVIDIA
+  driver 595.71.05 + Vulkan 1.4.341 (lines 547–592, `subgroupAdd`
+  + `barrier()` + thread-0 read of `s_lmem`). API 1.3 lane is
+  fully deterministic on the same hardware. The four `apiVersion`
+  pinning sites in `libvmaf/src/vulkan/common.c` +
+  `libvmaf/src/vulkan/vma_impl.cpp` stay at 1.3 until Phase 3
+  lands the explicit memory-scope barrier and a 5-run determinism
+  gate confirms run-to-run identical `(num, den)` plus
+  `places=4` 0/48 on NVIDIA. The `places=3` override path is
+  **eliminated** from the unblock options.
+- **Re-test**: apply the local API-1.4 bump
+  (`libvmaf/src/vulkan/common.c` 3 sites + `vma_impl.cpp`
+  `VMA_VULKAN_VERSION 1004000`) on a NVIDIA RTX 4090 + driver
+  595.71+ machine, build with `meson setup ... -Denable_vulkan=enabled`,
+  then run the gate and the 5-run determinism check from
+  research-0089 §"Reproduction recipe for Phase 3". Expect 45/48
+  `places=4` failures on `integer_vif_scale2` (max abs
+  `1.527e-02`) AND 5 distinct `(integer_vif_num_scale2,
+  integer_vif_den_scale2)` pairs across 5 runs of
+  `--feature 'vif_vulkan=debug=true'`. Both observations
+  reproduced bit-for-bit on this session's hardware lane
+  (UUID `e478b41b-5c4f-1ddb-f990-e44916aff4c8`).
+
 ### 0308 — encoder knob-sweep recipe-regression policy (ADR-0308, docs-only)
 
 - **Touches**: `docs/research/0080-encoder-knob-sweep-findings.md`,

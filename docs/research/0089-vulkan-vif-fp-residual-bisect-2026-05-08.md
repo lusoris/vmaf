@@ -77,7 +77,8 @@ against [`vif.comp`](../../libvmaf/src/feature/vulkan/shaders/vif.comp)
 on this worktree (`research/vif-1.4-residual-bisect-2026-05-08`,
 fork master tip `0a8b539e`):
 
-```
+<!-- markdownlint-disable-next-line MD013 -->
+```bash
 glslc --target-env=vulkan1.4 -O libvmaf/src/feature/vulkan/shaders/vif.comp -o /tmp/vif-14.spv
 spirv-dis /tmp/vif-14.spv | grep -E 'OpFDiv|OpFMul|OpFAdd|OpFSub'
 ```
@@ -325,3 +326,191 @@ descending preference:
   mismatch at API 1.4 that PR #346's Step A did not close; per-stage
   CPU-double vs Vulkan-float ULP bisect; if inconclusive, document
   the gap and Step B remains blocked.*
+
+## Status update 2026-05-09: Phase 2 dynamic dump landed — refutes the FP-precision hypothesis
+
+The Phase 2 follow-up ran the live NVIDIA RTX 4090 + driver
+`595.71.05` + Vulkan loader `1.4.341` lane this session with the
+local API-1.4 bump applied (`libvmaf/src/vulkan/common.c` 3 sites +
+`libvmaf/src/vulkan/vma_impl.cpp` `VMA_VULKAN_VERSION 1004000`) and a
+fresh build (`-Denable_vulkan=enabled`, glslc 2026.1, vulkan1.3
+target-env). The Phase 2 brief was to instrument 5 SSBO writes after
+each FP op in `vif.comp` and produce a per-stage ULP table; the
+`debug=true` channel that `vif_vulkan` already exposes
+(`integer_vif_num_scaleN` / `integer_vif_den_scaleN` per frame) made
+that instrumentation unnecessary because it surfaced the bug at the
+**accumulator** level, well upstream of the FP-arithmetic surface
+that this digest's static analysis pursued. The findings below
+**refute** the residual-FP-precision hypothesis the rest of this
+digest builds on.
+
+### Empirical numbers — what the live RTX 4090 actually produces
+
+**Reproduction confirmed at the gate**: harness
+`scripts/ci/cross_backend_vif_diff.py` against `vif_vulkan` extractor
+on the 576x324 48-frame Netflix fixture, places=4 tolerance, API 1.4
+bump applied:
+
+```text
+metric                    max_abs_diff    mismatches
+  integer_vif_scale0        1.000000e-06    0/48  OK
+  integer_vif_scale1        1.000000e-06    0/48  OK
+  integer_vif_scale2        1.526800e-02    45/48  FAIL
+  integer_vif_scale3        2.000000e-06    0/48  OK
+```
+
+`max_abs = 1.527e-02` matches the digest body exactly. The 1.3
+control lane on the same machine is `0/48 max=0.000e+00` —
+confirmed bit-exact, deterministic across 5 repeat runs.
+
+**`debug=true` per-frame intermediates, frame 5, scale 2:**
+
+| Source | `num_scale2` | `den_scale2` | reported `vif_scale2` |
+|---|---:|---:|---:|
+| CPU reference (any run) | `2.4944e+04` | `2.5225e+04` | `0.988835` |
+| NVIDIA Vulkan 1.4, run 1 | `7.479e+14` | `-7.776e+15` | `1.000000` |
+| NVIDIA Vulkan 1.4, run 2 | `2.991e+14` | `-1.495e+14` | `1.000000` |
+| NVIDIA Vulkan 1.4, run 3 | `1.047e+15` | `-1.032e+16` | `1.000000` |
+| NVIDIA Vulkan 1.4, run 4 | `1.197e+15` | `-1.032e+16` | `1.000000` |
+| NVIDIA Vulkan 1.4, run 5 | `8.974e+14` | `-7.776e+15` | `1.000000` |
+
+Two facts neither the digest body nor research-0053 captured:
+
+1. **The accumulator outputs are off by ~10¹¹ in magnitude** —
+   `den_scale2 ~ -10¹⁶` vs CPU's `2.52e+04`. No FP-precision flip on
+   five `OpFDiv` / `OpFMul` / `OpFSub` ops can synthesise a 10¹¹×
+   amplification. The bug is *not* in the FP-arithmetic graph this
+   digest's body bisected.
+2. **NVIDIA at API 1.4 is non-deterministic on `vif_vulkan` scale 2**
+   (5 runs, 5 distinct `(num, den)` pairs). API 1.3 on the same
+   machine is fully deterministic across the same 5 runs. The 1.3 →
+   1.4 transition does not just amplify a precision gap; it
+   introduces a memory race or memory-model regression that the 1.3
+   path was implicitly defended against.
+3. **The bug is isolated to the SCALE = 2 specialization.** Scales
+   0, 1, 3 are deterministic and produce sane positive `num` /
+   `den` values across the same runs (numerically a few ppm off
+   CPU due to f32-vs-f64, well under the places=4 gate). Only
+   SCALE = 2 produces the negative `den` and the run-to-run drift.
+
+The reported `vif_scale2 = 1.000000` is the CPU-side reduction
+formula's `den <= 0` fallback in `reduce_and_emit()` of
+`libvmaf/src/feature/vulkan/vif_vulkan.c`:
+`(scale_den[i] > 0.0) ? scale_num[i] / scale_den[i] : 1.0`. The
+score never reflects the ALU output when `den` flips sign — it just
+collapses to 1.0 ≡ "perfect VIF", which is the 45/48 frames the gate
+flags.
+
+### Per-stage table — populated row that matters, others retired
+
+The §5 per-stage table this digest carried with `[UNVERIFIED]` cells
+asked the wrong question. The five cells in the `g`, `sv_sq`,
+`gg_sigma_f` rows could not have produced the observed magnitude even
+in the worst-case f32-precision scenario, and the dynamic dump above
+shows the divergence is upstream of all of them, in the accumulator
+write path. Replacing the table with a single row that does carry a
+real measurement:
+
+| Quantity (frame 5, scale 2) | CPU reference | NVIDIA Vulkan 1.4 | RADV Vulkan 1.4 / Intel A380 1.4 |
+|---|---:|---:|---:|
+| `integer_vif_num_scale2` | `2.494e+04` | `7e+14 .. 1.2e+15` (run-dependent) | not measured this session — 1.3 control was `0/48` |
+| `integer_vif_den_scale2` | `2.522e+04` | `-1.5e+14 .. -1.0e+16` (run-dependent) | not measured this session — 1.3 control was `0/48` |
+| 5-run determinism | yes | **no** | not measured |
+| 1.3-vs-1.4 ratio | n/a | ~10¹¹× magnitude flip + sign flip | not measured |
+
+The `debug=true` host intermediates on RADV (Granite Ridge integrated
+gfx1036) and Intel Arc A380 weren't sampled in this session because
+the 1.3 control already proved both lanes 0/48 across 48 frames at
+the gate, and the brief's localisation question was specifically
+"NVIDIA vs the rest". Sampling RADV / A380 + lavapipe's `num` / `den`
+at API 1.4 specifically remains a Phase 3 task if the upstream-fix
+direction warrants confirming the rest of the matrix isn't also
+going non-deterministic on the same SCALE = 2 specialisation —
+current evidence says they aren't, but the formal gate result is
+the only number this session re-verified.
+
+### What this means for the Step B unblock paths
+
+Of the four paths the digest body listed:
+
+1. ~~"Try `OpExecutionMode SignedZeroInfNanPreserveFloat32` /
+   `GL_EXT_shader_float_controls2`"~~ — discarded. The bug is not
+   in IEEE FP semantics; it's an integer-accumulator memory race.
+2. ~~"Per-feature `places=3` NVIDIA-only override ADR"~~ —
+   discarded. A precision-tolerance loosening cannot accommodate
+   non-deterministic 10¹¹× accumulator drift; the next run would
+   fail at any tolerance.
+3. **NVIDIA driver-team escalation** — still possible but no longer
+   the sole path. Worth filing as a confirmed memory-model
+   regression, not a contraction-codegen issue.
+4. **A new path the original digest did not list — fix the shader's
+   memory-model assumptions for Vulkan 1.4.** The
+   `subgroupAdd()` / `barrier()` / cross-subgroup reduction in
+   Phase 4 of `vif.comp` (lines 547–592) is the prime suspect. The
+   SCALE = 2 specialisation is the smallest plane (144x81 ≈ 5 wgs);
+   the cross-subgroup reduction's `for (uint s = 0u; s < n_subgrps;
+   s++)` loop reads `s_lmem` without a memory-scope-qualified
+   barrier, relying on `barrier()`'s implicit
+   `WorkgroupMemoryBarrier` semantics. Vulkan 1.4 picks a stricter
+   default memory model on NVIDIA than 1.3 did; the shader needs an
+   explicit `controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup,
+   gl_StorageSemanticsShared, gl_SemanticsAcquireRelease)` (or
+   the GLSL `memoryBarrierShared() + barrier()` pair) before the
+   thread-0 read. This is testable cheaply against the 5-run
+   determinism check above. Phase 3 should attempt this fix
+   under `enable_vulkan` with a 5-run gate; if determinism returns
+   AND `places=4` passes, Step B unblocks for free.
+
+### Why the Phase 1 SPIR-V analysis still stands (just answers a different question)
+
+§1's `OpFDiv` + 3×`OpFMul` + `OpFSub` enumeration is correct. Every
+one of those 5 ops is `NoContraction`-decorated. That analysis was
+sufficient to *exclude* the FP-arithmetic surface as the
+shader-side mitigation target — which is exactly what the empirical
+finding above now confirms. The digest body's negative-by-exhaustion
+conclusion was right; the alternative-hypothesis section was wrong
+about *which* opaque driver behavior was responsible. The
+non-determinism + sign-flip + 10¹¹× magnitude pattern is the
+signature of a memory-model issue, not a codegen one.
+
+### Reproduction recipe for Phase 3
+
+<!-- markdownlint-disable-next-line MD013 -->
+```bash
+# Apply the local API-1.4 bump (off-master, manual reproducer).
+sed -i 's/VK_API_VERSION_1_3/VK_API_VERSION_1_4/g' \
+    libvmaf/src/vulkan/common.c
+sed -i 's/VMA_VULKAN_VERSION 1003000/VMA_VULKAN_VERSION 1004000/' \
+    libvmaf/src/vulkan/vma_impl.cpp
+
+# Build with Vulkan only.
+cd libvmaf
+meson setup build_phase2 -Denable_vulkan=enabled \
+    -Denable_cuda=false -Denable_sycl=false -Denable_tests=false
+ninja -C build_phase2
+
+# Reproduce the gate failure (45/48 places=4 fail on scale 2).
+python3 ../scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary $PWD/build_phase2/tools/vmaf \
+    --reference ../testdata/ref_576x324_48f.yuv \
+    --distorted ../testdata/dis_576x324_48f.yuv \
+    --width 576 --height 324 --feature vif --backend vulkan \
+    --device 0 --places 4
+
+# Confirm non-determinism (5 distinct (num, den) pairs at frame 5).
+for run in 1 2 3 4 5; do
+    build_phase2/tools/vmaf -r ../testdata/ref_576x324_48f.yuv \
+        -d ../testdata/dis_576x324_48f.yuv -w 576 -h 324 -p 420 -b 8 \
+        --feature 'vif_vulkan=debug=true' --backend vulkan \
+        --vulkan_device 0 -n --json -o /tmp/vif_run${run}.json
+    python3 -c "import json; m=json.load(open('/tmp/vif_run${run}.json'))['frames'][5]['metrics']; print(f'run ${run}: num={m[\"integer_vif_num_scale2\"]:.4g} den={m[\"integer_vif_den_scale2\"]:.4g}')"
+done
+```
+
+Hardware lane this session: NVIDIA GeForce RTX 4090 (UUID
+`e478b41b-5c4f-1ddb-f990-e44916aff4c8`), driver 595.71.05, Vulkan
+device API 1.4.329, Vulkan instance loader 1.4.341. RADV (gfx1036
+Granite Ridge integrated) at 26.1.0 and Intel Arc A380 (DG2) at
+26.1.0 confirmed present + queryable but not used for this Phase 2
+data — 1.3 control gates 0/48 elsewhere on this hardware and the
+brief was NVIDIA-specific.

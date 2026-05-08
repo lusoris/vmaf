@@ -131,6 +131,33 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   purely runtime, mediated by core `shaderFloatControls2` on
   Vulkan 1.4.
 
+- **`vif.comp` SCALE = 2 cross-subgroup reduction is a memory-model
+  hot-spot at API 1.4** ([research-0089
+  2026-05-09 status appendix](../../../docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md)):
+  Phase 2 dynamic dump on RTX 4090 + driver 595.71.05 + Vulkan
+  1.4.341 localised the T-VK-VIF-1.4-RESIDUAL failure to the
+  Phase-4 cross-subgroup int64 reduction (`vif.comp` lines 547–
+  592, `subgroupAdd` + `barrier()` + thread-0 read of `s_lmem`).
+  Empirical signature on NVIDIA at API 1.4 is **non-deterministic**
+  `den_scale2` ~ −10¹⁶ vs CPU's +2.5×10⁴ (run-to-run distinct,
+  10¹¹× magnitude flip + sign flip), score collapses to 1.0 via
+  the `den <= 0` host fallback in `reduce_and_emit()`. Bug is
+  isolated to the SCALE = 2 specialisation; scales 0/1/3 stay
+  deterministic + sane on the same machine. **The earlier
+  hypothesis attributing the residual to `shaderFloatControls2`
+  v2 codegen is refuted** — no FP-precision flip can synthesise
+  10¹¹× amplification, and the FP-arithmetic surface in vif.comp
+  is exhausted (5 ops, all `NoContraction`-decorated, verified at
+  the SPIR-V `OpFDiv` / `OpFMul` / `OpFSub` ID level). When
+  Phase 3 lands, the fix replaces bare `barrier()` with explicit
+  `controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup,
+  gl_StorageSemanticsShared, gl_SemanticsAcquireRelease)` (or
+  `memoryBarrierShared() + barrier()`) before the thread-0
+  reduction read, and gates on a 5-run determinism check in
+  addition to `places=4`. The `places=3` NVIDIA-only override
+  path is **not viable** for this bug — non-deterministic
+  accumulators cannot meet any tolerance.
+
 ## Governing ADRs
 
 - [ADR-0127](../../../docs/adr/0127-vulkan-compute-backend.md) —
