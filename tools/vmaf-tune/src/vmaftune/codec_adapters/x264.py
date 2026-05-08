@@ -25,14 +25,12 @@ class X264Adapter:
     # changes. Folded into the cache key so an adapter upgrade
     # invalidates older entries (ADR-0298).
     adapter_version: str = "1"
-    # x264 nominally accepts 0..51; we surface the perceptually
-    # informative window — ADR-0237 Phase A grid generation lives here.
-    quality_range: tuple[int, int] = (15, 40)
     # x264 nominally accepts 0..51 and that's the search domain for
     # ADR-0306 coarse-to-fine. The perceptually-informative window
     # for the recommend / target-VMAF flows is narrower (~15..40
     # in practice) but we let the search loop discover that rather
-    # than refuse out-of-band candidates up front.
+    # than refuse out-of-band candidates up front. ADR-0237 Phase A
+    # grid generation also drives off this field.
     quality_range: tuple[int, int] = (0, 51)
     quality_default: int = 23
     invert_quality: bool = True  # higher CRF = lower quality
