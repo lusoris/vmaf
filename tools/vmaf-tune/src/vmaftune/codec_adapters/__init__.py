@@ -32,6 +32,7 @@ from typing import Protocol
 from .av1_amf import AV1AMFAdapter
 from .av1_nvenc import Av1NvencAdapter
 from .av1_qsv import Av1QsvAdapter
+from .av1_videotoolbox import Av1VideoToolboxAdapter, Av1VideoToolboxUnavailableError
 from .h264_amf import H264AMFAdapter
 from .h264_nvenc import H264NvencAdapter
 from .h264_qsv import H264QsvAdapter
@@ -136,6 +137,7 @@ _REGISTRY: dict[str, CodecAdapter] = {
     "h264_videotoolbox": H264VideoToolboxAdapter(),
     "hevc_videotoolbox": HEVCVideoToolboxAdapter(),
     "prores_videotoolbox": ProresVideoToolboxAdapter(),
+    "av1_videotoolbox": Av1VideoToolboxAdapter(),
     "libvvenc": VVenCAdapter(),
     "libsvtav1": SvtAv1Adapter(),
 }
@@ -155,6 +157,8 @@ __all__ = [
     "AV1AMFAdapter",
     "Av1NvencAdapter",
     "Av1QsvAdapter",
+    "Av1VideoToolboxAdapter",
+    "Av1VideoToolboxUnavailableError",
     "CodecAdapter",
     "H264AMFAdapter",
     "H264NvencAdapter",
