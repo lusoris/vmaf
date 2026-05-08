@@ -22,12 +22,13 @@
  *  motion2_v2_score = min(score[i], score[i+1]) emitted host-side in
  *  flush() — mirrors CPU integer_motion_v2.c::flush.
  *
- *  Mirror padding: edge-replicating reflective mirror
- *  (`2 * size - idx - 1` for idx >= size) — DIFFERS by one pixel
- *  from `motion_sycl`'s `dev_mirror_motion` (which uses skip-
- *  boundary `2 * size - idx - 2`). Same offset that produced
- *  max_abs_diff = 2.62e-3 on the Vulkan twin during bring-up
- *  before the divergence was caught.
+ *  Mirror padding: skip-boundary reflective mirror
+ *  (`2 * size - idx - 2` for idx >= size) — matches CPU integer_motion_v2.c
+ *  after upstream commit 856d3835 (May 2026) which aligned motion_v2's
+ *  mirror behaviour with motion's `dev_mirror_motion` form. Prior to that
+ *  upstream fix, the CPU used `2 * size - idx - 1`; the fork's SYCL twin
+ *  was tracking the pre-fix CPU semantics. Updated alongside the upstream
+ *  port in feat/port-upstream-motion-v2-cluster-2026-05-08 (ADR-0316).
  */
 
 #include <sycl/sycl.hpp>
@@ -91,7 +92,7 @@ static inline int dev_mirror_mv2(int idx, int sup)
     if (idx < 0)
         return -idx;
     if (idx >= sup)
-        return 2 * sup - idx - 1;
+        return 2 * sup - idx - 2;
     return idx;
 }
 
