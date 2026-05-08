@@ -97,6 +97,8 @@ class SvtAv1Adapter:
     probe_preset: str = "veryfast"
     probe_quality: int = 35
     supports_qpfile: bool = False
+    # ADR-0332: this encoder has no parseable first-pass stats file.
+    supports_encoder_stats: bool = False
 
     # Phase-A-supported preset *names* (compatibility shim — see
     # PRESET_NAME_TO_INT). Order is "slowest -> fastest" to match the

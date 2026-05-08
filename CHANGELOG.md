@@ -6,7 +6,26 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
-### Changed
+### Added
+
+- **Encoder-internal stats capture (ADR-0332).** Extends the
+  `vmaf-tune` corpus row schema (bumped to v3) with ten
+  `enc_internal_*` scalar aggregates capturing per-frame x264 pass-1
+  stats — mean/std QP, mean/std bits, mean/std MV cost, mean intra-
+  texture cost, mean predicted-texture cost, intra-MB ratio,
+  skip-MB ratio. Adds
+  [`tools/vmaf-tune/src/vmaftune/encoder_stats.py`](tools/vmaf-tune/src/vmaftune/encoder_stats.py)
+  (pure-Python parser for x264's `-pass 1 -passlogfile` text format),
+  `build_pass1_stats_command` + `run_encode_with_stats` in
+  `encode.py`, and a `supports_encoder_stats: bool` field on the
+  codec-adapter Protocol. libx264 / libx265 opt in (libx264 parsed in
+  v1; libx265 parser deferred to a follow-up). Hardware encoders
+  (NVENC / AMF / QSV / VideoToolbox) and AV1 software encoders
+  (libaom-av1 / libsvtav1 / libvvenc) opt out and emit zeros so the
+  schema is uniform across the corpus. Per-encode wall-clock cost
+  roughly doubles for opt-in adapters — that is the documented
+  trade-off for closing the loop on the encoder's own RD ledger.
+  Predictor integration is out of scope for this PR.
 
 - **Vulkan VIF API-1.4 NVIDIA residual — Phase 2 dynamic dump
   refutes FP-precision hypothesis, localises bug to SCALE=2

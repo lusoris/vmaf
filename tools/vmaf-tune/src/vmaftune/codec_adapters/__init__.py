@@ -75,6 +75,16 @@ class CodecAdapter(Protocol):
     probe_preset: str
     probe_quality: int
     supports_qpfile: bool
+    # ADR-0332: opt-in to the pass-1 stats-file capture path. True
+    # iff the encoder writes a parseable per-frame stats file under
+    # ``-pass 1 -passlogfile <prefix>``. Software encoders that
+    # share x264-family rate-distortion tracking (libx264, libx265,
+    # libvpx) set True; hardware encoders (NVENC / AMF / QSV /
+    # VideoToolbox) and any encoder without a stats-file surface
+    # set False. v1 of the parser only handles x264's text format;
+    # libx265 / libvpx flip the flag but their format-specific
+    # parser arrives in a follow-up PR.
+    supports_encoder_stats: bool
 
     # Phase F (ADR-0333). Adapters that opt into 2-pass encoding set
     # ``supports_two_pass = True`` AND override

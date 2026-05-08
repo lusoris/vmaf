@@ -42,6 +42,8 @@ class Av1QsvAdapter:
     probe_preset: str = "veryfast"
     probe_quality: int = 23
     supports_qpfile: bool = False
+    # ADR-0332: this encoder has no parseable first-pass stats file.
+    supports_encoder_stats: bool = False
 
     presets: tuple[str, ...] = QSV_PRESETS
 

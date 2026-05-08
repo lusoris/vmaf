@@ -27,6 +27,8 @@ import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
+from .encoder_stats import PerFrameStats, parse_stats_file
+
 
 @dataclasses.dataclass(frozen=True)
 class EncodeRequest:
@@ -68,7 +70,14 @@ class EncodeRequest:
 
 @dataclasses.dataclass(frozen=True)
 class EncodeResult:
-    """Outcome of one encode call."""
+    """Outcome of one encode call.
+
+    ``encoder_stats`` carries per-frame x264 stats-file records when the
+    request was driven through :func:`run_encode_with_stats` and the
+    codec adapter declares ``supports_encoder_stats = True``. Empty
+    tuple otherwise — corpus rows always populate the schema, so
+    downstream readers see ``0.0`` aggregates rather than missing keys.
+    """
 
     request: EncodeRequest
     encode_size_bytes: int
@@ -77,6 +86,7 @@ class EncodeResult:
     ffmpeg_version: str
     exit_status: int
     stderr_tail: str
+    encoder_stats: tuple[PerFrameStats, ...] = ()
 
 
 def _legacy_codec_args(encoder: str, preset: str, quality: int) -> list[str]:
@@ -269,6 +279,128 @@ def _tail(text: str, n: int) -> str:
     if len(text) <= n:
         return text
     return text[-n:]
+
+
+def build_pass1_stats_command(
+    req: EncodeRequest, stats_prefix: Path, ffmpeg_bin: str = "ffmpeg"
+) -> list[str]:
+    """Compose the FFmpeg argv for a stats-only pass-1 invocation.
+
+    Mirrors :func:`build_ffmpeg_command` but appends
+    ``-pass 1 -passlogfile <prefix>`` and writes the bitstream to
+    ``-f null /dev/null`` — the encoder still runs the full RD loop
+    (and thus emits the stats file) but we skip muxing / writing the
+    output. The stats file lands at ``<prefix>-0.log`` (and an
+    ``mbtree`` sidecar at ``<prefix>-0.log.mbtree`` which we ignore).
+    """
+    cmd: list[str] = [
+        ffmpeg_bin,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "info",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        req.pix_fmt,
+        "-s",
+        f"{req.width}x{req.height}",
+        "-r",
+        f"{req.framerate}",
+    ]
+    if req.sample_clip_seconds > 0.0:
+        cmd.extend(["-ss", f"{req.sample_clip_start_s}"])
+        cmd.extend(["-t", f"{req.sample_clip_seconds}"])
+    cmd.extend(["-i", str(req.source)])
+    cmd.extend(
+        [
+            "-c:v",
+            req.encoder,
+            "-preset",
+            req.preset,
+            "-crf",
+            str(req.crf),
+        ]
+    )
+    cmd.extend(req.extra_params)
+    cmd.extend(
+        [
+            "-pass",
+            "1",
+            "-passlogfile",
+            str(stats_prefix),
+            "-f",
+            "null",
+            os.devnull,
+        ]
+    )
+    return cmd
+
+
+def _stats_file_for(prefix: Path) -> Path:
+    """Path FFmpeg writes the x264 stats file to under ``-passlogfile``.
+
+    FFmpeg appends ``-0.log`` for the first (and in our case only)
+    video stream. Mirroring this convention here keeps the parser
+    fixture-agnostic.
+    """
+    return prefix.parent / f"{prefix.name}-0.log"
+
+
+def run_encode_with_stats(
+    req: EncodeRequest,
+    *,
+    ffmpeg_bin: str = "ffmpeg",
+    runner: object | None = None,
+    capture_stats: bool = True,
+    stats_dir: Path | None = None,
+) -> EncodeResult:
+    """Encode ``req`` and (optionally) capture x264 pass-1 stats.
+
+    When ``capture_stats`` is True (the corpus default for codecs that
+    declare ``supports_encoder_stats``), this runs FFmpeg twice:
+
+    1. Stats-only pass-1 (``-pass 1 -passlogfile <tmp> -f null``).
+       Reads the ``<tmp>-0.log`` file, parses it into
+       :class:`PerFrameStats` records, and discards the temp.
+    2. The regular CRF encode via :func:`run_encode`, which produces
+       the bitstream the corpus scores.
+
+    The result is the regular :class:`EncodeResult` with the
+    ``encoder_stats`` tuple populated. Per ADR-0332 this doubles the
+    per-encode wall-clock cost — that is the documented trade-off for
+    closing the loop on the encoder's RC ledger.
+
+    When ``capture_stats=False`` the function delegates straight to
+    :func:`run_encode` and returns an empty stats tuple.
+    """
+    if not capture_stats:
+        return run_encode(req, ffmpeg_bin=ffmpeg_bin, runner=runner)
+
+    cleanup: list[Path] = []
+    base_dir = Path(stats_dir) if stats_dir is not None else Path(tempfile.gettempdir())
+    base_dir.mkdir(parents=True, exist_ok=True)
+    # Use a deterministic prefix for the temp file so test fixtures can
+    # pre-seed a stats file at the expected path.
+    prefix = base_dir / f"vmaftune_stats_{os.getpid()}_{req.output.stem}"
+
+    try:
+        cmd = build_pass1_stats_command(req, prefix, ffmpeg_bin=ffmpeg_bin)
+        runner_fn = runner or subprocess.run
+        runner_fn(cmd, capture_output=True, text=True, check=False)  # type: ignore[operator]
+        stats_path = _stats_file_for(prefix)
+        frames = tuple(parse_stats_file(stats_path))
+        cleanup.append(stats_path)
+        cleanup.append(prefix.parent / f"{prefix.name}-0.log.mbtree")
+
+        result = run_encode(req, ffmpeg_bin=ffmpeg_bin, runner=runner)
+        return dataclasses.replace(result, encoder_stats=frames)
+    finally:
+        for p in cleanup:
+            try:
+                p.unlink()
+            except (OSError, FileNotFoundError):
+                pass
 
 
 def bitrate_kbps(size_bytes: int, duration_s: float) -> float:

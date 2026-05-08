@@ -114,6 +114,8 @@ class VVenCAdapter:
     probe_preset: str = "faster"
     probe_quality: int = 32
     supports_qpfile: bool = False
+    # ADR-0332: this encoder has no parseable first-pass stats file.
+    supports_encoder_stats: bool = False
 
     # Vocabulary the search loop sees — the canonical 7-name superset.
     # The adapter compresses to VVenC's 5-level native vocabulary at

@@ -60,6 +60,10 @@ class X265Adapter:
     # qpfile writer is libx264-format only — flip to True once a
     # codec-aware qpfile emitter lands.
     supports_qpfile: bool = False
+    # ADR-0332: libx265 emits a similar pass-1 text stats file. The
+    # capture path is enabled but the v1 parser only handles x264;
+    # libx265-specific format support arrives in a follow-up PR.
+    supports_encoder_stats: bool = True
 
     # Phase F (ADR-0333): libx265 supports 2-pass encoding via
     # ``-x265-params pass=N:stats=<path>``. The harness opts in via
