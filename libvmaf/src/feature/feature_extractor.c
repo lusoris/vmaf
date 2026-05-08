@@ -139,6 +139,15 @@ extern VmafFeatureExtractor vmaf_fex_float_motion_hip;
  * five intermediate float buffers shape. v1: scale=1 only. */
 extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
 #endif
+#if HAVE_METAL
+/* Metal first-consumer kernel — T8-1 / ADR-0361. Registration succeeds
+ * but `init()` returns -ENOSYS until the runtime PR (T8-1b) replaces
+ * the kernel-template helper bodies with real Metal calls. Mirrors
+ * `vmaf_fex_integer_motion_v2_hip` field-for-field modulo the
+ * unified-memory buffer collapse documented in
+ * `feature/metal/integer_motion_v2_metal.c`. */
+extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_metal;
+#endif
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_fastdvdnet_pre;
 extern VmafFeatureExtractor vmaf_fex_mobilesal;
@@ -243,6 +252,14 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * float-partial readback); emits one feature (`float_ssim`)
      * once the runtime kernel arrives. v1 is scale=1 only. */
     &vmaf_fex_float_ssim_hip,
+#endif
+#if HAVE_METAL
+    /* T8-1 first consumer (ADR-0361): registration succeeds even on
+     * the scaffold-only build so a caller asking for `motion_v2_metal`
+     * gets the cleaner "extractor found, runtime not ready (-ENOSYS)"
+     * surface instead of "no such extractor". The runtime PR (T8-1b /
+     * T8-1c) keeps this row verbatim and adds its siblings. */
+    &vmaf_fex_integer_motion_v2_metal,
 #endif
     &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2,
     &vmaf_fex_null, NULL};

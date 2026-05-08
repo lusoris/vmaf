@@ -98,6 +98,11 @@ option('enable_hip',
     value: false,
     description: 'Build HIP (AMD ROCm) compute backend (ADR-0212 scaffold / T7-10). Default OFF — every entry point returns -ENOSYS until the runtime PR lands. Requires ROCm 6+ when the kernels arrive; the scaffold has no SDK requirement.')
 
+option('enable_metal',
+    type: 'feature',
+    value: 'auto',
+    description: 'Build Metal (Apple Silicon) compute backend (ADR-0338 scaffold / T8-1). Default `auto`: probes for Metal.framework / MetalKit.framework on macOS, disabled elsewhere. Apple Silicon (M1+ / GPU Family Apple 7+) only — Intel Macs surface as -ENODEV at runtime. Every entry point returns -ENOSYS until the runtime PR (T8-1b) lands.')
+
 option('fuzz',
     type: 'boolean',
     value: false,

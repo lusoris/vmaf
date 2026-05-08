@@ -13,6 +13,7 @@ assessment. Backends are **opt-in at build time** via meson options and
 | CUDA | `-Denable_cuda=true` | no | `--no_cuda` | stable — see [cuda/overview.md](cuda/overview.md) |
 | SYCL / oneAPI | `-Denable_sycl=true` | no | `--no_sycl` / `--sycl_device N` | stable — see [sycl/overview.md](sycl/overview.md) |
 | HIP (AMD) | `-Denable_hip=true` | no | n/a | scaffold only — see [hip/overview.md](hip/overview.md); every entry point returns `-ENOSYS` until the runtime PR (ADR-0212 / T7-10) |
+| Metal (Apple Silicon) | `-Denable_metal=auto/enabled` | auto on macOS | n/a | scaffold only — see [metal/index.md](metal/index.md); every entry point returns `-ENOSYS` until the runtime PR (ADR-0361 / T8-1) |
 
 ## Runtime selection
 
@@ -54,6 +55,8 @@ per-backend page below.
   `-ENOSYS` until the runtime PR (T5-1b)
 - [HIP / AMD ROCm (scaffold)](hip/overview.md) — opt-in scaffold
   returning `-ENOSYS` until the runtime PR (T7-10b)
+- [Metal / Apple Silicon (scaffold)](metal/index.md) — auto-on-macOS
+  scaffold returning `-ENOSYS` until the runtime PR (T8-1b)
 
 ## Cross-backend parity
 

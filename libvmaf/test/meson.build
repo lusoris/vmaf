@@ -712,6 +712,23 @@ test_hip_smoke = executable('test_hip_smoke',
 test('test_hip_smoke', test_hip_smoke)
 endif
 
+# ADR-0338 / T8-1: Metal (Apple Silicon) backend scaffold smoke. Same
+# pattern as the HIP / Vulkan scaffolds above — pins the -ENOSYS
+# contract for every public C-API entry point until the runtime PR
+# (T8-1b) lands. Built whenever the parent meson resolved
+# is_metal_enabled to true (auto on macOS, or `enabled` explicitly).
+metal_test_opt = get_option('enable_metal')
+if metal_test_opt.enabled() or (metal_test_opt.auto() and host_machine.system() == 'darwin')
+test_metal_smoke = executable('test_metal_smoke',
+    ['test.c', 'test_metal_smoke.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency],
+    c_args: ['-DHAVE_METAL=1']
+)
+test('test_metal_smoke', test_metal_smoke)
+endif
+
 test('test_picture', test_picture)
 test('test_feature_collector', test_feature_collector)
 test('test_output', test_output)
