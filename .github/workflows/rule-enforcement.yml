@@ -7,7 +7,10 @@ name: Rule Enforcement — ADR-0100 / 0106 / 0108
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    # `ready_for_review` (ADR-0331) lets the per-job draft gate fire CI
+    # when a draft PR is promoted. `edited` stays because deep-dive-checklist
+    # parses the PR body; an edit-without-push needs to re-validate.
+    types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
