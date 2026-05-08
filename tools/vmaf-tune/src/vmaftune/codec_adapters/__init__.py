@@ -9,11 +9,11 @@ name. Phase A wires ``libx264`` plus the NVIDIA NVENC family
 (``h264_nvenc``, ``hevc_nvenc``, ``av1_nvenc``), the AMD AMF family
 (``h264_amf``, ``hevc_amf``, ``av1_amf``), the Intel QSV family
 (``h264_qsv``, ``hevc_qsv``, ``av1_qsv``), the Apple VideoToolbox
-family (``h264_videotoolbox``, ``hevc_videotoolbox``), the Fraunhofer
-VVenC H.266 encoder (``libvvenc``), and the SVT-AV1 software encoder
-(``libsvtav1``) — software and hardware encoders share the same
-adapter contract; later phases add one file per codec without
-touching the search loop.
+family (``h264_videotoolbox``, ``hevc_videotoolbox``,
+``prores_videotoolbox``), the Fraunhofer VVenC H.266 encoder
+(``libvvenc``), and the SVT-AV1 software encoder (``libsvtav1``) —
+software and hardware encoders share the same adapter contract;
+later phases add one file per codec without touching the search loop.
 
 Mnemonic preset names (``ultrafast``..``placebo``) are normalised
 across software and hardware encoders. NVENC's seven hardware presets
@@ -40,6 +40,7 @@ from .hevc_nvenc import HevcNvencAdapter
 from .hevc_qsv import HevcQsvAdapter
 from .hevc_videotoolbox import HEVCVideoToolboxAdapter
 from .libaom import LibaomAdapter
+from .prores_videotoolbox import ProresVideoToolboxAdapter
 from .svtav1 import SvtAv1Adapter
 from .vvenc import VVenCAdapter
 from .x264 import X264Adapter
@@ -113,6 +114,7 @@ _REGISTRY: dict[str, CodecAdapter] = {
     "av1_qsv": Av1QsvAdapter(),
     "h264_videotoolbox": H264VideoToolboxAdapter(),
     "hevc_videotoolbox": HEVCVideoToolboxAdapter(),
+    "prores_videotoolbox": ProresVideoToolboxAdapter(),
     "libvvenc": VVenCAdapter(),
     "libsvtav1": SvtAv1Adapter(),
 }
@@ -142,6 +144,7 @@ __all__ = [
     "HevcNvencAdapter",
     "HevcQsvAdapter",
     "LibaomAdapter",
+    "ProresVideoToolboxAdapter",
     "SvtAv1Adapter",
     "VVenCAdapter",
     "X264Adapter",

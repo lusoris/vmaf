@@ -78,3 +78,49 @@ intentionally lossy — VT cannot expose a finer dial.
 - [`tools/vmaf-tune/AGENTS.md`](../../tools/vmaf-tune/AGENTS.md) — codec-adapter contract invariants.
 - [`docs/usage/vmaf-tune.md`](../usage/vmaf-tune.md) — user-facing CLI surface.
 - Source: `req` (paraphrased) — user requested Apple VideoToolbox encoder adapters; the originally-coupled codec-vocab schema expansion is split into a separate follow-up PR awaiting a fresh production retrain (per ADR-0235 + ADR-0291 ship-gate).
+
+## Status update 2026-05-09: ProRes adapter added
+
+The macOS hardware-encoder coverage trio is completed by adding
+`prores_videotoolbox` alongside the original `h264_videotoolbox` and
+`hevc_videotoolbox` adapters. The body of this ADR remains frozen
+per the "Immutable once Accepted" rule
+([`docs/adr/README.md`](README.md) §Conventions); this appendix
+records the follow-on that landed in the same registry pattern
+without re-opening the original decision.
+
+The ProRes adapter is deliberately a sibling of the H.264 / HEVC VT
+adapters — same registry shape, same `_videotoolbox_common.py`, same
+nine-name preset → `-realtime` mapping. The one shape difference
+is the **quality knob**:
+
+| Adapter | Knob | Range | Direction |
+| --- | --- | --- | --- |
+| `h264_videotoolbox` / `hevc_videotoolbox` | `q:v` | 0..100 | higher = better |
+| `prores_videotoolbox` | `profile:v` | 0..5 | higher tier = better |
+
+ProRes is a fixed-rate intermediate codec — it has no CRF / QP /
+`q:v` style scalar. The harness's `crf` slot carries the integer
+ProRes tier id (0=`proxy`, 1=`lt`, 2=`standard` (422), 3=`hq` (422
+HQ), 4=`4444`, 5=`xq` (4444 XQ)) per the FFmpeg
+`prores_videotoolbox` `profile` AVOption table (verified against
+`libavcodec/videotoolboxenc.c` `prores_options` in FFmpeg n8.1.1).
+The corpus row's existing `encoder` + `crf` pair carries the tier
+choice; downstream consumers translate the integer back via the
+adapter registry, so no schema change is needed.
+
+Hardware availability: M1 Pro / Max / Ultra and every later
+M-series chip ship the ProRes hardware block; Intel Macs with a T2
+chip do **not** have it (FFmpeg falls back to the software
+`prores_aw` / `prores_ks` encoders there).
+
+`ENCODER_VOCAB` invariant: ProRes is **not** in the live
+`ENCODER_VOCAB_V2` (12 slots, frozen by [ADR-0291](0291-fr-regressor-v2-prod-ship.md))
+nor in the `ENCODER_VOCAB_V3` scaffold (16 slots, scaffold-only by
+[ADR-0302](0302-encoder-vocab-v3-schema-expansion.md)). The
+`prores_videotoolbox` slot will land as part of a future v4 vocab
+bump tracked under T-FR-V2-VOCAB-V3-RETRAIN — until then, the
+proxy-fast-path raises `ProxyError` on ProRes input and the harness
+falls back to the live-encode loop, which works unchanged.
+
+Reference: [`tools/vmaf-tune/src/vmaftune/codec_adapters/prores_videotoolbox.py`](../../tools/vmaf-tune/src/vmaftune/codec_adapters/prores_videotoolbox.py).

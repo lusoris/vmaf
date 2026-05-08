@@ -773,19 +773,23 @@ encoder; if libmfx / VPL is not compiled in, the harness raises
 `RuntimeError` with a build-time hint rather than letting ffmpeg
 emit an `Encoder not found` line buried in stderr.
 
-## Apple VideoToolbox adapters (`h264_videotoolbox`, `hevc_videotoolbox`)
+## Apple VideoToolbox adapters
 
-The `h264_videotoolbox` and `hevc_videotoolbox` registry entries cover
-Apple Silicon (M-series) and T2-equipped Intel Macs via the
-`VideoToolbox.framework` hardware encoder (added in
-[ADR-0283](../adr/0283-vmaf-tune-videotoolbox-adapters.md)). Both
-share `_videotoolbox_common.py` for the `-q:v` quality knob and the
-preset → `-realtime` mapping.
+The `h264_videotoolbox`, `hevc_videotoolbox`, and `prores_videotoolbox`
+registry entries cover Apple Silicon (M-series) and T2-equipped Intel
+Macs via the `VideoToolbox.framework` hardware encoder. The H.264 and
+HEVC adapters were added in
+[ADR-0283](../adr/0283-vmaf-tune-videotoolbox-adapters.md); the ProRes
+adapter follows the same registry pattern (see ADR-0283 *Status update
+2026-05-09*). All three share `_videotoolbox_common.py` for the
+preset → `-realtime` mapping; H.264 / HEVC also share the `-q:v`
+quality knob, while ProRes uses the integer **profile tier** instead.
 
 | Adapter name | FFmpeg encoder | Quality knob | Hardware required |
 | --- | --- | --- | --- |
 | `h264_videotoolbox` | `h264_videotoolbox` | `q:v` (0..100, higher = better) | Apple Silicon or Intel Mac with T2 |
 | `hevc_videotoolbox` | `hevc_videotoolbox` | `q:v` (0..100, higher = better) | Apple Silicon or Intel Mac with T2 |
+| `prores_videotoolbox` | `prores_videotoolbox` | `profile:v` (0..5, higher tier = better) | Apple Silicon **M1 Pro / Max / Ultra or later** |
 
 VideoToolbox exposes only a binary `-realtime {0,1}` flag instead of
 a multi-valued preset, so the harness's nine-name preset vocabulary
@@ -801,6 +805,7 @@ The underlying FFmpeg invocations look like:
 ```shell
 ffmpeg -i src.mkv -c:v h264_videotoolbox -realtime 0 -q:v 60 -an out.mkv
 ffmpeg -i src.mkv -c:v hevc_videotoolbox -realtime 0 -q:v 60 -an out.mkv
+ffmpeg -i src.mkv -c:v prores_videotoolbox -realtime 0 -profile:v hq -an out.mov
 ```
 
 AV1 hardware encoding is intentionally **not wired** — Apple Silicon
@@ -808,10 +813,37 @@ has no AV1 hardware encoder block as of 2026 and FFmpeg exposes no
 `av1_videotoolbox`. Use `libaom-av1` or `libsvtav1` for AV1 on
 macOS.
 
-`vmaf-tune` validates the `(preset, q:v)` pair via the adapter and
-probes `ffmpeg -encoders` for the requested encoder; if VideoToolbox
-is unavailable (e.g. the host is Linux), the harness raises
+`vmaf-tune` validates the `(preset, quality)` pair via the adapter
+(`-q:v` for H.264 / HEVC; integer tier id for ProRes) and probes
+`ffmpeg -encoders` for the requested encoder; if VideoToolbox is
+unavailable (e.g. the host is Linux), the harness raises
 `RuntimeError` rather than letting ffmpeg emit `Encoder not found`.
+
+### ProRes tier reference
+
+ProRes is a fixed-rate intermediate codec — there is no CRF / QP
+scalar. Quality is selected entirely by the **tier**, and bitrate is
+implicit in the tier × resolution × frame-rate combination. The
+harness's `--crf` flag carries the integer tier id (the FFmpeg
+`profile:v` AVOption value); the adapter emits the canonical FFmpeg
+alias on the argv for diagnosability.
+
+| `crf` value | FFmpeg alias | Marketing name | Typical use |
+| --- | --- | --- | --- |
+| 0 | `proxy` | ProRes 422 Proxy | Offline editing, dailies |
+| 1 | `lt` | ProRes 422 LT | Broadcast acquisition |
+| 2 | `standard` | ProRes 422 | Mainline broadcast master |
+| 3 | `hq` | ProRes 422 HQ | High-end broadcast / film master (default) |
+| 4 | `4444` | ProRes 4444 | Graphics, alpha, colour grading |
+| 5 | `xq` | ProRes 4444 XQ | High-dynamic-range / wide-gamut master |
+
+Source: FFmpeg `libavcodec/videotoolboxenc.c` `prores_options`
+AVOption table (verified against an FFmpeg n8.1.1 checkout).
+
+ProRes is intra-only — every frame is a keyframe — so `--keyint` /
+`--force-keyframes` flags are accepted but have no rate-distortion
+effect. The harness still emits them so the muxer's seek-table
+density is predictable across codecs.
 
 ## Saliency-aware encoding (`recommend --saliency-aware`)
 
