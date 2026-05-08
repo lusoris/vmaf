@@ -32056,6 +32056,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   pytest ai/tests/test_lsvq.py -v
   ```
 
+
 ## ADR-0325 — Local sidecar training scaffold (2026-05-08)
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/sidecar.py` (new), `tools/vmaf-tune/tests/test_sidecar.py` (new), `docs/adr/0325-local-sidecar-training.md` (new), `docs/adr/_index_fragments/0325-local-sidecar-training.md` (new), `docs/adr/_index_fragments/_order.txt` (append), `docs/adr/README.md` (index row), `docs/research/0086-local-sidecar-feasibility.md` (new), `docs/ai/local-sidecar-training.md` (new), `changelog.d/added/local-sidecar-training-scaffold.md` (new), `tools/vmaf-tune/AGENTS.md` (sidecar invariant note). No engine code touched; no upstream-shared paths.
@@ -32065,6 +32066,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
 
   ```bash
   cd tools/vmaf-tune && python -m pytest tests/test_sidecar.py -v
+
 
 ## ADR-0368 — YouTube UGC corpus ingestion (2026-05-08)
 
@@ -32091,6 +32093,39 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
 
   ```bash
   pytest ai/tests/test_youtube_ugc.py -v
+
+
+## ADR-0325 — predictor stub-models policy (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/predictor_train.py` (new),
+  `model/predictor_<codec>.onnx` × 14 (new), `model/predictor_<codec>_card.md` × 14 (new),
+  `tools/vmaf-tune/tests/test_predictor_train.py` (new),
+  `docs/ai/predictor.md` (new), `docs/adr/0325-predictor-stub-models-policy.md` (new),
+  `docs/adr/README.md` + `_index_fragments/0325-*.md` + `_order.txt` (index rows),
+  `changelog.d/added/predictor-train-pipeline.md` (new). No engine code; no
+  upstream-shared paths.
+- **Invariant**: the trainer's `CODECS` tuple is sourced from
+  `predictor._DEFAULT_COEFFS` so the two stay in lockstep. Any new codec
+  adapter that lands in `predictor._DEFAULT_COEFFS` must (a) ship a
+  matching synthetic-stub model + card under `model/predictor_<codec>.{onnx,_card.md}`
+  in the same PR, and (b) re-run the trainer to refresh the artefact set.
+  The shipped-model smoke test (`test_predictor_loads_each_shipped_model`)
+  parameterises over `CODECS` and will fail if either condition is missed.
+- **On upstream sync**: no action required. The predictor + trainer live
+  entirely under `tools/vmaf-tune/` (a fork-local path); the model
+  artefacts live under `model/` but use a `predictor_<codec>.onnx` naming
+  scheme that does not collide with any upstream `model/vmaf_*.{json,pkl}`
+  or `model/tiny/*.onnx` path.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -m pytest tools/vmaf-tune/tests/test_predictor_train.py -q
+  python3 -c "
+  import sys
+  sys.path.insert(0, 'tools/vmaf-tune/src')
+  from vmaftune.predictor_train import main
+  sys.exit(main(['--output-dir', '/tmp/predictor-rebase', '--epochs', '20']))
+  "
 
 
   ```
