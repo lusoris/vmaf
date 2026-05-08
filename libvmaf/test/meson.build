@@ -381,6 +381,28 @@ test_psnr_hvs_avx2 = executable('test_psnr_hvs_avx2',
 )
 endif
 
+cambi_simd_test_archs = ['x86_64', 'x86', 'aarch64', 'arm64']
+if cambi_simd_test_archs.contains(host_machine.cpu_family())
+test_cambi_simd = executable('test_cambi_simd',
+    ['test.c', 'test_cambi_simd.c',
+     '../src/mem.c', '../src/picture.c', '../src/ref.c',
+     '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
+     '../src/metadata_handler.c', '../src/thread_locale.c', '../src/gpu_picture_pool.c', dnn_sources],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/'),
+                           include_directories('../src/feature/'), dnn_inc],
+    c_args : vmaf_cflags_common + dnn_defines,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
+                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+    objects : [
+      common_cuda_objects,
+      platform_specific_cpu_objects,
+      libvmaf_cpu_static_lib.extract_all_objects(recursive: true),
+      libvmaf_feature_static_lib.extract_all_objects(recursive: true),
+      libsvm_static_lib.extract_all_objects(recursive: true),
+    ],
+)
+endif
+
 motion_v2_simd_test_archs = ['x86_64', 'x86']
 if motion_v2_simd_test_archs.contains(host_machine.cpu_family())
 test_motion_v2_simd = executable('test_motion_v2_simd',
@@ -759,6 +781,10 @@ endif
 
 if motion_v2_simd_test_archs.contains(host_machine.cpu_family())
 test('test_motion_v2_simd', test_motion_v2_simd)
+endif
+
+if cambi_simd_test_archs.contains(host_machine.cpu_family())
+test('test_cambi_simd', test_cambi_simd)
 endif
 
 if psnr_hvs_neon_test_archs.contains(host_machine.cpu_family())

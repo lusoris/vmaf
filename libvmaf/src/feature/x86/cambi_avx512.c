@@ -17,8 +17,11 @@
  */
 
 #include <immintrin.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "libvmaf/picture.h"
 
 void cambi_increment_range_avx512(uint16_t *arr, int left, int right)
 {
@@ -89,6 +92,178 @@ void get_derivative_data_for_row_avx512(const uint16_t *image_data, uint16_t *de
             bool vertical_derivative =
                 image_data[row * stride + col] == image_data[(row + 1) * stride + col];
             derivative_buffer[col] = horizontal_derivative && vertical_derivative;
+        }
+    }
+}
+
+/* AVX-512 twin of `calculate_c_values_row_avx2` from `x86/cambi_avx2.c`.
+ *
+ * Per-pixel logic (scalar reference: `c_value_pixel` / `calculate_c_values_row` in
+ * cambi.c) computes, for every diff `d` in [0, num_diffs):
+ *   if (value <= tvi_thresholds[d]) and (value + delta_plus > vlt_luma):
+ *     val = (diff_weights[d] * p_0 * max(p_1, p_2)) * reciprocal_lut[max(p_1,p_2) + p_0]
+ *     c_v = max(c_v, val)
+ * where `value = image[col] + num_diffs`, `delta_plus = all_diffs[num_diffs+d+1]`,
+ * `delta_minus = all_diffs[num_diffs-d-1]`, and `p_0`, `p_1`, `p_2` are histogram
+ * lookups indexed by `(value - v_band_offset) * width + col` (and ±delta variants).
+ *
+ * AVX-512 lays this out across 16 int32 lanes (vs. AVX-2's 8). The widening to
+ * 16-lane masks (`__mmask16`) simplifies the predicate handling vs. AVX-2's blendv
+ * trickery. Bit-exactness is preserved because every arithmetic step (int32 mul,
+ * float mul/max, gather of uint16-bounded payload) operates on identical operand
+ * widths and identical IEEE-754 rounding modes as the AVX-2 path; cf. ADR-0138 /
+ * ADR-0139 (fork bit-exactness invariants for SIMD twins).
+ */
+void calculate_c_values_row_avx512(float *c_values, const uint16_t *histograms,
+                                   const uint16_t *image, const uint16_t *mask, int row, int width,
+                                   ptrdiff_t stride, const uint16_t num_diffs,
+                                   const uint16_t *tvi_thresholds, uint16_t vlt_luma,
+                                   const int *diff_weights, const int *all_diffs,
+                                   const float *reciprocal_lut)
+{
+    int v_lo_signed_sc = (int)vlt_luma - 3 * (int)num_diffs + 1;
+    uint16_t v_band_base = v_lo_signed_sc > 0 ? (uint16_t)v_lo_signed_sc : 0;
+    uint16_t v_band_size = tvi_thresholds[num_diffs - 1] + 1 - v_band_base;
+
+    const __m512i col_base =
+        _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    const __m512i width_v = _mm512_set1_epi32(width);
+    const __m512i num_diffs_v = _mm512_set1_epi32(num_diffs);
+    const __m512i vlt_luma_v = _mm512_set1_epi32(vlt_luma);
+    const __m512i band_offset_v = _mm512_set1_epi32((int)num_diffs + (int)v_band_base);
+    const __m512i band_max_v = _mm512_set1_epi32((int)v_band_size - 1);
+    const __m512i zero = _mm512_setzero_si512();
+
+    const uint16_t *image_row = &image[row * stride];
+    const uint16_t *mask_row = &mask[row * stride];
+    float *c_row = &c_values[row * width];
+
+    int col = 0;
+    /* Vector loop: require at least one extra column past the chunk so the
+     * 4-byte gather at the worst-case lane never overruns the histogram buffer
+     * (mirrors the AVX-2 invariant — `col + 16 < width` is `col + 15 < width`,
+     * leaving a 1-column safety margin). */
+    for (; col + 16 < width; col += 16) {
+        /* Load 16 mask uint16, promote to int32, build active mmask. */
+        __m256i mask16 = _mm256_loadu_si256((const __m256i *)&mask_row[col]);
+        __m512i mask32 = _mm512_cvtepu16_epi32(mask16);
+        __mmask16 mask_active = _mm512_cmpneq_epi32_mask(mask32, zero);
+
+        /* Skip the entire chunk if no lane is active. */
+        if (mask_active == 0) {
+            _mm512_storeu_ps(&c_row[col], _mm512_setzero_ps());
+            continue;
+        }
+
+        /* value = image[col + lane] + num_diffs (used for TVI / vlt checks). */
+        __m256i img16 = _mm256_loadu_si256((const __m256i *)&image_row[col]);
+        __m512i value_v = _mm512_add_epi32(_mm512_cvtepu16_epi32(img16), num_diffs_v);
+
+        /* compact_v = value_v - band_offset, clamped to [0, band_max] for safe gathers. */
+        __m512i compact_v = _mm512_sub_epi32(value_v, band_offset_v);
+        compact_v = _mm512_max_epi32(compact_v, zero);
+        compact_v = _mm512_min_epi32(compact_v, band_max_v);
+
+        __m512i col_v = _mm512_add_epi32(_mm512_set1_epi32(col), col_base);
+
+        /* p_0 = histograms[compact_v * width + col + lane]. Gather 32-bit then mask
+         * the high 16 bits — the histogram is uint16, so the upper half of each
+         * gathered dword belongs to `compact_v * width + col + lane + 1` and is
+         * discarded. (Identical strategy to the AVX-2 path.) */
+        __m512i p0_idx = _mm512_add_epi32(_mm512_mullo_epi32(compact_v, width_v), col_v);
+        __m512i p0 = _mm512_and_si512(_mm512_i32gather_epi32(p0_idx, (const int *)histograms, 2),
+                                      _mm512_set1_epi32(0xFFFF));
+
+        __m512 c_value = _mm512_setzero_ps();
+
+        for (int d = 0; d < num_diffs; d++) {
+            int delta_plus = all_diffs[num_diffs + d + 1];
+            int delta_minus = all_diffs[num_diffs - d - 1];
+            int weight = diff_weights[d];
+            int tvi_thresh = tvi_thresholds[d];
+
+            /* pred_a = (value <= tvi_thresh) — use the LE-int comparator directly. */
+            __mmask16 pred_a = _mm512_cmple_epi32_mask(value_v, _mm512_set1_epi32(tvi_thresh));
+
+            __m512i value_plus = _mm512_add_epi32(value_v, _mm512_set1_epi32(delta_plus));
+            __mmask16 pred_b = _mm512_cmpgt_epi32_mask(value_plus, vlt_luma_v);
+            __mmask16 predicate = pred_a & pred_b;
+
+            if (predicate == 0)
+                continue;
+
+            /* compact p1/p2 indices, clamped for safe gathers; track OOB lanes to zero them. */
+            __m512i compact_plus_raw = _mm512_add_epi32(compact_v, _mm512_set1_epi32(delta_plus));
+            __m512i compact_plus = _mm512_min_epi32(compact_plus_raw, band_max_v);
+
+            __m512i compact_minus_raw = _mm512_add_epi32(compact_v, _mm512_set1_epi32(delta_minus));
+            __mmask16 p2_inbounds = _mm512_cmpge_epi32_mask(compact_minus_raw, zero);
+            __m512i compact_minus = _mm512_max_epi32(compact_minus_raw, zero);
+
+            /* p_1 / p_2 gathers (masked: only active lanes pay the gather cost). */
+            __m512i p1_idx = _mm512_add_epi32(_mm512_mullo_epi32(compact_plus, width_v), col_v);
+            __m512i p1 = _mm512_and_si512(
+                _mm512_mask_i32gather_epi32(zero, predicate, p1_idx, (const int *)histograms, 2),
+                _mm512_set1_epi32(0xFFFF));
+
+            __m512i p2_idx = _mm512_add_epi32(_mm512_mullo_epi32(compact_minus, width_v), col_v);
+            __m512i p2 = _mm512_and_si512(
+                _mm512_mask_i32gather_epi32(zero, predicate, p2_idx, (const int *)histograms, 2),
+                _mm512_set1_epi32(0xFFFF));
+            /* Lanes whose minus-index went negative are forced to 0 (matches the
+             * scalar branch: `(idx2 >= 0) ? histograms[...] : 0`). */
+            p2 = _mm512_maskz_mov_epi32(p2_inbounds, p2);
+
+            __m512i p_max = _mm512_max_epu32(p1, p2);
+            __m512i denom = _mm512_add_epi32(p_max, p0);
+
+            /* num = (float)(weight * p_0 * p_max), all uint16-bounded so int32 mul fits. */
+            __m512i num_int =
+                _mm512_mullo_epi32(_mm512_set1_epi32(weight), _mm512_mullo_epi32(p0, p_max));
+            __m512 num_f = _mm512_cvtepi32_ps(num_int);
+
+            /* rcp = reciprocal_lut[denom]; LUT is small, hot in L1. */
+            __m512 rcp = _mm512_i32gather_ps(denom, reciprocal_lut, 4);
+
+            __m512 val = _mm512_mul_ps(num_f, rcp);
+            /* Mask off lanes where predicate is false, then take the running max. */
+            c_value = _mm512_mask_max_ps(c_value, predicate, c_value, val);
+        }
+
+        /* Apply mask: lanes with mask == 0 keep 0. */
+        c_value = _mm512_maskz_mov_ps(mask_active, c_value);
+        _mm512_storeu_ps(&c_row[col], c_value);
+    }
+
+    /* Scalar tail (bit-identical with the scalar reference). */
+    for (; col < width; col++) {
+        if (mask_row[col]) {
+            uint16_t value = (uint16_t)(image_row[col] + num_diffs);
+            int compact_v_signed = (int)image_row[col] - (int)v_band_base;
+            if ((unsigned)compact_v_signed >= v_band_size) {
+                c_row[col] = 0.0f;
+                continue;
+            }
+            uint16_t compact_v_sc = (uint16_t)compact_v_signed;
+            uint16_t p_0 = histograms[compact_v_sc * width + col];
+            float c_v = 0.0f;
+            for (int d = 0; d < num_diffs; d++) {
+                if ((value <= tvi_thresholds[d]) &&
+                    ((value + all_diffs[num_diffs + d + 1]) > vlt_luma)) {
+                    int idx1 = compact_v_signed + all_diffs[num_diffs + d + 1];
+                    int idx2 = compact_v_signed + all_diffs[num_diffs - d - 1];
+                    uint16_t p_1 = histograms[idx1 * width + col];
+                    uint16_t p_2 = (idx2 >= 0) ? histograms[idx2 * width + col] : 0;
+                    uint16_t p_max = (p_1 > p_2) ? p_1 : p_2;
+                    float val =
+                        (float)(diff_weights[d] * p_0 * p_max) * reciprocal_lut[p_max + p_0];
+                    if (val > c_v)
+                        c_v = val;
+                }
+            }
+            c_row[col] = c_v;
+        } else {
+            c_row[col] = 0.0f;
         }
     }
 }

@@ -132,6 +132,11 @@ static void calculate_c_values_avx2(VmafPicture *pic, const VmafPicture *mask_pi
                                     const uint16_t num_diffs, const uint16_t *tvi_for_diff,
                                     uint16_t vlt_luma, const int *diff_weights,
                                     const int *all_diffs, int width, int height);
+static void calculate_c_values_avx512(VmafPicture *pic, const VmafPicture *mask_pic,
+                                      float *c_values, uint16_t *histograms, uint16_t window_size,
+                                      const uint16_t num_diffs, const uint16_t *tvi_for_diff,
+                                      uint16_t vlt_luma, const int *diff_weights,
+                                      const int *all_diffs, int width, int height);
 #endif
 #if ARCH_AARCH64
 static void calculate_c_values_neon(VmafPicture *pic, const VmafPicture *mask_pic, float *c_values,
@@ -713,6 +718,7 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     }
     if (flags & VMAF_X86_CPU_FLAG_AVX512) {
         s->derivative_callback = get_derivative_data_for_row_avx512;
+        s->calc_c_values_callback = calculate_c_values_avx512;
     }
 #elif ARCH_AARCH64
     {
@@ -1471,11 +1477,22 @@ static void calculate_c_values_avx2(VmafPicture *pic, const VmafPicture *mask_pi
     CAMBI_CALC_C_VALUES_BODY(cambi_increment_range_avx2, cambi_decrement_range_avx2,
                              calculate_c_values_row_avx2);
 }
+
+/* AVX-512 driver — uses the AVX-512 range updaters AND the AVX-512 row stage.
+ * Bit-exactness vs. the scalar / AVX-2 paths is preserved (see ADR-0138 /
+ * ADR-0139 — fork bit-exactness invariants). */
+static void calculate_c_values_avx512(VmafPicture *pic, const VmafPicture *mask_pic,
+                                      float *c_values, uint16_t *histograms, uint16_t window_size,
+                                      const uint16_t num_diffs, const uint16_t *tvi_for_diff,
+                                      uint16_t vlt_luma, const int *diff_weights,
+                                      const int *all_diffs, int width, int height)
+{
+    CAMBI_CALC_C_VALUES_BODY(cambi_increment_range_avx512, cambi_decrement_range_avx512,
+                             calculate_c_values_row_avx512);
+}
 #endif
 
 #if ARCH_AARCH64
-/* NEON has bit-exact range updaters but no calculate_c_values_row_neon yet; the
- * row stage stays scalar (pending fork follow-up T7-NN). */
 static void calculate_c_values_neon(VmafPicture *pic, const VmafPicture *mask_pic, float *c_values,
                                     uint16_t *histograms, uint16_t window_size,
                                     const uint16_t num_diffs, const uint16_t *tvi_for_diff,
@@ -1483,7 +1500,7 @@ static void calculate_c_values_neon(VmafPicture *pic, const VmafPicture *mask_pi
                                     const int *all_diffs, int width, int height)
 {
     CAMBI_CALC_C_VALUES_BODY(cambi_increment_range_neon, cambi_decrement_range_neon,
-                             calculate_c_values_row);
+                             calculate_c_values_row_neon);
 }
 #endif
 

@@ -79,3 +79,28 @@ cambi inline" header.
 - Source: `req` — task brief: "If a commit fundamentally can't be ported
   because the fork's cambi has diverged irreconcilably, STOP and report —
   don't fudge. Note the gap in the PR's Known follow-ups."
+
+## Status update 2026-05-08: SIMD twins completed
+
+The two perf follow-ups tracked in `RN-2026-05-08-cambi-cluster` —
+`calculate_c_values_row_avx512` and `calculate_c_values_row_neon` — both
+landed alongside this status update. Both implementations preserve
+bit-exactness vs. the scalar reference at full IEEE-754 precision (gated
+by the new `libvmaf/test/test_cambi_simd.c` parity test, which compares
+scalar / AVX-2 / AVX-512 / NEON outputs byte-for-byte). The
+`CAMBI_CALC_C_VALUES_BODY` macro picked up two new ISA-bound dispatch
+points (`calculate_c_values_avx512`, the upgraded
+`calculate_c_values_neon`) without restructuring; the macro stays the
+single source of truth for the loop nest.
+
+End-to-end behaviour is unchanged: Netflix golden gate scores are
+byte-identical to the AVX-2 baseline (verified via
+`vmaf --precision max` on the src01 pair). Microbenchmark shows
+AVX-512 ~1.15× over AVX-2 on AMD Zen 5 (gather-bound; Intel parts
+expected to land closer to 1.5-2× per the
+[ADR-0328 §References / cambi.md SIMD section](../metrics/cambi.md#cpu-simd-paths)).
+NEON timing is host-dependent and exercised by the parity test only.
+
+The decision in this ADR (skip `41bacc83`, keep the macro) is unchanged
+— the new twins consume the existing macro and confirm the macro is the
+right shape for an N-variant fork dispatch table.

@@ -180,3 +180,51 @@ ninja -C build-vulkan
 ```
 
 Companion research digest: [Research-0032](../research/0032-cambi-vulkan-integration.md).
+
+## CPU SIMD paths
+
+cambi's hot path on the CPU is the per-row `calculate_c_values_row`
+function (sliding-window banding-histogram lookup with reciprocal-LUT
+multiplications), dispatched once per row inside the
+`CAMBI_CALC_C_VALUES_BODY` macro.
+
+The fork ships four bit-exact implementations selected at runtime via
+`vmaf_get_cpu_flags()`:
+
+| Variant           | File                                            | Selected when                |
+|-------------------|-------------------------------------------------|------------------------------|
+| Scalar            | `libvmaf/src/feature/cambi.c`                   | Fallback / no SIMD detected  |
+| AVX-2 (8-lane)    | `libvmaf/src/feature/x86/cambi_avx2.c`          | x86 with AVX-2               |
+| AVX-512 (16-lane) | `libvmaf/src/feature/x86/cambi_avx512.c`        | x86 with AVX-512BW + DQ + VL |
+| NEON (4-lane)     | `libvmaf/src/feature/arm64/cambi_neon.c`        | aarch64 (always)             |
+
+All four variants produce **bit-identical** float scores
+(byte-identical when serialised at full IEEE-754 precision via
+`--precision max`). The bit-exactness gate runs in CI as
+`test_cambi_simd` (every variant compared against the scalar
+reference at four widths: 64, 96, 256, 1920).
+
+Per-variant microbench numbers (CAMBI row at width=1920, 2000-row
+repeat, AMD Zen 5, 2026-05-08):
+
+```text
+scalar :  ~9 us/row
+AVX-2  :  ~11 us/row
+AVX-512:  ~9 us/row   (~1.15x faster than AVX-2)
+```
+
+Real-world end-to-end speedup is modest (a few percent) on this
+gather-bound kernel — gather throughput on AMD Zen has higher
+latency than Intel parts, dampening the AVX-512 win on histogram
+lookup loops. On Intel Sapphire Rapids / later, the expected
+speedup is closer to 1.5–2x. NEON parity is verified by
+`test_cambi_simd` on aarch64 CI; per-variant timing is
+host-dependent.
+
+The SIMD twins were ported in two PRs:
+
+- AVX-2 row stage and the 9-of-10 upstream port:
+  [PR #463](https://github.com/lusoris/vmaf/pull/463)
+  ([ADR-0328](../adr/0328-cambi-cluster-port-skip-shared-header-rename.md)).
+- AVX-512 + NEON row stages (this PR — see ADR-0328's
+  status-update appendix).

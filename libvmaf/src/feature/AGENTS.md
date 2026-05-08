@@ -476,6 +476,22 @@ feature/
     [research digest 0020](../../../docs/research/0020-cambi-gpu-strategies.md)
     but deferred to a future batch — *do not* attempt to
     optimise it inside the v1 hybrid integration.
+  - **`CAMBI_CALC_C_VALUES_BODY` macro is the N-variant
+    dispatcher.** All four CPU variants — scalar
+    `calculate_c_values_row`, `calculate_c_values_row_avx2`,
+    `calculate_c_values_row_avx512`, and
+    `calculate_c_values_row_neon` — flow through the same
+    macro body in `cambi.c`. Bit-exactness across variants is
+    the load-bearing invariant (per ADR-0138 / ADR-0139): every
+    SIMD twin reproduces the scalar `c_value_pixel` arithmetic
+    per lane, in identical order, with identical operand
+    widths. The `test_cambi_simd` parity gate
+    (`libvmaf/test/test_cambi_simd.c`) compares all available
+    variants against scalar at four widths × the host's
+    detected ISA. **Any change to the c-value formula must
+    update every variant in lockstep**; the AVX-512 + NEON
+    twins were ported in ADR-0328's "Status update 2026-05-08"
+    appendix.
 
 - **VIF kernelscale stays on the precomputed
   `vif_filter1d_table_s` flow — Strategy E in Research-0024.**
