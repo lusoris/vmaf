@@ -195,3 +195,27 @@ fall back to the documented Research-0067 defaults (2.0 / 5.0 VMAF)
 and emit a one-line warning. Per-cell decisions are recorded in
 `plan.metadata.confidence_aware_escalations[]`. F.4 (per-content-type
 recipe overrides) remains deferred.
+
+### Status update 2026-05-09: F.4 recipes landed
+
+F.4 ships `_apply_recipe_override(meta, plan_state, thresholds)` in
+`tools/vmaf-tune/src/vmaftune/auto.py`, returning a
+`(recipe_class, recipe, effective_thresholds)` triple. The recipe
+table at module scope (`_CONTENT_RECIPE_TABLE`) holds factory
+callables for the four named classes (`animation`, `screen_content`,
+`live_action_hdr`, `ugc`) plus the empty `default`; each call returns
+a fresh override dict so mutations cannot leak between runs. Recipes
+fire **before** the F.2 short-circuits evaluate so a recipe can flip
+`force_single_rung` and have the ladder stage honour it. The four
+override keys consumed by the driver are `tight_interval_max_width`,
+`force_single_rung`, `saliency_intensity`, and `target_vmaf_offset`.
+Per memory `feedback_no_test_weakening`, `target_vmaf_offset` shifts
+only the predictor's effective target; the input `--target-vmaf`
+(production-flip gate) is preserved verbatim in
+`plan.metadata.target_vmaf` while the offset target lands in
+`plan.metadata.effective_predictor_target_vmaf`. Every threshold value
+shipped here is `[provisional, calibrate against real corpus in F.5]`.
+F.5 closes the calibration loop once F.4 has emitted enough labelled
+recipe applications to fit the placeholders empirically. Phase F
+phased rollout is now complete (F.0 design + F.1+F.2 + F.3 + F.4);
+F.5 calibration is a follow-up backlog item, not a Phase F gate.

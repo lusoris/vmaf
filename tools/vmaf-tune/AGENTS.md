@@ -520,3 +520,25 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   `_confidence_aware_escalation` is a pure function of
   `(verdict, interval_width, thresholds)` so it stays trivially
   unit-testable; keep it pure when extending the decision table.
+
+- **F.4 recipe overrides are read-only factories, not literal
+  dicts.** `_CONTENT_RECIPE_TABLE` in `auto.py` stores **callables**
+  (`_animation_recipe`, `_screen_content_recipe`,
+  `_live_action_hdr_recipe`, `_ugc_recipe`, `_empty_recipe`); every
+  call returns a fresh dict so a caller mutating the return value
+  cannot leak the mutation into the next `run_auto` invocation. Tests
+  in `tests/test_auto_recipe_overrides.py` assert this invariant
+  explicitly. Adding a new content class means adding a factory
+  function and a `RECIPE_CLASS_<NAME>` constant; never inline a
+  literal dict into the table or mutate one in place. The four
+  override keys (`tight_interval_max_width`, `force_single_rung`,
+  `saliency_intensity`, `target_vmaf_offset`) are the only keys the
+  driver honours — `get_recipe_for_class` filters by the
+  `_RECIPE_KEYS` allowlist as defence-in-depth. Every threshold value
+  shipped at F.4 is `[provisional, calibrate against real corpus in
+  F.5]`; do not promote a placeholder to "calibrated" in a drive-by
+  edit. Per memory `feedback_no_test_weakening`,
+  `target_vmaf_offset` shifts only the predictor's effective target;
+  the input `--target-vmaf` (the gate that ships models) is
+  preserved verbatim in `plan.metadata.target_vmaf`. See
+  [ADR-0325](../../docs/adr/0325-vmaf-tune-phase-f-auto.md) §F.4.

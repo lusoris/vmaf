@@ -221,3 +221,37 @@ enough labelled compositions for a future supervised baseline.
 
 The recommendation **does not** add any new sub-phase: Phase F is
 integration, not invention.
+
+## F.4 recipe-override placeholders (status update 2026-05-09)
+
+F.4 (`_apply_recipe_override`, shipping with PR adding
+`tools/vmaf-tune/tests/test_auto_recipe_overrides.py`) ships four
+named recipes plus a `default` empty recipe. The threshold values
+documented below are **provisional placeholders**, sized close to a
+conservative emergency floor so the recipes still produce sane
+behaviour even if the F.5 calibration fit never lands.
+
+| Class | Threshold key | Placeholder | Rationale (provisional) |
+| ----- | ------------- | ----------- | ----------------------- |
+| `animation` | `tight_interval_max_width` | `1.5` | Predictor residuals are tighter on flat colour fields than on photographic content. |
+| `animation` | `target_vmaf_offset` | `+2.0` | Animation is intrinsically more compressible at a given perceptual quality. |
+| `screen_content` | `target_vmaf_offset` | `+1.0` | Saliency-aware QP allocation pushes the achievable target slightly higher. |
+| `live_action_hdr` | `tight_interval_max_width` | `1.2` | The fr_regressor predictor (ADR-0279) was largely trained on SDR; a wide HDR interval is more suspect. |
+| `ugc` | `tight_interval_max_width` | `3.0` | UGC's higher upstream-encode noise makes wider predictor intervals the baseline. |
+| `ugc` | `target_vmaf_offset` | `-1.0` | UGC's perceptual ceiling is capped by source-side artefacts. |
+
+**F.5 calibration backlog**: once F.4 has emitted enough labelled
+recipe applications to make a per-class fit statistically defensible,
+F.5 fits the placeholders empirically. The fit lands as a one-line
+edit to each recipe factory (no API change). The placeholders here
+are deliberately conservative — F.5 should produce values within an
+order of magnitude of these, not order-of-magnitude shifts. If the
+calibration fit produces wildly different values, that's a signal
+that the recipe taxonomy itself needs revisiting (a sub-class split,
+e.g. cel-animation vs CGI-animation), not a threshold tweak.
+
+Per memory `feedback_no_test_weakening`, the F.5 calibration must
+**not** produce values that widen the production-flip gate. The
+`target_vmaf_offset` shifts only the predictor's effective target;
+the input `--target-vmaf` (the gate that ships models) is preserved
+verbatim across F.4 and F.5.

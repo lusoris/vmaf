@@ -31823,3 +31823,53 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
       tests/test_conformal.py -v
   ```
 
+## ADR-0325 — `vmaf-tune auto` Phase F.4 per-content-type recipe overrides (2026-05-09)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (added
+  `_apply_recipe_override`, `_CONTENT_RECIPE_TABLE`,
+  `get_recipe_for_class`, the four `_<class>_recipe` factories, and
+  the `RECIPE_CLASS_*` constants; integrated the override into
+  `run_auto` and added `recipe_applied` /
+  `effective_predictor_target_vmaf` to the JSON metadata),
+  `tools/vmaf-tune/tests/test_auto_recipe_overrides.py` (new — 37
+  assertions),
+  `tools/vmaf-tune/tests/test_auto_short_circuits.py` (one test
+  updated for the F.4 force-single-rung semantics on animation
+  sources), `tools/vmaf-tune/AGENTS.md` (invariant row),
+  `docs/usage/vmaf-tune.md` (`### Per-content-type recipes (F.4)`
+  subsection), `docs/adr/0325-vmaf-tune-phase-f-auto.md` (status
+  update appended; already-accepted body untouched per ADR-0028),
+  `changelog.d/added/phase-f4-content-recipes.md`. No upstream-shared
+  paths.
+- **Invariant**: `_CONTENT_RECIPE_TABLE` stores **factory callables**,
+  not literal dicts. Every `get_recipe_for_class` / `_apply_recipe_override`
+  call returns a fresh override dict so caller mutations cannot leak
+  between runs. The four override keys honoured by the driver are
+  `tight_interval_max_width`, `force_single_rung`,
+  `saliency_intensity`, `target_vmaf_offset`; the `_RECIPE_KEYS`
+  allowlist filters anything else as defence-in-depth. The
+  `target_vmaf_offset` shifts only `effective_predictor_target_vmaf`;
+  the input `target_vmaf` (production-flip gate) is preserved
+  verbatim. Every threshold value at F.4 is **provisional** pending
+  F.5 calibration — do not promote a placeholder to "calibrated" in
+  a drive-by edit.
+- **On upstream sync**: no action required. `tools/vmaf-tune/` is
+  fork-local; ADR-0237 explicitly carves Phases B–F out of upstream
+  scope.
+- **Re-test on rebase**:
+
+  ```bash
+  PYTHONPATH=tools/vmaf-tune/src python -m pytest \
+    tools/vmaf-tune/tests/test_auto_recipe_overrides.py \
+    tools/vmaf-tune/tests/test_auto_short_circuits.py \
+    tools/vmaf-tune/tests/test_auto_confidence_aware.py -v
+  PYTHONPATH=tools/vmaf-tune/src python -c \
+    "from pathlib import Path; from vmaftune.auto import run_auto, SourceMeta; \
+     m = SourceMeta(height=1080, width=1920, content_class='animation', duration_s=120, shot_variance=0.05); \
+     p = run_auto(src=Path('/dev/null'), target_vmaf=93.0, max_budget_kbps=5000.0, \
+                  allow_codecs=('libx264',), smoke=True, meta_override=m); \
+     assert p.metadata['recipe_applied'] == 'animation'; \
+     assert p.metadata['target_vmaf'] == 93.0; \
+     assert p.metadata['effective_predictor_target_vmaf'] == 95.0; \
+     print('F.4 smoke OK')"
+  ```
