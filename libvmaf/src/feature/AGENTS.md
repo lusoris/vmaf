@@ -164,6 +164,24 @@ feature/
   the fork's `static` and `ptrdiff_t` unless upstream adopts them.
   See [ADR-0143](../../../docs/adr/0143-port-netflix-f3a628b4-generalized-avx-convolve.md)
   and [rebase-notes 0036](../../../docs/rebase-notes.md).
+- **`motion_v2` mirror parity across CPU/SIMD/GPU/Vulkan twins**
+  (upstream-aligned, ADR-0325): the scalar `mirror`,
+  `arm64/motion_v2_neon.c::mirror`, `x86/motion_v2_avx2.c::mirror`,
+  `x86/motion_v2_avx512.c::mirror`,
+  `cuda/integer_motion_v2/motion_v2_score.cu::mv2_mirror`,
+  `sycl/integer_motion_v2_sycl.cpp::dev_mirror_mv2`, the GLSL
+  `vulkan/shaders/motion_v2.comp::dev_mirror`, and the SIMD-vs-scalar
+  audit's local `mirror_idx` in
+  [`libvmaf/test/test_motion_v2_simd.c`](../../test/test_motion_v2_simd.c)
+  must all use the **skip-boundary** form
+  `2 * size - idx - 2` for `idx >= size`. Upstream commit
+  `856d3835` (May 2026) flipped this from the previous
+  edge-replicating `2 * size - idx - 1`. On rebase: any future
+  upstream change to motion_v2's mirror must propagate to all
+  eight sites in the same PR — partial updates trip
+  `/cross-backend-diff motion_v2` and the GPU-parity CI gate
+  (ADR-0214). See
+  [ADR-0325](../../../docs/adr/0325-port-upstream-motion-v2-cluster-2026-05-08.md).
 - **`motion_v2` NEON shift semantics** (fork-local, ADR-0145):
   [`arm64/motion_v2_neon.c`](arm64/motion_v2_neon.c) uses
   **arithmetic** right-shift throughout (`vshrq_n_s64(v, 16)` for

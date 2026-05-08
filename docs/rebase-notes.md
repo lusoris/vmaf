@@ -9053,3 +9053,58 @@ inline.*
   bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/kit-test.tar.gz
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
+
+## ADR-0325 — Port upstream motion_v2 four-commit cluster (2026-05-08)
+
+- **Touches**: `libvmaf/src/feature/integer_motion_v2.c`,
+  `libvmaf/src/feature/feature_extractor.h`,
+  `libvmaf/src/feature/x86/motion_v2_avx2.c`,
+  `libvmaf/src/feature/x86/motion_v2_avx512.c`,
+  `libvmaf/src/feature/arm64/motion_v2_neon.c`,
+  `libvmaf/src/feature/cuda/integer_motion_v2/motion_v2_score.cu`,
+  `libvmaf/src/feature/sycl/integer_motion_v2_sycl.cpp`,
+  `libvmaf/src/feature/vulkan/shaders/motion_v2.comp`,
+  `libvmaf/src/libvmaf.c`, `libvmaf/tools/vmaf.c`,
+  `libvmaf/test/test_motion_v2_simd.c` (scalar reference). Four
+  upstream commits cherry-picked manually (cherry-pick conflicts
+  on the fork-formatted source).
+- **Invariant — mirror parity**: the fork carries CUDA / SYCL /
+  Vulkan / NEON twins of the motion_v2 mirror helper. Upstream
+  commit `856d3835` changed the CPU mirror form from
+  `2 * size - idx - 1` to `2 * size - idx - 2`; we propagated the
+  change to all four twins to keep `/cross-backend-diff motion_v2`
+  clean. If a future upstream sync touches motion_v2 mirroring
+  again, propagate to every twin in the same PR — partial updates
+  trip the GPU-parity CI gate (ADR-0214).
+- **Invariant — prev_prev_ref**:
+  `feature_extractor.h::VmafFeatureExtractor` now carries
+  `prev_prev_ref` (n-2). Any future upstream change that reorders
+  the struct must keep `prev_ref` and `prev_prev_ref` adjacent —
+  `libvmaf.c`'s thread-data plumbing zeros both via
+  `(VmafPicture){0}` after extract, and the picture-pool sizing
+  (`n_threads * 2 + 2` and the CLI `2 * (thread_cnt + 1) + 2`)
+  assumes both retentions land in the pool.
+- **Invariant — lazy dict in `flush`**: the lazy
+  `feature_name_dict` initialisation at the top of motion_v2's
+  `flush()` matches the upstream guard added in `a2b59b77` —
+  preserve it if `init` is ever refactored to defer dict creation.
+- **On upstream sync**: future motion_v2 commits cherry-pick
+  cleanly on the CPU/AVX2/AVX-512 paths now that we are at parity.
+  The fork-twin propagation step (CUDA / SYCL / Vulkan / NEON)
+  stays a manual follow-up — `git cherry-pick` will not touch
+  those files.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
+                            -Denable_hip=false -Denable_vulkan=disabled \
+                            -Denable_float=true
+  ninja -C build && meson test -C build           # 50/50 OK
+  mkdir -p libvmaf/build && ln -sf $(pwd)/build/tools libvmaf/build/tools
+  PYTHONPATH=$(pwd)/python python3 -m pytest \
+      python/test/quality_runner_test.py \
+      python/test/feature_extractor_test.py \
+      python/test/vmafexec_test.py \
+      python/test/vmafexec_feature_extractor_test.py \
+      -m "not slow" --tb=short -q
+  ```

@@ -29,7 +29,7 @@ limitations in the same PR as the code.
 | VIF (fixed-point)  | `vif`           | Yes           | `vif_scale0`, `vif_scale1`, `vif_scale2`, `vif_scale3`                                        | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | VIF (float)        | `float_vif`     | Yes           | `float_vif_scale0..3`                                                                         | —                   | CUDA, SYCL, Vulkan |
 | Motion2 (fixed)    | `motion`        | Yes           | `motion2` (+ `motion` if `debug=true`)                                                        | AVX2, AVX-512, NEON | CUDA, Vulkan       |
-| Motion v2 (fixed)  | `motion_v2`     | No            | `VMAF_integer_feature_motion_v2_sad_score`, `VMAF_integer_feature_motion2_v2_score`           | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
+| Motion v2 (fixed)  | `motion_v2`     | No            | `VMAF_integer_feature_motion_v2_sad_score`, `VMAF_integer_feature_motion2_v2_score`, `VMAF_integer_feature_motion3_v2_score` | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | Motion2 (float)    | `float_motion`  | Yes           | `float_motion2` (+ `float_motion` if `debug=true`)                                            | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | ADM (fixed-point)  | `adm`           | Yes           | `adm2`, `adm_scale0`, `adm_scale1`, `adm_scale2`, `adm_scale3`                                | AVX2, AVX-512, NEON | CUDA, Vulkan       |
 | ADM (float)        | `float_adm`     | Yes           | `float_adm2`, `float_adm_scale0..3`                                                           | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
@@ -251,24 +251,47 @@ opt into the pipelined arithmetic without touching the legacy
 
 #### Invocation
 
-- CLI: `--feature motion_v2`.
+- CLI: `--feature motion_v2` (or with options:
+  `--feature motion_v2=motion_max_val=200:motion_blend_factor=0.5`).
 - ffmpeg: `libvmaf=feature=name=motion_v2`.
-- C API: `vmaf_use_feature(ctx, "motion_v2", NULL)`.
+- C API: `vmaf_use_feature(ctx, "motion_v2", opts)`.
 
 #### Output metrics
 
 - `VMAF_integer_feature_motion_v2_sad_score` — per-frame sum of
-  absolute blurred differences. Frame 0 always emits `0.0`.
+  absolute blurred differences. Frame 0 always emits `0.0` (frame 1
+  also `0.0` when `motion_five_frame_window=1`).
 - `VMAF_integer_feature_motion2_v2_score` — Motion2-equivalent
   score (current frame plus the next frame's score, divided by 2,
-  matching the legacy temporal smoothing).
+  matching the legacy temporal smoothing). With
+  `motion_five_frame_window=1`, the temporal stride widens from 1 to
+  2 frames.
+- `VMAF_integer_feature_motion3_v2_score` — `motion2_v2_score` after
+  the `motion_blend(...)` blend (parameterised by
+  `motion_blend_factor` / `motion_blend_offset`) and clamped to
+  `motion_max_val`. Optionally smoothed with a 2-frame moving
+  average via `motion_moving_average=1`.
 
-**Output range** — `[0, ∞)`. Same units as Motion2.
+**Output range** — `[0, motion_max_val]`. Same units as Motion2.
+Default `motion_max_val = 10000.0` is effectively no clamp; tune it
+to model-side conventions when needed.
 
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
 Y plane only.
 
-**Options** — none.
+**Options** (all opt-in via `--feature motion_v2=name=value:...`,
+ported from upstream Netflix/vmaf — see
+[ADR-0325](../adr/0325-port-upstream-motion-v2-cluster-2026-05-08.md)):
+
+| Option                     | Alias     | Type   | Default | Range          | Effect                                                                                              |
+|----------------------------|-----------|--------|---------|----------------|-----------------------------------------------------------------------------------------------------|
+| `motion_force_zero`        | `force_0` | bool   | `false` | `0` / `1`      | When `1`, bypass the SAD pipeline entirely and emit `0.0` per frame.                                |
+| `motion_blend_factor`      | `mbf`     | float  | `1.0`   | `[0.0, 1.0]`   | Linear-blend coefficient fed into `motion3` post-processing (1.0 = no blend).                       |
+| `motion_blend_offset`      | `mbo`     | float  | `40.0`  | `[0.0, 1000]`  | Floor the linear blend uses when `motion_blend_factor < 1.0`.                                       |
+| `motion_fps_weight`        | `mfw`     | float  | `1.0`   | `[0.0, 5.0]`   | Multiplicative weight applied to `motion_v2_sad_score` before the `motion_max_val` clamp.           |
+| `motion_max_val`           | `mmxv`    | float  | `10000` | `[0.0, 10000]` | Upper clamp for `motion_v2_sad_score`, `motion2_v2_score`, and `motion3_v2_score`.                  |
+| `motion_five_frame_window` | `mffw`    | bool   | `false` | `0` / `1`      | When `1`, switch from a 3-frame to a 5-frame temporal window (compares against `n-2` instead of `n-1`). |
+| `motion_moving_average`    | `mma`     | bool   | `false` | `0` / `1`      | Smooth `motion3_v2_score` with a 2-frame moving average.                                            |
 
 **Backends** — AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan
 ([`motion_v2_vulkan`](../../libvmaf/src/feature/vulkan/motion_v2_vulkan.c),
@@ -284,10 +307,11 @@ the per-frame blurred-state buffer the CPU pipeline uses; a raw-
 pixel ping-pong of two private device buffers caches the previous
 frame's Y plane; per-WG `int64` SAD partials reduce on the host;
 `motion2_v2_score = min(score[i], score[i+1])` is emitted in
-`flush()`. Mirror padding **diverges** from the corresponding
-`motion_*` kernels by one pixel at the boundary (CPU
-`integer_motion_v2.c` uses edge-replicating reflective mirror
-`2*size - idx - 1`).
+`flush()`. Mirror padding **matches** the corresponding `motion_*`
+kernels after upstream commit `856d3835` (May 2026, ported in
+[ADR-0325](../adr/0325-port-upstream-motion-v2-cluster-2026-05-08.md)):
+all backends use the skip-boundary form `2 * size - idx - 2` for
+`idx >= size`.
 
 **Limitations** — Temporal: the extractor caches its own previous
 ref in a GPU-side ping-pong (the framework's `prev_ref` slot is
