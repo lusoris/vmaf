@@ -100,3 +100,28 @@ follow-up without requiring further adapter changes.
 - Source: `req` ("Add Intel QSV (Quick Sync Video) hardware encoder
   adapters (`h264_qsv`, `hevc_qsv`, `av1_qsv`) to `vmaf-tune`.
   Companion to the NVENC + AMF adapter PRs running in parallel.").
+
+### Status update 2026-05-08: install discoverability backfill
+
+Per ADR-0028 (immutable-once-Accepted bodies — appendix only),
+recording a follow-up landing in a separate doc-only PR.
+
+The SYCL audit (research-0086, Topic C / issue #464) found that
+none of the six per-OS install pages
+(`docs/getting-started/install/{arch,fedora,ubuntu,macos,windows}.md`)
+referenced the runtime dependency these adapters require. The
+adapters' own runtime probe
+(`_qsv_common.ffmpeg_supports_encoder`) was already correct and
+covered both `libmfx` and `libvpl`; the gap was discoverability —
+a user landing on the install page from `mkdocs` did not learn
+that `h264_qsv` / `hevc_qsv` / `av1_qsv` need an FFmpeg built
+against `libvpl` (or, for legacy FFmpeg < n6.0, against the now
+archived Media SDK `libmfx`).
+
+The backfill ships a per-OS QSV section with verified package
+names (Arch `libvpl` + `vpl-gpu-rt`; Fedora `libvpl` +
+`libvpl-tools`; Ubuntu `libvpl2` + `libvpl-dev`), an explicit
+"unsupported" note on macOS, an Intel-driver-bundle pointer on
+Windows, and a hardware-capability matrix mapping Intel CPU /
+GPU generations to which of the three QSV codecs they actually
+support. No adapter code changed in the backfill.

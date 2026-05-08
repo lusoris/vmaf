@@ -9308,13 +9308,10 @@ print('OK: fr_regressor_v3 production row unchanged')
   # Re-run CodeQL on master afterwards; the 60 fixed alerts must stay closed.
 
   ```
-
 ## Cppcheck `nullPointer` false-positive in `dict.c` (2026-05-09)
-
 **Files pinned**:
 - `libvmaf/src/dict.c:121` (one-line redundant-condition fix in
   `dict_overwrite_existing`).
-
 **Why this rebase-note exists**: Master CI's `Cppcheck (Whole Project)`
 gate started failing on commit `14b5ffba` (#537) and blocked **every
 open PR** because each PR rebases onto a broken master. The cppcheck
@@ -9326,11 +9323,9 @@ since `val` is already checked at the public entry-point
 flags the original as "either the val check is redundant or there's
 a possible null deref" because it can't prove the interprocedural
 guarantee.
-
 **Rebase-sensitivity**: zero — change is local to `dict.c`. Future
 upstream sync of this file should keep the fix or re-run cppcheck
 locally to confirm absence of recurrence.
-
 ## Aggregator timeout bump (2026-05-09)
 **Files pinned**:
 - `.github/workflows/required-aggregator.yml` (deadline 30→90 min, job timeout 35→100 min)
@@ -9343,6 +9338,7 @@ train without touching the underlying matrix.
 **Why**: opt-in graceful migration; ADR-0359 + docs/development/ci-runners.md
 document the flip-the-variable recipe when the cluster is degraded.
 **Rebase-sensitivity**: zero — workflow file is fork-local.
+
 
 
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
@@ -9527,4 +9523,17 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
   done
   bash scripts/ci/ffmpeg-patches-check.sh
   ```
+
+
+## ADR-0281 follow-up — QSV install-matrix discoverability backfill (2026-05-08)
+- **Touches**: `docs/getting-started/install/{arch,fedora,ubuntu,macos,windows}.md` (new `## Intel QSV` section per page), `docs/adr/0281-vmaf-tune-qsv-adapters.md` (status-update appendix per ADR-0028), `changelog.d/changed/qsv-install-matrix-docs.md` (new fragment). No code, no engine, no upstream-shared C / Python source touched. Pure documentation backfill closing the SYCL-audit research-0086 Topic C gap (issue #464).
+- **Invariant**: each per-OS QSV section pins the package names against verified upstream URLs with a `Verified 2026-05-08` access date. The hardware-generation matrix is sourced from the public Wikipedia "Intel Quick Sync Video — Hardware decoding and encoding" table; if Intel revises which generation supports AV1 encode (e.g. backports the encoder to Lunar Lake / Meteor Lake silicon currently absent from the table), the matrix in all five pages must move in lockstep — the Arch / Fedora / Ubuntu / Windows pages all carry the same matrix verbatim. The macOS page deliberately omits the matrix (QSV unsupported on macOS).
+- **On upstream sync**: no action required — Netflix/vmaf upstream does not ship per-OS install pages under `docs/getting-started/install/`; that tree is fork-only.
+  # Lint the install pages (markdownlint via pre-commit):
+  pre-commit run --files docs/getting-started/install/*.md
+  # Verify each page (except alpine + macos) still carries the matrix:
+  for f in arch fedora ubuntu windows; do
+    grep -q 'Arc Battlemage' "docs/getting-started/install/${f}.md" || echo "MISSING: ${f}"
+  # Confirm the macOS page documents QSV as unsupported:
+  grep -q 'Intel QSV. is unsupported on macOS' docs/getting-started/install/macos.md
 
