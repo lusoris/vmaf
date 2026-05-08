@@ -9053,3 +9053,57 @@ inline.*
   bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/kit-test.tar.gz
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
+
+## ADR-0326 — MyTestCase upstream migration (partial port, Batch E, 2026-05-08)
+
+- **Touches**: `python/test/testutil.py`, `python/test/bd_rate_calculator_test.py`,
+  `python/test/asset_test.py`, `python/test/bootstrap_train_test_model_test.py`,
+  `python/test/local_explainer_test.py`, `python/test/cy_test.py`,
+  `python/test/executor_test.py`, `python/test/raw_extractor_test.py`,
+  `python/test/cross_validation_test.py`,
+  `python/test/niqe_train_test_model_test.py`,
+  `python/vmaf/script/run_testing.py`, `python/vmaf/tools/misc.py`,
+  `python/vmaf/tools/testutils.py`. Five Netflix golden-pinned files
+  (`quality_runner_test.py`, `vmafexec_test.py`,
+  `vmafexec_feature_extractor_test.py`, `feature_extractor_test.py`,
+  `result_test.py`) are deliberately **untouched**.
+- **Invariant**: every `assertAlmostEqual(key, value)` pair in the five
+  golden-pinned files remains byte-identical to the fork's pre-port
+  state per ADR-0024. Verified via
+  `/tmp/mytestcase-port/verify_golden.py` against the multiset baseline
+  `/tmp/mytestcase-port/baseline-pairs.json`: all 310 + 183 + 37 + 113 +
+  17 = 660 pairs PASS post-port. CLAUDE.md §1 / §8 forbid altering them.
+- **Deferred upstream commits** (still need porting in a future session,
+  in chronological order): `7d1ad54b` (port aim/adm3/motion3 fextractor
+  tests), `9fa593eb` (more aim/adm3/motion3 + new options),
+  `0341f730` (remove duplicate test_run_vmaf_integer_fextractor),
+  `a3776335` + `74bdce1b` (align fork tests with upstream layout for
+  aim/adm3/motion3), `322ca041` (replace temporal slicing with
+  pre-sliced YUV fixtures), `6c097fc4` + `ead2d12b` + `4679db83` (macOS
+  FP tolerance widenings — many of these are no-ops for our fork
+  because the affected lines do not exist in the fork's current state),
+  `005988ea` (routine_test MyTestCase + fifo_mode), `3a041a97` +
+  `3e075107` (per the user's 2026-05-08 instruction list, these
+  "update score values" upstream commits are PERMANENTLY skipped —
+  porting them would violate ADR-0024). The `3cbf352d` + `eb3374d0`
+  and `a333ba4c` + `403dafed` revert-pairs are no-ops upstream and
+  require no port. The `MyTestCase` mixin itself is already in
+  `python/vmaf/tools/misc.py` from a prior fork-local sync.
+- **Watch out for**: when retrying the deferred port, the fork's
+  `feature_extractor_test.py` test method order (psnr -> ansnr -> ssim
+  -> ssim_flat -> ms_ssim) differs from upstream's post-cluster layout
+  (psnr -> ssim -> ms_ssim -> ansnr); the cherry-pick conflicts cluster
+  around this reordering. The aim/adm3/motion3 additive blocks should
+  be transplanted as new test methods rather than merged into existing
+  ones. The verifier script will catch any (key, value) pair drop.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 /tmp/mytestcase-port/verify_golden.py   # OVERALL: PASS required
+  pytest python/test/bd_rate_calculator_test.py -v
+  pytest python/test/asset_test.py -v
+  pytest python/test/quality_runner_test.py python/test/vmafexec_test.py \
+         python/test/vmafexec_feature_extractor_test.py \
+         python/test/feature_extractor_test.py python/test/result_test.py \
+         --collect-only -q   # 173 tests collected, no errors
+  ```
