@@ -27,6 +27,29 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0325 — `vmaf-tune auto` Phase F.1 sequential scaffold (ADR-0325)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (new module),
+  `tools/vmaf-tune/src/vmaftune/cli.py` (new `auto` subparser),
+  `tools/vmaf-tune/tests/test_auto.py`,
+  `tools/vmaf-tune/tests/test_cli_auto.py`,
+  `docs/usage/vmaf-tune.md` (new `## auto` section).
+  Upstream Netflix/vmaf has no `vmaf-tune` surface, so conflict
+  probability with upstream is zero. The rebase-sensitive invariant
+  is internal: F.2 / F.3 / F.4 follow-up PRs **must** keep the seam
+  signatures stable so the scaffold's tests stay green as smart
+  routing lands.
+- **Invariant**: the eight injectable seams in `auto.auto()` (`probe`,
+  `hdr_detect`, `rungs`, `shortlist`, `predict`, `per_shot_refine`,
+  `saliency_apply`, `pareto_pick`, `realise`) define the F.1 scaffold
+  contract. F.2 short-circuits compose **on top of** these seams —
+  they may add new branches before the loop but must not break the
+  ADR-0325 22-line pseudocode order. Likewise, F.3 FALL_BACK
+  escalation extends `predict` rather than replacing it.
+- **Re-test**: `pytest tools/vmaf-tune/tests/test_auto.py
+  tools/vmaf-tune/tests/test_cli_auto.py` and `vmaf-tune auto
+  --source /dev/null --target-vmaf 92 --smoke`.
+
 ### 0308 — encoder knob-sweep recipe-regression policy (ADR-0308, docs-only)
 
 - **Touches**: `docs/research/0080-encoder-knob-sweep-findings.md`,

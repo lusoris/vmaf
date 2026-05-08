@@ -35,6 +35,22 @@
 
 ### Added
 
+- **`vmaf-tune auto` Phase F.1 scaffold (ADR-0325).** New
+  [`tools/vmaf-tune/src/vmaftune/auto.py`](tools/vmaf-tune/src/vmaftune/auto.py)
+  module + `vmaf-tune auto` subcommand. Implements the 22-line
+  ADR-0325 decision-tree pseudocode verbatim as a sequential
+  composition of the per-phase modules
+  (`probe → hdr → ladder → compare → predict → tune-per-shot →
+  recommend-saliency → pareto → realise`). Each step is exposed via
+  an injectable seam so unit tests cover the wiring without spawning
+  ffmpeg / vmaf / ONNX. Adds `--smoke` for a deterministic synthetic
+  dry-run (no external IO) so CI on hosts without the production
+  toolchain still validates the composition. F.1 deliberately ships
+  **no smart routing** — the seven short-circuits land in F.2,
+  confidence-aware fallbacks in F.3, per-content-type recipe overrides
+  in F.4. New
+  [`docs/usage/vmaf-tune.md` § `auto`](docs/usage/vmaf-tune.md) covers
+  the CLI surface, decision tree, and phased rollout.
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame

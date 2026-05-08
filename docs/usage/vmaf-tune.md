@@ -1296,6 +1296,121 @@ VMAF gaps, matching how viewers perceive quality steps.
   mapping land here; routing its codec-specific argv through the
   driver follows when the codec-pluggable encode path lands.
 
+## `auto` — Phase F.1 sequential decision-tree scaffold
+
+The `auto` subcommand (ADR-0325, in flight via PR #451 at the time
+of writing) is the Phase F entry point: a single CLI verb that
+composes the per-phase subcommands (`corpus`, `recommend`, `fast`,
+`predict`, `tune-per-shot`, `recommend-saliency`, `ladder`,
+`compare`) plus the orthogonal modes (HDR auto-detect, sample-clip,
+resolution-aware) into one deterministic decision tree.
+
+> **Status: F.1 scaffold only.** This PR implements the 22-line
+> ADR-0325 pseudocode verbatim — sequential composition only. The
+> seven short-circuits arrive in **F.2**, confidence-aware fallbacks
+> in **F.3**, per-content-type recipe overrides in **F.4**. Run with
+> `--smoke` to exercise the pipeline end-to-end without ffmpeg /
+> vmaf / ONNX / a GPU.
+
+### Synopsis
+
+```shell
+vmaf-tune auto \
+    --source /path/to/movie.mkv \
+    --target-vmaf 92 \
+    --max-budget-kbps 8000 \
+    --allow-codecs libx264,libx265,libsvtav1
+```
+
+The tool emits a JSON plan on stdout (or to `--output PATH`):
+
+```json
+{
+  "source": "/path/to/movie.mkv",
+  "target_vmaf": 92.0,
+  "max_budget_kbps": 8000.0,
+  "allow_codecs": ["libx264", "libx265", "libsvtav1"],
+  "is_hdr": false,
+  "meta": { "width": 1920, "height": 1080, ... },
+  "candidates": [ ... per (rung, codec) cell ... ],
+  "winner": { "rung": ..., "codec": "libx265", "verdict": ... },
+  "smoke": false,
+  "notes": "F.1 scaffold — sequential composition; ..."
+}
+```
+
+### Smoke-mode quick start
+
+```shell
+vmaf-tune auto --source /dev/null --target-vmaf 92 --smoke
+```
+
+Smoke mode swaps the `probe`, `hdr_detect`, and `predict` seams for
+synthetic deterministic stubs — no ffmpeg, no vmaf, no ONNX, no
+GPU. The other seams (`rungs`, `shortlist`, `pareto_pick`,
+`realise`) keep their default in-tree behaviour. The output plan
+exercises the full sequential composition so CI on hosts without
+the production toolchain still validates the wiring.
+
+### CLI flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--source PATH` | — | Source video (any FFmpeg-readable container). Required. |
+| `--target-vmaf F` | `92.0` | Quality target on the [0, 100] scale. |
+| `--max-budget-kbps F` | `0.0` | Bitrate ceiling for the Pareto pick (`0` disables). |
+| `--allow-codecs CSV` | `libx264` | Comma-separated codec adapters to shortlist. |
+| `--smoke` | off | Synthetic deterministic dry-run. |
+| `--output PATH` | stdout | Emit the JSON plan to a file instead of stdout. |
+
+### Decision tree (F.1)
+
+The F.1 sequential composition is the ADR-0325 pseudocode minus
+short-circuits / fallbacks / recipe overrides:
+
+```text
+meta = probe(src)
+is_hdr = detect_hdr(meta)
+rungs = [meta.resolution] if meta.height < 2160
+        else ladder.candidate_rungs(meta)
+codecs = compare.shortlist(allow_codecs, meta)
+plan = []
+for rung, codec in (rungs × codecs):
+    v = predict.crf_for_target(rung, codec, target_vmaf, meta)
+    plan.append((rung, codec, v))
+if duration > 5min and shot_variance > 0.15:
+    plan = [tune_per_shot.refine(p) for p in plan]
+if meta.content_class in {animation, screen_content}:
+    plan = [recommend_saliency.maybe_apply(p) for p in plan]
+winner = pick_pareto(plan, target_vmaf, max_budget_kbps)
+return realise(winner, hdr=is_hdr)
+```
+
+### Phased rollout
+
+| Phase | Adds | Status |
+|---|---|---|
+| F.0 | Design ADR-0325 | Proposed (PR #451) |
+| **F.1** | **Sequential scaffold + `--smoke`** | **This PR** |
+| F.2 | Seven short-circuits (single-rung ladder, codec known, GOSPEL predictor, photographic content, SDR, sample-clip propagation, low-variance / short-source Phase D skip) | Follow-up |
+| F.3 | Confidence-aware fallbacks (per-cell escalation to `recommend.coarse_to_fine` on FALL_BACK; ROI / saliency-binary missing degrades to a warning) | Follow-up |
+| F.4 | Per-content-type recipe overrides (animation / live-action / screen-content auto-detect via TransNet V2 shot-cut histogram + heuristic fallback) | Follow-up |
+
+### Limitations (F.1)
+
+* **No production probe.** The default `probe` seam raises
+  `NotImplementedError` outside `--smoke`. The ffprobe / TransNet
+  V2 wiring lands in F.3 when the shot-variance gate becomes
+  load-bearing.
+* **No production predict.** The default `predict` seam likewise
+  raises. F.2 wires the GOSPEL short-circuit; F.3 wires the
+  full-cell predictor with FALL_BACK escalation.
+* **No FALL_BACK escalation.** F.1 propagates predictor verdicts
+  unchanged. F.3 will intercept FALL_BACK and escalate to
+  `recommend.coarse_to_fine` per cell.
+* **No per-content-type recipes.** F.4 wires animation / live-action /
+  screen-content recipe overrides.
+
 ## Phase A.5 — opt-in `fast` recommend
 
 The `fast` subcommand

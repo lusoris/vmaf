@@ -460,6 +460,57 @@ def _build_parser() -> argparse.ArgumentParser:
         help="manifest destination (default: stdout)",
     )
 
+    auto = sub.add_parser(
+        "auto",
+        help=(
+            "Phase F.1 scaffold — sequential decision-tree composition "
+            "of detect/ladder/compare/predict/tune/realise. F.1 has no "
+            "short-circuits or fallbacks (those arrive in F.2 / F.3 / F.4). "
+            "Use ``--smoke`` for a synthetic deterministic dry-run."
+        ),
+    )
+    auto.add_argument(
+        "--source",
+        type=Path,
+        required=True,
+        help="source video path (any FFmpeg-readable container)",
+    )
+    auto.add_argument(
+        "--target-vmaf",
+        type=float,
+        default=92.0,
+        help="VMAF target on the [0, 100] scale (default 92)",
+    )
+    auto.add_argument(
+        "--max-budget-kbps",
+        type=float,
+        default=0.0,
+        help=("bitrate ceiling in kbps for the Pareto pick " "(default 0 = no budget constraint)"),
+    )
+    auto.add_argument(
+        "--allow-codecs",
+        default="libx264",
+        help=(
+            "comma-separated codec adapters the tree may shortlist "
+            "(e.g. ``libx264,libx265,libsvtav1``; default ``libx264``)"
+        ),
+    )
+    auto.add_argument(
+        "--smoke",
+        action="store_true",
+        help=(
+            "synthetic deterministic dry-run; no ffmpeg, no vmaf, no ONNX, "
+            "no GPU. Exercises the scaffold end-to-end on hosts without the "
+            "production toolchain."
+        ),
+    )
+    auto.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="emit the JSON plan to this path; default: stdout",
+    )
+
     compare = sub.add_parser(
         "compare",
         help=(
@@ -1114,6 +1165,41 @@ def _run_ladder(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_auto(args: argparse.Namespace) -> int:
+    """Phase F.1 — sequential decision-tree composition (ADR-0325).
+
+    F.1 wires the 22-line ADR-0325 pseudocode verbatim, with **no**
+    short-circuits / fallbacks / recipe overrides. Smart routing
+    arrives in F.2 / F.3 / F.4. ``--smoke`` produces a deterministic
+    synthetic plan without invoking ffmpeg / vmaf / ONNX / a GPU.
+    """
+    from .auto import auto
+
+    allow_codecs = tuple(token.strip() for token in args.allow_codecs.split(",") if token.strip())
+    if not allow_codecs:
+        sys.stderr.write("vmaf-tune auto: --allow-codecs is empty\n")
+        return 2
+
+    plan = auto(
+        src=args.source,
+        target_vmaf=args.target_vmaf,
+        max_budget_kbps=args.max_budget_kbps,
+        allow_codecs=allow_codecs,
+        smoke=args.smoke,
+    )
+    rendered = json.dumps(plan.to_dict(), indent=2, sort_keys=True)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered + "\n", encoding="utf-8")
+        sys.stderr.write(f"wrote auto plan -> {args.output}\n")
+    else:
+        sys.stdout.write(rendered)
+        sys.stdout.write("\n")
+    # Exit 0 on a winner, 1 if no candidate met the target — mirrors
+    # ``recommend`` / ``compare`` so shell pipelines can branch on it.
+    return 0 if plan.winner is not None else 1
+
+
 def _run_compare(args: argparse.Namespace) -> int:
     """Compare codec adapters at a target VMAF — Phase B-lite ranking.
 
@@ -1174,6 +1260,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_ladder(args)
     if args.cmd == "compare":
         return _run_compare(args)
+    if args.cmd == "auto":
+        return _run_auto(args)
     parser.print_help()
     return 2
 
