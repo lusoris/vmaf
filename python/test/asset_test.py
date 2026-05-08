@@ -1158,6 +1158,9 @@ class AssetTest(MyTestCase):
             "test_0_0_720x480_yuv422p_padiw_6_ih_4_3_2_vs_720x480_yuv422p_padiw_6_ih_4_3_3_q_720x320",
         )
 
+    @unittest.skip(
+        "upstream-only feature: fps_cmd / format_cmd / get_filter_cmd not yet ported to fork (ADR-0326)"
+    )
     def test_fps_cmd(self):
         asset = Asset(
             dataset="test",
@@ -1200,6 +1203,9 @@ class AssetTest(MyTestCase):
         self.assertTrue(asset.dis_fps_cmd is None)
         self.assertEqual(str(asset), "test_0_0_720x480_yuv422p_vs_720x480_yuv422p_q_720x320")
 
+    @unittest.skip(
+        "upstream-only feature: fps_cmd / format_cmd / get_filter_cmd not yet ported to fork (ADR-0326)"
+    )
     def test_ref_dis_fps_cmd(self):
         asset = Asset(
             dataset="test",
@@ -1689,6 +1695,9 @@ class AssetTest(MyTestCase):
         self.assertTrue(asset.get_filter_cmd("gblur", "dis") is None)
         self.assertEqual(str(asset), "test_0_0_720x480_yuv422p_vs_720x480_yuv422p_q_720x320")
 
+    @unittest.skip(
+        "upstream-only feature: fps_cmd / format_cmd / get_filter_cmd not yet ported to fork (ADR-0326)"
+    )
     def test_format_cmd(self):
         asset = Asset(
             dataset="test",
@@ -1713,6 +1722,9 @@ class AssetTest(MyTestCase):
             "test_0_0_720x480_yuv422p_formatyuv420p10le_vs_720x480_yuv422p_formatyuv420p10le_q_720x320",
         )
 
+    @unittest.skip(
+        "upstream-only feature: fps_cmd / format_cmd / get_filter_cmd not yet ported to fork (ADR-0326)"
+    )
     def test_fps_cmd_get_filter_cmd(self):
         asset = Asset(
             dataset="test",
