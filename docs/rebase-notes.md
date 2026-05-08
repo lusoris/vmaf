@@ -9070,3 +9070,17 @@ inline.*
     grep -c "pull_request.draft == false" ".github/workflows/${f}.yml"
   done  # Each must report >= 1.
   ```
+
+## ADR-0334 — state.md-touch-check CI gate (2026-05-08)
+
+- **Touches**: `.github/workflows/rule-enforcement.yml` (new top-level job `state-md-touch-check`), `scripts/ci/state-md-touch-check.sh` (new), `scripts/ci/test-state-md-touch-check.sh` (new), `scripts/ci/AGENTS.md` (new rebase-sensitive-surface row), `.github/PULL_REQUEST_TEMPLATE.md` (already carries the "Bug-status hygiene" section + `no state delta: REASON` opt-out — coupled to the script's regex). No upstream-shared paths.
+- **Invariant**: the gate's trigger predicate (Conventional-Commit `fix:` prefix, bare `bug` token in title, GitHub close-keywords `closes`/`fixes`/`resolves` `#N`, unchecked Bug-status-hygiene checkbox) and opt-out sentinel (`no state delta: REASON`) match the wording of the `## Bug-status hygiene` section in `.github/PULL_REQUEST_TEMPLATE.md`. Reword the template only alongside the script. The job carries the `pull_request.draft == false || github.event_name != 'pull_request'` gate (ADR-0331 pattern) — keep that on any future hoist into the required-aggregator set.
+- **On upstream sync**: Netflix/vmaf has no equivalent rule. No conflict expected; the workflow file is fork-introduced.
+- **Re-test on rebase**:
+
+  ```bash
+  bash scripts/ci/test-state-md-touch-check.sh
+  python3 -c "import yaml; yaml.safe_load(open('.github/workflows/rule-enforcement.yml')); print('YAML OK')"
+  pre-commit run shellcheck --files scripts/ci/state-md-touch-check.sh scripts/ci/test-state-md-touch-check.sh
+  pre-commit run shfmt      --files scripts/ci/state-md-touch-check.sh scripts/ci/test-state-md-touch-check.sh
+  ```

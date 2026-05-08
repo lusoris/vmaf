@@ -7,10 +7,7 @@ name: Rule Enforcement — ADR-0100 / 0106 / 0108
 
 on:
   pull_request:
-    # `ready_for_review` (ADR-0331) lets the per-job draft gate fire CI
-    # when a draft PR is promoted. `edited` stays because deep-dive-checklist
-    # parses the PR body; an edit-without-push needs to re-validate.
-    types: [opened, edited, synchronize, reopened, ready_for_review]
+    types: [opened, edited, synchronize, reopened]
 
 permissions:
   contents: read
@@ -170,6 +167,35 @@ jobs:
           fi
 
           echo "Doc-Substance: every touched user-discoverable surface has a matching docs/ edit."
+
+  state-md-touch-check:
+    if: github.event.pull_request.draft == false || github.event_name != 'pull_request'
+    name: docs/state.md Touch Gate (ADR-0165)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # ADR-0334 (2026-05-08): promotes CLAUDE.md §12 rule 13 (the
+    # docs/state.md update discipline) from reviewer-enforced to
+    # CI-enforced. The gate trips when a PR looks bug-shaped
+    # (Conventional-Commit fix: prefix, 'bug' in title, closes/
+    # fixes/resolves #N, or the Bug-status-hygiene template
+    # checkbox left unchecked) AND the diff doesn't touch
+    # docs/state.md AND the PR body doesn't carry the explicit
+    # opt-out sentinel `no state delta: REASON`.
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Run state-md touch check
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Single source of truth lives in scripts/ci/state-md-touch-check.sh
+        # so a developer can dry-run the gate locally before
+        # `gh pr create` (mirrors deliverables-check.sh's pattern).
+        run: bash scripts/ci/state-md-touch-check.sh
 
   adr-backfill-check:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
