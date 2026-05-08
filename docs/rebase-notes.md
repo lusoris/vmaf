@@ -27,91 +27,6 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
-### 0310 — Vulkan VIF int64 reduction race condition Phase 3 fix
-
-- **Touches**: `libvmaf/src/feature/vulkan/shaders/vif.comp`
-  (replaces all three bare `barrier()` calls with explicit
-  `memoryBarrierShared(); barrier();` pairs covering the Phase-1
-  cooperative tile load, the Phase-2 vertical-conv shared write,
-  and the Phase-4 cross-subgroup int64 reduction); plus
-  documentation under `docs/research/0089-...md` (Phase 3 status
-  appendix), `docs/adr/0269-...md` (Phase 3 status appendix),
-  `docs/state.md` (T-VK-VIF-1.4-RESIDUAL closed; new
-  T-VK-VIF-1.4-RESIDUAL-ARC opened), `libvmaf/src/vulkan/AGENTS.md`
-  (Phase 3 update on the existing invariant row),
-  `changelog.d/fixed/vif-int64-reduction-race-condition.md`.
-  Upstream Netflix/vmaf has no Vulkan backend, so conflict
-  probability for the shader is zero. The entry exists because the
-  fix is rebase-sensitive: any future cherry-pick that touches
-  `vif.comp` and downgrades a `memoryBarrierShared(); barrier();`
-  pair back to a bare `barrier()` will silently re-introduce the
-  NVIDIA Vulkan 1.4 race.
-- **Invariant**: `vif.comp` shared-memory ordering between
-  cooperative-write phases must be release-acquire, not just a
-  bare workgroup-execution barrier. NVIDIA's Vulkan 1.4 default
-  memory model requires the explicit shared-memory release; bare
-  `barrier()` works at API 1.3 by accident on this driver. SCALE
-  is irrelevant — the fix applies to all four pipeline
-  specialisations because the barrier sites are in the SCALE-shared
-  code. Do NOT remove the explicit `memoryBarrierShared()` calls
-  even if a perf review claims they are redundant under the GLSL
-  spec wording: empirical real-hardware evidence in research-0089
-  2026-05-09 appendix shows otherwise on NVIDIA driver 595.71.05.
-- **Re-test**: apply the local API-1.4 bump
-  (`libvmaf/src/vulkan/common.c` 3 sites + `vma_impl.cpp`
-  `VMA_VULKAN_VERSION 1004000`) on a NVIDIA RTX 4090 + driver
-  595.71+ machine, build with
-  `meson setup ... -Denable_vulkan=enabled`, then run
-  `python3 scripts/ci/cross_backend_vif_diff.py --feature vif
-  --backend vulkan --device 1 --places 4`. Expect 0/48 across
-  all four scales. Run the 5-run determinism check from
-  research-0089 §"Reproduction recipe for Phase 3" against
-  `--vulkan_device 1`; expect 5 identical
-  `(integer_vif_num_scale2, integer_vif_den_scale2) =
-  (+2.494358e+04, +2.522523e+04)` pairs at frame 5. Note that
-  `--vulkan_device 0` on this multi-GPU host is the Intel Arc
-  A380 lane and **will still fail** at API 1.4 (separate
-  `T-VK-VIF-1.4-RESIDUAL-ARC` row Open).
-
-### 0309 — Vulkan VIF API-1.4 Phase 2 dump (T-VK-VIF-1.4-RESIDUAL)
-
-- **Touches**: `docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`
-  (2026-05-09 status appendix with empirical numbers from the live
-  RTX 4090), `docs/state.md` (T-VK-VIF-1.4-RESIDUAL row updated with
-  the localisation), `libvmaf/src/vulkan/AGENTS.md` (new invariant
-  row pinning the SCALE = 2 cross-subgroup-reduction memory-model
-  finding), `CHANGELOG.md` (lusoris fork "Changed" entry).
-  No code touched; the Phase 3 shader memory-model fix lands in a
-  separate PR. Upstream Netflix/vmaf has no Vulkan backend so
-  conflict probability for the AGENTS.md row is zero — entry
-  exists because the empirical localisation flips the open
-  state-row hypothesis from FP-precision to memory-model and
-  retires the `places=3` override path that earlier rebase
-  scaffolding might have suggested.
-- **Invariant**: `vif.comp` SCALE = 2 specialisation's Phase-4
-  cross-subgroup int64 reduction is non-deterministic on NVIDIA
-  driver 595.71.05 + Vulkan 1.4.341 (lines 547–592, `subgroupAdd`
-  + `barrier()` + thread-0 read of `s_lmem`). API 1.3 lane is
-  fully deterministic on the same hardware. The four `apiVersion`
-  pinning sites in `libvmaf/src/vulkan/common.c` +
-  `libvmaf/src/vulkan/vma_impl.cpp` stay at 1.3 until Phase 3
-  lands the explicit memory-scope barrier and a 5-run determinism
-  gate confirms run-to-run identical `(num, den)` plus
-  `places=4` 0/48 on NVIDIA. The `places=3` override path is
-  **eliminated** from the unblock options.
-- **Re-test**: apply the local API-1.4 bump
-  (`libvmaf/src/vulkan/common.c` 3 sites + `vma_impl.cpp`
-  `VMA_VULKAN_VERSION 1004000`) on a NVIDIA RTX 4090 + driver
-  595.71+ machine, build with `meson setup ... -Denable_vulkan=enabled`,
-  then run the gate and the 5-run determinism check from
-  research-0089 §"Reproduction recipe for Phase 3". Expect 45/48
-  `places=4` failures on `integer_vif_scale2` (max abs
-  `1.527e-02`) AND 5 distinct `(integer_vif_num_scale2,
-  integer_vif_den_scale2)` pairs across 5 runs of
-  `--feature 'vif_vulkan=debug=true'`. Both observations
-  reproduced bit-for-bit on this session's hardware lane
-  (UUID `e478b41b-5c4f-1ddb-f990-e44916aff4c8`).
-
 ### 0308 — encoder knob-sweep recipe-regression policy (ADR-0308, docs-only)
 
 - **Touches**: `docs/research/0080-encoder-knob-sweep-findings.md`,
@@ -9236,15 +9151,39 @@ inline.*
   workflow files (they are fork-local additions). No sync conflict
   expected.
 - **Re-test on rebase**:
+## HDR VMAF model search — Path C documentation only (2026-05-09)
+- **Files added (this fork only; upstream Netflix/vmaf has none of
+  these)**:
+  - `model/vmaf_hdr_model_card.md` — discoverable warning that the
+    HDR scoring path falls back to the SDR `vmaf_v0.6.1.json`
+    weights. Filename **deliberately** uses `.md`, not `.json`, so
+    the `vmaftune.hdr.select_hdr_vmaf_model` glob
+    (`vmaf_hdr_*.json`) keeps returning `None`.
+  - `docs/research/0089-hdr-vmaf-model-search.md` — verbatim trail
+    of the source-or-train survey (URLs + access dates).
+  - `changelog.d/added/hdr-vmaf-model-search.md` — release-notes
+    fragment per ADR-0221.
+  - ADR-0300 grew an inline `### Status update 2026-05-09: HDR
+    model status` section.
+- **Why no model JSON ships**: Path A negative findings (no public
+  Netflix HDR VMAF model exists; HDRMAX is a different algorithm
+  not loadable by libvmaf's JSON path). Path B deferred behind
+  gated subjective HDR corpora + multi-day training compute. No
+  fabricated weights are introduced.
+- **On upstream sync**: if Netflix lands `vmaf_hdr_*.json` in
+  `Netflix/vmaf/model/`, port via `/port-upstream-commit`; the
+  resolver picks it up automatically with no `vmaftune` change.
+  Then **delete** `model/vmaf_hdr_model_card.md` (or rewrite it
+  as a normal model card describing the upstream weights). Watch
+  <https://github.com/Netflix/vmaf/issues/645> for the upstream
+  release announcement.
+- **Re-test on rebase**: no behavioural change — pure docs. Sanity:
   ```bash
-  python3 -c "import yaml; \
-    [yaml.safe_load(open(f'.github/workflows/{n}.yml')) \
-     for n in ('libvmaf-build-matrix','tests-and-quality-gates')]; \
-    print('OK')"
-  # Both workflows must carry the deny-list:
-  for f in libvmaf-build-matrix tests-and-quality-gates; do
-    grep -c "paths-ignore:" ".github/workflows/${f}.yml"  # must report >= 1
-  done
+  python3 -c "from pathlib import Path; \
+    import sys; sys.path.insert(0,'tools/vmaf-tune/src'); \
+    from vmaftune.hdr import select_hdr_vmaf_model; \
+    print(select_hdr_vmaf_model(Path('model')))"
+  # Expect: None  — confirms the .md card does not match the glob
   ```
 ## ADR-0349 — `fr_regressor_v3` namespace resolution (2026-05-09)
 - **Rebase impact**: none. Docs-only change — adds
