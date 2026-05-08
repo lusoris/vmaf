@@ -192,3 +192,43 @@ runtime** and independently buildable. The design:
 - [CLAUDE.md §12 r10](../../CLAUDE.md) — per-surface docs rule
   (new API header gets a doc entry under
   `docs/api/libvmaf_mcp.md` and `docs/mcp/embedded.md`).
+
+### Status update 2026-05-08: stays Proposed — runtime in flight (T5-2b)
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+The strategic decision in this ADR is shipped in stages:
+
+- The public C-API surface
+  (`libvmaf/include/libvmaf/libvmaf_mcp.h`) is shipped via the
+  audit-first scaffold in [ADR-0209](0209-mcp-embedded-scaffold.md)
+  (Accepted).
+- Build wiring (`enable_mcp` / `enable_mcp_sse` /
+  `enable_mcp_uds` / `enable_mcp_stdio`) is shipped.
+- The stub TU at `libvmaf/src/mcp/mcp.c` returns `-ENOSYS` for
+  every entry point.
+
+What remains unshipped (tracked as backlog item **T5-2b**):
+
+- `cJSON` and `mongoose` vendoring (`subprojects/`).
+- Dedicated MCP `pthread` and SPSC ring drain at frame boundaries.
+- SSE / UDS / stdio transport bodies.
+- Tool-surface expansion past the contract pinned by
+  `libvmaf/test/test_mcp_smoke.c`.
+
+Because the stub returns `-ENOSYS` rather than the runtime behaviour
+the Decision section promised, this ADR stays **Proposed** until
+T5-2b lands. ADR-0209 (Accepted) is the audit-first companion — it
+explicitly defers the runtime, so it does not supersede this ADR;
+both stay live. When T5-2b lands, the closing PR flips this ADR to
+Accepted via a follow-up status-update appendix.
+
+Verification command:
+
+```sh
+head -25 libvmaf/include/libvmaf/libvmaf_mcp.h     # docstring
+                                                    # explicitly
+                                                    # notes -ENOSYS
+head -25 libvmaf/src/mcp/mcp.c                     # stub TU
+```

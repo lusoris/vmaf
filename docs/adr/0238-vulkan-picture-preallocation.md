@@ -1,6 +1,6 @@
 # ADR-0238: Vulkan VmafPicture preallocation surface (API parity with CUDA / SYCL)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-02
 - **Deciders**: Lusoris
 - **Tags**: vulkan, api, preallocation, fork-local, parity
@@ -159,3 +159,19 @@ unmodified.
   knob. Orthogonal to this ADR (controls the fence ring, not the
   picture pool).
 - Companion research digest: [`docs/research/0045-vulkan-picture-preallocation.md`](../research/0045-vulkan-picture-preallocation.md).
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/include/libvmaf/libvmaf_vulkan.h` declares
+  `VmafVulkanPicturePreallocationMethod` (line 153),
+  `VmafVulkanPictureConfiguration::pic_prealloc_method` (line 165),
+  `vmaf_vulkan_preallocate_pictures` (line 180),
+  `vmaf_vulkan_picture_fetch` (line 191).
+- Verification command:
+  `grep -nE "VmafVulkanPicturePreallocationMethod|vmaf_vulkan_preallocate_pictures|vmaf_vulkan_picture_fetch"
+  libvmaf/include/libvmaf/libvmaf_vulkan.h`.

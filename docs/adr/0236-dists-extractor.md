@@ -137,3 +137,30 @@ No new op gating needed.
 
 - `req`: Research-0033 audit explicitly flagged DISTS as the missing
   LPIPS companion (actionable item #5).
+
+### Status update 2026-05-08: stays Proposed — implementation not started (T7-DISTS)
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+This ADR scoped the API + op-allowlist contract before the
+implementation PR. The acceptance criteria are not yet in tree:
+
+- No `libvmaf/src/feature/dists*` files
+  (`ls libvmaf/src/feature/dists*` returns no match).
+- No `dists_sq` row in `model/tiny/registry.json`.
+- No placeholder ONNX, no env-var consumer, no smoke test.
+
+The work is tracked as backlog item **T7-DISTS** per the ADR's own
+scoping note. The "actionable item #5" framing from the Bristol
+NVC review (`Research-0033`) holds; nothing in tree contradicts the
+scope as written. Stays **Proposed** until the implementation PR
+lands; that PR will close out via a follow-up status-update
+appendix.
+
+Verification command:
+
+```sh
+ls libvmaf/src/feature/dists* 2>&1 | grep -E "no match|cannot access"
+grep -c '"dists_sq"' model/tiny/registry.json   # expects 0
+```

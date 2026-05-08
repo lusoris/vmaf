@@ -1,6 +1,6 @@
 # ADR-0207: Tiny-AI Quantization-Aware Training (QAT) — design
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-04-28
 - **Deciders**: lusoris@pm.me, Claude (Anthropic)
 - **Tags**: ai, quantization, dnn, tiny-ai, fork-local
@@ -156,3 +156,20 @@ phase 4 runs as a post-train step.
   — modern API surface.
 - [NVIDIA "Achieving FP32 Accuracy for INT8 Inference Using QAT"](https://developer.nvidia.com/blog/achieving-fp32-accuracy-for-int8-inference-using-quantization-aware-training-with-tensorrt/)
   — QAT recipe heuristics; the 95%-fp32-recovery target.
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `ai/train/qat.py` — present (real Lightning-compatible
+  `run_qat` + `QatConfig`).
+- `ai/scripts/qat_train.py` — present (real CLI driver, no longer
+  the prior `NotImplementedError` scaffold).
+- ADR-0208 (this sweep, Accepted) is the first per-model QAT
+  application validating the pipeline end-to-end on
+  `learned_filter_v1`.
+- Verification command:
+  `ls ai/train/qat.py ai/scripts/qat_train.py`.

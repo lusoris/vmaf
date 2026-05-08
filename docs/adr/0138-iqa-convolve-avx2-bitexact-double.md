@@ -1,6 +1,6 @@
 # ADR-0138: `_iqa_convolve` AVX2 bit-exact double-precision fast path
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-04-21
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: simd, performance
@@ -198,3 +198,17 @@ layout and is a small-delta follow-up.
 - Vendored convolve origin:
   [Tom Distler IQA library, 2011](http://tdistler.com) — header in
   [`libvmaf/src/feature/iqa/convolve.c`](../../libvmaf/src/feature/iqa/convolve.c).
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/src/feature/x86/convolve_avx2.{c,h}` — present.
+- The bit-exactness pattern (single-rounded float mul, widen to
+  double, double add, no FMA) is cited as load-bearing by ADR-0140
+  `simd_dx.h` (`SIMD_WIDEN_ADD_F32_F64_AVX2`).
+- Verification command:
+  `ls libvmaf/src/feature/x86/convolve_avx2.{c,h}`.

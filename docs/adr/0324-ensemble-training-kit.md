@@ -1,6 +1,6 @@
 # ADR-0324: Ensemble training kit — portable Phase-A + LOSO retrain bundle
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-06
 - **Deciders**: Lusoris, Claude
 - **Tags**: ai, fr-regressor, ensemble, tooling, fork-local
@@ -121,3 +121,23 @@ merges shards via `ai/scripts/merge_corpora.py` (de-duplicates by
   full-corpus ONNX export script the bundle step invokes on PROMOTE.
 - Source: `req` — direct user request to ship a portable kit so a
   collaborator on different hardware can run the retrain end-to-end.
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `tools/ensemble-training-kit/` — present, with
+  `run-full-pipeline.sh`, the five numbered step scripts
+  (`01-prereqs.sh` through `05-bundle-results.sh`),
+  `make-distribution-tarball.sh`, `_platform_detect.sh`,
+  `build-libvmaf-binaries.sh`, `extract-corpus.sh`, and a
+  `binaries/` per-platform staging directory.
+- The multi-platform extension (Linux CUDA / Linux SYCL / Linux
+  Vulkan-baseline / Darwin CPU) was already documented in the
+  original ADR's `### Status update 2026-05-06` block; nothing
+  to re-verify here beyond the four families remaining live.
+- Verification command:
+  `ls tools/ensemble-training-kit/`.

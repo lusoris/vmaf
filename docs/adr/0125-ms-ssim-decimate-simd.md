@@ -1,6 +1,6 @@
 # ADR-0125: MS-SSIM decimate SIMD fast paths (AVX2 + AVX-512)
 
-- **Status**: Proposed (amended 2026-04-20 — separable-form chosen with
+- **Status**: Accepted (amended 2026-04-20 — separable-form chosen with
   empirical Netflix golden `places=4` gate; FLOP accounting corrected from
   ~9× to ~3×; removed non-existent snapshot-refresh premise)
 - **Date**: 2026-04-20
@@ -181,3 +181,23 @@ scaffold leaves a clear slot for `ms_ssim_decimate_neon` to plug into.
 - Vendored decimate origin:
   [Tom Distler IQA library, 2011](http://tdistler.com) — header in
   [`libvmaf/src/feature/iqa/decimate.c`](../../libvmaf/src/feature/iqa/decimate.c).
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/src/feature/x86/ms_ssim_decimate_avx2.{c,h}` — present.
+- `libvmaf/src/feature/x86/ms_ssim_decimate_avx512.{c,h}` — present.
+- `libvmaf/src/feature/ms_ssim_decimate.{c,h}` (scalar-separable
+  reference) — present.
+- `libvmaf/test/test_ms_ssim_decimate.c` — present (bit-exactness
+  harness scalar-separable / AVX2 / AVX-512).
+- Verification command:
+  `ls libvmaf/src/feature/x86/ms_ssim_decimate* libvmaf/src/feature/ms_ssim_decimate.* libvmaf/test/test_ms_ssim_decimate.c`.
+
+NEON follow-up tracked separately under the SIMD-DX framework
+([ADR-0140](0140-simd-dx-framework.md)) and the touched-file invariant
+note in `libvmaf/src/feature/AGENTS.md`.

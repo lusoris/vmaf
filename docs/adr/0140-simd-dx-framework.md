@@ -1,6 +1,6 @@
 # ADR-0140: SIMD DX framework — header macros + scaffolding skill
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-04-21
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: simd, dx, build, agents
@@ -157,3 +157,19 @@ real code* before PR #B consumes it at scale.
   scalar double reduction pattern;
   [ADR-0108](0108-deep-dive-deliverables-rule.md) — six
   deliverables apply to PR #A.
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/src/feature/simd_dx.h` — present.
+- `/add-simd-path` skill carries the kernel-spec flags documented in
+  `.claude/skills/add-simd-path/SKILL.md`.
+- Demo kernels (convolve NEON, ssim NEON bit-exactness audit) are
+  tracked under follow-up ADRs (ADR-0145 motion_v2 NEON, ADR-0159
+  / 0160 psnr_hvs AVX2 / NEON, ADR-0161 / 0162 / 0163 ssimulacra2
+  SIMD), all of which cite the framework.
+- Verification command: `ls libvmaf/src/feature/simd_dx.h`.

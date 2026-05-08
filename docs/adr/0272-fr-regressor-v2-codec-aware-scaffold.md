@@ -1,6 +1,6 @@
 # ADR-0272: `fr_regressor_v2` codec-aware scaffold (Phase B prereq)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-03
 - **Deciders**: Lusoris, Claude
 - **Tags**: `ai`, `dnn`, `tiny-ai`, `fr-regressor`, `codec-aware`,
@@ -106,3 +106,20 @@ exactly mirroring the existing `smoke_v0.onnx` precedent.
 - Source: `req` — user task brief 2026-05-03 ("scaffold
   `fr_regressor_v2` — the codec-aware version of the FR regressor
   that consumes the JSONL corpus emitted by Phase A").
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `ai/scripts/train_fr_regressor_v2.py` — present (scaffold +
+  smoke-mode entry point).
+- `model/tiny/fr_regressor_v2.{onnx,json,onnx.data}` — registered.
+- Doc surface: `docs/ai/models/fr_regressor_v2.md` referenced;
+  research digest under `docs/research/`.
+- The companion ensemble + probabilistic head landed via ADR-0279
+  (this sweep, Accepted).
+- Verification command:
+  `ls ai/scripts/train_fr_regressor_v2.py model/tiny/fr_regressor_v2.*`.

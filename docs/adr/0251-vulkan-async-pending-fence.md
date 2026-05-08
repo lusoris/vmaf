@@ -1,6 +1,6 @@
 # ADR-0251: Vulkan VkImage import — v2 async pending-fence model (T7-29 part 4)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-01
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: vulkan, ffmpeg, fork-local, zero-copy, performance, implementation
@@ -125,3 +125,22 @@ destroying any handle.
 - Source: T7-29 part 4 in
   [`.workingdir2/BACKLOG.md`](../../.workingdir2/BACKLOG.md).
 - Per-PR rule: ADR-0108 deep-dive deliverables checklist.
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/include/libvmaf/libvmaf_vulkan.h:64` declares
+  `VmafVulkanConfiguration::max_outstanding_frames`.
+- `libvmaf/src/vulkan/common.c:444-486` implements
+  `vmaf_vulkan_clamp_ring_size`,
+  `vmaf_vulkan_state_max_outstanding_frames`, and the per-frame
+  fence ring sized at `s->requested_ring_size`.
+- `libvmaf/src/vulkan/vulkan_internal.h:47-117` documents the
+  captured request depth and the ring sizer contract.
+- Verification command:
+  `grep -n "max_outstanding_frames" libvmaf/src/vulkan/*.{c,h}
+  libvmaf/include/libvmaf/libvmaf_vulkan.h`.

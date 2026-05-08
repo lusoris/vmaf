@@ -1,6 +1,6 @@
 # ADR-0208: First per-model QAT — `learned_filter_v1` int8 (T5-4)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-04-28
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: tiny-ai, onnx, quantization, qat, registry, ci, fork-local
@@ -190,3 +190,22 @@ per-model design work, per ADR-0207's "third quant tier" goal.
 - PyTorch open issue [pytorch/pytorch#issue
   Conv2dPackedParamsBase obj_flatten] — context for the
   TorchDynamo exporter failure observed during implementation.
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `model/tiny/learned_filter_v1.int8.onnx` — present alongside the
+  fp32 `learned_filter_v1.onnx`.
+- `ai/train/qat.py` — real implementation present.
+- `ai/scripts/measure_quant_drop.py` /
+  `measure_quant_drop_per_ep.py` — present.
+- The empirical finding stands: `learned_filter_v1` stays on
+  `quant_mode: "dynamic"` per `model/tiny/registry.json`; the QAT
+  pipeline is validated and ready for the next model whose static
+  PTQ exceeds the budget.
+- Verification command:
+  `ls model/tiny/learned_filter_v1*.onnx ai/train/qat.py`.

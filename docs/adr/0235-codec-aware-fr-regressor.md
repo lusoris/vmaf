@@ -1,6 +1,6 @@
 # ADR-0235: Codec-aware FR regressor (`fr_regressor_v2`)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-01
 - **Deciders**: Lusoris, Claude
 - **Tags**: `ai`, `dnn`, `tiny-ai`, `fr-regressor`, `fork-local`
@@ -87,3 +87,26 @@ result and stop.
 - Research digest: [Research-0040](../research/0040-codec-aware-fr-conditioning.md).
 - Source: `req` — user task brief 2026-05-01 ("Run a codec-aware
   feature experiment for the FR regressor").
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `ai/src/vmaf_train/codec.py` — present (closed,
+  order-stable codec vocabulary).
+- `FRRegressor` constructor accepts `num_codecs`; the codec one-hot
+  is concatenated to the canonical-6 feature vector before the first
+  MLP layer (verified in
+  `ai/src/vmaf_train/models/fr_regressor.py`).
+- `model/tiny/fr_regressor_v2.{onnx,json,onnx.data}` registered;
+  the deep-ensemble companion `fr_regressor_v2_ensemble_v1` ships
+  five seeded ONNX members (`_seed{0..4}`) per ADR-0279 (this sweep,
+  Accepted).
+- ADR-0272 (this sweep, Accepted) is the v2 scaffold that consumes
+  the codec column from the vmaf-tune Phase A JSONL corpus.
+- Verification command:
+  `grep -E "num_codecs" ai/src/vmaf_train/models/fr_regressor.py;
+  ls ai/src/vmaf_train/codec.py model/tiny/fr_regressor_v2*`.
