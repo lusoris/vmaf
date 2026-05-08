@@ -1619,6 +1619,72 @@ test on machines that have not built the shot-detector binary yet.
 - Does not handle GOP-aligned shot boundaries — the per-segment
   approach side-steps this by re-encoding each shot from frame 0.
 
+## auto
+
+`vmaf-tune auto` is the Phase F entry point (ADR-0325). One CLI verb
+composes the per-phase subcommands (`corpus`, `recommend`, `predict`,
+`tune-per-shot`, `recommend-saliency`, `ladder`, `compare`) plus the
+orthogonal modes (HDR auto-detect, sample-clip, resolution-aware) into
+a deterministic decision tree. F.1 ships the sequential scaffold; F.2
+adds seven short-circuits that skip stages whose output is determined
+by metadata alone.
+
+### Synopsis
+
+```shell
+vmaf-tune auto \
+    --src reference.mp4 \
+    --target-vmaf 93 \
+    --max-budget-bitrate 5000 \
+    --allow-codecs libx264,libx265 \
+    [--codec libx265] \
+    [--sample-clip-seconds 10] \
+    [--smoke] \
+    [--output plan.json]
+```
+
+The non-smoke path requires production probe wiring that lands in F.3;
+until then, run with `--smoke` to exercise the composition end-to-end
+with mocked sub-phases (no ffmpeg, no ONNX). The JSON plan emitted
+under `metadata.short_circuits` records which short-circuits fired —
+post-hoc analysis uses this to measure the speedup contribution of
+each one.
+
+### Short-circuits
+
+The seven short-circuits below are the F.2 surface. Each one is a
+guarded fast-path with one trigger condition; the predicates are
+exposed as `_should_short_circuit_<N>` helpers in
+`tools/vmaf-tune/src/vmaftune/auto.py` so they can be unit-tested in
+isolation.
+
+| # | Identifier | Trigger | Skips |
+|---|------------|---------|-------|
+| 1 | `ladder-single-rung` | `meta.height < 2160` | Multi-rung ABR ladder evaluation (ADR-0289 / ADR-0295). |
+| 2 | `codec-pinned` | `--codec` set or `--allow-codecs` resolves to one entry | The `compare.shortlist` stage. |
+| 3 | `predictor-gospel` | `predict.crf_for_target` returns `GOSPEL` (ADR-0306) | The `recommend.coarse_to_fine` fallback for that cell. |
+| 4 | `skip-saliency` | `meta.content_class` is photographic / live-action (not animation / screen content) | The `recommend_saliency.maybe_apply` stage (ADR-0293). |
+| 5 | `sdr-skip` | `not meta.is_hdr` (per ADR-0300 detector) | The HDR resolution + model-selection branch. |
+| 6 | `sample-clip-propagate` | `--sample-clip-seconds > 0` | Re-deciding clip length per stage; the user-supplied value propagates verbatim (ADR-0301). |
+| 7 | `skip-per-shot` | `duration < 5min` AND `shot_variance < 0.15` | The `tune_per_shot.refine` pass (ADR-0276 phase-d). |
+
+The 5-min and 0.15 thresholds in short-circuit #7 are placeholders;
+F.3 fits them empirically once Phase F has emitted enough labelled
+compositions to make the fit statistically defensible. The constants
+live at the top of `auto.py` (`PHASE_D_DURATION_GATE_S`,
+`PHASE_D_SHOT_VARIANCE_GATE`) so the eventual fit lands as a one-line
+edit.
+
+The evaluation order in `SHORT_CIRCUIT_PREDICATES` is part of the
+public contract: tests assert that an earlier-firing predicate doesn't
+shadow a later one whose result would have been different. Adding a
+new short-circuit means appending; never reordering.
+
+`auto` does **not** dispatch the `fast` subcommand from inside its
+tree. `fast` (ADR-0276 fast-path) is a different operator surface
+(proxy + Bayesian over a single codec) and remains a sibling, not a
+child, of `auto`.
+
 ## Tests
 
 ```shell

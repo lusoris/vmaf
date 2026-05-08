@@ -35,6 +35,29 @@
 
 ### Added
 
+- **`vmaf-tune auto` Phase F.1 + F.2 — sequential scaffold + seven
+  short-circuits (ADR-0325).** New `tools/vmaf-tune/src/vmaftune/auto.py`
+  exposes the deterministic decision tree as a CLI subcommand
+  (`vmaf-tune auto --src ... --target-vmaf ... --allow-codecs ...`)
+  and as a Python API (`run_auto`, `evaluate_short_circuits`). The
+  seven F.2 short-circuits — `ladder-single-rung`, `codec-pinned`,
+  `predictor-gospel`, `skip-saliency`, `sdr-skip`,
+  `sample-clip-propagate`, `skip-per-shot` — ship as standalone
+  `_should_short_circuit_<N>` predicates so each can be unit-tested
+  in isolation. Fired short-circuits land in
+  `plan.metadata.short_circuits` for post-hoc speedup analysis. The
+  Phase D 5-min / 0.15-shot-variance thresholds ship as constants
+  (`PHASE_D_DURATION_GATE_S`, `PHASE_D_SHOT_VARIANCE_GATE`) pending
+  the F.3 empirical fit. `--smoke` mode exercises the composition
+  end-to-end with mocked sub-phases (no ffmpeg, no ONNX);
+  production wiring lands in F.3+. `auto` does not dispatch the
+  `fast` subcommand from inside its tree — `fast` (PR #467, ADR-0276
+  fast-path) remains a sibling. New `tests/test_auto_short_circuits.py`
+  with 45 assertions covering each predicate's boundary, the
+  canonical evaluation order, and the JSON metadata block. Docs at
+  [`docs/usage/vmaf-tune.md` § auto](docs/usage/vmaf-tune.md#auto).
+  See [ADR-0325](docs/adr/0325-vmaf-tune-phase-f-auto.md).
+
 - **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
   (ADR-0325, design-only).** Ships
   [`docs/adr/0325-vmaf-tune-phase-f-auto.md`](docs/adr/0325-vmaf-tune-phase-f-auto.md)

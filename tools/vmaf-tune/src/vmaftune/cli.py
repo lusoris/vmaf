@@ -509,6 +509,74 @@ def _build_parser() -> argparse.ArgumentParser:
         help="report destination (default: stdout)",
     )
 
+    auto = sub.add_parser(
+        "auto",
+        help=(
+            "Phase F — adaptive recipe-aware tuning entry point "
+            "(ADR-0325). Composes the per-phase subcommands into one "
+            "deterministic decision tree with seven short-circuits "
+            "(F.1 scaffold + F.2 short-circuits)."
+        ),
+    )
+    auto.add_argument(
+        "--src",
+        type=Path,
+        required=True,
+        help="reference video (raw YUV or any FFmpeg-readable container)",
+    )
+    auto.add_argument(
+        "--target-vmaf",
+        type=float,
+        default=93.0,
+        help="target pooled-mean VMAF (default 93)",
+    )
+    auto.add_argument(
+        "--max-budget-bitrate",
+        type=float,
+        default=8000.0,
+        help="upper bound on the picked rendition's bitrate in kbps (default 8000)",
+    )
+    auto.add_argument(
+        "--allow-codecs",
+        default="libx264",
+        help=(
+            "comma-separated list of codecs the tree may pick from "
+            "(default libx264). When the list resolves to a single "
+            "codec the compare-shortlist stage short-circuits."
+        ),
+    )
+    auto.add_argument(
+        "--codec",
+        default=None,
+        help=(
+            "pin the codec choice (overrides --allow-codecs ranking). "
+            "When set the compare-shortlist stage short-circuits."
+        ),
+    )
+    auto.add_argument(
+        "--sample-clip-seconds",
+        type=float,
+        default=0.0,
+        help=(
+            "propagate this clip length to internal sweeps rather than "
+            "re-deciding per stage (ADR-0301). 0 = full source."
+        ),
+    )
+    auto.add_argument(
+        "--smoke",
+        action="store_true",
+        help=(
+            "exercise the composition end-to-end with mocked sub-phases "
+            "(no ffmpeg, no ONNX). Production wiring lands in F.3+."
+        ),
+    )
+    auto.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="emit the JSON plan to this path (default: stdout)",
+    )
+
     return parser
 
 
@@ -1157,6 +1225,45 @@ def _run_compare(args: argparse.Namespace) -> int:
     return 0 if report.best() is not None else 1
 
 
+def _run_auto(args: argparse.Namespace) -> int:
+    """Phase F — ``vmaf-tune auto`` (ADR-0325).
+
+    F.1 scaffold + F.2 short-circuits. The non-smoke path raises
+    :class:`NotImplementedError` until the production probe wiring
+    follow-up lands; ``--smoke`` exercises the composition with
+    mocked sub-phases so this surface is testable from F.1 onward.
+    """
+    from .auto import emit_plan_json, run_auto
+
+    allow = tuple(token.strip() for token in args.allow_codecs.split(",") if token.strip())
+    if not allow:
+        sys.stderr.write("vmaf-tune auto: --allow-codecs is empty\n")
+        return 2
+    try:
+        plan = run_auto(
+            src=args.src,
+            target_vmaf=args.target_vmaf,
+            max_budget_kbps=args.max_budget_bitrate,
+            allow_codecs=allow,
+            user_pinned_codec=args.codec,
+            sample_clip_seconds=args.sample_clip_seconds,
+            smoke=args.smoke,
+        )
+    except NotImplementedError as exc:
+        sys.stderr.write(f"vmaf-tune auto: {exc}\n")
+        return 2
+    rendered = emit_plan_json(plan)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8")
+        sys.stderr.write(f"wrote auto plan -> {args.output}\n")
+    else:
+        sys.stdout.write(rendered)
+        if not rendered.endswith("\n"):
+            sys.stdout.write("\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1174,6 +1281,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_ladder(args)
     if args.cmd == "compare":
         return _run_compare(args)
+    if args.cmd == "auto":
+        return _run_auto(args)
     parser.print_help()
     return 2
 

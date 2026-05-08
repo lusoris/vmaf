@@ -164,3 +164,17 @@ inference — Phase F is integration, not invention.
   data, perceptual analysis and continual model improvement"); the
   English-translated paraphrase lives in this ADR's Context to
   satisfy the user-quote-handling rule for non-References sections.
+
+### Status update 2026-05-08: F.2 short-circuits landed
+
+F.1 sequential scaffold + F.2 short-circuits ship together in one
+PR (the bigger-content path the user prefers over per-LOC PRs).
+`tools/vmaf-tune/src/vmaftune/auto.py` exposes the seven
+`_should_short_circuit_<N>` predicates as standalone helpers; each
+fires its corresponding stage-skip and records the firing in
+`plan.metadata.short_circuits`. The Phase D 5-min /
+0.15-shot-variance thresholds ship as constants
+(`PHASE_D_DURATION_GATE_S`, `PHASE_D_SHOT_VARIANCE_GATE`) pending
+F.3 empirical fit. F.3 (per-cell `recommend.coarse_to_fine`
+escalation on `FALL_BACK`) and F.4 (per-content-type recipe
+overrides) remain deferred per the original phased rollout.

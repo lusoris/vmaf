@@ -9070,3 +9070,17 @@ inline.*
     grep -c "pull_request.draft == false" ".github/workflows/${f}.yml"
   done  # Each must report >= 1.
   ```
+
+## ADR-0325 — `vmaf-tune auto` Phase F.1 + F.2 short-circuits (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (new), `tools/vmaf-tune/src/vmaftune/cli.py` (added `auto` subparser + dispatcher), `tools/vmaf-tune/tests/test_auto_short_circuits.py` (new), `tools/vmaf-tune/AGENTS.md` (invariant row), `docs/usage/vmaf-tune.md` (`## auto` section), `docs/adr/0325-vmaf-tune-phase-f-auto.md` (status update — already-accepted body untouched per ADR-0028; appended a `### Status update` block under `## References`). No upstream-shared paths.
+- **Invariant**: `SHORT_CIRCUIT_PREDICATES` in `auto.py` is an **ordered tuple**, not a set. The seven entries appear in the canonical order `LADDER_SINGLE_RUNG`, `CODEC_PINNED`, `PREDICTOR_GOSPEL`, `SKIP_SALIENCY`, `SDR_SKIP`, `SAMPLE_CLIP_PROPAGATE`, `SKIP_PER_SHOT`. The JSON schema records short-circuits in this order under `plan.metadata.short_circuits`; downstream consumers (CI corpus collector, post-hoc speedup analysis) parse the canonical-order list. Adding an eighth short-circuit (F.3+) appends; never reorder. The Phase D thresholds (`PHASE_D_DURATION_GATE_S = 300.0`, `PHASE_D_SHOT_VARIANCE_GATE = 0.15`) are placeholders pending F.3 empirical fit.
+- **On upstream sync**: no action required. Module is fork-local (`tools/vmaf-tune/` is fork-only). The `vmaf-tune` umbrella ADR-0237 explicitly carves Phases B–F out of upstream scope.
+- **Re-test on rebase**:
+
+  ```bash
+  cd tools/vmaf-tune && python -m pytest tests/test_auto_short_circuits.py -v
+  PYTHONPATH=tools/vmaf-tune/src python -m vmaftune.cli auto \
+      --src /dev/null --target-vmaf 93 --max-budget-bitrate 5000 \
+      --allow-codecs libx264 --sample-clip-seconds 10 --smoke
+  ```
