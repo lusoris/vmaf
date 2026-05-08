@@ -196,6 +196,135 @@ def _empty_recipe() -> dict[str, object]:
     return {}
 
 
+# F.4 placeholder constants. Used as the fallback when the F.5
+# calibrated JSON (``ai/data/phase_f_recipes_calibrated.json``) is
+# missing or malformed. Each value is annotated with the F.4
+# rationale; F.5 fits these from a real corpus and the loader below
+# replaces them at module import. Per memory ``feedback_no_guessing``
+# the calibrated values are sourced from
+# ``ai/scripts/calibrate_phase_f_recipes.py``; the fallback constants
+# are kept verbatim so callers that ship without the JSON file (e.g.
+# minimal wheel installs, smoke tests) still get the documented F.4
+# behaviour.
+_F4_PLACEHOLDER_RECIPES: dict[str, dict[str, object]] = {
+    RECIPE_CLASS_ANIMATION: {
+        "tight_interval_max_width": 1.5,
+        "force_single_rung": True,
+        "saliency_intensity": "aggressive",
+        "target_vmaf_offset": 2.0,
+    },
+    RECIPE_CLASS_SCREEN_CONTENT: {
+        "saliency_intensity": "very_aggressive",
+        "target_vmaf_offset": 1.0,
+    },
+    RECIPE_CLASS_LIVE_ACTION_HDR: {
+        "tight_interval_max_width": 1.2,
+        "target_vmaf_offset": 0.0,
+    },
+    RECIPE_CLASS_UGC: {
+        "tight_interval_max_width": 3.0,
+        "target_vmaf_offset": -1.0,
+    },
+}
+
+
+# Path to the calibrated-recipes JSON, relative to the repo root.
+# Resolved at module import; if the file is missing or malformed the
+# F.4 placeholder constants above remain in force (graceful
+# degradation per ADR-0325 §F.5 status update).
+_CALIBRATED_RECIPES_FILENAME: str = "ai/data/phase_f_recipes_calibrated.json"
+
+
+def _find_calibrated_recipes_path() -> Path | None:
+    """Walk upward from this file looking for the calibrated JSON.
+
+    Returns ``None`` if the JSON cannot be located. The walk stops at
+    the filesystem root or when ``ai/data/phase_f_recipes_calibrated.json``
+    is found relative to a parent directory. This decouples the loader
+    from the install layout — both source-tree checkouts and editable
+    installs resolve correctly.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / _CALIBRATED_RECIPES_FILENAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _load_calibrated_recipes() -> dict[str, dict[str, object]]:
+    """Load the F.5-calibrated overrides, falling back to F.4 placeholders.
+
+    Returns a dict keyed by content-class name (``animation``,
+    ``screen_content``, ``live_action_hdr``, ``ugc``) holding the
+    override values to merge into the per-class factory. Unknown
+    classes in the JSON are ignored silently; missing classes fall
+    back to the F.4 placeholder for that class.
+
+    The JSON schema (per
+    ``ai/scripts/calibrate_phase_f_recipes.py``):
+
+    .. code-block:: json
+
+        {
+          "metadata": { ... },
+          "recipes": {
+            "<class>": { "<key>": <value>, "_provenance": {...} }
+          }
+        }
+
+    The ``_provenance`` sub-dicts are stripped before merging so they
+    never leak into ``plan.metadata.recipe_overrides``.
+    """
+    path = _find_calibrated_recipes_path()
+    if path is None:
+        _LOG.debug(
+            "no calibrated recipes JSON found; using F.4 placeholders",
+        )
+        return {cls: dict(rec) for cls, rec in _F4_PLACEHOLDER_RECIPES.items()}
+    try:
+        with path.open("rt", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        _LOG.warning(
+            "failed to read %s (%s); falling back to F.4 placeholders",
+            path,
+            exc,
+        )
+        return {cls: dict(rec) for cls, rec in _F4_PLACEHOLDER_RECIPES.items()}
+
+    raw_recipes = payload.get("recipes")
+    if not isinstance(raw_recipes, dict):
+        _LOG.warning(
+            "%s missing 'recipes' object; falling back to F.4 placeholders",
+            path,
+        )
+        return {cls: dict(rec) for cls, rec in _F4_PLACEHOLDER_RECIPES.items()}
+
+    merged: dict[str, dict[str, object]] = {
+        cls: dict(rec) for cls, rec in _F4_PLACEHOLDER_RECIPES.items()
+    }
+    for cls, rec in raw_recipes.items():
+        if cls not in merged or not isinstance(rec, dict):
+            continue
+        clean: dict[str, object] = {}
+        for key, value in rec.items():
+            if key.startswith("_"):
+                continue
+            if key in _RECIPE_KEYS:
+                clean[key] = value
+        if clean:
+            merged[cls] = clean
+    return merged
+
+
+# Resolved at module import — a single load, snapshotted into the
+# per-class factories below. Reloading at runtime requires
+# ``importlib.reload(vmaftune.auto)``; this matches the F.4 read-only
+# invariant exercised by ``test_auto_recipe_overrides``.
+_CALIBRATED_RECIPES: dict[str, dict[str, object]] = _load_calibrated_recipes()
+
+
 def _animation_recipe() -> dict[str, object]:
     """Recipe for ``content_class == "animation"``.
 
@@ -204,17 +333,12 @@ def _animation_recipe() -> dict[str, object]:
     live-action, and saliency benefits from being aggressive on cel-line
     edges.
 
-    Threshold values are ``[provisional, calibrate against real corpus
-    in F.5]``; placeholders sit close to the conservative emergency
-    floor so an animation source still gets sane behaviour even if F.5
-    never lands.
+    Values are sourced from
+    ``ai/data/phase_f_recipes_calibrated.json`` (F.5 calibration).
+    The fallback constants in ``_F4_PLACEHOLDER_RECIPES`` apply when
+    the JSON is missing or malformed.
     """
-    return {
-        "tight_interval_max_width": 1.5,  # [provisional, calibrate against real corpus in F.5]
-        "force_single_rung": True,
-        "saliency_intensity": "aggressive",
-        "target_vmaf_offset": 2.0,  # [provisional, calibrate against real corpus in F.5]
-    }
+    return dict(_CALIBRATED_RECIPES[RECIPE_CLASS_ANIMATION])
 
 
 def _screen_content_recipe() -> dict[str, object]:
@@ -224,11 +348,10 @@ def _screen_content_recipe() -> dict[str, object]:
     into low-entropy background + high-detail text/icon regions; the
     saliency-aware stage benefits from a very aggressive intensity that
     raises QP on the background while keeping text near-lossless.
+
+    Values from ``ai/data/phase_f_recipes_calibrated.json`` (F.5).
     """
-    return {
-        "saliency_intensity": "very_aggressive",
-        "target_vmaf_offset": 1.0,  # [provisional, calibrate against real corpus in F.5]
-    }
+    return dict(_CALIBRATED_RECIPES[RECIPE_CLASS_SCREEN_CONTENT])
 
 
 def _live_action_hdr_recipe() -> dict[str, object]:
@@ -238,11 +361,10 @@ def _live_action_hdr_recipe() -> dict[str, object]:
     pipeline already runs, but the F.3 conformal-tight gate is narrowed
     here because a wide predictor interval on HDR is more suspect than
     on SDR (the predictor was largely trained on SDR — see ADR-0279).
+
+    Values from ``ai/data/phase_f_recipes_calibrated.json`` (F.5).
     """
-    return {
-        "tight_interval_max_width": 1.2,  # [provisional, calibrate against real corpus in F.5]
-        "target_vmaf_offset": 0.0,
-    }
+    return dict(_CALIBRATED_RECIPES[RECIPE_CLASS_LIVE_ACTION_HDR])
 
 
 def _ugc_recipe() -> dict[str, object]:
@@ -253,11 +375,10 @@ def _ugc_recipe() -> dict[str, object]:
     uncertainty is the baseline. Widening the F.3 tight gate avoids
     over-flagging UGC cells as "needs escalation" simply because the
     interval is wider than a Netflix-grade reference.
+
+    Values from ``ai/data/phase_f_recipes_calibrated.json`` (F.5).
     """
-    return {
-        "tight_interval_max_width": 3.0,  # [provisional, calibrate against real corpus in F.5]
-        "target_vmaf_offset": -1.0,  # [provisional, calibrate against real corpus in F.5]
-    }
+    return dict(_CALIBRATED_RECIPES[RECIPE_CLASS_UGC])
 
 
 # Module-level recipe table. Each value is a *factory* (not a literal

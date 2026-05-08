@@ -1860,20 +1860,52 @@ The override keys consumed by the driver are:
 | `saliency_intensity` | `str` | Passed through to the saliency stage when not skipped. One of `default`, `aggressive`, `very_aggressive`. |
 | `target_vmaf_offset` | `float` | Additive offset applied to the *predictor's* effective target VMAF. The input `--target-vmaf` (the gate that ships models) is **never** shifted by this value — see the no-test-weakening note below. |
 
-The five recipe classes ship the following overrides. **Every threshold
-value below is `[provisional, calibrate against real corpus in F.5]`**;
-the placeholders sit close to the conservative emergency floor so the
-recipes still produce sane behaviour even before the F.5 calibration
-fit lands. Threshold rationale lives in
-[Research-0067 §"F.4 recipe-override placeholders"](../research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md).
+The five recipe classes ship the following overrides. The values below
+are the **F.5-calibrated** thresholds emitted by
+`ai/scripts/calibrate_phase_f_recipes.py` and shipped in
+`ai/data/phase_f_recipes_calibrated.json`. The calibration was run on
+2026-05-09 against the K150K corpus
+(`.workingdir2/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of an
+expected 153 841 — the ingestion was ~96.6 % complete; a re-run on the
+full corpus is a follow-up PR). Threshold rationale and the per-class
+proxy-vs-corpus provenance break-down live in
+[Research-0067 §"F.4 recipe-override placeholders"](../research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md)
+plus the JSON `metadata` block.
 
-| Class | `tight_interval_max_width` | `force_single_rung` | `saliency_intensity` | `target_vmaf_offset` |
-| ----- | -------------------------- | ------------------- | -------------------- | -------------------- |
-| `animation` | `1.5` | `true` | `aggressive` | `+2.0` |
-| `screen_content` | _(unset)_ | _(unset)_ | `very_aggressive` | `+1.0` |
-| `live_action_hdr` | `1.2` | _(unset)_ | _(default)_ | `0.0` |
-| `ugc` | `3.0` | _(unset)_ | _(default)_ | `-1.0` |
-| `default` | _(unset)_ | _(unset)_ | _(default)_ | `0.0` |
+| Class | `tight_interval_max_width` | `force_single_rung` | `saliency_intensity` | `target_vmaf_offset` | Source |
+| ----- | -------------------------- | ------------------- | -------------------- | -------------------- | ------ |
+| `animation` | `1.75` | `true` | `aggressive` | `+2.0` | proxy (UGC-anchored) |
+| `screen_content` | _(unset)_ | _(unset)_ | `very_aggressive` | `+1.0` | proxy (UGC-anchored) |
+| `live_action_hdr` | `1.4` | _(unset)_ | _(default)_ | `0.0` | proxy (UGC-anchored) |
+| `ugc` | `3.5` | `false` | `default` | `+1.5` | corpus (K150K) |
+| `default` | _(unset)_ | _(unset)_ | _(default)_ | `0.0` | n/a |
+
+K150K is a UGC-only corpus and carries no per-source `content_class`
+column; only the `ugc` row is corpus-derived. The other three rows are
+calibrated as documented absolute offsets ("proxy") anchored on the F.4
+envelope until PR #477's TransNet shot-metadata columns plus a
+class-labelled subset land. The JSON `recipes.<class>._provenance`
+sub-dict records the source per row so future re-calibrations can
+distinguish corpus-derived from proxy-derived values. UGC's
+`target_vmaf_offset` came out empirically positive (`+1.5`) on K150K
+because the corpus's MOS distribution has a heavier upper tail than
+lower tail; the calibration script clamps every offset to the F.4
+documented envelope of `[-2.0, +2.0]` so a pathological corpus cannot
+push the predictor target outside the regime the planner has been
+exercised against.
+
+The `auto.py` runtime loads the JSON at module import via
+`_load_calibrated_recipes`; if the JSON file is missing or malformed,
+the F.4 placeholder constants in `_F4_PLACEHOLDER_RECIPES` apply as a
+graceful fallback. To regenerate the calibration after the corpus
+ingestion completes (or when a class-labelled corpus replaces K150K),
+run:
+
+```shell
+python ai/scripts/calibrate_phase_f_recipes.py \
+    --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --out ai/data/phase_f_recipes_calibrated.json
+```
 
 Recipe rationale (each cited threshold is provisional pending F.5
 calibration):

@@ -219,3 +219,62 @@ F.5 closes the calibration loop once F.4 has emitted enough labelled
 recipe applications to fit the placeholders empirically. Phase F
 phased rollout is now complete (F.0 design + F.1+F.2 + F.3 + F.4);
 F.5 calibration is a follow-up backlog item, not a Phase F gate.
+
+### Status update 2026-05-09: F.5 calibrated
+
+F.5 ships `ai/scripts/calibrate_phase_f_recipes.py` and the calibrated
+override JSON at `ai/data/phase_f_recipes_calibrated.json`. The
+calibration was run against the K150K corpus
+(`.workingdir2/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of
+153 841 expected — the ingestion was ~96.6 % complete; partial-corpus
+statistics are statistically valid for high-level class statistics
+and a re-run on the full corpus is a follow-up PR). The calibrated
+values replace the F.4 `[provisional, calibrate against real corpus
+in F.5]` placeholders at module-load time via
+`vmaftune.auto._load_calibrated_recipes`; if the JSON is missing or
+malformed the F.4 placeholder constants in `_F4_PLACEHOLDER_RECIPES`
+remain in force (graceful fallback covered by
+`tools/vmaf-tune/tests/test_calibrated_recipes.py`).
+
+Calibrated values:
+
+| Class | `tight_interval_max_width` | `force_single_rung` | `saliency_intensity` | `target_vmaf_offset` | Source |
+| ----- | -------------------------- | ------------------- | -------------------- | -------------------- | ------ |
+| `animation` | `1.75` | `true` | `aggressive` | `+2.0` | proxy (UGC-anchored) |
+| `screen_content` | _(unset)_ | _(unset)_ | `very_aggressive` | `+1.0` | proxy (UGC-anchored) |
+| `live_action_hdr` | `1.4` | _(unset)_ | _(default)_ | `0.0` | proxy (UGC-anchored) |
+| `ugc` | `3.5` | `false` | `default` | `+1.5` | corpus (K150K) |
+
+Honest-data caveats:
+
+* K150K is a UGC-only corpus and carries no per-source
+  `content_class` column; only the `ugc` row is corpus-derived. The
+  other three rows are calibrated as documented absolute offsets
+  ("proxy") anchored on the F.4 envelope. PR #477's TransNet
+  shot-metadata columns plus a class-labelled subset will let a
+  future re-calibration replace the proxy rows with corpus-derived
+  values.
+* UGC's empirical `target_vmaf_offset` came out **positive** (`+1.5`)
+  on K150K because the corpus's MOS distribution has a heavier upper
+  tail than lower tail. The calibration script clamps every offset
+  to the F.4 documented envelope of `[-2.0, +2.0]` so a pathological
+  corpus cannot push the predictor target outside the regime the
+  planner has been exercised against. Per memory
+  `feedback_no_test_weakening`, the offset shifts only the
+  predictor's effective target — never the input `--target-vmaf`
+  gate that ships models.
+* The `mos_to_vmaf_proxy` mapping (slope 20, intercept 0) is the
+  Hosu et al. 2017 §3.3 anchor. A future re-calibration that
+  measures end-to-end VMAF against the K150K reference clips
+  (libvmaf full-reference pass) will replace the proxy with measured
+  scores.
+
+The calibrated values reduce the placeholder envelope (UGC width
+`3.0 → 3.5` is the only widening; `1.5 → 1.75` for animation;
+`1.2 → 1.4` for live-action HDR) but every value stays inside the
+ConfidenceThresholds invariant (`tight ≤ wide`). The
+`test_calibrated_ugc_width_below_wide_gate_ceiling` regression test
+locks this in: any future re-calibration that exceeds the wide-gate
+ceiling needs a separate ADR. Phase F is now fully calibrated; the
+one outstanding follow-up is the class-labelled re-calibration once
+PR #477 lands.

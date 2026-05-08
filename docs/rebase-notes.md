@@ -31873,3 +31873,49 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
      assert p.metadata['effective_predictor_target_vmaf'] == 95.0; \
      print('F.4 smoke OK')"
   ```
+
+## ADR-0325 — `vmaf-tune auto` Phase F.5 calibrated recipe overrides (2026-05-09)
+
+- **Touches**: `ai/scripts/calibrate_phase_f_recipes.py` (new),
+  `ai/data/phase_f_recipes_calibrated.json` (new — tracked via the
+  `.gitignore` `!ai/data/phase_f_recipes_calibrated.json` allow rule),
+  `tools/vmaf-tune/src/vmaftune/auto.py` (added
+  `_F4_PLACEHOLDER_RECIPES`, `_CALIBRATED_RECIPES_FILENAME`,
+  `_find_calibrated_recipes_path`, `_load_calibrated_recipes`,
+  `_CALIBRATED_RECIPES`; the four `_<class>_recipe` factories now
+  read from `_CALIBRATED_RECIPES`),
+  `tools/vmaf-tune/tests/test_calibrated_recipes.py` (new — 14
+  assertions), `docs/usage/vmaf-tune.md` (calibrated table replaces
+  the F.4 placeholder table in the `### Per-content-type recipes
+  (F.4)` subsection), `docs/adr/0325-vmaf-tune-phase-f-auto.md`
+  (`### Status update 2026-05-09: F.5 calibrated` appended;
+  already-accepted body untouched per ADR-0028),
+  `changelog.d/changed/phase-f5-calibrated-recipes.md`, `.gitignore`
+  (one allow rule for the JSON file). No upstream-shared paths.
+- **Invariant**: the `_CONTENT_RECIPE_TABLE` factories now consume
+  `_CALIBRATED_RECIPES` snapshotted at module import. The runtime
+  load is a single read; reloading at runtime requires
+  `importlib.reload(vmaftune.auto)`. Every `get_recipe_for_class` /
+  `_apply_recipe_override` call still returns a fresh dict — the
+  read-only invariant from F.4 is preserved by `dict(_CALIBRATED_
+  RECIPES[<cls>])`. The `_load_calibrated_recipes` loader strips
+  every `_provenance` sub-dict and filters every key against
+  `_RECIPE_KEYS` so a malicious or malformed JSON cannot inject
+  unknown keys into a recipe. Per memory `feedback_no_test_weakening`,
+  the calibration cannot widen the production-flip gate beyond the
+  ConfidenceThresholds wide-interval ceiling — the regression test
+  `test_calibrated_ugc_width_below_wide_gate_ceiling` locks this in.
+- **On upstream sync**: no action required. `tools/vmaf-tune/`,
+  `ai/scripts/`, `ai/data/` are all fork-local; ADR-0237 explicitly
+  carves Phases B–F out of upstream scope.
+- **Re-test on rebase**:
+
+  ```bash
+  PYTHONPATH=tools/vmaf-tune/src python -m pytest \
+    tools/vmaf-tune/tests/test_calibrated_recipes.py \
+    tools/vmaf-tune/tests/test_auto_recipe_overrides.py -v
+  python ai/scripts/calibrate_phase_f_recipes.py \
+    --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --out /tmp/recipes_smoke.json \
+    --max-rows 10000
+  ```
