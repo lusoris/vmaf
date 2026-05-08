@@ -133,6 +133,9 @@
 - **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
   (ADR-0364, design-only).** Ships
   [`docs/adr/0364-vmaf-tune-phase-f-auto.md`](docs/adr/0364-vmaf-tune-phase-f-auto.md)
+- **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
+  (ADR-0325, design-only).** Ships
+  [`docs/adr/0325-vmaf-tune-phase-f-auto.md`](docs/adr/0325-vmaf-tune-phase-f-auto.md)
   and
   [`docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md`](docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md)
   proposing a single `vmaf-tune auto --src ref.mkv --target-vmaf 92`
@@ -187,6 +190,10 @@
   columns are all-NaN (identity-pair artifact); ADM/VIF/SSIM/VMAF floor at
   identity — documented expected. Hardware: RTX 4090, ~7 s/clip.
   User docs: [`docs/ai/datasets/k150k.md`](../docs/ai/datasets/k150k.md).
+  favour of an explainable hand-coded tree (≤ 30 lines pseudocode);
+  the user's "adaptive encoding ecosystem" vision text routes to
+  the deterministic tree first, learned-policy as a deferred
+  research follow-up. Companion to ADR-0237 (umbrella).
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
