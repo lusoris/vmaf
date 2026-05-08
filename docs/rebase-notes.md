@@ -10542,4 +10542,18 @@ compiles).
   # → "problem loading feature extractor: motion_v2"
   # → stderr: "motion_v2: motion_five_frame_window=true is not supported …"
 
+## ADR-index backfill 2026-05-08 (this PR)
+
+- **Touches**: `docs/adr/_index_fragments/0235-codec-aware-fr-regressor.md` (new), `docs/adr/_index_fragments/0236-dists-extractor.md` (new), `docs/adr/_index_fragments/0238-vulkan-picture-preallocation.md` (new), `docs/adr/_index_fragments/0239-gpu-picture-pool-dedup.md` (new), `docs/adr/_index_fragments/0251-vulkan-async-pending-fence.md` (new), `docs/adr/_index_fragments/0279-fr-regressor-v2-probabilistic.md` (new), `docs/adr/_index_fragments/_order.txt` (six slugs appended), `docs/adr/README.md` (eight rows appended; one duplicate ADR-0279 row deduplicated).
+- **Invariant**: no engine code touched; no upstream-shared paths. Pure fork-local index maintenance.
+- **On upstream sync**: no action required. `docs/adr/` is a fork-local tree.
+- **Coordination with #468 (27-ADR status sweep)**: both PRs touch ADR metadata. They do **not** conflict at the file level (#468 edits ADR bodies; this PR adds index fragments + appends README rows for the eight previously-unindexed ADRs). At merge time the README append-tail may overlap if #468 lands later index rows for its swept ADRs; whichever lands first, the second rebases by re-running `scripts/docs/concat-adr-index.sh --check` and inserting any newly-stale rows in commit-merge order.
+- **Known finding (out of scope)**: `scripts/docs/concat-adr-index.sh --check` currently reports a much larger fragment-vs-README drift than this PR introduces — many ADRs have rows in `README.md` without corresponding `_index_fragments/` files, and several `_order.txt` slugs have no fragment yet. Running `--write` blindly would drop ~37 README rows for ADRs unrelated to this PR. The ADR-0221 fragment-driven contract therefore could not be enforced via a clean `--write` here; eight new rows were appended directly to keep the change scoped. A separate sweep PR is needed to flush the residual drift.
+- **Re-test on rebase**:
+
+  ```bash
+  for n in 0235 0236 0238 0239 0251 0276 0279 0315; do
+    grep -cE "^\| \[ADR-$n\]" docs/adr/README.md  # must be ≥ 1
+  done
+  bash scripts/docs/concat-adr-index.sh >/dev/null  # must succeed
   ```
