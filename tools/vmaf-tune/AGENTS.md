@@ -460,3 +460,17 @@ hull + manifest emit), sampler-pluggable, smoke-only until Phase B
 merges. Phases B / C / D / F per ADR-0237 are explicitly out of scope
 here; do not add bisect / predictor / per-shot / MCP code into this
 tree without an ADR-0237 follow-up promoting the corresponding phase.
+
+- **The seven F.2 short-circuit predicates in ``auto.py`` are an
+  ordered tuple, not a set.** ``SHORT_CIRCUIT_PREDICATES`` declares
+  ``ShortCircuit.LADDER_SINGLE_RUNG`` first and
+  ``ShortCircuit.SKIP_PER_SHOT`` last; the order is part of the
+  public contract because tests assert determinism across
+  `evaluate_short_circuits` invocations and the JSON schema records
+  the canonical-order list under ``plan.metadata.short_circuits``.
+  Adding an eighth short-circuit (F.3+ follow-ups) appends to the
+  tuple; never insert in the middle. The Phase D thresholds
+  (`PHASE_D_DURATION_GATE_S = 300.0` and
+  `PHASE_D_SHOT_VARIANCE_GATE = 0.15`) are placeholders pending F.3
+  empirical fit — change them via an ADR-0325 follow-up, not a
+  drive-by tweak. See [ADR-0325](../../docs/adr/0325-vmaf-tune-phase-f-auto.md).
