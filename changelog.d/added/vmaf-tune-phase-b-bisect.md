@@ -1,5 +1,5 @@
 - **`vmaftune.bisect` — Phase B target-VMAF bisect
-  ([ADR-0325](../docs/adr/0325-vmaf-tune-phase-b-bisect.md)).** Ships
+  ([ADR-0326](../docs/adr/0326-vmaf-tune-phase-b-bisect.md)).** Ships
   the production wiring the existing `compare`, `recommend-saliency`,
   `predict`, `tune-per-shot`, and `ladder` subcommands have been
   stubbing out via the `NotImplementedError("Phase B pending")`

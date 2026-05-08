@@ -255,7 +255,7 @@ for the option-space digest.
   callable. The default predicate now returns `ok=False` pointing
   callers at `bisect.make_bisect_predicate(target_vmaf, *, width=...,
   height=..., framerate=..., duration_s=...)` — Phase B
-  ([ADR-0325](../../docs/adr/0325-vmaf-tune-phase-b-bisect.md))
+  ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md))
   ships the bisect, but the bare predicate signature does not carry
   source geometry so operators bind it once via the closure adapter.
   `tests/test_compare.py` injects a fake predicate so the comparison
@@ -264,7 +264,7 @@ for the option-space digest.
   on codec name inside `compare.py` — route every per-codec call
   through the predicate / adapter registry.
 - **Phase B bisect assumes monotone-decreasing VMAF in CRF
-  ([ADR-0325](../../docs/adr/0325-vmaf-tune-phase-b-bisect.md)).**
+  ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md)).**
   `vmaftune.bisect.bisect_target_vmaf` aborts with a clear error when
   two non-adjacent samples violate this contract by more than 0.5
   VMAF (looser than measurement noise). Never weaken to a fall-back

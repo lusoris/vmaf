@@ -1,8 +1,8 @@
-# Research-0086: vmaf-tune Phase B target-VMAF bisect — feasibility
+# Research-0090: vmaf-tune Phase B target-VMAF bisect — feasibility
 
 - **Date**: 2026-05-08
 - **Author**: lusoris
-- **Companion ADR**: [ADR-0325](../adr/0325-vmaf-tune-phase-b-bisect.md)
+- **Companion ADR**: [ADR-0326](../adr/0326-vmaf-tune-phase-b-bisect.md)
 
 ## Question
 
@@ -70,7 +70,7 @@ the violation is more useful than recovering from it.
 
 ## References
 
-- [ADR-0325](../adr/0325-vmaf-tune-phase-b-bisect.md) — the decision.
+- [ADR-0326](../adr/0326-vmaf-tune-phase-b-bisect.md) — the decision.
 - [`predictor.pick_crf`](../../tools/vmaf-tune/src/vmaftune/predictor.py)
   — the analytical-curve precedent for the same algorithmic shape.
 - [ADR-0306](../adr/0306-vmaf-tune-coarse-to-fine.md) — coarse-to-fine

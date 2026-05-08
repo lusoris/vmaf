@@ -32068,6 +32068,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   cd tools/vmaf-tune && python -m pytest tests/test_sidecar.py -v
 
 
+
 ## ADR-0368 — YouTube UGC corpus ingestion (2026-05-08)
 
 - **Touches**: `ai/scripts/youtube_ugc_to_corpus_jsonl.py` (new),
@@ -32154,15 +32155,18 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
 
 ## ADR-0325 — vmaf-tune Phase B target-VMAF bisect (2026-05-08)
 
+## ADR-0326 — vmaf-tune Phase B target-VMAF bisect (2026-05-08)
+
+
 - **Touches**: `tools/vmaf-tune/src/vmaftune/bisect.py` (new),
   `tools/vmaf-tune/src/vmaftune/compare.py` (default-predicate error
   string), `tools/vmaf-tune/tests/test_bisect.py` (new),
   `tools/vmaf-tune/tests/test_compare.py` (renamed default-predicate
   assertion), `tools/vmaf-tune/AGENTS.md` (Phase B invariant),
-  `docs/adr/0325-vmaf-tune-phase-b-bisect.md` (new),
-  `docs/adr/_index_fragments/0325-vmaf-tune-phase-b-bisect.md` (new),
+  `docs/adr/0326-vmaf-tune-phase-b-bisect.md` (new),
+  `docs/adr/_index_fragments/0326-vmaf-tune-phase-b-bisect.md` (new),
   `docs/adr/_index_fragments/_order.txt` (append),
-  `docs/research/0086-vmaf-tune-phase-b-bisect-feasibility.md` (new),
+  `docs/research/0090-vmaf-tune-phase-b-bisect-feasibility.md` (new),
   `docs/usage/vmaf-tune-bisect.md` (new),
   `changelog.d/added/vmaf-tune-phase-b-bisect.md` (new). No upstream
   Netflix/vmaf surface is touched.

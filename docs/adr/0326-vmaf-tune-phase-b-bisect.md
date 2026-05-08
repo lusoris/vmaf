@@ -1,4 +1,4 @@
-# ADR-0325: vmaf-tune Phase B — target-VMAF bisect
+# ADR-0326: vmaf-tune Phase B — target-VMAF bisect
 
 - **Status**: Proposed
 - **Date**: 2026-05-08
@@ -160,6 +160,6 @@ existing `compare` / `recommend-saliency` / `predict` / `tune-per-shot`
   `quality_range` is the search-space boundary.
 - [ADR-0306](0306-vmaf-tune-coarse-to-fine.md) — coarse-to-fine grid
   search; complementary, not a replacement.
-- [Research-0086 — Phase B bisect feasibility](../research/0086-vmaf-tune-phase-b-bisect-feasibility.md).
+- [Research-0090 — Phase B bisect feasibility](../research/0090-vmaf-tune-phase-b-bisect-feasibility.md).
 - Source: `req` (direct user instruction in this session: "Implement
   vmaf-tune Phase B (target-VMAF bisect) in the lusoris/vmaf fork").

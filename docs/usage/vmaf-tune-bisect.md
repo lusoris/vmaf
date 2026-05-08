@@ -8,8 +8,8 @@ quality — the cost-optimal point.
 This is the production wiring the existing `compare`,
 `recommend-saliency`, `predict`, `tune-per-shot`, and `ladder`
 subcommands have been stubbing out via the placeholder predicate. See
-[ADR-0325](../adr/0325-vmaf-tune-phase-b-bisect.md) for the decision
-and [Research-0086](../research/0086-vmaf-tune-phase-b-bisect-feasibility.md)
+[ADR-0326](../adr/0326-vmaf-tune-phase-b-bisect.md) for the decision
+and [Research-0090](../research/0090-vmaf-tune-phase-b-bisect-feasibility.md)
 for the algorithmic feasibility digest.
 
 ## When to reach for it
@@ -165,9 +165,9 @@ the comparison schema.
 
 ## See also
 
-- [ADR-0325](../adr/0325-vmaf-tune-phase-b-bisect.md) — decision +
+- [ADR-0326](../adr/0326-vmaf-tune-phase-b-bisect.md) — decision +
   alternatives matrix.
-- [Research-0086](../research/0086-vmaf-tune-phase-b-bisect-feasibility.md)
+- [Research-0090](../research/0090-vmaf-tune-phase-b-bisect-feasibility.md)
   — algorithmic feasibility digest.
 - [ADR-0237](../adr/0237-quality-aware-encode-automation.md) —
   vmaf-tune umbrella spec.
