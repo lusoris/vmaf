@@ -139,6 +139,21 @@ Runtime directly.
   ~1M params; uses bounded-Loop guard from ADR-0171.
 - **FastDVDnet (T6-7, PR #203 open, ADR-0215 placeholder)** —
   5-frame window pre-filter; same DNN session contract.
+- **OpenVINO NPU EP wiring (ADR-0332, 2026-05-08)** — the
+  `VmafDnnDevice` enum carries three explicit OpenVINO selectors
+  (`OPENVINO_NPU` / `_CPU` / `_GPU`, values `5..7`) on top of the
+  generic `OPENVINO` (value `3`, GPU→CPU fallback chain). The
+  explicit-selector branches in `ort_backend.c::vmaf_ort_open` pin
+  `try_append_openvino()`'s `device_type` to `NPU` / `CPU` / `GPU`
+  with **no** fallback inside the branch — the two-stage CreateSession
+  fallback to the CPU EP is shared across all explicit-EP selectors and
+  remains the only safety net when the requested OpenVINO device isn't
+  present. NPU is intentionally NOT in the AUTO try-chain; opt-in only.
+  The `vmaf_dnn_session_attached_ep()` stable-string list gained
+  `"OpenVINO:NPU"` — consumers asserting on the returned string
+  (documented in `docs/ai/inference.md` §Graceful EP fallback)
+  must accept the new value. End-to-end NPU silicon validation is
+  deferred to a contributor with Meteor / Lunar / Arrow Lake hardware.
 
 ## Testing
 

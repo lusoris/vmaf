@@ -35,7 +35,7 @@ typedef enum VmafDnnDevice {
     VMAF_DNN_DEVICE_AUTO = 0,
     VMAF_DNN_DEVICE_CPU = 1,
     VMAF_DNN_DEVICE_CUDA = 2,
-    VMAF_DNN_DEVICE_OPENVINO = 3, /**< covers SYCL / oneAPI / Intel GPU */
+    VMAF_DNN_DEVICE_OPENVINO = 3, /**< OpenVINO EP, GPU device type with CPU fallback */
     VMAF_DNN_DEVICE_ROCM = 4,
     /**
      * Apple CoreML execution provider. The base value lets CoreML pick
@@ -57,6 +57,16 @@ typedef enum VmafDnnDevice {
     VMAF_DNN_DEVICE_COREML_ANE = 6,
     VMAF_DNN_DEVICE_COREML_GPU = 7,
     VMAF_DNN_DEVICE_COREML_CPU = 8,
+    /**
+     * OpenVINO EP pinned to a single device type (no fallback). NPU targets
+     * the Intel AI-PC neural processing unit (Meteor / Lunar / Arrow Lake);
+     * CPU and GPU disambiguate the OpenVINO CPU and iGPU/dGPU plugins from
+     * each other. See [Research-0031](docs/research/0031-intel-ai-pc-applicability.md).
+     * Values 9..11 are append-only.
+     */
+    VMAF_DNN_DEVICE_OPENVINO_NPU = 9,
+    VMAF_DNN_DEVICE_OPENVINO_CPU = 10,
+    VMAF_DNN_DEVICE_OPENVINO_GPU = 11,
 } VmafDnnDevice;
 
 typedef struct VmafDnnConfig {
@@ -185,9 +195,9 @@ void vmaf_dnn_session_close(VmafDnnSession *sess);
  * Name of the ONNX Runtime execution provider that actually bound to the
  * session. Useful for diagnostics and for asserting AUTO-chain behaviour
  * in tests. Stable strings: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU",
- * "CoreML", "CoreML:ANE", "CoreML:GPU", "CoreML:CPU", "ROCm". Returns
- * NULL if @p sess is NULL or libvmaf was built without DNN support.
- * Lifetime: owned by @p sess.
+ * "CoreML", "CoreML:ANE", "CoreML:GPU", "CoreML:CPU", "OpenVINO:NPU",
+ * "OpenVINO:CPU", "OpenVINO:GPU", "ROCm". Returns NULL if @p sess is NULL
+ * or libvmaf was built without DNN support. Lifetime: owned by @p sess.
  */
 const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess);
 
