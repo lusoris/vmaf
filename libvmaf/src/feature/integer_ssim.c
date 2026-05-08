@@ -28,6 +28,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <math.h>
 #include <string.h>
 
+#include "config.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 
@@ -272,10 +273,12 @@ static int close(VmafFeatureExtractor *fex)
 
 static const char *provided_features[] = {"ssim", NULL};
 
-/* Reference implementation. This file is not in libvmaf/src/meson.build —
- * the active SSIM path is float_ssim.c + ssim.c. Symbol kept exported so
- * downstream consumers that hand-register features can still pick it up;
- * clang-tidy per-TU can't observe such registration. */
+/* Fixed-point SSIM extractor — registered as `ssim` in
+ * `feature_extractor.c`'s `feature_extractor_list[]`. The companion
+ * `float_ssim.c` provides the floating-point variant under the
+ * `float_ssim` name. The cross-TU reference from
+ * `feature_extractor.c` is invisible to clang-tidy's per-TU
+ * analysis, so the linkage check fires a false positive here. */
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 VmafFeatureExtractor vmaf_fex_ssim = {
     .name = "ssim",

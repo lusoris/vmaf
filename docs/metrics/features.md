@@ -38,7 +38,7 @@ limitations in the same PR as the code.
 | PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional)                                       | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan¹|
 | PSNR (float)       | `float_psnr`    | No            | `float_psnr` (luma only — the CPU extractor emits a single luma score)                        | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | PSNR-HVS           | `psnr_hvs`      | No            | `psnr_hvs`, `psnr_hvs_y`, `psnr_hvs_cb`, `psnr_hvs_cr`                                        | AVX2, NEON          | CUDA, SYCL, Vulkan |
-| SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | Vulkan²            |
+| SSIM (fixed)       | `ssim`          | No            | `ssim`                                                                                        | —                   | —²                 |
 | SSIM (float)       | `float_ssim`    | No            | `float_ssim` (+ L/C/S if enabled)                                                             | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | MS-SSIM            | `float_ms_ssim` | No            | `float_ms_ssim` (+ per-scale L/C/S if enabled)                                                | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | ANSNR              | `float_ansnr`   | No            | `float_ansnr`, `float_anpsnr`                                                                 | —                   | CUDA, SYCL, Vulkan |
@@ -61,12 +61,14 @@ PR #204 / [`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
 The CPU `psnr` extractor emits the full luma + chroma set on every
 build. CUDA / SYCL chroma support is a focused follow-up.
 
-² SSIM (fixed-point) ships a Vulkan kernel via T7-24 (ADR-pending);
-the CPU integer path is scalar-only by design. The `float_ssim` /
-`float_ms_ssim` paths cover all three GPU backends. The
-`ssim_accumulate_avx512` reduction is vectorised (per ADR-0268,
-PR #342) — bit-exact vs scalar, ~7-11% wall-clock reduction on the
-SSIM/MS-SSIM hot path.
+² SSIM (fixed-point, the `ssim` extractor) is CPU-scalar-only — the
+fixed-point integer path has no SIMD or GPU twin today. The
+`float_ssim` / `float_ms_ssim` paths cover all three GPU backends
+and pick up AVX2 / AVX-512 / NEON. Callers that want a GPU SSIM
+should select `float_ssim` instead. The `ssim_accumulate_avx512`
+reduction (per ADR-0268, PR #342) sits on the `float_ssim` /
+`float_ms_ssim` AVX-512 path — bit-exact vs scalar, ~7-11%
+wall-clock reduction on the SSIM/MS-SSIM hot path.
 
 ³ LPIPS dispatches the underlying ONNX graph through the ORT
 execution provider selected via `--tiny-device` (CPU / CUDA /
