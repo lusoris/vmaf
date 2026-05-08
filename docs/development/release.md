@@ -39,6 +39,60 @@ fork PRs advance `-lusoris.N`.
    are covered by per-backend snapshot tests at ULP tolerance, not by
    the goldens), and publishes signed artefacts to GitHub Releases.
 
+## ADR index regeneration policy
+
+`docs/adr/README.md` is the rendered index of every ADR in the fork. Its
+"Index" table is generated from per-ADR fragments under
+`docs/adr/_index_fragments/<slug>.md` plus an order manifest at
+`docs/adr/_index_fragments/_order.txt`. The renderer is
+[`scripts/docs/concat-adr-index.sh`](../../scripts/docs/concat-adr-index.sh)
+(see [ADR-0221](../adr/0221-changelog-adr-fragment-pattern.md) for why the
+pattern exists).
+
+**When adding a new ADR (the common case)** — write the fragment as part of
+the same PR and append its slug to `_order.txt`. The PR template's
+ADR-index checklist row covers this. Manual append is preferred over
+`--write` because it produces a one-line diff that reviewers can verify by
+eye and avoids touching unrelated rows.
+
+**When fixing drift between fragments and `README.md` (this sweep's case)**
+— run `scripts/docs/concat-adr-index.sh --check` to capture the full diff,
+then audit each row against the four drift classes:
+
+- **Silent loss** — fragment exists, README is missing the row.
+  Regenerating with `--write` keeps the fragment's row.
+- **Orphan content** — README has a row, fragment does not exist.
+  Backfill the fragment from the README row (the row content already
+  reflects the ADR's accepted state). Do **not** delete the row without
+  evidence the ADR is genuinely stale (`Status: Withdrawn` or
+  `Superseded` in the ADR file body, plus the underlying decision being
+  moot).
+- **Reformatted** — same content, different shape (column order, status
+  spelling, slug case). Regenerate; the fragment is canonical.
+- **Duplicate** — the same row appears more than once in `README.md`,
+  usually from a stale append-only edit. Regenerate; the fragment is
+  emitted exactly once.
+
+After every fragment-side fix, run `--write` once and verify the README
+diff matches the audit's expected shape (rows preserved, duplicates
+collapsed, missing rows restored). Reviewers can re-run `--check` against
+the rebuilt branch and expect a clean exit.
+
+**Renumbered slugs.** When the dedup sweep referenced in the script's
+header comment renumbers an ADR (e.g. `0270-saliency-…` → `0286-saliency-…`),
+the fragment must be **renamed** to match the new slug — not duplicated. The
+`_order.txt` entry follows the same rename. The fragment body's
+`[ADR-NNNN](NNNN-slug.md)` link must match the renumbered slug; mismatches
+silently render rows that point at non-existent ADR files. The
+fragment-vs-ADR-file slug audit is one line:
+
+```bash
+for f in docs/adr/_index_fragments/[0-9]*.md; do
+    base=$(basename "$f" .md)
+    [[ -f "docs/adr/$base.md" ]] || echo "STALE FRAGMENT: $f"
+done
+```
+
 ## Signing
 
 All release artefacts are signed via
