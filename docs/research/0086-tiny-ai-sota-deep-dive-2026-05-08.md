@@ -181,7 +181,9 @@ published PLCC vs MOS for our NR head.
 In our defence:
 
 - We are ~500× smaller than DOVER-Mobile.
-- We are CPU-only (no GPU required).
+- We run through libvmaf's ONNX Runtime surface, so the same artefact
+  serves CPU, CUDA, SYCL, Vulkan and HIP execution providers — runtime
+  is whatever the host has, with no separate model build per backend.
 - We use 224×224 grayscale single-frame — DOVER uses fragments + temporal.
   These are different design points; the right comparison is NR-VQA
   *deployment cost* (params + FLOPs) at iso-PLCC.
