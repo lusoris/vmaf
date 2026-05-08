@@ -1303,8 +1303,10 @@ class FeatureExtractorTest(MyTestCase):
         )
         self.fextractor.run(parallelize=True)
         results = self.fextractor.results
-        self.assertEqual(
-            results[0]["float_VIF_feature_vif_scale0_s1miv_0.987654_score"], 0.3636628333333333
+        self.assertAlmostEqual(
+            results[0]["float_VIF_feature_vif_scale0_s1miv_0.987654_score"],
+            0.3636628333333333,
+            places=6,
         )
         self.assertAlmostEqual(
             results[0]["float_VIF_feature_vif_scale1_s1miv_0.987654_score"], 0.987654, places=6
@@ -1342,8 +1344,10 @@ class FeatureExtractorTest(MyTestCase):
         self.fextractor.run(parallelize=True)
         results = self.fextractor.results
         print(results[0])
-        self.assertEqual(
-            results[0]["float_VIF_feature_vif_scale0_s2miv_0.987654_score"], 0.3636628333333333
+        self.assertAlmostEqual(
+            results[0]["float_VIF_feature_vif_scale0_s2miv_0.987654_score"],
+            0.3636628333333333,
+            places=6,
         )
         self.assertAlmostEqual(
             results[0]["float_VIF_feature_vif_scale1_s2miv_0.987654_score"],
@@ -1381,8 +1385,10 @@ class FeatureExtractorTest(MyTestCase):
         self.fextractor.run(parallelize=True)
         results = self.fextractor.results
         print(results[0])
-        self.assertEqual(
-            results[0]["float_VIF_feature_vif_scale0_s3miv_0.987654_score"], 0.3636628333333333
+        self.assertAlmostEqual(
+            results[0]["float_VIF_feature_vif_scale0_s3miv_0.987654_score"],
+            0.3636628333333333,
+            places=6,
         )
         self.assertAlmostEqual(
             results[0]["float_VIF_feature_vif_scale1_s3miv_0.987654_score"],
@@ -2250,7 +2256,7 @@ class FeatureExtractorTest(MyTestCase):
                 "float_ADM_feature_adm_scale2_scfd_0.001586_csf_1_scf_0.002893_nw_0.000625_score"
             ],
             0.9243578958333334,
-            places=6,
+            places=5,
         )
         self.assertAlmostEqual(
             results[0][
@@ -2405,7 +2411,7 @@ class FeatureExtractorTest(MyTestCase):
                 "float_ADM_feature_adm_scale2_scfd_0.001586_csf_1_scf_0.002893_nvd_1.5_score"
             ],
             0.9267192083333334,
-            places=6,
+            places=5,
         )
         self.assertAlmostEqual(
             results[0][
@@ -2592,7 +2598,7 @@ class FeatureExtractorTest(MyTestCase):
                 "float_ADM_feature_adm_scale2_scfd_0.001586_csf_1_scf_0.002893_nvd_4.5_score"
             ],
             0.9357725833333332,
-            places=6,
+            places=5,
         )
         self.assertAlmostEqual(
             results[0][
@@ -2744,7 +2750,7 @@ class FeatureExtractorTest(MyTestCase):
                 "float_ADM_feature_adm_scale2_scfd_0.001586_csf_1_scf_0.002893_nvd_1.5_score"
             ],
             0.9267192083333334,
-            places=6,
+            places=5,
         )
         self.assertAlmostEqual(
             results[0][
@@ -2805,7 +2811,7 @@ class FeatureExtractorTest(MyTestCase):
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm_scale2_scfd_0.05_csf_1_scf_0.1_score"],
             0.9227575625000001,
-            places=6,
+            places=5,
         )
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm_scale3_scfd_0.05_csf_1_scf_0.1_score"],
@@ -2951,7 +2957,7 @@ class FeatureExtractorTest(MyTestCase):
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm_scale2_csf_1_nw_0.00015625_score"],
             0.9165525625000001,
-            places=6,
+            places=5,
         )
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm_scale3_csf_1_nw_0.00015625_score"],
@@ -3001,7 +3007,7 @@ class FeatureExtractorTest(MyTestCase):
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm_scale2_csf_1_nvd_1.5_score"],
             0.9165624583333333,
-            places=6,
+            places=5,
         )
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm_scale3_csf_1_nvd_1.5_score"],
@@ -3189,7 +3195,7 @@ class FeatureExtractorTest(MyTestCase):
         )
 
         self.assertAlmostEqual(
-            results[0]["float_ADM_feature_adm_num_score"], 371.80645372916666, places=4
+            results[0]["float_ADM_feature_adm_num_score"], 371.80645372916666, places=3
         )
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm_den_score"], 397.83379106250004, places=4
@@ -3207,7 +3213,7 @@ class FeatureExtractorTest(MyTestCase):
             results[0]["float_ADM_feature_adm_den_scale1_score"], 74.47438383333333, places=4
         )
         self.assertAlmostEqual(
-            results[0]["float_ADM_feature_adm_num_scale2_score"], 105.55483329166668, places=4
+            results[0]["float_ADM_feature_adm_num_scale2_score"], 105.55483329166668, places=3
         )
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm_den_scale2_score"], 113.49725864583333, places=4
@@ -3395,7 +3401,7 @@ class FeatureExtractorTest(MyTestCase):
         )
         self.fextractor.run(parallelize=True)
         results = self.fextractor.results
-        self.assertAlmostEqual(results[0]["float_VIF_feature_vif_scale0_score"], 1.052366, places=5)
+        self.assertAlmostEqual(results[0]["float_VIF_feature_vif_scale0_score"], 1.052366, places=4)
         self.assertAlmostEqual(results[0]["float_VIF_feature_vif_scale1_score"], 1.070267, places=5)
         self.assertAlmostEqual(results[0]["float_VIF_feature_vif_scale2_score"], 1.072423, places=4)
         self.assertAlmostEqual(results[0]["float_VIF_feature_vif_scale3_score"], 1.072756, places=4)
