@@ -9053,3 +9053,53 @@ inline.*
   bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/kit-test.tar.gz
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
+
+### 0089-C — `721569bc` port: cambi_high_res_speedup doc + motion2 score
+
+- **No ADR.** Pure upstream cherry-pick per
+  [ADR-0108](adr/0108-deep-dive-deliverables-rule.md) carve-out
+  ("pure upstream syncs and `port-upstream-commit` PRs are exempt").
+  Companion to Research-0089
+  (`docs/research/0089-upstream-sync-coverage-2026-05-08.md`),
+  Batch C — the docs-only sliver of the 2026-05-08 upstream-sync
+  stack. Sibling batches handle cambi C/SIMD code, motion_v2 code,
+  and python tests.
+- **Upstream source**: `721569bc` (christosb, 2026-05-06):
+  "resource/doc: add cambi_high_res_speedup parameter and update
+  motion2 score". Ported into the fork's renamed doc tree:
+  `resource/doc/cambi.md` → `docs/metrics/cambi.md`,
+  `resource/doc/conf_interval.md` → `docs/metrics/confidence-interval.md`,
+  `resource/doc/python.md` → `docs/usage/python.md`.
+- **Touches**:
+  - `docs/metrics/cambi.md` — adds the `cambi_high_res_speedup`
+    bullet to the Options list (line-wrapped to ~80 cols; existing
+    long lines in the file remain pre-existing MD013 debt out of
+    scope for this port).
+  - `docs/metrics/confidence-interval.md` — refreshes the example
+    `VMAF_feature_motion2_score` from `3.8953518541666665` to
+    `3.8943597291666667` to reflect the upstream motion_v2
+    mirroring fix (`856d3835`).
+  - `docs/usage/python.md` — same motion2 example refresh.
+- **Coordination caveat (motion2 score)**: the new `3.8943597291666667`
+  example is the post-mirroring-fix value. The fork's runtime
+  motion_v2 implementation does NOT carry the upstream `856d3835`
+  mirroring fix yet — that lands in the parallel Batch B+D port
+  (sibling agent's PR). Until B+D merges, the fork CLI run on
+  `src01_hrc{00,01}_576x324.yuv` will produce the older
+  `3.8953518541666665` value, not the documented one. This is
+  acknowledged stack-temporary drift; the merge train sequences
+  Batch B+D before the doc PR ships visibly so end-users never
+  observe the discrepancy.
+- **Invariant**: the fork's `docs/` tree is the user-facing source of
+  truth (per CLAUDE.md §12 r10). When upstream edits its
+  `resource/doc/*.md` files, the port lands in `docs/metrics/` /
+  `docs/usage/` — there is no `resource/doc/` tree on the fork.
+- **Re-test on rebase**:
+
+  ```bash
+  # Confirm the option is plumbed end-to-end after motion_v2 sync settles:
+  ./build/tools/vmaf -r src01_hrc00_576x324.yuv -d src01_hrc01_576x324.yuv \
+      -w 576 -h 324 -p 420 -b 8 \
+      --feature cambi=cambi_high_res_speedup=1080 --output /dev/stdout
+  # Expected: cambi runs without rejecting the option; CLI returns 0.
+  ```
