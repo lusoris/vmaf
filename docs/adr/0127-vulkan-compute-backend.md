@@ -1,6 +1,6 @@
 # ADR-0127: Vulkan compute backend — vendor-neutral GPU path alongside CUDA/SYCL/HIP
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-04-20
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: gpu, vulkan, backend, build, agents
@@ -154,3 +154,21 @@ with the following constraints:
 - [add-gpu-backend skill](../../.claude/skills/add-gpu-backend/SKILL.md)
 - [CLAUDE.md §8](../../CLAUDE.md) — golden-gate tolerance rule for
   GPU backends.
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- Public header `libvmaf/include/libvmaf/libvmaf_vulkan.h` — present.
+- Backend runtime tree `libvmaf/src/vulkan/` — present (common.c,
+  dispatch_strategy.{c,h}, picture_vulkan.{c,h}, kernel_template.h,
+  import.c, import_picture.h, AGENTS.md, meson.build).
+- `enable_vulkan` Meson option declared and live.
+- ADR-0175 (Accepted) shipped the audit-first scaffold; ADR-0186
+  (Accepted) shipped the VkImage zero-copy import; ADR-0251 (this
+  sweep) shipped the async pending-fence v2 model.
+- Verification command:
+  `ls libvmaf/include/libvmaf/libvmaf_vulkan.h libvmaf/src/vulkan/`.

@@ -1,6 +1,6 @@
 # ADR-0139: SSIM SIMD accumulate bit-exact to scalar via per-lane scalar double
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-04-21
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: simd, performance, bit-exact
@@ -187,3 +187,20 @@ non-reducing elementwise float ops.
   in `ssim_tools.c`.
 - Prior attempt at bit-exactness:
   PR #18 (`f082cfd3`) "SIMD bit-identical reductions + CI fixes".
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/src/feature/x86/ssim_avx2.{c,h}` and
+  `ssim_avx512.{c,h}` carry the per-lane scalar-double reduction
+  pattern.
+- ADR-0140 codifies the reduction macro
+  (`SIMD_PER_LANE_SCALAR_DOUBLE_REDUCE_AVX2/AVX512`) and cites this
+  ADR as the load-bearing rationale for the inline form.
+- Verification command:
+  `ls libvmaf/src/feature/x86/ssim_avx2.{c,h}
+  libvmaf/src/feature/x86/ssim_avx512.{c,h}`.

@@ -1,10 +1,6 @@
 # ADR-0314: vmaf-tune `--score-backend=vulkan` (vendor-neutral GPU scoring)
 
-<<<<<<< HEAD
 - **Status**: Accepted
-=======
-- **Status**: Proposed
->>>>>>> 599bb187 (feat(tools): vmaf-tune — --score-backend=vulkan (vendor-neutral GPU scoring) (ADR-0314))
 - **Date**: 2026-05-05
 - **Deciders**: lusoris, lawrence (raised the non-NVIDIA scoring question)
 - **Tags**: tooling, vmaf-tune, vulkan, gpu, fork-local
@@ -95,3 +91,31 @@ Concretely:
 - Source: per-user direction (`req`, 2026-05-05) — lawrence asked
   about non-NVIDIA GPU VMAF scoring; the Vulkan backend is the
   vendor-neutral answer.
+
+### Status update 2026-05-08: Accepted (resolves merge-conflict markers)
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+The 2026-05-06 bulk Status flip (`changelog.d/changed/adr-bulk-status-flip-2026-05-06.md`)
+flipped this ADR to Accepted. A subsequent rebase reintroduced
+unresolved Git conflict markers
+(`<<<<<<< HEAD` / `=======` / `>>>>>>> 599bb187`) around the
+front-matter Status line, leaving HEAD `0a8b539e` carrying both
+candidate values. This audit appendix resolves the markers in
+favour of Accepted; the implementation has been verified live in
+tree.
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `tools/vmaf-tune/src/vmaftune/cli.py` admits
+  `--score-backend {auto,cpu,cuda,sycl,vulkan}` on both `corpus`
+  and `recommend` subparsers (line 114 onward; help text and
+  resolution via `select_backend(prefer=…)` at line 594).
+- `score.build_vmaf_command` accepts the backend kwarg;
+  `corpus.CorpusOptions` carries `score_backend`.
+- `auto` mode walks `cuda → vulkan → sycl → cpu`; strict-mode
+  failures raise `BackendUnavailableError` and exit 2 with the
+  helper diagnostic — no silent CPU downgrade.
+- Verification command:
+  `grep -nE "vulkan" tools/vmaf-tune/src/vmaftune/cli.py | head`.

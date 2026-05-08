@@ -1,6 +1,6 @@
 # ADR-0276: `vmaf-tune fast` — proxy-based recommend (Phase A.5)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-03
 - **Deciders**: Lusoris
 - **Tags**: tooling, ai, ffmpeg, codec, automation, fork-local
@@ -129,3 +129,19 @@ slow grid stays canonical.
   companion digest.
 - Related PRs: parent #329 (Phase A scaffold); follow-up #347
   (`fr_regressor_v2` scaffold).
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `tools/vmaf-tune/src/vmaftune/fast.py` — present (scaffold +
+  smoke mode).
+- ADR-0304 (Accepted in the 2026-05-06 sweep) wired the production
+  path: `vmaftune.proxy.run_proxy`, `_proxy_score`, `_run_tpe`,
+  `_gpu_verify`.
+- `vmaf-tune fast` subcommand registered via the cli surface.
+- Verification command:
+  `ls tools/vmaf-tune/src/vmaftune/fast.py`.

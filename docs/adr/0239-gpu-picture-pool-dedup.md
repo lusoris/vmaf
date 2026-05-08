@@ -1,6 +1,6 @@
 # ADR-0239: Backend-agnostic GPU picture pool (`gpu_picture_pool.{h,c}`)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-02
 - **Deciders**: Lusoris
 - **Tags**: refactor, gpu, cuda, sycl, vulkan, dedup, fork-local
@@ -115,3 +115,19 @@ round-robin implementation across all three backends.
   gated on #264 landing.
 - [ADR-0250](0250-tiny-ai-extractor-template.md) — tiny-AI extractor
   template precedent (PR #251), refactor pattern model.
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/src/gpu_picture_pool.{c,h}` — present.
+- `libvmaf/src/cuda/ring_buffer.*` — removed (verified by `ls`
+  returning no match), confirming the rename + promotion happened.
+- The promotion landed alongside the rename matrix declared in the
+  Decision section (`VmafRingBuffer` → `VmafGpuPicturePool`, etc.).
+- Verification command:
+  `ls libvmaf/src/gpu_picture_pool.{c,h};
+  ls libvmaf/src/cuda/ring_buffer.* 2>&1 | grep -i 'no match'`.

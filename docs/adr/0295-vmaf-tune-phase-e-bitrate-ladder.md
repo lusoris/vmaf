@@ -1,6 +1,6 @@
 # ADR-0295: vmaf-tune Phase E — per-title bitrate-ladder generator
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-03
 - **Deciders**: Lusoris
 - **Tags**: tooling, ffmpeg, codec, automation, abr, fork-local
@@ -121,3 +121,21 @@ job), and live MCP exposure (Phase F).
   point for the production sampler.
 - PR #354 capability audit — flagged Bucket #6 as the highest-
   leverage gap in the fork's automation surface.
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `tools/vmaf-tune/src/vmaftune/ladder.py` — present (scaffold
+  with `build_ladder`, `convex_hull`, `select_knees`,
+  `emit_manifest`).
+- `vmaf-tune ladder` CLI subcommand registered.
+- ADR-0307 (Accepted in the 2026-05-06 sweep) wired the default
+  `_default_sampler` so the placeholder no longer raises
+  `NotImplementedError`; the `SamplerFn` seam stays open for
+  callers needing finer control.
+- Verification command:
+  `ls tools/vmaf-tune/src/vmaftune/ladder.py`.

@@ -1,6 +1,6 @@
 # ADR-0270: libFuzzer scaffold for parser surfaces (OSSF Scorecard remediation)
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-03
 - **Deciders**: lusoris, Claude
 - **Tags**: security, build, ci, docs
@@ -107,3 +107,24 @@ the same pattern; the README documents the steps.
   ("Stand up a minimal libFuzzer harness for ONE feature extractor
   (or the YUV-input parsing path) to address the OSSF Scorecard
   Fuzzing check").
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/test/fuzz/fuzz_y4m_input.c` — present (initial harness).
+- `libvmaf/test/fuzz/fuzz_yuv_input.c` /
+  `fuzz_cli_parse.c` — present (added by ADR-0311 follow-up).
+- Seed corpora (`y4m_input_corpus/`,
+  `y4m_input_known_crashes/`, `yuv_input_corpus/`,
+  `cli_parse_corpus/`) — present.
+- `libvmaf/meson_options.txt` declares `option('fuzz', ...)`.
+- `.github/workflows/fuzz.yml` — present (nightly 5-min run per
+  harness with crash artefact upload).
+- Operator runbook `docs/development/fuzzing.md` exists.
+- Verification command:
+  `ls libvmaf/test/fuzz/ .github/workflows/fuzz.yml;
+  grep "option('fuzz'" libvmaf/meson_options.txt`.

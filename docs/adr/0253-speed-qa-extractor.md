@@ -1,6 +1,6 @@
 # ADR-0253: Defer SpEED-QA full-reference reduction
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-03
 - **Deciders**: lusoris (pending sign-off)
 - **Tags**: `metrics`, `research`, `feature-extractor`, `roadmap`
@@ -107,3 +107,23 @@ triggers (see *Consequences → Follow-ups*).
   *"Open the SpEED-QA metric track that's been queued. Investigate
   whether SpEED is a viable addition + scaffold a Proposed ADR.
   Don't accept without user signoff."*
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+The deliverable for a defer-shape decision is the documented
+position itself; verification consists of confirming the position
+is unchanged in tree:
+
+- No `speed_qa` reduction in `libvmaf/src/feature/`.
+- No SpEED-driven model in `model/`.
+- `speed_chroma` / `speed_temporal` extractors remain unchanged
+  (Netflix port from upstream `d3647c73`, gated behind
+  `-Denable_float=true`).
+- The three reversal triggers stay open and are documented in the
+  Consequences section.
+- Verification command:
+  `ls libvmaf/src/feature/speed_*.c;
+  grep -i speed model/registry.json`.

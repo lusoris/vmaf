@@ -1,6 +1,6 @@
 # ADR-0129: Tiny-AI post-training int8 quantisation — static + dynamic + QAT per model
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-04-20
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, onnx, quantization, model, docs
@@ -171,3 +171,26 @@ This keeps each quantisation decision reviewable in isolation.
   scripts land.
 - [CLAUDE.md §12 r10](../../CLAUDE.md) — per-surface docs rule
   (quant-mode user-visible → doc entry under `docs/ai/quantization.md`).
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `model/tiny/registry.schema.json` carries `quant_mode`
+  (line 64), `quant_calibration_set` (line 70),
+  `quant_int8_sha256` (line 75), `quant_accuracy_budget_plcc`
+  (line 79).
+- PTQ scripts under `ai/scripts/`: `ptq_static.py`,
+  `ptq_dynamic.py`, `measure_quant_drop.py`,
+  `measure_quant_drop_per_ep.py`.
+- ADR-0173 (Accepted) shipped the audit-first registry/CI plumbing.
+- ADR-0174 (Accepted) shipped the first per-model PTQ
+  (`learned_filter_v1` on `quant_mode: "dynamic"`).
+- ADR-0207 / ADR-0208 (this sweep, both Accepted) extend the policy
+  to QAT.
+- Verification command:
+  `grep -E "quant_mode|quant_accuracy_budget_plcc"
+  model/tiny/registry.schema.json`.

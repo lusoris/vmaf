@@ -1,6 +1,6 @@
 # ADR-0315: Vendor-neutral VVC encode strategy — tiered Tier-1-now / Tier-2-backlog / Tier-3-revisit
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-05
 - **Deciders**: Lusoris, lawrence
 - **Tags**: codecs, vvc, h266, gpu, hip, sycl, vulkan-video, vmaf-tune, nn-vc, fork-local
@@ -146,3 +146,25 @@ decision artifact that points back to it.
   fork can offer GPU-accelerated VVC encode without NVIDIA hardware,
   and recommend a tiered path that ships something today" (lawrence,
   2026-05-05).
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+The deliverable for a strategy-shape decision is the documented
+tier policy. Verification consists of confirming the tiers are
+operative in tree:
+
+- **Tier-1 (now)**: NN-VC + Vulkan **scoring** path is live.
+  `tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py` is the
+  CPU baseline VVenC adapter; ADR-0314 (this sweep, Accepted)
+  ships `--score-backend=vulkan`.
+- **Tier-2 (backlog)**: HIP VVenC port — not started, awaiting
+  demand-pull trigger per ADR-0009 precedent.
+- **Tier-3 (revisit)**: Vulkan Video VVC encode —
+  `VK_KHR_video_encode_h266` does not exist in the Khronos
+  registry; revisit when ratification + driver landing are
+  observed (companion Research-0085 tracks the verification table).
+- Verification command:
+  `ls tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py`.

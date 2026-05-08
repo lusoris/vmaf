@@ -1,6 +1,6 @@
 # ADR-0279: `fr_regressor_v2` probabilistic head — deep-ensemble + conformal scaffold
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-03
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, fr-regressor, probabilistic, ensemble, conformal, fork-local
@@ -131,3 +131,21 @@ multi-codec Phase A corpus and tracked as backlog item
   [ADR-0041](0041-lpips-sq-extractor.md) — multi-input ONNX precedent
   the v2 ensemble member graph follows.
 - Source: `req` (PR #354 audit Bucket #18, top-3 ranked).
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `model/tiny/fr_regressor_v2_ensemble_v1.json` — manifest present.
+- Five seeded members
+  `model/tiny/fr_regressor_v2_ensemble_v1_seed{0..4}.{onnx,onnx.data,json}`
+  — all present.
+- `ai/scripts/eval_probabilistic_proxy.py` and
+  `ai/scripts/export_ensemble_v2_seeds.py` — present.
+- Verification command:
+  `ls model/tiny/fr_regressor_v2_ensemble_v1*
+  ai/scripts/eval_probabilistic_proxy.py
+  ai/scripts/export_ensemble_v2_seeds.py`.

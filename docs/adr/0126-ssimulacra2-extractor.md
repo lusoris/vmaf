@@ -1,6 +1,6 @@
 # ADR-0126: SSIMULACRA 2 perceptual metric as a fork-local feature extractor
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-04-20
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: metrics, feature-extractor, docs, agents
@@ -128,3 +128,21 @@ sub-metrics libjxl exposes. The extractor:
   source-selection digest and open questions.
 - [CLAUDE.md §12 r10](../../CLAUDE.md) — per-surface docs rule
   (extractor gets an entry in `docs/metrics/features.md`).
+
+### Status update 2026-05-08: Accepted
+
+Audited as part of the 2026-05-08 ADR `Proposed` sweep
+([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
+
+Acceptance criteria verified in tree at HEAD `0a8b539e`:
+
+- `libvmaf/src/feature/ssimulacra2.c` — present.
+- `libvmaf/src/feature/ssimulacra2_eotf_lut.h` /
+  `ssimulacra2_math.h` / `ssimulacra2_simd_common.h` — present.
+- `libvmaf/src/meson.build` registers the extractor (lines 137 and
+  the arm64 NEON sub-library at 350-360).
+- ADR-0130 (Accepted) was the implementation closeout for this ADR;
+  the SSIMU2 SIMD bit-exact follow-ups are tracked under
+  ADR-0161/0162/0163.
+- Verification command:
+  `ls libvmaf/src/feature/ssimulacra2.c libvmaf/src/feature/ssimulacra2_*.h`.
