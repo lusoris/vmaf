@@ -1,5 +1,5 @@
 - **tests**: partial port of upstream Netflix/vmaf `python/test/`
-  `MyTestCase` migration batch (2026-05-08, see ADR-0325). Cherry-picked
+  `MyTestCase` migration batch (2026-05-08, see ADR-0327). Cherry-picked
   four upstream commits — `38e905d1` (BD-rate `MyTestCase` + snake_case),
   `7df50f3a` (testutil full fixture set including 1/2/3/4-frame YUVs +
   4K/1080p cambi), `3a041a97` (`MyTestCase` adoption + sync of

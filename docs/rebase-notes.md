@@ -9054,7 +9054,7 @@ inline.*
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
 
-## ADR-0325 — Partial port of upstream `python/test/MyTestCase` migration (2026-05-08)
+## ADR-0327 — Partial port of upstream `python/test/MyTestCase` migration (2026-05-08)
 
 - **Touches**: `python/test/bd_rate_calculator_test.py`, `python/test/testutil.py`, `python/test/feature_assembler_test.py`, `python/test/command_line_test.py`, `python/test/perf_metric_test.py`, `python/test/train_test_model_test.py`, `python/test/noref_feature_extractor_test.py`, `python/test/asset_test.py`, `python/test/bootstrap_train_test_model_test.py`, `python/test/local_explainer_test.py`. Pure test-only; no engine code touched.
 - **Invariant**: Netflix-golden gate (`python/test/quality_runner_test.py`, `feature_extractor_test.py`, `vmafexec_test.py`, `vmafexec_feature_extractor_test.py`, `result_test.py`) identical pre/post — 9 failed, 162 passed, 2 skipped (the 9 are pre-existing env failures unrelated to this port). The four cherry-picked upstream commits (`38e905d1`, `7df50f3a`, `3a041a97`, `e3827e4d`) preserve every existing `assertAlmostEqual` value and only loosen tolerances, add net-new tests, or sync values to numbers the fork's CPU already produces. CLAUDE.md §1 preserved by per-hunk verification.

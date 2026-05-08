@@ -1,4 +1,4 @@
-# ADR-0325: Partial port of upstream `python/test/MyTestCase` migration batch (2026-05-08)
+# ADR-0327: Partial port of upstream `python/test/MyTestCase` migration batch (2026-05-08)
 
 - **Status**: Accepted
 - **Date**: 2026-05-08
