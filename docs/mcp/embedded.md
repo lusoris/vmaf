@@ -1,11 +1,15 @@
 # Embedded MCP server (in-process, inside libvmaf)
 
-> **Status: T5-2 audit-first scaffold landed. Runtime + transports
-> are not yet wired** — every public entry point returns `-ENOSYS`
-> until the T5-2b runtime PR. Use the standalone Python MCP server
-> under [`mcp-server/vmaf-mcp/`](../../mcp-server/vmaf-mcp/) for
-> production agent workflows. The header surface here is stable;
-> downstream consumers can compile against it today.
+> **Status: T5-2b v1 stdio runtime landed (2026-05-08).**
+> `vmaf_mcp_init` / `vmaf_mcp_start_stdio` / `vmaf_mcp_stop` /
+> `vmaf_mcp_close` are wired and respond to JSON-RPC 2.0 requests
+> (`tools/list`, `tools/call`, `resources/list`, `initialize`).
+> Tools shipped: `list_features`, `compute_vmaf` (placeholder —
+> validates inputs and returns a deferred-to-v2 marker; the real
+> scoring binding lands in v2). SSE and UDS transports remain
+> `-ENOSYS`; mongoose vendoring deferred to v2. The standalone
+> Python MCP server under [`mcp-server/vmaf-mcp/`](../../mcp-server/vmaf-mcp/)
+> remains the recommended default for "score a video" workflows.
 
 The embedded MCP server runs **inside the host process** that
 loaded `libvmaf.so` — typically `vmaf` (the CLI), `ffmpeg`'s
@@ -147,29 +151,63 @@ and locked in via the T5-2b runtime PR's TSan tests.
 | Component | Status | PR / ADR |
 |---|---|---|
 | Public header `libvmaf_mcp.h` | Landed (scaffold) | T5-2 / [ADR-0209](../adr/0209-mcp-embedded-scaffold.md) |
-| Stub TU `libvmaf/src/mcp/mcp.c` | Landed (returns `-ENOSYS`) | T5-2 |
+| TU `libvmaf/src/mcp/mcp.c` | Landed (v1 runtime; init / start_stdio / stop / close wired) | T5-2b / ADR-0209 § Status update 2026-05-08 |
+| Vendored cJSON v1.7.18 (MIT) under `libvmaf/src/mcp/3rdparty/cJSON/` | Landed | T5-2b |
+| JSON-RPC dispatcher (`tools/list`, `tools/call`, `resources/list`, `initialize`) | Landed | T5-2b |
 | Build flags + per-transport sub-flags | Landed (default off) | T5-2 |
-| Smoke test (12 sub-tests) | Landed | T5-2 |
-| Runtime — cJSON + mongoose vendoring + MCP pthread + SPSC ring | Pending | T5-2b |
-| SSE transport body | Pending | T5-2b (after runtime) |
-| UDS transport body | Pending | T5-2b (after runtime) |
-| stdio transport body | Pending | T5-2b (after runtime) |
-| Tool: `vmaf.status` (read-only) | Pending | T5-2b |
-| Tool: `vmaf.features` (read-only) | Pending | T5-2b |
-| Tool: `vmaf.score` (read-only) | Pending | T5-2b |
-| Tool: `vmaf.request_model_swap` (mutating, separate ADR) | Future | post T5-2b |
+| Smoke + protocol test (15 sub-tests, real round-trip) | Landed | T5-2b |
+| stdio transport body | Landed (line-delimited JSON-RPC; LSP `Content-Length:` framing deferred to v2) | T5-2b |
+| SSE transport body | Pending — returns `-ENOSYS` | v2 (mongoose vendoring) |
+| UDS transport body | Pending — returns `-ENOSYS` | v2 |
+| Tool: `list_features` (read-only) | Landed | T5-2b |
+| Tool: `compute_vmaf` (validates inputs; deferred-to-v2 marker) | Landed | T5-2b (binding to scoring engine in v2) |
+| Tool: `vmaf.request_model_swap` (mutating, separate ADR) | Future | post-v2 |
 | `enable_mcp` default flip from `false` → `auto` | Future | post all transports stable |
 
-## What lands next (T5-2b roadmap)
+## What lands next (v2 roadmap)
 
-See [ADR-0209 § What lands next](../adr/0209-mcp-embedded-scaffold.md#what-lands-next-t5-2b-roadmap-per-research-0005--next-steps).
+T5-2b v1 (this PR) shipped the stdio transport + dispatcher +
+two tools. v2 covers:
 
-Briefly: vendor cJSON + mongoose, wire the MCP pthread + SPSC
-ring in `vmaf_mcp_init` / `_close`, then land each transport
-body (SSE → UDS → stdio) as separate PRs so each can be
-independently smoke-tested. Tool-surface expansion
-(`request_model_swap` and the like) follows in its own PR per
-ADR-0128 § "Tool surface (v1)".
+- **mongoose vendoring** + SSE transport body (`vmaf_mcp_start_sse`).
+- **UDS transport body** (`vmaf_mcp_start_uds`).
+- **LSP-framed stdio** (`Content-Length:` headers) — v1 ships
+  line-delimited JSON-RPC only.
+- **`compute_vmaf` binding to the real scoring engine** —
+  currently validates inputs and returns a deferred-to-v2 marker.
+- **SPSC ring drain at frame boundaries** — v1 dispatcher runs
+  to completion on the transport thread; the measurement-thread
+  hot path is not yet bridged. Tools that mutate measurement
+  state (`request_model_swap`, etc.) require this bridge first.
+- Tool-surface expansion (`vmaf.status`, `vmaf.score`,
+  `vmaf.request_model_swap`) follows in its own PR per
+  [ADR-0128](../adr/0128-embedded-mcp-in-libvmaf.md) § "Tool surface (v1)".
+
+## Sample request / response
+
+Request (newline-delimited JSON-RPC over stdio):
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/list"}
+```
+
+Response:
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"list_features","description":"…","inputSchema":{…}},{"name":"compute_vmaf","description":"…","inputSchema":{…}}]}}
+```
+
+Tool call:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_features","arguments":{}}}
+```
+
+Tool response (MCP `content` envelope wrapping the tool's JSON):
+
+```json
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"features\":[\"float_adm\",\"float_vif\",…],\"count\":15}"}],"isError":false}}
+```
 
 ## See also
 

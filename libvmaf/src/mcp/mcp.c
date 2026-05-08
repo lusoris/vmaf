@@ -2,35 +2,39 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Embedded MCP server — scaffold-only stub TU.
+ *  Embedded MCP server — v1 stdio runtime (T5-2b).
  *
- *  Every entry point in this translation unit returns -ENOSYS or a
- *  trivially-safe constant. The runtime (cJSON + mongoose vendoring,
- *  dedicated MCP pthread, SPSC ring buffer drained at frame
- *  boundaries, SSE / UDS / stdio transport bodies) lands via T5-2b
- *  per ADR-0209 § "What lands next". Smoke test
- *  `libvmaf/test/test_mcp_smoke.c` pins the -ENOSYS contract so a
- *  future runtime PR cannot accidentally enable a transport without
- *  flipping the smoke expectations.
+ *  History: T5-2 (ADR-0209) landed every entry point as `-ENOSYS`.
+ *  T5-2b (this PR — see ADR-0209 § "Status update 2026-05-08")
+ *  flips `vmaf_mcp_init` + `vmaf_mcp_start_stdio` + `vmaf_mcp_stop`
+ *  + `vmaf_mcp_close` to a working JSON-RPC 2.0 dispatcher with
+ *  two tools (`list_features`, `compute_vmaf`). SSE / UDS still
+ *  return `-ENOSYS`; vendoring `mongoose` and wiring the SPSC ring
+ *  drain at frame boundaries is deferred to v2.
  *
- *  Power-of-10 invariants reserved for the runtime PR (rule 3 — no
- *  alloc on the measurement-thread hot path; rule 2 — bounded drain
- *  loop) are documented in libvmaf/include/libvmaf/libvmaf_mcp.h
- *  and ADR-0209.
+ *  Power-of-10 invariants:
+ *      - rule 2 (bounded loops): all per-request loops are bounded
+ *        by VMAF_MCP_MAX_LINE_BYTES / VMAF_MCP_MAX_FEATURES; see
+ *        transport_stdio.c + dispatcher.c.
+ *      - rule 3 (no dynamic alloc on hot path): per-line scratch
+ *        is allocated once at thread-start; per-request cJSON
+ *        allocations are confined to the dispatcher and bounded
+ *        by the parser's input length. The measurement thread is
+ *        not touched by v1 (no SPSC ring yet).
+ *      - rule 7 (return values): every read()/write()/pthread_*()
+ *        return value is checked or `(void)`-cast with rationale.
  */
 
 #include <assert.h>
 #include <errno.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "libvmaf/libvmaf_mcp.h"
-
-/* Per-build-flag availability. The umbrella `enable_mcp` flag flips
- * `HAVE_MCP`; per-transport sub-flags flip the matching `HAVE_MCP_*`
- * macros. The header surface is identical either way; only the
- * runtime PR distinguishes built-without (returns -ENOSYS forever)
- * vs built-with (returns -ENOSYS only until the runtime is wired).
- */
+#include "mcp_internal.h"
 
 int vmaf_mcp_available(void)
 {
@@ -50,21 +54,11 @@ int vmaf_mcp_transport_available(VmafMcpTransport transport)
      * per-arm `#ifdef` keeps the body structurally distinct (no
      * `bugprone-branch-clone`) regardless of which sub-flags are
      * on. */
-    /* Defensively return 0 for out-of-range IDs rather than asserting
-     * — the public contract is "is transport <id> available", which
-     * has a clean answer (no) for unknown IDs.
-     * `test_transport_available_unknown_id_is_zero` exercises this
-     * path; the original assert crashed before the test could verify
-     * the contract. The early return also doubles as a UB guard for
-     * the 32-bit shift below. */
     if ((unsigned)transport > 31u) {
         return 0;
     }
-    /* Post-guard invariant — same predicate the original assert
-     * checked, but provably true here so it cannot fire.
-     * Preserved for Power-of-10 §5 assertion density (the function
-     * exceeds the 20-line threshold once the per-transport `#ifdef`
-     * blocks expand). */
+    /* Post-guard invariant — same predicate as the early return,
+     * preserved for Power-of-10 §5 assertion density. */
     assert((unsigned)transport <= 31u);
     unsigned mask = 0u;
 #ifdef HAVE_MCP_SSE
@@ -76,23 +70,73 @@ int vmaf_mcp_transport_available(VmafMcpTransport transport)
 #ifdef HAVE_MCP_STDIO
     mask |= 1u << (unsigned)VMAF_MCP_TRANSPORT_STDIO;
 #endif
-    if ((unsigned)transport > 31u)
-        return 0;
     return (mask & (1u << (unsigned)transport)) != 0u ? 1 : 0;
+}
+
+/* Validate cfg at init. Power-of-2 check on queue_depth (rejected
+ * with -EINVAL when non-zero and not power of 2). */
+static int validate_config(const VmafMcpConfig *cfg)
+{
+    if (cfg == NULL)
+        return 0;
+    if (cfg->queue_depth != 0u) {
+        unsigned q = cfg->queue_depth;
+        if ((q & (q - 1u)) != 0u)
+            return -EINVAL;
+    }
+    if (cfg->max_drain_per_frame > 64u)
+        return -EINVAL;
+    return 0;
 }
 
 int vmaf_mcp_init(VmafMcpServer **out, VmafContext *ctx, const VmafMcpConfig *cfg)
 {
-    /* Argument validation precedes the -ENOSYS so the caller-side
-     * contract is enforceable from the scaffold day one — a runtime
-     * PR that forgets a NULL guard would regress the smoke test. */
-    (void)cfg;
     if (out == NULL)
         return -EINVAL;
     if (ctx == NULL)
         return -EINVAL;
     *out = NULL;
-    return -ENOSYS;
+
+    int vrc = validate_config(cfg);
+    if (vrc != 0)
+        return vrc;
+
+    struct VmafMcpServer *s = (struct VmafMcpServer *)calloc(1u, sizeof(*s));
+    if (s == NULL)
+        return -ENOMEM;
+    /* Power-of-10 §5: post-condition on the freshly-allocated handle. */
+    assert(s != NULL);
+
+    s->ctx = ctx;
+    if (cfg != NULL) {
+        s->cfg = *cfg;
+        if (cfg->user_agent != NULL) {
+            size_t len = strlen(cfg->user_agent);
+            char *dup = (char *)malloc(len + 1u);
+            if (dup == NULL) {
+                free(s);
+                return -ENOMEM;
+            }
+            memcpy(dup, cfg->user_agent, len + 1u);
+            s->user_agent_owned = dup;
+            s->cfg.user_agent = dup;
+        }
+    }
+    s->stdio_fd_in = -1;
+    s->stdio_fd_out = -1;
+    atomic_store(&s->stdio_running, 0);
+    /* Power-of-10 §5: invariant — server starts in "not-running"
+     * state regardless of caller config. */
+    assert(atomic_load(&s->stdio_running) == 0);
+    int mrc = pthread_mutex_init(&s->write_mtx, NULL);
+    if (mrc != 0) {
+        free(s->user_agent_owned);
+        free(s);
+        return -mrc;
+    }
+
+    *out = s;
+    return 0;
 }
 
 int vmaf_mcp_start_sse(VmafMcpServer *server, VmafMcpSseConfig *cfg)
@@ -100,6 +144,7 @@ int vmaf_mcp_start_sse(VmafMcpServer *server, VmafMcpSseConfig *cfg)
     (void)cfg;
     if (server == NULL)
         return -EINVAL;
+    /* v1: SSE deferred to v2 (mongoose vendoring). */
     return -ENOSYS;
 }
 
@@ -111,6 +156,7 @@ int vmaf_mcp_start_uds(VmafMcpServer *server, const VmafMcpUdsConfig *cfg)
         return -EINVAL;
     if (cfg->path == NULL)
         return -EINVAL;
+    /* v1: UDS deferred to v2. */
     return -ENOSYS;
 }
 
@@ -124,16 +170,44 @@ int vmaf_mcp_start_stdio(VmafMcpServer *server, const VmafMcpStdioConfig *cfg)
         return -EINVAL;
     if (cfg->fd_out < 0)
         return -EINVAL;
-    return -ENOSYS;
+
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&server->stdio_running, &expected, 1)) {
+        return -EBUSY;
+    }
+    /* Power-of-10 §5: post-CAS invariant — exactly one start can win
+     * the race; the loser returned -EBUSY above. */
+    assert(atomic_load(&server->stdio_running) == 1);
+
+    server->stdio_fd_in = cfg->fd_in;
+    server->stdio_fd_out = cfg->fd_out;
+
+    int rc = pthread_create(&server->stdio_thread, NULL, vmaf_mcp_stdio_thread_main, server);
+    if (rc != 0) {
+        atomic_store(&server->stdio_running, 0);
+        return -rc;
+    }
+    return 0;
 }
 
 int vmaf_mcp_stop(VmafMcpServer *server)
 {
     if (server == NULL)
         return -EINVAL;
-    /* No transports can be running in the scaffold — `_start_*` all
-     * return -ENOSYS. Once the runtime PR lands, this will join the
-     * MCP threads and drain pending replies. */
+    int prev = atomic_exchange(&server->stdio_running, 2);
+    if (prev == 1 || prev == 2) {
+        /* Closing fd_in is the canonical way to unblock the read()
+         * loop. The caller owns the fd per the public contract, so
+         * we cannot close it ourselves; instead we rely on the
+         * caller having already closed (or being about to close)
+         * fd_in to drive the worker to EOF. We still join the
+         * thread to release its resources.
+         *
+         * For tests and well-behaved hosts the read end is already
+         * EOF by the time stop() is called. */
+        (void)pthread_join(server->stdio_thread, NULL);
+        atomic_store(&server->stdio_running, 0);
+    }
     return 0;
 }
 
@@ -141,8 +215,12 @@ void vmaf_mcp_close(VmafMcpServer **server)
 {
     if (server == NULL)
         return;
-    /* No-op in the scaffold: `vmaf_mcp_init` never produces a
-     * non-NULL handle. Defensively NULL the caller's pointer in
-     * case some future caller stashed one for compatibility. */
+    if (*server == NULL)
+        return;
+    struct VmafMcpServer *s = *server;
+    (void)vmaf_mcp_stop(s);
+    (void)pthread_mutex_destroy(&s->write_mtx);
+    free(s->user_agent_owned);
+    free(s);
     *server = NULL;
 }
