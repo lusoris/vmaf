@@ -32066,6 +32066,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   ```bash
   cd tools/vmaf-tune && python -m pytest tests/test_sidecar.py -v
 
+
 ## ADR-0368 — YouTube UGC corpus ingestion (2026-05-08)
 
 - **Touches**: `ai/scripts/youtube_ugc_to_corpus_jsonl.py` (new),
@@ -32086,11 +32087,34 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   `corpus_version` literals. If a future PR widens the row
   contract (new column, type change), all adapters must
   follow in lockstep.
+
+## ADR-0369 — Waterloo IVC 4K-VQA corpus ingestion (2026-05-08)
+
+- **Touches**: `ai/scripts/waterloo_ivc_to_corpus_jsonl.py` (new),
+  `ai/tests/test_waterloo_ivc.py` (new),
+  `docs/adr/0369-waterloo-ivc-4k-corpus-ingestion.md` (new),
+  `docs/adr/_index_fragments/0369-waterloo-ivc-4k-corpus-ingestion.md` (new),
+  `docs/adr/_index_fragments/_order.txt` (one-line append),
+  `docs/adr/README.md` (regenerated index),
+  `docs/ai/waterloo-ivc-4k-ingestion.md` (new),
+  `docs/research/0091-waterloo-ivc-4k-corpus-feasibility.md` (new),
+  `changelog.d/added/0369-waterloo-ivc-4k-ingestion.md` (new),
+  `ai/AGENTS.md` (one-paragraph invariant). No engine code
+  touched; no upstream-shared paths.
+- **Invariant**: JSONL row schema is byte-identical to the LSVQ
+  (ADR-0367) and YouTube-UGC (ADR-0368) adapters modulo the
+  `corpus` and `corpus_version` literals. All adapters must
+  change in lockstep on schema widening.
+
 - **On upstream sync**: no action required.
 - **Re-test on rebase**:
 
   ```bash
+
   pytest ai/tests/test_youtube_ugc.py -v
+
+  pytest ai/tests/test_waterloo_ivc.py -v
+
 
 
   ```

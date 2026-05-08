@@ -751,6 +751,7 @@ landed in PR scope ADR-0325; the binary upload is a separate PR.
   in only one adapter — adding or removing a column means a
   lockstep edit across both, plus a `corpus_version` bump.
 
+
   `ai/scripts/youtube_ugc_to_corpus_jsonl.py` (ADR-0368) is
   byte-identical to the LSVQ adapter
   (`ai/scripts/lsvq_to_corpus_jsonl.py`, ADR-0333) and the
@@ -763,5 +764,23 @@ landed in PR scope ADR-0325; the binary upload is a separate PR.
   because the canonical `original_videos.csv` ships without a
   `url` column; do not back-port that synthesis seam to the LSVQ
   / KonViD-150k adapters where it would mask manifest-CSV bugs.
+
+  `ai/scripts/waterloo_ivc_to_corpus_jsonl.py` (ADR-0369) is
+  byte-identical to the LSVQ adapter
+  (`ai/scripts/lsvq_to_corpus_jsonl.py`, ADR-0333) and the
+  KonViD-150k Phase 2 adapter
+  (`ai/scripts/konvid_150k_to_corpus_jsonl.py`, ADR-0325 Phase 2)
+  modulo the `corpus` and `corpus_version` literals. All three
+  adapters are consumed through one trainer-side data loader. Do
+  NOT widen the schema in only one adapter — adding or removing
+  a column means a lockstep edit across all three (plus a
+  `corpus_version` bump on each). The Waterloo IVC adapter
+  records MOS verbatim on the dataset's native **0–100** scale,
+  diverging from KonViD / LSVQ's 1–5 Likert scale; cross-corpus
+  rescaling is a trainer-side concern and is NOT applied at
+  ingest time on either adapter. The trainer-side normaliser
+  must read each row's `corpus` literal to pick the correct
+  per-shard rescale factor.
+
 
 
