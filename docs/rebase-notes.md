@@ -9053,3 +9053,20 @@ inline.*
   bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/kit-test.tar.gz
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
+
+## ADR-0331 — Skip CI on draft pull requests (2026-05-08)
+
+- **Touches**: `.github/workflows/{docker-image,security-scans,lint-and-format,ffmpeg-integration,libvmaf-build-matrix,rule-enforcement,tests-and-quality-gates}.yml` (per-job `if:` clause + `pull_request.types` list). `required-aggregator.yml` is unchanged — it already adopted the pattern under ADR-0313. No upstream-shared paths.
+- **Invariant**: every top-level job in the eight fork workflows that trigger on `pull_request` carries `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false`. The `pull_request:` block lists `ready_for_review` in `types:` so promotion of a draft fires CI exactly once. The second clause keeps `push:` triggers (no PR object) intact. If an upstream merge introduces a new top-level job, that job MUST inherit the gate; otherwise drafts will silently consume one matrix slot per push.
+- **On upstream sync**: Netflix/vmaf upstream does not gate on draft state; if a sync brings in new `pull_request` workflow content, replay the gate on every newly-introduced top-level job. Composing with an existing `if:` follows the `coverage-gpu` pattern — wrap both predicates in `${{ ... && ( ... ) }}`.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -c "import yaml; names=['docker-image','security-scans','lint-and-format','required-aggregator','ffmpeg-integration','libvmaf-build-matrix','rule-enforcement','tests-and-quality-gates']; [yaml.safe_load(open(f'.github/workflows/{n}.yml')) for n in names]; print('OK')"
+  # Spot-check the gate is present on every top-level job:
+  for f in docker-image security-scans lint-and-format ffmpeg-integration \
+           libvmaf-build-matrix rule-enforcement tests-and-quality-gates \
+           required-aggregator; do
+    grep -c "pull_request.draft == false" ".github/workflows/${f}.yml"
+  done  # Each must report >= 1.
+  ```

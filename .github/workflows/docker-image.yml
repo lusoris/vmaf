@@ -16,6 +16,11 @@ on:
       - ".github/workflows/docker-image.yml"
   pull_request:
     branches: [master]
+    # ADR-0331 — `ready_for_review` lets the per-job draft gate
+    # below (`github.event.pull_request.draft == false`) fire CI when
+    # a draft PR is promoted. Without it, draft → ready transitions
+    # would never trigger this workflow.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "Dockerfile"
       - ".dockerignore"
