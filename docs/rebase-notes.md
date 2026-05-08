@@ -9547,6 +9547,7 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -10149,4 +10150,66 @@ compiles).
   its own ADR + rebase-notes entry when profile data lands.
 
 
+
+
+### 0320 — Vulkan VIF API-1.4 NVIDIA residual Phase 3b (deferral)
+- **Touches**: `libvmaf/src/feature/vulkan/shaders/vif.comp`
+  (comment-only update at the Phase-4 reduction site —
+  documents the Phase-3b candidate-fix experiments and the
+  driver-side hypothesis; no code logic change vs. PR #511);
+  `docs/adr/0269-vif-ciede-precise-step-a.md` (appended
+  Phase-3b status update appendix; ADR body remains frozen
+  per ADR-0028); `docs/research/0090-...md` (new); `docs/state.md`
+  (row `T-VK-VIF-1.4-RESIDUAL-ARC` retired in favour of
+  `T-VK-VIF-1.4-RESIDUAL-NVIDIA-DEFERRED` after the
+  hardware-mapping correction); `libvmaf/src/vulkan/AGENTS.md`
+  (Phase 3b update + rebase invariant for cross-backend gate
+  device-name selection); `changelog.d/fixed/vif-arc-mesa-anv-int64-reduction.md`
+  (new fragment).
+- **Invariant**: the workgroup-scope `memoryBarrierShared();
+  barrier();` pair PR #511 introduced is **load-bearing** for the
+  Arc + RADV lanes at API 1.4 and stays. Phase 3b confirmed it
+  cannot be downgraded back to a bare `barrier()` even if the
+  NVIDIA residual ever closes — Arc's clean state is contingent
+  on the workgroup-scope pair.
+- **Cross-backend gate device-selection invariant** (NEW): scripts
+  that target a specific Vulkan vendor must select by
+  `deviceName` substring, not by `--vulkan_device <index>`.
+  `vmaf_vulkan_context_new`'s device sort is stable inside the
+  same `devtype_score` bucket and the `vkEnumeratePhysicalDevices`
+  enumeration order is host-policy-dependent (driver registration
+  order in `/etc/vulkan/icd.d/`, Mesa device-select layer,
+  `VK_LOADER_*` env vars). PR #511's commit message inverted the
+  device map on this fork's CI workstation; the empirical numbers
+  it cited as "NVIDIA" actually came from Arc and vice versa. New
+  cross-backend lanes targeting a specific vendor should not
+  inherit the off-by-one.
+- **On upstream sync**: `vif.comp` is fork-local; no upstream
+  Netflix/vmaf has a Vulkan path. Cherry-picks from upstream
+  cannot reach this file.
+- **Re-test on rebase** (assumes a multi-GPU CI workstation with
+  NVIDIA + Arc + RADV; lavapipe-only CI lanes are a no-op for
+  the API-1.4 residual since lavapipe never reproduced the bug):
+  # Local API-1.4 bump (off-master reproducer; do NOT commit).
+  sed -i 's/VK_API_VERSION_1_3/VK_API_VERSION_1_4/g' \
+      libvmaf/src/vulkan/common.c
+  sed -i 's/VMA_VULKAN_VERSION 1003000/VMA_VULKAN_VERSION 1004000/' \
+      libvmaf/src/vulkan/vma_impl.cpp
+  cd libvmaf && meson setup build -Denable_vulkan=enabled \
+      -Denable_cuda=false -Denable_sycl=false && ninja -C build
+  cd ..
+  # NVIDIA lane — expected 45/48 FAIL scale 2 until either the
+  # manual int64 subgroup-reduction patch lands or NVIDIA fixes
+  # the driver. Arc + RADV expected 0/48.
+  python3 scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 \
+      --feature vif --backend vulkan --device <NVIDIA-index>
+  # Revert local bump after testing.
+  sed -i 's/VK_API_VERSION_1_4/VK_API_VERSION_1_3/g' \
+      libvmaf/src/vulkan/common.c
+  sed -i 's/VMA_VULKAN_VERSION 1004000/VMA_VULKAN_VERSION 1003000/' \
+      libvmaf/src/vulkan/vma_impl.cpp
 

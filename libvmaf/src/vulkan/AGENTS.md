@@ -167,21 +167,36 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   in `vif.comp` (Phase-1 cooperative tile load, Phase-2
   vertical-conv shared write, Phase-4 cross-subgroup int64
   reduction) are now `memoryBarrierShared(); barrier();` pairs.
-  Closes the NVIDIA RTX 4090 + driver 595.71.05 + API 1.4
-  residual to 0/48 at `places=4`, 5-run deterministic. RADV is
-  also 0/48. **Rebase invariant:** when porting upstream changes
-  that touch `vif.comp`, do *not* downgrade these pairs back to
-  bare `barrier()` — the NVIDIA 1.4 race will return. The
-  Phase-2 dump's "NVIDIA" attribution was off-by-one in the
-  device map: Phase-3 verification on this hardware showed
-  `--vulkan_device 0` lands on Intel Arc A380 (Mesa-ANV / DG2),
-  not NVIDIA. Arc A380 + ANV at API 1.4 still exhibits the same
-  residual signature post-fix (`T-VK-VIF-1.4-RESIDUAL-ARC` Open);
-  Phase-3b will explore stronger fences (`coherent`/`volatile`
-  shared, device-scope `controlBarrier`, or
-  `subgroupMemoryBarrierShared()` before the elected-thread
-  write). The shipping default is API 1.3 where the gate is
-  0/48 on every device, including Arc.
+  **Rebase invariant:** when porting upstream changes that touch
+  `vif.comp`, do *not* downgrade these pairs back to bare
+  `barrier()` — the NVIDIA 1.4 race will return.
+
+- **Phase 3b update 2026-05-09 — hardware-mapping correction +
+  stronger-fence experiments concluded.** Re-baselining at API 1.4
+  with PR #511's fix in place on the session's multi-GPU host
+  (NVIDIA RTX 4090 + Intel Arc A380 + AMD RADV/CPU) showed the
+  PR #511 / research-0089 device-map attribution was inverted.
+  `vmaf_vulkan_context_new`'s device sort is stable inside the
+  same `devtype_score` bucket and `vkEnumeratePhysicalDevices`
+  order is host-policy-dependent (driver registration / Mesa
+  device-select layer / loader env vars), so `--vulkan_device 0`
+  is **not** portable across hosts. On this session's host
+  device 0 = NVIDIA RTX 4090 (still 45/48 FAIL scale 2 post-#511),
+  device 1 = Intel Arc A380 + Mesa-ANV (0/48 OK), device 2 = RADV
+  CPU (0/48 OK). The "Arc residual" PR #511 opened is therefore a
+  phantom; the actual remaining residual is on **NVIDIA**.
+  Phase 3b tested three stronger-fence candidates on top of #511 —
+  `shared coherent` (not buildable, GLSL 4.50 §4.10),
+  `subgroupMemoryBarrierShared()` (builds, no effect),
+  device-scope `controlBarrier` (builds, no effect) — and stacked
+  C2+C3 for good measure. None closed the residual. State.md row
+  retired as `T-VK-VIF-1.4-RESIDUAL-NVIDIA-DEFERRED`; working
+  hypothesis is a driver bug in NVIDIA's int64 emulation of
+  `subgroupAdd(int64_t)` for SCALE=2. **Rebase invariant for
+  cross-backend gate authors:** select Vulkan devices by
+  `deviceName` substring, not by `--vulkan_device` index — index
+  is host-policy-dependent. The shipping default is API 1.3
+  where the gate is 0/48 on every device. See research-0090.
 
 ## Governing ADRs
 
@@ -225,6 +240,7 @@ GLSL compute shaders under
 vulkan/
   common.c               # context init + global state (instance, device, queue)
   dispatch_strategy.c/.h # PRIMARY vs SECONDARY cmdbuf decision
+
   import.c               # VkImage zero-copy import slots (T7-29)
   import_picture.h       # public-facing import surface
   kernel_template.h      # per-feature Vulkan kernel scaffolding (ADR-0246)
@@ -234,6 +250,17 @@ vulkan/
   vma_impl.cpp           # VMA C++17 implementation TU
   vulkan_common.h        # opaque public surface
   vulkan_internal.h      # VmafVulkanContext / State / ImportSlots
+
+  import.c              # VkImage zero-copy import slots
+  import_picture.h      # public-facing import surface
+  kernel_template.h     # per-feature Vulkan kernel scaffolding (ADR-0246)
+  meson.build           # SPIR-V embed chain (glslc + spv_embed.py)
+  picture_vulkan.c/.h   # VmafPicture on a Vulkan device + buffers
+  spv_embed.py          # generates per-shader <name>_spv.h byte array
+  vma_impl.cpp          # VMA allocator instantiation TU
+  vulkan_common.h       # opaque public surface
+  vulkan_internal.h     # context + import-slot layout (kernel-side)
+
 ```
 
 ## Ground rules
@@ -370,6 +397,18 @@ Requires `dependency('vulkan')`, `glslc` (Vulkan SDK or shaderc
 package), and the bundled volk + VMA subprojects. The lavapipe
 software rasteriser (Mesa) is sufficient for the cross-backend
 gate; physical GPUs (Arc A380, RTX 4090) cover the advisory lanes.
+
+
+For a CPU-only host build (no CUDA / SYCL toolchains required):
+
+```bash
+meson setup build -Denable_vulkan=enabled -Denable_cuda=false -Denable_sycl=false
+ninja -C build
+```
+
+Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
+`glslangValidator` as a fallback) on PATH.
+
 
 ## Governing ADRs
 

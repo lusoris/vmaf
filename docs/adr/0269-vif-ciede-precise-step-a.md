@@ -220,3 +220,67 @@ ADR body (above) remains frozen per ADR-0028. The original
 decision to ship Step A as partial and defer Step B stands;
 Phase-3 narrows the blocker scope from "vif residual at 1.4 on
 NVIDIA + Mesa-ANV" to "vif residual at 1.4 on Mesa-ANV only".
+
+### Status update 2026-05-09: Phase 3b — stronger-fence experiments + hardware-mapping correction
+
+Phase 3b tested three stronger-fence candidates against `vif.comp`'s
+Phase-4 cross-subgroup int64 reduction site, on top of PR #511's
+workgroup-scope `memoryBarrierShared(); barrier();` baseline. **None
+of the three candidates closes the residual.**
+
+**Hardware-mapping correction.** Re-baselining at API 1.4 with PR #511
+in place on this session's multi-GPU host (NVIDIA RTX 4090 + Intel
+Arc A380 + AMD RADV/CPU) showed the Phase-3 attribution was inverted:
+
+| device | hardware                         | gate result                          |
+| ------ | -------------------------------- | ------------------------------------ |
+| 0      | NVIDIA RTX 4090 + 595.71.05      | scale 2: **45/48 FAIL**, max 1.527e-02 |
+| 1      | Intel Arc A380 + Mesa-ANV 26.1.0 | 0/48 OK on every scale               |
+| 2      | AMD RADV (CPU) + Mesa 26.1.0     | 0/48 OK on every scale               |
+
+`vmaf_vulkan_context_new`'s device sort is stable inside the same
+`devtype_score` bucket and the `vkEnumeratePhysicalDevices` order is
+host-policy-dependent (driver registration / Mesa device-select layer
+/ env vars). On this host `--vulkan_device 0` is NVIDIA, not Arc. The
+empirical 45/48 / `1.527e-02` / 5-run-non-deterministic signature is
+real; the device-name tag PR #511 attached to it was wrong. The
+state.md row originally opened as `T-VK-VIF-1.4-RESIDUAL-ARC` is
+therefore tracking a phantom — Arc is already clean — and is replaced
+by `T-VK-VIF-1.4-RESIDUAL-NVIDIA-DEFERRED`.
+
+**Candidate results (research-0090 §"Candidates tested"):**
+
+- **C1** (`shared coherent` / `shared volatile`) — _not buildable_.
+  glslc 2026.1 rejects with "memory qualifiers cannot be used on
+  this type"; per GLSL 4.50 §4.10, those qualifiers apply to
+  buffer + image variables only, not `shared`.
+- **C2** (`subgroupMemoryBarrierShared()` before the workgroup-scope
+  pair) — _builds, no effect_. NVIDIA still 45/48 FAIL scale 2.
+- **C3** (device-scope `controlBarrier(gl_ScopeWorkgroup, gl_ScopeDevice,
+  gl_StorageSemanticsShared, gl_SemanticsAcquireRelease)`) — _builds,
+  no effect_. NVIDIA still 45/48 FAIL scale 2, 5-run still non-deterministic.
+- **C2 + C3 stacked** — same 45/48 FAIL.
+
+**Working hypothesis.** The ~10^14 magnitudes with sign flips on `den`
+are not consistent with reading uninitialised lanes from shared memory
+(stronger fences would close those). They are more consistent with a
+driver bug in NVIDIA's int64 emulation of `subgroupAdd(int64_t)` for
+SCALE=2's specific subgroup-size schedule — the SCALE=2 specialisation
+has the smallest `valid` thread fraction, which would exercise an
+inactive-lane path in the driver's int64 reduction lowering. Confirming
+the hypothesis needs a manual lane-by-lane subgroup reduction over
+int32 halves (or an int64 `subgroupShuffleXor` butterfly). That patch
+is out of scope for Phase 3b — the brief enumerated three fence
+candidates and stopped after them — and is tracked as the next-step
+of the deferral row.
+
+**No relaxation.** Per `feedback_no_test_weakening`, the `places=4`
+gate stays at `places=4` and the API-1.4 bump (Step B) remains
+blocked. The shipping default is API 1.3 where the gate is **0/48 on
+every device** (NVIDIA + Arc + RADV all verified end-of-session).
+Step B unblocks when (a) a manual int64 subgroup-reduction patch
+closes NVIDIA + Arc + RADV at 0/48 5-run-deterministic at API 1.4
+with no perf regression on Arc/RADV, OR (b) NVIDIA ships a driver
+release that closes the residual.
+
+ADR body (above) remains frozen per ADR-0028.
