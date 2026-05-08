@@ -164,3 +164,38 @@ shapes carry over to any future drop-in unchanged.
   download fails, ship a docs-only blocker PR similar to #328's
   mobilesal pattern, documenting what's needed. Don't push fake
   weights."
+
+### Status update 2026-05-08
+
+The three Consequences-section follow-up paths (T6-2a-widen-allowlist-resize,
+T6-2a-mirror-u2netp-via-release, T6-2a-train-saliency-student) have
+moved as follows:
+
+- **Path A — `T6-2a-widen-allowlist-resize`** is **closed** by
+  [ADR-0258](0258-onnx-allowlist-resize.md) (Accepted 2026-05-03).
+  ADR-0258 opted *against* adding per-attribute enforcement for `Resize`
+  to the op allowlist, aligning with the
+  [ADR-0169](0169-wire-scanner-scope.md) wire-scanner-scope rule —
+  enforcement at scanner-level, not at op-allowlist-level. The
+  allowlist itself was not widened; the security review simply moved
+  to the wire scanner.
+- **Path C — `T6-2a-train-saliency-student`** is **closed** by
+  PR #359 (`saliency_student_v1`, ~113 K params, ONNX opset 17,
+  trained from scratch on DUTS-TR; reported IoU 0.6558 on DUTS-TR).
+  See [ADR-0286](0286-saliency-student-fork-trained-on-duts.md) and
+  the registry row at `model/tiny/registry.json`. The smoke-only
+  `mobilesal_placeholder_v0` is no longer the production
+  saliency-mass surface; `feature_mobilesal.c`'s `saliency_mean` is
+  no longer content-independent.
+- **Path B — `T6-2a-mirror-u2netp-via-release`** is **in flight** as
+  PR #469 (`feat(ai): u2netp fork-local release-artefact mirror
+  scaffold (ADR-0325)`). When PR #469 lands, the original u2netp
+  unblock path closes regardless — but the saliency surface is
+  already covered by the path-C delivery, so PR #469 becomes a
+  reference replacement / cross-validation rather than the primary
+  saliency model.
+
+This appendix records the path-A and path-C closures and the
+in-flight status of path B; it does not modify the original
+Decision or Alternatives table. Per [ADR-0028](0028-adr-maintenance-rule.md)
+appendix-only rule.
