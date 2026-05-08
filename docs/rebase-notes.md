@@ -31268,6 +31268,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   # ./scripts/cross-backend-diff.sh --feature cambi
   ```
 
+
 ## ADR-0336 — KonViD MOS head v1 (2026-05-08)
 
 - **Touches**: `ai/scripts/train_konvid_mos_head.py` (new), `ai/tests/test_train_konvid_mos_head.py` (new), `tools/vmaf-tune/src/vmaftune/predictor.py` (adds `Predictor.predict_mos` + the optional `konvid_mos_head_v1.onnx` loader; `_DEFAULT_COEFFS` and `_predict_analytical` are unchanged), `tools/vmaf-tune/tests/test_predict_mos.py` (new), `model/konvid_mos_head_v1.onnx` (new), `model/konvid_mos_head_v1_card.md` (new), `model/konvid_mos_head_v1.json` (new manifest sidecar), `docs/adr/0336-konvid-mos-head-v1.md` (new), `docs/research/0090-konvid-mos-head-design.md` (new), `docs/state.md` (T-MOS-HEAD-PRODFLIP row), `changelog.d/added/0336-konvid-mos-head-v1.md` (new). All paths are fork-local; upstream Netflix/vmaf has no MOS-head surface and the predictor lives entirely under `tools/vmaf-tune/`.
@@ -31279,3 +31280,36 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   python3 -m pytest ai/tests/test_train_konvid_mos_head.py tools/vmaf-tune/tests/test_predict_mos.py -v
   python3 ai/scripts/train_konvid_mos_head.py --smoke --no-export   # gate must report PASS
   ```
+
+## ADR-0212 §Status update — HIP runtime (T7-10b, 2026-05-08)
+
+- **Touches**: `libvmaf/src/hip/common.c`,
+  `libvmaf/src/hip/kernel_template.c`,
+  `libvmaf/src/hip/meson.build`, `libvmaf/test/test_hip_smoke.c`,
+  `libvmaf/test/meson.build` (added `hip_deps` everywhere
+  `vulkan_deps` already appears so test executables that statically
+  pull the feature lib resolve `hipMemsetAsync` / `hipFree`).
+- **Invariant**: the `kernel_template.c` helpers and `common.c`
+  public API both store HIP runtime handles (`hipStream_t`,
+  `hipEvent_t`) as `uintptr_t` in the structs that cross
+  the public ABI. The header-purity contract documented in
+  `libvmaf/src/hip/kernel_template.h` is load-bearing — moving the
+  cast site (or replacing `uintptr_t` with `void *`) breaks every
+  consumer TU and the public `libvmaf_hip.h` no-`<hip/...>`
+  guarantee. The fallback `find_library('amdhip64', dirs:
+  hip_search_paths)` exists because ROCm 7.x publishes no
+  `hip-lang.pc` and the cmake config breaks under meson's CMake
+  probe — the fallback is the supported path on ROCm 7.x.
+- **Re-test on rebase**:
+
+  ```bash
+  PATH=/opt/rocm/bin:$PATH meson setup build --reconfigure \
+      -Denable_hip=true -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_hip_smoke
+  ```
+
+  The smoke test self-skips the device-resident assertions when
+  `vmaf_hip_device_count() == 0`, so it stays portable across CI
+  runners that don't expose an AMD GPU.
+

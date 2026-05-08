@@ -1,9 +1,28 @@
-# HIP (AMD ROCm) compute backend (scaffold + eight kernel-template consumers)
+# HIP (AMD ROCm) compute backend (scaffold + eight kernel-template consumers + runtime)
 
-> **Status: scaffold + eight kernel-template consumers (host
-> scaffolding only).** Every entry point in
-> [`libvmaf_hip.h`](../../../libvmaf/include/libvmaf/libvmaf_hip.h)
-> currently returns `-ENOSYS` pending the runtime PR (T7-10b). The
+> **Status (2026-05-08, T7-10b runtime landed):** the host-side HIP
+> runtime is wired. `vmaf_hip_state_init`, `vmaf_hip_list_devices`,
+> `vmaf_hip_device_count`, and the kernel-template lifecycle helpers
+> (`vmaf_hip_kernel_lifecycle_init/_close`,
+> `vmaf_hip_kernel_readback_alloc/_free`,
+> `vmaf_hip_kernel_submit_pre_launch`,
+> `vmaf_hip_kernel_collect_wait`) all wrap real
+> `hipStreamCreateWithFlags` / `hipEventCreateWithFlags` /
+> `hipMalloc` / `hipMemsetAsync` / `hipStreamWaitEvent` /
+> `hipStreamSynchronize` calls. `enable_hip=true` builds now
+> hard-link `libamdhip64`. The remaining `-ENOSYS` surface is
+> `vmaf_hip_import_state` (waiting on T7-10c, the first feature-
+> kernel PR that wires `VmafContext`-side dispatch) plus every
+> consumer extractor's `init()` (their kernel-launch chains land
+> per-feature in T7-10c+). See ADR-0212 §"Status update 2026-05-08".
+
+> **Historical status (audit-first scaffold):** the eight host-
+> scaffolded kernel-template consumers below register and are
+> looked-up-able from the feature engine; their `init()` calls fall
+> through to the kernel-template helpers, which now succeed at the
+> stream/event/buffer layer but the kernel-launch sites in each
+> consumer remain `-ENOSYS` until T7-10c lands the per-feature
+> runtime kernels. The
 > kernel-template consumers shipped or in flight are:
 >
 > 1. `integer_psnr_hip` (name `psnr_hip`) under

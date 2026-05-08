@@ -8,13 +8,13 @@ test_context = executable('test_context',
     ['test.c', 'test_context.c'],
     include_directories : [libvmaf_inc, test_inc],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies:[stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies:[stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
 )
 
 test_picture = executable('test_picture',
     ['test.c', 'test_picture.c', '../src/picture.c', '../src/mem.c', '../src/ref.c', '../src/thread_pool.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
-    dependencies:[stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies:[stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
 )
 
 test_propagate_metadata = executable('test_propagate_metadata',
@@ -27,7 +27,7 @@ test_feature_collector = executable('test_feature_collector',
     ['test.c', 'test_feature_collector.c', '../src/log.c', '../src/predict.c', '../src/metadata_handler.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/feature/'), include_directories('../src')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
     objects : libsvm_static_lib.extract_all_objects(recursive: true),
 )
 
@@ -42,7 +42,7 @@ test_output = executable('test_output',
     ['test.c', 'test_output.c', '../src/log.c', '../src/predict.c', '../src/metadata_handler.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/feature/'), include_directories('../src')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
     objects : libsvm_static_lib.extract_all_objects(recursive: true),
 )
 
@@ -63,7 +63,7 @@ test_model = executable('test_model',
     include_directories : [libvmaf_inc, test_inc, include_directories('../src')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
     c_args : [vmaf_cflags_common, '-DJSON_MODEL_PATH="'+join_paths(meson.project_source_root(), '../model/')+'"'],
-    dependencies : [pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies : [pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
     objects : libsvm_static_lib.extract_all_objects(recursive: true),
 )
 
@@ -74,7 +74,7 @@ test_predict = executable('test_predict',
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
     c_args : vmaf_cflags_common,
-    dependencies : [pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies : [pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
     objects : libsvm_static_lib.extract_all_objects(recursive: true),
 )
 
@@ -88,7 +88,7 @@ test_feature_extractor = executable('test_feature_extractor',
      dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
-    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps,
                     dnn_deps],
     objects : [
       common_cuda_objects,
@@ -134,7 +134,7 @@ test_ciede = executable('test_ciede',
     ['test.c', 'test_ciede.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
 )
 
 # LPIPS registration tests — verify feature wiring without depending on a
@@ -146,7 +146,7 @@ test_lpips = executable('test_lpips',
      '../src/metadata_handler.c', '../src/thread_locale.c', '../src/gpu_picture_pool.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
-    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps,
                     dnn_deps],
     objects : [
       common_cuda_objects,
@@ -167,7 +167,7 @@ test_fastdvdnet_pre = executable('test_fastdvdnet_pre',
      '../src/metadata_handler.c', '../src/thread_locale.c', '../src/gpu_picture_pool.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
-    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps,
                     dnn_deps],
     objects : [
       common_cuda_objects,
@@ -188,7 +188,7 @@ test_mobilesal = executable('test_mobilesal',
      '../src/metadata_handler.c', '../src/thread_locale.c', '../src/gpu_picture_pool.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
-    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps,
                     dnn_deps],
     objects : [
       common_cuda_objects,
@@ -208,7 +208,7 @@ test_transnet_v2 = executable('test_transnet_v2',
      '../src/metadata_handler.c', '../src/thread_locale.c', '../src/gpu_picture_pool.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
-    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps,
                     dnn_deps],
     objects : [
       common_cuda_objects,
@@ -223,7 +223,7 @@ test_cambi = executable('test_cambi',
     ['test.c', 'test_cambi.c', '../src/picture.c', '../src/mem.c', '../src/ref.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps],
+    dependencies: [pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
 )
 
 # speed_chroma + speed_temporal registration smoke tests — link against
@@ -241,7 +241,7 @@ test_speed = executable('test_speed',
      '../src/metadata_handler.c', '../src/thread_locale.c', '../src/gpu_picture_pool.c', dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
-    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps,
+    dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps,
                     dnn_deps],
     objects : [
       common_cuda_objects,
@@ -348,7 +348,7 @@ test_iqa_convolve = executable('test_iqa_convolve',
                            include_directories('../src/feature/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
-                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+                    cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -370,7 +370,7 @@ test_psnr_hvs_avx2 = executable('test_psnr_hvs_avx2',
                            include_directories('../src/feature/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
-                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+                    cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -392,7 +392,7 @@ test_motion_v2_simd = executable('test_motion_v2_simd',
                            include_directories('../src/feature/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
-                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+                    cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -421,7 +421,7 @@ test_ssimulacra2_simd = executable('test_ssimulacra2_simd',
                            include_directories('../src/feature/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines + ['-ffp-contract=off'],
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
-                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+                    cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -443,7 +443,7 @@ test_psnr_hvs_neon = executable('test_psnr_hvs_neon',
                            include_directories('../src/feature/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
-                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+                    cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -465,7 +465,7 @@ test_moment_simd = executable('test_moment_simd',
                            include_directories('../src/feature/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
-                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+                    cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -487,7 +487,7 @@ test_ms_ssim_decimate = executable('test_ms_ssim_decimate',
                            include_directories('../src/feature/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
-                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+                    cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -611,7 +611,7 @@ test_float_ms_ssim_min_dim = executable('test_float_ms_ssim_min_dim',
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,
     dependencies : [math_lib, stdatomic_dependency, pthread_dependency, thread_lib,
-                    cuda_dependency, sycl_dependency, vulkan_deps, dnn_deps],
+                    cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, dnn_deps],
     objects : [
       common_cuda_objects,
       platform_specific_cpu_objects,
@@ -697,15 +697,16 @@ test_mcp_smoke = executable('test_mcp_smoke',
 test('test_mcp_smoke', test_mcp_smoke, timeout: 60)
 endif
 
-# ADR-0209 / T7-10: HIP (AMD ROCm) backend scaffold smoke. Same pattern
-# as the Vulkan scaffold above — pins the -ENOSYS contract for every
-# public C-API entry point until the runtime PR lands.
+# ADR-0212 / T7-10: HIP (AMD ROCm) backend smoke.
+# Scaffold-shape sub-tests pin the public-API contract; the T7-10b
+# runtime sub-tests probe `hipGetDeviceCount` and skip the device-
+# resident assertions when no AMD GPU is visible to the runtime.
 if get_option('enable_hip') == true
 test_hip_smoke = executable('test_hip_smoke',
     ['test.c', 'test_hip_smoke.c'],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
     link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
-    dependencies: [pthread_dependency],
+    dependencies: [pthread_dependency, hip_deps],
     c_args: ['-DHAVE_HIP=1']
 )
 test('test_hip_smoke', test_hip_smoke)

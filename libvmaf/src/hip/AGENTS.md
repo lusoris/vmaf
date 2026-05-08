@@ -90,19 +90,29 @@ PRs:
    budget. Same scaffold posture: `init()` returns `-ENOSYS` after
    dimension validation, until T7-10b.
 
-**Pending** — T7-10b (runtime PR) replaces the `kernel_template.c`
-bodies and the consumers' submit/collect kernel-launch chains with
-real HIP calls (`hipStreamCreate`, `hipMemcpyAsync`, ...). Remaining
-kernel ports (ADM, VIF, full motion, ...) follow as their own PRs gated
-by the `places=4` cross-backend-diff lane (per [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
+**T7-10b runtime landed (2026-05-08)** — `kernel_template.c` and
+`common.c` now wrap real HIP runtime calls
+(`hipStreamCreateWithFlags`, `hipEventCreateWithFlags`,
+`hipMemsetAsync`, `hipStreamWaitEvent`, `hipStreamSynchronize`,
+`hipMalloc` + `hipHostMalloc`, `hipFree` + `hipHostFree`,
+`hipGetDeviceCount`, `hipSetDevice`, `hipGetDeviceProperties`).
+`vmaf_hip_state_init` returns `0` on a host with `>=1` AMD GPU
+visible to the runtime and `-ENODEV` otherwise.
+`vmaf_hip_import_state` stays at `-ENOSYS` until T7-10c wires
+`VmafContext`-side dispatch. The remaining feature-kernel ports
+(VIF, ADM, full motion, ...) follow as their own PRs gated by the
+`places=4` cross-backend-diff lane (per
+[ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
 
 ## Ground rules
 
 - **Parent rules** apply in full (see [../../AGENTS.md](../../AGENTS.md)).
-- **No ROCm SDK is currently linked**. The `meson.build` includes an
-  optional `dependency('hip-lang', required: false)` probe; the
-  scaffold compiles cleanly on stock Ubuntu without `hipcc` /
-  `amdhip64`. The runtime PR (T7-10b) flips that to required.
+- **ROCm runtime is now hard-required** when `-Denable_hip=true`.
+  The `meson.build` first tries `dependency('hip-lang')` via
+  pkg-config + cmake, then falls back to
+  `cc.find_library('amdhip64', dirs: hip_search_paths)` rooted at
+  `/opt/rocm/lib` (and `HIP_PATH` if set) because ROCm 7.x ships
+  no `hip-lang.pc`. Builds without `enable_hip` are unaffected.
 - **HIP runtime types cross headers as `uintptr_t`**. The public
   header `libvmaf_hip.h` and the kernel template's `VmafHipKernelLifecycle`
   carry `uintptr_t` for `hipStream_t` / `hipEvent_t` so consumer TUs

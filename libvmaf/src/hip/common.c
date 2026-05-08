@@ -2,27 +2,48 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  HIP backend common surface — scaffold only (ADR-0212 / T7-10).
- *  Mirrors libvmaf/src/vulkan/common.c. Replace the stubs with a real
- *  HIP runtime probe (`hipInit` / `hipGetDeviceCount` /
- *  `hipDeviceGetName`) and stream creation when the kernels land.
+ *  HIP backend common surface — runtime PR (T7-10b / ADR-0212
+ *  §"What lands next" steps 1+2).
+ *
+ *  Replaces the audit-first `-ENOSYS` stubs with real ROCm HIP
+ *  runtime calls. Mirrors libvmaf/src/vulkan/common.c.
+ *
+ *    - `vmaf_hip_device_count`  -> hipGetDeviceCount
+ *    - `vmaf_hip_state_init`    -> hipSetDevice +
+ *                                  hipStreamCreateWithFlags
+ *    - `vmaf_hip_state_free`    -> hipStreamDestroy + free
+ *    - `vmaf_hip_list_devices`  -> hipGetDeviceCount +
+ *                                  hipGetDeviceProperties (logs one
+ *                                  line per device, returns count)
+ *
+ *  `vmaf_hip_import_state` stays at -ENOSYS until the first
+ *  feature-kernel PR (T7-10c) wires the dispatch hookup on
+ *  VmafContext.
  */
 
+#include <assert.h>
 #include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
 
+#define __HIP_PLATFORM_AMD__ 1
+#include <hip/hip_runtime_api.h>
+
 #include "common.h"
+#include "log.h"
 
 #include "libvmaf/libvmaf_hip.h"
 
 struct VmafHipContext {
     int device_index;
-    /* TODO: add hipDevice_t / hipStream_t handles, allocator, etc. */
+    /* hipStream_t handle stashed as uintptr_t for header purity (the
+     * public `common.h` stays free of `<hip/hip_runtime.h>`). */
+    uintptr_t stream;
 };
 
-/* Public-API thin shim: the opaque public type aliases the internal
- * struct in the scaffold. The runtime PR may insert an extra wrapper
- * if its lifetime story diverges from the internal context. */
+/* Public-API wrapper. Same lifetime model as `VmafCudaState`: caller
+ * owns the allocation, libvmaf borrows it for the duration of an
+ * imported VmafContext. */
 struct VmafHipState {
     struct VmafHipContext ctx;
 };
@@ -37,7 +58,7 @@ int vmaf_hip_context_new(VmafHipContext **out, int device_index)
         return -ENOMEM;
     }
     ctx->device_index = device_index;
-    /* TODO: hipSetDevice + hipStreamCreate */
+    ctx->stream = 0;
     *out = ctx;
     return 0;
 }
@@ -47,14 +68,23 @@ void vmaf_hip_context_destroy(VmafHipContext *ctx)
     if (ctx == NULL) {
         return;
     }
-    /* TODO: hipStreamDestroy */
+    if (ctx->stream != 0) {
+        (void)hipStreamDestroy((hipStream_t)ctx->stream);
+        ctx->stream = 0;
+    }
     free(ctx);
 }
 
 int vmaf_hip_device_count(void)
 {
-    /* TODO: probe HIP runtime via hipGetDeviceCount. */
-    return 0;
+    int n = 0;
+    hipError_t rc = hipGetDeviceCount(&n);
+    if (rc != hipSuccess) {
+        /* No device or no runtime — return 0 (CUDA convention; the
+         * public caller pivots on count > 0, not on the error code). */
+        return 0;
+    }
+    return n;
 }
 
 /* ---- Public C-API entry points (libvmaf_hip.h) ---- */
@@ -70,19 +100,59 @@ int vmaf_hip_available(void)
 
 int vmaf_hip_state_init(VmafHipState **out, VmafHipConfiguration cfg)
 {
-    (void)out;
-    (void)cfg;
-    /* TODO (T7-10b runtime PR): allocate VmafHipState, init HIP device
-     * + stream, return 0 on success / -ENODEV when no device. */
-    return -ENOSYS;
+    if (out == NULL) {
+        return -EINVAL;
+    }
+    /* NASA P10 r5: pin the post-validation invariants the rest of
+     * the function depends on. */
+    assert(out != NULL);
+    *out = NULL;
+
+    int n = 0;
+    hipError_t hip_rc = hipGetDeviceCount(&n);
+    if (hip_rc != hipSuccess || n <= 0) {
+        return -ENODEV;
+    }
+    assert(n > 0);
+
+    int device_index = cfg.device_index;
+    if (device_index < 0) {
+        device_index = 0;
+    }
+    if (device_index >= n) {
+        return -EINVAL;
+    }
+    assert(device_index >= 0 && device_index < n);
+
+    hip_rc = hipSetDevice(device_index);
+    if (hip_rc != hipSuccess) {
+        return -ENODEV;
+    }
+
+    VmafHipState *s = calloc(1, sizeof(*s));
+    if (s == NULL) {
+        return -ENOMEM;
+    }
+    s->ctx.device_index = device_index;
+
+    hipStream_t stream = NULL;
+    hip_rc = hipStreamCreateWithFlags(&stream, hipStreamNonBlocking);
+    if (hip_rc != hipSuccess) {
+        free(s);
+        return -EIO;
+    }
+    s->ctx.stream = (uintptr_t)stream;
+    *out = s;
+    return 0;
 }
 
 int vmaf_hip_import_state(VmafContext *ctx, VmafHipState *state)
 {
     (void)ctx;
     (void)state;
-    /* TODO: stash the HIP state on the VmafContext so the dispatch
-     * strategy can route HIP-capable feature extractors. */
+    /* T7-10c follow-up: stash the HIP state on the VmafContext so the
+     * dispatch strategy can route HIP-capable feature extractors.
+     * Stays unwired until the first feature kernel lands. */
     return -ENOSYS;
 }
 
@@ -91,13 +161,30 @@ void vmaf_hip_state_free(VmafHipState **state)
     if (state == NULL || *state == NULL) {
         return;
     }
-    /* TODO: tear down HIP stream / device handles. */
+    VmafHipState *s = *state;
+    if (s->ctx.stream != 0) {
+        (void)hipStreamDestroy((hipStream_t)s->ctx.stream);
+        s->ctx.stream = 0;
+    }
+    free(s);
     *state = NULL;
 }
 
 int vmaf_hip_list_devices(void)
 {
-    /* TODO: hipGetDeviceCount + hipDeviceGetName; print one line per
-     * device. Returns the count for parity with vmaf_cuda_list_devices. */
-    return -ENOSYS;
+    int n = 0;
+    hipError_t rc = hipGetDeviceCount(&n);
+    if (rc != hipSuccess) {
+        return 0;
+    }
+    for (int i = 0; i < n; ++i) {
+        hipDeviceProp_t prop;
+        rc = hipGetDeviceProperties(&prop, i);
+        if (rc != hipSuccess) {
+            continue;
+        }
+        vmaf_log(VMAF_LOG_LEVEL_INFO, "HIP device %d: %s (arch %s)\n", i, prop.name,
+                 prop.gcnArchName);
+    }
+    return n;
 }
