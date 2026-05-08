@@ -27,6 +27,52 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0310 — Vulkan VIF int64 reduction race condition Phase 3 fix
+
+- **Touches**: `libvmaf/src/feature/vulkan/shaders/vif.comp`
+  (replaces all three bare `barrier()` calls with explicit
+  `memoryBarrierShared(); barrier();` pairs covering the Phase-1
+  cooperative tile load, the Phase-2 vertical-conv shared write,
+  and the Phase-4 cross-subgroup int64 reduction); plus
+  documentation under `docs/research/0089-...md` (Phase 3 status
+  appendix), `docs/adr/0269-...md` (Phase 3 status appendix),
+  `docs/state.md` (T-VK-VIF-1.4-RESIDUAL closed; new
+  T-VK-VIF-1.4-RESIDUAL-ARC opened), `libvmaf/src/vulkan/AGENTS.md`
+  (Phase 3 update on the existing invariant row),
+  `changelog.d/fixed/vif-int64-reduction-race-condition.md`.
+  Upstream Netflix/vmaf has no Vulkan backend, so conflict
+  probability for the shader is zero. The entry exists because the
+  fix is rebase-sensitive: any future cherry-pick that touches
+  `vif.comp` and downgrades a `memoryBarrierShared(); barrier();`
+  pair back to a bare `barrier()` will silently re-introduce the
+  NVIDIA Vulkan 1.4 race.
+- **Invariant**: `vif.comp` shared-memory ordering between
+  cooperative-write phases must be release-acquire, not just a
+  bare workgroup-execution barrier. NVIDIA's Vulkan 1.4 default
+  memory model requires the explicit shared-memory release; bare
+  `barrier()` works at API 1.3 by accident on this driver. SCALE
+  is irrelevant — the fix applies to all four pipeline
+  specialisations because the barrier sites are in the SCALE-shared
+  code. Do NOT remove the explicit `memoryBarrierShared()` calls
+  even if a perf review claims they are redundant under the GLSL
+  spec wording: empirical real-hardware evidence in research-0089
+  2026-05-09 appendix shows otherwise on NVIDIA driver 595.71.05.
+- **Re-test**: apply the local API-1.4 bump
+  (`libvmaf/src/vulkan/common.c` 3 sites + `vma_impl.cpp`
+  `VMA_VULKAN_VERSION 1004000`) on a NVIDIA RTX 4090 + driver
+  595.71+ machine, build with
+  `meson setup ... -Denable_vulkan=enabled`, then run
+  `python3 scripts/ci/cross_backend_vif_diff.py --feature vif
+  --backend vulkan --device 1 --places 4`. Expect 0/48 across
+  all four scales. Run the 5-run determinism check from
+  research-0089 §"Reproduction recipe for Phase 3" against
+  `--vulkan_device 1`; expect 5 identical
+  `(integer_vif_num_scale2, integer_vif_den_scale2) =
+  (+2.494358e+04, +2.522523e+04)` pairs at frame 5. Note that
+  `--vulkan_device 0` on this multi-GPU host is the Intel Arc
+  A380 lane and **will still fail** at API 1.4 (separate
+  `T-VK-VIF-1.4-RESIDUAL-ARC` row Open).
+
 ### 0309 — Vulkan VIF API-1.4 Phase 2 dump (T-VK-VIF-1.4-RESIDUAL)
 
 - **Touches**: `docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`

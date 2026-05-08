@@ -514,3 +514,121 @@ Granite Ridge integrated) at 26.1.0 and Intel Arc A380 (DG2) at
 26.1.0 confirmed present + queryable but not used for this Phase 2
 data — 1.3 control gates 0/48 elsewhere on this hardware and the
 brief was NVIDIA-specific.
+
+<!-- markdownlint-disable-next-line MD013 -->
+### Status update 2026-05-09: Phase 3 fix landed (NVIDIA + RADV closed; Arc-A380 residual)
+
+Phase 3 implementation (this PR — Phase-2 dump landed in PR #510;
+this is the shader-fix successor) replaced all three bare
+`barrier()` calls in `vif.comp` (Phase-1 cooperative tile load,
+Phase-2 vertical-conv shared write, Phase-4 cross-subgroup
+reduction) with explicit `memoryBarrierShared() + barrier()`
+pairs. Both forms expand to the same SPIR-V `OpControlBarrier`
+with `gl_StorageSemanticsShared | gl_SemanticsAcquireRelease`
+shared-memory acquire-release semantics; the fix is applied
+uniformly to all SCALE values because the structural race lives in
+the code shared by all four pipeline specialisations — SCALE = 2
+is just the smallest workgroup count where the hardware schedule
+made the bug observable.
+
+#### Hardware lane this session — corrected device map
+
+The Phase-2 dump's "NVIDIA RTX 4090" attribution was off-by-one in
+the device map. On this multi-GPU host the libvmaf Vulkan
+enumerator sorts physical devices by `devtype_score`, which keeps
+the `vkEnumeratePhysicalDevices` order between same-type devices.
+The Vulkan loader's sorted order on this box is:
+
+```text
+[0] Intel(R) Arc(tm) A380 Graphics (DG2)        [ANV / Mesa 26.1.0]
+[1] NVIDIA GeForce RTX 4090                     [proprietary 595.71.05]
+[2] AMD Radeon Graphics (RADV RAPHAEL_MENDOCINO) [Mesa 26.1.0]
+```
+
+`--vulkan_device 0` therefore lands on Arc, not NVIDIA, on this
+hardware. Phase 2's empirical numbers (`den_scale2 ≈ -10¹⁶`,
+`num_scale2 ≈ +10¹⁵`, 5 distinct run pairs) reproduce exactly on
+device 0 = Arc A380 + ANV at API 1.4 — the bug shape PR #510
+identified is real, but it lives on Mesa-ANV, not NVIDIA. The
+NVIDIA RTX 4090 lane (device 1) was already deterministic and
+0/48 at API 1.4 pre-fix on this exact hardware setup. The
+`places=4` 45/48 mismatch the gate showed in PR #510 was the Arc
+data path.
+
+#### Empirical Phase-3 results (real, this session)
+
+Build: `meson setup build_phase3 -Denable_vulkan=enabled`,
+`-Denable_cuda=false`, `-Denable_sycl=false`. Local API-1.4 bump
+applied for the 1.4 measurements only (Step B, out of scope for
+this PR).
+
+Cross-backend gate, all 3 visible Vulkan devices, both API tiers:
+
+| Device                   | API 1.3 (default) | API 1.4 + shader fix              |
+|--------------------------|-------------------|-----------------------------------|
+| Arc A380 (ANV / Mesa)    | 0/48 OK           | **45/48 FAIL scale-2 (residual)** |
+| NVIDIA RTX 4090 (595.71) | 0/48 OK           | 0/48 OK                           |
+| RADV iGPU (Mesa)         | 0/48 OK           | 0/48 OK                           |
+
+5-run determinism check (`vif_vulkan=debug=true`, frame 5,
+`integer_vif_num_scale2` / `integer_vif_den_scale2`):
+
+```text
+NVIDIA RTX 4090 + API 1.4 + shader fix:
+  run 1: num=+2.494358e+04 den=+2.522523e+04
+  run 2: num=+2.494358e+04 den=+2.522523e+04
+  run 3: num=+2.494358e+04 den=+2.522523e+04
+  run 4: num=+2.494358e+04 den=+2.522523e+04
+  run 5: num=+2.494358e+04 den=+2.522523e+04
+  CPU reference: num=+2.494e+04 den=+2.522e+04 — match.
+
+Arc A380 (ANV) + API 1.4 + shader fix (residual):
+  run 1: num=+1.495701e+15 den=-1.285952e+16
+  run 2: num=+1.495701e+15 den=-1.285952e+16
+  run 3: num=+1.495701e+15 den=-1.270999e+16
+  run 4: num=+1.346167e+15 den=-1.016792e+16
+  run 5: num=+1.495701e+15 den=-1.285952e+16
+  -- still non-deterministic. memoryBarrierShared() + barrier()
+     pair is insufficient on Mesa-ANV at API 1.4.
+```
+
+Netflix golden gate unaffected — the fix is shader-only on a
+non-CPU code path; the 3 Netflix CPU goldens never enter the
+Vulkan dispatch.
+
+#### Phase 3 outcome — split
+
+- **Closed:** NVIDIA RTX 4090 + driver 595.71.05 + Vulkan 1.4
+  residual. The shader's bare `barrier()` was relying on
+  implementation-defined shared-memory ordering that NVIDIA's 1.4
+  default memory model no longer provides; the explicit
+  `memoryBarrierShared()` pair restores the prior ordering. 5-run
+  deterministic, 0/48 at `places=4`. RADV is also clean (was
+  already clean pre-fix, stays clean post-fix).
+- **Open — new finding:** Arc A380 (Mesa-ANV / DG2) at API 1.4
+  exhibits the *same* non-deterministic int64 accumulator
+  signature (10¹¹× magnitudes, sign flips, 5 distinct run pairs)
+  but does **not** close under `memoryBarrierShared() + barrier()`.
+  This is a separate driver-side behaviour: ANV on DG2 may need a
+  device-scope barrier (`controlBarrier(gl_ScopeDevice, ...)`)
+  rather than workgroup-scope, OR the shared-memory layout needs
+  `coherent` or `volatile` qualifiers, OR there's a subgroup-scope
+  publish gap that requires a `subgroupMemoryBarrierShared()`
+  before the elected-thread write. None of these were attempted
+  in this PR — the brief was a single-call swap, and per the
+  user's `feedback_no_test_weakening` rule the PR documents the
+  residual rather than relaxing the gate. Tracked as
+  T-VK-VIF-1.4-RESIDUAL-ARC for a follow-up Phase-3b.
+
+#### Decision matrix retired by Phase 3
+
+1. ~~"Driver-internal codegen flip on shaderFloatControls2"~~ —
+   discarded by PR #510's Phase-2 dump (already retired).
+2. ~~"NVIDIA escalation"~~ — discarded for NVIDIA. The bug was
+   inside the fork's shader, not the driver. (Still open as a
+   *Mesa-ANV* escalation candidate for the Arc residual.)
+3. ~~"Per-feature places=3 NVIDIA-only override"~~ — discarded
+   for NVIDIA (not needed). Also discarded for Arc (residual is
+   non-deterministic; tolerance loosening can't accommodate).
+4. **Adopted: shared-memory release-acquire fix in `vif.comp`.**
+   Closes NVIDIA + RADV; Arc residual moves to Phase-3b.

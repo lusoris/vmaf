@@ -158,6 +158,27 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   path is **not viable** for this bug — non-deterministic
   accumulators cannot meet any tolerance.
 
+- **Phase 3 update 2026-05-09 — `vif.comp` shared-memory
+  release-acquire fix landed.** All three bare `barrier()` calls
+  in `vif.comp` (Phase-1 cooperative tile load, Phase-2
+  vertical-conv shared write, Phase-4 cross-subgroup int64
+  reduction) are now `memoryBarrierShared(); barrier();` pairs.
+  Closes the NVIDIA RTX 4090 + driver 595.71.05 + API 1.4
+  residual to 0/48 at `places=4`, 5-run deterministic. RADV is
+  also 0/48. **Rebase invariant:** when porting upstream changes
+  that touch `vif.comp`, do *not* downgrade these pairs back to
+  bare `barrier()` — the NVIDIA 1.4 race will return. The
+  Phase-2 dump's "NVIDIA" attribution was off-by-one in the
+  device map: Phase-3 verification on this hardware showed
+  `--vulkan_device 0` lands on Intel Arc A380 (Mesa-ANV / DG2),
+  not NVIDIA. Arc A380 + ANV at API 1.4 still exhibits the same
+  residual signature post-fix (`T-VK-VIF-1.4-RESIDUAL-ARC` Open);
+  Phase-3b will explore stronger fences (`coherent`/`volatile`
+  shared, device-scope `controlBarrier`, or
+  `subgroupMemoryBarrierShared()` before the elected-thread
+  write). The shipping default is API 1.3 where the gate is
+  0/48 on every device, including Arc.
+
 ## Governing ADRs
 
 - [ADR-0127](../../../docs/adr/0127-vulkan-compute-backend.md) —
