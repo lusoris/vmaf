@@ -32151,4 +32151,38 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   "
 
 
+
+## ADR-0325 — vmaf-tune Phase B target-VMAF bisect (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/bisect.py` (new),
+  `tools/vmaf-tune/src/vmaftune/compare.py` (default-predicate error
+  string), `tools/vmaf-tune/tests/test_bisect.py` (new),
+  `tools/vmaf-tune/tests/test_compare.py` (renamed default-predicate
+  assertion), `tools/vmaf-tune/AGENTS.md` (Phase B invariant),
+  `docs/adr/0325-vmaf-tune-phase-b-bisect.md` (new),
+  `docs/adr/_index_fragments/0325-vmaf-tune-phase-b-bisect.md` (new),
+  `docs/adr/_index_fragments/_order.txt` (append),
+  `docs/research/0086-vmaf-tune-phase-b-bisect-feasibility.md` (new),
+  `docs/usage/vmaf-tune-bisect.md` (new),
+  `changelog.d/added/vmaf-tune-phase-b-bisect.md` (new). No upstream
+  Netflix/vmaf surface is touched.
+- **Invariant**: the bisect assumes monotone-decreasing VMAF in CRF.
+  Two non-adjacent samples that violate this contract abort the call
+  with a clear error rather than falling back to a different search
+  strategy. Do NOT add a fallback path on rebase — the AGENTS.md
+  Phase B note is load-bearing.
+- **Companion seam**: `compare._default_predicate` no longer raises
+  `NotImplementedError("Phase B pending")`; it returns a
+  well-formed `RecommendResult(ok=False, error=...)` pointing
+  callers at `make_bisect_predicate`. Any downstream tests that
+  asserted "Phase B pending" verbatim need updating.
+- **On upstream sync**: no action required. The module lives entirely
+  under `tools/vmaf-tune/` (a fork-local path).
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -m pytest tools/vmaf-tune/tests/test_bisect.py -v
+  python3 -m pytest tools/vmaf-tune/tests/test_compare.py -v
+
+
   ```
