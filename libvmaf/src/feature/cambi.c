@@ -104,6 +104,8 @@ typedef struct CambiBuffers {
     uint16_t *derivative_buffer;
     int *diff_weights;
     int *all_diffs;
+    uint16_t v_band_base;
+    uint16_t v_band_size;
 } CambiBuffers;
 
 typedef void (*VmafRangeUpdater)(uint16_t *arr, int left, int right);
@@ -635,10 +637,14 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (!s->buffers.c_values)
         return -ENOMEM;
 
-    const uint16_t num_bins =
-        1024 + (s->buffers.all_diffs[2 * num_diffs] - s->buffers.all_diffs[0]);
+    {
+        int v_lo_signed = (int)s->vlt_luma - 3 * (int)num_diffs + 1;
+        s->buffers.v_band_base = v_lo_signed > 0 ? (uint16_t)v_lo_signed : 0;
+        s->buffers.v_band_size =
+            s->buffers.tvi_for_diff[num_diffs - 1] + 1 - s->buffers.v_band_base;
+    }
     s->buffers.c_values_histograms =
-        aligned_malloc(ALIGN_CEIL(alloc_w * num_bins * sizeof(uint16_t)), 32);
+        aligned_malloc(ALIGN_CEIL(alloc_w * s->buffers.v_band_size * sizeof(uint16_t)), 32);
     if (!s->buffers.c_values_histograms)
         return -ENOMEM;
 
@@ -1134,17 +1140,22 @@ static void get_spatial_mask(const VmafPicture *image, VmafPicture *mask, uint32
 
 static float c_value_pixel(const uint16_t *histograms, uint16_t value, const int *diff_weights,
                            const int *diffs, uint16_t num_diffs, const uint16_t *tvi_thresholds,
-                           uint16_t vlt_luma, int histogram_col, int histogram_width)
+                           uint16_t vlt_luma, uint16_t v_band_offset_val, uint16_t v_band_size,
+                           int histogram_col, int histogram_width)
 {
-    uint16_t p_0 = histograms[value * histogram_width + histogram_col];
+    int compact_v_signed = (int)value - (int)v_band_offset_val;
+    if ((unsigned)compact_v_signed >= v_band_size)
+        return 0.0f;
+    uint16_t compact_v = (uint16_t)compact_v_signed;
+    uint16_t p_0 = histograms[compact_v * histogram_width + histogram_col];
     float val;
     float c_value = 0.0;
     for (uint16_t d = 0; d < num_diffs; d++) {
         if ((value <= tvi_thresholds[d]) && ((value + diffs[num_diffs + d + 1]) > vlt_luma)) {
-            uint16_t p_1 =
-                histograms[(value + diffs[num_diffs + d + 1]) * histogram_width + histogram_col];
-            uint16_t p_2 =
-                histograms[(value + diffs[num_diffs - d - 1]) * histogram_width + histogram_col];
+            int idx1 = compact_v_signed + diffs[num_diffs + d + 1];
+            int idx2 = compact_v_signed + diffs[num_diffs - d - 1];
+            uint16_t p_1 = histograms[idx1 * histogram_width + histogram_col];
+            uint16_t p_2 = (idx2 >= 0) ? histograms[idx2 * histogram_width + histogram_col] : 0;
             if (p_1 > p_2) {
                 val = (float)(diff_weights[d] * p_0 * p_1) * reciprocal_lut[p_1 + p_0];
             } else {
@@ -1188,8 +1199,9 @@ update_histogram_subtract_edge(uint16_t *histograms, uint16_t *image, uint16_t *
     uint16_t v = image[(i - pad_size - 1) * stride + j];
     if ((uint16_t)(v - v_band_base) >= v_band_size)
         return;
-    uint16_t val = v + num_diffs;
-    dec_range_callback(&histograms[val * width], MAX(j - pad_size, 0),
+    (void)num_diffs;
+    uint16_t row = v - v_band_base;
+    dec_range_callback(&histograms[row * width], MAX(j - pad_size, 0),
                        MIN(j + pad_size + 1, width));
 }
 
@@ -1204,8 +1216,9 @@ update_histogram_subtract(uint16_t *histograms, uint16_t *image, uint16_t *mask,
     uint16_t v = image[(i - pad_size - 1) * stride + j];
     if ((uint16_t)(v - v_band_base) >= v_band_size)
         return;
-    uint16_t val = v + num_diffs;
-    dec_range_callback(&histograms[val * width], j - pad_size, j + pad_size + 1);
+    (void)num_diffs;
+    uint16_t row = v - v_band_base;
+    dec_range_callback(&histograms[row * width], j - pad_size, j + pad_size + 1);
 }
 
 static FORCE_INLINE inline void
@@ -1219,8 +1232,9 @@ update_histogram_add_edge(uint16_t *histograms, uint16_t *image, uint16_t *mask,
     uint16_t v = image[(i + pad_size) * stride + j];
     if ((uint16_t)(v - v_band_base) >= v_band_size)
         return;
-    uint16_t val = v + num_diffs;
-    inc_range_callback(&histograms[val * width], MAX(j - pad_size, 0),
+    (void)num_diffs;
+    uint16_t row = v - v_band_base;
+    inc_range_callback(&histograms[row * width], MAX(j - pad_size, 0),
                        MIN(j + pad_size + 1, width));
 }
 
@@ -1236,8 +1250,9 @@ static FORCE_INLINE inline void update_histogram_add(uint16_t *histograms, uint1
     uint16_t v = image[(i + pad_size) * stride + j];
     if ((uint16_t)(v - v_band_base) >= v_band_size)
         return;
-    uint16_t val = v + num_diffs;
-    inc_range_callback(&histograms[val * width], j - pad_size, j + pad_size + 1);
+    (void)num_diffs;
+    uint16_t row = v - v_band_base;
+    inc_range_callback(&histograms[row * width], j - pad_size, j + pad_size + 1);
 }
 
 static FORCE_INLINE inline void
@@ -1251,8 +1266,9 @@ update_histogram_add_edge_first_pass(uint16_t *histograms, uint16_t *image, uint
     uint16_t v = image[i * stride + j];
     if ((uint16_t)(v - v_band_base) >= v_band_size)
         return;
-    uint16_t val = v + num_diffs;
-    inc_range_callback(&histograms[val * width], MAX(j - pad_size, 0),
+    (void)num_diffs;
+    uint16_t row = v - v_band_base;
+    inc_range_callback(&histograms[row * width], MAX(j - pad_size, 0),
                        MIN(j + pad_size + 1, width));
 }
 
@@ -1267,8 +1283,9 @@ update_histogram_add_first_pass(uint16_t *histograms, uint16_t *image, uint16_t 
     uint16_t v = image[i * stride + j];
     if ((uint16_t)(v - v_band_base) >= v_band_size)
         return;
-    uint16_t val = v + num_diffs;
-    inc_range_callback(&histograms[val * width], j - pad_size, j + pad_size + 1);
+    (void)num_diffs;
+    uint16_t row = v - v_band_base;
+    inc_range_callback(&histograms[row * width], j - pad_size, j + pad_size + 1);
 }
 
 static void calculate_c_values_row(float *c_values, const uint16_t *histograms,
@@ -1279,11 +1296,15 @@ static void calculate_c_values_row(float *c_values, const uint16_t *histograms,
                                    const float *reciprocal_lut)
 {
     (void)reciprocal_lut; // scalar version uses the file-scope LUT directly
+    int v_lo_signed = (int)vlt_luma - 3 * (int)num_diffs + 1;
+    uint16_t v_band_base = v_lo_signed > 0 ? (uint16_t)v_lo_signed : 0;
+    uint16_t v_band_size = tvi_for_diff[num_diffs - 1] + 1 - v_band_base;
+    uint16_t v_band_offset_val = v_band_base + num_diffs;
     for (int col = 0; col < width; col++) {
         if (mask[row * stride + col]) {
-            c_values[row * width + col] =
-                c_value_pixel(histograms, image[row * stride + col] + num_diffs, diff_weights,
-                              all_diffs, num_diffs, tvi_for_diff, vlt_luma, col, width);
+            c_values[row * width + col] = c_value_pixel(
+                histograms, image[row * stride + col] + num_diffs, diff_weights, all_diffs,
+                num_diffs, tvi_for_diff, vlt_luma, v_band_offset_val, v_band_size, col, width);
         }
     }
 }
@@ -1298,19 +1319,7 @@ static void calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, fl
 {
 
     uint16_t pad_size = window_size >> 1;
-    // NOLINTNEXTLINE(clang-analyzer-core.NullDereference): caller `compute_c_values` is invoked from `cambi_extract` only after `set_contrast_arrays` allocates `s->buffers.all_diffs` (cambi.c:431), and `cambi_extract` checks the `set_contrast_arrays` return value. The analyzer can't track the heap pointer through the multi-frame state struct boundary.
-    const uint16_t num_bins = 1024 + (all_diffs[2 * num_diffs] - all_diffs[0]);
-
-    uint16_t *image = pic->data[0];
-    uint16_t *mask = mask_pic->data[0];
-    ptrdiff_t stride = pic->stride[0] >> 1;
-
-    memset(c_values, 0.0, sizeof(float) * width * height);
-
-    // Use a histogram for each pixel in width
-    // histograms[i * width + j] accesses the j'th histogram, i'th value
-    // This is done for cache optimization reasons
-    memset(histograms, 0, width * num_bins * sizeof(uint16_t));
+    (void)all_diffs;
 
     // Per-frame skip bounds for histogram updates: a raw image value v whose
     // histogram cell would only ever be queried by output pixels with c_value
@@ -1319,6 +1328,13 @@ static void calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, fl
     int v_lo_signed = (int)vlt_luma - 3 * (int)num_diffs + 1; // smallest useful raw value
     uint16_t v_band_base = v_lo_signed > 0 ? (uint16_t)v_lo_signed : 0;
     uint16_t v_band_size = tvi_for_diff[num_diffs - 1] + 1 - v_band_base;
+
+    uint16_t *image = pic->data[0];
+    uint16_t *mask = mask_pic->data[0];
+    ptrdiff_t stride = pic->stride[0] >> 1;
+
+    memset(c_values, 0.0, sizeof(float) * width * height);
+    memset(histograms, 0, width * v_band_size * sizeof(uint16_t));
 
     // First pass: first pad_size rows
     for (int i = 0; i < pad_size; i++) {
