@@ -239,6 +239,7 @@
 
 
 
+
 0333-vmaf-tune-multi-pass-encoding
 
 
@@ -264,6 +265,9 @@
 
 
 0345-cambi-gpu-port-strategy
+
+
+0332-libvmaf-wasm-target
 
 
 
