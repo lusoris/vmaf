@@ -118,7 +118,7 @@ static int dict_overwrite_existing(VmafDictionaryEntry *existing, const char *va
      * caller-owned copy, so we can leave it in place and skip both
      * strdup and free entirely.
      */
-    if (existing->val && val && strcmp(existing->val, val) == 0)
+    if (existing->val && strcmp(existing->val, val) == 0)
         return 0;
 
     const char *val_copy = strdup(val);
