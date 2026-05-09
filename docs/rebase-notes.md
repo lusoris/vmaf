@@ -9416,3 +9416,35 @@ document the flip-the-variable recipe when the cluster is degraded.
   # Validate renovate.json syntax (requires Node):
   node -e "JSON.parse(require('fs').readFileSync('renovate.json','utf8')); console.log('JSON valid')"
   ```
+## ADR-0355 — Symphony-inspired agent-dispatch infrastructure (2026-05-09)
+**Files added (all fork-introduced, none mirror upstream)**:
+- `.claude/workflows/_template.md`,
+  `.claude/workflows/codeql-alert-sweep.md`,
+  `.claude/workflows/simd-port.md`,
+  `.claude/workflows/feature-extractor-port.md`.
+- `scripts/lib/__init__.py`, `scripts/lib/backlog_tracker.py`,
+  `scripts/lib/AGENTS.md`.
+- `scripts/ci/agent-eligibility-precheck.py` (new row in
+  `scripts/ci/AGENTS.md` "Rebase-sensitive surfaces" table).
+- `docs/development/agent-dispatch.md`.
+**Why this rebase-note exists**: pure additive, all paths are
+fork-only (`.claude/`, `scripts/lib/`, fork-only docs). Upstream
+Netflix/vmaf has no `.claude/`, no `scripts/lib/`, and no
+`docs/development/agent-dispatch.md`, so the merge surface is zero
+on `/sync-upstream`. The only coupling is **internal** between
+`scripts/ci/agent-eligibility-precheck.py` and
+`scripts/lib/backlog_tracker.py` (sys.path import). Both files move
+together; documented in `scripts/lib/AGENTS.md` and a new row in
+`scripts/ci/AGENTS.md`.
+**Rebase-sensitivity**: zero w.r.t. upstream. Internal-only:
+renaming `BacklogItem` field names or the `BacklogTracker` /
+`GitHubTracker` public method signatures is a breaking change for
+the precheck and any future state-audit script — guard via the
+smoke listed in Research-0091 §"Smoke results" before any rename
+PR.
+**Format-coupling note**: the BACKLOG.md row regex
+(`scripts/lib/backlog_tracker.py:_ID_PATTERN`) is brittle against
+table-shape edits. If a future BACKLOG.md edit adds a column or
+renames a status word, the parser will silently mis-classify rows
+— the smoke parses 101 rows on master at 2026-05-09; expect ≥ 100
+after any structural edit.
