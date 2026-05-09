@@ -90,6 +90,26 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   GPU motion twins in the same PR. See [../../AGENTS.md §"motion3_score
   GPU contract"](../../AGENTS.md).
 
+- **`integer_motion_cuda.c::submit_fex_cuda` runs the SAD
+  `cuMemsetD8Async` on `pic_stream`, NOT on `s->str`** (ADR-0358).
+  The kernel atomic-adds into the same single-int64 buffer on
+  `pic_stream`; both streams are `CU_STREAM_NON_BLOCKING` and have
+  no event linking them, so co-locating the memset on the same
+  stream as the kernel is the only thing that orders them. The
+  matching pattern lives at `integer_motion_v2_cuda.c:188`. Any
+  rebase or follow-up that reverts the memset onto a separate
+  stream silently re-introduces the cross-stream race.
+
+- **`integer_motion_cuda.c::collect_fex_cuda` and `flush_fex_cuda`
+  emit `motion2_score = MIN(score * motion_fps_weight, motion_max_val)`,
+  NOT the raw `min(prev, cur)` SAD score** (ADR-0358). Mirrors the
+  CPU reference at `integer_motion.c:563`. The
+  `motion3_postprocess_cuda` moving-average guard reads
+  `frame_index > 2` (NOT `> 1`) because `frame_index` is
+  pre-incremented in `collect()` before the helper runs. Tripped
+  by non-default `motion_fps_weight ≠ 1.0` /
+  `motion_moving_average = true`.
+
 - **`integer_ms_ssim_cuda.c` and `integer_ssim_cuda.c` pass
   `channel=0` to `picture_copy()`** per the upstream
   d3647c73 prerequisite port. If a future upstream commit

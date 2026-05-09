@@ -27,6 +27,60 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### 0358 — CUDA `motion` race + leak + motion2/motion3 precision parity (ADR-0358)
+
+- **Touches**: `libvmaf/src/feature/cuda/integer_motion_cuda.c`
+  (memset moved from `s->str` to `pic_stream`; `motion2_score`
+  emission switched to the CPU's `MIN(score * motion_fps_weight,
+  motion_max_val)` post-process in collect + flush;
+  `motion3_postprocess_cuda` guard relaxed to `frame_index > 2`
+  for the pre-incremented frame counter; `vmaf_cuda_buffer_host_free
+  (s->sad_host)` added to `close_fex_cuda` and the `init_fex_cuda`
+  error unwind), `libvmaf/src/feature/cuda/integer_motion/motion_score.cu`
+  (shared-tile inner stride padded `TILE_W` → `TILE_PITCH = TILE_W
+  + 1`; `__launch_bounds__(BLOCK_X * BLOCK_Y, 8)` added to both
+  bpc kernels), `libvmaf/src/feature/cuda/integer_motion_v2/motion_v2_score.cu`
+  (same padding + launch_bounds for the v2 twin),
+  `docs/adr/0358-...md`, `docs/adr/README.md` (index row),
+  `docs/backends/cuda/overview.md` (motion bit-exact-at-places=4
+  appendix to "Numerical tolerance vs the CPU scalar path"),
+  `docs/state.md` (Recently-closed row), `changelog.d/fixed/
+  cuda-motion-race-leak-precision.md`. Upstream Netflix/vmaf does
+  not currently ship the motion3-on-CUDA host post-processing
+  surface (`motion3_postprocess_cuda` is fork-local per ADR-0219)
+  so a future rebase touching `integer_motion_cuda.c` is unlikely
+  to touch the same lines, but a pure-upstream port that resets
+  the post-process to its naive form will silently un-fix bugs
+  3 + 4.
+- **Invariant**: the SAD `cuMemsetD8Async` runs on `pic_stream`,
+  NOT on the drain stream `s->str`. The kernel's `atomicAdd` lives
+  on `pic_stream`; both streams are `CU_STREAM_NON_BLOCKING` and
+  there is no event linking them, so co-locating memset + kernel
+  on the same stream is the only thing that orders them. Mirrors
+  the verbatim pattern at `integer_motion_v2_cuda.c:188`. The
+  `motion2_score` row emitted to the feature collector is the
+  weighted-and-clipped value `MIN(score * motion_fps_weight,
+  motion_max_val)`, NOT the raw `min(prev, cur)` SAD score; this
+  matches `integer_motion.c:563`. The `motion3_postprocess_cuda`
+  moving-average guard reads `frame_index > 2`, NOT `> 1`, because
+  `frame_index` is pre-incremented before the helper is called.
+- **Re-test**: build with
+  `cd libvmaf && meson setup build-cuda -Denable_cuda=true
+  -Denable_sycl=false --buildtype=release && ninja -C build-cuda`,
+  then run `meson test -C build-cuda` (expect 55/55), then run
+  `tools/vmaf -r python/test/resource/yuv/src01_hrc00_576x324.yuv
+  -d python/test/resource/yuv/src01_hrc01_576x324.yuv -w 576 -h 324
+  -p 420 -b 8 --backend cuda --feature motion_cuda --output
+  /tmp/cuda.json --json` and the same with `--backend cpu --feature
+  motion --output /tmp/cpu.json --json`; `places=4` diff over
+  `integer_motion`, `integer_motion2`, `integer_motion3` should
+  report `0/144` mismatches at `max_abs = 0.00e+00`.
+  `compute-sanitizer --tool memcheck --leak-check full
+  tools/vmaf ... --backend cuda --feature motion_cuda` reports
+  `LEAK SUMMARY: 0 bytes leaked in 0 allocations` post-fix.
+  `compute-sanitizer --tool racecheck` reports `0 hazards`.
+
+### 0310 — Vulkan VIF int64 reduction race condition Phase 3 fix
 
 
 ### 0310 — Vulkan VIF int64 reduction race condition Phase 3 fix
