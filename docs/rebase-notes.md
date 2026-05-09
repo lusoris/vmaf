@@ -31989,6 +31989,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
     --max-rows 10000
   ```
 
+
 ## ADR-0335 — Hardware-capability priors (2026-05-08)
 
 - **Touches**: `ai/data/hardware_caps.csv` (new),
@@ -32022,4 +32023,30 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   ```bash
   python -m pytest ai/tests/test_hardware_caps.py -v   # must report 23 passed
   python ai/scripts/hardware_caps_loader.py            # JSON dump, 6+ rows
+
+## ADR-0367 — LSVQ corpus ingestion (2026-05-08)
+
+- **Touches**: `ai/scripts/lsvq_to_corpus_jsonl.py` (new),
+  `ai/tests/test_lsvq.py` (new),
+  `docs/adr/0367-lsvq-corpus-ingestion.md` (new),
+  `docs/adr/README.md` (regenerated index),
+  `docs/ai/lsvq-ingestion.md` (new),
+  `docs/research/0090-lsvq-corpus-feasibility.md` (new),
+  `changelog.d/added/0367-lsvq-ingestion.md` (new). No engine
+  code touched; no upstream-shared paths.
+- **Invariant**: the JSONL row schema emitted by this adapter is
+  byte-identical to the KonViD-150k Phase 2 adapter
+  (`ai/scripts/konvid_150k_to_corpus_jsonl.py`) modulo the
+  `corpus` and `corpus_version` literals. If a future PR widens
+  the row contract (new column, type change), the LSVQ adapter
+  must follow in lockstep — the trainer-side data loader
+  consumes both shards through one schema.
+- **On upstream sync**: no action required. The adapter lives
+  entirely under fork-local paths (`ai/scripts/`,
+  `ai/tests/`) and only consumes a fork-local CSV manifest.
+- **Re-test on rebase**:
+
+  ```bash
+  pytest ai/tests/test_lsvq.py -v
+
   ```

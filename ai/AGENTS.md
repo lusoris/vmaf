@@ -701,6 +701,7 @@ consumes its output:
   the rename in-process — do NOT modify
   `analyze_knob_sweep.py` to accept both spellings.
 
+
 ## `u2netp` fork-local mirror invariants (ADR-0325)
 
 The fork ships a release-artefact mirror for the upstream U-2-Net
@@ -739,3 +740,13 @@ landed in PR scope ADR-0325; the binary upload is a separate PR.
   and the tree still carries no NOTICE file at the
   upload-time HEAD, then bump the model card's commit pin
   accordingly.
+
+- The MOS-corpus row schema emitted by
+  `ai/scripts/lsvq_to_corpus_jsonl.py` (ADR-0367) is byte-identical
+  to the KonViD-150k Phase 2 adapter
+  (`ai/scripts/konvid_150k_to_corpus_jsonl.py`) modulo the
+  `corpus` and `corpus_version` literals. Both are consumed
+  through one trainer-side data loader. Do NOT widen the schema
+  in only one adapter — adding or removing a column means a
+  lockstep edit across both, plus a `corpus_version` bump.
+
