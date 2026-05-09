@@ -8119,9 +8119,9 @@ inline.*
   ```bash
   python -m pytest tools/vmaf-tune/tests/ -v
   ```
-### 0230 — fr_regressor_v2 PROD ship (ADR-0291)
+### 0230 — fr_regressor_v2 PROD ship (ADR-0352)
 
-- **ADR**: [ADR-0291](adr/0291-fr-regressor-v2-prod-ship.md)
+- **ADR**: [ADR-0352](adr/0291-fr-regressor-v2-prod-ship.md)
 - **Touches**: `model/tiny/fr_regressor_v2.onnx` (binary, refreshed),
   `model/tiny/fr_regressor_v2.json` (sidecar, sha256 + metrics),
   `model/tiny/registry.json` (smoke flag flip, sha256 update),
@@ -8619,14 +8619,14 @@ inline.*
   Research-0076, `tools/vmaf-tune/AGENTS.md` invariant note.
 - **Upstream source**: zero. `tools/vmaf-tune/` and
   `model/tiny/fr_regressor_v2.onnx` are both fork-introduced
-  (ADR-0237 / ADR-0291).
+  (ADR-0237 / ADR-0352).
 - **Invariant**: the production proxy is **always**
   `fr_regressor_v2` (no smoke models in the production path) and a
   **single** GPU verify pass at recommend-end is mandatory — proxy
   alone never wins. The `vmaftune.proxy.run_proxy` helper is the
   single seam every fast-path consumer goes through; future
   probabilistic-head / ensemble migrations land in that one
-  module. ENCODER_VOCAB v2 one-hot ordering is frozen by ADR-0291
+  module. ENCODER_VOCAB v2 one-hot ordering is frozen by ADR-0352
   and pinned in `proxy.ENCODER_VOCAB_V2` — keep in sync with
   `ai/scripts/train_fr_regressor_v2.py`; drift raises `ProxyError`
   at inference time before bad predictions ship.
@@ -8980,7 +8980,7 @@ inline.*
   `ENCODER_VOCAB` v2 one-hot + constant `preset_norm = 0.5` +
   `crf_norm = (cq - cq_min) / (cq_max - cq_min)`. Schema changes
   require an `ENCODER_VOCAB_VERSION` bump and full ensemble retrain
-  per the existing closed-vocabulary rule (ADR-0235 / ADR-0291).
+  per the existing closed-vocabulary rule (ADR-0235 / ADR-0352).
   Fold-level StandardScaler is fit on the training rows only;
   leaking the held-out source's distribution into the scaler would
   silently inflate per-fold PLCC.
@@ -9730,6 +9730,7 @@ kernel's `close_fex()`. See `libvmaf/src/feature/vulkan/AGENTS.md
 
 
 ### 0231 — Vulkan submit-pool migration PR A: adm + motion + psnr (ADR-0291)
+### 0231 — Vulkan submit-pool migration PR A: adm + motion + psnr (ADR-0352)
 - **Touches**: `libvmaf/src/feature/vulkan/adm_vulkan.c`,
   `libvmaf/src/feature/vulkan/motion_vulkan.c`,
   `libvmaf/src/feature/vulkan/psnr_vulkan.c` (all fork-local

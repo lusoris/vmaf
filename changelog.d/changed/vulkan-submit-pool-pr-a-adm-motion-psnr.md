@@ -1,5 +1,5 @@
 - **Vulkan submit-pool migration PR A: `adm_vulkan`, `motion_vulkan`,
-  `psnr_vulkan` (ADR-0291 / T-GPU-OPT-VK-1 + T-GPU-OPT-VK-4)** —
+  `psnr_vulkan` (ADR-0352 / T-GPU-OPT-VK-1 + T-GPU-OPT-VK-4)** —
   eliminates per-frame `vkCreateFence` / `vkAllocateCommandBuffers` /
   `vkAllocateDescriptorSets` for the three extractors in PR A of the
   remaining-13-kernel submit-pool migration batch (ADR-0256 follow-up):

@@ -1,4 +1,4 @@
-# ADR-0291: Vulkan submit-pool migration — PR A (adm, motion, psnr)
+# ADR-0352: Vulkan submit-pool migration — PR A (adm, motion, psnr)
 
 - Status: Accepted
 - Date: 2026-05-09
