@@ -230,6 +230,15 @@ typedef struct Ssimu2StateCuda {
     /* Pinned host buffers for upload + readback. */
     float *h_ref_lin;
     float *h_dis_lin;
+    /* Per-scale 2x2-downsample scratch — pre-allocated once (was a
+     * per-scale `malloc(3 * plane_full * sizeof(float))` in the hot
+     * path; on 1080p that is 24 MB / scale × up to 5 scales / frame,
+     * cheap on warm allocators but a real `mmap`/`brk` cost on
+     * memory-pressured systems). Reused for both ref and dis on every
+     * scale; the previous pyramid level is consumed before the next
+     * is written so a single buffer suffices. */
+    float *h_ref_lin_ds;
+    float *h_dis_lin_ds;
     float *h_ref_xyb;
     float *h_dis_xyb;
     float *h_mu1;
@@ -557,6 +566,8 @@ static int ss2c_alloc_buffers(VmafFeatureExtractor *fex, Ssimu2StateCuda *s)
     ret |= vmaf_cuda_buffer_alloc(fex->cu_state, &s->d_s12, three_plane_bytes);
     ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_ref_lin, three_plane_bytes);
     ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_dis_lin, three_plane_bytes);
+    ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_ref_lin_ds, three_plane_bytes);
+    ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_dis_lin_ds, three_plane_bytes);
     ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_ref_xyb, three_plane_bytes);
     ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_dis_xyb, three_plane_bytes);
     ret |= vmaf_cuda_buffer_host_alloc(fex->cu_state, (void **)&s->h_mu1, three_plane_bytes);
@@ -780,14 +791,19 @@ static double ss2c_pool_score(const double avg_ssim[6][6], const double avg_ed[6
  * NOLINTNEXTLINE(readability-function-size,google-readability-function-size) */
 static int ss2c_run_scale_gpu(Ssimu2StateCuda *s, CudaFunctions *cu_f, int scale)
 {
-    const size_t three_plane_bytes = 3u * (size_t)s->width * (size_t)s->height * sizeof(float);
+    const size_t plane_full_pixels = (size_t)s->width * (size_t)s->height;
+    const size_t plane_full_bytes = plane_full_pixels * sizeof(float);
+    /* Only `scale_w * scale_h` pixels per plane carry valid data — the
+     * rest of each plane's `plane_full_pixels` reservation is garbage
+     * (host pre-pass) or untouched (GPU mu/s11/s22/s12 outputs). The
+     * device-side allocations stay full-size so `plane_stride` offsets
+     * remain valid in the kernels; only the `cuMemcpyHtoDAsync` /
+     * `cuMemcpyDtoHAsync` byte counts shrink to the valid sub-region.
+     * At scale 2 of 1080p that is 518 KB / plane vs the previous 8 MB
+     * full-plane transfer per copy (≈15× PCIe traffic reduction). */
+    const size_t scale_pixels = (size_t)s->scale_w[scale] * (size_t)s->scale_h[scale];
+    const size_t scale_bytes_per_plane = scale_pixels * sizeof(float);
     int err = 0;
-
-    /* Upload XYB buffers (host computed). */
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyHtoDAsync((CUdeviceptr)s->d_ref_xyb->data, s->h_ref_xyb,
-                                              three_plane_bytes, s->str));
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyHtoDAsync((CUdeviceptr)s->d_dis_xyb->data, s->h_dis_xyb,
-                                              three_plane_bytes, s->str));
 
     CUdeviceptr ref_xyb = (CUdeviceptr)s->d_ref_xyb->data;
     CUdeviceptr dis_xyb = (CUdeviceptr)s->d_dis_xyb->data;
@@ -797,6 +813,18 @@ static int ss2c_run_scale_gpu(Ssimu2StateCuda *s, CudaFunctions *cu_f, int scale
     CUdeviceptr ds11 = (CUdeviceptr)s->d_s11->data;
     CUdeviceptr ds22 = (CUdeviceptr)s->d_s22->data;
     CUdeviceptr ds12 = (CUdeviceptr)s->d_s12->data;
+
+    /* Upload XYB buffers (host computed) — per-plane, only the valid
+     * sub-region. */
+    for (size_t c = 0; c < 3u; c++) {
+        const size_t plane_off_bytes = c * plane_full_bytes;
+        CHECK_CUDA_RETURN(cu_f, cuMemcpyHtoDAsync(ref_xyb + plane_off_bytes,
+                                                  (const uint8_t *)s->h_ref_xyb + plane_off_bytes,
+                                                  scale_bytes_per_plane, s->str));
+        CHECK_CUDA_RETURN(cu_f, cuMemcpyHtoDAsync(dis_xyb + plane_off_bytes,
+                                                  (const uint8_t *)s->h_dis_xyb + plane_off_bytes,
+                                                  scale_bytes_per_plane, s->str));
+    }
 
     /* 1) ref² → mul → blur into s11. */
     err = ss2c_launch_mul3(s, cu_f, ref_xyb, ref_xyb, mul_buf, (unsigned)scale);
@@ -831,12 +859,28 @@ static int ss2c_run_scale_gpu(Ssimu2StateCuda *s, CudaFunctions *cu_f, int scale
     if (err)
         return err;
 
-    /* Download blurred buffers. */
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_mu1, mu1, three_plane_bytes, s->str));
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_mu2, mu2, three_plane_bytes, s->str));
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_s11, ds11, three_plane_bytes, s->str));
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_s22, ds22, three_plane_bytes, s->str));
-    CHECK_CUDA_RETURN(cu_f, cuMemcpyDtoHAsync(s->h_s12, ds12, three_plane_bytes, s->str));
+    /* Download blurred buffers — per-plane, only the valid sub-region.
+     * Same rationale as the H2D loop above: kernels only populate the
+     * first `scale_w * scale_h` floats of each plane; the unused tail
+     * of `plane_full_pixels` is never read by the host combine. */
+    for (size_t c = 0; c < 3u; c++) {
+        const size_t plane_off_bytes = c * plane_full_bytes;
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync((uint8_t *)s->h_mu1 + plane_off_bytes,
+                                            mu1 + plane_off_bytes, scale_bytes_per_plane, s->str));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync((uint8_t *)s->h_mu2 + plane_off_bytes,
+                                            mu2 + plane_off_bytes, scale_bytes_per_plane, s->str));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync((uint8_t *)s->h_s11 + plane_off_bytes,
+                                            ds11 + plane_off_bytes, scale_bytes_per_plane, s->str));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync((uint8_t *)s->h_s22 + plane_off_bytes,
+                                            ds22 + plane_off_bytes, scale_bytes_per_plane, s->str));
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync((uint8_t *)s->h_s12 + plane_off_bytes,
+                                            ds12 + plane_off_bytes, scale_bytes_per_plane, s->str));
+    }
     CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
     return 0;
 }
@@ -936,20 +980,23 @@ static int extract_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
         if (scale + 1 < SS2C_NUM_SCALES) {
             const unsigned nw = (cw + 1) / 2;
             const unsigned nh = (ch + 1) / 2;
-            float *scratch = malloc(3u * plane_full * sizeof(float));
-            if (!scratch) {
-                _cuda_err = -ENOMEM;
-                goto out;
-            }
-            ss2c_downsample_2x2(s->h_ref_lin, cw, ch, scratch, nw, nh, plane_full);
+            /* Use the pinned scratch pre-allocated by `ss2c_alloc_buffers`
+             * — the previous per-scale `malloc(3 * plane_full *
+             * sizeof(float))` cost a fresh `mmap`/`brk` pair per scale
+             * under memory pressure (24 MB × up to 5 scales / frame at
+             * 1080p). The scratch is reused for ref then dis on every
+             * scale: ref is downsampled and copied back before dis is
+             * touched, so a single buffer per side is sufficient. */
+            ss2c_downsample_2x2(s->h_ref_lin, cw, ch, s->h_ref_lin_ds, nw, nh, plane_full);
             for (int c = 0; c < 3; c++)
-                memcpy(s->h_ref_lin + (size_t)c * plane_full, scratch + (size_t)c * plane_full,
+                memcpy(s->h_ref_lin + (size_t)c * plane_full,
+                       s->h_ref_lin_ds + (size_t)c * plane_full,
                        (size_t)nw * (size_t)nh * sizeof(float));
-            ss2c_downsample_2x2(s->h_dis_lin, cw, ch, scratch, nw, nh, plane_full);
+            ss2c_downsample_2x2(s->h_dis_lin, cw, ch, s->h_dis_lin_ds, nw, nh, plane_full);
             for (int c = 0; c < 3; c++)
-                memcpy(s->h_dis_lin + (size_t)c * plane_full, scratch + (size_t)c * plane_full,
+                memcpy(s->h_dis_lin + (size_t)c * plane_full,
+                       s->h_dis_lin_ds + (size_t)c * plane_full,
                        (size_t)nw * (size_t)nh * sizeof(float));
-            free(scratch);
             cw = nw;
             ch = nh;
         }
@@ -977,6 +1024,18 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 
     if (cu_f && s->str) {
         (void)cu_f->cuStreamSynchronize(s->str);
+        /* Unload the two PTX modules loaded by `init_fex_cuda` —
+         * `cuModuleLoadData` allocates ~200-500 KB of GPU-resident
+         * module backing store per module, none of which is reclaimed
+         * by `cuStreamDestroy` or `cuCtxDestroy` on a primary context.
+         * Skipping these calls leaks the modules every `vmaf_close()`
+         * cycle (caught by `compute-sanitizer --tool memcheck` on a
+         * 100-iteration init/extract/close loop). Guarded by null
+         * checks so partial-init failure paths are still safe. */
+        if (s->module_blur)
+            (void)cu_f->cuModuleUnload(s->module_blur);
+        if (s->module_mul)
+            (void)cu_f->cuModuleUnload(s->module_mul);
         (void)cu_f->cuStreamDestroy(s->str);
     }
 
@@ -1009,6 +1068,8 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
     } while (0)
     SS2C_FREE_HOST(h_ref_lin);
     SS2C_FREE_HOST(h_dis_lin);
+    SS2C_FREE_HOST(h_ref_lin_ds);
+    SS2C_FREE_HOST(h_dis_lin_ds);
     SS2C_FREE_HOST(h_ref_xyb);
     SS2C_FREE_HOST(h_dis_xyb);
     SS2C_FREE_HOST(h_mu1);

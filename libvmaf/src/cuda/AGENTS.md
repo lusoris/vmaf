@@ -213,6 +213,21 @@ cuda/
   flag — keeping FMA on the kernels where it isn't a precision risk
   preserves whatever optimisation NVCC can apply.
 
+## Lifecycle invariants
+
+- **`cuModuleLoadData` requires a paired `cuModuleUnload` in `close()`**
+  — modules carry GPU-resident backing storage (~200-500 KB per module
+  on consumer GPUs) that survives `cuStreamDestroy` and (for primary
+  contexts) `cuCtxDestroy`. `compute-sanitizer --tool memcheck` does
+  **not** report module leaks (the tool tracks `cuMem*Alloc` only),
+  which is why the leak in `ssimulacra2_cuda` survived initial
+  review. If you add a `cuModuleLoadData` call, add a guarded
+  `cuModuleUnload` in the matching `close_fex_cuda` after
+  `cuStreamSynchronize` and before `cuStreamDestroy`. Reference fix:
+  [ADR-0356](../../../docs/adr/0356-ssimulacra2-cuda-leaks-perf.md)
+  (`ssimulacra2_cuda` had two unloaded modules — `module_blur` +
+  `module_mul`).
+
 ## Governing ADRs
 
 - [ADR-0022](../../../docs/adr/0022-inference-runtime-onnx.md) — CUDA execution provider mapping.

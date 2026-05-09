@@ -29,11 +29,16 @@ extern "C" {
  *  in_buf / out_buf are full 3-plane buffers (channel offsets
  *  passed via in_offset / out_offset).
  *
- *  Bit-identical control flow with CPU `fast_gaussian_1d`. */
-__global__ void ssimulacra2_blur_h(const float *__restrict__ in_buf, float *__restrict__ out_buf,
-                                   unsigned width, unsigned height, float n2_0, float n2_1,
-                                   float n2_2, float d1_0, float d1_1, float d1_2, int radius,
-                                   unsigned in_offset, unsigned out_offset)
+ *  Bit-identical control flow with CPU `fast_gaussian_1d`.
+ *  `__launch_bounds__(SS2C_BLUR_BLOCK = 64, minBlocksPerSM = 32)`
+ *  documents the block-size + occupancy contract — NVCC then trims the
+ *  per-thread register budget to keep ≥32 resident blocks per SM,
+ *  consistent with the host-side launch shape in
+ *  `ss2c_launch_blur_pass`. */
+__global__ __launch_bounds__(64, 32) void ssimulacra2_blur_h(
+    const float *__restrict__ in_buf, float *__restrict__ out_buf, unsigned width, unsigned height,
+    float n2_0, float n2_1, float n2_2, float d1_0, float d1_1, float d1_2, int radius,
+    unsigned in_offset, unsigned out_offset)
 {
     const unsigned row = blockIdx.x * blockDim.x + threadIdx.x;
     if (row >= height)
@@ -85,11 +90,12 @@ __global__ void ssimulacra2_blur_h(const float *__restrict__ in_buf, float *__re
     }
 }
 
-/* V pass: one thread per column.  */
-__global__ void ssimulacra2_blur_v(const float *__restrict__ in_buf, float *__restrict__ out_buf,
-                                   unsigned width, unsigned height, float n2_0, float n2_1,
-                                   float n2_2, float d1_0, float d1_1, float d1_2, int radius,
-                                   unsigned in_offset, unsigned out_offset)
+/* V pass: one thread per column.  Same `__launch_bounds__` contract
+ * as the H pass — see the H-pass block comment above. */
+__global__ __launch_bounds__(64, 32) void ssimulacra2_blur_v(
+    const float *__restrict__ in_buf, float *__restrict__ out_buf, unsigned width, unsigned height,
+    float n2_0, float n2_1, float n2_2, float d1_0, float d1_1, float d1_2, int radius,
+    unsigned in_offset, unsigned out_offset)
 {
     const unsigned col = blockIdx.x * blockDim.x + threadIdx.x;
     if (col >= width)
