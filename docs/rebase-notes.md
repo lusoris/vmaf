@@ -9475,6 +9475,7 @@ document the flip-the-variable recipe when the cluster is degraded.
   # Validate renovate.json syntax (requires Node):
   node -e "JSON.parse(require('fs').readFileSync('renovate.json','utf8')); console.log('JSON valid')"
   ```
+
 ## ADR-0355 — Symphony-inspired agent-dispatch infrastructure (2026-05-09)
 **Files added (all fork-introduced, none mirror upstream)**:
 - `.claude/workflows/_template.md`,
@@ -9679,4 +9680,35 @@ implementation may differ if they choose Strategy III (fully-on-GPU
 `cambi_internal.h` must be updated alongside. This is the same dependency
 the Vulkan twin (`cambi_vulkan.c`) has — see ADR-0210's rebase note for
 the full list of exposed functions.
+
+
+
+## Vulkan submit-pool PR-B: six secondary kernels (2026-05-09, ADR-0353)
+
+**Files changed**:
+- `libvmaf/src/feature/vulkan/ssim_vulkan.c`
+- `libvmaf/src/feature/vulkan/ciede_vulkan.c`
+- `libvmaf/src/feature/vulkan/ms_ssim_vulkan.c`
+- `libvmaf/src/feature/vulkan/motion_v2_vulkan.c`
+- `libvmaf/src/feature/vulkan/float_psnr_vulkan.c`
+- `libvmaf/src/feature/vulkan/float_motion_vulkan.c`
+- `libvmaf/src/feature/vulkan/AGENTS.md`
+- `docs/adr/0353-vulkan-submit-pool-pr-b-six-kernels.md`
+
+**Why this rebase-note exists**: six Vulkan host-glue TUs were migrated
+from per-frame command-buffer and descriptor-set allocation to the
+`VmafVulkanKernelSubmitPool` abstraction (ADR-0256). Any Netflix upstream
+sync that touches these same files (unlikely — they are fork-local) must
+preserve the `VmafVulkanKernelSubmitPool` fields in the state struct and
+the pool-destroy-before-pipeline-destroy ordering in `close_fex()`.
+
+**Rebase-sensitivity**: low. All six files are entirely fork-local; Netflix
+upstream does not have a Vulkan backend. The submit-pool API is defined in
+`libvmaf/src/vulkan/kernel.h` (also fork-local). No public header or C-API
+surface was changed; the FFmpeg patch series is unaffected.
+
+**Key invariant to preserve on rebase**: `vmaf_vulkan_kernel_submit_pool_destroy`
+MUST be called before `vmaf_vulkan_kernel_pipeline_destroy` in every migrated
+kernel's `close_fex()`. See `libvmaf/src/feature/vulkan/AGENTS.md
+§"Submit-pool ordering invariant"`.
 

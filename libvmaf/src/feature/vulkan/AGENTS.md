@@ -150,3 +150,42 @@ The umbrella flag pulls in `dependency('vulkan')` + volk + glslc + VMA.
   `enable_lcs` GPU contract.
 - [ADR-0252](../../../../docs/adr/0252-ssimulacra2-host-xyb-simd.md) —
   SSIMULACRA 2 Vulkan host-path SIMD.
+- [ADR-0256](../../../../docs/adr/0256-vulkan-submit-pool.md) —
+  submit pool design (`VmafVulkanKernelSubmitPool`).
+- [ADR-0353](../../../../docs/adr/0353-vulkan-submit-pool-pr-b-six-kernels.md) —
+  PR-B six-kernel submit-pool migration.
+
+## Submit-pool ordering invariant (ADR-0256 / ADR-0353)
+
+Kernels that use `VmafVulkanKernelSubmitPool` **must** destroy the pool
+**before** calling `vmaf_vulkan_kernel_pipeline_destroy`. This is because
+`vmaf_vulkan_kernel_pipeline_destroy` internally calls `vkDeviceWaitIdle`
+and then destroys the descriptor pool; if the submit pool still holds a
+pending fence at that point, cleanup will race and produce a validation
+error.
+
+The required `close_fex()` tear-down order for all migrated kernels is:
+
+```c
+vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
+// ... any other per-bundle pool destroys ...
+vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
+```
+
+For `ms_ssim_vulkan.c` specifically:
+```c
+vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool_decimate);
+vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool_ssim);
+vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_decimate);
+vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_ssim);
+```
+
+Pre-allocated descriptor sets (allocated via `vmaf_vulkan_kernel_descriptor_sets_alloc`)
+are freed implicitly when the descriptor pool is destroyed inside
+`vmaf_vulkan_kernel_pipeline_destroy`. **Do not** call `vkFreeDescriptorSets`
+on pre-allocated sets — it is a double-free.
+
+**Migrated kernels (PR-A + PR-B)**: `adm`, `motion`, `psnr` (PR-A /
+PR #563), `ssim`, `ciede`, `ms_ssim`, `motion_v2`, `float_psnr`,
+`float_motion` (PR-B / ADR-0353). Remaining legacy kernels (`ansnr`,
+`vif`, `ssimulacra2`, `cambi`) are deferred to PR-C.

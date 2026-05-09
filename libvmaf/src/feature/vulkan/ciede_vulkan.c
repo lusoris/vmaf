@@ -22,6 +22,14 @@
  *  YUV444P is consumed directly. YUV422P / YUV420P are upscaled
  *  to luma resolution on the host before upload — same logic as
  *  ciede.c::scale_chroma_planes.
+ *
+ *  Submit-pool migration (T-GPU-OPT-VK-1 / ADR-0353 / PR-B):
+ *  Replaced per-frame vkAllocateCommandBuffers + vkCreateFence +
+ *  vkAllocateDescriptorSets with:
+ *    - vmaf_vulkan_kernel_submit_pool_create / _acquire / _end_and_wait
+ *    - vmaf_vulkan_kernel_descriptor_sets_alloc (one set at init)
+ *  All 7 SSBO bindings are init-time-stable; no per-frame
+ *  vkUpdateDescriptorSets needed. (T-GPU-OPT-VK-4 / ADR-0256.)
  */
 
 #include <errno.h>
@@ -64,6 +72,16 @@ typedef struct {
 
     /* Pipeline objects (`vulkan/kernel_template.h` bundle, ADR-0246). */
     VmafVulkanKernelPipeline pl;
+
+    /* Per-frame submit pool (T-GPU-OPT-VK-1 / ADR-0353).
+     * Single slot: the single dispatch uses one command buffer. */
+    VmafVulkanKernelSubmitPool sub_pool;
+
+    /* Pre-allocated descriptor set reused across frames.
+     * All 7 SSBO bindings are init-time-stable; written once at
+     * init() — no per-frame vkUpdateDescriptorSets needed.
+     * (T-GPU-OPT-VK-4 / ADR-0353.) */
+    VkDescriptorSet pre_set;
 
     /* Per-plane input buffers (host-mapped). Six planes — Y/U/V
      * × ref/dis — each at full luma resolution. */
@@ -160,6 +178,46 @@ static int alloc_buffers(CiedeVulkanState *s)
     return err;
 }
 
+static int write_descriptor_set(CiedeVulkanState *s, VkDescriptorSet set)
+{
+    VkDescriptorBufferInfo dbi[CIEDE_NUM_BINDINGS] = {
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_y_in),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_u_in),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_v_in),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->dis_y_in),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->dis_u_in),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->dis_v_in),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->partials),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+    };
+    VkWriteDescriptorSet writes[CIEDE_NUM_BINDINGS];
+    for (int i = 0; i < CIEDE_NUM_BINDINGS; i++) {
+        writes[i] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = set,
+            .dstBinding = (uint32_t)i,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pBufferInfo = &dbi[i],
+        };
+    }
+    vkUpdateDescriptorSets(s->ctx->device, CIEDE_NUM_BINDINGS, writes, 0, NULL);
+    return 0;
+}
+
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
@@ -194,6 +252,19 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     err = alloc_buffers(s);
     if (err)
         return err;
+
+    /* Pre-allocate submit pool and the single descriptor set.
+     * All 7 SSBO bindings are init-time-stable; write once here
+     * and reuse every frame — no per-frame vkUpdateDescriptorSets.
+     * (T-GPU-OPT-VK-1 + T-GPU-OPT-VK-4 / ADR-0353.) */
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/1, &s->sub_pool);
+    if (err)
+        return err;
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl.desc_pool, s->pl.dsl,
+                                                   /*count=*/1, &s->pre_set);
+    if (err)
+        return err;
+    (void)write_descriptor_set(s, s->pre_set);
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
@@ -268,46 +339,6 @@ static int upload_pic(CiedeVulkanState *s, VmafVulkanBuffer *y_buf, VmafVulkanBu
     return err;
 }
 
-static int write_descriptor_set(CiedeVulkanState *s, VkDescriptorSet set)
-{
-    VkDescriptorBufferInfo dbi[CIEDE_NUM_BINDINGS] = {
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_y_in),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_u_in),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_v_in),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->dis_y_in),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->dis_u_in),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->dis_v_in),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->partials),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-    };
-    VkWriteDescriptorSet writes[CIEDE_NUM_BINDINGS];
-    for (int i = 0; i < CIEDE_NUM_BINDINGS; i++) {
-        writes[i] = (VkWriteDescriptorSet){
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = set,
-            .dstBinding = (uint32_t)i,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pBufferInfo = &dbi[i],
-        };
-    }
-    vkUpdateDescriptorSets(s->ctx->device, CIEDE_NUM_BINDINGS, writes, 0, NULL);
-    return 0;
-}
-
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                    VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index,
                    VmafFeatureCollector *feature_collector)
@@ -330,34 +361,18 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (err)
         return err;
 
-    VkDescriptorSet set = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo dsai = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->pl.desc_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &s->pl.dsl,
-    };
-    if (vkAllocateDescriptorSets(s->ctx->device, &dsai, &set) != VK_SUCCESS)
-        return -ENOMEM;
-    write_descriptor_set(s, set);
+    /* All 7 SSBO bindings are init-time-stable; no per-frame
+     * vkUpdateDescriptorSets needed (T-GPU-OPT-VK-4 / ADR-0353). */
 
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo cbai = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = s->ctx->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &cmd) != VK_SUCCESS) {
-        err = -ENOMEM;
-        goto cleanup;
-    }
-    VkCommandBufferBeginInfo cbbi = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-    vkBeginCommandBuffer(cmd, &cbbi);
+    /* Acquire a pre-allocated command buffer + fence from the submit
+     * pool. Eliminates per-frame vkAllocateCommandBuffers +
+     * vkCreateFence + vkAllocateDescriptorSets.
+     * (T-GPU-OPT-VK-1 / ADR-0353.) */
+    VmafVulkanKernelSubmit submit = {0};
+    err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool, /*pool_slot=*/0, &submit);
+    if (err)
+        return err;
+    VkCommandBuffer cmd = submit.cmd;
 
     CiedePushConsts pc = {
         .width = s->width,
@@ -367,27 +382,15 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     };
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1, &set,
-                            0, NULL);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1,
+                            &s->pre_set, 0, NULL);
     vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     vkCmdDispatch(cmd, s->wg_count_x, s->wg_count_y, 1);
-    vkEndCommandBuffer(cmd);
 
-    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS) {
-        err = -ENOMEM;
+    /* End recording, submit and wait synchronously. */
+    err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &submit);
+    if (err)
         goto cleanup;
-    }
-    VkSubmitInfo si = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
-        err = -EIO;
-        goto cleanup;
-    }
-    vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
 
     /* Host-side reduction in `double` to retain places=2 precision
      * across the per-WG float partials. See ADR-0187. The CPU
@@ -395,24 +398,23 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
      * score `45 - 20*log10(mean_dE)` rather than the raw mean —
      * mirror that here so the `ciede2000` metric matches across
      * backends. */
-    const float *partials = vmaf_vulkan_buffer_host(s->partials);
-    double total = 0.0;
-    for (unsigned i = 0; i < s->wg_count; i++)
-        total += (double)partials[i];
-    const double n_pixels = (double)s->width * (double)s->height;
-    const double mean_de = total / n_pixels;
-    const double score = 45.0 - 20.0 * log10(mean_de);
+    {
+        const float *partials = vmaf_vulkan_buffer_host(s->partials);
+        double total = 0.0;
+        for (unsigned i = 0; i < s->wg_count; i++)
+            total += (double)partials[i];
+        const double n_pixels = (double)s->width * (double)s->height;
+        const double mean_de = total / n_pixels;
+        const double score = 45.0 - 20.0 * log10(mean_de);
 
-    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                  "ciede2000", score, index);
+        err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "ciede2000", score, index);
+    }
 
 cleanup:
-    if (fence != VK_NULL_HANDLE)
-        vkDestroyFence(s->ctx->device, fence, NULL);
-    if (cmd != VK_NULL_HANDLE)
-        vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
-    if (set != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, 1, &set);
+    /* Pool-owned submit: submit_free clears local handles only; pool
+     * retains the fence + cmd buffer for reuse next frame. */
+    vmaf_vulkan_kernel_submit_free(s->ctx, &submit);
     return err;
 }
 
@@ -422,8 +424,12 @@ static int close_fex(VmafFeatureExtractor *fex)
     if (!s->ctx)
         return 0;
 
-    /* `vulkan/kernel_template.h` collapses the vkDeviceWaitIdle +
-     * 5×vkDestroy* sweep into one call. */
+    /* Drain the submit pool before the pipeline (ADR-0353).
+     * `vulkan/kernel_template.h` collapses the vkDeviceWaitIdle +
+     * 5×vkDestroy* sweep into one call. Descriptor sets pre-allocated
+     * via descriptor_sets_alloc are freed implicitly with the pool —
+     * do NOT call vkFreeDescriptorSets on pre_set. */
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
     vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     if (s->ref_y_in)
