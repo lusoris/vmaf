@@ -1169,6 +1169,7 @@ if is_sycl_enabled
         feature_src_dir + 'sycl/integer_psnr_hvs_sycl.cpp',
         feature_src_dir + 'sycl/ssimulacra2_sycl.cpp',
         feature_src_dir + 'sycl/float_adm_sycl.cpp',
+        feature_src_dir + 'sycl/integer_cambi_sycl.cpp',
     ]
 
     # `-fp-model=precise` is Intel's strict-FP flag: no FMA contraction,

@@ -651,6 +651,15 @@ test_sycl_pic_preallocation = executable('test_sycl_pic_preallocation',
 
 test('test_sycl', test_sycl)
 test('test_sycl_pic_preallocation', test_sycl_pic_preallocation)
+
+test_integer_cambi_sycl = executable('test_integer_cambi_sycl',
+    ['test.c', 'test_integer_cambi_sycl.c'],
+    include_directories : [libvmaf_inc, test_inc, include_directories('../src/')],
+    link_with : get_option('default_library') == 'both' ? libvmaf.get_static_lib() : libvmaf,
+    dependencies: [pthread_dependency, sycl_dependency],
+    c_args: ['-DHAVE_SYCL=1']
+)
+test('test_integer_cambi_sycl', test_integer_cambi_sycl)
 endif
 
 # ADR-0175 / T5-1: Vulkan backend scaffold smoke. Pins the -ENOSYS

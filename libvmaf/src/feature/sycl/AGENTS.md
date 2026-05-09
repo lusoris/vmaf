@@ -85,6 +85,18 @@ ADR-0214) catches drift but only after a full GPU run.
   [../../AGENTS.md §"`picture_copy()` carries a `channel`
   parameter"](../../AGENTS.md).
 
+- **`integer_cambi_sycl.cpp` — Strategy II hybrid: no graph register,
+  synchronous per-scale loop** (T3-15 / ADR-0371). The `submit()` runs
+  a synchronous per-scale loop: H2D upload → `launch_spatial_mask` →
+  per-scale (`launch_decimate` + `launch_filter_mode` H + V → D2H →
+  `vmaf_cambi_calculate_c_values` + `vmaf_cambi_spatial_pooling`). The
+  CPU-residual phases must stay inside `submit()`, not `collect()`.
+  `collect()` only emits `s->score`. Do **not** move the CPU residual
+  into `collect()` and do **not** register with `vmaf_sycl_graph_register`
+  — the per-scale D2H readback and host histogram pass are incompatible
+  with the graph-replay model. The CUDA twin (ADR-0360) follows the same
+  pattern; keep both in sync.
+
 - **VAAPI / dmabuf zero-copy import** — the FFmpeg `libvmaf_sycl`
   filter (`ffmpeg-patches/0005-*.patch`) consumes
   `vmaf_sycl_import_va_surface`. Public-surface change touches the

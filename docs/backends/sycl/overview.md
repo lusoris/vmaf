@@ -198,8 +198,10 @@ the deviation:
 
 ## Known gaps
 
-- **CAMBI** — no SYCL kernel; runs on CPU. Frame download is unavoidable
-  for CAMBI when the rest of the pipeline is on the GPU.
+- **CAMBI** — SYCL twin (`cambi_sycl`) shipped in ADR-0371. Strategy II
+  hybrid: three GPU kernels (spatial-mask, 2× decimate, 3-tap mode filter)
+  + host CPU residual (`calculate_c_values` + top-K pooling). Bit-exact
+  with the CPU scalar extractor at `places=4` (ULP=0 on emitted score).
 - **CIEDE2000** — no SYCL kernel; CPU fallback.
 - **SSIM / MS-SSIM / PSNR / PSNR-HVS / ANSNR** — no SYCL kernels.
 - **Float-twin extractors (`float_*`)** — the SYCL backend

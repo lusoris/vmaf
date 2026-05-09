@@ -8,6 +8,7 @@
 
 ### Added
 
+
 - **Shared `CorpusIngestBase` for MOS-corpus adapters (ADR-0371).** Extracts
   ~1 200 lines of duplicated boilerplate — ffprobe geometry probe, SHA-256
   dedup, resumable-download progress state, JSONL row builder, `RunStats`
@@ -19,6 +20,18 @@
   intentionally excluded (different schema: `vmaftune.CORPUS_ROW_KEYS`).
   New test suite `ai/tests/test_corpus_base.py` covers the shared
   orchestrator with synthetic fixtures and an injectable `runner` seam.
+
+- **Metal backend scaffold batch-1 (ADR-0361, T8-1).** Adds three
+  additional kernel-template consumers for the Metal compute backend:
+  `integer_psnr_metal` (extractor name `psnr_metal`),
+  `float_ssim_metal` (extractor name `float_ssim_metal`), and
+  `integer_motion_metal` (extractor name `motion_metal`). All three
+  register via `HAVE_METAL` in `feature_extractor_list[]` and return
+  `-ENOSYS` from `init()` while the runtime PR (T8-1b) is pending —
+  the same scaffold posture as the first consumer `motion_v2_metal`
+  that landed in the T8-1 scaffold PR. 4 of 17 planned Metal
+  extractors are now registered.
+
 
 - **Encoder-internal stats capture (ADR-0332).** Extends the
   `vmaf-tune` corpus row schema (bumped to v3) with ten
