@@ -184,6 +184,7 @@
 0315-vendor-neutral-vvc-encode-strategy
 0331-skip-ci-on-draft-prs
 0325-konvid-150k-corpus-ingestion
+0336-konvid-mos-head-v1
 0338-macos-vulkan-via-moltenvk-lane
 0341-ci-paths-ignore-doc-only-prs
 0349-fr-regressor-v3-namespace

@@ -595,6 +595,51 @@ the same commit that ships the `.onnx`. See
 [ADR-0349](../docs/adr/0349-fr-regressor-v3-namespace.md) for the namespace
 decision and the rejected alternatives.
 
+## MOS-head v1 invariants — `konvid_mos_head_v1` (ADR-0336, Phase 3 of ADR-0325)
+
+The fork's first head trained against subjective MOS (not VMAF)
+ships under
+[`ai/scripts/train_konvid_mos_head.py`](scripts/train_konvid_mos_head.py),
+with the trained ONNX and human-readable model card at
+[`model/konvid_mos_head_v1.onnx`](../model/konvid_mos_head_v1.onnx) and
+[`model/konvid_mos_head_v1_card.md`](../model/konvid_mos_head_v1_card.md).
+Invariants that any follow-up retrain or corpus-shape PR must honour:
+
+- **Feature-column order is load-bearing.** `FEATURE_COLUMNS =
+  CANONICAL_6 + EXTRA_FEATURES` is the exact 11-D layout baked into
+  the trained ONNX and consumed by
+  `tools/vmaf-tune/src/vmaftune/predictor.py::_predict_mos_via_head`.
+  The 6 canonical columns occupy indices 0..5; the 5 extras
+  (`saliency_mean`, `saliency_var`, `shot_count_norm`,
+  `shot_mean_len_norm`, `shot_cut_density`) occupy 6..10. Reordering
+  silently invalidates every shipped `konvid_mos_head_v1.onnx`.
+- **ENCODER_VOCAB v4 expansion is append-only.** The v4 vocab ships
+  with a single `"ugc-mixed"` slot per ADR-0325 §Decision. When
+  LSVQ + YouTube-UGC ingestion lands, the new slots append at the
+  end; existing trained ONNX stays loadable and the predictor's
+  per-shot one-hot widens transparently.
+- **MOS range is `[1.0, 5.0]` and is baked into the graph.** The
+  trainer wraps the MLP output in
+  `MOS_MIN + (MOS_MAX - MOS_MIN) * sigmoid(raw)`; adversarial input
+  cannot drive the prediction outside `[1, 5]`. Predictor surfaces
+  (`Predictor.predict_mos` + `_predict_mos_via_head`) carry an
+  additional clamp as belt-and-braces. Do not change the range
+  without a schema bump + retrain.
+- **Production-flip gate is not lowered on real-corpus failures.**
+  Per memory `feedback_no_test_weakening` and ADR-0325 §Production-
+  flip gate, a failing real-corpus retrain ships the head with
+  `Status: Proposed`, *not* a relaxed gate. Threshold values
+  (`PLCC ≥ 0.85`, `SROCC ≥ 0.82`, `RMSE ≤ 0.45`, `spread ≤ 0.005`)
+  are constants in the trainer (`GATE_*`); changing them requires
+  a new ADR.
+- **Predictor fallback path is documented behaviour, not a bug.**
+  When the ONNX is missing, `Predictor.predict_mos` returns
+  `(predicted_vmaf - 30) / 14` clamped to `[1, 5]`. That is the
+  documented contract; tests
+  (`tools/vmaf-tune/tests/test_predict_mos.py::test_predict_mos_falls_back_when_onnx_missing`)
+  pin it. Removing the fallback breaks every dev host that hasn't
+  pulled the ONNX.
+
 ## Knob-sweep recipe-regression policy (ADR-0308)
 
 Cited from the regression-detection invariant in

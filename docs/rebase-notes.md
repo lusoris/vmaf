@@ -31267,3 +31267,15 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   # Optional GPU-parity gate when available:
   # ./scripts/cross-backend-diff.sh --feature cambi
   ```
+
+## ADR-0336 — KonViD MOS head v1 (2026-05-08)
+
+- **Touches**: `ai/scripts/train_konvid_mos_head.py` (new), `ai/tests/test_train_konvid_mos_head.py` (new), `tools/vmaf-tune/src/vmaftune/predictor.py` (adds `Predictor.predict_mos` + the optional `konvid_mos_head_v1.onnx` loader; `_DEFAULT_COEFFS` and `_predict_analytical` are unchanged), `tools/vmaf-tune/tests/test_predict_mos.py` (new), `model/konvid_mos_head_v1.onnx` (new), `model/konvid_mos_head_v1_card.md` (new), `model/konvid_mos_head_v1.json` (new manifest sidecar), `docs/adr/0336-konvid-mos-head-v1.md` (new), `docs/research/0090-konvid-mos-head-design.md` (new), `docs/state.md` (T-MOS-HEAD-PRODFLIP row), `changelog.d/added/0336-konvid-mos-head-v1.md` (new). All paths are fork-local; upstream Netflix/vmaf has no MOS-head surface and the predictor lives entirely under `tools/vmaf-tune/`.
+- **Invariant**: the MOS-head ONNX I/O contract is two-input named tensors (`features` shape `(N, 11)`; `encoder_onehot` shape `(N, 1)`) -> one output tensor (`mos` shape `(N,)`) with the range `[1.0, 5.0]` baked into the graph via `1 + 4 * sigmoid(raw)`. The 11 feature columns are `(adm2, vif_scale0..3, motion2, saliency_mean, saliency_var, shot_count_norm, shot_mean_len_norm, shot_cut_density)` in that exact order — they line up with `train_konvid_mos_head.FEATURE_COLUMNS` and the predictor's `_predict_mos_via_head` zero-fills layout. ENCODER_VOCAB v4 ships a single `"ugc-mixed"` slot; multi-slot expansion is append-only. `Predictor.predict_mos` falls back to `mos = (predicted_vmaf - 30) / 14` clamped to `[1, 5]` whenever the ONNX is missing or `onnxruntime` is unavailable — that fallback is the documented behaviour, not a bug.
+- **On upstream sync**: no action required. The trainer + predictor + MOS head + tests live entirely under fork-local paths (`ai/`, `tools/vmaf-tune/`, `model/`); upstream syncs cannot touch them. `tools/vmaf-tune/src/vmaftune/predictor.py` is fork-local but co-evolves with vmaf-tune; if a future ADR re-shapes `ShotFeatures`, replay the MOS-head feature-column map in lockstep.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -m pytest ai/tests/test_train_konvid_mos_head.py tools/vmaf-tune/tests/test_predict_mos.py -v
+  python3 ai/scripts/train_konvid_mos_head.py --smoke --no-export   # gate must report PASS
+  ```

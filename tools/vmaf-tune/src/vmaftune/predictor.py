@@ -255,6 +255,38 @@ class Predictor:
         out = self._onnx_session.run(None, {input_name: x})  # type: ignore[attr-defined]
         return _clamp(float(out[0].flatten()[0]), 0.0, 100.0)
 
+    def predict_mos(
+        self,
+        features: ShotFeatures,
+        codec: str,
+        *,
+        target_quality: int | None = None,
+    ) -> float:
+        """Predict subjective MOS in ``[1.0, 5.0]`` for ``features``.
+
+        Phase 3 of [ADR-0325 / ADR-0336] — wires the optional
+        :mod:`konvid_mos_head_v1` ONNX into the predictor surface.
+        When the ONNX is shipped (``model/konvid_mos_head_v1.onnx``)
+        and ``onnxruntime`` is available, this loads it and returns
+        the head's prediction directly. When the ONNX is missing —
+        which is the default until the real-corpus retrain lands —
+        we fall back to a documented linear approximation that
+        rescales the existing VMAF predictor's output:
+        ``mos = (predicted_vmaf - 30) / 14`` clamped to ``[1, 5]``.
+
+        ``target_quality`` is the CRF the caller plans to encode at;
+        when ``None`` we pick the codec's default CRF.
+        """
+        head_session = _maybe_load_mos_head()
+        if head_session is not None:
+            return _predict_mos_via_head(head_session, features)
+        if target_quality is None:
+            adapter = get_adapter(codec)
+            target_quality = adapter.quality_default
+        predicted_vmaf = self.predict_vmaf(features, int(target_quality), codec)
+        mos = (predicted_vmaf - 30.0) / 14.0
+        return _clamp(mos, 1.0, 5.0)
+
     def pick_crf(
         self,
         features: ShotFeatures,
@@ -370,10 +402,108 @@ def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
+# --- konvid_mos_head_v1 loader (ADR-0325 / ADR-0336 Phase 3) ---------
+#
+# The MOS head is optional. Most callers will not ship it locally
+# until the production-flip gate fires on real KonViD data. The
+# loader is module-level (cached after first call) so the per-shot
+# loop does not pay an ONNX-session cost per frame.
+
+_MOS_HEAD_FAILED = object()  # sentinel — distinguishes "not loaded" from "tried and failed"
+_MOS_HEAD_CACHE: object | None = None
+_MOS_HEAD_RELPATH: Path = Path("model/konvid_mos_head_v1.onnx")
+
+
+def _resolve_mos_head_path() -> Path | None:
+    """Locate ``konvid_mos_head_v1.onnx`` relative to the repo root.
+
+    Walks up from this file until it finds the model file. Returns
+    ``None`` when the model isn't shipped — that's the documented
+    fallback case.
+    """
+    here = Path(__file__).resolve()
+    for parent in (here, *here.parents):
+        candidate = parent / _MOS_HEAD_RELPATH
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _maybe_load_mos_head() -> object | None:
+    """Load the MOS head ONNX once; return ``None`` when unavailable.
+
+    Three failure modes — each silently falls back to the linear
+    approximation rather than raising, because the predictor must
+    keep working on hosts without onnxruntime or the model file:
+
+    1. ``onnxruntime`` not importable -> fallback.
+    2. The ONNX file isn't shipped -> fallback.
+    3. The session itself raises at construction -> fallback.
+    """
+    global _MOS_HEAD_CACHE
+    if _MOS_HEAD_CACHE is not None:
+        if _MOS_HEAD_CACHE is _MOS_HEAD_FAILED:
+            return None
+        return _MOS_HEAD_CACHE
+    try:
+        import onnxruntime as ort  # type: ignore[import-not-found]
+    except ImportError:
+        _MOS_HEAD_CACHE = _MOS_HEAD_FAILED
+        return None
+    path = _resolve_mos_head_path()
+    if path is None:
+        _MOS_HEAD_CACHE = _MOS_HEAD_FAILED
+        return None
+    try:
+        _MOS_HEAD_CACHE = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    except Exception:  # pragma: no cover — defensive for malformed ONNX
+        _MOS_HEAD_CACHE = _MOS_HEAD_FAILED
+        return None
+    return _MOS_HEAD_CACHE
+
+
+def _reset_mos_head_cache_for_tests() -> None:
+    """Test seam — clear the cached session so a fresh resolve runs.
+
+    Public consumers don't call this; the test harness does so it
+    can exercise both the ONNX-present and the fallback paths
+    without an interpreter restart.
+    """
+    global _MOS_HEAD_CACHE
+    _MOS_HEAD_CACHE = None
+
+
+def _predict_mos_via_head(head_session: object, features: ShotFeatures) -> float:
+    """Run the konvid_mos_head_v1 ONNX once and clamp to ``[1, 5]``.
+
+    The MOS head consumes the 11-D feature vector documented in
+    :mod:`ai.scripts.train_konvid_mos_head` and the 1-D ENCODER_VOCAB v4
+    one-hot (``[1.0]`` — the single ``ugc-mixed`` slot). Defaults to
+    zero for the canonical-6 + saliency + shot-metadata fields the
+    :class:`ShotFeatures` dataclass does not currently expose.
+    """
+    import numpy as np  # type: ignore[import-not-found]
+
+    # Feature vector layout — must match
+    # ``train_konvid_mos_head.FEATURE_COLUMNS`` exactly.
+    x = np.zeros((1, 11), dtype=np.float32)
+    x[0, 6] = float(features.saliency_mean)
+    x[0, 7] = float(features.saliency_var)
+    encoder = np.ones((1, 1), dtype=np.float32)
+    inputs = head_session.get_inputs()  # type: ignore[attr-defined]
+    feed: dict[str, object] = {inputs[0].name: x, inputs[1].name: encoder}
+    out = head_session.run(None, feed)  # type: ignore[attr-defined]
+    return _clamp(float(np.asarray(out[0]).flatten()[0]), 1.0, 5.0)
+
+
 __all__ = [
-    "Predictor",
     "PredicateFn",
+    "Predictor",
     "ShotFeatures",
+    "_maybe_load_mos_head",
+    "_predict_mos_via_head",
+    "_reset_mos_head_cache_for_tests",
+    "_resolve_mos_head_path",
     "make_predictor_predicate",
     "pick_crf",
     "pick_keyint",
