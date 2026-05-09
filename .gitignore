@@ -87,3 +87,9 @@ libvmaf/subprojects/.wraplock
 
 # Per-run training output (per-epoch ONNX checkpoints)
 model/tiny/training_runs/
+
+# u2netp fork-local mirror (ADR-0325). Binary lives only in GitHub
+# Releases; the scaffold (license, model card, operator doc, release
+# workflow guard) is tracked, the binary itself is not.
+model/u2netp_mirror.onnx
+model/u2netp_mirror.pth

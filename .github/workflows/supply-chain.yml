@@ -50,6 +50,34 @@ jobs:
           cp build/libvmaf/libvmaf.so* artifacts/
           cp build/tools/vmaf artifacts/
           tar czf artifacts/models.tar.gz model/
+
+          # u2netp_mirror — fork-local mirror of the upstream
+          # `xuebinqin/U-2-Net` `u2netp` checkpoint, redistributed
+          # under Apache-2.0 §4 NOTICE compliance per ADR-0325. The
+          # binary is gitignored (lives at model/u2netp_mirror.onnx
+          # or model/u2netp_mirror.pth, dropped manually by the
+          # binary-upload PR). This step is **idempotent**: missing
+          # files are a fast-exit no-op so a release without the
+          # mirror still succeeds. When the binary lands, it gets
+          # copied into the artifacts/ tree alongside the canonical
+          # libvmaf.so / vmaf / models.tar.gz, picked up by the
+          # SHA256 hashing step (so SLSA provenance covers it), and
+          # signed by the existing cosign sign-blob loop. The
+          # license text + attribution receipt rides along.
+          if [ -f model/u2netp_mirror.onnx ]; then
+            cp model/u2netp_mirror.onnx artifacts/
+            echo "u2netp_mirror: ONNX rewrap staged"
+          fi
+          if [ -f model/u2netp_mirror.pth ]; then
+            cp model/u2netp_mirror.pth artifacts/
+            echo "u2netp_mirror: verbatim .pth staged"
+          fi
+          if [ -f model/u2netp_mirror.onnx ] || [ -f model/u2netp_mirror.pth ]; then
+            cp LICENSES/Apache-2.0-u2netp.txt artifacts/
+            echo "u2netp_mirror: license text staged"
+          else
+            echo "u2netp_mirror: binary not present, skipping (scaffold-only state per ADR-0325)"
+          fi
       - name: Compute SHA256 hashes (SLSA input)
         id: hash
         run: |
