@@ -209,8 +209,10 @@ static void usage(const char *const app, const char *const reason, ...)
         "                                  max|full  -> \"%%.17g\" (round-trip lossless)\n"
         "                                  legacy    -> \"%%.6f\" (default; Netflix-compatible)\n"
         " --tiny-model $path:           load a tiny ONNX model alongside classic models\n"
-        " --tiny-device $string:        auto|cpu|cuda|openvino|coreml|coreml-ane|\n"
-        "                                  coreml-gpu|coreml-cpu|rocm (default: auto)\n"
+        " --tiny-device $string:        auto|cpu|cuda|openvino|openvino-npu|\n"
+        "                                  openvino-cpu|openvino-gpu|coreml|\n"
+        "                                  coreml-ane|coreml-gpu|coreml-cpu|rocm\n"
+        "                                  (default: auto)\n"
         " --dnn-ep $string:             alias for --tiny-device; selects the ONNX Runtime\n"
         "                                  execution provider by its ORT name\n"
         " --tiny-threads $unsigned:     CPU EP intra-op threads (0 = ORT default)\n"
@@ -695,12 +697,14 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
         /* fall through — --dnn-ep is an alias; both write tiny_device */
         case ARG_DNN_EP:
             if (strcmp(optarg, "auto") && strcmp(optarg, "cpu") && strcmp(optarg, "cuda") &&
-                strcmp(optarg, "openvino") && strcmp(optarg, "coreml") &&
-                strcmp(optarg, "coreml-ane") && strcmp(optarg, "coreml-gpu") &&
-                strcmp(optarg, "coreml-cpu") && strcmp(optarg, "rocm")) {
+                strcmp(optarg, "openvino") && strcmp(optarg, "openvino-npu") &&
+                strcmp(optarg, "openvino-cpu") && strcmp(optarg, "openvino-gpu") &&
+                strcmp(optarg, "coreml") && strcmp(optarg, "coreml-ane") &&
+                strcmp(optarg, "coreml-gpu") && strcmp(optarg, "coreml-cpu") &&
+                strcmp(optarg, "rocm")) {
                 error(argv[0], optarg, o == ARG_DNN_EP ? ARG_DNN_EP : ARG_TINY_DEVICE,
-                      "one of auto|cpu|cuda|openvino|coreml|coreml-ane|coreml-gpu|"
-                      "coreml-cpu|rocm");
+                      "one of auto|cpu|cuda|openvino|openvino-npu|openvino-cpu|"
+                      "openvino-gpu|coreml|coreml-ane|coreml-gpu|coreml-cpu|rocm");
             }
             settings->tiny_device = optarg;
             break;
