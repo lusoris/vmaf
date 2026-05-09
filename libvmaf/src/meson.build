@@ -50,6 +50,20 @@ is_vulkan_enabled = get_option('enable_vulkan').enabled()
 # HIP (AMD ROCm) compute backend — scaffold ADR-0209 / T7-10. Default OFF;
 # every entry point returns -ENOSYS until the runtime PR lands.
 is_hip_enabled = get_option('enable_hip') == true
+# Metal (Apple Silicon) compute backend — scaffold ADR-0338 / T8-1. Default
+# `auto`: probes for Metal.framework on macOS, disabled elsewhere. Apple
+# Silicon (M1+) only at runtime — Intel Macs surface as -ENODEV. Every
+# entry point returns -ENOSYS until the runtime PR (T8-1b) lands.
+metal_opt = get_option('enable_metal')
+if metal_opt.auto()
+    # Auto-resolve on host_machine.system() == 'darwin'; disabled on every
+    # other host so Linux / Windows builds compile cleanly without the
+    # frameworks. The runtime PR (T8-1b) tightens this to require the
+    # frameworks once the option resolves to enabled.
+    is_metal_enabled = (host_machine.system() == 'darwin')
+else
+    is_metal_enabled = metal_opt.enabled()
+endif
 is_avx512_enabled = get_option('enable_avx512') == true
 is_nvtx_enabled = get_option('enable_nvtx') == true
 if is_nvtx_enabled and host_machine.system() == 'windows'
@@ -100,6 +114,19 @@ hip_deps = []
 if is_hip_enabled
     cdata.set10('HAVE_HIP', true)
     subdir('hip')
+endif
+
+# Metal (Apple Silicon) compute backend (ADR-0338 / T8-1 scaffold). Same
+# pattern as the HIP / Vulkan scaffolds above — empty arrays when the
+# option resolves to disabled (every non-macOS host), no-cost on default
+# builds. The dependency() probes inside `subdir('metal')` are
+# `required: false`; the scaffold compiles with no Metal SDK linkage on
+# any host, including Linux / Windows.
+metal_sources = []
+metal_deps = []
+if is_metal_enabled
+    cdata.set10('HAVE_METAL', true)
+    subdir('metal')
 endif
 if dnn_have_ort
     cdata.set10('HAVE_DNN', true)
@@ -1131,10 +1158,10 @@ libvmaf_ssimulacra2_static_lib = static_library(
 
 libvmaf_feature_static_lib = static_library(
     'libvmaf_feature',
-    libvmaf_feature_sources + vulkan_sources + hip_sources,
+    libvmaf_feature_sources + vulkan_sources + hip_sources + metal_sources,
     include_directories : [libvmaf_include, vmaf_include, cuda_dir],
     c_args : vmaf_cflags_common,
-    dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps],
+    dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, metal_deps],
     objects: [common_cuda_objects, common_sycl_objects, sycl_feature_objects,
               libvmaf_ssimulacra2_static_lib.extract_all_objects(recursive: false)]
 )
@@ -1262,6 +1289,7 @@ libvmaf = library(
       dnn_deps,
       vulkan_deps,
       hip_deps,
+      metal_deps,
     ],
     objects : [
         platform_specific_cpu_objects,

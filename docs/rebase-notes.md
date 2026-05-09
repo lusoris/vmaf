@@ -31447,6 +31447,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   `vmaf_hip_device_count() == 0`, so it stays portable across CI
   runners that don't expose an AMD GPU.
 
+
 ### `saliency_student_v2` — Resize-decoder ablation (ADR-0364, 2026-05-09)
 
 - **Touches**: `ai/scripts/train_saliency_student_v2.py` (new),
@@ -31496,3 +31497,90 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   bash -n ai/scripts/run_predictor_v2_training.sh
   python ai/scripts/train_predictor_v2_realcorpus.py --synthetic-smoke --report-out /tmp/p2.json
   ```
+
+### 0361 — Metal (Apple Silicon) backend scaffold (ADR-0361)
+
+- **Touches**:
+  - `libvmaf/include/libvmaf/libvmaf_metal.h` (new, fork-local) —
+    public C-API for the Metal backend (`vmaf_metal_state_init` /
+    `_import_state` / `_state_free` / `vmaf_metal_list_devices` /
+    `vmaf_metal_available`). Mirrors the HIP / Vulkan / SYCL / CUDA
+    public-header convention; opaque runtime types cross the ABI as
+    `uintptr_t` per ADR-0361 / ADR-0212 / ADR-0184.
+  - `libvmaf/src/metal/{common,picture_metal,dispatch_strategy,kernel_template}.{c,h}`
+    + `AGENTS.md` + `meson.build` (new, fork-local) — backend tree.
+    Every entry point returns `-ENOSYS`. The `kernel_template` field
+    shape mirrors the HIP twin modulo the unified-memory buffer
+    collapse (one `MTLBuffer` with `MTLResourceStorageModeShared`
+    instead of the (device, pinned-host) readback pair).
+  - `libvmaf/src/feature/metal/integer_motion_v2_metal.c` (new,
+    fork-local) — first kernel-template consumer. Mirrors
+    `feature/hip/integer_motion_v2_hip.c` call-graph-for-call-graph
+    modulo the single-buffer prev-ref slot (vs the HIP twin's
+    `pix[2]` ping-pong).
+  - `libvmaf/test/test_metal_smoke.c` (new, fork-local) —
+    14-sub-test smoke pinning the `-ENOSYS` contract. Mirrors
+    `test_hip_smoke.c`.
+  - `libvmaf/meson_options.txt` — new `enable_metal` feature option
+    (default `auto`). On `auto` the parent meson resolves to
+    `host_machine.system() == 'darwin'` so non-macOS hosts compile
+    cleanly without the frameworks; `enabled` forces linkage and
+    fails on non-macOS. Type-`feature` matches `enable_dnn`'s
+    auto-resolve shape (Metal on macOS is always available, like
+    DNN on a host with ONNX Runtime); the GPU-vendor-pair
+    boolean-default-off triad (`enable_cuda` / `enable_sycl` /
+    `enable_hip`) does not fit because Metal has no comparable
+    "wrong-host silent flip" risk.
+  - `libvmaf/src/meson.build` — `is_metal_enabled` resolution +
+    `subdir('metal')` + `metal_sources` / `metal_deps` threaded
+    through `libvmaf_feature_static_lib` and `libvmaf` library()
+    calls alongside CUDA / SYCL / Vulkan / HIP / DNN aggregations.
+  - `libvmaf/test/meson.build` — `test_metal_smoke` executable
+    wired under the same auto-on-macOS / explicit-enabled gate.
+  - `libvmaf/src/feature/feature_extractor.c` — adds
+    `extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_metal;`
+    + registry entry under `#if HAVE_METAL`.
+  - `.github/workflows/libvmaf-build-matrix.yml` — new lane
+    `Build — macOS Metal (T8-1 scaffold)` on `macos-latest` with
+    `-Denable_metal=enabled`. The `macos-latest` runner ships the
+    Metal SDK as part of the system framework set; no extra install
+    step is needed.
+  - `docs/backends/metal/index.md` (new, fork-local) +
+    `docs/backends/index.md` (row added) + ADR-0361 + index
+    fragment + `changelog.d/added/metal-backend-scaffold.md` +
+    `docs/state.md` row T8-1b.
+- **Upstream-port footprint**: zero — Netflix/vmaf does not ship a
+  Metal backend; this is a wholly fork-local addition. No upstream
+  file is touched. Same posture as the HIP scaffold (T7-10) and the
+  Vulkan scaffold (T5-1).
+- **Rebase invariants** (mirror the HIP scaffold's invariant set):
+  - `metal/kernel_template.h` mirrors `hip/kernel_template.h` modulo
+    the unified-memory buffer collapse (single `MTLBuffer` slot vs
+    the HIP `(device, pinned-host)` pair). On rebase, if the HIP
+    twin's lifecycle struct gains a third event slot, the Metal
+    twin must follow in the same PR.
+  - `feature/metal/integer_motion_v2_metal.c` mirrors
+    `feature/hip/integer_motion_v2_hip.c` call-graph-for-call-graph
+    modulo the single-`prev_ref`-slot collapse (vs the HIP twin's
+    `pix[2]` ping-pong). On rebase, drift in the HIP twin's submit
+    body (e.g. an added `submit_pre_launch` call) requires a paired
+    update here.
+  - `vmaf_fex_integer_motion_v2_metal` registers without the
+    `VMAF_FEATURE_EXTRACTOR_METAL` flag bit set. The flag bit is
+    reserved for the runtime PR (T8-1b) which adds the
+    `VMAF_PICTURE_BUFFER_TYPE_METAL_DEVICE` tag and *then* sets
+    the flag. Same posture as the HIP twin's
+    `VMAF_FEATURE_EXTRACTOR_HIP`-deferral; on rebase, leave the
+    flags at `VMAF_FEATURE_EXTRACTOR_TEMPORAL` only until T8-1b.
+- **Re-test** (on macOS only — Linux dev sessions cannot run this
+  lane locally):
+  ```bash
+  meson setup build -Denable_metal=enabled
+  ninja -C build
+  meson test -C build test_metal_smoke
+  ```
+  And on every host (Linux / Windows included): the default-build
+  gate must stay green — the auto-probe resolves to disabled on
+  non-macOS hosts so `meson setup build && ninja -C build` runs
+  unchanged.
+
