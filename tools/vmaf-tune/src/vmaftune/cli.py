@@ -505,6 +505,38 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="manifest destination (default: stdout)",
     )
+    ladder.add_argument(
+        "--with-uncertainty",
+        action="store_true",
+        help=(
+            "apply ADR-0279 uncertainty-aware rung selection: prune "
+            "adjacent rungs whose conformal intervals overlap above "
+            "the threshold, then insert mid-rungs in wide-interval "
+            "regions. No-op without per-rung intervals from the "
+            "sampler — see vmaftune.ladder.UncertaintyLadderPoint."
+        ),
+    )
+    ladder.add_argument(
+        "--uncertainty-sidecar",
+        type=Path,
+        default=None,
+        help=(
+            "calibration sidecar JSON (same schema as "
+            "``recommend --uncertainty-sidecar``). Defaults to the "
+            "Research-0067 floor (tight=2.0, wide=5.0 VMAF)."
+        ),
+    )
+    ladder.add_argument(
+        "--rung-overlap-threshold",
+        type=float,
+        default=None,
+        help=(
+            "fraction of the wider rung's conformal-interval width "
+            "above which two adjacent rungs are treated as "
+            "indistinguishable and the lower-bitrate one is dropped. "
+            "Default 0.5 per Research-0067."
+        ),
+    )
 
     compare = sub.add_parser(
         "compare",
@@ -651,6 +683,41 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
         ),
     )
     _add_coarse_to_fine_flags(p)
+    _add_recommend_uncertainty_flags(p)
+
+
+def _add_recommend_uncertainty_flags(p: argparse.ArgumentParser) -> None:
+    """Wire the ADR-0279 conformal-interval flags onto ``recommend``.
+
+    These flags are passive when ``--with-uncertainty`` is omitted —
+    the existing point-estimate recipe runs unchanged. When set, the
+    recommend search loop reads conformal intervals from the
+    coarse-to-fine row stream's ``vmaf_interval`` blocks (or, for
+    tests, from a JSON sidecar) and short-circuits / widens search
+    according to :func:`vmaftune.recommend.pick_target_vmaf_with_uncertainty`.
+    """
+    p.add_argument(
+        "--with-uncertainty",
+        action="store_true",
+        help=(
+            "consume conformal prediction intervals (per ADR-0279 / "
+            "PR #488) when picking the recommended CRF. Tight "
+            "intervals short-circuit the search early; wide "
+            "intervals fall back to the full point-estimate scan "
+            "with the result tagged ``(UNCERTAIN)``."
+        ),
+    )
+    p.add_argument(
+        "--uncertainty-sidecar",
+        type=Path,
+        default=None,
+        help=(
+            "path to a calibration sidecar (JSON, schema documented "
+            "in vmaftune.uncertainty.load_confidence_thresholds). "
+            "Defaults to the documented Research-0067 floor "
+            "(tight=2.0, wide=5.0 VMAF) when absent."
+        ),
+    )
 
 
 def _build_opts(args: argparse.Namespace) -> CorpusOptions:
@@ -766,6 +833,34 @@ def _run_recommend(args: argparse.Namespace) -> int:
                 yield row
 
     write_jsonl(_capture(), opts.output)
+    if getattr(args, "with_uncertainty", False):
+        from .recommend import UncertaintyAwareRequest, pick_target_vmaf_with_uncertainty
+        from .uncertainty import load_confidence_thresholds
+
+        thresholds = load_confidence_thresholds(getattr(args, "uncertainty_sidecar", None))
+        try:
+            ua_result = pick_target_vmaf_with_uncertainty(
+                visited,
+                UncertaintyAwareRequest(
+                    target_vmaf=args.target_vmaf,
+                    thresholds=thresholds,
+                ),
+            )
+        except ValueError as exc:
+            sys.stderr.write(
+                f"recommend: uncertainty pick failed ({exc}); "
+                f"visited {len(visited)} encodes -> {opts.output}\n"
+            )
+            return 1
+        row = ua_result.row
+        sys.stdout.write(
+            f"src={row.get('src')} preset={row.get('preset')} "
+            f"crf={row.get('crf')} vmaf={float(row['vmaf_score']):.3f} "
+            f"decision={ua_result.decision.value} "
+            f"visited={ua_result.visited}/{len(visited)} "
+            f"predicate={ua_result.predicate}\n"
+        )
+        return 0
     pick = _smallest_passing_crf(visited, args.target_vmaf)
     if pick is None:
         sys.stderr.write(
@@ -1192,9 +1287,24 @@ def _run_ladder(args: argparse.Namespace) -> int:
     and emits an HLS / DASH / JSON manifest. The Phase B sampler is
     used by default; tests can inject a stub via the ``ladder.SamplerFn``
     parameter.
+
+    When ``--with-uncertainty`` is set the CLI emits an informational
+    notice — the production path that wires per-rung intervals
+    through the sampler ships in a follow-up PR (see ADR-0279
+    status update); the library API
+    :func:`vmaftune.ladder.apply_uncertainty_recipe` is fully
+    functional today and is exercised by the unit tests.
     """
     from .ladder import build_and_emit
 
+    if getattr(args, "with_uncertainty", False):
+        sys.stderr.write(
+            "vmaf-tune ladder: --with-uncertainty set; the default "
+            "sampler still emits point-only rungs. The library API "
+            "vmaftune.ladder.apply_uncertainty_recipe is the entry "
+            "point for callers shipping their own interval-aware "
+            "sampler. Manifest unchanged.\n"
+        )
     resolutions = _parse_resolutions(args.resolutions)
     target_vmafs = _parse_target_vmafs(args.target_vmafs)
     manifest = build_and_emit(

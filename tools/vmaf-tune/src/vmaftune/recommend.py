@@ -21,6 +21,44 @@ predicate evaluation is independent of how the rows were obtained.
 
 Implements Buckets #4 (target-bitrate) and #5 (target-vmaf) from the
 capability audit (Research-0061).
+
+Uncertainty-aware extension (ADR-0279, this PR)
+------------------------------------------------
+
+The conformal-VQA prediction surface in :mod:`vmaftune.conformal`
+(PR #488) wraps the predictor's point VMAF estimate in a
+``(point, low, high)`` interval whose width carries the predictor's
+local confidence. When the caller supplies that interval per row
+(via :class:`UncertaintyAwareRequest`) the search loop becomes:
+
+* **Tight interval** (``width <= tight_max``) — the predictor is
+  confident; ``pick_target_vmaf_with_uncertainty`` short-circuits
+  the search as soon as the *first* row whose ``low`` clears the
+  target is observed. The "interval-aware search cost" is
+  :math:`O(k)` instead of the :math:`O(n)` full scan, where ``k``
+  is the index of the first sufficiently-confident row.
+* **Wide interval** (``width >= wide_min``) — the predictor is
+  uncertain; the search refuses to short-circuit on any single row
+  and instead falls back to the full point-estimate scan with the
+  returned :class:`RecommendResult` flagged ``predicate=...
+  (UNCERTAIN)`` so downstream tooling knows the result was picked
+  under high uncertainty.
+* **Middle band** — defer to the native non-uncertainty recipe
+  (the existing :func:`pick_target_vmaf` semantics, unchanged).
+
+Math: a row "definitely clears the target" iff its conformal lower
+bound ``low >= target`` (the entire 1-alpha interval lies above
+the bar). A row "definitely misses" iff ``high < target`` (the
+whole interval lies below). The decision rule above promotes the
+first definitely-clearing row only when the interval is tight
+enough that the conservative ``low`` is a faithful proxy for the
+truth (Lei et al. 2018 Theorem 2.2 marginal-coverage bound).
+
+Per :mod:`vmaftune.uncertainty` documentation, the uncertainty
+recipe **only** affects search cost / which row gets picked from
+an *equivalence class of qualifying rows*; it does **not** widen
+the production-flip gate that lives in
+:mod:`vmaftune.predictor_validate`.
 """
 
 from __future__ import annotations
@@ -30,6 +68,13 @@ import json
 import math
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
+
+from .uncertainty import (
+    ConfidenceDecision,
+    ConfidenceThresholds,
+    classify_interval,
+    interval_excludes_target,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -167,3 +212,224 @@ def format_result(result: RecommendResult) -> str:
         f"bitrate_kbps={float(row['bitrate_kbps']):.2f} "
         f"predicate={result.predicate} margin={result.margin:+.3f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Uncertainty-aware extension (ADR-0279) — interval-aware CRF search.
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class UncertaintyAwareRequest:
+    """Predicate description with per-row conformal intervals.
+
+    ``thresholds`` carries the corpus-derived ``(tight, wide)`` gate
+    pair — defaults match :class:`vmaftune.uncertainty.ConfidenceThresholds`
+    (2.0 / 5.0 VMAF, sourced from Research-0067 / PR #495).
+    """
+
+    target_vmaf: float
+    thresholds: ConfidenceThresholds = dataclasses.field(default_factory=ConfidenceThresholds)
+    encoder: str | None = None
+    preset: str | None = None
+    sample_uncertainty: dict[int, tuple[float, float, float]] | None = None
+    """Per-CRF override of ``(point, low, high)``.
+
+    Keys are integer CRF values; values are the conformal triplet for
+    that CRF. When supplied the search bypasses each row's embedded
+    ``vmaf_interval`` block and uses the override — useful for tests
+    and for callers that produce intervals out-of-band (e.g. the
+    deep-ensemble + conformal pipeline in
+    :mod:`vmaftune.conformal`).
+    """
+
+
+@dataclasses.dataclass(frozen=True)
+class UncertaintyRecommendResult:
+    """Winning row + the band that drove the decision.
+
+    Adds ``decision`` and ``visited`` to the base
+    :class:`RecommendResult` so callers can audit which short-circuit
+    fired and how many rows were examined before it did.
+    """
+
+    row: dict
+    predicate: str
+    margin: float
+    decision: ConfidenceDecision
+    visited: int
+    """Number of rows the search examined before terminating.
+
+    With a tight interval the search short-circuits at the first
+    definitely-clearing row, so ``visited`` is typically much less
+    than ``len(rows)``. With a wide interval the search is forced
+    through the full scan and ``visited == len(rows)``.
+    """
+
+
+def _row_interval(row: dict, req: UncertaintyAwareRequest) -> tuple[float, float, float]:
+    """Resolve ``(point, low, high)`` for one row.
+
+    Resolution order:
+
+    1. ``req.sample_uncertainty[crf]`` (per-call override).
+    2. ``row["vmaf_interval"]`` block (embedded in the corpus row).
+    3. Degenerate ``(point, point, point)`` (uncalibrated — no
+       interval information; the recipe falls back to point semantics).
+
+    Returns NaN ``low`` / ``high`` when the row carries no
+    ``vmaf_score`` — the caller treats those as "skip this row".
+    """
+    point_raw = row.get("vmaf_score")
+    if point_raw is None:
+        return (float("nan"), float("nan"), float("nan"))
+    point = float(point_raw)
+    if req.sample_uncertainty is not None:
+        crf_key = int(row.get("crf", -1))
+        override = req.sample_uncertainty.get(crf_key)
+        if override is not None:
+            return (float(override[0]), float(override[1]), float(override[2]))
+    iv = row.get("vmaf_interval")
+    if isinstance(iv, dict):
+        low_raw = iv.get("low")
+        high_raw = iv.get("high")
+        if low_raw is not None and high_raw is not None:
+            return (point, float(low_raw), float(high_raw))
+    # No interval shipped — return NaN bounds so classify_interval
+    # reports MIDDLE (uncalibrated path) and the recipe defers to
+    # the native point-estimate predicate verbatim. Returning a
+    # zero-width interval would mis-classify as TIGHT and trigger a
+    # spurious short-circuit on a row whose ``low`` is just the
+    # point estimate.
+    return (point, float("nan"), float("nan"))
+
+
+def pick_target_vmaf_with_uncertainty(
+    rows: Sequence[dict], req: UncertaintyAwareRequest
+) -> UncertaintyRecommendResult:
+    """Interval-aware analogue of :func:`pick_target_vmaf`.
+
+    Search cost is :math:`O(k)` instead of :math:`O(n)` when at
+    least one row's interval is tight enough that its lower bound
+    clears ``target`` — the search short-circuits the moment that
+    row is observed. Iteration order follows the input ``rows``
+    (typically ascending CRF as produced by
+    :func:`vmaftune.corpus.coarse_to_fine_search`); callers that
+    care about a different traversal order pre-sort the input.
+
+    Decision rules:
+
+    * **Tight interval and ``low >= target``** — promote
+      immediately; the conformal lower bound is a conservative
+      lower-confidence proxy that already clears the bar
+      (ADR-0279). Returned ``decision`` is
+      :attr:`ConfidenceDecision.TIGHT`.
+    * **Wide interval** — refuse to short-circuit on any single
+      row; fall through to a full scan with the same point-
+      estimate predicate :func:`pick_target_vmaf` uses.  Returned
+      ``decision`` is :attr:`ConfidenceDecision.WIDE` and the
+      ``predicate`` field includes ``(UNCERTAIN)``.
+    * **Middle band** — defer to the native point-estimate
+      predicate verbatim. Returned ``decision`` is
+      :attr:`ConfidenceDecision.MIDDLE`.
+    * **Interval excludes target across every visited row** — the
+      whole corpus's interval is below ``target``; surface the
+      best-effort row (highest VMAF) with ``predicate=...
+      (UNMET)``.
+    """
+    eligible: list[dict] = []
+    for r in rows:
+        if req.encoder is not None and r.get("encoder") != req.encoder:
+            continue
+        if req.preset is not None and r.get("preset") != req.preset:
+            continue
+        if int(r.get("exit_status", 0)) != 0:
+            continue
+        v = r.get("vmaf_score")
+        if v is None or (isinstance(v, float) and math.isnan(v)):
+            continue
+        eligible.append(r)
+    if not eligible:
+        raise ValueError("no eligible rows to evaluate (after filtering)")
+
+    target = req.target_vmaf
+    thresholds = req.thresholds
+
+    # Pass 1 — short-circuit search. Walk in input order; stop at
+    # the first row whose interval is tight AND whose lower bound
+    # already clears ``target``. Track the highest-VMAF row seen so
+    # the UNMET branch can return a best-effort row without a
+    # second pass.
+    visited = 0
+    best_so_far: dict | None = None
+    best_score = -math.inf
+    every_row_excludes = True
+    saw_wide = False
+    for r in eligible:
+        visited += 1
+        point, low, high = _row_interval(r, req)
+        score = float(r["vmaf_score"])
+        if score > best_score:
+            best_score = score
+            best_so_far = r
+        if not interval_excludes_target(low=low, high=high, target=target):
+            every_row_excludes = False
+        # Preserve NaN through to ``classify_interval`` so an
+        # uncalibrated row defers to MIDDLE band rather than being
+        # mis-classified as zero-width TIGHT.
+        if math.isnan(low) or math.isnan(high):
+            width = float("nan")
+        else:
+            width = max(0.0, high - low)
+        decision = classify_interval(width, thresholds)
+        if decision is ConfidenceDecision.WIDE:
+            saw_wide = True
+        if decision is ConfidenceDecision.TIGHT and low >= target:
+            return UncertaintyRecommendResult(
+                row=r,
+                predicate=f"target_vmaf>={target} (TIGHT, low={low:.3f})",
+                margin=score - target,
+                decision=ConfidenceDecision.TIGHT,
+                visited=visited,
+            )
+
+    # No tight short-circuit fired. Decide the fallback strategy
+    # from what we observed across the whole eligible set.
+    if every_row_excludes:
+        assert best_so_far is not None  # eligible is non-empty
+        return UncertaintyRecommendResult(
+            row=best_so_far,
+            predicate=f"target_vmaf>={target} (UNMET, interval-excluded)",
+            margin=best_score - target,
+            decision=ConfidenceDecision.WIDE if saw_wide else ConfidenceDecision.MIDDLE,
+            visited=visited,
+        )
+
+    # Fall back to the point-estimate predicate but tag the
+    # decision band so callers can audit which recipe drove the
+    # pick. saw_wide => WIDE; else MIDDLE.
+    point_pick = pick_target_vmaf(eligible, target)
+    band = ConfidenceDecision.WIDE if saw_wide else ConfidenceDecision.MIDDLE
+    suffix = " (UNCERTAIN)" if band is ConfidenceDecision.WIDE else ""
+    return UncertaintyRecommendResult(
+        row=point_pick.row,
+        predicate=f"{point_pick.predicate}{suffix}",
+        margin=point_pick.margin,
+        decision=band,
+        visited=visited,
+    )
+
+
+__all__ = [
+    "RecommendRequest",
+    "RecommendResult",
+    "UncertaintyAwareRequest",
+    "UncertaintyRecommendResult",
+    "format_result",
+    "load_corpus_jsonl",
+    "pick_target_bitrate",
+    "pick_target_vmaf",
+    "pick_target_vmaf_with_uncertainty",
+    "recommend",
+    "validate_request",
+]

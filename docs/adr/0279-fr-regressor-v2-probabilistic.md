@@ -161,3 +161,55 @@ C-side runtime adapter (`vmaf_dnn_score_with_interval`), and the
 under `T7-FR-REGRESSOR-V2-PROBABILISTIC` once the multi-codec
 Phase A corpus is available; flipping `Status` to `Accepted` is
 gated on that PR.
+
+### Status update 2026-05-09: recommend + ladder consume uncertainty
+
+Per ADR-0028 immutability the body above stays frozen; this entry
+records the second downstream consumer of the conformal surface
+without changing the original decision.
+
+**What landed:** `tools/vmaf-tune/src/vmaftune/uncertainty.py`
+centralises the `ConfidenceThresholds` dataclass, the
+`load_confidence_thresholds` sidecar loader, and the
+`classify_interval` width-band helper. The defaults
+`tight_interval_max_width=2.0` and `wide_interval_min_width=5.0`
+VMAF mirror the documented floor in the auto-driver F.3 work
+(PR #495 / Research-0067) byte-for-byte, so a single calibration
+sidecar drives `auto`, `recommend`, and `ladder` without
+divergence.
+
+`recommend.py` gains
+`pick_target_vmaf_with_uncertainty(rows, UncertaintyAwareRequest)`
+plus a `--with-uncertainty` / `--uncertainty-sidecar` CLI flag
+pair on the `recommend` subcommand. Tight intervals short-circuit
+the search at the first row whose conformal lower bound clears
+the target (O(k) instead of O(n)); wide intervals force a full
+scan with the result tagged `(UNCERTAIN)`; middle-band and
+uncalibrated rows defer to the existing point-estimate predicate
+verbatim. An `interval_excludes_target` helper surfaces a
+best-effort UNMET row when every visited interval lies below the
+target.
+
+`ladder.py` gains `UncertaintyLadderPoint`,
+`prune_redundant_rungs_by_uncertainty` (drops adjacent rungs
+whose intervals overlap above `DEFAULT_RUNG_OVERLAP_THRESHOLD =
+0.5`), `insert_extra_rungs_in_high_uncertainty_regions` (inserts
+geometric-bitrate / arithmetic-VMAF mid-rungs into wide-interval
+gaps), and the composed `apply_uncertainty_recipe` entry point.
+The existing convex-hull + knee-selection invariants are
+preserved.
+
+**Threshold provenance:** every numeric default in this PR cites
+either Research-0067 (Phase F feasibility, the same emergency
+floor PR #495 documents) or the parent ADR-0279 conformal proof.
+No threshold was invented locally — see the
+`feedback_no_guessing` rule in `CLAUDE.md`.
+
+**Out of scope (deferred to follow-up):** wiring the production
+sampler in `_default_sampler` to emit `UncertaintyLadderPoint`
+directly when the predictor ships a calibration sidecar. The
+library API is fully functional today and exercised by the unit
+tests (`test_recommend_uncertainty.py`,
+`test_ladder_uncertainty.py`); the CLI `ladder
+--with-uncertainty` flag emits an informational notice noting the
+follow-up.

@@ -25,6 +25,41 @@ design rationale and the alternatives considered (geometric ladder,
 fixed Apple HLS authoring spec, JND-based, etc.) and
 ``docs/adr/0307-vmaf-tune-ladder-default-sampler.md`` for the
 default-sampler wiring decision.
+
+Uncertainty-aware rung selection (ADR-0279, this PR)
+-----------------------------------------------------
+
+The conformal-VQA prediction surface (PR #488) attaches a
+``(low, high)`` interval to every predicted VMAF point. When the
+sampler ships those intervals on the :class:`UncertaintyLadderPoint`
+extension, two new transforms become available:
+
+* :func:`prune_redundant_rungs_by_uncertainty` — drop adjacent rungs
+  whose conformal intervals overlap by more than a configurable
+  fraction of the wider rung's width. Rationale: when rung A's
+  ``[low_A, high_A]`` and rung B's ``[low_B, high_B]`` overlap on
+  more than ``overlap_threshold`` (default ``0.5`` per Research-0067)
+  the predictor cannot statistically distinguish the two rungs at
+  the nominal coverage level, so the lower-bitrate rung is
+  redundant — keep the higher-quality one.
+* :func:`insert_extra_rungs_in_high_uncertainty_regions` — for any
+  pair of adjacent rungs whose averaged interval width is above the
+  ``wide_interval_min_width`` gate (default ``5.0`` VMAF), insert a
+  synthetic mid-bitrate / mid-quality rung. Rationale: a wide
+  interval is exactly where ladder choices have the most empirical
+  impact (the predictor can't tell which of "ship rung A" vs "ship
+  a hypothetical mid-rung" is better), so probing the midpoint is
+  the highest-information-per-encode use of the budget.
+
+Both transforms are *post-hull* — they run after
+:func:`convex_hull` and before :func:`select_knees` so the
+Pareto-frontier invariant is preserved. They are no-ops when the
+sampler does not emit intervals (point-estimate-only ladders behave
+exactly as before).
+
+Per :mod:`vmaftune.uncertainty` documentation, the uncertainty
+recipe **only** changes which rungs the ladder builder evaluates;
+it does **not** widen the production-flip gate.
 """
 
 from __future__ import annotations
@@ -35,6 +70,8 @@ import math
 import tempfile
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
+
+from .uncertainty import ConfidenceDecision, ConfidenceThresholds, classify_interval
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -488,3 +525,226 @@ def build_and_emit(
     hull = convex_hull(ladder.points)
     rungs = select_knees(hull, n=quality_tiers, spacing=spacing)
     return emit_manifest(rungs, format=format)
+
+
+# ---------------------------------------------------------------------------
+# Uncertainty-aware rung selection (ADR-0279, PR #488 wiring)
+# ---------------------------------------------------------------------------
+
+
+# Default per-pair overlap fraction above which adjacent rungs are
+# treated as statistically indistinguishable. ``0.5`` is the
+# conservative midpoint floor documented in Research-0067 §"Phase F
+# decision tree" — at 50 % overlap on the wider rung's interval, the
+# probability of rung B's true VMAF lying in rung A's interval is
+# already non-trivial, so the marginal information gained by
+# shipping both rungs falls below the cost of the extra encode.
+DEFAULT_RUNG_OVERLAP_THRESHOLD: float = 0.5
+
+
+@dataclasses.dataclass(frozen=True)
+class UncertaintyLadderPoint:
+    """:class:`LadderPoint` augmented with a conformal interval.
+
+    ``vmaf_low`` / ``vmaf_high`` carry the conformal lower / upper
+    bounds at the calibration's nominal coverage level (typically
+    95 %, alpha=0.05). ``vmaf == point`` from the underlying
+    predictor; the interval is centred on it but need not be
+    symmetric (the CV+ form is non-symmetric).
+
+    Subclassing :class:`LadderPoint` would require runtime
+    isinstance gymnastics in the existing transforms; instead we
+    expose :meth:`as_ladder_point` so the uncertainty-aware
+    pipeline can convert back to the plain shape before handing
+    off to :func:`convex_hull` / :func:`select_knees`.
+    """
+
+    width: int
+    height: int
+    bitrate_kbps: float
+    vmaf: float
+    crf: int
+    vmaf_low: float
+    vmaf_high: float
+
+    @property
+    def interval_width(self) -> float:
+        """Conformal interval width (>= 0)."""
+        return max(0.0, float(self.vmaf_high) - float(self.vmaf_low))
+
+    def as_ladder_point(self) -> LadderPoint:
+        """Project to the plain :class:`LadderPoint` shape."""
+        return LadderPoint(
+            width=self.width,
+            height=self.height,
+            bitrate_kbps=self.bitrate_kbps,
+            vmaf=self.vmaf,
+            crf=self.crf,
+        )
+
+
+def _interval_overlap_fraction(a: UncertaintyLadderPoint, b: UncertaintyLadderPoint) -> float:
+    """Overlap of intervals ``a`` and ``b`` over the wider interval's width.
+
+    Returns ``0.0`` if the intervals are disjoint, ``1.0`` if one
+    interval fully contains the other. Uses the *wider* width as the
+    denominator so the metric is symmetric in ``(a, b)`` and so a
+    pinhole-narrow interval inside a wide interval scores ``1.0``
+    (the wide interval cannot localise the narrow one's centre).
+    """
+    overlap_low = max(a.vmaf_low, b.vmaf_low)
+    overlap_high = min(a.vmaf_high, b.vmaf_high)
+    overlap = max(0.0, overlap_high - overlap_low)
+    denom = max(a.interval_width, b.interval_width)
+    if denom <= 0.0:
+        return 0.0
+    return overlap / denom
+
+
+def prune_redundant_rungs_by_uncertainty(
+    rungs: Sequence[UncertaintyLadderPoint],
+    *,
+    overlap_threshold: float = DEFAULT_RUNG_OVERLAP_THRESHOLD,
+) -> list[UncertaintyLadderPoint]:
+    """Drop adjacent rungs whose conformal intervals overlap too much.
+
+    Walks the input in ascending-bitrate order and, for every
+    adjacent pair ``(prev, cur)`` whose overlap fraction (per
+    :func:`_interval_overlap_fraction`) is greater than
+    ``overlap_threshold``, drops ``prev`` — the lower-bitrate rung.
+    Rationale: when the predictor cannot statistically distinguish
+    rungs A and B, ship the higher-quality one (B) and drop A; the
+    operator pays one encode budget instead of two for
+    indistinguishable quality.
+
+    The first and last rungs are always retained so the hull's
+    bitrate range is preserved (``select_knees`` later picks
+    interior rungs from whatever remains).
+
+    Returns the filtered list. Input list is not mutated. When
+    ``len(rungs) <= 2`` the input is returned verbatim — there is
+    no interior to prune.
+    """
+    if not 0.0 <= overlap_threshold <= 1.0:
+        raise ValueError(f"overlap_threshold must be in [0, 1]; got {overlap_threshold!r}")
+    if len(rungs) <= 2:
+        return list(rungs)
+    sorted_rungs = sorted(rungs, key=lambda p: p.bitrate_kbps)
+    kept: list[UncertaintyLadderPoint] = [sorted_rungs[0]]
+    n = len(sorted_rungs)
+    for i, cur in enumerate(sorted_rungs[1:], start=1):
+        is_last = i == n - 1
+        prev = kept[-1]
+        overlap = _interval_overlap_fraction(prev, cur)
+        if overlap > overlap_threshold and not is_last:
+            # Drop ``prev`` — keep the higher-quality rung instead.
+            # The first rung is a special case (always retained), so
+            # only swap if ``prev`` isn't the anchor.
+            if len(kept) > 1:
+                kept[-1] = cur
+            else:
+                # ``prev`` is the anchor; keep both so the bitrate
+                # range stays anchored at the low end.
+                kept.append(cur)
+        else:
+            kept.append(cur)
+    return kept
+
+
+def insert_extra_rungs_in_high_uncertainty_regions(
+    rungs: Sequence[UncertaintyLadderPoint],
+    *,
+    thresholds: ConfidenceThresholds | None = None,
+) -> list[UncertaintyLadderPoint]:
+    """Insert mid-bitrate rungs where the predictor is uncertain.
+
+    For each adjacent pair ``(a, b)`` in the input, classifies the
+    pair-averaged interval width via
+    :func:`vmaftune.uncertainty.classify_interval`. When the
+    averaged width is in the :attr:`ConfidenceDecision.WIDE` band
+    (>= ``wide_interval_min_width``, default ``5.0`` VMAF), insert
+    a synthetic rung at the geometric midpoint of the bitrate axis
+    and the arithmetic midpoint of the VMAF axis. The synthetic
+    rung's interval is set to the union of the parent intervals so
+    the recipe is conservative (subsequent encodes refine it).
+
+    The ``crf`` of the synthetic rung is the rounded average of the
+    parent rungs' CRFs, the resolution is inherited from the
+    higher-quality parent (matching the per-resolution semantics of
+    :class:`Rendition`).
+
+    Returns a new list with the synthetic rungs interleaved in
+    ascending-bitrate order. Input is not mutated. No-op when
+    ``len(rungs) < 2``.
+    """
+    if thresholds is None:
+        thresholds = ConfidenceThresholds()
+    if len(rungs) < 2:
+        return list(rungs)
+    sorted_rungs = sorted(rungs, key=lambda p: p.bitrate_kbps)
+    out: list[UncertaintyLadderPoint] = []
+    for a, b in zip(sorted_rungs[:-1], sorted_rungs[1:]):
+        out.append(a)
+        avg_width = 0.5 * (a.interval_width + b.interval_width)
+        if classify_interval(avg_width, thresholds) is ConfidenceDecision.WIDE:
+            mid_bitrate = math.sqrt(max(a.bitrate_kbps, 1e-9) * max(b.bitrate_kbps, 1e-9))
+            mid_vmaf = 0.5 * (a.vmaf + b.vmaf)
+            mid_low = min(a.vmaf_low, b.vmaf_low)
+            mid_high = max(a.vmaf_high, b.vmaf_high)
+            mid_crf = int(round(0.5 * (a.crf + b.crf)))
+            mid_w = b.width if b.vmaf >= a.vmaf else a.width
+            mid_h = b.height if b.vmaf >= a.vmaf else a.height
+            out.append(
+                UncertaintyLadderPoint(
+                    width=mid_w,
+                    height=mid_h,
+                    bitrate_kbps=mid_bitrate,
+                    vmaf=mid_vmaf,
+                    crf=mid_crf,
+                    vmaf_low=mid_low,
+                    vmaf_high=mid_high,
+                )
+            )
+    out.append(sorted_rungs[-1])
+    return out
+
+
+def apply_uncertainty_recipe(
+    rungs: Sequence[UncertaintyLadderPoint],
+    *,
+    thresholds: ConfidenceThresholds | None = None,
+    overlap_threshold: float = DEFAULT_RUNG_OVERLAP_THRESHOLD,
+) -> list[UncertaintyLadderPoint]:
+    """Compose the prune + insert transforms in their canonical order.
+
+    Pruning runs first so the inserted mid-rungs aren't immediately
+    re-pruned against their parents (which would defeat the
+    information-gain motivation). The composed transform is the
+    canonical entry point downstream callers use:
+
+    1. Drop adjacent rungs whose intervals overlap too much.
+    2. Insert mid-rungs into any remaining wide-interval gaps.
+
+    Returns a new list. Input is not mutated.
+    """
+    pruned = prune_redundant_rungs_by_uncertainty(rungs, overlap_threshold=overlap_threshold)
+    return insert_extra_rungs_in_high_uncertainty_regions(pruned, thresholds=thresholds)
+
+
+__all__ = [
+    "DEFAULT_RUNG_OVERLAP_THRESHOLD",
+    "DEFAULT_SAMPLER_CRF_SWEEP",
+    "Ladder",
+    "LadderPoint",
+    "Rendition",
+    "SamplerFn",
+    "UncertaintyLadderPoint",
+    "apply_uncertainty_recipe",
+    "build_and_emit",
+    "build_ladder",
+    "convex_hull",
+    "emit_manifest",
+    "insert_extra_rungs_in_high_uncertainty_regions",
+    "prune_redundant_rungs_by_uncertainty",
+    "select_knees",
+]
