@@ -91,7 +91,8 @@ typedef struct {
     const char *tiny_model_path; /* NULL = no tiny model */
     const char *tiny_device;     /* "auto"|"cpu"|"cuda"|"openvino"|
                                   * "coreml"|"coreml-ane"|"coreml-gpu"|
-                                  * "coreml-cpu"|"rocm" */
+                                  * "coreml-cpu"|"openvino-npu"|
+                                  * "openvino-cpu"|"openvino-gpu"|"rocm" */
     int tiny_threads;            /* 0 = ORT default */
     bool tiny_fp16;
     bool no_reference; /* skip reference; only meaningful with NR tiny model */

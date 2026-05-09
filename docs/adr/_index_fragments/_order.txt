@@ -314,6 +314,7 @@
 0325-vmaf-tune-phase-f-auto
 0367-u2netp-fork-mirror-scaffold
 0368-external-bench-wrapper-only
+
 0335-hardware-capability-priors
 
 
@@ -338,4 +339,7 @@
 
 
 0356-ssimulacra2-cuda-leaks-perf
+
+
+0332-openvino-npu-ep-wiring
 

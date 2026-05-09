@@ -34,3 +34,17 @@ Rationale note: treating "document new features" as implicit has already failed 
 
 - Source: `req` (user: "all those ai parts we create need especially good documentation in docs with examples how to use it etc... this is a topic where the doc side for humans needs a bit substance")
 - Related ADRs: ADR-0036, ADR-0040, ADR-0041
+
+### Status update 2026-05-08: OpenVINO EP enabled for explicit NPU / CPU / GPU device-type selection
+
+[ADR-0332](0332-openvino-npu-ep-wiring.md) extended the tiny-AI
+dispatch surface with three new `--tiny-device` keywords —
+`openvino-npu` / `openvino-cpu` / `openvino-gpu` — pinning the
+OpenVINO EP to a single `device_type` with no fallback. The NPU
+selector targets the Intel AI-PC neural processing unit on Meteor /
+Lunar / Arrow Lake silicon ([Research-0031](../research/0031-intel-ai-pc-applicability.md)
+follow-up; superseded the earlier DEFER verdict via research-0086
+GO recommendation). Per-model docs under `docs/ai/inference.md` were
+updated in the same PR to satisfy this ADR's per-PR doc bar; the EP
+matrix gained three rows and the `attached_ep` stable-string list
+gained `"OpenVINO:NPU"`.

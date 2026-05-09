@@ -76,7 +76,7 @@ New flags:
 | Flag | Default | Notes |
 | --- | --- | --- |
 | `--tiny-model PATH` | — | ONNX model path; sidecar JSON at `${PATH%.onnx}.json`. |
-| `--tiny-device STR` | `auto` | `auto` \| `cpu` \| `cuda` \| `openvino` \| `coreml` \| `coreml-ane` \| `coreml-gpu` \| `coreml-cpu` \| `rocm`. |
+| `--tiny-device STR` | `auto` | `auto` \| `cpu` \| `cuda` \| `openvino` \| `coreml` \| `coreml-ane` \| `coreml-gpu` \| `coreml-cpu` \| `openvino-npu` \| `openvino-cpu` \| `openvino-gpu` \| `rocm`. |
 | `--tiny-threads N` | `0` | CPU EP intra-op threads; 0 = ORT default. |
 | `--tiny-fp16` | off | Request fp16 I/O when the EP supports it. |
 | `--tiny-model-verify` | off | Require Sigstore-bundle verification (`cosign verify-blob`) before model load. Refuses to load on missing bundle, missing `cosign`, or non-zero exit. See [model-registry.md](model-registry.md) and [security.md](security.md). |
@@ -152,13 +152,16 @@ ffmpeg -i in.mp4 \
 | --- | --- | --- |
 | `--tiny-device cpu` | CPUExecutionProvider | Always available. |
 | `--tiny-device cuda` | CUDAExecutionProvider | Requires CUDA-enabled ORT; shares context with libvmaf-cuda. |
-| `--tiny-device openvino` | OpenVINOExecutionProvider | Covers Intel GPU / SYCL / oneAPI. Tries GPU device type first, falls back to CPU device type. Also covers the integrated Xe / Xe2 GPU on Intel AI-PC platforms (Meteor / Lunar / Arrow Lake) for free; AI-PC *NPU* support is intentionally deferred — see [Research-0031](../research/0031-intel-ai-pc-applicability.md). |
+| `--tiny-device openvino` | OpenVINOExecutionProvider | Covers Intel GPU / SYCL / oneAPI. Tries GPU device type first, falls back to CPU device type. Also covers the integrated Xe / Xe2 GPU on Intel AI-PC platforms (Meteor / Lunar / Arrow Lake) for free. |
+| `--tiny-device openvino-npu` | OpenVINOExecutionProvider, `device_type=NPU` | Intel AI-PC NPU only (Meteor / Lunar / Arrow Lake). No fallback inside the explicit selector; if the EP isn't compiled in or no NPU silicon is present, the open downgrades to the CPU EP via the same two-stage `vmaf_ort_open()` fallback that all explicit-EP selectors share. End-to-end NPU validation pending hardware access — see [ADR-0332](../adr/0332-openvino-npu-ep-wiring.md) and [Research-0031](../research/0031-intel-ai-pc-applicability.md). |
+| `--tiny-device openvino-cpu` | OpenVINOExecutionProvider, `device_type=CPU` | OpenVINO CPU plugin (skip the GPU.0 probe). Useful when you want OpenVINO's CPU implementation specifically — e.g. for parity testing against a measured `--tiny-device openvino-gpu` run, or as a stable fallback on hosts without Intel iGPU/NPU. |
+| `--tiny-device openvino-gpu` | OpenVINOExecutionProvider, `device_type=GPU` | OpenVINO `GPU.0` plugin. Targets the iGPU / dGPU on systems where OpenVINO's `intel_gpu` plugin is the desired backend (Arc dGPU, Xe / Xe2 iGPU). |
 | `--tiny-device coreml` | CoreMLExecutionProvider | Apple-only EP (macOS). CoreML auto-routes across the Apple Neural Engine (ANE), Metal-backed GPU, and CPU. The unscoped selector lets CoreML pick the compute unit per-op; use the explicit variants below to pin a single unit. See [ADR-0365](../adr/0365-coreml-ep-wiring.md). |
 | `--tiny-device coreml-ane` | CoreMLExecutionProvider, `MLComputeUnits=CPUAndNeuralEngine` | Highest perf-per-watt on M-series silicon (M1, M2, M3, M4). Routes to the dedicated on-die Neural Engine and falls back to CPU for ops the ANE doesn't support. Recommended Apple-silicon entry point. |
 | `--tiny-device coreml-gpu` | CoreMLExecutionProvider, `MLComputeUnits=CPUAndGPU` | Pins CoreML to Metal-backed GPU + CPU. Useful when a graph hits ANE op-coverage gaps and falls back to CPU more aggressively than expected. |
 | `--tiny-device coreml-cpu` | CoreMLExecutionProvider, `MLComputeUnits=CPUOnly` | Universal CoreML CPU path. Functionally similar to the plain CPU EP but exercises the same dispatch shape as the other coreml-* variants — useful for diff-style debugging on macOS. |
 | `--tiny-device rocm` | ROCmExecutionProvider | Requires ROCm-enabled ORT. |
-| `--tiny-device auto` | best available | Ordered try-chain: CUDA → OpenVINO (GPU then CPU) → ROCm → CoreML (auto-route) → CPU. CoreML is last in the chain because the recommended Apple-silicon entry point is the explicit `--tiny-device=coreml-ane` selector; AUTO picks CoreML only when no discrete-GPU EP is available, which is the typical M-series-Mac case. |
+| `--tiny-device auto` | best available | Ordered try-chain: CUDA → OpenVINO (GPU then CPU) → ROCm → CoreML (auto-route) → CPU. NPU is **not** in the AUTO chain — opt-in only via `--tiny-device openvino-npu` because of NPU power-state latency floor on small graphs. CoreML is last because the recommended Apple-silicon entry point is `--tiny-device=coreml-ane`; AUTO picks CoreML only when no discrete-GPU EP is available. |
 
 ### Graceful EP fallback
 
@@ -177,7 +180,7 @@ VmafDnnSession *sess;
 vmaf_dnn_session_open(&sess, "/models/m.onnx",
                       &(VmafDnnConfig){.device = VMAF_DNN_DEVICE_AUTO});
 printf("bound EP: %s\n", vmaf_dnn_session_attached_ep(sess));
-/* One of: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU", "ROCm" */
+/* One of: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU", "OpenVINO:NPU", "ROCm" */
 ```
 
 Consumers that need a hard failure on missing EP should assert on the

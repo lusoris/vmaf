@@ -91,9 +91,38 @@
 ### Added
 
 
+
 - **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
   (ADR-0325, design-only).** Ships
   [`docs/adr/0325-vmaf-tune-phase-f-auto.md`](docs/adr/0325-vmaf-tune-phase-f-auto.md)
+
+- **`vmaf-tune auto` Phase F.1 + F.2 — sequential scaffold + seven
+  short-circuits (ADR-0325).** New `tools/vmaf-tune/src/vmaftune/auto.py`
+  exposes the deterministic decision tree as a CLI subcommand
+  (`vmaf-tune auto --src ... --target-vmaf ... --allow-codecs ...`)
+  and as a Python API (`run_auto`, `evaluate_short_circuits`). The
+  seven F.2 short-circuits — `ladder-single-rung`, `codec-pinned`,
+  `predictor-gospel`, `skip-saliency`, `sdr-skip`,
+  `sample-clip-propagate`, `skip-per-shot` — ship as standalone
+  `_should_short_circuit_<N>` predicates so each can be unit-tested
+  in isolation. Fired short-circuits land in
+  `plan.metadata.short_circuits` for post-hoc speedup analysis. The
+  Phase D 5-min / 0.15-shot-variance thresholds ship as constants
+  (`PHASE_D_DURATION_GATE_S`, `PHASE_D_SHOT_VARIANCE_GATE`) pending
+  the F.3 empirical fit. `--smoke` mode exercises the composition
+  end-to-end with mocked sub-phases (no ffmpeg, no ONNX);
+  production wiring lands in F.3+. `auto` does not dispatch the
+  `fast` subcommand from inside its tree — `fast` (PR #467, ADR-0276
+  fast-path) remains a sibling. New `tests/test_auto_short_circuits.py`
+  with 45 assertions covering each predicate's boundary, the
+  canonical evaluation order, and the JSON metadata block. Docs at
+  [`docs/usage/vmaf-tune.md` § auto](docs/usage/vmaf-tune.md#auto).
+  See [ADR-0325](docs/adr/0325-vmaf-tune-phase-f-auto.md).
+
+- **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
+  (ADR-0364, design-only).** Ships
+  [`docs/adr/0364-vmaf-tune-phase-f-auto.md`](docs/adr/0364-vmaf-tune-phase-f-auto.md)
+
   and
   [`docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md`](docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md)
   proposing a single `vmaf-tune auto --src ref.mkv --target-vmaf 92`
@@ -105,6 +134,72 @@
   into F.1 (sequential scaffold), F.2 (short-circuits), F.3
   (confidence-aware fallbacks), F.4 (per-content-type recipe
   overrides). Explicitly rejects a learned-policy at runtime in
+
+
+  favour of an explainable hand-coded tree (≤ 30 lines pseudocode).
+  Companion to ADR-0237 (umbrella).
+
+- **OpenVINO NPU execution provider wired into the tiny-AI dispatch layer
+  ([ADR-0332](../docs/adr/0332-openvino-npu-ep-wiring.md),
+  [Research-0031](../docs/research/0031-intel-ai-pc-applicability.md)).**
+  Adds three new `--tiny-device` keywords — `openvino-npu`,
+  `openvino-cpu`, and `openvino-gpu` — that pin the
+  `OpenVINOExecutionProvider` to a single `device_type` (`NPU`, `CPU`,
+  `GPU`) with no fallback inside the explicit-selector branches. The
+  existing `--tiny-device openvino` keeps its GPU→CPU fallback chain
+  unchanged. NPU is intentionally NOT added to the `--tiny-device auto`
+  try-chain because of NPU power-state latency floor on small graphs.
+  The public `VmafDnnDevice` enum gains `VMAF_DNN_DEVICE_OPENVINO_NPU`
+  / `_CPU` / `_GPU`; `vmaf_dnn_session_attached_ep()` gains
+  `"OpenVINO:NPU"` as a stable return string. Targets the Intel AI-PC
+  neural processing unit on Meteor / Lunar / Arrow Lake silicon. The
+  graceful CPU-EP fallback in `vmaf_ort_open()` covers hosts where the
+  EP is registered but the device isn't physically present, so
+  `--tiny-device=openvino-cpu` is a safe fallback selector on
+  hardware-less hosts. End-to-end NPU silicon validation deferred to a
+  contributor with Meteor / Lunar / Arrow Lake hardware.
+
+- **AdaptiveCpp / hipSYCL as a second SYCL toolchain
+  ([ADR-0335](../docs/adr/0335-adaptivecpp-second-sycl-toolchain.md),
+  [Research-0086](../docs/research/0086-sycl-toolchain-audit-2026-05-08.md)
+  Topic B).** Contributors who do not want to install Intel's
+  ~2.6 GB closed-source oneAPI base toolkit can now build the
+  fork's `-Denable_sycl=true` path against AdaptiveCpp (formerly
+  OpenSYCL / hipSYCL), the open-source LLVM-based SYCL
+  implementation. Pass `-Dsycl_compiler=acpp` (default
+  `--acpp-targets=generic`, override via `-Dsycl_acpp_targets`).
+  Intel `icpx` remains the **primary** toolchain — fork-shipped
+  binaries, Intel discrete-GPU codegen, and the OpenVINO / NPU
+  enablement story stay icpx-coupled. New header
+  `libvmaf/src/feature/sycl/sycl_compat.h` exposes a
+  `VMAF_SYCL_REQD_SG_SIZE(N)` macro that reduces to
+  `[[intel::reqd_sub_group_size(N)]]` under icpx and to a no-op
+  under AdaptiveCpp; ten previously hard-coded kernel-attribute
+  call sites switch to the macro. New
+  [`docs/development/sycl-toolchains.md`](../docs/development/sycl-toolchains.md)
+  documents the install paths (Arch AUR `adaptivecpp` 25.10.0-2),
+  the per-toolchain capability matrix, and the numerical
+  conformance gap (acpp output is not bit-identical to icpx; both
+  remain non-bit-identical to the scalar CPU golden, consistent
+  with the existing CPU-only golden-gate rule). The
+  `--acpp-targets=omp` path lets a future CI lane exercise SYCL
+  TUs on stock `ubuntu-latest` runners without Intel hardware,
+  catching toolchain-monoculture bugs.
+
+- **K150K-A full-feature extraction pipeline
+  ([ADR-0362](../docs/adr/0362-k150k-corpus-integration.md),
+  [Research-0067](../docs/research/0067-k150k-corpus-integration.md)).**
+  New `ai/scripts/extract_k150k_features.py` extracts all 22 FULL_FEATURES
+  (Research-0026) from the 152,265-clip KoNViD-150k-A corpus using the
+  FR-from-NR adapter (ADR-0346): each clip is decoded once and fed as both
+  reference and distorted to `build-cpu/tools/vmaf --backend cuda`. Output
+  is `runs/full_features_k150k.parquet` (48 columns: mean + std of 22
+  features + mos + metadata), gitignored, written atomically every 1000
+  clips. Restartable via `.done` checkpoint. `ciede2000` and `psnr_hvs`
+  columns are all-NaN (identity-pair artifact); ADM/VIF/SSIM/VMAF floor at
+  identity — documented expected. Hardware: RTX 4090, ~7 s/clip.
+  User docs: [`docs/ai/datasets/k150k.md`](../docs/ai/datasets/k150k.md).
+
   favour of an explainable hand-coded tree (≤ 30 lines pseudocode);
   the user's "adaptive encoding ecosystem" vision text routes to
   the deterministic tree first, learned-policy as a deferred

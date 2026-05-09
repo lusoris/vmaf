@@ -503,12 +503,15 @@ static int init_gpu_backends(VmafContext *vmaf, const CLISettings *c
 }
 
 /* Translate the textual --tiny-device flag (cpu / cuda / openvino /
- * coreml / coreml-ane / coreml-gpu / coreml-cpu / rocm) into the
- * corresponding VmafDnnDevice enum. The coreml-* keywords pin the
- * CoreML EP to a single MLComputeUnits value (see ADR-0365); plain
- * `coreml` lets CoreML auto-route across compute units. Unknown
- * values fall back to VMAF_DNN_DEVICE_AUTO so the runtime picks a
- * default.
+ * coreml / coreml-ane / coreml-gpu / coreml-cpu / openvino-npu /
+ * openvino-cpu / openvino-gpu / rocm) into the corresponding
+ * VmafDnnDevice enum. The coreml-* keywords pin the CoreML EP to a
+ * single MLComputeUnits value (see ADR-0365); plain `coreml` lets
+ * CoreML auto-route across compute units. The openvino-* keywords pin
+ * the OpenVINO EP to a single device type with no fallback (see
+ * Research-0031); plain `openvino` keeps the GPU→CPU fallback chain.
+ * Unknown values fall back to VMAF_DNN_DEVICE_AUTO so the runtime
+ * picks a default.
  */
 static VmafDnnDevice resolve_tiny_device(const char *name)
 {
@@ -528,6 +531,12 @@ static VmafDnnDevice resolve_tiny_device(const char *name)
         return VMAF_DNN_DEVICE_COREML_GPU;
     if (!strcmp(name, "coreml-cpu"))
         return VMAF_DNN_DEVICE_COREML_CPU;
+    if (!strcmp(name, "openvino-npu"))
+        return VMAF_DNN_DEVICE_OPENVINO_NPU;
+    if (!strcmp(name, "openvino-cpu"))
+        return VMAF_DNN_DEVICE_OPENVINO_CPU;
+    if (!strcmp(name, "openvino-gpu"))
+        return VMAF_DNN_DEVICE_OPENVINO_GPU;
     if (!strcmp(name, "rocm"))
         return VMAF_DNN_DEVICE_ROCM;
     return VMAF_DNN_DEVICE_AUTO;
