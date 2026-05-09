@@ -2855,9 +2855,29 @@ static void adm_dwt2_16(const uint16_t *src, const adm_dwt_band_t *dst, AdmBuffe
     }
 }
 
-// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
-// from upstream and complicate future /sync-upstream merges. Per ADR-0141
-// (touched-file lint-clean rule, upstream-parity exception).
+/**
+ * Combined ref+distorted 2D Daubechies-2 DWT for ADM scales 1..3 (32-bit pipe).
+ *
+ * Upstream-mirror kernel from Netflix `966be8d5`; refactoring would diverge
+ * from upstream and complicate future `/sync-upstream` merges. Per ADR-0141
+ * (touched-file lint-clean rule, upstream-parity exception).
+ *
+ * Why one big function instead of two (ref / dis) calls: the inner loop
+ * interleaves ref and distorted reads against the same `filter_lo` /
+ * `filter_hi` coefficients so they stay live in registers across both
+ * pictures. Splitting would double cache pressure on the index tables
+ * `ind_y` / `ind_x` (which encode the symmetric edge-mirror that
+ * `dwt2_src_indices_filt()` populates per scale).
+ *
+ * Per-scale rounding is encoded in the small `add_bef_shift_round_VP/HP`
+ * and `shift_VerticalPass/HorizontalPass` LUTs. Scale 0 is NOT handled
+ * here — the caller (`integer_compute_adm`) routes scale 0 through
+ * `s->dwt2_8` / `s->dwt2_16` instead, because scale 0 reads the source
+ * picture (8/16-bit) while scales 1..3 read prior 32-bit DWT output.
+ *
+ * Dispatched via `AdmState::adm_dwt2_s123_combined` (scalar / AVX2 /
+ * AVX-512); see `init()` below for the runtime selection.
+ */
 // NOLINTNEXTLINE(readability-function-size)
 static void adm_dwt2_s123_combined(const int32_t *i4_ref_scale, const int32_t *i4_curr_dis,
                                    AdmBuffer *buf, int w, int h, int ref_stride, int dis_stride,
@@ -3030,9 +3050,33 @@ static void adm_dwt2_s123_combined(const int32_t *i4_ref_scale, const int32_t *i
     }
 }
 
-// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
-// from upstream and complicate future /sync-upstream merges. Per ADR-0141
-// (touched-file lint-clean rule, upstream-parity exception).
+/**
+ * Top-level ADM (Detail Loss Metric) computation over the 4 DWT scales.
+ *
+ * Upstream-mirror kernel from Netflix `966be8d5`; refactoring would diverge
+ * from upstream and complicate future `/sync-upstream` merges. Per ADR-0141
+ * (touched-file lint-clean rule, upstream-parity exception).
+ *
+ * Non-obvious behaviour worth documenting for future maintainers:
+ *
+ * - `numden_limit` scales the precision floor with picture area
+ *   (`1e-10 * w*h / (1920*1080)`). Below this threshold both `num` and
+ *   `den` are clamped to zero so a tiny denominator near full picture
+ *   black does not blow up `score = num/den` into +Inf. This is why a
+ *   uniform-black 64x64 frame returns `score = 1.0` (the `den == 0.0`
+ *   branch below).
+ * - `adm_skip_scale0` short-circuits scale 0 by running only the lo-pass
+ *   half of the DWT and seeding `den_scale = 1e-10` to keep the eventual
+ *   division well-defined. This is the ADM-only fast-path; consumers
+ *   that ignore the scale-0 score still get a valid `score_aim`.
+ * - The scale > 0 path uses `s->adm_dwt2_s123_combined` (dispatched to
+ *   the AVX2/AVX-512/scalar twin in `init()`) which interleaves
+ *   ref+distorted DWT to keep the cache-resident filter coefficients hot.
+ * - Output ordering: `scores[2*scale + 0]` carries `num_scale`,
+ *   `scores[2*scale + 1]` carries `den_scale` for each of the 4 scales,
+ *   matching the per-scale `integer_adm_scaleN` features emitted by
+ *   `extract()` below.
+ */
 // NOLINTNEXTLINE(readability-function-size)
 static void integer_compute_adm(AdmState *s, VmafPicture *ref_pic, VmafPicture *dis_pic,
                                 double *score, double *score_num, double *score_den, double *scores,
@@ -3257,9 +3301,36 @@ static inline void *i4_init_dwt_band_hvd(i4_adm_dwt_band_t *band, char *data_top
     return data_top;
 }
 
-// Upstream-mirror kernel from Netflix 966be8d5; refactoring would diverge
-// from upstream and complicate future /sync-upstream merges. Per ADR-0141
-// (touched-file lint-clean rule, upstream-parity exception).
+/**
+ * `VmafFeatureExtractor::init` for the integer-ADM feature.
+ *
+ * Upstream-mirror kernel from Netflix `966be8d5`; refactoring would diverge
+ * from upstream and complicate future `/sync-upstream` merges. Per ADR-0141
+ * (touched-file lint-clean rule, upstream-parity exception).
+ *
+ * The body falls into three distinct phases that are stacked in the same
+ * function for upstream parity:
+ *
+ *   1. Bind `AdmState`'s ten function pointers (dwt2_8 / dwt2_16 /
+ *      adm_decouple / adm_csf / adm_cm / ... / adm_dwt2_s123_combined)
+ *      to the scalar implementations, then **conditionally upgrade** each
+ *      to the AVX2 / AVX-512 / NEON twin based on `vmaf_get_cpu_flags()`.
+ *      Note the `if (!(w % 8))` guard on `dwt2_8_avx2`: the AVX2 8-bit
+ *      DWT requires width divisible by 8, otherwise it falls back to
+ *      scalar for that one slot.
+ *   2. Compute aligned strides and allocate the working buffer. All ADM
+ *      scratch (5 i16 dwt-bands + 6 i32 dwt-bands + index tables) lives
+ *      in a single `data_buf` allocation slabbed via repeated
+ *      `init_dwt_band` calls — saves per-frame `aligned_malloc` traffic.
+ *      Failure at any allocation goto-jumps to `fail` to release the
+ *      partial slab.
+ *   3. Initialise `div_lookup` (used by `adm_decouple` for fast integer
+ *      division) and the feature-name dictionary that drives the JSON
+ *      output schema.
+ *
+ * Returns `0` on success, `-ENOMEM` on any allocation or dictionary
+ * failure with all partial state freed.
+ */
 // NOLINTNEXTLINE(readability-function-size)
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)

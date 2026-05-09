@@ -486,6 +486,46 @@ static void get_derivative_data_for_row(const uint16_t *image_data, uint16_t *de
 #define PATH_SEPARATOR '/'
 #endif
 
+/**
+ * `VmafFeatureExtractor::init` for the CAMBI banding-detection feature.
+ *
+ * Body groups four phases that are stacked here for upstream parity
+ * with Netflix/vmaf's CAMBI implementation:
+ *
+ *   1. Fix-up encode/source dimensions. `enc_*` defaults to picture
+ *      dimensions when unset; `src_*` likewise. The `enc > pic`
+ *      down-clamp implements the "encode was downscaled, do not
+ *      upscale back" behaviour — without it, CAMBI would report
+ *      banding from upscale ringing instead of source banding.
+ *      The mixed-direction `src vs enc` rejections (one larger, one
+ *      smaller) catch user CLI input that combines a downscale and
+ *      an upscale axis, which has no defined CAMBI interpretation.
+ *   2. Resolve `cambi_high_res_speedup` against the encode pixel
+ *      count. The selected tier (1080 / 1440 / 2160) only takes
+ *      effect when the encode is *at least* that resolution; below
+ *      the threshold it silently disables (set to 0). This matches
+ *      the user-visible documentation in `docs/metrics/cambi.md`.
+ *   3. Allocate the picture pyramid and per-pixel C-value scratch.
+ *      `alloc_w / alloc_h` is `MAX(src, enc)` only when `full_ref`
+ *      is set, otherwise enc-only — `full_ref` enables the source-
+ *      reference pyramid that the FR-CAMBI variant requires.
+ *      `num_bins` derives from `max_log_contrast` and gates the size
+ *      of the per-row histogram buffer.
+ *   4. Bind range-update + derivative callbacks, then upgrade them
+ *      to AVX2 / AVX-512 / NEON via `vmaf_get_cpu_flags()`. The
+ *      callbacks are the inner-loop hot path; the SIMD upgrade is
+ *      runtime-selected because CAMBI ships in CPU-only builds.
+ *
+ * `s->vlt_luma` is set from the user-tunable `cambi_vis_lum_threshold`
+ * via `get_vlt_luma()`; this is the "darkest luma to consider for
+ * banding" cut-off and is critical for HDR inputs (see ADR section in
+ * `docs/metrics/cambi.md`).
+ *
+ * Returns `0` on success, `-EINVAL` for invalid encode/source
+ * dimensions or heatmap-path failures, `-ENOMEM` on allocation
+ * failure. Allocations are NOT freed here on partial failure — the
+ * matching `close()` walks the same buffer set and is null-tolerant.
+ */
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {

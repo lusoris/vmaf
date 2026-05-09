@@ -152,6 +152,33 @@ static inline uint32_t edge_8(const uint8_t *src, int height, int stride, int i,
     return accum;
 }
 
+/**
+ * AVX-512 1D vertical convolution of an 8-bit Y plane with the Motion
+ * filter (scale-0 input).
+ *
+ * Upstream-mirror kernel; bit-exact with the scalar reference
+ * `y_convolution` in `libvmaf/src/feature/motion.c`. Selected via
+ * `MotionState::y_convolution_fn` when `VMAF_X86_CPU_FLAG_AVX512` is set.
+ *
+ * The body is split into three sections that look like duplication but
+ * are NOT collapsible without re-ordering the per-pixel `edge_8`
+ * fallback against the AVX-512 fast-path, which would change the
+ * rounding accumulation order and break bit-exactness (ADR-0138 /
+ * ADR-0139). The three sections are:
+ *
+ *   1. `i < top_edge` — top-edge rows fall back to scalar `edge_8` for
+ *      every pixel because the symmetric mirror of the filter tap
+ *      reaches above row 0.
+ *   2. `top_edge <= i < bottom_edge` — interior rows take the AVX-512
+ *      fast-path that fuses `filter_width` taps into per-lane fma
+ *      reductions across the 32-wide vector.
+ *   3. `i >= bottom_edge` — bottom-edge rows mirror (1) for the
+ *      symmetric reach beyond row `height - 1`.
+ *
+ * `inp_size_bits` is unused here because input is always 8-bit;
+ * `(void)inp_size_bits` documents that the parameter survives only
+ * for ABI compatibility with the 16-bit twin below.
+ */
 void y_convolution_8_avx512(void *src, uint16_t *dst, unsigned width, unsigned height,
                             ptrdiff_t src_stride, ptrdiff_t dst_stride, unsigned inp_size_bits)
 {
@@ -277,6 +304,24 @@ void y_convolution_8_avx512(void *src, uint16_t *dst, unsigned width, unsigned h
     }
 }
 
+/**
+ * AVX-512 1D vertical convolution of a 10/12-bit Y plane with the Motion filter.
+ *
+ * 16-bit twin of `y_convolution_8_avx512`. Upstream-mirror kernel;
+ * bit-exact with the scalar reference `y_convolution` in
+ * `libvmaf/src/feature/motion.c` for `bpc > 8`. Selected via
+ * `MotionState::y_convolution_fn` when input is high-bit-depth and
+ * `VMAF_X86_CPU_FLAG_AVX512` is set.
+ *
+ * The shape mirrors the 8-bit twin (top-edge / interior / bottom-edge)
+ * for the same bit-exactness reason — see that function's doc block
+ * for the rationale (ADR-0138 / ADR-0139).
+ *
+ * `add_before_shift = 2^(inp_size_bits - 1)` is the rounding bias for
+ * the right-shift back to 8-bit equivalent (`shift_var = inp_size_bits`).
+ * Caller is expected to pass the actual encoded bit-depth (10 or 12),
+ * not 16, otherwise the rounding will overshoot.
+ */
 void y_convolution_16_avx512(void *src, uint16_t *dst, unsigned width, unsigned height,
                              ptrdiff_t src_stride, ptrdiff_t dst_stride, unsigned inp_size_bits)
 {

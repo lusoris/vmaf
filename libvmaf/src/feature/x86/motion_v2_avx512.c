@@ -214,6 +214,32 @@ uint64_t motion_score_pipeline_16_avx512(const uint8_t *prev_u8, ptrdiff_t prev_
     return sad;
 }
 
+/**
+ * AVX-512 fused 8-bit Motion-v2 pipeline: separable 1-2-1 blur + per-row SAD.
+ *
+ * Upstream-mirror kernel; bit-exact with the scalar two-stage reference in
+ * `libvmaf/src/feature/motion.c` (`y_convolution_8` followed by
+ * `motion_score_8`). Selected via the motion_v2 dispatch in `init()`
+ * when AVX-512BW + AVX-512F are present.
+ *
+ * Why one fused function instead of two: the post-convolution `y_row`
+ * scratch is consumed by the per-row SAD on the very next pixel, so
+ * fusing keeps the just-written 32-bit-per-lane convolution output
+ * resident in L1 instead of round-tripping through the cache. The
+ * `f0 = 3571`, `f1 = 16004`, `f2 = 26386` constants are the upstream
+ * fixed-point Gaussian taps; `round8 = 1<<7` is the rounding bias for
+ * the shift back to 16-bit. Splitting into separate convolution + SAD
+ * functions would re-order the per-row partial sums and break the
+ * bit-exactness invariant (ADR-0138 / ADR-0139).
+ *
+ * `bpc` is `(void)`-discarded — the function is fixed to 8-bit input
+ * and the parameter survives only for ABI symmetry with the
+ * to-be-added 10/12-bit twin.
+ *
+ * Returns the row-summed SAD between `prev` and `cur` after the blur,
+ * which the caller (`extract()`) accumulates into the per-frame
+ * Motion-v2 score.
+ */
 uint64_t motion_score_pipeline_8_avx512(const uint8_t *prev, ptrdiff_t prev_stride,
                                         const uint8_t *cur, ptrdiff_t cur_stride, int32_t *y_row,
                                         unsigned w, unsigned h, unsigned bpc)

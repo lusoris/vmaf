@@ -1393,6 +1393,24 @@ void vif_statistic_16_avx2(struct VifPublicState *s, float *num, float *den, uns
     den[0] = accum_den_log / 2048.0 + accum_den_non_log;
 }
 
+/**
+ * AVX2 8-bit VIF subsampled-readout (combined filter + sub-2x downsample).
+ *
+ * Upstream-mirror kernel; bit-exact with the scalar reference path in
+ * `libvmaf/src/feature/integer_vif.c`. Splitting the body would perturb
+ * the per-row reduction order (`accum_mu1_*`, `accum_mu2_*`) and
+ * register allocation, breaking the bit-exactness invariant tracked by
+ * ADR-0138 / ADR-0139 and verified by `/cross-backend-diff`.
+ *
+ * Caller contract: `buf.ref` / `buf.dis` must be 8-bit Y planes,
+ * `buf.stride_16` is the 16-bit-pixel stride (the 16x lane width of
+ * the AVX2 vector). The function writes back into `buf.mu1` / `buf.mu2`
+ * / `buf.ref_sq` / `buf.dis_sq` / `buf.ref_dis` at half the input
+ * resolution — caller must therefore advance VIF processing to the
+ * next pyramid scale after this returns. `addnum = 1<<15` is the
+ * filter rounding bias; `vif_filt_s1` is the symmetric 9-tap fixed-
+ * point coefficient table for VIF scale 1.
+ */
 void vif_subsample_rd_8_avx2(VifBuffer buf, unsigned w, unsigned h)
 {
     const unsigned fwidth = vif_filter1d_width[1];
