@@ -794,6 +794,19 @@
 
 ### Fixed
 
+- **`motion_v2` AVX2 Phase-1 pipeline used logical right shift instead of
+  arithmetic on negative-accumulator lanes (T7-32 / rebase-notes §0038).**
+  `motion_score_pipeline_16_avx2` called `_mm256_srlv_epi64` (logical) where
+  scalar C `>> bpc` on `int64_t` is arithmetic.  On adversarial 16-bit
+  inputs where `accum + (1 << (bpc-1))` is negative, the two diverge: the
+  SIMD path produced a large positive value, inflating the Phase-2 SAD.
+  Fixed by replacing both call-sites with `srav_epi64_imm`, a new
+  AVX2-safe arithmetic-right-shift emulation using logical shift OR
+  sign-fill mask (`srai_epi32` + `slli_epi64`).  Companion fix in
+  `libvmaf/test/test_motion_v2_simd.c`: the scalar reference `mirror_idx`
+  used `2*size - idx - 1` (off by one vs `integer_motion_v2.c::mirror()`);
+  corrected to `2*size - idx - 2`.  All 4 adversarial fixtures now pass.
+
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
   `Clang-Tidy (Changed C/C++ Files)` step used `git diff --name-only`
