@@ -81,7 +81,7 @@ setup(
         "scikit-image>=0.16.2",
         "h5py>=2.6.0",
         "sureal>=0.4.2",
-        "dill>=0.3.1",
+        "dill>=0.4.1",
     ],
     entry_points={
         "console_scripts": [
