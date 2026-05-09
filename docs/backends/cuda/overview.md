@@ -198,7 +198,14 @@ to surface an unexpected delta.
 ## Known gaps
 
 - **CIEDE2000** — no CUDA kernel (same CPU-fallback behaviour).
-- **SSIM / MS-SSIM / PSNR / PSNR-HVS / ANSNR** — no CUDA kernels; these
+- **PSNR** — `psnr_cuda` ships with the full luma + chroma set
+  (`psnr_y`, `psnr_cb`, `psnr_cr`); luma landed in
+  [ADR-0182](../../adr/0182-gpu-long-tail-batch-1.md) batch 1b,
+  chroma in [ADR-0351](../../adr/0351-cuda-chroma-psnr.md) (T3-15(b)).
+  YUV400P clamps to luma-only at runtime. Cross-backend gate vs CPU
+  is bit-exact (`max_abs_diff = 0.0` at `places=4` on the 576×324 +
+  640×480 testdata fixtures, RTX 4090, 8-bit 4:2:0).
+- **SSIM / MS-SSIM / PSNR-HVS / ANSNR** — no CUDA kernels; these
   are rare enough in production that the CPU twin is sufficient.
 - **Float-twin extractors (`float_*`)** — the CUDA backend
   implements the float twins for ANSNR / PSNR / Motion / VIF / ADM

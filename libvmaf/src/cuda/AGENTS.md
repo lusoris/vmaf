@@ -152,6 +152,31 @@ cuda/
   [ADR-0271](../../../docs/adr/0271-cuda-drain-batch-ms-ssim.md)
   and [rebase-notes 0228](../../../docs/rebase-notes.md).
 
+- **`integer_psnr_cuda.c` chroma-extension invariants**
+  (fork-local, T3-15(b) / ADR-0351): the kernel
+  (`calculate_psnr_kernel_{8,16}bpc` in
+  `feature/cuda/integer_psnr/psnr_score.cu`) takes a `plane`
+  parameter (`unsigned`) appended after `(width, height)`. The
+  host's `psnr_cuda_dispatch` packs `kernelParams[]` in the exact
+  `(ref, dis, sse, &width, &height, &plane)` order — `cuLaunchKernel`
+  cannot validate argument types so any reorder / drop of the
+  trailing argument silently corrupts plane indexing. State carries
+  one `VmafCudaKernelReadback` per plane (`rb[3]`); the per-frame
+  async lifecycle stays singleton — all per-plane launches enqueue
+  back-to-back on the picture stream, all per-plane DtoHs enqueue
+  back-to-back on `lc.str` (no inter-plane barrier — the
+  accumulators are independent). The host relies on
+  `libvmaf.c::translate_picture_host`'s `upload_mask` having
+  uploaded all 3 planes for non-`YUV400P` inputs. **On rebase**: do
+  NOT collapse the `rb[3]` array back to a singleton; do NOT remove
+  the `plane` kernel argument; do NOT add a per-extractor
+  `needs_chroma` flag that would let a future "minimise upload"
+  optimisation skip chroma — chroma kernels (`ciede_cuda`,
+  `psnr_cuda`'s chroma branch) silently break if the upload mask is
+  narrowed. See
+  [ADR-0351](../../../docs/adr/0351-cuda-chroma-psnr.md) and
+  [rebase-notes 0320](../../../docs/rebase-notes.md).
+
 - **`kernel_template.h` is the canonical kernel scaffolding**
   (fork-local, ADR-0246): the inline helpers
   `vmaf_cuda_kernel_lifecycle_init/_close`,

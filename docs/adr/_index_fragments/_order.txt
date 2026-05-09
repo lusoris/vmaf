@@ -187,6 +187,7 @@
 0338-macos-vulkan-via-moltenvk-lane
 0341-ci-paths-ignore-doc-only-prs
 0349-fr-regressor-v3-namespace
+
 0359-arc-runners-pilot
 0350-psnr-hvs-avx512-ceiling
 0355-symphony-agent-dispatch-infra
@@ -273,3 +274,6 @@
 
 
 0332-agent-worktree-drift-hard-guard
+
+0351-cuda-chroma-psnr
+
