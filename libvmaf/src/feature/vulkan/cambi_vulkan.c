@@ -202,6 +202,13 @@ typedef struct CambiVkState {
     VmafCambiRangeUpdater dec_range_callback;
     VmafCambiDerivativeCalculator derivative_callback;
 
+    /* Submit pool: 1 slot, reused for all sequential per-dispatch command buffers.
+     * cambi_vk_run_record calls are strictly sequential (each waits before
+     * returning), so slot 0 can be safely recycled for each call.
+     * Eliminates per-dispatch vkAllocateCommandBuffers / vkCreateFence.
+     * (T-GPU-OPT-VK-1 / ADR-0256 / ADR-0354.) */
+    VmafVulkanKernelSubmitPool sub_pool;
+
     VmafDictionary *feature_name_dict;
 } CambiVkState;
 
@@ -746,6 +753,14 @@ static int cambi_vk_init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     vmaf_cambi_default_callbacks(&s->inc_range_callback, &s->dec_range_callback,
                                  &s->derivative_callback);
 
+    /* Pre-allocate submit pool (1 slot, reused sequentially for every
+     * cambi_vk_run_record call within a frame). Eliminates per-dispatch
+     * vkAllocateCommandBuffers + vkCreateFence overhead.
+     * (T-GPU-OPT-VK-1 / ADR-0256 / ADR-0354.) */
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/1, &s->sub_pool);
+    if (err)
+        return err;
+
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (!s->feature_name_dict)
@@ -821,26 +836,13 @@ static uint16_t cambi_vk_get_mask_index(unsigned w, unsigned h, uint16_t filter_
                       1);
 }
 
-/* Submit + wait helper. */
-static int cambi_vk_submit_wait(CambiVkState *s, VkCommandBuffer cmd)
+/* Submit + wait helper — thin wrapper kept for the call sites in
+ * cambi_vk_run_record. Passes through to submit_end_and_wait, which
+ * uses the pool's fence rather than creating one per call.
+ * (T-GPU-OPT-VK-1 / ADR-0256 / ADR-0354.) */
+static int cambi_vk_submit_wait(CambiVkState *s, VmafVulkanKernelSubmit *sub)
 {
-    VkFence fence = VK_NULL_HANDLE;
-    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS)
-        return -ENOMEM;
-    VkSubmitInfo si = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-    int err = 0;
-    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
-        err = -EIO;
-    } else {
-        vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
-    }
-    vkDestroyFence(s->ctx->device, fence, NULL);
-    return err;
+    return vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, sub);
 }
 
 /* Upload source luma plane into raw_in_buf (word-packed). */
@@ -1089,27 +1091,21 @@ static void cambi_vk_dispatch_filter_mode(CambiVkState *s, VkCommandBuffer cmd,
     vkCmdDispatch(cmd, gx, gy, 1);
 }
 
-/* One-shot command-buffer helper: record + submit + wait. */
+/* One-shot command-buffer helper: record + submit + wait.
+ * Uses slot 0 of the pre-allocated submit pool — each call acquires,
+ * records, ends, and waits synchronously, so slot 0 is guaranteed
+ * signalled before the next acquire. Eliminates per-call
+ * vkAllocateCommandBuffers + vkCreateFence + vkFreeCommandBuffers +
+ * vkDestroyFence. (T-GPU-OPT-VK-1 / ADR-0256 / ADR-0354.) */
 static int cambi_vk_run_record(CambiVkState *s, void (*record)(CambiVkState *, VkCommandBuffer))
 {
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo cbai = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = s->ctx->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &cmd) != VK_SUCCESS)
-        return -ENOMEM;
-    VkCommandBufferBeginInfo cbbi = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-    vkBeginCommandBuffer(cmd, &cbbi);
-    record(s, cmd);
-    vkEndCommandBuffer(cmd);
-    int err = cambi_vk_submit_wait(s, cmd);
-    vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
+    VmafVulkanKernelSubmit sub = {0};
+    int err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool, /*pool_slot=*/0, &sub);
+    if (err)
+        return err;
+    record(s, sub.cmd);
+    err = cambi_vk_submit_wait(s, &sub);
+    vmaf_vulkan_kernel_submit_free(s->ctx, &sub);
     return err;
 }
 
@@ -1288,6 +1284,11 @@ static int cambi_vk_close(VmafFeatureExtractor *fex)
         return 0;
     VkDevice dev = s->ctx->device;
     vkDeviceWaitIdle(dev);
+
+    /* Destroy submit pool BEFORE pipelines (ADR-0256 / ADR-0354 ordering
+     * rule: pool must be torn down before any pipeline + pool resource
+     * it references is freed). */
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
 
     /* Variant pipelines must be destroyed *before* the bundle's
      * `_destroy()` (which destroys the shared layout/shader/DSL/pool

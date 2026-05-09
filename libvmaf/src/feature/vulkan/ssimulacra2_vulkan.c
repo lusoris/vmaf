@@ -283,6 +283,13 @@ typedef struct {
     /* 2×2 box downsample (plane_stride form). */
     void (*down_host_fn)(const float *in, unsigned iw, unsigned ih, float *out, unsigned ow,
                          unsigned oh, size_t plane_stride);
+
+    /* Submit pool: 1 slot, reused once per scale (ss2v_run_scale is called
+     * sequentially; each call waits before returning, so slot 0 is safely
+     * recycled across the scale loop). Eliminates per-scale vkCreateFence +
+     * vkAllocateCommandBuffers + vkFreeCommandBuffers + vkDestroyFence.
+     * (T-GPU-OPT-VK-1 / ADR-0256 / ADR-0354.) */
+    VmafVulkanKernelSubmitPool sub_pool;
 } Ssimu2VkState;
 
 typedef struct {
@@ -858,6 +865,13 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (err)
         return err;
 
+    /* Pre-allocate submit pool (1 slot, reused sequentially per scale).
+     * Eliminates per-scale vkAllocateCommandBuffers + vkCreateFence.
+     * (T-GPU-OPT-VK-1 / ADR-0256 / ADR-0354.) */
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/1, &s->sub_pool);
+    if (err)
+        return err;
+
     /* ADR-0242: runtime dispatch — select SIMD host kernels when available. */
     s->ptlr_fn = NULL;
     s->xyb_host_fn = NULL;
@@ -1045,25 +1059,12 @@ static void ss2v_blur_3plane(Ssimu2VkState *s, VkCommandBuffer cmd, int scale,
     }
 }
 
-/* Submit and wait on a one-shot command buffer. */
-static int ss2v_submit_wait(Ssimu2VkState *s, VkCommandBuffer cmd)
+/* Submit and wait helper — thin wrapper kept for the call site in
+ * ss2v_run_scale. Delegates to the pool-owned fence + cmd buffer.
+ * (T-GPU-OPT-VK-1 / ADR-0256 / ADR-0354.) */
+static int ss2v_submit_wait(Ssimu2VkState *s, VmafVulkanKernelSubmit *sub)
 {
-    VkFence fence = VK_NULL_HANDLE;
-    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS)
-        return -ENOMEM;
-    VkSubmitInfo si = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
-        vkDestroyFence(s->ctx->device, fence, NULL);
-        return -EIO;
-    }
-    vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
-    vkDestroyFence(s->ctx->device, fence, NULL);
-    return 0;
+    return vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, sub);
 }
 
 /* Per-scale orchestration. Records a fresh command buffer that
@@ -1198,23 +1199,16 @@ static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], doubl
         ss2v_write_set(dev, ssim_set, 8, bufs);
     }
 
-    /* Record command buffer. */
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo cbai = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = s->ctx->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    if (vkAllocateCommandBuffers(dev, &cbai, &cmd) != VK_SUCCESS) {
-        err = -ENOMEM;
+    /* Acquire pre-allocated command buffer + fence from the submit pool.
+     * Slot 0 is reused across scales — ss2v_run_scale is called sequentially
+     * and each call drains the fence before returning.
+     * Eliminates per-scale vkAllocateCommandBuffers + vkCreateFence.
+     * (T-GPU-OPT-VK-1 / ADR-0256 / ADR-0354.) */
+    VmafVulkanKernelSubmit sub = {0};
+    err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool, /*pool_slot=*/0, &sub);
+    if (err)
         goto out;
-    }
-    VkCommandBufferBeginInfo cbbi = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-    vkBeginCommandBuffer(cmd, &cbbi);
+    VkCommandBuffer cmd = sub.cmd;
 
     /* (a) XYB ref + dis: now host-side (see ss2v_host_linear_rgb_to_xyb).
      * Computed in the per-scale loop in `extract` before this command
@@ -1261,9 +1255,8 @@ static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], doubl
      * USM, so the cache pre-warm cost is shared with the existing
      * partial read-back. */
 
-    vkEndCommandBuffer(cmd);
-    err = ss2v_submit_wait(s, cmd);
-    vkFreeCommandBuffers(dev, s->ctx->command_pool, 1, &cmd);
+    err = ss2v_submit_wait(s, &sub);
+    vmaf_vulkan_kernel_submit_free(s->ctx, &sub);
     if (err)
         goto out;
 
@@ -1537,6 +1530,9 @@ static int close_fex(VmafFeatureExtractor *fex)
         return 0;
     VkDevice dev = s->ctx->device;
     vkDeviceWaitIdle(dev);
+
+    /* Destroy submit pool BEFORE pipelines (ADR-0256 / ADR-0354 ordering rule). */
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
 
     /* Variant pipelines must be destroyed *before* the bundle's
      * `_destroy()` (which destroys the shared layout/shader/DSL/pool

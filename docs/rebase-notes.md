@@ -9397,6 +9397,7 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -9711,4 +9712,18 @@ surface was changed; the FFmpeg patch series is unaffected.
 MUST be called before `vmaf_vulkan_kernel_pipeline_destroy` in every migrated
 kernel's `close_fex()`. See `libvmaf/src/feature/vulkan/AGENTS.md
 §"Submit-pool ordering invariant"`.
+
+
+### 0354 — Vulkan submit-pool PR-C: submit_pool_destroy-before-pipeline ordering
+- **Touches**: `libvmaf/src/feature/vulkan/cambi_vulkan.c`,
+  `libvmaf/src/feature/vulkan/ssimulacra2_vulkan.c`,
+  `libvmaf/src/feature/vulkan/float_ansnr_vulkan.c`,
+  `libvmaf/src/feature/vulkan/moment_vulkan.c`.
+- **Invariant**: In every migrated extractor, `vmaf_vulkan_kernel_submit_pool_destroy()`
+  MUST precede every `vmaf_vulkan_kernel_pipeline_destroy()` call in `close_fex()`.
+  Reversing the order frees the pool's command buffers after the pipeline's command
+  pool is destroyed — undefined behaviour per Vulkan spec §6.2.
+- **Re-test**: `meson test -C build --suite=vulkan` passes. `scripts/ci/cross_backend_vif_diff.py`
+  shows `places=4` for all four extractors on all three target devices
+  (RTX 4090, Arc A380, RADV iGPU).
 

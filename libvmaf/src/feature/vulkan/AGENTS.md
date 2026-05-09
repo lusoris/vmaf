@@ -128,6 +128,18 @@ ADR-0234) catches drift but only after a full GPU run.
 Vulkan feature TUs compile only when `meson setup -Denable_vulkan=true`.
 The umbrella flag pulls in `dependency('vulkan')` + volk + glslc + VMA.
 
+- **Submit-pool destroy-before-pipeline ordering** ([ADR-0256](../../../../docs/adr/0256-vulkan-submit-pool-template.md) /
+  [ADR-0354](../../../../docs/adr/0354-vulkan-submit-pool-pr-c-four-kernels.md)).
+  In every extractor that uses `VmafVulkanKernelSubmitPool`,
+  `vmaf_vulkan_kernel_submit_pool_destroy()` MUST be called **before**
+  any `vmaf_vulkan_kernel_pipeline_destroy()` call in `close_fex()`.
+  Reversing the order frees the pipeline's descriptor pool + command
+  pool before the submit pool drains its command buffers — undefined
+  behaviour. The invariant applies to all 13 migrated extractors (PR-A,
+  PR-B, PR-C). Extractors in scope for PR-C:
+  `cambi_vulkan.c`, `ssimulacra2_vulkan.c`, `float_ansnr_vulkan.c`,
+  `moment_vulkan.c`.
+
 ## Governing ADRs
 
 - [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md) +

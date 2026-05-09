@@ -27,6 +27,27 @@
 > [ADR-0177](../../adr/0177-vulkan-motion-kernel.md),
 > [ADR-0178](../../adr/0178-vulkan-adm-kernel.md).
 
+## Submit-pool optimisation status
+
+As of ADR-0354 (PR-C), all Vulkan feature extractors have been migrated
+from per-frame `vkCreateFence` / `vkAllocateCommandBuffers` /
+`vkAllocateDescriptorSets` to pre-allocated
+`VmafVulkanKernelSubmitPool` (ADR-0256). The migration was delivered in
+three PRs (no file overlap, all independently gated at `places=4`):
+
+- **PR-A** (#563): `adm_vulkan.c`, `motion_vulkan.c`, `psnr_vulkan.c`.
+- **PR-B**: `ssim_vulkan.c`, `ciede_vulkan.c`, `ms_ssim_vulkan.c`,
+  `motion_v2_vulkan.c`, `float_psnr_vulkan.c`, `float_motion_vulkan.c`.
+- **PR-C** (ADR-0354): `cambi_vulkan.c`, `ssimulacra2_vulkan.c`,
+  `float_ansnr_vulkan.c`, `moment_vulkan.c`.
+
+Expected throughput improvement: 4–12 % on fence-dominated single-dispatch
+kernels (`float_ansnr`, `moment`). Multi-stage extractors (`cambi`,
+`ssimulacra2`) see a smaller saving since they are GPU- or CPU-bound
+by design. `ssimulacra2` remains CPU-bound by design (host-side XYB
+conversion per ADR-0201); the fence/cmdbuf saving is present but
+secondary.
+
 ## What's wired
 
 - Public state-level API in
