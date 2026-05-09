@@ -9525,6 +9525,7 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
   ```
 
 
+
 ## ADR-0281 follow-up — QSV install-matrix discoverability backfill (2026-05-08)
 - **Touches**: `docs/getting-started/install/{arch,fedora,ubuntu,macos,windows}.md` (new `## Intel QSV` section per page), `docs/adr/0281-vmaf-tune-qsv-adapters.md` (status-update appendix per ADR-0028), `changelog.d/changed/qsv-install-matrix-docs.md` (new fragment). No code, no engine, no upstream-shared C / Python source touched. Pure documentation backfill closing the SYCL-audit research-0086 Topic C gap (issue #464).
 - **Invariant**: each per-OS QSV section pins the package names against verified upstream URLs with a `Verified 2026-05-08` access date. The hardware-generation matrix is sourced from the public Wikipedia "Intel Quick Sync Video — Hardware decoding and encoding" table; if Intel revises which generation supports AV1 encode (e.g. backports the encoder to Lunar Lake / Meteor Lake silicon currently absent from the table), the matrix in all five pages must move in lockstep — the Arch / Fedora / Ubuntu / Windows pages all carry the same matrix verbatim. The macOS page deliberately omits the matrix (QSV unsupported on macOS).
@@ -9536,4 +9537,46 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
     grep -q 'Arc Battlemage' "docs/getting-started/install/${f}.md" || echo "MISSING: ${f}"
   # Confirm the macOS page documents QSV as unsupported:
   grep -q 'Intel QSV. is unsupported on macOS' docs/getting-started/install/macos.md
+
+### 0333 — vmaf-tune Phase F multi-pass encoding (ADR-0333)
+**Touches**:
+- `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py` (CodecAdapter
+  Protocol gains `supports_two_pass: bool` + `two_pass_args(...)`)
+- `tools/vmaf-tune/src/vmaftune/codec_adapters/x265.py` (overrides both)
+- `tools/vmaf-tune/src/vmaftune/encode.py` (`EncodeRequest` gains
+  `pass_number` / `stats_path`; `build_ffmpeg_command` adds the 2-pass
+  argv splice + pass-1 null-muxer redirect; new `run_two_pass_encode`)
+- `tools/vmaf-tune/src/vmaftune/corpus.py` (`CorpusOptions.two_pass`,
+  routing in `iter_rows`)
+- `tools/vmaf-tune/src/vmaftune/cli.py` (`--two-pass` flag on `corpus`
+  / `recommend` subparsers)
+**Invariant**: 2-pass encoding routes through the codec adapter via
+`supports_two_pass` + `two_pass_args(pass_number, stats_path)`. The
+encode driver never branches on codec name. Adapters with
+`supports_two_pass = False` are honoured silently (single-pass
+fallback with stderr warning); the seam is open for sibling codec
+adapters (libx264, libsvtav1, libvvenc, libaom-av1) to opt in by
+overriding the two methods on their adapter file alone. This is the
+fork-local extension to the ADR-0237 Phase A multi-codec contract;
+upstream Netflix/vmaf has no equivalent and does not own this code
+path.
+**Re-test**:
+```bash
+cd tools/vmaf-tune
+python -m pytest tests/test_codec_adapter_x265_two_pass.py -q
+```
+(Optional, requires ffmpeg + libx265 in the runner's PATH:)
+```bash
+VMAF_TUNE_INTEGRATION=1 python -m pytest \
+  tests/test_codec_adapter_x265_two_pass.py::test_real_x265_two_pass_smoke -q
+```
+**Rebase-sensitivity**: zero from upstream — `tools/vmaf-tune/` is
+fork-local. The only concern is the codec_adapters Protocol shape: a
+future upstream commit that adds a sibling codec adapter SHOULD
+inherit the `supports_two_pass = False` default and either explicitly
+opt in or leave the flag off. Downstream sibling-codec PRs in this
+fork should follow the ADR-0288 / ADR-0333 pattern: one adapter file,
+override the two methods, add a test file mirroring
+`test_codec_adapter_x265_two_pass.py`.
+
 

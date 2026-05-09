@@ -1,17 +1,23 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""libx265 codec adapter — ADR-0288.
+"""libx265 codec adapter — ADR-0288 + ADR-0333.
 
 Mirrors :mod:`vmaftune.codec_adapters.x264` shape; differs only in the
 codec-specific defaults (ten preset levels including ``placebo``,
 default profile derived from pixel format). Phase A still drives the
 ffmpeg subprocess via :mod:`vmaftune.encode`; this adapter contributes
 metadata + per-codec validation only.
+
+Phase F (ADR-0333) adds 2-pass support via the
+:meth:`X265Adapter.two_pass_args` method. libx265's 2-pass switches
+flow through ``-x265-params pass=N:stats=<path>`` rather than the
+standalone ``-pass``/``-passlogfile`` ffmpeg flags x264 uses.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 from . import _gop_common
 
@@ -55,6 +61,11 @@ class X265Adapter:
     # codec-aware qpfile emitter lands.
     supports_qpfile: bool = False
 
+    # Phase F (ADR-0333): libx265 supports 2-pass encoding via
+    # ``-x265-params pass=N:stats=<path>``. The harness opts in via
+    # ``EncodeRequest.pass_number`` + ``--two-pass`` CLI flag.
+    supports_two_pass: bool = True
+
     # x265 ships ten presets — one more than x264 (adds ``placebo``).
     presets: tuple[str, ...] = (
         "ultrafast",
@@ -97,3 +108,37 @@ class X265Adapter:
         :data:`_PROFILE_BY_PIX_FMT` directly.
         """
         return _PROFILE_BY_PIX_FMT.get(pix_fmt, "main")
+
+    def two_pass_args(self, pass_number: int, stats_path: Path) -> tuple[str, ...]:
+        """FFmpeg argv slice for libx265 2-pass encoding (Phase F / ADR-0333).
+
+        libx265 routes pass control through ``-x265-params``, not the
+        standalone ``-pass``/``-passlogfile`` ffmpeg flags x264 uses.
+        The argv shape is::
+
+            -x265-params pass=<N>:stats=<path>
+
+        where ``N`` is 1 (first pass — analyse, write stats) or 2
+        (second pass — read stats, encode). A 3-pass refinement is
+        possible on libx265 but not exposed by this adapter.
+
+        Raises :class:`ValueError` for ``pass_number`` outside ``{1, 2}``.
+        Returns an empty tuple when ``pass_number == 0`` so callers that
+        forward this method's result unconditionally don't need a
+        single-pass branch.
+        """
+        if pass_number == 0:
+            return ()
+        if pass_number not in (1, 2):
+            raise ValueError(
+                f"libx265 two_pass_args: pass_number must be 1 or 2, got {pass_number}"
+            )
+        # ``stats_path`` may carry colons on some platforms (Windows
+        # drive letters); x265 parses ``-x265-params`` as colon-
+        # separated key=value pairs, so a colon in the path would split
+        # the directive. The encode driver materialises the stats file
+        # in a tempdir under ``tempfile.gettempdir()`` (POSIX paths on
+        # the supported runners); a future Windows port that lands a
+        # path with a colon would need to translate it (e.g. via the
+        # short-name) before reaching this method.
+        return ("-x265-params", f"pass={pass_number}:stats={stats_path}")

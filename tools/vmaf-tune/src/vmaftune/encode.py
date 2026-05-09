@@ -8,6 +8,10 @@ and the encoder's reported version string.
 
 Subprocess boundary is the integration seam — tests mock
 ``subprocess.run`` rather than running ffmpeg.
+
+Phase F (ADR-0333) adds 2-pass encoding via :func:`run_two_pass_encode`
+and the ``pass_number`` / ``stats_path`` fields on :class:`EncodeRequest`.
+The single-pass path (``pass_number == 0``, the default) is unchanged.
 """
 
 from __future__ import annotations
@@ -16,7 +20,10 @@ import dataclasses
 import os
 import re
 import subprocess
+import sys
+import tempfile
 import time
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -47,6 +54,16 @@ class EncodeRequest:
     extra_params: tuple[str, ...] = ()
     sample_clip_seconds: float = 0.0
     sample_clip_start_s: float = 0.0
+    # Phase F (ADR-0333): 2-pass encoding control. ``pass_number`` is
+    # 0 (single-pass / default), 1 (first pass — analyse, write
+    # stats), or 2 (second pass — read stats, encode). ``stats_path``
+    # is the per-encode unique stats file path; required when
+    # ``pass_number != 0``. The driver materialises the stats file
+    # itself in :func:`run_two_pass_encode`; callers building one
+    # ``EncodeRequest`` at a time can leave ``stats_path = None`` for
+    # single-pass.
+    pass_number: int = 0
+    stats_path: Path | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,6 +90,12 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
     byte chunks. Output-side seeking would still decode (and the
     rawvideo demuxer would still read) the full source, defeating the
     speedup.
+
+    Phase F (ADR-0333): when ``req.pass_number != 0`` the adapter's
+    ``two_pass_args`` argv is spliced in before ``extra_params``; pass
+    1 redirects the encoded output to ``-f null -`` (avoiding writing
+    a useless pass-1 mp4) while pass 2 keeps the requested
+    ``req.output`` destination.
     """
     cmd: list[str] = [
         ffmpeg_bin,
@@ -104,8 +127,33 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
             str(req.crf),
         ]
     )
+
+    # Phase F: 2-pass argv from the codec adapter, when requested.
+    if req.pass_number != 0:
+        if req.stats_path is None:
+            raise ValueError("build_ffmpeg_command: pass_number != 0 requires stats_path")
+        # Lazy import to avoid the codec_adapters import cost on
+        # plain single-pass paths and to keep the module import
+        # graph identical for the legacy fast path.
+        from .codec_adapters import get_adapter
+
+        adapter = get_adapter(req.encoder)
+        if not getattr(adapter, "supports_two_pass", False):
+            raise ValueError(
+                f"build_ffmpeg_command: encoder {req.encoder!r} does not "
+                "support 2-pass encoding (supports_two_pass = False)"
+            )
+        cmd.extend(adapter.two_pass_args(req.pass_number, req.stats_path))
+
     cmd.extend(req.extra_params)
-    cmd.append(str(req.output))
+
+    if req.pass_number == 1:
+        # Pass 1 only writes the stats file; the encoded bitstream is
+        # discarded via the null muxer. Saves I/O + disk space (some
+        # codecs emit hundreds of MB on long sources).
+        cmd.extend(["-f", "null", "-"])
+    else:
+        cmd.append(str(req.output))
     return cmd
 
 
@@ -150,7 +198,12 @@ def run_encode(
     rc = int(getattr(completed, "returncode", 1))
 
     size = 0
-    if rc == 0 and req.output.exists():
+    # Pass 1 of a 2-pass encode writes only the stats file; the
+    # encoded bitstream is discarded via -f null - and req.output is
+    # not produced. Skip the size probe for pass 1 to avoid spurious
+    # zeros tripping callers that interpret a zero-size on a non-pass-1
+    # encode as failure.
+    if rc == 0 and req.pass_number != 1 and req.output.exists():
         size = os.path.getsize(req.output)
 
     ffmpeg_v, encoder_v = parse_versions(stderr)
@@ -181,3 +234,123 @@ def bitrate_kbps(size_bytes: int, duration_s: float) -> float:
 def iter_grid(presets: Sequence[str], crfs: Sequence[int]) -> list[tuple[str, int]]:
     """Cartesian product of presets x crfs as a deterministic list."""
     return [(p, c) for p in presets for c in crfs]
+
+
+def _stats_path_for(req: EncodeRequest, scratch_dir: Path) -> Path:
+    """Build a per-encode unique stats-file path under ``scratch_dir``.
+
+    The stats file name embeds the source stem, encoder, preset, and
+    CRF so a debug session can correlate it back to the encode that
+    produced it. A short uuid suffix prevents collisions when the
+    same (src, codec, preset, crf) is run more than once in parallel.
+    """
+    stem = f"{req.source.stem}__{req.encoder}__{req.preset}__crf{req.crf}__{uuid.uuid4().hex[:8]}"
+    return scratch_dir / f"{stem}.stats"
+
+
+def run_two_pass_encode(
+    req: EncodeRequest,
+    *,
+    ffmpeg_bin: str = "ffmpeg",
+    runner: object | None = None,
+    scratch_dir: Path | None = None,
+    on_unsupported: str = "fallback",
+) -> EncodeResult:
+    """Drive a 2-pass ffmpeg encode (Phase F / ADR-0333).
+
+    Runs the encoder twice with the codec adapter's ``two_pass_args``
+    spliced into each invocation. Pass 1 redirects to ``-f null -``
+    (no output file); pass 2 writes ``req.output``. The stats file
+    lives in ``scratch_dir`` (default: a fresh ``tempfile.mkdtemp``)
+    and is removed after pass 2 completes regardless of exit status.
+
+    Returns one :class:`EncodeResult` representing the combined op:
+
+    - ``encode_size_bytes`` — pass-2 output size.
+    - ``encode_time_ms`` — sum of pass-1 + pass-2 wall time.
+    - ``encoder_version`` / ``ffmpeg_version`` — pass-2 stderr (which
+      carries the actual encode banner; pass 1 emits the same lines
+      but pass 2 is the canonical source).
+    - ``exit_status`` — first non-zero of {pass 1, pass 2}, else 0.
+    - ``stderr_tail`` — pass-2 stderr tail (pass-1 failures get
+      surfaced via ``exit_status``).
+
+    ``on_unsupported`` controls behaviour when the request's encoder
+    has ``supports_two_pass = False``:
+
+    - ``"fallback"`` (default) — log a one-line stderr warning and
+      run a single-pass encode (returning that result). Mirrors the
+      saliency.py "x264-only, fall back to plain encode" precedent.
+    - ``"raise"`` — raise :class:`ValueError`. For callers that want
+      to fail loudly rather than silently degrade.
+    """
+    from .codec_adapters import get_adapter
+
+    adapter = get_adapter(req.encoder)
+    if not getattr(adapter, "supports_two_pass", False):
+        msg = (
+            f"vmaf-tune: encoder {req.encoder!r} does not support 2-pass "
+            "encoding; falling back to single-pass."
+        )
+        if on_unsupported == "raise":
+            raise ValueError(msg)
+        if on_unsupported != "fallback":
+            raise ValueError(
+                f"run_two_pass_encode: unknown on_unsupported={on_unsupported!r}; "
+                "expected 'fallback' or 'raise'"
+            )
+        sys.stderr.write(msg + "\n")
+        return run_encode(req, ffmpeg_bin=ffmpeg_bin, runner=runner)
+
+    own_scratch = scratch_dir is None
+    if scratch_dir is None:
+        scratch_dir = Path(tempfile.mkdtemp(prefix="vmaftune-2pass-"))
+
+    stats_path = _stats_path_for(req, scratch_dir)
+    pass1_req = dataclasses.replace(req, pass_number=1, stats_path=stats_path)
+    pass2_req = dataclasses.replace(req, pass_number=2, stats_path=stats_path)
+
+    try:
+        pass1 = run_encode(pass1_req, ffmpeg_bin=ffmpeg_bin, runner=runner)
+        if pass1.exit_status != 0:
+            # Don't bother with pass 2 if pass 1 failed; surface the
+            # pass-1 failure in the EncodeResult (with a clarifying
+            # tail) so the caller can disambiguate from a pass-2 fault.
+            return dataclasses.replace(
+                pass1,
+                request=req,  # report against the user-supplied request
+                stderr_tail=f"[pass 1 failed]\n{pass1.stderr_tail}",
+            )
+        pass2 = run_encode(pass2_req, ffmpeg_bin=ffmpeg_bin, runner=runner)
+        combined_status = pass2.exit_status  # pass1 was 0 by branch above
+        return EncodeResult(
+            request=req,
+            encode_size_bytes=pass2.encode_size_bytes,
+            encode_time_ms=pass1.encode_time_ms + pass2.encode_time_ms,
+            encoder_version=pass2.encoder_version,
+            ffmpeg_version=pass2.ffmpeg_version,
+            exit_status=combined_status,
+            stderr_tail=pass2.stderr_tail,
+        )
+    finally:
+        # Remove the stats file (libx265 also writes a sidecar
+        # ``<stats>.cutree`` — clean both). A user-provided
+        # ``scratch_dir`` is left in place; only the auto-tempdir
+        # is rmtree'd.
+        for candidate in (stats_path, stats_path.with_suffix(stats_path.suffix + ".cutree")):
+            try:
+                candidate.unlink()
+            except (OSError, FileNotFoundError):
+                pass
+        if own_scratch:
+            try:
+                # Best-effort cleanup; if anything remains the OS will
+                # garbage-collect /tmp eventually.
+                for child in scratch_dir.iterdir():
+                    try:
+                        child.unlink()
+                    except OSError:
+                        pass
+                scratch_dir.rmdir()
+            except OSError:
+                pass

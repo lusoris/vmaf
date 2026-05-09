@@ -34,7 +34,7 @@ from pathlib import Path
 
 from . import CORPUS_ROW_KEYS, SCHEMA_VERSION
 from .codec_adapters import get_adapter
-from .encode import EncodeRequest, bitrate_kbps, run_encode
+from .encode import EncodeRequest, bitrate_kbps, run_encode, run_two_pass_encode
 from .score import ScoreRequest, ScoreResult, run_score
 
 
@@ -92,6 +92,15 @@ class CorpusOptions:
     # ``hdr_transfer`` / ``hdr_primaries`` columns.
     hdr_mode: str = "auto"
     ffprobe_bin: str = "ffprobe"
+    # Phase F (ADR-0333): opt into 2-pass encoding for codecs whose
+    # adapter sets ``supports_two_pass = True`` (libx265 today;
+    # libx264 / libsvtav1 / libvvenc follow as sibling PRs). Default
+    # off — single-pass behaviour stays the canonical path. When set
+    # against an adapter where ``supports_two_pass = False``, the
+    # encode driver writes a one-line stderr warning and runs
+    # single-pass (matching the saliency x264-only fallback
+    # precedent).
+    two_pass: bool = False
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:
@@ -175,7 +184,17 @@ def iter_rows(
             sample_clip_seconds=clip_seconds,
             sample_clip_start_s=start_s,
         )
-        enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
+        if opts.two_pass:
+            # Phase F (ADR-0333). The driver gracefully falls back
+            # to single-pass when the adapter does not opt into
+            # 2-pass; keeps mixed-codec corpora honest.
+            enc_res = run_two_pass_encode(
+                enc_req,
+                ffmpeg_bin=opts.ffmpeg_bin,
+                runner=encode_runner,
+            )
+        else:
+            enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
 
         score_req = ScoreRequest(
             reference=job.source,

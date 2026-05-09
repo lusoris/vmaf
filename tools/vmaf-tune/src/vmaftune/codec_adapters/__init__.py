@@ -26,6 +26,7 @@ across software and hardware encoders. NVENC's seven hardware presets
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from .av1_amf import AV1AMFAdapter
@@ -74,6 +75,14 @@ class CodecAdapter(Protocol):
     probe_quality: int
     supports_qpfile: bool
 
+    # Phase F (ADR-0333). Adapters that opt into 2-pass encoding set
+    # ``supports_two_pass = True`` AND override
+    # :meth:`two_pass_args`. The default (``False`` + an empty
+    # tuple) keeps single-pass adapters single-pass; the encode
+    # driver detects the flag and falls back gracefully when
+    # ``--two-pass`` is requested against a non-supporting codec.
+    supports_two_pass: bool
+
     def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
         """FFmpeg ``-c:v ...`` argv slice for one encode."""
         ...
@@ -96,6 +105,18 @@ class CodecAdapter(Protocol):
 
     def probe_args(self) -> list[str]:
         """FFmpeg argv slice for a fast probe encode (predictor complexity barometer)."""
+        ...
+
+    def two_pass_args(self, pass_number: int, stats_path: Path) -> tuple[str, ...]:
+        """FFmpeg argv slice for the Nth pass of a 2-pass encode (Phase F).
+
+        ``pass_number`` is 1 (first pass — analyse) or 2 (second pass —
+        encode using the stats from pass 1). ``pass_number == 0`` is
+        treated as single-pass and returns an empty tuple. Adapters
+        with ``supports_two_pass = False`` raise
+        :class:`NotImplementedError`; the encode driver checks the
+        flag before calling this method.
+        """
         ...
 
 
