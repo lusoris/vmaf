@@ -148,6 +148,8 @@ extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
  * `feature/metal/integer_motion_v2_metal.c`. */
 extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_metal;
 #endif
+/* SpEED-QA NR metric scaffold — ADR-0253. */
+extern VmafFeatureExtractor vmaf_fex_speed_qa;
 extern VmafFeatureExtractor vmaf_fex_lpips;
 extern VmafFeatureExtractor vmaf_fex_fastdvdnet_pre;
 extern VmafFeatureExtractor vmaf_fex_mobilesal;
@@ -261,8 +263,8 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * T8-1c) keeps this row verbatim and adds its siblings. */
     &vmaf_fex_integer_motion_v2_metal,
 #endif
-    &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal, &vmaf_fex_transnet_v2,
-    &vmaf_fex_null, NULL};
+    &vmaf_fex_speed_qa, &vmaf_fex_lpips, &vmaf_fex_fastdvdnet_pre, &vmaf_fex_mobilesal,
+    &vmaf_fex_transnet_v2, &vmaf_fex_null, NULL};
 
 VmafFeatureExtractor *vmaf_get_feature_extractor_by_name(const char *name)
 {

@@ -1011,6 +1011,7 @@ libvmaf_feature_sources = [
     feature_src_dir + 'cambi.c',
     feature_src_dir + 'luminance_tools.c',
     feature_src_dir + 'null.c',
+    feature_src_dir + 'speed_qa.c',
     # LPIPS extractor uses the public libvmaf/dnn.h surface, which stays
     # available as -ENOSYS stubs when ORT is missing — so compile
     # unconditionally; init() declines at runtime on stub builds.
