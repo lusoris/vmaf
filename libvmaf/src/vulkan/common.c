@@ -51,7 +51,7 @@ static int create_instance(VkInstance *out_instance)
         .applicationVersion = VK_MAKE_API_VERSION(0, 3, 0, 0),
         .pEngineName = "libvmaf-vulkan",
         .engineVersion = VK_MAKE_API_VERSION(0, 3, 0, 0),
-        .apiVersion = VK_API_VERSION_1_3,
+        .apiVersion = VK_API_VERSION_1_4,
     };
     VkInstanceCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -261,7 +261,7 @@ int vmaf_vulkan_context_new(VmafVulkanContext **out, int device_index)
         .vkGetDeviceProcAddr = vkGetDeviceProcAddr,
     };
     VmaAllocatorCreateInfo alloc_info = {
-        .vulkanApiVersion = VK_API_VERSION_1_3,
+        .vulkanApiVersion = VK_API_VERSION_1_4,
         .physicalDevice = ctx->physical_device,
         .device = ctx->device,
         .instance = ctx->instance,
@@ -371,7 +371,7 @@ static int vmaf_vulkan_context_new_external(VmafVulkanContext **out,
         .vkGetDeviceProcAddr = vkGetDeviceProcAddr,
     };
     VmaAllocatorCreateInfo alloc_info = {
-        .vulkanApiVersion = h->api_version ? h->api_version : VK_API_VERSION_1_3,
+        .vulkanApiVersion = h->api_version ? h->api_version : VK_API_VERSION_1_4,
         .physicalDevice = ctx->physical_device,
         .device = ctx->device,
         .instance = ctx->instance,
