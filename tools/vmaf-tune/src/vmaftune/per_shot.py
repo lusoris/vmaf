@@ -328,7 +328,7 @@ def merge_shots(
             shot=rec.shot,
             crf=rec.crf,
             output=seg_path,
-            encoder=adapter.encoder,
+            adapter=adapter,
             ffmpeg_bin=ffmpeg_bin,
         )
         segment_cmds.append(cmd)
@@ -368,8 +368,9 @@ def _segment_command(
     shot: Shot,
     crf: int,
     output: Path,
-    encoder: str,
+    adapter: object,
     ffmpeg_bin: str,
+    preset: str | None = None,
 ) -> tuple[str, ...]:
     """Build the per-shot FFmpeg argv.
 
@@ -378,8 +379,28 @@ def _segment_command(
     encoding a raw YUV source must add the ``-f rawvideo`` + geometry
     flags upstream — Phase D's smoke path here assumes the source is
     already an addressable container.
+
+    The ``-c:v ...`` slice is delegated to the codec adapter's
+    :meth:`ffmpeg_codec_args` per HP-1 / ADR-0326 so non-x264 codecs
+    (libaom-av1, NVENC, QSV, AMF, ...) get their codec-correct flags
+    instead of a hardcoded ``-preset ... -crf ...`` pair.
     """
     start_seconds = shot.start_frame / framerate
+    fn = getattr(adapter, "ffmpeg_codec_args", None)
+    chosen_preset = preset if preset is not None else _default_segment_preset(adapter)
+    if fn is None:
+        # Legacy fallback — preserves the historic libx264 shape for
+        # adapters that haven't migrated yet.
+        codec_args: tuple[str, ...] = (
+            "-c:v",
+            getattr(adapter, "encoder", "libx264"),
+            "-preset",
+            chosen_preset,
+            "-crf",
+            str(crf),
+        )
+    else:
+        codec_args = tuple(fn(chosen_preset, crf))
     return (
         ffmpeg_bin,
         "-y",
@@ -390,12 +411,27 @@ def _segment_command(
         str(source),
         "-frames:v",
         str(shot.length),
-        "-c:v",
-        encoder,
-        "-crf",
-        str(crf),
+        *codec_args,
         str(output),
     )
+
+
+def _default_segment_preset(adapter: object) -> str:
+    """Pick a preset for the per-shot segment encode.
+
+    Phase D's :class:`ShotRecommendation` carries a CRF only — preset
+    is left to the adapter. We use ``"medium"`` when the adapter
+    exposes it (the consistent default across x264 / x265 / NVENC /
+    QSV / AMF / VVenC / libaom), falling back to the first declared
+    preset otherwise, and to ``"medium"`` for legacy stubs without a
+    ``presets`` tuple.
+    """
+    presets = getattr(adapter, "presets", ())
+    if presets:
+        if "medium" in presets:
+            return "medium"
+        return presets[0]
+    return "medium"
 
 
 def write_concat_listing(plan: EncodingPlan, listing_path: Path) -> Path:

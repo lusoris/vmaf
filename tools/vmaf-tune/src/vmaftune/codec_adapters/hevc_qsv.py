@@ -45,6 +45,21 @@ class HevcQsvAdapter:
         preset_to_qsv(preset)
         validate_global_quality(quality)
 
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for ``hevc_qsv`` ICQ-mode encode."""
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            preset_to_qsv(preset),
+            "-global_quality",
+            str(quality),
+        ]
+
+    def extra_params(self) -> tuple[str, ...]:
+        """No additional non-codec argv for hevc_qsv."""
+        return ()
+
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by QSV."""
         return _gop_common.default_gop_args(keyint, min_keyint)

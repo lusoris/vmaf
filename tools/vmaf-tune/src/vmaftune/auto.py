@@ -449,8 +449,6 @@ def get_recipe_for_class(content_class: str) -> dict[str, object]:
 
 class ShortCircuit(enum.Enum):
     """Names of the seven short-circuits (per ADR-0364 §F.2).
-class ShortCircuit(enum.Enum):
-    """Names of the seven short-circuits (per ADR-0325 §F.2).
 
     The string values are the canonical identifiers recorded in
     ``plan.metadata.short_circuits`` and surfaced in the JSON output.
@@ -724,8 +722,6 @@ def run_auto(
     meta_override: SourceMeta | None = None,
     confidence_thresholds: ConfidenceThresholds | None = None,
     cell_intervals: Sequence[tuple[int, str, str | None, float]] | None = None,
-) -> AutoPlan:
-    """Drive the F.1 + F.2 + F.3 decision tree.
 ) -> AutoPlan:
     """Drive the F.1 + F.2 + F.3 decision tree.
 

@@ -88,29 +88,34 @@ def test_libaom_validate_rejects_out_of_range_crf():
 
 
 def test_libaom_ffmpeg_codec_args_shape():
+    # Per HP-1 / ADR-0326: ffmpeg_codec_args is the runtime contract
+    # used by encode.build_ffmpeg_command — every adapter's slice now
+    # starts with ``-c:v <encoder>``. libaom uses ``-cpu-used`` rather
+    # than ``-preset`` (libaom-av1 has no -preset flag).
     a = LibaomAdapter()
     # cpu-used 4 (= medium) at crf 35.
     args = a.ffmpeg_codec_args("medium", 35)
-    assert args == ("-crf", "35", "-cpu-used", "4", "-an")
+    assert args == ["-c:v", "libaom-av1", "-cpu-used", "4", "-crf", "35"]
 
 
 def test_libaom_ffmpeg_codec_args_slowest_preset():
     a = LibaomAdapter()
     # placebo collapses to cpu-used 0 (slowest / highest quality).
     args = a.ffmpeg_codec_args("placebo", 20)
-    assert args == ("-crf", "20", "-cpu-used", "0", "-an")
+    assert args == ["-c:v", "libaom-av1", "-cpu-used", "0", "-crf", "20"]
 
 
 def test_libaom_ffmpeg_codec_args_fastest_preset():
     a = LibaomAdapter()
     args = a.ffmpeg_codec_args("ultrafast", 50)
-    assert args == ("-crf", "50", "-cpu-used", "9", "-an")
+    assert args == ["-c:v", "libaom-av1", "-cpu-used", "9", "-crf", "50"]
 
 
-def test_libaom_ffmpeg_codec_args_validates_inputs():
+def test_libaom_ffmpeg_codec_args_unknown_preset_raises():
+    # The dispatcher gates input via adapter.validate() before calling
+    # ffmpeg_codec_args; the slice itself raises only on unknown preset
+    # names (which are a programming error past the dispatcher gate).
     a = LibaomAdapter()
-    with pytest.raises(ValueError):
-        a.ffmpeg_codec_args("medium", 99)
     with pytest.raises(ValueError):
         a.ffmpeg_codec_args("turbo", 35)
 

@@ -79,6 +79,55 @@ class EncodeResult:
     stderr_tail: str
 
 
+def _legacy_codec_args(encoder: str, preset: str, quality: int) -> list[str]:
+    """Fallback ``-c:v ... -preset <p> -crf <q>`` shape (HP-1).
+
+    Used when an ``EncodeRequest`` names an encoder not in the
+    adapter registry, or when a registered adapter doesn't yet
+    expose ``ffmpeg_codec_args``. Mirrors the historic libx264-only
+    argv shape so callers that bypass the registry still produce
+    something invocable.
+    """
+    return ["-c:v", encoder, "-preset", preset, "-crf", str(quality)]
+
+
+def _resolve_codec_args(req: "EncodeRequest") -> list[str]:
+    """Resolve the codec-specific argv slice for ``req``.
+
+    Routes through the codec-adapter registry per ADR-0237 / ADR-0326
+    (HP-1): every adapter exposes ``ffmpeg_codec_args(preset, quality)``
+    that returns the ``-c:v ...`` slice in the codec-correct shape (e.g.
+    ``-cpu-used`` for libaom-av1, ``-cq`` for NVENC, ``-global_quality``
+    for QSV). When the encoder isn't in the registry (or the adapter
+    is a legacy stub without ``ffmpeg_codec_args``) we fall back to
+    the historic libx264 shape so existing callers keep working.
+    """
+    # Local import: ``codec_adapters`` imports ``encode`` indirectly
+    # through downstream modules in some test paths; the late binding
+    # keeps the dependency one-way at module load. The import statement
+    # also re-resolves ``get_adapter`` from the package on every call,
+    # so tests that ``mock.patch.object(codec_adapters, "get_adapter", ...)``
+    # see the patched callable.
+    try:
+        from . import codec_adapters as _ca
+    except ImportError:  # pragma: no cover - defensive
+        return _legacy_codec_args(req.encoder, req.preset, req.crf)
+
+    try:
+        adapter = _ca.get_adapter(req.encoder)
+    except KeyError:
+        return _legacy_codec_args(req.encoder, req.preset, req.crf)
+
+    fn = getattr(adapter, "ffmpeg_codec_args", None)
+    if fn is None:
+        return _legacy_codec_args(req.encoder, req.preset, req.crf)
+
+    args = fn(req.preset, req.crf)
+    # Adapters historically returned tuples; normalise to list so the
+    # composed argv is mutation-safe and uniformly typed.
+    return list(args)
+
+
 def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list[str]:
     """Compose the ffmpeg argv for a single encode.
 
@@ -96,6 +145,13 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
     1 redirects the encoded output to ``-f null -`` (avoiding writing
     a useless pass-1 mp4) while pass 2 keeps the requested
     ``req.output`` destination.
+
+    The codec-specific argv slice (``-c:v ...``) is delegated to the
+    codec adapter's ``ffmpeg_codec_args`` per HP-1 / ADR-0326 so
+    non-x264 codecs get their correct flags (e.g. ``-cpu-used`` for
+    libaom-av1, ``-cq`` for NVENC, ``-global_quality`` for QSV). The
+    legacy ``-c:v <enc> -preset <p> -crf <q>`` shape stays available
+    as a fallback for unregistered encoders.
     """
     cmd: list[str] = [
         ffmpeg_bin,
@@ -117,16 +173,7 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
         cmd.extend(["-ss", f"{req.sample_clip_start_s}"])
         cmd.extend(["-t", f"{req.sample_clip_seconds}"])
     cmd.extend(["-i", str(req.source)])
-    cmd.extend(
-        [
-            "-c:v",
-            req.encoder,
-            "-preset",
-            req.preset,
-            "-crf",
-            str(req.crf),
-        ]
-    )
+    cmd.extend(_resolve_codec_args(req))
 
     # Phase F: 2-pass argv from the codec adapter, when requested.
     if req.pass_number != 0:

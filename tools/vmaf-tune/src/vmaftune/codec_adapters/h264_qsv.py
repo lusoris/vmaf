@@ -48,6 +48,26 @@ class H264QsvAdapter:
         preset_to_qsv(preset)
         validate_global_quality(quality)
 
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for ``h264_qsv`` ICQ-mode encode.
+
+        QSV's quality knob is ``-global_quality`` (not ``-crf``); the
+        preset vocabulary maps identity-style onto FFmpeg's QSV bridge
+        names per :func:`preset_to_qsv`.
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            preset_to_qsv(preset),
+            "-global_quality",
+            str(quality),
+        ]
+
+    def extra_params(self) -> tuple[str, ...]:
+        """No additional non-codec argv for h264_qsv."""
+        return ()
+
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by QSV."""
         return _gop_common.default_gop_args(keyint, min_keyint)

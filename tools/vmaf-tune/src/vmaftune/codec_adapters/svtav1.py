@@ -144,6 +144,26 @@ class SvtAv1Adapter:
         if not lo <= crf <= hi:
             raise ValueError(f"crf {crf} outside Phase A range [{lo}, {hi}]")
 
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for libsvtav1 single-pass CRF.
+
+        SVT-AV1's FFmpeg wrapper accepts integer presets through the
+        generic ``-preset`` flag; the integer is the
+        :data:`PRESET_NAME_TO_INT` lookup of the canonical preset name.
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.ffmpeg_preset_token(preset),
+            "-crf",
+            str(quality),
+        ]
+
+    def extra_params(self) -> tuple[str, ...]:
+        """No additional non-codec argv for libsvtav1 Phase A."""
+        return ()
+
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by libsvtav1."""
         return _gop_common.default_gop_args(keyint, min_keyint)

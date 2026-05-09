@@ -88,6 +88,19 @@ class X265Adapter:
         if not lo <= crf <= hi:
             raise ValueError(f"crf {crf} outside Phase A range [{lo}, {hi}]")
 
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for libx265 single-pass CRF.
+
+        Byte-for-byte identical to the legacy hardcode in
+        ``encode.build_ffmpeg_command`` so HP-1's dispatcher pivot does
+        not change x265 argv composition. See ADR-0288 / ADR-0326.
+        """
+        return ["-c:v", self.encoder, "-preset", preset, "-crf", str(quality)]
+
+    def extra_params(self) -> tuple[str, ...]:
+        """No additional non-codec argv for libx265 Phase A."""
+        return ()
+
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by libx265 verbatim."""
         return _gop_common.default_gop_args(keyint, min_keyint)
