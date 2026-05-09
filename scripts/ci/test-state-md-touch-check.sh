@@ -179,6 +179,104 @@ make_commit "feat: tweak" "libvmaf/src/feature/feature_x.c" "ref"
 got=$(run_gate "BUG-1234 fix the foo" "Body without opt-out.")
 expect "R3. 'BUG-' uppercase token triggers gate" "FAIL" "$got"
 
+# ---------- Placeholder-ref hardening (ADR-0334 status update 2026-05-09) ----
+#
+# PR #541's audit surfaced that "touched state.md" is necessary but
+# not sufficient: closing PRs were writing "this PR" as the closer
+# placeholder and never rewriting it post-merge. The hardening
+# rejects placeholder forms in inserted lines.
+#
+# Helper: stage docs/state.md with the given line, run gate.
+set_state_md_and_run() {
+  local row="$1" title="$2" body="$3"
+  reset_repo
+  mkdir -p "$REPO/docs"
+  printf '# state\n\n%s\n' "$row" >"$REPO/docs/state.md"
+  git -C "$REPO" add docs/state.md
+  git -C "$REPO" commit -q -m "docs(state): add row"
+  run_gate "$title" "$body"
+}
+
+# Case P1: state.md inserted line with "closed by this PR" → REJECT --------
+got=$(set_state_md_and_run \
+  "| foo | closed by this PR | bug-fix |" \
+  "fix: foo segfault" \
+  "Body without opt-out.")
+expect "P1. inserted 'closed by this PR' rejected" "FAIL" "$got"
+
+# Case P2: state.md inserted line with merged numeric PR ref → ACCEPT -------
+got=$(set_state_md_and_run \
+  "| foo | closed by PR #432 | bug-fix |" \
+  "fix: foo segfault" \
+  "Body without opt-out.")
+expect "P2. inserted 'closed by PR #432' accepted" "PASS" "$got"
+
+# Case P3: state.md inserted line with commit SHA ref → ACCEPT --------------
+got=$(set_state_md_and_run \
+  "| foo | closed by commit \`f809ce09\` | bug-fix |" \
+  "fix: foo segfault" \
+  "Body without opt-out.")
+expect "P3. inserted 'closed by commit f809ce09' accepted" "PASS" "$got"
+
+# Case P4: lowercase 'this pr' variant → REJECT (case-insensitive) ----------
+got=$(set_state_md_and_run \
+  "| foo | this pr (fix/foo, 2026-05-09) | bug-fix |" \
+  "fix: foo cosmetic" \
+  "Body without opt-out.")
+expect "P4. inserted 'this pr' (lowercase) rejected" "FAIL" "$got"
+
+# Case P5: 'this commit' placeholder → REJECT --------------------------------
+got=$(set_state_md_and_run \
+  "| foo | this commit | bug-fix |" \
+  "fix: foo cosmetic" \
+  "Body without opt-out.")
+expect "P5. inserted 'this commit' rejected" "FAIL" "$got"
+
+# Case P6: bare 'TBD' as closer ref → REJECT --------------------------------
+got=$(set_state_md_and_run \
+  "| foo | TBD | bug-fix |" \
+  "fix: foo cosmetic" \
+  "Body without opt-out.")
+expect "P6. inserted bare 'TBD' rejected" "FAIL" "$got"
+
+# Case P7: '<PR>' template placeholder → REJECT -----------------------------
+got=$(set_state_md_and_run \
+  "| foo | closed by <PR> | bug-fix |" \
+  "fix: foo cosmetic" \
+  "Body without opt-out.")
+expect "P7. inserted '<PR>' template placeholder rejected" "FAIL" "$got"
+
+# Case P8: '#NNN' literal placeholder → REJECT ------------------------------
+got=$(set_state_md_and_run \
+  "| foo | closed by PR #NNN | bug-fix |" \
+  "fix: foo cosmetic" \
+  "Body without opt-out.")
+expect "P8. inserted '#NNN' template placeholder rejected" "FAIL" "$got"
+
+# Case P9: regression — must NOT match 'this PR' inside a *removed* line.
+# Build a state.md with the placeholder, then delete that line in a new
+# commit. The placeholder appears in the diff as a `-` line (removed),
+# which the gate must not flag.
+reset_repo
+mkdir -p "$REPO/docs"
+printf '# state\n\n| old | this PR | x |\n' >"$REPO/docs/state.md"
+git -C "$REPO" add docs/state.md
+git -C "$REPO" commit -q -m "docs(state): seed with placeholder"
+# Delete the placeholder row (still touches state.md so the touch
+# predicate passes); the only diff is a removal, no insertions match.
+printf '# state\n\n' >"$REPO/docs/state.md"
+git -C "$REPO" add docs/state.md
+git -C "$REPO" commit -q -m "docs(state): drop stale row"
+got=$(run_gate "fix: drop stale row" "Body without opt-out.")
+expect "P9. removed-line 'this PR' is NOT flagged" "PASS" "$got"
+
+# Case P10: 'debug-pr' substring inside a real word must NOT match -----
+got=$(set_state_md_and_run \
+  "| foo | closed by PR #432 (debug-pr branch) | bug-fix |" \
+  "fix: foo cosmetic" \
+  "Body without opt-out.")
+expect "P10. 'debug-pr' substring (no whitespace) does not match 'this PR'" "PASS" "$got"
+
 echo ""
 echo "test-state-md-touch-check: ${ok}/${total} passed, ${ng} failed."
 

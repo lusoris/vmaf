@@ -90,11 +90,40 @@ backed by the single-purpose script
 1. The diff against `BASE_SHA..HEAD_SHA` includes
    [`docs/state.md`](../state.md) (the row landed in the
    appropriate section: Open / Recently closed / Confirmed
-   not-affected / Deferred), **or**
+   not-affected / Deferred) **AND** none of the inserted lines
+   carry a placeholder PR/commit reference (see
+   "Placeholder-ref hardening" below), **or**
 2. The PR description contains `no state delta: REASON` (REASON is
    any non-empty token that is not the literal placeholder
    `REASON`). Use this for pure `feat` / `refactor` / `infra` PRs
    that genuinely have no bug-status impact.
+
+**Placeholder-ref hardening (ADR-0334 status update 2026-05-09).**
+Touching `docs/state.md` is necessary but not sufficient. PR #541's
+row audit found that the dominant staleness pattern is post-merge
+backfill drift — closing PRs write `this PR` as the closer-PR
+placeholder, the merge happens, the placeholder never gets rewritten
+to the merged numeric refs. The gate therefore additionally rejects
+any inserted line in `docs/state.md` containing:
+
+| Placeholder   | Why                                         |
+| ------------- | ------------------------------------------- |
+| `this PR`     | post-merge backfill drift (most common)     |
+| `this commit` | same drift mode for SHA-shaped refs         |
+| `TBD`         | obvious fill-it-in-later marker             |
+| `<PR>`        | template placeholder                        |
+| `#NNN`        | template placeholder (real refs are digits) |
+
+Canonical accept forms — explicitly NOT matched — are `PR #N` (any
+positive integer) and ``commit `<sha>` `` (the SHA wrapped in
+backticks). For an in-flight PR whose number is not yet final, you
+can either:
+
+1. Land the row with a placeholder, then push a follow-up commit
+   that rewrites it to `PR #<number>` after `gh pr create` returns
+   the number, **or**
+2. Use `PR #<this-pr-number>` once GitHub has assigned it (the PR
+   number is known the moment `gh pr create` exits).
 
 **Local dry-run** (mirrors the
 [`deliverables-check.sh`](../../scripts/ci/deliverables-check.sh)
@@ -115,8 +144,8 @@ gh pr view 999 --json body -q .body \
 
 The companion fixture script
 [`scripts/ci/test-state-md-touch-check.sh`](../../scripts/ci/test-state-md-touch-check.sh)
-exercises the gate against eight cases (5 primary + 3 regression).
-Run it after touching either script:
+exercises the gate against 18 cases (5 primary + 3 regression + 10
+placeholder-ref). Run it after touching either script:
 
 ```bash
 bash scripts/ci/test-state-md-touch-check.sh

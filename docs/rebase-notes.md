@@ -9622,6 +9622,7 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
   grep -q 'Intel QSV. is unsupported on macOS' docs/getting-started/install/macos.md
 
 
+
 ### 0333 — vmaf-tune Phase F multi-pass encoding (ADR-0333)
 **Touches**:
 - `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py` (CodecAdapter
@@ -9901,6 +9902,23 @@ compiles).
   ninja -C build && meson test -C build test_mcp_smoke -v
   build/test/test_mcp_smoke 2>&1 | tail -3   # expects "17 tests run, 17 passed"
   ```
+
+
+### Status update 2026-05-09 — placeholder-ref hardening
+- **Additional touches**: same set as the 2026-05-08 ADR-0334 entry,
+  no new files. The hardening adds a `git diff -U0 ... -- docs/state.md`
+  call inside `scripts/ci/state-md-touch-check.sh` (case 4a) plus 10
+  additional fixture cases in `scripts/ci/test-state-md-touch-check.sh`.
+- **New invariant**: inserted lines in `docs/state.md` (lines starting
+  with `+`, excluding the `+++ b/...` header) must not contain
+  `this PR` / `this commit` / bare `TBD` / `<PR>` / `#NNN`. Canonical
+  accept forms are `PR #N` and ``commit `<sha>` ``. The placeholder
+  vocabulary is coupled to PR #541's audit findings — reword in lockstep
+  with the ADR-0334 status-update appendix if the fork's row template
+  changes.
+- **Re-test on rebase**: same `bash scripts/ci/test-state-md-touch-check.sh`
+  run as the 2026-05-08 entry; the harness now reports
+  `18/18 passed` (was `8/8 passed`).
 
 
 

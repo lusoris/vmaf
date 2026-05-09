@@ -126,3 +126,72 @@ diff input is real, not mocked.
   backlog row.
 - `req` — user direction 2026-05-08: "convert CLAUDE.md §12 r13
   from reviewer-enforced to CI-enforced".
+
+### Status update 2026-05-09: placeholder-ref hardening
+
+PR #541's comprehensive `docs/state.md` row audit
+([Research-0090](../research/0090-state-md-row-audit-2026-05-09.md))
+surfaced a drift mode the original gate does not catch. Of 41
+"Recently closed" sub-rows audited, 8 were stale because the
+closer-PR field still read the placeholder `this PR` (a literal
+the closing PR's branch wrote before merge), never rewritten to
+the merged numeric PR after squash-merge. The original gate only
+checks that the diff *touches* `docs/state.md`; it does not check
+that newly-added rows cite a real merged PR or commit SHA.
+
+Per user direction 2026-05-09, this status update extends
+[`scripts/ci/state-md-touch-check.sh`](../../scripts/ci/state-md-touch-check.sh)
+with an additional check on the unified diff of `docs/state.md`:
+inserted lines (lines starting with `+`, excluding the `+++ b/...`
+header) must not contain any of the following placeholder forms:
+
+- `this PR` (case-insensitive, whitespace-bounded — covers
+  `(this PR)`, `this PR (branch, date)`)
+- `this commit` (case-insensitive, whitespace-bounded)
+- bare `TBD` (case-insensitive, word-boundary)
+- the literal `<PR>` (template placeholder)
+- the literal `#NNN` (template placeholder; real PR refs use
+  digits, e.g. `#432`)
+
+Canonical accept forms — explicitly NOT matched — are `PR #N`
+(any positive integer) and ``commit `<sha>` ``. The failure
+message points at the offending lines and names the canonical
+replacement: "rewrite as `PR #N (commit \`<sha>\`)` before
+squash-merge".
+
+The fixture script gains 10 additional cases (8 reject + 2
+accept) covering each placeholder form plus two regression cases:
+(a) the placeholder must NOT match when it appears only on
+*removed* lines (the gate's job is to police what *enters*
+state.md, not what is being cleaned up); (b) substrings like
+`debug-pr` (no whitespace between `this` and `pr`) must not
+match. Total fixture-script cases: 18 (5 primary + 3 regression
++ 10 placeholder-ref).
+
+The hardening is *additive*: every existing pass / fail case from
+the 2026-05-08 ADR remains unchanged. Per
+`feedback_no_test_weakening`, none of the original 8 fixture
+assertions were relaxed.
+
+Bypass: standard CI exit-1 (the user can edit + push again).
+There is intentionally no opt-out sentinel for the placeholder
+check — a state.md row referring to "this PR" is *always* a
+post-merge drift hazard, regardless of PR shape.
+
+For an in-flight PR whose number is not yet final, the gate
+clears via either of two approved paths:
+
+1. Land the row with a placeholder, push a follow-up commit
+   rewriting it to `PR #<number>` after `gh pr create` returns
+   the number.
+2. Use `PR #<this-pr-number>` once GitHub has assigned it (the
+   PR number is known the moment `gh pr create` exits).
+
+References (this status update):
+
+- PR #541 / [Research-0090](../research/0090-state-md-row-audit-2026-05-09.md)
+  — the audit that surfaced this drift mode.
+- `req` — user direction 2026-05-09: "harden the
+  scripts/ci/state-md-touch-check.sh gate to ALSO reject
+  'this PR' / 'this commit' / 'TBD' placeholder refs in
+  state.md edits".

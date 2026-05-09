@@ -142,9 +142,104 @@ echo "state-md-touch-check: triggered (${trigger_reason})."
 
 # ---------- 4. Pass conditions ----------
 
-# 4a. docs/state.md appears in the diff → PASS.
+# 4a. docs/state.md appears in the diff → check for placeholder refs first,
+# then PASS if none were found.
 if grep -qxF 'docs/state.md' "$tmp_diff"; then
-  echo "state-md-touch-check: PASS — docs/state.md is in the diff."
+  # ----- 4a-i. Placeholder-ref hardening (ADR-0334 status update 2026-05-09).
+  #
+  # PR #541's row audit found that the dominant staleness mode is NOT
+  # missing-row but post-merge backfill drift: the closing PR's branch
+  # writes "this PR" / "this commit" as the closer-PR placeholder, the
+  # merge happens, and the placeholder never gets rewritten to the
+  # merged numeric refs. The original gate only checks that the diff
+  # *touches* state.md — it does not check that newly-added rows cite
+  # a real merged PR or commit SHA.
+  #
+  # We REJECT inserted lines (lines starting with `+` in a unified
+  # diff, but NOT the `+++ b/...` header) that contain any of:
+  #
+  #   - "this PR"            (case-insensitive — covers "this pr",
+  #                          "(this PR)", "this PR (branch, date)")
+  #   - "this commit"        (case-insensitive)
+  #   - bare "TBD"           (case-insensitive, word-boundary)
+  #   - the literal "<PR>"   (template placeholder)
+  #   - the literal "#NNN"   (template placeholder; real PR refs use
+  #                          digits)
+  #
+  # The canonical accept forms — explicitly NOT matched by the regex —
+  # are `PR #N` (where N is one-or-more digits) and `commit \`<sha>\``.
+  # Sample lines from PR #541's audit findings that this rejects:
+  #
+  #     | foo | this PR (fix/foo, 2026-05-08) | ... |
+  #     | foo | closed by this PR             | ... |
+  #     | foo | TBD                            | ... |
+  #
+  # And the corresponding accept forms (none match the regex):
+  #
+  #     | foo | PR #432                                   | ... |
+  #     | foo | PR #511 / commit `f809ce09` (merged ...)  | ... |
+  #
+  # Bypass: standard CI exit-1 (the user can edit + push again).
+  tmp_state_diff="$(mktemp)"
+  # shellcheck disable=SC2064  # we want $tmp_state_diff resolved now
+  trap "rm -f \"$tmp_body\" \"${tmp_diff:-}\" \"$tmp_state_diff\"" EXIT
+  git diff -U0 "${diff_base}..${diff_head}" -- docs/state.md >"$tmp_state_diff"
+
+  # Inserted-line predicate: starts with single `+`, not `+++`. Strip
+  # the leading `+` so subsequent regex doesn't have to anchor around
+  # diff metadata.
+  inserted_lines="$(grep -E '^\+[^+]' "$tmp_state_diff" | sed 's/^+//' || true)"
+
+  placeholder_hits=""
+  if [ -n "$inserted_lines" ]; then
+    # The five placeholder forms. Each printed prefixed with its
+    # canonical-replacement hint so the failure message names the fix
+    # next to the offence.
+    if echo "$inserted_lines" | grep -inE '(^|[^a-z])this[[:space:]]+pr([^a-z]|$)' >/dev/null; then
+      placeholder_hits="${placeholder_hits}$(echo "$inserted_lines" | grep -inE '(^|[^a-z])this[[:space:]]+pr([^a-z]|$)' | sed 's/^/  [this PR]   /')"$'\n'
+    fi
+    if echo "$inserted_lines" | grep -inE '(^|[^a-z])this[[:space:]]+commit([^a-z]|$)' >/dev/null; then
+      placeholder_hits="${placeholder_hits}$(echo "$inserted_lines" | grep -inE '(^|[^a-z])this[[:space:]]+commit([^a-z]|$)' | sed 's/^/  [this commit]   /')"$'\n'
+    fi
+    if echo "$inserted_lines" | grep -inE '(^|[^A-Za-z])TBD([^A-Za-z]|$)' >/dev/null; then
+      placeholder_hits="${placeholder_hits}$(echo "$inserted_lines" | grep -inE '(^|[^A-Za-z])TBD([^A-Za-z]|$)' | sed 's/^/  [TBD]   /')"$'\n'
+    fi
+    if echo "$inserted_lines" | grep -inF '<PR>' >/dev/null; then
+      placeholder_hits="${placeholder_hits}$(echo "$inserted_lines" | grep -inF '<PR>' | sed 's/^/  [<PR>]   /')"$'\n'
+    fi
+    # `#NNN` literal — three capital N's; reject it as template
+    # placeholder. Real PR refs use digits, e.g. `#432`.
+    if echo "$inserted_lines" | grep -inF '#NNN' >/dev/null; then
+      placeholder_hits="${placeholder_hits}$(echo "$inserted_lines" | grep -inF '#NNN' | sed 's/^/  [#NNN]   /')"$'\n'
+    fi
+  fi
+
+  if [ -n "$placeholder_hits" ]; then
+    cat <<EOF
+::error title=ADR-0165 docs/state.md placeholder ref::Inserted lines in docs/state.md still carry a placeholder PR/commit reference. Per ADR-0334 (status update 2026-05-09), state.md rows must cite the merged numeric PR (e.g. \`PR #432\`) or commit SHA (e.g. \`commit \`f809ce09\`\`), not a "this PR" / "this commit" / "TBD" placeholder.
+
+PR #541's row audit found that the dominant state.md staleness pattern
+is post-merge backfill drift: a closing PR's branch writes "this PR"
+as the placeholder, the merge happens, the placeholder never gets
+rewritten. This gate prevents that drift mode at the CI boundary.
+
+Offending lines:
+${placeholder_hits}
+Rewrite as \`PR #N (commit \\\`<sha>\\\`)\` before squash-merge.
+For an in-flight PR whose number is not yet final, you can either:
+
+  1. Land the row with a placeholder and push a follow-up commit
+     rewriting it after \`gh pr create\` returns the number, OR
+  2. Use \`PR #<this-pr-number>\` once GitHub has assigned it (the
+     PR number is known the moment \`gh pr create\` exits).
+
+Both paths satisfy this gate; "this PR" / "this commit" / "TBD" /
+"<PR>" / "#NNN" do not.
+EOF
+    exit 1
+  fi
+
+  echo "state-md-touch-check: PASS — docs/state.md is in the diff (no placeholder refs in inserted lines)."
   exit 0
 fi
 
