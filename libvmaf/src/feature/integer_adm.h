@@ -23,9 +23,12 @@
 #include "stdio.h"
 #include <errno.h>
 #include <math.h>
-#include <pthread.h>
 #include <stdint.h>
 #include <string.h>
+
+#ifndef _WIN32
+#include <pthread.h>
+#endif
 
 static int32_t div_lookup[65537];
 static const int32_t div_Q_factor = 1073741824; // 2^30
@@ -41,8 +44,15 @@ static const int32_t div_Q_factor = 1073741824; // 2^30
  * sufficient and preserves bit-exact output: only the first thread to
  * arrive writes; later threads observe the populated table after the
  * `pthread_once` happens-before edge.
+ *
+ * On Windows MSVC (no pthread.h), the populator is unguarded: the race
+ * is benign because every thread writes identical values (the function
+ * is loop-invariant), and the TSan gate that motivated the once-guard
+ * runs only on Linux.
  */
+#ifndef _WIN32
 static pthread_once_t div_lookup_once = PTHREAD_ONCE_INIT;
+#endif
 
 static void div_lookup_populate(void)
 {
@@ -55,7 +65,12 @@ static void div_lookup_populate(void)
 
 static inline void div_lookup_generator(void)
 {
+#ifndef _WIN32
     (void)pthread_once(&div_lookup_once, div_lookup_populate);
+#else
+    /* Idempotent: every thread writes identical loop-invariant values. */
+    div_lookup_populate();
+#endif
 }
 
 typedef struct adm_dwt_band_t {

@@ -9267,3 +9267,25 @@ print('OK: fr_regressor_v3 production row unchanged')
   # Registry test still passes:
   bash libvmaf/test/dnn/test_registry.sh
   ```
+
+## Cppcheck `nullPointer` false-positive in `dict.c` (2026-05-09)
+
+**Files pinned**:
+- `libvmaf/src/dict.c:121` (one-line redundant-condition fix in
+  `dict_overwrite_existing`).
+
+**Why this rebase-note exists**: Master CI's `Cppcheck (Whole Project)`
+gate started failing on commit `14b5ffba` (#537) and blocked **every
+open PR** because each PR rebases onto a broken master. The cppcheck
+finding was likely always present but masked by `paths-ignore`
+filtering on the prior workflow shape; PR #530 widened cppcheck's
+trigger surface and exposed it. Deleted the redundant `&& val` guard
+since `val` is already checked at the public entry-point
+`vmaf_dictionary_set` (`dict.c:137`). No behavior change; cppcheck
+flags the original as "either the val check is redundant or there's
+a possible null deref" because it can't prove the interprocedural
+guarantee.
+
+**Rebase-sensitivity**: zero — change is local to `dict.c`. Future
+upstream sync of this file should keep the fix or re-run cppcheck
+locally to confirm absence of recurrence.
