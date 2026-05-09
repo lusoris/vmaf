@@ -39,6 +39,19 @@
 
 #if HAVE_SYCL
 
+/* DMA-BUF is a Linux kernel concept (O_CLOEXEC fd → GPU device memory import
+ * via ZE_EXTERNAL_MEMORY_TYPE_FLAG_DMA_BUF). Level Zero on Windows uses
+ * ze_external_memory_import_win32_handle_t / NT handles instead; the DMA-BUF
+ * path therefore cannot compile or run on Windows. Guard the entire body of
+ * this TU (all three functions: dmabuf_import, dmabuf_free, import_va_surface)
+ * with #ifndef _WIN32 and provide -ENOSYS stubs at the bottom so the linker
+ * is satisfied on Windows SYCL builds.
+ *
+ * The HAVE_SYCL_DMABUF config flag guards the VA-API / unistd.h path already;
+ * this _WIN32 guard is the outer layer that prevents level_zero/ze_api.h DMA-BUF
+ * types and the int-fd argument from reaching a Windows compiler. */
+#ifndef _WIN32
+
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -49,8 +62,8 @@
 
 #if HAVE_SYCL_DMABUF
 /* unistd.h (POSIX close()) only used inside the VA-API import path
- * below — guard alongside libva so non-DMA-BUF builds (Windows MSVC,
- * macOS, Linux without VA-API) don't fail with "unistd.h not found". */
+ * below — guard alongside libva so non-DMA-BUF builds (macOS,
+ * Linux without VA-API) don't fail with "unistd.h not found". */
 #include <unistd.h>
 #include <va/va.h>
 #include <va/va_drmcommon.h>
@@ -530,5 +543,51 @@ extern "C" int vmaf_sycl_import_va_surface(VmafSyclState *state, void *va_displa
 }
 
 #endif /* HAVE_SYCL_DMABUF */
+
+#else /* _WIN32 */
+
+/* ------------------------------------------------------------------ */
+/* Windows stubs — DMA-BUF is a Linux-only kernel interface.          */
+/* Level Zero on Windows uses NT handles, not DMA-BUF fds; this TU's  */
+/* fd-based import path cannot and does not compile on Windows.        */
+/* Callers should prefer d3d11_import.cpp on Windows.                  */
+/* ------------------------------------------------------------------ */
+
+#include <errno.h>
+
+extern "C" {
+#include "dmabuf_import.h"
+}
+
+extern "C" int vmaf_sycl_dmabuf_import(VmafSyclState *state, int fd, size_t size, void **ptr)
+{
+    (void)state;
+    (void)fd;
+    (void)size;
+    (void)ptr;
+    return -ENOSYS;
+}
+
+extern "C" void vmaf_sycl_dmabuf_free(VmafSyclState *state, void *ptr)
+{
+    (void)state;
+    (void)ptr;
+}
+
+extern "C" int vmaf_sycl_import_va_surface(VmafSyclState *state, void *va_display_handle,
+                                           unsigned int va_surface_id, int is_ref, unsigned w,
+                                           unsigned h, unsigned bpc)
+{
+    (void)state;
+    (void)va_display_handle;
+    (void)va_surface_id;
+    (void)is_ref;
+    (void)w;
+    (void)h;
+    (void)bpc;
+    return -ENOSYS;
+}
+
+#endif /* _WIN32 */
 
 #endif /* HAVE_SYCL */
