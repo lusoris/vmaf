@@ -10,7 +10,7 @@ authors = [
   { name = "Claude (Anthropic)", email = "noreply@anthropic.com" },
 ]
 dependencies = [
-  "mcp>=1.0.0",
+  "mcp>=1.27.0",
   "pydantic>=2.6",
   "anyio>=4.3",
 ]
