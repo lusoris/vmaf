@@ -1,11 +1,21 @@
 # Embedded MCP server (in-process, inside libvmaf)
 
-> **Status: T5-2 audit-first scaffold landed. Runtime + transports
-> are not yet wired** — every public entry point returns `-ENOSYS`
-> until the T5-2b runtime PR. Use the standalone Python MCP server
-> under [`mcp-server/vmaf-mcp/`](../../mcp-server/vmaf-mcp/) for
-> production agent workflows. The header surface here is stable;
-> downstream consumers can compile against it today.
+> **Status: T5-2d v3 runtime landed (2026-05-09).**
+> `vmaf_mcp_init` / `vmaf_mcp_start_stdio` / `vmaf_mcp_start_uds` /
+> `vmaf_mcp_start_sse` / `vmaf_mcp_stop` / `vmaf_mcp_close` are all
+> wired and respond to JSON-RPC 2.0 requests (`tools/list`,
+> `tools/call`, `resources/list`, `initialize`). Tools shipped:
+> `list_features` (real) and `compute_vmaf` (real — pooled mean
+> VMAF over a YUV420p 8-bit pair via `vmaf_model_load` +
+> `vmaf_read_pictures` + `vmaf_score_pooled`). UDS transport
+> listens on a mode-0700 socket file. SSE transport listens on
+> 127.0.0.1 only and serves a minimal HTTP/1.1 surface (no
+> mongoose — see [ADR-0332](../adr/0332-mcp-runtime-v2.md) §
+> "Status update 2026-05-09 (v3 SSE)" for the license-driven
+> decision to roll our own ~500 LOC HTTP+SSE in plain POSIX
+> sockets). The standalone Python MCP server under
+> [`mcp-server/vmaf-mcp/`](../../mcp-server/vmaf-mcp/) remains a
+> supported alternative for batch CLI-style workflows.
 
 The embedded MCP server runs **inside the host process** that
 loaded `libvmaf.so` — typically `vmaf` (the CLI), `ffmpeg`'s
@@ -47,7 +57,7 @@ meson test -C build  # includes test_mcp_smoke
 | Flag | Default | Purpose |
 |---|---|---|
 | `-Denable_mcp` | `false` | Umbrella — compiles `libvmaf/src/mcp/` + installs `libvmaf_mcp.h` + builds `test_mcp_smoke`. |
-| `-Denable_mcp_sse` | `false` | Compile in the Server-Sent-Events / loopback HTTP transport. Requires `enable_mcp=true`. |
+| `-Denable_mcp_sse` | `auto` (compiled in unless explicitly disabled) | Compile in the Server-Sent-Events / loopback HTTP transport. Requires `enable_mcp=true`. Implemented in plain POSIX sockets — no third-party HTTP library is vendored. |
 | `-Denable_mcp_uds` | `false` | Compile in the Unix domain socket transport. POSIX-only; non-POSIX hosts return `-ENODEV` at runtime. Requires `enable_mcp=true`. |
 | `-Denable_mcp_stdio` | `false` | Compile in the stdio (LSP-framed JSON-RPC on a caller-supplied fd pair) transport. Requires `enable_mcp=true`. |
 
@@ -94,12 +104,64 @@ The full API is documented in
 ### SSE (Server-Sent Events)
 
 - **Spec status:** canonical MCP transport (introduced 2024-11).
-- **Bind:** `127.0.0.1` only — `vmaf_mcp_start_sse` refuses
-  non-loopback in v1.
-- **Wire:** SSE event stream on `GET /mcp/sse`; client posts
-  requests to `POST /mcp/request` with an `X-MCP-Session` header.
+- **Bind:** `127.0.0.1` only by construction — the SSE listener
+  binds via `INADDR_LOOPBACK`, never to `INADDR_ANY`. Non-loopback
+  exposure would require a separate ADR.
+- **Wire:** HTTP/1.1 over loopback TCP, two endpoints on the same
+  socket. `GET /mcp/sse` (default path; configurable via
+  `VmafMcpSseConfig.path`) returns
+  `Content-Type: text/event-stream` and emits SSE frames per
+  WHATWG SSE §9.2 (accessed 2026-05-09:
+  <https://html.spec.whatwg.org/multipage/server-sent-events.html>),
+  starting with an `event: ready\ndata: {…}\n\n` handshake frame.
+  `POST /mcp/sse` accepts a JSON-RPC request body and replies
+  inline with the dispatcher's response. SSE-stream broadcast
+  (POST routes the reply onto a subscribed GET stream) is reserved
+  for v4.
+- **Auth:** none (loopback-only). v3 explicitly does not implement
+  CORS, Bearer tokens, or per-session keys; the embedded surface
+  is a same-host trust boundary.
+- **Smoke test:** spawn the server on an ephemeral port, then
+  `curl --max-time 3 -s -N http://127.0.0.1:<port>/mcp/sse` shows
+  the event-stream framing; `curl -X POST -H 'Content-Type:
+  application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+  http://127.0.0.1:<port>/mcp/sse` returns a JSON-RPC `tools/list`
+  response. The C smoke test in
+  [`libvmaf/test/test_mcp_smoke.c::test_sse_event_stream`](../../libvmaf/test/test_mcp_smoke.c)
+  performs the same round-trip without a `curl` subprocess
+  dependency.
 - **Use case:** Claude Desktop, Cursor, and other agents speaking
   the canonical MCP remote transport.
+
+#### Browser usage
+
+A minimal browser-side subscriber (loopback only — the page must
+be served from `http://127.0.0.1:*` because the SSE server emits
+no CORS headers):
+
+```javascript
+const es = new EventSource("http://127.0.0.1:7411/mcp/sse");
+es.addEventListener("ready", (ev) => {
+  console.log("server hello:", JSON.parse(ev.data));
+});
+// JSON-RPC requests go via fetch(); responses come back inline
+// (v3) — broadcast on the EventSource is reserved for v4.
+fetch("http://127.0.0.1:7411/mcp/sse", {
+  method: "POST",
+  headers: {"Content-Type": "application/json"},
+  body: JSON.stringify({jsonrpc: "2.0", id: 1, method: "tools/list"}),
+}).then(r => r.json()).then(console.log);
+```
+
+#### Listener-shutdown invariant
+
+On Linux, plain `close()` of a listening AF_INET fd from one
+thread does NOT unblock `accept()` on another thread (verified
+empirically; see also `accept(2)`). The SSE stop path therefore
+calls `shutdown(listen_fd, SHUT_RDWR)` before `close()` so the
+worker thread observes accept returning `-1` and exits cleanly.
+This differs from the UDS transport (AF_UNIX), where plain
+`close()` is sufficient.
 
 ### UDS (Unix domain socket — fork extension)
 
@@ -147,29 +209,67 @@ and locked in via the T5-2b runtime PR's TSan tests.
 | Component | Status | PR / ADR |
 |---|---|---|
 | Public header `libvmaf_mcp.h` | Landed (scaffold) | T5-2 / [ADR-0209](../adr/0209-mcp-embedded-scaffold.md) |
-| Stub TU `libvmaf/src/mcp/mcp.c` | Landed (returns `-ENOSYS`) | T5-2 |
+| TU `libvmaf/src/mcp/mcp.c` | Landed (v1 runtime; init / start_stdio / stop / close wired) | T5-2b / ADR-0209 § Status update 2026-05-08 |
+| Vendored cJSON v1.7.18 (MIT) under `libvmaf/src/mcp/3rdparty/cJSON/` | Landed | T5-2b |
+| JSON-RPC dispatcher (`tools/list`, `tools/call`, `resources/list`, `initialize`) | Landed | T5-2b |
 | Build flags + per-transport sub-flags | Landed (default off) | T5-2 |
-| Smoke test (12 sub-tests) | Landed | T5-2 |
-| Runtime — cJSON + mongoose vendoring + MCP pthread + SPSC ring | Pending | T5-2b |
-| SSE transport body | Pending | T5-2b (after runtime) |
-| UDS transport body | Pending | T5-2b (after runtime) |
-| stdio transport body | Pending | T5-2b (after runtime) |
-| Tool: `vmaf.status` (read-only) | Pending | T5-2b |
-| Tool: `vmaf.features` (read-only) | Pending | T5-2b |
-| Tool: `vmaf.score` (read-only) | Pending | T5-2b |
-| Tool: `vmaf.request_model_swap` (mutating, separate ADR) | Future | post T5-2b |
+| Smoke + protocol test (15 sub-tests, real round-trip) | Landed | T5-2b |
+| stdio transport body | Landed (line-delimited JSON-RPC; LSP `Content-Length:` framing deferred to v3) | T5-2b |
+| UDS transport body | Landed (line-delimited JSON-RPC; mode-0700 socket file) | T5-2c / [ADR-0332](../adr/0332-mcp-runtime-v2.md) |
+| SSE transport body | Landed (loopback HTTP/1.1 + `text/event-stream`; no third-party HTTP library — see ADR-0332 § "v3 SSE" for the license-driven mongoose pivot) | T5-2d / [ADR-0332](../adr/0332-mcp-runtime-v2.md) § "Status update 2026-05-09 (v3 SSE)" |
+| Tool: `list_features` (read-only) | Landed | T5-2b |
+| Tool: `compute_vmaf` (real libvmaf scoring binding, YUV420p 8-bit) | Landed | T5-2c |
+| Tool: `vmaf.request_model_swap` (mutating, separate ADR) | Future | post-v3 |
 | `enable_mcp` default flip from `false` → `auto` | Future | post all transports stable |
 
-## What lands next (T5-2b roadmap)
+## What lands next (v4 roadmap)
 
-See [ADR-0209 § What lands next](../adr/0209-mcp-embedded-scaffold.md#what-lands-next-t5-2b-roadmap-per-research-0005--next-steps).
+T5-2d v3 (this PR) shipped the SSE transport. The remaining work:
 
-Briefly: vendor cJSON + mongoose, wire the MCP pthread + SPSC
-ring in `vmaf_mcp_init` / `_close`, then land each transport
-body (SSE → UDS → stdio) as separate PRs so each can be
-independently smoke-tested. Tool-surface expansion
-(`request_model_swap` and the like) follows in its own PR per
-ADR-0128 § "Tool surface (v1)".
+- **SSE-stream broadcast.** v3 emits POST replies inline on the
+  POST socket; v4 will fan replies out on subscribed `GET
+  /mcp/sse` streams via the `event:` / `id:` / `data:` pattern,
+  using the `sse_emit_event` + `sse_extract_id` helpers v3 ships
+  marked `__attribute__((unused))`.
+- **LSP-framed stdio** (`Content-Length:` headers) — v1–v3 ship
+  line-delimited JSON-RPC only.
+- **10/12-bit YUV** support in `compute_vmaf` — v2 only accepts
+  YUV420p 8-bit; YUV422P / YUV444P / 10-bit are rejected with
+  `-EINVAL`.
+- **SPSC ring drain at frame boundaries** — v1–v3 dispatcher
+  runs to completion on the transport thread; the measurement-
+  thread hot path is not yet bridged. Tools that mutate
+  measurement state (`request_model_swap`, etc.) require this
+  bridge first.
+- Tool-surface expansion (`vmaf.status`, `vmaf.score`,
+  `vmaf.request_model_swap`) follows in its own PR per
+  [ADR-0128](../adr/0128-embedded-mcp-in-libvmaf.md) § "Tool surface (v1)".
+
+## Sample request / response
+
+Request (newline-delimited JSON-RPC over stdio):
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/list"}
+```
+
+Response:
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"list_features","description":"…","inputSchema":{…}},{"name":"compute_vmaf","description":"…","inputSchema":{…}}]}}
+```
+
+Tool call:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_features","arguments":{}}}
+```
+
+Tool response (MCP `content` envelope wrapping the tool's JSON):
+
+```json
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"features\":[\"float_adm\",\"float_vif\",…],\"count\":15}"}],"isError":false}}
+```
 
 ## See also
 

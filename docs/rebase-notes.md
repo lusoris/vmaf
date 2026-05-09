@@ -9309,6 +9309,7 @@ print('OK: fr_regressor_v3 production row unchanged')
   # Re-run CodeQL on master afterwards; the 60 fixed alerts must stay closed.
 
 
+
 ## CodeQL `cpp/declaration-hides-variable` sweep (2026-05-09)
 - **What changed**: Mechanical rename / scope-tighten / dedupe sweep
   closing 64 open `cpp/declaration-hides-variable` CodeQL alerts on
@@ -9361,6 +9362,15 @@ print('OK: fr_regressor_v3 production row unchanged')
     python/test/vmafexec_test.py \
     python/test/vmafexec_feature_extractor_test.py \
     -m "not slow" -q
+
+## ADR-0209 v1 stdio runtime (T5-2b) — Embedded MCP server (2026-05-08)
+- **Touches**: `libvmaf/src/mcp/{mcp.c,dispatcher.c,transport_stdio.c,mcp_internal.h,meson.build,3rdparty/cJSON/{cJSON.c,cJSON.h,LICENSE}}`, `libvmaf/test/test_mcp_smoke.c`, `libvmaf/test/meson.build`. All paths are fork-local. cJSON is vendored verbatim from upstream `DaveGamble/cJSON@v1.7.18` under its MIT license.
+- **Invariant**: every TU under `libvmaf/src/mcp/` (other than the vendored cJSON dir) is fork-local with the `Copyright 2026 Lusoris and Claude (Anthropic)` header; cJSON keeps its upstream MIT header verbatim. The public ABI in `libvmaf/include/libvmaf/libvmaf_mcp.h` is unchanged from T5-2 — only function bodies flipped from `-ENOSYS` to working implementations. SSE / UDS still return `-ENOSYS` so the v2 PR can wire them without touching the public surface.
+- **On upstream sync**: no action required. Netflix/vmaf upstream has no embedded MCP surface; the entire `libvmaf/src/mcp/` subtree is fork-local. If upstream ever adds an MCP surface, expect a port-only sync since names will collide.
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false \
+                                  -Denable_mcp=true -Denable_mcp_stdio=true
+  ninja -C build && meson test -C build test_mcp_smoke -v
+
 
   ```
 ## Cppcheck `nullPointer` false-positive in `dict.c` (2026-05-09)
@@ -9598,6 +9608,7 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
     grep -q 'Arc Battlemage' "docs/getting-started/install/${f}.md" || echo "MISSING: ${f}"
   # Confirm the macOS page documents QSV as unsupported:
   grep -q 'Intel QSV. is unsupported on macOS' docs/getting-started/install/macos.md
+
 
 ### 0333 — vmaf-tune Phase F multi-pass encoding (ADR-0333)
 **Touches**:
@@ -9841,4 +9852,43 @@ compiles).
   done
   # All 0/N mismatches at places=4 once Phase 3c (PR #512) has landed.
   ```
+
+
+## ADR-0332 v2 runtime (T5-2c) — Embedded MCP server UDS + real `compute_vmaf` (2026-05-09)
+- **Touches**: `libvmaf/src/mcp/{mcp.c,dispatcher.c,mcp_internal.h,meson.build,compute_vmaf.c,transport_uds.c}`, `libvmaf/test/test_mcp_smoke.c`. All paths are fork-local. No new third-party vendor drop in v2 — mongoose vendoring stays deferred to v3 with the SSE transport.
+- **Invariant**: same as ADR-0209 v1 — the entire `libvmaf/src/mcp/` subtree is fork-local; the public ABI in `libvmaf/include/libvmaf/libvmaf_mcp.h` is unchanged (only function bodies flipped — `vmaf_mcp_start_uds` from `-ENOSYS` to a working AF_UNIX listener; `compute_vmaf` from a `{"status":"deferred_to_v2"}` placeholder to a real `vmaf_score_pooled` binding). Per ADR-0128 § operational guardrails the UDS socket file is created mode 0700; that `chmod` happens in `vmaf_mcp_start_uds` after `bind` and is a load-bearing security invariant — do NOT relax it on rebase. `compute_vmaf` runs on a per-call ephemeral `VmafContext` so the host's main scoring run is unperturbed; do NOT rewire it to reuse `server->ctx` because `vmaf_score_pooled` commits the model destructively to the context.
+- **On upstream sync**: no action required. Netflix/vmaf upstream has no embedded MCP surface. If upstream adds one, expect a port-only sync since names will collide.
+- **Re-test on rebase**:
+  ```bash
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false \
+                                  -Denable_mcp=true -Denable_mcp_stdio=true \
+                                  -Denable_mcp_uds=true
+  ninja -C build && meson test -C build test_mcp_smoke -v
+  # Real-score smoke (single 576x324 pair):
+  build/test/test_mcp_smoke 2>&1 | tail -3   # expects "16 tests run, 16 passed"
+  ```
+
+
+
+
+
+
+
+## ADR-0332 v3 runtime (T5-2d) — Embedded MCP server SSE transport (2026-05-09)
+
+- **Touches**: `libvmaf/src/mcp/{mcp.c,mcp_internal.h,meson.build,transport_sse.c}`, `libvmaf/meson_options.txt`, `libvmaf/test/test_mcp_smoke.c`, `docs/mcp/embedded.md`, `docs/adr/0332-mcp-runtime-v2.md` (status-update appendix). All paths are fork-local. **No third-party vendor drop in v3** — the originally-planned mongoose vendor was reversed because cesanta/mongoose 7.18 is GPL-2.0-only OR commercial, incompatible with the fork's BSD-3-Clause-Plus-Patent license (verified at upstream LICENSE 2026-05-09). The SSE transport is plain POSIX sockets in fork-owned C (~500 LOC).
+- **Invariant**: same as ADR-0209 / ADR-0332 v2 — the entire `libvmaf/src/mcp/` subtree is fork-local; the public ABI in `libvmaf/include/libvmaf/libvmaf_mcp.h` is unchanged (only `vmaf_mcp_start_sse`'s body flipped from `-ENOSYS` to a working AF_INET listener). The SSE listener binds `INADDR_LOOPBACK` only; do NOT switch to `INADDR_ANY` without a separate ADR + auth design (v3 ships intentionally without CORS/Bearer/per-session auth on the assumption of a same-host trust boundary). The SSE stop path uses `shutdown(SHUT_RDWR)` before `close()` — plain `close()` of an AF_INET listening fd from another thread does NOT unblock `accept()` on Linux; do NOT remove the `shutdown` call. `enable_mcp_sse` is now a `feature` option (default `auto`), not `boolean false`.
+- **On upstream sync**: no action required. Netflix/vmaf upstream has no embedded MCP surface. **Do NOT re-introduce mongoose** (or any GPL-licensed HTTP library) on a future rebase without first amending CLAUDE §1 and adding a separate license-compatibility ADR.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false \
+                                  -Denable_mcp=true -Denable_mcp_stdio=true \
+                                  -Denable_mcp_uds=true \
+                                  -Denable_mcp_sse=enabled
+  ninja -C build && meson test -C build test_mcp_smoke -v
+  build/test/test_mcp_smoke 2>&1 | tail -3   # expects "17 tests run, 17 passed"
+  ```
+
+
 

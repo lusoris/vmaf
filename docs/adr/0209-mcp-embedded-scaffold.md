@@ -215,6 +215,46 @@ touching `meson_options.txt`.
    the build host has the toolchain, only after the matrix
    proves all three transports stable.
 
+### Status update 2026-05-08: MCP runtime stdio + 2 tools landed (T5-2b v1)
+
+The scaffold's `-ENOSYS` body has been replaced with a working
+v1 stdio runtime (HP-4 from the Phase-A audit). Delta:
+
+- **Vendored cJSON v1.7.18** (MIT) under
+  `libvmaf/src/mcp/3rdparty/cJSON/` — single `cJSON.c`/`cJSON.h`
+  pair, ~3,400 LOC; LICENSE preserved verbatim.
+- **JSON-RPC 2.0 dispatcher** at `libvmaf/src/mcp/dispatcher.c`
+  routing `initialize`, `tools/list`, `tools/call`,
+  `resources/list`. Method-not-found returns `-32601` envelope.
+- **stdio transport** at `libvmaf/src/mcp/transport_stdio.c` —
+  one dedicated MCP pthread, line-delimited JSON-RPC framing,
+  64 KiB per-line cap (NASA Power-of-10 rule 2).
+- **Tools shipped**: `list_features` (real — walks the canonical
+  feature-extractor list), `compute_vmaf` (placeholder —
+  validates `reference_path` / `distorted_path` and returns a
+  deferred-to-v2 marker; the real scoring binding lands in v2).
+- **Smoke test** flipped from pinning `-ENOSYS` to driving real
+  JSON-RPC round-trips over a `pipe(2)` pair: 15 sub-tests, all
+  green.
+
+Trimmed (now scoped to v2):
+
+- mongoose vendoring + SSE transport body (`vmaf_mcp_start_sse`
+  still returns `-ENOSYS`).
+- UDS transport body (`vmaf_mcp_start_uds` still returns
+  `-ENOSYS`).
+- LSP-framed stdio (`Content-Length:` headers) — v1 ships
+  line-delimited only.
+- SPSC ring drain at frame boundaries — v1 dispatcher runs to
+  completion on the transport thread; the measurement-thread
+  hot path is not yet bridged.
+- `compute_vmaf` binding to `vmaf_score_pooled()`.
+
+The audit-first / runtime split documented in the original
+Decision still holds: this update lands the v1 minimum
+(stdio + 2 tools) so the runtime exists, with each remaining
+transport body landing as its own PR.
+
 ## References
 
 - [ADR-0128](0128-embedded-mcp-in-libvmaf.md) — the governance

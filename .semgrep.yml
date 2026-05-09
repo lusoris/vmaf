@@ -76,6 +76,13 @@ rules:
         - /matlab/**
         - /libvmaf/tools/cli_parse.c
         - /libvmaf/tools/y4m_input.c
+        # Vendored third-party code — kept verbatim under their original
+        # license so upstream security fixes can be picked up unchanged.
+        # cJSON v1.7.18 (MIT) is used by the embedded MCP server
+        # (ADR-0128 / ADR-0209). The library is bound-checked internally
+        # via its own input-length tracking; we accept it as-is rather
+        # than fork the upstream sources.
+        - /libvmaf/src/mcp/3rdparty/**
     message: Use strncpy/strncat/snprintf with explicit bound. (CERT STR31-C / Power-of-10 Rule 9.)
     languages: [c, cpp]
     severity: ERROR

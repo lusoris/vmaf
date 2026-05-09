@@ -682,8 +682,10 @@ test('test_vulkan_pic_preallocation', test_vulkan_pic_preallocation)
 endif
 
 # ADR-0209 / T5-2: embedded MCP scaffold smoke. Pins the -ENOSYS
-# contract on every public entry point so a future runtime PR
-# (T5-2b) cannot wire a transport without flipping the expectations.
+# contract on every public entry point. T5-2b runtime
+# (ADR-0209 § "Status update 2026-05-08") flipped init/start_stdio/
+# close to a working dispatcher; the test now drives a real JSON-RPC
+# round-trip over pipes. SSE/UDS expectations remain pinned at -ENOSYS.
 if get_option('enable_mcp')
 test_mcp_smoke = executable('test_mcp_smoke',
     ['test.c', 'test_mcp_smoke.c'],
@@ -692,7 +694,7 @@ test_mcp_smoke = executable('test_mcp_smoke',
     dependencies: [pthread_dependency],
     c_args: ['-DHAVE_MCP=1']
 )
-test('test_mcp_smoke', test_mcp_smoke)
+test('test_mcp_smoke', test_mcp_smoke, timeout: 60)
 endif
 
 # ADR-0209 / T7-10: HIP (AMD ROCm) backend scaffold smoke. Same pattern
