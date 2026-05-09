@@ -469,6 +469,20 @@ to preserve byte-identity with the reference. Verified bit-identical
 to scalar on all three Netflix golden pairs; ~3.58× DCT microbench
 speedup on AVX2.
 
+**No AVX-512 path** — closed as ceiling under T3-9 (a) per
+[ADR-0350](../adr/0350-psnr-hvs-avx512-ceiling.md) /
+[ADR-0180](../adr/0180-cpu-coverage-audit.md). On a Zen 5 host with
+full AVX-512, `perf record` on the Netflix normal pair shows
+`calc_psnrhvs_avx2` at 78.42 % cycle share (per-block scalar tail —
+means, variances, mask fold, error accumulator — locked
+per-lane-scalar by ADR-0138 / ADR-0139 to preserve IEEE-754
+summation parity with scalar) versus `od_bin_fdct8x8_avx2` at
+14.82 % (the only piece a 16-lane widening could attack). Amdahl
+ceiling caps wall-clock improvement at 17.4 % (1.17× over AVX2);
+realistic 2-block-batched 16-lane DCT projects 1.07–1.08× —
+comfortably below the 1.3× T3-9 ship gate. Re-bench reproducer
+in [Research-0091 §7](../research/0091-psnr-hvs-avx512-bench-2026-05-09.md).
+
 ### SSIM / MS-SSIM
 
 Structural Similarity Index on luma. MS-SSIM extends SSIM to five Gaussian-

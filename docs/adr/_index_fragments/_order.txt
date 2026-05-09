@@ -189,5 +189,6 @@
 0341-ci-paths-ignore-doc-only-prs
 0349-fr-regressor-v3-namespace
 0359-arc-runners-pilot
-0363-renovate-replaces-dependabot
+0350-psnr-hvs-avx512-ceiling
 0355-symphony-agent-dispatch-infra
+0363-renovate-replaces-dependabot
