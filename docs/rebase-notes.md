@@ -10279,3 +10279,33 @@ compiles).
   make test-netflix-golden  # 3/3 CPU goldens still pass
 
 
+### 0332 — Agent worktree-drift hard guard (ADR-0332)
+
+- **Touches**: `.pre-commit-config.yaml` (one new `local` hook id),
+  `Makefile` (`hooks-install` target — comment-only edit),
+  `scripts/ci/check-agent-worktree-drift.sh` (new),
+  `scripts/ci/test_check_agent_worktree_drift.sh` (new),
+  `AGENTS.md` (new section §12a), `docs/development/agent-worktree-discipline.md`
+  (new), `docs/adr/0332-*.md` (new), `docs/adr/_index_fragments/` (new
+  fragment + `_order.txt` append),
+  `changelog.d/added/agent-worktree-drift-guard.md` (new).
+- **Invariant on upstream-mirror files**: none — every touched path
+  is fork-local. The pre-commit hook ID `agent-worktree-drift-guard`
+  is unique to this fork; upstream Netflix/vmaf has no `local` hook
+  block in its (also non-existent) `.pre-commit-config.yaml`.
+- **On upstream sync**: no expected conflict. The
+  `.pre-commit-config.yaml` block is fork-only; if Netflix ever
+  introduces its own pre-commit config we'll rebase the
+  `agent-worktree-drift-guard` `local` hook on top of upstream's
+  blocks but the YAML structure is independent.
+- **Re-test on rebase**:
+
+  ```bash
+  bash scripts/ci/test_check_agent_worktree_drift.sh
+  # End-to-end: refused commit from main with active agent.
+  cd "$(git -C . rev-parse --show-toplevel)" && \
+    bash scripts/ci/check-agent-worktree-drift.sh ; echo "exit=$?"
+  # Allowed commit from inside an agent worktree.
+  cd "$(git -C . rev-parse --show-toplevel)/.claude/worktrees/agent-<id>" && \
+    bash $OLDPWD/scripts/ci/check-agent-worktree-drift.sh ; echo "exit=$?"
+  ```

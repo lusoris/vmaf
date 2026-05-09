@@ -94,6 +94,19 @@ repos:
 
   - repo: local
     hooks:
+      - id: agent-worktree-drift-guard
+        name: ADR-0332 agent worktree-drift guard
+        entry: scripts/ci/check-agent-worktree-drift.sh
+        language: script
+        # Always runs — does not consume the file list. The guard is
+        # about *where* the commit is being authored from, not about
+        # which files changed.
+        always_run: true
+        pass_filenames: false
+        # No `stages` override — runs at default `pre-commit` time
+        # alongside the formatters. Bypass with `git commit --no-verify`
+        # for legitimate main-checkout commits while an agent is active.
+
       - id: check-copyright
         name: ADR-0105 copyright header present (C/C++/CUDA)
         entry: scripts/ci/check-copyright.sh
