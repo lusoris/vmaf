@@ -98,6 +98,19 @@ int vmaf_vulkan_buffer_flush(VmafVulkanContext *ctx, VmafVulkanBuffer *buf)
     return (vkr == VK_SUCCESS) ? 0 : -EIO;
 }
 
+int vmaf_vulkan_buffer_invalidate(VmafVulkanContext *ctx, VmafVulkanBuffer *buf)
+{
+    if (!ctx || !buf)
+        return -EINVAL;
+    /* VMA handles the coherency check: on HOST_COHERENT allocations
+     * vmaInvalidateAllocation is a no-op (spec §10.2.1). On non-coherent
+     * heaps it issues vkInvalidateMappedMemoryRanges with proper alignment
+     * to nonCoherentAtomSize. ADR-0350: called after fence wait, before
+     * reading GPU-written reduced accumulator buffers. */
+    VkResult vkr = vmaInvalidateAllocation(ctx->allocator, buf->allocation, 0, VK_WHOLE_SIZE);
+    return (vkr == VK_SUCCESS) ? 0 : -EIO;
+}
+
 void vmaf_vulkan_buffer_free(VmafVulkanContext *ctx, VmafVulkanBuffer *buf)
 {
     if (!ctx || !buf)

@@ -49,7 +49,8 @@
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
 
-#include "adm_spv.h" /* generated SPIR-V byte array */
+#include "adm_spv.h"        /* per-WG accumulator kernel */
+#include "adm_reduce_spv.h" /* two-level reduction kernel (ADR-0350) */
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -129,6 +130,9 @@ typedef struct {
      * keeps a clean 2-D lookup. (ADR-0221.) */
     VmafVulkanKernelPipeline pl;
     VkPipeline pipelines[ADM_NUM_STAGES][ADM_NUM_SCALES];
+    /* ADR-0350: two-level GPU reduction pipeline + per-scale descriptor sets. */
+    VmafVulkanKernelPipeline pl_reduce;
+    VkDescriptorSet reduce_sets[ADM_NUM_SCALES];
 
     /* Submit-side pool (T-GPU-OPT-VK-1 / ADR-0256). One slot suffices:
      * all 16 dispatches are batched into a single command buffer. */
@@ -357,6 +361,22 @@ static int create_pipelines(AdmVulkanState *s)
                 return err;
         }
     }
+    /* ADR-0350: two-level reduction pipeline.
+     * 2 SSBO bindings: accum_in (per-WG slots), accum_out (48-byte result).
+     * Pool sized for 4 scales × 2 frames = 8 sets. */
+    {
+        const VmafVulkanKernelPipelineDesc reduce_desc = {
+            .ssbo_binding_count = 2U,
+            .push_constant_size = (uint32_t)sizeof(uint32_t),
+            .spv_bytes = adm_reduce_spv,
+            .spv_size = adm_reduce_spv_size,
+            .pipeline_create_info = {.stage = {.pName = "main"}},
+            .max_descriptor_sets = (uint32_t)(ADM_NUM_SCALES * 2),
+        };
+        err = vmaf_vulkan_kernel_pipeline_create(s->ctx, &reduce_desc, &s->pl_reduce);
+        if (err)
+            return err;
+    }
     return 0;
 }
 
@@ -449,6 +469,12 @@ static int alloc_buffers(AdmVulkanState *s)
         if (accum_bytes == 0)
             accum_bytes = sizeof(int64_t);
         err = vmaf_vulkan_buffer_alloc(s->ctx, &s->accum[scale], accum_bytes);
+        if (err)
+            return err;
+
+        /* ADR-0350: tiny reduced-accumulator output buffer — 48 bytes per scale. */
+        size_t reduced_bytes = (size_t)ADM_ACCUM_SLOTS_PER_WG * sizeof(int64_t);
+        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->reduced_accum[scale], reduced_bytes);
         if (err)
             return err;
 
@@ -763,15 +789,16 @@ static int reduce_and_emit(AdmVulkanState *s, unsigned index, VmafFeatureCollect
     int64_t cm_totals[ADM_NUM_SCALES][ADM_NUM_BANDS] = {0};
     int64_t csf_totals[ADM_NUM_SCALES][ADM_NUM_BANDS] = {0};
 
+    /* ADR-0350: read the GPU-reduced 48-byte result per scale instead of
+     * iterating over all per-WG slots.  56 → 48 bytes because ADM has 6
+     * fields (csf_h/v/d + cm_h/v/d) vs VIF's 7.  Total host read:
+     * 4 × 48 = 192 bytes (was 4 × wg_count × 48, ~1.1 MB at 1080p). */
     for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
-        const int64_t *slots = vmaf_vulkan_buffer_host(s->accum[scale]);
-        unsigned wg_count = s->wg_count[scale];
-        for (unsigned w = 0; w < wg_count; w++) {
-            const int64_t *p = slots + (size_t)w * ADM_ACCUM_SLOTS_PER_WG;
-            for (int b = 0; b < ADM_NUM_BANDS; b++) {
-                csf_totals[scale][b] += p[b];
-                cm_totals[scale][b] += p[3 + b];
-            }
+        (void)vmaf_vulkan_buffer_invalidate(s->ctx, s->reduced_accum[scale]);
+        const int64_t *r = vmaf_vulkan_buffer_host(s->reduced_accum[scale]);
+        for (int b = 0; b < ADM_NUM_BANDS; b++) {
+            csf_totals[scale][b] = r[b];
+            cm_totals[scale][b] = r[3 + b];
         }
     }
 
@@ -858,11 +885,60 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         err = vmaf_vulkan_buffer_flush(s->ctx, s->accum[scale]);
         if (err)
             return err;
+        /* ADR-0350: zero the reduced output (atomicAdd accumulates into it). */
+        memset(vmaf_vulkan_buffer_host(s->reduced_accum[scale]), 0,
+               (size_t)ADM_ACCUM_SLOTS_PER_WG * sizeof(int64_t));
+        err = vmaf_vulkan_buffer_flush(s->ctx, s->reduced_accum[scale]);
+        if (err)
+            return err;
     }
 
     /* All 9 descriptor bindings are init-time-stable (the accum buffers
      * are allocated once in init() and never reallocated). No per-frame
      * vkUpdateDescriptorSets needed. (T-GPU-OPT-VK-4 / ADR-0256.) */
+
+    /* ADR-0350: allocate and write reducer descriptor sets once per frame.
+     * The accum_in and reduced_accum bindings are stable per-scale, so we
+     * could pre-allocate in init() and write once; for simplicity we
+     * allocate per-frame here to keep the ADR-0350 reduction self-contained. */
+    VkDescriptorSet reduce_sets[ADM_NUM_SCALES] = {VK_NULL_HANDLE};
+    {
+        VkDescriptorSetLayout rlayouts[ADM_NUM_SCALES];
+        for (int i = 0; i < ADM_NUM_SCALES; i++)
+            rlayouts[i] = s->pl_reduce.dsl;
+        VkDescriptorSetAllocateInfo rdsai = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = s->pl_reduce.desc_pool,
+            .descriptorSetCount = ADM_NUM_SCALES,
+            .pSetLayouts = rlayouts,
+        };
+        if (vkAllocateDescriptorSets(s->ctx->device, &rdsai, reduce_sets) != VK_SUCCESS) {
+            err = -ENOMEM;
+            goto cleanup_no_submit;
+        }
+        for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
+            VkDescriptorBufferInfo rdbi[2] = {
+                {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->accum[scale]),
+                 .offset = 0,
+                 .range = VK_WHOLE_SIZE},
+                {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->reduced_accum[scale]),
+                 .offset = 0,
+                 .range = VK_WHOLE_SIZE},
+            };
+            VkWriteDescriptorSet rwrites[2];
+            for (int i = 0; i < 2; i++) {
+                rwrites[i] = (VkWriteDescriptorSet){
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = reduce_sets[scale],
+                    .dstBinding = (uint32_t)i,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    .pBufferInfo = &rdbi[i],
+                };
+            }
+            vkUpdateDescriptorSets(s->ctx->device, 2, rwrites, 0, NULL);
+        }
+    }
 
     /* Acquire a pre-allocated command buffer + fence from the submit pool.
      * Eliminates per-frame vkAllocateCommandBuffers / vkCreateFence.
@@ -982,6 +1058,32 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         }
     }
 
+    /* ADR-0350: flush per-WG accum SSBOs, then run GPU reducer per scale.
+     * All four reductions are in the same command buffer — no queueWaitIdle. */
+    {
+        VkMemoryBarrier reduce_barrier = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &reduce_barrier, 0, NULL,
+                             0, NULL);
+        for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
+            uint32_t wg_count_scale = (uint32_t)s->wg_count[scale];
+            uint32_t n_rg = (wg_count_scale + 255u) / 256u;
+            if (n_rg == 0u)
+                n_rg = 1u;
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_reduce.pipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                    s->pl_reduce.pipeline_layout, 0, 1, &reduce_sets[scale], 0,
+                                    NULL);
+            vkCmdPushConstants(cmd, s->pl_reduce.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(uint32_t), &wg_count_scale);
+            vkCmdDispatch(cmd, n_rg, 1u, 1u);
+        }
+    }
+
     err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &submit);
     if (err)
         goto cleanup;
@@ -990,6 +1092,13 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
 cleanup:
     vmaf_vulkan_kernel_submit_free(s->ctx, &submit);
+    if (reduce_sets[0] != VK_NULL_HANDLE)
+        vkFreeDescriptorSets(s->ctx->device, s->pl_reduce.desc_pool, ADM_NUM_SCALES, reduce_sets);
+    return err;
+
+cleanup_no_submit:
+    if (reduce_sets[0] != VK_NULL_HANDLE)
+        vkFreeDescriptorSets(s->ctx->device, s->pl_reduce.desc_pool, ADM_NUM_SCALES, reduce_sets);
     return err;
 }
 
@@ -1039,7 +1148,10 @@ static int close_fex(VmafFeatureExtractor *fex)
     for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
         if (s->accum[scale])
             vmaf_vulkan_buffer_free(s->ctx, s->accum[scale]);
+        if (s->reduced_accum[scale])
+            vmaf_vulkan_buffer_free(s->ctx, s->reduced_accum[scale]);
     }
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_reduce);
 
     if (s->owns_ctx)
         vmaf_vulkan_context_destroy(s->ctx);

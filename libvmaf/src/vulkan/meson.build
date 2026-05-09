@@ -62,6 +62,10 @@ vulkan_shader_sources = [
     'shaders/ssimulacra2_blur.comp',
     'shaders/ssimulacra2_mul.comp',
     'shaders/ssimulacra2_ssim.comp',
+    # T-GPU-PERF-VK-3 / ADR-0350 — two-level GPU reduction shaders.
+    'shaders/vif_reduce.comp',
+    'shaders/adm_reduce.comp',
+    'shaders/motion_reduce.comp',
     # T7-36 / ADR-0205 — cambi Vulkan integration.
     'shaders/cambi_preprocess.comp',
     'shaders/cambi_derivative.comp',

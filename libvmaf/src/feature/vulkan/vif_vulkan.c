@@ -26,6 +26,15 @@
  *  scaffolding (PR #116) installed in libvmaf/src/vulkan/common.c.
  *  When the framework gains a `vk_state` field in the next runtime
  *  PR (T5-1b-v), this TU swaps over without breaking ABI.
+ *
+ *  T-GPU-PERF-VK-3 / ADR-0350: two-level GPU reduction.
+ *  The per-WG accumulator SSBO (was ~1.2 MB/frame at 1080p) is now
+ *  reduced on-GPU by a second compute dispatch (vif_reduce.comp).
+ *  The host reads only VIF_ACCUM_FIELDS * sizeof(int64_t) = 56 bytes
+ *  per scale (224 bytes for 4 scales) instead of
+ *  wg_count * VIF_ACCUM_FIELDS * sizeof(int64_t).  This eliminates the
+ *  dominant 59.73% CPU-time bottleneck in reduce_and_emit at 1080p on
+ *  discrete GPU (PCIe BAR uncached reads).  See ADR-0350.
  */
 
 #include <assert.h>
@@ -48,7 +57,8 @@
 #include "../../vulkan/picture_vulkan.h"
 #include "../../vulkan/vulkan_internal.h"
 
-#include "vif_spv.h" /* generated SPIR-V byte array */
+#include "vif_spv.h"        /* per-WG accumulator kernel */
+#include "vif_reduce_spv.h" /* two-level reduction kernel (ADR-0350) */
 
 /* ------------------------------------------------------------------ */
 /* Constants — must match vif.comp + integer_vif_sycl.cpp.            */
@@ -96,15 +106,23 @@ typedef struct {
      * scale=0 pipeline. `scale_variants[0..2]` are sibling pipelines
      * for scales 1, 2, 3 — created via
      * `vmaf_vulkan_kernel_pipeline_add_variant()`, same layout +
-     * shader + DSL + pool, different SCALE spec-constant. */
+     * shader + DSL + pool, different SCALE spec-constant.
+     *
+     * `pl_reduce` is the two-level reduction pipeline (ADR-0350):
+     * one pipeline shared across all 4 scales (no spec-constant
+     * variance needed — the push-constant `wg_count` varies per
+     * scale at dispatch time). */
     VmafVulkanKernelPipeline pl;
     VkPipeline scale_variants[VIF_NUM_SCALES - 1]; /* scales 1, 2, 3 */
+    VmafVulkanKernelPipeline pl_reduce;
 
     /* Submit-side template (T-GPU-OPT-VK-1 / ADR-0256). */
     VmafVulkanKernelSubmitPool sub_pool;
 
     /* Pre-allocated descriptor sets per scale (T-GPU-OPT-VK-4). */
     VkDescriptorSet pre_sets[VIF_NUM_SCALES];
+    /* Pre-allocated descriptor sets for the reducer (one per scale). */
+    VkDescriptorSet reduce_sets[VIF_NUM_SCALES];
 
     /* Per-scale GPU resources. */
     struct {
@@ -115,7 +133,10 @@ typedef struct {
         VmafVulkanBuffer *rd_ref_out; /* downsampled output (SCALE<3 only) */
         VmafVulkanBuffer *rd_dis_out;
         VmafVulkanBuffer *accum; /* per-WG int64 accumulator slots */
-        unsigned wg_count;       /* == gx * gy */
+        /* ADR-0350: tiny output buffer for the GPU reducer.
+         * Size: VIF_ACCUM_FIELDS * sizeof(int64_t) = 56 bytes. */
+        VmafVulkanBuffer *reduced_accum;
+        unsigned wg_count; /* == gx * gy */
     } scale[VIF_NUM_SCALES];
 
     VmafVulkanBuffer *log2_lut; /* uint32[32768] */
@@ -159,6 +180,11 @@ typedef struct {
     uint32_t num_workgroups_x;
 } VifPushConsts;
 
+/* Push constants for the reduction shader (vif_reduce.comp). */
+typedef struct {
+    uint32_t wg_count;
+} VifReducePushConsts;
+
 /* ------------------------------------------------------------------ */
 /* Helper: workgroup count for a given (w,h).                          */
 /* ------------------------------------------------------------------ */
@@ -167,6 +193,13 @@ static inline void vif_wg_dims(unsigned w, unsigned h, uint32_t *gx, uint32_t *g
 {
     *gx = (w + VIF_WG_X - 1u) / VIF_WG_X;
     *gy = (h + VIF_WG_Y - 1u) / VIF_WG_Y;
+}
+
+/* Number of reduction workgroups needed to reduce wg_count per-WG
+ * slots, with 256 threads per reduction workgroup. */
+static inline uint32_t vif_reduce_wg_count(unsigned wg_count)
+{
+    return (wg_count + 255u) / 256u;
 }
 
 /* ------------------------------------------------------------------ */
@@ -267,7 +300,25 @@ static int create_pipelines(VifVulkanState *s)
         if (err)
             return err;
     }
-    return 0;
+
+    /* ADR-0350: two-level reduction pipeline.
+     * 2 SSBO bindings: accum_in (per-WG slots), accum_out (56-byte result).
+     * Pool sized for 4 scales × 2 frames = 8 descriptor sets. */
+    const VmafVulkanKernelPipelineDesc reduce_desc = {
+        .ssbo_binding_count = 2U,
+        .push_constant_size = (uint32_t)sizeof(VifReducePushConsts),
+        .spv_bytes = vif_reduce_spv,
+        .spv_size = vif_reduce_spv_size,
+        .pipeline_create_info =
+            {
+                .stage =
+                    {
+                        .pName = "main",
+                    },
+            },
+        .max_descriptor_sets = (uint32_t)(VIF_NUM_SCALES * 2),
+    };
+    return vmaf_vulkan_kernel_pipeline_create(s->ctx, &reduce_desc, &s->pl_reduce);
 }
 
 /* ------------------------------------------------------------------ */
@@ -319,6 +370,17 @@ static int alloc_scale_buffers(VifVulkanState *s)
         if (accum_bytes == 0)
             accum_bytes = sizeof(int64_t);
         int err = vmaf_vulkan_buffer_alloc(s->ctx, &s->scale[scale].accum, accum_bytes);
+        if (err)
+            return err;
+
+        /* ADR-0350: tiny reduced-accumulator output buffer —
+         * VIF_ACCUM_FIELDS int64_t = 56 bytes per scale. This is the
+         * only buffer the host reads after the GPU reduction. It must
+         * be host-visible so reduce_and_emit can map it; the VMA
+         * HOST_ACCESS_RANDOM_BIT flag enables efficient uncached
+         * reads for discrete-GPU BAR2 windows. */
+        size_t reduced_bytes = (size_t)VIF_ACCUM_FIELDS * sizeof(int64_t);
+        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->scale[scale].reduced_accum, reduced_bytes);
         if (err)
             return err;
 
@@ -388,8 +450,15 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (err)
         return err;
 
+    /* Pre-allocate main descriptor sets (VIF per-WG kernel). */
     err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl.desc_pool, s->pl.dsl,
                                                    (uint32_t)VIF_NUM_SCALES, s->pre_sets);
+    if (err)
+        return err;
+
+    /* Pre-allocate reducer descriptor sets (one per scale). */
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl_reduce.desc_pool, s->pl_reduce.dsl,
+                                                   (uint32_t)VIF_NUM_SCALES, s->reduce_sets);
     if (err)
         return err;
 
@@ -462,23 +531,56 @@ static int write_descriptor_set(VifVulkanState *s, VkDescriptorSet set, int scal
     return 0;
 }
 
+/* Write the reducer descriptor set: accum_in → per-WG SSBO,
+ * accum_out → 56-byte reduced result buffer. Called once at init
+ * time (pre-allocated sets updated here). Per ADR-0350 the bindings
+ * don't change frame-to-frame so we only call this once per scale. */
+static int write_reduce_descriptor_set(VifVulkanState *s, VkDescriptorSet set, int scale)
+{
+    VkDescriptorBufferInfo dbi[2] = {
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->scale[scale].accum),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->scale[scale].reduced_accum),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+    };
+    VkWriteDescriptorSet writes[2];
+    for (int i = 0; i < 2; i++) {
+        writes[i] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = set,
+            .dstBinding = (uint32_t)i,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pBufferInfo = &dbi[i],
+        };
+    }
+    vkUpdateDescriptorSets(s->ctx->device, 2, writes, 0, NULL);
+    return 0;
+}
+
+/* ADR-0350: GPU-reduced version of reduce_and_emit.
+ * The host now reads only 56 bytes per scale (224 bytes total for 4
+ * scales) from the tiny `reduced_accum` buffer, instead of iterating
+ * over all per-WG slots. */
 static int reduce_and_emit(VifVulkanState *s, unsigned index, VmafFeatureCollector *fc)
 {
-    /* CPU-side reduction: sum per-WG slots into one vif_accums per scale. */
-    struct vif_accums totals[VIF_NUM_SCALES] = {0};
+    struct vif_accums totals[VIF_NUM_SCALES];
     for (int scale = 0; scale < VIF_NUM_SCALES; scale++) {
-        const int64_t *slots = vmaf_vulkan_buffer_host(s->scale[scale].accum);
-        unsigned n = s->scale[scale].wg_count;
-        for (unsigned i = 0; i < n; i++) {
-            const int64_t *r = slots + (size_t)i * VIF_ACCUM_FIELDS;
-            totals[scale].x += r[0];
-            totals[scale].x2 += r[1];
-            totals[scale].num_x += r[2];
-            totals[scale].num_log += r[3];
-            totals[scale].den_log += r[4];
-            totals[scale].num_non_log += r[5];
-            totals[scale].den_non_log += r[6];
-        }
+        /* Invalidate the host cache for the reduced_accum buffer so
+         * we see the GPU-written values (required for device-local
+         * buffers that are also host-visible; VMA handles the actual
+         * vkInvalidateMappedMemoryRanges call internally). */
+        (void)vmaf_vulkan_buffer_invalidate(s->ctx, s->scale[scale].reduced_accum);
+        const int64_t *r = vmaf_vulkan_buffer_host(s->scale[scale].reduced_accum);
+        totals[scale].x = r[0];
+        totals[scale].x2 = r[1];
+        totals[scale].num_x = r[2];
+        totals[scale].num_log = r[3];
+        totals[scale].den_log = r[4];
+        totals[scale].num_non_log = r[5];
+        totals[scale].den_non_log = r[6];
     }
 
     /* Per-scale VIF score formula — identical to SYCL collect path. */
@@ -557,11 +659,27 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         err = vmaf_vulkan_buffer_flush(s->ctx, s->scale[scale].accum);
         if (err)
             return err;
+
+        /* ADR-0350: zero the reduced_accum output before the reduction
+         * dispatch. The reduction shader uses atomicAdd, so the output
+         * must start at zero each frame. */
+        memset(vmaf_vulkan_buffer_host(s->scale[scale].reduced_accum), 0,
+               (size_t)VIF_ACCUM_FIELDS * sizeof(int64_t));
+        err = vmaf_vulkan_buffer_flush(s->ctx, s->scale[scale].reduced_accum);
+        if (err)
+            return err;
     }
 
     /* Pre-allocated descriptor sets — rebind per frame (VK-4). */
-    for (int scale = 0; scale < VIF_NUM_SCALES; scale++)
+    for (int scale = 0; scale < VIF_NUM_SCALES; scale++) {
         write_descriptor_set(s, s->pre_sets[scale], scale);
+        /* Reducer descriptor sets are stable (same buffers every
+         * frame); only write them on the first frame. Subsequent
+         * frames don't need a rebind because the buffer handles
+         * haven't changed. */
+        if (index == 0u)
+            write_reduce_descriptor_set(s, s->reduce_sets[scale], scale);
+    }
 
     VmafVulkanKernelSubmit submit = {0};
     err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool, /*pool_slot=*/0, &submit);
@@ -609,6 +727,40 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         }
     }
 
+    /* ADR-0350: after all per-WG vif.comp dispatches are done, issue a
+     * single barrier to flush the per-WG accumulator SSBOs, then
+     * dispatch vif_reduce.comp once per scale.  All four reductions
+     * share the same command buffer — no vkQueueWaitIdle between them
+     * (Vulkan spec §7.1: pipeline barriers are intra-queue ordered).
+     *
+     * Barrier: SHADER_WRITE from per-WG kernel → SHADER_READ |
+     *          SHADER_WRITE for the reducer (the reducer also atomicAdd-
+     *          writes to reduced_accum, hence SHADER_WRITE on dstAccess
+     *          too).  VK_ACCESS_HOST_READ_BIT on dstAccess is NOT needed
+     *          here because the CPU reads after the fence (submit_end_and_wait)
+     *          which already provides the CPU-visible ordering guarantee. */
+    VkMemoryBarrier reduce_barrier = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &reduce_barrier, 0, NULL, 0,
+                         NULL);
+
+    for (int scale = 0; scale < VIF_NUM_SCALES; scale++) {
+        uint32_t n_reduce_wg = vif_reduce_wg_count(s->scale[scale].wg_count);
+        VifReducePushConsts rpc = {
+            .wg_count = s->scale[scale].wg_count,
+        };
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_reduce.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_reduce.pipeline_layout,
+                                0, 1, &s->reduce_sets[scale], 0, NULL);
+        vkCmdPushConstants(cmd, s->pl_reduce.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(rpc), &rpc);
+        vkCmdDispatch(cmd, n_reduce_wg, 1, 1);
+    }
+
     err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &submit);
     if (err)
         goto cleanup;
@@ -640,6 +792,7 @@ static int close_fex(VmafFeatureExtractor *fex)
             vkDestroyPipeline(dev, s->scale_variants[i], NULL);
     }
     vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_reduce);
     vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     for (int scale = 0; scale < VIF_NUM_SCALES; scale++) {
@@ -655,6 +808,8 @@ static int close_fex(VmafFeatureExtractor *fex)
             vmaf_vulkan_buffer_free(s->ctx, s->scale[scale].rd_dis_out);
         if (s->scale[scale].accum)
             vmaf_vulkan_buffer_free(s->ctx, s->scale[scale].accum);
+        if (s->scale[scale].reduced_accum)
+            vmaf_vulkan_buffer_free(s->ctx, s->scale[scale].reduced_accum);
     }
     if (s->log2_lut)
         vmaf_vulkan_buffer_free(s->ctx, s->log2_lut);

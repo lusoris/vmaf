@@ -344,3 +344,29 @@ is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
 [hdr]: ../../../libvmaf/include/libvmaf/libvmaf_vulkan.h
 [smoke-test]: ../../../libvmaf/test/test_vulkan_smoke.c
 [diff-script]: ../../../scripts/ci/cross_backend_vif_diff.py
+
+## Performance
+
+### T-GPU-PERF-VK-3: two-level GPU reduction (ADR-0350)
+
+The VIF, ADM, and motion kernels now run a second compute dispatch per frame
+that reduces the per-workgroup int64 accumulator SSBO on-GPU before the CPU
+reads results. This eliminates the dominant 59.73% CPU-time bottleneck
+(`reduce_and_emit` reading ~1.2 MB of per-WG slots over PCIe BAR on discrete
+GPU) identified by a perf-hunt session at 1080p on RTX 4090.
+
+Host readback per frame after this fix:
+
+| Kernel | Before | After |
+|---|---|---|
+| VIF (4 scales × 7 fields) | ~3.5 MB | 224 B |
+| ADM (4 scales × 6 fields) | ~1.1 MB | 192 B |
+| motion (1 field) | ~130 KB | 8 B |
+| **Total** | **~4.7 MB** | **424 B** |
+
+Expected throughput gain at 1080p: +50–80% on discrete GPU, compounding with
+the `HOST_ACCESS_RANDOM_BIT` readback flag fix (bottleneck #1).
+
+Requires `VK_EXT_shader_atomic_int64` on the Vulkan device.
+See [research digest 0091](../../research/0091-vulkan-gpu-reduction-perf-analysis.md)
+and [ADR-0350](../../adr/0350-vulkan-two-level-gpu-reduction.md).

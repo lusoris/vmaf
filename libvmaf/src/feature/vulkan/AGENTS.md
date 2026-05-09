@@ -123,6 +123,35 @@ ADR-0234) catches drift but only after a full GPU run.
   applies on Vulkan too (ADR-0188 / 0189 / 0190). Auto-decimation
   is a v2 follow-up; do not silently enable it on rebase.
 
+- **`vif_vulkan.c` / `adm_vulkan.c` / `motion_vulkan.c` two-level GPU
+  reduction** (ADR-0350 / T-GPU-PERF-VK-3). Each of these three
+  kernels now runs a *second* compute dispatch per frame (vif_reduce.comp,
+  adm_reduce.comp, motion_reduce.comp) that reduces the per-WG
+  accumulator SSBO to a tiny fixed-size output buffer. Key invariants:
+  - The `VK_ACCESS_SHADER_WRITE_BIT → VK_ACCESS_SHADER_READ_BIT |
+    VK_ACCESS_SHADER_WRITE_BIT` memory barrier between the per-WG
+    dispatch and the reducer dispatch is **load-bearing** — removing it
+    reintroduces a write-after-write hazard on the accumulator SSBO and a
+    read-before-write hazard on `reduced_accum`.
+  - The reducer shaders require `VK_EXT_shader_atomic_int64`
+    (`shaderBufferInt64Atomics`). Do not port these shaders to a platform
+    that doesn't advertise this feature without adding a fallback (e.g.
+    a one-WG serial path).
+  - `vmaf_vulkan_buffer_invalidate()` must be called on `reduced_accum`
+    / `reduced_sad` after the fence wait and before the host reads the
+    result. Omitting it is a coherency bug on non-coherent heaps (common
+    on discrete GPU without ReBAR).
+  - `reduced_accum` / `reduced_sad` must be zeroed (host `memset` +
+    `flush`) **each frame** because the reducer uses `atomicAdd` to
+    accumulate from multiple WGs into a single output. The per-WG
+    `accum` buffer also continues to be zeroed each frame.
+  - Bit-exactness: int64 reduction is order-independent (two's-complement
+    addition is commutative and associative). The GPU reducer produces
+    the same totals as the removed host loop regardless of WG execution
+    order. This is the load-bearing claim that drives the places=4 gate.
+  - The `MAX_SUBGROUPS = 256` constant in the reducer shaders matches
+    `local_size_x = 256`. Changing the WG size requires updating both.
+
 ## Build
 
 Vulkan feature TUs compile only when `meson setup -Denable_vulkan=true`.
@@ -164,6 +193,8 @@ The umbrella flag pulls in `dependency('vulkan')` + volk + glslc + VMA.
   SSIMULACRA 2 Vulkan host-path SIMD.
 - [ADR-0256](../../../../docs/adr/0256-vulkan-submit-pool.md) —
   submit pool design (`VmafVulkanKernelSubmitPool`).
+- [ADR-0350](../../../../docs/adr/0350-vulkan-two-level-gpu-reduction.md) —
+  Two-level GPU reduction for VIF / ADM / motion accumulators (T-GPU-PERF-VK-3).
 - [ADR-0353](../../../../docs/adr/0353-vulkan-submit-pool-pr-b-six-kernels.md) —
   PR-B six-kernel submit-pool migration.
 
