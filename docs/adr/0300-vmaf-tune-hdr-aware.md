@@ -142,7 +142,7 @@ SDR-on-HDR delta measurement called out in the digest's follow-up
 backlog is the smaller next step that does not require gated
 corpora.
 
-### Status update 2026-05-08: iter_rows integration
+### Status update 2026-05-08: iter_rows integration + transfer-aware model slot
 
 Phase-A audit item HP-2 closed. The original PR landed `hdr.py` and
 the four CLI flags but never wired `detect_hdr` /
@@ -150,7 +150,7 @@ the four CLI flags but never wired `detect_hdr` /
 `corpus.iter_rows` — `grep -nE "from.*\.hdr|import.*hdr"
 tools/vmaf-tune/src/vmaftune/*.py` returned zero hits. PQ sources
 silently encoded as SDR with PQ metadata stripped. The follow-up
-PR wires the integration:
+PRs wire the integration:
 
 - `corpus.iter_rows` now resolves the effective HDR mode once per
   source via the new `_resolve_hdr` helper, then injects
@@ -167,7 +167,16 @@ PR wires the integration:
 - The two integration tests previously gated by
   `_HDR_ITER_ROWS_DEFERRED` (`test_corpus_emits_hdr_fields_when_source_is_hdr`,
   `test_corpus_force_sdr_skips_hdr_path`) are un-skipped and pass.
+- `select_hdr_vmaf_model()` now accepts an optional ``transfer`` keyword
+  (``"pq"`` / ``"hlg"`` / ``None``) and prefers the canonical filename
+  ``vmaf_hdr_v0.6.1.json`` when present; falls back to the
+  ``vmaf_hdr_*.json`` glob for forward compatibility with future
+  Netflix revisions. A new ``hdr_model_name_for(transfer)`` helper
+  exposes the dispatch table. A ``reset_hdr_model_warning()`` test hook
+  clears the once-per-process warning flag.
 
 The HDR VMAF scoring story is unchanged — model port still
 backlog. Encode-side correctness is now active for every PQ /
-HLG source the harness sees.
+HLG source the harness sees. Upstream Netflix/vmaf master `model/`
+does **not** ship ``vmaf_hdr_v0.6.1.json`` as of 2026-05-08;
+a fork-local license review is the gating follow-up.

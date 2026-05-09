@@ -459,6 +459,24 @@ corresponding phase.
   When TransNet V2 is hot-pathed (e.g. Phase E ladder generation
   re-running detection), extend ``detect_shots`` to call
   ``vmaf-perShot`` once and cache, not to bypass the binary.
+- **Shot detection runs once per source, never per cell.** The
+  corpus driver (``corpus._resolve_shot_metadata``) calls
+  ``_detect_shots_with_status`` at the top of ``iter_rows`` and
+  passes the resulting ``ShotMetadata`` down to every
+  ``(preset, crf)`` row via ``_row_for``. Moving the call inside
+  the cell loop roughly doubles corpus wall time on TransNet-V2.
+  ``_detect_shots_with_status`` is the only API that returns the
+  ``(shots, ok)`` tuple needed to distinguish a real single-shot
+  source from a "binary failed" fallback — the public
+  ``detect_shots`` shape cannot carry that flag.
+- **HDR VMAF model resolution goes through
+  ``hdr.select_hdr_vmaf_model``.** The canonical filename is
+  ``vmaf_hdr_v0.6.1.json`` (Netflix's research-artefact name).
+  Route lookups through ``hdr_model_name_for(transfer)`` so a
+  future Dolby-Vision-specific model entry is one
+  dispatch-table row away. The "HDR model not shipped" warning
+  is single-shot per process; clear it from tests via
+  ``hdr.reset_hdr_model_warning()``.
 Phase A (this scaffold): grid sweep + JSONL emit. Codecs wired so
 far: `libx264` (ADR-0237) and `libsvtav1` (ADR-0294). Phases B–F per
 ADR-0237 are explicitly out of scope here; do not add bisect /

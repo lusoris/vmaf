@@ -43,6 +43,7 @@ from . import (
 from .codec_adapters import get_adapter
 from .encode import EncodeRequest, bitrate_kbps, run_encode, run_two_pass_encode
 from .hdr import HdrInfo, detect_hdr, hdr_codec_args, select_hdr_vmaf_model
+from .per_shot import ShotMetadata, _detect_shots_with_status, summarise_shots
 from .score import ScoreRequest, ScoreResult, run_score
 
 _LOG = logging.getLogger(__name__)
@@ -246,17 +247,54 @@ def _resolve_hdr_score_model(
     return sdr_model
 
 
+def _resolve_shot_metadata(
+    job: "CorpusJob",
+    *,
+    shot_runner: object | None,
+    per_shot_bin: str,
+) -> ShotMetadata:
+    """Run TransNet shot detection once per source and aggregate.
+
+    Failures are silent: ``detect_shots`` already falls back to a
+    sentinel list when the binary is missing or the invocation fails;
+    :func:`summarise_shots` maps that sentinel to the all-zero
+    metadata, which downstream consumers treat as "shot data
+    unavailable for this source". The cost of running TransNet is
+    paid once per source (not per cell), so we compute it inside
+    ``iter_rows`` rather than per-row.
+    """
+    total_frames = (
+        int(round(job.duration_s * job.framerate))
+        if job.duration_s > 0.0 and job.framerate > 0.0
+        else None
+    )
+    shots, ok = _detect_shots_with_status(
+        job.source,
+        width=job.width,
+        height=job.height,
+        pix_fmt=job.pix_fmt,
+        total_frames=total_frames,
+        per_shot_bin=per_shot_bin,
+        runner=shot_runner,
+    )
+    if not ok:
+        return ShotMetadata(count=0, avg_duration_sec=0.0, duration_std_sec=0.0)
+    return summarise_shots(shots, framerate=job.framerate)
+
+
 def iter_rows(
     job: CorpusJob,
     opts: CorpusOptions,
     *,
     encode_runner: object | None = None,
     score_runner: object | None = None,
+    shot_runner: object | None = None,
 ) -> Iterator[dict]:
     """Yield one JSONL row per (preset, crf) cell.
 
-    ``encode_runner`` / ``score_runner`` are subprocess-runner stubs
-    parameterised for tests. Production callers leave them ``None``.
+    ``encode_runner`` / ``score_runner`` / ``shot_runner`` are
+    subprocess-runner stubs parameterised for tests. Production
+    callers leave them ``None``.
     """
     adapter = get_adapter(opts.encoder)
     src_hash = _sha256_of(job.source) if (opts.src_sha256 and job.source.exists()) else ""
@@ -264,6 +302,7 @@ def iter_rows(
     opts.encode_dir.mkdir(parents=True, exist_ok=True)
 
     clip_seconds, start_s, frame_skip_ref, frame_cnt, clip_mode = _resolve_sample_clip(job, opts)
+    shot_meta = _resolve_shot_metadata(job, shot_runner=shot_runner, per_shot_bin="vmaf-perShot")
 
     # HDR resolution happens once per source: detection (or the forced
     # synthetic info) is constant across the (preset, crf) grid for a
@@ -345,6 +384,7 @@ def iter_rows(
             clip_mode=clip_mode,
             hdr_info=hdr_info,
             hdr_forced=hdr_forced,
+            shot_meta=shot_meta,
         )
         if not opts.keep_encodes and out.exists() and enc_res.exit_status == 0:
             # best-effort cleanup; corpus row stays valid either way
@@ -365,6 +405,7 @@ def _row_for(
     clip_mode: str = "full",
     hdr_info: HdrInfo | None = None,
     hdr_forced: bool = False,
+    shot_meta: ShotMetadata | None = None,
 ) -> dict:
     # Bitrate is computed against the *encoded* duration so sample-clip
     # rows aren't biased low by dividing slice-bytes by full-source
@@ -404,6 +445,13 @@ def _row_for(
         "hdr_transfer": hdr_info.transfer if hdr_info is not None else "",
         "hdr_primaries": hdr_info.primaries if hdr_info is not None else "",
         "hdr_forced": bool(hdr_forced),
+        # TransNet-V2 shot-metadata trio (research-0086). When shot
+        # detection is unavailable the fields are zero-valued so
+        # downstream loaders can filter on ``shot_count > 0`` without
+        # special-casing missing keys.
+        "shot_count": (shot_meta.count if shot_meta is not None else 0),
+        "shot_avg_duration_sec": (shot_meta.avg_duration_sec if shot_meta is not None else 0.0),
+        "shot_duration_std_sec": (shot_meta.duration_std_sec if shot_meta is not None else 0.0),
     }
     # v3 canonical-6 aggregate columns (ADR-0366). Missing features
     # (model didn't expose them, or scoring was skipped) become NaN —

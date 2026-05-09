@@ -17,7 +17,15 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "src"))
 
-from vmaftune.hdr import HdrInfo, detect_hdr, hdr_codec_args, select_hdr_vmaf_model  # noqa: E402
+from vmaftune.hdr import (  # noqa: E402
+    HDR_MODEL_FILENAME,
+    HdrInfo,
+    detect_hdr,
+    hdr_codec_args,
+    hdr_model_name_for,
+    reset_hdr_model_warning,
+    select_hdr_vmaf_model,
+)
 
 
 class _FakeCompleted:
@@ -276,6 +284,83 @@ def test_select_hdr_vmaf_model_picks_latest_when_multiple(tmp_path: Path):
 def test_select_hdr_vmaf_model_handles_missing_dir(tmp_path: Path):
     nope = tmp_path / "does_not_exist"
     assert select_hdr_vmaf_model(nope) is None
+
+
+# ---------------------------------------------------------------------------
+# HDR model port — registration + transfer-aware resolution
+# ---------------------------------------------------------------------------
+
+
+def test_hdr_model_name_for_pq_returns_canonical_filename():
+    assert hdr_model_name_for("pq") == HDR_MODEL_FILENAME
+    assert hdr_model_name_for("PQ") == HDR_MODEL_FILENAME  # case-insensitive
+
+
+def test_hdr_model_name_for_hlg_returns_canonical_filename():
+    assert hdr_model_name_for("hlg") == HDR_MODEL_FILENAME
+
+
+def test_hdr_model_name_for_sdr_returns_none():
+    assert hdr_model_name_for(None) is None
+    assert hdr_model_name_for("") is None
+    assert hdr_model_name_for("bt709") is None
+
+
+def test_select_hdr_vmaf_model_prefers_canonical_for_pq(tmp_path: Path):
+    canonical = tmp_path / HDR_MODEL_FILENAME
+    canonical.write_text("{}")
+    # An older variant must NOT be picked when the canonical is present.
+    (tmp_path / "vmaf_hdr_v0.5.0.json").write_text("{}")
+    found = select_hdr_vmaf_model(tmp_path, transfer="pq")
+    assert found == canonical
+
+
+def test_select_hdr_vmaf_model_falls_back_to_glob_when_canonical_absent(tmp_path: Path):
+    older = tmp_path / "vmaf_hdr_v0.6.0.json"
+    older.write_text("{}")
+    # No canonical file -- glob picks the only HDR JSON available.
+    found = select_hdr_vmaf_model(tmp_path, transfer="hlg")
+    assert found == older
+
+
+def test_select_hdr_vmaf_model_returns_none_for_sdr_transfer_in_empty_dir(tmp_path: Path):
+    # Empty directory + SDR transfer -> None (no HDR routing required).
+    reset_hdr_model_warning()
+    assert select_hdr_vmaf_model(tmp_path, transfer=None) is None
+
+
+def test_select_hdr_vmaf_model_logs_warning_once_when_missing(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Single-shot warning so corpus runs over many SDR sources stay quiet."""
+    reset_hdr_model_warning()
+    with caplog.at_level("WARNING", logger="vmaftune.hdr"):
+        # Two consecutive misses -> only one warning recorded.
+        select_hdr_vmaf_model(tmp_path, transfer="pq")
+        select_hdr_vmaf_model(tmp_path, transfer="pq")
+    warns = [r for r in caplog.records if "HDR VMAF model unavailable" in r.message]
+    assert len(warns) == 1
+    assert HDR_MODEL_FILENAME in warns[0].message
+
+
+def test_select_hdr_vmaf_model_does_not_warn_when_canonical_present(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    (tmp_path / HDR_MODEL_FILENAME).write_text("{}")
+    reset_hdr_model_warning()
+    with caplog.at_level("WARNING", logger="vmaftune.hdr"):
+        select_hdr_vmaf_model(tmp_path, transfer="pq")
+    warns = [r for r in caplog.records if "HDR VMAF model unavailable" in r.message]
+    assert warns == []
+
+
+def test_select_hdr_vmaf_model_legacy_call_without_transfer_still_works(tmp_path: Path):
+    """ADR-0300 callers used the no-arg signature — keep it green."""
+    target = tmp_path / "vmaf_hdr_v0.6.1.json"
+    target.write_text("{}")
+    assert select_hdr_vmaf_model(tmp_path) == target
 
 
 # ---------------------------------------------------------------------------
