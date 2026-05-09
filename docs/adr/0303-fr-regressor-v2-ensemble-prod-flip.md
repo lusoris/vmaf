@@ -133,3 +133,22 @@ the variance bound holds.
   Ensembles._ NIPS 2017.
 - Romano, Y., Patterson, E., Candès, E. (2019). _Conformalized
   Quantile Regression._ NeurIPS 2019.
+
+### Status update 2026-05-08: Phase 2 training script landed
+
+A second consumer of the ADR-0303 production-flip gate landed in
+`ai/scripts/train_predictor_v2_realcorpus.py` — the per-codec
+predictor v2 real-corpus LOSO trainer (Phase 2 of the predictor
+pipeline; companion to PR #450 / PR #462). The trainer applies the
+**same two-part gate** documented above (mean PLCC ≥ 0.95 across
+LOSO folds, max-min spread ≤ 0.005) **per codec** rather than per
+ensemble seed; the constants are mirrored as
+`SHIP_GATE_MEAN_PLCC` / `SHIP_GATE_PLCC_SPREAD_MAX` /
+`SHIP_GATE_PER_FOLD_MIN` in
+`ai/scripts/train_predictor_v2_realcorpus.py` and continue to live
+authoritatively in `scripts/ci/ensemble_prod_gate.py` for the
+ensemble. A future ADR change that lowers either threshold MUST
+update both call sites in lockstep; the test
+`test_gate_constants_match_adr_0303` in
+`ai/tests/test_train_predictor_v2_realcorpus.py` pins the
+predictor-side values to the ADR-0303 §Decision numbers.

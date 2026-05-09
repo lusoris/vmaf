@@ -31483,3 +31483,16 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   print('v2 ONNX op-set:', ops)
   EOF
   ```
+
+## Predictor v2 — real-corpus LOSO trainer + ADR-0303 gate (2026-05-08)
+
+- **Touches**: `ai/scripts/train_predictor_v2_realcorpus.py` (new), `ai/scripts/run_predictor_v2_training.sh` (new), `ai/tests/test_train_predictor_v2_realcorpus.py` (new), `docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md` (Status-update appendix only — body frozen per ADR-0028), `changelog.d/added/predictor-v2-realcorpus-trainer.md` (new). No upstream-shared paths; the trainer lives entirely under fork-local `ai/scripts/`.
+- **Invariant**: the gate constants `SHIP_GATE_MEAN_PLCC = 0.95`, `SHIP_GATE_PLCC_SPREAD_MAX = 0.005`, `SHIP_GATE_PER_FOLD_MIN = 0.95`, `LOSO_FOLD_COUNT = 5` mirror ADR-0303 §Decision and the constants in `scripts/ci/ensemble_prod_gate.py`. They MUST stay in lockstep; if a future ADR changes the gate, update both files (the predictor trainer + the ensemble CI gate) and re-run `test_gate_constants_match_adr_0303`. The 14-codec list in `_resolve_codecs()` is sourced from `vmaftune.predictor._DEFAULT_COEFFS` when PR #450 is on the path; the hard-coded fallback exists for the bootstrap case where this script lands before #450 merges. Drift between the two is asserted at runtime — adding a 15th codec means updating the mirror.
+- **On upstream sync**: no action required. The trainer + tests live entirely under fork-local paths (`ai/scripts/`, `ai/tests/`); upstream Netflix/vmaf has no equivalent surface. PR #450 (the predictor train pipeline) is itself fork-local; an upstream sync that reorganises `ai/scripts/` would invalidate the relative imports — re-run the test suite if that happens.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest ai/tests/test_train_predictor_v2_realcorpus.py -q
+  bash -n ai/scripts/run_predictor_v2_training.sh
+  python ai/scripts/train_predictor_v2_realcorpus.py --synthetic-smoke --report-out /tmp/p2.json
+  ```
