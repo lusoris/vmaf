@@ -54,12 +54,14 @@ limitations in the same PR as the code.
 [models/overview.md](../models/overview.md)); non-core extractors are
 standalone.
 
-¹ The `psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
-(`psnr_y`). `psnr_vulkan` adds `psnr_cb` / `psnr_cr` chroma metrics
-when `enable_chroma=true` (default) — see T3-15(b) work-in-progress
-PR #204 / [`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
-The CPU `psnr` extractor emits the full luma + chroma set on every
-build. CUDA / SYCL chroma support is a focused follow-up.
+¹ All three GPU `psnr` extractors (`psnr_cuda`, `psnr_sycl`,
+`psnr_vulkan`) emit the full luma + chroma set
+(`psnr_y` / `psnr_cb` / `psnr_cr`), matching the CPU `psnr` extractor.
+`psnr_vulkan` chroma shipped in PR #204 /
+[ADR-0216](../adr/0216-vulkan-chroma-psnr.md); `psnr_cuda` chroma in
+PR #520 (T3-15(a)); `psnr_sycl` chroma in T3-15(b). YUV400 sources
+clamp to luma-only at runtime — chroma dispatches and emits are
+skipped when the input has no chroma planes.
 
 ² SSIM (fixed-point, the `ssim` extractor) is CPU-scalar-only — the
 fixed-point integer path has no SIMD or GPU twin today. The
