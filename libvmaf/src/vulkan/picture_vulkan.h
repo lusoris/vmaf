@@ -58,6 +58,14 @@ int vmaf_vulkan_buffer_flush(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
 
 void vmaf_vulkan_buffer_free(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
 
+/* Invalidate the host-visible cache range so that GPU-written data
+ * becomes visible to subsequent host reads. Required for non-coherent
+ * host-visible heaps (common on dGPUs without ReBAR).  Call this
+ * after a fence wait and before vmaf_vulkan_buffer_host() reads on
+ * any buffer the GPU wrote (ADR-0350 two-level reduction output).
+ * Returns 0 / -EINVAL / -EIO. */
+int vmaf_vulkan_buffer_invalidate(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
+
 /* Compatibility shim for the T5-1 scaffold smoke test. The original
  * picture-alloc API returned a void* directly. We keep the surface so
  * `libvmaf/test/test_vulkan_smoke.c` still compiles, but route the

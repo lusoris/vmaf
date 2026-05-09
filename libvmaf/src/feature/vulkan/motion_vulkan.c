@@ -56,7 +56,8 @@
 #include "../../vulkan/vulkan_internal.h"
 #include "../../vulkan/kernel_template.h"
 
-#include "motion_spv.h" /* generated SPIR-V byte array */
+#include "motion_spv.h"        /* per-WG SAD accumulator kernel */
+#include "motion_reduce_spv.h" /* two-level reduction kernel (ADR-0350) */
 
 /* ------------------------------------------------------------------ */
 /* Constants — must match motion.comp.                                 */
@@ -102,6 +103,10 @@ typedef struct {
      * spec-constants, so the two pipelines are functionally
      * identical. Collapsed to one. (T-GPU-DEDUP-7.) */
     VmafVulkanKernelPipeline pl;
+    /* ADR-0350: two-level GPU reduction pipeline and tiny output buffer. */
+    VmafVulkanKernelPipeline pl_reduce;
+    /* 8-byte buffer: single int64_t total SAD after GPU reduction. */
+    VmafVulkanBuffer *reduced_sad;
 
     /* Per-frame submit pool (T-GPU-OPT-VK-1 / ADR-0256).
      * Single slot: one command buffer covers the single dispatch. */
@@ -304,7 +309,20 @@ static int create_pipelines(MotionVulkanState *s)
             },
         .max_descriptor_sets = 4U,
     };
-    return vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl);
+    int err = vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl);
+    if (err)
+        return err;
+
+    /* ADR-0350: reduction pipeline: 2 SSBOs, 4-byte push-constant (wg_count). */
+    const VmafVulkanKernelPipelineDesc reduce_desc = {
+        .ssbo_binding_count = 2U,
+        .push_constant_size = (uint32_t)sizeof(uint32_t),
+        .spv_bytes = motion_reduce_spv,
+        .spv_size = motion_reduce_spv_size,
+        .pipeline_create_info = {.stage = {.pName = "main"}},
+        .max_descriptor_sets = 4U,
+    };
+    return vmaf_vulkan_kernel_pipeline_create(s->ctx, &reduce_desc, &s->pl_reduce);
 }
 
 /* ------------------------------------------------------------------ */
@@ -338,6 +356,11 @@ static int alloc_buffers(MotionVulkanState *s)
     if (sad_bytes == 0)
         sad_bytes = sizeof(int64_t);
     err = vmaf_vulkan_buffer_alloc(s->ctx, &s->sad_partials, sad_bytes);
+    if (err)
+        return err;
+
+    /* ADR-0350: single int64_t output for the GPU SAD reducer. */
+    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->reduced_sad, sizeof(int64_t));
     if (err)
         return err;
 
@@ -466,13 +489,14 @@ static int write_descriptor_set(MotionVulkanState *s, VkDescriptorSet set)
     return 0;
 }
 
-static double reduce_sad_partials(const MotionVulkanState *s)
+/* ADR-0350: read the GPU-reduced SAD total (8 bytes) instead of
+ * looping over all per-WG partials (~130 KB at 1080p).  The value
+ * is written by motion_reduce.comp via atomicAdd into reduced_sad. */
+static double reduce_sad_partials(MotionVulkanState *s)
 {
-    const int64_t *slots = vmaf_vulkan_buffer_host(s->sad_partials);
-    int64_t total = 0;
-    for (unsigned i = 0; i < s->wg_count; i++)
-        total += slots[i];
-    return (double)total / 256.0 / ((double)s->width * s->height);
+    (void)vmaf_vulkan_buffer_invalidate(s->ctx, s->reduced_sad);
+    const int64_t *p = vmaf_vulkan_buffer_host(s->reduced_sad);
+    return (double)(*p) / 256.0 / ((double)s->width * s->height);
 }
 
 static int extract_force_zero(MotionVulkanState *s, unsigned index, VmafFeatureCollector *fc)
@@ -541,6 +565,11 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     err = vmaf_vulkan_buffer_flush(s->ctx, s->sad_partials);
     if (err)
         return err;
+    /* ADR-0350: zero the GPU-reduced SAD output (atomicAdd accumulates into it). */
+    memset(vmaf_vulkan_buffer_host(s->reduced_sad), 0, sizeof(int64_t));
+    err = vmaf_vulkan_buffer_flush(s->ctx, s->reduced_sad);
+    if (err)
+        return err;
 
     /* Update the pre-allocated descriptor set with the current-frame
      * blur ping-pong binding (cur_blur flips each frame — the handles
@@ -572,6 +601,71 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
                             &s->pre_set, 0, NULL);
     vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     vkCmdDispatch(cmd, gx, gy, 1);
+
+    /* ADR-0350: flush per-WG SAD partials, then run the GPU reducer.
+     * compute_sad == 0 on frame 0 so sad_partials is all zeros and
+     * the reducer will simply emit 0 to reduced_sad — matching the
+     * old behaviour where the CPU loop over zeroed slots returned 0. */
+    {
+        VkMemoryBarrier reduce_barrier = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &reduce_barrier, 0, NULL,
+                             0, NULL);
+
+        /* Allocate and write the reducer descriptor set. */
+        VkDescriptorSet rset = VK_NULL_HANDLE;
+        VkDescriptorSetAllocateInfo rdsai = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = s->pl_reduce.desc_pool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &s->pl_reduce.dsl,
+        };
+        if (vkAllocateDescriptorSets(s->ctx->device, &rdsai, &rset) != VK_SUCCESS) {
+            err = -ENOMEM;
+            /* Fall through — the main dispatch already happened.
+             * On error the score won't be read; submit still ends cleanly. */
+            goto emit_done;
+        }
+        VkDescriptorBufferInfo rdbi[2] = {
+            {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->sad_partials),
+             .offset = 0,
+             .range = VK_WHOLE_SIZE},
+            {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->reduced_sad),
+             .offset = 0,
+             .range = VK_WHOLE_SIZE},
+        };
+        VkWriteDescriptorSet rwrites[2];
+        for (int ri = 0; ri < 2; ri++) {
+            rwrites[ri] = (VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = rset,
+                .dstBinding = (uint32_t)ri,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &rdbi[ri],
+            };
+        }
+        vkUpdateDescriptorSets(s->ctx->device, 2, rwrites, 0, NULL);
+        uint32_t wg_count_u32 = (uint32_t)s->wg_count;
+        uint32_t n_rg = (wg_count_u32 + 255u) / 256u;
+        if (n_rg == 0u)
+            n_rg = 1u;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_reduce.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_reduce.pipeline_layout,
+                                0, 1, &rset, 0, NULL);
+        vkCmdPushConstants(cmd, s->pl_reduce.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(uint32_t), &wg_count_u32);
+        vkCmdDispatch(cmd, n_rg, 1u, 1u);
+        /* rset will be freed via the descriptor pool reset at close time;
+         * the pool was created with FREE_DESCRIPTOR_SET_BIT so we can also
+         * free it explicitly here — do that to avoid leaking across frames. */
+        vkFreeDescriptorSets(s->ctx->device, s->pl_reduce.desc_pool, 1, &rset);
+    }
+emit_done:
 
     /* End recording, submit and wait synchronously. */
     err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &submit);
@@ -705,6 +799,9 @@ static int close_fex(VmafFeatureExtractor *fex)
         vmaf_vulkan_buffer_free(s->ctx, s->blur[1]);
     if (s->sad_partials)
         vmaf_vulkan_buffer_free(s->ctx, s->sad_partials);
+    if (s->reduced_sad)
+        vmaf_vulkan_buffer_free(s->ctx, s->reduced_sad);
+    vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl_reduce);
 
     if (s->owns_ctx)
         vmaf_vulkan_context_destroy(s->ctx);
