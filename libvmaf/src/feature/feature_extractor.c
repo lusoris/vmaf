@@ -115,6 +115,10 @@ extern VmafFeatureExtractor vmaf_fex_cambi_vulkan;
  * but `init()` returns -ENOSYS until the runtime PR (T7-10b) replaces
  * the kernel-template helper bodies with real HIP calls. */
 extern VmafFeatureExtractor vmaf_fex_psnr_hip;
+/* HIP second-consumer kernel — T7-10b / ADR-0254. First real kernel:
+ * float_psnr_hip. With `enable_hipcc=true` the HSACO is embedded and
+ * the kernel runs on device; without it init() returns -ENOSYS. */
+extern VmafFeatureExtractor vmaf_fex_float_psnr_hip;
 /* HIP third-consumer kernel — T7-10b follow-up / ADR-0257. Same
  * scaffold posture as the first consumer: registration succeeds,
  * `init()` returns -ENOSYS until T7-10b. Mirrors
@@ -229,6 +233,11 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
      * surface instead of "no such extractor". The runtime PR
      * (T7-10b) keeps this row verbatim and adds its siblings. */
     &vmaf_fex_psnr_hip,
+    /* T7-10b second consumer (ADR-0254): first real kernel. With
+     * `enable_hipcc=true` the HSACO is loaded and the kernel runs
+     * on device; without it init() returns -ENOSYS (scaffold posture).
+     * Emits `float_psnr` (luma-only, same as the CUDA twin). */
+    &vmaf_fex_float_psnr_hip,
     /* Third consumer (ADR-0257): `ciede_hip` mirrors
      * `integer_ciede_cuda.c`'s call graph. Same scaffold-only
      * registration posture — registers, `init()` returns -ENOSYS

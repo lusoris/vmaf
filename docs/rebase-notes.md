@@ -32171,6 +32171,7 @@ build-system paths changed; no new symbols were added.
   confirm it no longer prints "problem loading feature extractor".
 
 
+
 ## ADR-0326 — MyTestCase upstream migration (partial port, Batch E, 2026-05-08)
 
 - **Touches**: `python/test/testutil.py`, `python/test/bd_rate_calculator_test.py`,
@@ -32367,4 +32368,69 @@ build-system paths changed; no new symbols were added.
   # Cross-backend numeric gate (requires AMD GPU)
   meson test -C build_hip_full --suite=hip-parity
   ```
+
+
+## feat/hip-float-psnr-first-real — T7-10b: `float_psnr_hip` first real kernel (ADR-0254)
+
+**Touches**:
+- `libvmaf/src/feature/hip/float_psnr_hip.c` — complete rewrite from
+  scaffold stub to functional kernel consumer (HIP Module API pattern:
+  `hipModuleLoadData` + `hipModuleLaunchKernel`).
+- `libvmaf/src/feature/hip/float_psnr_hip.h` — HSACO symbol extern
+  declarations (`float_psnr_score_hsaco[]`, `float_psnr_score_hsaco_len`).
+- `libvmaf/src/feature/hip/float_psnr/float_psnr_score.hip` — new HIP
+  device kernel file (warp-64 reduction, GCN/RDNA-specific `__shfl_down`).
+- `libvmaf/src/hip/kernel_template.{h,c}` — new
+  `vmaf_hip_kernel_submit_post_record` helper for the post-launch event.
+- `libvmaf/src/hip/meson.build` — `float_psnr_hip.c` added to
+  `hip_sources`.
+- `libvmaf/src/meson.build` — `hip_hsaco_sources` list + `enable_hipcc`
+  guard + `hipcc` / `xxd` custom-target pipeline.
+- `libvmaf/meson_options.txt` — new `enable_hipcc` boolean option.
+- `libvmaf/src/feature/feature_extractor.c` — `vmaf_fex_float_psnr_hip`
+  registration under `#if HAVE_HIP`.
+- `libvmaf/test/test_hip_smoke.c` — `test_float_psnr_hip_extractor_registered`.
+
+**Invariants**:
+
+1. **`vmaf_hip_kernel_submit_post_record` call ordering** — must be
+   called *after* `hipMemcpyAsync` DtoH and *before* the collect-side
+   `vmaf_hip_kernel_collect_wait`. Any reorder breaks the event-fencing
+   contract (the finished event records the end of the readback copy,
+   not the end of the kernel launch). If a future PR refactors
+   `kernel_template.c`, preserve this ordering constraint.
+
+2. **`#ifdef HAVE_HIPCC` wraps all device-dependent state** —
+   `hipModule_t`, `hipFunction_t`, staging-buffer allocs, and the
+   kernel launch chain are all inside `#ifdef HAVE_HIPCC` guards so the
+   file compiles cleanly without a ROCm SDK. The `#ifndef HAVE_HIPCC`
+   paths return `-ENOSYS`. Any future real-kernel port must preserve
+   this dual-path pattern.
+
+3. **Warp size 64 (GCN/RDNA)** — `FPSNR_WARPS_PER_BLOCK = 4` for
+   block size 256 (vs CUDA's 8 warps at warp size 32). The `.hip`
+   kernel uses `__shfl_down(v, off)` without a mask (HIP convention;
+   CUDA uses `__shfl_down_sync(0xffffffff, v, off)`). Any future port
+   of the CUDA twin's warp-reduction that changes these constants must
+   update both backends.
+
+4. **`enable_hipcc=false` default** — the meson option defaults to
+   `false` so CI / downstream builds without a ROCm toolchain still
+   compile cleanly. The `enable_hipcc=true` path requires `hipcc` +
+   `xxd` in `PATH` and a ROCm 6+ SDK. Gate any build-system change on
+   both codepaths.
+
+**Re-test on rebase**:
+
+```bash
+# CPU-only (no ROCm needed):
+meson setup build -Denable_hip=true -Denable_cuda=false -Denable_sycl=false libvmaf
+ninja -C build
+meson test -C build --suite=fast  # test_float_psnr_hip_extractor_registered passes
+
+# With hipcc (ROCm 6+):
+meson setup build -Denable_hip=true -Denable_hipcc=true -Denable_cuda=false libvmaf
+ninja -C build
+# Confirm kernel launches on device by running vmaf with --feature float_psnr_hip
+```
 

@@ -83,6 +83,11 @@ hip_sources += files(
     '../feature/hip/integer_motion_v2_hip.c',
     '../feature/hip/float_motion_hip.c',
     '../feature/hip/float_ssim_hip.c',
+    # T7-10b first real kernel: float_psnr_hip (ADR-0254). Registered under
+    # `#if HAVE_HIP` in feature_extractor.c. With `enable_hipcc=true` the
+    # HSACO blob is embedded and the kernel runs on device; without it
+    # init() returns -ENOSYS (same scaffold-posture as the other consumers).
+    '../feature/hip/float_psnr_hip.c',
 )
 
 # T7-10b runtime linkage. ROCm ships `hip_runtime_api.h` under
