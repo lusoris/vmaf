@@ -182,6 +182,7 @@
 0313-ci-required-checks-aggregator
 0310-bvi-dvc-corpus-ingestion
 0315-vendor-neutral-vvc-encode-strategy
+<<<<<<< HEAD
 0331-skip-ci-on-draft-prs
 0325-konvid-150k-corpus-ingestion
 0336-konvid-mos-head-v1
@@ -301,3 +302,4 @@
 0367-u2netp-fork-mirror-scaffold
 0368-external-bench-wrapper-only
 0335-hardware-capability-priors
+0325-video-saliency-extension
