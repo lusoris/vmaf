@@ -1,15 +1,18 @@
 # Embedded MCP server (in-process, inside libvmaf)
 
-> **Status: T5-2b v1 stdio runtime landed (2026-05-08).**
-> `vmaf_mcp_init` / `vmaf_mcp_start_stdio` / `vmaf_mcp_stop` /
-> `vmaf_mcp_close` are wired and respond to JSON-RPC 2.0 requests
-> (`tools/list`, `tools/call`, `resources/list`, `initialize`).
-> Tools shipped: `list_features`, `compute_vmaf` (placeholder —
-> validates inputs and returns a deferred-to-v2 marker; the real
-> scoring binding lands in v2). SSE and UDS transports remain
-> `-ENOSYS`; mongoose vendoring deferred to v2. The standalone
-> Python MCP server under [`mcp-server/vmaf-mcp/`](../../mcp-server/vmaf-mcp/)
-> remains the recommended default for "score a video" workflows.
+> **Status: T5-2c v2 runtime landed (2026-05-09).**
+> `vmaf_mcp_init` / `vmaf_mcp_start_stdio` / `vmaf_mcp_start_uds` /
+> `vmaf_mcp_stop` / `vmaf_mcp_close` are wired and respond to
+> JSON-RPC 2.0 requests (`tools/list`, `tools/call`,
+> `resources/list`, `initialize`). Tools shipped: `list_features`
+> (real) and `compute_vmaf` (real — pooled mean VMAF over a
+> YUV420p 8-bit pair via `vmaf_model_load` + `vmaf_read_pictures`
+> + `vmaf_score_pooled`). UDS transport listens on a mode-0700
+> socket file and runs line-delimited JSON-RPC identical to the
+> stdio framing. SSE / loopback HTTP remains `-ENOSYS`; mongoose
+> vendoring is deferred to v3. The standalone Python MCP server
+> under [`mcp-server/vmaf-mcp/`](../../mcp-server/vmaf-mcp/)
+> remains a supported alternative for batch CLI-style workflows.
 
 The embedded MCP server runs **inside the host process** that
 loaded `libvmaf.so` — typically `vmaf` (the CLI), `ffmpeg`'s
@@ -156,29 +159,31 @@ and locked in via the T5-2b runtime PR's TSan tests.
 | JSON-RPC dispatcher (`tools/list`, `tools/call`, `resources/list`, `initialize`) | Landed | T5-2b |
 | Build flags + per-transport sub-flags | Landed (default off) | T5-2 |
 | Smoke + protocol test (15 sub-tests, real round-trip) | Landed | T5-2b |
-| stdio transport body | Landed (line-delimited JSON-RPC; LSP `Content-Length:` framing deferred to v2) | T5-2b |
-| SSE transport body | Pending — returns `-ENOSYS` | v2 (mongoose vendoring) |
-| UDS transport body | Pending — returns `-ENOSYS` | v2 |
+| stdio transport body | Landed (line-delimited JSON-RPC; LSP `Content-Length:` framing deferred to v3) | T5-2b |
+| UDS transport body | Landed (line-delimited JSON-RPC; mode-0700 socket file) | T5-2c / [ADR-0332](../adr/0332-mcp-runtime-v2.md) |
+| SSE transport body | Pending — returns `-ENOSYS` | v3 (mongoose vendoring) |
 | Tool: `list_features` (read-only) | Landed | T5-2b |
-| Tool: `compute_vmaf` (validates inputs; deferred-to-v2 marker) | Landed | T5-2b (binding to scoring engine in v2) |
-| Tool: `vmaf.request_model_swap` (mutating, separate ADR) | Future | post-v2 |
+| Tool: `compute_vmaf` (real libvmaf scoring binding, YUV420p 8-bit) | Landed | T5-2c |
+| Tool: `vmaf.request_model_swap` (mutating, separate ADR) | Future | post-v3 |
 | `enable_mcp` default flip from `false` → `auto` | Future | post all transports stable |
 
-## What lands next (v2 roadmap)
+## What lands next (v3 roadmap)
 
-T5-2b v1 (this PR) shipped the stdio transport + dispatcher +
-two tools. v2 covers:
+T5-2c v2 (this PR) shipped the UDS transport + replaced the
+`compute_vmaf` placeholder with a real libvmaf scoring binding.
+v3 covers:
 
 - **mongoose vendoring** + SSE transport body (`vmaf_mcp_start_sse`).
-- **UDS transport body** (`vmaf_mcp_start_uds`).
-- **LSP-framed stdio** (`Content-Length:` headers) — v1 ships
+- **LSP-framed stdio** (`Content-Length:` headers) — v1/v2 ship
   line-delimited JSON-RPC only.
-- **`compute_vmaf` binding to the real scoring engine** —
-  currently validates inputs and returns a deferred-to-v2 marker.
-- **SPSC ring drain at frame boundaries** — v1 dispatcher runs
-  to completion on the transport thread; the measurement-thread
-  hot path is not yet bridged. Tools that mutate measurement
-  state (`request_model_swap`, etc.) require this bridge first.
+- **10/12-bit YUV** support in `compute_vmaf` — v2 only accepts
+  YUV420p 8-bit; YUV422P / YUV444P / 10-bit are rejected with
+  `-EINVAL`.
+- **SPSC ring drain at frame boundaries** — v1/v2 dispatcher
+  runs to completion on the transport thread; the measurement-
+  thread hot path is not yet bridged. Tools that mutate
+  measurement state (`request_model_swap`, etc.) require this
+  bridge first.
 - Tool-surface expansion (`vmaf.status`, `vmaf.score`,
   `vmaf.request_model_swap`) follows in its own PR per
   [ADR-0128](../adr/0128-embedded-mcp-in-libvmaf.md) § "Tool surface (v1)".

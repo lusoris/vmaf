@@ -32,6 +32,10 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #include "libvmaf/libvmaf_mcp.h"
 #include "mcp_internal.h"
@@ -125,6 +129,9 @@ int vmaf_mcp_init(VmafMcpServer **out, VmafContext *ctx, const VmafMcpConfig *cf
     s->stdio_fd_in = -1;
     s->stdio_fd_out = -1;
     atomic_store(&s->stdio_running, 0);
+    s->uds_listen_fd = -1;
+    s->uds_path_owned = NULL;
+    atomic_store(&s->uds_running, 0);
     /* Power-of-10 §5: invariant — server starts in "not-running"
      * state regardless of caller config. */
     assert(atomic_load(&s->stdio_running) == 0);
@@ -156,8 +163,89 @@ int vmaf_mcp_start_uds(VmafMcpServer *server, const VmafMcpUdsConfig *cfg)
         return -EINVAL;
     if (cfg->path == NULL)
         return -EINVAL;
-    /* v1: UDS deferred to v2. */
-    return -ENOSYS;
+
+    /* Path-length must fit AF_UNIX struct sockaddr_un.sun_path
+     * (typically 108 bytes on Linux, 104 on BSD); enforce 100 to
+     * leave headroom across POSIX hosts. */
+    size_t path_len = strlen(cfg->path);
+    if (path_len == 0u || path_len >= 100u)
+        return -EINVAL;
+
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&server->uds_running, &expected, 1)) {
+        return -EBUSY;
+    }
+    /* Power-of-10 §5: post-CAS invariant — exactly one start
+     * wins. */
+    assert(atomic_load(&server->uds_running) == 1);
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        atomic_store(&server->uds_running, 0);
+        return -errno;
+    }
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    memcpy(addr.sun_path, cfg->path, path_len + 1u);
+
+    /* Best-effort unlink of a stale socket file — ignore ENOENT. */
+    if (unlink(cfg->path) != 0 && errno != ENOENT) {
+        int saved = errno;
+        (void)close(fd);
+        atomic_store(&server->uds_running, 0);
+        return -saved;
+    }
+    if (bind(fd, (const struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        int saved = errno;
+        (void)close(fd);
+        atomic_store(&server->uds_running, 0);
+        return saved == EADDRINUSE ? -EADDRINUSE : -saved;
+    }
+    /* Per ADR-0128 § "Operational guardrails" — UDS file is mode
+     * 0700 (owner-only). chmod after bind so the umask cannot
+     * loosen permissions. */
+    if (chmod(cfg->path, S_IRWXU) != 0) {
+        int saved = errno;
+        (void)unlink(cfg->path);
+        (void)close(fd);
+        atomic_store(&server->uds_running, 0);
+        return -saved;
+    }
+    /* listen-backlog SOMAXCONN-equivalent; 16 is generous for the
+     * embedded use case. */
+    if (listen(fd, 16) != 0) {
+        int saved = errno;
+        (void)unlink(cfg->path);
+        (void)close(fd);
+        atomic_store(&server->uds_running, 0);
+        return -saved;
+    }
+
+    char *path_dup = (char *)malloc(path_len + 1u);
+    if (path_dup == NULL) {
+        (void)unlink(cfg->path);
+        (void)close(fd);
+        atomic_store(&server->uds_running, 0);
+        return -ENOMEM;
+    }
+    memcpy(path_dup, cfg->path, path_len + 1u);
+
+    server->uds_listen_fd = fd;
+    server->uds_path_owned = path_dup;
+
+    int rc = pthread_create(&server->uds_thread, NULL, vmaf_mcp_uds_thread_main, server);
+    if (rc != 0) {
+        (void)unlink(path_dup);
+        free(path_dup);
+        server->uds_path_owned = NULL;
+        (void)close(fd);
+        server->uds_listen_fd = -1;
+        atomic_store(&server->uds_running, 0);
+        return -rc;
+    }
+    return 0;
 }
 
 int vmaf_mcp_start_stdio(VmafMcpServer *server, const VmafMcpStdioConfig *cfg)
@@ -194,7 +282,12 @@ int vmaf_mcp_stop(VmafMcpServer *server)
 {
     if (server == NULL)
         return -EINVAL;
+    /* Power-of-10 §5: post-guard — server pointer is now known
+     * non-NULL; downstream branches assume that. */
+    assert(server != NULL);
     int prev = atomic_exchange(&server->stdio_running, 2);
+    /* Power-of-10 §5: stdio state machine is one of {0,1,2}. */
+    assert(prev == 0 || prev == 1 || prev == 2);
     if (prev == 1 || prev == 2) {
         /* Closing fd_in is the canonical way to unblock the read()
          * loop. The caller owns the fd per the public contract, so
@@ -207,6 +300,24 @@ int vmaf_mcp_stop(VmafMcpServer *server)
          * EOF by the time stop() is called. */
         (void)pthread_join(server->stdio_thread, NULL);
         atomic_store(&server->stdio_running, 0);
+    }
+
+    /* UDS: close listener fd to unblock accept(); join the thread.
+     * The path file is unlinked here so the next start_uds() with
+     * the same path doesn't fail on stale-socket. */
+    int prev_uds = atomic_exchange(&server->uds_running, 2);
+    if (prev_uds == 1 || prev_uds == 2) {
+        if (server->uds_listen_fd >= 0) {
+            (void)close(server->uds_listen_fd);
+            server->uds_listen_fd = -1;
+        }
+        (void)pthread_join(server->uds_thread, NULL);
+        if (server->uds_path_owned != NULL) {
+            (void)unlink(server->uds_path_owned);
+            free(server->uds_path_owned);
+            server->uds_path_owned = NULL;
+        }
+        atomic_store(&server->uds_running, 0);
     }
     return 0;
 }

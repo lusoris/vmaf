@@ -9609,6 +9609,7 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
   # Confirm the macOS page documents QSV as unsupported:
   grep -q 'Intel QSV. is unsupported on macOS' docs/getting-started/install/macos.md
 
+
 ### 0333 — vmaf-tune Phase F multi-pass encoding (ADR-0333)
 **Touches**:
 - `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py` (CodecAdapter
@@ -9851,4 +9852,21 @@ compiles).
   done
   # All 0/N mismatches at places=4 once Phase 3c (PR #512) has landed.
   ```
+
+
+## ADR-0332 v2 runtime (T5-2c) — Embedded MCP server UDS + real `compute_vmaf` (2026-05-09)
+- **Touches**: `libvmaf/src/mcp/{mcp.c,dispatcher.c,mcp_internal.h,meson.build,compute_vmaf.c,transport_uds.c}`, `libvmaf/test/test_mcp_smoke.c`. All paths are fork-local. No new third-party vendor drop in v2 — mongoose vendoring stays deferred to v3 with the SSE transport.
+- **Invariant**: same as ADR-0209 v1 — the entire `libvmaf/src/mcp/` subtree is fork-local; the public ABI in `libvmaf/include/libvmaf/libvmaf_mcp.h` is unchanged (only function bodies flipped — `vmaf_mcp_start_uds` from `-ENOSYS` to a working AF_UNIX listener; `compute_vmaf` from a `{"status":"deferred_to_v2"}` placeholder to a real `vmaf_score_pooled` binding). Per ADR-0128 § operational guardrails the UDS socket file is created mode 0700; that `chmod` happens in `vmaf_mcp_start_uds` after `bind` and is a load-bearing security invariant — do NOT relax it on rebase. `compute_vmaf` runs on a per-call ephemeral `VmafContext` so the host's main scoring run is unperturbed; do NOT rewire it to reuse `server->ctx` because `vmaf_score_pooled` commits the model destructively to the context.
+- **On upstream sync**: no action required. Netflix/vmaf upstream has no embedded MCP surface. If upstream adds one, expect a port-only sync since names will collide.
+- **Re-test on rebase**:
+  ```bash
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false \
+                                  -Denable_mcp=true -Denable_mcp_stdio=true \
+                                  -Denable_mcp_uds=true
+  ninja -C build && meson test -C build test_mcp_smoke -v
+  # Real-score smoke (single 576x324 pair):
+  build/test/test_mcp_smoke 2>&1 | tail -3   # expects "16 tests run, 16 passed"
+  ```
+
+
 

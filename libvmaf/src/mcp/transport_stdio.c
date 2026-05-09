@@ -16,6 +16,7 @@
  *        (rule 7).
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -113,12 +114,20 @@ void *vmaf_mcp_stdio_thread_main(void *arg)
     struct VmafMcpServer *server = (struct VmafMcpServer *)arg;
     if (server == NULL)
         return NULL;
+    /* Power-of-10 §5: post-guard — `server` is non-NULL hereafter
+     * and the per-call invariants below (fd_in valid, running ==
+     * 1) hold by construction at thread spawn-time. */
+    assert(server != NULL);
+    assert(server->stdio_fd_in >= 0);
 
     char *line = (char *)malloc(VMAF_MCP_MAX_LINE_BYTES);
     if (line == NULL) {
         atomic_store(&server->stdio_running, 0);
         return NULL;
     }
+    /* Power-of-10 §5: scratch is bounded — VMAF_MCP_MAX_LINE_BYTES
+     * is a compile-time constant per mcp_internal.h. */
+    assert(line != NULL);
 
     while (atomic_load(&server->stdio_running) == 1) {
         ssize_t n = read_line(server->stdio_fd_in, line, VMAF_MCP_MAX_LINE_BYTES);

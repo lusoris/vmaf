@@ -12,6 +12,7 @@
  *  on dispatch-thread hot path beyond cJSON's internal buffers).
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -107,44 +108,18 @@ static int tool_compute_vmaf(struct VmafMcpServer *server, const cJSON *argument
                              cJSON **result_out, char **error_message_out)
 {
     (void)server;
-
-    /* v1 contract: validate inputs are present, return a structured
-     * "not yet wired" response. The full scoring path requires a YUV
-     * reader + the VmafContext to be in a measurement-ready state,
-     * which the v1 stdio embedding does not orchestrate. v2 lands
-     * the binding to vmaf_score_pooled() driven off a YUV path pair. */
-    if (arguments == NULL || !cJSON_IsObject(arguments)) {
-        const char msg[] = "compute_vmaf requires an object arguments value";
-        char *dup = (char *)malloc(sizeof(msg));
-        if (dup == NULL)
-            return -ENOMEM;
-        memcpy(dup, msg, sizeof(msg));
-        *error_message_out = dup;
-        return -EINVAL;
+    /* v2 (T5-2c): real scoring binding lives in compute_vmaf.c.
+     * The cJSON pointers cross the internal-header boundary as
+     * void* so mcp_internal.h does not have to drag in cJSON.h
+     * for every TU. */
+    void *result_void = NULL;
+    int rc = vmaf_mcp_compute_vmaf((const void *)arguments, &result_void, error_message_out);
+    if (rc != 0) {
+        if (result_void != NULL)
+            cJSON_Delete((cJSON *)result_void);
+        return rc;
     }
-    const cJSON *ref = cJSON_GetObjectItemCaseSensitive(arguments, "reference_path");
-    const cJSON *dis = cJSON_GetObjectItemCaseSensitive(arguments, "distorted_path");
-    if (!cJSON_IsString(ref) || !cJSON_IsString(dis)) {
-        const char msg[] =
-            "compute_vmaf requires string fields 'reference_path' and 'distorted_path'";
-        char *dup = (char *)malloc(sizeof(msg));
-        if (dup == NULL)
-            return -ENOMEM;
-        memcpy(dup, msg, sizeof(msg));
-        *error_message_out = dup;
-        return -EINVAL;
-    }
-
-    cJSON *result = cJSON_CreateObject();
-    if (result == NULL)
-        return -ENOMEM;
-    cJSON_AddStringToObject(result, "status", "deferred_to_v2");
-    cJSON_AddStringToObject(result, "reference_path", ref->valuestring);
-    cJSON_AddStringToObject(result, "distorted_path", dis->valuestring);
-    cJSON_AddStringToObject(result, "note",
-                            "compute_vmaf accepted; v1 stdio runtime does not yet bind "
-                            "the scoring engine. Track HP-4 follow-up in docs/state.md.");
-    *result_out = result;
+    *result_out = (cJSON *)result_void;
     return 0;
 }
 
@@ -162,14 +137,20 @@ static const VmafMcpToolEntry k_tool_table[] = {
     },
     {
         .name = "compute_vmaf",
-        .description = "Compute VMAF for a (reference, distorted) YUV pair. v1 placeholder — "
-                       "validates inputs and returns a deferred-to-v2 marker.",
+        .description = "Compute pooled mean VMAF for a (reference, distorted) YUV420p 8-bit pair. "
+                       "Required: reference_path, distorted_path, width, height. Optional: "
+                       "model_version (default 'vmaf_v0.6.1'). Returns {score, frames_scored, "
+                       "model_version, pool_method='mean'}.",
         .input_schema_json = "{\"type\":\"object\","
                              "\"properties\":{"
                              "\"reference_path\":{\"type\":\"string\"},"
-                             "\"distorted_path\":{\"type\":\"string\"}"
+                             "\"distorted_path\":{\"type\":\"string\"},"
+                             "\"width\":{\"type\":\"integer\"},"
+                             "\"height\":{\"type\":\"integer\"},"
+                             "\"model_version\":{\"type\":\"string\"}"
                              "},"
-                             "\"required\":[\"reference_path\",\"distorted_path\"]}",
+                             "\"required\":[\"reference_path\",\"distorted_path\","
+                             "\"width\",\"height\"]}",
         .fn = tool_compute_vmaf,
     },
 };
@@ -435,12 +416,20 @@ int vmaf_mcp_dispatch(struct VmafMcpServer *server, const char *request_buf, cha
 {
     if (server == NULL || request_buf == NULL || response_out == NULL)
         return -EINVAL;
+    /* Power-of-10 §5: post-guard — all three pointers known
+     * non-NULL beyond this point. */
+    assert(server != NULL);
+    assert(request_buf != NULL);
+    assert(response_out != NULL);
     *response_out = NULL;
 
     cJSON *root = cJSON_Parse(request_buf);
     if (root == NULL) {
         return build_error_response(NULL, JSONRPC_PARSE_ERROR, "parse error", response_out);
     }
+    /* Power-of-10 §5: cJSON_Parse returns either NULL (handled
+     * above) or a non-NULL handle. */
+    assert(root != NULL);
 
     const cJSON *id = cJSON_GetObjectItemCaseSensitive(root, "id");
     const cJSON *method = cJSON_GetObjectItemCaseSensitive(root, "method");

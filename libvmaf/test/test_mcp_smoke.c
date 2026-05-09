@@ -5,17 +5,25 @@
  *  Smoke + protocol test for the embedded MCP server.
  *
  *  T5-2 (ADR-0209) shipped this file pinning the -ENOSYS scaffold
- *  contract. T5-2b (this PR) flips it to exercise the v1 stdio
- *  runtime end-to-end:
+ *  contract. T5-2b (PR #490) flipped init/start_stdio/close to a
+ *  working dispatcher. T5-2c (this PR — MCP runtime v2):
+ *      - flips UDS from -ENOSYS to a real bind/listen/accept loop;
+ *      - replaces compute_vmaf's `deferred_to_v2` placeholder with
+ *        a real libvmaf scoring binding.
+ *
+ *  Coverage:
  *      - public availability + transport-availability accessors
  *      - NULL-guard contract on every entry point
- *      - real init / start_stdio / stop / close lifecycle
- *      - JSON-RPC `tools/list` round-trip
+ *      - init / start_stdio / stop / close lifecycle
+ *      - JSON-RPC `tools/list` round-trip (stdio)
  *      - JSON-RPC `tools/call` for `list_features` round-trip
  *      - method-not-found error envelope
+ *      - UDS bind + JSON-RPC round-trip
+ *      - compute_vmaf real-score check against the testdata 576x324
+ *        YUV pair (sanity-bounded; not bit-exact)
  *
- *  SSE / UDS still return -ENOSYS — pinned here so a future v2 PR
- *  cannot wire them without flipping the expectations.
+ *  SSE still returns -ENOSYS — pinned here so a future v3 PR
+ *  cannot wire it without flipping the expectation.
  */
 
 #include <errno.h>
@@ -24,6 +32,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include "test.h"
@@ -78,14 +89,9 @@ static char *test_start_uds_rejects_null_path(void)
     return NULL;
 }
 
-static char *test_start_uds_returns_enosys(void)
-{
-    VmafMcpServer *server = (VmafMcpServer *)0x1;
-    VmafMcpUdsConfig cfg = {.path = "/tmp/does-not-matter-v1-deferred.sock"};
-    int rc = vmaf_mcp_start_uds(server, &cfg);
-    mu_assert("start_uds must return -ENOSYS in v1", rc == -ENOSYS);
-    return NULL;
-}
+/* Removed in v2: UDS is no longer -ENOSYS. The negative case
+ * (NULL path) is still covered by test_start_uds_rejects_null_path.
+ * The full UDS round-trip is covered by test_uds_roundtrip below. */
 
 static char *test_start_stdio_rejects_negative_fd(void)
 {
@@ -285,6 +291,111 @@ static char *test_jsonrpc_method_not_found(void)
 }
 
 /* ============================================================
+ * UDS transport round-trip (v2)
+ * ============================================================ */
+
+static char *test_uds_roundtrip(void)
+{
+    /* Deterministic per-pid socket path — keeps parallel test
+     * runs from clobbering each other. */
+    char path[80];
+    int n = snprintf(path, sizeof(path), "/tmp/vmaf-mcp-uds-test-%d.sock", (int)getpid());
+    mu_assert("path snprintf", n > 0 && (size_t)n < sizeof(path));
+
+    VmafContext *ctx = NULL;
+    VmafConfiguration vcfg = {0};
+    vcfg.log_level = VMAF_LOG_LEVEL_NONE;
+    vcfg.n_threads = 1u;
+    mu_assert("vmaf_init", vmaf_init(&ctx, vcfg) == 0);
+
+    VmafMcpServer *server = NULL;
+    mu_assert("mcp init", vmaf_mcp_init(&server, ctx, NULL) == 0);
+
+    VmafMcpUdsConfig ucfg = {.path = path};
+    int rc = vmaf_mcp_start_uds(server, &ucfg);
+    mu_assert("uds start", rc == 0);
+
+    /* Connect a client and round-trip a tools/list. */
+    int cfd = socket(AF_UNIX, SOCK_STREAM, 0);
+    mu_assert("client socket", cfd >= 0);
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    memcpy(addr.sun_path, path, strlen(path) + 1u);
+    int crc = connect(cfd, (const struct sockaddr *)&addr, sizeof(addr));
+    mu_assert("client connect", crc == 0);
+
+    static const char req[] = "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/list\"}\n";
+    ssize_t w = write(cfd, req, sizeof(req) - 1u);
+    mu_assert("client write", w == (ssize_t)(sizeof(req) - 1u));
+
+    char line[8192];
+    ssize_t got = read_one_line(cfd, line, sizeof(line));
+    mu_assert("uds response received", got > 0);
+    mu_assert("uds id 42", strstr(line, "\"id\":42") != NULL);
+    mu_assert("uds list contains compute_vmaf", strstr(line, "\"compute_vmaf\"") != NULL);
+
+    (void)close(cfd);
+    vmaf_mcp_close(&server);
+    (void)vmaf_close(ctx);
+
+    /* Verify socket file got cleaned up by stop(). */
+    struct stat st;
+    int sr = stat(path, &st);
+    mu_assert("uds socket file unlinked on close", sr != 0);
+    return NULL;
+}
+
+/* ============================================================
+ * compute_vmaf real-score binding (v2)
+ * ============================================================ */
+
+/* Use the testdata 576x324 8-bit YUV pair shipped at
+ * testdata/ref_576x324_48f.yuv + dis_576x324_48f.yuv. The test
+ * is conditional: if the host does not ship the testdata yuv
+ * (e.g. some packagers strip it), we skip rather than fail. */
+static char *test_compute_vmaf_real_score(void)
+{
+    const char *ref_path = "../testdata/ref_576x324_48f.yuv";
+    const char *dis_path = "../testdata/dis_576x324_48f.yuv";
+    struct stat st;
+    if (stat(ref_path, &st) != 0 || stat(dis_path, &st) != 0)
+        return NULL; /* fixture absent on this host — skip. */
+
+    McpHarness h;
+    mu_assert("harness init", harness_init(&h) == 0);
+
+    char req[512];
+    int n = snprintf(req, sizeof(req),
+                     "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"tools/call\","
+                     "\"params\":{\"name\":\"compute_vmaf\",\"arguments\":{"
+                     "\"reference_path\":\"%s\","
+                     "\"distorted_path\":\"%s\","
+                     "\"width\":576,\"height\":324,"
+                     "\"model_version\":\"vmaf_v0.6.1\"}}}\n",
+                     ref_path, dis_path);
+    mu_assert("req snprintf", n > 0 && (size_t)n < sizeof(req));
+
+    /* Larger buffer — compute_vmaf wraps a stringified JSON object
+     * inside MCP's content envelope, so the line can exceed 1 KiB. */
+    static char line[16384];
+    char *err = send_and_read(&h, req, (size_t)n, line, sizeof(line));
+    if (err != NULL) {
+        harness_teardown(&h);
+        return err;
+    }
+    /* Real path returns a `score` numeric field; the placeholder
+     * (which v2 must NOT bring back) returned `deferred_to_v2`. */
+    mu_assert("compute_vmaf id 99", strstr(line, "\"id\":99") != NULL);
+    mu_assert("compute_vmaf returns score", strstr(line, "\\\"score\\\"") != NULL);
+    mu_assert("compute_vmaf no v1 placeholder", strstr(line, "deferred_to_v2") == NULL);
+    mu_assert("compute_vmaf reports frames_scored", strstr(line, "\\\"frames_scored\\\"") != NULL);
+
+    harness_teardown(&h);
+    return NULL;
+}
+
+/* ============================================================
  * Test table — keeps run_tests below clang-tidy's 15-branch budget
  * (mirrors test_hip_smoke.c / test_vulkan_smoke.c precedent).
  * ============================================================ */
@@ -298,7 +409,6 @@ static const test_fn k_test_table[] = {
     test_init_rejects_null_ctx,
     test_start_sse_returns_enosys,
     test_start_uds_rejects_null_path,
-    test_start_uds_returns_enosys,
     test_start_stdio_rejects_negative_fd,
     test_stop_rejects_null,
     test_close_null_is_noop,
@@ -307,6 +417,8 @@ static const test_fn k_test_table[] = {
     test_jsonrpc_tools_list_roundtrip,
     test_jsonrpc_tools_call_list_features,
     test_jsonrpc_method_not_found,
+    test_uds_roundtrip,
+    test_compute_vmaf_real_score,
 };
 
 static const size_t k_test_table_len = sizeof(k_test_table) / sizeof(k_test_table[0]);

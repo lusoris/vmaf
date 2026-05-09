@@ -2,14 +2,19 @@
 # below are relative to libvmaf/src/mcp/.
 #
 # T5-2 scaffold (ADR-0209) shipped mcp.c only with `-ENOSYS`.
-# T5-2b runtime (this PR — see ADR-0209 § "Status update 2026-05-08")
-# adds dispatcher.c + transport_stdio.c + a vendored cJSON
-# (3rdparty/cJSON/, MIT). mongoose vendoring stays deferred to v2.
+# T5-2b runtime (PR #490) added dispatcher.c + transport_stdio.c +
+# a vendored cJSON (3rdparty/cJSON/, MIT) + a placeholder
+# `compute_vmaf` returning {"status":"deferred_to_v2"}.
+# T5-2c (this PR — MCP runtime v2) adds transport_uds.c (Unix
+# domain socket) and compute_vmaf.c (real libvmaf scoring binding).
+# SSE transport (mongoose vendoring) remains deferred to v3.
 
 mcp_sources = files(
     'mcp.c',
     'dispatcher.c',
+    'compute_vmaf.c',
     'transport_stdio.c',
+    'transport_uds.c',
     '3rdparty/cJSON/cJSON.c',
 )
 

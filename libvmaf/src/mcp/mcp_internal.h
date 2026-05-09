@@ -41,6 +41,19 @@ extern "C" {
  * mcp.c) to satisfy clang-tidy's misc-use-internal-linkage check. */
 void *vmaf_mcp_stdio_thread_main(void *arg);
 
+/* Forward decl for the UDS worker — defined in transport_uds.c. */
+void *vmaf_mcp_uds_thread_main(void *arg);
+
+/* Forward decl for the v2 compute_vmaf tool — defined in
+ * compute_vmaf.c. The cJSON pointers are typed as `void *` here so
+ * the cJSON header is not required by every TU that pulls in this
+ * file; the implementation casts back. Returns 0 on success and
+ * sets *result_out to a freshly-allocated cJSON object the caller
+ * owns; on failure returns negative errno and (optionally) sets
+ * *err_owned to a heap-allocated, NUL-terminated message the
+ * caller must free(). */
+int vmaf_mcp_compute_vmaf(const void *arguments_cjson, void **result_out_cjson, char **err_owned);
+
 struct VmafMcpServer {
     VmafContext *ctx;       /* Borrowed; not owned. */
     VmafMcpConfig cfg;      /* Copied at init; user_agent dup'd. */
@@ -52,6 +65,12 @@ struct VmafMcpServer {
     pthread_t stdio_thread;
     atomic_int stdio_running;  /* 0 = not started, 1 = running, 2 = stop-requested. */
     pthread_mutex_t write_mtx; /* Serialises responses across future transports. */
+
+    /* UDS transport state (v2). */
+    int uds_listen_fd;      /* AF_UNIX listener; -1 when not started. */
+    char *uds_path_owned;   /* Bound socket path; freed at close. */
+    pthread_t uds_thread;   /* Listener-accept thread. */
+    atomic_int uds_running; /* 0 / 1 / 2 same semantics as stdio. */
 };
 
 /**
