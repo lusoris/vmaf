@@ -37,6 +37,26 @@ typedef enum VmafDnnDevice {
     VMAF_DNN_DEVICE_CUDA = 2,
     VMAF_DNN_DEVICE_OPENVINO = 3, /**< covers SYCL / oneAPI / Intel GPU */
     VMAF_DNN_DEVICE_ROCM = 4,
+    /**
+     * Apple CoreML execution provider. The base value lets CoreML pick
+     * any compute unit; the explicit ANE/GPU/CPU variants pin a single
+     * compute unit via the `MLComputeUnits` flags exposed by the CoreML
+     * EP factory. Values 5..8 are append-only.
+     *
+     * - `VMAF_DNN_DEVICE_COREML`     — `ALL` (CoreML auto-routes)
+     * - `VMAF_DNN_DEVICE_COREML_ANE` — `CPU_AND_NEURAL_ENGINE` (Apple
+     *                                  Neural Engine highest-perf path
+     *                                  on M-series silicon)
+     * - `VMAF_DNN_DEVICE_COREML_GPU` — `CPU_AND_GPU` (Metal-backed GPU)
+     * - `VMAF_DNN_DEVICE_COREML_CPU` — `CPU_ONLY` (universal fallback)
+     *
+     * On non-Apple hosts the EP is not present in ORT and the session
+     * silently degrades to the CPU EP — see ADR-0365.
+     */
+    VMAF_DNN_DEVICE_COREML = 5,
+    VMAF_DNN_DEVICE_COREML_ANE = 6,
+    VMAF_DNN_DEVICE_COREML_GPU = 7,
+    VMAF_DNN_DEVICE_COREML_CPU = 8,
 } VmafDnnDevice;
 
 typedef struct VmafDnnConfig {
@@ -165,8 +185,9 @@ void vmaf_dnn_session_close(VmafDnnSession *sess);
  * Name of the ONNX Runtime execution provider that actually bound to the
  * session. Useful for diagnostics and for asserting AUTO-chain behaviour
  * in tests. Stable strings: "CPU", "CUDA", "OpenVINO:GPU", "OpenVINO:CPU",
- * "ROCm". Returns NULL if @p sess is NULL or libvmaf was built without
- * DNN support. Lifetime: owned by @p sess.
+ * "CoreML", "CoreML:ANE", "CoreML:GPU", "CoreML:CPU", "ROCm". Returns
+ * NULL if @p sess is NULL or libvmaf was built without DNN support.
+ * Lifetime: owned by @p sess.
  */
 const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess);
 

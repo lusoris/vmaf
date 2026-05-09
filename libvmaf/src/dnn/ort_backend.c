@@ -177,6 +177,42 @@ static int try_append_rocm(struct VmafOrtSession *sess)
     return try_append_ep_generic(sess, "ROCMExecutionProvider", NULL, NULL, 0u);
 }
 
+/* Apple CoreML execution provider. Targets the Apple Neural Engine (ANE),
+ * Metal-backed GPU, and CPU on M-series and Intel Macs. The CoreML EP key
+ * "MLComputeUnits" pins a single compute unit; valid values are
+ * "ALL" (auto-route — default when key is absent), "CPUOnly",
+ * "CPUAndGPU", "CPUAndNeuralEngine".
+ *
+ * API surface used here is the generic
+ * `SessionOptionsAppendExecutionProvider("CoreMLExecutionProvider", ...)`
+ * key/value form rather than the older
+ * `OrtSessionOptionsAppendExecutionProvider_CoreML(opts, uint32_t flags)`
+ * factory in `coreml_provider_factory.h`. The generic form needs no extra
+ * header and degrades cleanly on Linux ORT builds (no CoreML EP linked
+ * → non-null OrtStatus → -ENOSYS → CPU fallback).
+ *
+ * Reference: ONNX Runtime CoreML Execution Provider documentation,
+ *   https://onnxruntime.ai/docs/execution-providers/CoreML-ExecutionProvider.html
+ *   (accessed 2026-05-09).
+ *
+ * @p compute_units may be NULL (omits the key — CoreML picks any unit) or
+ * one of the strings above. @p fp16_io adds "ModelFormat=NeuralNetwork"
+ * is intentionally NOT set; the EP defaults to ML Program format which
+ * supports fp16 weight precision via the model itself, not via an EP
+ * option. */
+static int try_append_coreml(struct VmafOrtSession *sess, const char *compute_units)
+{
+    const char *keys[1];
+    const char *values[1];
+    size_t nk = 0u;
+    if (compute_units != NULL) {
+        keys[nk] = "MLComputeUnits";
+        values[nk] = compute_units;
+        ++nk;
+    }
+    return try_append_ep_generic(sess, "CoreMLExecutionProvider", keys, values, nk);
+}
+
 #define ORT_TRY(call)                                                                              \
     do {                                                                                           \
         OrtStatus *st__ = (call);                                                                  \
@@ -245,6 +281,28 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
         if (try_append_rocm(sess) == 0)
             sess->ep_name = "ROCm";
         break;
+    /* CoreML EP variants. The unscoped CoreML selector lets the EP
+     * auto-route across compute units; the explicit ANE/GPU/CPU
+     * selectors pin a single MLComputeUnits value. On non-Apple hosts
+     * (e.g. Linux CI runners) the CoreML EP is absent from the linked
+     * ORT and try_append_coreml returns -ENOSYS — the session keeps
+     * the default ep_name="CPU" and CreateSession runs on the CPU EP. */
+    case VMAF_DNN_DEVICE_COREML:
+        if (try_append_coreml(sess, NULL) == 0)
+            sess->ep_name = "CoreML";
+        break;
+    case VMAF_DNN_DEVICE_COREML_ANE:
+        if (try_append_coreml(sess, "CPUAndNeuralEngine") == 0)
+            sess->ep_name = "CoreML:ANE";
+        break;
+    case VMAF_DNN_DEVICE_COREML_GPU:
+        if (try_append_coreml(sess, "CPUAndGPU") == 0)
+            sess->ep_name = "CoreML:GPU";
+        break;
+    case VMAF_DNN_DEVICE_COREML_CPU:
+        if (try_append_coreml(sess, "CPUOnly") == 0)
+            sess->ep_name = "CoreML:CPU";
+        break;
     case VMAF_DNN_DEVICE_AUTO:
         if (try_append_cuda(sess, idx) == 0) {
             sess->ep_name = "CUDA";
@@ -252,6 +310,15 @@ int vmaf_ort_open(VmafOrtSession **out, const char *onnx_path, const VmafDnnConf
             sess->ep_name = "OpenVINO:GPU";
         } else if (try_append_rocm(sess) == 0) {
             sess->ep_name = "ROCm";
+        } else if (try_append_coreml(sess, NULL) == 0) {
+            /* CoreML is last in the AUTO chain because the explicit
+             * --tiny-device=coreml-ane selector is the recommended
+             * Apple-silicon entry point for highest perf-per-watt;
+             * AUTO picks CoreML only when no discrete-GPU EP is
+             * available (typical on M-series Macs). The unscoped
+             * variant lets CoreML pick any compute unit — see the
+             * ANE perf note in docs/ai/inference.md. */
+            sess->ep_name = "CoreML";
         }
         break;
     case VMAF_DNN_DEVICE_CPU:
