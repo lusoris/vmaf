@@ -9289,3 +9289,14 @@ guarantee.
 **Rebase-sensitivity**: zero — change is local to `dict.c`. Future
 upstream sync of this file should keep the fix or re-run cppcheck
 locally to confirm absence of recurrence.
+
+## Aggregator timeout bump (2026-05-09)
+
+**Files pinned**:
+- `.github/workflows/required-aggregator.yml` (deadline 30→90 min, job timeout 35→100 min)
+
+**Why**: 41 PRs in flight 2026-05-09 morning hit Aggregator timeouts
+while real CI eventually passed. Bumping both deadlines unblocks the
+train without touching the underlying matrix.
+
+**Rebase-sensitivity**: zero — workflow file is wholly fork-local.
