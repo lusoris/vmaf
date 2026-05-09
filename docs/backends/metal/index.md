@@ -2,18 +2,20 @@
 
 > **Status: scaffold only.** Every entry point in
 > [`libvmaf_metal.h`](../../../libvmaf/include/libvmaf/libvmaf_metal.h)
-> currently returns `-ENOSYS` pending the runtime PR (T8-1b). The
-> first-consumer scaffold `motion_v2_metal` (extractor name
-> `motion_v2_metal`) is registered so callers asking by name resolve
-> to a clean "found, runtime not ready" surface, but its `init()`
-> returns `-ENOSYS` because the kernel-template helpers it calls
-> still return `-ENOSYS`. The runtime PR flips them all at once.
+> currently returns `-ENOSYS` pending the runtime PR (T8-1b). Four
+> kernel-template consumers are registered:
+> `motion_v2_metal`, `psnr_metal`, `float_ssim_metal`, and `motion_metal`.
+> Each resolves to a clean "found, runtime not ready" surface so callers
+> asking by name get a deterministic `-ENOSYS` rather than "no such
+> extractor". The runtime PR (T8-1b) flips all kernel-template helper
+> bodies from `-ENOSYS` to real Metal calls at once.
 > Rollout cadence mirrors the HIP T7-10 → T7-10b split that landed
 > this approach last (see [ADR-0212](../../adr/0212-hip-backend-scaffold.md))
 > and the original Vulkan T5-1 → T5-1b split that established it (see
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md)).
 >
 > Governing ADR: [ADR-0361](../../adr/0361-metal-compute-backend.md).
+> **4 of 17 planned extractors registered (batch-1).**
 
 ## Why Metal
 
@@ -102,9 +104,10 @@ via `xcrun metal` at build time.
 
 ## Rollout sequence
 
-1. **T8-1 (this PR)** — scaffold only. Public header, src/metal
-   tree (common, picture_metal, dispatch_strategy, kernel_template),
-   first-consumer kernel scaffold (`motion_v2_metal`), `enable_metal`
+1. **T8-1 (scaffold PR + batch-1)** — scaffold only. Public header,
+   src/metal tree (common, picture_metal, dispatch_strategy,
+   kernel_template), four consumer scaffolds (`motion_v2_metal`,
+   `psnr_metal`, `float_ssim_metal`, `motion_metal`), `enable_metal`
    meson option, smoke test, CI lane (`Build — macOS Metal (T8-1
    scaffold)`), this doc page. Every entry point returns `-ENOSYS`.
 2. **T8-1b (runtime PR)** — `MTLCreateSystemDefaultDevice` /
