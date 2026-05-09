@@ -8,6 +8,18 @@
 
 ### Added
 
+- **Shared `CorpusIngestBase` for MOS-corpus adapters (ADR-0371).** Extracts
+  ~1 200 lines of duplicated boilerplate — ffprobe geometry probe, SHA-256
+  dedup, resumable-download progress state, JSONL row builder, `RunStats`
+  counters — from six MOS-corpus ingestion scripts into
+  `ai/src/corpus/base.py`. Each adapter (KonViD-1k, KonViD-150k, LSVQ,
+  LIVE-VQC, Waterloo IVC 4K-VQA, YouTube UGC) now subclasses
+  `CorpusIngestBase` and implements only the corpus-specific CSV parsing in
+  `iter_source_rows(clips_dir)`. `bvi_dvc_to_corpus_jsonl.py` is
+  intentionally excluded (different schema: `vmaftune.CORPUS_ROW_KEYS`).
+  New test suite `ai/tests/test_corpus_base.py` covers the shared
+  orchestrator with synthetic fixtures and an injectable `runner` seam.
+
 - **Encoder-internal stats capture (ADR-0332).** Extends the
   `vmaf-tune` corpus row schema (bumped to v3) with ten
   `enc_internal_*` scalar aggregates capturing per-frame x264 pass-1
