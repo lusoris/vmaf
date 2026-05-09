@@ -200,7 +200,14 @@ static double motion3_postprocess_cuda(MotionStateCuda *s, double score2)
     double const clipped = MIN(blended, s->motion_max_val);
     double const previous_unaveraged = s->prev_motion3_blended;
     s->prev_motion3_blended = clipped;
-    if (s->motion_moving_average && s->frame_index > 1) {
+    /* Guard threshold accounts for ``s->frame_index`` having been
+     * pre-incremented in collect() before this function runs.  At
+     * the framework's collect(index=1) call the CPU reference
+     * (integer_motion.c:523) evaluates ``index > 1`` = false and
+     * skips the moving average; here ``frame_index`` is already 2
+     * because of the pre-increment, so the matching condition is
+     * ``frame_index > 2`` (cuda-reviewer 2026-05-09). */
+    if (s->motion_moving_average && s->frame_index > 2) {
         return (clipped + previous_unaveraged) / 2.0;
     }
     return clipped;
@@ -318,6 +325,10 @@ free_ref:
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->sad);
         free(s->sad);
     }
+    if (s->sad_host) {
+        ret |= vmaf_cuda_buffer_host_free(fex->cu_state, s->sad_host);
+        s->sad_host = NULL;
+    }
     ret |= vmaf_dictionary_free(&s->feature_name_dict);
     (void)ret; // accumulated cleanup status intentionally discarded on error path
 
@@ -351,9 +362,14 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
     CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->str));
 
     if (s->index > 0) {
+        /* Mirror CPU integer_motion.c:563 — motion2_score is the
+         * weighted-and-clipped value, NOT the raw normalized SAD.
+         * The previous code emitted ``s->score`` (raw) which only
+         * matched CPU when motion_fps_weight=1.0 and the clip never
+         * tripped (cuda-reviewer 2026-05-09). */
         double const last_motion2 = MIN(s->score * s->motion_fps_weight, s->motion_max_val);
-        ret = append_if_unwritten(feature_collector, "VMAF_integer_feature_motion2_score", s->score,
-                                  s->index);
+        ret = append_if_unwritten(feature_collector, "VMAF_integer_feature_motion2_score",
+                                  last_motion2, s->index);
         if (ret >= 0) {
             double const motion3_score = motion3_postprocess_cuda(s, last_motion2);
             int ret_m3 = append_if_unwritten(
@@ -387,20 +403,30 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     const unsigned src_blurred_idx = (index + 0) % 2;
     const unsigned prev_blurred_idx = (index + 1) % 2;
 
-    // Reset device SAD
-    CHECK_CUDA_RETURN(cu_f, cuMemsetD8Async(s->sad->data, 0, sizeof(uint64_t), s->str));
+    CUstream pic_stream = vmaf_cuda_picture_get_stream(ref_pic);
+
+    // Wait for the dist picture upload to complete on the picture stream
+    // before any work that reads the SAD accumulator.
+    CHECK_CUDA_RETURN(cu_f,
+                      cuStreamWaitEvent(pic_stream, vmaf_cuda_picture_get_ready_event(dist_pic),
+                                        CU_EVENT_WAIT_DEFAULT));
+
+    /* Reset device SAD on pic_stream (NOT s->str). The kernel below
+     * launches on pic_stream and atomicAdd's into ``s->sad``; running
+     * the memset on a different non-blocking stream (s->str) would
+     * race the kernel because no event pair links them. Mirrors the
+     * pattern in integer_motion_v2_cuda.c (T-GPU-OPT cleanup,
+     * 2026-05-09). */
+    CHECK_CUDA_RETURN(cu_f, cuMemsetD8Async(s->sad->data, 0, sizeof(uint64_t), pic_stream));
 
     // Compute motion score (blur + SAD)
-    CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(vmaf_cuda_picture_get_stream(ref_pic),
-                                              vmaf_cuda_picture_get_ready_event(dist_pic),
-                                              CU_EVENT_WAIT_DEFAULT));
     int err = s->calculate_motion_score(
         ref_pic, s->blur[src_blurred_idx], s->blur[prev_blurred_idx], s->sad, ref_pic->w[0],
         ref_pic->h[0], ref_pic->stride[0], sizeof(uint16_t) * ref_pic->w[0], ref_pic->bpc,
-        s->funcbpc8, s->funcbpc16, cu_f, vmaf_cuda_picture_get_stream(ref_pic));
+        s->funcbpc8, s->funcbpc16, cu_f, pic_stream);
     if (err)
         return err;
-    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, vmaf_cuda_picture_get_stream(ref_pic)));
+    CHECK_CUDA_RETURN(cu_f, cuEventRecord(s->event, pic_stream));
     CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->str, s->event, CU_EVENT_WAIT_DEFAULT));
 
     if (index == 0)
@@ -463,9 +489,14 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 
     if (index > 1) {
         double const motion2 = score_prev < s->score ? score_prev : s->score;
+        /* Mirror CPU integer_motion.c:563 — motion2_score is the
+         * weighted-and-clipped value, not the raw min(prev, cur).
+         * The previous code emitted ``motion2`` raw which only
+         * matched CPU when motion_fps_weight=1.0 (cuda-reviewer
+         * 2026-05-09). */
         double const motion2_clipped = MIN(motion2 * s->motion_fps_weight, s->motion_max_val);
         err |= vmaf_feature_collector_append(
-            feature_collector, "VMAF_integer_feature_motion2_score", motion2, index - 1);
+            feature_collector, "VMAF_integer_feature_motion2_score", motion2_clipped, index - 1);
         double const motion3_score = motion3_postprocess_cuda(s, motion2_clipped);
         err |= vmaf_feature_collector_append(
             feature_collector, "VMAF_integer_feature_motion3_score", motion3_score, index - 1);
@@ -504,6 +535,14 @@ after_event2_destroy:;
     if (s->sad) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->sad);
         free(s->sad);
+    }
+    /* Free the pinned host-side mirror of the SAD accumulator allocated
+     * via vmaf_cuda_buffer_host_alloc() in init_fex_cuda(). Missing this
+     * leaked one page-locked uint64 per init/close cycle (cuda-reviewer
+     * 2026-05-09). */
+    if (s->sad_host) {
+        ret |= vmaf_cuda_buffer_host_free(fex->cu_state, s->sad_host);
+        s->sad_host = NULL;
     }
     ret |= vmaf_dictionary_free(&s->feature_name_dict);
 

@@ -33,6 +33,15 @@ __constant__ int filter_width_d = sizeof(filter_d) / sizeof(filter_d[0]);
 // Shared memory tile dimensions: block size + 2*RADIUS halo
 #define TILE_W (BLOCK_X + 2 * RADIUS) // 20
 #define TILE_H (BLOCK_Y + 2 * RADIUS) // 20
+// Stride pads TILE_W to break shared-memory bank conflicts: with
+// TILE_W=20 and 32-bank shared memory, GCD(20, 32) = 4 forces
+// rows to alias on a 4-bank-cycle, producing 2-way conflicts
+// between (y=1, x=12..15) and (y=0, x=0..3). Padding to 21
+// (GCD(21, 32) = 1) eliminates them at a cost of 64 extra
+// uint32_t per block (1764 vs 1600 bytes — well under the
+// 48 KB SM limit). Indexing must use TILE_PITCH for x, NOT
+// TILE_W (cuda-reviewer 2026-05-09).
+#define TILE_PITCH (TILE_W + 1) // 21
 
 // Device function that mirrors an idx along its valid [0,sup) range.
 // Skip-boundary convention matches CPU integer_motion's edge_8 / edge_16:
@@ -52,16 +61,18 @@ __device__ __forceinline__ int mirror(const int idx, const int sup)
 
 extern "C" {
 
-__global__ void calculate_motion_score_kernel_8bpc(const VmafPicture src,
-                                                   VmafCudaBuffer src_blurred,
-                                                   const VmafCudaBuffer prev_blurred,
-                                                   VmafCudaBuffer sad, unsigned width,
-                                                   unsigned height, ptrdiff_t src_stride,
-                                                   ptrdiff_t blurred_stride)
+__launch_bounds__(BLOCK_X *BLOCK_Y, 8) __global__
+    void calculate_motion_score_kernel_8bpc(const VmafPicture src, VmafCudaBuffer src_blurred,
+                                            const VmafCudaBuffer prev_blurred, VmafCudaBuffer sad,
+                                            unsigned width, unsigned height, ptrdiff_t src_stride,
+                                            ptrdiff_t blurred_stride)
 {
 
-    // Shared memory tile for source pixels (block + halo)
-    __shared__ uint32_t s_tile[TILE_H][TILE_W];
+    // Shared memory tile for source pixels (block + halo).
+    // Inner dimension is TILE_PITCH (= TILE_W + 1) for bank-conflict
+    // padding; index it with [ty][tx] but never assume row-stride ==
+    // TILE_W. See TILE_PITCH definition above.
+    __shared__ uint32_t s_tile[TILE_H][TILE_PITCH];
 
     constexpr unsigned shift_var_y = 8u;
     constexpr unsigned add_before_shift_y = 128u;
@@ -123,16 +134,17 @@ __global__ void calculate_motion_score_kernel_8bpc(const VmafPicture src,
                   static_cast<unsigned long long>(abs_dist));
 }
 
-__global__ void calculate_motion_score_kernel_16bpc(const VmafPicture src,
-                                                    VmafCudaBuffer src_blurred,
-                                                    const VmafCudaBuffer prev_blurred,
-                                                    VmafCudaBuffer sad, unsigned width,
-                                                    unsigned height, ptrdiff_t src_stride,
-                                                    ptrdiff_t blurred_stride)
+__launch_bounds__(BLOCK_X *BLOCK_Y, 8) __global__
+    void calculate_motion_score_kernel_16bpc(const VmafPicture src, VmafCudaBuffer src_blurred,
+                                             const VmafCudaBuffer prev_blurred, VmafCudaBuffer sad,
+                                             unsigned width, unsigned height, ptrdiff_t src_stride,
+                                             ptrdiff_t blurred_stride)
 {
 
-    // Shared memory tile for source pixels (block + halo)
-    __shared__ uint32_t s_tile[TILE_H][TILE_W];
+    // Shared memory tile for source pixels (block + halo).
+    // Inner dimension is TILE_PITCH (= TILE_W + 1) for bank-conflict
+    // padding; see comment in the 8bpc kernel above.
+    __shared__ uint32_t s_tile[TILE_H][TILE_PITCH];
 
     unsigned shift_var_y = src.bpc;
     unsigned add_before_shift_y = 1u << (src.bpc - 1);

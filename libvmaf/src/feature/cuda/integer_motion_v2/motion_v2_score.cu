@@ -43,6 +43,11 @@ __constant__ int32_t mv2_filter_d[5] = {3571, 16004, 26386, 16004, 3571};
 #define MV2_BLOCK_Y 16
 #define MV2_TILE_W (MV2_BLOCK_X + 2 * MV2_RADIUS) /* 20 */
 #define MV2_TILE_H (MV2_BLOCK_Y + 2 * MV2_RADIUS) /* 20 */
+/* Pad inner stride to break shared-memory bank conflicts: GCD(20, 32)
+ * = 4 produces 2-way conflicts on neighbouring rows. GCD(21, 32) = 1
+ * eliminates them. Cost is +64 int32 per block (~256 bytes), well
+ * under the 48 KB SM limit (cuda-reviewer 2026-05-09). */
+#define MV2_TILE_PITCH (MV2_TILE_W + 1) /* 21 */
 
 __device__ __forceinline__ int mv2_mirror(int idx, int sup)
 {
@@ -55,14 +60,15 @@ __device__ __forceinline__ int mv2_mirror(int idx, int sup)
 
 extern "C" {
 
-__global__ void motion_v2_kernel_8bpc(const uint8_t *__restrict__ prev,
-                                      const uint8_t *__restrict__ cur, ptrdiff_t prev_stride,
-                                      ptrdiff_t cur_stride, VmafCudaBuffer sad, unsigned width,
-                                      unsigned height)
+__launch_bounds__(MV2_BLOCK_X *MV2_BLOCK_Y, 8) __global__
+    void motion_v2_kernel_8bpc(const uint8_t *__restrict__ prev, const uint8_t *__restrict__ cur,
+                               ptrdiff_t prev_stride, ptrdiff_t cur_stride, VmafCudaBuffer sad,
+                               unsigned width, unsigned height)
 {
     /* Shared tile holds the signed diff (prev - cur) so the nested
-     * separable filter operates on a single dataset. */
-    __shared__ int32_t s_diff[MV2_TILE_H][MV2_TILE_W];
+     * separable filter operates on a single dataset. Inner dim is
+     * MV2_TILE_PITCH (= MV2_TILE_W + 1) for bank-conflict padding. */
+    __shared__ int32_t s_diff[MV2_TILE_H][MV2_TILE_PITCH];
 
     constexpr int shift_y = 8;
     constexpr int round_y = 1 << 7;
@@ -122,12 +128,14 @@ __global__ void motion_v2_kernel_8bpc(const uint8_t *__restrict__ prev,
     }
 }
 
-__global__ void motion_v2_kernel_16bpc(const uint8_t *__restrict__ prev,
-                                       const uint8_t *__restrict__ cur, ptrdiff_t prev_stride,
-                                       ptrdiff_t cur_stride, VmafCudaBuffer sad, unsigned width,
-                                       unsigned height, unsigned bpc)
+__launch_bounds__(MV2_BLOCK_X *MV2_BLOCK_Y, 8) __global__
+    void motion_v2_kernel_16bpc(const uint8_t *__restrict__ prev, const uint8_t *__restrict__ cur,
+                                ptrdiff_t prev_stride, ptrdiff_t cur_stride, VmafCudaBuffer sad,
+                                unsigned width, unsigned height, unsigned bpc)
 {
-    __shared__ int32_t s_diff[MV2_TILE_H][MV2_TILE_W];
+    /* Inner dim is MV2_TILE_PITCH for bank-conflict padding (see
+     * comment in the 8bpc kernel above). */
+    __shared__ int32_t s_diff[MV2_TILE_H][MV2_TILE_PITCH];
 
     const int shift_y = (int)bpc;
     const int round_y = 1 << ((int)bpc - 1);

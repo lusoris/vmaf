@@ -166,6 +166,20 @@ entirely; `--precision=max` exposes it). See
 [ADR-0119](../../adr/0119-cli-precision-default-revert.md) for the
 precision-default rationale.
 
+The `motion` / `motion2` / `motion3` CUDA outputs in particular are
+verified bit-exact against the CPU fixed-point path at `places = 4`
+under default settings on the Netflix `src01_hrc00_576x324.yuv` ↔
+`src01_hrc01_576x324.yuv` pair (0 / 144 mismatches, max_abs =
+0.00e+00). Equivalent parity holds under the non-default
+`motion_fps_weight ≠ 1.0` and `motion_moving_average = true` paths
+after [ADR-0358](../../adr/0358-cuda-motion-race-and-precision-fixes.md)
+fixed the host-side post-processing: `motion2_score` now applies
+`MIN(score * motion_fps_weight, motion_max_val)` mirroring the CPU
+reference at `integer_motion.c:563`, and the moving-average guard in
+`motion3_postprocess_cuda` now skips averaging at framework-collect
+index 1 to match `integer_motion.c:523`'s `index >
+minimum_past_frames_needed` rule.
+
 The **Netflix golden-data gate is CPU-only** — the three reference
 pairs in `python/test/` (1 normal + 2 checkerboard) are hardcoded
 `assertAlmostEqual` values that only the CPU scalar + fixed-point
