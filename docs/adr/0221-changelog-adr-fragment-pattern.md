@@ -130,3 +130,14 @@ fragment files instead of editing the consolidated outputs directly.
   convention.
 - towncrier (https://towncrier.readthedocs.io/) — Python-ecosystem
   precedent for fragment-file changelogs.
+
+### Status update 2026-05-08
+
+Operational drift between fragments and the rendered `CHANGELOG.md`
+"Unreleased" block is reconciled by periodic drift-sweep PRs (in
+addition to the per-PR `--check` CI lane). The drift-class table
+(silent loss / orphan / duplicate) and the regenerate-vs-append-vs-
+backfill resolution policy is documented in
+[`docs/development/release.md`](../development/release.md#changelogmd-fragment-workflow-adr-0221).
+This ADR's body remains frozen per ADR-0028; the policy doc is the
+operational manual.

@@ -49,6 +49,69 @@ repo or in CI secrets.
 Consumers can verify signatures with
 `cosign verify-blob --certificate-identity-regexp …`.
 
+## CHANGELOG.md fragment workflow (ADR-0221)
+
+The "Unreleased" block of `CHANGELOG.md` is **rendered** from per-PR fragment
+files under `changelog.d/<section>/*.md` by
+[`scripts/release/concat-changelog-fragments.sh`](../../scripts/release/concat-changelog-fragments.sh).
+Sections follow Keep-a-Changelog order: `added` → `changed` → `deprecated` →
+`removed` → `fixed` → `security`. The pre-fragment archive lives verbatim in
+`changelog.d/_pre_fragment_legacy.md` and is emitted before the section
+fragments so existing release-train history is preserved.
+
+### When to add a fragment vs edit `CHANGELOG.md` directly
+
+- **Always add a fragment, never edit `CHANGELOG.md` directly.** Drop a single
+  Markdown bullet under `changelog.d/<section>/<topic>.md`. The fragment is
+  the source of truth; the rendered `CHANGELOG.md` is a build artefact.
+- **Filename convention:** lowercase kebab-case, optionally prefixed with the
+  task ID (`T7-39-foo.md`) or ADR number (`adr-0312-deferral-retired.md`)
+  for implicit lexical ordering within the section.
+- **One fragment per PR.** Multi-surface PRs may ship multiple fragments,
+  one per user-discoverable surface, each in the appropriate section.
+
+### When to regenerate (`--write`)
+
+Run `scripts/release/concat-changelog-fragments.sh --write` whenever:
+
+- The `--check` lane fails on CI (drift between fragments and the rendered
+  `Unreleased` block).
+- A merge has just landed several fragments that are not yet spliced into the
+  rendered block.
+- A drift-sweep PR is reconciling pre-existing skew (see
+  [the 2026-05-08 sweep](#changelog-drift-sweep--historical-context)).
+
+Never edit the rendered "Unreleased" block by hand to add new entries — those
+inline edits will be silently overwritten by the next regen.
+
+### Drift classes and resolution policy
+
+Three drift classes can develop between fragments and the rendered block:
+
+| Class | Symptom | Resolution |
+| --- | --- | --- |
+| **Silent loss** | Fragment exists, no matching row in `CHANGELOG.md`. | Regenerate. The fragment is canonical. |
+| **Orphan content** | Row in `CHANGELOG.md`, no matching fragment. | Backfill a fragment if the content is still relevant; delete the row otherwise. Inspect each case manually — never bulk-delete. |
+| **Duplicate** | Same entry appears twice (often once from legacy archive, once from a fragment, or once inline + once from a fragment). | Regenerate. The script renders each fragment exactly once. |
+
+`--write` is conservative: it only rewrites the `## [Unreleased]` block.
+Released sections below are untouched.
+
+### Drift-sweep cadence
+
+CI runs `--check` on every PR (the docs-fragments lane) so new drift fails
+loud. A periodic drift-sweep PR (typically once per merge train) reconciles
+the pre-existing skew that accumulates when in-flight PRs add fragments
+faster than `--write` is run.
+
+#### CHANGELOG drift sweep — historical context
+
+The 2026-05-08 sweep cleared 13 silent-loss fragments, 1 reformatted entry
+(verbose inline → canonical fragment), and 2 duplicate rows
+(double `### Changed` header + duplicate FastDVDnet entry). No genuine
+orphans were found — every row in `CHANGELOG.md` either had a matching
+fragment or lived in the legacy archive.
+
 ## Dry-running a release
 
 Before merging a release PR, invoke the `/prep-release` skill locally. It
