@@ -240,6 +240,7 @@
 
 
 
+
 0333-vmaf-tune-multi-pass-encoding
 
 
@@ -268,6 +269,9 @@
 
 
 0332-libvmaf-wasm-target
+
+
+0332-sycl-adm-dwt-group-load-deferral
 
 
 

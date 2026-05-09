@@ -11,7 +11,7 @@ GitHub Action; this page covers the **local developer machine** path.
 ## Pinned version
 
 | Component | Pinned version | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Intel oneAPI Base Toolkit | **2025.3.1** | Bumped from 2025.0.4 (2026-04-25, T7-8). |
 | `icpx` (DPC++/C++ compiler) | shipped with the basekit | LLVM 20 base. |
 | Compute runtime (`level-zero-loader`) | distro package | Arch / CachyOS: `pacman -S level-zero-loader`. |
@@ -161,6 +161,15 @@ follow-up backlog candidate.
   `sycl::ext::oneapi::experimental::group_load`. Profile the SLM tile
   load against the manual implementation — should reduce register
   pressure and may help on Battlemage.
+  [Research-0086 §A.4](../research/0086-sycl-toolchain-audit-2026-05-08.md)
+  emitted GO; on implementation review the rewrite was
+  **deferred** under
+  [ADR-0332](../adr/0332-sycl-adm-dwt-group-load-deferral.md) —
+  the `WG_SIZE × ElementsPerWorkItem` divisibility constraint and
+  the multi-row source contiguity gap defeat the sketch. Re-opens
+  when (a) a tile-geometry redesign yields integer divisibility and
+  (b) Xe2 / Battlemage hardware is available to confirm the
+  register-pressure delta.
 - [ ] OpenVINO EP version bump — newer ORT bundled with the basekit
   may add NPU EP support (relevant to T7-9 Intel AI-PC research).
   Smoke-test `--tiny-device=openvino` against `learned_filter_v1` and
