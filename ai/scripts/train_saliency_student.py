@@ -238,8 +238,8 @@ class DutsDataset(Dataset):
         else:
             new_h = target_short
             new_w = round(w0 * (target_short / h0))
-        img = img.resize((new_w, new_h), Image.BILINEAR)
-        mask = mask.resize((new_w, new_h), Image.NEAREST)
+        img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+        mask = mask.resize((new_w, new_h), Image.Resampling.NEAREST)
 
         if self.train:
             # Random crop
