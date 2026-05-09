@@ -2,7 +2,7 @@
 # ffmpeg-patches-check.sh — local pre-push gate that mirrors the
 # `ffmpeg-integration.yml` apply step. For each patch listed in
 # `ffmpeg-patches/series.txt` (oldest to newest), applies the patch
-# in series against a cached FFmpeg n8.1 checkout under
+# in series against a cached FFmpeg n8.1.1 checkout under
 # `/tmp/ffmpeg-n81`. Patches in this stack build on each other (e.g.
 # 0006 expects hunks 0003-0005 already in place), so the gate
 # accumulates state and fails fast on the first patch that doesn't
