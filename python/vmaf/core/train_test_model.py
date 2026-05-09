@@ -354,8 +354,11 @@ class RegressorMixin(object):
         )  # FIXME: setting std to 0 may be misleading
         try:
             ys_label_stddev[np.isnan(ys_label_stddev)] = 0
-        except:
-            ys_label_stddev[ys_label_stddev == None] = 0
+        except TypeError:
+            # np.isnan raises TypeError on object-dtype arrays containing
+            # Python None; fall back to elementwise None comparison.
+            # (CodeQL py/catch-base-exception)
+            ys_label_stddev[ys_label_stddev == None] = 0  # noqa: E711
         assert len(ys_label_stddev) == len(ys_label)
 
         xlim, ylim = cls.get_xlim_ylim(ys_label, ys_label_pred, ys_label_stddev)
@@ -723,7 +726,7 @@ class TrainTestModel(TypeVersionEnabled):
     @mus.setter
     def mus(self, value):
         # forcing float, to be used by PicklingTools and read in C++
-        self.model_dict["mus"] = list(map(lambda x: float(x), list(value)))
+        self.model_dict["mus"] = list(map(float, list(value)))
 
     @property
     def sds(self):
@@ -732,7 +735,7 @@ class TrainTestModel(TypeVersionEnabled):
     @sds.setter
     def sds(self, value):
         # forcing float, to be used by PicklingTools and read in C++
-        self.model_dict["sds"] = list(map(lambda x: float(x), list(value)))
+        self.model_dict["sds"] = list(map(float, list(value)))
 
     @property
     def slopes(self):
@@ -741,7 +744,7 @@ class TrainTestModel(TypeVersionEnabled):
     @slopes.setter
     def slopes(self, value):
         # forcing float, to be used by PicklingTools and read in C++
-        self.model_dict["slopes"] = list(map(lambda x: float(x), list(value)))
+        self.model_dict["slopes"] = list(map(float, list(value)))
 
     @property
     def intercepts(self):
@@ -750,7 +753,7 @@ class TrainTestModel(TypeVersionEnabled):
     @intercepts.setter
     def intercepts(self, value):
         # forcing float, to be used by PicklingTools and read in C++
-        self.model_dict["intercepts"] = list(map(lambda x: float(x), list(value)))
+        self.model_dict["intercepts"] = list(map(float, list(value)))
 
     @property
     def model(self):
@@ -1676,7 +1679,11 @@ class BootstrapRegressorMixin(RegressorMixin):
                             label=curr_content_id,
                             color=colors[idx % len(colors)],
                         )
-                    except:
+                    except (ValueError, TypeError):
+                        # matplotlib raises ValueError for malformed xerr/yerr
+                        # shapes and TypeError when curr_ys_label_stddev is
+                        # None. Fall back to the y-only errorbar variant.
+                        # (CodeQL py/catch-base-exception)
                         ax.errorbar(
                             curr_ys_label,
                             curr_ys_label_pred,

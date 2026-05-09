@@ -12,7 +12,11 @@ logger.setLevel("INFO")
 
 try:
     from matplotlib import pyplot as plt
-except BaseException:
+except (ImportError, RuntimeError):
+    # ImportError: matplotlib (or one of its native deps) not installed.
+    # RuntimeError: OSX system-Python framework error described below.
+    # Narrowed from bare 'except' so KeyboardInterrupt / SystemExit
+    # propagate. (CodeQL py/catch-base-exception)
     # TODO: importing matplotlib fails on OSX with system python, check what can be done there...
     # Error reported is:
     #   RuntimeError: Python is not installed as a framework.

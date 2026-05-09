@@ -37,7 +37,9 @@ def main():
 
     try:
         runner_class = QualityRunner.find_subclass(quality_type)
-    except:
+    except Exception:
+        # find_subclass raises on unknown quality_type; KeyboardInterrupt /
+        # SystemExit must still propagate. (CodeQL py/catch-base-exception)
         print_usage()
         return 2
 

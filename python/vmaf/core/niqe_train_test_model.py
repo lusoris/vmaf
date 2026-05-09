@@ -49,8 +49,8 @@ class NiqeTrainTestModel(TrainTestModel, RegressorMixin):
     def train(self, xys):
         self.model_type = self.TYPE
 
-        assert "label" in xys
-        ys_vec = xys["label"]  # for NIQE, ys never used for training
+        assert "label" in xys  # NIQE doesn't use ys for training; only assert presence
+        # (CodeQL py/unused-local-variable: removed unused `ys_vec = xys["label"]`)
 
         # this makes sure the order of features are normalized, and each
         # dimension of xys_2d is consistent with feature_names

@@ -265,7 +265,7 @@ class NeuralNetTrainTestModel(
 
     def _get_total_frames(self, xys):
         yss = xys["dis_y"]  # yss
-        return np.sum(list(map(lambda ys: len(ys), yss)))
+        return np.sum(list(map(len, yss)))
 
     @override(TrainTestModel)
     def to_file(self, filename, **more):

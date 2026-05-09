@@ -153,6 +153,11 @@ def main():
         print_usage()
         return 2
 
+    # Explicit success return — previously fell through to implicit None,
+    # which exit() coerces to 0. Same behaviour, but consistent return
+    # type. (CodeQL py/mixed-returns)
+    return 0
+
 
 if __name__ == "__main__":
     ret = main()

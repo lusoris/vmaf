@@ -20,6 +20,13 @@ from vmaf.tools.reader import YuvReader
 
 class MomentNorefFeatureExtractor(NorefExecutorMixin, FeatureExtractor):
 
+    # Resolve the static MRO conflict between NorefExecutorMixin._assert_an_asset
+    # and FeatureExtractor._assert_an_asset (inherited from Executor) by binding
+    # the mixin's classmethod explicitly at this class level. Runtime MRO already
+    # picked NorefExecutorMixin's version; this just makes that decision visible
+    # to static analysis. (CodeQL py/conflicting-attributes)
+    _assert_an_asset = NorefExecutorMixin._assert_an_asset
+
     TYPE = "Moment_noref_feature"
     VERSION = "1.0"  # python only
 
@@ -103,6 +110,10 @@ class MomentNorefFeatureExtractor(NorefExecutorMixin, FeatureExtractor):
 
 
 class BrisqueNorefFeatureExtractor(NorefExecutorMixin, FeatureExtractor):
+
+    # Static MRO disambiguation — see MomentNorefFeatureExtractor for rationale.
+    # (CodeQL py/conflicting-attributes)
+    _assert_an_asset = NorefExecutorMixin._assert_an_asset
 
     TYPE = "BRISQUE_noref_feature"
 
@@ -599,6 +610,10 @@ class NiqeNorefFeatureExtractor(BrisqueNorefFeatureExtractor):
 
 
 class SiTiNorefFeatureExtractor(NorefExecutorMixin, FeatureExtractor):
+
+    # Static MRO disambiguation — see MomentNorefFeatureExtractor for rationale.
+    # (CodeQL py/conflicting-attributes)
+    _assert_an_asset = NorefExecutorMixin._assert_an_asset
 
     TYPE = "SITI_noref_feature"
     VERSION = "1.0"
