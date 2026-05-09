@@ -17,8 +17,15 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "common/macros.h"
 #include "cpu.h"
@@ -676,9 +683,30 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         for (int scale = 0; scale < NUM_SCALES; scale++) {
             (void)snprintf(path, sizeof(path), "%s%ccambi_heatmap_scale_%d_%dx%d_16b.gray",
                            s->heatmaps_path, PATH_SEPARATOR, scale, scaled_w, scaled_h);
-            s->heatmaps_files[scale] = fopen(path, "w");
+            /* Mode 0644: owner-rw, group-r, other-r. Pinning the mode at
+             * open(2) avoids the world-writable surface fopen(3) inherits
+             * from a permissive umask. CodeQL cpp/world-writable-file-creation. */
+#ifdef _WIN32
+            int hfd = _open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0644);
+#else
+            int hfd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#endif
+            if (hfd < 0) {
+                vmaf_log(VMAF_LOG_LEVEL_ERROR, "cambi: could not open heatmaps_path: %s\n", path);
+                return -EINVAL;
+            }
+#ifdef _WIN32
+            s->heatmaps_files[scale] = _fdopen(hfd, "wb");
+#else
+            s->heatmaps_files[scale] = fdopen(hfd, "w");
+#endif
             if (!s->heatmaps_files[scale]) {
                 vmaf_log(VMAF_LOG_LEVEL_ERROR, "cambi: could not open heatmaps_path: %s\n", path);
+#ifdef _WIN32
+                _close(hfd);
+#else
+                close(hfd);
+#endif
                 return -EINVAL;
             }
             scaled_w = (scaled_w + 1) >> 1;

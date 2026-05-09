@@ -17,13 +17,20 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 /* Provide a dummy fallback for older glibc versions (< 2.32) that lack
  * __libc_single_threaded.  The weak attribute lets the real glibc symbol
@@ -2184,9 +2191,31 @@ const char *vmaf_version(void)
 int vmaf_write_output_with_format(VmafContext *vmaf, const char *output_path,
                                   enum VmafOutputFormat fmt, const char *score_format)
 {
-    FILE *outfile = fopen(output_path, "w");
+    /* Open with mode 0644 so the output file is never world-writable.
+     * fopen(3) defaults to 0666 & ~umask, which CodeQL flags as
+     * cpp/world-writable-file-creation. open(2) + fdopen(3) pins the
+     * permission bits up front. */
+#ifdef _WIN32
+    int outfd = _open(output_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#else
+    int outfd = open(output_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#endif
+    if (outfd < 0) {
+        (void)fprintf(stderr, "could not open file: %s\n", output_path);
+        return -EINVAL;
+    }
+#ifdef _WIN32
+    FILE *outfile = _fdopen(outfd, "w");
+#else
+    FILE *outfile = fdopen(outfd, "w");
+#endif
     if (!outfile) {
         (void)fprintf(stderr, "could not open file: %s\n", output_path);
+#ifdef _WIN32
+        _close(outfd);
+#else
+        close(outfd);
+#endif
         return -EINVAL;
     }
 
