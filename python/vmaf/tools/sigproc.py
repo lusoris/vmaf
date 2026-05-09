@@ -69,9 +69,9 @@ def create_hp_yuv_4channel(yuvimg):
 def dstack_y_u_v(y, u, v):
     # make y, u, v consistent in size
     if u.shape != y.shape:
-        u = np.array(Image.fromarray(u).convert("L").resize(y.shape, Image.BICUBIC))
+        u = np.array(Image.fromarray(u).convert("L").resize(y.shape, Image.Resampling.BICUBIC))
     if v.shape != y.shape:
-        v = np.array(Image.fromarray(v).convert("L").resize(y.shape, Image.BICUBIC))
+        v = np.array(Image.fromarray(v).convert("L").resize(y.shape, Image.Resampling.BICUBIC))
     return np.dstack((y, u, v))
 
 

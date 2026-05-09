@@ -230,12 +230,14 @@ class BrisqueNorefFeatureExtractor(NorefExecutorMixin, FeatureExtractor):
     def mscn_extract(cls, img):
         img2 = np.array(
             Image.fromarray(img).resize(
-                (int(np.shape(img)[1] / 2.0), int(np.shape(img)[0] / 2.0)), Image.BILINEAR
+                (int(np.shape(img)[1] / 2.0), int(np.shape(img)[0] / 2.0)),
+                Image.Resampling.BILINEAR,
             )
         )
         img3 = np.array(
             Image.fromarray(img).resize(
-                (int(np.shape(img)[1] / 4.0), int(np.shape(img)[0] / 4.0)), Image.BILINEAR
+                (int(np.shape(img)[1] / 4.0), int(np.shape(img)[0] / 4.0)),
+                Image.Resampling.BILINEAR,
             )
         )
         m_image, _, _ = cls.calc_image(img)
@@ -514,7 +516,9 @@ class NiqeNorefFeatureExtractor(BrisqueNorefFeatureExtractor):
     def mscn_extract_niqe(cls, img, patch_size, mode):
         h, w = img.shape
 
-        img2 = np.array(Image.fromarray(img).resize((int(w / 2.0), int(h / 2.0)), Image.BICUBIC))
+        img2 = np.array(
+            Image.fromarray(img).resize((int(w / 2.0), int(h / 2.0)), Image.Resampling.BICUBIC)
+        )
 
         m_image1, img_var, _ = cls.calc_image(img, extend_mode="nearest")
         m_image1 = m_image1.astype(np.float32)
