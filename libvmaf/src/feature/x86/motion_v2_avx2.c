@@ -42,6 +42,42 @@ static inline __m256i srai_epi64_16(__m256i v)
     return _mm256_blend_epi32(lo, hi, 0xAA);
 }
 
+// Arithmetic right shift of int64x4 by a variable-per-invocation (but
+// uniform-across-lanes) immediate `n` (1 <= n <= 32).
+//
+// AVX2 has no srav_epi64 (that arrived with AVX-512).  Emulation:
+//   1. Logical shift: shifts the magnitude bits into place.
+//   2. Sign-fill: replicate the sign bit of each 64-bit lane into the
+//      vacated upper `n` bits.
+//      - `_mm256_srai_epi32` with shuffle gives 0xFFFFFFFF in the upper
+//        32-bit dword of each 64-bit lane when that lane is negative,
+//        0x00000000 otherwise.
+//      - Left-shift by (64 - n) positions the sign-fill mask over
+//        exactly the `n` bits that the logical shift left as zeros.
+//   3. OR the two together.
+//
+// This is bit-exact with the C scalar `(int64_t)v >> n` path (which is
+// arithmetic on GCC, Clang, and MSVC for all targets the fork builds on).
+// Fixes the logical-vs-arithmetic divergence on negative-`accum` lanes
+// in `motion_score_pipeline_16_avx2` (rebase-notes §0038, T7-32).
+//
+// Restriction: n must satisfy 1 <= n <= 32.  For n == 0 the sign_mask
+// shift wraps to 64 (undefined for _mm256_slli_epi64); for n > 32 the
+// upper-dword sign extraction no longer covers the full vacated region.
+// The callers always pass `bpc` which is 8, 10, or 12 — well within range.
+static inline __m256i srav_epi64_imm(__m256i v, int n)
+{
+    __m256i logical = _mm256_srli_epi64(v, n);
+    // Broadcast sign bit of each 64-bit lane into its upper 32-bit dword.
+    // shuffle (3,3,1,1) maps: lane[63:32]->lane[63:32] and lane[63:32]->lane[31:0]
+    // so that srai_epi32(..., 31) fills each 32-bit dword with the sign.
+    // We only care about the upper dword of each 64-bit pair (positions 1,3,5,7).
+    __m256i sign = _mm256_srai_epi32(_mm256_shuffle_epi32(v, _MM_SHUFFLE(3, 3, 1, 1)), 31);
+    // Shift the sign mask into the top `n` bits of each 64-bit lane.
+    __m256i sign_mask = _mm256_slli_epi64(sign, 64 - n);
+    return _mm256_or_si256(logical, sign_mask);
+}
+
 // SIMD phase 2: x_conv + abs + SAD for one row of int32 y_row.
 // Processes 8 int32 columns at a time via mullo_epi32 + int64 accumulation.
 static inline uint32_t x_conv_row_sad_avx2(const int32_t *y_row, unsigned w)
@@ -146,7 +182,6 @@ uint64_t motion_score_pipeline_16_avx2(const uint8_t *prev_u8, ptrdiff_t prev_st
     const __m256i g1 = _mm256_set1_epi32(16004);
     const __m256i g2 = _mm256_set1_epi32(26386);
     const __m256i round64 = _mm256_set1_epi64x(1 << (bpc - 1));
-    const __m256i bpc_vec = _mm256_set1_epi64x(bpc);
     const __m256i perm_idx = _mm256_setr_epi32(0, 2, 4, 6, 0, 0, 0, 0);
 
     uint64_t sad = 0;
@@ -202,8 +237,8 @@ uint64_t motion_score_pipeline_16_avx2(const uint8_t *prev_u8, ptrdiff_t prev_st
             acc_hi =
                 _mm256_add_epi64(acc_hi, _mm256_cvtepi32_epi64(_mm256_extracti128_si256(prod4, 1)));
 
-            acc_lo = _mm256_srlv_epi64(_mm256_add_epi64(acc_lo, round64), bpc_vec);
-            acc_hi = _mm256_srlv_epi64(_mm256_add_epi64(acc_hi, round64), bpc_vec);
+            acc_lo = srav_epi64_imm(_mm256_add_epi64(acc_lo, round64), (int)bpc);
+            acc_hi = srav_epi64_imm(_mm256_add_epi64(acc_hi, round64), (int)bpc);
 
             __m128i res_lo = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(acc_lo, perm_idx));
             __m128i res_hi = _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(acc_hi, perm_idx));

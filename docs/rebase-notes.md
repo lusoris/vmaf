@@ -3619,22 +3619,24 @@ inline.*
   decomposition (the five helpers), adopt upstream's if it's
   smaller; the fork's layout is ADR-0141-driven, not a semantic
   contract.
-- **Follow-up T7-32 (closed 2026-04-29)**: AVX2 `motion_v2`
-  audit against scalar on a negative-diff corpus is in tree as
-  [`libvmaf/test/test_motion_v2_simd.c`](../libvmaf/test/test_motion_v2_simd.c).
-  The test exercises four adversarial 16-bit fixtures
-  (uniform-negative diffs at bpc 10 and 12, alternating-mixed-sign
-  at bpc 10 and 12) and `memcmp`-equivalent compares the AVX2
-  Phase-1 + Phase-2 SAD against a line-for-line scalar reference
-  duplicated from `integer_motion_v2.c`. On the bench host the
-  AVX2 path agrees with scalar on every fixture: the post-`abs()`
-  Phase-2 aggregation absorbs the per-lane logical-vs-arithmetic
-  shift difference for these inputs. The test stays as a permanent
-  guard — if a future fixture, microarch, or compiler change
-  surfaces a delta, the byte-equal compare will catch it and the
-  divergence becomes a correctness PR. The rebase-time invariant
-  (NEON keeps arithmetic shift, AVX2 keeps logical shift unless a
-  delta surfaces) is unchanged.
+- **Follow-up T7-32 (fixed 2026-05-09)**: The `_mm256_srlv_epi64`
+  (logical right shift) in `motion_score_pipeline_16_avx2` was
+  replaced with `srav_epi64_imm`, an AVX2-safe arithmetic-right-shift
+  emulation: logical shift OR sign-fill mask via `srai_epi32` + `slli_epi64`.
+  Two bugs were closed in the same PR:
+  1. **AVX2 logical-vs-arithmetic shift**: `_mm256_srlv_epi64` replaced
+     by `srav_epi64_imm` in
+     `libvmaf/src/feature/x86/motion_v2_avx2.c`. The emulation is
+     bit-exact with scalar C `>> bpc` on signed `int64_t`.
+  2. **Test scalar reference mirror**: `mirror_idx` in
+     `libvmaf/test/test_motion_v2_simd.c` used `2*size - idx - 1`
+     instead of `2*size - idx - 2`, diverging from
+     `integer_motion_v2.c::mirror()`. Fixed to `-2`.
+  All four adversarial fixtures (neg-diff bpc10/12, mixed-diff bpc10/12)
+  now pass. `meson test -C build` 50/50 OK.
+  **On rebase**: keep `srav_epi64_imm`; do not revert to
+  `_mm256_srlv_epi64`. The rebase-time invariant is now:
+  AVX2 path uses arithmetic shift (matching NEON and scalar).
 
 ### 0039 — `readability-function-size` NOLINT sweep (ADR-0146)
 
@@ -14140,22 +14142,24 @@ inline.*
   decomposition (the five helpers), adopt upstream's if it's
   smaller; the fork's layout is ADR-0141-driven, not a semantic
   contract.
-- **Follow-up T7-32 (closed 2026-04-29)**: AVX2 `motion_v2`
-  audit against scalar on a negative-diff corpus is in tree as
-  [`libvmaf/test/test_motion_v2_simd.c`](../libvmaf/test/test_motion_v2_simd.c).
-  The test exercises four adversarial 16-bit fixtures
-  (uniform-negative diffs at bpc 10 and 12, alternating-mixed-sign
-  at bpc 10 and 12) and `memcmp`-equivalent compares the AVX2
-  Phase-1 + Phase-2 SAD against a line-for-line scalar reference
-  duplicated from `integer_motion_v2.c`. On the bench host the
-  AVX2 path agrees with scalar on every fixture: the post-`abs()`
-  Phase-2 aggregation absorbs the per-lane logical-vs-arithmetic
-  shift difference for these inputs. The test stays as a permanent
-  guard — if a future fixture, microarch, or compiler change
-  surfaces a delta, the byte-equal compare will catch it and the
-  divergence becomes a correctness PR. The rebase-time invariant
-  (NEON keeps arithmetic shift, AVX2 keeps logical shift unless a
-  delta surfaces) is unchanged.
+- **Follow-up T7-32 (fixed 2026-05-09)**: The `_mm256_srlv_epi64`
+  (logical right shift) in `motion_score_pipeline_16_avx2` was
+  replaced with `srav_epi64_imm`, an AVX2-safe arithmetic-right-shift
+  emulation: logical shift OR sign-fill mask via `srai_epi32` + `slli_epi64`.
+  Two bugs were closed in the same PR:
+  1. **AVX2 logical-vs-arithmetic shift**: `_mm256_srlv_epi64` replaced
+     by `srav_epi64_imm` in
+     `libvmaf/src/feature/x86/motion_v2_avx2.c`. The emulation is
+     bit-exact with scalar C `>> bpc` on signed `int64_t`.
+  2. **Test scalar reference mirror**: `mirror_idx` in
+     `libvmaf/test/test_motion_v2_simd.c` used `2*size - idx - 1`
+     instead of `2*size - idx - 2`, diverging from
+     `integer_motion_v2.c::mirror()`. Fixed to `-2`.
+  All four adversarial fixtures (neg-diff bpc10/12, mixed-diff bpc10/12)
+  now pass. `meson test -C build` 50/50 OK.
+  **On rebase**: keep `srav_epi64_imm`; do not revert to
+  `_mm256_srlv_epi64`. The rebase-time invariant is now:
+  AVX2 path uses arithmetic shift (matching NEON and scalar).
 
 ### 0039 — `readability-function-size` NOLINT sweep (ADR-0146)
 
@@ -24469,22 +24473,24 @@ inline.*
   decomposition (the five helpers), adopt upstream's if it's
   smaller; the fork's layout is ADR-0141-driven, not a semantic
   contract.
-- **Follow-up T7-32 (closed 2026-04-29)**: AVX2 `motion_v2`
-  audit against scalar on a negative-diff corpus is in tree as
-  [`libvmaf/test/test_motion_v2_simd.c`](../libvmaf/test/test_motion_v2_simd.c).
-  The test exercises four adversarial 16-bit fixtures
-  (uniform-negative diffs at bpc 10 and 12, alternating-mixed-sign
-  at bpc 10 and 12) and `memcmp`-equivalent compares the AVX2
-  Phase-1 + Phase-2 SAD against a line-for-line scalar reference
-  duplicated from `integer_motion_v2.c`. On the bench host the
-  AVX2 path agrees with scalar on every fixture: the post-`abs()`
-  Phase-2 aggregation absorbs the per-lane logical-vs-arithmetic
-  shift difference for these inputs. The test stays as a permanent
-  guard — if a future fixture, microarch, or compiler change
-  surfaces a delta, the byte-equal compare will catch it and the
-  divergence becomes a correctness PR. The rebase-time invariant
-  (NEON keeps arithmetic shift, AVX2 keeps logical shift unless a
-  delta surfaces) is unchanged.
+- **Follow-up T7-32 (fixed 2026-05-09)**: The `_mm256_srlv_epi64`
+  (logical right shift) in `motion_score_pipeline_16_avx2` was
+  replaced with `srav_epi64_imm`, an AVX2-safe arithmetic-right-shift
+  emulation: logical shift OR sign-fill mask via `srai_epi32` + `slli_epi64`.
+  Two bugs were closed in the same PR:
+  1. **AVX2 logical-vs-arithmetic shift**: `_mm256_srlv_epi64` replaced
+     by `srav_epi64_imm` in
+     `libvmaf/src/feature/x86/motion_v2_avx2.c`. The emulation is
+     bit-exact with scalar C `>> bpc` on signed `int64_t`.
+  2. **Test scalar reference mirror**: `mirror_idx` in
+     `libvmaf/test/test_motion_v2_simd.c` used `2*size - idx - 1`
+     instead of `2*size - idx - 2`, diverging from
+     `integer_motion_v2.c::mirror()`. Fixed to `-2`.
+  All four adversarial fixtures (neg-diff bpc10/12, mixed-diff bpc10/12)
+  now pass. `meson test -C build` 50/50 OK.
+  **On rebase**: keep `srav_epi64_imm`; do not revert to
+  `_mm256_srlv_epi64`. The rebase-time invariant is now:
+  AVX2 path uses arithmetic shift (matching NEON and scalar).
 
 ### 0039 — `readability-function-size` NOLINT sweep (ADR-0146)
 
