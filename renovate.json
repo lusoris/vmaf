@@ -84,9 +84,9 @@
     {
       "customType": "regex",
       "description": "FFmpeg release tag pinned in the patch-stack test script + the CI gate.",
-      "fileMatch": [
-        "^ffmpeg-patches/test/build-and-run\\.sh$",
-        "^scripts/ci/ffmpeg-patches-check\\.sh$"
+      "managerFilePatterns": [
+        "/^ffmpeg-patches/test/build-and-run\\.sh$/",
+        "/^scripts/ci/ffmpeg-patches-check\\.sh$/"
       ],
       "matchStrings": [
         "FFMPEG_SHA:=(?<currentValue>n[0-9.]+)",
