@@ -19819,11 +19819,29 @@ inline.*
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
 
-## ADR-0331 — Skip CI on draft pull requests (2026-05-08)
+## ADR-0332 — External-competitor benchmark harness (2026-05-08)
 
-- **Touches**: `.github/workflows/{docker-image,security-scans,lint-and-format,ffmpeg-integration,libvmaf-build-matrix,rule-enforcement,tests-and-quality-gates}.yml` (per-job `if:` clause + `pull_request.types` list). `required-aggregator.yml` is unchanged — it already adopted the pattern under ADR-0313. No upstream-shared paths.
-- **Invariant**: every top-level job in the eight fork workflows that trigger on `pull_request` carries `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false`. The `pull_request:` block lists `ready_for_review` in `types:` so promotion of a draft fires CI exactly once. The second clause keeps `push:` triggers (no PR object) intact. If an upstream merge introduces a new top-level job, that job MUST inherit the gate; otherwise drafts will silently consume one matrix slot per push.
-- **On upstream sync**: Netflix/vmaf upstream does not gate on draft state; if a sync brings in new `pull_request` workflow content, replay the gate on every newly-introduced top-level job. Composing with an existing `if:` follows the `coverage-gpu` pattern — wrap both predicates in `${{ ... && ( ... ) }}`.
+- **Touches**: `tools/external-bench/` (new),
+  `docs/adr/0332-external-bench-wrapper-only.md` (new),
+  `docs/adr/_index_fragments/0332-external-bench-wrapper-only.md` (new),
+  `docs/adr/_index_fragments/_order.txt` (one-line append),
+  `docs/adr/README.md` (regenerated),
+  `changelog.d/added/external-bench-harness.md` (new),
+  `docs/research/0087-external-bench-competitor-survey-2026-05-08.md`
+  (new). No engine code touched; no upstream-shared paths.
+- **Invariant**: the harness is wrapper-only — never vendor or link
+  `x264-pVMAF` (GPL-2.0) into this fork. Future competitors follow the
+  same pattern (`tools/external-bench/<competitor>/run.sh` invokes a
+  user-installed binary via env var; output schema-shimmed into the
+  canonical JSON shape). The output schema (`frames[].{frame_idx,
+  predicted_vmaf_or_mos, runtime_ms}` + `summary.{competitor, plcc,
+  srocc, rmse, runtime_total_ms, params, gflops}`) is the contract
+  between every wrapper and `compare.py`. `run_wrapper`'s `runner`
+  parameter MUST stay resolved at call time (not via default-arg
+  binding) so monkeypatch-based tests work.
+- **On upstream sync**: no action required. The harness lives entirely
+  under `tools/external-bench/` (a fork-local path) and never touches
+  Netflix-shared code.
 - **Re-test on rebase**:
 
   ```bash
@@ -31497,6 +31515,7 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   bash -n ai/scripts/run_predictor_v2_training.sh
   python ai/scripts/train_predictor_v2_realcorpus.py --synthetic-smoke --report-out /tmp/p2.json
 
+
 ## ADR-0365 — CoreML execution provider wiring (2026-05-09)
 
 - **Touches**: `libvmaf/include/libvmaf/dnn.h`,
@@ -31532,7 +31551,13 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
       grep -q 'Reference' && \
     ./build/tools/vmaf --tiny-device bogus 2>&1 | \
       grep -q 'coreml'
+
+  python3 -m pytest tools/external-bench/tests/ -q   # must report 7 passed
+  bash -n tools/external-bench/*/run.sh
+
   ```
+
+
 
 ### 0361 — Metal (Apple Silicon) backend scaffold (ADR-0361)
 
@@ -31619,4 +31644,98 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   gate must stay green — the auto-probe resolves to disabled on
   non-macOS hosts so `meson setup build && ninja -C build` runs
   unchanged.
+
+
+## ADR-0325 — `vmaf-tune auto` Phase F.1 + F.2 short-circuits (2026-05-08)
+
+### 0327 — Conformal-VQA prediction surface for `vmaf-tune` (ADR-0279)
+
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/conformal.py` (new),
+  `tools/vmaf-tune/src/vmaftune/predictor.py`
+  (`Predictor.predict_vmaf_with_uncertainty`),
+  `tools/vmaf-tune/src/vmaftune/cli.py` (`predict` subcommand gains
+  `--with-uncertainty` / `--calibration-sidecar` / `--alpha`),
+  `tools/vmaf-tune/tests/test_conformal.py` (new),
+  `docs/ai/conformal-vqa.md` (new). No engine code touched; no
+  upstream-shared paths.
+- **Invariant**: the conformal wrapper sits *outside* the ONNX graph
+  and adds no new runtime dependency — `conformal.py` imports only
+  the standard library (`math`, `statistics`, `dataclasses`,
+  `json`, `warnings`). Future calibration-sidecar shapes use the
+  `method` discriminator string for versioning; do not rename
+  `"split-conformal"` / `"cv-plus"` without bumping the loader.
+  The `Predictor.predict_vmaf_with_uncertainty` signature is the
+  Python-API contract consumed by `vmaf-tune predict
+  --with-uncertainty`; renaming or reordering its keyword args
+  breaks the CLI in lockstep.
+- **On upstream sync**: no action required. `vmaf-tune` is a
+  fork-local tool; upstream Netflix/vmaf has no per-shot prediction
+  surface.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -m pytest tools/vmaf-tune/tests/test_conformal.py -q
+  python3 -m pytest tools/vmaf-tune/tests/test_predictor.py -q
+  ```
+
+## ADR-0364 — `vmaf-tune auto` Phase F.1 + F.2 short-circuits (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (new), `tools/vmaf-tune/src/vmaftune/cli.py` (added `auto` subparser + dispatcher), `tools/vmaf-tune/tests/test_auto_short_circuits.py` (new), `tools/vmaf-tune/AGENTS.md` (invariant row), `docs/usage/vmaf-tune.md` (`## auto` section), `docs/adr/0364-vmaf-tune-phase-f-auto.md` (status update — already-accepted body untouched per ADR-0028; appended a `### Status update` block under `## References`). No upstream-shared paths.
+- **Invariant**: `SHORT_CIRCUIT_PREDICATES` in `auto.py` is an **ordered tuple**, not a set. The seven entries appear in the canonical order `LADDER_SINGLE_RUNG`, `CODEC_PINNED`, `PREDICTOR_GOSPEL`, `SKIP_SALIENCY`, `SDR_SKIP`, `SAMPLE_CLIP_PROPAGATE`, `SKIP_PER_SHOT`. The JSON schema records short-circuits in this order under `plan.metadata.short_circuits`; downstream consumers (CI corpus collector, post-hoc speedup analysis) parse the canonical-order list. Adding an eighth short-circuit (F.3+) appends; never reorder. The Phase D thresholds (`PHASE_D_DURATION_GATE_S = 300.0`, `PHASE_D_SHOT_VARIANCE_GATE = 0.15`) are placeholders pending F.3 empirical fit.
+- **On upstream sync**: no action required. Module is fork-local (`tools/vmaf-tune/` is fork-only). The `vmaf-tune` umbrella ADR-0237 explicitly carves Phases B–F out of upstream scope.
+- **Re-test on rebase**:
+
+  ```bash
+  cd tools/vmaf-tune && python -m pytest tests/test_auto_short_circuits.py -v
+  PYTHONPATH=tools/vmaf-tune/src python -m vmaftune.cli auto \
+      --src /dev/null --target-vmaf 93 --max-budget-bitrate 5000 \
+      --allow-codecs libx264 --sample-clip-seconds 10 --smoke
+  ```
+
+
+
+## ADR-0325 — `vmaf-tune auto` Phase F.3 confidence-aware fallbacks (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (F.3 helpers,
+  `_confidence_aware_escalation`, `ConfidenceThresholds`,
+  `ConfidenceDecision`, `load_confidence_thresholds`, per-cell
+  wiring in `run_auto`),
+  `tools/vmaf-tune/tests/test_auto_confidence_aware.py` (new, 28
+  tests), `tools/vmaf-tune/AGENTS.md` (invariant note),
+  `docs/usage/vmaf-tune.md` (new `### Confidence-aware fallbacks
+  (F.3)` subsection under `## auto`),
+  `docs/adr/0325-vmaf-tune-phase-f-auto.md` (status update appended
+  per ADR-0028; already-Accepted body untouched),
+  `changelog.d/added/phase-f3-confidence-aware-fallbacks.md` (new).
+  No upstream-shared paths.
+- **Invariant**: `DEFAULT_TIGHT_INTERVAL_MAX_WIDTH = 2.0` and
+  `DEFAULT_WIDE_INTERVAL_MIN_WIDTH = 5.0` are an emergency floor
+  (Research-0067), not a target. The production values come from a
+  JSON calibration sidecar produced by the conformal-VQA pipeline
+  (ADR-0279) with the canonical keys `tight_interval_max_width` and
+  `wide_interval_min_width`. `load_confidence_thresholds` falls back
+  to the defaults with a one-line WARNING when no sidecar is found;
+  do not silence the warning. `_confidence_aware_escalation` is a
+  pure function of its three inputs and is exposed in `__all__` so
+  downstream tools (the MCP server's `auto` proxy, the CI corpus
+  collector) can embed it directly. The JSON schema records per-cell
+  decisions in `plan.metadata.confidence_aware_escalations[]` (one
+  entry per `(rung, codec)` cell with keys `rung`, `codec`,
+  `verdict`, `interval_width`, `decision`); each cell in
+  `plan.cells[]` also carries `confidence_decision` +
+  `interval_width` so consumers don't need to cross-reference the
+  metadata array index. Adding a fourth `ConfidenceDecision` value
+  is a schema bump — coordinate with downstream JSON consumers.
+- **On upstream sync**: no action required. `tools/vmaf-tune/` is
+  fork-only; the conformal-VQA prediction surface (ADR-0279) and
+  the F.1 + F.2 scaffold (ADR-0325) are both fork-local.
+- **Re-test on rebase**:
+
+  ```bash
+  cd tools/vmaf-tune && python -m pytest \
+      tests/test_auto_confidence_aware.py \
+      tests/test_auto_short_circuits.py \
+      tests/test_conformal.py -v
+  ```
 

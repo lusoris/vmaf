@@ -460,3 +460,34 @@ hull + manifest emit), sampler-pluggable, smoke-only until Phase B
 merges. Phases B / C / D / F per ADR-0237 are explicitly out of scope
 here; do not add bisect / predictor / per-shot / MCP code into this
 tree without an ADR-0237 follow-up promoting the corresponding phase.
+
+- **The seven F.2 short-circuit predicates in ``auto.py`` are an
+  ordered tuple, not a set.** ``SHORT_CIRCUIT_PREDICATES`` declares
+  ``ShortCircuit.LADDER_SINGLE_RUNG`` first and
+  ``ShortCircuit.SKIP_PER_SHOT`` last; the order is part of the
+  public contract because tests assert determinism across
+  `evaluate_short_circuits` invocations and the JSON schema records
+  the canonical-order list under ``plan.metadata.short_circuits``.
+  Adding an eighth short-circuit (F.3+ follow-ups) appends to the
+  tuple; never insert in the middle. The Phase D thresholds
+  (`PHASE_D_DURATION_GATE_S = 300.0` and
+  `PHASE_D_SHOT_VARIANCE_GATE = 0.15`) are placeholders pending F.3
+  empirical fit — change them via an ADR-0364 follow-up, not a
+  drive-by tweak. See [ADR-0364](../../docs/adr/0364-vmaf-tune-phase-f-auto.md).
+
+- **F.3 confidence-aware thresholds are corpus-derived; do not
+  hand-pick.** `DEFAULT_TIGHT_INTERVAL_MAX_WIDTH = 2.0` and
+  `DEFAULT_WIDE_INTERVAL_MIN_WIDTH = 5.0` in `auto.py` are an
+  emergency floor (Research-0067), not a target. The production
+  thresholds load from a calibration JSON sidecar emitted by the
+  conformal-VQA pipeline (ADR-0279) — keys
+  `tight_interval_max_width` and `wide_interval_min_width`.
+  `load_confidence_thresholds` falls back to the defaults with a
+  one-line WARNING when no sidecar is found; do not silence that
+  warning, and do not "tune" the defaults to make a failing
+  integration test pass. The fix for surprising cell escalations on
+  real data is a recalibration PR, not a threshold loosening here
+  (CLAUDE.md `feedback_no_test_weakening`). The decision helper
+  `_confidence_aware_escalation` is a pure function of
+  `(verdict, interval_width, thresholds)` so it stays trivially
+  unit-testable; keep it pure when extending the decision table.

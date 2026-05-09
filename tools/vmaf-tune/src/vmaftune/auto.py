@@ -1,0 +1,787 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
+"""``vmaf-tune auto`` — Phase F adaptive recipe-aware tuning entry point.
+
+Phase F composes the per-phase subcommands (``corpus``, ``recommend``,
+``fast``, ``predict``, ``tune-per-shot``, ``recommend-saliency``,
+``ladder``, ``compare``) plus the orthogonal modes (HDR, sample-clip,
+resolution-aware) into a single deterministic decision tree. The
+sequential composition (F.1) walks the tree top-to-bottom and runs every
+stage; the seven short-circuits (F.2, this module) skip stages whose
+output is determined by metadata alone.
+
+Decision tree (per :doc:`docs/adr/0364-vmaf-tune-phase-f-auto.md`):
+
+.. code-block:: text
+
+   auto(src, target_vmaf, max_budget_kbps, allow_codecs):
+       meta = probe(src); is_hdr = detect_hdr(meta)            # ADR-0300
+       rungs = [meta.resolution] if meta.height < 2160         # ADR-0289
+               else ladder.candidate_rungs(meta)
+       codecs = (allow_codecs if len==1
+                 else [user_pin] if user_pinned_codec
+                 else compare.shortlist(allow_codecs, meta))
+       plan = []
+       for rung, codec in (rungs x codecs):
+           v = predict.crf_for_target(rung, codec, target_vmaf, meta)
+           if v.verdict == FALL_BACK:
+               v = recommend.coarse_to_fine(rung, codec, target_vmaf)
+           plan.append((rung, codec, v))
+       if duration > 5min and shot_variance(src) > 0.15:        # Phase D gate
+           plan = [tune_per_shot.refine(p) for p in plan]
+       if meta.content_class in {animation, screen_content}:    # saliency gate
+           plan = [recommend_saliency.maybe_apply(p) for p in plan]
+       winner = pick_pareto(plan, target_vmaf, max_budget_kbps)
+       return realise(winner, hdr=is_hdr)
+
+The seven short-circuit predicates live in this module as standalone
+helpers (``_should_short_circuit_<N>``) so each one is unit-testable in
+isolation. Each predicate returns ``True`` when the corresponding stage
+can be skipped; the main driver records the firing predicate names in
+``plan.metadata.short_circuits`` for post-hoc speedup analysis.
+
+This module does **not** ship the F.3 confidence-aware fallbacks (per-cell
+escalation to ``recommend.coarse_to_fine`` on ``FALL_BACK``) or the F.4
+per-content-type recipe overrides — those are sibling PRs gated on F.2.
+The ``--smoke`` mode exercises the composition end-to-end with mocked
+sub-phases (no ffmpeg, no ONNX) so this scaffold can ship without the
+production wiring.
+
+See also:
+
+* :mod:`vmaftune.fast` — the ``fast`` subcommand. Phase F's
+  short-circuits do **not** shadow ``fast``'s behaviour; ``fast`` is a
+  different operator surface (proxy + Bayesian over a single codec) and
+  Phase F's auto driver never invokes it from inside the tree.
+* :mod:`vmaftune.compare` — codec shortlist when ``--allow-codecs`` has
+  more than one entry.
+* :mod:`vmaftune.ladder` — multi-rung ABR ladder for >= 2160p sources.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import enum
+import json
+import logging
+import math
+from collections.abc import Sequence
+from pathlib import Path
+
+_LOG = logging.getLogger(__name__)
+
+
+# Phase D gate thresholds (per ADR-0364 short-circuit #7). The 5-min /
+# 0.15-shot-variance pair is a placeholder; F.3 fits these from a real
+# corpus once Phase F has emitted enough labelled compositions to make
+# the fit statistically defensible. Until then, the placeholders keep
+# the gate conservative — short low-variance content skips per-shot
+# tuning, everything else gets it.
+PHASE_D_DURATION_GATE_S: float = 300.0  # 5 minutes
+PHASE_D_SHOT_VARIANCE_GATE: float = 0.15
+
+# 2160p (4K) is the resolution gate above which the ladder is
+# multi-rung (per ADR-0289 / ADR-0295). Below it, the auto driver
+# encodes only the source rung — no need to evaluate 720p / 1080p
+# rungs of a 1080p source.
+LADDER_MULTI_RUNG_HEIGHT: int = 2160
+
+# Content classes that benefit from saliency-aware ROI tuning per
+# ADR-0293. Photographic / live-action content does not — saliency
+# weights the centre of the frame and live-action subjects already
+# get foveal weighting from VMAF's perceptual model.
+SALIENCY_CONTENT_CLASSES: frozenset[str] = frozenset({"animation", "screen_content"})
+
+
+# ---------------------------------------------------------------------------
+# F.3 confidence-aware fallback thresholds.
+#
+# F.2 treats the predictor's verdict as a binary GOSPEL / FALL_BACK gate.
+# F.3 makes the gate continuous by consulting the conformal interval
+# half-width returned by :meth:`Predictor.predict_vmaf_with_uncertainty`
+# (ADR-0279). The two thresholds below carve the half-width axis into
+# three regions:
+#
+#   * width <= ``DEFAULT_TIGHT_INTERVAL_MAX_WIDTH`` → predictor is
+#     confident; trust the point estimate even if the native verdict
+#     was nominally FALL_BACK (the verdict was wrong about *which*
+#     direction the residual leans, but the certainty signal
+#     dominates).
+#   * width >= ``DEFAULT_WIDE_INTERVAL_MIN_WIDTH`` → predictor is
+#     uncertain; force escalation to ``recommend.coarse_to_fine`` even
+#     if the native verdict was GOSPEL.
+#   * tight < width < wide → fall back to the native verdict (F.2
+#     behaviour).
+#
+# The defaults (2.0 and 5.0 VMAF) are documented in Research-0067 and
+# act as an emergency floor when no corpus-derived sidecar is shipped
+# with the calibration. The production thresholds come from a JSON
+# sidecar produced by the calibration pipeline shipped in #488 — keys
+# ``tight_interval_max_width`` and ``wide_interval_min_width``. The
+# loader in :func:`load_confidence_thresholds` honours per-corpus
+# overrides and emits a one-line warning when no sidecar is found.
+DEFAULT_TIGHT_INTERVAL_MAX_WIDTH: float = 2.0
+DEFAULT_WIDE_INTERVAL_MIN_WIDTH: float = 5.0
+
+
+class ShortCircuit(enum.Enum):
+    """Names of the seven short-circuits (per ADR-0364 §F.2).
+
+    The string values are the canonical identifiers recorded in
+    ``plan.metadata.short_circuits`` and surfaced in the JSON output.
+    """
+
+    LADDER_SINGLE_RUNG = "ladder-single-rung"
+    CODEC_PINNED = "codec-pinned"
+    PREDICTOR_GOSPEL = "predictor-gospel"
+    SKIP_SALIENCY = "skip-saliency"
+    SDR_SKIP = "sdr-skip"
+    SAMPLE_CLIP_PROPAGATE = "sample-clip-propagate"
+    SKIP_PER_SHOT = "skip-per-shot"
+
+
+@dataclasses.dataclass(frozen=True)
+class SourceMeta:
+    """Source metadata consumed by the decision tree.
+
+    The fields mirror the per-phase ADR contracts: ``height`` from
+    ``ffprobe`` (ADR-0289), ``is_hdr`` from
+    :func:`vmaftune.hdr.detect_hdr` (ADR-0300), ``content_class`` from
+    the F.4 classifier (placeholder until F.4 lands; defaults to
+    ``"live_action"`` so the saliency gate stays a no-op on unknown
+    content), ``duration_s`` and ``shot_variance`` from the per-shot
+    detector (ADR-0276 phase-d).
+    """
+
+    height: int
+    width: int
+    is_hdr: bool = False
+    content_class: str = "live_action"
+    duration_s: float = 0.0
+    shot_variance: float = 0.0
+    sample_clip_seconds: float = 0.0
+
+
+@dataclasses.dataclass
+class PlanState:
+    """Mutable state threaded through the decision tree.
+
+    Each stage of the tree consults this state and may mutate the
+    ``short_circuits`` list, the ``predictor_verdict`` field, the
+    ``codecs`` list, etc. The driver returns the final state in the
+    plan's ``metadata`` block so post-hoc analysis can measure which
+    short-circuits fired.
+    """
+
+    target_vmaf: float
+    max_budget_kbps: float
+    allow_codecs: tuple[str, ...]
+    user_pinned_codec: str | None = None
+    predictor_verdict: str | None = None  # "GOSPEL" / "LIKELY" / "FALL_BACK"
+    short_circuits: list[str] = dataclasses.field(default_factory=list)
+
+    def fired(self, sc: ShortCircuit) -> None:
+        """Record that ``sc`` fired (idempotent on repeats)."""
+        if sc.value not in self.short_circuits:
+            self.short_circuits.append(sc.value)
+
+
+# ---------------------------------------------------------------------------
+# The seven short-circuit predicates. Each returns True when the stage
+# the predicate guards can be skipped. Predicates are pure functions of
+# (meta, plan_state) so tests mock the inputs and assert the branch
+# fires / doesn't fire without invoking the full driver.
+# ---------------------------------------------------------------------------
+
+
+def _should_short_circuit_1_single_rung_ladder(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #1 — single-rung ladder when ``meta.height < 2160``.
+
+    Per ADR-0364 / ADR-0289: sub-4K sources don't need a multi-rung
+    ABR ladder evaluation; the source rung is the only candidate. The
+    driver still runs the per-rung pipeline, just on one rung.
+    """
+    del plan_state  # unused — predicate depends on meta only
+    return int(meta.height) < LADDER_MULTI_RUNG_HEIGHT
+
+
+def _should_short_circuit_2_codec_pinned(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #2 — codec known / pinned.
+
+    When ``--allow-codecs`` resolves to exactly one codec, the
+    ``compare.shortlist`` stage adds no information — there's nothing
+    to compare against. Skip directly to the per-codec sweep.
+    """
+    del meta  # unused — predicate depends on plan_state only
+    if plan_state.user_pinned_codec is not None:
+        return True
+    return len(plan_state.allow_codecs) == 1
+
+
+def _should_short_circuit_3_predictor_gospel(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #3 — predictor returned GOSPEL.
+
+    Per ADR-0364 escalation rule: when ``predict.crf_for_target``
+    returns ``GOSPEL`` (residuals within threshold across the
+    validation sample), trust the predictor's CRF pick and skip the
+    ``recommend.coarse_to_fine`` fallback for that cell.
+    """
+    del meta  # unused — predicate depends on plan_state only
+    return plan_state.predictor_verdict == "GOSPEL"
+
+
+def _should_short_circuit_4_skip_saliency(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #4 — photographic / non-screen-content skips saliency.
+
+    Per ADR-0293: saliency-aware ROI tuning is gated on content class.
+    ``animation`` and ``screen_content`` benefit; ``live_action`` /
+    ``photographic`` does not (VMAF's perceptual model already gives
+    centre-frame foveal weighting). Skip ``recommend_saliency.maybe_apply``.
+    """
+    del plan_state  # unused — predicate depends on meta only
+    return meta.content_class not in SALIENCY_CONTENT_CLASSES
+
+
+def _should_short_circuit_5_sdr_skip(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #5 — SDR source skips the HDR pipeline.
+
+    Per ADR-0300: HDR detection is permissive; an SDR source skips the
+    HDR resolution + model-selection branch. ``meta.is_hdr`` is
+    populated by :func:`vmaftune.hdr.detect_hdr`; ``False`` here is
+    the canonical "treat as SDR" signal.
+    """
+    del plan_state  # unused — predicate depends on meta only
+    return not bool(meta.is_hdr)
+
+
+def _should_short_circuit_6_sample_clip_propagate(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #6 — propagate user-supplied sample-clip.
+
+    When the user passed ``--sample-clip-seconds`` (ADR-0301), the
+    auto driver propagates that value to the internal sweeps rather
+    than re-deciding clip length per stage. This is a propagation
+    short-circuit, not a stage-skip — the flag is recorded in the
+    metadata so downstream stages know to honour it verbatim.
+    """
+    del plan_state  # unused — predicate depends on meta only
+    return float(meta.sample_clip_seconds) > 0.0
+
+
+def _should_short_circuit_7_skip_per_shot(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #7 — duration / shot-variance gate.
+
+    Per ADR-0364: skip ``tune_per_shot.refine`` when the source is
+    both short (< 5 min) **and** low-variance (shot variance < 0.15).
+    Either condition alone is not enough — a short high-variance
+    trailer benefits from per-shot, and a long low-variance lecture
+    capture also benefits. The thresholds are placeholders pending
+    F.3 empirical fit.
+    """
+    del plan_state  # unused — predicate depends on meta only
+    short = float(meta.duration_s) < PHASE_D_DURATION_GATE_S
+    low_variance = float(meta.shot_variance) < PHASE_D_SHOT_VARIANCE_GATE
+    return short and low_variance
+
+
+# Ordered tuple of (ShortCircuit, predicate). The order is the
+# evaluation order in the driver and is part of the public contract:
+# tests assert that an earlier-firing predicate doesn't shadow a
+# later one whose result would have been different. Adding a new
+# short-circuit means appending here, never reordering.
+SHORT_CIRCUIT_PREDICATES: tuple[tuple[ShortCircuit, "callable"], ...] = (  # type: ignore[type-arg]
+    (ShortCircuit.LADDER_SINGLE_RUNG, _should_short_circuit_1_single_rung_ladder),
+    (ShortCircuit.CODEC_PINNED, _should_short_circuit_2_codec_pinned),
+    (ShortCircuit.PREDICTOR_GOSPEL, _should_short_circuit_3_predictor_gospel),
+    (ShortCircuit.SKIP_SALIENCY, _should_short_circuit_4_skip_saliency),
+    (ShortCircuit.SDR_SKIP, _should_short_circuit_5_sdr_skip),
+    (ShortCircuit.SAMPLE_CLIP_PROPAGATE, _should_short_circuit_6_sample_clip_propagate),
+    (ShortCircuit.SKIP_PER_SHOT, _should_short_circuit_7_skip_per_shot),
+)
+
+
+def evaluate_short_circuits(meta: SourceMeta, plan_state: PlanState) -> list[str]:
+    """Run every predicate in declaration order, recording firers.
+
+    Returns the list of fired short-circuit names (the same list
+    available on ``plan_state.short_circuits``). Pure function over
+    its inputs — calling it twice on the same state yields the same
+    list, and predicate order is deterministic.
+    """
+    for sc, predicate in SHORT_CIRCUIT_PREDICATES:
+        if predicate(meta, plan_state):
+            plan_state.fired(sc)
+    return list(plan_state.short_circuits)
+
+
+# ---------------------------------------------------------------------------
+# F.1 sequential scaffold + F.2 short-circuit-aware driver.
+# The ``--smoke`` mode skips real ffmpeg / ONNX wiring; production
+# wiring lands in subsequent F.x PRs that swap the smoke stubs for the
+# real per-phase calls.
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class AutoPlan:
+    """Result of an ``auto`` run.
+
+    ``cells`` is one entry per ``(rung, codec)`` cell; for the smoke
+    path the entries are placeholders (no real encode happened) but
+    the schema is stable from F.1 onwards.
+    """
+
+    cells: list[dict]
+    metadata: dict
+
+
+def run_auto(
+    *,
+    src: Path,
+    target_vmaf: float,
+    max_budget_kbps: float,
+    allow_codecs: Sequence[str],
+    user_pinned_codec: str | None = None,
+    sample_clip_seconds: float = 0.0,
+    smoke: bool = False,
+    meta_override: SourceMeta | None = None,
+    confidence_thresholds: ConfidenceThresholds | None = None,
+    cell_intervals: Sequence[tuple[int, str, str | None, float]] | None = None,
+) -> AutoPlan:
+    """Drive the F.1 + F.2 + F.3 decision tree.
+
+    The non-smoke path is intentionally unimplemented at this PR's
+    scope — production wiring lands in follow-up PRs that fill in
+    each per-phase call. ``smoke=True`` exercises the composition
+    end-to-end with mocked sub-phases.
+
+    ``meta_override`` lets callers (and tests) inject a pre-built
+    :class:`SourceMeta`. When ``None`` and ``smoke=True``, a synthetic
+    1080p SDR live-action meta is fabricated so the smoke run is
+    deterministic without touching ffprobe.
+
+    ``confidence_thresholds`` carries the F.3 width gates. ``None``
+    falls back to the documented defaults (2.0 / 5.0) — call
+    :func:`load_confidence_thresholds` to honour a calibration sidecar.
+
+    ``cell_intervals`` is the F.3 production-wiring seam: a sequence
+    of ``(rung, codec, verdict, interval_width)`` tuples, one per
+    cell, that the driver consumes when wiring
+    :meth:`Predictor.predict_vmaf_with_uncertainty` into the
+    per-cell predict step. ``None`` keeps the smoke synthesis (a
+    constant tight interval per cell so the gate is exercised
+    deterministically without ONNX). Any (rung, codec) cell missing
+    from the sequence falls back to a NaN interval (uncalibrated)
+    plus the driver's smoke verdict.
+    """
+    if not smoke and meta_override is None:
+        # Production probe wiring is a follow-up PR; until it lands
+        # the auto driver only runs in smoke mode or with an explicit
+        # caller-supplied meta.
+        raise NotImplementedError(
+            "auto: non-smoke path requires meta_override until production "
+            "probe wiring lands (F.3 follow-up). Re-run with --smoke or "
+            "pass an explicit SourceMeta."
+        )
+
+    meta = meta_override or SourceMeta(
+        height=1080,
+        width=1920,
+        is_hdr=False,
+        content_class="live_action",
+        duration_s=120.0,
+        shot_variance=0.05,
+        sample_clip_seconds=sample_clip_seconds,
+    )
+
+    plan_state = PlanState(
+        target_vmaf=target_vmaf,
+        max_budget_kbps=max_budget_kbps,
+        allow_codecs=tuple(allow_codecs),
+        user_pinned_codec=user_pinned_codec,
+    )
+
+    # ------------------------------------------------------------------
+    # Stage 1 — ladder rung selection (short-circuit #1).
+    # ------------------------------------------------------------------
+    if _should_short_circuit_1_single_rung_ladder(meta, plan_state):
+        plan_state.fired(ShortCircuit.LADDER_SINGLE_RUNG)
+        rungs: tuple[int, ...] = (int(meta.height),)
+    else:
+        # Multi-rung path — production wiring delegates to ladder.py.
+        rungs = (2160, 1440, 1080, 720, 540)
+
+    # ------------------------------------------------------------------
+    # Stage 2 — codec shortlist (short-circuit #2).
+    # ------------------------------------------------------------------
+    if _should_short_circuit_2_codec_pinned(meta, plan_state):
+        plan_state.fired(ShortCircuit.CODEC_PINNED)
+        codecs: tuple[str, ...] = (user_pinned_codec,) if user_pinned_codec else tuple(allow_codecs)
+    else:
+        # Production wiring delegates to compare.shortlist; smoke
+        # path keeps the full allow-list.
+        codecs = tuple(allow_codecs)
+
+    # ------------------------------------------------------------------
+    # Stage 3 — HDR pipeline (short-circuit #5).
+    # ------------------------------------------------------------------
+    if _should_short_circuit_5_sdr_skip(meta, plan_state):
+        plan_state.fired(ShortCircuit.SDR_SKIP)
+        hdr_args: tuple[str, ...] = ()
+    else:
+        # Production wiring delegates to hdr.hdr_codec_args + the
+        # HDR VMAF model selector.
+        hdr_args = ("-color_primaries", "bt2020", "-color_trc", "smpte2084")
+
+    # ------------------------------------------------------------------
+    # Stage 4 — sample-clip propagation (short-circuit #6).
+    # ------------------------------------------------------------------
+    propagated_clip = 0.0
+    if _should_short_circuit_6_sample_clip_propagate(meta, plan_state):
+        plan_state.fired(ShortCircuit.SAMPLE_CLIP_PROPAGATE)
+        propagated_clip = float(meta.sample_clip_seconds)
+
+    # ------------------------------------------------------------------
+    # Stage 5 — per-cell predictor + escalation (short-circuit #3 +
+    # F.3 confidence-aware override).
+    #
+    # In smoke mode we synthesise a GOSPEL verdict so the F.2 gate
+    # fires in the unit smoke run; production wiring will set the
+    # verdict from predictor_validate.ValidationReport.verdict and
+    # the interval width from
+    # Predictor.predict_vmaf_with_uncertainty (ADR-0279).
+    # ------------------------------------------------------------------
+    if smoke:
+        plan_state.predictor_verdict = "GOSPEL"
+
+    thresholds = confidence_thresholds or ConfidenceThresholds()
+    # Build a (rung, codec) -> (verdict, width) lookup from the
+    # production-wiring seam. Missing cells fall back to (verdict,
+    # NaN) — NaN width defers F.3 to the native verdict so the gate
+    # degrades gracefully when no calibration is available.
+    interval_lookup: dict[tuple[int, str], tuple[str | None, float]] = {}
+    if cell_intervals is not None:
+        for rung_in, codec_in, verdict_in, width_in in cell_intervals:
+            interval_lookup[(int(rung_in), str(codec_in))] = (
+                verdict_in,
+                float(width_in),
+            )
+
+    confidence_aware_escalations: list[dict] = []
+    cells: list[dict] = []
+    for rung in rungs:
+        for codec in codecs:
+            cell_state = dataclasses.replace(plan_state)
+            cell_state.short_circuits = list(plan_state.short_circuits)
+            if _should_short_circuit_3_predictor_gospel(meta, cell_state):
+                cell_state.fired(ShortCircuit.PREDICTOR_GOSPEL)
+                # Carry the cell-level firing back up so the metadata
+                # block records that GOSPEL fired at least once.
+                if ShortCircuit.PREDICTOR_GOSPEL.value not in plan_state.short_circuits:
+                    plan_state.fired(ShortCircuit.PREDICTOR_GOSPEL)
+
+            # F.3 — consult the conformal interval to decide whether
+            # the native verdict is overridden. The synthetic smoke
+            # default is a tight interval (width=1.0) below the
+            # tight_interval_max_width gate; production wiring
+            # supplies real widths via cell_intervals.
+            cell_key = (int(rung), str(codec))
+            if cell_key in interval_lookup:
+                cell_verdict, cell_width = interval_lookup[cell_key]
+            elif cell_intervals is not None:
+                # Caller opted into the production-wiring seam but
+                # didn't cover this cell — degrade to NaN so the F.3
+                # gate defers to the native verdict instead of
+                # silently using a synthetic tight width.
+                cell_verdict = plan_state.predictor_verdict
+                cell_width = float("nan")
+            else:
+                cell_verdict = plan_state.predictor_verdict
+                cell_width = 1.0 if smoke else float("nan")
+            decision = _confidence_aware_escalation(cell_verdict, cell_width, thresholds)
+            confidence_aware_escalations.append(
+                {
+                    "rung": int(rung),
+                    "codec": str(codec),
+                    "verdict": cell_verdict or "UNKNOWN",
+                    "interval_width": cell_width,
+                    "decision": decision.value,
+                }
+            )
+
+            cells.append(
+                {
+                    "rung": int(rung),
+                    "codec": str(codec),
+                    "verdict": cell_verdict or plan_state.predictor_verdict or "UNKNOWN",
+                    "crf": 23,  # placeholder; production wiring fills this in
+                    "estimated_vmaf": float(target_vmaf),
+                    "estimated_bitrate_kbps": float(max_budget_kbps),
+                    "hdr_args": list(hdr_args),
+                    "sample_clip_seconds": propagated_clip,
+                    "confidence_decision": decision.value,
+                    "interval_width": cell_width,
+                }
+            )
+
+    # ------------------------------------------------------------------
+    # Stage 6 — saliency gate (short-circuit #4).
+    # ------------------------------------------------------------------
+    if _should_short_circuit_4_skip_saliency(meta, plan_state):
+        plan_state.fired(ShortCircuit.SKIP_SALIENCY)
+    # else: production wiring would call recommend_saliency.maybe_apply
+    # on every cell.
+
+    # ------------------------------------------------------------------
+    # Stage 7 — per-shot refinement gate (short-circuit #7).
+    # ------------------------------------------------------------------
+    if _should_short_circuit_7_skip_per_shot(meta, plan_state):
+        plan_state.fired(ShortCircuit.SKIP_PER_SHOT)
+    # else: production wiring would call tune_per_shot.refine on
+    # every cell.
+
+    metadata = {
+        "src": str(src),
+        "target_vmaf": float(target_vmaf),
+        "max_budget_kbps": float(max_budget_kbps),
+        "allow_codecs": list(allow_codecs),
+        "user_pinned_codec": user_pinned_codec,
+        "smoke": bool(smoke),
+        "source_meta": dataclasses.asdict(meta),
+        "short_circuits": list(plan_state.short_circuits),
+        "confidence_aware_escalations": confidence_aware_escalations,
+        "confidence_thresholds": {
+            "tight_interval_max_width": thresholds.tight_interval_max_width,
+            "wide_interval_min_width": thresholds.wide_interval_min_width,
+            "source": thresholds.source,
+        },
+    }
+    return AutoPlan(cells=cells, metadata=metadata)
+
+
+# ---------------------------------------------------------------------------
+# F.3 confidence-aware fallback policy (ADR-0364 §F.3 / ADR-0279).
+#
+# These helpers are pure functions of (verdict, interval_width,
+# thresholds). The driver calls them per-(rung, codec) cell after the
+# predictor returns and records the decision in
+# ``plan.metadata.confidence_aware_escalations`` so post-hoc analysis
+# can audit which cells were promoted / demoted by the conformal
+# signal.
+# ---------------------------------------------------------------------------
+
+
+class ConfidenceDecision(enum.Enum):
+    """Outcomes of :func:`_confidence_aware_escalation`.
+
+    The three values map cleanly onto the F.2 gate:
+
+    * :attr:`SKIP_ESCALATION` — predictor is confident enough that the
+      native verdict's FALL_BACK signal is overridden; trust the point
+      estimate and skip ``recommend.coarse_to_fine``.
+    * :attr:`RECOMMEND_ESCALATION` — interval width is in the middle
+      band; defer to the native verdict (this preserves the F.2
+      contract — RECOMMEND_ESCALATION on a GOSPEL verdict still skips,
+      RECOMMEND_ESCALATION on a FALL_BACK verdict still escalates).
+    * :attr:`FORCE_ESCALATION` — predictor is uncertain enough that the
+      native verdict's GOSPEL signal is overridden; escalate even if
+      F.2 would have skipped.
+    """
+
+    SKIP_ESCALATION = "skip-escalation"
+    RECOMMEND_ESCALATION = "recommend-escalation"
+    FORCE_ESCALATION = "force-escalation"
+
+
+@dataclasses.dataclass(frozen=True)
+class ConfidenceThresholds:
+    """Width thresholds carved from the calibration corpus.
+
+    The two fields gate F.3's confidence-aware policy. The defaults are
+    the emergency floor (Research-0067 §"Phase F decision tree"); the
+    production values come from a calibration sidecar produced by the
+    conformal-VQA pipeline (ADR-0279 / #488). ``source`` records where
+    the values came from for the JSON metadata block.
+
+    A valid threshold pair satisfies
+    ``0 < tight_interval_max_width <= wide_interval_min_width``. The
+    constructor enforces this so a malformed sidecar fails fast rather
+    than silently producing nonsense decisions.
+    """
+
+    tight_interval_max_width: float = DEFAULT_TIGHT_INTERVAL_MAX_WIDTH
+    wide_interval_min_width: float = DEFAULT_WIDE_INTERVAL_MIN_WIDTH
+    source: str = "default"
+
+    def __post_init__(self) -> None:
+        tight = float(self.tight_interval_max_width)
+        wide = float(self.wide_interval_min_width)
+        if not (tight > 0.0 and wide > 0.0):
+            raise ValueError(
+                "ConfidenceThresholds: both widths must be positive; "
+                f"got tight={tight!r}, wide={wide!r}"
+            )
+        if tight > wide:
+            raise ValueError(
+                "ConfidenceThresholds: tight_interval_max_width must be "
+                f"<= wide_interval_min_width; got tight={tight!r}, "
+                f"wide={wide!r}"
+            )
+
+
+def load_confidence_thresholds(sidecar_path: Path | None) -> ConfidenceThresholds:
+    """Load corpus-derived thresholds from a calibration sidecar.
+
+    The sidecar is the JSON file produced by the conformal-VQA
+    calibration pipeline (#488). Expected schema (extra keys ignored
+    so the loader survives schema growth)::
+
+        {
+          "tight_interval_max_width": 1.6,
+          "wide_interval_min_width": 4.2,
+          ...
+        }
+
+    On any failure path — ``None`` argument, missing file, malformed
+    JSON, missing key — the loader falls back to the documented
+    defaults (2.0 / 5.0) and emits a one-line WARNING. Per the
+    no-test-weakening rule in CLAUDE.md, the defaults are the *floor*
+    surface — they keep the gate functional but signal that the corpus
+    fit hasn't landed yet.
+    """
+    if sidecar_path is None:
+        _LOG.warning(
+            "vmaf-tune auto F.3: no calibration sidecar provided; "
+            "falling back to documented defaults "
+            "(tight=%.1f, wide=%.1f).",
+            DEFAULT_TIGHT_INTERVAL_MAX_WIDTH,
+            DEFAULT_WIDE_INTERVAL_MIN_WIDTH,
+        )
+        return ConfidenceThresholds()
+    path = Path(sidecar_path)
+    if not path.exists():
+        _LOG.warning(
+            "vmaf-tune auto F.3: calibration sidecar %s not found; "
+            "falling back to documented defaults "
+            "(tight=%.1f, wide=%.1f).",
+            path,
+            DEFAULT_TIGHT_INTERVAL_MAX_WIDTH,
+            DEFAULT_WIDE_INTERVAL_MIN_WIDTH,
+        )
+        return ConfidenceThresholds()
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        tight = float(doc["tight_interval_max_width"])
+        wide = float(doc["wide_interval_min_width"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        _LOG.warning(
+            "vmaf-tune auto F.3: calibration sidecar %s unreadable (%s); "
+            "falling back to documented defaults "
+            "(tight=%.1f, wide=%.1f).",
+            path,
+            exc,
+            DEFAULT_TIGHT_INTERVAL_MAX_WIDTH,
+            DEFAULT_WIDE_INTERVAL_MIN_WIDTH,
+        )
+        return ConfidenceThresholds()
+    return ConfidenceThresholds(
+        tight_interval_max_width=tight,
+        wide_interval_min_width=wide,
+        source=str(path),
+    )
+
+
+def _confidence_aware_escalation(
+    verdict: str | None,
+    interval_width: float,
+    thresholds: ConfidenceThresholds,
+) -> ConfidenceDecision:
+    """Decide per-cell escalation from verdict + conformal interval.
+
+    Pure function of its three inputs:
+
+    * ``verdict`` — the native predictor verdict (``GOSPEL`` /
+      ``LIKELY`` / ``FALL_BACK`` / ``None``). ``None`` is treated as
+      "no native verdict" and degrades to the width-only branch.
+    * ``interval_width`` — full conformal interval width
+      (``high - low`` from :class:`vmaftune.conformal.ConformalInterval`).
+      Must be non-negative; ``NaN`` (uncalibrated predictor) defers to
+      the native verdict and returns
+      :attr:`ConfidenceDecision.RECOMMEND_ESCALATION` (no override).
+    * ``thresholds`` — :class:`ConfidenceThresholds` from
+      :func:`load_confidence_thresholds`.
+
+    Decision table::
+
+        width <= tight                → SKIP_ESCALATION       (override)
+        width >= wide                 → FORCE_ESCALATION      (override)
+        tight < width < wide          → defer to verdict:
+            verdict == "FALL_BACK"    → RECOMMEND_ESCALATION
+            verdict in {GOSPEL,...}   → SKIP_ESCALATION
+            verdict is None           → RECOMMEND_ESCALATION
+
+    The native verdict's GOSPEL/FALL_BACK signal is honoured in the
+    middle band — that preserves F.2's gate exactly when the predictor
+    is neither confident nor uncertain. The override branches are the
+    only places F.3 disagrees with F.2.
+    """
+    width = float(interval_width)
+    if math.isnan(width):
+        # Uncalibrated predictor — fall back to native verdict.
+        if verdict == "FALL_BACK":
+            return ConfidenceDecision.RECOMMEND_ESCALATION
+        return ConfidenceDecision.RECOMMEND_ESCALATION
+    if width < 0.0:
+        raise ValueError(
+            f"_confidence_aware_escalation: interval_width must be " f">= 0.0 or NaN; got {width!r}"
+        )
+    if width <= thresholds.tight_interval_max_width:
+        return ConfidenceDecision.SKIP_ESCALATION
+    if width >= thresholds.wide_interval_min_width:
+        return ConfidenceDecision.FORCE_ESCALATION
+    # Middle band — defer to the native verdict.
+    if verdict == "FALL_BACK":
+        return ConfidenceDecision.RECOMMEND_ESCALATION
+    if verdict is None:
+        return ConfidenceDecision.RECOMMEND_ESCALATION
+    # GOSPEL / LIKELY / any other "trust the point" verdict.
+    return ConfidenceDecision.SKIP_ESCALATION
+
+
+def emit_plan_json(plan: AutoPlan) -> str:
+    """Serialise ``plan`` to a stable JSON string.
+
+    Schema is the public contract for downstream consumers (the MCP
+    server, the CI corpus collector, post-hoc speedup analysis). Keys
+    are sorted so the output is reproducible across runs.
+    """
+    payload = {"cells": plan.cells, "metadata": plan.metadata}
+    return json.dumps(payload, indent=2, sort_keys=True)
+
+
+__all__ = [
+    "DEFAULT_TIGHT_INTERVAL_MAX_WIDTH",
+    "DEFAULT_WIDE_INTERVAL_MIN_WIDTH",
+    "AutoPlan",
+    "ConfidenceDecision",
+    "ConfidenceThresholds",
+    "LADDER_MULTI_RUNG_HEIGHT",
+    "PHASE_D_DURATION_GATE_S",
+    "PHASE_D_SHOT_VARIANCE_GATE",
+    "PlanState",
+    "SALIENCY_CONTENT_CLASSES",
+    "SHORT_CIRCUIT_PREDICATES",
+    "ShortCircuit",
+    "SourceMeta",
+    "_confidence_aware_escalation",
+    "_should_short_circuit_1_single_rung_ladder",
+    "_should_short_circuit_2_codec_pinned",
+    "_should_short_circuit_3_predictor_gospel",
+    "_should_short_circuit_4_skip_saliency",
+    "_should_short_circuit_5_sdr_skip",
+    "_should_short_circuit_6_sample_clip_propagate",
+    "_should_short_circuit_7_skip_per_shot",
+    "emit_plan_json",
+    "evaluate_short_circuits",
+    "load_confidence_thresholds",
+    "run_auto",
+]

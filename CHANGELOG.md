@@ -107,6 +107,46 @@
 
 ### Added
 
+- **`vmaf-tune auto` Phase F.1 + F.2 — sequential scaffold + seven
+  short-circuits (ADR-0325).** New `tools/vmaf-tune/src/vmaftune/auto.py`
+  exposes the deterministic decision tree as a CLI subcommand
+  (`vmaf-tune auto --src ... --target-vmaf ... --allow-codecs ...`)
+  and as a Python API (`run_auto`, `evaluate_short_circuits`). The
+  seven F.2 short-circuits — `ladder-single-rung`, `codec-pinned`,
+  `predictor-gospel`, `skip-saliency`, `sdr-skip`,
+  `sample-clip-propagate`, `skip-per-shot` — ship as standalone
+  `_should_short_circuit_<N>` predicates so each can be unit-tested
+  in isolation. Fired short-circuits land in
+  `plan.metadata.short_circuits` for post-hoc speedup analysis. The
+  Phase D 5-min / 0.15-shot-variance thresholds ship as constants
+  (`PHASE_D_DURATION_GATE_S`, `PHASE_D_SHOT_VARIANCE_GATE`) pending
+  the F.3 empirical fit. `--smoke` mode exercises the composition
+  end-to-end with mocked sub-phases (no ffmpeg, no ONNX);
+  production wiring lands in F.3+. `auto` does not dispatch the
+  `fast` subcommand from inside its tree — `fast` (PR #467, ADR-0276
+  fast-path) remains a sibling. New `tests/test_auto_short_circuits.py`
+  with 45 assertions covering each predicate's boundary, the
+  canonical evaluation order, and the JSON metadata block. Docs at
+  [`docs/usage/vmaf-tune.md` § auto](docs/usage/vmaf-tune.md#auto).
+  See [ADR-0325](docs/adr/0325-vmaf-tune-phase-f-auto.md).
+
+- **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
+  (ADR-0364, design-only).** Ships
+  [`docs/adr/0364-vmaf-tune-phase-f-auto.md`](docs/adr/0364-vmaf-tune-phase-f-auto.md)
+  and
+  [`docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md`](docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md)
+  proposing a single `vmaf-tune auto --src ref.mkv --target-vmaf 92`
+  CLI verb that composes the existing phase subcommands (`corpus`,
+  `recommend`, `fast`, `predict`, `tune-per-shot`,
+  `recommend-saliency`, `ladder`, `compare`) plus the orthogonal
+  modes (HDR auto-detect, sample-clip, resolution-aware) into one
+  deterministic decision tree. No code yet — the rollout is split
+  into F.1 (sequential scaffold), F.2 (short-circuits), F.3
+  (confidence-aware fallbacks), F.4 (per-content-type recipe
+  overrides). Explicitly rejects a learned-policy at runtime in
+  favour of an explainable hand-coded tree (≤ 30 lines pseudocode).
+  Companion to ADR-0237 (umbrella).
+
 - **AdaptiveCpp / hipSYCL as a second SYCL toolchain
   ([ADR-0335](../docs/adr/0335-adaptivecpp-second-sycl-toolchain.md),
   [Research-0086](../docs/research/0086-sycl-toolchain-audit-2026-05-08.md)
