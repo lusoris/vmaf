@@ -29,7 +29,7 @@ jobs:
     name: Required Checks Aggregator
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    timeout-minutes: 35
+    timeout-minutes: 100
     steps:
       - name: Wait for sibling workflows + verify required-check outcomes
         uses: actions/github-script@v7
@@ -69,14 +69,21 @@ jobs:
               : context.sha;
             core.info(`Aggregating required checks for SHA ${sha}`);
 
-            // Poll up to 30 minutes for sibling workflows to register their
+            // Poll up to 90 minutes for sibling workflows to register their
             // check_runs and reach a terminal state. A run that has never
             // appeared after the timeout is treated as path-filter-not-
             // applicable (acceptable). A run still IN_PROGRESS at deadline
             // is treated as failure — extend `deadline` if your matrix is
             // slower. The Ubuntu gcc/clang DNN + Windows MSVC builds can
-            // take 12+ minutes each; 30 minutes covers them with headroom.
-            const deadline = Date.now() + 30 * 60 * 1000;
+            // take 12+ minutes each; the deadline must also account for
+            // GitHub Actions runner queue depth on free-tier projects, where
+            // a job can wait 30+ minutes before starting on a heavy queue
+            // (observed 2026-05-09 when ~80 CI jobs were queued across the
+            // ~40 in-flight PRs and the previous 30-minute deadline failed
+            // every PR with `queued` for two hours straight). Bumped to 90
+            // minutes; corresponding `timeout-minutes` lifted to 100 to
+            // allow the polling job itself to finish.
+            const deadline = Date.now() + 90 * 60 * 1000;
             let byName = {};
             while (Date.now() < deadline) {
               const { data: { check_runs } } = await github.rest.checks.listForRef({
