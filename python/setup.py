@@ -75,12 +75,12 @@ setup(
     install_requires=[
         "numpy>=1.26.4",
         "scipy>=1.17.1",
-        "matplotlib>=3.10.9",
+        "matplotlib>=3.2.1",
         "pandas>=1.5.3",
         "scikit-learn>=1.8.0",
-        "scikit-image>=0.26.0",
+        "scikit-image>=0.16.2",
         "h5py>=2.6.0",
-        "sureal>=0.4.2",
+        "sureal>=0.9.0",
         "dill>=0.3.1",
     ],
     entry_points={
