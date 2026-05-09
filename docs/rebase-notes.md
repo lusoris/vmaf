@@ -9241,6 +9241,7 @@ print('OK: fr_regressor_v3 production row unchanged')
   test harness's expected exit codes must follow.
   bash scripts/ci/test-validate-pr-body.sh   # 8/8 cases pass
 
+
 ### 0320 — Semgrep `# nosemgrep` cites on Netflix-upstream Python harness (Research-0090)
 - **Touches**: `python/vmaf/core/asset.py`, `python/vmaf/core/executor.py`,
   `python/vmaf/core/feature_extractor.py`,
@@ -9306,6 +9307,60 @@ print('OK: fr_regressor_v3 production row unchanged')
   cd libvmaf && meson test -C build  # all 50+ C tests
   make test-netflix-golden            # upstream golden gate
   # Re-run CodeQL on master afterwards; the 60 fixed alerts must stay closed.
+
+
+## CodeQL `cpp/declaration-hides-variable` sweep (2026-05-09)
+- **What changed**: Mechanical rename / scope-tighten / dedupe sweep
+  closing 64 open `cpp/declaration-hides-variable` CodeQL alerts on
+  `master`. Touched files: `libvmaf/src/feature/cambi.c`,
+  `libvmaf/src/feature/x86/adm_avx2.c`,
+  `libvmaf/src/feature/x86/adm_avx512.c`,
+  `libvmaf/src/feature/x86/vif_avx2.c`,
+  `libvmaf/src/feature/x86/vif_avx512.c`. All five are
+  upstream-mirror; the Netflix copyright header is preserved on each.
+- **Renames adopted (semantic over `_2` suffix)**:
+  - `cambi.c`: inner `int err` shadowing function-scope `err`
+    becomes `mkdir_err` (heatmaps init) and `src_err` (full-ref
+    extract path).
+  - `adm_avx2.c` / `adm_avx512.c`: the `j == 0` first-column
+    special-case block is wrapped in `{ ... }` so its `j0..j3` and
+    `s0..s3` stop being visible to the per-`j` tail loop. The inner
+    duplicate `__m256i add_shift_HP_vex = _mm256_set1_epi32(32768)`
+    (and 512-bit twin) is removed — bit-identical to the
+    function-scope value already in scope. The `__m256i rfactor1`
+    that shadowed the function-scope `float rfactor1[3]` becomes
+    `rfactor_v0/_v1/_v2` (and the AVX-512 twin likewise).
+  - `vif_avx2.c` / `vif_avx512.c`: tap-loop locals follow
+    `f_tap`, `r_top`/`r_bot`, `d_top`/`d_bot` for the s0 stage,
+    and `f_tap0`/`f_tap1`, `r_back0`/`r_fwd0`, etc. for the
+    AVX-512 paired-tap stage. Inner per-fj `__m256i fq` /
+    `__m512i fq` shadows of the centre-tap broadcast become
+    `f_tap`. Inner-block duplicates of function-scope
+    `ref`/`dis`/`stride`/`ii` (identical types and initialisers)
+    are simply removed. The two scalar `VifResiduals residuals`
+    declarations that shadowed function-scope `Residuals512
+    residuals` become `tail_residuals`. The two
+    `const uint16_t fcoeff` declarations that shadowed
+    function-scope `__m512i fcoeff` become `fcoeff_scalar`.
+- **Invariant**: bit-exactness gate — the rename sweep must not
+  change any score. The Netflix CPU golden 3 (`src01_hrc00`,
+  `checkerboard_1`, `checkerboard_10`) ran clean against this PR.
+  All 76 VMAF-targeted Python tests pass; the 9 unrelated pre-existing
+  failures (NIQE, PyPSNR, FileSystemResultStore) reproduce on a
+  pristine `origin/master` checkout.
+- **On upstream sync**: Netflix has no equivalent renames on
+  upstream `master` as of `2026-05-09`. When syncing, prefer the
+  fork's renamed identifiers (the CodeQL gate depends on them).
+  If Netflix later renames the same locals differently, reconcile
+  by keeping fork names and updating any imported chunks at port
+  time.
+- **Re-test on rebase**:
+  meson test -C build --suite=fast
+  PYTHONPATH=$PWD/python python3 -m pytest \
+    python/test/quality_runner_test.py -k test_run_vmaf \
+    python/test/vmafexec_test.py \
+    python/test/vmafexec_feature_extractor_test.py \
+    -m "not slow" -q
 
   ```
 ## Cppcheck `nullPointer` false-positive in `dict.c` (2026-05-09)

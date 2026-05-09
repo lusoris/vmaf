@@ -911,13 +911,13 @@ void adm_decouple_avx512(AdmBuffer *buf, int w, int h, int stride, double adm_en
             __m512i th_tv = _mm512_or_si512(_mm512_and_si512(th, _mm512_set1_epi32(0xFFFF)),
                                             _mm512_slli_epi32(tv, 16));
 
-            __m512i o_mag_sq = _mm512_madd_epi16(oh_ov, oh_ov);
-            __m512i ot_dp = _mm512_madd_epi16(oh_ov, th_tv);
-            __m512i t_mag_sq = _mm512_madd_epi16(th_tv, th_tv);
+            __m512i o_mag_sq_v = _mm512_madd_epi16(oh_ov, oh_ov);
+            __m512i ot_dp_v = _mm512_madd_epi16(oh_ov, th_tv);
+            __m512i t_mag_sq_v = _mm512_madd_epi16(th_tv, th_tv);
 
-            __m512 ot_dp_ps = _mm512_mul_ps(inv_4096, _mm512_cvtepi32_ps(ot_dp));
-            __m512 o_mag_sq_ps = _mm512_mul_ps(inv_4096, _mm512_cvtepi32_ps(o_mag_sq));
-            __m512 t_mag_sq_ps = _mm512_mul_ps(inv_4096, _mm512_cvtepi32_ps(t_mag_sq));
+            __m512 ot_dp_ps = _mm512_mul_ps(inv_4096, _mm512_cvtepi32_ps(ot_dp_v));
+            __m512 o_mag_sq_ps = _mm512_mul_ps(inv_4096, _mm512_cvtepi32_ps(o_mag_sq_v));
+            __m512 t_mag_sq_ps = _mm512_mul_ps(inv_4096, _mm512_cvtepi32_ps(t_mag_sq_v));
 
             __mmask16 gt_0 = _mm512_cmp_ps_mask(ot_dp_ps, _mm512_setzero_ps(), 13);
             __m512d ot_dp_pd_lo = _mm512_cvtps_pd(_mm512_castps512_ps256(ot_dp_ps));
@@ -2636,19 +2636,19 @@ float i4_adm_cm_avx512(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
                 xd_512 = _mm512_cvtepi32_epi64(
                     _mm256_loadu_si256((__m256i *)(src->band_d + i * src_stride + j)));
 
-                __m512i rfactor0 = _mm512_maskz_set1_epi64(0x3F, rfactor[0]);
-                __m512i rfactor1 = _mm512_maskz_set1_epi64(0x3F, rfactor[1]);
-                __m512i rfactor2 = _mm512_maskz_set1_epi64(0x3F, rfactor[2]);
+                __m512i rfactor_v0 = _mm512_maskz_set1_epi64(0x3F, rfactor[0]);
+                __m512i rfactor_v1 = _mm512_maskz_set1_epi64(0x3F, rfactor[1]);
+                __m512i rfactor_v2 = _mm512_maskz_set1_epi64(0x3F, rfactor[2]);
                 __m512i add_shift = _mm512_set1_epi64(add_bef_shift_dst[scale - 1]);
 
                 xh_512 = _mm512_srai_epi64(
-                    _mm512_add_epi64(_mm512_mul_epi32(xh_512, rfactor0), add_shift),
+                    _mm512_add_epi64(_mm512_mul_epi32(xh_512, rfactor_v0), add_shift),
                     shift_dst[scale - 1]);
                 xv_512 = _mm512_srai_epi64(
-                    _mm512_add_epi64(_mm512_mul_epi32(xv_512, rfactor1), add_shift),
+                    _mm512_add_epi64(_mm512_mul_epi32(xv_512, rfactor_v1), add_shift),
                     shift_dst[scale - 1]);
                 xd_512 = _mm512_srai_epi64(
-                    _mm512_add_epi64(_mm512_mul_epi32(xd_512, rfactor2), add_shift),
+                    _mm512_add_epi64(_mm512_mul_epi32(xd_512, rfactor_v2), add_shift),
                     shift_dst[scale - 1]);
 
                 I4_ADM_CM_THRESH_S_I_J_avx512(angles, flt_angles, csf_a_stride, &thr, w, h, i, j,
@@ -3885,48 +3885,52 @@ void adm_dwt2_8_avx512(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer 
             tmphi[j] = (accum + add_shift_VP) >> shift_VP;
         }
 
-        int j0 = ind_x[0][0];
-        int j1 = ind_x[1][0];
-        int j2 = ind_x[2][0];
-        int j3 = ind_x[3][0];
+        // First-column (j == 0) special case: scope-tight to avoid shadowing
+        // the per-j tail-loop locals further below.
+        {
+            int j0 = ind_x[0][0];
+            int j1 = ind_x[1][0];
+            int j2 = ind_x[2][0];
+            int j3 = ind_x[3][0];
 
-        int16_t s0 = tmplo[j0];
-        int16_t s1 = tmplo[j1];
-        int16_t s2 = tmplo[j2];
-        int16_t s3 = tmplo[j3];
+            int16_t s0 = tmplo[j0];
+            int16_t s1 = tmplo[j1];
+            int16_t s2 = tmplo[j2];
+            int16_t s3 = tmplo[j3];
 
-        accum = 0;
-        accum += (int32_t)filter_lo[0] * s0;
-        accum += (int32_t)filter_lo[1] * s1;
-        accum += (int32_t)filter_lo[2] * s2;
-        accum += (int32_t)filter_lo[3] * s3;
-        dst->band_a[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+            accum = 0;
+            accum += (int32_t)filter_lo[0] * s0;
+            accum += (int32_t)filter_lo[1] * s1;
+            accum += (int32_t)filter_lo[2] * s2;
+            accum += (int32_t)filter_lo[3] * s3;
+            dst->band_a[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
 
-        accum = 0;
-        accum += (int32_t)filter_hi[0] * s0;
-        accum += (int32_t)filter_hi[1] * s1;
-        accum += (int32_t)filter_hi[2] * s2;
-        accum += (int32_t)filter_hi[3] * s3;
-        dst->band_v[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+            accum = 0;
+            accum += (int32_t)filter_hi[0] * s0;
+            accum += (int32_t)filter_hi[1] * s1;
+            accum += (int32_t)filter_hi[2] * s2;
+            accum += (int32_t)filter_hi[3] * s3;
+            dst->band_v[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
 
-        s0 = tmphi[j0];
-        s1 = tmphi[j1];
-        s2 = tmphi[j2];
-        s3 = tmphi[j3];
+            s0 = tmphi[j0];
+            s1 = tmphi[j1];
+            s2 = tmphi[j2];
+            s3 = tmphi[j3];
 
-        accum = 0;
-        accum += (int32_t)filter_lo[0] * s0;
-        accum += (int32_t)filter_lo[1] * s1;
-        accum += (int32_t)filter_lo[2] * s2;
-        accum += (int32_t)filter_lo[3] * s3;
-        dst->band_h[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+            accum = 0;
+            accum += (int32_t)filter_lo[0] * s0;
+            accum += (int32_t)filter_lo[1] * s1;
+            accum += (int32_t)filter_lo[2] * s2;
+            accum += (int32_t)filter_lo[3] * s3;
+            dst->band_h[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
 
-        accum = 0;
-        accum += (int32_t)filter_hi[0] * s0;
-        accum += (int32_t)filter_hi[1] * s1;
-        accum += (int32_t)filter_hi[2] * s2;
-        accum += (int32_t)filter_hi[3] * s3;
-        dst->band_d[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+            accum = 0;
+            accum += (int32_t)filter_hi[0] * s0;
+            accum += (int32_t)filter_hi[1] * s1;
+            accum += (int32_t)filter_hi[2] * s2;
+            accum += (int32_t)filter_hi[3] * s3;
+            dst->band_d[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+        }
 
         for (int j = 1; j < half_w_mod_32; j = j + 32) {
             {
@@ -3988,8 +3992,6 @@ void adm_dwt2_8_avx512(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer 
                 __m512i s22;
                 __m512i s33;
                 __m512i s44;
-
-                __m512i add_shift_HP_vex = _mm512_set1_epi32(32768);
 
                 s00 = _mm512_loadu_si512((__m512i *)(tmphi + ind_x[0][j]));
                 s22 = _mm512_loadu_si512((__m512i *)(tmphi + ind_x[2][j]));

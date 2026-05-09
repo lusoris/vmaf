@@ -1234,48 +1234,52 @@ void adm_dwt2_8_avx2(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *b
             tmphi[j] = (accum + add_shift_VP) >> shift_VP;
         }
 
-        int j0 = ind_x[0][0];
-        int j1 = ind_x[1][0];
-        int j2 = ind_x[2][0];
-        int j3 = ind_x[3][0];
+        // First-column (j == 0) special case: scope-tight to avoid shadowing
+        // the per-j tail-loop locals further below.
+        {
+            int j0 = ind_x[0][0];
+            int j1 = ind_x[1][0];
+            int j2 = ind_x[2][0];
+            int j3 = ind_x[3][0];
 
-        int16_t s0 = tmplo[j0];
-        int16_t s1 = tmplo[j1];
-        int16_t s2 = tmplo[j2];
-        int16_t s3 = tmplo[j3];
+            int16_t s0 = tmplo[j0];
+            int16_t s1 = tmplo[j1];
+            int16_t s2 = tmplo[j2];
+            int16_t s3 = tmplo[j3];
 
-        accum = 0;
-        accum += (int32_t)filter_lo[0] * s0;
-        accum += (int32_t)filter_lo[1] * s1;
-        accum += (int32_t)filter_lo[2] * s2;
-        accum += (int32_t)filter_lo[3] * s3;
-        dst->band_a[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+            accum = 0;
+            accum += (int32_t)filter_lo[0] * s0;
+            accum += (int32_t)filter_lo[1] * s1;
+            accum += (int32_t)filter_lo[2] * s2;
+            accum += (int32_t)filter_lo[3] * s3;
+            dst->band_a[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
 
-        accum = 0;
-        accum += (int32_t)filter_hi[0] * s0;
-        accum += (int32_t)filter_hi[1] * s1;
-        accum += (int32_t)filter_hi[2] * s2;
-        accum += (int32_t)filter_hi[3] * s3;
-        dst->band_v[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+            accum = 0;
+            accum += (int32_t)filter_hi[0] * s0;
+            accum += (int32_t)filter_hi[1] * s1;
+            accum += (int32_t)filter_hi[2] * s2;
+            accum += (int32_t)filter_hi[3] * s3;
+            dst->band_v[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
 
-        s0 = tmphi[j0];
-        s1 = tmphi[j1];
-        s2 = tmphi[j2];
-        s3 = tmphi[j3];
+            s0 = tmphi[j0];
+            s1 = tmphi[j1];
+            s2 = tmphi[j2];
+            s3 = tmphi[j3];
 
-        accum = 0;
-        accum += (int32_t)filter_lo[0] * s0;
-        accum += (int32_t)filter_lo[1] * s1;
-        accum += (int32_t)filter_lo[2] * s2;
-        accum += (int32_t)filter_lo[3] * s3;
-        dst->band_h[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+            accum = 0;
+            accum += (int32_t)filter_lo[0] * s0;
+            accum += (int32_t)filter_lo[1] * s1;
+            accum += (int32_t)filter_lo[2] * s2;
+            accum += (int32_t)filter_lo[3] * s3;
+            dst->band_h[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
 
-        accum = 0;
-        accum += (int32_t)filter_hi[0] * s0;
-        accum += (int32_t)filter_hi[1] * s1;
-        accum += (int32_t)filter_hi[2] * s2;
-        accum += (int32_t)filter_hi[3] * s3;
-        dst->band_d[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+            accum = 0;
+            accum += (int32_t)filter_hi[0] * s0;
+            accum += (int32_t)filter_hi[1] * s1;
+            accum += (int32_t)filter_hi[2] * s2;
+            accum += (int32_t)filter_hi[3] * s3;
+            dst->band_d[i * dst_stride] = (accum + add_shift_HP) >> shift_HP;
+        }
 
         // Horizontal pass: bounds checking
         int w_half = (w + 1) / 2;
@@ -1348,8 +1352,6 @@ void adm_dwt2_8_avx2(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *b
                 __m256i s22;
                 __m256i s33;
                 __m256i s44;
-
-                __m256i add_shift_HP_vex = _mm256_set1_epi32(32768);
 
                 s00 = _mm256_loadu_si256((__m256i *)(tmphi + ind_x[0][j]));
                 s22 = _mm256_loadu_si256((__m256i *)(tmphi + ind_x[2][j]));
@@ -2923,13 +2925,13 @@ float i4_adm_cm_avx2(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_str
 
     if ((left > 0) && (right <= (w - 1))) /* Completely within frame */
     {
-        __m256i rfactor0 =
+        __m256i rfactor_v0 =
             _mm256_and_si256(_mm256_set1_epi32(rfactor[0]),
                              _mm256_set_epi64x(0x0, 0x0, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF));
-        __m256i rfactor1 =
+        __m256i rfactor_v1 =
             _mm256_and_si256(_mm256_set1_epi32(rfactor[1]),
                              _mm256_set_epi64x(0x0, 0x0, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF));
-        __m256i rfactor2 =
+        __m256i rfactor_v2 =
             _mm256_and_si256(_mm256_set1_epi32(rfactor[2]),
                              _mm256_set_epi64x(0x0, 0x0, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF));
 
@@ -2952,19 +2954,19 @@ float i4_adm_cm_avx2(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_str
 
                 __m256i add_shift = _mm256_set1_epi64x(add_bef_shift_dst[scale - 1]);
 
-                xh_256 = _mm256_add_epi64(_mm256_mul_epi32(xh_256, rfactor0), add_shift);
+                xh_256 = _mm256_add_epi64(_mm256_mul_epi32(xh_256, rfactor_v0), add_shift);
                 __m256i xh_mask_msb_shift_dst = _mm256_and_si256(
                     mask_msb_shift_dst, _mm256_cmpgt_epi64(_mm256_setzero_si256(), xh_256));
                 xh_256 = _mm256_or_si256(_mm256_srli_epi64(xh_256, shift_dst[scale - 1]),
                                          xh_mask_msb_shift_dst);
 
-                xv_256 = _mm256_add_epi64(_mm256_mul_epi32(xv_256, rfactor1), add_shift);
+                xv_256 = _mm256_add_epi64(_mm256_mul_epi32(xv_256, rfactor_v1), add_shift);
                 __m256i xv_mask_msb_shift_dst = _mm256_and_si256(
                     mask_msb_shift_dst, _mm256_cmpgt_epi64(_mm256_setzero_si256(), xv_256));
                 xv_256 = _mm256_or_si256(_mm256_srli_epi64(xv_256, shift_dst[scale - 1]),
                                          xv_mask_msb_shift_dst);
 
-                xd_256 = _mm256_add_epi64(_mm256_mul_epi32(xd_256, rfactor2), add_shift);
+                xd_256 = _mm256_add_epi64(_mm256_mul_epi32(xd_256, rfactor_v2), add_shift);
                 __m256i xd_mask_msb_shift_dst = _mm256_and_si256(
                     mask_msb_shift_dst, _mm256_cmpgt_epi64(_mm256_setzero_si256(), xd_256));
                 xd_256 = _mm256_or_si256(_mm256_srli_epi64(xd_256, shift_dst[scale - 1]),
