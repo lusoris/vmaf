@@ -536,12 +536,12 @@ static int cambi_vk_alloc_buffers(CambiVkState *s)
 
     int err = 0;
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->raw_in_buf, raw_bytes ? raw_bytes : 4);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->image_buf, img_bytes ? img_bytes : 4);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->mask_buf, mask_bytes ? mask_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->image_buf, img_bytes ? img_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->mask_buf, mask_bytes ? mask_bytes : 4);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->deriv_buf, deriv_bytes ? deriv_bytes : 4);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->sat_row_buf, sat_bytes ? sat_bytes : 4);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->sat_col_buf, sat_bytes ? sat_bytes : 4);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->scratch_buf, img_bytes ? img_bytes : 4);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->scratch_buf, img_bytes ? img_bytes : 4);
     return err ? -ENOMEM : 0;
 }
 
@@ -879,6 +879,9 @@ static int cambi_vk_upload_luma(CambiVkState *s, VmafPicture *pic)
 /* Read back image_buf into pics[0] luma plane (10-bit packed → uint16). */
 static void cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
 {
+    int err_inv_img = vmaf_vulkan_buffer_invalidate(s->ctx, s->image_buf);
+    if (err_inv_img)
+        return err_inv_img;
     const uint32_t *src = vmaf_vulkan_buffer_host(s->image_buf);
     uint16_t *dst = (uint16_t *)s->pics[0].data[0];
     const ptrdiff_t dst_stride = s->pics[0].stride[0] >> 1;
@@ -896,6 +899,9 @@ static void cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
 /* Read back mask_buf into pics[1] luma plane. */
 static void cambi_vk_readback_mask(CambiVkState *s, unsigned w, unsigned h)
 {
+    int err_inv_mask = vmaf_vulkan_buffer_invalidate(s->ctx, s->mask_buf);
+    if (err_inv_mask)
+        return err_inv_mask;
     const uint32_t *src = vmaf_vulkan_buffer_host(s->mask_buf);
     uint16_t *dst = (uint16_t *)s->pics[1].data[0];
     const ptrdiff_t dst_stride = s->pics[1].stride[0] >> 1;
@@ -1204,6 +1210,9 @@ static int cambi_vk_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
              * pointers; cheap relative to GPU dispatch). */
             {
                 const size_t img_words_per_row = (s->proc_width + 1u) / 2u;
+                int err_inv_scratch = vmaf_vulkan_buffer_invalidate(s->ctx, s->scratch_buf);
+                if (err_inv_scratch)
+                    return err_inv_scratch;
                 const uint32_t *src = vmaf_vulkan_buffer_host(s->scratch_buf);
                 uint32_t *dst = vmaf_vulkan_buffer_host(s->image_buf);
                 for (unsigned y = 0; y < new_h; y++) {
@@ -1221,6 +1230,9 @@ static int cambi_vk_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
                 return err;
             {
                 const size_t img_words_per_row = (s->proc_width + 1u) / 2u;
+                int err_inv_scratch = vmaf_vulkan_buffer_invalidate(s->ctx, s->scratch_buf);
+                if (err_inv_scratch)
+                    return err_inv_scratch;
                 const uint32_t *src = vmaf_vulkan_buffer_host(s->scratch_buf);
                 uint32_t *dst = vmaf_vulkan_buffer_host(s->mask_buf);
                 for (unsigned y = 0; y < new_h; y++) {

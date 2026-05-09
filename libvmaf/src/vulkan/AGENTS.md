@@ -506,3 +506,27 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
 - [docs/api/gpu.md](../../../docs/api/gpu.md) — public-API reference.
 - [docs/backends/vulkan/overview.md](../../../docs/backends/vulkan/overview.md)
   — backend-level overview.
+
+## Buffer classification invariant (ADR-0357)
+
+Every new `VmafVulkanBuffer` must be allocated with the correct VMA flag:
+
+| Buffer direction                       | Allocation function                        | Post-dispatch action                  |
+|----------------------------------------|--------------------------------------------|---------------------------------------|
+| UPLOAD — CPU writes, GPU reads         | `vmaf_vulkan_buffer_alloc()`               | `vmaf_vulkan_buffer_flush()` before dispatch |
+| READBACK — GPU writes, CPU reads       | `vmaf_vulkan_buffer_alloc_readback()`      | `vmaf_vulkan_buffer_invalidate()` after fence-wait, before `vmaf_vulkan_buffer_host()` |
+| GPU-only — neither CPU writes nor reads| either (prefer `alloc_readback` for forward-compatibility) | none required |
+
+**Why this matters on discrete GPUs**: `alloc` uses `VMA_HOST_ACCESS_SEQUENTIAL_WRITE`
+(write-combining BAR heap; fast host writes, slow host reads — 4–8× penalty).
+`alloc_readback` uses `VMA_HOST_ACCESS_RANDOM` (HOST_CACHED heap preferred;
+full host-cache bandwidth on reads).  Using `alloc` for a buffer the CPU must
+reduce post-fence silently incurs uncached PCIe reads.
+
+**Invalidate is mandatory on non-coherent heaps** (Vulkan 1.3 spec §11.2.2):
+device writes are not visible to the host until `vmaInvalidateAllocation` is
+called.  `vmaf_vulkan_buffer_invalidate` is a no-op on HOST_COHERENT heaps
+(integrated GPUs, lavapipe), so the call is unconditionally safe.
+
+See [ADR-0357](../../../docs/adr/0357-vulkan-readback-alloc-flag.md) for the
+full decision matrix and the per-feature buffer classification table.

@@ -152,7 +152,7 @@ static int alloc_buffers(FloatPsnrVulkanState *s)
     size_t pbytes = (size_t)s->wg_count * sizeof(float);
     if (pbytes == 0)
         pbytes = sizeof(float);
-    return vmaf_vulkan_buffer_alloc(s->ctx, &s->partials, pbytes);
+    return vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->partials, pbytes);
 }
 
 static int write_descriptor_set(FloatPsnrVulkanState *s, VkDescriptorSet set)
@@ -312,6 +312,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (err)
         goto cleanup;
 
+    int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->partials);
+    if (err_inv)
+        return err_inv;
     {
         const float *slots = vmaf_vulkan_buffer_host(s->partials);
         double total = 0.0;

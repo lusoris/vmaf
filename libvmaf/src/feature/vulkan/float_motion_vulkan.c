@@ -188,7 +188,7 @@ static int alloc_buffers(FloatMotionVulkanState *s)
     size_t sad_bytes = (size_t)s->wg_count * sizeof(float);
     if (sad_bytes == 0)
         sad_bytes = sizeof(float);
-    return vmaf_vulkan_buffer_alloc(s->ctx, &s->sad_partials, sad_bytes);
+    return vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->sad_partials, sad_bytes);
 }
 
 static int write_descriptor_set(FloatMotionVulkanState *s, VkDescriptorSet set)
@@ -289,6 +289,9 @@ static int upload_ref(FloatMotionVulkanState *s, VmafPicture *pic)
 
 static double reduce_sad_partials(const FloatMotionVulkanState *s)
 {
+    int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->sad_partials);
+    if (err_inv)
+        return err_inv;
     const float *slots = vmaf_vulkan_buffer_host(s->sad_partials);
     double total = 0.0;
     for (unsigned i = 0; i < s->wg_count; i++)

@@ -252,7 +252,7 @@ static int alloc_buffers(SsimVulkanState *s)
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->h_ref_sq, horiz_bytes);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->h_cmp_sq, horiz_bytes);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->h_refcmp, horiz_bytes);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->partials, partials_bytes);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->partials, partials_bytes);
     return err ? -ENOMEM : 0;
 }
 
@@ -484,6 +484,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     /* Per-WG float partials → host double sum → mean SSIM over
      * (W - 10) × (H - 10) pixels (matches CPU's iqa_ssim
      * normalisation per line 371 of ssim_tools.c). */
+    int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->partials);
+    if (err_inv)
+        return err_inv;
     {
         const float *partials = vmaf_vulkan_buffer_host(s->partials);
         double total = 0.0;

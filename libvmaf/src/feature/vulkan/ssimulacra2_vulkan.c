@@ -800,11 +800,11 @@ static int ss2v_alloc_buffers(Ssimu2VkState *s)
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->ref_xyb, three_plane_bytes);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->dis_xyb, three_plane_bytes);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->mul_buf, three_plane_bytes);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->mu1, three_plane_bytes);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->mu2, three_plane_bytes);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->s11, three_plane_bytes);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->s22, three_plane_bytes);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->s12, three_plane_bytes);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->mu1, three_plane_bytes);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->mu2, three_plane_bytes);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->s11, three_plane_bytes);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->s22, three_plane_bytes);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->s12, three_plane_bytes);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->blur_scratch, three_plane_bytes);
 
     /* Partials sized for largest scale (scale 0). */
@@ -1266,6 +1266,34 @@ static int ss2v_run_scale(Ssimu2VkState *s, int scale, double avg_ssim[6], doubl
      * promotion at the divide site). The buffers are HOST_VISIBLE
      * (VMA AUTO_PREFER_HOST + MAPPED) so the read is a normal RAM
      * walk after the queue fence. */
+    /* Invalidate CPU cache lines for all GPU-written readback buffers
+     * before reading via host pointer (Vulkan 1.3 spec §11.2.2). */
+    int err_inv;
+    err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->mu1);
+    if (err_inv) {
+        err = err_inv;
+        goto out;
+    }
+    err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->mu2);
+    if (err_inv) {
+        err = err_inv;
+        goto out;
+    }
+    err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->s11);
+    if (err_inv) {
+        err = err_inv;
+        goto out;
+    }
+    err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->s22);
+    if (err_inv) {
+        err = err_inv;
+        goto out;
+    }
+    err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->s12);
+    if (err_inv) {
+        err = err_inv;
+        goto out;
+    }
     const float *mu1_host = vmaf_vulkan_buffer_host(s->mu1);
     const float *mu2_host = vmaf_vulkan_buffer_host(s->mu2);
     const float *s11_host = vmaf_vulkan_buffer_host(s->s11);

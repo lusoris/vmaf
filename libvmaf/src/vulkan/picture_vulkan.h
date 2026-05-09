@@ -26,17 +26,48 @@ extern "C" {
 typedef struct VmafVulkanBuffer VmafVulkanBuffer;
 
 /*
- * Allocate a host-visible, mappable, compute-shader-readable buffer.
+ * Allocate an UPLOAD buffer — CPU writes, GPU reads.
  *
  * The buffer is sized exactly `size` bytes, allocated via VMA with
- * `VMA_MEMORY_USAGE_AUTO_PREFER_HOST`, and exposes:
+ * `VMA_MEMORY_USAGE_AUTO_PREFER_HOST` and
+ * `VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT`.  VMA will
+ * select a write-combining / BAR heap on discrete GPUs — optimal for
+ * streaming host→device; not suited for CPU readback of GPU results.
+ *
+ * Exposes:
  *   - `host_ptr`: persistent mapped pointer (no map/unmap per upload).
  *   - `vk_buffer`: the VkBuffer handle for descriptor-set binding.
  *
+ * Call vmaf_vulkan_buffer_flush() after each host write before dispatch.
+ *
  * `*out_buf` receives a freshly allocated VmafVulkanBuffer; release
  * with vmaf_vulkan_buffer_free(). Returns 0 / -ENOMEM / -EINVAL.
+ *
+ * See ADR-0357 for the UPLOAD vs READBACK buffer classification.
  */
 int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf, size_t size);
+
+/*
+ * Allocate a READBACK buffer — GPU writes, CPU reads.
+ *
+ * Uses `VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT` so VMA can select a
+ * HOST_CACHED heap on discrete GPUs (VMA §5.3), giving 4–8x faster CPU
+ * readback than the sequential-write / BAR path.
+ *
+ * Callers MUST call vmaf_vulkan_buffer_invalidate() after the GPU fence-wait
+ * and before reading the result via vmaf_vulkan_buffer_host(), because
+ * HOST_CACHED heaps are typically not HOST_COHERENT on dGPU drivers (Vulkan
+ * 1.3 spec §11.2.2).
+ *
+ * Use for: per-workgroup accumulator slots, partial-sum arrays, any buffer
+ * where the GPU is the writer and the CPU is the final reader.
+ *
+ * Returns 0 / -ENOMEM / -EINVAL.
+ *
+ * See ADR-0357 for the UPLOAD vs READBACK buffer classification.
+ */
+int vmaf_vulkan_buffer_alloc_readback(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf,
+                                      size_t size);
 
 /* Returns the persistent mapped host pointer (writeable). */
 void *vmaf_vulkan_buffer_host(VmafVulkanBuffer *buf);
@@ -55,6 +86,19 @@ size_t vmaf_vulkan_buffer_size(VmafVulkanBuffer *buf);
  * dGPUs (e.g. AMD ReBAR off). Call after every host upload before
  * dispatch. */
 int vmaf_vulkan_buffer_flush(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
+
+/*
+ * Invalidate CPU-side cache lines for a READBACK buffer.
+ *
+ * Must be called after the GPU fence-wait and before reading results via
+ * vmaf_vulkan_buffer_host() on any buffer allocated with
+ * vmaf_vulkan_buffer_alloc_readback().  This is a no-op on HOST_COHERENT
+ * heaps; on HOST_CACHED non-coherent heaps it flushes CPU cache lines so
+ * the host sees the GPU's latest writes (Vulkan 1.3 spec §11.2.2).
+ *
+ * Returns 0 / -EIO / -EINVAL.
+ */
+int vmaf_vulkan_buffer_invalidate(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
 
 void vmaf_vulkan_buffer_free(VmafVulkanContext *ctx, VmafVulkanBuffer *buf);
 

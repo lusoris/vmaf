@@ -213,7 +213,7 @@ static int alloc_buffers(PsnrHvsVulkanState *s)
         const size_t partials_bytes = (size_t)s->num_blocks[p] * sizeof(float);
         err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->ref_in[p], plane_bytes);
         err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->dist_in[p], plane_bytes);
-        err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->partials[p], partials_bytes);
+        err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->partials[p], partials_bytes);
     }
     return err ? -ENOMEM : 0;
 }
@@ -457,6 +457,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
      * dB drift vs CPU at places=4. */
     double plane_score[PSNR_HVS_NUM_PLANES];
     for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
+        int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->partials[p]);
+        if (err_inv)
+            return err_inv;
         const float *partials = vmaf_vulkan_buffer_host(s->partials[p]);
         float ret = 0.0f;
         for (unsigned i = 0; i < s->num_blocks[p]; i++)

@@ -329,6 +329,55 @@ is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
   gate. Tracked under
   [`docs/state.md`](../../state.md) Open bugs.
 
+
+## Buffer classification (ADR-0357)
+
+Every VkBuffer in the Vulkan backend is classified as one of two types, which
+determines which VMA allocator function to call and which coherency actions are
+required:
+
+### UPLOAD buffers — CPU writes, GPU reads
+
+Allocated with `vmaf_vulkan_buffer_alloc()`.  VMA selects a write-combining /
+PCIe BAR heap on discrete GPUs (`VMA_HOST_ACCESS_SEQUENTIAL_WRITE`), which
+gives optimal streaming throughput for host→device transfers.  After the host
+writes data (e.g. `memcpy` of a video frame), call
+`vmaf_vulkan_buffer_flush()` before submitting the dispatch command.
+
+Examples: input picture planes (`ref_in`, `dis_in`), look-up tables
+(`log2_lut`, `div_lookup`), filter coefficient tables (`csf_f`, `csf_a`),
+GPU-blurred intermediate frames (`blur[0/1]`), ssimulacra2 linearised input
+(`ref_lin`, `dis_lin`), raw pixel uploads (`raw_in_buf`).
+
+### READBACK buffers — GPU writes, CPU reads
+
+Allocated with `vmaf_vulkan_buffer_alloc_readback()`.  VMA selects a
+`HOST_CACHED` heap on discrete GPUs (`VMA_HOST_ACCESS_RANDOM`), giving full
+CPU cache-line bandwidth on readback — 4–8× faster than a BAR/write-combining
+heap (measured AMD RDNA3: ~6 GB/s → ~40 GB/s).
+
+**After the GPU fence-wait**, before calling `vmaf_vulkan_buffer_host()` to
+read the result, call `vmaf_vulkan_buffer_invalidate()`.  This invalidates
+CPU-side cache lines so the host sees the GPU's latest writes (Vulkan 1.3 spec
+§11.2.2).  The call is a no-op on HOST_COHERENT heaps (integrated GPUs,
+lavapipe) and is unconditionally safe.
+
+Examples: per-workgroup accumulator slots (`accum`, `sums`), partial-sum
+arrays (`partials`, `sad_partials`, `se_partials`, `l/c/s_partials`,
+`num/den_partials`, `sig/noise_partials`), ssimulacra2 Gaussian outputs
+(`mu1`, `mu2`, `s11`, `s22`, `s12`), cambi GPU-processed image/mask/scratch
+buffers.
+
+### Adding a new buffer
+
+1. Determine the direction: does the CPU write it before dispatch
+   (UPLOAD), or does the CPU read it after dispatch (READBACK)?
+2. Call the matching allocator.
+3. Pair every host write with a `flush`; pair every host read from a
+   readback buffer with an `invalidate` immediately after the fence-wait.
+4. Update the buffer-classification table in
+   [ADR-0357](../../adr/0357-vulkan-readback-alloc-flag.md).
+
 ## References
 
 - [ADR-0127](../../adr/0127-vulkan-backend-decision.md) — the

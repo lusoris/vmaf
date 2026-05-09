@@ -31122,3 +31122,23 @@ compiles).
   (`25ff9f18` + `0341f730`) eventually land, run
   meson test -C build --suite=fast
   make test-netflix-golden  # 3/3 CPU goldens still pass
+
+
+---
+## ADR-0357 — Vulkan readback buffer VMA flag separation (PR pending)
+**What changed**: `picture_vulkan.{c,h}` now exposes two sibling allocation
+functions: `vmaf_vulkan_buffer_alloc` (UPLOAD, unchanged) and
+`vmaf_vulkan_buffer_alloc_readback` (READBACK, `HOST_ACCESS_RANDOM`). A new
+`vmaf_vulkan_buffer_invalidate` wraps `vmaInvalidateAllocation`. All 17
+feature kernel files under `libvmaf/src/feature/vulkan/` are updated to use
+the readback variant for accumulator and partial-sum buffers.
+- `libvmaf/src/vulkan/picture_vulkan.c` — two new functions + shared helper.
+- `libvmaf/src/vulkan/picture_vulkan.h` — two new declarations.
+- All 17 `libvmaf/src/feature/vulkan/*.c` files — alloc and invalidate call
+  sites.
+**Rebase-sensitivity**: low — entirely fork-local Vulkan backend code with no
+upstream Netflix counterpart. If an upstream sync adds new files to
+`libvmaf/src/vulkan/` or `libvmaf/src/feature/vulkan/`, new readback buffers
+in those files must be classified (UPLOAD vs READBACK) and use the correct
+allocator per the table in ADR-0350. Conflict risk on the 17 feature files is
+zero (upstream doesn't touch them).

@@ -4,10 +4,29 @@
  *
  *  Picture allocation / lifecycle for the Vulkan backend (T5-1b).
  *
- *  VMA-backed VkBuffer pairs sized for a single frame plane. The
- *  buffer is allocated `HOST_VISIBLE | HOST_COHERENT` where
- *  available so the host can `memcpy` into the persistent mapping
- *  without explicit `vkMapMemory` round-trips per frame.
+ *  Two buffer-classification functions are provided (ADR-0357):
+ *
+ *    vmaf_vulkan_buffer_alloc()          — UPLOAD buffers (CPU writes, GPU
+ *        reads).  VMA flag: HOST_ACCESS_SEQUENTIAL_WRITE.  VMA prefers a
+ *        write-combining, non-cached heap on dGPUs (PCIe BAR1).  Optimal
+ *        for streaming host→device transfers; reads back from host are slow.
+ *
+ *    vmaf_vulkan_buffer_alloc_readback() — READBACK buffers (GPU writes, CPU
+ *        reads).  VMA flag: HOST_ACCESS_RANDOM.  VMA prefers a HOST_CACHED
+ *        heap on dGPUs, giving full CPU cache-line bandwidth on readback.
+ *        Required before CPU readback: vmaf_vulkan_buffer_invalidate() to
+ *        flush CPU-side cache lines on non-coherent heaps.
+ *
+ *  Caller responsibility:
+ *    - After host writes to an UPLOAD buffer: call vmaf_vulkan_buffer_flush().
+ *    - After GPU writes to a READBACK buffer (post fence-wait): call
+ *      vmaf_vulkan_buffer_invalidate() before reading via
+ *      vmaf_vulkan_buffer_host().
+ *    - Bidirectional buffers (alternating host/GPU writes in the same frame,
+ *      e.g., cambi pipeline scratch) use the UPLOAD variant — they are
+ *      memcpy'd by the host and then overwritten by the GPU in a later pass,
+ *      so the sequential-write heap is the safer choice; the CPU never needs
+ *      to read a stale GPU write from them at full bandwidth.
  */
 
 #include <assert.h>
@@ -40,7 +59,10 @@ typedef struct {
 static ShimEntry g_shim_entries[VMAF_VK_SHIM_MAX];
 static size_t g_shim_count = 0;
 
-int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf, size_t size)
+/* --- shared buffer-create helper ----------------------------------------- */
+
+static int alloc_buffer_impl(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf, size_t size,
+                             VmaAllocationCreateFlags vma_flags)
 {
     if (!ctx || !out_buf || size == 0)
         return -EINVAL;
@@ -62,8 +84,7 @@ int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf,
     };
     VmaAllocationCreateInfo aci = {
         .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        .flags = vma_flags | VMA_ALLOCATION_CREATE_MAPPED_BIT,
     };
     VkResult vkr =
         vmaCreateBuffer(ctx->allocator, &bci, &aci, &b->vk_buffer, &b->allocation, &b->info);
@@ -73,6 +94,38 @@ int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf,
     }
     *out_buf = b;
     return 0;
+}
+
+/* --- public API ----------------------------------------------------------- */
+
+/*
+ * UPLOAD buffer — CPU writes, GPU reads.
+ *
+ * Uses VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT so VMA can
+ * select a write-combining / BAR heap on discrete GPUs.  Optimal for
+ * streaming frame data host→device.  Not suited for CPU readback.
+ */
+int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf, size_t size)
+{
+    return alloc_buffer_impl(ctx, out_buf, size,
+                             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+}
+
+/*
+ * READBACK buffer — GPU writes, CPU reads.
+ *
+ * Uses VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT so VMA can select a
+ * HOST_CACHED heap on discrete GPUs (VMA §5.3).  CPU readback bandwidth is
+ * 4–8x faster than a sequential-write / BAR heap.  Callers MUST call
+ * vmaf_vulkan_buffer_invalidate() after the GPU fence-wait and before
+ * calling vmaf_vulkan_buffer_host() to read results, because HOST_CACHED
+ * heaps are not HOST_COHERENT on most dGPU drivers (Vulkan 1.3 spec
+ * §11.2.2).
+ */
+int vmaf_vulkan_buffer_alloc_readback(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf,
+                                      size_t size)
+{
+    return alloc_buffer_impl(ctx, out_buf, size, VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT);
 }
 
 void *vmaf_vulkan_buffer_host(VmafVulkanBuffer *buf)
@@ -90,6 +143,11 @@ size_t vmaf_vulkan_buffer_size(VmafVulkanBuffer *buf)
     return buf ? buf->size : 0;
 }
 
+/*
+ * Flush host writes to the device.  No-op for HOST_COHERENT memory, but we
+ * never assume coherence — VMA may pick a non-coherent heap (e.g., AMD ReBAR
+ * off).  Call after every host upload before dispatch.
+ */
 int vmaf_vulkan_buffer_flush(VmafVulkanContext *ctx, VmafVulkanBuffer *buf)
 {
     if (!ctx || !buf)

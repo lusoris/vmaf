@@ -398,7 +398,7 @@ static int alloc_buffers(FloatAdmVulkanState *s)
         size_t accum_bytes = (size_t)wg_count * FADM_ACCUM_SLOTS_PER_WG * sizeof(float);
         if (accum_bytes == 0)
             accum_bytes = sizeof(float);
-        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->accum[scale], accum_bytes);
+        err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->accum[scale], accum_bytes);
         if (err)
             return err;
 
@@ -572,6 +572,9 @@ static int reduce_and_emit(FloatAdmVulkanState *s, unsigned index, VmafFeatureCo
     double csf_totals[FADM_NUM_SCALES][FADM_NUM_BANDS] = {0};
 
     for (int scale = 0; scale < FADM_NUM_SCALES; scale++) {
+        int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->accum[scale]);
+        if (err_inv)
+            return err_inv;
         const float *slots = vmaf_vulkan_buffer_host(s->accum[scale]);
         unsigned wg_count = s->wg_count[scale];
         for (unsigned wg = 0; wg < wg_count; wg++) {

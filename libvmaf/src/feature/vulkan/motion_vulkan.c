@@ -355,7 +355,7 @@ static int alloc_buffers(MotionVulkanState *s)
     size_t sad_bytes = (size_t)s->wg_count * sizeof(int64_t);
     if (sad_bytes == 0)
         sad_bytes = sizeof(int64_t);
-    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->sad_partials, sad_bytes);
+    err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->sad_partials, sad_bytes);
     if (err)
         return err;
 

@@ -159,7 +159,7 @@ static int alloc_buffers(MomentVulkanState *s)
         return err;
 
     /* 4 int64 slots: ref1st / dis1st / ref2nd / dis2nd. */
-    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->sums, 4 * sizeof(int64_t));
+    err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->sums, 4 * sizeof(int64_t));
     return err;
 }
 
@@ -314,6 +314,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         goto cleanup;
 
     /* Host-side division + score emit. */
+    int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->sums);
+    if (err_inv)
+        return err_inv;
     const int64_t *sums = vmaf_vulkan_buffer_host(s->sums);
     const double n_pixels = (double)s->width * (double)s->height;
     const double ref1 = (double)sums[0] / n_pixels;

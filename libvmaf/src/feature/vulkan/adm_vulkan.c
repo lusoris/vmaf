@@ -471,7 +471,7 @@ static int alloc_buffers(AdmVulkanState *s)
         size_t accum_bytes = (size_t)wg_count * ADM_ACCUM_SLOTS_PER_WG * sizeof(int64_t);
         if (accum_bytes == 0)
             accum_bytes = sizeof(int64_t);
-        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->accum[scale], accum_bytes);
+        err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->accum[scale], accum_bytes);
         if (err)
             return err;
 
