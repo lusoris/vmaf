@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0.3", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.10"]
+dev = ["pytest>=9.0.3", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.20.2"]
 # Optional: enables `eval_model_on_split` + `compare_models`. Pulls in the
 # ONNX / pandas / scipy stack, so it's off by default to keep the base MCP
 # install light for callers that only want `vmaf_score`.
@@ -24,7 +24,7 @@ eval = [
   "numpy>=1.26",
   "pandas>=2.2",
   "pyarrow>=24.0.0",
-  "onnxruntime>=1.25.1",
+  "onnxruntime>=1.18",
   "scipy>=1.12",
 ]
 # Optional: enables `describe_worst_frames` with vision-language fallback
