@@ -48,6 +48,24 @@ jobs:
             echo "exempt=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Ensure BASE_SHA + HEAD_SHA are reachable
+        if: steps.scope.outputs.exempt == 'false'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # actions/checkout@v6 with fetch-depth: 0 forces origin/master
+        # to the simulated merge commit (refs/pull/N/merge), which can
+        # leave the recorded base.sha and head.sha unreachable from the
+        # local clone. Explicitly fetch both before any git diff so the
+        # range is always valid, regardless of how the PR was rebased
+        # or which merge-ref GitHub generated.
+        run: |
+          set -euo pipefail
+          git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "${BASE_SHA}" || true
+          git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "${HEAD_SHA}" || true
+
       - name: Run deliverables checklist (parse + file-reference verification)
         if: steps.scope.outputs.exempt == 'false'
         env:
@@ -81,6 +99,14 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
+
+          # See deliverables-checklist job for rationale: fetch both
+          # SHAs explicitly so the diff range is valid regardless of
+          # how actions/checkout populated origin/master.
+          git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "${BASE_SHA}" || true
+          git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "${HEAD_SHA}" || true
 
           git diff --name-only "${BASE_SHA}".."${HEAD_SHA}" > /tmp/diff_files.txt
 
@@ -188,6 +214,12 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+
+          # See deliverables-checklist job for rationale.
+          git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "${BASE_SHA}" || true
+          git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "${HEAD_SHA}" || true
 
           git diff --name-only "${BASE_SHA}".."${HEAD_SHA}" > /tmp/diff_files.txt
 
