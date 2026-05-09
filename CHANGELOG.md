@@ -27,80 +27,8 @@
   trade-off for closing the loop on the encoder's own RD ledger.
   Predictor integration is out of scope for this PR.
 
-- **Vulkan VIF API-1.4 NVIDIA residual — Phase 2 dynamic dump
-  refutes FP-precision hypothesis, localises bug to SCALE=2
-  memory-model regression (T-VK-VIF-1.4-RESIDUAL).** Phase 2
-  empirical run on RTX 4090 + driver 595.71.05 + Vulkan 1.4.341 in
-  this session (2026-05-09) replaces the `[UNVERIFIED]` cells
-  research-0089 §5 carried with real numbers and **refutes** the
-  digest body's FP-arithmetic / `shaderFloatControls2`-v2 codegen
-  hypothesis. The 45/48 `integer_vif_scale2` `places=4` failure is
-  not an FP-precision drift on the 5 SPIR-V FP ops — the
-  `vif_vulkan` `debug=true` host channel surfaces it at the
-  accumulator level: `den_scale2 ≈ -10¹⁶` vs CPU's `+2.5e+04`,
-  `num_scale2 ≈ +10¹⁵` (10¹¹× magnitude flip + sign flip), with
-  full run-to-run **non-determinism** across 5 repeat runs (5
-  distinct `(num, den)` pairs). The score collapses to
-  `1.000000` because the host reduction's `den <= 0` fallback in
-  `reduce_and_emit()` returns 1.0. Bug **isolated to SCALE = 2**
-  specialisation; scales 0/1/3 deterministic + sane. API 1.3
-  control on the same machine is fully deterministic and
-  bit-exact 0/48 across the same 5 runs. Signature is a memory
-  race in the Phase-4 cross-subgroup int64 reduction (`vif.comp`
-  lines 547–592, `subgroupAdd` + `barrier()` + thread-0 read of
-  `s_lmem`) that Vulkan 1.4's stricter NVIDIA default memory
-  model exposes. The `places=3` override path is **eliminated** —
-  non-deterministic accumulators cannot meet any tolerance. Phase
-  3 fix candidate documented in research-0089 2026-05-09 status
-  appendix: replace bare `barrier()` with explicit
-  `controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup,
-  gl_StorageSemanticsShared, gl_SemanticsAcquireRelease)` (or
-  `memoryBarrierShared() + barrier()`) before the thread-0
-  reduction read. State.md row T-VK-VIF-1.4-RESIDUAL updated with
-  the localisation; reproduction recipe documented for Phase 3.
-  No production code changes — this PR is the digest update +
-  state.md row update; the shader fix lands separately under
-  Phase 3 with a 5-run determinism gate.
-- **Vulkan VIF API-1.4 NVIDIA residual — bisect digest landed
-  (T-VK-VIF-1.4-RESIDUAL).** New research digest
-  [`docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`](docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md)
-  documents the static CPU-`double`-vs-Vulkan-`float` stage bisect
-  on the residual 45/48 `integer_vif_scale2` `places=4` mismatch on
-  NVIDIA RTX 4090 + driver 595.71.05 at API 1.4 that PR #346's
-  Step A did not close. Re-verified via glslc 2026.1 + spirv-dis
-  that `vif.comp` emits exactly 5 floating-point arithmetic ops in
-  optimised SPIR-V and all 5 are `NoContraction`-decorated — the
-  SPIR-V mitigation surface is exhausted. Cross-checked against
-  SYCL's `vif_sycl` (same f32 contract, passes the gate) — rules
-  out a pure f32-vs-f64 class issue analog of T-VK-CIEDE-F32-F64.
-  Localises root cause to NVIDIA's `shaderFloatControls2`-v2
-  codegen flip at API 1.4 on a non-IEEE-bound default that the
-  SPIR-V surface cannot bind (e.g., reciprocal-multiply for divide,
-  fast-rsq selection). Empirical per-stage NVIDIA dynamic dump not
-  run this session (needs ~1 day of SSBO instrumentation +
-  hardware lane); values tagged `[UNVERIFIED]` per the
-  no-fabrication rule. Phase-2 shader fix not warranted —
-  recommends per-stage NVIDIA dump or `places=3` override ADR for
-  Step B unblock. State.md row T-VK-VIF-1.4-RESIDUAL updated with
-  bisect outcome; ADR-0269 carries a 2026-05-08 status-update
-  appendix. No code changes.
-- **vmaf-tune HDR encoder + scorer wiring (HP-2 / ADR-0300 status
-  update 2026-05-08).** `corpus.iter_rows` now consults the
-  fork-local `vmaftune.hdr` module — the `detect_hdr` /
-  `hdr_codec_args` / `select_hdr_vmaf_model` triple shipped under
-  PR #434 / ADR-0300 but was never imported. PQ-tagged sources
-  silently encoded as SDR with their mastering-display + max-CLL
-  SEI metadata stripped, and the SDR-vs-HDR provenance promised
-  by the corpus row schema never materialised. The follow-up
-  resolves `opts.hdr_mode` once per source (auto / force-sdr /
-  force-hdr-pq / force-hdr-hlg), injects the codec-appropriate
-  HDR ffmpeg argv into `EncodeRequest.extra_params`, swaps in an
-  HDR VMAF model when one is shipped (else warns once and keeps
-  the SDR model), and populates the new `hdr_transfer` /
-  `hdr_primaries` / `hdr_forced` row columns. Schema bumps
-  v2 → v3 (additive — readers that ignore the new keys keep
-  working). The two integration tests previously gated by
-  `_HDR_ITER_ROWS_DEFERRED` are un-skipped.
+### Changed
+
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
@@ -126,66 +54,6 @@
 
 ### Added
 
-- **`vmaf-tune auto` Phase F.4 — per-content-type recipe overrides
-  (ADR-0325).** New `_apply_recipe_override(meta, plan_state,
-  thresholds)` in `tools/vmaf-tune/src/vmaftune/auto.py` resolves a
-  per-content-type recipe and returns
-  `(recipe_class, recipe, effective_thresholds)`. The module-level
-  `_CONTENT_RECIPE_TABLE` maps four named classes — `animation`,
-  `screen_content`, `live_action_hdr`, `ugc` — onto factory
-  callables (the `_<class>_recipe` helpers) that emit fresh override
-  dicts; the empty `default` factory covers everything else.
-  Recipes fire **before** the F.2 short-circuits evaluate so a
-  recipe can flip `force_single_rung` and have the ladder stage
-  honour it. The four override keys consumed by the driver are
-  `tight_interval_max_width` (narrows / widens the F.3 conformal
-  gate), `force_single_rung` (arms `ladder-single-rung` even on
-  >= 2160p), `saliency_intensity`
-  (`default` / `aggressive` / `very_aggressive`), and
-  `target_vmaf_offset` (additive offset on the *predictor's*
-  effective target VMAF only — the input `--target-vmaf` is
-  preserved verbatim per memory `feedback_no_test_weakening`). The
-  recipe class lands in `plan.metadata.recipe_applied` (one of
-  `animation`, `screen_content`, `live_action_hdr`, `ugc`,
-  `default`) and the override dict in
-  `plan.metadata.recipe_overrides`. Every threshold value shipped
-  at F.4 is `[provisional, calibrate against real corpus in F.5]`.
-  New `tests/test_auto_recipe_overrides.py` ships 37 assertions
-  covering recipe lookup, the read-only-factory invariant,
-  per-class trigger semantics, threshold narrowing without
-  violating the `ConfidenceThresholds` constructor invariant, JSON
-  metadata recording, and the ordering guarantee. Docs at
-  [`docs/usage/vmaf-tune.md` § Per-content-type recipes
-  (F.4)](docs/usage/vmaf-tune.md#per-content-type-recipes-f4). See
-  [ADR-0325](docs/adr/0325-vmaf-tune-phase-f-auto.md) §F.4 status
-  update.
-
-- **`vmaf-tune auto` Phase F.1 + F.2 — sequential scaffold + seven
-  short-circuits (ADR-0325).** New `tools/vmaf-tune/src/vmaftune/auto.py`
-  exposes the deterministic decision tree as a CLI subcommand
-  (`vmaf-tune auto --src ... --target-vmaf ... --allow-codecs ...`)
-  and as a Python API (`run_auto`, `evaluate_short_circuits`). The
-  seven F.2 short-circuits — `ladder-single-rung`, `codec-pinned`,
-  `predictor-gospel`, `skip-saliency`, `sdr-skip`,
-  `sample-clip-propagate`, `skip-per-shot` — ship as standalone
-  `_should_short_circuit_<N>` predicates so each can be unit-tested
-  in isolation. Fired short-circuits land in
-  `plan.metadata.short_circuits` for post-hoc speedup analysis. The
-  Phase D 5-min / 0.15-shot-variance thresholds ship as constants
-  (`PHASE_D_DURATION_GATE_S`, `PHASE_D_SHOT_VARIANCE_GATE`) pending
-  the F.3 empirical fit. `--smoke` mode exercises the composition
-  end-to-end with mocked sub-phases (no ffmpeg, no ONNX);
-  production wiring lands in F.3+. `auto` does not dispatch the
-  `fast` subcommand from inside its tree — `fast` (PR #467, ADR-0276
-  fast-path) remains a sibling. New `tests/test_auto_short_circuits.py`
-  with 45 assertions covering each predicate's boundary, the
-  canonical evaluation order, and the JSON metadata block. Docs at
-  [`docs/usage/vmaf-tune.md` § auto](docs/usage/vmaf-tune.md#auto).
-  See [ADR-0325](docs/adr/0325-vmaf-tune-phase-f-auto.md).
-
-- **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
-  (ADR-0364, design-only).** Ships
-  [`docs/adr/0364-vmaf-tune-phase-f-auto.md`](docs/adr/0364-vmaf-tune-phase-f-auto.md)
 - **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
   (ADR-0325, design-only).** Ships
   [`docs/adr/0325-vmaf-tune-phase-f-auto.md`](docs/adr/0325-vmaf-tune-phase-f-auto.md)
@@ -200,112 +68,10 @@
   into F.1 (sequential scaffold), F.2 (short-circuits), F.3
   (confidence-aware fallbacks), F.4 (per-content-type recipe
   overrides). Explicitly rejects a learned-policy at runtime in
-  favour of an explainable hand-coded tree (≤ 30 lines pseudocode).
-  Companion to ADR-0237 (umbrella).
-
-- **AdaptiveCpp / hipSYCL as a second SYCL toolchain
-  ([ADR-0335](../docs/adr/0335-adaptivecpp-second-sycl-toolchain.md),
-  [Research-0086](../docs/research/0086-sycl-toolchain-audit-2026-05-08.md)
-  Topic B).** Contributors who do not want to install Intel's
-  ~2.6 GB closed-source oneAPI base toolkit can now build the
-  fork's `-Denable_sycl=true` path against AdaptiveCpp (formerly
-  OpenSYCL / hipSYCL), the open-source LLVM-based SYCL
-  implementation. Pass `-Dsycl_compiler=acpp` (default
-  `--acpp-targets=generic`, override via `-Dsycl_acpp_targets`).
-  Intel `icpx` remains the **primary** toolchain — fork-shipped
-  binaries, Intel discrete-GPU codegen, and the OpenVINO / NPU
-  enablement story stay icpx-coupled. New header
-  `libvmaf/src/feature/sycl/sycl_compat.h` exposes a
-  `VMAF_SYCL_REQD_SG_SIZE(N)` macro that reduces to
-  `[[intel::reqd_sub_group_size(N)]]` under icpx and to a no-op
-  under AdaptiveCpp; ten previously hard-coded kernel-attribute
-  call sites switch to the macro. New
-  [`docs/development/sycl-toolchains.md`](../docs/development/sycl-toolchains.md)
-  documents the install paths (Arch AUR `adaptivecpp` 25.10.0-2),
-  the per-toolchain capability matrix, and the numerical
-  conformance gap (acpp output is not bit-identical to icpx; both
-  remain non-bit-identical to the scalar CPU golden, consistent
-  with the existing CPU-only golden-gate rule). The
-  `--acpp-targets=omp` path lets a future CI lane exercise SYCL
-  TUs on stock `ubuntu-latest` runners without Intel hardware,
-  catching toolchain-monoculture bugs.
-
-- **K150K-A full-feature extraction pipeline
-  ([ADR-0362](../docs/adr/0362-k150k-corpus-integration.md),
-  [Research-0067](../docs/research/0067-k150k-corpus-integration.md)).**
-  New `ai/scripts/extract_k150k_features.py` extracts all 22 FULL_FEATURES
-  (Research-0026) from the 152,265-clip KoNViD-150k-A corpus using the
-  FR-from-NR adapter (ADR-0346): each clip is decoded once and fed as both
-  reference and distorted to `build-cpu/tools/vmaf --backend cuda`. Output
-  is `runs/full_features_k150k.parquet` (48 columns: mean + std of 22
-  features + mos + metadata), gitignored, written atomically every 1000
-  clips. Restartable via `.done` checkpoint. `ciede2000` and `psnr_hvs`
-  columns are all-NaN (identity-pair artifact); ADM/VIF/SSIM/VMAF floor at
-  identity — documented expected. Hardware: RTX 4090, ~7 s/clip.
-  User docs: [`docs/ai/datasets/k150k.md`](../docs/ai/datasets/k150k.md).
   favour of an explainable hand-coded tree (≤ 30 lines pseudocode);
-
-- **LSVQ MOS-corpus ingestion
-  ([ADR-0367](../docs/adr/0367-lsvq-corpus-ingestion.md),
-  [Research-0090](../docs/research/0090-lsvq-corpus-feasibility.md)).**
-  Add the LIVE Large-Scale Social Video Quality dataset (Ying et
-  al. ICCV 2021, ~39 K UGC videos, ~5.5 M ratings, CC-BY-4.0) as a
-  third MOS-corpus shard alongside KonViD-150k (ADR-0325 Phase 2)
-  and BVI-DVC (ADR-0310). New
-  `ai/scripts/lsvq_to_corpus_jsonl.py` adapter mirrors the
-  KonViD-150k Phase 2 shape verbatim — resumable per-URL `curl`
-  downloads with atomic tempfile-rename progress writes
-  (`Ctrl-C` + re-run is lossless), ffprobe-driven
-  width / height / fps / duration / pix_fmt / upstream-codec
-  geometry probe, MOS / SD / rating-count round-trip from the
-  canonical Hugging Face split CSV
-  ([`teowu/LSVQ-videos`](https://huggingface.co/datasets/teowu/LSVQ-videos)),
-  and the same JSONL row contract modulo `corpus = "lsvq"` and
-  `corpus_version = "lsvq-2021"`. Refuses (exit 2) when handed a
-  `<` 1 000-row CSV; defaults to a 500-row laptop-class subset
-  with `--full` opting into whole-corpus ingestion (~500 GB
-  working set on `LSVQ_whole_train`). MOS is recorded verbatim on
-  the dataset's native 1.0–5.0 Likert scale (no rescaling at
-  ingest time), matching the KonViD-150k convention. License
-  posture follows ADR-0310 / ADR-0325: corpus + per-clip MOS stay
-  local under `.workingdir2/lsvq/`; only the derived
-  `nr_metric_v1_*.onnx` weights ship, with CC-BY-4.0 attribution.
-  User docs:
-  [`docs/ai/lsvq-ingestion.md`](../docs/ai/lsvq-ingestion.md).
-  Tests under `ai/tests/test_lsvq.py` (17 cases) cover
-  resumable-resume, attrition tolerance, refuse-tiny cutoff,
-  atomic progress-file writes, ffprobe geometry parse,
-  broken-clip skip, MOS-column round-trip (canonical + alias
-  headers), bare-stem `name` → `.mp4` suffix, append+dedup on
-  re-run, and `--max-rows` / `--full` cap behaviour.
   the user's "adaptive encoding ecosystem" vision text routes to
   the deterministic tree first, learned-policy as a deferred
   research follow-up. Companion to ADR-0237 (umbrella).
-
-- **Hardware-capability priors for the FR-regressor corpus (ADR-0335).**
-  New [`ai/data/hardware_caps.csv`](ai/data/hardware_caps.csv) ships
-  per-architecture GPU encode-block fingerprints for the three named
-  generations Battlemage / RDNA4 / Blackwell plus their immediate
-  predecessors Alchemist / RDNA3 / Ada Lovelace (six rows on
-  2026-05-08). Each row carries vendor / gen-year / codecs supported /
-  max resolution per codec / encoding-block count / tensor-core flag /
-  NPU flag / driver-min-version / primary vendor source URL / ISO
-  verified-date. Loader at
-  [`ai/scripts/hardware_caps_loader.py`](ai/scripts/hardware_caps_loader.py)
-  exposes `cap_vector_for(encoder, encoder_arch_hint)` returning a
-  fixed-shape `hwcap_*` feature column dict that the corpus-ingest
-  pipeline merges into encode rows. The loader's schema is
-  prior-only: it rejects benchmark-shaped header columns,
-  community-wiki source URLs (Wikipedia / wikichip), empty fields,
-  and zero-encoding-block rows. NVIDIA Hopper (H100 / H200) is
-  deliberately excluded because the data-centre SKUs ship zero
-  NVENC engines. Companion research digest at
-  [`docs/research/0088-hardware-capability-priors-2026-05-08.md`](docs/research/0088-hardware-capability-priors-2026-05-08.md)
-  documents the category-1 NO-GO finding (vendor-published throughput
-  / quality numbers leak biased priors into the predictor).
-  Operator-facing reference at
-  [`docs/ai/hardware-capability-priors.md`](docs/ai/hardware-capability-priors.md).
-  See [ADR-0335](docs/adr/0335-hardware-capability-priors.md).
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
@@ -381,20 +147,6 @@
   [ADR-0209](docs/adr/0209-mcp-embedded-scaffold.md) +
   [ADR-0128](docs/adr/0128-embedded-mcp-in-libvmaf.md) +
   [Research-0005](docs/research/0005-embedded-mcp-transport.md).
-- **`cambi_cuda` feature extractor (T3-15a / ADR-0360)** — CUDA
-  twin of `vmaf_fex_cambi` under
-  `libvmaf/src/feature/cuda/integer_cambi_cuda.c`. Strategy II hybrid
-  (mirrors the Vulkan twin, ADR-0210): three CUDA kernels handle the
-  embarrassingly parallel stages (`cambi_spatial_mask_kernel` — per-thread
-  7×7 box-sum + threshold compare; `cambi_decimate_kernel` — stride-2
-  gather; `cambi_filter_mode_kernel` — separable 3-tap mode filter);
-  the precision-sensitive `calculate_c_values` sliding-histogram and
-  top-K spatial pooling run on the host CPU via `cambi_internal.h`.
-  Bit-exact at ULP=0 w.r.t. CPU twin (`places=4` gate). Removes CAMBI
-  from the CUDA backend's "Known gaps" list. New ADR
-  [`docs/adr/0360-cambi-cuda.md`](docs/adr/0360-cambi-cuda.md) +
-  research digest
-  [`docs/research/0091-cambi-cuda-integration.md`](docs/research/0091-cambi-cuda-integration.md).
 - **`cambi_vulkan` feature extractor (T7-36 / ADR-0210)** — closes
   the GPU long-tail matrix terminus. Strategy II hybrid: GPU
   shaders run preprocess, per-pixel derivative, 7×7 spatial-mask
@@ -3437,58 +3189,6 @@
   feature extraction in CI).
 
 
-- **Ensemble training kit — portable Phase-A + LOSO retrain bundle
-  ([ADR-0324](../docs/adr/0324-ensemble-training-kit.md)).**
-  Adds `tools/ensemble-training-kit/` with a one-command orchestrator
-  (`run-full-pipeline.sh`) that chains prereqs → Phase-A canonical-6
-  corpus generation → 5-seed × 9-fold LOSO retrain → ADR-0303 verdict
-  emission → bundling. Five numbered step scripts (`01-prereqs.sh`
-  through `05-bundle-results.sh`) are usable individually for retries.
-  The kit reuses the existing in-tree pieces unchanged
-  (`scripts/dev/hw_encoder_corpus.py`,
-  `ai/scripts/run_ensemble_v2_real_corpus_loso.sh`,
-  `ai/scripts/validate_ensemble_seeds.py`,
-  `ai/scripts/export_ensemble_v2_seeds.py`,
-  `scripts/ci/ensemble_prod_gate.py`) — no engine changes.
-  `make-distribution-tarball.sh` produces a self-contained tar.gz
-  (~ < 50 MiB) with the kit + every script it invokes + the runbook,
-  so a collaborator can untar without cloning the fork. Operator-facing
-  documentation lives in
-  [`tools/ensemble-training-kit/README.md`](../tools/ensemble-training-kit/README.md);
-  the kit's pinned Python dependency set is captured in
-  `requirements-frozen.txt`. Companion to
-  [ADR-0309](../docs/adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md)'s
-  runbook.
-
-
-- **FR-from-NR corpus adapter for KonViD-150k and other no-reference shards
-  ([ADR-0346](../docs/adr/0346-fr-features-from-nr-corpus.md),
-  [ADR-0325](../docs/adr/0325-konvid-150k-corpus-ingestion.md)).**
-  Bridges the FR predictor schema (`fr_regressor_v2_ensemble`,
-  `fr_regressor_v3`) to no-reference corpora that carry MOS but no
-  clean reference YUV. New
-  [`tools/vmaf-tune/src/vmaftune/fr_from_nr_adapter.py`](../tools/vmaf-tune/src/vmaftune/fr_from_nr_adapter.py)
-  implements the *decode-original-as-reference* pattern: ffprobe each
-  upload, ffmpeg-decode it to raw YUV, treat that decoded YUV as the
-  FR reference, re-encode at a configurable CRF sweep (default
-  `(18, 23, 28, 33, 38)`), score the canonical-6 against each
-  re-encode via the existing `vmaftune.corpus.iter_rows` Phase A
-  pipeline. Each NR input produces `len(crf_sweep)` FR corpus rows
-  (5x multiplier on the K150K shard, 148k → ~742k FR rows). Output
-  rows match the existing :data:`vmaftune.CORPUS_ROW_KEYS` schema
-  (no schema bump) plus `nr_source` / `nr_mos` / `fr_from_nr`
-  provenance keys so downstream trainers can stratify by reference
-  pristineness. Companion runbook
-  [`ai/scripts/extract_k150k_features.sh`](../ai/scripts/extract_k150k_features.sh)
-  wraps the adapter for the full overnight K150K pass. Honest caveat
-  documented in the ADR §Consequences §Negative and in
-  [`docs/ai/fr-from-nr-adapter.md`](../docs/ai/fr-from-nr-adapter.md):
-  the "reference" is the re-decoded upload, not a pristine master,
-  so FR scores measure delta-vs-already-distorted-source — methodology
-  matches LIVE-VQA / LIVE-VQC / KonViD-1k synthetic-distortion
-  precedent. Smoke test:
-  `python -m pytest tools/vmaf-tune/tests/test_fr_from_nr_adapter.py`
-  (13 tests, ffprobe / ffmpeg / vmaf all mocked at the runner seam).
 - **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0242).**
   Prepares the fork's tiny-AI training workstream to train on the local
   Netflix VMAF corpus (9 reference YUVs + 70 distorted YUVs at
@@ -3773,69 +3473,6 @@
   [`docs/usage/vmaf-roi-score.md`](docs/usage/vmaf-roi-score.md).
 
 
-- **AGENTS.md per-package coverage audit + backfill.**
-  Audits every code-bearing directory under `libvmaf/src/`, `tools/`,
-  `ai/`, `python/vmaf/`, `mcp-server/`, and `scripts/` for the
-  rebase-sensitive-invariants documentation required by CLAUDE.md
-  §12 r11 / [ADR-0108](../docs/adr/0108-deep-dive-deliverables-rule.md).
-  Adds 13 new `AGENTS.md` files where rebase risk was real but
-  documentation was missing: the SIMD twin-update tables under
-  `libvmaf/src/feature/{x86,arm64}/`, the IQA scalar reference
-  (`libvmaf/src/feature/iqa/`) and Xiph third-party reference
-  (`libvmaf/src/feature/third_party/xiph/`), the per-feature GPU
-  kernel directories (`libvmaf/src/feature/{cuda,sycl,vulkan}/` plus
-  `libvmaf/src/feature/vulkan/shaders/`), the SVE2 HWCAP2 fork-local
-  fallback under `libvmaf/src/arm/`, the MCP scaffold contract
-  (`libvmaf/src/mcp/`), the fork-original ensemble training kit
-  (`tools/ensemble-training-kit/`), and the top-level `scripts/`
-  tree (covers ADR-0221 fragment-concat scripts, ONNX placeholder
-  generators, setup dispatcher). Each new file documents its
-  package-specific invariants — twin-update rules, upstream-mirror
-  discipline, and ADR carve-outs — so a contributor opening any of
-  those directories cold finds the rebase-sensitive context without
-  reading the parent end-to-end. Audit summary lives at
-  [`docs/research/0090-agents-md-coverage-audit-2026-05-09.md`](../docs/research/0090-agents-md-coverage-audit-2026-05-09.md).
-  No engine or test changes; documentation-only.
-
-
-- **arXiv-style tech-note draft for the production-flip gate and conformal-VQA novelty
-  claims (Research-0090).** Lands a DRAFT preprint at
-  [`docs/research/0090-arxiv-techNote-prodflip-conformal-2026-05-09.md`](../docs/research/0090-arxiv-techNote-prodflip-conformal-2026-05-09.md)
-  covering the two patterns flagged as "no clear public prior art" by the SOTA digest
-  ([Research-0086](../docs/research/0086-tiny-ai-sota-deep-dive-2026-05-08.md), PR #449):
-  the [ADR-0303](../docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md) two-criterion
-  ensemble production-flip gate (mean LOSO PLCC + max-min spread; verdict and
-  PROMOTE.json from PR #423), and the [ADR-0279](../docs/adr/0279-fr-regressor-v2-probabilistic.md)
-  conformal-VQA prediction surface (split-conformal + CV+; coverage probe `0.9515`
-  vs `0.95` nominal pinned by `tools/vmaf-tune/tests/test_conformal.py` from PR #488).
-  Research-and-writing only — no code changes; the draft is the deliverable. Format
-  is Markdown for `pandoc` conversion to LaTeX when the user opts to submit.
-- **`av1_videotoolbox` placeholder codec adapter + upstream watcher
-  ([ADR-0339](../docs/adr/0339-av1-videotoolbox-placeholder-adapter.md)).**
-  Apple M3 / M4 silicon has hardware AV1 encode capability but
-  FFmpeg upstream has not yet exposed it (verified against
-  `git.ffmpeg.org/ffmpeg.git` master `8518599cd1`, 2026-05-09:
-  `libavcodec/videotoolboxenc.c` registers H264 / HEVC / PRORES
-  only). New `Av1VideoToolboxAdapter` registers in
-  `tools/vmaf-tune/src/vmaftune/codec_adapters/` with
-  `supports_runtime=False` and raises
-  `Av1VideoToolboxUnavailableError` from `validate` /
-  `ffmpeg_codec_args` until a runtime probe of `ffmpeg -h
-  encoder=av1_videotoolbox` confirms the encoder is live — at which
-  point the adapter self-activates with no code change. Paired with
-  `scripts/upstream-watcher/check_ffmpeg_av1_videotoolbox.sh` and a
-  weekly cron at `.github/workflows/upstream-watcher.yml`
-  (Mondays 08:00 UTC) that opens an `upstream-blocked` GitHub issue
-  the moment FFmpeg upstream lands the encoder. First member of the
-  upstream-watcher pattern documented in
-  [`docs/development/upstream-watchers.md`](../docs/development/upstream-watchers.md).
-  Tests under `tools/vmaf-tune/tests/test_codec_adapter_av1_videotoolbox.py`
-  cover both placeholder-mode (raises `Av1VideoToolboxUnavailableError`)
-  and post-activation (correct argv emission) via an injected
-  subprocess runner — no real FFmpeg invocation, no macOS
-  dependency.
-
-
 - **CI**: new `Required Checks Aggregator` workflow
   ([`.github/workflows/required-aggregator.yml`](.github/workflows/required-aggregator.yml),
   [ADR-0313](docs/adr/0313-ci-required-checks-aggregator.md)) that runs on
@@ -3848,16 +3485,6 @@
   their diffs but branch protection still required those check names to
   report). The 23 individual workflows continue to run unchanged — only
   the protection-layer required-list flips.
-
-
-- **`vmaf-tune compare` CLI subcommand
-  ([T-VMAF-TUNE-compare-codecs](T-VMAF-TUNE-compare-codecs.md)).**
-  Surfaces the existing `compare.py` codec-comparison ranker as a
-  runnable subcommand. Takes a comma-separated `--encoders` list,
-  delegates to [`compare_codecs`](../tools/vmaf-tune/src/vmaftune/compare.py),
-  ranks by smallest bitrate at the chosen `--target-vmaf`, emits a
-  markdown / JSON / CSV report. Module shipped earlier with its tests;
-  this entry just exposes it on the CLI.
 
 
 - **Encoder knob-space Pareto-frontier analysis scaffold (ADR-0305 /
@@ -3909,22 +3536,6 @@
   indices keep their column positions verbatim. Re-scopes PR #373
   (the VT-adapters-plus-vocab change deferred when the VT adapters
   landed via ADR-0283).
-
-
-- **Ensemble training kit — Google-Drive contributor-bundle scripts.**
-  Adds two operator-facing scripts under
-  [`tools/ensemble-training-kit/`](../tools/ensemble-training-kit/):
-  `prepare-gdrive-bundle.sh` (lead-user side) compresses the local
-  BVI-DVC + Netflix raw YUV corpus (~229 GiB) to lossless HEVC and
-  tars it with a manifest into a single ~100 GiB Google-Drive-friendly
-  bundle; `extract-corpus.sh` (contributor side) decodes the lossless
-  HEVC back to bit-exact YUVs and verifies every file against the
-  bundled sha256 manifest before the trainer runs. README quickstart
-  for gdrive recipients added at the top of
-  [`tools/ensemble-training-kit/README.md`](../tools/ensemble-training-kit/README.md).
-  Companion to [ADR-0324](../docs/adr/0324-ensemble-training-kit.md);
-  closes the "kit ships orchestrator only, contributors source data
-  manually" loop the original kit left open.
 
 
 - **`fr_regressor_v2` ensemble LOSO trainer — real loader + per-fold
@@ -3986,72 +3597,6 @@
   [`ai/AGENTS.md`](ai/AGENTS.md) "Ensemble registry invariant".
 
 
-- **`fr_regressor_v3` namespace map + `fr_regressor_v3plus_features`
-  reservation (ADR-0349).** Resolves the namespace collision agent
-  reports `abd6ed552ac8cae60` and `abda108c8263491da` surfaced
-  between the existing production `fr_regressor_v3` checkpoint
-  (vocab-16 retrain shipped via ADR-0323 / PR #428,
-  sha256 `eaa16d23…`, `smoke: false`) and a future "feature-set
-  v3" workstream (canonical-6 + `encoder_internal` + shot-boundary
-  + `hwcap`). The existing v3 production row stays bit-identical
-  (zero file moves, zero sha256 churn — investigation found 19
-  references in 12 files, all keep working unchanged); the future
-  feature-set bump lands as `fr_regressor_v3plus_features`,
-  reserved here in [ADR-0349](../docs/adr/0349-fr-regressor-v3-namespace.md)
-  + [`ai/AGENTS.md`](../ai/AGENTS.md). The reservation is
-  documentation-only because
-  [`libvmaf/test/dnn/test_registry.sh`](../libvmaf/test/dnn/test_registry.sh)
-  treats every registry row as a hard contract — a stub row would
-  fail CI on day one, so the row lands with the future PR that
-  ships the `.onnx`. Rejected: renaming the existing v3 to
-  `_v3_vocab16` (touches 19 call sites; breaks ADR-0291
-  production-flip immutability) and calling the future work
-  `_v4_features` (inflates `_v4` to a name-conflict workaround).
-- **`fr_regressor_v3` — train + register on `ENCODER_VOCAB` v3
-  (16-slot) — gate PASSED (ADR-0323).** Closes the v3 retrain
-  deferral landed by [ADR-0302](../docs/adr/0302-encoder-vocab-v3-schema-expansion.md)
-  (PR #401). New trainer
-  [`ai/scripts/train_fr_regressor_v3.py`](../ai/scripts/train_fr_regressor_v3.py)
-  reuses the LOSO recipe from
-  [ADR-0319](../docs/adr/0319-ensemble-loso-trainer-real-impl.md) —
-  9-fold leave-one-source-out over the Phase A canonical-6 corpus,
-  fold-local StandardScaler, `FRRegressor(in_features=6,
-  num_codecs=18)`, Adam(lr=5e-4, wd=1e-5), MSE, 200 epochs, bs=32 —
-  on the NVENC-only Phase A corpus (5,640 rows). **Gate PASS:** mean
-  LOSO PLCC = **0.9975 ± 0.0018**, every source above 0.99 — clears
-  the ADR-0302 / [ADR-0291](../docs/adr/0291-fr-regressor-v2-prod-ship.md)
-  0.95 floor with ~5pp margin. New artefacts:
-  `model/tiny/fr_regressor_v3.onnx` (opset 17, two-input
-  `features:[N,6]` + `codec_block:[N,18]` → `vmaf:[N]`),
-  `model/tiny/fr_regressor_v3.json` (sidecar mirrors
-  `fr_regressor_v2.json` with `encoder_vocab_version: 3`, full
-  per-fold trace, `corpus` + `corpus_sha256`), registry row
-  `fr_regressor_v3` (`smoke: false`), tests
-  `ai/tests/test_train_fr_regressor_v3.py`, model card
-  [`docs/ai/models/fr_regressor_v3.md`](../docs/ai/models/fr_regressor_v3.md).
-  Live `ENCODER_VOCAB_VERSION = 2` in `train_fr_regressor_v2.py`
-  **stays authoritative for `fr_regressor_v2.onnx`** — v3 ships as a
-  parallel checkpoint; v2 → v3 in-place promotion is a separate PR
-  per ADR-0302's production-flip checklist. NVENC-only corpus caveat
-  documented honestly in the model card: 15 of 16 vocab slots
-  receive zero training rows;
-  [ADR-0235](../docs/adr/0235-codec-aware-fr-regressor.md)
-  multi-codec lift floor (≥+0.005 PLCC) is not yet measurable on
-  this corpus drop and is deferred to a multi-codec retrain.
-
-
-- **`vmaf-tune corpus --auto-hdr / --force-sdr / --force-hdr-pq /
-  --force-hdr-hlg` CLI flags
-  ([ADR-0300](../docs/adr/0300-vmaf-tune-hdr-aware.md)).** Surfaces
-  the HDR-mode plumbing on the corpus subparser; threads the choice
-  through to `CorpusOptions.hdr_mode` so downstream rows can be
-  tagged. The actual `iter_rows` integration (per-source ffprobe
-  detection + codec-arg injection + HDR-VMAF model selection) lands
-  in a follow-up PR — `hdr.py` already exposes `detect_hdr`,
-  `hdr_codec_args`, and `select_hdr_vmaf_model` from the earlier
-  Bucket #9 module merge.
-
-
 - **`scripts/dev/hw_encoder_corpus.py`** — Phase A real-corpus runner.
   Encodes a raw YUV with NVENC / QSV / VAAPI / libx264 at a CRF/CQ
   grid, decodes back to raw YUV, scores with libvmaf (CUDA backend),
@@ -4069,17 +3614,6 @@
   `runs/phase_a/` (gitignored); rerun the script to reproduce. New
   fork-internal doc `docs/development/intel-arc-vaapi-driver-priority.md`
   captures the `LIBVA_DRIVER_NAME=iHD` gotcha for multi-card hosts.
-
-
-- **`vmaf-tune ladder` CLI subcommand
-  ([ADR-0295](../docs/adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)).**
-  Surfaces the existing Phase E per-title bitrate ladder pipeline
-  ([`ladder.py`](../tools/vmaf-tune/src/vmaftune/ladder.py)) as a
-  runnable subcommand. Sweeps `(resolution × target-VMAF)`, builds the
-  convex hull, picks K knees by `--spacing` (`log_bitrate` /
-  `uniform`), emits an HLS / DASH / JSON master manifest. The ladder
-  module shipped earlier (with [Research-0068](../docs/research/0068-vmaf-tune-phase-e-bitrate-ladder.md));
-  this entry just exposes it on the CLI.
 
 
 - **`ffmpeg-patches/0007` libaom-av1 ROI bridge — full impl**:
@@ -4108,54 +3642,6 @@
   driving libaom through its lower-level rate-control plumbing
   (use `vmaf-tune corpus` instead). Retires the libaom-av1
   deferral noted in ADR-0312; no new ADR.
-
-
-
-- **macOS Vulkan-via-MoltenVK CI lane (advisory)
-  ([ADR-0338](../docs/adr/0338-macos-vulkan-via-moltenvk-lane.md)).**
-  Adds `Build — macOS Vulkan via MoltenVK (advisory)` to
-  [`libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml).
-  Validates the existing Vulkan compute backend
-  ([ADR-0127](../docs/adr/0127-vulkan-compute-backend.md)) on Apple
-  Silicon (`macos-latest`) via the MoltenVK Vulkan-on-Metal
-  translation layer. Installs `molten-vk`, `vulkan-loader`,
-  `vulkan-headers`, and `shaderc` via Homebrew; pins the loader to
-  MoltenVK with
-  `VK_ICD_FILENAMES=/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json`;
-  builds with `-Denable_vulkan=enabled`; runs `test_vulkan_smoke`,
-  `test_vulkan_pic_preallocation`, and
-  `test_vulkan_async_pending_fence`. Lane is `continue-on-error:
-  true` (advisory) until one green run on `master`. Operator-facing
-  install + known-limitations documentation lives at
-  [`docs/backends/vulkan/moltenvk.md`](../docs/backends/vulkan/moltenvk.md);
-  feasibility-against-fork-shaders digest at
-  [`docs/research/0089-moltenvk-feasibility-on-fork-shaders.md`](../docs/research/0089-moltenvk-feasibility-on-fork-shaders.md).
-  Complementary to the native Metal backend (separate workstream)
-  — MoltenVK is the cross-platform parity story, native Metal is
-  the macOS performance story.
-
-
-- **Pre-push PR-body deliverables validator.** New
-  `scripts/ci/validate-pr-body.sh` standalone CLI and
-  `scripts/git-hooks/pre-push` git hook (installed by
-  `make hooks-install`) run the same ADR-0108 deep-dive-checklist
-  parser as `.github/workflows/rule-enforcement.yml` against the
-  branch's open PR body before pushing. Closes the loop on the
-  multi-retry feedback cycle the strict parser caused on PRs #461,
-  #438, #470, #473, #486, #511, #468, and #526. Bypass via
-  `git push --no-verify`. See `docs/development/pr-body-validator.md`.
-- **`vmaf-tune recommend-saliency` CLI subcommand
-  ([ADR-0287](../docs/adr/0287-vmaf-tune-saliency-aware-encoding.md)).**
-  Surfaces the existing saliency-aware encode pipeline (Bucket #2)
-  as a runnable subcommand. Builds an `EncodeRequest` from the
-  flag set, delegates to
-  [`saliency.saliency_aware_encode`](../tools/vmaf-tune/src/vmaftune/saliency.py),
-  emits a JSON summary (encoder + version + crf + size + exit
-  status). Distinct from `recommend` (master's coarse-to-fine
-  target-VMAF search) — saliency is a single-encode workflow
-  that biases bits toward salient regions. Falls back to a plain
-  encode when onnxruntime / the model is unavailable so the
-  caller always gets a result.
 
 
 - **Research-0061: docs-only PR CI fast-track design.** Tracks the
@@ -4235,21 +3721,6 @@
   noted in ADR-0312; no new ADR.
 
 
-- **`vmaf-tune tune-per-shot` CLI subcommand
-  ([ADR-0276](../docs/adr/0276-vmaf-tune-phase-d.md)).**
-  Wires the Phase-D per-shot tuner into the `vmaf-tune` CLI. The
-  underlying [`per_shot.py`](../tools/vmaf-tune/src/vmaftune/per_shot.py)
-  module landed earlier; this entry just exposes it as a runnable
-  subcommand: detects shots via `vmaf-perShot` (TransNet V2 weights)
-  with a single-shot fallback, drives a target-VMAF predicate per
-  shot, and emits a JSON encoding plan + optional copy-paste shell
-  script. Plus an `import json` fix for `_run_predict` that was
-  silently broken on master, and an adapter-aware quality-range
-  test (replaces the literal `[15, 40]` window so the test tracks
-  whatever the libx264 adapter declares — currently `(0, 51)` per
-  ADR-0306).
-
-
 - **`vf_libvmaf_tune` filter full scoring (ADR-0312 sub-decision retired).**
   `ffmpeg-patches/0008-add-libvmaf_tune-filter.patch` graduates from the
   scaffold pass-through state to a real in-process VMAF scorer: per-frame
@@ -4306,42 +3777,20 @@
   pipeline end-to-end without ffmpeg, ONNX Runtime, or a GPU.
 
 
-- **`vmaf-tune --two-pass` — Phase F multi-pass encoding seam, libx265
-  first ([ADR-0333](../docs/adr/0333-vmaf-tune-multi-pass-encoding.md)).**
-  Codec adapters opting in declare `supports_two_pass = True` and
-  override `two_pass_args(pass_number, stats_path) -> tuple[str, ...]`;
-  `X265Adapter` is the first concrete implementation, returning
-  `('-x265-params', f'pass={N}:stats={path}')`. `EncodeRequest` gains
-  `pass_number: int = 0` (0 = single-pass / default; 1 / 2 = pass index)
-  and `stats_path: Path | None = None`; `build_ffmpeg_command` redirects
-  pass-1 output to `-f null -` so the throwaway encoded bitstream isn't
-  written. New `encode.run_two_pass_encode(req, ...)` materialises a
-  per-encode unique stats file under a tempdir, runs pass 1 → pass 2,
-  cleans up the stats file (and libx265's `.cutree` sidecar) on exit,
-  and returns one combined `EncodeResult` (encode_time = sum of both
-  passes; size = pass-2 size). New `--two-pass` CLI flag opts in on
-  `corpus` / `recommend`; default stays single-pass. Codecs where
-  `supports_two_pass = False` fall back to single-pass with a stderr
-  warning (matches the saliency.py x264-only fallback precedent);
-  callers using the Python API can pass `on_unsupported="raise"` to
-  fail loudly instead. Sibling codec adapters (libx264, libsvtav1,
-  libvvenc, libaom-av1) inherit the seam and land as one-file follow-up
-  PRs. NVENC's `-multipass` is a separate adapter contract (single-
-  invocation lookahead, not the stats-file two-call sequence) and is
-  not covered by this seam. AMF / QSV / VideoToolbox keep
-  `supports_two_pass = False` (hardware encoders use internal
-  lookahead).
-- **`vmaf-tune --score-backend=vulkan` — vendor-neutral GPU scoring
-  ([ADR-0314](../docs/adr/0314-vmaf-tune-score-backend-vulkan.md)).**
-  Adds `vulkan` as a `--score-backend` choice (alongside `cuda` /
-  `sycl` / `cpu`) so AMD, Intel Arc, and Apple-MoltenVK hosts can run
-  GPU-accelerated VMAF scoring without the NVIDIA-only CUDA path. The
-  auto-detection chain becomes `cuda > vulkan > sycl > cpu`; existing
-  NVIDIA boxes see no behaviour change. Strict-mode failures stay
-  strict per ADR-0299 — no silent CPU downgrade. The CLI flag, the
-  detection plumbing in `score_backend.py`, and the libvmaf Vulkan
-  backend (ADR-0127 / 0175 / 0186) all shipped earlier; this entry
-  captures the operator-facing flip.
+- **vmaf-tune `--score-backend=vulkan`** — vendor-neutral GPU
+  scoring path on top of libvmaf's existing Vulkan backend
+  (ADR-0127 / ADR-0175 / ADR-0186). Restores the `--score-backend`
+  argparse wiring that was lost between PR #378 and HEAD (post-#378
+  rebases dropped the `cli.py` hunks) and admits `vulkan` as a
+  fourth strict-mode value alongside `cpu` / `cuda` / `sycl`. Runs
+  on Mesa anv/RADV/lavapipe (Linux), the proprietary NVIDIA driver,
+  and macOS via MoltenVK — the obvious answer for AMD, Intel Arc,
+  and any contributor box without `nvidia-smi`. `auto` mode still
+  walks `cuda → vulkan → sycl → cpu`, so existing NVIDIA
+  configurations see no behaviour change. Strict-mode failures
+  (e.g. `--score-backend vulkan` on a host without a Vulkan loader)
+  raise `BackendUnavailableError` and exit 2 — no silent CPU
+  downgrade. ADR-0314.
 
 
 ### Changed
@@ -4436,30 +3885,6 @@
   [`docs/rebase-notes.md`](docs/rebase-notes.md).
 
 
-- **AVX-512 follow-up audit sweep (T3-9, 2026-05-09)
-  ([Research-0089](../docs/research/0089-avx512-audit-sweep-2026-05-09.md);
-  audit blocks appended to
-  [ADR-0138](../docs/adr/0138-iqa-convolve-avx2-bitexact-double.md),
-  [ADR-0161](../docs/adr/0161-ssimulacra2-simd-bitexact.md),
-  [ADR-0162](../docs/adr/0162-ssimulacra2-iir-blur-simd.md),
-  [ADR-0163](../docs/adr/0163-ssimulacra2-ptlr-simd.md)).**
-  Bench-first re-audit of the three deferred AVX-512 candidates on
-  AMD Ryzen 9 9950X3D (Zen 5). Methodology per BACKLOG: ship if 16-lane
-  AVX-512 >=1.3x AVX2 on the Netflix normal pair, otherwise document
-  as ADR-0180-style ceiling. Results: (a) `psnr_hvs` AVX-512 stays
-  closed as AVX2 ceiling — theoretical headroom 1.11x, re-affirms
-  ADR-0180 verdict on a faster machine; (b) `ssimulacra2` AVX-512
-  re-affirmed at 1.461x (full PTLR + IIR + scoring pipeline,
-  byte-identical to AVX2 across all 48 frames at full IEEE-754
-  precision); (c) `iqa_convolve` AVX-512 re-affirmed at 1.300x via
-  `float_ssim` and 1.173x via `float_ms_ssim` (the latter is sub-
-  threshold but explained by 5-scale outer-loop amortisation at the
-  smallest two scales — matches ADR-0138 §"Follow-up" prediction).
-  No new SIMD code shipped; 0/2 SHIP candidates, 2/2 AUDIT-PASS,
-  1/1 DOCUMENT (ceiling). Closes T3-9 BACKLOG row + former T3-10 +
-  former T7-31. Reproducer in Research-0089.
-
-
 - **MobileSal real-weights swap deferred (T6-2a-followup, ADR-0257)** —
   the original plan to swap the smoke-only `mobilesal_placeholder_v0`
   ONNX in `model/tiny/registry.json` for real upstream MobileSal
@@ -4531,6 +3956,23 @@
   max-abs-diff `< 4e-6` across 3 random `[0..255]` trials. New
   exporter `ai/scripts/export_transnet_v2.py` (placeholder kept for
   reference). See ADR-0257 and `docs/ai/models/transnet_v2.md`.
+
+
+- **AI / DNN:** Replaced the `fastdvdnet_pre` smoke-only placeholder
+  ONNX with real upstream FastDVDnet weights (Tassano, Delon, Veit
+  2020; MIT license) pinned at `m-tassano/fastdvdnet` commit `c8fdf61`.
+  The new graph wraps upstream's RGB+noise-map model in a `LumaAdapter`
+  that preserves the C-side `[1, 5, H, W]` luma I/O contract from
+  ADR-0215: `Y → [Y, Y, Y]` tiling for the upstream 15-channel input,
+  a constant `sigma = 25/255` noise map, and BT.601 RGB→Y collapse on
+  the output. Upstream `nn.PixelShuffle` is swapped at export time for
+  an allowlist-safe `Reshape`/`Transpose`/`Reshape` decomposition
+  (`DepthToSpace` is deliberately not on the ONNX op allowlist).
+  Registry row `model/tiny/registry.json` flips `smoke: false` with
+  the new MIT license, upstream commit pin, and refreshed sha256.
+  9.5 MiB ONNX, opset 17. New exporter
+  `ai/scripts/export_fastdvdnet_pre.py`. See ADR-0253 and
+  `docs/ai/models/fastdvdnet_pre.md`.
 
 
 - **AI / DNN:** Replaced the `fastdvdnet_pre` smoke-only placeholder
@@ -4627,102 +4069,6 @@
   projection).
 
 
-- **docs**: ADR-0312 (ffmpeg-patches vmaf-tune integration) status flipped
-  from `Proposed` to `Accepted` — patch 0007's two scaffold hunks
-  (SVT-AV1, libaom-av1) have been retired via PRs #417 + #419
-  respectively. ADR body updated to reflect the current state across all
-  three encoders. Patches 0008/0009 stay scaffold by design (filter +
-  CLI glue), now explicitly documented as not-deferred.
-
-
-- **docs**: bulk-flip ADR Status `Proposed` → `Accepted` for 13 ADRs whose
-  implementing PRs landed during the 2026-05-06 merge train (ADRs 0302
-  / 0303 / 0304 / 0305 / 0307 / 0308 / 0309 / 0311 / 0313 / 0314 / 0316
-  / 0317 / 0319). Per ADR-0028 / `docs/adr/README.md`, ADRs flip to
-  Accepted once the deliverable lands; the train moved faster than the
-  per-ADR Status bumps could keep up. ADR-0313's Status row was using
-  table-format (`| Status | Proposed |`) instead of the bullet-format
-  (`- **Status**: Proposed`) the other ADRs use, so the bulk sed missed
-  it; fixed inline.
-
-
-
-- **docs**: ADR `Proposed` → final-status sweep covering the 26 ADRs
-  whose front-matter still carried `**Status**: Proposed` at HEAD on
-  2026-05-08 (deliberate exclusion: ADR-0325, contested by in-flight
-  PRs and scoped to the merge-train renumber sweep). Companion to
-  `changelog.d/changed/adr-bulk-status-flip-2026-05-06.md` which
-  flipped the prior 13. **Accepted**: ADR-0125 / 0126 / 0127 / 0129
-  / 0138 / 0139 / 0140 / 0207 / 0208 / 0235 / 0238 / 0239 / 0251 /
-  0253 / 0270 / 0272 / 0276 / 0279 / 0295 / 0314 (also resolves the
-  unresolved Git conflict markers around its Status line that a
-  rebase reintroduced after the 2026-05-06 sweep) / 0315 / 0324.
-  **Stay Proposed** (work in flight, gap documented in the appendix):
-  ADR-0128 (MCP runtime is `-ENOSYS` stub awaiting T5-2b; ADR-0209
-  audit-first scaffold is Accepted but the transports remain unwired)
-  and ADR-0236 (DISTS extractor — T7-DISTS not started). Per
-  ADR-0028 / ADR-0106 immutability rule, each ADR's original body is
-  unchanged; status flips land as a `### Status update 2026-05-08`
-  appendix that records the verification trail. Companion research
-  digest: `docs/research/0086-adr-proposed-status-sweep-2026-05-08.md`.
-- **CI:** `actions/cache` now persists `~/.ccache` for every Linux + macOS
-  build leg in `libvmaf-build-matrix.yml` (previously only the MinGW64 leg
-  cached its `.ccache`). After warm-up, ccache hit rate of 60–85% is expected
-  per Research-0089 §3.1, dropping the critical-path build wall-clock by
-  ~3–5 min/cell (~4 min PR-end-to-end, ~50 runner-min/PR). No coverage
-  change — `ccache -s` is logged after every build so the warm-up curve is
-  visible in CI. See `docs/research/0089-ci-cost-optimization-audit-2026-05-09.md`.
-
-
-- **CHANGELOG.md drift sweep — 2026-05-08
-  ([ADR-0221](../docs/adr/0221-changelog-adr-fragment-pattern.md)).**
-  Reconciled accumulated skew between `changelog.d/<section>/*.md`
-  fragments and the rendered `## [Unreleased]` block of
-  [`CHANGELOG.md`](../CHANGELOG.md). Thirteen fragments had landed in
-  in-flight PRs without `--write` being run; one entry (vmaf-tune
-  `--score-backend=vulkan`) had a verbose inline form that drifted from
-  its canonical fragment; one entry (FastDVDnet `smoke: false` flip)
-  was duplicated twice in the rendered block; and the `### Changed`
-  header itself was duplicated. Regenerated via
-  `scripts/release/concat-changelog-fragments.sh --write` after manual
-  inspection of every removal — no genuine orphans were found. Also
-  documents the fragment-vs-rendered drift policy + drift-class table
-  in [`docs/development/release.md`](../docs/development/release.md).
-  Companion to PR #476 on the ADR-index side; both PRs touch the
-  fragment-pattern ecosystem ADR-0221 establishes.
-
-
-
-
-
-
-
-- CI — `libvmaf-build-matrix.yml` and `tests-and-quality-gates.yml`
-  now carry a `paths-ignore` filter on their `pull_request` triggers:
-  `docs/**`, `**/*.md`, `changelog.d/**`, `CHANGELOG.md`,
-  `.workingdir2/**`. Doc-only / research-only PRs no longer fire the
-  18-cell build matrix or the 10-job test matrix. Safe under
-  ADR-0313: the Required Checks Aggregator already treats a
-  workflow-not-reported as path-filter-skipped/acceptable, so branch
-  protection still passes. Mirrors the path-filter pattern from
-  ADR-0317 on `docker-image.yml` and `ffmpeg-integration.yml`. Saves
-  roughly 14 runner-min per average PR, with bigger wins on doc-only
-  PRs (full ~14 min wall-clock skipped). See
-  [ADR-0341](../../docs/adr/0341-ci-paths-ignore-doc-only-prs.md) and
-  [Research-0089 §3.2](../../docs/research/0089-ci-cost-optimization-audit-2026-05-09.md).
-- **CI:** Per-lane wall-clock optimizations for the three slowest CI lanes
-  identified in Research-0089 (PR #525) §2: (1) Coverage Gate caches the
-  ONNX Runtime GPU `.tgz` (~150 MB) keyed on the pinned ORT version, saving
-  ~30–60 s per run; (2) Ubuntu Vulkan build caches `libvmaf/subprojects/packagecache/`
-  so volk + VMA wrap archives are restored from the GHA cache instead of
-  re-fetched from GitHub releases on every run, saving ~15–30 s per run;
-  (3) Windows MSVC + CUDA enables `use-github-cache: true` on the
-  `Jimver/cuda-toolkit` action so the CUDA 13.0.0 installer payload (~3 GB)
-  is restored from the GHA cache instead of re-downloaded over the network,
-  saving ~2–4 min per run. No coverage change. See
-  `docs/research/0089-ci-cost-optimization-audit-2026-05-09.md`.
-
-
 - **NVIDIA-Vulkan ciede2000 places=4 5/48 mismatch root-caused as f32/f64 fork debt (ADR-0273)** —
   closes the deferred follow-up reserved by PR #346 ("vif + ciede
   shaders — precise decorations") for the residual 5/48
@@ -4751,51 +4097,6 @@
   hardware validation stays a manual local gate. No code changes —
   ships docs only (ADR-0273, research-0055, state.md row, CHANGELOG,
   rebase-notes, vulkan-backend doc note).
-
-
-### Changed
-
-- **CLAUDE.md §12 r12**: dropped the stale "T7-5 NOLINT sweep is pending"
-  paragraph since PR #327 (refactor pass) and PR #388 (citation closeout,
-  ADR-0278) discharged that backlog item; every NOLINT in tree now carries
-  an inline citation. The rule's no-backdate clause stays.
-
-
-- **docs(libvmaf)**: add Doxygen-style WHY-non-obvious doc blocks for the
-  14 functions flagged by CodeQL `cpp/poorly-documented-function`
-  (alerts #259, #261, #262, #265, #408, #409, #410, #411, #412, #413,
-  #414, #416, #734, #746). Covers the upstream-mirror ADM kernels
-  (`integer_compute_adm`, `adm_dwt2_s123_combined`, `init`,
-  `adm_dwt2_8_avx512`, `adm_dwt2_s123_combined_avx512`), the AVX2 /
-  AVX-512 motion convolution twins (`y_convolution_8/16_avx2/avx512`,
-  `motion_score_pipeline_8_avx512`), the VIF subsample-readout twins
-  (`vif_subsample_rd_8_avx2/avx512`), the SSIMULACRA2 AVX-512
-  YUV→linear-RGB port (`ssimulacra2_picture_to_linear_rgb_avx512`), and
-  the CAMBI feature-extractor `init`. Each block documents the
-  bit-exactness invariant (ADR-0138 / ADR-0139) or the upstream-parity
-  invariant (ADR-0141) that prevents refactoring, plus the caller
-  contract a future maintainer would need from the SIMD dispatch site.
-  The 15th alert (#269, `test_feature.c`) gets a per-instance
-  `lgtm[cpp/poorly-documented-function]` comment with justification —
-  the file is already covered by `paths-ignore` in
-  `.github/codeql-config.yml` but the existing alert needs an inline
-  acknowledgement to clear on the next scan. Supersedes the
-  global-suppression sibling PR.
-- **`vmaf-tune` corpus schema v2 → v3 — canonical-6 per-feature
-  aggregates land as first-class columns.** Adds 12 new corpus row
-  fields (`adm2_mean`, `vif_scale[0..3]_mean`, `motion2_mean` plus
-  matching `_std` counterparts) parsed straight from libvmaf's
-  `pooled_metrics.<feature>` block. Bumps `SCHEMA_VERSION` from 2 to
-  3. Missing features (cambi-only models, encode failures) land as
-  `NaN` — never `0.0` — so trainers drop the row instead of fitting
-  on synthetic zeros. The reader (`vmaftune.corpus.read_jsonl`)
-  back-fills the new columns on legacy v2 rows with `NaN`, so older
-  corpora stay loadable. Unblocks `train_fr_regressor_v2.py` and
-  `train_fr_regressor_v3.py` consuming canonical-6 features directly
-  from the corpus DataFrame; v3 retires its synthetic-by-default
-  fallback on the real-corpus path. See ADR-0366 + the partial-
-  integration audit at `docs/research/0091-partial-integration-audit-
-  2026-05-08.md`.
 
 
 - **Dedup duplicate-NNNN ADRs (bookkeeping).** Renumbered ten ADR files
@@ -4839,25 +4140,6 @@
   CI gate is deferred until a smaller stratified sample reproduces
   the structural patterns. Per-codec adapter revisions land as
   follow-up PRs; this PR is documentation + ADR only.
-
-
-- **ai-tools**: ensemble-training-kit (ADR-0324) extended for
-  multi-platform support — NVIDIA CUDA, Intel Arc / iGPU SYCL, Vulkan
-  / CPU fallback, and macOS (Apple Silicon + Intel) with VideoToolbox.
-  New `_platform_detect.sh` helper auto-defaults the encoder list per
-  host: `*_nvenc` on NVIDIA, `*_qsv` on Intel iHD, `*_videotoolbox`
-  on Darwin, `libx264` CPU baseline elsewhere. `01-prereqs.sh` skips
-  NVIDIA gates on non-CUDA platforms; `02-generate-corpus.sh` and
-  `run-full-pipeline.sh` honour the auto-default unless `--encoders`
-  is overridden. New `build-libvmaf-binaries.sh` lets each operator
-  build a libvmaf binary for their box and rsync it into
-  `binaries/<platform>/`; binaries themselves are not in source
-  control. `scripts/dev/hw_encoder_corpus.py` now encodes via
-  `{h264,hevc}_videotoolbox` using the canonical
-  `_videotoolbox_common.py` adapter's argv shape. New
-  `tests/test_platform_detect.sh` covers the eight detection
-  branches. Per-box corpus shards merge via
-  `ai/scripts/merge_corpora.py` for the cross-platform LOSO retrain.
 
 
 - **ffmpeg-patches replay against pristine `n8.1` — 2026-05-04
@@ -4931,116 +4213,6 @@
   [Research-0067](docs/research/0067-fr-regressor-v2-prod-loso.md).
 
 
-- **ADR-0302 status appendix — namespace collision resolved
-  (ADR-0349).** Append-only status update on
-  [ADR-0302](../docs/adr/0302-encoder-vocab-v3-schema-expansion.md)
-  per [ADR-0028](../docs/adr/0028-adr-maintenance-rule.md)
-  (Accepted-ADR immutability) records that the `fr_regressor_v3`
-  registry row stays authoritative for the vocab-16 retrain and
-  that the future canonical-6 + `encoder_internal` + shot-boundary
-  + `hwcap` feature-set work claims the reserved name
-  `fr_regressor_v3plus_features` per
-  [ADR-0349](../docs/adr/0349-fr-regressor-v3-namespace.md).
-  No code change in ADR-0302 itself.
-- **`ai/AGENTS.md` gains a `## fr_regressor_* namespace map`
-  section** that enumerates the claimed names
-  (`_v1`, `_v2`, `_v2_ensemble_v1_seed{0..4}`, `_v3`) and
-  reserves `_v3plus_features`. Future agents working on the
-  `fr_regressor` lineage cite this map before claiming a new id.
-- **`nightly.yml` + `fuzz.yml` triage — gates stay on, bugs documented for
-  follow-up.** Research-0089 (PR #525) §5 flagged that both workflows had
-  0 successful runs in the last 50. Triage on 2026-05-09 confirmed both
-  gates fire correctly on `schedule:` and are catching real bugs:
-  `nightly.yml` ThreadSanitizer surfaces a data race in
-  `div_lookup_generator` (`libvmaf/src/feature/integer_adm.h:32-38`) where
-  every worker thread spawned from `vmaf_thread_pool_create` re-populates
-  the static `div_lookup[65537]` table without a `pthread_once` guard;
-  `fuzz.yml` `fuzz_y4m_input` surfaces a NULL-deref SEGV in
-  `y4m_input_fetch_frame` (`libvmaf/tools/y4m_input.c:877`) on negative-
-  width Y4M headers (reproducer `YUV4MPEG2 W-8 H4 F30:1 Ip A1:1 C422`).
-  Per memory `feedback_no_test_weakening`, neither workflow is muted /
-  `continue-on-error`'d / matrix-trimmed; both stay red until the
-  underlying fixes land in dedicated follow-up PRs. Two new Open rows in
-  [`docs/state.md`](../docs/state.md) (`T-NIGHTLY-TSAN-ADM-INIT`,
-  `T-FUZZ-Y4M-NEG-WIDTH-SEGV`) pin the failing tests + reopen triggers
-  so a *new* TSan / fuzz finding is immediately distinguishable from the
-  two known-open bugs. Triage decision recorded in
-  [ADR-0332](../docs/adr/0332-nightly-fuzz-triage-keep-gates.md). No
-  workflow files modified.
-- **docs**: Research-0085 (vendor-neutral VVC encode landscape) flipped
-  from `Status: SKELETON` to `Status: Active`. Re-ran every open
-  question against primary sources: NVIDIA Video Codec SDK 13.0 docs,
-  AMD AMF SDK GitHub (latest v1.5.0, 2025-10-29), Intel oneVPL GitHub
-  (`mfxstructures.h` + `CHANGELOG.md` 2.16.0), Khronos registry,
-  Phoronix coverage of Mesa 25.2 RADV AV1 encode, Fraunhofer HHI VVenC
-  issue tracker, ZLUDA repository. `[UNVERIFIED]` tag count in the
-  digest dropped from 25 to 10 — remaining items are legitimate gaps
-  requiring benchmarks (NN-VC quality lift, vvenc per-kernel CPU-time
-  distribution) or proprietary roadmap access (HHI's GPU-port plans).
-  ADR-0315 `## Context` and `## Alternatives considered` refreshed
-  with the verified data points; ADR status stays `Proposed`.
-
-
-- Sanitizer matrix (ASan / UBSan / TSan in
-  `tests-and-quality-gates.yml::sanitizers`) now runs the full C unit-test
-  set under each leg, replacing the prior `meson test --suite=unit`
-  invocation that matched zero tests because no `test()` call in
-  `libvmaf/test/meson.build` carries a `suite: 'unit'` tag — every leg
-  was previously printing `No suitable tests defined.` and exiting 0
-  with zero correctness coverage. Per-sanitizer deselect lists
-  document tests excluded because of real defects (not a sanitizer
-  mis-configuration); each deselect corresponds to a tracked
-  follow-up bug. UBSan additionally builds with
-  `-fno-sanitize=function` to skip the K&R-prototype harness UB
-  pattern in `libvmaf/test/test.h` + ~50 `test_*.c` files; library
-  signal stays intact. Surfaces seven previously-hidden defects
-  (svm.cpp malformed-JSON parse path, dict/extractor leaks in
-  `test_predict` / `test_float_ms_ssim_min_dim`, integer_adm
-  `div_lookup` global-init race, framesync mutex-domain mismatch).
-  See [ADR-0347](docs/adr/0347-sanitizer-matrix-test-scope.md) and
-  [research-0090](docs/research/0090-sanitizer-matrix-test-scope.md).
-- **ci**: skip workflows on draft pull requests across all 8 fork
-  workflows (`docker-image.yml`, `security-scans.yml`,
-  `lint-and-format.yml`, `required-aggregator.yml`,
-  `ffmpeg-integration.yml`, `libvmaf-build-matrix.yml`,
-  `rule-enforcement.yml`, `tests-and-quality-gates.yml`). Each
-  `pull_request` trigger now lists
-  `types: [opened, synchronize, reopened, ready_for_review]` and every
-  top-level job is gated on
-  `github.event.pull_request.draft == false`. Push-to-master
-  triggers are unchanged. Promotion of a draft PR via
-  `ready_for_review` fires the full matrix; subsequent
-  `synchronize` events on the now-ready PR fire CI as before. Cuts
-  CI spend roughly in half against the fork's typical
-  10+-draft-PR work-in-progress queue. See ADR-0331.
-
-
-
-- **Stale-marker sweep 2026-05-08 — full-tree audit
-  ([Research-0086](docs/research/0086-stale-marker-sweep-2026-05-08.md))** —
-  classified every `@pytest.mark.skip` / `@unittest.skip` / `pytest.skip` /
-  `_*_DEFERRED` / `raise NotImplementedError` / `// TODO|FIXME|XXX` /
-  `return -ENOSYS` / `#error "unimplemented"` marker in fork-touched paths
-  (`tools/`, `python/vmaf/`, `ai/`, `mcp-server/`, `libvmaf/src/`,
-  `libvmaf/test/`). Outcome: ~95 markers DEFERRED-VALID with documented
-  reopen triggers (HIP T7-10b scaffolds per ADR-0212/ADR-0274, MCP T5-2b
-  scaffold per ADR-0209, `vmaf-tune fast` production wiring per
-  ADR-0276 / PR #467, `vmaf-roi-score` T6-2c per ADR-0288, environment-
-  gate test skips, abstract-base-method `NotImplementedError` patterns).
-  One marker — `_HDR_ITER_ROWS_DEFERRED` in
-  `tools/vmaf-tune/tests/test_hdr.py` — was missing a cross-link to its
-  follow-up PR (#466 HP-2) and to `docs/state.md`; this PR adds both and
-  opens a `T-HDR-ITER-ROWS` row under "Deferred" so the un-skip rides
-  with the wiring PR. Zero TODO/FIXME/XXX comments remain in fork-added
-  Python (`tools/`, `ai/`, `mcp-server/`); the seven survivors are all in
-  upstream-mirrored files, untouched by policy.
-
-
-
-
-
-
-
 - **`docs/state.md`**: audit cleanup (2026-05-05). Moved `Y4M-411-OOB`
   heap-buffer-overflow row from Open to Recently closed (PR #357 /
   commit `05ba29a6` landed the guard fix on 2026-05-04); removed the
@@ -5051,36 +4223,6 @@
   in Recently closed whose merged-commit twins lived directly below
   them. Bumped header date to 2026-05-05. No semantic state changes —
   every closed bug stayed closed; every open bug stayed open.
-
-
-- `docs/state.md` audit + backfill 2026-05-08
-  ([Research-0086](docs/research/0086-state-md-audit-2026-05-08.md)).
-  Bumped header date (2026-05-06 → 2026-05-08). Backfilled four
-  missing closure rows for bug-fix PRs that did not touch
-  `docs/state.md` in the same PR (against CLAUDE.md §12 r13 /
-  ADR-0165): PR #391 (CUDA `integer_motion_cuda` last-frame
-  duplicate-write warning + `context could not be synchronized`
-  regression introduced by PR #312's fence batching), PR #389
-  (`vmaf-tune` Phase A corpus pipeline emitted `vmaf_score=NaN` on
-  every encoded clip — `run_score` handed `.mp4` directly to
-  libvmaf CLI), PR #390 (CUDA build broken on dev hosts with gcc
-  16.x — `nvcc --std c++20` for libstdc++ char8_t support), PR
-  #234 (FFmpeg `vf_libvmaf` build break under `VK_NO_PROTOTYPES`
-  against `release/8.1`). Audit also fixed three stale rows in
-  the "Deferred (waiting on external trigger)" section: removed
-  the duplicate Netflix#955 entry (older row preserved the newer
-  2026-05-03 last-checked stamp), removed the stray `|---|---|---|---|`
-  Markdown table separator that was breaking the table layout
-  mid-section, and removed the duplicate **T-VK-1.4-BUMP** row
-  that conflicted with the canonical Open-bugs row at the top of
-  the file (PR #346 promoted the item from Deferred to Open-with-
-  partial-fix; the Deferred clone was never deleted). Two cases
-  flagged for maintainer disposition rather than guessed: the
-  Tiny-AI C1 baseline T6-1a "TRIGGERED 2026-04-29" row whose
-  closure section depends on whether the baseline has actually
-  trained, and the convention-question whether pure upstream-port
-  PRs (#301, #302, #303, #315) belong in `docs/state.md` at all.
-  Per ADR-0165 / CLAUDE.md §12 r13.
 
 
 - `docs/state.md` refresh 2026-05-03. Bumped header date
@@ -5100,71 +4242,6 @@
   deferred-row last-checked stamp (Netflix#1494 still `state=OPEN`
   per gh API). No row removed below its closure threshold; "Update
   protocol" section untouched. Per ADR-0165 / CLAUDE.md §12 r13.
-
-
-- `docs/state.md` staleness sweep 2026-05-08. Bumped header date
-  (2026-05-06 → 2026-05-08). Closed three rows that this session
-  discovered were already shipped but `docs/state.md` never tracked
-  the closure (CLAUDE.md §12 r13 reviewer-enforced rule, no CI gate
-  yet — separate backlog row): (a) **T6-1 / Tiny-AI C1 baseline**
-  `fr_regressor_v1.onnx` shipped via PR #249 (`f809ce09`,
-  2026-05-02) with [ADR-0249](docs/adr/0249-fr-regressor-v1.md) +
-  `docs/ai/models/fr_regressor_v1.md` already on master — moved
-  from "Deferred (waiting on external dataset access)" to
-  "Recently closed"; (b) **T6-2a-followup' / saliency replacement**
-  delivered via path C (`saliency_student_v1`, ~113 K params
-  trained from scratch on DUTS-TR, IoU 0.6558) shipped in PR #359
-  (2026-05-05, [ADR-0286](docs/adr/0286-saliency-student-fork-trained-on-duts.md))
-  — moved from "Deferred" to "Recently closed" with a note that
-  path A (op-allowlist `Resize` decision) closed by
-  [ADR-0258](docs/adr/0258-onnx-allowlist-resize.md) (Accepted
-  2026-05-03, opted against per-attribute enforcement aligning
-  with [ADR-0169](docs/adr/0169-wire-scanner-scope.md) wire-scanner-scope
-  rule) and path B (u2netp upstream-mirror via fork release artefact)
-  is in flight as PR #469. Added one new follow-up row in
-  "Open bugs": **T-VK-VIF-1.4-RESIDUAL** tracking the
-  `integer_vif_scale2` 45/48-frame `places=4` mismatch on
-  NVIDIA-Vulkan that survives PR #346's Step A `precise`
-  decorations — bisect needed to determine if the gap is the
-  same f32-vs-f64 colour-chain class as T-VK-CIEDE-F32-F64 or a
-  different contraction surface.
-  Companion appendix lands on
-  [ADR-0265](docs/adr/0265-u2netp-saliency-replacement-blocked.md)
-  `### Status update 2026-05-08` (paths A + C closed; path B
-  in flight at #469); ADR body unchanged per
-  [ADR-0028](docs/adr/0028-adr-maintenance-rule.md) immutability
-  rule. Coordinates with PR #455 (state.md audit-backfill, also
-  draft); whichever lands first, the other rebases.
-
-- Closed out the Research-0090 PORT_LATER bucket (18 upstream SHAs)
-  with explicit per-commit verdicts and reopen triggers in
-  [`docs/state.md`](docs/state.md) + [`docs/rebase-notes.md`](docs/rebase-notes.md).
-  All 18 commits remain DEFERRED — 17 are subsumed by the in-flight
-  PR #497 (`chore/upstream-port-mytestcase-migration-v2-2026-05-08`,
-  +7372/-652) and the eighteenth (`721569bc`, cambi docs) is already
-  duplicate-covered by PR #443 and PR #444. Two pure-deletion commits
-  (`25ff9f18` empty `VmafossexecCommandLineTest` stub; `0341f730`
-  duplicate `test_run_vmaf_integer_fextractor`) are flagged as
-  cherry-pick-after-#497 follow-ups because PR #497's diff state
-  currently re-emits both identifiers. Netflix-golden guard reaffirmed:
-  the four upstream macOS-FP tolerance commits (`4679db83`,
-  `ead2d12b`, `6c097fc4`, `d93495f5`) explicitly LOWER `places=` on
-  a subset of golden assertions and PR #497 must preserve fork
-  tolerances byte-for-byte on the three Netflix CPU golden pairs per
-  CLAUDE §8 / ADR-0024. No code touched in this PR; no rebase impact
-  beyond the documentation entries themselves.
-
-- ADR-0332 records the deferral of the SYCL ADM DWT `group_load`
-  rewrite recommended by research-0086 §A.4. The kernel
-  ([`integer_adm_sycl.cpp`](libvmaf/src/feature/sycl/integer_adm_sycl.cpp))
-  is unchanged at runtime; the deferral surfaces a divisibility
-  blocker (`TILE_ELEMS / WG_SIZE = 576 / 256 = 2.25`, not integer)
-  and a source-contiguity blocker (multi-row tile is non-contiguous)
-  that defeat the digest's sketched rewrite shape. ADR-0202 gains a
-  Status-update appendix recording the investigation outcome per
-  the ADR-0028 immutability rule. No user-visible behavioural delta;
-  no score change.
-
 
 
 - **`vif.comp` + `ciede.comp` shaders — `precise` decorations on the
@@ -5295,19 +4372,6 @@
   [ADR-0316](docs/adr/0316-cli-parse-long-only-error-fix.md).
 
 
-- Fixed two master-side CI breaks blocking every open PR:
-  - cppcheck `nullPointer` false-positive at `libvmaf/src/dict.c:121` —
-    removed a redundant `&& val` guard inside `dict_overwrite_existing`
-    (`val` is already checked at the public entry-point
-    `vmaf_dictionary_set` line 137).
-  - `pthread_once_t` use in `libvmaf/src/feature/integer_adm.h:45` (added
-    by #548 for the TSan `SAN-INTEGER-ADM-DIV-LOOKUP-RACE` fix) didn't
-    compile on Windows MSVC + CUDA / oneAPI SYCL; wrapped pthread bits
-    in `#ifndef _WIN32` and dropped to direct populate on Windows
-    (race is benign — every thread writes identical loop-invariant
-    values, and TSan only runs on Linux).
-
-
 - **CUDA build fixed against gcc-16 host libstdc++.** Adds `--std c++20`
   to the nvcc invocation in `libvmaf/src/meson.build`. nvcc's default
   C++17 host parser chokes on the C++20 features (`char8_t`,
@@ -5382,113 +4446,6 @@
   relaxes ADR-0109 §Decision (parquet only).
 
 
-- **Three real-bug findings cross-confirmed by the nightly-triage
-  (#537) and sanitizer-matrix-scope (#540) agents now closed.** All
-  three are concrete defects exercised by the standing TSan / ASan
-  test matrix; the fixes harden the implementation rather than
-  relaxing any sanitizer gate (per `feedback_no_test_weakening`).
-  - `SAN-INTEGER-ADM-DIV-LOOKUP-RACE` — `div_lookup_generator()` in
-    `libvmaf/src/feature/integer_adm.h` was called once per ADM
-    feature-extractor `init`, i.e. once per worker thread spawned by
-    `vmaf_thread_pool_create`, with no synchronisation around the
-    65 537-entry static `div_lookup` table. TSan reported the
-    overlapping writes on `test_model`, `test_framesync`, and
-    `test_pic_preallocation`. Wrapped the populator in a
-    `pthread_once_t` guard; the table contents are loop-invariant
-    (`div_Q_factor / i`) so once-init preserves bit-exactness.
-  - `SAN-FRAMESYNC-MUTEX-DOMAIN` — `libvmaf/src/framesync.c`
-    mutated the `buf_que` linked-list spine (next pointers, `buf_cnt`,
-    FREE/ACQUIRED/RETRIEVED transitions) under `acquire_lock` (M0)
-    while `submit_filled_data` and `retrieve_filled_data` walked the
-    same spine under `retrieve_lock` (M1) only. TSan flagged the
-    inconsistent lock domains as a lock-ordering violation.
-    Established a strict M0-before-M1 ordering invariant: every entry
-    point that walks the spine takes M0 first, and the producer /
-    consumer paths additionally take M1 for the condvar handshake.
-    `pthread_cond_wait` releases M1 atomically; M0 is dropped before
-    the wait so producers can append. Every `pthread_mutex_*` /
-    `pthread_cond_*` return value is now checked or `(void)`-cast.
-  - `SAN-MODEL-MALLOC-OOB` + `SAN-PREDICT-METADATA-LEAK` —
-    `libvmaf/src/svm.cpp` `parse_header()` and `parse_support_vectors()`
-    fed unbounded `nr_class` / `total_sv` parsed from the SVM model
-    file straight into `Malloc(...)` size calculations and
-    `memcpy(_, sv_buffer.data(), sizeof(svm_node) * sv_buffer.size())`
-    even when `sv_buffer.empty()`; ASan reported alloc-too-big and
-    null-passed-as-argument on a crafted model file. Added a
-    `VMAF_SVM_MAX_AXIS_COUNT` sanity bound (1<<24, comfortably above
-    Netflix `vmaf_v0.6.1`'s ~6000 SVs) at every parse-time entry
-    where `nr_class` / `total_sv` is consumed, with explicit pre-alloc
-    `> 0` and `<= MAX` checks via `exceptAssert`. The `sv_buffer`
-    empty-after-parse case now throws cleanly instead of feeding 0
-    to `Malloc` + `memcpy`. Companion fix in `libvmaf/test/test_predict.c`
-    closes the metadata-dispatch leak: `test_propagate_metadata`
-    populated a local `VmafDictionary *dict` via
-    `feature_collector_dispatch_metadata` -> `vmaf_dictionary_set`
-    -> `dict_append_new_entry` (`dict.c:121, 124` strdup) and never
-    freed it. Added the missing `vmaf_dictionary_free(&dict)` at
-    teardown.
-- **`vmaf --feature ssim` could not resolve.** The fixed-point SSIM
-  extractor `vmaf_fex_ssim` was defined in
-  `libvmaf/src/feature/integer_ssim.c` but the source file was not
-  listed in `libvmaf/src/meson.build`, and the symbol was not
-  declared `extern` or referenced in `feature_extractor.c`'s
-  `feature_extractor_list[]`. The result: `vmaf_get_feature_extractor_by_name("ssim")`
-  returned `NULL` and `--feature ssim` silently produced no `ssim`
-  metric block. Documented as a shipped feature in
-  `docs/metrics/features.md` and reachable through the public CLI
-  surface, so this was a user-discoverable hole, not an
-  implementation detail. Surfaced by the partial-integration audit
-  in `docs/research/0091-partial-integration-audit-2026-05-08.md`
-  (PR #454). Fix wires `integer_ssim.c` into the build, adds the
-  `extern` declaration + `&vmaf_fex_ssim` registry row in
-  `feature_extractor.c`, and includes `config.h` in
-  `integer_ssim.c` so the `VmafFeatureExtractor` struct layout
-  agrees across translation units (the conditional `HAVE_CUDA` /
-  `HAVE_SYCL` / `HAVE_VULKAN` members were previously visible to
-  only one of the two TUs, tripping `-Wlto-type-mismatch` on
-  Vulkan-enabled LTO links). New regression test
-  `test_ssim_extractor_registered_and_extracts` in
-  `libvmaf/test/test_feature_extractor.c` asserts both that the
-  extractor resolves by name and that it appends a `ssim` score to
-  the feature collector. The `docs/metrics/features.md` table row
-  + footnote ² were also corrected — they previously claimed a
-  Vulkan twin via T7-24, but the only Vulkan SSIM kernel
-  (`libvmaf/src/feature/vulkan/ssim_vulkan.c`) defines
-  `vmaf_fex_float_ssim_vulkan`, not a fixed-point twin.
-
-
-- **Vulkan `integer_vif` shader memory-model race in cross-subgroup
-  int64 reduction.** `libvmaf/src/feature/vulkan/shaders/vif.comp`
-  used bare `barrier()` calls between the cooperative shared-memory
-  writes (Phase-1 tile load, Phase-2 vertical convolution, Phase-4
-  cross-subgroup `s_lmem` accumulator) and the corresponding reads
-  in the next phase. At the default Vulkan 1.3 `apiVersion` the gate
-  is 0/48 at `places=4` on all backends shipped today; at the
-  in-flight Vulkan 1.4 bump (T-VK-1.4-BUMP / Step B) NVIDIA's
-  stricter default memory model surfaces a real race in the Phase-4
-  reduction — `(num_scale2, den_scale2)` come back with
-  non-deterministic 10¹¹× magnitudes + sign flips, the score
-  collapses to 1.0 via the host `den <= 0` fallback, and the
-  cross-backend gate fails 45/48 frames on `integer_vif_scale2`.
-  Fix: replace each bare `barrier()` with the explicit
-  `memoryBarrierShared(); barrier();` pair, which expands to SPIR-V
-  `OpControlBarrier` with
-  `gl_StorageSemanticsShared | gl_SemanticsAcquireRelease`
-  shared-memory release-acquire semantics. Applied uniformly to all
-  SCALE values (the structural race lives in the code shared by all
-  four pipeline specialisations; SCALE = 2 is just the smallest
-  workgroup count where the hardware schedule made the bug
-  observable). Verified on real hardware (NVIDIA RTX 4090 + driver
-  595.71.05 + Vulkan instance loader 1.4.341 + local API-1.4 bump):
-  `places=4` gate 0/48 across all 4 scales, 5-run deterministic
-  scale-2 `(num, den) = (+2.494358e+04, +2.522523e+04)` matching the
-  CPU reference. RADV (Mesa 26.1.0) was already clean and stays
-  clean. Intel Arc A380 (Mesa-ANV / DG2) at API 1.4 still exhibits
-  the same residual signature (`T-VK-VIF-1.4-RESIDUAL-ARC` Open) —
-  Phase-3b will explore stronger fences. Netflix golden gate
-  unaffected (Vulkan code path is independent of the 3 CPU
-  goldens). See research-0089 2026-05-09 status appendix for the
-  empirical numbers and the corrected device-map attribution.
 - **`vmaf-tune corpus` score path now decodes container → raw YUV
   before invoking the libvmaf CLI.** Phase A bug-fix ([ADR-0237](docs/adr/0237-quality-aware-encode-automation.md)):
   the encoder adapter writes mp4 (libx264) but `libvmaf`'s CLI
@@ -5543,36 +4500,6 @@
   `Maintained`, `CII-Best-Practices`), and the active remediation
   queue (Vulnerabilities, Pinned-Dependencies, Fuzzing, Signed-Releases,
   Packaging) for follow-up PRs.
-
-
-- **Semgrep OSS warnings — 19/19 triaged (Research-0090)** — three real
-  fixes plus sixteen line-level `# nosemgrep` suppressions, each citing
-  the call-site reasoning. Fixed: (1) `python/vmaf/config.py`
-  `download_reactively()` no longer clobbers the process-global SSL
-  default with `ssl._create_unverified_context` — GitHub's
-  `vmaf_resource` URL serves a valid public-CA chain, so the bypass was
-  unjustified defence-in-depth disabling that masked legitimate TLS
-  failures and leaked to every later SSL call in the same process; (2/3)
-  `lint-and-format.yml`'s two `clang-tidy` `run:` blocks now alias
-  `${{ github.* }}` interpolations through `env:` per GitHub's hardening
-  guide, defusing the `yaml.github-actions.security.run-shell-injection`
-  rule. Suppressed (false positives): nine `hashlib.sha1(...)` cache-key
-  sites in the upstream Netflix Python harness (memoization /
-  filename-shortening, not security; switching to SHA-256 invalidates
-  every existing user's on-disk cache), five `subprocess.call(shell=True)`
-  test fixtures (hardcoded test-YUV paths, no attacker-controlled
-  string, `shell=True` needed for `>/dev/null 2>&1` redirection), and
-  two `ElementTree.parse()` of the libvmaf C tool's own log XML (we own
-  both the path and the writer, no XXE surface).
-- **Security-scans CI workflow — registry-pack list de-rotted** — the
-  `p/cert-c-strict` and `p/cert-cpp-strict` packs the workflow had been
-  citing were retired by the Semgrep registry in 2025 and now return
-  HTTP 404; semgrep was silently exiting 7 and uploading empty SARIF
-  for the registry lane. Repointed at the surviving consolidated packs:
-  `p/cwe-top-25` + `p/c` (where the strict-CERT rules were rolled into)
-  + `p/python` (so the harness paths actually get coverage). The
-  `--config=.semgrep.yml` local-rules lane is unchanged and continues to
-  gate (`--error`).
 
 ## (2022-04-11) [v2.3.1]
 
