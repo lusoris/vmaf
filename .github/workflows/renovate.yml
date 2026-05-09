@@ -25,4 +25,10 @@ jobs:
         uses: renovatebot/github-action@79dc0ba74dc3de28db0a7aeb1d0b95d5bf5fde2a  # v46.1.13
         with:
           configurationFile: renovate.json
-          token: ${{ secrets.RENOVATE_TOKEN }}
+          # Use GITHUB_TOKEN for in-repo dependency PRs. A PAT
+          # (RENOVATE_TOKEN) is only required if Renovate needs to
+          # cross repo boundaries — for a single-repo deployment, the
+          # workflow-scoped GITHUB_TOKEN with pull-requests + issues
+          # write permissions (declared above) is sufficient.
+          # See ADR-0363 §Implementation notes.
+          token: ${{ secrets.RENOVATE_TOKEN || secrets.GITHUB_TOKEN }}
