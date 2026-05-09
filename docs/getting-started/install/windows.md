@@ -40,6 +40,47 @@ then initialize in the shell via:
 
 Re-run meson with `-Denable_sycl=true`.
 
+## Intel QSV (optional, for `h264_qsv` / `hevc_qsv` / `av1_qsv`)
+
+The fork's three QSV codec adapters in
+[`tools/vmaf-tune/`](../../usage/vmaf-tune-codec-adapters.md) require an
+FFmpeg built with the Intel oneVPL dispatcher (`libvpl`) — Intel
+[archived Media SDK / `libmfx` in May 2023](https://github.com/Intel-Media-SDK/MediaSDK).
+
+On Windows, the oneVPL runtime is bundled with Intel's standard
+graphics drivers — install the latest driver for your iGPU / Arc card
+from the
+[Intel Driver & Support Assistant](https://www.intel.com/content/www/us/en/support/detect.html)
+or grab the
+[Arc & Iris Xe Graphics driver package](https://www.intel.com/content/www/us/en/download/785597/intel-arc-iris-xe-graphics-windows.html)
+directly. No additional SDK install is needed for runtime use.
+
+To build FFmpeg yourself with QSV support, install the
+[oneVPL development headers](https://github.com/intel/libvpl/releases)
+and pass `--enable-libvpl` (FFmpeg
+[n6.0+](https://github.com/FFmpeg/FFmpeg/blob/master/Changelog) — the
+"oneVPL support for QSV" line in the FFmpeg 6.0 changelog) or the
+legacy `--enable-libmfx` for older FFmpeg builds. Pre-built FFmpeg
+binaries from
+[BtbN's gyan.dev / FFmpeg Builds](https://github.com/BtbN/FFmpeg-Builds)
+ship with `--enable-libvpl` enabled.
+
+### Intel Quick Sync hardware capability matrix
+
+Verified 2026-05-08 against
+[Wikipedia: Intel Quick Sync Video — Hardware decoding and encoding](https://en.wikipedia.org/wiki/Intel_Quick_Sync_Video#Hardware_decoding_and_encoding).
+
+| CPU / GPU generation                          | H.264 enc/dec | HEVC 8-bit enc/dec | HEVC 10-bit enc/dec | AV1 decode | AV1 encode |
+|-----------------------------------------------|---------------|--------------------|---------------------|------------|------------|
+| Skylake / Kaby Lake / Coffee Lake (Gen 9)     | yes           | yes                | decode only         | no         | no         |
+| Ice Lake (Gen 11)                             | yes           | yes                | yes                 | no         | no         |
+| Tiger Lake / Alder Lake / Raptor Lake (Xe LP) | yes           | yes                | yes                 | yes        | no         |
+| Arc Alchemist (Xe HPG, A-series, 2022)        | yes           | yes                | yes                 | yes        | yes        |
+| Arc Battlemage (Xe2, B-series)                | yes           | yes                | yes                 | yes        | yes        |
+
+`av1_qsv` therefore requires Arc Alchemist or newer; `hevc_qsv` 10-bit
+requires Ice Lake or newer.
+
 ## Notes
 
 - Windows CI is Linux's canary for MSVC quirks (forbidden VLAs, different
