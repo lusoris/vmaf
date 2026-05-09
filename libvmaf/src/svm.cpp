@@ -2853,6 +2853,21 @@ class SVMModelParserBufferSource
     if (!(cond)) {                                                                                 \
         throw std::runtime_error(err);                                                             \
     }
+
+/*
+ * Upper bound on a single-axis count parsed from an SVM model file.
+ * `nr_class` and `total_sv` are the two scalars that drive every
+ * downstream `Malloc(...)` size computation in this parser; any value
+ * larger than this is treated as a malformed model and rejected before
+ * the allocation. The bound is chosen to be comfortably above any
+ * realistic VMAF SVR model (Netflix's 0.6.1 has nr_class==2, l~6000)
+ * yet small enough that `n * sizeof(double*)` cannot overflow `size_t`
+ * on 32-bit platforms. Surfaced by the sanitizer-matrix triage as
+ * `SAN-MODEL-MALLOC-OOB` (alloc-too-big + null `memcpy` on a crafted
+ * model file).
+ */
+#define VMAF_SVM_MAX_AXIS_COUNT (1 << 24)
+
 template <typename TSource> class SVMModelParser
 {
     svm_model *model = nullptr;
@@ -2921,9 +2936,13 @@ template <typename TSource> class SVMModelParser
                 exceptAssert(model_source.get(param.coef0), "Failed to read coef0.");
             } else if (buffer == "nr_class") {
                 exceptAssert(model_source.get(model->nr_class), "Failed to read nr_class.");
+                exceptAssert(model->nr_class > 0 && model->nr_class <= VMAF_SVM_MAX_AXIS_COUNT,
+                             "nr_class out of range");
                 nr_class_permutations = model->nr_class * (model->nr_class - 1) / 2;
             } else if (buffer == "total_sv") {
                 exceptAssert(model_source.get(model->l), "Failed to read total_sv.");
+                exceptAssert(model->l > 0 && model->l <= VMAF_SVM_MAX_AXIS_COUNT,
+                             "total_sv out of range");
             } else if (buffer == "rho") {
                 model->rho = Malloc(double, nr_class_permutations);
                 exceptAssert(model_source.get_array(model->rho, nr_class_permutations),
@@ -2951,10 +2970,24 @@ template <typename TSource> class SVMModelParser
     }
     void parse_support_vectors()
     {
+        // Guard against malformed models: parse_header() validated
+        // nr_class and l individually (>0, <=VMAF_SVM_MAX_AXIS_COUNT),
+        // but `parse_support_vectors` is also reachable when an
+        // attacker crafts a header without an `nr_class` row at all
+        // (model->nr_class stays at the memset-zero default), in
+        // which case `model->nr_class - 1` is a very large unsigned
+        // and `Malloc` ASans as alloc-too-big. SAN-MODEL-MALLOC-OOB.
+        exceptAssert(model->nr_class > 0 && model->nr_class <= VMAF_SVM_MAX_AXIS_COUNT,
+                     "nr_class missing or out of range before SV parse");
+        exceptAssert(model->l > 0 && model->l <= VMAF_SVM_MAX_AXIS_COUNT,
+                     "total_sv missing or out of range before SV parse");
+
         // prepare sv coefficient structure
         model->sv_coef = Malloc(double *, model->nr_class - 1);
+        exceptAssert(model->sv_coef != nullptr, "Failed to allocate sv_coef");
         for (int i = 0; i < model->nr_class - 1; ++i) {
             model->sv_coef[i] = Malloc(double, model->l);
+            exceptAssert(model->sv_coef[i] != nullptr, "Failed to allocate sv_coef row");
         }
 
         std::string line_buffer;
@@ -2984,11 +3017,18 @@ template <typename TSource> class SVMModelParser
         // support vectors will be stored within a single memory plane, that is indexed into
         // by a pointer-array
 
-        // create memory plane that stores the support vectors
+        // create memory plane that stores the support vectors. An
+        // empty `sv_buffer` means parsing produced no support vectors
+        // — we treat that as a malformed model rather than `Malloc(_,
+        // 0)` + `memcpy(NULL, NULL, 0)` (technically UB; ASan flags
+        // it as `null-passed-as-argument`). SAN-MODEL-MALLOC-OOB.
+        exceptAssert(!sv_buffer.empty(), "Support-vector buffer empty after parse");
         svm_node *support_vectors = Malloc(svm_node, sv_buffer.size());
+        exceptAssert(support_vectors != nullptr, "Failed to allocate support_vectors plane");
         memcpy(support_vectors, sv_buffer.data(), sizeof(svm_node) * sv_buffer.size());
         // create and populate the pointer array, that points into the memory plane
         model->SV = Malloc(svm_node *, model->l);
+        exceptAssert(model->SV != nullptr, "Failed to allocate SV pointer array");
         size_t s = 0;
         for (size_t i = 0; i < sv_buffer.size(); ++i) {
             model->SV[s++] = &support_vectors[i];

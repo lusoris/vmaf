@@ -23,19 +23,39 @@
 #include "stdio.h"
 #include <errno.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <string.h>
 
 static int32_t div_lookup[65537];
 static const int32_t div_Q_factor = 1073741824; // 2^30
 
-static inline void div_lookup_generator()
+/*
+ * The `div_lookup` table is read concurrently by every worker thread
+ * spawned from `vmaf_thread_pool_create()` (one thread per ADM-using
+ * feature extractor instance). Prior to ADR-0339 the populator was a
+ * plain function that every worker re-ran in `init`, which TSan flagged
+ * as `SAN-INTEGER-ADM-DIV-LOOKUP-RACE` (concurrent writes to the same
+ * 65 537-entry table from N workers). The contents are deterministic —
+ * `div_Q_factor / i` is loop-invariant — so a `pthread_once_t` guard is
+ * sufficient and preserves bit-exact output: only the first thread to
+ * arrive writes; later threads observe the populated table after the
+ * `pthread_once` happens-before edge.
+ */
+static pthread_once_t div_lookup_once = PTHREAD_ONCE_INIT;
+
+static void div_lookup_populate(void)
 {
     for (int i = 1; i <= 32768; ++i) {
         int32_t recip = (int32_t)(div_Q_factor / i);
         div_lookup[32768 + i] = recip;
         div_lookup[32768 - i] = 0 - recip;
     }
+}
+
+static inline void div_lookup_generator(void)
+{
+    (void)pthread_once(&div_lookup_once, div_lookup_populate);
 }
 
 typedef struct adm_dwt_band_t {
