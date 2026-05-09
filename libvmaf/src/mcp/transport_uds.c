@@ -157,9 +157,11 @@ static void serve_client(struct VmafMcpServer *server, int client_fd)
 
 void *vmaf_mcp_uds_thread_main(void *arg)
 {
+    assert(arg != NULL);
     struct VmafMcpServer *server = (struct VmafMcpServer *)arg;
     if (server == NULL)
         return NULL;
+    assert(server->uds_listen_fd >= 0);
 
     while (atomic_load(&server->uds_running) == 1) {
         int client_fd = accept(server->uds_listen_fd, NULL, NULL);
@@ -169,6 +171,7 @@ void *vmaf_mcp_uds_thread_main(void *arg)
             /* Listener was closed during stop(); exit cleanly. */
             break;
         }
+        assert(client_fd >= 0);
         serve_client(server, client_fd);
         (void)close(client_fd);
     }

@@ -314,6 +314,8 @@ cleanup:
 
 int vmaf_mcp_compute_vmaf(const void *arguments_cjson, void **result_out_cjson, char **err_owned)
 {
+    assert(arguments_cjson != NULL);
+    assert(result_out_cjson != NULL);
     const cJSON *arguments = (const cJSON *)arguments_cjson;
     ComputeArgs args = {0};
     int rc = parse_arguments(arguments, &args, err_owned);
@@ -325,6 +327,7 @@ int vmaf_mcp_compute_vmaf(const void *arguments_cjson, void **result_out_cjson, 
     int srcc = score_yuv_pair(&args, &score, &frames, err_owned);
     if (srcc != 0)
         return srcc;
+    assert(frames > 0u);
 
     cJSON *result = cJSON_CreateObject();
     if (result == NULL)
