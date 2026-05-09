@@ -107,6 +107,40 @@
 
 ### Added
 
+- **`vmaf-tune auto` Phase F.4 — per-content-type recipe overrides
+  (ADR-0325).** New `_apply_recipe_override(meta, plan_state,
+  thresholds)` in `tools/vmaf-tune/src/vmaftune/auto.py` resolves a
+  per-content-type recipe and returns
+  `(recipe_class, recipe, effective_thresholds)`. The module-level
+  `_CONTENT_RECIPE_TABLE` maps four named classes — `animation`,
+  `screen_content`, `live_action_hdr`, `ugc` — onto factory
+  callables (the `_<class>_recipe` helpers) that emit fresh override
+  dicts; the empty `default` factory covers everything else.
+  Recipes fire **before** the F.2 short-circuits evaluate so a
+  recipe can flip `force_single_rung` and have the ladder stage
+  honour it. The four override keys consumed by the driver are
+  `tight_interval_max_width` (narrows / widens the F.3 conformal
+  gate), `force_single_rung` (arms `ladder-single-rung` even on
+  >= 2160p), `saliency_intensity`
+  (`default` / `aggressive` / `very_aggressive`), and
+  `target_vmaf_offset` (additive offset on the *predictor's*
+  effective target VMAF only — the input `--target-vmaf` is
+  preserved verbatim per memory `feedback_no_test_weakening`). The
+  recipe class lands in `plan.metadata.recipe_applied` (one of
+  `animation`, `screen_content`, `live_action_hdr`, `ugc`,
+  `default`) and the override dict in
+  `plan.metadata.recipe_overrides`. Every threshold value shipped
+  at F.4 is `[provisional, calibrate against real corpus in F.5]`.
+  New `tests/test_auto_recipe_overrides.py` ships 37 assertions
+  covering recipe lookup, the read-only-factory invariant,
+  per-class trigger semantics, threshold narrowing without
+  violating the `ConfidenceThresholds` constructor invariant, JSON
+  metadata recording, and the ordering guarantee. Docs at
+  [`docs/usage/vmaf-tune.md` § Per-content-type recipes
+  (F.4)](docs/usage/vmaf-tune.md#per-content-type-recipes-f4). See
+  [ADR-0325](docs/adr/0325-vmaf-tune-phase-f-auto.md) §F.4 status
+  update.
+
 - **`vmaf-tune auto` Phase F.1 + F.2 — sequential scaffold + seven
   short-circuits (ADR-0325).** New `tools/vmaf-tune/src/vmaftune/auto.py`
   exposes the deterministic decision tree as a CLI subcommand
@@ -133,6 +167,9 @@
 - **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
   (ADR-0364, design-only).** Ships
   [`docs/adr/0364-vmaf-tune-phase-f-auto.md`](docs/adr/0364-vmaf-tune-phase-f-auto.md)
+- **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
+  (ADR-0325, design-only).** Ships
+  [`docs/adr/0325-vmaf-tune-phase-f-auto.md`](docs/adr/0325-vmaf-tune-phase-f-auto.md)
   and
   [`docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md`](docs/research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md)
   proposing a single `vmaf-tune auto --src ref.mkv --target-vmaf 92`
@@ -187,6 +224,10 @@
   columns are all-NaN (identity-pair artifact); ADM/VIF/SSIM/VMAF floor at
   identity — documented expected. Hardware: RTX 4090, ~7 s/clip.
   User docs: [`docs/ai/datasets/k150k.md`](../docs/ai/datasets/k150k.md).
+  favour of an explainable hand-coded tree (≤ 30 lines pseudocode);
+  the user's "adaptive encoding ecosystem" vision text routes to
+  the deterministic tree first, learned-policy as a deferred
+  research follow-up. Companion to ADR-0237 (umbrella).
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)

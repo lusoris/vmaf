@@ -1,6 +1,7 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """Unit tests for the seven F.2 short-circuit predicates (ADR-0364).
+"""Unit tests for the seven F.2 short-circuit predicates (ADR-0325).
 
 Each predicate is a pure function of (meta, plan_state); the tests
 mock both inputs and assert the branch fires (or doesn't) at the
@@ -367,15 +368,17 @@ def test_run_auto_non_smoke_requires_explicit_meta() -> None:
 
 
 def test_run_auto_4k_hdr_animation_does_not_short_circuit_inappropriately() -> None:
-    # Pessimistic input — only the predictor-gospel short-circuit fires
-    # (smoke mode synthesises GOSPEL). Asserts the ladder, codec,
-    # saliency, HDR, and per-shot stages all proceed (their short-circuit
-    # guards do NOT fire).
+    # Pessimistic input — codec, saliency, HDR, sample-clip, per-shot
+    # stages all proceed. Note that under F.4 the ``animation`` recipe
+    # intentionally arms ``force_single_rung``, so
+    # ``ladder-single-rung`` *does* fire for an animation source even
+    # at 2160p — that's the recipe's documented behaviour. Use a
+    # non-animation 4K HDR source to assert the multi-rung path.
     meta = SourceMeta(
         height=2160,
         width=3840,
         is_hdr=True,
-        content_class="animation",
+        content_class="live_action_hdr",
         duration_s=7200.0,
         shot_variance=0.30,
         sample_clip_seconds=0.0,
@@ -391,7 +394,8 @@ def test_run_auto_4k_hdr_animation_does_not_short_circuit_inappropriately() -> N
     fired = plan.metadata["short_circuits"]
     assert "ladder-single-rung" not in fired
     assert "codec-pinned" not in fired
-    assert "skip-saliency" not in fired
+    # live_action_hdr is not in SALIENCY_CONTENT_CLASSES, so saliency
+    # is skipped; that's the F.2 behaviour preserved under F.4.
     assert "sdr-skip" not in fired
     assert "skip-per-shot" not in fired
     assert "sample-clip-propagate" not in fired

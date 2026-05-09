@@ -30162,11 +30162,29 @@ inline.*
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
 
-## ADR-0331 — Skip CI on draft pull requests (2026-05-08)
+## ADR-0332 — External-competitor benchmark harness (2026-05-08)
 
-- **Touches**: `.github/workflows/{docker-image,security-scans,lint-and-format,ffmpeg-integration,libvmaf-build-matrix,rule-enforcement,tests-and-quality-gates}.yml` (per-job `if:` clause + `pull_request.types` list). `required-aggregator.yml` is unchanged — it already adopted the pattern under ADR-0313. No upstream-shared paths.
-- **Invariant**: every top-level job in the eight fork workflows that trigger on `pull_request` carries `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false`. The `pull_request:` block lists `ready_for_review` in `types:` so promotion of a draft fires CI exactly once. The second clause keeps `push:` triggers (no PR object) intact. If an upstream merge introduces a new top-level job, that job MUST inherit the gate; otherwise drafts will silently consume one matrix slot per push.
-- **On upstream sync**: Netflix/vmaf upstream does not gate on draft state; if a sync brings in new `pull_request` workflow content, replay the gate on every newly-introduced top-level job. Composing with an existing `if:` follows the `coverage-gpu` pattern — wrap both predicates in `${{ ... && ( ... ) }}`.
+- **Touches**: `tools/external-bench/` (new),
+  `docs/adr/0332-external-bench-wrapper-only.md` (new),
+  `docs/adr/_index_fragments/0332-external-bench-wrapper-only.md` (new),
+  `docs/adr/_index_fragments/_order.txt` (one-line append),
+  `docs/adr/README.md` (regenerated),
+  `changelog.d/added/external-bench-harness.md` (new),
+  `docs/research/0087-external-bench-competitor-survey-2026-05-08.md`
+  (new). No engine code touched; no upstream-shared paths.
+- **Invariant**: the harness is wrapper-only — never vendor or link
+  `x264-pVMAF` (GPL-2.0) into this fork. Future competitors follow the
+  same pattern (`tools/external-bench/<competitor>/run.sh` invokes a
+  user-installed binary via env var; output schema-shimmed into the
+  canonical JSON shape). The output schema (`frames[].{frame_idx,
+  predicted_vmaf_or_mos, runtime_ms}` + `summary.{competitor, plcc,
+  srocc, rmse, runtime_total_ms, params, gflops}`) is the contract
+  between every wrapper and `compare.py`. `run_wrapper`'s `runner`
+  parameter MUST stay resolved at call time (not via default-arg
+  binding) so monkeypatch-based tests work.
+- **On upstream sync**: no action required. The harness lives entirely
+  under `tools/external-bench/` (a fork-local path) and never touches
+  Netflix-shared code.
 - **Re-test on rebase**:
 
   ```bash
@@ -30177,6 +30195,8 @@ inline.*
            required-aggregator; do
     grep -c "pull_request.draft == false" ".github/workflows/${f}.yml"
   done  # Each must report >= 1.
+  ```
+
 ## SSIM extractor registration fix (2026-05-08)
 
 - **Touches**: `libvmaf/src/feature/feature_extractor.c` (upstream-mirror —
@@ -30214,6 +30234,38 @@ inline.*
   # Vulkan-enabled LTO build (-Wlto-type-mismatch must stay clean)
   meson setup build-vulkan -Denable_vulkan=enabled --reconfigure && \
     ninja -C build-vulkan tools/vmaf
+  python3 -m pytest tools/external-bench/tests/ -q   # must report 7 passed
+  bash -n tools/external-bench/*/run.sh
+  ```
+
+### 0327 — Conformal-VQA prediction surface for `vmaf-tune` (ADR-0279)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/conformal.py` (new),
+  `tools/vmaf-tune/src/vmaftune/predictor.py`
+  (`Predictor.predict_vmaf_with_uncertainty`),
+  `tools/vmaf-tune/src/vmaftune/cli.py` (`predict` subcommand gains
+  `--with-uncertainty` / `--calibration-sidecar` / `--alpha`),
+  `tools/vmaf-tune/tests/test_conformal.py` (new),
+  `docs/ai/conformal-vqa.md` (new). No engine code touched; no
+  upstream-shared paths.
+- **Invariant**: the conformal wrapper sits *outside* the ONNX graph
+  and adds no new runtime dependency — `conformal.py` imports only
+  the standard library (`math`, `statistics`, `dataclasses`,
+  `json`, `warnings`). Future calibration-sidecar shapes use the
+  `method` discriminator string for versioning; do not rename
+  `"split-conformal"` / `"cv-plus"` without bumping the loader.
+  The `Predictor.predict_vmaf_with_uncertainty` signature is the
+  Python-API contract consumed by `vmaf-tune predict
+  --with-uncertainty`; renaming or reordering its keyword args
+  breaks the CLI in lockstep.
+- **On upstream sync**: no action required. `vmaf-tune` is a
+  fork-local tool; upstream Netflix/vmaf has no per-shot prediction
+  surface.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -m pytest tools/vmaf-tune/tests/test_conformal.py -q
+  python3 -m pytest tools/vmaf-tune/tests/test_predictor.py -q
   ```
 
 ## CI `paths-ignore` deny-list on heavy workflows (ADR-0341, 2026-05-09)
@@ -31711,6 +31763,9 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
 ## ADR-0364 — `vmaf-tune auto` Phase F.1 + F.2 short-circuits (2026-05-08)
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (new), `tools/vmaf-tune/src/vmaftune/cli.py` (added `auto` subparser + dispatcher), `tools/vmaf-tune/tests/test_auto_short_circuits.py` (new), `tools/vmaf-tune/AGENTS.md` (invariant row), `docs/usage/vmaf-tune.md` (`## auto` section), `docs/adr/0364-vmaf-tune-phase-f-auto.md` (status update — already-accepted body untouched per ADR-0028; appended a `### Status update` block under `## References`). No upstream-shared paths.
+## ADR-0325 — `vmaf-tune auto` Phase F.1 + F.2 short-circuits (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (new), `tools/vmaf-tune/src/vmaftune/cli.py` (added `auto` subparser + dispatcher), `tools/vmaf-tune/tests/test_auto_short_circuits.py` (new), `tools/vmaf-tune/AGENTS.md` (invariant row), `docs/usage/vmaf-tune.md` (`## auto` section), `docs/adr/0325-vmaf-tune-phase-f-auto.md` (status update — already-accepted body untouched per ADR-0028; appended a `### Status update` block under `## References`). No upstream-shared paths.
 - **Invariant**: `SHORT_CIRCUIT_PREDICATES` in `auto.py` is an **ordered tuple**, not a set. The seven entries appear in the canonical order `LADDER_SINGLE_RUNG`, `CODEC_PINNED`, `PREDICTOR_GOSPEL`, `SKIP_SALIENCY`, `SDR_SKIP`, `SAMPLE_CLIP_PROPAGATE`, `SKIP_PER_SHOT`. The JSON schema records short-circuits in this order under `plan.metadata.short_circuits`; downstream consumers (CI corpus collector, post-hoc speedup analysis) parse the canonical-order list. Adding an eighth short-circuit (F.3+) appends; never reorder. The Phase D thresholds (`PHASE_D_DURATION_GATE_S = 300.0`, `PHASE_D_SHOT_VARIANCE_GATE = 0.15`) are placeholders pending F.3 empirical fit.
 - **On upstream sync**: no action required. Module is fork-local (`tools/vmaf-tune/` is fork-only). The `vmaf-tune` umbrella ADR-0237 explicitly carves Phases B–F out of upstream scope.
 - **Re-test on rebase**:
@@ -31768,3 +31823,99 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
       tests/test_conformal.py -v
   ```
 
+## ADR-0325 — `vmaf-tune auto` Phase F.4 per-content-type recipe overrides (2026-05-09)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py` (added
+  `_apply_recipe_override`, `_CONTENT_RECIPE_TABLE`,
+  `get_recipe_for_class`, the four `_<class>_recipe` factories, and
+  the `RECIPE_CLASS_*` constants; integrated the override into
+  `run_auto` and added `recipe_applied` /
+  `effective_predictor_target_vmaf` to the JSON metadata),
+  `tools/vmaf-tune/tests/test_auto_recipe_overrides.py` (new — 37
+  assertions),
+  `tools/vmaf-tune/tests/test_auto_short_circuits.py` (one test
+  updated for the F.4 force-single-rung semantics on animation
+  sources), `tools/vmaf-tune/AGENTS.md` (invariant row),
+  `docs/usage/vmaf-tune.md` (`### Per-content-type recipes (F.4)`
+  subsection), `docs/adr/0325-vmaf-tune-phase-f-auto.md` (status
+  update appended; already-accepted body untouched per ADR-0028),
+  `changelog.d/added/phase-f4-content-recipes.md`. No upstream-shared
+  paths.
+- **Invariant**: `_CONTENT_RECIPE_TABLE` stores **factory callables**,
+  not literal dicts. Every `get_recipe_for_class` / `_apply_recipe_override`
+  call returns a fresh override dict so caller mutations cannot leak
+  between runs. The four override keys honoured by the driver are
+  `tight_interval_max_width`, `force_single_rung`,
+  `saliency_intensity`, `target_vmaf_offset`; the `_RECIPE_KEYS`
+  allowlist filters anything else as defence-in-depth. The
+  `target_vmaf_offset` shifts only `effective_predictor_target_vmaf`;
+  the input `target_vmaf` (production-flip gate) is preserved
+  verbatim. Every threshold value at F.4 is **provisional** pending
+  F.5 calibration — do not promote a placeholder to "calibrated" in
+  a drive-by edit.
+- **On upstream sync**: no action required. `tools/vmaf-tune/` is
+  fork-local; ADR-0237 explicitly carves Phases B–F out of upstream
+  scope.
+- **Re-test on rebase**:
+
+  ```bash
+  PYTHONPATH=tools/vmaf-tune/src python -m pytest \
+    tools/vmaf-tune/tests/test_auto_recipe_overrides.py \
+    tools/vmaf-tune/tests/test_auto_short_circuits.py \
+    tools/vmaf-tune/tests/test_auto_confidence_aware.py -v
+  PYTHONPATH=tools/vmaf-tune/src python -c \
+    "from pathlib import Path; from vmaftune.auto import run_auto, SourceMeta; \
+     m = SourceMeta(height=1080, width=1920, content_class='animation', duration_s=120, shot_variance=0.05); \
+     p = run_auto(src=Path('/dev/null'), target_vmaf=93.0, max_budget_kbps=5000.0, \
+                  allow_codecs=('libx264',), smoke=True, meta_override=m); \
+     assert p.metadata['recipe_applied'] == 'animation'; \
+     assert p.metadata['target_vmaf'] == 93.0; \
+     assert p.metadata['effective_predictor_target_vmaf'] == 95.0; \
+     print('F.4 smoke OK')"
+  ```
+
+## ADR-0325 — `vmaf-tune auto` Phase F.5 calibrated recipe overrides (2026-05-09)
+
+- **Touches**: `ai/scripts/calibrate_phase_f_recipes.py` (new),
+  `ai/data/phase_f_recipes_calibrated.json` (new — tracked via the
+  `.gitignore` `!ai/data/phase_f_recipes_calibrated.json` allow rule),
+  `tools/vmaf-tune/src/vmaftune/auto.py` (added
+  `_F4_PLACEHOLDER_RECIPES`, `_CALIBRATED_RECIPES_FILENAME`,
+  `_find_calibrated_recipes_path`, `_load_calibrated_recipes`,
+  `_CALIBRATED_RECIPES`; the four `_<class>_recipe` factories now
+  read from `_CALIBRATED_RECIPES`),
+  `tools/vmaf-tune/tests/test_calibrated_recipes.py` (new — 14
+  assertions), `docs/usage/vmaf-tune.md` (calibrated table replaces
+  the F.4 placeholder table in the `### Per-content-type recipes
+  (F.4)` subsection), `docs/adr/0325-vmaf-tune-phase-f-auto.md`
+  (`### Status update 2026-05-09: F.5 calibrated` appended;
+  already-accepted body untouched per ADR-0028),
+  `changelog.d/changed/phase-f5-calibrated-recipes.md`, `.gitignore`
+  (one allow rule for the JSON file). No upstream-shared paths.
+- **Invariant**: the `_CONTENT_RECIPE_TABLE` factories now consume
+  `_CALIBRATED_RECIPES` snapshotted at module import. The runtime
+  load is a single read; reloading at runtime requires
+  `importlib.reload(vmaftune.auto)`. Every `get_recipe_for_class` /
+  `_apply_recipe_override` call still returns a fresh dict — the
+  read-only invariant from F.4 is preserved by `dict(_CALIBRATED_
+  RECIPES[<cls>])`. The `_load_calibrated_recipes` loader strips
+  every `_provenance` sub-dict and filters every key against
+  `_RECIPE_KEYS` so a malicious or malformed JSON cannot inject
+  unknown keys into a recipe. Per memory `feedback_no_test_weakening`,
+  the calibration cannot widen the production-flip gate beyond the
+  ConfidenceThresholds wide-interval ceiling — the regression test
+  `test_calibrated_ugc_width_below_wide_gate_ceiling` locks this in.
+- **On upstream sync**: no action required. `tools/vmaf-tune/`,
+  `ai/scripts/`, `ai/data/` are all fork-local; ADR-0237 explicitly
+  carves Phases B–F out of upstream scope.
+- **Re-test on rebase**:
+
+  ```bash
+  PYTHONPATH=tools/vmaf-tune/src python -m pytest \
+    tools/vmaf-tune/tests/test_calibrated_recipes.py \
+    tools/vmaf-tune/tests/test_auto_recipe_overrides.py -v
+  python ai/scripts/calibrate_phase_f_recipes.py \
+    --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --out /tmp/recipes_smoke.json \
+    --max-rows 10000
+  ```

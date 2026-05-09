@@ -40,10 +40,15 @@ isolation. Each predicate returns ``True`` when the corresponding stage
 can be skipped; the main driver records the firing predicate names in
 ``plan.metadata.short_circuits`` for post-hoc speedup analysis.
 
-This module does **not** ship the F.3 confidence-aware fallbacks (per-cell
-escalation to ``recommend.coarse_to_fine`` on ``FALL_BACK``) or the F.4
-per-content-type recipe overrides — those are sibling PRs gated on F.2.
-The ``--smoke`` mode exercises the composition end-to-end with mocked
+F.3 ships per-cell confidence-aware fallbacks (escalation to
+``recommend.coarse_to_fine`` driven by the conformal interval width
+from :class:`vmaftune.predictor.Predictor.predict_vmaf_with_uncertainty`,
+ADR-0279). F.4 ships per-content-type recipe overrides
+(:func:`_apply_recipe_override`, recipes for ``animation``,
+``screen_content``, ``live_action_hdr``, and ``ugc``) — the recipe
+fires *before* the F.2 short-circuits evaluate so a recipe can flip
+``force_single_rung`` and have the ladder stage honour it. The
+``--smoke`` mode exercises the composition end-to-end with mocked
 sub-phases (no ffmpeg, no ONNX) so this scaffold can ship without the
 production wiring.
 
@@ -124,8 +129,328 @@ DEFAULT_TIGHT_INTERVAL_MAX_WIDTH: float = 2.0
 DEFAULT_WIDE_INTERVAL_MIN_WIDTH: float = 5.0
 
 
+# ---------------------------------------------------------------------------
+# F.4 per-content-type recipe overrides (ADR-0325 §F.4).
+#
+# When an upstream classifier (e.g. TransNet V2 shot histograms in
+# ``tools/vmaf-tune/src/vmaftune/per_shot.py::detect_shots`` plus the
+# fork-local content-class heuristics) tags a source as ``animation``,
+# ``screen_content``, ``live_action_hdr``, or ``ugc``, the auto driver
+# applies a small dict of override keys *before* the F.2 short-circuits
+# evaluate. The override dict is applied additively — any override key
+# the recipe doesn't set keeps the driver's default behaviour.
+#
+# The four override keys consumed by the driver are:
+#
+# * ``tight_interval_max_width`` (float) — narrows / widens the F.3
+#   conformal-tight gate. Animation: tighter (predictor is consistent
+#   on flat colour fields). Live-action HDR: tighter still (any wide
+#   interval is suspect for HDR — see ADR-0300). UGC: wider (UGC has
+#   more variance; predictor uncertainty is expected baseline).
+# * ``force_single_rung`` (bool) — short-circuit #1 stays armed even
+#   on >= 2160p sources. Animation only: a single-rung ladder + tight
+#   compression makes more sense than a 5-rung sweep on stylised art
+#   that compresses uniformly.
+# * ``saliency_intensity`` (str) — passed through to the saliency stage
+#   when it isn't skipped. ``aggressive`` for animation,
+#   ``very_aggressive`` for screen-content (high QP-offset on
+#   background, near-lossless on text regions). ``default`` keeps the
+#   ADR-0293 baseline.
+# * ``target_vmaf_offset`` (float) — additive offset applied to the
+#   *predictor's* target VMAF so the planner aims slightly higher /
+#   lower; the production-flip gate that ships models is **not**
+#   shifted by this value (per ``feedback_no_test_weakening``). The
+#   recipe override only relaxes / tightens what the predictor aims
+#   for, never the gate that decides whether a model can ship.
+#
+# Every threshold cited below is provisional and tagged for empirical
+# calibration in F.5 — see ADR-0325 §"Phase F.5 backlog" once F.4
+# emits enough labelled recipe applications to fit them. The current
+# values are documented placeholders, not measured outcomes; the
+# only-evidence-cited footnotes are tracked in
+# Research-0067 §"F.4 recipe-override placeholders".
+_RECIPE_KEYS: frozenset[str] = frozenset(
+    {
+        "tight_interval_max_width",
+        "force_single_rung",
+        "saliency_intensity",
+        "target_vmaf_offset",
+    }
+)
+
+
+# Sentinel content-class strings recorded in
+# ``plan.metadata.recipe_applied``. ``DEFAULT`` is the no-recipe path
+# (fires when ``meta.content_class`` doesn't match any other recipe);
+# the four named classes correspond to the recipes documented in
+# Research-0067.
+RECIPE_CLASS_DEFAULT: str = "default"
+RECIPE_CLASS_ANIMATION: str = "animation"
+RECIPE_CLASS_SCREEN_CONTENT: str = "screen_content"
+RECIPE_CLASS_LIVE_ACTION_HDR: str = "live_action_hdr"
+RECIPE_CLASS_UGC: str = "ugc"
+
+
+def _empty_recipe() -> dict[str, object]:
+    """Return a fresh empty override dict (default class)."""
+    return {}
+
+
+# F.4 placeholder constants. Used as the fallback when the F.5
+# calibrated JSON (``ai/data/phase_f_recipes_calibrated.json``) is
+# missing or malformed. Each value is annotated with the F.4
+# rationale; F.5 fits these from a real corpus and the loader below
+# replaces them at module import. Per memory ``feedback_no_guessing``
+# the calibrated values are sourced from
+# ``ai/scripts/calibrate_phase_f_recipes.py``; the fallback constants
+# are kept verbatim so callers that ship without the JSON file (e.g.
+# minimal wheel installs, smoke tests) still get the documented F.4
+# behaviour.
+_F4_PLACEHOLDER_RECIPES: dict[str, dict[str, object]] = {
+    RECIPE_CLASS_ANIMATION: {
+        "tight_interval_max_width": 1.5,
+        "force_single_rung": True,
+        "saliency_intensity": "aggressive",
+        "target_vmaf_offset": 2.0,
+    },
+    RECIPE_CLASS_SCREEN_CONTENT: {
+        "saliency_intensity": "very_aggressive",
+        "target_vmaf_offset": 1.0,
+    },
+    RECIPE_CLASS_LIVE_ACTION_HDR: {
+        "tight_interval_max_width": 1.2,
+        "target_vmaf_offset": 0.0,
+    },
+    RECIPE_CLASS_UGC: {
+        "tight_interval_max_width": 3.0,
+        "target_vmaf_offset": -1.0,
+    },
+}
+
+
+# Path to the calibrated-recipes JSON, relative to the repo root.
+# Resolved at module import; if the file is missing or malformed the
+# F.4 placeholder constants above remain in force (graceful
+# degradation per ADR-0325 §F.5 status update).
+_CALIBRATED_RECIPES_FILENAME: str = "ai/data/phase_f_recipes_calibrated.json"
+
+
+def _find_calibrated_recipes_path() -> Path | None:
+    """Walk upward from this file looking for the calibrated JSON.
+
+    Returns ``None`` if the JSON cannot be located. The walk stops at
+    the filesystem root or when ``ai/data/phase_f_recipes_calibrated.json``
+    is found relative to a parent directory. This decouples the loader
+    from the install layout — both source-tree checkouts and editable
+    installs resolve correctly.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / _CALIBRATED_RECIPES_FILENAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _load_calibrated_recipes() -> dict[str, dict[str, object]]:
+    """Load the F.5-calibrated overrides, falling back to F.4 placeholders.
+
+    Returns a dict keyed by content-class name (``animation``,
+    ``screen_content``, ``live_action_hdr``, ``ugc``) holding the
+    override values to merge into the per-class factory. Unknown
+    classes in the JSON are ignored silently; missing classes fall
+    back to the F.4 placeholder for that class.
+
+    The JSON schema (per
+    ``ai/scripts/calibrate_phase_f_recipes.py``):
+
+    .. code-block:: json
+
+        {
+          "metadata": { ... },
+          "recipes": {
+            "<class>": { "<key>": <value>, "_provenance": {...} }
+          }
+        }
+
+    The ``_provenance`` sub-dicts are stripped before merging so they
+    never leak into ``plan.metadata.recipe_overrides``.
+    """
+    path = _find_calibrated_recipes_path()
+    if path is None:
+        _LOG.debug(
+            "no calibrated recipes JSON found; using F.4 placeholders",
+        )
+        return {cls: dict(rec) for cls, rec in _F4_PLACEHOLDER_RECIPES.items()}
+    try:
+        with path.open("rt", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        _LOG.warning(
+            "failed to read %s (%s); falling back to F.4 placeholders",
+            path,
+            exc,
+        )
+        return {cls: dict(rec) for cls, rec in _F4_PLACEHOLDER_RECIPES.items()}
+
+    raw_recipes = payload.get("recipes")
+    if not isinstance(raw_recipes, dict):
+        _LOG.warning(
+            "%s missing 'recipes' object; falling back to F.4 placeholders",
+            path,
+        )
+        return {cls: dict(rec) for cls, rec in _F4_PLACEHOLDER_RECIPES.items()}
+
+    merged: dict[str, dict[str, object]] = {
+        cls: dict(rec) for cls, rec in _F4_PLACEHOLDER_RECIPES.items()
+    }
+    for cls, rec in raw_recipes.items():
+        if cls not in merged or not isinstance(rec, dict):
+            continue
+        clean: dict[str, object] = {}
+        for key, value in rec.items():
+            if key.startswith("_"):
+                continue
+            if key in _RECIPE_KEYS:
+                clean[key] = value
+        if clean:
+            merged[cls] = clean
+    return merged
+
+
+# Resolved at module import — a single load, snapshotted into the
+# per-class factories below. Reloading at runtime requires
+# ``importlib.reload(vmaftune.auto)``; this matches the F.4 read-only
+# invariant exercised by ``test_auto_recipe_overrides``.
+_CALIBRATED_RECIPES: dict[str, dict[str, object]] = _load_calibrated_recipes()
+
+
+def _animation_recipe() -> dict[str, object]:
+    """Recipe for ``content_class == "animation"``.
+
+    Animation compresses uniformly on flat colour fields — a single-rung
+    ladder is plenty, the predictor's residuals are tighter than on
+    live-action, and saliency benefits from being aggressive on cel-line
+    edges.
+
+    Values are sourced from
+    ``ai/data/phase_f_recipes_calibrated.json`` (F.5 calibration).
+    The fallback constants in ``_F4_PLACEHOLDER_RECIPES`` apply when
+    the JSON is missing or malformed.
+    """
+    return dict(_CALIBRATED_RECIPES[RECIPE_CLASS_ANIMATION])
+
+
+def _screen_content_recipe() -> dict[str, object]:
+    """Recipe for ``content_class == "screen_content"``.
+
+    Screen content (UI captures, slideshow recordings) splits the frame
+    into low-entropy background + high-detail text/icon regions; the
+    saliency-aware stage benefits from a very aggressive intensity that
+    raises QP on the background while keeping text near-lossless.
+
+    Values from ``ai/data/phase_f_recipes_calibrated.json`` (F.5).
+    """
+    return dict(_CALIBRATED_RECIPES[RECIPE_CLASS_SCREEN_CONTENT])
+
+
+def _live_action_hdr_recipe() -> dict[str, object]:
+    """Recipe for ``content_class == "live_action_hdr"``.
+
+    HDR live-action shows wide tonal swings; per ADR-0300 the HDR
+    pipeline already runs, but the F.3 conformal-tight gate is narrowed
+    here because a wide predictor interval on HDR is more suspect than
+    on SDR (the predictor was largely trained on SDR — see ADR-0279).
+
+    Values from ``ai/data/phase_f_recipes_calibrated.json`` (F.5).
+    """
+    return dict(_CALIBRATED_RECIPES[RECIPE_CLASS_LIVE_ACTION_HDR])
+
+
+def _ugc_recipe() -> dict[str, object]:
+    """Recipe for ``content_class == "ugc"``.
+
+    User-generated content carries higher upstream-encode noise,
+    inconsistent grading, and resolution mismatches; predictor
+    uncertainty is the baseline. Widening the F.3 tight gate avoids
+    over-flagging UGC cells as "needs escalation" simply because the
+    interval is wider than a Netflix-grade reference.
+
+    Values from ``ai/data/phase_f_recipes_calibrated.json`` (F.5).
+    """
+    return dict(_CALIBRATED_RECIPES[RECIPE_CLASS_UGC])
+
+
+# Module-level recipe table. Each value is a *factory* (not a literal
+# dict) so the override returned to the driver is always a fresh copy
+# — mutations from one ``run_auto`` call cannot leak into the next.
+# Tests assert this read-only invariant explicitly.
+_CONTENT_RECIPE_TABLE: dict[str, "callable[[], dict[str, object]]"] = {  # type: ignore[type-arg]
+    RECIPE_CLASS_ANIMATION: _animation_recipe,
+    RECIPE_CLASS_SCREEN_CONTENT: _screen_content_recipe,
+    RECIPE_CLASS_LIVE_ACTION_HDR: _live_action_hdr_recipe,
+    RECIPE_CLASS_UGC: _ugc_recipe,
+    RECIPE_CLASS_DEFAULT: _empty_recipe,
+}
+
+
+def _resolve_recipe_class(meta: SourceMeta) -> str:
+    """Map a :class:`SourceMeta` onto a recipe-table key.
+
+    The classifier source is ``meta.content_class`` populated upstream
+    by ``per_shot.detect_shots`` + the fork-local heuristics. The
+    auto-classify-as-HDR fallback below honours ``meta.is_hdr`` so an
+    operator who passes ``--content-class live_action`` on an HDR
+    source still gets the HDR recipe (the HDR signal trumps a generic
+    live-action label).
+
+    Returns one of :data:`RECIPE_CLASS_DEFAULT`,
+    :data:`RECIPE_CLASS_ANIMATION`, :data:`RECIPE_CLASS_SCREEN_CONTENT`,
+    :data:`RECIPE_CLASS_LIVE_ACTION_HDR`, :data:`RECIPE_CLASS_UGC`.
+    """
+    raw = (meta.content_class or "").strip().lower()
+    if raw in _CONTENT_RECIPE_TABLE and raw != RECIPE_CLASS_DEFAULT:
+        # Promote a "live_action" + is_hdr=True meta to the HDR recipe;
+        # otherwise the explicit content_class wins.
+        if raw == RECIPE_CLASS_LIVE_ACTION_HDR:
+            return RECIPE_CLASS_LIVE_ACTION_HDR
+        if meta.is_hdr and raw not in {
+            RECIPE_CLASS_ANIMATION,
+            RECIPE_CLASS_SCREEN_CONTENT,
+            RECIPE_CLASS_UGC,
+        }:
+            return RECIPE_CLASS_LIVE_ACTION_HDR
+        return raw
+    # Auto-promote: an unknown class on an HDR source still gets the
+    # HDR recipe (matches ADR-0300's permissive HDR detection).
+    if meta.is_hdr:
+        return RECIPE_CLASS_LIVE_ACTION_HDR
+    return RECIPE_CLASS_DEFAULT
+
+
+def get_recipe_for_class(content_class: str) -> dict[str, object]:
+    """Return a fresh override dict for the named recipe class.
+
+    Public helper consumed by tests and by callers who want to inspect
+    a recipe without constructing a full :class:`SourceMeta`. The
+    returned dict is always a fresh copy — mutating it never affects
+    the module-level table.
+
+    Unknown class strings degrade to the empty default recipe.
+    """
+    factory = _CONTENT_RECIPE_TABLE.get(
+        (content_class or "").strip().lower(),
+        _empty_recipe,
+    )
+    recipe = factory()
+    # Defence in depth — only documented keys land in the recipe.
+    return {key: value for key, value in recipe.items() if key in _RECIPE_KEYS}
+
+
 class ShortCircuit(enum.Enum):
     """Names of the seven short-circuits (per ADR-0364 §F.2).
+class ShortCircuit(enum.Enum):
+    """Names of the seven short-circuits (per ADR-0325 §F.2).
 
     The string values are the canonical identifiers recorded in
     ``plan.metadata.short_circuits`` and surfaced in the JSON output.
@@ -198,6 +523,7 @@ def _should_short_circuit_1_single_rung_ladder(meta: SourceMeta, plan_state: Pla
     """Short-circuit #1 — single-rung ladder when ``meta.height < 2160``.
 
     Per ADR-0364 / ADR-0289: sub-4K sources don't need a multi-rung
+    Per ADR-0325 / ADR-0289: sub-4K sources don't need a multi-rung
     ABR ladder evaluation; the source rung is the only candidate. The
     driver still runs the per-rung pipeline, just on one rung.
     """
@@ -222,6 +548,7 @@ def _should_short_circuit_3_predictor_gospel(meta: SourceMeta, plan_state: PlanS
     """Short-circuit #3 — predictor returned GOSPEL.
 
     Per ADR-0364 escalation rule: when ``predict.crf_for_target``
+    Per ADR-0325 escalation rule: when ``predict.crf_for_target``
     returns ``GOSPEL`` (residuals within threshold across the
     validation sample), trust the predictor's CRF pick and skip the
     ``recommend.coarse_to_fine`` fallback for that cell.
@@ -271,6 +598,7 @@ def _should_short_circuit_7_skip_per_shot(meta: SourceMeta, plan_state: PlanStat
     """Short-circuit #7 — duration / shot-variance gate.
 
     Per ADR-0364: skip ``tune_per_shot.refine`` when the source is
+    Per ADR-0325: skip ``tune_per_shot.refine`` when the source is
     both short (< 5 min) **and** low-variance (shot variance < 0.15).
     Either condition alone is not enough — a short high-variance
     trailer benefits from per-shot, and a long low-variance lecture
@@ -321,6 +649,56 @@ def evaluate_short_circuits(meta: SourceMeta, plan_state: PlanState) -> list[str
 # ---------------------------------------------------------------------------
 
 
+def _apply_recipe_override(
+    meta: SourceMeta,
+    plan_state: PlanState,
+    confidence_thresholds: ConfidenceThresholds,
+) -> tuple[str, dict[str, object], ConfidenceThresholds]:
+    """Resolve + apply the F.4 per-content-type recipe.
+
+    Fires **before** the F.2 short-circuits evaluate so a recipe can
+    flip ``force_single_rung`` and have the ladder stage honour it.
+    Returns a 3-tuple ``(recipe_class, recipe, effective_thresholds)``:
+
+    * ``recipe_class`` — the canonical class string recorded under
+      ``plan.metadata.recipe_applied``. One of
+      :data:`RECIPE_CLASS_DEFAULT`, :data:`RECIPE_CLASS_ANIMATION`,
+      :data:`RECIPE_CLASS_SCREEN_CONTENT`,
+      :data:`RECIPE_CLASS_LIVE_ACTION_HDR`, :data:`RECIPE_CLASS_UGC`.
+    * ``recipe`` — the fresh override dict (a copy, not a shared
+      reference). Empty for the default class.
+    * ``effective_thresholds`` — ``confidence_thresholds`` with the
+      recipe's ``tight_interval_max_width`` applied (if set). The
+      ``wide_interval_min_width`` is preserved verbatim — F.4 only
+      tightens / loosens the *predictor*-confidence gate, not the
+      hard "force escalation" wall.
+
+    Per the no-test-weakening rule (memory
+    ``feedback_no_test_weakening``), the recipe never widens the
+    production-flip gate; ``target_vmaf_offset`` is an offset on the
+    predictor's *target*, not on the gate that ships models.
+    """
+    del plan_state  # reserved for future per-cell recipes; unused at F.4
+    recipe_class = _resolve_recipe_class(meta)
+    recipe = get_recipe_for_class(recipe_class)
+    effective_thresholds = confidence_thresholds
+    tight_override = recipe.get("tight_interval_max_width")
+    if tight_override is not None:
+        new_tight = float(tight_override)  # type: ignore[arg-type]
+        wide = float(confidence_thresholds.wide_interval_min_width)
+        # Clamp so we never violate the constructor invariant
+        # (tight <= wide). A recipe that asks for a tight wider than
+        # the corpus-fit wide is silently capped.
+        if new_tight > wide:
+            new_tight = wide
+        effective_thresholds = ConfidenceThresholds(
+            tight_interval_max_width=new_tight,
+            wide_interval_min_width=wide,
+            source=f"recipe:{recipe_class}/{confidence_thresholds.source}",
+        )
+    return recipe_class, recipe, effective_thresholds
+
+
 @dataclasses.dataclass
 class AutoPlan:
     """Result of an ``auto`` run.
@@ -346,6 +724,8 @@ def run_auto(
     meta_override: SourceMeta | None = None,
     confidence_thresholds: ConfidenceThresholds | None = None,
     cell_intervals: Sequence[tuple[int, str, str | None, float]] | None = None,
+) -> AutoPlan:
+    """Drive the F.1 + F.2 + F.3 decision tree.
 ) -> AutoPlan:
     """Drive the F.1 + F.2 + F.3 decision tree.
 
@@ -401,9 +781,31 @@ def run_auto(
     )
 
     # ------------------------------------------------------------------
+    # Stage 0 — F.4 per-content-type recipe override.
+    #
+    # Fires *before* the F.2 short-circuits so a recipe can flip
+    # `force_single_rung` and have the ladder stage honour it.
+    # `effective_thresholds` carries the recipe-narrowed F.3 width gate
+    # for the rest of the driver. ``recipe_applied`` lands in the JSON
+    # metadata block so post-hoc analysis can audit which content class
+    # drove the recipe choice. The predictor's effective target VMAF
+    # is offset by ``target_vmaf_offset`` (recipe key) but the
+    # production-flip gate that ships models is *not* shifted by this
+    # value — see ``feedback_no_test_weakening`` memory.
+    # ------------------------------------------------------------------
+    base_thresholds = confidence_thresholds or ConfidenceThresholds()
+    recipe_class, recipe, effective_thresholds = _apply_recipe_override(
+        meta, plan_state, base_thresholds
+    )
+    target_vmaf_offset = float(recipe.get("target_vmaf_offset", 0.0))  # type: ignore[arg-type]
+    effective_predictor_target_vmaf = float(target_vmaf) + target_vmaf_offset
+    force_single_rung = bool(recipe.get("force_single_rung", False))
+    saliency_intensity = str(recipe.get("saliency_intensity", "default"))
+
+    # ------------------------------------------------------------------
     # Stage 1 — ladder rung selection (short-circuit #1).
     # ------------------------------------------------------------------
-    if _should_short_circuit_1_single_rung_ladder(meta, plan_state):
+    if _should_short_circuit_1_single_rung_ladder(meta, plan_state) or force_single_rung:
         plan_state.fired(ShortCircuit.LADDER_SINGLE_RUNG)
         rungs: tuple[int, ...] = (int(meta.height),)
     else:
@@ -449,6 +851,29 @@ def run_auto(
     # verdict from predictor_validate.ValidationReport.verdict and
     # the interval width from
     # Predictor.predict_vmaf_with_uncertainty (ADR-0279).
+    # ------------------------------------------------------------------
+    if smoke:
+        plan_state.predictor_verdict = "GOSPEL"
+
+    # Use the recipe-narrowed thresholds for the rest of the driver.
+    thresholds = effective_thresholds
+    # Build a (rung, codec) -> (verdict, width) lookup from the
+    # production-wiring seam. Missing cells fall back to (verdict,
+    # NaN) — NaN width defers F.3 to the native verdict so the gate
+    # degrades gracefully when no calibration is available.
+    interval_lookup: dict[tuple[int, str], tuple[str | None, float]] = {}
+    if cell_intervals is not None:
+        for rung_in, codec_in, verdict_in, width_in in cell_intervals:
+            interval_lookup[(int(rung_in), str(codec_in))] = (
+                verdict_in,
+                float(width_in),
+            )
+
+    confidence_aware_escalations: list[dict] = []
+    # Stage 5 — per-cell predictor + escalation (short-circuit #3).
+    # In smoke mode we synthesise a GOSPEL verdict so the gate fires
+    # in the unit smoke run; production wiring will set the verdict
+    # from predictor_validate.ValidationReport.verdict.
     # ------------------------------------------------------------------
     if smoke:
         plan_state.predictor_verdict = "GOSPEL"
@@ -520,6 +945,8 @@ def run_auto(
                     "sample_clip_seconds": propagated_clip,
                     "confidence_decision": decision.value,
                     "interval_width": cell_width,
+                    "effective_predictor_target_vmaf": float(effective_predictor_target_vmaf),
+                    "saliency_intensity": saliency_intensity,
                 }
             )
 
@@ -554,12 +981,16 @@ def run_auto(
             "wide_interval_min_width": thresholds.wide_interval_min_width,
             "source": thresholds.source,
         },
+        "recipe_applied": recipe_class,
+        "recipe_overrides": dict(recipe),
+        "effective_predictor_target_vmaf": float(effective_predictor_target_vmaf),
     }
     return AutoPlan(cells=cells, metadata=metadata)
 
 
 # ---------------------------------------------------------------------------
 # F.3 confidence-aware fallback policy (ADR-0364 §F.3 / ADR-0279).
+# F.3 confidence-aware fallback policy (ADR-0325 §F.3 / ADR-0279).
 #
 # These helpers are pure functions of (verdict, interval_width,
 # thresholds). The driver calls them per-(rung, codec) cell after the
@@ -764,14 +1195,23 @@ __all__ = [
     "AutoPlan",
     "ConfidenceDecision",
     "ConfidenceThresholds",
+    "AutoPlan",
+    "ConfidenceDecision",
+    "ConfidenceThresholds",
     "LADDER_MULTI_RUNG_HEIGHT",
     "PHASE_D_DURATION_GATE_S",
     "PHASE_D_SHOT_VARIANCE_GATE",
     "PlanState",
+    "RECIPE_CLASS_ANIMATION",
+    "RECIPE_CLASS_DEFAULT",
+    "RECIPE_CLASS_LIVE_ACTION_HDR",
+    "RECIPE_CLASS_SCREEN_CONTENT",
+    "RECIPE_CLASS_UGC",
     "SALIENCY_CONTENT_CLASSES",
     "SHORT_CIRCUIT_PREDICATES",
     "ShortCircuit",
     "SourceMeta",
+    "_apply_recipe_override",
     "_confidence_aware_escalation",
     "_should_short_circuit_1_single_rung_ladder",
     "_should_short_circuit_2_codec_pinned",
@@ -782,6 +1222,7 @@ __all__ = [
     "_should_short_circuit_7_skip_per_shot",
     "emit_plan_json",
     "evaluate_short_circuits",
+    "get_recipe_for_class",
     "load_confidence_thresholds",
     "run_auto",
 ]

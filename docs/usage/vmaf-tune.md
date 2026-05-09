@@ -1735,6 +1735,7 @@ test on machines that have not built the shot-detector binary yet.
 ## auto
 
 `vmaf-tune auto` is the Phase F entry point (ADR-0364). One CLI verb
+`vmaf-tune auto` is the Phase F entry point (ADR-0325). One CLI verb
 composes the per-phase subcommands (`corpus`, `recommend`, `predict`,
 `tune-per-shot`, `recommend-saliency`, `ladder`, `compare`) plus the
 orthogonal modes (HDR auto-detect, sample-clip, resolution-aware) into
@@ -1838,6 +1839,130 @@ thresholds)` in `tools/vmaf-tune/src/vmaftune/auto.py` is exposed for
 unit testing and direct embedding by downstream tools (the MCP
 server's `auto` proxy, the CI corpus collector). It is a pure
 function of its three inputs.
+
+### Per-content-type recipes (F.4)
+
+F.4 layers per-content-type **recipe overrides** on top of F.1+F.2+F.3.
+When the upstream classifier (`per_shot.detect_shots` plus the
+fork-local content-class heuristics) tags a source as `animation`,
+`screen_content`, `live_action_hdr`, or `ugc`, the auto driver applies
+a small override dict **before** the F.2 short-circuits evaluate so a
+recipe can flip `force_single_rung` and have the ladder stage honour it.
+Any source whose `meta.content_class` doesn't match a named recipe
+falls through to the empty `default` recipe.
+
+The override keys consumed by the driver are:
+
+| Key | Type | Effect |
+| --- | ---- | ------ |
+| `tight_interval_max_width` | `float` | Narrows / widens the F.3 conformal-tight gate. |
+| `force_single_rung` | `bool` | Arms short-circuit #1 (`ladder-single-rung`) even on >= 2160p sources. |
+| `saliency_intensity` | `str` | Passed through to the saliency stage when not skipped. One of `default`, `aggressive`, `very_aggressive`. |
+| `target_vmaf_offset` | `float` | Additive offset applied to the *predictor's* effective target VMAF. The input `--target-vmaf` (the gate that ships models) is **never** shifted by this value — see the no-test-weakening note below. |
+
+The five recipe classes ship the following overrides. The values below
+are the **F.5-calibrated** thresholds emitted by
+`ai/scripts/calibrate_phase_f_recipes.py` and shipped in
+`ai/data/phase_f_recipes_calibrated.json`. The calibration was run on
+2026-05-09 against the K150K corpus
+(`.workingdir2/konvid-150k/konvid_150k.jsonl`, 148 543 rows out of an
+expected 153 841 — the ingestion was ~96.6 % complete; a re-run on the
+full corpus is a follow-up PR). Threshold rationale and the per-class
+proxy-vs-corpus provenance break-down live in
+[Research-0067 §"F.4 recipe-override placeholders"](../research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md)
+plus the JSON `metadata` block.
+
+| Class | `tight_interval_max_width` | `force_single_rung` | `saliency_intensity` | `target_vmaf_offset` | Source |
+| ----- | -------------------------- | ------------------- | -------------------- | -------------------- | ------ |
+| `animation` | `1.75` | `true` | `aggressive` | `+2.0` | proxy (UGC-anchored) |
+| `screen_content` | _(unset)_ | _(unset)_ | `very_aggressive` | `+1.0` | proxy (UGC-anchored) |
+| `live_action_hdr` | `1.4` | _(unset)_ | _(default)_ | `0.0` | proxy (UGC-anchored) |
+| `ugc` | `3.5` | `false` | `default` | `+1.5` | corpus (K150K) |
+| `default` | _(unset)_ | _(unset)_ | _(default)_ | `0.0` | n/a |
+
+K150K is a UGC-only corpus and carries no per-source `content_class`
+column; only the `ugc` row is corpus-derived. The other three rows are
+calibrated as documented absolute offsets ("proxy") anchored on the F.4
+envelope until PR #477's TransNet shot-metadata columns plus a
+class-labelled subset land. The JSON `recipes.<class>._provenance`
+sub-dict records the source per row so future re-calibrations can
+distinguish corpus-derived from proxy-derived values. UGC's
+`target_vmaf_offset` came out empirically positive (`+1.5`) on K150K
+because the corpus's MOS distribution has a heavier upper tail than
+lower tail; the calibration script clamps every offset to the F.4
+documented envelope of `[-2.0, +2.0]` so a pathological corpus cannot
+push the predictor target outside the regime the planner has been
+exercised against.
+
+The `auto.py` runtime loads the JSON at module import via
+`_load_calibrated_recipes`; if the JSON file is missing or malformed,
+the F.4 placeholder constants in `_F4_PLACEHOLDER_RECIPES` apply as a
+graceful fallback. To regenerate the calibration after the corpus
+ingestion completes (or when a class-labelled corpus replaces K150K),
+run:
+
+```shell
+python ai/scripts/calibrate_phase_f_recipes.py \
+    --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
+    --out ai/data/phase_f_recipes_calibrated.json
+```
+
+Recipe rationale (each cited threshold is provisional pending F.5
+calibration):
+
+- **Animation** — predictor residuals are tighter on flat colour
+  fields, single-rung ladder is sufficient, and saliency is more
+  aggressive on cel-line edges. Animation is intrinsically more
+  compressible at a given perceptual quality, so the predictor aims
+  ~2 VMAF higher.
+- **Screen content** — split-frame structure (low-entropy
+  background + high-detail text/icon regions) benefits from
+  `very_aggressive` saliency that raises QP on the background while
+  keeping text near-lossless. Predictor target nudged +1.
+- **Live-action HDR** — per [ADR-0300](../adr/0300-vmaf-tune-hdr-aware.md)
+  the HDR pipeline already runs; the F.3 conformal-tight gate is
+  narrowed to `1.2` because a wide predictor interval on HDR is more
+  suspect than on SDR (the predictor was largely trained on SDR per
+  [ADR-0279](../adr/0279-fr-regressor-v2-probabilistic.md)).
+- **UGC** — user-generated content carries higher upstream-encode
+  noise, inconsistent grading, and resolution mismatches; predictor
+  uncertainty is the baseline. Widening the F.3 tight gate to `3.0`
+  avoids over-flagging UGC cells as "needs escalation" simply because
+  the interval is wider than a Netflix-grade reference. The predictor
+  target is nudged **down** 1 because UGC's perceptual ceiling is
+  already capped by source-side artefacts.
+
+The recipe class is recorded in `plan.metadata.recipe_applied` (one
+of `animation`, `screen_content`, `live_action_hdr`, `ugc`, or
+`default`) and the override dict in `plan.metadata.recipe_overrides`.
+Each cell in `plan.cells[]` also carries the resolved
+`saliency_intensity` and `effective_predictor_target_vmaf` so JSON
+consumers don't need to cross-reference the metadata block.
+
+Per `CLAUDE.md` memory `feedback_no_test_weakening`: recipe overrides
+**MUST NOT** silently widen the production-flip gate that ships
+models. They affect predictor thresholds (the `effective_predictor_target_vmaf`
+that the predictor aims for; the F.3 width gate that decides per-cell
+escalation), not the input `--target-vmaf` that downstream consumers
+treat as the contract. The driver records the input `target_vmaf`
+verbatim in `plan.metadata.target_vmaf` and the offset target in
+`plan.metadata.effective_predictor_target_vmaf`; the two are kept
+distinct.
+
+The helper `_apply_recipe_override(meta, plan_state, thresholds)` in
+`tools/vmaf-tune/src/vmaftune/auto.py` resolves the recipe and returns
+a `(recipe_class, recipe, effective_thresholds)` triple; the
+`get_recipe_for_class(content_class)` helper returns a fresh override
+dict for any of the five canonical class strings. Both are pure
+functions; the table at module scope (`_CONTENT_RECIPE_TABLE`) holds
+factory callables so each call returns a fresh dict that callers may
+mutate without affecting subsequent runs.
+
+References:
+[ADR-0325](../adr/0325-vmaf-tune-phase-f-auto.md) §F.4,
+[ADR-0279](../adr/0279-fr-regressor-v2-probabilistic.md),
+[ADR-0300](../adr/0300-vmaf-tune-hdr-aware.md),
+[Research-0067](../research/0067-vmaf-tune-phase-f-feasibility-2026-05-08.md).
 
 ## Tests
 
