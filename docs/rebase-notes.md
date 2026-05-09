@@ -9326,12 +9326,14 @@ upstream sync of this file should keep the fix or re-run cppcheck
 locally to confirm absence of recurrence.
 
 ## Aggregator timeout bump (2026-05-09)
-
 **Files pinned**:
 - `.github/workflows/required-aggregator.yml` (deadline 30→90 min, job timeout 35→100 min)
-
 **Why**: 41 PRs in flight 2026-05-09 morning hit Aggregator timeouts
 while real CI eventually passed. Bumping both deadlines unblocks the
 train without touching the underlying matrix.
-
 **Rebase-sensitivity**: zero — workflow file is wholly fork-local.
+## ARC self-hosted runner pool — pilot Cppcheck routing (2026-05-09)
+- `.github/workflows/lint-and-format.yml` (Cppcheck `runs-on:` ternary).
+**Why**: opt-in graceful migration; ADR-0359 + docs/development/ci-runners.md
+document the flip-the-variable recipe when the cluster is degraded.
+**Rebase-sensitivity**: zero — workflow file is fork-local.

@@ -373,7 +373,11 @@ jobs:
   cppcheck:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Cppcheck (Whole Project)
-    runs-on: ubuntu-latest
+    # ADR-0359 — pilot job for the ARC self-hosted runner pool.
+    # Variable `ARC_RUNNERS_ENABLED=true` flips this job to the in-cluster
+    # `arc-runners` scale set; default `false` keeps GitHub-hosted. If the
+    # ARC pool is degraded, flip the var off and re-trigger CI.
+    runs-on: ${{ vars.ARC_RUNNERS_ENABLED == 'true' && 'arc-runners' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
