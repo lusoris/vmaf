@@ -239,6 +239,24 @@ static inline uint32_t edge_8(const uint8_t *src, int height, int stride, int i,
         print_128_64(_mm256_extracti128_si256(a, 1));                                              \
     }
 
+/**
+ * AVX2 1D vertical convolution of an 8-bit Y plane with the Motion filter.
+ *
+ * Upstream-mirror kernel; bit-exact with the scalar reference
+ * `y_convolution` in `libvmaf/src/feature/motion.c`. Selected via
+ * `MotionState::y_convolution_fn` when `VMAF_X86_CPU_FLAG_AVX2` is set
+ * but AVX-512 is not.
+ *
+ * The body has the same three-section shape as the AVX-512 twin
+ * (`y_convolution_8_avx512`, see that doc block for the rationale): a
+ * top-edge scalar fallback, an interior AVX2 fast-path, and a bottom-
+ * edge mirror. Splitting would re-order partial sums against the
+ * scalar reduction order and break the bit-exactness invariant
+ * (ADR-0138 / ADR-0139).
+ *
+ * `inp_size_bits` is unused for the 8-bit twin and is `(void)`-discarded;
+ * it survives only for ABI symmetry with `y_convolution_16_avx2`.
+ */
 void y_convolution_8_avx2(void *src, uint16_t *dst, unsigned width, unsigned height,
                           ptrdiff_t src_stride, ptrdiff_t dst_stride, unsigned inp_size_bits)
 {
@@ -362,6 +380,22 @@ void y_convolution_8_avx2(void *src, uint16_t *dst, unsigned width, unsigned hei
     }
 }
 
+/**
+ * AVX2 1D vertical convolution of a 10/12-bit Y plane with the Motion filter.
+ *
+ * 16-bit twin of `y_convolution_8_avx2`. Upstream-mirror kernel; bit-exact
+ * with the scalar reference `y_convolution` in
+ * `libvmaf/src/feature/motion.c` for `bpc > 8`. Selected via
+ * `MotionState::y_convolution_fn` when input is high-bit-depth and
+ * AVX2 is the highest-available ISA.
+ *
+ * Same three-section shape (top-edge / interior / bottom-edge) as the
+ * 8-bit twin for the same bit-exactness invariant (ADR-0138 /
+ * ADR-0139). `add_before_shift = 2^(inp_size_bits - 1)` is the rounding
+ * bias for the right-shift back to 8-bit equivalent
+ * (`shift_var = inp_size_bits`); caller must pass the actual encoded
+ * bit-depth (10 or 12), not 16.
+ */
 void y_convolution_16_avx2(void *src, uint16_t *dst, unsigned width, unsigned height,
                            ptrdiff_t src_stride, ptrdiff_t dst_stride, unsigned inp_size_bits)
 {

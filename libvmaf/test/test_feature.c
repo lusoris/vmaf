@@ -24,6 +24,15 @@
 
 #include "feature/feature_name.c"
 
+/* Test fixture for `vmaf_feature_name_from_provided_features()`: walks a
+ * representative `VmafOption` table covering every option type (bool,
+ * double, int, alias) and asserts that the generated feature-name string
+ * encodes only options whose default value is overridden, in alias order.
+ * lgtm[cpp/poorly-documented-function] — unit-test scaffolding; the body
+ * is a sequence of `mu_assert` calls whose intent is conveyed by the
+ * assertion strings themselves. CodeQL's path-ignore on `libvmaf/test`
+ * (see `.github/codeql-config.yml`) suppresses this rule for new scans;
+ * this comment carries the existing alert through to its next refresh. */
 static char *test_feature_name_from_options()
 {
     typedef struct TestState {

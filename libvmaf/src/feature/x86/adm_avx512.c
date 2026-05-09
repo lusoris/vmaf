@@ -2987,6 +2987,27 @@ float i4_adm_cm_avx512(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_s
     return (num_scale_h + num_scale_v + num_scale_d);
 }
 
+/**
+ * AVX-512 combined ref+distorted ADM DWT for scales 1..3 (32-bit pipe).
+ *
+ * Upstream-mirror kernel; bit-exact with the scalar reference
+ * `adm_dwt2_s123_combined` in `libvmaf/src/feature/integer_adm.c` (which
+ * carries its own doc block explaining the per-scale rounding LUTs and
+ * why ref+dis are interleaved). Splitting this body would re-order the
+ * fixed-point partial sums and break the bit-exactness invariant
+ * (ADR-0138 / ADR-0139).
+ *
+ * Selected via `AdmState::adm_dwt2_s123_combined` in `init()` when
+ * `VMAF_X86_CPU_FLAG_AVX512` is set. Per-scale `add_bef_shift_round_VP/HP`
+ * and `shift_VerticalPass/HorizontalPass` LUTs match the scalar
+ * reference exactly — do not collapse them, the upstream sync depends
+ * on the symbol layout.
+ *
+ * Note: scale 0 does NOT route through this function — the caller
+ * (`integer_compute_adm`) uses `s->dwt2_8` / `s->dwt2_16` for scale 0
+ * because those read the source picture (8/16-bit), while this function
+ * reads prior 32-bit DWT output via `i4_ref_scale` / `i4_curr_dis`.
+ */
 void adm_dwt2_s123_combined_avx512(const int32_t *i4_ref_scale, const int32_t *i4_curr_dis,
                                    AdmBuffer *buf, int w, int h, int ref_stride, int dis_stride,
                                    int dst_stride, int scale)
@@ -3776,6 +3797,27 @@ void adm_dwt2_16_avx512(const uint16_t *src, const adm_dwt_band_t *dst, AdmBuffe
     }
 }
 
+/**
+ * AVX-512 ADM 2D Daubechies-2 DWT for 8-bit input (scale 0).
+ *
+ * Upstream-mirror kernel; bit-exact with the scalar reference
+ * `adm_dwt2_8` in `libvmaf/src/feature/integer_adm.c`. The body is one
+ * large function on purpose — splitting the vertical / horizontal pass
+ * pair would re-order the `accum` partial sums against the scalar
+ * reduction order, perturbing the fixed-point rounding and breaking
+ * the bit-exactness invariant (ADR-0138 / ADR-0139, verified by
+ * `/cross-backend-diff`).
+ *
+ * Caller contract: this is the scale-0 entry point only — scales 1..3
+ * use `adm_dwt2_s123_combined_avx512` (declared further down) which
+ * works on 32-bit DWT output instead of 8-bit source. Selected via
+ * `AdmState::dwt2_8` runtime dispatch in `init()` of `integer_adm.c`.
+ *
+ * `dwt2_db2_coeffs_lo_sum_const = 5931776` is the pre-summed
+ * lo-pass-tap rounding constant for the AVX-512 fast-path that elides
+ * one of the four scalar adds — keep this identifier verbatim to stay
+ * lined up with the upstream patch series.
+ */
 void adm_dwt2_8_avx512(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *buf, int w, int h,
                        int src_stride, int dst_stride)
 {

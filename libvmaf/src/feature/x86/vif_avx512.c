@@ -985,6 +985,28 @@ void vif_statistic_16_avx512(struct VifPublicState *s, float *num, float *den, u
     den[0] = accum_den_log / 2048.0 + accum_den_non_log;
 }
 
+/**
+ * AVX-512 8-bit VIF subsampled-readout (32-wide port of `vif_subsample_rd_8_avx2`).
+ *
+ * Upstream-mirror kernel; bit-exact with the scalar reference in
+ * `libvmaf/src/feature/integer_vif.c`. The body is one large function on
+ * purpose — the per-row reduction order across `accum_mu1_*`,
+ * `accum_mu2_*`, `accum_ref_sq_*`, `accum_dis_sq_*`, and `accum_ref_dis_*`
+ * is the bit-exactness invariant (ADR-0138 / ADR-0139). Splitting the
+ * function would re-order partial sums and produce ULP drift visible in
+ * `/cross-backend-diff` against the scalar path.
+ *
+ * `mask1` / `mask2` / `mask3` are pre-computed lane permutations that
+ * fold the 32-wide vertical-pass results back into 16 horizontally-
+ * adjacent pixel pairs for the sub-2x downsample. The `M = 1<<16`
+ * trick packs two 16-bit lane indices into each `_mm512_set_epi32`
+ * lane because `_mm512_set_epi16` is not constexpr-friendly under
+ * older MSVC — see commented reference form just above.
+ *
+ * Caller contract is identical to `vif_subsample_rd_8_avx2`: `buf.ref` /
+ * `buf.dis` are 8-bit Y planes, output written half-resolution into
+ * `buf.mu*` / `buf.*_sq` / `buf.ref_dis`.
+ */
 void vif_subsample_rd_8_avx512(VifBuffer buf, unsigned w, unsigned h)
 {
     const unsigned fwidth = vif_filter1d_width[1];

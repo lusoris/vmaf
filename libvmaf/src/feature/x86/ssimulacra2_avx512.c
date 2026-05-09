@@ -612,6 +612,29 @@ static inline void compute_matrix_coefs_avx512(int yuv_matrix, float *kr_out, fl
     }
 }
 
+/**
+ * AVX-512 (16-wide) port of the SSIMULACRA2 YUV-to-linear-RGB conversion.
+ *
+ * Selected by `Ssimu2State::ptlr_fn` in `ssimulacra2.c` when the runtime
+ * detects AVX-512F; see `init()` line ~946 of that file. Behavioural and
+ * numerical contract is identical to the AVX2 reference implementation
+ * declared in `ssimulacra2_avx2.h` — see ADR-0163 for the YUV→linear-RGB
+ * pipeline definition.
+ *
+ * Why this kernel is one large function: bit-exactness vs the scalar
+ * reference is enforced by ADR-0138/ADR-0139. Splitting the body into
+ * helpers would perturb register allocation and the chroma-reconstruction
+ * reduction order, which has been observed to introduce ULP drift in
+ * `/cross-backend-diff` runs. The NOLINT below is the load-bearing
+ * suppression mandated by ADR-0141.
+ *
+ * Caller contract: `planes` must hold three `simd_plane_t` planes laid
+ * out in source picture order (Y, U, V) of size `w * h`. `out` must
+ * point to a buffer of `3 * w * h` floats, written as three planar
+ * R/G/B planes in [0, 1] linear-light. `bpc` is bits per component
+ * (8 / 10 / 12); peak / scaling derive from it. `yuv_matrix` selects
+ * BT.601/709/2020 coefficients via `compute_matrix_coefs_avx512`.
+ */
 // NOLINTNEXTLINE(readability-function-size,google-readability-function-size) — bit-exactness invariant: splitting would perturb register allocation + reduction order vs scalar (ADR-0138/0139, ADR-0141)
 void ssimulacra2_picture_to_linear_rgb_avx512(int yuv_matrix, unsigned bpc, unsigned w, unsigned h,
                                               const simd_plane_t planes[3], float *out)
