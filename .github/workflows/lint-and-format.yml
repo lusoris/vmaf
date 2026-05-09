@@ -378,7 +378,12 @@ jobs:
     # `arc-runners` scale set; default `false` keeps GitHub-hosted. If the
     # ARC pool is degraded, flip the var off and re-trigger CI.
     runs-on: ${{ vars.ARC_RUNNERS_ENABLED == 'true' && 'arc-runners' || 'ubuntu-latest' }}
-    timeout-minutes: 15
+    # Bumped 15→30 min on 2026-05-09: GitHub-hosted runner queue
+    # saturation pushed Cppcheck past 15 min on ~all PRs and master.
+    # Last green run on master took 5 min; the new ceiling absorbs
+    # the slow-runner case without forcing a retry-loop on an already
+    # saturated queue.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Install
