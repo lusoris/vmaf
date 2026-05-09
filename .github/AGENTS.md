@@ -116,6 +116,7 @@ project-level Scorecard policy (introduced by PR #337) and entry 0231
 of [`docs/rebase-notes.md`](../docs/rebase-notes.md) for the standing
 re-test command.
 
+
 ### Dependency-update bot: Renovate, not Dependabot (ADR-0363)
 
 The fork uses **Mend Renovate** self-hosted via
@@ -132,6 +133,33 @@ On upstream sync:
 - `RENOVATE_TOKEN` is a repository secret; it is not committed anywhere. The
   operator playbook is at
   [`docs/development/dependency-bot.md`](../docs/development/dependency-bot.md).
+
+## Sanitizer matrix test-set scope (ADR-0347)
+
+The `sanitizers` job in
+[`workflows/tests-and-quality-gates.yml`](workflows/tests-and-quality-gates.yml)
+enumerates the full C unit-test set via `meson test --list` and
+applies a per-sanitizer regex deselect:
+
+- `address` — excludes `test_model`, `test_predict`,
+  `test_float_ms_ssim_min_dim`.
+- `undefined` — excludes `test_model`. Build also adds
+  `-Dc_args=-fno-sanitize=function` and the `cpp_args` twin to
+  suppress the K&R-prototype harness UB across ~50 test files
+  (`libvmaf/test/test.h` callers).
+- `thread` — excludes `test_model`, `test_pic_preallocation`,
+  `test_framesync`.
+
+Every deselected entry corresponds to a real defect tracked in
+[`../docs/state.md`](../docs/state.md) Open-bugs. As fixes land
+the corresponding `EXCLUDE='...'` regex shrinks. Do **not**
+silently widen the deselect list to "make CI pass" — per
+`feedback_no_test_weakening`, every addition needs an ADR
+referencing the underlying bug. Reverting `--suite=unit` would
+re-introduce the zero-coverage gap (no `test()` call carries a
+`suite: 'unit'` tag in `libvmaf/test/meson.build`); the workflow
+must keep enumerating from `meson test --list`.
+
 
 ## Upstream-merge guidance
 
