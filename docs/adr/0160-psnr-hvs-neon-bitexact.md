@@ -132,7 +132,7 @@ NOLINT accounting (all with inline ADR-0141 citations):
 - **Netflix golden pair** (scalar vs NEON via `VMAF_CPU_MASK=0`
   vs default on aarch64 under QEMU):
 
-  ```
+  ```text
   BIT-EXACT: src01_hrc00_576x324.yuv vs src01_hrc01_576x324.yuv (576×324, bpc=8)
   ```
 
@@ -172,3 +172,22 @@ NOLINT accounting (all with inline ADR-0141 citations):
 - User direction 2026-04-24: "alter go on" after PR #96 merged,
   confirming T3-5-neon sister-port execution per ADR-0159's
   "NEON follow-up PR" commitment.
+
+### Status update 2026-05-09
+
+The §Consequences bullet "AVX-512 `psnr_hvs` intentionally not
+scheduled" has now been **empirically validated** under the
+T3-9 bench-first methodology and closes as an AVX2 ceiling.
+[ADR-0350](0350-psnr-hvs-avx512-ceiling.md) carries the
+re-bench, the per-symbol cycle-share breakdown
+(`calc_psnrhvs_avx2` 78.42 % scalar tail vs
+`od_bin_fdct8x8_avx2` 14.82 % DCT) and the Amdahl ceiling
+calculation that puts a realistic 16-lane DCT at 1.07–1.08×
+over the current AVX2 path — well below the 1.3× T3-9 ship
+gate. The original ADR-0160 body is unchanged per the
+ADR-0028 / ADR-0106 immutability rule; this appendix only
+records that the deferral has graduated from "intentionally
+not scheduled" to "ceiling-confirmed by re-bench" and points
+forward to ADR-0350 / [ADR-0180](0180-cpu-coverage-audit.md)
+as the authoritative close-outs. T3-9 (a) is DONE-as-ceiling
+in BACKLOG.md.

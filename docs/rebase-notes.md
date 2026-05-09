@@ -9424,3 +9424,33 @@ table-shape edits. If a future BACKLOG.md edit adds a column or
 renames a status word, the parser will silently mis-classify rows
 — the smoke parses 101 rows on master at 2026-05-09; expect ≥ 100
 after any structural edit.
+### 0350 — `psnr_hvs` AVX-512 ceiling re-bench (ADR-0350, T3-9 (a))
+- [`docs/adr/0350-psnr-hvs-avx512-ceiling.md`](adr/0350-psnr-hvs-avx512-ceiling.md)
+  — closure ADR.
+- [`docs/adr/0160-psnr-hvs-neon-bitexact.md`](adr/0160-psnr-hvs-neon-bitexact.md)
+  — appended `### Status update 2026-05-09` appendix.
+- [`docs/research/0091-psnr-hvs-avx512-bench-2026-05-09.md`](research/0091-psnr-hvs-avx512-bench-2026-05-09.md)
+  — empirical companion (cycle share, Amdahl ceiling, reproducer).
+**Why this rebase-note exists**: T3-9 (a) closes as AVX2 ceiling.
+The result has zero rebase-sensitivity by itself — no engine code
+changes — but the **bit-exactness invariants** that lock it to a
+ceiling do. The 78.42 % scalar tail in `calc_psnrhvs_avx2` /
+`calc_psnrhvs_neon` is locked by ADR-0138 / ADR-0139's
+"per-lane-scalar float reduction" rule (carried by ADR-0159 /
+ADR-0160). If a future upstream sync of
+`libvmaf/src/feature/third_party/xiph/psnr_hvs.c` (the Xiph/Daala
+DCT) changes the per-block summation tree — e.g. partial folding,
+re-ordered means, vectorised mask reductions — the AVX2 + NEON
+TUs in `libvmaf/src/feature/x86/psnr_hvs_avx2.c` and
+`libvmaf/src/feature/arm64/psnr_hvs_neon.c` MUST be re-audited
+against the new scalar reference, and the ceiling argument in
+ADR-0350 must be re-run (because the 78 / 15 cycle-share split
+would shift).
+**Rebase-sensitivity**: low for the ceiling decision itself
+(empirical re-bench on a current host is cheap — 30 seconds via
+the reproducer in Research-0091 §7); high for the underlying
+bit-exactness invariants the decision rests on (Netflix golden
+trips on ≥ 5.5e-5 drift per ADR-0160 §Context). The ADR-0350
+§Verification reproducer is the gate — re-run it if the cycle
+share shifts, the Netflix normal-pair fixture changes, or a new
+host class (e.g. wide-issue Granite Rapids) goes into CI.
