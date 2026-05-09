@@ -18,6 +18,7 @@ documentation in the same PR as the code — this page is that doc.
 | [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md) | Docs ship with every user-discoverable surface change | Advisory CI comment | Same workflow, job `doc-substance-check` |
 | [ADR-0106](../adr/0106-adr-maintenance-rule.md) | One ADR per non-trivial decision, written first | Advisory CI comment | Same workflow, job `adr-backfill-check` |
 | [ADR-0105](../adr/0105-copyright-handling-dual-notice.md) | Every C / C++ / CUDA source ships a copyright header | Pre-commit hook | `scripts/ci/check-copyright.sh` via `.pre-commit-config.yaml` |
+| [ADR-0356](../adr/0356-ffmpeg-patches-surface-gate.md) | Public libvmaf surface consumed by `ffmpeg-patches/` carries a patch update in the same PR (CLAUDE.md §12 r14) | **Blocking** CI check | Same workflow, job `ffmpeg-patches-surface-check` |
 
 Blocking vs advisory is deliberate. ADR-0108 is the only rule whose
 full predicate is mechanically decidable (a checkbox is either ticked
@@ -25,6 +26,10 @@ or it isn't, referenced files either appear in the diff or they
 don't). The other rules involve human judgement — "is this a pure
 refactor?", "is this decision non-trivial enough to warrant an ADR?"
 — so their checks post comments instead of blocking the merge queue.
+ADR-0350 joins the blocking tier because the predicate is similarly
+mechanical: either a public-header / `meson_options.txt` symbol that
+patches consume changed and a patch is in the diff (or an opt-out
+line is in the body), or it didn't.
 
 ## ADR-0108: deep-dive deliverables (blocking)
 
@@ -165,6 +170,86 @@ Don't. The global rule (`/home/kilian/.claude/CLAUDE.md`) forbids
 add an explicit exclude to [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml)
 in the same PR and cite the reason.
 
+## ADR-0350: ffmpeg-patches surface sync (blocking)
+
+Enforces CLAUDE.md §12 r14: every PR that changes a libvmaf
+public-surface symbol consumed by `ffmpeg-patches/*.patch` must
+update at least one patch file in the same PR. Without this gate the
+rule was reviewer-eyes-only, and a missed update only surfaces at
+the next `/sync-upstream` rebase, when context recovery is
+expensive.
+
+### How detection works
+
+The script
+[`scripts/ci/ffmpeg-patches-surface-check.sh`](../../scripts/ci/ffmpeg-patches-surface-check.sh)
+runs in two passes:
+
+1. **Build the consumed set.** Concatenate every patch under
+   `ffmpeg-patches/`, extract the union of:
+   - `vmaf_<ident>` — public C symbols (`vmaf_init`, `vmaf_close`,
+     `vmaf_picture_alloc`, …)
+   - `Vmaf<TitleCase>` — public C types (`VmafModelConfig`,
+     `VmafLogLevel`, `VmafPicture`, …)
+   - `libvmaf_<ident>` — pkg-config feature names (`libvmaf_sycl`,
+     `libvmaf_vulkan`, …)
+   - `--enable-libvmaf-*` — FFmpeg configure flags
+2. **Build the diff set.** From the PR's diff against
+   `libvmaf/include/libvmaf/*.h` and `libvmaf/meson_options.txt`,
+   extract the same identifier shapes from `+`/`-` lines (single-line
+   `//` and `/* … */` comments stripped best-effort).
+
+If the two sets intersect and no `ffmpeg-patches/*.patch` is in the
+diff, the gate fails.
+
+### Triggers a hard fail
+
+A symbol like `VmafPicture` appears in both the consumed set and the
+diff (because the PR adds, removes, or renames a function that takes
+a `VmafPicture *`), and the PR diff contains zero patch files.
+
+### Per-PR opt-out
+
+Add a line to the PR description:
+
+```markdown
+no ffmpeg-patches update needed: <reason>
+```
+
+Legitimate reasons include:
+
+- Doxygen comment fix that mentions a consumed type but does not
+  change its signature or wire-level semantics.
+- Pure header-only refactor (e.g. reordering `#include` lines, fixing
+  an include-what-you-use violation) that touches a header but no
+  symbol patches consume.
+- Internal-helper rename behind an existing public surface where the
+  public symbol itself stays bit-identical.
+
+### Trade-offs
+
+The detector is intentionally liberal. A diff line `int foo(VmafPicture *p);`
+trips it whether `foo` is a fork-local helper or a public entry
+point, because `VmafPicture` is in the consumed set. The cost of a
+false positive is one extra opt-out line in the PR body; the cost of
+a false negative — a real surface change slipping through — is
+unbounded archaeology at the next sync. See
+[ADR-0356](../adr/0356-ffmpeg-patches-surface-gate.md) §Alternatives
+considered for why we picked bash + grep over libclang AST or
+ctags-based extraction.
+
+### Fixing a failing check
+
+1. Identify which patch under `ffmpeg-patches/` consumes the
+   surface that changed. The error output prints the matched
+   consumed symbols and flags.
+2. Update that patch in the same PR — usually a regenerate via
+   the patch's source branch, or a hand-edited `git apply`-able diff.
+3. Push. The workflow re-runs on `synchronize`.
+4. If the change is genuinely patch-irrelevant, edit the PR body
+   to add the `no ffmpeg-patches update needed: <reason>` line —
+   the workflow re-runs on `edited`.
+
 ## Running the checks locally
 
 The CI workflow mirrors scripts you can run by hand:
@@ -192,6 +277,7 @@ CI round-trip:
 | `mypy-local` | pre-push | `mypy ai/ scripts/` — same invocation as the `Python Lint` CI job. Requires `pip install mypy` (system tool, not in `pyproject.toml`). |
 | `semgrep-local` | pre-commit | Project-local rules from `.semgrep.yml` (`--error` exit code on match). Standard rule packs (`p/cert-c-strict`, `p/cwe-top-25`) still run in CI only. |
 | `ffmpeg-patches-apply-check` | pre-push | `git apply --check` every patch in `ffmpeg-patches/series.txt` against a cached FFmpeg `release/8.1` checkout (currently at tag `n8.1.1`) under `/tmp/ffmpeg-n81`. Backed by `scripts/ci/ffmpeg-patches-check.sh`. |
+| `ffmpeg-patches-surface-check` | (CI + local) | CLAUDE.md §12 r14 — public-libvmaf-surface change without a matching `ffmpeg-patches/*.patch` update fails the build. Runnable locally via `BASE_SHA=… HEAD_SHA=… PR_BODY=… bash scripts/ci/ffmpeg-patches-surface-check.sh`. Backed by [ADR-0356](../adr/0356-ffmpeg-patches-surface-gate.md). |
 
 Install the pre-push hook (one-time, fresh clones):
 
