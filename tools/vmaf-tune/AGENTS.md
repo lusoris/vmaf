@@ -251,6 +251,17 @@ for the option-space digest.
   ported Netflix's HDR model yet), `_resolve_vmaf_model` logs a
   warning and returns the SDR model. Do not change this to raise —
   HDR encode-side correctness ships independently of HDR scoring.
+- **`model/vmaf_hdr_model_card.md` is documentation, not weights**
+  ([research-0089](../../docs/research/0089-hdr-vmaf-model-search.md);
+  ADR-0300 status update 2026-05-09). The file is a `.md`, not a
+  `.json`, so `select_hdr_vmaf_model`'s `vmaf_hdr_*.json` glob does
+  **not** match it and continues to return `None`. Do not rename
+  the card to `.json`, do not relax the resolver glob to also match
+  `.md`, and do not synthesise placeholder weights — the SDR-fallback
+  path with a one-shot warning is the deliberate Path C outcome
+  until either Netflix open-sources `vmaf_hdr_v0.6.1.json` upstream
+  or the fork acquires a permissively-licensed HDR-MOS-labelled
+  training corpus.
 - **Cache key fields are load-bearing
   ([ADR-0298](../../docs/adr/0298-vmaf-tune-cache.md)).** The
   `cache_key()` function in `cache.py` digests six fields:

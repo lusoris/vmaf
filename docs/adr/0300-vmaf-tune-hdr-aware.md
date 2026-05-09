@@ -101,3 +101,43 @@ We will:
 - ffmpeg color flag reference: <https://ffmpeg.org/ffmpeg-codecs.html#libx265>, <https://ffmpeg.org/ffmpeg-codecs.html#SVT_002dAV1>.
 - HEVC mastering-display SEI format: ITU-T H.265 (08/2021) D.3.27.
 - Source: `req` — Bucket #9 task brief: "HDR sources have specific color metadata in the source — `colorspace=bt2020nc`, `color_trc=smpte2084` (PQ) or `arib-std-b67` (HLG)... ship the encode-side flags only and document that HDR scoring uses the SDR model with a warning."
+
+### Status update 2026-05-09: HDR model status
+
+An autonomous source-or-train research pass exhausted three paths to
+close the HDR-VMAF-model gap (full digest in
+[research-0089](../research/0089-hdr-vmaf-model-search.md)):
+
+- **Path A (source from elsewhere) — failed.** `Netflix/vmaf/model/`
+  still ships no `vmaf_hdr_*` artifact (verified via
+  `gh api repos/Netflix/vmaf/contents/model` on 2026-05-09);
+  collaborator `li-zhi` on
+  [issue #645](https://github.com/Netflix/vmaf/issues/645) confirmed
+  "no timeline" and the most recent public statement (CSI Magazine
+  2023-11-30) was "before the official release." Hugging Face,
+  GitHub-wide code search, and academic releases (HDRMAX —
+  different algorithm, sklearn pickles, not libvmaf-JSON-loadable)
+  all returned negative findings. No BSD-3-Clause-Plus-Patent-
+  compatible, libvmaf-JSON-loadable HDR VMAF model exists publicly
+  as of 2026-05-09.
+- **Path B (train a fork-owned model) — deferred.** All five
+  candidate subjective HDR corpora (LIVE-HDR, LIVE-HDRvsSDR,
+  LIVE-TMHDR, ESPL-LIVE HDR, ITU-T SDR-vs-HDR) are gated behind
+  manual access forms or unavailable; redistribution of
+  derived weights under BSD-3-Clause-Plus-Patent is unclear; and
+  the multi-day training run exceeded the research-pass budget.
+  Filed as a follow-up backlog row in
+  [`docs/state.md`](../state.md).
+- **Path C (degrade gracefully + document) — chosen.** Ship a
+  `model/vmaf_hdr_model_card.md` that loudly documents the SDR
+  fallback. **No fabricated model weights are introduced.** The
+  resolver glob (`vmaf_hdr_*.json`) is unchanged and continues to
+  return `None`; the fallback that ADR-0300 already documented is
+  unchanged at runtime. The only delta is that the fallback is now
+  *discoverable* from the `model/` directory listing.
+
+This status update does not change the ADR's Decision; the ADR's
+"HDR-VMAF scoring deferred" status is preserved. The empirical
+SDR-on-HDR delta measurement called out in the digest's follow-up
+backlog is the smaller next step that does not require gated
+corpora.
