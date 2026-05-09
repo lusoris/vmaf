@@ -245,3 +245,21 @@ int vmaf_hip_kernel_readback_free(VmafHipKernelReadback *rb, VmafHipContext *ctx
     rb->bytes = 0;
     return first_err;
 }
+
+int vmaf_hip_kernel_submit_post_record(VmafHipKernelLifecycle *lc, VmafHipContext *ctx)
+{
+    (void)ctx;
+    if (lc == NULL) {
+        return -EINVAL;
+    }
+    if (lc->str == 0 || lc->finished == 0) {
+        return -EINVAL;
+    }
+    /* Record the `finished` event on the private readback stream
+     * (`lc->str`) after the DtoH copy is enqueued. `collect_wait`
+     * calls `hipStreamSynchronize(lc->str)` which waits for this
+     * event to complete, ensuring the pinned host buffer is safe to
+     * read. Mirrors the CUDA twin's `vmaf_cuda_kernel_submit_post_record`. */
+    hipError_t rc = hipEventRecord((hipEvent_t)lc->finished, (hipStream_t)lc->str);
+    return hip_rc_to_errno(rc);
+}

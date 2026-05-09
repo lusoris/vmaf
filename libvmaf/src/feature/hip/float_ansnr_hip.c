@@ -4,46 +4,36 @@
  *
  *  float_ansnr feature extractor on the HIP backend — fifth consumer
  *  of `libvmaf/src/hip/kernel_template.h` (T7-10b follow-up /
- *  ADR-0266).
+ *  ADR-0266).  Real kernel promotion: T7-10b batch-1 / ADR-0372.
  *
  *  This TU mirrors `libvmaf/src/feature/cuda/float_ansnr_cuda.c`
- *  call-graph-for-call-graph: same private-state struct shape, same
- *  init/submit/collect/close lifecycle, same template helper
- *  invocations. Single-dispatch kernel; the runtime PR will produce
- *  per-block (sig, noise) interleaved float partials and reduce them
- *  on the host in `double` to recover `float_ansnr` and
- *  `float_anpsnr` — the same precision posture as the CUDA twin
- *  (per-block sums in float, cross-block reduction in double).
+ *  call-graph-for-call-graph. When `HAVE_HIPCC` is defined (i.e.,
+ *  `enable_hipcc=true` at configure time), the `init`, `submit`, and
+ *  `collect` functions use real HIP Module API calls following the
+ *  canonical pattern established by PR #612 / ADR-0254.
  *
- *  Like the third consumer (`ciede_hip`), the submit path
- *  intentionally bypasses `vmaf_hip_kernel_submit_pre_launch` because
- *  the kernel writes per-block partials directly (no atomic, no
- *  memset prerequisite). The CUDA twin makes the same choice; the
- *  bypass is the load-bearing artefact this consumer pins.
+ *  Without `HAVE_HIPCC` (CPU-only builds), the scaffold posture is
+ *  preserved: every lifecycle helper returns -ENOSYS.
  *
- *  The kernel-template helpers in `libvmaf/src/hip/kernel_template.c`
- *  currently return -ENOSYS; the consumer's `init` therefore returns
- *  -ENOSYS up the stack, so the feature engine reports
- *  "float_ansnr_hip extractor found but its runtime is not
- *  implemented" rather than "float_ansnr_hip extractor not found".
- *  The smoke test pins this registration-shape contract.
+ *  Algorithm (mirrors CPU `ansnr.c::compute_ansnr`):
+ *    1. ref/dis pixels normalised to float in [-128, ~128].
+ *    2. 3x3 ref Gaussian filter -> ref_filtr.
+ *    3. 5x5 dis filter (weights /571) -> filtd.
+ *    4. sig   += ref_filtr^2
+ *       noise += (ref_filtr - filtd)^2
+ *  Per-block partial pair: partials[2*block_idx+0]=sig, [+1]=noise.
+ *  Host accumulates in double and emits:
+ *    float_ansnr  = 10*log10(sig/noise)                    (or psnr_max)
+ *    float_anpsnr = MIN(10*log10(peak^2*w*h/max(noise,1e-10)), psnr_max)
  *
- *  When the runtime PR (T7-10b) ships, the kernel-template bodies flip
- *  from -ENOSYS to real `hipStreamCreate` / `hipMemcpyAsync` / ...
- *  calls and *this* TU keeps its current shape verbatim. That's the
- *  load-bearing invariant: the consumer is written against the
- *  template's contract, not against the absent runtime.
- *
- *  Algorithm parity (when the kernel arrives): per-block (sig, noise)
- *  float partials reduced to two doubles on the host, then the CPU
- *  formulas:
- *    float_ansnr  = 10 * log10(sig / noise)              (or psnr_max if noise == 0)
- *    float_anpsnr = MIN(10 * log10(peak^2 * w * h / max(noise, 1e-10)), psnr_max)
- *  v1 emits two features (`float_ansnr`, `float_anpsnr`) just like
- *  the CUDA reference.
+ *  Like the CUDA twin, the submit path intentionally bypasses
+ *  `vmaf_hip_kernel_submit_pre_launch` because the kernel writes
+ *  per-block partials directly (no atomic accumulator, no memset
+ *  prerequisite). This bypass is the load-bearing ADR-0372 invariant.
  */
 
 #include <errno.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -55,17 +45,25 @@
 
 #include "../../hip/common.h"
 #include "../../hip/kernel_template.h"
+#include "float_ansnr_hip.h"
+
+#ifdef HAVE_HIPCC
+#define __HIP_PLATFORM_AMD__ 1
+#include <hip/hip_runtime_api.h>
+
+/* HSACO fat binary embedded by xxd -i during the meson hipcc pipeline
+ * (ADR-0372 / `hip_hsaco_sources` meson block). Defined by the
+ * auto-generated `float_ansnr_score_hsaco.c` custom_target output. */
+extern const unsigned char float_ansnr_score_hsaco[];
+extern const unsigned int float_ansnr_score_hsaco_len;
+#endif /* HAVE_HIPCC */
 
 typedef struct FloatAnsnrStateHip {
     /* Lifecycle (private stream + submit/finished event pair) and the
      * (device per-block (sig, noise) float partials, pinned host
      * readback slot) pair are managed by `hip/kernel_template.h`
      * (T7-10b fifth consumer / ADR-0266). The struct shape mirrors
-     * the CUDA twin's `FloatAnsnrStateCuda` — same fields in the same
-     * order, modulo the `*_hip` -> `*_cuda` type names and the
-     * absence of the CUDA-driver-table function-pointer slots
-     * (`funcbpc8`, `funcbpc16`), which the runtime PR (T7-10b) will
-     * reintroduce as their HIP equivalents. */
+     * the CUDA twin's `FloatAnsnrStateCuda`. */
     VmafHipKernelLifecycle lc;
     VmafHipKernelReadback rb;
     VmafHipContext *ctx;
@@ -76,15 +74,128 @@ typedef struct FloatAnsnrStateHip {
     unsigned bpc;
     double peak;
     double psnr_max;
+#ifdef HAVE_HIPCC
+    hipModule_t module;
+    hipFunction_t funcbpc8;
+    hipFunction_t funcbpc16;
+    /* Per-frame staging buffers for ref + dis luma planes. */
+    void *ref_in;
+    void *dis_in;
+#endif /* HAVE_HIPCC */
     VmafDictionary *feature_name_dict;
 } FloatAnsnrStateHip;
 
-/* Mirrors the CUDA twin's 16x16 workgroup tile. Kept verbatim so the
- * runtime PR's `wg_count` math agrees with the CUDA reference. */
+/* Mirrors the CUDA twin's 16x16 workgroup tile (ANSNR_BX / ANSNR_BY). */
 #define ANSNR_HIP_BX 16
 #define ANSNR_HIP_BY 16
 
 static const VmafOption options[] = {{0}};
+
+#ifdef HAVE_HIPCC
+/* Translate a HIP error code to a negative errno. Mirrors
+ * `hip_rc_to_errno` in `kernel_template.c`. */
+static int ansnr_hip_rc(hipError_t rc)
+{
+    if (rc == hipSuccess)
+        return 0;
+    switch (rc) {
+    case hipErrorInvalidValue:
+    case hipErrorInvalidHandle:
+        return -EINVAL;
+    case hipErrorOutOfMemory:
+        return -ENOMEM;
+    case hipErrorNoDevice:
+    case hipErrorInvalidDevice:
+        return -ENODEV;
+    case hipErrorNotSupported:
+        return -ENOSYS;
+    default:
+        return -EIO;
+    }
+}
+
+/* Load the HSACO module and look up the two kernel entry points.
+ * Called once from init() when HAVE_HIPCC is defined. */
+static int ansnr_hip_module_load(FloatAnsnrStateHip *s)
+{
+    hipError_t rc = hipModuleLoadData(&s->module, float_ansnr_score_hsaco);
+    if (rc != hipSuccess)
+        return ansnr_hip_rc(rc);
+
+    rc = hipModuleGetFunction(&s->funcbpc8, s->module, "float_ansnr_kernel_8bpc");
+    if (rc != hipSuccess) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+        return ansnr_hip_rc(rc);
+    }
+    rc = hipModuleGetFunction(&s->funcbpc16, s->module, "float_ansnr_kernel_16bpc");
+    if (rc != hipSuccess) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+        return ansnr_hip_rc(rc);
+    }
+    return 0;
+}
+
+/* Launch the appropriate bpc kernel on `pic_stream`. The kernel writes
+ * per-block (sig, noise) float partials to `rb.device` directly — no
+ * atomic accumulator, so no prior memset is needed (CUDA twin uses the
+ * same bypass pattern for float_ansnr). After launch, record submit,
+ * wait on private stream, DtoH copy partials, record finished. */
+static int ansnr_hip_launch(FloatAnsnrStateHip *s, uintptr_t pic_stream)
+{
+    hipStream_t str = (hipStream_t)s->lc.str;
+    hipStream_t pstr = (hipStream_t)pic_stream;
+
+    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->frame_w * (s->bpc <= 8u ? 1u : 2u));
+    const unsigned gx = (s->frame_w + ANSNR_HIP_BX - 1u) / ANSNR_HIP_BX;
+    const unsigned gy = (s->frame_h + ANSNR_HIP_BY - 1u) / ANSNR_HIP_BY;
+
+    float *partials_dev = (float *)s->rb.device;
+    const uint8_t *ref_dev = (const uint8_t *)s->ref_in;
+    const uint8_t *dis_dev = (const uint8_t *)s->dis_in;
+    unsigned w = s->frame_w;
+    unsigned h = s->frame_h;
+    unsigned bpc = s->bpc;
+
+    hipError_t rc;
+    if (s->bpc == 8u) {
+        /* float_ansnr_kernel_8bpc(ref, dis, ref_stride, dis_stride,
+         *                         partials, width, height) */
+        void *args[] = {
+            (void *)&ref_dev,      (void *)&dis_dev, (void *)&plane_pitch, (void *)&plane_pitch,
+            (void *)&partials_dev, (void *)&w,       (void *)&h,
+        };
+        rc = hipModuleLaunchKernel(s->funcbpc8, gx, gy, 1, ANSNR_HIP_BX, ANSNR_HIP_BY, 1, 0, pstr,
+                                   args, NULL);
+    } else {
+        /* float_ansnr_kernel_16bpc(ref, dis, ref_stride, dis_stride,
+         *                          partials, width, height, bpc) */
+        void *args[] = {
+            (void *)&ref_dev,      (void *)&dis_dev, (void *)&plane_pitch, (void *)&plane_pitch,
+            (void *)&partials_dev, (void *)&w,       (void *)&h,           (void *)&bpc,
+        };
+        rc = hipModuleLaunchKernel(s->funcbpc16, gx, gy, 1, ANSNR_HIP_BX, ANSNR_HIP_BY, 1, 0, pstr,
+                                   args, NULL);
+    }
+    if (rc != hipSuccess)
+        return ansnr_hip_rc(rc);
+
+    rc = hipEventRecord((hipEvent_t)s->lc.submit, pstr);
+    if (rc != hipSuccess)
+        return ansnr_hip_rc(rc);
+    rc = hipStreamWaitEvent(str, (hipEvent_t)s->lc.submit, 0);
+    if (rc != hipSuccess)
+        return ansnr_hip_rc(rc);
+
+    rc = hipMemcpyAsync(s->rb.host_pinned, s->rb.device, (size_t)s->wg_count * 2u * sizeof(float),
+                        hipMemcpyDeviceToHost, str);
+    if (rc != hipSuccess)
+        return ansnr_hip_rc(rc);
+
+    return vmaf_hip_kernel_submit_post_record(&s->lc, s->ctx);
+}
+#endif /* HAVE_HIPCC */
 
 static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                         unsigned w, unsigned h)
@@ -113,43 +224,75 @@ static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
         return -EINVAL;
     }
 
-    /* Allocate a HIP context — the scaffold's `vmaf_hip_context_new`
-     * succeeds today (calloc + struct init); the runtime PR will swap
-     * in `hipSetDevice` + handle creation. */
     int err = vmaf_hip_context_new(&s->ctx, 0);
-    if (err != 0) {
+    if (err != 0)
         return err;
-    }
 
-    /* Stream + event pair via the template. Scaffold returns -ENOSYS
-     * unconditionally; the runtime PR replaces the helper body, this
-     * call site stays. */
     err = vmaf_hip_kernel_lifecycle_init(&s->lc, s->ctx);
-    if (err != 0) {
+    if (err != 0)
         goto fail_after_ctx;
-    }
 
     const unsigned grid_x = (w + (ANSNR_HIP_BX - 1u)) / ANSNR_HIP_BX;
     const unsigned grid_y = (h + (ANSNR_HIP_BY - 1u)) / ANSNR_HIP_BY;
     s->wg_count = grid_x * grid_y;
 
-    /* Readback pair (device interleaved (sig, noise) float partials +
-     * pinned host slot) sized at 2 floats per workgroup so T7-10b's
-     * host reduction sees identical partial counts to the CUDA twin. */
+    /* Readback pair: device interleaved (sig, noise) float partials +
+     * pinned host slot, sized at 2 floats per workgroup. */
     err = vmaf_hip_kernel_readback_alloc(&s->rb, s->ctx, (size_t)s->wg_count * 2u * sizeof(float));
-    if (err != 0) {
+    if (err != 0)
         goto fail_after_lc;
+
+#ifdef HAVE_HIPCC
+    err = ansnr_hip_module_load(s);
+    if (err != 0)
+        goto fail_after_rb;
+
+    /* Staging buffers for ref + dis luma planes. */
+    const size_t bpp = (bpc <= 8u) ? 1u : 2u;
+    const size_t plane_bytes = (size_t)w * h * bpp;
+    hipError_t rc = hipMalloc(&s->ref_in, plane_bytes);
+    if (rc != hipSuccess) {
+        err = -ENOMEM;
+        goto fail_after_module;
     }
+    rc = hipMalloc(&s->dis_in, plane_bytes);
+    if (rc != hipSuccess) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+        err = -ENOMEM;
+        goto fail_after_module;
+    }
+#endif /* HAVE_HIPCC */
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (s->feature_name_dict == NULL) {
         err = -ENOMEM;
+#ifdef HAVE_HIPCC
+        goto fail_after_bufs;
+#else
         goto fail_after_rb;
+#endif
     }
 
     return 0;
 
+#ifdef HAVE_HIPCC
+fail_after_bufs:
+    if (s->dis_in != NULL) {
+        (void)hipFree(s->dis_in);
+        s->dis_in = NULL;
+    }
+    if (s->ref_in != NULL) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+    }
+fail_after_module:
+    if (s->module != NULL) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+    }
+#endif /* HAVE_HIPCC */
 fail_after_rb:
     (void)vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
 fail_after_lc:
@@ -165,66 +308,112 @@ static int submit_fex_hip(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafP
 {
     (void)ref_pic_90;
     (void)dist_pic_90;
-    (void)dist_pic;
     FloatAnsnrStateHip *s = fex->priv;
 
     s->index = index;
     s->frame_w = ref_pic->w[0];
     s->frame_h = ref_pic->h[0];
 
-    /* Mirrors the CUDA twin's intentionally-inlined pre-launch path —
-     * the kernel writes interleaved (sig, noise) float partials per
-     * block (no atomic), so the template's accumulator memset is
-     * unnecessary. Until the runtime PR lands, there is no real
-     * `hipStreamWaitEvent` to call, so the consumer surfaces -ENOSYS
-     * verbatim. The runtime PR (T7-10b) replaces this body with the
-     * live `cuMemcpy2D` ref/dis upload + `cuMemsetD8Async` partials
-     * reset + dispatch + `hipEventRecord(submit)` +
-     * `hipStreamWaitEvent(str, submit)` + `hipMemcpyDtoHAsync` +
-     * `hipEventRecord(finished)` chain (see CUDA twin). */
+#ifdef HAVE_HIPCC
+    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->frame_w * (s->bpc <= 8u ? 1u : 2u));
+    const uintptr_t pic_stream_handle = 0;
+
+    hipError_t rc =
+        hipMemcpy2DAsync(s->ref_in, (size_t)plane_pitch, ref_pic->data[0],
+                         (size_t)ref_pic->stride[0], (size_t)plane_pitch, (size_t)s->frame_h,
+                         hipMemcpyDeviceToDevice, (hipStream_t)pic_stream_handle);
+    if (rc != hipSuccess)
+        return -EIO;
+
+    rc = hipMemcpy2DAsync(s->dis_in, (size_t)plane_pitch, dist_pic->data[0],
+                          (size_t)dist_pic->stride[0], (size_t)plane_pitch, (size_t)s->frame_h,
+                          hipMemcpyDeviceToDevice, (hipStream_t)pic_stream_handle);
+    if (rc != hipSuccess)
+        return -EIO;
+
+    /* The ansnr kernel writes per-block partials directly — no prior
+     * memset / zero of the accumulator needed. The CUDA twin makes the
+     * same choice and documents it as the intentional bypass. */
+    return ansnr_hip_launch(s, pic_stream_handle);
+#else
+    /* Scaffold posture (no HAVE_HIPCC). */
+    (void)dist_pic;
     return -ENOSYS;
+#endif /* HAVE_HIPCC */
 }
 
 static int collect_fex_hip(VmafFeatureExtractor *fex, unsigned index,
                            VmafFeatureCollector *feature_collector)
 {
-    (void)feature_collector;
-    (void)index;
     FloatAnsnrStateHip *s = fex->priv;
 
-    /* Drain the private readback stream so the host pinned buffer is
-     * safe to read. Mirrors the CUDA twin. */
     int err = vmaf_hip_kernel_collect_wait(&s->lc, s->ctx);
-    if (err != 0) {
+    if (err != 0)
         return err;
+
+#ifdef HAVE_HIPCC
+    /* Accumulate interleaved (sig, noise) float partials in double.
+     * Matches the CUDA twin's cross-block reduction precision posture. */
+    const float *partials_host = (const float *)s->rb.host_pinned;
+    double sig = 0.0;
+    double noise = 0.0;
+    for (unsigned i = 0; i < s->wg_count; i++) {
+        sig += (double)partials_host[2u * i + 0u];
+        noise += (double)partials_host[2u * i + 1u];
     }
 
-    /* Score emission lands with the runtime PR — same per-block
-     * (sig, noise) float partials -> double host reduction ->
-     * 10 * log10(sig / noise) (and the anpsnr peak^2 form) chain as
-     * the CUDA reference. The cross-block reduction across thousands
-     * of partials needs double precision to retain places=4 in the
-     * eventual cross-backend numeric gate. */
+    /* float_ansnr formula matches CPU ansnr.c and the CUDA twin. */
+    const double score = (noise == 0.0) ? s->psnr_max : 10.0 * log10(sig / noise);
+    const double eps = 1e-10;
+    const double n_pix = (double)s->frame_w * (double)s->frame_h;
+    const double max_noise = (noise > eps) ? noise : eps;
+    double score_psnr = 10.0 * log10(s->peak * s->peak * n_pix / max_noise);
+    if (score_psnr > s->psnr_max)
+        score_psnr = s->psnr_max;
+
+    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                  "float_ansnr", score, index);
+    if (err != 0)
+        return err;
+    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "float_anpsnr", score_psnr, index);
+#else
+    (void)feature_collector;
+    (void)index;
     return -ENOSYS;
+#endif /* HAVE_HIPCC */
 }
 
 static int close_fex_hip(VmafFeatureExtractor *fex)
 {
     FloatAnsnrStateHip *s = fex->priv;
 
-    /* Lifecycle teardown via the template (sync -> destroy stream ->
-     * destroy events). Best-effort error aggregation matches the
-     * CUDA twin's close path. */
     int rc = vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
     int err = vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
-    if (err != 0 && rc == 0) {
+    if (err != 0 && rc == 0)
         rc = err;
+
+#ifdef HAVE_HIPCC
+    if (s->dis_in != NULL) {
+        (void)hipFree(s->dis_in);
+        s->dis_in = NULL;
     }
+    if (s->ref_in != NULL) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+    }
+    if (s->module != NULL) {
+        hipError_t hip_err = hipModuleUnload(s->module);
+        if (hip_err != hipSuccess && rc == 0)
+            rc = -EIO;
+        s->module = NULL;
+    }
+#endif /* HAVE_HIPCC */
+
     if (s->feature_name_dict != NULL) {
         err = vmaf_dictionary_free(&s->feature_name_dict);
-        if (err != 0 && rc == 0) {
+        if (err != 0 && rc == 0)
             rc = err;
-        }
     }
     if (s->ctx != NULL) {
         vmaf_hip_context_destroy(s->ctx);
@@ -235,14 +424,9 @@ static int close_fex_hip(VmafFeatureExtractor *fex)
 
 static const char *provided_features[] = {"float_ansnr", "float_anpsnr", NULL};
 
-/* Load-bearing: the feature extractor is registered via
- * `extern VmafFeatureExtractor vmaf_fex_float_ansnr_hip;` in
- * `libvmaf/src/feature/feature_extractor.c`'s
- * `feature_extractor_list[]`. Making this static would unlink the
- * extractor from the registry and fail every name lookup. Same
- * pattern every CUDA / SYCL / Vulkan feature extractor uses (see
- * e.g. `vmaf_fex_float_ansnr_cuda` in
- * `libvmaf/src/feature/cuda/float_ansnr_cuda.c`). */
+/* Load-bearing: registered via `extern VmafFeatureExtractor vmaf_fex_float_ansnr_hip;`
+ * in `libvmaf/src/feature/feature_extractor.c`'s `feature_extractor_list[]`.
+ * Same pattern as every CUDA / SYCL / Vulkan feature extractor. */
 // NOLINTNEXTLINE(misc-use-internal-linkage)
 VmafFeatureExtractor vmaf_fex_float_ansnr_hip = {
     .name = "float_ansnr_hip",
@@ -256,11 +440,9 @@ VmafFeatureExtractor vmaf_fex_float_ansnr_hip = {
     /* Intentionally no VMAF_FEATURE_EXTRACTOR_HIP flag yet — the
      * picture buffer-type plumbing for HIP lands with the runtime
      * PR (T7-10b). Until then the consumer registers as a
-     * "CPU-flagged" extractor whose `init()` returns -ENOSYS, so
-     * any caller asking for `float_ansnr_hip` gets a clean "runtime
-     * not ready" surface. Same posture as the first / second /
-     * third / fourth consumers (ADR-0241 / ADR-0254 / ADR-0259 /
-     * ADR-0260). */
+     * "CPU-flagged" extractor whose `init()` returns -ENOSYS on
+     * non-ROCm builds. Same posture as the first through fourth
+     * consumers (ADR-0241 / ADR-0254 / ADR-0259 / ADR-0260). */
     .flags = 0,
     .chars =
         {
