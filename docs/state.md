@@ -35,6 +35,7 @@ landed fix yet._
 | Item | Defer rationale | Reopen trigger |
 | --- | --- | --- |
 | _(no rows; T6-1 / Tiny-AI C1 baseline closed 2026-05-02 — see "Recently closed". T6-2a-followup' / saliency replacement closed 2026-05-05 — see "Recently closed". Section retained for future dataset-gated rows.)_ | | |
+| **T-HDR-ITER-ROWS** — `tools/vmaf-tune/tests/test_hdr.py::test_corpus_emits_hdr_fields_when_source_is_hdr` and `_when_force_pq` are skipped via `_HDR_ITER_ROWS_DEFERRED = pytest.mark.skip(...)` | The CLI surface (`--auto-hdr` / `--force-sdr` / `--force-hdr-pq` / `--force-hdr-hlg`, `CorpusOptions.hdr_mode`) shipped in PR #379 ([ADR-0295](adr/0295-vmaf-tune-hdr-aware.md)) but `corpus.iter_rows` does not yet call `detect_hdr` / `hdr_codec_args` / `select_hdr_vmaf_model` on every job; the iter_rows hookup ships in PR #466 (HP-2, OPEN as of 2026-05-08). Un-skipping now would either red-CI on the missing wiring or weaken the test by stubbing the integration. Surfaced by the 2026-05-08 stale-marker sweep ([Research-0086](research/0086-stale-marker-sweep-2026-05-08.md)). | Reopen on PR #466 (HP-2) merging — the marker comes off in the same PR so the un-skip rides with the wiring. |
 
 ## Recently closed (last ~3 months)
 
