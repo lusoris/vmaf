@@ -10386,6 +10386,7 @@ compiles).
   cd "$(git -C . rev-parse --show-toplevel)/.claude/worktrees/agent-<id>" && \
     bash $OLDPWD/scripts/ci/check-agent-worktree-drift.sh ; echo "exit=$?"
 
+
 ### 0320 — `psnr_cuda` chroma extension (ADR-0351)
 
 - **Touches**:
@@ -10424,5 +10425,121 @@ compiles).
     --distorted ../testdata/dis_576x324_48f.yuv \
     --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
     --feature psnr --backend cuda --places 4
+
+
+## ADR-0337 — motion_v2 public option surface duplication (2026-05-09)
+
+- **Touches**: `libvmaf/src/feature/integer_motion_v2.c`,
+  `libvmaf/src/feature/x86/motion_v2_avx2.c`,
+  `libvmaf/src/feature/x86/motion_v2_avx512.c`,
+  `libvmaf/src/feature/arm64/motion_v2_neon.c`,
+  `docs/adr/0337-motion-v2-public-api-options.md` (new),
+  `docs/adr/_index_fragments/0337-motion-v2-public-api-options.md` (new),
+  `docs/adr/_index_fragments/_order.txt` (one-line append),
+  `docs/adr/README.md` (regenerated),
+  `changelog.d/added/motion-v2-public-api-options.md` (new),
+  `changelog.d/fixed/motion-v2-mirror-off-by-one.md` (new),
+  `docs/state.md` (deferral row update),
+  `libvmaf/src/feature/AGENTS.md` (invariant note).
+- **Upstream cluster ported**: Netflix/vmaf `856d3835`
+  (mirror off-by-one fix, propagated to scalar + AVX2 + AVX-512 +
+  fork-local NEON), `c17dd898` (`motion_max_val` option),
+  `a2b59b77` (`motion_five_frame_window` option, **partial** —
+  see Deferred-hunks below), `4e469601` (remaining options +
+  `motion3_v2_score` provided feature, manual port adapted to
+  3-frame mode only).
+- **Architectural decision**: ADR-0337 picks A1 — duplicate option
+  surfaces between motion v1 and motion_v2. v1 (`integer_motion.c`)
+  and v2 (`integer_motion_v2.c`) each register their own
+  `VmafOption[]` table; the seven option names match upstream
+  byte-for-byte so future `/sync-upstream` runs find no behavioural
+  delta. The duplication is purely textual (~80 LOC of option-table
+  rows + 7 struct fields). Touching one extractor's help string
+  requires touching the other; ADR-0141 catches drift on the next
+  edit.
+- **Invariants**:
+  1. **`motion_five_frame_window=true` returns `-ENOTSUP`** at
+     `init()` on motion_v2. Mirrors ADR-0219 §Decision's GPU
+     motion3 precedent. The 3-frame default mode is fully
+     supported. When the picture-pool plumbing follow-up lands,
+     the `-ENOTSUP` guard flips to a `prev_prev_ref` lookup;
+     until then any caller passing `=true` sees a hard error.
+  2. **motion v1's option surface is the source of truth** for the
+     seven shared option names. ADR-0158 carries v1's history;
+     ADR-0337 carries v2's. Both extractors emit independently
+     into the feature collector under
+     `VMAF_integer_feature_motion*_score` (v1) and
+     `VMAF_integer_feature_motion*_v2_score` (v2) — there is no
+     shared output namespace.
+  3. **GPU twins (CUDA / SYCL / HIP / Vulkan) of `motion_v2` do
+     NOT yet register the option surface** in this PR. Their
+     `motion3_v2_score` emission is out of scope per ADR-0337
+     §Consequences; whether the GPU twins gain the same options
+     follows when a model needs the score there. The mirror
+     off-by-one fix in `856d3835` is propagated only to scalar +
+     AVX2 + AVX-512 + NEON in this PR; CUDA / SYCL / HIP / Vulkan
+     mirror formulae stay on the pre-fix `2*size - idx - 1` form
+     and document the divergence. Refresh tracked as a follow-up.
+- **Deferred upstream hunks** (kept in upstream commits but not
+  ported in this PR; tracked here so the next `/sync-upstream`
+  finds them):
+  - `a2b59b77` hunks in `libvmaf/src/feature/feature_extractor.h`
+    (adds `VmafPicture prev_prev_ref` to the per-extractor
+    framework struct), `libvmaf/src/libvmaf.c` (picture-pool
+    sizing `n_threads * 2 + 2`, `prev_prev_ref` plumbing through
+    `threaded_extract_func` / `threaded_extract_batch_func` /
+    `threaded_read_pictures` / `threaded_read_pictures_batch`,
+    `vmaf_close` cleanup), `libvmaf/tools/vmaf.c` (CLI picture-pool
+    sizing). Conflicts in 8 regions on the fork's `read_pictures*`
+    decomposition (ADR-0152 monotonic-index gate) make an
+    in-PR port unsafe; the picture-pool refactor will land as
+    its own PR with a five-frame-window fixture under
+    `python/test/` once the framework changes are reviewed in
+    isolation.
+  - `a2b59b77`'s 5-frame branch in `extract()` (uses
+    `fex->prev_prev_ref` directly) lands together with the
+    framework hunks above.
+  - `4e469601`'s 5-frame `flush()` branch (variable `stride` /
+    `min_idx = 2`, `lo_idx`/`hi_idx` window) is collapsed in this
+    PR to the `min_idx = 1` constant for 3-frame mode only. The
+    branch is structurally one `if (s->motion_five_frame_window)`
+    away from full upstream parity; reinstate when the
+    `prev_prev_ref` plumbing lands.
+- **On upstream sync**: future `/sync-upstream` against
+  `Netflix/vmaf master` will report all four commits as already
+  ported (cherry-picked or hand-ported with `(cherry picked from
+  …)` trailers). When the picture-pool refactor PR lands, this
+  ledger row gains a "5-frame mode now wired" sub-bullet and the
+  `-ENOTSUP` guard flips. Avoid re-discovering the four commits
+  as pending — the deferred hunks are tracked above, not the
+  whole commits.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false \
+                            -Denable_hip=false -Denable_vulkan=disabled \
+                            -Denable_float=true
+  ninja -C build && meson test -C build           # 51/52 OK; 1 pre-existing
+                                                   # T7-32 fail on
+                                                   # test_motion_v2_simd
+                                                   # (ADR-0038 follow-up)
+
+  # Smoke the new options + ENOTSUP guard:
+  build/tools/vmaf --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+      --feature 'motion_v2=motion_blend_factor=0.5' \
+      --xml -o /tmp/r.xml --no_prediction
+  grep motion3_v2 /tmp/r.xml | head -3
+  # → 49 frames with VMAF_integer_feature_motion3_v2_score_mbf_0.5
+
+  # ENOTSUP guard:
+  build/tools/vmaf --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel_format 420 --bitdepth 8 \
+      --feature 'motion_v2=motion_five_frame_window=1' \
+      --xml -o /tmp/r2.xml --no_prediction 2>&1
+  # → "problem loading feature extractor: motion_v2"
+  # → stderr: "motion_v2: motion_five_frame_window=true is not supported …"
 
   ```
