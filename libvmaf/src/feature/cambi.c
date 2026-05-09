@@ -667,8 +667,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         return -ENOMEM;
 
     if (s->heatmaps_path) {
-        int err = mkdirp(s->heatmaps_path, 0770);
-        if (err)
+        int mkdir_err = mkdirp(s->heatmaps_path, 0770);
+        if (mkdir_err)
             return -EINVAL;
         char path[1024] = {0};
         int scaled_w = s->enc_width;
@@ -1529,15 +1529,15 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
     if (s->full_ref) {
         double src_score;
-        int err = preprocess_and_extract_cambi(s, ref_pic, &src_score, true, index);
-        if (err)
-            return err;
+        int src_err = preprocess_and_extract_cambi(s, ref_pic, &src_score, true, index);
+        if (src_err)
+            return src_err;
 
-        err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                      "cambi_source",
-                                                      MIN(src_score, s->cambi_max_val), index);
-        if (err)
-            return err;
+        src_err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                          "cambi_source",
+                                                          MIN(src_score, s->cambi_max_val), index);
+        if (src_err)
+            return src_err;
 
         double combined_score = combine_dist_src_scores(dist_score, src_score);
         err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
