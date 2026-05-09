@@ -139,7 +139,7 @@ HP-3 audit ([Research-0090](../research/0090-phase-a-promotion-audit-2026-05-08.
 flagged the changelog claim "production-wired" as still false at the
 CLI level. This PR closes that gap by adding the `vmaf-tune fast`
 subparser with the user-facing flags listed in
-[`docs/usage/vmaf-tune.md`](../usage/vmaf-tune.md#fast-subcommand--proxy--bayesian--gpu-verify-phase-a5),
+[`docs/usage/vmaf-tune.md`](../usage/vmaf-tune.md#fast-subcommand-proxy-bayesian-gpu-verify-phase-a5),
 plus the production runners that build the canonical-6
 `sample_extractor` and the real-encode `encode_runner` from the
 existing `vmaftune.encode` + `vmaftune.score` pipeline. The CLI is

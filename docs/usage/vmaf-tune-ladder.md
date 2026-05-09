@@ -5,7 +5,7 @@
 resulting (bitrate, VMAF) cloud, picking `--quality-tiers` knees along
 the hull, and emitting an HLS / DASH / JSON manifest. The base
 behaviour is documented in
-[`vmaf-tune.md`](vmaf-tune.md#ladder-subcommand) and is unchanged when
+[`vmaf-tune.md`](vmaf-tune.md#per-title-ladder-phase-e) and is unchanged when
 the uncertainty flags are omitted.
 
 This page covers the **uncertainty-aware extension**

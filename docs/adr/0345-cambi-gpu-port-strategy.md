@@ -129,7 +129,7 @@ inherited from ADR-0345".
 
 Not applicable for this planning round — the precision argument is
 inherited verbatim from
-[ADR-0205 §Precision contract](0205-cambi-gpu-feasibility.md#precision-contract--places4-tightened-from-adr-0192s-places2)
+[ADR-0205 §Precision contract](0205-cambi-gpu-feasibility.md#precision-contract-places4-tightened-from-adr-0192s-places2)
 and [ADR-0210 §Precision investigation](0210-cambi-vulkan-integration.md#precision-investigation):
 
 - All Strategy II GPU pre-passes are integer arithmetic (no float

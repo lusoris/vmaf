@@ -55,7 +55,7 @@ surface as `-ENODEV` from `vmaf_metal_state_init`. Reasoning: Apple
 discontinued Intel-Mac GPU parity, and the unified-memory zero-copy
 story does not apply on Intel-Mac discrete GPUs (Radeon Pro / Vega)
 which sit behind PCIe. See
-[ADR-0361 §Apple Silicon-only](../../adr/0361-metal-compute-backend.md#apple-silicon-onlyapple-gpu-family-7-reject-intel-mac).
+[ADR-0361 §Apple Silicon-only](../../adr/0361-metal-compute-backend.md#apple-silicon-only-apple-gpu-family-7-reject-intel-mac).
 
 ## Build
 

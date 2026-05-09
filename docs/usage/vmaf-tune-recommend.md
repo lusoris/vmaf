@@ -11,7 +11,7 @@ This page covers the **uncertainty-aware extension**
 ([ADR-0279](../adr/0279-fr-regressor-v2-probabilistic.md), shipped on
 top of the conformal-VQA prediction surface in PR #488). The base
 behaviour is documented in
-[`vmaf-tune.md`](vmaf-tune.md#recommend-subcommand) and is unchanged
+[`vmaf-tune.md`](vmaf-tune.md#recommend-subcommand-target-vmaf-target-bitrate) and is unchanged
 when the uncertainty flags are omitted.
 
 ## Why uncertainty-aware
