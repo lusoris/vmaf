@@ -3,9 +3,10 @@
 """Shared helpers for Apple VideoToolbox codec adapters.
 
 VideoToolbox is Apple's hardware encoder API on macOS. FFmpeg exposes
-two encoders backed by it: ``h264_videotoolbox`` and
-``hevc_videotoolbox``. AV1 is not available on Apple Silicon hardware
-as of 2026 and is intentionally not surfaced here.
+three encoders backed by it: ``h264_videotoolbox``, ``hevc_videotoolbox``,
+and ``prores_videotoolbox`` (broadcast / prosumer intermediate). AV1
+is not available on Apple Silicon hardware as of 2026 and is
+intentionally not surfaced here.
 
 Quality knob
 ============
@@ -87,10 +88,13 @@ def preset_to_realtime(preset: str) -> str:
 
 
 def validate_videotoolbox(preset: str, q: int) -> None:
-    """Shared validator for both VT adapters.
+    """Shared validator for the H.264 / HEVC VT adapters.
 
     The ``q`` argument is the harness's ``crf`` slot; for VT it carries
     the ``-q:v`` value on the ``[0, 100]`` scale.
+
+    ProRes does not use ``-q:v`` and has its own validator
+    (``validate_prores_videotoolbox``) — see ``prores_videotoolbox.py``.
     """
     if preset not in VIDEOTOOLBOX_PRESETS:
         raise ValueError(
@@ -99,3 +103,88 @@ def validate_videotoolbox(preset: str, q: int) -> None:
     lo, hi = VIDEOTOOLBOX_QUALITY_RANGE
     if not lo <= q <= hi:
         raise ValueError(f"q:v {q} outside VideoToolbox range [{lo}, {hi}]")
+
+
+# -----------------------------------------------------------------------------
+# ProRes-specific constants and helpers.
+#
+# ProRes is a fixed-bitrate intermediate codec — there is no quality
+# scalar like CRF or ``-q:v``. Quality is selected by **profile tier**:
+# Proxy (lowest, smallest) → LT → 422 (Standard) → 422 HQ → 4444 →
+# 4444 XQ (highest, largest). Bitrate is implicit in the tier.
+#
+# The FFmpeg ``prores_videotoolbox`` encoder exposes the tiers via
+# ``-profile:v <int>`` with the integer values defined in
+# ``libavcodec/profiles.h`` (``AV_PROFILE_PRORES_PROXY`` … XQ). The
+# string aliases ``proxy``, ``lt``, ``standard``, ``hq``, ``4444``,
+# ``xq`` map to the same integers via the encoder's named CONST
+# AVOptions (see ``libavcodec/videotoolboxenc.c`` ``prores_options``).
+#
+# The vmaf-tune adapter maps the harness's ``crf`` slot — which is the
+# generic "quality knob" the search loop dials — onto the integer tier
+# id. The slot is the single source of truth for the chosen tier; the
+# corpus-row consumer reads ``encoder`` + ``crf`` together via the
+# adapter registry to translate the integer back to a tier name.
+# -----------------------------------------------------------------------------
+
+# Integer tier ids as emitted on the FFmpeg argv. Values match
+# ``AV_PROFILE_PRORES_*`` in ``libavcodec/profiles.h``.
+PRORES_PROFILE_PROXY: int = 0
+PRORES_PROFILE_LT: int = 1
+PRORES_PROFILE_STANDARD: int = 2  # ProRes 422
+PRORES_PROFILE_HQ: int = 3  # ProRes 422 HQ
+PRORES_PROFILE_4444: int = 4
+PRORES_PROFILE_XQ: int = 5  # ProRes 4444 XQ
+
+# Adapter-visible tier range. Lower = smaller / faster, higher = bigger
+# / slower / more chroma precision. ``invert_quality=False`` because
+# higher integer = "better" (more bits, more chroma).
+PRORES_PROFILE_RANGE: tuple[int, int] = (PRORES_PROFILE_PROXY, PRORES_PROFILE_XQ)
+
+# Default tier for the harness when the caller leaves ``crf`` unset.
+# 422 HQ is the most common professional master tier — it is the
+# acquisition standard for most non-graphics broadcast workflows.
+PRORES_PROFILE_DEFAULT: int = PRORES_PROFILE_HQ
+
+# Tier name lookup, in canonical FFmpeg order. The tuple index is the
+# integer tier id (0..5) so callers can do ``PRORES_PROFILE_NAMES[crf]``.
+PRORES_PROFILE_NAMES: tuple[str, ...] = (
+    "proxy",  # 0
+    "lt",  # 1
+    "standard",  # 2  (ProRes 422)
+    "hq",  # 3  (ProRes 422 HQ)
+    "4444",  # 4
+    "xq",  # 5  (ProRes 4444 XQ)
+)
+
+
+def prores_profile_name(profile: int) -> str:
+    """Return the FFmpeg tier alias for an integer profile id.
+
+    Raises ``ValueError`` for an unknown profile id; the adapter's
+    ``validate()`` is the upstream gate so this is a defensive check.
+    """
+    lo, hi = PRORES_PROFILE_RANGE
+    if not lo <= profile <= hi:
+        raise ValueError(
+            f"unknown ProRes profile {profile!r}; expected an integer in " f"[{lo}, {hi}]"
+        )
+    return PRORES_PROFILE_NAMES[profile]
+
+
+def validate_prores_videotoolbox(preset: str, profile: int) -> None:
+    """Validator for the ProRes VT adapter.
+
+    The ``profile`` argument is the harness's ``crf`` slot; for ProRes
+    it carries the integer tier id on the ``[0, 5]`` scale.
+    """
+    if preset not in VIDEOTOOLBOX_PRESETS:
+        raise ValueError(
+            f"unknown VideoToolbox preset {preset!r}; expected one of " f"{VIDEOTOOLBOX_PRESETS}"
+        )
+    lo, hi = PRORES_PROFILE_RANGE
+    if not lo <= profile <= hi:
+        raise ValueError(
+            f"ProRes profile {profile} outside tier range [{lo}, {hi}] "
+            f"(see PRORES_PROFILE_NAMES)"
+        )

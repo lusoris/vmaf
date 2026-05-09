@@ -326,15 +326,25 @@ ADR-0237 follow-up promoting the corresponding phase.
   `_<family>_common.py` private module, thin dataclass adapters.
   Single-codec families stay flat.
 - **Apple VideoToolbox adapters share `_videotoolbox_common.py`
-  (ADR-0283).** Two encoders (`h264_videotoolbox`,
-  `hevc_videotoolbox`) reuse a single `-q:v` 0..100 quality knob
-  (higher = better; `invert_quality=False`) and the nine-name
-  preset → `-realtime` boolean mapping. AV1 hardware encoding is
-  intentionally absent — Apple Silicon has no AV1 hardware encoder
-  block as of 2026 and FFmpeg exposes no `av1_videotoolbox`. Tests
-  mock `subprocess.run`; the suite runs on Linux CI without macOS.
-  End-to-end VT exercise is left to contributors with macOS +
-  VideoToolbox available locally.
+  (ADR-0283 + ADR-0283 *Status update 2026-05-09*).** Three
+  encoders (`h264_videotoolbox`, `hevc_videotoolbox`,
+  `prores_videotoolbox`) reuse the nine-name preset → `-realtime`
+  boolean mapping. H.264 and HEVC share a single `-q:v` 0..100
+  quality knob (higher = better; `invert_quality=False`). ProRes
+  uses `-profile:v` instead — it is a fixed-rate intermediate
+  codec, so the harness's `crf` slot carries the integer tier id
+  (0=`proxy` → 5=`xq`); the adapter has its own validator
+  `validate_prores_videotoolbox()` and an integer-id-to-FFmpeg-alias
+  helper `prores_profile_name()`. Per the codec-adapter contract,
+  the search loop never branches on adapter identity — it consumes
+  `quality_range` + `ffmpeg_codec_args(...)` uniformly. AV1
+  hardware encoding is intentionally absent — Apple Silicon has
+  no AV1 hardware encoder block as of 2026 and FFmpeg exposes no
+  `av1_videotoolbox`. Tests mock `subprocess.run`; the suite runs
+  on Linux CI without macOS. End-to-end VT exercise is left to
+  contributors with macOS + VideoToolbox available locally
+  (ProRes additionally requires M1 Pro / Max / Ultra or later —
+  Intel Macs with T2 do not have the ProRes hardware block).
 - **The encode pipeline (`encode.py`) is still x264-CRF-tied.**
   ADR-0281 added the QSV adapter classes but did not widen
   `build_ffmpeg_command` to dispatch on `adapter.quality_knob`.

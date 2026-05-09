@@ -8469,6 +8469,17 @@ inline.*
   `_videotoolbox_common.py`, plus the registry hook in
   `__init__.py`. See
   [ADR-0283](adr/0283-vmaf-tune-videotoolbox-adapters.md).
+- **Update 2026-05-09**: `prores_videotoolbox.py` adapter added to
+  the same registry pattern (broadcast / prosumer ProRes
+  intermediate). Quality knob differs — ProRes is a fixed-rate
+  codec, so the harness's `--crf` slot carries the integer ProRes
+  tier id (0=`proxy` → 5=`xq`) rather than a `-q:v` value.
+  `_videotoolbox_common.py` extended with `PRORES_PROFILE_*`
+  constants + `validate_prores_videotoolbox()` /
+  `prores_profile_name()` helpers; profile ids verified against
+  FFmpeg n8.1.1 `libavcodec/videotoolboxenc.c`. See the
+  [Status update appendix in
+  ADR-0283](adr/0283-vmaf-tune-videotoolbox-adapters.md#status-update-2026-05-09-prores-adapter-added).
 - **Upstream source**: zero. `tools/vmaf-tune/` is fork-introduced
   (Phase A under [ADR-0237](adr/0237-quality-aware-encode-automation.md)).
 - **On upstream sync**: zero interaction.
@@ -8476,6 +8487,7 @@ inline.*
 
   ```bash
   python -m pytest tools/vmaf-tune/tests/test_codec_adapter_videotoolbox.py -q
+  python -m pytest tools/vmaf-tune/tests/test_codec_adapter_prores_videotoolbox.py -q
   ```
 
 ### 0228 — `vmaf-tune` coarse-to-fine CRF search (ADR-0306)
