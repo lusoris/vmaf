@@ -212,6 +212,27 @@ body, so you can simulate them with `gh pr view --json body` +
 `git diff --name-only` if you're curious whether a WIP PR would
 pass.
 
+### Stale code-scanning configuration: `security.yml:semgrep`
+
+GitHub's **Settings → Code security → Code scanning → Tools → Semgrep
+OSS** page shows a stale configuration pinned to
+`.github/workflows/security.yml:semgrep` with a "workflow file no
+longer exists" warning. The workflow was renamed `security.yml →
+security-scans.yml` in PR #53 (ADR-0116, 2026-04-21 Title-Case
+sweep). The current workflow uploads SARIFs under
+`.github/workflows/security-scans.yml:semgrep` with categories
+`semgrep-local` + `semgrep-registry`, so security scanning works
+end-to-end — only the orphan tool registration lingers.
+
+There is **no public REST endpoint** to delete a code-scanning tool
+configuration (only individual analyses via
+`DELETE /repos/{owner}/{repo}/code-scanning/analyses/{id}`), and the
+original 2026-04-21 analyses have already rolled off the API window.
+Cleanup is **manual**: open the Semgrep OSS Tools page and click the
+`…` menu in the upper-right → **Delete configuration**. After that
+the warning is gone permanently. Do not re-add a `security.yml`
+shim — it would introduce a duplicate workflow registration.
+
 ## Why this design
 
 - **Single workflow file, three jobs.** All four gates share the
