@@ -162,14 +162,38 @@ nav:
       - FFmpeg: usage/ffmpeg.md
       - Docker: usage/docker.md
       - MATLAB: usage/matlab.md
+      - BD-rate utilities: usage/bd-rate.md
+      - Per-shot scoring: usage/vmaf-perShot.md
+      - ROI scoring: usage/vmaf-roi.md
+      - ROI score output: usage/vmaf-roi-score.md
       - External resources: usage/external-resources.md
+      - vmaf-tune:
+          - Overview: usage/vmaf-tune.md
+          - Codec adapters: usage/vmaf-tune-codec-adapters.md
+          - Fast path: usage/vmaf-tune-fast-path.md
+          - Score backend: usage/vmaf-tune-score-backend.md
+          - Bitrate ladder: usage/vmaf-tune-ladder.md
+          - Ladder (default sampler): usage/vmaf-tune-ladder-default-sampler.md
+          - Ladder (bitrate grid): usage/vmaf-tune-bitrate-ladder.md
+          - Coarse-to-fine: usage/vmaf-tune-coarse-to-fine.md
+          - Recommend: usage/vmaf-tune-recommend.md
+          - Resolution-aware: usage/vmaf-tune-resolution-aware.md
+          - Saliency-aware: usage/vmaf-tune-saliency-aware.md
+          - HDR & sampling: usage/vmaf-tune-hdr-and-sampling.md
+          - FFmpeg wiring: usage/vmaf-tune-ffmpeg.md
+          - Cache: usage/vmaf-tune-cache.md
+          - Bisect: usage/vmaf-tune-bisect.md
   - C API:
       - api/index.md
       - DNN sessions: api/dnn.md
       - GPU (CUDA / SYCL): api/gpu.md
+      - MCP C API: api/mcp.md
+      - Vulkan image import: api/vulkan-image-import.md
   - Metrics:
       - Features: metrics/features.md
       - CAMBI: metrics/cambi.md
+      - SSIMULACRA 2: metrics/ssimulacra2.md
+      - DISTS: metrics/dists.md
       - Confidence Interval: metrics/confidence-interval.md
       - Bad cases: metrics/bad-cases.md
       - CTC:
@@ -180,28 +204,87 @@ nav:
       - Datasets: models/datasets.md
   - Backends:
       - backends/index.md
+      - Kernel scaffolding: backends/kernel-scaffolding.md
       - x86 SIMD (AVX2 / AVX-512): backends/x86/avx512.md
+      - ARM NEON / SVE2: backends/arm/overview.md
       - CUDA: backends/cuda/overview.md
       - NVTX profiling: backends/nvtx/profiling.md
       - SYCL / oneAPI: backends/sycl/overview.md
       - SYCL bundling: backends/sycl/bundling.md
+      - Vulkan: backends/vulkan/overview.md
+      - Vulkan via MoltenVK: backends/vulkan/moltenvk.md
+      - HIP (AMD ROCm): backends/hip/overview.md
+      - Metal (Apple Silicon): backends/metal/index.md
   - MCP:
       - mcp/index.md
       - Tool reference: mcp/tools.md
+      - Embedded server: mcp/embedded.md
+      - Release channel: mcp/release-channel.md
   - Tiny AI:
       - ai/index.md
       - Overview: ai/overview.md
       - Training: ai/training.md
+      - Training data: ai/training-data.md
       - Inference: ai/inference.md
       - Benchmarks: ai/benchmarks.md
       - Security: ai/security.md
       - Bisect model quality: ai/bisect-model-quality.md
       - MOS corpora: ai/mos-corpora.md
-      - KonViD MOS head v1: ai/models/konvid_mos_head_v1.md
+      - Model registry: ai/model-registry.md
+      - Quantization: ai/quantization.md
+      - Quant epsilon: ai/quant-eps.md
+      - Predictor: ai/predictor.md
+      - Predictor v2 (real corpus): ai/predictor-v2-realcorpus-training.md
+      - LOSO evaluation: ai/loso-eval.md
+      - Local sidecar training: ai/local-sidecar-training.md
+      - Ensemble training kit: ai/ensemble-training-kit.md
+      - Ensemble v2 runbook: ai/ensemble-v2-real-corpus-retrain-runbook.md
+      - FR-from-NR adapter: ai/fr-from-nr-adapter.md
+      - Conformal VQA: ai/conformal-vqa.md
+      - Multi-corpus aggregation: ai/multi-corpus-aggregation.md
+      - Hardware capability priors: ai/hardware-capability-priors.md
+      - U2Net-P mirror: ai/u2netp-mirror.md
+      - Extractor template: ai/extractor-template.md
+      - Roadmap: ai/roadmap.md
+      - Corpus ingestion:
+          - KonViD-1k: ai/konvid-1k-ingestion.md
+          - KonViD-150k: ai/konvid-150k-ingestion.md
+          - LIVE-VQC: ai/live-vqc-ingestion.md
+          - LSVQ: ai/lsvq-ingestion.md
+          - BVI-DVC: ai/bvi-dvc-corpus-ingestion.md
+          - YouTube-UGC: ai/youtube-ugc-ingestion.md
+          - Waterloo IVC 4K: ai/waterloo-ivc-4k-ingestion.md
+      - Model cards:
+          - KonViD MOS head v1: ai/models/konvid_mos_head_v1.md
+  - Architecture:
+      - architecture/index.md
+      - C4 context: architecture/c4-context.md
+      - C4 container: architecture/c4-container.md
+      - Workspace layout: architecture/workspace.md
   - Development:
       - Engineering principles: principles.md
       - Build flags: development/build-flags.md
       - Release: development/release.md
+      - CI: development/ci.md
+      - CI runners: development/ci-runners.md
+      - Cross-backend gate: development/cross-backend-gate.md
+      - Fuzzing: development/fuzzing.md
+      - IDE setup: development/ide-setup.md
+      - oneAPI install: development/oneapi-install.md
+      - SYCL toolchains: development/sycl-toolchains.md
+      - Windows D3D11 import: development/windows-d3d11-import.md
+      - Intel Arc / VAAPI driver priority: development/intel-arc-vaapi-driver-priority.md
+      - FFmpeg patches refresh: development/ffmpeg-patches-refresh.md
+      - GPU backend template: development/gpu-backend-template.md
+      - Upstream watchers: development/upstream-watchers.md
+      - Known upstream bugs: development/known-upstream-bugs.md
+      - OSSF Scorecard: development/ossf-scorecard.md
+      - Dependency bot: development/dependency-bot.md
+      - Self-hosted runner: development/self-hosted-runner.md
+      - Agent dispatch: development/agent-dispatch.md
+      - Agent worktree discipline: development/agent-worktree-discipline.md
+      - Automated rule enforcement: development/automated-rule-enforcement.md
+      - PR body validator: development/pr-body-validator.md
   - Reference:
       - FAQ: reference/faq.md
       - References: reference/references.md
