@@ -1,6 +1,3 @@
-import os
-import sys
-
 import numpy as np
 
 from vmaf.core.executor import Executor

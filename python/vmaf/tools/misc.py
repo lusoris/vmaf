@@ -10,11 +10,16 @@ import unittest
 from concurrent.futures import ProcessPoolExecutor
 from fnmatch import fnmatch
 from pathlib import Path
-from time import sleep, time
+from time import (  # noqa: F401  `sleep` re-exported for callers in `vmaf/core/` and tests; codeql sweep dropped it as "unused" but downstream modules import it from here.
+    sleep,
+    time,
+)
 
 import numpy as np
 
-from vmaf import run_process
+from vmaf import (  # noqa: F401  re-exported for `vmaf/core/matlab_feature_extractor.py`, `python/test/command_line_test.py`; codeql sweep dropped it as "unused" but downstream `from vmaf.tools.misc import run_process` callers expect it here.
+    run_process,
+)
 from vmaf.tools.scanf import FormatError, IncompleteCaptureError, sscanf
 
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
@@ -230,10 +235,6 @@ def import_python_file(filepath: str, override: dict = None):
                         )
                         s += "\n"
                         fout.write(s)
-        # ============= debug =================
-        # with open(tmpfile.name, 'r') as fin:
-        #     print(fin.read())
-        # =====================================
         ret = import_python_file(tmpfile.name)
         os.remove(tmpfile.name)
         return ret

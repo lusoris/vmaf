@@ -105,7 +105,8 @@ def persist_to_file(file_name):
             cache = {}
         else:
             try:
-                cache = json.load(open(file_name, "rt"))
+                with open(file_name, "rt") as fh:
+                    cache = json.load(fh)
             except (IOError, ValueError):
                 sys.exit(1)
 
@@ -118,7 +119,8 @@ def persist_to_file(file_name):
                 cache[h] = original_func(*args)
                 file_dir = os.path.dirname(file_name)
                 os.makedirs(file_dir, exist_ok=True)
-                json.dump(cache, open(file_name, "wt"))
+                with open(file_name, "wt") as fh:
+                    json.dump(cache, fh)
             return cache[h]
 
         return new_func
@@ -142,9 +144,11 @@ def persist_to_dir(dir_name):
             if not os.path.exists(file_name):
                 os.makedirs(dir_name, exist_ok=True)
                 res = original_func(*args)
-                json.dump(res, open(file_name, "wt"))
+                with open(file_name, "wt") as fh:
+                    json.dump(res, fh)
             else:
-                res = json.load(open(file_name, "rt"))
+                with open(file_name, "rt") as fh:
+                    res = json.load(fh)
             return res
 
         return new_func

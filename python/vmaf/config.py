@@ -74,7 +74,6 @@ class VmafExternalConfig(object):
                 return path
         except ImportError:
             print("ImportError")
-            pass
 
         return None
 
@@ -91,7 +90,6 @@ class VmafExternalConfig(object):
             return attr
         except ImportError:
             print("ImportError")
-            pass
         return None
 
     @classmethod

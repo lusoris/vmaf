@@ -42,4 +42,4 @@ if __name__ == "__main__":
         f"converted {loaded_model.TYPE} model from pkl file {input_pkl_filepath} to json file {output_json_filepath}"
     )
 
-    exit(0)
+    sys.exit(0)

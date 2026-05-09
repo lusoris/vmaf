@@ -175,6 +175,7 @@ class NeuralNetTrainTestModel(
             try:
                 del self.h5py_file["patches"]
             except KeyError:
+                # dataset absent on first run; create_dataset below populates it.
                 pass
         patches_cache = self.h5py_file.create_dataset("patches", patches_dims, dtype="float")
         patches_cache.dims[0].label = "batch"
@@ -187,6 +188,7 @@ class NeuralNetTrainTestModel(
             try:
                 del self.h5py_file["labels"]
             except KeyError:
+                # dataset absent on first run; create_dataset below populates it.
                 pass
         labels_cache = self.h5py_file.create_dataset("labels", labels_dims, dtype="uint8")
 
