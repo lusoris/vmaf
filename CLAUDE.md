@@ -252,11 +252,13 @@ Use `/prep-release` to dry-run locally before merging a release PR.
     that forces it; a NOLINT without a justification comment is itself
     a lint violation. Historical debt from before this rule
     (pre-2026-04-21, ~18 `readability-function-size` NOLINTs +
-    upstream `_iqa_*` suppressions) is scoped to backlog item T7-5
-    (one sweep-PR, gated by Netflix golden + `/cross-backend-diff`);
-    this rule does not backdate itself onto in-flight PRs that don't
+    upstream `_iqa_*` suppressions) was discharged by PR #327
+    (refactor pass) and PR #388 (citation closeout, ADR-0278);
+    every NOLINT now in tree carries an inline citation. The
+    rule does not backdate itself onto in-flight PRs that don't
     touch those files. See
-    [ADR-0141](docs/adr/0141-touched-file-cleanup-rule.md).
+    [ADR-0141](docs/adr/0141-touched-file-cleanup-rule.md) and
+    [ADR-0278](docs/adr/0278-nolint-citation-closeout.md).
 13. **Every** PR that closes a bug, opens a bug, or rules a Netflix
     upstream report not-affecting-the-fork updates
     [`docs/state.md`](docs/state.md) in the **same PR**. The update
