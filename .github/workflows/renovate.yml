@@ -17,12 +17,12 @@ concurrency:
 jobs:
   renovate:
     name: Mend Renovate
-    # ADR-0359 — opt-in routing to the ARC self-hosted pool. Renovate
-    # is a low-frequency long-running scan (1× weekly + manual
-    # dispatch) that benefits from the dedicated capacity when the
-    # ubuntu-latest queue is saturated. Flip ARC_RUNNERS_ENABLED=false
-    # to revert to GitHub-hosted.
-    runs-on: ${{ vars.ARC_RUNNERS_ENABLED == 'true' && 'arc-runners' || 'ubuntu-latest' }}
+    # ADR-0359 caveat: Renovate's action shells to `docker run`, which
+    # requires `/var/run/docker.sock`. The ARC runner pods don't ship
+    # a Docker daemon (k8s-native, not Docker-in-Docker), so Renovate
+    # MUST stay on ubuntu-latest. The 1× weekly cadence + on-demand
+    # workflow_dispatch keeps the ubuntu-latest cost trivial.
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
