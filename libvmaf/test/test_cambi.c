@@ -405,8 +405,7 @@ static char *test_calculate_c_values()
     mu_assert("test_calculate_c_values alloc #2 error", !err);
 
     calculate_c_values(&input, &mask, combined_c_values, histograms, window_size, num_diffs,
-                       tvi_for_diff, vlt_luma, diff_weights, all_diffs, width, height,
-                       increment_range, decrement_range);
+                       tvi_for_diff, vlt_luma, diff_weights, all_diffs, width, height);
 
     for (unsigned i = 0; i < 16; i++) {
         mu_assert("calculate_c_values error ws=3",
@@ -423,8 +422,7 @@ static char *test_calculate_c_values()
     window_size = 9;
     uint16_t histograms_8x8[8 * 1032];
     calculate_c_values(&input_8x8, &mask_8x8, combined_c_values_8x8, histograms_8x8, window_size,
-                       num_diffs, tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8,
-                       increment_range, decrement_range);
+                       num_diffs, tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
 
     double sum = 0;
     for (unsigned i = 0; i < 64; i++) {
@@ -456,24 +454,24 @@ static char *test_c_value_pixel()
     float c_value;
 
     c_value = c_value_pixel(histogram, value, diff_weights, diffs, num_diffs, tvi_thresholds,
-                            vlt_luma, 0, 1);
+                            vlt_luma, 0, 10, 0, 1);
     mu_assert("c_value_all_diffs for value=2, weights=2,3", almost_equal(c_value, 2.6666667));
 
     diff_weights[0] = 4;
     diff_weights[1] = 5;
     c_value = c_value_pixel(histogram, value, diff_weights, diffs, num_diffs, tvi_thresholds,
-                            vlt_luma, 0, 1);
+                            vlt_luma, 0, 10, 0, 1);
     mu_assert("c_value_all_diffs for value=2, weights=4,5", almost_equal(c_value, 6.6666667));
 
     value = 4;
     c_value = c_value_pixel(histogram, value, diff_weights, diffs, num_diffs, tvi_thresholds,
-                            vlt_luma, 0, 1);
+                            vlt_luma, 0, 10, 0, 1);
     mu_assert("c_value_all_diffs for value=4, weights=4,5", almost_equal(c_value, 0));
 
     value = 2;
     vlt_luma = 5;
     c_value = c_value_pixel(histogram, value, diff_weights, diffs, num_diffs, tvi_thresholds,
-                            vlt_luma, 0, 1);
+                            vlt_luma, 0, 10, 0, 1);
     mu_assert("c_value_all_diffs for value=2, weights=4,5", almost_equal(c_value, 0));
     return NULL;
 }

@@ -31247,3 +31247,23 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   curl -sfI https://repo.radeon.com/rocm/apt/7.2.3/dists/noble/Release \
     && echo OK || echo "ROCm apt URL drifted — bump ROCM_VERSION"
   ```
+
+## RN-2026-05-08-cambi-cluster — port 9 of 10 upstream cambi commits
+
+- **Tracked by**: [ADR-0328](adr/0328-cambi-cluster-port-skip-shared-header-rename.md), PR `feat/upstream-port-cambi-cluster-2026-05-08`.
+- **Cluster**: Netflix upstream commits `d655cefe`, `9fad7317`, `767a6780`, `8c60dc9e`, `bd278ea6`, `1091b0c1`, `77474251`, `933cccb4`, `984f281f` ported verbatim. `41bacc83` ("move shared code to cambi.h") explicitly skipped.
+- **Touches**: `libvmaf/src/feature/cambi.c`, `libvmaf/src/feature/x86/cambi_avx2.c`, `libvmaf/src/feature/x86/cambi_avx2.h`, `libvmaf/test/test_cambi.c`. `cambi_reciprocal_lut.h` stays (fork commit `ef6d33e6` already added it before upstream).
+- **Invariant**: the fork uses a `CAMBI_CALC_C_VALUES_BODY` macro in `cambi.c` to share the calculate_c_values loop nest across `calculate_c_values` (scalar), `calculate_c_values_avx2`, and `calculate_c_values_neon`. Upstream keeps the three variants as separate function definitions in `cambi.c` (scalar) and `cambi_avx2.c` (AVX-2) with the helpers exposed via `cambi.h`. The fork's macro keeps the three drivers in lockstep without externalising the helpers.
+- **Twin-update gaps**:
+  - **AVX-512**: no `calculate_c_values_row_avx512` exists; the AVX-512 dispatch path falls through to `calculate_c_values_avx2`. Tracked as a perf follow-up — bit-exactness preserved, only throughput affected.
+  - **NEON**: `calculate_c_values_neon` uses scalar `calculate_c_values_row` (no NEON `calculate_c_values_row_neon` exists yet). Tracked as a perf follow-up.
+  - **CUDA / SYCL**: cambi has no GPU twin in those backends (the only existing twin is Vulkan, ADR-0205 Strategy II). The Vulkan twin's host-residual shim `vmaf_cambi_calculate_c_values` was updated in port 933cccb4 to drop the inc/dec range-updater parameters (now `(void)`-cast since `calculate_c_values` self-dispatches its updaters); ABI-compatible with `cambi_internal.h` callers.
+- **On upstream sync**: when re-syncing cambi, expect conflicts on the `calculate_c_values_avx2` body — upstream keeps it as a function in `cambi_avx2.c`, the fork keeps it inside `cambi.c` via the macro. The translation is mechanical: take any inner-loop change from upstream's body, apply it once inside `CAMBI_CALC_C_VALUES_BODY`. The fork's `calculate_c_values_neon` has no upstream counterpart and stays fork-local.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false
+  ninja -C build && build/test/test_cambi
+  # Optional GPU-parity gate when available:
+  # ./scripts/cross-backend-diff.sh --feature cambi
+  ```
