@@ -27,14 +27,11 @@ static int model_compare(VmafModel *model_a, VmafModel *model_b)
 {
     int err = 0;
 
-    //err += model_a->type != model_b->type;
-
     err += model_a->slope != model_b->slope;
     err += model_a->intercept != model_b->intercept;
 
     err += model_a->n_features != model_b->n_features;
     for (unsigned i = 0; i < model_a->n_features; i++) {
-        //err += strcmp(model_a->feature[i].name, model_b->feature[i].name) != 0;
         err += model_a->feature[i].slope != model_b->feature[i].slope;
         err += model_a->feature[i].intercept != model_b->feature[i].intercept;
         err += !model_a->feature[i].opts_dict != !model_b->feature[i].opts_dict;

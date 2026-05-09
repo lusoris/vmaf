@@ -975,11 +975,7 @@ void vif_statistic_16_avx512(struct VifPublicState *s, float *num, float *den, u
         * log based values are separately accumulated.
         * While adding both accumulator values the non-log accumulator is converted such that it is equivalent to 1 - sigma1_sq * constant(1's are accumulated with non-log denominator accumulator)
     */
-    //log has to be divided by 2048 as log_value = log2(i*2048)  i=16384 to 65535
-    //num[0] = accum_num_log / 2048.0 + (accum_den_non_log - (accum_num_non_log / 65536.0) / (255.0*255.0));
-    //den[0] = accum_den_log / 2048.0 + accum_den_non_log;
-
-    //changed calculation to increase performance
+    /* log has to be divided by 2048 as log_value = log2(i*2048)  i=16384 to 65535 */
     num[0] =
         accum_num_log / 2048.0 + (accum_den_non_log - ((accum_num_non_log) / 16384.0) / (65025.0));
     den[0] = accum_den_log / 2048.0 + accum_den_non_log;

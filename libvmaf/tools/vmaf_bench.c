@@ -185,8 +185,8 @@ static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx, VmafPicture *ref
             uint16_t *rdst = (uint16_t *)((uint8_t *)ref->data[1] + y * ref->stride[1]);
             uint16_t *ddst = (uint16_t *)((uint8_t *)dist->data[1] + y * dist->stride[1]);
             for (unsigned x = 0; x < uv_w; x++) {
-                rdst[x] = (uint16_t)(yp->ref_buf[y_bytes + y * uv_w + x]) << shift;
-                ddst[x] = (uint16_t)(yp->dis_buf[y_bytes + y * uv_w + x]) << shift;
+                rdst[x] = (uint16_t)(yp->ref_buf[y_bytes + (size_t)y * uv_w + x]) << shift;
+                ddst[x] = (uint16_t)(yp->dis_buf[y_bytes + (size_t)y * uv_w + x]) << shift;
             }
         } else {
             memcpy((uint8_t *)ref->data[1] + y * ref->stride[1], yp->ref_buf + y_bytes + y * uv_w,
@@ -201,8 +201,10 @@ static int yuv_pair_read_frame(YuvPair *yp, unsigned frame_idx, VmafPicture *ref
             uint16_t *rdst = (uint16_t *)((uint8_t *)ref->data[2] + y * ref->stride[2]);
             uint16_t *ddst = (uint16_t *)((uint8_t *)dist->data[2] + y * dist->stride[2]);
             for (unsigned x = 0; x < uv_w; x++) {
-                rdst[x] = (uint16_t)(yp->ref_buf[y_bytes + uv_bytes + y * uv_w + x]) << shift;
-                ddst[x] = (uint16_t)(yp->dis_buf[y_bytes + uv_bytes + y * uv_w + x]) << shift;
+                rdst[x] = (uint16_t)(yp->ref_buf[y_bytes + uv_bytes + (size_t)y * uv_w + x])
+                          << shift;
+                ddst[x] = (uint16_t)(yp->dis_buf[y_bytes + uv_bytes + (size_t)y * uv_w + x])
+                          << shift;
             }
         } else {
             memcpy((uint8_t *)ref->data[2] + y * ref->stride[2],

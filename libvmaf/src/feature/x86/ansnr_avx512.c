@@ -47,8 +47,8 @@ void ansnr_mse_line_avx512(const float *ref, const float *dis, float *sig_accum,
         float r = ref[j];
         float d = dis[j];
         float diff = r - d;
-        sig_result += r * r;
-        noise_result += diff * diff;
+        sig_result += (double)r * r;
+        noise_result += (double)diff * diff;
     }
 
     *sig_accum += (float)sig_result;

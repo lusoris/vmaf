@@ -347,7 +347,7 @@ static FORCE_INLINE float dwt_quant_step(const struct dwt_model_params *params, 
 
     // Formula (9), page 1171
     float temp = log10(pow(2.0, lambda + 1) * params->f0 * params->g[theta] / r);
-    float Q = 2.0 * params->a * pow(10.0, params->k * temp * temp) /
+    float Q = 2.0 * params->a * pow(10.0, params->k * (double)temp * temp) /
               dwt_7_9_basis_function_amplitudes[lambda][theta];
 
     return Q;

@@ -269,7 +269,7 @@ static long read_unicode_cp(json_stream *json)
             return -1;
         }
 
-        cp += hc * (1 << shift);
+        cp += (long)hc * (1 << shift);
         shift -= 4;
     }
 

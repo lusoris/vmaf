@@ -9240,6 +9240,7 @@ print('OK: fr_regressor_v3 production row unchanged')
   validator's exec path (`scripts/ci/deliverables-check.sh`) and the
   test harness's expected exit codes must follow.
   bash scripts/ci/test-validate-pr-body.sh   # 8/8 cases pass
+
 ### 0320 — Semgrep `# nosemgrep` cites on Netflix-upstream Python harness (Research-0090)
 - **Touches**: `python/vmaf/core/asset.py`, `python/vmaf/core/executor.py`,
   `python/vmaf/core/feature_extractor.py`,
@@ -9277,6 +9278,35 @@ print('OK: fr_regressor_v3 production row unchanged')
   for pack in p/cwe-top-25 p/c p/python; do
     code=$(curl -sIL "https://semgrep.dev/c/${pack}" | head -1 | awk '{print $2}')
     [ "$code" = "200" ] && echo "${pack}: OK" || echo "${pack}: FAIL ($code)"
+
+### 0320 — CodeQL C bulk sweep (78 deferred alerts → 60 fixed, 14 deferred to T7-5)
+- **Touches**: `libvmaf/src/feature/{cambi.c,ciede.c,integer_adm.c,integer_psnr.c,adm_tools.h,third_party/xiph/psnr_hvs.c}`,
+  `libvmaf/src/feature/x86/{adm_avx2.c,adm_avx512.c,ansnr_avx2.c,ansnr_avx512.c,vif_avx2.c,vif_avx512.c}`,
+  `libvmaf/src/{pdjson.c,svm.cpp}`, `libvmaf/test/{test_cpu.c,test_model.c}`,
+  `libvmaf/tools/{y4m_input.c,yuv_input.c,vmaf_bench.c}`. All but `vmaf_bench.c`
+  are upstream-mirror Netflix files.
+- **Invariant**: widening casts on integer multiplications (`(size_t)`,
+  `(uint64_t)`, `(double)`) are LHS-prefixed before the multiply, never wrapped
+  around the whole expression — the latter is a no-op against
+  `cpp/integer-multiplication-cast-to-long`. Deleted commented-out blocks
+  (e.g., the AVX-512 VP-loop dead variant in `adm_avx512.c::adm_dwt2_inverse`)
+  are gone for good; if upstream brings them back, they reintroduce the alerts.
+  `iqa/convolve.c` was deliberately left untouched: prefixing `(double)` on
+  the float×float multiplications inside the scalar reference path breaks
+  bit-exactness against the AVX2 path enforced by `test_iqa_convolve` —
+  CodeQL alert deferred to a follow-up that updates both paths in lockstep.
+- **On upstream sync**: any upstream change that re-introduces the deleted
+  comment blocks or rewrites the cast forms will surface the alerts again.
+  The `cambi_score` signature change (`CambiBuffers buffers` →
+  `const CambiBuffers *buffers`) is fork-local and likely to conflict with
+  upstream patches that touch that function. The 14 deferred `VifBuffer`
+  large-parameter alerts are tracked under T7-5 (multi-backend coordinated
+  refactor including NEON).
+- **Re-test on rebase**:
+  cd libvmaf && meson test -C build  # all 50+ C tests
+  make test-netflix-golden            # upstream golden gate
+  # Re-run CodeQL on master afterwards; the 60 fixed alerts must stay closed.
+
   ```
 
 ## Cppcheck `nullPointer` false-positive in `dict.c` (2026-05-09)
