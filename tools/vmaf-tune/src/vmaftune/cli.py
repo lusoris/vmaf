@@ -1441,7 +1441,6 @@ def _run_compare(args: argparse.Namespace) -> int:
 
 def _run_auto(args: argparse.Namespace) -> int:
     """Phase F — ``vmaf-tune auto`` (ADR-0364).
-    """Phase F — ``vmaf-tune auto`` (ADR-0325).
 
     F.1 scaffold + F.2 short-circuits. The non-smoke path raises
     :class:`NotImplementedError` until the production probe wiring
