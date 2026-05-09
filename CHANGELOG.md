@@ -229,6 +229,31 @@
   the deterministic tree first, learned-policy as a deferred
   research follow-up. Companion to ADR-0237 (umbrella).
 
+- **Hardware-capability priors for the FR-regressor corpus (ADR-0335).**
+  New [`ai/data/hardware_caps.csv`](ai/data/hardware_caps.csv) ships
+  per-architecture GPU encode-block fingerprints for the three named
+  generations Battlemage / RDNA4 / Blackwell plus their immediate
+  predecessors Alchemist / RDNA3 / Ada Lovelace (six rows on
+  2026-05-08). Each row carries vendor / gen-year / codecs supported /
+  max resolution per codec / encoding-block count / tensor-core flag /
+  NPU flag / driver-min-version / primary vendor source URL / ISO
+  verified-date. Loader at
+  [`ai/scripts/hardware_caps_loader.py`](ai/scripts/hardware_caps_loader.py)
+  exposes `cap_vector_for(encoder, encoder_arch_hint)` returning a
+  fixed-shape `hwcap_*` feature column dict that the corpus-ingest
+  pipeline merges into encode rows. The loader's schema is
+  prior-only: it rejects benchmark-shaped header columns,
+  community-wiki source URLs (Wikipedia / wikichip), empty fields,
+  and zero-encoding-block rows. NVIDIA Hopper (H100 / H200) is
+  deliberately excluded because the data-centre SKUs ship zero
+  NVENC engines. Companion research digest at
+  [`docs/research/0088-hardware-capability-priors-2026-05-08.md`](docs/research/0088-hardware-capability-priors-2026-05-08.md)
+  documents the category-1 NO-GO finding (vendor-published throughput
+  / quality numbers leak biased priors into the predictor).
+  Operator-facing reference at
+  [`docs/ai/hardware-capability-priors.md`](docs/ai/hardware-capability-priors.md).
+  See [ADR-0335](docs/adr/0335-hardware-capability-priors.md).
+
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame

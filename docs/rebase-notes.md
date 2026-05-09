@@ -9382,6 +9382,41 @@ inline.*
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
 
+## ADR-0335 — Hardware-capability priors (2026-05-08)
+
+- **Touches**: `ai/data/hardware_caps.csv` (new),
+  `ai/scripts/hardware_caps_loader.py` (new),
+  `ai/tests/test_hardware_caps.py` (new),
+  `ai/AGENTS.md` (one new bullet under "Rebase-sensitive
+  invariants"),
+  `docs/ai/hardware-capability-priors.md` (new),
+  `docs/research/0088-hardware-capability-priors-2026-05-08.md`
+  (new), `docs/adr/0335-hardware-capability-priors.md` (new),
+  `docs/adr/_index_fragments/0335-hardware-capability-priors.md`
+  (new), `docs/adr/_index_fragments/_order.txt` (one-line append),
+  `CHANGELOG.md` (Added bullet under
+  `[Unreleased] — lusoris fork`). No upstream-shared paths.
+- **Invariant**: the table is **prior-only**. The schema check in
+  `hardware_caps_loader.py` rejects benchmark-shaped header columns
+  (`fps_*`, `throughput`, `mbps`, `latency`, `watts`, `tdp`,
+  `score_*`, `vmaf_*`), community-wiki source URLs
+  (`wikipedia.org`, `wikichip.org`), empty fields, and rows with
+  `encoding_blocks=0`. Adding throughput / quality columns is
+  forbidden — that pathology was the contributor-pack digest's
+  category-1 NO-GO finding. Schema extensions need a new ADR, not
+  a silent column bump. The `cap_vector_for()` return-dict shape is
+  load-bearing: trainers / corpus writers consume `hwcap_*` columns
+  by name; reordering or renaming silently breaks downstream
+  parquet schemas.
+- **On upstream sync**: no action required. The whole surface lives
+  under `ai/` and `docs/` — Netflix upstream has no equivalent.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest ai/tests/test_hardware_caps.py -v   # must report 23 passed
+  python ai/scripts/hardware_caps_loader.py            # JSON dump, 6+ rows
+  ```
+
 ## ADR-0332 — External-competitor benchmark harness (2026-05-08)
 
 - **Touches**: `tools/external-bench/` (new),
@@ -31952,4 +31987,39 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
     --corpus .workingdir2/konvid-150k/konvid_150k.jsonl \
     --out /tmp/recipes_smoke.json \
     --max-rows 10000
+  ```
+
+## ADR-0335 — Hardware-capability priors (2026-05-08)
+
+- **Touches**: `ai/data/hardware_caps.csv` (new),
+  `ai/scripts/hardware_caps_loader.py` (new),
+  `ai/tests/test_hardware_caps.py` (new),
+  `ai/AGENTS.md` (one new bullet under "Rebase-sensitive
+  invariants"),
+  `docs/ai/hardware-capability-priors.md` (new),
+  `docs/research/0088-hardware-capability-priors-2026-05-08.md`
+  (new), `docs/adr/0335-hardware-capability-priors.md` (new),
+  `docs/adr/_index_fragments/0335-hardware-capability-priors.md`
+  (new), `docs/adr/_index_fragments/_order.txt` (one-line append),
+  `CHANGELOG.md` (Added bullet under
+  `[Unreleased] — lusoris fork`). No upstream-shared paths.
+- **Invariant**: the table is **prior-only**. The schema check in
+  `hardware_caps_loader.py` rejects benchmark-shaped header columns
+  (`fps_*`, `throughput`, `mbps`, `latency`, `watts`, `tdp`,
+  `score_*`, `vmaf_*`), community-wiki source URLs
+  (`wikipedia.org`, `wikichip.org`), empty fields, and rows with
+  `encoding_blocks=0`. Adding throughput / quality columns is
+  forbidden — that pathology was the contributor-pack digest's
+  category-1 NO-GO finding. Schema extensions need a new ADR, not
+  a silent column bump. The `cap_vector_for()` return-dict shape is
+  load-bearing: trainers / corpus writers consume `hwcap_*` columns
+  by name; reordering or renaming silently breaks downstream
+  parquet schemas.
+- **On upstream sync**: no action required. The whole surface lives
+  under `ai/` and `docs/` — Netflix upstream has no equivalent.
+- **Re-test on rebase**:
+
+  ```bash
+  python -m pytest ai/tests/test_hardware_caps.py -v   # must report 23 passed
+  python ai/scripts/hardware_caps_loader.py            # JSON dump, 6+ rows
   ```

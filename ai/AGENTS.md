@@ -161,6 +161,23 @@ its own training surface):
   regime change (richer features, larger corpus, ensembles), not
   deeper MLPs. See ADR-0242 § Alternatives considered for the
   mlp_huge rejection rationale.
+- **Hardware-capability priors are prior-only (ADR-0335).**
+  [`ai/data/hardware_caps.csv`](data/hardware_caps.csv) +
+  [`ai/scripts/hardware_caps_loader.py`](scripts/hardware_caps_loader.py)
+  ship per-architecture GPU encode-block fingerprints (codecs
+  supported, max resolution, encoding-block count, tensor /
+  NPU flags, driver floor) sourced exclusively from primary
+  vendor docs. The loader's schema rejects benchmark-shaped
+  columns (`fps_*`, `throughput`, `mbps`, `latency`, `watts`,
+  `tdp`, `score_*`, `vmaf_*`), community-wiki source URLs
+  (`wikipedia.org`, `wikichip.org`), empty fields, and zero
+  encoding-block rows. Adding throughput / quality numbers to
+  this surface is forbidden by ADR-0335 and the companion
+  research digest's category-1 NO-GO finding — performance
+  signal must come from the corpus's own measured rows, not
+  from a static prior table. Schema extensions (new
+  capability columns) require a new ADR, not a silent column
+  bump.
 
 ## `fr_regressor_v1` (C1 baseline — ADR-0249)
 
