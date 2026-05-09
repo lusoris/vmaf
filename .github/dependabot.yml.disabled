@@ -1,3 +1,7 @@
+# Disabled 2026-05-09 — superseded by Renovate (renovate.json + .github/workflows/renovate.yml).
+# See ADR-0363. Re-enable by renaming back to dependabot.yml; in that case ALSO disable Renovate
+# (remove or rename .github/workflows/renovate.yml) to avoid duplicate dependency-update PRs.
+
 version: 2
 updates:
   - package-ecosystem: "github-actions"

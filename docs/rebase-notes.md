@@ -9388,3 +9388,31 @@ document the flip-the-variable recipe when the cluster is degraded.
   grep -q "etc/vulkan/icd.d/MoltenVK_icd.json" \
     .github/workflows/libvmaf-build-matrix.yml
   ```
+
+## ADR-0363 — Mend Renovate replaces Dependabot (2026-05-09)
+
+- **Touches**: `renovate.json` (new, repo-root), `.github/workflows/renovate.yml`
+  (new), `.github/dependabot.yml` (deleted — renamed to
+  `.github/dependabot.yml.disabled`),
+  `docs/development/dependency-bot.md` (new operator playbook),
+  `changelog.d/changed/renovate-supersedes-dependabot.md` (new),
+  `docs/adr/0363-renovate-replaces-dependabot.md` (new),
+  `docs/adr/_index_fragments/0363-renovate-replaces-dependabot.md` (new).
+- **Invariant**: `.github/dependabot.yml` no longer exists on `master`;
+  the disabled copy is `dependabot.yml.disabled`. On upstream sync, if
+  Netflix ever ships their own `dependabot.yml`, do NOT restore it — the
+  fork intentionally uses Renovate. Merge the upstream file into
+  `dependabot.yml.disabled` for reference only.
+- **Upstream interaction**: none. Netflix/vmaf upstream has no Renovate
+  config. Conflict risk is zero unless upstream adds `renovate.json` or
+  restores `dependabot.yml`.
+- **Re-test on rebase**:
+
+  ```bash
+  # Verify the workflow SHA-pin is still present and non-floating:
+  grep -E 'renovatebot/github-action@[a-f0-9]{40}' .github/workflows/renovate.yml
+  # Verify dependabot.yml is still absent:
+  test ! -f .github/dependabot.yml && echo "ok: dependabot.yml absent"
+  # Validate renovate.json syntax (requires Node):
+  node -e "JSON.parse(require('fs').readFileSync('renovate.json','utf8')); console.log('JSON valid')"
+  ```

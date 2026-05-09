@@ -1,0 +1,60 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "helpers:disableTypesNodeMajor"
+  ],
+  "schedule": ["before 6am on Monday"],
+  "timezone": "Europe/Vienna",
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 6,
+  "rangeStrategy": "bump",
+  "commitMessagePrefix": "chore(deps):",
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions (minor + patch)",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "schedule": ["before 6am on Monday"]
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "GitHub Actions (major)",
+      "automerge": false
+    },
+    {
+      "matchManagers": ["pre-commit"],
+      "groupName": "pre-commit hooks"
+    },
+    {
+      "matchManagers": ["pep621", "pip_requirements"],
+      "matchUpdateTypes": ["patch"],
+      "groupName": "Python (patch)"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^ffmpeg-patches/test/build-and-run\\.sh$",
+        "^scripts/ci/ffmpeg-patches-check\\.sh$"
+      ],
+      "matchStrings": [
+        "FFMPEG_SHA:=(?<currentValue>n[0-9.]+)",
+        "FFMPEG_PATCHES_BRANCH:-(?<currentValue>release/[0-9.]+)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "depNameTemplate": "FFmpeg/FFmpeg"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["security"],
+    "automerge": false
+  },
+  "preCommit": { "enabled": true },
+  "git-submodules": { "enabled": true }
+}

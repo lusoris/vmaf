@@ -116,13 +116,30 @@ project-level Scorecard policy (introduced by PR #337) and entry 0231
 of [`docs/rebase-notes.md`](../docs/rebase-notes.md) for the standing
 re-test command.
 
+### Dependency-update bot: Renovate, not Dependabot (ADR-0363)
+
+The fork uses **Mend Renovate** self-hosted via
+[`workflows/renovate.yml`](workflows/renovate.yml). `.github/dependabot.yml`
+has been removed and its content archived as `.github/dependabot.yml.disabled`.
+
+On upstream sync:
+
+- If Netflix adds a `dependabot.yml`, do **not** restore it — merge the content
+  into `dependabot.yml.disabled` for reference only. The fork's dependency-update
+  bot is Renovate; running both simultaneously causes duplicate PRs.
+- `renovate.yml` and `renovate.json` are fork-local; Netflix upstream will never
+  ship them. They are safe from upstream conflicts.
+- `RENOVATE_TOKEN` is a repository secret; it is not committed anywhere. The
+  operator playbook is at
+  [`docs/development/dependency-bot.md`](../docs/development/dependency-bot.md).
+
 ## Upstream-merge guidance
 
 Netflix/vmaf ships its own workflows under `.github/workflows/`
 (CI, release, etc.). The fork's workflows live alongside them; file
 collisions are rare because the fork-added workflow names
 (`rule-enforcement.yml`, `nightly-bisect.yml`, `supply-chain.yml`,
-etc.) don't clash with upstream's names. On sync:
+`renovate.yml`, etc.) don't clash with upstream's names. On sync:
 
 1. Preserve every fork-added workflow verbatim unless the ADR that
    introduced it is superseded.
@@ -141,7 +158,7 @@ upstream repository on every publish; a SHA that no longer exists
 under the declared tag (e.g. because upstream rewrote a release
 branch or moved a tag) is rejected as an "imposter commit", returning
 HTTP 400 and turning the workflow red. Whenever this pin is updated
-(Dependabot or manual), spot-check that the new SHA still resolves:
+(Renovate or manual), spot-check that the new SHA still resolves:
 
 ```bash
 pin=$(grep -oE 'codeql-action/upload-sarif@[a-f0-9]{40}' \
@@ -181,6 +198,11 @@ and [Research-0053](../docs/research/0053-ossf-scorecard-investigation.md).
 See [ADR-0338](../docs/adr/0338-macos-vulkan-via-moltenvk-lane.md)
 and [`docs/backends/vulkan/moltenvk.md`](../docs/backends/vulkan/moltenvk.md).
 
+## Renovate (ADR-0363) supersedes Dependabot
+
+Note: pin updates to `codeql-action/upload-sarif` now arrive via Renovate
+(grouped with other GitHub Actions minor+patch bumps), not Dependabot.
+
 ## Related
 
 - [ADR-0124](../docs/adr/0124-automated-rule-enforcement.md) — this tooling
@@ -196,3 +218,7 @@ and [`docs/backends/vulkan/moltenvk.md`](../docs/backends/vulkan/moltenvk.md).
 - [`docs/development/automated-rule-enforcement.md`](../docs/development/automated-rule-enforcement.md)
   — user-facing explainer
 - [`docs/rebase-notes.md` entry 0026](../docs/rebase-notes.md) — sync ledger
+- [ADR-0363](../docs/adr/0363-renovate-replaces-dependabot.md) —
+  Renovate replaces Dependabot
+- [`docs/development/dependency-bot.md`](../docs/development/dependency-bot.md)
+  — operator playbook
