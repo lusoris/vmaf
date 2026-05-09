@@ -230,6 +230,46 @@ tracking upstream version + a fork suffix. Signing is keyless via Sigstore / Git
     exempt. See
     [ADR-0186](docs/adr/0186-vulkan-image-import-impl.md).
 
+## 12a. Worktree discipline ([ADR-0332](docs/adr/0332-agent-worktree-drift-hard-guard.md))
+
+Background coding agents on this fork run in isolated git worktrees
+under `.claude/worktrees/agent-<id>/`. Two layers keep them from
+clobbering the main checkout:
+
+1. **Process side (you, the agent)** — start in, stay in, and commit
+   from your assigned worktree. The canonical pattern at session
+   start:
+
+   ```bash
+   pwd | grep -q '\.claude/worktrees/' || {
+       echo "DRIFT: cwd is not inside an agent worktree" >&2
+       exit 1
+   }
+   AGENT_WT="$(pwd)"
+   git -C "$AGENT_WT" status   # always pass -C
+   ```
+
+   Use absolute paths and `git -C "$AGENT_WT"` for every git call.
+   `cd` does not survive between bash calls in some harnesses;
+   `git -C` does. Verify
+   `git rev-parse --show-toplevel` equals `$AGENT_WT` every ~20 tool
+   uses; stop and ask if it doesn't. Cited in user-scope memory as
+   `feedback_agents_isolated_worktree_only` ("never spawn parallel
+   agents in the shared tree").
+
+2. **Host side (the pre-commit hook)** —
+   `scripts/ci/check-agent-worktree-drift.sh` runs at commit time
+   (installed by `make hooks-install`, wired through
+   `.pre-commit-config.yaml`). It refuses any commit whose toplevel
+   is the main checkout while sibling agent worktrees exist. Bypass
+   for legitimate human main-checkout commits while an agent runs:
+   `git commit --no-verify`. **Do not bypass when you are the agent
+   the guard fired against** — that is the exact pattern it catches.
+   `cd` (or `git -C`) into your worktree and re-run.
+
+Full documentation:
+[`docs/development/agent-worktree-discipline.md`](docs/development/agent-worktree-discipline.md).
+
 ## 13. Rebase-sensitive invariants (project-wide)
 
 Cross-package invariants that any upstream-sync / rebase agent must

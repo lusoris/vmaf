@@ -237,7 +237,8 @@ assertion-density:
 
 # Install the pre-commit + pre-push git hooks.
 #
-# - pre-commit / commit-msg come from .pre-commit-config.yaml.
+# - pre-commit / commit-msg come from .pre-commit-config.yaml (including
+#   the `agent-worktree-drift-guard` local hook; ADR-0332).
 # - pre-push is the PR-body deliverables validator at
 #   scripts/git-hooks/pre-push (mirrors the rule-enforcement.yml
 #   deep-dive-checklist gate locally; ADR-0108).
