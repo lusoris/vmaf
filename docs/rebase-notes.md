@@ -9192,3 +9192,37 @@ inline.*
   meson setup build-vulkan -Denable_vulkan=enabled --reconfigure && \
     ninja -C build-vulkan tools/vmaf
   ```
+
+## CI `paths-ignore` deny-list on heavy workflows (ADR-0341, 2026-05-09)
+
+- **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local —
+  `paths-ignore:` block under `pull_request:`),
+  `.github/workflows/tests-and-quality-gates.yml` (fork-local — same
+  block), `docs/adr/0341-ci-paths-ignore-doc-only-prs.md` + index
+  fragment, `changelog.d/changed/ci-paths-ignore-doc-only.md`.
+- **Invariant**: the deny-list must stay strictly documentation-only
+  (`docs/**`, `**/*.md`, `changelog.d/**`, `CHANGELOG.md`,
+  `.workingdir2/**`). Any path that contributes to a build, test, or
+  lint input — `libvmaf/**`, `meson.build`, `meson_options.txt`,
+  `subprojects/**`, `python/**`, `ai/**`, `mcp-server/**`, `model/**`,
+  `testdata/**`, `.github/workflows/**` — must NEVER appear in the
+  deny-list, otherwise the corresponding required check is silently
+  skipped on a code-touching PR. The Required Checks Aggregator
+  (ADR-0313) catches only the doc-only case (no required check ever
+  ran for any required name); a too-broad deny-list would lose build
+  coverage without anyone noticing.
+- **On upstream sync**: Netflix/vmaf upstream does not carry these two
+  workflow files (they are fork-local additions). No sync conflict
+  expected.
+- **Re-test on rebase**:
+
+  ```bash
+  python3 -c "import yaml; \
+    [yaml.safe_load(open(f'.github/workflows/{n}.yml')) \
+     for n in ('libvmaf-build-matrix','tests-and-quality-gates')]; \
+    print('OK')"
+  # Both workflows must carry the deny-list:
+  for f in libvmaf-build-matrix tests-and-quality-gates; do
+    grep -c "paths-ignore:" ".github/workflows/${f}.yml"  # must report >= 1
+  done
+  ```
