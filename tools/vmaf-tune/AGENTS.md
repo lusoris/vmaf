@@ -252,13 +252,29 @@ for the option-space digest.
   corpus subcommand and unit tests work without it installed.
 - **Compare predicate is the recommend seam.** `compare.compare_codecs`
   takes a `predicate(codec, src, target_vmaf) -> RecommendResult`
-  callable; the default predicate reports "Phase B pending" until the
-  target-VMAF bisect lands. `tests/test_compare.py` injects a fake
-  predicate so the comparison ranking is exercised without `ffmpeg` /
-  `vmaf` binaries; production callers will route the real recommend
-  backend in via the same seam. Do not branch on codec name inside
-  `compare.py` — route every per-codec call through the predicate /
-  adapter registry.
+  callable. The default predicate now returns `ok=False` pointing
+  callers at `bisect.make_bisect_predicate(target_vmaf, *, width=...,
+  height=..., framerate=..., duration_s=...)` — Phase B
+  ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md))
+  ships the bisect, but the bare predicate signature does not carry
+  source geometry so operators bind it once via the closure adapter.
+  `tests/test_compare.py` injects a fake predicate so the comparison
+  ranking is exercised without `ffmpeg` / `vmaf` binaries; production
+  callers route the real bisect in via the same seam. Do not branch
+  on codec name inside `compare.py` — route every per-codec call
+  through the predicate / adapter registry.
+- **Phase B bisect assumes monotone-decreasing VMAF in CRF
+  ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md)).**
+  `vmaftune.bisect.bisect_target_vmaf` aborts with a clear error when
+  two non-adjacent samples violate this contract by more than 0.5
+  VMAF (looser than measurement noise). Never weaken to a fall-back
+  search strategy on monotonicity violation — the contract is part
+  of the public surface, and surfacing the violation is more useful
+  than papering over it. Real-world content + modern codecs satisfy
+  the contract; pathological exceptions are encoder bugs we want to
+  see, not absorb. Subprocess seam mirrors `encode.run_encode` /
+  `score.run_score`: tests inject `encode_runner` / `score_runner`
+  stubs; production callers leave them `None`.
 - **`COMPARE_ROW_KEYS` is the JSON / CSV output contract** for
   `vmaf-tune compare`. Same maintenance discipline as
   `CORPUS_ROW_KEYS`: adding optional keys with a default is fine,

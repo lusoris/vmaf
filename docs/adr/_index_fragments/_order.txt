@@ -204,7 +204,11 @@
 
 0368-youtube-ugc-corpus-ingestion
 
+
 0369-waterloo-ivc-4k-corpus-ingestion
+
+0367-lsvq-corpus-ingestion
+
 
 0366-corpus-schema-v3
 
@@ -311,6 +315,23 @@
 0368-external-bench-wrapper-only
 0335-hardware-capability-priors
 
+
+
 0325-predictor-stub-models-policy
+
+
+
+
+0325-vmaf-tune-phase-b-bisect
+
+
+
+
+
+0325-vmaf-tune-phase-b-bisect
+
+
+0326-vmaf-tune-phase-b-bisect
+
 
 

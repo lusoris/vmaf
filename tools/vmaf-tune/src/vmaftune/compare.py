@@ -115,11 +115,26 @@ PredicateFn = Callable[[str, Path, float], RecommendResult]
 
 
 def _default_predicate(codec: str, src: Path, target_vmaf: float) -> RecommendResult:
-    """Placeholder until Phase B (target-VMAF bisect) lands.
+    """Default predicate — points callers at :func:`bisect.make_bisect_predicate`.
 
-    Returns ``ok=False`` with an explanatory error so callers see a
-    well-formed report instead of a crash. The CLI surfaces a hint
-    pointing at ``--predicate-module``.
+    Phase B (target-VMAF bisect, see ``vmaftune.bisect``) is the
+    production backend, but the bisect needs source geometry
+    (``width``, ``height``, ``pix_fmt``, ``framerate``,
+    ``duration_s``) that the bare ``(codec, src, target_vmaf)``
+    predicate signature does not carry. Operators bind those once via
+    ``make_bisect_predicate(...)`` and pass the resulting closure
+    into ``compare_codecs(predicate=...)`` (or, in the CLI, via
+    ``--predicate-module MODULE:CALLABLE``).
+
+    The default predicate therefore returns ``ok=False`` with a
+    well-formed row so callers see a clean report instead of a crash;
+    the error string names the bisect entry-point so the next person
+    who reads it has a one-step fix. The "Phase B pending" wording
+    used to live here pre-ADR-0322 — the bisect itself ships in this
+    PR, but compare's default predicate stays a pointer because the
+    geometry-binding rule ("geometry is fixed before the predicate
+    is built") would otherwise force compare to grow new arguments
+    just to forward them through.
     """
     return RecommendResult(
         codec=codec,
@@ -129,8 +144,10 @@ def _default_predicate(codec: str, src: Path, target_vmaf: float) -> RecommendRe
         vmaf_score=float("nan"),
         ok=False,
         error=(
-            "no recommend backend wired (Phase B pending, ADR-0237). "
-            "Inject a predicate via --predicate-module MODULE:CALLABLE."
+            "no predicate wired. Use vmaftune.bisect.make_bisect_predicate("
+            "target_vmaf, width=..., height=..., framerate=..., duration_s=...) "
+            "and pass the result via compare_codecs(predicate=...) or "
+            "--predicate-module MODULE:CALLABLE."
         ),
     )
 

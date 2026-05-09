@@ -171,14 +171,20 @@ def test_compare_codecs_empty_encoder_list_raises():
         )
 
 
-def test_default_predicate_reports_phase_b_pending():
+def test_default_predicate_points_at_make_bisect_predicate():
+    # Phase B (target-VMAF bisect) ships in vmaftune.bisect, but the
+    # bare (codec, src, target_vmaf) predicate signature does not
+    # carry source geometry — operators bind that once via
+    # make_bisect_predicate(...) and pass the closure into
+    # compare_codecs(predicate=...). The default predicate's error
+    # string is a one-step pointer at that entry-point.
     report = compare_codecs(
         src=Path("ref.yuv"),
         target_vmaf=92.0,
         encoders=("libx264",),
     )
     assert report.rows[0].ok is False
-    assert "Phase B pending" in report.rows[0].error
+    assert "make_bisect_predicate" in report.rows[0].error
     # No best row when every codec fails.
     assert report.best() is None
 
