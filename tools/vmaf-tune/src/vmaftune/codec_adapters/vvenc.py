@@ -116,6 +116,8 @@ class VVenCAdapter:
     supports_qpfile: bool = False
     # ADR-0332: this encoder has no parseable first-pass stats file.
     supports_encoder_stats: bool = False
+    # VVenC ROI-map file (ADR-0370): delivered via -vvenc-params ROIFile=.
+    supports_saliency_roi: bool = True
 
     # Vocabulary the search loop sees — the canonical 7-name superset.
     # The adapter compresses to VVenC's 5-level native vocabulary at
@@ -299,22 +301,6 @@ class VVenCAdapter:
             return ()
         return ("-vvenc-params", ":".join(pairs))
 
-    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
-        """FFmpeg ``-c:v libvvenc -preset <p> -qp <q>`` argv slice.
-
-        Required by the ``CodecAdapter`` Protocol (ADR-0294 dispatcher).
-        Mirrors the per-codec slice emitted by every other adapter so
-        the search loop never branches on codec identity.
-        """
-        return [
-            "-c:v",
-            self.encoder,
-            "-preset",
-            self.native_preset(preset),
-            "-qp",
-            str(quality),
-        ]
-
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by libvvenc."""
         return _gop_common.default_gop_args(keyint, min_keyint)
@@ -333,6 +319,29 @@ class VVenCAdapter:
             "-qp",
             str(self.probe_quality),
         ]
+
+    def roi_from_saliency(
+        self,
+        block_offsets: object,
+        out_path: object,
+        *,
+        duration_frames: int = 1,
+    ) -> object:
+        """Write a VVenC ROI-map CSV file from a per-CTU-block offset array.
+
+        Delegates to :func:`vmaftune.saliency.write_vvenc_roi_csv`.
+        Returns the output ``Path`` the caller passes to
+        :func:`vmaftune.saliency.augment_extra_params_with_vvenc_roi`.
+
+        ``block_offsets`` must be at 64x64 CTU granularity — reduce via
+        :func:`vmaftune.saliency.reduce_qp_map_to_blocks` with
+        ``block=VVENC_CTU_SIDE`` (ADR-0370).
+        """
+        from pathlib import Path as _Path
+
+        from vmaftune.saliency import write_vvenc_roi_csv  # local import
+
+        return write_vvenc_roi_csv(block_offsets, _Path(out_path), duration_frames=duration_frames)
 
 
 def native_presets() -> tuple[str, ...]:
