@@ -212,3 +212,29 @@ Acceptance criteria verified in tree at HEAD `0a8b539e`:
   `simd_dx.h` (`SIMD_WIDEN_ADD_F32_F64_AVX2`).
 - Verification command:
   `ls libvmaf/src/feature/x86/convolve_avx2.{c,h}`.
+
+### AVX-512 audit 2026-05-09: AUDIT-PASS at 1.300x / 1.173x (T3-9 sub-row c)
+
+T3-9 sub-row (c) bench-first audit on Ryzen 9 9950X3D (Zen 5,
+AVX-512F/BW/VL). 480-frame Netflix normal pair fixture, single-thread
+median of 3 wall-clock runs:
+
+- `float_ssim` (single-scale convolve): AVX2 1.057 s vs AVX-512 0.813 s
+  = **1.300x** (at threshold).
+- `float_ms_ssim` (5-scale convolve): AVX2 1.450 s vs AVX-512 1.236 s
+  = 1.173x (sub-threshold but explained — at the smallest 2 scales
+  the kernel approaches the input width and SIMD lanes are partially
+  masked, matching this ADR's "8-lane bandwidth-amortised on 8x8
+  windows" prediction).
+
+Bit-exactness: AVX-512 vs AVX2 score JSON byte-identical at full
+precision (`--precision max`); 0/48 frames diverge. `test_iqa_convolve`
+13/13 subtests pass on the audit build. Cross-backend gate clean.
+
+The shipped `convolve_avx512.c` path is meeting its design ceiling.
+Both `float_ssim.c:117` and `float_ms_ssim.c:94` dispatch sites wire
+it correctly. Audit closes the ADR-0138 §"Follow-up" promise.
+
+See [Research-0089](../research/0089-avx512-audit-sweep-2026-05-09.md)
+for the full bench table, decision matrix, and theoretical-ceiling
+crosscheck.

@@ -107,3 +107,28 @@ in `init_simd_dispatch()`. NULL = scalar fallback via the existing
   [`lib/jxl/color_transform.cc`](https://github.com/libjxl/libjxl/blob/main/lib/jxl/color_transform.cc).
 - Research digest: [`docs/research/0017-ssimulacra2-ptlr-simd.md`](../research/0017-ssimulacra2-ptlr-simd.md).
 - User popup 2026-04-24: "All formats (full scope)".
+
+### AVX-512 audit 2026-05-09: AUDIT-PASS — bit-exact (T3-9 sub-row b)
+
+T3-9 sub-row (b) bench-first audit on Ryzen 9 9950X3D (Zen 5,
+AVX-512F/BW/VL). PTLR sits in the ssimulacra2 pipeline alongside the
+IIR blur; full-pipeline AVX-512 vs AVX2 bench is recorded in
+ADR-0161/0162's audit blocks (1.461x).
+
+Bit-exactness sub-audit: cross-cpumask comparison at full precision
+on the Netflix normal pair shows:
+
+- AVX-512 vs AVX2: 0/48 frames differ on `ssimulacra2`. Byte-identical.
+- AVX-512 vs scalar: ~3.5e-9 relative difference per frame
+  (e.g., 91.695976667734726 AVX-512 vs 91.695976709632987 scalar).
+
+The AVX-512 vs scalar gap is the documented ADR-0163 PTLR LUT story
+(deterministic polynomial `cbrtf` + 1024-entry sRGB-EOTF LUT replace
+libm calls to eliminate glibc/musl/macOS libSystem variance). The
+AVX-512 path uses the same LUT as AVX2, so the gap is inherited from
+the AVX2 ship decision and is gated by the ADR-0164 `places=4`
+Python snapshot tolerance — no regression. `test_ssimulacra2_simd`
+13/13 subtests pass; cross-backend gate clean.
+
+See [Research-0089](../research/0089-avx512-audit-sweep-2026-05-09.md)
+for the full bench table and ULP delta details.
