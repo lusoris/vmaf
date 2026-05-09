@@ -1,47 +1,45 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""libvvenc codec adapter — VVC / H.266 with optional NN-VC tools.
+"""libvvenc codec adapter — VVC / H.266.
 
 VVenC is Fraunhofer HHI's open-source VVC (H.266) encoder. VVC is the
 ITU-T / ISO standard that succeeds HEVC and delivers ~30-50% better
 compression at equal quality. For the fork's quality-aware encode
-automation harness this matters in two ways:
+automation harness this matters because VVenC is the first
+standardised codec on the adapter set whose rate-distortion curve
+materially shifts the corpus distribution — every Phase B / C predictor
+that conditions on ``encoder`` will have to learn a different curve
+for VVC than for HEVC / AV1.
 
-1.  It is the first standardised codec on the fork's adapter set whose
-    rate-distortion curve materially shifts the corpus distribution —
-    every Phase B / C predictor that conditions on ``encoder`` will
-    have to learn a different curve for VVC than for HEVC / AV1.
-2.  VVC is the first standard with first-class **neural-network video
-    coding (NNVC)** tool-points exposed through the encoder CLI:
+Phase A wires a single-pass QP encode plus a curated set of real
+VVenC 1.14.0 tuning knobs. The knobs are forwarded via FFmpeg's
+``libvvenc`` wrapper, which surfaces VVenC's config via opaque
+``-vvenc-params <key>=<value>:<key>=<value>`` strings (verified from
+``FFmpeg/n8.1`` ``libavcodec/libvvenc.c`` — the wrapper's
+``vvenc_parse_vvenc_params`` walks the colon-separated KV list and
+forwards each pair into ``vvenc_set_param``, the public
+``include/vvenc/vvencCfg.h`` API). VVenC config keys come from
+``source/Lib/apputils/VVEncAppCfg.h`` at tag ``v1.14.0``
+(SHA ``9428ea8636ae7f443ecde89999d16b2dfc421524``, accessed
+2026-05-09).
 
-    *   **NN-based intra prediction** — replaces the handcrafted
-        intra-prediction directional / planar / DC modes with a
-        learned 5×5 / 7×7 / 9×9 convolutional layer that predicts the
-        block's pixels from its causal neighbourhood. Quality gain
-        ~1-3% bitrate at iso-VMAF for natural content; ~5-10× slower
-        intra encode time.
-    *   **NN-based loop filter** — a learned post-processing CNN that
-        replaces (or augments) VVC's deblocking + SAO + ALF cascade.
-        Quality gain ~2-4% bitrate at iso-VMAF; cost is decode-side as
-        well as encode-side.
-    *   **NN-based super-resolution** — encode at low resolution,
-        decode and run a learned upsampler. Gain skews to low-bitrate
-        regimes; cost is decoder-side.
-
-    These tools are toggleable per-encode and are the closest thing
-    the open-source video stack has to a "neural-augmented codec"
-    today. The fork's existing tiny-AI surface (vmaf-tiny, NR
-    metrics, learned filters) is end-to-end *measurement*; NNVC is
-    end-to-end *generation*. Putting both behind the same
-    ``vmaf-tune`` harness lets future Phase B / C predictors learn
-    when the NNVC tools are worth their compute cost.
-
-Phase A wires only the deterministic surface: a single-pass QP encode
-with optional NNVC-intra toggle. Two-pass / Pareto / per-shot dynamic
-QP land in later phases per ADR-0237 and the new ADR for this PR.
+Two-pass / Pareto / per-shot dynamic QP land in later phases per
+ADR-0237 and ADR-0285.
 
 Subprocess boundary is the integration seam — tests mock
 ``subprocess.run`` rather than running ffmpeg / vvencapp.
+
+Note on neural-network video coding (NN-VC). VVC the standard defines
+NN-VC tool-points (intra prediction, loop filter, super-resolution),
+but VVenC 1.14.0 does **not** ship implementations of any of them — the
+public config surface (``VVEncAppCfg.h`` at ``v1.14.0``) contains zero
+``IntraNN`` / ``NN`` / ``NNVC`` tokens. An earlier draft of this
+adapter exposed an ``nnvc_intra`` toggle that emitted
+``-vvenc-params IntraNN=1``; that key has never existed in any
+released VVenC and was a fabrication. Per ADR-0285's 2026-05-09
+status update the toggle has been removed; if NN-VC ever lands in
+upstream VVenC the placeholder pattern from ADR-0294's
+self-activating adapter set applies.
 """
 
 from __future__ import annotations
@@ -78,10 +76,18 @@ _NATIVE_PRESETS: tuple[str, ...] = (
     "slower",
 )
 
+# VVenC's documented ``Tier`` enum (VVEncAppCfg.h v1.14.0 line 183).
+_TIERS: frozenset[str] = frozenset({"main", "high"})
+
+# VVenC's supported internal bit-depths (VVEncAppCfg.h v1.14.0 line 911).
+# 8 and 10 are the only practically useful values for VVC main / main10
+# profiles.
+_INTERNAL_BITDEPTHS: frozenset[int] = frozenset({8, 10})
+
 
 @dataclasses.dataclass(frozen=True)
 class VVenCAdapter:
-    """libvvenc single-pass QP adapter (VVC / H.266 + optional NNVC)."""
+    """libvvenc single-pass QP adapter (VVC / H.266)."""
 
     name: str = "libvvenc"
     encoder: str = "libvvenc"
@@ -92,6 +98,12 @@ class VVenCAdapter:
     quality_range: tuple[int, int] = (17, 50)
     quality_default: int = 32
     invert_quality: bool = True  # higher QP = lower quality
+
+    # Adapter-version bumps when the argv shape / preset list / quality
+    # window / extra_params surface changes (ADR-0298). The 2026-05-09
+    # rev removes the fabricated ``nnvc_intra`` toggle and adds the
+    # real VVenC 1.14.0 tuning surface; cache keys must invalidate.
+    adapter_version: str = "2"
 
     # Predictor probe-encode knobs. VVenC has no "ultrafast" — "faster"
     # is the fastest native preset. Even "faster" is meaningfully slower
@@ -119,11 +131,61 @@ class VVenCAdapter:
         "ultrafast",
     )
 
-    # NNVC tool toggles. Default off so Phase A grids stay deterministic
-    # and reasonably fast; flipping any of these shifts the encoder's
-    # rate-distortion curve and is recorded in the corpus row's
-    # ``extra_params`` for downstream predictor conditioning.
-    nnvc_intra: bool = False
+    # ----- Real VVenC 1.14.0 tuning knobs -------------------------------
+    # All defaults are the VVenC library defaults so a freshly-constructed
+    # adapter emits an empty ``-vvenc-params`` string and reproduces the
+    # bit-exact baseline of the previous (NNVC-stripped) adapter call. See
+    # ADR-0285 §"Status update 2026-05-09" for the per-knob justification.
+    #
+    # Each docstring field cites the ``VVEncAppCfg.h`` line where the key
+    # is defined at tag ``v1.14.0``
+    # (SHA ``9428ea8636ae7f443ecde89999d16b2dfc421524``).
+
+    #: Perceptual QP adaptation (XPSNR-driven). VVEncAppCfg.h:724.
+    #: ``None`` → leave the library default (currently auto). ``True``
+    #: emits ``PerceptQPA=1``, ``False`` emits ``PerceptQPA=0``.
+    #: Materially shifts the rate-distortion curve and is therefore
+    #: recorded per-row in ``encoder_extra_params`` for predictor
+    #: conditioning rather than collapsed into the codec one-hot.
+    perceptual_qpa: bool | None = None
+
+    #: Internal coding bit-depth. VVEncAppCfg.h:911. ``None`` → default
+    #: (matches MSBExtendedBitDepth, typically 10 for VVC). Allowed
+    #: explicit values: 8 or 10.
+    internal_bitdepth: int | None = None
+
+    #: Profile / Level tier — ``main`` or ``high``. VVEncAppCfg.h:739.
+    #: Caps the maximum bitrate and resolution that the bitstream
+    #: signals; ``high`` is required above the main-tier ceiling.
+    tier: str | None = None
+
+    #: Tile partitioning ``(cols, rows)``. VVEncAppCfg.h:701 (``Tiles``).
+    #: ``None`` → single tile (the default). Useful for parallel encode
+    #: on high-resolution content.
+    tiles: tuple[int, int] | None = None
+
+    #: Max number of frames processed in parallel. VVEncAppCfg.h:1137.
+    #: ``0`` disables, ``>=2`` enables parallel frames. ``None`` → leave
+    #: the library default (auto).
+    max_parallel_frames: int | None = None
+
+    #: Reference-Picture-Resampling toggle. VVEncAppCfg.h:1162.
+    #: ``0`` disabled, ``1`` enabled, ``2`` RPR-ready. VVC's
+    #: resolution-adaptive feature; ``None`` → library default.
+    rpr: int | None = None
+
+    #: Sample Adaptive Offset loop filter. VVEncAppCfg.h:1023.
+    #: ``True`` → ``SAO=1``, ``False`` → ``SAO=0``. Useful for
+    #: ablation studies. ``None`` → library default (on).
+    sao: bool | None = None
+
+    #: Adaptive Loop Filter. VVEncAppCfg.h:1108. ``None`` → library
+    #: default. Useful for ablation studies.
+    alf: bool | None = None
+
+    #: Cross-Component Adaptive Loop Filter. VVEncAppCfg.h:1110. Only
+    #: meaningful when ``alf`` is enabled. ``None`` → library default.
+    ccalf: bool | None = None
 
     def native_preset(self, preset: str) -> str:
         """Return the native VVenC preset for a 7-name canonical preset.
@@ -138,7 +200,12 @@ class VVenCAdapter:
         return _PRESET_MAP[preset]
 
     def validate(self, preset: str, qp: int) -> None:
-        """Raise ``ValueError`` if ``(preset, qp)`` is unsupported."""
+        """Raise ``ValueError`` if ``(preset, qp)`` is unsupported.
+
+        Also validates the optional tuning-knob fields. Range / enum
+        checks are minimal but pin the user-facing surface so a typo
+        (``Tier="medium"``) fails closed before ffmpeg launches.
+        """
         if preset not in _PRESET_MAP:
             raise ValueError(
                 f"unknown libvvenc preset {preset!r}; expected one of " f"{tuple(_PRESET_MAP)}"
@@ -146,28 +213,89 @@ class VVenCAdapter:
         lo, hi = self.quality_range
         if not lo <= qp <= hi:
             raise ValueError(f"qp {qp} outside libvvenc range [{lo}, {hi}]")
+        if self.tier is not None and self.tier not in _TIERS:
+            raise ValueError(f"libvvenc tier {self.tier!r} not in {sorted(_TIERS)}")
+        if self.internal_bitdepth is not None and self.internal_bitdepth not in _INTERNAL_BITDEPTHS:
+            raise ValueError(
+                f"libvvenc internal_bitdepth {self.internal_bitdepth!r} "
+                f"not in {sorted(_INTERNAL_BITDEPTHS)}"
+            )
+        if self.tiles is not None:
+            cols, rows = self.tiles
+            if cols < 1 or rows < 1:
+                raise ValueError(f"libvvenc tiles must be >= 1 in both axes; got {self.tiles!r}")
+        if self.max_parallel_frames is not None and self.max_parallel_frames < 0:
+            raise ValueError(
+                f"libvvenc max_parallel_frames must be >= 0; got " f"{self.max_parallel_frames!r}"
+            )
+        if self.rpr is not None and self.rpr not in (0, 1, 2):
+            raise ValueError(f"libvvenc rpr must be 0/1/2; got {self.rpr!r}")
+
+    def _build_kv_pairs(self) -> list[str]:
+        """Build the ordered ``key=value`` pair list for ``-vvenc-params``.
+
+        Ordering is deterministic (declaration order of the fields)
+        which keeps argv byte-stable for cache-key hashing and snapshot
+        tests. ``None`` valued fields are skipped — the library default
+        is the documented baseline.
+        """
+        pairs: list[str] = []
+        if self.perceptual_qpa is not None:
+            pairs.append(f"PerceptQPA={1 if self.perceptual_qpa else 0}")
+        if self.internal_bitdepth is not None:
+            pairs.append(f"InternalBitDepth={self.internal_bitdepth}")
+        if self.tier is not None:
+            pairs.append(f"Tier={self.tier}")
+        if self.tiles is not None:
+            cols, rows = self.tiles
+            # VVenC's ``IStreamToRefVec`` parser splits on 'x' for the
+            # ``Tiles`` key (VVEncAppCfg.h:547).
+            pairs.append(f"Tiles={cols}x{rows}")
+        if self.max_parallel_frames is not None:
+            pairs.append(f"MaxParallelFrames={self.max_parallel_frames}")
+        if self.rpr is not None:
+            pairs.append(f"RPR={self.rpr}")
+        if self.sao is not None:
+            pairs.append(f"SAO={1 if self.sao else 0}")
+        if self.alf is not None:
+            pairs.append(f"ALF={1 if self.alf else 0}")
+        if self.ccalf is not None:
+            pairs.append(f"CCALF={1 if self.ccalf else 0}")
+        return pairs
 
     def extra_params(self) -> tuple[str, ...]:
-        """FFmpeg ``-c:v libvvenc`` arg suffix for the NNVC toggles.
+        """FFmpeg ``-c:v libvvenc`` arg suffix for VVenC tuning knobs.
 
         Returns an immutable tuple so callers can safely concatenate
-        into ``EncodeRequest.extra_params``. Empty when no NNVC tool
-        is enabled.
+        into ``EncodeRequest.extra_params``. Empty when no knob is set
+        (preserves the bit-exact Phase A grid baseline).
 
         FFmpeg's ``libvvenc`` wrapper forwards opaque ``-vvenc-params
         key=value:key=value`` strings down to the underlying VVenC
-        config object, which is the surface VVenC's CLI documents
-        for NNVC toggles.
+        config object via ``vvenc_set_param`` (the public
+        ``vvencCfg.h`` API). The keys emitted here are sourced verbatim
+        from ``VVEncAppCfg.h`` at tag ``v1.14.0``.
         """
-        toggles: list[str] = []
-        if self.nnvc_intra:
-            # ``IntraNN`` is the VVenC config-key for the learned
-            # intra-prediction tool. Value 1 enables the 5×5 / 7×7 /
-            # 9×9 conv ladder; value 0 keeps the handcrafted modes.
-            toggles.append("IntraNN=1")
-        if not toggles:
+        pairs = self._build_kv_pairs()
+        if not pairs:
             return ()
-        return ("-vvenc-params", ":".join(toggles))
+        return ("-vvenc-params", ":".join(pairs))
+
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg ``-c:v libvvenc -preset <p> -qp <q>`` argv slice.
+
+        Required by the ``CodecAdapter`` Protocol (ADR-0294 dispatcher).
+        Mirrors the per-codec slice emitted by every other adapter so
+        the search loop never branches on codec identity.
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.native_preset(preset),
+            "-qp",
+            str(quality),
+        ]
 
     def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
         """FFmpeg ``-g`` / ``-keyint_min``, honoured by libvvenc."""
@@ -197,3 +325,12 @@ def native_presets() -> tuple[str, ...]:
     superset.
     """
     return _NATIVE_PRESETS
+
+
+def supported_tiers() -> tuple[str, ...]:
+    """Return the documented VVenC ``Tier`` enum values.
+
+    Sourced from ``VVEncAppCfg.h`` at tag ``v1.14.0`` line 183 — the
+    ``TierToEnumMap`` C++ table.
+    """
+    return tuple(sorted(_TIERS))

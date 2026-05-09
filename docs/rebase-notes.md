@@ -8140,6 +8140,16 @@ inline.*
   python -m pytest tools/vmaf-tune/tests/
   ```
 
+- **Status update 2026-05-09**: the original `nnvc_intra` toggle was
+  removed (it emitted a fabricated `IntraNN` key that does not exist
+  in any released VVenC). Replaced with a curated 9-knob real-VVenC
+  1.14.0 tuning surface (`PerceptQPA`, `InternalBitDepth`, `Tier`,
+  `Tiles`, `MaxParallelFrames`, `RPR`, `SAO`, `ALF`, `CCALF`).
+  Defaults preserve the bit-exact Phase A grid baseline.
+  `adapter_version` bumped to `"2"` so cache keys invalidate. See
+  ADR-0285 §"Status update 2026-05-09". `no rebase impact: REASON`
+  (fork-local file, no upstream-tree touch).
+
 ### 0228 — `vmaf-tune` Phase D scaffold (ADR-0276)
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/per_shot.py`,

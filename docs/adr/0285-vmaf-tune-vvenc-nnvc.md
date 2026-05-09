@@ -112,3 +112,74 @@ the eighth-codec — index TBD against the parallel adapter PRs landing
 - Source: `req` (direct user instruction 2026-05-03 to add the
   vvenc + NN-VC adapter as a companion to the parallel x264 / x265 /
   svt-av1 / libaom + NVENC / QSV / AMF / VideoToolbox adapter PRs).
+
+### Status update 2026-05-09: NNVC removed; real VVenC tuning surface added
+
+Per ADR-0028 immutability the body above stays frozen. This update
+records the post-Accepted course-correction.
+
+**Empirical NNVC-non-existence finding.** A verification pass
+(2026-05-09) on the upstream VVenC source confirmed that VVenC 1.14.0
+**does not implement** any NN-VC tools. The public config surface at
+[`source/Lib/apputils/VVEncAppCfg.h`](https://github.com/fraunhoferhhi/vvenc/blob/v1.14.0/source/Lib/apputils/VVEncAppCfg.h)
+(tag `v1.14.0`, SHA `9428ea8636ae7f443ecde89999d16b2dfc421524`,
+accessed 2026-05-09) contains zero `IntraNN` / `NN` / `NNVC` tokens.
+The `nnvc_intra=True → -vvenc-params IntraNN=1` emission shipped in
+this ADR's first revision is therefore a fabrication: the key has
+never existed in any released VVenC. The toggle and its emission code
+have been removed from
+`tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py` (~50 LOC).
+
+**New tuning surface (real VVenC 1.14.0 keys).** The adapter now
+exposes a curated 9-knob subset of VVenC's actual config. Each knob's
+key is sourced verbatim from `VVEncAppCfg.h` at tag `v1.14.0` with the
+file:line citation. Defaults are `None` so the bit-exact Phase A grid
+baseline is preserved (knob omitted → library default → identical
+argv).
+
+| Field | VVenC key | VVEncAppCfg.h:line | Why surfaced |
+| --- | --- | --- | --- |
+| `perceptual_qpa` | `PerceptQPA` | 724 | Materially shifts the rate-distortion curve; XPSNR-driven AQ analogue. Recorded per-row in `encoder_extra_params` for predictor conditioning. |
+| `internal_bitdepth` | `InternalBitDepth` | 911 | 8/10-bit toggle; required for HDR pipeline correctness. |
+| `tier` | `Tier` | 739 | Profile-level tier (`main` / `high`); affects max-bitrate ceiling at high resolutions. |
+| `tiles` | `Tiles` | 701 | Tile-partitioning geometry `NxM`; high-resolution parallel-encode lever. |
+| `max_parallel_frames` | `MaxParallelFrames` | 1137 | Frame-level parallelism perf knob. |
+| `rpr` | `RPR` | 1162 | VVC's reference-picture-resampling — the standard's resolution-adaptive feature. |
+| `sao` | `SAO` | 1023 | In-loop filter ablation. |
+| `alf` | `ALF` | 1108 | In-loop filter ablation. |
+| `ccalf` | `CCALF` | 1110 | Cross-component ALF ablation. |
+
+The selection criteria for the 9-knob cut: (1) the knob has to map
+materially onto the rate-distortion curve (not a degenerate bit-flag),
+(2) it has to be a known target of academic / industry tuning work
+(QPA, RPR, in-loop filter ablations, tile geometry, bit-depth), and
+(3) it has to be a single scalar / enum / 2-tuple — composite keys
+(`QpInValCb` chroma QP tables, etc.) are deferred to a follow-up ADR
+that wires a typed schema for them.
+
+**ENCODER_VOCAB decision.** The `libvvenc` slot in
+`ENCODER_VOCAB_V2` (frozen by ADR-0291) stays — no vocab churn. The
+new toggles ride per-row in the corpus's `encoder_extra_params`
+column, mirroring how x264's `--tune`, x265's `--profile`, etc. are
+already conditioned on. `PerceptQPA` is the most rate-distortion-
+shifting of the nine and is the one the predictor will need to learn
+to condition on first; the rest are second-order ablation knobs.
+
+**Path forward if NN-VC ever lands in upstream VVenC.** The
+self-activating placeholder pattern from
+[ADR-0294](0294-vmaf-tune-codec-dispatcher.md)'s codec dispatcher
+(adapter `__post_init__` runtime feature-detect + opt-in) applies
+directly. When a future VVenC release ships `IntraNN` / NN-loop /
+NN-SR keys, a follow-up ADR will reintroduce the toggles backed by
+actual config-key citations rather than fabrication.
+
+**Verification.** 33 unit tests cover the new surface
+(`tools/vmaf-tune/tests/test_codec_adapter_vvenc.py`): default-off
+bit-exact baseline, per-knob KV emission, byte-stable combined
+ordering, validation rejects bad inputs, mocked-subprocess smoke for
+3 representative configurations.
+
+- Source: `req` (direct user instruction 2026-05-09: "drop NNVC
+  fabrication; survey real VVenC 1.14.0 surface and pick the highest-
+  value 5-10 knobs").
+- Verification commit: see this PR.
