@@ -63,11 +63,16 @@ ADR-0372 (batch-1, this PR).
    until T7-10c wires `VmafContext`-side dispatch. Remaining
    feature-kernel ports follow as their own PRs gated by the
    `places=4` cross-backend-diff lane (ADR-0214).
-8. **Batch-1 real kernels** (ADR-0372, this PR) — `integer_psnr_hip`
+8. **Batch-1 real kernels** (ADR-0372) — `integer_psnr_hip`
    and `float_ansnr_hip` promoted from `-ENOSYS` scaffolds to real
    `hipModuleLoadData` + `hipModuleLaunchKernel` consumers under
    `#ifdef HAVE_HIPCC`. Without `HAVE_HIPCC`, the scaffold `-ENOSYS`
    contract is preserved.
+9. **Batch-2 real kernel** (ADR-0373, this PR) — `float_motion_hip`
+   promoted from `-ENOSYS` scaffold to a real HIP module-API consumer.
+   Adds `blur[2]` ping-pong + `ref_in` staging (`hipMalloc`) inside
+   `#ifdef HAVE_HIPCC`; `compute_sad=0` on first frame; motion2 tail
+   in `flush()`. Device kernel: `float_motion/float_motion_score.hip`.
 
 ## Ground rules
 

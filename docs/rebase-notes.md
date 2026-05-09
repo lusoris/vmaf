@@ -32417,6 +32417,48 @@ build-system paths changed; no new symbols were added.
   ```
 
 
+## ADR-0373 — HIP batch-2: float_motion_hip real kernel (2026-05-10)
+
+- **Touches**: `libvmaf/src/feature/hip/float_motion_hip.c` (full rewrite to
+  `#ifdef HAVE_HIPCC` dual-path; `uintptr_t` opaque slots replaced with real
+  `void *` device pointers), `libvmaf/src/feature/hip/float_motion/float_motion_score.hip`
+  (device kernel — already present, no change in this PR),
+  `libvmaf/src/meson.build` (`float_motion_score` added to `hip_kernel_sources`),
+  `docs/backends/hip/overview.md` (status update to 4/11),
+  `docs/adr/0373-hip-batch2-float-motion.md` (new).
+- **Invariant (HAVE_HIPCC dual-path)**: `hipModule_t module`, `hipFunction_t funcbpc8/funcbpc16`,
+  and `void *ref_in`, `void *blur[2]` live under `#ifdef HAVE_HIPCC`. Without the flag
+  the scaffold `-ENOSYS` contract is preserved. Never move these fields outside the guard.
+- **Invariant (temporal blur ping-pong)**: `cur_blur` alternates 0/1 in both `submit()` and
+  `collect()`. The kernel reads `blur[1 - s->cur_blur]` as "prev" and writes `blur[s->cur_blur]`
+  as "cur". `collect()` flips `cur_blur` after consuming the partials. On rebase: if the CUDA
+  twin changes the ping-pong direction, the HIP twin must follow in the same PR.
+- **Invariant (first-frame compute_sad=0)**: `submit()` passes `compute_sad=0` when
+  `index == 0`. The kernel still writes `cur_blur` but sets all partials to 0.0. `collect()`
+  emits motion_score=0 and motion2_score=0 for `index==0` without SAD accumulation.
+- **Invariant (flush tail)**: `flush()` emits `VMAF_feature_motion2_score = prev_motion_score`
+  at `s->index` (the last frame) and returns 1. If `s->index == 0` it returns 1 immediately.
+  Mirrors `flush_fex_cuda` shape exactly.
+- **On upstream sync**: no action required (fork-local kernel). If Netflix adds a HIP
+  backend with conflicting `float_motion` logic, resolve against this invariant set.
+- **Re-test on rebase**:
+
+  ```bash
+  # CPU-only build (no ROCm required): must compile clean
+  meson setup build_hip_cpu -Denable_hip=true -Denable_hipcc=false \
+      -Denable_cuda=false -Denable_sycl=false libvmaf
+  ninja -C build_hip_cpu
+
+  # With ROCm + hipcc: HSACO pipeline must produce float_motion_score.hsaco
+  meson setup build_hip_full -Denable_hip=true -Denable_hipcc=true \
+      -Denable_cuda=false -Denable_sycl=false libvmaf
+  ninja -C build_hip_full
+
+  # Cross-backend numeric gate (requires AMD GPU)
+  meson test -C build_hip_full --suite=hip-parity
+  ```
+
+
 ## feat/hip-float-psnr-first-real — T7-10b: `float_psnr_hip` first real kernel (ADR-0254)
 
 **Touches**:
@@ -32484,21 +32526,37 @@ ninja -C build
 
 ---
 
+
 ## `speed_qa` -- real SpEED-QA implementation (ADR-0253)
 
 `libvmaf/src/feature/speed_qa.c` went from a 71-line placeholder scaffold to a
 ~380-line real implementation. The extractor now sets
+
+## `speed_qa` — real SpEED-QA implementation (ADR-0253)
+
+`libvmaf/src/feature/speed_qa.c` went from a 71-line placeholder scaffold to
+a ~380-line real implementation. The extractor now sets
+
 `VMAF_FEATURE_EXTRACTOR_TEMPORAL` and carries `priv_size = sizeof(SpeedQaState)`;
 the registration entry in `feature_extractor_list[]` is unchanged (always
 unconditional, outside the `#if VMAF_FLOAT_FEATURES` block).
 
 **No upstream rebase conflict expected.** The scaffold was fork-local; Netflix
+
 upstream has no `speed_qa.c`. The upstream `speed.c` is unmodified.
 
 **Rebase invariant:** `vmaf_fex_speed_qa` must stay outside the
 `VMAF_FLOAT_FEATURES` guard in `feature_extractor.c` -- `speed_qa.c` is
 compiled unconditionally (no float dependency). If a future Netflix commit
 lands a `speed_qa.c`, audit for algorithm conflicts before merging.
+
+upstream has no `speed_qa.c`. The `speed.c` file (upstream port) is unmodified.
+
+**Rebase invariant:** `vmaf_fex_speed_qa` must stay outside the
+`VMAF_FLOAT_FEATURES` guard in `feature_extractor.c` — `speed_qa.c` is
+compiled unconditionally (no float dependency). If a rebase lands a Netflix
+`speed_qa.c`, audit for algorithm conflicts before merging.
+
 
 **Re-test on rebase:**
 
