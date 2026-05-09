@@ -140,3 +140,21 @@ remains in force. The scaffold exists solely to reserve the
 registration slot and make the extractor discoverable by name — the
 real algorithm will be implemented in a follow-up PR once one of the
 three named reversal triggers fires.
+
+### Status update 2026-05-10: Real implementation landed
+
+Reversal trigger 2 of the defer decision ("Explicit user request for SpEED-QA")
+has fired. The real spatial and temporal entropic-difference algorithm has
+replaced the placeholder scaffold in `libvmaf/src/feature/speed_qa.c`.
+
+Implementation summary:
+- Non-overlapping 7x7 luma blocks; separable Gaussian window (sigma=1.166, Q16).
+- Per-block entropy: H = 0.5 * log2(2*pi*e*(sigma^2 + 1.0)).
+- Spatial score S: mean(H) over all blocks of the distorted luma frame.
+- Temporal score T: mean(H) over frame-difference blocks (dist[n]-dist[n-1]);
+  zero for frame 0.
+- Output per frame: score = S + T.
+- Self-contained (no float dependency); integer pixels, double accumulation;
+  VMAF_FEATURE_EXTRACTOR_TEMPORAL flag set for in-order delivery.
+- Five unit tests in `libvmaf/test/test_speed_qa.c` (all pass).
+- Documentation: `docs/metrics/speed_qa.md`.
