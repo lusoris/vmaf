@@ -64,6 +64,7 @@ enum {
     ARG_TINY_FP16,
     ARG_TINY_MODEL_VERIFY,
     ARG_NO_REFERENCE,
+    ARG_DNN_EP,
 };
 
 /* Default matches Netflix's pre-fork output exactly so the CPU golden
@@ -143,6 +144,13 @@ static const struct option long_opts[] = {
     {"tiny_model_verify", 0, NULL, ARG_TINY_MODEL_VERIFY},
     {"no-reference", 0, NULL, ARG_NO_REFERENCE},
     {"no_reference", 0, NULL, ARG_NO_REFERENCE},
+    /* --dnn-ep is the user-facing name for selecting the ONNX Runtime
+     * execution provider. It is an alias for --tiny-device so both flags
+     * write to the same CLISettings.tiny_device field. Accepting both names
+     * lets users follow the ORT "execution provider" terminology directly
+     * without knowing the fork's internal "tiny-device" naming. */
+    {"dnn-ep", 1, NULL, ARG_DNN_EP},
+    {"dnn_ep", 1, NULL, ARG_DNN_EP},
     {"no_prediction", 0, NULL, 'n'},
     {"version", 0, NULL, 'v'},
     {"quiet", 0, NULL, 'q'},
@@ -203,6 +211,8 @@ static void usage(const char *const app, const char *const reason, ...)
         " --tiny-model $path:           load a tiny ONNX model alongside classic models\n"
         " --tiny-device $string:        auto|cpu|cuda|openvino|coreml|coreml-ane|\n"
         "                                  coreml-gpu|coreml-cpu|rocm (default: auto)\n"
+        " --dnn-ep $string:             alias for --tiny-device; selects the ONNX Runtime\n"
+        "                                  execution provider by its ORT name\n"
         " --tiny-threads $unsigned:     CPU EP intra-op threads (0 = ORT default)\n"
         " --tiny-fp16:                  request fp16 IO where the EP supports it\n"
         " --tiny-model-verify:          require Sigstore-bundle verification (cosign verify-blob)\n"
@@ -682,11 +692,13 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             settings->tiny_model_path = optarg;
             break;
         case ARG_TINY_DEVICE:
+        /* fall through — --dnn-ep is an alias; both write tiny_device */
+        case ARG_DNN_EP:
             if (strcmp(optarg, "auto") && strcmp(optarg, "cpu") && strcmp(optarg, "cuda") &&
                 strcmp(optarg, "openvino") && strcmp(optarg, "coreml") &&
                 strcmp(optarg, "coreml-ane") && strcmp(optarg, "coreml-gpu") &&
                 strcmp(optarg, "coreml-cpu") && strcmp(optarg, "rocm")) {
-                error(argv[0], optarg, ARG_TINY_DEVICE,
+                error(argv[0], optarg, o == ARG_DNN_EP ? ARG_DNN_EP : ARG_TINY_DEVICE,
                       "one of auto|cpu|cuda|openvino|coreml|coreml-ane|coreml-gpu|"
                       "coreml-cpu|rocm");
             }

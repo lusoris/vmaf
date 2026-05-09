@@ -210,7 +210,7 @@
       "smoke": false
     },
     {
-      "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_medium (~769 params).",
+      "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_medium (~769 params). Use vmaf_tiny_v3_int8 to address the int8 sidecar directly.",
       "id": "vmaf_tiny_v3",
       "int8_sha256": "b4bdbb353b1b395adb22b77e890117228de1cfd12b94cb46fd0173c2fd12a343",
       "kind": "fr",
@@ -222,6 +222,20 @@
       "quant_accuracy_budget_plcc": 0.01,
       "quant_mode": "dynamic",
       "sha256": "57b2b7e0c62e84e3238b266e423e2008da76ec12ce957c173b2bbed11c65eb78"
+    },
+    {
+      "description": "int8 sidecar for vmaf_tiny_v3 \u2014 dynamic-PTQ quantised mlp_medium; addressable directly by ID.",
+      "id": "vmaf_tiny_v3_int8",
+      "int8_sha256": "b4bdbb353b1b395adb22b77e890117228de1cfd12b94cb46fd0173c2fd12a343",
+      "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "Direct registry entry for the vmaf_tiny_v3 dynamic-PTQ int8 sidecar (ADR-0275). Measured PLCC drop=0.000120 vs fp32 baseline; within 0.01 budget. Produced via ai/scripts/ptq_dynamic.py. See docs/ai/models/vmaf_tiny_v3.md.",
+      "onnx": "vmaf_tiny_v3.int8.onnx",
+      "opset": 17,
+      "quant_accuracy_budget_plcc": 0.01,
+      "quant_mode": "dynamic",
+      "sha256": "b4bdbb353b1b395adb22b77e890117228de1cfd12b94cb46fd0173c2fd12a343"
     },
     {
       "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_large (~3073 params).",
