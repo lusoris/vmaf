@@ -31447,3 +31447,39 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   `vmaf_hip_device_count() == 0`, so it stays portable across CI
   runners that don't expose an AMD GPU.
 
+### `saliency_student_v2` — Resize-decoder ablation (ADR-0364, 2026-05-09)
+
+- **Touches**: `ai/scripts/train_saliency_student_v2.py` (new),
+  `model/tiny/saliency_student_v2.{onnx,json}` (new),
+  `model/tiny/saliency_student_v2_card.md` (new),
+  `model/tiny/registry.json` (new row),
+  `docs/ai/models/saliency_student_v2.md` (new),
+  `docs/adr/0364-saliency-student-v2-resize-decoder.md` (new),
+  `docs/research/0089-saliency-student-v2-resize-decoder.md` (new),
+  `changelog.d/added/saliency-student-v2.md` (new). All paths are
+  fork-only — no upstream-mirrored files touched.
+- **Invariant**: v1 (`saliency_student_v1.onnx`, registry id
+  `saliency_student_v1`, `smoke: false`) stays as the production
+  weights for the C-side `mobilesal` extractor. v2 is a parallel
+  artefact under `model/tiny/`; promotion to production is a
+  separate PR. The trainer's `_ResizeConv` module produces an ONNX
+  graph with `Resize` (mode=`linear`,
+  `coordinate_transformation_mode=half_pixel`) — every op stays on
+  `libvmaf/src/dnn/op_allowlist.c` post-ADR-0258.
+- **On upstream sync**: no rebase impact — Netflix has no parallel
+  saliency-student model, no consumer of `Resize` in the upstream
+  ONNX surface, and no `model/tiny/` registry in the upstream tree.
+  If Netflix ever lands a saliency model, the fork's
+  `saliency_student_v{1,2}` rows stay independent.
+- **Re-test on rebase**:
+
+  ```bash
+  .venv/bin/python ai/scripts/validate_model_registry.py
+  .venv/bin/python - <<'EOF'
+  import onnx
+  g = onnx.load('model/tiny/saliency_student_v2.onnx')
+  ops = sorted({n.op_type for n in g.graph.node})
+  assert 'Resize' in ops and 'ConvTranspose' not in ops, ops
+  print('v2 ONNX op-set:', ops)
+  EOF
+  ```

@@ -148,6 +148,18 @@
       "smoke": false
     },
     {
+      "description": "Fork-trained tiny U-Net saliency student \u2014 v1 recipe with the decoder upsampler swapped to bilinear-Resize+3x3-Conv (ADR-0258 / ADR-0332). Parallel artefact under model/tiny/; v1 remains the production weights for the mobilesal extractor.",
+      "id": "saliency_student_v2",
+      "kind": "nr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "Fork-trained tiny U-Net (~124K params) on DUTS-TR. v1 recipe with Resize+3x3-Conv decoder (ADR-0258 / ADR-0332) replacing v1's ConvTranspose. Same I/O contract as v1; encoder/loss/optimizer/seed identical. Best val IoU=0.7105 vs v1=0.6558 (+8.3%); PT<->ORT max-abs-diff=3.28e-6. Parallel artefact; v1 stays production for mobilesal. See docs/ai/models/saliency_student_v2.md.",
+      "onnx": "saliency_student_v2.onnx",
+      "opset": 17,
+      "sha256": "8cdaa6c10ab44d9b03a6a207603bd0b61f5c75a6beafdc82da57215f0a2ab2ed",
+      "smoke": false
+    },
+    {
       "description": "fp16 I/O round-trip CI probe (Identity op).",
       "id": "smoke_fp16_v0",
       "kind": "fr",
