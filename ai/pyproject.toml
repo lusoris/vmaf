@@ -23,7 +23,7 @@ dependencies = [
   # distribution.
   "pytorch-lightning>=2.5,<3.0",
   "onnx>=1.21.0,<2.0",
-  "onnxruntime>=1.25.1,<2.0",
+  "onnxruntime>=1.20,<2.0",
   "onnxscript>=0.2",
   "numpy>=1.26,<3.0",
   "pandas>=2.2,<3.0",
@@ -39,8 +39,8 @@ dependencies = [
 [project.optional-dependencies]
 tune = ["optuna>=4.0", "ray[tune]>=2.55.1"]
 gpu  = []
-viz  = ["matplotlib>=3.10.9", "seaborn>=0.13"]
-dev  = ["pytest>=9.0.3", "ruff>=0.6", "mypy>=1.10"]
+viz  = ["matplotlib>=3.9", "seaborn>=0.13"]
+dev  = ["pytest>=9.0.3", "ruff>=0.6", "mypy>=1.20.2"]
 
 [project.scripts]
 vmaf-train = "vmaf_train.cli:app"
