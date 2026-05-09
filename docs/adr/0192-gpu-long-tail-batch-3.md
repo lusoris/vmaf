@@ -183,3 +183,17 @@ Same six deliverables as batches 1 + 2, per
   [`cambi.c`](../../libvmaf/src/feature/cambi.c).
 - User direction: AskUserQuestion popup, 2026-04-27 — "All remaining
   gaps in one batch" / "Yes, draft ADR-0192 now".
+
+### Status update 2026-05-09: T3-15 first port landed
+
+The successor backlog item T3-15 (GPU coverage long-tail batch 4)
+shipped its first proof-of-concept port — CUDA `psnr` chroma extension
+(`psnr_cuda` now emits `psnr_y` / `psnr_cb` / `psnr_cr`). Cross-backend
+gate at `places=4` clears bit-exactly (0/48 mismatches on the Netflix
+normal pair across all three planes). Seven follow-up kernels remain
+(SYCL PSNR chroma, CUDA + SYCL chroma SSIM / MS-SSIM, CUDA + SYCL
+`cambi`); see
+[`docs/research/0090-t3-15-gpu-coverage-long-tail-2026-05-09.md`](../research/0090-t3-15-gpu-coverage-long-tail-2026-05-09.md)
+for the corrected gap re-audit and per-kernel ordering. The body of
+this ADR remains frozen per ADR-0028 — this status note is in the
+References section only.
