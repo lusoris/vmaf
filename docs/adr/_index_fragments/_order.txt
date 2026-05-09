@@ -193,6 +193,7 @@
 0355-symphony-agent-dispatch-infra
 0363-renovate-replaces-dependabot
 
+
 0234-gpu-gen-ulp-calibration
 0259-hip-third-consumer-ciede
 0260-hip-fourth-consumer-float-moment
@@ -230,4 +231,7 @@
 0321-fr-regressor-v2-ensemble-full-prod-flip
 0323-fr-regressor-v3-train-and-register
 0324-ensemble-training-kit
+
+0333-vmaf-tune-multi-pass-encoding
+
 

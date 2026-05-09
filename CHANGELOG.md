@@ -3455,6 +3455,45 @@
   [`docs/usage/vmaf-roi-score.md`](../docs/usage/vmaf-roi-score.md).
 
 
+- **AGENTS.md per-package coverage audit + backfill.**
+  Audits every code-bearing directory under `libvmaf/src/`, `tools/`,
+  `ai/`, `python/vmaf/`, `mcp-server/`, and `scripts/` for the
+  rebase-sensitive-invariants documentation required by CLAUDE.md
+  §12 r11 / [ADR-0108](../docs/adr/0108-deep-dive-deliverables-rule.md).
+  Adds 13 new `AGENTS.md` files where rebase risk was real but
+  documentation was missing: the SIMD twin-update tables under
+  `libvmaf/src/feature/{x86,arm64}/`, the IQA scalar reference
+  (`libvmaf/src/feature/iqa/`) and Xiph third-party reference
+  (`libvmaf/src/feature/third_party/xiph/`), the per-feature GPU
+  kernel directories (`libvmaf/src/feature/{cuda,sycl,vulkan}/` plus
+  `libvmaf/src/feature/vulkan/shaders/`), the SVE2 HWCAP2 fork-local
+  fallback under `libvmaf/src/arm/`, the MCP scaffold contract
+  (`libvmaf/src/mcp/`), the fork-original ensemble training kit
+  (`tools/ensemble-training-kit/`), and the top-level `scripts/`
+  tree (covers ADR-0221 fragment-concat scripts, ONNX placeholder
+  generators, setup dispatcher). Each new file documents its
+  package-specific invariants — twin-update rules, upstream-mirror
+  discipline, and ADR carve-outs — so a contributor opening any of
+  those directories cold finds the rebase-sensitive context without
+  reading the parent end-to-end. Audit summary lives at
+  [`docs/research/0090-agents-md-coverage-audit-2026-05-09.md`](../docs/research/0090-agents-md-coverage-audit-2026-05-09.md).
+  No engine or test changes; documentation-only.
+
+
+- **arXiv-style tech-note draft for the production-flip gate and conformal-VQA novelty
+  claims (Research-0090).** Lands a DRAFT preprint at
+  [`docs/research/0090-arxiv-techNote-prodflip-conformal-2026-05-09.md`](../docs/research/0090-arxiv-techNote-prodflip-conformal-2026-05-09.md)
+  covering the two patterns flagged as "no clear public prior art" by the SOTA digest
+  ([Research-0086](../docs/research/0086-tiny-ai-sota-deep-dive-2026-05-08.md), PR #449):
+  the [ADR-0303](../docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md) two-criterion
+  ensemble production-flip gate (mean LOSO PLCC + max-min spread; verdict and
+  PROMOTE.json from PR #423), and the [ADR-0279](../docs/adr/0279-fr-regressor-v2-probabilistic.md)
+  conformal-VQA prediction surface (split-conformal + CV+; coverage probe `0.9515`
+  vs `0.95` nominal pinned by `tools/vmaf-tune/tests/test_conformal.py` from PR #488).
+  Research-and-writing only — no code changes; the draft is the deliverable. Format
+  is Markdown for `pandoc` conversion to LaTeX when the user opts to submit.
+
+
 - **CI**: new `Required Checks Aggregator` workflow
   ([`.github/workflows/required-aggregator.yml`](.github/workflows/required-aggregator.yml),
   [ADR-0313](docs/adr/0313-ci-required-checks-aggregator.md)) that runs on
@@ -3605,6 +3644,27 @@
   [`ai/AGENTS.md`](../../ai/AGENTS.md) "Ensemble registry invariant".
 
 
+- **`fr_regressor_v3` namespace map + `fr_regressor_v3plus_features`
+  reservation (ADR-0349).** Resolves the namespace collision agent
+  reports `abd6ed552ac8cae60` and `abda108c8263491da` surfaced
+  between the existing production `fr_regressor_v3` checkpoint
+  (vocab-16 retrain shipped via ADR-0323 / PR #428,
+  sha256 `eaa16d23…`, `smoke: false`) and a future "feature-set
+  v3" workstream (canonical-6 + `encoder_internal` + shot-boundary
+  + `hwcap`). The existing v3 production row stays bit-identical
+  (zero file moves, zero sha256 churn — investigation found 19
+  references in 12 files, all keep working unchanged); the future
+  feature-set bump lands as `fr_regressor_v3plus_features`,
+  reserved here in [ADR-0349](../docs/adr/0349-fr-regressor-v3-namespace.md)
+  + [`ai/AGENTS.md`](../ai/AGENTS.md). The reservation is
+  documentation-only because
+  [`libvmaf/test/dnn/test_registry.sh`](../libvmaf/test/dnn/test_registry.sh)
+  treats every registry row as a hard contract — a stub row would
+  fail CI on day one, so the row lands with the future PR that
+  ships the `.onnx`. Rejected: renaming the existing v3 to
+  `_v3_vocab16` (touches 19 call sites; breaks ADR-0291
+  production-flip immutability) and calling the future work
+  `_v4_features` (inflates `_v4` to a name-conflict workaround).
 - **`fr_regressor_v3` — train + register on `ENCODER_VOCAB` v3
   (16-slot) — gate PASSED (ADR-0323).** Closes the v3 retrain
   deferral landed by [ADR-0302](../docs/adr/0302-encoder-vocab-v3-schema-expansion.md)
@@ -3906,6 +3966,31 @@
   pipeline end-to-end without ffmpeg, ONNX Runtime, or a GPU.
 
 
+- **`vmaf-tune --two-pass` — Phase F multi-pass encoding seam, libx265
+  first ([ADR-0333](../docs/adr/0333-vmaf-tune-multi-pass-encoding.md)).**
+  Codec adapters opting in declare `supports_two_pass = True` and
+  override `two_pass_args(pass_number, stats_path) -> tuple[str, ...]`;
+  `X265Adapter` is the first concrete implementation, returning
+  `('-x265-params', f'pass={N}:stats={path}')`. `EncodeRequest` gains
+  `pass_number: int = 0` (0 = single-pass / default; 1 / 2 = pass index)
+  and `stats_path: Path | None = None`; `build_ffmpeg_command` redirects
+  pass-1 output to `-f null -` so the throwaway encoded bitstream isn't
+  written. New `encode.run_two_pass_encode(req, ...)` materialises a
+  per-encode unique stats file under a tempdir, runs pass 1 → pass 2,
+  cleans up the stats file (and libx265's `.cutree` sidecar) on exit,
+  and returns one combined `EncodeResult` (encode_time = sum of both
+  passes; size = pass-2 size). New `--two-pass` CLI flag opts in on
+  `corpus` / `recommend`; default stays single-pass. Codecs where
+  `supports_two_pass = False` fall back to single-pass with a stderr
+  warning (matches the saliency.py x264-only fallback precedent);
+  callers using the Python API can pass `on_unsupported="raise"` to
+  fail loudly instead. Sibling codec adapters (libx264, libsvtav1,
+  libvvenc, libaom-av1) inherit the seam and land as one-file follow-up
+  PRs. NVENC's `-multipass` is a separate adapter contract (single-
+  invocation lookahead, not the stats-file two-call sequence) and is
+  not covered by this seam. AMF / QSV / VideoToolbox keep
+  `supports_two_pass = False` (hardware encoders use internal
+  lookahead).
 - **`vmaf-tune --score-backend=vulkan` — vendor-neutral GPU scoring
   ([ADR-0314](../docs/adr/0314-vmaf-tune-score-backend-vulkan.md)).**
   Adds `vulkan` as a `--score-backend` choice (alongside `cuda` /
@@ -4250,6 +4335,7 @@
   change — `ccache -s` is logged after every build so the warm-up curve is
   visible in CI. See `docs/research/0089-ci-cost-optimization-audit-2026-05-09.md`.
 
+
 - **CHANGELOG.md drift sweep — 2026-05-08
   ([ADR-0221](../docs/adr/0221-changelog-adr-fragment-pattern.md)).**
   Reconciled accumulated skew between `changelog.d/<section>/*.md`
@@ -4267,6 +4353,36 @@
   Companion to PR #476 on the ADR-index side; both PRs touch the
   fragment-pattern ecosystem ADR-0221 establishes.
 
+
+
+
+
+
+
+- CI — `libvmaf-build-matrix.yml` and `tests-and-quality-gates.yml`
+  now carry a `paths-ignore` filter on their `pull_request` triggers:
+  `docs/**`, `**/*.md`, `changelog.d/**`, `CHANGELOG.md`,
+  `.workingdir2/**`. Doc-only / research-only PRs no longer fire the
+  18-cell build matrix or the 10-job test matrix. Safe under
+  ADR-0313: the Required Checks Aggregator already treats a
+  workflow-not-reported as path-filter-skipped/acceptable, so branch
+  protection still passes. Mirrors the path-filter pattern from
+  ADR-0317 on `docker-image.yml` and `ffmpeg-integration.yml`. Saves
+  roughly 14 runner-min per average PR, with bigger wins on doc-only
+  PRs (full ~14 min wall-clock skipped). See
+  [ADR-0341](../../docs/adr/0341-ci-paths-ignore-doc-only-prs.md) and
+  [Research-0089 §3.2](../../docs/research/0089-ci-cost-optimization-audit-2026-05-09.md).
+- **CI:** Per-lane wall-clock optimizations for the three slowest CI lanes
+  identified in Research-0089 (PR #525) §2: (1) Coverage Gate caches the
+  ONNX Runtime GPU `.tgz` (~150 MB) keyed on the pinned ORT version, saving
+  ~30–60 s per run; (2) Ubuntu Vulkan build caches `libvmaf/subprojects/packagecache/`
+  so volk + VMA wrap archives are restored from the GHA cache instead of
+  re-fetched from GitHub releases on every run, saving ~15–30 s per run;
+  (3) Windows MSVC + CUDA enables `use-github-cache: true` on the
+  `Jimver/cuda-toolkit` action so the CUDA 13.0.0 installer payload (~3 GB)
+  is restored from the GHA cache instead of re-downloaded over the network,
+  saving ~2–4 min per run. No coverage change. See
+  `docs/research/0089-ci-cost-optimization-audit-2026-05-09.md`.
 
 
 - **NVIDIA-Vulkan ciede2000 places=4 5/48 mismatch root-caused as f32/f64 fork debt (ADR-0273)** —
@@ -4297,6 +4413,36 @@
   hardware validation stays a manual local gate. No code changes —
   ships docs only (ADR-0273, research-0055, state.md row, CHANGELOG,
   rebase-notes, vulkan-backend doc note).
+
+
+### Changed
+
+- **CLAUDE.md §12 r12**: dropped the stale "T7-5 NOLINT sweep is pending"
+  paragraph since PR #327 (refactor pass) and PR #388 (citation closeout,
+  ADR-0278) discharged that backlog item; every NOLINT in tree now carries
+  an inline citation. The rule's no-backdate clause stays.
+
+
+- **docs(libvmaf)**: add Doxygen-style WHY-non-obvious doc blocks for the
+  14 functions flagged by CodeQL `cpp/poorly-documented-function`
+  (alerts #259, #261, #262, #265, #408, #409, #410, #411, #412, #413,
+  #414, #416, #734, #746). Covers the upstream-mirror ADM kernels
+  (`integer_compute_adm`, `adm_dwt2_s123_combined`, `init`,
+  `adm_dwt2_8_avx512`, `adm_dwt2_s123_combined_avx512`), the AVX2 /
+  AVX-512 motion convolution twins (`y_convolution_8/16_avx2/avx512`,
+  `motion_score_pipeline_8_avx512`), the VIF subsample-readout twins
+  (`vif_subsample_rd_8_avx2/avx512`), the SSIMULACRA2 AVX-512
+  YUV→linear-RGB port (`ssimulacra2_picture_to_linear_rgb_avx512`), and
+  the CAMBI feature-extractor `init`. Each block documents the
+  bit-exactness invariant (ADR-0138 / ADR-0139) or the upstream-parity
+  invariant (ADR-0141) that prevents refactoring, plus the caller
+  contract a future maintainer would need from the SIMD dispatch site.
+  The 15th alert (#269, `test_feature.c`) gets a per-instance
+  `lgtm[cpp/poorly-documented-function]` comment with justification —
+  the file is already covered by `paths-ignore` in
+  `.github/codeql-config.yml` but the existing alert needs an inline
+  acknowledgement to clear on the next scan. Supersedes the
+  global-suppression sibling PR.
 
 
 - **Dedup duplicate-NNNN ADRs (bookkeeping).** Renumbered ten ADR files
@@ -4432,6 +4578,42 @@
   [Research-0067](docs/research/0067-fr-regressor-v2-prod-loso.md).
 
 
+- **ADR-0302 status appendix — namespace collision resolved
+  (ADR-0349).** Append-only status update on
+  [ADR-0302](../docs/adr/0302-encoder-vocab-v3-schema-expansion.md)
+  per [ADR-0028](../docs/adr/0028-adr-maintenance-rule.md)
+  (Accepted-ADR immutability) records that the `fr_regressor_v3`
+  registry row stays authoritative for the vocab-16 retrain and
+  that the future canonical-6 + `encoder_internal` + shot-boundary
+  + `hwcap` feature-set work claims the reserved name
+  `fr_regressor_v3plus_features` per
+  [ADR-0349](../docs/adr/0349-fr-regressor-v3-namespace.md).
+  No code change in ADR-0302 itself.
+- **`ai/AGENTS.md` gains a `## fr_regressor_* namespace map`
+  section** that enumerates the claimed names
+  (`_v1`, `_v2`, `_v2_ensemble_v1_seed{0..4}`, `_v3`) and
+  reserves `_v3plus_features`. Future agents working on the
+  `fr_regressor` lineage cite this map before claiming a new id.
+- **`nightly.yml` + `fuzz.yml` triage — gates stay on, bugs documented for
+  follow-up.** Research-0089 (PR #525) §5 flagged that both workflows had
+  0 successful runs in the last 50. Triage on 2026-05-09 confirmed both
+  gates fire correctly on `schedule:` and are catching real bugs:
+  `nightly.yml` ThreadSanitizer surfaces a data race in
+  `div_lookup_generator` (`libvmaf/src/feature/integer_adm.h:32-38`) where
+  every worker thread spawned from `vmaf_thread_pool_create` re-populates
+  the static `div_lookup[65537]` table without a `pthread_once` guard;
+  `fuzz.yml` `fuzz_y4m_input` surfaces a NULL-deref SEGV in
+  `y4m_input_fetch_frame` (`libvmaf/tools/y4m_input.c:877`) on negative-
+  width Y4M headers (reproducer `YUV4MPEG2 W-8 H4 F30:1 Ip A1:1 C422`).
+  Per memory `feedback_no_test_weakening`, neither workflow is muted /
+  `continue-on-error`'d / matrix-trimmed; both stay red until the
+  underlying fixes land in dedicated follow-up PRs. Two new Open rows in
+  [`docs/state.md`](../docs/state.md) (`T-NIGHTLY-TSAN-ADM-INIT`,
+  `T-FUZZ-Y4M-NEG-WIDTH-SEGV`) pin the failing tests + reopen triggers
+  so a *new* TSan / fuzz finding is immediately distinguishable from the
+  two known-open bugs. Triage decision recorded in
+  [ADR-0332](../docs/adr/0332-nightly-fuzz-triage-keep-gates.md). No
+  workflow files modified.
 - **docs**: Research-0085 (vendor-neutral VVC encode landscape) flipped
   from `Status: SKELETON` to `Status: Active`. Re-ran every open
   question against primary sources: NVIDIA Video Codec SDK 13.0 docs,
@@ -4709,6 +4891,19 @@
   [ADR-0316](../../docs/adr/0316-cli-parse-long-only-error-fix.md).
 
 
+- Fixed two master-side CI breaks blocking every open PR:
+  - cppcheck `nullPointer` false-positive at `libvmaf/src/dict.c:121` —
+    removed a redundant `&& val` guard inside `dict_overwrite_existing`
+    (`val` is already checked at the public entry-point
+    `vmaf_dictionary_set` line 137).
+  - `pthread_once_t` use in `libvmaf/src/feature/integer_adm.h:45` (added
+    by #548 for the TSan `SAN-INTEGER-ADM-DIV-LOOKUP-RACE` fix) didn't
+    compile on Windows MSVC + CUDA / oneAPI SYCL; wrapped pthread bits
+    in `#ifndef _WIN32` and dropped to direct populate on Windows
+    (race is benign — every thread writes identical loop-invariant
+    values, and TSan only runs on Linux).
+
+
 - **CUDA build fixed against gcc-16 host libstdc++.** Adds `--std c++20`
   to the nvcc invocation in `libvmaf/src/meson.build`. nvcc's default
   C++17 host parser chokes on the C++20 features (`char8_t`,
@@ -4783,6 +4978,51 @@
   relaxes ADR-0109 §Decision (parquet only).
 
 
+- **Three real-bug findings cross-confirmed by the nightly-triage
+  (#537) and sanitizer-matrix-scope (#540) agents now closed.** All
+  three are concrete defects exercised by the standing TSan / ASan
+  test matrix; the fixes harden the implementation rather than
+  relaxing any sanitizer gate (per `feedback_no_test_weakening`).
+  - `SAN-INTEGER-ADM-DIV-LOOKUP-RACE` — `div_lookup_generator()` in
+    `libvmaf/src/feature/integer_adm.h` was called once per ADM
+    feature-extractor `init`, i.e. once per worker thread spawned by
+    `vmaf_thread_pool_create`, with no synchronisation around the
+    65 537-entry static `div_lookup` table. TSan reported the
+    overlapping writes on `test_model`, `test_framesync`, and
+    `test_pic_preallocation`. Wrapped the populator in a
+    `pthread_once_t` guard; the table contents are loop-invariant
+    (`div_Q_factor / i`) so once-init preserves bit-exactness.
+  - `SAN-FRAMESYNC-MUTEX-DOMAIN` — `libvmaf/src/framesync.c`
+    mutated the `buf_que` linked-list spine (next pointers, `buf_cnt`,
+    FREE/ACQUIRED/RETRIEVED transitions) under `acquire_lock` (M0)
+    while `submit_filled_data` and `retrieve_filled_data` walked the
+    same spine under `retrieve_lock` (M1) only. TSan flagged the
+    inconsistent lock domains as a lock-ordering violation.
+    Established a strict M0-before-M1 ordering invariant: every entry
+    point that walks the spine takes M0 first, and the producer /
+    consumer paths additionally take M1 for the condvar handshake.
+    `pthread_cond_wait` releases M1 atomically; M0 is dropped before
+    the wait so producers can append. Every `pthread_mutex_*` /
+    `pthread_cond_*` return value is now checked or `(void)`-cast.
+  - `SAN-MODEL-MALLOC-OOB` + `SAN-PREDICT-METADATA-LEAK` —
+    `libvmaf/src/svm.cpp` `parse_header()` and `parse_support_vectors()`
+    fed unbounded `nr_class` / `total_sv` parsed from the SVM model
+    file straight into `Malloc(...)` size calculations and
+    `memcpy(_, sv_buffer.data(), sizeof(svm_node) * sv_buffer.size())`
+    even when `sv_buffer.empty()`; ASan reported alloc-too-big and
+    null-passed-as-argument on a crafted model file. Added a
+    `VMAF_SVM_MAX_AXIS_COUNT` sanity bound (1<<24, comfortably above
+    Netflix `vmaf_v0.6.1`'s ~6000 SVs) at every parse-time entry
+    where `nr_class` / `total_sv` is consumed, with explicit pre-alloc
+    `> 0` and `<= MAX` checks via `exceptAssert`. The `sv_buffer`
+    empty-after-parse case now throws cleanly instead of feeding 0
+    to `Malloc` + `memcpy`. Companion fix in `libvmaf/test/test_predict.c`
+    closes the metadata-dispatch leak: `test_propagate_metadata`
+    populated a local `VmafDictionary *dict` via
+    `feature_collector_dispatch_metadata` -> `vmaf_dictionary_set`
+    -> `dict_append_new_entry` (`dict.c:121, 124` strdup) and never
+    freed it. Added the missing `vmaf_dictionary_free(&dict)` at
+    teardown.
 - **`vmaf --feature ssim` could not resolve.** The fixed-point SSIM
   extractor `vmaf_fex_ssim` was defined in
   `libvmaf/src/feature/integer_ssim.c` but the source file was not

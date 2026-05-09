@@ -151,6 +151,31 @@ for the option-space digest.
   flags are mutually exclusive at the argparse layer (exit code 2
   when both are passed). Changing any of these defaults is a
   user-visible behaviour change requiring an ADR.
+- **Phase F 2-pass goes through the adapter, not the driver (ADR-0333).**
+  Codecs opting into 2-pass encoding declare `supports_two_pass = True`
+  and override `two_pass_args(pass_number, stats_path) -> tuple[str, ...]`
+  on their adapter (today: `X265Adapter` only, returning
+  `('-x265-params', f'pass={N}:stats={path}')`). The encode driver
+  (`encode.py`) calls the adapter via `getattr(adapter, "supports_two_pass", False)`
+  + `adapter.two_pass_args(...)` — it never branches on codec name.
+  `EncodeRequest` carries `pass_number: int = 0` (0 = single-pass /
+  default; 1 / 2 = pass index) and `stats_path: Path | None = None`.
+  `build_ffmpeg_command` redirects pass-1 output to `-f null -` so
+  the throwaway encoded bitstream isn't written. The 2-pass loop
+  itself lives in `run_two_pass_encode` in `encode.py`; it
+  materialises the stats file in a `tempfile.mkdtemp` (or a
+  caller-supplied `scratch_dir`) and removes it (plus libx265's
+  `.cutree` sidecar) on exit. When `supports_two_pass = False`, the
+  driver falls back to single-pass with a stderr warning by default
+  (`on_unsupported="fallback"`), or raises with
+  `on_unsupported="raise"` — matches the saliency.py "x264-only,
+  fallback to plain encode" precedent. Sibling codec adapters
+  (libx264, libsvtav1, libvvenc, libaom-av1) inherit this seam
+  without touching the driver — their PRs only need to override
+  `supports_two_pass` + `two_pass_args` on the adapter file. NVENC's
+  `-multipass` is **not** this seam (single-invocation lookahead, not
+  a stats-file two-call sequence); a separate adapter contract is the
+  follow-up if demand surfaces.
 - **AMF preset compression is fixed (ADR-0282).** The 7-into-3 preset
   table in `codec_adapters/_amf_common.py` (`_PRESET_TO_AMF`) is the
   cross-codec axis Phase B / C consumers depend on. Do not extend

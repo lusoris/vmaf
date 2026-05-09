@@ -167,6 +167,7 @@ The mapping is closed and order-stable; see
 | `--force-sdr` | off | Treat all sources as SDR; skip HDR detection. |
 | `--force-hdr-pq` | off | Treat all sources as HDR PQ (SMPTE-2084) without probing. Useful for raw YUV refs that ffprobe cannot read color metadata from. |
 | `--force-hdr-hlg` | off | Treat all sources as HDR HLG (ARIB STD-B67) without probing. |
+| `--two-pass` | off | Phase F (ADR-0333). Run a 2-pass encode for codecs whose adapter sets `supports_two_pass = True` (today: `libx265`). Codecs without 2-pass support fall back to single-pass with a stderr warning. Doubles encode wall time. |
 
 ## Resolution-aware mode
 
@@ -1315,14 +1316,81 @@ VMAF gaps, matching how viewers perceive quality steps.
 | `--format` | `hls` | `hls`, `dash`, or `json`. |
 | `--output PATH` | stdout | Manifest destination. |
 
-## What Phase A / E do **not** do
+## Phase F — multi-pass encoding (ADR-0333)
+
+Phase F lights up 2-pass encoding for codecs that benefit. Default
+behaviour stays single-pass; opting in via `--two-pass` runs the
+encoder twice — pass 1 analyses the source and writes a stats file
+to a temp directory, pass 2 reads those stats to make better
+rate-allocation decisions.
+
+### When to use it
+
+2-pass encoding pays off most clearly in **target-bitrate** workflows
+(VOD ladder generation, codec comparisons at fixed bitrate). Constant-
+quality (CRF) encodes already adapt QPs frame-by-frame from the
+encoder's lookahead, so the win at fixed CRF is more modest. Expect:
+
+- **+1 to +3 VMAF points** at a fixed bitrate target on libx265 vs
+  1-pass ABR (typical-content range; see x265 rate-control docs).
+- **~2× encode wall time** — the second pass roughly doubles the cost.
+
+### Quick start
+
+```shell
+vmaf-tune corpus \
+  --source ref.yuv --width 1920 --height 1080 \
+  --pix-fmt yuv420p --framerate 24 --duration 5 \
+  --encoder libx265 --preset medium --crf 23 \
+  --two-pass \
+  --output corpus_2pass.jsonl
+```
+
+The driver materialises a per-encode stats file under
+`tempfile.gettempdir()` (e.g. `/tmp/vmaftune-2pass-XXXXXX/`), runs
+both passes back-to-back, and removes the stats file (and libx265's
+sidecar `.cutree`) when the run completes — successful or not.
+
+### Codec support matrix
+
+| Codec | `supports_two_pass` | Notes |
+| --- | --- | --- |
+| `libx265` | yes | First Phase F implementation. ADR-0333. |
+| `libx264` | not yet | Sibling PR planned. Native `-pass`/`-passlogfile`. |
+| `libsvtav1` | not yet | Sibling PR planned. Uses `-svtav1-params passes=2`. |
+| `libvvenc` | not yet | Sibling PR planned. Uses `-vvenc-params`. |
+| `libaom-av1` | not yet | Possible sibling PR; encode time prohibitive on long sources. |
+| `*_nvenc` (NVIDIA) | no | NVENC's `-multipass` is a single-invocation lookahead, not the stats-file two-call sequence. Separate adapter contract. |
+| `*_amf` / `*_qsv` / `*_videotoolbox` | no | Hardware encoders use internal lookahead; no stats-file 2-pass exposed. |
+
+When `--two-pass` is set against a codec where `supports_two_pass = False`,
+vmaf-tune writes a one-line warning to stderr and runs single-pass.
+(Mirrors the saliency.py "x264-only, fallback to plain encode"
+precedent.) To fail loud instead, callers using the Python API can
+pass `on_unsupported="raise"` to `run_two_pass_encode`.
+
+### Cache interaction
+
+The content-addressed encode cache (ADR-0298) keys on pass count, so
+a 1-pass encode and a 2-pass encode of the same `(src, codec, preset,
+crf)` are distinct cache entries — the cache will never serve a
+1-pass encode for a 2-pass request.
+
+### Sample-clip composition
+
+Sample-clip mode (ADR-0297) composes with 2-pass: both passes apply
+the same `-ss <start> -t <N>` input slice, and the per-encode stats
+file is unique per slice. No special handling required.
+
+## What Phase A / E / F do **not** do
 
 - No target-VMAF bisect (Phase B). Phase E currently mocks the
   sampler.
 - No per-title or per-shot CRF prediction (Phase C / D).
 - No real-corpus end-to-end ladder validation against a Netflix per-
   title baseline — that's gated on Phase B merging.
-- No MCP tools wiring (Phase F).
+- 2-pass on codecs other than `libx265` (Phase F sibling PRs land
+  one-file-at-a-time per the ADR-0288 / ADR-0333 pattern).
 - The shipped `encode.py` driver only wires the `-preset` argv shape
   used by x264/x265. The libaom-av1 adapter's metadata + preset
   mapping land here; routing its codec-specific argv through the

@@ -123,6 +123,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="skip src_sha256 (faster on huge YUVs; loses provenance)",
     )
     corpus.add_argument(
+        "--two-pass",
+        action="store_true",
+        help=(
+            "Phase F (ADR-0333): run a 2-pass encode for codecs that "
+            "support it (libx265 today; libx264 / libsvtav1 / libvvenc "
+            "follow as sibling PRs). Default off — single-pass remains "
+            "the canonical path. Adapters where supports_two_pass = "
+            "False fall back to single-pass with a stderr warning."
+        ),
+    )
+    corpus.add_argument(
         "--sample-clip-seconds",
         type=float,
         default=0.0,
@@ -596,6 +607,14 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
         ),
     )
     p.add_argument("--no-source-hash", action="store_true")
+    p.add_argument(
+        "--two-pass",
+        action="store_true",
+        help=(
+            "Phase F (ADR-0333): run a 2-pass encode for codecs that "
+            "support it. Default off; see `vmaf-tune corpus --help`."
+        ),
+    )
     _add_coarse_to_fine_flags(p)
 
 
@@ -620,6 +639,7 @@ def _build_opts(args: argparse.Namespace) -> CorpusOptions:
         score_backend=selected,
         hdr_mode=getattr(args, "hdr_mode", "auto"),
         ffprobe_bin=getattr(args, "ffprobe_bin", "ffprobe"),
+        two_pass=getattr(args, "two_pass", False),
     )
 
 
