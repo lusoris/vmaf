@@ -21,3 +21,10 @@ alongside classic VMAF SVM models.
 - [Conformal VQA](conformal-vqa.md) — distribution-free prediction
   intervals on top of any vmaf-tune predictor (split-conformal + CV+,
   no new dependencies, ADR-0279 implementation surface)
+- [MOS-corpus ingestion family](mos-corpora.md) — unified index for
+  KonViD-1k, KonViD-150k, LSVQ, YouTube UGC, Waterloo IVC 4K-VQA, and
+  BVI-DVC corpora; common schema, quick-start commands, aggregation
+  workflow, and KonViD MOS head v1 entry point
+- [KonViD MOS head v1](models/konvid_mos_head_v1.md) — 5 081-parameter
+  MLP that maps canonical-6 features + saliency + shot-metadata to a
+  scalar subjective MOS prediction in [1.0, 5.0] (ADR-0336)

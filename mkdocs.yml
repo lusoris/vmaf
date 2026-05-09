@@ -196,6 +196,8 @@ nav:
       - Benchmarks: ai/benchmarks.md
       - Security: ai/security.md
       - Bisect model quality: ai/bisect-model-quality.md
+      - MOS corpora: ai/mos-corpora.md
+      - KonViD MOS head v1: ai/models/konvid_mos_head_v1.md
   - Development:
       - Engineering principles: principles.md
       - Build flags: development/build-flags.md
