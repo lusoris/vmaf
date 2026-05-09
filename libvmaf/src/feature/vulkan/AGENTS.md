@@ -124,7 +124,7 @@ ADR-0234) catches drift but only after a full GPU run.
   is a v2 follow-up; do not silently enable it on rebase.
 
 - **`vif_vulkan.c` / `adm_vulkan.c` / `motion_vulkan.c` two-level GPU
-  reduction** (ADR-0350 / T-GPU-PERF-VK-3). Each of these three
+  reduction** (ADR-0356 / T-GPU-PERF-VK-3). Each of these three
   kernels now runs a *second* compute dispatch per frame (vif_reduce.comp,
   adm_reduce.comp, motion_reduce.comp) that reduces the per-WG
   accumulator SSBO to a tiny fixed-size output buffer. Key invariants:
@@ -193,7 +193,7 @@ The umbrella flag pulls in `dependency('vulkan')` + volk + glslc + VMA.
   SSIMULACRA 2 Vulkan host-path SIMD.
 - [ADR-0256](../../../../docs/adr/0256-vulkan-submit-pool.md) —
   submit pool design (`VmafVulkanKernelSubmitPool`).
-- [ADR-0350](../../../../docs/adr/0350-vulkan-two-level-gpu-reduction.md) —
+- [ADR-0356](../../../../docs/adr/0356-vulkan-two-level-gpu-reduction.md) —
   Two-level GPU reduction for VIF / ADM / motion accumulators (T-GPU-PERF-VK-3).
 - [ADR-0353](../../../../docs/adr/0353-vulkan-submit-pool-pr-b-six-kernels.md) —
   PR-B six-kernel submit-pool migration.

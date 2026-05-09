@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-09
 **Authors**: Lusoris / Claude (Anthropic)
-**Related ADR**: [ADR-0350](../adr/0350-vulkan-two-level-gpu-reduction.md)
+**Related ADR**: [ADR-0356](../adr/0356-vulkan-two-level-gpu-reduction.md)
 
 ## Problem statement
 

@@ -1,4 +1,4 @@
-# ADR-0350: Two-level GPU reduction for Vulkan VIF / ADM / motion accumulators
+# ADR-0356: Two-level GPU reduction for Vulkan VIF / ADM / motion accumulators
 
 - **Status**: Accepted
 - **Date**: 2026-05-09

@@ -10354,7 +10354,7 @@ compiles).
   (`25ff9f18` + `0341f730`) eventually land, run
   meson test -C build --suite=fast
   make test-netflix-golden  # 3/3 CPU goldens still pass
-### 0350 — Vulkan two-level GPU reduction for VIF / ADM / motion
+### 0356 — Vulkan two-level GPU reduction for VIF / ADM / motion
 - **Touches**: `libvmaf/src/feature/vulkan/vif_vulkan.c`,
   `adm_vulkan.c`, `motion_vulkan.c`,
   `libvmaf/src/vulkan/picture_vulkan.{h,c}`,
@@ -20833,23 +20833,6 @@ compiles).
   (`25ff9f18` + `0341f730`) eventually land, run
   meson test -C build --suite=fast
   make test-netflix-golden  # 3/3 CPU goldens still pass
-### 0350 — Vulkan two-level GPU reduction for VIF / ADM / motion
-- **Touches**: `libvmaf/src/feature/vulkan/vif_vulkan.c`,
-  `adm_vulkan.c`, `motion_vulkan.c`,
-  `libvmaf/src/vulkan/picture_vulkan.{h,c}`,
-  `libvmaf/src/vulkan/meson.build`,
-  `libvmaf/src/feature/vulkan/shaders/vif_reduce.comp`,
-  `adm_reduce.comp`, `motion_reduce.comp`.
-- **Invariant**: The `vif_reduce.comp` / `adm_reduce.comp` /
-  `motion_reduce.comp` shaders are `ACCUM_FIELDS=7` / `ACCUM_SLOTS=6` /
-  single-field. If an upstream sync adds or removes fields from the
-  per-WG accumulator layout in `vif.comp` / `adm.comp` / `motion.comp`,
-  the corresponding reducer shader and the host-side
-  `VIF_ACCUM_FIELDS` / `ADM_ACCUM_SLOTS_PER_WG` constants must be
-  updated in lockstep. Mismatch = silent miscompute.
-- **Re-test**: `meson test -C build --suite=fast` + run
-  `scripts/ci/cross-backend-diff.sh --backend=vulkan --places=4`
-  against the Netflix normal pair on any available Vulkan device.
 [ADR-0108](adr/0108-deep-dive-deliverables-rule.md): every fork-local
 PR that touches upstream-shared paths or establishes a rebase-sensitive
 invariant adds an entry here. PRs with no rebase impact state "no
@@ -31125,20 +31108,3 @@ compiles).
   (`25ff9f18` + `0341f730`) eventually land, run
   meson test -C build --suite=fast
   make test-netflix-golden  # 3/3 CPU goldens still pass
-### 0350 — Vulkan two-level GPU reduction for VIF / ADM / motion
-- **Touches**: `libvmaf/src/feature/vulkan/vif_vulkan.c`,
-  `adm_vulkan.c`, `motion_vulkan.c`,
-  `libvmaf/src/vulkan/picture_vulkan.{h,c}`,
-  `libvmaf/src/vulkan/meson.build`,
-  `libvmaf/src/feature/vulkan/shaders/vif_reduce.comp`,
-  `adm_reduce.comp`, `motion_reduce.comp`.
-- **Invariant**: The `vif_reduce.comp` / `adm_reduce.comp` /
-  `motion_reduce.comp` shaders are `ACCUM_FIELDS=7` / `ACCUM_SLOTS=6` /
-  single-field. If an upstream sync adds or removes fields from the
-  per-WG accumulator layout in `vif.comp` / `adm.comp` / `motion.comp`,
-  the corresponding reducer shader and the host-side
-  `VIF_ACCUM_FIELDS` / `ADM_ACCUM_SLOTS_PER_WG` constants must be
-  updated in lockstep. Mismatch = silent miscompute.
-- **Re-test**: `meson test -C build --suite=fast` + run
-  `scripts/ci/cross-backend-diff.sh --backend=vulkan --places=4`
-  against the Netflix normal pair on any available Vulkan device.

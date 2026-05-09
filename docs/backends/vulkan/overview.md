@@ -347,7 +347,7 @@ is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
 
 ## Performance
 
-### T-GPU-PERF-VK-3: two-level GPU reduction (ADR-0350)
+### T-GPU-PERF-VK-3: two-level GPU reduction (ADR-0356)
 
 The VIF, ADM, and motion kernels now run a second compute dispatch per frame
 that reduces the per-workgroup int64 accumulator SSBO on-GPU before the CPU
@@ -369,7 +369,7 @@ the `HOST_ACCESS_RANDOM_BIT` readback flag fix (bottleneck #1).
 
 Requires `VK_EXT_shader_atomic_int64` on the Vulkan device.
 See [research digest 0091](../../research/0091-vulkan-gpu-reduction-perf-analysis.md)
-and [ADR-0350](../../adr/0350-vulkan-two-level-gpu-reduction.md).
+and [ADR-0356](../../adr/0356-vulkan-two-level-gpu-reduction.md).
 
 **Portability caveat (macOS / MoltenVK):** the reduction shaders use
 `OpAtomicIAdd` on `int64_t` SSBO members, gated by the
@@ -383,7 +383,7 @@ line of the form
 ```text
 libvmaf: Vulkan backend disabled on this device ("<deviceName>") —
 no shaderBufferInt64Atomics support, required for the two-level
-reduction shaders (ADR-0350). Falling back to CPU.
+reduction shaders (ADR-0356). Falling back to CPU.
 ```
 
 The framework then falls back to the CPU path automatically. Linux
