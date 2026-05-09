@@ -204,6 +204,9 @@ static int alloc_buffers(PsnrVulkanState *s)
     return 0;
 }
 
+/* Forward declaration — see comment in adm_vulkan.c (same pattern). */
+static int write_descriptor_set(PsnrVulkanState *s, VkDescriptorSet set, unsigned plane);
+
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {

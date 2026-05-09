@@ -462,6 +462,15 @@ static int alloc_buffers(AdmVulkanState *s)
 /* init().                                                             */
 /* ------------------------------------------------------------------ */
 
+/* Forward declarations — definitions are below `init()`, but `init()`
+ * calls them via the per-scale loop after the descriptor sets are
+ * pre-allocated. Without an explicit `static` forward decl the C
+ * compiler creates an implicit non-static one at the call site, then
+ * fails with "static declaration follows non-static declaration"
+ * when it sees the actual definition further down. */
+static void write_descriptor_set(AdmVulkanState *s, VkDescriptorSet set);
+static void write_accum_binding(AdmVulkanState *s, VkDescriptorSet set, int scale);
+
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
