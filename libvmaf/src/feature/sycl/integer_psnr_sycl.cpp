@@ -3,24 +3,39 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  PSNR feature extractor on the SYCL backend (T7-23 / ADR-0182,
- *  GPU long-tail batch 1b part 2). SYCL twin of psnr_vulkan
- *  (PR #125) and psnr_cuda (PR #129).
+ *  GPU long-tail batch 1b part 2; chroma extension T3-15(b) second
+ *  port, 2026-05-09 — see research digest
+ *  `docs/research/0090-t3-15-gpu-coverage-long-tail-2026-05-09.md`,
+ *  Vulkan precedent in [ADR-0216](../../docs/adr/0216-vulkan-chroma-psnr.md),
+ *  CUDA twin in PR #520 / commit 7f3d58a5).
  *
  *  Algorithm (mirrors libvmaf/src/feature/integer_psnr.c::sse_line_{8,16}):
  *      diff = (int64)ref - (int64)dis;     (per pixel)
  *      sse  += diff * diff;                (atomic int64 reduction)
  *
- *  Single kernel per frame, atomic-int64 reduction into a shared
- *  device counter; host downloads + computes PSNR. Simpler than
- *  motion_sycl because there's no temporal state, no ping-pong,
- *  no separable filter.
+ *  One SSE reduction per active plane (Y, Cb, Cr) per frame; the
+ *  same plane-agnostic kernel is invoked three times against per-
+ *  plane (w, h) and per-plane device buffers. Chroma buffers are
+ *  sized per the active subsampling (4:2:0 → w/2 × h/2,
+ *  4:2:2 → w/2 × h, 4:4:4 → w × h). YUV400 clamps `n_planes = 1`.
+ *
+ *  Buffer layout differs from luma: luma reads from the SYCL state's
+ *  shared frame buffer (`vmaf_sycl_shared_frame_init`, set up
+ *  luma-only by design — see `libvmaf/src/sycl/common.h`). Chroma
+ *  rides on per-extractor device buffers populated by host-side
+ *  staging copies in `pre_fn` (the parallel pattern used by
+ *  `float_psnr_sycl.cpp`). Direct enqueue on the combined queue
+ *  preserves in-order ordering with the graph-replayed luma kernel.
+ *
+ *  Phases (combined-graph contract — see `vmaf_sycl_graph_register`
+ *  docs in `libvmaf/src/sycl/common.h`):
+ *      pre_fn   : zero all 3 SSE accumulators + H2D copy chroma planes.
+ *      enqueue  : luma SSE reduction kernel (graph-recordable).
+ *      post_fn  : chroma SSE reduction kernels (direct) + D2H all 3
+ *                 SSE accumulators.
  *
  *  Pattern: register with vmaf_sycl_graph_register and ride the
  *  combined-graph submit/wait machinery just like motion_sycl.
- *
- *  v1: luma-only ("psnr_y"), matching the CUDA + Vulkan twins'
- *  scope. The shared frame buffer that vmaf_sycl_shared_frame_init
- *  sets up is luma-only today.
  */
 
 #include <sycl/sycl.hpp>
@@ -29,6 +44,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 extern "C" {
 #include "config.h"
@@ -43,20 +59,41 @@ extern "C" {
 namespace
 {
 
+constexpr unsigned PSNR_NUM_PLANES = 3U;
+
 struct PsnrStateSycl {
-    /* Frame geometry. */
-    unsigned width;
-    unsigned height;
+    /* Per-plane frame geometry. Plane 0 = luma. */
+    unsigned width[PSNR_NUM_PLANES];
+    unsigned height[PSNR_NUM_PLANES];
     unsigned bpc;
     uint32_t peak;
-    double psnr_max_y;
+    /* Per-plane psnr_max — `(6 * bpc) + 12` in the default branch
+     * (CPU integer_psnr.c::init's `min_sse == 0.0` path). The array
+     * layout leaves `min_sse`-driven per-plane formulas a one-line
+     * change away. */
+    double psnr_max[PSNR_NUM_PLANES];
+    /* Number of active planes (1 for YUV400, 3 otherwise). */
+    unsigned n_planes;
 
     /* SYCL state back-pointer. */
     VmafSyclState *sycl_state;
 
-    /* Device + host accumulators. */
-    int64_t *d_sse;
-    int64_t *h_sse;
+    /* Per-plane device + host SSE accumulators. Plane 0 is the luma
+     * accumulator written by the graph-recorded enqueue kernel;
+     * planes 1/2 are written by chroma kernels in post_fn. */
+    int64_t *d_sse[PSNR_NUM_PLANES];
+    int64_t *h_sse[PSNR_NUM_PLANES];
+
+    /* Per-extractor chroma device buffers (planes 1/2 only — luma
+     * uses the shared frame buffer). Tightly packed at
+     * `width[p] * bytes_per_pixel`. */
+    void *d_chroma_ref[PSNR_NUM_PLANES];
+    void *d_chroma_dis[PSNR_NUM_PLANES];
+    /* Host staging buffers for the chroma H2D copies (USM host so
+     * the queue.memcpy is a true async DMA, not a blocking copy). */
+    void *h_chroma_ref[PSNR_NUM_PLANES];
+    void *h_chroma_dis[PSNR_NUM_PLANES];
+    size_t chroma_bytes[PSNR_NUM_PLANES];
 
     /* Submit/collect plumbing. */
     bool has_pending;
@@ -65,19 +102,19 @@ struct PsnrStateSycl {
     VmafDictionary *feature_name_dict;
 };
 
-/* Per-pixel SSE kernel. Reads the shared ref/dis frame buffers
- * — set up by vmaf_sycl_shared_frame_init at uint8 packing for
- * ≤8bpc and uint16 packing for ≥10bpc, tightly packed at
- * `width * bytes_per_pixel`. Atomic-adds each pixel's int64
- * squared error to the device accumulator. */
-static void launch_sse(sycl::queue &q, void *shared_ref, void *shared_dis, int64_t *d_sse,
+/* Per-pixel SSE kernel. Reads the supplied ref/dis device buffers —
+ * tightly packed at `width * bytes_per_pixel`. Atomic-adds each
+ * pixel's int64 squared error to the device accumulator. Plane-
+ * agnostic: callers pass the appropriate (ref, dis, accumulator,
+ * width, height) tuple. */
+static void launch_sse(sycl::queue &q, const void *ref_buf, const void *dis_buf, int64_t *d_sse,
                        unsigned width, unsigned height, unsigned bpc)
 {
     sycl::range<2> global{(size_t)height, (size_t)width};
     const unsigned e_w = width;
     const unsigned e_bpc = bpc;
-    void *ref_in = shared_ref;
-    void *dis_in = shared_dis;
+    const void *ref_in = ref_buf;
+    const void *dis_in = dis_buf;
 
     q.submit([=](sycl::handler &h) {
         h.parallel_for(global, [=](sycl::id<2> id) {
@@ -103,28 +140,75 @@ static void launch_sse(sycl::queue &q, void *shared_ref, void *shared_dis, int64
     });
 }
 
-/* Pre-graph: zero the SSE accumulator (direct enqueue, outside graph). */
+/* Stage one chroma plane from a VmafPicture into a tightly-packed
+ * host buffer. Mirrors `float_psnr_sycl.cpp::copy_y_plane`. */
+template <typename T>
+static void stage_chroma_plane(const VmafPicture *pic, unsigned plane, void *dst, unsigned w,
+                               unsigned h)
+{
+    const T *src = static_cast<const T *>(pic->data[plane]);
+    T *out = static_cast<T *>(dst);
+    const ptrdiff_t src_stride_t = pic->stride[plane] / static_cast<ptrdiff_t>(sizeof(T));
+    for (unsigned i = 0; i < h; i++) {
+        for (unsigned j = 0; j < w; j++)
+            out[j] = src[j];
+        src += src_stride_t;
+        out += w;
+    }
+}
+
+/* The submit-side picture pointers are captured here so pre_fn /
+ * post_fn (which run on the combined queue but see only the priv
+ * state) can stage chroma. submit_fex_sycl writes them; pre_fn
+ * reads them; the in-order combined queue serializes against
+ * graph_submit so this is single-threaded per frame. */
+struct PendingPics {
+    VmafPicture *ref;
+    VmafPicture *dis;
+};
+
+/* Pre-graph: zero the SSE accumulators + H2D copy chroma planes
+ * (direct enqueue, outside graph). */
 static void psnr_pre_graph(void *queue_ptr, void *priv)
 {
     sycl::queue &q = *static_cast<sycl::queue *>(queue_ptr);
     auto *s = static_cast<PsnrStateSycl *>(priv);
-    q.memset(s->d_sse, 0, sizeof(int64_t));
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        q.memset(s->d_sse[p], 0, sizeof(int64_t));
+    }
+    /* Chroma H2D — host staging buffer was populated in submit. */
+    for (unsigned p = 1; p < s->n_planes; p++) {
+        q.memcpy(s->d_chroma_ref[p], s->h_chroma_ref[p], s->chroma_bytes[p]);
+        q.memcpy(s->d_chroma_dis[p], s->h_chroma_dis[p], s->chroma_bytes[p]);
+    }
 }
 
-/* Graph-recorded: the per-pixel reduction kernel. */
+/* Graph-recorded: the luma per-pixel reduction kernel. Chroma stays
+ * out of the graph — its inputs depend on per-frame H2D copies that
+ * the L0 graph runtime cannot reliably replay (same constraint that
+ * keeps memcpy/memset out per `common.h`). */
 static void enqueue_psnr_work(void *queue_ptr, void *priv, void *shared_ref, void *shared_dis)
 {
     sycl::queue &q = *static_cast<sycl::queue *>(queue_ptr);
     auto *s = static_cast<PsnrStateSycl *>(priv);
-    launch_sse(q, shared_ref, shared_dis, s->d_sse, s->width, s->height, s->bpc);
+    launch_sse(q, shared_ref, shared_dis, s->d_sse[0], s->width[0], s->height[0], s->bpc);
 }
 
-/* Post-graph: D2H copy of the SSE accumulator (direct enqueue, outside graph). */
+/* Post-graph: chroma SSE kernels (direct, post-graph) + D2H copy of
+ * all SSE accumulators. The combined queue is in-order, so chroma
+ * kernels see the H2D copies from pre_fn, and the D2H sees the
+ * luma kernel from the graph + chroma kernels above. */
 static void psnr_post_graph(void *queue_ptr, void *priv)
 {
     sycl::queue &q = *static_cast<sycl::queue *>(queue_ptr);
     auto *s = static_cast<PsnrStateSycl *>(priv);
-    q.memcpy(s->h_sse, s->d_sse, sizeof(int64_t));
+    for (unsigned p = 1; p < s->n_planes; p++) {
+        launch_sse(q, s->d_chroma_ref[p], s->d_chroma_dis[p], s->d_sse[p], s->width[p],
+                   s->height[p], s->bpc);
+    }
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        q.memcpy(s->h_sse[p], s->d_sse[p], sizeof(int64_t));
+    }
 }
 
 /* No per-slot config — psnr is stateless across frames. */
@@ -143,15 +227,34 @@ static const VmafOption options_psnr_sycl[] = {{0}};
 static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
 {
-    (void)pix_fmt;
     auto *s = static_cast<PsnrStateSycl *>(fex->priv);
 
-    s->width = w;
-    s->height = h;
+    /* Per-plane geometry derived from pix_fmt. CPU reference:
+     * libvmaf/src/feature/integer_psnr.c::init computes the same
+     * (ss_hor, ss_ver) split. YUV400 has chroma absent, so
+     * n_planes = 1. */
+    s->width[0] = w;
+    s->height[0] = h;
+    if (pix_fmt == VMAF_PIX_FMT_YUV400P) {
+        s->n_planes = 1U;
+        s->width[1] = s->width[2] = 0U;
+        s->height[1] = s->height[2] = 0U;
+    } else {
+        s->n_planes = PSNR_NUM_PLANES;
+        const int ss_hor = (pix_fmt != VMAF_PIX_FMT_YUV444P);
+        const int ss_ver = (pix_fmt == VMAF_PIX_FMT_YUV420P);
+        const unsigned cw = ss_hor ? (w / 2U) : w;
+        const unsigned ch = ss_ver ? (h / 2U) : h;
+        s->width[1] = s->width[2] = cw;
+        s->height[1] = s->height[2] = ch;
+    }
+
     s->bpc = bpc;
     s->peak = (1u << bpc) - 1u;
-    const double peak_d = (double)s->peak;
-    s->psnr_max_y = 10.0 * std::log10((peak_d * peak_d) / 0.5);
+    /* Match CPU integer_psnr.c::init's psnr_max default branch
+     * (`min_sse == 0.0`): psnr_max[p] = (6 * bpc) + 12. */
+    for (unsigned p = 0; p < PSNR_NUM_PLANES; p++)
+        s->psnr_max[p] = (double)(6U * bpc) + 12.0;
 
     if (!fex->sycl_state) {
         vmaf_log(VMAF_LOG_LEVEL_ERROR, "psnr_sycl: no SYCL state\n");
@@ -161,15 +264,34 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     VmafSyclState *state = fex->sycl_state;
     s->sycl_state = state;
 
+    /* Luma rides on the shared frame buffer. */
     int const err = vmaf_sycl_shared_frame_init(state, w, h, bpc);
     if (err)
         return err;
 
-    s->d_sse = static_cast<int64_t *>(vmaf_sycl_malloc_device(state, sizeof(int64_t)));
-    s->h_sse = static_cast<int64_t *>(vmaf_sycl_malloc_host(state, sizeof(int64_t)));
-    if (!s->d_sse || !s->h_sse) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR, "psnr_sycl: device memory allocation failed\n");
-        return -ENOMEM;
+    /* Per-plane SSE accumulators. */
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        s->d_sse[p] = static_cast<int64_t *>(vmaf_sycl_malloc_device(state, sizeof(int64_t)));
+        s->h_sse[p] = static_cast<int64_t *>(vmaf_sycl_malloc_host(state, sizeof(int64_t)));
+        if (!s->d_sse[p] || !s->h_sse[p]) {
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "psnr_sycl: SSE accumulator alloc failed\n");
+            return -ENOMEM;
+        }
+    }
+
+    /* Per-extractor chroma device + host staging buffers (planes 1/2). */
+    const size_t bpp = (bpc <= 8) ? 1u : 2u;
+    for (unsigned p = 1; p < s->n_planes; p++) {
+        s->chroma_bytes[p] = (size_t)s->width[p] * s->height[p] * bpp;
+        s->d_chroma_ref[p] = vmaf_sycl_malloc_device(state, s->chroma_bytes[p]);
+        s->d_chroma_dis[p] = vmaf_sycl_malloc_device(state, s->chroma_bytes[p]);
+        s->h_chroma_ref[p] = vmaf_sycl_malloc_host(state, s->chroma_bytes[p]);
+        s->h_chroma_dis[p] = vmaf_sycl_malloc_host(state, s->chroma_bytes[p]);
+        if (!s->d_chroma_ref[p] || !s->d_chroma_dis[p] || !s->h_chroma_ref[p] ||
+            !s->h_chroma_dis[p]) {
+            vmaf_log(VMAF_LOG_LEVEL_ERROR, "psnr_sycl: chroma buffer alloc failed\n");
+            return -ENOMEM;
+        }
     }
 
     s->feature_name_dict =
@@ -190,13 +312,26 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                            VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index)
 {
-    (void)ref_pic;
     (void)ref_pic_90;
-    (void)dist_pic;
     (void)dist_pic_90;
 
     auto *s = static_cast<PsnrStateSycl *>(fex->priv);
     VmafSyclState *state = fex->sycl_state;
+
+    /* Stage chroma planes into the host buffers BEFORE graph_submit
+     * — pre_fn runs the H2D copy from these buffers, and the
+     * combined queue's in-order semantics guarantee staging happens
+     * before any GPU consumer of the host buffer fires. */
+    for (unsigned p = 1; p < s->n_planes; p++) {
+        if (s->bpc <= 8) {
+            stage_chroma_plane<uint8_t>(ref_pic, p, s->h_chroma_ref[p], s->width[p], s->height[p]);
+            stage_chroma_plane<uint8_t>(dist_pic, p, s->h_chroma_dis[p], s->width[p], s->height[p]);
+        } else {
+            stage_chroma_plane<uint16_t>(ref_pic, p, s->h_chroma_ref[p], s->width[p], s->height[p]);
+            stage_chroma_plane<uint16_t>(dist_pic, p, s->h_chroma_dis[p], s->width[p],
+                                         s->height[p]);
+        }
+    }
 
     int const err = vmaf_sycl_graph_submit(state);
     if (err)
@@ -207,6 +342,10 @@ static int submit_fex_sycl(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
     return 0;
 }
 
+/* psnr_name[p] — same array as the CPU path
+ * (libvmaf/src/feature/integer_psnr.c::psnr_name). */
+static const char *const psnr_name[PSNR_NUM_PLANES] = {"psnr_y", "psnr_cb", "psnr_cr"};
+
 static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
@@ -215,33 +354,60 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
     vmaf_sycl_graph_wait(state);
 
-    const double sse = (double)*s->h_sse;
-    const double n_pixels = (double)s->width * (double)s->height;
-    const double mse = sse / n_pixels;
-    double psnr_y =
-        (sse <= 0.0) ? s->psnr_max_y : 10.0 * std::log10(((double)s->peak * s->peak) / mse);
-    if (psnr_y > s->psnr_max_y)
-        psnr_y = s->psnr_max_y;
+    int rc = 0;
+    for (unsigned p = 0; p < s->n_planes; p++) {
+        const double sse = (double)*s->h_sse[p];
+        const double n_pixels = (double)s->width[p] * (double)s->height[p];
+        const double mse = sse / n_pixels;
+        /* Match CPU integer_psnr.c::extract — clamp at psnr_max[p]
+         * via MIN(10*log10(peak^2 / max(mse, 1e-16)), psnr_max[p]).
+         * The 1e-16 floor guards against sse == 0 (trivially identical
+         * frames); the CPU path uses the same constant. */
+        const double peak_sq = (double)s->peak * (double)s->peak;
+        const double mse_clamped = (mse > 1e-16) ? mse : 1e-16;
+        double psnr = 10.0 * std::log10(peak_sq / mse_clamped);
+        if (psnr > s->psnr_max[p])
+            psnr = s->psnr_max[p];
 
-    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "psnr_y", psnr_y, index);
+        const int e = vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, psnr_name[p], psnr, index);
+        if (e && rc == 0)
+            rc = e;
+    }
+    return rc;
 }
 
 static int close_fex_sycl(VmafFeatureExtractor *fex)
 {
     auto *s = static_cast<PsnrStateSycl *>(fex->priv);
     if (s->sycl_state) {
-        if (s->d_sse)
-            vmaf_sycl_free(s->sycl_state, s->d_sse);
-        if (s->h_sse)
-            vmaf_sycl_free(s->sycl_state, s->h_sse);
+        for (unsigned p = 0; p < PSNR_NUM_PLANES; p++) {
+            if (s->d_sse[p])
+                vmaf_sycl_free(s->sycl_state, s->d_sse[p]);
+            if (s->h_sse[p])
+                vmaf_sycl_free(s->sycl_state, s->h_sse[p]);
+            if (s->d_chroma_ref[p])
+                vmaf_sycl_free(s->sycl_state, s->d_chroma_ref[p]);
+            if (s->d_chroma_dis[p])
+                vmaf_sycl_free(s->sycl_state, s->d_chroma_dis[p]);
+            if (s->h_chroma_ref[p])
+                vmaf_sycl_free(s->sycl_state, s->h_chroma_ref[p]);
+            if (s->h_chroma_dis[p])
+                vmaf_sycl_free(s->sycl_state, s->h_chroma_dis[p]);
+        }
     }
     if (s->feature_name_dict)
         vmaf_dictionary_free(&s->feature_name_dict);
     return 0;
 }
 
-static const char *provided_features_psnr_sycl[] = {"psnr_y", NULL};
+/* Provided features — full luma + chroma per the chroma extension
+ * (T3-15(b) second port, 2026-05-09; mirrors Vulkan ADR-0216 and
+ * CUDA twin in PR #520). For YUV400 sources `init` clamps
+ * `n_planes` to 1 and chroma dispatches are skipped at runtime,
+ * but the static list still claims chroma so the dispatcher routes
+ * `psnr_cb` / `psnr_cr` requests through the SYCL twin. */
+static const char *provided_features_psnr_sycl[] = {"psnr_y", "psnr_cb", "psnr_cr", NULL};
 
 extern "C" VmafFeatureExtractor vmaf_fex_psnr_sycl = {
     .name = "psnr_sycl",
@@ -255,11 +421,13 @@ extern "C" VmafFeatureExtractor vmaf_fex_psnr_sycl = {
     .priv_size = sizeof(PsnrStateSycl),
     .flags = VMAF_FEATURE_EXTRACTOR_SYCL,
     .provided_features = provided_features_psnr_sycl,
-    /* 1 dispatch/frame, reduction-dominated; AUTO + 1080p area
-     * matches motion's profile (see ADR-0181 / ADR-0182). */
+    /* 3 dispatches/frame (one per plane), reduction-dominated;
+     * AUTO + 1080p area matches motion's profile (see ADR-0181 /
+     * ADR-0182). Three small dispatches are still well under the
+     * threshold where batching pays off vs. AUTO scheduling. */
     .chars =
         {
-            .n_dispatches_per_frame = 1,
+            .n_dispatches_per_frame = 3,
             .is_reduction_only = true,
             .min_useful_frame_area = 1920U * 1080U,
             .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,

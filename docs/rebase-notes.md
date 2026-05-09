@@ -9311,6 +9311,7 @@ print('OK: fr_regressor_v3 production row unchanged')
 
 
 
+
 ## CodeQL `cpp/declaration-hides-variable` sweep (2026-05-09)
 - **What changed**: Mechanical rename / scope-tighten / dedupe sweep
   closing 64 open `cpp/declaration-hides-variable` CodeQL alerts on
@@ -9382,6 +9383,43 @@ print('OK: fr_regressor_v3 production row unchanged')
   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/rule-enforcement.yml')); print('YAML OK')"
   pre-commit run shellcheck --files scripts/ci/state-md-touch-check.sh scripts/ci/test-state-md-touch-check.sh
   pre-commit run shfmt      --files scripts/ci/state-md-touch-check.sh scripts/ci/test-state-md-touch-check.sh
+
+
+## SYCL PSNR chroma extension (T3-15(b), 2026-05-09)
+- **Touches**: `libvmaf/src/feature/sycl/integer_psnr_sycl.cpp`
+  (per-extractor chroma device buffers, per-plane SSE accumulators,
+  and a `provided_features` extension to `psnr_y` / `psnr_cb` / `psnr_cr`),
+  `libvmaf/src/sycl/AGENTS.md` (per-kernel rebase-sensitive invariant
+  for the chroma-on-per-extractor-buffer arrangement), `docs/metrics/features.md`
+  (footnote ¹ refresh — all three GPU PSNR extractors now emit chroma),
+  `docs/adr/0192-gpu-long-tail-batch-3.md` References-section status update,
+  `changelog.d/added/sycl-psnr-chroma.md`.
+- **Invariant on the chroma upload path**: chroma planes ride on
+  per-extractor device buffers populated by host-side staging copies in
+  the combined-graph `pre_fn` callback — NOT the SYCL state's shared
+  frame buffer (`vmaf_sycl_shared_frame_init`), which is luma-only by
+  design. Luma stays graph-recorded; chroma SSE kernels run direct in
+  `post_fn` on the same in-order combined queue. The CUDA twin
+  (PR #520 / commit 7f3d58a5) uses the existing CUDA per-plane picture
+  infrastructure and therefore has no equivalent invariant.
+- **On upstream sync**: Netflix/vmaf upstream has no SYCL backend at
+  all, so conflict probability is zero on `psnr_sycl`. If an upstream
+  port to the fork's SYCL runtime someday extends
+  `vmaf_sycl_shared_frame_init` to allocate chroma planes, the PSNR
+  extension can be migrated onto it and the per-extractor chroma
+  buffers retired — but only after a cross-backend gate run confirms
+  bit-exactness against CPU at `places=4` (ADR-0214).
+  source /opt/intel/oneapi/setvars.sh
+  CC=icx CXX=icpx meson setup build-sycl libvmaf \
+    -Denable_sycl=true -Denable_cuda=false
+  ninja -C build-sycl
+  python3 scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary build-sycl/tools/vmaf \
+    --reference testdata/ref_576x324_48f.yuv \
+    --distorted testdata/dis_576x324_48f.yuv \
+    --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+    --feature psnr --backend sycl --device 0
+  # Expect 0/48 mismatches across psnr_y / psnr_cb / psnr_cr at places=4.
 
 
   ```

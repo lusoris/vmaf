@@ -65,6 +65,22 @@ sycl/
   Public surface change touches the patch file too — see
   CLAUDE.md §12 r14.
 
+## Rebase-sensitive invariants per kernel
+
+- **`feature/sycl/integer_psnr_sycl.cpp` chroma planes ride on per-
+  extractor device buffers, NOT the shared frame buffer.** The
+  `vmaf_sycl_shared_frame_init` pipeline is luma-only by design (see
+  the `shared_*` documentation in `common.h`). Chroma upload happens
+  in the combined-graph `pre_fn` callback as a host-staged H2D copy
+  into `PsnrStateSycl::d_chroma_{ref,dis}[]`; the chroma SSE kernel
+  fires from `post_fn` (direct, post-graph) on the same in-order
+  combined queue. **On rebase**: if an upstream sync extends
+  `vmaf_sycl_shared_frame_init` to allocate chroma planes, the PSNR
+  extension can be migrated onto it and the per-extractor chroma
+  buffers retired — but only after a cross-backend gate run confirms
+  bit-exactness against CPU at `places=4` (see ADR-0214). T3-15(b),
+  ADR-0192 §"Status update 2026-05-09: T3-15 #2 SYCL PSNR chroma".
+
 ## Governing ADRs
 
 - [ADR-0002](../../../docs/adr/0002-merge-path-master-default.md) — sycl branch → master merge history.

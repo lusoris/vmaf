@@ -197,3 +197,21 @@ normal pair across all three planes). Seven follow-up kernels remain
 for the corrected gap re-audit and per-kernel ordering. The body of
 this ADR remains frozen per ADR-0028 — this status note is in the
 References section only.
+
+### Status update 2026-05-09: T3-15 #2 SYCL PSNR chroma
+
+T3-15(b) — the SYCL twin of the CUDA PSNR chroma extension — landed
+in the same session. `psnr_sycl` now emits `psnr_y` / `psnr_cb` /
+`psnr_cr`. The implementation differs from CUDA in one structural
+respect: SYCL's existing shared frame buffer
+(`vmaf_sycl_shared_frame_init`) is luma-only by design (see
+[`libvmaf/src/sycl/common.h`](../../libvmaf/src/sycl/common.h)), so
+chroma planes ride on per-extractor device buffers populated by
+host-side staging copies in the combined-graph `pre_fn`. Luma stays
+graph-recorded; chroma kernels run direct in `post_fn` on the same
+in-order combined queue. Cross-backend gate
+(`scripts/ci/cross_backend_vif_diff.py --feature psnr --backend sycl
+--places 4`) clears bit-exactly on Intel Arc A380 (0/48 mismatches
+on the Netflix normal pair across all three planes,
+`max_abs_diff = 0.0`). Six follow-up kernels remain (CUDA + SYCL
+chroma SSIM / MS-SSIM, CUDA + SYCL `cambi`).
