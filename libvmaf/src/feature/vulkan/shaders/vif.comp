@@ -581,10 +581,18 @@ void main()
      * non-determinism on `den_scale2` magnitudes (10¹¹× off, sign
      * flips) on RTX 4090 + driver 595.71.05 + Vulkan 1.4.341.
      * See research-0089 §"Phase 2 dynamic dump" and the same digest
-     * 2026-05-09 Phase 3 status appendix. The SCALE=2 specialisation
-     * is where NVIDIA's hardware schedule made this race observable;
-     * the structural race is shared with all SCALE values, so the
-     * explicit shared-memory release is applied uniformly. */
+     * 2026-05-09 Phase 3 status appendix.
+     *
+     * Phase-3b status (2026-05-09): the workgroup-scope fence pair
+     * below closes Arc A380 + Mesa-ANV and RADV at API 1.4 (0/48,
+     * 5-run deterministic). NVIDIA RTX 4090 + driver 595.71.05 +
+     * API 1.4 still exhibits the same 45/48 scale-2 non-determinism
+     * even with stronger fences (subgroup-scope shared-memory fence,
+     * device-scope `controlBarrier`, and both stacked were tested in
+     * PR #N; numbers in research-0090 + ADR-0269 status update).
+     * Tracked as `T-VK-VIF-1.4-RESIDUAL-NVIDIA-DEFERRED`; the
+     * shipping default is API 1.3 where the gate is 0/48 on every
+     * device. */
     memoryBarrierShared();
     barrier();
 

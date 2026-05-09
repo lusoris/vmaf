@@ -27,6 +27,92 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+
+
+### 0310 — Vulkan VIF int64 reduction race condition Phase 3 fix
+- **Touches**: `libvmaf/src/feature/vulkan/shaders/vif.comp`
+  (replaces all three bare `barrier()` calls with explicit
+  `memoryBarrierShared(); barrier();` pairs covering the Phase-1
+  cooperative tile load, the Phase-2 vertical-conv shared write,
+  and the Phase-4 cross-subgroup int64 reduction); plus
+  documentation under `docs/research/0089-...md` (Phase 3 status
+  appendix), `docs/adr/0269-...md` (Phase 3 status appendix),
+  `docs/state.md` (T-VK-VIF-1.4-RESIDUAL closed; new
+  T-VK-VIF-1.4-RESIDUAL-ARC opened), `libvmaf/src/vulkan/AGENTS.md`
+  (Phase 3 update on the existing invariant row),
+  `changelog.d/fixed/vif-int64-reduction-race-condition.md`.
+  Upstream Netflix/vmaf has no Vulkan backend, so conflict
+  probability for the shader is zero. The entry exists because the
+  fix is rebase-sensitive: any future cherry-pick that touches
+  `vif.comp` and downgrades a `memoryBarrierShared(); barrier();`
+  pair back to a bare `barrier()` will silently re-introduce the
+  NVIDIA Vulkan 1.4 race.
+- **Invariant**: `vif.comp` shared-memory ordering between
+  cooperative-write phases must be release-acquire, not just a
+  bare workgroup-execution barrier. NVIDIA's Vulkan 1.4 default
+  memory model requires the explicit shared-memory release; bare
+  `barrier()` works at API 1.3 by accident on this driver. SCALE
+  is irrelevant — the fix applies to all four pipeline
+  specialisations because the barrier sites are in the SCALE-shared
+  code. Do NOT remove the explicit `memoryBarrierShared()` calls
+  even if a perf review claims they are redundant under the GLSL
+  spec wording: empirical real-hardware evidence in research-0089
+  2026-05-09 appendix shows otherwise on NVIDIA driver 595.71.05.
+- **Re-test**: apply the local API-1.4 bump
+  (`libvmaf/src/vulkan/common.c` 3 sites + `vma_impl.cpp`
+  `VMA_VULKAN_VERSION 1004000`) on a NVIDIA RTX 4090 + driver
+  595.71+ machine, build with
+  `meson setup ... -Denable_vulkan=enabled`, then run
+  `python3 scripts/ci/cross_backend_vif_diff.py --feature vif
+  --backend vulkan --device 1 --places 4`. Expect 0/48 across
+  all four scales. Run the 5-run determinism check from
+  research-0089 §"Reproduction recipe for Phase 3" against
+  `--vulkan_device 1`; expect 5 identical
+  `(integer_vif_num_scale2, integer_vif_den_scale2) =
+  (+2.494358e+04, +2.522523e+04)` pairs at frame 5. Note that
+  `--vulkan_device 0` on this multi-GPU host is the Intel Arc
+  A380 lane and **will still fail** at API 1.4 (separate
+  `T-VK-VIF-1.4-RESIDUAL-ARC` row Open).
+### 0309 — Vulkan VIF API-1.4 Phase 2 dump (T-VK-VIF-1.4-RESIDUAL)
+
+- **Touches**: `docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`
+  (2026-05-09 status appendix with empirical numbers from the live
+  RTX 4090), `docs/state.md` (T-VK-VIF-1.4-RESIDUAL row updated with
+  the localisation), `libvmaf/src/vulkan/AGENTS.md` (new invariant
+  row pinning the SCALE = 2 cross-subgroup-reduction memory-model
+  finding), `CHANGELOG.md` (lusoris fork "Changed" entry).
+  No code touched; the Phase 3 shader memory-model fix lands in a
+  separate PR. Upstream Netflix/vmaf has no Vulkan backend so
+  conflict probability for the AGENTS.md row is zero — entry
+  exists because the empirical localisation flips the open
+  state-row hypothesis from FP-precision to memory-model and
+  retires the `places=3` override path that earlier rebase
+  scaffolding might have suggested.
+- **Invariant**: `vif.comp` SCALE = 2 specialisation's Phase-4
+  cross-subgroup int64 reduction is non-deterministic on NVIDIA
+  driver 595.71.05 + Vulkan 1.4.341 (lines 547–592, `subgroupAdd`
+  + `barrier()` + thread-0 read of `s_lmem`). API 1.3 lane is
+  fully deterministic on the same hardware. The four `apiVersion`
+  pinning sites in `libvmaf/src/vulkan/common.c` +
+  `libvmaf/src/vulkan/vma_impl.cpp` stay at 1.3 until Phase 3
+  lands the explicit memory-scope barrier and a 5-run determinism
+  gate confirms run-to-run identical `(num, den)` plus
+  `places=4` 0/48 on NVIDIA. The `places=3` override path is
+  **eliminated** from the unblock options.
+- **Re-test**: apply the local API-1.4 bump
+  (`libvmaf/src/vulkan/common.c` 3 sites + `vma_impl.cpp`
+  `VMA_VULKAN_VERSION 1004000`) on a NVIDIA RTX 4090 + driver
+  595.71+ machine, build with `meson setup ... -Denable_vulkan=enabled`,
+  then run the gate and the 5-run determinism check from
+  research-0089 §"Reproduction recipe for Phase 3". Expect 45/48
+  `places=4` failures on `integer_vif_scale2` (max abs
+  `1.527e-02`) AND 5 distinct `(integer_vif_num_scale2,
+  integer_vif_den_scale2)` pairs across 5 runs of
+  `--feature 'vif_vulkan=debug=true'`. Both observations
+  reproduced bit-for-bit on this session's hardware lane
+  (UUID `e478b41b-5c4f-1ddb-f990-e44916aff4c8`).
+
+
 ### 0308 — encoder knob-sweep recipe-regression policy (ADR-0308, docs-only)
 
 - **Touches**: `docs/research/0080-encoder-knob-sweep-findings.md`,
@@ -9461,6 +9547,7 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -10063,4 +10150,66 @@ compiles).
   its own ADR + rebase-notes entry when profile data lands.
 
 
+
+
+### 0320 — Vulkan VIF API-1.4 NVIDIA residual Phase 3b (deferral)
+- **Touches**: `libvmaf/src/feature/vulkan/shaders/vif.comp`
+  (comment-only update at the Phase-4 reduction site —
+  documents the Phase-3b candidate-fix experiments and the
+  driver-side hypothesis; no code logic change vs. PR #511);
+  `docs/adr/0269-vif-ciede-precise-step-a.md` (appended
+  Phase-3b status update appendix; ADR body remains frozen
+  per ADR-0028); `docs/research/0090-...md` (new); `docs/state.md`
+  (row `T-VK-VIF-1.4-RESIDUAL-ARC` retired in favour of
+  `T-VK-VIF-1.4-RESIDUAL-NVIDIA-DEFERRED` after the
+  hardware-mapping correction); `libvmaf/src/vulkan/AGENTS.md`
+  (Phase 3b update + rebase invariant for cross-backend gate
+  device-name selection); `changelog.d/fixed/vif-arc-mesa-anv-int64-reduction.md`
+  (new fragment).
+- **Invariant**: the workgroup-scope `memoryBarrierShared();
+  barrier();` pair PR #511 introduced is **load-bearing** for the
+  Arc + RADV lanes at API 1.4 and stays. Phase 3b confirmed it
+  cannot be downgraded back to a bare `barrier()` even if the
+  NVIDIA residual ever closes — Arc's clean state is contingent
+  on the workgroup-scope pair.
+- **Cross-backend gate device-selection invariant** (NEW): scripts
+  that target a specific Vulkan vendor must select by
+  `deviceName` substring, not by `--vulkan_device <index>`.
+  `vmaf_vulkan_context_new`'s device sort is stable inside the
+  same `devtype_score` bucket and the `vkEnumeratePhysicalDevices`
+  enumeration order is host-policy-dependent (driver registration
+  order in `/etc/vulkan/icd.d/`, Mesa device-select layer,
+  `VK_LOADER_*` env vars). PR #511's commit message inverted the
+  device map on this fork's CI workstation; the empirical numbers
+  it cited as "NVIDIA" actually came from Arc and vice versa. New
+  cross-backend lanes targeting a specific vendor should not
+  inherit the off-by-one.
+- **On upstream sync**: `vif.comp` is fork-local; no upstream
+  Netflix/vmaf has a Vulkan path. Cherry-picks from upstream
+  cannot reach this file.
+- **Re-test on rebase** (assumes a multi-GPU CI workstation with
+  NVIDIA + Arc + RADV; lavapipe-only CI lanes are a no-op for
+  the API-1.4 residual since lavapipe never reproduced the bug):
+  # Local API-1.4 bump (off-master reproducer; do NOT commit).
+  sed -i 's/VK_API_VERSION_1_3/VK_API_VERSION_1_4/g' \
+      libvmaf/src/vulkan/common.c
+  sed -i 's/VMA_VULKAN_VERSION 1003000/VMA_VULKAN_VERSION 1004000/' \
+      libvmaf/src/vulkan/vma_impl.cpp
+  cd libvmaf && meson setup build -Denable_vulkan=enabled \
+      -Denable_cuda=false -Denable_sycl=false && ninja -C build
+  cd ..
+  # NVIDIA lane — expected 45/48 FAIL scale 2 until either the
+  # manual int64 subgroup-reduction patch lands or NVIDIA fixes
+  # the driver. Arc + RADV expected 0/48.
+  python3 scripts/ci/cross_backend_vif_diff.py \
+      --vmaf-binary libvmaf/build/tools/vmaf \
+      --reference testdata/ref_576x324_48f.yuv \
+      --distorted testdata/dis_576x324_48f.yuv \
+      --width 576 --height 324 \
+      --feature vif --backend vulkan --device <NVIDIA-index>
+  # Revert local bump after testing.
+  sed -i 's/VK_API_VERSION_1_4/VK_API_VERSION_1_3/g' \
+      libvmaf/src/vulkan/common.c
+  sed -i 's/VMA_VULKAN_VERSION 1004000/VMA_VULKAN_VERSION 1003000/' \
+      libvmaf/src/vulkan/vma_impl.cpp
 
