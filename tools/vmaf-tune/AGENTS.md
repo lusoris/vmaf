@@ -574,6 +574,7 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   one — the encoder won't emit a parseable stats file outside
   ``-pass 1`` mode.
 
+
 ## Sidecar (ADR-0325) rebase-sensitive invariants
 
 - **`FEATURE_DIM = 14` and the column order in
@@ -603,3 +604,27 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   upload ADR + signing chain spelled out in ADR-0325 §Future
   work — do not slip a network call into `SidecarPredictor` or
   any of its callers without that ADR landing first.
+
+## Predictor stub-models policy (ADR-0325)
+
+The fork ships one synthetic-stub `model/predictor_<codec>.onnx` per
+codec adapter. The trainer
+(`tools/vmaf-tune/src/vmaftune/predictor_train.py`) sources its
+`CODECS` tuple from `predictor._DEFAULT_COEFFS` so the two stay
+single-source. When a new codec adapter is added (e.g. a future
+`vp9_qsv` row in `_DEFAULT_COEFFS`), the same PR must:
+
+1. Re-run `python3 -m vmaftune.predictor_train --output-dir model`
+   to produce the matching `predictor_<codec>.onnx` + card.
+2. Commit the new ONNX bytes — the shipped-model smoke test
+   parameterises over `CODECS` and fails if a coefficient row has
+   no shipped artefact.
+3. Refresh the model card's `corpus.kind` line on every retrain
+   (the trainer does this automatically; review the diff).
+
+Stub models are explicitly **not** for production CRF picks. The
+synthetic target *is* the analytical fallback, so PLCC / SROCC
+numbers in stub cards are artificially high. Real-corpus retrains
+follow the same trainer entry point with `--corpus path/to/file.jsonl`
+and produce honest metrics.
+

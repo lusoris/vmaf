@@ -27,7 +27,10 @@
   trade-off for closing the loop on the encoder's own RD ledger.
   Predictor integration is out of scope for this PR.
 
+
 ### Changed
+
+
 
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
@@ -54,6 +57,7 @@
 
 ### Added
 
+
 - **`vmaf-tune` Phase F design — `auto` adaptive recipe-aware tuning
   (ADR-0325, design-only).** Ships
   [`docs/adr/0325-vmaf-tune-phase-f-auto.md`](docs/adr/0325-vmaf-tune-phase-f-auto.md)
@@ -72,6 +76,8 @@
   the user's "adaptive encoding ecosystem" vision text routes to
   the deterministic tree first, learned-policy as a deferred
   research follow-up. Companion to ADR-0237 (umbrella).
+
+
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
@@ -3189,6 +3195,33 @@
   feature extraction in CI).
 
 
+
+
+- **Ensemble training kit — portable Phase-A + LOSO retrain bundle
+  ([ADR-0324](../docs/adr/0324-ensemble-training-kit.md)).**
+  Adds `tools/ensemble-training-kit/` with a one-command orchestrator
+  (`run-full-pipeline.sh`) that chains prereqs → Phase-A canonical-6
+  corpus generation → 5-seed × 9-fold LOSO retrain → ADR-0303 verdict
+  emission → bundling. Five numbered step scripts (`01-prereqs.sh`
+  through `05-bundle-results.sh`) are usable individually for retries.
+  The kit reuses the existing in-tree pieces unchanged
+  (`scripts/dev/hw_encoder_corpus.py`,
+  `ai/scripts/run_ensemble_v2_real_corpus_loso.sh`,
+  `ai/scripts/validate_ensemble_seeds.py`,
+  `ai/scripts/export_ensemble_v2_seeds.py`,
+  `scripts/ci/ensemble_prod_gate.py`) — no engine changes.
+  `make-distribution-tarball.sh` produces a self-contained tar.gz
+  (~ < 50 MiB) with the kit + every script it invokes + the runbook,
+  so a collaborator can untar without cloning the fork. Operator-facing
+  documentation lives in
+  [`tools/ensemble-training-kit/README.md`](../tools/ensemble-training-kit/README.md);
+  the kit's pinned Python dependency set is captured in
+  `requirements-frozen.txt`. Companion to
+  [ADR-0309](../docs/adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md)'s
+  runbook.
+
+
+
 - **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0242).**
   Prepares the fork's tiny-AI training workstream to train on the local
   Netflix VMAF corpus (9 reference YUVs + 70 distorted YUVs at
@@ -3470,7 +3503,11 @@
   Netflix golden gate and cross-backend ULP-diff burden entirely.
   **No MOS-correlation claim** is made; validation against a
   labelled saliency-MOS corpus is research follow-up. User docs:
+
   [`docs/usage/vmaf-roi-score.md`](docs/usage/vmaf-roi-score.md).
+
+  [`docs/usage/vmaf-roi-score.md`](../docs/usage/vmaf-roi-score.md).
+
 
 
 - **CI**: new `Required Checks Aggregator` workflow
@@ -3592,9 +3629,60 @@
   parse cleanly without the corpus present. CI workflow wiring of
   the gate is intentionally deferred to the flip PR (no real
   `loso_seed{N}.json` artefacts exist yet to gate on master). Docs:
+
   [`docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md`](docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md),
   [`docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md`](docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md),
   [`ai/AGENTS.md`](ai/AGENTS.md) "Ensemble registry invariant".
+
+  [`docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md`](../../docs/adr/0303-fr-regressor-v2-ensemble-prod-flip.md),
+  [`docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md`](../../docs/research/0075-fr-regressor-v2-ensemble-prod-flip.md),
+  [`ai/AGENTS.md`](../../ai/AGENTS.md) "Ensemble registry invariant".
+
+
+- **`fr_regressor_v3` — train + register on `ENCODER_VOCAB` v3
+  (16-slot) — gate PASSED (ADR-0323).** Closes the v3 retrain
+  deferral landed by [ADR-0302](../docs/adr/0302-encoder-vocab-v3-schema-expansion.md)
+  (PR #401). New trainer
+  [`ai/scripts/train_fr_regressor_v3.py`](../ai/scripts/train_fr_regressor_v3.py)
+  reuses the LOSO recipe from
+  [ADR-0319](../docs/adr/0319-ensemble-loso-trainer-real-impl.md) —
+  9-fold leave-one-source-out over the Phase A canonical-6 corpus,
+  fold-local StandardScaler, `FRRegressor(in_features=6,
+  num_codecs=18)`, Adam(lr=5e-4, wd=1e-5), MSE, 200 epochs, bs=32 —
+  on the NVENC-only Phase A corpus (5,640 rows). **Gate PASS:** mean
+  LOSO PLCC = **0.9975 ± 0.0018**, every source above 0.99 — clears
+  the ADR-0302 / [ADR-0291](../docs/adr/0291-fr-regressor-v2-prod-ship.md)
+  0.95 floor with ~5pp margin. New artefacts:
+  `model/tiny/fr_regressor_v3.onnx` (opset 17, two-input
+  `features:[N,6]` + `codec_block:[N,18]` → `vmaf:[N]`),
+  `model/tiny/fr_regressor_v3.json` (sidecar mirrors
+  `fr_regressor_v2.json` with `encoder_vocab_version: 3`, full
+  per-fold trace, `corpus` + `corpus_sha256`), registry row
+  `fr_regressor_v3` (`smoke: false`), tests
+  `ai/tests/test_train_fr_regressor_v3.py`, model card
+  [`docs/ai/models/fr_regressor_v3.md`](../docs/ai/models/fr_regressor_v3.md).
+  Live `ENCODER_VOCAB_VERSION = 2` in `train_fr_regressor_v2.py`
+  **stays authoritative for `fr_regressor_v2.onnx`** — v3 ships as a
+  parallel checkpoint; v2 → v3 in-place promotion is a separate PR
+  per ADR-0302's production-flip checklist. NVENC-only corpus caveat
+  documented honestly in the model card: 15 of 16 vocab slots
+  receive zero training rows;
+  [ADR-0235](../docs/adr/0235-codec-aware-fr-regressor.md)
+  multi-codec lift floor (≥+0.005 PLCC) is not yet measurable on
+  this corpus drop and is deferred to a multi-codec retrain.
+
+
+- **`vmaf-tune corpus --auto-hdr / --force-sdr / --force-hdr-pq /
+  --force-hdr-hlg` CLI flags
+  ([ADR-0300](../docs/adr/0300-vmaf-tune-hdr-aware.md)).** Surfaces
+  the HDR-mode plumbing on the corpus subparser; threads the choice
+  through to `CorpusOptions.hdr_mode` so downstream rows can be
+  tagged. The actual `iter_rows` integration (per-source ffprobe
+  detection + codec-arg injection + HDR-VMAF model selection) lands
+  in a follow-up PR — `hdr.py` already exposes `detect_hdr`,
+  `hdr_codec_args`, and `select_hdr_vmaf_model` from the earlier
+  Bucket #9 module merge.
+
 
 
 - **`scripts/dev/hw_encoder_corpus.py`** — Phase A real-corpus runner.
@@ -3642,6 +3730,47 @@
   driving libaom through its lower-level rate-control plumbing
   (use `vmaf-tune corpus` instead). Retires the libaom-av1
   deferral noted in ADR-0312; no new ADR.
+
+
+
+
+- **Per-shot VMAF predictor — training pipeline + 14 stub ONNX models
+  ([ADR-0325](../docs/adr/0325-predictor-stub-models-policy.md)).**
+  Companion to PR #430 (predictor runtime). Adds
+  `tools/vmaf-tune/src/vmaftune/predictor_train.py` — a tiny-MLP
+  trainer (14 inputs × 64 hidden × 1 output, opset 18, ~5K params)
+  that consumes a vmaf-tune Phase A JSONL corpus and emits one
+  `model/predictor_<codec>.onnx` per codec adapter, validated against
+  the libvmaf op-allowlist. Ships **synthetic-stub** models for all
+  14 codec adapters (`libx264`, `libx265`, `libsvtav1`, `libaom-av1`,
+  `libvvenc`, plus the NVENC / AMF / QSV families across H.264, HEVC,
+  AV1) trained from a deterministic 100-row synthetic corpus per
+  codec so the runtime ONNX path is testable on a fresh checkout.
+  Each shipped model carries a Markdown model card under
+  `model/predictor_<codec>_card.md` flagging
+  `corpus.kind: synthetic-stub-N=100` plus a do-not-use-in-production
+  warning; cards switch to `corpus.kind: real-N=<rows>` when the
+  operator runs the trainer against a real corpus. New tests under
+  `tools/vmaf-tune/tests/test_predictor_train.py` pin (1) the trainer
+  end-to-end on a 50-row synthetic corpus, (2) loadability +
+  monotonicity of every shipped model under ONNX Runtime CPU, and
+  (3) `Predictor(model_path=...)` routing through the ONNX session.
+  User docs: [`docs/ai/predictor.md`](../docs/ai/predictor.md).
+
+
+- **`vmaf-tune recommend-saliency` CLI subcommand
+  ([ADR-0287](../docs/adr/0287-vmaf-tune-saliency-aware-encoding.md)).**
+  Surfaces the existing saliency-aware encode pipeline (Bucket #2)
+  as a runnable subcommand. Builds an `EncodeRequest` from the
+  flag set, delegates to
+  [`saliency.saliency_aware_encode`](../tools/vmaf-tune/src/vmaftune/saliency.py),
+  emits a JSON summary (encoder + version + crf + size + exit
+  status). Distinct from `recommend` (master's coarse-to-fine
+  target-VMAF search) — saliency is a single-encode workflow
+  that biases bits toward salient regions. Falls back to a plain
+  encode when onnxruntime / the model is unavailable so the
+  caller always gets a result.
+
 
 
 - **Research-0061: docs-only PR CI fast-track design.** Tracks the
@@ -3777,6 +3906,7 @@
   pipeline end-to-end without ffmpeg, ONNX Runtime, or a GPU.
 
 
+
 - **vmaf-tune `--score-backend=vulkan`** — vendor-neutral GPU
   scoring path on top of libvmaf's existing Vulkan backend
   (ADR-0127 / ADR-0175 / ADR-0186). Restores the `--score-backend`
@@ -3791,6 +3921,19 @@
   (e.g. `--score-backend vulkan` on a host without a Vulkan loader)
   raise `BackendUnavailableError` and exit 2 — no silent CPU
   downgrade. ADR-0314.
+
+- **`vmaf-tune --score-backend=vulkan` — vendor-neutral GPU scoring
+  ([ADR-0314](../docs/adr/0314-vmaf-tune-score-backend-vulkan.md)).**
+  Adds `vulkan` as a `--score-backend` choice (alongside `cuda` /
+  `sycl` / `cpu`) so AMD, Intel Arc, and Apple-MoltenVK hosts can run
+  GPU-accelerated VMAF scoring without the NVIDIA-only CUDA path. The
+  auto-detection chain becomes `cuda > vulkan > sycl > cpu`; existing
+  NVIDIA boxes see no behaviour change. Strict-mode failures stay
+  strict per ADR-0299 — no silent CPU downgrade. The CLI flag, the
+  detection plumbing in `score_backend.py`, and the libvmaf Vulkan
+  backend (ADR-0127 / 0175 / 0186) all shipped earlier; this entry
+  captures the operator-facing flip.
+
 
 
 ### Changed
@@ -4069,6 +4212,28 @@
   projection).
 
 
+
+
+- **docs**: ADR-0312 (ffmpeg-patches vmaf-tune integration) status flipped
+  from `Proposed` to `Accepted` — patch 0007's two scaffold hunks
+  (SVT-AV1, libaom-av1) have been retired via PRs #417 + #419
+  respectively. ADR body updated to reflect the current state across all
+  three encoders. Patches 0008/0009 stay scaffold by design (filter +
+  CLI glue), now explicitly documented as not-deferred.
+
+
+- **docs**: bulk-flip ADR Status `Proposed` → `Accepted` for 13 ADRs whose
+  implementing PRs landed during the 2026-05-06 merge train (ADRs 0302
+  / 0303 / 0304 / 0305 / 0307 / 0308 / 0309 / 0311 / 0313 / 0314 / 0316
+  / 0317 / 0319). Per ADR-0028 / `docs/adr/README.md`, ADRs flip to
+  Accepted once the deliverable lands; the train moved faster than the
+  per-ADR Status bumps could keep up. ADR-0313's Status row was using
+  table-format (`| Status | Proposed |`) instead of the bullet-format
+  (`- **Status**: Proposed`) the other ADRs use, so the bulk sed missed
+  it; fixed inline.
+
+
+
 - **NVIDIA-Vulkan ciede2000 places=4 5/48 mismatch root-caused as f32/f64 fork debt (ADR-0273)** —
   closes the deferred follow-up reserved by PR #346 ("vif + ciede
   shaders — precise decorations") for the residual 5/48
@@ -4211,6 +4376,23 @@
   0.95 ship gate. Registry sha256 updated; sidecar JSON refreshed; ONNX
   shipped at 13,674 bytes. Companion research digest
   [Research-0067](docs/research/0067-fr-regressor-v2-prod-loso.md).
+
+
+
+
+- **docs**: Research-0085 (vendor-neutral VVC encode landscape) flipped
+  from `Status: SKELETON` to `Status: Active`. Re-ran every open
+  question against primary sources: NVIDIA Video Codec SDK 13.0 docs,
+  AMD AMF SDK GitHub (latest v1.5.0, 2025-10-29), Intel oneVPL GitHub
+  (`mfxstructures.h` + `CHANGELOG.md` 2.16.0), Khronos registry,
+  Phoronix coverage of Mesa 25.2 RADV AV1 encode, Fraunhofer HHI VVenC
+  issue tracker, ZLUDA repository. `[UNVERIFIED]` tag count in the
+  digest dropped from 25 to 10 — remaining items are legitimate gaps
+  requiring benchmarks (NN-VC quality lift, vvenc per-kernel CPU-time
+  distribution) or proprietary roadmap access (HHI's GPU-port plans).
+  ADR-0315 `## Context` and `## Alternatives considered` refreshed
+  with the verified data points; ADR status stays `Proposed`.
+
 
 
 - **`docs/state.md`**: audit cleanup (2026-05-05). Moved `Y4M-411-OOB`
@@ -4369,7 +4551,11 @@
   `cli_parse_known_crashes/` to `cli_parse_corpus/`;
   `known_assert_in_input` early-reject filter removed from
   `fuzz_cli_parse.c`. See
+
   [ADR-0316](docs/adr/0316-cli-parse-long-only-error-fix.md).
+
+  [ADR-0316](../../docs/adr/0316-cli-parse-long-only-error-fix.md).
+
 
 
 - **CUDA build fixed against gcc-16 host libstdc++.** Adds `--std c++20`
