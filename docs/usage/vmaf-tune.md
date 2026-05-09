@@ -770,6 +770,7 @@ The fork's `vmaf-tune` corpus rows record the exact `(encoder, preset,
 crf, vmaf_score, encode_time_ms, bitrate_kbps)` tuple, so Phase C/D
 predictors can pick whichever encoder dominates the relevant region of
 the rate-distortion plane on a given source.
+
 ## Hardware encoders (NVENC)
 
 Phase A also wires the NVIDIA NVENC family for hardware-accelerated
@@ -798,7 +799,8 @@ takes the same mnemonic preset names as `libx264` and maps them:
 | `slow` | `p5` |
 | `slower` | `p6` |
 | `slowest`, `placebo` | `p7` |
-## Hardware encoders
+
+## Hardware encoders (AMF)
 
 `vmaf-tune` ships software (`libx264`) and hardware adapters under one
 codec-adapter contract — the harness search loop is identical for all of
@@ -841,6 +843,7 @@ Behavioural notes:
   cross-codec comparability.
 
 Example:
+
 ## Coarse-to-fine CRF search (ADR-0306)
 
 Sweeping every CRF from 0..51 (52 encodes per source × preset) is
@@ -895,6 +898,9 @@ sibling encoders), the FFmpeg build wasn't compiled with
 `--enable-nvenc` or the GPU lacks the relevant generation. The
 harness records the failure as `exit_status != 0` and skips scoring,
 so a partial corpus over a heterogeneous fleet is still well-formed.
+
+```shell
+vmaf-tune corpus \
     --encoder h264_amf \
     --preset slow --preset medium --preset fast \
     --crf 23 --crf 28 --crf 34 \
@@ -908,7 +914,8 @@ ffmpeg -i ref.yuv -c:v h264_amf \
        -quality balanced -rc cqp -qp_i 23 -qp_p 23 \
        -an out.mkv
 ```
-## Hardware encoders
+
+## Hardware encoders (QSV)
 
 Beyond `libx264`, the registry exposes the three Intel QSV (Quick Sync
 Video) hardware adapters added in
@@ -1046,10 +1053,13 @@ vmaf-tune recommend \
    gets the symmetric positive delta. The output is clamped to
    `[-12, +12]` (matching the [`vmaf-roi`](vmaf-roi.md) sidecar
    convention from ADR-0247).
-3. The per-pixel map is reduced to per-MB granularity (16×16 luma)
-   and serialised as an x264 `--qpfile` ASCII sidecar.
-4. The qpfile is passed to ffmpeg via `-x264-params qpfile=…` and the
-   normal encode path runs.
+3. The pixel-level QP-offset map is dispatched to the encoder-specific
+   ROI channel (see the encoder-targets table below); each channel
+   reduces the map to its native granularity before writing any sidecar
+   file or composing the argv slice.
+4. The augmented `extra_params` (qpfile path, zones string, or ROI-map
+   path) are appended to the FFmpeg command and the normal encode path
+   runs.
 
 ### Trade-off
 
@@ -1057,7 +1067,7 @@ vmaf-tune recommend \
 | --- | --- |
 | Bitrate (same VMAF) | **−10 % to −20 %** for content with strong attention focus (faces, action, sport). Background-uniform content sees little change. |
 | Encode time | **+5 %** typical (saliency inference + per-MB reduce; per-frame model time is sub-millisecond on CPU at SD/HD). |
-| Decode time | unchanged (the bitstream is plain x264). |
+| Decode time | unchanged (the bitstream is standard-compliant for all four supported encoders). |
 | Quality (VMAF) | unchanged at the **clip-mean** level; concentrated where the eye looks. |
 
 Numbers are indicative — formal Pareto data lands with Phase B
@@ -1074,22 +1084,42 @@ plain encode. Callers always get a result; the saliency bias is
 opportunistic. This matches the
 [`vmaf-roi`](vmaf-roi.md) C sidecar's posture.
 
+### Encoder targets
+
+The saliency pipeline supports four encoder ROI mechanisms:
+
+| Encoder | ROI channel | Granularity | argv slot |
+| --- | --- | --- | --- |
+| `libx264` | ASCII `--qpfile` (x264 r2390+) | 16×16 luma MB | `-x264-params qpfile=…` |
+| `libx265` | `--zones` QP delta (per-clip mean) | full-clip spatial mean | `-x265-params zones=0,N,q=<delta>` |
+| `libsvtav1` | `--qp-file` offset map (SVT-AV1 v1.7+) | 64×64 super-block | `-svtav1-params qp-file=…` |
+| `libvvenc` | `ROIFile` CSV (VVenC v1.14.0+) | 64×64 CTU | `-vvenc-params ROIFile=…` |
+
+See [ADR-0293](../adr/0293-vmaf-tune-saliency-aware.md) (x264 baseline) and
+[ADR-0370](../adr/0370-saliency-roi-x265-svtav1-vvenc.md) (x265 / SVT-AV1 / VVenC).
+
+Per-adapter helpers in `vmaftune.saliency`:
+
+- `write_x265_zones_arg(block_offsets, duration_frames)` → zones string
+- `write_svtav1_qpoffset_map(block_offsets, out_path, duration_frames)` → Path
+- `write_vvenc_roi_csv(block_offsets, out_path, duration_frames)` → Path
+
 ### Caveats
 
 - **Aggregate mask, not per-frame ROI.** The current implementation
   averages saliency across the sampled frames and applies one
-  per-MB delta pattern across the whole clip. Per-frame ROI is on
-  the roadmap (and is what `vmaf-roi` already does as a sidecar
-  binary for x265 / SVT-AV1).
-- **x264 only in Bucket #2.** x265 and SVT-AV1 already accept the
-  `vmaf-roi` sidecar; folding them into `vmaf-tune recommend` is the
-  natural follow-up — a one-file addition under
-  `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
-- **Luma-only saliency input.** For the Bucket #2 deadline we feed
-  the RGB-trained student a luma-replicated triplet. This is enough
-  for foreground-vs-background discrimination; full RGB ingest
-  (chroma upsample) is on the follow-up list once the harness
-  decodes a proper RGB plane.
+  delta pattern across the whole clip. Per-frame ROI is on
+  the roadmap.
+- **x265 zones: spatial mean only.** x265's `--zones` has temporal
+  granularity but not per-block spatial granularity. The zone carries
+  the mean QP delta across all blocks. Per-block x265 ROI requires a
+  future x265 qpfile port (different format from x264).
+- **SVT-AV1 / VVenC: 64×64 granularity.** Both encoders document
+  64×64 as their ROI-map unit. The saliency mask is reduced to this
+  grid via `reduce_qp_map_to_blocks(qp_map, block=64)` before writing.
+- **Luma-only saliency input.** The student model receives a
+  luma-replicated RGB triplet. This is sufficient for
+  foreground-vs-background discrimination; full RGB ingest is deferred.
 - **Don't use the placeholder.** `mobilesal_placeholder_v0` and the
   radial fallback inside `vmaf-roi` are smoke-test stubs. Pass an
   explicit `--saliency-model` pointing at the real fork-trained
@@ -1101,8 +1131,11 @@ The test suite mocks the ONNX session and the encode runner so it
 runs without ffmpeg or onnxruntime installed:
 
 ```shell
-pytest tools/vmaf-tune/tests/test_saliency.py -v
+pytest tools/vmaf-tune/tests/test_saliency.py \
+       tools/vmaf-tune/tests/test_saliency_roi_adapters.py \
+       tools/vmaf-tune/tests/test_saliency_roi_codec.py -v
 ```
+
 ## Codec adapter contract
 
 The encode driver
@@ -1163,6 +1196,7 @@ probe; missing matches degrade to `"unknown"` rather than raising.
 | `h264_qsv` / `hevc_qsv` | #367 | adapter ships; dispatcher unblocks end-to-end |
 | `h264_amf` / `hevc_amf` | #366 | adapter ships; dispatcher unblocks end-to-end |
 | `h264_videotoolbox` / `hevc_videotoolbox` | #373 | adapter ships; dispatcher unblocks end-to-end |
+
 ## Codec comparison
 
 `vmaf-tune compare` answers the perennial *"should I migrate from x264
@@ -1235,6 +1269,7 @@ sentinel numerics (`-1` for `best_crf`, `NaN` for the floats).
 > comparisons only make sense when every predicate was run on the same
 > hardware in the same configuration — see
 > [Research-0061 Bucket #7](../research/0061-vmaf-tune-capability-audit.md).
+
 ## HDR-aware tuning (Bucket #9, ADR-0300)
 
 Phase A auto-detects HDR sources and injects codec-appropriate HDR
@@ -1302,6 +1337,7 @@ stay quiet). Resulting `vmaf_score` values trend low for
 high-luminance regions and are not directly comparable to SDR
 scores. Drop a licensed copy at `model/vmaf_hdr_v0.6.1.json` and
 the harness picks it up automatically — no code change required.
+
 ## Content-addressed cache
 
 Re-running a corpus sweep after adjusting an unrelated flag should
@@ -1362,6 +1398,9 @@ probed before the run.
 - Concurrent runs against a shared cache dir (e.g. NFS) work for
   reads; writes are last-writer-wins and both writers' bytes are
   valid by content addressing.
+
+```shell
+vmaf-tune corpus --source ref.yuv \
     --width 1920 --height 1080 --framerate 24 --duration 10 \
     --preset medium \
     --coarse-to-fine --target-vmaf 92 \
@@ -1421,6 +1460,7 @@ takes ~5 s, the coarse-to-fine path drops a single recommend run from
 - No target-VMAF bisect (Phase B).
 - No per-title CRF prediction (Phase C).
 - No Pareto ABR ladder generation (Phase E).
+
 ## Per-title ladder (Phase E)
 
 Phase E ships the `vmaf-tune ladder` subcommand — given one source,
@@ -1697,6 +1737,7 @@ The 10-bit pipeline is enabled by setting `--pix-fmt yuv420p10le`; the
 adapter reports the corresponding HEVC profile (`main10`) via
 `X265Adapter.profile_for(pix_fmt)` for downstream consumers that need
 it.
+
 - Software adapters beyond `libx264` (`libx265` / `libsvtav1` /
   `libvpx-vp9` / `libvvenc`) ship in parallel PRs via the codec
   adapter interface in `tools/vmaf-tune/src/vmaftune/codec_adapters/`.
@@ -1798,6 +1839,7 @@ Running the VVenC adapter end-to-end requires:
 The shipped unit tests mock `subprocess.run` so the adapter can be
 exercised without either binary present; integration smoke is gated
 to a CI runner that has a `libvvenc`-enabled FFmpeg.
+
 ## Phase D — per-shot CRF tuning (scaffold)
 
 The `tune-per-shot` subcommand is the orchestration scaffold for the
@@ -2050,10 +2092,10 @@ plus the JSON `metadata` block.
 | Class | `tight_interval_max_width` | `force_single_rung` | `saliency_intensity` | `target_vmaf_offset` | Source |
 | ----- | -------------------------- | ------------------- | -------------------- | -------------------- | ------ |
 | `animation` | `1.75` | `true` | `aggressive` | `+2.0` | proxy (UGC-anchored) |
-| `screen_content` | _(unset)_ | _(unset)_ | `very_aggressive` | `+1.0` | proxy (UGC-anchored) |
-| `live_action_hdr` | `1.4` | _(unset)_ | _(default)_ | `0.0` | proxy (UGC-anchored) |
+| `screen_content` | *(unset)* | *(unset)* | `very_aggressive` | `+1.0` | proxy (UGC-anchored) |
+| `live_action_hdr` | `1.4` | *(unset)* | *(default)* | `0.0` | proxy (UGC-anchored) |
 | `ugc` | `3.5` | `false` | `default` | `+1.5` | corpus (K150K) |
-| `default` | _(unset)_ | _(unset)_ | _(default)_ | `0.0` | n/a |
+| `default` | *(unset)* | *(unset)* | *(default)* | `0.0` | n/a |
 
 K150K is a UGC-only corpus and carries no per-source `content_class`
 column; only the `ugc` row is corpus-derived. The other three rows are

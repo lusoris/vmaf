@@ -99,6 +99,8 @@ class SvtAv1Adapter:
     supports_qpfile: bool = False
     # ADR-0332: this encoder has no parseable first-pass stats file.
     supports_encoder_stats: bool = False
+    # SVT-AV1 QP-offset map (ADR-0370): delivered via --qp-file / -svtav1-params.
+    supports_saliency_roi: bool = True
 
     # Phase-A-supported preset *names* (compatibility shim — see
     # PRESET_NAME_TO_INT). Order is "slowest -> fastest" to match the
@@ -194,3 +196,28 @@ class SvtAv1Adapter:
         already carries elsewhere.
         """
         return str(preset_to_int(preset))
+
+    def qpmap_from_saliency(
+        self,
+        block_offsets: object,
+        out_path: object,
+        *,
+        duration_frames: int = 1,
+    ) -> object:
+        """Write an SVT-AV1 QP-offset map file from a per-SB-block offset array.
+
+        Delegates to :func:`vmaftune.saliency.write_svtav1_qpoffset_map`.
+        Returns the output ``Path`` the caller passes to
+        :func:`vmaftune.saliency.augment_extra_params_with_svtav1_qpmap`.
+
+        ``block_offsets`` must be at 64x64 super-block granularity —
+        reduce via :func:`vmaftune.saliency.reduce_qp_map_to_blocks`
+        with ``block=SVTAV1_SB_SIDE`` (ADR-0370).
+        """
+        from pathlib import Path as _Path
+
+        from vmaftune.saliency import write_svtav1_qpoffset_map  # local import
+
+        return write_svtav1_qpoffset_map(
+            block_offsets, _Path(out_path), duration_frames=duration_frames
+        )

@@ -56,10 +56,13 @@ class X265Adapter:
     # Predictor probe-encode knobs.
     probe_preset: str = "ultrafast"
     probe_quality: int = 28
-    # libx265 supports --qpfile via -x265-params, but the saliency.py
-    # qpfile writer is libx264-format only — flip to True once a
-    # codec-aware qpfile emitter lands.
+    # libx265 saliency ROI is delivered via the --zones argv format
+    # (ADR-0370). ``supports_qpfile`` tracks x264-compatible qpfile
+    # support; x265 uses its own zones channel and does not share the
+    # x264 ASCII qpfile format, so this remains False.
     supports_qpfile: bool = False
+    # Zones-based saliency ROI is available for x265 (ADR-0370).
+    supports_saliency_roi: bool = True
     # ADR-0332: libx265 emits a similar pass-1 text stats file. The
     # capture path is enabled but the v1 parser only handles x264;
     # libx265-specific format support arrives in a follow-up PR.
@@ -125,6 +128,27 @@ class X265Adapter:
         :data:`_PROFILE_BY_PIX_FMT` directly.
         """
         return _PROFILE_BY_PIX_FMT.get(pix_fmt, "main")
+
+    def zones_from_saliency(
+        self,
+        block_offsets: object,
+        *,
+        duration_frames: int = 1,
+    ) -> str:
+        """Produce the x265 ``--zones`` string from a per-block QP-offset array.
+
+        Delegates to :func:`vmaftune.saliency.write_x265_zones_arg`.
+        Returns the raw string value the caller appends via
+        :func:`vmaftune.saliency.augment_extra_params_with_x265_zones`.
+
+        ``block_offsets`` is an ``int32 [bh, bw]`` array at 16x16
+        macroblock granularity (the output of
+        :func:`vmaftune.saliency.reduce_qp_map_to_blocks` with
+        ``block=X264_MB_SIDE``).
+        """
+        from vmaftune.saliency import write_x265_zones_arg  # local import
+
+        return write_x265_zones_arg(block_offsets, duration_frames=duration_frames)
 
     def two_pass_args(self, pass_number: int, stats_path: Path) -> tuple[str, ...]:
         """FFmpeg argv slice for libx265 2-pass encoding (Phase F / ADR-0333).
