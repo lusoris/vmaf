@@ -94,7 +94,7 @@ GitHub release artefacts:
   unauth-quota threshold.
 
 This is exactly the same distribution-channel blocker that ruled out
-MobileSal in [Research-0053 §Distribution](0053-mobilesal-real-weights-blocker.md#distribution--google-drive-walled-no-github-release).
+MobileSal in [Research-0053 §Distribution](0053-mobilesal-real-weights-blocker.md#distribution-google-drive-walled-no-github-release).
 The FastDVDnet pattern of pinning an upstream commit and curling the
 weights file by SHA does not reproduce non-interactively in CI.
 
