@@ -33,25 +33,6 @@
 
 ### Added
 
-- **MCP runtime v3 — SSE (Server-Sent Events) transport
-  (T5-2d / ADR-0332 § "Status update 2026-05-09 (v3 SSE)").**
-  `vmaf_mcp_start_sse` flips from `-ENOSYS` to a working
-  HTTP/1.1 listener bound to `127.0.0.1` (configurable port;
-  default 0 → kernel-picked ephemeral) serving `GET /mcp/sse`
-  (event-stream framing per WHATWG SSE §9.2) and `POST /mcp/sse`
-  (inline JSON-RPC). Implementation is plain POSIX sockets in
-  fork-owned C (~500 LOC under `libvmaf/src/mcp/transport_sse.c`);
-  the originally-planned cesanta/mongoose vendor was reversed
-  during pre-vendor license verification because mongoose 7.18
-  is GPL-2.0-only OR commercial, incompatible with the fork's
-  BSD-3-Clause-Plus-Patent license. `enable_mcp_sse` was
-  promoted from `boolean` to `feature` (`auto` default) to
-  match the project-wide transport-flag convention. New smoke
-  test `test_sse_event_stream` in `libvmaf/test/test_mcp_smoke.c`;
-  user-facing docs in [`docs/mcp/embedded.md`](docs/mcp/embedded.md)
-  describe the curl smoke pattern + browser EventSource usage.
-  See [ADR-0332](docs/adr/0332-mcp-runtime-v2.md).
-
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame
