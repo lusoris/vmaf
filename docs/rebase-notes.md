@@ -32156,6 +32156,38 @@ but the risk is negligible (Netflix/vmaf does not carry an `ai/` subtree).
 
   ```
 
+## feat/sycl-integer-cambi-port — CAMBI SYCL twin (T3-15 / ADR-0371, 2026-05-10)
+
+- **Touches**: `libvmaf/src/feature/sycl/integer_cambi_sycl.cpp` (new
+  file), `libvmaf/src/feature/feature_extractor.c` (extern declaration +
+  list entry under `#if HAVE_SYCL`), `libvmaf/src/meson.build` (source
+  addition to the SYCL feature list),
+  `libvmaf/test/test_integer_cambi_sycl.c` (new smoke test),
+  `libvmaf/test/meson.build` (test target + `gpu_all_deps` refactor),
+  `docs/backends/sycl/overview.md` (Known gaps update),
+  `docs/adr/0371-cambi-sycl-port.md` (new ADR).
+- **Invariant**: `vmaf_fex_cambi_sycl` must remain registered **before**
+  any Vulkan or CUDA CAMBI extractor in `feature_extractor_list[]` so
+  SYCL is preferred when the runtime selects a GPU backend. The ordering
+  `#if HAVE_SYCL … &vmaf_fex_cambi_sycl` before `#if HAVE_VULKAN` /
+  `#if HAVE_CUDA` is load-bearing. Additionally: the host residual calls
+  `vmaf_cambi_calculate_c_values` and `vmaf_cambi_spatial_pooling` via
+  `cambi_internal.h` trampoline — if upstream Netflix ever renames or
+  removes those symbols the SYCL twin will silently stop compiling.
+- **Upstream conflict probability**: low. Netflix upstream does not carry
+  a `libvmaf/src/feature/sycl/` directory. The only upstream-shared paths
+  touched are `feature_extractor.c` (extern + list entry) and
+  `cambi_internal.h` (consumed, not modified). A conflict on
+  `feature_extractor.c` would be an upstream addition of a new extractor;
+  resolve by re-inserting the `vmaf_fex_cambi_sycl` entry under
+  `#if HAVE_SYCL`.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_sycl=true -Denable_cuda=false && ninja -C build
+  meson test -C build --suite=fast
+  ```
+
 ## fix/float-adm-extractor-loading — `enable_float` default flip (2026-05-09)
 
 No rebase-sensitive invariants. The change is a single default-value

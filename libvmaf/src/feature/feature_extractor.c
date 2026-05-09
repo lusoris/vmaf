@@ -90,6 +90,8 @@ extern VmafFeatureExtractor vmaf_fex_float_motion_sycl;
 extern VmafFeatureExtractor vmaf_fex_float_vif_sycl;
 extern VmafFeatureExtractor vmaf_fex_ssimulacra2_sycl;
 extern VmafFeatureExtractor vmaf_fex_float_adm_sycl;
+/* T3-15 / ADR-0371: cambi SYCL twin (Strategy II hybrid, closes CUDA→SYCL parity gap). */
+extern VmafFeatureExtractor vmaf_fex_cambi_sycl;
 #endif
 #if HAVE_VULKAN
 extern VmafFeatureExtractor vmaf_fex_integer_vif_vulkan;
@@ -181,6 +183,8 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_float_ssim_sycl, &vmaf_fex_float_ms_ssim_sycl, &vmaf_fex_psnr_hvs_sycl,
     &vmaf_fex_float_ansnr_sycl, &vmaf_fex_float_psnr_sycl, &vmaf_fex_float_motion_sycl,
     &vmaf_fex_float_vif_sycl, &vmaf_fex_ssimulacra2_sycl, &vmaf_fex_float_adm_sycl,
+    /* T3-15 / ADR-0371: cambi SYCL twin (closes last CUDA→SYCL parity gap). */
+    &vmaf_fex_cambi_sycl,
 #endif
 #if HAVE_VULKAN
     /* Vulkan is registered AFTER SYCL/CUDA — those backends remain
