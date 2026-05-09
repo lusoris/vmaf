@@ -4,7 +4,8 @@
  *
  *  float_motion feature extractor on the HIP backend — seventh
  *  consumer of `libvmaf/src/hip/kernel_template.h` (T7-10b
- *  follow-up / ADR-0273).
+ *  follow-up / ADR-0273).  Real kernel promotion: T7-10b batch-2 /
+ *  ADR-0373.
  *
  *  This TU mirrors `libvmaf/src/feature/cuda/float_motion_cuda.c`
  *  call-graph-for-call-graph: same private-state struct shape, same
@@ -12,36 +13,29 @@
  *  invocations, same `flush()` host-only post-processing tail, and
  *  the same `motion_force_zero` short-circuit posture.
  *
- *  Posture vs prior consumers: a **temporal** extractor with a
- *  blurred-frame ping-pong (`blur[2]`) plus a separate raw-pixel
- *  cache (`ref_in`). The kernel-template models a single device+host
- *  pair, so the three device-only buffers are tracked outside the
- *  template's readback bundle — same shape the CUDA twin uses. Until
- *  the runtime PR (T7-10b) lands a HIP buffer-alloc helper, all
- *  three slots are tracked as opaque `uintptr_t` in the state
- *  struct; the runtime PR will swap them for real device-buffer
- *  handles. Pinning the field shape now makes the runtime PR's
- *  diff a content swap rather than a struct redesign.
+ *  Temporal design: a `blur[2]` ping-pong of device float arrays holds
+ *  the Gaussian-blurred current/previous frames. `ref_in` is a device
+ *  buffer for the raw Y-plane copy (used by the kernel to produce
+ *  `cur_blur`). On each submit, `compute_sad` is 0 for the first frame
+ *  and 1 afterwards. The per-block float SAD partials land in `rb.device`
+ *  (sized `wg_count * sizeof(float)`). The host accumulates them in
+ *  double, divides by `w*h`, and emits `VMAF_feature_motion_score` at
+ *  `index` and `VMAF_feature_motion2_score = min(prev, cur)` at
+ *  `index - 1`. The tail motion2 is emitted in `flush()`.
  *
- *  The kernel-template helpers in `libvmaf/src/hip/kernel_template.c`
- *  currently return -ENOSYS; the consumer's `init` therefore returns
- *  -ENOSYS up the stack, so the feature engine reports
- *  "float_motion_hip extractor found but its runtime is not
- *  implemented" rather than "float_motion_hip extractor not found".
- *  The smoke test pins this registration-shape contract.
+ *  When `HAVE_HIPCC` is defined (enable_hipcc=true at configure time),
+ *  the real HIP Module API path is active. Without it the scaffold
+ *  posture is preserved: every lifecycle helper returns -ENOSYS.
  *
- *  When the runtime PR (T7-10b) ships, the kernel-template bodies flip
- *  from -ENOSYS to real `hipStreamCreate` / `hipMemcpyAsync` / ...
- *  calls and *this* TU keeps its current shape verbatim. That's the
- *  load-bearing invariant: the consumer is written against the
- *  template's contract, not against the absent runtime.
- *
- *  Algorithm parity (when the kernel arrives): per-WG SAD float
- *  partials reduced to a double on the host, divided by `w*h` for
- *  the per-frame motion score. `VMAF_feature_motion2_score` is
- *  emitted at index-1 with `min(prev_motion_score, motion_score)`,
- *  with a final tail-frame emission in `flush()`. Mirrors the CUDA
- *  reference exactly.
+ *  HIP adaptation notes vs CUDA twin:
+ *  - Warp size 64 on GCN/RDNA; the kernel already accounts for this
+ *    (FM_WARP_SIZE=64, FM_WARPS_PER_BLOCK=4 for a 16x16 WG).
+ *  - Kernel args are raw pointers (no VmafCudaBuffer indirection).
+ *  - HtoD copy uses hipMemcpy2DAsync with hipMemcpyHostToDevice because
+ *    pictures arrive as CPU VmafPictures (VMAF_FEATURE_EXTRACTOR_HIP
+ *    flag not yet set — same posture as all other HIP consumers).
+ *  - `blur[0]` and `blur[1]` are plain hipMalloc device buffers (float,
+ *    w*h), analogous to the CUDA twin's `VmafCudaBuffer *blur[2]`.
  */
 
 #include <errno.h>
@@ -58,43 +52,37 @@
 #include "../../hip/common.h"
 #include "../../hip/kernel_template.h"
 
-/* Block dimensions mirror the CUDA twin's `FM_BX`/`FM_BY`. The
- * runtime PR (T7-10b) uses these to size the dispatch grid; pinning
- * them in the scaffold so the cross-backend numeric gate has a
- * single value to compare against. */
+#ifdef HAVE_HIPCC
+#define __HIP_PLATFORM_AMD__ 1
+#include <hip/hip_runtime_api.h>
+#include "float_motion_hip.h"
+#endif /* HAVE_HIPCC */
+
+/* Block dimensions mirror the HIP kernel's FM_BX / FM_BY. */
 #define FMH_BX 16u
 #define FMH_BY 16u
 
 typedef struct FloatMotionStateHip {
     /* Lifecycle (private stream + submit/finished event pair) and
      * the (device per-WG SAD float partials, pinned host readback
-     * slot) pair are managed by `hip/kernel_template.h` (T7-10b
-     * seventh consumer / ADR-0273). The struct shape mirrors the
-     * CUDA twin's `FloatMotionStateCuda` — same fields in the same
-     * order, modulo the `*_hip` -> `*_cuda` type names and the
-     * absence of the CUDA-driver-table function-pointer slots
-     * (`funcbpc8`, `funcbpc16`), which the runtime PR (T7-10b) will
-     * reintroduce as their HIP equivalents. */
+     * slot) pair are managed by `hip/kernel_template.h`. */
     VmafHipKernelLifecycle lc;
     VmafHipKernelReadback rb;
     VmafHipContext *ctx;
 
-    /* Raw-pixel cache (`ref_in`) plus blurred-frame ping-pong
-     * (`blur[cur_blur]`, `blur[1 - cur_blur]`). All three are
-     * device-only buffers tracked outside the template's readback
-     * bundle for the same reason `motion_v2_hip` keeps its
-     * `pix[2]` slots separate: the template models a single
-     * device+host pair only. Tracked as `uintptr_t` slots because
-     * the HIP scaffold has no device-buffer allocator yet; the
-     * runtime PR (T7-10b) will swap each slot for a real
-     * `VmafHipBuffer *` (or equivalent handle). The CUDA twin
-     * carries `VmafCudaBuffer *ref_in` + `VmafCudaBuffer *blur[2]`
-     * field-for-field. */
-    uintptr_t ref_in;
-    uintptr_t blur[2];
+#ifdef HAVE_HIPCC
+    /* HSACO module + per-bpc kernel function handles. */
+    hipModule_t module;
+    hipFunction_t funcbpc8;
+    hipFunction_t funcbpc16;
+    /* Device-only raw Y-plane staging buffer (HtoD copy each frame). */
+    void *ref_in;
+    /* Gaussian-blurred frame ping-pong (float, w*h pixels each). */
+    void *blur[2];
+#endif /* HAVE_HIPCC */
+
     int cur_blur;
     unsigned wg_count;
-
     unsigned index;
     unsigned frame_w;
     unsigned frame_h;
@@ -161,9 +149,180 @@ static int init_force_zero_hip(VmafFeatureExtractor *fex, FloatMotionStateHip *s
     return 0;
 }
 
-/* Extracted from init: per-frame state defaults + WG-count math. */
-static void init_state_hip(FloatMotionStateHip *s, unsigned w, unsigned h, unsigned bpc)
+#ifdef HAVE_HIPCC
+/* Translate a HIP error code to a negative errno. */
+static int fm_hip_rc(hipError_t rc)
 {
+    if (rc == hipSuccess)
+        return 0;
+    switch (rc) {
+    case hipErrorInvalidValue:
+    case hipErrorInvalidHandle:
+        return -EINVAL;
+    case hipErrorOutOfMemory:
+        return -ENOMEM;
+    case hipErrorNoDevice:
+    case hipErrorInvalidDevice:
+        return -ENODEV;
+    case hipErrorNotSupported:
+        return -ENOSYS;
+    default:
+        return -EIO;
+    }
+}
+
+/* Load the HSACO module and look up the two per-bpc kernel entry points.
+ * Called once from init() when HAVE_HIPCC is defined. */
+static int fm_hip_module_load(FloatMotionStateHip *s)
+{
+    hipError_t rc = hipModuleLoadData(&s->module, float_motion_score_hsaco);
+    if (rc != hipSuccess)
+        return fm_hip_rc(rc);
+
+    rc = hipModuleGetFunction(&s->funcbpc8, s->module, "float_motion_hip_kernel_8bpc");
+    if (rc != hipSuccess) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+        return fm_hip_rc(rc);
+    }
+    rc = hipModuleGetFunction(&s->funcbpc16, s->module, "float_motion_hip_kernel_16bpc");
+    if (rc != hipSuccess) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+        return fm_hip_rc(rc);
+    }
+    return 0;
+}
+
+/* HtoD copy ref luma plane, launch the motion kernel, record events,
+ * enqueue DtoH copy of per-block SAD partials. Extracted to keep
+ * submit_fex_hip under the 60-line function-size limit.
+ *
+ * `compute_sad`: 0 for the first frame (no previous blur — partials will
+ * all be 0.0 by kernel contract), 1 for subsequent frames. */
+static int fm_hip_launch(FloatMotionStateHip *s, VmafPicture *ref_pic, unsigned compute_sad)
+{
+    const hipStream_t str = (hipStream_t)s->lc.str;
+    const hipStream_t pstr = (hipStream_t)0; /* no VmafPicture stream handle yet */
+
+    const size_t bpp = (s->bpc <= 8u) ? 1u : 2u;
+    const ptrdiff_t plane_pitch = (ptrdiff_t)(s->frame_w * bpp);
+
+    /* HtoD copy of ref luma plane into tightly-pitched staging buffer. */
+    hipError_t rc = hipMemcpy2DAsync(s->ref_in, (size_t)plane_pitch, ref_pic->data[0],
+                                     (size_t)ref_pic->stride[0], (size_t)plane_pitch,
+                                     (size_t)s->frame_h, hipMemcpyHostToDevice, pstr);
+    if (rc != hipSuccess)
+        return fm_hip_rc(rc);
+
+    const unsigned gx = (s->frame_w + FMH_BX - 1u) / FMH_BX;
+    const unsigned gy = (s->frame_h + FMH_BY - 1u) / FMH_BY;
+
+    const uint8_t *ref_dev = (const uint8_t *)s->ref_in;
+    float *cur_blur = (float *)s->blur[s->cur_blur];
+    const float *prev_blur = (const float *)s->blur[1 - s->cur_blur];
+    float *partials_dev = (float *)s->rb.device;
+    unsigned w = s->frame_w;
+    unsigned h = s->frame_h;
+
+    hipFunction_t func;
+    void *args8[] = {
+        (void *)&ref_dev,      (void *)&plane_pitch, (void *)&cur_blur, (void *)&prev_blur,
+        (void *)&partials_dev, (void *)&w,           (void *)&h,        (void *)&compute_sad,
+    };
+    unsigned bpc = s->bpc;
+    void *args16[] = {
+        (void *)&ref_dev,   (void *)&plane_pitch,  (void *)&cur_blur,
+        (void *)&prev_blur, (void *)&partials_dev, (void *)&w,
+        (void *)&h,         (void *)&bpc,          (void *)&compute_sad,
+    };
+
+    if (s->bpc == 8u) {
+        func = s->funcbpc8;
+        rc = hipModuleLaunchKernel(func, gx, gy, 1, FMH_BX, FMH_BY, 1, 0, pstr, args8, NULL);
+    } else {
+        func = s->funcbpc16;
+        rc = hipModuleLaunchKernel(func, gx, gy, 1, FMH_BX, FMH_BY, 1, 0, pstr, args16, NULL);
+    }
+    if (rc != hipSuccess)
+        return fm_hip_rc(rc);
+
+    /* Record submit event on picture stream, wait on private stream,
+     * DtoH copy of SAD partials, then record finished event. */
+    rc = hipEventRecord((hipEvent_t)s->lc.submit, pstr);
+    if (rc != hipSuccess)
+        return fm_hip_rc(rc);
+    rc = hipStreamWaitEvent(str, (hipEvent_t)s->lc.submit, 0);
+    if (rc != hipSuccess)
+        return fm_hip_rc(rc);
+    rc = hipMemcpyAsync(s->rb.host_pinned, s->rb.device, (size_t)s->wg_count * sizeof(float),
+                        hipMemcpyDeviceToHost, str);
+    if (rc != hipSuccess)
+        return fm_hip_rc(rc);
+
+    return vmaf_hip_kernel_submit_post_record(&s->lc, s->ctx);
+}
+
+/* Allocate ref_in staging buffer and blur[0/1] ping-pong.  On failure,
+ * any partially-allocated buffers are freed and NULL-ed; caller unwinds
+ * via fail_after_module.  Extracted to keep init_fex_hip under the
+ * 60-line readability-function-size limit. */
+static int fm_hip_bufs_alloc(FloatMotionStateHip *s, unsigned w, unsigned h, unsigned bpc)
+{
+    const size_t bpp = (bpc <= 8u) ? 1u : 2u;
+    const size_t plane_bytes = (size_t)w * h * bpp;
+    const size_t blur_bytes = (size_t)w * h * sizeof(float);
+
+    hipError_t rc = hipMalloc(&s->ref_in, plane_bytes);
+    if (rc != hipSuccess)
+        return -ENOMEM;
+
+    rc = hipMalloc(&s->blur[0], blur_bytes);
+    if (rc != hipSuccess) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+        return -ENOMEM;
+    }
+    rc = hipMalloc(&s->blur[1], blur_bytes);
+    if (rc != hipSuccess) {
+        (void)hipFree(s->blur[0]);
+        s->blur[0] = NULL;
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+        return -ENOMEM;
+    }
+    return 0;
+}
+
+/* Release module + device buffers.  Safe to call with NULL handles.
+ * Extracted so init_fex_hip error paths stay under 60 lines. */
+static void fm_hip_bufs_free(FloatMotionStateHip *s)
+{
+    if (s->blur[1] != NULL) {
+        (void)hipFree(s->blur[1]);
+        s->blur[1] = NULL;
+    }
+    if (s->blur[0] != NULL) {
+        (void)hipFree(s->blur[0]);
+        s->blur[0] = NULL;
+    }
+    if (s->ref_in != NULL) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+    }
+    if (s->module != NULL) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+    }
+}
+#endif /* HAVE_HIPCC */
+
+static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
+                        unsigned w, unsigned h)
+{
+    (void)pix_fmt;
+    FloatMotionStateHip *s = fex->priv;
+
     s->frame_w = w;
     s->frame_h = h;
     s->bpc = bpc;
@@ -173,49 +332,60 @@ static void init_state_hip(FloatMotionStateHip *s, unsigned w, unsigned h, unsig
     const unsigned gx = (w + FMH_BX - 1u) / FMH_BX;
     const unsigned gy = (h + FMH_BY - 1u) / FMH_BY;
     s->wg_count = gx * gy;
-    s->ref_in = 0;
-    s->blur[0] = 0;
-    s->blur[1] = 0;
-}
-
-static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
-                        unsigned w, unsigned h)
-{
-    (void)pix_fmt;
-    FloatMotionStateHip *s = fex->priv;
-
-    init_state_hip(s, w, h, bpc);
 
     int err = vmaf_hip_context_new(&s->ctx, 0);
-    if (err != 0) {
+    if (err != 0)
         return err;
-    }
+
     err = vmaf_hip_kernel_lifecycle_init(&s->lc, s->ctx);
-    if (err != 0) {
+    if (err != 0)
         goto fail_after_ctx;
-    }
 
     if (s->motion_force_zero) {
         err = init_force_zero_hip(fex, s);
-        if (err != 0) {
+        if (err != 0)
             goto fail_after_lc;
-        }
         return 0;
     }
 
+    /* Readback pair: device per-WG float SAD partials + pinned host slot. */
     err = vmaf_hip_kernel_readback_alloc(&s->rb, s->ctx, (size_t)s->wg_count * sizeof(float));
-    if (err != 0) {
+    if (err != 0)
         goto fail_after_lc;
-    }
+
+#ifdef HAVE_HIPCC
+    err = fm_hip_module_load(s);
+    if (err != 0)
+        goto fail_after_rb;
+
+    /* Staging buffer (ref_in) and blurred-frame ping-pong (blur[0/1]).
+     * fm_hip_bufs_alloc frees partial allocations on failure. */
+    err = fm_hip_bufs_alloc(s, w, h, bpc);
+    if (err != 0)
+        goto fail_after_module;
+#endif /* HAVE_HIPCC */
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (s->feature_name_dict == NULL) {
         err = -ENOMEM;
+#ifdef HAVE_HIPCC
+        fm_hip_bufs_free(s); /* also unloads module via fm_hip_bufs_free */
         goto fail_after_rb;
+#else
+        goto fail_after_rb;
+#endif
     }
+
     return 0;
 
+#ifdef HAVE_HIPCC
+fail_after_module:
+    if (s->module != NULL) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+    }
+#endif /* HAVE_HIPCC */
 fail_after_rb:
     (void)vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
 fail_after_lc:
@@ -238,93 +408,131 @@ static int submit_fex_hip(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafP
     s->frame_w = ref_pic->w[0];
     s->frame_h = ref_pic->h[0];
 
-    /* Mirrors the CUDA twin's submit body. The runtime PR (T7-10b)
-     * replaces this -ENOSYS return with the live chain:
-     *   1. wait on ref_pic ready event,
-     *   2. D2D copy of cur ref Y plane into `ref_in` (raw-pixel
-     *      cache for the next frame's "prev"),
-     *   3. launch float_motion kernel for the active bpc — writes
-     *      blurred output to `blur[cur_blur]`, reads
-     *      `blur[1 - cur_blur]` as "prev", emits per-WG SAD float
-     *      partials,
-     *   4. record submit + finished events, DtoH copy of partials
-     *      (only when `index > 0`; first frame has no "prev" so
-     *      no SAD computation).
-     * Submit intentionally bypasses
-     * `vmaf_hip_kernel_submit_pre_launch` because the kernel writes
-     * per-WG partials directly — no atomic, no memset. Same posture
-     * as `ciede_hip` (ADR-0259) and `float_ansnr_hip` (ADR-0266). */
+#ifdef HAVE_HIPCC
+    /* First frame has no previous blurred frame — kernel writes cur_blur
+     * but computes no SAD (compute_sad=0, partials all 0.0 by contract). */
+    const unsigned compute_sad = (index > 0u) ? 1u : 0u;
+    return fm_hip_launch(s, ref_pic, compute_sad);
+#else
+    /* Scaffold posture: surface -ENOSYS via the pre-launch helper so the
+     * feature engine sees "runtime not ready". */
+    int err = vmaf_hip_kernel_submit_pre_launch(&s->lc, s->ctx, &s->rb,
+                                                /* picture_stream */ 0,
+                                                /* dist_ready_event */ 0);
+    if (err != 0)
+        return err;
     return -ENOSYS;
+#endif /* HAVE_HIPCC */
 }
 
 static int collect_fex_hip(VmafFeatureExtractor *fex, unsigned index,
                            VmafFeatureCollector *feature_collector)
 {
-    (void)feature_collector;
-    (void)index;
     FloatMotionStateHip *s = fex->priv;
 
-    /* Drain the private readback stream so the host pinned buffer
-     * is safe to read. Mirrors the CUDA twin. */
     int err = vmaf_hip_kernel_collect_wait(&s->lc, s->ctx);
-    if (err != 0) {
+    if (err != 0)
+        return err;
+
+#ifdef HAVE_HIPCC
+    /* Accumulate per-block float SAD partials in double and compute the
+     * per-frame motion score. Mirrors the CUDA twin's cross-block
+     * reduction precision posture. */
+    const float *partials = (const float *)s->rb.host_pinned;
+    double total_sad = 0.0;
+    for (unsigned i = 0; i < s->wg_count; i++)
+        total_sad += (double)partials[i];
+
+    const double n_pixels = (double)s->frame_w * (double)s->frame_h;
+    const double motion_score = total_sad / n_pixels;
+
+    /* Advance blur ping-pong. */
+    s->cur_blur = 1 - s->cur_blur;
+
+    if (index == 0u) {
+        /* First frame: no previous, emit 0 for both scores. The CUDA
+         * twin defers motion2 for the first frame to the next collect;
+         * here we match that behaviour by emitting 0 directly. */
+        err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "VMAF_feature_motion2_score", 0.0, index);
+        if (s->debug && err == 0) {
+            err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                          "VMAF_feature_motion_score", 0.0, index);
+        }
+        s->prev_motion_score = 0.0;
         return err;
     }
 
-    /* Score emission lands with the runtime PR — same per-WG float
-     * partials -> double reduction -> divide by `w*h` chain as the
-     * CUDA reference. The first-frame (`index == 0`) emits 0.0 for
-     * both motion / motion2; index 1 emits motion only (no prev
-     * yet); index >= 2 emits `motion2 = min(prev, cur)` at
-     * `index - 1`. Tail frame's motion2 is emitted in `flush()`. */
+    /* Emit motion_score for the current frame. */
+    if (s->debug) {
+        err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "VMAF_feature_motion_score", motion_score,
+                                                      index);
+        if (err != 0)
+            return err;
+    }
+
+    /* Emit motion2_score = min(prev, cur) at index-1 (CUDA twin pattern). */
+    const double motion2 =
+        (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
+    err = vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score", motion2, index - 1u);
+    s->prev_motion_score = motion_score;
+    return err;
+#else
+    (void)feature_collector;
+    (void)index;
+    /* Advance ping-pong even in scaffold so state stays consistent. */
     s->cur_blur = 1 - s->cur_blur;
     return -ENOSYS;
+#endif /* HAVE_HIPCC */
 }
 
 static int flush_fex_hip(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
+#ifndef HAVE_HIPCC
     (void)fex;
     (void)feature_collector;
-
-    /* Mirrors the CUDA twin's `flush_fex_cuda` shape. The host-only
-     * post-pass (final-frame motion2 emission with the cached
-     * `prev_motion_score`) lands with the runtime PR — until then
-     * the consumer surfaces 1 ("done, no more flushes") so the
-     * feature engine doesn't loop forever when this extractor is
-     * enabled in a runtime-not-ready build. The CUDA twin returns
-     * `(ret < 0) ? ret : !ret`; the scaffold's degenerate
-     * "no-frames-collected" early return is preserved in shape,
-     * with the body replaced by the -ENOSYS-equivalent posture
-     * (no scores were collected, so there's nothing to fold). */
+    /* Scaffold: no scores collected; return 1 ("done") to avoid an
+     * infinite flush loop in the feature engine. */
     return 1;
+#else
+    FloatMotionStateHip *s = fex->priv;
+
+    if (s->index == 0u) {
+        /* Zero or one frame processed — no tail motion2 to emit. */
+        return 1;
+    }
+
+    /* Emit the tail motion2 = prev_motion_score at the last frame index.
+     * Mirrors the CUDA twin's flush_fex_cuda shape exactly. */
+    int err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "VMAF_feature_motion2_score",
+                                                      s->prev_motion_score, s->index);
+    return (err != 0) ? err : 1;
+#endif /* HAVE_HIPCC */
 }
 
 static int close_fex_hip(VmafFeatureExtractor *fex)
 {
     FloatMotionStateHip *s = fex->priv;
 
-    /* Lifecycle teardown via the template (sync -> destroy stream
-     * -> destroy events). Best-effort error aggregation matches the
-     * CUDA twin's close path. */
     int rc = vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
 
-    /* Raw-pixel cache + blurred-frame ping-pong slots: scaffold has
-     * nothing allocated; the runtime PR (T7-10b) will free real
-     * device handles here in the same order the CUDA twin uses
-     * (ref_in then blur[0] then blur[1], best-effort). */
-    s->ref_in = 0;
-    s->blur[0] = 0;
-    s->blur[1] = 0;
+#ifdef HAVE_HIPCC
+    /* fm_hip_bufs_free also unloads the module; best-effort only.
+     * No separate error surface here — mirrors the CUDA twin pattern
+     * of treating module/buffer teardown as best-effort in close(). */
+    fm_hip_bufs_free(s);
+#endif /* HAVE_HIPCC */
 
     int err = vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
-    if (err != 0 && rc == 0) {
+    if (err != 0 && rc == 0)
         rc = err;
-    }
     if (s->feature_name_dict != NULL) {
         err = vmaf_dictionary_free(&s->feature_name_dict);
-        if (err != 0 && rc == 0) {
+        if (err != 0 && rc == 0)
             rc = err;
-        }
     }
     if (s->ctx != NULL) {
         vmaf_hip_context_destroy(s->ctx);
@@ -355,18 +563,20 @@ VmafFeatureExtractor vmaf_fex_float_motion_hip = {
     .options = options,
     .priv_size = sizeof(FloatMotionStateHip),
     .provided_features = provided_features,
-    /* TEMPORAL flag is mandatory: float_motion needs the
-     * previous-frame blur carry, so the feature engine has to drive
-     * collect *before* the next submit. Mirrors the CUDA twin
-     * verbatim.
+    /* TEMPORAL flag is mandatory: float_motion needs the previous-frame
+     * blur carry, so the feature engine must drive collect before the
+     * next submit. Mirrors the CUDA twin verbatim.
      *
-     * Intentionally no VMAF_FEATURE_EXTRACTOR_HIP flag yet — the
-     * picture buffer-type plumbing for HIP lands with the runtime
-     * PR (T7-10b). Until then the consumer registers as a
-     * TEMPORAL-only extractor whose `init()` returns -ENOSYS, so
-     * any caller asking for `float_motion_hip` gets a clean
-     * "runtime not ready" surface. Same posture as the first /
-     * second / third / fourth / fifth / sixth consumers (ADR-0241
-     * / ADR-0254 / ADR-0259 / ADR-0260 / ADR-0266 / ADR-0267). */
+     * VMAF_FEATURE_EXTRACTOR_HIP flag is intentionally absent until
+     * picture buffer-type plumbing lands (T7-10c). Until then pictures
+     * arrive as CPU VmafPictures and fm_hip_launch() does explicit
+     * HtoD copies. Same posture as all prior HIP consumers. */
     .flags = VMAF_FEATURE_EXTRACTOR_TEMPORAL,
+    .chars =
+        {
+            .n_dispatches_per_frame = 1,
+            .is_reduction_only = false,
+            .min_useful_frame_area = 1920U * 1080U,
+            .dispatch_hint = VMAF_FEATURE_DISPATCH_AUTO,
+        },
 };

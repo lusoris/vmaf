@@ -1,21 +1,27 @@
 # HIP (AMD ROCm) compute backend (scaffold + eight kernel-template consumers + runtime)
 
-> **Status (2026-05-10, T7-10b batch-1 real kernels landed):** the
+> **Status (2026-05-10, T7-10b batch-2 real kernel landed):** the
 > host-side HIP runtime is wired (T7-10b, 2026-05-08). The kernel-
-> template lifecycle helpers all wrap real HIP runtime calls. Two of
-> eleven feature extractors now have real device kernels (ADR-0372):
+> template lifecycle helpers all wrap real HIP runtime calls. Four of
+> eleven feature extractors now have real device kernels:
 >
-> - `integer_psnr_hip` (name `psnr_hip`): uint64 atomic-SSE kernel,
->   warp-64 `__shfl_down` reduction. Emits `psnr_y`. Requires
->   `enable_hip=true` + `enable_hipcc=true`.
-> - `float_ansnr_hip` (name `float_ansnr_hip`): per-block (sig,
->   noise) float-partial kernel, 3×3 ref + 5×5 dis filter with
->   shared-memory mirror-padded tile. Emits `float_ansnr` +
->   `float_anpsnr`. Requires `enable_hip=true` + `enable_hipcc=true`.
+> - `float_psnr_hip` (name `float_psnr_hip`, ADR-0254): float (ref-dis)^2
+>   reduction per block. Emits `float_psnr`.
+> - `integer_psnr_hip` (name `psnr_hip`, ADR-0372): uint64 atomic-SSE
+>   kernel, warp-64 `__shfl_down` reduction. Emits `psnr_y`.
+> - `float_ansnr_hip` (name `float_ansnr_hip`, ADR-0372): per-block
+>   (sig, noise) float-partial kernel, 3×3 ref + 5×5 dis filter with
+>   shared-memory mirror-padded tile. Emits `float_ansnr` + `float_anpsnr`.
+> - `float_motion_hip` (name `float_motion_hip`, ADR-0373): temporal
+>   extractor. 5×5 separable Gaussian blur + per-block float SAD partials,
+>   blur ping-pong (`blur[2]`), first-frame `compute_sad=0` short-circuit,
+>   motion2 tail emission in `flush()`. Emits
+>   `VMAF_feature_motion_score` + `VMAF_feature_motion2_score`.
 >
+> All four require `enable_hip=true` + `enable_hipcc=true`.
 > Without `enable_hipcc`, the scaffold `-ENOSYS` posture is preserved.
-> The remaining six extractors remain at `-ENOSYS` pending batch-2.
-> See ADR-0372 for the batch-1 decision rationale.
+> The remaining seven extractors remain at `-ENOSYS` pending batch-3.
+> See ADR-0372 (batch-1) and ADR-0373 (batch-2) for rationale.
 
 > **Historical status (audit-first scaffold):** the eight host-
 > scaffolded kernel-template consumers below register and are
