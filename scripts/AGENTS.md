@@ -1,0 +1,152 @@
+# AGENTS.md — scripts/
+
+Orientation for agents working on the top-level scripts tree (excluding
+`scripts/ci/`, which has its own AGENTS.md). Parent: [../AGENTS.md](../AGENTS.md).
+
+## Scope
+
+```text
+scripts/
+  ci/               # CI utilities — separate AGENTS.md (see scripts/ci/AGENTS.md)
+  dev/              # developer-time helpers (corpus generation, knob analysis)
+  docs/             # ADR-0221 ADR-index fragment concatenation
+  release/          # ADR-0221 CHANGELOG.md fragment concatenation
+  setup/            # OS/distro setup dispatcher + per-distro scripts
+  gen_smoke_onnx.py                  # tiny-AI smoke fixture generator (deterministic)
+  gen_mobilesal_placeholder_onnx.py  # MobileSal placeholder fixture (T6-2a, ADR-0218)
+  gen_ssimulacra2_eotf_lut.py        # sRGB EOTF LUT generator
+  run_unittests.sh                   # legacy Python test runner (upstream-mirror)
+  test-matrix.sh                     # local docker-matrix harness
+```
+
+This is the catch-all for tooling that doesn't belong in
+`libvmaf/tools/` (the C CLI lives there) or `tools/` (fork-original
+Python/shell user tooling). Most files here are fork-original and
+have no upstream-Netflix equivalent.
+
+## Ground rules
+
+- **Parent rules** apply (see [../AGENTS.md](../AGENTS.md)).
+- **`set -euo pipefail` at the top of every shell script.** Pipes
+  carry errors; unset variables are fatal.
+- **All wholly-new fork shell scripts ship the dual Lusoris/Claude
+  (Anthropic) copyright header**. Two upstream-mirror scripts
+  (`run_unittests.sh`, parts of `setup/`) preserve their original
+  headers — do not retro-fit the dual notice on those.
+- **Python helpers under `dev/` import from `ai/`** for shared
+  schema helpers (`SweepRow`, knob analysis); keep the import side
+  free of side-effects (no eager model loads at module import).
+
+## Rebase-sensitive invariants
+
+### `release/concat-changelog-fragments.sh` is the source of truth for `CHANGELOG.md`
+
+Per [ADR-0221](../docs/adr/0221-changelog-adr-fragment-pattern.md),
+`CHANGELOG.md` is **rendered** from per-PR fragments under
+`changelog.d/<section>/*.md`. The script:
+
+- Renders Keep-a-Changelog section ordering (Added → Changed →
+  Deprecated → Removed → Fixed → Security).
+- Preserves `changelog.d/_pre_fragment_legacy.md` verbatim at the
+  top (migrated content from the pre-fragment Unreleased block).
+- Supports `--check` (CI gate) and `--write` (release-please
+  rewrite) flags.
+
+**On rebase**: do **not** edit `CHANGELOG.md` by hand. Edit a
+fragment, then run the script with `--write`. The CI lane
+`docs-fragments` runs `--check` on every PR and fails on drift.
+Renaming the script breaks `release-please` config + the CI gate
+in the same instant.
+
+### `docs/concat-adr-index.sh` is the source of truth for `docs/adr/README.md`
+
+Per [ADR-0221](../docs/adr/0221-changelog-adr-fragment-pattern.md),
+`docs/adr/README.md` is **rendered** from per-ADR fragments under
+`docs/adr/_index_fragments/*.md`:
+
+- `_header.md` is the verbatim README prelude (everything before
+  `## Index`).
+- One Markdown row per ADR, named by the ADR's full slug
+  (`NNNN-kebab-case.md`). Slug-keyed for historical reasons: the
+  2026-05-02 dedup sweep renumbered duplicate-NNNN ADRs; slug
+  filenames remain stable across that remap.
+- Rows render oldest-first by ADR ID.
+
+**On rebase**: do **not** edit `docs/adr/README.md` by hand. Add
+or edit a fragment file, then run with `--write`. Renaming the
+script or changing the slug-keyed naming breaks every ADR-ID
+remap downstream.
+
+### `gen_smoke_onnx.py` and `gen_*_onnx.py` are deterministic
+
+The fixture-generation scripts must produce byte-identical output
+on re-run. The shipped `model/tiny/smoke_v0.onnx` and
+`model/tiny/mobilesal.onnx` are checked-in, sha256-pinned in
+`model/tiny/registry.json`, and verified by the C-side loader
+(`libvmaf/src/dnn/model_loader.c`). A non-deterministic regen breaks
+the registry sha256 + the smoke gate. **On rebase**: keep
+`onnx.helper.make_model(..., producer_name=..., producer_version=...,
+ir_version=...)` pinned at fixed values; do not let `onnx` minor
+version drift change the output bytes. The same lesson is encoded
+in `ai/AGENTS.md` for the bisect-cache fixtures.
+
+### `gen_ssimulacra2_eotf_lut.py` regen is a Netflix-golden-adjacent event
+
+The generated LUT at `libvmaf/src/feature/ssimulacra2_eotf_lut.h`
+removes the runtime `libm powf` dependency from the SSIMULACRA 2
+hot path. `powf` varies by ~1 ULP between glibc / musl / macOS
+libSystem, which compounds to ~2e-4 per-frame drift in the pooled
+score. **On rebase**: do not regenerate the LUT casually — a
+regen changes the SSIMULACRA 2 fork-added regression-gate values
+in `python/test/ssimulacra2_test.py` (per ADR-0164). If the LUT
+needs to change, justify it in the commit message and walk the
+regression test.
+
+### `setup/detect.sh` is the per-OS dispatcher
+
+The dispatcher reads `/etc/os-release` on Linux and `$OSTYPE` on
+macOS to pick `setup/<distro>.sh` or `setup/macos.sh`. Adding a
+new distro is one new file (`setup/foo.sh`) plus one branch in
+`detect.sh`. The dispatcher is idempotent and never sudo-escalates
+without user input — keep both invariants on rebase.
+
+### `dev/hw_encoder_corpus.py` is the canonical corpus producer
+
+Consumed by `tools/ensemble-training-kit/02-generate-corpus.sh`
+and by the LOSO retrain runbook
+([ADR-0309](../docs/adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md)).
+The producer's output schema (`(src, actual_kbps, vmaf, enc_ms,
+recipe)`) is currently *not* aligned with the
+`analyze_knob_sweep.SweepRow` consumer — see
+[`ai/AGENTS.md`](../ai/AGENTS.md) "knob-sweep corpus invariant"
+for the throw-away wrapper that performs the rename until
+SCHEMA_VERSION=3 lands. **Do not** modify `analyze_knob_sweep.py`
+to accept both spellings; producer-side rename is the path forward.
+
+### `run_unittests.sh` is upstream-mirror
+
+This script is part of the original Netflix Python test harness
+(invokes `python3 -m unittest discover` against `python/test/`).
+Keep it byte-identical on rebase. The fork's CI uses meson +
+pytest paths; this file ships unchanged for upstream-sync hygiene.
+
+## Twin-update awareness
+
+- **Renaming any script** here that is referenced from
+  `.github/workflows/*.yml` requires the workflow update in the
+  **same PR**. Phantom-required gates compound across the merge
+  train.
+- **`scripts/ci/AGENTS.md`** is the sister doc for the CI tree;
+  changes that cross the boundary (e.g. moving a CI helper out of
+  `ci/` into `dev/`) update both AGENTS.md files.
+
+## Governing ADRs
+
+- [ADR-0025](../docs/adr/0025-copyright-handling-dual-notice.md) —
+  dual-copyright policy.
+- [ADR-0218](../docs/adr/0218-mobilesal-saliency-extractor.md) —
+  MobileSal placeholder.
+- [ADR-0221](../docs/adr/0221-changelog-adr-fragment-pattern.md) —
+  fragment-rendered `CHANGELOG.md` and `docs/adr/README.md`.
+- [ADR-0309](../docs/adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md) —
+  ensemble retrain runbook.

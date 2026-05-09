@@ -1,0 +1,90 @@
+# AGENTS.md — libvmaf/src/mcp
+
+Orientation for agents working on the embedded MCP server scaffold.
+Parent: [../../AGENTS.md](../../AGENTS.md).
+
+## Scope
+
+```text
+mcp/
+  mcp.c           # audit-first stub TU; every entry returns -ENOSYS or trivially safe constant
+  meson.build     # subdir() include from libvmaf/src/meson.build
+```
+
+Public C-API: [`../../include/libvmaf/libvmaf_mcp.h`](../../include/libvmaf/libvmaf_mcp.h).
+Smoke test: [`../../test/test_mcp_smoke.c`](../../test/test_mcp_smoke.c)
+(12 sub-tests pinning the `-ENOSYS` contract).
+
+## Backend status
+
+**Scaffold-only** (T5-2a / [ADR-0209](../../../docs/adr/0209-mcp-embedded-scaffold.md)).
+Every public entry point validates its arguments first
+(`-EINVAL` on NULLs / negative fds / NULL paths) **then** returns
+`-ENOSYS`. The runtime PR (T5-2b) lands cJSON + mongoose + the
+dedicated MCP pthread + the SPSC ring buffer + the SSE / UDS / stdio
+transport bodies. The runtime PR flips bodies in place and updates
+the smoke expectations in the same commit.
+
+## Ground rules
+
+- **Parent rules** apply (see [../../AGENTS.md](../../AGENTS.md)).
+- **Wholly-new fork file** — uses the dual Lusoris/Claude (Anthropic)
+  copyright header per [ADR-0025](../../../docs/adr/0025-copyright-handling-dual-notice.md).
+- **Audit-first contract** ([ADR-0209](../../../docs/adr/0209-mcp-embedded-scaffold.md)):
+  every public entry point validates its arguments **before**
+  returning `-ENOSYS`. The validation must survive the runtime PR
+  — the smoke tests for `_init`, `_start_uds`, `_start_stdio` rely
+  on early `-EINVAL` even after the runtime arrives.
+
+## Rebase-sensitive invariants
+
+- **The smoke test pins the contract.**
+  [`../../test/test_mcp_smoke.c`](../../test/test_mcp_smoke.c) has
+  12 sub-tests asserting per-entry-point return values
+  (`-EINVAL` on NULL args, `-ENOSYS` on valid args). Any rebase or
+  refactor that "succeeds" the scaffold (e.g. accidentally enables
+  a code path) without flipping the smoke expectations breaks the
+  rebase story for the runtime PR. **The runtime PR (T5-2b) is the
+  ONLY PR allowed to update the smoke expectations.**
+
+- **`enable_mcp` umbrella flag defaults `false`**. The silent-flip
+  risk is the same as ADR-0175's Vulkan precedent. Do not flip it
+  to `true` until all three transport bodies are stable and
+  reviewed.
+
+- **Per-build-flag availability**. The umbrella `enable_mcp` flag
+  flips `HAVE_MCP`; per-transport sub-flags flip the matching
+  `HAVE_MCP_*` macros (`HAVE_MCP_SSE`, `HAVE_MCP_UDS`,
+  `HAVE_MCP_STDIO`). The header surface is identical either way;
+  only the runtime PR distinguishes built-without (returns
+  `-ENOSYS` forever) vs built-with (returns `-ENOSYS` only until
+  the runtime is wired). **On rebase**: keep the per-transport
+  bitmask fold-pattern in `vmaf_mcp_transport_available` — the
+  preprocessor-fed arithmetic compiles to a constant load +
+  bittest at every call site, which avoids per-arm `#ifdef`
+  branches that trip clang-tidy
+  `readability-function-cognitive-complexity` and JPL-P10 rule 4.
+
+- **NULL-argument validation comes first.** Every public entry
+  point's body reads `if (!arg_a || arg_b < 0) return -EINVAL;`,
+  then any future runtime body, then a fall-through
+  `return -ENOSYS;`. Do not invert this order on rebase — the
+  smoke contract depends on it.
+
+## Power-of-10 reservations for the runtime PR
+
+Documented for forward-looking discipline (these are not enforced
+by code yet — the runtime PR makes them load-bearing):
+
+- **No alloc on the measurement-thread hot path** (rule 3). The
+  runtime PR uses a pre-sized SPSC ring buffer drained at frame
+  boundaries; the measurement thread never calls `malloc`.
+- **Bounded drain loops** (rule 2). Every loop in the future
+  runtime body has a static upper bound on iteration count.
+
+## Governing ADRs
+
+- [ADR-0025](../../../docs/adr/0025-copyright-handling-dual-notice.md) —
+  dual-copyright policy.
+- [ADR-0209](../../../docs/adr/0209-mcp-embedded-scaffold.md) —
+  audit-first MCP scaffold.
