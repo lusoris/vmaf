@@ -27,7 +27,9 @@ static char *test_float_ms_ssim_is_registered(void)
 }
 
 /* Helper: call init with the given dimensions and return the result,
- * cleanly freeing the priv buffer on the failure path. */
+ * cleanly freeing the priv buffer on the failure path. The priv buffer
+ * is owned by libvmaf core in production; tests have to free it
+ * explicitly because there's no core path tearing it down here. */
 static int invoke_init(VmafFeatureExtractor *fex, unsigned w, unsigned h)
 {
     void *priv = calloc(1, fex->priv_size);
@@ -38,6 +40,8 @@ static int invoke_init(VmafFeatureExtractor *fex, unsigned w, unsigned h)
     /* close() is safe after either successful init or early-rejected
      * init — the close contract tolerates partial state. */
     (void)fex->close(fex);
+    free(priv);
+    fex->priv = NULL;
     return rc;
 }
 
