@@ -158,6 +158,11 @@ class CommandLineTest(unittest.TestCase):
             )
         )
         cmd = "{exe} {line} --local-explain --ci >/dev/null 2>&1".format(line=line, exe=exe)
+        # `cmd` is built from VmafConfig.root_path() + hardcoded test-fixture
+        # paths under python/test/resource/yuv/. No attacker-controlled string
+        # flows in. shell=True is needed for `>/dev/null 2>&1` redirection /
+        # CLI argument quoting. See Research-0090, F13–F17.
+        # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
         ret = subprocess.call(cmd, shell=True)
         self.assertEqual(ret, 2)
 
@@ -210,6 +215,11 @@ class VmafexecCommandLineTest(unittest.TestCase):
                 output=self.output_file_path,
             )
         )
+        # `cmd` is built from VmafConfig.root_path() + hardcoded test-fixture
+        # paths under python/test/resource/yuv/. No attacker-controlled string
+        # flows in. shell=True is needed for `>/dev/null 2>&1` redirection /
+        # CLI argument quoting. See Research-0090, F13–F17.
+        # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
         ret = subprocess.call(cmd, shell=True)
         self.assertEqual(ret, self.RC_SUCCESS)
         with open(self.output_file_path, "rt") as fo:
@@ -231,6 +241,11 @@ class VmafexecCommandLineTest(unittest.TestCase):
                 output=self.output_file_path,
             )
         )
+        # `cmd` is built from VmafConfig.root_path() + hardcoded test-fixture
+        # paths under python/test/resource/yuv/. No attacker-controlled string
+        # flows in. shell=True is needed for `>/dev/null 2>&1` redirection /
+        # CLI argument quoting. See Research-0090, F13–F17.
+        # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
         ret = subprocess.call(cmd, shell=True)
         self.assertEqual(ret, self.RC_SUCCESS)
         with open(self.output_file_path, "rt") as fo:
@@ -252,6 +267,11 @@ class VmafexecCommandLineTest(unittest.TestCase):
                 output=self.output_file_path,
             )
         )
+        # `cmd` is built from VmafConfig.root_path() + hardcoded test-fixture
+        # paths under python/test/resource/yuv/. No attacker-controlled string
+        # flows in. shell=True is needed for `>/dev/null 2>&1` redirection /
+        # CLI argument quoting. See Research-0090, F13–F17.
+        # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
         ret = subprocess.call(cmd, shell=True)
         self.assertEqual(ret, self.RC_SUCCESS)
         with open(self.output_file_path, "rt") as fo:

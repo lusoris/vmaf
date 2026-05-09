@@ -119,10 +119,13 @@ class FileSystemResultStore(ResultStore):
 
     def _get_result_file_path2(self, asset, executor_id):
         str_to_hash = str(asset).encode("utf-8")
+        # SHA-1 used as a result-store filename component (not security). Input
+        # is the harness's own asset repr. See Research-0090, F4–F12.
         return "{dir}/{executor_id}/{dataset}/{content_id}/{str}".format(
             dir=self.result_store_dir,
             executor_id=executor_id,
             dataset=asset.dataset,
             content_id=asset.content_id,
+            # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
             str=hashlib.sha1(str_to_hash).hexdigest(),
         )

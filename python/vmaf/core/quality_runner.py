@@ -1493,6 +1493,11 @@ class VmafexecQualityRunner(QualityRunner, FeatureDiscoveryMixin):
         # the scores in a dictionary format.
 
         log_file_path = self._get_log_file_path(asset)
+        # `log_file_path` is the harness's own log file just written by the
+        # libvmaf C tool (we control both the path and the writer). No XXE
+        # surface — there is no untrusted XML in this flow. See
+        # Research-0090, F18–F19.
+        # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
         tree = ElementTree.parse(log_file_path)
         root = tree.getroot()
         scores_dict = {}

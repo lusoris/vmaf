@@ -43,6 +43,9 @@ def persist(original_func):
     cache = {}
 
     def new_func(*args):
+        # SHA-1 used as a memoization cache key (not security). Input is
+        # the function name + repr(args). See Research-0090, F4–F12.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
         h = hashlib.sha1(str(original_func.__name__) + str(args)).hexdigest()
         if h not in cache:
             cache[h] = original_func(*args)
@@ -107,6 +110,9 @@ def persist_to_file(file_name):
                 sys.exit(1)
 
         def new_func(*args):
+            # SHA-1 used as a memoization cache key (not security). Input is
+            # the function name + repr(args). See Research-0090, F4–F12.
+            # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
             h = hashlib.sha1(str(original_func.__name__) + str(args)).hexdigest()
             if h not in cache:
                 cache[h] = original_func(*args)
@@ -128,6 +134,9 @@ def persist_to_dir(dir_name):
     def decorator(original_func):
 
         def new_func(*args):
+            # SHA-1 used as a memoization cache key (not security). Input is
+            # the function name + repr(args). See Research-0090, F4–F12.
+            # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
             h = hashlib.sha1(str(original_func.__name__) + str(args)).hexdigest()
             file_name = os.path.join(dir_name, h)
             if not os.path.exists(file_name):

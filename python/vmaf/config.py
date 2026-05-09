@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 
 import os
-import ssl
 import urllib.error
 import urllib.request
 
@@ -37,7 +36,17 @@ def download_reactively(local_path, remote_path):
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         print(f"download {local_path} from {remote_path}")
         try:
-            ssl._create_default_https_context = ssl._create_unverified_context
+            # Use the system trust store (default since Python 3.6). The
+            # previous version of this function clobbered the *process-global*
+            # SSL default with `ssl._create_unverified_context`, which masked
+            # legitimate TLS failures (corporate MITM proxy, expired root,
+            # active attacker) and leaked the bypass to every later SSL call
+            # in the same process. GitHub's `vmaf_resource` URL serves a
+            # valid public-CA chain, so the bypass was unjustified
+            # defence-in-depth disabling. If a CI environment can't validate,
+            # operators set `SSL_CERT_FILE` to the right bundle — that's the
+            # documented escape hatch and stays per-process scoped. See
+            # docs/research/0090-semgrep-warnings-audit-2026-05-09.md (F1).
             urllib.request.urlretrieve(remote_path, local_path)
         except urllib.error.HTTPError as e:
             print(f"error downloading from {remote_path}")

@@ -9301,6 +9301,43 @@ print('OK: fr_regressor_v3 production row unchanged')
   validator's exec path (`scripts/ci/deliverables-check.sh`) and the
   test harness's expected exit codes must follow.
   bash scripts/ci/test-validate-pr-body.sh   # 8/8 cases pass
+### 0320 — Semgrep `# nosemgrep` cites on Netflix-upstream Python harness (Research-0090)
+- **Touches**: `python/vmaf/core/asset.py`, `python/vmaf/core/executor.py`,
+  `python/vmaf/core/feature_extractor.py`,
+  `python/vmaf/core/quality_runner.py`,
+  `python/vmaf/core/result_store.py`, `python/vmaf/tools/decorator.py`,
+  `python/test/command_line_test.py`,
+  `python/test/feature_extractor_test.py`,
+  `python/test/ssimulacra2_test.py`, `python/vmaf/config.py`.
+- **Invariant**: every fork-added `# nosemgrep: <rule-id>` line is
+  paired with an inline cite to `Research-0090`. The cite + rule-id
+  pair is the load-bearing artifact (per memory `feedback_no_guessing`:
+  every "false positive" claim ships its safety proof). If an upstream
+  sync removes the cited line of code, drop the cite-comment block too.
+  If upstream adds a `defusedxml` fix at the `ElementTree.parse()` site
+  (`feature_extractor.py:115`, `quality_runner.py:1496`), keep upstream's
+  fix and drop our suppressions.
+- **`config.py:40` (the SSL-bypass deletion)** is a fork-exclusive
+  security fix; if upstream resurrects `ssl._create_unverified_context`
+  on a sync, *do not* re-merge it — the bypass clobbers the
+  process-global default and is unjustified per Research-0090, F1.
+  semgrep scan --config=p/cwe-top-25 --config=p/c --config=p/python . \
+    --metrics=off --json | jq '.results | length'
+  # expect 0 — every legit finding either has a # nosemgrep cite or was fixed
+### 0321 — Security-scans workflow registry-pack list (Research-0090)
+- **Touches**: `.github/workflows/security-scans.yml`,
+  `.github/workflows/lint-and-format.yml`.
+- **Invariant**: the registry packs the workflow cites
+  (`p/cwe-top-25` + `p/c` + `p/python`) are validated against
+  `https://semgrep.dev/c/p/<pack>` — the previously-cited
+  `p/cert-c-strict`, `p/cert-cpp-strict`, and `p/cpp` packs were
+  retired by Semgrep in 2025 and 404. The `lint-and-format.yml` pull
+  of `${{ github.* }}` into `env:` (clang-tidy + clang-tidy-sycl
+  steps) defuses `run-shell-injection`; preserve the pattern on any
+  edit. See Research-0090, F2/F3.
+  for pack in p/cwe-top-25 p/c p/python; do
+    code=$(curl -sIL "https://semgrep.dev/c/${pack}" | head -1 | awk '{print $2}')
+    [ "$code" = "200" ] && echo "${pack}: OK" || echo "${pack}: FAIL ($code)"
   ```
 
 ## Cppcheck `nullPointer` false-positive in `dict.c` (2026-05-09)

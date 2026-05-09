@@ -78,6 +78,17 @@ jobs:
           # exist on disk before clang-tidy parses the translation units.
           meson compile -C build
       - name: Run clang-tidy on changed files
+        # Hardening per Semgrep `yaml.github-actions.security.run-shell-injection`
+        # (Research-0090, F2): pull every `${{ github.* }}` interpolation into
+        # `env:` and reference the env var with double-quotes in shell. The
+        # `before` SHA, `event_name` enum, and `base_ref` branch name are all
+        # GitHub-controlled and currently safe, but the env-aliasing pattern
+        # forecloses any future case where one of those values gains a shell
+        # metacharacter and makes the data-flow explicit for maintainers.
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
           # Collect the delta for both PR and push events so master-post-merge
           # doesn't re-scan every vendored .c/.cpp (e.g. libvmaf/src/svm.cpp)
@@ -114,9 +125,9 @@ jobs:
           # lint a file that no longer exists on disk; without this filter
           # the script passes a missing path to clang-tidy and fails with
           # `clang-diagnostic-error: no such file or directory`.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$GH_EVENT_NAME" = "pull_request" ]; then
             files=$(git diff --name-only --diff-filter=d \
-              origin/${{ github.base_ref }}...HEAD \
+              "origin/${PR_BASE_REF}...HEAD" \
               -- '*.c' '*.h' '*.cpp' '*.hpp' \
               | grep -v '^libvmaf/src/feature/arm64/' \
               | grep -v '^libvmaf/src/cuda/' \
@@ -138,8 +149,8 @@ jobs:
               | grep -v '^libvmaf/test/test_hip' \
               | grep -v '^libvmaf/test/fuzz/' \
               | tr '\n' ' ')
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            before="${{ github.event.before }}"
+          elif [ "$GH_EVENT_NAME" = "push" ]; then
+            before="$PUSH_BEFORE_SHA"
             zero="0000000000000000000000000000000000000000"
             if [ -z "$before" ] || [ "$before" = "$zero" ]; then
               # Initial push / new branch: fall back to HEAD~1..HEAD if a
@@ -261,19 +272,27 @@ jobs:
           fetch-depth: 0
       - name: Detect changed SYCL files
         id: detect
+        # Hardening per Semgrep `yaml.github-actions.security.run-shell-injection`
+        # (Research-0090, F3): pull every `${{ github.* }}` interpolation into
+        # `env:` and reference the env var in shell. Same rationale as the
+        # main clang-tidy step above — see Research-0090, F2.
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
           # Mirrors the main clang-tidy job's PR/push/dispatch fan-out but
           # *only* keeps SYCL TUs (the inverse of the exclusion list there).
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$GH_EVENT_NAME" = "pull_request" ]; then
             files=$(git diff --name-only --diff-filter=d \
-              origin/${{ github.base_ref }}...HEAD \
+              "origin/${PR_BASE_REF}...HEAD" \
               -- 'libvmaf/src/sycl/*.cpp' 'libvmaf/src/sycl/*.hpp' \
                  'libvmaf/src/feature/sycl/*.cpp' \
                  'libvmaf/src/feature/sycl/*.hpp' \
                  'libvmaf/test/test_sycl*.c' 'libvmaf/test/test_sycl*.cpp' \
               | tr '\n' ' ')
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            before="${{ github.event.before }}"
+          elif [ "$GH_EVENT_NAME" = "push" ]; then
+            before="$PUSH_BEFORE_SHA"
             zero="0000000000000000000000000000000000000000"
             if [ -z "$before" ] || [ "$before" = "$zero" ]; then
               if git rev-parse HEAD~1 >/dev/null 2>&1; then
