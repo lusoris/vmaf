@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1.23@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
-FROM ubuntu:24.04
+# syntax=docker/dockerfile:1.7
+FROM ubuntu:26.04@sha256:f3d28607ddd78734bb7f71f117f3c6706c666b8b76cbff7c9ff6e5718d46ff64
 
 ENV DEBIAN_FRONTEND=noninteractive \
     INSTALL_LINTERS=1 \
