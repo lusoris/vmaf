@@ -34,15 +34,18 @@
 extern "C" {
 
 __global__ void calculate_psnr_kernel_8bpc(const VmafPicture ref, const VmafPicture dis,
-                                           VmafCudaBuffer sse, unsigned width, unsigned height)
+                                           VmafCudaBuffer sse, unsigned width, unsigned height,
+                                           unsigned plane)
 {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
 
     uint64_t my_se = 0;
     if (x < (int)width && y < (int)height) {
-        const uint8_t *ref_row = reinterpret_cast<const uint8_t *>(ref.data[0]) + y * ref.stride[0];
-        const uint8_t *dis_row = reinterpret_cast<const uint8_t *>(dis.data[0]) + y * dis.stride[0];
+        const uint8_t *ref_row =
+            reinterpret_cast<const uint8_t *>(ref.data[plane]) + y * ref.stride[plane];
+        const uint8_t *dis_row =
+            reinterpret_cast<const uint8_t *>(dis.data[plane]) + y * dis.stride[plane];
         const int64_t diff = (int64_t)ref_row[x] - (int64_t)dis_row[x];
         my_se = (uint64_t)(diff * diff);
     }
