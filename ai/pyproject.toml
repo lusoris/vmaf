@@ -24,7 +24,7 @@ dependencies = [
   "pytorch-lightning>=2.5,<3.0",
   "onnx>=1.21.0,<2.0",
   "onnxruntime>=1.20,<2.0",
-  "onnxscript>=0.2",
+  "onnxscript>=0.7.0",
   "numpy>=1.26,<3.0",
   "pandas>=2.2,<3.0",
   "pyarrow>=17.0",
@@ -32,7 +32,7 @@ dependencies = [
   "scikit-learn>=1.5",
   "pyyaml>=6.0",
   "typer>=0.12",
-  "rich>=13.9.4",
+  "rich>=13.7",
   "tqdm>=4.67.3",
 ]
 
@@ -40,7 +40,7 @@ dependencies = [
 tune = ["optuna>=4.0", "ray[tune]>=2.55.1"]
 gpu  = []
 viz  = ["matplotlib>=3.9", "seaborn>=0.13"]
-dev  = ["pytest>=9.0.3", "ruff>=0.6", "mypy>=1.20.2"]
+dev  = ["pytest>=9.0.3", "ruff>=0.6", "mypy>=1.10"]
 
 [project.scripts]
 vmaf-train = "vmaf_train.cli:app"
