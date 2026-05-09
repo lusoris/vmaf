@@ -157,7 +157,7 @@ jobs:
     # Note: reusable-workflow refs cannot currently be SHA-pinned in all
     # GitHub Actions consumers. The slsa-github-generator maintainers
     # recommend the `vX.Y.Z` tag form here; we audit bumps in a dedicated PR.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@5a775b367a56d5bd118a224a811bba288150a563 # v2.0.0
     with:
       base64-subjects: ${{ needs.build-artifacts.outputs.hashes }}
       upload-assets: ${{ github.event_name == 'release' }}

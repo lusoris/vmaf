@@ -64,7 +64,7 @@ jobs:
       CC: clang
       CXX: clang++
     steps:
-      - uses: actions/checkout@v6  # SHA-pinned via repo policy; see scorecard.yml
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6  # SHA-pinned via repo policy; see scorecard.yml
         with:
           persist-credentials: false
 

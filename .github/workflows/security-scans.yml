@@ -39,7 +39,7 @@ jobs:
       # cannot load current `p/cwe-top-25` / `p/cert-c-strict` rulesets, which
       # uploads an empty SARIF and lights up a "Semgrep OSS is reporting errors"
       # banner on the repo Security tab.
-      image: semgrep/semgrep:latest
+      image: semgrep/semgrep:latest@sha256:326e5f41cc972bb423b764a14febbb62bbad29ee1c01820805d077dd868fea48
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Run semgrep (local rules — gate on ERRORs)

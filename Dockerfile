@@ -4,7 +4,7 @@
 # Digest-pinned for reproducibility of *this* snapshot; bump both tag + digest on
 # every stable CUDA release. Gives us nvcc + cudart-dev without Ubuntu's stale
 # 'nvidia-cuda-toolkit' apt package (24.04 still ships CUDA 12.x).
-FROM nvidia/cuda:13.2.0-devel-ubuntu24.04
+FROM nvidia/cuda:13.2.0-devel-ubuntu24.04@sha256:f9492f2eea77fbc3d0c14fa8738f35946b42da72917bf5959d284ca39b4f209a
 
 ARG NV_CODEC_TAG="876af32a202d0de83bd1d36fe74ee0f7fcf86b0d"
 ARG FFMPEG_TAG=n8.1
