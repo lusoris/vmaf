@@ -185,3 +185,4 @@
 0315-vendor-neutral-vvc-encode-strategy
 0331-skip-ci-on-draft-prs
 0325-konvid-150k-corpus-ingestion
+0341-ci-paths-ignore-doc-only-prs

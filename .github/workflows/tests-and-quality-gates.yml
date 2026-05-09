@@ -12,6 +12,22 @@ on:
     # ADR-0331 — `ready_for_review` lets the per-job draft gate fire
     # CI when a draft PR is promoted to ready-for-review.
     types: [opened, synchronize, reopened, ready_for_review]
+    # ADR-0341 / Research-0089 §3.2: skip the full 10-job test matrix
+    # (Netflix golden + sanitizers + Tiny AI + coverage + MCP smoke +
+    # Vulkan parity gates) when only documentation paths change. The
+    # Required Checks Aggregator (ADR-0313) treats "workflow not
+    # reported" as path-filter-skipped/acceptable, so paths-ignore at
+    # the trigger level does NOT break branch protection. Conservative
+    # deny-list — `python/**`, `ai/**`, `mcp-server/**`, `libvmaf/**`,
+    # `testdata/**`, `model/**` (binaries), and `.github/workflows/`
+    # all still fire the gates because the corresponding test jobs
+    # consume them as inputs.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'changelog.d/**'
+      - 'CHANGELOG.md'
+      - '.workingdir2/**'
   workflow_dispatch:
 
 permissions:
