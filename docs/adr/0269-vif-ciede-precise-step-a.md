@@ -157,3 +157,66 @@ don't repeat the experiment.
   with GLSL `precise` (lowers to SPIR-V `OpDecorate ... NoContraction`).
   After Step A lands, the API-version bump becomes safe (Step B is a
   separate PR).*
+
+### Status update 2026-05-08: bisect attempt on residual vif 1.4 regression
+
+State.md row **T-VK-VIF-1.4-RESIDUAL** captured the residual 45/48
+`integer_vif_scale2` `places=4` mismatch on NVIDIA at API 1.4 that
+this ADR's Step A did not close. A follow-up bisect digest landed
+under [research-0089](../research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md)
+recording the static-analysis outcome:
+
+- Re-verified glslc 2026.1 emits exactly 5 floating-point arithmetic
+  ops in optimised `vif.comp` SPIR-V (`OpFDiv` + 3× `OpFMul` +
+  `OpFSub`), all 5 carrying `OpDecorate NoContraction`. PR #346's
+  Step A is *complete on the SPIR-V surface*; there is no further
+  load-bearing FP op to decorate.
+- Cross-checked SYCL's `vif_sycl` — same all-`float` precision
+  contract, passes the `places=4` gate on every backend the fork
+  ships against. Rules out a pure f32-vs-f64 class issue (analog of
+  T-VK-CIEDE-F32-F64) as the sole driver of the API-1.4 residual.
+- Localised root cause: NVIDIA's `shaderFloatControls2`-v2 codegen
+  default (core in 1.4) appears to flip a non-IEEE-bound choice
+  (e.g., reciprocal-multiply for divide, fast-rsq for `g*g`) that
+  the SPIR-V surface cannot bind — `NoContraction` blocks FMA
+  fusion only.
+
+ADR body (above) remains frozen per ADR-0028. The decision to ship
+Step A as a partial fix and leave Step B blocked stands; the
+research-0089 digest expands the *runner-up* options (per-stage
+NVIDIA dynamic dump, `places=3` override, driver-team escalation)
+without amending the original decision matrix.
+
+### Status update 2026-05-09: Phase 3 fix landed
+
+Phase 3 (this PR) replaced all three bare `barrier()` calls in
+`vif.comp` with explicit `memoryBarrierShared() + barrier()` pairs
+(SPIR-V `OpControlBarrier` with `gl_StorageSemanticsShared |
+gl_SemanticsAcquireRelease` shared-memory release-acquire). Real
+hardware run on this session: NVIDIA RTX 4090 + driver 595.71.05 +
+local API-1.4 bump now passes the `cross_backend_vif_diff.py
+--places 4` gate 0/48 across all four scales, with 5-run
+deterministic `(num_scale2, den_scale2)` matching the CPU
+reference. RADV (Mesa 26.1.0) was already 0/48 pre-fix and stays
+0/48 post-fix. The original Phase-2 attribution to "NVIDIA"
+turned out to be off-by-one in the loader device map: PR #510's
+`--vulkan_device 0` numbers landed on Intel Arc A380 (Mesa-ANV /
+DG2), not NVIDIA — see research-0089 2026-05-09 appendix
+"Hardware lane this session — corrected device map" for the
+empirical proof.
+
+A new residual moved into the Open queue as
+**T-VK-VIF-1.4-RESIDUAL-ARC**: Arc A380 + ANV at API 1.4 still
+exhibits the 45/48 scale-2 + non-deterministic int64 accumulator
+pattern even with the `memoryBarrierShared()` pair in place.
+Likely needs a stronger qualifier (`coherent`/`volatile` shared,
+or `controlBarrier(gl_ScopeDevice, ...)`, or
+`subgroupMemoryBarrierShared()` before the elected-thread write).
+Tracked separately. Step B (`apiVersion` bump to 1.4) remains
+blocked until the Arc residual closes; this Phase-3 fix is a
+prerequisite, not a sufficient condition.
+
+ADR body (above) remains frozen per ADR-0028. The original
+decision to ship Step A as partial and defer Step B stands;
+Phase-3 narrows the blocker scope from "vif residual at 1.4 on
+NVIDIA + Mesa-ANV" to "vif residual at 1.4 on Mesa-ANV only".

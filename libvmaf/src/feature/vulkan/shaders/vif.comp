@@ -366,6 +366,12 @@ void main()
         s_ref[tr * tile_w + tc] = read_src(0u, py, px);
         s_dis[tr * tile_w + tc] = read_src(1u, py, px);
     }
+    /* Shared-memory release-acquire: pair the cooperative writes to
+     * s_ref / s_dis with Phase-2's reads. Vulkan 1.4 NVIDIA defaults
+     * to a stricter memory model than 1.3 — a bare barrier() is no
+     * longer sufficient on this driver to publish shared writes
+     * across subgroups. See research-0089 + ADR-0269 status update. */
+    memoryBarrierShared();
     barrier();
 
     /* ============================================================
@@ -420,6 +426,10 @@ void main()
             s_vert[6 * VERT_TOTAL_MAX + base] = (a_dis_rd + add_round_vp) >> shift_vp;
         }
     }
+    /* Shared-memory release-acquire: pair the cooperative writes to
+     * s_vert with Phase-3's per-thread reads. Same Vulkan 1.4 NVIDIA
+     * memory-model rationale as the Phase-1 barrier above. */
+    memoryBarrierShared();
     barrier();
 
     /* ============================================================
@@ -564,6 +574,18 @@ void main()
         s_lmem[5 * MAX_SUBGROUPS + sg_id] = sg_num_nlog;
         s_lmem[6 * MAX_SUBGROUPS + sg_id] = sg_den_nlog;
     }
+    /* Shared-memory release-acquire for the cross-subgroup int64
+     * reduction. Vulkan 1.4 NVIDIA's stricter default memory model
+     * (vs. 1.3) reordered the elected-thread writes to s_lmem past
+     * thread-0's reads below — observed empirically as 5-run
+     * non-determinism on `den_scale2` magnitudes (10¹¹× off, sign
+     * flips) on RTX 4090 + driver 595.71.05 + Vulkan 1.4.341.
+     * See research-0089 §"Phase 2 dynamic dump" and the same digest
+     * 2026-05-09 Phase 3 status appendix. The SCALE=2 specialisation
+     * is where NVIDIA's hardware schedule made this race observable;
+     * the structural race is shared with all SCALE values, so the
+     * explicit shared-memory release is applied uniformly. */
+    memoryBarrierShared();
     barrier();
 
     /* Thread 0 of the workgroup writes the per-WG accumulator slot.
