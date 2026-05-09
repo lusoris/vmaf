@@ -1330,7 +1330,7 @@ The fork **does not ship the JSON** in this PR. Verified
 `vmaf_hdr_*.json` is present in the upstream public tree; Netflix
 publishes the artefact in a separate research bundle outside the
 repo. A fork-local license review is the gating follow-up
-([ADR-0300 § Status update 2026-05-08](../adr/0300-vmaf-tune-hdr-aware.md#status-update-2026-05-08-hdr-vmaf-model-port-landed)).
+([ADR-0300 § Status update 2026-05-08](../adr/0300-vmaf-tune-hdr-aware.md#status-update-2026-05-08-iter_rows-integration-transfer-aware-model-slot)).
 Until then, HDR sources are scored against the SDR model with a
 **one-shot warning** logged on the first miss (subsequent misses
 stay quiet). Resulting `vmaf_score` values trend low for
