@@ -385,6 +385,27 @@ static char *test_float_ssim_hip_extractor_registered(void)
     return NULL;
 }
 
+/* ---- Second consumer: float_psnr_hip (T7-10b / ADR-0254) ---- */
+
+static char *test_float_psnr_hip_extractor_registered(void)
+{
+    /* T7-10b first real kernel (ADR-0254): `float_psnr_hip` is
+     * registered and discoverable by name. Pins the registration shape
+     * (name, is_reduction_only, n_dispatches_per_frame) so the runtime
+     * PR's dispatch-accounting inherits a proven contract.
+     *
+     * With `enable_hipcc=true` on a ROCm host this assertion stays green
+     * AND init() succeeds. Without hipcc the HSACO symbol is absent and
+     * init() returns -ENOSYS — the lookup still succeeds. */
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("float_psnr_hip");
+    mu_assert("float_psnr_hip extractor must be registered", fex != NULL);
+    mu_assert("float_psnr_hip extractor name matches", strcmp(fex->name, "float_psnr_hip") == 0);
+    mu_assert("float_psnr_hip extractor is reduction-only", fex->chars.is_reduction_only);
+    mu_assert("float_psnr_hip extractor has one dispatch per frame",
+              fex->chars.n_dispatches_per_frame == 1);
+    return NULL;
+}
+
 /* Function-pointer table keeps `run_tests` flat — without it,
  * `mu_run_test` macro-expands to a branching pair per test, blowing
  * past clang-tidy's `readability-function-size` 15-branch budget at
@@ -418,6 +439,8 @@ static const test_fn test_table[] = {
     /* T7-10b seventh + eighth consumers (ADR-0273 / ADR-0274) */
     test_float_motion_hip_extractor_registered,
     test_float_ssim_hip_extractor_registered,
+    /* T7-10b first real kernel (ADR-0254): float_psnr_hip */
+    test_float_psnr_hip_extractor_registered,
 };
 
 static const size_t test_table_len = sizeof(test_table) / sizeof(test_table[0]);
