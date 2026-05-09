@@ -508,9 +508,11 @@ static void sse_serve_client(struct VmafMcpServer *server, int client_fd)
 
 void *vmaf_mcp_sse_thread_main(void *arg)
 {
+    assert(arg != NULL);
     struct VmafMcpServer *server = (struct VmafMcpServer *)arg;
     if (server == NULL)
         return NULL;
+    assert(server->sse_listen_fd >= 0);
 
     while (atomic_load(&server->sse_running) == 1) {
         int client_fd = accept(server->sse_listen_fd, NULL, NULL);
@@ -520,6 +522,7 @@ void *vmaf_mcp_sse_thread_main(void *arg)
             /* Listener closed during stop(). */
             break;
         }
+        assert(client_fd >= 0);
         sse_serve_client(server, client_fd);
         (void)close(client_fd);
     }
