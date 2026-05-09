@@ -31327,3 +31327,36 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
   #    9 kernel TUs consume it.)
 
   ```
+
+## ADR-0212 §Status update — HIP runtime (T7-10b, 2026-05-08)
+
+- **Touches**: `libvmaf/src/hip/common.c`,
+  `libvmaf/src/hip/kernel_template.c`,
+  `libvmaf/src/hip/meson.build`, `libvmaf/test/test_hip_smoke.c`,
+  `libvmaf/test/meson.build` (added `hip_deps` everywhere
+  `vulkan_deps` already appears so test executables that statically
+  pull the feature lib resolve `hipMemsetAsync` / `hipFree`).
+- **Invariant**: the `kernel_template.c` helpers and `common.c`
+  public API both store HIP runtime handles (`hipStream_t`,
+  `hipEvent_t`) as `uintptr_t` in the structs that cross
+  the public ABI. The header-purity contract documented in
+  `libvmaf/src/hip/kernel_template.h` is load-bearing — moving the
+  cast site (or replacing `uintptr_t` with `void *`) breaks every
+  consumer TU and the public `libvmaf_hip.h` no-`<hip/...>`
+  guarantee. The fallback `find_library('amdhip64', dirs:
+  hip_search_paths)` exists because ROCm 7.x publishes no
+  `hip-lang.pc` and the cmake config breaks under meson's CMake
+  probe — the fallback is the supported path on ROCm 7.x.
+- **Re-test on rebase**:
+
+  ```bash
+  PATH=/opt/rocm/bin:$PATH meson setup build --reconfigure \
+      -Denable_hip=true -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_hip_smoke
+  ```
+
+  The smoke test self-skips the device-resident assertions when
+  `vmaf_hip_device_count() == 0`, so it stays portable across CI
+  runners that don't expose an AMD GPU.
+

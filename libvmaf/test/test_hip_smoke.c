@@ -2,11 +2,23 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Build + init smoke test for the HIP backend scaffold (ADR-0212 / T7-10).
- *  Every public C-API entry point in libvmaf_hip.h is expected to return
- *  -ENOSYS (or -EINVAL on bad arguments) until the runtime PR lands; this
- *  test pins that contract so a future PR can't accidentally enable the
- *  backend without flipping the smoke expectations.
+ *  HIP backend smoke test (ADR-0212 / T7-10b runtime).
+ *
+ *  Runtime PR (T7-10b) flips the contract from "every public API
+ *  returns -ENOSYS" (the audit-first scaffold posture pinned by
+ *  ADR-0212) to:
+ *
+ *    - `vmaf_hip_device_count()` returns >= 0 (real HIP probe).
+ *    - Kernel-template lifecycle helpers succeed end-to-end when an
+ *      AMD GPU is visible, including stream + event create/destroy
+ *      and a pinned-host / device round-trip via `hipMemcpy`.
+ *    - Public C-API `vmaf_hip_state_init` succeeds on a host with
+ *      >= 1 visible device, returns -ENODEV otherwise.
+ *
+ *  Tests that need a live device skip themselves cleanly when the
+ *  runtime reports zero devices, mirroring the
+ *  Vulkan-on-lavapipe-less-CI pattern documented in
+ *  ADR-0212 §"What lands next" point 1.
  *
  *  Mirrors libvmaf/test/test_vulkan_smoke.c.
  */
@@ -16,12 +28,43 @@
 #include <stdint.h>
 #include <string.h>
 
+#define __HIP_PLATFORM_AMD__ 1
+#include <hip/hip_runtime_api.h>
+
 #include "test.h"
 
 #include "feature/feature_extractor.h"
 #include "hip/common.h"
 #include "hip/kernel_template.h"
 #include "libvmaf/libvmaf_hip.h"
+
+/*
+ * Pinned-host -> device -> pinned-host memcpy round-trip helper.
+ * Returns 0 on success or a negative POSIX errno on a HIP failure.
+ * The helper exists so the kernel-template readback test can pin
+ * the load-bearing "pinned-host buffer survives a device round-
+ * trip" contract without hauling in a kernel launch. Mirrors the
+ * SYCL T5-1b smoke's `q.copy()`-based round-trip.
+ */
+int test_hip_memcpy_round_trip(void *device, void *host_pinned, size_t bytes);
+int test_hip_memcpy_round_trip(void *device, void *host_pinned, size_t bytes)
+{
+    if (device == NULL || host_pinned == NULL || bytes == 0) {
+        return -EINVAL;
+    }
+    hipError_t rc = hipMemcpy(device, host_pinned, bytes, hipMemcpyHostToDevice);
+    if (rc != hipSuccess) {
+        return -EIO;
+    }
+    /* Stomp the pinned host buffer so the readback below cannot
+     * succeed on the original write alone. */
+    (void)memset(host_pinned, 0, bytes);
+    rc = hipMemcpy(host_pinned, device, bytes, hipMemcpyDeviceToHost);
+    if (rc != hipSuccess) {
+        return -EIO;
+    }
+    return 0;
+}
 
 /* ---- Internal context (libvmaf/src/hip/common.h) ---- */
 
@@ -52,13 +95,15 @@ static char *test_context_destroy_null_is_noop(void)
     return NULL;
 }
 
-static char *test_device_count_scaffold_returns_zero(void)
+static char *test_device_count_runtime_returns_nonneg(void)
 {
-    /* The scaffold returns 0 (no real HIP probe yet). When the runtime
-     * PR replaces the stub, this expectation flips to "either >= 0 from
-     * a real probe or skip when no device". */
+    /* T7-10b runtime: `vmaf_hip_device_count` now wraps
+     * `hipGetDeviceCount`. Returns 0 cleanly on hosts without an AMD
+     * GPU (or without a working HIP runtime), >= 1 on a working
+     * ROCm install. The test is contract-only; the device-resident
+     * checks below decide whether to exercise more. */
     const int n = vmaf_hip_device_count();
-    mu_assert("scaffold device_count returns 0", n == 0);
+    mu_assert("device_count returns a non-negative count", n >= 0);
     return NULL;
 }
 
@@ -77,20 +122,35 @@ static char *test_available_reports_build_flag(void)
     return NULL;
 }
 
-static char *test_state_init_returns_enosys(void)
+static char *test_state_init_runtime_contract(void)
 {
+    /* T7-10b runtime: `vmaf_hip_state_init` succeeds when at least
+     * one HIP device is visible to the runtime, otherwise returns
+     * -ENODEV. Skip the success branch on hosts without a GPU; the
+     * `>= 0` device-count contract is pinned separately. */
     VmafHipConfiguration cfg = {.device_index = -1, .flags = 0};
     VmafHipState *state = NULL;
     int rc = vmaf_hip_state_init(&state, cfg);
-    mu_assert("scaffold state_init returns -ENOSYS", rc == -ENOSYS);
-    mu_assert("scaffold leaves out-pointer untouched on -ENOSYS", state == NULL);
+    if (vmaf_hip_device_count() <= 0) {
+        mu_assert("state_init reports -ENODEV when no device is visible", rc == -ENODEV);
+        mu_assert("state_init leaves out-pointer NULL on -ENODEV", state == NULL);
+        return NULL;
+    }
+    mu_assert("state_init returns 0 with a real HIP device", rc == 0);
+    mu_assert("state_init populates out-pointer on success", state != NULL);
+    vmaf_hip_state_free(&state);
+    mu_assert("state_free clears the slot", state == NULL);
     return NULL;
 }
 
 static char *test_import_state_returns_enosys(void)
 {
+    /* import_state stays unwired in the runtime PR — the
+     * VmafContext-side dispatch hookup is the responsibility of the
+     * first feature-kernel PR (T7-10c). The scaffold contract
+     * (-ENOSYS) is preserved here as a reminder. */
     int rc = vmaf_hip_import_state(NULL, NULL);
-    mu_assert("scaffold import_state returns -ENOSYS", rc == -ENOSYS);
+    mu_assert("import_state returns -ENOSYS until T7-10c lands", rc == -ENOSYS);
     return NULL;
 }
 
@@ -106,63 +166,109 @@ static char *test_state_free_null_is_noop(void)
     return NULL;
 }
 
-static char *test_list_devices_returns_enosys(void)
+static char *test_list_devices_returns_count(void)
 {
+    /* T7-10b runtime: `vmaf_hip_list_devices` returns the device
+     * count (or a negative errno on a runtime-load failure). On a
+     * host with no AMD GPU the count is 0; the test only asserts
+     * the >= 0 contract so it stays portable across CI runners. */
     int rc = vmaf_hip_list_devices();
-    mu_assert("scaffold list_devices returns -ENOSYS", rc == -ENOSYS);
+    mu_assert("list_devices returns a non-negative count", rc >= 0);
     return NULL;
 }
 
-/* ---- Kernel-template helpers (T7-10 first consumer / ADR-0241) ---- */
+/* ---- Kernel-template helpers (T7-10b runtime / ADR-0212) ---- */
 /*
- * Pin the scaffold contract for `hip/kernel_template.h`: every helper
- * returns -ENOSYS while the runtime PR (T7-10b) is pending. The
- * runtime PR flips these expectations to "0 on success / negative
- * errno on a real HIP failure"; the test then exercises the full
- * lifecycle against a real device. Until then the -ENOSYS pin is
- * the bit-rot guard.
+ * Runtime PR (T7-10b) flips every helper from -ENOSYS to a real
+ * HIP runtime call. Tests that need a live device skip themselves
+ * cleanly when no AMD GPU is visible; the partial-init / null-
+ * argument paths stay verifiable on every host.
  */
 
-static char *test_kernel_lifecycle_init_returns_enosys(void)
+static char *test_kernel_lifecycle_init_runtime(void)
 {
+    /* Init creates a stream + 2 events. On hosts without HIP it
+     * returns a negative errno (-ENODEV / -EINVAL / -EIO depending
+     * on the runtime's failure mode). On a host with >=1 HIP
+     * device, init succeeds and populates non-zero handles. */
     VmafHipKernelLifecycle lc = {0};
     const int rc = vmaf_hip_kernel_lifecycle_init(&lc, NULL);
-    mu_assert("scaffold kernel_lifecycle_init returns -ENOSYS", rc == -ENOSYS);
-    mu_assert("scaffold leaves stream handle at 0", lc.str == 0);
-    mu_assert("scaffold leaves submit event at 0", lc.submit == 0);
-    mu_assert("scaffold leaves finished event at 0", lc.finished == 0);
+    if (vmaf_hip_device_count() <= 0) {
+        mu_assert("kernel_lifecycle_init returns negative errno when no device", rc < 0);
+        mu_assert("kernel_lifecycle_init leaves stream handle at 0", lc.str == 0);
+        mu_assert("kernel_lifecycle_init leaves submit event at 0", lc.submit == 0);
+        mu_assert("kernel_lifecycle_init leaves finished event at 0", lc.finished == 0);
+        return NULL;
+    }
+    mu_assert("kernel_lifecycle_init returns 0 on a real device", rc == 0);
+    mu_assert("kernel_lifecycle_init populates stream handle", lc.str != 0);
+    mu_assert("kernel_lifecycle_init populates submit event", lc.submit != 0);
+    mu_assert("kernel_lifecycle_init populates finished event", lc.finished != 0);
+    const int close_rc = vmaf_hip_kernel_lifecycle_close(&lc, NULL);
+    mu_assert("kernel_lifecycle_close clean tear-down", close_rc == 0);
+    mu_assert("kernel_lifecycle_close clears stream handle", lc.str == 0);
+    mu_assert("kernel_lifecycle_close clears submit event", lc.submit == 0);
+    mu_assert("kernel_lifecycle_close clears finished event", lc.finished == 0);
     return NULL;
 }
 
-static char *test_kernel_readback_alloc_returns_enosys(void)
+static char *test_kernel_readback_alloc_runtime(void)
 {
+    /* Alloc requests one device buffer + one pinned host buffer.
+     * Skip on hosts without HIP. With a device, exercise a
+     * round-trip: write a sentinel into the pinned buffer, copy
+     * host -> device -> back, and verify the byte arrived intact.
+     * This is the load-bearing "pinned host alloc actually
+     * round-trips through the device" check the runtime PR has to
+     * pin. */
     VmafHipKernelReadback rb = {0};
     const int rc = vmaf_hip_kernel_readback_alloc(&rb, NULL, sizeof(uint64_t));
-    mu_assert("scaffold kernel_readback_alloc returns -ENOSYS", rc == -ENOSYS);
-    mu_assert("scaffold leaves device pointer at NULL", rb.device == NULL);
-    mu_assert("scaffold leaves host_pinned pointer at NULL", rb.host_pinned == NULL);
-    mu_assert("scaffold records requested byte count", rb.bytes == sizeof(uint64_t));
+    if (vmaf_hip_device_count() <= 0) {
+        mu_assert("kernel_readback_alloc returns negative errno when no device", rc < 0);
+        mu_assert("kernel_readback_alloc leaves device pointer at NULL", rb.device == NULL);
+        mu_assert("kernel_readback_alloc leaves host_pinned pointer at NULL",
+                  rb.host_pinned == NULL);
+        return NULL;
+    }
+    mu_assert("kernel_readback_alloc succeeds on a real device", rc == 0);
+    mu_assert("kernel_readback_alloc populates device pointer", rb.device != NULL);
+    mu_assert("kernel_readback_alloc populates host_pinned pointer", rb.host_pinned != NULL);
+    mu_assert("kernel_readback_alloc records requested byte count", rb.bytes == sizeof(uint64_t));
+    /* Round-trip: pinned host -> device -> back. */
+    uint64_t sentinel = 0xCAFEBABE12345678ULL;
+    /* Use volatile so the optimiser cannot fold the read after the
+     * second hipMemcpy into the original `sentinel` constant. */
+    volatile uint64_t *host = (volatile uint64_t *)rb.host_pinned;
+    *host = sentinel;
+    extern int test_hip_memcpy_round_trip(void *device, void *host_pinned, size_t bytes);
+    const int trip_rc = test_hip_memcpy_round_trip(rb.device, rb.host_pinned, rb.bytes);
+    mu_assert("hipMemcpy round-trip succeeds", trip_rc == 0);
+    mu_assert("round-trip preserves the sentinel byte pattern", *host == sentinel);
+    const int free_rc = vmaf_hip_kernel_readback_free(&rb, NULL);
+    mu_assert("kernel_readback_free clean release", free_rc == 0);
+    mu_assert("kernel_readback_free clears device pointer", rb.device == NULL);
+    mu_assert("kernel_readback_free clears host_pinned pointer", rb.host_pinned == NULL);
     return NULL;
 }
 
-static char *test_kernel_lifecycle_close_is_noop(void)
+static char *test_kernel_lifecycle_close_zero_is_noop(void)
 {
     /* Close on an all-zero lifecycle must succeed (mirrors the CUDA
      * twin's "safe to call on a partially-initialised lifecycle"
-     * contract). The scaffold body has nothing to release; the
-     * runtime PR will sequence hipStreamDestroy / hipEventDestroy. */
+     * contract). The runtime body short-circuits when every handle
+     * is zero. */
     VmafHipKernelLifecycle lc = {0};
     const int rc = vmaf_hip_kernel_lifecycle_close(&lc, NULL);
-    mu_assert("scaffold kernel_lifecycle_close returns 0 on zero handles", rc == 0);
+    mu_assert("kernel_lifecycle_close returns 0 on zero handles", rc == 0);
     return NULL;
 }
 
-static char *test_kernel_readback_free_is_noop(void)
+static char *test_kernel_readback_free_zero_is_noop(void)
 {
     /* Same partially-allocated contract as the lifecycle close. */
     VmafHipKernelReadback rb = {0};
     const int rc = vmaf_hip_kernel_readback_free(&rb, NULL);
-    mu_assert("scaffold kernel_readback_free returns 0 on zero handles", rc == 0);
+    mu_assert("kernel_readback_free returns 0 on zero handles", rc == 0);
     return NULL;
 }
 
@@ -291,17 +397,17 @@ static const test_fn test_table[] = {
     test_context_new_returns_zeroed_struct,
     test_context_new_rejects_null_out,
     test_context_destroy_null_is_noop,
-    test_device_count_scaffold_returns_zero,
+    test_device_count_runtime_returns_nonneg,
     test_available_reports_build_flag,
-    test_state_init_returns_enosys,
+    test_state_init_runtime_contract,
     test_import_state_returns_enosys,
     test_state_free_null_is_noop,
-    test_list_devices_returns_enosys,
+    test_list_devices_returns_count,
     /* T7-10 first consumer (ADR-0241) */
-    test_kernel_lifecycle_init_returns_enosys,
-    test_kernel_readback_alloc_returns_enosys,
-    test_kernel_lifecycle_close_is_noop,
-    test_kernel_readback_free_is_noop,
+    test_kernel_lifecycle_init_runtime,
+    test_kernel_readback_alloc_runtime,
+    test_kernel_lifecycle_close_zero_is_noop,
+    test_kernel_readback_free_zero_is_noop,
     test_psnr_hip_extractor_registered,
     /* T7-10b third + fourth consumers (ADR-0257 / ADR-0258) */
     test_ciede_hip_extractor_registered,

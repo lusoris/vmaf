@@ -223,3 +223,42 @@ GPU — `vmaf_hip_device_count() == 0` short-circuits device-resident
 assertions per the contract pinned in `test_hip_smoke.c`. Lane
 renamed from "T7-10 scaffold" to "T7-10b runtime" to reflect that
 the runtime PR (#499) lands on top of this CI bring-up.
+
+### Status update 2026-05-08: T7-10b runtime landed
+
+The T7-10b runtime PR landed against a host with a working ROCm
+7.2.x install and a `gfx1036` AMD GPU visible to `hipGetDeviceCount`.
+It flips:
+
+- `libvmaf/src/hip/kernel_template.c` — every helper now wraps a
+  real HIP runtime call (`hipStreamCreateWithFlags`,
+  `hipEventCreateWithFlags`, `hipMalloc`, `hipHostMalloc`,
+  `hipMemsetAsync`, `hipStreamWaitEvent`, `hipStreamSynchronize`,
+  `hipStreamDestroy`, `hipEventDestroy`, `hipFree`, `hipHostFree`).
+  Rolls back on partial-failure paths.
+- `libvmaf/src/hip/common.c` — `vmaf_hip_device_count`,
+  `vmaf_hip_state_init`, `vmaf_hip_state_free`, and
+  `vmaf_hip_list_devices` now invoke real HIP runtime calls.
+  `vmaf_hip_import_state` stays at `-ENOSYS` pending T7-10c (the
+  first-feature-kernel PR wires the dispatch hookup).
+- `libvmaf/src/hip/meson.build` — flips `dependency('hip-lang')`
+  from `required: false` to a hard linkage. Falls back to
+  `cc.find_library('amdhip64', dirs: hip_search_paths)` rooted at
+  `/opt/rocm/lib` (and `HIP_PATH` if set) because the ROCm 7.x
+  package ships no `hip-lang.pc` and the cmake config's clangrt
+  expectation breaks under meson's CMake probe. The fallback path
+  attaches `-D__HIP_PLATFORM_AMD__=1` and the ROCm include dir as
+  a system include.
+- `libvmaf/test/test_hip_smoke.c` — the four kernel-template
+  helpers + `vmaf_hip_state_init` + `vmaf_hip_list_devices` now
+  pin the runtime contract (success on a host with `>=1` HIP
+  device, `-ENODEV` when none). Adds a pinned-host → device →
+  pinned-host `hipMemcpy` round-trip with a sentinel byte pattern
+  to guard the memory-pool path from regression.
+
+The `enable_hip` build option remains default-off and now
+hard-requires the ROCm runtime when on. The next planned PR
+(T7-10c) lands the first feature kernel (likely VIF, mirroring
+the Vulkan T5-1b pathfinder choice) and flips
+`vmaf_hip_import_state` from `-ENOSYS` to a real
+`VmafContext`-side dispatch hookup.

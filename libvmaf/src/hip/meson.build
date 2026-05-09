@@ -85,14 +85,52 @@ hip_sources += files(
     '../feature/hip/float_ssim_hip.c',
 )
 
-# Optional probe — does not gate the build. Real linkage against
-# `hip-lang` / `amdhip64` arrives with the runtime PR; this line
-# documents the intended dependency name for that follow-up.
-hip_runtime_dep = dependency('hip-lang', required: false)
-if hip_runtime_dep.found()
-    hip_deps += hip_runtime_dep
+# T7-10b runtime linkage. ROCm ships `hip_runtime_api.h` under
+# `/opt/rocm/include` and the host runtime under
+# `/opt/rocm/lib/libamdhip64.so`. The ROCm 7.x package does NOT
+# publish a `hip-lang.pc`; the cmake config is the supported
+# discovery path. Try meson's pkg-config / cmake probe first; on
+# miss, fall back to a manual `find_library` rooted at the usual
+# ROCm install prefixes plus an `HIP_PATH` env override.
+hip_search_paths = []
+hip_path_env = run_command(
+    'sh', '-c', 'printf %s "${HIP_PATH:-}"', check: true).stdout()
+if hip_path_env != ''
+    hip_search_paths += [hip_path_env / 'lib', hip_path_env / 'lib64']
 endif
+hip_search_paths += [
+    '/opt/rocm/lib',
+    '/opt/rocm/lib64',
+    '/usr/lib/x86_64-linux-gnu',
+    '/usr/lib64',
+]
 
-# TODO (post-scaffold): hipcc-driven kernel compilation, hipMallocAsync
-# arena, ROCm 6.x runtime linkage. Until then the TUs above use only
-# C99 + errno.h.
+hip_runtime_dep = dependency('hip-lang', required: false)
+if not hip_runtime_dep.found()
+    hip_lib = cc.find_library('amdhip64',
+        dirs: hip_search_paths,
+        required: true)
+    hip_include_candidates = []
+    if hip_path_env != ''
+        hip_include_candidates += hip_path_env / 'include'
+    endif
+    hip_include_candidates += ['/opt/rocm/include', '/usr/include']
+    hip_include_dir = ''
+    foreach candidate : hip_include_candidates
+        if hip_include_dir == '' and run_command(
+            'sh', '-c', 'test -f "@0@/hip/hip_runtime_api.h"'.format(candidate),
+            check: false).returncode() == 0
+            hip_include_dir = candidate
+        endif
+    endforeach
+    if hip_include_dir == ''
+        error('HIP runtime header `<hip/hip_runtime_api.h>` not found. ' +
+              'Set HIP_PATH or install rocm-hip-runtime-dev.')
+    endif
+    hip_runtime_dep = declare_dependency(
+        dependencies: [hip_lib],
+        compile_args: ['-D__HIP_PLATFORM_AMD__=1'],
+        include_directories: include_directories(hip_include_dir, is_system: true),
+    )
+endif
+hip_deps += hip_runtime_dep
