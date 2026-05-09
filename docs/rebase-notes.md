@@ -32481,3 +32481,30 @@ ninja -C build
 # Confirm kernel launches on device by running vmaf with --feature float_psnr_hip
 ```
 
+
+---
+
+## `speed_qa` -- real SpEED-QA implementation (ADR-0253)
+
+`libvmaf/src/feature/speed_qa.c` went from a 71-line placeholder scaffold to a
+~380-line real implementation. The extractor now sets
+`VMAF_FEATURE_EXTRACTOR_TEMPORAL` and carries `priv_size = sizeof(SpeedQaState)`;
+the registration entry in `feature_extractor_list[]` is unchanged (always
+unconditional, outside the `#if VMAF_FLOAT_FEATURES` block).
+
+**No upstream rebase conflict expected.** The scaffold was fork-local; Netflix
+upstream has no `speed_qa.c`. The upstream `speed.c` is unmodified.
+
+**Rebase invariant:** `vmaf_fex_speed_qa` must stay outside the
+`VMAF_FLOAT_FEATURES` guard in `feature_extractor.c` -- `speed_qa.c` is
+compiled unconditionally (no float dependency). If a future Netflix commit
+lands a `speed_qa.c`, audit for algorithm conflicts before merging.
+
+**Re-test on rebase:**
+
+```bash
+meson setup build_test libvmaf -Denable_cuda=false -Denable_sycl=false
+ninja -C build_test test/test_speed_qa
+meson test -C build_test test_speed_qa --verbose
+# Expected: 5 tests run, 5 passed
+```
