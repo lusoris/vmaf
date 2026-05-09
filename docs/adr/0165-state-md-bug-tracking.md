@@ -117,3 +117,44 @@ slot in the hard-rules block):
 - `req` — user direction 2026-04-25: "well then update the state files
   thats bullshit as well" → "well then lets go" (popup choice:
   tracked `docs/state.md`).
+
+### Status update 2026-05-09: comprehensive verify-every-row audit landed
+
+A comprehensive verify-every-row audit of `docs/state.md` ran on
+2026-05-09 (per [Research-0090](../research/0090-state-md-row-audit-2026-05-09.md)).
+The trigger was five honest-NO-OP findings earlier in the session
+(VK Step A / T6-1 / T6-2a-A / HP-5 v1 / T7-5 / T6-9) caused by
+stale rows pointing at deferred work that had actually shipped
+weeks ago. The `state-md-touch` CI gate (#479) prevents *future*
+drift but does not catch *historical* drift.
+
+Per Research-0090 §4 aggregate (49 sub-rows audited):
+
+- **Open**: 3 rows. V=3 / S=0 / G=3 (all genuinely open per
+  ADR-Accepted decisions: ADR-0264 / ADR-0269 / ADR-0273).
+- **Deferred (dataset)**: 1 active row. V=1 / S=0 / G=1
+  (PR #466 still OPEN).
+- **Recently closed**: 41 sub-rows. V=33 / S(backfill)=8 / G=0.
+- **Confirmed not-affected**: 3 rows. V=3 / S=0 / G=0.
+- **Deferred (external-trigger)**: 1 row. V=1 / S=0 / G=1
+  (Netflix#1494 still OPEN per `gh pr view --repo Netflix/vmaf`).
+
+The 8 STALE rows were all "this PR" -> post-merge backfill — the
+row was added in the closing PR's branch using "this PR" as a
+placeholder, the merge happened, but the placeholder was never
+rewritten to the merged numeric PR. This is a *new* drift mode
+the `state-md-touch` gate does not catch (it only checks state.md
+was *touched*, not that it *names a real merged PR*). Rows
+updated to the merged numeric refs in the same PR as this status
+update: PRs #511, #470, #424, #420, #419, #414, #337, #155, #173.
+
+No row was found to be incorrectly Open; per the user's
+`feedback_no_test_weakening` rule, none were closed-to-clean.
+
+Verification commands cited inline per row in Research-0090
+(`gh pr view <N> --json state,mergedAt,title --jq …` for PR
+claims; `gh pr view <N> --repo Netflix/vmaf` for upstream-watch
+rows; `grep` / `find` for file / symbol claims). All VERIFIED
+rows got an `_(verified 2026-05-09)_` annotation in their
+rightmost column so a future spot-check is distinguishable from
+a pre-audit row.
