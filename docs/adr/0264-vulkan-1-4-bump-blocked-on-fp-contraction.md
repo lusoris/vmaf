@@ -133,3 +133,24 @@ explicitly rejected — see *Alternatives considered*.
   `integer_vif_scale2` (45/48 mismatches, max abs 1.527e-02) and
   `ciede2000` (42/48 mismatches, max abs 1.67e-04); investigate the
   root cause, decide fix-vs-document, ship accordingly.*
+
+## Status update 2026-05-09: Step B applied, gated on Phase 3c
+
+The four `apiVersion` sites have been bumped from `VK_API_VERSION_1_3`
+to `VK_API_VERSION_1_4` (`common.c:54`, `:264`, `:374`;
+`vma_impl.cpp:22` `1003000` → `1004000`). The bump ships as a DRAFT PR
+held behind Phase 3c (PR #512, NVIDIA `subgroupAdd(int64_t)`
+workaround). Cross-backend parity gate at API 1.4, this session,
+against `src01_hrc00_576x324.yuv` ↔ `src01_hrc01_576x324.yuv` (48
+frames, places=4):
+
+| Device                                                 | vif          | ciede        | adm | motion | psnr |
+| ------------------------------------------------------ | ------------ | ------------ | --- | ------ | ---- |
+| NVIDIA RTX 4090 (driver 595.71.05, Vulkan 1.4.329)     | FAIL 45/48   | OK (8.9e-05) | OK  | OK     | OK   |
+| Intel Arc A380 (Mesa anv, Vulkan 1.4.348)              | OK (2.0e-06) | OK (6.9e-05) | OK  | OK     | OK   |
+| AMD RADV (lavapipe RAPHAEL\_MENDOCINO, Vulkan 1.4.348) | OK (2.0e-06) | OK (8.3e-05) | OK  | OK     | OK   |
+
+NVIDIA `integer_vif_scale2` max abs is 1.527e-02 — identical to the
+original Step-B-blocked baseline, confirming Phase 3c is the only
+remaining blocker. Step B's PR is block-on-merge until Phase 3c lands
+and all three lanes report 0/N mismatches.

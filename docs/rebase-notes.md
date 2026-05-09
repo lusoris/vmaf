@@ -9400,6 +9400,7 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -9808,4 +9809,36 @@ PASS under both `CONFIG_LIBVMAF_CUDA=0` (selector errors at filter-
 init time per `#else` branch) and `CONFIG_LIBVMAF_CUDA=1 &&
 !CONFIG_LIBVMAF_CUDA_FILTER` (selector active, picture-pool wiring
 compiles).
+
+
+### 0320 — Vulkan instance / VMA `apiVersion` bump to 1.4 (Step B)
+
+- **Touches**: `libvmaf/src/vulkan/common.c`,
+  `libvmaf/src/vulkan/vma_impl.cpp`, `libvmaf/src/vulkan/AGENTS.md`.
+- **Invariant**: the four `apiVersion` sites (lines 54, 264, 374 of
+  `common.c`; line 22 of `vma_impl.cpp`) request **Vulkan 1.4**, not
+  1.3. Together with the Step-A `precise` decorations in
+  `vif.comp` / `ciede.comp` (PR #346) and the Phase-3 cross-subgroup
+  release-acquire fix (PR #511), this gates the cross-backend places=4
+  contract on Arc + RADV. NVIDIA closure depends on Phase 3c (PR #512;
+  block-on-merge until that lands). Netflix upstream does not carry a
+  VMA dependency or a Vulkan backend; no upstream merge conflict
+  expected on these files.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build -Denable_vulkan=enabled -Denable_cuda=false \
+    -Denable_sycl=false --buildtype=release
+  ninja -C build
+  for D in 0 1 2; do
+    python3 scripts/ci/cross_backend_parity_gate.py \
+      --vmaf-binary build/tools/vmaf \
+      --reference python/test/resource/yuv/src01_hrc00_576x324.yuv \
+      --distorted python/test/resource/yuv/src01_hrc01_576x324.yuv \
+      --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+      --backends cpu vulkan --vulkan-device "$D" \
+      --features vif ciede adm motion psnr
+  done
+  # All 0/N mismatches at places=4 once Phase 3c (PR #512) has landed.
+  ```
 

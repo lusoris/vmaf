@@ -19,7 +19,7 @@
 /* VMA_VULKAN_VERSION matches the API version we request in
  * vmaCreateAllocator() — anything lower would silently disable
  * features we want (e.g. VK_KHR_buffer_device_address). */
-#define VMA_VULKAN_VERSION 1003000
+#define VMA_VULKAN_VERSION 1004000
 
 /* Use volk's function-pointer table; VMA picks them up via
  * VmaAllocatorCreateInfo.pVulkanFunctions = vma_fns. */

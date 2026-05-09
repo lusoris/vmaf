@@ -51,9 +51,9 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   a new GPU twin, run the cross-backend gate at the contracted
   `places` precision target before declaring success.
 - **`precise` is NOT a substitute for the cross-backend gate on
-  NVIDIA at API ≥ 1.4** ([ADR-0264](../../../docs/adr/0264-vulkan-1-4-bump-blocked-on-fp-contraction.md)
-  + [ADR-0269](../../../docs/adr/0269-vif-ciede-precise-step-a.md)
-  + [research-0054](../../../docs/research/0056-vif-ciede-precise-step-a-implementation.md)):
+  NVIDIA at API ≥ 1.4** ([ADR-0264](../../../docs/adr/0264-vulkan-1-4-bump-blocked-on-fp-contraction.md),
+  [ADR-0269](../../../docs/adr/0269-vif-ciede-precise-step-a.md),
+  [research-0054](../../../docs/research/0056-vif-ciede-precise-step-a-implementation.md)):
   driver 595.71 has been observed to drift on `vif.comp` scale-2
   (45/48 mismatches, max abs `1.527e-02`) under a 1.4 bump *despite*
   every load-bearing FP op being correctly decorated with
@@ -65,8 +65,10 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   actual NVIDIA lane after any change that touches a float-heavy
   shader. The four `apiVersion` sites
   ([`common.c:54/264/374`](common.c) + [`vma_impl.cpp:22`](vma_impl.cpp))
-  remain pinned at `VK_API_VERSION_1_3` until Step B's gating
-  conditions in ADR-0264 are met.
+  were bumped to `VK_API_VERSION_1_4` in Step B (DRAFT PR — see
+  ADR-0264 status appendix 2026-05-09); the bump is held behind
+  Phase 3c (PR #512) until the NVIDIA `subgroupAdd(int64_t)`
+  workaround closes the residual `integer_vif_scale2` 45/48 gap.
 - **Conservative `precise` scope on `ciede.comp` is empirically
   optimal**: widening it into the helper functions (`get_h_prime`,
   `get_upcase_t`, `get_r_sub_t`, `srgb_to_linear`, `xyz_to_lab_map`)
@@ -113,23 +115,25 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   PR. Adding a new GLSL kernel requires a `FEATURE_TOLERANCE`
   entry if it relaxes places=4, plus a row in
   [`docs/development/cross-backend-gate.md`](../../../docs/development/cross-backend-gate.md).
-- **Instance / VMA Vulkan API version pinned at 1.3
+- **Instance / VMA Vulkan API version bumped to 1.4 (Step B,
+  gated on Phase 3c)
   ([ADR-0264](../../../docs/adr/0264-vulkan-1-4-bump-blocked-on-fp-contraction.md))**:
   the four sites — `apiVersion` on lines 54, 264, 374 of
-  `common.c` and `VMA_VULKAN_VERSION` (`1003000`) on line 22 of
-  `vma_impl.cpp` — must stay at 1.3 until the shader-side
-  FP-contraction audit (T-VK-1.4-BUMP step A) tags load-bearing
-  float ops `precise` in `feature/vulkan/shaders/vif.comp` and
-  `feature/vulkan/shaders/ciede.comp`. Bumping without that audit
-  reintroduces NVIDIA driver ≥ 1.4.329's FMA-contraction default
-  flip captured in
-  [research-0053](../../../docs/research/0053-vulkan-1-4-nvidia-fp-contraction-regression.md):
-  `integer_vif_scale2` 45/48 frame mismatches (max abs 1.527e-02)
-  and `ciede2000` 42/48 frame mismatches (max abs 1.67e-04) above
-  the `places=4` cross-backend gate. Compiled SPIR-V is
-  byte-identical at vulkan1.3 vs vulkan1.4; the regression is
-  purely runtime, mediated by core `shaderFloatControls2` on
-  Vulkan 1.4.
+  `common.c` and `VMA_VULKAN_VERSION` (`1004000`) on line 22 of
+  `vma_impl.cpp` — now request Vulkan 1.4. The Step-A precise
+  audit (PR #346) and the Phase-3 cross-subgroup release-acquire
+  fix (PR #511) closed Arc + RADV at places=4. NVIDIA driver
+  595.71.05 + RTX 4090 still fails `integer_vif_scale2` 45/48
+  (max abs 1.527e-02) until Phase 3c (PR #512) lands the
+  `subgroupAdd(int64_t)` workaround. Step B's PR is DRAFT and
+  block-on-merge until Phase 3c is green on the NVIDIA lane.
+  Captured originally in
+  [research-0053](../../../docs/research/0053-vulkan-1-4-nvidia-fp-contraction-regression.md);
+  status update in
+  [research-0089 2026-05-09 appendix](../../../docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md).
+  Compiled SPIR-V is byte-identical at vulkan1.3 vs vulkan1.4;
+  the regression is purely runtime, mediated by core
+  `shaderFloatControls2` on Vulkan 1.4.
 
 - **`vif.comp` SCALE = 2 cross-subgroup reduction is a memory-model
   hot-spot at API 1.4** ([research-0089
@@ -199,15 +203,16 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
 - [ADR-0273](../../../docs/adr/0273-ciede-vulkan-nvidia-f32-f64-precision-gap.md) —
   ciede2000 NVIDIA-Vulkan places=4 5/48 fork debt is a structural
   f32/f64 colour-space-chain precision gap (CPU `get_lab_color`
-  runs in `double`, shader runs in `float`). **Do not** promote the
-  ciede shader to f64 — `shaderFloat64` is optional and runs at
-  1/64 fp32 throughput on RTX 4090. **Do not** narrow the CPU
+  runs in `double`, shader runs in `float`). **Do not** promote
+  the ciede shader to f64 — `shaderFloat64` is optional and runs
+  at 1/64 fp32 throughput on RTX 4090. **Do not** narrow the CPU
   reference to f32 — that changes Netflix golden ground truth.
   See ADR-0273 + research-0055 before "fixing" the 5/48 tail.
+
 Orientation for agents working on the Vulkan backend runtime. Parent:
 [../../AGENTS.md](../../AGENTS.md).
 
-## Scope
+## Layout
 
 The Vulkan-side runtime (instance / device / queue / VMA allocator
 lifecycle, picture buffer pools, dispatch helpers, host-side import
@@ -218,33 +223,17 @@ GLSL compute shaders under
 
 ```text
 vulkan/
-  common.c              # context init + global state
+  common.c               # context init + global state (instance, device, queue)
   dispatch_strategy.c/.h # PRIMARY vs SECONDARY cmdbuf decision
-  import.c              # VkImage zero-copy import slots
-  import_picture.h      # public-facing import surface
-  kernel_template.h     # per-feature Vulkan kernel scaffolding (ADR-0246)
-  meson.build           # SPIR-V embed chain (glslc + spv_embed.py)
-  picture_vulkan.c/.h   # VmafPicture on a Vulkan device + buffers
-  spv_embed.py          # generates per-shader <name>_spv.h byte array
-  vma_impl.cpp          # VMA allocator instantiation TU
-  vulkan_common.h       # opaque public surface
-  vulkan_internal.h     # context + import-slot layout (kernel-side)
-The Vulkan-side runtime (volk loader, VkInstance / VkDevice +
-compute queue setup, VMA allocator, command pool, picture
-lifecycle, VkImage zero-copy import). Vulkan **feature
-kernels** live one level deeper in
-[../feature/vulkan/](../feature/vulkan/).
-
-```
-vulkan/
-  common.c                # VkInstance / VkDevice / queue / pool
-  picture_vulkan.{c,h}    # VkBuffer alloc / flush / host-pointer
-  import.c                # T7-29: VkImage zero-copy import
-  import_picture.h        # bridge from import.c → libvmaf.c
-  vulkan_internal.h       # VmafVulkanContext / State / ImportSlots
-  vma_impl.cpp            # VMA C++17 impl TU
-  dispatch_strategy.{c,h} # per-feature dispatch shape selection
-  spv_embed.py            # SPIR-V → C array build helper
+  import.c               # VkImage zero-copy import slots (T7-29)
+  import_picture.h       # public-facing import surface
+  kernel_template.h      # per-feature Vulkan kernel scaffolding (ADR-0246)
+  meson.build            # SPIR-V embed chain (glslc + spv_embed.py)
+  picture_vulkan.c/.h    # VmafPicture on a Vulkan device + buffers
+  spv_embed.py           # generates per-shader <name>_spv.h byte array
+  vma_impl.cpp           # VMA C++17 implementation TU
+  vulkan_common.h        # opaque public surface
+  vulkan_internal.h      # VmafVulkanContext / State / ImportSlots
 ```
 
 ## Ground rules
@@ -381,12 +370,6 @@ Requires `dependency('vulkan')`, `glslc` (Vulkan SDK or shaderc
 package), and the bundled volk + VMA subprojects. The lavapipe
 software rasteriser (Mesa) is sufficient for the cross-backend
 gate; physical GPUs (Arc A380, RTX 4090) cover the advisory lanes.
-meson setup build -Denable_vulkan=enabled -Denable_cuda=false -Denable_sycl=false
-ninja -C build
-```
-
-Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
-`glslangValidator` as a fallback) on PATH.
 
 ## Governing ADRs
 
