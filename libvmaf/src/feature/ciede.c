@@ -282,7 +282,8 @@ static float ciede2000(LABColor color_1, LABColor color_2, KSubArgs ksub)
     const float h_prime_1 = get_h_prime(color_1.b, a_prime_1);
     const float h_prime_2 = get_h_prime(color_2.b, a_prime_2);
     const float delta_h_prime = get_delta_h_prime(c1, c2, h_prime_1, h_prime_2);
-    const float delta_upcase_h_prime = 2.0 * sqrt(c_prime_1 * c_prime_2) * sin(delta_h_prime / 2.0);
+    const float delta_upcase_h_prime =
+        2.0 * sqrt((double)c_prime_1 * c_prime_2) * sin(delta_h_prime / 2.0);
     const float upcase_h_bar_prime = get_upcase_h_bar_prime(h_prime_1, h_prime_2);
     const float upcase_t = get_upcase_t(upcase_h_bar_prime);
     const float s_sub_upcase_h = 1.0 + 0.015 * c_bar_prime * upcase_t;
@@ -291,7 +292,7 @@ static float ciede2000(LABColor color_1, LABColor color_2, KSubArgs ksub)
     const float chroma = delta_c_prime / (ksub.c * s_sub_c);
     const float hue = delta_upcase_h_prime / (ksub.h * s_sub_upcase_h);
 
-    return sqrt(pow(lightness, 2) + pow(chroma, 2) + pow(hue, 2) + r_sub_t * chroma * hue);
+    return sqrt(pow(lightness, 2) + pow(chroma, 2) + pow(hue, 2) + (double)r_sub_t * chroma * hue);
 }
 
 static double pow_2_4(double x)

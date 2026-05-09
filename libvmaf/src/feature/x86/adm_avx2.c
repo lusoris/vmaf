@@ -2246,7 +2246,7 @@ static inline float dwt_quant_step(const struct dwt_model_params *params, int la
 
     // Formula (9), page 1171
     float temp = log10(pow(2.0, lambda + 1) * params->f0 * params->g[theta] / r);
-    float Q = 2.0 * params->a * pow(10.0, params->k * temp * temp) /
+    float Q = 2.0 * params->a * pow(10.0, params->k * (double)temp * temp) /
               dwt_7_9_basis_function_amplitudes[lambda][theta];
 
     return Q;
@@ -3597,8 +3597,6 @@ void adm_dwt2_s123_combined_avx2(const int32_t *i4_ref_scale, const int32_t *i4_
     int w_mod4 = (w - (w % 4));
     int half_w_mod4 = ((w + 1) / 2) - ((((w + 1) / 2) - 1) % 4);
 
-    // printf("%dx%d %d\n", w,h, half_w_mod4);
-
     for (int i = 0; i < (h + 1) / 2; ++i) {
         /* Vertical pass. */
         for (int j = 0; j < w_mod4; j += 4) {
@@ -3658,17 +3656,9 @@ void adm_dwt2_s123_combined_avx2(const int32_t *i4_ref_scale, const int32_t *i4_
 
             // 0 1 2 3
             accum_ref_lo_256 = _mm256_add_epi64(accum_ref_lo_256, add_bef_shift_round_VP_256);
-            // if (scale > 1)
-            // {
-            //     print_256_64(accum_ref_lo_256); printf("\n");
-            // }
             accum_ref_lo_256 =
                 _mm256_or_si256(_mm256_srli_epi64(accum_ref_lo_256, shift_VP),
                                 _mm256_and_si256(accum_ref_lo_256, mask_msb_shift_VP));
-            // if (scale > 1)
-            // {
-            //     print_256_64(accum_ref_lo_256); printf("\n");
-            // }
             accum_ref_hi_256 = _mm256_add_epi64(accum_ref_hi_256, add_bef_shift_round_VP_256);
             accum_ref_hi_256 =
                 _mm256_or_si256(_mm256_srli_epi64(accum_ref_hi_256, shift_VP),
@@ -3681,12 +3671,6 @@ void adm_dwt2_s123_combined_avx2(const int32_t *i4_ref_scale, const int32_t *i4_
             accum_dis_hi_256 =
                 _mm256_or_si256(_mm256_srli_epi64(accum_dis_hi_256, shift_VP),
                                 _mm256_and_si256(accum_dis_hi_256, mask_msb_shift_VP));
-
-            // if (scale > 1)
-            // {
-            //     print_256_32(_mm256_permutevar8x32_epi32(accum_ref_lo_256, _mm256_setr_epi32(0, 2, 4, 6, 0, 0, 0, 0))); printf("\n");
-            //     while(1);
-            // }
 
             _mm_storeu_si128((__m128i *)(tmplo_ref + j),
                              _mm256_castsi256_si128(_mm256_permutevar8x32_epi32(

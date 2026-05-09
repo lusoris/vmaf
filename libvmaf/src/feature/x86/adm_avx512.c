@@ -1092,7 +1092,6 @@ void adm_decouple_avx512(AdmBuffer *buf, int w, int h, int stride, double adm_en
             tv = _mm512_sub_epi32(tv, rst_v);
             td = _mm512_sub_epi32(td, rst_d);
 
-            //__m512i perm = _mm512_set_epi16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0);
             int16_t values[32] = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30,
                                   0, 0, 0, 0, 0, 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0};
 
@@ -1947,7 +1946,7 @@ static inline float dwt_quant_step(const struct dwt_model_params *params, int la
 
     // Formula (9), page 1171
     float temp = log10(pow(2.0, lambda + 1) * params->f0 * params->g[theta] / r);
-    float Q = 2.0 * params->a * pow(10.0, params->k * temp * temp) /
+    float Q = 2.0 * params->a * pow(10.0, params->k * (double)temp * temp) /
               dwt_7_9_basis_function_amplitudes[lambda][theta];
 
     return Q;
@@ -3532,66 +3531,11 @@ void adm_dwt2_16_avx512(const uint16_t *src, const adm_dwt_band_t *dst, AdmBuffe
     __m512i accum0;
     __m512i accum0_lo;
     __m512i accum0_hi;
-    //__m512i norm_lo = _mm512_set1_epi32((int32_t)dwt2_db2_coeffs_lo_sum * add_shift_VP);
-    //__m512i norm_hi = _mm512_set1_epi32((int32_t)dwt2_db2_coeffs_hi_sum * add_shift_VP);
 
-    //int w_mod32 = (w  - (w  % 32));
     int half_w_mod64 = ((w + 1) / 2) - ((((w + 1) / 2) - 1) % 64);
 
     for (int i = 0; i < (h + 1) / 2; ++i) {
         /* Vertical pass. */
-        /*
-        for (int j = 0; j < w_mod32; j+=32) {
-            accum0_lo = _mm512_setzero_si512();
-            accum0_hi = _mm512_setzero_si512();
-
-            __m512i u_s0_512 = _mm512_loadu_si512((__m512i*)(src + (ind_y[0][i] * src_stride + j)));
-            __m512i u_s1_512 = _mm512_loadu_si512((__m512i*)(src + (ind_y[1][i] * src_stride + j)));
-            __m512i u_s2_512 = _mm512_loadu_si512((__m512i*)(src + (ind_y[2][i] * src_stride + j)));
-            __m512i u_s3_512 = _mm512_loadu_si512((__m512i*)(src + (ind_y[3][i] * src_stride + j)));
-
-            __m512i s0_s1_lo = _mm512_unpacklo_epi16(u_s0_512, u_s1_512);
-            __m512i s0_s1_hi = _mm512_unpackhi_epi16(u_s0_512, u_s1_512);
-            __m512i s2_s3_lo = _mm512_unpacklo_epi16(u_s2_512, u_s3_512);
-            __m512i s2_s3_hi = _mm512_unpackhi_epi16(u_s2_512, u_s3_512);
-
-            accum0_lo = _mm512_add_epi32(accum0_lo, _mm512_madd_epi16(s0_s1_lo, f01_lo));
-            accum0_hi = _mm512_add_epi32(accum0_hi, _mm512_madd_epi16(s0_s1_hi, f01_lo));
-            accum0_lo = _mm512_add_epi32(accum0_lo, _mm512_madd_epi16(s2_s3_lo, f23_lo));
-            accum0_hi = _mm512_add_epi32(accum0_hi, _mm512_madd_epi16(s2_s3_hi, f23_lo));
-
-            accum0_lo = _mm512_sub_epi32(accum0_lo, norm_lo);
-            accum0_hi = _mm512_sub_epi32(accum0_hi, norm_lo);
-            accum0_lo = _mm512_add_epi32(accum0_lo, _mm512_set1_epi32(add_shift_VP));
-            accum0_hi = _mm512_add_epi32(accum0_hi, _mm512_set1_epi32(add_shift_VP));
-            accum0_lo = _mm512_srai_epi32(accum0_lo, shift_VP);
-            accum0_hi = _mm512_srai_epi32(accum0_hi, shift_VP);
-
-            accum0 = _mm512_packs_epi32(accum0_lo, accum0_hi);
-
-            _mm512_storeu_si512((__m512i*)(tmplo + j), accum0);
-
-            accum0_lo = _mm512_setzero_si512();
-            accum0_hi = _mm512_setzero_si512();
-
-            accum0_lo = _mm512_add_epi32(accum0_lo, _mm512_madd_epi16(s0_s1_lo, f01_hi));
-            accum0_hi = _mm512_add_epi32(accum0_hi, _mm512_madd_epi16(s0_s1_hi, f01_hi));
-            accum0_lo = _mm512_add_epi32(accum0_lo, _mm512_madd_epi16(s2_s3_lo, f23_hi));
-            accum0_hi = _mm512_add_epi32(accum0_hi, _mm512_madd_epi16(s2_s3_hi, f23_hi));
-
-            accum0_lo = _mm512_sub_epi32(accum0_lo, norm_hi);
-            accum0_hi = _mm512_sub_epi32(accum0_hi, norm_hi);
-            accum0_lo = _mm512_add_epi32(accum0_lo, _mm512_set1_epi32(add_shift_VP));
-            accum0_hi = _mm512_add_epi32(accum0_hi, _mm512_set1_epi32(add_shift_VP));
-            accum0_lo = _mm512_srai_epi32(accum0_lo, shift_VP);
-            accum0_hi = _mm512_srai_epi32(accum0_hi, shift_VP);
-
-            accum0 = _mm512_packs_epi32(accum0_lo, accum0_hi);
-
-            _mm512_storeu_si512((__m512i*)(tmphi + j), accum0);
-        }
-	*/
-
         for (int j = 0; j < w; ++j) {
             uint16_t u_s0 = src[ind_y[0][i] * src_stride + j];
             uint16_t u_s1 = src[ind_y[1][i] * src_stride + j];

@@ -110,7 +110,7 @@ static uint64_t sse_line_16_c(const uint16_t *ref, const uint16_t *dis, unsigned
     uint64_t sse = 0;
     for (unsigned j = 0; j < w; j++) {
         const uint32_t e = abs(ref[j] - dis[j]);
-        sse += e * e;
+        sse += (uint64_t)e * e;
     }
     return sse;
 }
@@ -173,7 +173,7 @@ static char *psnr_name[3] = {"psnr_y", "psnr_cb", "psnr_cr"};
 static int psnr(VmafPicture *ref_pic, VmafPicture *dist_pic, unsigned index,
                 VmafFeatureCollector *feature_collector, PsnrState *s)
 {
-    const uint8_t peak = 255; // (1 << ref_pic->bpc) - 1;
+    const uint8_t peak = 255;
     const unsigned n = s->enable_chroma ? 3 : 1;
 
     int err = 0;
@@ -193,7 +193,7 @@ static int psnr(VmafPicture *ref_pic, VmafPicture *dist_pic, unsigned index,
 
         if (s->enable_apsnr) {
             s->apsnr.sse[p] += sse;
-            s->apsnr.n_pixels[p] += ref_pic->h[p] * ref_pic->w[p];
+            s->apsnr.n_pixels[p] += (uint64_t)ref_pic->h[p] * ref_pic->w[p];
         }
 
         const double mse = ((double)sse) / (ref_pic->w[p] * ref_pic->h[p]);
@@ -230,7 +230,7 @@ static int psnr_hbd(VmafPicture *ref_pic, VmafPicture *dist_pic, unsigned index,
 
         if (s->enable_apsnr) {
             s->apsnr.sse[p] += sse;
-            s->apsnr.n_pixels[p] += ref_pic->h[p] * ref_pic->w[p];
+            s->apsnr.n_pixels[p] += (uint64_t)ref_pic->h[p] * ref_pic->w[p];
         }
 
         const double mse = ((double)sse) / (ref_pic->w[p] * ref_pic->h[p]);
@@ -278,7 +278,8 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
             double apsnr = 10 * (log10(s->peak * s->peak) + log10(s->apsnr.n_pixels[i]) -
                                  log10(s->apsnr.sse[i]));
 
-            double max_apsnr = ceil(10 * log10(s->peak * s->peak * s->apsnr.n_pixels[i] * 2));
+            double max_apsnr =
+                ceil(10 * log10((uint64_t)s->peak * s->peak * s->apsnr.n_pixels[i] * 2));
 
             err |= vmaf_feature_collector_set_aggregate(feature_collector, apsnr_name[i],
                                                         MIN(apsnr, max_apsnr));

@@ -228,7 +228,7 @@ static inline float dwt_quant_step(const struct dwt_model_params *params, int la
 
     // Formula (9), page 1171
     float temp = log10(pow(2.0, lambda + 1) * params->f0 * params->g[theta] / r);
-    float Q = 2.0 * params->a * pow(10.0, params->k * temp * temp) /
+    float Q = 2.0 * params->a * pow(10.0, params->k * (double)temp * temp) /
               dwt_7_9_basis_function_amplitudes[lambda][theta];
 
     return Q;
@@ -1490,12 +1490,6 @@ static float adm_csf_den_scale(const adm_dwt_band_t *src, int w, int h, int src_
     double csf_v = (double)(accum_v / shift_csf) * pow(rfactor[1], 3);
     double csf_d = (double)(accum_d / shift_csf) * pow(rfactor[2], 3);
 
-    // TODO: if we integrate adm_p_norm, adm_p_norm=3.0f here
-    // This would mean:
-    // float powf_add = powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
-    // float den_scale_h = powf(csf_h, 1.0f / adm_p_norm) + powf_add;
-    // float den_scale_v = powf(csf_v, 1.0f / adm_p_norm) + powf_add;
-    // float den_scale_d = powf(csf_d, 1.0f / adm_p_norm) + powf_add;
     float powf_add = powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / 3.0f);
     float den_scale_h = powf(csf_h, 1.0f / 3.0f) + powf_add;
     float den_scale_v = powf(csf_v, 1.0f / 3.0f) + powf_add;
@@ -1603,12 +1597,6 @@ static float adm_csf_den_s123(const i4_adm_dwt_band_t *src, int scale, int w, in
     double csf_v = (double)(accum_v / shift_csf) * pow(rfactor[1], 3);
     double csf_d = (double)(accum_d / shift_csf) * pow(rfactor[2], 3);
 
-    // TODO: if we integrate adm_p_norm, adm_p_norm=3.0f here
-    // This would mean:
-    // float powf_add = powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
-    // float den_scale_h = powf(csf_h, 1.0f / adm_p_norm) + powf_add;
-    // float den_scale_v = powf(csf_v, 1.0f / adm_p_norm) + powf_add;
-    // float den_scale_d = powf(csf_d, 1.0f / adm_p_norm) + powf_add;
     float powf_add = powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / 3.0f);
     float den_scale_h = powf(csf_h, 1.0f / 3.0f) + powf_add;
     float den_scale_v = powf(csf_v, 1.0f / 3.0f) + powf_add;
@@ -2022,14 +2010,6 @@ static float adm_cm(AdmBuffer *buf, int w, int h, int src_stride, int csf_a_stri
     float f_accum_v = (float)(accum_v / pow(2, (52 - shift_xvcub - shift_inner_accum)));
     float f_accum_d = (float)(accum_d / pow(2, (57 - shift_xdcub - shift_inner_accum)));
 
-    // TODO: if we integrate adm_p_norm, adm_p_norm=3.0f here
-    // This would mean:
-    // float num_scale_h = powf(f_accum_h, 1.0f / adm_p_norm) + powf((bottom - top) *
-    //                     (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
-    // float num_scale_v = powf(f_accum_v, 1.0f / adm_p_norm) + powf((bottom - top) *
-    //                     (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
-    // float num_scale_d = powf(f_accum_d, 1.0f / adm_p_norm) + powf((bottom - top) *
-    //                     (right - left) * adm_noise_weight, 1.0f / adm_p_norm);
     float num_scale_h = powf(f_accum_h, 1.0f / 3.0f) +
                         powf((bottom - top) * (right - left) * adm_noise_weight, 1.0f / 3.0f);
     float num_scale_v = powf(f_accum_v, 1.0f / 3.0f) +

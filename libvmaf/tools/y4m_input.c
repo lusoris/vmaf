@@ -723,33 +723,34 @@ static int y4m_input_open_impl(y4m_input *_y4m, FILE *_fin)
         _y4m->convert = y4m_convert_null;
     } else if (strcmp(_y4m->chroma_type, "444p10") == 0) {
         _y4m->src_c_dec_h = _y4m->dst_c_dec_h = _y4m->src_c_dec_v = _y4m->dst_c_dec_v = 1;
-        _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h * 3 * 2;
+        _y4m->dst_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h * 3 * 2;
         _y4m->depth = 10;
         /*Natively supported: no conversion required.*/
         _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 0;
         _y4m->convert = y4m_convert_null;
     } else if (strcmp(_y4m->chroma_type, "444p12") == 0) {
         _y4m->src_c_dec_h = _y4m->dst_c_dec_h = _y4m->src_c_dec_v = _y4m->dst_c_dec_v = 1;
-        _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h * 3 * 2;
+        _y4m->dst_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h * 3 * 2;
         _y4m->depth = 12;
         /*Natively supported: no conversion required.*/
         _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 0;
         _y4m->convert = y4m_convert_null;
     } else if (strcmp(_y4m->chroma_type, "420paldv") == 0) {
         _y4m->src_c_dec_h = _y4m->dst_c_dec_h = _y4m->src_c_dec_v = _y4m->dst_c_dec_v = 2;
-        _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h;
+        _y4m->dst_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h;
         /*Chroma filter required: read into the aux buf first.
       We need to make two filter passes, so we need some extra space in the
        aux buffer.*/
-        _y4m->aux_buf_sz = 3 * ((_y4m->pic_w + 1) / 2) * ((_y4m->pic_h + 1) / 2);
-        _y4m->aux_buf_read_sz = 2 * ((_y4m->pic_w + 1) / 2) * ((_y4m->pic_h + 1) / 2);
+        _y4m->aux_buf_sz = (size_t)3 * ((_y4m->pic_w + 1) / 2) * ((_y4m->pic_h + 1) / 2);
+        _y4m->aux_buf_read_sz = (size_t)2 * ((_y4m->pic_w + 1) / 2) * ((_y4m->pic_h + 1) / 2);
         _y4m->convert = y4m_convert_42xpaldv_42xjpeg;
     } else if (strcmp(_y4m->chroma_type, "422") == 0) {
         _y4m->src_c_dec_h = _y4m->dst_c_dec_h = 2;
         _y4m->src_c_dec_v = _y4m->dst_c_dec_v = 1;
-        _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h;
+        _y4m->dst_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h;
         /*Chroma filter required: read into the aux buf first.*/
-        _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 2 * ((_y4m->pic_w + 1) / 2) * _y4m->pic_h;
+        _y4m->aux_buf_sz = _y4m->aux_buf_read_sz =
+            (size_t)2 * ((_y4m->pic_w + 1) / 2) * _y4m->pic_h;
         _y4m->convert = y4m_convert_42xmpeg2_42xjpeg;
     } else if (strcmp(_y4m->chroma_type, "411") == 0) {
         _y4m->src_c_dec_h = 4;
@@ -758,27 +759,28 @@ static int y4m_input_open_impl(y4m_input *_y4m, FILE *_fin)
        handle.*/
         _y4m->dst_c_dec_h = 2;
         _y4m->src_c_dec_v = _y4m->dst_c_dec_v = 1;
-        _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h;
+        _y4m->dst_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h;
         /*Chroma filter required: read into the aux buf first.*/
-        _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 2 * ((_y4m->pic_w + 3) / 4) * _y4m->pic_h;
+        _y4m->aux_buf_sz = _y4m->aux_buf_read_sz =
+            (size_t)2 * ((_y4m->pic_w + 3) / 4) * _y4m->pic_h;
         _y4m->convert = y4m_convert_411_422jpeg;
     } else if (strcmp(_y4m->chroma_type, "444") == 0) {
         _y4m->src_c_dec_h = _y4m->dst_c_dec_h = _y4m->src_c_dec_v = _y4m->dst_c_dec_v = 1;
-        _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h * 3;
+        _y4m->dst_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h * 3;
         /*Natively supported: no conversion required.*/
         _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 0;
         _y4m->convert = y4m_convert_null;
     } else if (strcmp(_y4m->chroma_type, "444alpha") == 0) {
         _y4m->src_c_dec_h = _y4m->dst_c_dec_h = _y4m->src_c_dec_v = _y4m->dst_c_dec_v = 1;
-        _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h * 3;
+        _y4m->dst_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h * 3;
         /*Read the extra alpha plane into the aux buf.
       It will be discarded.*/
-        _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = _y4m->pic_w * _y4m->pic_h;
+        _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h;
         _y4m->convert = y4m_convert_null;
     } else if (strcmp(_y4m->chroma_type, "mono") == 0) {
         _y4m->src_c_dec_h = _y4m->src_c_dec_v = 0;
         _y4m->dst_c_dec_h = _y4m->dst_c_dec_v = 2;
-        _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h;
+        _y4m->dst_buf_read_sz = (size_t)_y4m->pic_w * _y4m->pic_h;
         /*No extra space required, but we need to clear the chroma planes.*/
         _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 0;
         _y4m->convert = y4m_convert_mono_420jpeg;

@@ -647,7 +647,7 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     const uint16_t num_bins =
         1024 + (s->buffers.all_diffs[2 * num_diffs] - s->buffers.all_diffs[0]);
     s->buffers.c_values_histograms =
-        aligned_malloc(ALIGN_CEIL(alloc_w * num_bins * sizeof(uint16_t)), 32);
+        aligned_malloc(ALIGN_CEIL((size_t)alloc_w * num_bins * sizeof(uint16_t)), 32);
     if (!s->buffers.c_values_histograms)
         return -ENOMEM;
 
@@ -655,7 +655,8 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     int dp_width = alloc_w + 2 * pad_size + 1;
     int dp_height = 2 * pad_size + 2;
 
-    s->buffers.mask_dp = aligned_malloc(ALIGN_CEIL(dp_height * dp_width * sizeof(uint32_t)), 32);
+    s->buffers.mask_dp =
+        aligned_malloc(ALIGN_CEIL((size_t)dp_height * dp_width * sizeof(uint32_t)), 32);
     if (!s->buffers.mask_dp)
         return -ENOMEM;
     s->buffers.filter_mode_buffer = aligned_malloc(ALIGN_CEIL(3 * alloc_w * sizeof(uint16_t)), 32);
@@ -1044,7 +1045,7 @@ static void get_spatial_mask_for_index(const VmafPicture *image, VmafPicture *ma
 
     int dp_width = width + 2 * pad_size + 1;
     int dp_height = 2 * pad_size + 2;
-    memset(dp, 0, dp_width * dp_height * sizeof(uint32_t));
+    memset(dp, 0, (size_t)dp_width * dp_height * sizeof(uint32_t));
 
     // Initial computation: fill dp except for the last row
     for (int i = 0; i < pad_size; i++) {
@@ -1248,7 +1249,7 @@ static void calculate_c_values(VmafPicture *pic, const VmafPicture *mask_pic, fl
     // Use a histogram for each pixel in width
     // histograms[i * width + j] accesses the j'th histogram, i'th value
     // This is done for cache optimization reasons
-    memset(histograms, 0, width * num_bins * sizeof(uint16_t));
+    memset(histograms, 0, (size_t)width * num_bins * sizeof(uint16_t));
 
     // First pass: first pad_size rows
     for (int i = 0; i < pad_size; i++) {
@@ -1414,7 +1415,7 @@ static int dump_c_values(FILE *heatmaps_files[], const float *c_values, int widt
         for (int j = 0; j < width; j++) {
             to_write[j] = (uint16_t)(scaling_value * c_values[i * width + j]);
         }
-        ptrdiff_t offset = (frame * height + i) * width * sizeof(uint16_t);
+        ptrdiff_t offset = ((ptrdiff_t)frame * height + i) * width * sizeof(uint16_t);
         (void)fseek(file, offset, SEEK_SET);
         (void)fwrite((void *)to_write, sizeof(uint16_t), width, file);
     }
@@ -1424,7 +1425,7 @@ static int dump_c_values(FILE *heatmaps_files[], const float *c_values, int widt
 
 static int cambi_score(VmafPicture *pics, uint16_t window_size, double topk,
                        const uint16_t num_diffs, const uint16_t *tvi_for_diff, uint16_t vlt_luma,
-                       CambiBuffers buffers, VmafRangeUpdater inc_range_callback,
+                       const CambiBuffers *buffers, VmafRangeUpdater inc_range_callback,
                        VmafRangeUpdater dec_range_callback,
                        VmafDerivativeCalculator derivative_callback, double *score,
                        bool write_heatmaps, FILE *heatmaps_files[], int width, int height,
@@ -1438,7 +1439,7 @@ static int cambi_score(VmafPicture *pics, uint16_t window_size, double topk,
     int scaled_width = width;
     int scaled_height = height;
 
-    get_spatial_mask(image, mask, buffers.mask_dp, buffers.derivative_buffer, width, height,
+    get_spatial_mask(image, mask, buffers->mask_dp, buffers->derivative_buffer, width, height,
                      derivative_callback);
     for (unsigned scale = 0; scale < NUM_SCALES; scale++) {
         if (scale > 0 || cambi_high_res_speedup) {
@@ -1448,22 +1449,22 @@ static int cambi_score(VmafPicture *pics, uint16_t window_size, double topk,
             decimate(mask, scaled_width, scaled_height);
         }
 
-        filter_mode(image, scaled_width, scaled_height, buffers.filter_mode_buffer);
+        filter_mode(image, scaled_width, scaled_height, buffers->filter_mode_buffer);
 
-        calculate_c_values(image, mask, buffers.c_values, buffers.c_values_histograms, window_size,
-                           num_diffs, tvi_for_diff, vlt_luma, buffers.diff_weights,
-                           buffers.all_diffs, scaled_width, scaled_height, inc_range_callback,
+        calculate_c_values(image, mask, buffers->c_values, buffers->c_values_histograms,
+                           window_size, num_diffs, tvi_for_diff, vlt_luma, buffers->diff_weights,
+                           buffers->all_diffs, scaled_width, scaled_height, inc_range_callback,
                            dec_range_callback);
 
         if (write_heatmaps) {
-            int err = dump_c_values(heatmaps_files, buffers.c_values, scaled_width, scaled_height,
-                                    scale, window_size, num_diffs, buffers.diff_weights, frame);
+            int err = dump_c_values(heatmaps_files, buffers->c_values, scaled_width, scaled_height,
+                                    scale, window_size, num_diffs, buffers->diff_weights, frame);
             if (err)
                 return err;
         }
 
         scores_per_scale[scale] =
-            spatial_pooling(buffers.c_values, topk, scaled_width, scaled_height);
+            spatial_pooling(buffers->c_values, topk, scaled_width, scaled_height);
     }
 
     uint16_t pixels_in_window = get_pixels_in_window(window_size);
@@ -1492,7 +1493,7 @@ static int preprocess_and_extract_cambi(CambiState *s, VmafPicture *pic, double 
         topk = s->cambi_topk;
     }
     err = cambi_score(s->pics, window_size, topk, num_diffs, s->buffers.tvi_for_diff, s->vlt_luma,
-                      s->buffers, s->inc_range_callback, s->dec_range_callback,
+                      &s->buffers, s->inc_range_callback, s->dec_range_callback,
                       s->derivative_callback, score, write_heatmaps, s->heatmaps_files, width,
                       height, frame, (bool)s->cambi_high_res_speedup);
 

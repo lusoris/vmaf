@@ -129,7 +129,7 @@ static int yuv_input_fetch_frame(yuv_input *yuv, FILE *fin, video_input_ycbcr _y
     (void)_tag;
 
     unsigned xstride = (yuv->bitdepth > 8) ? 2 : 1;
-    ptrdiff_t pic_sz = yuv->width * yuv->height * xstride;
+    ptrdiff_t pic_sz = (ptrdiff_t)yuv->width * yuv->height * xstride;
     unsigned frame_c_w = yuv->width / yuv->dst_c_dec_h;
     unsigned frame_c_h = yuv->height / yuv->dst_c_dec_v;
     unsigned c_w = (yuv->width + yuv->dst_c_dec_h - 1) / yuv->dst_c_dec_h;

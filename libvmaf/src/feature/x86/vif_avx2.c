@@ -634,7 +634,6 @@ void vif_statistic_8_avx2(struct VifPublicState *s, float *num, float *den, unsi
                     accum_den_log += log2_32(log2_table, sigma_nsq + sigma1_sq) - 2048 * 17;
 
                     if (sigma12 > 0 && sigma2_sq > 0) {
-                        // num_val = log2f(1.0f + (g * g * sigma1_sq) / (sv_sq + sigma_nsq));
                         /**
                         * In floating-point numerator = log2((1.0f + (g * g * sigma1_sq)/(sv_sq + sigma_nsq))
                         *
@@ -670,11 +669,7 @@ void vif_statistic_8_avx2(struct VifPublicState *s, float *num, float *den, unsi
         }
     }
 
-    //log has to be divided by 2048 as log_value = log2(i*2048)  i=16384 to 65535
-    //num[0] = accum_num_log / 2048.0 + (accum_den_non_log - (accum_num_non_log / 65536.0) / (255.0*255.0));
-    //den[0] = accum_den_log / 2048.0 + accum_den_non_log;
-
-    //changed calculation to increase performance
+    /* log has to be divided by 2048 as log_value = log2(i*2048)  i=16384 to 65535 */
     num[0] =
         accum_num_log / 2048.0 + (accum_den_non_log - ((accum_num_non_log) / 16384.0) / (65025.0));
     den[0] = accum_den_log / 2048.0 + accum_den_non_log;
