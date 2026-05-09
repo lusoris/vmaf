@@ -79,7 +79,7 @@ setup(
         "pandas>=1.5.3",
         "scikit-learn>=1.8.0",
         "scikit-image>=0.16.2",
-        "h5py>=2.6.0",
+        "h5py>=2.10.0",
         "sureal>=0.4.2",
         "dill>=0.3.1",
     ],
