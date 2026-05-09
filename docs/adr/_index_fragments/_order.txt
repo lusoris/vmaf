@@ -234,6 +234,7 @@
 0323-fr-regressor-v3-train-and-register
 0324-ensemble-training-kit
 
+
 0333-vmaf-tune-multi-pass-encoding
 
 
@@ -242,4 +243,9 @@
 
 
 0350-ffmpeg-libvmaf-cuda-backend-selector
+
+
+0334-state-md-touch-check-ci-gate
+
+
 

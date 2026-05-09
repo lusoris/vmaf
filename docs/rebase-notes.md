@@ -9310,6 +9310,7 @@ print('OK: fr_regressor_v3 production row unchanged')
 
 
 
+
 ## CodeQL `cpp/declaration-hides-variable` sweep (2026-05-09)
 - **What changed**: Mechanical rename / scope-tighten / dedupe sweep
   closing 64 open `cpp/declaration-hides-variable` CodeQL alerts on
@@ -9370,6 +9371,17 @@ print('OK: fr_regressor_v3 production row unchanged')
   cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false \
                                   -Denable_mcp=true -Denable_mcp_stdio=true
   ninja -C build && meson test -C build test_mcp_smoke -v
+
+
+## ADR-0334 — state.md-touch-check CI gate (2026-05-08)
+- **Touches**: `.github/workflows/rule-enforcement.yml` (new top-level job `state-md-touch-check`), `scripts/ci/state-md-touch-check.sh` (new), `scripts/ci/test-state-md-touch-check.sh` (new), `scripts/ci/AGENTS.md` (new rebase-sensitive-surface row), `.github/PULL_REQUEST_TEMPLATE.md` (already carries the "Bug-status hygiene" section + `no state delta: REASON` opt-out — coupled to the script's regex). No upstream-shared paths.
+- **Invariant**: the gate's trigger predicate (Conventional-Commit `fix:` prefix, bare `bug` token in title, GitHub close-keywords `closes`/`fixes`/`resolves` `#N`, unchecked Bug-status-hygiene checkbox) and opt-out sentinel (`no state delta: REASON`) match the wording of the `## Bug-status hygiene` section in `.github/PULL_REQUEST_TEMPLATE.md`. Reword the template only alongside the script. The job carries the `pull_request.draft == false || github.event_name != 'pull_request'` gate (ADR-0331 pattern) — keep that on any future hoist into the required-aggregator set.
+- **On upstream sync**: Netflix/vmaf has no equivalent rule. No conflict expected; the workflow file is fork-introduced.
+- **Re-test on rebase**:
+  bash scripts/ci/test-state-md-touch-check.sh
+  python3 -c "import yaml; yaml.safe_load(open('.github/workflows/rule-enforcement.yml')); print('YAML OK')"
+  pre-commit run shellcheck --files scripts/ci/state-md-touch-check.sh scripts/ci/test-state-md-touch-check.sh
+  pre-commit run shfmt      --files scripts/ci/state-md-touch-check.sh scripts/ci/test-state-md-touch-check.sh
 
 
   ```
@@ -9608,6 +9620,7 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
     grep -q 'Arc Battlemage' "docs/getting-started/install/${f}.md" || echo "MISSING: ${f}"
   # Confirm the macOS page documents QSV as unsupported:
   grep -q 'Intel QSV. is unsupported on macOS' docs/getting-started/install/macos.md
+
 
 
 ### 0333 — vmaf-tune Phase F multi-pass encoding (ADR-0333)
@@ -9889,6 +9902,23 @@ compiles).
   ninja -C build && meson test -C build test_mcp_smoke -v
   build/test/test_mcp_smoke 2>&1 | tail -3   # expects "17 tests run, 17 passed"
   ```
+
+
+### Status update 2026-05-09 — placeholder-ref hardening
+- **Additional touches**: same set as the 2026-05-08 ADR-0334 entry,
+  no new files. The hardening adds a `git diff -U0 ... -- docs/state.md`
+  call inside `scripts/ci/state-md-touch-check.sh` (case 4a) plus 10
+  additional fixture cases in `scripts/ci/test-state-md-touch-check.sh`.
+- **New invariant**: inserted lines in `docs/state.md` (lines starting
+  with `+`, excluding the `+++ b/...` header) must not contain
+  `this PR` / `this commit` / bare `TBD` / `<PR>` / `#NNN`. Canonical
+  accept forms are `PR #N` and ``commit `<sha>` ``. The placeholder
+  vocabulary is coupled to PR #541's audit findings — reword in lockstep
+  with the ADR-0334 status-update appendix if the fork's row template
+  changes.
+- **Re-test on rebase**: same `bash scripts/ci/test-state-md-touch-check.sh`
+  run as the 2026-05-08 entry; the harness now reports
+  `18/18 passed` (was `8/8 passed`).
 
 
 

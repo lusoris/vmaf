@@ -18,7 +18,7 @@ The fork ships eight `pull_request`-triggered workflows:
 | [`required-aggregator.yml`](../../.github/workflows/required-aggregator.yml) | Single required-check aggregator (ADR-0313). |
 | [`ffmpeg-integration.yml`](../../.github/workflows/ffmpeg-integration.yml) | FFmpeg + libvmaf build (gcc / clang / SYCL / Vulkan). |
 | [`libvmaf-build-matrix.yml`](../../.github/workflows/libvmaf-build-matrix.yml) | Cross-platform / cross-backend libvmaf build matrix. |
-| [`rule-enforcement.yml`](../../.github/workflows/rule-enforcement.yml) | ADR-0100 / 0106 / 0108 process gates. |
+| [`rule-enforcement.yml`](../../.github/workflows/rule-enforcement.yml) | ADR-0100 / 0106 / 0108 / 0165 process gates. |
 | [`tests-and-quality-gates.yml`](../../.github/workflows/tests-and-quality-gates.yml) | Netflix golden, sanitizers, tiny-AI, MCP, coverage, assertion-density. |
 
 ## Draft pull requests do not trigger CI
@@ -29,8 +29,8 @@ is in `draft` state. Concretely:
 
 - Each workflow's `pull_request:` block lists
   `types: [opened, synchronize, reopened, ready_for_review]`.
-- Each top-level job carries
-  `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false`.
+- Each top-level job carries an `if:` clause of the form
+  `github.event_name != 'pull_request' || github.event.pull_request.draft == false`.
 
 What this means for contributors:
 
@@ -61,6 +61,95 @@ terminal state, and accepts `success`, `skipped`, or `neutral` per
 check. Because the aggregator itself skips on drafts, draft PRs
 display "missing required check" — same situation as item 1 above
 and unmergeable for the same reason.
+
+## Bug-status hygiene gate (ADR-0165 / ADR-0334)
+
+Per [CLAUDE.md §12 rule 13](../../CLAUDE.md) and
+[ADR-0165](../adr/0165-state-md-bug-tracking.md), every PR that
+closes a bug, opens a bug, or rules a Netflix upstream report
+not-affecting-the-fork updates [`docs/state.md`](../state.md) in the
+**same PR**. Until [ADR-0334](../adr/0334-state-md-touch-check-ci-gate.md)
+this rule was reviewer-enforced; it now runs as the
+`state-md-touch-check` job in
+[`rule-enforcement.yml`](../../.github/workflows/rule-enforcement.yml),
+backed by the single-purpose script
+[`scripts/ci/state-md-touch-check.sh`](../../scripts/ci/state-md-touch-check.sh).
+
+**The gate fires when any of the following hold:**
+
+- PR title carries a Conventional-Commit `fix:` or `fix(scope):` prefix.
+- PR title contains the bare token `bug` (word-boundary, so `debug`
+  does not fire).
+- PR title or body contains a `closes` / `fixes` / `resolves`
+  `#N` GitHub-issue close keyword (case-insensitive).
+- PR body has the `## Bug-status hygiene` template section with the
+  `docs/state.md` checkbox left unchecked.
+
+**The gate clears when either:**
+
+1. The diff against `BASE_SHA..HEAD_SHA` includes
+   [`docs/state.md`](../state.md) (the row landed in the
+   appropriate section: Open / Recently closed / Confirmed
+   not-affected / Deferred) **AND** none of the inserted lines
+   carry a placeholder PR/commit reference (see
+   "Placeholder-ref hardening" below), **or**
+2. The PR description contains `no state delta: REASON` (REASON is
+   any non-empty token that is not the literal placeholder
+   `REASON`). Use this for pure `feat` / `refactor` / `infra` PRs
+   that genuinely have no bug-status impact.
+
+**Placeholder-ref hardening (ADR-0334 status update 2026-05-09).**
+Touching `docs/state.md` is necessary but not sufficient. PR #541's
+row audit found that the dominant staleness pattern is post-merge
+backfill drift — closing PRs write `this PR` as the closer-PR
+placeholder, the merge happens, the placeholder never gets rewritten
+to the merged numeric refs. The gate therefore additionally rejects
+any inserted line in `docs/state.md` containing:
+
+| Placeholder   | Why                                         |
+| ------------- | ------------------------------------------- |
+| `this PR`     | post-merge backfill drift (most common)     |
+| `this commit` | same drift mode for SHA-shaped refs         |
+| `TBD`         | obvious fill-it-in-later marker             |
+| `<PR>`        | template placeholder                        |
+| `#NNN`        | template placeholder (real refs are digits) |
+
+Canonical accept forms — explicitly NOT matched — are `PR #N` (any
+positive integer) and ``commit `<sha>` `` (the SHA wrapped in
+backticks). For an in-flight PR whose number is not yet final, you
+can either:
+
+1. Land the row with a placeholder, then push a follow-up commit
+   that rewrites it to `PR #<number>` after `gh pr create` returns
+   the number, **or**
+2. Use `PR #<this-pr-number>` once GitHub has assigned it (the PR
+   number is known the moment `gh pr create` exits).
+
+**Local dry-run** (mirrors the
+[`deliverables-check.sh`](../../scripts/ci/deliverables-check.sh)
+pattern):
+
+```bash
+PR_TITLE="fix: foo segfault" \
+PR_BODY="$(gh pr view 999 --json body -q .body)" \
+  bash scripts/ci/state-md-touch-check.sh
+```
+
+Or pipe the body on stdin if `gh` isn't on `PATH`:
+
+```bash
+gh pr view 999 --json body -q .body \
+  | PR_TITLE="fix: foo segfault" bash scripts/ci/state-md-touch-check.sh
+```
+
+The companion fixture script
+[`scripts/ci/test-state-md-touch-check.sh`](../../scripts/ci/test-state-md-touch-check.sh)
+exercises the gate against 18 cases (5 primary + 3 regression + 10
+placeholder-ref). Run it after touching either script:
+
+```bash
+bash scripts/ci/test-state-md-touch-check.sh
+```
 
 ## Local pre-flight gate
 
