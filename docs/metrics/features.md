@@ -54,12 +54,13 @@ limitations in the same PR as the code.
 [models/overview.md](../models/overview.md)); non-core extractors are
 standalone.
 
-¹ The `psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
-(`psnr_y`). `psnr_vulkan` adds `psnr_cb` / `psnr_cr` chroma metrics
-when `enable_chroma=true` (default) — see T3-15(b) work-in-progress
-PR #204 / [`backends/vulkan/overview.md`](../backends/vulkan/overview.md).
-The CPU `psnr` extractor emits the full luma + chroma set on every
-build. CUDA / SYCL chroma support is a focused follow-up.
+¹ `psnr_cuda` and `psnr_vulkan` emit the full luma + chroma set
+(`psnr_y` / `psnr_cb` / `psnr_cr`) on YUV420 / 422 / 444 inputs;
+both clamp to luma-only on YUV400P. `psnr_sycl` remains luma-only
+today. CUDA chroma landed in T3-15(b) /
+[ADR-0351](../adr/0351-cuda-chroma-psnr.md); the Vulkan twin in
+[ADR-0216](../adr/0216-vulkan-chroma-psnr.md). The CPU `psnr`
+extractor emits the full set on every build.
 
 ² SSIM (fixed-point, the `ssim` extractor) is CPU-scalar-only — the
 fixed-point integer path has no SIMD or GPU twin today. The
@@ -435,10 +436,13 @@ identical (MSE=0): 60 dB for 8 bpc, 72 dB for 10 bpc, 84 dB for 12 bpc,
 | `min_sse`          | double | `0.0`   | Clamp the minimum MSE (and so the PSNR ceiling) — useful for identical-frame tests |
 
 **Backends** — AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan. The
-`psnr_cuda` and `psnr_sycl` GPU extractors emit luma-only
-(`psnr_y`); `psnr_vulkan` is gaining `psnr_cb` / `psnr_cr` chroma
-support via T3-15(b) (PR #204, in flight). `float_psnr` adds
-CUDA / SYCL / Vulkan twins on the float pipeline.
+`psnr_cuda` and `psnr_vulkan` extractors emit the full luma +
+chroma set (`psnr_y` / `psnr_cb` / `psnr_cr`); CUDA chroma landed
+via T3-15(b) ([ADR-0351](../adr/0351-cuda-chroma-psnr.md)) and the
+Vulkan twin via [ADR-0216](../adr/0216-vulkan-chroma-psnr.md).
+`psnr_sycl` remains luma-only (focused follow-up).
+`float_psnr` adds CUDA / SYCL / Vulkan twins on the float
+pipeline.
 
 **Limitations** — Temporal flag set only because of `apsnr` accumulation;
 per-frame PSNR itself is stateless.

@@ -9289,3 +9289,42 @@ guarantee.
 **Rebase-sensitivity**: zero — change is local to `dict.c`. Future
 upstream sync of this file should keep the fix or re-run cppcheck
 locally to confirm absence of recurrence.
+### 0320 — `psnr_cuda` chroma extension (ADR-0351)
+
+- **Touches**:
+  `libvmaf/src/feature/cuda/integer_psnr/psnr_score.cu` (kernel —
+  fork-only file, BSD-3-Clause-Plus-Patent / Lusoris+Claude header)
+  and `libvmaf/src/feature/cuda/integer_psnr_cuda.c` (host glue —
+  fork-only file, same header). Neither path is in upstream
+  Netflix/vmaf. The PTX module key (`psnr_score`) and `nvcc` extra
+  flags table in `libvmaf/src/meson.build` are unchanged by this
+  PR.
+- **Invariant**: the kernel signature now takes a `plane`
+  parameter (`unsigned`) appended after `(width, height)`. The
+  host file's `psnr_cuda_dispatch` packs `kernelParams[]` in the
+  exact `(ref, dis, sse, &width, &height, &plane)` order — any
+  refactor that reorders or drops the trailing argument silently
+  breaks the chroma path because `cuLaunchKernel` cannot validate
+  argument types. The host also relies on the `picture_cuda`
+  upload path having uploaded all 3 planes for non-`YUV400P`
+  inputs (see `libvmaf.c::translate_picture_host`'s
+  `upload_mask`); a future "minimise upload" optimisation must
+  consult the extractor's `chars` to decide which planes can be
+  skipped, not assume luma-only.
+- **Upstream interaction**: none — CUDA backend is not in
+  Netflix/vmaf upstream. Cherry-picks from upstream that touch
+  `libvmaf/src/feature/integer_psnr.c` (the CPU twin) need
+  attention only if they change `psnr_name[]`, `mse_name[]`, or
+  the `enable_chroma` semantics; the CUDA path mirrors those
+  conventions byte-for-byte to keep the cross-backend gate clean.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build -Denable_cuda=true && ninja -C build
+  python ../scripts/ci/cross_backend_vif_diff.py \
+    --vmaf-binary build/tools/vmaf \
+    --reference ../testdata/ref_576x324_48f.yuv \
+    --distorted ../testdata/dis_576x324_48f.yuv \
+    --width 576 --height 324 --pixel-format 420 --bitdepth 8 \
+    --feature psnr --backend cuda --places 4
+  ```

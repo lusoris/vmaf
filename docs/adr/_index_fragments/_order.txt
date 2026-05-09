@@ -187,3 +187,4 @@
 0325-konvid-150k-corpus-ingestion
 0341-ci-paths-ignore-doc-only-prs
 0349-fr-regressor-v3-namespace
+0351-cuda-chroma-psnr

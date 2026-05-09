@@ -2,9 +2,11 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  CUDA compute kernel for the PSNR feature extractor (T7-23 / batch 1b).
+ *  CUDA compute kernel for the PSNR feature extractor (T7-23 / batch 1b;
+ *  chroma extension T3-15(b) / ADR-0351).
  *  Per-pixel squared-error reduction with int64 accumulation on the
- *  device. Mirrors the Vulkan psnr.comp shipped in PR #125 (ADR-0182).
+ *  device. Mirrors the Vulkan psnr.comp shipped in PR #125 (ADR-0182)
+ *  and the chroma extension in ADR-0216.
  *
  *  Algorithm (mirrors libvmaf/src/feature/integer_psnr.c::sse_line_{8,16}):
  *      diff = (int64)ref - (int64)dis;
@@ -12,16 +14,20 @@
  *
  *  Reduction strategy:
  *    1. Each thread computes one pixel's squared error (uint64).
- *    2. Warp shuffle reduction collapses 32 threads → 1.
+ *    2. Warp shuffle reduction collapses 32 threads -> 1.
  *    3. Lane 0 of each warp atomicAdd's to a single global uint64
  *       counter. (Same pattern as motion_score.cu's SAD reduction.)
  *
  *  Bit-exactness contract: byte-equal int64 SSE accumulation with the
- *  scalar reference ⇒ places=4 cross-backend gate clears trivially.
+ *  scalar reference => places=4 cross-backend gate clears trivially.
  *
- *  v1: luma-only ("psnr_y" output), matching psnr_vulkan.c's scope.
- *      Chroma is a focused follow-up (the picture_cuda upload path
- *      is luma-only today).
+ *  Plane addressing: kernel takes a `plane` index (0=Y, 1=Cb, 2=Cr).
+ *  Each VmafPicture carries data[3] / stride[3] populated by
+ *  picture_cuda upload (chroma uploaded for non-YUV400P inputs since
+ *  T7-23 batch 1c — see libvmaf.c::translate_picture_host's
+ *  `upload_mask`). Same kernel handles all three planes; host passes
+ *  per-plane (width, height) so subsampled chroma dispatches the
+ *  right grid.
  */
 
 #include "cuda_helper.cuh"
@@ -34,15 +40,18 @@
 extern "C" {
 
 __global__ void calculate_psnr_kernel_8bpc(const VmafPicture ref, const VmafPicture dis,
-                                           VmafCudaBuffer sse, unsigned width, unsigned height)
+                                           VmafCudaBuffer sse, unsigned width, unsigned height,
+                                           unsigned plane)
 {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
 
     uint64_t my_se = 0;
     if (x < (int)width && y < (int)height) {
-        const uint8_t *ref_row = reinterpret_cast<const uint8_t *>(ref.data[0]) + y * ref.stride[0];
-        const uint8_t *dis_row = reinterpret_cast<const uint8_t *>(dis.data[0]) + y * dis.stride[0];
+        const uint8_t *ref_row =
+            reinterpret_cast<const uint8_t *>(ref.data[plane]) + y * ref.stride[plane];
+        const uint8_t *dis_row =
+            reinterpret_cast<const uint8_t *>(dis.data[plane]) + y * dis.stride[plane];
         const int64_t diff = (int64_t)ref_row[x] - (int64_t)dis_row[x];
         my_se = (uint64_t)(diff * diff);
     }
@@ -69,7 +78,8 @@ __global__ void calculate_psnr_kernel_8bpc(const VmafPicture ref, const VmafPict
 }
 
 __global__ void calculate_psnr_kernel_16bpc(const VmafPicture ref, const VmafPicture dis,
-                                            VmafCudaBuffer sse, unsigned width, unsigned height)
+                                            VmafCudaBuffer sse, unsigned width, unsigned height,
+                                            unsigned plane)
 {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -77,9 +87,9 @@ __global__ void calculate_psnr_kernel_16bpc(const VmafPicture ref, const VmafPic
     uint64_t my_se = 0;
     if (x < (int)width && y < (int)height) {
         const uint16_t *ref_row = reinterpret_cast<const uint16_t *>(
-            reinterpret_cast<const uint8_t *>(ref.data[0]) + y * ref.stride[0]);
+            reinterpret_cast<const uint8_t *>(ref.data[plane]) + y * ref.stride[plane]);
         const uint16_t *dis_row = reinterpret_cast<const uint16_t *>(
-            reinterpret_cast<const uint8_t *>(dis.data[0]) + y * dis.stride[0]);
+            reinterpret_cast<const uint8_t *>(dis.data[plane]) + y * dis.stride[plane]);
         const int64_t diff = (int64_t)ref_row[x] - (int64_t)dis_row[x];
         my_se = (uint64_t)(diff * diff);
     }
