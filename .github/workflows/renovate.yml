@@ -37,3 +37,8 @@ jobs:
           # write permissions (declared above) is sufficient.
           # See ADR-0363 §Implementation notes.
           token: ${{ secrets.RENOVATE_TOKEN || secrets.GITHUB_TOKEN }}
+        env:
+          # GITHUB_TOKEN doesn't carry repo metadata for Renovate's
+          # auto-discovery, so name the repo explicitly. This keeps
+          # the workflow single-repo by design (per ADR-0363).
+          RENOVATE_REPOSITORIES: ${{ github.repository }}

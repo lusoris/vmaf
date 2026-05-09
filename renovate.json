@@ -102,6 +102,5 @@
     "schedule": ["at any time"],
     "minimumReleaseAge": "0 days"
   },
-  "preCommit": { "enabled": true },
   "git-submodules": { "enabled": true }
 }
