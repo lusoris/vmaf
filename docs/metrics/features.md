@@ -33,7 +33,7 @@ limitations in the same PR as the code.
 | Motion2 (float)    | `float_motion`  | Yes           | `float_motion2` (+ `float_motion` if `debug=true`)                                            | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | ADM (fixed-point)  | `adm`           | Yes           | `adm2`, `adm_scale0`, `adm_scale1`, `adm_scale2`, `adm_scale3`                                | AVX2, AVX-512, NEON | CUDA, Vulkan       |
 | ADM (float)        | `float_adm`     | Yes           | `float_adm2`, `float_adm_scale0..3`                                                           | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
-| [CAMBI](cambi.md)  | `cambi`         | No            | `cambi`                                                                                       | —                   | Vulkan⁴            |
+| [CAMBI](cambi.md)  | `cambi`         | No            | `cambi`                                                                                       | —                   | CUDA⁴, Vulkan⁴     |
 | CIEDE2000          | `ciede`         | No            | `ciede2000`                                                                                   | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
 | PSNR (fixed)       | `psnr`          | No            | `psnr_y`, `psnr_cb`, `psnr_cr` (+ MSE / APSNR optional)                                       | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan¹|
 | PSNR (float)       | `float_psnr`    | No            | `float_psnr` (luma only — the CPU extractor emits a single luma score)                        | AVX2, AVX-512, NEON | CUDA, SYCL, Vulkan |
@@ -76,11 +76,12 @@ OpenVINO / ROCm); libvmaf itself does not own a SIMD or GPU
 specialisation of the pre-/post-processing today. See
 [`docs/ai/inference.md`](../ai/inference.md).
 
-⁴ CAMBI ships a Vulkan kernel via T7-36 ([ADR-0210](../adr/0210-cambi-vulkan-integration.md))
-in a hybrid Strategy II (GPU services preprocess + per-pixel
-derivative + 7×7 spatial-mask SAT, host runs decimation +
-mask DP). CUDA / SYCL CAMBI ports remain optional follow-ups
-under [ADR-0205](../adr/0205-cambi-gpu-feasibility.md).
+⁴ CAMBI ships Strategy II hybrid kernels for both CUDA (T3-15a /
+[ADR-0360](../adr/0360-cambi-cuda.md)) and Vulkan (T7-36 /
+[ADR-0210](../adr/0210-cambi-vulkan-integration.md)). GPU services
+the spatial mask, 2× decimate, and 3-tap mode filter; host CPU
+runs `calculate_c_values` + top-K spatial pooling for `places=4`
+bit-exactness. SYCL port tracked as T3-15b.
 
 Depending on your build configuration not every backend is available — see
 [`backends/`](../backends/index.md) for the runtime dispatch rules.
@@ -368,11 +369,12 @@ Quick facts:
 - **Output** — `cambi` in `[0, ∞)`; 0 = no banding, larger = more visible
   banding. Typical "bad" content sits in `1–10`.
 - **Input formats** — YUV 4:2:0, 8 / 10 bpc.
-- **Backends** — scalar (CPU) and Vulkan (T7-36 / [ADR-0210](../adr/0210-cambi-vulkan-integration.md));
-  the Vulkan path is a hybrid Strategy II (GPU does preprocess + per-pixel
-  derivative + 7×7 spatial-mask SAT, host runs decimation + mask DP). CUDA
-  and SYCL ports remain optional follow-ups under
-  [ADR-0205](../adr/0205-cambi-gpu-feasibility.md).
+- **Backends** — scalar (CPU), CUDA (T3-15a /
+  [ADR-0360](../adr/0360-cambi-cuda.md)), and Vulkan (T7-36 /
+  [ADR-0210](../adr/0210-cambi-vulkan-integration.md)). Both GPU paths
+  use Strategy II hybrid: GPU kernels handle the spatial mask, 2× decimate,
+  and 3-tap mode filter; host CPU runs `calculate_c_values` + top-K spatial
+  pooling for `places=4` bit-exactness. SYCL port tracked as T3-15b.
 
 ### CIEDE2000 — colour-difference metric
 
