@@ -127,3 +127,16 @@ is unchanged in tree:
 - Verification command:
   `ls libvmaf/src/feature/speed_*.c;
   grep -i speed model/registry.json`.
+
+### Status update 2026-05-09
+
+A minimal `vmaf_fex_speed_qa` extractor scaffold has landed in
+`libvmaf/src/feature/speed_qa.c`. The scaffold registers the feature
+name `"speed_qa"`, returns a placeholder score of 0.0 per frame, and
+builds cleanly against the CPU-only backend. No real spatial or
+temporal entropic-difference algorithm is implemented; the core
+decision to defer the full SpEED-QA algorithm (documented above)
+remains in force. The scaffold exists solely to reserve the
+registration slot and make the extractor discoverable by name — the
+real algorithm will be implemented in a follow-up PR once one of the
+three named reversal triggers fires.
