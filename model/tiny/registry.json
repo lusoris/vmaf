@@ -36,7 +36,7 @@
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=0). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed0.onnx",
       "opset": 17,
-      "sha256": "08ab1aedab2337c458387f0961c14837fa972635e5d5b0cf6a3839976593dde4",
+      "sha256": "fa89df1b2567184b301a7e0bc116d85de7c9c3e48cd3247e56060a8adb776b69",
       "smoke": false
     },
     {
@@ -45,7 +45,7 @@
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=1). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed1.onnx",
       "opset": 17,
-      "sha256": "42d86249d41aaff5d93547a744bb251d89085475e6e10197815a612c44894f5a",
+      "sha256": "48b0b9f386fde1e601d6984ed8ddb3c4fae603b4650ce060c432b88c43935e55",
       "smoke": false
     },
     {
@@ -54,7 +54,7 @@
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=2). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed2.onnx",
       "opset": 17,
-      "sha256": "0f1d8a81d5ffc4b76223fd1f1993e3baf177536819e10ecc4c732f81067dd150",
+      "sha256": "927a23fe14aa70f4136a57ae006ebdf727712a16234fce7dbae1c6941f5629cc",
       "smoke": false
     },
     {
@@ -63,7 +63,7 @@
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=3). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed3.onnx",
       "opset": 17,
-      "sha256": "ed5e926037922b9b65903265f22702a61ca1c6fdee7da2418cfb5bed01072719",
+      "sha256": "1be056b08df322515724c874caedbe09728ae5e8a311bbb72a9dd7ad4fa5490e",
       "smoke": false
     },
     {
@@ -72,16 +72,7 @@
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=4). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed4.onnx",
       "opset": 17,
-      "sha256": "036c622401529b04d48a04cc06c65018126d2970a1139e2c89e18d8b12fa4c84",
-      "smoke": false
-    },
-    {
-      "id": "fr_regressor_v3",
-      "kind": "fr",
-      "notes": "Tiny FR regressor v3 (codec-aware, ENCODER_VOCAB v3 16-slot) - 6 canonical libvmaf features (adm2, vif_scale0..3, motion2) + 18-D codec block (16 encoder one-hot + preset_norm + crf_norm) -> VMAF teacher score. LOSO mean PLCC=0.9975 (gate >= 0.95). Production checkpoint. See docs/ai/models/fr_regressor_v3.md + ADR-0323 + ADR-0302 + ADR-0291 + ADR-0235.",
-      "onnx": "fr_regressor_v3.onnx",
-      "opset": 17,
-      "sha256": "eaa16d23461eda74940b2ed590edfcaf13428aade294e47792a5a15f4d3b999c",
+      "sha256": "584ad69bfbdb9250faef824af5c73eaf94b258fab51d38fbc167665a9a262d9c",
       "smoke": false
     },
     {
@@ -148,18 +139,6 @@
       "smoke": false
     },
     {
-      "description": "Fork-trained tiny U-Net saliency student \u2014 v1 recipe with the decoder upsampler swapped to bilinear-Resize+3x3-Conv (ADR-0258 / ADR-0332). Parallel artefact under model/tiny/; v1 remains the production weights for the mobilesal extractor.",
-      "id": "saliency_student_v2",
-      "kind": "nr",
-      "license": "BSD-3-Clause-Plus-Patent",
-      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
-      "notes": "Fork-trained tiny U-Net (~124K params) on DUTS-TR. v1 recipe with Resize+3x3-Conv decoder (ADR-0258 / ADR-0332) replacing v1's ConvTranspose. Same I/O contract as v1; encoder/loss/optimizer/seed identical. Best val IoU=0.7105 vs v1=0.6558 (+8.3%); PT<->ORT max-abs-diff=3.28e-6. Parallel artefact; v1 stays production for mobilesal. See docs/ai/models/saliency_student_v2.md.",
-      "onnx": "saliency_student_v2.onnx",
-      "opset": 17,
-      "sha256": "8cdaa6c10ab44d9b03a6a207603bd0b61f5c75a6beafdc82da57215f0a2ab2ed",
-      "smoke": false
-    },
-    {
       "description": "fp16 I/O round-trip CI probe (Identity op).",
       "id": "smoke_fp16_v0",
       "kind": "fr",
@@ -210,7 +189,7 @@
       "smoke": false
     },
     {
-      "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_medium (~769 params). Use vmaf_tiny_v3_int8 to address the int8 sidecar directly.",
+      "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_medium (~769 params).",
       "id": "vmaf_tiny_v3",
       "int8_sha256": "b4bdbb353b1b395adb22b77e890117228de1cfd12b94cb46fd0173c2fd12a343",
       "kind": "fr",
@@ -222,20 +201,6 @@
       "quant_accuracy_budget_plcc": 0.01,
       "quant_mode": "dynamic",
       "sha256": "57b2b7e0c62e84e3238b266e423e2008da76ec12ce957c173b2bbed11c65eb78"
-    },
-    {
-      "description": "int8 sidecar for vmaf_tiny_v3 \u2014 dynamic-PTQ quantised mlp_medium; addressable directly by ID.",
-      "id": "vmaf_tiny_v3_int8",
-      "int8_sha256": "b4bdbb353b1b395adb22b77e890117228de1cfd12b94cb46fd0173c2fd12a343",
-      "kind": "fr",
-      "license": "BSD-3-Clause-Plus-Patent",
-      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
-      "notes": "Direct registry entry for the vmaf_tiny_v3 dynamic-PTQ int8 sidecar (ADR-0275). Measured PLCC drop=0.000120 vs fp32 baseline; within 0.01 budget. Produced via ai/scripts/ptq_dynamic.py. See docs/ai/models/vmaf_tiny_v3.md.",
-      "onnx": "vmaf_tiny_v3.int8.onnx",
-      "opset": 17,
-      "quant_accuracy_budget_plcc": 0.01,
-      "quant_mode": "dynamic",
-      "sha256": "b4bdbb353b1b395adb22b77e890117228de1cfd12b94cb46fd0173c2fd12a343"
     },
     {
       "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_large (~3073 params).",
