@@ -175,6 +175,34 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      # ---------- ccache persistence (Research-0089 §3.1) ----------
+      # Linux + macOS build legs all wrap their host compiler in `ccache`
+      # (matrix.CC = "ccache gcc" / "ccache clang"). Without a persisted
+      # `~/.ccache` directory every PR cold-rebuilds; per Research-0089
+      # the typical hit rate after warm-up is 60–85% and the wall-clock
+      # saving is ~3–5 min/cell. Only the SYCL legs run a bare icx/icpx
+      # without the ccache wrapper, so skip those; matrix.CC starts with
+      # "ccache" on every other lane.
+      #
+      # Cache key + path shape follows the official GitHub Actions
+      # `actions/cache` cross-platform recipe — `~/.ccache` is ccache's
+      # default cache dir on Linux + macOS, and per-OS / per-compiler
+      # keying with restore-key fall-through is the documented pattern
+      # for build caches that vary by toolchain. See
+      # https://github.com/actions/cache (accessed 2026-05-09) and
+      # https://github.com/actions/cache/blob/main/examples.md (same date)
+      # — "C++ - ccache" example.
+      - name: Restore ccache (Linux + macOS)
+        if: startsWith(matrix.CC, 'ccache ')
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.ccache
+          key: ccache-${{ matrix.os }}-${{ matrix.CC }}-${{ matrix.meson_extra }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.os }}-${{ matrix.CC }}-${{ matrix.meson_extra }}-
+            ccache-${{ matrix.os }}-${{ matrix.CC }}-
+            ccache-${{ matrix.os }}-
+
       - name: Setup python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
@@ -329,6 +357,22 @@ jobs:
           glslc --version | head -2
           vulkaninfo --summary || true
 
+      # ---------- Configure ccache cap + stats reset ----------
+      # ccache dir is restored above by `actions/cache`; size-cap it so
+      # stale objects evict in LRU order rather than the cache growing
+      # without bound across runs (the hosted runner has a hard 10 GB
+      # cache budget per repo; we want headroom for fixture caches too).
+      # `ccache -z` zeroes the stats so the post-build `ccache -s` shows
+      # only this run's hit/miss counts. See
+      # https://ccache.dev/manual/latest.html#_configuration (accessed
+      # 2026-05-09) for `max_size` semantics.
+      - name: Configure ccache
+        if: startsWith(matrix.CC, 'ccache ')
+        run: |
+          mkdir -p ~/.ccache
+          ccache --max-size=400M
+          ccache -z
+
       # ---------- Build ----------
       - name: Configure libvmaf
         run: |
@@ -350,6 +394,14 @@ jobs:
           fi
           sudo -E PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
             ninja -vC libvmaf/build install
+
+      # Surface ccache hit/miss counters in the CI log so the savings
+      # claim from Research-0089 §3.1 can be verified per-run. Runs
+      # whether the build succeeds or fails (always()) so a failed
+      # build still reports whether ccache was warming up.
+      - name: Report ccache statistics
+        if: always() && startsWith(matrix.CC, 'ccache ')
+        run: ccache -s
 
       # Verify pkgconfig for static linking
       - name: Verify static pkgconfig
