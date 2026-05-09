@@ -114,6 +114,49 @@ python ai/scripts/merge_corpora.py \
     --output runs/fr_v2_train_corpus.jsonl
 ```
 
+## Shared ingestion infrastructure (ADR-0371)
+
+All six MOS-corpus adapter scripts share a common base class defined in
+`ai/src/corpus/base.py` (`PYTHONPATH=ai/src`). The base class provides:
+
+- **`sha256_file(path)`** — SHA-256 computed in 1 MiB chunks (dedup key).
+- **`probe_geometry(clip_path, ...)`** — ffprobe wrapper; returns a dict
+  with `width`, `height`, `framerate`, `duration_s`, `pix_fmt`,
+  `encoder_upstream`, or `None` on probe failure. Injected via the
+  `runner` kwarg for unit tests.
+- **`load_progress` / `save_progress` / `mark_done` / `mark_failed` /
+  `should_attempt`** — atomic tempfile-rename progress state (JSON) so
+  multi-hour runs are safe to Ctrl-C and resume.
+- **`read_sha_index(jsonl_path)`** — builds a `set[str]` of
+  already-ingested `src_sha256` values from a partially-written JSONL
+  so re-runs skip duplicates.
+- **`download_clip(...)`** — curl-based download with configurable
+  timeout, returning `(ok, reason)`. Also injectable via `runner`.
+- **`RunStats`** — dataclass accumulating `written`,
+  `skipped_download`, `skipped_broken`, `dedups` with a computed
+  `attrition_pct`.
+- **`CorpusIngestBase`** — abstract base class. Subclass, set
+  `corpus_label`, implement
+  `iter_source_rows(clips_dir) -> Iterator[(clip_path, row_dict)]`,
+  and call `ingest.run()`.
+
+Adding a new MOS corpus:
+
+```python
+# ai/scripts/my_corpus_to_corpus_jsonl.py
+from corpus.base import CorpusIngestBase, utc_now_iso
+
+class MyCorpusIngest(CorpusIngestBase):
+    corpus_label = "my-corpus"
+
+    def iter_source_rows(self, clips_dir):
+        for row in parse_my_csv(...):
+            yield clips_dir / row["filename"], row
+```
+
+See [ADR-0371](../adr/0371-corpus-ingest-base-class.md) and the unit tests at
+`ai/tests/test_corpus_base.py` for the full contract.
+
 ## Per-corpus quick-start commands
 
 ### KonViD-1k (1 200 clips, ~2.3 GB, ~5 min)

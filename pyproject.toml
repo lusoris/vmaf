@@ -27,7 +27,7 @@ extend-exclude = '''
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["vmaf", "ai", "vmaf_train"]
+known_first_party = ["vmaf", "ai", "vmaf_train", "corpus"]
 skip_glob = [
   "build/*",
   "subprojects/*",

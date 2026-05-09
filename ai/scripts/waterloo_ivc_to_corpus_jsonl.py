@@ -1,180 +1,39 @@
 #!/usr/bin/env python3
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Waterloo IVC 4K-VQA → MOS-corpus JSONL adapter (ADR-0369).
+"""Waterloo IVC 4K-VQA -> MOS-corpus JSONL adapter (ADR-0369).
 
-Waterloo IVC 4K-VQA (Li, Duanmu, Liu, Wang; ICIAR 2019) — the
-University of Waterloo Image and Vision Computing Laboratory's
-professionally-captured 2160p subjective-quality corpus. Twenty
-pristine 4K source sequences re-encoded with five contemporary
-codecs (H.264/AVC, H.265/HEVC, VP9, AVS2, AV1) at three
-resolutions (540p / 1080p / 2160p) and four distortion levels,
-yielding 1 200 distorted clips with per-clip MOS aggregated from
-a controlled subjective study.
+Waterloo IVC 4K-VQA (Li, Duanmu, Liu, Wang; ICIAR 2019) -- the University
+of Waterloo IVC Lab's professionally-captured 2160p subjective-quality
+corpus. 1 200 distorted clips with per-clip MOS on a 0-100 raw scale.
 
-The fork's training shards
-(BVI-DVC ADR-0310, KonViD-150k Phase 2 ADR-0325, LSVQ ADR-0333)
-together cover community-uploaded UGC and short-form clips, but
-**none of them populate the 2160p resolution bin**: BVI-DVC tops
-out at 1080p, KonViD-150k and LSVQ are predominantly sub-1080p.
-Per the contributor-pack research digest #465 (PR #465), Waterloo
-IVC fills that 2160p resolution gap with a CC-licensed, direct-
-download (no NDA / password gate / request form) studio-grade
-corpus.
+Shared infrastructure: :mod:`ai.src.corpus.base` (ADR-0371).
 
-Pipeline shape::
+MOS scale: native 0-100 (verbatim). Downstream code must normalise
+across corpora (see ADR-0369 Consequences).
 
-    .workingdir2/waterloo-ivc-4k/
-      ├── .download-progress.json           # resumable state (this script)
-      ├── manifest.csv                      # MOS table (operator drops)
-      ├── clips/                            # downloaded *.yuv / *.mp4
-      │     ├── HEVC_1_540p_1.yuv
-      │     └── ...
-      └── waterloo_ivc_4k.jsonl             # output (this script)
+The adapter auto-detects two manifest shapes:
+1. Canonical headerless 5-tuple ``encoder, video_number, resolution,
+   distortion_level, mos`` (the upstream ``scores.txt`` shape).
+2. Standard adapter CSV (LSVQ / KonViD-150k header convention).
 
-                  │
-                  ▼  ai/scripts/waterloo_ivc_to_corpus_jsonl.py
-                  │
-                  ▼
-    .workingdir2/waterloo-ivc-4k/waterloo_ivc_4k.jsonl
-
-Schema (one JSON object per line — same shape as the LSVQ /
-KonViD-150k adapters, only ``corpus`` and ``mos_scale_native``
-differ)::
-
-    {
-      "src":               "<basename>",
-      "src_sha256":        "<hex>",
-      "src_size_bytes":    <int>,
-      "width":             <int>,
-      "height":            <int>,
-      "framerate":         <float>,
-      "duration_s":        <float>,
-      "pix_fmt":           "<yuv420p|...>",
-      "encoder_upstream":  "<ffprobe codec_name; e.g. h264, hevc, vp9>",
-      "mos":               <float, 0..100 native; recorded verbatim>,
-      "mos_std_dev":       <float>,
-      "n_ratings":         <int>,
-      "corpus":            "waterloo-ivc-4k",
-      "corpus_version":    "<dataset version string>",
-      "ingested_at_utc":   "<ISO 8601>"
-    }
-
-MOS scale (native 0–100, divergent from KonViD/LSVQ)
----------------------------------------------------
-
-Waterloo IVC 4K-VQA's published ``scores.txt`` records per-clip
-MOS on a **0–100 raw scale**, **not** the 1–5 Likert scale used
-by KonViD-150k (Phase 2) and LSVQ (ADR-0333). Sample rows from
-the canonical ``scores.txt`` [#scores]_::
-
-    HEVC, 1, 540p, 1, 18.21
-    HEVC, 1, 540p, 2, 39.46
-    HEVC, 1, 540p, 3, 50.23
-    HEVC, 1, 540p, 4, 77.26
-    HEVC, 1, 1080p, 1,  7.61
-
-The adapter records the score **verbatim** on its native 0–100
-scale — no rescaling is applied at ingest time. This matches
-the ingest-time policy of LSVQ / KonViD-150k (record
-verbatim) but means downstream trainer code MUST account for
-the cross-corpus scale split when consuming Waterloo IVC rows
-in the same loader as KonViD / LSVQ rows. The convention is:
-
-* ``corpus = "waterloo-ivc-4k"`` rows carry MOS on 0–100
-* ``corpus = "konvid-150k"`` / ``"lsvq"`` rows carry MOS on 1–5
-
-A trainer-side per-corpus normaliser (rescaling to a common
-target, e.g. mapping 0–100 → 1–5 via ``1 + 4·(x/100)``) is the
-clean fix and lands in a separate PR. See ADR-0369
-§Consequences and ``docs/rebase-notes.md``.
-
-Manifest CSV format
--------------------
-
-The canonical Waterloo IVC ``scores.txt`` distributed with the
-4K-VQA database is **headerless** with five
-comma-separated columns [#scores]_::
-
-    encoder, video_number, resolution, distortion_level, mos
-
-The adapter understands two manifest shapes:
-
-1. **Canonical Waterloo headerless 5-tuple** — operator drops
-   the upstream ``scores.txt`` verbatim. The script synthesises
-   a filename via the convention
-   ``{encoder}_{video_number}_{resolution}_{distortion}.<suffix>``
-   and looks the clip up under ``clips/``.
-2. **Standard adapter CSV** — same header surface as
-   LSVQ / KonViD-150k (``name,url,mos,sd,n``) for operators
-   who pre-mangle the upstream table. Header detection is
-   automatic (sniff first row); aliases match the LSVQ tuples.
-
-Refusal: a CSV with fewer than :data:`_WATERLOO_IVC_MIN_ROWS`
-rows (currently 100) refuses with a hint pointing at the
-canonical 1 200-row scores table.
-
-Partial-corpus runs
--------------------
-
-The Waterloo IVC raw 2160p ``Sources`` archive plus the five
-encoder × three-resolution × four-distortion-level distorted
-shards weigh in at the multi-TB range (4K is large; the project
-spec quotes ~2 TB end-to-end). The script defaults to
-:data:`_WATERLOO_IVC_DEFAULT_MAX_ROWS` (currently 100) for
-laptop-class development; pass ``--full`` to ingest the entire
-1 200-row manifest.
-
-License & redistribution
-------------------------
-
-Waterloo IVC 4K-VQA is published under the Image and Vision
-Computing Laboratory permissive academic licence [#license]_:
-
-    Permission is granted, without written agreement and without
-    license or royalty fees, to use, copy, modify, and distribute
-    this database and its documentation for any purpose, provided
-    that the copyright notice in its entirity appear in all copies
-    and the Image and Vision Computing Laboratory (IVC) at the
-    University of Waterloo is acknowledged in any publication
-    using the database.
-
-The fork ships only the adapter, the schema, and this docstring
-in tree (per ADR-0369). Raw clips, the MOS table, and any
-derived feature cache stay local under
-``.workingdir2/waterloo-ivc-4k/``. Derived
-``nr_metric_v1_*.onnx`` weights ship with the IVC attribution
-notice travelling alongside.
-
-.. [#scores] Waterloo IVC 4K-VQA scores table
-   ``https://ivc.uwaterloo.ca/database/4KVQA/201908/scores.txt``
-   verified 2026-05-08; first five rows quoted above.
-.. [#license] Waterloo IVC 4K Video Quality Database
-   ``https://ivc.uwaterloo.ca/database/4KVQA.html`` verified
-   2026-05-08; permissive academic licence requires attribution
-   only — no NDA, no password gate, no registration form.
-   Citation: Li, Z., Duanmu, Z., Liu, W., Wang, Z., "AVC, HEVC,
-   VP9, AVS2 or AV1? — A Comparative Study of State-of-the-art
-   Video Encoders on 4K Videos," ICIAR 2019.
+License: Waterloo IVC permissive academic license (attribution required).
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import csv
-import datetime as _dt
-import hashlib
-import json
 import logging
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+from corpus.base import CorpusIngestBase, RunStats, normalise_clip_name, pick, utc_now_iso
 
 _LOG = logging.getLogger("waterloo_ivc_to_corpus_jsonl")
 
@@ -182,142 +41,45 @@ _LOG = logging.getLogger("waterloo_ivc_to_corpus_jsonl")
 # Constants
 # ---------------------------------------------------------------------------
 
-#: Lower-bound on row count below which the script assumes the
-#: operator handed it a tiny fragment by mistake. The canonical
-#: Waterloo IVC 4K-VQA ``scores.txt`` carries 1 200 rows (20
-#: source × 5 encoders × 3 resolutions × 4 distortions); a
-#: hand-trimmed CSV below 100 rows is almost certainly a debug
-#: leftover.
 _WATERLOO_IVC_MIN_ROWS: int = 100
-
-#: Default ``--max-rows`` cap for laptop-class development. The
-#: full 1 200-clip distorted set plus 20 lossless 2160p sources
-#: weighs in at ~multi-TB; full ingestion is opt-in via
-#: ``--full``. 100 rows ≈ a few hundred GB working set.
 _WATERLOO_IVC_DEFAULT_MAX_ROWS: int = 100
-
-#: SHA-256 chunk size — matches the existing manifest_scan reader.
-_SHA_CHUNK_BYTES: int = 1 << 20  # 1 MiB
-
-#: Default location of an extracted Waterloo IVC corpus.
 _DEFAULT_WATERLOO_IVC_DIR: Path = (
     Path(__file__).resolve().parents[2] / ".workingdir2" / "waterloo-ivc-4k"
 )
-
-#: Default JSONL output path; lives under
-#: ``.workingdir2/waterloo-ivc-4k/`` alongside the source clips
-#: so it never accidentally lands in tree.
 _DEFAULT_OUTPUT: Path = _DEFAULT_WATERLOO_IVC_DIR / "waterloo_ivc_4k.jsonl"
-
-#: Default download-state JSON. ``Ctrl-C`` + re-run resumes from here.
-_DEFAULT_PROGRESS: Path = _DEFAULT_WATERLOO_IVC_DIR / ".download-progress.json"
-
-#: Default subdirectory for downloaded clip files (under ``waterloo_ivc_dir``).
 _DEFAULT_CLIPS_SUBDIR: str = "clips"
-
-#: Conventional manifest filename. Operators may override via
-#: ``--manifest-csv``. The canonical upstream filename is
-#: ``scores.txt``; this default accepts both.
 _DEFAULT_MANIFEST_NAME: str = "manifest.csv"
-
-#: Default suffix appended to synthesised filenames when the
-#: canonical headerless ``scores.txt`` is consumed and the clip
-#: extension cannot be inferred.
 _DEFAULT_CLIP_SUFFIX: str = ".yuv"
-
-#: Canonical Waterloo IVC base download URL. Operators can drop
-#: the ``Sources``, ``H264``, ``HEVC``, ``VP9``, ``AVS2`` /
-#: ``AV1`` (split 4-part) archives manually rather than going
-#: through the per-clip download path; this URL is recorded for
-#: provenance.
 _WATERLOO_IVC_DOWNLOAD_BASE: str = "https://ivc.uwaterloo.ca/database/4KVQA/201908/"
 
-#: CSV column-name aliases — the standard-shape branch (when an
-#: operator pre-mangles the upstream scores file into the
-#: LSVQ / KonViD-150k header).
 _CSV_FILENAME_KEYS: tuple[str, ...] = ("name", "video_name", "filename", "file_name")
 _CSV_URL_KEYS: tuple[str, ...] = ("url", "download_url", "video_url")
 _CSV_MOS_KEYS: tuple[str, ...] = ("mos", "MOS", "mos_score")
 _CSV_MOS_STD_KEYS: tuple[str, ...] = ("sd", "SD", "mos_std", "mos_std_dev", "SD_MOS")
 _CSV_NRATINGS_KEYS: tuple[str, ...] = ("n", "ratings", "num_ratings", "n_ratings")
 
-#: Default dataset-version string baked into rows when the
-#: operator has not pinned one with ``--corpus-version``. Tracks
-#: the August-2019 ICIAR drop served from
-#: ``ivc.uwaterloo.ca/database/4KVQA/201908/``.
 _DEFAULT_CORPUS_VERSION: str = "waterloo-ivc-4k-201908"
-
-#: ``corpus`` field literal — ADR-0369.
 _CORPUS_LABEL: str = "waterloo-ivc-4k"
 
-#: Per-URL download progress states.
-_STATE_DONE: str = "done"
-_STATE_FAILED: str = "failed"
-
 
 # ---------------------------------------------------------------------------
-# Small helpers (mirrored from LSVQ / KonViD-150k)
+# Manifest CSV -- two shapes
 # ---------------------------------------------------------------------------
 
 
-def _utc_now_iso() -> str:
-    """Return current time as ISO-8601 UTC, second-precision."""
-    return _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
-
-
-def _sha256_file(path: Path) -> str:
-    """Stream a chunked SHA-256 of ``path``."""
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        while True:
-            chunk = fh.read(_SHA_CHUNK_BYTES)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _pick(row: dict[str, str], keys: Iterable[str]) -> str | None:
-    """Return the first non-empty value at any of ``keys`` (case-insensitive)."""
-    lower = {k.lower(): k for k in row}
-    for key in keys:
-        actual = lower.get(key.lower())
-        if actual is None:
-            continue
-        val = row[actual]
-        if val is None:
-            continue
-        s = str(val).strip()
-        if s:
-            return s
-    return None
-
-
-def _parse_framerate(rate: str) -> float:
-    """Parse ffprobe's ``a/b`` rational rate string."""
-    if not rate:
-        return 0.0
-    if "/" in rate:
-        num_s, den_s = rate.split("/", 1)
-        try:
-            num = float(num_s)
-            den = float(den_s)
-        except ValueError:
-            return 0.0
-        if den == 0.0:
-            return 0.0
-        return num / den
+def _is_canonical_headerless(first_line: str) -> bool:
+    """Detect the canonical Waterloo IVC headerless 5-tuple shape."""
+    parts = [p.strip() for p in first_line.split(",")]
+    if len(parts) != 5:
+        return False
+    encoder = parts[0]
+    if not encoder or any(c.isdigit() for c in encoder):
+        return False
     try:
-        return float(rate)
+        mos_val = float(parts[4])
     except ValueError:
-        return 0.0
-
-
-def _normalise_clip_name(stem: str, *, suffix: str = _DEFAULT_CLIP_SUFFIX) -> str:
-    """Append the default suffix if ``stem`` has none."""
-    if "." in stem:
-        return stem
-    return stem + suffix
+        return False
+    return 0.0 <= mos_val <= 100.0
 
 
 def _synthesise_canonical_filename(
@@ -328,133 +90,22 @@ def _synthesise_canonical_filename(
     *,
     suffix: str = _DEFAULT_CLIP_SUFFIX,
 ) -> str:
-    """Build the canonical Waterloo IVC 4K-VQA clip filename.
-
-    The upstream archives ship clips named after their (encoder,
-    source video number, target resolution, distortion level)
-    tuple. Without a canonical name in the headerless
-    ``scores.txt``, the adapter synthesises
-    ``{encoder}_{video_number}_{resolution}_{distortion}.<suffix>``
-    so a downstream looker-upper can resolve it under
-    ``clips/`` deterministically.
-    """
+    """Build the canonical Waterloo IVC clip filename from the 5-tuple fields."""
     return (
         f"{encoder.strip()}_{video_number.strip()}"
         f"_{resolution.strip()}_{distortion.strip()}{suffix}"
     )
 
 
-# ---------------------------------------------------------------------------
-# Manifest parsing — two shapes
-# ---------------------------------------------------------------------------
-
-
-class _ManifestRow:
-    """One row of the parsed Waterloo IVC manifest."""
-
-    __slots__ = ("filename", "mos", "mos_std_dev", "n_ratings", "url")
-
-    def __init__(
-        self,
-        filename: str,
-        url: str,
-        mos: float,
-        mos_std_dev: float,
-        n_ratings: int,
-    ) -> None:
-        self.filename = filename
-        self.url = url
-        self.mos = mos
-        self.mos_std_dev = mos_std_dev
-        self.n_ratings = n_ratings
-
-
-def _is_canonical_headerless(first_line: str) -> bool:
-    """Detect the canonical Waterloo IVC headerless 5-tuple shape.
-
-    The upstream ``scores.txt`` lacks a header; row 1 is data.
-    Heuristic: comma-separated, exactly five fields, fields 2-4
-    look numeric / numeric-with-suffix, field 5 is a float in
-    [0, 100].
-    """
-    parts = [p.strip() for p in first_line.split(",")]
-    if len(parts) != 5:
-        return False
-    encoder = parts[0]
-    if not encoder or any(c.isdigit() for c in encoder):
-        # First column is the encoder name (HEVC / VP9 / ...);
-        # accept letters-only.
-        return False
-    try:
-        mos_val = float(parts[4])
-    except ValueError:
-        return False
-    return 0.0 <= mos_val <= 100.0
-
-
-def parse_manifest_csv(
-    csv_path: Path,
-    *,
-    min_rows: int = _WATERLOO_IVC_MIN_ROWS,
-    clip_suffix: str = _DEFAULT_CLIP_SUFFIX,
-) -> list[_ManifestRow]:
-    """Parse a Waterloo IVC manifest.
-
-    Auto-detects between:
-
-    * Canonical headerless 5-tuple ``encoder, video_number,
-      resolution, distortion_level, mos`` (the upstream
-      ``scores.txt`` shape).
-    * Standard adapter CSV with the LSVQ / KonViD-150k header
-      (``name,url,mos,sd,n``) for operators who pre-mangle.
-
-    Returns one :class:`_ManifestRow` per data line. Refuses if
-    the row count is below :data:`_WATERLOO_IVC_MIN_ROWS`. The
-    ``min_rows`` override is a test seam.
-    """
-    if not csv_path.is_file():
-        raise FileNotFoundError(f"Waterloo IVC manifest not found: {csv_path}")
-
-    raw = csv_path.read_text(encoding="utf-8-sig")
-    lines = [ln for ln in raw.splitlines() if ln.strip()]
-    if not lines:
-        raise ValueError(f"{csv_path}: empty manifest")
-
-    canonical = _is_canonical_headerless(lines[0])
-    if canonical:
-        rows = _parse_canonical_headerless(lines, clip_suffix=clip_suffix, csv_path=csv_path)
-    else:
-        rows = _parse_standard_csv(csv_path, clip_suffix=clip_suffix)
-
-    if len(rows) < min_rows:
-        raise ValueError(
-            f"{csv_path}: {len(rows)} rows is below the Waterloo "
-            f"IVC sanity floor ({min_rows}). The canonical "
-            f"upstream scores.txt carries 1 200 rows; for "
-            f"laptop-class ingestion runs use --max-rows on the "
-            f"full file rather than passing a hand-trimmed CSV. "
-            f"Drop the file from "
-            f"{_WATERLOO_IVC_DOWNLOAD_BASE}scores.txt"
-        )
-    return rows
-
-
 def _parse_canonical_headerless(
-    lines: list[str],
-    *,
-    clip_suffix: str,
-    csv_path: Path,
-) -> list[_ManifestRow]:
-    """Parse the upstream headerless ``encoder, vid, res, dist, mos`` shape."""
-    parsed: list[_ManifestRow] = []
+    lines: list[str], *, clip_suffix: str, csv_path: Path
+) -> list[dict[str, Any]]:
+    parsed: list[dict[str, Any]] = []
     for line_no, line in enumerate(lines, start=1):
         parts = [p.strip() for p in line.split(",")]
         if len(parts) != 5:
             _LOG.warning(
-                "%s:%d: expected 5 fields, got %d; skipping",
-                csv_path,
-                line_no,
-                len(parts),
+                "%s:%d: expected 5 fields, got %d; skipping", csv_path, line_no, len(parts)
             )
             continue
         encoder, video_number, resolution, distortion, mos_str = parts
@@ -467,384 +118,119 @@ def _parse_canonical_headerless(
             encoder, video_number, resolution, distortion, suffix=clip_suffix
         )
         parsed.append(
-            _ManifestRow(
-                filename=filename,
-                url="",  # canonical scores.txt carries no URL column
-                mos=mos,
-                mos_std_dev=0.0,
-                n_ratings=0,
-            )
+            {"filename": filename, "url": "", "mos": mos, "mos_std_dev": 0.0, "n_ratings": 0}
         )
     return parsed
 
 
-def _parse_standard_csv(
-    csv_path: Path,
-    *,
-    clip_suffix: str,
-) -> list[_ManifestRow]:
-    """Parse the LSVQ / KonViD-150k-shaped CSV (header + named columns)."""
+def _parse_standard_csv(csv_path: Path, *, clip_suffix: str) -> list[dict[str, Any]]:
     with csv_path.open(newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames is None:
             raise ValueError(f"{csv_path}: empty / headerless CSV")
         all_rows = list(reader)
 
-    parsed: list[_ManifestRow] = []
-    for line_no, row in enumerate(all_rows, start=2):  # 1 = header
-        stem = _pick(row, _CSV_FILENAME_KEYS)
+    parsed: list[dict[str, Any]] = []
+    for line_no, row in enumerate(all_rows, start=2):
+        stem = pick(row, _CSV_FILENAME_KEYS)
         if not stem:
-            _LOG.warning(
-                "%s:%d: no filename column found (looked for %s); skipping",
-                csv_path,
-                line_no,
-                ", ".join(_CSV_FILENAME_KEYS),
-            )
+            _LOG.warning("%s:%d: no filename column; skipping", csv_path, line_no)
             continue
-        filename = _normalise_clip_name(stem, suffix=clip_suffix)
-
-        url = _pick(row, _CSV_URL_KEYS) or ""
-
-        mos_str = _pick(row, _CSV_MOS_KEYS)
+        filename = normalise_clip_name(stem, suffix=clip_suffix)
+        url = pick(row, _CSV_URL_KEYS) or ""
+        mos_str = pick(row, _CSV_MOS_KEYS)
         if mos_str is None:
-            _LOG.warning(
-                "%s:%d: no MOS column for %s; skipping",
-                csv_path,
-                line_no,
-                filename,
-            )
+            _LOG.warning("%s:%d: no MOS column for %s; skipping", csv_path, line_no, filename)
             continue
         try:
             mos = float(mos_str)
         except ValueError:
             _LOG.warning("%s:%d: bad MOS value %r; skipping", csv_path, line_no, mos_str)
             continue
-
-        std_str = _pick(row, _CSV_MOS_STD_KEYS)
+        std_str = pick(row, _CSV_MOS_STD_KEYS)
         try:
             mos_std_dev = float(std_str) if std_str is not None else 0.0
         except ValueError:
             mos_std_dev = 0.0
-
-        n_str = _pick(row, _CSV_NRATINGS_KEYS)
+        n_str = pick(row, _CSV_NRATINGS_KEYS)
         try:
             n_ratings = int(float(n_str)) if n_str is not None else 0
         except ValueError:
             n_ratings = 0
-
         parsed.append(
-            _ManifestRow(
-                filename=filename,
-                url=url,
-                mos=mos,
-                mos_std_dev=mos_std_dev,
-                n_ratings=n_ratings,
-            )
+            {
+                "filename": filename,
+                "url": url,
+                "mos": mos,
+                "mos_std_dev": mos_std_dev,
+                "n_ratings": n_ratings,
+            }
         )
     return parsed
 
 
-# ---------------------------------------------------------------------------
-# Resumable-download progress state
-# ---------------------------------------------------------------------------
-
-
-def load_progress(progress_path: Path) -> dict[str, dict[str, Any]]:
-    """Load the resumable-download progress JSON."""
-    if not progress_path.is_file():
-        return {}
-    try:
-        raw = json.loads(progress_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        _LOG.warning("progress file %s unreadable (%s); starting fresh", progress_path, exc)
-        return {}
-    if not isinstance(raw, dict):
-        _LOG.warning("progress file %s has wrong shape; starting fresh", progress_path)
-        return {}
-    out: dict[str, dict[str, Any]] = {}
-    for key, val in raw.items():
-        if isinstance(key, str) and isinstance(val, dict):
-            out[key] = val
-    return out
-
-
-def save_progress(progress_path: Path, state: dict[str, dict[str, Any]]) -> None:
-    """Atomically write the progress JSON via tempfile + rename."""
-    progress_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_str = tempfile.mkstemp(
-        prefix=".download-progress.", suffix=".tmp", dir=str(progress_path.parent)
-    )
-    tmp_path = Path(tmp_str)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(state, fh, sort_keys=True, indent=2)
-            fh.write("\n")
-        os.replace(tmp_path, progress_path)
-    except Exception:
-        with contextlib.suppress(OSError):
-            tmp_path.unlink()
-        raise
-
-
-def mark_done(state: dict[str, dict[str, Any]], filename: str) -> None:
-    """Mark ``filename`` as successfully downloaded."""
-    state[filename] = {"state": _STATE_DONE}
-
-
-def mark_failed(state: dict[str, dict[str, Any]], filename: str, reason: str) -> None:
-    """Mark ``filename`` as a non-retriable download failure."""
-    state[filename] = {"state": _STATE_FAILED, "reason": reason}
-
-
-def should_attempt(state: dict[str, dict[str, Any]], filename: str, clip_path: Path) -> bool:
-    """Return True if we should (re-)attempt this clip."""
-    entry = state.get(filename)
-    if entry is None:
-        return True
-    s = entry.get("state")
-    if s == _STATE_FAILED:
-        return False
-    if s == _STATE_DONE:
-        return not clip_path.is_file()
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Downloader (subprocess seam)
-# ---------------------------------------------------------------------------
-
-
-def download_clip(
+def parse_manifest_csv(
+    csv_path: Path,
     *,
-    url: str,
-    dest: Path,
-    curl_bin: str = "curl",
-    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
-    timeout_s: int = 120,
-) -> tuple[bool, str]:
-    """Download ``url`` to ``dest`` via curl.
+    min_rows: int = _WATERLOO_IVC_MIN_ROWS,
+    clip_suffix: str = _DEFAULT_CLIP_SUFFIX,
+) -> list[dict[str, Any]]:
+    """Parse a Waterloo IVC manifest; auto-detect canonical vs. standard shape."""
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Waterloo IVC manifest not found: {csv_path}")
 
-    Returns ``(ok, reason)`` where ``reason`` is a short
-    diagnostic string on failure (HTTP code, curl exit code,
-    etc.) or empty on success. The ``runner`` argument is the
-    test seam.
-    """
-    if not url:
-        return False, "no-url-in-manifest"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    part = dest.with_suffix(dest.suffix + ".part")
-    cmd = [
-        curl_bin,
-        "--location",
-        "--fail",
-        "--silent",
-        "--show-error",
-        "--max-time",
-        str(timeout_s),
-        "--output",
-        str(part),
-        url,
-    ]
-    try:
-        proc = runner(cmd, check=False, capture_output=True, text=True)
-    except (FileNotFoundError, OSError) as exc:
-        return False, f"curl-spawn-failed: {exc}"
+    raw = csv_path.read_text(encoding="utf-8-sig")
+    lines = [ln for ln in raw.splitlines() if ln.strip()]
+    if not lines:
+        raise ValueError(f"{csv_path}: empty manifest")
 
-    rc = getattr(proc, "returncode", 1)
-    if rc != 0:
-        with contextlib.suppress(OSError):
-            part.unlink()
-        stderr = (getattr(proc, "stderr", "") or "").strip()
-        return False, f"curl-rc={rc}: {stderr[:200]}"
+    if _is_canonical_headerless(lines[0]):
+        rows = _parse_canonical_headerless(lines, clip_suffix=clip_suffix, csv_path=csv_path)
+    else:
+        rows = _parse_standard_csv(csv_path, clip_suffix=clip_suffix)
 
-    if not part.is_file() or part.stat().st_size == 0:
-        with contextlib.suppress(OSError):
-            part.unlink()
-        return False, "curl-empty-output"
-
-    try:
-        os.replace(part, dest)
-    except OSError as exc:
-        return False, f"rename-failed: {exc}"
-    return True, ""
-
-
-# ---------------------------------------------------------------------------
-# ffprobe (mirrors LSVQ / KonViD-150k)
-# ---------------------------------------------------------------------------
-
-
-def probe_geometry(
-    clip_path: Path,
-    *,
-    ffprobe_bin: str = "ffprobe",
-    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
-) -> dict[str, Any] | None:
-    """Probe ``(width, height, fps, duration_s, pix_fmt, codec_name)``.
-
-    Returns ``None`` on any failure. The caller logs and skips
-    the clip — the run continues. The ``runner`` argument is the
-    test seam.
-    """
-    cmd = [
-        ffprobe_bin,
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "stream=width,height,r_frame_rate,avg_frame_rate,duration,pix_fmt,codec_name",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "json",
-        str(clip_path),
-    ]
-    try:
-        proc = runner(cmd, check=False, capture_output=True, text=True)
-    except (FileNotFoundError, OSError) as exc:
-        _LOG.warning("ffprobe spawn failed for %s: %s", clip_path.name, exc)
-        return None
-
-    rc = getattr(proc, "returncode", 1)
-    stdout = getattr(proc, "stdout", "") or ""
-    if rc != 0:
-        _LOG.warning(
-            "ffprobe rc=%d for %s; stderr=%s",
-            rc,
-            clip_path.name,
-            (getattr(proc, "stderr", "") or "").strip()[:200],
+    if len(rows) < min_rows:
+        raise ValueError(
+            f"{csv_path}: {len(rows)} rows is below the Waterloo IVC sanity floor ({min_rows}). "
+            f"The canonical scores.txt carries 1 200 rows. "
+            f"Drop the file from {_WATERLOO_IVC_DOWNLOAD_BASE}scores.txt"
         )
-        return None
-
-    try:
-        payload = json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        _LOG.warning("ffprobe non-JSON output for %s: %s", clip_path.name, exc)
-        return None
-
-    streams = payload.get("streams") or []
-    if not streams:
-        _LOG.warning("ffprobe: no video streams in %s", clip_path.name)
-        return None
-    s = streams[0]
-
-    width = int(s.get("width", 0) or 0)
-    height = int(s.get("height", 0) or 0)
-    fps_raw = s.get("avg_frame_rate") or s.get("r_frame_rate") or ""
-    framerate = _parse_framerate(fps_raw)
-
-    duration_s = 0.0
-    for src in (s, payload.get("format") or {}):
-        d = src.get("duration")
-        if d is None:
-            continue
-        try:
-            duration_s = float(d)
-        except (TypeError, ValueError):
-            continue
-        if duration_s > 0:
-            break
-
-    return {
-        "width": width,
-        "height": height,
-        "framerate": framerate,
-        "duration_s": duration_s,
-        "pix_fmt": str(s.get("pix_fmt") or ""),
-        "encoder_upstream": str(s.get("codec_name") or ""),
-    }
+    return rows
 
 
 # ---------------------------------------------------------------------------
-# JSONL row build + write
+# Adapter subclass
 # ---------------------------------------------------------------------------
 
 
-def build_row(
-    *,
-    clip_path: Path,
-    csv_row: _ManifestRow,
-    geometry: dict[str, Any],
-    corpus_version: str,
-    ingested_at_utc: str,
-    src_sha256: str | None = None,
-) -> dict[str, Any]:
-    """Build one JSONL row from probed geometry + parsed manifest row.
+class WaterlooIVCIngest(CorpusIngestBase):
+    """MOS-corpus ingest adapter for Waterloo IVC 4K-VQA (ADR-0369)."""
 
-    MOS is recorded **verbatim** on the Waterloo IVC native
-    0–100 scale — see this module's docstring for the
-    cross-corpus rescaling caveat. ``mos_std_dev`` and
-    ``n_ratings`` are pass-through 0.0 / 0 when the canonical
-    headerless ``scores.txt`` is consumed (those columns are
-    absent upstream); the standard-CSV branch round-trips them
-    verbatim.
-    """
-    if src_sha256 is None:
-        src_sha256 = _sha256_file(clip_path)
-    return {
-        "src": clip_path.name,
-        "src_sha256": src_sha256,
-        "src_size_bytes": int(clip_path.stat().st_size),
-        "width": int(geometry["width"]),
-        "height": int(geometry["height"]),
-        "framerate": float(geometry["framerate"]),
-        "duration_s": float(geometry["duration_s"]),
-        "pix_fmt": geometry["pix_fmt"],
-        "encoder_upstream": geometry["encoder_upstream"],
-        "mos": float(csv_row.mos),
-        "mos_std_dev": float(csv_row.mos_std_dev),
-        "n_ratings": int(csv_row.n_ratings),
-        "corpus": _CORPUS_LABEL,
-        "corpus_version": corpus_version,
-        "ingested_at_utc": ingested_at_utc,
-    }
+    corpus_label = _CORPUS_LABEL
 
+    def __init__(
+        self,
+        *,
+        waterloo_ivc_dir: Path,
+        min_csv_rows: int = _WATERLOO_IVC_MIN_ROWS,
+        clip_suffix: str = _DEFAULT_CLIP_SUFFIX,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(corpus_dir=waterloo_ivc_dir, **kwargs)
+        self._min_csv_rows = min_csv_rows
+        self._clip_suffix = clip_suffix
 
-def _read_existing_sha_index(jsonl_path: Path) -> set[str]:
-    """Return ``src_sha256`` values already present in an existing JSONL."""
-    if not jsonl_path.is_file():
-        return set()
-    seen: set[str] = set()
-    with jsonl_path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            sha = obj.get("src_sha256")
-            if isinstance(sha, str) and sha:
-                seen.add(sha)
-    return seen
+    def iter_source_rows(self, clips_dir: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
+        rows = parse_manifest_csv(
+            self.manifest_csv, min_rows=self._min_csv_rows, clip_suffix=self._clip_suffix
+        )
+        _LOG.info("parsed %d manifest rows from %s", len(rows), self.manifest_csv.name)
+        for row in rows:
+            yield clips_dir / row["filename"], row
 
 
 # ---------------------------------------------------------------------------
-# Counter
-# ---------------------------------------------------------------------------
-
-
-class RunStats:
-    """Aggregate counters returned from :func:`run`."""
-
-    __slots__ = ("attrition_pct", "dedups", "skipped_broken", "skipped_download", "written")
-
-    def __init__(self) -> None:
-        self.written = 0
-        self.skipped_download = 0
-        self.skipped_broken = 0
-        self.dedups = 0
-        self.attrition_pct = 0.0
-
-    def as_tuple(self) -> tuple[int, int, int, int]:
-        """Compact representation, written / dl-failed / broken / dedup."""
-        return (self.written, self.skipped_download, self.skipped_broken, self.dedups)
-
-
-# ---------------------------------------------------------------------------
-# Driver
+# Module-level run()
 # ---------------------------------------------------------------------------
 
 
@@ -858,191 +244,33 @@ def run(
     ffprobe_bin: str = "ffprobe",
     curl_bin: str = "curl",
     corpus_version: str = _DEFAULT_CORPUS_VERSION,
-    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
-    now_fn: Callable[[], str] = _utc_now_iso,
+    runner=subprocess.run,
+    now_fn=utc_now_iso,
     attrition_warn_threshold: float = 0.10,
     download_timeout_s: int = 120,
     min_csv_rows: int = _WATERLOO_IVC_MIN_ROWS,
     max_rows: int | None = _WATERLOO_IVC_DEFAULT_MAX_ROWS,
     clip_suffix: str = _DEFAULT_CLIP_SUFFIX,
 ) -> RunStats:
-    """Build the JSONL.
-
-    Returns a :class:`RunStats`. Idempotent: re-runs against an
-    existing ``output`` append only new rows (keyed by
-    ``src_sha256``). Re-runs against an existing progress file
-    resume download attempts. A WARNING is logged when the
-    download-failure rate exceeds ``attrition_warn_threshold``
-    (default 10 %); the run still completes.
-
-    ``max_rows`` caps the number of manifest rows ingested in
-    one run. ``None`` means "ingest the whole CSV". The default
-    is :data:`_WATERLOO_IVC_DEFAULT_MAX_ROWS` (100) for laptop-
-    class runs; pass ``--full`` on the CLI (or
-    ``max_rows=None`` here) for whole-corpus ingestion.
-    """
-    if not waterloo_ivc_dir.is_dir():
-        raise FileNotFoundError(
-            f"Waterloo IVC directory not found: {waterloo_ivc_dir}\n"
-            f"  Create it and drop the manifest from\n"
-            f"  {_WATERLOO_IVC_DOWNLOAD_BASE}scores.txt\n"
-            f"  inside (or use --waterloo-ivc-dir to point at\n"
-            f"  an existing extraction). Default layout:\n"
-            f"    .workingdir2/waterloo-ivc-4k/manifest.csv\n"
-            f"    .workingdir2/waterloo-ivc-4k/clips/\n"
-        )
-
-    if manifest_csv is None:
-        manifest_csv = waterloo_ivc_dir / _DEFAULT_MANIFEST_NAME
-    if progress_path is None:
-        progress_path = waterloo_ivc_dir / ".download-progress.json"
-
-    manifest_rows = parse_manifest_csv(manifest_csv, min_rows=min_csv_rows, clip_suffix=clip_suffix)
-    _LOG.info("parsed %d manifest rows from %s", len(manifest_rows), manifest_csv.name)
-
-    if max_rows is not None and len(manifest_rows) > max_rows:
-        _LOG.info(
-            "capping manifest at --max-rows=%d (full CSV had %d); pass --full to ingest all",
-            max_rows,
-            len(manifest_rows),
-        )
-        manifest_rows = manifest_rows[:max_rows]
-
-    clips_dir = waterloo_ivc_dir / clips_subdir
-    clips_dir.mkdir(parents=True, exist_ok=True)
-
-    state = load_progress(progress_path)
-    if state:
-        already_done = sum(1 for v in state.values() if v.get("state") == _STATE_DONE)
-        already_failed = sum(1 for v in state.values() if v.get("state") == _STATE_FAILED)
-        _LOG.info(
-            "resume: %d clips done, %d clips failed (from %s)",
-            already_done,
-            already_failed,
-            progress_path,
-        )
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    seen_sha = _read_existing_sha_index(output)
-    if seen_sha:
-        _LOG.info("resume: %d existing rows already in %s", len(seen_sha), output)
-
-    ingested_at_utc = now_fn()
-    stats = RunStats()
-    total = len(manifest_rows)
-    saves_since_flush = 0
-
-    with output.open("a", encoding="utf-8") as fp:
-        for idx, csv_row in enumerate(manifest_rows, start=1):
-            clip_path = clips_dir / csv_row.filename
-
-            # Step 1: ensure the clip is on disk (download if needed).
-            if not clip_path.is_file():
-                if not should_attempt(state, csv_row.filename, clip_path):
-                    stats.skipped_download += 1
-                    continue
-                ok, reason = download_clip(
-                    url=csv_row.url,
-                    dest=clip_path,
-                    curl_bin=curl_bin,
-                    runner=runner,
-                    timeout_s=download_timeout_s,
-                )
-                if not ok:
-                    _LOG.warning(
-                        "download failed for %s: %s",
-                        csv_row.filename,
-                        reason,
-                    )
-                    mark_failed(state, csv_row.filename, reason)
-                    stats.skipped_download += 1
-                    saves_since_flush += 1
-                    if saves_since_flush >= 50:
-                        save_progress(progress_path, state)
-                        saves_since_flush = 0
-                    continue
-                mark_done(state, csv_row.filename)
-                saves_since_flush += 1
-            else:
-                if state.get(csv_row.filename, {}).get("state") != _STATE_DONE:
-                    mark_done(state, csv_row.filename)
-                    saves_since_flush += 1
-
-            # Step 2: probe + JSONL row.
-            geometry = probe_geometry(clip_path, ffprobe_bin=ffprobe_bin, runner=runner)
-            if geometry is None:
-                stats.skipped_broken += 1
-                continue
-            if geometry["width"] <= 0 or geometry["height"] <= 0:
-                _LOG.warning(
-                    "ffprobe returned zero geometry for %s; skipping",
-                    clip_path.name,
-                )
-                stats.skipped_broken += 1
-                continue
-
-            sha = _sha256_file(clip_path)
-            if sha in seen_sha:
-                stats.dedups += 1
-                continue
-
-            row = build_row(
-                clip_path=clip_path,
-                csv_row=csv_row,
-                geometry=geometry,
-                corpus_version=corpus_version,
-                ingested_at_utc=ingested_at_utc,
-                src_sha256=sha,
-            )
-            fp.write(json.dumps(row, sort_keys=True) + "\n")
-            seen_sha.add(sha)
-            stats.written += 1
-
-            if saves_since_flush >= 50:
-                save_progress(progress_path, state)
-                saves_since_flush = 0
-
-            if idx % 100 == 0:
-                _LOG.info(
-                    "progress: %d/%d (wrote=%d, dl-failed=%d, broken=%d, dedups=%d)",
-                    idx,
-                    total,
-                    stats.written,
-                    stats.skipped_download,
-                    stats.skipped_broken,
-                    stats.dedups,
-                )
-
-    save_progress(progress_path, state)
-
-    if total > 0:
-        stats.attrition_pct = stats.skipped_download / total
-
-    summary = (
-        f"[waterloo-ivc-4k-jsonl] wrote {stats.written} rows, "
-        f"skipped {stats.skipped_download} (download-failed), "
-        f"{stats.skipped_broken} (broken-clip), "
-        f"{stats.dedups} dedups -> {output}"
+    """Build the JSONL. Returns a :class:`RunStats`."""
+    ingest = WaterlooIVCIngest(
+        waterloo_ivc_dir=waterloo_ivc_dir,
+        output=output,
+        manifest_csv=manifest_csv,
+        progress_path=progress_path,
+        clips_subdir=clips_subdir,
+        ffprobe_bin=ffprobe_bin,
+        curl_bin=curl_bin,
+        corpus_version=corpus_version,
+        runner=runner,
+        now_fn=now_fn,
+        attrition_warn_threshold=attrition_warn_threshold,
+        download_timeout_s=download_timeout_s,
+        max_rows=max_rows,
+        min_csv_rows=min_csv_rows,
+        clip_suffix=clip_suffix,
     )
-    print(summary, file=sys.stderr)
-    _LOG.info(
-        "wrote %d rows, skipped %d (download-failed), %d (broken-clip), %d dedups",
-        stats.written,
-        stats.skipped_download,
-        stats.skipped_broken,
-        stats.dedups,
-    )
-
-    if stats.attrition_pct > attrition_warn_threshold:
-        _LOG.warning(
-            "download attrition %.1f%% exceeds advisory threshold %.1f%% "
-            "(check %s for failure reasons)",
-            stats.attrition_pct * 100.0,
-            attrition_warn_threshold * 100.0,
-            progress_path,
-        )
-
-    return stats
+    return ingest.run()
 
 
 # ---------------------------------------------------------------------------
@@ -1054,128 +282,47 @@ def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="waterloo_ivc_to_corpus_jsonl.py",
         description=(
-            "ADR-0369: walk a local Waterloo IVC 4K-VQA "
-            "extraction (or build one via resumable downloads), "
-            "probe each clip via ffprobe, join with the manifest "
-            "CSV's MOS scores, and emit one JSONL row per clip. "
-            "Defaults to a 100-row laptop-class subset; pass "
-            "--full for whole-corpus ingestion (~multi-TB working "
-            "set on the canonical 1 200-clip + 20-source set). "
-            "Failed-clip state persists across runs in "
-            ".download-progress.json so Ctrl-C is safe."
+            "ADR-0369: walk a local Waterloo IVC 4K-VQA extraction (or build "
+            "one via resumable downloads), probe each clip via ffprobe, join "
+            "with the manifest CSV's MOS scores, and emit one JSONL row per clip."
         ),
     )
     ap.add_argument(
         "--waterloo-ivc-dir",
         type=Path,
         default=_DEFAULT_WATERLOO_IVC_DIR,
-        help=(
-            "Local Waterloo IVC working directory (default: "
-            ".workingdir2/waterloo-ivc-4k/). Must contain the "
-            "manifest CSV; downloads land in <dir>/clips/. "
-            "Obtain the manifest from "
-            f"{_WATERLOO_IVC_DOWNLOAD_BASE}scores.txt."
-        ),
+        help="Local Waterloo IVC working directory.",
     )
-    ap.add_argument(
-        "--manifest-csv",
-        type=Path,
-        default=None,
-        help="Path to manifest (default: <waterloo-ivc-dir>/manifest.csv).",
-    )
-    ap.add_argument(
-        "--progress-path",
-        type=Path,
-        default=None,
-        help=(
-            "Resumable-download state file (default: "
-            "<waterloo-ivc-dir>/.download-progress.json). Delete to "
-            "retry previously-failed downloads."
-        ),
-    )
+    ap.add_argument("--manifest-csv", type=Path, default=None)
+    ap.add_argument("--progress-path", type=Path, default=None)
     ap.add_argument(
         "--clips-subdir",
         default=_DEFAULT_CLIPS_SUBDIR,
-        help=(
-            f"Subdirectory under --waterloo-ivc-dir where downloaded "
-            f"clips live (default: {_DEFAULT_CLIPS_SUBDIR!r})."
-        ),
+        help=f"Subdirectory for clips (default: {_DEFAULT_CLIPS_SUBDIR!r}).",
     )
     ap.add_argument(
         "--clip-suffix",
         default=_DEFAULT_CLIP_SUFFIX,
-        help=(
-            f"Default file extension appended to bare-stem CSV "
-            f"``name`` columns and synthesised canonical "
-            f"filenames (default: {_DEFAULT_CLIP_SUFFIX!r})."
-        ),
+        help=f"Default extension (default: {_DEFAULT_CLIP_SUFFIX!r}).",
     )
-    ap.add_argument(
-        "--output",
-        type=Path,
-        default=_DEFAULT_OUTPUT,
-        help=(
-            "Output JSONL path (default: "
-            ".workingdir2/waterloo-ivc-4k/waterloo_ivc_4k.jsonl). "
-            "Existing files are appended to with src_sha256-based dedup."
-        ),
-    )
-    ap.add_argument(
-        "--ffprobe-bin",
-        default=os.environ.get("FFPROBE_BIN", "ffprobe"),
-        help="ffprobe binary (default: $FFPROBE_BIN or 'ffprobe').",
-    )
-    ap.add_argument(
-        "--curl-bin",
-        default=os.environ.get("CURL_BIN", "curl"),
-        help="curl binary used for downloads (default: $CURL_BIN or 'curl').",
-    )
+    ap.add_argument("--output", type=Path, default=_DEFAULT_OUTPUT)
+    ap.add_argument("--ffprobe-bin", default=os.environ.get("FFPROBE_BIN", "ffprobe"))
+    ap.add_argument("--curl-bin", default=os.environ.get("CURL_BIN", "curl"))
     ap.add_argument(
         "--corpus-version",
         default=_DEFAULT_CORPUS_VERSION,
-        help=(
-            f"Dataset version string baked into each row "
-            f"(default: {_DEFAULT_CORPUS_VERSION!r})."
-        ),
+        help=f"Dataset version string (default: {_DEFAULT_CORPUS_VERSION!r}).",
     )
-    ap.add_argument(
-        "--attrition-warn-threshold",
-        type=float,
-        default=0.10,
-        help=(
-            "Fraction of download-failed clips above which a " "WARNING is logged (default: 0.10)."
-        ),
-    )
-    ap.add_argument(
-        "--download-timeout-s",
-        type=int,
-        default=120,
-        help="Per-clip curl --max-time seconds (default: 120).",
-    )
+    ap.add_argument("--attrition-warn-threshold", type=float, default=0.10)
+    ap.add_argument("--download-timeout-s", type=int, default=120)
     ap.add_argument(
         "--max-rows",
         type=int,
         default=_WATERLOO_IVC_DEFAULT_MAX_ROWS,
-        help=(
-            f"Cap manifest at this many rows; default is the "
-            f"laptop-class subset ({_WATERLOO_IVC_DEFAULT_MAX_ROWS}). "
-            f"Mutually exclusive with --full."
-        ),
+        help=f"Cap at this many rows (default: {_WATERLOO_IVC_DEFAULT_MAX_ROWS}).",
     )
-    ap.add_argument(
-        "--full",
-        action="store_true",
-        help=(
-            "Ingest the entire manifest. Overrides --max-rows. "
-            "Working set is ~multi-TB end-to-end on the "
-            "canonical 1 200-clip distorted + 20-source 2160p set."
-        ),
-    )
-    ap.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
-    )
+    ap.add_argument("--full", action="store_true", help="Ingest entire manifest.")
+    ap.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return ap
 
 
@@ -1186,11 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     if shutil.which(args.curl_bin) is None:
-        _LOG.warning(
-            "curl binary %r not on PATH; downloads will fail (this is fine "
-            "for already-extracted corpora)",
-            args.curl_bin,
-        )
+        _LOG.warning("curl binary %r not on PATH; downloads will fail", args.curl_bin)
     max_rows: int | None = None if args.full else args.max_rows
     try:
         run(
@@ -1208,7 +351,15 @@ def main(argv: list[str] | None = None) -> int:
             max_rows=max_rows,
         )
     except FileNotFoundError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        msg = str(exc)
+        # Append acquisition hint when the corpus root is missing so
+        # operators know where to get the data (test asserts on the hint).
+        if "corpus directory not found" in msg.lower():
+            msg += (
+                "\n  Obtain the dataset from https://ivc.uwaterloo.ca/database/4KVQA.html"
+                " and drop scores.txt at <waterloo-ivc-dir>/manifest.csv."
+            )
+        print(f"error: {msg}", file=sys.stderr)
         return 2
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
