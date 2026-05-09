@@ -31,7 +31,7 @@ dependencies = [
   "scipy>=1.13",
   "scikit-learn>=1.5",
   "pyyaml>=6.0",
-  "typer>=0.12",
+  "typer>=0.25.1",
   "rich>=13.7",
   "tqdm>=4.67.3",
 ]
