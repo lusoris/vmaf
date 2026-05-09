@@ -538,6 +538,31 @@ ADR-0291 + ADR-0302):
   ADR-0235 §References pins this rule globally for all corpus
   emitters.
 
+## `fr_regressor_*` namespace map (ADR-0349)
+
+The `fr_regressor` lineage carries two orthogonal axes. Encoder-vocab
+versioning runs on `_v{N}` (v1 = no codec block, v2 = 13-slot, v3 = 16-slot).
+Feature-set versioning runs as a `_v{N}plus_features` suffix on the matching
+encoder-vocab base. Names below are claimed; do **not** reuse them for
+unrelated workstreams.
+
+| Name | Encoder vocab | Feature axis | Status |
+|---|---|---|---|
+| `fr_regressor_v1` | none (single-input) | canonical-6 | shipped (ADR-0249) |
+| `fr_regressor_v2` | v2 (13-slot) | canonical-6 + 8-D codec block | shipped (ADR-0272 / ADR-0291) |
+| `fr_regressor_v2_ensemble_v1_seed{0..4}` | v2 (13-slot) | canonical-6 + 8-D codec block | shipped (ADR-0279) |
+| `fr_regressor_v3` | v3 (16-slot) | canonical-6 + 18-D codec block | shipped (ADR-0302 / ADR-0323) |
+| `fr_regressor_v3plus_features` | v3 (16-slot) | canonical-6 + `encoder_internal` + shot-boundary + `hwcap` | **reserved** (ADR-0349) — registry row lands with the future PR that ships the `.onnx` |
+
+The reservation is documentation-only because
+[`libvmaf/test/dnn/test_registry.sh`](../libvmaf/test/dnn/test_registry.sh)
+treats every registry row as a hard contract (file must exist, sha256 must
+match, sidecar must accompany every `smoke: false` entry); a stub row would
+fail CI on day one. The future `_v3plus_features` PR populates the row in
+the same commit that ships the `.onnx`. See
+[ADR-0349](../docs/adr/0349-fr-regressor-v3-namespace.md) for the namespace
+decision and the rejected alternatives.
+
 ## Knob-sweep recipe-regression policy (ADR-0308)
 
 Cited from the regression-detection invariant in

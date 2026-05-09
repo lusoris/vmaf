@@ -132,3 +132,19 @@ acceptance criterion.
 - [Research-0078](../research/0078-encoder-vocab-v3-schema-expansion.md)
   — companion research digest with retrain plan, ship gate,
   reproducer.
+
+### Status update 2026-05-09: namespace collision resolved
+
+Two parallel agent reports (`abd6ed552ac8cae60`,
+`abda108c8263491da`) surfaced a name collision: a future
+"feature-set v3" workstream (canonical-6 + `encoder_internal` +
+shot-boundary + `hwcap`) was unintentionally referring to itself
+as `fr_regressor_v3` — the same id this ADR's retrain checkpoint
+already claims. The collision is resolved per
+[ADR-0349](0349-fr-regressor-v3-namespace.md): this ADR's
+`fr_regressor_v3` registry row stays bit-identical (sha256
+`eaa16d23…`, `smoke: false`) and the future feature-set work
+claims the reserved name `fr_regressor_v3plus_features`. No code
+change in this ADR; this appendix lands per
+[ADR-0028](0028-adr-maintenance-rule.md) (immutability of
+Accepted-ADR bodies — append-only status updates only).

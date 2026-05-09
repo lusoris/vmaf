@@ -9226,3 +9226,44 @@ inline.*
     grep -c "paths-ignore:" ".github/workflows/${f}.yml"  # must report >= 1
   done
   ```
+
+## ADR-0349 — `fr_regressor_v3` namespace resolution (2026-05-09)
+
+- **Rebase impact**: none. Docs-only change — adds
+  [ADR-0349](adr/0349-fr-regressor-v3-namespace.md), an
+  append-only status appendix on
+  [ADR-0302](adr/0302-encoder-vocab-v3-schema-expansion.md) per
+  [ADR-0028](adr/0028-adr-maintenance-rule.md), a
+  `## fr_regressor_* namespace map` block in
+  [`ai/AGENTS.md`](../ai/AGENTS.md), and two changelog
+  fragments. No upstream Netflix/vmaf surface touched; no
+  `fr_regressor_*` registry rows touched (sha256s for `_v1`,
+  `_v2`, `_v2_ensemble_v1_seed{0..4}`, `_v3` all unchanged); no
+  C / Python / ONNX bytes modified.
+- **What to check after a rebase**: nothing automated. The only
+  drift risk is a future agent claiming `fr_regressor_v3plus_features`
+  for an unrelated workstream — `ai/AGENTS.md` carries the
+  reservation; reviewers verify the map row exists before
+  approving any new `fr_regressor_*` registry id.
+- **Reproducer**:
+
+  ```bash
+  # ADR + AGENTS.md namespace map present and consistent:
+  test -f docs/adr/0349-fr-regressor-v3-namespace.md
+  grep -q "fr_regressor_\* namespace map" ai/AGENTS.md
+  grep -q "fr_regressor_v3plus_features" ai/AGENTS.md docs/adr/0349-fr-regressor-v3-namespace.md
+  # Status appendix present on ADR-0302:
+  grep -q "Status update 2026-05-09: namespace collision resolved" \
+    docs/adr/0302-encoder-vocab-v3-schema-expansion.md
+  # Existing v3 production row bit-identical (sha256 unchanged):
+  python3 -c "
+import json
+reg = json.load(open('model/tiny/registry.json'))
+v3 = next(m for m in reg['models'] if m['id'] == 'fr_regressor_v3')
+assert v3['sha256'] == 'eaa16d23461eda74940b2ed590edfcaf13428aade294e47792a5a15f4d3b999c', v3
+assert v3['smoke'] is False
+print('OK: fr_regressor_v3 production row unchanged')
+"
+  # Registry test still passes:
+  bash libvmaf/test/dnn/test_registry.sh
+  ```
