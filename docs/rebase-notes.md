@@ -8378,7 +8378,6 @@ inline.*
   (fork-local file, no upstream-tree touch).
 
 ### 0228 — `vmaf-tune` Phase D scaffold (ADR-0276)
-
 - **Touches**: `tools/vmaf-tune/src/vmaftune/per_shot.py`,
   `tools/vmaf-tune/src/vmaftune/cli.py`,
   `tools/vmaf-tune/tests/test_per_shot.py`,
@@ -8401,14 +8400,11 @@ inline.*
 - **On upstream sync**: zero interaction expected. No file in
   this PR overlaps an upstream-mirrored path.
 - **Re-test on rebase**:
-
   ```bash
   python -m pytest tools/vmaf-tune/tests/test_per_shot.py -q
   python tools/vmaf-tune/vmaf-tune tune-per-shot --help
   ```
-
 ### 0229 — `vmaf-tune` SVT-AV1 codec adapter (ADR-0278)
-
 - **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/svtav1.py`
   (new), `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py`
   (registry), `tools/vmaf-tune/src/vmaftune/encode.py`
@@ -8427,13 +8423,17 @@ inline.*
 - **On upstream sync**: zero interaction. Lives entirely under the
   fork-local `tools/vmaf-tune/` tree.
 - **Re-test on rebase**:
-
   ```bash
   python -m pytest tools/vmaf-tune/tests/ -v
   ```
+
 ### 0230 — fr_regressor_v2 PROD ship (ADR-0352)
 
 - **ADR**: [ADR-0352](adr/0291-fr-regressor-v2-prod-ship.md)
+
+### 0230 — fr_regressor_v2 PROD ship (ADR-0291)
+- **ADR**: [ADR-0291](adr/0291-fr-regressor-v2-prod-ship.md)
+
 - **Touches**: `model/tiny/fr_regressor_v2.onnx` (binary, refreshed),
   `model/tiny/fr_regressor_v2.json` (sidecar, sha256 + metrics),
   `model/tiny/registry.json` (smoke flag flip, sha256 update),
@@ -8447,9 +8447,7 @@ inline.*
   do not re-train against the cell-only `comprehensive.jsonl` (it lacks
   the per-frame features and produces PLCC ≈ 0.7 — the smoke baseline).
 - **No upstream interaction**: `fr_regressor_v2` is fork-local (ADR-0272).
-
 ### 0229 — vmaf-tune Phase E ladder generator (ADR-0295)
-
 - **ADR**: [ADR-0295](adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)
 - **Touches**: entirely fork-local under `tools/vmaf-tune/`. New
   module `tools/vmaf-tune/src/vmaftune/ladder.py`, new test file
@@ -8469,13 +8467,10 @@ inline.*
 - **Rebase impact**: none — fork-local Python tool; upstream
   Netflix/vmaf does not ship a `tools/vmaf-tune/` tree.
 - **Re-test on rebase**:
-
   ```bash
   python -m pytest tools/vmaf-tune/tests/test_ladder.py -v
   ```
-
 ### 0229 — `fr_regressor_v2` probabilistic head scaffold (ADR-0279)
-
 - **Touches**:
   - `ai/scripts/train_fr_regressor_v2_ensemble.py` (new — fork-local).
   - `ai/scripts/eval_probabilistic_proxy.py` (new — fork-local).
@@ -8512,15 +8507,12 @@ inline.*
   `fr_regressor_v2` variant, do NOT merge — register both ids
   side-by-side.
 - **Re-test on rebase**:
-
   ```bash
   python ai/scripts/train_fr_regressor_v2_ensemble.py --smoke
   python ai/scripts/eval_probabilistic_proxy.py --smoke
   python ai/scripts/validate_model_registry.py
   ```
-
 ### 0287 — `vmaf-tune` saliency-aware ROI tuning (ADR-0293)
-
 - **Touches**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
   `tools/vmaf-tune/src/vmaftune/cli.py` (new `recommend`
   subcommand), `tools/vmaf-tune/AGENTS.md` (saliency invariant),
@@ -8539,13 +8531,10 @@ inline.*
   `encode_runner=…`) lets the suite run without `onnxruntime`
   or `ffmpeg`.
 - **Re-test on rebase**:
-
   ```bash
   pytest tools/vmaf-tune/tests/ -q
   ```
-
 ### 0229 — `tools/vmaf-roi-score/` Option C scaffold (ADR-0296)
-
 - **ADR**: [ADR-0296](adr/0296-vmaf-roi-saliency-weighted.md)
 - **Touches**:
   - `tools/vmaf-roi-score/pyproject.toml` (new)
@@ -8574,13 +8563,10 @@ inline.*
 - **Rebase impact**: zero. Pure-Python tool under `tools/`; not part
   of the libvmaf C build, not part of any Netflix-mirrored surface.
 - **Re-test on rebase**:
-
   ```bash
   pytest tools/vmaf-roi-score/tests
   ```
-
 ### 0228 — `vmaf-tune compare` codec-comparison mode (research-0061 Bucket #7)
-
 - **Touches**:
   - `tools/vmaf-tune/src/vmaftune/compare.py` (new). Wholly fork-local;
     no upstream Netflix/vmaf path overlap.
@@ -8602,13 +8588,11 @@ inline.*
   recommend backend (ADR-0237) is fork-internal; upstream
   Netflix/vmaf has no `tools/vmaf-tune/` tree.
 - **Re-test on rebase**:
-
   ```shell
   pytest tools/vmaf-tune/tests/test_compare.py -v
   PYTHONPATH=tools/vmaf-tune/src python -m vmaftune.cli compare \
       --src /tmp/ref.yuv --target-vmaf 92 --format markdown
 ### 0229 — `vmaf-tune --score-backend` GPU score wiring (ADR-0299)
-
 - **Touches**:
   - `tools/vmaf-tune/src/vmaftune/score_backend.py` (new). Wholly
     fork-local — `tools/vmaf-tune/` has no upstream Netflix/vmaf
@@ -8632,16 +8616,13 @@ inline.*
   in fork-introduced paths and consumes only the fork's
   `--backend` flag.
 - **Re-test on rebase**:
-
   ```bash
   pytest tools/vmaf-tune/tests/test_score_backend.py -v
   # If the libvmaf help text reformats, parse_supported_backends
   # will return {"cpu"} on test_parse_full_backend_line_yields_all_four
   # and the test fails loudly.
   ```
-
 ### 0261 — `vmaf-tune` HDR-aware encode + score path (2026-05-03)
-
 - **What changed**: fork-local addition under
   `tools/vmaf-tune/src/vmaftune/hdr.py` plus wiring into
   `corpus.py` / `cli.py` / `score.py`. Adds ffprobe-driven HDR
@@ -8658,14 +8639,11 @@ inline.*
   three new keys are additive — Phase B / C loaders treat missing
   keys as SDR for backward compat with v1 rows.
 - **Re-test on rebase**:
-
   ```bash
   python -m pytest tools/vmaf-tune/tests/ -q
   python -m vmaftune.cli corpus --help  # confirm --auto-hdr surfaces
   ```
-
 ### 0298 — vmaf-tune content-addressed cache (ADR-0298)
-
 - **What changed**: fork-local. New module
   `tools/vmaf-tune/src/vmaftune/cache.py`; cache integration in
   `tools/vmaf-tune/src/vmaftune/corpus.py` (`iter_rows` now consults
@@ -8685,11 +8663,9 @@ inline.*
   contract is asserted by `test_cache_key_diffs_on_each_field` in
   `tests/test_cache.py`.
 - **Re-test on rebase**:
-
   ```bash
   pytest tools/vmaf-tune/tests/test_cache.py -v
 ### 0283 — `vmaf-tune` Apple VideoToolbox adapters (2026-05-05)
-
 - **What changed**: fork-local addition under
   `tools/vmaf-tune/src/vmaftune/codec_adapters/`. New files:
   `h264_videotoolbox.py`, `hevc_videotoolbox.py`,
@@ -8711,14 +8687,11 @@ inline.*
   (Phase A under [ADR-0237](adr/0237-quality-aware-encode-automation.md)).
 - **On upstream sync**: zero interaction.
 - **Re-test on rebase**:
-
   ```bash
   python -m pytest tools/vmaf-tune/tests/test_codec_adapter_videotoolbox.py -q
   python -m pytest tools/vmaf-tune/tests/test_codec_adapter_prores_videotoolbox.py -q
   ```
-
 ### 0228 — `vmaf-tune` coarse-to-fine CRF search (ADR-0306)
-
 - **What changed**: fork-local tooling. Adds
   `coarse_to_fine_search()` to
   `tools/vmaf-tune/src/vmaftune/corpus.py`, plumbs new CLI flags onto
@@ -8734,13 +8707,10 @@ inline.*
 - **On upstream sync**: zero interaction. `tools/vmaf-tune/` is not
   mirrored from upstream.
 - **Re-test on rebase**:
-
   ```bash
   pytest tools/vmaf-tune/tests/test_corpus.py -k coarse_to_fine
   ```
-
 ### 0314 — `vmaf-tune --score-backend=vulkan` (ADR-0314)
-
 - **Touches**:
   - `tools/vmaf-tune/src/vmaftune/cli.py` (additive argparse flag on
     `corpus` + `recommend` subparsers; resolves `select_backend` and
@@ -8770,18 +8740,14 @@ inline.*
 - **On upstream sync**: zero interaction. No upstream-mirror file is
   touched.
 - **Re-test on rebase**:
-
   ```bash
   pytest tools/vmaf-tune/tests/test_score_backend.py -v -k vulkan
   pytest tools/vmaf-tune/tests/test_score_backend.py -v
   ```
-
   Failures here usually indicate the libvmaf help-text format
   changed; `score_backend.parse_supported_backends` test fixtures
   pin the format and will fail loudly.
-
 ### 0303 — fr_regressor_v2 ensemble prod flip (ADR-0303)
-
 - **ADR**: [ADR-0303](adr/0303-fr-regressor-v2-ensemble-prod-flip.md)
 - **Touches**: entirely fork-local.
   - `ai/scripts/train_fr_regressor_v2_ensemble_loso.py` (new — 9-fold
@@ -8810,20 +8776,16 @@ inline.*
   run + the CI gate. Do not flip seed rows during a rebase merge
   conflict resolution.
 - **Re-test on rebase**:
-
   ```bash
   python3 -c "import ast; ast.parse(open('ai/scripts/train_fr_regressor_v2_ensemble_loso.py').read())"
   python3 -c "import ast; ast.parse(open('scripts/ci/ensemble_prod_gate.py').read())"
   python ai/scripts/train_fr_regressor_v2_ensemble_loso.py --help
   python scripts/ci/ensemble_prod_gate.py --help
   ```
-
 - **Upstream source**: zero. `fr_regressor_v2` and its ensemble are
   fork-introduced (parent ADR-0272 / ADR-0279).
 - **On upstream sync**: zero interaction.
-
 ### 0313 — CI required-checks aggregator (2026-05-05)
-
 - **What changed**: fork-local CI policy. New
   `.github/workflows/required-aggregator.yml` — single workflow that
   runs on every non-draft PR and verifies the 23 named required checks
@@ -8840,21 +8802,16 @@ inline.*
 - **On upstream sync**: zero interaction with Netflix/vmaf master.
 - **Manual operator step at adoption** (uses PATCH, not PUT — corrected
   from the original ADR-0313 body which had the wrong verb):
-
   ```bash
   echo '{"strict": false, "contexts": ["Required Checks Aggregator"]}' | \
     gh api -X PATCH "repos/lusoris/vmaf/branches/master/protection/required_status_checks" --input -
   ```
-
 - **Re-test on rebase**:
-
   ```bash
   # YAML lint passes
   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/required-aggregator.yml'))"
   ```
-
 ### 0305 — encoder knob-space Pareto analysis (2026-05-05)
-
 - **What changed**: fork-local. New analysis scaffold for the
   12,636-cell encoder knob sweep that backs
   `tools/vmaf-tune/codec_adapters/*` recipe defaults. New files:
@@ -8885,13 +8842,10 @@ inline.*
   is generated locally and lives under `runs/phase_a/full_grid/`
   (gitignored — never committed).
 - **Re-test on rebase**:
-
   ```bash
   pytest ai/tests/test_knob_sweep_analysis.py -v
   ```
-
 ### 0302 — ENCODER_VOCAB v3 schema expansion (ADR-0302)
-
 - **Touches**: `ai/scripts/train_fr_regressor_v2.py` (adds an
   `ENCODER_VOCAB_V3` parallel constant; does not modify the live
   `ENCODER_VOCAB` or `ENCODER_VOCAB_VERSION`).
@@ -8905,7 +8859,6 @@ inline.*
 - **Upstream interaction**: zero. `ai/scripts/train_fr_regressor_v2.py`
   is fork-introduced (ADR-0272) and has no upstream counterpart.
 - **Re-test on rebase**:
-
   ```bash
   python3 -c "
   import importlib.util, pathlib
@@ -8919,9 +8872,7 @@ inline.*
   print('OK')
   "
   ```
-
 ### 0304 — vmaf-tune fast-path prod wiring (ADR-0304)
-
 - **Touches**: `tools/vmaf-tune/src/vmaftune/fast.py` (replaces the
   ADR-0276 scaffold's `NotImplementedError` paths with concrete
   Optuna TPE + v2 proxy + GPU verify wiring); new module
@@ -8944,13 +8895,10 @@ inline.*
   at inference time before bad predictions ship.
 - **On upstream sync**: zero interaction with Netflix/vmaf master.
 - **Re-test on rebase**:
-
   ```bash
   python -m pytest tools/vmaf-tune/tests/test_fast.py -v
   ```
-
 ### 0307 — `vmaf-tune` ladder default sampler wiring (ADR-0307)
-
 - **What changed**: fork-local tooling.
   `tools/vmaf-tune/src/vmaftune/ladder.py::_default_sampler` no
   longer raises `NotImplementedError`; it composes
@@ -8973,13 +8921,10 @@ inline.*
   without an ADR-0307 follow-up. The `SamplerFn` seam stays open —
   callers needing finer grids pass an explicit `sampler=`.
 - **Re-test on rebase**:
-
   ```bash
   pytest tools/vmaf-tune/tests/test_ladder.py -v
   ```
-
 ### 0309 — fr_regressor_v2 ensemble real-corpus retrain harness (ADR-0309)
-
 - **ADR**: [ADR-0309](adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md)
 - **Touches**: entirely fork-local.
   - `ai/scripts/run_ensemble_v2_real_corpus_loso.sh` (new — Bash
@@ -9006,18 +8951,14 @@ inline.*
   of shipped registry rows is the foot-gun this invariant
   exists to prevent.
 - **Re-test on rebase**:
-
   ```bash
   python -m pytest ai/tests/test_validate_ensemble_seeds.py -v
   python ai/scripts/validate_ensemble_seeds.py --help
   bash -n ai/scripts/run_ensemble_v2_real_corpus_loso.sh
   ```
-
 - **Upstream source**: zero.
 - **On upstream sync**: zero interaction.
-
 ### 0310 — BVI-DVC corpus ingestion for `fr_regressor_v2` (ADR-0310)
-
 - **Touches**: `ai/scripts/bvi_dvc_to_corpus_jsonl.py` (new
   fork-only adapter), `ai/scripts/merge_corpora.py` (new fork-only
   shard merger), `ai/tests/test_merge_corpora.py` (new),
@@ -9037,13 +8978,10 @@ inline.*
 - **Upstream interaction**: none. `ai/` is fork-introduced; BVI-DVC
   is not part of Netflix/vmaf upstream.
 - **Re-test on rebase**:
-
   ```bash
   python -m pytest ai/tests/test_merge_corpora.py -v
   ```
-
 ## ADR-0312 — `ffmpeg-patches/` vmaf-tune integration (2026-05-05)
-
 - **Files**: `ffmpeg-patches/0007-libvmaf-tune-qpfile-unified.patch`,
   `ffmpeg-patches/0008-add-libvmaf_tune-filter.patch`,
   `ffmpeg-patches/0009-pass-autotune-cli-glue.patch`,
@@ -9096,7 +9034,6 @@ inline.*
   separately under each refresh ADR (e.g., ADR-0277 for the
   2026-05-04 refresh).
 - **Re-test on rebase**:
-
   ```bash
   git -C /path/to/ffmpeg-8 reset --hard n8.1
   for p in ffmpeg-patches/000*-*.patch; do
@@ -9108,7 +9045,6 @@ inline.*
   make -j$(nproc) ffmpeg
   ./ffmpeg -hide_banner -h encoder=libx264 2>&1 | grep -i qpfile
   ```
-
 - **2026-05-06 update — patch 0007 SVT-AV1 ROI bridge promoted from
   scaffold to full impl**: the libsvtav1 hunk now sets
   `enc_params.enable_roi_map = true`, builds one `SvtAv1RoiMapEvt`
@@ -9127,7 +9063,6 @@ inline.*
   remains scaffold-only — its `AOME_SET_ROI_MAP` bridge stays a
   separate follow-up. No new ADR per CLAUDE.md §12 r8 (executes
   the existing ADR-0312 decision).
-
 - **2026-05-06 update — patch 0007 libaom-av1 ROI bridge promoted from
   scaffold to full impl**: the libaom-av1 hunk now caches the parsed
   `VmafTuneQpFile` in `AOMContext`, allocates a segment-id map at
@@ -9149,9 +9084,7 @@ inline.*
   noted under ADR-0312 — both AV1 encoder hooks (libsvtav1 and
   libaom-av1) are now full-impl. No new ADR per CLAUDE.md §12 r8
   (executes the existing ADR-0312 decision).
-
 ### 0315 — Vendor-neutral VVC encode strategy (ADR-0315 / Research-0085)
-
 - **ADR**: [ADR-0315](adr/0315-vendor-neutral-vvc-encode-strategy.md)
 - **Digest**: [Research-0085](research/0085-vendor-neutral-vvc-encode-landscape.md)
 - **Touches**: docs-only.
@@ -9169,11 +9102,9 @@ inline.*
   encode-automation surface.
 - **On upstream sync**: zero interaction. Pure docs.
 - **Re-test on rebase**:
-
   ```bash
   mkdocs build --strict 2>&1 | grep -E "(WARNING|ERROR)" || echo "docs build clean"
   ```
-
 - **2026-05-06 follow-up (Research-0085 verification pass)**:
   - `docs/research/0085-vendor-neutral-vvc-encode-landscape.md`
     flipped from `Status: SKELETON` to `Status: Active`. Most
@@ -9189,9 +9120,7 @@ inline.*
     profile, HHI's non-public roadmap).
   - No code touched. No rebase impact beyond the existing docs-only
     posture.
-
 ### 0316 — `cli_parse.c` `error()` long-only-option fix (ADR-0316)
-
 - **ADR**: [ADR-0316](adr/0316-cli-parse-long-only-error-fix.md) (follow-up to [ADR-0311](adr/0311-libfuzzer-harness-expansion.md)).
 - **Digest**: none — bug-fix; fix shape fits in the ADR/commit body.
 - **Touches**:
@@ -9224,16 +9153,13 @@ inline.*
   `cli_parse.c` if upstream resets the call-site args. The unit
   test is fork-local and stays.
 - **Re-test on rebase**:
-
   ```bash
   meson setup libvmaf/build libvmaf -Denable_tests=true \
       -Denable_cuda=false -Denable_sycl=false
   ninja -C libvmaf/build test/test_cli_parse_long_only_args
   meson test -C libvmaf/build test_cli_parse_long_only_args -v
   ```
-
 ## ADR-0317 — CI flake fix: doc-only PR path-filter (2026-05-06)
-
 - **Touched files**:
   - `.github/workflows/docker-image.yml` — added `paths:` filter on
     both `push:` and `pull_request:` triggers.
@@ -9263,16 +9189,13 @@ inline.*
   the path-filter does not hide it (any libvmaf/ or ffmpeg-patches/
   PR will still trip the SYCL lane).
 - **Re-test on rebase**:
-
   ```bash
   python3 -c "import yaml; \
     yaml.safe_load(open('.github/workflows/docker-image.yml')); \
     yaml.safe_load(open('.github/workflows/ffmpeg-integration.yml')); \
     print('OK')"
   ```
-
 ### 0319 — fr_regressor_v2 ensemble LOSO trainer — real loader + per-fold training (ADR-0319)
-
 - **Touches**: `ai/scripts/train_fr_regressor_v2_ensemble_loso.py`
   (real `_load_corpus` + `_train_one_seed` bodies),
   `ai/scripts/run_ensemble_v2_real_corpus_loso.sh` (wrapper argv
@@ -9301,15 +9224,12 @@ inline.*
   merge them — keep the fork's training stack under `ai/` per the
   AGENTS.md scope rule.
 - **Re-test on rebase**:
-
   ```bash
   pytest ai/tests/test_train_fr_regressor_v2_ensemble_loso_loader.py \
          ai/tests/test_train_fr_regressor_v2_ensemble_loso_train.py -v
   bash -n ai/scripts/run_ensemble_v2_real_corpus_loso.sh
   ```
-
 ## ADR-0323 — `fr_regressor_v3` train + register on `ENCODER_VOCAB` v3 (2026-05-06)
-
 - **Scope**: `ai/scripts/train_fr_regressor_v3.py` (new),
   `ai/tests/test_train_fr_regressor_v3.py` (new),
   `model/tiny/fr_regressor_v3.onnx` (new, real-weight checkpoint
@@ -9339,15 +9259,12 @@ inline.*
   separate "promote v3 to authoritative" PR per ADR-0302's
   production-flip checklist.
 - **Re-test on rebase**:
-
   ```bash
   pytest ai/tests/test_train_fr_regressor_v3.py -v
   bash libvmaf/test/dnn/test_registry.sh   # must report OK: 20+
   python -c "import onnx; onnx.checker.check_model(onnx.load('model/tiny/fr_regressor_v3.onnx')); print('OK')"
   ```
-
 ## ADR-0321 — `fr_regressor_v2_ensemble_v1` full production flip (2026-05-06)
-
 - **Scope**: `ai/scripts/export_ensemble_v2_seeds.py` (new),
   `model/tiny/fr_regressor_v2_ensemble_v1_seed{0..4}.onnx` (real
   full-corpus-trained weights replacing the 3025-byte synthetic
@@ -9367,26 +9284,23 @@ inline.*
   weights are gated on `runs/ensemble_v2_real/PROMOTE.json` and
   are not portable to a different training stack.
 - **Re-test on rebase**:
-
   ```bash
   bash libvmaf/test/dnn/test_registry.sh   # must report OK: 19
   python -c "import onnx; \
     [onnx.checker.check_model(onnx.load(f'model/tiny/fr_regressor_v2_ensemble_v1_seed{i}.onnx')) \
      for i in range(5)]; print('OK')"
   ```
-
 ## ADR-0324 — Ensemble training kit (2026-05-06)
-
 - **Touches**: `tools/ensemble-training-kit/` (new), `docs/adr/0324-ensemble-training-kit.md` (new), `docs/adr/README.md` (index row), `changelog.d/added/0324-ensemble-training-kit.md` (new). No engine code touched; no upstream-shared paths.
 - **Invariant**: the kit assumes the LOSO wrapper hard-codes seeds `(0 1 2 3 4)`. The orchestrator surfaces a warning if `--seeds` deviates but still hands off to the wrapper. If a future PR parameterises the wrapper's seed list, update both the wrapper and the kit's pass-through logic in lockstep.
 - **On upstream sync**: no action required. The kit lives entirely under `tools/ensemble-training-kit/` (a fork-local path) and only invokes other fork-local scripts (`ai/scripts/`, `scripts/dev/`, `scripts/ci/`).
 - **Re-test on rebase**:
-
   ```bash
   bash -n tools/ensemble-training-kit/*.sh
   bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/kit-test.tar.gz
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
+
 
 
 ## ADR-0335 — Hardware-capability priors (2026-05-08)
@@ -19949,8 +19863,13 @@ inline.*
 - **On upstream sync**: no action required. The harness lives entirely
   under `tools/external-bench/` (a fork-local path) and never touches
   Netflix-shared code.
-- **Re-test on rebase**:
 
+## ADR-0331 — Skip CI on draft pull requests (2026-05-08)
+- **Touches**: `.github/workflows/{docker-image,security-scans,lint-and-format,ffmpeg-integration,libvmaf-build-matrix,rule-enforcement,tests-and-quality-gates}.yml` (per-job `if:` clause + `pull_request.types` list). `required-aggregator.yml` is unchanged — it already adopted the pattern under ADR-0313. No upstream-shared paths.
+- **Invariant**: every top-level job in the eight fork workflows that trigger on `pull_request` carries `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false`. The `pull_request:` block lists `ready_for_review` in `types:` so promotion of a draft fires CI exactly once. The second clause keeps `push:` triggers (no PR object) intact. If an upstream merge introduces a new top-level job, that job MUST inherit the gate; otherwise drafts will silently consume one matrix slot per push.
+- **On upstream sync**: Netflix/vmaf upstream does not gate on draft state; if a sync brings in new `pull_request` workflow content, replay the gate on every newly-introduced top-level job. Composing with an existing `if:` follows the `coverage-gpu` pattern — wrap both predicates in `${{ ... && ( ... ) }}`.
+
+- **Re-test on rebase**:
   ```bash
   python3 -c "import yaml; names=['docker-image','security-scans','lint-and-format','required-aggregator','ffmpeg-integration','libvmaf-build-matrix','rule-enforcement','tests-and-quality-gates']; [yaml.safe_load(open(f'.github/workflows/{n}.yml')) for n in names]; print('OK')"
   # Spot-check the gate is present on every top-level job:
@@ -19960,7 +19879,6 @@ inline.*
     grep -c "pull_request.draft == false" ".github/workflows/${f}.yml"
   done  # Each must report >= 1.
 ## SSIM extractor registration fix (2026-05-08)
-
 - **Touches**: `libvmaf/src/feature/feature_extractor.c` (upstream-mirror —
   adds one extern + one registry-array entry near the existing SSIM rows),
   `libvmaf/src/feature/integer_ssim.c` (upstream-mirror — adds
@@ -19984,7 +19902,6 @@ inline.*
   (the file has been dormant on master for years), revert the
   meson.build addition. Otherwise no action.
 - **Re-test on rebase**:
-
   ```bash
   meson setup build -Denable_cuda=false -Denable_sycl=false && ninja -C build
   ./build/test/test_feature_extractor    # 5/5 pass, includes new ssim row
@@ -19997,7 +19914,6 @@ inline.*
   meson setup build-vulkan -Denable_vulkan=enabled --reconfigure && \
     ninja -C build-vulkan tools/vmaf
   ```
-
 ## CI `paths-ignore` deny-list on heavy workflows (ADR-0341, 2026-05-09)
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local —
   `paths-ignore:` block under `pull_request:`),
@@ -20019,6 +19935,7 @@ inline.*
   workflow files (they are fork-local additions). No sync conflict
   expected.
 - **Re-test on rebase**:
+
 ## HDR VMAF model search — Path C documentation only (2026-05-09)
 - **Files added (this fork only; upstream Netflix/vmaf has none of
   these)**:
@@ -20046,6 +19963,8 @@ inline.*
   <https://github.com/Netflix/vmaf/issues/645> for the upstream
   release announcement.
 - **Re-test on rebase**: no behavioural change — pure docs. Sanity:
+
+
   ```bash
   python3 -c "from pathlib import Path; \
     import sys; sys.path.insert(0,'tools/vmaf-tune/src'); \
@@ -20309,6 +20228,7 @@ guarantee.
 **Rebase-sensitivity**: zero — change is local to `dict.c`. Future
 upstream sync of this file should keep the fix or re-run cppcheck
 locally to confirm absence of recurrence.
+
 ## Aggregator timeout bump (2026-05-09)
 **Files pinned**:
 - `.github/workflows/required-aggregator.yml` (deadline 30→90 min, job timeout 35→100 min)
@@ -20983,11 +20903,34 @@ compiles).
   # NVIDIA lane — expected 45/48 FAIL scale 2 until either the
   # manual int64 subgroup-reduction patch lands or NVIDIA fixes
   # the driver. Arc + RADV expected 0/48.
+
+### 0230 — `ssimulacra2_cuda` GPU module unload + per-scale `malloc` removal (ADR-0356)
+- **Touches**: `libvmaf/src/feature/cuda/ssimulacra2_cuda.c`
+  (fork-only — fork-added CUDA extractor), `libvmaf/src/feature/cuda/ssimulacra2/ssimulacra2_blur.cu`
+  (fork-only kernel), `libvmaf/src/cuda/AGENTS.md` (fork-local
+  package guidance).
+- **Invariant**: every `cuModuleLoadData` in the fork's CUDA
+  extractors must be paired with a guarded `cuModuleUnload` in the
+  matching `close_fex_cuda`, between `cuStreamSynchronize` and
+  `cuStreamDestroy`. The leak is invisible to
+  `compute-sanitizer --tool memcheck` (the tool's leak-checker is
+  scoped to `cuMem*Alloc` only). The XYB H2D / D2H byte counts
+  shrink to the valid sub-region per scale; the device-side
+  `plane_full_pixels` stride contract (kernels assume each plane
+  starts at full-resolution offsets) stays unchanged. Pinned scratch
+  reservations `h_ref_lin_ds` / `h_dis_lin_ds` are owned by
+  `ss2c_alloc_buffers` and freed by `close_fex_cuda` via the
+  existing `SS2C_FREE_HOST` macro.
+- **Upstream interaction**: none. `ssimulacra2_cuda` is fork-added
+  per ADR-0206 and has no upstream Netflix/vmaf twin.
+  meson test -C libvmaf/build test_ssimulacra2_simd
+
   python3 scripts/ci/cross_backend_vif_diff.py \
       --vmaf-binary libvmaf/build/tools/vmaf \
       --reference testdata/ref_576x324_48f.yuv \
       --distorted testdata/dis_576x324_48f.yuv \
       --width 576 --height 324 \
+
       --feature vif --backend vulkan --device <NVIDIA-index>
   # Revert local bump after testing.
   sed -i 's/VK_API_VERSION_1_4/VK_API_VERSION_1_3/g' \
@@ -32272,3 +32215,6 @@ build-system paths changed; no new symbols were added.
          python/test/feature_extractor_test.py python/test/result_test.py \
          --collect-only -q   # 173 tests collected, no errors
   ```
+
+      --feature ssimulacra2 --backend cuda --places 4
+

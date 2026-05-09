@@ -238,7 +238,16 @@ to surface an unexpected delta.
   follow-up tracked in [docs/state.md](../../state.md).
 - **SSIMULACRA 2** — `ssimulacra2_cuda` shipped per
   [ADR-0206](../../adr/0206-ssimulacra2-cuda-sycl.md) (hybrid
-  host/GPU pipeline, IIR fatbin pinned with `--fmad=false`).
+  host/GPU pipeline, IIR fatbin pinned with `--fmad=false`). The
+  2026-05-09 cuda-reviewer pass tightened the lifecycle path
+  (paired `cuModuleUnload` for both PTX modules, pre-allocated
+  pinned downsample scratch in place of a per-scale `malloc`,
+  per-plane H2D/D2H byte counts shrunk to the valid sub-region,
+  `__launch_bounds__(64, 32)` on the blur kernels) — see
+  [ADR-0356](../../adr/0356-ssimulacra2-cuda-leaks-perf.md). The
+  H-pass non-coalesced reads and V-pass L1 pressure remain known
+  architectural ceilings (require a shared-memory tile-transpose
+  rewrite).
 - **HIP / AMD** — not yet scaffolded; see
   [backends/index.md](../index.md) for the status row.
 
