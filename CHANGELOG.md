@@ -90,6 +90,20 @@
 
 ### Added
 
+- **K150K-A full-feature extraction pipeline
+  ([ADR-0362](../docs/adr/0362-k150k-corpus-integration.md),
+  [Research-0067](../docs/research/0067-k150k-corpus-integration.md)).**
+  New `ai/scripts/extract_k150k_features.py` extracts all 22 FULL_FEATURES
+  (Research-0026) from the 152,265-clip KoNViD-150k-A corpus using the
+  FR-from-NR adapter (ADR-0346): each clip is decoded once and fed as both
+  reference and distorted to `build-cpu/tools/vmaf --backend cuda`. Output
+  is `runs/full_features_k150k.parquet` (48 columns: mean + std of 22
+  features + mos + metadata), gitignored, written atomically every 1000
+  clips. Restartable via `.done` checkpoint. `ciede2000` and `psnr_hvs`
+  columns are all-NaN (identity-pair artifact); ADM/VIF/SSIM/VMAF floor at
+  identity — documented expected. Hardware: RTX 4090, ~7 s/clip.
+  User docs: [`docs/ai/datasets/k150k.md`](../docs/ai/datasets/k150k.md).
+
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame
