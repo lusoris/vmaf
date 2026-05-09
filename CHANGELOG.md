@@ -3717,8 +3717,6 @@
   multi-retry feedback cycle the strict parser caused on PRs #461,
   #438, #470, #473, #486, #511, #468, and #526. Bypass via
   `git push --no-verify`. See `docs/development/pr-body-validator.md`.
-
-
 - **`vmaf-tune recommend-saliency` CLI subcommand
   ([ADR-0287](../docs/adr/0287-vmaf-tune-saliency-aware-encoding.md)).**
   Surfaces the existing saliency-aware encode pipeline (Bucket #2)
@@ -3986,6 +3984,30 @@
   [`docs/rebase-notes.md`](docs/rebase-notes.md).
 
 
+- **AVX-512 follow-up audit sweep (T3-9, 2026-05-09)
+  ([Research-0089](../docs/research/0089-avx512-audit-sweep-2026-05-09.md);
+  audit blocks appended to
+  [ADR-0138](../docs/adr/0138-iqa-convolve-avx2-bitexact-double.md),
+  [ADR-0161](../docs/adr/0161-ssimulacra2-simd-bitexact.md),
+  [ADR-0162](../docs/adr/0162-ssimulacra2-iir-blur-simd.md),
+  [ADR-0163](../docs/adr/0163-ssimulacra2-ptlr-simd.md)).**
+  Bench-first re-audit of the three deferred AVX-512 candidates on
+  AMD Ryzen 9 9950X3D (Zen 5). Methodology per BACKLOG: ship if 16-lane
+  AVX-512 >=1.3x AVX2 on the Netflix normal pair, otherwise document
+  as ADR-0180-style ceiling. Results: (a) `psnr_hvs` AVX-512 stays
+  closed as AVX2 ceiling — theoretical headroom 1.11x, re-affirms
+  ADR-0180 verdict on a faster machine; (b) `ssimulacra2` AVX-512
+  re-affirmed at 1.461x (full PTLR + IIR + scoring pipeline,
+  byte-identical to AVX2 across all 48 frames at full IEEE-754
+  precision); (c) `iqa_convolve` AVX-512 re-affirmed at 1.300x via
+  `float_ssim` and 1.173x via `float_ms_ssim` (the latter is sub-
+  threshold but explained by 5-scale outer-loop amortisation at the
+  smallest two scales — matches ADR-0138 §"Follow-up" prediction).
+  No new SIMD code shipped; 0/2 SHIP candidates, 2/2 AUDIT-PASS,
+  1/1 DOCUMENT (ceiling). Closes T3-9 BACKLOG row + former T3-10 +
+  former T7-31. Reproducer in Research-0089.
+
+
 - **MobileSal real-weights swap deferred (T6-2a-followup, ADR-0257)** —
   the original plan to swap the smoke-only `mobilesal_placeholder_v0`
   ONNX in `model/tiny/registry.json` for real upstream MobileSal
@@ -4199,8 +4221,6 @@
   ~3–5 min/cell (~4 min PR-end-to-end, ~50 runner-min/PR). No coverage
   change — `ccache -s` is logged after every build so the warm-up curve is
   visible in CI. See `docs/research/0089-ci-cost-optimization-audit-2026-05-09.md`.
-
-
 - **NVIDIA-Vulkan ciede2000 places=4 5/48 mismatch root-caused as f32/f64 fork debt (ADR-0273)** —
   closes the deferred follow-up reserved by PR #346 ("vif + ciede
   shaders — precise decorations") for the residual 5/48
@@ -4774,8 +4794,6 @@
   unaffected (Vulkan code path is independent of the 3 CPU
   goldens). See research-0089 2026-05-09 status appendix for the
   empirical numbers and the corrected device-map attribution.
-
-
 - **`vmaf-tune corpus` score path now decodes container → raw YUV
   before invoking the libvmaf CLI.** Phase A bug-fix ([ADR-0237](docs/adr/0237-quality-aware-encode-automation.md)):
   the encoder adapter writes mp4 (libx264) but `libvmaf`'s CLI

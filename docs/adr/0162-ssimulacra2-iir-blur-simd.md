@@ -143,3 +143,24 @@ keeps the scalar fallback; non-NULL replaces both
 - Research digest: [`docs/research/0016-ssimulacra2-iir-blur-simd.md`](../research/0016-ssimulacra2-iir-blur-simd.md).
 - User popup 2026-04-24: "Both passes (vertical + horizontal via
   row-batching)".
+
+### AVX-512 audit 2026-05-09: AUDIT-PASS at 1.461x (full ssimulacra2 pipeline)
+
+T3-9 sub-row (b) bench-first audit on Ryzen 9 9950X3D (Zen 5,
+AVX-512F/BW/VL). The IIR-blur AVX-512 phase ships in this ADR's
+companion source (`ssimulacra2_avx512.c`); audit-mode wall-clock on
+the full ssimulacra2 pipeline (PTLR + IIR blur + scoring) at the
+Netflix normal pair (480 frames, single-thread, median of 3) shows
+AVX2 4.681 s vs AVX-512 3.203 s = **1.461x** — clears the 1.3x
+ship threshold. The IIR blur is the dominant kernel by cost share
+per the original ADR-0162 profile, so the speedup is dominated by
+this phase. NEON path on `qemu-aarch64-static` was not re-run in
+this audit (no host-NEON regression suspected; T3-9 scope is
+AVX-512-on-host).
+
+Bit-exactness: AVX-512 vs AVX2 score JSON byte-identical at full
+precision (`--precision max`); 0/48 frames diverge.
+`test_ssimulacra2_simd::test_blur` passes on the audit build.
+
+See [Research-0089](../research/0089-avx512-audit-sweep-2026-05-09.md)
+for the full bench table.

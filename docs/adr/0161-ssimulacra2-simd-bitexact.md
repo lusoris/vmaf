@@ -188,3 +188,23 @@ Lint carve-outs (all NOLINT with ADR citation inline):
 - Research digest: [`docs/research/0015-ssimulacra2-simd.md`](../research/0015-ssimulacra2-simd.md).
 - User direction 2026-04-24 popup: "Alles in einem PR durchziehen,
   egal wie lang" (all three ISAs in one PR).
+
+### AVX-512 audit 2026-05-09: AUDIT-PASS at 1.461x
+
+T3-9 sub-row (b) bench-first audit on Ryzen 9 9950X3D (Zen 5,
+AVX-512F/BW/VL). 480-frame Netflix normal pair fixture, single-thread
+median of 3 wall-clock runs across the full ssimulacra2 pipeline
+(PTLR + IIR blur + scoring): AVX2 4.681 s vs AVX-512 3.203 s =
+**1.461x** (clears 1.3x ship threshold).
+
+Bit-exactness: AVX-512 vs AVX2 score JSON byte-identical at full
+precision (`--precision max`); 0/48 frames diverge for any feature.
+`test_ssimulacra2_simd` 13/13 subtests pass on the audit build.
+Cross-backend gate clean.
+
+Re-affirms phase-1 ADR-0161 + phase-2 ADR-0162 + phase-3 ADR-0163
+ship decisions on a faster machine; no post-merge cross-host snapshot
+drift detected. Closes former T3-10 backlog row (residual ULP audit).
+
+See [Research-0089](../research/0089-avx512-audit-sweep-2026-05-09.md)
+for the full bench table.
