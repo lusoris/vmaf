@@ -454,7 +454,12 @@ jobs:
   sanitizers:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Sanitizers — ASan + UBSan + MSan"
-    runs-on: ubuntu-latest
+    # ADR-0359 — ARC self-hosted runner pilot (same pattern as cppcheck in
+    # lint-and-format.yml). Variable `ARC_RUNNERS_ENABLED=true` routes this
+    # job to the in-cluster `arc-runners` scale set; default `false` keeps
+    # GitHub-hosted ubuntu-latest. If the ARC pool is degraded, set the
+    # variable to false and re-trigger CI to fall back instantly.
+    runs-on: ${{ vars.ARC_RUNNERS_ENABLED == 'true' && 'arc-runners' || 'ubuntu-latest' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
