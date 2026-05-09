@@ -358,7 +358,7 @@ GPU) identified by a perf-hunt session at 1080p on RTX 4090.
 Host readback per frame after this fix:
 
 | Kernel | Before | After |
-|---|---|---|
+| --- | --- | --- |
 | VIF (4 scales × 7 fields) | ~3.5 MB | 224 B |
 | ADM (4 scales × 6 fields) | ~1.1 MB | 192 B |
 | motion (1 field) | ~130 KB | 8 B |
@@ -370,3 +370,22 @@ the `HOST_ACCESS_RANDOM_BIT` readback flag fix (bottleneck #1).
 Requires `VK_EXT_shader_atomic_int64` on the Vulkan device.
 See [research digest 0091](../../research/0091-vulkan-gpu-reduction-perf-analysis.md)
 and [ADR-0350](../../adr/0350-vulkan-two-level-gpu-reduction.md).
+
+**Portability caveat (macOS / MoltenVK):** the reduction shaders use
+`OpAtomicIAdd` on `int64_t` SSBO members, gated by the
+`shaderBufferInt64Atomics` device feature. MoltenVK 1.2.x on Apple
+Silicon does not expose this capability (Metal limitation). On such a
+device `vmaf_vulkan_context_new` (and the external-handle variant
+`vmaf_vulkan_state_init_external`) probe the feature via
+`vkGetPhysicalDeviceFeatures2`, return `-ENOTSUP`, and emit a stderr
+line of the form
+
+```text
+libvmaf: Vulkan backend disabled on this device ("<deviceName>") —
+no shaderBufferInt64Atomics support, required for the two-level
+reduction shaders (ADR-0350). Falling back to CPU.
+```
+
+The framework then falls back to the CPU path automatically. Linux
+and Windows targets with NVIDIA proprietary, Mesa anv, RADV, and
+lavapipe drivers all advertise the feature and follow the GPU path.

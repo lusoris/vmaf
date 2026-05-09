@@ -17,6 +17,14 @@ two's-complement addition is commutative and associative. places=4
 cross-backend parity is maintained on all target Vulkan drivers.
 
 Requires: `VK_EXT_shader_atomic_int64` (`shaderBufferInt64Atomics`).
+The backend probes this device feature at init time and rejects the
+Vulkan path with a clear stderr message + automatic CPU fallback when
+unavailable (notably MoltenVK 1.2.x on Apple Silicon, where Metal
+does not expose 64-bit buffer atomics).
+
+The ADM reducer descriptor sets are pre-allocated once at extractor
+init time and reused per frame, mirroring the VIF reducer pattern;
+no per-frame `vkAllocateDescriptorSets` calls in the hot path.
 
 New API: `vmaf_vulkan_buffer_invalidate()` added to
 `libvmaf/src/vulkan/picture_vulkan.{h,c}` — no public header change.

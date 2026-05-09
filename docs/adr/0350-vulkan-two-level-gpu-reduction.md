@@ -54,7 +54,7 @@ still writes it; only the host-side loop is removed).
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Host-side AVX2 reduction | Simpler, no new Vulkan extension required | Does not eliminate the PCIe readback — data still crosses BAR uncached before AVX2 touches it. Bandwidth saving is zero. | PCIe bandwidth is the bottleneck, not host compute. |
 | Expand per-WG kernel to a single-pass full-frame reduction using atomic_int64 | Eliminates the intermediate per-WG array entirely | `VK_KHR_shader_atomic_int64` is optional and unavailable on some Mesa/lavapipe configs; the fallback path (per-WG array) is what we already have. One dispatch is simpler. | Atomic_int64 on the production path is fine; requiring it only for the tiny reducer (256-thread WGs) is the minimal incremental requirement. |
 | Two-level GPU reduction with separate dispatch (chosen) | Eliminates PCIe readback; works with existing per-WG kernel; bit-exact by construction; maps cleanly to the VmafVulkanKernelPipeline template | Adds one pipeline + one dispatch per kernel per frame; requires VK_EXT_shader_atomic_int64 | Best net impact. |
@@ -76,6 +76,17 @@ still writes it; only the host-side loop is removed).
   Mesa anv 24.x for Arc A380, RADV 24.x for RDNA iGPU). Devices without
   it receive a runtime error from `vmaf_vulkan_context_new` (checked via
   `VkPhysicalDeviceShaderAtomicInt64Features::shaderBufferInt64Atomics`).
+- **Negative — macOS / MoltenVK**: `shaderBufferInt64Atomics` is **not
+  supported** on MoltenVK 1.2.x because Metal does not expose 64-bit
+  buffer atomics. On Apple Silicon the device-feature query at backend
+  init time will return `VK_FALSE`, `vmaf_vulkan_context_new` will
+  return `-ENOTSUP` with a clear stderr message ("Vulkan backend
+  disabled on this device — no shaderBufferInt64Atomics support"),
+  and the framework falls back to CPU. There is no in-tree macOS
+  Vulkan CI lane today, so this branch is reasoned-about but not
+  exercised; the guard keeps a future macOS user from seeing an
+  opaque `vkCreateShaderModule` / `vkCreateComputePipelines`
+  failure.
 - **Neutral**: The per-WG accumulator SSBO is retained; only the host-loop
   reader is removed. A future PR (T-GPU-PERF-VK-3b) could eliminate the
   per-WG SSBO by folding the reduction into the per-WG kernel using shared

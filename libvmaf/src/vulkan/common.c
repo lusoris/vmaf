@@ -238,6 +238,43 @@ int vmaf_vulkan_context_new(VmafVulkanContext **out, int device_index)
         goto fail;
     }
 
+    /* ADR-0350 follow-up (2026-05-09 review-fix): the two-level GPU
+     * reduction shaders (vif_reduce.comp / adm_reduce.comp /
+     * motion_reduce.comp) compile to SPIR-V that uses
+     * `OpAtomicIAdd` on `int64_t` SSBO members.  Vulkan 1.2 hoisted
+     * this capability into core via
+     * `VkPhysicalDeviceShaderAtomicInt64Features::shaderBufferInt64Atomics`
+     * (rolled up in `VkPhysicalDeviceVulkan12Features`).  If the
+     * device does not advertise the capability, `vkCreateShaderModule`
+     * /  `vkCreateComputePipelines` will reject our SPIR-V at init
+     * time — typical on MoltenVK 1.2.x atop Apple Silicon, where
+     * Metal does not expose 64-bit buffer atomics.
+     *
+     * We probe the feature here, enable it on the
+     * `vkCreateDevice` `pNext` chain when present, and reject the
+     * Vulkan backend cleanly with `-ENOTSUP` and a stderr log when
+     * absent so callers fall back to CPU instead of seeing an
+     * opaque pipeline-creation failure later.  See PR #561 review
+     * comment 3 / ADR-0350 §Consequences. */
+    VkPhysicalDeviceShaderAtomicInt64Features atomic64_feat = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES,
+    };
+    VkPhysicalDeviceFeatures2 query_feat2 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &atomic64_feat,
+    };
+    vkGetPhysicalDeviceFeatures2(ctx->physical_device, &query_feat2);
+    if (!atomic64_feat.shaderBufferInt64Atomics) {
+        fprintf(stderr,
+                "libvmaf: Vulkan backend disabled on this device "
+                "(\"%s\") — no shaderBufferInt64Atomics support, "
+                "required for the two-level reduction shaders "
+                "(ADR-0350). Falling back to CPU.\n",
+                ctx->props.deviceName);
+        err = -ENOTSUP;
+        goto fail;
+    }
+
     float queue_priority = 1.0f;
     VkDeviceQueueCreateInfo queue_create = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -245,9 +282,19 @@ int vmaf_vulkan_context_new(VmafVulkanContext **out, int device_index)
         .queueCount = 1,
         .pQueuePriorities = &queue_priority,
     };
+    /* Enable shaderBufferInt64Atomics on the device so the SPIR-V
+     * loader accepts our reduction shaders.  We re-use a fresh
+     * VkPhysicalDeviceShaderAtomicInt64Features struct (the one
+     * populated above is a query-only result; spec disallows
+     * passing it back through pNext on `vkCreateDevice`). */
+    VkPhysicalDeviceShaderAtomicInt64Features atomic64_enable = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES,
+        .shaderBufferInt64Atomics = VK_TRUE,
+    };
     VkPhysicalDeviceFeatures features = {0};
     VkDeviceCreateInfo device_create = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = &atomic64_enable,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &queue_create,
         .pEnabledFeatures = &features,
@@ -365,6 +412,31 @@ static int vmaf_vulkan_context_new_external(VmafVulkanContext **out,
 
     vkGetPhysicalDeviceProperties(ctx->physical_device, &ctx->props);
     vkGetPhysicalDeviceMemoryProperties(ctx->physical_device, &ctx->mem_props);
+
+    /* ADR-0350 follow-up: also probe shaderBufferInt64Atomics on the
+     * external-handle path.  We can't change the caller's
+     * pre-created VkDevice, so if the capability isn't there we
+     * just refuse to attach (the caller falls back to CPU). */
+    {
+        VkPhysicalDeviceShaderAtomicInt64Features ext_atomic64 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES,
+        };
+        VkPhysicalDeviceFeatures2 ext_feat2 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &ext_atomic64,
+        };
+        vkGetPhysicalDeviceFeatures2(ctx->physical_device, &ext_feat2);
+        if (!ext_atomic64.shaderBufferInt64Atomics) {
+            fprintf(stderr,
+                    "libvmaf: Vulkan backend disabled on imported "
+                    "device (\"%s\") — no shaderBufferInt64Atomics "
+                    "support, required for the two-level reduction "
+                    "shaders (ADR-0350). Falling back to CPU.\n",
+                    ctx->props.deviceName);
+            err = -ENOTSUP;
+            goto fail;
+        }
+    }
 
     VmaVulkanFunctions vma_fns = {
         .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
