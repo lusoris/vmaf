@@ -207,3 +207,19 @@ the same syntax (`-Denable_<vendor>=true|false`).
 - `req` — user direction in T7-10 implementation prompt
   (paraphrased): "HIP (AMD) GPU backend scaffold (audit-first,
   mirrors Vulkan T5-1)".
+
+### Status update 2026-05-09: CI lane enabled
+
+The "Build — Ubuntu HIP" CI lane now installs `rocm-hip-runtime-dev`
+from the official AMD apt repo at
+`https://repo.radeon.com/rocm/apt/7.2.3` (Ubuntu 24.04 / `noble`)
+and compiles + links the runtime PR against `amdhip64`. The lane is
+promoted from advisory to required (added to the
+`required-aggregator.yml` allow-list). Wall-clock cost: ~3-5 min
+extra per HIP-lane run (apt-get + ~200 MB download); acceptable
+because HIP is opt-in (`-Denable_hip=true`) and the lane only runs
+on its own matrix row. Smoke tests run on the runner without an AMD
+GPU — `vmaf_hip_device_count() == 0` short-circuits device-resident
+assertions per the contract pinned in `test_hip_smoke.c`. Lane
+renamed from "T7-10 scaffold" to "T7-10b runtime" to reflect that
+the runtime PR (#499) lands on top of this CI bring-up.
