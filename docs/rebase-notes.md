@@ -8118,6 +8118,28 @@ inline.*
   pytest tools/vmaf-tune/tests/
   ```
 
+### 0230 — K150K-A corpus extraction script (ADR-0362)
+
+- **Touches**: `ai/scripts/extract_k150k_features.py` (new fork-only file),
+  `ai/AGENTS.md` (K150K invariant note appended), `docs/adr/README.md`
+  (ADR-0362 index row), `CHANGELOG.md`, `docs/rebase-notes.md`.
+- **Invariant**: `extract_k150k_features.py` requires `build-cpu/tools/vmaf`
+  (fork build with `ssimulacra2` + `motion_v2`). If upstream Netflix adds
+  these extractors to their own release binary, the `--vmaf-bin` default
+  may be updated to the system binary -- but only after verifying that the
+  metric JSON key names match the aliases in `_METRIC_ALIASES`. The
+  `FEATURE_NAMES` tuple is column-order-locked to the parquet schema; any
+  reorder invalidates trained checkpoints that consume the parquet.
+- **Upstream interaction**: none. Script is fork-only; the K150K clips and
+  parquet are gitignored. Upstream Netflix/vmaf does not ship a K150K
+  extractor.
+- **Re-test on rebase**:
+
+  ```bash
+  python ai/scripts/extract_k150k_features.py --limit 10
+  # Expect: rows=10 cols=48 ok=10 fail=0
+  ```
+
 ### 0229 — `vmaf-tune` libvvenc + NN-VC codec adapter (ADR-0285)
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/vvenc.py`

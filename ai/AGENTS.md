@@ -484,6 +484,38 @@ threshold). When extending these scripts:
   concurrently with another training process — the two share
   BLAS threads and serialise badly.
 
+## K150K-A corpus extraction (ADR-0362)
+
+**Script:** `ai/scripts/extract_k150k_features.py`
+**Branch:** `feat/k150k-full-features-extraction`
+
+### Rebase-sensitive invariants
+
+- **Binary requirement:** the script requires `build-cpu/tools/vmaf` (fork
+  build); the system `/usr/local/bin/vmaf` v3.0.0 lacks `ssimulacra2` and
+  `motion_v2`. If the fork binary moves, update `--vmaf-bin` default in
+  `main()`.
+- **NaN propagation:** `ciede2000` and `psnr_hvs` return `null` from vmaf
+  when ref == distorted (identity pair). All-NaN columns are **expected** —
+  do not treat them as extraction failures. `np.errstate(all="ignore")`
+  in `_aggregate_frames()` suppresses the numpy warning; preserve it.
+- **Column-order lock:** `FEATURE_NAMES` (line ~40) defines the 22-feature
+  column order that downstream loaders depend on. Appending is safe;
+  reordering or removing entries breaks existing parquets and any trained
+  model that consumed them. Increment the parquet schema version in a
+  separate ADR if reordering becomes necessary.
+- **Checkpoint format:** `.done` file is append-only, one clip name per
+  line, no header. Changing the format without a migration breaks
+  in-progress runs. The `_load_done_set()` / `_append_done()` helpers are
+  the single-exit-point for reads and writes; add any format change there.
+- **Gitignore:** `runs/full_features_k150k.parquet` and
+  `runs/k150k_extract.log` are gitignored (152K-clip output is not tracked).
+  Do not commit these files.
+- **FR-from-NR adapter:** the script does NOT call `NrToFrAdapter` from
+  the Python training harness — it builds the vmaf CLI argv directly with
+  ref == distorted, which is the lighter-weight equivalent. Any upstream
+  refactor of the Python adapter is irrelevant to this script.
+
 ## v3 retrain invariant — `ENCODER_VOCAB` 13 → 16 (ADR-0302)
 
 The `ENCODER_VOCAB_V3` parallel constant in
