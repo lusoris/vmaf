@@ -1436,7 +1436,7 @@ it.
   (#360, #362, #364, #366, #367, #368, #370, #373) can register
   itself without touching `encode.py`.
 
-## VVenC (H.266 / VVC + NNVC)
+## VVenC (H.266 / VVC)
 
 `vmaf-tune` ships a `libvvenc` codec adapter
 ([ADR-0285](../adr/0285-vmaf-tune-vvenc-nnvc.md)) that drives
@@ -1466,37 +1466,48 @@ pins to `slower`; anything strictly faster than `fast` pins to
 projection rule used by the parallel HEVC and AV1 adapters so that
 predictor inputs stay codec-uniform.
 
-### Neural-network video coding (NN-VC)
+### Tuning surface (real VVenC 1.14.0 knobs)
 
-VVC is the first standardised codec on the harness's adapter set with
-first-class **NN-VC** tools exposed through the encoder CLI. The
-adapter wires the deterministic intra-prediction toggle in this PR;
-the loop filter and super-resolution toggles are deferred to follow-up
-ADRs once the corpus carries enough VVenC rows to estimate their
-quality / cost curves separately.
+The adapter exposes a curated subset of VVenC's config keys via
+FFmpeg's `-vvenc-params key=value:key=value` channel. Keys are sourced
+verbatim from
+[`source/Lib/apputils/VVEncAppCfg.h`](https://github.com/fraunhoferhhi/vvenc/blob/v1.14.0/source/Lib/apputils/VVEncAppCfg.h)
+at tag `v1.14.0` (SHA `9428ea8636ae7f443ecde89999d16b2dfc421524`,
+accessed 2026-05-09). Every knob defaults to `None` (library default
+preserved); the search loop opts into a non-default value only when
+the corpus row records it.
 
-- **NN-based intra prediction** (`nnvc_intra=True` →
-  `-vvenc-params IntraNN=1`) — replaces VVC's handcrafted intra
-  prediction modes (planar / DC / 65 directional) with a learned
-  5×5 / 7×7 / 9×9 convolutional layer that predicts each block's
-  pixels from its causal neighbourhood. Typical effect at 1080p
-  natural content: ~1-3% bitrate reduction at iso-VMAF, ~5-10×
-  slower intra encode time.
-- **NN-based loop filter** (deferred) — a learned post-processing CNN
-  that augments or replaces VVC's deblocking + SAO + ALF cascade.
-  Quality gain ~2-4% bitrate at iso-VMAF; cost is incurred decoder-
-  side as well as encoder-side.
-- **NN-based super-resolution** (deferred) — encode at low resolution,
-  decode and run a learned upsampler. Gain skews to low-bitrate
-  regimes; cost is decoder-side.
+| Knob | VVenC key | Default | Effect / typical use |
+| --- | --- | --- | --- |
+| `perceptual_qpa` | `PerceptQPA` | library default | XPSNR-driven perceptual QPA. Materially shifts the rate-distortion curve; recorded per-row in `encoder_extra_params` for predictor conditioning. |
+| `internal_bitdepth` | `InternalBitDepth` | library default (10 for VVC) | Force 8- or 10-bit internal precision; necessary for HDR profiles. |
+| `tier` | `Tier` | library default (`main`) | `main` or `high`. Caps signalled max bitrate / resolution. |
+| `tiles` | `Tiles` | single tile | `(cols, rows)` partitioning, emitted as `NxM`. Useful for parallel encode of high-resolution content. |
+| `max_parallel_frames` | `MaxParallelFrames` | library default (auto) | Parallel-frames perf knob; `0` disables, `>=2` enables. |
+| `rpr` | `RPR` | library default | VVC reference-picture-resampling. `0` off / `1` on / `2` RPR-ready. |
+| `sao` | `SAO` | library default (on) | Sample Adaptive Offset loop filter. Useful for ablation studies. |
+| `alf` | `ALF` | library default | Adaptive Loop Filter; useful for ablation. |
+| `ccalf` | `CCALF` | library default | Cross-Component ALF (only meaningful when `alf` is on). |
 
-These tools are the closest thing the open-source video stack has to
-a "neural-augmented codec" today and are the natural counterpart to
-the fork's existing tiny-AI *measurement* surface (`vmaf_tiny_v2`,
-`fr_regressor_v1`, `nr_metric_v1`): NN-VC is end-to-end *generation*,
-the fork's tiny-AI is end-to-end *measurement*. Putting both behind
-the same `vmaf-tune` harness lets future Phase B / C predictors learn
-when the NN-VC tools are worth their compute cost.
+Toggles are emitted in field-declaration order so the argv stays
+byte-stable for cache-key hashing (per
+[ADR-0298](../adr/0298-vmaf-tune-cache-key.md)). The `adapter_version`
+field bumps to `"2"` for the 2026-05-09 surface — stale cached
+results are invalidated automatically.
+
+### NN-VC status (deferred)
+
+VVC the standard defines NN-VC tool-points (NN-based intra prediction,
+NN-based loop filter, NN-based super-resolution), but **VVenC 1.14.0
+does not ship implementations of any of them**. An earlier draft of
+this adapter exposed an `nnvc_intra` toggle that emitted
+`-vvenc-params IntraNN=1`; that key has never existed in any released
+VVenC and has been removed (see
+[ADR-0285](../adr/0285-vmaf-tune-vvenc-nnvc.md) §"Status update
+2026-05-09"). If upstream VVenC ever lands NN-VC tools the adapter
+will pick them up via the placeholder pattern from
+[ADR-0294](../adr/0294-vmaf-tune-codec-dispatcher.md)'s
+self-activating adapter set.
 
 ### External binary requirements
 
