@@ -139,8 +139,9 @@ def test_parse_vmaf_json_raises_on_missing():
 def test_corpus_row_keys_match_init_contract():
     # Schema-shape contract — Phase B / C will rely on this. v2 added
     # ``clip_mode`` for the sample-clip mode (ADR-0301); v3 added the
-    # HDR provenance triple (ADR-0300 status update 2026-05-08) and the
-    # canonical-6 per-feature aggregate columns (ADR-0331).
+    # HDR provenance triple (ADR-0300 status update 2026-05-08), the
+    # canonical-6 per-feature aggregate columns (ADR-0331), and the ten
+    # ``enc_internal_*`` aggregates (ADR-0332).
     assert SCHEMA_VERSION == 3
     assert "vmaf_score" in CORPUS_ROW_KEYS
     assert "bitrate_kbps" in CORPUS_ROW_KEYS
@@ -153,6 +154,8 @@ def test_corpus_row_keys_match_init_contract():
     assert "adm2_mean" in CORPUS_ROW_KEYS
     assert "vif_scale0_mean" in CORPUS_ROW_KEYS
     assert "motion2_std" in CORPUS_ROW_KEYS
+    assert "enc_internal_qp_mean" in CORPUS_ROW_KEYS
+    assert "enc_internal_skip_ratio" in CORPUS_ROW_KEYS
 
 
 def test_smoke_corpus_end_to_end_with_mocks(tmp_path: Path):
@@ -390,6 +393,7 @@ def test_default_full_clip_mode_tag(tmp_path: Path):
 
 def test_corpus_row_keys_includes_clip_mode():
     assert "clip_mode" in CORPUS_ROW_KEYS
+    # ADR-0332 bumped to v3 by adding the ten ``enc_internal_*`` columns.
     assert SCHEMA_VERSION == 3
 
 
@@ -487,6 +491,12 @@ def _make_runners(*, scores_by_crf):
     """
 
     def fake_encode(cmd, capture_output, text, check):
+        # ADR-0332: x264 corpus rows now run a pass-1 stats invocation
+        # before the main encode. The pass-1 writes to /dev/null, has
+        # no ``crf<N>`` filename token, and emits no version banner —
+        # short-circuit it.
+        if "-pass" in cmd and cmd[cmd.index("-pass") + 1] == "1":
+            return _FakeCompleted(returncode=0, stderr="")
         out_path = Path(cmd[-1])
         out_path.write_bytes(b"\x00" * 4096)
         # Pull crf from the encode output filename, e.g. ref__libx264__medium__crf30.mp4

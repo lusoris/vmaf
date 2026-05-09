@@ -41,6 +41,10 @@ class X264Adapter:
     # libx264 honours --qpfile via FFmpeg's -x264-params, so the saliency
     # QP-offset map (saliency.py) drives x264 directly.
     supports_qpfile: bool = True
+    # ADR-0332: libx264 emits per-frame pass-1 stats via
+    # ``-pass 1 -passlogfile <prefix>``; the parser is in
+    # :mod:`vmaftune.encoder_stats`.
+    supports_encoder_stats: bool = True
 
     presets: tuple[str, ...] = (
         "ultrafast",

@@ -41,7 +41,14 @@ from . import (
     SCHEMA_VERSION,
 )
 from .codec_adapters import get_adapter
-from .encode import EncodeRequest, bitrate_kbps, run_encode, run_two_pass_encode
+from .encode import (
+    EncodeRequest,
+    bitrate_kbps,
+    run_encode,
+    run_encode_with_stats,
+    run_two_pass_encode,
+)
+from .encoder_stats import aggregate_stats
 from .hdr import HdrInfo, detect_hdr, hdr_codec_args, select_hdr_vmaf_model
 from .per_shot import ShotMetadata, _detect_shots_with_status, summarise_shots
 from .score import ScoreRequest, ScoreResult, run_score
@@ -341,6 +348,16 @@ def iter_rows(
                 ffmpeg_bin=opts.ffmpeg_bin,
                 runner=encode_runner,
             )
+        elif getattr(adapter, "supports_encoder_stats", False):
+            # ADR-0332: codec adapters that emit a parseable pass-1 stats
+            # file opt in via ``supports_encoder_stats``; the dispatcher
+            # routes those through the stats-capturing wrapper. Hardware
+            # encoders fall through to the legacy single-pass path.
+            enc_res = run_encode_with_stats(
+                enc_req,
+                ffmpeg_bin=opts.ffmpeg_bin,
+                runner=encode_runner,
+            )
         else:
             enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
 
@@ -465,6 +482,11 @@ def _row_for(
     ):
         row[mean_key] = float(feature_means.get(feature, float("nan")))
         row[std_key] = float(feature_stds.get(feature, float("nan")))
+    # ADR-0332: encoder-internal stats aggregates. Always emit the
+    # ten ``enc_internal_*`` columns so v3 rows are schema-uniform
+    # across codecs; aggregator returns zeros for empty input.
+    encoder_stats_frames = getattr(enc_res, "encoder_stats", ())
+    row.update(aggregate_stats(encoder_stats_frames))
     # Schema-shape assertion — catches drift in development; cheap.
     missing = set(CORPUS_ROW_KEYS) - row.keys()
     if missing:

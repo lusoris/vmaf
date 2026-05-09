@@ -31,7 +31,11 @@ __version__ = "0.0.2"
 #   metadata trio (``shot_count`` / ``shot_avg_duration_sec`` /
 #   ``shot_duration_std_sec``) is also additive in v3 — keys default to
 #   ``0`` / ``0.0`` / ``0.0`` when shot detection is unavailable (ADR-0223
-#   / research-0086).
+#   / research-0086). Also additive in v3: ten ``enc_internal_*`` scalar
+#   aggregates (per ADR-0332) capturing x264's pass-1 stats-file signal
+#   — predicted bitrate, QP, motion-vector cost, texture cost, intra /
+#   skip macroblock ratios. Hardware encoders (NVENC / AMF / QSV /
+#   VideoToolbox) opt out and emit ``0.0``.
 SCHEMA_VERSION = 3
 
 # Canonical-6 libvmaf feature names. Mirrors the trainer-side
@@ -95,6 +99,21 @@ CORPUS_ROW_KEYS: tuple[str, ...] = (
     "shot_avg_duration_sec",
     "shot_duration_std_sec",
     *CANONICAL6_AGGREGATE_KEYS,
+    # ADR-0332: per-frame encoder-internal stats aggregates.
+    # Populated for codecs whose adapter declares
+    # ``supports_encoder_stats = True`` (libx264 in v1; libx265 /
+    # libvpx wired through but parser deferred). Hardware encoders
+    # (NVENC / AMF / QSV / VideoToolbox) opt out and emit ``0.0``.
+    "enc_internal_qp_mean",
+    "enc_internal_qp_std",
+    "enc_internal_bits_mean",
+    "enc_internal_bits_std",
+    "enc_internal_mv_mean",
+    "enc_internal_mv_std",
+    "enc_internal_itex_mean",
+    "enc_internal_ptex_mean",
+    "enc_internal_intra_ratio",
+    "enc_internal_skip_ratio",
 )
 
 __all__ = [

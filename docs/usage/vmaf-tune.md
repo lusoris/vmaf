@@ -423,7 +423,7 @@ edit row shape without bumping the version.
 
 | Key | Type | Description |
 | --- | --- | --- |
-| `schema_version` | int | Currently `3`. |
+| `schema_version` | int | Currently `3`. v3 adds the `enc_internal_*` aggregates (ADR-0332). |
 | `run_id` | str | Per-row UUID4 hex. |
 | `timestamp` | str | UTC ISO-8601 (seconds precision). |
 | `src` | str | Path to the reference YUV. |
@@ -451,9 +451,31 @@ edit row shape without bumping the version.
 | `hdr_primaries` | str | Raw ffprobe `color_primaries` (e.g. `bt2020`); empty for SDR. Schema v3+. |
 | `hdr_forced` | bool | `true` iff the user overrode detection via `--force-hdr-*` / `--force-sdr`. Schema v3+. |
 | `clip_mode` | str | `"full"` (default) or `"sample_<N>s"` per `--sample-clip-seconds`. Schema v2+. |
-| `shot_count` | int | Number of TransNet-V2 shots in the source (`0` when shot detection unavailable). v2+. |
-| `shot_avg_duration_sec` | float | Mean shot length in seconds (`0.0` when unavailable). v2+. |
-| `shot_duration_std_sec` | float | Population std of shot lengths in seconds — content-class proxy (animation: low; live action: high). v2+. |
+| `shot_count` | int | Number of TransNet-V2 shots in the source (`0` when shot detection unavailable). v3+. |
+| `shot_avg_duration_sec` | float | Mean shot length in seconds (`0.0` when unavailable). v3+. |
+| `shot_duration_std_sec` | float | Population std of shot lengths in seconds — content-class proxy (animation: low; live action: high). v3+. |
+| `adm2_mean` | float | Per-frame ADM2 mean (canonical-6). `NaN` when scoring skipped. v3+ (ADR-0366). |
+| `vif_scale0_mean` … `motion2_std` | float | Remaining canonical-6 mean/std aggregates (12 columns total). v3+ (ADR-0366). |
+| `enc_internal_qp_mean` | float | Per-frame QP mean from x264 pass-1 stats. `0.0` for opt-out adapters. v3+ (ADR-0332). |
+| `enc_internal_qp_std` | float | Per-frame QP standard deviation. v3+ (ADR-0332). |
+| `enc_internal_bits_mean` | float | Per-frame bit-cost mean (`tex+mv+misc`). v3+ (ADR-0332). |
+| `enc_internal_bits_std` | float | Per-frame bit-cost standard deviation. v3+ (ADR-0332). |
+| `enc_internal_mv_mean` | float | Per-frame motion-vector bit-cost mean. v3+ (ADR-0332). |
+| `enc_internal_mv_std` | float | Per-frame motion-vector bit-cost standard deviation. v3+ (ADR-0332). |
+| `enc_internal_itex_mean` | float | Mean intra-texture cost across I/i frames. v3+ (ADR-0332). |
+| `enc_internal_ptex_mean` | float | Mean predicted-texture cost across P/B/b frames. v3+ (ADR-0332). |
+| `enc_internal_intra_ratio` | float | Fraction of macroblocks coded as intra. v3+ (ADR-0332). |
+| `enc_internal_skip_ratio` | float | Fraction of macroblocks coded as skip. v3+ (ADR-0332). |
+
+The ten `enc_internal_*` columns are populated for adapters that
+declare `supports_encoder_stats = True` (currently libx264; libx265
+is wired through but its parser is deferred to a follow-up PR).
+Hardware encoders (NVENC / AMF / QSV / VideoToolbox) and AV1 software
+encoders (libaom-av1 / libsvtav1 / libvvenc) opt out and emit `0.0`
+for every column so the schema is uniform across the corpus. The
+trade-off: per-encode wall-clock cost roughly doubles for opt-in
+adapters because the harness runs a stats-only `-pass 1` invocation
+before the production CRF encode.
 
 ### Example row
 
@@ -482,7 +504,18 @@ edit row shape without bumping the version.
   "clip_mode": "full",
   "shot_count": 12,
   "shot_avg_duration_sec": 0.83,
-  "shot_duration_std_sec": 0.41
+  "shot_duration_std_sec": 0.41,
+  "adm2_mean": 9.73, "adm2_std": 0.12,
+  "enc_internal_qp_mean": 25.23,
+  "enc_internal_qp_std": 0.12,
+  "enc_internal_bits_mean": 4975.0,
+  "enc_internal_bits_std": 1820.5,
+  "enc_internal_mv_mean": 60.3,
+  "enc_internal_mv_std": 32.1,
+  "enc_internal_itex_mean": 8000.0,
+  "enc_internal_ptex_mean": 1500.0,
+  "enc_internal_intra_ratio": 0.07,
+  "enc_internal_skip_ratio": 0.16
 }
 ```
 

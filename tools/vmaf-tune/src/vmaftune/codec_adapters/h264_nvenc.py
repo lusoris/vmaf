@@ -31,6 +31,8 @@ class H264NvencAdapter:
     probe_preset: str = "ultrafast"
     probe_quality: int = 28
     supports_qpfile: bool = False
+    # ADR-0332: this encoder has no parseable first-pass stats file.
+    supports_encoder_stats: bool = False
 
     presets: tuple[str, ...] = _nvc.NVENC_PRESETS
 

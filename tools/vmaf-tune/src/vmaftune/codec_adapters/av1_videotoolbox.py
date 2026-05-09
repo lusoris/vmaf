@@ -159,6 +159,9 @@ class Av1VideoToolboxAdapter:
     # in FFmpeg upstream. The activation PR flips this default to
     # ``True`` together with bumping ``adapter_version``.
     supports_runtime: bool = False
+    # ADR-0332: VideoToolbox does not emit a parseable x264/x265-style
+    # stats file — opt out of encoder-internal stats capture.
+    supports_encoder_stats: bool = False
 
     def _runtime_available(self) -> bool:
         """Lazily probe ffmpeg; cached only within one ``validate`` call."""
