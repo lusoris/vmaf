@@ -802,6 +802,15 @@
 
 ### Fixed
 
+- **SYCL `dmabuf_import.cpp` Windows compile guard.** Wraps the entire
+  DMA-BUF + Level Zero body of `libvmaf/src/sycl/dmabuf_import.cpp` in
+  `#ifndef _WIN32`. DMA-BUF is a Linux kernel concept (O_CLOEXEC fd →
+  `ZE_EXTERNAL_MEMORY_TYPE_FLAG_DMA_BUF`); Level Zero on Windows uses
+  NT handles instead. The `#else` branch provides `-ENOSYS` stubs for
+  `vmaf_sycl_dmabuf_import`, `vmaf_sycl_dmabuf_free`, and
+  `vmaf_sycl_import_va_surface` so Windows SYCL builds link cleanly.
+  Callers on Windows should use `d3d11_import.cpp` instead.
+
 - **`motion_v2` AVX2 Phase-1 pipeline used logical right shift instead of
   arithmetic on negative-accumulator lanes (T7-32 / rebase-notes §0038).**
   `motion_score_pipeline_16_avx2` called `_mm256_srlv_epi64` (logical) where

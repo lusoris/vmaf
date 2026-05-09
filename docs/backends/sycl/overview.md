@@ -232,8 +232,12 @@ the deviation:
   host/GPU pipeline, kernel lambdas held in IEEE-754 strict mode by
   the existing `-fp-model=precise`).
 - **dmabuf import is Linux-only.** The VA-API → dmabuf fast path is
-  gated on `__linux__` and the `ext::oneapi::experimental::external_memory`
-  extension. Windows SYCL builds fall back to `malloc_shared` host upload.
+  gated on `#ifndef _WIN32` in `sycl/dmabuf_import.cpp`; on Windows,
+  `vmaf_sycl_dmabuf_import` and `vmaf_sycl_import_va_surface` return
+  `-ENOSYS` so the caller falls back to the D3D11 staging path
+  (`d3d11_import.cpp`). DMA-BUF is a Linux kernel interface
+  (`ZE_EXTERNAL_MEMORY_TYPE_FLAG_DMA_BUF`); Level Zero on Windows uses
+  NT handles instead.
 - **HIP / ROCm via SYCL** — requires building DPC++ with the HIP plugin;
   the shipped Intel oneAPI binaries only include the Level Zero +
   OpenCL CPU + CUDA plugins.
