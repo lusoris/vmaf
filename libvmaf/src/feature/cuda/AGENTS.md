@@ -62,6 +62,7 @@ the same PR:
 | **psnr_hvs** | `integer_psnr_hvs_cuda.c` ↔ `../sycl/integer_psnr_hvs_sycl.cpp` ↔ `../vulkan/psnr_hvs_vulkan.c` (+ `psnr_hvs.comp`) |
 | **ssimulacra2** | `ssimulacra2_cuda.c` (+ `ssimulacra2/*.cu`) ↔ `../sycl/ssimulacra2_sycl.cpp` ↔ `../vulkan/ssimulacra2_vulkan.c` (+ `ssimulacra2_*.comp`) |
 | **float_*** | `float_adm_cuda.c` / `float_ansnr_cuda.c` / `float_motion_cuda.c` / `float_psnr_cuda.c` / `float_vif_cuda.c` ↔ matching `../sycl/float_*_sycl.cpp` ↔ `../vulkan/float_*_vulkan.c` ↔ partial `../hip/float_*_hip.c` |
+| **cambi** | `integer_cambi_cuda.c` (+ `integer_cambi/cambi_score.cu`) ↔ `../vulkan/cambi_vulkan.c` (+ `cambi_*.comp`) — Strategy II hybrid twin. SYCL twin pending (T3-15b). |
 
 The full GPU twin matrix is governed by the GPU long-tail batches:
 [ADR-0182](../../../../docs/adr/0182-gpu-long-tail-batch-1.md) (psnr /
@@ -96,6 +97,18 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   lockstep with the upstream-mirror callers (`float_*` series).
   See [../../AGENTS.md §"`picture_copy()` carries a `channel`
   parameter"](../../AGENTS.md).
+
+- **`integer_cambi_cuda.c` + `integer_cambi/cambi_score.cu` are
+  Strategy II hybrid** (ADR-0360 / T3-15a). The GPU kernels
+  (`cambi_spatial_mask_kernel`, `cambi_decimate_kernel`,
+  `cambi_filter_mode_kernel`) are bit-exact w.r.t. the CPU
+  implementation. The host residual calls `vmaf_cambi_calculate_c_values`
+  + `vmaf_cambi_spatial_pooling` via `cambi_internal.h`. If upstream
+  Netflix refactors `cambi.c` and renames those entry points,
+  `cambi_internal.h` **and** `cambi_vulkan.c` must be updated in the
+  same PR. Never remove the `cuStreamSynchronize` calls inside
+  `submit_fex_cuda` — they guard the DtoH coherency for the host
+  residual. `places=4` gate is load-bearing; do not loosen it.
 
 - **`integer_adm/adm_cm.cu` (and the rest of the `integer_adm/`
   subdirectory) carries an NVIDIA copyright line** alongside the
@@ -136,3 +149,5 @@ The `enable_cuda` umbrella flag gates inclusion via
   `enable_lcs` GPU contract.
 - [ADR-0246](../../../../docs/adr/0246-cuda-kernel-template-feature.md) —
   per-feature CUDA kernel-template scaffolding.
+- [ADR-0360](../../../../docs/adr/0360-cambi-cuda.md) —
+  CAMBI CUDA port (Strategy II hybrid, T3-15a).

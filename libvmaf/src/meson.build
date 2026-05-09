@@ -522,6 +522,8 @@ if is_cuda_enabled
         'ssimulacra2_blur' : [feature_src_dir + 'cuda/ssimulacra2/ssimulacra2_blur.cu'],
         'ssimulacra2_mul' : [feature_src_dir + 'cuda/ssimulacra2/ssimulacra2_mul.cu'],
         'float_adm_score' : [feature_src_dir + 'cuda/float_adm/float_adm_score.cu'],
+        # T3-15 / ADR-0360: cambi CUDA twin (Strategy II hybrid — three integer kernels).
+        'cambi_score' : [feature_src_dir + 'cuda/integer_cambi/cambi_score.cu'],
     }
     # Per-kernel extra nvcc flags.
     #
@@ -986,6 +988,8 @@ if is_cuda_enabled
         feature_src_dir + 'cuda/float_vif_cuda.c',
         feature_src_dir + 'cuda/ssimulacra2_cuda.c',
         feature_src_dir + 'cuda/float_adm_cuda.c',
+        # T3-15 / ADR-0360: cambi CUDA twin host glue.
+        feature_src_dir + 'cuda/integer_cambi_cuda.c',
     ]
 endif
 

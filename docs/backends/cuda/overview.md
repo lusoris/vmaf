@@ -108,6 +108,8 @@ libvmaf/src/feature/cuda/        # per-feature kernels
   float_adm/                     # float ADM .cu kernels (single fatbin compiled with --fmad=false)
   integer_motion_cuda.{c,h}      # Motion extractor dispatch
   integer_motion/                # Motion .cu kernels
+  integer_cambi_cuda.{c,h}      # CAMBI extractor dispatch (T3-15a / ADR-0360)
+  integer_cambi/                 # CAMBI .cu kernels (cambi_score.cu)
 ```
 
 Adding a new CUDA extractor: see [`/add-feature-extractor`](../../../.claude/skills/add-feature-extractor/SKILL.md).
@@ -177,9 +179,6 @@ to surface an unexpected delta.
 
 ## Known gaps
 
-- **CAMBI** — no CUDA kernel. Runs on CPU even when the rest of the
-  pipeline is on the GPU; the frame is downloaded to host memory for
-  CAMBI and the CUDA twin is used for everything else.
 - **CIEDE2000** — no CUDA kernel (same CPU-fallback behaviour).
 - **SSIM / MS-SSIM / PSNR / PSNR-HVS / ANSNR** — no CUDA kernels; these
   are rare enough in production that the CPU twin is sufficient.

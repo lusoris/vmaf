@@ -161,13 +161,26 @@ self.assertAlmostEqual(results[0]['Cambi_score'],
 
 ## GPU support
 
-cambi has a Vulkan backend (T7-36 / [ADR-0210](../adr/0210-cambi-vulkan-integration.md)).
-The integer phases (preprocess, per-pixel derivative, 7×7 spatial-mask
-SAT, 2× decimate, 3-tap separable mode filter) run on the GPU; the
-precision-sensitive sliding-histogram `calculate_c_values` + top-K
-spatial pool stay on the host. Cross-backend gate runs at `places=4`.
+CAMBI has both CUDA (T3-15a / [ADR-0360](../adr/0360-cambi-cuda.md))
+and Vulkan (T7-36 / [ADR-0210](../adr/0210-cambi-vulkan-integration.md))
+backends. Both use the same Strategy II hybrid architecture: the integer
+phases (spatial mask, 2× decimate, 3-tap separable mode filter) run on
+the GPU; the precision-sensitive sliding-histogram `calculate_c_values` +
+top-K spatial pool stay on the host. Cross-backend gate runs at `places=4`.
 
-To use it:
+### CUDA
+
+```bash
+# Build with CUDA enabled
+meson setup build-cuda libvmaf -Denable_cuda=true
+ninja -C build-cuda
+
+# Run with --backend cuda
+./build-cuda/tools/vmaf -r ref.yuv -d dis.yuv -w W -h H \
+    -p 420 -b 8 --backend cuda --feature cambi_cuda
+```
+
+### Vulkan
 
 ```bash
 # Build with Vulkan enabled
@@ -179,4 +192,6 @@ ninja -C build-vulkan
     -p 420 -b 8 --backend vulkan --feature cambi
 ```
 
-Companion research digest: [Research-0032](../research/0032-cambi-vulkan-integration.md).
+Companion research digests:
+[Research-0032](../research/0032-cambi-vulkan-integration.md) (Vulkan),
+[Research-0091](../research/0091-cambi-cuda-integration.md) (CUDA).

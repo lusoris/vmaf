@@ -9396,6 +9396,7 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -9634,4 +9635,48 @@ fork should follow the ADR-0288 / ADR-0333 pattern: one adapter file,
 override the two methods, add a test file mirroring
 `test_codec_adapter_x265_two_pass.py`.
 
+
+
+## ADR-0360 — CAMBI CUDA port (T3-15a, 2026-05-09)
+
+**Files pinned**:
+
+- `libvmaf/src/feature/cuda/integer_cambi_cuda.c` (new)
+- `libvmaf/src/feature/cuda/integer_cambi_cuda.h` (new)
+- `libvmaf/src/feature/cuda/integer_cambi/cambi_score.cu` (new)
+- `libvmaf/src/feature/feature_extractor.c` (added `vmaf_fex_cambi_cuda` to list)
+- `libvmaf/src/meson.build` (added `cambi_score` to `cuda_cu_sources`, added
+  `integer_cambi_cuda.c` to CUDA feature sources)
+
+**Why**: The CUDA twin of `vmaf_fex_cambi` (Strategy II hybrid — three GPU
+kernels for the embarrassingly parallel stages; `calculate_c_values` + topK
+on CPU). Registers `vmaf_fex_cambi_cuda` under `#if HAVE_CUDA` guard.
+
+**Rebase-sensitivity**: low. The three new files are wholly fork-local and
+will not conflict. The two upstream-shared files have small, self-contained
+hunks:
+
+- `feature_extractor.c`: the `extern vmaf_fex_cambi_cuda` declaration and
+  the `&vmaf_fex_cambi_cuda` array entry are inside a `#if HAVE_CUDA` block.
+  Upstream's additions to this file (new feature extractors, new dispatch
+  flags) will not conflict unless Netflix adds their own CUDA twin for CAMBI
+  (unlikely — they don't ship a CUDA backend).
+- `meson.build`: the `cambi_score` entry in the `cuda_cu_sources` dict and
+  the `integer_cambi_cuda.c` line in the CUDA sources list. Any upstream
+  changes to `meson.build` that restructure the `cuda_cu_sources` dict would
+  require a manual merge; the dict entries are sorted alphabetically by key,
+  so `cambi_score` lands between `adm_score` and `motion_score`.
+
+**If upstream adds `cambi_cuda` themselves**: drop the fork copy and check
+for API divergence. Strategy II hybrid is the natural choice; the upstream
+implementation may differ if they choose Strategy III (fully-on-GPU
+`calculate_c_values`).
+
+**`cambi_internal.h` dependency**: `integer_cambi_cuda.c` includes
+`libvmaf/src/feature/cambi_internal.h` (fork-added trampoline exposing
+`cambi.c`'s static helpers). If upstream significantly refactors `cambi.c`
+(renames `vmaf_cambi_preprocessing`, `vmaf_cambi_calculate_c_values`, etc.),
+`cambi_internal.h` must be updated alongside. This is the same dependency
+the Vulkan twin (`cambi_vulkan.c`) has — see ADR-0210's rebase note for
+the full list of exposed functions.
 
