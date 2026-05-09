@@ -13,11 +13,19 @@ quality). The fork's codec-adapter contract surfaces the libx264-style
 mnemonic preset names (``ultrafast``...``placebo``); this module owns
 the canonical mnemonic-to-NVENC mapping so all three NVENC codecs
 agree.
+
+``BaseNvencAdapter`` is a frozen dataclass that supplies the full
+method body shared by all three per-codec adapters. Each per-codec
+class inherits from it and overrides only the ``name`` / ``encoder``
+fields.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Final
+
+from . import _gop_common
 
 # Canonical NVENC quality knob is constant-quantizer (``-cq``); the
 # valid integer range is 0..51, mirroring x264 CRF semantics. We
@@ -91,7 +99,89 @@ def validate_nvenc(preset: str, cq: int) -> None:
         raise ValueError(f"cq {cq} outside NVENC range [{lo}, {hi}]")
 
 
+@dataclasses.dataclass(frozen=True)
+class BaseNvencAdapter:
+    """Shared implementation for the NVENC H.264 / HEVC / AV1 adapters.
+
+    Subclasses override only the two codec-identity fields (``name`` and
+    ``encoder``). All method bodies are identical across the three
+    per-codec adapters — they live here so the per-codec files each
+    collapse to ~15 LOC of field declarations.
+    """
+
+    name: str = "h264_nvenc"
+    encoder: str = "h264_nvenc"
+    quality_knob: str = "cq"
+    quality_range: tuple[int, int] = NVENC_CQ_RANGE
+    quality_default: int = 23
+    invert_quality: bool = True  # higher CQ = lower quality
+
+    # Predictor probe-encode knobs. "ultrafast" maps to NVENC ``p1``.
+    probe_preset: str = "ultrafast"
+    probe_quality: int = 28
+    supports_qpfile: bool = False
+    # ADR-0332: hardware encoders have no parseable first-pass stats file.
+    supports_encoder_stats: bool = False
+
+    presets: tuple[str, ...] = NVENC_PRESETS
+
+    def validate(self, preset: str, cq: int) -> None:
+        """Raise ``ValueError`` if ``(preset, cq)`` is unsupported."""
+        validate_nvenc(preset, cq)
+
+    def nvenc_preset(self, preset: str) -> str:
+        """Translate a mnemonic preset to its NVENC ``pN`` name."""
+        return nvenc_preset(preset)
+
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for constant-quality NVENC encode.
+
+        NVENC uses ``-cq`` (not ``-crf``) and its native ``pN`` preset
+        token; :func:`nvenc_preset` collapses the canonical mnemonic
+        onto NVENC's seven levels.
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.nvenc_preset(preset),
+            "-cq",
+            str(quality),
+        ]
+
+    def extra_params(self) -> tuple[str, ...]:
+        """No additional non-codec argv for NVENC encoders."""
+        return ()
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by NVENC."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` plus NVENC's ``-forced-idr 1``.
+
+        NVENC honours ``-force_key_frames`` only when ``-forced-idr 1`` is
+        also set; otherwise the encoder may emit non-IDR keyframes that
+        downstream players treat as non-seekable.
+        """
+        if not timestamps:
+            return ()
+        return _gop_common.default_force_keyframes_args(timestamps) + ("-forced-idr", "1")
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: NVENC ``p1`` preset, fixed CQ."""
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            self.nvenc_preset(self.probe_preset),
+            "-cq",
+            str(self.probe_quality),
+        ]
+
+
 __all__ = [
+    "BaseNvencAdapter",
     "NVENC_CQ_HARD_LIMITS",
     "NVENC_CQ_RANGE",
     "NVENC_PRESETS",

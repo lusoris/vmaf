@@ -17,12 +17,19 @@ ICQ rate control (``-global_quality N``) accepts integers in
 ``[1, 51]`` per the libmfx / VPL spec; values outside that window are
 clipped to the encoder's preferred default by the driver, but
 ``vmaf-tune`` rejects them up-front so corpus rows stay reproducible.
+
+``BaseQsvAdapter`` is a frozen dataclass that supplies the full method
+body shared by all three per-codec adapters. Each per-codec class
+inherits from it and overrides only the ``name`` / ``encoder`` fields.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import shutil
 import subprocess
+
+from . import _gop_common
 
 # QSV preset vocabulary — identical to x264's medium/fast/... subset
 # but without the libx264-specific `ultrafast` / `superfast` levels.
@@ -111,3 +118,75 @@ def require_qsv_encoder(
             f"ffmpeg does not advertise {encoder!r}; rebuild with libmfx / "
             "VPL enabled or use a vendor build that includes Intel QSV"
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class BaseQsvAdapter:
+    """Shared implementation for the QSV H.264 / HEVC / AV1 adapters.
+
+    Subclasses override only the two codec-identity fields (``name`` and
+    ``encoder``). All method bodies are identical across the three
+    per-codec adapters — they live here so the per-codec files each
+    collapse to ~15 LOC of field declarations.
+    """
+
+    name: str = "h264_qsv"
+    encoder: str = "h264_qsv"
+    quality_knob: str = "global_quality"
+    quality_range: tuple[int, int] = QSV_QUALITY_RANGE
+    quality_default: int = QSV_QUALITY_DEFAULT
+    invert_quality: bool = True  # higher global_quality = lower quality
+
+    # Predictor probe-encode knobs. QSV has no "ultrafast"; the QSV
+    # preset vocabulary tops out at "veryfast".
+    probe_preset: str = "veryfast"
+    probe_quality: int = 23
+    supports_qpfile: bool = False
+    # ADR-0332: hardware encoders have no parseable first-pass stats file.
+    supports_encoder_stats: bool = False
+
+    presets: tuple[str, ...] = QSV_PRESETS
+
+    def validate(self, preset: str, quality: int) -> None:
+        """Raise ``ValueError`` if ``(preset, quality)`` is unsupported."""
+        preset_to_qsv(preset)
+        validate_global_quality(quality)
+
+    def ffmpeg_codec_args(self, preset: str, quality: int) -> list[str]:
+        """FFmpeg argv slice for ICQ-mode QSV encode.
+
+        QSV's quality knob is ``-global_quality`` (not ``-crf``); the
+        preset vocabulary maps identity-style onto FFmpeg's QSV bridge
+        names per :func:`preset_to_qsv`.
+        """
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            preset_to_qsv(preset),
+            "-global_quality",
+            str(quality),
+        ]
+
+    def extra_params(self) -> tuple[str, ...]:
+        """No additional non-codec argv for QSV encoders."""
+        return ()
+
+    def gop_args(self, keyint: int, min_keyint: int | None = None) -> tuple[str, ...]:
+        """FFmpeg ``-g`` / ``-keyint_min``, honoured by QSV."""
+        return _gop_common.default_gop_args(keyint, min_keyint)
+
+    def force_keyframes_args(self, timestamps: tuple[float, ...]) -> tuple[str, ...]:
+        """FFmpeg ``-force_key_frames`` with comma-separated seconds."""
+        return _gop_common.default_force_keyframes_args(timestamps)
+
+    def probe_args(self) -> list[str]:
+        """Predictor probe-encode argv: QSV ``veryfast`` preset, fixed ICQ."""
+        return [
+            "-c:v",
+            self.encoder,
+            "-preset",
+            preset_to_qsv(self.probe_preset),
+            "-global_quality",
+            str(self.probe_quality),
+        ]
