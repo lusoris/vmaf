@@ -425,9 +425,9 @@ static int alloc_buffers(MsSsimVulkanState *s)
 
     /* Partials sized for scale 0 wg_count (largest). */
     size_t partials_bytes_max = (size_t)s->scale_wg_count[0] * sizeof(float);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->l_partials, partials_bytes_max);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->c_partials, partials_bytes_max);
-    err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->s_partials, partials_bytes_max);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->l_partials, partials_bytes_max);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->c_partials, partials_bytes_max);
+    err |= vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->s_partials, partials_bytes_max);
     return err ? -ENOMEM : 0;
 }
 
@@ -783,6 +783,16 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         if (err)
             break;
 
+        int err_inv;
+        err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->l_partials);
+        if (err_inv)
+            return err_inv;
+        err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->c_partials);
+        if (err_inv)
+            return err_inv;
+        err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->s_partials);
+        if (err_inv)
+            return err_inv;
         const float *lp = vmaf_vulkan_buffer_host(s->l_partials);
         const float *cp = vmaf_vulkan_buffer_host(s->c_partials);
         const float *sp = vmaf_vulkan_buffer_host(s->s_partials);

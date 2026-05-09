@@ -166,10 +166,10 @@ static int alloc_buffers(AnsnrVulkanState *s)
     size_t partial_bytes = (size_t)s->wg_count * sizeof(float);
     if (partial_bytes == 0)
         partial_bytes = sizeof(float);
-    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->sig_partials, partial_bytes);
+    err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->sig_partials, partial_bytes);
     if (err)
         return err;
-    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->noise_partials, partial_bytes);
+    err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->noise_partials, partial_bytes);
     if (err)
         return err;
     return 0;
@@ -293,6 +293,13 @@ static int upload_plane(AnsnrVulkanState *s, VmafPicture *pic, VmafVulkanBuffer 
 
 static void reduce_partials(const AnsnrVulkanState *s, double *sig_out, double *noise_out)
 {
+    int err_inv;
+    err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->sig_partials);
+    if (err_inv)
+        return err_inv;
+    err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->noise_partials);
+    if (err_inv)
+        return err_inv;
     const float *sig_slots = vmaf_vulkan_buffer_host(s->sig_partials);
     const float *noise_slots = vmaf_vulkan_buffer_host(s->noise_partials);
     double sig = 0.0;

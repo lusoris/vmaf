@@ -369,7 +369,7 @@ static int alloc_scale_buffers(VifVulkanState *s)
         size_t accum_bytes = (size_t)s->scale[scale].wg_count * VIF_ACCUM_FIELDS * sizeof(int64_t);
         if (accum_bytes == 0)
             accum_bytes = sizeof(int64_t);
-        int err = vmaf_vulkan_buffer_alloc(s->ctx, &s->scale[scale].accum, accum_bytes);
+        int err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->scale[scale].accum, accum_bytes);
         if (err)
             return err;
 

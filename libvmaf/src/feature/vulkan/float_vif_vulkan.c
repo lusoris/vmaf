@@ -309,10 +309,10 @@ static int alloc_buffers(FloatVifVulkanState *s)
         size_t pbytes = (size_t)s->wg_count[i] * sizeof(float);
         if (pbytes == 0)
             pbytes = sizeof(float);
-        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->num_partials[i], pbytes);
+        err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->num_partials[i], pbytes);
         if (err)
             return err;
-        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->den_partials[i], pbytes);
+        err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->den_partials[i], pbytes);
         if (err)
             return err;
     }
@@ -577,6 +577,13 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     /* Reduce per-scale partials in double, emit ratios + (debug) totals. */
     double scores[8];
     for (int i = 0; i < 4; i++) {
+        int err_inv;
+        err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->num_partials[i]);
+        if (err_inv)
+            return err_inv;
+        err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->den_partials[i]);
+        if (err_inv)
+            return err_inv;
         const float *num_slots = vmaf_vulkan_buffer_host(s->num_partials[i]);
         const float *den_slots = vmaf_vulkan_buffer_host(s->den_partials[i]);
         double total_num = 0.0;

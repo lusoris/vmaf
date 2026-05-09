@@ -197,7 +197,7 @@ static int alloc_buffers(PsnrVulkanState *s)
         size_t se_bytes = (size_t)s->wg_count[p] * sizeof(int64_t);
         if (se_bytes == 0)
             se_bytes = sizeof(int64_t);
-        err = vmaf_vulkan_buffer_alloc(s->ctx, &s->se_partials[p], se_bytes);
+        err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->se_partials[p], se_bytes);
         if (err)
             return err;
     }
@@ -328,6 +328,9 @@ static int write_descriptor_set(PsnrVulkanState *s, VkDescriptorSet set, unsigne
 
 static double reduce_se_partials(const PsnrVulkanState *s, unsigned plane)
 {
+    int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->se_partials[plane]);
+    if (err_inv)
+        return err_inv;
     const int64_t *slots = vmaf_vulkan_buffer_host(s->se_partials[plane]);
     int64_t total = 0;
     for (unsigned i = 0; i < s->wg_count[plane]; i++)

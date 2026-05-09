@@ -175,7 +175,7 @@ static int alloc_buffers(MotionV2VulkanState *s)
     size_t sad_bytes = (size_t)s->wg_count * sizeof(int64_t);
     if (sad_bytes == 0)
         sad_bytes = sizeof(int64_t);
-    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->sad_partials, sad_bytes);
+    err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->sad_partials, sad_bytes);
     if (err)
         return err;
 
@@ -279,6 +279,9 @@ static int upload_ref_plane(MotionV2VulkanState *s, VmafPicture *pic, int slot)
 
 static double reduce_sad_partials(const MotionV2VulkanState *s)
 {
+    int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->sad_partials);
+    if (err_inv)
+        return err_inv;
     const int64_t *slots = vmaf_vulkan_buffer_host(s->sad_partials);
     int64_t total = 0;
     for (unsigned i = 0; i < s->wg_count; i++)

@@ -174,7 +174,7 @@ static int alloc_buffers(CiedeVulkanState *s)
 
     /* Per-WG float partial sum. */
     size_t partials_bytes = (size_t)s->wg_count * sizeof(float);
-    err = vmaf_vulkan_buffer_alloc(s->ctx, &s->partials, partials_bytes);
+    err = vmaf_vulkan_buffer_alloc_readback(s->ctx, &s->partials, partials_bytes);
     return err;
 }
 
@@ -398,6 +398,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
      * score `45 - 20*log10(mean_dE)` rather than the raw mean —
      * mirror that here so the `ciede2000` metric matches across
      * backends. */
+    int err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->partials);
+    if (err_inv)
+        return err_inv;
     {
         const float *partials = vmaf_vulkan_buffer_host(s->partials);
         double total = 0.0;

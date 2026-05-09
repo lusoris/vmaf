@@ -232,3 +232,28 @@ on pre-allocated sets — it is a double-free.
 PR #563), `ssim`, `ciede`, `ms_ssim`, `motion_v2`, `float_psnr`,
 `float_motion` (PR-B / ADR-0353). Remaining legacy kernels (`ansnr`,
 `vif`, `ssimulacra2`, `cambi`) are deferred to PR-C.
+
+## Buffer allocation invariant (ADR-0350)
+
+Feature kernel files in this directory must allocate buffers with the correct
+VMA classification:
+
+- **UPLOAD buffers** (CPU writes pixel data or LUT, then calls
+  `vmaf_vulkan_buffer_flush`, then GPU reads): use `vmaf_vulkan_buffer_alloc`.
+  Examples: `ref_in`, `dis_in`, `log2_lut`, `div_lookup`, `csf_f`, `src_ref`,
+  `src_dis`, `ref_lin`, `dis_lin`, `raw_in_buf`, blur intermediate scratch,
+  pyramid downscale buffers.
+
+- **READBACK buffers** (GPU writes per-workgroup accumulator or partial-sum
+  slots, CPU reduces them post-fence): use `vmaf_vulkan_buffer_alloc_readback`
+  and call `vmaf_vulkan_buffer_invalidate(ctx, buf)` after the fence-wait,
+  before calling `vmaf_vulkan_buffer_host(buf)`.  Examples: `accum`, `partials`,
+  `sad_partials`, `sums`, `se_partials`, `l/c/s_partials`, `num/den_partials`,
+  `sig/noise_partials`, `mu1`, `mu2`, `s11`, `s22`, `s12`.
+
+Using `alloc` for a readback buffer silently incurs 4–8× slower CPU reads on
+discrete GPUs (uncached BAR heap instead of HOST_CACHED).  Missing the
+`invalidate` call makes the CPU see stale data on non-coherent heaps.  Both
+bugs are silent (no crash, wrong throughput or wrong result respectively).
+
+See [ADR-0350](../../../../docs/adr/0350-vulkan-readback-alloc-flag.md).
