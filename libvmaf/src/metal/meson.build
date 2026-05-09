@@ -36,6 +36,11 @@ metal_sources += files(
     '../feature/metal/integer_psnr_metal.c',
     '../feature/metal/float_ssim_metal.c',
     '../feature/metal/integer_motion_metal.c',
+    # T8-1 batch-2 scaffolds (ADR-0361): 4 additional float consumers.
+    '../feature/metal/float_psnr_metal.c',
+    '../feature/metal/float_ansnr_metal.c',
+    '../feature/metal/float_motion_metal.c',
+    '../feature/metal/float_moment_metal.c',
 )
 
 # Optional probe — does not gate the build on non-macOS hosts. Real
