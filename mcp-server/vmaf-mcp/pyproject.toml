@@ -35,7 +35,7 @@ vlm = [
   "transformers>=5.8.0",
   "torch>=2.11.0",
   "Pillow>=12.2.0",
-  "accelerate>=0.34",
+  "accelerate>=1.13.0",
 ]
 
 [project.scripts]
