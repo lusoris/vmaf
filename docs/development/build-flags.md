@@ -23,28 +23,28 @@ ninja -C build
 
 ## Project options (`meson_options.txt`)
 
-| Option            | Type      | Default   | Effect                                                          |
-|-------------------|-----------|-----------|-----------------------------------------------------------------|
-| `enable_tests`    | bool      | `true`    | Build `libvmaf/test/` unit tests; `meson test -C build` needs this |
-| `enable_docs`     | bool      | `true`    | Build the Doxygen C-API HTML under `build/libvmaf/doc/`         |
-| `enable_tools`    | bool      | `true`    | Build the `vmaf` and `vmaf_bench` CLI binaries                  |
-| `enable_asm`      | bool      | `true`    | Compile any `*.asm` source files (nasm); disables all SIMD paths when `false` |
-| `enable_avx512`   | bool      | `true`    | Build the AVX-512 kernels (requires nasm ≥ 2.14); auto-disabled on hosts without AVX-512 headers |
-| `built_in_models` | bool      | `true`    | Compile the default `.json` VMAF models into the library (`version=vmaf_v0.6.1` etc. resolve without disk I/O) |
-| `enable_float`    | bool      | `false`   | Compile the `float_*` feature extractors (`float_psnr`, `float_ssim`, `float_ms_ssim`, `float_vif`, `float_adm`, `float_motion`, `float_ansnr`); off by default because the fixed-point core is the ship path |
-| `enable_cuda`     | bool      | `false`   | Compile the CUDA backend + `.cu` kernels; requires CUDA toolkit (`nvcc`) |
-| `enable_nvtx`     | bool      | `false`   | Instrument CUDA kernels with NVTX ranges for Nsight Systems — see [backends/nvtx/profiling.md](../backends/nvtx/profiling.md) |
-| `enable_nvcc`     | bool      | `true`    | Use `nvcc` to compile the CUDA kernel objects (the alternative is the clang CUDA driver); only takes effect when `enable_cuda=true` |
-| `enable_sycl`     | bool      | `false`   | Compile the SYCL / oneAPI backend + DPC++ kernels; requires `icpx` on PATH |
-| `sycl_compiler`   | string    | `icpx`    | Path or name of the SYCL compiler — only consulted when `enable_sycl=true` |
-| `enable_dnn`      | feature   | `auto`    | Build the tiny-AI ONNX Runtime surface. `auto` tries to link ORT and silently disables if it's missing; `enabled` fails the configure step when ORT is unavailable; `disabled` omits the `dnn.h` symbols entirely |
-| `enable_vulkan`   | feature   | `disabled`| Compile the Vulkan compute backend. Scaffold landed via [ADR-0175](../adr/0175-vulkan-backend-scaffold.md), runtime via ADR-0178 (T5-1b), default-model kernel matrix complete per ADR-0193 (VIF + ADM + motion + motion_v2 + ssimulacra2 plus the GPU long-tail batches). Default `disabled` — `auto` would silently flip on in builds with a Vulkan SDK installed and we keep it opt-in. When enabled, requires `volk` + Vulkan SDK ≥ 1.3 + `glslc` + VMA. |
-| `enable_mcp`      | bool      | `false`   | Compile the embedded MCP (Model Context Protocol) server scaffold ([ADR-0209](../adr/0209-mcp-embedded-scaffold.md)). Audit-first stub: every entry point in `libvmaf_mcp.h` returns `-ENOSYS`. Runtime bodies (cJSON + mongoose, dedicated MCP pthread, SPSC ring buffer, transports) land in T5-2b. See [`docs/mcp/embedded.md`](../mcp/embedded.md). |
-| `enable_mcp_sse`  | bool      | `false`   | Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires `enable_mcp=true`. Stub-only until T5-2b ships transport bodies. |
-| `enable_mcp_uds`  | bool      | `false`   | Compile in the Unix-domain-socket transport. Requires `enable_mcp=true`. POSIX-only; non-POSIX hosts return `-ENODEV` at runtime. Stub-only until T5-2b. |
-| `enable_mcp_stdio`| bool      | `false`   | Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport. Requires `enable_mcp=true`. Stub-only until T5-2b. |
-| `enable_hip`      | bool      | `false`   | Compile the HIP (AMD ROCm) compute backend scaffold. Default off; every public C-API entry point returns `-ENOSYS` until the runtime PR (T7-10b) lands — see [ADR-0212](../adr/0212-hip-backend-scaffold.md) and [backends/hip/overview.md](../backends/hip/overview.md). The scaffold has no hard runtime dependencies; ROCm 6+ is required only when the kernels arrive. |
-| `fuzz`            | bool      | `false`   | Build libFuzzer harnesses under `libvmaf/test/fuzz/` ([ADR-0270](../adr/0270-fuzzing-scaffold.md), OSSF Scorecard `Fuzzing` remediation). Requires `clang`. Pair with `-Db_sanitize=address` for heap coverage. Default off — opt-in only. |
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `enable_tests` | bool | `true` | Build `libvmaf/test/` unit tests; `meson test -C build` needs this |
+| `enable_docs` | bool | `true` | Build the Doxygen C-API HTML under `build/libvmaf/doc/` |
+| `enable_tools` | bool | `true` | Build the `vmaf` and `vmaf_bench` CLI binaries |
+| `enable_asm` | bool | `true` | Compile any `*.asm` source files (nasm); disables all SIMD paths when `false` |
+| `enable_avx512` | bool | `true` | Build the AVX-512 kernels (requires nasm ≥ 2.14); auto-disabled on hosts without AVX-512 headers |
+| `built_in_models` | bool | `true` | Compile the default `.json` VMAF models into the library (`version=vmaf_v0.6.1` etc. resolve without disk I/O) |
+| `enable_float` | bool | `true` | Compile the `float_*` feature extractors (`float_psnr`, `float_ssim`, `float_ms_ssim`, `float_vif`, `float_adm`, `float_motion`, `float_ansnr`); on by default so that `--feature float_adm` and related CLI flags work without extra configure flags |
+| `enable_cuda` | bool | `false` | Compile the CUDA backend + `.cu` kernels; requires CUDA toolkit (`nvcc`) |
+| `enable_nvtx` | bool | `false` | Instrument CUDA kernels with NVTX ranges for Nsight Systems — see [backends/nvtx/profiling.md](../backends/nvtx/profiling.md) |
+| `enable_nvcc` | bool | `true` | Use `nvcc` to compile the CUDA kernel objects (the alternative is the clang CUDA driver); only takes effect when `enable_cuda=true` |
+| `enable_sycl` | bool | `false` | Compile the SYCL / oneAPI backend + DPC++ kernels; requires `icpx` on PATH |
+| `sycl_compiler` | string | `icpx` | Path or name of the SYCL compiler — only consulted when `enable_sycl=true` |
+| `enable_dnn` | feature | `auto` | Build the tiny-AI ONNX Runtime surface. `auto` tries to link ORT and silently disables if it's missing; `enabled` fails the configure step when ORT is unavailable; `disabled` omits the `dnn.h` symbols entirely |
+| `enable_vulkan` | feature | `disabled` | Compile the Vulkan compute backend. Scaffold landed via [ADR-0175](../adr/0175-vulkan-backend-scaffold.md), runtime via ADR-0178 (T5-1b), default-model kernel matrix complete per ADR-0193 (VIF + ADM + motion + motion_v2 + ssimulacra2 plus the GPU long-tail batches). Default `disabled` — `auto` would silently flip on in builds with a Vulkan SDK installed and we keep it opt-in. When enabled, requires `volk` + Vulkan SDK ≥ 1.3 + `glslc` + VMA. |
+| `enable_mcp` | bool | `false` | Compile the embedded MCP (Model Context Protocol) server scaffold ([ADR-0209](../adr/0209-mcp-embedded-scaffold.md)). Audit-first stub: every entry point in `libvmaf_mcp.h` returns `-ENOSYS`. Runtime bodies (cJSON + mongoose, dedicated MCP pthread, SPSC ring buffer, transports) land in T5-2b. See [`docs/mcp/embedded.md`](../mcp/embedded.md). |
+| `enable_mcp_sse` | bool | `false` | Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires `enable_mcp=true`. Stub-only until T5-2b ships transport bodies. |
+| `enable_mcp_uds` | bool | `false` | Compile in the Unix-domain-socket transport. Requires `enable_mcp=true`. POSIX-only; non-POSIX hosts return `-ENODEV` at runtime. Stub-only until T5-2b. |
+| `enable_mcp_stdio` | bool | `false` | Compile in the stdio (LSP-framed JSON-RPC on caller-supplied fd pair) transport. Requires `enable_mcp=true`. Stub-only until T5-2b. |
+| `enable_hip` | bool | `false` | Compile the HIP (AMD ROCm) compute backend scaffold. Default off; every public C-API entry point returns `-ENOSYS` until the runtime PR (T7-10b) lands — see [ADR-0212](../adr/0212-hip-backend-scaffold.md) and [backends/hip/overview.md](../backends/hip/overview.md). The scaffold has no hard runtime dependencies; ROCm 6+ is required only when the kernels arrive. |
+| `fuzz` | bool | `false` | Build libFuzzer harnesses under `libvmaf/test/fuzz/` ([ADR-0270](../adr/0270-fuzzing-scaffold.md), OSSF Scorecard `Fuzzing` remediation). Requires `clang`. Pair with `-Db_sanitize=address` for heap coverage. Default off — opt-in only. |
 
 ### Flag interactions
 
@@ -62,9 +62,12 @@ ninja -C build
 - **`enable_nvcc=false` is experimental.** Clang CUDA support lags `nvcc`
   on newer CUDA toolchains; this flag is intended for maintainers
   investigating codegen regressions, not for day-to-day builds.
-- **`enable_float=true` does not turn off the integer path.** The
+- **`enable_float` does not turn off the integer path.** The
   fixed-point extractors always compile; this flag only adds the float
-  twins on top.
+  twins on top. It defaults to `true` so that `--feature float_adm`
+  and related CLI flags work out of the box; set `-Denable_float=false`
+  only on size-constrained embedded targets that cannot afford the extra
+  object files.
 - **`enable_dnn=auto` vs `enabled`.** Always set `enabled` in CI if you
   want tiny-AI coverage — `auto` will silently skip the DNN tests if ORT
   fails to link and will not flag the gap as a failure.
@@ -82,16 +85,16 @@ returning `-ENOSYS`; see the table above and
 These come from Meson itself, not `meson_options.txt` — but they change
 the emitted artifact, so they belong in the build-time surface.
 
-| Option             | Default        | Effect                                                               |
-|--------------------|----------------|----------------------------------------------------------------------|
-| `buildtype`        | `debug`        | `debug` / `debugoptimized` / `release` / `minsize` / `plain`         |
-| `default_library`  | `shared`       | `shared` / `static` / `both` — `both` is required for the test suite layout |
-| `b_ndebug`         | `false`        | Disable C `assert()` when `true`; set with `-Db_ndebug=true`         |
-| `b_sanitize`       | `none`         | `address`, `undefined`, `address,undefined`, `thread`, `memory`      |
-| `b_lto`            | `false`        | Enable LTO; measurable speedup on the scalar / AVX2 paths            |
-| `c_args`           | (empty)        | Extra C flags. Passing `-DVMAF_PICTURE_POOL` enables the picture-pool allocator (gated test target) |
-| `prefix`           | `/usr/local`   | Install prefix for `ninja install`                                   |
-| `pkg_config_path`  | (system)       | Useful when linking against a non-system ONNX Runtime for `enable_dnn` |
+| Option | Default | Effect |
+| --- | --- | --- |
+| `buildtype` | `debug` | `debug` / `debugoptimized` / `release` / `minsize` / `plain` |
+| `default_library` | `shared` | `shared` / `static` / `both` — `both` is required for the test suite layout |
+| `b_ndebug` | `false` | Disable C `assert()` when `true`; set with `-Db_ndebug=true` |
+| `b_sanitize` | `none` | `address`, `undefined`, `address,undefined`, `thread`, `memory` |
+| `b_lto` | `false` | Enable LTO; measurable speedup on the scalar / AVX2 paths |
+| `c_args` | (empty) | Extra C flags. Passing `-DVMAF_PICTURE_POOL` enables the picture-pool allocator (gated test target) |
+| `prefix` | `/usr/local` | Install prefix for `ninja install` |
+| `pkg_config_path` | (system) | Useful when linking against a non-system ONNX Runtime for `enable_dnn` |
 
 ## Recommended configurations
 

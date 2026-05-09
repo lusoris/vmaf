@@ -32196,3 +32196,17 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
 
 
   ```
+
+## fix/float-adm-extractor-loading — `enable_float` default flip (2026-05-09)
+
+No rebase-sensitive invariants. The change is a single default-value
+flip in `libvmaf/meson_options.txt` (`enable_float: false` →
+`enable_float: true`) and a prose update to
+`docs/development/build-flags.md`. No C source was modified; no
+build-system paths changed; no new symbols were added.
+
+- **On upstream sync**: if Netflix upstream ever adds their own
+  `enable_float` default change, prefer theirs and drop this entry.
+- **Re-test on rebase**: run the reproducer —
+  `./build/tools/vmaf --feature float_adm --no_prediction ...` — and
+  confirm it no longer prints "problem loading feature extractor".
