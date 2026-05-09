@@ -22,7 +22,7 @@ dependencies = [
   # (and revert the import sites) if Lightning AI restores the
   # distribution.
   "pytorch-lightning>=2.5,<3.0",
-  "onnx>=1.17,<2.0",
+  "onnx>=1.21.0,<2.0",
   "onnxruntime>=1.20,<2.0",
   "onnxscript>=0.2",
   "numpy>=1.26,<3.0",
