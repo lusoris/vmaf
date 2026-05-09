@@ -32,6 +32,10 @@ metal_sources += files(
     'dispatch_strategy.c',
     'kernel_template.c',
     '../feature/metal/integer_motion_v2_metal.c',
+    # T8-1 batch-1 scaffolds (ADR-0361): 3 additional consumers.
+    '../feature/metal/integer_psnr_metal.c',
+    '../feature/metal/float_ssim_metal.c',
+    '../feature/metal/integer_motion_metal.c',
 )
 
 # Optional probe — does not gate the build on non-macOS hosts. Real
