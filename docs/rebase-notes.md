@@ -9386,6 +9386,7 @@ inline.*
   tar -tzf /tmp/kit-test.tar.gz | grep -q "tools/ensemble-training-kit/run-full-pipeline.sh"
   ```
 
+<<<<<<< HEAD
 ## ADR-0335 — Hardware-capability priors (2026-05-08)
 
 - **Touches**: `ai/data/hardware_caps.csv` (new),
@@ -32052,5 +32053,15 @@ referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
 
   ```bash
   pytest ai/tests/test_lsvq.py -v
+  ```
 
+## ADR-0325 — Local sidecar training scaffold (2026-05-08)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/sidecar.py` (new), `tools/vmaf-tune/tests/test_sidecar.py` (new), `docs/adr/0325-local-sidecar-training.md` (new), `docs/adr/_index_fragments/0325-local-sidecar-training.md` (new), `docs/adr/_index_fragments/_order.txt` (append), `docs/adr/README.md` (index row), `docs/research/0086-local-sidecar-feasibility.md` (new), `docs/ai/local-sidecar-training.md` (new), `changelog.d/added/local-sidecar-training-scaffold.md` (new), `tools/vmaf-tune/AGENTS.md` (sidecar invariant note). No engine code touched; no upstream-shared paths.
+- **Invariant**: the sidecar's on-disk state schema (`SIDECAR_SCHEMA_VERSION = 1`, `FEATURE_DIM = 14`, the column order in `_feature_vector`) is the load-bearing pin. Adding columns or reordering them must bump `SIDECAR_SCHEMA_VERSION`; otherwise saved state from older harness versions silently aligns mismatched columns to the wrong feature. The `SidecarConfig.predictor_version` tag is the load-bearing pin against shipped-predictor upgrades — bumping it is the contract that invalidates stale corrections without operator intervention.
+- **On upstream sync**: no action required. The sidecar lives entirely under `tools/vmaf-tune/` (fork-local) and only consumes the existing `Predictor` / `ShotFeatures` surface. Upstream Netflix/vmaf does not ship a `vmaf-tune` analogue; conflict probability is zero.
+- **Re-test on rebase**:
+
+  ```bash
+  cd tools/vmaf-tune && python -m pytest tests/test_sidecar.py -v
   ```

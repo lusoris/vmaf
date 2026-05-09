@@ -517,8 +517,8 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   tuple; never insert in the middle. The Phase D thresholds
   (`PHASE_D_DURATION_GATE_S = 300.0` and
   `PHASE_D_SHOT_VARIANCE_GATE = 0.15`) are placeholders pending F.3
-  empirical fit — change them via an ADR-0364 follow-up, not a
-  drive-by tweak. See [ADR-0364](../../docs/adr/0364-vmaf-tune-phase-f-auto.md).
+  empirical fit — change them via an ADR-0325 follow-up, not a
+  drive-by tweak. See [ADR-0325](../../docs/adr/0325-vmaf-tune-phase-f-auto.md).
 
 - **F.3 confidence-aware thresholds are corpus-derived; do not
   hand-pick.** `DEFAULT_TIGHT_INTERVAL_MAX_WIDTH = 2.0` and
@@ -557,7 +557,7 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   `target_vmaf_offset` shifts only the predictor's effective target;
   the input `--target-vmaf` (the gate that ships models) is
   preserved verbatim in `plan.metadata.target_vmaf`. See
-  [ADR-0364](../../docs/adr/0364-vmaf-tune-phase-f-auto.md) §F.4.
+  [ADR-0325](../../docs/adr/0325-vmaf-tune-phase-f-auto.md) §F.4.
 
 ## ADR-0332 invariants (encoder-internal stats capture)
 
@@ -573,3 +573,33 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   adapters by design. Do not collapse the pass-1 + pass-2 calls into
   one — the encoder won't emit a parseable stats file outside
   ``-pass 1`` mode.
+
+## Sidecar (ADR-0325) rebase-sensitive invariants
+
+- **`FEATURE_DIM = 14` and the column order in
+  `sidecar._feature_vector` are the load-bearing pin** for the
+  online-ridge state. Adding or reordering features without
+  bumping `SIDECAR_SCHEMA_VERSION` will silently align saved
+  weights to the wrong column on load. The leading `1.0` bias /
+  intercept term must stay at column 0; it is what lets the
+  ridge fit absorb a constant offset between predicted and
+  observed VMAF.
+- **`SidecarConfig.predictor_version` is the contract that
+  invalidates stale corrections** when the shipped predictor
+  upgrades. Tag mismatch on `SidecarModel.from_dict` raises and
+  the caller (`SidecarModel.load`) falls back to a cold-start
+  model. Do not catch the mismatch and "rescale" — a stale
+  correction trained against the previous predictor's residuals
+  is worse than no correction.
+- **The host UUID is anonymous by construction.** It is generated
+  by `secrets.token_hex(16)` on first install and persisted at
+  `<cache_dir>/host-uuid`. **Never** swap it for `uuid.getnode()`
+  / `socket.gethostname()` / `/etc/machine-id` / CPUID — that
+  would re-identify the operator and break the privacy
+  precondition for the future opt-in upload PR (ADR-0325
+  §Future work).
+- **Sidecar state is local-only by default.** The harness has no
+  upload code path. Adding one requires the dedicated opt-in
+  upload ADR + signing chain spelled out in ADR-0325 §Future
+  work — do not slip a network call into `SidecarPredictor` or
+  any of its callers without that ADR landing first.

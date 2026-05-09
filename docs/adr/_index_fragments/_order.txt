@@ -183,4 +183,4 @@
 0313-ci-required-checks-aggregator
 0310-bvi-dvc-corpus-ingestion
 0315-vendor-neutral-vvc-encode-strategy
-0325-vmaf-tune-phase-f-auto
+0325-local-sidecar-training
