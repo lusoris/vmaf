@@ -162,6 +162,9 @@ typedef struct {
 
     /* Per-WG int64 accumulator buffers, one per scale. */
     VmafVulkanBuffer *accum[ADM_NUM_SCALES];
+    /* ADR-0350: tiny GPU-reduced output buffer per scale —
+     * ADM_ACCUM_SLOTS_PER_WG int64_t each (48 bytes). */
+    VmafVulkanBuffer *reduced_accum[ADM_NUM_SCALES];
     unsigned wg_count[ADM_NUM_SCALES];
 
     /* Per-scale dimensions cached. */
@@ -577,6 +580,43 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         write_accum_binding(s, s->pre_sets[scale], scale);
     }
 
+    /* ADR-0350 follow-up (2026-05-09 review-fix): pre-allocate the
+     * reducer descriptor sets ONCE here and reuse them every frame.
+     * The accum_in / reduced_accum bindings are stable per-scale, so
+     * we write them once after the buffers are allocated.  This
+     * mirrors the VIF reducer pattern (s->reduce_sets in
+     * vif_vulkan.c) and removes the per-frame
+     * vkAllocateDescriptorSets call from extract() — over a long
+     * sequence the prior per-frame alloc/free pattern fragmented
+     * the descriptor pool and could exhaust it on drivers that do
+     * not coalesce freed entries.  See PR #561 review comment 2. */
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl_reduce.desc_pool, s->pl_reduce.dsl,
+                                                   (uint32_t)ADM_NUM_SCALES, s->reduce_sets);
+    if (err)
+        return err;
+    for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
+        VkDescriptorBufferInfo rdbi[2] = {
+            {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->accum[scale]),
+             .offset = 0,
+             .range = VK_WHOLE_SIZE},
+            {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->reduced_accum[scale]),
+             .offset = 0,
+             .range = VK_WHOLE_SIZE},
+        };
+        VkWriteDescriptorSet rwrites[2];
+        for (int i = 0; i < 2; i++) {
+            rwrites[i] = (VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = s->reduce_sets[scale],
+                .dstBinding = (uint32_t)i,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &rdbi[i],
+            };
+        }
+        vkUpdateDescriptorSets(s->ctx->device, 2, rwrites, 0, NULL);
+    }
+
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (!s->feature_name_dict)
@@ -896,49 +936,13 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     /* All 9 descriptor bindings are init-time-stable (the accum buffers
      * are allocated once in init() and never reallocated). No per-frame
      * vkUpdateDescriptorSets needed. (T-GPU-OPT-VK-4 / ADR-0256.) */
-
-    /* ADR-0350: allocate and write reducer descriptor sets once per frame.
-     * The accum_in and reduced_accum bindings are stable per-scale, so we
-     * could pre-allocate in init() and write once; for simplicity we
-     * allocate per-frame here to keep the ADR-0350 reduction self-contained. */
-    VkDescriptorSet reduce_sets[ADM_NUM_SCALES] = {VK_NULL_HANDLE};
-    {
-        VkDescriptorSetLayout rlayouts[ADM_NUM_SCALES];
-        for (int i = 0; i < ADM_NUM_SCALES; i++)
-            rlayouts[i] = s->pl_reduce.dsl;
-        VkDescriptorSetAllocateInfo rdsai = {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = s->pl_reduce.desc_pool,
-            .descriptorSetCount = ADM_NUM_SCALES,
-            .pSetLayouts = rlayouts,
-        };
-        if (vkAllocateDescriptorSets(s->ctx->device, &rdsai, reduce_sets) != VK_SUCCESS) {
-            err = -ENOMEM;
-            goto cleanup_no_submit;
-        }
-        for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
-            VkDescriptorBufferInfo rdbi[2] = {
-                {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->accum[scale]),
-                 .offset = 0,
-                 .range = VK_WHOLE_SIZE},
-                {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->reduced_accum[scale]),
-                 .offset = 0,
-                 .range = VK_WHOLE_SIZE},
-            };
-            VkWriteDescriptorSet rwrites[2];
-            for (int i = 0; i < 2; i++) {
-                rwrites[i] = (VkWriteDescriptorSet){
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = reduce_sets[scale],
-                    .dstBinding = (uint32_t)i,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                    .pBufferInfo = &rdbi[i],
-                };
-            }
-            vkUpdateDescriptorSets(s->ctx->device, 2, rwrites, 0, NULL);
-        }
-    }
+    /* ADR-0350 follow-up (2026-05-09 review-fix): the reducer
+     * descriptor sets are pre-allocated and written once in init().
+     * The bindings (accum[scale] -> reduced_accum[scale]) never
+     * change at runtime, so per-frame vkAllocateDescriptorSets +
+     * vkFreeDescriptorSets is unnecessary and on long sequences was
+     * fragmenting the small reducer pool.  We just use s->reduce_sets
+     * directly below.  See PR #561 review comment 2. */
 
     /* Acquire a pre-allocated command buffer + fence from the submit pool.
      * Eliminates per-frame vkAllocateCommandBuffers / vkCreateFence.
@@ -1076,7 +1080,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
                 n_rg = 1u;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl_reduce.pipeline);
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                    s->pl_reduce.pipeline_layout, 0, 1, &reduce_sets[scale], 0,
+                                    s->pl_reduce.pipeline_layout, 0, 1, &s->reduce_sets[scale], 0,
                                     NULL);
             vkCmdPushConstants(cmd, s->pl_reduce.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                sizeof(uint32_t), &wg_count_scale);
@@ -1092,13 +1096,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
 
 cleanup:
     vmaf_vulkan_kernel_submit_free(s->ctx, &submit);
-    if (reduce_sets[0] != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->pl_reduce.desc_pool, ADM_NUM_SCALES, reduce_sets);
-    return err;
-
-cleanup_no_submit:
-    if (reduce_sets[0] != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->pl_reduce.desc_pool, ADM_NUM_SCALES, reduce_sets);
+    /* ADR-0350 follow-up (2026-05-09 review-fix): s->reduce_sets are
+     * pre-allocated at init() time and freed implicitly when the
+     * reducer descriptor pool is destroyed in close_fex() —
+     * no per-frame free here. */
     return err;
 }
 
