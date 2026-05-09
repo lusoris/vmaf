@@ -8,64 +8,6 @@
 
 ### Changed
 
-- **Vulkan VIF API-1.4 NVIDIA residual — Phase 2 dynamic dump
-  refutes FP-precision hypothesis, localises bug to SCALE=2
-  memory-model regression (T-VK-VIF-1.4-RESIDUAL).** Phase 2
-  empirical run on RTX 4090 + driver 595.71.05 + Vulkan 1.4.341 in
-  this session (2026-05-09) replaces the `[UNVERIFIED]` cells
-  research-0089 §5 carried with real numbers and **refutes** the
-  digest body's FP-arithmetic / `shaderFloatControls2`-v2 codegen
-  hypothesis. The 45/48 `integer_vif_scale2` `places=4` failure is
-  not an FP-precision drift on the 5 SPIR-V FP ops — the
-  `vif_vulkan` `debug=true` host channel surfaces it at the
-  accumulator level: `den_scale2 ≈ -10¹⁶` vs CPU's `+2.5e+04`,
-  `num_scale2 ≈ +10¹⁵` (10¹¹× magnitude flip + sign flip), with
-  full run-to-run **non-determinism** across 5 repeat runs (5
-  distinct `(num, den)` pairs). The score collapses to
-  `1.000000` because the host reduction's `den <= 0` fallback in
-  `reduce_and_emit()` returns 1.0. Bug **isolated to SCALE = 2**
-  specialisation; scales 0/1/3 deterministic + sane. API 1.3
-  control on the same machine is fully deterministic and
-  bit-exact 0/48 across the same 5 runs. Signature is a memory
-  race in the Phase-4 cross-subgroup int64 reduction (`vif.comp`
-  lines 547–592, `subgroupAdd` + `barrier()` + thread-0 read of
-  `s_lmem`) that Vulkan 1.4's stricter NVIDIA default memory
-  model exposes. The `places=3` override path is **eliminated** —
-  non-deterministic accumulators cannot meet any tolerance. Phase
-  3 fix candidate documented in research-0089 2026-05-09 status
-  appendix: replace bare `barrier()` with explicit
-  `controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup,
-  gl_StorageSemanticsShared, gl_SemanticsAcquireRelease)` (or
-  `memoryBarrierShared() + barrier()`) before the thread-0
-  reduction read. State.md row T-VK-VIF-1.4-RESIDUAL updated with
-  the localisation; reproduction recipe documented for Phase 3.
-  No production code changes — this PR is the digest update +
-  state.md row update; the shader fix lands separately under
-  Phase 3 with a 5-run determinism gate.
-
-- **Vulkan VIF API-1.4 NVIDIA residual — bisect digest landed
-  (T-VK-VIF-1.4-RESIDUAL).** New research digest
-  [`docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md`](docs/research/0089-vulkan-vif-fp-residual-bisect-2026-05-08.md)
-  documents the static CPU-`double`-vs-Vulkan-`float` stage bisect
-  on the residual 45/48 `integer_vif_scale2` `places=4` mismatch on
-  NVIDIA RTX 4090 + driver 595.71.05 at API 1.4 that PR #346's
-  Step A did not close. Re-verified via glslc 2026.1 + spirv-dis
-  that `vif.comp` emits exactly 5 floating-point arithmetic ops in
-  optimised SPIR-V and all 5 are `NoContraction`-decorated — the
-  SPIR-V mitigation surface is exhausted. Cross-checked against
-  SYCL's `vif_sycl` (same f32 contract, passes the gate) — rules
-  out a pure f32-vs-f64 class issue analog of T-VK-CIEDE-F32-F64.
-  Localises root cause to NVIDIA's `shaderFloatControls2`-v2
-  codegen flip at API 1.4 on a non-IEEE-bound default that the
-  SPIR-V surface cannot bind (e.g., reciprocal-multiply for divide,
-  fast-rsq selection). Empirical per-stage NVIDIA dynamic dump not
-  run this session (needs ~1 day of SSBO instrumentation +
-  hardware lane); values tagged `[UNVERIFIED]` per the
-  no-fabrication rule. Phase-2 shader fix not warranted —
-  recommends per-stage NVIDIA dump or `places=3` override ADR for
-  Step B unblock. State.md row T-VK-VIF-1.4-RESIDUAL updated with
-  bisect outcome; ADR-0269 carries a 2026-05-08 status-update
-  appendix. No code changes.
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
@@ -3205,6 +3147,30 @@
   feature extraction in CI).
 
 
+- **Ensemble training kit — portable Phase-A + LOSO retrain bundle
+  ([ADR-0324](../docs/adr/0324-ensemble-training-kit.md)).**
+  Adds `tools/ensemble-training-kit/` with a one-command orchestrator
+  (`run-full-pipeline.sh`) that chains prereqs → Phase-A canonical-6
+  corpus generation → 5-seed × 9-fold LOSO retrain → ADR-0303 verdict
+  emission → bundling. Five numbered step scripts (`01-prereqs.sh`
+  through `05-bundle-results.sh`) are usable individually for retries.
+  The kit reuses the existing in-tree pieces unchanged
+  (`scripts/dev/hw_encoder_corpus.py`,
+  `ai/scripts/run_ensemble_v2_real_corpus_loso.sh`,
+  `ai/scripts/validate_ensemble_seeds.py`,
+  `ai/scripts/export_ensemble_v2_seeds.py`,
+  `scripts/ci/ensemble_prod_gate.py`) — no engine changes.
+  `make-distribution-tarball.sh` produces a self-contained tar.gz
+  (~ < 50 MiB) with the kit + every script it invokes + the runbook,
+  so a collaborator can untar without cloning the fork. Operator-facing
+  documentation lives in
+  [`tools/ensemble-training-kit/README.md`](../tools/ensemble-training-kit/README.md);
+  the kit's pinned Python dependency set is captured in
+  `requirements-frozen.txt`. Companion to
+  [ADR-0309](../docs/adr/0309-fr-regressor-v2-ensemble-real-corpus-retrain.md)'s
+  runbook.
+
+
 - **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0242).**
   Prepares the fork's tiny-AI training workstream to train on the local
   Netflix VMAF corpus (9 reference YUVs + 70 distorted YUVs at
@@ -3503,6 +3469,16 @@
   the protection-layer required-list flips.
 
 
+- **`vmaf-tune compare` CLI subcommand
+  ([T-VMAF-TUNE-compare-codecs](T-VMAF-TUNE-compare-codecs.md)).**
+  Surfaces the existing `compare.py` codec-comparison ranker as a
+  runnable subcommand. Takes a comma-separated `--encoders` list,
+  delegates to [`compare_codecs`](../tools/vmaf-tune/src/vmaftune/compare.py),
+  ranks by smallest bitrate at the chosen `--target-vmaf`, emits a
+  markdown / JSON / CSV report. Module shipped earlier with its tests;
+  this entry just exposes it on the CLI.
+
+
 - **Encoder knob-space Pareto-frontier analysis scaffold (ADR-0305 /
   Research-0077, companion to Research-0063).** Ships the methodology
   + scripts for the 12,636-cell knob sweep (9 sources × 6 codec
@@ -3552,6 +3528,22 @@
   indices keep their column positions verbatim. Re-scopes PR #373
   (the VT-adapters-plus-vocab change deferred when the VT adapters
   landed via ADR-0283).
+
+
+- **Ensemble training kit — Google-Drive contributor-bundle scripts.**
+  Adds two operator-facing scripts under
+  [`tools/ensemble-training-kit/`](../tools/ensemble-training-kit/):
+  `prepare-gdrive-bundle.sh` (lead-user side) compresses the local
+  BVI-DVC + Netflix raw YUV corpus (~229 GiB) to lossless HEVC and
+  tars it with a manifest into a single ~100 GiB Google-Drive-friendly
+  bundle; `extract-corpus.sh` (contributor side) decodes the lossless
+  HEVC back to bit-exact YUVs and verifies every file against the
+  bundled sha256 manifest before the trainer runs. README quickstart
+  for gdrive recipients added at the top of
+  [`tools/ensemble-training-kit/README.md`](../tools/ensemble-training-kit/README.md).
+  Companion to [ADR-0324](../docs/adr/0324-ensemble-training-kit.md);
+  closes the "kit ships orchestrator only, contributors source data
+  manually" loop the original kit left open.
 
 
 - **`fr_regressor_v2` ensemble LOSO trainer — real loader + per-fold
@@ -3613,6 +3605,51 @@
   [`ai/AGENTS.md`](../../ai/AGENTS.md) "Ensemble registry invariant".
 
 
+- **`fr_regressor_v3` — train + register on `ENCODER_VOCAB` v3
+  (16-slot) — gate PASSED (ADR-0323).** Closes the v3 retrain
+  deferral landed by [ADR-0302](../docs/adr/0302-encoder-vocab-v3-schema-expansion.md)
+  (PR #401). New trainer
+  [`ai/scripts/train_fr_regressor_v3.py`](../ai/scripts/train_fr_regressor_v3.py)
+  reuses the LOSO recipe from
+  [ADR-0319](../docs/adr/0319-ensemble-loso-trainer-real-impl.md) —
+  9-fold leave-one-source-out over the Phase A canonical-6 corpus,
+  fold-local StandardScaler, `FRRegressor(in_features=6,
+  num_codecs=18)`, Adam(lr=5e-4, wd=1e-5), MSE, 200 epochs, bs=32 —
+  on the NVENC-only Phase A corpus (5,640 rows). **Gate PASS:** mean
+  LOSO PLCC = **0.9975 ± 0.0018**, every source above 0.99 — clears
+  the ADR-0302 / [ADR-0291](../docs/adr/0291-fr-regressor-v2-prod-ship.md)
+  0.95 floor with ~5pp margin. New artefacts:
+  `model/tiny/fr_regressor_v3.onnx` (opset 17, two-input
+  `features:[N,6]` + `codec_block:[N,18]` → `vmaf:[N]`),
+  `model/tiny/fr_regressor_v3.json` (sidecar mirrors
+  `fr_regressor_v2.json` with `encoder_vocab_version: 3`, full
+  per-fold trace, `corpus` + `corpus_sha256`), registry row
+  `fr_regressor_v3` (`smoke: false`), tests
+  `ai/tests/test_train_fr_regressor_v3.py`, model card
+  [`docs/ai/models/fr_regressor_v3.md`](../docs/ai/models/fr_regressor_v3.md).
+  Live `ENCODER_VOCAB_VERSION = 2` in `train_fr_regressor_v2.py`
+  **stays authoritative for `fr_regressor_v2.onnx`** — v3 ships as a
+  parallel checkpoint; v2 → v3 in-place promotion is a separate PR
+  per ADR-0302's production-flip checklist. NVENC-only corpus caveat
+  documented honestly in the model card: 15 of 16 vocab slots
+  receive zero training rows;
+  [ADR-0235](../docs/adr/0235-codec-aware-fr-regressor.md)
+  multi-codec lift floor (≥+0.005 PLCC) is not yet measurable on
+  this corpus drop and is deferred to a multi-codec retrain.
+
+
+- **`vmaf-tune corpus --auto-hdr / --force-sdr / --force-hdr-pq /
+  --force-hdr-hlg` CLI flags
+  ([ADR-0300](../docs/adr/0300-vmaf-tune-hdr-aware.md)).** Surfaces
+  the HDR-mode plumbing on the corpus subparser; threads the choice
+  through to `CorpusOptions.hdr_mode` so downstream rows can be
+  tagged. The actual `iter_rows` integration (per-source ffprobe
+  detection + codec-arg injection + HDR-VMAF model selection) lands
+  in a follow-up PR — `hdr.py` already exposes `detect_hdr`,
+  `hdr_codec_args`, and `select_hdr_vmaf_model` from the earlier
+  Bucket #9 module merge.
+
+
 - **`scripts/dev/hw_encoder_corpus.py`** — Phase A real-corpus runner.
   Encodes a raw YUV with NVENC / QSV / VAAPI / libx264 at a CRF/CQ
   grid, decodes back to raw YUV, scores with libvmaf (CUDA backend),
@@ -3630,6 +3667,17 @@
   `runs/phase_a/` (gitignored); rerun the script to reproduce. New
   fork-internal doc `docs/development/intel-arc-vaapi-driver-priority.md`
   captures the `LIBVA_DRIVER_NAME=iHD` gotcha for multi-card hosts.
+
+
+- **`vmaf-tune ladder` CLI subcommand
+  ([ADR-0295](../docs/adr/0295-vmaf-tune-phase-e-bitrate-ladder.md)).**
+  Surfaces the existing Phase E per-title bitrate ladder pipeline
+  ([`ladder.py`](../tools/vmaf-tune/src/vmaftune/ladder.py)) as a
+  runnable subcommand. Sweeps `(resolution × target-VMAF)`, builds the
+  convex hull, picks K knees by `--spacing` (`log_bitrate` /
+  `uniform`), emits an HLS / DASH / JSON master manifest. The ladder
+  module shipped earlier (with [Research-0068](../docs/research/0068-vmaf-tune-phase-e-bitrate-ladder.md));
+  this entry just exposes it on the CLI.
 
 
 - **`ffmpeg-patches/0007` libaom-av1 ROI bridge — full impl**:
@@ -3658,6 +3706,31 @@
   driving libaom through its lower-level rate-control plumbing
   (use `vmaf-tune corpus` instead). Retires the libaom-av1
   deferral noted in ADR-0312; no new ADR.
+
+
+- **Pre-push PR-body deliverables validator.** New
+  `scripts/ci/validate-pr-body.sh` standalone CLI and
+  `scripts/git-hooks/pre-push` git hook (installed by
+  `make hooks-install`) run the same ADR-0108 deep-dive-checklist
+  parser as `.github/workflows/rule-enforcement.yml` against the
+  branch's open PR body before pushing. Closes the loop on the
+  multi-retry feedback cycle the strict parser caused on PRs #461,
+  #438, #470, #473, #486, #511, #468, and #526. Bypass via
+  `git push --no-verify`. See `docs/development/pr-body-validator.md`.
+
+
+- **`vmaf-tune recommend-saliency` CLI subcommand
+  ([ADR-0287](../docs/adr/0287-vmaf-tune-saliency-aware-encoding.md)).**
+  Surfaces the existing saliency-aware encode pipeline (Bucket #2)
+  as a runnable subcommand. Builds an `EncodeRequest` from the
+  flag set, delegates to
+  [`saliency.saliency_aware_encode`](../tools/vmaf-tune/src/vmaftune/saliency.py),
+  emits a JSON summary (encoder + version + crf + size + exit
+  status). Distinct from `recommend` (master's coarse-to-fine
+  target-VMAF search) — saliency is a single-encode workflow
+  that biases bits toward salient regions. Falls back to a plain
+  encode when onnxruntime / the model is unavailable so the
+  caller always gets a result.
 
 
 - **Research-0061: docs-only PR CI fast-track design.** Tracks the
@@ -3737,6 +3810,21 @@
   noted in ADR-0312; no new ADR.
 
 
+- **`vmaf-tune tune-per-shot` CLI subcommand
+  ([ADR-0276](../docs/adr/0276-vmaf-tune-phase-d.md)).**
+  Wires the Phase-D per-shot tuner into the `vmaf-tune` CLI. The
+  underlying [`per_shot.py`](../tools/vmaf-tune/src/vmaftune/per_shot.py)
+  module landed earlier; this entry just exposes it as a runnable
+  subcommand: detects shots via `vmaf-perShot` (TransNet V2 weights)
+  with a single-shot fallback, drives a target-VMAF predicate per
+  shot, and emits a JSON encoding plan + optional copy-paste shell
+  script. Plus an `import json` fix for `_run_predict` that was
+  silently broken on master, and an adapter-aware quality-range
+  test (replaces the literal `[15, 40]` window so the test tracks
+  whatever the libx264 adapter declares — currently `(0, 51)` per
+  ADR-0306).
+
+
 - **`vf_libvmaf_tune` filter full scoring (ADR-0312 sub-decision retired).**
   `ffmpeg-patches/0008-add-libvmaf_tune-filter.patch` graduates from the
   scaffold pass-through state to a real in-process VMAF scorer: per-frame
@@ -3793,20 +3881,17 @@
   pipeline end-to-end without ffmpeg, ONNX Runtime, or a GPU.
 
 
-- **vmaf-tune `--score-backend=vulkan`** — vendor-neutral GPU
-  scoring path on top of libvmaf's existing Vulkan backend
-  (ADR-0127 / ADR-0175 / ADR-0186). Restores the `--score-backend`
-  argparse wiring that was lost between PR #378 and HEAD (post-#378
-  rebases dropped the `cli.py` hunks) and admits `vulkan` as a
-  fourth strict-mode value alongside `cpu` / `cuda` / `sycl`. Runs
-  on Mesa anv/RADV/lavapipe (Linux), the proprietary NVIDIA driver,
-  and macOS via MoltenVK — the obvious answer for AMD, Intel Arc,
-  and any contributor box without `nvidia-smi`. `auto` mode still
-  walks `cuda → vulkan → sycl → cpu`, so existing NVIDIA
-  configurations see no behaviour change. Strict-mode failures
-  (e.g. `--score-backend vulkan` on a host without a Vulkan loader)
-  raise `BackendUnavailableError` and exit 2 — no silent CPU
-  downgrade. ADR-0314.
+- **`vmaf-tune --score-backend=vulkan` — vendor-neutral GPU scoring
+  ([ADR-0314](../docs/adr/0314-vmaf-tune-score-backend-vulkan.md)).**
+  Adds `vulkan` as a `--score-backend` choice (alongside `cuda` /
+  `sycl` / `cpu`) so AMD, Intel Arc, and Apple-MoltenVK hosts can run
+  GPU-accelerated VMAF scoring without the NVIDIA-only CUDA path. The
+  auto-detection chain becomes `cuda > vulkan > sycl > cpu`; existing
+  NVIDIA boxes see no behaviour change. Strict-mode failures stay
+  strict per ADR-0299 — no silent CPU downgrade. The CLI flag, the
+  detection plumbing in `score_backend.py`, and the libvmaf Vulkan
+  backend (ADR-0127 / 0175 / 0186) all shipped earlier; this entry
+  captures the operator-facing flip.
 
 
 ### Changed
@@ -3991,23 +4076,6 @@
   `docs/ai/models/fastdvdnet_pre.md`.
 
 
-- **AI / DNN:** Replaced the `fastdvdnet_pre` smoke-only placeholder
-  ONNX with real upstream FastDVDnet weights (Tassano, Delon, Veit
-  2020; MIT license) pinned at `m-tassano/fastdvdnet` commit `c8fdf61`.
-  The new graph wraps upstream's RGB+noise-map model in a `LumaAdapter`
-  that preserves the C-side `[1, 5, H, W]` luma I/O contract from
-  ADR-0215: `Y → [Y, Y, Y]` tiling for the upstream 15-channel input,
-  a constant `sigma = 25/255` noise map, and BT.601 RGB→Y collapse on
-  the output. Upstream `nn.PixelShuffle` is swapped at export time for
-  an allowlist-safe `Reshape`/`Transpose`/`Reshape` decomposition
-  (`DepthToSpace` is deliberately not on the ONNX op allowlist).
-  Registry row `model/tiny/registry.json` flips `smoke: false` with
-  the new MIT license, upstream commit pin, and refreshed sha256.
-  9.5 MiB ONNX, opset 17. New exporter
-  `ai/scripts/export_fastdvdnet_pre.py`. See ADR-0253 and
-  `docs/ai/models/fastdvdnet_pre.md`.
-
-
 - **CHANGELOG + ADR-index fragment files (T7-39 / ADR-0221)** — every PR
   in flight before this change fought merge conflicts in
   [`CHANGELOG.md`](CHANGELOG.md) and
@@ -4085,6 +4153,54 @@
   projection).
 
 
+- **docs**: ADR-0312 (ffmpeg-patches vmaf-tune integration) status flipped
+  from `Proposed` to `Accepted` — patch 0007's two scaffold hunks
+  (SVT-AV1, libaom-av1) have been retired via PRs #417 + #419
+  respectively. ADR body updated to reflect the current state across all
+  three encoders. Patches 0008/0009 stay scaffold by design (filter +
+  CLI glue), now explicitly documented as not-deferred.
+
+
+- **docs**: bulk-flip ADR Status `Proposed` → `Accepted` for 13 ADRs whose
+  implementing PRs landed during the 2026-05-06 merge train (ADRs 0302
+  / 0303 / 0304 / 0305 / 0307 / 0308 / 0309 / 0311 / 0313 / 0314 / 0316
+  / 0317 / 0319). Per ADR-0028 / `docs/adr/README.md`, ADRs flip to
+  Accepted once the deliverable lands; the train moved faster than the
+  per-ADR Status bumps could keep up. ADR-0313's Status row was using
+  table-format (`| Status | Proposed |`) instead of the bullet-format
+  (`- **Status**: Proposed`) the other ADRs use, so the bulk sed missed
+  it; fixed inline.
+
+
+- **docs**: ADR `Proposed` → final-status sweep covering the 26 ADRs
+  whose front-matter still carried `**Status**: Proposed` at HEAD on
+  2026-05-08 (deliberate exclusion: ADR-0325, contested by in-flight
+  PRs and scoped to the merge-train renumber sweep). Companion to
+  `changelog.d/changed/adr-bulk-status-flip-2026-05-06.md` which
+  flipped the prior 13. **Accepted**: ADR-0125 / 0126 / 0127 / 0129
+  / 0138 / 0139 / 0140 / 0207 / 0208 / 0235 / 0238 / 0239 / 0251 /
+  0253 / 0270 / 0272 / 0276 / 0279 / 0295 / 0314 (also resolves the
+  unresolved Git conflict markers around its Status line that a
+  rebase reintroduced after the 2026-05-06 sweep) / 0315 / 0324.
+  **Stay Proposed** (work in flight, gap documented in the appendix):
+  ADR-0128 (MCP runtime is `-ENOSYS` stub awaiting T5-2b; ADR-0209
+  audit-first scaffold is Accepted but the transports remain unwired)
+  and ADR-0236 (DISTS extractor — T7-DISTS not started). Per
+  ADR-0028 / ADR-0106 immutability rule, each ADR's original body is
+  unchanged; status flips land as a `### Status update 2026-05-08`
+  appendix that records the verification trail. Companion research
+  digest: `docs/research/0086-adr-proposed-status-sweep-2026-05-08.md`.
+
+
+- **CI:** `actions/cache` now persists `~/.ccache` for every Linux + macOS
+  build leg in `libvmaf-build-matrix.yml` (previously only the MinGW64 leg
+  cached its `.ccache`). After warm-up, ccache hit rate of 60–85% is expected
+  per Research-0089 §3.1, dropping the critical-path build wall-clock by
+  ~3–5 min/cell (~4 min PR-end-to-end, ~50 runner-min/PR). No coverage
+  change — `ccache -s` is logged after every build so the warm-up curve is
+  visible in CI. See `docs/research/0089-ci-cost-optimization-audit-2026-05-09.md`.
+
+
 - **NVIDIA-Vulkan ciede2000 places=4 5/48 mismatch root-caused as f32/f64 fork debt (ADR-0273)** —
   closes the deferred follow-up reserved by PR #346 ("vif + ciede
   shaders — precise decorations") for the residual 5/48
@@ -4158,6 +4274,25 @@
   follow-up PRs; this PR is documentation + ADR only.
 
 
+- **ai-tools**: ensemble-training-kit (ADR-0324) extended for
+  multi-platform support — NVIDIA CUDA, Intel Arc / iGPU SYCL, Vulkan
+  / CPU fallback, and macOS (Apple Silicon + Intel) with VideoToolbox.
+  New `_platform_detect.sh` helper auto-defaults the encoder list per
+  host: `*_nvenc` on NVIDIA, `*_qsv` on Intel iHD, `*_videotoolbox`
+  on Darwin, `libx264` CPU baseline elsewhere. `01-prereqs.sh` skips
+  NVIDIA gates on non-CUDA platforms; `02-generate-corpus.sh` and
+  `run-full-pipeline.sh` honour the auto-default unless `--encoders`
+  is overridden. New `build-libvmaf-binaries.sh` lets each operator
+  build a libvmaf binary for their box and rsync it into
+  `binaries/<platform>/`; binaries themselves are not in source
+  control. `scripts/dev/hw_encoder_corpus.py` now encodes via
+  `{h264,hevc}_videotoolbox` using the canonical
+  `_videotoolbox_common.py` adapter's argv shape. New
+  `tests/test_platform_detect.sh` covers the eight detection
+  branches. Per-box corpus shards merge via
+  `ai/scripts/merge_corpora.py` for the cross-platform LOSO retrain.
+
+
 - **ffmpeg-patches replay against pristine `n8.1` — 2026-05-04
   (ADR-0277).** Periodic verification of the six-patch FFmpeg
   integration stack under
@@ -4229,6 +4364,56 @@
   [Research-0067](docs/research/0067-fr-regressor-v2-prod-loso.md).
 
 
+- **docs**: Research-0085 (vendor-neutral VVC encode landscape) flipped
+  from `Status: SKELETON` to `Status: Active`. Re-ran every open
+  question against primary sources: NVIDIA Video Codec SDK 13.0 docs,
+  AMD AMF SDK GitHub (latest v1.5.0, 2025-10-29), Intel oneVPL GitHub
+  (`mfxstructures.h` + `CHANGELOG.md` 2.16.0), Khronos registry,
+  Phoronix coverage of Mesa 25.2 RADV AV1 encode, Fraunhofer HHI VVenC
+  issue tracker, ZLUDA repository. `[UNVERIFIED]` tag count in the
+  digest dropped from 25 to 10 — remaining items are legitimate gaps
+  requiring benchmarks (NN-VC quality lift, vvenc per-kernel CPU-time
+  distribution) or proprietary roadmap access (HHI's GPU-port plans).
+  ADR-0315 `## Context` and `## Alternatives considered` refreshed
+  with the verified data points; ADR status stays `Proposed`.
+
+
+- **ci**: skip workflows on draft pull requests across all 8 fork
+  workflows (`docker-image.yml`, `security-scans.yml`,
+  `lint-and-format.yml`, `required-aggregator.yml`,
+  `ffmpeg-integration.yml`, `libvmaf-build-matrix.yml`,
+  `rule-enforcement.yml`, `tests-and-quality-gates.yml`). Each
+  `pull_request` trigger now lists
+  `types: [opened, synchronize, reopened, ready_for_review]` and every
+  top-level job is gated on
+  `github.event.pull_request.draft == false`. Push-to-master
+  triggers are unchanged. Promotion of a draft PR via
+  `ready_for_review` fires the full matrix; subsequent
+  `synchronize` events on the now-ready PR fire CI as before. Cuts
+  CI spend roughly in half against the fork's typical
+  10+-draft-PR work-in-progress queue. See ADR-0331.
+
+
+- **Stale-marker sweep 2026-05-08 — full-tree audit
+  ([Research-0086](docs/research/0086-stale-marker-sweep-2026-05-08.md))** —
+  classified every `@pytest.mark.skip` / `@unittest.skip` / `pytest.skip` /
+  `_*_DEFERRED` / `raise NotImplementedError` / `// TODO|FIXME|XXX` /
+  `return -ENOSYS` / `#error "unimplemented"` marker in fork-touched paths
+  (`tools/`, `python/vmaf/`, `ai/`, `mcp-server/`, `libvmaf/src/`,
+  `libvmaf/test/`). Outcome: ~95 markers DEFERRED-VALID with documented
+  reopen triggers (HIP T7-10b scaffolds per ADR-0212/ADR-0274, MCP T5-2b
+  scaffold per ADR-0209, `vmaf-tune fast` production wiring per
+  ADR-0276 / PR #467, `vmaf-roi-score` T6-2c per ADR-0288, environment-
+  gate test skips, abstract-base-method `NotImplementedError` patterns).
+  One marker — `_HDR_ITER_ROWS_DEFERRED` in
+  `tools/vmaf-tune/tests/test_hdr.py` — was missing a cross-link to its
+  follow-up PR (#466 HP-2) and to `docs/state.md`; this PR adds both and
+  opens a `T-HDR-ITER-ROWS` row under "Deferred" so the un-skip rides
+  with the wiring PR. Zero TODO/FIXME/XXX comments remain in fork-added
+  Python (`tools/`, `ai/`, `mcp-server/`); the seven survivors are all in
+  upstream-mirrored files, untouched by policy.
+
+
 - **`docs/state.md`**: audit cleanup (2026-05-05). Moved `Y4M-411-OOB`
   heap-buffer-overflow row from Open to Recently closed (PR #357 /
   commit `05ba29a6` landed the guard fix on 2026-05-04); removed the
@@ -4239,6 +4424,36 @@
   in Recently closed whose merged-commit twins lived directly below
   them. Bumped header date to 2026-05-05. No semantic state changes —
   every closed bug stayed closed; every open bug stayed open.
+
+
+- `docs/state.md` audit + backfill 2026-05-08
+  ([Research-0086](docs/research/0086-state-md-audit-2026-05-08.md)).
+  Bumped header date (2026-05-06 → 2026-05-08). Backfilled four
+  missing closure rows for bug-fix PRs that did not touch
+  `docs/state.md` in the same PR (against CLAUDE.md §12 r13 /
+  ADR-0165): PR #391 (CUDA `integer_motion_cuda` last-frame
+  duplicate-write warning + `context could not be synchronized`
+  regression introduced by PR #312's fence batching), PR #389
+  (`vmaf-tune` Phase A corpus pipeline emitted `vmaf_score=NaN` on
+  every encoded clip — `run_score` handed `.mp4` directly to
+  libvmaf CLI), PR #390 (CUDA build broken on dev hosts with gcc
+  16.x — `nvcc --std c++20` for libstdc++ char8_t support), PR
+  #234 (FFmpeg `vf_libvmaf` build break under `VK_NO_PROTOTYPES`
+  against `release/8.1`). Audit also fixed three stale rows in
+  the "Deferred (waiting on external trigger)" section: removed
+  the duplicate Netflix#955 entry (older row preserved the newer
+  2026-05-03 last-checked stamp), removed the stray `|---|---|---|---|`
+  Markdown table separator that was breaking the table layout
+  mid-section, and removed the duplicate **T-VK-1.4-BUMP** row
+  that conflicted with the canonical Open-bugs row at the top of
+  the file (PR #346 promoted the item from Deferred to Open-with-
+  partial-fix; the Deferred clone was never deleted). Two cases
+  flagged for maintainer disposition rather than guessed: the
+  Tiny-AI C1 baseline T6-1a "TRIGGERED 2026-04-29" row whose
+  closure section depends on whether the baseline has actually
+  trained, and the convention-question whether pure upstream-port
+  PRs (#301, #302, #303, #315) belong in `docs/state.md` at all.
+  Per ADR-0165 / CLAUDE.md §12 r13.
 
 
 - `docs/state.md` refresh 2026-05-03. Bumped header date
@@ -4258,6 +4473,41 @@
   deferred-row last-checked stamp (Netflix#1494 still `state=OPEN`
   per gh API). No row removed below its closure threshold; "Update
   protocol" section untouched. Per ADR-0165 / CLAUDE.md §12 r13.
+
+
+- `docs/state.md` staleness sweep 2026-05-08. Bumped header date
+  (2026-05-06 → 2026-05-08). Closed three rows that this session
+  discovered were already shipped but `docs/state.md` never tracked
+  the closure (CLAUDE.md §12 r13 reviewer-enforced rule, no CI gate
+  yet — separate backlog row): (a) **T6-1 / Tiny-AI C1 baseline**
+  `fr_regressor_v1.onnx` shipped via PR #249 (`f809ce09`,
+  2026-05-02) with [ADR-0249](docs/adr/0249-fr-regressor-v1.md) +
+  `docs/ai/models/fr_regressor_v1.md` already on master — moved
+  from "Deferred (waiting on external dataset access)" to
+  "Recently closed"; (b) **T6-2a-followup' / saliency replacement**
+  delivered via path C (`saliency_student_v1`, ~113 K params
+  trained from scratch on DUTS-TR, IoU 0.6558) shipped in PR #359
+  (2026-05-05, [ADR-0286](docs/adr/0286-saliency-student-fork-trained-on-duts.md))
+  — moved from "Deferred" to "Recently closed" with a note that
+  path A (op-allowlist `Resize` decision) closed by
+  [ADR-0258](docs/adr/0258-onnx-allowlist-resize.md) (Accepted
+  2026-05-03, opted against per-attribute enforcement aligning
+  with [ADR-0169](docs/adr/0169-wire-scanner-scope.md) wire-scanner-scope
+  rule) and path B (u2netp upstream-mirror via fork release artefact)
+  is in flight as PR #469. Added one new follow-up row in
+  "Open bugs": **T-VK-VIF-1.4-RESIDUAL** tracking the
+  `integer_vif_scale2` 45/48-frame `places=4` mismatch on
+  NVIDIA-Vulkan that survives PR #346's Step A `precise`
+  decorations — bisect needed to determine if the gap is the
+  same f32-vs-f64 colour-chain class as T-VK-CIEDE-F32-F64 or a
+  different contraction surface.
+  Companion appendix lands on
+  [ADR-0265](docs/adr/0265-u2netp-saliency-replacement-blocked.md)
+  `### Status update 2026-05-08` (paths A + C closed; path B
+  in flight at #469); ADR body unchanged per
+  [ADR-0028](docs/adr/0028-adr-maintenance-rule.md) immutability
+  rule. Coordinates with PR #455 (state.md audit-backfill, also
+  draft); whichever lands first, the other rebases.
 
 
 - **`vif.comp` + `ciede.comp` shaders — `precise` decorations on the
@@ -4460,6 +4710,70 @@
   Documented in
   [ADR-0262](docs/adr/0262-bisect-cache-logical-comparison.md);
   relaxes ADR-0109 §Decision (parquet only).
+
+
+- **`vmaf --feature ssim` could not resolve.** The fixed-point SSIM
+  extractor `vmaf_fex_ssim` was defined in
+  `libvmaf/src/feature/integer_ssim.c` but the source file was not
+  listed in `libvmaf/src/meson.build`, and the symbol was not
+  declared `extern` or referenced in `feature_extractor.c`'s
+  `feature_extractor_list[]`. The result: `vmaf_get_feature_extractor_by_name("ssim")`
+  returned `NULL` and `--feature ssim` silently produced no `ssim`
+  metric block. Documented as a shipped feature in
+  `docs/metrics/features.md` and reachable through the public CLI
+  surface, so this was a user-discoverable hole, not an
+  implementation detail. Surfaced by the partial-integration audit
+  in `docs/research/0091-partial-integration-audit-2026-05-08.md`
+  (PR #454). Fix wires `integer_ssim.c` into the build, adds the
+  `extern` declaration + `&vmaf_fex_ssim` registry row in
+  `feature_extractor.c`, and includes `config.h` in
+  `integer_ssim.c` so the `VmafFeatureExtractor` struct layout
+  agrees across translation units (the conditional `HAVE_CUDA` /
+  `HAVE_SYCL` / `HAVE_VULKAN` members were previously visible to
+  only one of the two TUs, tripping `-Wlto-type-mismatch` on
+  Vulkan-enabled LTO links). New regression test
+  `test_ssim_extractor_registered_and_extracts` in
+  `libvmaf/test/test_feature_extractor.c` asserts both that the
+  extractor resolves by name and that it appends a `ssim` score to
+  the feature collector. The `docs/metrics/features.md` table row
+  + footnote ² were also corrected — they previously claimed a
+  Vulkan twin via T7-24, but the only Vulkan SSIM kernel
+  (`libvmaf/src/feature/vulkan/ssim_vulkan.c`) defines
+  `vmaf_fex_float_ssim_vulkan`, not a fixed-point twin.
+
+
+- **Vulkan `integer_vif` shader memory-model race in cross-subgroup
+  int64 reduction.** `libvmaf/src/feature/vulkan/shaders/vif.comp`
+  used bare `barrier()` calls between the cooperative shared-memory
+  writes (Phase-1 tile load, Phase-2 vertical convolution, Phase-4
+  cross-subgroup `s_lmem` accumulator) and the corresponding reads
+  in the next phase. At the default Vulkan 1.3 `apiVersion` the gate
+  is 0/48 at `places=4` on all backends shipped today; at the
+  in-flight Vulkan 1.4 bump (T-VK-1.4-BUMP / Step B) NVIDIA's
+  stricter default memory model surfaces a real race in the Phase-4
+  reduction — `(num_scale2, den_scale2)` come back with
+  non-deterministic 10¹¹× magnitudes + sign flips, the score
+  collapses to 1.0 via the host `den <= 0` fallback, and the
+  cross-backend gate fails 45/48 frames on `integer_vif_scale2`.
+  Fix: replace each bare `barrier()` with the explicit
+  `memoryBarrierShared(); barrier();` pair, which expands to SPIR-V
+  `OpControlBarrier` with
+  `gl_StorageSemanticsShared | gl_SemanticsAcquireRelease`
+  shared-memory release-acquire semantics. Applied uniformly to all
+  SCALE values (the structural race lives in the code shared by all
+  four pipeline specialisations; SCALE = 2 is just the smallest
+  workgroup count where the hardware schedule made the bug
+  observable). Verified on real hardware (NVIDIA RTX 4090 + driver
+  595.71.05 + Vulkan instance loader 1.4.341 + local API-1.4 bump):
+  `places=4` gate 0/48 across all 4 scales, 5-run deterministic
+  scale-2 `(num, den) = (+2.494358e+04, +2.522523e+04)` matching the
+  CPU reference. RADV (Mesa 26.1.0) was already clean and stays
+  clean. Intel Arc A380 (Mesa-ANV / DG2) at API 1.4 still exhibits
+  the same residual signature (`T-VK-VIF-1.4-RESIDUAL-ARC` Open) —
+  Phase-3b will explore stronger fences. Netflix golden gate
+  unaffected (Vulkan code path is independent of the 3 CPU
+  goldens). See research-0089 2026-05-09 status appendix for the
+  empirical numbers and the corrected device-map attribution.
 
 
 - **`vmaf-tune corpus` score path now decodes container → raw YUV
