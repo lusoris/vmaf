@@ -30,6 +30,14 @@
 
 ### Changed
 
+- **`--feature float_adm` ("problem loading feature extractor") fixed.**
+  `enable_float` defaulted to `false`, so `float_adm` and the other
+  float extractors were omitted from the registry at runtime; the CLI
+  printed "problem loading feature extractor: float_adm" and exited.
+  Changed the default to `true` so the float extractors are always
+  compiled in. Use `-Denable_float=false` to opt out on
+  size-constrained targets.
+
 
 
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
