@@ -4,7 +4,7 @@ This is an overview of the available documentation in the VMAF repository.
 
 ## Getting started
 
-- [Installation](getting-started/install/) – per-OS install scripts (Ubuntu, Fedora, Arch, Alpine, macOS, Windows)
+- [Installation](getting-started/install/ubuntu.md) – per-OS install scripts (Ubuntu, Fedora, Arch, Alpine, macOS, Windows)
 - [Building on Windows](getting-started/building-on-windows.md) – build VMAF from source on Windows (upstream guide)
 
 ## Usage
@@ -42,7 +42,7 @@ This is an overview of the available documentation in the VMAF repository.
 
 ## Backends
 
-GPU / SIMD backend notes under [backends/](backends/):
+GPU / SIMD backend notes under [backends/](backends/index.md):
 
 - [x86 SIMD (AVX2 / AVX-512)](backends/x86/avx512.md)
 - [CUDA](backends/cuda/overview.md) + [NVTX profiling](backends/nvtx/profiling.md)
@@ -52,7 +52,7 @@ GPU / SIMD backend notes under [backends/](backends/):
 
 - [Repository layout](architecture/index.md) – what lives where + decision tree
 - [Python-harness workspace](architecture/workspace.md) – the moved `workspace/` tree
-- [ADR log](adr/) – every non-trivial architectural / policy decision + rationale
+- [ADR log](adr/README.md) – every non-trivial architectural / policy decision + rationale
 
 ## MCP
 
@@ -61,7 +61,7 @@ GPU / SIMD backend notes under [backends/](backends/):
 
 ## Tiny-AI
 
-- [Tiny-AI docs](ai/) – overview, training, inference, benchmarks, security
+- [Tiny-AI docs](ai/index.md) – overview, training, inference, benchmarks, security
 - [Tiny-AI roadmap](ai/roadmap.md) – Wave 1 scope expansion (LPIPS, saliency, per-shot CRF, `vmaf_post`, allowlist `Loop`/`If`, MCP VLM tool)
 
 ## Development
@@ -75,4 +75,5 @@ GPU / SIMD backend notes under [backends/](backends/):
 
 - [FAQ](reference/faq.md)
 - [References](reference/references.md) – a list of links and papers
-- [Papers](reference/papers/) and [Presentations](reference/presentations/)
+- [Papers](https://github.com/lusoris/vmaf/tree/master/docs/reference/papers)
+  and [Presentations](https://github.com/lusoris/vmaf/tree/master/docs/reference/presentations)

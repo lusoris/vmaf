@@ -25570,7 +25570,7 @@ inline.*
 - **Upstream source**: fork-local. Netflix/vmaf has no tiny-AI training
   harness or MCP server.
 - **Touches**:
-  - [`ai/`](../ai/) — training harness; `NflxLocalDataset` loader reads
+  - [`ai/`](https://github.com/lusoris/vmaf/tree/master/ai) — training harness; `NflxLocalDataset` loader reads
     from `--data-root` (never from a hardcoded path).
   - [`docs/ai/training-data.md`](ai/training-data.md) — corpus path
     convention and loader API docs; purely additive.
@@ -26519,13 +26519,13 @@ inline.*
 - **Upstream source**: fork-local. Netflix/vmaf has no equivalent
   training surface.
 - **Touches**:
-  - [`ai/data/`](../ai/data/) — Netflix loader, libvmaf-CLI feature
+  - [`ai/data/`](https://github.com/lusoris/vmaf/tree/master/ai/data) — Netflix loader, libvmaf-CLI feature
     extractor, distillation scoring.
-  - [`ai/train/`](../ai/train/) — PyTorch dataset, eval harness,
+  - [`ai/train/`](https://github.com/lusoris/vmaf/tree/master/ai/train) — PyTorch dataset, eval harness,
     Lightning-style training entry point.
-  - [`ai/scripts/run_training.sh`](../ai/scripts/run_training.sh) —
+  - [`ai/scripts/run_training.sh`](https://github.com/lusoris/vmaf/blob/master/ai/scripts/run_training.sh) —
     convenience wrapper.
-  - [`ai/tests/`](../ai/tests/) — five new pytest modules
+  - [`ai/tests/`](https://github.com/lusoris/vmaf/tree/master/ai/tests) — five new pytest modules
     (`test_netflix_loader.py`, `test_dataset.py`, `test_eval.py`,
     `test_train_smoke.py`, plus `conftest.py`).
   - [`docs/ai/training.md`](ai/training.md) — new "C1 (Netflix
@@ -30081,6 +30081,26 @@ inline.*
 - **On upstream sync**: Netflix/vmaf upstream does not carry these two
   workflow files (they are fork-local additions). No sync conflict
   expected.
+### 0332 — mkdocs `--strict` validation policy (ADR-0332)
+- **Touches**: `mkdocs.yml` (validation block + `exclude_docs:`),
+  `docs/mcp/embedded.md` (one anchor fix), `docs/research/0055-...md`
+  (one anchor fix), `docs/{index,state,rebase-notes}.md` (small
+  bare-relative-dir-link sweep). All fork-local — no upstream-shared
+  paths touched.
+- **Upstream source**: none — Netflix/vmaf upstream uses Sphinx /
+  GitHub-rendered Markdown, not mkdocs. The `mkdocs.yml` config is
+  wholly fork-local.
+- **Invariant**: `mkdocs.yml validation:` must keep
+  `links.{not_found,unrecognized_links}: info` until either
+  (a) ADR-0028 / ADR-0106 are superseded by a less-strict immutability
+  rule that allows refreshing renamed-ADR cross-refs in frozen ADR
+  bodies, or (b) the ~820 cross-tree-pointer links from docs into
+  source-tree files (`../../libvmaf/src/...`,
+  `../../scripts/ci/...`, `../../.github/workflows/...`) are migrated
+  to absolute GitHub URLs or moved into `docs_dir`-resident generated
+  content. Promoting either category to `warn` while those conditions
+  hold turns the docs lane permanently red.
+- **On upstream sync**: no action — the lane is fork-local.
 - **Re-test on rebase**:
 ## HDR VMAF model search — Path C documentation only (2026-05-09)
 - **Files added (this fork only; upstream Netflix/vmaf has none of
@@ -30110,11 +30130,15 @@ inline.*
   release announcement.
 - **Re-test on rebase**: no behavioural change — pure docs. Sanity:
   ```bash
+
   python3 -c "from pathlib import Path; \
     import sys; sys.path.insert(0,'tools/vmaf-tune/src'); \
     from vmaftune.hdr import select_hdr_vmaf_model; \
     print(select_hdr_vmaf_model(Path('model')))"
   # Expect: None  — confirms the .md card does not match the glob
+
+  mkdocs build --strict   # must EXIT=0 with no WARNING lines
+
   ```
 ## ADR-0349 — `fr_regressor_v3` namespace resolution (2026-05-09)
 - **Rebase impact**: none. Docs-only change — adds

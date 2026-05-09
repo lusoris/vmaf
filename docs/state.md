@@ -19,7 +19,7 @@ prevent re-investigation of already-closed bugs across session resets.
 
 - **This file** — bug status only (Open / Recently closed /
   Confirmed not-affected / Deferred).
-- [`docs/adr/`](adr/) — architectural and policy decisions
+- [`docs/adr/`](adr/README.md) — architectural and policy decisions
   (one file per non-trivial choice; immutable once Accepted).
 - [`.workingdir2/BACKLOG.md`](../.workingdir2/BACKLOG.md) — local
   planning dossier (T-numbered backlog items, gitignored).

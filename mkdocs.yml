@@ -9,6 +9,15 @@ copyright: "BSD-3-Clause-Plus-Patent — Netflix / Lusoris"
 docs_dir: docs
 site_dir: build-docs/site
 
+# ADR-0221 fragment files are concatenation source (assembled into
+# `docs/adr/README.md` by `scripts/docs/concat-adr-index.sh`) — they are
+# never rendered as standalone pages, so exclude them from the site build.
+# Same for changelog fragments under `changelog.d/` (which live in repo
+# root, not docs/, but listed here defensively if a future reorg moves
+# them under docs/).
+exclude_docs: |
+  adr/_index_fragments/*
+
 theme:
   name: material
   palette:
@@ -79,9 +88,53 @@ markdown_extensions:
   - footnotes
 
 validation:
+  # Strict gate: `mkdocs build --strict` (run by .github/workflows/docs.yml)
+  # fails on any WARNING. The validation table below decides which
+  # categories are actionable enough to fail the build vs. which stay at
+  # INFO because fixing them is blocked by an existing fork policy.
+  #
+  # Carve-outs and rationale:
+  # - links.not_found: info — Two unfixable populations dominate this class:
+  #   (a) intentional pointers from docs to source-tree files
+  #   (`../../libvmaf/src/...`, `../../scripts/ci/...`,
+  #   `../../.github/workflows/...`) that exist for grep-ability and
+  #   GitHub-rendered navigation but cannot be resolved by mkdocs because
+  #   they sit outside `docs_dir`; (b) cross-references between ADRs whose
+  #   target slug has been renamed (ADR bodies are immutable once Accepted
+  #   per ADR-0028 / ADR-0106, so the broken side cannot be edited). Until
+  #   one of those policies changes, escalating this to `warn` is a
+  #   permanent --strict failure that no PR can clear. Tracked at INFO so
+  #   the log still surfaces them for opportunistic cleanup in `README.md`
+  #   and other non-frozen surfaces.
+  # - links.anchors: warn — actionable; in-doc anchor typos.
+  # - links.unrecognized_links: info — same population shape as not_found:
+  #   the dominant unrecognized form is a relative pointer to a directory
+  #   in the source tree (`../../libvmaf/src/feature/iqa/`,
+  #   `../../tools/vmaf-tune/`, `../../mcp-server/vmaf-mcp/`), kept for
+  #   GitHub-rendered navigation and grep-ability. mkdocs cannot resolve
+  #   them because they sit outside `docs_dir` and lack an `index.md`.
+  #   The non-source-tree subset (bare dir-style links like
+  #   `backends/` -> `backends/index.md`) was swept once on the
+  #   ADR-0221-strict-gate PR; future occurrences are caught at INFO and
+  #   tidied opportunistically.
+  # - nav.omitted_files: warn — catches new orphan pages added to docs/
+  #   without a nav row.
+  # - nav.not_found: warn — catches typos in mkdocs.yml `nav:` entries.
+  nav:
+    # The fork's ADR (260+ files) and research-digest (80+ files) trees
+    # are deliberately not enumerated in `nav:` — they use cross-link
+    # navigation from `docs/adr/README.md` and inbound links from other
+    # pages. Same for many topic-tree pages (e.g., `ai/models/*.md`,
+    # `development/*-bisect-*.md`) that are linked from their parent
+    # index but not listed individually. Promoting this to `warn`
+    # would require either a 350-row nav explosion or routine churn
+    # on the nav whenever a new ADR / digest / model card lands.
+    omitted_files: info
+    not_found: warn
+    absolute_links: info
   links:
     not_found: info
-    anchors: info
+    anchors: warn
     unrecognized_links: info
 
 extra:
