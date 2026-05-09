@@ -117,6 +117,23 @@ for the option-space digest.
   fallback contract for proxy-OOD sources. The `fast` subcommand
   surfaces its smoke vs production mode in the CLI output's
   `notes` field — keep that visibility when extending the loop.
+- **`vmaf-tune fast` CLI exit-code contract is the fall-back
+  signal** (HP-3, ADR-0276 § Status update 2026-05-08). `_run_fast`
+  in `cli.py` exits `0` for an in-tolerance recommendation, `2`
+  for argument errors, and **`3`** for the OOD case where the
+  proxy/verify gap exceeds `--proxy-tolerance`. The `||
+  vmaf-tune recommend ...` fall-back idiom in
+  `docs/usage/vmaf-tune.md` depends on the non-zero exit when
+  the gap exceeds tolerance — do not silently downgrade to `0`
+  or print a warning instead. The CLI is the **only** seam that
+  injects `sample_extractor` (canonical-6 from probe encode +
+  libvmaf JSON parse) and `encode_runner` (verify pass) into
+  `fast.fast_recommend`; downstream callers that need to re-use
+  the wiring import `_build_fast_sample_extractor` /
+  `_build_fast_encode_runner` rather than re-implementing them.
+  Output schema is the same JSON shape `recommend` and `predict`
+  emit (single source of truth) plus the fast-path-specific
+  `verify_vmaf` / `proxy_verify_gap` / `score_backend` fields.
 - **Optuna is an optional runtime dep.** Importing it at module
   scope outside `src/vmaftune/fast.py` (or its tests) is a bug —
   the core install path stays zero-dep so corpus generation works

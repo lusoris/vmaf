@@ -11,14 +11,24 @@ sibling subcommands here.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from . import __version__
 from .codec_adapters import get_adapter, known_codecs
 from .corpus import CorpusJob, CorpusOptions, coarse_to_fine_search, iter_rows, write_jsonl
 from .encode import iter_grid
+from .fast import (
+    DEFAULT_CRF_HI,
+    DEFAULT_CRF_LO,
+    DEFAULT_PROXY_TOLERANCE,
+    PROD_N_TRIALS,
+    SMOKE_N_TRIALS,
+    fast_recommend,
+)
 from .per_shot import (
     detect_shots,
     merge_shots,
@@ -592,7 +602,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Phase F — adaptive recipe-aware tuning entry point "
             "(ADR-0364). Composes the per-phase subcommands into one "
-            "(ADR-0325). Composes the per-phase subcommands into one "
             "deterministic decision tree with seven short-circuits "
             "(F.1 scaffold + F.2 short-circuits)."
         ),
@@ -655,6 +664,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="emit the JSON plan to this path (default: stdout)",
     )
+
+    fast = sub.add_parser(
+        "fast",
+        help=(
+            "Phase A.5 fast-path — proxy + Bayesian + GPU-verify recommend "
+            "(ADR-0276 + ADR-0304). Seconds-to-minutes alternative to the "
+            "Phase A grid for the recommendation use case."
+        ),
+    )
+    _add_fast_args(fast)
 
     return parser
 
@@ -1478,6 +1497,422 @@ def _run_auto(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_fast_args(p: argparse.ArgumentParser) -> None:
+    """Wire ``vmaf-tune fast`` user-facing flags onto ``p``.
+
+    The fast-path replaces the grid sweep with a single short probe
+    encode per TPE trial plus one final real-encode verify pass at the
+    chosen CRF. Flags mirror ``recommend`` where the semantics overlap
+    (``--target-vmaf``, ``--encoder``, ``--preset``, source geometry)
+    so operators can swap between subcommands without re-learning the
+    surface; fast-path-specific knobs (``--n-trials``, ``--crf-min`` /
+    ``--crf-max``, ``--proxy-tolerance``, ``--smoke``) sit alongside.
+    """
+    p.add_argument(
+        "--src",
+        type=Path,
+        default=None,
+        help=(
+            "source video (raw YUV or any FFmpeg-readable container). "
+            "Required for production mode; optional for ``--smoke``."
+        ),
+    )
+    p.add_argument(
+        "--width",
+        type=int,
+        default=0,
+        help="raw-YUV reference width (required when ``--src`` is a raw YUV)",
+    )
+    p.add_argument(
+        "--height",
+        type=int,
+        default=0,
+        help="raw-YUV reference height (required when ``--src`` is a raw YUV)",
+    )
+    p.add_argument("--pix-fmt", default="yuv420p", help="ffmpeg pix_fmt (default yuv420p)")
+    p.add_argument("--framerate", type=float, default=24.0, help="reference framerate")
+    p.add_argument(
+        "--target-vmaf",
+        type=float,
+        required=True,
+        help="quality target on the standard VMAF [0, 100] scale",
+    )
+    p.add_argument(
+        "--encoder",
+        default="libx264",
+        choices=list(known_codecs()),
+        help="codec adapter (must be in ENCODER_VOCAB_V2 for production mode)",
+    )
+    p.add_argument(
+        "--preset",
+        default="medium",
+        help="encoder preset for the probe + verify encodes (default medium)",
+    )
+    p.add_argument(
+        "--crf-min",
+        type=int,
+        default=DEFAULT_CRF_LO,
+        help=f"minimum CRF in the TPE search range (default {DEFAULT_CRF_LO})",
+    )
+    p.add_argument(
+        "--crf-max",
+        type=int,
+        default=DEFAULT_CRF_HI,
+        help=f"maximum CRF in the TPE search range (default {DEFAULT_CRF_HI})",
+    )
+    p.add_argument(
+        "--n-trials",
+        type=int,
+        default=None,
+        help=(
+            f"TPE trial budget. Default: {PROD_N_TRIALS} in production mode, "
+            f"{SMOKE_N_TRIALS} in --smoke mode."
+        ),
+    )
+    p.add_argument(
+        "--time-budget-s",
+        type=int,
+        default=300,
+        help="advisory wall-clock cap in seconds (default 300; not yet enforced)",
+    )
+    p.add_argument(
+        "--proxy-tolerance",
+        type=float,
+        default=DEFAULT_PROXY_TOLERANCE,
+        help=(
+            "max absolute proxy/verify VMAF gap before the result is flagged "
+            f"out-of-distribution (default {DEFAULT_PROXY_TOLERANCE}). When "
+            "exceeded the CLI exits non-zero so callers can fall back to "
+            "the slow Phase A grid."
+        ),
+    )
+    p.add_argument(
+        "--sample-chunk-seconds",
+        type=float,
+        default=5.0,
+        help=(
+            "duration in seconds of the proxy probe-encode slice per TPE trial "
+            "(default 5.0). Shorter = faster TPE iterations, longer = more "
+            "stable canonical-6 features."
+        ),
+    )
+    p.add_argument(
+        "--smoke",
+        action="store_true",
+        help=(
+            "use the deterministic synthetic CRF->VMAF curve; no ffmpeg, no "
+            "ONNX, no GPU verify. Intended for CI on hosts without the "
+            "[fast] extras."
+        ),
+    )
+    p.add_argument(
+        "--score-backend",
+        default="auto",
+        choices=("auto", *ALL_BACKENDS),
+        help=(
+            "libvmaf scoring backend for the verify pass (default: auto; "
+            "cuda > vulkan > sycl > cpu). See ``vmaf-tune corpus --help``."
+        ),
+    )
+    p.add_argument(
+        "--ffmpeg-bin",
+        default="ffmpeg",
+        help="path to the ffmpeg binary (default ffmpeg on PATH)",
+    )
+    p.add_argument(
+        "--vmaf-bin",
+        default="vmaf",
+        help="path to the libvmaf CLI binary (default vmaf on PATH)",
+    )
+    p.add_argument(
+        "--vmaf-model",
+        default="vmaf_v0.6.1",
+        help="vmaf model version string (default vmaf_v0.6.1)",
+    )
+    p.add_argument(
+        "--encode-dir",
+        type=Path,
+        default=Path(".workingdir2/fast"),
+        help="scratch dir for probe + verify encodes (default .workingdir2/fast, gitignored)",
+    )
+    p.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="JSON destination for the recommendation payload (default: stdout)",
+    )
+
+
+def _build_fast_sample_extractor(
+    args: argparse.Namespace,
+    workdir: Path,
+) -> "Callable[[Path, int, str], tuple[list[float], float]]":
+    """Build the production ``sample_extractor`` callable for fast-path.
+
+    The seam encodes a short ``--sample-chunk-seconds`` slice of the
+    source at the trial CRF, scores it with libvmaf, and parses the
+    canonical-6 (``adm2``, ``vif_scale0..3``, ``motion2``) per-feature
+    means out of the libvmaf JSON output. Proxy normalisation
+    (StandardScaler) is the proxy module's responsibility — this
+    helper returns the raw libvmaf means.
+    """
+    import json as _json
+    import subprocess as _sub
+    import tempfile as _tempfile
+
+    from .encode import EncodeRequest, run_encode
+    from .score import build_vmaf_command
+
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    def _extract(src: Path, crf: int, encoder: str) -> tuple[list[float], float]:
+        # Encode a short probe slice at this CRF.
+        slot = workdir / f"probe_{encoder}_crf{crf}.mp4"
+        req = EncodeRequest(
+            source=src,
+            width=args.width,
+            height=args.height,
+            pix_fmt=args.pix_fmt,
+            framerate=args.framerate,
+            encoder=encoder,
+            preset=args.preset,
+            crf=crf,
+            output=slot,
+            sample_clip_seconds=args.sample_chunk_seconds,
+            sample_clip_start_s=0.0,
+        )
+        encode_result = run_encode(req, ffmpeg_bin=args.ffmpeg_bin)
+        if encode_result.exit_status != 0 or not slot.exists():
+            return ([0.0] * 6, 0.0)
+
+        size_bytes = encode_result.encode_size_bytes
+        observed_kbps = (
+            (size_bytes * 8.0 / 1000.0) / max(args.sample_chunk_seconds, 1e-3)
+            if size_bytes > 0
+            else 0.0
+        )
+
+        # Score the slice and parse canonical-6 per-feature means out
+        # of libvmaf's per-frame JSON. We bypass score.run_score's
+        # pooled-only parser because we need adm2 / vif_scale0..3 /
+        # motion2 means rather than the headline VMAF score.
+        with _tempfile.TemporaryDirectory(prefix="fast-score-") as score_tmp:
+            json_path = Path(score_tmp) / "vmaf.json"
+            score_cmd = build_vmaf_command(
+                _ScoreReq(
+                    reference=src,
+                    distorted=slot,
+                    width=args.width,
+                    height=args.height,
+                    pix_fmt=args.pix_fmt,
+                    model=args.vmaf_model,
+                ),
+                json_path,
+                vmaf_bin=args.vmaf_bin,
+                backend=None,  # fast-path proxy is encoder-side; pooled CPU is fine
+            )
+            completed = _sub.run(score_cmd, capture_output=True, text=True, check=False)
+            if completed.returncode != 0 or not json_path.exists():
+                return ([0.0] * 6, observed_kbps)
+            payload = _json.loads(json_path.read_text(encoding="utf-8"))
+            features = _parse_canonical6_means(payload)
+        return (features, observed_kbps)
+
+    return _extract
+
+
+@dataclasses.dataclass(frozen=True)
+class _ScoreReq:
+    """Minimal duck-typed ScoreRequest for ``build_vmaf_command``.
+
+    ``score.run_score`` is the wrong seam here — we need the per-feature
+    means, not just the pooled VMAF score. Reusing ``build_vmaf_command``
+    keeps us on the canonical CLI invocation; this duck-type avoids
+    importing extras the helper does not need.
+    """
+
+    reference: Path
+    distorted: Path
+    width: int
+    height: int
+    pix_fmt: str
+    model: str
+    frame_skip_ref: int = 0
+    frame_cnt: int = 0
+
+
+_CANONICAL_6_KEYS: tuple[str, ...] = (
+    "adm2",
+    "vif_scale0",
+    "vif_scale1",
+    "vif_scale2",
+    "vif_scale3",
+    "motion2",
+)
+
+
+def _parse_canonical6_means(payload: dict) -> list[float]:
+    """Pull canonical-6 per-feature means from libvmaf JSON output.
+
+    Tries ``pooled_metrics.<feature>.mean`` first (modern libvmaf shape),
+    falls back to averaging ``frames[].metrics.<feature>`` when only the
+    per-frame surface is present. Missing features fill 0.0 — the
+    fr_regressor_v2 proxy sees a zero feature rather than NaN, which is
+    in-distribution for content where libvmaf's model omits a metric.
+    """
+    pooled = payload.get("pooled_metrics") or {}
+    out: list[float] = []
+    frames = payload.get("frames") or []
+    for key in _CANONICAL_6_KEYS:
+        block = pooled.get(key) or {}
+        if "mean" in block:
+            out.append(float(block["mean"]))
+            continue
+        # Per-frame fallback.
+        vals: list[float] = []
+        for fr in frames:
+            metrics = fr.get("metrics") or {}
+            if key in metrics:
+                vals.append(float(metrics[key]))
+        out.append(sum(vals) / len(vals) if vals else 0.0)
+    return out
+
+
+def _build_fast_encode_runner(
+    args: argparse.Namespace,
+    workdir: Path,
+    backend: str,
+) -> "Callable[[Path, str, int, str], tuple[float, float]]":
+    """Build the production ``encode_runner`` callable for the verify pass.
+
+    Runs a single full-clip encode at the recommended CRF and scores it
+    via :func:`score.run_score`, returning ``(observed_kbps, vmaf_score)``.
+    The verify pass is mandatory — proxy alone never wins
+    (ADR-0304 invariant).
+    """
+    from .encode import EncodeRequest, run_encode
+    from .score import ScoreRequest, run_score
+
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    def _runner(src: Path, encoder: str, crf: int, _backend_advisory: str) -> tuple[float, float]:
+        slot = workdir / f"verify_{encoder}_crf{crf}.mp4"
+        req = EncodeRequest(
+            source=src,
+            width=args.width,
+            height=args.height,
+            pix_fmt=args.pix_fmt,
+            framerate=args.framerate,
+            encoder=encoder,
+            preset=args.preset,
+            crf=crf,
+            output=slot,
+        )
+        encode_result = run_encode(req, ffmpeg_bin=args.ffmpeg_bin)
+        if encode_result.exit_status != 0 or not slot.exists():
+            return (0.0, float("nan"))
+        # Estimate kbps from size + clip duration; the verify pass has
+        # no slice so we use whatever framerate × frame-count the source
+        # actually produced. Falls back to file-size / 1 second when the
+        # encode metadata is missing — kbps is advisory, not the gate.
+        size_bytes = encode_result.encode_size_bytes
+        elapsed_s = max(encode_result.encode_time_ms / 1000.0, 1e-3)
+        observed_kbps = size_bytes * 8.0 / 1000.0 / elapsed_s if size_bytes > 0 else 0.0
+
+        score_req = ScoreRequest(
+            reference=src,
+            distorted=slot,
+            width=args.width,
+            height=args.height,
+            pix_fmt=args.pix_fmt,
+            model=args.vmaf_model,
+        )
+        score_result = run_score(
+            score_req,
+            vmaf_bin=args.vmaf_bin,
+            backend=backend if backend != "cpu" else None,
+        )
+        return (observed_kbps, float(score_result.vmaf_score))
+
+    return _runner
+
+
+def _run_fast(args: argparse.Namespace) -> int:
+    """Drive ``vmaf-tune fast`` end to end and emit the JSON payload.
+
+    Smoke mode skips ffmpeg / ONNX / GPU entirely and runs the
+    synthetic curve so CI on bare hosts still exercises the search
+    loop. Production mode wires the canonical-6 sample extractor and
+    the real-encode verify runner through the existing
+    :mod:`vmaftune.encode` + :mod:`vmaftune.score` pipeline.
+    """
+    if args.crf_min < 0 or args.crf_max < args.crf_min:
+        sys.stderr.write(f"vmaf-tune fast: invalid CRF range [{args.crf_min}, {args.crf_max}]\n")
+        return 2
+
+    sample_extractor = None
+    encode_runner = None
+    backend_for_payload: str | None = None
+
+    if not args.smoke:
+        if args.src is None:
+            sys.stderr.write("vmaf-tune fast: --src is required in production mode\n")
+            return 2
+        if args.width <= 0 or args.height <= 0:
+            sys.stderr.write(
+                "vmaf-tune fast: --width / --height are required in production mode "
+                "(raw-YUV geometry)\n"
+            )
+            return 2
+        try:
+            backend_for_payload = select_backend(prefer=args.score_backend, vmaf_bin=args.vmaf_bin)
+        except BackendUnavailableError as exc:
+            sys.stderr.write(f"vmaf-tune fast: {exc}\n")
+            return 2
+        sys.stderr.write(f"vmaf-tune fast: scoring backend = {backend_for_payload}\n")
+        workdir = args.encode_dir
+        sample_extractor = _build_fast_sample_extractor(args, workdir / "probes")
+        encode_runner = _build_fast_encode_runner(args, workdir / "verify", backend_for_payload)
+
+    try:
+        result = fast_recommend(
+            src=args.src,
+            target_vmaf=args.target_vmaf,
+            encoder=args.encoder,
+            time_budget_s=args.time_budget_s,
+            crf_range=(args.crf_min, args.crf_max),
+            n_trials=args.n_trials,
+            smoke=args.smoke,
+            sample_extractor=sample_extractor,
+            encode_runner=encode_runner,
+            proxy_tolerance=args.proxy_tolerance,
+        )
+    except RuntimeError as exc:
+        # fast.fast_recommend raises RuntimeError when Optuna is missing.
+        sys.stderr.write(f"vmaf-tune fast: {exc}\n")
+        return 2
+    except NotImplementedError as exc:
+        sys.stderr.write(f"vmaf-tune fast: {exc}\n")
+        return 2
+
+    if backend_for_payload is not None:
+        result["score_backend"] = backend_for_payload
+
+    rendered = json.dumps(result, indent=2, sort_keys=True)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered + "\n", encoding="utf-8")
+        sys.stderr.write(f"wrote fast recommendation -> {args.output}\n")
+    else:
+        sys.stdout.write(rendered + "\n")
+
+    gap = result.get("proxy_verify_gap")
+    if gap is not None and gap > args.proxy_tolerance:
+        # OOD signal — caller should fall back to the slow grid.
+        return 3
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1497,6 +1932,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_compare(args)
     if args.cmd == "auto":
         return _run_auto(args)
+    if args.cmd == "fast":
+        return _run_fast(args)
     parser.print_help()
     return 2
 

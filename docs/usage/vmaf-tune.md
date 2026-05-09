@@ -581,6 +581,135 @@ instead — convenient for piping into other tooling.
 | `--source / --width / --height / --framerate / --duration` | — | Build a corpus on the fly. Required when `--from-corpus` is omitted. |
 | `--encoder / --preset / --crf` | `libx264` / `medium` / `[18,20,...,34]` | Sweep grid (when building). Filter (when loading). |
 | `--json` | off | Emit the winning row as JSON instead of the prose summary. |
+
+## `fast` subcommand — proxy + Bayesian + GPU-verify (Phase A.5)
+
+`vmaf-tune fast` is the seconds-to-minutes alternative to the Phase A
+grid for the recommendation use case. It runs an Optuna TPE search
+over the integer CRF axis, scores each trial with the
+`fr_regressor_v2` proxy ([ADR-0291](../adr/0291-fr-regressor-v2-prod-flip.md))
+on the canonical-6 libvmaf features extracted from a short probe
+encode, then runs **one** real-encode + libvmaf verify pass at the
+recommended CRF before reporting. The slow grid stays canonical
+([ADR-0276](../adr/0276-vmaf-tune-fast-path.md)) — `fast` is opt-in,
+and falls back to the grid when the proxy/verify gap exceeds the
+configured tolerance.
+
+### Install
+
+The fast-path needs Optuna in addition to the core install:
+
+```shell
+pip install 'vmaf-tune[fast]'
+```
+
+The shipped `[fast]` extra is the only correct install path; the core
+package stays zero-extra-dep so corpus generation works on hosts that
+never run the fast path.
+
+### Smoke run (no ffmpeg / no ONNX / no GPU)
+
+The `--smoke` flag swaps the proxy + verify pipeline for a
+deterministic synthetic CRF→VMAF curve so CI on bare hosts still
+exercises the search loop:
+
+```shell
+vmaf-tune fast --target-vmaf 92.0 --smoke --n-trials 12
+```
+
+```json
+{
+  "encoder": "libx264",
+  "n_trials": 12,
+  "notes": "smoke mode — synthetic predictor; no ffmpeg / ONNX / GPU. See ADR-0276 + ADR-0304 + Research-0076 for the production path.",
+  "predicted_kbps": 1954.27,
+  "predicted_vmaf": 82.65,
+  "proxy_verify_gap": null,
+  "recommended_crf": 27,
+  "smoke": true,
+  "target_vmaf": 92.0,
+  "verify_vmaf": null
+}
+```
+
+### Production run
+
+```shell
+vmaf-tune fast \
+    --src ref.yuv --width 1920 --height 1080 \
+    --framerate 24 --pix-fmt yuv420p \
+    --encoder libx264 --preset medium \
+    --target-vmaf 92.0 \
+    --crf-min 18 --crf-max 40 \
+    --n-trials 30 \
+    --score-backend auto \
+    --output recommendation.json
+```
+
+The recommendation lands as a single JSON object — same schema
+`recommend` and `predict` already emit, plus the fast-path-specific
+`verify_vmaf` and `proxy_verify_gap` diagnostics:
+
+```json
+{
+  "encoder": "libx264",
+  "target_vmaf": 92.0,
+  "recommended_crf": 22,
+  "predicted_vmaf": 92.41,
+  "predicted_kbps": 4820.0,
+  "n_trials": 30,
+  "smoke": false,
+  "notes": "production: TPE over 30 trials with v2 proxy; GPU verify gap = 0.612 VMAF (tolerance 1.50).",
+  "verify_vmaf": 91.80,
+  "proxy_verify_gap": 0.612,
+  "score_backend": "cuda"
+}
+```
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Recommendation produced; proxy/verify gap within tolerance. |
+| `2` | Argument validation error (missing `--src`, bad CRF range, ...). |
+| `3` | Out-of-distribution: proxy/verify gap exceeded `--proxy-tolerance`. The recommendation is still emitted; callers should fall back to the slow Phase A grid (`vmaf-tune corpus` + `vmaf-tune recommend`). |
+
+### Fall-back idiom
+
+```shell
+vmaf-tune fast --src ref.yuv --width 1920 --height 1080 \
+    --target-vmaf 92.0 --output rec.json \
+  || vmaf-tune recommend --source ref.yuv --width 1920 --height 1080 \
+        --preset medium --target-vmaf 92.0 --output rec.json
+```
+
+The `||` chain captures both the production-error case (`rc=2`) and
+the OOD case (`rc=3`), so the slow grid is the safety net whenever
+the fast-path is not confident.
+
+### `fast` flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--src PATH` | — | Source video. Required outside `--smoke`. |
+| `--width / --height` | `0` | Raw-YUV geometry. Required outside `--smoke`. |
+| `--pix-fmt` | `yuv420p` | ffmpeg pix_fmt for the probe + verify encodes. |
+| `--framerate` | `24.0` | Reference framerate. |
+| `--target-vmaf T` | — | Quality target on the standard `[0, 100]` scale. **Required.** |
+| `--encoder` | `libx264` | Codec adapter; must be in `ENCODER_VOCAB_V2` for production mode. |
+| `--preset` | `medium` | Encoder preset for the probe + verify encodes. |
+| `--crf-min / --crf-max` | `10` / `51` | TPE search range over the integer CRF axis. |
+| `--n-trials` | `30` (prod), `50` (smoke) | TPE trial budget. |
+| `--time-budget-s` | `300` | Advisory wall-clock cap (not yet enforced). |
+| `--proxy-tolerance` | `1.5` | Max abs proxy/verify gap before exit code `3`. |
+| `--sample-chunk-seconds` | `5.0` | Probe-slice duration per TPE trial. |
+| `--smoke` | off | Synthetic curve; no ffmpeg / ONNX / GPU. |
+| `--score-backend` | `auto` | Verify-pass backend (`auto`/`cpu`/`cuda`/`vulkan`/`sycl`). |
+| `--ffmpeg-bin / --vmaf-bin` | `ffmpeg` / `vmaf` | Tool paths. |
+| `--vmaf-model` | `vmaf_v0.6.1` | libvmaf model for the verify pass. |
+| `--encode-dir` | `.workingdir2/fast` | Scratch dir for probe + verify encodes. |
+| `--output` | stdout | JSON destination for the recommendation payload. |
+
 ## Codec adapters
 
 Phase A wires `libx264` end-to-end through the search loop. Additional

@@ -64,7 +64,7 @@ slow grid stays canonical.
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **A + B + E (proxy + Bayesian + GPU verify) — chosen** | Works on any host the fork already supports; leans on shipped tiny-AI surface + one optional Python dep (Optuna); degrades gracefully when GPU verify backend absent | Speedup capped at ~20–50× without lever C; encode floor remains software | Picked: best speedup-per-complexity ratio for v1 |
 | A + B + C + E (add NVENC / QSV / AMF) | 100–500× headline speedup; closer to the user's "huge" framing | NVENC requires `--enable-nvenc` FFmpeg + NVIDIA GPU; calibration needs a hardware-encoder corpus that does not yet exist; cross-vendor matrix (NVENC / QSV / AMF) explodes the test surface | Deferred to follow-up; needs Phase A.5b NVENC corpus first |
 | A only (dense grid + proxy) | Zero search-strategy churn; deterministic | Still scans every CRF; misses the easy Bayesian win | Rejected; misses 80 % of the available speedup |
@@ -129,6 +129,27 @@ slow grid stays canonical.
   companion digest.
 - Related PRs: parent #329 (Phase A scaffold); follow-up #347
   (`fr_regressor_v2` scaffold).
+
+### Status update 2026-05-08: CLI surface landed
+
+The Python API in `tools/vmaf-tune/src/vmaftune/fast.py` had been
+production-wired since [ADR-0304](0304-vmaf-tune-fast-path-prod-wiring.md),
+but the surface was reachable only via direct Python imports — the
+HP-3 audit ([Research-0090](../research/0090-phase-a-promotion-audit-2026-05-08.md))
+flagged the changelog claim "production-wired" as still false at the
+CLI level. This PR closes that gap by adding the `vmaf-tune fast`
+subparser with the user-facing flags listed in
+[`docs/usage/vmaf-tune.md`](../usage/vmaf-tune.md#fast-subcommand--proxy--bayesian--gpu-verify-phase-a5),
+plus the production runners that build the canonical-6
+`sample_extractor` and the real-encode `encode_runner` from the
+existing `vmaftune.encode` + `vmaftune.score` pipeline. The CLI is
+now the single seam that injects both — `_build_prod_predictor` and
+`_gpu_verify` no longer raise when called from the CLI.
+
+Output schema matches the JSON shape `recommend` and `predict`
+already emit (single source of truth) plus the fast-path-specific
+`verify_vmaf` / `proxy_verify_gap` / `score_backend` diagnostics.
+Smoke mode stays untouched as the CI-friendly entry point.
 
 ### Status update 2026-05-08: Accepted
 
