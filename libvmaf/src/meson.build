@@ -111,9 +111,80 @@ endif
 # `required: false`; the scaffold compiles with no ROCm SDK installed.
 hip_sources = []
 hip_deps = []
+hip_hsaco_sources = []
+is_hipcc_enabled = get_option('enable_hipcc') == true
 if is_hip_enabled
     cdata.set10('HAVE_HIP', true)
     subdir('hip')
+endif
+
+# HIP HSACO device-kernel pipeline (ADR-0372 / T7-10b batch-1).
+# Mirrors the CUDA `enable_nvcc` / `ptx_arrays` pipeline above.
+# Gated on `enable_hipcc` (requires a ROCm 6+ toolchain with `hipcc`
+# in PATH). Without `enable_hipcc`, `hip_hsaco_sources` stays empty
+# and the host TUs fall back to the -ENOSYS scaffold path via
+# `#ifndef HAVE_HIPCC`. `HAVE_HIPCC` is propagated to feature TUs
+# via `vmaf_cflags_common` below alongside the CUDA / SYCL analogues.
+#
+# Architecture discovery: `hipconfig --amdgpu-target` returns a
+# comma-separated list of installed GFX targets (e.g. `gfx90a,gfx1100`).
+# We compile one HSACO fat binary covering all installed targets by
+# passing each as a separate `--offload-arch` flag. Falls back to
+# `gfx90a` (CDNA2 / MI200) when `hipconfig` is absent or returns
+# an empty list.
+if is_hipcc_enabled and is_hip_enabled
+    cdata.set10('HAVE_HIPCC', true)
+    vmaf_cflags_common += '-DHAVE_HIPCC'
+    hipcc_exe = find_program('hipcc', required: true)
+    xxd_hip = find_program('xxd', required: true)
+
+    # Discover installed GFX targets via hipconfig. Best-effort:
+    # fall back to gfx90a if the command fails or returns nothing.
+    hipconfig_result = run_command('sh', '-c',
+        'hipconfig --amdgpu-target 2>/dev/null || true', check: false)
+    hip_gfx_raw = hipconfig_result.stdout().strip()
+    if hip_gfx_raw == ''
+        hip_gfx_raw = 'gfx90a'
+    endif
+    # Build --offload-arch flag list from comma-separated target string.
+    hip_offload_arch_flags = []
+    foreach target : hip_gfx_raw.split(',')
+        t = target.strip()
+        if t != ''
+            hip_offload_arch_flags += ['--offload-arch=' + t]
+        endif
+    endforeach
+    if hip_offload_arch_flags.length() == 0
+        hip_offload_arch_flags = ['--offload-arch=gfx90a']
+    endif
+    message('HIP HSACO targets: ' + ' '.join(hip_offload_arch_flags))
+
+    # Kernel source → HSACO → xxd-embedded C array.
+    # Add new batch-1 kernels here; extend for batch-2 (float_ssim_hip,
+    # motion_hip) when those host TUs are promoted from -ENOSYS.
+    hip_kernel_sources = {
+        'psnr_score' : feature_src_dir + 'hip/integer_psnr/psnr_score.hip',
+        'float_ansnr_score' : feature_src_dir + 'hip/float_ansnr/float_ansnr_score.hip',
+    }
+    foreach name, src : hip_kernel_sources
+        hsaco_target = custom_target('hip_hsaco_' + name,
+            build_by_default: true,
+            output: name + '.hsaco',
+            input: src,
+            command: [hipcc_exe, '--genco'] + hip_offload_arch_flags +
+                     ['-I', meson.current_source_dir(),
+                      '-I', meson.current_source_dir() + '/feature',
+                      '@INPUT@', '-o', '@OUTPUT@'],
+        )
+        hsaco_c_target = custom_target('hip_hsaco_c_' + name,
+            build_by_default: true,
+            output: name + '_hsaco.c',
+            input: hsaco_target,
+            capture: true,
+            command: [xxd_hip, '-i', '-n', name + '_hsaco', '@INPUT@'],
+        )
+        hip_hsaco_sources += hsaco_c_target
+    endforeach
 endif
 
 # Metal (Apple Silicon) compute backend (ADR-0338 / T8-1 scaffold). Same
@@ -1159,7 +1230,7 @@ libvmaf_ssimulacra2_static_lib = static_library(
 
 libvmaf_feature_static_lib = static_library(
     'libvmaf_feature',
-    libvmaf_feature_sources + vulkan_sources + hip_sources + metal_sources,
+    libvmaf_feature_sources + vulkan_sources + hip_sources + hip_hsaco_sources + metal_sources,
     include_directories : [libvmaf_include, vmaf_include, cuda_dir],
     c_args : vmaf_cflags_common,
     dependencies: [stdatomic_dependency, pthread_dependency, cuda_dependency, sycl_dependency, vulkan_deps, hip_deps, metal_deps],

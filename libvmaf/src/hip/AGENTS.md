@@ -23,12 +23,9 @@ hip/
 
 ## Backend status
 
-**Scaffold + first / second / third / fourth consumer** — landed
-across multiple PRs:
-**Scaffold + first / fifth / sixth consumer** — landed across multiple
-PRs (second through fourth in flight as of 2026-05-03):
-**Scaffold + first through eighth consumer** — landed across multiple
-PRs:
+Scaffold + first through eighth consumers — landed across multiple PRs.
+Two additional consumers promoted from scaffold to real kernels in
+ADR-0372 (batch-1, this PR).
 
 1. **T7-10 audit-first scaffold** (ADR-0212) — common, picture, dispatch,
    feature stubs, public header `libvmaf_hip.h`, CI lane
@@ -42,67 +39,35 @@ PRs:
 3. **T7-10b second consumer** (ADR-0254, PR #324) —
    `feature/hip/float_psnr_hip.{c,h}` mirroring
    `feature/cuda/float_psnr_cuda.c`. Float partials precision posture.
-4. **T7-10b third + fourth consumers** (ADR-0259 / ADR-0260) —
-   `feature/hip/ciede_hip.{c,h}` and
-   `feature/hip/float_moment_hip.{c,h}` mirroring
-   `feature/cuda/integer_ciede_cuda.c` and
-   `feature/cuda/integer_moment_cuda.c`. Validate two pre-runtime
-   contracts: (a) ciede's **intentional bypass** of
-   `submit_pre_launch` (one float per block, no atomic, no memset),
-   (b) moment's four-uint64 atomic-counter readback so
-   `submit_pre_launch` can later memset multiple counters in one
-   call. Same scaffold posture: `init()` returns `-ENOSYS` until
-   T7-10b.
-3. **T7-10b second consumer** (ADR-0254, PR #324, in flight) —
-   `feature/hip/float_psnr_hip.{c,h}`. Float partials precision posture.
-4. **T7-10b third + fourth consumers** (ADR-0259 / ADR-0260, PR #330,
-   in flight) — `ciede_hip` (`submit_pre_launch` bypass shape) and
+4. **T7-10b third + fourth consumers** (ADR-0259 / ADR-0260, PR #330) —
+   `ciede_hip` (`submit_pre_launch` bypass shape) and
    `float_moment_hip` (four-uint64 atomic-counter readback shape).
-5. **T7-10b fifth + sixth consumers** (ADR-0266 / ADR-0267, this PR) —
-   `feature/hip/float_ansnr_hip.{c,h}` and
-   `feature/hip/integer_motion_v2_hip.{c,h}` mirroring
-   `feature/cuda/float_ansnr_cuda.c` and
-   `feature/cuda/integer_motion_v2_cuda.c`. Validate two further
-   pre-runtime contracts: (a) `float_ansnr`'s **interleaved
-   (sig, noise) per-block float partials** (same `submit_pre_launch`
-   bypass as `ciede_hip` but doubled per-block partial width), (b)
-   `motion_v2`'s **temporal-extractor shape** (`flush()` callback +
-   `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag + ping-pong buffer carry).
-   Same scaffold posture: `init()` returns `-ENOSYS` until T7-10b.
 5. **T7-10b fifth + sixth consumers** (ADR-0266 / ADR-0267, PR #340) —
    `feature/hip/float_ansnr_hip.{c,h}` and
-   `feature/hip/integer_motion_v2_hip.{c,h}` mirroring
-   `feature/cuda/float_ansnr_cuda.c` and
-   `feature/cuda/integer_motion_v2_cuda.c`. Pin (a) interleaved
-   (sig, noise) per-block float partials, (b) the temporal-extractor
-   shape with `flush()` callback + ping-pong buffer carry. Same
-   scaffold posture.
-6. **T7-10b seventh + eighth consumers** (ADR-0273 / ADR-0274, this
-   PR) — `feature/hip/float_motion_hip.{c,h}` and
-   `feature/hip/float_ssim_hip.{c,h}` mirroring
-   `feature/cuda/float_motion_cuda.c` and
-   `feature/cuda/integer_ssim_cuda.c`. Pin (a) the three-buffer
-   ping-pong (raw-pixel cache + blurred-frame ping-pong) plus the
-   `motion_force_zero` short-circuit posture (`fex->extract` swap),
-   (b) the multi-dispatch shape (`chars.n_dispatches_per_frame == 2`)
-   with five intermediate float buffers and a `validate_dims` /
-   `init_dims` helper split for the `readability-function-size`
-   budget. Same scaffold posture: `init()` returns `-ENOSYS` after
-   dimension validation, until T7-10b.
-
-**T7-10b runtime landed (2026-05-08)** — `kernel_template.c` and
-`common.c` now wrap real HIP runtime calls
-(`hipStreamCreateWithFlags`, `hipEventCreateWithFlags`,
-`hipMemsetAsync`, `hipStreamWaitEvent`, `hipStreamSynchronize`,
-`hipMalloc` + `hipHostMalloc`, `hipFree` + `hipHostFree`,
-`hipGetDeviceCount`, `hipSetDevice`, `hipGetDeviceProperties`).
-`vmaf_hip_state_init` returns `0` on a host with `>=1` AMD GPU
-visible to the runtime and `-ENODEV` otherwise.
-`vmaf_hip_import_state` stays at `-ENOSYS` until T7-10c wires
-`VmafContext`-side dispatch. The remaining feature-kernel ports
-(VIF, ADM, full motion, ...) follow as their own PRs gated by the
-`places=4` cross-backend-diff lane (per
-[ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
+   `feature/hip/integer_motion_v2_hip.{c,h}`. Pin (a) interleaved
+   `(sig, noise)` per-block float partials, (b) the temporal-extractor
+   shape with `flush()` callback + ping-pong buffer carry.
+6. **T7-10b seventh + eighth consumers** (ADR-0273 / ADR-0274) —
+   `feature/hip/float_motion_hip.{c,h}` and
+   `feature/hip/float_ssim_hip.{c,h}`. Pin (a) the three-buffer
+   ping-pong plus the `motion_force_zero` short-circuit posture, (b)
+   the multi-dispatch shape (`chars.n_dispatches_per_frame == 2`).
+7. **T7-10b runtime landed** (2026-05-08) — `kernel_template.c` and
+   `common.c` now wrap real HIP runtime calls
+   (`hipStreamCreateWithFlags`, `hipEventCreateWithFlags`,
+   `hipMemsetAsync`, `hipStreamWaitEvent`, `hipStreamSynchronize`,
+   `hipMalloc` + `hipHostMalloc`, `hipFree` + `hipHostFree`,
+   `hipGetDeviceCount`, `hipSetDevice`, `hipGetDeviceProperties`).
+   `vmaf_hip_state_init` returns `0` on a host with `>=1` AMD GPU;
+   `-ENODEV` otherwise. `vmaf_hip_import_state` stays at `-ENOSYS`
+   until T7-10c wires `VmafContext`-side dispatch. Remaining
+   feature-kernel ports follow as their own PRs gated by the
+   `places=4` cross-backend-diff lane (ADR-0214).
+8. **Batch-1 real kernels** (ADR-0372, this PR) — `integer_psnr_hip`
+   and `float_ansnr_hip` promoted from `-ENOSYS` scaffolds to real
+   `hipModuleLoadData` + `hipModuleLaunchKernel` consumers under
+   `#ifdef HAVE_HIPCC`. Without `HAVE_HIPCC`, the scaffold `-ENOSYS`
+   contract is preserved.
 
 ## Ground rules
 
@@ -185,6 +150,7 @@ visible to the runtime and `-ENODEV` otherwise.
   four-counter constant aligned with the CUDA twin's
   `4u * sizeof(uint64_t)` readback size; any drift in the CUDA
   twin's counter count requires a paired update here.
+
 ## Rebase-sensitive invariants (fifth + sixth consumers)
 
 - **`float_ansnr_hip.c` mirrors `float_ansnr_cuda.c`
@@ -210,6 +176,43 @@ visible to the runtime and `-ENODEV` otherwise.
   the CUDA twin; the ping-pong contract (cur = `index % 2`, prev =
   `(index + 1) % 2`) is load-bearing for the eventual cross-backend
   numeric gate.
+
+## Rebase-sensitive invariants (batch-1 real kernels — ADR-0372)
+
+The following invariants apply once `integer_psnr_hip.c` and
+`float_ansnr_hip.c` are promoted from `-ENOSYS` scaffolds to real
+HIP Module API consumers (this PR, ADR-0372). They add to — and
+do not replace — the scaffold invariants already documented above.
+
+- **`HAVE_HIPCC` dual-path**: all `hipModule_t` / `hipFunction_t`
+  state and the `psnr_hip_module_load` / `ansnr_hip_module_load`
+  helpers live under `#ifdef HAVE_HIPCC`. Without this flag the host
+  TU compiles without ROCm SDK headers and `init()` returns `-ENOSYS`
+  (scaffold posture preserved). Never move device-state fields outside
+  the guard — it breaks the CPU-only CI lane.
+
+- **`float_ansnr_hip` no-memset bypass**: the `submit()` path does
+  not call `vmaf_hip_kernel_submit_pre_launch`. The kernel writes
+  per-block `(sig, noise)` interleaved float partials directly into
+  the output buffer (`partials[2*block_idx+0]` / `[+1]`); there is
+  no atomic accumulation and no prior memset. If a future PR adds a
+  `submit_pre_launch` call to `float_ansnr_cuda.c`, the HIP twin
+  must follow in the same PR. This is the same bypass shape as
+  `ciede_hip` (ADR-0259).
+
+- **`integer_psnr_hip` uint64 split-shuffle**: the PSNR device kernel
+  splits each uint64 warp-reduction into two uint32 `__shfl_down`
+  calls (GCN/RDNA warp size = 64; HIP exposes no native uint64
+  shuffle). If a future ROCm release adds native uint64 shuffle
+  primitives, the kernel can be simplified, but the cross-backend
+  numeric gate (`meson test -C build --suite=hip-parity`) must pass
+  before landing any change.
+
+- **Merge-conflict risk with PR #612**: `vmaf_hip_kernel_submit_post_record`
+  in `kernel_template.{h,c}` and the `hip_hsaco_sources` meson pipeline
+  are also being added by PR #612 (`float_psnr_hip`). When the two PRs
+  merge, keep one copy and discard the duplicate. The bodies are
+  identical so either direction is safe.
 
 ## Rebase-sensitive invariants (seventh + eighth consumers)
 
@@ -288,6 +291,10 @@ visible to the runtime and `-ENODEV` otherwise.
   — fifth consumer (`float_ansnr_hip`, this PR).
 - [ADR-0267](../../../docs/adr/0267-hip-sixth-consumer-motion-v2.md)
   — sixth consumer (`motion_v2_hip`, this PR).
+- [ADR-0372](../../../docs/adr/0372-hip-batch1-integer-psnr-float-ansnr.md) —
+  batch-1 real kernels (`integer_psnr_hip` + `float_ansnr_hip`); pins
+  the `HAVE_HIPCC` dual-path, the `float_ansnr` no-memset bypass, and
+  the uint64 split-shuffle pattern.
 - [ADR-0246](../../../docs/adr/0246-gpu-kernel-template.md) — GPU
   kernel-template decision; the source the HIP mirror tracks.
 - [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md) — `places=4`
@@ -296,12 +303,18 @@ visible to the runtime and `-ENODEV` otherwise.
 ## Build
 
 ```bash
-meson setup build -Denable_hip=true -Denable_cuda=false -Denable_sycl=false libvmaf
+# CPU-only HIP build (no ROCm SDK required — scaffold -ENOSYS posture):
+meson setup build -Denable_hip=true -Denable_hipcc=false \
+    -Denable_cuda=false -Denable_sycl=false libvmaf
 ninja -C build
 meson test -C build
+
+# Full HIP build with real kernels (requires ROCm 6+ and hipcc in PATH):
+meson setup build_full -Denable_hip=true -Denable_hipcc=true \
+    -Denable_cuda=false -Denable_sycl=false libvmaf
+ninja -C build_full
 ```
 
-The scaffold has zero hard runtime dependencies — no ROCm SDK
-required. `Build — Ubuntu HIP (T7-10 scaffold)` in
-`.github/workflows/libvmaf-build-matrix.yml` runs this exact
-configuration on every PR.
+The CI lane `Build — Ubuntu HIP (T7-10 scaffold)` uses
+`-Denable_hipcc=false` so it runs without a ROCm SDK. Kernel-enabled
+builds (`-Denable_hipcc=true`) require `hipcc` in `PATH` and ROCm 6+.

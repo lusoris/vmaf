@@ -32160,6 +32160,7 @@ build-system paths changed; no new symbols were added.
   `./build/tools/vmaf --feature float_adm --no_prediction ...` — and
   confirm it no longer prints "problem loading feature extractor".
 
+
 ## ADR-0326 — MyTestCase upstream migration (partial port, Batch E, 2026-05-08)
 
 - **Touches**: `python/test/testutil.py`, `python/test/bd_rate_calculator_test.py`,
@@ -32215,4 +32216,60 @@ build-system paths changed; no new symbols were added.
   ```
 
       --feature ssimulacra2 --backend cuda --places 4
+
+
+## ADR-0372 — HIP batch-1: integer_psnr_hip + float_ansnr_hip real kernels (2026-05-10)
+
+- **Touches**: `libvmaf/src/feature/hip/integer_psnr_hip.c` (full rewrite),
+  `libvmaf/src/feature/hip/float_ansnr_hip.c` (full rewrite),
+  `libvmaf/src/feature/hip/integer_psnr_hip.h` (HSACO symbol decl under `HAVE_HIPCC`),
+  `libvmaf/src/feature/hip/float_ansnr_hip.h` (HSACO symbol decl under `HAVE_HIPCC`),
+  `libvmaf/src/feature/hip/integer_psnr/psnr_score.hip` (new device kernel),
+  `libvmaf/src/feature/hip/float_ansnr/float_ansnr_score.hip` (new device kernel),
+  `libvmaf/src/hip/kernel_template.{h,c}` (`vmaf_hip_kernel_submit_post_record` — also in
+  PR #612; on merge conflict keep one copy and drop the duplicate),
+  `libvmaf/src/meson.build` (`hip_hsaco_sources` HSACO build pipeline — also in PR #612),
+  `docs/backends/hip/overview.md` (status table update),
+  `docs/adr/0372-hip-batch1-integer-psnr-float-ansnr.md` (new).
+- **Invariant (HAVE_HIPCC dual-path)**: all device-state fields in `PsnrStateHip` /
+  `AnsnrStateHip` and all `hipModule_t` / `hipFunction_t` member declarations live under
+  `#ifdef HAVE_HIPCC`. Without the flag the scaffold `-ENOSYS` contract is preserved and
+  the host TU compiles without ROCm SDK headers. On rebase or refactor, never move
+  device-state fields outside the `#ifdef HAVE_HIPCC` guard — it breaks the CPU-only
+  build.
+- **Invariant (float_ansnr no-memset bypass)**: `float_ansnr_hip`'s `submit()` does
+  not call `vmaf_hip_kernel_submit_pre_launch`. The device kernel writes per-block
+  `(sig, noise)` float partials directly into an output buffer
+  (`partials[2*block_idx+0]` and `[+1]`); no atomic accumulation means no memset is
+  needed. The partials buffer is sized `wg_count * 2u * sizeof(float)` at init. On
+  rebase: if a future PR adds a `submit_pre_launch` call to `float_ansnr_cuda.c`, the
+  HIP twin must follow in the same PR.
+- **Invariant (integer_psnr uint64 split shuffle)**: the PSNR kernel splits a uint64
+  warp-reduction into two uint32 `__shfl_down` calls (HIP warp size = 64, no native
+  uint64 shuffle). On rebase: if ROCm adds native uint64 shuffle primitives in a future
+  release, the kernel can be simplified — but verify the cross-backend numeric gate
+  `meson test -C build --suite=hip-parity` still passes before landing.
+- **Merge-conflict risk with PR #612**: `vmaf_hip_kernel_submit_post_record` in
+  `kernel_template.{h,c}` and the `hip_hsaco_sources` meson pipeline are also being
+  added by PR #612 (`float_psnr_hip`). When the two PRs merge, keep one copy of each
+  and discard the duplicate. The bodies are identical so either direction is safe.
+- **On upstream sync**: no action required for PSNR or ANSNR logic (fork-local kernels).
+  If upstream adds its own HIP backend with conflicting `meson.build` variables, resolve
+  manually against the `hip_hsaco_sources` pattern documented in this PR.
+- **Re-test on rebase**:
+
+  ```bash
+  # CPU-only build (no ROCm required): must compile clean
+  meson setup build_hip_cpu -Denable_hip=true -Denable_hipcc=false \
+      -Denable_cuda=false -Denable_sycl=false libvmaf
+  ninja -C build_hip_cpu
+
+  # With ROCm + hipcc: HSACO pipeline must produce .hsaco + _hsaco.c
+  meson setup build_hip_full -Denable_hip=true -Denable_hipcc=true \
+      -Denable_cuda=false -Denable_sycl=false libvmaf
+  ninja -C build_hip_full
+
+  # Cross-backend numeric gate (requires AMD GPU)
+  meson test -C build_hip_full --suite=hip-parity
+  ```
 

@@ -1,20 +1,21 @@
 # HIP (AMD ROCm) compute backend (scaffold + eight kernel-template consumers + runtime)
 
-> **Status (2026-05-08, T7-10b runtime landed):** the host-side HIP
-> runtime is wired. `vmaf_hip_state_init`, `vmaf_hip_list_devices`,
-> `vmaf_hip_device_count`, and the kernel-template lifecycle helpers
-> (`vmaf_hip_kernel_lifecycle_init/_close`,
-> `vmaf_hip_kernel_readback_alloc/_free`,
-> `vmaf_hip_kernel_submit_pre_launch`,
-> `vmaf_hip_kernel_collect_wait`) all wrap real
-> `hipStreamCreateWithFlags` / `hipEventCreateWithFlags` /
-> `hipMalloc` / `hipMemsetAsync` / `hipStreamWaitEvent` /
-> `hipStreamSynchronize` calls. `enable_hip=true` builds now
-> hard-link `libamdhip64`. The remaining `-ENOSYS` surface is
-> `vmaf_hip_import_state` (waiting on T7-10c, the first feature-
-> kernel PR that wires `VmafContext`-side dispatch) plus every
-> consumer extractor's `init()` (their kernel-launch chains land
-> per-feature in T7-10c+). See ADR-0212 §"Status update 2026-05-08".
+> **Status (2026-05-10, T7-10b batch-1 real kernels landed):** the
+> host-side HIP runtime is wired (T7-10b, 2026-05-08). The kernel-
+> template lifecycle helpers all wrap real HIP runtime calls. Two of
+> eleven feature extractors now have real device kernels (ADR-0372):
+>
+> - `integer_psnr_hip` (name `psnr_hip`): uint64 atomic-SSE kernel,
+>   warp-64 `__shfl_down` reduction. Emits `psnr_y`. Requires
+>   `enable_hip=true` + `enable_hipcc=true`.
+> - `float_ansnr_hip` (name `float_ansnr_hip`): per-block (sig,
+>   noise) float-partial kernel, 3×3 ref + 5×5 dis filter with
+>   shared-memory mirror-padded tile. Emits `float_ansnr` +
+>   `float_anpsnr`. Requires `enable_hip=true` + `enable_hipcc=true`.
+>
+> Without `enable_hipcc`, the scaffold `-ENOSYS` posture is preserved.
+> The remaining six extractors remain at `-ENOSYS` pending batch-2.
+> See ADR-0372 for the batch-1 decision rationale.
 
 > **Historical status (audit-first scaffold):** the eight host-
 > scaffolded kernel-template consumers below register and are
