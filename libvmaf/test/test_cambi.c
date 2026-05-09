@@ -763,6 +763,195 @@ static char *test_get_vlt_luma()
     return NULL;
 }
 
+/*
+ * Post-merge sanity tests for PR #463 (cambi cluster port, admin-merged
+ * 2026-05-09). The cluster replaced the old 4-loop SAT recurrence in
+ * get_spatial_mask_for_index() with two new FORCE_INLINE helpers:
+ *   - compute_dp_row(): 1D prefix-sum + column-wise add of previous DP row
+ *   - compute_mask_row(): square-sum comparator from two DP rows
+ * These helpers were never tested in isolation before; the integration
+ * path through test_get_spatial_mask_for_index() exercises them end-to-end
+ * but cannot pin down which helper produces a wrong answer when they fail.
+ * Additionally, the cluster introduced calculate_c_values_avx2 / _neon
+ * ISA-dispatch paths; the parity test below locks in scalar == SIMD on
+ * the existing 8x8 fixture.
+ */
+
+/*
+ * test_compute_dp_row — unit coverage for the 1D prefix-sum SAT recurrence
+ * helper added in PR #463 cluster commit 2/10.
+ *
+ * We construct a flat dp_prev[] row and a known derivative row, then call
+ * compute_dp_row() twice: once with a valid derivative row, and once with
+ * deriv_valid=false (padding row). We verify the output matches the expected
+ * SAT recurrence dp[c] = dp_prev[c] + prefix_sum(deriv, 0..c).
+ */
+static char *test_compute_dp_row()
+{
+    /* 4-pixel-wide image: dp_width = width + 2*pad_size + 1 = 7 with pad_size=1 */
+    enum { WIDTH = 4, PAD = 1 };
+
+    uint32_t dp_prev[7] = {0, 0, 10, 20, 30, 40, 0};
+    uint32_t dp_curr[7];
+    memset(dp_curr, 0, sizeof(dp_curr));
+
+    /* derivative row: [1, 0, 2, 1] → prefix sums: [1, 1, 3, 4] */
+    uint16_t deriv[4] = {1, 0, 2, 1};
+
+    /* With valid derivative: dp_curr[dp_offset + j] = dp_prev[dp_offset + j] + prefix */
+    compute_dp_row(dp_curr, dp_prev, deriv, WIDTH, PAD, true);
+
+    /* dp_offset = PAD + 1 = 2.
+     * j=0: prefix=1, dp_curr[2] = dp_prev[2] + 1 = 10 + 1 = 11
+     * j=1: prefix=1, dp_curr[3] = dp_prev[3] + 1 = 20 + 1 = 21
+     * j=2: prefix=3, dp_curr[4] = dp_prev[4] + 3 = 30 + 3 = 33
+     * j=3: prefix=4, dp_curr[5] = dp_prev[5] + 4 = 40 + 4 = 44
+     * Pad tail (j=4..n-1=4): prefix stays 4; dp_curr[6] = dp_prev[6] + 4 = 4
+     */
+    mu_assert("compute_dp_row dp_curr[2] (j=0)", dp_curr[2] == 11);
+    mu_assert("compute_dp_row dp_curr[3] (j=1)", dp_curr[3] == 21);
+    mu_assert("compute_dp_row dp_curr[4] (j=2)", dp_curr[4] == 33);
+    mu_assert("compute_dp_row dp_curr[5] (j=3)", dp_curr[5] == 44);
+    mu_assert("compute_dp_row dp_curr[6] (pad tail)", dp_curr[6] == 4);
+
+    /* With invalid derivative (padding row): prefix stays 0 throughout */
+    uint32_t dp_curr2[7];
+    memset(dp_curr2, 0, sizeof(dp_curr2));
+    compute_dp_row(dp_curr2, dp_prev, deriv, WIDTH, PAD, false);
+
+    /* actual_width=0: inner loop skipped; outer loop runs j=0..WIDTH+PAD-1=4.
+     * prefix=0 throughout: dp_curr2[dp_offset+j] = dp_prev[dp_offset+j] + 0
+     * dp_curr2[2..6] = dp_prev[2..6] = {10, 20, 30, 40, 0}
+     */
+    mu_assert("compute_dp_row padding: dp_curr2[2]", dp_curr2[2] == 10);
+    mu_assert("compute_dp_row padding: dp_curr2[3]", dp_curr2[3] == 20);
+    mu_assert("compute_dp_row padding: dp_curr2[4]", dp_curr2[4] == 30);
+    mu_assert("compute_dp_row padding: dp_curr2[5]", dp_curr2[5] == 40);
+    mu_assert("compute_dp_row padding: dp_curr2[6]", dp_curr2[6] == 0);
+
+    return NULL;
+}
+
+/*
+ * test_compute_mask_row — unit coverage for the square-sum comparator helper
+ * added in PR #463 cluster commit 2/10.
+ *
+ * The formula is:
+ *   result = dp_bottom[j+delta] + dp_top[j] - dp_bottom[j] - dp_top[j+delta]
+ *   mask_row[j] = (result > mask_index)
+ * where delta = 2*pad_size + 1.
+ *
+ * We construct hand-crafted dp_bottom / dp_top rows that produce known
+ * square-sum values, verify the comparator fires (1) and stays quiet (0)
+ * at the expected output columns.
+ */
+static char *test_compute_mask_row()
+{
+    /* 4-pixel output, pad_size=1 → delta = 2*PAD+1 = 3, array positions [0..6] needed */
+    enum { WIDTH = 4, PAD = 1 };
+
+    /* Craft dp_bottom and dp_top so that the square-sum at each column is
+     * predictable:
+     *   result[j] = dp_bottom[j+3] + dp_top[j] - dp_bottom[j] - dp_top[j+3]
+     *
+     * Choose dp_bottom[0..6] = {0, 0, 0, 0, 5, 10, 15}
+     *        dp_top[0..6]    = {0, 0, 0, 0, 2,  4,  6}
+     *
+     * j=0: 0 + 0 - 0 - 0 = 0  → not > mask_index=0 → mask=0
+     *        (edge: index j+delta=3, value dp_bottom[3]=0, dp_top[3]=0)
+     * j=1: dp_bottom[4]+dp_top[1]-dp_bottom[1]-dp_top[4] = 5+0-0-2 = 3
+     * j=2: dp_bottom[5]+dp_top[2]-dp_bottom[2]-dp_top[5] = 10+0-0-4 = 6
+     * j=3: dp_bottom[6]+dp_top[3]-dp_bottom[3]-dp_top[6] = 15+0-0-6 = 9
+     */
+    uint32_t dp_bottom[7] = {0, 0, 0, 0, 5, 10, 15};
+    uint32_t dp_top[7] = {0, 0, 0, 0, 2, 4, 6};
+    uint16_t mask_row[4];
+    memset(mask_row, 0, sizeof(mask_row));
+
+    compute_mask_row(mask_row, dp_bottom, dp_top, WIDTH, PAD, /*mask_index=*/2);
+
+    /* result[0]=0: 0 > 2 → 0 */
+    mu_assert("compute_mask_row j=0 (result=0, mask_index=2)", mask_row[0] == 0);
+    /* result[1]=3: 3 > 2 → 1 */
+    mu_assert("compute_mask_row j=1 (result=3, mask_index=2)", mask_row[1] == 1);
+    /* result[2]=6: 6 > 2 → 1 */
+    mu_assert("compute_mask_row j=2 (result=6, mask_index=2)", mask_row[2] == 1);
+    /* result[3]=9: 9 > 2 → 1 */
+    mu_assert("compute_mask_row j=3 (result=9, mask_index=2)", mask_row[3] == 1);
+
+    /* Verify edge: mask_index=9 → only result[3]=9 is NOT strictly greater */
+    memset(mask_row, 0, sizeof(mask_row));
+    compute_mask_row(mask_row, dp_bottom, dp_top, WIDTH, PAD, /*mask_index=*/9);
+    mu_assert("compute_mask_row mask_index=9 j=2 (result=6 not >9)", mask_row[2] == 0);
+    mu_assert("compute_mask_row mask_index=9 j=3 (result=9 not >9)", mask_row[3] == 0);
+
+    return NULL;
+}
+
+/*
+ * test_calculate_c_values_scalar_avx2_parity — bit-exactness guard for the
+ * AVX2 / scalar calculate_c_values paths introduced by PR #463 cluster
+ * commits 3/10 and 4/10.
+ *
+ * The macro CAMBI_CALC_C_VALUES_BODY dispatches the increment/decrement/row
+ * callbacks. On x86 with AVX2, init() selects calculate_c_values_avx2()
+ * instead of the scalar calculate_c_values(). This test calls both on the
+ * same 8x8 fixture (get_sample_image_8x8) and asserts that every c_value
+ * output float is identical (bit-exact). On non-x86 hosts the AVX2 path is
+ * compiled out; the test falls through and passes as a no-op.
+ */
+static char *test_calculate_c_values_scalar_avx2_parity()
+{
+    VmafPicture input_scalar;
+    VmafPicture input_avx2;
+    VmafPicture mask_scalar;
+    VmafPicture mask_avx2;
+    int err = 0;
+    err |= get_sample_image_8x8(&input_scalar, 0);
+    err |= get_sample_image_8x8(&input_avx2, 0);
+    err |= get_sample_image_8x8(&mask_scalar, 1);
+    err |= get_sample_image_8x8(&mask_avx2, 1);
+    mu_assert("parity test alloc error", !err);
+
+    float c_scalar[64];
+    float c_avx2[64];
+    memset(c_scalar, 0, sizeof(c_scalar));
+    memset(c_avx2, 0, sizeof(c_avx2));
+
+    const uint16_t num_diffs = 4;
+    uint16_t tvi_for_diff[4] = {178, 305, 432, 559};
+    uint16_t vlt_luma = 0;
+    uint16_t window_size = 9;
+    /* histograms: width * v_band_size, v_band_size <= tvi_for_diff[3]+1 = 560 */
+    uint16_t histograms_s[8 * 560];
+    uint16_t histograms_a[8 * 560];
+    uint16_t *diffs_to_consider = NULL;
+    int *diff_weights = NULL;
+    int *all_diffs = NULL;
+    set_contrast_arrays(num_diffs, &diffs_to_consider, &diff_weights, &all_diffs);
+
+    calculate_c_values(&input_scalar, &mask_scalar, c_scalar, histograms_s, window_size, num_diffs,
+                       tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
+
+#if ARCH_X86
+    calculate_c_values_avx2(&input_avx2, &mask_avx2, c_avx2, histograms_a, window_size, num_diffs,
+                            tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
+    for (int i = 0; i < 64; i++) {
+        mu_assert("scalar vs avx2 calculate_c_values parity (bit-exact)", c_scalar[i] == c_avx2[i]);
+    }
+#endif
+
+    vmaf_picture_unref(&input_scalar);
+    vmaf_picture_unref(&input_avx2);
+    vmaf_picture_unref(&mask_scalar);
+    vmaf_picture_unref(&mask_avx2);
+    aligned_free(diffs_to_consider);
+    aligned_free(diff_weights);
+    aligned_free(all_diffs);
+
+    return NULL;
+}
+
 char *run_tests()
 {
     /* Preprocessing functions */
@@ -794,6 +983,11 @@ char *run_tests()
     mu_run_test(test_set_contrast_arrays);
     mu_run_test(test_tvi_hard_threshold_condition);
     mu_run_test(test_get_vlt_luma);
+
+    /* Post-merge sanity: PR #463 cambi cluster port (admin-merged 2026-05-09) */
+    mu_run_test(test_compute_dp_row);
+    mu_run_test(test_compute_mask_row);
+    mu_run_test(test_calculate_c_values_scalar_avx2_parity);
 
     return NULL;
 }
