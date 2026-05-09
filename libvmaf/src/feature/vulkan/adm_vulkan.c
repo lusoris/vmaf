@@ -130,6 +130,16 @@ typedef struct {
     VmafVulkanKernelPipeline pl;
     VkPipeline pipelines[ADM_NUM_STAGES][ADM_NUM_SCALES];
 
+    /* Submit-side pool (T-GPU-OPT-VK-1 / ADR-0256). One slot suffices:
+     * all 16 dispatches are batched into a single command buffer. */
+    VmafVulkanKernelSubmitPool sub_pool;
+
+    /* Pre-allocated descriptor sets, one per scale (T-GPU-OPT-VK-4 /
+     * ADR-0256). All 9 bindings (including the per-scale accum buffer at
+     * slot 7) are init-time-stable; no vkUpdateDescriptorSets is needed
+     * in extract(). */
+    VkDescriptorSet pre_sets[ADM_NUM_SCALES];
+
     /* GPU buffers. dwt_tmp[]: int32 plane, sized for the largest
      * (scale 0) frame (cur_w*2 × half_h elements). All scales reuse
      * the same buffer since they fit. */
@@ -513,6 +523,25 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (err)
         return err;
 
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/1, &s->sub_pool);
+    if (err)
+        return err;
+
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl.desc_pool, s->pl.dsl,
+                                                   (uint32_t)ADM_NUM_SCALES, s->pre_sets);
+    if (err)
+        return err;
+
+    /* Write all 9 bindings once — all are init-time-stable.
+     * write_descriptor_set fills slots 0-6 and 8; write_accum_binding
+     * fills slot 7 (one per-scale accum buffer). Neither changes
+     * between frames, so no per-frame vkUpdateDescriptorSets is
+     * needed in extract(). (T-GPU-OPT-VK-4 / ADR-0256.) */
+    for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
+        write_descriptor_set(s, s->pre_sets[scale]);
+        write_accum_binding(s, s->pre_sets[scale], scale);
+    }
+
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (!s->feature_name_dict)
@@ -822,44 +851,18 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             return err;
     }
 
-    /* Allocate one descriptor set (we re-use it across all dispatches by
-     * rewriting the accum binding before each scale). For simplicity
-     * and to side-step descriptor-aliasing concerns, allocate one set
-     * per scale. */
-    VkDescriptorSet sets[ADM_NUM_SCALES] = {VK_NULL_HANDLE};
-    VkDescriptorSetLayout layouts[ADM_NUM_SCALES];
-    for (int i = 0; i < ADM_NUM_SCALES; i++)
-        layouts[i] = s->pl.dsl;
-    VkDescriptorSetAllocateInfo dsai = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->pl.desc_pool,
-        .descriptorSetCount = ADM_NUM_SCALES,
-        .pSetLayouts = layouts,
-    };
-    if (vkAllocateDescriptorSets(s->ctx->device, &dsai, sets) != VK_SUCCESS)
-        return -ENOMEM;
-    for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
-        write_descriptor_set(s, sets[scale]);
-        write_accum_binding(s, sets[scale], scale);
-    }
+    /* All 9 descriptor bindings are init-time-stable (the accum buffers
+     * are allocated once in init() and never reallocated). No per-frame
+     * vkUpdateDescriptorSets needed. (T-GPU-OPT-VK-4 / ADR-0256.) */
 
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo cbai = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = s->ctx->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &cmd) != VK_SUCCESS) {
-        err = -ENOMEM;
-        goto cleanup;
-    }
-    VkCommandBufferBeginInfo cbbi = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-    vkBeginCommandBuffer(cmd, &cbbi);
+    /* Acquire a pre-allocated command buffer + fence from the submit pool.
+     * Eliminates per-frame vkAllocateCommandBuffers / vkCreateFence.
+     * (T-GPU-OPT-VK-1 / ADR-0256.) */
+    VmafVulkanKernelSubmit submit = {0};
+    err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool, /*pool_slot=*/0, &submit);
+    if (err)
+        return err;
+    VkCommandBuffer cmd = submit.cmd;
 
     for (int scale = 0; scale < ADM_NUM_SCALES; scale++) {
         unsigned cw = s->scale_w[scale];
@@ -934,7 +937,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
             uint32_t gy = (hh + ADM_WG_Y - 1u) / ADM_WG_Y;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pipelines[0][scale]);
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0,
-                                    1, &sets[scale], 0, NULL);
+                                    1, &s->pre_sets[scale], 0, NULL);
             vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                sizeof(pc), &pc);
             vkCmdDispatch(cmd, gx, gy, 2);
@@ -970,33 +973,14 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         }
     }
 
-    vkEndCommandBuffer(cmd);
-
-    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS) {
-        err = -ENOMEM;
+    err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &submit);
+    if (err)
         goto cleanup;
-    }
-    VkSubmitInfo si = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
-        err = -EIO;
-        goto cleanup;
-    }
-    vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
 
     err = reduce_and_emit(s, index, feature_collector);
 
 cleanup:
-    if (fence != VK_NULL_HANDLE)
-        vkDestroyFence(s->ctx->device, fence, NULL);
-    if (cmd != VK_NULL_HANDLE)
-        vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
-    if (sets[0] != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, ADM_NUM_SCALES, sets);
+    vmaf_vulkan_kernel_submit_free(s->ctx, &submit);
     return err;
 }
 
@@ -1024,6 +1008,7 @@ static int close_fex(VmafFeatureExtractor *fex)
                 vkDestroyPipeline(dev, s->pipelines[stage][scale], NULL);
         }
     }
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
     vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     if (s->src_ref)

@@ -279,8 +279,8 @@ vulkan/
   Submit-pool / descriptor-pre-alloc invariants (ADR-0256):
   1. `VmafVulkanKernelSubmitPool` is created in `init()` with a
      `slot_count` matching the ops-per-frame the kernel issues.
-     For single-dispatch kernels (psnr_hvs, vif, adm, float_vif,
-     float_adm) `slot_count = 1`. For multi-fence kernels (e.g.
+     For single-dispatch kernels (psnr_hvs, vif, adm, motion, psnr,
+     float_vif, float_adm) `slot_count = 1`. For multi-fence kernels (e.g.
      ms_ssim's 1 pyramid + 5 SSIM scales = 6) the slot count is
      bounded by `VMAF_VULKAN_KERNEL_POOL_MAX_SLOTS` (8).
   2. `vmaf_vulkan_kernel_submit_acquire` requires the context's

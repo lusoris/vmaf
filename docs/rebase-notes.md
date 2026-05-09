@@ -9398,6 +9398,7 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -9726,4 +9727,41 @@ kernel's `close_fex()`. See `libvmaf/src/feature/vulkan/AGENTS.md
 - **Re-test**: `meson test -C build --suite=vulkan` passes. `scripts/ci/cross_backend_vif_diff.py`
   shows `places=4` for all four extractors on all three target devices
   (RTX 4090, Arc A380, RADV iGPU).
+
+
+### 0231 — Vulkan submit-pool migration PR A: adm + motion + psnr (ADR-0291)
+- **Touches**: `libvmaf/src/feature/vulkan/adm_vulkan.c`,
+  `libvmaf/src/feature/vulkan/motion_vulkan.c`,
+  `libvmaf/src/feature/vulkan/psnr_vulkan.c` (all fork-local
+  Vulkan kernels; no upstream C paths touched),
+  `changelog.d/changed/vulkan-submit-pool-pr-a-adm-motion-psnr.md`,
+  `docs/adr/0291-vulkan-submit-pool-pr-a-adm-motion-psnr.md`.
+- **Invariant**: Each migrated TU adds `VmafVulkanKernelSubmitPool
+  sub_pool` and pre-allocated `VkDescriptorSet` field(s) to its state
+  struct. The pool must be destroyed (`vmaf_vulkan_kernel_submit_pool_destroy`)
+  **before** `vmaf_vulkan_kernel_pipeline_destroy` in `close_fex()`;
+  reversing the order would destroy the descriptor pool while the submit
+  pool still holds live command buffer + fence references. Descriptor
+  sets allocated via `vmaf_vulkan_kernel_descriptor_sets_alloc` are
+  freed implicitly by the descriptor pool tear-down — do NOT call
+  `vkFreeDescriptorSets` on them in `close_fex()`. For `motion_vulkan`,
+  the pre-allocated set is rebound once per frame via `vkUpdateDescriptorSets`
+  because the blur ping-pong changes which `blur[]` slot is "current"; for
+  `adm_vulkan` and `psnr_vulkan` the sets are stable after `init()` and
+  require no per-frame update.
+- **Upstream interaction**: none. All three files are fork-local Vulkan
+  kernel TUs not present in Netflix/vmaf upstream.
+- **On upstream sync**: zero interaction. Upstream cannot conflict with
+  this PR's paths. The Vulkan backend is entirely fork-introduced.
+- **Re-test on rebase**:
+  ```bash
+  meson test -C build --suite=fast
+  # Cross-backend parity gate (places=4):
+  python python/test/cross_backend_diff.py \
+      --features adm motion psnr \
+      --backend vulkan cpu \
+      --places 4 \
+      --yuv testdata/yuv/src01_hrc00_576x324.yuv \
+              testdata/yuv/src01_hrc01_576x324.yuv
+  ```
 
