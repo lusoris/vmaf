@@ -9314,6 +9314,7 @@ train without touching the underlying matrix.
 document the flip-the-variable recipe when the cluster is degraded.
 **Rebase-sensitivity**: zero — workflow file is fork-local.
 
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -9454,3 +9455,46 @@ trips on ≥ 5.5e-5 drift per ADR-0160 §Context). The ADR-0350
 §Verification reproducer is the gate — re-run it if the cycle
 share shifts, the Netflix normal-pair fixture changes, or a new
 host class (e.g. wide-issue Granite Rapids) goes into CI.
+
+### 0320 — FFmpeg n8.1 → n8.1.1 base bump (2026-05-09)
+- **Touches**: `ffmpeg-patches/series.txt` (header comment),
+  `ffmpeg-patches/README.md` (apply / verify / smoke sections),
+  `ffmpeg-patches/test/build-and-run.sh` (`FFMPEG_SHA` default),
+  `scripts/ci/ffmpeg-patches-check.sh` (header comment;
+  `FFMPEG_BRANCH` env default unchanged at `release/8.1` since
+  the branch tracks point releases),
+  `docs/development/automated-rule-enforcement.md` (gate
+  description). The 9 `.patch` files themselves are unchanged —
+  every patch in the series applied cleanly, cumulatively, against
+  pristine `n8.1.1` via `git am --3way`.
+- **Upstream source**: FFmpeg upstream point release n8.1.1
+  (commit `239f2c7` "Bump micro for 8.1.1") — bug-fix-only on top
+  of n8.1, no API or AVOption breakage that the patch stack
+  consumes.
+- **Invariant**: the patch stack continues to apply against the
+  current tip of FFmpeg's `release/8.1` branch. Per
+  [ADR-0118](adr/0118-ffmpeg-patch-series-application.md) and
+  [ADR-0186 §FFmpeg patch coupling](adr/0186-vulkan-image-import-impl.md),
+  the verification gate is **cumulative `git am --3way`** against
+  a pristine checkout, not per-patch standalone apply. The
+  scripts/ci/ffmpeg-patches-check.sh local gate uses `git apply`
+  (no commit) but accumulates state in the same way.
+- **On upstream sync**: no action required. If a future FFmpeg
+  point release (n8.1.2 or n8.2) lands new hunks that conflict
+  with one of the patches, regenerate the affected patches via
+  `git format-patch` on the resolved state, bump the references
+  in the five files listed under "Touches", and add a fresh
+  rebase-notes entry citing the conflict file(s).
+- **Re-test on rebase**:
+  ```bash
+  cd /tmp && rm -rf ffmpeg-n811 && \
+    git clone --depth 1 --branch n8.1.1 \
+      https://git.ffmpeg.org/ffmpeg.git ffmpeg-n811
+  git -C /tmp/ffmpeg-n811 config user.email agent@local
+  git -C /tmp/ffmpeg-n811 config user.name agent
+  for p in ffmpeg-patches/000*-*.patch; do
+    git -C /tmp/ffmpeg-n811 am --3way "$p" || break
+  done
+  bash scripts/ci/ffmpeg-patches-check.sh
+  ```
+

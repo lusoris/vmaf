@@ -1,6 +1,6 @@
 # ffmpeg-patches/
 
-Local patches against FFmpeg **n8.1** for integrating this VMAF fork into
+Local patches against FFmpeg **n8.1.1** for integrating this VMAF fork into
 `libavfilter/vf_libvmaf*` plus a new `vf_vmaf_pre` filter.
 
 ## Contents
@@ -63,7 +63,7 @@ hardware-frame import.
 ## How to apply
 
 ```bash
-cd /path/to/ffmpeg    # must be at tag n8.1
+cd /path/to/ffmpeg    # must be at tag n8.1.1
 for p in /path/to/vmaf/ffmpeg-patches/000*-*.patch; do
     git am --3way "$p" || break
 done
@@ -78,10 +78,11 @@ Or via the helper skill: `/ffmpeg-apply-patches /path/to/ffmpeg`.
 > [ADR-0186](../docs/adr/0186-vulkan-image-import-impl.md), the
 > verification gate for any change touching a libvmaf C-API surface
 > the patches consume is a **series replay** against a pristine
-> `n8.1` checkout (cumulative `git am --3way`), NOT a per-patch
+> `n8.1.1` checkout (cumulative `git am --3way`), NOT a per-patch
 > `git apply --check`. The latter rejects `0002+` because they
 > reference cumulative-state hunks that don't exist in pristine
-> `n8.1`. The most recent no-drift verification is
+> `n8.1.1`. The most recent no-drift verification is
+> the n8.1 → n8.1.1 base bump (2026-05-09); the previous one was
 > [ADR-0277 (2026-05-04)](../docs/adr/0277-ffmpeg-patches-refresh-2026-05-04.md);
 > the procedure is captured in
 > [`docs/rebase-notes.md`](../docs/rebase-notes.md) under the same
@@ -95,7 +96,7 @@ bash ffmpeg-patches/test/build-and-run.sh
 
 Requires `libvmaf` to be installed (`pkg-config --cflags libvmaf` must
 resolve). Set `VMAF_PREFIX` to point at a non-standard install prefix.
-Pins `FFMPEG_SHA=n8.1`; override to test against a newer tag.
+Pins `FFMPEG_SHA=n8.1.1`; override to test against a newer tag.
 
 ## How to regenerate
 
