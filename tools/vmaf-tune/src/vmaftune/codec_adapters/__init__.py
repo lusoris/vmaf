@@ -29,6 +29,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
+from ._nvenc_common import BaseNvencAdapter
+from ._qsv_common import BaseQsvAdapter
 from .av1_amf import AV1AMFAdapter
 from .av1_nvenc import Av1NvencAdapter
 from .av1_qsv import Av1QsvAdapter
@@ -166,6 +168,8 @@ def known_codecs() -> tuple[str, ...]:
 __all__ = [
     "AV1AMFAdapter",
     "Av1NvencAdapter",
+    "BaseNvencAdapter",
+    "BaseQsvAdapter",
     "Av1QsvAdapter",
     "Av1VideoToolboxAdapter",
     "Av1VideoToolboxUnavailableError",
