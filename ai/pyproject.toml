@@ -25,8 +25,8 @@ dependencies = [
   "onnx>=1.21.0,<2.0",
   "onnxruntime>=1.20,<2.0",
   "onnxscript>=0.2",
-  "numpy>=2.4.4,<3.0",
-  "pandas>=2.2,<3.0",
+  "numpy>=1.26,<3.0",
+  "pandas>=3.0.2,<3.1",
   "pyarrow>=17.0",
   "scipy>=1.13",
   "scikit-learn>=1.5",
@@ -40,7 +40,7 @@ dependencies = [
 tune = ["optuna>=4.0", "ray[tune]>=2.55.1"]
 gpu  = []
 viz  = ["matplotlib>=3.9", "seaborn>=0.13"]
-dev  = ["pytest>=9.0.3", "ruff>=0.15.12", "mypy>=1.10"]
+dev  = ["pytest>=9.0.3", "ruff>=0.6", "mypy>=1.10"]
 
 [project.scripts]
 vmaf-train = "vmaf_train.cli:app"
