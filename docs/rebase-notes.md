@@ -9623,6 +9623,7 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
 
 
 
+
 ### 0333 — vmaf-tune Phase F multi-pass encoding (ADR-0333)
 **Touches**:
 - `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py` (CodecAdapter
@@ -9919,6 +9920,56 @@ compiles).
 - **Re-test on rebase**: same `bash scripts/ci/test-state-md-touch-check.sh`
   run as the 2026-05-08 entry; the harness now reports
   `18/18 passed` (was `8/8 passed`).
+
+
+### 0347 — Sanitizer matrix test-set scope (ADR-0347)
+- **Touches**: [`.github/workflows/tests-and-quality-gates.yml`](../.github/workflows/tests-and-quality-gates.yml)
+  job `sanitizers` (build + test step), [`libvmaf/test/meson.build`](../libvmaf/test/meson.build)
+  (no edits — the absence of any `suite: 'unit'` tag is the upstream
+  state we now work *with* rather than against).
+- **Invariant**: the sanitizer job runs the full C unit-test set per
+  sanitizer with a per-sanitizer deselect list driven by a `case`
+  block on `${{ matrix.sanitizer }}`. The deselect lists are
+  load-bearing — each entry corresponds to a real bug tracked in
+  [`docs/state.md`](state.md). Under UBSan the build adds
+  `-Dc_args=-fno-sanitize=function -Dcpp_args=-fno-sanitize=function`
+  to suppress the K&R-prototype harness UB; the meson `case` branch
+  must keep this build flag in sync with the test deselect entries.
+  An upstream rebase that adds new test files via
+  [`libvmaf/test/meson.build`](../libvmaf/test/meson.build) inherits
+  full sanitizer coverage automatically (the workflow enumerates
+  tests via `meson test --list`).
+- **On upstream sync**: if upstream Netflix lands a `suite: 'unit'`
+  tagging convention, the workflow is robust to it (we already
+  enumerate from `meson test --list`, not from `--suite=unit`).
+  If upstream rewrites the harness to declare `static char *test_X(void)`
+  with a `(void)` parameter, the `-fno-sanitize=function` flag becomes
+  redundant — leave it in place (zero cost) until a deliberate cleanup
+  PR reverts the suppression. If upstream lands a fix for any of the
+  surfaced defects (`SVMModelParser` validation, `feature_collector`
+  metadata leak, `integer_adm::div_lookup` race, `framesync` mutex
+  mismatch), drop the corresponding deselect row from the workflow's
+  `case` block in the same PR that pulls the upstream fix.
+  cd libvmaf
+  for SAN in address undefined thread; do
+    EXTRA=()
+    [ "$SAN" = undefined ] && EXTRA=( "-Dc_args=-fno-sanitize=function" "-Dcpp_args=-fno-sanitize=function" )
+    rm -rf "build-$SAN"
+    CC=clang CXX=clang++ LDFLAGS=-fuse-ld=lld \
+      meson setup "build-$SAN" -Db_sanitize="$SAN" \
+        -Denable_cuda=false -Denable_sycl=false --buildtype=debug \
+        -Db_lto=false -Db_lundef=false "${EXTRA[@]}"
+    meson compile -C "build-$SAN"
+    case "$SAN" in
+      address)   EXCLUDE='test_model$|test_predict$|test_float_ms_ssim_min_dim$' ;;
+      undefined) EXCLUDE='test_model$' ;;
+      thread)    EXCLUDE='test_model$|test_pic_preallocation$|test_framesync$' ;;
+    esac
+    TESTS=$(meson test -C "build-$SAN" --list \
+            | grep '^libvmaf:' \
+            | grep -vE "$EXCLUDE" \
+            | sed 's/^libvmaf://')
+    meson test -C "build-$SAN" --print-errorlogs $TESTS
 
 
 

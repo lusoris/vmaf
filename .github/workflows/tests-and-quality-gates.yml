@@ -480,19 +480,79 @@ jobs:
           sudo apt-get install -y meson ninja-build nasm clang-18 lld-18 \
             libclang-rt-18-dev
       - name: Build with ${{ matrix.sanitizer }} sanitizer
+        # ADR-0347: under UBSan, suppress the `function` check via
+        # `-fno-sanitize=function`. The pre-existing K&R-prototype
+        # `static char *test_X()` pattern across ~50 minunit-style
+        # harness files (`libvmaf/test/test.h` + every `test_*.c`)
+        # trips UBSan's function-pointer-type check unconditionally;
+        # rewriting all 50 files to `(void)` is a separate T7-5-style
+        # sweep PR. The suppression preserves UBSan signal on
+        # library code while skipping the harness-only UB.
         working-directory: libvmaf
+        shell: bash
         env:
           CC: clang-18
           CXX: clang++-18
           LDFLAGS: -fuse-ld=lld-18
         run: |
+          if [ "${{ matrix.sanitizer }}" = "undefined" ]; then
+            EXTRA_ARGS=( "-Dc_args=-fno-sanitize=function" "-Dcpp_args=-fno-sanitize=function" )
+          else
+            EXTRA_ARGS=()
+          fi
           meson setup build -Db_sanitize=${{ matrix.sanitizer }} \
             -Denable_cuda=false -Denable_sycl=false --buildtype=debug \
-            -Db_lto=false -Db_lundef=false
+            -Db_lto=false -Db_lundef=false "${EXTRA_ARGS[@]}"
           meson compile -C build
       - name: Run unit tests under sanitizer
+        # ADR-0347: replace the previous `--suite=unit` invocation
+        # (which matched zero tests because no `test()` call in
+        # `libvmaf/test/meson.build` carries a `suite: 'unit'` tag).
+        # We now run the full C unit-test set with a per-sanitizer
+        # deselect list — each excluded test corresponds to a real
+        # defect tracked in `docs/state.md` and removed from the list
+        # when the underlying bug-fix PR lands. Companion research
+        # digest: `docs/research/0090-sanitizer-matrix-test-scope.md`.
         working-directory: libvmaf
-        run: meson test -C build --print-errorlogs --suite=unit
+        shell: bash
+        run: |
+          case "${{ matrix.sanitizer }}" in
+            address)
+              # ASan deselects: test_model (svm.cpp parser
+              # alloc-too-big on malformed JSON), test_predict
+              # (metadata-dispatch dict leak), test_float_ms_ssim_min_dim
+              # (extractor-state calloc leak in test setup).
+              EXCLUDE='test_model$|test_predict$|test_float_ms_ssim_min_dim$'
+              ;;
+            undefined)
+              # UBSan deselect: test_model (NULL-to-nonnull memcpy
+              # in svm.cpp parser — same defect as ASan exclusion
+              # surfaced via a different sanitizer angle).
+              EXCLUDE='test_model$'
+              ;;
+            thread)
+              # TSan deselects: test_model (same defect),
+              # test_pic_preallocation (integer_adm `div_lookup`
+              # global-init race across worker threads),
+              # test_framesync (mutex-domain mismatch on per-buffer
+              # `count` between submit/acquire paths).
+              EXCLUDE='test_model$|test_pic_preallocation$|test_framesync$'
+              ;;
+            *)
+              echo "::error::ADR-0347 deselect list is not defined for sanitizer=${{ matrix.sanitizer }}" >&2
+              exit 1
+              ;;
+          esac
+          TESTS=$(meson test -C build --list \
+                  | grep '^libvmaf:' \
+                  | grep -vE "$EXCLUDE" \
+                  | sed 's/^libvmaf://')
+          if [ -z "$TESTS" ]; then
+            echo "::error::ADR-0347 test enumeration produced empty list for sanitizer=${{ matrix.sanitizer }}" >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2086
+          meson test -C build --print-errorlogs $TESTS
 
   # ===== DNN / tiny-AI gate =====
   # Builds libvmaf with --enable_dnn (ONNX Runtime C API), runs the dnn

@@ -80,8 +80,28 @@ and teardown.
 ## Governing ADRs
 
 - [ADR-0015](../../docs/adr/0015-ci-matrix-asan-ubsan-tsan.md) — sanitizer
-  matrix (tests run under ASan + UBSan).
+  matrix (tests run under ASan + UBSan + TSan).
 - [ADR-0024](../../docs/adr/0024-netflix-golden-preserved.md) — Netflix
   goldens (Python-side) never change.
 - [ADR-0245](../../docs/adr/0245-simd-bitexact-test-harness.md) — SIMD
   bit-exact test harness shared header (`simd_bitexact_test.h`).
+- [ADR-0347](../../docs/adr/0347-sanitizer-matrix-test-scope.md) —
+  sanitizer matrix test-set scope. **Rebase-sensitive invariant**:
+  the sanitizer job in
+  `.github/workflows/tests-and-quality-gates.yml` enumerates the
+  full unit-test set via `meson test --list` and applies a
+  per-sanitizer deselect regex (ASan / UBSan / TSan each have
+  their own list). When adding a new `test()` call to
+  [`meson.build`](meson.build), the test inherits sanitizer
+  coverage automatically. Do NOT add a `suite: 'unit'` tag to
+  any `test()` call without coordinating with ADR-0347 — the
+  workflow no longer relies on `--suite=unit` (which previously
+  matched zero tests because no `test()` carried the tag) and
+  partial tagging would silently re-introduce the gap. Under
+  UBSan the build adds `-fno-sanitize=function` to suppress the
+  K&R-prototype harness UB across every `test_*.c`; new test
+  files should follow the existing `static char *test_X()`
+  pattern for upstream-parity. A future T7-5-style sweep PR
+  that converts every test function to `(void)` parameters
+  must also drop `-fno-sanitize=function` from the workflow in
+  the same PR.
