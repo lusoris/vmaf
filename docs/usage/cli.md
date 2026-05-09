@@ -220,14 +220,21 @@ example, `--aom_ctc v7.0` is equivalent to:
 --tiny-model <path>            # load a .onnx tiny model alongside classic models
 --tiny-device auto|cpu|cuda|openvino|coreml|coreml-ane|coreml-gpu|coreml-cpu|rocm
                                 # ORT execution provider (default: auto)
+--dnn-ep auto|cpu|cuda|openvino|coreml|coreml-ane|coreml-gpu|coreml-cpu|rocm
+                                # alias for --tiny-device; uses ORT terminology
 --tiny-threads <N>             # CPU EP intra-op threads (0 = ORT default)
 --tiny-fp16                    # request fp16 I/O where the EP supports it
 --no-reference                 # NR mode; requires a no-reference tiny model
 ```
 
+`--dnn-ep` and `--tiny-device` are equivalent — they select the ONNX Runtime
+execution provider and write to the same internal setting. Use whichever name
+is more natural for your script; `--dnn-ep` follows the ORT "execution
+provider" terminology, while `--tiny-device` predates the alias.
+
 Underscore aliases (`--tiny_model`, `--tiny_device`, `--tiny_threads`, `--tiny_fp16`,
-`--no_reference`) are accepted for scripting symmetry with the underscore flags
-upstream uses.
+`--no_reference`, `--dnn_ep`) are accepted for scripting symmetry with the underscore
+flags upstream uses.
 
 `--no-reference` requires a `--tiny-model` whose registry entry declares
 `"reference_required": false`. With no tiny model loaded the flag is
