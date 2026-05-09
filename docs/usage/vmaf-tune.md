@@ -1710,6 +1710,7 @@ of these:
 7. Recommendation-quality benchmark — for ≥3 sources, compare
    `fast` vs the slow grid at the recommended CRF; gate Acceptance
    on a small VMAF tolerance (≤ 1.0 VMAF gap median).
+
 - `libsvtav1` / `libvpx-vp9` / `libvvenc` are still pending —
   they will land via the codec adapter interface in
   `tools/vmaf-tune/src/vmaftune/codec_adapters/`. `libx264` and
@@ -1983,7 +1984,7 @@ each one.
 
 ### Short-circuits
 
-The seven short-circuits below are the F.2 surface. Each one is a
+The ten short-circuits below are the F.2 surface. Each one is a
 guarded fast-path with one trigger condition; the predicates are
 exposed as `_should_short_circuit_<N>` helpers in
 `tools/vmaf-tune/src/vmaftune/auto.py` so they can be unit-tested in
@@ -1998,13 +1999,18 @@ isolation.
 | 5 | `sdr-skip` | `not meta.is_hdr` (per ADR-0300 detector) | The HDR resolution + model-selection branch. |
 | 6 | `sample-clip-propagate` | `--sample-clip-seconds > 0` | Re-deciding clip length per stage; the user-supplied value propagates verbatim (ADR-0301). |
 | 7 | `skip-per-shot` | `duration < 5min` AND `shot_variance < 0.15` | The `tune_per_shot.refine` pass (ADR-0276 phase-d). |
+| 8 | `low-complexity` | `meta.complexity_score < 200 kbps` (probe-encode bitrate) | The `recommend.coarse_to_fine` sweep — the predictor's point estimate is already tight on simple content. `0.0`/`NaN` does not fire (no probe run yet). |
+| 9 | `baseline-meets-target` | `meta.baseline_vmaf >= target_vmaf` | The full predictor sweep — the default-CRF encode already satisfies the quality target. `0.0`/`NaN` does not fire (no baseline scored yet). |
+| 10 | `no-two-pass` | `adapter.supports_two_pass == False` (ADR-0333) | The two-pass calibration stage. Hardware encoders (`*_nvenc`, `*_amf`, `*_qsv`, `*_videotoolbox`) and most software encoders fire this. Only `libx265` currently sets `supports_two_pass = True`. |
 
 The 5-min and 0.15 thresholds in short-circuit #7 are placeholders;
 F.3 fits them empirically once Phase F has emitted enough labelled
 compositions to make the fit statistically defensible. The constants
 live at the top of `auto.py` (`PHASE_D_DURATION_GATE_S`,
 `PHASE_D_SHOT_VARIANCE_GATE`) so the eventual fit lands as a one-line
-edit.
+edit. The 200 kbps threshold in short-circuit #8 is likewise a
+placeholder: `LOW_COMPLEXITY_PROBE_BITRATE_THRESHOLD_KBPS` at the top
+of `auto.py`.
 
 The evaluation order in `SHORT_CIRCUIT_PREDICATES` is part of the
 public contract: tests assert that an earlier-firing predicate doesn't

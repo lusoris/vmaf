@@ -448,10 +448,16 @@ def get_recipe_for_class(content_class: str) -> dict[str, object]:
 
 
 class ShortCircuit(enum.Enum):
-    """Names of the seven short-circuits (per ADR-0364 §F.2).
+    """Names of the short-circuits (per ADR-0325 §F.1/F.2).
 
     The string values are the canonical identifiers recorded in
     ``plan.metadata.short_circuits`` and surfaced in the JSON output.
+
+    Short-circuits #1–#7 are the original seven from the F.1/F.2
+    sequential scaffold. Short-circuits #8–#10 are the three additional
+    predicates introduced by this PR: low-complexity, baseline-meets-
+    target, and no-two-pass.  Adding a new short-circuit means appending
+    here and to ``SHORT_CIRCUIT_PREDICATES`` — never reordering.
     """
 
     LADDER_SINGLE_RUNG = "ladder-single-rung"
@@ -461,6 +467,12 @@ class ShortCircuit(enum.Enum):
     SDR_SKIP = "sdr-skip"
     SAMPLE_CLIP_PROPAGATE = "sample-clip-propagate"
     SKIP_PER_SHOT = "skip-per-shot"
+    # F.1/F.2 additions — three short-circuits that consult the probe
+    # bitrate (complexity barometer), the baseline-encode VMAF, and the
+    # codec adapter's two-pass flag respectively.
+    LOW_COMPLEXITY = "low-complexity"
+    BASELINE_MEETS_TARGET = "baseline-meets-target"
+    NO_TWO_PASS = "no-two-pass"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -483,6 +495,15 @@ class SourceMeta:
     duration_s: float = 0.0
     shot_variance: float = 0.0
     sample_clip_seconds: float = 0.0
+    # F.1/F.2 additions: complexity barometer + baseline VMAF.
+    # ``complexity_score`` is the probe-encode bitrate at the adapter's
+    # ``probe_quality``/``probe_preset`` knobs. ``0.0`` or ``NaN`` means
+    # the probe hasn't run yet; short-circuit #8 does not fire.
+    # ``baseline_vmaf`` is the pooled-mean VMAF at the codec's default
+    # CRF. ``0.0`` or ``NaN`` means no baseline scored; short-circuit #9
+    # does not fire.
+    complexity_score: float = 0.0
+    baseline_vmaf: float = 0.0
 
 
 @dataclasses.dataclass
@@ -502,6 +523,10 @@ class PlanState:
     user_pinned_codec: str | None = None
     predictor_verdict: str | None = None  # "GOSPEL" / "LIKELY" / "FALL_BACK"
     short_circuits: list[str] = dataclasses.field(default_factory=list)
+    # F.1/F.2 addition: per-cell two-pass support flag from the codec adapter.
+    # ``None`` means not yet resolved (smoke/pre-cell-loop); predicate #10
+    # does not fire for ``None``.
+    adapter_supports_two_pass: bool | None = None
 
     def fired(self, sc: ShortCircuit) -> None:
         """Record that ``sc`` fired (idempotent on repeats)."""
@@ -609,6 +634,65 @@ def _should_short_circuit_7_skip_per_shot(meta: SourceMeta, plan_state: PlanStat
     return short and low_variance
 
 
+# ---------------------------------------------------------------------------
+# F.1/F.2 addition — three new short-circuit predicates (#8, #9, #10).
+# ---------------------------------------------------------------------------
+
+# Threshold below which a source is considered "low complexity" and the
+# recommend / ladder stages add no information. Expressed in kbps of the
+# codec adapter's probe encode. ``0.0`` disables the gate (smoke mode, no
+# probe). Placeholder pending F.3 corpus-derived fit.
+LOW_COMPLEXITY_PROBE_BITRATE_THRESHOLD_KBPS: float = 200.0
+
+
+def _should_short_circuit_low_complexity(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #8 — low-complexity source skips recommend / ladder.
+
+    When the probe-encode bitrate (``meta.complexity_score``) is below
+    ``LOW_COMPLEXITY_PROBE_BITRATE_THRESHOLD_KBPS``, the predictor's
+    point estimate is already tight enough that running
+    ``recommend.coarse_to_fine`` adds no meaningful improvement. A value
+    of ``0.0`` or ``NaN`` means the probe hasn't run (smoke mode); the
+    predicate does **not** fire so smoke runs are never gated.
+    """
+    del plan_state  # unused — predicate depends on meta only
+    score = float(meta.complexity_score)
+    if math.isnan(score) or score <= 0.0:
+        return False
+    return score < LOW_COMPLEXITY_PROBE_BITRATE_THRESHOLD_KBPS
+
+
+def _should_short_circuit_baseline_meets_target(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #9 — baseline encode already meets target VMAF.
+
+    When ``meta.baseline_vmaf`` (the VMAF of a default-CRF encode) is
+    already at or above ``plan_state.target_vmaf``, running the predictor
+    sweep and ``recommend.coarse_to_fine`` is redundant. A value of
+    ``0.0`` or ``NaN`` means the baseline hasn't been scored (smoke mode);
+    the predicate does **not** fire.
+    """
+    baseline = float(meta.baseline_vmaf)
+    if math.isnan(baseline) or baseline <= 0.0:
+        return False
+    return baseline >= float(plan_state.target_vmaf)
+
+
+def _should_short_circuit_no_two_pass(meta: SourceMeta, plan_state: PlanState) -> bool:
+    """Short-circuit #10 — codec adapter does not support two-pass encode.
+
+    When the resolved codec adapter's ``supports_two_pass`` flag is
+    ``False`` (per the :class:`CodecAdapter` protocol, ADR-0333), the
+    two-pass calibration stage adds no information. ``None`` (unresolved,
+    smoke mode or pre-cell-loop) does **not** fire so evaluation-order
+    bugs don't silently suppress two-pass encodes.
+    """
+    del meta  # unused — predicate depends on plan_state only
+    flag = plan_state.adapter_supports_two_pass
+    if flag is None:
+        return False
+    return not bool(flag)
+
+
 # Ordered tuple of (ShortCircuit, predicate). The order is the
 # evaluation order in the driver and is part of the public contract:
 # tests assert that an earlier-firing predicate doesn't shadow a
@@ -622,6 +706,10 @@ SHORT_CIRCUIT_PREDICATES: tuple[tuple[ShortCircuit, "callable"], ...] = (  # typ
     (ShortCircuit.SDR_SKIP, _should_short_circuit_5_sdr_skip),
     (ShortCircuit.SAMPLE_CLIP_PROPAGATE, _should_short_circuit_6_sample_clip_propagate),
     (ShortCircuit.SKIP_PER_SHOT, _should_short_circuit_7_skip_per_shot),
+    # F.1/F.2 additions — appended in canonical order.
+    (ShortCircuit.LOW_COMPLEXITY, _should_short_circuit_low_complexity),
+    (ShortCircuit.BASELINE_MEETS_TARGET, _should_short_circuit_baseline_meets_target),
+    (ShortCircuit.NO_TWO_PASS, _should_short_circuit_no_two_pass),
 )
 
 
@@ -962,6 +1050,38 @@ def run_auto(
     # else: production wiring would call tune_per_shot.refine on
     # every cell.
 
+    # ------------------------------------------------------------------
+    # Stage 8 — low-complexity source (short-circuit #8).
+    # Does not fire when complexity_score is 0.0 / NaN (no probe yet).
+    # ------------------------------------------------------------------
+    if _should_short_circuit_low_complexity(meta, plan_state):
+        plan_state.fired(ShortCircuit.LOW_COMPLEXITY)
+
+    # ------------------------------------------------------------------
+    # Stage 9 — baseline encode already meets target (short-circuit #9).
+    # Does not fire when baseline_vmaf is 0.0 / NaN (no baseline yet).
+    # ------------------------------------------------------------------
+    if _should_short_circuit_baseline_meets_target(meta, plan_state):
+        plan_state.fired(ShortCircuit.BASELINE_MEETS_TARGET)
+
+    # ------------------------------------------------------------------
+    # Stage 10 — per-cell no-two-pass gate (short-circuit #10).
+    # Resolve supports_two_pass from the first codec in the list;
+    # None (smoke / pre-cell) keeps the predicate dormant.
+    # ------------------------------------------------------------------
+    if codecs:
+        try:
+            from .codec_adapters import get_adapter as _get_adapter  # noqa: PLC0415
+
+            _first_adapter = _get_adapter(codecs[0])
+            plan_state.adapter_supports_two_pass = bool(
+                getattr(_first_adapter, "supports_two_pass", False)
+            )
+        except (KeyError, ImportError):
+            plan_state.adapter_supports_two_pass = False
+        if _should_short_circuit_no_two_pass(meta, plan_state):
+            plan_state.fired(ShortCircuit.NO_TWO_PASS)
+
     metadata = {
         "src": str(src),
         "target_vmaf": float(target_vmaf),
@@ -1216,6 +1336,10 @@ __all__ = [
     "_should_short_circuit_5_sdr_skip",
     "_should_short_circuit_6_sample_clip_propagate",
     "_should_short_circuit_7_skip_per_shot",
+    "_should_short_circuit_low_complexity",
+    "_should_short_circuit_baseline_meets_target",
+    "_should_short_circuit_no_two_pass",
+    "LOW_COMPLEXITY_PROBE_BITRATE_THRESHOLD_KBPS",
     "emit_plan_json",
     "evaluate_short_circuits",
     "get_recipe_for_class",

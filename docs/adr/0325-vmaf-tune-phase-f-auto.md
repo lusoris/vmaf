@@ -278,3 +278,29 @@ locks this in: any future re-calibration that exceeds the wide-gate
 ceiling needs a separate ADR. Phase F is now fully calibrated; the
 one outstanding follow-up is the class-labelled re-calibration once
 PR #477 lands.
+
+### Status update 2026-05-10: F.1/F.2 additional short-circuits landed
+
+Three additional short-circuit predicates ship in
+`tools/vmaf-tune/src/vmaftune/auto.py`, appended after the original
+seven in `SHORT_CIRCUIT_PREDICATES` (canonical positions 7, 8, 9):
+
+* **#8 `low-complexity`** (`_should_short_circuit_low_complexity`) —
+  skips `recommend.coarse_to_fine` when `meta.complexity_score` (the
+  probe-encode bitrate at the adapter's `probe_quality`/`probe_preset`)
+  is below `LOW_COMPLEXITY_PROBE_BITRATE_THRESHOLD_KBPS` (200 kbps
+  placeholder). `0.0` or `NaN` does not fire (no probe yet).
+* **#9 `baseline-meets-target`**
+  (`_should_short_circuit_baseline_meets_target`) — skips the full
+  predictor sweep when `meta.baseline_vmaf` already meets or exceeds
+  `plan_state.target_vmaf`. `0.0` or `NaN` does not fire.
+* **#10 `no-two-pass`** (`_should_short_circuit_no_two_pass`) — skips
+  the two-pass calibration stage when the resolved codec adapter's
+  `supports_two_pass` flag is `False` (ADR-0333). `None` (adapter not
+  yet resolved) does not fire.
+
+`SourceMeta` gains `complexity_score` and `baseline_vmaf` fields (both
+default `0.0`). `PlanState` gains `adapter_supports_two_pass` (default
+`None`). 28 new unit tests in
+`tools/vmaf-tune/tests/test_auto_phase_f1_f2.py`; two existing tests
+updated to reflect 10 total predicates.
