@@ -1,15 +1,17 @@
 import unittest
 
 from vmaf.tools.bd_rate_calculator import BDrateCalculator
+from vmaf.tools.misc import MyTestCase
 
 __copyright__ = "Copyright 2016, Netflix, Inc."
 __license__ = "BSD+Patent"
 
 
-class BDrateCalculatorTest(unittest.TestCase):
+class BDrateCalculatorTest(MyTestCase):
 
     def setUp(self):
-        self.setA = [
+        super().setUp()
+        self.set_a = [
             (35.99646889759373, 21.955645250419696),
             (37.99471487409067, 25.51236452853944),
             (39.970621712367105, 28.044365039171787),
@@ -113,12 +115,12 @@ class BDrateCalculatorTest(unittest.TestCase):
 
     def test_bd_rate_calculator_identical(self):
 
-        bd_rate = BDrateCalculator.CalcBDRate(self.setA, self.setA)
+        bd_rate = BDrateCalculator.CalcBDRate(self.set_a, self.set_a)
         self.assertAlmostEqual(bd_rate, 0.0, places=8)
 
     def test_bd_rate_calculator_different_slightly(self):
 
-        setB = [
+        set_b = [
             (35.99646889759373, 21.955645250419696),
             (37.99471487409067, 25.51236452853944),
             (39.970621712367105, 28.044365039171787),
@@ -205,12 +207,12 @@ class BDrateCalculatorTest(unittest.TestCase):
             (3278.805042137661, 98.8647137101287),
         ]
 
-        bd_rate = BDrateCalculator.CalcBDRate(self.setA, setB)
+        bd_rate = BDrateCalculator.CalcBDRate(self.set_a, set_b)
         self.assertAlmostEqual(bd_rate, 0.0003232105064476798, places=8)
 
     def test_bd_rate_calculator_different(self):
 
-        setB = [
+        set_b = [
             (49.87328328483493, 28.61330510632344),
             (52.38326659205375, 32.39771999160604),
             (55.48787012870734, 35.43877945579183),
@@ -258,11 +260,11 @@ class BDrateCalculatorTest(unittest.TestCase):
             (531.839469233352, 81.04617807078903),
         ]
 
-        bd_rate = BDrateCalculator.CalcBDRate(self.setA, setB)
+        bd_rate = BDrateCalculator.CalcBDRate(self.set_a, set_b)
         self.assertAlmostEqual(bd_rate, 0.08267113720900943, places=8)
 
 
-class BDrateCalculatorJCTVCTest(unittest.TestCase):
+class BDrateCalculatorJCTVCTest(MyTestCase):
 
     def test_bd_rate_calculator_1(self):
         self.assertAlmostEqual(

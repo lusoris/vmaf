@@ -16,16 +16,16 @@ from vmaf.core.train_test_model import (
     TrainTestModel,
 )
 from vmaf.routine import read_dataset
-from vmaf.tools.misc import import_python_file
+from vmaf.tools.misc import MyTestCase, import_python_file
 
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
 __license__ = "BSD+Patent"
 
 
-class TrainTestModelTest(unittest.TestCase):
+class TrainTestModelTest(MyTestCase):
 
     def setUp(self):
-
+        super().setUp()
         train_dataset_path = VmafConfig.test_resource_path("test_image_dataset_diffdim2.py")
         train_dataset = import_python_file(train_dataset_path)
         train_assets = read_dataset(train_dataset)
@@ -47,6 +47,7 @@ class TrainTestModelTest(unittest.TestCase):
     def tearDown(self):
         if hasattr(self, "model"):
             self.model.delete(self.model_filename)
+        super().tearDown()
 
     def test_get_xs_ys(self):
         xs = TrainTestModel.get_xs_from_results(self.features, [0, 1, 2])
@@ -391,10 +392,10 @@ class TrainTestModelTest(unittest.TestCase):
         self.assertAlmostEqual(result["RMSE"], 0.3603374311919728, places=4)
 
 
-class TrainTestModelWithDisYRawVideoExtractorTest(unittest.TestCase):
+class TrainTestModelWithDisYRawVideoExtractorTest(MyTestCase):
 
     def setUp(self):
-
+        super().setUp()
         train_dataset_path = VmafConfig.test_resource_path("test_image_dataset_diffdim2.py")
         train_dataset = import_python_file(train_dataset_path)
         train_assets = read_dataset(train_dataset)
@@ -424,6 +425,7 @@ class TrainTestModelWithDisYRawVideoExtractorTest(unittest.TestCase):
             os.remove(self.h5py_filepath)
         if os.path.exists(self.model_filename):
             os.remove(self.model_filename)
+        super().tearDown()
 
     def test_extracted_features(self):
         self.assertAlmostEqual(np.mean(self.features[0]["dis_y"]), 160.617204551784, places=4)
@@ -542,10 +544,10 @@ class TrainTestModelWithDisYRawVideoExtractorTest(unittest.TestCase):
         self.assertAlmostEqual(result["RMSE"], 0.51128487038576109, places=4)
 
 
-class TrainTestModelTestJson(unittest.TestCase):
+class TrainTestModelTestJson(MyTestCase):
 
     def setUp(self):
-
+        super().setUp()
         train_dataset_path = VmafConfig.test_resource_path("test_image_dataset_diffdim2.py")
         train_dataset = import_python_file(train_dataset_path)
         train_assets = read_dataset(train_dataset)
@@ -567,6 +569,7 @@ class TrainTestModelTestJson(unittest.TestCase):
     def tearDown(self):
         if hasattr(self, "model"):
             self.model.delete(self.model_filename_json, format="json")
+        super().tearDown()
 
     def test_train_save_load_predict_libsvmnusvr_json(self):
 

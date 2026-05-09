@@ -20,12 +20,6 @@ __license__ = "BSD+Patent"
 
 class AggrScorePerfMetricTest(unittest.TestCase):
 
-    def setUp(self):
-        pass
-
-    def tearDown(self):
-        pass
-
     def test_rmse_perf_metric(self):
         groundtruths = [1, 2, 3, 4]
         predictions = [1, 2, 3, 4]

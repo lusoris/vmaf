@@ -287,14 +287,14 @@ class NorefFeatureExtractorTest(unittest.TestCase):
 
 class FeatureExtractorSaveWorkfilesTest(MyTestCase):
 
-    def setUp(self):
-        super().setUp()
-        self.result_store = FileSystemResultStore()
-
     def tearDown(self):
         if hasattr(self, "fextractor"):
             self.fextractor.remove_results()
         super().tearDown()
+
+    def setUp(self):
+        super().setUp()
+        self.result_store = FileSystemResultStore()
 
     def test_noref_moment_fextractor(self):
 
