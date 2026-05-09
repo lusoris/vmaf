@@ -20,7 +20,6 @@
   "dependencyDashboardOSVVulnerabilitySummary": "all",
   "prCreation": "not-pending",
   "minimumReleaseAge": "3 days",
-  "reviewersFromCodeOwners": true,
   "ignorePaths": [
     "subprojects/**",
     "python/test/resource/**",
