@@ -37,6 +37,8 @@
 
 #include <sycl/sycl.hpp>
 
+#include "sycl_compat.h"
+
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -269,7 +271,7 @@ static sycl::event launch_blur_sad_fused(sycl::queue &q, const void *input, int3
 
         cgh.parallel_for(
             sycl::nd_range<2>(global, local),
-            [=](sycl::nd_item<2> item) [[intel::reqd_sub_group_size(32)]] {
+            [=](sycl::nd_item<2> item) VMAF_SYCL_REQD_SG_SIZE(32) {
                 const int gx = item.get_global_id(1);
                 const int gy = item.get_global_id(0);
                 const unsigned lid = item.get_local_linear_id();

@@ -30,6 +30,8 @@
 
 #include <sycl/sycl.hpp>
 
+#include "sycl_compat.h"
+
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
@@ -129,7 +131,7 @@ static sycl::event launch_ansnr(sycl::queue &q, const void *ref, const void *dis
         cgh.parallel_for(
             sycl::nd_range<2>(sycl::range<2>(global_y, global_x),
                               sycl::range<2>(ANSNR_WG_Y, ANSNR_WG_X)),
-            [=](sycl::nd_item<2> item) [[intel::reqd_sub_group_size(32)]] {
+            [=](sycl::nd_item<2> item) VMAF_SYCL_REQD_SG_SIZE(32) {
                 const int gx = (int)item.get_global_id(1);
                 const int gy = (int)item.get_global_id(0);
                 const unsigned lid = item.get_local_linear_id();

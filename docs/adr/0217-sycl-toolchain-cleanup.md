@@ -104,3 +104,20 @@ Land two thin shims:
 - T7-7 (cleared SYCL clang-tidy findings); T7-8 (oneAPI 2025.0.4 → 2025.3.1 bump).
 - `docs/development/oneapi-install.md` §"Verify SYCL clang-tidy still works" — the 4 residual errors closed by this ADR.
 - Source: `req` (paraphrased: BACKLOG T7-13 bundles the bench recipe + clang-tidy wrapper as the next SYCL toolchain follow-up).
+
+### Status update 2026-05-08: AdaptiveCpp added as a second toolchain
+
+Per the ADR-0028 maintenance rule (status updates appended, body
+frozen). The icpx-only SYCL toolchain assumption embedded in this
+ADR's `## Decision` no longer holds:
+[ADR-0335](0335-adaptivecpp-second-sycl-toolchain.md) adds
+AdaptiveCpp (`acpp` / `syclcc`) as a supported alternative
+toolchain. The `clang-tidy-sycl.sh` wrapper described above remains
+icpx-coupled by design — it injects the icpx `<sycl/sycl.hpp>`
+include path and Intel-specific suppressions; AdaptiveCpp builds do
+not need that wrapper because `<sycl/sycl.hpp>` resolves naturally
+under acpp's include layout. A separate AdaptiveCpp-specific lint
+lane is not in scope for ADR-0335 and remains a follow-up item.
+icpx stays the **primary** toolchain; the multi-version recipe and
+clang-tidy wrapper described here continue to apply unchanged for
+icpx builds.

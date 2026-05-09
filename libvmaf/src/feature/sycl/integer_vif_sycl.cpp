@@ -37,6 +37,8 @@
 
 #include <sycl/sycl.hpp>
 
+#include "sycl_compat.h"
+
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -557,7 +559,7 @@ launch_vif_hori_impl(sycl::queue &q, unsigned width, unsigned height, float vif_
 
         cgh.parallel_for(
             sycl::nd_range<2>(global, local),
-            [=](sycl::nd_item<2> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+            [=](sycl::nd_item<2> item) VMAF_SYCL_REQD_SG_SIZE(SG_SIZE) {
                 const int gx = item.get_global_id(1);
                 const int gy = item.get_global_id(0);
                 const bool valid = (gx < (int)e_w && gy < (int)e_h);
@@ -977,7 +979,7 @@ launch_vif_fused_impl(sycl::queue &q, const void *ref_data, const void *dis_data
 
         cgh.parallel_for(
             sycl::nd_range<2>(global, local),
-            [=](sycl::nd_item<2> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+            [=](sycl::nd_item<2> item) VMAF_SYCL_REQD_SG_SIZE(SG_SIZE) {
                 const int gx = item.get_global_id(1);
                 const int gy = item.get_global_id(0);
                 const unsigned lid = item.get_local_linear_id();

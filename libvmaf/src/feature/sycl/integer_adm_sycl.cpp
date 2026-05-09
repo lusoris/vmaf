@@ -34,6 +34,8 @@
 
 #include <sycl/sycl.hpp>
 
+#include "sycl_compat.h"
+
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -830,7 +832,7 @@ static sycl::event launch_csf_den_cm_3band(
 
         cgh.parallel_for(
             sycl::nd_range<1>(3 * num_rows * WG_SIZE, WG_SIZE),
-            [=](sycl::nd_item<1> item) [[intel::reqd_sub_group_size(32)]] {
+            [=](sycl::nd_item<1> item) VMAF_SYCL_REQD_SG_SIZE(32) {
                 int wg = item.get_group(0);
                 int const band_idx = wg / num_rows;
                 int const row_idx = wg % num_rows;
