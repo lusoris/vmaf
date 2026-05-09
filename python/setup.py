@@ -73,14 +73,14 @@ setup(
     packages=["vmaf", "vmaf.tools", "vmaf.core", "vmaf.script"],
     include_package_data=True,
     install_requires=[
-        "numpy>=2.4.4",
+        "numpy>=1.26.4",
         "scipy>=1.17.1",
         "matplotlib>=3.2.1",
         "pandas>=3.0.2",
         "scikit-learn>=1.8.0",
         "scikit-image>=0.16.2",
-        "h5py>=2.6.0",
-        "sureal>=0.9.0",
+        "h5py>=3.16.0",
+        "sureal>=0.4.2",
         "dill>=0.3.1",
     ],
     entry_points={
