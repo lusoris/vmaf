@@ -9625,6 +9625,7 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
 
 
 
+
 ### 0333 — vmaf-tune Phase F multi-pass encoding (ADR-0333)
 **Touches**:
 - `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py` (CodecAdapter
@@ -9989,6 +9990,39 @@ compiles).
 - **Re-test on rebase**: `python3 -c "import ast; [ast.parse(open(f).read())
   for f in (...)]"` over the touched files; `ruff check` over the same set
   must produce no NEW errors versus master baseline.
+
+
+### 0345 — cambi × {CUDA, SYCL, HIP} GPU port planning (ADR-0345, docs-only)
+- **Touches**: `docs/research/0091-cambi-gpu-port-planning-2026-05-09.md`
+  (new), `docs/adr/0345-cambi-gpu-port-strategy.md` (new),
+  `docs/adr/_index_fragments/0345-cambi-gpu-port-strategy.md` (new
+  fragment), `docs/adr/_index_fragments/_order.txt` (append slot),
+  `changelog.d/changed/cambi-gpu-planning-digest.md` (new). No code.
+  Companion to the per-port PRs that follow per the digest's §6
+  ordered plan (CUDA → SYCL → HIP).
+- **Upstream source**: none — fork-local planning artefact. Netflix/vmaf
+  upstream has no CUDA / SYCL / HIP cambi twin and no plans to add one
+  on those backends.
+- **Invariant**: the planning round locks **Strategy II host-staged
+  hybrid** for the three pending backends, inheriting verbatim from
+  ADR-0205 §Decision and ADR-0210 §Decision. The cross-backend gate
+  contract for cambi is `places=4` from day one on all backends — by
+  construction (integer-only GPU pre-passes; byte-identical readback;
+  unmodified host residual). If any per-port PR sees empirical drift
+  from CPU, fix the kernel — never relax the gate (memory
+  `feedback_no_test_weakening`). The shared `cambi_internal.h` host
+  residual surface (shipped with PR #196 for the Vulkan port) is the
+  load-bearing reuse point — all four GPU twins (Vulkan, CUDA, SYCL,
+  HIP) link against it and inherit any future CPU-side c-value formula
+  change automatically.
+- **On upstream sync**: no action required. If a future upstream sync
+  introduces a Netflix/vmaf cambi GPU twin (extremely unlikely —
+  Netflix has no public CUDA / SYCL / HIP cambi work), evaluate
+  whether to drop the fork's twin in favour of upstream's per the
+  standard prefer-upstream rule; otherwise no action.
+- **Re-test on rebase**: docs-only — no compile / runtime gate. The
+  Strategy III v2 follow-up (parked per ADR-0205 §Out of scope) gets
+  its own ADR + rebase-notes entry when profile data lands.
 
 
 
