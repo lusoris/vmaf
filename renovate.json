@@ -18,7 +18,7 @@
   "platformAutomerge": true,
   "osvVulnerabilityAlerts": true,
   "dependencyDashboardOSVVulnerabilitySummary": "all",
-  "prCreation": "not-pending",
+  "prCreation": "immediate",
   "minimumReleaseAge": "3 days",
   "ignorePaths": [
     "subprojects/**",
