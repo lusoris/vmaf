@@ -356,6 +356,23 @@ jobs:
       # ICD so the headless runner can enumerate a compute-capable
       # VkPhysicalDevice). volk + VMA come via meson wraps in
       # libvmaf/subprojects/ — no apt package needed.
+      #
+      # Cache the meson `subprojects/packagecache/` so volk + VMA wrap
+      # archives (sha256-pinned, fetched from GitHub releases on every
+      # run today) are restored from the GHA cache instead. Key is the
+      # `.wrap` file hashes — wrap revisions are sha256-pinned, so the
+      # cached archives are immutable per (volk-version, vma-version)
+      # pair. Per Research-0089 (PR #525) §2, Vulkan build p50 is
+      # 10.43 min; the wrap fetches contribute ~15–30 s of that on a
+      # cold runner.
+      - name: Cache meson subprojects (Vulkan wraps)
+        if: matrix.vulkan
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: libvmaf/subprojects/packagecache
+          key: meson-packagecache-vulkan-${{ hashFiles('libvmaf/subprojects/*.wrap') }}
+          restore-keys: |
+            meson-packagecache-vulkan-
       - name: Install Vulkan SDK
         if: matrix.vulkan
         run: |
@@ -679,6 +696,15 @@ jobs:
         with:
           cuda: '13.0.0'
           method: network
+          # Persist the CUDA installer payload (~3 GB on Windows) in
+          # the GHA cache between runs. Default behavior re-downloads
+          # the network installer on every job — Research-0089 (PR
+          # #525) §2 puts the Windows MSVC + CUDA build at p50 = 10.91
+          # min, of which the CUDA install dominates. With the cache,
+          # the action restores the payload from `~/cuda_install_*`
+          # and skips the network leg. Pin matches the Linux legs.
+          use-github-cache: true
+          use-local-cache: false
           # Windows sub-package names per
           # https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/index.html#install-cuda-software
           # — the action appends `_<major>.<minor>` to each entry, so
