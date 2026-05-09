@@ -245,10 +245,12 @@ def test_sc7_threshold_boundaries() -> None:
 
 
 def test_short_circuit_predicates_in_canonical_order() -> None:
-    # Asserts the public ordering of the seven predicates. Adding a
-    # new short-circuit MUST append, never insert — earlier positions
-    # are part of the contract for downstream JSON consumers.
-    expected = (
+    # Asserts the public ordering of all predicates. The original seven
+    # occupy positions 0–6; the F.1/F.2 additions (#8, #9, #10) are
+    # appended at positions 7–9. Adding a new short-circuit MUST append,
+    # never insert — earlier positions are part of the contract.
+    all_scs = tuple(sc for sc, _ in SHORT_CIRCUIT_PREDICATES)
+    assert all_scs[:7] == (
         ShortCircuit.LADDER_SINGLE_RUNG,
         ShortCircuit.CODEC_PINNED,
         ShortCircuit.PREDICTOR_GOSPEL,
@@ -257,7 +259,9 @@ def test_short_circuit_predicates_in_canonical_order() -> None:
         ShortCircuit.SAMPLE_CLIP_PROPAGATE,
         ShortCircuit.SKIP_PER_SHOT,
     )
-    assert tuple(sc for sc, _ in SHORT_CIRCUIT_PREDICATES) == expected
+    assert all_scs[7] is ShortCircuit.LOW_COMPLEXITY
+    assert all_scs[8] is ShortCircuit.BASELINE_MEETS_TARGET
+    assert all_scs[9] is ShortCircuit.NO_TWO_PASS
 
 
 def test_evaluate_short_circuits_idempotent() -> None:
@@ -271,7 +275,7 @@ def test_evaluate_short_circuits_idempotent() -> None:
 def test_evaluate_short_circuits_full_fire() -> None:
     # Construct a meta + state that fires every short-circuit at once;
     # asserts no predicate shadows another (the recorded list contains
-    # all seven IDs, in canonical order).
+    # all ten IDs, in canonical order).
     meta = _meta(
         height=1080,
         is_hdr=False,
@@ -279,11 +283,16 @@ def test_evaluate_short_circuits_full_fire() -> None:
         duration_s=60.0,
         shot_variance=0.05,
         sample_clip_seconds=10.0,
+        # F.1/F.2 additions: low-complexity score + baseline above target.
+        complexity_score=10.0,
+        baseline_vmaf=99.0,
     )
     state = _state(
         allow_codecs=("libx264",),
         user_pinned_codec=None,
         predictor_verdict="GOSPEL",
+        # F.1/F.2 addition: adapter declares no two-pass support.
+        adapter_supports_two_pass=False,
     )
     fired = evaluate_short_circuits(meta, state)
     assert fired == [sc.value for sc, _ in SHORT_CIRCUIT_PREDICATES]
