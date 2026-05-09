@@ -93,7 +93,11 @@ hosts. CLI controls:
 ```
 
 The FFmpeg filter name is `libvmaf_cuda` — see [usage/ffmpeg.md](../../usage/ffmpeg.md)
-for a hwaccel pipeline that keeps decoded frames on the GPU.
+for a hwaccel pipeline that keeps decoded frames on the GPU. For
+software-decoded input the regular `libvmaf` filter accepts a
+fork-added `cuda=1` AVOption (per
+[ADR-0350](../../adr/0350-ffmpeg-libvmaf-cuda-backend-selector.md));
+build FFmpeg with `--enable-libvmaf-cuda` to enable it.
 
 ## Source layout
 

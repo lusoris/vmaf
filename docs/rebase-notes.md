@@ -9399,6 +9399,7 @@ document the flip-the-variable recipe when the cluster is degraded.
 
 
 
+
 ## ADR-0338 — macOS Vulkan-via-MoltenVK CI lane (2026-05-09)
 
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local
@@ -9765,4 +9766,46 @@ kernel's `close_fex()`. See `libvmaf/src/feature/vulkan/AGENTS.md
       --yuv testdata/yuv/src01_hrc00_576x324.yuv \
               testdata/yuv/src01_hrc01_576x324.yuv
   ```
+
+
+## ADR-0350 — FFmpeg `libvmaf` filter CUDA backend selector (`0010` patch)
+**Patch**: [`ffmpeg-patches/0010-libvmaf-wire-cuda-backend-selector.patch`](../ffmpeg-patches/0010-libvmaf-wire-cuda-backend-selector.patch).
+- `libavfilter/vf_libvmaf.c` — adds `cuda` AVOption + state field +
+  init / cleanup / picture-pool wiring under
+  `CONFIG_LIBVMAF_CUDA && !CONFIG_LIBVMAF_CUDA_FILTER`.
+- `configure` — adds `--enable-libvmaf-cuda` (`EXTERNAL_LIBRARY_LIST`
+  entry + help text), promotes `libvmaf_cuda` from blanket-autodetect
+  to gated `enabled libvmaf_cuda && require_pkg_config + check`,
+  preserves the `enabled libvmaf && check_pkg_config libvmaf_cuda`
+  in-filter probe so the new selector still works without the
+  explicit flag when libvmaf ships CUDA.
+**Why this rebase-note exists**: Patch `0010` extends the SYCL
+(`0003`) / Vulkan (`0004`) per-context backend selectors to CUDA on
+the regular `libvmaf` filter. The patch coexists with the upstream
+dedicated `libvmaf_cuda` filter (`CONFIG_LIBVMAF_CUDA_FILTER`) by
+gating its struct field and code paths on
+`!CONFIG_LIBVMAF_CUDA_FILTER` — the dedicated filter keeps owning
+its own `cu_state` field. CLAUDE.md §12 r14 makes the patch update
+mandatory because the change touches a filter consumer of the
+`vmaf_cuda_state_init` / `_import_state` / `_state_free` /
+`_preallocate_pictures` / `_fetch_preallocated_picture` C-API
+surface in [`libvmaf_cuda.h`](../libvmaf/include/libvmaf/libvmaf_cuda.h).
+**Rebase-sensitivity**: low. The patch's `vf_libvmaf.c` hunks are
+context-anchored on the SYCL/Vulkan selector blocks; if upstream
+FFmpeg renames `CONFIG_LIBVMAF_CUDA_FILTER` or moves the
+`libvmaf_cuda.h` include, the include guard at the top of the file
+needs the corresponding update. The configure hunks are
+context-anchored on the existing `--enable-libvmaf-sycl` /
+`--enable-libvmaf-vulkan` lines — those have proven stable across
+n8.0 → n8.1 → n8.1.1, so drift risk is low. When
+`VmafCudaConfiguration` ever grows a `device_index` field upstream,
+swap the `cuda` boolean for an `int cuda_device` mirroring SYCL's
+shape (separate ADR + patch refresh).
+**Verification gate**: cumulative `git am --3way` replay of
+`ffmpeg-patches/000{1..9}-*.patch` + `0010-*` against pristine
+FFmpeg `n8.1.1` PASS (2026-05-09). Build of `libavfilter/vf_libvmaf.o`
+PASS under both `CONFIG_LIBVMAF_CUDA=0` (selector errors at filter-
+init time per `#else` branch) and `CONFIG_LIBVMAF_CUDA=1 &&
+!CONFIG_LIBVMAF_CUDA_FILTER` (selector active, picture-pool wiring
+compiles).
 
