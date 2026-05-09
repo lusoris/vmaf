@@ -2861,8 +2861,9 @@ inline.*
   threads[num_threads];` — MSVC rejects `const int`
   as non-constant-expression. Converted to
   `enum { num_threads = N, fetches_per_thread = M };`.
-  (l) [`test_ring_buffer.c:23`](../libvmaf/test/test_ring_buffer.c#L23)
-  and
+  (l) `test_ring_buffer.c:23` (since removed; the
+  ring-buffer test logic was folded into the
+  CUDA-buffer / pic-preallocation suites) and
   [`test_pic_preallocation.c:26`](../libvmaf/test/test_pic_preallocation.c#L26)
   included `<unistd.h>` for `usleep` / `sleep`.
   Gated behind `!_WIN32` with a Win32 fallback
@@ -4452,8 +4453,11 @@ inline.*
     `vmaf_cuda_state_init()` gets an outer failure unwind;
     `init_with_primary_context()` releases the retained primary
     context on `fail_after_pop`.
-  - [`libvmaf/src/cuda/ring_buffer.c`](../libvmaf/src/cuda/ring_buffer.c)
-    — `vmaf_ring_buffer_close()` now unlocks + destroys the mutex
+  - `libvmaf/src/cuda/ring_buffer.c` (since folded into the
+    per-stream dispatch + drain machinery; see
+    [`libvmaf/src/cuda/dispatch_strategy.c`](../libvmaf/src/cuda/dispatch_strategy.c)
+    and [`libvmaf/src/cuda/drain_batch.c`](../libvmaf/src/cuda/drain_batch.c))
+    — `vmaf_ring_buffer_close()` then unlocked + destroyed the mutex
     before freeing.
   - [`libvmaf/test/test_cuda_preallocation_leak.c`](../libvmaf/test/test_cuda_preallocation_leak.c)
     — new GPU-gated reducer (10-cycle loop with full cleanup).
@@ -5005,7 +5009,7 @@ inline.*
      held-out information into LOSO; the `_standardize_inplace`
      helper enforces this by taking only the train slice as input.
   2. **A shipped `vmaf_tiny_v2.onnx` MUST bundle its scaler
-     `(mean, std)`** in the sidecar JSON per ADR-0049 — otherwise
+     `(mean, std)`** in the sidecar JSON — otherwise
      inference applies different normalisation than training and
      the win evaporates. Currently UN-implemented; tracked as a
      §"Caveats" #5 follow-up.

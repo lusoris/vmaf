@@ -25,8 +25,8 @@ feature vector plus an 18-D codec block (16 encoder one-hot +
 
 Two named tensors, dynamic batch axis (matches the
 `vmaf_dnn_session_run` two-input contract from
-[ADR-0040](../../adr/0040-tinyai-loader.md) /
-[ADR-0041](../../adr/0041-onnx-runtime-dispatch.md)):
+[ADR-0040](../../adr/0040-dnn-session-multi-input-api.md) /
+[ADR-0022](../../adr/0022-inference-runtime-onnx.md)):
 
 - **`features`**, shape `(N, 6)` — canonical-6 libvmaf features,
   StandardScaler-normalised at training time using the mean/std baked

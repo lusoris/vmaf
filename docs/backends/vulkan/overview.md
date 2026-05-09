@@ -21,7 +21,7 @@
 > in PR #120; see ADR-0178 § "Bug history" for the corrected
 > per-backend matrix and the kernel-side follow-ups for CUDA /
 > SYCL / NVIDIA-Vulkan paths. See
-> [ADR-0127](../../adr/0127-vulkan-backend-decision.md),
+> [ADR-0127](../../adr/0127-vulkan-compute-backend.md),
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md),
 > [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md),
 > [ADR-0177](../../adr/0177-vulkan-motion-kernel.md),
@@ -380,7 +380,7 @@ buffers.
 
 ## References
 
-- [ADR-0127](../../adr/0127-vulkan-backend-decision.md) — the
+- [ADR-0127](../../adr/0127-vulkan-compute-backend.md) — the
   Q2 governance decision to add a Vulkan backend.
 - [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) — the
   scaffold-only audit-first PR.

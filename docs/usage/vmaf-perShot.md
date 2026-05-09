@@ -124,7 +124,7 @@ fire after the running shot has reached 4 frames (suppresses flash /
 fade flicker).
 
 This is intentionally simple. Once the TransNet V2 extractor (T6-3a /
-[ADR-0220](../adr/0220-transnet-v2-shot-detector.md)) lands, a future
+[ADR-0223](../adr/0223-transnet-v2-shot-detector.md)) lands, a future
 revision will accept a pre-computed shot map (`--shots PATH`) and
 bypass the detector entirely.
 
@@ -164,7 +164,7 @@ vmaf --reference ref.y4m --distorted out.mp4 --output verify.json
 ## Related
 
 - [ADR-0222](../adr/0222-vmaf-per-shot-tool.md) — design + alternatives.
-- [ADR-0220](../adr/0220-transnet-v2-shot-detector.md) — TransNet V2
+- [ADR-0223](../adr/0223-transnet-v2-shot-detector.md) — TransNet V2
   extractor (T6-3a, in-flight).
 - [`cli.md`](cli.md) — the main `vmaf` scoring CLI.
 - [`docs/ai/roadmap.md`](../ai/roadmap.md) §2.4 — the broader per-shot
