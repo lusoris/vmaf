@@ -223,6 +223,31 @@ jobs:
         # `gh pr create` (mirrors deliverables-check.sh's pattern).
         run: bash scripts/ci/state-md-touch-check.sh
 
+  ffmpeg-patches-surface-check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: FFmpeg-Patches Surface Sync (CLAUDE.md §12 r14, ADR-0356)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Blocking gate: every PR that changes a libvmaf public-surface
+    # symbol consumed by ffmpeg-patches/*.patch must update at least
+    # one patch file in the same PR. Per-PR opt-out is
+    # `no ffmpeg-patches update needed: REASON` in the PR body.
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Run surface-sync check
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Single source of truth lives in
+        # scripts/ci/ffmpeg-patches-surface-check.sh — runnable
+        # locally as `BASE_SHA=… HEAD_SHA=… PR_BODY=… bash …` so a
+        # contributor can self-check before `gh pr create`.
+        run: bash scripts/ci/ffmpeg-patches-surface-check.sh
+
   adr-backfill-check:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: ADR-Backfill Advisory (ADR-0106)

@@ -31166,3 +31166,26 @@ upstream Netflix counterpart. If an upstream sync adds new files to
 in those files must be classified (UPLOAD vs READBACK) and use the correct
 allocator per the table in ADR-0350. Conflict risk on the 17 feature files is
 zero (upstream doesn't touch them).
+## ADR-0356 — ffmpeg-patches surface-sync CI gate (2026-05-09)
+
+**Files added**:
+- `scripts/ci/ffmpeg-patches-surface-check.sh` (new gate script).
+- `.github/workflows/rule-enforcement.yml` (new
+  `ffmpeg-patches-surface-check` job).
+- `docs/adr/0356-ffmpeg-patches-surface-gate.md` (decision record).
+- `docs/development/automated-rule-enforcement.md` (user-facing doc
+  update).
+
+**Why this rebase-note exists**: the gate is fork-local CI; it does
+not touch any upstream-shared file, so an upstream merge cannot drop
+its enforcement. However, whoever runs the next `/sync-upstream`
+should be aware that `ffmpeg-patches/` integrity is now
+machine-checked on every PR — if a future libvmaf header rename
+slips through during conflict resolution and breaks the patch stack,
+the gate will fire on the post-sync PR and surface the omission
+immediately rather than at the *next* sync.
+
+**Rebase-sensitivity**: zero on the upstream-merge path. Indirect
+benefit: the gate hardens `ffmpeg-patches/` against silent drift, so
+the patch-stack invariants tracked elsewhere in this file (entries
+referencing `ffmpeg-patches/0001…0009`) are now machine-defended.
