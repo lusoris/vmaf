@@ -26,6 +26,16 @@
  *  shape). motion_v2 simplifies by dropping the blur ping-pong (no
  *  blur output buffer to keep across frames) but adds a raw-pixel
  *  ping-pong (so we don't re-upload the previous frame each call).
+ *
+ *  Submit-pool migration (T-GPU-OPT-VK-1 / ADR-0353 / PR-B):
+ *  Replaced per-frame vkAllocateCommandBuffers + vkCreateFence +
+ *  vkAllocateDescriptorSets with:
+ *    - vmaf_vulkan_kernel_submit_pool_create / _acquire / _end_and_wait
+ *    - vmaf_vulkan_kernel_descriptor_sets_alloc (one set at init)
+ *  The set is updated once per frame because the raw-pixel ping-pong
+ *  flips which ref_buf slot is "current" vs "previous" — the buffer
+ *  handles are stable from init() onward.
+ *  (T-GPU-OPT-VK-4 partial / ADR-0353.)
  */
 
 #include <errno.h>
@@ -64,6 +74,15 @@ typedef struct {
      * is short-circuited host-side without a dispatch. Owned by
      * `vulkan/kernel_template.h` (ADR-0246). */
     VmafVulkanKernelPipeline pl;
+
+    /* Per-frame submit pool (T-GPU-OPT-VK-1 / ADR-0353).
+     * Single slot: the single dispatch uses one command buffer. */
+    VmafVulkanKernelSubmitPool sub_pool;
+
+    /* Pre-allocated descriptor set — updated once per frame because
+     * ref_buf[cur/prev] ping-pong flips (buffer handles are stable
+     * from init() onward, only the cur/prev assignment changes). */
+    VkDescriptorSet pre_set;
 
     /* Ping-pong of raw ref planes. ref_buf[cur_ref_idx] = the frame
      * currently being processed; ref_buf[1 - cur_ref_idx] = previous. */
@@ -163,6 +182,37 @@ static int alloc_buffers(MotionV2VulkanState *s)
     return 0;
 }
 
+static int write_descriptor_set(MotionV2VulkanState *s, VkDescriptorSet set)
+{
+    int cur = s->cur_ref_idx;
+    int prev = 1 - cur;
+
+    VkDescriptorBufferInfo dbi[3] = {
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_buf[prev]),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_buf[cur]),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->sad_partials),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+    };
+    VkWriteDescriptorSet writes[3];
+    for (int i = 0; i < 3; i++) {
+        writes[i] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = set,
+            .dstBinding = (uint32_t)i,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pBufferInfo = &dbi[i],
+        };
+    }
+    vkUpdateDescriptorSets(s->ctx->device, 3, writes, 0, NULL);
+    return 0;
+}
+
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
 {
@@ -195,6 +245,19 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (err)
         return err;
 
+    /* Pre-allocate the submit pool and the single persistent descriptor
+     * set (T-GPU-OPT-VK-1 + T-GPU-OPT-VK-4 partial / ADR-0353).
+     * The set is updated per-frame because the raw-pixel ping-pong flips
+     * which slot is "cur" vs "prev"; the buffer handles themselves are
+     * stable from here forward. */
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/1, &s->sub_pool);
+    if (err)
+        return err;
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl.desc_pool, s->pl.dsl,
+                                                   /*count=*/1, &s->pre_set);
+    if (err)
+        return err;
+
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (!s->feature_name_dict)
@@ -212,37 +275,6 @@ static int upload_ref_plane(MotionV2VulkanState *s, VmafPicture *pic, int slot)
     for (unsigned y = 0; y < s->height; y++)
         memcpy(dst + y * dst_stride, src + y * src_stride, dst_stride);
     return vmaf_vulkan_buffer_flush(s->ctx, s->ref_buf[slot]);
-}
-
-static int write_descriptor_set(MotionV2VulkanState *s, VkDescriptorSet set)
-{
-    int cur = s->cur_ref_idx;
-    int prev = 1 - cur;
-
-    VkDescriptorBufferInfo dbi[3] = {
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_buf[prev]),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->ref_buf[cur]),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->sad_partials),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-    };
-    VkWriteDescriptorSet writes[3];
-    for (int i = 0; i < 3; i++) {
-        writes[i] = (VkWriteDescriptorSet){
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = set,
-            .dstBinding = (uint32_t)i,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pBufferInfo = &dbi[i],
-        };
-    }
-    vkUpdateDescriptorSets(s->ctx->device, 3, writes, 0, NULL);
-    return 0;
 }
 
 static double reduce_sad_partials(const MotionV2VulkanState *s)
@@ -287,34 +319,18 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (err)
         return err;
 
-    VkDescriptorSet set = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo dsai = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = s->pl.desc_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &s->pl.dsl,
-    };
-    if (vkAllocateDescriptorSets(s->ctx->device, &dsai, &set) != VK_SUCCESS)
-        return -ENOMEM;
-    write_descriptor_set(s, set);
+    /* Update the pre-allocated descriptor set with the current-frame
+     * ping-pong binding (cur_ref_idx flips each frame — the handles
+     * are stable but which slot is "cur" vs "prev" changes). */
+    (void)write_descriptor_set(s, s->pre_set);
 
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo cbai = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = s->ctx->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    };
-    if (vkAllocateCommandBuffers(s->ctx->device, &cbai, &cmd) != VK_SUCCESS) {
-        err = -ENOMEM;
-        goto cleanup;
-    }
-    VkCommandBufferBeginInfo cbbi = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    };
-    vkBeginCommandBuffer(cmd, &cbbi);
+    /* Acquire a pre-allocated command buffer + fence from the pool
+     * (T-GPU-OPT-VK-1 / ADR-0353). No per-frame allocation. */
+    VmafVulkanKernelSubmit submit = {0};
+    err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool, /*pool_slot=*/0, &submit);
+    if (err)
+        return err;
+    VkCommandBuffer cmd = submit.cmd;
 
     uint32_t gx = 0;
     uint32_t gy = 0;
@@ -327,43 +343,30 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     };
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1, &set,
-                            0, NULL);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, s->pl.pipeline_layout, 0, 1,
+                            &s->pre_set, 0, NULL);
     vkCmdPushConstants(cmd, s->pl.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     vkCmdDispatch(cmd, gx, gy, 1);
-    vkEndCommandBuffer(cmd);
 
-    VkFenceCreateInfo fci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    if (vkCreateFence(s->ctx->device, &fci, NULL, &fence) != VK_SUCCESS) {
-        err = -ENOMEM;
+    /* End recording, submit and wait synchronously. */
+    err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &submit);
+    if (err)
         goto cleanup;
-    }
-    VkSubmitInfo si = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-    if (vkQueueSubmit(s->ctx->queue, 1, &si, fence) != VK_SUCCESS) {
-        err = -EIO;
-        goto cleanup;
-    }
-    vkWaitForFences(s->ctx->device, 1, &fence, VK_TRUE, UINT64_MAX);
 
-    double sad_score = reduce_sad_partials(s);
-    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                  "VMAF_integer_feature_motion_v2_sad_score",
-                                                  sad_score, index);
+    {
+        double sad_score = reduce_sad_partials(s);
+        err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "VMAF_integer_feature_motion_v2_sad_score",
+                                                      sad_score, index);
+    }
 
     s->cur_ref_idx = 1 - s->cur_ref_idx;
     s->frame_index++;
 
 cleanup:
-    if (fence != VK_NULL_HANDLE)
-        vkDestroyFence(s->ctx->device, fence, NULL);
-    if (cmd != VK_NULL_HANDLE)
-        vkFreeCommandBuffers(s->ctx->device, s->ctx->command_pool, 1, &cmd);
-    if (set != VK_NULL_HANDLE)
-        vkFreeDescriptorSets(s->ctx->device, s->pl.desc_pool, 1, &set);
+    /* Pool-owned submit: submit_free is a near-no-op that just clears
+     * the local handles; the pool keeps cmd + fence alive for reuse. */
+    vmaf_vulkan_kernel_submit_free(s->ctx, &submit);
     return err;
 }
 
@@ -407,7 +410,12 @@ static int close_fex(VmafFeatureExtractor *fex)
     MotionV2VulkanState *s = fex->priv;
     if (!s->ctx)
         return 0;
-    vkDeviceWaitIdle(s->ctx->device);
+
+    /* Drain the submit pool before the pipeline (ADR-0353).
+     * Descriptor sets pre-allocated via descriptor_sets_alloc are
+     * freed implicitly with the pool — do NOT call
+     * vkFreeDescriptorSets on pre_set. */
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool);
     vmaf_vulkan_kernel_pipeline_destroy(s->ctx, &s->pl);
 
     if (s->ref_buf[0])

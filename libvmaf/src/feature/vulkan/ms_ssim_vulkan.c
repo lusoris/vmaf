@@ -30,6 +30,21 @@
  *  l_means / c_means / s_means per scale — gating only the
  *  feature_collector_append calls keeps default-path output
  *  bit-identical to the pre-T7-35 binary.
+ *
+ *  Submit-pool migration (T-GPU-OPT-VK-1 / ADR-0353 / PR-B):
+ *  Replaced per-frame vmaf_vulkan_kernel_submit_begin + per-frame
+ *  alloc_descriptor_set with:
+ *    - Two submit pools: sub_pool_decimate (slot 0) + sub_pool_ssim
+ *      (MS_SSIM_SCALES slots, one per scale).
+ *    - Pre-allocated descriptor sets at init:
+ *        dec_sets_ref[MS_SSIM_SCALES-1] / dec_sets_cmp[MS_SSIM_SCALES-1]
+ *        ssim_sets[MS_SSIM_SCALES]
+ *      All SSBO handles are stable from init() — descriptor writes
+ *      happen once. (T-GPU-OPT-VK-4 / ADR-0353.)
+ *
+ *  Two submit pools are needed because the decimate phase and the
+ *  per-scale SSIM phases have different lifetimes and the SSIM
+ *  phases interleave with host-side reduction between scales.
  */
 
 #include <errno.h>
@@ -109,6 +124,22 @@ typedef struct {
     VmafVulkanKernelPipeline pl_ssim;
     VkPipeline ssim_pipeline_horiz[MS_SSIM_SCALES];
     VkPipeline ssim_pipeline_vert[MS_SSIM_SCALES];
+
+    /* Submit pools (T-GPU-OPT-VK-1 / ADR-0353):
+     *   sub_pool_decimate — 1 slot for the single decimate command buffer.
+     *   sub_pool_ssim     — MS_SSIM_SCALES slots; slot i holds the SSIM
+     *                       command buffer for scale i. Using separate
+     *                       slots lets us interleave the wait+readback
+     *                       between scales without pool exhaustion. */
+    VmafVulkanKernelSubmitPool sub_pool_decimate;
+    VmafVulkanKernelSubmitPool sub_pool_ssim;
+
+    /* Pre-allocated descriptor sets (T-GPU-OPT-VK-4 / ADR-0353).
+     * All SSBO handles are init-time-stable (pyramid buffers allocated
+     * once below). Written once at init(); no per-frame allocation. */
+    VkDescriptorSet dec_sets_ref[MS_SSIM_SCALES - 1];
+    VkDescriptorSet dec_sets_cmp[MS_SSIM_SCALES - 1];
+    VkDescriptorSet ssim_sets[MS_SSIM_SCALES];
 
     /* Pyramid: 5 ref + 5 cmp float buffers (host-mapped). */
     VmafVulkanBuffer *pyramid_ref[MS_SSIM_SCALES];
@@ -351,8 +382,7 @@ static int create_pipelines(MsSsimVulkanState *s)
                             .pSpecializationInfo = &spec_info,
                         },
                 },
-            /* MS_SSIM_SCALES sets (one per scale, written before
-             * both horiz + vert dispatches share the same set). */
+            /* MS_SSIM_SCALES sets (one per scale). */
             .max_descriptor_sets = (uint32_t)MS_SSIM_SCALES,
         };
         int err = vmaf_vulkan_kernel_pipeline_create(s->ctx, &desc, &s->pl_ssim);
@@ -399,6 +429,72 @@ static int alloc_buffers(MsSsimVulkanState *s)
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->c_partials, partials_bytes_max);
     err |= vmaf_vulkan_buffer_alloc(s->ctx, &s->s_partials, partials_bytes_max);
     return err ? -ENOMEM : 0;
+}
+
+static void write_decimate_descriptor_set(MsSsimVulkanState *s, VkDescriptorSet set,
+                                          VmafVulkanBuffer *src, VmafVulkanBuffer *dst)
+{
+    VkDescriptorBufferInfo dbi[2] = {
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(src), .offset = 0, .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(dst), .offset = 0, .range = VK_WHOLE_SIZE},
+    };
+    VkWriteDescriptorSet writes[2];
+    for (int i = 0; i < 2; i++) {
+        writes[i] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = set,
+            .dstBinding = (uint32_t)i,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pBufferInfo = &dbi[i],
+        };
+    }
+    vkUpdateDescriptorSets(s->ctx->device, 2, writes, 0, NULL);
+}
+
+static void write_ssim_descriptor_set(MsSsimVulkanState *s, VkDescriptorSet set,
+                                      VmafVulkanBuffer *ref, VmafVulkanBuffer *cmp)
+{
+    VkDescriptorBufferInfo dbi[MS_SSIM_BINDINGS] = {
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(ref), .offset = 0, .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(cmp), .offset = 0, .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_ref_mu),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_cmp_mu),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_ref_sq),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_cmp_sq),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_refcmp),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->l_partials),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->c_partials),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->s_partials),
+         .offset = 0,
+         .range = VK_WHOLE_SIZE},
+    };
+    VkWriteDescriptorSet writes[MS_SSIM_BINDINGS];
+    for (int i = 0; i < MS_SSIM_BINDINGS; i++) {
+        writes[i] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = set,
+            .dstBinding = (uint32_t)i,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pBufferInfo = &dbi[i],
+        };
+    }
+    vkUpdateDescriptorSets(s->ctx->device, MS_SSIM_BINDINGS, writes, 0, NULL);
 }
 
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
@@ -468,6 +564,44 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     if (err)
         return err;
 
+    /* Pre-allocate the two submit pools (T-GPU-OPT-VK-1 / ADR-0353):
+     *   sub_pool_decimate — 1 slot for the decimate command buffer.
+     *   sub_pool_ssim     — MS_SSIM_SCALES slots (one per scale). */
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/1, &s->sub_pool_decimate);
+    if (err)
+        return err;
+    err = vmaf_vulkan_kernel_submit_pool_create(s->ctx, /*slot_count=*/(uint32_t)MS_SSIM_SCALES,
+                                                &s->sub_pool_ssim);
+    if (err)
+        return err;
+
+    /* Pre-allocate all descriptor sets (T-GPU-OPT-VK-4 / ADR-0353).
+     * All SSBO handles are stable from here — write each set once. */
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl_decimate.desc_pool,
+                                                   s->pl_decimate.dsl,
+                                                   (uint32_t)(MS_SSIM_SCALES - 1), s->dec_sets_ref);
+    if (err)
+        return err;
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl_decimate.desc_pool,
+                                                   s->pl_decimate.dsl,
+                                                   (uint32_t)(MS_SSIM_SCALES - 1), s->dec_sets_cmp);
+    if (err)
+        return err;
+    err = vmaf_vulkan_kernel_descriptor_sets_alloc(s->ctx, s->pl_ssim.desc_pool, s->pl_ssim.dsl,
+                                                   (uint32_t)MS_SSIM_SCALES, s->ssim_sets);
+    if (err)
+        return err;
+
+    /* Write descriptor sets once — all handles are stable. */
+    for (int i = 0; i < MS_SSIM_SCALES - 1; i++) {
+        write_decimate_descriptor_set(s, s->dec_sets_ref[i], s->pyramid_ref[i],
+                                      s->pyramid_ref[i + 1]);
+        write_decimate_descriptor_set(s, s->dec_sets_cmp[i], s->pyramid_cmp[i],
+                                      s->pyramid_cmp[i + 1]);
+    }
+    for (int i = 0; i < MS_SSIM_SCALES; i++)
+        write_ssim_descriptor_set(s, s->ssim_sets[i], s->pyramid_ref[i], s->pyramid_cmp[i]);
+
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (!s->feature_name_dict)
@@ -482,86 +616,6 @@ static int upload_pic(MsSsimVulkanState *s, VmafVulkanBuffer *dst_buf, VmafPictu
         return -EIO;
     picture_copy(dst, (ptrdiff_t)s->float_stride, pic, /*offset=*/0, pic->bpc, /*channel=*/0);
     return vmaf_vulkan_buffer_flush(s->ctx, dst_buf);
-}
-
-static int alloc_descriptor_set(MsSsimVulkanState *s, const VmafVulkanKernelPipeline *bundle,
-                                VkDescriptorSet *out_set)
-{
-    VkDescriptorSetAllocateInfo dsai = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = bundle->desc_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &bundle->dsl,
-    };
-    if (vkAllocateDescriptorSets(s->ctx->device, &dsai, out_set) != VK_SUCCESS)
-        return -ENOMEM;
-    return 0;
-}
-
-static void write_decimate_descriptor_set(MsSsimVulkanState *s, VkDescriptorSet set,
-                                          VmafVulkanBuffer *src, VmafVulkanBuffer *dst)
-{
-    VkDescriptorBufferInfo dbi[2] = {
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(src), .offset = 0, .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(dst), .offset = 0, .range = VK_WHOLE_SIZE},
-    };
-    VkWriteDescriptorSet writes[2];
-    for (int i = 0; i < 2; i++) {
-        writes[i] = (VkWriteDescriptorSet){
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = set,
-            .dstBinding = (uint32_t)i,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pBufferInfo = &dbi[i],
-        };
-    }
-    vkUpdateDescriptorSets(s->ctx->device, 2, writes, 0, NULL);
-}
-
-static void write_ssim_descriptor_set(MsSsimVulkanState *s, VkDescriptorSet set,
-                                      VmafVulkanBuffer *ref, VmafVulkanBuffer *cmp)
-{
-    VkDescriptorBufferInfo dbi[MS_SSIM_BINDINGS] = {
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(ref), .offset = 0, .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(cmp), .offset = 0, .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_ref_mu),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_cmp_mu),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_ref_sq),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_cmp_sq),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->h_refcmp),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->l_partials),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->c_partials),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-        {.buffer = (VkBuffer)vmaf_vulkan_buffer_vkhandle(s->s_partials),
-         .offset = 0,
-         .range = VK_WHOLE_SIZE},
-    };
-    VkWriteDescriptorSet writes[MS_SSIM_BINDINGS];
-    for (int i = 0; i < MS_SSIM_BINDINGS; i++) {
-        writes[i] = (VkWriteDescriptorSet){
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = set,
-            .dstBinding = (uint32_t)i,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pBufferInfo = &dbi[i],
-        };
-    }
-    vkUpdateDescriptorSets(s->ctx->device, MS_SSIM_BINDINGS, writes, 0, NULL);
 }
 
 static int run_one_scale(MsSsimVulkanState *s, VkCommandBuffer cmd, int scale_idx,
@@ -677,94 +731,53 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (err)
         return err;
 
-    /* Allocate per-scale descriptor sets. We need:
-     *  - 4 decimate sets (one per ref + cmp × 4 transitions)
-     *  - 5 SSIM sets (one per scale)
-     * Could reuse but separate sets simplify lifetime. */
-    VkDescriptorSet dec_sets_ref[MS_SSIM_SCALES - 1] = {0};
-    VkDescriptorSet dec_sets_cmp[MS_SSIM_SCALES - 1] = {0};
-    VkDescriptorSet ssim_sets[MS_SSIM_SCALES] = {0};
-    int allocated = 0;
-    for (int i = 0; i < MS_SSIM_SCALES - 1; i++) {
-        err |= alloc_descriptor_set(s, &s->pl_decimate, &dec_sets_ref[i]);
-        err |= alloc_descriptor_set(s, &s->pl_decimate, &dec_sets_cmp[i]);
+    /* All descriptor sets are pre-allocated and written at init();
+     * no per-frame vkAllocateDescriptorSets or vkUpdateDescriptorSets
+     * needed here. (T-GPU-OPT-VK-4 / ADR-0353.) */
+
+    /* Build pyramid scales 1..4 (decimate scales 0..3) in one command
+     * buffer, then submit + wait (T-GPU-OPT-VK-1 / ADR-0353). */
+    {
+        VmafVulkanKernelSubmit decimate_sub = {0};
+        err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool_decimate,
+                                                /*pool_slot=*/0, &decimate_sub);
         if (err)
-            goto cleanup_sets;
-        write_decimate_descriptor_set(s, dec_sets_ref[i], s->pyramid_ref[i], s->pyramid_ref[i + 1]);
-        write_decimate_descriptor_set(s, dec_sets_cmp[i], s->pyramid_cmp[i], s->pyramid_cmp[i + 1]);
-        allocated++;
-    }
-    for (int i = 0; i < MS_SSIM_SCALES; i++) {
-        err = alloc_descriptor_set(s, &s->pl_ssim, &ssim_sets[i]);
+            return err;
+
+        VkMemoryBarrier rw_barrier = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        };
+
+        for (int i = 0; i < MS_SSIM_SCALES - 1; i++) {
+            run_decimate(s, decimate_sub.cmd, i, s->dec_sets_ref[i]);
+            run_decimate(s, decimate_sub.cmd, i, s->dec_sets_cmp[i]);
+            vkCmdPipelineBarrier(decimate_sub.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &rw_barrier, 0, NULL,
+                                 0, NULL);
+        }
+
+        err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &decimate_sub);
+        vmaf_vulkan_kernel_submit_free(s->ctx, &decimate_sub);
         if (err)
-            goto cleanup_sets;
-        write_ssim_descriptor_set(s, ssim_sets[i], s->pyramid_ref[i], s->pyramid_cmp[i]);
+            return err;
     }
-
-    /* Record one big command buffer: decimate (scale 0→1, 1→2, 2→3, 3→4)
-     * for ref + cmp, with barriers between pyramid-build stages and the
-     * SSIM dispatches. SSIM at scale i runs after decimate finishes the
-     * ref + cmp pair at scale i.
-     *
-     * Submit scratch via the kernel_template (T-GPU-DEDUP-26):
-     * `vmaf_vulkan_kernel_submit_begin` allocates the primary command
-     * buffer, calls vkBeginCommandBuffer, and creates the per-frame
-     * fence; `_end_and_wait` ends, submits, and waits on the fence;
-     * `_free` returns both handles to the device. */
-    VmafVulkanKernelSubmit decimate_sub = {0};
-    err = vmaf_vulkan_kernel_submit_begin(s->ctx, &decimate_sub);
-    if (err)
-        goto cleanup_sets;
-
-    VkMemoryBarrier rw_barrier = {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-    };
-
-    /* Build pyramid scales 1..4 (decimate scales 0..3). */
-    for (int i = 0; i < MS_SSIM_SCALES - 1; i++) {
-        run_decimate(s, decimate_sub.cmd, i, dec_sets_ref[i]);
-        run_decimate(s, decimate_sub.cmd, i, dec_sets_cmp[i]);
-        vkCmdPipelineBarrier(decimate_sub.cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &rw_barrier, 0, NULL, 0,
-                             NULL);
-    }
-
-    /* The SSIM dispatches share the intermediates / partials
-     * buffers, so they must run sequentially — we need a barrier
-     * between scales (after the previous scale's vertical pass
-     * writes the partials, before the next scale's horizontal
-     * pass overwrites the intermediates). The SSIM compute also
-     * reads from the pyramid level it's processing; the
-     * preceding decimate already barriered the pyramid writes.
-     *
-     * For the partials specifically: we read them back AFTER
-     * the entire command buffer completes — we need a per-scale
-     * D2H copy mid-stream OR run a separate command buffer per
-     * scale OR readback all partials at once.
-     *
-     * The cleanest is to allocate per-scale partials buffers.
-     * But we sized them for scale 0 alone (largest). Solution:
-     * separate command buffer per scale + readback after each. */
-    err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &decimate_sub);
-    vmaf_vulkan_kernel_submit_free(s->ctx, &decimate_sub);
-    if (err)
-        goto cleanup_sets;
 
     /* Now run SSIM per scale in separate command buffers, reading
      * back l/c/s partials between scales. The pyramid is fully
      * built so each scale's input is ready. Each per-scale submit
-     * goes through the kernel_template submit helpers (T-GPU-DEDUP-26). */
+     * uses a pre-allocated slot from sub_pool_ssim. */
     double l_means[MS_SSIM_SCALES] = {0};
     double c_means[MS_SSIM_SCALES] = {0};
     double s_means[MS_SSIM_SCALES] = {0};
-    for (int i = 0; i < MS_SSIM_SCALES; i++) {
+    for (int i = 0; i < MS_SSIM_SCALES && !err; i++) {
         VmafVulkanKernelSubmit ssim_sub = {0};
-        err = vmaf_vulkan_kernel_submit_begin(s->ctx, &ssim_sub);
+        err = vmaf_vulkan_kernel_submit_acquire(s->ctx, &s->sub_pool_ssim,
+                                                /*pool_slot=*/(uint32_t)i, &ssim_sub);
         if (err)
             break;
-        run_one_scale(s, ssim_sub.cmd, i, ssim_sets[i]);
+        run_one_scale(s, ssim_sub.cmd, i, s->ssim_sets[i]);
         err = vmaf_vulkan_kernel_submit_end_and_wait(s->ctx, &ssim_sub);
         vmaf_vulkan_kernel_submit_free(s->ctx, &ssim_sub);
         if (err)
@@ -779,6 +792,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
         c_means[i] = sum_partials_double(cp, wgc) / n_pixels;
         s_means[i] = sum_partials_double(sp, wgc) / n_pixels;
     }
+    if (err)
+        return err;
 
     /* Wang combine: MS-SSIM = ∏_i l[i]^α[i] · c[i]^β[i] · s[i]^γ[i]. */
     double msssim = 1.0;
@@ -792,15 +807,6 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (s->enable_lcs)
         err |= emit_lcs_metrics(feature_collector, index, l_means, c_means, s_means);
 
-cleanup_sets:
-    for (int i = 0; i < allocated; i++) {
-        vkFreeDescriptorSets(s->ctx->device, s->pl_decimate.desc_pool, 1, &dec_sets_ref[i]);
-        vkFreeDescriptorSets(s->ctx->device, s->pl_decimate.desc_pool, 1, &dec_sets_cmp[i]);
-    }
-    for (int i = 0; i < MS_SSIM_SCALES; i++) {
-        if (ssim_sets[i] != VK_NULL_HANDLE)
-            vkFreeDescriptorSets(s->ctx->device, s->pl_ssim.desc_pool, 1, &ssim_sets[i]);
-    }
     return err;
 }
 
@@ -810,7 +816,13 @@ static int close_fex(VmafFeatureExtractor *fex)
     if (!s->ctx)
         return 0;
     VkDevice dev = s->ctx->device;
-    vkDeviceWaitIdle(dev);
+
+    /* Drain submit pools before the pipelines that own the descriptor
+     * pools are torn down (ADR-0353). Descriptor sets allocated via
+     * descriptor_sets_alloc are freed implicitly with their desc_pool
+     * — do NOT call vkFreeDescriptorSets on any pre_set. */
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool_decimate);
+    vmaf_vulkan_kernel_submit_pool_destroy(s->ctx, &s->sub_pool_ssim);
 
     /* Variants must be destroyed before the bundle's _destroy()
      * frees the shared shader/layout. The base pipelines

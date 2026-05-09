@@ -229,6 +229,43 @@ fixture failure. The default `places=4` matches the fork's GPU vs
 CPU snapshot contract; the `--places` flag tightens (e.g.
 `--places 6` for ULP-strict gating).
 
+## Submit-pool hot-path optimization (ADR-0256 / ADR-0353)
+
+All Vulkan kernels are progressively migrated from a per-frame allocation
+pattern to a pre-allocated submit pool (`VmafVulkanKernelSubmitPool`,
+ADR-0256). The pool pre-allocates command buffers and fences at `init()`
+and recycles them each frame via `vmaf_vulkan_kernel_submit_acquire` /
+`vmaf_vulkan_kernel_submit_end_and_wait`, eliminating per-frame
+`vkAllocateCommandBuffers`, `vkCreateFence`, and `vkAllocateDescriptorSets`
+from the hot-path frame loop.
+
+**Migration status:**
+
+| Kernel | Pool slots | Descriptor writes | PR |
+|---|---|---|---|
+| `adm_vulkan.c` | 1 | once at init (4 pre-allocated sets) | PR-A (#563) |
+| `motion_vulkan.c` | 1 | per-frame (ping-pong blur cur/prev) | PR-A (#563) |
+| `psnr_vulkan.c` | 1 | once at init (3 pre-allocated sets) | PR-A (#563) |
+| `ssim_vulkan.c` | 1 | once at init | PR-B (ADR-0353) |
+| `ciede_vulkan.c` | 1 | once at init | PR-B (ADR-0353) |
+| `ms_ssim_vulkan.c` | 1 (decimate) + 5 (SSIM) | once at init (13 total sets) | PR-B (ADR-0353) |
+| `motion_v2_vulkan.c` | 1 | per-frame (ping-pong ref_buf cur/prev) | PR-B (ADR-0353) |
+| `float_psnr_vulkan.c` | 1 | once at init | PR-B (ADR-0353) |
+| `float_motion_vulkan.c` | 1 | per-frame (ping-pong blur cur/prev) | PR-B (ADR-0353) |
+| `ansnr_vulkan.c` | planned | planned | PR-C |
+| `vif_vulkan.c` | planned | planned | PR-C |
+| `ssimulacra2_vulkan.c` | planned | planned | PR-C |
+| `cambi_vulkan.c` | planned | planned | PR-C |
+
+**T-GPU-OPT-VK-4** (descriptor pre-allocation): kernels with fully-stable
+SSBO handles call `vkUpdateDescriptorSets` once at `init()` and reuse the
+pre-allocated set on every subsequent frame. Ping-pong kernels retain one
+`vkUpdateDescriptorSets` per frame because the cur/prev buffer assignment
+changes each frame.
+
+The required tear-down ordering — pool destroy before pipeline destroy —
+is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
+
 ## What lands next
 
 - **T5-1c** — ADM, motion, motion_v2 Vulkan kernels using the
