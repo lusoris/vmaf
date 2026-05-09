@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
+    "config:best-practices",
+    "helpers:pinGitHubActionDigests",
     ":dependencyDashboard",
     ":semanticCommits",
     "helpers:disableTypesNodeMajor"
@@ -12,33 +13,77 @@
   "prConcurrentLimit": 6,
   "rangeStrategy": "bump",
   "commitMessagePrefix": "chore(deps):",
+  "branchPrefix": "renovate/",
   "labels": ["dependencies"],
+  "platformAutomerge": true,
+  "osvVulnerabilityAlerts": true,
+  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "prCreation": "not-pending",
+  "minimumReleaseAge": "3 days",
+  "reviewersFromCodeOwners": true,
+  "ignorePaths": [
+    "subprojects/**",
+    "python/test/resource/**",
+    ".workingdir2/**",
+    "build_artifacts/**",
+    "model/**",
+    "ai/**/runs/**"
+  ],
   "packageRules": [
     {
+      "description": "Group GitHub Actions minor+patch+digest bumps; auto-merge — digest-only is mechanical and CI catches drift.",
       "matchManagers": ["github-actions"],
-      "groupName": "GitHub Actions (minor + patch)",
       "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "GitHub Actions (minor + patch)",
+      "automerge": true,
+      "automergeType": "pr",
       "schedule": ["before 6am on Monday"]
     },
     {
+      "description": "Major Action upgrades require human review — breaking changes possible.",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["major"],
       "groupName": "GitHub Actions (major)",
       "automerge": false
     },
     {
+      "description": "Group pre-commit hook rev bumps; auto-merge — mechanical, lint catches drift.",
       "matchManagers": ["pre-commit"],
-      "groupName": "pre-commit hooks"
+      "groupName": "pre-commit hooks",
+      "automerge": true
     },
     {
+      "description": "Python patch updates auto-merge; minor + major need review.",
       "matchManagers": ["pep621", "pip_requirements"],
       "matchUpdateTypes": ["patch"],
-      "groupName": "Python (patch)"
+      "groupName": "Python (patch)",
+      "automerge": true
+    },
+    {
+      "description": "Python minor grouped, manual review.",
+      "matchManagers": ["pep621", "pip_requirements"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "Python (minor)",
+      "automerge": false
+    },
+    {
+      "description": "Renovate's own action — manual review on bumps to retain auditability of the dep-bot itself.",
+      "matchPackageNames": ["renovatebot/github-action"],
+      "groupName": "Renovate self-hosted action",
+      "automerge": false
+    },
+    {
+      "description": "FFmpeg release tag — manual review; drives the ffmpeg-patches/ rebase story.",
+      "matchPackageNames": ["FFmpeg/FFmpeg"],
+      "groupName": "FFmpeg patch base",
+      "automerge": false,
+      "labels": ["dependencies", "ffmpeg-patches"]
     }
   ],
   "customManagers": [
     {
       "customType": "regex",
+      "description": "FFmpeg release tag pinned in the patch-stack test script + the CI gate.",
       "fileMatch": [
         "^ffmpeg-patches/test/build-and-run\\.sh$",
         "^scripts/ci/ffmpeg-patches-check\\.sh$"
@@ -52,8 +97,10 @@
     }
   ],
   "vulnerabilityAlerts": {
-    "labels": ["security"],
-    "automerge": false
+    "labels": ["security", "dependencies"],
+    "automerge": false,
+    "schedule": ["at any time"],
+    "minimumReleaseAge": "0 days"
   },
   "preCommit": { "enabled": true },
   "git-submodules": { "enabled": true }
