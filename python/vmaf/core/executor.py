@@ -134,6 +134,10 @@ class Executor(TypeVersionEnabled):
         if (
             len(normalized_str) > 140
         ):  # upper limit of filename is 256 but leave some space for prefix/suffix
+            # SHA-1 used as a cache-filename shortener (not security). Input
+            # is the harness's own normalized config string. See
+            # Research-0090, F4–F12.
+            # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
             normalized_str = hashlib.sha1(normalized_str.encode("utf-8")).hexdigest()
 
         return normalized_str
@@ -566,9 +570,12 @@ class Executor(TypeVersionEnabled):
         return result
 
     def _get_log_file_path(self, asset):
+        # SHA-1 used as a log-file path component (not security). Input is the
+        # harness's own asset repr. See Research-0090, F4–F12.
         return "{workdir}/{executor_id}_{str}".format(
             workdir=asset.workdir,
             executor_id=self.executor_id,
+            # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
             str=hashlib.sha1(str(asset).encode("utf-8")).hexdigest(),
         )
 

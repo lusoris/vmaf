@@ -91,6 +91,9 @@ class FeatureExtractorTest(MyTestCase):
 
         fextractor = VmafFeatureExtractor([asset], None)
         log_file_path = fextractor._get_log_file_path(asset)
+        # SHA-1 mirrors `_get_log_file_path()` to assert the path scheme. Same
+        # justification as Research-0090, F4–F12 — non-cryptographic.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
         h = hashlib.sha1(
             "test_0_1_refvideo_720x480_vs_disvideo_720x480_q_720x480".encode("utf-8")
         ).hexdigest()

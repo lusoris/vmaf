@@ -51,6 +51,10 @@ class Ssimulacra2SnapshotTest(unittest.TestCase):
             f"--bitdepth {bitdepth} --json --feature ssimulacra2 "
             f"--output {self.output_file_path} --quiet"
         )
+        # `cmd` is built from the test's own `exe`, `ref`, `dis` (all
+        # hardcoded test-fixture paths) and integer geometry/bitdepth fields.
+        # No attacker-controlled string. See Research-0090, F13–F17.
+        # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
         ret = subprocess.call(cmd, shell=True)
         self.assertEqual(ret, self.RC_SUCCESS, f"vmaf exited {ret}: {cmd}")
         with open(self.output_file_path) as fo:
