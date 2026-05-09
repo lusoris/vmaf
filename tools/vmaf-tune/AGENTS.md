@@ -287,6 +287,18 @@ for the option-space digest.
   until either Netflix open-sources `vmaf_hdr_v0.6.1.json` upstream
   or the fork acquires a permissively-licensed HDR-MOS-labelled
   training corpus.
+- **HDR is resolved once per source in `corpus.iter_rows`** (HP-2,
+  ADR-0300 status update 2026-05-08). `_resolve_hdr` returns
+  `(HdrInfo | None, forced: bool)`; `hdr_codec_args` runs once and
+  the resulting argv tail rides on every cell's
+  `EncodeRequest.extra_params`. Do **not** re-probe ffprobe per
+  cell (would burn an ffprobe per encode for a constant signal),
+  and do not move the HDR-mode resolution into `_row_for` (the
+  decision drives the encode argv, so it must precede the encode).
+  The one-shot HDR-VMAF-model warning fires once per `iter_rows`
+  invocation via the `score_model_warned` mutable flag — keep
+  that semantics or operators get N spurious warnings on a
+  single corpus run.
 - **Cache key fields are load-bearing
   ([ADR-0298](../../docs/adr/0298-vmaf-tune-cache.md)).** The
   `cache_key()` function in `cache.py` digests six fields:

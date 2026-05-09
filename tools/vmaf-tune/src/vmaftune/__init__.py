@@ -16,10 +16,15 @@ from __future__ import annotations
 
 __version__ = "0.0.2"
 
-# Bump on any backward-incompatible row-schema change. v2 adds the
+# Bump on any backward-incompatible row-schema change. v2 added the
 # `clip_mode` key (additive, default ``"full"``) for the sample-clip
-# mode introduced under ADR-0297.
-SCHEMA_VERSION = 2
+# mode introduced under ADR-0297. v3 adds the HDR provenance triple
+# (``hdr_transfer`` / ``hdr_primaries`` / ``hdr_forced``) wired up by
+# the ``corpus.iter_rows`` HDR integration (ADR-0300 status update
+# 2026-05-08). All three keys default to SDR-equivalent values
+# (``""`` / ``""`` / ``False``) so downstream readers that ignore the
+# new keys keep working.
+SCHEMA_VERSION = 3
 
 # Canonical row-key tuple — exposed so tests, downstream loaders, and
 # the Phase B bisect can verify the contract programmatically.
@@ -50,6 +55,9 @@ CORPUS_ROW_KEYS: tuple[str, ...] = (
     "vmaf_binary_version",
     "exit_status",
     "clip_mode",
+    "hdr_transfer",
+    "hdr_primaries",
+    "hdr_forced",
 )
 
 __all__ = ["CORPUS_ROW_KEYS", "SCHEMA_VERSION", "__version__"]
