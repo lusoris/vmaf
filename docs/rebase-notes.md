@@ -243,6 +243,35 @@ cover several PRs in one workstream; cross-link from the ID heading.
   is `null`. `vmaf-tune fast --help` lists every flag in
   `_DOCUMENTED_FAST_FLAGS` from `test_cli_fast.py`.
 
+### 0366 — `vmaf-tune` corpus schema v3 (ADR-0366)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/__init__.py`
+  (`SCHEMA_VERSION` 2 → 3, +12 canonical-6 aggregate keys),
+  `tools/vmaf-tune/src/vmaftune/score.py` (new
+  `parse_feature_aggregates`, `ScoreResult.feature_means/_stds`),
+  `tools/vmaf-tune/src/vmaftune/corpus.py` (writer projects the
+  aggregates into row keys; new `read_jsonl` with v2 back-compat),
+  `ai/scripts/train_fr_regressor_v[23].py` (consume the new columns
+  directly from the corpus DataFrame). All paths are wholly
+  fork-local — `tools/vmaf-tune/` and `ai/scripts/` are not mirrored
+  upstream — so rebase impact is zero.
+- **Invariant**: Phase B/C/D consumers and the FR-regressor trainers
+  rely on the canonical-6 `<feature>_mean` columns being present on
+  `schema_version >= 3` rows and being `NaN` (never `0.0`) when
+  libvmaf does not expose the feature. Keep the writer-side `NaN`
+  contract intact during any future widening; trainers drop NaN rows
+  before fitting StandardScaler. The reader (`read_jsonl`) preserves
+  the on-disk `schema_version` so trainers can filter to `>= 3` if
+  they need real per-feature data.
+- **Re-test**:
+
+  ```bash
+  cd tools/vmaf-tune && python -m pytest \
+    tests/test_corpus.py tests/test_corpus_schema_v3.py \
+    tests/test_corpus_v2_back_compat.py -q
+  python -m pytest ai/tests/test_train_fr_regressor_v3.py -q
+  ```
+
 ### 0308 — encoder knob-sweep recipe-regression policy (ADR-0308, docs-only)
 
 - **Touches**: `docs/research/0080-encoder-knob-sweep-findings.md`,

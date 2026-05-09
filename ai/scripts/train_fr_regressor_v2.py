@@ -11,17 +11,21 @@ canonical-6 libvmaf feature vector v1 already uses.
 Prerequisite: a real corpus run (Phase A), which is currently expensive
 (hours per encoder × preset × CRF grid). Until that lands, the
 ``--smoke`` mode synthesises 100 fake rows so the training pipeline is
-end-to-end exercisable without a real corpus.
+end-to-end exercisable without a real corpus. ``--smoke`` is a
+documented diagnostic flag — it never ships a quality model and the
+exported registry row is tagged ``smoke: true``.
 
 Pipeline:
 
   1. Load the JSONL corpus (one row per (source, encoder, preset, crf)).
   2. Materialise the 9-D feature vector per row:
-       * 6 canonical-6 features (adm2, vif_scale0..3, motion2) — taken
-         from the optional ``per_frame_features`` payload if present in
-         the JSONL, otherwise filled with NaN-masked zeros + a warning
-         (the v1 corpus tooling does *not* yet emit per-frame features;
-         that's tracked as a Phase A follow-up).
+       * 6 canonical-6 features (adm2, vif_scale0..3, motion2) — read
+         directly from the corpus row's ``<feature>_mean`` columns
+         introduced under schema v3 (ADR-0331). Pre-v3 rows fall back
+         to the legacy ``per_frame_features`` payload (used by the
+         smoke-only synthetic corpus); rows missing both shapes
+         materialise to all-zero canonical features and downstream
+         consumers should filter on ``schema_version >= 3``.
        * 1 encoder one-hot index (over a closed vocabulary).
        * 1 preset ordinal scaled to [0, 1].
        * 1 CRF normalised to [0, 1] (divide by 63 — the union upper
@@ -61,6 +65,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -286,19 +291,49 @@ def _row_to_features(
 
     Returns ``(canonical6 ndarray shape (6,), codec_block ndarray shape (N_ENCODERS+2,),
     target float)``. ``codec_block`` packs ``[onehot(N_ENCODERS), preset_norm, crf_norm]``.
+
+    Schema v3 (ADR-0331) lifts the canonical-6 features into top-level
+    ``<feature>_mean`` columns aggregated over the scored frames. v2
+    rows pre-date the bump and synthetic smoke rows under the old
+    ``per_frame_features`` payload still flow through this path; both
+    are honoured. Cells that are NaN (libvmaf didn't expose the
+    feature, or the encode failed) collapse to 0.0 in the materialised
+    vector — the caller is expected to drop NaN rows upstream when it
+    matters; the legacy smoke path relies on the per-frame fallback.
     """
-    pf = row.get("per_frame_features") or {}
     canon = np.zeros(6, dtype=np.float32)
-    have_pf = False
+    have_features = False
+
+    # v3 path: top-level ``<feature>_mean`` columns from the corpus row.
     for i, name in enumerate(CANONICAL6):
-        if name in pf:
-            canon[i] = float(pf[name])
-            have_pf = True
-    if not have_pf and warn_missing:
-        # Phase A's current schema does not emit per-frame features —
-        # the corpus stores aggregate vmaf_score only. The smoke path
-        # uses synthetic features; real corpora will need a Phase A
-        # follow-up to attach per-frame features (tracked in ADR-0272).
+        v = row.get(f"{name}_mean")
+        if v is None:
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(fv):
+            continue
+        canon[i] = fv
+        have_features = True
+
+    # Legacy / synthetic-smoke path: ``per_frame_features`` payload.
+    if not have_features:
+        pf = row.get("per_frame_features") or {}
+        for i, name in enumerate(CANONICAL6):
+            if name in pf:
+                try:
+                    canon[i] = float(pf[name])
+                    have_features = True
+                except (TypeError, ValueError):
+                    pass
+
+    if not have_features and warn_missing:
+        # Pre-ADR-0331 corpora carry aggregate ``vmaf_score`` only; the
+        # row materialises to all-zero canonical features. Trainers
+        # consuming legacy data should either filter on
+        # ``schema_version >= 3`` or fall back to ``--synthetic``.
         pass
 
     enc_idx = _encoder_index(row.get("encoder"))
@@ -363,14 +398,23 @@ def _synth_smoke_corpus(n: int = 100, seed: int = 0) -> list[dict]:
             "vif_scale3": float(0.85 - (crf - 18) * 0.009 + rng.normal(0, 0.01)),
             "motion2": float(2.0 + rng.normal(0, 0.3)),
         }
+        # Emit both the legacy ``per_frame_features`` payload and the
+        # schema-v3 ``<feature>_mean`` columns so the synthetic corpus
+        # exercises both code paths in ``_row_to_features`` (ADR-0331).
         rows.append(
             {
-                "schema_version": 1,
+                "schema_version": 3,
                 "encoder": enc,
                 "preset": preset,
                 "crf": crf,
                 "vmaf_score": target,
                 "per_frame_features": per_frame,
+                "adm2_mean": per_frame["adm2"],
+                "vif_scale0_mean": per_frame["vif_scale0"],
+                "vif_scale1_mean": per_frame["vif_scale1"],
+                "vif_scale2_mean": per_frame["vif_scale2"],
+                "vif_scale3_mean": per_frame["vif_scale3"],
+                "motion2_mean": per_frame["motion2"],
                 "src": f"synth_{i:03d}.yuv",
             }
         )

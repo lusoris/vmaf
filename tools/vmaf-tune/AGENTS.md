@@ -15,7 +15,17 @@ for the option-space digest.
   type/semantics, requires bumping `vmaftune.SCHEMA_VERSION` and
   updating every downstream consumer in the same PR. The canonical
   key list lives in `src/vmaftune/__init__.py` (`CORPUS_ROW_KEYS`)
-  and is asserted on every emitted row by `corpus._row_for`.
+  and is asserted on every emitted row by `corpus._row_for`. Schema
+  v3 ([ADR-0331](../../docs/adr/0331-corpus-schema-v3.md)) added 12
+  canonical-6 per-feature aggregate columns (`adm2_mean`,
+  `vif_scale[0..3]_mean`, `motion2_mean` plus matching `_std`);
+  they are sourced from libvmaf's `pooled_metrics.<feature>` block
+  and **must surface as `NaN` — never `0.0` — when libvmaf does not
+  expose the feature** so trainers can drop the row instead of
+  fitting on synthetic zeros. The reader (`corpus.read_jsonl`)
+  back-fills missing v3 columns on legacy v2 rows with `NaN`; the
+  on-disk `schema_version` is preserved so consumers can filter on
+  `>= 3` when they need real per-feature data.
 - **The `vmaf_model` JSONL field is now per-row, not per-job.** Since
   ADR-0289 (resolution-aware model selection), `corpus._row_for`
   populates `vmaf_model` from `score_res.request.model`, which in

@@ -18,6 +18,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from . import CANONICAL6_FEATURES
+
 
 @dataclasses.dataclass(frozen=True)
 class ScoreRequest:
@@ -42,7 +44,17 @@ class ScoreRequest:
 
 @dataclasses.dataclass(frozen=True)
 class ScoreResult:
-    """Outcome of one scoring call."""
+    """Outcome of one scoring call.
+
+    ``feature_means`` / ``feature_stds`` carry the canonical-6 libvmaf
+    per-feature pooled aggregates parsed out of
+    ``pooled_metrics.<feature>``: ``adm2``, ``vif_scale0..3``,
+    ``motion2`` (see ``vmaftune.CANONICAL6_FEATURES``). Each feature key
+    that libvmaf does not emit for the run (e.g. when a cambi-only
+    model is selected) is absent from the dict — the corpus row writer
+    fills the missing column with ``NaN`` rather than inventing a zero
+    (ADR-0366).
+    """
 
     request: ScoreRequest
     vmaf_score: float
@@ -50,6 +62,8 @@ class ScoreResult:
     vmaf_binary_version: str
     exit_status: int
     stderr_tail: str
+    feature_means: dict[str, float] = dataclasses.field(default_factory=dict)
+    feature_stds: dict[str, float] = dataclasses.field(default_factory=dict)
 
 
 _VMAF_VERSION_RE = re.compile(r"VMAF version[: ]+(\S+)")
@@ -152,6 +166,42 @@ def parse_vmaf_json(payload: dict) -> float:
     raise ValueError("vmaf JSON missing pooled_metrics.vmaf.mean")
 
 
+def parse_feature_aggregates(
+    payload: dict, feature_names: tuple[str, ...]
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Pull per-feature ``mean`` / ``stddev`` aggregates from libvmaf JSON.
+
+    Modern libvmaf emits ``pooled_metrics.<feature> = {"min", "max",
+    "mean", "stddev"}`` for every registered feature extractor. We
+    surface ``mean`` and ``stddev`` because the canonical-6 trainers
+    (``train_fr_regressor_v[23].py``) consume both. Features not
+    present in ``pooled_metrics`` (model-dependent — e.g. a cambi-only
+    fixture won't carry ``adm2``) are simply absent from the returned
+    dicts; the corpus row writer translates absence into ``NaN``.
+
+    The legacy top-level ``VMAF score`` shape predates per-feature
+    pooling and is silently treated as an empty aggregate set.
+    """
+    pooled = payload.get("pooled_metrics") or {}
+    means: dict[str, float] = {}
+    stds: dict[str, float] = {}
+    for name in feature_names:
+        block = pooled.get(name)
+        if not isinstance(block, dict):
+            continue
+        if "mean" in block:
+            try:
+                means[name] = float(block["mean"])
+            except (TypeError, ValueError):
+                pass
+        if "stddev" in block:
+            try:
+                stds[name] = float(block["stddev"])
+            except (TypeError, ValueError):
+                pass
+    return means, stds
+
+
 def run_score(
     req: ScoreRequest,
     *,
@@ -189,6 +239,8 @@ def run_score(
         rc = int(getattr(completed, "returncode", 1))
 
         score = float("nan")
+        feature_means: dict[str, float] = {}
+        feature_stds: dict[str, float] = {}
         if rc == 0 and json_path.exists():
             with json_path.open("r", encoding="utf-8") as fh:
                 payload = json.load(fh)
@@ -196,6 +248,10 @@ def run_score(
                 score = parse_vmaf_json(payload)
             except ValueError:
                 rc = rc or 65
+            # Per-feature aggregates are best-effort — a cambi-only
+            # model won't expose ``adm2`` etc.; the corpus row writer
+            # fills missing entries with NaN.
+            feature_means, feature_stds = parse_feature_aggregates(payload, CANONICAL6_FEATURES)
 
         match = _VMAF_VERSION_RE.search(stderr)
         version = match.group(1) if match else "unknown"
@@ -207,6 +263,8 @@ def run_score(
             vmaf_binary_version=version,
             exit_status=rc,
             stderr_tail=stderr[-2048:],
+            feature_means=feature_means,
+            feature_stds=feature_stds,
         )
     finally:
         if workdir_ctx is not None:

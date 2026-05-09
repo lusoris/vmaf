@@ -123,11 +123,24 @@ def _enc_idx_v3(name: str) -> int:
 def _load_corpus(corpus_path: Path) -> dict[str, Any]:
     """Load the Phase A canonical-6 JSONL corpus into a structured dict.
 
-    Mirrors :func:`train_fr_regressor_v2_ensemble_loso._load_corpus`
-    with the v3 codec block. Validates the canonical-6 columns +
-    ``vmaf``/``src``/``encoder``/``cq``/``frame_index`` are present,
-    fits a corpus-wide StandardScaler, and pre-computes the codec
-    block columns (16-slot one-hot + ``preset_norm`` + ``crf_norm``).
+    Reads the schema-v3 corpus directly (ADR-0366): the canonical-6
+    features come from the ``<feature>_mean`` columns the corpus
+    emitter writes after parsing libvmaf's ``pooled_metrics`` block.
+    Required columns:
+
+    * ``adm2_mean``, ``vif_scale[0..3]_mean``, ``motion2_mean`` —
+      per-encode means of the canonical-6 libvmaf features;
+    * ``vmaf_score`` — pooled VMAF target (renamed ``vmaf`` for the
+      training arrays so the rest of this module can stay positional);
+    * ``src``, ``encoder``, ``crf`` — partition + codec block inputs.
+
+    Rows whose canonical-6 means are NaN (libvmaf did not expose the
+    feature for that run, or the encode failed) are dropped before the
+    StandardScaler is fitted — invented zeros would skew the scaler.
+    Legacy v2 corpora that carry only ``vmaf_score`` and no per-feature
+    aggregates raise ``ValueError`` with a pointer to ADR-0366; the
+    older ``--synthetic`` fallback was removed because it produced
+    misleading models that did not predict on real data.
     """
     import numpy as np
     import pandas as pd
@@ -135,21 +148,73 @@ def _load_corpus(corpus_path: Path) -> dict[str, Any]:
     if not corpus_path.is_file():
         raise FileNotFoundError(
             f"Corpus JSONL not found at {corpus_path}. Generate it via "
-            "scripts/dev/hw_encoder_corpus.py over the 9 Netflix ref YUVs."
+            "`vmaf-tune corpus ...` (schema v3 per ADR-0366)."
         )
 
     df = pd.read_json(corpus_path, lines=True)
-
-    required = [*CANONICAL_6, "vmaf", "src", "encoder", "cq", "frame_index"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(
-            f"Corpus {corpus_path} is missing required columns: {missing}. "
-            f"Expected canonical-6 ({list(CANONICAL_6)}) + vmaf + src + "
-            f"encoder + cq + frame_index."
-        )
     if len(df) == 0:
         raise ValueError(f"Corpus {corpus_path} has zero rows.")
+
+    feature_mean_cols = [f"{f}_mean" for f in CANONICAL_6]
+    has_v3_means = all(c in df.columns for c in feature_mean_cols)
+    has_legacy_bare = all(c in df.columns for c in CANONICAL_6)
+
+    if has_v3_means:
+        # Schema-v3 ``vmaf-tune corpus`` shape (ADR-0366). The means
+        # come from libvmaf's ``pooled_metrics.<feature>`` block; drop
+        # rows where libvmaf did not expose the feature (NaN cells).
+        required = [*feature_mean_cols, "vmaf_score", "src", "encoder", "crf"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"Corpus {corpus_path} is missing required v3 columns: {missing}. "
+                f"Expected canonical-6 means ({feature_mean_cols}) + vmaf_score + "
+                f"src + encoder + crf. Re-emit via `vmaf-tune corpus` after "
+                "ADR-0366 (schema v3); legacy schema-v2 corpora carry only "
+                "aggregate vmaf_score and cannot train this regressor."
+            )
+        finite_mask = np.isfinite(df[feature_mean_cols].to_numpy(dtype=np.float64)).all(axis=1)
+        finite_mask &= np.isfinite(df["vmaf_score"].to_numpy(dtype=np.float64))
+        if not finite_mask.all():
+            df = df.loc[finite_mask].reset_index(drop=True)
+        if len(df) == 0:
+            raise ValueError(
+                f"Corpus {corpus_path} has zero rows after dropping NaN-feature rows. "
+                "Verify the libvmaf model exposes the canonical-6 features."
+            )
+        # Project the ``_mean`` columns into bare-named ones and rename
+        # ``vmaf_score`` -> ``vmaf`` so the rest of the module stays
+        # positional.
+        for feat, col in zip(CANONICAL_6, feature_mean_cols, strict=True):
+            df[feat] = df[col]
+        if "vmaf" not in df.columns:
+            df = df.assign(vmaf=df["vmaf_score"])
+        if "cq" not in df.columns:
+            df = df.assign(cq=df["crf"])
+    elif has_legacy_bare:
+        # Legacy ``hw_encoder_corpus.py`` per-frame shape — bare canonical-6
+        # column names, ``vmaf`` target, ``cq`` quality knob. Kept for
+        # backward compatibility with existing on-disk corpora; new
+        # corpora should be emitted in v3 shape via ``vmaf-tune corpus``.
+        required = [*CANONICAL_6, "vmaf", "src", "encoder", "cq"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"Corpus {corpus_path} is missing required legacy columns: {missing}. "
+                f"Expected canonical-6 ({list(CANONICAL_6)}) + vmaf + src + "
+                f"encoder + cq."
+            )
+    else:
+        # Neither shape — surface the v3 error first since it's the
+        # forward path; mention the legacy shape for older corpora.
+        raise ValueError(
+            f"Corpus {corpus_path} is missing required v3 columns: {feature_mean_cols}. "
+            "Expected either schema-v3 (vmaf-tune corpus, ADR-0366) "
+            f"with `<feature>_mean` columns + vmaf_score + crf, or the legacy "
+            f"hw_encoder_corpus.py per-frame shape with bare {list(CANONICAL_6)} "
+            "+ vmaf + cq columns. Re-emit via `vmaf-tune corpus` for the "
+            "preferred path."
+        )
 
     feat = df[list(CANONICAL_6)].to_numpy(dtype=np.float64)
     feat_mean = feat.mean(axis=0)
@@ -159,17 +224,23 @@ def _load_corpus(corpus_path: Path) -> dict[str, Any]:
     codec_idx = np.array([_enc_idx_v3(str(e)) for e in df["encoder"].tolist()], dtype=np.int64)
     codec_onehot = np.eye(N_ENCODERS_V3, dtype=np.float32)[codec_idx]
 
-    # ``hw_encoder_corpus.py`` does not record preset; default to median
-    # of the 0..9 ordinal range so the column carries a deterministic
-    # value (mirrors ADR-0319's choice).
+    # The schema-v3 corpus records ``preset`` per row but its ordinal
+    # value is encoder-specific. We default to the 0.5 median to match
+    # ADR-0319's choice — switching to the encoder-aware ordinal table
+    # is tracked as a follow-up so this PR stays focused on schema.
     preset_norm = np.full((len(df),), 0.5, dtype=np.float32)
 
-    cqs = df["cq"].to_numpy(dtype=np.float32)
-    cq_min, cq_max = float(cqs.min()), float(cqs.max())
-    if cq_max - cq_min < 1e-6:
-        crf_norm = np.full_like(cqs, 0.5)
+    # ``crf`` (schema-v3 corpus) and ``cq`` (legacy hw-encoder corpus)
+    # are interchangeable as the codec-block normalisation knob.
+    if "crf" in df.columns:
+        crfs = df["crf"].to_numpy(dtype=np.float32)
     else:
-        crf_norm = (cqs - cq_min) / (cq_max - cq_min)
+        crfs = df["cq"].to_numpy(dtype=np.float32)
+    cq_min, cq_max = float(crfs.min()), float(crfs.max())
+    if cq_max - cq_min < 1e-6:
+        crf_norm = np.full_like(crfs, 0.5)
+    else:
+        crf_norm = (crfs - cq_min) / (cq_max - cq_min)
 
     codec_block = np.concatenate(
         [codec_onehot, preset_norm[:, None], crf_norm[:, None]],
@@ -383,9 +454,7 @@ def run_loso(corpus: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]
     }
 
 
-def fit_full_corpus(
-    corpus: dict[str, Any], args: argparse.Namespace
-):  # type: ignore[no-untyped-def]
+def fit_full_corpus(corpus: dict[str, Any], args: argparse.Namespace):  # type: ignore[no-untyped-def]
     """Fit one FRRegressor on the entire corpus; return (model, scaler)."""
     import numpy as np
 
@@ -571,29 +640,49 @@ def write_sidecar_and_registry(
 
 
 def _write_smoke_corpus(path: Path, n_per_source: int = 4) -> None:
-    """Write a small synthetic corpus to a JSONL path for the smoke pipeline."""
+    """Write a small v3-shaped synthetic corpus for the pipeline-only smoke run.
+
+    Emits rows that mirror the schema-v3 corpus contract from ADR-0366:
+    ``adm2_mean`` / ``vif_scale[0..3]_mean`` / ``motion2_mean`` per row,
+    target column ``vmaf_score``, partition column ``src``, codec
+    selectors ``encoder`` + ``crf``. The ``--smoke`` mode is a pipeline
+    integrity check (load → LOSO → export → registry) and never ships a
+    quality model — gate_passed is always False on smoke.
+
+    The previous smoke synthesised per-frame rows under a pre-ADR-0366
+    schema and a separate ``--synthetic`` path; both have been removed
+    (ADR-0366 §Consequences) because they let pipeline-only runs masquerade
+    as quality-validated checkpoints in downstream consumers.
+    """
     import numpy as np
 
     sources = ["srcA", "srcB", "srcC"]
-    cqs = [19, 25, 31, 37]
+    crfs = [19, 25, 31, 37]
     rng = np.random.default_rng(42)
     rows = []
     for src in sources:
-        for cq in cqs:
-            for f in range(n_per_source):
+        for crf in crfs:
+            for _f in range(n_per_source):
                 rows.append(
                     {
+                        "schema_version": 3,
                         "src": src,
                         "encoder": "h264_nvenc",
-                        "cq": cq,
-                        "frame_index": f,
-                        "vmaf": float(95.0 - (cq - 19) * 0.3 + rng.normal(0, 0.5)),
-                        "adm2": float(0.95 - (cq - 19) * 0.005),
-                        "vif_scale0": float(0.85 - (cq - 19) * 0.003),
-                        "vif_scale1": float(0.92 - (cq - 19) * 0.002),
-                        "vif_scale2": float(0.97 - (cq - 19) * 0.001),
-                        "vif_scale3": float(0.99 - (cq - 19) * 0.0005),
-                        "motion2": float(rng.uniform(0.0, 5.0)),
+                        "preset": "p4",
+                        "crf": crf,
+                        "vmaf_score": float(95.0 - (crf - 19) * 0.3 + rng.normal(0, 0.5)),
+                        "adm2_mean": float(0.95 - (crf - 19) * 0.005),
+                        "vif_scale0_mean": float(0.85 - (crf - 19) * 0.003),
+                        "vif_scale1_mean": float(0.92 - (crf - 19) * 0.002),
+                        "vif_scale2_mean": float(0.97 - (crf - 19) * 0.001),
+                        "vif_scale3_mean": float(0.99 - (crf - 19) * 0.0005),
+                        "motion2_mean": float(rng.uniform(0.0, 5.0)),
+                        "adm2_std": 0.01,
+                        "vif_scale0_std": 0.01,
+                        "vif_scale1_std": 0.01,
+                        "vif_scale2_std": 0.01,
+                        "vif_scale3_std": 0.01,
+                        "motion2_std": 0.5,
                     }
                 )
     with path.open("w", encoding="utf-8") as fh:
