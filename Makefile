@@ -235,11 +235,33 @@ coverage-check: coverage
 assertion-density:
 	@scripts/ci/assertion-density.sh
 
-# Install the pre-commit git hook (from .pre-commit-config.yaml).
+# Install the pre-commit + pre-push git hooks.
+#
+# - pre-commit / commit-msg come from .pre-commit-config.yaml.
+# - pre-push is the PR-body deliverables validator at
+#   scripts/git-hooks/pre-push (mirrors the rule-enforcement.yml
+#   deep-dive-checklist gate locally; ADR-0108).
+#
+# Idempotent: re-running replaces stale symlinks/copies. Existing
+# non-symlink pre-push hooks are preserved with a `.local-backup`
+# suffix so a contributor's hand-rolled hook is never silently
+# overwritten.
 hooks-install:
 	@command -v pre-commit >/dev/null || pip install pre-commit
 	pre-commit install --install-hooks
 	pre-commit install --hook-type commit-msg
+	@hooks_dir="$$(git rev-parse --git-path hooks)"; \
+	src="$$(git rev-parse --show-toplevel)/scripts/git-hooks/pre-push"; \
+	dst="$$hooks_dir/pre-push"; \
+	if [ ! -x "$$src" ]; then \
+	    echo "hooks-install: $$src missing or not executable" >&2; exit 1; \
+	fi; \
+	if [ -e "$$dst" ] && [ ! -L "$$dst" ]; then \
+	    echo "hooks-install: preserving existing $$dst as $$dst.local-backup"; \
+	    mv "$$dst" "$$dst.local-backup"; \
+	fi; \
+	ln -sfn "$$src" "$$dst"; \
+	echo "hooks-install: pre-push -> $$src"
 
 # pr-check — local equivalent of the rule-enforcement.yml deliverables gate.
 # Runs scripts/ci/deliverables-check.sh against an existing PR's body

@@ -9194,7 +9194,6 @@ inline.*
   ```
 
 ## CI `paths-ignore` deny-list on heavy workflows (ADR-0341, 2026-05-09)
-
 - **Touches**: `.github/workflows/libvmaf-build-matrix.yml` (fork-local —
   `paths-ignore:` block under `pull_request:`),
   `.github/workflows/tests-and-quality-gates.yml` (fork-local — same
@@ -9215,7 +9214,6 @@ inline.*
   workflow files (they are fork-local additions). No sync conflict
   expected.
 - **Re-test on rebase**:
-
   ```bash
   python3 -c "import yaml; \
     [yaml.safe_load(open(f'.github/workflows/{n}.yml')) \
@@ -9226,9 +9224,7 @@ inline.*
     grep -c "paths-ignore:" ".github/workflows/${f}.yml"  # must report >= 1
   done
   ```
-
 ## ADR-0349 — `fr_regressor_v3` namespace resolution (2026-05-09)
-
 - **Rebase impact**: none. Docs-only change — adds
   [ADR-0349](adr/0349-fr-regressor-v3-namespace.md), an
   append-only status appendix on
@@ -9246,7 +9242,6 @@ inline.*
   reservation; reviewers verify the map row exists before
   approving any new `fr_regressor_*` registry id.
 - **Reproducer**:
-
   ```bash
   # ADR + AGENTS.md namespace map present and consistent:
   test -f docs/adr/0349-fr-regressor-v3-namespace.md
@@ -9266,6 +9261,24 @@ print('OK: fr_regressor_v3 production row unchanged')
 "
   # Registry test still passes:
   bash libvmaf/test/dnn/test_registry.sh
+### 0327 — Pre-push PR-body deliverables validator hook
+- **Touches**: `scripts/ci/validate-pr-body.sh` (new),
+  `scripts/git-hooks/pre-push` (new),
+  `scripts/ci/test-validate-pr-body.sh` (new),
+  `Makefile` (`hooks-install` target adds the pre-push symlink).
+  Re-uses `scripts/ci/deliverables-check.sh` parser verbatim — no
+  upstream-shared file is modified.
+- **Invariant**: parser shape parity with
+  `.github/workflows/rule-enforcement.yml` deep-dive-checklist gate
+  (ADR-0108). The validator constructs a `PATH` shim that intercepts
+  `git diff --name-only` calls only; every other `git` invocation
+  falls through to the real binary.
+- **On upstream sync**: not applicable — these files are entirely
+  fork-local and Netflix has no equivalent. If
+  `scripts/ci/deliverables-check.sh` is ever rewritten or moved, the
+  validator's exec path (`scripts/ci/deliverables-check.sh`) and the
+  test harness's expected exit codes must follow.
+  bash scripts/ci/test-validate-pr-body.sh   # 8/8 cases pass
   ```
 
 ## Cppcheck `nullPointer` false-positive in `dict.c` (2026-05-09)

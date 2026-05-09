@@ -69,3 +69,29 @@ upstream. The risk on `/sync-upstream` is the opposite: an upstream
 change to a feature extractor's emitted-metric names would silently
 invalidate `FEATURE_METRICS` rows. Re-run the matrix gate after any
 upstream sync that touches `libvmaf/src/feature/`.
+
+## PR-body deliverables validator (`validate-pr-body.sh`)
+
+`scripts/ci/validate-pr-body.sh` and `scripts/git-hooks/pre-push`
+are local mirrors of the `.github/workflows/rule-enforcement.yml`
+deep-dive-checklist gate (ADR-0108). They re-use
+`scripts/ci/deliverables-check.sh` verbatim as the parser; the
+validator only injects the diff via a `PATH`-shim that intercepts
+`git diff --name-only`.
+
+**Invariant — single parser source of truth**: do not fork or
+re-implement the deliverables-check parsing logic in any other
+language. If the gate's regex shape ever changes, the change lands
+in `deliverables-check.sh` and the validator picks it up
+automatically. The test harness `test-validate-pr-body.sh` should
+catch any drift between the validator's expectations and the
+parser's actual behaviour.
+
+**Invariant — shim scope**: the `git` shim built inside
+`validate-pr-body.sh` intercepts only the `diff --name-only` call
+shape. Every other `git` invocation falls through to the real
+binary. A future change to `deliverables-check.sh` that uses a
+different git subcommand to compute the diff must update the shim
+accordingly, or `validate-pr-body.sh` will silently use the real
+git's output (potentially fine, potentially wrong depending on
+local repo state).
