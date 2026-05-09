@@ -50,6 +50,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -293,7 +294,10 @@ def _aggregate_frames(frames: list[dict]) -> dict[str, float]:
         arr = np.array(data[feat], dtype=np.float64)
         # Suppress all-NaN warnings — ciede2000 and psnr_hvs are all-NaN
         # for identity pairs (ref == dis, ADR-0362 §Negative consequences).
-        with np.errstate(all="ignore"):
+        # numpy emits RuntimeWarning via warnings, not the FP error machinery,
+        # so errstate alone does not suppress it — use warnings.catch_warnings.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             result[f"{feat}_mean"] = float(np.nanmean(arr))
             result[f"{feat}_std"] = float(np.nanstd(arr))
     return result
