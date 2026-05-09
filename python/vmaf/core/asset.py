@@ -692,7 +692,12 @@ class Asset(WorkdirEnabled):
         """
         try:
             return os.path.getsize(self.ref_path) / self.ref_duration_sec * 8.0 / 1000.0
-        except:
+        except (OSError, TypeError, ZeroDivisionError):
+            # OSError: ref_path missing / unreadable.
+            # TypeError: ref_duration_sec is None (no duration declared).
+            # ZeroDivisionError: ref_duration_sec is 0.
+            # Narrowed from bare 'except' so KeyboardInterrupt / SystemExit
+            # propagate. (CodeQL py/catch-base-exception)
             return None
 
     @property
@@ -703,7 +708,9 @@ class Asset(WorkdirEnabled):
         """
         try:
             return os.path.getsize(self.dis_path) / self.dis_duration_sec * 8.0 / 1000.0
-        except:
+        except (OSError, TypeError, ZeroDivisionError):
+            # See ref_bitrate_kbps_for_entire_file for the rationale.
+            # (CodeQL py/catch-base-exception)
             return None
 
     # ==== yuv format ====

@@ -531,7 +531,11 @@ def run_test_on_dataset(
 
     try:
         model_type = runner.get_train_test_model_class()
-    except:
+    except (AttributeError, NotImplementedError):
+        # AttributeError: runner subclass does not expose
+        # get_train_test_model_class. NotImplementedError: subclass marks the
+        # method as abstract. Narrowed from bare 'except' so KeyboardInterrupt /
+        # SystemExit propagate. (CodeQL py/catch-base-exception)
         if type == "regressor":
             model_type = RegressorMixin
         elif type == "classifier":
@@ -577,31 +581,43 @@ def run_test_on_dataset(
         predictions_all_models = np.array(predictions_all_models).T.tolist()
         num_models = np.shape(predictions_all_models)[0]
 
-        stats = model_type.get_stats(
-            groundtruths,
-            predictions,
-            ys_label_raw=raw_grountruths,
-            ys_label_pred_bagging=predictions_bagging,
-            ys_label_pred_stddev=predictions_stddev,
-            ys_label_pred_ci95_low=predictions_ci95_low,
-            ys_label_pred_ci95_high=predictions_ci95_high,
-            ys_label_pred_all_models=predictions_all_models,
-            ys_label_stddev=groundtruths_std,
-            split_test_indices_for_perf_ci=split_test_indices_for_perf_ci,
-        )
+        # ClassifierMixin.get_stats only accepts positional (ys_label,
+        # ys_label_pred); the regressor-specific kwargs below are
+        # invalid for it (CodeQL py/call/wrong-named-argument). Branch
+        # explicitly so the classifier path doesn't unconditionally raise
+        # TypeError into the broad fallback handler.
+        if model_type is ClassifierMixin:
+            stats = model_type.get_stats(groundtruths, predictions)
+        else:
+            stats = model_type.get_stats(
+                groundtruths,
+                predictions,
+                ys_label_raw=raw_grountruths,
+                ys_label_pred_bagging=predictions_bagging,
+                ys_label_pred_stddev=predictions_stddev,
+                ys_label_pred_ci95_low=predictions_ci95_low,
+                ys_label_pred_ci95_high=predictions_ci95_high,
+                ys_label_pred_all_models=predictions_all_models,
+                ys_label_stddev=groundtruths_std,
+                split_test_indices_for_perf_ci=split_test_indices_for_perf_ci,
+            )
     except Exception as e:
         print(
             "Warning: stats calculation failed, fall back to default stats calculation: {}".format(
                 e
             )
         )
-        stats = model_type.get_stats(
-            groundtruths,
-            predictions,
-            ys_label_raw=raw_grountruths,
-            ys_label_stddev=groundtruths_std,
-            split_test_indices_for_perf_ci=split_test_indices_for_perf_ci,
-        )
+        # Fallback stats: same classifier/regressor split as above.
+        if model_type is ClassifierMixin:
+            stats = model_type.get_stats(groundtruths, predictions)
+        else:
+            stats = model_type.get_stats(
+                groundtruths,
+                predictions,
+                ys_label_raw=raw_grountruths,
+                ys_label_stddev=groundtruths_std,
+                split_test_indices_for_perf_ci=split_test_indices_for_perf_ci,
+            )
         num_models = 1
 
     print("Stats on testing data: {}".format(model_type.format_stats_for_print(stats)))

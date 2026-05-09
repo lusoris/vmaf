@@ -118,6 +118,12 @@ class Executor(TypeVersionEnabled):
                     if e == "function":
                         assert idx < len(l) - 1
                         return l[idx + 1]
+                # Unreachable: the `assert "function" in l` above guarantees
+                # the loop hits the `function` branch and returns. Keep an
+                # explicit AssertionError so the function has a single,
+                # consistent never-None return type.
+                # (CodeQL py/mixed-returns)
+                raise AssertionError("unreachable: 'function' missing from callable repr")
             else:
                 return v
 

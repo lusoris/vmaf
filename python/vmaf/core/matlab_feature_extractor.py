@@ -185,11 +185,14 @@ class StrredOptFeatureExtractor(MatlabFeatureExtractor):
             if srred is not None and trred is not None:
                 return srred * trred
             elif srred is None:
+                # Covers (None, None) -> trred is None -> returns None.
                 return trred
-            elif trred is None:
-                return srred
             else:
-                return None
+                # srred is not None and trred is None.
+                return srred
+            # (CodeQL py/unreachable-statement: prior `else: return None`
+            # was unreachable — the `srred is None` branch already covers
+            # the (None, None) case.)
 
         result = super(StrredOptFeatureExtractor, cls)._post_process_result(result)
 
@@ -275,11 +278,14 @@ class SpEEDMatlabFeatureExtractor(MatlabFeatureExtractor):
             if sspeed is not None and tspeed is not None:
                 return sspeed * tspeed
             elif sspeed is None:
+                # Covers (None, None) -> tspeed is None -> returns None.
                 return tspeed
-            elif tspeed is None:
-                return sspeed
             else:
-                return None
+                # sspeed is not None and tspeed is None.
+                return sspeed
+            # (CodeQL py/unreachable-statement: prior `else: return None`
+            # was unreachable — the `sspeed is None` branch already covers
+            # the (None, None) case.)
 
         result = super(SpEEDMatlabFeatureExtractor, cls)._post_process_result(result)
         for scale_now in cls.scale_list:

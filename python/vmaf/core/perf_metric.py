@@ -476,8 +476,8 @@ class ResolvingPowerPerfMetric(RawScorePerfMetric):
         deg_of_freedom = kwargs["ddof"] if "ddof" in kwargs else 0
 
         vqm = np.array(predictions)
-        num_viewers = np.array(list(map(lambda groundtruth: len(groundtruth), groundtruths)))
-        mos = np.array(list(map(lambda groundtruth: np.nanmean(groundtruth), groundtruths)))
+        num_viewers = np.array(list(map(len, groundtruths)))
+        mos = np.array(list(map(np.nanmean, groundtruths)))
         std = np.array(
             list(map(lambda groundtruth: np.nanstd(groundtruth, ddof=deg_of_freedom), groundtruths))
         )
@@ -490,7 +490,10 @@ class ResolvingPowerPerfMetric(RawScorePerfMetric):
 
         # % Perform the vqm RMSE calculation using vqm.
         # vqm_rmse = (sum((vqm-mos).^2)/(num_comb - deg_of_freedom))^0.5;
-        vqm_rmse = (sum((vqm - mos) ** 2) / (num_comb - deg_of_freedom)) ** 0.5
+        # (CodeQL py/unused-local-variable: vqm_rmse is computed by the
+        # source Matlab routine but never read by the resolving-power
+        # calculation below. Dropped the Python assignment; kept the
+        # commented Matlab line for traceability against the original.)
 
         # % Perform the vqm resolution measurement using both vqm and mos.
         # vqm_pairs = repmat(vqm,1,num_comb)-repmat(vqm',num_comb,1);

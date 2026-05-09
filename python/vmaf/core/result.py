@@ -702,7 +702,7 @@ class Result(BasicResult):
         assert len(df) == len(set(df["scores_key"].tolist()))
 
         # all scores should have equal length
-        assert len(set(map(lambda x: len(x), df["scores"].tolist()))) == 1
+        assert len(set(map(len, df["scores"].tolist()))) == 1
 
 
 class RawResult(object):
