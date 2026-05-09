@@ -24,10 +24,22 @@ Local patches against FFmpeg **n8.1.1** for integrating this VMAF fork into
 - **`0006-libvmaf-add-libvmaf-vulkan-filter.patch`** — registers a
   dedicated `libvmaf_vulkan` filter for zero-copy VkImage import per
   [ADR-0186](../docs/adr/0186-vulkan-image-import-impl.md).
+- **`0010-libvmaf-wire-cuda-backend-selector.patch`** — adds a
+  `cuda` boolean option on the `libvmaf` filter and the
+  `--enable-libvmaf-cuda` configure flag. When `cuda=1` the filter
+  inits a `VmafCudaState` on the primary CUDA context (device picked
+  by `CUDA_VISIBLE_DEVICES`), imports it via `vmaf_cuda_import_state`,
+  and dispenses `VmafPicture`s from a HOST_PINNED preallocation pool
+  so software AVFrame input flows into pinned-host memory the CUDA
+  feature kernels DMA from without a staging copy. Mirrors the
+  SYCL/Vulkan selector pattern and runs alongside the upstream
+  dedicated `libvmaf_cuda` filter (which keeps its own `cu_state`
+  for hwaccel CUDA frames in). See
+  [ADR-0350](../docs/adr/0350-ffmpeg-libvmaf-cuda-backend-selector.md).
 
 Every patch is guarded by `check_pkg_config` so it degrades gracefully when
 libvmaf was built without the relevant feature (`-Denable_dnn`, `-Denable_sycl`,
-`-Denable_vulkan`).
+`-Denable_vulkan`, `-Denable_cuda`).
 
 ## What works without a patch
 

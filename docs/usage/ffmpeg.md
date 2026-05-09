@@ -180,7 +180,8 @@ The final command line will depend on what shell you are running `ffmpeg` throug
 One ready-to-paste invocation per backend. All four use the same input
 pair (`reference.mp4`, `distorted.mp4`); each routes the work to a
 different compute path. The fork-added `sycl_device=` / `vulkan_device=`
-options come from the `ffmpeg-patches/0003..0004` series.
+/ `cuda=` options come from the `ffmpeg-patches/0003..0004` and
+`0010` patches.
 
 **CPU (default — no hwaccel, no GPU build needed):**
 
@@ -199,6 +200,26 @@ ffmpeg -hwaccel cuda -hwaccel_output_format cuda -i reference.mp4 \
        -filter_complex "[0:v][1:v]libvmaf_cuda=log_fmt=json:log_path=/dev/stdout" \
        -f null -
 ```
+
+**CUDA — software input (built with `-Denable_cuda=true` and FFmpeg
+configured `--enable-libvmaf-cuda`; uses the fork-added `cuda=1`
+selector on the regular `libvmaf` filter — runs CUDA feature kernels
+without the CUDA hwaccel decode round-trip):**
+
+```bash
+ffmpeg -i reference.mp4 -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf=cuda=1:log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+When `cuda=1` the filter inits a `VmafCudaState` against the CUDA
+primary context on the default device, imports it into the
+`VmafContext`, and dispenses `VmafPicture`s from a `HOST_PINNED`
+preallocation pool so the existing copy loop fills pinned-host memory
+the CUDA feature kernels DMA from without a staging copy. Mirrors
+the `sycl_device=N` / `vulkan_device=N` selectors below; device
+selection is via `CUDA_VISIBLE_DEVICES` at process scope (the
+upstream `VmafCudaConfiguration` C-API has no `device_index` field).
 
 **SYCL (Intel / Arc — built with `-Denable_sycl=true`; uses the
 fork-added `sycl_device=N` selector on the regular `libvmaf` filter,

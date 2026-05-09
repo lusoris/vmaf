@@ -190,6 +190,7 @@
 0359-arc-runners-pilot
 
 
+
 0350-psnr-hvs-avx512-ceiling
 0355-symphony-agent-dispatch-infra
 0363-renovate-replaces-dependabot
@@ -238,4 +239,7 @@
 
 
 0352-vulkan-submit-pool-pr-a-adm-motion-psnr
+
+
+0350-ffmpeg-libvmaf-cuda-backend-selector
 

@@ -10,3 +10,4 @@
 0007-libvmaf-tune-qpfile-unified.patch
 0008-add-libvmaf_tune-filter.patch
 0009-pass-autotune-cli-glue.patch
+0010-libvmaf-wire-cuda-backend-selector.patch

@@ -202,6 +202,21 @@ cuda/
   `float_adm_score` into the global `cuda_flags` block; the
   FMA-off scope is intentionally one fatbin only.
 
+- **FFmpeg `libvmaf` filter — `cuda` selector consumer** (fork-local,
+  ADR-0350): the in-tree
+  [`ffmpeg-patches/0010-libvmaf-wire-cuda-backend-selector.patch`](../../../ffmpeg-patches/0010-libvmaf-wire-cuda-backend-selector.patch)
+  consumes the public CUDA C-API surface
+  (`vmaf_cuda_state_init` / `_state_free` / `_import_state` /
+  `_preallocate_pictures` / `_fetch_preallocated_picture` from
+  [`include/libvmaf/libvmaf_cuda.h`](../../include/libvmaf/libvmaf_cuda.h))
+  exactly like SYCL/Vulkan do via patches `0003`/`0004`. **On
+  rename / signature change of any of those entry points**: the FFmpeg
+  patch must update in the same PR per CLAUDE.md §12 r14. Verify by
+  cumulative `git am --3way` replay of `ffmpeg-patches/000{1..9}-*` +
+  `0010-*` against pristine FFmpeg `n8.1.1`. The CUDA filter selector
+  mirrors the picture-pool ownership contract above: state is freed
+  *after* `vmaf_close()`. Reversing the order is a use-after-free.
+
 ## Build
 
 ```bash
