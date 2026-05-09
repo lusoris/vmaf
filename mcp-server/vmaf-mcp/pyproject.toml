@@ -32,7 +32,7 @@ eval = [
 # Heavy install; off by default so the base MCP keeps a light footprint
 # (ADR-0172 / T6-6).
 vlm = [
-  "transformers>=4.57.6",
+  "transformers>=5.8.0",
   "torch>=2.11.0",
   "Pillow>=12.2.0",
   "accelerate>=0.34",
