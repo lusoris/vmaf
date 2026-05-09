@@ -9193,6 +9193,11 @@ inline.*
     yaml.safe_load(open('.github/workflows/ffmpeg-integration.yml')); \
     print('OK')"
   ```
+
+
+
+
+
 ### 0319 — fr_regressor_v2 ensemble LOSO trainer — real loader + per-fold training (ADR-0319)
 - **Touches**: `ai/scripts/train_fr_regressor_v2_ensemble_loso.py`
   (real `_load_corpus` + `_train_one_seed` bodies),
@@ -32213,6 +32218,40 @@ build-system paths changed; no new symbols were added.
          python/test/vmafexec_feature_extractor_test.py \
          python/test/feature_extractor_test.py python/test/result_test.py \
          --collect-only -q   # 173 tests collected, no errors
+
+## ADR-0318 — `fr_regressor_v2` ensemble retrain harness fix (2026-05-06)
+
+- **Touched files**:
+  - `ai/scripts/run_ensemble_v2_real_corpus_loso.sh` — wrapper passes
+    `--corpus "$CORPUS_JSONL"` + `--out-dir "$out_dir"`, drops
+    `--corpus-root` / `--output`. JSONL-existence check replaces the
+    YUV-directory hard-fail (YUV check is informational).
+  - `docs/ai/ensemble-v2-real-corpus-retrain-runbook.md` — adds step
+    **0. Generate the Phase A canonical-6 corpus**, expands prereqs
+    table with the JSONL row + Phase A wall-time estimate.
+  - `docs/adr/0318-ensemble-retrain-harness-fix.md`,
+    `docs/adr/README.md` (index row),
+    `changelog.d/fixed/ensemble-retrain-harness-interface.md`.
+- **Rebase invariant**: not load-bearing. Wrapper-script + doc-only
+  change. The trainer `ai/scripts/train_fr_regressor_v2_ensemble_loso.py`
+  CLI is the authoritative interface (frozen here as part of the
+  decision); any future change to it must update this wrapper in the
+  same PR.
+- **Upstream source**: none — fork-local AI training harness.
+- **On upstream sync**: no action required. Path is entirely under
+  `ai/scripts/` + `docs/ai/` + `docs/adr/`; upstream Netflix/vmaf
+  does not ship these directories.
+- **Re-test on rebase**:
+
+  ```bash
+  bash -n ai/scripts/run_ensemble_v2_real_corpus_loso.sh
+  python3 ai/scripts/train_fr_regressor_v2_ensemble_loso.py --help
+  mkdir -p runs/phase_a/full_grid && \
+    touch runs/phase_a/full_grid/per_frame_canonical6.jsonl && \
+    bash ai/scripts/run_ensemble_v2_real_corpus_loso.sh 2>&1 | \
+    grep -q "unrecognized arguments" && echo "REGRESSED" || echo "OK"
+  rm -rf runs/phase_a runs/ensemble_v2_real
+
   ```
 
       --feature ssimulacra2 --backend cuda --places 4
