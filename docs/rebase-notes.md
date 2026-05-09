@@ -31111,7 +31111,7 @@ compiles).
 
 
 ---
-## ADR-0350 — Vulkan readback buffer VMA flag separation (PR pending)
+## ADR-0357 — Vulkan readback buffer VMA flag separation (PR pending)
 **What changed**: `picture_vulkan.{c,h}` now exposes two sibling allocation
 functions: `vmaf_vulkan_buffer_alloc` (UPLOAD, unchanged) and
 `vmaf_vulkan_buffer_alloc_readback` (READBACK, `HOST_ACCESS_RANDOM`). A new

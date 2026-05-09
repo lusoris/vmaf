@@ -507,7 +507,7 @@ Requires the Vulkan SDK or system Vulkan loader + `glslc` (or
 - [docs/backends/vulkan/overview.md](../../../docs/backends/vulkan/overview.md)
   — backend-level overview.
 
-## Buffer classification invariant (ADR-0350)
+## Buffer classification invariant (ADR-0357)
 
 Every new `VmafVulkanBuffer` must be allocated with the correct VMA flag:
 
@@ -528,5 +528,5 @@ device writes are not visible to the host until `vmaInvalidateAllocation` is
 called.  `vmaf_vulkan_buffer_invalidate` is a no-op on HOST_COHERENT heaps
 (integrated GPUs, lavapipe), so the call is unconditionally safe.
 
-See [ADR-0350](../../../docs/adr/0350-vulkan-readback-alloc-flag.md) for the
+See [ADR-0357](../../../docs/adr/0357-vulkan-readback-alloc-flag.md) for the
 full decision matrix and the per-feature buffer classification table.

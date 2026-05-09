@@ -12,4 +12,4 @@
   no-op on HOST_COHERENT / integrated GPU). All 17 feature kernel files
   audited: accumulator and partial-sum buffers (27 allocation sites) switched
   to the readback path with matching invalidate calls. Expected +30–50%
-  Vulkan throughput at 1080p on discrete GPU. See ADR-0350.
+  Vulkan throughput at 1080p on discrete GPU. See ADR-0357.

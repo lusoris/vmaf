@@ -43,7 +43,7 @@ typedef struct VmafVulkanBuffer VmafVulkanBuffer;
  * `*out_buf` receives a freshly allocated VmafVulkanBuffer; release
  * with vmaf_vulkan_buffer_free(). Returns 0 / -ENOMEM / -EINVAL.
  *
- * See ADR-0350 for the UPLOAD vs READBACK buffer classification.
+ * See ADR-0357 for the UPLOAD vs READBACK buffer classification.
  */
 int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf, size_t size);
 
@@ -64,7 +64,7 @@ int vmaf_vulkan_buffer_alloc(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf,
  *
  * Returns 0 / -ENOMEM / -EINVAL.
  *
- * See ADR-0350 for the UPLOAD vs READBACK buffer classification.
+ * See ADR-0357 for the UPLOAD vs READBACK buffer classification.
  */
 int vmaf_vulkan_buffer_alloc_readback(VmafVulkanContext *ctx, VmafVulkanBuffer **out_buf,
                                       size_t size);

@@ -195,6 +195,8 @@ The umbrella flag pulls in `dependency('vulkan')` + volk + glslc + VMA.
   submit pool design (`VmafVulkanKernelSubmitPool`).
 - [ADR-0356](../../../../docs/adr/0356-vulkan-two-level-gpu-reduction.md) —
   Two-level GPU reduction for VIF / ADM / motion accumulators (T-GPU-PERF-VK-3).
+- [ADR-0357](../../../../docs/adr/0357-vulkan-readback-alloc-flag.md) —
+  UPLOAD vs READBACK VMA allocation flag separation.
 - [ADR-0353](../../../../docs/adr/0353-vulkan-submit-pool-pr-b-six-kernels.md) —
   PR-B six-kernel submit-pool migration.
 
@@ -233,7 +235,7 @@ PR #563), `ssim`, `ciede`, `ms_ssim`, `motion_v2`, `float_psnr`,
 `float_motion` (PR-B / ADR-0353). Remaining legacy kernels (`ansnr`,
 `vif`, `ssimulacra2`, `cambi`) are deferred to PR-C.
 
-## Buffer allocation invariant (ADR-0350)
+## Buffer allocation invariant (ADR-0357)
 
 Feature kernel files in this directory must allocate buffers with the correct
 VMA classification:
@@ -256,4 +258,4 @@ discrete GPUs (uncached BAR heap instead of HOST_CACHED).  Missing the
 `invalidate` call makes the CPU see stale data on non-coherent heaps.  Both
 bugs are silent (no crash, wrong throughput or wrong result respectively).
 
-See [ADR-0350](../../../../docs/adr/0350-vulkan-readback-alloc-flag.md).
+See [ADR-0357](../../../../docs/adr/0357-vulkan-readback-alloc-flag.md).

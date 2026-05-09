@@ -1,4 +1,4 @@
-# ADR-0350 — Vulkan readback buffer VMA allocation flag separation
+# ADR-0357 — Vulkan readback buffer VMA allocation flag separation
 
 | Field    | Value                                      |
 |----------|--------------------------------------------|

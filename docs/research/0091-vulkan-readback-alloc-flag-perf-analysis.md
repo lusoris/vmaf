@@ -1,7 +1,7 @@
 # Research-0091 — Vulkan readback buffer VMA flag: performance analysis
 
 **Date**: 2026-05-09
-**Companion**: [ADR-0350](../adr/0350-vulkan-readback-alloc-flag.md)
+**Companion**: [ADR-0357](../adr/0357-vulkan-readback-alloc-flag.md)
 
 ## Problem statement
 
@@ -90,5 +90,5 @@ frame dispatch waits for the current reduction to complete).
 
 The `HOST_ACCESS_RANDOM` flag with a matching `vmaInvalidateAllocation` call
 is the correct and VMA-endorsed pattern for GPU-write / CPU-read buffers.  The
-implementation in ADR-0350 is minimal: two new sibling functions, no new
+implementation in ADR-0357 is minimal: two new sibling functions, no new
 infrastructure, no changes to shaders or descriptor layouts.

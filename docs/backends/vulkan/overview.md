@@ -330,7 +330,7 @@ is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
   [`docs/state.md`](../../state.md) Open bugs.
 
 
-## Buffer classification (ADR-0350)
+## Buffer classification (ADR-0357)
 
 Every VkBuffer in the Vulkan backend is classified as one of two types, which
 determines which VMA allocator function to call and which coherency actions are
@@ -376,7 +376,7 @@ buffers.
 3. Pair every host write with a `flush`; pair every host read from a
    readback buffer with an `invalidate` immediately after the fence-wait.
 4. Update the buffer-classification table in
-   [ADR-0350](../../adr/0350-vulkan-readback-alloc-flag.md).
+   [ADR-0357](../../adr/0357-vulkan-readback-alloc-flag.md).
 
 ## References
 

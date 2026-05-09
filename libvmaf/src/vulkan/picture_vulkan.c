@@ -4,7 +4,7 @@
  *
  *  Picture allocation / lifecycle for the Vulkan backend (T5-1b).
  *
- *  Two buffer-classification functions are provided (ADR-0350):
+ *  Two buffer-classification functions are provided (ADR-0357):
  *
  *    vmaf_vulkan_buffer_alloc()          — UPLOAD buffers (CPU writes, GPU
  *        reads).  VMA flag: HOST_ACCESS_SEQUENTIAL_WRITE.  VMA prefers a
