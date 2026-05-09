@@ -96,6 +96,28 @@ Fork-local subtree. Read this before editing any TU under
    v3 vendors mongoose. The smoke test pins this; flipping it
    without landing the body will fail
    `test_start_sse_returns_enosys`.
+6. **SSE transport is fork-owned plain POSIX sockets — NOT mongoose.**
+   The original v3 plan to vendor cesanta/mongoose was reversed
+   because mongoose 7.18 is GPL-2.0-only OR commercial,
+   incompatible with the fork's BSD-3-Clause-Plus-Patent license
+   (verified 2026-05-09). Do NOT re-introduce mongoose (or any
+   GPL-licensed HTTP library) without first amending CLAUDE §1 and
+   adding a separate license-compatibility ADR. The minimal
+   HTTP/1.1 + SSE surface lives in `transport_sse.c` (~500 LOC).
+7. **SSE listener-shutdown uses `shutdown(SHUT_RDWR)` before
+   `close()`.** Plain `close()` of an AF_INET listening fd from
+   another thread does NOT unblock `accept()` on Linux. The UDS
+   transport (AF_UNIX) does not need this; the SSE transport does.
+   The smoke test `test_sse_event_stream` regresses if the
+   shutdown call is removed (test hangs waiting for join).
+8. **SSE binds `INADDR_LOOPBACK` only.** Do NOT switch to
+   `INADDR_ANY` without an ADR + auth design — v3 explicitly ships
+   without CORS/Bearer/per-session auth on the assumption of a
+   same-host trust boundary.
+9. **`sse_emit_event` and `sse_extract_id` are reserved for v4
+   broadcast.** Marked `__attribute__((unused))` in v3 to keep the
+   build warning-free; v4 will route POST replies onto subscribed
+   GET streams via these helpers.
 ## Build flags
 ```bash
 meson setup build -Denable_mcp=true \
@@ -111,3 +133,20 @@ round-trips `tools/list`) and `test_compute_vmaf_real_score`
 (round-trips `tools/call` for `compute_vmaf` against the testdata
 576x324 48-frame YUV pair). The compute test gracefully skips
 when the YUV fixture is absent.
+                  -Denable_mcp_uds=true \
+                  -Denable_mcp_sse=enabled
+# enable_mcp_sse is now a `feature` option (default: auto). The
+# SSE transport is plain POSIX sockets — no third-party vendor
+# probe.
+```
+```
+build/test/test_mcp_smoke   # expects "17 tests run, 17 passed"
+```
+The v3 sub-test `test_sse_event_stream` spawns the SSE server on
+an ephemeral loopback port, performs a `GET /mcp/sse` and checks
+for `Content-Type: text/event-stream`, an `event: ready` field, a
+`data:` field, and the blank-line frame terminator (per WHATWG
+SSE §9.2, accessed 2026-05-09); then performs a `POST /mcp/sse`
+with a `tools/list` JSON-RPC request and verifies the inline
+response contains `list_features`. The v2 sub-tests
+`test_uds_roundtrip` and `test_compute_vmaf_real_score` remain.

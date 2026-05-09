@@ -74,9 +74,9 @@ option('enable_mcp',
     description: 'Build embedded MCP (Model Context Protocol) server inside libvmaf (ADR-0128 design; ADR-0209 / T5-2 scaffold; T5-2b runtime). Default disabled — opt in to use. Header surface lands in T5-2; runtime + transports in T5-2b. The umbrella flag enables the `vmaf_mcp_*` symbols; per-transport availability is gated by the sub-flags below.')
 
 option('enable_mcp_sse',
-    type: 'boolean',
-    value: false,
-    description: 'Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires enable_mcp=true. Bodies land in T5-2b.')
+    type: 'feature',
+    value: 'auto',
+    description: 'Compile in the SSE (Server-Sent Events / loopback HTTP) transport for the embedded MCP server. Requires enable_mcp=true. Implemented in plain POSIX sockets — no third-party HTTP library is vendored (the original v3 plan to vendor cesanta/mongoose was abandoned because mongoose is GPL-2.0-only-OR-commercial, incompatible with the fork BSD-3-Clause-Plus-Patent license). T5-2d / ADR-0332 § "Status update 2026-05-09".')
 
 option('enable_mcp_uds',
     type: 'boolean',

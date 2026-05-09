@@ -44,6 +44,9 @@ void *vmaf_mcp_stdio_thread_main(void *arg);
 /* Forward decl for the UDS worker — defined in transport_uds.c. */
 void *vmaf_mcp_uds_thread_main(void *arg);
 
+/* Forward decl for the SSE worker — defined in transport_sse.c (v3). */
+void *vmaf_mcp_sse_thread_main(void *arg);
+
 /* Forward decl for the v2 compute_vmaf tool — defined in
  * compute_vmaf.c. The cJSON pointers are typed as `void *` here so
  * the cJSON header is not required by every TU that pulls in this
@@ -71,6 +74,13 @@ struct VmafMcpServer {
     char *uds_path_owned;   /* Bound socket path; freed at close. */
     pthread_t uds_thread;   /* Listener-accept thread. */
     atomic_int uds_running; /* 0 / 1 / 2 same semantics as stdio. */
+
+    /* SSE transport state (v3). Bound to 127.0.0.1 only. */
+    int sse_listen_fd;      /* AF_INET listener on loopback; -1 when not started. */
+    uint16_t sse_port;      /* Bound TCP port (resolved when caller passed 0). */
+    char *sse_path_owned;   /* URL path served as the event stream. NULL → default. */
+    pthread_t sse_thread;   /* Listener-accept thread. */
+    atomic_int sse_running; /* 0 / 1 / 2 same semantics as stdio. */
 };
 
 /**

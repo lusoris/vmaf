@@ -9870,3 +9870,25 @@ compiles).
 
 
 
+
+
+
+
+## ADR-0332 v3 runtime (T5-2d) — Embedded MCP server SSE transport (2026-05-09)
+
+- **Touches**: `libvmaf/src/mcp/{mcp.c,mcp_internal.h,meson.build,transport_sse.c}`, `libvmaf/meson_options.txt`, `libvmaf/test/test_mcp_smoke.c`, `docs/mcp/embedded.md`, `docs/adr/0332-mcp-runtime-v2.md` (status-update appendix). All paths are fork-local. **No third-party vendor drop in v3** — the originally-planned mongoose vendor was reversed because cesanta/mongoose 7.18 is GPL-2.0-only OR commercial, incompatible with the fork's BSD-3-Clause-Plus-Patent license (verified at upstream LICENSE 2026-05-09). The SSE transport is plain POSIX sockets in fork-owned C (~500 LOC).
+- **Invariant**: same as ADR-0209 / ADR-0332 v2 — the entire `libvmaf/src/mcp/` subtree is fork-local; the public ABI in `libvmaf/include/libvmaf/libvmaf_mcp.h` is unchanged (only `vmaf_mcp_start_sse`'s body flipped from `-ENOSYS` to a working AF_INET listener). The SSE listener binds `INADDR_LOOPBACK` only; do NOT switch to `INADDR_ANY` without a separate ADR + auth design (v3 ships intentionally without CORS/Bearer/per-session auth on the assumption of a same-host trust boundary). The SSE stop path uses `shutdown(SHUT_RDWR)` before `close()` — plain `close()` of an AF_INET listening fd from another thread does NOT unblock `accept()` on Linux; do NOT remove the `shutdown` call. `enable_mcp_sse` is now a `feature` option (default `auto`), not `boolean false`.
+- **On upstream sync**: no action required. Netflix/vmaf upstream has no embedded MCP surface. **Do NOT re-introduce mongoose** (or any GPL-licensed HTTP library) on a future rebase without first amending CLAUDE §1 and adding a separate license-compatibility ADR.
+- **Re-test on rebase**:
+
+  ```bash
+  cd libvmaf && meson setup build -Denable_cuda=false -Denable_sycl=false \
+                                  -Denable_mcp=true -Denable_mcp_stdio=true \
+                                  -Denable_mcp_uds=true \
+                                  -Denable_mcp_sse=enabled
+  ninja -C build && meson test -C build test_mcp_smoke -v
+  build/test/test_mcp_smoke 2>&1 | tail -3   # expects "17 tests run, 17 passed"
+  ```
+
+
+

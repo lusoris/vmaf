@@ -22,18 +22,27 @@
  *      - compute_vmaf real-score check against the testdata 576x324
  *        YUV pair (sanity-bounded; not bit-exact)
  *
- *  SSE still returns -ENOSYS — pinned here so a future v3 PR
- *  cannot wire it without flipping the expectation.
+ *  T5-2d (this PR — MCP runtime v3) flips SSE from -ENOSYS to a
+ *  real loopback HTTP server (no mongoose vendor — see
+ *  transport_sse.c header). New coverage:
+ *      - SSE start/stop lifecycle on an ephemeral port
+ *      - HTTP GET /mcp/sse returns text/event-stream framing
+ *      - HTTP POST /mcp/sse delivers JSON-RPC tools/list and
+ *        gets the inline JSON response back
  */
 
+#include <arpa/inet.h>
 #include <errno.h>
+#include <netinet/in.h>
 #include <pthread.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -71,12 +80,14 @@ static char *test_init_rejects_null_ctx(void)
     return NULL;
 }
 
-static char *test_start_sse_returns_enosys(void)
+/* Removed in v3: SSE is no longer -ENOSYS. The negative case
+ * (NULL cfg) is covered by test_start_sse_rejects_null_cfg below;
+ * the full SSE round-trip is covered by test_sse_event_stream. */
+static char *test_start_sse_rejects_null_cfg(void)
 {
     VmafMcpServer *server = (VmafMcpServer *)0x1;
-    VmafMcpSseConfig cfg = {.port = 0, .path = NULL};
-    int rc = vmaf_mcp_start_sse(server, &cfg);
-    mu_assert("start_sse must return -ENOSYS in v1", rc == -ENOSYS);
+    int rc = vmaf_mcp_start_sse(server, NULL);
+    mu_assert("NULL cfg -> -EINVAL", rc == -EINVAL);
     return NULL;
 }
 
@@ -396,6 +407,149 @@ static char *test_compute_vmaf_real_score(void)
 }
 
 /* ============================================================
+ * SSE transport round-trip (v3)
+ *
+ * Verifies the loopback HTTP server actually emits text/event-stream
+ * framing per WHATWG SSE §9.2 (accessed 2026-05-09):
+ * https://html.spec.whatwg.org/multipage/server-sent-events.html
+ *
+ * Per CLAUDE memory feedback_no_test_weakening — this test must
+ * verify real event-stream framing, not just HTTP-200. We check:
+ *   - GET /mcp/sse returns Content-Type: text/event-stream
+ *   - The stream emits at least one parsable `event:` + `data:`
+ *     frame terminated by a blank line
+ *   - POST /mcp/sse delivers a JSON-RPC tools/list and the
+ *     response body contains "list_features"
+ * ============================================================ */
+
+/* Connect a fresh client TCP socket to 127.0.0.1:port. */
+static int sse_test_connect(uint16_t port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+    struct sockaddr_in sin;
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sin.sin_port = htons(port);
+    if (connect(fd, (const struct sockaddr *)&sin, sizeof(sin)) != 0) {
+        (void)close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+/* Drain the socket up to `cap` bytes or short-read. Stops once we
+ * see the SSE blank-line terminator OR after the read times out
+ * (whichever happens first). Returns bytes read. Caller-owned
+ * buffer; NUL-terminated. */
+static ssize_t sse_test_drain(int fd, char *buf, size_t cap, int timeout_seconds)
+{
+    struct timeval tv = {.tv_sec = timeout_seconds, .tv_usec = 0};
+    (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    size_t total = 0u;
+    while (total + 1u < cap) {
+        ssize_t r = read(fd, buf + total, cap - 1u - total);
+        if (r <= 0)
+            break;
+        total += (size_t)r;
+        buf[total] = '\0';
+        /* Per WHATWG SSE §9.2 each event is terminated by a blank
+         * line. Stop as soon as we see the terminator after we have
+         * also seen at least one `data:` or `event:` field — which
+         * means a real frame has arrived. */
+        if (strstr(buf, "data: ") != NULL && strstr(buf, "\n\n") != NULL)
+            break;
+        /* Inline POST response uses Content-Length; once we have a
+         * "\r\n\r\n" header terminator and any JSON-ish content, we
+         * are done. */
+        if (strstr(buf, "\r\n\r\n") != NULL && strstr(buf, "\"jsonrpc\"") != NULL)
+            break;
+    }
+    buf[total] = '\0';
+    return (ssize_t)total;
+}
+
+/* GET /mcp/sse — verify event-stream framing per WHATWG SSE §9.2. */
+static char *sse_check_get_stream(uint16_t port)
+{
+    int gfd = sse_test_connect(port);
+    mu_assert("sse get connect", gfd >= 0);
+    static const char get_req[] = "GET /mcp/sse HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    ssize_t gw = write(gfd, get_req, sizeof(get_req) - 1u);
+    mu_assert("get write", gw == (ssize_t)(sizeof(get_req) - 1u));
+
+    static char gbuf[4096];
+    ssize_t got = sse_test_drain(gfd, gbuf, sizeof(gbuf), 3);
+    (void)close(gfd);
+    mu_assert("sse get response", got > 0);
+    mu_assert("sse 200 OK", strstr(gbuf, "200 OK") != NULL);
+    mu_assert("sse content-type", strstr(gbuf, "text/event-stream") != NULL);
+    /* Per WHATWG SSE §9.2 (accessed 2026-05-09) an event frame ends
+     * in a blank line. The transport emits an initial `event: ready`
+     * frame after the response headers — verify both pieces are
+     * present. */
+    mu_assert("sse event field", strstr(gbuf, "event: ready") != NULL);
+    mu_assert("sse data field", strstr(gbuf, "data: ") != NULL);
+    mu_assert("sse blank-line terminator", strstr(gbuf, "\n\n") != NULL);
+    return NULL;
+}
+
+/* POST /mcp/sse — verify JSON-RPC tools/list inline round-trip. */
+static char *sse_check_post_jsonrpc(uint16_t port)
+{
+    int pfd = sse_test_connect(port);
+    mu_assert("sse post connect", pfd >= 0);
+    static const char rpc[] = "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\"}";
+    char post_req[512];
+    int pn = snprintf(post_req, sizeof(post_req),
+                      "POST /mcp/sse HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                      "Content-Type: application/json\r\n"
+                      "Content-Length: %zu\r\n\r\n%s",
+                      sizeof(rpc) - 1u, rpc);
+    mu_assert("post snprintf", pn > 0 && (size_t)pn < sizeof(post_req));
+    ssize_t pw = write(pfd, post_req, (size_t)pn);
+    mu_assert("post write", pw == (ssize_t)pn);
+
+    static char pbuf[8192];
+    ssize_t pgot = sse_test_drain(pfd, pbuf, sizeof(pbuf), 5);
+    (void)close(pfd);
+    mu_assert("sse post response", pgot > 0);
+    mu_assert("sse post 200", strstr(pbuf, "200 OK") != NULL);
+    mu_assert("sse post jsonrpc", strstr(pbuf, "\"jsonrpc\":\"2.0\"") != NULL);
+    mu_assert("sse post id 7", strstr(pbuf, "\"id\":7") != NULL);
+    mu_assert("sse post lists features", strstr(pbuf, "list_features") != NULL);
+    return NULL;
+}
+
+static char *test_sse_event_stream(void)
+{
+    /* Spawn the SSE server on an ephemeral loopback port. */
+    VmafContext *ctx = NULL;
+    VmafConfiguration vcfg = {0};
+    vcfg.log_level = VMAF_LOG_LEVEL_NONE;
+    vcfg.n_threads = 1u;
+    mu_assert("vmaf_init", vmaf_init(&ctx, vcfg) == 0);
+
+    VmafMcpServer *server = NULL;
+    mu_assert("mcp init", vmaf_mcp_init(&server, ctx, NULL) == 0);
+
+    VmafMcpSseConfig sse_cfg = {.port = 0, .path = NULL};
+    int sse_rc = vmaf_mcp_start_sse(server, &sse_cfg);
+    mu_assert("sse start", sse_rc == 0);
+    mu_assert("sse port resolved", sse_cfg.port != 0u);
+
+    char *err = sse_check_get_stream(sse_cfg.port);
+    if (err == NULL)
+        err = sse_check_post_jsonrpc(sse_cfg.port);
+
+    vmaf_mcp_close(&server);
+    (void)vmaf_close(ctx);
+    return err;
+}
+
+/* ============================================================
  * Test table — keeps run_tests below clang-tidy's 15-branch budget
  * (mirrors test_hip_smoke.c / test_vulkan_smoke.c precedent).
  * ============================================================ */
@@ -407,7 +561,7 @@ static const test_fn k_test_table[] = {
     test_transport_available_unknown_id_is_zero,
     test_init_rejects_null_out,
     test_init_rejects_null_ctx,
-    test_start_sse_returns_enosys,
+    test_start_sse_rejects_null_cfg,
     test_start_uds_rejects_null_path,
     test_start_stdio_rejects_negative_fd,
     test_stop_rejects_null,
@@ -419,6 +573,7 @@ static const test_fn k_test_table[] = {
     test_jsonrpc_method_not_found,
     test_uds_roundtrip,
     test_compute_vmaf_real_score,
+    test_sse_event_stream,
 };
 
 static const size_t k_test_table_len = sizeof(k_test_table) / sizeof(k_test_table[0]);

@@ -25,8 +25,10 @@
  *        return value is checked or `(void)`-cast with rationale.
  */
 
+#include <arpa/inet.h>
 #include <assert.h>
 #include <errno.h>
+#include <netinet/in.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stddef.h>
@@ -132,6 +134,10 @@ int vmaf_mcp_init(VmafMcpServer **out, VmafContext *ctx, const VmafMcpConfig *cf
     s->uds_listen_fd = -1;
     s->uds_path_owned = NULL;
     atomic_store(&s->uds_running, 0);
+    s->sse_listen_fd = -1;
+    s->sse_port = 0u;
+    s->sse_path_owned = NULL;
+    atomic_store(&s->sse_running, 0);
     /* Power-of-10 §5: invariant — server starts in "not-running"
      * state regardless of caller config. */
     assert(atomic_load(&s->stdio_running) == 0);
@@ -146,13 +152,107 @@ int vmaf_mcp_init(VmafMcpServer **out, VmafContext *ctx, const VmafMcpConfig *cf
     return 0;
 }
 
+/* Bind a freshly-created loopback TCP socket on cfg->port. Returns
+ * the bound fd on success (and writes the resolved port back to
+ * `*resolved_port`); returns negative errno on failure. */
+static int sse_bind_loopback(uint16_t requested_port, uint16_t *resolved_port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -errno;
+    int one = 1;
+    /* SO_REUSEADDR — let the smoke test reuse the kernel-picked port
+     * across rapid restarts; harmless on loopback. */
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) != 0) {
+        int saved = errno;
+        (void)close(fd);
+        return -saved;
+    }
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    /* 127.0.0.1 — embedded MCP must NOT expose to non-loopback per
+     * ADR-0128 § "Operational guardrails". */
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(requested_port);
+    if (bind(fd, (const struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        int saved = errno;
+        (void)close(fd);
+        return saved == EADDRINUSE ? -EADDRINUSE : -saved;
+    }
+    if (listen(fd, 16) != 0) {
+        int saved = errno;
+        (void)close(fd);
+        return -saved;
+    }
+    /* Resolve the bound port (so port==0 callers learn what the
+     * kernel picked). */
+    struct sockaddr_in bound;
+    socklen_t blen = sizeof(bound);
+    if (getsockname(fd, (struct sockaddr *)&bound, &blen) != 0) {
+        int saved = errno;
+        (void)close(fd);
+        return -saved;
+    }
+    *resolved_port = ntohs(bound.sin_port);
+    return fd;
+}
+
 int vmaf_mcp_start_sse(VmafMcpServer *server, VmafMcpSseConfig *cfg)
 {
-    (void)cfg;
     if (server == NULL)
         return -EINVAL;
-    /* v1: SSE deferred to v2 (mongoose vendoring). */
-    return -ENOSYS;
+    if (cfg == NULL)
+        return -EINVAL;
+
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&server->sse_running, &expected, 1)) {
+        return -EBUSY;
+    }
+    /* Power-of-10 §5: post-CAS invariant — exactly one start wins. */
+    assert(atomic_load(&server->sse_running) == 1);
+
+    /* Optional URL path; copy into handle storage so caller-owned
+     * memory does not need to outlive the server. */
+    char *path_dup = NULL;
+    if (cfg->path != NULL) {
+        size_t len = strlen(cfg->path);
+        if (len == 0u || len > 256u) {
+            atomic_store(&server->sse_running, 0);
+            return -EINVAL;
+        }
+        path_dup = (char *)malloc(len + 1u);
+        if (path_dup == NULL) {
+            atomic_store(&server->sse_running, 0);
+            return -ENOMEM;
+        }
+        memcpy(path_dup, cfg->path, len + 1u);
+    }
+
+    uint16_t resolved_port = 0u;
+    int fd = sse_bind_loopback(cfg->port, &resolved_port);
+    if (fd < 0) {
+        free(path_dup);
+        atomic_store(&server->sse_running, 0);
+        return fd;
+    }
+
+    server->sse_listen_fd = fd;
+    server->sse_port = resolved_port;
+    server->sse_path_owned = path_dup;
+
+    int rc = pthread_create(&server->sse_thread, NULL, vmaf_mcp_sse_thread_main, server);
+    if (rc != 0) {
+        (void)close(fd);
+        server->sse_listen_fd = -1;
+        free(path_dup);
+        server->sse_path_owned = NULL;
+        atomic_store(&server->sse_running, 0);
+        return -rc;
+    }
+    /* Echo the resolved port back to the caller (port==0 → ephemeral). */
+    cfg->port = resolved_port;
+    return 0;
 }
 
 int vmaf_mcp_start_uds(VmafMcpServer *server, const VmafMcpUdsConfig *cfg)
@@ -318,6 +418,24 @@ int vmaf_mcp_stop(VmafMcpServer *server)
             server->uds_path_owned = NULL;
         }
         atomic_store(&server->uds_running, 0);
+    }
+
+    /* SSE: shutdown + close listener fd to unblock accept(); join
+     * the thread. On Linux, plain close() of a listening AF_INET
+     * socket does NOT unblock accept() in another thread —
+     * shutdown(SHUT_RDWR) does (verified empirically; see
+     * docs/mcp/embedded.md). */
+    int prev_sse = atomic_exchange(&server->sse_running, 2);
+    if (prev_sse == 1 || prev_sse == 2) {
+        if (server->sse_listen_fd >= 0) {
+            (void)shutdown(server->sse_listen_fd, SHUT_RDWR);
+            (void)close(server->sse_listen_fd);
+            server->sse_listen_fd = -1;
+        }
+        (void)pthread_join(server->sse_thread, NULL);
+        free(server->sse_path_owned);
+        server->sse_path_owned = NULL;
+        atomic_store(&server->sse_running, 0);
     }
     return 0;
 }
