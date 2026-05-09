@@ -21,7 +21,8 @@ def main() -> int:
         print("usage: spv_embed.py <input.spv> <output.h> <symbol_name>", file=sys.stderr)
         return 1
     in_path, out_path, name = sys.argv[1], sys.argv[2], sys.argv[3]
-    data = open(in_path, "rb").read()
+    with open(in_path, "rb") as fh:
+        data = fh.read()
     if len(data) % 4 != 0:
         print(f"spv_embed: {in_path} not a multiple of 4 bytes", file=sys.stderr)
         return 2

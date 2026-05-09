@@ -9,7 +9,7 @@ from numpy.linalg import lstsq
 from vmaf.core.mixin import TypeVersionEnabled
 from vmaf.tools.decorator import override
 from vmaf.tools.misc import empty_object, indices
-from vmaf.tools.sigproc import calpvalue, fastDeLong, significanceBinomial, significanceHM
+from vmaf.tools.sigproc import calpvalue, fastDeLong, significanceBinomial
 
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
 __license__ = "BSD+Patent"

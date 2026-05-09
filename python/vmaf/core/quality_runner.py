@@ -1,4 +1,3 @@
-import copy
 import os
 import re
 from abc import ABC, ABCMeta, abstractmethod

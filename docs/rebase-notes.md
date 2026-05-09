@@ -9624,6 +9624,7 @@ host class (e.g. wide-issue Granite Rapids) goes into CI.
 
 
 
+
 ### 0333 — vmaf-tune Phase F multi-pass encoding (ADR-0333)
 **Touches**:
 - `tools/vmaf-tune/src/vmaftune/codec_adapters/__init__.py` (CodecAdapter
@@ -9970,6 +9971,24 @@ compiles).
             | grep -vE "$EXCLUDE" \
             | sed 's/^libvmaf://')
     meson test -C "build-$SAN" --print-errorlogs $TESTS
+
+
+## CodeQL bulk mechanical sweep — Python tree (2026-05-09)
+- **Why this matters on rebase**: no rebase impact. The diff lives entirely
+  in `python/vmaf/` and one fork-local helper (`libvmaf/src/vulkan/spv_embed.py`).
+  None of the touched Python modules have been changed by Netflix upstream
+  in over four years; the closest churn is unrelated additions to
+  `python/vmaf/script/run_*.py` driver flags. A future `/sync-upstream` will
+  land on a clean tree.
+- **What changed**: dead imports removed; `exit()` → `sys.exit()` in seven
+  CLI driver scripts; `open(...)` → `with open(...)` in
+  `python/vmaf/tools/decorator.py` and `libvmaf/src/vulkan/spv_embed.py`;
+  typed `except KeyError: pass` bodies got an explanatory one-line comment
+  to satisfy `py/empty-except`; `pass` removed where it was a no-op tail
+  statement; one commented-out debug block deleted from `tools/misc.py`.
+- **Re-test on rebase**: `python3 -c "import ast; [ast.parse(open(f).read())
+  for f in (...)]"` over the touched files; `ruff check` over the same set
+  must produce no NEW errors versus master baseline.
 
 
 

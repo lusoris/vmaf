@@ -11,10 +11,10 @@ import sys
 import numpy as np
 
 from vmaf.config import DisplayConfig
-from vmaf.core.cambi_quality_runner import (  # need these to have the runners recognized
+from vmaf.core.cambi_quality_runner import (  # noqa: F401  registration side-effect
     CambiQualityRunner,
 )
-from vmaf.core.matlab_quality_runner import (  # need these to have the runners recognized
+from vmaf.core.matlab_quality_runner import (  # noqa: F401  registration side-effect
     SpEEDMatlabQualityRunner,
     STMADQualityRunner,
     StrredOptQualityRunner,
@@ -254,4 +254,4 @@ def main():
 
 if __name__ == "__main__":
     ret = main()
-    exit(ret)
+    sys.exit(ret)

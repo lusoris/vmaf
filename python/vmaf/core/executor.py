@@ -227,8 +227,6 @@ class Executor(TypeVersionEnabled):
         for asset in self.assets:
             self._assert_an_asset(asset)
 
-        pass
-
     @staticmethod
     def _need_ffmpeg(asset):
         # 1) if quality width/height do not agree with ref/dis width/height,

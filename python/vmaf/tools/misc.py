@@ -10,11 +10,10 @@ import unittest
 from concurrent.futures import ProcessPoolExecutor
 from fnmatch import fnmatch
 from pathlib import Path
-from time import sleep, time
+from time import time
 
 import numpy as np
 
-from vmaf import run_process
 from vmaf.tools.scanf import FormatError, IncompleteCaptureError, sscanf
 
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
@@ -230,10 +229,6 @@ def import_python_file(filepath: str, override: dict = None):
                         )
                         s += "\n"
                         fout.write(s)
-        # ============= debug =================
-        # with open(tmpfile.name, 'r') as fin:
-        #     print(fin.read())
-        # =====================================
         ret = import_python_file(tmpfile.name)
         os.remove(tmpfile.name)
         return ret

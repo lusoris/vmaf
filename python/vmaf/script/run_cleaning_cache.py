@@ -52,4 +52,4 @@ def main():
 
 if __name__ == "__main__":
     ret = main()
-    exit(ret)
+    sys.exit(ret)
