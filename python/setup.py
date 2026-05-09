@@ -73,7 +73,7 @@ setup(
     packages=["vmaf", "vmaf.tools", "vmaf.core", "vmaf.script"],
     include_package_data=True,
     install_requires=[
-        "numpy>=1.26.4",
+        "numpy>=2.4.4",
         "scipy>=1.17.1",
         "matplotlib>=3.2.1",
         "pandas>=1.5.3",
