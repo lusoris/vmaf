@@ -481,18 +481,24 @@ static int vmaf_read_json_model(VmafModel **model, VmafModelConfig *cfg, json_st
 
     const size_t model_sz = sizeof(*m->feature) * MAX_FEATURE_COUNT;
     m->feature = malloc(model_sz);
-    if (!m->feature)
-        return -ENOMEM;
+    if (!m->feature) {
+        err = -ENOMEM;
+        goto fail;
+    }
     memset(m->feature, 0, model_sz);
 
     m->name = vmaf_model_generate_name(cfg);
-    if (!m->name)
-        return -ENOMEM;
+    if (!m->name) {
+        err = -ENOMEM;
+        goto fail;
+    }
 
     const size_t knots_sz = sizeof(VmafPoint) * MAX_KNOT_COUNT;
     m->score_transform.knots.list = malloc(knots_sz);
-    if (!m->score_transform.knots.list)
-        return -ENOMEM;
+    if (!m->score_transform.knots.list) {
+        err = -ENOMEM;
+        goto fail;
+    }
     memset(m->score_transform.knots.list, 0, knots_sz);
 
     VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
@@ -501,6 +507,20 @@ static int vmaf_read_json_model(VmafModel **model, VmafModelConfig *cfg, json_st
 
     vmaf_thread_locale_pop(locale_state);
 
+    if (err)
+        goto fail;
+
+    return 0;
+
+fail:
+    /* Leak-free teardown on parse failure. `vmaf_model_destroy`
+     * walks the partially-populated feature[] array (including any
+     * dict + strdup'd feature_name allocations from model_parse) +
+     * frees knots.list + name + the struct itself. Reset *model to
+     * NULL so naive callers (`if (m) vmaf_model_destroy(m)`) don't
+     * double-free. */
+    vmaf_model_destroy(m);
+    *model = NULL;
     return err;
 }
 
