@@ -199,6 +199,7 @@ static char *test_model_feature()
 
     const VmafDictionaryEntry *e =
         vmaf_dictionary_get(&model->feature[0].opts_dict, "adm_enhancement_gain_limit", 0);
+    mu_assert("dict lookup must return entry", e != NULL);
     mu_assert("dict should have a new key/val pair",
               !strcmp(e->key, "adm_enhancement_gain_limit") && !strcmp(e->val, "1.1"));
 
@@ -222,6 +223,7 @@ static char *test_model_feature()
               model->feature[0].opts_dict);
     const VmafDictionaryEntry *e2 =
         vmaf_dictionary_get(&model->feature[0].opts_dict, "adm_enhancement_gain_limit", 0);
+    mu_assert("dict lookup must return entry", e2 != NULL);
     mu_assert("dict should have an existing key/val pair",
               !strcmp(e2->key, "adm_enhancement_gain_limit") && !strcmp(e2->val, "1.1"));
 
@@ -234,6 +236,7 @@ static char *test_model_feature()
               model->feature[0].opts_dict);
     const VmafDictionaryEntry *e3 =
         vmaf_dictionary_get(&model->feature[0].opts_dict, "adm_enhancement_gain_limit", 0);
+    mu_assert("dict lookup must return entry", e3 != NULL);
     mu_assert("dict should have an updated key/val pair",
               !strcmp(e3->key, "adm_enhancement_gain_limit") && !strcmp(e3->val, "1.2"));
 
@@ -343,26 +346,31 @@ static char *test_model_set_flags()
 
     const VmafDictionaryEntry *entry = NULL;
     entry = vmaf_dictionary_get(&model4->feature[0].opts_dict, "adm_enhn_gain_limit", 0);
+    mu_assert("feature[0].opts_dict lookup must return entry.\n", entry != NULL);
     mu_assert("feature[0].opts_dict must have key adm_enhn_gain_limit.\n",
               strcmp(entry->key, "adm_enhn_gain_limit") == 0);
     mu_assert("feature[0].opts_dict[\"adm_enhn_gain_limit\"] must have value 1.\n",
               strcmp(entry->val, "1") == 0);
     entry = vmaf_dictionary_get(&model4->feature[2].opts_dict, "vif_enhn_gain_limit", 0);
+    mu_assert("feature[2].opts_dict lookup must return entry.\n", entry != NULL);
     mu_assert("feature[2].opts_dict must have key vif_enhn_gain_limit.\n",
               strcmp(entry->key, "vif_enhn_gain_limit") == 0);
     mu_assert("feature[2].opts_dict[\"vif_enhn_gain_limit\"] must have value 1.\n",
               strcmp(entry->val, "1") == 0);
     entry = vmaf_dictionary_get(&model4->feature[3].opts_dict, "vif_enhn_gain_limit", 0);
+    mu_assert("feature[3].opts_dict lookup must return entry.\n", entry != NULL);
     mu_assert("feature[3].opts_dict must have key vif_enhn_gain_limit.\n",
               strcmp(entry->key, "vif_enhn_gain_limit") == 0);
     mu_assert("feature[3].opts_dict[\"vif_enhn_gain_limit\"] must have value 1.\n",
               strcmp(entry->val, "1") == 0);
     entry = vmaf_dictionary_get(&model4->feature[4].opts_dict, "vif_enhn_gain_limit", 0);
+    mu_assert("feature[4].opts_dict lookup must return entry.\n", entry != NULL);
     mu_assert("feature[4].opts_dict must have key vif_enhn_gain_limit.\n",
               strcmp(entry->key, "vif_enhn_gain_limit") == 0);
     mu_assert("feature[4].opts_dict[\"vif_enhn_gain_limit\"] must have value 1.\n",
               strcmp(entry->val, "1") == 0);
     entry = vmaf_dictionary_get(&model4->feature[5].opts_dict, "vif_enhn_gain_limit", 0);
+    mu_assert("feature[5].opts_dict lookup must return entry.\n", entry != NULL);
     mu_assert("feature[5].opts_dict must have key vif_enhn_gain_limit.\n",
               strcmp(entry->key, "vif_enhn_gain_limit") == 0);
     mu_assert("feature[5].opts_dict[\"vif_enhn_gain_limit\"] must have value 1.\n",

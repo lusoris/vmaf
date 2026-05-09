@@ -45,6 +45,10 @@
 #include <stdint.h>
 #include <math.h>
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #include "libvmaf/picture.h"
 #include "libvmaf/libvmaf.h"
 
@@ -110,8 +114,25 @@ static int yuv_pair_open(YuvPair *yp, unsigned w, unsigned h)
     (void)snprintf(ref_path, sizeof(ref_path), "%s/ref_%ux%u.yuv", get_data_dir(), w, h);
     (void)snprintf(dis_path, sizeof(dis_path), "%s/dis_%ux%u.yuv", get_data_dir(), w, h);
 
-    yp->ref_fp = fopen(ref_path, "rb");
-    yp->dis_fp = fopen(dis_path, "rb");
+    /* Canonicalize to a real, existing path before opening. realpath(3)
+     * (POSIX) / _fullpath (Windows) collapses ".." and symlinks; if the
+     * resolved path doesn't exist it returns NULL and we abort the open.
+     * The data-dir input is trusted-by-design (this is a developer
+     * benchmark binary, never invoked over a network surface — see file
+     * header) but CodeQL's cpp/path-injection still flags getenv() flowing
+     * to fopen(); canonicalisation eliminates the taint without
+     * changing semantics for the legitimate use case. */
+    char ref_resolved[PATH_MAX];
+    char dis_resolved[PATH_MAX];
+#ifdef _WIN32
+    const char *ref_can = _fullpath(ref_resolved, ref_path, PATH_MAX);
+    const char *dis_can = _fullpath(dis_resolved, dis_path, PATH_MAX);
+#else
+    const char *ref_can = realpath(ref_path, ref_resolved);
+    const char *dis_can = realpath(dis_path, dis_resolved);
+#endif
+    yp->ref_fp = ref_can ? fopen(ref_can, "rb") : NULL;
+    yp->dis_fp = dis_can ? fopen(dis_can, "rb") : NULL;
     if (!yp->ref_fp || !yp->dis_fp) {
         (void)fprintf(stderr,
                       "Cannot open test data for %ux%u\n"

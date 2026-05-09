@@ -501,8 +501,9 @@ int vmaf_feature_extractor_context_destroy(VmafFeatureExtractorContext *fex_ctx)
         return -EINVAL;
 
     if (fex_ctx->fex) {
-        if (fex_ctx->fex->priv)
-            free(fex_ctx->fex->priv);
+        /* free(NULL) is well-defined per C99 §7.20.3.2 / POSIX free(3);
+         * the NULL guard is redundant. CodeQL cpp/guarded-free. */
+        free(fex_ctx->fex->priv);
         free(fex_ctx->fex);
     }
     if (fex_ctx->opts_dict)

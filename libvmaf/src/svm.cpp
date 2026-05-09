@@ -37,6 +37,17 @@
 #include <string.h>
 #include <stdarg.h>
 #include <limits.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <io.h>
+#define VMAF_OPEN_BIN _open
+#define VMAF_FDOPEN_FN _fdopen
+#else
+#include <unistd.h>
+#define VMAF_OPEN_BIN open
+#define VMAF_FDOPEN_FN fdopen
+#endif
 #include <thread>
 #include <fstream>
 #include <sstream>
@@ -2495,9 +2506,23 @@ static const char *kernel_type_table[] = {"linear",  "polynomial",  "rbf",
 
 int svm_save_model(const char *model_file_name, const svm_model *model)
 {
-    FILE *fp = fopen(model_file_name, "w");
-    if (fp == NULL)
+    /* Open with explicit owner-rw, group-r, other-r mode (0644) so the file
+     * is never world-writable regardless of the calling process's umask.
+     * fopen(3) on POSIX would default to 0666 & ~umask; CodeQL flags that
+     * as cpp/world-writable-file-creation. open(2) + fdopen(3) lets us pin
+     * the mode bits up front. */
+    int fd = VMAF_OPEN_BIN(model_file_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0)
         return -1;
+    FILE *fp = VMAF_FDOPEN_FN(fd, "w");
+    if (fp == NULL) {
+#ifdef _WIN32
+        _close(fd);
+#else
+        close(fd);
+#endif
+        return -1;
+    }
 
     VmafThreadLocaleState *locale_state = vmaf_thread_locale_push_c();
 

@@ -219,10 +219,10 @@ int vmaf_dictionary_free(VmafDictionary **dict)
 
     VmafDictionary *d = *dict;
     for (unsigned i = 0; i < d->cnt; i++) {
-        if (d->entry[i].key)
-            free((char *)d->entry[i].key);
-        if (d->entry[i].val)
-            free((char *)d->entry[i].val);
+        /* free(NULL) is well-defined per C99 §7.20.3.2 / POSIX free(3); the
+         * NULL guard is redundant. CodeQL cpp/guarded-free. */
+        free((char *)d->entry[i].key);
+        free((char *)d->entry[i].val);
     }
     free(d->entry);
     free(d);

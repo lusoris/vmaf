@@ -96,8 +96,9 @@ static void aggregate_vector_destroy(AggregateVector *aggregate_vector)
     if (!aggregate_vector)
         return;
     for (unsigned i = 0; i < aggregate_vector->cnt; i++) {
-        if (aggregate_vector->metric[i].name)
-            free(aggregate_vector->metric[i].name);
+        /* free(NULL) is well-defined per C99 §7.20.3.2 / POSIX free(3);
+         * the NULL guard is redundant. CodeQL cpp/guarded-free. */
+        free(aggregate_vector->metric[i].name);
     }
     free(aggregate_vector->metric);
 }
