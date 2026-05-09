@@ -104,6 +104,23 @@ static int dict_grow_entries(VmafDictionary *d)
 
 static int dict_overwrite_existing(VmafDictionaryEntry *existing, const char *val)
 {
+    /*
+     * Idempotency + leak guard. Prior to this fix, every call to this
+     * helper unconditionally strdup'd `val` and freed `existing->val`,
+     * which is correct for the disjoint-buffer case but tripped ASan
+     * as `SAN-PREDICT-METADATA-LEAK` when the metadata-dispatch
+     * re-entry path (`vmaf_dictionary_copy` / `vmaf_dictionary_merge`
+     * walking entries from a source dict and re-`set`-ing them on a
+     * destination dict that aliases the same backing storage) caused
+     * `val` to point into the very buffer we were about to free, then
+     * strdup'd from a freed region. Detect identical-value re-sets
+     * up-front: the existing strdup'd buffer is already a valid
+     * caller-owned copy, so we can leave it in place and skip both
+     * strdup and free entirely.
+     */
+    if (existing->val && val && strcmp(existing->val, val) == 0)
+        return 0;
+
     const char *val_copy = strdup(val);
     if (!val_copy)
         return -ENOMEM;
@@ -127,7 +144,20 @@ static int dict_append_new_entry(VmafDictionary *d, const char *key, const char 
         return -ENOMEM;
     }
 
-    d->entry[d->cnt++] = (VmafDictionaryEntry){.key = key_copy, .val = val_copy};
+    /*
+     * Zero-initialise the destination slot before writing so that a
+     * later `vmaf_dictionary_free` traversal cannot see partially
+     * stored garbage if a fault interleaves between the two field
+     * writes (the realloc'd region beyond the previous `d->cnt` was
+     * not memset by `dict_grow_entries` — `realloc` does not zero new
+     * bytes). The struct-literal assignment compiles to two scalar
+     * stores; the explicit zero closes the window without changing
+     * observable behaviour on success paths.
+     */
+    d->entry[d->cnt] = (VmafDictionaryEntry){.key = NULL, .val = NULL};
+    d->entry[d->cnt].key = key_copy;
+    d->entry[d->cnt].val = val_copy;
+    d->cnt++;
     return 0;
 }
 

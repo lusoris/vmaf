@@ -67,20 +67,46 @@ int vmaf_framesync_init(VmafFrameSyncContext **fs_ctx)
     return 0;
 }
 
+/*
+ * Lock ordering — strict M0-before-M1.
+ *
+ * `acquire_lock` (M0) is the *structural* lock: it protects the
+ * `buf_que` linked-list spine — `next` pointers, `buf_cnt`, the FREE
+ * <-> ACQUIRED <-> RETRIEVED state transitions on `buf_status` that
+ * gate node-allocation/teardown — and the per-node `frame_data`
+ * pointer. `retrieve_lock` (M1) is the *signal* lock: it protects the
+ * ACQUIRED -> FILLED -> RETRIEVED handshake that pairs producer
+ * (`submit_filled_data`) with consumer (`retrieve_filled_data`) and is
+ * the lock the `retrieve` condvar binds to.
+ *
+ * Prior to this fix the four entry points used inconsistent lock
+ * domains: producer and consumer paths walked the list under M1 only,
+ * while the structural mutators walked it under M0 only. TSan flagged
+ * `SAN-FRAMESYNC-MUTEX-DOMAIN` because the spine is mutated under M0
+ * but read under M1 in the FILLED/RETRIEVED scan. Per
+ * `feedback_no_test_weakening` we fix the implementation, not the
+ * gate: every entry point that traverses the spine now takes M0 first
+ * (covering the spine), then M1 *only on the producer/consumer paths
+ * that need to interact with the condvar*. Strict M0-before-M1
+ * ordering precludes deadlock.
+ */
+
 int vmaf_framesync_acquire_new_buf(VmafFrameSyncContext *fs_ctx, void **data, unsigned data_sz,
                                    unsigned index)
 {
     VmafFrameSyncBuf *buf_que = fs_ctx->buf_que;
     *data = NULL;
 
-    pthread_mutex_lock(&(fs_ctx->acquire_lock));
+    int rc = pthread_mutex_lock(&(fs_ctx->acquire_lock));
+    if (rc != 0)
+        return -rc;
 
     // traverse until a free buffer is found
     for (unsigned i = 0; i < fs_ctx->buf_cnt; i++) {
         if (buf_que->buf_status == BUF_FREE) {
             buf_que->frame_data = *data = malloc(data_sz);
             if (!buf_que->frame_data) {
-                pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+                (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
                 return -ENOMEM;
             }
             buf_que->buf_status = BUF_ACQUIRED;
@@ -95,22 +121,33 @@ int vmaf_framesync_acquire_new_buf(VmafFrameSyncContext *fs_ctx, void **data, un
     // create a new node if all nodes are occupied in the list and append to the tail
     if (*data == NULL) {
         VmafFrameSyncBuf *new_buf_node = malloc(sizeof(VmafFrameSyncBuf));
-        buf_que->next = new_buf_node;
+        if (!new_buf_node) {
+            (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+            return -ENOMEM;
+        }
         new_buf_node->buf_status = BUF_FREE;
         new_buf_node->index = -1;
         new_buf_node->next = NULL;
-        fs_ctx->buf_cnt++;
 
         new_buf_node->frame_data = *data = malloc(data_sz);
         if (!new_buf_node->frame_data) {
-            pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+            free(new_buf_node);
+            *data = NULL;
+            (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
             return -ENOMEM;
         }
         new_buf_node->buf_status = BUF_ACQUIRED;
         new_buf_node->index = index;
+
+        // Publish the new node + bump `buf_cnt` atomically with respect
+        // to other M0 holders. The `next` write must happen *before*
+        // `buf_cnt` is incremented so a reader walking the spine under
+        // M0 with i < buf_cnt always sees a valid `next` pointer.
+        buf_que->next = new_buf_node;
+        fs_ctx->buf_cnt++;
     }
 
-    pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+    (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
 
     return 0;
 }
@@ -118,16 +155,25 @@ int vmaf_framesync_acquire_new_buf(VmafFrameSyncContext *fs_ctx, void **data, un
 int vmaf_framesync_submit_filled_data(VmafFrameSyncContext *fs_ctx, void *data, unsigned index)
 {
     VmafFrameSyncBuf *buf_que = fs_ctx->buf_que;
+    int ret = 0;
 
-    pthread_mutex_lock(&(fs_ctx->retrieve_lock));
+    // M0-before-M1: take the structural lock first to walk the spine
+    // safely, then take the signal lock for the condvar broadcast.
+    int rc = pthread_mutex_lock(&(fs_ctx->acquire_lock));
+    if (rc != 0)
+        return -rc;
+    rc = pthread_mutex_lock(&(fs_ctx->retrieve_lock));
+    if (rc != 0) {
+        (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+        return -rc;
+    }
 
-    // loop until a matchng buffer is found
+    // loop until a matching buffer is found
     for (unsigned i = 0; i < fs_ctx->buf_cnt; i++) {
         if ((buf_que->index == index) && (buf_que->buf_status == BUF_ACQUIRED)) {
             buf_que->buf_status = BUF_FILLED;
             if (data != buf_que->frame_data) {
-                pthread_mutex_unlock(&(fs_ctx->retrieve_lock));
-                return -1;
+                ret = -1;
             }
             break;
         }
@@ -137,10 +183,11 @@ int vmaf_framesync_submit_filled_data(VmafFrameSyncContext *fs_ctx, void *data, 
             buf_que = buf_que->next;
     }
 
-    pthread_cond_broadcast(&(fs_ctx->retrieve));
-    pthread_mutex_unlock(&(fs_ctx->retrieve_lock));
+    (void)pthread_cond_broadcast(&(fs_ctx->retrieve));
+    (void)pthread_mutex_unlock(&(fs_ctx->retrieve_lock));
+    (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
 
-    return 0;
+    return ret;
 }
 
 int vmaf_framesync_retrieve_filled_data(VmafFrameSyncContext *fs_ctx, void **data, unsigned index)
@@ -149,7 +196,20 @@ int vmaf_framesync_retrieve_filled_data(VmafFrameSyncContext *fs_ctx, void **dat
 
     while (*data == NULL) {
         VmafFrameSyncBuf *buf_que = fs_ctx->buf_que;
-        pthread_mutex_lock(&(fs_ctx->retrieve_lock));
+
+        // M0-before-M1: spine first, condvar lock second. The
+        // `pthread_cond_wait` below atomically releases M1 and waits;
+        // M0 is dropped before the wait so producers can make
+        // progress.
+        int rc = pthread_mutex_lock(&(fs_ctx->acquire_lock));
+        if (rc != 0)
+            return -rc;
+        rc = pthread_mutex_lock(&(fs_ctx->retrieve_lock));
+        if (rc != 0) {
+            (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+            return -rc;
+        }
+
         // loop until a free buffer is found
         for (unsigned i = 0; i < fs_ctx->buf_cnt; i++) {
             if ((buf_que->index == index) && (buf_que->buf_status == BUF_FILLED)) {
@@ -163,10 +223,18 @@ int vmaf_framesync_retrieve_filled_data(VmafFrameSyncContext *fs_ctx, void **dat
                 buf_que = buf_que->next;
         }
 
-        if (*data == NULL)
-            pthread_cond_wait(&(fs_ctx->retrieve), &(fs_ctx->retrieve_lock));
-
-        pthread_mutex_unlock(&(fs_ctx->retrieve_lock));
+        if (*data == NULL) {
+            // Release M0 before waiting so producers can
+            // acquire/append. M1 is released atomically by
+            // pthread_cond_wait and re-acquired on wake-up; we then
+            // re-take M0 at the top of the loop in canonical order.
+            (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+            (void)pthread_cond_wait(&(fs_ctx->retrieve), &(fs_ctx->retrieve_lock));
+            (void)pthread_mutex_unlock(&(fs_ctx->retrieve_lock));
+        } else {
+            (void)pthread_mutex_unlock(&(fs_ctx->retrieve_lock));
+            (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+        }
     }
 
     return 0;
@@ -175,14 +243,17 @@ int vmaf_framesync_retrieve_filled_data(VmafFrameSyncContext *fs_ctx, void **dat
 int vmaf_framesync_release_buf(VmafFrameSyncContext *fs_ctx, void *data, unsigned index)
 {
     VmafFrameSyncBuf *buf_que = fs_ctx->buf_que;
+    int ret = 0;
 
-    pthread_mutex_lock(&(fs_ctx->acquire_lock));
+    int rc = pthread_mutex_lock(&(fs_ctx->acquire_lock));
+    if (rc != 0)
+        return -rc;
     // loop until a matching buffer is found
     for (unsigned i = 0; i < fs_ctx->buf_cnt; i++) {
         if ((buf_que->index == index) && (buf_que->buf_status == BUF_RETRIEVED)) {
             if (data != buf_que->frame_data) {
-                pthread_mutex_unlock(&(fs_ctx->acquire_lock));
-                return -1;
+                ret = -1;
+                break;
             }
 
             free(buf_que->frame_data);
@@ -197,8 +268,8 @@ int vmaf_framesync_release_buf(VmafFrameSyncContext *fs_ctx, void *data, unsigne
             buf_que = buf_que->next;
     }
 
-    pthread_mutex_unlock(&(fs_ctx->acquire_lock));
-    return 0;
+    (void)pthread_mutex_unlock(&(fs_ctx->acquire_lock));
+    return ret;
 }
 
 int vmaf_framesync_destroy(VmafFrameSyncContext *fs_ctx)

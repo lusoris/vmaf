@@ -143,6 +143,14 @@ static char *test_propagate_metadata()
 
     vmaf_feature_collector_destroy(feature_collector);
 
+    /*
+     * The metadata-dispatch path strdup'd key+val into `dict` via
+     * `vmaf_dictionary_set` -> `dict_append_new_entry` (dict.c:121,
+     * 124). The owning test has to free that dict; otherwise ASan
+     * flags the strdup'd entries as leaked. SAN-PREDICT-METADATA-LEAK.
+     */
+    vmaf_dictionary_free(&dict);
+
     vmaf_model_destroy(model);
     return NULL;
 }
