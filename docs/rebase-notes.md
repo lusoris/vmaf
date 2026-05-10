@@ -32929,7 +32929,7 @@ ninja -C build-cuda
   # Must produce no output (clean).
   ```
 
-### 0381 — Y4M negative-dimension rejection (ADR-0381, T-FUZZ-Y4M-NEG-WIDTH-SEGV)
+### 0382 — Y4M negative-dimension rejection (ADR-0382, T-FUZZ-Y4M-NEG-WIDTH-SEGV)
 
 - **Touches**: `libvmaf/tools/y4m_input.c` (internal static
   `y4m_input_open_impl`), `libvmaf/test/fuzz/y4m_input_known_crashes/`
