@@ -36,10 +36,21 @@ Local patches against FFmpeg **n8.1.1** for integrating this VMAF fork into
   dedicated `libvmaf_cuda` filter (which keeps its own `cu_state`
   for hwaccel CUDA frames in). See
   [ADR-0350](../docs/adr/0350-ffmpeg-libvmaf-cuda-backend-selector.md).
+- **`0011-libvmaf-wire-hip-backend-selector.patch`** — adds a
+  `hip_device` integer option on the `libvmaf` filter and the
+  `--enable-libvmaf-hip` configure flag. When `hip_device >= 0` the
+  filter inits a `VmafHipState` on the selected AMD ROCm/HIP device,
+  imports it via `vmaf_hip_import_state`, and frees the state after
+  `vmaf_close()`. Completes the SYCL / Vulkan / CUDA / HIP selector
+  symmetry on the `libvmaf` filter. A dedicated `libvmaf_hip` filter
+  for ROCm hwdec zero-copy import is deferred until FFmpeg exposes a
+  ROCm/HIP hardware-frame context (no `ffhipcodec` equivalent of
+  `ffnvcodec` exists at this time). See
+  [ADR-0376](../docs/adr/0376-ffmpeg-patches-hip-backend-selector.md).
 
 Every patch is guarded by `check_pkg_config` so it degrades gracefully when
 libvmaf was built without the relevant feature (`-Denable_dnn`, `-Denable_sycl`,
-`-Denable_vulkan`, `-Denable_cuda`).
+`-Denable_vulkan`, `-Denable_cuda`, `-Denable_hip`).
 
 ## What works without a patch
 

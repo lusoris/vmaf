@@ -32849,3 +32849,27 @@ ninja -C build-cuda
   meson test -C build --suite=fast
   # Must be green.
   ```
+
+### 0380 — FFmpeg HIP backend selector patch (ADR-0380, ffmpeg-patches 0011)
+
+- **Touches**: `ffmpeg-patches/0011-libvmaf-wire-hip-backend-selector.patch`,
+  `ffmpeg-patches/series.txt`, `ffmpeg-patches/README.md`.
+- **Invariant**: The patch is authored against FFmpeg `n8.1.1` as the cumulative
+  base (0001..0010 stack applied). Context lines in the patch reference
+  `VmafCudaState *cu_state` / `cuda_pool_initialised` (added by patch 0010) and
+  `#include <vulkan/vulkan.h>` / `#endif` (added by patch 0006). If the series
+  is ever rebased to a newer FFmpeg tag (`n8.2`, `n9.x`, etc.) the surrounding
+  context in `vf_libvmaf.c` may shift; run the full series replay against the
+  new tag and regenerate conflicting patches. The HIP cleanup path
+  (`vmaf_hip_state_free(&s->hip_state)`) uses a **double pointer**, unlike the
+  CUDA path (`vmaf_cuda_state_free(s->cu_state)`) which uses a single pointer —
+  this asymmetry is intentional and matches `libvmaf_hip.h`; preserve it.
+- **Re-test on rebase**:
+
+  ```bash
+  git -C /tmp/ffmpeg-8 reset --hard n8.1.1
+  for p in ffmpeg-patches/000*-*.patch; do
+      git -C /tmp/ffmpeg-8 am --3way "$p" || break
+  done
+  # All 11 patches must apply without conflict.
+  ```
