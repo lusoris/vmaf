@@ -35,7 +35,7 @@
 
 - **Feature-extractor double-write on GPU binaries when `--feature` is
   combined with an auto-loaded VMAF model
-  (T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE / ADR-0383).**
+  (T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE / ADR-0384).**
   `feature_extractor_vector_append()` (`libvmaf/src/fex_ctx_vector.c`)
   previously deduplicated by the extractor's own name (`"adm"` vs
   `"adm_cuda"`), which are distinct strings, so both the CPU and GPU

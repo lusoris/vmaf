@@ -27,7 +27,7 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
-### fix/fex-dedup-by-provided-feature — feature-extractor dedup by provided-feature names (ADR-0383)
+### fix/fex-dedup-by-provided-feature — feature-extractor dedup by provided-feature names (ADR-0384)
 
 - **Touches**: `libvmaf/src/fex_ctx_vector.c` (new
   `provided_features_overlap()` helper, updated
