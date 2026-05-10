@@ -748,6 +748,19 @@
 
 ### Fixed
 
+- **CUDA `integer_adm_cuda.c` / `integer_vif_cuda.c` defensive code fixes (round-5
+  clang-tidy `bugprone-*` sweep):**
+  (1) `integer_adm_cuda.c` — `#define RES_BUFFER_SIZE 4 * 3 * 2` lacked parentheses
+  around the macro body; expanded in an additive or shift context the operator-precedence
+  could produce a wrong value. Fixed to `(4 * 3 * 2)`.
+  (2) `integer_adm_cuda.c` — two `switch (scale)` statements (vert and hori kernel
+  dispatch in `adm_dwt2_s123_combined_device`) handled only cases 1–3 with no `default:`
+  clause. `default: break;` added with a comment explaining scale 0 is handled by the
+  caller's if/else branch.
+  (3) `integer_vif_cuda.c` — `switch (scale)` in `filter1d_16` handled cases 0–3 (all
+  valid VIF scales) with no `default:` clause. `default: break;` added with a comment.
+  No scoring changes; all added branches are unreachable with valid input.
+
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
   `Clang-Tidy (Changed C/C++ Files)` step used `git diff --name-only`

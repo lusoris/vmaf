@@ -34,7 +34,7 @@
 
 #include <assert.h>
 
-#define RES_BUFFER_SIZE 4 * 3 * 2
+#define RES_BUFFER_SIZE (4 * 3 * 2)
 
 typedef struct WarpShift {
     uint32_t shift_cub[3];
@@ -144,6 +144,8 @@ int adm_dwt2_s123_combined_device(AdmStateCuda *s, const int32_t *d_i4_scale, in
                                          DIV_ROUND_UP(w, 128), BLOCK_Y, 1, 128, 1, 1, 0, cu_stream,
                                          args_vert, NULL));
         break;
+    default:
+        break; /* scale 0 is handled in the caller's if/else branch; no vert kernel for it */
     }
 
     void *args_hori[] = {&i4_dwt, &tmp_buf, &w, &h, &dst_stride, &*p};
@@ -163,6 +165,8 @@ int adm_dwt2_s123_combined_device(AdmStateCuda *s, const int32_t *d_i4_scale, in
                                                DIV_ROUND_UP(((w + 1) / 2), 128), BLOCK_Y, 1, 128, 1,
                                                1, 0, cu_stream, args_hori, NULL));
         break;
+    default:
+        break; /* scale 0 is handled in the caller's if/else branch; no hori kernel for it */
     }
     return 0;
 }
