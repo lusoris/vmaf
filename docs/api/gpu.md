@@ -531,8 +531,11 @@ back to a host-backed picture if the caller skipped
   zero-copy through `AVVulkanDeviceContext` is wired by
   `ffmpeg-patches/0004-libvmaf-wire-vulkan-backend-selector.patch`
   on top of T7-29's `_state_init_external` API.
-- HIP / AMD-ROCm support is scaffolded under T7-10 (PR #200);
-  a public `libvmaf_hip.h` is planned to mirror this surface.
+- HIP / AMD-ROCm support: `libvmaf_hip.h` is shipping (T7-10 scaffold,
+  ADR-0212; runtime + 8/11 real feature kernels via PRs #686/#695/#696/#710/#712).
+  3 kernels remain `-ENOSYS` stubs (adm/vif/integer_motion). FFmpeg
+  integration is wired by `ffmpeg-patches/0011-libvmaf-wire-hip-backend-selector.patch`
+  (`--enable-libvmaf-hip` + `hip_device=N`, ADR-0380).
 
 ## Related
 
