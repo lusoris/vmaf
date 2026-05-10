@@ -27,6 +27,19 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/pypsnr-ast-eval — JSON log serialization in `PyFeatureExtractorMixin`
+
+No rebase impact: this change is Python-only (`python/vmaf/core/feature_extractor.py`),
+touches no C/CUDA/SYCL/HIP/Vulkan/Metal source, no public C API headers, no Meson build
+files, and no FFmpeg patch stack entries. The log files written by `_generate_result`
+are transient per-run scratch files (under `workdir/`); the format change from Python
+`repr` to JSON is invisible to callers. If upstream Netflix/vmaf modifies
+`PyFeatureExtractorMixin._get_feature_scores` or `_generate_result` in a future sync,
+verify that neither side re-introduces `str()` / `ast.literal_eval` — the numpy 2.x
+incompatibility is the root cause of T-PYPSNR-AST-EVAL.
+
+- **Re-test**: `PYTHONPATH=$PWD/python python3 -m pytest python/test/feature_extractor_test.py -k pypsnr` — must report 8/8 passed.
+
 ### fix/pypsnr-feature-extractor-import — `PyPsnrFeatureExtractor` class hierarchy restoration
 
 No rebase impact: this change is Python-only (`python/vmaf/core/feature_extractor.py`),

@@ -6,7 +6,7 @@ from vmaf.tools.decorator import deprecated, override
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
 __license__ = "BSD+Patent"
 
-import ast
+import json
 import re
 
 import numpy as np
@@ -717,8 +717,7 @@ class PyFeatureExtractorMixin(object):
         log_file_path = self._get_log_file_path(asset)
 
         with open(log_file_path, "rt") as log_file:
-            log_str = log_file.read()
-            log_dicts = ast.literal_eval(log_str)
+            log_dicts = json.load(log_file)
 
         feature_result = dict()
         frm = 0
@@ -820,7 +819,7 @@ class PyPsnrFeatureExtractor(PyFeatureExtractorMixin, FeatureExtractor):
 
         log_file_path = self._get_log_file_path(asset)
         with open(log_file_path, "wt") as log_file:
-            log_file.write(str(log_dicts))
+            json.dump(log_dicts, log_file)
 
 
 class PypsnrFeatureExtractor(PyPsnrFeatureExtractor):
@@ -966,7 +965,7 @@ class MomentFeatureExtractor(FeatureExtractor):
 
         log_file_path = self._get_log_file_path(asset)
         with open(log_file_path, "wt") as log_file:
-            log_file.write(str(log_dict))
+            json.dump(log_dict, log_file)
 
     def _get_feature_scores(self, asset):
         # routine to read the feature scores from the log file, and return
@@ -975,8 +974,7 @@ class MomentFeatureExtractor(FeatureExtractor):
         log_file_path = self._get_log_file_path(asset)
 
         with open(log_file_path, "rt") as log_file:
-            log_str = log_file.read()
-            log_dict = ast.literal_eval(log_str)
+            log_dict = json.load(log_file)
         ref_scores_mtx = np.array(log_dict["ref_scores_mtx"])
         dis_scores_mtx = np.array(log_dict["dis_scores_mtx"])
 
