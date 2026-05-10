@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod
 from xml.etree import ElementTree
 
-from vmaf.tools.decorator import override
+from vmaf.tools.decorator import deprecated, override
 
 __copyright__ = "Copyright 2016-2020, Netflix, Inc."
 __license__ = "BSD+Patent"
@@ -733,9 +733,9 @@ class PyFeatureExtractorMixin(object):
         return feature_result
 
 
-class PypsnrFeatureExtractor(PyFeatureExtractorMixin, FeatureExtractor):
+class PyPsnrFeatureExtractor(PyFeatureExtractorMixin, FeatureExtractor):
 
-    TYPE = "Pypsnr_feature"
+    TYPE = "PyPsnr_feature"
     VERSION = "1.0"
 
     ATOM_FEATURES = ["psnry", "psnru", "psnrv"]
@@ -823,9 +823,19 @@ class PypsnrFeatureExtractor(PyFeatureExtractorMixin, FeatureExtractor):
             log_file.write(str(log_dicts))
 
 
-class PypsnrMaxdb100FeatureExtractor(PypsnrFeatureExtractor):
+class PypsnrFeatureExtractor(PyPsnrFeatureExtractor):
+    """Deprecated alias for PyPsnrFeatureExtractor; use PyPsnrFeatureExtractor instead."""
 
-    TYPE = "Pypsnr_maxdb100_feature"
+    TYPE = "Pypsnr_feature"
+
+    @deprecated
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+class PyPsnrMaxdb100FeatureExtractor(PyPsnrFeatureExtractor):
+
+    TYPE = "PyPsnr_maxdb100_feature"
 
     @override(Executor)
     def _custom_init(self):
@@ -835,6 +845,16 @@ class PypsnrMaxdb100FeatureExtractor(PypsnrFeatureExtractor):
         if self.optional_dict is None:
             self.optional_dict = dict()
         self.optional_dict["max_db"] = 100.0
+
+
+class PypsnrMaxdb100FeatureExtractor(PyPsnrMaxdb100FeatureExtractor):
+    """Deprecated alias for PyPsnrMaxdb100FeatureExtractor; use PyPsnrMaxdb100FeatureExtractor instead."""
+
+    TYPE = "Pypsnr_maxdb100_feature"
+
+    @deprecated
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
 class PsnrFeatureExtractor(VmafexecFeatureExtractorMixin, FeatureExtractor):
