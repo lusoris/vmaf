@@ -20,6 +20,7 @@
 #define __VMAF_LIBVMAF_SYCL_H__
 
 #include "libvmaf.h"
+#include "libvmaf/macros.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,7 +56,7 @@ typedef struct VmafSyclConfiguration {
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_state_init(VmafSyclState **sycl_state, VmafSyclConfiguration cfg);
+VMAF_EXPORT int vmaf_sycl_state_init(VmafSyclState **sycl_state, VmafSyclConfiguration cfg);
 
 /**
  * Import a VmafSyclState into a VmafContext.
@@ -67,7 +68,7 @@ int vmaf_sycl_state_init(VmafSyclState **sycl_state, VmafSyclConfiguration cfg);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_import_state(VmafContext *vmaf, VmafSyclState *sycl_state);
+VMAF_EXPORT int vmaf_sycl_import_state(VmafContext *vmaf, VmafSyclState *sycl_state);
 
 /**
  * Picture pre-allocation method.
@@ -99,7 +100,7 @@ typedef struct VmafSyclPictureConfiguration {
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_preallocate_pictures(VmafContext *vmaf, VmafSyclPictureConfiguration cfg);
+VMAF_EXPORT int vmaf_sycl_preallocate_pictures(VmafContext *vmaf, VmafSyclPictureConfiguration cfg);
 
 /**
  * Fetch a pre-allocated SYCL picture.
@@ -110,7 +111,7 @@ int vmaf_sycl_preallocate_pictures(VmafContext *vmaf, VmafSyclPictureConfigurati
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
+VMAF_EXPORT int vmaf_sycl_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
 
 /* ------------------------------------------------------------------
  * Zero-copy frame-buffer API
@@ -132,7 +133,8 @@ int vmaf_sycl_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_init_frame_buffers(VmafContext *vmaf, unsigned w, unsigned h, unsigned bpc);
+VMAF_EXPORT int vmaf_sycl_init_frame_buffers(VmafContext *vmaf, unsigned w, unsigned h,
+                                             unsigned bpc);
 
 /**
  * Obtain pointers to the shared device buffers.
@@ -145,7 +147,7 @@ int vmaf_sycl_init_frame_buffers(VmafContext *vmaf, unsigned w, unsigned h, unsi
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_get_frame_buffers(VmafContext *vmaf, void **ref, void **dis);
+VMAF_EXPORT int vmaf_sycl_get_frame_buffers(VmafContext *vmaf, void **ref, void **dis);
 
 /**
  * Wait for all submitted SYCL compute work to complete.
@@ -156,7 +158,7 @@ int vmaf_sycl_get_frame_buffers(VmafContext *vmaf, void **ref, void **dis);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_wait_compute(VmafContext *vmaf);
+VMAF_EXPORT int vmaf_sycl_wait_compute(VmafContext *vmaf);
 
 /**
  * Process one frame pair via the zero-copy path.
@@ -168,7 +170,7 @@ int vmaf_sycl_wait_compute(VmafContext *vmaf);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_read_pictures_sycl(VmafContext *vmaf, unsigned index);
+VMAF_EXPORT int vmaf_read_pictures_sycl(VmafContext *vmaf, unsigned index);
 
 /**
  * Flush all pending SYCL feature extractor work after the last frame.
@@ -178,7 +180,7 @@ int vmaf_read_pictures_sycl(VmafContext *vmaf, unsigned index);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_flush_sycl(VmafContext *vmaf);
+VMAF_EXPORT int vmaf_flush_sycl(VmafContext *vmaf);
 
 /* ------------------------------------------------------------------
  * DMA-BUF / VA surface zero-copy import
@@ -202,7 +204,7 @@ int vmaf_flush_sycl(VmafContext *vmaf);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_dmabuf_import(VmafSyclState *sycl_state, int fd, size_t size, void **ptr);
+VMAF_EXPORT int vmaf_sycl_dmabuf_import(VmafSyclState *sycl_state, int fd, size_t size, void **ptr);
 
 /**
  * Free a pointer returned by vmaf_sycl_dmabuf_import().
@@ -210,7 +212,7 @@ int vmaf_sycl_dmabuf_import(VmafSyclState *sycl_state, int fd, size_t size, void
  * @param sycl_state  The SYCL state.
  * @param ptr         Pointer to free.
  */
-void vmaf_sycl_dmabuf_free(VmafSyclState *sycl_state, void *ptr);
+VMAF_EXPORT void vmaf_sycl_dmabuf_free(VmafSyclState *sycl_state, void *ptr);
 
 /**
  * Import a VA surface Y-plane into a shared frame buffer.
@@ -230,9 +232,9 @@ void vmaf_sycl_dmabuf_free(VmafSyclState *sycl_state, void *ptr);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_import_va_surface(VmafSyclState *sycl_state, void *va_display,
-                                unsigned int va_surface, int is_ref, unsigned w, unsigned h,
-                                unsigned bpc);
+VMAF_EXPORT int vmaf_sycl_import_va_surface(VmafSyclState *sycl_state, void *va_display,
+                                            unsigned int va_surface, int is_ref, unsigned w,
+                                            unsigned h, unsigned bpc);
 
 /**
  * Upload a raw Y-plane from host memory into a shared frame buffer.
@@ -249,8 +251,8 @@ int vmaf_sycl_import_va_surface(VmafSyclState *sycl_state, void *va_display,
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_upload_plane(VmafSyclState *sycl_state, const void *src, unsigned pitch, int is_ref,
-                           unsigned w, unsigned h, unsigned bpc);
+VMAF_EXPORT int vmaf_sycl_upload_plane(VmafSyclState *sycl_state, const void *src, unsigned pitch,
+                                       int is_ref, unsigned w, unsigned h, unsigned bpc);
 
 #ifdef _WIN32
 /**
@@ -270,9 +272,9 @@ int vmaf_sycl_upload_plane(VmafSyclState *sycl_state, const void *src, unsigned 
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_import_d3d11_surface(VmafSyclState *sycl_state, void *d3d11_device,
-                                   void *d3d11_texture, unsigned subresource, int is_ref,
-                                   unsigned w, unsigned h, unsigned bpc);
+VMAF_EXPORT int vmaf_sycl_import_d3d11_surface(VmafSyclState *sycl_state, void *d3d11_device,
+                                               void *d3d11_texture, unsigned subresource,
+                                               int is_ref, unsigned w, unsigned h, unsigned bpc);
 #endif /* _WIN32 */
 
 /* ------------------------------------------------------------------
@@ -287,14 +289,14 @@ int vmaf_sycl_import_d3d11_surface(VmafSyclState *sycl_state, void *d3d11_device
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_profiling_enable(VmafSyclState *sycl_state);
+VMAF_EXPORT int vmaf_sycl_profiling_enable(VmafSyclState *sycl_state);
 
 /**
  * Disable profiling and discard accumulated timing data.
  *
  * @param sycl_state  The SYCL state.
  */
-void vmaf_sycl_profiling_disable(VmafSyclState *sycl_state);
+VMAF_EXPORT void vmaf_sycl_profiling_disable(VmafSyclState *sycl_state);
 
 /**
  * Print profiling results to stdout.
@@ -302,7 +304,7 @@ void vmaf_sycl_profiling_disable(VmafSyclState *sycl_state);
  *
  * @param sycl_state  The SYCL state.
  */
-void vmaf_sycl_profiling_print(VmafSyclState *sycl_state);
+VMAF_EXPORT void vmaf_sycl_profiling_print(VmafSyclState *sycl_state);
 
 /**
  * Get profiling results as a formatted string.
@@ -313,7 +315,7 @@ void vmaf_sycl_profiling_print(VmafSyclState *sycl_state);
  *
  * @return 0 on success, negative errno on failure.
  */
-int vmaf_sycl_profiling_get_string(VmafSyclState *sycl_state, char **output);
+VMAF_EXPORT int vmaf_sycl_profiling_get_string(VmafSyclState *sycl_state, char **output);
 
 /**
  * Release all resources owned by the SYCL state (queue, buffers, etc.)
@@ -322,7 +324,7 @@ int vmaf_sycl_profiling_get_string(VmafSyclState *sycl_state, char **output);
  *
  * @param sycl_state  The SYCL state (freed and set to NULL).
  */
-void vmaf_sycl_state_free(VmafSyclState **sycl_state);
+VMAF_EXPORT void vmaf_sycl_state_free(VmafSyclState **sycl_state);
 
 /**
  * Print available SYCL GPU devices to stdout.
@@ -333,7 +335,7 @@ void vmaf_sycl_state_free(VmafSyclState **sycl_state);
  *
  * @return Number of GPU devices enumerated, or negative errno on failure.
  */
-int vmaf_sycl_list_devices(void);
+VMAF_EXPORT int vmaf_sycl_list_devices(void);
 
 #ifdef __cplusplus
 }

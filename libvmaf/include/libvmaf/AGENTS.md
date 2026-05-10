@@ -62,6 +62,20 @@ backend-agnostic `gpu_picture_pool.{c,h}` round-robin
 
 ## Rebase-sensitive invariants
 
+- **Every declaration in this directory must carry `VMAF_EXPORT`**
+  ([ADR-0379](../../../docs/adr/0379-libvmaf-symbol-visibility.md),
+  Research-0092). `libvmaf.so` is built with `-fvisibility=hidden`
+  globally; a public declaration without `VMAF_EXPORT` is silently
+  hidden in the DSO. New entry points: add `VMAF_EXPORT` to the
+  function declaration in the appropriate header here before merging.
+  `macros.h` defines the macro and is included by `libvmaf.h`, which
+  all backend headers already include — no extra `#include` is needed
+  for headers that transitively pull in `libvmaf.h`. Verify with:
+  ```bash
+  nm -D --defined-only build/src/libvmaf.so.3.0.0 | grep ' [TW] ' | grep -v ' vmaf_' | wc -l
+  # Must print 0
+  ```
+
 - **Public surface stability**: the four backend headers landed in
   this order — `libvmaf_cuda.h` (Netflix upstream, baseline),
   `libvmaf_sycl.h` (fork ADR-0152, T1-7 — SYCL backend scaffold),

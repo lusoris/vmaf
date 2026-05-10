@@ -59,7 +59,7 @@ extern "C" {
  * otherwise. Cheap to call; no Metal runtime is touched until @ref
  * vmaf_metal_state_init().
  */
-int vmaf_metal_available(void);
+VMAF_EXPORT int vmaf_metal_available(void);
 
 /**
  * Opaque handle to a Metal-backed scoring state. One state pins one
@@ -84,7 +84,7 @@ typedef struct VmafMetalConfiguration {
  *         host, or M-series device unavailable), -EINVAL on bad
  *         arguments.
  */
-int vmaf_metal_state_init(VmafMetalState **out, VmafMetalConfiguration cfg);
+VMAF_EXPORT int vmaf_metal_state_init(VmafMetalState **out, VmafMetalConfiguration cfg);
 
 /**
  * Hand the Metal state to a VmafContext. After import, the context
@@ -93,7 +93,7 @@ int vmaf_metal_state_init(VmafMetalState **out, VmafMetalConfiguration cfg);
  * @ref vmaf_metal_state_free after vmaf_close(). Same lifetime model as
  * the SYCL + Vulkan + HIP backends.
  */
-int vmaf_metal_import_state(VmafContext *ctx, VmafMetalState *state);
+VMAF_EXPORT int vmaf_metal_import_state(VmafContext *ctx, VmafMetalState *state);
 
 /**
  * Release a state previously allocated via @ref vmaf_metal_state_init.
@@ -101,14 +101,14 @@ int vmaf_metal_import_state(VmafContext *ctx, VmafMetalState *state);
  * the caller is still responsible for freeing — call this after
  * vmaf_close() to avoid using a state the context still references.
  */
-void vmaf_metal_state_free(VmafMetalState **state);
+VMAF_EXPORT void vmaf_metal_state_free(VmafMetalState **state);
 
 /**
  * Enumerate Apple-Family-7+ Metal devices visible to the runtime.
  * Prints one line per device with its ordinal, name, and GPU family.
  * Returns the device count or -ENOSYS when built without Metal.
  */
-int vmaf_metal_list_devices(void);
+VMAF_EXPORT int vmaf_metal_list_devices(void);
 
 #ifdef __cplusplus
 }

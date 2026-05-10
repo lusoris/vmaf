@@ -30,6 +30,7 @@
 #include <stdint.h>
 
 #include "libvmaf.h"
+#include "libvmaf/macros.h"
 #include "picture.h"
 
 #ifdef __cplusplus
@@ -41,7 +42,7 @@ extern "C" {
  * (-Denable_vulkan=enabled), 0 otherwise. Cheap to call; no Vulkan
  * runtime is touched until @ref vmaf_vulkan_state_init().
  */
-int vmaf_vulkan_available(void);
+VMAF_EXPORT int vmaf_vulkan_available(void);
 
 /**
  * Opaque handle to a Vulkan-backed scoring state. One state pins one
@@ -71,7 +72,7 @@ typedef struct VmafVulkanConfiguration {
  * @return 0 on success, -ENOSYS when built without Vulkan, -ENODEV when
  *         no compatible device is found, -EINVAL on bad arguments.
  */
-int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg);
+VMAF_EXPORT int vmaf_vulkan_state_init(VmafVulkanState **out, VmafVulkanConfiguration cfg);
 
 /**
  * Pre-existing Vulkan handles supplied by the caller, used by
@@ -113,7 +114,8 @@ typedef struct VmafVulkanExternalHandles {
  *         -EINVAL on bad arguments, -ENOMEM on allocation
  *         failure.
  */
-int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHandles handles);
+VMAF_EXPORT int vmaf_vulkan_state_init_external(VmafVulkanState **out,
+                                                VmafVulkanExternalHandles handles);
 
 /**
  * Inspect the v2 async pending-fence ring depth a state was
@@ -122,7 +124,7 @@ int vmaf_vulkan_state_init_external(VmafVulkanState **out, VmafVulkanExternalHan
  * [1, 8]); 0 when @p state is NULL or libvmaf was built without
  * Vulkan support. ADR-0251 follow-up #3.
  */
-unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state);
+VMAF_EXPORT unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state);
 
 /**
  * Hand the Vulkan state to a VmafContext. The context borrows the
@@ -130,7 +132,7 @@ unsigned vmaf_vulkan_state_max_outstanding_frames(const VmafVulkanState *state);
  * owns the state and must free it with @ref vmaf_vulkan_state_free
  * after vmaf_close(). Same lifetime model as the SYCL backend.
  */
-int vmaf_vulkan_import_state(VmafContext *ctx, VmafVulkanState *state);
+VMAF_EXPORT int vmaf_vulkan_import_state(VmafContext *ctx, VmafVulkanState *state);
 
 /**
  * Per-picture-pool preallocation strategy. Mirrors the CUDA / SYCL
@@ -177,7 +179,8 @@ typedef struct VmafVulkanPictureConfiguration {
  *         -EBUSY if a pool already exists on @p vmaf;
  *         -ENOSYS when libvmaf was built without Vulkan support.
  */
-int vmaf_vulkan_preallocate_pictures(VmafContext *vmaf, VmafVulkanPictureConfiguration cfg);
+VMAF_EXPORT int vmaf_vulkan_preallocate_pictures(VmafContext *vmaf,
+                                                 VmafVulkanPictureConfiguration cfg);
 
 /**
  * Fetch one preallocated VmafPicture. With
@@ -188,7 +191,7 @@ int vmaf_vulkan_preallocate_pictures(VmafContext *vmaf, VmafVulkanPictureConfigu
  *
  * @return 0 on success, or a negative errno on failure.
  */
-int vmaf_vulkan_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
+VMAF_EXPORT int vmaf_vulkan_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
 
 /**
  * Release a state previously allocated via @ref vmaf_vulkan_state_init.
@@ -196,14 +199,14 @@ int vmaf_vulkan_picture_fetch(VmafContext *vmaf, VmafPicture *pic);
  * the caller is still responsible for freeing — call this after
  * vmaf_close() to avoid using a state the context still references.
  */
-void vmaf_vulkan_state_free(VmafVulkanState **state);
+VMAF_EXPORT void vmaf_vulkan_state_free(VmafVulkanState **state);
 
 /**
  * Enumerate compute-capable Vulkan devices visible to the runtime.
  * Prints one line per device with its ordinal, name, and API version.
  * Returns the device count or -ENOSYS when built without Vulkan.
  */
-int vmaf_vulkan_list_devices(void);
+VMAF_EXPORT int vmaf_vulkan_list_devices(void);
 
 /**
  * Zero-copy frame import — T7-29 (ADR-0184).
@@ -248,10 +251,11 @@ int vmaf_vulkan_list_devices(void);
  * @return 0 on success, -ENOSYS until T7-29 part 2 lands,
  *         -EINVAL on bad args.
  */
-int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image, uint32_t vk_format,
-                             uint32_t vk_layout, uintptr_t vk_semaphore,
-                             uint64_t vk_semaphore_value, unsigned w, unsigned h, unsigned bpc,
-                             int is_ref, unsigned index);
+VMAF_EXPORT int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image,
+                                         uint32_t vk_format, uint32_t vk_layout,
+                                         uintptr_t vk_semaphore, uint64_t vk_semaphore_value,
+                                         unsigned w, unsigned h, unsigned bpc, int is_ref,
+                                         unsigned index);
 
 /**
  * Block until all previously-submitted compute work on `state`
@@ -260,7 +264,7 @@ int vmaf_vulkan_import_image(VmafVulkanState *state, uintptr_t vk_image, uint32_
  *
  * @return 0 on success, -ENOSYS until T7-29 part 2 lands.
  */
-int vmaf_vulkan_wait_compute(VmafVulkanState *state);
+VMAF_EXPORT int vmaf_vulkan_wait_compute(VmafVulkanState *state);
 
 /**
  * Trigger a libvmaf score read for the imported reference +
@@ -269,7 +273,7 @@ int vmaf_vulkan_wait_compute(VmafVulkanState *state);
  *
  * @return 0 on success, -ENOSYS until T7-29 part 2 lands.
  */
-int vmaf_vulkan_read_imported_pictures(VmafContext *ctx, unsigned index);
+VMAF_EXPORT int vmaf_vulkan_read_imported_pictures(VmafContext *ctx, unsigned index);
 
 #ifdef __cplusplus
 }

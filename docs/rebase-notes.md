@@ -32744,3 +32744,36 @@ ninja -C build-cuda
     libvmaf/src/cuda/dispatch_strategy.c
   # Must produce zero concurrency-mt-unsafe warnings.
   ```
+
+---
+
+### 0103 — `-fvisibility=hidden` + `VMAF_EXPORT` public-API annotation (ADR-0379, Research-0092)
+
+- **Touches**: `libvmaf/src/meson.build` (`vmaf_cflags_common`),
+  `libvmaf/include/libvmaf/*.h` (all public headers),
+  `libvmaf/include/libvmaf/macros.h` (new file),
+  `libvmaf/include/libvmaf/meson.build` (header install list),
+  `libvmaf/src/dnn/model_loader.h` (`vmaf_dnn_verify_signature` declaration).
+- **Invariant**: `-fvisibility=hidden` is in `vmaf_cflags_common`. Any new public
+  `vmaf_*` function added by an upstream sync — whether in `libvmaf.c`,
+  `picture.c`, `dict.c`, or any other source — must also have `VMAF_EXPORT`
+  on its declaration in the matching public header, otherwise it will be hidden
+  in `libvmaf.so` and downstream callers will get a link error.
+  Gate: `nm -D --defined-only build/src/libvmaf.so.* | grep ' [TW] ' | grep -v ' vmaf_' | wc -l` must be 0.
+- **On upstream sync**: upstream Netflix/vmaf does NOT use `-fvisibility=hidden`.
+  Any new public entry point in an upstream commit (typically added to
+  `libvmaf/src/libvmaf.c` + `libvmaf/include/libvmaf/libvmaf.h`) will compile
+  to a hidden symbol on the fork without `VMAF_EXPORT`. The merge author must:
+  1. Add `VMAF_EXPORT` to the new declaration in the public header.
+  2. Run the `nm -D` gate (above) — it must return 0.
+  3. Run `meson test -C build` — all tests must pass.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-vis libvmaf -Denable_cuda=false -Denable_sycl=false --wipe
+  ninja -C build-vis
+  nm -D --defined-only build-vis/src/libvmaf.so.* | grep ' [TW] ' | grep -v ' vmaf_' | wc -l
+  # Must print 0
+  meson test -C build-vis
+  # All tests must pass
+  ```

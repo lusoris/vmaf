@@ -270,6 +270,28 @@ libvmaf/
   → `integer_motion3`) catches drift, but only after a full GPU
   run. See [`docs/rebase-notes.md` §0219](../docs/rebase-notes.md).
 
+- **Symbol visibility: every new public entry point needs `VMAF_EXPORT`**
+  (fork-local, [ADR-0379](../docs/adr/0379-libvmaf-symbol-visibility.md) /
+  Research-0092). `libvmaf/src/meson.build` compiles all TUs with
+  `-fvisibility=hidden`; only symbols annotated with `VMAF_EXPORT`
+  (defined in `libvmaf/include/libvmaf/macros.h`) appear in the
+  dynamic symbol table of `libvmaf.so`. When adding a new public C
+  entry point, apply `VMAF_EXPORT` to its declaration in the installed
+  public header — the attribute propagates from declaration to
+  definition if the definition TU includes the header, so no annotation
+  of the definition itself is normally required. Exception: if the
+  definition TU does *not* include the public header (see
+  `src/dnn/model_loader.h` → `vmaf_dnn_verify_signature`), apply
+  `VMAF_EXPORT` to the internal declaration instead. Verify after any
+  structural change with:
+  ```bash
+  nm -D --defined-only build/src/libvmaf.so.3.0.0 | grep ' [TW] ' | grep -v ' vmaf_' | wc -l
+  # Must print 0
+  ```
+  On upstream sync: any new `vmaf_*` entry point added upstream that
+  the fork's headers re-export needs `VMAF_EXPORT` added in the same
+  merge commit; missing it will silently hide the symbol.
+
 - **Fuzz-harness coverage rule** (fork-local,
   [ADR-0270](../docs/adr/0270-fuzzing-scaffold.md) +
   [ADR-0311](../docs/adr/0311-libfuzzer-harness-expansion.md)): every

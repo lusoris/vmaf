@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "libvmaf/macros.h"
 #include "libvmaf/model.h"
 #include "libvmaf/picture.h"
 #include "libvmaf/feature.h"
@@ -103,7 +104,7 @@ typedef struct VmafContext VmafContext;
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg);
+VMAF_EXPORT int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg);
 
 /**
  * Register feature extractors required by a specific `VmafModel`.
@@ -118,7 +119,7 @@ int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg);
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model);
+VMAF_EXPORT int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model);
 
 /**
  * Register feature extractors required by a specific `VmafModelCollection`
@@ -132,8 +133,8 @@ int vmaf_use_features_from_model(VmafContext *vmaf, VmafModel *model);
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_use_features_from_model_collection(VmafContext *vmaf,
-                                            VmafModelCollection *model_collection);
+VMAF_EXPORT int vmaf_use_features_from_model_collection(VmafContext *vmaf,
+                                                        VmafModelCollection *model_collection);
 
 /**
  * Register specific feature extractor.
@@ -153,7 +154,8 @@ int vmaf_use_features_from_model_collection(VmafContext *vmaf,
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_use_feature(VmafContext *vmaf, const char *feature_name, VmafFeatureDictionary *opts_dict);
+VMAF_EXPORT int vmaf_use_feature(VmafContext *vmaf, const char *feature_name,
+                                 VmafFeatureDictionary *opts_dict);
 
 /**
  * Import an external feature score.
@@ -172,8 +174,8 @@ int vmaf_use_feature(VmafContext *vmaf, const char *feature_name, VmafFeatureDic
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_import_feature_score(VmafContext *vmaf, const char *feature_name, double value,
-                              unsigned index);
+VMAF_EXPORT int vmaf_import_feature_score(VmafContext *vmaf, const char *feature_name, double value,
+                                          unsigned index);
 
 /**
  * Read a pair of pictures and queue them for eventual feature extraction.
@@ -196,7 +198,8 @@ int vmaf_import_feature_score(VmafContext *vmaf, const char *feature_name, doubl
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, unsigned index);
+VMAF_EXPORT int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist,
+                                   unsigned index);
 
 /**
  * Predict VMAF score at specific index.
@@ -212,7 +215,8 @@ int vmaf_read_pictures(VmafContext *vmaf, VmafPicture *ref, VmafPicture *dist, u
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_score_at_index(VmafContext *vmaf, VmafModel *model, double *score, unsigned index);
+VMAF_EXPORT int vmaf_score_at_index(VmafContext *vmaf, VmafModel *model, double *score,
+                                    unsigned index);
 
 /**
  * Predict VMAF score at specific index, using a model collection.
@@ -228,8 +232,10 @@ int vmaf_score_at_index(VmafContext *vmaf, VmafModel *model, double *score, unsi
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_score_at_index_model_collection(VmafContext *vmaf, VmafModelCollection *model_collection,
-                                         VmafModelCollectionScore *score, unsigned index);
+VMAF_EXPORT int vmaf_score_at_index_model_collection(VmafContext *vmaf,
+                                                     VmafModelCollection *model_collection,
+                                                     VmafModelCollectionScore *score,
+                                                     unsigned index);
 
 /**
  * Fetch feature score at specific index.
@@ -245,8 +251,8 @@ int vmaf_score_at_index_model_collection(VmafContext *vmaf, VmafModelCollection 
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_feature_score_at_index(VmafContext *vmaf, const char *feature_name, double *score,
-                                unsigned index);
+VMAF_EXPORT int vmaf_feature_score_at_index(VmafContext *vmaf, const char *feature_name,
+                                            double *score, unsigned index);
 
 /**
  * Pooled VMAF score for a specific interval.
@@ -266,8 +272,9 @@ int vmaf_feature_score_at_index(VmafContext *vmaf, const char *feature_name, dou
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_score_pooled(VmafContext *vmaf, VmafModel *model, enum VmafPoolingMethod pool_method,
-                      double *score, unsigned index_low, unsigned index_high);
+VMAF_EXPORT int vmaf_score_pooled(VmafContext *vmaf, VmafModel *model,
+                                  enum VmafPoolingMethod pool_method, double *score,
+                                  unsigned index_low, unsigned index_high);
 
 /**
  * Pooled VMAF score for a specific interval, using a model collection.
@@ -287,10 +294,11 @@ int vmaf_score_pooled(VmafContext *vmaf, VmafModel *model, enum VmafPoolingMetho
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_score_pooled_model_collection(VmafContext *vmaf, VmafModelCollection *model_collection,
-                                       enum VmafPoolingMethod pool_method,
-                                       VmafModelCollectionScore *score, unsigned index_low,
-                                       unsigned index_high);
+VMAF_EXPORT int vmaf_score_pooled_model_collection(VmafContext *vmaf,
+                                                   VmafModelCollection *model_collection,
+                                                   enum VmafPoolingMethod pool_method,
+                                                   VmafModelCollectionScore *score,
+                                                   unsigned index_low, unsigned index_high);
 
 /**
  * Pooled feature score for a specific interval.
@@ -310,9 +318,9 @@ int vmaf_score_pooled_model_collection(VmafContext *vmaf, VmafModelCollection *m
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_feature_score_pooled(VmafContext *vmaf, const char *feature_name,
-                              enum VmafPoolingMethod pool_method, double *score, unsigned index_low,
-                              unsigned index_high);
+VMAF_EXPORT int vmaf_feature_score_pooled(VmafContext *vmaf, const char *feature_name,
+                                          enum VmafPoolingMethod pool_method, double *score,
+                                          unsigned index_low, unsigned index_high);
 
 /**
  * Picture Pool Configuration
@@ -338,7 +346,7 @@ typedef struct VmafPictureConfiguration {
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_preallocate_pictures(VmafContext *vmaf, VmafPictureConfiguration cfg);
+VMAF_EXPORT int vmaf_preallocate_pictures(VmafContext *vmaf, VmafPictureConfiguration cfg);
 
 /**
  * Fetch a preallocated picture from the picture pool.
@@ -352,7 +360,7 @@ int vmaf_preallocate_pictures(VmafContext *vmaf, VmafPictureConfiguration cfg);
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic);
+VMAF_EXPORT int vmaf_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic);
 
 /**
  * Close a VMAF instance and free all associated memory.
@@ -362,7 +370,7 @@ int vmaf_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic);
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_close(VmafContext *vmaf);
+VMAF_EXPORT int vmaf_close(VmafContext *vmaf);
 
 /**
  * Write VMAF stats to an output file.
@@ -377,7 +385,8 @@ int vmaf_close(VmafContext *vmaf);
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_write_output(VmafContext *vmaf, const char *output_path, enum VmafOutputFormat fmt);
+VMAF_EXPORT int vmaf_write_output(VmafContext *vmaf, const char *output_path,
+                                  enum VmafOutputFormat fmt);
 
 /**
  * Write VMAF stats to an output file with a caller-controlled score format.
@@ -396,13 +405,13 @@ int vmaf_write_output(VmafContext *vmaf, const char *output_path, enum VmafOutpu
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-int vmaf_write_output_with_format(VmafContext *vmaf, const char *output_path,
-                                  enum VmafOutputFormat fmt, const char *score_format);
+VMAF_EXPORT int vmaf_write_output_with_format(VmafContext *vmaf, const char *output_path,
+                                              enum VmafOutputFormat fmt, const char *score_format);
 
 /**
  * Get libvmaf version.
  */
-const char *vmaf_version(void);
+VMAF_EXPORT const char *vmaf_version(void);
 
 #ifdef __cplusplus
 }

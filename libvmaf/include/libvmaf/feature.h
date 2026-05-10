@@ -19,15 +19,18 @@
 #ifndef __VMAF_FEATURE_H__
 #define __VMAF_FEATURE_H__
 
+#include "libvmaf/macros.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct VmafFeatureDictionary VmafFeatureDictionary;
 
-int vmaf_feature_dictionary_set(VmafFeatureDictionary **dict, const char *key, const char *val);
+VMAF_EXPORT int vmaf_feature_dictionary_set(VmafFeatureDictionary **dict, const char *key,
+                                            const char *val);
 
-int vmaf_feature_dictionary_free(VmafFeatureDictionary **dict);
+VMAF_EXPORT int vmaf_feature_dictionary_free(VmafFeatureDictionary **dict);
 
 #ifdef __cplusplus
 }

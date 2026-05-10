@@ -83,7 +83,8 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes);
  *
  *  ``registry_path`` may be NULL — the loader then computes
  *  ``<dirname(onnx_path)>/registry.json``. */
-int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path);
+/* Public API — must be visible in the shared library (ADR-0379). */
+VMAF_EXPORT int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path);
 
 #ifdef __cplusplus
 }
