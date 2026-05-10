@@ -50,15 +50,18 @@ static char *resolve_path(const char *path, char *resolved)
  * under the jail directory after both are canonicalised. Returns 0 when
  * the env is unset/empty (no-op) or the path is inside the jail, and
  * -EACCES otherwise. Fails closed on a misconfigured jail (env points at
- * a non-directory or an unresolvable path) — defensive default. */
-static int enforce_tiny_model_jail(const char *resolved_model)
+ * a non-directory or an unresolvable path) — defensive default.
+ *
+ * The @p jail_dir parameter (may be NULL) is expected to be pre-cached from
+ * getenv("VMAF_TINY_MODEL_DIR") by the caller to avoid repeated unsafe
+ * getenv() calls in multithreaded contexts. */
+static int enforce_tiny_model_jail(const char *resolved_model, const char *jail_dir)
 {
-    const char *jail_env = getenv("VMAF_TINY_MODEL_DIR");
-    if (!jail_env || jail_env[0] == '\0')
+    if (!jail_dir || jail_dir[0] == '\0')
         return 0;
 
     char jail_resolved[PATH_MAX];
-    if (resolve_path(jail_env, jail_resolved) == NULL)
+    if (resolve_path(jail_dir, jail_resolved) == NULL)
         return -EACCES;
 
     struct stat jst;
@@ -326,10 +329,15 @@ int vmaf_dnn_validate_onnx(const char *path, size_t max_bytes)
         return -errno;
     assert(resolved[0] != '\0');
 
+    /* Cache environment variables once per function call to avoid repeated
+     * unsafe getenv() calls in multithreaded contexts (getenv is not required
+     * to be thread-safe by C99, and glibc's implementation is known to race). */
+    const char *jail_dir = getenv("VMAF_TINY_MODEL_DIR");
+
     /* Optional chroot-style path jail via VMAF_TINY_MODEL_DIR. Applied
      * before any I/O on the target so a jail violation can't even trigger
      * a stat() of the would-be path. */
-    int err = enforce_tiny_model_jail(resolved);
+    int err = enforce_tiny_model_jail(resolved, jail_dir);
     if (err != 0)
         return err;
 
@@ -509,10 +517,13 @@ static const char *path_basename(const char *path)
 /* Locate `cosign` on PATH. Returns 0 on success and writes the resolved
  * absolute path into `out`; returns -EACCES otherwise. Implemented by
  * walking PATH manually and stat-checking each candidate so we never need
- * a shell. */
-static int locate_cosign(char *out, size_t out_sz)
+ * a shell.
+ *
+ * The @p path_env parameter (may be NULL) is expected to be pre-cached from
+ * getenv("PATH") by the caller to avoid repeated unsafe getenv() calls in
+ * multithreaded contexts. */
+static int locate_cosign(const char *path_env, char *out, size_t out_sz)
 {
-    const char *path_env = getenv("PATH");
     if (!path_env || path_env[0] == '\0')
         return -EACCES;
     const char *p = path_env;
@@ -616,8 +627,13 @@ int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path)
     if (!S_ISREG(bst.st_mode))
         return -ENOENT;
 
+    /* Cache environment variables once per function call to avoid repeated
+     * unsafe getenv() calls in multithreaded contexts (getenv is not required
+     * to be thread-safe by C99, and glibc's implementation is known to race). */
+    const char *path_env = getenv("PATH");
+
     char cosign_path[PATH_MAX];
-    err = locate_cosign(cosign_path, sizeof(cosign_path));
+    err = locate_cosign(path_env, cosign_path, sizeof(cosign_path));
     if (err != 0)
         return err;
     assert(cosign_path[0] != '\0');
