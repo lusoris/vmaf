@@ -92,9 +92,13 @@ test_feature_extractor = executable('test_feature_extractor',
     # dnn_sources pulled in directly so feature_lpips.c can resolve its
     # libvmaf/dnn.h references (session_open/run/close,
     # vmaf_tensor_from_rgb_imagenet) without linking against libvmaf.so.
+    # fex_ctx_vector.c is part of libvmaf_sources (not libvmaf_feature_static_lib)
+    # so it must be listed explicitly; the T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE
+    # regression test exercises feature_extractor_vector_append() directly.
     ['test.c', 'test_feature_extractor.c', '../src/mem.c', '../src/picture.c', '../src/ref.c',
      '../src/dict.c', '../src/opt.c', '../src/log.c', '../src/predict.c',
      '../src/metadata_handler.c', '../src/thread_locale.c', '../src/gpu_picture_pool.c',
+     '../src/fex_ctx_vector.c',
      dnn_sources],
     include_directories : [libvmaf_inc, test_inc, include_directories('../src/'), dnn_inc],
     c_args : vmaf_cflags_common + dnn_defines,

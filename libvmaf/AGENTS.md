@@ -64,6 +64,18 @@ libvmaf/
 
 ## Rebase-sensitive invariants
 
+- **`feature_extractor_vector_append()` deduplicates by provided-feature
+  names, not extractor name** (fork-local, ADR-0383 / T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE):
+  [`src/fex_ctx_vector.c`](src/fex_ctx_vector.c) uses
+  `provided_features_overlap()` to detect CPU/GPU twins before
+  registering a new extractor. The old dedup key was derived from
+  `vmaf_feature_name_from_options(fex->name, …)`, which produced
+  `"adm"` vs `"adm_cuda"` — two distinct strings — so both twins were
+  registered and both wrote the same collector slot. Any upstream sync
+  that rewrites `fex_ctx_vector.c` must preserve the provided-feature
+  dedup path; reverting to name-only dedup re-opens the double-write
+  regression on every GPU-enabled binary when `--feature <name>` is
+  combined with a default model load.
 - **`picture_compute_geometry` stride alignment uses `unsigned` + `1u`
   mask** (fork-local, round-5 `-fsanitize=integer` sweep):
   `aligned_y` and `aligned_c` in

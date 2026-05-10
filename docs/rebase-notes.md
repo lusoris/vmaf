@@ -27,6 +27,40 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/fex-dedup-by-provided-feature — feature-extractor dedup by provided-feature names (ADR-0383)
+
+- **Touches**: `libvmaf/src/fex_ctx_vector.c` (new
+  `provided_features_overlap()` helper, updated
+  `feature_extractor_vector_append()` dedup logic);
+  `libvmaf/test/test_feature_extractor.c` (new regression test);
+  `libvmaf/test/meson.build` (adds `fex_ctx_vector.c` to test target
+  sources).
+- **Rebase impact**: Low. The change is entirely internal to
+  `fex_ctx_vector.c`; no public C API headers are touched, no
+  `libvmaf/include/` changes, no `meson_options.txt`, no FFmpeg patch
+  stack entries. If upstream Netflix/vmaf rewrites `fex_ctx_vector.c`
+  in a future sync, port the `provided_features_overlap()` helper and
+  its two-stage dedup logic forward; reverting to name-only dedup
+  re-opens T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE on every GPU binary
+  that combines `--feature <name>` with a default model load.
+- **Re-test**:
+
+  ```bash
+  meson setup build-cpu libvmaf -Denable_cuda=false -Denable_sycl=false
+  ninja -C build-cpu
+  meson test -C build-cpu test_feature_extractor
+  # Expect: 6/6 tests passed, including
+  #   test_fex_vector_dedup_by_provided_feature_name: pass
+
+  # Verify no "cannot be overwritten" warnings:
+  build-cpu/tools/vmaf \
+    -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    -w 576 -h 324 -p 420 -b 8 --feature adm --threads 1 \
+    2>&1 | grep "cannot be overwritten" | wc -l
+  # → 0
+  ```
+
 ### fix/pypsnr-ast-eval — JSON log serialization in `PyFeatureExtractorMixin`
 
 No rebase impact: this change is Python-only (`python/vmaf/core/feature_extractor.py`),

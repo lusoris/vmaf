@@ -17,12 +17,14 @@
  */
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "config.h"
 #include "dict.h"
 #include "feature/feature_extractor.h"
 #include "feature/feature_collector.h"
+#include "fex_ctx_vector.h"
 #include "test.h"
 #include "picture.h"
 #include "libvmaf/picture.h"
@@ -214,6 +216,71 @@ static char *test_ssim_extractor_registered_and_extracts(void)
     return NULL;
 }
 
+/* Regression test for T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE.
+ *
+ * When the CLI auto-loads a default VMAF model and the user also passes
+ * --feature <name>, both vmaf_use_features_from_model() (registering the
+ * GPU twin, e.g. "adm_cuda") and the explicit --feature path (registering
+ * the CPU extractor "adm") call feature_extractor_vector_append().  The old
+ * dedup key was the vmaf_feature_name_from_options()-derived string, which
+ * compares the extractor *name* ("adm" vs "adm_cuda") and therefore misses
+ * the twin.  Both extractors ran and wrote to the same feature-collector
+ * slot, producing 750+ "cannot be overwritten" warnings per scoring run.
+ *
+ * The fix deduplicates by provided-feature names: if any entry in
+ * provided_features[] matches between the already-registered extractor and
+ * the incoming one, the incoming context is destroyed and the registration
+ * is silently skipped.  This test exercises that path using two synthetic
+ * VmafFeatureExtractor descriptors that share one provided-feature name,
+ * simulating a CPU/GPU twin pair without requiring CUDA to be compiled in.
+ */
+static char *test_fex_vector_dedup_by_provided_feature_name(void)
+{
+    int err = 0;
+
+    /* Two synthetic provided-feature lists that share "mock_feature_score". */
+    static const char *pf_a[] = {"mock_feature_score", "mock_extra_a", NULL};
+    static const char *pf_b[] = {"mock_feature_score", "mock_extra_b", NULL};
+
+    VmafFeatureExtractor fex_a = {
+        .name = "mock_cpu",
+        .provided_features = pf_a,
+    };
+    VmafFeatureExtractor fex_b = {
+        .name = "mock_gpu",
+        .provided_features = pf_b,
+    };
+
+    RegisteredFeatureExtractors rfe;
+    err = feature_extractor_vector_init(&rfe);
+    mu_assert("feature_extractor_vector_init failed", !err);
+
+    /* Append the first (CPU) extractor — must succeed and cnt becomes 1. */
+    VmafFeatureExtractorContext *ctx_a = NULL;
+    err = vmaf_feature_extractor_context_create(&ctx_a, &fex_a, NULL);
+    mu_assert("context_create for mock_cpu failed", !err);
+    err = feature_extractor_vector_append(&rfe, ctx_a, 0);
+    mu_assert("first append (mock_cpu) failed", !err);
+    mu_assert("cnt should be 1 after first append", rfe.cnt == 1);
+
+    /* Append the second (GPU twin) extractor — dedup must fire, cnt stays 1,
+     * and append must return 0 (the context is destroyed, not an error). */
+    VmafFeatureExtractorContext *ctx_b = NULL;
+    err = vmaf_feature_extractor_context_create(&ctx_b, &fex_b, NULL);
+    mu_assert("context_create for mock_gpu failed", !err);
+    err = feature_extractor_vector_append(&rfe, ctx_b, 0);
+    mu_assert("second append (mock_gpu twin) must not return an error", !err);
+    mu_assert("cnt must still be 1: GPU twin must be deduped by provided-feature name",
+              rfe.cnt == 1);
+
+    /* Verify the surviving entry is the first-registered (CPU) one. */
+    mu_assert("surviving extractor must be mock_cpu",
+              !strcmp(rfe.fex_ctx[0]->fex->name, "mock_cpu"));
+
+    feature_extractor_vector_destroy(&rfe);
+    return NULL;
+}
+
 char *run_tests()
 {
     mu_run_test(test_get_feature_extractor_by_name_and_feature_name);
@@ -221,5 +288,6 @@ char *run_tests()
     mu_run_test(test_feature_extractor_flush);
     mu_run_test(test_feature_extractor_initialization_options);
     mu_run_test(test_ssim_extractor_registered_and_extracts);
+    mu_run_test(test_fex_vector_dedup_by_provided_feature_name);
     return NULL;
 }

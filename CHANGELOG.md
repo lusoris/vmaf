@@ -33,6 +33,24 @@
 
 ### Fixed
 
+- **Feature-extractor double-write on GPU binaries when `--feature` is
+  combined with an auto-loaded VMAF model
+  (T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE / ADR-0383).**
+  `feature_extractor_vector_append()` (`libvmaf/src/fex_ctx_vector.c`)
+  previously deduplicated by the extractor's own name (`"adm"` vs
+  `"adm_cuda"`), which are distinct strings, so both the CPU and GPU
+  twin were registered and both wrote to the same feature-collector
+  slot on every frame. This produced 750+ "libvmaf WARNING feature
+  X cannot be overwritten at index N" log lines per scoring run.
+  The dedup key is now the set of provided-feature names — every
+  CPU/GPU twin advertises the same logical feature names per the
+  cross-backend parity contract (ADR-0214), so a single shared name
+  correctly identifies twins. The first-registered extractor
+  (selected by `vmaf_use_features_from_model()` for the active
+  backend) wins; subsequent `--feature`-driven duplicates are
+  silently dropped. Zero warnings post-fix on the reference 576x324
+  fixture. Netflix golden VMAF score unchanged (94.323010).
+
 - **Y4M header parser rejects non-positive width/height before allocation
   (T-FUZZ-Y4M-NEG-WIDTH-SEGV / ADR-0382).** `y4m_input_open_impl`
   (`libvmaf/tools/y4m_input.c`) now validates `pic_w > 0` and
