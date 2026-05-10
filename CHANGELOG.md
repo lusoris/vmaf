@@ -33,6 +33,24 @@
 
 ### Fixed
 
+- **Y4M header parser rejects non-positive width/height before allocation
+  (T-FUZZ-Y4M-NEG-WIDTH-SEGV / ADR-0381).** `y4m_input_open_impl`
+  (`libvmaf/tools/y4m_input.c`) now validates `pic_w > 0` and
+  `pic_h > 0` immediately after `y4m_parse_tags` returns, before any
+  chroma-type dispatch or `malloc` call. A negative or zero dimension
+  previously wrapped the size arithmetic (or produced a zero product),
+  leaving `dst_buf == NULL` while `dst_buf_read_sz` was non-zero; the
+  unconditional `fread(_y4m->dst_buf, …)` in `y4m_input_fetch_frame`
+  then NULL-dereffed inside libc. AddressSanitizer reproduced the crash
+  on every nightly fuzz run from 2026-05-05 through 2026-05-08 with the
+  input `YUV4MPEG2 W-8 H4 F30:1 Ip A1:1 C422`. Post-fix the parser
+  prints "Invalid YUV4MPEG2 dimensions: W=-8 H=4 (must be > 0)." and
+  returns `-1`; no allocation is attempted. Reproducer byte sequence
+  promoted to
+  `libvmaf/test/fuzz/y4m_input_known_crashes/y4m_neg_width_null_deref.y4m`
+  as a permanent regression seed. Distinct from the Y4M-411-OOB fix
+  (PR #357 / ADR-0228) which targeted `y4m_convert_411_422jpeg` bounds.
+
 - **`AVERROR(EINVAL)` mis-mapping in `vf_libvmaf` HIP state init
   (`ffmpeg-patches/0011`)** — when `vmaf_hip_state_init()` or
   `vmaf_hip_import_state()` returned a negative errno (e.g. `-ENODEV`

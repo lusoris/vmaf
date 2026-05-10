@@ -32929,6 +32929,36 @@ ninja -C build-cuda
   # Must produce no output (clean).
   ```
 
+### 0381 — Y4M negative-dimension rejection (ADR-0381, T-FUZZ-Y4M-NEG-WIDTH-SEGV)
+
+- **Touches**: `libvmaf/tools/y4m_input.c` (internal static
+  `y4m_input_open_impl`), `libvmaf/test/fuzz/y4m_input_known_crashes/`
+  (new corpus seed).
+- **Invariant**: The guard `if (_y4m->pic_w <= 0 || _y4m->pic_h <= 0)`
+  must stay between the `y4m_parse_tags()` call and the
+  chroma-type dispatch block. If upstream restructures
+  `y4m_input_open_impl` or moves the tag parser, the guard must
+  migrate with it so no allocation occurs before the check.
+  The `y4m_neg_width_null_deref.y4m` seed must be replayed on every
+  rebase to confirm the parser returns clean `-1` rather than SEGV.
+- **No rebase impact on public API or ffmpeg-patches**: the fix is
+  internal to `y4m_input_open_impl` (a `static` function); no public
+  header is changed; no ffmpeg-patches patch is affected.
+- **Re-test on rebase**:
+
+  ```bash
+  CC=clang meson setup build-fuzz libvmaf \
+      -Dfuzz=true -Db_sanitize=address \
+      -Denable_cuda=false -Denable_sycl=false \
+      -Denable_vulkan=disabled --buildtype=debug
+  ninja -C build-fuzz libvmaf/test/fuzz/fuzz_y4m_input
+  ./build-fuzz/libvmaf/test/fuzz/fuzz_y4m_input \
+      libvmaf/test/fuzz/y4m_input_known_crashes/y4m_neg_width_null_deref.y4m
+  # Pre-fix: SEGV on address 0x000000000000 inside fread.
+  # Post-fix: exits 0; stderr prints
+  #   "Invalid YUV4MPEG2 dimensions: W=-8 H=4 (must be > 0)."
+  ```
+
 ### fix/picture-odd-dim-chroma-ceiling — `picture_compute_geometry` ceiling division for odd luma dims
 
 - **Touches**: `libvmaf/src/picture.c`, `libvmaf/src/cuda/picture_cuda.c`,
