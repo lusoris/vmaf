@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -39,5 +39,11 @@
 /* Scaling factor for the Gaussian kernel, where 2.0 means multiplying the
  * standard deviation by 2 and expand the kernel length accordingly. */
 #define DEFAULT_VIF_KERNELSCALE (1.0)
+
+/* Scaling factor for the frame, where 2.0 means multiplying the frame width and height by 2 */
+#define DEFAULT_VIF_PRESCALE (1.0)
+
+/* Scaling method for the frame, supported options: [nearest, bilinear, bicubic, lanczos4] */
+#define DEFAULT_VIF_PRESCALE_METHOD ("nearest")
 
 #endif /* VIF_OPTIONS_H_ */

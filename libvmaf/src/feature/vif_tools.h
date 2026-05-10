@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -22,24 +22,6 @@
 #define VIF_TOOLS_H_
 
 #include <stdbool.h>
-
-enum vif_kernelscale_enum {
-    vif_kernelscale_1 = 0,
-    vif_kernelscale_1o2 = 1,
-    vif_kernelscale_3o2 = 2,
-    vif_kernelscale_2 = 3,
-    vif_kernelscale_2o3 = 4,
-    vif_kernelscale_24o10 = 5,
-    vif_kernelscale_360o97 = 6,
-    vif_kernelscale_4o3 = 7,
-    vif_kernelscale_3d5o3 = 8,
-    vif_kernelscale_3d75o3 = 9,
-    vif_kernelscale_4d25o3 = 10,
-};
-extern const float vif_filter1d_table_s
-    [11][4]
-    [65]; // 4 is scale. since this is separable filter, filtering is 1d repeat horizontally and vertically
-extern const int vif_filter1d_width[11][4];
 
 enum vif_scaling_method {
     vif_scale_nearest = 0,

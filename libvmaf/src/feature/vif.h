@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -18,4 +18,5 @@
 
 int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
                 double *score, double *score_num, double *score_den, double *scores,
-                double vif_enhn_gain_limit, double vif_kernelscale, double vif_sigma_nsq);
+                double vif_enhn_gain_limit, double vif_kernelscale, int vif_skip_scale0,
+                double vif_sigma_nsq);

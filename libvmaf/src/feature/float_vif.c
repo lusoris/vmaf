@@ -209,9 +209,10 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     double score_num;
     double score_den;
     double scores[8];
-    int err = compute_vif(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride,
-                          s->float_stride, &score, &score_num, &score_den, scores,
-                          s->vif_enhn_gain_limit, s->vif_kernelscale, s->vif_sigma_nsq);
+    int err =
+        compute_vif(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride, s->float_stride,
+                    &score, &score_num, &score_den, scores, s->vif_enhn_gain_limit,
+                    s->vif_kernelscale, s->vif_skip_scale0 ? 1 : 0, s->vif_sigma_nsq);
     if (err)
         return err;
 
