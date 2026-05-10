@@ -80,7 +80,7 @@ for file in "$@"; do
   # The first non-blank line must be "# ADR-NNNN: ...".
   if [ -f "${file}" ]; then
     first_heading="$(grep -m1 '^# ADR-' "${file}" 2>/dev/null || true)"
-    heading_num="$(printf '%s' "${first_heading}" | grep -oE 'ADR-[0-9]{4}' | grep -oE '[0-9]{4}' || true)"
+    heading_num="$(printf '%s' "${first_heading}" | grep -oE 'ADR-[0-9]{4}' | head -1 | grep -oE '[0-9]{4}' || true)"
 
     if [ -z "${heading_num}" ]; then
       _error "${file}" \

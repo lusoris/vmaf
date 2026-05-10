@@ -167,7 +167,7 @@
 0258-onnx-allowlist-resize
 0269-vif-ciede-precise-step-a
 0271-cuda-drain-batch-ms-ssim
-0273-ciede-vulkan-nvidia-f32-f64-precision-gap
+0391-ciede-vulkan-nvidia-f32-f64-precision-gap
 0276-vmaf-tune-fast-path
 0277-ffmpeg-patches-refresh-2026-05-04
 0278-t7-5-nolint-sweep
@@ -184,7 +184,7 @@
 0310-bvi-dvc-corpus-ingestion
 0315-vendor-neutral-vvc-encode-strategy
 
-0325-local-sidecar-training
+0394-local-sidecar-training
 
 
 0331-skip-ci-on-draft-prs
@@ -203,7 +203,7 @@
 0363-renovate-replaces-dependabot
 
 
-0368-youtube-ugc-corpus-ingestion
+0413-youtube-ugc-corpus-ingestion
 
 
 0369-waterloo-ivc-4k-corpus-ingestion
@@ -221,7 +221,7 @@
 0272-fr-regressor-v2-codec-aware-scaffold
 0274-hip-eighth-consumer-float-ssim
 0275-vmaf-tiny-v3-v4-ptq
-0279-fr-regressor-v2-probabilistic
+0393-fr-regressor-v2-probabilistic
 0279-vmaf-tune-codec-adapter-libaom
 0281-vmaf-tune-qsv-adapters
 0282-vmaf-tune-amf-adapters
@@ -264,12 +264,12 @@
 0352-vulkan-submit-pool-pr-a-adm-motion-psnr
 
 
-0350-ffmpeg-libvmaf-cuda-backend-selector
+0408-ffmpeg-libvmaf-cuda-backend-selector
 
 
 0334-state-md-touch-check-ci-gate
 
-0335-adaptivecpp-second-sycl-toolchain
+0407-adaptivecpp-second-sycl-toolchain
 
 0348-codeql-poorly-documented-function-suppressed
 
@@ -285,10 +285,10 @@
 0345-cambi-gpu-port-strategy
 
 
-0332-libvmaf-wasm-target
+0401-libvmaf-wasm-target
 
 
-0332-sycl-adm-dwt-group-load-deferral
+0406-sycl-adm-dwt-group-load-deferral
 
 
 
@@ -300,7 +300,7 @@
 
 0337-motion-v2-public-api-options
 
-0356-ffmpeg-patches-surface-gate
+0409-ffmpeg-patches-surface-gate
 
 0339-av1-videotoolbox-placeholder-adapter
 
@@ -310,27 +310,18 @@
 
 0365-coreml-ep-wiring
 
-0364-vmaf-tune-phase-f-auto
-0325-vmaf-tune-phase-f-auto
-0367-u2netp-fork-mirror-scaffold
+0411-vmaf-tune-phase-f-auto
+0397-vmaf-tune-phase-f-auto
+0412-u2netp-fork-mirror-scaffold
 0368-external-bench-wrapper-only
 
 0335-hardware-capability-priors
 
 
 
-0325-predictor-stub-models-policy
+0395-predictor-stub-models-policy
 
 
-
-
-0325-vmaf-tune-phase-b-bisect
-
-
-
-
-
-0325-vmaf-tune-phase-b-bisect
 
 
 0326-vmaf-tune-phase-b-bisect
@@ -338,8 +329,7 @@
 
 
 
-0356-ssimulacra2-cuda-leaks-perf
+0410-ssimulacra2-cuda-leaks-perf
 
 
-0332-openvino-npu-ep-wiring
-
+0405-openvino-npu-ep-wiring

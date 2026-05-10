@@ -1,4 +1,4 @@
-# ADR-0242: ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (T-GPU-OPT-VK-2)
+# ADR-0252: ssimulacra2 Vulkan host-path AVX2 + NEON SIMD (T-GPU-OPT-VK-2)
 
 - **Status**: Accepted
 - **Date**: 2026-05-02

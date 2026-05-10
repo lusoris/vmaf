@@ -1,4 +1,4 @@
-# ADR-0294: `vmaf-tune` — codec-agnostic encode dispatcher
+# ADR-0297: `vmaf-tune` — codec-agnostic encode dispatcher
 
 - **Status**: Accepted
 - **Date**: 2026-05-03
