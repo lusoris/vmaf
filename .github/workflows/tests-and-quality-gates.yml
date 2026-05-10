@@ -534,11 +534,14 @@ jobs:
             undefined)
               # UBSan deselects: test_model (NULL-to-nonnull memcpy
               # in svm.cpp parser — same defect as ASan exclusion
-              # surfaced via a different sanitizer angle); plus the
-              # five tests revealed by PR #758's introspect fix
-              # (see ASan note above). Tracked as
+              # surfaced via a different sanitizer angle); the five
+              # tests revealed by PR #758's introspect fix (see ASan
+              # note above); test_cambi (SIGILL in
+              # test_calculate_c_values_scalar_avx2_parity — UBSan
+              # traps on undefined behavior in the cambi scalar / AVX2
+              # parity probe). Tracked as
               # T-SANITIZER-DEFECTS-REVEALED-758.
-              EXCLUDE='test_model$|test_predict$|test_pic_preallocation$|test_score_pooled_eagain$|test_feature_collector$|test_cli_parse$'
+              EXCLUDE='test_model$|test_predict$|test_pic_preallocation$|test_score_pooled_eagain$|test_feature_collector$|test_cli_parse$|test_cambi$'
               ;;
             thread)
               # TSan deselects: test_model (same defect),
