@@ -176,9 +176,10 @@ static char *test_cambi_sycl_teardown(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Test runner */
+/* Test runner — fork's `test.c` provides `int main()` which calls    */
+/* `run_tests()`. Each per-feature test file defines that hook.       */
 /* ------------------------------------------------------------------ */
-static char *all_tests(void)
+char *run_tests(void)
 {
     mu_run_test(test_cambi_sycl_setup);
     mu_run_test(test_cambi_sycl_registration);
@@ -189,22 +190,9 @@ static char *all_tests(void)
 
 #else /* !HAVE_SYCL */
 
-static char *all_tests(void)
+char *run_tests(void)
 {
     return NULL;
 }
 
 #endif /* HAVE_SYCL */
-
-int tests_run = 0;
-
-int main(void)
-{
-    char *result = all_tests();
-    if (result) {
-        printf("FAILED: %s\n", result);
-        return 1;
-    }
-    printf("ALL TESTS PASSED (%d)\n", tests_run);
-    return 0;
-}
