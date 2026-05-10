@@ -748,6 +748,18 @@
 
 ### Fixed
 
+- **`vmaf_picture_alloc`: null-deref when `vmaf_picture_priv_init` fails
+  (gcc -fanalyzer CWE-476)**: `vmaf_picture_priv_init` can fail (OOM),
+  leaving `pic->priv == NULL`. The caller used `err |=
+  vmaf_picture_set_release_callback(...)`, which evaluates unconditionally.
+  Inside `vmaf_picture_set_release_callback` the first thing that happens
+  is `priv = pic->priv` followed by `priv->cookie = cookie` — a null
+  dereference when `priv` is NULL. Fix: replace the `|=` idiom with a
+  sequential check: early-exit to `free_data:` if
+  `vmaf_picture_priv_init` fails, so the callback setter only runs when
+  `pic->priv` is guaranteed non-NULL. Found by `gcc -fanalyzer` round-4
+  sweep.
+
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
   `Clang-Tidy (Changed C/C++ Files)` step used `git diff --name-only`

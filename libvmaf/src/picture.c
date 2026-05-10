@@ -168,13 +168,16 @@ int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt, unsigned 
         pic->data[1] = pic->data[2] = NULL;
 
     int err = vmaf_picture_priv_init(pic);
-    /* The callback userdata slot stores pic_size inline as a tagged value,
-     * never dereferenced — standard uintptr_t idiom. */
-    err |= vmaf_picture_set_release_callback(pic,
-                                             // NOLINTNEXTLINE(performance-no-int-to-ptr)
-                                             (void *)(uintptr_t)pic_size, pool_release_picture);
     if (err)
         goto free_data;
+
+    /* The callback userdata slot stores pic_size inline as a tagged value,
+     * never dereferenced — standard uintptr_t idiom. pic->priv is guaranteed
+     * non-NULL here because vmaf_picture_priv_init succeeded above. */
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    err = vmaf_picture_set_release_callback(pic, (void *)(uintptr_t)pic_size, pool_release_picture);
+    if (err)
+        goto free_priv;
 
     err = vmaf_ref_init(&pic->ref);
     if (err)
