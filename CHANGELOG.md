@@ -31,6 +31,22 @@
   sub-group size, memory pattern) — out of T7-17's scope. See
   [ADR-0220](docs/adr/0220-sycl-fp64-fallback.md).
 
+### Fixed
+
+- **`AVERROR(EINVAL)` mis-mapping in `vf_libvmaf` HIP state init
+  (`ffmpeg-patches/0011`)** — when `vmaf_hip_state_init()` or
+  `vmaf_hip_import_state()` returned a negative errno (e.g. `-ENODEV`
+  when no AMD GPU is present, or `-ENOSYS` from the T7-10c stub), the
+  filter mapped it to `AVERROR(EINVAL)` ("Invalid argument") rather
+  than `AVERROR(-err)` which carries the libvmaf-supplied errno code.
+  Callers saw "Error: Invalid argument" instead of the informative
+  "Error: No such device" or "Error: Function not implemented". Fixed by
+  replacing `return AVERROR(EINVAL)` with `return AVERROR(-err)` at both
+  error sites in the `#if CONFIG_LIBVMAF_HIP` block of `init()` in
+  `libavfilter/vf_libvmaf.c`. Fix is in
+  `ffmpeg-patches/0011-libvmaf-wire-hip-backend-selector.patch`;
+  no libvmaf C source is touched.
+
 ### Added
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
