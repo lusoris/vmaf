@@ -672,6 +672,16 @@ static int y4m_input_open_impl(y4m_input *_y4m, FILE *_fin)
         (void)fprintf(stderr, "Error parsing YUV4MPEG2 header.\n");
         return ret;
     }
+    /*Reject non-positive dimensions before any allocation: a negative or zero
+     * width/height causes the size arithmetic below to wrap or produce zero,
+     * leaving dst_buf NULL while dst_buf_read_sz is non-zero. The subsequent
+     * unconditional fread(_y4m->dst_buf, …) in y4m_input_fetch_frame would
+     * then NULL-deref inside libc (T-FUZZ-Y4M-NEG-WIDTH-SEGV).*/
+    if (_y4m->pic_w <= 0 || _y4m->pic_h <= 0) {
+        (void)fprintf(stderr, "Invalid YUV4MPEG2 dimensions: W=%d H=%d (must be > 0).\n",
+                      _y4m->pic_w, _y4m->pic_h);
+        return -1;
+    }
     if (_y4m->interlace == '?') {
         (void)fprintf(stderr, "Warning: Input video interlacing format unknown; "
                               "assuming progressive scan.\n");
