@@ -33,6 +33,7 @@
 #include "feature_extractor.h"
 #include "feature_name.h"
 #include "libvmaf/picture.h"
+#include "log.h"
 
 #include "../../hip/common.h"
 #include "../../hip/kernel_template.h"
@@ -236,6 +237,17 @@ static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt,
     s->frame_h = h;
     s->bpc = bpc;
     s->plane_bytes = (size_t)w * h * (bpc <= 8u ? 1u : 2u);
+
+    /* The 5-tap HIP kernel uses reflect-101 mirror padding; mv2_mirror()
+     * returns 2*sup - idx - 2, which is negative when sup < 3.  Refuse
+     * smaller frames up front.  Minimum: filter_width/2 + 1 = 3. */
+    if (h < 3u || w < 3u) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "motion_v2_hip: frame %ux%u is below the 5-tap filter minimum 3x3; "
+                 "refusing to avoid out-of-bounds mirror reads on device\n",
+                 w, h);
+        return -EINVAL;
+    }
 
     int err = vmaf_hip_context_new(&s->ctx, 0);
     if (err != 0) {

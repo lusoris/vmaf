@@ -263,6 +263,18 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->h = h;
     s->bpc = bpc;
 
+    /* The 5-tap separable Gaussian uses reflect-101 mirror padding; the
+     * same mirror() helper requires dim >= radius + 1 = 3 in both axes.
+     * Reject smaller frames cleanly to prevent out-of-bounds reads. */
+    const unsigned min_dim = (unsigned)(filter_width / 2 + 1); /* = 3 */
+    if (h < min_dim || w < min_dim) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "motion_v2: frame %ux%u is below the 5-tap filter minimum %ux%u; "
+                 "refusing to avoid out-of-bounds mirror reads\n",
+                 w, h, min_dim, min_dim);
+        return -EINVAL;
+    }
+
     /* ADR-0337: motion_five_frame_window=true is rejected at init() with
      * -ENOTSUP. The 5-frame mode requires a prev_prev_ref field on
      * VmafFeatureExtractor + matching picture-pool sizing in

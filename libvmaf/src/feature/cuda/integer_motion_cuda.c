@@ -28,6 +28,7 @@
 #include "feature_name.h"
 #include "cuda/integer_motion_cuda.h"
 #include "drain_batch.h"
+#include "log.h"
 #include "mem.h"
 #include "motion_blend_tools.h"
 #include "picture.h"
@@ -253,6 +254,18 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
      * See ADR-0219. */
     if (s->motion_five_frame_window) {
         return -ENOTSUP;
+    }
+
+    /* The 5-tap CUDA kernel uses reflect-101 mirror padding on device;
+     * mirror() returns 2*sup - idx - 2, which is negative when sup < 3.
+     * Refuse smaller frames up front to prevent out-of-bounds device
+     * reads.  Minimum: filter_width/2 + 1 = 3. */
+    if (h < 3u || w < 3u) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "motion_cuda: frame %ux%u is below the 5-tap filter minimum 3x3; "
+                 "refusing to avoid out-of-bounds mirror reads on device\n",
+                 w, h);
+        return -EINVAL;
     }
 
     int _cuda_err = 0;
