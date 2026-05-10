@@ -643,4 +643,3 @@ synthetic target *is* the analytical fallback, so PLCC / SROCC
 numbers in stub cards are artificially high. Real-corpus retrains
 follow the same trainer entry point with `--corpus path/to/file.jsonl`
 and produce honest metrics.
-

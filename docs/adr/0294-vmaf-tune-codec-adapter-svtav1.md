@@ -1,4 +1,4 @@
-# ADR-0278: vmaf-tune codec adapter for SVT-AV1
+# ADR-0294: vmaf-tune codec adapter for SVT-AV1
 
 - **Status**: Accepted
 - **Date**: 2026-05-03

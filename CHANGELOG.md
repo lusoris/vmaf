@@ -6,6 +6,25 @@
 
 ## [Unreleased] — lusoris fork (3.0.0-lusoris.0)
 
+### Fixed
+
+- **Pre-commit gate restored (ADR-0386 collision sweep + hook hardening).** Master CI
+  Lint & Format Pre-Commit job was failing on three fronts introduced by the
+  multi-branch squash-merge in commit `bfa739e8`: (1) `end-of-file-fixer`
+  auto-fixed trailing newlines in `docs/adr/0393-fr-regressor-v2-probabilistic.md`,
+  `tools/vmaf-tune/AGENTS.md`, and `docs/adr/_index_fragments/_order.txt`;
+  (2) `ruff-check` F821 "Undefined name `pytest`" in
+  `tools/vmaf-tune/tests/test_hdr.py` (missing `import pytest`); (3)
+  `check-adr-numbering` (ADR-0386) found 16 collision groups across 28 duplicate
+  ADR numbers plus 3 heading mismatches. The duplicates were renumbered to
+  ADR-0388 through ADR-0415 with headings and README/`_index_fragments/_order.txt`
+  cross-references updated. A bug in `check-adr-numbering.sh`'s heading-number
+  extraction (multi-ADR-reference titles producing multi-line `heading_num`) was
+  fixed with `| head -1`. The hook exclude patterns for `end-of-file-fixer`,
+  `trailing-whitespace`, and `mixed-line-ending` were extended to cover
+  `.onnx.data`, `.so`, `.a`, `.dylib`, and `.dll` binary extensions alongside the
+  existing `^model/` directory guard.
+
 ### Changed
 
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init

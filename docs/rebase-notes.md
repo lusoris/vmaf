@@ -27,6 +27,18 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/precommit-onnx-binary-exclude — ADR collision sweep + pre-commit hook hardening
+
+- **Touches**: `docs/adr/*.md` (28 files renumbered to 0388–0415),
+  `docs/adr/README.md`, `docs/adr/_index_fragments/`, `scripts/ci/check-adr-numbering.sh`,
+  `.pre-commit-config.yaml`, `tools/vmaf-tune/tests/test_hdr.py`.
+- **Invariant**: No rebase impact on libvmaf C sources. The ADR renumbering affects
+  documentation only; no code paths reference ADR numbers at runtime. Any in-flight
+  branches that reference the old ADR numbers (0241-vmaf-tiny-v3, 0279-fr-regressor-v2-probabilistic,
+  etc.) will need their references updated to the new numbers after rebasing onto master.
+- **Re-test**: `bash scripts/ci/check-adr-numbering.sh` must print "ADR numbering check passed."
+  `pre-commit run end-of-file-fixer ruff-check check-adr-numbering --all-files` must all pass.
+
 ### fix/round8-mcp-tmpdir-leak — MCP `describe_worst_frames` tmp-dir cleanup
 
 No rebase impact: this change is MCP-server-only

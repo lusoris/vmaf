@@ -1,1 +1,0 @@
-| [ADR-0279](0279-fr-regressor-v2-probabilistic.md) | `fr_regressor_v2` probabilistic head — deep-ensemble + conformal scaffold | Proposed | ai, fr-regressor, probabilistic, ensemble, conformal, fork-local |

@@ -14,10 +14,15 @@ repos:
       # precompiled MEX (.mexa64/.mexw64/.mexmaci64) that pre-commit's
       # text-transforming hooks would silently corrupt. Limit to the files
       # we actually author/maintain.
+      # NOTE: binary-extension patterns are belt-and-suspenders insurance:
+      # ^model/ is the primary directory guard; the extension patterns catch
+      # any binary blobs that may be added outside model/ in the future.
+      # .onnx.data (ONNX external-data sidecar) is intentionally listed
+      # alongside .onnx — they are raw float tensors, never text.
       - id: trailing-whitespace
-        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^model/|^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
+        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^model/|^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|onnx\.data|bin|yuv|npy|so|a|dylib|dll)$'
       - id: end-of-file-fixer
-        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^model/|^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
+        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^model/|^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|onnx\.data|bin|yuv|npy|so|a|dylib|dll)$'
       - id: check-merge-conflict
       - id: check-yaml
         # mkdocs.yml uses `!!python/name:...` tags (Material extensions, pymdownx
@@ -33,7 +38,8 @@ repos:
         # above — mixed-line-ending's built-in binary detection misfires on
         # some ONNX / .bin payloads and rewrites bytes inside the serialized
         # model, which then fails sha256 pinning in registry.json.
-        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^model/|^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|bin|yuv|npy)$'
+        # .onnx.data added alongside .onnx (external tensor sidecar; raw bytes).
+        exclude: '\.patch$|^subprojects/|^libvmaf/test/data/|^model/|^python/test/resource/|^python/vmaf/resource/|^python/vmaf/matlab/|^testdata/|\.(pkl|mexa64|mexw64|mexmaci64|onnx|onnx\.data|bin|yuv|npy|so|a|dylib|dll)$'
       - id: detect-private-key
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
