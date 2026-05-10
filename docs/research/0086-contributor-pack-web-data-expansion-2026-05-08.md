@@ -1,4 +1,4 @@
-# Research-0086: Contributor data-pack expansion via web-researched data
+# Research-0086 — Contributor data-pack expansion via web-researched data
 
 - **Status**: Active feasibility study. Pure desk research; no code
   changes proposed in this digest. Follow-up implementation PRs ship

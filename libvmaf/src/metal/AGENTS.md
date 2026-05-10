@@ -16,61 +16,44 @@ deeper in [../feature/metal/](../feature/metal/).
 
 ```text
 metal/
-  common.{mm,h}          # Metal context + command-queue management (T8-1b / ADR-0420)
-  picture_metal.{mm,h}   # VmafPicture on a Metal device — MTLBuffer lifecycle (T8-1b)
-  dispatch_strategy.{c,h} # Feature-name → landed-kernel support predicate
-  kernel_template.{mm,h} # per-feature kernel scaffolding + runtime (T8-1b / ADR-0420)
+  common.{c,h}          # Metal context + (future) command-queue management
+  picture_metal.{c,h}   # VmafPicture on a Metal device — stub
+  dispatch_strategy.{c,h} # Feature-name → kernel routing — stub
+  kernel_template.{c,h} # per-feature kernel scaffolding (T8-1 / ADR-0361)
   meson.build           # subdir() include from libvmaf/src/meson.build
 ```
 
 ## Backend status
 
-**Runtime landed** — T8-1b
-([ADR-0420](../../../docs/adr/0420-metal-backend-runtime-t8-1b.md)):
+**Scaffold + first consumer (motion_v2_metal)** — landed in T8-1
+(ADR-0361, this PR):
 
-- `common.mm` — `vmaf_metal_context_new` / `_destroy` /
-  `vmaf_metal_available` / `vmaf_metal_list_devices` /
-  `vmaf_metal_state_init` / `_import` / `_free`. Uses
-  `MTLCreateSystemDefaultDevice()` for `device_index = -1`,
-  `MTLCopyAllDevices()` for explicit indexing; gates on
-  `[device supportsFamily:MTLGPUFamilyApple7]`. All `.mm` TUs
-  compile with `-fobjc-arc`; Metal handles cross the Obj-C++ /
-  pure-C boundary as `void *` / `uintptr_t`.
-- `picture_metal.mm` — `vmaf_metal_picture_alloc` /
-  `vmaf_metal_picture_free`. Allocates a `MTLBuffer` with
-  `MTLResourceStorageModeShared` (zero-copy unified memory on
-  Apple Silicon).
-- `kernel_template.mm` — full lifecycle: private
-  `MTLCommandQueue`, two `MTLSharedEvent` handles (submit-fence +
-  finished-fence), per-frame `[MTLBlitCommandEncoder
-  fillBuffer:range:value:0]` accumulator zero, cross-queue
-  `encodeWaitForEvent`, collect-side drain via
-  `[MTLCommandBuffer waitUntilCompleted]`.
-- Two internal accessors added to `common.h`:
-  `vmaf_metal_context_device_handle()` and
-  `vmaf_metal_context_queue_handle()` expose the bridge-retained
-  `void *` slots to consumer TUs (same pattern as
-  `vmaf_hip_context_stream()`).
-- Smoke test `test_metal_smoke.c` flipped from the T8-1 `-ENOSYS`
-  pin to runtime expectations: on Apple-Family-7+ every entry
-  point returns `0`; on every other host returns `-ENODEV`;
-  input-validation paths still fire unconditionally.
+- `common.c` / `kernel_template.c` / `picture_metal.c` /
+  `dispatch_strategy.c` — every entry point returns `-ENOSYS`.
+- Public header `libvmaf_metal.h` — every entry point returns
+  `-ENOSYS`.
+- `feature/metal/integer_motion_v2_metal.c` — registers
+  `vmaf_fex_integer_motion_v2_metal` (extractor name
+  `motion_v2_metal`, `VMAF_FEATURE_EXTRACTOR_TEMPORAL` flag set).
+  `init()` returns `-ENOSYS` from the kernel-template helpers.
+- CI lane `Build — macOS Metal (T8-1 scaffold)` in
+  `.github/workflows/libvmaf-build-matrix.yml` compiles with
+  `-Denable_metal=enabled` on `macos-latest` and runs the smoke
+  test.
+- Smoke-only `enable_metal` build — every public C-API entry point
+  returns `-ENOSYS`, every kernel-template helper returns `-ENOSYS`,
+  the first-consumer extractor `init()` returns `-ENOSYS`.
 
-**Batch-1 kernels landed** — T8-1c through T8-1j
-([ADR-0421](../../../docs/adr/0421-metal-first-kernel-motion-v2.md)):
-
-- `motion_v2_metal`, `float_psnr_metal`, `float_moment_metal`,
-  `float_ansnr_metal`, `integer_psnr_metal`, `float_motion_metal`,
-  `integer_motion_metal`, and `float_ssim_metal` are Obj-C++ host
-  dispatch files backed by `.metal` shaders and the embedded
-  `default.metallib`.
-- `dispatch_strategy.c` is no longer inert. It answers support for
-  both extractor names and provided feature keys for those landed
-  kernels, and returns 0 for NULL contexts, NULL names, or unknown
-  features.
-- Remaining kernel ports (VIF, ADM, CIEDE, CAMBI, SSIMULACRA2, ...)
-  follow as their own PRs gated by the `places=4` cross-backend-diff
-  lane (per [ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
+**Pending** — T8-1b (runtime PR) replaces the `kernel_template.c`
+bodies and the `common.c` device-init path with real Metal calls
+(MetalCpp wrapper, `MTLCreateSystemDefaultDevice`,
+`[id<MTLDevice> newCommandQueue]`, `[id<MTLDevice>
+newBufferWithLength:options:]`, ...). T8-1c lands the first real
+kernel (`motion_v2_metal.metal` shader + metallib loader) and the
+runtime PR's submit/collect chain. Remaining kernel ports (VIF, ADM,
+SSIM, ...) follow as their own PRs gated by the `places=4`
+cross-backend-diff lane (per
+[ADR-0214](../../../docs/adr/0214-gpu-parity-ci-gate.md)).
 
 ## Dispatch-registry invariant
 
@@ -95,13 +78,13 @@ The wrong-name defects in the original table were found during the
   `-ENODEV`. See ADR-0361 §"Apple Silicon-only" for the rationale
   (Apple's discontinuation of Intel-Mac GPU parity, plus
   unified-memory zero-copy is the load-bearing perf story).
-- **Metal SDK is linked when `enable_metal=enabled`**. Since T8-1b
-  (ADR-0420), `meson.build` declares `dependency('Foundation',
-  required: true)` and `dependency('Metal', required: true)` (both
-  gated behind the `is_metal_enabled` condition). Non-macOS hosts
-  are unaffected: the Metal subdir is only entered when
-  `host_machine.system() == 'darwin'` and the option is `enabled`
-  or `auto` on macOS.
+- **No Metal SDK is currently linked**. The `meson.build` includes
+  optional `dependency('Metal', required: false)` /
+  `dependency('MetalKit', required: false)` probes; the scaffold
+  compiles cleanly on non-macOS hosts (Linux, Windows) without any
+  Apple frameworks installed because the auto-probe resolves to
+  disabled there. The runtime PR (T8-1b) flips both probes to
+  required when the option is `enabled`.
 - **Metal runtime types cross headers as `uintptr_t`**. The public
   header `libvmaf_metal.h` and the kernel template's
   `VmafMetalKernelLifecycle` / `VmafMetalKernelBuffer` carry
@@ -153,45 +136,18 @@ The wrong-name defects in the original table were found during the
 
 - **`vmaf_fex_integer_motion_v2_metal` is registered without the
   `VMAF_FEATURE_EXTRACTOR_METAL` flag bit set** (fork-local,
-  ADR-0361; unchanged through T8-1b). The flag bit is reserved in
-  the enum; the consumer does not set it yet because the
-  picture buffer-type check in
+  ADR-0361). The flag bit is reserved in the enum (the runtime PR
+  T8-1b will define it) but the consumer does not set it because
+  the picture buffer-type check in
   `vmaf_feature_extractor_context_extract` would route a
   Metal-flagged extractor through a (not-yet-existing) Metal
-  buffer-type branch. T8-1c adds the
+  buffer-type branch. The runtime PR (T8-1b) adds the
   `VMAF_PICTURE_BUFFER_TYPE_METAL_DEVICE` tag and *then* sets the
   flag on the extractor. **On rebase**: if a refactor touches the
   picture buffer-type dispatch, leave the Metal extractor's flags
-  at `VMAF_FEATURE_EXTRACTOR_TEMPORAL` only until T8-1c. Same
+  at `VMAF_FEATURE_EXTRACTOR_TEMPORAL` only until T8-1b. Same
   rationale as the HIP twin's `VMAF_FEATURE_EXTRACTOR_HIP`-deferral
   posture.
-
-- **`struct VmafMetalContext` layout is private to `common.mm`**
-  (fork-local, ADR-0420). The struct definition lives in
-  `common.mm`, not in `common.h`. Consumer TUs (`picture_metal.mm`,
-  `kernel_template.mm`) reach the handles only through the
-  `vmaf_metal_context_device_handle()` /
-  `vmaf_metal_context_queue_handle()` accessor pair. **On rebase**:
-  reject any diff that re-introduces a local struct-layout replica
-  in a consumer or header.
-
-- **Bridge-cast ownership discipline** (fork-local, ADR-0420). All
-  `.mm` TUs use `-fobjc-arc`. Metal object handles are stashed into
-  C `void *` slots with `(__bridge_retained void *)id` (+1 retain)
-  and released back with `(__bridge_transfer id<...>)void *` (-1
-  release). Borrows within a TU use `(__bridge id<...>)void *` (no
-  refcount change) and are only valid while the C slot holds the +1.
-  **On rebase**: audit every bridge cast against this pattern; a
-  missing `_retained` leaks, a missing `_transfer` double-frees.
-
-- **Kernel-template lifecycle mirrors HIP twin** (fork-local,
-  ADR-0420). `kernel_template.mm` follows `hip/kernel_template.c`
-  field-for-field modulo the unified-memory buffer collapse (single
-  `MTLBuffer` + `MTLResourceStorageModeShared` vs. HIP's
-  `(device, pinned-host)` pair). **On rebase**: if a fork PR grows
-  the HIP twin's lifecycle (e.g. adds a third event slot or a new
-  staging step), propagate the same change to `kernel_template.mm`
-  in the same PR.
 
 ## Governing ADRs
 

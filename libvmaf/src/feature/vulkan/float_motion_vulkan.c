@@ -82,7 +82,6 @@ typedef struct {
 
     unsigned frame_index;
     double prev_motion_score;
-    double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
 } FloatMotionVulkanState;
@@ -110,17 +109,6 @@ static const VmafOption options[] = {
         .offset = offsetof(FloatMotionVulkanState, motion_force_zero),
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val.b = false,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "motion_fps_weight",
-        .alias = "mfw",
-        .help = "fps-aware multiplicative weight/correction",
-        .offset = offsetof(FloatMotionVulkanState, motion_fps_weight),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = 1.0,
-        .min = 0.0,
-        .max = 5.0,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {0}};
@@ -241,19 +229,6 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
 {
     (void)pix_fmt;
     FloatMotionVulkanState *s = fex->priv;
-
-    /* The 5-tap Vulkan float_motion shader uses reflect-101 mirror padding;
-     * the mirror formula requires dim >= 3 in both axes.  Refuse smaller
-     * frames up front to prevent out-of-bounds reads in the shader.
-     * Minimum: filter_width/2 + 1 = 3. */
-    if (h < 3u || w < 3u) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "float_motion_vulkan: frame %ux%u is below the 5-tap filter minimum 3x3; "
-                 "refusing to avoid out-of-bounds mirror reads in shader\n",
-                 w, h);
-        return -EINVAL;
-    }
-
     s->width = w;
     s->height = h;
     s->bpc = bpc;
@@ -417,11 +392,8 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
                     feature_collector, s->feature_name_dict, "VMAF_feature_motion_score",
                     motion_score, index);
         } else {
-            /* Apply fps weight before taking the min — mirrors float_motion.c CPU path.
-             * Bit-exact when motion_fps_weight = 1.0 (default). */
-            const double w_cur = motion_score * s->motion_fps_weight;
-            const double w_prev = s->prev_motion_score * s->motion_fps_weight;
-            const double motion2 = (w_cur < w_prev) ? w_cur : w_prev;
+            double motion2 =
+                (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
             err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                           "VMAF_feature_motion2_score", motion2,
                                                           index - 1);
@@ -452,11 +424,9 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
         return 1;
 
     if (s->frame_index > 1) {
-        /* Apply fps weight on the tail motion2 — mirrors the extract path.
-         * Bit-exact when motion_fps_weight = 1.0 (default). */
-        ret = vmaf_feature_collector_append_with_dict(
-            feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score",
-            s->prev_motion_score * s->motion_fps_weight, s->frame_index - 1);
+        ret = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "VMAF_feature_motion2_score",
+                                                      s->prev_motion_score, s->frame_index - 1);
     }
     return (ret < 0) ? ret : !ret;
 }

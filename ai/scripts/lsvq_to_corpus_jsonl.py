@@ -19,10 +19,7 @@ Pipeline shape::
       +-- clips/
       +-- lsvq.jsonl
 
-License: LSVQ is CC-BY-4.0 (per ADR-0367). This script does not ship
-any clip, MOS value, or derived feature in tree; only the adapter and
-schema land in the repo. The corpus is available at
-https://github.com/teowu/LSVQ-videos and via HuggingFace.
+License: LSVQ is CC-BY-4.0 (per ADR-0367).
 """
 
 from __future__ import annotations
@@ -38,10 +35,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from corpus import base as _corpus_base
 from corpus.base import CorpusIngestBase, RunStats, normalise_clip_name, pick, utc_now_iso
-
-save_progress = _corpus_base.save_progress
 
 _LOG = logging.getLogger("lsvq_to_corpus_jsonl")
 
@@ -308,10 +302,6 @@ def main(argv: list[str] | None = None) -> int:
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        print(
-            "hint: obtain LSVQ-videos from " "https://github.com/teowu/LSVQ-videos or HuggingFace",
-            file=sys.stderr,
-        )
         return 2
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -1,7 +1,7 @@
 - **Tiny-AI training scaffold for the Netflix VMAF corpus (ADR-0242).**
   Prepares the fork's tiny-AI training workstream to train on the local
   Netflix VMAF corpus (9 reference YUVs + 70 distorted YUVs at
-  `.corpus/netflix/`, gitignored, never committed). The scaffold
+  `.workingdir2/netflix/`, gitignored, never committed). The scaffold
   defines: the `--data-root` loader API, the `NflxLocalDataset` class
   in `ai/data/`, the `vmaf_v0.6.1` distillation-vs-from-scratch policy
   decision table, and the model-size alternatives space (micro / small /

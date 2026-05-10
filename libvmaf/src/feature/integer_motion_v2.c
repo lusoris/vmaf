@@ -263,18 +263,6 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->h = h;
     s->bpc = bpc;
 
-    /* The 5-tap separable Gaussian uses reflect-101 mirror padding; the
-     * same mirror() helper requires dim >= radius + 1 = 3 in both axes.
-     * Reject smaller frames cleanly to prevent out-of-bounds reads. */
-    const unsigned min_dim = (unsigned)(filter_width / 2 + 1); /* = 3 */
-    if (h < min_dim || w < min_dim) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "motion_v2: frame %ux%u is below the 5-tap filter minimum %ux%u; "
-                 "refusing to avoid out-of-bounds mirror reads\n",
-                 w, h, min_dim, min_dim);
-        return -EINVAL;
-    }
-
     /* ADR-0337: motion_five_frame_window=true is rejected at init() with
      * -ENOTSUP. The 5-frame mode requires a prev_prev_ref field on
      * VmafFeatureExtractor + matching picture-pool sizing in
@@ -388,21 +376,7 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
 {
     MotionV2State *s = fex->priv;
 
-    /*
-     * In the threaded dispatch path flush() is invoked on the *registered*
-     * VmafFeatureExtractorContext rather than on any pool instance.  That
-     * context is never passed through vmaf_feature_extractor_context_init, so
-     * its is_initialized flag is false and vmaf_feature_extractor_context_close
-     * returns early without calling close_fex().  If we were to store the dict
-     * in s->feature_name_dict here it would never be freed.
-     *
-     * Track whether the dict existed before this call.  When it did not (the
-     * registered-context path) we own it locally and must free it before
-     * returning.  When it did (the serial or pool-instance path where extract()
-     * already ran) close_fex() will free it as normal.
-     */
-    const bool dict_locally_owned = (s->feature_name_dict == NULL);
-    if (dict_locally_owned) {
+    if (!s->feature_name_dict) {
         s->feature_name_dict =
             vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
         if (!s->feature_name_dict)
@@ -424,11 +398,8 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
      * lands.
      */
     const unsigned min_idx = 1;
-    if (n_frames == 0) {
-        if (dict_locally_owned)
-            (void)vmaf_dictionary_free(&s->feature_name_dict);
+    if (n_frames == 0)
         return 1;
-    }
 
     /* motion3 stamp value: the per-frame motion3 emission for indices
      * 0..min_idx-1 takes the blended SAD at min_idx. Mirrors upstream
@@ -480,9 +451,6 @@ static int flush(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collec
                                                 "VMAF_integer_feature_motion3_v2_score", motion3,
                                                 i);
     }
-
-    if (dict_locally_owned)
-        (void)vmaf_dictionary_free(&s->feature_name_dict);
 
     return 1;
 }

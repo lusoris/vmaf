@@ -39,7 +39,6 @@
 #include <string.h>
 
 #include "config.h"
-#include "feature/adm_options.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
@@ -107,9 +106,6 @@ typedef struct {
     double adm_norm_view_dist;
     int adm_ref_display_height;
     int adm_csf_mode; /* parsed but only mode 0 (default) supported */
-    double adm_csf_scale;
-    double adm_csf_diag_scale;
-    double adm_noise_weight;
 
     /* Frame geometry. */
     unsigned width;
@@ -208,33 +204,6 @@ static const VmafOption options[] = {
      .default_val.i = 0,
      .min = 0,
      .max = 9,
-     .flags = VMAF_OPT_FLAG_FEATURE_PARAM},
-    {.name = "adm_csf_scale",
-     .alias = "cs",
-     .help = "CSF band-scale multiplier for h/v bands (default 1.0 = no scaling)",
-     .offset = offsetof(FloatAdmVulkanState, adm_csf_scale),
-     .type = VMAF_OPT_TYPE_DOUBLE,
-     .default_val.d = DEFAULT_ADM_CSF_SCALE,
-     .min = 0.0,
-     .max = 100.0,
-     .flags = VMAF_OPT_FLAG_FEATURE_PARAM},
-    {.name = "adm_csf_diag_scale",
-     .alias = "cds",
-     .help = "CSF band-scale multiplier for diagonal bands (default 1.0 = no scaling)",
-     .offset = offsetof(FloatAdmVulkanState, adm_csf_diag_scale),
-     .type = VMAF_OPT_TYPE_DOUBLE,
-     .default_val.d = DEFAULT_ADM_CSF_DIAG_SCALE,
-     .min = 0.0,
-     .max = 100.0,
-     .flags = VMAF_OPT_FLAG_FEATURE_PARAM},
-    {.name = "adm_noise_weight",
-     .alias = "nw",
-     .help = "noise floor weight for CM numerator (default 0.03125 = 1/32)",
-     .offset = offsetof(FloatAdmVulkanState, adm_noise_weight),
-     .type = VMAF_OPT_TYPE_DOUBLE,
-     .default_val.d = DEFAULT_ADM_NOISE_WEIGHT,
-     .min = 0.0,
-     .max = 100.0,
      .flags = VMAF_OPT_FLAG_FEATURE_PARAM},
     {0}};
 
@@ -471,11 +440,9 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
             fadm_dwt_quant_step_host(scale, 1, s->adm_norm_view_dist, s->adm_ref_display_height);
         float f2 =
             fadm_dwt_quant_step_host(scale, 2, s->adm_norm_view_dist, s->adm_ref_display_height);
-        /* adm_csf_scale / adm_csf_diag_scale multiply the CSF sensitivity.
-         * Default 1.0 → identical behaviour to the pre-PR-731 path. */
-        s->rfactor[scale * 3 + 0] = (float)s->adm_csf_scale / f1;
-        s->rfactor[scale * 3 + 1] = (float)s->adm_csf_scale / f1;
-        s->rfactor[scale * 3 + 2] = (float)s->adm_csf_diag_scale / f2;
+        s->rfactor[scale * 3 + 0] = 1.0f / f1;
+        s->rfactor[scale * 3 + 1] = 1.0f / f1;
+        s->rfactor[scale * 3 + 2] = 1.0f / f2;
     }
 
     /* Borrow framework's imported context, fall back to lazy create. */
@@ -580,15 +547,10 @@ static void write_descriptor_set(FloatAdmVulkanState *s, VkDescriptorSet set, in
 
 static void issue_pipeline_barrier(VkCommandBuffer cmd)
 {
-    /* Inter-DWT-stage barrier: the consuming stage only reads the
-     * producing stage's output SSBOs — no atomicAdd here.  Tightened
-     * to SHADER_READ_BIT only (VK-5 / perf-audit 2026-05-16).
-     * float_adm uses host-side reduction (no GPU reducer dispatch),
-     * so there is no second-phase reduce_barrier in this file. */
     VkMemoryBarrier mb = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
     };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, NULL, 0, NULL);
@@ -639,8 +601,7 @@ static int reduce_and_emit(FloatAdmVulkanState *s, unsigned index, VmafFeatureCo
             top = 0;
         int right = hw - left;
         int bottom = hh - top;
-        float area_cbrt = powf(
-            (float)((bottom - top) * (right - left)) * (float)s->adm_noise_weight, 1.0f / 3.0f);
+        float area_cbrt = powf((float)((bottom - top) * (right - left)) / 32.0f, 1.0f / 3.0f);
 
         /* num_scale = sum over 3 bands of (cbrt(cm_total) + area_cbrt). */
         float num_scale = 0.0f;

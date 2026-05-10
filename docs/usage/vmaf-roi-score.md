@@ -41,7 +41,7 @@ roi_vmaf = (1 - w) * vmaf_full + w * vmaf_masked
   features (motion, ADM) react to the boundary between the salient
   region and the substituted background. Option A (per-pixel feature
   pooling weighted by saliency in libvmaf C code) is tracked as
-  deferred work in ADR-0296.
+  deferred work in ADR-0288.
 - **It makes no claim about MOS correlation.** This tool is a
   prototype that exposes a saliency-weighted *signal*; whether that
   signal tracks subjective quality better than uniform VMAF is an
@@ -52,34 +52,18 @@ roi_vmaf = (1 - w) * vmaf_full + w * vmaf_masked
 ## Install
 
 ```bash
+pip install -e tools/vmaf-roi-score
+# Optional, for ONNX inference once T6-2c lands:
 pip install -e 'tools/vmaf-roi-score[runtime]'
 ```
 
 The `vmaf` binary must be on `$PATH` (or pass `--vmaf-bin` explicitly).
 
-## Quick start (saliency model)
+## Quick start (synthetic-mask smoke)
 
-Use `saliency_student_v1` for the saliency mask and keep the default
-threshold/fade unless you are calibrating a corpus-specific policy.
-
-```bash
-vmaf-roi-score \
-    --reference path/to/ref.yuv --distorted path/to/dis.yuv \
-    --width 1920 --height 1080 --pix-fmt yuv420p \
-    --saliency-model model/tiny/saliency_student_v1.onnx \
-    --threshold 0.3 --fade 0.1 --weight 0.5
-```
-
-The tool writes a temporary distorted YUV where low-saliency pixels are
-replaced by reference pixels, runs `vmaf` on that masked file, and
-blends the full-frame and masked scores.
-
-## Synthetic-mask smoke
-
-The synthetic-mask path skips ONNX inference but still materialises a
-masked distorted YUV through the same plane-blending code path. Use it
-to verify your install, mask materialisation, VMAF subprocess calls,
-and combine math without depending on an ONNX model.
+The synthetic-mask path skips ONNX inference and scores the same
+distorted YUV twice. Use it to verify your install + the combine math
+without depending on the deferred saliency materialiser.
 
 ```bash
 vmaf-roi-score \
@@ -93,10 +77,10 @@ Output (JSON to stdout):
 ```json
 {
   "schema_version": 1,
-  "vmaf_full": 80.0,
-  "vmaf_masked": 90.0,
+  "vmaf_full": 87.5,
+  "vmaf_masked": 87.5,
   "weight": 0.5,
-  "vmaf_roi": 85.0,
+  "vmaf_roi": 87.5,
   "model": "vmaf_v0.6.1",
   "saliency_model": "synthetic",
   "reference": "path/to/ref.yuv",
@@ -104,27 +88,31 @@ Output (JSON to stdout):
 }
 ```
 
-In synthetic mode `--synthetic-mask FILL` supplies a constant mask.
-`--threshold` and `--fade` are applied the same way as they are for a
-real saliency model, so `--threshold 0 --fade 1 --synthetic-mask 0.5`
-blends each plane halfway between the reference and distorted inputs.
+In synthetic mode `vmaf_full == vmaf_masked` by construction, so
+`vmaf_roi` equals both regardless of `--weight`. This is the contract
+the smoke tests verify — once the real saliency-mask materialiser
+lands, the two scalars will diverge.
 
-## Mask Materialisation
+## Saliency-model mode (deferred — currently exits 64)
 
-`--saliency-model` supports little-endian planar YUV formats:
-`yuv420p`, `yuv422p`, `yuv444p`, and the matching 10/12/16-bit
-variants such as `yuv420p10le`, `yuv422p12le`, and `yuv444p16le`.
-High-bit-depth planes are blended at their native sample depth; the
-reference frame is converted down to 8-bit RGB only for saliency-model
-inference. Big-endian high-bit-depth YUV is not supported.
+The `--saliency-model` path is wired and validated but the YUV
+reader/writer + ONNX inference loop is **scaffolded only** in this
+PR (see ADR-0288 §Implementation phasing, T6-2c). The CLI surfaces a
+clear error today rather than silently degrading:
 
-The mask is inferred from the reference frame, not the distorted frame.
-That keeps saliency tied to scene content rather than compression
-artefacts. `--threshold` controls where the tool starts preserving the
-distorted pixels; `--fade` controls the soft transition above that
-threshold. With the defaults, mask values below `0.3` are replaced by
-reference pixels, values at `0.4` and above keep distorted pixels, and
-the interval between them is blended.
+```bash
+vmaf-roi-score \
+    --reference ref.yuv --distorted dis.yuv \
+    --width 1920 --height 1080 \
+    --saliency-model model/tiny/saliency_student_v1.onnx
+# stderr: vmaf-roi-score: --saliency-model is scaffolded but mask
+#         materialisation is not wired yet (see ADR-0288). Use
+#         --synthetic-mask for the combine-math smoke today.
+# exit code: 64
+```
+
+When PR #359 (`saliency_student_v1`) merges and T6-2c follow-up lands,
+this path will materialise the masked YUV and score it for real.
 
 ## Flags
 
@@ -135,10 +123,8 @@ the interval between them is blended.
 | `--width N`, `--height N` | (required) | YUV dimensions |
 | `--pix-fmt FMT` | `yuv420p` | ffmpeg pix_fmt; mapped to libvmaf's `--pixel_format` |
 | `--saliency-model PATH` | none | path to saliency ONNX (mutually exclusive with `--synthetic-mask`) |
-| `--synthetic-mask FILL` | none | constant-value mask in `[0, 1]`; skips ONNX inference but still writes and scores a masked YUV (testing only; mutually exclusive with `--saliency-model`) |
+| `--synthetic-mask FILL` | none | constant-value mask in `[0, 1]` (testing only; mutually exclusive with `--saliency-model`) |
 | `--weight W` | `0.5` | saliency-masked component weight in `[0, 1]` |
-| `--threshold T` | `0.3` | saliency cutoff used by `--saliency-model` |
-| `--fade F` | `0.1` | soft fade band above `--threshold`; `0` makes a hard mask |
 | `--model NAME` | `vmaf_v0.6.1` | VMAF model version passed through to `vmaf` |
 | `--vmaf-bin PATH` | `vmaf` | location of the libvmaf CLI binary |
 | `--output PATH` | stdout | write JSON result to this path |
@@ -148,7 +134,7 @@ the interval between them is blended.
 | Code | Meaning |
 |---|---|
 | 0 | success |
-| 64 | saliency-mask materialisation failed (missing runtime deps, unsupported pix_fmt, bad mask shape) |
+| 64 | feature scaffolded but not yet wired (`--saliency-model` path until T6-2c) |
 | 65 | `vmaf` ran but produced JSON missing the pooled scalar |
 | other | passed through from the underlying `vmaf` invocation |
 
@@ -156,11 +142,9 @@ the interval between them is blended.
 
 - [ADR-0296](../adr/0296-vmaf-roi-saliency-weighted.md) — the design ADR
   for this tool.
-- [ADR-0425](../adr/0425-vmaf-roi-score-saliency-materialiser.md) — the
-  saliency-mask materialiser follow-up.
 - [Research-0069](../research/0069-vmaf-roi-saliency-weighted.md) —
   Option A vs B vs C decision matrix.
 - [`docs/usage/vmaf-roi.md`](vmaf-roi.md) — the encoder-steering
   sibling tool (different surface, related model).
 - [`docs/ai/models/saliency_student_v1.md`](../ai/models/saliency_student_v1.md)
-  — the saliency model this tool consumes by default.
+  — the saliency model this tool will consume once T6-2c lands.

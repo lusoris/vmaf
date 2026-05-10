@@ -56,10 +56,6 @@ enum {
     ARG_SYCL_DEVICE,
     ARG_NO_VULKAN,
     ARG_VULKAN_DEVICE,
-    ARG_NO_HIP,
-    ARG_HIP_DEVICE,
-    ARG_NO_METAL,
-    ARG_METAL_DEVICE,
     ARG_BACKEND,
     ARG_PRECISION,
     ARG_TINY_MODEL,
@@ -134,10 +130,6 @@ static const struct option long_opts[] = {
     {"sycl_device", 1, NULL, ARG_SYCL_DEVICE},
     {"no_vulkan", 0, NULL, ARG_NO_VULKAN},
     {"vulkan_device", 1, NULL, ARG_VULKAN_DEVICE},
-    {"no_hip", 0, NULL, ARG_NO_HIP},
-    {"hip_device", 1, NULL, ARG_HIP_DEVICE},
-    {"no_metal", 0, NULL, ARG_NO_METAL},
-    {"metal_device", 1, NULL, ARG_METAL_DEVICE},
     {"backend", 1, NULL, ARG_BACKEND},
     {"precision", 1, NULL, ARG_PRECISION},
     {"tiny-model", 1, NULL, ARG_TINY_MODEL},
@@ -207,11 +199,7 @@ static void usage(const char *const app, const char *const reason, ...)
         " --sycl_device $unsigned:      select SYCL GPU by index (default: auto)\n"
         " --no_vulkan:                  disable Vulkan backend\n"
         " --vulkan_device $unsigned:    select Vulkan GPU by index (default: auto)\n"
-        " --no_hip:                     disable HIP (AMD ROCm) backend\n"
-        " --hip_device $unsigned:       select HIP GPU by index (default: auto)\n"
-        " --no_metal:                   disable Metal (Apple Silicon) backend\n"
-        " --metal_device $unsigned:     select Metal GPU by index (default: auto)\n"
-        " --backend $name:              exclusive backend selector — auto|cpu|cuda|sycl|vulkan|hip|metal.\n"
+        " --backend $name:              exclusive backend selector — auto|cpu|cuda|sycl|vulkan.\n"
         "                               When set to a specific backend, the others are\n"
         "                               disabled to avoid the dispatcher first-match-wins\n"
         "                               race that silently routes to CUDA when both Vulkan\n"
@@ -593,8 +581,6 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
     memset(settings, 0, sizeof(*settings));
     settings->sycl_device = -1;   // auto-select by default
     settings->vulkan_device = -1; // auto-select by default
-    settings->hip_device = -1;    // auto-select by default
-    settings->metal_device = -1;  // auto-select by default
     settings->precision_n = -1;
     settings->precision_fmt = VMAF_DEFAULT_PRECISION_FMT;
     settings->tiny_device = "auto";
@@ -654,24 +640,13 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
          * assert(long_opts[n].name) for any non-numeric optarg
          * (e.g. `--threads abc`), turning a clean usage() error into a
          * SIGABRT — surfaced by the libFuzzer harness in PR #408
-         * (ADR-0311). See ADR-0316.
-         *
-         * INVARIANT (ADR-0438): every short option declared in short_opts[]
-         * must have a case arm in this switch.  The 'c' arm was absent until
-         * the audit that produced ADR-0438 — getopt_long consumed -c <val>
-         * from the command line but the switch fell into default: and silently
-         * discarded the argument.  The fall-through below mirrors the
-         * ARG_TINY_DEVICE / ARG_DNN_EP alias pattern already in this switch. */
+         * (ADR-0311). See ADR-0316. */
         case ARG_THREADS:
             settings->thread_cnt = parse_unsigned(optarg, ARG_THREADS, argv[0]);
             break;
         case ARG_SUBSAMPLE:
             settings->subsample = parse_unsigned(optarg, ARG_SUBSAMPLE, argv[0]);
             break;
-        case 'c':
-        /* fall through — -c is the short form of --cpumask; both write
-         * settings->cpumask via ARG_CPUMASK so error() reports the long
-         * name on bad input. */
         case ARG_CPUMASK:
             settings->cpumask = parse_unsigned(optarg, ARG_CPUMASK, argv[0]);
             break;
@@ -708,18 +683,6 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             break;
         case ARG_VULKAN_DEVICE:
             settings->vulkan_device = (int)parse_unsigned(optarg, ARG_VULKAN_DEVICE, argv[0]);
-            break;
-        case ARG_NO_HIP:
-            settings->no_hip = true;
-            break;
-        case ARG_HIP_DEVICE:
-            settings->hip_device = (int)parse_unsigned(optarg, ARG_HIP_DEVICE, argv[0]);
-            break;
-        case ARG_NO_METAL:
-            settings->no_metal = true;
-            break;
-        case ARG_METAL_DEVICE:
-            settings->metal_device = (int)parse_unsigned(optarg, ARG_METAL_DEVICE, argv[0]);
             break;
         case ARG_BACKEND:
             settings->backend = optarg;
@@ -784,13 +747,9 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
             settings->no_cuda = true;
             settings->no_sycl = true;
             settings->no_vulkan = true;
-            settings->no_hip = true;
-            settings->no_metal = true;
         } else if (!strcmp(settings->backend, "cuda")) {
             settings->no_sycl = true;
             settings->no_vulkan = true;
-            settings->no_hip = true;
-            settings->no_metal = true;
             if (!settings->use_gpumask) {
                 /* `gpumask` is a CUDA-*disable* bitmask per the public
                  * VmafConfiguration::gpumask contract — `compute_fex_flags`
@@ -807,35 +766,17 @@ void cli_parse(const int argc, char *const *const argv, CLISettings *const setti
         } else if (!strcmp(settings->backend, "sycl")) {
             settings->no_cuda = true;
             settings->no_vulkan = true;
-            settings->no_hip = true;
-            settings->no_metal = true;
             if (settings->sycl_device < 0)
                 settings->sycl_device = 0;
         } else if (!strcmp(settings->backend, "vulkan")) {
             settings->no_cuda = true;
             settings->no_sycl = true;
-            settings->no_hip = true;
-            settings->no_metal = true;
             if (settings->vulkan_device < 0)
                 settings->vulkan_device = 0;
-        } else if (!strcmp(settings->backend, "hip")) {
-            settings->no_cuda = true;
-            settings->no_sycl = true;
-            settings->no_vulkan = true;
-            settings->no_metal = true;
-            if (settings->hip_device < 0)
-                settings->hip_device = 0;
-        } else if (!strcmp(settings->backend, "metal")) {
-            settings->no_cuda = true;
-            settings->no_sycl = true;
-            settings->no_vulkan = true;
-            settings->no_hip = true;
-            if (settings->metal_device < 0)
-                settings->metal_device = 0;
         } else {
             usage(argv[0],
                   "Unknown --backend value '%s' "
-                  "(expected: auto|cpu|cuda|sycl|vulkan|hip|metal)",
+                  "(expected: auto|cpu|cuda|sycl|vulkan)",
                   settings->backend);
         }
     }

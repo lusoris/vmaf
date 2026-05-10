@@ -3,7 +3,7 @@
 """Phase A.5 fast-path — proxy + Bayesian + GPU-verify recommend.
 
 This module wires the production ``vmaf-tune fast`` subcommand
-documented in :doc:`/adr/0276-vmaf-tune-fast-path` and
+documented in :doc:`/adr/0276-vmaf-tune-fast-path` (scaffold) and
 :doc:`/adr/0304-vmaf-tune-fast-path-prod-wiring` (production wiring).
 The flow is:
 
@@ -32,8 +32,6 @@ from __future__ import annotations
 
 import dataclasses
 import math
-import subprocess
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -76,7 +74,7 @@ DEFAULT_PROXY_TOLERANCE: float = 1.5
 
 
 # ---------------------------------------------------------------------------
-# Pluggable surfaces — production wiring + smoke-mode entry points.
+# Pluggable surfaces — production wiring + scaffold-mode entry points.
 # ---------------------------------------------------------------------------
 
 
@@ -213,7 +211,12 @@ def _build_prod_predictor(
     test-injection path is the only callable seam.
     """
     if sample_extractor is None:
-        sample_extractor = _build_production_sample_extractor()
+        raise NotImplementedError(
+            "vmaf-tune fast production predictor needs a sample_extractor "
+            "callable that returns (canonical_6_features, observed_kbps). "
+            "Pass one explicitly, or wait on the encode-extract follow-up "
+            "PR that wires it through the codec-adapter registry."
+        )
 
     crf_lo, crf_hi = crf_range
     crf_span = max(crf_hi - crf_lo, 1)
@@ -281,7 +284,16 @@ def _gpu_verify(
 
         score_backend_select = select_backend
     if encode_runner is None:
-        encode_runner = _build_production_encode_runner()
+        # The production runner threads through the existing encode+score
+        # pipeline. It is intentionally injected here so the unit test
+        # never spawns ffmpeg / vmaf — the wiring contract is exercised
+        # via the seam.
+        raise NotImplementedError(
+            "vmaf-tune fast verify pass needs an encode_runner callable "
+            "that returns (observed_kbps, libvmaf_score). The production "
+            "runner is wired through vmaftune.encode + vmaftune.score in "
+            "the same-PR follow-up; until then, inject a runner."
+        )
 
     backend = score_backend_select(prefer="auto")  # advisory; runner consumes
     _ = backend  # kept for the diagnostic hook a follow-up adds
@@ -295,11 +307,8 @@ def _run_tpe(
     predictor: Callable[[int], TrialSample],
     crf_range: tuple[int, int],
     n_trials: int,
-    time_budget_s: float | None = None,
-) -> tuple[int, float, float, int]:
-    """Run the Optuna TPE search; return (recommended_crf, vmaf, kbps, trials)."""
-    if time_budget_s is not None and time_budget_s <= 0.0:
-        raise ValueError(f"time_budget_s must be > 0 when set; got {time_budget_s!r}")
+) -> tuple[int, float, float]:
+    """Run the Optuna TPE search; return (recommended_crf, vmaf, kbps)."""
     objective = _objective_factory(target_vmaf, predictor, crf_range)
 
     # Suppress Optuna's default INFO-level chatter; the CLI is the
@@ -309,201 +318,20 @@ def _run_tpe(
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=0),
     )
-    study.optimize(
-        objective,
-        n_trials=n_trials,
-        timeout=float(time_budget_s) if time_budget_s is not None else None,
-        show_progress_bar=False,
-    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
     best = study.best_trial
     recommended_crf = int(best.params["crf"])
     predicted_vmaf = float(best.user_attrs.get("predicted_vmaf", float("nan")))
     predicted_kbps = float(best.user_attrs.get("predicted_kbps", float("nan")))
-    return recommended_crf, predicted_vmaf, predicted_kbps, len(study.trials)
-
-
-# ---------------------------------------------------------------------------
-# Production seam builders — wired through vmaftune.encode + vmaftune.score.
-# Injected into fast_recommend when the caller does not supply an override.
-# ---------------------------------------------------------------------------
-
-
-def _build_production_sample_extractor(
-    *,
-    ffmpeg_bin: str = "ffmpeg",
-    vmaf_bin: str = "vmaf",
-    pix_fmt: str = "yuv420p",
-    preset: str = "medium",
-) -> Callable[[Path, int, str], tuple[list[float], float]]:
-    """Return a ``(src, crf, encoder) → (canonical_6, kbps)`` callable.
-
-    Each call:
-    1. Probes source geometry via ffprobe.
-    2. Encodes a :data:`SAMPLE_CHUNK_SECONDS`-second centre window at
-       ``crf`` using ``encoder`` / ``preset``.
-    3. Scores the encoded clip against the same source window with the
-       libvmaf CLI to extract the canonical-6 feature means.
-    4. Returns ``(canonical_6_features, observed_kbps)``.
-
-    The returned callable is stateless: parallel TPE trials can call it
-    concurrently (each gets its own tempdir).
-    """
-    from . import CANONICAL6_FEATURES  # noqa: PLC0415
-    from .encode import EncodeRequest, bitrate_kbps, run_encode  # noqa: PLC0415
-    from .predictor_features import _probe_video_geometry  # noqa: PLC0415
-    from .score import ScoreRequest, run_score  # noqa: PLC0415
-
-    class _Cfg:
-        ffprobe_bin: str = "ffprobe"
-
-    cfg = _Cfg()
-
-    def _extract(src: Path, crf: int, encoder: str) -> tuple[list[float], float]:
-        with tempfile.TemporaryDirectory(prefix="vmaftune-fast-sample-") as td:
-            tmpdir = Path(td)
-            dist = tmpdir / "dist.mp4"
-
-            width, height, fps = _probe_video_geometry(src, cfg, subprocess.run)  # type: ignore[arg-type]
-            if width == 0 or height == 0 or fps == 0.0:
-                raise RuntimeError(f"fast sample_extractor: ffprobe failed for {src}")
-
-            # Locate the centre window; clip to source length if shorter.
-            duration_s = SAMPLE_CHUNK_SECONDS
-            is_container = src.suffix.lower() not in {".yuv", ".y4m", ""}
-            enc_req = EncodeRequest(
-                source=src,
-                width=width,
-                height=height,
-                pix_fmt=pix_fmt,
-                framerate=fps,
-                encoder=encoder,
-                preset=preset,
-                crf=crf,
-                output=dist,
-                sample_clip_seconds=duration_s,
-                source_is_container=is_container,
-            )
-            enc_result = run_encode(enc_req, ffmpeg_bin=ffmpeg_bin)
-            if enc_result.exit_status != 0 or not dist.exists():
-                raise RuntimeError(
-                    f"fast sample_extractor: encode failed (CRF {crf}, "
-                    f"encoder {encoder}): {enc_result.stderr_tail[-300:]}"
-                )
-
-            observed_kbps = bitrate_kbps(enc_result.encode_size_bytes, duration_s)
-
-            score_req = ScoreRequest(
-                reference=src,
-                distorted=dist,
-                width=width,
-                height=height,
-                pix_fmt=pix_fmt,
-                # Mirror the same centre window the encoder used.
-                frame_skip_ref=int(
-                    enc_req.sample_clip_start_s * fps if enc_req.sample_clip_start_s > 0 else 0
-                ),
-                frame_cnt=int(duration_s * fps),
-            )
-            score_result = run_score(score_req, vmaf_bin=vmaf_bin)
-            if score_result.exit_status != 0:
-                raise RuntimeError(
-                    f"fast sample_extractor: score failed: {score_result.stderr_tail[-300:]}"
-                )
-
-            features = [
-                score_result.feature_means.get(f, float("nan")) for f in CANONICAL6_FEATURES
-            ]
-            return features, observed_kbps
-
-    return _extract
-
-
-def _build_production_encode_runner(
-    *,
-    ffmpeg_bin: str = "ffmpeg",
-    vmaf_bin: str = "vmaf",
-    pix_fmt: str = "yuv420p",
-    preset: str = "medium",
-) -> Callable[[Path, str, int, str], tuple[float, float]]:
-    """Return a ``(src, encoder, crf, backend) → (kbps, vmaf_score)`` callable.
-
-    Used for the mandatory GPU verify pass at the end of fast_recommend.
-    Encodes the full source, scores it, and returns the real kbps +
-    libvmaf score so the caller can compute the proxy/verify gap.
-    """
-    from .encode import EncodeRequest, bitrate_kbps, run_encode  # noqa: PLC0415
-    from .predictor_features import _probe_video_geometry  # noqa: PLC0415
-    from .score import ScoreRequest, run_score  # noqa: PLC0415
-
-    class _Cfg:
-        ffprobe_bin: str = "ffprobe"
-
-    cfg = _Cfg()
-
-    def _run(src: Path, encoder: str, crf: int, backend: str) -> tuple[float, float]:
-        with tempfile.TemporaryDirectory(prefix="vmaftune-fast-verify-") as td:
-            tmpdir = Path(td)
-            dist = tmpdir / "dist.mp4"
-
-            width, height, fps = _probe_video_geometry(src, cfg, subprocess.run)  # type: ignore[arg-type]
-            if width == 0 or height == 0 or fps == 0.0:
-                raise RuntimeError(f"fast encode_runner: ffprobe failed for {src}")
-
-            is_container = src.suffix.lower() not in {".yuv", ".y4m", ""}
-            enc_req = EncodeRequest(
-                source=src,
-                width=width,
-                height=height,
-                pix_fmt=pix_fmt,
-                framerate=fps,
-                encoder=encoder,
-                preset=preset,
-                crf=crf,
-                output=dist,
-                source_is_container=is_container,
-            )
-            enc_result = run_encode(enc_req, ffmpeg_bin=ffmpeg_bin)
-            if enc_result.exit_status != 0 or not dist.exists():
-                raise RuntimeError(
-                    f"fast encode_runner: encode failed (CRF {crf}): "
-                    f"{enc_result.stderr_tail[-300:]}"
-                )
-
-            # Approximate duration from frame count; good enough for kbps.
-            import os  # noqa: PLC0415
-
-            size_bytes = os.path.getsize(dist)
-            score_req = ScoreRequest(
-                reference=src,
-                distorted=dist,
-                width=width,
-                height=height,
-                pix_fmt=pix_fmt,
-            )
-            score_result = run_score(
-                score_req,
-                vmaf_bin=vmaf_bin,
-                backend=backend if backend != "auto" else None,
-            )
-            if score_result.exit_status != 0:
-                raise RuntimeError(
-                    f"fast encode_runner: score failed: {score_result.stderr_tail[-300:]}"
-                )
-
-            # Duration from encoder stats if available, else encode time proxy.
-            enc_duration_s = enc_result.encode_time_ms / 1000.0 or 1.0
-            kbps = bitrate_kbps(size_bytes, enc_duration_s)
-            return kbps, score_result.vmaf_score
-
-    return _run
+    return recommended_crf, predicted_vmaf, predicted_kbps
 
 
 def fast_recommend(
     src: Path | None,
     target_vmaf: float,
     encoder: str = "libx264",
-    time_budget_s: int = 300,
+    time_budget_s: int = 300,  # noqa: ARG001 — production only
     crf_range: tuple[int, int] = (DEFAULT_CRF_LO, DEFAULT_CRF_HI),
     n_trials: int | None = None,
     smoke: bool = False,
@@ -537,9 +365,8 @@ def fast_recommend(
         Codec adapter name (must be in ``ENCODER_VOCAB_V2`` for the
         production proxy path).
     time_budget_s
-        Soft wall-clock budget for Optuna's TPE loop. Optuna stops
-        scheduling new trials after the timeout; an in-flight trial is
-        allowed to finish so probe encodes are not interrupted midway.
+        Soft wall-clock budget. Currently advisory; production loop
+        will enforce it via ``optuna.TrialPruned``.
     crf_range
         ``(lo, hi)`` inclusive CRF search range.
     n_trials
@@ -555,7 +382,7 @@ def fast_recommend(
     sample_extractor
         Production seam — takes ``(src, crf, encoder)`` and returns
         ``(canonical_6_features, observed_kbps)``. Defaults to the
-        encode-extract pipeline backed by ffmpeg + libvmaf JSON.
+        encode-extract pipeline (NotImplementedError until wired).
     encode_runner
         Production seam — takes ``(src, encoder, crf, backend)`` and
         returns ``(observed_kbps, vmaf_score)`` for the verify pass.
@@ -573,9 +400,9 @@ def fast_recommend(
     ------
     RuntimeError
         Optuna missing (install ``vmaf-tune[fast]``).
-    ValueError
-        Invalid in-process argument, such as ``src=None`` in production
-        mode or a non-positive ``time_budget_s``.
+    NotImplementedError
+        ``smoke=False`` and neither ``predictor`` nor
+        ``sample_extractor`` is wired.
     """
     _require_optuna()
 
@@ -585,12 +412,11 @@ def fast_recommend(
 
     if smoke:
         chosen_predictor = predictor or _smoke_predictor
-        recommended_crf, predicted_vmaf, predicted_kbps, completed_trials = _run_tpe(
+        recommended_crf, predicted_vmaf, predicted_kbps = _run_tpe(
             target_vmaf=target_vmaf,
             predictor=chosen_predictor,
             crf_range=crf_range,
             n_trials=effective_n_trials,
-            time_budget_s=time_budget_s,
         )
         result = FastRecommendResult(
             encoder=encoder,
@@ -598,7 +424,7 @@ def fast_recommend(
             recommended_crf=recommended_crf,
             predicted_vmaf=predicted_vmaf,
             predicted_kbps=predicted_kbps,
-            n_trials=completed_trials,
+            n_trials=effective_n_trials,
             smoke=True,
             notes=(
                 "smoke mode — synthetic predictor; no ffmpeg / ONNX / GPU. "
@@ -611,14 +437,14 @@ def fast_recommend(
 
     # Production path.
     if src is None:
-        raise ValueError(
+        raise NotImplementedError(
             "vmaf-tune fast production mode requires a source path. "
             "Use smoke=True for the synthetic pipeline."
         )
 
     if predictor is None:
-        # Build the v2-proxy-backed predictor from the production
-        # encode-extract sample seam.
+        # Build the v2-proxy-backed predictor; raises NotImplementedError
+        # until the encode-extract follow-up wires sample_extractor.
         predictor = _build_prod_predictor(
             src=src,
             encoder=encoder,
@@ -626,12 +452,11 @@ def fast_recommend(
             sample_extractor=sample_extractor,
         )
 
-    recommended_crf, predicted_vmaf, predicted_kbps, completed_trials = _run_tpe(
+    recommended_crf, predicted_vmaf, predicted_kbps = _run_tpe(
         target_vmaf=target_vmaf,
         predictor=predictor,
         crf_range=crf_range,
         n_trials=effective_n_trials,
-        time_budget_s=time_budget_s,
     )
 
     # Single GPU verify pass — mandatory; proxy alone never wins.
@@ -661,7 +486,7 @@ def fast_recommend(
         recommended_crf=recommended_crf,
         predicted_vmaf=predicted_vmaf,
         predicted_kbps=predicted_kbps,
-        n_trials=completed_trials,
+        n_trials=effective_n_trials,
         smoke=False,
         notes=notes,
         verify_vmaf=float(verify_vmaf),
@@ -679,7 +504,5 @@ __all__ = [
     "SMOKE_N_TRIALS",
     "FastRecommendResult",
     "TrialSample",
-    "_build_production_encode_runner",
-    "_build_production_sample_extractor",
     "fast_recommend",
 ]

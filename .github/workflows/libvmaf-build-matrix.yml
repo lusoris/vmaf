@@ -341,14 +341,7 @@ jobs:
         if: matrix.dnn && matrix.os == 'macos-latest'
         run: |
           # Homebrew ships onnxruntime as a keg-only formula with its own
-          # libonnxruntime.pc. Make pkg-config see it. Note: neither the
-          # brew keg nor Microsoft's official `onnxruntime-osx-arm64-*.tgz`
-          # ship `libonnxruntime_providers_shared.dylib` (they statically
-          # link providers into the main lib). The DNN test
-          # `test_ep_fp16::test_auto_falls_through_to_cpu` triggers a
-          # provider-bridge dlopen of that dylib and fails on macOS as a
-          # result; the test is skipped at compile time on `__APPLE__`
-          # to preserve the rest of the DNN suite for macOS coverage.
+          # libonnxruntime.pc. Make pkg-config see it.
           brew install -q onnxruntime
           ORT_PREFIX=$(brew --prefix onnxruntime)
           echo "PKG_CONFIG_PATH=${ORT_PREFIX}/lib/pkgconfig" >> $GITHUB_ENV
@@ -486,16 +479,6 @@ jobs:
           # Make libvulkan.dylib + glslc visible to meson / volk dlopen.
           echo "DYLD_LIBRARY_PATH=${BREW_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=${BREW_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
-          # brew's `vulkan-headers` is keg-only on macOS — install does
-          # not symlink `<vulkan/vk_platform.h>` etc. into
-          # ${BREW_PREFIX}/include, so the volk subproject fails with
-          # `fatal error: 'vulkan/vk_platform.h' file not found`. The
-          # headers live at $(brew --prefix vulkan-headers)/include;
-          # surface that path via CPATH so clang finds them without
-          # touching the meson cross-file. (PR #760 round 4)
-          VK_HEADERS_INCLUDE="$(brew --prefix vulkan-headers)/include"
-          echo "CPATH=${VK_HEADERS_INCLUDE}:${CPATH:-}" >> $GITHUB_ENV
-          echo "CPLUS_INCLUDE_PATH=${VK_HEADERS_INCLUDE}:${CPLUS_INCLUDE_PATH:-}" >> $GITHUB_ENV
           # Sanity: confirm MoltenVK is the loaded ICD. `|| true`
           # because vulkaninfo non-zero-exits on some macOS warning
           # paths even when enumeration succeeds; the grep below is

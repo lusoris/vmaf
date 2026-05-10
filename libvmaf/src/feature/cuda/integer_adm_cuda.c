@@ -29,15 +29,12 @@
 
 #include "cpu.h"
 #include "cuda/integer_adm_cuda.h"
-/* DEFAULT_ADM_NOISE_WEIGHT / DEFAULT_ADM_CSF_SCALE / DEFAULT_ADM_CSF_DIAG_SCALE and
- * enum ADM_CSF_MODE are pulled in transitively via cuda/integer_adm_cuda.h →
- * feature/integer_adm.h. No separate adm_options.h include is needed here. */
 #include "drain_batch.h"
 #include "picture_cuda.h"
 
 #include <assert.h>
 
-#define RES_BUFFER_SIZE (4 * 3 * 2)
+#define RES_BUFFER_SIZE 4 * 3 * 2
 
 typedef struct WarpShift {
     uint32_t shift_cub[3];
@@ -53,9 +50,6 @@ typedef struct AdmStateCuda {
     double adm_enhn_gain_limit;
     double adm_norm_view_dist;
     int adm_ref_display_height;
-    double adm_csf_scale;
-    double adm_csf_diag_scale;
-    double adm_noise_weight;
     unsigned submit_w, submit_h; // stored by submit for collect
     void (*dwt2_8)(const uint8_t *src, const cuda_adm_dwt_band_t *dst, void *tmp_buf,
                    AdmBufferCuda *buf, int w, int h, int src_stride, int dst_stride,
@@ -78,13 +72,6 @@ typedef struct AdmStateCuda {
         func_adm_csf_den_scale_line_kernel, func_adm_csf_den_s123_line_kernel,
         // adm_cm kernel
         func_adm_cm_reduce_line_kernel_4, func_adm_cm_line_kernel_8, func_i4_adm_cm_line_kernel;
-
-    /* PTX module handles — promoted from init local vars so close_fex_cuda
-     * can call cuModuleUnload (persistent-process prereq, audit 2026-05-16). */
-    CUmodule adm_dwt_module;
-    CUmodule adm_csf_module;
-    CUmodule adm_csf_den_module;
-    CUmodule adm_cm_module;
 
 } AdmStateCuda;
 
@@ -157,8 +144,6 @@ int adm_dwt2_s123_combined_device(AdmStateCuda *s, const int32_t *d_i4_scale, in
                                          DIV_ROUND_UP(w, 128), BLOCK_Y, 1, 128, 1, 1, 0, cu_stream,
                                          args_vert, NULL));
         break;
-    default:
-        break; /* scale 0 is handled in the caller's if/else branch; no vert kernel for it */
     }
 
     void *args_hori[] = {&i4_dwt, &tmp_buf, &w, &h, &dst_stride, &*p};
@@ -178,8 +163,6 @@ int adm_dwt2_s123_combined_device(AdmStateCuda *s, const int32_t *d_i4_scale, in
                                                DIV_ROUND_UP(((w + 1) / 2), 128), BLOCK_Y, 1, 128, 1,
                                                1, 0, cu_stream, args_hori, NULL));
         break;
-    default:
-        break; /* scale 0 is handled in the caller's if/else branch; no hori kernel for it */
     }
     return 0;
 }
@@ -511,8 +494,7 @@ int adm_cm_device(AdmStateCuda *s, AdmBufferCuda *buf, int w, int h, int src_str
     return 0;
 }
 
-static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float noise_weight,
-                            float *result)
+static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *result)
 {
     int left = w * ADM_BORDER_FACTOR - 0.5;
     int top = h * ADM_BORDER_FACTOR - 0.5;
@@ -530,7 +512,7 @@ static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float noise
     float final_shift[3] = {powf(2, (45 - shift_cub - shift_inner_accum)),
                             powf(2, (39 - shift_cub - shift_inner_accum)),
                             powf(2, (36 - shift_cub - shift_inner_accum))};
-    float powf_add = powf((float)((bottom - top) * (right - left)) * noise_weight, 1.0f / 3.0f);
+    float powf_add = powf((bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
 
     float f_accum;
     *result = 0;
@@ -546,8 +528,7 @@ static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float noise
 }
 
 static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float *result,
-                                 float adm_norm_view_dist, float adm_ref_display_height,
-                                 float adm_csf_scale, float adm_csf_diag_scale, float noise_weight)
+                                 float adm_norm_view_dist, float adm_ref_display_height)
 {
     const int left = w * ADM_BORDER_FACTOR - 0.5;
     const int top = h * ADM_BORDER_FACTOR - 0.5;
@@ -557,10 +538,7 @@ static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float
                                          adm_ref_display_height);
     const float factor2 = dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
                                          adm_ref_display_height);
-    /* Apply CSF scale multipliers: rfactor = scale / quant_step.
-     * Default adm_csf_scale = adm_csf_diag_scale = 1.0 → no change. */
-    const float rfactor[3] = {adm_csf_scale / factor1, adm_csf_scale / factor1,
-                              adm_csf_diag_scale / factor2};
+    const float rfactor[3] = {1.0f / factor1, 1.0f / factor1, 1.0f / factor2};
     const uint32_t accum_convert_float[4] = {18, 32, 27, 23};
 
     int32_t shift_accum;
@@ -574,8 +552,7 @@ static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float
         const uint32_t shift_cub = (uint32_t)ceil(log2(right - left));
         shift_csf = pow(2, (accum_convert_float[scale] - shift_accum - shift_cub));
     }
-    const float powf_add =
-        powf((float)((bottom - top) * (right - left)) * noise_weight, 1.0f / 3.0f);
+    const float powf_add = powf((bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
 
     *result = 0;
     for (int i = 0; i < 3; ++i) {
@@ -622,39 +599,6 @@ static const VmafOption options_cuda[] = {
         .min = 1,
         .max = 4320,
     },
-    {
-        .name = "adm_csf_scale",
-        .alias = "cs",
-        .help = "CSF band-scale multiplier for h/v bands (default 1.0 = no scaling)",
-        .offset = offsetof(AdmStateCuda, adm_csf_scale),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = DEFAULT_ADM_CSF_SCALE,
-        .min = 0.0,
-        .max = 100.0,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "adm_csf_diag_scale",
-        .alias = "cds",
-        .help = "CSF band-scale multiplier for diagonal bands (default 1.0 = no scaling)",
-        .offset = offsetof(AdmStateCuda, adm_csf_diag_scale),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = DEFAULT_ADM_CSF_DIAG_SCALE,
-        .min = 0.0,
-        .max = 100.0,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "adm_noise_weight",
-        .alias = "nw",
-        .help = "noise floor weight for CM numerator (default 0.03125 = 1/32)",
-        .offset = offsetof(AdmStateCuda, adm_noise_weight),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = DEFAULT_ADM_NOISE_WEIGHT,
-        .min = 0.0,
-        .max = 100.0,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
     {0}};
 
 typedef struct write_score_parameters_adm {
@@ -687,10 +631,9 @@ static void write_scores(write_score_parameters_adm *params)
         w = (w + 1) / 2;
         h = (h + 1) / 2;
 
-        conclude_adm_cm(&adm_cm[scale * 3], h, w, scale, (float)s->adm_noise_weight, &num_scale);
+        conclude_adm_cm(&adm_cm[scale * 3], h, w, scale, &num_scale);
         conclude_adm_csf_den(&adm_csf[scale * 3], h, w, scale, &den_scale, s->adm_norm_view_dist,
-                             s->adm_ref_display_height, (float)s->adm_csf_scale,
-                             (float)s->adm_csf_diag_scale, (float)s->adm_noise_weight);
+                             s->adm_ref_display_height);
 
         num += num_scale;
         den += den_scale;
@@ -1105,76 +1048,74 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->ref_event, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&s->dis_event, CU_EVENT_DEFAULT), fail);
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->adm_dwt_module, adm_dwt2_ptx), fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->adm_csf_module, adm_csf_ptx), fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->adm_csf_den_module, adm_csf_den_ptx), fail);
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->adm_cm_module, adm_cm_ptx), fail);
+    CUmodule adm_cm_module, adm_csf_den_module, adm_csf_module, adm_dwt_module;
+
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&adm_dwt_module, adm_dwt2_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&adm_csf_module, adm_csf_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&adm_csf_den_module, adm_csf_den_ptx), fail);
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&adm_cm_module, adm_cm_ptx), fail);
 
     // Get DWT kernel function pointers check adm_dwt2.cu for __global__ templated kernels
     CHECK_CUDA_GOTO(cu_f,
                     cuModuleGetFunction(&s->func_dwt_s123_combined_vert_kernel_0_0_int32_t,
-                                        s->adm_dwt_module,
+                                        adm_dwt_module,
                                         "dwt_s123_combined_vert_kernel_0_0_int32_t"),
                     fail);
     CHECK_CUDA_GOTO(cu_f,
                     cuModuleGetFunction(&s->func_dwt_s123_combined_vert_kernel_32768_16_int32_t,
-                                        s->adm_dwt_module,
+                                        adm_dwt_module,
                                         "dwt_s123_combined_vert_kernel_32768_16_int32_t"),
                     fail);
     CHECK_CUDA_GOTO(cu_f,
                     cuModuleGetFunction(&s->func_dwt_s123_combined_hori_kernel_16384_15,
-                                        s->adm_dwt_module,
-                                        "dwt_s123_combined_hori_kernel_16384_15"),
+                                        adm_dwt_module, "dwt_s123_combined_hori_kernel_16384_15"),
                     fail);
     CHECK_CUDA_GOTO(cu_f,
                     cuModuleGetFunction(&s->func_dwt_s123_combined_hori_kernel_32768_16,
-                                        s->adm_dwt_module,
-                                        "dwt_s123_combined_hori_kernel_32768_16"),
+                                        adm_dwt_module, "dwt_s123_combined_hori_kernel_32768_16"),
                     fail);
-    CHECK_CUDA_GOTO(cu_f,
-                    cuModuleGetFunction(
-                        &s->func_adm_dwt2_8_vert_hori_kernel_4_16_32768_128_8_uint8_t,
-                        s->adm_dwt_module, "adm_dwt2_8_vert_hori_kernel_4_16_32768_128_8_uint8_t"),
-                    fail);
+    CHECK_CUDA_GOTO(
+        cu_f,
+        cuModuleGetFunction(&s->func_adm_dwt2_8_vert_hori_kernel_4_16_32768_128_8_uint8_t,
+                            adm_dwt_module, "adm_dwt2_8_vert_hori_kernel_4_16_32768_128_8_uint8_t"),
+        fail);
     CHECK_CUDA_GOTO(cu_f,
                     cuModuleGetFunction(
                         &s->func_adm_dwt2_8_vert_hori_kernel_4_16_32768_128_8_uint16_t,
-                        s->adm_dwt_module, "adm_dwt2_8_vert_hori_kernel_4_16_32768_128_8_uint16_t"),
+                        adm_dwt_module, "adm_dwt2_8_vert_hori_kernel_4_16_32768_128_8_uint16_t"),
                     fail);
 
     // Get csf kernel function pointers check adm_csf.cu for __global__ templated kernels
     CHECK_CUDA_GOTO(
         cu_f,
-        cuModuleGetFunction(&s->func_adm_csf_kernel_1_4, s->adm_csf_module, "adm_csf_kernel_1_4"),
+        cuModuleGetFunction(&s->func_adm_csf_kernel_1_4, adm_csf_module, "adm_csf_kernel_1_4"),
         fail);
     CHECK_CUDA_GOTO(cu_f,
-                    cuModuleGetFunction(&s->func_i4_adm_csf_kernel_1_4, s->adm_csf_module,
+                    cuModuleGetFunction(&s->func_i4_adm_csf_kernel_1_4, adm_csf_module,
                                         "i4_adm_csf_kernel_1_4"),
                     fail);
 
     CHECK_CUDA_GOTO(cu_f,
-                    cuModuleGetFunction(&s->func_adm_csf_den_scale_line_kernel,
-                                        s->adm_csf_den_module,
+                    cuModuleGetFunction(&s->func_adm_csf_den_scale_line_kernel, adm_csf_den_module,
                                         "adm_csf_den_scale_line_kernel_8_128"),
                     fail);
     CHECK_CUDA_GOTO(cu_f,
-                    cuModuleGetFunction(&s->func_adm_csf_den_s123_line_kernel,
-                                        s->adm_csf_den_module,
+                    cuModuleGetFunction(&s->func_adm_csf_den_s123_line_kernel, adm_csf_den_module,
                                         "adm_csf_den_s123_line_kernel_8_128"),
                     fail);
 
     CHECK_CUDA_GOTO(cu_f,
-                    cuModuleGetFunction(&s->func_adm_cm_reduce_line_kernel_4, s->adm_cm_module,
+                    cuModuleGetFunction(&s->func_adm_cm_reduce_line_kernel_4, adm_cm_module,
                                         "adm_cm_reduce_line_kernel_4"),
                     fail);
-    CHECK_CUDA_GOTO(cu_f,
-                    cuModuleGetFunction(&s->func_adm_cm_line_kernel_8, s->adm_cm_module,
-                                        "adm_cm_line_kernel_8"),
-                    fail);
-    CHECK_CUDA_GOTO(cu_f,
-                    cuModuleGetFunction(&s->func_i4_adm_cm_line_kernel, s->adm_cm_module,
-                                        "i4_adm_cm_line_kernel"),
-                    fail);
+    CHECK_CUDA_GOTO(
+        cu_f,
+        cuModuleGetFunction(&s->func_adm_cm_line_kernel_8, adm_cm_module, "adm_cm_line_kernel_8"),
+        fail);
+    CHECK_CUDA_GOTO(
+        cu_f,
+        cuModuleGetFunction(&s->func_i4_adm_cm_line_kernel, adm_cm_module, "i4_adm_cm_line_kernel"),
+        fail);
 
     CHECK_CUDA_GOTO(cu_f, cuCtxPopCurrent(NULL), fail_after_pop);
 
@@ -1351,20 +1292,6 @@ after_ev2:
 after_ev3:;
 
     int ret = _cuda_err;
-
-    /* Unload the four PTX modules loaded by `init_fex_cuda` —
-     * `cuModuleLoadData` allocates GPU-resident module backing store
-     * that is not reclaimed by stream/context teardown. Missing this
-     * leaks modules every vmaf_close() cycle (persistent-process
-     * prereq, per audit 2026-05-16). */
-    if (s->adm_dwt_module)
-        (void)cu_f->cuModuleUnload(s->adm_dwt_module);
-    if (s->adm_csf_module)
-        (void)cu_f->cuModuleUnload(s->adm_csf_module);
-    if (s->adm_csf_den_module)
-        (void)cu_f->cuModuleUnload(s->adm_csf_den_module);
-    if (s->adm_cm_module)
-        (void)cu_f->cuModuleUnload(s->adm_cm_module);
 
     if (s->buf.data_buf) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->buf.data_buf);

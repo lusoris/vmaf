@@ -11,8 +11,7 @@ name. Phase A wires ``libx264`` plus the NVIDIA NVENC family
 (``h264_qsv``, ``hevc_qsv``, ``av1_qsv``), the Apple VideoToolbox
 family (``h264_videotoolbox``, ``hevc_videotoolbox``,
 ``prores_videotoolbox``), the Fraunhofer VVenC H.266 encoder
-(``libvvenc``), the SVT-AV1 software encoder (``libsvtav1``), and
-the VP9 software encoder (``libvpx-vp9``) —
+(``libvvenc``), and the SVT-AV1 software encoder (``libsvtav1``) —
 software and hardware encoders share the same adapter contract;
 later phases add one file per codec without touching the search loop.
 
@@ -45,7 +44,6 @@ from .hevc_nvenc import HevcNvencAdapter
 from .hevc_qsv import HevcQsvAdapter
 from .hevc_videotoolbox import HEVCVideoToolboxAdapter
 from .libaom import LibaomAdapter
-from .libvpx import LibvpxVp9Adapter
 from .prores_videotoolbox import ProresVideoToolboxAdapter
 from .svtav1 import SvtAv1Adapter
 from .vvenc import VVenCAdapter
@@ -154,7 +152,6 @@ _REGISTRY: dict[str, CodecAdapter] = {
     "av1_videotoolbox": Av1VideoToolboxAdapter(),
     "libvvenc": VVenCAdapter(),
     "libsvtav1": SvtAv1Adapter(),
-    "libvpx-vp9": LibvpxVp9Adapter(),
 }
 
 
@@ -186,7 +183,6 @@ __all__ = [
     "HevcNvencAdapter",
     "HevcQsvAdapter",
     "LibaomAdapter",
-    "LibvpxVp9Adapter",
     "ProresVideoToolboxAdapter",
     "SvtAv1Adapter",
     "VVenCAdapter",

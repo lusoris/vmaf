@@ -14,7 +14,7 @@ The Phase A scaffold landed via
 expansions are tracked under separate ADRs (codec adapters
 [0288](../../docs/adr/0288-vmaf-tune-codec-adapter-x265.md) /
 [0290](../../docs/adr/0290-vmaf-tune-nvenc-adapters.md) and siblings,
-per-shot tuning [0392](../../docs/adr/0392-vmaf-tune-phase-d-per-shot.md),
+per-shot tuning [0276](../../docs/adr/0276-vmaf-tune-phase-d-per-shot.md),
 fast-path [0276](../../docs/adr/0276-vmaf-tune-fast-path.md), bitrate
 ladder [0295](../../docs/adr/0295-vmaf-tune-phase-e-bitrate-ladder.md),
 GPU score backend
@@ -99,23 +99,6 @@ Each emitted row has the schema documented in
 [`docs/usage/vmaf-tune.md`](../../docs/usage/vmaf-tune.md). The schema is
 the API contract every downstream subcommand consumes; do not change it
 without bumping `SCHEMA_VERSION` in `src/vmaftune/__init__.py`.
-
-## Predictor Training
-
-The offline trainer accepts either one corpus JSONL file or a directory
-of sharded JSONL files:
-
-```bash
-python -m vmaftune.predictor_train \
-  --corpus .corpus/corpus_run \
-  --codec libx264 \
-  --output-dir .workingdir2/predictor-real
-```
-
-Directory inputs are scanned recursively in sorted order. Per-codec rows
-are filtered after normalising both current `corpus.py` keys and older
-hardware-sweep aliases, so existing `.workingdir2` corpora can be used
-without concatenating them first.
 
 ## Tests
 

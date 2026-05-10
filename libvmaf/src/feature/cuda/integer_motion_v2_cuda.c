@@ -27,7 +27,6 @@
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
-#include "log.h"
 
 #include "cuda/integer_motion_v2_cuda.h"
 #include "cuda/kernel_template.h"
@@ -45,7 +44,6 @@ typedef struct MotionV2StateCuda {
 
     CUfunction funcbpc8;
     CUfunction funcbpc16;
-    CUmodule module;
 
     /* Ping-pong of raw ref Y planes (uint8 for bpc<=8, uint16 for
      * bpc>8 — bytes_per_pixel * w * h). pix[index%2] is the current
@@ -60,23 +58,9 @@ typedef struct MotionV2StateCuda {
     unsigned frame_h;
     unsigned bpc;
     size_t plane_bytes;
-    double motion_fps_weight;
 
     VmafDictionary *feature_name_dict;
 } MotionV2StateCuda;
-
-static const VmafOption options[] = {{
-                                         .name = "motion_fps_weight",
-                                         .alias = "mfw",
-                                         .help = "fps-aware multiplicative weight/correction",
-                                         .offset = offsetof(MotionV2StateCuda, motion_fps_weight),
-                                         .type = VMAF_OPT_TYPE_DOUBLE,
-                                         .default_val.d = 1.0,
-                                         .min = 0.0,
-                                         .max = 5.0,
-                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-                                     },
-                                     {0}};
 
 static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                          unsigned w, unsigned h)
@@ -84,18 +68,6 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     (void)pix_fmt;
     MotionV2StateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
-
-    /* The 5-tap CUDA motion_v2 kernel uses reflect-101 mirror padding;
-     * mirror() returns 2*sup - idx - 2, which is negative when sup < 3.
-     * Refuse smaller frames up front to prevent out-of-bounds device reads.
-     * Minimum: filter_width/2 + 1 = 3. */
-    if (h < 3u || w < 3u) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "motion_v2_cuda: frame %ux%u is below the 5-tap filter minimum 3x3; "
-                 "refusing to avoid out-of-bounds mirror reads on device\n",
-                 w, h);
-        return -EINVAL;
-    }
 
     s->frame_w = w;
     s->frame_h = h;
@@ -111,7 +83,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, motion_v2_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, motion_v2_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "motion_v2_kernel_8bpc"), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "motion_v2_kernel_16bpc"),
                     fail);
@@ -270,7 +243,7 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
 
 static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *feature_collector)
 {
-    MotionV2StateCuda *s = fex->priv;
+    (void)fex;
 
     unsigned n_frames = 0;
     double dummy;
@@ -286,15 +259,11 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
         double score_next;
         vmaf_feature_collector_get_score(feature_collector,
                                          "VMAF_integer_feature_motion_v2_sad_score", &score_cur, i);
-        /* Apply fps weight — mirrors CPU integer_motion_v2.c flush logic.
-         * Bit-exact when motion_fps_weight = 1.0 (default). */
-        score_cur *= s->motion_fps_weight;
 
         double motion2;
         if (i + 1 < n_frames) {
             vmaf_feature_collector_get_score(
                 feature_collector, "VMAF_integer_feature_motion_v2_sad_score", &score_next, i + 1);
-            score_next *= s->motion_fps_weight;
             motion2 = score_cur < score_next ? score_cur : score_next;
         } else {
             motion2 = score_cur;
@@ -312,8 +281,6 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
     MotionV2StateCuda *s = fex->priv;
 
     int rc = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     if (s->pix[0]) {
         const int e = vmaf_cuda_buffer_free(fex->cu_state, s->pix[0]);
@@ -347,7 +314,6 @@ VmafFeatureExtractor vmaf_fex_integer_motion_v2_cuda = {
     .collect = collect_fex_cuda,
     .flush = flush_fex_cuda,
     .close = close_fex_cuda,
-    .options = options,
     .priv_size = sizeof(MotionV2StateCuda),
     .provided_features = provided_features,
     .flags = VMAF_FEATURE_EXTRACTOR_TEMPORAL | VMAF_FEATURE_EXTRACTOR_CUDA,

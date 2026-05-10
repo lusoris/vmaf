@@ -5,18 +5,15 @@
  *  Internal MCP runtime types — not part of the public ABI. The
  *  public header (`libvmaf/include/libvmaf/libvmaf_mcp.h`) only
  *  forward-declares `VmafMcpServer`; this header carries the
- *  storage class for the live stdio + UDS + SSE runtime.
+ *  storage class for the v1 stdio runtime.
  *
- *  Current scope (T5-2b through v3, ADR-0209):
- *      - All three transports live: stdio (line-delimited JSON-RPC),
- *        UDS (`AF_UNIX`, mode 0700, single client at a time), SSE
- *        (`AF_INET` loopback HTTP/1.1, fork-owned plain POSIX sockets
- *        — no mongoose, BSD-3 license compat).
- *      - line-delimited JSON-RPC framing on stdio/UDS;
- *        LSP `Content-Length:` framing remains a follow-up.
+ *  v1 scope (T5-2b, ADR-0209 § "Status update 2026-05-08"):
+ *      - stdio transport only; SSE/UDS still return -ENOSYS.
+ *      - line-delimited JSON-RPC framing (one request per line);
+ *        LSP `Content-Length:` framing deferred to v2.
  *      - dispatcher routes `tools/list`, `tools/call`,
  *        `resources/list`. Tools: `list_features`, `compute_vmaf`
- *        (real per-call ephemeral `VmafContext` scoring).
+ *        (placeholder — real scoring binding lands with v2).
  */
 
 #ifndef LIBVMAF_SRC_MCP_INTERNAL_H_

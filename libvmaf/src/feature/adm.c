@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2020 Netflix, Inc.
+ *  Copyright 2016-2026 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdbool.h>
 
 #include "mem.h"
 #include "adm_options.h"
@@ -31,7 +30,6 @@
 typedef adm_dwt_band_t_s adm_dwt_band_t;
 
 #define adm_dwt2 adm_dwt2_s
-#define adm_dwt2_lo adm_dwt2_lo_s
 #define adm_decouple adm_decouple_s
 #define adm_csf adm_csf_s
 #define adm_cm_thresh adm_cm_thresh_s
@@ -40,22 +38,17 @@ typedef adm_dwt_band_t_s adm_dwt_band_t;
 #define offset_image offset_image_s
 
 #define adm_csf_den_scale adm_csf_den_scale_s
-#define adm_csf_den_scale_p3 adm_csf_den_scale_s_p3
-#define adm_cm_p3 adm_cm_s_p3
-#define adm_sum_cube_p3 adm_sum_cube_s_p3
 #define dwt2_src_indices_filt dwt2_src_indices_filt_s
-
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 static char *init_dwt_band(adm_dwt_band_t *band, char *data_top, size_t buf_sz_one)
 {
-    band->band_a = (float *)(void *)data_top;
+    band->band_a = (float *)data_top;
     data_top += buf_sz_one;
-    band->band_h = (float *)(void *)data_top;
+    band->band_h = (float *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (float *)(void *)data_top;
+    band->band_v = (float *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (float *)(void *)data_top;
+    band->band_d = (float *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }
@@ -63,13 +56,13 @@ static char *init_dwt_band(adm_dwt_band_t *band, char *data_top, size_t buf_sz_o
 UNUSED_FUNCTION
 static char *init_dwt_band_d(adm_dwt_band_t_d *band, char *data_top, size_t buf_sz_one)
 {
-    band->band_a = (double *)(void *)data_top;
+    band->band_a = (double *)data_top;
     data_top += buf_sz_one;
-    band->band_h = (double *)(void *)data_top;
+    band->band_h = (double *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (double *)(void *)data_top;
+    band->band_v = (double *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (double *)(void *)data_top;
+    band->band_d = (double *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }
@@ -77,11 +70,11 @@ static char *init_dwt_band_d(adm_dwt_band_t_d *band, char *data_top, size_t buf_
 static char *init_dwt_band_hvd(adm_dwt_band_t *band, char *data_top, size_t buf_sz_one)
 {
     band->band_a = NULL;
-    band->band_h = (float *)(void *)data_top;
+    band->band_h = (float *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (float *)(void *)data_top;
+    band->band_v = (float *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (float *)(void *)data_top;
+    band->band_d = (float *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }
@@ -89,11 +82,7 @@ static char *init_dwt_band_hvd(adm_dwt_band_t *band, char *data_top, size_t buf_
 int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
                 double *score, double *score_num, double *score_den, double *scores,
                 double border_factor, double adm_enhn_gain_limit, double adm_norm_view_dist,
-                int adm_ref_display_height, int adm_csf_mode, double luminance_level,
-                double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
-                int adm_bypass_cm, double adm_p_norm, double *score_aim, double adm_f1s0,
-                double adm_f1s1, double adm_f1s2, double adm_f1s3, double adm_f2s0, double adm_f2s1,
-                double adm_f2s2, double adm_f2s3, int adm_skip_aim_scale, bool adm_skip_scale0)
+                int adm_ref_display_height, int adm_csf_mode)
 {
 #ifdef ADM_OPT_SINGLE_PRECISION
     double numden_limit = 1e-2 * (w * h) / (1920.0 * 1080.0);
@@ -103,9 +92,12 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     float *data_buf = 0;
     char *data_top;
 
-    char *ind_buf_y = 0, *buf_y_orig = 0;
-    char *ind_buf_x = 0, *buf_x_orig = 0;
-    int *ind_y[4], *ind_x[4];
+    char *ind_buf_y = 0;
+    char *buf_y_orig = 0;
+    char *ind_buf_x = 0;
+    char *buf_x_orig = 0;
+    int *ind_y[4];
+    int *ind_x[4];
 
     float *ref_scale;
     float *dis_scale;
@@ -134,8 +126,6 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
 
     double num = 0;
     double den = 0;
-    double aim_num = 0;
-    double aim_den = 0;
 
     int scale;
     int ret = 1;
@@ -145,13 +135,13 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
 #define NUM_BUFS_ADM 20
     if (SIZE_MAX / buf_sz_one < NUM_BUFS_ADM) {
         printf("error: SIZE_MAX / buf_sz_one < NUM_BUFS_ADM, buf_sz_one = %zu.\n", buf_sz_one);
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
 
     if (!(data_buf = aligned_malloc(buf_sz_one * NUM_BUFS_ADM, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for data_buf.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
 
@@ -162,12 +152,12 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     data_top = init_dwt_band_hvd(&decouple_r, data_top, buf_sz_one);
     data_top = init_dwt_band_hvd(&decouple_a, data_top, buf_sz_one);
     data_top = init_dwt_band_hvd(&csf_a, data_top, buf_sz_one);
-    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) — ADR-0418 upstream-parity (4dcc2f7c)
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): final assignment kept as part of the bump-allocator chain so the line-by-line shape stays auditable; the value is intentionally discarded after the last buffer is carved out.
     data_top = init_dwt_band_hvd(&csf_f, data_top, buf_sz_one);
 
     if (!(buf_y_orig = aligned_malloc(ind_size_y * 4, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for ind_buf_y.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
     ind_buf_y = buf_y_orig;
@@ -178,12 +168,12 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     ind_y[2] = (int *)ind_buf_y;
     ind_buf_y += ind_size_y;
     ind_y[3] = (int *)ind_buf_y;
-    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) — ADR-0418 upstream-parity
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): symmetric bump kept for readability (matches the four `ind_y[i]` carve-outs above).
     ind_buf_y += ind_size_y;
 
     if (!(buf_x_orig = aligned_malloc(ind_size_x * 4, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for ind_buf_x.\n");
-        fflush(stdout);
+        (void)fflush(stdout);
         goto fail;
     }
     ind_buf_x = buf_x_orig;
@@ -194,7 +184,7 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     ind_x[2] = (int *)ind_buf_x;
     ind_buf_x += ind_size_x;
     ind_x[3] = (int *)ind_buf_x;
-    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) — ADR-0418 upstream-parity
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): symmetric bump kept for readability (matches the four `ind_x[i]` carve-outs above).
     ind_buf_x += ind_size_x;
 
     for (scale = 0; scale < 4; ++scale) {
@@ -203,152 +193,83 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
 #endif
         float num_scale = 0.0;
         float den_scale = 0.0;
-        float aim_num_scale = 0.0;
 
         dwt2_src_indices_filt(ind_y, ind_x, w, h);
-        if ((scale == 0) && (adm_skip_scale0)) {
-            if (adm_dwt2_lo(curr_ref_scale, &ref_dwt2, ind_y, ind_x, w, h, curr_ref_stride,
-                            buf_stride) < 0)
-                goto fail;
-            if (adm_dwt2_lo(curr_dis_scale, &dis_dwt2, ind_y, ind_x, w, h, curr_dis_stride,
-                            buf_stride) < 0)
-                goto fail;
+        adm_dwt2(curr_ref_scale, &ref_dwt2, ind_y, ind_x, w, h, curr_ref_stride, buf_stride);
+        adm_dwt2(curr_dis_scale, &dis_dwt2, ind_y, ind_x, w, h, curr_dis_stride, buf_stride);
 
-            w = (w + 1) / 2;
-            h = (h + 1) / 2;
-            den_scale = 1e-10; // avoid divide by zero
-        } else {
-            if (adm_dwt2(curr_ref_scale, &ref_dwt2, ind_y, ind_x, w, h, curr_ref_stride,
-                         buf_stride) < 0)
-                goto fail;
-            if (adm_dwt2(curr_dis_scale, &dis_dwt2, ind_y, ind_x, w, h, curr_dis_stride,
-                         buf_stride) < 0)
-                goto fail;
+        w = (w + 1) / 2;
+        h = (h + 1) / 2;
 
-            w = (w + 1) / 2;
-            h = (h + 1) / 2;
+        adm_decouple(&ref_dwt2, &dis_dwt2, &decouple_r, &decouple_a, w, h, buf_stride, buf_stride,
+                     buf_stride, buf_stride, border_factor, adm_enhn_gain_limit);
 
-            adm_decouple(&ref_dwt2, &dis_dwt2, &decouple_r, &decouple_a, w, h, buf_stride,
-                         buf_stride, buf_stride, buf_stride, border_factor, adm_enhn_gain_limit);
+        den_scale = adm_csf_den_scale(&ref_dwt2, orig_h, scale, w, h, buf_stride, border_factor,
+                                      adm_norm_view_dist, adm_ref_display_height, adm_csf_mode);
 
-            /* Dispatch to p3 fast-path (no powf, no inner branch) for the
-             * default adm_p_norm == 3.0 case. Generic path kept for non-default values. */
-            if (adm_p_norm == 3.0) {
-                den_scale = adm_csf_den_scale_p3(
-                    &ref_dwt2, orig_h, scale, w, h, buf_stride, border_factor, adm_norm_view_dist,
-                    adm_ref_display_height, adm_csf_mode, luminance_level, adm_csf_scale,
-                    adm_csf_diag_scale, adm_noise_weight, adm_f1s0, adm_f1s1, adm_f1s2, adm_f1s3,
-                    adm_f2s0, adm_f2s1, adm_f2s2, adm_f2s3);
-            } else {
-                den_scale = adm_csf_den_scale(
-                    &ref_dwt2, orig_h, scale, w, h, buf_stride, border_factor, adm_norm_view_dist,
-                    adm_ref_display_height, adm_csf_mode, luminance_level, adm_csf_scale,
-                    adm_csf_diag_scale, adm_noise_weight, adm_p_norm, adm_f1s0, adm_f1s1, adm_f1s2,
-                    adm_f1s3, adm_f2s0, adm_f2s1, adm_f2s2, adm_f2s3);
-            }
+        adm_csf(&decouple_a, &csf_a, &csf_f, orig_h, scale, w, h, buf_stride, buf_stride,
+                border_factor, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode);
 
-            adm_csf(&decouple_a, &csf_a, &csf_f, orig_h, scale, w, h, buf_stride, buf_stride,
-                    border_factor, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode,
-                    luminance_level, adm_csf_scale, adm_csf_diag_scale, adm_f1s0, adm_f1s1,
-                    adm_f1s2, adm_f1s3, adm_f2s0, adm_f2s1, adm_f2s2, adm_f2s3);
-
-            if (adm_p_norm == 3.0) {
-                num_scale =
-                    adm_cm_p3(&decouple_r, &csf_f, &csf_a, w, h, buf_stride, buf_stride, buf_stride,
-                              border_factor, scale, adm_norm_view_dist, adm_ref_display_height,
-                              adm_csf_mode, luminance_level, adm_csf_scale, adm_csf_diag_scale,
-                              adm_noise_weight, adm_bypass_cm, adm_f1s0, adm_f1s1, adm_f1s2,
-                              adm_f1s3, adm_f2s0, adm_f2s1, adm_f2s2, adm_f2s3);
-            } else {
-                num_scale =
-                    adm_cm(&decouple_r, &csf_f, &csf_a, w, h, buf_stride, buf_stride, buf_stride,
-                           border_factor, scale, adm_norm_view_dist, adm_ref_display_height,
-                           adm_csf_mode, luminance_level, adm_csf_scale, adm_csf_diag_scale,
-                           adm_noise_weight, adm_bypass_cm, adm_p_norm, adm_f1s0, adm_f1s1,
-                           adm_f1s2, adm_f1s3, adm_f2s0, adm_f2s1, adm_f2s2, adm_f2s3);
-            }
-
-            adm_csf(&decouple_r, &csf_f, &csf_a, orig_h, scale, w, h, buf_stride, buf_stride,
-                    border_factor, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode,
-                    luminance_level, adm_csf_scale, adm_csf_diag_scale, adm_f1s0, adm_f1s1,
-                    adm_f1s2, adm_f1s3, adm_f2s0, adm_f2s1, adm_f2s2, adm_f2s3);
-
-            if (adm_p_norm == 3.0) {
-                aim_num_scale = adm_cm_p3(
-                    &decouple_a, &csf_a, &csf_f, w, h, buf_stride, buf_stride, buf_stride,
-                    border_factor, scale, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode,
-                    luminance_level, adm_csf_scale, adm_csf_diag_scale, 0.0, adm_bypass_cm,
-                    adm_f1s0, adm_f1s1, adm_f1s2, adm_f1s3, adm_f2s0, adm_f2s1, adm_f2s2, adm_f2s3);
-            } else {
-                aim_num_scale =
-                    adm_cm(&decouple_a, &csf_a, &csf_f, w, h, buf_stride, buf_stride, buf_stride,
-                           border_factor, scale, adm_norm_view_dist, adm_ref_display_height,
-                           adm_csf_mode, luminance_level, adm_csf_scale, adm_csf_diag_scale, 0.0,
-                           adm_bypass_cm, adm_p_norm, adm_f1s0, adm_f1s1, adm_f1s2, adm_f1s3,
-                           adm_f2s0, adm_f2s1, adm_f2s2, adm_f2s3);
-            }
+        num_scale =
+            adm_cm(&decouple_r, &csf_f, &csf_a, w, h, buf_stride, buf_stride, buf_stride,
+                   border_factor, scale, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode);
 
 #ifdef ADM_OPT_DEBUG_DUMP
-            snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_a.yuv", scale);
-            write_image(pathbuf, ref_dwt2.band_a, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_a.yuv", scale);
+        write_image(pathbuf, ref_dwt2.band_a, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_h.yuv", scale);
-            write_image(pathbuf, ref_dwt2.band_h, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_h.yuv", scale);
+        write_image(pathbuf, ref_dwt2.band_h, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_v.yuv", scale);
-            write_image(pathbuf, ref_dwt2.band_v, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_v.yuv", scale);
+        write_image(pathbuf, ref_dwt2.band_v, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_d.yuv", scale);
-            write_image(pathbuf, ref_dwt2.band_d, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_d.yuv", scale);
+        write_image(pathbuf, ref_dwt2.band_d, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_a.yuv", scale);
-            write_image(pathbuf, dis_dwt2.band_a, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_a.yuv", scale);
+        write_image(pathbuf, dis_dwt2.band_a, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_h.yuv", scale);
-            write_image(pathbuf, dis_dwt2.band_h, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_h.yuv", scale);
+        write_image(pathbuf, dis_dwt2.band_h, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_v.yuv", scale);
-            write_image(pathbuf, dis_dwt2.band_v, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_v.yuv", scale);
+        write_image(pathbuf, dis_dwt2.band_v, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_d.yuv", scale);
-            write_image(pathbuf, dis_dwt2.band_d, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d]_d.yuv", scale);
+        write_image(pathbuf, dis_dwt2.band_d, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_h.yuv", scale);
-            write_image(pathbuf, decouple_r.band_h, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_h.yuv", scale);
+        write_image(pathbuf, decouple_r.band_h, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_v.yuv", scale);
-            write_image(pathbuf, decouple_r.band_v, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_v.yuv", scale);
+        write_image(pathbuf, decouple_r.band_v, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_d.yuv", scale);
-            write_image(pathbuf, decouple_r.band_d, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/r[%d]_d.yuv", scale);
+        write_image(pathbuf, decouple_r.band_d, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_h.yuv", scale);
-            write_image(pathbuf, decouple_a.band_h, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_h.yuv", scale);
+        write_image(pathbuf, decouple_a.band_h, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_v.yuv", scale);
-            write_image(pathbuf, decouple_a.band_v, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_v.yuv", scale);
+        write_image(pathbuf, decouple_a.band_v, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_d.yuv", scale);
-            write_image(pathbuf, decouple_a.band_d, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/a[%d]_d.yuv", scale);
+        write_image(pathbuf, decouple_a.band_d, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_h.yuv", scale);
-            write_image(pathbuf, csf_a.band_h, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_h.yuv", scale);
+        write_image(pathbuf, csf_a.band_h, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_v.yuv", scale);
-            write_image(pathbuf, csf_a.band_v, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_v.yuv", scale);
+        write_image(pathbuf, csf_a.band_v, w, h, buf_stride, sizeof(float));
 
-            snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_d.yuv", scale);
-            write_image(pathbuf, csf_a.band_d, w, h, buf_stride, sizeof(float));
+        snprintf(pathbuf, sizeof(pathbuf), "stage/csf_a[%d]_d.yuv", scale);
+        write_image(pathbuf, csf_a.band_d, w, h, buf_stride, sizeof(float));
 
 #endif
-        }
 
         num += num_scale;
         den += den_scale;
-        if (adm_skip_aim_scale != scale) {
-            aim_den += den_scale;
-            aim_num += aim_num_scale;
-        }
 
         ref_scale = ref_dwt2.band_a;
         dis_scale = dis_dwt2.band_a;
@@ -373,8 +294,6 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     if (den == 0.0) {
         *score = 1.0f;
     } else {
-        // normalize AIM score by the DLM denominator and clip values larger than 1
-        *score_aim = MIN(aim_num / aim_den, 1.0f);
         *score = num / den;
     }
     *score_num = num;

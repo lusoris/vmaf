@@ -24,9 +24,10 @@ Locked in [ADR-0009](../docs/adr/0009-mcp-server-tool-surface.md):
 - `list_models` — enumerate registered VMAF models (`model/`) + tiny models (`model/tiny/`)
 - `list_backends` — SIMD caps + GPU devices present on the host
 - `run_benchmark` — run `vmaf_bench` on a fixture set
-- `eval_model_on_split` — evaluate a tiny-AI ONNX regressor on a parquet split
-- `compare_models` — rank ONNX regressors on the same split
-- `describe_worst_frames` — local VLM describes the N frames with lowest VMAF score
+
+Planned (Wave 1, [ADR-0036](../docs/adr/0036-tinyai-wave1-scope-expansion.md)):
+
+- `describe_worst_frames` — local VLM describes the N frames with largest VMAF delta
 
 ## Ground rules
 

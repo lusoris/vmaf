@@ -152,30 +152,32 @@ def _write_corpus(path: Path, rows: list[dict]) -> Path:
 
 
 def test_cli_rejects_both_targets(capsys):
-    # Both --target-vmaf and --target-bitrate conflict; handler returns 2.
-    rc = cli_main(
-        [
-            "recommend",
-            "--from-corpus",
-            "/nonexistent.jsonl",
-            "--target-vmaf",
-            "92",
-            "--target-bitrate",
-            "5000",
-        ]
-    )
-    assert rc == 2
+    # argparse mutually-exclusive group exits with 2.
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(
+            [
+                "recommend",
+                "--from-corpus",
+                "/nonexistent.jsonl",
+                "--target-vmaf",
+                "92",
+                "--target-bitrate",
+                "5000",
+            ]
+        )
+    assert exc_info.value.code == 2
 
 
 def test_cli_rejects_no_target(capsys):
-    rc = cli_main(
-        [
-            "recommend",
-            "--from-corpus",
-            "/nonexistent.jsonl",
-        ]
-    )
-    assert rc == 2
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(
+            [
+                "recommend",
+                "--from-corpus",
+                "/nonexistent.jsonl",
+            ]
+        )
+    assert exc_info.value.code == 2
 
 
 def test_cli_target_vmaf_from_corpus(tmp_path: Path, capsys):
@@ -224,73 +226,6 @@ def test_cli_target_bitrate_from_corpus(tmp_path: Path, capsys):
     payload = json.loads(capsys.readouterr().out.strip())
     # Tie on |distance|=200; smaller CRF (26) wins.
     assert payload["crf"] == 26
-
-
-def test_cli_from_corpus_drops_failed_rows(tmp_path: Path, capsys):
-    rows = [
-        _row(crf=18, vmaf=99.0, bitrate=9000, exit_status=1),
-        _row(crf=26, vmaf=92.5, bitrate=3000, exit_status=0),
-    ]
-    corpus = _write_corpus(tmp_path / "c.jsonl", rows)
-    rc = cli_main(
-        [
-            "recommend",
-            "--from-corpus",
-            str(corpus),
-            "--target-vmaf",
-            "92.0",
-            "--json",
-        ]
-    )
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out.strip())
-    assert payload["crf"] == 26
-
-
-def test_cli_from_corpus_drops_nan_vmaf_rows(tmp_path: Path, capsys):
-    rows = [
-        _row(crf=18, vmaf=float("nan"), bitrate=9000),
-        _row(crf=26, vmaf=92.5, bitrate=3000),
-    ]
-    corpus = _write_corpus(tmp_path / "c.jsonl", rows)
-    rc = cli_main(
-        [
-            "recommend",
-            "--from-corpus",
-            str(corpus),
-            "--target-vmaf",
-            "92.0",
-            "--json",
-        ]
-    )
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out.strip())
-    assert payload["crf"] == 26
-    assert not math.isnan(payload["vmaf_score"])
-
-
-def test_cli_from_corpus_honours_encoder_filter(tmp_path: Path, capsys):
-    rows = [
-        _row(encoder="libx264", crf=22, vmaf=95.0, bitrate=5000),
-        _row(encoder="libx265", crf=18, vmaf=98.0, bitrate=4500),
-    ]
-    corpus = _write_corpus(tmp_path / "c.jsonl", rows)
-    rc = cli_main(
-        [
-            "recommend",
-            "--from-corpus",
-            str(corpus),
-            "--target-vmaf",
-            "92.0",
-            "--encoder",
-            "libx264",
-            "--json",
-        ]
-    )
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out.strip())
-    assert payload["encoder"] == "libx264"
-    assert payload["crf"] == 22
 
 
 def test_cli_human_readable_output(tmp_path: Path, capsys):

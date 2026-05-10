@@ -6,7 +6,7 @@
 > wired and respond to JSON-RPC 2.0 requests (`tools/list`,
 > `tools/call`, `resources/list`, `initialize`). Tools shipped:
 > `list_features` (real) and `compute_vmaf` (real — pooled mean
-> VMAF over a YUV420p 8/10/12/16-bit pair via `vmaf_model_load` +
+> VMAF over a YUV420p 8-bit pair via `vmaf_model_load` +
 > `vmaf_read_pictures` + `vmaf_score_pooled`). UDS transport
 > listens on a mode-0700 socket file. SSE transport listens on
 > 127.0.0.1 only and serves a minimal HTTP/1.1 surface (no
@@ -34,7 +34,7 @@ for the design rationale.
 | Workflow | Surface | Notes |
 |---|---|---|
 | "Score a video, hand the result to my agent." | **External Python MCP server** (`mcp-server/vmaf-mcp/`) | Recommended default. Spawns `vmaf` as a child process. See [`docs/mcp/index.md`](index.md). |
-| "Score from inside an embedding process, or prepare an in-process control plane for a running measurement." | **Embedded MCP server** (this doc) | Runs in-process. Stdio, UDS, and loopback SSE are live; `list_features` and `compute_vmaf` are implemented. Mutating mid-stream tools wait on the v4 SPSC bridge. |
+| "Steer a running measurement: hot-swap models, query mid-stream state." | **Embedded MCP server** (this doc) | Runs in-process. Currently scaffold-only — the runtime arrives in T5-2b. |
 
 The two are additive — running both at the same time is fine.
 
@@ -45,9 +45,9 @@ The two are additive — running both at the same time is fine.
 meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 
-# Opt in to the embedded runtime:
+# Opt in to the scaffold (returns -ENOSYS everywhere until T5-2b):
 meson setup build -Denable_mcp=true \
-                  -Denable_mcp_sse=enabled \
+                  -Denable_mcp_sse=true \
                   -Denable_mcp_uds=true \
                   -Denable_mcp_stdio=true
 ninja -C build
@@ -80,7 +80,7 @@ VmafMcpServer *server = NULL;
 VmafMcpConfig cfg = { .queue_depth = 64, .max_drain_per_frame = 4 };
 int rc = vmaf_mcp_init(&server, ctx, &cfg);
 if (rc < 0) {
-    /* -ENOSYS means libvmaf was built without -Denable_mcp=true. */
+    /* Currently always -ENOSYS — runtime arrives in T5-2b. */
     fprintf(stderr, "MCP unavailable: %d\n", rc);
     /* Fall back to the external Python server, or proceed without. */
 }
@@ -174,14 +174,14 @@ This differs from the UDS transport (AF_UNIX), where plain
 - **Use case:** headless Linux boxes where filesystem permissions
   give cleaner auth than loopback TCP.
 
-### stdio (newline-delimited JSON-RPC)
+### stdio (LSP-framed)
 
 - **Spec status:** canonical MCP transport.
 - **Bind:** caller hands over an fd pair (typically fd 3 / fd 4
   from a parent-spawned wrapper). The host's own stdin / stdout
   are *not* claimed.
-- **Wire:** newline-delimited JSON-RPC, one object per line. LSP
-  `Content-Length:` framing is still a v4 roadmap item.
+- **Wire:** LSP-style `Content-Length:` framed JSON-RPC, identical
+  to the spec's reference framing.
 - **Use case:** child-process spawned by an agent that already
   sets up an inheritable fd pair.
 
@@ -190,37 +190,35 @@ This differs from the UDS transport (AF_UNIX), where plain
 - One **MCP pthread** per active transport. The thread owns the
   socket, owns JSON parsing, owns all per-request allocation. It
   does **not** touch measurement state directly.
-- v3 tools execute on the transport thread and do not mutate the
-  host measurement state. `compute_vmaf` creates a short-lived
-  private `VmafContext` for the requested YUV pair instead of
-  borrowing the host's active scorer.
-- The SPSC ring-buffer bridge described by ADR-0128 is still v4
-  work. `VmafMcpConfig.queue_depth` and `max_drain_per_frame`
-  remain validated API fields so hosts can keep one configuration
-  shape across v3 and v4, but v3 does not yet drain envelopes on
-  frame boundaries.
-- Tools that need measurement-thread mutation, such as
-  `vmaf.request_model_swap`, must wait for that SPSC bridge. Until
-  then the embedded surface is read-only plus out-of-band scoring.
+- One **SPSC ring buffer** per server, sized at `vmaf_mcp_init`
+  from `VmafMcpConfig.queue_depth`. Pre-allocated; the
+  measurement-thread hot path performs **no allocation** after
+  init (NASA Power-of-10 rule 3).
+- The measurement thread drains at most
+  `VmafMcpConfig.max_drain_per_frame` envelopes per frame
+  boundary (NASA Power-of-10 rule 2 — bounded loop).
+- Queue overflow returns `-EAGAIN` style errors from the MCP
+  thread to the agent, never blocks the measurement thread.
 
 These invariants are documented in the public header
-([`libvmaf_mcp.h`](../../libvmaf/include/libvmaf/libvmaf_mcp.h)).
+([`libvmaf_mcp.h`](../../libvmaf/include/libvmaf/libvmaf_mcp.h))
+and locked in via the T5-2b runtime PR's TSan tests.
 
 ## Status table
 
 | Component | Status | PR / ADR |
 |---|---|---|
-| Public header `libvmaf_mcp.h` | Landed | T5-2 / [ADR-0209](../adr/0209-mcp-embedded-scaffold.md) |
+| Public header `libvmaf_mcp.h` | Landed (scaffold) | T5-2 / [ADR-0209](../adr/0209-mcp-embedded-scaffold.md) |
 | TU `libvmaf/src/mcp/mcp.c` | Landed (v1 runtime; init / start_stdio / stop / close wired) | T5-2b / ADR-0209 § Status update 2026-05-08 |
 | Vendored cJSON v1.7.18 (MIT) under `libvmaf/src/mcp/3rdparty/cJSON/` | Landed | T5-2b |
 | JSON-RPC dispatcher (`tools/list`, `tools/call`, `resources/list`, `initialize`) | Landed | T5-2b |
 | Build flags + per-transport sub-flags | Landed (default off) | T5-2 |
 | Smoke + protocol test (15 sub-tests, real round-trip) | Landed | T5-2b |
-| stdio transport body | Landed (line-delimited JSON-RPC; LSP `Content-Length:` framing remains a v4 roadmap item) | T5-2b |
+| stdio transport body | Landed (line-delimited JSON-RPC; LSP `Content-Length:` framing deferred to v3) | T5-2b |
 | UDS transport body | Landed (line-delimited JSON-RPC; mode-0700 socket file) | T5-2c / [ADR-0332](../adr/0332-mcp-runtime-v2.md) |
 | SSE transport body | Landed (loopback HTTP/1.1 + `text/event-stream`; no third-party HTTP library — see ADR-0332 § "v3 SSE" for the license-driven mongoose pivot) | T5-2d / [ADR-0332](../adr/0332-mcp-runtime-v2.md) § "Status update 2026-05-09 (v3 SSE)" |
 | Tool: `list_features` (read-only) | Landed | T5-2b |
-| Tool: `compute_vmaf` (real libvmaf scoring binding, YUV420p 8/10/12/16-bit) | Landed | T5-2c + high-bit-depth follow-up |
+| Tool: `compute_vmaf` (real libvmaf scoring binding, YUV420p 8-bit) | Landed | T5-2c |
 | Tool: `vmaf.request_model_swap` (mutating, separate ADR) | Future | post-v3 |
 | `enable_mcp` default flip from `false` → `auto` | Future | post all transports stable |
 
@@ -235,9 +233,9 @@ T5-2d v3 (this PR) shipped the SSE transport. The remaining work:
   marked `__attribute__((unused))`.
 - **LSP-framed stdio** (`Content-Length:` headers) — v1–v3 ship
   line-delimited JSON-RPC only.
-- **Broader YUV layouts in `compute_vmaf`** — the tool accepts
-  YUV420p at 8/10/12/16 bpc. YUV422P / YUV444P remain future schema
-  work because the tool does not expose a `pixel_format` argument yet.
+- **10/12-bit YUV** support in `compute_vmaf` — v2 only accepts
+  YUV420p 8-bit; YUV422P / YUV444P / 10-bit are rejected with
+  `-EINVAL`.
 - **SPSC ring drain at frame boundaries** — v1–v3 dispatcher
   runs to completion on the transport thread; the measurement-
   thread hot path is not yet bridged. Tools that mutate

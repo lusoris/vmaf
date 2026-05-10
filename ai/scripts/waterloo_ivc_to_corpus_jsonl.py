@@ -18,8 +18,6 @@ The adapter auto-detects two manifest shapes:
 2. Standard adapter CSV (LSVQ / KonViD-150k header convention).
 
 License: Waterloo IVC permissive academic license (attribution required).
-Obtain the dataset from https://ivc.uwaterloo.ca/database/4KVQA.html and
-drop ``scores.txt`` at ``<waterloo-ivc-dir>/manifest.csv``.
 """
 
 from __future__ import annotations
@@ -35,10 +33,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from corpus import base as _corpus_base
 from corpus.base import CorpusIngestBase, RunStats, normalise_clip_name, pick, utc_now_iso
-
-save_progress = _corpus_base.save_progress
 
 _LOG = logging.getLogger("waterloo_ivc_to_corpus_jsonl")
 

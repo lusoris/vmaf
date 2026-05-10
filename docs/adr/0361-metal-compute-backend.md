@@ -1,9 +1,6 @@
 # ADR-0361: Metal compute backend — scaffold-only audit-first PR (T8-1)
 
-- **Status**: Accepted
-- **Status update 2026-05-15**: scaffold implemented (T8-1 complete);
-  `libvmaf/include/libvmaf/libvmaf_metal.h` and `libvmaf/src/metal/`
-  tree present on master; `-ENOSYS` stubs in place.
+- **Status**: Proposed
 - **Date**: 2026-05-09
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: gpu, metal, apple-silicon, scaffold, audit-first, fork-local

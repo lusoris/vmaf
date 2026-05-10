@@ -27,7 +27,6 @@
  *        value is checked or `(void)`-cast.
  */
 
-#include <assert.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>

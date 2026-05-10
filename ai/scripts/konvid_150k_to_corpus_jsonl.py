@@ -12,14 +12,10 @@ Shared infrastructure: :mod:`ai.src.corpus.base` (ADR-0371).
 
 Pipeline shape::
 
-    .corpus/konvid-150k/
+    .workingdir2/konvid-150k/
       +-- .download-progress.json
-      +-- manifest.csv              # URL manifest layout, optional
-      +-- clips/                    # URL manifest download cache
-      +-- k150ka_scores.csv         # canonical score-drop layout, optional
-      +-- k150ka_extracted/
-      +-- k150kb_scores.csv
-      +-- k150kb_extracted/
+      +-- manifest.csv
+      +-- clips/
       +-- konvid_150k.jsonl
 
 Differences from Phase 1:
@@ -29,8 +25,6 @@ Differences from Phase 1:
 3. Row-count lower-bound guard (refuses < 5 000 rows to catch wrong CSV).
 
 License: KonViD-150k is research-only (per ADR-0325).
-This script does not ship any clip, MOS value, or derived feature in
-tree; only the adapter and schema land in the repo.
 """
 
 from __future__ import annotations
@@ -46,13 +40,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from corpus import base as _corpus_base
 from corpus.base import CorpusIngestBase, RunStats, normalise_clip_name, pick, utc_now_iso
-
-# Public re-export of corpus.base.save_progress so tests can call
-# `KONVID.save_progress(...)` directly on this module. Assignment
-# rather than re-import to keep `isort` + `ruff` from oscillating.
-save_progress = _corpus_base.save_progress
 
 _LOG = logging.getLogger("konvid_150k_to_corpus_jsonl")
 
@@ -74,12 +62,6 @@ _CSV_NRATINGS_KEYS: tuple[str, ...] = ("n", "ratings", "num_ratings", "n_ratings
 
 _DEFAULT_CORPUS_VERSION: str = "konvid-150k-2019"
 _CORPUS_LABEL: str = "konvid-150k"
-
-_SPLIT_SCORE_SPECS: tuple[tuple[str, str, str], ...] = (
-    ("k150ka", "k150ka_scores.csv", "k150ka_extracted"),
-    ("k150kb", "k150kb_scores.csv", "k150kb_extracted"),
-)
-_SPLIT_SCORE_MOS_KEYS: tuple[str, ...] = ("mos", "video_score", "MOS")
 
 
 # ---------------------------------------------------------------------------
@@ -151,88 +133,6 @@ def parse_manifest_csv(
     return parsed
 
 
-def _parse_split_score_csv(csv_path: Path) -> list[dict[str, Any]]:
-    """Parse one canonical KonViD-150k split score CSV."""
-    if not csv_path.is_file():
-        return []
-
-    with csv_path.open(newline="", encoding="utf-8-sig") as fh:
-        reader = csv.DictReader(fh)
-        if reader.fieldnames is None:
-            raise ValueError(f"{csv_path}: empty / headerless CSV")
-        all_rows = list(reader)
-
-    parsed: list[dict[str, Any]] = []
-    for line_no, row in enumerate(all_rows, start=2):
-        filename_str = pick(row, _CSV_FILENAME_KEYS)
-        if not filename_str:
-            _LOG.warning(
-                "%s:%d: no filename column (looked for %s); skipping",
-                csv_path,
-                line_no,
-                ", ".join(_CSV_FILENAME_KEYS),
-            )
-            continue
-        mos_str = pick(row, _SPLIT_SCORE_MOS_KEYS)
-        if mos_str is None:
-            _LOG.warning("%s:%d: no MOS/video_score column; skipping", csv_path, line_no)
-            continue
-        try:
-            mos = float(mos_str)
-        except ValueError:
-            _LOG.warning("%s:%d: bad MOS value %r; skipping", csv_path, line_no, mos_str)
-            continue
-        parsed.append(
-            {
-                "filename": normalise_clip_name(filename_str),
-                "url": "",
-                "mos": mos,
-                "mos_std_dev": 0.0,
-                "n_ratings": 0,
-            }
-        )
-    return parsed
-
-
-def parse_split_score_csvs(
-    konvid_dir: Path, *, min_rows: int = _KONVID_150K_MIN_ROWS
-) -> list[tuple[Path, dict[str, Any]]]:
-    """Parse the canonical K150K-A/B score-drop layout.
-
-    The public KonViD-150k material commonly arrives as split score
-    CSVs plus pre-extracted MP4 directories rather than one URL
-    manifest.  The emitted row schema is unchanged; only the local
-    clip path resolution differs.
-    """
-    rows: list[tuple[Path, dict[str, Any]]] = []
-    found_csvs: list[Path] = []
-    for split_name, score_name, clips_name in _SPLIT_SCORE_SPECS:
-        score_csv = konvid_dir / score_name
-        split_rows = _parse_split_score_csv(score_csv)
-        if not split_rows:
-            continue
-        found_csvs.append(score_csv)
-        clips_dir = konvid_dir / clips_name
-        for row in split_rows:
-            row["split"] = split_name
-            rows.append((clips_dir / row["filename"], row))
-
-    if not found_csvs:
-        expected = ", ".join(score for _split, score, _clips in _SPLIT_SCORE_SPECS)
-        raise FileNotFoundError(
-            f"KonViD-150k manifest CSV not found: {konvid_dir / _DEFAULT_MANIFEST_NAME}; "
-            f"also looked for split score CSVs: {expected}"
-        )
-    if len(rows) < min_rows:
-        csv_list = ", ".join(path.name for path in found_csvs)
-        raise ValueError(
-            f"{konvid_dir}: split score CSVs ({csv_list}) yielded {len(rows)} rows, "
-            f"below the KonViD-150k sanity floor ({min_rows}). This looks like a "
-            "partial or wrong corpus drop."
-        )
-    return rows
-
-
 # ---------------------------------------------------------------------------
 # Adapter subclass
 # ---------------------------------------------------------------------------
@@ -247,25 +147,17 @@ class KonViD150kIngest(CorpusIngestBase):
         self,
         *,
         konvid_dir: Path,
-        manifest_csv: Path | None = None,
         min_csv_rows: int = _KONVID_150K_MIN_ROWS,
         **kwargs: Any,
     ) -> None:
-        self._manifest_csv_explicit = manifest_csv is not None
-        super().__init__(corpus_dir=konvid_dir, manifest_csv=manifest_csv, **kwargs)
+        super().__init__(corpus_dir=konvid_dir, **kwargs)
         self._min_csv_rows = min_csv_rows
 
     def iter_source_rows(self, clips_dir: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
-        if self.manifest_csv.is_file() or self._manifest_csv_explicit:
-            rows = parse_manifest_csv(self.manifest_csv, min_rows=self._min_csv_rows)
-            _LOG.info("parsed %d manifest rows from %s", len(rows), self.manifest_csv.name)
-            for row in rows:
-                yield clips_dir / row["filename"], row
-            return
-
-        split_rows = parse_split_score_csvs(self.corpus_dir, min_rows=self._min_csv_rows)
-        _LOG.info("parsed %d split-score rows from %s", len(split_rows), self.corpus_dir)
-        yield from split_rows
+        rows = parse_manifest_csv(self.manifest_csv, min_rows=self._min_csv_rows)
+        _LOG.info("parsed %d manifest rows from %s", len(rows), self.manifest_csv.name)
+        for row in rows:
+            yield clips_dir / row["filename"], row
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +220,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--konvid-dir",
         type=Path,
         default=_DEFAULT_KONVID_DIR,
-        help="Local KonViD-150k working directory (default: .corpus/konvid-150k/).",
+        help="Local KonViD-150k working directory (default: .workingdir2/konvid-150k/).",
     )
     ap.add_argument(
         "--manifest-csv",
@@ -348,7 +240,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=_DEFAULT_OUTPUT,
-        help="Output JSONL path (default: .corpus/konvid-150k/konvid_150k.jsonl).",
+        help="Output JSONL path (default: .workingdir2/konvid-150k/konvid_150k.jsonl).",
     )
     ap.add_argument(
         "--ffprobe-bin", default=os.environ.get("FFPROBE_BIN", "ffprobe"), help="ffprobe binary."
@@ -398,12 +290,6 @@ def main(argv: list[str] | None = None) -> int:
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        print(
-            "hint: download KonViD-150k from "
-            "https://dl.acm.org/do/10.1145/3474085.3475608/full/ or "
-            "https://database.mmsp-kn.de/konvid-150k-vqa-database.html",
-            file=sys.stderr,
-        )
         return 2
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

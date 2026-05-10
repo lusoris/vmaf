@@ -58,14 +58,6 @@ score on whatever scale the model was trained on. The aggregation in
 `compare.py` reports PLCC / SROCC / RMSE per competitor — units in the
 score field do not need to match across competitors.
 
-`compare.py` validates every wrapper payload before aggregation. Missing
-required keys, a `summary.competitor` that does not match the wrapper
-name, non-object frames, and non-numeric metric fields are reported as
-`wrapper <name> produced invalid schema: ...`; malformed JSON is
-reported as `wrapper <name> produced invalid JSON: ...`. A bad wrapper
-is skipped for that corpus item instead of crashing the whole run with
-an aggregation-time `KeyError`.
-
 ## Operator install (external competitors only)
 
 The fork ships **only** the wrappers. You install the external binaries
@@ -101,7 +93,7 @@ the fork ships neither corpus.
 | Corpus | Default expected path | Override flag |
 |---|---|---|
 | BVI-DVC test fold | `~/.workingdir2/bvi-dvc/test/` (containing `<src>__ref.yuv` + `<src>__dis*.yuv`, geometry encoded as `..._WxH_...` in the stem) | `--bvi-dvc-root <DIR>` |
-| Netflix Public Drop | `<repo>/.corpus/netflix/<src>/{ref,dis}/*.yuv` (per the local layout convention from ADR-0310 / `docs/state.md`) | `--netflix-public-root <DIR>` |
+| Netflix Public Drop | `<repo>/.workingdir2/netflix/<src>/{ref,dis}/*.yuv` (per the local layout convention from ADR-0310 / `docs/state.md`) | `--netflix-public-root <DIR>` |
 
 If neither corpus root exists at runtime, `compare.py` exits with code
 4 and a message naming both expected paths so the operator can fix
@@ -113,7 +105,7 @@ the layout or pass the override flags.
 # Smoke run against a small subset
 python3 tools/external-bench/compare.py \
     --bvi-dvc-root ~/.workingdir2/bvi-dvc \
-    --netflix-public-root .corpus/netflix \
+    --netflix-public-root .workingdir2/netflix \
     --limit 4 \
     --out-json /tmp/bench.json
 

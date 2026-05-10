@@ -137,10 +137,9 @@ static const VmafMcpToolEntry k_tool_table[] = {
     },
     {
         .name = "compute_vmaf",
-        .description = "Compute pooled mean VMAF for a (reference, distorted) YUV420p pair. "
+        .description = "Compute pooled mean VMAF for a (reference, distorted) YUV420p 8-bit pair. "
                        "Required: reference_path, distorted_path, width, height. Optional: "
-                       "bitdepth (8, 10, 12, or 16; default 8), model_version "
-                       "(default 'vmaf_v0.6.1'). Returns {score, frames_scored, bitdepth, "
+                       "model_version (default 'vmaf_v0.6.1'). Returns {score, frames_scored, "
                        "model_version, pool_method='mean'}.",
         .input_schema_json = "{\"type\":\"object\","
                              "\"properties\":{"
@@ -148,7 +147,6 @@ static const VmafMcpToolEntry k_tool_table[] = {
                              "\"distorted_path\":{\"type\":\"string\"},"
                              "\"width\":{\"type\":\"integer\"},"
                              "\"height\":{\"type\":\"integer\"},"
-                             "\"bitdepth\":{\"type\":\"integer\",\"enum\":[8,10,12,16]},"
                              "\"model_version\":{\"type\":\"string\"}"
                              "},"
                              "\"required\":[\"reference_path\",\"distorted_path\","

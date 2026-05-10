@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include "feature.h"
-#include "libvmaf/macros.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,15 +65,14 @@ typedef struct VmafModelConfig {
     uint64_t flags;
 } VmafModelConfig;
 
-VMAF_EXPORT int vmaf_model_load(VmafModel **model, VmafModelConfig *cfg, const char *version);
+int vmaf_model_load(VmafModel **model, VmafModelConfig *cfg, const char *version);
 
-VMAF_EXPORT int vmaf_model_load_from_path(VmafModel **model, VmafModelConfig *cfg,
-                                          const char *path);
+int vmaf_model_load_from_path(VmafModel **model, VmafModelConfig *cfg, const char *path);
 
-VMAF_EXPORT int vmaf_model_feature_overload(VmafModel *model, const char *feature_name,
-                                            VmafFeatureDictionary *opts_dict);
+int vmaf_model_feature_overload(VmafModel *model, const char *feature_name,
+                                VmafFeatureDictionary *opts_dict);
 
-VMAF_EXPORT void vmaf_model_destroy(VmafModel *model);
+void vmaf_model_destroy(VmafModel *model);
 
 typedef struct VmafModelCollection VmafModelCollection;
 
@@ -96,20 +94,17 @@ typedef struct VmafModelCollectionScore {
     } bootstrap;
 } VmafModelCollectionScore;
 
-VMAF_EXPORT int vmaf_model_collection_load(VmafModel **model,
-                                           VmafModelCollection **model_collection,
-                                           VmafModelConfig *cfg, const char *version);
+int vmaf_model_collection_load(VmafModel **model, VmafModelCollection **model_collection,
+                               VmafModelConfig *cfg, const char *version);
 
-VMAF_EXPORT int vmaf_model_collection_load_from_path(VmafModel **model,
-                                                     VmafModelCollection **model_collection,
-                                                     VmafModelConfig *cfg, const char *path);
+int vmaf_model_collection_load_from_path(VmafModel **model, VmafModelCollection **model_collection,
+                                         VmafModelConfig *cfg, const char *path);
 
-VMAF_EXPORT int vmaf_model_collection_feature_overload(VmafModel *model,
-                                                       VmafModelCollection **model_collection,
-                                                       const char *feature_name,
-                                                       VmafFeatureDictionary *opts_dict);
+int vmaf_model_collection_feature_overload(VmafModel *model, VmafModelCollection **model_collection,
+                                           const char *feature_name,
+                                           VmafFeatureDictionary *opts_dict);
 
-VMAF_EXPORT void vmaf_model_collection_destroy(VmafModelCollection *model_collection);
+void vmaf_model_collection_destroy(VmafModelCollection *model_collection);
 
 /**
  * Iterate through all built-in VMAF model versions.
@@ -124,7 +119,7 @@ VMAF_EXPORT void vmaf_model_collection_destroy(VmafModelCollection *model_collec
  *                May itself be NULL if the caller only needs the handle.
  * @return opaque handle to the next model, or NULL after the last model.
  */
-VMAF_EXPORT const void *vmaf_model_version_next(const void *prev, const char **version);
+const void *vmaf_model_version_next(const void *prev, const char **version);
 
 #ifdef __cplusplus
 }

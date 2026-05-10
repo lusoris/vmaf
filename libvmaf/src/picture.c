@@ -116,19 +116,14 @@ static void picture_compute_geometry(VmafPicture *pic, unsigned w, unsigned h)
     const int ss_hor = pic->pix_fmt != VMAF_PIX_FMT_YUV444P;
     const int ss_ver = pic->pix_fmt == VMAF_PIX_FMT_YUV420P;
     pic->w[0] = w;
-    /* Ceiling division: for 4:2:0 an odd luma width/height must produce one
-     * extra chroma sample row/column so that every luma sample is covered.
-     * Floor (plain >> ss) under-allocates by one row for odd-height inputs,
-     * causing one-past-end OOB in ciede scale_chroma_planes and similar
-     * consumers.  (Research-0094, fix/picture-odd-dim-chroma-ceiling.) */
-    pic->w[1] = pic->w[2] = (w + ((unsigned)ss_hor)) >> ss_hor;
+    pic->w[1] = pic->w[2] = w >> ss_hor;
     pic->h[0] = h;
-    pic->h[1] = pic->h[2] = (h + ((unsigned)ss_ver)) >> ss_ver;
+    pic->h[1] = pic->h[2] = h >> ss_ver;
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 
-    const unsigned aligned_y = (pic->w[0] + DATA_ALIGN - 1u) & ~(DATA_ALIGN - 1u);
-    const unsigned aligned_c = (pic->w[1] + DATA_ALIGN - 1u) & ~(DATA_ALIGN - 1u);
+    const int aligned_y = (pic->w[0] + DATA_ALIGN - 1) & ~(DATA_ALIGN - 1);
+    const int aligned_c = (pic->w[1] + DATA_ALIGN - 1) & ~(DATA_ALIGN - 1);
     const int hbd = pic->bpc > 8;
     pic->stride[0] = aligned_y << hbd;
     pic->stride[1] = pic->stride[2] = aligned_c << hbd;
@@ -153,14 +148,6 @@ int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt, unsigned 
         return -EINVAL;
     if (bpc < 8 || bpc > 16)
         return -EINVAL;
-    /* Guard against integer overflow in picture_compute_geometry:
-     * (w + DATA_ALIGN - 1u) wraps to 0 when w >= 0xFFFFFFC1 on 32-bit
-     * unsigned arithmetic, producing a zero-byte allocation that passes
-     * but causes OOB on any pixel access.  32768 is well above any
-     * real VMAF input size and keeps the addition in safe range.
-     * CERT INT30-C. */
-    if (w == 0 || w > 32768u || h == 0 || h > 32768u)
-        return -EINVAL;
 
     memset(pic, 0, sizeof(*pic));
     pic->pix_fmt = pix_fmt;
@@ -181,16 +168,13 @@ int vmaf_picture_alloc(VmafPicture *pic, enum VmafPixelFormat pix_fmt, unsigned 
         pic->data[1] = pic->data[2] = NULL;
 
     int err = vmaf_picture_priv_init(pic);
+    /* The callback userdata slot stores pic_size inline as a tagged value,
+     * never dereferenced — standard uintptr_t idiom. */
+    err |= vmaf_picture_set_release_callback(pic,
+                                             // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                                             (void *)(uintptr_t)pic_size, pool_release_picture);
     if (err)
         goto free_data;
-
-    /* The callback userdata slot stores pic_size inline as a tagged value,
-     * never dereferenced — standard uintptr_t idiom. pic->priv is guaranteed
-     * non-NULL here because vmaf_picture_priv_init succeeded above. */
-    // NOLINTNEXTLINE(performance-no-int-to-ptr)
-    err = vmaf_picture_set_release_callback(pic, (void *)(uintptr_t)pic_size, pool_release_picture);
-    if (err)
-        goto free_priv;
 
     err = vmaf_ref_init(&pic->ref);
     if (err)

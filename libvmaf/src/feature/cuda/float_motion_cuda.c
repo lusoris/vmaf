@@ -19,7 +19,6 @@
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
-#include "log.h"
 
 #include "cuda/float_motion_cuda.h"
 #include "cuda/kernel_template.h"
@@ -37,7 +36,6 @@ typedef struct FloatMotionStateCuda {
 
     CUfunction funcbpc8;
     CUfunction funcbpc16;
-    CUmodule module;
 
     VmafCudaBuffer *ref_in;
     VmafCudaBuffer *blur[2];
@@ -49,7 +47,6 @@ typedef struct FloatMotionStateCuda {
     unsigned frame_h;
     unsigned bpc;
     double prev_motion_score;
-    double motion_fps_weight;
     bool debug;
     bool motion_force_zero;
 
@@ -70,17 +67,6 @@ static const VmafOption options[] = {
         .offset = offsetof(FloatMotionStateCuda, motion_force_zero),
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val.b = false,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "motion_fps_weight",
-        .alias = "mfw",
-        .help = "fps-aware multiplicative weight/correction",
-        .offset = offsetof(FloatMotionStateCuda, motion_fps_weight),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = 1.0,
-        .min = 0.0,
-        .max = 5.0,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {0}};
@@ -115,18 +101,6 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     FloatMotionStateCuda *s = fex->priv;
     CudaFunctions *cu_f = fex->cu_state->f;
 
-    /* The 5-tap CUDA float_motion kernel uses reflect-101 mirror padding;
-     * mirror() returns 2*sup - idx - 2, which is negative when sup < 3.
-     * Refuse smaller frames up front to prevent out-of-bounds device reads.
-     * Minimum: filter_width/2 + 1 = 3. */
-    if (h < 3u || w < 3u) {
-        vmaf_log(VMAF_LOG_LEVEL_ERROR,
-                 "float_motion_cuda: frame %ux%u is below the 5-tap filter minimum 3x3; "
-                 "refusing to avoid out-of-bounds mirror reads on device\n",
-                 w, h);
-        return -EINVAL;
-    }
-
     s->frame_w = w;
     s->frame_h = h;
     s->bpc = bpc;
@@ -143,7 +117,8 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     CHECK_CUDA_GOTO(cu_f, cuCtxPushCurrent(fex->cu_state->ctx), fail);
     ctx_pushed = 1;
 
-    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&s->module, float_motion_score_ptx), fail);
+    CUmodule module;
+    CHECK_CUDA_GOTO(cu_f, cuModuleLoadData(&module, float_motion_score_ptx), fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc8, module, "float_motion_kernel_8bpc"),
                     fail);
     CHECK_CUDA_GOTO(cu_f, cuModuleGetFunction(&s->funcbpc16, module, "float_motion_kernel_16bpc"),
@@ -315,11 +290,8 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                                                           index);
         }
     } else {
-        /* Apply fps weight before taking the min — mirrors float_motion.c CPU path.
-         * Bit-exact when motion_fps_weight = 1.0 (default). */
-        const double w_cur = motion_score * s->motion_fps_weight;
-        const double w_prev = s->prev_motion_score * s->motion_fps_weight;
-        const double motion2 = (w_cur < w_prev) ? w_cur : w_prev;
+        const double motion2 =
+            (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
         err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                       "VMAF_feature_motion2_score", motion2,
                                                       index - 1);
@@ -352,11 +324,9 @@ static int flush_fex_cuda(VmafFeatureExtractor *fex, VmafFeatureCollector *featu
         double existing;
         if (vmaf_feature_collector_get_score(feature_collector, "VMAF_feature_motion2_score",
                                              &existing, s->index) != 0) {
-            /* Apply fps weight on the tail motion2 — mirrors the collect path.
-             * Bit-exact when motion_fps_weight = 1.0 (default). */
-            ret = vmaf_feature_collector_append_with_dict(
-                feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score",
-                s->prev_motion_score * s->motion_fps_weight, s->index);
+            ret = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                          "VMAF_feature_motion2_score",
+                                                          s->prev_motion_score, s->index);
         }
     }
     return (ret < 0) ? ret : !ret;
@@ -366,8 +336,6 @@ static int close_fex_cuda(VmafFeatureExtractor *fex)
 {
     FloatMotionStateCuda *s = fex->priv;
     int ret = vmaf_cuda_kernel_lifecycle_close(&s->lc, fex->cu_state);
-    if (s->module)
-        (void)fex->cu_state->f->cuModuleUnload(s->module);
 
     if (s->ref_in) {
         ret |= vmaf_cuda_buffer_free(fex->cu_state, s->ref_in);

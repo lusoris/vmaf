@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2020 Netflix, Inc.
+ *  Copyright 2016-2026 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -18,8 +18,6 @@
 
 #include <math.h>
 #include "common/macros.h"
-#include "barten_csf_tools.h"
-#include "adm_csf_tools.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846264338327
@@ -263,8 +261,7 @@ typedef struct adm_dwt_band_t_d {
     double *band_d; /* High-pass V + high-pass H. */
 } adm_dwt_band_t_d;
 
-float adm_sum_cube_s(const float *x, int w, int h, int stride, double border_factor,
-                     double adm_p_norm);
+float adm_sum_cube_s(const float *x, int w, int h, int stride, double border_factor);
 
 void adm_decouple_s(const adm_dwt_band_t_s *ref, const adm_dwt_band_t_s *dis,
                     const adm_dwt_band_t_s *r, const adm_dwt_band_t_s *a, int w, int h,
@@ -274,63 +271,27 @@ void adm_decouple_s(const adm_dwt_band_t_s *ref, const adm_dwt_band_t_s *dis,
 void adm_csf_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
                const adm_dwt_band_t_s *flt, int orig_h, int scale, int w, int h, int src_stride,
                int dst_stride, double border_factor, double adm_norm_view_dist,
-               int adm_ref_display_height, int adm_csf_mode, double luminance_level,
-               double adm_csf_scale, double adm_csf_diag_scale, double adm_f1s0, double adm_f1s1,
-               double adm_f1s2, double adm_f1s3, double adm_f2s0, double adm_f2s1, double adm_f2s2,
-               double adm_f2s3);
+               int adm_ref_display_height, int adm_csf_mode);
 
 void adm_cm_thresh_s(const adm_dwt_band_t_s *src, float *dst, int w, int h, int src_stride,
                      int dst_stride);
 
 float adm_csf_den_scale_s(const adm_dwt_band_t_s *src, int orig_h, int scale, int w, int h,
                           int src_stride, double border_factor, double adm_norm_view_dist,
-                          int adm_ref_display_height, int adm_csf_mode, double luminance_level,
-                          double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
-                          double adm_p_norm, double adm_f1s0, double adm_f1s1, double adm_f1s2,
-                          double adm_f1s3, double adm_f2s0, double adm_f2s1, double adm_f2s2,
-                          double adm_f2s3);
+                          int adm_ref_display_height, int adm_csf_mode);
 
 float adm_cm_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
                const adm_dwt_band_t_s *csf_a, int w, int h, int src_stride, int dst_stride,
                int csf_a_stride, double border_factor, int scale, double adm_norm_view_dist,
-               int adm_ref_display_height, int adm_csf_mode, double luminance_level,
-               double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
-               int adm_bypass_cm, double adm_p_norm, double adm_f1s0, double adm_f1s1,
-               double adm_f1s2, double adm_f1s3, double adm_f2s0, double adm_f2s1, double adm_f2s2,
-               double adm_f2s3);
-
-/* p_norm == 3.0 fast-path variants — dispatched at compute_adm call site.
- * Eliminate all per-pixel powf() / `if (adm_p_norm == 3.0)` branches.
- * Bit-exact to the generic variants when adm_p_norm == 3.0. */
-float adm_sum_cube_s_p3(const float *x, int w, int h, int stride, double border_factor);
-
-float adm_csf_den_scale_s_p3(const adm_dwt_band_t_s *src, int orig_h, int scale, int w, int h,
-                             int src_stride, double border_factor, double adm_norm_view_dist,
-                             int adm_ref_display_height, int adm_csf_mode, double luminance_level,
-                             double adm_csf_scale, double adm_csf_diag_scale,
-                             double adm_noise_weight, double adm_f1s0, double adm_f1s1,
-                             double adm_f1s2, double adm_f1s3, double adm_f2s0, double adm_f2s1,
-                             double adm_f2s2, double adm_f2s3);
-
-float adm_cm_s_p3(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
-                  const adm_dwt_band_t_s *csf_a, int w, int h, int src_stride, int dst_stride,
-                  int csf_a_stride, double border_factor, int scale, double adm_norm_view_dist,
-                  int adm_ref_display_height, int adm_csf_mode, double luminance_level,
-                  double adm_csf_scale, double adm_csf_diag_scale, double adm_noise_weight,
-                  int adm_bypass_cm, double adm_f1s0, double adm_f1s1, double adm_f1s2,
-                  double adm_f1s3, double adm_f2s0, double adm_f2s1, double adm_f2s2,
-                  double adm_f2s3);
+               int adm_ref_display_height, int adm_csf_mode);
 
 void dwt2_src_indices_filt_s(int **src_ind_y, int **src_ind_x, int w, int h);
 
-int adm_dwt2_s(const float *src, const adm_dwt_band_t_s *dst, int **ind_y, int **ind_x, int w,
-               int h, int src_stride, int dst_stride);
+void adm_dwt2_s(const float *src, const adm_dwt_band_t_s *dst, int **ind_y, int **ind_x, int w,
+                int h, int src_stride, int dst_stride);
 
-int adm_dwt2_lo_s(const float *src, const adm_dwt_band_t_s *dst, int **ind_y, int **ind_x, int w,
-                  int h, int src_stride, int dst_stride);
-
-int adm_dwt2_d(const double *src, const adm_dwt_band_t_d *dst, int **ind_y, int **ind_x, int w,
-               int h, int src_stride, int dst_stride);
+void adm_dwt2_d(const double *src, const adm_dwt_band_t_d *dst, int **ind_y, int **ind_x, int w,
+                int h, int src_stride, int dst_stride);
 
 /* ================= */
 /* Noise floor model */
@@ -382,19 +343,14 @@ static FORCE_INLINE float dwt_quant_step(const struct dwt_model_params *params, 
                                          int adm_ref_display_height)
 {
     // Formula (1), page 1165 - display visual resolution (DVR), in pixels/degree of visual angle. This should be 56.55
-    /* Promote to double for the intermediates — CodeQL's
-     * `cpp/integer-multiplication-cast-to-long` flags the
-     * `params->k * temp * temp` chain as a high-severity overflow
-     * risk when the product is implicitly widened. Compute in
-     * double and narrow to float on return. */
-    double r = (double)adm_norm_view_dist * adm_ref_display_height * M_PI / 180.0;
+    float r = adm_norm_view_dist * adm_ref_display_height * M_PI / 180.0;
 
     // Formula (9), page 1171
-    double temp = log10(pow(2.0, lambda + 1) * params->f0 * params->g[theta] / r);
-    double Q = 2.0 * params->a * pow(10.0, params->k * temp * temp) /
-               dwt_7_9_basis_function_amplitudes[lambda][theta];
+    float temp = log10(pow(2.0, lambda + 1) * params->f0 * params->g[theta] / r);
+    float Q = 2.0 * params->a * pow(10.0, params->k * (double)temp * temp) /
+              dwt_7_9_basis_function_amplitudes[lambda][theta];
 
-    return (float)Q;
+    return Q;
 }
 
 #endif /* ADM_TOOLS_H_ */

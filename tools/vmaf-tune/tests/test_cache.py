@@ -228,8 +228,7 @@ def test_corpus_first_miss_second_hit(tmp_path):
     """The headline contract: first trial encodes, second trial doesn't."""
     enc_a, sc_a = [], []
     rows1 = _run_corpus(tmp_path, cache_enabled=True, encode_calls=enc_a, score_calls=sc_a)
-    # x264 runs stats-pass + real-encode per CRF (supports_encoder_stats=True).
-    assert len(enc_a) == 2
+    assert len(enc_a) == 1
     assert len(sc_a) == 1
     assert rows1[0]["vmaf_score"] == 92.5
 
@@ -249,8 +248,7 @@ def test_corpus_no_cache_flag_forces_re_encode(tmp_path):
     _run_corpus(tmp_path, cache_enabled=False, encode_calls=enc_a, score_calls=sc_a)
     enc_b, sc_b = [], []
     _run_corpus(tmp_path, cache_enabled=False, encode_calls=enc_b, score_calls=sc_b)
-    # x264 runs stats-pass + real-encode per CRF.
-    assert len(enc_b) == 2
+    assert len(enc_b) == 1
     assert len(sc_b) == 1
 
 
@@ -303,5 +301,5 @@ def test_corpus_different_crf_misses(tmp_path):
             probe_runner=fake_probe,
         )
     )
-    # Two distinct CRFs × 2 (stats-pass + real-encode per CRF) = 4.
-    assert len(encode_calls) == 4
+    # Two distinct CRFs → two encodes, no overlap.
+    assert len(encode_calls) == 2

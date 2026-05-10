@@ -55,17 +55,11 @@ for the option-space digest.
   ten-name preset tuple (`placebo, slowest, slower, slow, medium,
   fast, faster, veryfast, superfast, ultrafast`) is shared across
   AV1-family adapters so a single `--preset` axis covers x264 / x265
-  / svtav1 / libaom-av1 / libvpx-vp9 in one sweep. Each adapter maps the name
+  / svtav1 / libaom-av1 in one sweep. Each adapter maps the name
   onto its codec-specific knob (cpu-used, preset enum, ...). Do not
   introduce per-adapter preset names; if the codec needs a knob the
   shared vocabulary cannot express, route it through `extra_params`
   rather than splitting the preset axis.
-- **`libvpx-vp9` two-pass is FFmpeg-generic, encoder-stats is not.**
-  The adapter may set `supports_two_pass = True` because FFmpeg's
-  libvpx wrapper honours `-pass` / `-passlogfile`, but
-  `supports_encoder_stats` stays `False`: VP9 first-pass stats are a
-  binary libvpx packet stream, not the x264/x265 text stats schema
-  consumed by `encoder_stats.py`.
 - **The codec-adapter contract is multi-codec from day one.**
   `codec_adapters/__init__.py` exposes a registry the search loop must
   use uniformly. Do not branch on codec name in `corpus.py` /
@@ -123,11 +117,6 @@ for the option-space digest.
   fallback contract for proxy-OOD sources. The `fast` subcommand
   surfaces its smoke vs production mode in the CLI output's
   `notes` field — keep that visibility when extending the loop.
-- **Fast-path time budgets are enforced by Optuna, not just reported.**
-  `fast.fast_recommend(time_budget_s=...)` passes the value to
-  `study.optimize(timeout=...)`, and the emitted `n_trials` field is
-  the number of completed trials, not the requested cap. Preserve that
-  distinction so wrappers can tell when the budget cut a search short.
 - **`vmaf-tune fast` CLI exit-code contract is the fall-back
   signal** (HP-3, ADR-0276 § Status update 2026-05-08). `_run_fast`
   in `cli.py` exits `0` for an in-tolerance recommendation, `2`
@@ -151,55 +140,6 @@ for the option-space digest.
   on hosts that never run the fast path. The lazy-import guard in
   `fast.py` is the only correct entry point; tests that exercise
   `fast.py` use `pytest.importorskip("optuna")`.
-- **Usage docs describe shipped implementation status.** The
-  dedicated `docs/usage/vmaf-tune-*.md` pages and the umbrella
-  `docs/usage/vmaf-tune.md` page are user-discoverable contracts,
-  not backlog scratch space. When a tune surface leaves scaffold
-  state, update both the standalone page and the umbrella page in
-  the same PR; do not leave `(stub)`, `scaffold-only`, or stale CLI
-  names on paths backed by implementation and tests.
-- **Local sidecar CLI mirrors the programmatic sidecar contract
-  (ADR-0394).** `vmaf-tune sidecar` is the operator surface for
-  `vmaftune.sidecar.SidecarPredictor`: it must keep the same
-  cache layout (`<cache>/<predictor-version>/<codec>/state.json`),
-  same random host UUID posture, and same `ShotFeatures` column
-  semantics as the Python API. Do not add upload, hostname-derived
-  identifiers, or predictor mutation to this CLI; community pooling
-  and non-linear sidecars require a separate ADR / PR.
-- **Ladder uncertainty is post-hull / pre-knee.** `vmaf-tune ladder
-  --with-uncertainty` must run the ADR-0279 prune/insert recipe only
-  after `convex_hull()` and before `select_knees()`. Preserve corpus
-  row `vmaf_interval` payloads when present; when rows are point-only,
-  use the active `wide_interval_min_width` as the conservative centred
-  fallback interval so point-only corpora still participate in midpoint
-  insertion.
-- **Saliency inference consumes RGB, not luma-replicated input
-  (ADR-0430).** `saliency.compute_saliency_map()` reads yuv420p Y/U/V,
-  nearest-neighbour upsamples chroma, converts BT.709 limited-range
-  YUV to RGB, and only then applies ImageNet normalisation for
-  `saliency_student_v1`. Do not reintroduce the old luma-only tensor
-  path unless the model card and operator docs explicitly change.
-- **Saliency temporal aggregation is a CLI-visible contract
-  (ADR-0396 Phase 1).** `recommend-saliency --saliency-aggregator`
-  exposes `mean`, `ema`, `max`, and `motion-weighted`. `mean` is the
-  compatibility default; changing that default or removing a reducer
-  changes user-visible encode behaviour and needs a same-PR usage-doc
-  update plus an ADR-0396 follow-up.
-- **`auto` non-smoke source probing is a real planning path.**
-  `run_auto(smoke=False, meta_override=None)` must route source
-  metadata through `_probe_source_meta`: ffprobe geometry, ffprobe
-  duration, and `hdr.detect_hdr` share the same subprocess runner seam.
-  Keep failures conservative (1920x1080 SDR, `duration_s=0.0`) so the
-  planner can still emit an auditable JSON plan instead of depending on
-  host ffprobe quirks or reintroducing `NotImplementedError`.
-- **`auto` emits one selected winner.** `run_auto` must keep
-  `metadata.winner` aligned with the single `cells[].selected == true`
-  row whenever the winner status has a `cell_index`; evidence-failure
-  plans may report `no_eligible_cells` with no selected row. The
-  selector is quality/budget ordered per ADR-0428: first
-  in-budget target passes, then target passes with the smallest budget
-  overage, then the closest quality miss. Do not make callers infer the
-  winner from cell order.
 - **Fast-path proxy invariant
   ([ADR-0304](../../docs/adr/0304-vmaf-tune-fast-path-prod-wiring.md)).**
   The production proxy is **always** `fr_regressor_v2` (no smoke
@@ -241,9 +181,8 @@ for the option-space digest.
 - **Phase F 2-pass goes through the adapter, not the driver (ADR-0333).**
   Codecs opting into 2-pass encoding declare `supports_two_pass = True`
   and override `two_pass_args(pass_number, stats_path) -> tuple[str, ...]`
-  on their adapter (today: `X264Adapter`, returning
-  `('-pass', str(N), '-passlogfile', str(path))`, and `X265Adapter`,
-  returning `('-x265-params', f'pass={N}:stats={path}')`). The encode driver
+  on their adapter (today: `X265Adapter` only, returning
+  `('-x265-params', f'pass={N}:stats={path}')`). The encode driver
   (`encode.py`) calls the adapter via `getattr(adapter, "supports_two_pass", False)`
   + `adapter.two_pass_args(...)` — it never branches on codec name.
   `EncodeRequest` carries `pass_number: int = 0` (0 = single-pass /
@@ -252,15 +191,14 @@ for the option-space digest.
   the throwaway encoded bitstream isn't written. The 2-pass loop
   itself lives in `run_two_pass_encode` in `encode.py`; it
   materialises the stats file in a `tempfile.mkdtemp` (or a
-  caller-supplied `scratch_dir`) and removes it (plus known encoder
-  sidecars such as libx265's `.cutree`) on exit. When
-  `supports_two_pass = False`, the
+  caller-supplied `scratch_dir`) and removes it (plus libx265's
+  `.cutree` sidecar) on exit. When `supports_two_pass = False`, the
   driver falls back to single-pass with a stderr warning by default
   (`on_unsupported="fallback"`), or raises with
-  `on_unsupported="raise"` — matches the saliency.py
-  "unsupported ROI encoder, fallback to plain encode" precedent.
-  Sibling codec adapters (libsvtav1, libvvenc, libaom-av1) inherit
-  this seam without touching the driver — their PRs only need to override
+  `on_unsupported="raise"` — matches the saliency.py "x264-only,
+  fallback to plain encode" precedent. Sibling codec adapters
+  (libx264, libsvtav1, libvvenc, libaom-av1) inherit this seam
+  without touching the driver — their PRs only need to override
   `supports_two_pass` + `two_pass_args` on the adapter file. NVENC's
   `-multipass` is **not** this seam (single-invocation lookahead, not
   a stats-file two-call sequence); a separate adapter contract is the
@@ -283,11 +221,6 @@ for the option-space digest.
   wrong — the algorithm is pinned by `test_ladder.py` invariants
   (monotonic both axes, no domination). Don't refactor without
   re-running that suite.
-- **Phase E spacing names are part of the CLI contract.** `--spacing
-  log_bitrate` is the default, `--spacing vmaf` is the documented
-  perceptual-spacing mode, and `uniform` is a legacy alias for `vmaf`.
-  Keep the CLI choices and `ladder.select_knees()` aliases in lockstep
-  so argparse cannot accept a value the library rejects.
 - **Phase E sampler is pluggable; default is a 5-point CRF sweep
   (ADR-0307).** `ladder.build_ladder` accepts an explicit `sampler=`
   callback; when omitted, `_default_sampler` composes
@@ -319,25 +252,17 @@ for the option-space digest.
   corpus subcommand and unit tests work without it installed.
 - **Compare predicate is the recommend seam.** `compare.compare_codecs`
   takes a `predicate(codec, src, target_vmaf) -> RecommendResult`
-  callable. The programmatic default predicate returns `ok=False`
-  pointing callers at `bisect.make_bisect_predicate(target_vmaf, *,
-  width=..., height=..., framerate=..., duration_s=...)` because the
-  bare predicate signature does not carry source geometry. The
-  `vmaf-tune compare` CLI binds that Phase B
+  callable. The default predicate now returns `ok=False` pointing
+  callers at `bisect.make_bisect_predicate(target_vmaf, *, width=...,
+  height=..., framerate=..., duration_s=...)` — Phase B
   ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md))
-  predicate from its explicit geometry flags by default; the
-  `--predicate-module MODULE:CALLABLE` hook is the only supported
-  way to bypass real bisect. `tests/test_compare.py` injects fake
-  predicates so ranking is exercised without `ffmpeg` / `vmaf`
-  binaries. Do not branch on codec name inside `compare.py` — route
-  every per-codec call through the predicate / adapter registry.
-- **Phase G benchmark is read-only corpus analysis (ADR-0424).**
-  `vmaf-tune benchmark` consumes existing Phase-A JSONL rows and must
-  not call `ffmpeg`, `vmaf`, `compare.compare_codecs`, or Phase-B
-  bisect. Its contract is one summary row per encoder: lowest-bitrate
-  corpus point clearing `--target-vmaf`, with closest misses preserved
-  as `status="unmet"`. Live encode comparisons stay in `compare`;
-  offline corpus reports stay in `benchmark`.
+  ships the bisect, but the bare predicate signature does not carry
+  source geometry so operators bind it once via the closure adapter.
+  `tests/test_compare.py` injects a fake predicate so the comparison
+  ranking is exercised without `ffmpeg` / `vmaf` binaries; production
+  callers route the real bisect in via the same seam. Do not branch
+  on codec name inside `compare.py` — route every per-codec call
+  through the predicate / adapter registry.
 - **Phase B bisect assumes monotone-decreasing VMAF in CRF
   ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md)).**
   `vmaftune.bisect.bisect_target_vmaf` aborts with a clear error when
@@ -389,16 +314,6 @@ for the option-space digest.
   codec adapter (libx265, libsvtav1, ...) lands under
   `codec_adapters/`, it inherits the dispatch row that already
   exists; adapters do not roll their own HDR flag set.
-- **`auto` records HDR args through the same dispatch table.**
-  `run_auto` must call `hdr_codec_args(codec, info)` per cell when
-  `meta.is_hdr` is true. A generic tuple such as
-  `("-color_primaries", "bt2020", "-color_trc", "smpte2084")`
-  is insufficient because x265, SVT-AV1, HEVC hardware encoders,
-  AV1 hardware encoders, and VVenC use different ffmpeg flag
-  families. Hardware HEVC rows force `p010le` + `main10`; hardware
-  AV1 rows force `p010le`; codec-private SEI flags stay limited to
-  families with stable FFmpeg knobs. Tests in
-  `tests/test_auto_short_circuits.py` lock this per-codec shape.
 - **`select_hdr_vmaf_model` falls back silently.** When
   `model/vmaf_hdr_*.json` is absent (current state — fork hasn't
   ported Netflix's HDR model yet), `_resolve_vmaf_model` logs a
@@ -449,11 +364,10 @@ for the option-space digest.
   (rawvideo demuxer fast-seek); the score side uses libvmaf's
   `--frame_skip_ref` / `--frame_cnt`. They MUST stay in sync — the
   centre-anchored window is computed once in `_resolve_sample_clip`
-  for corpus rows or `_sample_clip_window` for Phase-B bisect and
-  threaded through both `EncodeRequest` and `ScoreRequest`. Do not
-  slice the reference YUV on disk into a temp file (the zero-I/O
-  frame-skip path is the design); do not use output-side `-ss` (it
-  decodes the full source first, defeating the speedup).
+  and threaded through both `EncodeRequest` and `ScoreRequest`. Do
+  not slice the reference YUV on disk into a temp file (the
+  zero-I/O frame-skip path is the design); do not use output-side
+  `-ss` (it decodes the full source first, defeating the speedup).
 - **Coarse-to-fine search is layered on `iter_rows`, not duplicated
   (ADR-0296).** `corpus.coarse_to_fine_search()` builds two
   `dataclasses.replace(job, cells=...)` jobs (coarse + fine) and
@@ -546,13 +460,11 @@ Phases B–F per ADR-0237 (bisect / predictor / ladder / MCP) remain
 explicitly out of scope here; do not add that code into this tree
 without an ADR-0237 follow-up promoting the corresponding phase.
 Phase A (corpus generation): grid sweep + JSONL emit, x264 only.
-Phase D (per-shot CRF tuning, ADR-0276): orchestrates shot detection
-(via the C-side `vmaf-perShot` binary, ADR-0222), extracts each shot
-to raw YUV, and binds the pluggable per-shot CRF predicate to Phase B's
-real bisect backend by default. The CLI deliberately stops before
-running the final segment encodes — it emits an FFmpeg encoding plan as
-JSON plus an optional shell script. `--predicate-module` remains the
-advanced custom/test escape hatch; it is no longer the production path.
+Phase D scaffold (per-shot CRF tuning, ADR-0276): orchestrates shot
+detection (via the C-side `vmaf-perShot` binary, ADR-0222) and a
+pluggable per-shot CRF predicate that Phase B's bisect will drop
+into. The scaffold deliberately stops before running encodes — it
+emits an FFmpeg encoding plan as JSON.
 
 Phases B (target-VMAF bisect), C (per-title CRF predictor), E
 (Pareto ABR ladder) and F (MCP tools) per ADR-0237 are explicitly
@@ -565,22 +477,9 @@ corresponding phase.
 - **Predicate signature is the Phase B contract.** The
   ``PredicateFn`` type alias in ``per_shot.py`` is
   ``(Shot, target_vmaf: float, encoder: str) -> (crf: int,
-  measured_or_predicted_vmaf: float)``. The CLI adapter around
-  Phase-B bisect must conform to this signature; widening the return
-  tuple is a coordinated change that bumps the public-API surface
-  across both modules in the same PR.
-- **CLI default is real per-shot bisect.** `vmaf-tune tune-per-shot`
-  must call the Phase-B bisect backend unless
-  `--predicate-module MODULE:CALLABLE` is explicitly supplied. Do not
-  reintroduce the adapter-default CRF as CLI behaviour; that fallback
-  exists only for library dry runs that call `tune_per_shot()` without
-  a predicate.
-- **Bisect inputs are temporary raw YUV shots.** `bisect_target_vmaf`
-  expects raw YUV geometry, so the CLI extracts each detected
-  half-open shot range to a temporary raw-YUV file before calling it.
-  Raw `.yuv` / `.raw` sources are opened with explicit rawvideo
-  demuxer flags (`--width`, `--height`, `--pix-fmt`, `--framerate`);
-  container and Y4M sources are left to FFmpeg's demuxer.
+  predicted_vmaf: float)``. Phase B's bisect must conform to this
+  signature; widening the return tuple is a coordinated change that
+  bumps the public-API surface across both modules in the same PR.
 - **Shot ranges are half-open inside Python.** The C-side
   ``vmaf-perShot`` JSON/CSV sidecar uses inclusive ``end_frame``;
   ``per_shot.py`` normalises into ``[start_frame, end_frame)`` at
@@ -653,11 +552,6 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   `_confidence_aware_escalation` is a pure function of
   `(verdict, interval_width, thresholds)` so it stays trivially
   unit-testable; keep it pure when extending the decision table.
-  `run_auto` must pass the recipe-adjusted `effective_thresholds`
-  from `_apply_recipe_override` into every F.3 decision and into
-  `plan.metadata.confidence_thresholds`; computing the adjusted
-  value and then falling back to `ConfidenceThresholds()` is a
-  user-visible planning bug.
 
 - **F.4 recipe overrides are read-only factories, not literal
   dicts.** `_CONTENT_RECIPE_TABLE` in `auto.py` stores **callables**
@@ -690,9 +584,7 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
 - Every adapter in ``codec_adapters/`` must declare
   ``supports_encoder_stats: bool`` (no Protocol default). x264 / x265
   set True; everything else False until a codec-specific parser
-  lands. x265's ``q-aq`` and ``icu`` / ``pcu`` / ``scu`` pass-1 aliases
-  are intentionally normalised in ``encoder_stats.py`` so corpus rows
-  keep the same ten ``enc_internal_*`` columns as x264.
+  lands.
 - ``run_encode_with_stats`` doubles per-encode wall-clock on opt-in
   adapters by design. Do not collapse the pass-1 + pass-2 calls into
   one — the encoder won't emit a parseable stats file outside
@@ -731,13 +623,8 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
 
 ## Predictor stub-models policy (ADR-0325)
 
-The fork ships one `model/predictor_<codec>.onnx` per codec adapter.
-As of 2026-05-14 the NVENC / QSV predictors (`h264_nvenc`,
-`hevc_nvenc`, `av1_nvenc`, `h264_qsv`, `hevc_qsv`, `av1_qsv`) are
-real-corpus retrains from `runs/phase_a/full_grid/comprehensive.jsonl`
-and their cards carry `corpus.kind: real-N=<rows>`. Software and AMF
-predictors remain synthetic stubs until matching real corpora exist.
-The trainer
+The fork ships one synthetic-stub `model/predictor_<codec>.onnx` per
+codec adapter. The trainer
 (`tools/vmaf-tune/src/vmaftune/predictor_train.py`) sources its
 `CODECS` tuple from `predictor._DEFAULT_COEFFS` so the two stay
 single-source. When a new codec adapter is added (e.g. a future
@@ -755,13 +642,5 @@ Stub models are explicitly **not** for production CRF picks. The
 synthetic target *is* the analytical fallback, so PLCC / SROCC
 numbers in stub cards are artificially high. Real-corpus retrains
 follow the same trainer entry point with `--corpus path/to/file.jsonl`
-or `--corpus path/to/corpus-dir/` and produce honest metrics. Directory
-corpus inputs are recursive and sorted so `.corpus/corpus_run/`
-trains deterministically without a manual concatenation step. Keep that
-directory handling reachable from both `train_all_codecs()` and the CLI;
-file-only `is_file()` guards above `load_corpus()` silently turn real
-corpus directories back into synthetic stubs. The loader accepts both
-canonical `encoder` / `crf` / `vmaf_score` /
-`bitrate_kbps` rows and historical hardware-sweep `codec` / `q` /
-`vmaf` / `actual_kbps` aliases; do not reintroduce external conversion
-scripts for those local corpora.
+and produce honest metrics.
+

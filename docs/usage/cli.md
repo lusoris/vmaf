@@ -150,11 +150,7 @@ variable that overrides it.
 | `--sycl_device <N>` | auto (first GPU) | Pick SYCL device by ordinal from the oneAPI device list. |
 | `--no_vulkan` | off | Forbid Vulkan dispatch even if the Vulkan backend is built in. |
 | `--vulkan_device <N>` | disabled (opt-in) | Pick Vulkan device by ordinal. Pass `0` for the first compute-capable device, `-1` for auto-pick (prefers discrete > integrated > virtual > cpu). Without this flag, Vulkan is never used. |
-| `--no_hip` | off | Forbid HIP/ROCm dispatch even if the HIP backend is built in. |
-| `--hip_device <N>` | disabled (opt-in) | Pick HIP/ROCm device by ordinal. Pass `0` for the first AMD GPU. Without this flag the HIP backend is never used, even when the binary was built with `-Denable_hip=true`. Mirrors `--vulkan_device` semantics. See [../backends/hip/overview.md](../backends/hip/overview.md). |
-| `--no_metal` | off | Forbid Metal dispatch even if the Metal backend is built in (macOS only). |
-| `--metal_device <N>` | disabled (opt-in) | Pick Metal GPU by ordinal (macOS only). Pass `0` for the first Metal device (typically the integrated Apple GPU on Apple Silicon). Without this flag the Metal backend is never used, even on macOS builds. Mirrors `--vulkan_device` semantics. See [../backends/metal/overview.md](../backends/metal/overview.md). |
-| `--backend <name>` | `auto` | Exclusive backend selector — `auto` (default; whichever backends are built compete by registry order), `cpu`, `cuda`, `sycl`, `vulkan`, `hip`, `metal`. Setting a specific backend disables the others via the matching `--no_X` flags BEFORE dispatch and pins the device index for the chosen backend (`gpumask=0` for CUDA, `sycl_device=0` for SYCL, `vulkan_device=0` for Vulkan, `hip_device=0` for HIP, `metal_device=0` for Metal). Closes the multi-backend dispatcher conflict in which `vmaf_get_feature_extractor_by_feature_name`'s first-match-wins rule silently routed Vulkan-flagged work to CUDA when both backends had state imported. |
+| `--backend <name>` | `auto` | Exclusive backend selector — `auto` (default; whichever backends are built compete by registry order), `cpu`, `cuda`, `sycl`, `vulkan`. Setting a specific backend disables the others via the matching `--no_X` flags BEFORE dispatch and pins the device index for the chosen backend (`gpumask=1` for CUDA, `sycl_device=0` for SYCL, `vulkan_device=0` for Vulkan). Closes the multi-backend dispatcher conflict in which `vmaf_get_feature_extractor_by_feature_name`'s first-match-wins rule silently routed Vulkan-flagged work to CUDA when both backends had state imported. |
 | `--cpumask <bitmask>` (`-c`) | all ISAs enabled | Mask out specific CPU ISAs (e.g. force scalar, disable AVX-512). Values are fork-internal — see `libvmaf/src/cpu.h`. |
 | `--gpumask <bitmask>` | all GPU ops enabled | Mask out specific GPU ops. |
 | `--threads <N>` | host `nproc` | CPU-side worker thread count. |
@@ -262,18 +258,17 @@ sha256 pins, known limitations).
 ### Sigstore bundle verification (fork-added)
 
 ```text
---tiny-model-verify            # enable Sigstore bundle verification for the loaded tiny-AI model
+--tiny-model-verify <path>     # verify Sigstore bundle for a tiny-AI ONNX model
 ```
 
-`--tiny-model-verify` is a **boolean flag** (no argument). It enables
-`cosign verify-blob` verification of the Sigstore bundle attached to
-the tiny-AI ONNX model **before** the model is loaded into ORT. Both
-the model path and its bundle path are inferred from `--tiny-model`:
-the bundle is expected at `<model-path>.sigstore` alongside the model
-file. Verification is performed in-process by shelling out to the
-`cosign` binary on the host's `PATH`; on success the loader proceeds
-normally, on failure the process exits non-zero with a diagnostic to
-stderr.
+`--tiny-model-verify` invokes `cosign verify-blob` against the Sigstore
+bundle attached to a tiny-AI ONNX model **before** the model is loaded
+into ORT. The flag's argument is the path to the `.sigstore` bundle
+(typically `<model>.onnx.sigstore`); the model file itself is the one
+passed via `--tiny-model`. Verification is performed in-process by
+shelling out to the `cosign` binary on the host's `PATH`; on success
+the loader proceeds normally, on failure the process exits non-zero
+with a diagnostic to stderr.
 
 When to use it: production inference pipelines that need supply-chain
 verification of model integrity — e.g. a release runner that pulls a

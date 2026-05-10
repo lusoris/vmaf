@@ -28,7 +28,6 @@ from vmaftune.auto import (  # noqa: E402
     PlanState,
     ShortCircuit,
     SourceMeta,
-    _probe_source_meta,
     _should_short_circuit_1_single_rung_ladder,
     _should_short_circuit_2_codec_pinned,
     _should_short_circuit_3_predictor_gospel,
@@ -38,54 +37,8 @@ from vmaftune.auto import (  # noqa: E402
     _should_short_circuit_7_skip_per_shot,
     emit_plan_json,
     evaluate_short_circuits,
-    pick_auto_winner,
     run_auto,
 )
-
-
-class _FakeCompleted:
-    def __init__(self, returncode: int = 0, stdout: str = "", stderr: str = "") -> None:
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
-
-
-def _auto_probe_runner(cmd, capture_output, text, check):  # noqa: ANN001
-    del capture_output, text, check
-    joined = " ".join(str(part) for part in cmd)
-    if "format=duration" in joined:
-        return _FakeCompleted(stdout=json.dumps({"format": {"duration": "456.5"}}))
-    if "stream=width,height,r_frame_rate" in joined:
-        return _FakeCompleted(
-            stdout=json.dumps(
-                {
-                    "streams": [
-                        {
-                            "width": 3840,
-                            "height": 2160,
-                            "r_frame_rate": "24000/1001",
-                        }
-                    ]
-                }
-            )
-        )
-    if "stream=color_transfer" in joined:
-        return _FakeCompleted(
-            stdout=json.dumps(
-                {
-                    "streams": [
-                        {
-                            "color_transfer": "smpte2084",
-                            "color_primaries": "bt2020",
-                            "color_space": "bt2020nc",
-                            "color_range": "tv",
-                            "pix_fmt": "yuv420p10le",
-                        }
-                    ]
-                }
-            )
-        )
-    return _FakeCompleted(returncode=1, stderr=f"unexpected command: {joined}")
 
 
 def _meta(**overrides) -> SourceMeta:
@@ -409,159 +362,17 @@ def test_run_auto_smoke_emits_stable_json() -> None:
     assert "metadata" in payload
     assert payload["metadata"]["short_circuits"]
     assert "sample-clip-propagate" in payload["metadata"]["short_circuits"]
-    assert payload["metadata"]["winner"]["status"] == "budget_and_quality_met"
-    assert payload["cells"][payload["metadata"]["winner"]["cell_index"]]["selected"] is True
 
 
-def test_pick_auto_winner_prefers_lowest_bitrate_inside_quality_and_budget() -> None:
-    cells = [
-        {
-            "rung": 1080,
-            "codec": "libx264",
-            "crf": 22,
-            "estimated_vmaf": 94.0,
-            "estimated_bitrate_kbps": 4700.0,
-        },
-        {
-            "rung": 1080,
-            "codec": "libx265",
-            "crf": 24,
-            "estimated_vmaf": 93.5,
-            "estimated_bitrate_kbps": 3200.0,
-        },
-        {
-            "rung": 720,
-            "codec": "libx265",
-            "crf": 28,
-            "estimated_vmaf": 91.0,
-            "estimated_bitrate_kbps": 1800.0,
-        },
-    ]
-
-    winner = pick_auto_winner(cells, target_vmaf=93.0, max_budget_kbps=5000.0)
-
-    assert winner["status"] == "budget_and_quality_met"
-    assert winner["cell_index"] == 1
-    assert winner["codec"] == "libx265"
-    assert winner["budget_margin_kbps"] == pytest.approx(1800.0)
-
-
-def test_pick_auto_winner_keeps_quality_gate_when_budget_is_exceeded() -> None:
-    cells = [
-        {
-            "rung": 1080,
-            "codec": "libx264",
-            "crf": 22,
-            "estimated_vmaf": 94.0,
-            "estimated_bitrate_kbps": 6200.0,
-        },
-        {
-            "rung": 1080,
-            "codec": "libx265",
-            "crf": 24,
-            "estimated_vmaf": 93.2,
-            "estimated_bitrate_kbps": 5400.0,
-        },
-        {
-            "rung": 720,
-            "codec": "libx265",
-            "crf": 30,
-            "estimated_vmaf": 91.0,
-            "estimated_bitrate_kbps": 2000.0,
-        },
-    ]
-
-    winner = pick_auto_winner(cells, target_vmaf=93.0, max_budget_kbps=5000.0)
-
-    assert winner["status"] == "quality_met_budget_exceeded"
-    assert winner["cell_index"] == 1
-    assert winner["budget_margin_kbps"] == pytest.approx(-400.0)
-
-
-def test_pick_auto_winner_returns_closest_quality_miss_when_target_unmet() -> None:
-    cells = [
-        {
-            "rung": 720,
-            "codec": "libx264",
-            "crf": 28,
-            "estimated_vmaf": 89.0,
-            "estimated_bitrate_kbps": 1100.0,
-        },
-        {
-            "rung": 1080,
-            "codec": "libx265",
-            "crf": 25,
-            "estimated_vmaf": 92.5,
-            "estimated_bitrate_kbps": 3400.0,
-        },
-    ]
-
-    winner = pick_auto_winner(cells, target_vmaf=93.0, max_budget_kbps=5000.0)
-
-    assert winner["status"] == "target_unmet"
-    assert winner["cell_index"] == 1
-    assert winner["quality_margin"] == pytest.approx(-0.5)
-
-
-def test_probe_source_meta_reads_geometry_duration_and_hdr(tmp_path: Path) -> None:
-    src = tmp_path / "hdr.mp4"
-    src.write_bytes(b"\x00")
-    meta, hdr_info = _probe_source_meta(
-        src,
-        sample_clip_seconds=12.0,
-        runner=_auto_probe_runner,
-    )
-    assert meta.width == 3840
-    assert meta.height == 2160
-    assert meta.duration_s == pytest.approx(456.5)
-    assert meta.sample_clip_seconds == pytest.approx(12.0)
-    assert meta.is_hdr is True
-    assert hdr_info is not None
-    assert hdr_info.transfer == "pq"
-
-
-def test_run_auto_non_smoke_uses_probe_runner_when_no_meta(tmp_path: Path) -> None:
-    src = tmp_path / "hdr.mp4"
-    src.write_bytes(b"\x00")
-    plan = run_auto(
-        src=src,
-        target_vmaf=93.0,
-        max_budget_kbps=5000.0,
-        allow_codecs=("libx264",),
-        smoke=False,
-        probe_runner=_auto_probe_runner,
-    )
-    assert plan.metadata["source_meta"]["width"] == 3840
-    assert plan.metadata["source_meta"]["height"] == 2160
-    assert plan.metadata["source_meta"]["duration_s"] == pytest.approx(456.5)
-    assert plan.metadata["source_meta"]["is_hdr"] is True
-
-
-def test_run_auto_non_smoke_uses_predictor_for_cell_estimates() -> None:
-    meta = SourceMeta(
-        height=1080,
-        width=1920,
-        is_hdr=False,
-        content_class="live_action",
-        duration_s=180.0,
-        shot_variance=0.07,
-        complexity_score=2500.0,
-        baseline_vmaf=0.0,
-    )
-    plan = run_auto(
-        src=Path("/dev/null"),
-        target_vmaf=92.0,
-        max_budget_kbps=5000.0,
-        allow_codecs=("libx264",),
-        smoke=False,
-        meta_override=meta,
-    )
-    cell = plan.cells[0]
-    assert cell["prediction_source"] == "predictor"
-    assert 0 <= cell["crf"] <= 51
-    assert cell["crf"] != 23
-    assert cell["estimated_vmaf"] >= 92.0
-    assert cell["estimated_bitrate_kbps"] != 5000.0
+def test_run_auto_non_smoke_requires_explicit_meta() -> None:
+    with pytest.raises(NotImplementedError):
+        run_auto(
+            src=Path("/dev/null"),
+            target_vmaf=93.0,
+            max_budget_kbps=5000.0,
+            allow_codecs=("libx264",),
+            smoke=False,
+        )
 
 
 def test_run_auto_4k_hdr_animation_does_not_short_circuit_inappropriately() -> None:
@@ -598,78 +409,6 @@ def test_run_auto_4k_hdr_animation_does_not_short_circuit_inappropriately() -> N
     assert "sample-clip-propagate" not in fired
     # GOSPEL still fires because smoke mode synthesises the verdict.
     assert "predictor-gospel" in fired
-
-
-def test_run_auto_hdr_cells_use_codec_specific_dispatch() -> None:
-    meta = SourceMeta(
-        height=2160,
-        width=3840,
-        is_hdr=True,
-        content_class="live_action_hdr",
-        duration_s=7200.0,
-        shot_variance=0.30,
-        sample_clip_seconds=0.0,
-    )
-    plan = run_auto(
-        src=Path("/dev/null"),
-        target_vmaf=93.0,
-        max_budget_kbps=20000.0,
-        allow_codecs=("libx264", "libx265", "libsvtav1"),
-        smoke=True,
-        meta_override=meta,
-    )
-    by_codec = {}
-    for cell in plan.cells:
-        by_codec.setdefault(cell["codec"], cell["hdr_args"])
-
-    assert "-color_trc" in by_codec["libx264"]
-    assert "-x265-params" in by_codec["libx265"]
-    assert any("hdr10-opt=1" in arg for arg in by_codec["libx265"])
-    assert "-svtav1-params" in by_codec["libsvtav1"]
-    assert len({tuple(args) for args in by_codec.values()}) == 3
-
-
-def test_run_auto_hdr_hardware_cells_are_not_left_unflagged() -> None:
-    meta = SourceMeta(
-        height=2160,
-        width=3840,
-        is_hdr=True,
-        content_class="live_action_hdr",
-        duration_s=7200.0,
-        shot_variance=0.30,
-        sample_clip_seconds=0.0,
-    )
-    codecs = (
-        "av1_nvenc",
-        "hevc_qsv",
-        "av1_qsv",
-        "hevc_amf",
-        "av1_amf",
-        "hevc_videotoolbox",
-    )
-    plan = run_auto(
-        src=Path("/dev/null"),
-        target_vmaf=93.0,
-        max_budget_kbps=20000.0,
-        allow_codecs=codecs,
-        smoke=True,
-        meta_override=meta,
-    )
-    by_codec = {}
-    for cell in plan.cells:
-        by_codec.setdefault(cell["codec"], cell["hdr_args"])
-
-    for codec in codecs:
-        assert "-color_primaries" in by_codec[codec], codec
-        assert by_codec[codec][by_codec[codec].index("-color_trc") + 1] == "smpte2084"
-
-    for codec in ("av1_nvenc", "hevc_qsv", "av1_qsv", "hevc_amf", "av1_amf"):
-        assert "-pix_fmt" in by_codec[codec], codec
-        assert by_codec[codec][by_codec[codec].index("-pix_fmt") + 1] == "p010le"
-
-    for codec in ("hevc_qsv", "hevc_amf", "hevc_videotoolbox"):
-        assert "-profile:v" in by_codec[codec], codec
-        assert by_codec[codec][by_codec[codec].index("-profile:v") + 1] == "main10"
 
 
 def test_run_auto_does_not_dispatch_fast_subcommand() -> None:

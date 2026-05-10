@@ -46,7 +46,7 @@ extern "C" {
  * (-Denable_hip=true), 0 otherwise. Cheap to call; no HIP runtime
  * is touched until @ref vmaf_hip_state_init().
  */
-VMAF_EXPORT int vmaf_hip_available(void);
+int vmaf_hip_available(void);
 
 /**
  * Opaque handle to a HIP-backed scoring state. One state pins one
@@ -68,7 +68,7 @@ typedef struct VmafHipConfiguration {
  * @return 0 on success, -ENOSYS when built without HIP, -ENODEV when
  *         no compatible device is found, -EINVAL on bad arguments.
  */
-VMAF_EXPORT int vmaf_hip_state_init(VmafHipState **out, VmafHipConfiguration cfg);
+int vmaf_hip_state_init(VmafHipState **out, VmafHipConfiguration cfg);
 
 /**
  * Hand the HIP state to a VmafContext. After import, the context
@@ -77,7 +77,7 @@ VMAF_EXPORT int vmaf_hip_state_init(VmafHipState **out, VmafHipConfiguration cfg
  * @ref vmaf_hip_state_free after vmaf_close(). Same lifetime model as
  * the SYCL + Vulkan backends.
  */
-VMAF_EXPORT int vmaf_hip_import_state(VmafContext *ctx, VmafHipState *state);
+int vmaf_hip_import_state(VmafContext *ctx, VmafHipState *state);
 
 /**
  * Release a state previously allocated via @ref vmaf_hip_state_init.
@@ -85,7 +85,7 @@ VMAF_EXPORT int vmaf_hip_import_state(VmafContext *ctx, VmafHipState *state);
  * the caller is still responsible for freeing — call this after
  * vmaf_close() to avoid using a state the context still references.
  */
-VMAF_EXPORT void vmaf_hip_state_free(VmafHipState **state);
+void vmaf_hip_state_free(VmafHipState **state);
 
 /**
  * Enumerate compute-capable HIP devices visible to the runtime.
@@ -93,7 +93,7 @@ VMAF_EXPORT void vmaf_hip_state_free(VmafHipState **state);
  * capability. Returns the device count or -ENOSYS when built without
  * HIP.
  */
-VMAF_EXPORT int vmaf_hip_list_devices(void);
+int vmaf_hip_list_devices(void);
 
 #ifdef __cplusplus
 }

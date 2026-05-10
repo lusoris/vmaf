@@ -10,10 +10,10 @@ encoders a per-MB QP-offset map that biases bits toward salient regions
 
 Pipeline:
 
-    raw yuv420p ── sample N frames ── YUV->RGB ── ImageNet-normalise
+    raw YUV ── sample N frames ── YUV->RGB ── ImageNet-normalise
             ── onnxruntime(saliency_student_v1) ── mean saliency mask [0, 1]
-            ── per-block reduce ── linear map to QP offsets [-12, +12]
-            ── codec ROI sidecar/argv ── ffmpeg
+            ── per-MB reduce ── linear map to QP offsets [-12, +12]
+            ── x264 ASCII qpfile ── ffmpeg --qpfile
 
 Design notes:
 
@@ -21,9 +21,9 @@ Design notes:
   can graceful-fallback to non-saliency encoding when onnxruntime or
   the model file is unavailable. This matches the `vmaf-roi` C
   sidecar's posture (ADR-0247).
-- Per-codec helpers reduce the pixel-level map to the encoder's ROI
-  unit: 16x16 luma for x264/libaom qpfiles, a spatial mean for x265
-  zones, and 64x64 units for SVT-AV1 / VVenC ROI files.
+- Per-MB granularity is chosen to match x264's ``--qpfile`` natural
+  granularity (16x16 luma) and SVT-AV1's ROI-map granularity (the
+  only two encoders Phase A / Bucket #2 need).
 - All numeric kernels (RGB conversion, ImageNet normalisation,
   per-MB reduce, QP-offset clamp) are pure NumPy so the test suite
   can exercise them without onnxruntime installed.
@@ -74,10 +74,6 @@ _IMAGENET_STD = (0.229, 0.224, 0.225)
 # scoring extractor uses for per-clip aggregates.
 DEFAULT_FRAME_SAMPLES = 8
 
-SALIENCY_AGGREGATORS = ("mean", "ema", "max", "motion-weighted")
-DEFAULT_SALIENCY_AGGREGATOR = "mean"
-DEFAULT_SALIENCY_EMA_ALPHA = 0.6
-
 
 class SaliencyUnavailableError(RuntimeError):
     """Raised when saliency inference is requested but onnxruntime or
@@ -99,12 +95,6 @@ class SaliencyConfig:
     # encoded artifact (gitignored). If False, use a
     # ``tempfile.NamedTemporaryFile`` cleaned up by the OS.
     persist_qpfile: bool = False
-    # Temporal reducer for the sampled per-frame saliency masks.
-    # ``mean`` preserves the historical aggregate. ``ema`` and ``max``
-    # are cheap video-saliency baselines from ADR-0396 Phase 1.
-    temporal_aggregator: str = DEFAULT_SALIENCY_AGGREGATOR
-    # Current-frame weight for the EMA reducer.
-    ema_alpha: float = DEFAULT_SALIENCY_EMA_ALPHA
 
 
 def _import_numpy() -> Any:
@@ -133,49 +123,38 @@ def _yuv420p_frame_size(width: int, height: int) -> int:
     return width * height * 3 // 2
 
 
-def _read_yuv420p_planes(
-    path: Path, frame_index: int, width: int, height: int
-) -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
-    """Read one yuv420p frame as ``uint8`` Y, U, V planes."""
+def _read_yuv420p_y_plane(path: Path, frame_index: int, width: int, height: int) -> "np.ndarray":
+    """Read the luma plane of one yuv420p frame as ``uint8 [H, W]``.
+
+    Saliency inference uses RGB derived from luma replicated across
+    channels — sufficient quality for foreground-vs-background
+    discrimination and avoids a chroma upsample on the hot path.
+    """
     np = _import_numpy()
     frame_bytes = _yuv420p_frame_size(width, height)
     luma_bytes = width * height
-    chroma_width = width // 2
-    chroma_height = height // 2
-    chroma_bytes = chroma_width * chroma_height
     with path.open("rb") as fh:
         fh.seek(frame_index * frame_bytes)
-        buf = fh.read(frame_bytes)
-    if len(buf) != frame_bytes:
+        buf = fh.read(luma_bytes)
+    if len(buf) != luma_bytes:
         raise ValueError(
-            f"short read on {path}: wanted {frame_bytes} bytes at frame {frame_index}, got {len(buf)}"
+            f"short read on {path}: wanted {luma_bytes} bytes at "
+            f"frame {frame_index}, got {len(buf)}"
         )
-    y_end = luma_bytes
-    u_end = y_end + chroma_bytes
-    y = np.frombuffer(buf[:y_end], dtype=np.uint8).reshape(height, width)
-    u = np.frombuffer(buf[y_end:u_end], dtype=np.uint8).reshape(chroma_height, chroma_width)
-    v = np.frombuffer(buf[u_end:], dtype=np.uint8).reshape(chroma_height, chroma_width)
-    return y, u, v
+    return np.frombuffer(buf, dtype=np.uint8).reshape(height, width)
 
 
-def _yuv420p_to_rgb_imagenet(y: "np.ndarray", u: "np.ndarray", v: "np.ndarray") -> "np.ndarray":
-    """Convert yuv420p BT.709-limited planes to ImageNet-normalised RGB.
+def _luma_to_rgb_imagenet(luma: "np.ndarray") -> "np.ndarray":
+    """Replicate luma into 3 channels and ImageNet-normalise.
 
     Returns ``float32 [1, 3, H, W]`` — the NCHW tensor
     `saliency_student_v1` expects.
     """
     np = _import_numpy()
-    y_f = (y.astype(np.float32) - 16.0) / 219.0
-    u_f = (u.astype(np.float32) - 128.0) / 224.0
-    v_f = (v.astype(np.float32) - 128.0) / 224.0
-    u_full = np.repeat(np.repeat(u_f, 2, axis=0), 2, axis=1)[: y.shape[0], : y.shape[1]]
-    v_full = np.repeat(np.repeat(v_f, 2, axis=0), 2, axis=1)[: y.shape[0], : y.shape[1]]
-
-    r = y_f + (1.5748 * v_full)
-    g = y_f - (0.1873 * u_full) - (0.4681 * v_full)
-    b = y_f + (1.8556 * u_full)
-    rgb = np.stack([r, g, b], axis=0)
-    rgb = np.clip(rgb, 0.0, 1.0)
+    # uint8 [H, W] -> float32 [H, W] in [0, 1]
+    f = luma.astype(np.float32) / 255.0
+    # Replicate to 3 channels.
+    rgb = np.stack([f, f, f], axis=0)  # [3, H, W]
     mean = np.asarray(_IMAGENET_MEAN, dtype=np.float32).reshape(3, 1, 1)
     std = np.asarray(_IMAGENET_STD, dtype=np.float32).reshape(3, 1, 1)
     rgb = (rgb - mean) / std
@@ -201,25 +180,6 @@ def _frame_count(path: Path, width: int, height: int) -> int:
     return fsize // _yuv420p_frame_size(width, height)
 
 
-def _validate_temporal_aggregator(temporal_aggregator: str, ema_alpha: float) -> None:
-    if temporal_aggregator not in SALIENCY_AGGREGATORS:
-        raise ValueError(
-            f"temporal_aggregator must be one of {SALIENCY_AGGREGATORS}, "
-            f"got {temporal_aggregator!r}"
-        )
-    if not (0.0 < float(ema_alpha) <= 1.0):
-        raise ValueError(f"ema_alpha must be in (0, 1], got {ema_alpha!r}")
-
-
-def _motion_weight(prev_y: "np.ndarray | None", y: "np.ndarray") -> float:
-    """Return a non-zero saliency weight from luma motion energy."""
-    if prev_y is None:
-        return 1.0
-    np = _import_numpy()
-    delta = np.abs(y.astype(np.float32) - prev_y.astype(np.float32))
-    return max(float(delta.mean() / 255.0), 1.0e-6)
-
-
 def compute_saliency_map(
     video_path: Path,
     width: int,
@@ -227,22 +187,12 @@ def compute_saliency_map(
     *,
     model_path: Path | None = None,
     frame_samples: int = DEFAULT_FRAME_SAMPLES,
-    temporal_aggregator: str = DEFAULT_SALIENCY_AGGREGATOR,
-    ema_alpha: float = DEFAULT_SALIENCY_EMA_ALPHA,
     session_factory: Any = None,
 ) -> "np.ndarray":
     """Run ``saliency_student_v1`` over a sampled subset of frames.
 
-    Returns a ``float32 [H, W]`` aggregate saliency mask in ``[0, 1]``.
-    ``temporal_aggregator`` controls how sampled per-frame masks are
-    reduced:
-
-    - ``mean``: historical per-pixel arithmetic mean.
-    - ``ema``: exponential moving average, current-frame weight
-      ``ema_alpha``.
-    - ``max``: per-pixel maximum over sampled masks.
-    - ``motion-weighted``: per-pixel weighted mean where each frame's
-      weight is the mean luma delta from the previous sampled frame.
+    Returns a ``float32 [H, W]`` aggregate saliency mask in ``[0, 1]``
+    — the per-pixel mean of the per-frame outputs.
 
     ``session_factory`` is the test seam: tests pass a fake that
     returns a stub session object exposing ``.run(...)``.
@@ -251,7 +201,6 @@ def compute_saliency_map(
     model file cannot be loaded.
     """
     np = _import_numpy()
-    _validate_temporal_aggregator(temporal_aggregator, ema_alpha)
 
     if model_path is None:
         model_path = DEFAULT_SALIENCY_MODEL_RELPATH
@@ -274,40 +223,15 @@ def compute_saliency_map(
     indices = _sample_frame_indices(nframes, frame_samples)
 
     accum = np.zeros((height, width), dtype=np.float32)
-    max_mask = np.zeros((height, width), dtype=np.float32)
-    ema_mask: np.ndarray | None = None
-    weight_sum = 0.0
-    prev_y: np.ndarray | None = None
     for fi in indices:
-        y, u, v = _read_yuv420p_planes(video_path, fi, width, height)
-        tensor = _yuv420p_to_rgb_imagenet(y, u, v)
+        luma = _read_yuv420p_y_plane(video_path, fi, width, height)
+        tensor = _luma_to_rgb_imagenet(luma)
         outputs = session.run(None, {"input": tensor})
         # saliency_student_v1 returns NCHW [1, 1, H, W] in [0, 1].
         mask = np.asarray(outputs[0]).reshape(height, width)
-        mask = mask.astype(np.float32)
-        if temporal_aggregator == "mean":
-            accum += mask
-        elif temporal_aggregator == "max":
-            max_mask = np.maximum(max_mask, mask)
-        elif temporal_aggregator == "ema":
-            if ema_mask is None:
-                ema_mask = mask.copy()
-            else:
-                ema_mask = (float(ema_alpha) * mask) + ((1.0 - float(ema_alpha)) * ema_mask)
-        else:
-            weight = _motion_weight(prev_y, y)
-            accum += mask * weight
-            weight_sum += weight
-            prev_y = y.copy()
+        accum += mask.astype(np.float32)
 
-    if temporal_aggregator == "mean":
-        accum /= float(len(indices))
-    elif temporal_aggregator == "max":
-        accum = max_mask
-    elif temporal_aggregator == "ema":
-        accum = ema_mask if ema_mask is not None else accum
-    else:
-        accum /= weight_sum
+    accum /= float(len(indices))
     # Numerically pin to [0, 1] in case of FP drift on the boundary.
     return np.clip(accum, 0.0, 1.0)
 
@@ -409,16 +333,6 @@ def augment_extra_params_with_qpfile(base: Sequence[str], qpfile: Path) -> tuple
     agnostic of saliency.
     """
     return tuple(base) + ("-x264-params", f"qpfile={qpfile}")
-
-
-def augment_extra_params_with_libaom_qpfile(base: Sequence[str], qpfile: Path) -> tuple[str, ...]:
-    """Return ``base + ('-qpfile', str(qpfile))`` for patched libaom-av1.
-
-    The fork's FFmpeg patch stack exposes a shared top-level ``-qpfile``
-    AVOption on ``libaom-av1``. Unlike x264's wrapper, libaom does not
-    receive the path through an opaque encoder-params key.
-    """
-    return tuple(base) + ("-qpfile", str(qpfile))
 
 
 # ---------------------------------------------------------------------------
@@ -617,36 +531,6 @@ def _saliency_augment_x264(
     )
 
 
-def _saliency_augment_libaom(
-    request: "EncodeRequest",
-    qp_map: "np.ndarray",
-    *,
-    duration_frames: int,
-    persist: bool,
-) -> "EncodeRequest":
-    """Return a copy of ``request`` augmented with libaom's qpfile argv.
-
-    The FFmpeg patch stack teaches ``libaom-av1`` to consume the same
-    x264-style qpfile saliency.py already emits, mapping each 16x16
-    macroblock delta onto libaom's mode-info grid and segment-QP table.
-    """
-    block_offsets = reduce_qp_map_to_blocks(qp_map, block=X264_MB_SIDE)
-    if persist:
-        qpfile = request.output.with_suffix(".libaom-qpfile.txt")
-        write_x264_qpfile(block_offsets, qpfile, duration_frames=duration_frames)
-        return dataclasses.replace(
-            request,
-            extra_params=augment_extra_params_with_libaom_qpfile(request.extra_params, qpfile),
-        )
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".libaom-qpfile.txt", delete=False) as fh:
-        qpfile = Path(fh.name)
-    write_x264_qpfile(block_offsets, qpfile, duration_frames=duration_frames)
-    return dataclasses.replace(
-        request,
-        extra_params=augment_extra_params_with_libaom_qpfile(request.extra_params, qpfile),
-    )
-
-
 def _saliency_augment_x265(
     request: "EncodeRequest",
     qp_map: "np.ndarray",
@@ -743,27 +627,10 @@ def _saliency_augment_vvenc(
 # that appears in ``EncodeRequest.encoder``.
 _SALIENCY_DISPATCH: dict[str, Any] = {
     "libx264": _saliency_augment_x264,
-    "libaom-av1": _saliency_augment_libaom,
     "libx265": _saliency_augment_x265,
     "libsvtav1": _saliency_augment_svtav1,
     "libvvenc": _saliency_augment_vvenc,
 }
-
-
-def _cleanup_path_from_extra_params(extra_params: Sequence[str]) -> Path | None:
-    """Find an ephemeral ROI sidecar path injected into extra params."""
-    params = tuple(extra_params)
-    for idx in range(len(params) - 1, -1, -1):
-        token = params[idx]
-        if idx > 0 and params[idx - 1] == "-qpfile":
-            candidate = Path(token)
-            if candidate.exists():
-                return candidate
-        if "=" in token:
-            candidate = Path(token.split("=", 1)[-1])
-            if candidate.exists():
-                return candidate
-    return None
 
 
 def saliency_aware_encode(
@@ -782,8 +649,6 @@ def saliency_aware_encode(
     ``request.encoder``:
 
     - ``libx264``  — ASCII ``--qpfile`` at 16×16 macroblock granularity.
-    - ``libaom-av1`` — patched FFmpeg ``-qpfile <path>`` bridge at
-      16×16 macroblock granularity.
     - ``libx265``  — ``--zones`` QP delta (per-clip spatial mean) via
       ``-x265-params zones=0,N,q=<delta>``.
     - ``libsvtav1`` — space-separated QP-offset map at 64×64 super-block
@@ -818,8 +683,6 @@ def saliency_aware_encode(
             request.height,
             model_path=model_path,
             frame_samples=cfg.frame_samples,
-            temporal_aggregator=cfg.temporal_aggregator,
-            ema_alpha=cfg.ema_alpha,
             session_factory=session_factory,
         )
     except SaliencyUnavailableError as exc:
@@ -853,7 +716,15 @@ def saliency_aware_encode(
     # encode. The augmented extra_params carries the file path injected
     # by the augment helper in the last ``key=<path>`` slot.
     if not cfg.persist_qpfile:
-        cleanup_path = _cleanup_path_from_extra_params(augmented.extra_params)
+        cleanup_path: Path | None = None
+        for token in reversed(augmented.extra_params):
+            # Augment helpers inject paths via "key=<path>" tokens; the
+            # path is always the value after the last ``=``.
+            if "=" in token:
+                candidate = Path(token.split("=", 1)[-1])
+                if candidate.exists():
+                    cleanup_path = candidate
+                    break
         try:
             return run_encode(augmented, ffmpeg_bin=ffmpeg_bin, runner=runner)
         finally:
@@ -868,8 +739,6 @@ def saliency_aware_encode(
 
 __all__ = [
     "DEFAULT_FRAME_SAMPLES",
-    "DEFAULT_SALIENCY_AGGREGATOR",
-    "DEFAULT_SALIENCY_EMA_ALPHA",
     "DEFAULT_SALIENCY_MODEL_RELPATH",
     "QP_OFFSET_MAX",
     "QP_OFFSET_MIN",
@@ -878,8 +747,6 @@ __all__ = [
     "X264_MB_SIDE",
     "SaliencyConfig",
     "SaliencyUnavailableError",
-    "SALIENCY_AGGREGATORS",
-    "augment_extra_params_with_libaom_qpfile",
     "augment_extra_params_with_qpfile",
     "augment_extra_params_with_svtav1_qpmap",
     "augment_extra_params_with_vvenc_roi",

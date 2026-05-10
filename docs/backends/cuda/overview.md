@@ -125,13 +125,6 @@ Adding a new CUDA extractor: see [`/add-feature-extractor`](../../../.claude/ski
   builds that already load CUDA dynamically.
 - **Pinned host staging.** Input pictures are uploaded from
   `cuMemHostAlloc`-pinned buffers. See [picture_cuda.c](../../../libvmaf/src/cuda/picture_cuda.c).
-- **Picture accessors.** `picture_cuda.h` exports thin accessors —
-  `vmaf_cuda_picture_get_stream`, `vmaf_cuda_picture_get_ready_event`,
-  `vmaf_cuda_picture_get_finished_event`, and
-  `vmaf_cuda_picture_get_pix_fmt` — to avoid feature extractors
-  reaching into `VmafPicture` or `VmafPicturePrivate` fields directly.
-  Use these rather than `pic->pix_fmt` / `pic->priv->cuda.*` in new
-  extractor code.
 - **Non-default streams per extractor.** Each feature extractor owns its own
   stream so submit/collect for different features can overlap.
 - **Ring-buffered double-buffer submit.** Frame N+1 starts uploading while
@@ -152,12 +145,10 @@ Adding a new CUDA extractor: see [`/add-feature-extractor`](../../../.claude/ski
   host-side buffer reads only — the per-stream sync is short-circuited via
   `vmaf_cuda_kernel_collect_wait`'s `lc->drained` fast path. Participating
   extractors at time of writing: `psnr_cuda`, `motion_cuda`, `adm_cuda`,
-  `vif_cuda`, `ssimulacra2_cuda`, `integer_ms_ssim_cuda`, and
-  `integer_psnr_hvs_cuda`. MS-SSIM's 5-scale pyramid required allocating
-  per-scale partials buffers so all DtoH copies could enqueue back-to-back
-  on the same stream ([ADR-0271](../../adr/0271-cuda-drain-batch-ms-ssim.md));
-  PSNR-HVS follows the same submit-side readback + `lc.finished` registration
-  pattern for its three plane partial buffers.
+  `vif_cuda`, `ssimulacra2_cuda`, and `integer_ms_ssim_cuda`
+  ([ADR-0271](../../adr/0271-cuda-drain-batch-ms-ssim.md), the most recent
+  joiner — its 5-scale pyramid required allocating per-scale partials
+  buffers so all DtoH copies could enqueue back-to-back on the same stream).
   Bit-exactness is preserved (same kernels, same stream order — only the
   host wait point moves).
 
@@ -217,13 +208,8 @@ to surface an unexpected delta.
   YUV400P clamps to luma-only at runtime. Cross-backend gate vs CPU
   is bit-exact (`max_abs_diff = 0.0` at `places=4` on the 576×324 +
   640×480 testdata fixtures, RTX 4090, 8-bit 4:2:0).
-- **SSIM / MS-SSIM / PSNR-HVS / ANSNR** — SSIM, MS-SSIM, and PSNR-HVS
-  have CUDA kernels and participate in the cross-backend parity gate
-  (`psnr_hvs` uses the relaxed DCT/reduction tolerance from
-  [ADR-0191](../../adr/0191-psnr-hvs-vulkan.md) /
-  [ADR-0214](../../adr/0214-gpu-parity-ci-gate.md)). ANSNR falls back
-  to the CPU twin unless the caller selects the separate `float_ansnr`
-  CUDA extractor.
+- **SSIM / MS-SSIM / PSNR-HVS / ANSNR** — no CUDA kernels; these
+  are rare enough in production that the CPU twin is sufficient.
 - **Float-twin extractors (`float_*`)** — the CUDA backend
   implements the float twins for ANSNR / PSNR / Motion / VIF / ADM
   ([ADR-0202](../../adr/0202-float-adm-cuda-sycl.md)). Requesting
@@ -250,13 +236,6 @@ to surface an unexpected delta.
   passes `0` for the new trailing `channel` argument (Y-plane only,
   preserving CUDA pre-port behaviour). UV-plane motion on GPU is a
   follow-up tracked in [docs/state.md](../../state.md).
-- **`psnr_hvs_cuda` DCT scheduling** — the backend keeps the
-  established places=3 cross-backend contract by leaving the float
-  means, variances, masking, and masked-error accumulation in
-  thread-0 CPU scan order. The 8×8 integer DCT itself is parallelised
-  across the first eight CUDA threads inside each block; this is a
-  scheduling optimisation only and does not change emitted feature
-  names or CLI/API usage.
 - **SSIMULACRA 2** — `ssimulacra2_cuda` shipped per
   [ADR-0206](../../adr/0206-ssimulacra2-cuda-sycl.md) (hybrid
   host/GPU pipeline, IIR fatbin pinned with `--fmad=false`). The
@@ -269,8 +248,8 @@ to surface an unexpected delta.
   H-pass non-coalesced reads and V-pass L1 pressure remain known
   architectural ceilings (require a shared-memory tile-transpose
   rewrite).
-- **HIP / AMD** — separate backend; 8 of 11 real kernels shipped. See
-  [backends/hip/overview.md](../hip/overview.md) for details.
+- **HIP / AMD** — not yet scaffolded; see
+  [backends/index.md](../index.md) for the status row.
 
 See [metrics/features.md](../../metrics/features.md) for the
 per-extractor coverage matrix.

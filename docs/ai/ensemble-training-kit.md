@@ -1,11 +1,9 @@
-# Ensemble Training Kit
+# Ensemble training kit (stub)
 
-> **Status**: Shipped packaging surface. The portable
-> `tools/ensemble-training-kit/` bundle is in tree, accepted by
-> [ADR-0324](../adr/0324-ensemble-training-kit.md), and includes the
-> numbered step scripts, one-command orchestrator, tarball builder,
-> corpus extraction helper, frozen Python requirements, and shell smoke
-> tests.
+> **Stub** — placeholder per
+> [Research-0086](../research/0086-usage-doc-coverage-audit-2026-05-08.md).
+> Cite the ADR for the authoritative shape; full prose follows once
+> the kit reaches Accepted status.
 
 The *ensemble training kit* (per
 [ADR-0324](../adr/0324-ensemble-training-kit.md)) is a portable
@@ -24,50 +22,9 @@ already-in-tree pieces:
 - [`docs/ai/ensemble-v2-real-corpus-retrain-runbook.md`](ensemble-v2-real-corpus-retrain-runbook.md)
   — the operator runbook.
 
-Status: **Accepted / shipped**. ADR-0324 was accepted during the
-2026-05-08 ADR status sweep, and the on-disk bundle exists under
-`tools/ensemble-training-kit/`. Treat this page as the overview for the
-release-facing package; the detailed operator runbook lives in
-[`tools/ensemble-training-kit/README.md`](../../tools/ensemble-training-kit/README.md).
-
-## What The Kit Packages
-
-The kit is a convenience wrapper around the real training flow. It does
-not define a new model format and does not replace the LOSO trainer.
-
-| Step | Existing entry point | Output |
-| --- | --- | --- |
-| Capture hardware corpus | `scripts/dev/hw_encoder_corpus.py` | Phase-A JSONL rows |
-| Train LOSO folds | `ai/scripts/run_ensemble_v2_real_corpus_loso.sh` | fold metrics + checkpoints |
-| Validate seeds | `ai/scripts/validate_ensemble_seeds.py` | `PROMOTE.json` verdict |
-| Export seed ONNXs | `ai/scripts/export_ensemble_v2_seeds.py` | `fr_regressor_v2_ensemble_v1_seed*.onnx` |
-
-## Current Use
-
-Use the kit when handing the retrain workflow to another operator or
-when running the full loop locally:
-
-```bash
-bash tools/ensemble-training-kit/run-full-pipeline.sh --ref-dir /path/to/netflix/ref
-bash tools/ensemble-training-kit/make-distribution-tarball.sh /tmp/vmaf-ensemble-kit.tar.gz
-bash tools/ensemble-training-kit/tests/test_platform_detect.sh
-```
-
-For manual retry / debug runs, the numbered scripts are stable entry
-points:
-
-```bash
-bash tools/ensemble-training-kit/01-prereqs.sh
-REF_DIR=/path/to/netflix/ref bash tools/ensemble-training-kit/02-generate-corpus.sh
-bash tools/ensemble-training-kit/03-train-loso.sh
-bash tools/ensemble-training-kit/04-validate.sh
-bash tools/ensemble-training-kit/05-bundle-results.sh
-```
-
-The lower-level scripts remain available for maintainers who are
-developing the trainer itself, but operator handoff should use the kit
-so the argv order, platform detection, corpus extraction, and result
-bundle shape are all exercised together.
+Status: **Proposed** in ADR-0324; the on-disk bundle exists under
+`tools/ensemble-training-kit/` but the kit is not yet on the
+"ship-as-package" critical path.
 
 ## See also
 

@@ -922,12 +922,9 @@ static char *test_calculate_c_values_scalar_avx2_parity()
     uint16_t tvi_for_diff[4] = {178, 305, 432, 559};
     uint16_t vlt_luma = 0;
     uint16_t window_size = 9;
-    /* histograms: width * v_band_size, v_band_size <= tvi_for_diff[3]+1 = 560.
-     * Zero-initialise — calculate_c_values builds histograms incrementally
-     * via increment/decrement_range; pre-zeroing ensures deterministic
-     * sanitizer-instrumented runs on Ubuntu 24.04 CI (T-CAMBI-AVX2-CI-SIGILL). */
-    uint16_t histograms_s[8 * 560] = {0};
-    uint16_t histograms_a[8 * 560] = {0};
+    /* histograms: width * v_band_size, v_band_size <= tvi_for_diff[3]+1 = 560 */
+    uint16_t histograms_s[8 * 560];
+    uint16_t histograms_a[8 * 560];
     uint16_t *diffs_to_consider = NULL;
     int *diff_weights = NULL;
     int *all_diffs = NULL;
@@ -937,21 +934,10 @@ static char *test_calculate_c_values_scalar_avx2_parity()
                        tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
 
 #if ARCH_X86
-    /* Runtime CPU-feature gate: the AVX2 helpers (`calculate_c_values_avx2`,
-     * `cambi_increment_range_avx2`, etc.) build AVX2 SIMD constants
-     * (`_mm256_setr_epi32`, `_mm256_set1_epi32`) at function entry — executing
-     * those without runtime AVX2 support raises SIGILL. The non-test dispatch
-     * path is already runtime-gated via `vmaf_get_cpu_flags() & VMAF_X86_CPU_FLAG_AVX2`
-     * (see `cambi.c::init()`); reuse the in-tree portable gate here rather
-     * than `__builtin_cpu_supports("avx2")` (MSVC has no such builtin).
-     * Closes T-CAMBI-AVX2-CI-SIGILL. */
-    if (vmaf_get_cpu_flags() & VMAF_X86_CPU_FLAG_AVX2) {
-        calculate_c_values_avx2(&input_avx2, &mask_avx2, c_avx2, histograms_a, window_size,
-                                num_diffs, tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
-        for (int i = 0; i < 64; i++) {
-            mu_assert("scalar vs avx2 calculate_c_values parity (bit-exact)",
-                      c_scalar[i] == c_avx2[i]);
-        }
+    calculate_c_values_avx2(&input_avx2, &mask_avx2, c_avx2, histograms_a, window_size, num_diffs,
+                            tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
+    for (int i = 0; i < 64; i++) {
+        mu_assert("scalar vs avx2 calculate_c_values parity (bit-exact)", c_scalar[i] == c_avx2[i]);
     }
 #endif
 

@@ -5,9 +5,9 @@ measured VMAF still meets a target floor**, given a (source, codec,
 target VMAF) triple. Largest CRF = lowest bitrate at acceptable
 quality — the cost-optimal point.
 
-This is the production wiring that replaced the earlier placeholder
-predicate used by the `compare`, `recommend-saliency`, `predict`,
-`tune-per-shot`, and `ladder` subcommands. See
+This is the production wiring the existing `compare`,
+`recommend-saliency`, `predict`, `tune-per-shot`, and `ladder`
+subcommands have been stubbing out via the placeholder predicate. See
 [ADR-0326](../adr/0326-vmaf-tune-phase-b-bisect.md) for the decision
 and [Research-0090](../research/0090-vmaf-tune-phase-b-bisect-feasibility.md)
 for the algorithmic feasibility digest.
@@ -17,7 +17,7 @@ for the algorithmic feasibility digest.
 | Use case | What to use |
 |---|---|
 | One source, one codec, one target VMAF — find the CRF | `vmaftune.bisect.bisect_target_vmaf` |
-| Many codecs, same source + target — rank by bitrate | `vmaf-tune compare --width ... --height ...` or `vmaftune.compare.compare_codecs(predicate=make_bisect_predicate(...))` |
+| Many codecs, same source + target — rank by bitrate | `vmaftune.compare.compare_codecs(predicate=make_bisect_predicate(...))` |
 | Per-shot CRF tuning across a movie | `vmaftune.per_shot.tune_per_shot(predicate=...)` (Phase D) |
 | Per-resolution × per-target ladder | `vmaftune.ladder.build_ladder(...)` (Phase E) |
 | Sweeping the entire `(preset, CRF)` plane | `vmaftune.corpus.coarse_to_fine_search` ([ADR-0306](../adr/0306-vmaf-tune-coarse-to-fine.md)) |
@@ -81,22 +81,6 @@ flow through verbatim.
 
 ## Quick start — multi-codec compare
 
-CLI:
-
-```shell
-vmaf-tune compare \
-    --src ref.yuv \
-    --width 1920 --height 1080 --pix-fmt yuv420p \
-    --framerate 24 --duration 10 \
-    --sample-clip-seconds 4 \
-    --target-vmaf 92 \
-    --encoders libx264,libx265,libsvtav1 \
-    --crf-min 15 --crf-max 40 \
-    --format markdown
-```
-
-Python API:
-
 ```python
 from pathlib import Path
 from vmaftune.bisect import make_bisect_predicate
@@ -108,7 +92,6 @@ predicate = make_bisect_predicate(
     height=1080,
     framerate=24.0,
     duration_s=10.0,
-    sample_clip_seconds=4.0,
     crf_range=(15, 40),
     max_iterations=8,
 )
@@ -150,7 +133,6 @@ the comparison schema.
 |---|---|---|
 | `crf_range` | `adapter.quality_range` | Inclusive `(lo, hi)`; widening past the adapter's range is allowed. |
 | `max_iterations` | `8` | Hard cap; binary search asymptote is `ceil(log2(range))`. |
-| `sample_clip_seconds` | `0.0` | `0.0` scores the full source. Positive values shorter than `duration_s` encode the centre window, score the matching `frame_skip_ref` / `frame_cnt` window, and normalise bitrate against the sample duration (ADR-0301). |
 | `preset` | adapter mid-range (`"medium"` for x264/x265/svtav1) | Forwarded verbatim to the adapter. |
 | `vmaf_model` | `"vmaf_v0.6.1"` | Same vocabulary as `score.py`; HDR / 4K models per ADR-0289 / ADR-0295. |
 | `score_backend` | `None` | `"cpu"` / `"cuda"` / `"sycl"` / `"vulkan"` per ADR-0299. |
@@ -171,13 +153,15 @@ the comparison schema.
 
 ## What it does NOT do (yet)
 
+- **No sample-clip mode**: full-source encode every iteration; the
+  [ADR-0301](../adr/0301-vmaf-tune-sample-clip.md) sample-clip
+  speedup is a small wiring follow-up.
 - **No cache**: every call re-encodes; integrating the
   [ADR-0298](../adr/0298-vmaf-tune-cache.md) cache key fields is a
   one-call insertion.
-- **No standalone `bisect` CLI subcommand**: the primitive is exposed
-  through `vmaf-tune compare` for multi-codec ranking and through the
-  Python API for custom orchestration. `tune-per-shot` and `ladder`
-  can bind the same predicate from Python.
+- **No CLI subcommand**: the bisect is a programmatic primitive.
+  Operators use it via `compare`, `tune-per-shot`, `ladder`, or
+  direct Python import.
 
 ## See also
 

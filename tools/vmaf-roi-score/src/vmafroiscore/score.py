@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""vmaf binary driver for the Option C ROI-VMAF tool.
+"""vmaf binary driver — Option C scaffold.
 
 Wraps two invocations of the libvmaf CLI:
 
@@ -101,8 +101,6 @@ def _pixfmt_to_vmaf(pix_fmt: str) -> str:
 
 
 def _bitdepth_for(pix_fmt: str) -> int:
-    if "16le" in pix_fmt or "p16" in pix_fmt:
-        return 16
     if "10le" in pix_fmt or "p10" in pix_fmt:
         return 10
     if "12le" in pix_fmt or "p12" in pix_fmt:

@@ -80,7 +80,7 @@ typedef struct VmafDnnConfig {
  * Returns 1 if libvmaf was built with DNN support (-Denable_dnn=true) and
  * ONNX Runtime is linked, 0 otherwise.
  */
-VMAF_EXPORT int vmaf_dnn_available(void);
+int vmaf_dnn_available(void);
 
 /**
  * Attach a tiny ONNX model (C1 / C2) to @p ctx. The model is registered
@@ -94,8 +94,7 @@ VMAF_EXPORT int vmaf_dnn_available(void);
  *         args, -ENOENT if the path does not exist, -E2BIG if the file is
  *         larger than the compile-time 50 MB cap (VMAF_DNN_DEFAULT_MAX_BYTES).
  */
-VMAF_EXPORT int vmaf_use_tiny_model(VmafContext *ctx, const char *onnx_path,
-                                    const VmafDnnConfig *cfg);
+int vmaf_use_tiny_model(VmafContext *ctx, const char *onnx_path, const VmafDnnConfig *cfg);
 
 /**
  * Standalone DNN session for filter-style inference (learned pre-processing,
@@ -108,8 +107,7 @@ typedef struct VmafDnnSession VmafDnnSession;
  * Open a session against @p onnx_path. Applies the same size-cap + allowlist
  * validation as vmaf_use_tiny_model().
  */
-VMAF_EXPORT int vmaf_dnn_session_open(VmafDnnSession **out, const char *onnx_path,
-                                      const VmafDnnConfig *cfg);
+int vmaf_dnn_session_open(VmafDnnSession **out, const char *onnx_path, const VmafDnnConfig *cfg);
 
 /**
  * Run one luma-in / luma-out pass. The model's input must be NCHW
@@ -120,9 +118,8 @@ VMAF_EXPORT int vmaf_dnn_session_open(VmafDnnSession **out, const char *onnx_pat
  * @return 0 on success, -ENOTSUP if the model shape is not luma-only,
  *         -ERANGE if @p w/@p h don't match the model's static input shape.
  */
-VMAF_EXPORT int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in,
-                                           size_t in_stride, int w, int h, uint8_t *out,
-                                           size_t out_stride);
+int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *in, size_t in_stride, int w,
+                               int h, uint8_t *out, size_t out_stride);
 
 /**
  * 10-/12-/16-bit variant of @ref vmaf_dnn_session_run_luma8 — accepts a
@@ -148,9 +145,8 @@ VMAF_EXPORT int vmaf_dnn_session_run_luma8(VmafDnnSession *sess, const uint8_t *
  *         single-channel; -ERANGE if @p w/@p h don't match; -EINVAL on
  *         a bad @p bpc.
  */
-VMAF_EXPORT int vmaf_dnn_session_run_plane16(VmafDnnSession *sess, const uint16_t *in,
-                                             size_t in_stride, int w, int h, int bpc, uint16_t *out,
-                                             size_t out_stride);
+int vmaf_dnn_session_run_plane16(VmafDnnSession *sess, const uint16_t *in, size_t in_stride, int w,
+                                 int h, int bpc, uint16_t *out, size_t out_stride);
 
 /**
  * One input tensor passed to vmaf_dnn_session_run(). @p name binds by
@@ -190,10 +186,10 @@ typedef struct VmafDnnOutput {
  *         -EINVAL on bad arity / null pointers; -ENOSPC if any output
  *         buffer is too small; -EIO on ORT failure.
  */
-VMAF_EXPORT int vmaf_dnn_session_run(VmafDnnSession *sess, const VmafDnnInput *inputs,
-                                     size_t n_inputs, VmafDnnOutput *outputs, size_t n_outputs);
+int vmaf_dnn_session_run(VmafDnnSession *sess, const VmafDnnInput *inputs, size_t n_inputs,
+                         VmafDnnOutput *outputs, size_t n_outputs);
 
-VMAF_EXPORT void vmaf_dnn_session_close(VmafDnnSession *sess);
+void vmaf_dnn_session_close(VmafDnnSession *sess);
 
 /**
  * Name of the ONNX Runtime execution provider that actually bound to the
@@ -203,7 +199,7 @@ VMAF_EXPORT void vmaf_dnn_session_close(VmafDnnSession *sess);
  * "OpenVINO:CPU", "OpenVINO:GPU", "ROCm". Returns NULL if @p sess is NULL
  * or libvmaf was built without DNN support. Lifetime: owned by @p sess.
  */
-VMAF_EXPORT const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess);
+const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess);
 
 /**
  * Verify the Sigstore bundle for a tiny model against the model registry
@@ -221,7 +217,7 @@ VMAF_EXPORT const char *vmaf_dnn_session_attached_ep(VmafDnnSession *sess);
  *         Windows (the supply-chain workflow runs on Linux/macOS only),
  *         -EINVAL on a NULL @p onnx_path.
  */
-VMAF_EXPORT int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path);
+int vmaf_dnn_verify_signature(const char *onnx_path, const char *registry_path);
 
 #ifdef __cplusplus
 }

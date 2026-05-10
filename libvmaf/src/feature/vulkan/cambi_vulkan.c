@@ -834,17 +834,10 @@ static void cambi_vk_write_set(CambiVkState *s, VkDescriptorSet set, VmafVulkanB
 
 static void cambi_vk_barrier(VkCommandBuffer cmd)
 {
-    /* All three call sites (derivative→row-SAT, row-SAT→col-SAT,
-     * col-SAT→threshold-compare) are pure read-only consumers of the
-     * preceding pass's output buffer.  No atomicAdd in any of the
-     * consuming passes (cambi_preprocess / cambi_derivative /
-     * cambi_mask_dp shaders all write to a distinct output SSBO, not
-     * the one they read).  Tightened to SHADER_READ_BIT only
-     * (VK-5 / perf-audit 2026-05-16). */
     VkMemoryBarrier mb = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
     };
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, NULL, 0, NULL);
@@ -911,7 +904,7 @@ static int cambi_vk_upload_luma(CambiVkState *s, VmafPicture *pic)
 }
 
 /* Read back image_buf into pics[0] luma plane (10-bit packed → uint16). */
-static int cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
+static void cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
 {
     int err_inv_img = vmaf_vulkan_buffer_invalidate(s->ctx, s->image_buf);
     if (err_inv_img)
@@ -928,11 +921,10 @@ static int cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
             drow[x] = (uint16_t)((word >> ((x & 1u) * 16u)) & 0xFFFFu);
         }
     }
-    return 0;
 }
 
 /* Read back mask_buf into pics[1] luma plane. */
-static int cambi_vk_readback_mask(CambiVkState *s, unsigned w, unsigned h)
+static void cambi_vk_readback_mask(CambiVkState *s, unsigned w, unsigned h)
 {
     int err_inv_mask = vmaf_vulkan_buffer_invalidate(s->ctx, s->mask_buf);
     if (err_inv_mask)
@@ -949,7 +941,6 @@ static int cambi_vk_readback_mask(CambiVkState *s, unsigned w, unsigned h)
             drow[x] = (uint16_t)((word >> ((x & 1u) * 16u)) & 0xFFFFu);
         }
     }
-    return 0;
 }
 
 /* Upload pics[0] luma into image_buf (used at scale 0 init).  Useful
@@ -1302,12 +1293,8 @@ static int cambi_vk_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
             return err;
 
         /* Read back to host VmafPicture pair. */
-        err = cambi_vk_readback_image(s, scaled_w, scaled_h);
-        if (err)
-            return err;
-        err = cambi_vk_readback_mask(s, scaled_w, scaled_h);
-        if (err)
-            return err;
+        cambi_vk_readback_image(s, scaled_w, scaled_h);
+        cambi_vk_readback_mask(s, scaled_w, scaled_h);
 
         /* Host residual: calculate_c_values + spatial pooling. */
         vmaf_cambi_calculate_c_values(&s->pics[0], &s->pics[1], s->buffers.c_values,

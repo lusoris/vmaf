@@ -20,7 +20,6 @@
 #define __VMAF_CUDA_H__
 
 #include "libvmaf/libvmaf.h"
-#include "libvmaf/macros.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,7 +42,7 @@ typedef struct VmafCudaConfiguration {
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-VMAF_EXPORT int vmaf_cuda_state_init(VmafCudaState **cu_state, VmafCudaConfiguration cfg);
+int vmaf_cuda_state_init(VmafCudaState **cu_state, VmafCudaConfiguration cfg);
 
 /**
  * Free VmafCudaState allocated by `vmaf_cuda_state_init()`.
@@ -58,7 +57,7 @@ VMAF_EXPORT int vmaf_cuda_state_init(VmafCudaState **cu_state, VmafCudaConfigura
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-VMAF_EXPORT int vmaf_cuda_state_free(VmafCudaState *cu_state);
+int vmaf_cuda_state_free(VmafCudaState *cu_state);
 
 /**
  * Import VmafCudaState for use during CUDA feature extraction.
@@ -70,7 +69,7 @@ VMAF_EXPORT int vmaf_cuda_state_free(VmafCudaState *cu_state);
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-VMAF_EXPORT int vmaf_cuda_import_state(VmafContext *vmaf, VmafCudaState *cu_state);
+int vmaf_cuda_import_state(VmafContext *vmaf, VmafCudaState *cu_state);
 
 enum VmafCudaPicturePreallocationMethod {
     VMAF_CUDA_PICTURE_PREALLOCATION_METHOD_NONE = 0,
@@ -100,7 +99,7 @@ typedef struct VmafCudaPictureConfiguration {
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-VMAF_EXPORT int vmaf_cuda_preallocate_pictures(VmafContext *vmaf, VmafCudaPictureConfiguration cfg);
+int vmaf_cuda_preallocate_pictures(VmafContext *vmaf, VmafCudaPictureConfiguration cfg);
 
 /**
  * Fetch a preallocated VmafPicture for use during CUDA feature extraction.
@@ -115,7 +114,7 @@ VMAF_EXPORT int vmaf_cuda_preallocate_pictures(VmafContext *vmaf, VmafCudaPictur
  *
  * @return 0 on success, or < 0 (a negative errno code) on error.
  */
-VMAF_EXPORT int vmaf_cuda_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic);
+int vmaf_cuda_fetch_preallocated_picture(VmafContext *vmaf, VmafPicture *pic);
 
 #ifdef __cplusplus
 }

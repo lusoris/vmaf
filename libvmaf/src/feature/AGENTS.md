@@ -16,7 +16,6 @@ feature/
   vif.c / adm.c / …          # scalar CPU reference implementations
   integer_*.c                # integer-math reference implementations
   feature_lpips.c            # DNN-backed extractor (opens vmaf_dnn_session_*)
-  feature_dists.c            # DISTS-Sq DNN-backed extractor (LPIPS-shaped ABI)
   x86/                       # AVX2 / AVX-512 SIMD paths — must match scalar bit-for-bit
   arm64/                     # NEON SIMD paths — must match scalar bit-for-bit
   cuda/                      # CUDA kernels + launchers
@@ -423,26 +422,28 @@ feature/
   holds 5 slots and replicates the closest available end frame for
   channel positions outside the available window (clip start +
   end); (3) the registered feature name is
-  `fastdvdnet_pre_l1_residual` — downstream consumers (the future
-  FFmpeg `vmaf_pre_temporal` filter, training harnesses) bind to
-  that exact string. **T6-7b update (ADR-0255)**: the registry now
-  ships real upstream FastDVDnet weights (`smoke: false`) wrapped by
-  a luma adapter in `ai/scripts/export_fastdvdnet_pre.py`; the
-  previous smoke-only placeholder is history. The C-side contract is
-  unchanged; the wrapper keeps the I/O names (`frames` / `denoised`)
-  byte-identical, handles `Y → [Y, Y, Y]` tiling, supplies a
-  constant `sigma = 25/255` noise map, and performs BT.601 RGB→Y
-  collapse internally. Two rebase-sensitive invariants flow from the
+  `fastdvdnet_pre_l1_residual` — downstream consumers (FFmpeg
+  `vmaf_pre_temporal` filter shipping with T6-7b, training
+  harnesses) bind to that exact string. The placeholder ONNX
+  shipped under `model/tiny/fastdvdnet_pre.onnx` is smoke-only
+  (`smoke: true` in the registry); when T6-7b swaps in real
+  upstream weights, keep the I/O names (`frames` / `denoised`)
+  byte-identical. **T6-7b update (ADR-0253)**: the registry now
+  ships real upstream FastDVDnet weights wrapped by a luma adapter
+  in `ai/scripts/export_fastdvdnet_pre.py`. The C-side contract is
+  unchanged; the wrapper handles `Y → [Y, Y, Y]` tiling, a
+  constant `sigma = 25/255` noise map, and BT.601 RGB→Y collapse
+  internally. Two new rebase-sensitive invariants flow from the
   wrapper: (4) upstream's `nn.PixelShuffle` is swapped for an
   allowlist-safe `Reshape`/`Transpose`/`Reshape` decomposition at
   export time (`DepthToSpace` is not on the ONNX op allowlist —
-  ADR-0255 §Decision); (5) the upstream commit is pinned at
+  ADR-0253 §Decision); (5) the upstream commit is pinned at
   `c8fdf6182a0340e89dd18f5df25b47337cbede6f` and the exporter
   enforces the upstream weights sha256
   `9d9d8413c33e3d9d961d07c530237befa1197610b9d60602ff42fd77975d2a17`
   to keep the weights drop reproducible. See
   [ADR-0215](../../../docs/adr/0215-fastdvdnet-pre-filter.md) and
-  [ADR-0255](../../../docs/adr/0255-fastdvdnet-pre-real-weights.md).
+  [ADR-0253](../../../docs/adr/0253-fastdvdnet-pre-real-weights.md).
 - **`transnet_v2.c` 100-frame-window contract** (fork-local,
   ADR-0223 + ADR-0257) — TransNet V2 shot-boundary detector is
   wired to the I/O contract `frames: float32 [1, 100, 3, 27, 48]`
@@ -637,16 +638,6 @@ after a port-upstream of any of these files.
   extractor registration pattern.
 - [ADR-0042](../../../docs/adr/0042-tinyai-docs-required-per-pr.md) —
   DNN-backed extractors ship docs under `docs/ai/`.
-- [ADR-0236](../../../docs/adr/0236-dists-extractor.md) — `dists_sq`
-  mirrors LPIPS' two-input tiny-AI extractor shape. Keep
-  `VMAF_DISTS_SQ_MODEL_PATH`, `model_path`, registry id
-  `dists_sq_placeholder_v0`, and the `score` scalar output aligned until
-  the real DISTS weights replace the smoke checkpoint.
-- **LPIPS / DISTS high-bit-depth input invariant** — both extractors
-  accept planar 8/10/12/16-bit YUV but keep the ONNX tensor ABI as
-  ImageNet-normalised RGB8. High-bit-depth samples are little-endian
-  16-bit containers rounded into the 8-bit domain before the shared
-  BT.709 limited-range RGB conversion.
 - [ADR-0125](../../../docs/adr/0125-ms-ssim-decimate-simd.md) —
   MS-SSIM decimate separable SIMD + bit-exactness contract.
 - [ADR-0126](../../../docs/adr/0126-ssimulacra2-feature-extractor.md) +
@@ -684,14 +675,10 @@ after a port-upstream of any of these files.
   CUDA + Vulkan + SYCL MS-SSIM kernels. On rebase: ensure the
   option metadata stays declared on the GPU paths even if the
   body is still TODO.
-- **`psnr` cross-backend `enable_chroma` option parity (ADR-0453)** —
-  `psnr_cuda`, `psnr_sycl`, and `psnr_vulkan` now honour
-  `enable_chroma` (default `true`) consistently with the CPU reference.
-  Passing `enable_chroma=false` produces luma-only output on all three
-  GPU backends. The option default must remain `true`; any change to the
-  default or the `n_planes` clamp logic requires a coordinated update
-  across all three GPU twins. See CUDA AGENTS.md / Vulkan AGENTS.md
-  invariant notes and [ADR-0453](../../../docs/adr/0453-psnr-enable-chroma-gpu-parity.md).
+- **psnr chroma Vulkan (T3-15(b), PR #204 open, ADR-0216
+  placeholder)** — `psnr_cb` + `psnr_cr` Vulkan twins next to
+  `psnr_y`
+  ([ADR-0182](../../../docs/adr/0182-gpu-long-tail-batch-1.md)).
 - **MobileSal saliency extractor (T6-2a, PR #208 open, ADR-0218
   placeholder)** — first half of T6-2 (encoder-side ROI bundle).
   DNN-backed; opens sessions through
@@ -730,6 +717,3 @@ after a port-upstream of any of these files.
   port from `d3647c73` (`speed_chroma` + `speed_temporal`) is
   PR #213 (open). 32-bit ADM/cpu fallbacks (`8a289703` +
   `1b6c3886`) are PR #212 (open).
-- **`float_ansnr` `enable_chroma`**: fork-local option (default `false`). GPU
-  twins do not yet expose this option; if ported, ensure they emit the same
-  four chroma feature names (`float_ansnr_cb/cr`, `float_anpsnr_cb/cr`).
