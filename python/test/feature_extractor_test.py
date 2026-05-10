@@ -594,11 +594,18 @@ class FeatureExtractorTest(MyTestCase):
 
         results = self.fextractor.results
 
+        # Recalibrated post-PR-#731: AIM derivation now matches upstream Netflix.
+        # The prior value (0.9539779375) was produced by the buggy single-pass AIM
+        # that measured reference self-energy instead of distorted-vs-reference energy,
+        # yielding AIM ~0.52 and adm3 ~0.95.  The correct cm() src/dst buffer order
+        # (decouple_r as src; csf_f/csf_a swapped) and noise_weight=0.0 for the AIM
+        # half now produce AIM ~0.026 and adm3 ~0.887 for the fork-local f1s/f2s
+        # noise-weight feature — matching the upstream Netflix algorithm.
         self.assertAlmostEqual(
             results[0][
                 "VMAF_feature_adm3_f1s0_0.0173815_f1s1_0.0319848_f1s2_0.0433727_f1s3_0.0456734_f2s0_0.00589069_f2s1_0.0142991_f2s2_0.0243969_f2s3_0.0313127_score"
             ],
-            0.9539779375,
+            0.8872294166666667,
             places=4,
         )
 
