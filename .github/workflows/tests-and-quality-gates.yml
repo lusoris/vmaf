@@ -553,12 +553,7 @@ jobs:
           # that meson test dispatch expects.
           set +o pipefail
           TESTS=$(meson introspect build --tests 2>&1 \
-                  | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-for t in data:
-    print(f"libvmaf:{t[\"name\"]}")
-' \
+                  | python3 -c "import json,sys; [print('libvmaf:'+t['name']) for t in json.load(sys.stdin)]" \
                   | grep -vE "$EXCLUDE" || true)
           set -o pipefail
           echo "test count: $(echo "$TESTS" | wc -l)"
