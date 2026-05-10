@@ -12,6 +12,11 @@ vmaf_base_include = include_directories('./', './feature/common', '../include')
 vmaf_cflags_common = [
     '-pedantic',
     '-DOC_NEW_STYLE_INCLUDES',
+    # ADR-0377: hide all symbols by default; only vmaf_*-prefixed entry
+    # points annotated with VMAF_EXPORT in the public headers are visible
+    # in the final libvmaf.so. This eliminates the 207-symbol leak
+    # found by Research-0092 (libsvm C API, pdjson, SIMD internals, etc.)
+    '-fvisibility=hidden',
 ]
 
 

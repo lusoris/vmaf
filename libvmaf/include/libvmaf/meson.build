@@ -58,8 +58,12 @@ if get_option('enable_dnn').enabled() or get_option('enable_dnn').auto()
 endif
 
 # install headers
+# macros.h is always installed — it defines VMAF_EXPORT which every public
+# header includes, so downstream consumers building against the installed
+# tree must be able to find it. ADR-0377.
 install_headers(['libvmaf.h',
                 'feature.h',
+                'macros.h',
                 'model.h',
                 'picture.h',
                 'vmaf_assert.h'],

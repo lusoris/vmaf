@@ -147,6 +147,33 @@ meson configure build | head -40
 
 ## Related
 
+## Symbol visibility
+
+All translation units in `libvmaf` are compiled with `-fvisibility=hidden`
+(see `libvmaf/src/meson.build`). Only symbols explicitly annotated with
+`VMAF_EXPORT` (defined in `libvmaf/include/libvmaf/macros.h`) appear in
+the dynamic symbol table of `libvmaf.so`. This eliminates silent symbol
+interposition from embedded third-party code (libsvm, pdjson) and internal
+helper symbols.
+
+**For downstream consumers** building their own code with `-fvisibility=hidden`:
+the `VMAF_EXPORT` attribute on every declaration in the installed public headers
+means you do **not** need to add manual visibility overrides for libvmaf entry
+points.
+
+**Verification gate**:
+
+```bash
+nm -D --defined-only build/src/libvmaf.so.* | grep ' [TW] ' | grep -v ' vmaf_' | wc -l
+# Must print 0
+```
+
+See [ADR-0379](../adr/0379-libvmaf-symbol-visibility.md) and
+[Research-0092](../research/0092-round4-symbol-visibility-audit.md) for
+the original 207-symbol audit and fix rationale.
+
+## See also
+
 - [ADR-0100](../adr/0100-project-wide-doc-substance-rule.md) — project-wide
   doc-substance rule (this page satisfies the Build-flag bar).
 - [backends/index.md](../backends/index.md) — how build flags turn into
