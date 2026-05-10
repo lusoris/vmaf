@@ -291,7 +291,7 @@ static int upload_plane(AnsnrVulkanState *s, VmafPicture *pic, VmafVulkanBuffer 
     return vmaf_vulkan_buffer_flush(s->ctx, buf);
 }
 
-static void reduce_partials(const AnsnrVulkanState *s, double *sig_out, double *noise_out)
+static int reduce_partials(const AnsnrVulkanState *s, double *sig_out, double *noise_out)
 {
     int err_inv;
     err_inv = vmaf_vulkan_buffer_invalidate(s->ctx, s->sig_partials);
@@ -310,6 +310,7 @@ static void reduce_partials(const AnsnrVulkanState *s, double *sig_out, double *
     }
     *sig_out = sig;
     *noise_out = noise;
+    return 0;
 }
 
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
@@ -371,7 +372,9 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     /* Final ANSNR / ANPSNR transforms — match ansnr.c::compute_ansnr. */
     double sig = 0.0;
     double noise = 0.0;
-    reduce_partials(s, &sig, &noise);
+    err = reduce_partials(s, &sig, &noise);
+    if (err)
+        goto cleanup;
 
     const double score = (noise == 0.0) ? s->psnr_max : 10.0 * log10(sig / noise);
     const double eps = 1e-10;

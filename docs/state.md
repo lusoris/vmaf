@@ -1,5 +1,6 @@
 # Fork bug-status — `docs/state.md`
 
+_Updated: 2026-05-10 (Vulkan GCC 16 build-break closed — ADR-0376 `static void` → `static int` buffer-invalidate fix; state.md row added to Recently closed)._
 _Updated: 2026-05-10 (Phase-A DNN ENOSYS audit finding resolved — confirmed intentional per ADR-0374; state.md row added to Confirmed not-affected)._
 _Updated: 2026-05-10 (session backfill: 10 PRs #661–#678 added to Recently closed; duplicate CUDA framesync row removed)._
 _Updated: 2026-05-09 (comprehensive verify-every-row audit;
@@ -68,6 +69,7 @@ _Bugs closed in the last ~90 days. Older entries roll off into
 
 | Bug | Closed by | ADR | Verification |
 |---|---|---|---|
+| **Vulkan GCC 16 build break — `static void` buffer-invalidate readback functions swallowed error codes with `return <int>;`** — GCC 16 promotes `-Wreturn-mismatch` to a hard error, blocking the Vulkan build. Four sites in `float_ansnr_vulkan.c` (`reduce_partials`) and `cambi_vulkan.c` (`cambi_vk_readback_image`, `cambi_vk_readback_mask`) had `return <int-expr>;` inside `static void` functions guarding `vmaf_vulkan_buffer_invalidate()` calls. The error code was silently discarded under GCC 14–15; on a coherency-flush failure the CPU would read stale GPU-written memory and produce incorrect scores without surfacing any error. | this PR (fix/vulkan-gcc16-return-mismatch, 2026-05-10) | [ADR-0376](adr/0376-vulkan-void-to-int-buffer-invalidate.md) | `meson setup build-vk -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=true && ninja -C build-vk` exits 0 under GCC 16.1.1. Affected TUs (`feature_vulkan_float_ansnr_vulkan.c.o`, `feature_vulkan_cambi_vulkan.c.o`) rebuilt from patched sources. |
 
 
 

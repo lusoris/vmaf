@@ -877,7 +877,7 @@ static int cambi_vk_upload_luma(CambiVkState *s, VmafPicture *pic)
 }
 
 /* Read back image_buf into pics[0] luma plane (10-bit packed → uint16). */
-static void cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
+static int cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
 {
     int err_inv_img = vmaf_vulkan_buffer_invalidate(s->ctx, s->image_buf);
     if (err_inv_img)
@@ -894,10 +894,11 @@ static void cambi_vk_readback_image(CambiVkState *s, unsigned w, unsigned h)
             drow[x] = (uint16_t)((word >> ((x & 1u) * 16u)) & 0xFFFFu);
         }
     }
+    return 0;
 }
 
 /* Read back mask_buf into pics[1] luma plane. */
-static void cambi_vk_readback_mask(CambiVkState *s, unsigned w, unsigned h)
+static int cambi_vk_readback_mask(CambiVkState *s, unsigned w, unsigned h)
 {
     int err_inv_mask = vmaf_vulkan_buffer_invalidate(s->ctx, s->mask_buf);
     if (err_inv_mask)
@@ -914,6 +915,7 @@ static void cambi_vk_readback_mask(CambiVkState *s, unsigned w, unsigned h)
             drow[x] = (uint16_t)((word >> ((x & 1u) * 16u)) & 0xFFFFu);
         }
     }
+    return 0;
 }
 
 /* Upload pics[0] luma into image_buf (used at scale 0 init).  Useful
@@ -1264,8 +1266,12 @@ static int cambi_vk_extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
             return err;
 
         /* Read back to host VmafPicture pair. */
-        cambi_vk_readback_image(s, scaled_w, scaled_h);
-        cambi_vk_readback_mask(s, scaled_w, scaled_h);
+        err = cambi_vk_readback_image(s, scaled_w, scaled_h);
+        if (err)
+            return err;
+        err = cambi_vk_readback_mask(s, scaled_w, scaled_h);
+        if (err)
+            return err;
 
         /* Host residual: calculate_c_values + spatial pooling. */
         vmaf_cambi_calculate_c_values(&s->pics[0], &s->pics[1], s->buffers.c_values,

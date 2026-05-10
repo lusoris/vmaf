@@ -32621,3 +32621,28 @@ ninja -C build_test test/test_speed_qa
 meson test -C build_test test_speed_qa --verbose
 # Expected: 5 tests run, 5 passed
 ```
+
+### ADR-0376 — Vulkan buffer-invalidate `void` → `int` fix (GCC 16, 2026-05-10)
+
+- **Touches**: `libvmaf/src/feature/vulkan/float_ansnr_vulkan.c` (function
+  `reduce_partials`, call site in `extract`),
+  `libvmaf/src/feature/vulkan/cambi_vulkan.c` (functions
+  `cambi_vk_readback_image`, `cambi_vk_readback_mask`, call sites in
+  `cambi_vk_extract`).
+- **Invariant**: `reduce_partials`, `cambi_vk_readback_image`, and
+  `cambi_vk_readback_mask` are now `static int` with error-propagating call
+  sites. If an upstream sync brings a competing refactor of these functions
+  (e.g., a signature change or a different coherency-flush strategy), the
+  `static int` contract and call-site error checks must be preserved.
+- **On upstream sync**: no risk from Netflix/vmaf upstream — these files are
+  100% fork-local (Vulkan feature extractors do not exist upstream). The
+  rebase risk is internal: if a fork-local PR changes the Vulkan buffer-API
+  surface (e.g., a new `vmaf_vulkan_buffer_invalidate` variant), verify the
+  call-site error propagation pattern still applies.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build-vk-retest -Denable_cuda=false -Denable_sycl=false -Denable_vulkan=true
+  ninja -C build-vk-retest
+  # Must compile cleanly under GCC 16 with no -Wreturn-mismatch error
+  ```
