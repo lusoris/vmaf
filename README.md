@@ -20,7 +20,14 @@ assessment, Emmy-winning, now with:
   memory-efficient scoring).
 - **Vulkan** GPU backend — vendor-neutral compute-shader path covering motion,
   motion2, motion3, ADM, VIF, PSNR, SSIM, MS-SSIM, PSNR-HVS, CAMBI; runs on
-  any GLSL/SPIR-V capable device including lavapipe in CI.
+  any GLSL/SPIR-V capable device including lavapipe in CI. On Mesa ANV/RADV
+  drivers, Vulkan **outperforms NVIDIA proprietary Vulkan** at every resolution
+  tested (Arc A380 7,481 fps, AMD iGPU 7,481 fps, RTX 4090 6,362 fps at
+  576×324 — see [Research-0092](docs/research/0092-perf-bench-multi-backend-2026-05-10.md)).
+- **HIP (AMD ROCm)** GPU backend — 8 of 11 feature extractors have real device
+  kernels (PSNR, float-PSNR, ANSNR, motion, motion\_v2, moment, SSIM,
+  CIEDE2000); ADM and VIF pending a low-level API redesign. Requires
+  `-Denable_hip=true -Denable_hipcc=true` and ROCm ≥ 7.
 - **AVX2 / AVX-512 / NEON** SIMD paths for every hot kernel.
 - **`--precision`** CLI flag — default `%.17g` for IEEE-754 round-trip lossless
   scores; `legacy` opts back to upstream `%.6f`.
@@ -63,26 +70,42 @@ build/tools/vmaf -r ref.yuv -d dis.yuv --width 1920 --height 1080 \
 ```
 
 Add `-Denable_cuda=true` (requires `/opt/cuda`), `-Denable_sycl=true`
-(requires oneAPI `icpx`), or `-Denable_vulkan=true` (requires
-`glslangValidator` + a Vulkan-capable ICD; lavapipe is sufficient) to
-bring up a GPU backend. The embedded MCP server lands behind
+(requires oneAPI `icpx`), `-Denable_vulkan=true` (requires
+`glslangValidator` + a Vulkan-capable ICD; lavapipe is sufficient), or
+`-Denable_hip=true -Denable_hipcc=true` (requires ROCm ≥ 7 + `hipcc`)
+to bring up a GPU backend. The embedded MCP server lands behind
 `-Denable_mcp=true` (scaffold currently returns `-ENOSYS`; transports in
 T5-2b).
 
 ## Backends at a glance
 
-| Backend | Status | Notes                                                                                  |
-| ------- | ------ | -------------------------------------------------------------------------------------- |
-| CPU     | ✅     | Scalar + AVX2 + AVX-512 + NEON. Golden-data truth.                                     |
-| CUDA    | ✅     | `/opt/cuda`, `nvcc`. Works on RTX 20xx and newer.                                      |
-| SYCL    | ✅     | oneAPI DPC++; Intel/NVIDIA/AMD via Codeplay; fp64-less device fallback for Arc / iGPU. |
-| Vulkan  | ✅     | Vendor-neutral compute shaders; runs on lavapipe in CI.                                |
-| HIP     | 🚧     | Planned — infrastructure in place, kernels pending.                                    |
-| Metal   | 💭     | Apple Silicon — not prioritized, PRs welcome.                                          |
+| Backend | Status | Notes                                                                                                                  |
+| ------- | ------ | ---------------------------------------------------------------------------------------------------------------------- |
+| CPU     | ✅     | Scalar + AVX2 + AVX-512 + NEON. Golden-data truth.                                                                     |
+| CUDA    | ✅     | `/opt/cuda`, `nvcc`. Works on RTX 20xx and newer. `CU_STREAM_NON_BLOCKING` motion speedup (PR #702).                   |
+| SYCL    | ✅     | oneAPI DPC++; Intel/NVIDIA/AMD via Codeplay; fp64-less device fallback for Arc / iGPU.                                 |
+| Vulkan  | ✅     | Vendor-neutral compute shaders; runs on lavapipe in CI. Mesa ANV/RADV outperform NVIDIA proprietary Vulkan per bench.  |
+| HIP     | 🔶     | 8/11 feature kernels real (`-Denable_hip=true -Denable_hipcc=true`); ADM + VIF pending low-level API redesign.         |
+| Metal   | 💭     | Apple Silicon scaffold (8/17 real); `-Denable_metal=auto/enabled`; not prioritized, PRs welcome.                       |
 
 Cross-backend numerical divergence is held to ≤ 2 ULP in double precision; see
 [`/cross-backend-diff`](.claude/skills/cross-backend-diff/SKILL.md) for the
 verification loop.
+
+**FFmpeg integration:** 11 patches against `n8.1.1` cover all four GPU
+backends and the DNN/tiny-model surface. Configure flags:
+`--enable-libvmaf-{cuda,sycl,vulkan,hip}`. See
+[`ffmpeg-patches/`](ffmpeg-patches/).
+
+**Symbol visibility (PR #706,
+[ADR-0379](docs/adr/0379-libvmaf-symbol-visibility.md)):**
+`libvmaf.so` exports exactly **44 `vmaf_*` public symbols** — zero
+leaked internal symbols (was 207 leaked, including libsvm, pdjson,
+and SIMD kernel names).
+
+**Compiler support:** GCC 16 is supported (PR #699,
+[ADR-0376](docs/adr/0376-ffmpeg-patches-hip-backend-selector.md));
+the `-Wreturn-mismatch` regression in Vulkan kernel sources was fixed.
 
 ## CLI additions (fork-only)
 
@@ -90,13 +113,14 @@ verification loop.
 --precision $spec
       score output precision
         N (1..17) -> printf "%.<N>g"
-        max|full  -> "%.17g" (default; round-trip lossless)
-        legacy    -> "%.6f" (pre-fork Netflix output)
+        max|full  -> "%.17g" (IEEE-754 round-trip lossless; opt-in)
+        legacy    -> "%.6f" (default; matches upstream Netflix output)
 
---backend $name            cpu|cuda|sycl|vulkan (auto-selects if omitted)
+--backend $name            cpu|cuda|sycl|vulkan|hip (auto-selects if omitted)
 --no_cuda                  disable CUDA backend
 --no_sycl                  disable SYCL/oneAPI backend
 --sycl_device $unsigned    select SYCL GPU by index (default: auto)
+--vulkan_device $integer   select Vulkan device by ordinal (required to enable Vulkan)
 --gpumask: $bitmask        restrict permitted GPU operations
 
 --tiny-model $path         load a tiny ONNX model alongside classic models
