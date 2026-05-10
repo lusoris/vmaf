@@ -18,6 +18,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -29,12 +30,13 @@ static int set_option_bool(bool *dst, bool default_val, const char *val)
     if (!val)
         return 0;
 
-    if (!strcmp(val, "true"))
+    if (!strcmp(val, "true")) {
         *dst = true;
-    else if (!strcmp(val, "false"))
+    } else if (!strcmp(val, "false")) {
         *dst = false;
-    else
+    } else {
         return -EINVAL;
+    }
 
     return 0;
 }
@@ -73,6 +75,12 @@ static int set_option_double(double *dst, double default_val, const char *val, d
     if (end == val || *end != '\0')
         return -EINVAL;
     if (errno == ERANGE)
+        return -EINVAL;
+    /* NaN bypasses ordered comparisons (NaN < x and NaN > x are both false),
+     * so reject it explicitly before the bounds check. Infinity is already
+     * rejected when the bound is finite (Inf > max is true), but NaN is not.
+     * T-ROUND8-OPT-NAN-BYPASS / CWE-704. */
+    if (isnan(n))
         return -EINVAL;
     if (n < min)
         return -EINVAL;

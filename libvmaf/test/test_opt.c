@@ -331,6 +331,49 @@ static char *test_double_overflow(void)
     return NULL;
 }
 
+/* T-ROUND8-OPT-NAN-BYPASS: strtod("nan") returns NaN whose ordered
+ * comparisons with any finite bound both return false, so the old code
+ * silently accepted it.  The new code rejects it before the bounds check.
+ * Verified: strtod("nan") ⟹ NaN, end='', so the parse-success path is
+ * reached; only the explicit isnan() guard closes the hole. */
+static char *test_double_nan_is_rejected(void)
+{
+    struct cfg c = {.d = 42.0};
+    const VmafOption opt = {
+        .name = "x",
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .offset = offsetof(struct cfg, d),
+        .default_val.d = 42.0,
+        .min = 0.0,
+        .max = 1500.0,
+    };
+    mu_assert("NaN must return -EINVAL", vmaf_option_set(&opt, &c, "nan") == -EINVAL);
+    /* The default must not have been overwritten. */
+    mu_assert("dst must remain at default after NaN rejection", c.d == 42.0);
+    mu_assert("NaN uppercase must return -EINVAL", vmaf_option_set(&opt, &c, "NaN") == -EINVAL);
+    mu_assert("NAN uppercase must return -EINVAL", vmaf_option_set(&opt, &c, "NAN") == -EINVAL);
+    return NULL;
+}
+
+/* Inf with a finite upper bound is already rejected by the `n > max` check
+ * once max is finite; with an infinite max the caller explicitly opted in to
+ * unbounded doubles, which is a legitimate use-case.  Verify both branches. */
+static char *test_double_inf_rejected_when_max_finite(void)
+{
+    struct cfg c = {.d = 1.0};
+    const VmafOption opt = {
+        .name = "x",
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .offset = offsetof(struct cfg, d),
+        .default_val.d = 1.0,
+        .min = 0.0,
+        .max = 1500.0,
+    };
+    mu_assert("inf rejected when max is finite", vmaf_option_set(&opt, &c, "inf") == -EINVAL);
+    mu_assert("-inf rejected when min is finite", vmaf_option_set(&opt, &c, "-inf") == -EINVAL);
+    return NULL;
+}
+
 static char *test_string_default_when_null_val(void)
 {
     struct cfg c = {.s = NULL};
@@ -384,6 +427,8 @@ char *run_tests(void)
     mu_run_test(test_double_unparseable);
     mu_run_test(test_double_trailing_garbage);
     mu_run_test(test_double_overflow);
+    mu_run_test(test_double_nan_is_rejected);
+    mu_run_test(test_double_inf_rejected_when_max_finite);
     mu_run_test(test_string_default_when_null_val);
     mu_run_test(test_string_assign);
     return NULL;
