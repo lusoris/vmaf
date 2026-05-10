@@ -32915,4 +32915,35 @@ ninja -C build-cuda
     --output /dev/null --threads 4 2>&1 | grep -E 'leak|SUMMARY'
   # Must produce no output (clean).
   ```
+
+### fix/picture-odd-dim-chroma-ceiling — `picture_compute_geometry` ceiling division for odd luma dims
+
+- **Touches**: `libvmaf/src/picture.c`, `libvmaf/src/cuda/picture_cuda.c`,
+  `libvmaf/src/feature/cuda/integer_psnr_cuda.c`,
+  `libvmaf/src/feature/cuda/integer_psnr_hvs_cuda.c`,
+  `libvmaf/src/feature/integer_psnr.c`,
+  `libvmaf/test/test_picture.c`.
+- **Invariant**: All geometry computations for chroma plane dimensions use
+  ceiling division `(dim + ss) >> ss` (where `ss` is 0 or 1). If upstream
+  adds a new allocator or copies the geometry pattern, it must use the same
+  ceiling form. The regression test `test_picture_odd_dim_chroma_ceiling` pins
+  this: 577 × 323 YUV420 must produce `pic.w[1]==289`, `pic.h[1]==162`.
+- **Re-test on rebase**:
+
+  ```bash
+  meson test -C build --suite=fast
+  # test_picture must pass; it includes test_picture_odd_dim_chroma_ceiling.
+  # Additionally, the ASan smoke:
+  python3 -c "
+  W, H = 577, 323
+  luma = bytes([128] * W * H)
+  cw, ch = (W+1)>>1, (H+1)>>1
+  chroma = bytes([128] * cw * ch)
+  open('/tmp/odd.yuv','wb').write((luma+chroma+chroma)*3)
+  "
+  ASAN_OPTIONS=halt_on_error=1 ./build/tools/vmaf \
+    --reference /tmp/odd.yuv --distorted /tmp/odd.yuv \
+    --width 577 --height 323 --pixel_format 420 --bitdepth 8 \
+    --feature ciede --threads 4
+  # Must exit 0 with no ASan reports.
   ```

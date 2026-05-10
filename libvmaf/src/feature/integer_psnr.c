@@ -128,8 +128,11 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
         if (s->min_sse != 0.0) {
             const int ss_hor = pix_fmt != VMAF_PIX_FMT_YUV444P;
             const int ss_ver = pix_fmt == VMAF_PIX_FMT_YUV420P;
-            const double mse =
-                s->min_sse / (((i && ss_hor) ? w / 2 : w) * ((i && ss_ver) ? h / 2 : h));
+            /* Ceiling division for chroma plane dimensions — mirrors picture.c
+             * fix (Research-0094): odd luma → ceil(luma/2) chroma samples. */
+            const unsigned pw = (i && ss_hor) ? (w + 1u) >> 1 : w;
+            const unsigned ph = (i && ss_ver) ? (h + 1u) >> 1 : h;
+            const double mse = s->min_sse / ((double)pw * ph);
             s->psnr_max[i] = ceil(10. * log10(s->peak * s->peak / mse));
         } else {
             s->psnr_max[i] = (6 * bpc) + 12;
