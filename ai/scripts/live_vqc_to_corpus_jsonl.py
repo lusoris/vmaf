@@ -25,6 +25,9 @@ The adapter auto-detects two manifest shapes:
 2. Standard adapter CSV with named columns (LSVQ convention).
 
 License: LIVE-VQC is available for research use with attribution (ADR-0370).
+This script does not ship any clip, MOS value, or derived feature in tree;
+only the adapter and schema land in the repo. Obtain the dataset from
+https://live.ece.utexas.edu/research/LIVEVQC/index.html.
 """
 
 from __future__ import annotations
@@ -346,6 +349,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        print(
+            "hint: obtain LIVE-VQC from " "https://live.ece.utexas.edu/research/LIVEVQC/index.html",
+            file=sys.stderr,
+        )
         return 2
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

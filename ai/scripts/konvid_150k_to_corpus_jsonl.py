@@ -24,7 +24,9 @@ Differences from Phase 1:
 2. Attrition tolerance (92-98% hit rate; rest is takedowns).
 3. Row-count lower-bound guard (refuses < 5 000 rows to catch wrong CSV).
 
-License: KonViD-150k is research-only (per ADR-0325).
+License: KonViD-150k is research-only (per ADR-0325). This script does
+not ship any clip, MOS value, or derived feature in tree; only the adapter
+and schema land in the repo.
 """
 
 from __future__ import annotations
@@ -290,6 +292,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        print(
+            "hint: download KonViD-150k from "
+            "https://dl.acm.org/do/10.1145/3474085.3475608/full/ or "
+            "https://database.mmsp-kn.de/konvid-150k-vqa-database.html",
+            file=sys.stderr,
+        )
         return 2
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

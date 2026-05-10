@@ -20,7 +20,10 @@ Pipeline shape::
 When the manifest lacks a ``url`` column, the adapter synthesises the
 canonical bucket URL from the filename.
 
-License: YouTube UGC is CC-BY (per ADR-0368).
+License: YouTube UGC is CC-BY (per ADR-0368). This script does not ship
+any clip, MOS value, or derived feature in tree; only the adapter and
+schema land in the repo. The corpus is hosted in the public GCS bucket
+``gs://ugc-dataset/`` (see ``original_videos.csv`` for the manifest).
 """
 
 from __future__ import annotations
@@ -306,6 +309,11 @@ def main(argv: list[str] | None = None) -> int:
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        print(
+            "hint: obtain YouTube UGC via gs://ugc-dataset/ "
+            "or use original_videos.csv from the dataset homepage",
+            file=sys.stderr,
+        )
         return 2
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
