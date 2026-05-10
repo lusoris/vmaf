@@ -32960,3 +32960,46 @@ ninja -C build-cuda
     --feature ciede --threads 4
   # Must exit 0 with no ASan reports.
   ```
+
+### fix/motion-mirror-padding-min-dim — 5-tap filter minimum-dimension guard in all motion extractors
+
+- **Touches**: `libvmaf/src/feature/integer_motion.c`,
+  `libvmaf/src/feature/integer_motion_v2.c`,
+  `libvmaf/src/feature/float_motion.c`,
+  `libvmaf/src/feature/cuda/integer_motion_cuda.c`,
+  `libvmaf/src/feature/cuda/float_motion_cuda.c`,
+  `libvmaf/src/feature/cuda/integer_motion_v2_cuda.c`,
+  `libvmaf/src/feature/sycl/integer_motion_sycl.cpp`,
+  `libvmaf/src/feature/sycl/float_motion_sycl.cpp`,
+  `libvmaf/src/feature/sycl/integer_motion_v2_sycl.cpp`,
+  `libvmaf/src/feature/vulkan/motion_vulkan.c`,
+  `libvmaf/src/feature/vulkan/motion_v2_vulkan.c`,
+  `libvmaf/src/feature/vulkan/float_motion_vulkan.c`,
+  `libvmaf/src/feature/hip/integer_motion_v2_hip.c`,
+  `libvmaf/src/feature/hip/float_motion_hip.c`,
+  `libvmaf/test/test_motion_min_dim.c`,
+  `libvmaf/test/meson.build`.
+- **Invariant**: Every motion `init()` rejects `w < 3 || h < 3` with
+  `-EINVAL` before any buffer allocation.  The reflect-101 mirror formula
+  `height - (i_tap - height + 2)` requires `height ≥ filter_width/2 + 1 = 3`.
+  If upstream Netflix/vmaf modifies the convolution core to support smaller
+  frames (e.g. by switching to a clamp-to-edge formula), the guard should be
+  re-evaluated.  If upstream adds a new motion extractor that also uses the
+  5-tap kernel, add the same guard to its `init()`.
+- **Re-test on rebase**:
+
+  ```bash
+  meson test -C build --suite=fast
+  # test_motion_min_dim must pass (13/13 cases).
+  # Reproducer:
+  python3 -c "
+  plane = bytes([128]*1*1)
+  chroma = bytes([128]*1*1)
+  frame = plane + chroma + chroma
+  with open('/tmp/1x1.yuv','wb') as f: f.write(frame*3)
+  "
+  ./build/tools/vmaf --reference /tmp/1x1.yuv --distorted /tmp/1x1.yuv \
+    --width 1 --height 1 --pixel_format 420 --bitdepth 8 \
+    --feature motion --threads 1 2>&1 | grep -E 'EINVAL|minimum|below'
+  # Must print the "frame 1x1 is below the 5-tap filter minimum" message.
+  ```

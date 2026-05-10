@@ -246,6 +246,19 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
 {
     (void)pix_fmt;
     auto *s = static_cast<FloatMotionStateSycl *>(fex->priv);
+
+    /* The 5-tap SYCL float_motion kernel uses reflect-101 mirror padding;
+     * dev_mirror_fm() returns 2*sup - idx - 2, which is negative when sup < 3.
+     * Refuse smaller frames up front to prevent out-of-bounds device reads.
+     * Minimum: filter_width/2 + 1 = 3. */
+    if (h < 3u || w < 3u) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "float_motion_sycl: frame %ux%u is below the 5-tap filter minimum 3x3; "
+                 "refusing to avoid out-of-bounds mirror reads on device\n",
+                 w, h);
+        return -EINVAL;
+    }
+
     s->width = w;
     s->height = h;
     s->bpc = bpc;

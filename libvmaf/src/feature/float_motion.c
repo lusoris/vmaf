@@ -26,6 +26,7 @@
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
+#include "log.h"
 #include "mem.h"
 #include "motion.h"
 #include "motion_blend_tools.h"
@@ -199,6 +200,27 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
 {
     (void)bpc;
     MotionState *s = fex->priv;
+
+    /* The separable Gaussian convolution uses reflect-101 mirror padding.
+     * For a filter of size N the bottom-edge formula requires
+     * dim >= N/2 + 1 in each axis.  For the default 5-tap filter that is
+     * 3; for the 3-tap option it is 2.  When motion_filter_size is 0 the
+     * option has not been applied yet (e.g. in unit tests that manually
+     * allocate priv) — treat it as the default.  Refuse smaller frames
+     * up front to prevent out-of-bounds reads in the convolution kernel. */
+    const int configured =
+        s->motion_filter_size > 0 ? s->motion_filter_size : DEFAULT_MOTION_FILTER_SIZE;
+    const unsigned effective_filter_size = (unsigned)configured;
+    if (effective_filter_size > 1u) {
+        const unsigned min_dim = effective_filter_size / 2u + 1u;
+        if (h < min_dim || w < min_dim) {
+            vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                     "float_motion: frame %ux%u is below the %u-tap filter minimum %ux%u; "
+                     "refusing to avoid out-of-bounds mirror reads\n",
+                     w, h, effective_filter_size, min_dim, min_dim);
+            return -EINVAL;
+        }
+    }
 
     s->float_stride = ALIGN_CEIL(w * sizeof(float));
     s->ref = aligned_malloc(s->float_stride * h, 32);

@@ -413,6 +413,18 @@ static int init_fex_sycl(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         return -ENOTSUP;
     }
 
+    /* The 5-tap SYCL kernel uses reflect-101 mirror padding on device;
+     * dev_mirror_motion() returns 2*sup - idx - 2, which is negative when
+     * sup < 3.  Refuse smaller frames up front.
+     * Minimum: filter_width/2 + 1 = 3. */
+    if (h < 3u || w < 3u) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "motion_sycl: frame %ux%u is below the 5-tap filter minimum 3x3; "
+                 "refusing to avoid out-of-bounds mirror reads on device\n",
+                 w, h);
+        return -EINVAL;
+    }
+
     s->width = w;
     s->height = h;
     s->bpc = bpc;

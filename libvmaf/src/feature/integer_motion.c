@@ -348,6 +348,20 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     MotionState *s = fex->priv;
     int err = 0;
 
+    /* The 5-tap separable Gaussian uses reflect-101 mirror padding: the
+     * bottom-edge formula `height - (i_tap - height + 2)` requires
+     * height >= radius + 1 = 3.  For smaller frames the index goes
+     * negative, producing out-of-bounds reads (UB / ASan SEGV).
+     * Refuse cleanly here instead of reading past the buffer. */
+    const unsigned min_dim = (unsigned)(filter_width / 2 + 1); /* = 3 */
+    if (h < min_dim || w < min_dim) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR,
+                 "motion: frame %ux%u is below the 5-tap filter minimum %ux%u; "
+                 "refusing to avoid out-of-bounds mirror reads\n",
+                 w, h, min_dim, min_dim);
+        return -EINVAL;
+    }
+
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (!s->feature_name_dict)
