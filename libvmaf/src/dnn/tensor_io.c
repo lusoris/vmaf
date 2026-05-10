@@ -49,13 +49,18 @@ static float f16_to_f32_one(uint16_t h)
         if (mant == 0u) {
             out = sign << 31;
         } else {
+            /* Normalise the subnormal mantissa: shift left until the hidden
+             * bit (bit 10) appears, tracking the exponent adjustment with a
+             * signed counter to avoid unsigned overflow that trips
+             * -fsanitize=integer.  f16 mantissa is 10 bits wide, so at most
+             * 10 shifts are needed; exp_adj is bounded to [-9, 1]. */
+            int32_t exp_adj = 1;
             while ((mant & 0x400u) == 0u) {
                 mant <<= 1;
-                exp -= 1u;
+                exp_adj--;
             }
-            exp += 1u;
             mant &= 0x3ffu;
-            out = (sign << 31) | ((exp + 112u) << 23) | (mant << 13);
+            out = (sign << 31) | (((uint32_t)(exp_adj + 112)) << 23) | (mant << 13);
         }
     } else if (exp == 0x1fu) {
         out = (sign << 31) | 0x7f800000u | (mant << 13);

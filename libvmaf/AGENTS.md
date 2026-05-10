@@ -64,6 +64,24 @@ libvmaf/
 
 ## Rebase-sensitive invariants
 
+- **`picture_compute_geometry` stride alignment uses `unsigned` + `1u`
+  mask** (fork-local, round-5 `-fsanitize=integer` sweep):
+  `aligned_y` and `aligned_c` in
+  [`src/picture.c`](src/picture.c) are declared `const unsigned` and
+  the bitmask uses `DATA_ALIGN - 1u` (not `DATA_ALIGN - 1`) so
+  the complement stays in unsigned domain and avoids a signed→unsigned
+  implicit conversion that fires with `-fsanitize=integer`. If an
+  upstream sync rewrites `picture_compute_geometry`, preserve the
+  `unsigned` type and `1u` literal. See
+  [docs/rebase-notes.md](../docs/rebase-notes.md)
+  §PR-fix-picture-align-unsigned-narrowing.
+- **`vmaf_init` cpumask narrowing uses an explicit `(unsigned)` cast**
+  (fork-local, round-5 `-fsanitize=integer` sweep):
+  `vmaf_set_cpu_flags_mask((unsigned)(~cfg.cpumask))` in
+  [`src/libvmaf.c`](src/libvmaf.c). The cast is deliberate: all
+  defined CPU flag bits fit in 6 bits; the high 32 bits of the
+  `uint64_t cpumask` complement are always zero for any valid input.
+  Do not remove the explicit cast.
 - **Output writers return `ferror(outfile) ? -EIO : 0`.**
   `vmaf_write_output_{xml,json,csv,sub}` in
   [src/output.c](src/output.c) use a single tail `return` that

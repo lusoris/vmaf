@@ -761,6 +761,47 @@
   valid VIF scales) with no `default:` clause. `default: break;` added with a comment.
   No scoring changes; all added branches are unreachable with valid input.
 
+- **`-fsanitize=integer` narrowing and unsigned-overflow defects in
+  `picture.c`, `libvmaf.c`, and `dnn/tensor_io.c` (round-5 integer
+  sanitizer sweep)** — three distinct integer-type defects caught by
+  building libvmaf with `-fsanitize=integer` (UBSan integer group):
+
+  1. **`picture.c:125-126` — signed mask literal assigned to `unsigned`
+     stride** (`picture_compute_geometry`): `const int aligned_y =
+     (pic->w[0] + DATA_ALIGN - 1) & ~(DATA_ALIGN - 1)` computes
+     `~(64 - 1) = ~63 = int(-64)`, then stores the result into
+     `pic->stride`, which is `unsigned`. Triggered implicit signed →
+     unsigned conversion in four tests (`test_anti_dithering_filter`,
+     `test_speed_qa_flat_input_is_finite`, `test_picture_alloc_ref_and_unref`,
+     `test_feature_extractor_flush`). Fix: `const unsigned aligned_y` /
+     `aligned_c` with `DATA_ALIGN - 1u` mask literal — identical to the
+     `picture_cuda.c` fix landed in PR #704 (round-5 clang-tidy sweep).
+
+  2. **`libvmaf.c:188` — `uint64_t cpumask` complement narrowed to
+     `unsigned` without explicit cast** (`vmaf_init`): `~cfg.cpumask`
+     expands to `uint64_t` (all-ones for the default `cpumask = 0`);
+     `vmaf_set_cpu_flags_mask()` takes `unsigned`, so the call silently
+     truncated a 64-bit value to 32 bits. All defined CPU flag bits fit
+     in 6 bits, so the truncation is functionally harmless, but the
+     implicit narrowing tripped `-fsanitize=integer` in
+     `test_read_pictures_monotonic`. Fix: explicit `(unsigned)(~cfg.cpumask)`
+     cast with a comment explaining the deliberate truncation.
+
+  3. **`dnn/tensor_io.c:54,58` — unsigned wraparound in f16 → f32
+     subnormal normalization loop** (`f16_to_f32_one`): `exp` (type
+     `uint32_t`, initial value 0) was decremented in a
+     `while (!hidden_bit)` loop that normalises subnormal f16 mantissas.
+     The first decrement wrapped to `UINT32_MAX`; a subsequent
+     `exp + 112u` also wrapped. The algorithm produced numerically correct
+     results by relying on modular arithmetic, but the wraps are
+     undefined under `-fsanitize=integer`. Fix: replace `exp` with a
+     local `int32_t exp_adj = 1` counter in the subnormal branch; the
+     counter is bounded to `[-9, 1]` for valid 10-bit f16 mantissas and
+     never overflows. The output IEEE-754 bit pattern is unchanged;
+     `test_f16_to_f32_subnormal` verifies the numerical result before and
+     after. See
+     [`libvmaf/src/dnn/tensor_io.c`](libvmaf/src/dnn/tensor_io.c).
+
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
   `Clang-Tidy (Changed C/C++ Files)` step used `git diff --name-only`
