@@ -32706,3 +32706,22 @@ ninja -C build-cuda
   ninja -C build-vk-retest
   # Must compile cleanly under GCC 16 with no -Wreturn-mismatch error
   ```
+
+### PR-fix-cuda-picture-widening — CUDA `picture_cuda.c` integer-precision fixes (round-5 clang-tidy)
+
+- **Touches**: `libvmaf/src/cuda/picture_cuda.c` — upstream-shared CUDA picture allocation
+  and transfer path.
+- **Invariant**: Three `WidthInBytes` / `cuMemAllocPitch` width arguments now use
+  `(size_t)` casts to prevent silent 32-bit multiplication overflow before widening to
+  `size_t`. `aligned_y` / `aligned_c` are `unsigned` with an explicit `1u` mask literal.
+  `vmaf_ref_load()` result is stored as `long`. If an upstream sync modifies these
+  expressions, ensure the `(size_t)` casts and `unsigned` types are preserved.
+- **Re-test on rebase**:
+
+  ```bash
+  clang-tidy \
+    -checks='-*,bugprone-narrowing-conversions,bugprone-implicit-widening-of-multiplication-result' \
+    -p libvmaf/build-cuda \
+    libvmaf/src/cuda/picture_cuda.c
+  # Must produce zero warnings for the named checks.
+  ```
