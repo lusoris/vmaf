@@ -385,7 +385,7 @@ int vmaf_cuda_buffer_upload_async(VmafCudaState *cu_state, VmafCudaBuffer *buf, 
     ctx_pushed = 1;
     CHECK_CUDA_GOTO(
         cu_state->f,
-        cuMemcpyHtoDAsync(buf->data, src, buf->size, c_stream == 0 ? c_stream : cu_state->str),
+        cuMemcpyHtoDAsync(buf->data, src, buf->size, c_stream != 0 ? c_stream : cu_state->str),
         fail);
     CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
     return 0;
@@ -413,7 +413,7 @@ int vmaf_cuda_buffer_download_async(VmafCudaState *cu_state, VmafCudaBuffer *buf
     ctx_pushed = 1;
     CHECK_CUDA_GOTO(
         cu_state->f,
-        cuMemcpyDtoHAsync(dst, buf->data, buf->size, c_stream == 0 ? c_stream : cu_state->str),
+        cuMemcpyDtoHAsync(dst, buf->data, buf->size, c_stream != 0 ? c_stream : cu_state->str),
         fail);
     CHECK_CUDA_GOTO(cu_state->f, cuCtxPopCurrent(NULL), fail_after_pop);
     return 0;
