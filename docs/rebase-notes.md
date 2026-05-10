@@ -32797,3 +32797,32 @@ ninja -C build-cuda
     libvmaf/src/feature/cuda/integer_vif_cuda.c
   # Must produce zero warnings for those checks.
   ```
+
+### PR-fix-picture-align-unsigned-narrowing — integer-sanitizer narrowing/overflow fixes in picture.c, libvmaf.c, tensor_io.c (round-5 `-fsanitize=integer` sweep)
+
+- **Touches**: `libvmaf/src/picture.c` (upstream-shared picture geometry),
+  `libvmaf/src/libvmaf.c` (upstream-shared vmaf_init), and
+  `libvmaf/src/dnn/tensor_io.c` (fork-added f16 ↔ f32 converter).
+- **Invariant**: Three narrowing/overflow defects corrected:
+  (1) `aligned_y`/`aligned_c` are now `unsigned` with `DATA_ALIGN - 1u` mask —
+  if an upstream sync touches `picture_compute_geometry`, ensure the `unsigned`
+  type and `1u` literal are preserved.
+  (2) `vmaf_set_cpu_flags_mask` call site in `vmaf_init` uses `(unsigned)(~cfg.cpumask)`
+  — if cpumask type changes upstream, revisit the cast.
+  (3) `f16_to_f32_one` subnormal path uses a signed `int32_t exp_adj` counter —
+  if the f16 converter is reworked, verify no unsigned wrap is reintroduced.
+- **Re-test on rebase**:
+
+  ```bash
+  CC=clang CXX=clang++ meson setup /tmp/build-isan-retest libvmaf \
+    -Denable_cuda=false -Denable_sycl=false \
+    --buildtype=debugoptimized -Db_sanitize=integer -Db_lundef=false -Db_lto=false
+  ninja -C /tmp/build-isan-retest
+  UBSAN_OPTIONS="halt_on_error=0:abort_on_error=0" \
+    /tmp/build-isan-retest/test/test_picture 2>&1 | grep "runtime error"
+  UBSAN_OPTIONS="halt_on_error=0:abort_on_error=0" \
+    /tmp/build-isan-retest/test/test_read_pictures_monotonic 2>&1 | grep "runtime error"
+  UBSAN_OPTIONS="halt_on_error=0:abort_on_error=0" \
+    /tmp/build-isan-retest/test/dnn/test_tensor_io 2>&1 | grep "runtime error"
+  # All three must produce zero "runtime error" lines.
+  ```

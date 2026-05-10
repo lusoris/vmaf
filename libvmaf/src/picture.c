@@ -122,8 +122,8 @@ static void picture_compute_geometry(VmafPicture *pic, unsigned w, unsigned h)
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 
-    const int aligned_y = (pic->w[0] + DATA_ALIGN - 1) & ~(DATA_ALIGN - 1);
-    const int aligned_c = (pic->w[1] + DATA_ALIGN - 1) & ~(DATA_ALIGN - 1);
+    const unsigned aligned_y = (pic->w[0] + DATA_ALIGN - 1u) & ~(DATA_ALIGN - 1u);
+    const unsigned aligned_c = (pic->w[1] + DATA_ALIGN - 1u) & ~(DATA_ALIGN - 1u);
     const int hbd = pic->bpc > 8;
     pic->stride[0] = aligned_y << hbd;
     pic->stride[1] = pic->stride[2] = aligned_c << hbd;

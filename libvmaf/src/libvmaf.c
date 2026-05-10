@@ -185,7 +185,10 @@ int vmaf_init(VmafContext **vmaf, VmafConfiguration cfg)
     v->cfg = cfg;
 
     vmaf_init_cpu();
-    vmaf_set_cpu_flags_mask(~cfg.cpumask);
+    /* cpumask is uint64_t in the public API; the internal mask is unsigned
+     * (all defined flag bits fit in 32 bits). Truncate explicitly so that
+     * -fsanitize=integer does not fire on the implicit narrowing. */
+    vmaf_set_cpu_flags_mask((unsigned)(~cfg.cpumask));
 
     vmaf_set_log_level(cfg.log_level);
 

@@ -92,6 +92,20 @@ Runtime directly.
 
 ## Rebase-sensitive invariants (DNN-side surfaces in flight)
 
+- **`f16_to_f32_one` subnormal path uses `int32_t exp_adj`, not
+  `uint32_t exp`** (fork-local, round-5 `-fsanitize=integer` sweep,
+  PR fix/picture-align-unsigned-narrowing): the normalisation loop in
+  `tensor_io.c:f16_to_f32_one` iterates a local `int32_t exp_adj = 1`
+  counter that is bounded to `[-9, 1]` (10-bit f16 mantissa). An
+  earlier implementation used the `uint32_t exp` variable from the
+  outer scope, which wrapped through `UINT32_MAX` twice to produce the
+  correct f32 biased exponent by modular arithmetic — functionally
+  correct but trips `-fsanitize=integer`. Do not revert to the `uint32_t`
+  wrap idiom. The `test_f16_to_f32_subnormal` test asserts the exact
+  bit-pattern for `0x0001` (smallest positive f16 subnormal, value
+  `2^-24`) to catch any accidental regression. See
+  [docs/rebase-notes.md](../../../../docs/rebase-notes.md)
+  §PR-fix-picture-align-unsigned-narrowing.
 - **CoreML EP wiring (ADR-0365, this PR)** — `VmafDnnDevice`
   values 5..8 (`COREML`, `COREML_ANE`, `COREML_GPU`, `COREML_CPU`)
   and the `--tiny-device=coreml{,-ane,-gpu,-cpu}` CLI keywords are
