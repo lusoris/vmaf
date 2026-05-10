@@ -32826,3 +32826,26 @@ ninja -C build-cuda
     /tmp/build-isan-retest/test/dnn/test_tensor_io 2>&1 | grep "runtime error"
   # All three must produce zero "runtime error" lines.
   ```
+
+### PR-fix-cuda-pinned-alloc-null-deref — CWE-476 null-deref in vmaf_cuda_picture_alloc_pinned (round-6 cross-PR audit)
+
+- **Touches**: `libvmaf/src/cuda/picture_cuda.c` — CUDA host TU; no upstream equivalent.
+- **Invariant**: The sequential check pattern (`err = vmaf_picture_priv_init(pic);
+  if (err) goto free_data;`) must be preserved on any rebase or future modification.
+  The `|=` idiom evaluates the right-hand side unconditionally regardless of prior
+  failure — PR #700 fixed the identical pattern in `picture.c` (CWE-476); this fix
+  closes the same class in the CUDA path. If upstream ever adds a similar
+  pinned-picture allocation function, apply the same sequential-check discipline.
+  Secondary: `DATA_ALIGN_PINNED - 1u` (with the `u` suffix) must be preserved on
+  both sides of the alignment mask expression to match the `picture.c` pattern fixed
+  by PR #708.
+- **Re-test on rebase**:
+
+  ```bash
+  gcc -fanalyzer -Wno-analyzer-too-complex \
+    -Ilibvmaf/src -Ilibvmaf/include \
+    libvmaf/src/cuda/picture_cuda.c 2>&1 | grep "CWE-476"
+  # Must produce zero CWE-476 warnings for vmaf_cuda_picture_alloc_pinned.
+  meson test -C build --suite=fast
+  # Must be green.
+  ```

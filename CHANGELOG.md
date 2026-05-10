@@ -748,6 +748,18 @@
 
 ### Fixed
 
+- **`vmaf_cuda_picture_alloc_pinned`: null-deref when `vmaf_picture_priv_init` fails
+  (cross-PR seam, CWE-476, round-6 audit)** — `vmaf_picture_priv_init` can fail on
+  OOM, leaving `pic->priv == NULL`. The caller then used the `|=` idiom:
+  `err |= vmaf_picture_priv_init(pic)` followed by unconditional
+  `VmafPicturePrivate *priv = pic->priv; priv->cuda.state = …` — a null dereference.
+  `vmaf_picture_set_release_callback` also immediately dereferences `priv->cookie`,
+  compounding the risk. PR #700 fixed the identical pattern in `picture.c` (CWE-476),
+  but `picture_cuda.c` was missed. Fix: replace `|=` with sequential checks, mirroring
+  the PR #700 pattern. Secondary fix: `DATA_ALIGN_PINNED - 1` → `DATA_ALIGN_PINNED - 1u`
+  on both sides of the alignment `&` expression, matching the fully-unsigned pattern
+  that PR #708 applied to `picture.c`.
+
 - **CUDA `integer_adm_cuda.c` / `integer_vif_cuda.c` defensive code fixes (round-5
   clang-tidy `bugprone-*` sweep):**
   (1) `integer_adm_cuda.c` — `#define RES_BUFFER_SIZE 4 * 3 * 2` lacked parentheses
