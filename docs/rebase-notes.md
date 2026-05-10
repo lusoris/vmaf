@@ -32459,6 +32459,61 @@ build-system paths changed; no new symbols were added.
   ```
 
 
+## ADR-0375 — HIP batch-3: float_moment_hip + float_ssim_hip real kernels (2026-05-10)
+
+- **Touches**:
+  `libvmaf/src/feature/hip/float_moment_hip.c` (full rewrite to `#ifdef HAVE_HIPCC`
+  dual-path), `libvmaf/src/feature/hip/float_moment_hip.h` (HSACO symbol decl under
+  `HAVE_HIPCC`), `libvmaf/src/feature/hip/float_moment/moment_score.hip` (new device
+  kernel), `libvmaf/src/feature/hip/float_ssim_hip.c` (full rewrite to `#ifdef HAVE_HIPCC`
+  dual-path), `libvmaf/src/feature/hip/float_ssim_hip.h` (HSACO symbol decl under
+  `HAVE_HIPCC`), `libvmaf/src/feature/hip/float_ssim/ssim_score.hip` (new device kernel),
+  `libvmaf/src/meson.build` (`moment_score` and `ssim_score` added to `hip_kernel_sources`),
+  `docs/backends/hip/overview.md` (status update to 6/11),
+  `docs/adr/0375-hip-batch3-float-moment-float-ssim.md` (new).
+- **Invariant (HAVE_HIPCC dual-path)**: `hipModule_t module`, `hipFunction_t funcbpc8/16`,
+  `void *ref_in/dis_in` (moment) and all five `void *d_*` intermediate buffers + `void
+  *ref_in/cmp_in` (SSIM) live under `#ifdef HAVE_HIPCC` in the respective structs. Free
+  helpers (`moment_hip_module_free`, `ssim_hip_bufs_free`) are defined outside the guard
+  with internal `#ifdef HAVE_HIPCC` bodies (mirrors `float_psnr_hip_module_free`). On
+  rebase: never move device-state fields outside the guard — it breaks the CPU-only build.
+- **Invariant (moment 7-arg kernel)**: `calculate_moment_hip_kernel_8bpc` and
+  `_16bpc` both take 7 arguments (`ref, dis, ref_stride, dis_stride, sums, width, height`)
+  — the 16bpc kernel does NOT take a `bpc` arg. The host launch must pass 7 args to both
+  functions. If the CUDA twin adds a `bpc` arg to `moment_score_16bpc`, the HIP twin must
+  follow.
+- **Invariant (SSIM two-pass stream ordering)**: both `calculate_ssim_hip_horiz_*` and
+  `calculate_ssim_hip_vert_combine` run on the same `s->lc.str` stream. Implicit stream
+  ordering provides the happens-before between Pass 1 writes and Pass 2 reads — no
+  explicit event is needed between the two launches. On rebase: if the CUDA twin adds an
+  explicit inter-pass sync event, evaluate whether GCN/RDNA's stream ordering guarantees
+  are equivalent before mirroring.
+- **Invariant (SSIM WARPS_PER_BLOCK=2)**: `SSIM_WARPS_PER_BLOCK = SSIM_BLOCK_SIZE /
+  SSIM_WARP_SIZE = 128 / 64 = 2` (vs CUDA's 4 = 128/32). The shared-memory array
+  `s_warp_sums[SSIM_WARPS_PER_BLOCK]` must be sized 2. On rebase: if the block size or
+  warp size changes, update `ssim_score.hip` accordingly.
+- **Invariant (SSIM scale=1 only)**: `init_fex_hip` rejects `scale != 1` with `-EINVAL`.
+  Mirrors the CUDA and Vulkan SSIM twins. Lifting this constraint is a future batch item
+  and requires a new ADR.
+- **On upstream sync**: no action required (fork-local kernels).
+- **Re-test on rebase**:
+
+  ```bash
+  # CPU-only build (no ROCm required): must compile clean
+  meson setup build_hip_cpu -Denable_hip=true -Denable_hipcc=false \
+      -Denable_cuda=false -Denable_sycl=false libvmaf
+  ninja -C build_hip_cpu
+
+  # With ROCm + hipcc: HSACO pipeline must produce moment_score.hsaco + ssim_score.hsaco
+  meson setup build_hip_full -Denable_hip=true -Denable_hipcc=true \
+      -Denable_cuda=false -Denable_sycl=false libvmaf
+  ninja -C build_hip_full
+
+  # Cross-backend numeric gate (requires AMD GPU)
+  meson test -C build_hip_full --suite=hip-parity
+  ```
+
+
 ## feat/hip-float-psnr-first-real — T7-10b: `float_psnr_hip` first real kernel (ADR-0254)
 
 **Touches**:
