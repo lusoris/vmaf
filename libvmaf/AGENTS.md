@@ -65,7 +65,7 @@ libvmaf/
 ## Rebase-sensitive invariants
 
 - **`feature_extractor_vector_append()` deduplicates by provided-feature
-  names, not extractor name** (fork-local, ADR-0383 / T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE):
+  names, not extractor name** (fork-local, ADR-0384 / T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE):
   [`src/fex_ctx_vector.c`](src/fex_ctx_vector.c) uses
   `provided_features_overlap()` to detect CPU/GPU twins before
   registering a new extractor. The old dedup key was derived from
