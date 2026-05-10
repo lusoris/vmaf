@@ -132,8 +132,8 @@ int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fm
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 
-    const unsigned aligned_y = (pic->w[0] + DATA_ALIGN_PINNED - 1) & ~(DATA_ALIGN_PINNED - 1u);
-    const unsigned aligned_c = (pic->w[1] + DATA_ALIGN_PINNED - 1) & ~(DATA_ALIGN_PINNED - 1u);
+    const unsigned aligned_y = (pic->w[0] + DATA_ALIGN_PINNED - 1u) & ~(DATA_ALIGN_PINNED - 1u);
+    const unsigned aligned_c = (pic->w[1] + DATA_ALIGN_PINNED - 1u) & ~(DATA_ALIGN_PINNED - 1u);
     const int hbd = pic->bpc > 8;
     pic->stride[0] = aligned_y << hbd;
     pic->stride[1] = pic->stride[2] = aligned_c << hbd;
@@ -158,16 +158,23 @@ int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fm
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->data[1] = pic->data[2] = NULL;
 
-    err |= vmaf_picture_priv_init(pic);
+    /* vmaf_picture_priv_init allocates pic->priv; check before touching it.
+     * Mirrors the fix in picture.c (PR #700, CWE-476): the |= idiom evaluates
+     * the right-hand side unconditionally, so a priv-init failure would leave
+     * pic->priv == NULL and the subsequent field writes would null-deref. */
+    err = vmaf_picture_priv_init(pic);
+    if (err)
+        goto free_data;
+
     VmafPicturePrivate *priv = pic->priv;
     priv->cuda.state = cuda_state;
     priv->cuda.ctx = cuda_state->ctx;
-    err |= vmaf_picture_set_release_callback(pic, NULL, default_release_pinned_picture);
+    err = vmaf_picture_set_release_callback(pic, NULL, default_release_pinned_picture);
     if (err)
-        goto free_data;
+        goto free_priv;
     priv->buf_type = VMAF_PICTURE_BUFFER_TYPE_CUDA_HOST_PINNED;
 
-    err |= vmaf_ref_init(&pic->ref);
+    err = vmaf_ref_init(&pic->ref);
     if (err)
         goto free_priv;
 
