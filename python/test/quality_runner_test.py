@@ -57,7 +57,7 @@ class QualityRunnerTest(MyTestCase):
             asset_dict={"width": 720, "height": 480},
         )
         runner = VmafLegacyQualityRunner([asset], None)
-        self.assertEqual(runner.executor_id, "VMAF_legacy_VF0.2.7-1.1")
+        self.assertEqual(runner.executor_id, "VMAF_legacy_VF0.2.21-1.1")
 
     def test_run_vmaf_legacy_runner(self):
 
@@ -2745,7 +2745,7 @@ class QualityRunnerTest(MyTestCase):
 class QualityRunnerVersionTest(unittest.TestCase):
 
     def test_vmaf_quality_runner_version(self):
-        self.assertEqual(VmafQualityRunner.VERSION, "F0.2.7int-0.6.1")
+        self.assertEqual(VmafQualityRunner.VERSION, "F0.2.21int-0.6.1")
         self.assertEqual(VmafQualityRunner.ALGO_VERSION, 4)
 
 
