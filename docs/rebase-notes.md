@@ -33218,3 +33218,31 @@ parameters listed in `test_run_vmaf_fextractor_adm_f1f2`.
      print(df.shape, df.columns.tolist()[:5])"
   # Must print (5, 48) and the first five column names.
   ```
+
+### fix/ci-master-shfmt-cppcheck-semgrep — CI gate fixes (ADR-0384)
+
+- **Touches**: `.pre-commit-config.yaml`, `.github/workflows/lint-and-format.yml`,
+  `libvmaf/src/feature/adm.c`, `libvmaf/src/feature/ansnr.c`,
+  `libvmaf/src/feature/offset.c`, `libvmaf/src/feature/vif.c`,
+  `scripts/ci/check-agent-worktree-drift.sh`.
+- **Invariant**: No rebase-sensitive invariants. The `.pre-commit-config.yaml`
+  and workflow changes are fork-infrastructure. The `(void *)` cast fix
+  in the four feature files is a portable C idiom; upstream may or may
+  not carry their own version of these files. The semgrep-comment reword
+  in `check-agent-worktree-drift.sh` is fork-only.
+- **Re-test on rebase**:
+
+  ```bash
+  # Verify semgrep is clean
+  semgrep scan --config=.semgrep.yml --error
+
+  # Verify cppcheck finds no invalidPointerCast in the four files
+  cppcheck --enable=portability libvmaf/src/feature/adm.c \
+    libvmaf/src/feature/ansnr.c libvmaf/src/feature/offset.c \
+    libvmaf/src/feature/vif.c 2>&1 | grep invalidPointerCast
+  # Must produce no output.
+  ```
+
+no rebase impact: the CI infrastructure files are fork-local; the C
+source changes are minimal (cast through void*) and will trivially survive any
+upstream rebase that doesn't rewrite these specific functions.

@@ -72,9 +72,9 @@ int compute_ansnr(const float *ref, const float *dis, int w, int h, int ref_stri
 
     data_top = (char *)data_buf;
 
-    ref_filtr = (float *)data_top;
+    ref_filtr = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    filtd = (float *)data_top;
+    filtd = (float *)(void *)data_top;
 
 #ifdef ANSNR_OPT_FILTER_1D
     ansnr_filter1d(ansnr_filter1d_ref, ref, ref_filtr, w, h, ref_stride, buf_stride,
