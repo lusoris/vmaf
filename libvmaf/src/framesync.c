@@ -58,6 +58,14 @@ int vmaf_framesync_init(VmafFrameSyncContext **fs_ctx)
     pthread_cond_init(&(ctx->retrieve), NULL);
 
     VmafFrameSyncBuf *buf_que = ctx->buf_que = malloc(sizeof(VmafFrameSyncBuf));
+    if (!buf_que) {
+        pthread_cond_destroy(&(ctx->retrieve));
+        pthread_mutex_destroy(&(ctx->retrieve_lock));
+        pthread_mutex_destroy(&(ctx->acquire_lock));
+        free(ctx);
+        *fs_ctx = NULL;
+        return -ENOMEM;
+    }
 
     buf_que->frame_data = NULL;
     buf_que->buf_status = BUF_FREE;
