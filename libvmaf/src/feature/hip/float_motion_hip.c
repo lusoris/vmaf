@@ -463,20 +463,30 @@ static int collect_fex_hip(VmafFeatureExtractor *fex, unsigned index,
         return err;
     }
 
-    /* Emit motion_score for the current frame. */
-    if (s->debug) {
-        err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                      "VMAF_feature_motion_score", motion_score,
-                                                      index);
-        if (err != 0)
-            return err;
+    if (index == 1u) {
+        /* Second frame: emit motion_score only (debug); skip motion2 at
+         * index=0 — it was already written by the index=0 branch above.
+         * Mirrors the CUDA twin's `index == 1` guard in collect_fex_cuda. */
+        if (s->debug) {
+            err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                          "VMAF_feature_motion_score", motion_score,
+                                                          index);
+        }
+        s->prev_motion_score = motion_score;
+        return err;
     }
 
-    /* Emit motion2_score = min(prev, cur) at index-1 (CUDA twin pattern). */
+    /* index >= 2: emit motion2_score = min(prev, cur) at index-1, then
+     * (debug) motion_score at current index. Same order as CUDA twin. */
     const double motion2 =
         (motion_score < s->prev_motion_score) ? motion_score : s->prev_motion_score;
     err = vmaf_feature_collector_append_with_dict(
         feature_collector, s->feature_name_dict, "VMAF_feature_motion2_score", motion2, index - 1u);
+    if (s->debug && err == 0) {
+        err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                      "VMAF_feature_motion_score", motion_score,
+                                                      index);
+    }
     s->prev_motion_score = motion_score;
     return err;
 #else
