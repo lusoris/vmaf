@@ -32890,3 +32890,29 @@ ninja -C build-cuda
   done
   # All 11 patches must apply without conflict.
   ```
+
+### 0381 — `integer_motion_v2` `flush()` dict-leak fix (Research-0094)
+
+- **Touches**: `libvmaf/src/feature/integer_motion_v2.c`.
+- **Invariant**: The `dict_locally_owned` flag in `flush()` (introduced in this
+  fix) relies on the invariant that `s->feature_name_dict` is `NULL` at
+  `flush()` entry only in the registered-context (threaded dispatch) path, and
+  non-NULL only when `extract()` has already run on this context (serial /
+  pool-instance path). If a future upstream change causes `extract()` to clear
+  `s->feature_name_dict` mid-run (e.g., per-scene re-init), the flag will
+  incorrectly take the locally-owned path and free the dict prematurely. The
+  companion unit test (test in test_feature_extractor) guards this via the
+  existing motion_v2 code path.
+- **Re-test on rebase**:
+
+  ```bash
+  meson test -C build --suite=fast
+  # 53/53 must pass, including test_feature_extractor and test_motion_v2_simd.
+  ASAN_OPTIONS='detect_leaks=1' ./build-leak/tools/vmaf \
+    -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    -w 576 -h 324 -p 420 -b 8 --feature motion_v2 \
+    --output /dev/null --threads 4 2>&1 | grep -E 'leak|SUMMARY'
+  # Must produce no output (clean).
+  ```
+  ```
