@@ -162,13 +162,16 @@ if is_hipcc_enabled and is_hip_enabled
     # Kernel source → HSACO → xxd-embedded C array.
     # Batch-1 (ADR-0372): psnr_score, float_ansnr_score.
     # Batch-2 (ADR-0373): float_motion_score (temporal Gaussian SAD).
-    # Batch-3 (ADR-0374): moment_score, ssim_score.
+    # Batch-3 (ADR-0375): moment_score, ssim_score.
+    # Batch-4 (ADR-0377): ciede_score (CIEDE2000), motion_v2_score (integer SAD ping-pong).
     hip_kernel_sources = {
         'psnr_score' : feature_src_dir + 'hip/integer_psnr/psnr_score.hip',
         'float_ansnr_score' : feature_src_dir + 'hip/float_ansnr/float_ansnr_score.hip',
         'float_motion_score' : feature_src_dir + 'hip/float_motion/float_motion_score.hip',
         'moment_score' : feature_src_dir + 'hip/float_moment/moment_score.hip',
         'ssim_score' : feature_src_dir + 'hip/float_ssim/ssim_score.hip',
+        'ciede_score' : feature_src_dir + 'hip/integer_ciede/ciede_score.hip',
+        'motion_v2_score' : feature_src_dir + 'hip/integer_motion_v2/motion_v2_score.hip',
     }
     foreach name, src : hip_kernel_sources
         hsaco_target = custom_target('hip_hsaco_' + name,
