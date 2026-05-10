@@ -18,6 +18,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -829,10 +830,10 @@ static void decimate_generic_uint8_and_convert_to_10b(const VmafPicture *pic, Vm
 
     float y = start_y;
     for (unsigned i = 0; i < out_h; i++) {
-        unsigned ori_y = (int)(y + 0.5);
+        unsigned ori_y = (int)lroundf(y);
         float x = start_x;
         for (unsigned j = 0; j < out_w; j++) {
-            unsigned ori_x = (int)(x + 0.5);
+            unsigned ori_x = (int)lroundf(x);
             out_data[i * out_stride + j] = data[ori_y * stride + ori_x] << shift_factor;
             x += ratio_x;
         }
@@ -869,10 +870,10 @@ static void decimate_generic_9b_and_convert_to_10b(const VmafPicture *pic, VmafP
 
     float y = start_y;
     for (unsigned i = 0; i < out_h; i++) {
-        unsigned ori_y = (int)(y + 0.5);
+        unsigned ori_y = (int)lroundf(y);
         float x = start_x;
         for (unsigned j = 0; j < out_w; j++) {
-            unsigned ori_x = (int)(x + 0.5);
+            unsigned ori_x = (int)lroundf(x);
             out_data[i * out_stride + j] = data[ori_y * stride + ori_x] << 1;
             x += ratio_x;
         }
@@ -918,10 +919,10 @@ static void decimate_generic_uint16_and_convert_to_10b(const VmafPicture *pic, V
 
     float y = start_y;
     for (unsigned i = 0; i < out_h; i++) {
-        unsigned ori_y = (int)(y + 0.5);
+        unsigned ori_y = (int)lroundf(y);
         float x = start_x;
         for (unsigned j = 0; j < out_w; j++) {
-            unsigned ori_x = (int)(x + 0.5);
+            unsigned ori_x = (int)lroundf(x);
             out_data[i * out_stride + j] =
                 (data[ori_y * stride + ori_x] + rounding_offset) >> shift_factor;
             x += ratio_x;
