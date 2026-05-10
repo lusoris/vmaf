@@ -141,6 +141,14 @@ libvmaf/
   has a similar job-pool but uses the bare
   `func(void *data)` signature — on conflict keep the fork's
   two-arg signature and merge only the pool-mechanics changes.
+  The struct carries an immutable `n_workers_created` field (written
+  once in `pool_create`, never decremented) alongside the live
+  `n_threads` counter (decremented by each exiting runner thread under
+  `queue.lock`). `destroy` reads `n_workers_created` — not `n_threads`
+  — to iterate `workers[]` for `thread_data_free`; do not collapse
+  these two counters back into one during a rebase or the `destroy`
+  path reacquires a data race (C11 UB, TSan-detected). See
+  [Research-0097](../docs/research/0097-thread-pool-pthread-create-unchecked-2026-05-10.md).
   See [ADR-0147](../docs/adr/0147-thread-pool-job-pool.md) and
   [rebase-notes 0040](../docs/rebase-notes.md).
 

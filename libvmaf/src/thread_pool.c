@@ -50,7 +50,11 @@ typedef struct VmafThreadPool {
         VmafThreadPoolJob *head, *tail;
     } queue;
     pthread_cond_t working;
+    /* n_threads: live worker count; decremented by each runner on exit (lock held).
+     * n_workers_created: immutable after pool_create; used by destroy to iterate
+     * the workers[] array without racing the decrement in runner. */
     unsigned n_threads;
+    unsigned n_workers_created;
     unsigned n_working;
     bool stop;
     VmafThreadPoolWorker *workers;
@@ -150,6 +154,7 @@ int vmaf_thread_pool_create(VmafThreadPool **pool, VmafThreadPoolConfig cfg)
         return -ENOMEM;
     memset(p, 0, sizeof(*p));
     p->n_threads = cfg.n_threads;
+    p->n_workers_created = cfg.n_threads; /* adjusted below on partial failure */
     p->thread_data_free = cfg.thread_data_free;
 
     p->workers = malloc(sizeof(*p->workers) * cfg.n_threads);
@@ -166,7 +171,28 @@ int vmaf_thread_pool_create(VmafThreadPool **pool, VmafThreadPoolConfig cfg)
     for (unsigned i = 0; i < cfg.n_threads; i++) {
         p->workers[i].pool = p;
         pthread_t thread;
-        pthread_create(&thread, NULL, vmaf_thread_pool_runner, &p->workers[i]);
+        const int rc = pthread_create(&thread, NULL, vmaf_thread_pool_runner, &p->workers[i]);
+        if (rc != 0) {
+            /* Thread creation failed (e.g. EAGAIN under process-limit pressure).
+             * Adjust n_threads downward so vmaf_thread_pool_wait does not hang
+             * waiting for workers that never started.  If no threads at all
+             * could be created, tear down and propagate the error. */
+            p->n_threads = i;
+            p->n_workers_created = i;
+            if (i == 0) {
+                pthread_mutex_destroy(&(p->queue.lock));
+                pthread_cond_destroy(&(p->queue.empty));
+                pthread_cond_destroy(&(p->working));
+                free(p->workers);
+                free(p);
+                *pool = NULL;
+                return -rc;
+            }
+            /* At least one thread started — pool is usable at reduced width.
+             * Signal existing workers in case they are already waiting. */
+            pthread_cond_broadcast(&(p->queue.empty));
+            break;
+        }
         pthread_detach(thread);
     }
 
@@ -248,7 +274,11 @@ int vmaf_thread_pool_destroy(VmafThreadPool *pool)
     if (!pool)
         return -EINVAL;
 
-    const unsigned n_workers = pool->n_threads;
+    /* n_workers_created is written once at pool_create and never modified
+     * afterwards, so it is safe to read without the lock.  Using n_threads
+     * here would be a data race: runner threads decrement it under the lock
+     * as they exit, which can race with this unsynchronised read. */
+    const unsigned n_workers = pool->n_workers_created;
 
     pthread_mutex_lock(&(pool->queue.lock));
 

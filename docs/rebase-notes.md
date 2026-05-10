@@ -33269,3 +33269,21 @@ parameters listed in `test_run_vmaf_fextractor_adm_f1f2`.
 no rebase impact: the CI infrastructure files are fork-local; the C
 source changes are minimal (cast through void*) and will trivially survive any
 upstream rebase that doesn't rewrite these specific functions.
+
+### fix/thread-pool-pthread-create-unchecked — thread pool `pthread_create` error handling + `n_workers_created` race fix
+
+- **Touches**: `libvmaf/src/thread_pool.c`.
+- **Invariant**: `VmafThreadPool` now has a `n_workers_created` field (written
+  once at creation, never decremented) alongside the existing `n_threads`
+  counter (decremented by each exiting worker). Any upstream change to
+  `thread_pool.c` that adds or renames struct fields or changes the
+  `pthread_create` call site must be reconciled against the fork's error-handling
+  block (lines ~170–192) and the `n_workers_created` field initialisation.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup /tmp/build-tp-rebase libvmaf \
+    -Denable_cuda=false -Denable_sycl=false --buildtype=debugoptimized
+  meson test -C /tmp/build-tp-rebase
+  # Must report 54/54 (or more) OK.
+  ```
