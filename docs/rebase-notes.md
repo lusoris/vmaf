@@ -27,6 +27,17 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/round8-mcp-tmpdir-leak — MCP `describe_worst_frames` tmp-dir cleanup
+
+No rebase impact: this change is MCP-server-only
+(`mcp-server/vmaf-mcp/src/vmaf_mcp/server.py`), touches no libvmaf C
+source, no public C API headers, no Meson build files, and no FFmpeg
+patch stack entries. Upstream Netflix/vmaf does not have the MCP server.
+The change adds a `shutil.rmtree` before the per-invocation PNG
+generation loop.
+
+- **Re-test**: `PYTHONPATH=mcp-server/vmaf-mcp/src python -m pytest mcp-server/vmaf-mcp/tests/test_server.py::test_describe_worst_frames_tmpdir_cleared_on_next_call` — must report 1 passed.
+
 ### fix/round8-opt-nan-bypass — NaN rejection in `set_option_double`
 
 - **Touches**: `libvmaf/src/opt.c` — adds `#include <math.h>` and an

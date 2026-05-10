@@ -452,7 +452,14 @@ async def _describe_worst_frames(
     descr_fn = describe if describe is not None else _describe_image_with_vlm
     out_frames: list[dict[str, Any]] = []
     tmp_root = Path("/tmp") / f"vmaf-mcp-worst-{os.getpid()}"
-    tmp_root.mkdir(parents=True, exist_ok=True)
+    # Clear stale PNGs left by any previous invocation — the comment in the
+    # original code said "clear the dir on next invocation" but never
+    # implemented it, causing unbounded disk accumulation on long-running
+    # servers (T-ROUND8-MCP-TMPDIR-LEAK). PNGs are only useful for the
+    # duration of this response, so purge-before-generate is safe.
+    if tmp_root.exists():
+        shutil.rmtree(tmp_root)
+    tmp_root.mkdir(parents=True)
     try:
         for frame_idx, vmaf in worst:
             png_path = tmp_root / f"frame_{frame_idx:06d}.png"
@@ -475,8 +482,11 @@ async def _describe_worst_frames(
                 }
             )
     finally:
-        # We keep the PNGs so the caller can fetch them; only clear the
-        # dir on next invocation.
+        # PNGs remain on disk so that callers who need the file path
+        # (e.g. a downstream tool that opens the PNG directly) can access
+        # them until the next describe_worst_frames call purges the
+        # directory (see rmtree above).  The next call, or process exit,
+        # cleans up automatically.
         pass
     return {
         "model_id": _vlm_state.get("model_id"),
