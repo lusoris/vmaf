@@ -10,6 +10,13 @@
  *  `feature_lpips.c` from the test binaries) does not pull in
  *  `vmaf_ctx_dnn_attach` — that symbol lives in `libvmaf.c`, which is
  *  not linked into the unit-test executables.
+ *
+ *  Disabled-build stub contract (see ADR-0374):
+ *  When built with -Denable_dnn=false, the `#else` branch at the bottom
+ *  of this file provides a stub that returns -ENOSYS so callers degrade
+ *  gracefully.  The public symbol is always present; callers must check
+ *  vmaf_dnn_available() at runtime and treat -ENOSYS as "DNN not built
+ *  in", not as a programming error.
  */
 
 #include <assert.h>
