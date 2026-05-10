@@ -294,3 +294,84 @@ jobs:
           else
             echo "ADR-0106 advisory: no policy surface changed, or a new ADR was added."
           fi
+
+  adr-collision-check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: ADR Number Collision Guard (ADR-0386)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Blocking gate: every ADR file added in this PR must have a 4-digit prefix
+    # that does NOT already exist on origin/master.  This catches the cross-branch
+    # race the local pre-commit hook cannot see (two branches cut from the same
+    # master tip both add the same NNNN before either merges).
+    #
+    # The gate deliberately does NOT flag already-merged collisions — those are
+    # master state and are not actionable here.  It only fails when the PR itself
+    # introduces a prefix that is already present on master.
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Fetch origin/master (cross-branch collision baseline)
+        run: |
+          set -euo pipefail
+          # Ensure origin/master is available locally.  fetch-depth: 0 above pulls
+          # the full PR branch history; we still need to ensure master is present.
+          git fetch origin master --depth=50 --quiet
+
+      - name: Check for ADR number collisions with origin/master
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Make sure both tip SHAs are reachable (mirrors pattern from other jobs).
+          git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "${BASE_SHA}" || true
+          git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "${HEAD_SHA}" || true
+
+          # Collect every docs/adr/NNNN-*.md file ADDED (status A) or RENAMED to
+          # (status R) in this PR, relative to its merge base.
+          added_adrs=()
+          while IFS= read -r f; do
+            added_adrs+=("${f}")
+          done < <(git diff --name-status "${BASE_SHA}".."${HEAD_SHA}" \
+            | awk '$1 == "A" || $1 ~ /^R/ { print $NF }' \
+            | grep -E '^docs/adr/[0-9]{4}-.*\.md$' || true)
+
+          if [ "${#added_adrs[@]}" -eq 0 ]; then
+            echo "ADR-collision-check: no new ADR files in this PR, nothing to check."
+            exit 0
+          fi
+
+          fail=0
+          for adr_file in "${added_adrs[@]}"; do
+            num="$(basename "${adr_file}" | grep -oE '^[0-9]{4}')"
+
+            # Does origin/master already have ANY file with this prefix?
+            collision="$(git ls-tree origin/master "docs/adr/" \
+              | awk '{ print $4 }' \
+              | grep -E "^docs/adr/${num}-" || true)"
+
+            if [ -n "${collision}" ]; then
+              echo "::error file=${adr_file}::ADR number collision: ${adr_file} uses prefix ${num}, but origin/master already has: ${collision}"
+              echo ""
+              echo "  The number ${num} was already merged into master before this PR."
+              echo "  Run 'scripts/adr/next-free.sh' on your branch to get a free number,"
+              echo "  then rename the file and update the '# ADR-${num}:' heading inside it."
+              fail=1
+            fi
+          done
+
+          if [ "${fail}" -eq 1 ]; then
+            echo ""
+            echo "ADR collision check failed — see errors above."
+            echo "This guard prevents the 7-collision pattern observed on 2026-05-10."
+            echo "See ADR-0386 (docs/adr/0386-adr-numbering-collision-prevention.md)."
+            exit 1
+          fi
+
+          echo "ADR-collision-check: all ${#added_adrs[@]} ADR file(s) have unique prefix(es) on master."

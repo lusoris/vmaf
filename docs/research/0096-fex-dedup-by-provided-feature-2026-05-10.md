@@ -3,7 +3,7 @@
 **Date:** 2026-05-10
 **Status:** Accepted (fix landed in fix/fex-dedup-by-provided-feature)
 **Bug ID:** T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE
-**ADR:** [ADR-0384](../adr/0384-fex-dedup-by-provided-feature.md)
+**ADR:** [ADR-0385](../adr/0385-fex-dedup-by-provided-feature.md)
 
 ## Problem statement
 
@@ -75,7 +75,7 @@ compatibility with any future extractor that omits the declaration.
 
 ## Alternatives considered
 
-See [ADR-0384](../adr/0384-fex-dedup-by-provided-feature.md) §Alternatives
+See [ADR-0385](../adr/0385-fex-dedup-by-provided-feature.md) §Alternatives
 considered for the full decision matrix.
 
 ## Verification

@@ -31,6 +31,78 @@
   sub-group size, memory pattern) — out of T7-17's scope. See
   [ADR-0220](docs/adr/0220-sycl-fp64-fallback.md).
 
+<<<<<<< HEAD
+=======
+### Fixed
+
+- **Feature-extractor double-write on GPU binaries when `--feature` is
+  combined with an auto-loaded VMAF model
+  (T-CUDA-FEATURE-EXTRACTOR-DOUBLE-WRITE / ADR-0385).**
+  `feature_extractor_vector_append()` (`libvmaf/src/fex_ctx_vector.c`)
+  previously deduplicated by the extractor's own name (`"adm"` vs
+  `"adm_cuda"`), which are distinct strings, so both the CPU and GPU
+  twin were registered and both wrote to the same feature-collector
+  slot on every frame. This produced 750+ "libvmaf WARNING feature
+  X cannot be overwritten at index N" log lines per scoring run.
+  The dedup key is now the set of provided-feature names — every
+  CPU/GPU twin advertises the same logical feature names per the
+  cross-backend parity contract (ADR-0214), so a single shared name
+  correctly identifies twins. The first-registered extractor
+  (selected by `vmaf_use_features_from_model()` for the active
+  backend) wins; subsequent `--feature`-driven duplicates are
+  silently dropped. Zero warnings post-fix on the reference 576x324
+  fixture. Netflix golden VMAF score unchanged (94.323010).
+
+- **Pre-commit shfmt hook migrated to `shfmt-src` (Go-source build); cache key
+  corrected from `py3.12` to `py3.14` (ADR-0384).** The `scop/pre-commit-shfmt`
+  `id: shfmt` hook downloads a prebuilt binary from `mvdan.cc` at
+  wheel-build time. The pre-commit environment cache key in
+  `lint-and-format.yml` was set to `py3.12` while the runner's Python version
+  had been bumped to `3.14.4`, so the cache never hit and every push
+  re-triggered a fresh download. On 2026-05-10 the CDN returned HTTP 502,
+  failing the entire pre-commit job before any formatters ran. Fixed by: (1)
+  correcting the cache key to `py3.14`; (2) switching to `id: shfmt-src`
+  which builds via `go get` from `proxy.golang.org` (Google-hosted, higher
+  SLA than the binary CDN). The Go toolchain ships on every `ubuntu-latest`
+  runner. Also fixes two semgrep `vmaf-no-skip-hooks-in-scripts` findings in
+  `scripts/ci/check-agent-worktree-drift.sh` (comment text matched the
+  banned pattern) and 22 cppcheck `invalidPointerCast` findings in
+  `libvmaf/src/feature/{adm,ansnr,offset,vif}.c` (arena-slicing idiom
+  `(float *)char_ptr` corrected to `(float *)(void *)char_ptr`).
+
+- **Y4M header parser rejects non-positive width/height before allocation
+  (T-FUZZ-Y4M-NEG-WIDTH-SEGV / ADR-0382).** `y4m_input_open_impl`
+  (`libvmaf/tools/y4m_input.c`) now validates `pic_w > 0` and
+  `pic_h > 0` immediately after `y4m_parse_tags` returns, before any
+  chroma-type dispatch or `malloc` call. A negative or zero dimension
+  previously wrapped the size arithmetic (or produced a zero product),
+  leaving `dst_buf == NULL` while `dst_buf_read_sz` was non-zero; the
+  unconditional `fread(_y4m->dst_buf, …)` in `y4m_input_fetch_frame`
+  then NULL-dereffed inside libc. AddressSanitizer reproduced the crash
+  on every nightly fuzz run from 2026-05-05 through 2026-05-08 with the
+  input `YUV4MPEG2 W-8 H4 F30:1 Ip A1:1 C422`. Post-fix the parser
+  prints "Invalid YUV4MPEG2 dimensions: W=-8 H=4 (must be > 0)." and
+  returns `-1`; no allocation is attempted. Reproducer byte sequence
+  promoted to
+  `libvmaf/test/fuzz/y4m_input_known_crashes/y4m_neg_width_null_deref.y4m`
+  as a permanent regression seed. Distinct from the Y4M-411-OOB fix
+  (PR #357 / ADR-0228) which targeted `y4m_convert_411_422jpeg` bounds.
+
+- **`AVERROR(EINVAL)` mis-mapping in `vf_libvmaf` HIP state init
+  (`ffmpeg-patches/0011`)** — when `vmaf_hip_state_init()` or
+  `vmaf_hip_import_state()` returned a negative errno (e.g. `-ENODEV`
+  when no AMD GPU is present, or `-ENOSYS` from the T7-10c stub), the
+  filter mapped it to `AVERROR(EINVAL)` ("Invalid argument") rather
+  than `AVERROR(-err)` which carries the libvmaf-supplied errno code.
+  Callers saw "Error: Invalid argument" instead of the informative
+  "Error: No such device" or "Error: Function not implemented". Fixed by
+  replacing `return AVERROR(EINVAL)` with `return AVERROR(-err)` at both
+  error sites in the `#if CONFIG_LIBVMAF_HIP` block of `init()` in
+  `libavfilter/vf_libvmaf.c`. Fix is in
+  `ffmpeg-patches/0011-libvmaf-wire-hip-backend-selector.patch`;
+  no libvmaf C source is touched.
+
+>>>>>>> 1fa7e770 (chore(adr,mcp,process): renumber fex-dedup → 0385, backfill #741 deliverables, ADR-collision prevention (ADR-0386))
 ### Added
 
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New

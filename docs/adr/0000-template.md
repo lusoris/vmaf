@@ -1,3 +1,8 @@
+> **Allocator**: run `scripts/adr/next-free.sh` to claim a number before creating this file.
+> If you hand-pick a number, the pre-commit hook (`check-adr-numbering`) and the CI gate
+> (`adr-collision-check` in `rule-enforcement.yml`) will fail on collision.
+> See [ADR-0386](0386-adr-numbering-collision-prevention.md).
+
 # ADR-0000: <short, declarative title>
 
 - **Status**: Proposed | Accepted | Deprecated | Superseded by [ADR-NNNN](NNNN-title.md)
