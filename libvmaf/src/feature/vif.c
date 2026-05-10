@@ -140,7 +140,8 @@ int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride
     den_array = (float *)data_top;
     data_top += buf_sz_one;
     tmpbuf = (float *)data_top;
-    data_top += buf_sz_one;
+    // ADR-0416: upstream-parity bump kept verbatim from Netflix bf9ad333.
+    data_top += buf_sz_one; // NOLINT(clang-analyzer-deadcode.DeadStores)
 
     unsigned scale_start = 0;
     if (vif_skip_scale0) {
@@ -182,8 +183,8 @@ int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride
             w = buf_valid_w / 2;
             h = buf_valid_h / 2;
 #ifdef VIF_OPT_HANDLE_BORDERS
-            buf_valid_w = w;
-            buf_valid_h = h;
+            buf_valid_w = w; // NOLINT(clang-analyzer-deadcode.DeadStores) ADR-0416 upstream-parity
+            buf_valid_h = h; // NOLINT(clang-analyzer-deadcode.DeadStores) ADR-0416 upstream-parity
 #else
             buf_valid_w = w - filter_adj * 2;
             buf_valid_h = h - filter_adj * 2;
@@ -212,8 +213,10 @@ int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride
         vif_statistic_s(mu1, mu2, ref_sq_filt, dis_sq_filt, ref_dis_filt, num_array, den_array, w,
                         h, buf_stride, buf_stride, buf_stride, buf_stride, buf_stride,
                         vif_enhn_gain_limit, vif_sigma_nsq);
+        // NOLINTBEGIN(clang-analyzer-deadcode.DeadStores) ADR-0416 upstream-parity
         mu1_adj = ADJUST(mu1);
         mu2_adj = ADJUST(mu2);
+        // NOLINTEND(clang-analyzer-deadcode.DeadStores)
 
 #ifdef VIF_OPT_DEBUG_DUMP
         ref_sq_filt_adj = ADJUST(ref_sq_filt);
