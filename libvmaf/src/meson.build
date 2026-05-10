@@ -143,11 +143,26 @@ if is_hipcc_enabled and is_hip_enabled
     hipcc_exe = find_program('hipcc', required: true)
     xxd_hip = find_program('xxd', required: true)
 
-    # Discover installed GFX targets via hipconfig. Best-effort:
-    # fall back to gfx90a if the command fails or returns nothing.
-    hipconfig_result = run_command('sh', '-c',
-        'hipconfig --amdgpu-target 2>/dev/null || true', check: false)
-    hip_gfx_raw = hipconfig_result.stdout().strip()
+    # Discover installed GFX targets. Priority:
+    #   1. User-supplied hip_gfx_targets meson option (explicit override).
+    #   2. rocm_agent_enumerator — filters to GPU lines starting with "gfx",
+    #      comma-joined. More reliable than hipconfig on ROCm 6+/7.
+    #   3. hipconfig --amdgpu-target — only when (1) and (2) fail, because
+    #      some ROCm builds prefix the output with version/system headers.
+    #   4. Hardcoded gfx90a fallback (as before).
+    hip_gfx_raw = get_option('hip_gfx_targets').strip()
+    if hip_gfx_raw == ''
+        agent_enum_result = run_command('sh', '-c',
+            'rocm_agent_enumerator 2>/dev/null | grep -E "^gfx" | tr "\n" "," | sed "s/,$//g" || true',
+            check: false)
+        hip_gfx_raw = agent_enum_result.stdout().strip()
+    endif
+    if hip_gfx_raw == ''
+        hipconfig_result = run_command('sh', '-c',
+            'hipconfig --amdgpu-target 2>/dev/null | grep -oE "gfx[0-9a-f]+" | tr "\n" "," | sed "s/,$//g" || true',
+            check: false)
+        hip_gfx_raw = hipconfig_result.stdout().strip()
+    endif
     if hip_gfx_raw == ''
         hip_gfx_raw = 'gfx90a'
     endif
@@ -164,13 +179,30 @@ if is_hipcc_enabled and is_hip_enabled
     endif
     message('HIP HSACO targets: ' + ' '.join(hip_offload_arch_flags))
 
+    # Resolve the ROCm include root so hipcc can find <hip/hip_runtime.h>.
+    # hipcc normally injects its own ROCM_PATH-based include, but when it
+    # is invoked via a symlink or without a package-manager install the
+    # auto-detection sometimes fails. Pass -I explicitly as a belt-and-
+    # suspenders fix (harmless when hipcc already finds the headers).
+    rocm_inc_result = run_command('sh', '-c',
+        'hipconfig -R 2>/dev/null || echo /opt/rocm', check: false)
+    rocm_root = rocm_inc_result.stdout().strip()
+    if rocm_root == ''
+        rocm_root = '/opt/rocm'
+    endif
+    hip_include_flags = ['-I', rocm_root + '/include']
+    message('HIP ROCm root: ' + rocm_root)
+
     # Kernel source → HSACO → xxd-embedded C array.
     # Batch-1 (ADR-0372): psnr_score, float_ansnr_score.
+    # Batch-1b (ADR-0254): float_psnr_score (pre-existing, omitted from earlier
+    #   meson.build edit; added here alongside the float_motion fix).
     # Batch-2 (ADR-0373): float_motion_score (temporal Gaussian SAD).
     # Batch-3 (ADR-0375): moment_score, ssim_score.
     # Batch-4 (ADR-0377): ciede_score (CIEDE2000), motion_v2_score (integer SAD ping-pong).
     hip_kernel_sources = {
         'psnr_score' : feature_src_dir + 'hip/integer_psnr/psnr_score.hip',
+        'float_psnr_score' : feature_src_dir + 'hip/float_psnr/float_psnr_score.hip',
         'float_ansnr_score' : feature_src_dir + 'hip/float_ansnr/float_ansnr_score.hip',
         'float_motion_score' : feature_src_dir + 'hip/float_motion/float_motion_score.hip',
         'moment_score' : feature_src_dir + 'hip/float_moment/moment_score.hip',
@@ -184,6 +216,7 @@ if is_hipcc_enabled and is_hip_enabled
             output: name + '.hsaco',
             input: src,
             command: [hipcc_exe, '--genco'] + hip_offload_arch_flags +
+                     hip_include_flags +
                      ['-I', meson.current_source_dir(),
                       '-I', meson.current_source_dir() + '/feature',
                       '@INPUT@', '-o', '@OUTPUT@'],

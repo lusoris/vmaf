@@ -3,20 +3,20 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  HIP host glue for the float_motion feature extractor — seventh
- *  kernel-template consumer (T7-10b follow-up / ADR-0273).
+ *  kernel-template consumer (T7-10b batch-2 / ADR-0373).
  *
- *  Mirrors libvmaf/src/feature/cuda/float_motion_cuda.h. The HIP
- *  kernel artefact (a `float_motion_score.hip` device blob
- *  equivalent of the CUDA PTX) is a follow-up — the runtime PR
- *  (T7-10b) ships it alongside the live `kernel_template.c` bodies.
- *  Until then the consumer compiles host-only and `init()` surfaces
- *  `-ENOSYS` through the kernel-template helpers.
+ *  Mirrors libvmaf/src/feature/cuda/float_motion_cuda.h. The HSACO
+ *  symbol declared here is produced by the meson `hip_hsaco_c_float_motion_score`
+ *  custom_target pipeline: `xxd -i -n float_motion_score_hsaco
+ *  float_motion_score.hsaco > float_motion_score_hsaco.c`
+ *  (same pattern as ADR-0372 / ADR-0374).
  */
 #ifndef FEATURE_FLOAT_MOTION_HIP_H_
 #define FEATURE_FLOAT_MOTION_HIP_H_
 
-/* Placeholder — once the runtime PR adds the device-side blob, this
- * header will declare its symbol the same way `float_motion_score_ptx`
- * is declared in the CUDA twin. */
+/* HSACO blob embedded by xxd; consumed by `hipModuleLoadData` in
+ * `float_motion_hip.c:fm_hip_module_load()`. */
+extern const unsigned char float_motion_score_hsaco[];
+extern const unsigned int float_motion_score_hsaco_len;
 
 #endif /* FEATURE_FLOAT_MOTION_HIP_H_ */

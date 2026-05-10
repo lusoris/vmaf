@@ -3,7 +3,7 @@
 **Date:** 2026-05-10
 **Commit:** c7b7e8db (branch: chore/ensemble-kit-gdrive-quickstart)
 **Author:** Claude Code (observational, no code changes)
-**Status:** Updated — Vulkan multi-vendor + HIP status added 2026-05-10 post-PR-#699
+**Status:** Updated — Vulkan multi-vendor + HIP status added 2026-05-10 post-PR-#699; HIP unblocked 2026-05-10 by PR #710 (missing kernel committed)
 
 ---
 
@@ -190,7 +190,43 @@ The baseline was recorded on the same repo (different session, same hardware). M
 
 ---
 
-## 9. Open Action Items
+## 9. HIP/ROCm Benchmark — `float_motion` Unblocked (2026-05-10 update)
+
+**Context:** `float_motion_score.hip` was referenced in `meson.build:169`
+(ADR-0373) but never committed — blocking all `enable_hipcc=true` builds.
+The fix PR shipped the missing kernel file and three companion fixes:
+
+- `float_motion_score.hip` (5x5 separable Gaussian blur + warp-64 SAD
+  reduction, gfx1036 target)
+- `float_psnr_score` added to `hip_kernel_sources` (pre-existing omission
+  causing linker failure)
+- `hipconfig` target-detection replaced by `rocm_agent_enumerator`
+  (robustness fix — hipconfig output was being misparsed on ROCm 7)
+- `collect_fex_hip` index==1 guard added to match CUDA twin (prevented
+  motion2 overwrite at frame 0)
+
+**Build:** `gfx1036` (AMD Ryzen 9 9950X3D iGPU / RDNA 2, ROCm 7.2),
+`enable_hipcc=true`.
+
+**Bench result — float_motion HIP vs CPU at 576×324 (48 frames):**
+
+| Backend                  | fps       | Notes                                      |
+|--------------------------|-----------|--------------------------------------------|
+| CPU (scalar)             | ~3,600    | All 48 frames, non-NaN                     |
+| HIP/ROCm (gfx1036 iGPU) | **3,211** | All 48 frames, non-NaN; `float_motion_hip` |
+
+The iGPU is ~0.89× of CPU scalar at 576×324 — consistent with the
+CUDA-vs-CPU pattern at small resolutions (dispatch overhead dominates
+the lightweight SAD kernel). Score values are numerically close to CPU
+(frame 3: HIP=20.444263, CPU=20.447048; delta within float accumulation
+precision).
+
+**Full-suite test gate:** 54/54 (`test_hip_smoke` passes,
+`float_motion_hip` registered).
+
+---
+
+## 10. Open Action Items
 
 | Item | Priority | Notes |
 |------|---------|-------|
@@ -202,6 +238,7 @@ The baseline was recorded on the same repo (different session, same hardware). M
 | Investigate Vulkan dispatch overhead at 576×324 (NVIDIA cold-start) | Medium | Run 1 for NVIDIA showed 6305 fps vs runs 2/3 at 6361–6860 fps; Arc A380 run 1 was 1676 fps (4× slower than steady state). PSO/shader cache warm-up. |
 | motion CUDA kernel dispatch cost analysis | Low | At sub-4K, CPU is faster; 4K Vulkan data now available (§11) shows GPU crossover is real above 1080p |
 | SYCL: install oneAPI on bench machine | Informational | Required to re-validate Arc A380 SYCL numbers |
+| HIP bench at 1080p / 4K for `float_motion` | Informational | iGPU likely GPU-favored at 4K where dispatch overhead amortises |
 
 ---
 
