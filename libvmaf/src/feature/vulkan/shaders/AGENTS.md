@@ -90,6 +90,23 @@ shader's kernel semantics **must** ship with matching changes to:
   mismatches). Same instruction as `vif.comp`: keep the scope
   conservative; re-measure before widening.
 
+- **`float_vif.comp` strict-mode compilation and `precise` qualifiers**
+  (ADR-0381 / PR #718). `float_vif.comp` is in the
+  `psnr_hvs_strict_shaders` list in `meson.build` — it compiles with
+  `glslc -O0`, not `-O`. Removing it from that list (e.g. to speed up
+  builds) restores the SPIR-V optimizer's FMA-contraction and
+  reassociation on the vertical-pass inner loop (`a_xx += c_k * ref_v *
+  ref_v`) and on the sigma variance expressions
+  (`sigma1_sq = xx - mu1*mu1`). At scales 2 and 3 the local variance is
+  very small, so the contraction-induced catastrophic cancellation pushes
+  nearly all pixels into the unconditional low-sigma branch, saturating
+  the per-scale score to ~1.0 and inflating VMAF by ~+1.07. The
+  `precise` qualifiers on the accumulator variables and sigma expressions
+  provide defence-in-depth against driver-side contraction (Vulkan 1.4
+  NVIDIA + newer MoltenVK may contract after SPIR-V emission). Do **not**
+  remove either safeguard without re-running the per-scale VIF parity
+  gate (`places=4`) on every CI hardware lane.
+
 - **`cambi_*.comp` is the GPU phases of a hybrid host/GPU port**
   ([ADR-0210](../../../../../docs/adr/0210-cambi-vulkan-integration.md)).
   The five shaders here implement the embarrassingly-parallel
@@ -113,7 +130,7 @@ shader's kernel semantics **must** ship with matching changes to:
 ## Build
 
 Shaders compile only when `meson setup -Denable_vulkan=true`. The
-build line invokes `glslc -O0 --target-env=vulkan1.3` per shader
+build line invokes `glslc --target-env=vulkan1.3` per shader; precision-sensitive shaders (`psnr_hvs.comp`, `float_vif.comp`, `ssimulacra2_{blur,ssim,xyb}.comp`) compile with `-O0` to disable SPIR-V-optimizer reassociation/FMA-contraction (see `psnr_hvs_strict_shaders` list in `meson.build`); all others compile with `-O`
 (see `../../vulkan/meson.build` for the per-shader rule).
 
 ## Governing ADRs
