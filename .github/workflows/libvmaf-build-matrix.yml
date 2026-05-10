@@ -340,10 +340,35 @@ jobs:
       - name: Install ONNX Runtime (macos, DNN leg)
         if: matrix.dnn && matrix.os == 'macos-latest'
         run: |
-          # Homebrew ships onnxruntime as a keg-only formula with its own
-          # libonnxruntime.pc. Make pkg-config see it.
+          # Homebrew's `onnxruntime` keg-only formula ships only the main
+          # `libonnxruntime.dylib`; the runtime provider-bridge then tries
+          # to dlopen `libonnxruntime_providers_shared.dylib` and aborts
+          # `test_auto_falls_through_to_cpu` because the file isn't part
+          # of the brew keg. The official Microsoft distribution
+          # (`onnxruntime-osx-arm64-${VER}.tgz`) ships the full set of
+          # provider dylibs we need; install the brew formula for the
+          # `.pc` file and overlay the providers dylib from the official
+          # tarball. ORT version pinned to match Homebrew's current
+          # formula (1.25.0) so headers + libs stay ABI-coherent.
+          ORT_VERSION=1.25.0
           brew install -q onnxruntime
           ORT_PREFIX=$(brew --prefix onnxruntime)
+          # Detect arch — the macos-latest runner is currently arm64,
+          # but the CI matrix may add x86_64 macos-13 in the future.
+          if [ "$(uname -m)" = "arm64" ]; then
+            ORT_TGZ="onnxruntime-osx-arm64-${ORT_VERSION}.tgz"
+          else
+            ORT_TGZ="onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
+          fi
+          curl -fsSL -o "/tmp/${ORT_TGZ}" \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_TGZ}"
+          tar -C /tmp -xzf "/tmp/${ORT_TGZ}"
+          ORT_OFFICIAL_DIR="/tmp/${ORT_TGZ%.tgz}"
+          # Overlay the missing providers dylib into brew's lib/ so the
+          # runtime bridge finds it via the same path it was compiled
+          # against. Keep idempotent in case CI re-runs.
+          cp -f "${ORT_OFFICIAL_DIR}/lib/libonnxruntime_providers_shared.dylib" \
+                "${ORT_PREFIX}/lib/libonnxruntime_providers_shared.dylib"
           echo "PKG_CONFIG_PATH=${ORT_PREFIX}/lib/pkgconfig" >> $GITHUB_ENV
 
       # ---------- Intel oneAPI (SYCL) ----------

@@ -543,11 +543,17 @@ jobs:
               exit 1
               ;;
           esac
-          # Keep the full meson test ID (project:suite:name). Stripping
-          # the `libvmaf:` prefix produced names like `dnn:test_X` which
-          # meson can't dispatch (no top-level `dnn` suite — it's the
-          # `libvmaf:dnn:` subsuite).
+          # `meson test --list` formats output as either
+          #   libvmaf:test_X            (test in default suite)
+          # or
+          #   dnn - libvmaf:test_X      (test in named suite)
+          # so we extract the trailing `<project>:<test_name>` token via
+          # `awk '{ print $NF }'`. Earlier attempts grepped `^libvmaf:`
+          # which silently dropped every dnn-suite test, leaving meson
+          # with an empty list (PR #756) or with `dnn:test_X` names that
+          # meson cannot dispatch directly. Companion fix to PR #757.
           TESTS=$(meson test -C build --list \
+                  | awk '{ print $NF }' \
                   | grep '^libvmaf:' \
                   | grep -vE "$EXCLUDE")
           if [ -z "$TESTS" ]; then
@@ -687,7 +693,7 @@ jobs:
         run: |
           meson setup build-mcp \
             -Denable_cuda=false -Denable_sycl=false \
-            -Denable_mcp=true -Denable_mcp_sse=true \
+            -Denable_mcp=true -Denable_mcp_sse=enabled \
             -Denable_mcp_uds=true -Denable_mcp_stdio=true \
             --buildtype=release
           meson compile -C build-mcp
