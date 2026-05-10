@@ -22,7 +22,7 @@ index 87a9d35..c1666a9 100755
  enabled libvo_amrwbenc    && { check_pkg_config libvo_amrwbenc vo-amrwbenc vo-amrwbenc/enc_if.h E_IF_init ||
                                 require libvo_amrwbenc vo-amrwbenc/enc_if.h E_IF_init -lvo-amrwbenc; }
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
-index 0b8b3f6..e3cf572 100644
+index 552743f..e3cf572 100644
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
 @@ -47,6 +47,10 @@
@@ -50,7 +50,7 @@ index 0b8b3f6..e3cf572 100644
      VmafModel **model;
      unsigned model_cnt;
 @@ -86,6 +96,8 @@ static const AVOption libvmaf_options[] = {
-     {"tiny_device",  "tiny-model device: auto|cpu|cuda|openvino|rocm.",                 OFFSET(tiny_device),     AV_OPT_TYPE_STRING, {.str="auto"}, 0, 0,        FLAGS},
+     {"tiny_device",  "tiny-model device: auto|cpu|cuda|openvino|openvino-npu|openvino-cpu|openvino-gpu|coreml|coreml-ane|coreml-gpu|coreml-cpu|rocm.", OFFSET(tiny_device), AV_OPT_TYPE_STRING, {.str="auto"}, 0, 0, FLAGS},
      {"tiny_threads", "tiny-model CPU EP intra-op threads (0 = ORT default).",           OFFSET(tiny_threads),    AV_OPT_TYPE_INT,    {.i64=0},      0, INT_MAX,  FLAGS},
      {"tiny_fp16",    "Request fp16 I/O when the device supports it.",                   OFFSET(tiny_fp16),       AV_OPT_TYPE_BOOL,   {.i64=0},      0, 1,        FLAGS},
 +    {"sycl_device",  "SYCL device index (-1 = disabled).",                              OFFSET(sycl_device),     AV_OPT_TYPE_INT,    {.i64=-1},    -1, INT_MAX,  FLAGS},
