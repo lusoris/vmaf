@@ -38,53 +38,100 @@ typedef struct VifState {
     double vif_enhn_gain_limit;
     double vif_kernelscale;
     double vif_sigma_nsq;
+    bool vif_skip_scale0;
+    double vif_scale1_min_val;
+    double vif_scale2_min_val;
+    double vif_scale3_min_val;
     VmafDictionary *feature_name_dict;
 } VifState;
 
-static const VmafOption options[] = {{
-                                         .name = "debug",
-                                         .help = "debug mode: enable additional output",
-                                         .offset = offsetof(VifState, debug),
-                                         .type = VMAF_OPT_TYPE_BOOL,
-                                         .default_val.b = false,
-                                     },
-                                     {
-                                         .name = "vif_enhn_gain_limit",
-                                         .alias = "egl",
-                                         .help = "enhancement gain imposed on vif, must be >= 1.0, "
-                                                 "where 1.0 means the gain is completely disabled",
-                                         .offset = offsetof(VifState, vif_enhn_gain_limit),
-                                         .type = VMAF_OPT_TYPE_DOUBLE,
-                                         .default_val.d = DEFAULT_VIF_ENHN_GAIN_LIMIT,
-                                         .min = 1.0,
-                                         .max = DEFAULT_VIF_ENHN_GAIN_LIMIT,
-                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-                                     },
-                                     {
-                                         .name = "vif_kernelscale",
-                                         .help =
-                                             "scaling factor for the gaussian kernel (2.0 means "
-                                             "multiplying the standard deviation by 2 and enlarge "
-                                             "the kernel size accordingly",
-                                         .offset = offsetof(VifState, vif_kernelscale),
-                                         .type = VMAF_OPT_TYPE_DOUBLE,
-                                         .default_val.d = DEFAULT_VIF_KERNELSCALE,
-                                         .min = 0.1,
-                                         .max = 4.0,
-                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-                                     },
-                                     {
-                                         .name = "vif_sigma_nsq",
-                                         .alias = "snsq",
-                                         .help = "neural noise variance",
-                                         .offset = offsetof(VifState, vif_sigma_nsq),
-                                         .type = VMAF_OPT_TYPE_DOUBLE,
-                                         .default_val.d = 2.0,
-                                         .min = 0.0,
-                                         .max = 5.0,
-                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-                                     },
-                                     {0}};
+static const VmafOption options[] = {
+    {
+        .name = "debug",
+        .help = "debug mode: enable additional output",
+        .offset = offsetof(VifState, debug),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+    },
+    {
+        .name = "vif_enhn_gain_limit",
+        .alias = "egl",
+        .help = "enhancement gain imposed on vif, must be >= 1.0, "
+                "where 1.0 means the gain is completely disabled",
+        .offset = offsetof(VifState, vif_enhn_gain_limit),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_VIF_ENHN_GAIN_LIMIT,
+        .min = 1.0,
+        .max = DEFAULT_VIF_ENHN_GAIN_LIMIT,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "vif_kernelscale",
+        .alias = "ks",
+        .help = "scaling factor for the gaussian kernel (2.0 means "
+                "multiplying the standard deviation by 2 and enlarge "
+                "the kernel size accordingly",
+        .offset = offsetof(VifState, vif_kernelscale),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_VIF_KERNELSCALE,
+        .min = 0.1,
+        .max = 4.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "vif_sigma_nsq",
+        .alias = "snsq",
+        .help = "neural noise variance",
+        .offset = offsetof(VifState, vif_sigma_nsq),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 2.0,
+        .min = 0.0,
+        .max = 5.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "vif_skip_scale0",
+        .alias = "ssclz",
+        .help = "when set, skip scale 0 calculations (sets scale0 score to 0, den to -1)",
+        .offset = offsetof(VifState, vif_skip_scale0),
+        .type = VMAF_OPT_TYPE_BOOL,
+        .default_val.b = false,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "vif_scale1_min_val",
+        .alias = "s1miv",
+        .help = "minimum value for scale 1 VIF score; values below are clipped to this value",
+        .offset = offsetof(VifState, vif_scale1_min_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 0.0,
+        .min = 0.0,
+        .max = 1.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "vif_scale2_min_val",
+        .alias = "s2miv",
+        .help = "minimum value for scale 2 VIF score; values below are clipped to this value",
+        .offset = offsetof(VifState, vif_scale2_min_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 0.0,
+        .min = 0.0,
+        .max = 1.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "vif_scale3_min_val",
+        .alias = "s3miv",
+        .help = "minimum value for scale 3 VIF score; values below are clipped to this value",
+        .offset = offsetof(VifState, vif_scale3_min_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = 0.0,
+        .min = 0.0,
+        .max = 1.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {0}};
 
 static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc, unsigned w,
                 unsigned h)
@@ -168,18 +215,42 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     if (err)
         return err;
 
+    /* When vif_skip_scale0 is set, zero the scale-0 numerator and set the denominator
+     * to the sentinel -1.0 (matches integer_vif convention). */
+    double vif_scale0_score;
+    if (s->vif_skip_scale0) {
+        scores[0] = 0.0;
+        scores[1] = -1.0;
+        vif_scale0_score = 0.0;
+    } else {
+        vif_scale0_score = scores[0] / scores[1];
+    }
+
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_feature_vif_scale0_score",
-                                                   scores[0] / scores[1], index);
+                                                   vif_scale0_score, index);
+
+    /* Per-scale minimum-value clipping for scales 1–3. */
+    double vif_scale1_score = scores[2] / scores[3];
+    if (vif_scale1_score < s->vif_scale1_min_val)
+        vif_scale1_score = s->vif_scale1_min_val;
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_feature_vif_scale1_score",
-                                                   scores[2] / scores[3], index);
+                                                   vif_scale1_score, index);
+
+    double vif_scale2_score = scores[4] / scores[5];
+    if (vif_scale2_score < s->vif_scale2_min_val)
+        vif_scale2_score = s->vif_scale2_min_val;
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_feature_vif_scale2_score",
-                                                   scores[4] / scores[5], index);
+                                                   vif_scale2_score, index);
+
+    double vif_scale3_score = scores[6] / scores[7];
+    if (vif_scale3_score < s->vif_scale3_min_val)
+        vif_scale3_score = s->vif_scale3_min_val;
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
                                                    "VMAF_feature_vif_scale3_score",
-                                                   scores[6] / scores[7], index);
+                                                   vif_scale3_score, index);
 
     if (s->debug) {
         err |= publish_debug_vif_features(feature_collector, s->feature_name_dict, index, score,

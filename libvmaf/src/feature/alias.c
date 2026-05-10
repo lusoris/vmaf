@@ -25,6 +25,18 @@ typedef struct {
 
 static Alias alias_map[] = {
     {
+        .name = "VMAF_feature_aim_score",
+        .alias = "aim",
+    },
+    {
+        .name = "VMAF_feature_adm3_score",
+        .alias = "adm3",
+    },
+    {
+        .name = "VMAF_feature_motion3_score",
+        .alias = "motion3",
+    },
+    {
         .name = "VMAF_feature_adm2_score",
         .alias = "adm2",
     },

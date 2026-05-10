@@ -175,17 +175,26 @@ class VmafexecFeatureExtractorMixin(object):
         assert hasattr(cls, "ATOM_FEATURES_TO_VMAFEXEC_KEY_DICT")
         feature_prefix = cls.ATOM_FEATURES_TO_VMAFEXEC_KEY_DICT[feature] + "_"
         feature_found = False
+        # Collect all candidate full-names, then pick the shortest one.  XML
+        # attribute order is insertion-order (CPython ≥ 3.7), which puts sub-feature
+        # keys (e.g. ``integer_vif_scale0_ssclz``) before the base-feature key
+        # (``integer_vif_ssclz``) when option suffixes are present.  Taking the
+        # shortest match ensures we pick the base-feature key rather than a
+        # sub-feature key that also starts with the same prefix.
+        best_fullname = None
         for feature_fullname in frame.attrib:
             if feature_fullname.startswith(feature_prefix):
-                feature_scores[i_feature].append(float(frame.attrib[feature_fullname]))
-                feature_suffix = feature_fullname[len(feature_prefix) :]
-                feature_nickname = feature + "_" + feature_suffix
-                if feature_nicknames[i_feature] is None:
-                    feature_nicknames[i_feature] = feature_nickname
-                else:
-                    assert feature_nicknames[i_feature] == feature_nickname
-                feature_found = True
-                break
+                if best_fullname is None or len(feature_fullname) < len(best_fullname):
+                    best_fullname = feature_fullname
+        if best_fullname is not None:
+            feature_scores[i_feature].append(float(frame.attrib[best_fullname]))
+            feature_suffix = best_fullname[len(feature_prefix) :]
+            feature_nickname = feature + "_" + feature_suffix
+            if feature_nicknames[i_feature] is None:
+                feature_nicknames[i_feature] = feature_nickname
+            else:
+                assert feature_nicknames[i_feature] == feature_nickname
+            feature_found = True
         return feature_found
 
 
@@ -223,9 +232,13 @@ class VmafFeatureExtractor(VmafexecFeatureExtractorMixin, FeatureExtractor):
     ATOM_FEATURES = [
         "vif",
         "adm",
+        "adm2",
+        "aim",
+        "adm3",
         "ansnr",
         "motion",
         "motion2",
+        "motion3",
         "vif_num",
         "vif_den",
         "adm_num",
@@ -247,24 +260,25 @@ class VmafFeatureExtractor(VmafexecFeatureExtractorMixin, FeatureExtractor):
         "adm_den_scale2",
         "adm_num_scale3",
         "adm_den_scale3",
+        "vif_scale0",
+        "vif_scale1",
+        "vif_scale2",
+        "vif_scale3",
+        "adm_scale0",
+        "adm_scale1",
+        "adm_scale2",
+        "adm_scale3",
     ]
 
     ATOM_FEATURES_TO_VMAFEXEC_KEY_DICT = dict(zip(ATOM_FEATURES, ATOM_FEATURES))
     ATOM_FEATURES_TO_VMAFEXEC_KEY_DICT["ansnr"] = "float_ansnr"
     ATOM_FEATURES_TO_VMAFEXEC_KEY_DICT["anpsnr"] = "float_anpsnr"
+    # motion3, aim and adm3 now have short aliases registered in alias.c
+    # (motion3, aim, adm3 respectively), so the XML key matches the feature name
+    # directly — no override needed beyond the default zip mapping.
 
     DERIVED_ATOM_FEATURES = [
-        "vif_scale0",
-        "vif_scale1",
-        "vif_scale2",
-        "vif_scale3",
         "vif2",
-        "adm2",
-        "adm3",
-        "adm_scale0",
-        "adm_scale1",
-        "adm_scale2",
-        "adm_scale3",
     ]
 
     ADM2_CONSTANT = 0
@@ -294,31 +308,71 @@ class VmafFeatureExtractor(VmafexecFeatureExtractorMixin, FeatureExtractor):
         if self.optional_dict is not None:
             for opt in self.optional_dict:
                 if opt == "vif_enhn_gain_limit":
-                    options["float_vif"]["vif_enhn_gain_limit"] = self.optional_dict[
-                        "vif_enhn_gain_limit"
-                    ]
+                    options["float_vif"]["vif_enhn_gain_limit"] = self.optional_dict[opt]
                 elif opt == "vif_kernelscale":
-                    options["float_vif"]["vif_kernelscale"] = self.optional_dict["vif_kernelscale"]
+                    options["float_vif"]["vif_kernelscale"] = self.optional_dict[opt]
                 elif opt == "vif_sigma_nsq":
-                    options["float_vif"]["vif_sigma_nsq"] = self.optional_dict["vif_sigma_nsq"]
+                    options["float_vif"]["vif_sigma_nsq"] = self.optional_dict[opt]
+                elif opt == "vif_skip_scale0":
+                    options["float_vif"]["vif_skip_scale0"] = self.optional_dict[opt]
+                elif opt == "vif_scale1_min_val":
+                    options["float_vif"]["vif_scale1_min_val"] = self.optional_dict[opt]
+                elif opt == "vif_scale2_min_val":
+                    options["float_vif"]["vif_scale2_min_val"] = self.optional_dict[opt]
+                elif opt == "vif_scale3_min_val":
+                    options["float_vif"]["vif_scale3_min_val"] = self.optional_dict[opt]
                 elif opt == "adm_csf_mode":
-                    options["float_adm"]["adm_csf_mode"] = self.optional_dict["adm_csf_mode"]
+                    options["float_adm"]["adm_csf_mode"] = self.optional_dict[opt]
                 elif opt == "adm_enhn_gain_limit":
-                    options["float_adm"]["adm_enhn_gain_limit"] = self.optional_dict[
-                        "adm_enhn_gain_limit"
-                    ]
+                    options["float_adm"]["adm_enhn_gain_limit"] = self.optional_dict[opt]
                 elif opt == "adm_norm_view_dist":
-                    options["float_adm"]["adm_norm_view_dist"] = self.optional_dict[
-                        "adm_norm_view_dist"
-                    ]
+                    options["float_adm"]["adm_norm_view_dist"] = self.optional_dict[opt]
                 elif opt == "adm_ref_display_height":
-                    options["float_adm"]["adm_ref_display_height"] = self.optional_dict[
-                        "adm_ref_display_height"
-                    ]
+                    options["float_adm"]["adm_ref_display_height"] = self.optional_dict[opt]
+                elif opt == "adm_dlm_weight":
+                    options["float_adm"]["adm_dlm_weight"] = self.optional_dict[opt]
+                elif opt == "adm_skip_scale0":
+                    options["float_adm"]["adm_skip_scale0"] = self.optional_dict[opt]
+                elif opt == "adm_min_val":
+                    options["float_adm"]["adm_min_val"] = self.optional_dict[opt]
+                elif opt == "adm_noise_weight":
+                    options["float_adm"]["adm_noise_weight"] = self.optional_dict[opt]
+                elif opt == "adm_csf_scale":
+                    options["float_adm"]["adm_csf_scale"] = self.optional_dict[opt]
+                elif opt == "adm_csf_diag_scale":
+                    options["float_adm"]["adm_csf_diag_scale"] = self.optional_dict[opt]
+                elif opt == "adm_f1s0":
+                    options["float_adm"]["adm_f1s0"] = self.optional_dict[opt]
+                elif opt == "adm_f1s1":
+                    options["float_adm"]["adm_f1s1"] = self.optional_dict[opt]
+                elif opt == "adm_f1s2":
+                    options["float_adm"]["adm_f1s2"] = self.optional_dict[opt]
+                elif opt == "adm_f1s3":
+                    options["float_adm"]["adm_f1s3"] = self.optional_dict[opt]
+                elif opt == "adm_f2s0":
+                    options["float_adm"]["adm_f2s0"] = self.optional_dict[opt]
+                elif opt == "adm_f2s1":
+                    options["float_adm"]["adm_f2s1"] = self.optional_dict[opt]
+                elif opt == "adm_f2s2":
+                    options["float_adm"]["adm_f2s2"] = self.optional_dict[opt]
+                elif opt == "adm_f2s3":
+                    options["float_adm"]["adm_f2s3"] = self.optional_dict[opt]
                 elif opt == "motion_force_zero":
-                    options["float_motion"]["motion_force_zero"] = self.optional_dict[
-                        "motion_force_zero"
-                    ]
+                    options["float_motion"]["motion_force_zero"] = self.optional_dict[opt]
+                elif opt == "motion_fps_weight":
+                    options["float_motion"]["motion_fps_weight"] = self.optional_dict[opt]
+                elif opt == "motion_blend_factor":
+                    options["float_motion"]["motion_blend_factor"] = self.optional_dict[opt]
+                elif opt == "motion_blend_offset":
+                    options["float_motion"]["motion_blend_offset"] = self.optional_dict[opt]
+                elif opt == "motion_max_val":
+                    options["float_motion"]["motion_max_val"] = self.optional_dict[opt]
+                elif opt == "motion_filter_size":
+                    options["float_motion"]["motion_filter_size"] = self.optional_dict[opt]
+                elif opt == "motion_five_frame_window":
+                    options["float_motion"]["motion_five_frame_window"] = self.optional_dict[opt]
+                elif opt == "motion_moving_average":
+                    options["float_motion"]["motion_moving_average"] = self.optional_dict[opt]
                 else:
                     pass
 
@@ -339,21 +393,9 @@ class VmafFeatureExtractor(VmafexecFeatureExtractorMixin, FeatureExtractor):
 
         result = super(VmafFeatureExtractor, cls)._post_process_result(result)
 
-        # adm2 =
-        # (adm_num + ADM2_CONSTANT) / (adm_den + ADM2_CONSTANT)
-        adm2_scores_key = cls.get_scores_key("adm2")
-        adm_num_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_num")
-        )
-        adm_den_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_den")
-        )
-        result.result_dict[adm2_scores_key] = list(
-            (np.array(result.result_dict[adm_num_scores_key]) + cls.ADM2_CONSTANT)
-            / (np.array(result.result_dict[adm_den_scores_key]) + cls.ADM2_CONSTANT)
-        )
-
-        # vif_scalei = vif_num_scalei / vif_den_scalei, i = 0, 1, 2, 3
+        # vif2 =
+        # ((vif_num_scale0 / vif_den_scale0) + (vif_num_scale1 / vif_den_scale1) +
+        # (vif_num_scale2 / vif_den_scale2) + (vif_num_scale3 / vif_den_scale3)) / 4.0
         vif_num_scale0_scores_key = BasicResult.scores_key_wildcard_match(
             result.result_dict, cls.get_scores_key("vif_num_scale0")
         )
@@ -378,38 +420,6 @@ class VmafFeatureExtractor(VmafexecFeatureExtractorMixin, FeatureExtractor):
         vif_den_scale3_scores_key = BasicResult.scores_key_wildcard_match(
             result.result_dict, cls.get_scores_key("vif_den_scale3")
         )
-        vif_scale0_scores_key = cls.get_scores_key("vif_scale0")
-        vif_scale1_scores_key = cls.get_scores_key("vif_scale1")
-        vif_scale2_scores_key = cls.get_scores_key("vif_scale2")
-        vif_scale3_scores_key = cls.get_scores_key("vif_scale3")
-        result.result_dict[vif_scale0_scores_key] = list(
-            (
-                np.array(result.result_dict[vif_num_scale0_scores_key])
-                / np.array(result.result_dict[vif_den_scale0_scores_key])
-            )
-        )
-        result.result_dict[vif_scale1_scores_key] = list(
-            (
-                np.array(result.result_dict[vif_num_scale1_scores_key])
-                / np.array(result.result_dict[vif_den_scale1_scores_key])
-            )
-        )
-        result.result_dict[vif_scale2_scores_key] = list(
-            (
-                np.array(result.result_dict[vif_num_scale2_scores_key])
-                / np.array(result.result_dict[vif_den_scale2_scores_key])
-            )
-        )
-        result.result_dict[vif_scale3_scores_key] = list(
-            (
-                np.array(result.result_dict[vif_num_scale3_scores_key])
-                / np.array(result.result_dict[vif_den_scale3_scores_key])
-            )
-        )
-
-        # vif2 =
-        # ((vif_num_scale0 / vif_den_scale0) + (vif_num_scale1 / vif_den_scale1) +
-        # (vif_num_scale2 / vif_den_scale2) + (vif_num_scale3 / vif_den_scale3)) / 4.0
         vif_scores_key = cls.get_scores_key("vif2")
         result.result_dict[vif_scores_key] = list(
             (
@@ -428,104 +438,6 @@ class VmafFeatureExtractor(VmafexecFeatureExtractorMixin, FeatureExtractor):
                 + (
                     np.array(result.result_dict[vif_num_scale3_scores_key])
                     / np.array(result.result_dict[vif_den_scale3_scores_key])
-                )
-            )
-            / 4.0
-        )
-
-        # adm_scalei = adm_num_scalei / adm_den_scalei, i = 0, 1, 2, 3
-        adm_num_scale0_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_num_scale0")
-        )
-        adm_den_scale0_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_den_scale0")
-        )
-        adm_num_scale1_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_num_scale1")
-        )
-        adm_den_scale1_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_den_scale1")
-        )
-        adm_num_scale2_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_num_scale2")
-        )
-        adm_den_scale2_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_den_scale2")
-        )
-        adm_num_scale3_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_num_scale3")
-        )
-        adm_den_scale3_scores_key = BasicResult.scores_key_wildcard_match(
-            result.result_dict, cls.get_scores_key("adm_den_scale3")
-        )
-        adm_scale0_scores_key = cls.get_scores_key("adm_scale0")
-        adm_scale1_scores_key = cls.get_scores_key("adm_scale1")
-        adm_scale2_scores_key = cls.get_scores_key("adm_scale2")
-        adm_scale3_scores_key = cls.get_scores_key("adm_scale3")
-        result.result_dict[adm_scale0_scores_key] = list(
-            (np.array(result.result_dict[adm_num_scale0_scores_key]) + cls.ADM_SCALE_CONSTANT)
-            / (np.array(result.result_dict[adm_den_scale0_scores_key]) + cls.ADM_SCALE_CONSTANT)
-        )
-        result.result_dict[adm_scale1_scores_key] = list(
-            (np.array(result.result_dict[adm_num_scale1_scores_key]) + cls.ADM_SCALE_CONSTANT)
-            / (np.array(result.result_dict[adm_den_scale1_scores_key]) + cls.ADM_SCALE_CONSTANT)
-        )
-        result.result_dict[adm_scale2_scores_key] = list(
-            (np.array(result.result_dict[adm_num_scale2_scores_key]) + cls.ADM_SCALE_CONSTANT)
-            / (np.array(result.result_dict[adm_den_scale2_scores_key]) + cls.ADM_SCALE_CONSTANT)
-        )
-        result.result_dict[adm_scale3_scores_key] = list(
-            (np.array(result.result_dict[adm_num_scale3_scores_key]) + cls.ADM_SCALE_CONSTANT)
-            / (np.array(result.result_dict[adm_den_scale3_scores_key]) + cls.ADM_SCALE_CONSTANT)
-        )
-
-        # adm3 = \
-        # (((adm_num_scale0 + ADM_SCALE_CONSTANT) / (adm_den_scale0 + ADM_SCALE_CONSTANT))
-        #  + ((adm_num_scale1 + ADM_SCALE_CONSTANT) / (adm_den_scale1 + ADM_SCALE_CONSTANT))
-        #  + ((adm_num_scale2 + ADM_SCALE_CONSTANT) / (adm_den_scale2 + ADM_SCALE_CONSTANT))
-        #  + ((adm_num_scale3 + ADM_SCALE_CONSTANT) / (adm_den_scale3 + ADM_SCALE_CONSTANT))) / 4.0
-        adm3_scores_key = cls.get_scores_key("adm3")
-        result.result_dict[adm3_scores_key] = list(
-            (
-                (
-                    (
-                        np.array(result.result_dict[adm_num_scale0_scores_key])
-                        + cls.ADM_SCALE_CONSTANT
-                    )
-                    / (
-                        np.array(result.result_dict[adm_den_scale0_scores_key])
-                        + cls.ADM_SCALE_CONSTANT
-                    )
-                )
-                + (
-                    (
-                        np.array(result.result_dict[adm_num_scale1_scores_key])
-                        + cls.ADM_SCALE_CONSTANT
-                    )
-                    / (
-                        np.array(result.result_dict[adm_den_scale1_scores_key])
-                        + cls.ADM_SCALE_CONSTANT
-                    )
-                )
-                + (
-                    (
-                        np.array(result.result_dict[adm_num_scale2_scores_key])
-                        + cls.ADM_SCALE_CONSTANT
-                    )
-                    / (
-                        np.array(result.result_dict[adm_den_scale2_scores_key])
-                        + cls.ADM_SCALE_CONSTANT
-                    )
-                )
-                + (
-                    (
-                        np.array(result.result_dict[adm_num_scale3_scores_key])
-                        + cls.ADM_SCALE_CONSTANT
-                    )
-                    / (
-                        np.array(result.result_dict[adm_den_scale3_scores_key])
-                        + cls.ADM_SCALE_CONSTANT
-                    )
                 )
             )
             / 4.0
@@ -586,8 +498,36 @@ class VmafIntegerFeatureExtractor(VmafFeatureExtractor):
                     options["adm"]["adm_ref_display_height"] = self.optional_dict[
                         "adm_ref_display_height"
                     ]
+                elif opt == "adm_csf_mode":
+                    options["adm"]["adm_csf_mode"] = self.optional_dict[opt]
+                elif opt == "adm_csf_scale":
+                    options["adm"]["adm_csf_scale"] = self.optional_dict[opt]
+                elif opt == "adm_csf_diag_scale":
+                    options["adm"]["adm_csf_diag_scale"] = self.optional_dict[opt]
+                elif opt == "adm_dlm_weight":
+                    options["adm"]["adm_dlm_weight"] = self.optional_dict[opt]
+                elif opt == "adm_skip_scale0":
+                    options["adm"]["adm_skip_scale0"] = self.optional_dict[opt]
+                elif opt == "adm_min_val":
+                    options["adm"]["adm_min_val"] = self.optional_dict[opt]
+                elif opt == "adm_noise_weight":
+                    options["adm"]["adm_noise_weight"] = self.optional_dict[opt]
+                elif opt == "vif_skip_scale0":
+                    options["vif"]["vif_skip_scale0"] = self.optional_dict[opt]
                 elif opt == "motion_force_zero":
                     options["motion"]["motion_force_zero"] = self.optional_dict["motion_force_zero"]
+                elif opt == "motion_fps_weight":
+                    options["motion"]["motion_fps_weight"] = self.optional_dict[opt]
+                elif opt == "motion_blend_factor":
+                    options["motion"]["motion_blend_factor"] = self.optional_dict[opt]
+                elif opt == "motion_blend_offset":
+                    options["motion"]["motion_blend_offset"] = self.optional_dict[opt]
+                elif opt == "motion_max_val":
+                    options["motion"]["motion_max_val"] = self.optional_dict[opt]
+                elif opt == "motion_five_frame_window":
+                    options["motion"]["motion_five_frame_window"] = self.optional_dict[opt]
+                elif opt == "motion_moving_average":
+                    options["motion"]["motion_moving_average"] = self.optional_dict[opt]
                 else:
                     pass
 

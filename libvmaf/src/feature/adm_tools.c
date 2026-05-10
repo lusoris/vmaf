@@ -28,6 +28,7 @@
 #include "mem.h"
 #include "adm_options.h"
 #include "adm_tools.h"
+#include "barten_csf_tools.h"
 
 #if ARCH_X86
 #include "x86/float_adm_avx2.h"
@@ -288,10 +289,10 @@ void adm_decouple_s(const adm_dwt_band_t_s *ref, const adm_dwt_band_t_s *dis,
 void adm_csf_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
                const adm_dwt_band_t_s *flt, int orig_h, int scale, int w, int h, int src_stride,
                int dst_stride, double border_factor, double adm_norm_view_dist,
-               int adm_ref_display_height, int adm_csf_mode)
+               int adm_ref_display_height, int adm_csf_mode, double adm_csf_scale,
+               double adm_csf_diag_scale)
 {
     (void)orig_h;
-    (void)adm_csf_mode;
 
     const float *src_angles[3] = {src->band_h, src->band_v, src->band_d};
     float *dst_angles[3] = {dst->band_h, dst->band_v, dst->band_d};
@@ -306,13 +307,19 @@ void adm_csf_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
 
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    // TODO: we will add more CSF functions here
     float factor1;
     float factor2;
-    factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
-                                    adm_ref_display_height);
-    factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
-                                    adm_ref_display_height);
+    if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
+        factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
+                             adm_csf_scale);
+        factor2 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
+                             adm_csf_diag_scale);
+    } else {
+        factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
+                                        adm_ref_display_height);
+        factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
+                                        adm_ref_display_height);
+    }
     float rfactor[3] = {factor1, factor1, factor2};
 
     /* The computation of the csf values is not required for the regions which lie outside the frame borders */
@@ -392,9 +399,9 @@ void adm_csf_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *dst,
 /* Combination of adm_csf_s and adm_sum_cube_s for csf_o based den_scale */
 float adm_csf_den_scale_s(const adm_dwt_band_t_s *src, int orig_h, int scale, int w, int h,
                           int src_stride, double border_factor, double adm_norm_view_dist,
-                          int adm_ref_display_height, int adm_csf_mode)
+                          int adm_ref_display_height, int adm_csf_mode, double adm_csf_scale,
+                          double adm_csf_diag_scale)
 {
-    (void)adm_csf_mode;
     (void)orig_h;
 
     float *src_h = src->band_h;
@@ -405,13 +412,19 @@ float adm_csf_den_scale_s(const adm_dwt_band_t_s *src, int orig_h, int scale, in
 
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    // TODO: we will add more CSF functions here
     float factor1;
     float factor2;
-    factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
-                                    adm_ref_display_height);
-    factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
-                                    adm_ref_display_height);
+    if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
+        factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
+                             adm_csf_scale);
+        factor2 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
+                             adm_csf_diag_scale);
+    } else {
+        factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
+                                        adm_ref_display_height);
+        factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
+                                        adm_ref_display_height);
+    }
     float rfactor[3] = {factor1, factor1, factor2};
 
     double accum_h = 0;
@@ -513,20 +526,26 @@ float adm_csf_den_scale_s(const adm_dwt_band_t_s *src, int orig_h, int scale, in
 float adm_cm_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *csf_f,
                const adm_dwt_band_t_s *csf_a, int w, int h, int src_stride, int flt_stride,
                int csf_a_stride, double border_factor, int scale, double adm_norm_view_dist,
-               int adm_ref_display_height, int adm_csf_mode)
+               int adm_ref_display_height, int adm_csf_mode, double noise_weight,
+               double adm_csf_scale, double adm_csf_diag_scale)
 {
     (void)flt_stride;
-    (void)adm_csf_mode;
 
     // for ADM: scales goes from 0 to 3 but in noise floor paper, it goes from
     // 1 to 4 (from finest scale to coarsest scale).
-    // TODO: we will add more CSF functions here
     float factor1;
     float factor2;
-    factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
-                                    adm_ref_display_height);
-    factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
-                                    adm_ref_display_height);
+    if (adm_csf_mode == ADM_CSF_MODE_BARTEN) {
+        factor1 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
+                             adm_csf_scale);
+        factor2 = barten_csf(scale, adm_norm_view_dist, adm_ref_display_height, DEFAULT_ADM_CSF_LUM,
+                             adm_csf_diag_scale);
+    } else {
+        factor1 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 1, adm_norm_view_dist,
+                                        adm_ref_display_height);
+        factor2 = 1.0f / dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
+                                        adm_ref_display_height);
+    }
     float rfactor[3] = {factor1, factor1, factor2};
 
     const float *angles[3] = {csf_a->band_h, csf_a->band_v, csf_a->band_d};
@@ -936,12 +955,11 @@ float adm_cm_s(const adm_dwt_band_t_s *src, const adm_dwt_band_t_s *csf_f,
     accum_v += accum_inner_v;
     accum_d += accum_inner_d;
 
-    num_scale_h =
-        powf(accum_h, 1.0f / 3.0f) + powf((bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
-    num_scale_v =
-        powf(accum_v, 1.0f / 3.0f) + powf((bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
-    num_scale_d =
-        powf(accum_d, 1.0f / 3.0f) + powf((bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
+    float noise_floor =
+        powf((float)((bottom - top) * (right - left)) * (float)noise_weight, 1.0f / 3.0f);
+    num_scale_h = powf(accum_h, 1.0f / 3.0f) + noise_floor;
+    num_scale_v = powf(accum_v, 1.0f / 3.0f) + noise_floor;
+    num_scale_d = powf(accum_d, 1.0f / 3.0f) + noise_floor;
 
     return (num_scale_h + num_scale_v + num_scale_d);
 }
