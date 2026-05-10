@@ -20,7 +20,7 @@
  * Smoke test for the CAMBI SYCL extractor (T3-15 / ADR-0371).
  *
  * Goals:
- *   1. Verify vmaf_fex_cambi_sycl is discoverable via vmaf_feature_extractor_find.
+ *   1. Verify vmaf_fex_cambi_sycl is discoverable via vmaf_get_feature_extractor_by_name.
  *   2. Verify end-to-end init → submit → collect → close with a synthetic
  *      all-flat frame does not crash and emits a finite non-negative score.
  *
@@ -72,7 +72,7 @@ static char *test_cambi_sycl_setup(void)
 /* ------------------------------------------------------------------ */
 static char *test_cambi_sycl_registration(void)
 {
-    VmafFeatureExtractor *fex = vmaf_feature_extractor_find("cambi_sycl");
+    VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("cambi_sycl");
     mu_assert("vmaf_fex_cambi_sycl should be findable by name", fex != NULL);
     if (fex) {
         mu_assert("fex name should be cambi_sycl", strcmp(fex->name, "cambi_sycl") == 0);
@@ -103,8 +103,8 @@ static char *test_cambi_sycl_smoke(void)
     if (err)
         return NULL;
 
-    err = vmaf_import_sycl_state(vmaf, sycl);
-    mu_assert("vmaf_import_sycl_state should succeed", err == 0);
+    err = vmaf_sycl_import_state(vmaf, sycl);
+    mu_assert("vmaf_sycl_import_state should succeed", err == 0);
     if (err) {
         (void)vmaf_close(vmaf);
         return NULL;
@@ -170,8 +170,7 @@ static char *test_cambi_sycl_smoke(void)
 static char *test_cambi_sycl_teardown(void)
 {
     if (sycl) {
-        (void)vmaf_sycl_state_close(sycl);
-        sycl = NULL;
+        vmaf_sycl_state_free(&sycl);
     }
     return NULL;
 }

@@ -28,6 +28,7 @@
  *      - rule 7: every read()/vmaf_*() return value is checked.
  */
 
+#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stddef.h>

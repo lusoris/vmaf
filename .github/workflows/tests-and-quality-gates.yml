@@ -552,10 +552,18 @@ jobs:
           # which silently dropped every dnn-suite test, leaving meson
           # with an empty list (PR #756) or with `dnn:test_X` names that
           # meson cannot dispatch directly. Companion fix to PR #757.
-          TESTS=$(meson test -C build --list \
+          # Disable `pipefail` for this assignment: with `set -e -o
+          # pipefail`, `grep` exiting 1 on a no-match aborts the script
+          # before the `[ -z "$TESTS" ]` guard can emit a useful error.
+          set +o pipefail
+          MESON_LIST=$(meson test -C build --list 2>&1 || true)
+          echo "meson test --list raw output (first 5 lines):"
+          echo "$MESON_LIST" | head -5
+          TESTS=$(echo "$MESON_LIST" \
                   | awk '{ print $NF }' \
                   | grep '^libvmaf:' \
-                  | grep -vE "$EXCLUDE")
+                  | grep -vE "$EXCLUDE" || true)
+          set -o pipefail
           if [ -z "$TESTS" ]; then
             echo "::error::ADR-0347 test enumeration produced empty list for sanitizer=${{ matrix.sanitizer }}" >&2
             exit 1
