@@ -33049,3 +33049,16 @@ ninja -C build-cuda
   # All per-scale VIF scores must be < 1.0; VMAF must be within ±0.5 of CPU.
   # Per-scale delta must be < 1e-3 from CPU reference.
   ```
+
+### fix/recal-adm-f1f2-post-pr731 — Recalibrate fork-local `adm_f1f2` assertion after PR #731 AIM port
+
+No rebase impact: this change touches only `python/test/feature_extractor_test.py`
+(a single `assertAlmostEqual` value for the fork-local `adm_f1s/f2s` feature), with
+a documentation comment explaining the recalibration. No C sources, no public headers,
+no Meson options, no FFmpeg patch stack entries were modified. If upstream Netflix/vmaf
+adds its own `adm_f1s/f2s` noise-weight test in a future sync, verify that the expected
+value (`0.8872294166666667`) still matches the post-PR-#731 CPU scalar path output for
+the `src01_hrc00_576x324.yuv` ↔ `src01_hrc01_576x324.yuv` pair with the f1s/f2s
+parameters listed in `test_run_vmaf_fextractor_adm_f1f2`.
+
+- **Re-test**: `PYTHONPATH=$PWD/python python3 -m pytest python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_vmaf_fextractor_adm_f1f2 -v` — must report 1 passed.
