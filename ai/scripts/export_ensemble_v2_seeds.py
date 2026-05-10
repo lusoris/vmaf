@@ -56,7 +56,7 @@ if str(REPO_ROOT / "ai" / "scripts") not in sys.path:
 
 # Reuse the LOSO trainer's corpus loader + canonical constants so the
 # codec block layout is identical to what was gate-validated.
-from train_fr_regressor_v2_ensemble_loso import (  # noqa: E402
+from train_fr_regressor_v2_ensemble_loso import (  # noqa: E402  # type: ignore[import-not-found]
     CANONICAL_6,
     CODEC_BLOCK_DIM,
     ENCODER_VOCAB,

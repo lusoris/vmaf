@@ -4,17 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import optuna
 
 from .train import TrainConfig, train
 
 
 def sweep(
     base_cfg: TrainConfig,
-    suggest: Callable[["optuna.Trial"], dict[str, object]],  # noqa: F821
+    suggest: Callable[["optuna.Trial"], dict[str, object]],
     n_trials: int = 20,
     study_name: str = "vmaf-train-sweep",
     storage: str | None = None,
-) -> "optuna.Study":  # noqa: F821
+) -> "optuna.Study":
     import optuna  # local import — optional dep
 
     def objective(trial: "optuna.Trial") -> float:

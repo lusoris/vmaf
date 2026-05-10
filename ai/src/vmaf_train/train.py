@@ -1,10 +1,12 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """Main training entry, driven by a YAML config or direct kwargs."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytorch_lightning as L
 import yaml
@@ -19,6 +21,24 @@ MODEL_REGISTRY: dict[str, type[L.LightningModule]] = {
     "learned_filter": LearnedFilter,
 }
 
+# Subset of the Literal union accepted by pytorch_lightning.Trainer(precision=...).
+# Only the string forms actually used in this repo are listed; extend as needed.
+# Also imported by scripts that call Trainer directly (e.g. train_konvid.py).
+PrecisionStr = Literal[
+    "transformer-engine",
+    "transformer-engine-float16",
+    "16-true",
+    "16-mixed",
+    "bf16-true",
+    "bf16-mixed",
+    "32-true",
+    "64-true",
+    "64",
+    "32",
+    "16",
+    "bf16",
+]
+
 
 @dataclass
 class TrainConfig:
@@ -31,7 +51,7 @@ class TrainConfig:
     val_frac: float = 0.1
     test_frac: float = 0.1
     seed: int = 0
-    precision: str = "32-true"
+    precision: PrecisionStr = "32-true"
 
 
 def load_config(path: Path, overrides: dict[str, Any] | None = None) -> TrainConfig:
@@ -49,7 +69,7 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> TrainCon
         val_frac=float(doc.get("val_frac", 0.1)),
         test_frac=float(doc.get("test_frac", 0.1)),
         seed=int(doc.get("seed", 0)),
-        precision=str(doc.get("precision", "32-true")),
+        precision=doc.get("precision", "32-true"),  # type: ignore[arg-type]  # validated at runtime
     )
 
 

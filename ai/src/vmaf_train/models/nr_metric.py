@@ -1,12 +1,27 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """C2 — no-reference metric: distorted frame → MOS (small CNN)."""
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytorch_lightning as L
 import torch
 from torch import nn
+from typing_extensions import TypedDict
 
 from ..confidence import gaussian_nll
+
+
+class _NRMetricHParams(TypedDict):
+    """Typed view of NRMetric hyperparameters (Lightning stores them as MutableMapping)."""
+
+    in_channels: int
+    width: int
+    lr: float
+    weight_decay: float
+    emit_variance: bool
 
 
 def _dw_sep(in_c: int, out_c: int, stride: int = 1) -> nn.Sequential:
@@ -27,6 +42,11 @@ class NRMetric(L.LightningModule):
     on, the head emits ``(N, 2)`` (μ, logvar) and training switches to
     Gaussian NLL.
     """
+
+    @property
+    def _hp(self) -> _NRMetricHParams:
+        """Typed view of ``self.hparams`` (Lightning's MutableMapping is untyped)."""
+        return cast(_NRMetricHParams, self.hparams)
 
     def __init__(
         self,
@@ -60,14 +80,14 @@ class NRMetric(L.LightningModule):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = self.head(self.body(self.stem(x)))
-        if self.hparams.emit_variance:
+        if self._hp["emit_variance"]:
             return out  # (N, 2): [:, 0] = score, [:, 1] = logvar
         return out.squeeze(-1)
 
-    def _step(self, batch, tag: str) -> torch.Tensor:
-        x, y = batch
+    def _step(self, batch: object, tag: str) -> torch.Tensor:
+        x, y = batch  # type: ignore[misc]
         out = self(x)
-        if self.hparams.emit_variance:
+        if self._hp["emit_variance"]:
             pred = out[..., 0]
             logvar = out[..., 1]
             loss = gaussian_nll(pred, y, logvar).mean()
@@ -83,15 +103,15 @@ class NRMetric(L.LightningModule):
         self.log(f"{tag}/mse", loss, prog_bar=True, on_epoch=True)
         return loss
 
-    def training_step(self, batch, _idx: int) -> torch.Tensor:
+    def training_step(self, batch: object, _idx: int) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch, _idx: int) -> None:
+    def validation_step(self, batch: object, _idx: int) -> None:
         self._step(batch, "val")
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         return torch.optim.AdamW(
             self.parameters(),
-            lr=self.hparams.lr,
-            weight_decay=self.hparams.weight_decay,
+            lr=self._hp["lr"],
+            weight_decay=self._hp["weight_decay"],
         )

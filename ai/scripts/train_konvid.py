@@ -28,6 +28,7 @@ import pytorch_lightning as L
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from torch.utils.data import DataLoader, Subset
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ai" / "src"))
@@ -101,7 +102,7 @@ def _train_one(
         callbacks=[ckpt_cb, early_cb],
         default_root_dir=output_dir,
         log_every_n_steps=10,
-        precision=precision,
+        precision=cast(object, precision),  # type: ignore[arg-type]  # argparse gives str
         deterministic=True,
         accelerator="auto",
     )

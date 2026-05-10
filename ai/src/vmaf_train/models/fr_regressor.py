@@ -1,12 +1,30 @@
+# Copyright 2026 Lusoris and Claude (Anthropic)
+# SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
 """C1 — feature-vector → MOS regressor (replaces / augments SVM)."""
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytorch_lightning as L
 import torch
 from torch import nn
+from typing_extensions import TypedDict
 
 from ..confidence import gaussian_nll
+
+
+class _FRRegressorHParams(TypedDict):
+    """Typed view of FRRegressor hyperparameters (Lightning stores them as MutableMapping)."""
+
+    in_features: int
+    hidden: int
+    depth: int
+    dropout: float
+    lr: float
+    weight_decay: float
+    emit_variance: bool
+    num_codecs: int
 
 
 class FRRegressor(L.LightningModule):
@@ -37,6 +55,11 @@ class FRRegressor(L.LightningModule):
     with libvmaf's ``vmaf_dnn_session_run`` two-input pattern (matches
     the LPIPS-Sq exporter precedent in ADR-0040 / ADR-0041).
     """
+
+    @property
+    def _hp(self) -> _FRRegressorHParams:
+        """Typed view of ``self.hparams`` (Lightning's MutableMapping is untyped)."""
+        return cast(_FRRegressorHParams, self.hparams)
 
     def __init__(
         self,
@@ -69,37 +92,39 @@ class FRRegressor(L.LightningModule):
         x: torch.Tensor,
         codec_onehot: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if self.hparams.num_codecs > 0:
+        if self._hp["num_codecs"] > 0:
             if codec_onehot is None:
                 raise ValueError(
                     "codec_onehot is required when num_codecs > 0; "
                     "callers without codec metadata should pass an all-zero "
                     "or 'unknown'-bucket one-hot vector"
                 )
-            if codec_onehot.shape[-1] != self.hparams.num_codecs:
+            if codec_onehot.shape[-1] != self._hp["num_codecs"]:
                 raise ValueError(
                     f"codec_onehot last-dim {codec_onehot.shape[-1]} != "
-                    f"num_codecs {self.hparams.num_codecs}"
+                    f"num_codecs {self._hp['num_codecs']}"
                 )
             x = torch.cat([x, codec_onehot.to(x.dtype)], dim=-1)
         out = self.net(x)
-        if self.hparams.emit_variance:
+        if self._hp["emit_variance"]:
             return out  # (N, 2): [:, 0] = score, [:, 1] = logvar
         return out.squeeze(-1)
 
-    def _unpack_batch(self, batch) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    def _unpack_batch(
+        self, batch: object
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """Accept (x, y) or (x, codec, y) tuples. Codec-blind callers
         keep the v1 2-tuple shape; codec-aware datamodules emit 3-tuples."""
-        if len(batch) == 3:
-            x, codec, y = batch
+        if len(batch) == 3:  # type: ignore[arg-type]
+            x, codec, y = batch  # type: ignore[misc]
             return x, y, codec
-        x, y = batch
+        x, y = batch  # type: ignore[misc]
         return x, y, None
 
-    def _step(self, batch, tag: str) -> torch.Tensor:
+    def _step(self, batch: object, tag: str) -> torch.Tensor:
         x, y, codec = self._unpack_batch(batch)
         out = self(x, codec)
-        if self.hparams.emit_variance:
+        if self._hp["emit_variance"]:
             pred = out[..., 0]
             logvar = out[..., 1]
             loss = gaussian_nll(pred, y, logvar).mean()
@@ -116,18 +141,18 @@ class FRRegressor(L.LightningModule):
         self.log(f"{tag}/mse", loss, prog_bar=True, on_epoch=True)
         return loss
 
-    def training_step(self, batch, _idx: int) -> torch.Tensor:
+    def training_step(self, batch: object, _idx: int) -> torch.Tensor:
         return self._step(batch, "train")
 
-    def validation_step(self, batch, _idx: int) -> None:
+    def validation_step(self, batch: object, _idx: int) -> None:
         self._step(batch, "val")
 
-    def test_step(self, batch, _idx: int) -> None:
+    def test_step(self, batch: object, _idx: int) -> None:
         self._step(batch, "test")
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         return torch.optim.AdamW(
             self.parameters(),
-            lr=self.hparams.lr,
-            weight_decay=self.hparams.weight_decay,
+            lr=self._hp["lr"],
+            weight_decay=self._hp["weight_decay"],
         )
