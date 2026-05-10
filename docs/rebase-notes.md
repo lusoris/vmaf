@@ -33144,7 +33144,7 @@ parameters listed in `test_run_vmaf_fextractor_adm_f1f2`.
   # adm2 must match the no-param baseline (places=4).
   ```
 
-### 0382 — K150K parallel CPU driver + feature_extractor_list dedup fix (ADR-0382)
+### 0383 — K150K parallel CPU driver + feature_extractor_list dedup fix (ADR-0383)
 
 - **Touches**:
   - `ai/scripts/extract_k150k_features.py` — driver redesign.
@@ -33153,7 +33153,7 @@ parameters listed in `test_run_vmaf_fextractor_adm_f1f2`.
     registration removed (lines 239–240 deduplicated: six CUDA extractors
     that were registered twice).
   - `docs/ai/datasets/k150k.md` — user-facing docs updated.
-  - `docs/adr/0382-k150k-parallel-cpu-driver.md` — new ADR.
+  - `docs/adr/0383-k150k-parallel-cpu-driver.md` — new ADR.
   - `docs/research/0096-k150k-gpu-driver-investigation-2026-05-10.md` — new digest.
 - **Invariant 1 — `feature_extractor_list[]` must have no duplicate entries.**
   The dedup in `feature_extractor_vector_append()` is by extractor name, not

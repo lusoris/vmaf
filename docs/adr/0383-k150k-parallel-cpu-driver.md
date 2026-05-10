@@ -1,4 +1,4 @@
-# ADR-0382: K150K corpus scoring driver — parallel CPU worker redesign
+# ADR-0383: K150K corpus scoring driver — parallel CPU worker redesign
 
 - **Status**: Accepted
 - **Date**: 2026-05-10

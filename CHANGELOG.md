@@ -68,7 +68,7 @@
 ### Added
 
 - **K150K-A corpus scoring driver redesigned for parallel CPU workers
-  (ADR-0382).** `ai/scripts/extract_k150k_features.py` now uses
+  (ADR-0383).** `ai/scripts/extract_k150k_features.py` now uses
   `concurrent.futures.ProcessPoolExecutor` with a configurable number of
   parallel workers (`--threads-cuda`, default 8). Each worker independently
   decodes one clip to a private YUV scratch file, scores it via
