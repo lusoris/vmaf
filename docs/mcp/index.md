@@ -24,7 +24,7 @@ Use it when you want an LLM to:
 
 - score a `(reference, distorted)` YUV pair and reason about the result,
 - enumerate which VMAF models shipped with the build,
-- probe which runtime backends (CPU / CUDA / SYCL / HIP) the local
+- probe which runtime backends (CPU / CUDA / SYCL / Vulkan / HIP / Metal) the local
   binary can dispatch to,
 - run the Netflix benchmark harness and summarise the output,
 - evaluate a tiny-AI ONNX regressor against a parquet feature cache
@@ -37,14 +37,14 @@ under an allowlisted root. See [security](#security-model) below.
 
 ## Tool catalogue
 
-| Tool                  | Purpose                                                           | Detail                                 |
-|-----------------------|-------------------------------------------------------------------|----------------------------------------|
-| `vmaf_score`          | Score one `(ref, dis)` YUV pair; return the full JSON report      | [tools.md#vmaf_score](tools.md#vmaf_score) |
-| `list_models`         | Enumerate `.json` / `.pkl` / `.onnx` under `model/`               | [tools.md#list_models](tools.md#list_models) |
-| `list_backends`       | Report which backends the local `vmaf` binary was built with      | [tools.md#list_backends](tools.md#list_backends) |
-| `run_benchmark`       | Run `testdata/bench_all.sh` on a pair                             | [tools.md#run_benchmark](tools.md#run_benchmark) |
-| `eval_model_on_split` | Evaluate a tiny-AI ONNX model on a parquet feature cache          | [tools.md#eval_model_on_split](tools.md#eval_model_on_split) |
-| `compare_models`      | Rank several ONNX models on the same split by descending PLCC     | [tools.md#compare_models](tools.md#compare_models) |
+| Tool | Purpose | Detail |
+|---|---|---|
+| `vmaf_score` | Score one `(ref, dis)` YUV pair; return the full JSON report | [tools.md#vmaf_score](tools.md#vmaf_score) |
+| `list_models` | Enumerate `.json` / `.pkl` / `.onnx` under `model/` | [tools.md#list_models](tools.md#list_models) |
+| `list_backends` | Report which backends the local `vmaf` binary was built with | [tools.md#list_backends](tools.md#list_backends) |
+| `run_benchmark` | Run `testdata/bench_all.sh` on a pair | [tools.md#run_benchmark](tools.md#run_benchmark) |
+| `eval_model_on_split` | Evaluate a tiny-AI ONNX model on a parquet feature cache | [tools.md#eval_model_on_split](tools.md#eval_model_on_split) |
+| `compare_models` | Rank several ONNX models on the same split by descending PLCC | [tools.md#compare_models](tools.md#compare_models) |
 
 All tools return a single `TextContent` message whose body is a JSON
 document. On error the body is `{"error": "<message>"}` with the same

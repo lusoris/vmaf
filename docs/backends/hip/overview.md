@@ -1,296 +1,138 @@
-# HIP (AMD ROCm) compute backend (scaffold + eight kernel-template consumers + runtime)
+# HIP (AMD ROCm) compute backend
 
-> **Status (2026-05-10, T7-10b batch-4 real kernels landed):** the
-> host-side HIP runtime is wired (T7-10b, 2026-05-08). The kernel-
-> template lifecycle helpers all wrap real HIP runtime calls. Eight of
-> eleven feature extractors now have real device kernels:
+> **Status (2026-05-10, batch-4 complete):** the host-side HIP runtime is
+> wired (T7-10b). Eight of eleven feature extractors now have real device
+> kernels; three stubs remain pending an ADM/VIF API redesign:
 >
-> - `float_psnr_hip` (name `float_psnr_hip`, ADR-0254): float (ref-dis)^2
->   reduction per block. Emits `float_psnr`.
-> - `integer_psnr_hip` (name `psnr_hip`, ADR-0372): uint64 atomic-SSE
->   kernel, warp-64 `__shfl_down` reduction. Emits `psnr_y`.
-> - `float_ansnr_hip` (name `float_ansnr_hip`, ADR-0372): per-block
->   (sig, noise) float-partial kernel, 3×3 ref + 5×5 dis filter with
->   shared-memory mirror-padded tile. Emits `float_ansnr` + `float_anpsnr`.
-> - `float_motion_hip` (name `float_motion_hip`, ADR-0373): temporal
->   extractor. 5×5 separable Gaussian blur + per-block float SAD partials,
->   blur ping-pong (`blur[2]`), first-frame `compute_sad=0` short-circuit,
->   motion2 tail emission in `flush()`. Emits
->   `VMAF_feature_motion_score` + `VMAF_feature_motion2_score`.
-> - `float_moment_hip` (name `float_moment_hip`, ADR-0375): four uint64
->   atomic accumulator kernel (ref1st, dis1st, ref2nd, dis2nd), warp-64
->   two-uint32-shuffle reduction. Host divides by w×h. Emits four
->   `float_moment_*` features.
-> - `float_ssim_hip` (name `float_ssim_hip`, ADR-0375): two-pass separable
->   11-tap Gaussian kernel. Pass 1 (horiz): five intermediate float buffers
->   over (W-10)×H. Pass 2 (vert + SSIM combine): per-block float partial
->   sum over (W-10)×(H-10). Host accumulates in double. Emits `float_ssim`.
->   v1: scale=1 only.
-> - `ciede_hip` (name `ciede_hip`, ADR-0377): CIEDE2000 color metric.
->   HtoD copies of all 6 YUV planes (ref + dis Y/U/V), per-pixel YUV→Lab
->   conversion, CIEDE2000 ΔE accumulation per block, host log10 transform.
->   Emits `ciede2000`. Warp-64 `__shfl_down` without mask.
-> - `integer_motion_v2_hip` (name `motion_v2_hip`, ADR-0377): temporal
->   extractor. Raw-pixel ping-pong (`pix[2]`), separable 5-tap Gaussian
->   diff filter with arithmetic right-shift (critical for bit-exactness vs
->   CPU — see ADR-0138/0139 and PR #587 AVX2 srlv_epi64 regression), single
->   int64 atomic SAD accumulator, host-side `min(cur, next)` fold in
->   `flush()`. Emits `VMAF_integer_feature_motion_v2_sad_score` +
->   `VMAF_integer_feature_motion2_v2_score`.
+> | Extractor | Feature name | Governing ADR |
+> |---|---|---|
+> | `float_psnr_hip` | `float_psnr_hip` | ADR-0254 |
+> | `integer_psnr_hip` | `psnr_hip` | ADR-0372 |
+> | `float_ansnr_hip` | `float_ansnr_hip` | ADR-0372 |
+> | `float_motion_hip` | `float_motion_hip` | ADR-0373 |
+> | `float_moment_hip` | `float_moment_hip` | ADR-0375 |
+> | `float_ssim_hip` | `float_ssim_hip` | ADR-0375 |
+> | `ciede_hip` | `ciede_hip` | ADR-0377 |
+> | `integer_motion_v2_hip` | `motion_v2_hip` | ADR-0377 |
 >
 > All eight require `enable_hip=true` + `enable_hipcc=true`.
 > Without `enable_hipcc`, the scaffold `-ENOSYS` posture is preserved.
-> The remaining three extractors remain at `-ENOSYS` pending adm/vif
-> redesign. See ADR-0372 (batch-1), ADR-0373 (batch-2), ADR-0375
-> (batch-3), ADR-0377 (batch-4) for rationale. `adm_hip` and `vif_hip`
-> use a different low-level API shape (`_init/_run/_destroy`) that
-> requires a separate VmafFeatureExtractor redesign before promotion.
-
-> **Historical status (audit-first scaffold):** the eight host-
-> scaffolded kernel-template consumers below register and are
-> looked-up-able from the feature engine; their `init()` calls fall
-> through to the kernel-template helpers, which now succeed at the
-> stream/event/buffer layer but the kernel-launch sites in each
-> consumer remain `-ENOSYS` until T7-10c lands the per-feature
-> runtime kernels. The
-> kernel-template consumers shipped or in flight are:
->
-> 1. `integer_psnr_hip` (name `psnr_hip`) under
->    [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md).
-> 2. `float_psnr_hip` (name `float_psnr_hip`) under
->    [ADR-0254](../../adr/0254-hip-second-consumer-float-psnr.md).
-> 3. `ciede_hip` (name `ciede_hip`) under
->    [ADR-0259](../../adr/0259-hip-third-consumer-ciede.md) — pins
->    the kernel-template's "no-memset bypass" path (single float per
->    block, no atomic).
-> 4. `float_moment_hip` (name `float_moment_hip`) under
->    [ADR-0260](../../adr/0260-hip-fourth-consumer-float-moment.md) —
->    pins the kernel-template's "memset multiple uint64 counters"
->    path (four atomic counters in one kernel pass).
-> 5. `float_ansnr_hip` (name `float_ansnr_hip`) under
->    [ADR-0266](../../adr/0266-hip-fifth-consumer-float-ansnr.md) —
->    pins the **interleaved (sig, noise) per-block float-partial**
->    readback shape (PR #340 in flight as of this PR).
-> 6. `motion_v2_hip` (name `motion_v2_hip`) under
->    [ADR-0267](../../adr/0267-hip-sixth-consumer-motion-v2.md) —
->    pins the **temporal-extractor** shape (`flush()` callback +
->    ping-pong buffer carry, PR #340 in flight as of this PR).
-> 7. `float_motion_hip` (name `float_motion_hip`) under
->    [ADR-0273](../../adr/0273-hip-seventh-consumer-float-motion.md) —
->    pins the **three-buffer ping-pong** (raw-pixel cache plus
->    blurred-frame ping-pong) and the `motion_force_zero` short-circuit
->    posture (this PR).
-> 8. `float_ssim_hip` (name `float_ssim_hip`) under
->    [ADR-0274](../../adr/0274-hip-eighth-consumer-float-ssim.md) —
->    first **multi-dispatch** HIP consumer
->    (`chars.n_dispatches_per_frame == 2`); pins the five-intermediate
->    float-buffer pyramid and the v1 `scale=1` `-EINVAL` validation
->    surface (this PR).
->
-> All eight register and are looked-up-able from the feature engine,
-> but their `init()` returns `-ENOSYS` because the
-> `kernel_template.c` helper bodies they call still return `-ENOSYS`
-> (`float_ssim_hip` may instead return `-EINVAL` if the input
-> dimensions trigger auto-decimation, mirroring `ssim_cuda`).
-> The runtime PR flips all of them at once. Rollout cadence mirrors
-> the Vulkan scaffold-then-runtime split that
-# HIP (AMD ROCm) compute backend (scaffold + six host-scaffolded consumers)
-
-> **Status: scaffold + six host-scaffolded kernel-template consumers.**
-> Every entry point in
-> [`libvmaf_hip.h`](../../../libvmaf/include/libvmaf/libvmaf_hip.h)
-> currently returns `-ENOSYS` pending the runtime PR (T7-10b). The
-> first six kernel-template consumers ship their host scaffolding
-> across multiple PRs:
->
-> 1. `integer_psnr_hip` — [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md) (first / SSE accumulator).
-> 2. `float_psnr_hip` — [ADR-0254](../../adr/0254-hip-second-consumer-float-psnr.md) (second / float partials, in flight as PR #324).
-> 3. `ciede_hip` — [ADR-0259](../../adr/0259-hip-third-consumer-ciede.md) (third / `submit_pre_launch` bypass, in flight as PR #330).
-> 4. `float_moment_hip` — [ADR-0260](../../adr/0260-hip-fourth-consumer-float-moment.md) (fourth / four-uint64 atomic counters, in flight as PR #330).
-> 5. `float_ansnr_hip` — [ADR-0266](../../adr/0266-hip-fifth-consumer-float-ansnr.md) (fifth / interleaved (sig, noise) float partials, **this PR**).
-> 6. `motion_v2_hip` — [ADR-0267](../../adr/0267-hip-sixth-consumer-motion-v2.md) (sixth / temporal extractor + ping-pong buffer carry, **this PR**).
->
-> Each consumer registers under the name `<feature>_hip` and is
-> looked-up-able from the feature engine, but its `init()` returns
-> `-ENOSYS` because the `kernel_template.c` helper bodies it calls
-> still return `-ENOSYS`. The runtime PR flips both at once.
-> Rollout cadence mirrors the Vulkan scaffold-then-runtime split that
-> [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) /
-> [ADR-0176](../../adr/0176-vulkan-vif-cross-backend-gate.md) used
-> (T5-1 → T5-1b).
-
-## What's in this PR
-
-- Public header
-  [`libvmaf/include/libvmaf/libvmaf_hip.h`](../../../libvmaf/include/libvmaf/libvmaf_hip.h)
-  declaring `VmafHipState`, `VmafHipConfiguration`,
-  `vmaf_hip_state_init`, `vmaf_hip_import_state`,
-  `vmaf_hip_state_free`, `vmaf_hip_list_devices`,
-  `vmaf_hip_available`. Mirrors the CUDA + Vulkan + SYCL surface
-  shapes.
-- Backend tree under
-  [`libvmaf/src/hip/`](../../../libvmaf/src/hip/) — `common.{c,h}`,
-  `picture_hip.{c,h}`, `dispatch_strategy.{c,h}`, plus a `meson.build`
-  that's `subdir()`-included when `-Denable_hip=true`.
-- Three feature kernel stubs under
-  [`libvmaf/src/feature/hip/`](../../../libvmaf/src/feature/hip/) —
-  `adm_hip.c`, `vif_hip.c`, `motion_hip.c`. Each declares `_init` /
-  `_run` entry points returning `-ENOSYS` / do-nothing.
-- Build wiring: new `enable_hip` boolean option (default **false**) in
-  [`libvmaf/meson_options.txt`](../../../libvmaf/meson_options.txt);
-  conditional `subdir('hip')` in
-  [`libvmaf/src/meson.build`](../../../libvmaf/src/meson.build);
-  `hip_sources` + `hip_deps` threaded through the
-  `libvmaf_feature_static_lib` aggregation alongside CUDA / SYCL /
-  Vulkan / DNN.
-- Smoke test at
-  [`libvmaf/test/test_hip_smoke.c`](../../../libvmaf/test/test_hip_smoke.c) —
-  9 sub-tests pinning the scaffold contract (internal context
-  lifecycle + every public C-API entry point's `-ENOSYS` / `-EINVAL`
-  return). Wired in
-  [`libvmaf/test/meson.build`](../../../libvmaf/test/meson.build).
-- New CI matrix row "Build — Ubuntu HIP (T7-10 scaffold)" in
-  [`.github/workflows/libvmaf-build-matrix.yml`](../../../.github/workflows/libvmaf-build-matrix.yml)
-  that compiles with `-Denable_hip=true` to gate the scaffold against
-  bit-rot. No ROCm SDK is installed on the runner — the scaffold has
-  no SDK requirement.
+> The remaining three extractors (`adm_hip`, `vif_hip`, `integer_motion_hip`)
+> remain at `-ENOSYS` pending an ADM/VIF `_init/_run/_destroy` API redesign.
+> See ADR-0372 (batch-1), ADR-0373 (batch-2), ADR-0375 (batch-3),
+> ADR-0377 (batch-4) for rationale.
 
 ## Building
 
 ```bash
 meson setup build -Denable_cuda=false -Denable_sycl=false \
-                  -Denable_hip=true
+                  -Denable_hip=true -Denable_hipcc=true
 ninja -C build
 meson test -C build
 ```
 
+`enable_hipcc=false` (the default) compiles the HIP C host runtime but
+skips the `hipcc`-compiled kernel objects; every extractor returns
+`-ENOSYS` at `init()`. Set both flags to `true` to compile and link the
+real device kernels.
+
 The scaffold has **zero hard runtime dependencies** — no ROCm SDK,
-no `hipcc`, no `amdhip64`. The Meson build files include an
-optional `dependency('hip-lang', required: false)` probe so a host
-that already has ROCm installed will see the dependency resolve;
-the scaffold compiles cleanly without it.
+no `hipcc`, no `amdhip64`. The Meson build files include an optional
+`dependency('hip-lang', required: false)` probe so a host that already
+has ROCm installed will see the dependency resolve; the scaffold compiles
+cleanly without it.
 
-Adding the real linkage is the responsibility of the first kernel
-PR per [ADR-0212](../../adr/0212-hip-backend-scaffold.md) §
-"Alternatives considered" (the rejected alternative was "pull all
-build deps in now"; doing so would gate the scaffold's CI run on a
-ROCm SDK that no kernel uses yet).
+## Runtime
 
-## What lands next (rough sequence)
+When built with HIP and device kernels, the backend is available for
+explicit opt-in:
 
-1. **Runtime PR (T7-10b)**: `hipInit` / `hipGetDeviceCount` /
-   `hipDeviceGetName` probe; `hipStreamCreate` per state;
-   `vmaf_hip_state_init` returns `0` on a real device. The
-   smoke contract flips from "`-ENOSYS` everywhere" to
-   "device_count >= 0, state_init succeeds when devices >= 1,
-   skip when none".
-2. **VIF kernel PR**: first feature on the HIP compute path (same
-   pathfinder choice as Vulkan T5-1b — VIF's bit-exactness contract
-   is well-defined and its arithmetic GPU-maps cleanly).
-3. **ADM, motion, the long tail**: parity with the CPU + CUDA + SYCL,
-   Vulkan kernel matrix.
-3. **ADM, motion, the long tail**: parity with the CPU + CUDA + SYCL
-   plus Vulkan kernel matrix.
-4. **CI ROCm runner** (post-runtime): if and when GitHub Actions
-   exposes AMD GPU runners — until then the runtime PR's smoke test
-   skips cleanly on hosts with no devices, matching the
-   [Vulkan lavapipe pattern](../vulkan/overview.md).
-5. **`/cross-backend-diff` ULP gate** — once kernels claim
-   bit-exactness, the per-backend ULP diff joins the existing
-   CPU / CUDA / SYCL / Vulkan trio.
+```bash
+./build/tools/vmaf --feature psnr_hip --reference ref.yuv ...
+./build/tools/vmaf --feature float_ansnr_hip --reference ref.yuv ...
+```
 
-## What's NOT in this PR
+FFmpeg backend selector: `hip_device=N` (patch `0011-libvmaf-wire-hip-backend-selector.patch`
+in `ffmpeg-patches/`; see [ADR-0380](../../adr/0380-ffmpeg-hip-backend-selector.md)).
 
-- No real HIP calls. Every entry point's body is a `TODO` comment.
-- No hard `dependency('hip-lang')` requirement (the `required: false`
-  probe stays optional).
-- No `hipify`-based CUDA-to-HIP translation layer — see ADR-0212 §
-  "Alternatives considered" for why the fork keeps a hand-written
-  HIP backend instead of auto-translating the existing CUDA path.
-- No CI runner with a real AMD GPU — none currently exists in
-  GitHub-hosted infrastructure.
-- No bit-exactness claim — the kernels don't exist.
-- No `/cross-backend-diff` integration — same reason.
+## Source layout
+
+```text
+libvmaf/src/hip/                  # HIP runtime (common, picture_hip, dispatch_strategy)
+libvmaf/src/feature/hip/          # per-feature kernels
+  float_psnr_hip.c                # float (ref-dis)^2 reduction per block
+  integer_psnr_hip.c              # uint64 atomic-SSE warp-64 __shfl_down
+  float_ansnr_hip.c               # (sig, noise) per-block float partials
+  float_motion_hip.c              # 5×5 Gaussian blur + per-block float SAD
+  float_moment_hip.c              # four uint64 atomic accumulator kernel
+  float_ssim_hip.c                # two-pass separable 11-tap Gaussian kernel
+  ciede_hip.c                     # YUV→Lab, CIEDE2000 ΔE, warp-64 shfl_down
+  integer_motion_v2_hip.c         # raw-pixel ping-pong, 5-tap Gaussian diff
+  adm_hip.c                       # stub — returns -ENOSYS
+  vif_hip.c                       # stub — returns -ENOSYS
+  motion_hip.c                    # stub — returns -ENOSYS
+```
+
+## Kernel notes
+
+- **`float_psnr_hip`** — float (ref-dis)² reduction per block. Emits `float_psnr`.
+- **`integer_psnr_hip`** — uint64 atomic-SSE kernel, warp-64 `__shfl_down`
+  reduction. Emits `psnr_y`.
+- **`float_ansnr_hip`** — per-block (sig, noise) float-partial kernel, 3×3 ref +
+  5×5 dis filter with shared-memory mirror-padded tile. Emits `float_ansnr` +
+  `float_anpsnr`.
+- **`float_motion_hip`** — temporal extractor. 5×5 separable Gaussian blur +
+  per-block float SAD partials, blur ping-pong (`blur[2]`), first-frame
+  `compute_sad=0` short-circuit, motion2 tail emission in `flush()`. Emits
+  `VMAF_feature_motion_score` + `VMAF_feature_motion2_score`.
+- **`float_moment_hip`** — four uint64 atomic accumulator kernel (ref1st,
+  dis1st, ref2nd, dis2nd), warp-64 two-uint32-shuffle reduction. Host divides
+  by w×h. Emits four `float_moment_*` features.
+- **`float_ssim_hip`** — two-pass separable 11-tap Gaussian kernel. Pass 1
+  (horiz): five intermediate float buffers over (W-10)×H. Pass 2 (vert + SSIM
+  combine): per-block float partial sum over (W-10)×(H-10). Host accumulates in
+  double. Emits `float_ssim`. v1: `scale=1` only.
+- **`ciede_hip`** — HtoD copies of all 6 YUV planes (ref + dis Y/U/V), per-pixel
+  YUV→Lab conversion, CIEDE2000 ΔE accumulation per block, host log10 transform.
+  Emits `ciede2000`. Warp-64 `__shfl_down` without mask.
+- **`integer_motion_v2_hip`** — temporal extractor. Raw-pixel ping-pong (`pix[2]`),
+  separable 5-tap Gaussian diff filter with arithmetic right-shift (critical for
+  bit-exactness vs CPU — see ADR-0138/0139 and PR #587 AVX2 srlv_epi64 regression),
+  single int64 atomic SAD accumulator, host-side `min(cur, next)` fold in `flush()`.
+  Emits `VMAF_integer_feature_motion_v2_sad_score` +
+  `VMAF_integer_feature_motion2_v2_score`.
+
+## Remaining stubs
+
+`adm_hip`, `vif_hip`, and `motion_hip` use the older `_init/_run/_destroy` API
+shape that requires a separate `VmafFeatureExtractor` redesign before promotion.
+Each returns `-ENOSYS` at `init()`. Tracked in
+[docs/state.md](../../state.md).
 
 ## Caveats
 
-- The `enable_hip` option is `boolean` defaulting to **false**.
-  Operators who want the scaffold's smoke test to run pass
-  `-Denable_hip=true` explicitly. The Vulkan scaffold uses a
-  `feature` option instead for parity with `enable_dnn`; HIP follows
-  the **boolean** convention used by `enable_cuda` and `enable_sycl`
-  to keep the AMD/NVIDIA/Intel triad uniform — see ADR-0212 §
-  "Decision".
-- The original ADR-0212 scaffold deliberately did not register the
-  ADM / VIF / motion stubs with the feature registry. ADR-0241
-  flipped that posture for **integer PSNR**, ADR-0254 extended it
-  to **float PSNR**, and ADR-0259 / ADR-0260 extended it to
-  **ciede** and **float moment**. All four extractors
-  (`vmaf_fex_psnr_hip`, `vmaf_fex_float_psnr_hip`,
-  `vmaf_fex_ciede_hip`, `vmaf_fex_float_moment_hip`) are now in
-  `feature_extractor_list` under `#if HAVE_HIP`, so a caller asking
-  for any of those features by name (`vmaf --feature psnr_hip`,
-  `--feature ciede_hip`, ...) gets a clean "extractor found, runtime
-  not ready" surface (`-ENOSYS` at `init()`) instead of "no such
-  extractor". The runtime PR (T7-10b) keeps these rows verbatim
-  and adds the remaining siblings (ADM, VIF, motion). The
-  remaining scaffold stubs (`adm_hip.c` / `vif_hip.c` /
-  `motion_hip.c`) stay unregistered until they grow their own
-  kernel-template consumer host scaffolding the same way these
-  four have.
-  ADM / VIF / motion stubs with the feature registry. ADR-0241 +
-  ADR-0254 + ADR-0259 + ADR-0260 + ADR-0266 + ADR-0267 flip that
-  posture for the six kernel-template consumers: `vmaf_fex_psnr_hip`,
-  `vmaf_fex_float_psnr_hip`, `vmaf_fex_ciede_hip`,
-  `vmaf_fex_float_moment_hip`, `vmaf_fex_float_ansnr_hip`, and
-  `vmaf_fex_integer_motion_v2_hip` are now in
-  `feature_extractor_list` under `#if HAVE_HIP`, so a caller asking
-  for any of those features by name (`vmaf --feature psnr_hip`,
-  `... --feature float_ansnr_hip`, `... --feature motion_v2_hip`,
-  etc., or the C-API equivalent) gets a clean "extractor found,
-  runtime not ready" surface (`-ENOSYS` at `init()`) instead of "no
-  such extractor". The runtime PR (T7-10b) keeps these rows verbatim
-  and adds its siblings (ADM, VIF, full motion). The remaining stubs
-  stay unregistered until they grow their own first-consumer host
-  scaffolding.
-- HIP runtime types (`hipDevice_t`, `hipStream_t`) cross the public
-  ABI as `uintptr_t`. This keeps `libvmaf_hip.h` free of
-  `<hip/hip_runtime.h>`, mirroring the pattern Vulkan adopted in
-  ADR-0184 (handles cross as `uintptr_t` so the public header is
-  consumable without the SDK installed).
+- `enable_hip` is `boolean` defaulting to **false**. `enable_hipcc` (also
+  `boolean`, default **false**) controls whether `hipcc`-compiled kernel objects
+  are linked. Both must be `true` for real GPU computation.
+- HIP runtime types (`hipDevice_t`, `hipStream_t`) cross the public ABI as
+  `uintptr_t`. This keeps `libvmaf_hip.h` free of `<hip/hip_runtime.h>`,
+  mirroring the pattern Vulkan adopted in ADR-0184.
+- No CI runner with a real AMD GPU exists on GitHub-hosted infrastructure.
+  The CI compile lane (`Build — Ubuntu HIP`) runs with `-Denable_hip=true`
+  but `-Denable_hipcc=false`, so kernels are not compiled or exercised on CI.
 
 ## References
 
-- [ADR-0212](../../adr/0212-hip-backend-scaffold.md) — the
-  scaffold-only audit-first PR that ships this surface.
-- [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md) — first
-  kernel-template consumer (`integer_psnr_hip`); mirrors
-  [ADR-0246](../../adr/0246-gpu-kernel-template.md)'s GPU template
-  decision onto HIP.
-- [ADR-0254](../../adr/0254-hip-second-consumer-float-psnr.md) —
-  second kernel-template consumer (`float_psnr_hip`); float
-  partials precision posture.
-- [ADR-0259](../../adr/0259-hip-third-consumer-ciede.md) — third
-  kernel-template consumer (`ciede_hip`); pins the
-  kernel-template's `submit_pre_launch` bypass shape (no atomic,
-  no memset).
-- [ADR-0260](../../adr/0260-hip-fourth-consumer-float-moment.md) —
-  fourth kernel-template consumer (`float_moment_hip`); pins the
-  multi-counter uint64 readback shape so `submit_pre_launch` can
-  later memset multiple counters in one helper call.
-  second consumer (`float_psnr_hip`).
-- [ADR-0259](../../adr/0259-hip-third-consumer-ciede.md) — third
-  consumer (`ciede_hip`).
-- [ADR-0260](../../adr/0260-hip-fourth-consumer-float-moment.md) —
-  fourth consumer (`float_moment_hip`).
-- [ADR-0266](../../adr/0266-hip-fifth-consumer-float-ansnr.md) —
-  fifth consumer (`float_ansnr_hip`, this PR).
-- [ADR-0267](../../adr/0267-hip-sixth-consumer-motion-v2.md) — sixth
-  consumer (`motion_v2_hip`, this PR).
-- [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md) — the
-  Vulkan precedent this PR mirrors.
-- [Research-0033](../../research/0033-hip-applicability.md) —
-  AMD market-share + ROCm Linux maturity check.
-- [`/add-gpu-backend`](../../../.claude/skills/add-gpu-backend/SKILL.md)
-  — the skill that produced the initial scaffold (subsequently
-  hand-finished here).
+- [ADR-0212](../../adr/0212-hip-backend-scaffold.md) — the original scaffold.
+- [ADR-0241](../../adr/0241-hip-first-consumer-psnr.md) — first consumer (`integer_psnr_hip`).
+- [ADR-0254](../../adr/0254-hip-second-consumer-float-psnr.md) — second consumer (`float_psnr_hip`).
+- [ADR-0259](../../adr/0259-hip-third-consumer-ciede.md) — third consumer (`ciede_hip`).
+- [ADR-0260](../../adr/0260-hip-fourth-consumer-float-moment.md) — fourth consumer (`float_moment_hip`).
+- [ADR-0266](../../adr/0266-hip-fifth-consumer-float-ansnr.md) — fifth consumer (`float_ansnr_hip`).
+- [ADR-0267](../../adr/0267-hip-sixth-consumer-motion-v2.md) — sixth consumer (`motion_v2_hip`).
+- [ADR-0372](../../adr/0372-hip-batch1-runtime-kernels.md) — batch-1 runtime kernels.
+- [ADR-0373](../../adr/0373-hip-batch2-runtime-kernels.md) — batch-2 runtime kernels.
+- [ADR-0375](../../adr/0375-hip-batch3-runtime-kernels.md) — batch-3 runtime kernels.
+- [ADR-0377](../../adr/0377-hip-batch4-runtime-kernels.md) — batch-4 runtime kernels.
+- [ADR-0380](../../adr/0380-ffmpeg-hip-backend-selector.md) — FFmpeg HIP backend selector.
+- [Research-0033](../../research/0033-hip-applicability.md) — AMD market-share + ROCm Linux maturity.

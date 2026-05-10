@@ -70,7 +70,7 @@ GPU / SIMD backend notes under [backends/](backends/index.md):
 | SYCL / oneAPI | Production | [sycl/overview.md](backends/sycl/overview.md) + [bundling](backends/sycl/bundling.md) |
 | Vulkan | Production (full default-model coverage) | [vulkan/overview.md](backends/vulkan/overview.md) |
 | Vulkan via MoltenVK | Advisory CI (macOS) | [vulkan/moltenvk.md](backends/vulkan/moltenvk.md) |
-| HIP (AMD ROCm) | Two real kernels landed (T7-10b); remainder scaffold | [hip/overview.md](backends/hip/overview.md) |
+| HIP (AMD ROCm) | 8 of 11 real kernels (psnr, integer_psnr, float_ansnr, float_motion, float_moment, float_ssim, ciede, integer_motion_v2); 3 stubs (adm/vif/integer_motion) | [hip/overview.md](backends/hip/overview.md) |
 | Metal (Apple Silicon) | Scaffold — 4 of 17 extractors registered | [metal/index.md](backends/metal/index.md) |
 
 ## Architecture

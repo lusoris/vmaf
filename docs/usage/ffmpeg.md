@@ -77,10 +77,11 @@ The filter publishes the final pooled score to FFmpeg's log as
 
 ### Fork-added options
 
-The fork's `ffmpeg-patches/0001..0004` series adds five options to
-the `libvmaf` filter beyond the upstream surface — three for tiny-AI
-ONNX inference, one for the SYCL backend selector, one for the
-Vulkan scaffold:
+The fork's `ffmpeg-patches/` series (0001–0011) adds options to
+the `libvmaf` filter beyond the upstream surface — tiny-AI ONNX
+inference, backend selectors for SYCL / Vulkan / CUDA / HIP, and
+dedicated `libvmaf_sycl` / `libvmaf_vulkan` filters. The options
+below are from patches 0001–0003:
 
 | Option | Default | Notes |
 |---|---|---|
@@ -177,11 +178,11 @@ The final command line will depend on what shell you are running `ffmpeg` throug
 
 ### Per-backend copy-paste examples
 
-One ready-to-paste invocation per backend. All four use the same input
-pair (`reference.mp4`, `distorted.mp4`); each routes the work to a
+One ready-to-paste invocation per backend. All examples use the same
+input pair (`reference.mp4`, `distorted.mp4`); each routes the work to a
 different compute path. The fork-added `sycl_device=` / `vulkan_device=`
-/ `cuda=` options come from the `ffmpeg-patches/0003..0004` and
-`0010` patches.
+/ `cuda=` / `hip_device=` options come from patches `0003`, `0004`,
+`0010`, and `0011`.
 
 **CPU (default — no hwaccel, no GPU build needed):**
 
@@ -380,9 +381,11 @@ The same fork-added selector pattern exists for SYCL and Vulkan on the
 
 | Option | Default | Notes |
 |---|---|---|
-| `sycl_device=N` | `-1` (disabled) | Pick SYCL device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_sycl=true`. |
-| `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling. |
-| `vulkan_device=N` | `-1` (disabled) | Pick Vulkan device ordinal; `-1` keeps the CPU path. Vulkan compute is shipping for `vif` / `motion` / `adm` ([ADR-0177](../adr/0177-vulkan-motion-kernel.md) / [ADR-0178](../adr/0178-vulkan-adm-kernel.md)) and `psnr` luma-only ([ADR-0182](../adr/0182-gpu-long-tail-batch-1.md)); other extractors fall through to CPU. Errors out if libvmaf was built without `-Denable_vulkan=enabled`. |
+| `sycl_device=N` | `-1` (disabled) | Pick SYCL device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_sycl=true`. Patch `0003`. |
+| `sycl_profile=0\|1` | `0` | Enable SYCL queue profiling. Patch `0003`. |
+| `vulkan_device=N` | `-1` (disabled) | Pick Vulkan device ordinal; `-1` keeps the CPU path. Vulkan compute covers the full default-model surface (vif/motion/adm/psnr/cambi/ssimulacra2 and more). Errors out if libvmaf was built without `-Denable_vulkan=enabled`. Patch `0004`. |
+| `cuda=0\|1` | `0` | Enable CUDA compute path on software-decoded input. Patch `0010`. |
+| `hip_device=N` | `-1` (disabled) | Pick HIP device ordinal; `-1` keeps the CPU path. Errors out if libvmaf was built without `-Denable_hip=true`. Patch `0011` ([ADR-0380](../adr/0380-ffmpeg-hip-backend-selector.md)). |
 
 ## External resources
 
