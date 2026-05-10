@@ -32777,3 +32777,23 @@ ninja -C build-cuda
   meson test -C build-vis
   # All tests must pass
   ```
+
+### PR-fix-cuda-switch-defaults — CUDA feature extractor defensive fixes (round-5 clang-tidy)
+
+- **Touches**: `libvmaf/src/feature/cuda/integer_adm_cuda.c`,
+  `libvmaf/src/feature/cuda/integer_vif_cuda.c`.
+- **Invariant**: `default: break;` clauses added to three `switch(scale)` statements.
+  If an upstream sync adds new scale cases to ADM (scales 1–3) or VIF (scales 0–3),
+  the default clause remains valid but no longer exhausts all cases — update the
+  comment accordingly. The `RES_BUFFER_SIZE` macro now has parentheses; any fork-local
+  addition to that macro must preserve them.
+- **Re-test on rebase**:
+
+  ```bash
+  clang-tidy \
+    -checks='-*,bugprone-macro-parentheses,bugprone-switch-missing-default-case' \
+    -p libvmaf/build-cuda \
+    libvmaf/src/feature/cuda/integer_adm_cuda.c \
+    libvmaf/src/feature/cuda/integer_vif_cuda.c
+  # Must produce zero warnings for those checks.
+  ```

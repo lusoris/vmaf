@@ -388,6 +388,8 @@ int filter1d_16(VifStateCuda *s, VifBufferCuda *buf, uint16_t *ref_in, uint16_t 
                                          GRID_HORI_Y, 1, BLOCKX, 1, 1, 0, stream, args_hori, NULL));
         break;
     }
+    default:
+        break; /* VIF has exactly 4 scales (0–3); unreachable with valid input */
     }
     return 0;
 }
