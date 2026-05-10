@@ -543,10 +543,13 @@ jobs:
               exit 1
               ;;
           esac
+          # Keep the full meson test ID (project:suite:name). Stripping
+          # the `libvmaf:` prefix produced names like `dnn:test_X` which
+          # meson can't dispatch (no top-level `dnn` suite — it's the
+          # `libvmaf:dnn:` subsuite).
           TESTS=$(meson test -C build --list \
                   | grep '^libvmaf:' \
-                  | grep -vE "$EXCLUDE" \
-                  | sed 's/^libvmaf://')
+                  | grep -vE "$EXCLUDE")
           if [ -z "$TESTS" ]; then
             echo "::error::ADR-0347 test enumeration produced empty list for sanitizer=${{ matrix.sanitizer }}" >&2
             exit 1
