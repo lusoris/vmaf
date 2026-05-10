@@ -27,6 +27,26 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/master-build-failures-sycl-vulkan — SYCL macro collision + Vulkan SDK fallback + Cambi FR atom rename
+
+- **Touches**: `libvmaf/src/feature/sycl/integer_adm_sycl.cpp`,
+  `libvmaf/src/vulkan/common.c`,
+  `python/vmaf/core/cambi_feature_extractor.py`,
+  `python/test/cambi_test.py`.
+- **Invariant 1 (SYCL)**: `adm_options.h` defines `ADM_BORDER_FACTOR` as a C
+  macro; the `#undef` before the constexpr redeclaration must remain if upstream
+  ever changes the macro name or value. If upstream removes the macro entirely,
+  the `#ifdef`-guarded `#undef` is a no-op and safe.
+- **Invariant 2 (Vulkan)**: `#ifndef VK_API_VERSION_1_4` guard must remain until
+  Ubuntu 22.04 is retired from CI (or the minimum Vulkan Headers version is
+  bumped past 1.3.280). Track via ADR-0264 (NVIDIA driver regression gate).
+- **Invariant 3 (Cambi FR atom feature)**: `CambiFullReferenceFeatureExtractor`
+  uses `"cambi_encbd"` (not `"cambi"`) as the atom feature name for the distorted
+  CAMBI score. If upstream changes the `enc_bitdepth` option alias from `"encbd"`
+  to something else, the vmafexec XML key changes and the Python extractor's
+  wildcard prefix must be updated to match.
+- **Re-test**: `python3 -m pytest python/test/cambi_test.py -k "full_reference or fullref" -v`
+
 ### fix/precommit-onnx-binary-exclude — ADR collision sweep + pre-commit hook hardening
 
 - **Touches**: `docs/adr/*.md` (28 files renumbered to 0388–0415),

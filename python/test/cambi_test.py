@@ -284,7 +284,7 @@ class CambiQualityRunnerTest(MyTestCase):
         # score: arithmetic mean score over all frames
         self.assertAlmostEqual(results[0]["Cambi_FR_score"], 0.2594353333333333, places=4)
         self.assertAlmostEqual(
-            results[0]["Cambi_FR_feature_cambi_score"], 0.25968416666666666, places=4
+            results[0]["Cambi_FR_feature_cambi_encbd_score"], 0.25968416666666666, places=4
         )
 
 

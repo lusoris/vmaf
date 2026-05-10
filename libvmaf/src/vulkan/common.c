@@ -21,6 +21,16 @@
 #include "vulkan_common.h"
 #include "vulkan_internal.h"
 
+// VK_API_VERSION_1_4 was added in Vulkan Headers 1.3.280 (Jan 2024).
+// Ubuntu 22.04 ships libvulkan-dev 1.3.204, which predates this constant.
+// Fall back to VK_API_VERSION_1_3 on older SDK headers; the runtime device
+// selection path queries the actual device capabilities separately.
+// Per ADR-0264 the 1.4 bump is gated on NVIDIA driver regression resolution;
+// 1.3 is the active fallback path anyway.
+#ifndef VK_API_VERSION_1_4
+#define VK_API_VERSION_1_4 VK_API_VERSION_1_3
+#endif
+
 #define VK_OR_FAIL(call_, errno_)                                                                  \
     do {                                                                                           \
         VkResult _vkr = (call_);                                                                   \
