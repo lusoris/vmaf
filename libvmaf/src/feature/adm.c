@@ -17,6 +17,7 @@
  */
 
 #include <limits.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -82,7 +83,9 @@ static char *init_dwt_band_hvd(adm_dwt_band_t *band, char *data_top, size_t buf_
 int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
                 double *score, double *score_num, double *score_den, double *scores,
                 double border_factor, double adm_enhn_gain_limit, double adm_norm_view_dist,
-                int adm_ref_display_height, int adm_csf_mode)
+                int adm_ref_display_height, int adm_csf_mode, double *score_aim,
+                const double *adm_f1s, const double *adm_f2s, bool adm_skip_scale0,
+                double adm_csf_scale, double adm_csf_diag_scale)
 {
 #ifdef ADM_OPT_SINGLE_PRECISION
     double numden_limit = 1e-2 * (w * h) / (1920.0 * 1080.0);
@@ -187,12 +190,15 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores): symmetric bump kept for readability (matches the four `ind_x[i]` carve-outs above).
     ind_buf_x += ind_size_x;
 
+    double aim_num = 0;
+
     for (scale = 0; scale < 4; ++scale) {
 #ifdef ADM_OPT_DEBUG_DUMP
         char pathbuf[256];
 #endif
         float num_scale = 0.0;
         float den_scale = 0.0;
+        float aim_num_scale = 0.0;
 
         dwt2_src_indices_filt(ind_y, ind_x, w, h);
         adm_dwt2(curr_ref_scale, &ref_dwt2, ind_y, ind_x, w, h, curr_ref_stride, buf_stride);
@@ -201,18 +207,55 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
         w = (w + 1) / 2;
         h = (h + 1) / 2;
 
-        adm_decouple(&ref_dwt2, &dis_dwt2, &decouple_r, &decouple_a, w, h, buf_stride, buf_stride,
-                     buf_stride, buf_stride, border_factor, adm_enhn_gain_limit);
+        /* When adm_skip_scale0 is set, skip the decouple/CSF/CM computation at scale 0.
+         * The DWT above must still run so that ref_dwt2.band_a / dis_dwt2.band_a are
+         * available as the subsampled input for scale 1.  num_scale and aim_num_scale stay
+         * 0.0; den_scale is set to 1e-10 (a negligible sentinel matching integer_adm.c) to
+         * avoid a zero denominator in the overall ratio. */
+        if (scale == 0 && adm_skip_scale0) {
+            den_scale = 1e-10f;
+            num_scale = 0.0f;
+            aim_num_scale = 0.0f;
+        } else {
+            adm_decouple(&ref_dwt2, &dis_dwt2, &decouple_r, &decouple_a, w, h, buf_stride,
+                         buf_stride, buf_stride, buf_stride, border_factor, adm_enhn_gain_limit);
 
-        den_scale = adm_csf_den_scale(&ref_dwt2, orig_h, scale, w, h, buf_stride, border_factor,
-                                      adm_norm_view_dist, adm_ref_display_height, adm_csf_mode);
+            den_scale = adm_csf_den_scale(&ref_dwt2, orig_h, scale, w, h, buf_stride, border_factor,
+                                          adm_norm_view_dist, adm_ref_display_height, adm_csf_mode,
+                                          adm_csf_scale, adm_csf_diag_scale);
 
-        adm_csf(&decouple_a, &csf_a, &csf_f, orig_h, scale, w, h, buf_stride, buf_stride,
-                border_factor, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode);
+            /* DLM numerator: CSF applied to distorted decoupled coefficients. */
+            adm_csf(&decouple_a, &csf_a, &csf_f, orig_h, scale, w, h, buf_stride, buf_stride,
+                    border_factor, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode,
+                    adm_csf_scale, adm_csf_diag_scale);
 
-        num_scale =
-            adm_cm(&decouple_r, &csf_f, &csf_a, w, h, buf_stride, buf_stride, buf_stride,
-                   border_factor, scale, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode);
+            /* Per-scale noise weights: use caller-supplied arrays when non-NULL; fall back to
+         * the global defaults (DEFAULT_ADM_NOISE_WEIGHT for DLM, 0.0 for AIM). */
+            const double f1 = adm_f1s ? adm_f1s[scale] : DEFAULT_ADM_NOISE_WEIGHT;
+            const double f2 = adm_f2s ? adm_f2s[scale] : 0.0;
+
+            num_scale =
+                adm_cm(&decouple_r, &csf_f, &csf_a, w, h, buf_stride, buf_stride, buf_stride,
+                       border_factor, scale, adm_norm_view_dist, adm_ref_display_height,
+                       adm_csf_mode, f1, adm_csf_scale, adm_csf_diag_scale);
+
+            /* AIM numerator: apply CSF to the reference decoupled coefficients (stored into
+         * csf_f/csf_a — note the swapped dst/flt order vs DLM), then measure the distorted
+         * decoupled energy against that reference-derived noise floor.  The buffer assignment
+         * mirrors integer_adm.c adm_csf(measure_aim=true) / adm_cm(measure_aim=true):
+         *   csf(ref → dst=csf_f, flt=csf_a)  then  cm(src=decouple_a, csf_f=csf_a, csf_a=csf_f)
+         * Using decouple_r as src (the previous implementation) mis-measured reference
+         * self-energy instead of distorted-vs-reference, producing AIM ≈ 0.52 instead of
+         * the correct ≈ 0.026 for the Netflix src01 test pair. */
+            adm_csf(&decouple_r, &csf_f, &csf_a, orig_h, scale, w, h, buf_stride, buf_stride,
+                    border_factor, adm_norm_view_dist, adm_ref_display_height, adm_csf_mode,
+                    adm_csf_scale, adm_csf_diag_scale);
+
+            aim_num_scale =
+                adm_cm(&decouple_a, &csf_a, &csf_f, w, h, buf_stride, buf_stride, buf_stride,
+                       border_factor, scale, adm_norm_view_dist, adm_ref_display_height,
+                       adm_csf_mode, f2, adm_csf_scale, adm_csf_diag_scale);
+        } /* end if (scale == 0 && adm_skip_scale0) else */
 
 #ifdef ADM_OPT_DEBUG_DUMP
         snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d]_a.yuv", scale);
@@ -270,6 +313,7 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
 
         num += num_scale;
         den += den_scale;
+        aim_num += aim_num_scale;
 
         ref_scale = ref_dwt2.band_a;
         dis_scale = dis_dwt2.band_a;
@@ -298,6 +342,15 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     }
     *score_num = num;
     *score_den = den;
+
+    if (score_aim != NULL) {
+        aim_num = aim_num < numden_limit ? 0 : aim_num;
+        if (den == 0.0) {
+            *score_aim = 1.0;
+        } else {
+            *score_aim = aim_num / den;
+        }
+    }
 
     ret = 0;
 

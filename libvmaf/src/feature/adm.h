@@ -16,7 +16,16 @@
  *
  */
 
+/* Per-scale noise-weight arrays (length 4, one entry per DWT scale).
+ * adm_f1s: DLM noise-floor weight per scale; NULL defaults to DEFAULT_ADM_NOISE_WEIGHT.
+ * adm_f2s: AIM noise-floor weight per scale; NULL defaults to 0.0 (no AIM noise floor).
+ * adm_skip_scale0: when true, scale-0 contributes 0 num/aim_num and 1e-10 den (matches
+ *                  integer_adm.c adm_skip_scale0 convention).
+ * adm_csf_scale / adm_csf_diag_scale: CSF band-scale multipliers used when
+ *                  adm_csf_mode == ADM_CSF_MODE_BARTEN (default 1.0 each). */
 int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
                 double *score, double *score_num, double *score_den, double *scores,
                 double border_factor, double adm_enhn_gain_limit, double adm_norm_view_dist,
-                int adm_ref_display_height, int adm_csf_mode);
+                int adm_ref_display_height, int adm_csf_mode, double *score_aim,
+                const double *adm_f1s, const double *adm_f2s, bool adm_skip_scale0,
+                double adm_csf_scale, double adm_csf_diag_scale);
