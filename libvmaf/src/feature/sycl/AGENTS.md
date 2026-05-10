@@ -97,6 +97,13 @@ ADR-0214) catches drift but only after a full GPU run.
   with the graph-replay model. The CUDA twin (ADR-0360) follows the same
   pattern; keep both in sync.
 
+- **`integer_adm_sycl.cpp` / `float_adm_sycl.cpp` expose three ADM
+  tuning parameters** (`adm_csf_scale`, `adm_csf_diag_scale`,
+  `noise_weight`) with the same defaults as the CPU path (PR #731).
+  If upstream Netflix adds or renames these parameters in
+  `integer_adm.c` / `float_adm.c`, the SYCL twins must be updated
+  in the same PR.
+
 - **VAAPI / dmabuf zero-copy import** — the FFmpeg `libvmaf_sycl`
   filter (`ffmpeg-patches/0005-*.patch`) consumes
   `vmaf_sycl_import_va_surface`. Public-surface change touches the

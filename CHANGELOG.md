@@ -49,6 +49,19 @@
 
 ### Added
 
+- **ADM `noise_weight` / `adm_csf_scale` / `adm_csf_diag_scale` on all GPU
+  backends.** The three ADM tuning parameters introduced by PR #731 on the
+  CPU-only scalar path are now exposed on every GPU backend:
+  `float_adm_cuda`, `integer_adm_cuda` (CUDA), `float_adm_sycl`,
+  `integer_adm_sycl` (SYCL), `float_adm_vulkan`, `adm_vulkan` (Vulkan).
+  All backends use the same defaults (`adm_csf_scale=1.0`,
+  `adm_csf_diag_scale=1.0`, `noise_weight=0.03125`) so existing pipelines
+  are unaffected. The integer ADM Vulkan fast-path (hard-coded rfactors for
+  the `3.0 × 1080` default geometry) is now gated on both CSF-scale values
+  equalling 1.0, so non-default scales flow through the general path
+  correctly. `docs/metrics/features.md` updated with all three new parameter
+  rows and the corrected backend list.
+
 - **GPU-parity matrix CI gate (T6-8 / ADR-0214).** New
   [`scripts/ci/cross_backend_parity_gate.py`](scripts/ci/cross_backend_parity_gate.py)
   iterates every `(feature, backend-pair)` cell, diffs per-frame

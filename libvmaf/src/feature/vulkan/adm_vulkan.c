@@ -32,6 +32,7 @@
 
 #include <errno.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -39,6 +40,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "feature/adm_options.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
@@ -106,6 +108,9 @@ typedef struct {
     double adm_enhn_gain_limit;
     double adm_norm_view_dist;
     int adm_ref_display_height;
+    double adm_csf_scale;
+    double adm_csf_diag_scale;
+    double adm_noise_weight;
 
     /* Frame geometry. */
     unsigned width;
@@ -215,6 +220,42 @@ static const VmafOption options[] = {{
                                          .default_val.i = 1080,
                                          .min = 480.0,
                                          .max = 4320.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {
+                                         .name = "adm_csf_scale",
+                                         .alias = "cs",
+                                         .help = "CSF band-scale multiplier for h/v bands "
+                                                 "(default 1.0 = no scaling)",
+                                         .offset = offsetof(AdmVulkanState, adm_csf_scale),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val.d = DEFAULT_ADM_CSF_SCALE,
+                                         .min = 0.0,
+                                         .max = 100.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {
+                                         .name = "adm_csf_diag_scale",
+                                         .alias = "cds",
+                                         .help = "CSF band-scale multiplier for diagonal bands "
+                                                 "(default 1.0 = no scaling)",
+                                         .offset = offsetof(AdmVulkanState, adm_csf_diag_scale),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val.d = DEFAULT_ADM_CSF_DIAG_SCALE,
+                                         .min = 0.0,
+                                         .max = 100.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {
+                                         .name = "adm_noise_weight",
+                                         .alias = "nw",
+                                         .help = "noise floor weight for CM numerator "
+                                                 "(default 0.03125 = 1/32)",
+                                         .offset = offsetof(AdmVulkanState, adm_noise_weight),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val.d = DEFAULT_ADM_NOISE_WEIGHT,
+                                         .min = 0.0,
+                                         .max = 100.0,
                                          .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
                                      },
                                      {0}};
@@ -509,23 +550,30 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     s->height = h;
     s->bpc = bpc;
 
-    /* Compute rfactors (host-side; same logic as SYCL init). */
+    /* Compute rfactors (host-side; same logic as SYCL init).
+     * adm_csf_scale / adm_csf_diag_scale multiply the CSF sensitivity.
+     * Default 1.0 → identical to the pre-PR-731 behaviour. */
     for (unsigned scale = 0; scale < ADM_NUM_SCALES; scale++) {
         float f1 =
             dwt_quant_step_host((int)scale, 1, s->adm_norm_view_dist, s->adm_ref_display_height);
         float f2 =
             dwt_quant_step_host((int)scale, 2, s->adm_norm_view_dist, s->adm_ref_display_height);
-        s->rfactor[scale * 3 + 0] = 1.0f / f1;
-        s->rfactor[scale * 3 + 1] = 1.0f / f1;
-        s->rfactor[scale * 3 + 2] = 1.0f / f2;
+        s->rfactor[scale * 3 + 0] = (float)s->adm_csf_scale / f1;
+        s->rfactor[scale * 3 + 1] = (float)s->adm_csf_scale / f1;
+        s->rfactor[scale * 3 + 2] = (float)s->adm_csf_diag_scale / f2;
 
         double pow2_32 = pow(2.0, 32);
         double pow2_21 = pow(2.0, 21);
         double pow2_23 = pow(2.0, 23);
         if (scale == 0) {
+            /* Hardcoded scale-0 i_rfactor constants are only valid when both
+             * adm_csf_scale and adm_csf_diag_scale are exactly 1.0 (default)
+             * and norm_view_dist/ref_display_height are at their defaults. */
             double default_check = 3.0 * 1080.0;
             double actual = s->adm_norm_view_dist * (double)s->adm_ref_display_height;
-            if (fabs(actual - default_check) < 1e-8) {
+            bool csf_default =
+                (fabs(s->adm_csf_scale - 1.0) < 1e-9) && (fabs(s->adm_csf_diag_scale - 1.0) < 1e-9);
+            if (fabs(actual - default_check) < 1e-8 && csf_default) {
                 s->i_rfactor[0] = 36453;
                 s->i_rfactor[1] = 36453;
                 s->i_rfactor[2] = 49417;
@@ -708,7 +756,8 @@ static void write_accum_binding(AdmVulkanState *s, VkDescriptorSet set, int scal
 /* ------------------------------------------------------------------ */
 
 static void conclude_csf_den_host(const uint64_t accum[3], int hh, int hw, int scale,
-                                  float view_dist, float display_h, float *result)
+                                  float view_dist, float display_h, float adm_csf_scale,
+                                  float adm_csf_diag_scale, float noise_weight, float *result)
 {
     int left = (int)((double)hw * ADM_BORDER_FACTOR - 0.5);
     int top = (int)((double)hh * ADM_BORDER_FACTOR - 0.5);
@@ -717,7 +766,9 @@ static void conclude_csf_den_host(const uint64_t accum[3], int hh, int hw, int s
 
     float factor1 = dwt_quant_step_host(scale, 1, view_dist, (int)display_h);
     float factor2 = dwt_quant_step_host(scale, 2, view_dist, (int)display_h);
-    float rfactor[3] = {1.0f / factor1, 1.0f / factor1, 1.0f / factor2};
+    /* Apply CSF scale multipliers; default 1.0 → no change. */
+    float rfactor[3] = {adm_csf_scale / factor1, adm_csf_scale / factor1,
+                        adm_csf_diag_scale / factor2};
     static const uint32_t accum_convert[4] = {18, 32, 27, 23};
 
     int32_t shift_accum;
@@ -733,7 +784,7 @@ static void conclude_csf_den_host(const uint64_t accum[3], int hh, int hw, int s
         shift_csf =
             pow(2.0, (double)accum_convert[scale] - (double)shift_accum - (double)shift_cub);
     }
-    float powf_add = powf((float)((bottom - top) * (right - left)) / 32.0f, 1.0f / 3.0f);
+    float powf_add = powf((float)((bottom - top) * (right - left)) * noise_weight, 1.0f / 3.0f);
     *result = 0.0f;
     for (int i = 0; i < 3; i++) {
         double csf = (double)accum[i] / shift_csf * pow((double)rfactor[i], 3.0);
@@ -741,14 +792,15 @@ static void conclude_csf_den_host(const uint64_t accum[3], int hh, int hw, int s
     }
 }
 
-static void conclude_cm_host(const int64_t accum[3], int hh, int hw, int scale, float *result)
+static void conclude_cm_host(const int64_t accum[3], int hh, int hw, int scale, float noise_weight,
+                             float *result)
 {
     int left = (int)((double)hw * ADM_BORDER_FACTOR - 0.5);
     int top = (int)((double)hh * ADM_BORDER_FACTOR - 0.5);
     int right = hw - left;
     int bottom = hh - top;
     uint32_t shift_inner_accum = (uint32_t)ceil(log2((double)hh));
-    float powf_add = powf((float)((bottom - top) * (right - left)) / 32.0f, 1.0f / 3.0f);
+    float powf_add = powf((float)((bottom - top) * (right - left)) * noise_weight, 1.0f / 3.0f);
     *result = 0.0f;
     for (int i = 0; i < 3; i++) {
         float f_accum;
@@ -852,10 +904,11 @@ static int reduce_and_emit(AdmVulkanState *s, unsigned index, VmafFeatureCollect
         int hh = (int)s->scale_half_h[scale];
         float num_scale = 0.0f;
         float den_scale = 0.0f;
-        conclude_cm_host(cm_totals[scale], hh, hw, scale, &num_scale);
+        conclude_cm_host(cm_totals[scale], hh, hw, scale, (float)s->adm_noise_weight, &num_scale);
         conclude_csf_den_host((const uint64_t *)csf_totals[scale], hh, hw, scale,
                               (float)s->adm_norm_view_dist, (float)s->adm_ref_display_height,
-                              &den_scale);
+                              (float)s->adm_csf_scale, (float)s->adm_csf_diag_scale,
+                              (float)s->adm_noise_weight, &den_scale);
         num += num_scale;
         den += den_scale;
         scores_num[scale] = num_scale;

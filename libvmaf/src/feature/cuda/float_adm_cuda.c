@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "common.h"
+#include "feature/adm_options.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
@@ -47,6 +48,9 @@ typedef struct {
     double adm_norm_view_dist;
     int adm_ref_display_height;
     int adm_csf_mode;
+    double adm_csf_scale;
+    double adm_csf_diag_scale;
+    double adm_noise_weight;
 
     unsigned width;
     unsigned height;
@@ -126,6 +130,33 @@ static const VmafOption options[] = {
      .min = 0,
      .max = 9,
      .flags = VMAF_OPT_FLAG_FEATURE_PARAM},
+    {.name = "adm_csf_scale",
+     .alias = "cs",
+     .help = "CSF band-scale multiplier for h/v bands (default 1.0 = no scaling)",
+     .offset = offsetof(FloatAdmStateCuda, adm_csf_scale),
+     .type = VMAF_OPT_TYPE_DOUBLE,
+     .default_val.d = DEFAULT_ADM_CSF_SCALE,
+     .min = 0.0,
+     .max = 100.0,
+     .flags = VMAF_OPT_FLAG_FEATURE_PARAM},
+    {.name = "adm_csf_diag_scale",
+     .alias = "cds",
+     .help = "CSF band-scale multiplier for diagonal bands (default 1.0 = no scaling)",
+     .offset = offsetof(FloatAdmStateCuda, adm_csf_diag_scale),
+     .type = VMAF_OPT_TYPE_DOUBLE,
+     .default_val.d = DEFAULT_ADM_CSF_DIAG_SCALE,
+     .min = 0.0,
+     .max = 100.0,
+     .flags = VMAF_OPT_FLAG_FEATURE_PARAM},
+    {.name = "adm_noise_weight",
+     .alias = "nw",
+     .help = "noise floor weight for CM numerator (default 0.03125 = 1/32)",
+     .offset = offsetof(FloatAdmStateCuda, adm_noise_weight),
+     .type = VMAF_OPT_TYPE_DOUBLE,
+     .default_val.d = DEFAULT_ADM_NOISE_WEIGHT,
+     .min = 0.0,
+     .max = 100.0,
+     .flags = VMAF_OPT_FLAG_FEATURE_PARAM},
     {0}};
 
 /* DB2/CDF-9-7 wavelet noise model — matches dwt_7_9_YCbCr_threshold[0]
@@ -192,9 +223,12 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
             fadm_dwt_quant_step(scale, 1, s->adm_norm_view_dist, s->adm_ref_display_height);
         const float f2 =
             fadm_dwt_quant_step(scale, 2, s->adm_norm_view_dist, s->adm_ref_display_height);
-        s->rfactor[scale * 3 + 0] = 1.0f / f1;
-        s->rfactor[scale * 3 + 1] = 1.0f / f1;
-        s->rfactor[scale * 3 + 2] = 1.0f / f2;
+        /* adm_csf_scale / adm_csf_diag_scale multiply the CSF sensitivity
+         * (equivalent to the CPU adm_tools.c Watson-mode path where
+         * rfactor = scale * (1/quant_step)).  Default 1.0 → no change. */
+        s->rfactor[scale * 3 + 0] = (float)s->adm_csf_scale / f1;
+        s->rfactor[scale * 3 + 1] = (float)s->adm_csf_scale / f1;
+        s->rfactor[scale * 3 + 2] = (float)s->adm_csf_diag_scale / f2;
     }
 
     int err = vmaf_cuda_kernel_lifecycle_init(&s->lc, fex->cu_state);
@@ -579,7 +613,8 @@ static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index, VmafFeatu
             top = 0;
         const int right = hw - left;
         const int bottom = hh - top;
-        const float area_cbrt = powf((float)((bottom - top) * (right - left)) / 32.0f, 1.0f / 3.0f);
+        const float area_cbrt = powf(
+            (float)((bottom - top) * (right - left)) * (float)s->adm_noise_weight, 1.0f / 3.0f);
         float num_scale = 0.0f;
         float den_scale = 0.0f;
         for (int b = 0; b < FADM_NUM_BANDS; b++) {

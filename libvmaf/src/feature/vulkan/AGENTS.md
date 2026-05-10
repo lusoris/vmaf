@@ -123,6 +123,21 @@ ADR-0234) catches drift but only after a full GPU run.
   applies on Vulkan too (ADR-0188 / 0189 / 0190). Auto-decimation
   is a v2 follow-up; do not silently enable it on rebase.
 
+- **`adm_vulkan.c` / `float_adm_vulkan.c` expose three ADM tuning
+  parameters** (`adm_csf_scale`, `adm_csf_diag_scale`, `noise_weight`)
+  with the same defaults as the CPU path (PR #731). If upstream Netflix
+  adds or renames these parameters, the Vulkan twins must be updated in
+  the same PR.
+
+- **`adm_vulkan.c` integer fast-path gated on CSF-scale defaults.**
+  The hard-coded `i_rfactor` fast-path for `3.0 * 1080` default
+  viewing geometry is gated by:
+  `bool csf_default = (fabs(s->adm_csf_scale - 1.0) < 1e-9) &&
+  (fabs(s->adm_csf_diag_scale - 1.0) < 1e-9)`.
+  Removing or loosening this guard produces wrong rfactors when
+  non-default CSF scales are passed. Update the guard if the
+  fast-path formula changes.
+
 - **`vif_vulkan.c` / `adm_vulkan.c` / `motion_vulkan.c` two-level GPU
   reduction** (ADR-0356 / T-GPU-PERF-VK-3). Each of these three
   kernels now runs a *second* compute dispatch per frame (vif_reduce.comp,
