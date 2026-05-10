@@ -62,6 +62,13 @@ extern "C" {
 /* Constants                                                           */
 /* ------------------------------------------------------------------ */
 
+// adm_options.h defines ADM_BORDER_FACTOR as a C preprocessor macro; undefine
+// it here so the constexpr declaration below compiles cleanly in C++ TUs.
+// The value is identical (0.1) — this is not a redefinition.
+#ifdef ADM_BORDER_FACTOR
+#undef ADM_BORDER_FACTOR
+#endif
+
 static constexpr int ADM_NUM_SCALES = 4;
 static constexpr int ADM_NUM_BANDS = 3; // h, v, d (skip band_a for scoring)
 static constexpr double ADM_BORDER_FACTOR = 0.1;

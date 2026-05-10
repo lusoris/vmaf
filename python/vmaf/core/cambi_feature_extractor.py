@@ -62,10 +62,17 @@ class CambiFullReferenceFeatureExtractor(CambiFeatureExtractor):
 
     TYPE = "Cambi_FR_feature"
 
-    ATOM_FEATURES = ["cambi", "cambi_full_reference", "cambi_source"]
+    # "cambi_encbd" (prefix "cambi_encbd_") is used instead of "cambi" (prefix
+    # "cambi_") to avoid the wildcard-match collision with the "cambi_source"
+    # output key.  Both "cambi_source" (12 chars) and "cambi_encbd_8" (13 chars)
+    # start with "cambi_", so the _discover_feature_wildcard shortest-match
+    # logic would pick "cambi_source" for the distorted-cambi atom feature,
+    # producing the wrong result key.  Using the more specific "cambi_encbd_"
+    # prefix restricts the wildcard to distorted-CAMBI keys only.
+    ATOM_FEATURES = ["cambi_encbd", "cambi_full_reference", "cambi_source"]
 
     ATOM_FEATURES_TO_VMAFEXEC_KEY_DICT = {
-        "cambi": "cambi",
+        "cambi_encbd": "cambi_encbd",
         "cambi_full_reference": "cambi_full_reference",
         "cambi_source": "cambi_source",
     }

@@ -8,6 +8,21 @@
 
 ### Fixed
 
+- **Master build-matrix failures — SYCL macro collision + Vulkan SDK compat + Cambi FR key.**
+  Three distinct CI failures introduced after PR #733:
+  (1) `integer_adm_sycl.cpp:67` — `ADM_BORDER_FACTOR` defined as a C macro in
+  `adm_options.h` collided with the C++ `constexpr double ADM_BORDER_FACTOR`
+  declaration; fixed by adding `#undef ADM_BORDER_FACTOR` before the constexpr.
+  (2) `vulkan/common.c` — `VK_API_VERSION_1_4` is undefined on Ubuntu SDK
+  ≤1.3.204 (Ubuntu 22.04); fixed by a `#ifndef` fallback to `VK_API_VERSION_1_3`
+  (per ADR-0264, the 1.4 bump is gated on an NVIDIA driver regression resolution
+  and 1.3 is the active path anyway).
+  (3) `CambiFullReferenceFeatureExtractor` — the `"cambi"` atom feature wildcard
+  matched `cambi_source` (shorter) instead of `cambi_encbd_8` (the distorted CAMBI
+  score) when `full_ref=True`; fixed by renaming the distorted-CAMBI atom feature
+  to `"cambi_encbd"` (prefix `"cambi_encbd_"`) which avoids the collision.
+  Tests updated accordingly (fork-added test added in PR #703; assertion corrected).
+
 - **Pre-commit gate restored (ADR-0386 collision sweep + hook hardening).** Master CI
   Lint & Format Pre-Commit job was failing on three fronts introduced by the
   multi-branch squash-merge in commit `bfa739e8`: (1) `end-of-file-fixer`
