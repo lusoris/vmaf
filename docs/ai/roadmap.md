@@ -24,14 +24,20 @@ Shipped and wired:
   `vf_libvmaf`; `ffmpeg-patches/0002` adds the `vmaf_pre` learned-filter
   filter.
 
-Not shipped yet:
+Shipped since the original "not shipped" list was written:
 
-- **No checkpoints.** `model/tiny/` is empty. The whole surface is a
-  loaded gun with no bullets.
+- **Checkpoints shipped.** `model/tiny/` now contains 19 registry entries
+  (fr_regressor_v1/v2, vmaf_tiny_v2/v3/v4, nr_metric_v1, learned_filter_v1,
+  lpips_sq_v1, mobilesal_placeholder_v0, transnet_v2, fastdvdnet_pre, and
+  smoke/ensemble variants). See [model-registry.md](model-registry.md).
+- **Model signing verification shipped** (ADR-0211 / T6-9). The
+  `--tiny-model-verify` flag is wired to `cosign verify-blob`; `registry.json`
+  carries SHA-256 pins and Sigstore bundle paths.
+
+Still outstanding:
+
 - **No GPU-parity CI.** Cross-execution-provider variance is verified
   manually.
-- **No model signing verification** at load time. The `--tiny-model-verify`
-  flag is stubbed.
 
 ## 2. Wave 1 — what lands next
 
@@ -254,11 +260,11 @@ Not in Wave 1 but called out here so they don't get forgotten:
 - **GPU-parity CI** — CPU ↔ CUDA, CPU ↔ OpenVINO cross-device variance,
   as a required status check (≤ 1e-4 FP32, ≤ 1e-2 FP16 per
   [`inference.md`](inference.md)).
-- **Sigstore verification** — wire the stubbed `--tiny-model-verify`
-  flag through to `cosign verify-blob` on the sidecar bundle.
-- **Model registry** — current sidecar JSON is informal. A tracked
-  registry file under `model/tiny/registry.json` with SHA + Sigstore
-  bundle path + license gives us an auditable manifest.
+- **Sigstore verification** — **shipped** (ADR-0211). `--tiny-model-verify`
+  is wired to `cosign verify-blob`; production deployments should set it on.
+- **Model registry** — **shipped** (ADR-0211). `model/tiny/registry.json`
+  carries SHA-256 pins, Sigstore bundle paths, and license metadata for all
+  19 entries. See [model-registry.md](model-registry.md).
 
 ## 8. Out of scope (non-goals)
 

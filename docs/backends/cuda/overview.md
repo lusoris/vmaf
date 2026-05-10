@@ -248,8 +248,8 @@ to surface an unexpected delta.
   H-pass non-coalesced reads and V-pass L1 pressure remain known
   architectural ceilings (require a shared-memory tile-transpose
   rewrite).
-- **HIP / AMD** — not yet scaffolded; see
-  [backends/index.md](../index.md) for the status row.
+- **HIP / AMD** — separate backend; 8 of 11 real kernels shipped. See
+  [backends/hip/overview.md](../hip/overview.md) for details.
 
 See [metrics/features.md](../../metrics/features.md) for the
 per-extractor coverage matrix.

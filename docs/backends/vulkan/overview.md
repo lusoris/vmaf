@@ -106,7 +106,7 @@ secondary.
     (`GL_EXT_shader_explicit_arithmetic_types_int64`) for
     deterministic reductions matching the CPU integer reference.
   - `cambi_vulkan.c` (T7-36 / [ADR-0210](../../adr/0210-cambi-vulkan-integration.md))
-    + GLSL shaders
+    with GLSL shaders
     [`shaders/cambi_preprocess.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_preprocess.comp),
     [`cambi_derivative.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_derivative.comp),
     [`cambi_filter_mode.comp`](../../../libvmaf/src/feature/vulkan/shaders/cambi_filter_mode.comp),
@@ -117,8 +117,8 @@ secondary.
     `PASS=0/1/2` spec const for row-SAT / col-SAT / threshold), 2×
     decimate, and 3-tap separable mode filter; the
     precision-sensitive `calculate_c_values` sliding-histogram pass
-    + top-K spatial pooling stay on the host. Bit-exact w.r.t. CPU
-    by construction (every GPU phase is integer arithmetic + the
+    and top-K spatial pooling stay on the host. Bit-exact w.r.t. CPU
+    by construction (every GPU phase is integer arithmetic and the
     host residual runs the unmodified CPU code on byte-identical
     buffers); cross-backend gate runs at `places=4`. Closes the
     GPU long-tail matrix terminus declared in
@@ -126,10 +126,10 @@ secondary.
     registered feature extractor in the fork now has at least one
     GPU twin (lpips delegates to ORT EPs per
     [ADR-0022](../../adr/0022-inference-runtime-onnx.md)).
-  - `psnr_vulkan.c` + GLSL shader
+  - `psnr_vulkan.c` with GLSL shader
     [`shaders/psnr.comp`](../../../libvmaf/src/feature/vulkan/shaders/psnr.comp).
     Single plane-agnostic compute shader (per-pixel `(ref - dis)²`
-    + per-WG `int64` reduction), dispatched three times per frame
+    with per-WG `int64` reduction), dispatched three times per frame
     against per-plane buffers — Y, Cb, Cr. Per-plane width / height
     arrive via push constants; chroma sizing follows `pix_fmt`
     (4:2:0 → w/2 × h/2, 4:2:2 → w/2 × h, 4:4:4 → w × h); YUV400
@@ -273,10 +273,10 @@ from the hot-path frame loop.
 | `motion_v2_vulkan.c` | 1 | per-frame (ping-pong ref_buf cur/prev) | PR-B (ADR-0353) |
 | `float_psnr_vulkan.c` | 1 | once at init | PR-B (ADR-0353) |
 | `float_motion_vulkan.c` | 1 | per-frame (ping-pong blur cur/prev) | PR-B (ADR-0353) |
-| `ansnr_vulkan.c` | planned | planned | PR-C |
-| `vif_vulkan.c` | planned | planned | PR-C |
-| `ssimulacra2_vulkan.c` | planned | planned | PR-C |
-| `cambi_vulkan.c` | planned | planned | PR-C |
+| `ansnr_vulkan.c` | 1 | once at init | PR-C (ADR-0354) |
+| `vif_vulkan.c` | 1 | once at init (4 pre-allocated sets) | PR-C (ADR-0354) |
+| `ssimulacra2_vulkan.c` | 1 | once at init | PR-C (ADR-0354) |
+| `cambi_vulkan.c` | 1 | once at init (multi-stage) | PR-C (ADR-0354) |
 
 **T-GPU-OPT-VK-4** (descriptor pre-allocation): kernels with fully-stable
 SSBO handles call `vkUpdateDescriptorSets` once at `init()` and reuse the
@@ -289,13 +289,11 @@ is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
 
 ## What lands next
 
-- **T5-1c** — ADM, motion, motion_v2 Vulkan kernels using the
-  same `vif_vulkan` scaffolding (lazy-context fallback +
-  imported-state borrow path, `VkSpecializationInfo`-driven
-  pipelines, host-side reduction).
 - Self-hosted Arc runner registration to flip the `Vulkan VIF
   Cross-Backend (Arc A380, advisory)` lane from `if: false` to
   active.
+- `motion_add_uv=true` GPU path (UV-plane motion on Vulkan; see Known
+  gaps in [sycl/overview.md](../sycl/overview.md#known-gaps)).
 
 ## Caveats
 
@@ -328,7 +326,6 @@ is documented in `libvmaf/src/feature/vulkan/AGENTS.md`.
   authoritative; NVIDIA hardware validation is a manual local
   gate. Tracked under
   [`docs/state.md`](../../state.md) Open bugs.
-
 
 ## Buffer classification (ADR-0357)
 
