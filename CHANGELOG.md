@@ -748,6 +748,14 @@
 
 ### Fixed
 
+- **`vmaf_framesync_init`: null-deref on second `malloc` failure (gcc
+  -fanalyzer CWE-690)**: `vmaf_framesync_buf_que` allocation was not
+  checked before the subsequent field-initialisation writes. On OOM the
+  function dereferenced a NULL pointer, which is undefined behaviour.
+  Fix: guard the allocation, destroy the already-initialised pthreads
+  primitives, free the context, reset `*fs_ctx = NULL`, and return
+  `-ENOMEM`. Found by `gcc -fanalyzer` round-4 sweep.
+
 - **CI: Clang-Tidy job no longer fails on PRs that delete C/C++ files**
   (fork-local CI fix): `.github/workflows/lint-and-format.yml`'s
   `Clang-Tidy (Changed C/C++ Files)` step used `git diff --name-only`
