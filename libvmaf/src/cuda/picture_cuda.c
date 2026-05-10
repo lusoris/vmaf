@@ -126,9 +126,10 @@ int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fm
     const int ss_hor = pic->pix_fmt != VMAF_PIX_FMT_YUV444P;
     const int ss_ver = pic->pix_fmt == VMAF_PIX_FMT_YUV420P;
     pic->w[0] = w;
-    pic->w[1] = pic->w[2] = w >> ss_hor;
+    /* Ceiling division — mirrors picture.c fix (Research-0094). */
+    pic->w[1] = pic->w[2] = (w + ((unsigned)ss_hor)) >> ss_hor;
     pic->h[0] = h;
-    pic->h[1] = pic->h[2] = h >> ss_ver;
+    pic->h[1] = pic->h[2] = (h + ((unsigned)ss_ver)) >> ss_ver;
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 
@@ -213,9 +214,10 @@ int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
     const int ss_hor = pic->pix_fmt != VMAF_PIX_FMT_YUV444P;
     const int ss_ver = pic->pix_fmt == VMAF_PIX_FMT_YUV420P;
     pic->w[0] = cuda_cookie->w;
-    pic->w[1] = pic->w[2] = cuda_cookie->w >> ss_hor;
+    /* Ceiling division — mirrors picture.c fix (Research-0094). */
+    pic->w[1] = pic->w[2] = (cuda_cookie->w + ((unsigned)ss_hor)) >> ss_hor;
     pic->h[0] = cuda_cookie->h;
-    pic->h[1] = pic->h[2] = cuda_cookie->h >> ss_ver;
+    pic->h[1] = pic->h[2] = (cuda_cookie->h + ((unsigned)ss_ver)) >> ss_ver;
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 

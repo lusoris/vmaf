@@ -122,11 +122,13 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
     s->height[0] = h;
     switch (pix_fmt) {
     case VMAF_PIX_FMT_YUV420P:
-        s->width[1] = s->width[2] = w >> 1;
-        s->height[1] = s->height[2] = h >> 1;
+        /* Ceiling division — mirrors picture.c fix (Research-0094). */
+        s->width[1] = s->width[2] = (w + 1u) >> 1;
+        s->height[1] = s->height[2] = (h + 1u) >> 1;
         break;
     case VMAF_PIX_FMT_YUV422P:
-        s->width[1] = s->width[2] = w >> 1;
+        /* Ceiling division for horizontal subsampling only. */
+        s->width[1] = s->width[2] = (w + 1u) >> 1;
         s->height[1] = s->height[2] = h;
         break;
     case VMAF_PIX_FMT_YUV444P:

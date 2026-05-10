@@ -128,8 +128,9 @@ static int init_fex_cuda(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt
         s->n_planes = PSNR_NUM_PLANES;
         const int ss_hor = (pix_fmt != VMAF_PIX_FMT_YUV444P);
         const int ss_ver = (pix_fmt == VMAF_PIX_FMT_YUV420P);
-        const unsigned cw = ss_hor ? (w / 2U) : w;
-        const unsigned ch = ss_ver ? (h / 2U) : h;
+        /* Ceiling division — mirrors picture.c fix (Research-0094). */
+        const unsigned cw = (w + (unsigned)ss_hor) >> ss_hor;
+        const unsigned ch = (h + (unsigned)ss_ver) >> ss_ver;
         s->width[1] = s->width[2] = cw;
         s->height[1] = s->height[2] = ch;
     }
