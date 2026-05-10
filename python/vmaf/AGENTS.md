@@ -43,6 +43,17 @@ python/vmaf/
   matching the CLI — see
   [ADR-0006](../../docs/adr/0006-cli-precision-17g-default.md).
 
+## Rebase invariants
+
+- **`PyPsnrFeatureExtractor` is the primary class; `PypsnrFeatureExtractor` is a `@deprecated` alias.**
+  If a future upstream sync touches `feature_extractor.py` around these classes, verify the hierarchy
+  is preserved: `PyPsnrFeatureExtractor(PyFeatureExtractorMixin, FeatureExtractor)` as primary
+  (TYPE `"PyPsnr_feature"`), `PypsnrFeatureExtractor(PyPsnrFeatureExtractor)` as deprecated alias
+  (TYPE `"Pypsnr_feature"`). Same pattern applies to `PyPsnrMaxdb100FeatureExtractor` /
+  `PypsnrMaxdb100FeatureExtractor`. Any upstream commit that renames or removes the `Pypsnr*`
+  aliases should be absorbed without touching the `PyPsnr*` primary names — they are what the
+  test file asserts against. Tracked: fix/pypsnr-feature-extractor-import PR (2026-05-10).
+
 ## Governing ADRs
 
 - [ADR-0006](../../docs/adr/0006-cli-precision-17g-default.md) — precision default.

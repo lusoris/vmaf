@@ -27,6 +27,15 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/pypsnr-feature-extractor-import — `PyPsnrFeatureExtractor` class hierarchy restoration
+
+No rebase impact: this change is Python-only (`python/vmaf/core/feature_extractor.py`),
+touches no C/CUDA/SYCL/HIP/Vulkan/Metal source, no public C API headers, no Meson build
+files, and no FFmpeg patch stack entries. If upstream Netflix/vmaf adds or removes
+`PyPsnrFeatureExtractor` / `PypsnrFeatureExtractor` in a future sync, audit
+`feature_extractor.py` lines 722–830 to ensure the primary-vs-deprecated alias
+relationship is preserved (primary = `PyPsnr*`, deprecated = `Pypsnr*`).
+
 ### 0086 — TransNet shot-metadata columns + HDR VMAF model port slot (Research-0086, ADR-0300 follow-up)
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/__init__.py`
