@@ -1,5 +1,6 @@
 # Fork bug-status — `docs/state.md`
 
+_Updated: 2026-05-10 (Phase-A DNN ENOSYS audit finding resolved — confirmed intentional per ADR-0374; state.md row added to Confirmed not-affected)._
 _Updated: 2026-05-10 (session backfill: 10 PRs #661–#678 added to Recently closed; duplicate CUDA framesync row removed)._
 _Updated: 2026-05-09 (comprehensive verify-every-row audit;
 [Research-0090](research/0090-state-md-row-audit-2026-05-09.md))._
@@ -192,6 +193,7 @@ re-investigating dead ends._
 
 | Netflix issue | Status on this fork | Evidence |
 | --- | --- | --- |
+| **Phase-A audit — DNN disabled-build `-ENOSYS` stubs** — five return sites in `libvmaf/src/dnn/dnn_api.c` (lines 319, 334, 350, 362) and one in `libvmaf/src/dnn/dnn_attach_api.c` (line 88) flagged as "Phase-A-ish — needs clarification: intentional or real gap?" when `-Denable_dnn=false`. | **Intentional — not a bug.** The stubs are the documented disabled-build contract: public symbols are always present so callers link regardless of build configuration; `-ENOSYS` signals "DNN not built in" rather than a programming error. The same pattern is used by every other optional backend (CUDA, SYCL, HIP, Vulkan, Metal, MCP). `vmaf_dnn_available()` is the correct runtime probe. | [ADR-0374](adr/0374-disabled-build-enosys-contract.md) (2026-05-10). File-level stub-contract comment added to `dnn_attach_api.c`; `dnn_api.c` already carried the comment at lines 14–17. No code change required. |
 | Netflix#1032 — PSNR-HVS NaN on 16-bit | **Already-fixed upstream `b1e3f3bd`** is in fork master; CLI rejects bpc>12 with `-EINVAL` and clear error, no NaN produced | Verified by reading `libvmaf/tools/cli_parse.c` bpc validation + `libvmaf/src/feature/psnr_hvs.c` _(verified 2026-05-09: cited paths still on master.)_ |
 | Netflix#1449 — SSIM incorrect when smaller dimension > 384 px | **Already-fixed upstream `7e16db0a`** (scale option). Fork default is `auto` (Wang-Bovik paper); `float_ssim=scale=1` gives full-res SSIM | Verified via `/cross-backend-diff` on test fixtures _(verified 2026-05-09: SSIM scale handling unchanged on master.)_ |
 | Netflix#1481 — i686 (32-bit x86) build regression | **Build-only matrix row exists** ([`libvmaf-build-matrix.yml`](../.github/workflows/libvmaf-build-matrix.yml) i686 cross-file with `-Denable_asm=false`); reproduces the regression for any future drift | [ADR-0151](adr/0151-i686-ci-netflix-1481.md) _(verified 2026-05-09: i686 cross-file row still in `libvmaf-build-matrix.yml`.)_ |
