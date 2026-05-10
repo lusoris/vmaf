@@ -46,7 +46,7 @@ int vmaf_cuda_picture_download_async(VmafPicture *cuda_pic, VmafPicture *pic, ui
         m.srcPitch = cuda_pic->stride[i];
         m.dstHost = pic->data[i];
         m.dstPitch = pic->stride[i];
-        m.WidthInBytes = cuda_pic->w[i] * ((pic->bpc + 7) / 8);
+        m.WidthInBytes = (size_t)cuda_pic->w[i] * ((pic->bpc + 7) / 8);
         m.Height = cuda_pic->h[i];
         if ((bitmask >> i) & 1)
             CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&m, cuda_priv->cuda.str));
@@ -73,7 +73,7 @@ int vmaf_cuda_picture_upload_async(VmafPicture *cuda_pic, VmafPicture *pic, uint
         m.srcPitch = pic->stride[i];
         m.dstDevice = (CUdeviceptr)cuda_pic->data[i];
         m.dstPitch = cuda_pic->stride[i];
-        m.WidthInBytes = cuda_pic->w[i] * ((pic->bpc + 7) / 8);
+        m.WidthInBytes = (size_t)cuda_pic->w[i] * ((pic->bpc + 7) / 8);
         m.Height = cuda_pic->h[i];
         if ((bitmask >> i) & 1)
             CHECK_CUDA_RETURN(cu_f, cuMemcpy2DAsync(&m, cuda_priv->cuda.str));
@@ -132,8 +132,8 @@ int vmaf_cuda_picture_alloc_pinned(VmafPicture *pic, enum VmafPixelFormat pix_fm
     if (pic->pix_fmt == VMAF_PIX_FMT_YUV400P)
         pic->w[1] = pic->w[2] = pic->h[1] = pic->h[2] = 0;
 
-    const int aligned_y = (pic->w[0] + DATA_ALIGN_PINNED - 1) & ~(DATA_ALIGN_PINNED - 1);
-    const int aligned_c = (pic->w[1] + DATA_ALIGN_PINNED - 1) & ~(DATA_ALIGN_PINNED - 1);
+    const unsigned aligned_y = (pic->w[0] + DATA_ALIGN_PINNED - 1) & ~(DATA_ALIGN_PINNED - 1u);
+    const unsigned aligned_c = (pic->w[1] + DATA_ALIGN_PINNED - 1) & ~(DATA_ALIGN_PINNED - 1u);
     const int hbd = pic->bpc > 8;
     pic->stride[0] = aligned_y << hbd;
     pic->stride[1] = pic->stride[2] = aligned_c << hbd;
@@ -248,7 +248,8 @@ int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
         }
         CHECK_CUDA_GOTO(cu_f,
                         cuMemAllocPitch((CUdeviceptr *)&pic->data[i], (size_t *)&pic->stride[i],
-                                        pic->w[i] * ((pic->bpc + 7) / 8), pic->h[i], 8 << hbd),
+                                        (size_t)pic->w[i] * ((pic->bpc + 7) / 8), pic->h[i],
+                                        8 << hbd),
                         fail);
     }
 
@@ -273,7 +274,7 @@ int vmaf_cuda_picture_free(VmafPicture *pic, void *cookie)
     if (!pic)
         return -EINVAL;
 
-    int err = vmaf_ref_load(pic->ref);
+    long err = vmaf_ref_load(pic->ref);
     if (!err)
         return -EINVAL;
 
