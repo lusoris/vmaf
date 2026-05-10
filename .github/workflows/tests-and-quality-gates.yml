@@ -543,27 +543,26 @@ jobs:
               exit 1
               ;;
           esac
-          # `meson test --list` formats output as either
-          #   libvmaf:test_X            (test in default suite)
-          # or
-          #   dnn - libvmaf:test_X      (test in named suite)
-          # so we extract the trailing `<project>:<test_name>` token via
-          # `awk '{ print $NF }'`. Earlier attempts grepped `^libvmaf:`
-          # which silently dropped every dnn-suite test, leaving meson
-          # with an empty list (PR #756) or with `dnn:test_X` names that
-          # meson cannot dispatch directly. Companion fix to PR #757.
-          # Disable `pipefail` for this assignment: with `set -e -o
-          # pipefail`, `grep` exiting 1 on a no-match aborts the script
-          # before the `[ -z "$TESTS" ]` guard can emit a useful error.
+          # `meson test --list` output format varies across meson
+          # versions (1.3.x produces empty output for some build
+          # configurations; 1.11.x emits one test per line). Use
+          # `meson introspect --tests` instead — its JSON output is
+          # stable and machine-parseable across all supported meson
+          # versions. Each test object has `name` and `suite[]` fields
+          # which we join into the canonical `libvmaf:<name>` form
+          # that meson test dispatch expects.
           set +o pipefail
-          MESON_LIST=$(meson test -C build --list 2>&1 || true)
-          echo "meson test --list raw output (first 5 lines):"
-          echo "$MESON_LIST" | head -5
-          TESTS=$(echo "$MESON_LIST" \
-                  | awk '{ print $NF }' \
-                  | grep '^libvmaf:' \
+          TESTS=$(meson introspect build --tests 2>&1 \
+                  | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for t in data:
+    print(f"libvmaf:{t[\"name\"]}")
+' \
                   | grep -vE "$EXCLUDE" || true)
           set -o pipefail
+          echo "test count: $(echo "$TESTS" | wc -l)"
+          echo "first 3: $(echo "$TESTS" | head -3 | tr '\n' ' ')"
           if [ -z "$TESTS" ]; then
             echo "::error::ADR-0347 test enumeration produced empty list for sanitizer=${{ matrix.sanitizer }}" >&2
             exit 1
