@@ -204,7 +204,21 @@ class VmafFeatureExtractor(VmafexecFeatureExtractorMixin, FeatureExtractor):
     # VERSION = '0.2.4c'  # Modify by moving motion2 to c code
     # VERSION = '0.2.5'  # replace executable vmaf_feature with vmaf
     # VERSION = '0.2.6'  # incorporate adm_enhn_gain_limit and vif_enhn_gain_limit
-    VERSION = "0.2.7"  # move vif_enhn_gain_limit right before log calculation
+    # VERSION = '0.2.7'  # move vif_enhn_gain_limit right before log calculation
+    # VERSION = '0.2.8'  # add adm3 as an ATOM feature, adm3 is a linear combination (1/2 weights) between DLM and AIM
+    # VERSION = '0.2.9'  # add motion3 as an ATOM feature
+    # VERSION = '0.2.10'  # change the default value of adm_noise_weight to 1/32.0 = 0.03125
+    # VERSION = '0.2.11'  # fix filter mirroring for float features
+    # VERSION = '0.2.12'  # fix filter mirroring for integer motion
+    # VERSION = '0.2.13'  # expose AIM as an atom feature
+    # VERSION = '0.2.14'  # adding aliases for some float VIF params
+    # VERSION = '0.2.15'  # zero-out vif_scale0 when vif_skip_scale0 is set
+    # VERSION = '0.2.16'  # add alias for vif_skip_scale0
+    # VERSION = '0.2.17'  # introduce clipping for AIM values larger than 1 observed with large perceptual differences such as encoder not reproducing blur-out of the scene
+    # VERSION = '0.2.18'  # move vif_scale0, vif_scale1, vif_scale2 and vif_scale3 to ATOM features
+    # VERSION = '0.2.19'  # fix passing parameters to executable
+    # VERSION = '0.2.20'  # move adm2, adm_scale0, adm_scale1, adm_scale2 and adm_scale3 to ATOM features
+    VERSION = "0.2.21"  # add adm_skip_scale0 for skipping scale0 in ADM calculation
 
     ATOM_FEATURES = [
         "vif",
