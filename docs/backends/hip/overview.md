@@ -1,8 +1,8 @@
 # HIP (AMD ROCm) compute backend (scaffold + eight kernel-template consumers + runtime)
 
-> **Status (2026-05-10, T7-10b batch-2 real kernel landed):** the
+> **Status (2026-05-10, T7-10b batch-3 real kernels landed):** the
 > host-side HIP runtime is wired (T7-10b, 2026-05-08). The kernel-
-> template lifecycle helpers all wrap real HIP runtime calls. Four of
+> template lifecycle helpers all wrap real HIP runtime calls. Six of
 > eleven feature extractors now have real device kernels:
 >
 > - `float_psnr_hip` (name `float_psnr_hip`, ADR-0254): float (ref-dis)^2
@@ -17,11 +17,20 @@
 >   blur ping-pong (`blur[2]`), first-frame `compute_sad=0` short-circuit,
 >   motion2 tail emission in `flush()`. Emits
 >   `VMAF_feature_motion_score` + `VMAF_feature_motion2_score`.
+> - `float_moment_hip` (name `float_moment_hip`, ADR-0375): four uint64
+>   atomic accumulator kernel (ref1st, dis1st, ref2nd, dis2nd), warp-64
+>   two-uint32-shuffle reduction. Host divides by w×h. Emits four
+>   `float_moment_*` features.
+> - `float_ssim_hip` (name `float_ssim_hip`, ADR-0375): two-pass separable
+>   11-tap Gaussian kernel. Pass 1 (horiz): five intermediate float buffers
+>   over (W-10)×H. Pass 2 (vert + SSIM combine): per-block float partial
+>   sum over (W-10)×(H-10). Host accumulates in double. Emits `float_ssim`.
+>   v1: scale=1 only.
 >
-> All four require `enable_hip=true` + `enable_hipcc=true`.
+> All six require `enable_hip=true` + `enable_hipcc=true`.
 > Without `enable_hipcc`, the scaffold `-ENOSYS` posture is preserved.
-> The remaining seven extractors remain at `-ENOSYS` pending batch-3.
-> See ADR-0372 (batch-1) and ADR-0373 (batch-2) for rationale.
+> The remaining five extractors remain at `-ENOSYS` pending future batches.
+> See ADR-0372 (batch-1), ADR-0373 (batch-2), ADR-0375 (batch-3) for rationale.
 
 > **Historical status (audit-first scaffold):** the eight host-
 > scaffolded kernel-template consumers below register and are

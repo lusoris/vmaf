@@ -3,42 +3,40 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  float_moment feature extractor on the HIP backend — fourth consumer
- *  of `libvmaf/src/hip/kernel_template.h` (T7-10b follow-up /
- *  ADR-0260).
+ *  of `libvmaf/src/hip/kernel_template.h` (T7-10b batch-3 / ADR-0374).
  *
- *  This TU mirrors `libvmaf/src/feature/cuda/integer_moment_cuda.c`
+ *  Mirrors `libvmaf/src/feature/cuda/integer_moment_cuda.c`
  *  call-graph-for-call-graph: same private-state struct shape, same
  *  init/submit/collect/close lifecycle, same template helper
- *  invocations. Single dispatch per frame; the runtime PR will emit
- *  all four metrics (`float_moment_ref{1st,2nd}`,
- *  `float_moment_dis{1st,2nd}`) in one kernel pass via four uint64
- *  atomic counters — that's the precision posture this consumer pins
- *  (int64 atomic accumulators, distinct from the float partials of
- *  the third consumer `ciede_hip` and the float partials of the
- *  second consumer `float_psnr_hip`).
+ *  invocations. Single dispatch per frame; emits all four metrics
+ *  (`float_moment_ref{1st,2nd}`, `float_moment_dis{1st,2nd}`) in one
+ *  kernel pass via four uint64 atomic counters — same precision posture
+ *  as the CUDA twin.
  *
- *  The kernel-template helpers in `libvmaf/src/hip/kernel_template.c`
- *  currently return -ENOSYS; the consumer's `init` therefore returns
- *  -ENOSYS up the stack, so the feature engine reports
- *  "float_moment_hip extractor found but its runtime is not
- *  implemented" rather than "float_moment_hip extractor not found".
- *  The smoke test pins this registration-shape contract.
+ *  HIP adaptation from CUDA:
+ *  - `hipModuleLoadData` / `hipModuleGetFunction` / `hipModuleLaunchKernel`
+ *    instead of `cuModuleLoadData` / `cuModuleGetFunction` / `cuLaunchKernel`.
+ *  - Four uint64 atomic accumulators (device readback) — zeroed via
+ *    `hipMemsetAsync` before each dispatch.
+ *  - Luma planes copied HtoD via `hipMemcpy2DAsync` (pictures arrive as
+ *    CPU VmafPictures; VMAF_FEATURE_EXTRACTOR_HIP flag cleared for T7-10b).
  *
- *  When the runtime PR (T7-10b) ships, the kernel-template bodies flip
- *  from -ENOSYS to real `hipStreamCreate` / `hipMemcpyAsync` / ...
- *  calls and *this* TU keeps its current shape verbatim. That's the
- *  load-bearing invariant: the consumer is written against the
- *  template's contract, not against the absent runtime.
+ *  When `enable_hipcc=false` (e.g. a CI agent without ROCm), `HAVE_HIPCC`
+ *  is undefined and `init()` returns -ENOSYS — same scaffold contract as
+ *  the pre-runtime posture.
  *
- *  Algorithm parity (when the kernel arrives): four uint64 atomic
- *  counters [ref1, dis1, ref2, dis2] reduced per-frame, divided by
- *  `w*h` on the host to recover four mean / second-moment metrics.
- *  Mirrors the CUDA reference exactly.
+ *  Algorithm (mirrors CUDA twin):
+ *    - Four uint64 atomic counters [ref1st, dis1st, ref2nd, dis2nd]
+ *      reduced per-frame, divided by `w*h` on the host to recover four
+ *      mean / second-moment metrics.
  */
 
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#define __HIP_PLATFORM_AMD__ 1
+#include <hip/hip_runtime_api.h>
 
 #include "dict.h"
 #include "feature_collector.h"
@@ -48,26 +46,7 @@
 
 #include "../../hip/common.h"
 #include "../../hip/kernel_template.h"
-
-typedef struct MomentStateHip {
-    /* Lifecycle (private stream + submit/finished event pair) and the
-     * (device four-uint64 accumulator, pinned host readback slot) pair
-     * are managed by `hip/kernel_template.h` (T7-10b fourth consumer /
-     * ADR-0260). The struct shape mirrors the CUDA twin's
-     * `MomentStateCuda` — same fields in the same order, modulo the
-     * `*_hip` -> `*_cuda` type names and the absence of the
-     * CUDA-driver-table function-pointer slots (`funcbpc8`,
-     * `funcbpc16`), which the runtime PR (T7-10b) will reintroduce
-     * as their HIP equivalents. */
-    VmafHipKernelLifecycle lc;
-    VmafHipKernelReadback rb;
-    VmafHipContext *ctx;
-    unsigned index;
-    unsigned frame_w;
-    unsigned frame_h;
-    unsigned bpc;
-    VmafDictionary *feature_name_dict;
-} MomentStateHip;
+#include "float_moment_hip.h"
 
 /* Number of uint64 atomic counters the runtime kernel emits per
  * frame: [ref1st, dis1st, ref2nd, dis2nd]. Pinned by the CUDA twin's
@@ -75,55 +54,246 @@ typedef struct MomentStateHip {
  * gate has nothing fork-specific to track. */
 #define MOMENT_HIP_COUNTERS 4u
 
+/* Block dimensions for the moment kernel (mirrors CUDA twin). */
+#define MOMENT_HIP_BX 16u
+#define MOMENT_HIP_BY 16u
+
+/* ------------------------------------------------------------------ */
+/* HIP-to-errno translation                                            */
+/* ------------------------------------------------------------------ */
+
+static int moment_hip_rc(hipError_t rc)
+{
+    if (rc == hipSuccess)
+        return 0;
+    switch (rc) {
+    case hipErrorInvalidValue:
+    case hipErrorInvalidHandle:
+        return -EINVAL;
+    case hipErrorOutOfMemory:
+        return -ENOMEM;
+    case hipErrorNoDevice:
+    case hipErrorInvalidDevice:
+        return -ENODEV;
+    case hipErrorNotSupported:
+        return -ENOSYS;
+    default:
+        return -EIO;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Private state                                                       */
+/* ------------------------------------------------------------------ */
+
+typedef struct MomentStateHip {
+    VmafHipKernelLifecycle lc;
+    VmafHipKernelReadback rb; /* device: 4 x uint64 accumulators;
+                                * host_pinned: readback slot */
+    VmafHipContext *ctx;
+    /* HIP module + per-bpc kernel function handles. */
+    hipModule_t module;
+    hipFunction_t funcbpc8;
+    hipFunction_t funcbpc16;
+    /* Device-side staging buffers (luma planes, ref + dis). */
+    void *ref_in;
+    void *dis_in;
+    unsigned index;
+    unsigned frame_w;
+    unsigned frame_h;
+    unsigned bpc;
+    VmafDictionary *feature_name_dict;
+} MomentStateHip;
+
 static const VmafOption options[] = {{0}};
+
+/* ------------------------------------------------------------------ */
+/* HAVE_HIPCC helpers                                                  */
+/* ------------------------------------------------------------------ */
+
+#ifdef HAVE_HIPCC
+/*
+ * Load the HSACO fat binary, resolve both kernel function handles, and
+ * allocate luma-plane staging buffers. Extracted to keep init_fex_hip
+ * under the 60-line readability-function-size limit.
+ *
+ * On failure: s->module, s->ref_in, s->dis_in are left NULL / unset;
+ * caller unwinds via fail_after_rb.
+ */
+static int moment_hip_module_load(MomentStateHip *s, unsigned bpc, unsigned w, unsigned h)
+{
+    hipError_t hip_rc = hipModuleLoadData(&s->module, moment_score_hsaco);
+    if (hip_rc != hipSuccess)
+        return moment_hip_rc(hip_rc);
+
+    hip_rc = hipModuleGetFunction(&s->funcbpc8, s->module, "calculate_moment_hip_kernel_8bpc");
+    if (hip_rc != hipSuccess) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+        return moment_hip_rc(hip_rc);
+    }
+    hip_rc = hipModuleGetFunction(&s->funcbpc16, s->module, "calculate_moment_hip_kernel_16bpc");
+    if (hip_rc != hipSuccess) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+        return moment_hip_rc(hip_rc);
+    }
+
+    const size_t bpp = (bpc <= 8u) ? 1u : 2u;
+    const size_t plane_bytes = (size_t)w * h * bpp;
+    hip_rc = hipMalloc(&s->ref_in, plane_bytes);
+    if (hip_rc != hipSuccess) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+        return moment_hip_rc(hip_rc);
+    }
+    hip_rc = hipMalloc(&s->dis_in, plane_bytes);
+    if (hip_rc != hipSuccess) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+        return moment_hip_rc(hip_rc);
+    }
+    return 0;
+}
+
+/*
+ * Per-frame submit body: zero the four uint64 accumulators, HtoD copies
+ * of both luma planes, kernel launch, DtoH readback. Extracted to keep
+ * submit_fex_hip under the 60-line readability-function-size limit.
+ */
+static int moment_hip_launch(MomentStateHip *s, VmafPicture *ref_pic, VmafPicture *dist_pic)
+{
+    const size_t bpp = (s->bpc <= 8u) ? 1u : 2u;
+    const ptrdiff_t row_w = (ptrdiff_t)(s->frame_w * bpp);
+    const hipStream_t str = (hipStream_t)s->lc.str;
+
+    /* Zero the four uint64 atomic accumulators before dispatch. */
+    hipError_t hip_rc =
+        hipMemsetAsync(s->rb.device, 0, (size_t)MOMENT_HIP_COUNTERS * sizeof(uint64_t), str);
+    if (hip_rc != hipSuccess)
+        return moment_hip_rc(hip_rc);
+
+    hip_rc =
+        hipMemcpy2DAsync(s->ref_in, (size_t)row_w, ref_pic->data[0], (size_t)ref_pic->stride[0],
+                         (size_t)row_w, (size_t)s->frame_h, hipMemcpyHostToDevice, str);
+    if (hip_rc != hipSuccess)
+        return moment_hip_rc(hip_rc);
+
+    hip_rc =
+        hipMemcpy2DAsync(s->dis_in, (size_t)row_w, dist_pic->data[0], (size_t)dist_pic->stride[0],
+                         (size_t)row_w, (size_t)s->frame_h, hipMemcpyHostToDevice, str);
+    if (hip_rc != hipSuccess)
+        return moment_hip_rc(hip_rc);
+
+    const unsigned gx = (s->frame_w + MOMENT_HIP_BX - 1u) / MOMENT_HIP_BX;
+    const unsigned gy = (s->frame_h + MOMENT_HIP_BY - 1u) / MOMENT_HIP_BY;
+    if (s->bpc == 8u) {
+        void *args[] = {
+            &s->ref_in,   (void *)&row_w, &s->dis_in,  (void *)&row_w,
+            s->rb.device, &s->frame_w,    &s->frame_h,
+        };
+        hip_rc = hipModuleLaunchKernel(s->funcbpc8, gx, gy, 1u, MOMENT_HIP_BX, MOMENT_HIP_BY, 1u, 0,
+                                       str, args, NULL);
+    } else {
+        /* 16bpc kernel has the same 7-arg signature as 8bpc — no bpc arg.
+         * The kernel reads raw uint16_t pixels regardless of bpc depth;
+         * the host already sized ref_in/dis_in at 2 bytes per pixel. */
+        void *args[] = {
+            &s->ref_in,   (void *)&row_w, &s->dis_in,  (void *)&row_w,
+            s->rb.device, &s->frame_w,    &s->frame_h,
+        };
+        hip_rc = hipModuleLaunchKernel(s->funcbpc16, gx, gy, 1u, MOMENT_HIP_BX, MOMENT_HIP_BY, 1u,
+                                       0, str, args, NULL);
+    }
+    if (hip_rc != hipSuccess)
+        return moment_hip_rc(hip_rc);
+
+    /* Record submit event, DtoH copy of the four uint64 accumulators,
+     * record finished event. */
+    hip_rc = hipEventRecord((hipEvent_t)s->lc.submit, str);
+    if (hip_rc != hipSuccess)
+        return moment_hip_rc(hip_rc);
+
+    hip_rc =
+        hipMemcpyAsync(s->rb.host_pinned, s->rb.device,
+                       (size_t)MOMENT_HIP_COUNTERS * sizeof(uint64_t), hipMemcpyDeviceToHost, str);
+    if (hip_rc != hipSuccess)
+        return moment_hip_rc(hip_rc);
+
+    return vmaf_hip_kernel_submit_post_record(&s->lc, s->ctx);
+}
+#endif /* HAVE_HIPCC */
+
+/* Free staging buffers + module. Safe to call with NULL handles.
+ * Defined outside HAVE_HIPCC so init_fex_hip's fail_after_mod label
+ * can call it unconditionally (mirrors float_psnr_hip_module_free). */
+static void moment_hip_module_free(MomentStateHip *s)
+{
+#ifdef HAVE_HIPCC
+    if (s->dis_in != NULL) {
+        (void)hipFree(s->dis_in);
+        s->dis_in = NULL;
+    }
+    if (s->ref_in != NULL) {
+        (void)hipFree(s->ref_in);
+        s->ref_in = NULL;
+    }
+    if (s->module != NULL) {
+        (void)hipModuleUnload(s->module);
+        s->module = NULL;
+    }
+#else
+    (void)s;
+#endif /* HAVE_HIPCC */
+}
+
+/* ------------------------------------------------------------------ */
+/* init / close                                                        */
+/* ------------------------------------------------------------------ */
 
 static int init_fex_hip(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigned bpc,
                         unsigned w, unsigned h)
 {
     (void)pix_fmt;
-    (void)w;
-    (void)h;
     MomentStateHip *s = fex->priv;
 
-    /* Allocate a HIP context — the scaffold's `vmaf_hip_context_new`
-     * succeeds today (calloc + struct init); the runtime PR will swap
-     * in `hipSetDevice` + handle creation. */
-    int err = vmaf_hip_context_new(&s->ctx, 0);
-    if (err != 0) {
-        return err;
-    }
-
-    /* Stream + event pair via the template — scaffold body returns
-     * -ENOSYS unconditionally. The consumer surfaces that verbatim so
-     * a caller running `vmaf --feature float_moment_hip` sees a
-     * runtime-not-ready signal at init time. The runtime PR replaces
-     * the helper body; this call site stays. */
-    err = vmaf_hip_kernel_lifecycle_init(&s->lc, s->ctx);
-    if (err != 0) {
-        goto fail_after_ctx;
-    }
-
     s->bpc = bpc;
+    s->frame_w = w;
+    s->frame_h = h;
 
-    /* Readback pair (device four-uint64 accumulator + pinned host
-     * slot). The runtime kernel uses atomic adds, so the runtime PR's
-     * `submit` will memset the accumulator to zero before each
-     * dispatch (via the template's `submit_pre_launch` helper). */
+    int err = vmaf_hip_context_new(&s->ctx, 0);
+    if (err != 0)
+        return err;
+
+    err = vmaf_hip_kernel_lifecycle_init(&s->lc, s->ctx);
+    if (err != 0)
+        goto fail_after_ctx;
+
     err = vmaf_hip_kernel_readback_alloc(&s->rb, s->ctx,
                                          (size_t)MOMENT_HIP_COUNTERS * sizeof(uint64_t));
-    if (err != 0) {
+    if (err != 0)
         goto fail_after_lc;
-    }
+
+#ifdef HAVE_HIPCC
+    err = moment_hip_module_load(s, bpc, w, h);
+#else
+    err = -ENOSYS;
+#endif
+    if (err != 0)
+        goto fail_after_rb;
 
     s->feature_name_dict =
         vmaf_feature_name_dict_from_provided_features(fex->provided_features, fex->options, s);
     if (s->feature_name_dict == NULL) {
         err = -ENOMEM;
-        goto fail_after_rb;
+        goto fail_after_mod;
     }
-
     return 0;
 
+fail_after_mod:
+    moment_hip_module_free(s);
 fail_after_rb:
     (void)vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
 fail_after_lc:
@@ -134,80 +304,42 @@ fail_after_ctx:
     return err;
 }
 
-static int submit_fex_hip(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
-                          VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index)
-{
-    (void)ref_pic_90;
-    (void)dist_pic_90;
-    (void)dist_pic;
-    MomentStateHip *s = fex->priv;
-
-    s->index = index;
-    s->frame_w = ref_pic->w[0];
-    s->frame_h = ref_pic->h[0];
-
-    /* Mirrors the CUDA twin's pre-launch boilerplate: zero the four
-     * device counters and wait for the dist-side ready event. The
-     * kernel uses atomic adds, so the memset is mandatory. The
-     * runtime PR will replace the scaffold-only -ENOSYS return with
-     * a real dispatch + readback chain (memset accumulator, wait on
-     * dist ready event, launch moment kernel for the active bpc,
-     * record submit/finished events, DtoH copy). The picture stream
-     * + ready-event handles are threaded through as `uintptr_t` to
-     * match the kernel template's header-pure ABI. */
-    int err = vmaf_hip_kernel_submit_pre_launch(&s->lc, s->ctx, &s->rb,
-                                                /* picture_stream */ 0,
-                                                /* dist_ready_event */ 0);
-    if (err != 0) {
-        return err;
-    }
-
-    /* Launch + post-launch event sequence land with the runtime PR
-     * (T7-10b). Mirrors the CUDA twin's bpc8/bpc16 `cuLaunchKernel`
-     * dispatch + `hipEventRecord(submit)` +
-     * `hipStreamWaitEvent(str, submit)` + `hipMemcpyDtoHAsync` +
-     * `hipEventRecord(finished)` chain. */
-    return -ENOSYS;
-}
-
-static int collect_fex_hip(VmafFeatureExtractor *fex, unsigned index,
-                           VmafFeatureCollector *feature_collector)
-{
-    (void)feature_collector;
-    (void)index;
-    MomentStateHip *s = fex->priv;
-
-    /* Drain the private readback stream so the host pinned buffer is
-     * safe to read. Mirrors the CUDA twin. */
-    int err = vmaf_hip_kernel_collect_wait(&s->lc, s->ctx);
-    if (err != 0) {
-        return err;
-    }
-
-    /* Score emission lands with the runtime PR — same uint64 atomic
-     * sums → divide by w*h chain as the CUDA reference, emitting
-     * four features (`float_moment_ref1st`, `float_moment_dis1st`,
-     * `float_moment_ref2nd`, `float_moment_dis2nd`) per frame. */
-    return -ENOSYS;
-}
-
 static int close_fex_hip(VmafFeatureExtractor *fex)
 {
     MomentStateHip *s = fex->priv;
+    int rc = 0;
 
-    /* Lifecycle teardown via the template (sync → destroy stream →
-     * destroy events). Best-effort error aggregation matches the
-     * CUDA twin's close path. */
-    int rc = vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
-    int err = vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
-    if (err != 0 && rc == 0) {
-        rc = err;
+#ifdef HAVE_HIPCC
+    if (s->dis_in != NULL) {
+        int e = moment_hip_rc(hipFree(s->dis_in));
+        s->dis_in = NULL;
+        if (rc == 0)
+            rc = e;
     }
+    if (s->ref_in != NULL) {
+        int e = moment_hip_rc(hipFree(s->ref_in));
+        s->ref_in = NULL;
+        if (rc == 0)
+            rc = e;
+    }
+    if (s->module != NULL) {
+        int e = moment_hip_rc(hipModuleUnload(s->module));
+        s->module = NULL;
+        if (rc == 0)
+            rc = e;
+    }
+#endif /* HAVE_HIPCC */
+
+    int e = vmaf_hip_kernel_lifecycle_close(&s->lc, s->ctx);
+    if (rc == 0)
+        rc = e;
+    e = vmaf_hip_kernel_readback_free(&s->rb, s->ctx);
+    if (rc == 0)
+        rc = e;
     if (s->feature_name_dict != NULL) {
-        err = vmaf_dictionary_free(&s->feature_name_dict);
-        if (err != 0 && rc == 0) {
-            rc = err;
-        }
+        e = vmaf_dictionary_free(&s->feature_name_dict);
+        if (rc == 0)
+            rc = e;
     }
     if (s->ctx != NULL) {
         vmaf_hip_context_destroy(s->ctx);
@@ -215,6 +347,82 @@ static int close_fex_hip(VmafFeatureExtractor *fex)
     }
     return rc;
 }
+
+/* ------------------------------------------------------------------ */
+/* submit / collect                                                    */
+/* ------------------------------------------------------------------ */
+
+static int submit_fex_hip(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
+                          VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index)
+{
+    (void)ref_pic_90;
+    (void)dist_pic_90;
+
+#ifndef HAVE_HIPCC
+    (void)fex;
+    (void)ref_pic;
+    (void)dist_pic;
+    (void)index;
+    return -ENOSYS;
+#else
+    MomentStateHip *s = fex->priv;
+    s->index = index;
+    s->frame_w = ref_pic->w[0];
+    s->frame_h = ref_pic->h[0];
+    /* VMAF_FEATURE_EXTRACTOR_HIP flag is not yet set (T7-10b posture),
+     * so pictures arrive as CPU VmafPictures. moment_hip_launch()
+     * copies luma planes host->device, launches the kernel, copies
+     * four uint64 accumulators device->host, and records the finished
+     * event. */
+    return moment_hip_launch(s, ref_pic, dist_pic);
+#endif /* HAVE_HIPCC */
+}
+
+static int collect_fex_hip(VmafFeatureExtractor *fex, unsigned index,
+                           VmafFeatureCollector *feature_collector)
+{
+#ifndef HAVE_HIPCC
+    (void)fex;
+    (void)index;
+    (void)feature_collector;
+    return -ENOSYS;
+#else
+    MomentStateHip *s = fex->priv;
+
+    int err = vmaf_hip_kernel_collect_wait(&s->lc, s->ctx);
+    if (err != 0)
+        return err;
+
+    /* Read the four uint64 accumulators from the pinned host buffer,
+     * divide by the pixel count to recover means / second moments.
+     * Mirrors the CUDA twin's collect path. */
+    const uint64_t *sums = (const uint64_t *)s->rb.host_pinned;
+    const double n_pix = (double)s->frame_w * (double)s->frame_h;
+    const double ref1st = (double)sums[0] / n_pix;
+    const double dis1st = (double)sums[1] / n_pix;
+    const double ref2nd = (double)sums[2] / n_pix;
+    const double dis2nd = (double)sums[3] / n_pix;
+
+    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                  "float_moment_ref1st", ref1st, index);
+    if (err != 0)
+        return err;
+    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                  "float_moment_dis1st", dis1st, index);
+    if (err != 0)
+        return err;
+    err = vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                  "float_moment_ref2nd", ref2nd, index);
+    if (err != 0)
+        return err;
+    return vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "float_moment_dis2nd", dis2nd, index);
+#endif /* HAVE_HIPCC */
+}
+
+/* ------------------------------------------------------------------ */
+/* Registration                                                        */
+/* ------------------------------------------------------------------ */
 
 static const char *provided_features[] = {
     "float_moment_ref1st",
@@ -242,13 +450,11 @@ VmafFeatureExtractor vmaf_fex_float_moment_hip = {
     .options = options,
     .priv_size = sizeof(MomentStateHip),
     .provided_features = provided_features,
-    /* Intentionally no VMAF_FEATURE_EXTRACTOR_HIP flag yet — the
-     * picture buffer-type plumbing for HIP lands with the runtime
-     * PR (T7-10b). Until then the consumer registers as a
-     * "CPU-flagged" extractor whose `init()` returns -ENOSYS, so
-     * any caller asking for `float_moment_hip` gets a clean
-     * "runtime not ready" surface. Same posture as the first /
-     * second / third consumers (ADR-0241 / ADR-0254 / ADR-0259). */
+    /* VMAF_FEATURE_EXTRACTOR_HIP flag cleared until picture buffer-type
+     * plumbing lands (T7-10c). Until then pictures arrive as CPU
+     * VmafPictures and submit() does explicit HtoD copies.
+     * Same posture as all other HIP consumers (ADR-0241 / ADR-0254 /
+     * ADR-0259 / ADR-0260 / ADR-0266 / ADR-0267 / ADR-0273). */
     .flags = 0,
     /* 1 dispatch/frame, reduction-dominated; AUTO + 1080p area
      * matches the CUDA twin's profile. */
