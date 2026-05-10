@@ -32873,6 +32873,14 @@ ninja -C build-cuda
   (`vmaf_hip_state_free(&s->hip_state)`) uses a **double pointer**, unlike the
   CUDA path (`vmaf_cuda_state_free(s->cu_state)`) which uses a single pointer —
   this asymmetry is intentional and matches `libvmaf_hip.h`; preserve it.
+- **Error-code invariant (fix/hip-averror-propagation-0011, 2026-05-10)**:
+  Both HIP error sites in `init()` must use `return AVERROR(-err)`, not
+  `return AVERROR(EINVAL)`. `AVERROR(-err)` maps the libvmaf-supplied
+  errno (e.g. `-ENODEV` = -19, `-ENOSYS` = -38) to the correct FFmpeg
+  error string ("No such device", "Function not implemented"). The
+  `AVERROR(EINVAL)` form was the original patch text; it was corrected
+  during the full 0001–0011 e2e test run. If the patch context is
+  regenerated or the hunk is split, verify the fix is preserved.
 - **Re-test on rebase**:
 
   ```bash

@@ -134,13 +134,13 @@ index a32c915..0793356 100644
 +            av_log(ctx, AV_LOG_ERROR,
 +                   "vmaf_hip_state_init(%d) failed: %d.\n",
 +                   s->hip_device, err);
-+            return AVERROR(EINVAL);
++            return AVERROR(-err);
 +        }
 +        err = vmaf_hip_import_state(s->vmaf, s->hip_state);
 +        if (err) {
 +            av_log(ctx, AV_LOG_ERROR,
 +                   "vmaf_hip_import_state failed: %d.\n", err);
-+            return AVERROR(EINVAL);
++            return AVERROR(-err);
 +        }
 +        av_log(ctx, AV_LOG_INFO,
 +               "HIP backend active (device=%d)\n", s->hip_device);
