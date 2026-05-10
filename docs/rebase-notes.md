@@ -50,7 +50,7 @@ generation loop.
   still sits before the `n < min` / `n > max` checks.
 - **Re-test**: `meson setup libvmaf/build-test libvmaf -Denable_cuda=false -Denable_sycl=false -Denable_tests=true && ninja -C libvmaf/build-test test/test_opt && libvmaf/build-test/test/test_opt` — must report 25/25 passed, including `test_double_nan_is_rejected` and `test_double_inf_rejected_when_max_finite`.
 
-### fix/fex-dedup-by-provided-feature — feature-extractor dedup by provided-feature names (ADR-0384)
+### fix/fex-dedup-by-provided-feature — feature-extractor dedup by provided-feature names (ADR-0385)
 
 - **Touches**: `libvmaf/src/fex_ctx_vector.c` (new
   `provided_features_overlap()` helper, updated

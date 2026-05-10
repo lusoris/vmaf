@@ -1,4 +1,4 @@
-# ADR-0384: Feature-extractor deduplication by provided-feature names
+# ADR-0385: Feature-extractor deduplication by provided-feature names
 
 - **Status**: Accepted
 - **Date**: 2026-05-10
