@@ -43,13 +43,13 @@ typedef adm_dwt_band_t_s adm_dwt_band_t;
 
 static char *init_dwt_band(adm_dwt_band_t *band, char *data_top, size_t buf_sz_one)
 {
-    band->band_a = (float *)data_top;
+    band->band_a = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_h = (float *)data_top;
+    band->band_h = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (float *)data_top;
+    band->band_v = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (float *)data_top;
+    band->band_d = (float *)(void *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }
@@ -57,13 +57,13 @@ static char *init_dwt_band(adm_dwt_band_t *band, char *data_top, size_t buf_sz_o
 UNUSED_FUNCTION
 static char *init_dwt_band_d(adm_dwt_band_t_d *band, char *data_top, size_t buf_sz_one)
 {
-    band->band_a = (double *)data_top;
+    band->band_a = (double *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_h = (double *)data_top;
+    band->band_h = (double *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (double *)data_top;
+    band->band_v = (double *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (double *)data_top;
+    band->band_d = (double *)(void *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }
@@ -71,11 +71,11 @@ static char *init_dwt_band_d(adm_dwt_band_t_d *band, char *data_top, size_t buf_
 static char *init_dwt_band_hvd(adm_dwt_band_t *band, char *data_top, size_t buf_sz_one)
 {
     band->band_a = NULL;
-    band->band_h = (float *)data_top;
+    band->band_h = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (float *)data_top;
+    band->band_v = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (float *)data_top;
+    band->band_d = (float *)(void *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }

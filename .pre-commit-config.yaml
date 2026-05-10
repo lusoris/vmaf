@@ -72,7 +72,14 @@ repos:
   - repo: https://github.com/scop/pre-commit-shfmt
     rev: v3.13.1-1
     hooks:
-      - id: shfmt
+      # shfmt-src builds from the Go module proxy (proxy.golang.org) rather
+      # than downloading a prebuilt binary from mvdan.cc at wheel-build time.
+      # The binary variant ("shfmt") hit HTTP 502 on the mvdan.cc CDN on every
+      # CI run because the pre-commit cache key was stale (py3.12 vs py3.14),
+      # forcing a re-download on every push. shfmt-src is immune to that CDN
+      # and is equally fast once Go is available on the runner (ubuntu-latest
+      # ships Go). Cache key is now pinned to py3.14 in lint-and-format.yml.
+      - id: shfmt-src
         args: ["-w", "-i", "2", "-ci"]
 
   - repo: https://github.com/shellcheck-py/shellcheck-py

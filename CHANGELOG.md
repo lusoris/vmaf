@@ -51,6 +51,23 @@
   silently dropped. Zero warnings post-fix on the reference 576x324
   fixture. Netflix golden VMAF score unchanged (94.323010).
 
+- **Pre-commit shfmt hook migrated to `shfmt-src` (Go-source build); cache key
+  corrected from `py3.12` to `py3.14` (ADR-0384).** The `scop/pre-commit-shfmt`
+  `id: shfmt` hook downloads a prebuilt binary from `mvdan.cc` at
+  wheel-build time. The pre-commit environment cache key in
+  `lint-and-format.yml` was set to `py3.12` while the runner's Python version
+  had been bumped to `3.14.4`, so the cache never hit and every push
+  re-triggered a fresh download. On 2026-05-10 the CDN returned HTTP 502,
+  failing the entire pre-commit job before any formatters ran. Fixed by: (1)
+  correcting the cache key to `py3.14`; (2) switching to `id: shfmt-src`
+  which builds via `go get` from `proxy.golang.org` (Google-hosted, higher
+  SLA than the binary CDN). The Go toolchain ships on every `ubuntu-latest`
+  runner. Also fixes two semgrep `vmaf-no-skip-hooks-in-scripts` findings in
+  `scripts/ci/check-agent-worktree-drift.sh` (comment text matched the
+  banned pattern) and 22 cppcheck `invalidPointerCast` findings in
+  `libvmaf/src/feature/{adm,ansnr,offset,vif}.c` (arena-slicing idiom
+  `(float *)char_ptr` corrected to `(float *)(void *)char_ptr`).
+
 - **Y4M header parser rejects non-positive width/height before allocation
   (T-FUZZ-Y4M-NEG-WIDTH-SEGV / ADR-0382).** `y4m_input_open_impl`
   (`libvmaf/tools/y4m_input.c`) now validates `pic_w > 0` and

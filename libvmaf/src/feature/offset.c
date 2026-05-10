@@ -28,7 +28,7 @@ int offset_image_s(float *buf, float off, int width, int height, int stride)
     int j;
 
     for (i = 0; i < height; ++i) {
-        float *row_ptr = (float *)byte_ptr;
+        float *row_ptr = (float *)(void *)byte_ptr;
 
         for (j = 0; j < width; ++j) {
             row_ptr[j] += off;

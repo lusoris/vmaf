@@ -63,21 +63,21 @@ typedef struct VifScaleCtx {
 static void slice_vif_buffers(void *data_buf, size_t buf_sz_one, VifBuffers *b)
 {
     char *top = (char *)data_buf;
-    b->ref_scale = (float *)top;
+    b->ref_scale = (float *)(void *)top;
     top += buf_sz_one;
-    b->dis_scale = (float *)top;
+    b->dis_scale = (float *)(void *)top;
     top += buf_sz_one;
-    b->mu1 = (float *)top;
+    b->mu1 = (float *)(void *)top;
     top += buf_sz_one;
-    b->mu2 = (float *)top;
+    b->mu2 = (float *)(void *)top;
     top += buf_sz_one;
-    b->ref_sq_filt = (float *)top;
+    b->ref_sq_filt = (float *)(void *)top;
     top += buf_sz_one;
-    b->dis_sq_filt = (float *)top;
+    b->dis_sq_filt = (float *)(void *)top;
     top += buf_sz_one;
-    b->ref_dis_filt = (float *)top;
+    b->ref_dis_filt = (float *)(void *)top;
     top += buf_sz_one;
-    b->tmpbuf = (float *)top;
+    b->tmpbuf = (float *)(void *)top;
 }
 
 /* Apply the filter/decimate step that turns scale `scale-1`'s mu images

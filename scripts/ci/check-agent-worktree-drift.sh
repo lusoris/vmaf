@@ -17,9 +17,9 @@
 #   3. Otherwise the toplevel is the main checkout. Look for sibling
 #      agent worktrees under `<toplevel>/.claude/worktrees/agent-*`.
 #      If at least one exists — REFUSE the commit with a clear error.
-#      The user can bypass with `git commit --no-verify` for legitimate
-#      main-checkout commits while an agent is running (e.g. their own
-#      hand-edited commits to master).
+#      The user can bypass via the --no-verify flag (pass it to git-commit)
+#      for legitimate main-checkout commits while an agent is running
+#      (e.g. their own hand-edited commits to master).
 #
 # This guard is the host-side layer. The process-side layer is the
 # global memory rule `feedback_agents_isolated_worktree_only` — agents
@@ -101,8 +101,8 @@ Fixes (pick one):
      docs/development/agent-worktree-discipline.md.
 
   2. If you are the human user committing legitimate main-checkout
-     work while a background agent runs: bypass with
-     \`git commit --no-verify\`.
+     work while a background agent runs: pass --no-verify to git-commit
+     to bypass this pre-commit hook.
 
   3. If the listed worktree is stale (the agent finished hours ago
      and forgot to clean up), remove it with \`git worktree remove\`
