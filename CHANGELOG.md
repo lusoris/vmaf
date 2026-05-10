@@ -67,6 +67,23 @@
 
 ### Added
 
+- **K150K-A corpus scoring driver redesigned for parallel CPU workers
+  (ADR-0383).** `ai/scripts/extract_k150k_features.py` now uses
+  `concurrent.futures.ProcessPoolExecutor` with a configurable number of
+  parallel workers (`--threads-cuda`, default 8). Each worker independently
+  decodes one clip to a private YUV scratch file, scores it via
+  `libvmaf/build-cpu/tools/vmaf`, aggregates frame metrics, and deletes the
+  scratch file. The main process collects results, writes the `.done`
+  checkpoint, and flushes the parquet every `--flush-every` clips. Throughput
+  improves from 0.14 clip/s (serial baseline) to ~0.5–0.7 clip/s at 8 workers
+  (4–5× speedup, verified on 100-clip smoke test). The `--vmaf-bin` default
+  was updated from `build-cpu/tools/vmaf` to `libvmaf/build-cpu/tools/vmaf`
+  to match the meson out-of-tree build convention. Existing `.done` checkpoint
+  and partial progress are preserved. Also fixes the duplicate CUDA extractor
+  registration in `feature_extractor_list[]` (six extractors registered twice,
+  introduced by commit `30179695a`). See Research-0096 for the CUDA timing
+  investigation and ADR-0382 for the design decision.
+
 - **ADM `noise_weight` / `adm_csf_scale` / `adm_csf_diag_scale` on all GPU
   backends.** The three ADM tuning parameters introduced by PR #731 on the
   CPU-only scalar path are now exposed on every GPU backend:

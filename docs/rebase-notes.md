@@ -33143,3 +33143,44 @@ parameters listed in `test_run_vmaf_fextractor_adm_f1f2`.
     --output /tmp/adm_param_default.json
   # adm2 must match the no-param baseline (places=4).
   ```
+
+### 0383 — K150K parallel CPU driver + feature_extractor_list dedup fix (ADR-0383)
+
+- **Touches**:
+  - `ai/scripts/extract_k150k_features.py` — driver redesign.
+  - `ai/AGENTS.md` — K150K-A invariant note updated.
+  - `libvmaf/src/feature/feature_extractor.c` — duplicate CUDA extractor
+    registration removed (lines 239–240 deduplicated: six CUDA extractors
+    that were registered twice).
+  - `docs/ai/datasets/k150k.md` — user-facing docs updated.
+  - `docs/adr/0383-k150k-parallel-cpu-driver.md` — new ADR.
+  - `docs/research/0096-k150k-gpu-driver-investigation-2026-05-10.md` — new digest.
+- **Invariant 1 — `feature_extractor_list[]` must have no duplicate entries.**
+  The dedup in `feature_extractor_vector_append()` is by extractor name, not
+  by provided-feature name.  Duplicate entries in `feature_extractor_list[]`
+  result in both extractors being registered and both writing the same
+  feature-collector slots.  If upstream Netflix/vmaf modifies
+  `libvmaf/src/feature/feature_extractor.c` to add new backend entries,
+  verify that no extractor is registered more than once.
+- **Invariant 2 — CUDA binary double-write via default model auto-load.**
+  When `--model` is not specified and `--no-prediction` is absent, the CLI
+  auto-loads `vmaf_v0.6.1`, which registers CUDA twins via
+  `vmaf_use_features_from_model()`.  A subsequent `--feature adm` call
+  registers the CPU "adm" extractor in addition; both run and double-write.
+  This is a latent bug in the CLI model-auto-load / explicit-feature interaction
+  path.  The K150K pipeline works around it by using the CPU binary (no CUDA
+  context).  See Research-0096 for full root-cause analysis.
+- **Re-test on rebase**:
+
+  ```bash
+  # Verify no duplicate entries exist in feature_extractor_list[]
+  grep -c "vmaf_fex_integer_adm_cuda" libvmaf/src/feature/feature_extractor.c
+  # Must print 2 (one extern declaration + one list entry)
+
+  # Verify CPU driver produces correct output
+  python ai/scripts/extract_k150k_features.py --limit 5 --threads-cuda 2 \
+    --out /tmp/smoke5.parquet && python3 -c \
+    "import pandas; df=pandas.read_parquet('/tmp/smoke5.parquet'); \
+     print(df.shape, df.columns.tolist()[:5])"
+  # Must print (5, 48) and the first five column names.
+  ```
