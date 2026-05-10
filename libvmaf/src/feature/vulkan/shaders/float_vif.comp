@@ -218,7 +218,16 @@ void main_compute() {
     for (int i = int(lid); i < vert_total; i += WG_SIZE) {
         int r = i / tile_w;
         int c = i - r * tile_w;
-        float a_mu1 = 0.0, a_mu2 = 0.0, a_xx = 0.0, a_yy = 0.0, a_xy = 0.0;
+        /* precise prevents the SPIR-V optimizer and the Vulkan driver
+         * from FMA-contracting  a_xx += c_k * (ref_v * ref_v) into
+         * FMA(c_k, ref_v*ref_v, a_xx).  That contraction is harmless on
+         * its own, but in combination with the horizontal-pass
+         * sigma1_sq = xx - mu1*mu1 it causes catastrophic cancellation at
+         * scales 2/3 where the local variance is small (PR #718 /
+         * ADR-0352). -O0 at compile time is the primary gate; precise is
+         * the defence-in-depth for driver-side contraction. */
+        precise float a_mu1 = 0.0, a_mu2 = 0.0;
+        precise float a_xx  = 0.0, a_yy  = 0.0, a_xy  = 0.0;
         for (int k = 0; k < fw; k++) {
             float c_k = coeff(k);
             float ref_v = s_ref_tile[(r + k) * TILE_W + c];
@@ -240,7 +249,12 @@ void main_compute() {
     float my_num = 0.0;
     float my_den = 0.0;
     if (valid) {
-        float mu1 = 0.0, mu2 = 0.0, xx = 0.0, yy = 0.0, xy = 0.0;
+        /* precise on mu1/mu2/xx/yy/xy blocks the same FMA contraction
+         * as the vertical-pass declaration above.  The sigma expressions
+         * must see the separate-multiply-then-subtract results to avoid
+         * catastrophic cancellation in (xx - mu1*mu1) at scale 2/3. */
+        precise float mu1 = 0.0, mu2 = 0.0;
+        precise float xx  = 0.0, yy  = 0.0, xy  = 0.0;
         for (int k = 0; k < fw; k++) {
             float c_k = coeff(k);
             mu1 += c_k * s_v_mu1[ly * TILE_W + (lx + k)];
@@ -255,9 +269,17 @@ void main_compute() {
         const float vif_egl = 100.0;
         const float sigma_max_inv = (2.0 * 2.0) / (255.0 * 255.0);
 
-        float sigma1_sq = xx - mu1 * mu1;
-        float sigma2_sq = yy - mu2 * mu2;
-        float sigma12   = xy - mu1 * mu2;
+        /* precise on sigma1_sq/sigma2_sq/sigma12 prevents the compiler
+         * from forming FMA(mu1, -mu1, xx) — i.e.  rewriting
+         * (xx - mu1*mu1) as a single fused instruction.  The fused form
+         * is more accurate for isolated expressions but here it conflicts
+         * with the separately-accumulated xx accumulator: the two paths
+         * accumulate rounding error differently, so the FMA result can
+         * differ from the a_xx accumulator by an amount larger than the
+         * true local variance, yielding sigma1_sq < 0 before the clamp. */
+        precise float sigma1_sq = xx - mu1 * mu1;
+        precise float sigma2_sq = yy - mu2 * mu2;
+        precise float sigma12   = xy - mu1 * mu2;
         sigma1_sq = max(sigma1_sq, 0.0);
         sigma2_sq = max(sigma2_sq, 0.0);
         float g = sigma12 / (sigma1_sq + eps);
