@@ -33062,3 +33062,54 @@ the `src01_hrc00_576x324.yuv` ↔ `src01_hrc01_576x324.yuv` pair with the f1s/f2
 parameters listed in `test_run_vmaf_fextractor_adm_f1f2`.
 
 - **Re-test**: `PYTHONPATH=$PWD/python python3 -m pytest python/test/feature_extractor_test.py::FeatureExtractorTest::test_run_vmaf_fextractor_adm_f1f2 -v` — must report 1 passed.
+
+### feat/adm-gpu-param-sync — ADM noise_weight/csf_scale/csf_diag_scale GPU extension
+
+- **Touches**: `libvmaf/src/feature/cuda/float_adm_cuda.c`,
+  `libvmaf/src/feature/cuda/integer_adm_cuda.c`,
+  `libvmaf/src/feature/sycl/float_adm_sycl.cpp`,
+  `libvmaf/src/feature/sycl/integer_adm_sycl.cpp`,
+  `libvmaf/src/feature/vulkan/adm_vulkan.c`,
+  `libvmaf/src/feature/vulkan/float_adm_vulkan.c`.
+- **Invariant 1 — three-param parity with CPU.**
+  Every GPU ADM backend (`float_adm_cuda`, `integer_adm_cuda`,
+  `float_adm_sycl`, `integer_adm_sycl`, `adm_vulkan`,
+  `float_adm_vulkan`) exposes `adm_csf_scale`, `adm_csf_diag_scale`,
+  and `noise_weight` with the same defaults (`1.0`, `1.0`, `0.03125`)
+  as the CPU scalar path added by PR #731.  If upstream Netflix ever
+  adds or renames these parameters in `integer_adm.c` / `float_adm.c`,
+  the corresponding GPU files must be updated in the same PR.
+- **Invariant 2 — integer CUDA must NOT include `adm_options.h` directly.**
+  `libvmaf/src/feature/cuda/integer_adm_cuda.c` must NOT include
+  `feature/adm_options.h` directly.  `DEFAULT_ADM_NOISE_WEIGHT`,
+  `DEFAULT_ADM_CSF_SCALE`, `DEFAULT_ADM_CSF_DIAG_SCALE`, and the
+  full 4-member `enum ADM_CSF_MODE` arrive transitively via
+  `cuda/integer_adm_cuda.h` → `feature/integer_adm.h`.  A direct
+  include reintroduces the 2-member `enum ADM_CSF_MODE` from
+  `adm_options.h` and produces a redeclaration error.
+- **Invariant 3 — Vulkan integer fast-path gated on CSF-scale defaults.**
+  `adm_vulkan.c` contains a hard-coded `i_rfactor` fast-path for the
+  `3.0 * 1080` default viewing geometry.  It is gated by:
+  `bool csf_default = (fabs(s->adm_csf_scale - 1.0) < 1e-9) &&
+  (fabs(s->adm_csf_diag_scale - 1.0) < 1e-9)`.
+  If the fast-path is ever updated, the CSF-default guard must be
+  updated to match; removing or loosening the guard will produce
+  wrong rfactors when non-default CSF scales are in use.
+- **Re-test on rebase**:
+
+  ```bash
+  # CPU-only build + golden test
+  meson setup build-cpu libvmaf -Denable_cuda=false -Denable_sycl=false \
+    -Denable_vulkan=disabled
+  ninja -C build-cpu
+  make test-netflix-golden
+
+  # Verify default params produce unchanged scores
+  build-cpu/tools/vmaf \
+    -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    -w 576 -h 324 -p 420 -b 8 \
+    --feature adm=noise_weight=0.03125:adm_csf_scale=1.0:adm_csf_diag_scale=1.0 \
+    --output /tmp/adm_param_default.json
+  # adm2 must match the no-param baseline (places=4).
+  ```

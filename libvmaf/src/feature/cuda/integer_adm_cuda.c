@@ -29,6 +29,9 @@
 
 #include "cpu.h"
 #include "cuda/integer_adm_cuda.h"
+/* DEFAULT_ADM_NOISE_WEIGHT / DEFAULT_ADM_CSF_SCALE / DEFAULT_ADM_CSF_DIAG_SCALE and
+ * enum ADM_CSF_MODE are pulled in transitively via cuda/integer_adm_cuda.h →
+ * feature/integer_adm.h. No separate adm_options.h include is needed here. */
 #include "drain_batch.h"
 #include "picture_cuda.h"
 
@@ -50,6 +53,9 @@ typedef struct AdmStateCuda {
     double adm_enhn_gain_limit;
     double adm_norm_view_dist;
     int adm_ref_display_height;
+    double adm_csf_scale;
+    double adm_csf_diag_scale;
+    double adm_noise_weight;
     unsigned submit_w, submit_h; // stored by submit for collect
     void (*dwt2_8)(const uint8_t *src, const cuda_adm_dwt_band_t *dst, void *tmp_buf,
                    AdmBufferCuda *buf, int w, int h, int src_stride, int dst_stride,
@@ -498,7 +504,8 @@ int adm_cm_device(AdmStateCuda *s, AdmBufferCuda *buf, int w, int h, int src_str
     return 0;
 }
 
-static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *result)
+static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float noise_weight,
+                            float *result)
 {
     int left = w * ADM_BORDER_FACTOR - 0.5;
     int top = h * ADM_BORDER_FACTOR - 0.5;
@@ -516,7 +523,7 @@ static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *resu
     float final_shift[3] = {powf(2, (45 - shift_cub - shift_inner_accum)),
                             powf(2, (39 - shift_cub - shift_inner_accum)),
                             powf(2, (36 - shift_cub - shift_inner_accum))};
-    float powf_add = powf((bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
+    float powf_add = powf((float)((bottom - top) * (right - left)) * noise_weight, 1.0f / 3.0f);
 
     float f_accum;
     *result = 0;
@@ -532,7 +539,8 @@ static void conclude_adm_cm(int64_t *accum, int h, int w, int scale, float *resu
 }
 
 static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float *result,
-                                 float adm_norm_view_dist, float adm_ref_display_height)
+                                 float adm_norm_view_dist, float adm_ref_display_height,
+                                 float adm_csf_scale, float adm_csf_diag_scale, float noise_weight)
 {
     const int left = w * ADM_BORDER_FACTOR - 0.5;
     const int top = h * ADM_BORDER_FACTOR - 0.5;
@@ -542,7 +550,10 @@ static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float
                                          adm_ref_display_height);
     const float factor2 = dwt_quant_step(&dwt_7_9_YCbCr_threshold[0], scale, 2, adm_norm_view_dist,
                                          adm_ref_display_height);
-    const float rfactor[3] = {1.0f / factor1, 1.0f / factor1, 1.0f / factor2};
+    /* Apply CSF scale multipliers: rfactor = scale / quant_step.
+     * Default adm_csf_scale = adm_csf_diag_scale = 1.0 → no change. */
+    const float rfactor[3] = {adm_csf_scale / factor1, adm_csf_scale / factor1,
+                              adm_csf_diag_scale / factor2};
     const uint32_t accum_convert_float[4] = {18, 32, 27, 23};
 
     int32_t shift_accum;
@@ -556,7 +567,8 @@ static void conclude_adm_csf_den(uint64_t *accum, int h, int w, int scale, float
         const uint32_t shift_cub = (uint32_t)ceil(log2(right - left));
         shift_csf = pow(2, (accum_convert_float[scale] - shift_accum - shift_cub));
     }
-    const float powf_add = powf((bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
+    const float powf_add =
+        powf((float)((bottom - top) * (right - left)) * noise_weight, 1.0f / 3.0f);
 
     *result = 0;
     for (int i = 0; i < 3; ++i) {
@@ -603,6 +615,39 @@ static const VmafOption options_cuda[] = {
         .min = 1,
         .max = 4320,
     },
+    {
+        .name = "adm_csf_scale",
+        .alias = "cs",
+        .help = "CSF band-scale multiplier for h/v bands (default 1.0 = no scaling)",
+        .offset = offsetof(AdmStateCuda, adm_csf_scale),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_ADM_CSF_SCALE,
+        .min = 0.0,
+        .max = 100.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "adm_csf_diag_scale",
+        .alias = "cds",
+        .help = "CSF band-scale multiplier for diagonal bands (default 1.0 = no scaling)",
+        .offset = offsetof(AdmStateCuda, adm_csf_diag_scale),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_ADM_CSF_DIAG_SCALE,
+        .min = 0.0,
+        .max = 100.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "adm_noise_weight",
+        .alias = "nw",
+        .help = "noise floor weight for CM numerator (default 0.03125 = 1/32)",
+        .offset = offsetof(AdmStateCuda, adm_noise_weight),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_ADM_NOISE_WEIGHT,
+        .min = 0.0,
+        .max = 100.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
     {0}};
 
 typedef struct write_score_parameters_adm {
@@ -635,9 +680,10 @@ static void write_scores(write_score_parameters_adm *params)
         w = (w + 1) / 2;
         h = (h + 1) / 2;
 
-        conclude_adm_cm(&adm_cm[scale * 3], h, w, scale, &num_scale);
+        conclude_adm_cm(&adm_cm[scale * 3], h, w, scale, (float)s->adm_noise_weight, &num_scale);
         conclude_adm_csf_den(&adm_csf[scale * 3], h, w, scale, &den_scale, s->adm_norm_view_dist,
-                             s->adm_ref_display_height);
+                             s->adm_ref_display_height, (float)s->adm_csf_scale,
+                             (float)s->adm_csf_diag_scale, (float)s->adm_noise_weight);
 
         num += num_scale;
         den += den_scale;

@@ -325,16 +325,23 @@ only.
 
 #### Options
 
-| Option                  | Alias | Type   | Default | Range       | Effect                                                           |
-|-------------------------|-------|--------|---------|-------------|------------------------------------------------------------------|
-| `debug`                 | —     | bool   | `false` | —           | Emit debug metrics                                               |
-| `adm_enhn_gain_limit`   | `egl` | double | `1.2`   | `1.0–1.2`   | Cap enhancement-gain ratio                                       |
-| `adm_norm_view_dist`    | `nvd` | double | `3.0`   | `0.75–24.0` | Normalised viewing distance (distance ÷ display height)          |
-| `adm_ref_display_height`| `rdf` | int    | `1080`  | `1–4320`    | Reference display height in pixels (for viewing-distance scaling)|
-| `adm_csf_mode`          | `csf` | int    | `0`     | `0–9`       | Contrast-sensitivity-function model index                        |
+| Option                   | Alias | Type   | Default   | Range       | Effect                                                                                                                                                   |
+|--------------------------|-------|--------|-----------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `debug`                  | —     | bool   | `false`   | —           | Emit debug metrics                                                                                                                                        |
+| `adm_enhn_gain_limit`    | `egl` | double | `1.2`     | `1.0–1.2`   | Cap enhancement-gain ratio                                                                                                                                |
+| `adm_norm_view_dist`     | `nvd` | double | `3.0`     | `0.75–24.0` | Normalised viewing distance (distance ÷ display height)                                                                                                   |
+| `adm_ref_display_height` | `rdf` | int    | `1080`    | `1–4320`    | Reference display height in pixels (for viewing-distance scaling)                                                                                         |
+| `adm_csf_mode`           | `csf` | int    | `0`       | `0–9`       | Contrast-sensitivity-function model index                                                                                                                 |
+| `adm_csf_scale`          | —     | double | `1.0`     | `>0`        | Uniform scale on H/V-axis CSF sensitivity (`rfactor_h/v = scale / quant_step`); `1.0` = upstream-canonical                                               |
+| `adm_csf_diag_scale`     | —     | double | `1.0`     | `>0`        | Separate scale on diagonal-axis CSF sensitivity (`rfactor_d = diag_scale / quant_step`); `1.0` = upstream-canonical                                      |
+| `noise_weight`           | —     | double | `0.03125` | `>0`        | Weight in `(area × noise_weight)^(1/3)` noise-floor term in `adm_cm` / `adm_csf_den`; default `1/32 ≈ 0.03125` = upstream-canonical noise-floor divisor |
 
-**Backends** — `adm`: AVX2, AVX-512, NEON, CUDA. `float_adm`: AVX2, AVX-512,
-NEON, CUDA, SYCL, Vulkan.
+All three parameters are available on every backend (`adm` and `float_adm`)
+including CUDA, SYCL, and Vulkan. Setting all three to their defaults
+(`1.0`, `1.0`, `0.03125`) produces output bit-identical to upstream Netflix ADM.
+
+**Backends** — `adm`: AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan.
+`float_adm`: AVX2, AVX-512, NEON, CUDA, SYCL, Vulkan.
 
 **32-bit (i686) portability** — the integer ADM SSE2 path uses
 `_mm_extract_epi64`, an intrinsic that is unavailable on 32-bit x86 toolchains.

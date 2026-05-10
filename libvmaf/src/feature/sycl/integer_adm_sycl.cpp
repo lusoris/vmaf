@@ -44,6 +44,7 @@
 
 extern "C" {
 #include "config.h"
+#include "feature/adm_options.h"
 #include "feature_collector.h"
 #include "feature_extractor.h"
 #include "feature_name.h"
@@ -103,6 +104,9 @@ struct AdmStateSycl {
     double adm_enhn_gain_limit;
     double adm_norm_view_dist;
     int adm_ref_display_height;
+    double adm_csf_scale;
+    double adm_csf_diag_scale;
+    double adm_noise_weight;
 
     VmafDictionary *feature_name_dict;
 
@@ -174,6 +178,42 @@ static const VmafOption options[] = {{
                                          .default_val = {.i = 1080},
                                          .min = 480.0,
                                          .max = 4320.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {
+                                         .name = "adm_csf_scale",
+                                         .alias = "cs",
+                                         .help = "CSF band-scale multiplier for h/v bands "
+                                                 "(default 1.0 = no scaling)",
+                                         .offset = offsetof(AdmStateSycl, adm_csf_scale),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val = {.d = DEFAULT_ADM_CSF_SCALE},
+                                         .min = 0.0,
+                                         .max = 100.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {
+                                         .name = "adm_csf_diag_scale",
+                                         .alias = "cds",
+                                         .help = "CSF band-scale multiplier for diagonal bands "
+                                                 "(default 1.0 = no scaling)",
+                                         .offset = offsetof(AdmStateSycl, adm_csf_diag_scale),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val = {.d = DEFAULT_ADM_CSF_DIAG_SCALE},
+                                         .min = 0.0,
+                                         .max = 100.0,
+                                         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+                                     },
+                                     {
+                                         .name = "adm_noise_weight",
+                                         .alias = "nw",
+                                         .help = "noise floor weight for CM numerator "
+                                                 "(default 0.03125 = 1/32)",
+                                         .offset = offsetof(AdmStateSycl, adm_noise_weight),
+                                         .type = VMAF_OPT_TYPE_DOUBLE,
+                                         .default_val = {.d = DEFAULT_ADM_NOISE_WEIGHT},
+                                         .min = 0.0,
+                                         .max = 100.0,
                                          .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
                                      },
                                      {nullptr}};
@@ -1126,7 +1166,8 @@ static sycl::event launch_csf_den_cm_3band(
 /* CPU scoring functions                                               */
 /* ------------------------------------------------------------------ */
 
-static void conclude_adm_cm(const int64_t *accum, int h, int w, int scale, float *result)
+static void conclude_adm_cm(const int64_t *accum, int h, int w, int scale, float noise_weight,
+                            float *result)
 {
     int const left = (int)(w * ADM_BORDER_FACTOR - 0.5);
     int const top = (int)(h * ADM_BORDER_FACTOR - 0.5);
@@ -1135,7 +1176,8 @@ static void conclude_adm_cm(const int64_t *accum, int h, int w, int scale, float
 
     const uint32_t shift_inner_accum = (uint32_t)std::ceil(std::log2(h));
 
-    float const powf_add = std::powf((float)(bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
+    float const powf_add =
+        std::powf((float)((bottom - top) * (right - left)) * noise_weight, 1.0f / 3.0f);
 
     *result = 0;
     for (int i = 0; i < 3; i++) {
@@ -1161,7 +1203,8 @@ static void conclude_adm_cm(const int64_t *accum, int h, int w, int scale, float
 }
 
 static void conclude_adm_csf_den(const uint64_t *accum, int h, int w, int scale, float *result,
-                                 float view_dist, float display_h)
+                                 float view_dist, float display_h, float adm_csf_scale,
+                                 float adm_csf_diag_scale, float noise_weight)
 {
     int const left = (int)(w * ADM_BORDER_FACTOR - 0.5);
     int const top = (int)(h * ADM_BORDER_FACTOR - 0.5);
@@ -1170,7 +1213,9 @@ static void conclude_adm_csf_den(const uint64_t *accum, int h, int w, int scale,
 
     float const factor1 = dwt_quant_step(scale, 1, view_dist, (int)display_h);
     float const factor2 = dwt_quant_step(scale, 2, view_dist, (int)display_h);
-    float const rfactor[3] = {1.0f / factor1, 1.0f / factor1, 1.0f / factor2};
+    /* Apply CSF scale multipliers; default 1.0 → no change. */
+    float const rfactor[3] = {adm_csf_scale / factor1, adm_csf_scale / factor1,
+                              adm_csf_diag_scale / factor2};
 
     const uint32_t accum_convert[4] = {18, 32, 27, 23};
 
@@ -1187,7 +1232,8 @@ static void conclude_adm_csf_den(const uint64_t *accum, int h, int w, int scale,
         shift_csf = std::pow(2.0, accum_convert[scale] - shift_accum - shift_cub);
     }
 
-    float const powf_add = std::powf((float)(bottom - top) * (right - left) / 32.0f, 1.0f / 3.0f);
+    float const powf_add =
+        std::powf((float)((bottom - top) * (right - left)) * noise_weight, 1.0f / 3.0f);
 
     *result = 0;
     for (int i = 0; i < 3; i++) {
@@ -1500,10 +1546,12 @@ static int collect_fex_sycl(VmafFeatureExtractor *fex, unsigned index,
 
         float num_scale;
         float den_scale;
-        conclude_adm_cm(cm_results[scale], score_h, score_w, scale, &num_scale);
+        conclude_adm_cm(cm_results[scale], score_h, score_w, scale, (float)s->adm_noise_weight,
+                        &num_scale);
         conclude_adm_csf_den((uint64_t *)csf_den_results[scale], score_h, score_w, scale,
                              &den_scale, (float)s->adm_norm_view_dist,
-                             (float)s->adm_ref_display_height);
+                             (float)s->adm_ref_display_height, (float)s->adm_csf_scale,
+                             (float)s->adm_csf_diag_scale, (float)s->adm_noise_weight);
 
         num += num_scale;
         den += den_scale;

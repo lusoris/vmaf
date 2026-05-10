@@ -130,6 +130,21 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   `submit_fex_cuda` — they guard the DtoH coherency for the host
   residual. `places=4` gate is load-bearing; do not loosen it.
 
+- **`integer_adm_cuda.c` must NOT include `feature/adm_options.h`
+  directly.** `DEFAULT_ADM_NOISE_WEIGHT`, `DEFAULT_ADM_CSF_SCALE`,
+  `DEFAULT_ADM_CSF_DIAG_SCALE`, and the full 4-member
+  `enum ADM_CSF_MODE` arrive transitively via
+  `cuda/integer_adm_cuda.h` → `feature/integer_adm.h`.  A direct
+  include reintroduces the 2-member `enum ADM_CSF_MODE` from
+  `adm_options.h` and causes a redeclaration error.
+
+- **`integer_adm_cuda.c` / `float_adm_cuda.c` expose three ADM
+  tuning parameters** (`adm_csf_scale`, `adm_csf_diag_scale`,
+  `noise_weight`) with the same defaults as the CPU path (PR #731).
+  If upstream Netflix adds or renames these parameters in
+  `integer_adm.c` / `float_adm.c`, the CUDA twins must be updated
+  in the same PR.
+
 - **`integer_adm/adm_cm.cu` (and the rest of the `integer_adm/`
   subdirectory) carries an NVIDIA copyright line** alongside the
   Netflix one. This is upstream-mirror — keep both headers
