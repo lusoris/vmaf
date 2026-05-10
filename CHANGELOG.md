@@ -163,6 +163,23 @@
   license metadata (BSD-3-Clause-Plus-Patent for fork-trained;
   BSD-2-Clause for the upstream LPIPS-Sq export).
 
+### Fixed
+
+- **`PyFeatureExtractorMixin` log serialization broken on numpy 2.x + Python 3.14
+  (T-PYPSNR-AST-EVAL)**: `_generate_result` wrote per-frame score logs via
+  `str(log_dicts)` and `_get_feature_scores` parsed them back with
+  `ast.literal_eval`. Under numpy 2.x, `str(np.float64(x))` emits
+  `np.float64(34.79...)` — a function-call expression that `ast.literal_eval`
+  safely rejects, causing all eight `test_run_pypsnr_*` cases to raise
+  `ValueError: malformed node or string`. Replaced both sides with
+  `json.dump` / `json.load` at all four write/read sites in
+  `python/vmaf/core/feature_extractor.py` (`PyFeatureExtractorMixin` and
+  `NoReferenceFeatExtractor`). No custom encoder is required: the numpy scalars
+  in the PSNR log path are already plain Python floats by the time they enter the
+  dict (the `10 * np.log10(...)` result is returned by Python's built-in `min`,
+  which strips the numpy wrapper). All eight tests pass; `assertAlmostEqual`
+  values are unchanged.
+
 ### Removed
 
 - **`VMAF_MAX_MODEL_BYTES` env override retired (T7-12)**: the
