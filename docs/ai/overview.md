@@ -70,3 +70,19 @@ Every shipped tiny-AI checkpoint gets its own usage page under
 for the rule. Current pages:
 
 - [LPIPS-SqueezeNet](models/lpips_sq.md) — full-reference perceptual distance.
+- [fr_regressor_v1](models/fr_regressor_v1.md) — FR MLP regressor v1 (baseline).
+- [fr_regressor_v2](models/fr_regressor_v2.md) — FR MLP regressor v2.
+- [fr_regressor_v2 codec-aware](models/fr_regressor_v2_codec_aware.md) —
+  codec-aware variant.
+- [fr_regressor_v2 probabilistic](models/fr_regressor_v2_probabilistic.md) —
+  uncertainty-aware variant.
+- [fr_regressor_v3](models/fr_regressor_v3.md) — FR MLP regressor v3.
+- [vmaf_tiny_v2](models/vmaf_tiny_v2.md), [vmaf_tiny_v3](models/vmaf_tiny_v3.md),
+  [vmaf_tiny_v4](models/vmaf_tiny_v4.md), [vmaf_tiny_v5](models/vmaf_tiny_v5.md)
+  — progressive VMAF-tiny checkpoint series.
+- [saliency_student_v1](models/saliency_student_v1.md),
+  [saliency_student_v2](models/saliency_student_v2.md) — saliency map heads.
+- [fastdvdnet_pre](models/fastdvdnet_pre.md) — temporal pre-filter (5-frame window).
+- [mobilesal](models/mobilesal.md) — lightweight saliency extractor.
+- [transnet_v2](models/transnet_v2.md) — shot-boundary detector (~1M params).
+- [KoNViD MOS head v1](models/konvid_mos_head_v1.md) — NR MOS head trained on KoNViD-1k.
