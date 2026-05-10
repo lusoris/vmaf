@@ -32904,7 +32904,7 @@ ninja -C build-cuda
   # All 11 patches must apply without conflict.
   ```
 
-### 0381 — `integer_motion_v2` `flush()` dict-leak fix (Research-0094)
+### Research-0094 — `integer_motion_v2` `flush()` dict-leak fix
 
 - **Touches**: `libvmaf/src/feature/integer_motion_v2.c`.
 - **Invariant**: The `dict_locally_owned` flag in `flush()` (introduced in this
@@ -33002,4 +33002,50 @@ ninja -C build-cuda
     --width 1 --height 1 --pixel_format 420 --bitdepth 8 \
     --feature motion --threads 1 2>&1 | grep -E 'EINVAL|minimum|below'
   # Must print the "frame 1x1 is below the 5-tap filter minimum" message.
+  ```
+
+### 0381 — Vulkan VIF scale 2/3 numerical saturation fix (ADR-0381, PR #718)
+
+- **Touches**: `libvmaf/src/feature/vulkan/shaders/float_vif.comp`,
+  `libvmaf/src/feature/vulkan/vif_vulkan.c`,
+  `libvmaf/src/vulkan/meson.build`.
+- **Invariant 1 — `float_vif.comp` must remain in `psnr_hvs_strict_shaders`.**
+  `meson.build`'s `psnr_hvs_strict_shaders` list controls which shaders
+  compile with `glslc -O0` (strict) vs `-O` (optimised). `float_vif.comp`
+  belongs to this list because the SPIR-V optimizer's FMA-contraction and
+  reassociation of `sigma1_sq = xx - mu1*mu1` triggers catastrophic
+  cancellation at scales 2 and 3 (small local variance), saturating the
+  per-scale score to 1.0 and inflating VMAF by ~+1.07. If the list is
+  re-ordered or `float_vif.comp` is accidentally removed, restore it.
+- **Invariant 2 — `precise` qualifiers on `float_vif.comp` accumulators.**
+  The vertical-pass accumulators (`a_mu1`, `a_mu2`, `a_xx`, `a_yy`, `a_xy`),
+  the horizontal-pass accumulators (`mu1`, `mu2`, `xx`, `yy`, `xy`), and the
+  sigma expressions (`sigma1_sq`, `sigma2_sq`, `sigma12`) carry `precise`
+  qualifiers. These map to `OpDecorate NoContraction` in SPIR-V and defend
+  against driver-side FMA contraction (Vulkan 1.4 NVIDIA / newer MoltenVK).
+  Do not remove the `precise` qualifiers without re-running `places=4` on
+  every CI hardware lane.
+- **Invariant 3 — integer VIF rd buffer ceiling division.**
+  `vif_vulkan.c::alloc_buffers()` allocates the per-scale rd buffers with
+  ceiling division: `((w + 1u) / 2u) * ((h + 1u) / 2u)`. For odd input
+  dimensions (e.g. h=81 at scale 2 of a 576×324 input), the shader writes
+  `rd_y` indices up to `h/2 = 40` (inclusive), requiring 41 rows. Floor
+  division `h/2 = 40` under-allocates by one row (72 uint32 slots),
+  corrupting the adjacent per-WG int64 accumulator buffer. The ceiling form
+  must be preserved on any refactor or upstream merge touching `alloc_buffers`.
+- **Re-test on rebase**:
+
+  ```bash
+  # Build with Vulkan enabled
+  meson setup build-vk-vif libvmaf -Denable_vulkan=true -Denable_cuda=false       -Denable_sycl=false --buildtype=release
+  ninja -C build-vk-vif
+
+  # Run per-scale VIF parity check on the Netflix 576x324 golden pair
+  build-vk-vif/tools/vmaf \
+    -r python/test/resource/yuv/src01_hrc00_576x324.yuv \
+    -d python/test/resource/yuv/src01_hrc01_576x324.yuv \
+    -w 576 -h 324 -p 420 -b 8 --feature float_vif_vulkan --backend vulkan \
+    --output /tmp/vk_vif_out.json
+  # All per-scale VIF scores must be < 1.0; VMAF must be within ±0.5 of CPU.
+  # Per-scale delta must be < 1e-3 from CPU reference.
   ```
