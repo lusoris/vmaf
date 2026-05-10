@@ -18,6 +18,8 @@ The adapter auto-detects two manifest shapes:
 2. Standard adapter CSV (LSVQ / KonViD-150k header convention).
 
 License: Waterloo IVC permissive academic license (attribution required).
+Obtain the dataset from https://ivc.uwaterloo.ca/database/4KVQA.html and
+drop ``scores.txt`` at ``<waterloo-ivc-dir>/manifest.csv``.
 """
 
 from __future__ import annotations
