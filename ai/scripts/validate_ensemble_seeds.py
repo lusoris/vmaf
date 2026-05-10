@@ -43,7 +43,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "scripts" / "ci"))
 
-from ensemble_prod_gate import (  # noqa: E402  (sys.path edit above)
+from ensemble_prod_gate import (  # noqa: E402  # type: ignore[import-not-found]  (sys.path edit above)
     DEFAULT_ENSEMBLE_SIZE,
     SHIP_GATE_MEAN_PLCC,
     SHIP_GATE_PLCC_SPREAD_MAX,

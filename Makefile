@@ -117,7 +117,7 @@ lint-py:
 	@command -v ruff >/dev/null || { echo "ruff not found; skipping"; exit 0; }
 	ruff check python/ ai/ scripts/ 2>/dev/null || ruff check python/
 	@command -v black >/dev/null && black --check python/ ai/ scripts/ 2>/dev/null || true
-	@command -v mypy  >/dev/null && mypy ai/ scripts/ 2>/dev/null || true
+	@command -v mypy  >/dev/null && mypy ai/scripts/ ai/tests/ ai/train/ ai/lpips_export.py scripts/ 2>/dev/null || true
 
 lint-sh:
 	@command -v shellcheck >/dev/null || { echo "shellcheck not found; skipping"; exit 0; }

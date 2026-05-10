@@ -80,7 +80,7 @@ if str(REPO_ROOT / "ai" / "scripts") not in sys.path:
 
 # Import the v3 vocab from the v2 trainer where it's documented as a
 # parallel constant (per ADR-0302's scaffold landed in PR #401).
-from train_fr_regressor_v2 import ENCODER_VOCAB_V3  # noqa: E402
+from train_fr_regressor_v2 import ENCODER_VOCAB_V3  # noqa: E402  # type: ignore[import-not-found]
 
 # Canonical-6 libvmaf feature columns (ADR-0291 / ADR-0319).
 CANONICAL_6: tuple[str, ...] = (
