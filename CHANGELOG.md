@@ -8,6 +8,17 @@
 
 ### Changed
 
+- **CUDA motion sub-4K performance fix (ADR-0378, PR #702).** Per-picture
+  CUDA upload streams were created with `CU_STREAM_DEFAULT`, which enables the
+  CUDA implicit null-stream serialisation rule. At sub-4K (576x324) the
+  per-frame context barrier dominated kernel runtime, producing ~17 fps on an
+  RTX 4090 against a CPU scalar baseline of ~30 fps (0.55x). Fix: replace
+  `cuStreamCreate(..., CU_STREAM_DEFAULT)` with
+  `cuStreamCreateWithPriority(..., CU_STREAM_NON_BLOCKING, 0)` in
+  `vmaf_cuda_picture_alloc` (`libvmaf/src/cuda/picture_cuda.c:226`). All three
+  runtime stream-creation sites now consistently use `CU_STREAM_NON_BLOCKING`.
+
+
 - **SYCL fp64-less device init log (T7-17 / ADR-0220).** The init
   message emitted on devices that lack `sycl::aspect::fp64` (Intel
   Arc A-series, most Intel iGPUs, many mobile / embedded GPUs) is
