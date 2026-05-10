@@ -24,9 +24,9 @@ Differences from Phase 1:
 2. Attrition tolerance (92-98% hit rate; rest is takedowns).
 3. Row-count lower-bound guard (refuses < 5 000 rows to catch wrong CSV).
 
-License: KonViD-150k is research-only (per ADR-0325). This script does
-not ship any clip, MOS value, or derived feature in tree; only the adapter
-and schema land in the repo.
+License: KonViD-150k is research-only (per ADR-0325).
+This script does not ship any clip, MOS value, or derived feature in
+tree; only the adapter and schema land in the repo.
 """
 
 from __future__ import annotations
