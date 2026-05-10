@@ -121,25 +121,25 @@ int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride
 
     data_top = (char *)data_buf;
 
-    ref_scale = (float *)data_top;
+    ref_scale = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    dis_scale = (float *)data_top;
+    dis_scale = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    mu1 = (float *)data_top;
+    mu1 = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    mu2 = (float *)data_top;
+    mu2 = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    ref_sq_filt = (float *)data_top;
+    ref_sq_filt = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    dis_sq_filt = (float *)data_top;
+    dis_sq_filt = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    ref_dis_filt = (float *)data_top;
+    ref_dis_filt = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    num_array = (float *)data_top;
+    num_array = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    den_array = (float *)data_top;
+    den_array = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    tmpbuf = (float *)data_top;
+    tmpbuf = (float *)(void *)data_top;
     // ADR-0416: upstream-parity bump kept verbatim from Netflix bf9ad333.
     data_top += buf_sz_one; // NOLINT(clang-analyzer-deadcode.DeadStores)
 
