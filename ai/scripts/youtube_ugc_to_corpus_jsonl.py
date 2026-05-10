@@ -39,7 +39,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from corpus import base as _corpus_base
 from corpus.base import CorpusIngestBase, RunStats, normalise_clip_name, pick, utc_now_iso
+
+save_progress = _corpus_base.save_progress
 
 _LOG = logging.getLogger("youtube_ugc_to_corpus_jsonl")
 
