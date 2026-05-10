@@ -17,6 +17,7 @@
  */
 
 #include <limits.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,6 +26,8 @@
 #include "vif.h"
 #include "vif_options.h"
 #include "vif_tools.h"
+
+#define ALMOST_EQUAL(x, c) (fabs((x) - (c)) < 1.0e-4)
 
 #define VIF_BUF_CNT 8
 
@@ -53,9 +56,34 @@ typedef struct VifScaleCtx {
     int h;
 } VifScaleCtx;
 
-/* No filter-table index needed: filters are computed on-the-fly via
- * vif_get_filter() / vif_get_filter_size(), matching Netflix upstream
- * bf9ad333. Validation still uses vif_validate_kernelscale(). */
+/* Map a runtime `vif_kernelscale` double to its filter-table index. Returns
+ * -1 if the value doesn't match any supported scale. */
+static int resolve_kernelscale_index(double vif_kernelscale)
+{
+    if (ALMOST_EQUAL(vif_kernelscale, 1.0))
+        return vif_kernelscale_1;
+    if (ALMOST_EQUAL(vif_kernelscale, 1.0 / 2))
+        return vif_kernelscale_1o2;
+    if (ALMOST_EQUAL(vif_kernelscale, 3.0 / 2))
+        return vif_kernelscale_3o2;
+    if (ALMOST_EQUAL(vif_kernelscale, 2.0))
+        return vif_kernelscale_2;
+    if (ALMOST_EQUAL(vif_kernelscale, 2.0 / 3))
+        return vif_kernelscale_2o3;
+    if (ALMOST_EQUAL(vif_kernelscale, 2.4 / 1.0))
+        return vif_kernelscale_24o10;
+    if (ALMOST_EQUAL(vif_kernelscale, 360 / 97.0))
+        return vif_kernelscale_360o97;
+    if (ALMOST_EQUAL(vif_kernelscale, 4.0 / 3.0))
+        return vif_kernelscale_4o3;
+    if (ALMOST_EQUAL(vif_kernelscale, 3.5 / 3.0))
+        return vif_kernelscale_3d5o3;
+    if (ALMOST_EQUAL(vif_kernelscale, 3.75 / 3.0))
+        return vif_kernelscale_3d75o3;
+    if (ALMOST_EQUAL(vif_kernelscale, 4.25 / 3.0))
+        return vif_kernelscale_4d25o3;
+    return -1;
+}
 
 /* Slice a single `VIF_BUF_CNT * buf_sz_one` allocation into the 8 named
  * buffers. The tmpbuf is intentionally the tail — no trailing `+=` offset
@@ -119,17 +147,13 @@ static void decimate_to_next_scale(VifScaleCtx *st, const VifBuffers *b, const f
 }
 
 /* Run one pyramid scale: convolve + covariance filters + statistic. Writes
- * (num, den) into the two `scores[]` slots for this scale.
- * bf9ad333: filters are generated on-the-fly via vif_get_filter() so that
- * Gaussian coefficients are computed identically to Netflix upstream. */
-static void compute_vif_at_scale(int scale, float vif_kernelscale, int buf_stride, VifScaleCtx *st,
+ * (num, den) into the two `scores[]` slots for this scale. */
+static void compute_vif_at_scale(int scale, int kernelscale_index, int buf_stride, VifScaleCtx *st,
                                  const VifBuffers *b, double vif_enhn_gain_limit,
                                  double vif_sigma_nsq, double *scores)
 {
-    /* Filters will never be larger than 128 elements (largest known: 65). */
-    float filter[128];
-    vif_get_filter(filter, scale, vif_kernelscale);
-    const int filter_width = vif_get_filter_size(scale, vif_kernelscale);
+    const float *filter = vif_filter1d_table_s[kernelscale_index][scale];
+    const int filter_width = vif_filter1d_width[kernelscale_index][scale];
 
     if (scale > 0)
         decimate_to_next_scale(st, b, filter, filter_width, buf_stride);
@@ -172,10 +196,12 @@ int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride
                 double *score, double *score_num, double *score_den, double *scores,
                 double vif_enhn_gain_limit, double vif_kernelscale, double vif_sigma_nsq)
 {
-    /* bf9ad333: validate via the shared allow-list then narrow to float. */
-    const float kernelscale_f = (float)vif_kernelscale;
-    if (!vif_validate_kernelscale(kernelscale_f)) {
-        printf("error: vif_kernelscale %f is not a supported value\n", vif_kernelscale);
+    const int kernelscale_index = resolve_kernelscale_index(vif_kernelscale);
+    if (kernelscale_index < 0) {
+        printf(
+            "error: vif_kernelscale can only be 0.5, 1.0, 1.5, 2.0, 2.0/3, 2.4, 360/97, 4.0/3.0, "
+            "3.5/3.0, 3.75/3.0, 4.25/3.0 for now, but is %f\n",
+            vif_kernelscale);
         (void)fflush(stdout);
         return 1;
     }
@@ -208,7 +234,7 @@ int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride
     };
 
     for (int scale = 0; scale < 4; ++scale) {
-        compute_vif_at_scale(scale, kernelscale_f, buf_stride, &st, &b, vif_enhn_gain_limit,
+        compute_vif_at_scale(scale, kernelscale_index, buf_stride, &st, &b, vif_enhn_gain_limit,
                              vif_sigma_nsq, scores);
     }
 
