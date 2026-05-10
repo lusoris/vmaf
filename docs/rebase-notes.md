@@ -32582,6 +32582,47 @@ ninja -C build
 ---
 
 
+## HIP batch-4 -- `ciede_hip` and `integer_motion_v2_hip` real kernels (ADR-0377)
+
+**Rebase-sensitive invariants:**
+
+1. **Arithmetic shift on int32/int64 in `motion_v2_score.hip`** — the
+   inner filter right-shifts (`>> shift_y`, `>> shift_x`) operate on
+   signed types (`int32_t`, `int64_t`). They MUST remain arithmetic
+   (signed) shifts. Converting to logical shifts (e.g., `>> (unsigned)`,
+   or using bitwise ops) diverges from the CPU reference for negative
+   values. This was the root cause of the AVX2 `srlv_epi64` regression
+   in PR #587. The CUDA twin documents the same constraint.
+
+2. **Mirror padding diverges from `motion_hip`** — `motion_v2_score.hip`
+   uses reflective mirror (`2 * size - idx - 1`) while `motion_hip`'s
+   kernel uses skip-boundary mirror (`2 * size - idx - 2`). Both match
+   their respective CPU references. Do not unify them on rebase.
+
+3. **Six YUV staging buffers for `ciede_hip`** — `ciede_hip_bufs_alloc`
+   allocates ref_y/u/v + dis_y/u/v separately. The chroma buffers are
+   sized at `chroma_w * chroma_h`, not `luma_w * luma_h`. If the HIP
+   picture-buffer API changes on rebase (e.g., `VMAF_FEATURE_EXTRACTOR_HIP`
+   flag lands and pictures arrive on-device), these staging copies and their
+   `hipMalloc`/`hipFree` calls must be removed or made conditional.
+
+4. **`#ifdef HAVE_HIPCC` dual-path preserved** — same invariant as
+   float_psnr_hip (see entry above). All device-dependent state and kernel
+   launches are inside `#ifdef HAVE_HIPCC` guards.
+
+**Re-test on rebase**:
+
+```bash
+# CPU-only (no ROCm needed):
+meson setup build -Denable_hip=true -Denable_cuda=false -Denable_sycl=false libvmaf
+ninja -C build
+meson test -C build  # 54/54 pass including test_hip_smoke
+```
+
+
+---
+
+
 ## `speed_qa` -- real SpEED-QA implementation (ADR-0253)
 
 `libvmaf/src/feature/speed_qa.c` went from a 71-line placeholder scaffold to a

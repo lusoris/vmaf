@@ -1,8 +1,8 @@
 # HIP (AMD ROCm) compute backend (scaffold + eight kernel-template consumers + runtime)
 
-> **Status (2026-05-10, T7-10b batch-3 real kernels landed):** the
+> **Status (2026-05-10, T7-10b batch-4 real kernels landed):** the
 > host-side HIP runtime is wired (T7-10b, 2026-05-08). The kernel-
-> template lifecycle helpers all wrap real HIP runtime calls. Six of
+> template lifecycle helpers all wrap real HIP runtime calls. Eight of
 > eleven feature extractors now have real device kernels:
 >
 > - `float_psnr_hip` (name `float_psnr_hip`, ADR-0254): float (ref-dis)^2
@@ -26,11 +26,25 @@
 >   over (W-10)×H. Pass 2 (vert + SSIM combine): per-block float partial
 >   sum over (W-10)×(H-10). Host accumulates in double. Emits `float_ssim`.
 >   v1: scale=1 only.
+> - `ciede_hip` (name `ciede_hip`, ADR-0377): CIEDE2000 color metric.
+>   HtoD copies of all 6 YUV planes (ref + dis Y/U/V), per-pixel YUV→Lab
+>   conversion, CIEDE2000 ΔE accumulation per block, host log10 transform.
+>   Emits `ciede2000`. Warp-64 `__shfl_down` without mask.
+> - `integer_motion_v2_hip` (name `motion_v2_hip`, ADR-0377): temporal
+>   extractor. Raw-pixel ping-pong (`pix[2]`), separable 5-tap Gaussian
+>   diff filter with arithmetic right-shift (critical for bit-exactness vs
+>   CPU — see ADR-0138/0139 and PR #587 AVX2 srlv_epi64 regression), single
+>   int64 atomic SAD accumulator, host-side `min(cur, next)` fold in
+>   `flush()`. Emits `VMAF_integer_feature_motion_v2_sad_score` +
+>   `VMAF_integer_feature_motion2_v2_score`.
 >
-> All six require `enable_hip=true` + `enable_hipcc=true`.
+> All eight require `enable_hip=true` + `enable_hipcc=true`.
 > Without `enable_hipcc`, the scaffold `-ENOSYS` posture is preserved.
-> The remaining five extractors remain at `-ENOSYS` pending future batches.
-> See ADR-0372 (batch-1), ADR-0373 (batch-2), ADR-0375 (batch-3) for rationale.
+> The remaining three extractors remain at `-ENOSYS` pending adm/vif
+> redesign. See ADR-0372 (batch-1), ADR-0373 (batch-2), ADR-0375
+> (batch-3), ADR-0377 (batch-4) for rationale. `adm_hip` and `vif_hip`
+> use a different low-level API shape (`_init/_run/_destroy`) that
+> requires a separate VmafFeatureExtractor redesign before promotion.
 
 > **Historical status (audit-first scaffold):** the eight host-
 > scaffolded kernel-template consumers below register and are
