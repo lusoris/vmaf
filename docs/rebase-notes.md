@@ -27,6 +27,18 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/round8-opt-nan-bypass — NaN rejection in `set_option_double`
+
+- **Touches**: `libvmaf/src/opt.c` — adds `#include <math.h>` and an
+  `isnan(n)` guard in `set_option_double`.
+- **Invariant**: all callers of `vmaf_option_set` with `VMAF_OPT_TYPE_DOUBLE`
+  must receive `-EINVAL` when the value string parses to NaN. Upstream
+  Netflix/vmaf's `opt.c` does not yet have this guard. If Netflix merges a
+  version of `opt.c` that modifies `set_option_double` (e.g. to add a new
+  type or change the strtod flow), verify the `isnan` guard is preserved and
+  still sits before the `n < min` / `n > max` checks.
+- **Re-test**: `meson setup libvmaf/build-test libvmaf -Denable_cuda=false -Denable_sycl=false -Denable_tests=true && ninja -C libvmaf/build-test test/test_opt && libvmaf/build-test/test/test_opt` — must report 25/25 passed, including `test_double_nan_is_rejected` and `test_double_inf_rejected_when_max_finite`.
+
 ### fix/fex-dedup-by-provided-feature — feature-extractor dedup by provided-feature names (ADR-0384)
 
 - **Touches**: `libvmaf/src/fex_ctx_vector.c` (new
