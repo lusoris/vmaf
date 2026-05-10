@@ -606,16 +606,14 @@ static inline int vif_mirror_tap_v(int idx, int extent)
 }
 
 /* Mirror reflection at image edges for a horizontal-axis tap index.
- * Matches upstream's scalar fallback in vif_tools.c (post-41d42c9e):
- * both vertical and horizontal use `2 * extent - idx - 2`. An earlier
- * fork revision incorrectly used `- 1` here, causing ~6e-05 drift in
- * the per-scale VIF scores relative to Netflix golden values. */
+ * Upstream keeps the `- 1` form for the horizontal pass in vif_tools.c
+ * (see upstream master post-41d42c9e). */
 static inline int vif_mirror_tap_h(int idx, int extent)
 {
     if (idx < 0)
         return -idx;
     if (idx >= extent)
-        return 2 * extent - idx - 2;
+        return 2 * extent - idx - 1;
     return idx;
 }
 
