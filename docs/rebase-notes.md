@@ -32725,3 +32725,22 @@ ninja -C build-cuda
     libvmaf/src/cuda/picture_cuda.c
   # Must produce zero warnings for the named checks.
   ```
+
+### PR-fix-cuda-dispatch-getenv — CUDA `dispatch_strategy.c` `getenv()` thread-safety fix
+
+- **Touches**: `libvmaf/src/cuda/dispatch_strategy.c` — fork-local TU (no upstream
+  equivalent).
+- **Invariant**: `g_env_once` / `cache_env_dispatch` / `g_env_disp` must remain as the
+  single canonical read path for `VMAF_CUDA_DISPATCH`. If a future PR needs to re-read
+  the variable (e.g., for unit-test reset), it must reset `g_env_once` via
+  `pthread_once_t g_env_once = PTHREAD_ONCE_INIT;` in a test fixture, not call
+  `getenv()` directly from `vmaf_cuda_select_strategy`.
+- **Re-test on rebase**:
+
+  ```bash
+  clang-tidy \
+    -checks='-*,concurrency-*' \
+    -p libvmaf/build-cuda \
+    libvmaf/src/cuda/dispatch_strategy.c
+  # Must produce zero concurrency-mt-unsafe warnings.
+  ```
