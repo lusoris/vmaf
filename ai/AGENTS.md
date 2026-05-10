@@ -511,17 +511,29 @@ threshold). When extending these scripts:
   concurrently with another training process — the two share
   BLAS threads and serialise badly.
 
-## K150K-A corpus extraction (ADR-0362)
+## K150K-A corpus extraction (ADR-0362, ADR-0382)
 
 **Script:** `ai/scripts/extract_k150k_features.py`
-**Branch:** `feat/k150k-full-features-extraction`
+**Branch:** `chore/ensemble-kit-gdrive-quickstart`
 
 ### Rebase-sensitive invariants
 
-- **Binary requirement:** the script requires `build-cpu/tools/vmaf` (fork
-  build); the system `/usr/local/bin/vmaf` v3.0.0 lacks `ssimulacra2` and
-  `motion_v2`. If the fork binary moves, update `--vmaf-bin` default in
-  `main()`.
+- **Binary requirement:** the script requires `libvmaf/build-cpu/tools/vmaf`
+  (fork build); the system `/usr/local/bin/vmaf` v3.0.0 lacks `ssimulacra2`
+  and `motion_v2`. The `--vmaf-bin` default (in `main()`) now points to
+  `libvmaf/build-cpu/tools/vmaf`. Do NOT switch to `build-cuda/tools/vmaf`
+  as the default — the CUDA binary has a latent CLI double-write bug when
+  `--feature <x>` is combined with the auto-loaded default VMAF model
+  (see Research-0096 / ADR-0382 for details).
+- **Parallelism model:** the script uses `concurrent.futures.ProcessPoolExecutor`
+  with `--threads-cuda` workers (default 8). Each worker is fully independent.
+  The `--threads-cuda` flag is named for historical reasons; the workers run
+  on CPU regardless. Do not switch to threading — libvmaf subprocess invocations
+  are not thread-safe for concurrent parallel pipelines.
+- **Checkpoint thread-safety:** `_append_done()` is called only from the main
+  process (after `fut.result()` returns in the `as_completed()` loop). Do not
+  call it from worker processes — the append-only guarantee relies on single-writer
+  semantics.
 - **NaN propagation:** `ciede2000` and `psnr_hvs` return `null` from vmaf
   when ref == distorted (identity pair). All-NaN columns are **expected** —
   do not treat them as extraction failures. `np.errstate(all="ignore")`
@@ -790,6 +802,3 @@ landed in PR scope ADR-0325; the binary upload is a separate PR.
   ingest time on either adapter. The trainer-side normaliser
   must read each row's `corpus` literal to pick the correct
   per-shard rescale factor.
-
-
-

@@ -236,10 +236,9 @@ static VmafFeatureExtractor *feature_extractor_list[] = {
     &vmaf_fex_integer_adm_cuda, &vmaf_fex_integer_vif_cuda, &vmaf_fex_integer_motion_cuda,
     &vmaf_fex_integer_motion_v2_cuda, &vmaf_fex_psnr_cuda, &vmaf_fex_float_moment_cuda,
     &vmaf_fex_ciede_cuda, &vmaf_fex_float_ssim_cuda, &vmaf_fex_float_ms_ssim_cuda,
-    &vmaf_fex_psnr_hvs_cuda, &vmaf_fex_psnr_cuda, &vmaf_fex_float_moment_cuda, &vmaf_fex_ciede_cuda,
-    &vmaf_fex_float_ssim_cuda, &vmaf_fex_float_ms_ssim_cuda, &vmaf_fex_psnr_hvs_cuda,
-    &vmaf_fex_float_ansnr_cuda, &vmaf_fex_float_psnr_cuda, &vmaf_fex_float_motion_cuda,
-    &vmaf_fex_float_vif_cuda, &vmaf_fex_ssimulacra2_cuda, &vmaf_fex_float_adm_cuda,
+    &vmaf_fex_psnr_hvs_cuda, &vmaf_fex_float_ansnr_cuda, &vmaf_fex_float_psnr_cuda,
+    &vmaf_fex_float_motion_cuda, &vmaf_fex_float_vif_cuda, &vmaf_fex_ssimulacra2_cuda,
+    &vmaf_fex_float_adm_cuda,
     /* T3-15 / ADR-0360: cambi CUDA twin (Strategy II hybrid). */
     &vmaf_fex_cambi_cuda,
 #endif
