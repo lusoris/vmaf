@@ -351,9 +351,20 @@ static int alloc_scale_buffers(VifVulkanState *s)
      * rd_ref_out / rd_dis_out (no separate alloc). */
 
         /* Downsampled buffer for next scale (SCALE<3). uint32 per
-     * pixel, lower 16 bits are payload. */
+     * pixel, lower 16 bits are payload.
+     *
+     * Buffer size must use ceil(w/2) x ceil(h/2), NOT floor(w/2) x floor(h/2).
+     * The VIF fused kernel writes rd data for every even-coordinate pixel:
+     *   (gx & 1) == 0 && (gy & 1) == 0
+     * so for a height that is odd (e.g. h=81 at scale 2 for 576x324 input),
+     * gy ranges over {0, 2, 4, ..., 80}, giving rd_y values {0, 1, ..., 40}
+     * — 41 rows, not 40.  Floor division (h/2 = 40) undersizes the buffer
+     * by one row, causing a 72-uint32 out-of-bounds write that corrupts the
+     * immediately-following per-WG accumulator buffer and produces the
+     * massive-negative int64 denominator at scales 2/3 (PR #718 / ADR-0352).
+     * Ceiling division ((h+1)/2 = 41) allocates the correct size. */
         if (scale < VIF_NUM_SCALES - 1) {
-            size_t rd_bytes = (size_t)(w / 2) * (h / 2) * sizeof(uint32_t);
+            size_t rd_bytes = (size_t)((w + 1u) / 2u) * ((h + 1u) / 2u) * sizeof(uint32_t);
             int err = vmaf_vulkan_buffer_alloc(s->ctx, &s->scale[scale].rd_ref_out, rd_bytes);
             if (err)
                 return err;
