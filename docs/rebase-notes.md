@@ -32663,6 +32663,25 @@ meson test -C build_test test_speed_qa --verbose
 # Expected: 5 tests run, 5 passed
 ```
 
+### 0378 — picture-upload stream CU_STREAM_NON_BLOCKING (PR #702, ADR-0378)
+
+**Touches**: `libvmaf/src/cuda/picture_cuda.c` (one line in `vmaf_cuda_picture_alloc`).
+
+**Invariant**: `priv->cuda.str` must be created with `CU_STREAM_NON_BLOCKING`
+(via `cuStreamCreateWithPriority`). The CUDA implicit null-stream serialisation
+rule makes `CU_STREAM_DEFAULT` a per-frame context barrier; at sub-4K this
+reduces CUDA motion throughput to ~0.55x CPU. If a future upstream commit
+touches `vmaf_cuda_picture_alloc` and reverts the stream flag, the performance
+regression returns silently.
+
+**Re-test**:
+```bash
+meson setup build-cuda libvmaf -Denable_cuda=true -Denable_sycl=false
+ninja -C build-cuda
+./build-cuda/tools/vmaf_bench --resolution 576x324 --gpu-only --frames 20
+# motion (CUDA) @ 576x324 must be >= 30 fps (>= 1x CPU baseline)
+```
+
 ### ADR-0376 — Vulkan buffer-invalidate `void` → `int` fix (GCC 16, 2026-05-10)
 
 - **Touches**: `libvmaf/src/feature/vulkan/float_ansnr_vulkan.c` (function

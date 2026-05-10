@@ -40,6 +40,21 @@ cuda/
 
 ## Rebase-sensitive invariants
 
+- **`picture_cuda.c` picture-upload stream must use `CU_STREAM_NON_BLOCKING`**
+  (fork-local, ADR-0378): `vmaf_cuda_picture_alloc` creates the per-picture
+  upload stream with `cuStreamCreateWithPriority(..., CU_STREAM_NON_BLOCKING, 0)`.
+  Using `CU_STREAM_DEFAULT` (flag = 0) participates in the CUDA legacy
+  null-stream implicit serialisation rule and serialises every per-frame
+  upload with all other streams in the context, reducing motion throughput
+  at sub-4K from the expected ≥5x CPU speedup to 0.55x CPU. **On rebase**:
+  if upstream introduces a `cuStreamCreate` with default flag at this site,
+  replace it with `cuStreamCreateWithPriority(..., CU_STREAM_NON_BLOCKING, 0)`
+  immediately. All three runtime stream-creation sites in the fork
+  (`common.c`, `picture_cuda.c`, per-extractor `init_fex_cuda`) must
+  consistently use `CU_STREAM_NON_BLOCKING`. See
+  [ADR-0378](../../../docs/adr/0378-picture-stream-non-blocking.md) and
+  the rebase-notes entry for PR #695.
+
 - **`picture_cuda.c` synchronous free**: `vmaf_cuda_picture_free`
   deliberately calls `cuMemFree` — *not* `cuMemFreeAsync` — because
   the previous `cuStreamSynchronize` already drains any pending work

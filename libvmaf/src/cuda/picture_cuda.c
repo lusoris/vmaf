@@ -223,7 +223,17 @@ int vmaf_cuda_picture_alloc(VmafPicture *pic, void *cookie)
     priv->cuda.state = cuda_cookie->state;
     priv->cuda.ctx = cuda_cookie->state->ctx;
     CudaFunctions *cu_f = priv->cuda.state->f;
-    CHECK_CUDA_GOTO(cu_f, cuStreamCreate(&priv->cuda.str, CU_STREAM_DEFAULT), fail);
+    /* Use CU_STREAM_NON_BLOCKING so this picture-upload stream does not
+     * implicitly serialise with the legacy NULL (default) stream.
+     * CU_STREAM_DEFAULT causes every operation on this stream to act as if
+     * the default stream were involved, meaning all other non-default streams
+     * must complete before any work on this stream starts (and vice versa).
+     * At sub-4K resolutions that per-frame round-trip serialisation dominates
+     * compute time and makes CUDA motion ~0.55× slower than CPU scalar.
+     * CU_STREAM_NON_BLOCKING removes the implicit barrier.
+     * ADR-0378. */
+    CHECK_CUDA_GOTO(cu_f, cuStreamCreateWithPriority(&priv->cuda.str, CU_STREAM_NON_BLOCKING, 0),
+                    fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&priv->cuda.ready, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventCreate(&priv->cuda.finished, CU_EVENT_DEFAULT), fail);
     CHECK_CUDA_GOTO(cu_f, cuEventRecord(priv->cuda.finished, priv->cuda.str), fail);
