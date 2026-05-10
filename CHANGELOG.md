@@ -34,7 +34,7 @@
 ### Fixed
 
 - **Y4M header parser rejects non-positive width/height before allocation
-  (T-FUZZ-Y4M-NEG-WIDTH-SEGV / ADR-0381).** `y4m_input_open_impl`
+  (T-FUZZ-Y4M-NEG-WIDTH-SEGV / ADR-0382).** `y4m_input_open_impl`
   (`libvmaf/tools/y4m_input.c`) now validates `pic_w > 0` and
   `pic_h > 0` immediately after `y4m_parse_tags` returns, before any
   chroma-type dispatch or `malloc` call. A negative or zero dimension

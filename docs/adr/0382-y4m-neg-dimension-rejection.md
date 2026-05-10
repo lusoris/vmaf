@@ -1,4 +1,4 @@
-# ADR-0381: Y4M header parser — reject non-positive width or height before allocation
+# ADR-0382: Y4M header parser — reject non-positive width or height before allocation
 
 - **Status**: Accepted
 - **Date**: 2026-05-10
