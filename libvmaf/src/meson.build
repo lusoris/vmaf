@@ -1454,6 +1454,20 @@ if is_sycl_enabled
     endif
 endif
 
+if is_metal_enabled
+    # T8-1b runtime (ADR-0420): when a downstream consumer (FFmpeg, the
+    # tap's ffmpeg formula, etc.) links libvmaf statically via
+    # pkg-config --static, it needs to inherit -framework Foundation +
+    # -framework Metal — otherwise the LTO link fails with:
+    #   Undefined symbols for architecture arm64:
+    #     "_MTLCopyAllDevices", referenced from: _vmaf_metal_context_new
+    #     "___CFConstantStringClassReference", referenced from: lto.o
+    # (CI run 25686136624 / job 75410239602, FFmpeg macOS lane).
+    # pkg-config has no native "framework" syntax, but raw linker flags
+    # in libraries_private get embedded verbatim into Libs.private.
+    libvmaf_private_libs += ['-Wl,-framework,Foundation', '-Wl,-framework,Metal']
+endif
+
 pkg_mod.generate(libraries: libvmaf,
     version: meson.project_version(),
     name: 'libvmaf',

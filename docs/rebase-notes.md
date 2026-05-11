@@ -27,6 +27,34 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### feat/metal-runtime-t8-1b — Metal backend runtime PR (ADR-0420)
+
+- **Touches**: `libvmaf/src/metal/common.{c→mm,h}`,
+  `libvmaf/src/metal/picture_metal.{c→mm}`,
+  `libvmaf/src/metal/kernel_template.{c→mm}`,
+  `libvmaf/src/metal/meson.build`,
+  `libvmaf/test/test_metal_smoke.c`,
+  `libvmaf/src/metal/AGENTS.md`.
+- **Invariant**: the Metal backend ships three Objective-C++
+  TUs (`common.mm`, `picture_metal.mm`, `kernel_template.mm`)
+  instead of the T8-1 pure-C scaffold. Public ABI in
+  `libvmaf/include/libvmaf/libvmaf_metal.h` unchanged. Internal
+  `metal/common.h` gained two accessor declarations
+  (`vmaf_metal_context_{device,queue}_handle`) that consumer TUs
+  call to retrieve bridge-retained `void *` Metal handles. The
+  Obj-C++ TUs compile with `-fobjc-arc` via
+  `add_project_arguments(language: 'objcpp')`. ARC +
+  `__bridge_retained` / `__bridge_transfer` casts manage the +1
+  retain that lives on each C-struct slot. Upstream Netflix/vmaf
+  has no Metal backend; there is no rebase conflict surface
+  against `upstream/master`.
+- **Re-test**: `meson setup build -Denable_metal=enabled` on a
+  recent macOS host (Apple Silicon preferred) + `meson compile -C
+  build` + `meson test -C build test_metal_smoke`. On Apple-7+ the
+  smoke test exercises real-device paths; on Intel Macs it
+  short-circuits cleanly on `-ENODEV`. Non-Darwin builds are
+  unaffected — `subdir('metal')` is already gated to Darwin.
+
 ### fix/sve2-probe-darwin-gate — SVE2 build probe gated to non-Darwin hosts (ADR-0419)
 
 - **Touches**: `libvmaf/src/meson.build` (the SVE2 `cc.compiles()`
@@ -33424,3 +33452,49 @@ upstream rebase that doesn't rewrite these specific functions.
 no rebase impact on libvmaf C sources: this branch is doc-only (ADR-0417,
 Research Digest 0099, changelog fragment, ADR index fragment). The MCP smoke test
 and training-data.md are already in master and untouched by this branch.
+
+### 0420 — Metal (Apple Silicon) backend runtime (T8-1b / ADR-0420)
+
+- **Touches**:
+  - `libvmaf/src/metal/common.mm` (new, replaces `common.c`) — MTLDevice +
+    MTLCommandQueue lifecycle; `MTLCreateSystemDefaultDevice` for auto-pick;
+    `MTLCopyAllDevices` for explicit indexing; Apple-Family-7 gate.
+  - `libvmaf/src/metal/picture_metal.mm` (new, replaces `picture_metal.c`) —
+    MTLBuffer allocator with `MTLResourceStorageModeShared` (zero-copy).
+  - `libvmaf/src/metal/kernel_template.mm` (new, replaces `kernel_template.c`) —
+    private MTLCommandQueue + two MTLSharedEvent handles; blit-fill accumulator
+    zero; cross-queue `encodeWaitForEvent`; `waitUntilCompleted` drain.
+  - `libvmaf/src/metal/common.h` — two new internal accessors:
+    `vmaf_metal_context_device_handle()` + `vmaf_metal_context_queue_handle()`.
+  - `libvmaf/src/metal/meson.build` — `dependency('Foundation'/'Metal',
+    required: true)`; `-fobjc-arc` project arg for `objcpp`; source list
+    flipped from `.c` to `.mm`.
+  - `libvmaf/test/test_metal_smoke.c` — smoke expectations flipped from
+    `-ENOSYS` pin to runtime (`0` on Apple7+, `-ENODEV` elsewhere).
+  - `docs/adr/0420-metal-backend-runtime-t8-1b.md` +
+    `docs/adr/_index_fragments/0420-metal-backend-runtime-t8-1b.md` +
+    `changelog.d/changed/metal-backend-runtime.md`.
+- **Upstream-port footprint**: zero — Netflix/vmaf has no Metal backend.
+- **Rebase invariants**:
+  - **Header purity**: no `<Metal/Metal.h>` in any header or pure-C consumer.
+    Metal handles cross the boundary as `void *` / `uintptr_t`. Do not promote
+    a Metal type into a header on rebase.
+  - **ARC bridge-cast discipline**: `__bridge_retained` to stash (+1 retain),
+    `__bridge_transfer` to release (−1), `__bridge` to borrow (no refcount).
+    A missing `_retained` leaks; a missing `_transfer` double-frees.
+  - **Struct privacy**: `struct VmafMetalContext` is defined only in `common.mm`.
+    Consumers use the accessor pair — never struct-layout introspection.
+  - **HIP twin parity for kernel_template**: any PR that grows the HIP
+    `kernel_template.c` lifecycle must propagate the same change to
+    `kernel_template.mm` in the same PR.
+- **Re-test on rebase** (macOS, Apple-Family-7+):
+
+  ```bash
+  meson setup build libvmaf -Denable_metal=enabled \
+      -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_metal_smoke   # must PASS
+  ```
+
+  On Linux: `meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
+  && ninja -C build` (Metal subdir not entered; no Metal test registered).

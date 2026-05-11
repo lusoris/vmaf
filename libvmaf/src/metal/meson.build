@@ -1,68 +1,119 @@
 # Included from libvmaf/src/meson.build via `subdir('metal')`. Paths
-# below are relative to libvmaf/src/metal/. The first feature stub
-# lives under libvmaf/src/feature/metal/, so we use a `..` walk to
-# reach it — same shape ADR-0212 uses for the HIP scaffold and
-# ADR-0175 uses for the Vulkan scaffold.
+# below are relative to libvmaf/src/metal/.
 #
-# Scaffold-only (ADR-0338 / T8-1): every entry point returns -ENOSYS
-# until the runtime PR (T8-1b) lands. The build has no hard Metal
-# SDK requirement on non-macOS hosts: the dependency() probes below
-# are `required: false` so the scaffold compiles cleanly on Linux /
-# Windows runners (where the option resolves to disabled via the
-# auto-probe in libvmaf/src/meson.build) and on macOS where the
-# system frameworks are guaranteed to be present.
+# T8-1b runtime (ADR-0420): three Objective-C++ TUs drive
+# Metal.framework directly. The per-feature consumer scaffolds under
+# `feature/metal/` stay pure-C unless they need Metal API dispatch
+# (T8-1c flips integer_motion_v2_metal to .mm; the other seven stay
+# .c with -ENOSYS init() until each kernel arrives).
+
+# `add_languages` MUST come before any target — meson errors with
+# "Tried to use 'add_project_arguments' after a build target has been
+# declared" otherwise (CI run 25686136776 / job 75410354618).
+add_languages('objcpp', native: false, required: true)
+
+# Apple framework linkage.
+foundation_dep = dependency('Foundation', required: true)
+metal_dep      = dependency('Metal', required: true)
+metalkit_dep   = dependency('MetalKit', required: false)
+metal_deps += foundation_dep
+metal_deps += metal_dep
+if metalkit_dep.found()
+    metal_deps += metalkit_dep
+endif
+
+# Obj-C++ compile arguments for the .mm TUs. ARC, no Obj-C exception
+# unwinding, fobjc-weak so we don't pull all of Foundation into every TU.
+metal_objcpp_args = [
+    '-fobjc-arc',
+    '-fno-objc-arc-exceptions',
+    '-fobjc-weak',
+]
+
+# Separate static_library for the Obj-C++ TUs — `objcpp_args` is set
+# per-target, avoiding the `add_project_arguments` ordering trap.
+# Mirrors the x86 AVX2 / NEON sibling pattern: build a dedicated
+# static lib for sources that need non-default compile args, then
+# extract_all_objects() into the main feature library via
+# `metal_sources` (consumed by libvmaf_feature_static_lib in the
+# parent meson.build).
 #
-# Kernel-template helpers (T8-1 / ADR-0338): `kernel_template.c`
-# carries the per-frame async lifecycle helpers (command queue +
-# event pair + buffer alloc/free) that mirror
-# `hip/kernel_template.h` modulo the unified-memory buffer collapse
-# (one MTLBuffer with `MTLResourceStorageModeShared` instead of the
-# (device, pinned-host) readback pair). Bodies return -ENOSYS while
-# the runtime is absent; the runtime PR (T8-1b) replaces them with
-# real Metal calls without touching consumer TUs.
-#
-# `feature/metal/integer_motion_v2_metal.c` is the first kernel-
-# template consumer — registers `vmaf_fex_integer_motion_v2_metal`
-# (extractor name `motion_v2_metal`, TEMPORAL flag) and exercises
-# every template helper in init/submit/collect/close. -ENOSYS at
-# the template layer surfaces verbatim through the consumer.
+# The base include directory is the project root (libvmaf/src) so
+# `#include "../../metal/common.h"` from the feature/metal TUs and
+# `#include "dict.h"` (in libvmaf/src/) both resolve.
+# Note: `vmaf_include` (which covers feature/ + feature/common) is
+# declared after subdir('metal') in the parent meson.build, so we
+# build the include set locally from the same paths.
+metal_objcpp_includes = include_directories(
+    '.', '..',                 # libvmaf/src/metal/, libvmaf/src/
+    '../feature', '../feature/common',
+    '../../include',           # libvmaf/include
+)
+
+metal_objcpp_lib = static_library(
+    'metal_objcpp',
+    [
+        files('common.mm',
+              'picture_metal.mm',
+              'kernel_template.mm',
+              '../feature/metal/integer_motion_v2_metal.mm'),
+    ],
+    include_directories: metal_objcpp_includes,
+    objcpp_args: metal_objcpp_args,
+    dependencies: [foundation_dep, metal_dep],
+)
+
+# Pure-C TUs that still go through the main feature library's normal
+# C compile path — appended to metal_sources directly.
 metal_sources += files(
-    'common.c',
-    'picture_metal.c',
     'dispatch_strategy.c',
-    'kernel_template.c',
-    '../feature/metal/integer_motion_v2_metal.c',
-    # T8-1 batch-1 scaffolds (ADR-0361): 3 additional consumers.
+    # T8-1 batch-1 scaffolds (ADR-0361): three additional consumers,
+    # still pure-C -ENOSYS until each kernel's runtime PR.
     '../feature/metal/integer_psnr_metal.c',
     '../feature/metal/float_ssim_metal.c',
     '../feature/metal/integer_motion_metal.c',
-    # T8-1 batch-2 scaffolds (ADR-0361): 4 additional float consumers.
+    # T8-1 batch-2 scaffolds (ADR-0361): four additional float consumers.
     '../feature/metal/float_psnr_metal.c',
     '../feature/metal/float_ansnr_metal.c',
     '../feature/metal/float_motion_metal.c',
     '../feature/metal/float_moment_metal.c',
 )
 
-# Optional probe — does not gate the build on non-macOS hosts. Real
-# linkage against `Metal.framework` / `MetalKit.framework` arrives
-# with the runtime PR (T8-1b); the scaffold's TUs are pure C99 +
-# errno.h and link cleanly without the frameworks. The probe runs
-# anyway so a host that already has the SDK (every macOS dev box)
-# sees the dependency resolve and the runtime PR's diff is a
-# `required: true` flip rather than a new dependency() block.
-metal_dep = dependency('Metal', required: false)
-metalkit_dep = dependency('MetalKit', required: false)
-if metal_dep.found()
-    metal_deps += metal_dep
-endif
-if metalkit_dep.found()
-    metal_deps += metalkit_dep
-endif
+# The Obj-C++ static lib's objects fold into the same feature
+# aggregation the parent meson.build consumes (same shape as
+# `x86_avx2_static_lib.extract_all_objects()`).
+metal_deps += declare_dependency(
+    link_with: metal_objcpp_lib,
+)
 
-# TODO (post-scaffold, T8-1b runtime):
-#   - xcrun-metal-driven .metal -> .air -> .metallib compilation
-#   - MetalCpp single-header inclusion (`<Metal/Metal.hpp>`)
-#   - .mm / Objective-C++ TUs for the device-init bridge
-#   - link `-framework Metal -framework MetalKit -framework Foundation`
-# Until then the TUs above use only C99 + errno.h and the build is
-# host-toolchain-agnostic.
+# ---------------------------------------------------------------------
+# Metallib compilation (T8-1c / ADR-0421).
+#
+# Pipeline: `.metal` → `.air` → `.metallib` via xcrun. The compiled
+# metallib is embedded into the libvmaf binary's __TEXT,__metallib
+# section via the linker flag `-Wl,-sectcreate,__TEXT,__metallib,…`.
+# Consumer .mm reads the byte range via linker-defined symbols.
+xcrun = find_program('xcrun', required: true)
+
+mv2_air = custom_target('integer_motion_v2_air',
+    input: '../feature/metal/integer_motion_v2.metal',
+    output: 'integer_motion_v2.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
+)
+
+metal_air_files = [mv2_air]
+
+metallib_target = custom_target('libvmaf-metallib',
+    input: metal_air_files,
+    output: 'default.metallib',
+    command: [xcrun, '-sdk', 'macosx', 'metallib',
+              '@INPUT@', '-o', '@OUTPUT@'],
+)
+
+metal_deps += declare_dependency(
+    sources: metallib_target,
+    link_args: ['-Wl,-sectcreate,__TEXT,__metallib,' +
+                metallib_target.full_path()],
+)
