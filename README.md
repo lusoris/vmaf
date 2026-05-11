@@ -29,8 +29,10 @@ assessment, Emmy-winning, now with:
   CIEDE2000); ADM and VIF pending a low-level API redesign. Requires
   `-Denable_hip=true -Denable_hipcc=true` and ROCm ≥ 7.
 - **AVX2 / AVX-512 / NEON** SIMD paths for every hot kernel.
-- **`--precision`** CLI flag — default `%.17g` for IEEE-754 round-trip lossless
-  scores; `legacy` opts back to upstream `%.6f`.
+- **`--precision`** CLI flag — default `%.6f` matches upstream Netflix output
+  (keeps the CPU golden gate green without per-call flags); `--precision=max`
+  opts in to `%.17g` for IEEE-754 round-trip lossless scores. See ADR-0119
+  (supersedes ADR-0006).
 - **Tiny-AI** model surface (ONNX Runtime) for lightweight quality-proxy
   experiments — Netflix + KoNViD-1k combined-corpus trainer, LOSO eval
   harness, multi-seed validation, QAT + PTQ paths. See [`ai/`](ai/).

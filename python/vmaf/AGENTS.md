@@ -39,9 +39,10 @@ python/vmaf/
   `VMAF_RESOURCE` env vars. See
   [ADR-0026](../../docs/adr/0026-workspace-relocated-under-python.md),
   [ADR-0029](../../docs/adr/0029-resource-tree-relocated.md).
-- **Precision**: `result.py` serialises floats at `%.17g` by default,
-  matching the CLI — see
-  [ADR-0006](../../docs/adr/0006-cli-precision-17g-default.md).
+- **Precision**: `result.py` serialises floats at `%.6f` by default,
+  matching the CLI (Netflix-compat golden gate). See
+  [ADR-0119](../../docs/adr/0119-cli-precision-default-revert.md)
+  (supersedes [ADR-0006](../../docs/adr/0006-cli-precision-17g-default.md)).
 
 ## Rebase invariants
 

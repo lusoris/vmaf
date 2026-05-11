@@ -19,7 +19,7 @@ Non-Claude agents: see [AGENTS.md](AGENTS.md) (same content, tool-agnostic).
 - Additions on top of upstream:
   - SYCL / CUDA / HIP GPU backends (runtime-selected).
   - AVX2 / AVX-512 / NEON SIMD paths.
-  - Full-precision `--precision` CLI flag (default `%.17g`, IEEE-754 round-trip lossless).
+  - `--precision` CLI flag (default `%.6f` matching upstream golden gate; `--precision=max` opts in to `%.17g` IEEE-754 round-trip lossless — ADR-0119 supersedes ADR-0006).
   - Tiny-AI (ONNX Runtime) model surface — see `ai/`, `libvmaf/src/dnn/`.
   - MCP server — see `mcp-server/vmaf-mcp/`.
 - License: BSD-3-Clause-Plus-Patent (upstream license preserved). See [LICENSE](LICENSE).
