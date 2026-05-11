@@ -6,7 +6,8 @@ feature / model). GPU-backend entry points and the DNN session API each get
 their own page:
 
 - [core](index.md) — this page
-- [gpu.md](gpu.md) — `libvmaf_cuda.h`, `libvmaf_sycl.h`
+- [gpu.md](gpu.md) — `libvmaf_cuda.h`, `libvmaf_sycl.h`, `libvmaf_vulkan.h`,
+  `libvmaf_hip.h`, `libvmaf_metal.h`
 - [dnn.md](dnn.md) — `libvmaf/dnn.h` (tiny-AI ONNX session)
 - [mcp.md](mcp.md) — `libvmaf_mcp.h` (embedded MCP server)
 
@@ -21,6 +22,9 @@ their own page:
 | [`dnn.h`](../../libvmaf/include/libvmaf/dnn.h) | `VmafDnnSession`, `VmafDnnConfig`, tiny-model attach | Tiny-AI (ONNX Runtime) surface. [Deep dive](dnn.md). |
 | [`libvmaf_cuda.h`](../../libvmaf/include/libvmaf/libvmaf_cuda.h) | `VmafCudaState`, CUDA picture prealloc | CUDA backend. Only usable in a build with `-Denable_cuda=true`. [Deep dive](gpu.md#cuda). |
 | [`libvmaf_sycl.h`](../../libvmaf/include/libvmaf/libvmaf_sycl.h) | `VmafSyclState`, zero-copy frame buffers, dmabuf / VA / D3D11 import | SYCL backend. Only usable in a build with `-Denable_sycl=true`. [Deep dive](gpu.md#sycl). |
+| [`libvmaf_vulkan.h`](../../libvmaf/include/libvmaf/libvmaf_vulkan.h) | `VmafVulkanState`, queue / device lifecycle, zero-copy `VkImage` import | Vulkan compute backend. Only usable in a build with `-Denable_vulkan=true`. [Deep dive](gpu.md#vulkan). |
+| [`libvmaf_hip.h`](../../libvmaf/include/libvmaf/libvmaf_hip.h) | `VmafHipState`, lifecycle, picture prealloc | AMD HIP/ROCm backend. Only usable in a build with `-Denable_hip=true`. [Deep dive](gpu.md#hip). |
+| [`libvmaf_metal.h`](../../libvmaf/include/libvmaf/libvmaf_metal.h) | `VmafMetalState`, lifecycle, IOSurface import | Apple Metal backend (scaffold; entry points return `-ENOSYS` pending T8-1b). Only usable in a build with `-Denable_metal=auto/enabled` on macOS. [Deep dive](gpu.md#metal). |
 | [`libvmaf_mcp.h`](../../libvmaf/include/libvmaf/libvmaf_mcp.h) | `VmafMcpServer`, `VmafMcpConfig`, transport start/stop | Embedded MCP server. Only usable in a build with `-Denable_mcp=true`. [Deep dive](mcp.md). |
 | [`vmaf_assert.h`](../../libvmaf/include/libvmaf/vmaf_assert.h) | `VMAF_ASSERT*` macros | Internal assertion helpers. Not for public use — may disappear. |
 | [`version.h`](../../libvmaf/include/libvmaf/libvmaf.h) (generated) | `VMAF_VERSION_MAJOR` etc. | Compile-time version constants. Run-time: `vmaf_version()`. |
