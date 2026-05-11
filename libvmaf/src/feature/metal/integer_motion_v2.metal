@@ -3,7 +3,7 @@
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
  *  Metal compute kernel for integer_motion_v2 (T8-1c / ADR-0421).
- *  Direct translation of `libvmaf/src/feature/cuda/integer_motion_v2/
+ *  Translation of `libvmaf/src/feature/cuda/integer_motion_v2/
  *  motion_v2_score.cu` (ADR-0192 / ADR-0193) — same algorithm,
  *  threadgroup-shared tile, separable filter, atomic SAD reduction.
  *
@@ -15,7 +15,7 @@
  *    3. Horizontal filter on v:
  *         h[i,j] = (sum_k filter[k] * v[i, mirror(j-2+k)]
  *                    + 32768) >> 16
- *    4. SAD: atomic-add |h[i,j]| into a single int64 accumulator.
+ *    4. SAD: atomic-add |h[i,j]| into a single ulong accumulator.
  *
  *  Mirror padding: edge-replicating reflective mirror
  *  (`2 * size - idx - 1` for idx >= size), matching the CUDA twin.
@@ -24,24 +24,30 @@
  *
  *  Threadgroup layout: 16 × 16 threads per group, +2 pixel halo on
  *  each side → 20 × 20 shared tile. Inner pitch padded to 21 to
- *  break SIMD-group bank conflicts (analogous to the CUDA bank-
- *  conflict mitigation; Apple GPUs have a 32-bank threadgroup
- *  memory similar to NVIDIA).
+ *  break threadgroup-memory bank conflicts (mirrors the CUDA
+ *  mitigation; Apple GPUs have a 32-bank threadgroup memory).
+ *
+ *  64-bit atomic: uses `atomic_ulong` (MSL 3.0+ / macOS 13+ /
+ *  iOS 16+). Apple Silicon M1+ supports it. The Apple-Family-7
+ *  runtime gate at `vmaf_metal_context_new` rejects pre-M1
+ *  devices, so the kernel never runs on hardware that lacks
+ *  64-bit atomics.
+ *
+ *  SIMD-group reduction: `simd_sum` (MSL 2.4+) — replaces the
+ *  manual `__shfl_down_sync` chain in the CUDA twin. The CUDA
+ *  pattern compiles on MSL too but `simd_shuffle_down` does not
+ *  accept 64-bit types (CI run 25685357230 / job 75407682343).
+ *  Using `simd_sum` on `uint` avoids the type issue and is shorter.
  *
  *  Bit-exactness gate: `places=4` cross-backend-diff against scalar
  *  (per ADR-0214). Validation pending Apple Silicon hardware run.
  */
 
 #include <metal_stdlib>
+#include <metal_atomic>
 using namespace metal;
 
-constant constexpr int MV2_FILTER[5] = {3571, 16004, 26386, 16004, 3571};
-constant constexpr int MV2_RADIUS    = 2;
-constant constexpr int MV2_BLOCK_X   = 16;
-constant constexpr int MV2_BLOCK_Y   = 16;
-constant constexpr int MV2_TILE_W    = MV2_BLOCK_X + 2 * MV2_RADIUS; /* 20 */
-constant constexpr int MV2_TILE_H    = MV2_BLOCK_Y + 2 * MV2_RADIUS; /* 20 */
-constant constexpr int MV2_TILE_PITCH = MV2_TILE_W + 1;              /* 21 */
+constant int MV2_FILTER[5] = {3571, 16004, 26386, 16004, 3571};
 
 inline int mv2_mirror(int idx, int sup)
 {
@@ -50,59 +56,46 @@ inline int mv2_mirror(int idx, int sup)
     return idx;
 }
 
-/* SIMD-group reduction. Apple GPUs use a fixed SIMD width of 32
- * threads (Apple7+) — same width as NVIDIA warps, so the CUDA
- * reduction shape ports one-to-one. `simd_shuffle_down` is the
- * MSL equivalent of `__shfl_down_sync`. */
-inline long mv2_simd_sum(long v)
-{
-    v += simd_shuffle_down(v, 16);
-    v += simd_shuffle_down(v,  8);
-    v += simd_shuffle_down(v,  4);
-    v += simd_shuffle_down(v,  2);
-    v += simd_shuffle_down(v,  1);
-    return v;
-}
-
 /*
- * 8 bpc kernel — packed `uint8_t` ref + dist samples, single
- * `atomic_long` accumulator on the host side.
+ * 8 bpc kernel — packed `uint8_t` ref + dist samples.
  *
- * Buffer bindings:
- *   [[buffer(0)]] prev       — const uint8_t * (planar Y, row pitch in bytes via `strides.x`)
- *   [[buffer(1)]] cur        — const uint8_t * (planar Y, row pitch via `strides.y`)
- *   [[buffer(2)]] sad        — atomic_long, single accumulator
+ * Buffer bindings (host side must match `integer_motion_v2_metal.mm`):
+ *   [[buffer(0)]] prev       — const uchar * (planar Y, row pitch via `strides.x`)
+ *   [[buffer(1)]] cur        — const uchar * (planar Y, row pitch via `strides.y`)
+ *   [[buffer(2)]] sad        — atomic_ulong, single accumulator
  *   [[buffer(3)]] strides    — packed (prev_stride, cur_stride) in bytes (uint2)
  *   [[buffer(4)]] dim        — packed (width, height) (uint2)
+ *   [[threadgroup(0)]] tile  — int32[20 * 21]
  */
 kernel void motion_v2_kernel_8bpc(
     const device uchar       *prev    [[buffer(0)]],
     const device uchar       *cur     [[buffer(1)]],
-    device   atomic_long     &sad     [[buffer(2)]],
+    device   atomic_ulong    &sad     [[buffer(2)]],
     constant uint2           &strides [[buffer(3)]],
     constant uint2           &dim     [[buffer(4)]],
-    threadgroup int          *s_diff_raw [[threadgroup(0)]],
+    threadgroup int          *s_diff  [[threadgroup(0)]],
     uint2  gid               [[thread_position_in_grid]],
     uint2  tid               [[thread_position_in_threadgroup]],
     uint2  bid               [[threadgroup_position_in_grid]],
     uint   lid               [[thread_index_in_threadgroup]],
     uint   simd_lane         [[thread_index_in_simdgroup]])
 {
-    /* Cast the flat threadgroup buffer to a 2-D view via index math
-     * — MSL doesn't accept multi-dimensional threadgroup arrays as
-     * kernel params, so the host passes a flat `int *` of size
-     * MV2_TILE_H * MV2_TILE_PITCH. */
-    threadgroup int *s_diff = s_diff_raw; /* s_diff[ty * MV2_TILE_PITCH + tx] */
+    constexpr int MV2_RADIUS    = 2;
+    constexpr int MV2_BLOCK_X   = 16;
+    constexpr int MV2_BLOCK_Y   = 16;
+    constexpr int MV2_TILE_W    = MV2_BLOCK_X + 2 * MV2_RADIUS; /* 20 */
+    constexpr int MV2_TILE_H    = MV2_BLOCK_Y + 2 * MV2_RADIUS; /* 20 */
+    constexpr int MV2_TILE_PITCH = MV2_TILE_W + 1;              /* 21 */
 
     const int width  = (int)dim.x;
     const int height = (int)dim.y;
     const int prev_stride = (int)strides.x;
     const int cur_stride  = (int)strides.y;
 
-    constant constexpr int shift_y = 8;
-    constant constexpr int round_y = 1 << 7;
-    constant constexpr int shift_x = 16;
-    constant constexpr int round_x = 1 << 15;
+    const int shift_y = 8;
+    const int round_y = 1 << 7;
+    const int shift_x = 16;
+    const int round_x = 1 << 15;
 
     const int tile_origin_x = (int)bid.x * MV2_BLOCK_X - MV2_RADIUS;
     const int tile_origin_y = (int)bid.y * MV2_BLOCK_Y - MV2_RADIUS;
@@ -120,7 +113,10 @@ kernel void motion_v2_kernel_8bpc(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    long abs_h = 0;
+    /* Per-thread abs(h). For 8bpc max |h| fits in uint comfortably:
+     * max blurred ≈ 65461 × 65461 × 5 × 5 ≈ 1.1e10 → shifted by 16
+     * = ~1.6e5, well under UINT_MAX. */
+    uint abs_h = 0;
     if ((int)gid.x < width && (int)gid.y < height) {
         const int lx = (int)tid.x + MV2_RADIUS;
         const int ly = (int)tid.y + MV2_RADIUS;
@@ -137,42 +133,44 @@ kernel void motion_v2_kernel_8bpc(
             blurred += (long)MV2_FILTER[xf] * (long)v;
         }
         const long h = (blurred + round_x) >> shift_x;
-        abs_h = h < 0 ? -h : h;
+        abs_h = (uint)(h < 0 ? -h : h);
     }
 
-    /* SIMD-group reduction → lane 0 carries the partial; one atomic-add
-     * per simdgroup keeps contention on the single accumulator low. */
-    const long lane_sum = mv2_simd_sum(abs_h);
-    if (simd_lane == 0) {
-        atomic_fetch_add_explicit(&sad, lane_sum, memory_order_relaxed);
+    /* SIMD-group reduction → one atomic per simdgroup. */
+    const uint lane_sum = simd_sum(abs_h);
+    if (simd_lane == 0 && lane_sum != 0) {
+        atomic_fetch_add_explicit(&sad, (ulong)lane_sum, memory_order_relaxed);
     }
 }
 
 /*
- * 16 bpc kernel — `uint16_t` samples (each row a multiple of 2
- * bytes; strides are in bytes). The inner accumulator stays
- * `long` from the start because 26386 × 65535 × 5 ≈ 8.6e9
- * overflows int32; see the CUDA twin's 16bpc kernel for the
- * same comment.
+ * 16 bpc kernel — `uint16_t` samples (row pitch in bytes). The
+ * y-conv inner accumulator widens to long because
+ * 26386 × 65535 × 5 ≈ 8.6e9 overflows int32. The final per-pixel
+ * |h| can reach ~1.6e8 at 16bpc, still under UINT_MAX.
  *
- * `bpc` arrives via the strides buffer (z component reuse) to
- * avoid a separate setBytes call on the host. Strides type is
- * promoted to `uint4`: (prev_stride, cur_stride, bpc, reserved).
+ * `bpc` arrives via the strides buffer's z component (host passes
+ * uint4 with the bpc in .z; see `integer_motion_v2_metal.mm`).
  */
 kernel void motion_v2_kernel_16bpc(
     const device uchar       *prev    [[buffer(0)]],
     const device uchar       *cur     [[buffer(1)]],
-    device   atomic_long     &sad     [[buffer(2)]],
+    device   atomic_ulong    &sad     [[buffer(2)]],
     constant uint4           &strides [[buffer(3)]],
     constant uint2           &dim     [[buffer(4)]],
-    threadgroup int          *s_diff_raw [[threadgroup(0)]],
+    threadgroup int          *s_diff  [[threadgroup(0)]],
     uint2  gid               [[thread_position_in_grid]],
     uint2  tid               [[thread_position_in_threadgroup]],
     uint2  bid               [[threadgroup_position_in_grid]],
     uint   lid               [[thread_index_in_threadgroup]],
     uint   simd_lane         [[thread_index_in_simdgroup]])
 {
-    threadgroup int *s_diff = s_diff_raw;
+    constexpr int MV2_RADIUS    = 2;
+    constexpr int MV2_BLOCK_X   = 16;
+    constexpr int MV2_BLOCK_Y   = 16;
+    constexpr int MV2_TILE_W    = MV2_BLOCK_X + 2 * MV2_RADIUS; /* 20 */
+    constexpr int MV2_TILE_H    = MV2_BLOCK_Y + 2 * MV2_RADIUS; /* 20 */
+    constexpr int MV2_TILE_PITCH = MV2_TILE_W + 1;              /* 21 */
 
     const int width  = (int)dim.x;
     const int height = (int)dim.y;
@@ -182,8 +180,8 @@ kernel void motion_v2_kernel_16bpc(
 
     const int shift_y = bpc;
     const int round_y = 1 << (bpc - 1);
-    constant constexpr int shift_x = 16;
-    constant constexpr int round_x = 1 << 15;
+    const int shift_x = 16;
+    const int round_x = 1 << 15;
 
     const int tile_origin_x = (int)bid.x * MV2_BLOCK_X - MV2_RADIUS;
     const int tile_origin_y = (int)bid.y * MV2_BLOCK_Y - MV2_RADIUS;
@@ -195,7 +193,6 @@ kernel void motion_v2_kernel_16bpc(
         const int tx = i % MV2_TILE_W;
         const int gx = mv2_mirror(tile_origin_x + tx, width);
         const int gy = mv2_mirror(tile_origin_y + ty, height);
-        /* uint16_t fetch via reinterpret + byte stride. */
         const device ushort *prev_row =
             (const device ushort *)(prev + gy * prev_stride);
         const device ushort *cur_row  =
@@ -206,7 +203,7 @@ kernel void motion_v2_kernel_16bpc(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    long abs_h = 0;
+    uint abs_h = 0;
     if ((int)gid.x < width && (int)gid.y < height) {
         const int lx = (int)tid.x + MV2_RADIUS;
         const int ly = (int)tid.y + MV2_RADIUS;
@@ -223,11 +220,11 @@ kernel void motion_v2_kernel_16bpc(
             blurred += (long)MV2_FILTER[xf] * (long)v;
         }
         const long h = (blurred + (long)round_x) >> shift_x;
-        abs_h = h < 0 ? -h : h;
+        abs_h = (uint)(h < 0 ? -h : h);
     }
 
-    const long lane_sum = mv2_simd_sum(abs_h);
-    if (simd_lane == 0) {
-        atomic_fetch_add_explicit(&sad, lane_sum, memory_order_relaxed);
+    const uint lane_sum = simd_sum(abs_h);
+    if (simd_lane == 0 && lane_sum != 0) {
+        atomic_fetch_add_explicit(&sad, (ulong)lane_sum, memory_order_relaxed);
     }
 }

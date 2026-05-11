@@ -115,27 +115,20 @@ add_project_arguments(metal_objcpp_args, language: 'objcpp')
 # (`vmaf_cuda_compiled_kernels_start` / `_end`).
 xcrun = find_program('xcrun', required: true)
 
-metal_kernel_sources = files(
-    '../feature/metal/integer_motion_v2.metal',
-    # T8-1c batch (ADR-0421): other 7 kernels land alongside as their
-    # .metal files are written. Build them all into the same metallib
-    # so a single embedded blob covers every Metal feature extractor.
+# Compile each .metal kernel to .air (intermediate IR) via xcrun
+# metal. Single target per kernel, hard-coded names — meson's
+# `foreach` over file objects doesn't expose a stable basename to
+# stamp into custom_target names. Adding kernels (T8-1d through
+# T8-1k) is a one-line edit per kernel here.
+mv2_air = custom_target('integer_motion_v2_air',
+    input: '../feature/metal/integer_motion_v2.metal',
+    output: 'integer_motion_v2.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
 )
 
-# Compile each .metal to .air (intermediate IR).
-metal_air_files = []
-foreach src : metal_kernel_sources
-    air_name = '@BASENAME@.air'
-    air_target = custom_target('air-' + '@BASENAME@'.format(src),
-        input: src,
-        output: air_name,
-        command: [xcrun, '-sdk', 'macosx', 'metal',
-                  '-c', '@INPUT@',
-                  '-o', '@OUTPUT@',
-                  '-Wall', '-Wextra', '-O3'],
-    )
-    metal_air_files += air_target
-endforeach
+metal_air_files = [mv2_air]
 
 # Link all .air files into a single default.metallib.
 metallib_target = custom_target('libvmaf-metallib',
