@@ -56,7 +56,14 @@ metal_objcpp_lib = static_library(
         files('common.mm',
               'picture_metal.mm',
               'kernel_template.mm',
-              '../feature/metal/integer_motion_v2_metal.mm'),
+              '../feature/metal/integer_motion_v2_metal.mm',
+              '../feature/metal/float_psnr_metal.mm',
+              '../feature/metal/float_moment_metal.mm',
+              '../feature/metal/float_ansnr_metal.mm',
+              '../feature/metal/integer_psnr_metal.mm',
+              '../feature/metal/float_motion_metal.mm',
+              '../feature/metal/integer_motion_metal.mm',
+              '../feature/metal/float_ssim_metal.mm'),
     ],
     include_directories: metal_objcpp_includes,
     objcpp_args: metal_objcpp_args,
@@ -65,18 +72,11 @@ metal_objcpp_lib = static_library(
 
 # Pure-C TUs that still go through the main feature library's normal
 # C compile path — appended to metal_sources directly.
+# NOTE: The seven batch-1/batch-2 scaffolds (ADR-0361) that previously
+# lived here as .c -ENOSYS stubs have been replaced by real .mm
+# dispatch files (T8-1d–T8-1j / ADR-0421) in metal_objcpp_lib above.
 metal_sources += files(
     'dispatch_strategy.c',
-    # T8-1 batch-1 scaffolds (ADR-0361): three additional consumers,
-    # still pure-C -ENOSYS until each kernel's runtime PR.
-    '../feature/metal/integer_psnr_metal.c',
-    '../feature/metal/float_ssim_metal.c',
-    '../feature/metal/integer_motion_metal.c',
-    # T8-1 batch-2 scaffolds (ADR-0361): four additional float consumers.
-    '../feature/metal/float_psnr_metal.c',
-    '../feature/metal/float_ansnr_metal.c',
-    '../feature/metal/float_motion_metal.c',
-    '../feature/metal/float_moment_metal.c',
 )
 
 # The Obj-C++ static lib's objects fold into the same feature
@@ -103,7 +103,72 @@ mv2_air = custom_target('integer_motion_v2_air',
               '-o', '@OUTPUT@'],
 )
 
-metal_air_files = [mv2_air]
+float_psnr_air = custom_target('float_psnr_air',
+    input: '../feature/metal/float_psnr.metal',
+    output: 'float_psnr.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
+)
+
+float_moment_air = custom_target('float_moment_air',
+    input: '../feature/metal/float_moment.metal',
+    output: 'float_moment.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
+)
+
+float_ansnr_air = custom_target('float_ansnr_air',
+    input: '../feature/metal/float_ansnr.metal',
+    output: 'float_ansnr.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
+)
+
+integer_psnr_air = custom_target('integer_psnr_air',
+    input: '../feature/metal/integer_psnr.metal',
+    output: 'integer_psnr.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
+)
+
+float_motion_air = custom_target('float_motion_air',
+    input: '../feature/metal/float_motion.metal',
+    output: 'float_motion.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
+)
+
+integer_motion_air = custom_target('integer_motion_air',
+    input: '../feature/metal/integer_motion.metal',
+    output: 'integer_motion.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
+)
+
+float_ssim_air = custom_target('float_ssim_air',
+    input: '../feature/metal/float_ssim.metal',
+    output: 'float_ssim.air',
+    command: [xcrun, '-sdk', 'macosx', 'metal',
+              '-c', '@INPUT@',
+              '-o', '@OUTPUT@'],
+)
+
+metal_air_files = [
+    mv2_air,
+    float_psnr_air,
+    float_moment_air,
+    float_ansnr_air,
+    integer_psnr_air,
+    float_motion_air,
+    integer_motion_air,
+    float_ssim_air,
+]
 
 metallib_target = custom_target('libvmaf-metallib',
     input: metal_air_files,

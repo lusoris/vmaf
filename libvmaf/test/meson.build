@@ -12,6 +12,7 @@ gpu_all_deps = [
   sycl_dependency,
   vulkan_deps,
   hip_deps,
+  metal_deps,
 ]
 
 test_context = executable('test_context',

@@ -27,6 +27,31 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/metal-includes-and-ffmpeg-patch — Metal kernel batch T8-1c–k (ADR-0421)
+
+- **Touches**: `libvmaf/src/feature/metal/*.metal` (7 new kernel files),
+  `libvmaf/src/feature/metal/*_metal.mm` (7 new dispatch files replacing
+  `*_metal.c` scaffolds), `libvmaf/src/metal/meson.build`
+  (`.air` custom_targets + metallib pipeline), `ffmpeg-patches/0012-*`.
+- **Invariant**: no `atomic_ulong` in any `.metal` file — Apple MSL
+  silently drops 64-bit atomic updates (CI run 25685703780). All kernels
+  use per-WG `float`/`uint` partials array indexed by
+  `bid.y * grid_groups.x + bid.x`; host reduces in `double`. The
+  `float_moment_metal.mm` corrects `provided_features` (was wrong in
+  the scaffold: `float_moment1/2/std` → correct names
+  `float_moment_ref1st/dis1st/ref2nd/dis2nd`).
+- **Re-test on rebase** (macOS, Apple-Family-7+):
+
+  ```bash
+  meson setup build libvmaf -Denable_metal=enabled \
+      -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  meson test -C build test_metal_smoke
+  ```
+
+  On Linux: same build without `-Denable_metal` (Metal subdir excluded);
+  no Metal tests registered. No upstream rebase conflict surface.
+
 ### feat/metal-runtime-t8-1b — Metal backend runtime PR (ADR-0420)
 
 - **Touches**: `libvmaf/src/metal/common.{c→mm,h}`,
