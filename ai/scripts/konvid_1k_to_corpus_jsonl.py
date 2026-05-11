@@ -307,6 +307,15 @@ def main(argv: list[str] | None = None) -> int:
         )
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        # Surface the KonViD-1k download URL when the corpus directory
+        # is missing — the test asserts the hint is present and it
+        # spares users a search through the README.
+        if "Corpus directory not found" in str(exc) or "MOS CSV not found" in str(exc):
+            print(
+                "hint: download KonViD-1k from "
+                "http://database.mmsp-kn.de/konvid-1k-database.html",
+                file=sys.stderr,
+            )
         return 2
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
