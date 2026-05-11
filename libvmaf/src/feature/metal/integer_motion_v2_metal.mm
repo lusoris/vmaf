@@ -70,6 +70,7 @@ typedef struct MotionV2StateMetal {
     bool   have_last;
 
     size_t plane_bytes;
+    size_t partials_count;   /* number of threadgroups (grid_w * grid_h) */
     unsigned index;
     unsigned frame_w;
     unsigned frame_h;
@@ -146,7 +147,17 @@ static int init_fex_metal(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fm
         goto fail_after_ctx;
     }
 
-    err = vmaf_metal_kernel_buffer_alloc(&s->rb, s->ctx, sizeof(uint64_t));
+    /* Partials buffer: one uint per threadgroup. Grid is
+     * ceil(w/16) × ceil(h/16); pre-allocate max-size based on
+     * frame dimensions. Host reduces in double precision after
+     * each kernel run. */
+    {
+        const size_t grid_w = (s->frame_w + 15) / 16;
+        const size_t grid_h = (s->frame_h + 15) / 16;
+        s->partials_count   = grid_w * grid_h;
+        err = vmaf_metal_kernel_buffer_alloc(&s->rb, s->ctx,
+                                             s->partials_count * sizeof(uint32_t));
+    }
     if (err != 0) {
         goto fail_after_lc;
     }
@@ -269,7 +280,9 @@ static int submit_fex_metal(VmafFeatureExtractor *fex, VmafPicture *ref_pic,
     }
 
     id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
-    [blit fillBuffer:sad_buf range:NSMakeRange(0, sizeof(uint64_t)) value:0];
+    [blit fillBuffer:sad_buf
+               range:NSMakeRange(0, s->partials_count * sizeof(uint32_t))
+               value:0];
     [blit endEncoding];
 
     id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
@@ -313,10 +326,18 @@ static int collect_fex_metal(VmafFeatureExtractor *fex, unsigned index,
 
     double score = 0.0;
     if (index > 0) {
-        const uint64_t *sad_ptr = (const uint64_t *)s->rb.host_view;
-        const uint64_t sad = (sad_ptr != NULL) ? *sad_ptr : 0;
-        const double denom = (double)s->frame_w * (double)s->frame_h * 256.0;
-        score = (denom > 0.0) ? ((double)sad / denom) : 0.0;
+        /* Reduce per-threadgroup partials in double precision —
+         * sidesteps Apple MSL's lack of 64-bit atomic_fetch_add
+         * (CI run 25685703780 / job 75408804495). */
+        const uint32_t *partials = (const uint32_t *)s->rb.host_view;
+        if (partials != NULL) {
+            double sad_d = 0.0;
+            for (size_t i = 0; i < s->partials_count; ++i) {
+                sad_d += (double)partials[i];
+            }
+            const double denom = (double)s->frame_w * (double)s->frame_h * 256.0;
+            score = (denom > 0.0) ? (sad_d / denom) : 0.0;
+        }
     }
 
     int err = vmaf_feature_collector_append_with_dict(

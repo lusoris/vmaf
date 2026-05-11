@@ -27,24 +27,23 @@
  *  break threadgroup-memory bank conflicts (mirrors the CUDA
  *  mitigation; Apple GPUs have a 32-bank threadgroup memory).
  *
- *  64-bit atomic: uses `atomic_ulong` (MSL 3.0+ / macOS 13+ /
- *  iOS 16+). Apple Silicon M1+ supports it. The Apple-Family-7
- *  runtime gate at `vmaf_metal_context_new` rejects pre-M1
- *  devices, so the kernel never runs on hardware that lacks
- *  64-bit atomics.
- *
- *  SIMD-group reduction: `simd_sum` (MSL 2.4+) — replaces the
- *  manual `__shfl_down_sync` chain in the CUDA twin. The CUDA
- *  pattern compiles on MSL too but `simd_shuffle_down` does not
- *  accept 64-bit types (CI run 25685357230 / job 75407682343).
- *  Using `simd_sum` on `uint` avoids the type issue and is shorter.
+ *  Reduction: per-thread `abs(h)` (uint) → SIMD-group sum via
+ *  `simd_sum` (MSL 2.4+) → threadgroup sum via a 16-slot
+ *  threadgroup-memory accumulator → one uint per threadgroup
+ *  written to `partials[bid.y * grid_w + bid.x]`. Host reads the
+ *  partials array via `[buf contents]` and sums in double
+ *  precision. NO ATOMICS — Apple's MSL `atomic_fetch_add_explicit`
+ *  doesn't support `ulong` even with `atomic_ulong` declared
+ *  (CI run 25685703780 / job 75408804495), and the partial-sum
+ *  pattern is cleaner anyway (one global memory write per
+ *  threadgroup, no contention, deterministic order under
+ *  unified-memory host reduction).
  *
  *  Bit-exactness gate: `places=4` cross-backend-diff against scalar
  *  (per ADR-0214). Validation pending Apple Silicon hardware run.
  */
 
 #include <metal_stdlib>
-#include <metal_atomic>
 using namespace metal;
 
 constant int MV2_FILTER[5] = {3571, 16004, 26386, 16004, 3571};
@@ -70,15 +69,18 @@ inline int mv2_mirror(int idx, int sup)
 kernel void motion_v2_kernel_8bpc(
     const device uchar       *prev    [[buffer(0)]],
     const device uchar       *cur     [[buffer(1)]],
-    device   atomic_ulong    &sad     [[buffer(2)]],
+    device   uint            *partials [[buffer(2)]],
     constant uint2           &strides [[buffer(3)]],
     constant uint2           &dim     [[buffer(4)]],
     threadgroup int          *s_diff  [[threadgroup(0)]],
     uint2  gid               [[thread_position_in_grid]],
     uint2  tid               [[thread_position_in_threadgroup]],
     uint2  bid               [[threadgroup_position_in_grid]],
+    uint2  grid_groups       [[threadgroups_per_grid]],
     uint   lid               [[thread_index_in_threadgroup]],
-    uint   simd_lane         [[thread_index_in_simdgroup]])
+    uint   simd_lane         [[thread_index_in_simdgroup]],
+    uint   simd_id           [[simdgroup_index_in_threadgroup]],
+    uint   simd_count        [[simdgroups_per_threadgroup]])
 {
     constexpr int MV2_RADIUS    = 2;
     constexpr int MV2_BLOCK_X   = 16;
@@ -136,10 +138,20 @@ kernel void motion_v2_kernel_8bpc(
         abs_h = (uint)(h < 0 ? -h : h);
     }
 
-    /* SIMD-group reduction → one atomic per simdgroup. */
+    /* Two-level reduction: SIMD-group → threadgroup → one uint per
+     * group written to `partials`. No atomics. */
+    threadgroup uint simd_partials[8]; /* max 8 simdgroups in a 256-thread group */
     const uint lane_sum = simd_sum(abs_h);
-    if (simd_lane == 0 && lane_sum != 0) {
-        atomic_fetch_add_explicit(&sad, (ulong)lane_sum, memory_order_relaxed);
+    if (simd_lane == 0) {
+        simd_partials[simd_id] = lane_sum;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (lid == 0) {
+        uint group_sum = 0;
+        for (uint i = 0; i < simd_count; ++i) {
+            group_sum += simd_partials[i];
+        }
+        partials[bid.y * grid_groups.x + bid.x] = group_sum;
     }
 }
 
@@ -155,15 +167,18 @@ kernel void motion_v2_kernel_8bpc(
 kernel void motion_v2_kernel_16bpc(
     const device uchar       *prev    [[buffer(0)]],
     const device uchar       *cur     [[buffer(1)]],
-    device   atomic_ulong    &sad     [[buffer(2)]],
+    device   uint            *partials [[buffer(2)]],
     constant uint4           &strides [[buffer(3)]],
     constant uint2           &dim     [[buffer(4)]],
     threadgroup int          *s_diff  [[threadgroup(0)]],
     uint2  gid               [[thread_position_in_grid]],
     uint2  tid               [[thread_position_in_threadgroup]],
     uint2  bid               [[threadgroup_position_in_grid]],
+    uint2  grid_groups       [[threadgroups_per_grid]],
     uint   lid               [[thread_index_in_threadgroup]],
-    uint   simd_lane         [[thread_index_in_simdgroup]])
+    uint   simd_lane         [[thread_index_in_simdgroup]],
+    uint   simd_id           [[simdgroup_index_in_threadgroup]],
+    uint   simd_count        [[simdgroups_per_threadgroup]])
 {
     constexpr int MV2_RADIUS    = 2;
     constexpr int MV2_BLOCK_X   = 16;
@@ -223,8 +238,17 @@ kernel void motion_v2_kernel_16bpc(
         abs_h = (uint)(h < 0 ? -h : h);
     }
 
+    threadgroup uint simd_partials[8];
     const uint lane_sum = simd_sum(abs_h);
-    if (simd_lane == 0 && lane_sum != 0) {
-        atomic_fetch_add_explicit(&sad, (ulong)lane_sum, memory_order_relaxed);
+    if (simd_lane == 0) {
+        simd_partials[simd_id] = lane_sum;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (lid == 0) {
+        uint group_sum = 0;
+        for (uint i = 0; i < simd_count; ++i) {
+            group_sum += simd_partials[i];
+        }
+        partials[bid.y * grid_groups.x + bid.x] = group_sum;
     }
 }
