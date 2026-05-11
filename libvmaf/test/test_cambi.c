@@ -937,10 +937,21 @@ static char *test_calculate_c_values_scalar_avx2_parity()
                        tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
 
 #if ARCH_X86
-    calculate_c_values_avx2(&input_avx2, &mask_avx2, c_avx2, histograms_a, window_size, num_diffs,
-                            tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
-    for (int i = 0; i < 64; i++) {
-        mu_assert("scalar vs avx2 calculate_c_values parity (bit-exact)", c_scalar[i] == c_avx2[i]);
+    /* Runtime CPU-feature gate: the AVX2 helpers (`calculate_c_values_avx2`,
+     * `cambi_increment_range_avx2`, etc.) build AVX2 SIMD constants
+     * (`_mm256_setr_epi32`, `_mm256_set1_epi32`) at function entry — executing
+     * those without runtime AVX2 support raises SIGILL. The non-test dispatch
+     * path is already runtime-gated via `vmaf_get_cpu_flags() & VMAF_X86_CPU_FLAG_AVX2`
+     * (see `cambi.c::init()`); reuse the in-tree portable gate here rather
+     * than `__builtin_cpu_supports("avx2")` (MSVC has no such builtin).
+     * Closes T-CAMBI-AVX2-CI-SIGILL. */
+    if (vmaf_get_cpu_flags() & VMAF_X86_CPU_FLAG_AVX2) {
+        calculate_c_values_avx2(&input_avx2, &mask_avx2, c_avx2, histograms_a, window_size,
+                                num_diffs, tvi_for_diff, vlt_luma, diff_weights, all_diffs, 8, 8);
+        for (int i = 0; i < 64; i++) {
+            mu_assert("scalar vs avx2 calculate_c_values parity (bit-exact)",
+                      c_scalar[i] == c_avx2[i]);
+        }
     }
 #endif
 
