@@ -333,5 +333,7 @@
 
 
 0417-tiny-ai-netflix-training-scaffold-pr
+0418-macos-test-recal-post-vif-sync
+0419-sve2-probe-darwin-gate
 
 0405-openvino-npu-ep-wiring

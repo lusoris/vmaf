@@ -278,7 +278,18 @@ if is_asm_enabled
         # equivalent) and ships `<arm_sve.h>`. Failure leaves HAVE_SVE2
         # unset; the runtime path falls back to NEON via the dispatch
         # table in ssimulacra2.c.
-        sve2_test_src = '''
+        #
+        # Darwin gate: Apple Silicon (M1–M4) is ARMv8.x without SVE2.
+        # Recent Apple Clang accepts `-march=armv9-a+sve2` and ships
+        # `<arm_sve.h>` so `cc.compiles()` returns true, but the
+        # generated codepath would never run (runtime probe in
+        # `arm/cpu.c` is `__linux__`-gated, hardware lacks the
+        # extension) and the SVE2 SSIMULACRA 2 TU itself fails to
+        # build on Apple Clang. Force HAVE_SVE2 off on Darwin.
+        if host_machine.system() == 'darwin'
+            is_sve2_supported = false
+        else
+            sve2_test_src = '''
 #include <arm_sve.h>
 int main(void) {
     svfloat32_t a = svdup_f32(1.0f);
@@ -287,9 +298,10 @@ int main(void) {
     return (int)svaddv_f32(pg, b);
 }
 '''
-        is_sve2_supported = cc.compiles(sve2_test_src,
-            args: ['-march=armv9-a+sve2'],
-            name: 'aarch64 SVE2 intrinsics')
+            is_sve2_supported = cc.compiles(sve2_test_src,
+                args: ['-march=armv9-a+sve2'],
+                name: 'aarch64 SVE2 intrinsics')
+        endif
         cdata.set10('HAVE_SVE2', is_sve2_supported)
     endif
 

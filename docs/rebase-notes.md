@@ -27,6 +27,24 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/sve2-probe-darwin-gate — SVE2 build probe gated to non-Darwin hosts (ADR-0419)
+
+- **Touches**: `libvmaf/src/meson.build` (the SVE2 `cc.compiles()`
+  probe block).
+- **Invariant**: `is_sve2_supported = false` is forced when
+  `host_machine.system() == 'darwin'`, mirroring the runtime
+  `__linux__` gate in `libvmaf/src/arm/cpu.c::vmaf_get_cpu_flags_arm()`.
+  Apple Silicon (M1–M4) is ARMv8.x without SVE2 hardware, so the
+  build-time and runtime gates must stay in lockstep.
+- **Re-test**: if upstream Netflix ever introduces its own SVE2
+  probe in `libvmaf/src/meson.build`, drop the fork-local Darwin
+  short-circuit in favour of theirs if it matches the `darwin ⇒
+  false` invariant; otherwise layer the Darwin guard on top.
+  Reverse the gate only when (a) Apple ships an arm part with
+  SVE2 — no public roadmap as of 2026-05 — *and* (b) the runtime
+  probe in `arm/cpu.c` grows a Darwin branch (e.g.
+  `sysctlbyname("hw.optional.arm.FEAT_SVE2", ...)`).
+
 ### fix/macos-test-recal-post-vif-sync — macOS Python test assertions recalibrated for post-`bf9ad333` VMAF/ADM values (ADR-0418)
 
 - **Touches**: `python/test/local_explainer_test.py`,
