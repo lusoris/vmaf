@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import platform
 import unittest
 from test.testutil import (
     set_default_576_324_10bit_videos_for_testing,
@@ -10,6 +11,17 @@ from test.testutil import (
 )
 
 import vmaf
+
+# ADR-0418: Per-platform expected values for VMAF *model-prediction*
+# scores (akiyo_multiply variants). libsvm's `svm_predict` calls
+# `expf`/`log` repeatedly; Ubuntu glibc and macOS libSystem produce
+# slightly different results on identical float inputs (Δ ~5e-5 to
+# 7e-4). Per CLAUDE §1 / `feedback_no_test_weakening` ("places=4 is
+# non-negotiable"), keep the strict precision but use the
+# platform-observed value. Both values are at places=4 against
+# their own libm; relative error stays below 6e-6 in all cases —
+# well under the 0.01 VMAF perceptual-significance threshold.
+_IS_DARWIN = platform.system() == "Darwin"
 from vmaf.config import VmafConfig
 from vmaf.core.asset import Asset
 from vmaf.core.quality_runner import VmafexecQualityRunner
@@ -868,10 +880,9 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            # macOS-libm Δ=6e-4 vs Ubuntu Δ=1e-6; places=2 absorbs the cross-platform drift.
             results[0]["VMAFEXEC_score"],
-            132.732952,
-            places=2,
+            132.732323 if _IS_DARWIN else 132.732952,
+            places=4,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_with_feature_enhn_gain_limit(self):
@@ -926,10 +937,9 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            # macOS-libm Δ=1.4e-4 vs Ubuntu Δ=1e-6; places=3 absorbs the cross-platform drift.
             results[0]["VMAFEXEC_score"],
-            88.030463,
-            places=3,
+            88.030322 if _IS_DARWIN else 88.030463,
+            places=4,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_with_feature_enhn_gain_limit_custom(self):
@@ -984,10 +994,9 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            # macOS-libm Δ=7.5e-4; places=2 absorbs the cross-platform drift (ADR-0418).
             results[0]["VMAFEXEC_score"],
-            129.474226,
-            places=2,
+            129.473473 if _IS_DARWIN else 129.474226,
+            places=4,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_disable_enhn_gain(self):
@@ -1038,10 +1047,9 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            # macOS-libm Δ=1.4e-4 vs Ubuntu Δ=1e-6; places=3 absorbs the cross-platform drift.
             results[0]["VMAFEXEC_score"],
-            88.030463,
-            places=3,
+            88.030322 if _IS_DARWIN else 88.030463,
+            places=4,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_no_enhn_gain_model(self):
@@ -1095,10 +1103,9 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            # macOS-libm Δ=1.4e-4 vs Ubuntu Δ=1e-6; places=3 absorbs the cross-platform drift.
             results[0]["VMAFEXEC_score"],
-            88.030463,
-            places=3,
+            88.030322 if _IS_DARWIN else 88.030463,
+            places=4,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_no_enhn_gain_model_and_cmd_options(self):
@@ -1153,10 +1160,9 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            # macOS-libm Δ=7.5e-4; places=2 absorbs the cross-platform drift (ADR-0418).
             results[0]["VMAFEXEC_score"],
-            122.804272,
-            places=2,
+            122.803518 if _IS_DARWIN else 122.804272,
+            places=4,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_no_enhn_gain_model_and_cmd_options_illegal(self):
