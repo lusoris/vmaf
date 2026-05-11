@@ -236,18 +236,32 @@ static char *test_motion_v2_metal_extractor_registered(void)
     return NULL;
 }
 
-/* ---- T8-IOS scaffold contract (ADR-0423) ---- */
-/* Every IOSurface-import entry point returns -ENOSYS until T8-IOS-b
- * lands the [id<MTLDevice> newTextureWithDescriptor:iosurface:plane:]
- * wiring. Mirrors the Vulkan ADR-0184 → ADR-0186 scaffold pattern. */
+/* ---- T8-IOS impl contract (ADR-0423) ---- */
+/* IOSurface-import entry points were scaffolded as -ENOSYS in the
+ * initial PR and flipped to real semantics in T8-IOS-b (same PR,
+ * "no scaffold-only" decision per ADR-0423 §"Implementation folded
+ * in"). Tests assert real input-validation + the
+ * device-handle gate; no live IOSurface is exercised here (that
+ * requires a CVPixelBufferRef from VideoToolbox — covered by the
+ * ffmpeg-side integration tests under tools/test/). */
 
-static char *test_iosurface_state_init_external_returns_enosys(void)
+static char *test_iosurface_state_init_external_default_device_or_enodev(void)
 {
+    /* device == 0 falls back to MTLCreateSystemDefaultDevice (the
+     * FFmpeg n8.1.1 path until AVMetalDeviceContext lands). On
+     * Apple-Family-7+ hosts that succeeds; everywhere else it
+     * surfaces as -ENODEV. */
     VmafMetalExternalHandles h = {.device = 0, .command_queue = 0};
-    VmafMetalState *state = (VmafMetalState *)0xDEADBEEF;
+    VmafMetalState *state = NULL;
     const int rc = vmaf_metal_state_init_external(&state, h);
-    mu_assert("state_init_external returns -ENOSYS under T8-IOS scaffold", rc == -ENOSYS);
-    mu_assert("out-pointer cleared on -ENOSYS", state == NULL);
+    mu_assert("default-device init returns 0 or -ENODEV", rc == 0 || rc == -ENODEV);
+    if (rc == 0) {
+        mu_assert("state populated on success", state != NULL);
+        vmaf_metal_state_free(&state);
+        mu_assert("state_free clears the slot", state == NULL);
+    } else {
+        mu_assert("state stays NULL on -ENODEV", state == NULL);
+    }
     return NULL;
 }
 
@@ -259,24 +273,25 @@ static char *test_iosurface_state_init_external_rejects_null_out(void)
     return NULL;
 }
 
-static char *test_iosurface_picture_import_returns_enosys(void)
+static char *test_iosurface_picture_import_rejects_null_state(void)
 {
+    /* NULL state is a caller bug; -EINVAL before we touch any IO. */
     const int rc = vmaf_metal_picture_import(NULL, 0, 0, 1920, 1080, 8, 1, 0);
-    mu_assert("picture_import returns -ENOSYS under T8-IOS scaffold", rc == -ENOSYS);
+    mu_assert("NULL state -> -EINVAL", rc == -EINVAL);
     return NULL;
 }
 
-static char *test_iosurface_wait_compute_returns_enosys(void)
+static char *test_iosurface_wait_compute_rejects_null_state(void)
 {
     const int rc = vmaf_metal_wait_compute(NULL);
-    mu_assert("wait_compute returns -ENOSYS under T8-IOS scaffold", rc == -ENOSYS);
+    mu_assert("NULL state -> -EINVAL", rc == -EINVAL);
     return NULL;
 }
 
-static char *test_iosurface_read_imported_pictures_returns_enosys(void)
+static char *test_iosurface_read_imported_pictures_rejects_null_ctx(void)
 {
     const int rc = vmaf_metal_read_imported_pictures(NULL, 0);
-    mu_assert("read_imported_pictures returns -ENOSYS under T8-IOS scaffold", rc == -ENOSYS);
+    mu_assert("NULL ctx -> -EINVAL", rc == -EINVAL);
     return NULL;
 }
 
@@ -301,12 +316,12 @@ static const test_fn test_table[] = {
     test_kernel_buffer_free_zero_handles_is_noop,
     /* T8-1 first-consumer registration — kernel arrives in T8-1c (ADR-0361). */
     test_motion_v2_metal_extractor_registered,
-    /* T8-IOS scaffold contract — every entry point -ENOSYS until T8-IOS-b (ADR-0423). */
-    test_iosurface_state_init_external_returns_enosys,
+    /* T8-IOS impl contract — input-validation (ADR-0423). */
+    test_iosurface_state_init_external_default_device_or_enodev,
     test_iosurface_state_init_external_rejects_null_out,
-    test_iosurface_picture_import_returns_enosys,
-    test_iosurface_wait_compute_returns_enosys,
-    test_iosurface_read_imported_pictures_returns_enosys,
+    test_iosurface_picture_import_rejects_null_state,
+    test_iosurface_wait_compute_rejects_null_state,
+    test_iosurface_read_imported_pictures_rejects_null_ctx,
 };
 
 static const size_t test_table_len = sizeof(test_table) / sizeof(test_table[0]);

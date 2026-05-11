@@ -27,23 +27,39 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
-### feat/libvmaf-metal-filter-iosurface — Metal IOSurface zero-copy import scaffold (ADR-0423)
+### feat/libvmaf-metal-filter-iosurface — Metal IOSurface zero-copy import (ADR-0423)
 
 - **Touches**: `libvmaf/include/libvmaf/libvmaf_metal.h` (new
   `VmafMetalExternalHandles` + four entry points appended),
-  `libvmaf/src/metal/picture_import.mm` (new -ENOSYS TU),
+  `libvmaf/src/metal/picture_import.mm` (new TU implementing the
+  IOSurfaceLock + memcpy ring), `libvmaf/src/metal/state_priv.h`
+  (shared struct defs between common.mm and picture_import.mm),
+  `libvmaf/src/metal/import.h` (internal bridge for libvmaf.c
+  HAVE_METAL block), `libvmaf/src/metal/common.mm`
+  (state-free hook for the import ring), `libvmaf/src/libvmaf.c`
+  (HAVE_METAL block: `vmaf_metal_import_state` /
+  `vmaf_metal_read_imported_pictures`),
   `libvmaf/src/metal/meson.build` (one-line TU registration),
+  `libvmaf/test/test_metal_smoke.c` (input-validation +
+  device-default skip semantics),
   `ffmpeg-patches/0013-libvmaf-add-libvmaf-metal-filter.patch` (new),
   `ffmpeg-patches/series.txt`, `ffmpeg-patches/README.md`.
-- **Invariant**: every new C-API entry point
-  (`vmaf_metal_state_init_external`, `vmaf_metal_picture_import`,
-  `vmaf_metal_wait_compute`, `vmaf_metal_read_imported_pictures`)
-  returns -ENOSYS unconditionally — the scaffold contract. The ffmpeg
-  patch detects -ENOSYS in `config_props_metal` and fails fast with a
-  message pointing at ADR-0423. Mirrors ADR-0184 (Vulkan import
-  scaffold) → ADR-0186 (Vulkan import impl). Symbol names are
-  load-bearing for the `check_pkg_config` probe in patch 0013; do not
-  rename without simultaneously updating the patch.
+- **Invariant**: the import path is geometry-pinned to the first
+  (w, h, bpc) tuple seen — subsequent imports with a different
+  geometry return `-EINVAL`. Ring depth is 2 slots
+  (`VMAF_METAL_IMPORT_RING`); a slot is identified by
+  `index % VMAF_METAL_IMPORT_RING` and discarded if the caller's
+  `index` no longer matches the stored one. CPU memcpy path is
+  synchronous so `vmaf_metal_wait_compute` is a no-op (returns 0);
+  do not promote it to a `MTLSharedEvent` drain without first
+  switching the import body to an async `MTLCommandBuffer`
+  submission. Apple-Family-7+ gate is enforced inside
+  `vmaf_metal_state_init_external` via
+  `[device supportsFamily:MTLGPUFamilyApple7]` → `-ENODEV` on
+  non-Apple hosts; the ffmpeg patch surfaces this as
+  `AVERROR(ENODEV)` at `config_props_metal` time. Symbol names are
+  load-bearing for the `check_pkg_config` probe in patch 0013; do
+  not rename without simultaneously updating the patch.
 - **Re-test on rebase**:
 
   ```bash

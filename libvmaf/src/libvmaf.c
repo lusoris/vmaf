@@ -85,6 +85,11 @@ __attribute__((weak)) char __libc_single_threaded = 1;
 #include "vulkan/vulkan_internal.h"
 #endif
 
+#ifdef HAVE_METAL
+#include "libvmaf/libvmaf_metal.h"
+#include "metal/import.h"
+#endif
+
 typedef struct VmafContext {
     VmafConfiguration cfg;
     VmafFeatureCollector *feature_collector;
@@ -121,6 +126,15 @@ typedef struct VmafContext {
         VmafVulkanState *state;
         VmafVulkanPicturePool *pool;
     } vulkan;
+#endif
+#ifdef HAVE_METAL
+    /* T8-IOS (ADR-0423): caller-imported MTLDevice + IOSurface ring.
+     * Ownership stays with the caller — vmaf_metal_state_free()
+     * after vmaf_close(), same lifetime model as the Vulkan + SYCL
+     * backends. */
+    struct {
+        VmafMetalState *state;
+    } metal;
 #endif
     struct {
         unsigned w, h;
@@ -625,6 +639,46 @@ int vmaf_vulkan_picture_fetch(VmafContext *vmaf, VmafPicture *pic)
 }
 #endif
 
+#ifdef HAVE_METAL
+/* T8-IOS (ADR-0423): mirror of vmaf_vulkan_import_state /
+ * vmaf_vulkan_read_imported_pictures. The Metal runtime (T8-1b) was
+ * already shipped; this PR adds the caller-imported IOSurface route
+ * by stashing the external state on the VmafContext and routing
+ * read_imported_pictures through vmaf_read_pictures. */
+int vmaf_metal_import_state(VmafContext *vmaf, VmafMetalState *state)
+{
+    if (!vmaf)
+        return -EINVAL;
+    if (!state)
+        return -EINVAL;
+
+    vmaf->metal.state = state;
+    return 0;
+}
+
+int vmaf_metal_read_imported_pictures(VmafContext *vmaf, unsigned index)
+{
+    if (!vmaf)
+        return -EINVAL;
+    if (!vmaf->metal.state)
+        return -EINVAL;
+    if (vmaf->flushed)
+        return -EINVAL;
+
+    VmafPicture ref = {0};
+    VmafPicture dis = {0};
+    int err = vmaf_metal_state_build_pictures(vmaf->metal.state, index, &ref, &dis);
+    if (err)
+        return err;
+
+    /* vmaf_read_pictures takes ownership and unrefs both pictures
+     * (including on the error path); the import ring already
+     * cleared its slot in build_pictures so no further cleanup is
+     * needed here. */
+    return vmaf_read_pictures(vmaf, &ref, &dis, index);
+}
+#endif
+
 static int set_fex_framesync(VmafFeatureExtractorContext *fex_ctx, VmafContext *vmaf)
 {
     if (fex_ctx->fex->flags & VMAF_FEATURE_FRAME_SYNC)
@@ -795,6 +849,11 @@ int vmaf_close(VmafContext *vmaf)
      * vmaf_vulkan_import_state(), so we do not free it here.
      * The caller must call vmaf_vulkan_state_free() after vmaf_close(). */
     vmaf->vulkan.state = NULL;
+#endif
+#ifdef HAVE_METAL
+    /* Same lifetime contract as Vulkan: caller owns metal.state
+     * and must call vmaf_metal_state_free() after vmaf_close(). */
+    vmaf->metal.state = NULL;
 #endif
     free(vmaf);
 

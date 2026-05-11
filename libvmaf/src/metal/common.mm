@@ -26,27 +26,17 @@
 
 extern "C" {
 #include "common.h"
+#include "state_priv.h"
+#include "import.h"
 #include "libvmaf/libvmaf_metal.h"
 }
 
-/* Internal context. Definition lives in .mm rather than .h so the
- * struct can carry Objective-C handles without forcing every caller
- * TU to be Objective-C++. The `void *` slots are __bridge_retained
- * id<...> references; ownership is +1 across the struct lifetime and
- * released by the bridge-transfer in `vmaf_metal_context_destroy`. */
-struct VmafMetalContext {
-    int device_index;
-    void *device;          /* __bridge_retained id<MTLDevice> */
-    void *command_queue;   /* __bridge_retained id<MTLCommandQueue> */
-};
-
-/* Public-API thin shim mirrors HIP / CUDA: the opaque public type
- * aliases the internal context one-to-one in the runtime PR. A future
- * extension (e.g. a Metal heap or a metallib cache) inserts a wrapper
- * here without touching `libvmaf_metal.h`. */
-struct VmafMetalState {
-    struct VmafMetalContext ctx;
-};
+/* Struct layouts for VmafMetalContext + VmafMetalState live in
+ * state_priv.h so the IOSurface import TU (picture_import.mm) can
+ * construct + tear down states without going through a constructor
+ * thunk. Header purity is preserved: state_priv.h carries no
+ * Objective-C types, only `void *` slots that bridge-retain the
+ * id<MTL...> handles. */
 
 /*
  * Pick an MTLDevice by index. -1 ⇒ system default
@@ -220,16 +210,10 @@ int vmaf_metal_state_init(VmafMetalState **out, VmafMetalConfiguration cfg)
     return 0;
 }
 
-int vmaf_metal_import_state(VmafContext *ctx, VmafMetalState *state)
-{
-    (void)ctx;
-    (void)state;
-    /* The dispatcher hand-off lives in libvmaf.c — wired in T8-1c once
-     * the first real kernel is consumable. Until then the runtime
-     * accepts the state pointer but feature extractors keep returning
-     * -ENOSYS via the per-feature scaffolds in feature/metal/. */
-    return 0;
-}
+/* vmaf_metal_import_state() lives in libvmaf.c under HAVE_METAL —
+ * the dispatcher hand-off needs VmafContext layout (mirrors
+ * vmaf_vulkan_import_state). T8-IOS (ADR-0423) flipped this from a
+ * common.mm no-op to a real VmafContext->metal.state setter. */
 
 void vmaf_metal_state_free(VmafMetalState **state)
 {
@@ -237,6 +221,10 @@ void vmaf_metal_state_free(VmafMetalState **state)
         return;
     }
     VmafMetalState *s = *state;
+    /* T8-IOS (ADR-0423): release the IOSurface import ring before
+     * the device/queue handles — the ring may hold VmafPicture
+     * buffers we own. No-op if no import was ever started. */
+    vmaf_metal_state_import_ring_free(s);
     if (s->ctx.command_queue != NULL) {
         id<MTLCommandQueue> q __attribute__((unused)) =
             (__bridge_transfer id<MTLCommandQueue>)s->ctx.command_queue;

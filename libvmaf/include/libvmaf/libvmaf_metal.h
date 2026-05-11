@@ -136,11 +136,16 @@ VMAF_EXPORT int vmaf_metal_list_devices(void);
  * init entry point still exists so multi-GPU Mac Pro hosts get a
  * deterministic device match.
  *
- * Status: T8-IOS scaffold landed under ADR-0423 — every entry
- * point in this block returns -ENOSYS until the implementation
- * PR (T8-IOS-b) replaces the stubs with
- * `[MTLDevice newTextureWithDescriptor:iosurface:plane:]` /
- * `CVMetalTextureCacheCreateTextureFromImage` wiring.
+ * Status: T8-IOS shipped under ADR-0423 — every entry point in this
+ * block is a working IOSurface → VmafPicture import on
+ * Apple-Family-7+ hosts via `IOSurfaceLock` + memcpy into a
+ * shared-storage VmafPicture buffer. The texture-direct path
+ * (`[MTLDevice newTextureWithDescriptor:iosurface:plane:]` /
+ * `CVMetalTextureCacheCreateTextureFromImage`) remains available as
+ * a future optimisation when a Metal feature kernel needs per-sample
+ * texture access patterns; v1 routes everything through the same
+ * VmafPicture host-pointer pipeline the rest of the scoring
+ * extractors consume.
  * ----------------------------------------------------------------- */
 
 /**
@@ -157,7 +162,7 @@ VMAF_EXPORT int vmaf_metal_list_devices(void);
  * until @ref vmaf_metal_state_free returns.
  */
 typedef struct VmafMetalExternalHandles {
-    uintptr_t device;        /**< id<MTLDevice> */
+    uintptr_t device;        /**< id<MTLDevice> (optional; 0 = use MTLCreateSystemDefaultDevice) */
     uintptr_t command_queue; /**< id<MTLCommandQueue> (optional; 0 = create internally) */
 } VmafMetalExternalHandles;
 
@@ -168,14 +173,19 @@ typedef struct VmafMetalExternalHandles {
  * via @ref vmaf_metal_picture_import — the IOSurface's backing
  * MTLTexture is only addressable on the device that mapped it.
  *
- * Mutually exclusive with @ref vmaf_metal_state_init in a single
- * process context: pick one. The Apple-Family-7+ gate still
- * applies — passing an Intel-Mac MTLDevice returns -ENODEV.
+ * `handles.device == 0` falls back to `MTLCreateSystemDefaultDevice`
+ * (FFmpeg n8.1.1 path, until upstream exposes an
+ * `AVMetalDeviceContext`). `handles.command_queue == 0` creates a
+ * fresh command queue from the resolved device. The
+ * Apple-Family-7+ gate still applies in every case — passing an
+ * Intel-Mac MTLDevice or running on a non-Apple host returns
+ * -ENODEV.
  *
- * @return 0 on success, -ENOSYS when built without Metal (or in
- *         the T8-IOS scaffold contract), -EINVAL on bad arguments,
- *         -ENODEV on a non-Apple-Family-7 device, -ENOMEM on
- *         allocation failure.
+ * Mutually exclusive with @ref vmaf_metal_state_init in a single
+ * process context: pick one.
+ *
+ * @return 0 on success, -EINVAL on bad arguments, -ENODEV on a
+ *         non-Apple-Family-7 device, -ENOMEM on allocation failure.
  */
 VMAF_EXPORT int vmaf_metal_state_init_external(VmafMetalState **out,
                                                VmafMetalExternalHandles handles);
@@ -184,27 +194,27 @@ VMAF_EXPORT int vmaf_metal_state_init_external(VmafMetalState **out,
  * Import an external IOSurface (typically pulled from a
  * `CVPixelBufferRef` via `CVPixelBufferGetIOSurface`) into the
  * libvmaf Metal compute pipeline. Caller retains ownership of the
- * underlying IOSurface; libvmaf reads it via a temporary
- * `id<MTLTexture>` materialised through
- * `[MTLDevice newTextureWithDescriptor:iosurface:plane:]`.
+ * underlying IOSurface; libvmaf locks the surface read-only and
+ * memcpys the requested plane into a shared-storage VmafPicture.
  *
  * @param state    Metal state handle.
  * @param iosurface IOSurfaceRef (cast to uintptr_t).
- * @param plane    Plane index (0 = luma; chroma planes via the
- *                 standard biplanar / triplanar layout).
- * @param w        Frame width.
- * @param h        Frame height.
+ * @param plane    Plane index (0 = Y, 1 = U, 2 = V — caller is
+ *                 responsible for de-interleaving biplanar
+ *                 VideoToolbox formats before calling).
+ * @param w        Luma (frame) width.
+ * @param h        Luma (frame) height.
  * @param bpc      Bits per component (8 / 10 / 12 / 16).
  * @param is_ref   1 = reference frame, 0 = distorted.
  * @param index    Frame index (matches the index passed to
  *                 @ref vmaf_metal_read_imported_pictures).
  *
- * @return 0 on success, -ENOSYS until T8-IOS-b lands, -EINVAL on
- *         bad arguments.
+ * @return 0 on success, -EINVAL on bad arguments, -EIO on
+ *         IOSurface lock failure, -ENOMEM on allocation failure.
  */
 VMAF_EXPORT int vmaf_metal_picture_import(VmafMetalState *state, uintptr_t iosurface,
-                                          unsigned plane, unsigned w, unsigned h,
-                                          unsigned bpc, int is_ref, unsigned index);
+                                          unsigned plane, unsigned w, unsigned h, unsigned bpc,
+                                          int is_ref, unsigned index);
 
 /**
  * Block until all previously-submitted Metal compute work on
@@ -212,7 +222,12 @@ VMAF_EXPORT int vmaf_metal_picture_import(VmafMetalState *state, uintptr_t iosur
  * Used by FFmpeg-side filters before reusing imported IOSurfaces
  * in the next frame.
  *
- * @return 0 on success, -ENOSYS until T8-IOS-b lands.
+ * Currently a no-op: the v1 import path is synchronous CPU memcpy
+ * (data is host-visible by the time @ref vmaf_metal_picture_import
+ * returns). A future async path replaces this with a per-frame
+ * MTLSharedEvent drain.
+ *
+ * @return 0 on success, -EINVAL on NULL state.
  */
 VMAF_EXPORT int vmaf_metal_wait_compute(VmafMetalState *state);
 
@@ -221,7 +236,10 @@ VMAF_EXPORT int vmaf_metal_wait_compute(VmafMetalState *state);
  * distorted IOSurfaces at `index`. Mirrors
  * @ref vmaf_vulkan_read_imported_pictures.
  *
- * @return 0 on success, -ENOSYS until T8-IOS-b lands.
+ * Requires all 3 planes (Y/U/V) to have been imported for both
+ * ref and dis at the matching index.
+ *
+ * @return 0 on success, -EINVAL on missing imports or stale state.
  */
 VMAF_EXPORT int vmaf_metal_read_imported_pictures(VmafContext *ctx, unsigned index);
 
