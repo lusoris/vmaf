@@ -27,6 +27,34 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### feat/metal-runtime-t8-1b — Metal backend runtime PR (ADR-0420)
+
+- **Touches**: `libvmaf/src/metal/common.{c→mm,h}`,
+  `libvmaf/src/metal/picture_metal.{c→mm}`,
+  `libvmaf/src/metal/kernel_template.{c→mm}`,
+  `libvmaf/src/metal/meson.build`,
+  `libvmaf/test/test_metal_smoke.c`,
+  `libvmaf/src/metal/AGENTS.md`.
+- **Invariant**: the Metal backend ships three Objective-C++
+  TUs (`common.mm`, `picture_metal.mm`, `kernel_template.mm`)
+  instead of the T8-1 pure-C scaffold. Public ABI in
+  `libvmaf/include/libvmaf/libvmaf_metal.h` unchanged. Internal
+  `metal/common.h` gained two accessor declarations
+  (`vmaf_metal_context_{device,queue}_handle`) that consumer TUs
+  call to retrieve bridge-retained `void *` Metal handles. The
+  Obj-C++ TUs compile with `-fobjc-arc` via
+  `add_project_arguments(language: 'objcpp')`. ARC +
+  `__bridge_retained` / `__bridge_transfer` casts manage the +1
+  retain that lives on each C-struct slot. Upstream Netflix/vmaf
+  has no Metal backend; there is no rebase conflict surface
+  against `upstream/master`.
+- **Re-test**: `meson setup build -Denable_metal=enabled` on a
+  recent macOS host (Apple Silicon preferred) + `meson compile -C
+  build` + `meson test -C build test_metal_smoke`. On Apple-7+ the
+  smoke test exercises real-device paths; on Intel Macs it
+  short-circuits cleanly on `-ENODEV`. Non-Darwin builds are
+  unaffected — `subdir('metal')` is already gated to Darwin.
+
 ### fix/sve2-probe-darwin-gate — SVE2 build probe gated to non-Darwin hosts (ADR-0419)
 
 - **Touches**: `libvmaf/src/meson.build` (the SVE2 `cc.compiles()`
