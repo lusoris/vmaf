@@ -10,10 +10,15 @@
  */
 #include "dispatch_strategy.h"
 
-#include <pthread.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
 
 /*
  * Cache the VMAF_CUDA_DISPATCH environment variable once, protected by
@@ -27,8 +32,25 @@
  *
  * NULL means the variable was unset at snapshot time.
  */
+#ifdef _WIN32
+static INIT_ONCE g_env_once = INIT_ONCE_STATIC_INIT;
+#else
 static pthread_once_t g_env_once = PTHREAD_ONCE_INIT;
+#endif
 static const char *g_env_disp = NULL;
+
+#ifdef _WIN32
+static BOOL CALLBACK cache_env_dispatch_w32(PINIT_ONCE once, PVOID param, PVOID *ctx)
+{
+    (void)once;
+    (void)param;
+    (void)ctx;
+    const char *val = getenv("VMAF_CUDA_DISPATCH");
+    if (val)
+        g_env_disp = _strdup(val);
+    return TRUE;
+}
+#endif
 
 static void cache_env_dispatch(void)
 {
@@ -87,9 +109,15 @@ VmafCudaDispatchStrategy vmaf_cuda_select_strategy(const char *feature_name,
     (void)frame_w;
     (void)frame_h;
 
-    /* Read VMAF_CUDA_DISPATCH at most once across all threads (pthread_once
-     * provides the acquire fence that makes g_env_disp visible here). */
+    /* Read VMAF_CUDA_DISPATCH at most once across all threads. POSIX uses
+     * pthread_once for the acquire fence; Windows uses InitOnceExecuteOnce
+     * via the dedicated `_w32` callback (pthread_once isn't available on
+     * MSVC, so the MSVC+CUDA build can't link the POSIX variant). */
+#ifdef _WIN32
+    (void)InitOnceExecuteOnce(&g_env_once, cache_env_dispatch_w32, NULL, NULL);
+#else
     (void)pthread_once(&g_env_once, cache_env_dispatch);
+#endif
 
     VmafCudaDispatchStrategy out = VMAF_CUDA_DISPATCH_DIRECT;
     if (parse_per_feature_override(g_env_disp, feature_name, &out))
