@@ -73,7 +73,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--encoder",
         default="libx264",
         choices=list(known_codecs()),
-        help="codec adapter (Phase A: libx264 only)",
+        help="codec adapter (default libx264; any registered adapter is accepted)",
     )
     corpus.add_argument(
         "--preset",
@@ -352,7 +352,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--encoder",
         default="libx264",
         choices=list(known_codecs()),
-        help="codec adapter (Phase D scaffold: libx264 only)",
+        help="codec adapter (default libx264; any registered adapter is accepted)",
     )
     per_shot.add_argument(
         "--bitdepth",
