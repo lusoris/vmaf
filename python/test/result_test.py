@@ -60,7 +60,10 @@ class ResultTest(MyTestCase):
         df_ansnr = df.loc[df["scores_key"] == "VMAF_feature_ansnr_scores"]
         df_motion = df.loc[df["scores_key"] == "VMAF_feature_motion_scores"]
         df_adm_den = df.loc[df["scores_key"] == "VMAF_feature_adm_den_scores"]
-        self.assertEqual(len(df), 38)
+        # ADR-0418: ADM port added `aim_score` + `adm3_score` to the
+        # float_adm extractor's emitted feature list, bumping the total
+        # dataframe length by 2 (38 → 40).
+        self.assertEqual(len(df), 40)
         self.assertEqual(len(df_vmaf), 1)
         self.assertEqual(len(df_adm), 1)
         self.assertEqual(len(df_vif), 1)
@@ -106,7 +109,7 @@ class ResultTest(MyTestCase):
             df.iloc[0]["asset"],
             '{"asset_dict": {"height": 1080, "use_path_as_workpath": 1, "use_workpath_as_procpath": 1, "width": 1920}, "asset_id": 0, "content_id": 0, "dataset": "test", "dis_path": "checkerboard_1920_1080_10_3_1_0.yuv", "ref_path": "checkerboard_1920_1080_10_3_0_0.yuv", "workdir": ""}',
         )  # noqa
-        self.assertEqual(df.iloc[0]["executor_id"], "VMAF_legacy_VF0.2.7-1.1")
+        self.assertEqual(df.iloc[0]["executor_id"], "VMAF_legacy_VF0.2.21-1.1")
 
         Result._assert_asset_dataframe(df)
 

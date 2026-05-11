@@ -486,6 +486,16 @@ jobs:
           # Make libvulkan.dylib + glslc visible to meson / volk dlopen.
           echo "DYLD_LIBRARY_PATH=${BREW_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=${BREW_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
+          # brew's `vulkan-headers` is keg-only on macOS — install does
+          # not symlink `<vulkan/vk_platform.h>` etc. into
+          # ${BREW_PREFIX}/include, so the volk subproject fails with
+          # `fatal error: 'vulkan/vk_platform.h' file not found`. The
+          # headers live at $(brew --prefix vulkan-headers)/include;
+          # surface that path via CPATH so clang finds them without
+          # touching the meson cross-file. (PR #760 round 4)
+          VK_HEADERS_INCLUDE="$(brew --prefix vulkan-headers)/include"
+          echo "CPATH=${VK_HEADERS_INCLUDE}:${CPATH:-}" >> $GITHUB_ENV
+          echo "CPLUS_INCLUDE_PATH=${VK_HEADERS_INCLUDE}:${CPLUS_INCLUDE_PATH:-}" >> $GITHUB_ENV
           # Sanity: confirm MoltenVK is the loaded ICD. `|| true`
           # because vulkaninfo non-zero-exits on some macOS warning
           # paths even when enumeration succeeds; the grep below is

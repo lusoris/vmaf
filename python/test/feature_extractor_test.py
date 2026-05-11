@@ -605,7 +605,12 @@ class FeatureExtractorTest(MyTestCase):
             results[0][
                 "VMAF_feature_adm3_f1s0_0.0173815_f1s1_0.0319848_f1s2_0.0433727_f1s3_0.0456734_f2s0_0.00589069_f2s1_0.0142991_f2s2_0.0243969_f2s3_0.0313127_score"
             ],
-            0.8872294166666667,
+            # Restored upstream-canonical value after porting upstream
+            # `4dcc2f7c` (full ADM feature-options sync). PR #732's
+            # `0.8872294166666667` recal was against #731's fork-local
+            # AIM; this port restores upstream AIM so the value matches
+            # upstream's golden assertion again.
+            0.9539779375,
             places=4,
         )
 

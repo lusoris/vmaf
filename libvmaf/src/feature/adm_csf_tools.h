@@ -16,17 +16,22 @@
  *
  */
 
-/* MSVC and some MinGW configurations require _USE_MATH_DEFINES to expose M_PI
- * from <math.h>. Define it before the include and provide a portable fallback
- * after, in case the underlying libm does not honour the request. */
+/* Define _USE_MATH_DEFINES before <math.h> so MSVC exposes `M_PI`,
+ * `M_PI_2`, etc. POSIX libcs export these unconditionally; MSVC gates
+ * them on the macro. Must precede the <math.h> include below. */
 #ifndef _USE_MATH_DEFINES
 #define _USE_MATH_DEFINES
 #endif
 #include <math.h>
+#include "common/macros.h"
+
+/* MinGW64's <math.h> still doesn't export `M_PI` without an extra
+ * fallback (it expects `__STRICT_ANSI__` to be off but our `-pipe
+ * -static` build sets `-D_FILE_OFFSET_BITS=64` which leaves it on for
+ * the header sequence). Define it manually if missing. */
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
-#include "common/macros.h"
 
 #pragma once
 
