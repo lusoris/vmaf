@@ -11,69 +11,103 @@
       "onnx": "fastdvdnet_pre.onnx",
       "opset": 17,
       "sha256": "eb9444cf6f07eefdc7f4f68d09131074dbd1dcee6f88a331ba684dd2fb5937d4",
+      "sigstore_bundle": "fastdvdnet_pre.onnx.sigstore.json",
       "smoke": false
     },
     {
       "id": "fr_regressor_v1",
       "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "notes": "Tiny FR regressor (C1) \u2014 6-feature canonical-6 vector (adm2, vif_scale0..3, motion2) \u2192 VMAF teacher score scalar. Trained on the Netflix Public Dataset (9 ref + 70 dis YUVs) with vmaf_v0.6.1 as DMOS-aligned teacher. 9-fold LOSO mean PLCC = 0.9977 \u00b1 0.0025. Shipped checkpoint trained on all 9 sources. Exported via ai/scripts/train_fr_regressor.py. See docs/ai/models/fr_regressor_v1.md + ADR-0249.",
       "onnx": "fr_regressor_v1.onnx",
       "opset": 17,
-      "sha256": "447334948e1cc63497ad3143f2342bd6a334adbb6d9a8dbf3685b1b3595979e9"
+      "sha256": "447334948e1cc63497ad3143f2342bd6a334adbb6d9a8dbf3685b1b3595979e9",
+      "sigstore_bundle": "fr_regressor_v1.onnx.sigstore.json"
     },
     {
       "id": "fr_regressor_v2",
       "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "notes": "Tiny FR regressor v2 (codec-aware) \u2014 6 canonical libvmaf features (adm2, vif_scale0..3, motion2) + 8-D codec block (6 encoder one-hot + preset_norm + crf_norm) -> VMAF teacher score. Trained on the vmaf-tune Phase A JSONL corpus (ADR-0237). Production checkpoint. In-sample PLCC=0.9794. Exported via ai/scripts/train_fr_regressor_v2.py. See docs/ai/models/fr_regressor_v2.md + ADR-0272 + ADR-0235.",
       "onnx": "fr_regressor_v2.onnx",
       "opset": 17,
       "sha256": "67934b0b61c73eb852d84ffb34e3333756e8da2530179ecc830336133e63e69e",
+      "sigstore_bundle": "fr_regressor_v2.onnx.sigstore.json",
       "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed0",
       "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=0). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed0.onnx",
       "opset": 17,
       "sha256": "08ab1aedab2337c458387f0961c14837fa972635e5d5b0cf6a3839976593dde4",
+      "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed0.onnx.sigstore.json",
       "smoke": true
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed1",
       "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=1). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed1.onnx",
       "opset": 17,
       "sha256": "42d86249d41aaff5d93547a744bb251d89085475e6e10197815a612c44894f5a",
+      "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed1.onnx.sigstore.json",
       "smoke": true
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed2",
       "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=2). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed2.onnx",
       "opset": 17,
       "sha256": "0f1d8a81d5ffc4b76223fd1f1993e3baf177536819e10ecc4c732f81067dd150",
+      "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed2.onnx.sigstore.json",
       "smoke": true
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed3",
       "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=3). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed3.onnx",
       "opset": 17,
       "sha256": "ed5e926037922b9b65903265f22702a61ca1c6fdee7da2418cfb5bed01072719",
+      "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed3.onnx.sigstore.json",
       "smoke": true
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed4",
       "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=4). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed4.onnx",
       "opset": 17,
       "sha256": "036c622401529b04d48a04cc06c65018126d2970a1139e2c89e18d8b12fa4c84",
+      "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed4.onnx.sigstore.json",
       "smoke": true
+    },
+    {
+      "id": "fr_regressor_v3",
+      "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "Tiny FR regressor v3 (codec-aware, ENCODER_VOCAB v3 16-slot) \u2014 6 canonical libvmaf features (adm2, vif_scale0..3, motion2) + 18-D codec block (16 encoder one-hot + preset_norm + crf_norm) -> VMAF teacher score. LOSO mean PLCC=0.9975 (gate >= 0.95). Production checkpoint. See docs/ai/models/fr_regressor_v3.md + ADR-0323 + ADR-0302 + ADR-0291 + ADR-0235.",
+      "onnx": "fr_regressor_v3.onnx",
+      "opset": 17,
+      "sha256": "eaa16d23461eda74940b2ed590edfcaf13428aade294e47792a5a15f4d3b999c",
+      "sigstore_bundle": "fr_regressor_v3.onnx.sigstore.json",
+      "smoke": false
     },
     {
       "description": "Tiny residual filter for vmaf_pre \u2014 degraded \u2192 clean luma.",
@@ -105,10 +139,13 @@
     {
       "id": "mobilesal_placeholder_v0",
       "kind": "nr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
       "notes": "Superseded by saliency_student_v1 (ADR-0286) for production use; retained as the historical smoke-only placeholder ADR-0218 / ADR-0257 referenced. Synthetic Conv+Sigmoid matching the MobileSal I/O contract; emits per-pixel saliency in [0,1]. Real-weights swap from upstream MobileSal was deferred per ADR-0257 (CC BY-NC-SA 4.0 + Google-Drive-walled + RGB-D); the fork-trained saliency_student_v1 replaces it. See docs/ai/models/saliency_student_v1.md.",
       "onnx": "mobilesal.onnx",
       "opset": 17,
       "sha256": "f122631089977c4be7d60b9bf3d4daf186d275bd0587db2c9878578e006b91d4",
+      "sigstore_bundle": "mobilesal.onnx.sigstore.json",
       "smoke": true
     },
     {
@@ -136,6 +173,20 @@
       "onnx": "saliency_student_v1.onnx",
       "opset": 17,
       "sha256": "1edc64772498ab73ebdb17e21f49679ce5ded82534d47f557cd15fd36e1b46e7",
+      "sigstore_bundle": "saliency_student_v1.onnx.sigstore.json",
+      "smoke": false
+    },
+    {
+      "description": "Fork-trained tiny U-Net saliency student trained on DUTS-TR \u2014 resize-decoder ablation (v2) on the v1 recipe.",
+      "id": "saliency_student_v2",
+      "kind": "nr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "Fork-trained tiny U-Net (~124K params) trained from scratch on DUTS-TR (Wang et al. 2017). Single-variable ablation against v1: decoder upsampler swapped from ConvTranspose2d to bilinear resize + 3x3 conv. Held-out val IoU=0.7105 (gate PASS vs v1=0.6558, +0.0547 / +8.3%). Drop-in for the mobilesal extractor (same input/saliency_map names + NCHW shapes). See docs/ai/models/saliency_student_v2.md + ADR-0332 + Research-0089.",
+      "onnx": "saliency_student_v2.onnx",
+      "opset": 17,
+      "sha256": "8cdaa6c10ab44d9b03a6a207603bd0b61f5c75a6beafdc82da57215f0a2ab2ed",
+      "sigstore_bundle": "saliency_student_v2.onnx.sigstore.json",
       "smoke": false
     },
     {
@@ -173,7 +224,8 @@
       "notes": "TransNet V2 shot-boundary detector (T6-3a-followup). 100-frame window of 27x48 RGB thumbnails -> per-frame shot-boundary logits. Real upstream weights from Soucek & Lokoc 2020 (MIT). Wrapper transposes NTCHW->NTHWC; ColorHistograms ScatterND-rewritten for opset-17. See docs/ai/models/transnet_v2.md.",
       "onnx": "transnet_v2.onnx",
       "opset": 17,
-      "sha256": "89280a199327871a0eb2c52914449ce339b7d8e8846a6245e4eb72d23d21cfc9"
+      "sha256": "89280a199327871a0eb2c52914449ce339b7d8e8846a6245e4eb72d23d21cfc9",
+      "sigstore_bundle": "transnet_v2.onnx.sigstore.json"
     },
     {
       "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_small (~257 params).",
@@ -189,6 +241,32 @@
       "smoke": false
     },
     {
+      "description": "Legacy tiny VMAF fusion regressor (mlp_small) \u2014 superseded by vmaf_tiny_v2 (ADR-0244); retained for LOSO-eval baselines + quantization regression tests.",
+      "id": "vmaf_tiny_v1",
+      "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "Legacy mlp_small (6\u219216\u21928\u21921) baseline over canonical-6 (adm2, vif_scale0..3, motion2). Superseded by vmaf_tiny_v2 (ADR-0244) as the default tiny FR fusion model. Retained on disk and in registry because docs/ai/loso-eval.md + docs/ai/quant-eps.md + docs/ai/quantization.md + ADR-0203 reference it as the single-split LOSO baseline and the quant-eps regression fixture (external-data filename repair landed via PR #296 / PR #174).",
+      "onnx": "vmaf_tiny_v1.onnx",
+      "opset": 17,
+      "sha256": "d30201dfa8a0cb1d6d5bbe342b0f9049e40bf86e57b2e3b14cbfcade9231e7a6",
+      "sigstore_bundle": "vmaf_tiny_v1.onnx.sigstore.json",
+      "smoke": true
+    },
+    {
+      "description": "Legacy tiny VMAF fusion regressor (mlp_medium sibling of vmaf_tiny_v1) \u2014 superseded by vmaf_tiny_v3; retained for LOSO-eval baselines.",
+      "id": "vmaf_tiny_v1_medium",
+      "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "Legacy mlp_medium sibling of vmaf_tiny_v1. Superseded by vmaf_tiny_v3 as the medium-capacity default. Retained on disk and in registry because docs/ai/loso-eval.md references both vmaf_tiny_v1*.onnx as single-split LOSO baselines.",
+      "onnx": "vmaf_tiny_v1_medium.onnx",
+      "opset": 17,
+      "sha256": "c72893db825e8a2cddf4e3932f30d8ba343ec353d0185e2ef9eedea38fb6c533",
+      "sigstore_bundle": "vmaf_tiny_v1_medium.onnx.sigstore.json",
+      "smoke": true
+    },
+    {
       "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_medium (~769 params).",
       "id": "vmaf_tiny_v3",
       "int8_sha256": "b4bdbb353b1b395adb22b77e890117228de1cfd12b94cb46fd0173c2fd12a343",
@@ -200,7 +278,8 @@
       "opset": 17,
       "quant_accuracy_budget_plcc": 0.01,
       "quant_mode": "dynamic",
-      "sha256": "57b2b7e0c62e84e3238b266e423e2008da76ec12ce957c173b2bbed11c65eb78"
+      "sha256": "57b2b7e0c62e84e3238b266e423e2008da76ec12ce957c173b2bbed11c65eb78",
+      "sigstore_bundle": "vmaf_tiny_v3.onnx.sigstore.json"
     },
     {
       "description": "Tiny VMAF fusion regressor \u2014 canonical-6 features + bundled StandardScaler + mlp_large (~3073 params).",
@@ -214,7 +293,8 @@
       "opset": 17,
       "quant_accuracy_budget_plcc": 0.01,
       "quant_mode": "dynamic",
-      "sha256": "2bccd339caa08f25433120546e45f2cb435288edeeefeafc56f3668986904e8f"
+      "sha256": "2bccd339caa08f25433120546e45f2cb435288edeeefeafc56f3668986904e8f",
+      "sigstore_bundle": "vmaf_tiny_v4.onnx.sigstore.json"
     }
   ],
   "schema_version": 1
