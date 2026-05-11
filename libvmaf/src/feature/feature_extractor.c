@@ -146,22 +146,15 @@ extern VmafFeatureExtractor vmaf_fex_float_motion_hip;
 extern VmafFeatureExtractor vmaf_fex_float_ssim_hip;
 #endif
 #if HAVE_METAL
-/* Metal first-consumer kernel — T8-1 / ADR-0361. Registration succeeds
- * but `init()` returns -ENOSYS until the runtime PR (T8-1b) replaces
- * the kernel-template helper bodies with real Metal calls. Mirrors
- * `vmaf_fex_integer_motion_v2_hip` field-for-field modulo the
- * unified-memory buffer collapse documented in
- * `feature/metal/integer_motion_v2_metal.c`. */
+/* Metal feature extractors — T8-1c through T8-1j / ADR-0421.
+ * All eight consumers are fully implemented as Obj-C++ .mm dispatch
+ * files in feature/metal/; the -ENOSYS scaffold .c stubs have been
+ * removed. Kernels live in feature/metal/*.metal, compiled via xcrun
+ * into the __TEXT,__metallib section of libvmaf. */
 extern VmafFeatureExtractor vmaf_fex_integer_motion_v2_metal;
-/* T8-1 batch-1 additional consumers (ADR-0361): psnr_metal,
- * float_ssim_metal, motion_metal — same scaffold-only registration
- * posture as the first consumer above. */
 extern VmafFeatureExtractor vmaf_fex_integer_psnr_metal;
 extern VmafFeatureExtractor vmaf_fex_float_ssim_metal;
 extern VmafFeatureExtractor vmaf_fex_integer_motion_metal;
-/* T8-1 batch-2 additional consumers (ADR-0361): float_psnr_metal,
- * float_ansnr_metal, float_motion_metal, float_moment_metal — same
- * scaffold-only registration posture. */
 extern VmafFeatureExtractor vmaf_fex_float_psnr_metal;
 extern VmafFeatureExtractor vmaf_fex_float_ansnr_metal;
 extern VmafFeatureExtractor vmaf_fex_float_motion_metal;
