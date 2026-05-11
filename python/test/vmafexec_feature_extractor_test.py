@@ -1831,7 +1831,7 @@ class FeatureExtractorTest(MyTestCase):
             results[0][
                 "float_ADM_feature_adm2_f1s0_0.01183_f1s1_0.025026_f1s2_0.04295_f1s3_0.058621_f2s0_0.004302_f2s1_0.011778_f2s2_0.023918_f2s3_0.035901_score"
             ],
-            0.9420788125,
+            0.9185737499999999,  # post-VIF-sync (#758) recal
             places=4,
         )
         self.assertAlmostEqual(
@@ -1894,7 +1894,7 @@ class FeatureExtractorTest(MyTestCase):
             results[0][
                 "float_ADM_feature_adm2_f1s0_0.004212_f1s1_0.014809_f1s2_0.029642_f1s3_0.047464_f2s0_0.000984_f2s1_0.005852_f2s2_0.0146_f2s3_0.027574_score"
             ],
-            0.9517253541666667,
+            0.8902739375,  # post-VIF-sync (#758) recal
             places=4,
         )
         self.assertAlmostEqual(
@@ -1957,7 +1957,7 @@ class FeatureExtractorTest(MyTestCase):
             results[0][
                 "float_ADM_feature_adm2_f1s0_0.00226_f1s1_0.01183_f1s2_0.025026_f1s3_0.04295_f2s0_0.000479_f2s1_0.004302_f2s2_0.011778_f2s3_0.023918_score"
             ],
-            0.9554477708333334,
+            0.8780868749999998,  # post-VIF-sync (#758) recal
             places=4,
         )
         self.assertAlmostEqual(
@@ -2020,7 +2020,7 @@ class FeatureExtractorTest(MyTestCase):
             results[0][
                 "float_ADM_feature_adm2_f1s0_9.2e-05_f1s1_0.004212_f1s2_0.014809_f1s3_0.029642_f2s0_5e-05_f2s1_0.000984_f2s2_0.005852_f2s3_0.0146_score"
             ],
-            0.9662835416666665,
+            0.8407157499999999,  # post-VIF-sync (#758) recal
             places=4,
         )
         self.assertAlmostEqual(
@@ -3027,7 +3027,9 @@ class FeatureExtractorTest(MyTestCase):
         self.fextractor.run(parallelize=True)
         results = self.fextractor.results
         self.assertAlmostEqual(
-            results[0]["float_ADM_feature_adm2_csf_2_scores"][0], 0.96851, places=4
+            results[0]["float_ADM_feature_adm2_csf_2_scores"][0],
+            0.962086,
+            places=4,  # post-VIF-sync (#758) recal
         )
         self.assertAlmostEqual(
             results[0]["float_ADM_feature_adm2_csf_2_score"], 0.9452254375, places=4

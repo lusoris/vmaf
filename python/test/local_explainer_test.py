@@ -100,7 +100,13 @@ class LocalExplainerTest(MyTestCase):
         self.runner.run()
         results = self.runner.results
 
-        self.assertAlmostEqual(results[0]["VMAF_LE_score"], 76.68425574067017, places=4)
+        # Post-VIF-sync (PR #758, upstream `bf9ad333`): on-the-fly filter
+        # generation shifts the score by ~0.017. Upstream's `142c0671`
+        # recalibrated most test_run_vmaf_* assertions to the new value;
+        # this is fork-recalibrated until upstream ships the companion
+        # local_explainer_test update. Tracked in `docs/rebase-notes.md`
+        # under `fix/macos-test-recal-post-vif-sync`.
+        self.assertAlmostEqual(results[0]["VMAF_LE_score"], 76.66740228116836, places=4)
         self.assertAlmostEqual(results[1]["VMAF_LE_score"], 99.946416604585025, places=4)
 
         expected_feature_names = [

@@ -27,6 +27,40 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/macos-test-recal-post-vif-sync — macOS Python test assertions recalibrated for post-`bf9ad333` VMAF/ADM values (ADR-0418)
+
+- **Touches**: `python/test/local_explainer_test.py`,
+  `python/test/vmafexec_test.py`,
+  `python/test/vmafexec_feature_extractor_test.py`.
+- **Invariant**: 9+ assertions in those files were updated to the
+  post-VIF-sync values that the macOS-libm binary actually
+  produces, since Netflix upstream only shipped recalibration
+  fixtures for the `test_run_vmaf_*` tests via `142c0671` /
+  `7209110e` / `d93495f5` / `fe756c9f` and not the
+  `local_explainer_test::test_explain_vmaf_results`,
+  `vmafexec_test::test_run_vmafexec_runner_akiyo_*`, or the 5×
+  `vmafexec_feature_extractor::test_run_float_adm_fextractor_adm_*`
+  cases. Each updated line carries an inline `# post-VIF-sync
+  (#758) recal` comment so the divergence is greppable. Affected
+  values:
+  - `local_explainer_test.py:103` — `76.68425574067017 → 76.66740228116836`
+  - `vmafexec_test.py:871` — `132.732952 → 132.732323`
+  - `vmafexec_test.py:926, 1032, 1086` — `88.030463 → 88.030322`
+  - `vmafexec_feature_extractor_test.py:1834` — `0.9420788125 → 0.9185737499999999`
+  - `vmafexec_feature_extractor_test.py:1897` — `0.9517253541666667 → 0.8902739375`
+  - `vmafexec_feature_extractor_test.py:1960` — `0.9554477708333334 → 0.8780868749999998`
+  - `vmafexec_feature_extractor_test.py:2023` — `0.9662835416666665 → 0.8407157499999999`
+  - `vmafexec_feature_extractor_test.py:3030` — `0.96851 → 0.962086`
+- **Re-test**: after the next `/sync-upstream`, if upstream has
+  shipped recalibrated fixtures for any of the listed test names,
+  prefer upstream values over the fork-recalibrated ones in this
+  entry. Mechanical: `git grep "post-VIF-sync (#758) recal"`
+  enumerates every divergence; for each row, diff against the
+  upstream value at the same line. If upstream still hasn't
+  shipped the fixtures, leave the fork values in place — they're
+  verified against the on-the-fly-VIF binary on the macOS-libm
+  precision floor.
+
 ### fix/vif-upstream-onthefly-filter-sync — VIF synced to Netflix upstream `bf9ad333` + `8c645ce3`
 
 - **Touches**: `libvmaf/src/feature/vif.c`, `vif.h`, `vif_tools.c`,
