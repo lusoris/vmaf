@@ -47,6 +47,12 @@
 #ifdef HAVE_VULKAN
 #include "libvmaf/libvmaf_vulkan.h"
 #endif
+#ifdef HAVE_HIP
+#include "libvmaf/libvmaf_hip.h"
+#endif
+#ifdef HAVE_METAL
+#include "libvmaf/libvmaf_metal.h"
+#endif
 
 static enum VmafPixelFormat pix_fmt_map(int pf)
 {
@@ -422,6 +428,14 @@ static int init_gpu_backends(VmafContext *vmaf, const CLISettings *c
                              ,
                              VmafVulkanState **vulkan_state, bool *vulkan_active
 #endif
+#ifdef HAVE_HIP
+                             ,
+                             VmafHipState **hip_state, bool *hip_active
+#endif
+#ifdef HAVE_METAL
+                             ,
+                             VmafMetalState **metal_state, bool *metal_active
+#endif
 )
 {
     int err;
@@ -497,6 +511,54 @@ static int init_gpu_backends(VmafContext *vmaf, const CLISettings *c
         }
     }
     (void)*vulkan_active;
+#endif
+
+#ifdef HAVE_HIP
+    /* HIP opt-in: explicit --hip_device only. Same lifetime model as
+     * SYCL + Vulkan — state is passed back by reference so the cleanup
+     * block can free it after vmaf_close(). */
+    VmafHipConfiguration hip_cfg = {
+        .device_index = c->hip_device,
+        .flags = 0,
+    };
+    if (c->hip_device >= 0 && !c->no_hip) {
+        err = vmaf_hip_state_init(hip_state, hip_cfg);
+        if (err) {
+            (void)fprintf(stderr, "problem during vmaf_hip_state_init (%d), using CPU\n", err);
+        } else {
+            err = vmaf_hip_import_state(vmaf, *hip_state);
+            if (err) {
+                (void)fprintf(stderr, "problem during vmaf_hip_import_state\n");
+                return -1;
+            }
+            *hip_active = true;
+        }
+    }
+    (void)*hip_active;
+#endif
+
+#ifdef HAVE_METAL
+    /* Metal opt-in: explicit --metal_device only. macOS-only; on non-
+     * Apple hosts vmaf_metal_state_init returns -ENODEV and the CLI
+     * falls back to CPU. Same state-lifetime model as SYCL/Vulkan. */
+    VmafMetalConfiguration metal_cfg = {
+        .device_index = c->metal_device,
+        .flags = 0,
+    };
+    if (c->metal_device >= 0 && !c->no_metal) {
+        err = vmaf_metal_state_init(metal_state, metal_cfg);
+        if (err) {
+            (void)fprintf(stderr, "problem during vmaf_metal_state_init (%d), using CPU\n", err);
+        } else {
+            err = vmaf_metal_import_state(vmaf, *metal_state);
+            if (err) {
+                (void)fprintf(stderr, "problem during vmaf_metal_import_state\n");
+                return -1;
+            }
+            *metal_active = true;
+        }
+    }
+    (void)*metal_active;
 #endif
 
     return 0;
@@ -786,6 +848,14 @@ int main(int argc, char *argv[])
     bool vulkan_active = false;
     VmafVulkanState *vulkan_state = NULL;
 #endif
+#ifdef HAVE_HIP
+    bool hip_active = false;
+    VmafHipState *hip_state = NULL;
+#endif
+#ifdef HAVE_METAL
+    bool metal_active = false;
+    VmafMetalState *metal_state = NULL;
+#endif
 
     if (istty && !c.quiet) {
         (void)fprintf(stderr, "VMAF version %s\n", vmaf_version());
@@ -845,6 +915,14 @@ int main(int argc, char *argv[])
 #ifdef HAVE_VULKAN
                           ,
                           &vulkan_state, &vulkan_active
+#endif
+#ifdef HAVE_HIP
+                          ,
+                          &hip_state, &hip_active
+#endif
+#ifdef HAVE_METAL
+                          ,
+                          &metal_state, &metal_active
 #endif
                           )) {
         ret = -1;
@@ -956,6 +1034,14 @@ cleanup:
 #ifdef HAVE_VULKAN
     if (vulkan_state)
         vmaf_vulkan_state_free(&vulkan_state);
+#endif
+#ifdef HAVE_HIP
+    if (hip_state)
+        vmaf_hip_state_free(&hip_state);
+#endif
+#ifdef HAVE_METAL
+    if (metal_state)
+        vmaf_metal_state_free(&metal_state);
 #endif
     if (vid_dist_open)
         video_input_close(&vid_dist);

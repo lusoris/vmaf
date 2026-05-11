@@ -11,15 +11,17 @@
 
 /**
  * @file libvmaf_metal.h
- * @brief Metal (Apple Silicon) backend public API — scaffolded by ADR-0361 / T8-1.
+ * @brief Metal (Apple Silicon) backend public API — ADR-0361 / T8-1 through T8-1d.
  *
- * **Status: scaffold only.** Every entry point currently returns -ENOSYS
- * pending a real implementation. The header lands so downstream
- * consumers can compile against the API surface; the runtime + kernels
- * (motion_v2 first, then VIF / ADM / ...) arrive in follow-up PRs
- * (T8-1b / T8-1c). Mirrors the HIP scaffold (ADR-0212) and the Vulkan
- * scaffold (ADR-0175) — see ADR-0361 for the audit-first decision and
- * rollout sequence.
+ * **Status: live.** The runtime (T8-1b, ADR-0420) and the first kernel set
+ * (T8-1c/d, ADR-0421 — `integer_motion_v2.metal` + 7 additional
+ * feature-extractor MSL shaders) are fully shipped. All 8 `.mm` dispatch
+ * translation units and 8 `.metal` shaders are compiled, linked, and
+ * registered. Entry points return 0 on Apple-Family-7+ (M1 and later) or
+ * -ENODEV on Intel Macs and non-Apple hosts.
+ *
+ * Mirrors the HIP scaffold (ADR-0212) and the Vulkan scaffold (ADR-0175) —
+ * see ADR-0361 for the audit-first decision and rollout sequence.
  *
  * When libvmaf was built without `-Denable_metal=enabled` (or built on
  * a non-macOS host where the Metal framework auto-probe failed), every
@@ -34,10 +36,11 @@
  * and the Vulkan backend uses for `VkDevice` / `VkQueue` (per
  * ADR-0184).
  *
- * Apple-platform-only: the runtime PR (T8-1b) gates device selection
- * on `MTLGPUFamily.Apple7` (M1 and later). Intel Macs and non-Apple
- * hosts surface as -ENODEV from `vmaf_metal_state_init`. See ADR-0361
- * §"Apple Silicon-only" for reasoning.
+ * Apple-platform-only: device selection is gated on `MTLGPUFamily.Apple7`
+ * (M1 and later). Intel Macs and non-Apple hosts surface as -ENODEV from
+ * `vmaf_metal_state_init`. See ADR-0361 §"Apple Silicon-only" for reasoning.
+ * CLI exposure: `--metal_device <N>` / `--no_metal` / `--backend metal`
+ * (ADR-0422).
  */
 
 #ifndef LIBVMAF_METAL_H_

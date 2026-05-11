@@ -338,3 +338,4 @@
 0420-metal-backend-runtime-t8-1b
 
 0405-openvino-npu-ep-wiring
+0422-cli-hip-metal-backend-selectors

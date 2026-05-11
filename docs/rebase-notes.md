@@ -33523,3 +33523,35 @@ and training-data.md are already in master and untouched by this branch.
 
   On Linux: `meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false
   && ninja -C build` (Metal subdir not entered; no Metal test registered).
+
+## ADR-0422 — CLI HIP and Metal backend selectors (2026-05-11)
+
+**Files touched**: `libvmaf/tools/cli_parse.h`, `libvmaf/tools/cli_parse.c`,
+`libvmaf/tools/vmaf.c`, `libvmaf/test/test_cli_parse.c`,
+`libvmaf/include/libvmaf/libvmaf_metal.h`.
+
+**Rebase impact**: none — this PR only adds new CLI flags and branches to the
+standalone `vmaf` tool. No libvmaf public C API symbols changed; no
+`meson_options.txt` entries added; the ffmpeg-patches stack is unaffected.
+The `libvmaf_metal.h` change is docstring-only (no API surface delta).
+
+**Invariants to preserve on rebase**:
+- `CLISettings` in `cli_parse.h` has `no_hip`, `hip_device`, `no_metal`,
+  `metal_device` fields. If upstream adds its own HIP/Metal CLI flags in the
+  same struct, resolve the merge by keeping the fork's field names (they match
+  our header convention) and dropping any upstream stub.
+- `--backend cpu` disables all five GPU backends (`no_cuda`, `no_sycl`,
+  `no_vulkan`, `no_hip`, `no_metal`). If upstream extends the backend enum,
+  ensure the cpu branch stays exhaustive.
+- `init_gpu_backends()` signature in `vmaf.c` passes `hip_state`/`hip_active`
+  and `metal_state`/`metal_active` by reference under `#ifdef HAVE_HIP` /
+  `#ifdef HAVE_METAL` guards. Preserve both the guards and the by-reference
+  convention on rebase.
+
+**Smoke-test after rebase**:
+
+```bash
+meson setup build libvmaf -Denable_cuda=false -Denable_sycl=false --buildtype=debug
+ninja -C build
+meson test -C build test_cli_parse   # all 5 new tests must pass
+```
