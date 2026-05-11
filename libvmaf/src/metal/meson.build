@@ -25,6 +25,15 @@
 # same compile_commands.json. Meson auto-detects Obj-C / Obj-C++
 # compilers when the file extension is `.mm` (Apple Clang ships them
 # as part of clang).
+# T8-1b runtime needs Obj-C++ added to the project's language list
+# before any `.mm` source can be added to a target — meson errors with
+# "No host machine compiler for 'src/metal/common.mm'" otherwise (CI
+# run 25685041032 / job 75406405007). `add_languages` is the canonical
+# meson API for late-binding a language; gated behind the parent's
+# `is_metal_enabled` (Darwin-only). `required: true` because by the
+# time we reach this branch the build IS Metal-enabled.
+add_languages('objcpp', native: false, required: true)
+
 metal_sources += files(
     # Runtime TUs (T8-1b, Obj-C++ via Apple Clang).
     'common.mm',
@@ -32,9 +41,10 @@ metal_sources += files(
     'kernel_template.mm',
     # Dispatch-strategy stub — pure C, no Metal SDK needed.
     'dispatch_strategy.c',
-    # Per-feature kernel scaffolds — pure C, return -ENOSYS at init()
-    # until each feature's runtime PR (T8-1c onward) replaces them.
-    '../feature/metal/integer_motion_v2_metal.c',
+    # T8-1c first real kernel (ADR-0421): integer_motion_v2 dispatch
+    # converted to .mm so it can build MTLComputePipelineState and
+    # dispatch `motion_v2_kernel_{8,16}bpc` from the embedded metallib.
+    '../feature/metal/integer_motion_v2_metal.mm',
     # T8-1 batch-1 scaffolds (ADR-0361): 3 additional consumers.
     '../feature/metal/integer_psnr_metal.c',
     '../feature/metal/float_ssim_metal.c',
@@ -87,3 +97,60 @@ metal_objcpp_args = [
 # top-level `add_project_arguments(..., language: 'objcpp')` call
 # would leak across other backends; keeping them scoped here.
 add_project_arguments(metal_objcpp_args, language: 'objcpp')
+
+# ---------------------------------------------------------------------
+# Metallib compilation (T8-1c / ADR-0421).
+#
+# Pipeline: `.metal` → `.air` → `.metallib` via `xcrun -sdk macosx
+# metal` and `xcrun -sdk macosx metallib`. The compiled metallib is
+# then embedded into the libvmaf shared/static library via the
+# linker's `-sectcreate __TEXT __metallib <path>` flag — the
+# consumer's .mm code (`integer_motion_v2_metal.mm`) reads the
+# embedded byte range via `section$start$__TEXT$__metallib` /
+# `section$end$__TEXT$__metallib` symbols and hands the bytes to
+# `[MTLDevice newLibraryWithData:]` at init time. No filesystem path
+# dependency at runtime.
+#
+# Same embedded-blob pattern the CUDA backend uses for its cubin
+# (`vmaf_cuda_compiled_kernels_start` / `_end`).
+xcrun = find_program('xcrun', required: true)
+
+metal_kernel_sources = files(
+    '../feature/metal/integer_motion_v2.metal',
+    # T8-1c batch (ADR-0421): other 7 kernels land alongside as their
+    # .metal files are written. Build them all into the same metallib
+    # so a single embedded blob covers every Metal feature extractor.
+)
+
+# Compile each .metal to .air (intermediate IR).
+metal_air_files = []
+foreach src : metal_kernel_sources
+    air_name = '@BASENAME@.air'
+    air_target = custom_target('air-' + '@BASENAME@'.format(src),
+        input: src,
+        output: air_name,
+        command: [xcrun, '-sdk', 'macosx', 'metal',
+                  '-c', '@INPUT@',
+                  '-o', '@OUTPUT@',
+                  '-Wall', '-Wextra', '-O3'],
+    )
+    metal_air_files += air_target
+endforeach
+
+# Link all .air files into a single default.metallib.
+metallib_target = custom_target('libvmaf-metallib',
+    input: metal_air_files,
+    output: 'default.metallib',
+    command: [xcrun, '-sdk', 'macosx', 'metallib',
+              '@INPUT@', '-o', '@OUTPUT@'],
+)
+
+# Threading the metallib into the libvmaf binary's __TEXT,__metallib
+# section is done via the link line. The parent meson.build extends
+# the library's link_args with the -sectcreate flag below; surface
+# the metallib path so it can pick it up.
+metal_deps += declare_dependency(
+    sources: metallib_target,
+    link_args: ['-Wl,-sectcreate,__TEXT,__metallib,' +
+                metallib_target.full_path()],
+)
