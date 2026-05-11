@@ -10,7 +10,14 @@
   production-shipped, but their `registry.json` rows were absent —
   any `--tiny-model=<id>` lookup would have failed despite the ONNX
   files being present and signed. `libvmaf/test/dnn/test_registry.sh`
-  now reports `OK: 21 registry entries verified`.
+  now reports `OK: 23 registry entries verified`.
+- Also restored `vmaf_tiny_v1` + `vmaf_tiny_v1_medium` rows. The ONNX
+  blobs are tracked on `master` and actively referenced by
+  `docs/ai/loso-eval.md`, `docs/ai/quant-eps.md`,
+  `docs/ai/quantization.md`, and ADR-0203 as the legacy LOSO baseline
+  and the quant-eps regression fixture, but had no registry rows.
+  Marked `smoke: true` since they are superseded by `vmaf_tiny_v2` /
+  `vmaf_tiny_v3` as production defaults (ADR-0244).
 - Backfilled `license` + `license_url` + `sigstore_bundle` metadata
   on 15 pre-existing registry entries that were missing one or more
   of those fields (ADR-0211 / T6-9 contract). Fork-local models
