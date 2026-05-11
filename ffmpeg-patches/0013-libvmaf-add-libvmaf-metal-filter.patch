@@ -51,10 +51,9 @@ Patch is on top of 0001-0012 (post-metal-backend-selector baseline).
 diff --git a/configure b/configure
 --- a/configure
 +++ b/configure
-@@ -4240,6 +4240,7 @@ vidstabtransform_filter_deps="libvidstab"
+@@ -4246,5 +4246,6 @@ vidstabtransform_filter_deps="libvidstab"
  libvmaf_filter_deps="libvmaf"
  libvmaf_cuda_filter_deps="libvmaf libvmaf_cuda ffnvcodec"
- libvmaf_hip_filter_deps="libvmaf libvmaf_hip"
 +libvmaf_metal_filter_deps="libvmaf libvmaf_metal"
  libvmaf_sycl_filter_deps="libvmaf libvmaf_sycl libvpl"
  libvmaf_vulkan_filter_deps="libvmaf libvmaf_vulkan vulkan"
@@ -71,25 +70,23 @@ diff --git a/configure b/configure
 diff --git a/libavfilter/Makefile b/libavfilter/Makefile
 --- a/libavfilter/Makefile
 +++ b/libavfilter/Makefile
-@@ -378,6 +378,7 @@ OBJS-$(CONFIG_LIBPLACEBO_FILTER)             += vf_libplacebo.o vulkan.o vulkan_
+@@ -377,5 +377,6 @@ OBJS-$(CONFIG_LIBPLACEBO_FILTER)             += vf_libplacebo.o vulkan.o vulkan_
  OBJS-$(CONFIG_LIBVMAF_FILTER)                += vf_libvmaf.o framesync.o
  OBJS-$(CONFIG_LIBVMAF_CUDA_FILTER)           += vf_libvmaf.o framesync.o
- OBJS-$(CONFIG_LIBVMAF_HIP_FILTER)            += vf_libvmaf.o framesync.o
 +OBJS-$(CONFIG_LIBVMAF_METAL_FILTER)          += vf_libvmaf.o framesync.o
  OBJS-$(CONFIG_LIBVMAF_SYCL_FILTER)           += vf_libvmaf.o framesync.o
- OBJS-$(CONFIG_LIBVMAF_VULKAN_FILTER)         += vf_libvmaf.o framesync.o
+ OBJS-$(CONFIG_LIBVMAF_VULKAN_FILTER)          += vf_libvmaf.o framesync.o
  OBJS-$(CONFIG_LIMITDIFF_FILTER)              += vf_limitdiff.o framesync.o
 diff --git a/libavfilter/allfilters.c b/libavfilter/allfilters.c
 --- a/libavfilter/allfilters.c
 +++ b/libavfilter/allfilters.c
-@@ -352,6 +352,7 @@ extern const FFFilter ff_vf_libplacebo;
+@@ -351,5 +351,6 @@ extern const FFFilter ff_vf_libplacebo;
  extern const FFFilter ff_vf_libvmaf;
  extern const FFFilter ff_vf_libvmaf_cuda;
- extern const FFFilter ff_vf_libvmaf_hip;
 +extern const FFFilter ff_vf_libvmaf_metal;
  extern const FFFilter ff_vf_libvmaf_sycl;
  extern const FFFilter ff_vf_libvmaf_vulkan;
- extern const FFFilter ff_vf_limitdiff;
+ extern const FFFilter ff_vf_libvmaf_tune;
 diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
 --- a/libavfilter/vf_libvmaf.c
 +++ b/libavfilter/vf_libvmaf.c
