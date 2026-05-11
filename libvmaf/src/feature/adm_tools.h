@@ -360,14 +360,19 @@ static FORCE_INLINE float dwt_quant_step(const struct dwt_model_params *params, 
                                          int adm_ref_display_height)
 {
     // Formula (1), page 1165 - display visual resolution (DVR), in pixels/degree of visual angle. This should be 56.55
-    float r = adm_norm_view_dist * adm_ref_display_height * M_PI / 180.0;
+    /* Promote to double for the intermediates — CodeQL's
+     * `cpp/integer-multiplication-cast-to-long` flags the
+     * `params->k * temp * temp` chain as a high-severity overflow
+     * risk when the product is implicitly widened. Compute in
+     * double and narrow to float on return. */
+    double r = (double)adm_norm_view_dist * adm_ref_display_height * M_PI / 180.0;
 
     // Formula (9), page 1171
-    float temp = log10(pow(2.0, lambda + 1) * params->f0 * params->g[theta] / r);
-    float Q = 2.0 * params->a * pow(10.0, params->k * temp * temp) /
-              dwt_7_9_basis_function_amplitudes[lambda][theta];
+    double temp = log10(pow(2.0, lambda + 1) * params->f0 * params->g[theta] / r);
+    double Q = 2.0 * params->a * pow(10.0, params->k * temp * temp) /
+               dwt_7_9_basis_function_amplitudes[lambda][theta];
 
-    return Q;
+    return (float)Q;
 }
 
 #endif /* ADM_TOOLS_H_ */
