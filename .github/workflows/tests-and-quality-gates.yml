@@ -577,11 +577,7 @@ jobs:
               # `count` between submit/acquire paths); plus the four
               # tests revealed by PR #758's introspect fix. Tracked as
               # T-SANITIZER-DEFECTS-REVEALED-758.
-              # test_cambi: SIGILL in `test_calculate_c_values_scalar_avx2_parity`
-              # under TSan on Ubuntu 24.04 CI; the AVX2 path traps. Does NOT
-              # reproduce locally on Arch/gcc. Stopgap exclude pending CI-env
-              # investigation (T-CAMBI-AVX2-CI-SIGILL).
-              EXCLUDE='test_model$|test_pic_preallocation$|test_framesync$|test_score_pooled_eagain$|test_feature_collector$|test_predict$|test_cli_parse$|test_cambi$'
+              EXCLUDE='test_model$|test_pic_preallocation$|test_framesync$|test_score_pooled_eagain$|test_feature_collector$|test_predict$|test_cli_parse$'
               ;;
             *)
               echo "::error::ADR-0347 deselect list is not defined for sanitizer=${{ matrix.sanitizer }}" >&2

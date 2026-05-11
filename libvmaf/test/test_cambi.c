@@ -922,9 +922,12 @@ static char *test_calculate_c_values_scalar_avx2_parity()
     uint16_t tvi_for_diff[4] = {178, 305, 432, 559};
     uint16_t vlt_luma = 0;
     uint16_t window_size = 9;
-    /* histograms: width * v_band_size, v_band_size <= tvi_for_diff[3]+1 = 560 */
-    uint16_t histograms_s[8 * 560];
-    uint16_t histograms_a[8 * 560];
+    /* histograms: width * v_band_size, v_band_size <= tvi_for_diff[3]+1 = 560.
+     * Zero-initialise — calculate_c_values builds histograms incrementally
+     * via increment/decrement_range; pre-zeroing ensures deterministic
+     * sanitizer-instrumented runs on Ubuntu 24.04 CI (T-CAMBI-AVX2-CI-SIGILL). */
+    uint16_t histograms_s[8 * 560] = {0};
+    uint16_t histograms_a[8 * 560] = {0};
     uint16_t *diffs_to_consider = NULL;
     int *diff_weights = NULL;
     int *all_diffs = NULL;
