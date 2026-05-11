@@ -1,23 +1,30 @@
 # AGENTS.md — libvmaf/src/mcp
-Orientation for agents working on the embedded MCP server scaffold.
+Orientation for agents working on the embedded MCP server.
 Parent: [../../AGENTS.md](../../AGENTS.md).
 ## Scope
 ```text
 mcp/
-  mcp.c           # audit-first stub TU; every entry returns -ENOSYS or trivially safe constant
-  meson.build     # subdir() include from libvmaf/src/meson.build
+  mcp.c               # public entry points, lifecycle, listener bring-up
+  mcp_internal.h      # runtime types shared across TUs
+  dispatcher.c        # JSON-RPC routing (tools/list, tools/call, resources/list)
+  compute_vmaf.c      # per-call ephemeral VmafContext scoring tool
+  transport_stdio.c   # line-delimited JSON-RPC on stdin/stdout
+  transport_uds.c     # AF_UNIX listener (mode 0700), one client at a time
+  transport_sse.c     # AF_INET loopback HTTP/1.1 + Server-Sent Events
+  meson.build         # subdir() include from libvmaf/src/meson.build
 ```
 Public C-API: [`../../include/libvmaf/libvmaf_mcp.h`](../../include/libvmaf/libvmaf_mcp.h).
-Smoke test: [`../../test/test_mcp_smoke.c`](../../test/test_mcp_smoke.c)
-(12 sub-tests pinning the `-ENOSYS` contract).
+Smoke test: [`../../test/test_mcp_smoke.c`](../../test/test_mcp_smoke.c).
 ## Backend status
-**Scaffold-only** (T5-2a / [ADR-0209](../../../docs/adr/0209-mcp-embedded-scaffold.md)).
-Every public entry point validates its arguments first
-(`-EINVAL` on NULLs / negative fds / NULL paths) **then** returns
-`-ENOSYS`. The runtime PR (T5-2b) lands cJSON + mongoose + the
-dedicated MCP pthread + the SPSC ring buffer + the SSE / UDS / stdio
-transport bodies. The runtime PR flips bodies in place and updates
-the smoke expectations in the same commit.
+**Live** (T5-2b + v2 + v3, [ADR-0209](../../../docs/adr/0209-mcp-embedded-scaffold.md)).
+All three transports are real implementations: stdio,
+`AF_UNIX` UDS (mode 0700, single client at a time), and
+loopback-only HTTP/1.1 + SSE (fork-owned plain POSIX sockets;
+mongoose was rejected on license grounds — see invariant #6
+below). Every public entry point still validates its arguments
+first (`-EINVAL` on NULLs / negative fds / NULL paths); the
+smoke test pins both the input-validation contract and the
+live round-trip behaviour.
 ## Ground rules
 - **Parent rules** apply (see [../../AGENTS.md](../../AGENTS.md)).
 - **Wholly-new fork file** — uses the dual Lusoris/Claude (Anthropic)
@@ -92,10 +99,6 @@ Fork-local subtree. Read this before editing any TU under
    it locally — refresh by re-downloading from upstream
    `DaveGamble/cJSON` and update `3rdparty/cJSON/LICENSE` in the
    same commit.
-6. **SSE transport (`vmaf_mcp_start_sse`) returns `-ENOSYS`** until
-   v3 vendors mongoose. The smoke test pins this; flipping it
-   without landing the body will fail
-   `test_start_sse_returns_enosys`.
 6. **SSE transport is fork-owned plain POSIX sockets — NOT mongoose.**
    The original v3 plan to vendor cesanta/mongoose was reversed
    because mongoose 7.18 is GPL-2.0-only OR commercial,
@@ -122,23 +125,12 @@ Fork-local subtree. Read this before editing any TU under
 ```bash
 meson setup build -Denable_mcp=true \
                   -Denable_mcp_stdio=true \
-                  -Denable_mcp_uds=true
-# enable_mcp_sse=false (v3); flipping it true at v2-time builds
-# but every connect attempt fails with -ENOSYS at runtime.
-## Smoke test
-build/test/test_mcp_smoke   # expects "16 tests run, 16 passed"
-The two new v2 sub-tests are `test_uds_roundtrip` (binds an
-`AF_UNIX` listener on `/tmp/vmaf-mcp-uds-test-<pid>.sock`,
-round-trips `tools/list`) and `test_compute_vmaf_real_score`
-(round-trips `tools/call` for `compute_vmaf` against the testdata
-576x324 48-frame YUV pair). The compute test gracefully skips
-when the YUV fixture is absent.
                   -Denable_mcp_uds=true \
                   -Denable_mcp_sse=enabled
-# enable_mcp_sse is now a `feature` option (default: auto). The
-# SSE transport is plain POSIX sockets — no third-party vendor
-# probe.
+# enable_mcp_sse is a `feature` option (default: auto). The SSE
+# transport is plain POSIX sockets — no third-party vendor probe.
 ```
+## Smoke test
 ```
 build/test/test_mcp_smoke   # expects "17 tests run, 17 passed"
 ```
