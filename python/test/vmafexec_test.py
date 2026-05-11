@@ -868,8 +868,8 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            results[0]["VMAFEXEC_score"], 132.732323, places=3
-        )  # 132.78849246495625 — post-VIF-sync (PR #758) fork-recal until upstream ships companion
+            results[0]["VMAFEXEC_score"], 132.732952, places=3
+        )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_with_feature_enhn_gain_limit(self):
         ref_path = VmafConfig.test_resource_path(
@@ -923,8 +923,8 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            results[0]["VMAFEXEC_score"], 88.030322, places=4
-        )  # 132.78849246495625 — post-VIF-sync (PR #758) fork-recal
+            results[0]["VMAFEXEC_score"], 88.030463, places=4
+        )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_with_feature_enhn_gain_limit_custom(self):
         ref_path = VmafConfig.test_resource_path(
@@ -1029,8 +1029,8 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            results[0]["VMAFEXEC_score"], 88.030322, places=4
-        )  # 132.78849246495625 — post-VIF-sync (PR #758) fork-recal
+            results[0]["VMAFEXEC_score"], 88.030463, places=4
+        )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_no_enhn_gain_model(self):
         ref_path = VmafConfig.test_resource_path(
@@ -1083,8 +1083,8 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            results[0]["VMAFEXEC_score"], 88.030322, places=4
-        )  # 132.78849246495625 — post-VIF-sync (PR #758) fork-recal
+            results[0]["VMAFEXEC_score"], 88.030463, places=4
+        )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_no_enhn_gain_model_and_cmd_options(self):
         ref_path = VmafConfig.test_resource_path(

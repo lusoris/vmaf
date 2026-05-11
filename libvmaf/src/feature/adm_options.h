@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -36,46 +36,35 @@
 /* Enhancement gain imposed on adm, must be >= 1.0, where 1.0 means the gain is completely disabled */
 #define DEFAULT_ADM_ENHN_GAIN_LIMIT (100.0)
 
-/* Noise floor weight added to the DLM numerator cube-root term.
- * DLM uses 1/32 = 0.03125; AIM uses 0.0 (no noise-floor addend). */
-#define DEFAULT_ADM_NOISE_WEIGHT (0.03125)
-
 /* normalized viewing distance = viewing distance / ref display's physical height */
 #define DEFAULT_ADM_NORM_VIEW_DIST (3.0)
 
 /* reference display height in pixels */
 #define DEFAULT_ADM_REF_DISPLAY_HEIGHT (1080)
 
-/* Minimum value for adm3; values below this are clipped. */
-#ifndef DEFAULT_ADM_MIN_VAL
-#define DEFAULT_ADM_MIN_VAL (0.0)
-#endif
+/* noise multiplicative weight */
+#define DEFAULT_ADM_NOISE_WEIGHT (0.03125)
 
-/* CSF band-scale multipliers (horizontal/vertical and diagonal direction terms).
- * Default 1.0 means no scaling. Non-default values are baked into the feature name. */
-#ifndef DEFAULT_ADM_CSF_SCALE
+/* CSF scale factor */
 #define DEFAULT_ADM_CSF_SCALE (1.0)
-#endif
-#ifndef DEFAULT_ADM_CSF_DIAG_SCALE
-#define DEFAULT_ADM_CSF_DIAG_SCALE (1.0)
-#endif
 
-/* Contrast sensitivity function mode selector.
- * ADM_CSF_MODE_WATSON97: Watson 1997 DWT-quantisation-step CSF (original VMAF float path).
- * ADM_CSF_MODE_BARTEN:   Barten CSF (HDR-VDP2 model); requires adm_csf_scale / adm_csf_diag_scale. */
+/* CSF diagonal scale factor */
+#define DEFAULT_ADM_CSF_DIAG_SCALE (1.0)
+
+/* Contrast sensitivity function */
 enum ADM_CSF_MODE {
     ADM_CSF_MODE_WATSON97 = 0,
-    ADM_CSF_MODE_BARTEN = 1,
+    ADM_CSF_MODE_BARTEN,
+    ADM_CSF_MODE_ADM,
 };
 
 /* Default contrast sensitivity function */
-#ifndef DEFAULT_ADM_CSF_MODE
 #define DEFAULT_ADM_CSF_MODE (ADM_CSF_MODE_WATSON97)
-#endif
 
-/* Default luminance level for the Barten CSF model (cd/m²). */
-#ifndef DEFAULT_ADM_CSF_LUM
-#define DEFAULT_ADM_CSF_LUM (100.0)
-#endif
+/* Default luminance level (in cd/m2) for contrast sensitivity function calculation */
+#define DEFAULT_ADM_CSF_LUMINANCE_LEVEL (100.0)
+
+/* Default minimum value allowed for the feature */
+#define DEFAULT_ADM_MIN_VAL (0.0)
 
 #endif /* ADM_OPTIONS_H_ */

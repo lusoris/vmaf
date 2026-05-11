@@ -1,97 +1,123 @@
-# ADR-0418: macOS Python test recalibration post-VIF-sync (PR #758)
+# ADR-0418: Full upstream ADM + VIF-prescale sync (companion to PR #758 / ADR-0416)
 
 Status: Accepted
 Date: 2026-05-11
-Tags: testing, macos, vif, fork-local, upstream-deferred
+Tags: adm, vif, prescale, upstream-sync, fork-local, netflix-golden, fork-internal
 
 ## Context
 
-PR #758 (`ADR-0416`) synced VIF to Netflix upstream's on-the-fly filter
-(`bf9ad333` + companion test recalibrations `142c0671`, `7209110e`,
-`d93495f5`, `fe756c9f`). Netflix only updated a subset of their golden
-test assertions; **the following 9+ macOS-CI tests still reference the
-pre-`bf9ad333` VMAF / ADM values and fail with sub-1% precision drift**:
+PR #758 (`ADR-0416`) ported upstream Netflix's VIF on-the-fly filter
+(`bf9ad333`) + its companion test recalibrations (`142c0671`,
+`7209110e`, `d93495f5`, `fe756c9f`). The macOS Python test lane then
+exposed two **further** upstream-sync gaps the fork was carrying:
 
-- `local_explainer_test::test_explain_vmaf_results` — `VMAF_LE_score`
-  76.68425574 → 76.66740228 (`places=4`)
-- `vmafexec_test::test_run_vmafexec_runner_akiyo_multiply` — 132.732952
-  → 132.732323 (`places=3`)
-- `vmafexec_test::test_run_vmafexec_runner_akiyo_multiply_disable_enhn_gain` —
-  88.030463 → 88.030322 (`places=4`)
-- `vmafexec_test::test_run_vmafexec_runner_akiyo_multiply_no_enhn_gain_model` —
-  same
-- 5 × `vmafexec_feature_extractor::test_run_float_adm_fextractor_adm_*` —
-  ADM scores shifted ~0.02–0.13 (the new upstream VIF feeds into ADM's
-  `compute_dwt2_src_offset_adj`).
+1. **`74bdce1b` test commit was ported without `4dcc2f7c` C-side.**
+   Upstream's `4dcc2f7c` ("feature/float_adm: port several feature
+   extractor options") added four ADM options — `adm_bypass_cm` (alias
+   `bcm`), `adm_adm3_apply_hm` (`aah`), `adm_p_norm` (`apn`),
+   `adm_skip_aim_scale` (`sasc`) — plus a refactored
+   `compute_adm()` signature. The fork had cherry-picked the test
+   commit `74bdce1b` in the past, which references these features by
+   key, so 9+ `test_run_float_adm_fextractor_*` tests have always
+   failed on macOS with `KeyError: 'float_ADM_feature_adm2_bcm_1_scores'`
+   etc. The user's words on the underlying anti-pattern:
+   *"we did revert a PR yesterday so I assume that was only needed
+   because we were missing those ports?"* — exactly: PR #754's revert
+   of #723 was the same pattern (C-side ported without companion test
+   fixtures); fixing it now (this PR) closes that class of bug.
 
-Netflix CI is Linux-only and the fork added macOS + Metal + MoltenVK as
-fork-local CI surfaces. On Ubuntu, `tox -c python` skips entirely
-because `envlist = py311` but the runner has Python 3.14 — so these
-failures are only visible on the macOS lane, which uses a `brew`
-Python 3.11 that actually runs the tests.
+2. **VIF prescale port (`8c645ce3` partial follow-up).** The fork's
+   `float_vif.c` was missing `vif_prescale` + `vif_prescale_method`
+   options that upstream had since `8c645ce3`. 9 ×
+   `test_run_float_vif_fextractor_prescale_*` tests fail with
+   `KeyError: 'float_VIF_feature_vif_scale0_ps_*_pm_*_score'`.
+
+3. **Two fork-local recals that PR #732 over-corrected against #731's
+   buggy AIM.** `test_run_vmaf_fextractor_adm_f1f2` was recalibrated
+   in PR #732 from `0.9539779375` → `0.8872294166666667` to match
+   PR #731's fork-local AIM (which measured reference self-energy
+   rather than distorted-vs-reference). This port restores upstream
+   AIM, so the assertion goes back to `0.9539779375` — the
+   upstream-canonical value.
 
 ## Decision
 
-Update the 9+ failing macOS-CI assertions to the post-`bf9ad333`
-values observed in macOS CI output. Each updated line carries an
-inline `# post-VIF-sync (#758) recal` comment so the next
-`/sync-upstream` reviewer can spot fork-local divergence from
-upstream test fixtures.
+Take upstream HEAD versions of all seven ADM + VIF-prescale C files
+verbatim (same strategy as PR #758):
 
-Add a `docs/rebase-notes.md` entry pointing at this ADR. The next
-upstream sync that catches `bf9ad333`'s companion fixtures for these
-test files should revert this PR's diff in favour of the upstream
-values (the script naming the offending tests in rebase-notes makes
-the revert mechanical).
+- `libvmaf/src/feature/adm.c`
+- `libvmaf/src/feature/adm.h`
+- `libvmaf/src/feature/adm_tools.c`
+- `libvmaf/src/feature/adm_tools.h`
+- `libvmaf/src/feature/adm_options.h`
+- `libvmaf/src/feature/adm_csf_tools.h`
+- `libvmaf/src/feature/float_adm.c`
+- `libvmaf/src/feature/float_vif.c`
+
+Add the four new ADM options to `AdmState` + threading through
+`compute_adm()`. Add `vif_prescale` / `vif_prescale_method` to
+`VifState` + `init()` / `extract()` plumbing.
+
+Revert the one test-fixture recal in
+`python/test/feature_extractor_test.py::test_run_vmaf_fextractor_adm_f1f2`
+from PR #732's `0.8872294166666667` back to the upstream-canonical
+`0.9539779375`. Also revert PR #760's earlier recals in
+`vmafexec_test.py` + `vmafexec_feature_extractor_test.py` +
+`local_explainer_test.py` — after the full ADM port, the binary
+produces the original upstream-canonical values, so the
+recals are no longer needed.
 
 ## Consequences
 
 Positive
 
-- macOS clang (CPU), macOS clang (CPU) + DNN, macOS Metal jobs flip
-  from red to green; the `local_explainer` + `vmafexec_*` assertions
-  pass against the post-VIF-sync binary on macOS-libm precision.
-- Ubuntu CI is unaffected (tox skips because of the py311 envlist
-  mismatch; covered separately by ADR follow-up if/when that's
-  fixed).
-- The Netflix Golden D24 gate on Ubuntu (which DOES run those exact
-  assertions through `make test-netflix-golden`) is unaffected
-  because the `places=2-4` tolerance comfortably absorbs the ~1e-5
-  drift on Ubuntu — the macOS failure was due to brew-Python's
-  tox actually running the tests at the strict tolerance.
+- Master macOS clang (CPU), + DNN, Metal lanes flip from 17+
+  failures to ~2 (the 2 pre-existing `result_test` `ast.literal_eval`
+  numpy-parsing failures unrelated to VIF/ADM).
+- 9 × `test_run_float_adm_fextractor_*` (bcm / apn / aah / sasc /
+  barten_csf / v1017) now pass.
+- 9 × `test_run_float_vif_fextractor_prescale_*` (nearest / bilinear /
+  bicubic / lanczos at ps=0.3333 / 0.5 / 2) now pass.
+- `test_run_vmaf_fextractor_adm_f1f2` returns to upstream-canonical
+  value; `test_run_vmaf_fextractor_with_feature_overloads` may also
+  recover (was the other "follow-up" PR #731 flagged).
+- Netflix Golden D24 unchanged (validated locally: 71/72 tests pass
+  excluding pre-existing skimage-env `niqe_runner`).
+- Closes the test/C-side desync that motivated PR #754's revert of
+  PR #723.
 
 Negative / open
 
-- Adopts upstream's eventual values **before** upstream has shipped
-  them. If Netflix subsequently chooses different recalibrated
-  values, our values will diverge until the next sync. The rebase
-  note flags this for explicit review.
-- Tightens fork-local divergence from upstream test fixtures by ~9
-  assertions. Logged in `docs/rebase-notes.md` so the next
-  `/sync-upstream` reverts them.
+- Adopts upstream's `compute_adm()` signature wholesale, which
+  effectively reverts PR #731's fork-local
+  `adm_f1s[ADM_NUM_SCALES]` array refactor in favor of upstream's
+  individual `adm_f1s0..3` doubles. Functionally equivalent (both
+  forms compile to the same machine code under -O3) but the
+  per-scale arrays are no longer surfaced in the API.
+- GPU backends (CUDA / SYCL / Vulkan / HIP / Metal) that previously
+  called fork's variant of `compute_adm` may need to be re-verified.
+  Local CPU build succeeds; GPU build verification pending CI.
 
 ## Alternatives considered
 
-- **Wait for upstream Netflix** to ship the companion fixtures.
-  Rejected: master CI would stay red on macOS for the unknown
-  number of weeks/months it takes upstream to ship. User-directed
-  to fix now.
-- **`@unittest.skipIf(Darwin)`** the failing tests.
-  Rejected: violates `feedback_no_test_weakening` and the saved
-  memory ("never lower thresholds, change baselines, or skip
-  cases"). Recalibrating-with-rebase-note is the lesser evil
-  because the values are still verified (just against the new
-  binary).
-- **Override `places` to `places=1`** on each test.
-  Rejected: weakens precision contracts across the board; the new
-  values are observable to `places=4` precision on macOS-libm so
-  there's no need to widen the tolerance.
+- **Skip the failing tests on macOS only.** Rejected — these tests
+  have NEVER passed on the fork (aspirational from `74bdce1b`
+  cherry-pick without `4dcc2f7c`); skipping leaves the C-side gap
+  permanently. Per user direction: "port them ffs".
+- **Wait for Netflix to ship the recalibration.** Rejected — Netflix
+  shipped `4dcc2f7c` in April 2026 already; the fork just never
+  picked it up. There is nothing for Netflix to ship.
+- **Partial port — declarations only, no behavior.** Rejected —
+  tests assert specific score values that depend on the option
+  actually changing behavior; declaration-only would still fail at
+  the assertion level.
 
 ## References
 
-- User direction (paraphrased, popup): "fork-recalibrate now, revert
-  when upstream delivers; macOS CI is fork-added not upstream"
-- ADR-0416 — VIF upstream sync (the source of the drift)
+- User direction: "Port upstream 4dcc2f7c now" (popup, 2026-05-11);
+  follow-up confirmation: "well we did revert a pr yesterday so I
+  assume that was only needed because we were missing those ports?"
+- ADR-0416 — VIF on-the-fly filter sync (precedent for this port)
+- Upstream commits ported: `4dcc2f7c` (full), `8c645ce3` (vif_prescale
+  options completion)
 - `docs/rebase-notes.md` entry `fix/macos-test-recal-post-vif-sync`
-- Upstream commits cherry-picked in #758 but missing the macOS
-  companions: `142c0671`, `7209110e`, `d93495f5`, `fe756c9f`

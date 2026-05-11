@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -28,20 +28,32 @@
 
 #include "vif.h"
 #include "vif_options.h"
+#include "vif_tools.h"
 #include "picture_copy.h"
+
+/* Default minimum value allowed for the feature */
+#define DEFAULT_VIF_MIN_VAL (0.0)
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 typedef struct VifState {
     size_t float_stride;
+    size_t scaled_float_stride;
+    size_t scaled_w;
+    size_t scaled_h;
     float *ref;
+    float *ref_scaled;
     float *dist;
+    float *dist_scaled;
     bool debug;
-    double vif_enhn_gain_limit;
-    double vif_kernelscale;
     double vif_sigma_nsq;
     bool vif_skip_scale0;
+    double vif_enhn_gain_limit;
+    double vif_kernelscale;
+    double vif_prescale;
     double vif_scale1_min_val;
     double vif_scale2_min_val;
     double vif_scale3_min_val;
+    char *vif_prescale_method;
     VmafDictionary *feature_name_dict;
 } VifState;
 
@@ -79,8 +91,62 @@ static const VmafOption options[] = {
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {
+        .name = "vif_prescale",
+        .alias = "ps",
+        .help = "scaling factor for the frame (2.0 means "
+                "making the image twice as large on each dimension)",
+        .offset = offsetof(VifState, vif_prescale),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_VIF_PRESCALE,
+        .min = 0.1,
+        .max = 4.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
+        .name = "vif_scale1_min_val",
+        .help = "minimum value allowed; smaller values will be set to this value",
+        .offset = offsetof(VifState, vif_scale1_min_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_VIF_MIN_VAL,
+        .min = 0.0,
+        .max = 1.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+        .alias = "s1miv",
+    },
+    {
+        .name = "vif_scale2_min_val",
+        .help = "minimum value allowed; smaller values will be set to this value",
+        .offset = offsetof(VifState, vif_scale2_min_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_VIF_MIN_VAL,
+        .min = 0.0,
+        .max = 1.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+        .alias = "s2miv",
+    },
+    {
+        .name = "vif_scale3_min_val",
+        .help = "minimum value allowed; smaller values will be set to this value",
+        .offset = offsetof(VifState, vif_scale3_min_val),
+        .type = VMAF_OPT_TYPE_DOUBLE,
+        .default_val.d = DEFAULT_VIF_MIN_VAL,
+        .min = 0.0,
+        .max = 1.0,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+        .alias = "s3miv",
+    },
+    {
+        .name = "vif_prescale_method",
+        .alias = "pm",
+        .help =
+            "scaling method for the frame, supported options: [nearest, bilinear, bicubic, lanczos4]",
+        .offset = offsetof(VifState, vif_prescale_method),
+        .type = VMAF_OPT_TYPE_STRING,
+        .default_val.s = DEFAULT_VIF_PRESCALE_METHOD,
+        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+    },
+    {
         .name = "vif_sigma_nsq",
-        .alias = "snsq",
         .help = "neural noise variance",
         .offset = offsetof(VifState, vif_sigma_nsq),
         .type = VMAF_OPT_TYPE_DOUBLE,
@@ -88,47 +154,15 @@ static const VmafOption options[] = {
         .min = 0.0,
         .max = 5.0,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
+        .alias = "snsq",
     },
     {
         .name = "vif_skip_scale0",
         .alias = "ssclz",
-        .help = "when set, skip scale 0 calculations (sets scale0 score to 0, den to -1)",
+        .help = "when set, skip scale 0 calculations",
         .offset = offsetof(VifState, vif_skip_scale0),
         .type = VMAF_OPT_TYPE_BOOL,
         .default_val.b = false,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "vif_scale1_min_val",
-        .alias = "s1miv",
-        .help = "minimum value for scale 1 VIF score; values below are clipped to this value",
-        .offset = offsetof(VifState, vif_scale1_min_val),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = 0.0,
-        .min = 0.0,
-        .max = 1.0,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "vif_scale2_min_val",
-        .alias = "s2miv",
-        .help = "minimum value for scale 2 VIF score; values below are clipped to this value",
-        .offset = offsetof(VifState, vif_scale2_min_val),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = 0.0,
-        .min = 0.0,
-        .max = 1.0,
-        .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
-    },
-    {
-        .name = "vif_scale3_min_val",
-        .alias = "s3miv",
-        .help = "minimum value for scale 3 VIF score; values below are clipped to this value",
-        .offset = offsetof(VifState, vif_scale3_min_val),
-        .type = VMAF_OPT_TYPE_DOUBLE,
-        .default_val.d = 0.0,
-        .min = 0.0,
-        .max = 1.0,
         .flags = VMAF_OPT_FLAG_FEATURE_PARAM,
     },
     {0}};
@@ -140,12 +174,27 @@ static int init(VmafFeatureExtractor *fex, enum VmafPixelFormat pix_fmt, unsigne
     (void)bpc;
 
     VifState *s = fex->priv;
+
+    enum vif_scaling_method scaling_method;
+    if (vif_get_scaling_method(s->vif_prescale_method, &scaling_method)) {
+        return -EINVAL;
+    }
+
+    s->scaled_w = (int)(w * s->vif_prescale + 0.5);
+    s->scaled_h = (int)(h * s->vif_prescale + 0.5);
     s->float_stride = ALIGN_CEIL(w * sizeof(float));
+    s->scaled_float_stride = ALIGN_CEIL(s->scaled_w * sizeof(float));
     s->ref = aligned_malloc(s->float_stride * h, 32);
     if (!s->ref)
         goto fail;
     s->dist = aligned_malloc(s->float_stride * h, 32);
     if (!s->dist)
+        goto fail;
+    s->ref_scaled = aligned_malloc(s->scaled_float_stride * s->scaled_h, 32);
+    if (!s->ref_scaled)
+        goto fail;
+    s->dist_scaled = aligned_malloc(s->scaled_float_stride * s->scaled_h, 32);
+    if (!s->dist_scaled)
         goto fail;
 
     s->feature_name_dict =
@@ -160,37 +209,12 @@ fail:
         aligned_free(s->ref);
     if (s->dist)
         aligned_free(s->dist);
+    if (s->ref_scaled)
+        aligned_free(s->ref_scaled);
+    if (s->dist_scaled)
+        aligned_free(s->dist_scaled);
     vmaf_dictionary_free(&s->feature_name_dict);
     return -ENOMEM;
-}
-
-/* Publish the 14 auxiliary debug features (raw num/den per scale + overall
- * vif / vif_num / vif_den). Only reached when the `debug` option is on. */
-static int publish_debug_vif_features(VmafFeatureCollector *fc, VmafDictionary *name_dict,
-                                      unsigned index, double score, double score_num,
-                                      double score_den, const double *scores)
-{
-    int err = 0;
-    err |= vmaf_feature_collector_append_with_dict(fc, name_dict, "vif", score, index);
-    err |= vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num", score_num, index);
-    err |= vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den", score_den, index);
-    err |=
-        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num_scale0", scores[0], index);
-    err |=
-        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den_scale0", scores[1], index);
-    err |=
-        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num_scale1", scores[2], index);
-    err |=
-        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den_scale1", scores[3], index);
-    err |=
-        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num_scale2", scores[4], index);
-    err |=
-        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den_scale2", scores[5], index);
-    err |=
-        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_num_scale3", scores[6], index);
-    err |=
-        vmaf_feature_collector_append_with_dict(fc, name_dict, "vif_den_scale3", scores[7], index);
-    return err;
 }
 
 static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
@@ -198,6 +222,7 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
                    VmafFeatureCollector *feature_collector)
 {
     VifState *s = fex->priv;
+    int err = 0;
 
     (void)ref_pic_90;
     (void)dist_pic_90;
@@ -205,58 +230,92 @@ static int extract(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture 
     picture_copy(s->ref, s->float_stride, ref_pic, -128, ref_pic->bpc, 0);
     picture_copy(s->dist, s->float_stride, dist_pic, -128, dist_pic->bpc, 0);
 
-    double score;
-    double score_num;
-    double score_den;
+    // The scaling method has been checked for validity in the init callback
+    enum vif_scaling_method scaling_method;
+    vif_get_scaling_method(s->vif_prescale_method, &scaling_method);
+
+    vif_scale_frame_s(scaling_method, s->ref, s->ref_scaled, ref_pic->w[0], ref_pic->h[0],
+                      s->float_stride / sizeof(float), s->scaled_w, s->scaled_h,
+                      s->scaled_float_stride / sizeof(float));
+
+    vif_scale_frame_s(scaling_method, s->dist, s->dist_scaled, dist_pic->w[0], dist_pic->h[0],
+                      s->float_stride / sizeof(float), s->scaled_w, s->scaled_h,
+                      s->scaled_float_stride / sizeof(float));
+
+    double score, score_num, score_den;
     double scores[8];
-    int err =
-        compute_vif(s->ref, s->dist, ref_pic->w[0], ref_pic->h[0], s->float_stride, s->float_stride,
-                    &score, &score_num, &score_den, scores, s->vif_enhn_gain_limit,
-                    s->vif_kernelscale, s->vif_skip_scale0 ? 1 : 0, s->vif_sigma_nsq);
+    err = compute_vif(s->ref_scaled, s->dist_scaled, s->scaled_w, s->scaled_h,
+                      s->scaled_float_stride, s->scaled_float_stride, &score, &score_num,
+                      &score_den, scores, s->vif_enhn_gain_limit, s->vif_kernelscale,
+                      s->vif_skip_scale0, s->vif_sigma_nsq);
     if (err)
         return err;
 
-    /* When vif_skip_scale0 is set, zero the scale-0 numerator and set the denominator
-     * to the sentinel -1.0 (matches integer_vif convention). */
-    double vif_scale0_score;
     if (s->vif_skip_scale0) {
-        scores[0] = 0.0;
-        scores[1] = -1.0;
-        vif_scale0_score = 0.0;
+        err |= vmaf_feature_collector_append_with_dict(
+            feature_collector, s->feature_name_dict, "VMAF_feature_vif_scale0_score", 0.0f, index);
     } else {
-        vif_scale0_score = scores[0] / scores[1];
+        err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                       "VMAF_feature_vif_scale0_score",
+                                                       scores[0] / scores[1], index);
+    }
+
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "VMAF_feature_vif_scale1_score",
+        MAX(scores[2] / scores[3], s->vif_scale1_min_val), index);
+
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "VMAF_feature_vif_scale2_score",
+        MAX(scores[4] / scores[5], s->vif_scale2_min_val), index);
+
+    err |= vmaf_feature_collector_append_with_dict(
+        feature_collector, s->feature_name_dict, "VMAF_feature_vif_scale3_score",
+        MAX(scores[6] / scores[7], s->vif_scale3_min_val), index);
+
+    if (!s->debug)
+        return err;
+
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict, "vif",
+                                                   score, index);
+
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "vif_num", score_num, index);
+
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "vif_den", score_den, index);
+
+    if (s->vif_skip_scale0) {
+        err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                       "vif_num_scale0", 0.0f, index);
+
+        err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                       "vif_den_scale0", -1.0f, index);
+    } else {
+        err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                       "vif_num_scale0", scores[0], index);
+
+        err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                       "vif_den_scale0", scores[1], index);
     }
 
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "VMAF_feature_vif_scale0_score",
-                                                   vif_scale0_score, index);
+                                                   "vif_num_scale1", scores[2], index);
 
-    /* Per-scale minimum-value clipping for scales 1–3. */
-    double vif_scale1_score = scores[2] / scores[3];
-    if (vif_scale1_score < s->vif_scale1_min_val)
-        vif_scale1_score = s->vif_scale1_min_val;
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "VMAF_feature_vif_scale1_score",
-                                                   vif_scale1_score, index);
+                                                   "vif_den_scale1", scores[3], index);
 
-    double vif_scale2_score = scores[4] / scores[5];
-    if (vif_scale2_score < s->vif_scale2_min_val)
-        vif_scale2_score = s->vif_scale2_min_val;
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "VMAF_feature_vif_scale2_score",
-                                                   vif_scale2_score, index);
+                                                   "vif_num_scale2", scores[4], index);
 
-    double vif_scale3_score = scores[6] / scores[7];
-    if (vif_scale3_score < s->vif_scale3_min_val)
-        vif_scale3_score = s->vif_scale3_min_val;
     err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
-                                                   "VMAF_feature_vif_scale3_score",
-                                                   vif_scale3_score, index);
+                                                   "vif_den_scale2", scores[5], index);
 
-    if (s->debug) {
-        err |= publish_debug_vif_features(feature_collector, s->feature_name_dict, index, score,
-                                          score_num, score_den, scores);
-    }
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "vif_num_scale3", scores[6], index);
+
+    err |= vmaf_feature_collector_append_with_dict(feature_collector, s->feature_name_dict,
+                                                   "vif_den_scale3", scores[7], index);
+
     return err;
 }
 
@@ -267,6 +326,10 @@ static int close(VmafFeatureExtractor *fex)
         aligned_free(s->ref);
     if (s->dist)
         aligned_free(s->dist);
+    if (s->ref_scaled)
+        aligned_free(s->ref_scaled);
+    if (s->dist_scaled)
+        aligned_free(s->dist_scaled);
     vmaf_dictionary_free(&s->feature_name_dict);
     return 0;
 }
@@ -287,10 +350,6 @@ static const char *provided_features[] = {"VMAF_feature_vif_scale0_score",
                                           "vif_num_scale3",
                                           "vif_den_scale3",
                                           NULL};
-
-/* Redundant extern declaration so single-TU analysis (clang-tidy) sees the
- * cross-TU use in feature_extractor.c's static registration table. */
-extern VmafFeatureExtractor vmaf_fex_float_vif;
 
 VmafFeatureExtractor vmaf_fex_float_vif = {
     .name = "float_vif",

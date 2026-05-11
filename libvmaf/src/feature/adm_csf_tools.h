@@ -16,16 +16,7 @@
  *
  */
 
-/* MSVC and some MinGW configurations require _USE_MATH_DEFINES to expose M_PI
- * from <math.h>. Define it before the include and provide a portable fallback
- * after, in case the underlying libm does not honour the request. */
-#ifndef _USE_MATH_DEFINES
-#define _USE_MATH_DEFINES
-#endif
 #include <math.h>
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
 #include "common/macros.h"
 
 #pragma once
