@@ -236,6 +236,50 @@ static char *test_motion_v2_metal_extractor_registered(void)
     return NULL;
 }
 
+/* ---- T8-IOS scaffold contract (ADR-0423) ---- */
+/* Every IOSurface-import entry point returns -ENOSYS until T8-IOS-b
+ * lands the [id<MTLDevice> newTextureWithDescriptor:iosurface:plane:]
+ * wiring. Mirrors the Vulkan ADR-0184 → ADR-0186 scaffold pattern. */
+
+static char *test_iosurface_state_init_external_returns_enosys(void)
+{
+    VmafMetalExternalHandles h = {.device = 0, .command_queue = 0};
+    VmafMetalState *state = (VmafMetalState *)0xDEADBEEF;
+    const int rc = vmaf_metal_state_init_external(&state, h);
+    mu_assert("state_init_external returns -ENOSYS under T8-IOS scaffold", rc == -ENOSYS);
+    mu_assert("out-pointer cleared on -ENOSYS", state == NULL);
+    return NULL;
+}
+
+static char *test_iosurface_state_init_external_rejects_null_out(void)
+{
+    VmafMetalExternalHandles h = {.device = 0, .command_queue = 0};
+    const int rc = vmaf_metal_state_init_external(NULL, h);
+    mu_assert("NULL out -> -EINVAL", rc == -EINVAL);
+    return NULL;
+}
+
+static char *test_iosurface_picture_import_returns_enosys(void)
+{
+    const int rc = vmaf_metal_picture_import(NULL, 0, 0, 1920, 1080, 8, 1, 0);
+    mu_assert("picture_import returns -ENOSYS under T8-IOS scaffold", rc == -ENOSYS);
+    return NULL;
+}
+
+static char *test_iosurface_wait_compute_returns_enosys(void)
+{
+    const int rc = vmaf_metal_wait_compute(NULL);
+    mu_assert("wait_compute returns -ENOSYS under T8-IOS scaffold", rc == -ENOSYS);
+    return NULL;
+}
+
+static char *test_iosurface_read_imported_pictures_returns_enosys(void)
+{
+    const int rc = vmaf_metal_read_imported_pictures(NULL, 0);
+    mu_assert("read_imported_pictures returns -ENOSYS under T8-IOS scaffold", rc == -ENOSYS);
+    return NULL;
+}
+
 typedef char *(*test_fn)(void);
 
 static const test_fn test_table[] = {
@@ -257,6 +301,12 @@ static const test_fn test_table[] = {
     test_kernel_buffer_free_zero_handles_is_noop,
     /* T8-1 first-consumer registration — kernel arrives in T8-1c (ADR-0361). */
     test_motion_v2_metal_extractor_registered,
+    /* T8-IOS scaffold contract — every entry point -ENOSYS until T8-IOS-b (ADR-0423). */
+    test_iosurface_state_init_external_returns_enosys,
+    test_iosurface_state_init_external_rejects_null_out,
+    test_iosurface_picture_import_returns_enosys,
+    test_iosurface_wait_compute_returns_enosys,
+    test_iosurface_read_imported_pictures_returns_enosys,
 };
 
 static const size_t test_table_len = sizeof(test_table) / sizeof(test_table[0]);

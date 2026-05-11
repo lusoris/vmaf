@@ -113,6 +113,118 @@ VMAF_EXPORT void vmaf_metal_state_free(VmafMetalState **state);
  */
 VMAF_EXPORT int vmaf_metal_list_devices(void);
 
+/* -----------------------------------------------------------------
+ * IOSurface zero-copy import — ADR-0423 scaffold (T8-IOS).
+ *
+ * Mirrors the Vulkan import surface (ADR-0184 / ADR-0186): caller
+ * holds an external GPU-resident frame, hands its opaque handle to
+ * libvmaf, and the Metal feature kernels read it without a host
+ * round-trip. The Metal flavour consumes `IOSurfaceRef` because
+ * Apple's VideoToolbox hwdec delivers frames as `CVPixelBufferRef`
+ * whose backing store is always an `IOSurface` — the canonical
+ * shared-GPU-memory primitive on macOS / iOS. FFmpeg surfaces it
+ * as `AVFrame->data[3] -> CVPixelBufferRef` from
+ * `AV_HWDEVICE_TYPE_VIDEOTOOLBOX`; the caller pulls the IOSurface
+ * with `CVPixelBufferGetIOSurface` before handing it here.
+ *
+ * Same-device contract: source IOSurfaces are bound to whichever
+ * MTLDevice rendered them. libvmaf compute must run on the same
+ * device, hence @ref vmaf_metal_state_init_external — symmetric to
+ * @ref vmaf_vulkan_state_init_external. On a single-GPU Apple
+ * Silicon Mac (the common case) there is only one Apple-Family-7+
+ * device and the constraint is trivially satisfied; the external-
+ * init entry point still exists so multi-GPU Mac Pro hosts get a
+ * deterministic device match.
+ *
+ * Status: T8-IOS scaffold landed under ADR-0423 — every entry
+ * point in this block returns -ENOSYS until the implementation
+ * PR (T8-IOS-b) replaces the stubs with
+ * `[MTLDevice newTextureWithDescriptor:iosurface:plane:]` /
+ * `CVMetalTextureCacheCreateTextureFromImage` wiring.
+ * ----------------------------------------------------------------- */
+
+/**
+ * Pre-existing Metal handles supplied by the caller. Used by
+ * @ref vmaf_metal_state_init_external so libvmaf compute runs on
+ * the same MTLDevice as the source IOSurfaces (same constraint
+ * the Vulkan import path enforces — see ADR-0184). Handles cross
+ * the ABI as `uintptr_t` to keep this header free of
+ * `<Metal/Metal.h>`; cast on the caller side.
+ *
+ * Lifetime: libvmaf does NOT take ownership. The caller (typically
+ * FFmpeg's `AVHWDeviceContext` / `AVMetalDeviceContext` when the
+ * MoltenVK or VideoToolbox bridge lands) keeps them alive at least
+ * until @ref vmaf_metal_state_free returns.
+ */
+typedef struct VmafMetalExternalHandles {
+    uintptr_t device;        /**< id<MTLDevice> */
+    uintptr_t command_queue; /**< id<MTLCommandQueue> (optional; 0 = create internally) */
+} VmafMetalExternalHandles;
+
+/**
+ * Allocate a VmafMetalState that adopts caller-supplied Metal
+ * handles instead of creating its own MTLDevice / MTLCommandQueue.
+ * Required when the caller will pass external IOSurface handles
+ * via @ref vmaf_metal_picture_import — the IOSurface's backing
+ * MTLTexture is only addressable on the device that mapped it.
+ *
+ * Mutually exclusive with @ref vmaf_metal_state_init in a single
+ * process context: pick one. The Apple-Family-7+ gate still
+ * applies — passing an Intel-Mac MTLDevice returns -ENODEV.
+ *
+ * @return 0 on success, -ENOSYS when built without Metal (or in
+ *         the T8-IOS scaffold contract), -EINVAL on bad arguments,
+ *         -ENODEV on a non-Apple-Family-7 device, -ENOMEM on
+ *         allocation failure.
+ */
+VMAF_EXPORT int vmaf_metal_state_init_external(VmafMetalState **out,
+                                               VmafMetalExternalHandles handles);
+
+/**
+ * Import an external IOSurface (typically pulled from a
+ * `CVPixelBufferRef` via `CVPixelBufferGetIOSurface`) into the
+ * libvmaf Metal compute pipeline. Caller retains ownership of the
+ * underlying IOSurface; libvmaf reads it via a temporary
+ * `id<MTLTexture>` materialised through
+ * `[MTLDevice newTextureWithDescriptor:iosurface:plane:]`.
+ *
+ * @param state    Metal state handle.
+ * @param iosurface IOSurfaceRef (cast to uintptr_t).
+ * @param plane    Plane index (0 = luma; chroma planes via the
+ *                 standard biplanar / triplanar layout).
+ * @param w        Frame width.
+ * @param h        Frame height.
+ * @param bpc      Bits per component (8 / 10 / 12 / 16).
+ * @param is_ref   1 = reference frame, 0 = distorted.
+ * @param index    Frame index (matches the index passed to
+ *                 @ref vmaf_metal_read_imported_pictures).
+ *
+ * @return 0 on success, -ENOSYS until T8-IOS-b lands, -EINVAL on
+ *         bad arguments.
+ */
+VMAF_EXPORT int vmaf_metal_picture_import(VmafMetalState *state, uintptr_t iosurface,
+                                          unsigned plane, unsigned w, unsigned h,
+                                          unsigned bpc, int is_ref, unsigned index);
+
+/**
+ * Block until all previously-submitted Metal compute work on
+ * `state` has finished. Mirrors @ref vmaf_vulkan_wait_compute.
+ * Used by FFmpeg-side filters before reusing imported IOSurfaces
+ * in the next frame.
+ *
+ * @return 0 on success, -ENOSYS until T8-IOS-b lands.
+ */
+VMAF_EXPORT int vmaf_metal_wait_compute(VmafMetalState *state);
+
+/**
+ * Trigger a libvmaf score read for the imported reference +
+ * distorted IOSurfaces at `index`. Mirrors
+ * @ref vmaf_vulkan_read_imported_pictures.
+ *
+ * @return 0 on success, -ENOSYS until T8-IOS-b lands.
+ */
+VMAF_EXPORT int vmaf_metal_read_imported_pictures(VmafContext *ctx, unsigned index);
+
 #ifdef __cplusplus
 }
 #endif

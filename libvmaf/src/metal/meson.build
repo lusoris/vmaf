@@ -55,6 +55,7 @@ metal_objcpp_lib = static_library(
     [
         files('common.mm',
               'picture_metal.mm',
+              'picture_import.mm',
               'kernel_template.mm',
               '../feature/metal/integer_motion_v2_metal.mm',
               '../feature/metal/float_psnr_metal.mm',

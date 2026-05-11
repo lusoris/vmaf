@@ -27,6 +27,39 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### feat/libvmaf-metal-filter-iosurface — Metal IOSurface zero-copy import scaffold (ADR-0423)
+
+- **Touches**: `libvmaf/include/libvmaf/libvmaf_metal.h` (new
+  `VmafMetalExternalHandles` + four entry points appended),
+  `libvmaf/src/metal/picture_import.mm` (new -ENOSYS TU),
+  `libvmaf/src/metal/meson.build` (one-line TU registration),
+  `ffmpeg-patches/0013-libvmaf-add-libvmaf-metal-filter.patch` (new),
+  `ffmpeg-patches/series.txt`, `ffmpeg-patches/README.md`.
+- **Invariant**: every new C-API entry point
+  (`vmaf_metal_state_init_external`, `vmaf_metal_picture_import`,
+  `vmaf_metal_wait_compute`, `vmaf_metal_read_imported_pictures`)
+  returns -ENOSYS unconditionally — the scaffold contract. The ffmpeg
+  patch detects -ENOSYS in `config_props_metal` and fails fast with a
+  message pointing at ADR-0423. Mirrors ADR-0184 (Vulkan import
+  scaffold) → ADR-0186 (Vulkan import impl). Symbol names are
+  load-bearing for the `check_pkg_config` probe in patch 0013; do not
+  rename without simultaneously updating the patch.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_metal=enabled \
+      -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  nm build/libvmaf/libvmaf.dylib | grep vmaf_metal_picture_import
+  git -C ffmpeg-8 reset --hard n8.1.1
+  for p in ffmpeg-patches/000*-*.patch; do
+      git -C ffmpeg-8 am --3way "$p" || break
+  done
+  ```
+
+  Upstream Netflix/vmaf has no Metal backend; no rebase conflict
+  surface against `upstream/master`. The 0013 patch is fork-local.
+
 ### fix/metal-includes-and-ffmpeg-patch — Metal kernel batch T8-1c–k (ADR-0421)
 
 - **Touches**: `libvmaf/src/feature/metal/*.metal` (7 new kernel files),

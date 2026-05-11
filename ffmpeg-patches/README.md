@@ -46,8 +46,20 @@ Local patches against FFmpeg **n8.1.1** for integrating this VMAF fork into
   for ROCm hwdec zero-copy import is deferred until FFmpeg exposes a
   ROCm/HIP hardware-frame context (no `ffhipcodec` equivalent of
   `ffnvcodec` exists at this time). See
-  [ADR-0376](../docs/adr/0376-ffmpeg-patches-hip-backend-selector.md).
-
+  [ADR-0376](../docs/adr/0376-ffmpeg-patches-hip-backend-selector.md).- **`0013-libvmaf-add-libvmaf-metal-filter.patch`** — registers a
+  dedicated `libvmaf_metal` filter for VideoToolbox hwdec zero-copy
+  import. Consumes `AVFrame->format == AV_PIX_FMT_VIDEOTOOLBOX`,
+  pulls the IOSurface backing each `CVPixelBufferRef` via
+  `CVPixelBufferGetIOSurface`, and routes it through
+  `vmaf_metal_picture_import` / `vmaf_metal_read_imported_pictures`.
+  Audit-first scaffold: the libvmaf-side runtime returns -ENOSYS until
+  T8-IOS-b lands the `[id<MTLDevice> newTextureWithDescriptor:iosurface:plane:]`
+  wiring. The filter detects the contract and fails fast with a clear
+  error pointing at ADR-0423. Companion to 0012 (`metal_device` option
+  on the regular libvmaf filter) — together they give users
+  `libvmaf=metal_device=N` (software AVFrame input + Metal compute)
+  and `libvmaf_metal=...` (VideoToolbox hwdec + zero-copy import). See
+  [ADR-0423](../docs/adr/0423-metal-iosurface-import-scaffold.md).
 Every patch is guarded by `check_pkg_config` so it degrades gracefully when
 libvmaf was built without the relevant feature (`-Denable_dnn`, `-Denable_sycl`,
 `-Denable_vulkan`, `-Denable_cuda`, `-Denable_hip`).
