@@ -41,6 +41,15 @@ metal_objcpp_args = [
 # The base include directory is the project root (libvmaf/src) so
 # `#include "../../metal/common.h"` from the feature/metal TUs and
 # `#include "dict.h"` (in libvmaf/src/) both resolve.
+# Note: `vmaf_include` (which covers feature/ + feature/common) is
+# declared after subdir('metal') in the parent meson.build, so we
+# build the include set locally from the same paths.
+metal_objcpp_includes = include_directories(
+    '.', '..',                 # libvmaf/src/metal/, libvmaf/src/
+    '../feature', '../feature/common',
+    '../../include',           # libvmaf/include
+)
+
 metal_objcpp_lib = static_library(
     'metal_objcpp',
     [
@@ -49,7 +58,7 @@ metal_objcpp_lib = static_library(
               'kernel_template.mm',
               '../feature/metal/integer_motion_v2_metal.mm'),
     ],
-    include_directories: [vmaf_base_include, include_directories('.', '..')],
+    include_directories: metal_objcpp_includes,
     objcpp_args: metal_objcpp_args,
     dependencies: [foundation_dep, metal_dep],
 )
