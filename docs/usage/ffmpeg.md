@@ -320,7 +320,7 @@ ffmpeg -hwaccel vulkan -hwaccel_output_format vulkan -i reference.mp4 \
        -f null -
 ```
 
-All three GPU backends now ship a dedicated filter that consumes
+All four GPU backends now ship a dedicated filter that consumes
 hwdec frames directly without the `hwdownload,format=yuv420p`
 round-trip:
 
@@ -330,6 +330,14 @@ round-trip:
 - `libvmaf_vulkan` — `AV_PIX_FMT_VULKAN` frames (T7-29 parts
   2 + 3, closed by
   `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`).
+- `libvmaf_metal` — `AV_PIX_FMT_VIDEOTOOLBOX` frames (T8-IOS
+  scaffold,
+  `ffmpeg-patches/0013-libvmaf-add-libvmaf-metal-filter.patch`).
+  **Scaffold-only** in this libvmaf release: the runtime returns
+  `-ENOSYS` and the filter fails fast at `config_props` with a
+  pointer at [ADR-0423](../adr/0423-metal-iosurface-import-scaffold.md);
+  the `[id<MTLDevice> newTextureWithDescriptor:iosurface:plane:]`
+  wiring lands in **T8-IOS-b**.
 
 **With `libvmaf_vulkan` (drops the bridge entirely):**
 
@@ -351,6 +359,34 @@ requirement: libvmaf compute runs on the FFmpeg decoder's
 `VkInstance` / `VkDevice` via the new
 `vmaf_vulkan_state_init_external` C-API. See
 [ADR-0186](../adr/0186-vulkan-image-import-impl.md).
+
+**With `libvmaf_metal` (VideoToolbox hwdec, scaffold):**
+
+```bash
+ffmpeg -hwaccel videotoolbox -hwaccel_output_format videotoolbox -i reference.mp4 \
+       -hwaccel videotoolbox -hwaccel_output_format videotoolbox -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf_metal=log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+Build FFmpeg with `--enable-libvmaf-metal` against a libvmaf compiled
+with `-Denable_metal=enabled`. The filter pulls the `IOSurfaceRef`
+backing each `CVPixelBufferRef` via `CVPixelBufferGetIOSurface`,
+adopts FFmpeg's `MTLDevice` so the imported surfaces are valid on
+libvmaf's compute device (same-device requirement, symmetric to the
+Vulkan case), and routes through the standard scoring pipeline.
+
+**This release ships only the scaffold.** Every C-API entry point
+(`vmaf_metal_state_init_external`, `vmaf_metal_picture_import`,
+`vmaf_metal_wait_compute`, `vmaf_metal_read_imported_pictures`)
+returns `-ENOSYS`, and the filter fails fast at `config_props` time
+with a clear error pointing at
+[ADR-0423](../adr/0423-metal-iosurface-import-scaffold.md). The
+`[id<MTLDevice> newTextureWithDescriptor:iosurface:plane:]` wiring
+arrives in the **T8-IOS-b** follow-up. Until then the regular
+`libvmaf` filter with `metal_device=N` (CPU input + Metal compute)
+remains the working path on Apple Silicon — see
+[ADR-0422](../adr/0422-cli-hip-metal-backend-selectors.md).
 
 ### Background
 
