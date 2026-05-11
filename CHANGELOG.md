@@ -8,15 +8,6 @@
 
 ### Fixed
 
-- **macOS-arm build: SVE2 probe Darwin gate (ADR-0419).** Apple Silicon (M1–M4)
-  is ARMv8.x without SVE2, and the runtime detection in `libvmaf/src/arm/cpu.c`
-  has always been `__linux__`-gated. Recent Apple Clang accepts
-  `-march=armv9-a+sve2` against a declarations-only probe TU so
-  `cc.compiles()` returned true, but the SVE2 SSIMULACRA 2 TU then failed to
-  compile with errors like *"SVE vector type 'svbool_t' cannot be used in a
-  target without sve"*. Fixed by short-circuiting `is_sve2_supported = false`
-  on Darwin in `libvmaf/src/meson.build`, mirroring the runtime gate. No
-  perf impact (the path was dead on Apple Silicon).
 - **Master build-matrix failures — SYCL macro collision + Vulkan SDK compat + Cambi FR key.**
   Three distinct CI failures introduced after PR #733:
   (1) `integer_adm_sycl.cpp:67` — `ADM_BORDER_FACTOR` defined as a C macro in
