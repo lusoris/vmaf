@@ -376,6 +376,7 @@ float adm_csf_den_scale_s(const adm_dwt_band_t_s *src, int orig_h, int scale, in
     (void)adm_csf_mode;
     (void)orig_h;
 
+    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) — ADR-0418 upstream-parity (4dcc2f7c)
     float *src_h = src->band_h, *src_v = src->band_v, *src_d = src->band_d;
 
     int src_px_stride = src_stride / sizeof(float);

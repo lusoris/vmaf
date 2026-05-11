@@ -46,13 +46,13 @@ typedef adm_dwt_band_t_s adm_dwt_band_t;
 
 static char *init_dwt_band(adm_dwt_band_t *band, char *data_top, size_t buf_sz_one)
 {
-    band->band_a = (float *)data_top;
+    band->band_a = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_h = (float *)data_top;
+    band->band_h = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (float *)data_top;
+    band->band_v = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (float *)data_top;
+    band->band_d = (float *)(void *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }
@@ -60,13 +60,13 @@ static char *init_dwt_band(adm_dwt_band_t *band, char *data_top, size_t buf_sz_o
 UNUSED_FUNCTION
 static char *init_dwt_band_d(adm_dwt_band_t_d *band, char *data_top, size_t buf_sz_one)
 {
-    band->band_a = (double *)data_top;
+    band->band_a = (double *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_h = (double *)data_top;
+    band->band_h = (double *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (double *)data_top;
+    band->band_v = (double *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (double *)data_top;
+    band->band_d = (double *)(void *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }
@@ -74,11 +74,11 @@ static char *init_dwt_band_d(adm_dwt_band_t_d *band, char *data_top, size_t buf_
 static char *init_dwt_band_hvd(adm_dwt_band_t *band, char *data_top, size_t buf_sz_one)
 {
     band->band_a = NULL;
-    band->band_h = (float *)data_top;
+    band->band_h = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_v = (float *)data_top;
+    band->band_v = (float *)(void *)data_top;
     data_top += buf_sz_one;
-    band->band_d = (float *)data_top;
+    band->band_d = (float *)(void *)data_top;
     data_top += buf_sz_one;
     return data_top;
 }
@@ -159,7 +159,9 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     data_top = init_dwt_band_hvd(&decouple_r, data_top, buf_sz_one);
     data_top = init_dwt_band_hvd(&decouple_a, data_top, buf_sz_one);
     data_top = init_dwt_band_hvd(&csf_a, data_top, buf_sz_one);
-    data_top = init_dwt_band_hvd(&csf_f, data_top, buf_sz_one);
+    // ADR-0418 upstream-parity: kept verbatim from Netflix 4dcc2f7c.
+    data_top = init_dwt_band_hvd(&csf_f, data_top,
+                                 buf_sz_one); // NOLINT(clang-analyzer-deadcode.DeadStores)
 
     if (!(buf_y_orig = aligned_malloc(ind_size_y * 4, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for ind_buf_y.\n");
@@ -174,7 +176,8 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     ind_y[2] = (int *)ind_buf_y;
     ind_buf_y += ind_size_y;
     ind_y[3] = (int *)ind_buf_y;
-    ind_buf_y += ind_size_y;
+    ind_buf_y +=
+        ind_size_y; // NOLINT(clang-analyzer-deadcode.DeadStores) — ADR-0418 upstream-parity
 
     if (!(buf_x_orig = aligned_malloc(ind_size_x * 4, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for ind_buf_x.\n");
@@ -189,7 +192,8 @@ int compute_adm(const float *ref, const float *dis, int w, int h, int ref_stride
     ind_x[2] = (int *)ind_buf_x;
     ind_buf_x += ind_size_x;
     ind_x[3] = (int *)ind_buf_x;
-    ind_buf_x += ind_size_x;
+    ind_buf_x +=
+        ind_size_x; // NOLINT(clang-analyzer-deadcode.DeadStores) — ADR-0418 upstream-parity
 
     for (scale = 0; scale < 4; ++scale) {
 #ifdef ADM_OPT_DEBUG_DUMP

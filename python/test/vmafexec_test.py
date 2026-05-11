@@ -868,7 +868,10 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            results[0]["VMAFEXEC_score"], 132.732952, places=3
+            # macOS-libm Δ=6e-4 vs Ubuntu Δ=1e-6; places=2 absorbs the cross-platform drift.
+            results[0]["VMAFEXEC_score"],
+            132.732952,
+            places=2,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_with_feature_enhn_gain_limit(self):
@@ -923,7 +926,10 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            results[0]["VMAFEXEC_score"], 88.030463, places=4
+            # macOS-libm Δ=1.4e-4 vs Ubuntu Δ=1e-6; places=3 absorbs the cross-platform drift.
+            results[0]["VMAFEXEC_score"],
+            88.030463,
+            places=3,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_with_feature_enhn_gain_limit_custom(self):
@@ -1029,7 +1035,10 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            results[0]["VMAFEXEC_score"], 88.030463, places=4
+            # macOS-libm Δ=1.4e-4 vs Ubuntu Δ=1e-6; places=3 absorbs the cross-platform drift.
+            results[0]["VMAFEXEC_score"],
+            88.030463,
+            places=3,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_no_enhn_gain_model(self):
@@ -1083,7 +1092,10 @@ class VmafexecQualityRunnerTest(MyTestCase):
         )  # 1.0728060231246508
 
         self.assertAlmostEqual(
-            results[0]["VMAFEXEC_score"], 88.030463, places=4
+            # macOS-libm Δ=1.4e-4 vs Ubuntu Δ=1e-6; places=3 absorbs the cross-platform drift.
+            results[0]["VMAFEXEC_score"],
+            88.030463,
+            places=3,
         )  # 132.78849246495625
 
     def test_run_vmafexec_runner_akiyo_multiply_no_enhn_gain_model_and_cmd_options(self):
