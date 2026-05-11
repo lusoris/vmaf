@@ -2,12 +2,14 @@
  *  Copyright 2026 Lusoris and Claude (Anthropic)
  *  SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
  *
- *  Build + init smoke test for the Metal backend scaffold (ADR-0361 / T8-1).
- *  Every public C-API entry point in libvmaf_metal.h is expected to
- *  return -ENOSYS (or -EINVAL on bad arguments) until the runtime PR
- *  lands; this test pins that contract so a future PR can't
- *  accidentally enable the backend without flipping the smoke
- *  expectations.
+ *  Build + init smoke test for the Metal backend runtime (T8-1b /
+ *  ADR-0420). Replaces the T8-1 scaffold-only test (which pinned
+ *  every entry point at -ENOSYS) with a runtime test that exercises
+ *  the real Apple Metal API path on Apple-Family-7+ hosts and
+ *  surfaces a clean -ENODEV on every other host (Intel Macs, iOS
+ *  simulators if anyone is daring enough, etc.). The first feature
+ *  kernel arrives in T8-1c; this test is the gate that the runtime
+ *  surface itself works.
  *
  *  Mirrors libvmaf/test/test_hip_smoke.c.
  */
@@ -24,24 +26,23 @@
 #include "metal/common.h"
 #include "metal/kernel_template.h"
 
-/* ---- Internal context (libvmaf/src/metal/common.h) ---- */
-
-static char *test_context_new_returns_zeroed_struct(void)
+/*
+ * Helper: try to grab a real context. Sets `*ctx_out` to the context
+ * (on Apple-Family-7+) or NULL (on Intel Macs / no GPU). Returns the
+ * raw rc so callers can `mu_assert(... rc == 0 || rc == -ENODEV ...)`
+ * before dispatching the device-dependent assertions.
+ */
+static int try_get_ctx(VmafMetalContext **ctx_out)
 {
-    /* The scaffold's calloc + struct initialisation succeeds even
-     * before a real device is selected. The opaque pointer is
-     * non-NULL on success. */
-    VmafMetalContext *ctx = NULL;
-    int rc = vmaf_metal_context_new(&ctx, 0);
-    mu_assert("scaffold context_new must succeed", rc == 0);
-    mu_assert("scaffold context must be populated", ctx != NULL);
-    vmaf_metal_context_destroy(ctx);
-    return NULL;
+    *ctx_out = NULL;
+    return vmaf_metal_context_new(ctx_out, -1);
 }
+
+/* ---- Internal context (libvmaf/src/metal/common.h) ---- */
 
 static char *test_context_new_rejects_null_out(void)
 {
-    int rc = vmaf_metal_context_new(NULL, 0);
+    const int rc = vmaf_metal_context_new(NULL, 0);
     mu_assert("NULL out -> -EINVAL", rc == -EINVAL);
     return NULL;
 }
@@ -53,45 +54,67 @@ static char *test_context_destroy_null_is_noop(void)
     return NULL;
 }
 
-static char *test_device_count_scaffold_returns_zero(void)
+static char *test_context_default_device_or_skip(void)
 {
-    /* The scaffold returns 0 (no real Metal probe yet). When the
-     * runtime PR replaces the stub, this expectation flips to
-     * "either >= 0 from a real probe or skip when no device". */
+    /* -1 selects the system default device. On Apple Silicon CI
+     * runners this succeeds; on Intel Mac CI lanes (if ever added)
+     * this returns -ENODEV. */
+    VmafMetalContext *ctx = NULL;
+    const int rc = try_get_ctx(&ctx);
+    mu_assert("context_new returns 0 or -ENODEV", rc == 0 || rc == -ENODEV);
+    if (rc != 0) {
+        return NULL;
+    }
+    /* Bridge accessors must return non-NULL when context_new succeeded. */
+    mu_assert("context exposes device handle", vmaf_metal_context_device_handle(ctx) != NULL);
+    mu_assert("context exposes queue handle", vmaf_metal_context_queue_handle(ctx) != NULL);
+    vmaf_metal_context_destroy(ctx);
+    return NULL;
+}
+
+static char *test_device_count_nonnegative(void)
+{
+    /* Runtime returns the number of Apple-Family-7+ devices visible
+     * to the process; 0 on Intel Macs and non-Apple hosts. */
     const int n = vmaf_metal_device_count();
-    mu_assert("scaffold device_count returns 0", n == 0);
+    mu_assert("device_count is non-negative", n >= 0);
     return NULL;
 }
 
 /* ---- Public C-API (libvmaf/include/libvmaf/libvmaf_metal.h) ---- */
 
-static char *test_available_reports_build_flag(void)
+static char *test_available_reports_built(void)
 {
-    /* When this TU compiles under -Denable_metal=enabled the meson
-     * glue defines HAVE_METAL=1 for the test executable, so the
-     * function reports 1; on the non-enabled build it reports 0.
-     * The smoke test is wired in libvmaf/test/meson.build only
-     * under `if get_option('enable_metal').enabled() or auto-resolve`,
-     * so this branch matches the build that exercises the test. */
+    /* Built-with-Metal: vmaf_metal_available() returns 1. The test
+     * binary only links when -Denable_metal=enabled, so we expect 1. */
     const int avail = vmaf_metal_available();
-    mu_assert("vmaf_metal_available returns a boolean", avail == 0 || avail == 1);
+    mu_assert("vmaf_metal_available returns 1 when built with Metal", avail == 1);
     return NULL;
 }
 
-static char *test_state_init_returns_enosys(void)
+static char *test_state_init_succeeds_or_enodev(void)
 {
     VmafMetalConfiguration cfg = {.device_index = -1, .flags = 0};
     VmafMetalState *state = NULL;
-    int rc = vmaf_metal_state_init(&state, cfg);
-    mu_assert("scaffold state_init returns -ENOSYS", rc == -ENOSYS);
-    mu_assert("scaffold leaves out-pointer untouched on -ENOSYS", state == NULL);
+    const int rc = vmaf_metal_state_init(&state, cfg);
+    if (rc == 0) {
+        mu_assert("on success the state pointer must be populated", state != NULL);
+        vmaf_metal_state_free(&state);
+        mu_assert("state_free clears the slot", state == NULL);
+    } else {
+        mu_assert("state_init failure must be -ENODEV (non-Apple-7+ host)", rc == -ENODEV);
+        mu_assert("on failure the state pointer must stay NULL", state == NULL);
+    }
     return NULL;
 }
 
-static char *test_import_state_returns_enosys(void)
+static char *test_state_init_rejects_bad_flags(void)
 {
-    int rc = vmaf_metal_import_state(NULL, NULL);
-    mu_assert("scaffold import_state returns -ENOSYS", rc == -ENOSYS);
+    VmafMetalConfiguration cfg = {.device_index = -1, .flags = 0xDEAD};
+    VmafMetalState *state = NULL;
+    const int rc = vmaf_metal_state_init(&state, cfg);
+    mu_assert("non-zero flags -> -EINVAL", rc == -EINVAL);
+    mu_assert("bad-flags leaves out-pointer at NULL", state == NULL);
     return NULL;
 }
 
@@ -107,64 +130,92 @@ static char *test_state_free_null_is_noop(void)
     return NULL;
 }
 
-static char *test_list_devices_returns_enosys(void)
+static char *test_list_devices_nonnegative(void)
 {
-    int rc = vmaf_metal_list_devices();
-    mu_assert("scaffold list_devices returns -ENOSYS", rc == -ENOSYS);
+    /* Returns the printed device count (one line per Apple-Family-7+
+     * device). 0 on non-Apple-7+ hosts is fine. */
+    const int rc = vmaf_metal_list_devices();
+    mu_assert("list_devices returns a non-negative count", rc >= 0);
     return NULL;
 }
 
-/* ---- Kernel-template helpers (T8-1 first consumer / ADR-0361) ---- */
-/*
- * Pin the scaffold contract for `metal/kernel_template.h`: every
- * helper returns -ENOSYS while the runtime PR (T8-1b) is pending.
- * The runtime PR flips these expectations to "0 on success /
- * negative errno on a real Metal failure"; the test then exercises
- * the full lifecycle against a real device. Until then the -ENOSYS
- * pin is the bit-rot guard.
- */
+/* ---- Kernel-template helpers (T8-1b runtime / ADR-0420) ---- */
 
-static char *test_kernel_lifecycle_init_returns_enosys(void)
+static char *test_kernel_lifecycle_init_runs_or_skips(void)
 {
+    /* Init requires a valid context. On hosts without Apple-Family-7+
+     * the test short-circuits when try_get_ctx returns -ENODEV; the
+     * input-validation tests below still run unconditionally. */
+    VmafMetalContext *ctx = NULL;
+    const int ctx_rc = try_get_ctx(&ctx);
+    mu_assert("context_new returns 0 or -ENODEV", ctx_rc == 0 || ctx_rc == -ENODEV);
+    if (ctx_rc != 0) {
+        return NULL;
+    }
     VmafMetalKernelLifecycle lc = {0};
-    const int rc = vmaf_metal_kernel_lifecycle_init(&lc, NULL);
-    mu_assert("scaffold kernel_lifecycle_init returns -ENOSYS", rc == -ENOSYS);
-    mu_assert("scaffold leaves cmd_queue handle at 0", lc.cmd_queue == 0);
-    mu_assert("scaffold leaves submit event at 0", lc.submit == 0);
-    mu_assert("scaffold leaves finished event at 0", lc.finished == 0);
+    int rc = vmaf_metal_kernel_lifecycle_init(&lc, ctx);
+    mu_assert("kernel_lifecycle_init succeeds on real context", rc == 0);
+    mu_assert("cmd_queue handle non-zero after init", lc.cmd_queue != 0);
+    mu_assert("submit event non-zero after init", lc.submit != 0);
+    mu_assert("finished event non-zero after init", lc.finished != 0);
+    rc = vmaf_metal_kernel_lifecycle_close(&lc, ctx);
+    mu_assert("kernel_lifecycle_close succeeds", rc == 0);
+    vmaf_metal_context_destroy(ctx);
     return NULL;
 }
 
-static char *test_kernel_buffer_alloc_returns_enosys(void)
+static char *test_kernel_lifecycle_init_rejects_null_lc(void)
 {
-    VmafMetalKernelBuffer buf = {0};
-    const int rc = vmaf_metal_kernel_buffer_alloc(&buf, NULL, sizeof(uint64_t));
-    mu_assert("scaffold kernel_buffer_alloc returns -ENOSYS", rc == -ENOSYS);
-    mu_assert("scaffold leaves MTLBuffer slot at 0", buf.buffer == 0);
-    mu_assert("scaffold leaves host_view at NULL", buf.host_view == NULL);
-    mu_assert("scaffold records requested byte count", buf.bytes == sizeof(uint64_t));
+    const int rc = vmaf_metal_kernel_lifecycle_init(NULL, NULL);
+    mu_assert("NULL lc -> -EINVAL", rc == -EINVAL);
     return NULL;
 }
 
-static char *test_kernel_lifecycle_close_is_noop(void)
+static char *test_kernel_buffer_alloc_runs_or_skips(void)
+{
+    VmafMetalContext *ctx = NULL;
+    const int ctx_rc = try_get_ctx(&ctx);
+    mu_assert("context_new returns 0 or -ENODEV", ctx_rc == 0 || ctx_rc == -ENODEV);
+    if (ctx_rc != 0) {
+        return NULL;
+    }
+    VmafMetalKernelBuffer buf = {0};
+    const int rc = vmaf_metal_kernel_buffer_alloc(&buf, ctx, 4096);
+    mu_assert("kernel_buffer_alloc succeeds on real context", rc == 0);
+    mu_assert("MTLBuffer slot is non-zero after alloc", buf.buffer != 0);
+    mu_assert("host_view is non-NULL (Shared storage)", buf.host_view != NULL);
+    mu_assert("byte count is recorded", buf.bytes == 4096);
+    const int free_rc = vmaf_metal_kernel_buffer_free(&buf, ctx);
+    mu_assert("kernel_buffer_free succeeds", free_rc == 0);
+    mu_assert("buffer slot cleared after free", buf.buffer == 0);
+    vmaf_metal_context_destroy(ctx);
+    return NULL;
+}
+
+static char *test_kernel_buffer_alloc_rejects_null(void)
+{
+    const int rc = vmaf_metal_kernel_buffer_alloc(NULL, NULL, 1);
+    mu_assert("NULL buf -> -EINVAL", rc == -EINVAL);
+    return NULL;
+}
+
+static char *test_kernel_lifecycle_close_zero_handles_is_noop(void)
 {
     /* Close on an all-zero lifecycle must succeed (mirrors the HIP
      * twin's "safe to call on a partially-initialised lifecycle"
-     * contract). The scaffold body has nothing to release; the
-     * runtime PR will sequence waitUntilCompleted / release queue /
-     * release events. */
+     * contract). */
     VmafMetalKernelLifecycle lc = {0};
     const int rc = vmaf_metal_kernel_lifecycle_close(&lc, NULL);
-    mu_assert("scaffold kernel_lifecycle_close returns 0 on zero handles", rc == 0);
+    mu_assert("kernel_lifecycle_close returns 0 on zero handles", rc == 0);
     return NULL;
 }
 
-static char *test_kernel_buffer_free_is_noop(void)
+static char *test_kernel_buffer_free_zero_handles_is_noop(void)
 {
     /* Same partially-allocated contract as the lifecycle close. */
     VmafMetalKernelBuffer buf = {0};
     const int rc = vmaf_metal_kernel_buffer_free(&buf, NULL);
-    mu_assert("scaffold kernel_buffer_free returns 0 on zero handles", rc == 0);
+    mu_assert("kernel_buffer_free returns 0 on zero handles", rc == 0);
     return NULL;
 }
 
@@ -172,14 +223,11 @@ static char *test_kernel_buffer_free_is_noop(void)
 
 static char *test_motion_v2_metal_extractor_registered(void)
 {
-    /* The first-consumer scaffold (T8-1 / ADR-0361) registers
-     * `motion_v2_metal` so callers asking by name get a clean
-     * "found but runtime not ready" surface rather than "no such
-     * extractor". The runtime PR (T8-1b) keeps this assertion green
-     * and tightens it to "init returns 0 with a real device". The
-     * TEMPORAL flag is load-bearing for the feature engine's
-     * collect-before-next-submit scheduling that motion-class
-     * metrics rely on. */
+    /* The first-consumer scaffold registers `motion_v2_metal` so
+     * callers asking by name get a clean "found but kernel not ready"
+     * surface rather than "no such extractor". The kernel itself
+     * arrives in T8-1c; this test stays "extractor is registered" and
+     * does NOT yet tighten to "init returns 0 with a real device". */
     VmafFeatureExtractor *fex = vmaf_get_feature_extractor_by_name("motion_v2_metal");
     mu_assert("motion_v2_metal extractor must be registered", fex != NULL);
     mu_assert("motion_v2_metal extractor name matches", strcmp(fex->name, "motion_v2_metal") == 0);
@@ -188,29 +236,26 @@ static char *test_motion_v2_metal_extractor_registered(void)
     return NULL;
 }
 
-/* Function-pointer table keeps `run_tests` flat — same pattern as
- * `test_hip_smoke.c`; without it `mu_run_test` macro-expands to a
- * branching pair per test, blowing past clang-tidy's
- * `readability-function-size` 15-branch budget once the sub-test
- * count climbs. */
 typedef char *(*test_fn)(void);
 
 static const test_fn test_table[] = {
-    test_context_new_returns_zeroed_struct,
     test_context_new_rejects_null_out,
     test_context_destroy_null_is_noop,
-    test_device_count_scaffold_returns_zero,
-    test_available_reports_build_flag,
-    test_state_init_returns_enosys,
-    test_import_state_returns_enosys,
+    test_context_default_device_or_skip,
+    test_device_count_nonnegative,
+    test_available_reports_built,
+    test_state_init_succeeds_or_enodev,
+    test_state_init_rejects_bad_flags,
     test_state_free_null_is_noop,
-    test_list_devices_returns_enosys,
-    /* T8-1 kernel-template (ADR-0361) */
-    test_kernel_lifecycle_init_returns_enosys,
-    test_kernel_buffer_alloc_returns_enosys,
-    test_kernel_lifecycle_close_is_noop,
-    test_kernel_buffer_free_is_noop,
-    /* T8-1 first consumer (ADR-0361) */
+    test_list_devices_nonnegative,
+    /* T8-1b kernel-template runtime (ADR-0420) */
+    test_kernel_lifecycle_init_runs_or_skips,
+    test_kernel_lifecycle_init_rejects_null_lc,
+    test_kernel_buffer_alloc_runs_or_skips,
+    test_kernel_buffer_alloc_rejects_null,
+    test_kernel_lifecycle_close_zero_handles_is_noop,
+    test_kernel_buffer_free_zero_handles_is_noop,
+    /* T8-1 first-consumer registration — kernel arrives in T8-1c (ADR-0361). */
     test_motion_v2_metal_extractor_registered,
 };
 
