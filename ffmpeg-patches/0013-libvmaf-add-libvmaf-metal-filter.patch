@@ -54,7 +54,7 @@ diff --git a/configure b/configure
 @@ -4246,5 +4246,6 @@ vidstabtransform_filter_deps="libvidstab"
  libvmaf_filter_deps="libvmaf"
  libvmaf_cuda_filter_deps="libvmaf libvmaf_cuda ffnvcodec"
-+libvmaf_metal_filter_deps="libvmaf libvmaf_metal"
++libvmaf_metal_filter_deps="libvmaf libvmaf_metal metal corevideo videotoolbox"
  libvmaf_sycl_filter_deps="libvmaf libvmaf_sycl libvpl"
  libvmaf_vulkan_filter_deps="libvmaf libvmaf_vulkan vulkan"
  vmaf_pre_filter_deps="libvmaf"
