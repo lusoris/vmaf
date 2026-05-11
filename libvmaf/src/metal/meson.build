@@ -16,8 +16,10 @@ add_languages('objcpp', native: false, required: true)
 foundation_dep = dependency('Foundation', required: true)
 metal_dep      = dependency('Metal', required: true)
 metalkit_dep   = dependency('MetalKit', required: false)
+iosurface_dep  = dependency('IOSurface', required: true)
 metal_deps += foundation_dep
 metal_deps += metal_dep
+metal_deps += iosurface_dep
 if metalkit_dep.found()
     metal_deps += metalkit_dep
 endif
@@ -55,6 +57,7 @@ metal_objcpp_lib = static_library(
     [
         files('common.mm',
               'picture_metal.mm',
+              'picture_import.mm',
               'kernel_template.mm',
               '../feature/metal/integer_motion_v2_metal.mm',
               '../feature/metal/float_psnr_metal.mm',
@@ -67,7 +70,7 @@ metal_objcpp_lib = static_library(
     ],
     include_directories: metal_objcpp_includes,
     objcpp_args: metal_objcpp_args,
-    dependencies: [foundation_dep, metal_dep],
+    dependencies: [foundation_dep, metal_dep, iosurface_dep],
 )
 
 # Pure-C TUs that still go through the main feature library's normal

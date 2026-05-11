@@ -27,6 +27,55 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### feat/libvmaf-metal-filter-iosurface — Metal IOSurface zero-copy import (ADR-0423)
+
+- **Touches**: `libvmaf/include/libvmaf/libvmaf_metal.h` (new
+  `VmafMetalExternalHandles` + four entry points appended),
+  `libvmaf/src/metal/picture_import.mm` (new TU implementing the
+  IOSurfaceLock + memcpy ring), `libvmaf/src/metal/state_priv.h`
+  (shared struct defs between common.mm and picture_import.mm),
+  `libvmaf/src/metal/import.h` (internal bridge for libvmaf.c
+  HAVE_METAL block), `libvmaf/src/metal/common.mm`
+  (state-free hook for the import ring), `libvmaf/src/libvmaf.c`
+  (HAVE_METAL block: `vmaf_metal_import_state` /
+  `vmaf_metal_read_imported_pictures`),
+  `libvmaf/src/metal/meson.build` (one-line TU registration),
+  `libvmaf/test/test_metal_smoke.c` (input-validation +
+  device-default skip semantics),
+  `ffmpeg-patches/0013-libvmaf-add-libvmaf-metal-filter.patch` (new),
+  `ffmpeg-patches/series.txt`, `ffmpeg-patches/README.md`.
+- **Invariant**: the import path is geometry-pinned to the first
+  (w, h, bpc) tuple seen — subsequent imports with a different
+  geometry return `-EINVAL`. Ring depth is 2 slots
+  (`VMAF_METAL_IMPORT_RING`); a slot is identified by
+  `index % VMAF_METAL_IMPORT_RING` and discarded if the caller's
+  `index` no longer matches the stored one. CPU memcpy path is
+  synchronous so `vmaf_metal_wait_compute` is a no-op (returns 0);
+  do not promote it to a `MTLSharedEvent` drain without first
+  switching the import body to an async `MTLCommandBuffer`
+  submission. Apple-Family-7+ gate is enforced inside
+  `vmaf_metal_state_init_external` via
+  `[device supportsFamily:MTLGPUFamilyApple7]` → `-ENODEV` on
+  non-Apple hosts; the ffmpeg patch surfaces this as
+  `AVERROR(ENODEV)` at `config_props_metal` time. Symbol names are
+  load-bearing for the `check_pkg_config` probe in patch 0013; do
+  not rename without simultaneously updating the patch.
+- **Re-test on rebase**:
+
+  ```bash
+  meson setup build libvmaf -Denable_metal=enabled \
+      -Denable_cuda=false -Denable_sycl=false
+  ninja -C build
+  nm build/libvmaf/libvmaf.dylib | grep vmaf_metal_picture_import
+  git -C ffmpeg-8 reset --hard n8.1.1
+  for p in ffmpeg-patches/000*-*.patch; do
+      git -C ffmpeg-8 am --3way "$p" || break
+  done
+  ```
+
+  Upstream Netflix/vmaf has no Metal backend; no rebase conflict
+  surface against `upstream/master`. The 0013 patch is fork-local.
+
 ### fix/metal-includes-and-ffmpeg-patch — Metal kernel batch T8-1c–k (ADR-0421)
 
 - **Touches**: `libvmaf/src/feature/metal/*.metal` (7 new kernel files),

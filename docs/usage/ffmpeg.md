@@ -320,7 +320,7 @@ ffmpeg -hwaccel vulkan -hwaccel_output_format vulkan -i reference.mp4 \
        -f null -
 ```
 
-All three GPU backends now ship a dedicated filter that consumes
+All four GPU backends now ship a dedicated filter that consumes
 hwdec frames directly without the `hwdownload,format=yuv420p`
 round-trip:
 
@@ -330,6 +330,12 @@ round-trip:
 - `libvmaf_vulkan` — `AV_PIX_FMT_VULKAN` frames (T7-29 parts
   2 + 3, closed by
   `ffmpeg-patches/0006-libvmaf-add-libvmaf-vulkan-filter.patch`).
+- `libvmaf_metal` — `AV_PIX_FMT_VIDEOTOOLBOX` frames (T8-IOS,
+  `ffmpeg-patches/0013-libvmaf-add-libvmaf-metal-filter.patch`).
+  Routes through the `vmaf_metal_picture_import` C API; on hosts
+  without an Apple-Family-7 MTLDevice the filter fails fast at
+  `config_props` with `AVERROR(ENODEV)`. See
+  [ADR-0423](../adr/0423-metal-iosurface-import-scaffold.md).
 
 **With `libvmaf_vulkan` (drops the bridge entirely):**
 
@@ -351,6 +357,31 @@ requirement: libvmaf compute runs on the FFmpeg decoder's
 `VkInstance` / `VkDevice` via the new
 `vmaf_vulkan_state_init_external` C-API. See
 [ADR-0186](../adr/0186-vulkan-image-import-impl.md).
+
+**With `libvmaf_metal` (VideoToolbox hwdec):**
+
+```bash
+ffmpeg -hwaccel videotoolbox -hwaccel_output_format videotoolbox -i reference.mp4 \
+       -hwaccel videotoolbox -hwaccel_output_format videotoolbox -i distorted.mp4 \
+       -filter_complex "[0:v][1:v]libvmaf_metal=log_fmt=json:log_path=/dev/stdout" \
+       -f null -
+```
+
+Build FFmpeg with `--enable-libvmaf-metal` against a libvmaf compiled
+with `-Denable_metal=enabled`. The filter pulls the `IOSurfaceRef`
+backing each `CVPixelBufferRef` via `CVPixelBufferGetIOSurface` and
+routes it through `vmaf_metal_picture_import` — which locks the
+surface read-only and memcpys each plane into a shared-storage
+`VmafPicture` (the unified-memory cost on Apple Silicon is
+equivalent to a Shared MTLBuffer copy). The libvmaf-side runtime
+falls back to `MTLCreateSystemDefaultDevice` until upstream FFmpeg
+ships an `AVMetalDeviceContext`; on multi-GPU Mac Pro hosts this
+may pick a different MTLDevice than the VideoToolbox decoder used
+— the same-device contract the Vulkan filter solves via
+`AVVulkanDeviceContext` is documented as a follow-up here. On
+non-Apple-Family-7 hosts the filter exits at `config_props` time
+with `AVERROR(ENODEV)` and a pointer to
+[ADR-0423](../adr/0423-metal-iosurface-import-scaffold.md).
 
 ### Background
 
