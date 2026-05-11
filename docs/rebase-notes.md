@@ -27,6 +27,28 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/vif-upstream-onthefly-filter-sync — VIF synced to Netflix upstream `bf9ad333` + `8c645ce3`
+
+- **Touches**: `libvmaf/src/feature/vif.c`, `vif.h`, `vif_tools.c`,
+  `vif_tools.h`, `vif_options.h`, `float_vif.c`;
+  `python/test/quality_runner_test.py`, `feature_extractor_test.py`,
+  `result_test.py`, `vmafexec_test.py`.
+- **Invariant**: fork's VIF C-side now matches upstream HEAD verbatim
+  for the listed files. The only fork-local divergence is
+  `float_vif.c::extract()` passing `s->vif_skip_scale0 ? 1 : 0` for the
+  new `compute_vif()` parameter (instead of the upstream pattern of
+  reading from a flag set in `init`). Test cherry-picks took upstream
+  values for VIF score assertions and fork values for VMAF_legacy_score
+  / VMAF_score where the fork's binary diverges from upstream's at
+  places=4 (already pre-loosened).
+- **Re-test**: after the next `/sync-upstream`, run
+  `meson test -C build` (must remain 54/54 OK) and
+  `PYTHONPATH=python python -m pytest python/test/feature_extractor_test.py
+  python/test/quality_runner_test.py -q` (must show 0 failures excluding
+  `niqe_runner` skimage env issue). If upstream reverts or further
+  modifies on-the-fly filter generation, this entry's invariant should
+  re-sync rather than carry a fork-local divergence.
+
 ### fix/master-build-failures-sycl-vulkan — SYCL macro collision + Vulkan SDK fallback + Cambi FR atom rename
 
 - **Touches**: `libvmaf/src/feature/sycl/integer_adm_sycl.cpp`,

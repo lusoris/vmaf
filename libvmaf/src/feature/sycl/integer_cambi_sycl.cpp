@@ -99,7 +99,11 @@ static constexpr double CAMBI_SYCL_DEFAULT_TOPK = 0.6;
 static constexpr double CAMBI_SYCL_DEFAULT_TVI = 0.019;
 static constexpr double CAMBI_SYCL_DEFAULT_VLT = 0.0;
 static constexpr int CAMBI_SYCL_DEFAULT_MAX_LOG_CONTRAST = 2;
-static constexpr const char *CAMBI_SYCL_DEFAULT_EOTF = "bt1886";
+/* `default_val.s` in `VmafOption` is declared `char *` (not `const char *`);
+ * use a `char[]` so the array decays to `char *` without a const cast.
+ * Mirrors the CUDA twin `CAMBI_CUDA_DEFAULT_EOTF` which uses a `#define`
+ * macro for the same reason. */
+static char CAMBI_SYCL_DEFAULT_EOTF[] = "bt1886";
 
 /* Work-group tile size. */
 static constexpr size_t WG_X = 16;

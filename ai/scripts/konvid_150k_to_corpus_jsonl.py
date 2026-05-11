@@ -42,7 +42,13 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from corpus import base as _corpus_base
 from corpus.base import CorpusIngestBase, RunStats, normalise_clip_name, pick, utc_now_iso
+
+# Public re-export of corpus.base.save_progress so tests can call
+# `KONVID.save_progress(...)` directly on this module. Assignment
+# rather than re-import to keep `isort` + `ruff` from oscillating.
+save_progress = _corpus_base.save_progress
 
 _LOG = logging.getLogger("konvid_150k_to_corpus_jsonl")
 

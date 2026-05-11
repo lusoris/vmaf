@@ -23,6 +23,18 @@ Meson options:
 - `-Denable_cuda=true` can be set in parallel; both backends can coexist
   in a single binary.
 
+### `icpx` const-correctness on string default options
+
+Per-extractor `VmafOption` rows declare `default_val.s` as `char *`
+(matching the C API contract in `libvmaf/include/libvmaf/libvmaf.h`).
+The DPC++ compiler (`icpx`) is stricter than g++ about C++
+const-correctness and rejects initializing a `char *` member from a
+`const char *` source. SYCL feature kernels that need a string default
+should use `static char NAME[] = "..."` (array decay) rather than
+`static constexpr const char *NAME = "..."`. The CUDA twins use a
+`#define NAME "..."` macro for the same reason. Applies to every
+`*_sycl.cpp` extractor that declares a string-typed default option.
+
 ## Runtime
 
 When built with SYCL, the backend is auto-selected on hosts that expose a

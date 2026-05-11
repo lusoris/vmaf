@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2016-2026 Netflix, Inc.
+ *  Copyright 2016-2020 Netflix, Inc.
  *
  *     Licensed under the BSD+Patent License (the "License");
  *     you may not use this file except in compliance with the License.
@@ -17,228 +17,421 @@
  */
 
 #include <limits.h>
-#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+#include <math.h>
 
+#include "log.h"
 #include "mem.h"
-#include "vif.h"
+#include "offset.h"
 #include "vif_options.h"
 #include "vif_tools.h"
 
-#define ALMOST_EQUAL(x, c) (fabs((x) - (c)) < 1.0e-4)
+#define ALMOST_EQUAL(x, c) fabs((x) - (c)) < 1.0e-4
 
-#define VIF_BUF_CNT 8
+/**
+ * Note: stride is in terms of bytes
+ */
+void apply_frame_differencing(const float *current_frame, const float *previous_frame,
+                              float *frame_difference, int width, int height, int stride)
+{
+    for (int i = 0; i < height; ++i) {
+        for (int j = 0; j < width; ++j) {
+            frame_difference[i * stride + j] =
+                current_frame[i * stride + j] - previous_frame[i * stride + j];
+        }
+    }
+}
 
-/* The eight contiguous working buffers sliced out of the one big
- * allocation made in `compute_vif`. Lifetime is a single call. */
-typedef struct VifBuffers {
+int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
+                double *score, double *score_num, double *score_den, double *scores,
+                double vif_enhn_gain_limit, double vif_kernelscale, int vif_skip_scale0,
+                double vif_sigma_nsq)
+{
+    float *data_buf = 0;
+    char *data_top;
+
     float *ref_scale;
     float *dis_scale;
+
     float *mu1;
     float *mu2;
     float *ref_sq_filt;
     float *dis_sq_filt;
     float *ref_dis_filt;
     float *tmpbuf;
-} VifBuffers;
 
-/* Mutable per-scale state threaded through the per-scale driver so the
- * outer `compute_vif` loop can update the "current scale" pointers +
- * dimensions after each decimation step. */
-typedef struct VifScaleCtx {
-    const float *curr_ref_scale;
-    const float *curr_dis_scale;
-    int curr_ref_stride;
-    int curr_dis_stride;
-    int w;
-    int h;
-} VifScaleCtx;
+    float *num_array;
+    float *den_array;
 
-/* Map a runtime `vif_kernelscale` double to its filter-table index. Returns
- * -1 if the value doesn't match any supported scale. */
-static int resolve_kernelscale_index(double vif_kernelscale)
-{
-    if (ALMOST_EQUAL(vif_kernelscale, 1.0))
-        return vif_kernelscale_1;
-    if (ALMOST_EQUAL(vif_kernelscale, 1.0 / 2))
-        return vif_kernelscale_1o2;
-    if (ALMOST_EQUAL(vif_kernelscale, 3.0 / 2))
-        return vif_kernelscale_3o2;
-    if (ALMOST_EQUAL(vif_kernelscale, 2.0))
-        return vif_kernelscale_2;
-    if (ALMOST_EQUAL(vif_kernelscale, 2.0 / 3))
-        return vif_kernelscale_2o3;
-    if (ALMOST_EQUAL(vif_kernelscale, 2.4 / 1.0))
-        return vif_kernelscale_24o10;
-    if (ALMOST_EQUAL(vif_kernelscale, 360 / 97.0))
-        return vif_kernelscale_360o97;
-    if (ALMOST_EQUAL(vif_kernelscale, 4.0 / 3.0))
-        return vif_kernelscale_4o3;
-    if (ALMOST_EQUAL(vif_kernelscale, 3.5 / 3.0))
-        return vif_kernelscale_3d5o3;
-    if (ALMOST_EQUAL(vif_kernelscale, 3.75 / 3.0))
-        return vif_kernelscale_3d75o3;
-    if (ALMOST_EQUAL(vif_kernelscale, 4.25 / 3.0))
-        return vif_kernelscale_4d25o3;
-    return -1;
-}
+    /* Filters will never be larger than 128 elements */
+    float filter[128];
+    int filter_width;
 
-/* Slice a single `VIF_BUF_CNT * buf_sz_one` allocation into the 8 named
- * buffers. The tmpbuf is intentionally the tail — no trailing `+=` offset
- * (upstream had a dead-store there). */
-static void slice_vif_buffers(void *data_buf, size_t buf_sz_one, VifBuffers *b)
-{
-    char *top = (char *)data_buf;
-    b->ref_scale = (float *)(void *)top;
-    top += buf_sz_one;
-    b->dis_scale = (float *)(void *)top;
-    top += buf_sz_one;
-    b->mu1 = (float *)(void *)top;
-    top += buf_sz_one;
-    b->mu2 = (float *)(void *)top;
-    top += buf_sz_one;
-    b->ref_sq_filt = (float *)(void *)top;
-    top += buf_sz_one;
-    b->dis_sq_filt = (float *)(void *)top;
-    top += buf_sz_one;
-    b->ref_dis_filt = (float *)(void *)top;
-    top += buf_sz_one;
-    b->tmpbuf = (float *)(void *)top;
-}
+    /* Offset pointers to adjust for convolution border handling. */
+    float *mu1_adj = 0;
+    float *mu2_adj = 0;
 
-/* Apply the filter/decimate step that turns scale `scale-1`'s mu images
- * into scale `scale`'s ref/dis. Updates the context's "current" pointers +
- * dimensions so the subsequent convolve + statistic operate on the new
- * scale. */
-static void decimate_to_next_scale(VifScaleCtx *st, const VifBuffers *b, const float *filter,
-                                   int filter_width, int buf_stride)
-{
-    vif_filter1d_s(filter, st->curr_ref_scale, b->mu1, b->tmpbuf, st->w, st->h, st->curr_ref_stride,
-                   buf_stride, filter_width);
-    vif_filter1d_s(filter, st->curr_dis_scale, b->mu2, b->tmpbuf, st->w, st->h, st->curr_dis_stride,
-                   buf_stride, filter_width);
-
-#ifdef VIF_OPT_HANDLE_BORDERS
-    const int buf_valid_w = st->w;
-    const int buf_valid_h = st->h;
-    float *const mu1_adj = b->mu1;
-    float *const mu2_adj = b->mu2;
-#else
-    const int filter_adj = filter_width / 2;
-    const int buf_valid_w = st->w - filter_adj * 2;
-    const int buf_valid_h = st->h - filter_adj * 2;
-    float *const mu1_adj =
-        (float *)((char *)b->mu1 + (ptrdiff_t)filter_adj * buf_stride + filter_adj * sizeof(float));
-    float *const mu2_adj =
-        (float *)((char *)b->mu2 + (ptrdiff_t)filter_adj * buf_stride + filter_adj * sizeof(float));
+#ifdef VIF_OPT_DEBUG_DUMP
+    float *mu1_sq_adj;
+    float *mu2_sq_adj;
+    float *mu1_mu2_adj;
+    float *ref_sq_filt_adj;
+    float *dis_sq_filt_adj;
+    float *ref_dis_filt_adj = 0;
+    float *num_array_adj = 0;
+    float *den_array_adj = 0;
 #endif
 
-    vif_dec2_s(mu1_adj, b->ref_scale, buf_valid_w, buf_valid_h, buf_stride, buf_stride);
-    vif_dec2_s(mu2_adj, b->dis_scale, buf_valid_w, buf_valid_h, buf_stride, buf_stride);
+    /* Special handling of first scale. */
+    const float *curr_ref_scale = ref;
+    const float *curr_dis_scale = dis;
+    int curr_ref_stride = ref_stride;
+    int curr_dis_stride = dis_stride;
 
-    st->w = buf_valid_w / 2;
-    st->h = buf_valid_h / 2;
-    st->curr_ref_scale = b->ref_scale;
-    st->curr_dis_scale = b->dis_scale;
-    st->curr_ref_stride = buf_stride;
-    st->curr_dis_stride = buf_stride;
-}
+    int buf_stride = ALIGN_CEIL(w * sizeof(float));
+    size_t buf_sz_one = (size_t)buf_stride * h;
 
-/* Run one pyramid scale: convolve + covariance filters + statistic. Writes
- * (num, den) into the two `scores[]` slots for this scale. */
-static void compute_vif_at_scale(int scale, int kernelscale_index, int buf_stride, VifScaleCtx *st,
-                                 const VifBuffers *b, double vif_enhn_gain_limit,
-                                 double vif_sigma_nsq, double *scores)
-{
-    const float *filter = vif_filter1d_table_s[kernelscale_index][scale];
-    const int filter_width = vif_filter1d_width[kernelscale_index][scale];
+    float num = 0;
+    float den = 0;
 
-    if (scale > 0)
-        decimate_to_next_scale(st, b, filter, filter_width, buf_stride);
+    int ret = 1;
 
-    vif_filter1d_s(filter, st->curr_ref_scale, b->mu1, b->tmpbuf, st->w, st->h, st->curr_ref_stride,
-                   buf_stride, filter_width);
-    vif_filter1d_s(filter, st->curr_dis_scale, b->mu2, b->tmpbuf, st->w, st->h, st->curr_dis_stride,
-                   buf_stride, filter_width);
-    vif_filter1d_sq_s(filter, st->curr_ref_scale, b->ref_sq_filt, b->tmpbuf, st->w, st->h,
-                      st->curr_ref_stride, buf_stride, filter_width);
-    vif_filter1d_sq_s(filter, st->curr_dis_scale, b->dis_sq_filt, b->tmpbuf, st->w, st->h,
-                      st->curr_dis_stride, buf_stride, filter_width);
-    vif_filter1d_xy_s(filter, st->curr_ref_scale, st->curr_dis_scale, b->ref_dis_filt, b->tmpbuf,
-                      st->w, st->h, st->curr_ref_stride, st->curr_dis_stride, buf_stride,
-                      filter_width);
-
-    float num;
-    float den;
-    vif_statistic_s(b->mu1, b->mu2, b->ref_sq_filt, b->dis_sq_filt, b->ref_dis_filt, &num, &den,
-                    st->w, st->h, buf_stride, buf_stride, buf_stride, buf_stride, buf_stride,
-                    vif_enhn_gain_limit, vif_sigma_nsq);
-    scores[(ptrdiff_t)2 * scale] = num;
-    scores[(ptrdiff_t)2 * scale + 1] = den;
-}
-
-/* Sum the per-scale num/den pairs and produce the final VIF score. */
-static void finalize_vif_score(const double *scores, double *score, double *score_num,
-                               double *score_den)
-{
-    *score_num = 0.0;
-    *score_den = 0.0;
-    for (int scale = 0; scale < 4; ++scale) {
-        *score_num += scores[(ptrdiff_t)2 * scale];
-        *score_den += scores[(ptrdiff_t)2 * scale + 1];
-    }
-    *score = (*score_den == 0.0) ? 1.0 : (*score_num) / (*score_den);
-}
-
-int compute_vif(const float *ref, const float *dis, int w, int h, int ref_stride, int dis_stride,
-                double *score, double *score_num, double *score_den, double *scores,
-                double vif_enhn_gain_limit, double vif_kernelscale, double vif_sigma_nsq)
-{
-    const int kernelscale_index = resolve_kernelscale_index(vif_kernelscale);
-    if (kernelscale_index < 0) {
-        printf(
-            "error: vif_kernelscale can only be 0.5, 1.0, 1.5, 2.0, 2.0/3, 2.4, 360/97, 4.0/3.0, "
-            "3.5/3.0, 3.75/3.0, 4.25/3.0 for now, but is %f\n",
-            vif_kernelscale);
-        (void)fflush(stdout);
-        return 1;
+    if (!vif_validate_kernelscale(vif_kernelscale)) {
+        vmaf_log(VMAF_LOG_LEVEL_ERROR, "invalid vif_kernelscale: %f", vif_kernelscale);
+        goto fail_or_end;
     }
 
-    const int buf_stride = ALIGN_CEIL(w * sizeof(float));
-    const size_t buf_sz_one = (size_t)buf_stride * h;
+    // Code optimized to save on multiple buffer copies
+    // hence the reduction in the number of buffers required from 15 to 10
+#define VIF_BUF_CNT 10
     if (SIZE_MAX / buf_sz_one < VIF_BUF_CNT) {
         printf("error: SIZE_MAX / buf_sz_one < VIF_BUF_CNT, buf_sz_one = %zu.\n", buf_sz_one);
-        (void)fflush(stdout);
-        return 1;
+        fflush(stdout);
+        goto fail_or_end;
     }
 
-    float *const data_buf = aligned_malloc(buf_sz_one * VIF_BUF_CNT, MAX_ALIGN);
-    if (!data_buf) {
+    if (!(data_buf = aligned_malloc(buf_sz_one * VIF_BUF_CNT, MAX_ALIGN))) {
         printf("error: aligned_malloc failed for data_buf.\n");
-        (void)fflush(stdout);
-        return 1;
+        fflush(stdout);
+        goto fail_or_end;
     }
 
-    VifBuffers b;
-    slice_vif_buffers(data_buf, buf_sz_one, &b);
+    data_top = (char *)data_buf;
 
-    VifScaleCtx st = {
-        .curr_ref_scale = ref,
-        .curr_dis_scale = dis,
-        .curr_ref_stride = ref_stride,
-        .curr_dis_stride = dis_stride,
-        .w = w,
-        .h = h,
-    };
+    ref_scale = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    dis_scale = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    mu1 = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    mu2 = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    ref_sq_filt = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    dis_sq_filt = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    ref_dis_filt = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    num_array = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    den_array = (float *)(void *)data_top;
+    data_top += buf_sz_one;
+    tmpbuf = (float *)(void *)data_top;
+    // ADR-0416: upstream-parity bump kept verbatim from Netflix bf9ad333.
+    data_top += buf_sz_one; // NOLINT(clang-analyzer-deadcode.DeadStores)
 
-    for (int scale = 0; scale < 4; ++scale) {
-        compute_vif_at_scale(scale, kernelscale_index, buf_stride, &st, &b, vif_enhn_gain_limit,
-                             vif_sigma_nsq, scores);
+    unsigned scale_start = 0;
+    if (vif_skip_scale0) {
+        scale_start = 1;
     }
 
-    finalize_vif_score(scores, score, score_num, score_den);
+    for (unsigned scale = scale_start; scale < 4; ++scale) {
+#ifdef VIF_OPT_DEBUG_DUMP
+        char pathbuf[256];
+#endif
+        filter_width = vif_get_filter_size(scale, vif_kernelscale);
+        vif_get_filter(filter, scale, vif_kernelscale);
+
+#ifdef VIF_OPT_HANDLE_BORDERS
+        int buf_valid_w = w;
+        int buf_valid_h = h;
+
+#define ADJUST(x) x
+#else
+        int filter_adj = filter_width / 2;
+        int buf_valid_w = w - filter_adj * 2;
+        int buf_valid_h = h - filter_adj * 2;
+
+#define ADJUST(x) ((float *)((char *)(x) + filter_adj * buf_stride + filter_adj * sizeof(float)))
+#endif
+
+        if (scale > 0) {
+            vif_filter1d_s(filter, curr_ref_scale, mu1, tmpbuf, w, h, curr_ref_stride, buf_stride,
+                           filter_width);
+            vif_filter1d_s(filter, curr_dis_scale, mu2, tmpbuf, w, h, curr_dis_stride, buf_stride,
+                           filter_width);
+
+            mu1_adj = ADJUST(mu1);
+            mu2_adj = ADJUST(mu2);
+
+            vif_dec2_s(mu1_adj, ref_scale, buf_valid_w, buf_valid_h, buf_stride, buf_stride);
+            vif_dec2_s(mu2_adj, dis_scale, buf_valid_w, buf_valid_h, buf_stride, buf_stride);
+
+            w = buf_valid_w / 2;
+            h = buf_valid_h / 2;
+#ifdef VIF_OPT_HANDLE_BORDERS
+            buf_valid_w = w; // NOLINT(clang-analyzer-deadcode.DeadStores) ADR-0416 upstream-parity
+            buf_valid_h = h; // NOLINT(clang-analyzer-deadcode.DeadStores) ADR-0416 upstream-parity
+#else
+            buf_valid_w = w - filter_adj * 2;
+            buf_valid_h = h - filter_adj * 2;
+#endif
+            curr_ref_scale = ref_scale;
+            curr_dis_scale = dis_scale;
+
+            curr_ref_stride = buf_stride;
+            curr_dis_stride = buf_stride;
+        }
+
+        vif_filter1d_s(filter, curr_ref_scale, mu1, tmpbuf, w, h, curr_ref_stride, buf_stride,
+                       filter_width);
+        vif_filter1d_s(filter, curr_dis_scale, mu2, tmpbuf, w, h, curr_dis_stride, buf_stride,
+                       filter_width);
+
+        // Code optimized by adding intrinsic code for the functions,
+        // vif_filter1d_sq and vif_filter1d_sq
+        vif_filter1d_sq_s(filter, curr_ref_scale, ref_sq_filt, tmpbuf, w, h, curr_ref_stride,
+                          buf_stride, filter_width);
+        vif_filter1d_sq_s(filter, curr_dis_scale, dis_sq_filt, tmpbuf, w, h, curr_dis_stride,
+                          buf_stride, filter_width);
+        vif_filter1d_xy_s(filter, curr_ref_scale, curr_dis_scale, ref_dis_filt, tmpbuf, w, h,
+                          curr_ref_stride, curr_dis_stride, buf_stride, filter_width);
+
+        vif_statistic_s(mu1, mu2, ref_sq_filt, dis_sq_filt, ref_dis_filt, num_array, den_array, w,
+                        h, buf_stride, buf_stride, buf_stride, buf_stride, buf_stride,
+                        vif_enhn_gain_limit, vif_sigma_nsq);
+        // NOLINTBEGIN(clang-analyzer-deadcode.DeadStores) ADR-0416 upstream-parity
+        mu1_adj = ADJUST(mu1);
+        mu2_adj = ADJUST(mu2);
+        // NOLINTEND(clang-analyzer-deadcode.DeadStores)
+
+#ifdef VIF_OPT_DEBUG_DUMP
+        ref_sq_filt_adj = ADJUST(ref_sq_filt);
+        dis_sq_filt_adj = ADJUST(dis_sq_filt);
+        ref_dis_filt_adj = ADJUST(ref_dis_filt);
+#endif
+
+#undef ADJUST
+
+#ifdef VIF_OPT_DEBUG_DUMP
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref[%d].bin", scale);
+        write_image(pathbuf, curr_ref_scale, w, h, curr_ref_stride, sizeof(float));
+
+        snprintf(pathbuf, sizeof(pathbuf), "stage/dis[%d].bin", scale);
+        write_image(pathbuf, curr_dis_scale, w, h, curr_dis_stride, sizeof(float));
+
+        snprintf(pathbuf, sizeof(pathbuf), "stage/mu1[%d].bin", scale);
+        write_image(pathbuf, mu1_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
+
+        snprintf(pathbuf, sizeof(pathbuf), "stage/mu2[%d].bin", scale);
+        write_image(pathbuf, mu2_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
+
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref_sq_filt[%d].bin", scale);
+        write_image(pathbuf, ref_sq_filt_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
+
+        snprintf(pathbuf, sizeof(pathbuf), "stage/dis_sq_filt[%d].bin", scale);
+        write_image(pathbuf, dis_sq_filt_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
+
+        snprintf(pathbuf, sizeof(pathbuf), "stage/ref_dis_filt[%d].bin", scale);
+        write_image(pathbuf, ref_dis_filt_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
+
+        snprintf(pathbuf, sizeof(pathbuf), "stage/num_array[%d].bin", scale);
+        write_image(pathbuf, num_array_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
+
+        snprintf(pathbuf, sizeof(pathbuf), "stage/den_array[%d].bin", scale);
+        write_image(pathbuf, den_array_adj, buf_valid_w, buf_valid_h, buf_stride, sizeof(float));
+#endif
+
+        num = *num_array;
+        den = *den_array;
+
+        scores[2 * scale] = num;
+        scores[2 * scale + 1] = den;
+
+#ifdef VIF_OPT_DEBUG_DUMP
+        printf("num[%d]: %e\n", scale, num);
+        printf("den[%d]: %e\n", scale, den);
+#endif
+    }
+
+    *score_num = 0.0;
+    *score_den = 0.0;
+    for (unsigned scale = scale_start; scale < 4; ++scale) {
+        *score_num += scores[2 * scale];
+        *score_den += scores[2 * scale + 1];
+    }
+    if (*score_den == 0.0) {
+        *score = 1.0f;
+    } else {
+        *score = (*score_num) / (*score_den);
+    }
+
+    ret = 0;
+fail_or_end:
     aligned_free(data_buf);
-    return 0;
+    return ret;
+}
+
+int vifdiff(int (*read_frame)(float *ref_data, float *main_data, float *temp_data, int stride,
+                              void *user_data),
+            void *user_data, int w, int h, const char *fmt)
+{
+    (void)fmt;
+
+    double score = 0;
+    double scores[4 * 2];
+    double score_num = 0;
+    double score_den = 0;
+    float *ref_buf = 0;
+    float *ref_diff_buf = 0;
+    float *prev_ref_buf = 0;
+    float *dis_buf = 0;
+    float *dis_diff_buf = 0;
+    float *prev_dis_buf = 0;
+    float *temp_buf = 0;
+    size_t data_sz;
+    int stride;
+    int ret = 1;
+
+    if (w <= 0 || h <= 0 || (size_t)w > ALIGN_FLOOR(INT_MAX) / sizeof(float)) {
+        goto fail_or_end;
+    }
+
+    stride = ALIGN_CEIL(w * sizeof(float));
+
+    if ((size_t)h > SIZE_MAX / stride) {
+        goto fail_or_end;
+    }
+
+    data_sz = (size_t)stride * h;
+
+    if (!(ref_buf = aligned_malloc(data_sz, MAX_ALIGN))) {
+        printf("error: aligned_malloc failed for ref_buf.\n");
+        fflush(stdout);
+        goto fail_or_end;
+    }
+    if (!(ref_diff_buf = aligned_malloc(data_sz, MAX_ALIGN))) {
+        printf("error: aligned_malloc failed for ref_diff_buf.\n");
+        fflush(stdout);
+        goto fail_or_end;
+    }
+    if (!(prev_ref_buf = aligned_malloc(data_sz, MAX_ALIGN))) {
+        printf("error: aligned_malloc failed for prev_ref_buf.\n");
+        fflush(stdout);
+        goto fail_or_end;
+    }
+    if (!(dis_buf = aligned_malloc(data_sz, MAX_ALIGN))) {
+        printf("error: aligned_malloc failed for dis_buf.\n");
+        fflush(stdout);
+        goto fail_or_end;
+    }
+    if (!(dis_diff_buf = aligned_malloc(data_sz, MAX_ALIGN))) {
+        printf("error: aligned_malloc failed for dis_diff_buf.\n");
+        fflush(stdout);
+        goto fail_or_end;
+    }
+    if (!(prev_dis_buf = aligned_malloc(data_sz, MAX_ALIGN))) {
+        printf("error: aligned_malloc failed for prev_dis_buf.\n");
+        fflush(stdout);
+        goto fail_or_end;
+    }
+    if (!(temp_buf = aligned_malloc(data_sz * 2, MAX_ALIGN))) {
+        printf("error: aligned_malloc failed for temp_buf.\n");
+        fflush(stdout);
+        goto fail_or_end;
+    }
+
+    int frm_idx = 0;
+    while (1) {
+        ret = read_frame(ref_buf, dis_buf, temp_buf, stride, user_data);
+
+        if (ret == 1) {
+            goto fail_or_end;
+        }
+        if (ret == 2) {
+            break;
+        }
+
+        // ===============================================================
+        // offset pixel by OPT_RANGE_PIXEL_OFFSET
+        // ===============================================================
+        offset_image_s(ref_buf, OPT_RANGE_PIXEL_OFFSET, w, h, stride);
+        offset_image_s(dis_buf, OPT_RANGE_PIXEL_OFFSET, w, h, stride);
+
+        if (frm_idx > 0) {
+            apply_frame_differencing(ref_buf, prev_ref_buf, ref_diff_buf, w, h,
+                                     stride / sizeof(float));
+            apply_frame_differencing(dis_buf, prev_dis_buf, dis_diff_buf, w, h,
+                                     stride / sizeof(float));
+        }
+
+        // copy the current frame to the previous frame buffer to have it available for next time you apply frame differencing
+        memcpy(prev_ref_buf, ref_buf, data_sz);
+        memcpy(prev_dis_buf, dis_buf, data_sz);
+
+        // Pay attention to extracting T-VIF for first frame. Since we are doing subtracting the previous frame from the current frame,
+        // we cannot apply T-VIF differencing for the first video frame. Therefore we initialize with a default value (e.g. 0 for num and something
+        // very small for den, e.g. 1e-5). Why not difference the other way (next frame minus current frame)? Because the current choice will give us
+        // unreliable scores for an earlier video frame, rather than the latest one. This might be better for video quality calculations, since recency effects
+        // places more weight on later frames.
+        if (frm_idx == 0) {
+            score = 0.0;
+            score_num = 0.0;
+            score_den = 0.0;
+            for (int scale = 0; scale < 4; scale++) {
+                scores[2 * scale] = 0.0;
+                scores[2 * scale + 1] = 0.0 + 1e-5;
+            }
+        } else {
+            // compute
+            if ((ret = compute_vif(ref_diff_buf, dis_diff_buf, w, h, stride, stride, &score,
+                                   &score_num, &score_den, scores, DEFAULT_VIF_ENHN_GAIN_LIMIT,
+                                   DEFAULT_VIF_KERNELSCALE, 0, 2.0))) {
+                printf("error: compute_vifdiff failed.\n");
+                fflush(stdout);
+                goto fail_or_end;
+            }
+        }
+
+        // print
+        printf("vifdiff: %d %f\n", frm_idx, score);
+        fflush(stdout);
+        printf("vifdiff_num: %d %f\n", frm_idx, score_num);
+        fflush(stdout);
+        printf("vifdiff_den: %d %f\n", frm_idx, score_den);
+        fflush(stdout);
+        for (int scale = 0; scale < 4; scale++) {
+            printf("vifdiff_num_scale%d: %d %f\n", scale, frm_idx, scores[2 * scale]);
+            printf("vifdiff_den_scale%d: %d %f\n", scale, frm_idx, scores[2 * scale + 1]);
+        }
+
+        frm_idx++;
+    }
+
+    ret = 0;
+
+fail_or_end:
+
+    aligned_free(ref_buf);
+    aligned_free(ref_diff_buf);
+    aligned_free(prev_ref_buf);
+    aligned_free(dis_buf);
+    aligned_free(dis_diff_buf);
+    aligned_free(prev_dis_buf);
+    aligned_free(temp_buf);
+
+    return ret;
 }
