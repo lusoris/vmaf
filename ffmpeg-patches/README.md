@@ -52,10 +52,13 @@ Local patches against FFmpeg **n8.1.1** for integrating this VMAF fork into
   pulls the IOSurface backing each `CVPixelBufferRef` via
   `CVPixelBufferGetIOSurface`, and routes it through
   `vmaf_metal_picture_import` / `vmaf_metal_read_imported_pictures`.
-  Audit-first scaffold: the libvmaf-side runtime returns -ENOSYS until
-  T8-IOS-b lands the `[id<MTLDevice> newTextureWithDescriptor:iosurface:plane:]`
-  wiring. The filter detects the contract and fails fast with a clear
-  error pointing at ADR-0423. Companion to 0012 (`metal_device` option
+  Working IOSurface → `VmafPicture` import on Apple-Family-7+ hosts
+  via `IOSurfaceLock` + memcpy (ADR-0423 / T8-IOS-b). The filter
+  passes `device=0, command_queue=0` so libvmaf falls back to
+  `MTLCreateSystemDefaultDevice` until FFmpeg exposes an
+  `AVMetalDeviceContext`; non-Apple-Silicon hosts get a clear
+  `-ENODEV` from `vmaf_metal_state_init_external`. Companion to 0012
+  (`metal_device` option
   on the regular libvmaf filter) — together they give users
   `libvmaf=metal_device=N` (software AVFrame input + Metal compute)
   and `libvmaf_metal=...` (VideoToolbox hwdec + zero-copy import). See
