@@ -103,7 +103,7 @@ diff --git a/libavfilter/vf_libvmaf.c b/libavfilter/vf_libvmaf.c
  typedef struct LIBVMAFContext {
      const AVClass *class;
      FFFrameSync fs;
-@@ -1500,3 +1506,264 @@ const FFFilter ff_vf_libvmaf_vulkan = {
+@@ -1500,3 +1506,265 @@ const FFFilter ff_vf_libvmaf_vulkan = {
      .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
  };
  #endif
