@@ -33341,3 +33341,34 @@ upstream rebase that doesn't rewrite these specific functions.
   meson test -C /tmp/build-tp-rebase
   # Must report 54/54 (or more) OK.
   ```
+
+### ai/tiny-netflix-training-scaffold — tiny-AI Netflix corpus training scaffold draft PR (ADR-0417)
+
+- **Touches**: `docs/adr/0417-tiny-ai-netflix-training-scaffold-pr.md`,
+  `docs/research/0099-tiny-ai-netflix-training-update.md`,
+  `docs/adr/_index_fragments/0417-tiny-ai-netflix-training-scaffold-pr.md`,
+  `changelog.d/added/0417-tiny-ai-netflix-training-scaffold-pr.md`,
+  `docs/ai/training-data.md` (See-also links only).
+- **Invariant**: the corpus path `.workingdir2/netflix/` is gitignored and
+  **must never be committed**. The `--data-root` CLI flag and `VMAF_DATA_ROOT`
+  environment variable are the only sanctioned ways to point the training scripts
+  at the corpus. Any rebase or upstream sync that modifies `ai/` or
+  `mcp-server/vmaf-mcp/` must preserve this invariant; verify with
+  `git check-ignore -v .workingdir2/netflix/ref/` (must return the root `.gitignore`
+  entry).
+- **Re-test on rebase**:
+
+  ```bash
+  cd mcp-server/vmaf-mcp && python -m pytest tests/test_smoke_e2e.py -v
+  # Requires: meson compile -C build (for the vmaf binary).
+  # test_list_tools_returns_expected_names  PASSED
+  # test_list_tools_each_has_input_schema   PASSED
+  # test_call_tool_list_models_returns_list PASSED
+  # test_call_tool_list_backends_includes_cpu PASSED
+  # test_call_tool_unknown_name_returns_error_json PASSED
+  # test_call_tool_vmaf_score_golden_pair   PASSED (requires build/tools/vmaf)
+  ```
+
+no rebase impact on libvmaf C sources: this branch is doc-only (ADR-0417,
+Research Digest 0099, changelog fragment, ADR index fragment). The MCP smoke test
+and training-data.md are already in master and untouched by this branch.
