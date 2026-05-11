@@ -132,5 +132,9 @@ Determinism`.
 - [inference.md](inference.md) — running the trained ONNX model via C API or CLI
 - [ADR-0242](../adr/0242-tiny-ai-netflix-training-corpus.md) — architecture
   and distillation policy decisions
+- [ADR-0417](../adr/0417-tiny-ai-netflix-training-scaffold-pr.md) — draft PR
+  registration; consult before triggering a training run
 - [Research digest 0019](../research/0019-tiny-ai-netflix-training.md) —
-  literature survey underpinning the architecture choices
+  VMAF methodology survey and distillation literature (2026-04-27)
+- [Research digest 0099](../research/0099-tiny-ai-netflix-training-update.md) —
+  2024–2026 distillation, ONNX Runtime, and lightweight FR regressor update
