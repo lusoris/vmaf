@@ -12,3 +12,4 @@
 0009-pass-autotune-cli-glue.patch
 0010-libvmaf-wire-cuda-backend-selector.patch
 0011-libvmaf-wire-hip-backend-selector.patch
+0012-libvmaf-wire-metal-backend-selector.patch
