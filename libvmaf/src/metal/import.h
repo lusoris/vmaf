@@ -31,8 +31,8 @@ extern "C" {
  * @return 0 on success, -EINVAL on NULL / unbuilt state / index
  *         mismatch / not-all-planes-filled.
  */
-int vmaf_metal_state_build_pictures(VmafMetalState *state, unsigned index,
-                                    VmafPicture *out_ref, VmafPicture *out_dis);
+int vmaf_metal_state_build_pictures(VmafMetalState *state, unsigned index, VmafPicture *out_ref,
+                                    VmafPicture *out_dis);
 
 /**
  * Release the import ring + any partially-filled pictures still

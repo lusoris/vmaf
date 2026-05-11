@@ -239,7 +239,7 @@ int vmaf_metal_picture_import(VmafMetalState *state, uintptr_t iosurface,
         return -EINVAL;
     }
 
-    IOSurfaceRef surf = (__bridge IOSurfaceRef)(void *)iosurface;
+    IOSurfaceRef surf = (IOSurfaceRef)(uintptr_t)iosurface;
     if (surf == NULL) {
         return -EINVAL;
     }
