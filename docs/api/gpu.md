@@ -1,8 +1,9 @@
-# GPU backends C API — `libvmaf_cuda.h` / `libvmaf_sycl.h` / `libvmaf_vulkan.h`
+# GPU backends C API — `libvmaf_cuda.h` / `libvmaf_sycl.h` / `libvmaf_vulkan.h` / `libvmaf_hip.h` / `libvmaf_metal.h`
 
-The CUDA and SYCL backends each add their own small API on top of the core
+Each GPU backend adds its own small API on top of the core
 `libvmaf.h` surface — a state object, picture preallocation helpers, and
-(SYCL only) zero-copy import paths. This page is the reference for both.
+(SYCL / Vulkan / Metal) zero-copy import paths. This page is the reference for
+all five backends; HIP and Metal are scaffold-stage (see per-backend notes).
 
 Core API primer: [index.md](index.md). CLI equivalents:
 [../usage/cli.md#backend-selection](../usage/cli.md#backend-selection).
@@ -16,8 +17,17 @@ Backend dispatch rules + runtime precedence:
   are absent and calls won't link.
 - The SYCL header is only useful in a build with `-Denable_sycl=true`
   (linking oneAPI / Level Zero). Same rule.
+- The Vulkan header requires `-Denable_vulkan=true` (linking volk + the
+  compute-shader feature kernels). Same rule.
+- The HIP header requires `-Denable_hip=true -Denable_hipcc=true` (linking
+  ROCm). 8 of 11 feature kernels are real; 3 stubs (`adm`, `vif`,
+  `integer_motion`) return `-ENOSYS`.
+- The Metal header requires `-Denable_metal=auto/enabled` on macOS. Scaffold
+  only: all `libvmaf_metal.h` entry points return `-ENOSYS` pending the
+  runtime PR (T8-1b).
 - To write portable code that compiles against any libvmaf build, wrap
-  GPU-specific sections in `#ifdef HAVE_CUDA` / `#ifdef HAVE_SYCL`, which
+  GPU-specific sections in `#ifdef HAVE_CUDA` / `#ifdef HAVE_SYCL` /
+  `#ifdef HAVE_VULKAN` / `#ifdef HAVE_HIP` / `#ifdef HAVE_METAL`, which
   `pkg-config --cflags libvmaf` surfaces automatically.
 
 ## CUDA

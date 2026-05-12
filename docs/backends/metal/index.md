@@ -2,9 +2,11 @@
 
 > **Status: scaffold only.** Every entry point in
 > [`libvmaf_metal.h`](../../../libvmaf/include/libvmaf/libvmaf_metal.h)
-> currently returns `-ENOSYS` pending the runtime PR (T8-1b). Four
-> kernel-template consumers are registered:
-> `motion_v2_metal`, `psnr_metal`, `float_ssim_metal`, and `motion_metal`.
+> currently returns `-ENOSYS` pending the runtime PR (T8-1b). Eight
+> kernel-template consumers are registered: `float_ansnr_metal`,
+> `float_moment_metal`, `float_motion_metal`, `float_psnr_metal`,
+> `float_ssim_metal`, `integer_motion_metal`, `integer_psnr_metal`,
+> and `motion_v2_metal`.
 > Each resolves to a clean "found, runtime not ready" surface so callers
 > asking by name get a deterministic `-ENOSYS` rather than "no such
 > extractor". The runtime PR (T8-1b) flips all kernel-template helper
@@ -15,7 +17,7 @@
 > [ADR-0175](../../adr/0175-vulkan-backend-scaffold.md)).
 >
 > Governing ADR: [ADR-0361](../../adr/0361-metal-compute-backend.md).
-> **4 of 17 planned extractors registered (batch-1).**
+> **8 of 17 planned extractors registered (batch-1).**
 
 ## Why Metal
 

@@ -1,9 +1,15 @@
 # ADR-0415: CAMBI SYCL port — closes last CUDA-to-SYCL parity gap
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-10
 - **Deciders**: lusoris
 - **Tags**: `sycl`, `gpu`, `cambi`, `feature-extractor`, `fork-local`, `t3-15`
+
+> **Status update 2026-05-12.** Implementation shipped as
+> [`libvmaf/src/feature/sycl/integer_cambi_sycl.cpp`](../../libvmaf/src/feature/sycl/integer_cambi_sycl.cpp)
+> (≈ 37 kB, three SYCL kernels + host fallback for `calculate_c_values`
+> and top-K spatial pooling per the hybrid design below). Marks the
+> SYCL feature-extractor parity matrix as 17 of 17 versus CUDA.
 
 ## Context
 

@@ -19,7 +19,9 @@ opened in this repo. For Claude Code–specific tooling (skills, hooks), see
 - Fork of [Netflix/vmaf](https://github.com/Netflix/vmaf) — perceptual video quality
   assessment.
 - Additions over upstream: SYCL / CUDA / HIP GPU backends, AVX2/AVX-512/NEON SIMD,
-  a full-precision CLI flag (default `%.17g`), tiny-AI surface (ONNX Runtime), MCP server.
+  a `--precision` CLI flag (default `%.6f` Netflix-compat; `--precision=max` opts in
+  to `%.17g` round-trip lossless — ADR-0119 supersedes ADR-0006), tiny-AI surface
+  (ONNX Runtime), MCP server.
 - License: BSD-3-Clause-Plus-Patent (upstream license preserved — see [LICENSE](LICENSE)).
 - Default branch: `master`. Upstream tracked as remote `upstream`.
 
