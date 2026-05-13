@@ -119,6 +119,12 @@ class CorpusOptions:
     # single-pass (matching the saliency x264-only fallback
     # precedent).
     two_pass: bool = False
+    # Resolution-aware model selection (ADR-0289): when True, iter_rows
+    # overrides vmaf_model with the resolution-appropriate model returned
+    # by vmaftune.resolution.model_for_resolution — vmaf_4k_v0.6.1 for
+    # height >= 2160, vmaf_v0.6.1 otherwise. False keeps the explicit
+    # vmaf_model value regardless of source resolution.
+    resolution_aware: bool = True
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:
@@ -361,7 +367,12 @@ def iter_rows(
         else:
             enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
 
-        score_model = _resolve_hdr_score_model(hdr_info, opts.vmaf_model, warned=score_model_warned)
+        base_model = opts.vmaf_model
+        if opts.resolution_aware:
+            from .resolution import select_vmaf_model_version  # noqa: PLC0415
+
+            base_model = select_vmaf_model_version(job.width, job.height)
+        score_model = _resolve_hdr_score_model(hdr_info, base_model, warned=score_model_warned)
         score_req = ScoreRequest(
             reference=job.source,
             distorted=out,
@@ -398,6 +409,7 @@ def iter_rows(
             src_sha=src_hash,
             enc_res=enc_res,
             score_res=score_res,
+            score_model=score_model,
             clip_mode=clip_mode,
             hdr_info=hdr_info,
             hdr_forced=hdr_forced,
@@ -419,6 +431,7 @@ def _row_for(
     src_sha: str,
     enc_res,
     score_res,
+    score_model: str = "",
     clip_mode: str = "full",
     hdr_info: HdrInfo | None = None,
     hdr_forced: bool = False,
@@ -453,7 +466,7 @@ def _row_for(
         "bitrate_kbps": bitrate_kbps(enc_res.encode_size_bytes, encoded_duration_s),
         "encode_time_ms": enc_res.encode_time_ms,
         "vmaf_score": score_res.vmaf_score,
-        "vmaf_model": opts.vmaf_model,
+        "vmaf_model": score_model,
         "score_time_ms": score_res.score_time_ms,
         "ffmpeg_version": enc_res.ffmpeg_version,
         "vmaf_binary_version": score_res.vmaf_binary_version,

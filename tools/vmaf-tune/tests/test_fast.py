@@ -106,17 +106,16 @@ def test_crf_range_is_respected() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_production_loop_requires_extractor_or_predictor() -> None:
-    """`smoke=False` without a predictor or sample_extractor must raise.
+def test_production_loop_uses_real_extractor_when_no_override() -> None:
+    """`smoke=False` without any override wires the production extractor.
 
-    The scaffold contract from ADR-0276 stays intact: the production
-    path requires either a real sample extractor (encode + canonical-6)
-    or an injected predictor. There is no automatic "best-effort"
-    default — silently producing a recommendation with no proxy is
-    worse than a clear error.
+    The production extractor calls ffprobe on the source; when the
+    source does not exist the extractor raises RuntimeError (propagated
+    from the ffprobe failure), not NotImplementedError.  A caller that
+    wants full control injects ``sample_extractor`` or ``predictor``.
     """
-    with pytest.raises(NotImplementedError):
-        fast_recommend(src=Path("any.mp4"), target_vmaf=92.0, smoke=False)
+    with pytest.raises(RuntimeError, match="ffprobe failed"):
+        fast_recommend(src=Path("nonexistent.mp4"), target_vmaf=92.0, smoke=False)
 
 
 def test_tpe_search_smoke_uses_prod_default_when_unset() -> None:

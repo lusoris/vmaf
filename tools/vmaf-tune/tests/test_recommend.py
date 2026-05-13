@@ -152,32 +152,30 @@ def _write_corpus(path: Path, rows: list[dict]) -> Path:
 
 
 def test_cli_rejects_both_targets(capsys):
-    # argparse mutually-exclusive group exits with 2.
-    with pytest.raises(SystemExit) as exc_info:
-        cli_main(
-            [
-                "recommend",
-                "--from-corpus",
-                "/nonexistent.jsonl",
-                "--target-vmaf",
-                "92",
-                "--target-bitrate",
-                "5000",
-            ]
-        )
-    assert exc_info.value.code == 2
+    # Both --target-vmaf and --target-bitrate conflict; handler returns 2.
+    rc = cli_main(
+        [
+            "recommend",
+            "--from-corpus",
+            "/nonexistent.jsonl",
+            "--target-vmaf",
+            "92",
+            "--target-bitrate",
+            "5000",
+        ]
+    )
+    assert rc == 2
 
 
 def test_cli_rejects_no_target(capsys):
-    with pytest.raises(SystemExit) as exc_info:
-        cli_main(
-            [
-                "recommend",
-                "--from-corpus",
-                "/nonexistent.jsonl",
-            ]
-        )
-    assert exc_info.value.code == 2
+    rc = cli_main(
+        [
+            "recommend",
+            "--from-corpus",
+            "/nonexistent.jsonl",
+        ]
+    )
+    assert rc == 2
 
 
 def test_cli_target_vmaf_from_corpus(tmp_path: Path, capsys):
