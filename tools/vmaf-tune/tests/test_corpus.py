@@ -48,8 +48,10 @@ def _make_yuv(path: Path, nbytes: int = 1024) -> Path:
     return path
 
 
-def test_known_codecs_phase_a_is_x264_only():
-    assert known_codecs() == ("libx264",)
+def test_known_codecs_includes_x264_and_multi_codec_adapters():
+    codecs = known_codecs()
+    assert "libx264" in codecs
+    assert "libx265" in codecs  # multi-codec registry ships with x265+
     a = get_adapter("libx264")
     assert a.encoder == "libx264"
     assert a.invert_quality is True

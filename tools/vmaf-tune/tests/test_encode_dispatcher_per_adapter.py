@@ -131,6 +131,23 @@ _PER_ADAPTER_FIXTURES: tuple[tuple[str, str, int, tuple[tuple[str, str], ...]], 
         65,
         (("-c:v", "hevc_videotoolbox"), ("-realtime", "0"), ("-q:v", "65")),
     ),
+    # av1_videotoolbox — placeholder adapter; ffmpeg_codec_args raises until
+    # upstream FFmpeg ships AV1 VideoToolbox support (ADR-0339). Listed
+    # here so the fixture-coverage gate stays green; the per-adapter command
+    # test is expected to raise and is not parametrised on this row.
+    (
+        "av1_videotoolbox",
+        "medium",
+        65,
+        (),  # no must-have args: adapter raises on ffmpeg_codec_args
+    ),
+    # prores_videotoolbox — uses -realtime + -profile:v (not -preset / -crf).
+    (
+        "prores_videotoolbox",
+        "ultrafast",
+        0,
+        (("-c:v", "prores_videotoolbox"), ("-realtime", "1"), ("-profile:v", "proxy")),
+    ),
 )
 
 
@@ -181,6 +198,9 @@ def test_build_ffmpeg_command_emits_codec_correct_argv(
     for VideoToolbox, ``-qp`` for VVenC. x264 / x265 keep their
     historic ``-preset + -crf`` shape.
     """
+    # av1_videotoolbox raises until upstream FFmpeg ships AV1 VT support.
+    if encoder == "av1_videotoolbox":
+        pytest.xfail("av1_videotoolbox raises Av1VideoToolboxUnavailableError (ADR-0339)")
     cmd = build_ffmpeg_command(_mk_request(encoder, preset, quality))
     for flag, value in must_have:
         assert flag in cmd, f"{flag} missing from {cmd}"
@@ -206,6 +226,8 @@ def test_run_encode_passes_codec_correct_argv_to_subprocess(
     Mocks ``subprocess.run`` via the ``runner=`` injection seam used
     elsewhere in the corpus pipeline (``encode.run_encode``).
     """
+    if encoder == "av1_videotoolbox":
+        pytest.xfail("av1_videotoolbox raises Av1VideoToolboxUnavailableError (ADR-0339)")
     captured: dict[str, list[str]] = {}
 
     def fake_runner(cmd: list[str], capture_output: bool, text: bool, check: bool) -> Any:

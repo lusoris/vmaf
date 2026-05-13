@@ -235,10 +235,13 @@ def test_adapter_run_yields_one_row_per_crf(tmp_path: Path):
     assert all(r["nr_source"] == str(src) for r in rows)
     assert all(r["nr_mos"] == 4.2 for r in rows)
     # The pipeline used the mocked seams (real ffprobe / ffmpeg / vmaf
-    # never invoked).
+    # never invoked). The x264 adapter has `supports_encoder_stats=True`
+    # so iter_rows calls run_encode_with_stats, which runs FFmpeg twice
+    # per CRF (pass-1 stats-only to /dev/null, then the real CRF encode).
+    # Score is called once per CRF against the real encode output.
     assert len(captured["probe"]) == 1
     assert len(captured["decode"]) == 1
-    assert len(captured["encode"]) == len(sweep)
+    assert len(captured["encode"]) == 2 * len(sweep)
     assert len(captured["score"]) == len(sweep)
 
 

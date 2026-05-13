@@ -132,10 +132,28 @@ def _resolve_codec_args(req: "EncodeRequest") -> list[str]:
     if fn is None:
         return _legacy_codec_args(req.encoder, req.preset, req.crf)
 
-    args = fn(req.preset, req.crf)
-    # Adapters historically returned tuples; normalise to list so the
-    # composed argv is mutation-safe and uniformly typed.
-    return list(args)
+    args = list(fn(req.preset, req.crf))
+    # Append adapter-level extra_params (codec-specific flags that are
+    # orthogonal to quality/preset — e.g. -svtav1-params for SVT-AV1,
+    # -row-mt for libaom-av1, -b:v 0 for VBR-mode encoders).
+    extra_fn = getattr(adapter, "extra_params", None)
+    if extra_fn is not None:
+        import inspect  # noqa: PLC0415
+
+        sig = inspect.signature(extra_fn)
+        if len(sig.parameters) >= 2:
+            extra = extra_fn(req.preset, req.crf)
+        else:
+            extra = extra_fn()
+        if extra:
+            # extra_params may be a flat tuple of strings or a tuple of
+            # (flag, value) pairs; normalise both shapes.
+            if isinstance(extra[0], tuple):
+                for flag, val in extra:
+                    args.extend([flag, val])
+            else:
+                args.extend(extra)
+    return args
 
 
 def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list[str]:
@@ -216,20 +234,67 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
 
 _FFMPEG_VERSION_RE = re.compile(r"ffmpeg version (\S+)")
 _X264_VERSION_RE = re.compile(r"x264 - core (\d+)")
+_X265_VERSION_RE = re.compile(r"x265 \[info\]: HEVC encoder version (\S+)")
+# SVT-AV1 banner formats across versions:
+#   older: "SVT-AV1 ENCODER v1.7.0"
+#   newer: "Svt[info]:SVT-AV1 Encoder Lib v2.1.0"
+_SVTAV1_VERSION_RE = re.compile(r"SVT-AV1 Encoder(?:\s+Lib)?\s+v(\S+)", re.IGNORECASE)
 
 
-def parse_versions(stderr: str) -> tuple[str, str]:
-    """Return (ffmpeg_version, x264_version) extracted from stderr.
+def parse_versions(stderr: str, encoder: str = "libx264") -> tuple[str, str]:
+    """Return (ffmpeg_version, encoder_version) extracted from stderr.
+
+    ``encoder`` selects the per-codec version regex. Supported values
+    match the codec_adapters registry: ``libx264`` (default), ``libx265``,
+    ``libsvtav1``, any HW encoder token (h264_nvenc, hevc_amf, …).
+    HW encoders don't advertise a version in stderr; the encoder token
+    string is returned verbatim so corpus rows carry a stable identifier.
 
     Returns ``("unknown", "unknown")`` for missing matches rather than
     raising — corpus rows record what we can detect and move on.
     """
     ffm = _FFMPEG_VERSION_RE.search(stderr)
-    enc = _X264_VERSION_RE.search(stderr)
-    return (
-        ffm.group(1) if ffm else "unknown",
-        f"libx264-{enc.group(1)}" if enc else "unknown",
-    )
+    ffm_str = ffm.group(1) if ffm else "unknown"
+
+    enc_str: str
+    _DEFAULT_ENCODER = "libx264"
+    if encoder == _DEFAULT_ENCODER or not encoder:
+        # Auto-detect from stderr when the caller didn't pass an explicit
+        # encoder override (i.e. still at default "libx264"): x264 banner
+        # takes priority (it appears first in multi-codec logs), then x265,
+        # then SVT-AV1. If no banner is found, return "unknown".
+        m_x4 = _X264_VERSION_RE.search(stderr)
+        if m_x4:
+            enc_str = f"libx264-{m_x4.group(1)}"
+        else:
+            m_x5 = _X265_VERSION_RE.search(stderr)
+            if m_x5:
+                enc_str = f"libx265-{m_x5.group(1)}"
+            else:
+                m_sv = _SVTAV1_VERSION_RE.search(stderr)
+                enc_str = f"libsvtav1-{m_sv.group(1)}" if m_sv else "unknown"
+    elif encoder == "libx265":
+        m = _X265_VERSION_RE.search(stderr)
+        enc_str = f"libx265-{m.group(1)}" if m else "unknown"
+    elif encoder in ("libsvtav1", "libsvtav1-vbr"):
+        m = _SVTAV1_VERSION_RE.search(stderr)
+        enc_str = f"libsvtav1-{m.group(1)}" if m else "unknown"
+    else:
+        # Known HW encoder tokens (nvenc/amf/qsv/videotoolbox): no version
+        # string in stderr; return the token as the stable identifier.
+        # Completely unknown names return "unknown".
+        _HW_TOKENS = (
+            "_nvenc",
+            "_amf",
+            "_qsv",
+            "_videotoolbox",
+        )
+        if any(tok in encoder for tok in _HW_TOKENS):
+            enc_str = encoder
+        else:
+            enc_str = "unknown"
+
+    return ffm_str, enc_str
 
 
 def run_encode(
@@ -237,14 +302,17 @@ def run_encode(
     *,
     ffmpeg_bin: str = "ffmpeg",
     runner: object | None = None,
+    encoder_runner: object | None = None,
 ) -> EncodeResult:
     """Drive ffmpeg to produce ``req.output``.
 
-    ``runner`` defaults to ``subprocess.run`` and is parameterised so
-    tests inject a stub.
+    ``runner`` / ``encoder_runner`` are aliases — both default to
+    ``subprocess.run`` and are parameterised so tests inject a stub.
+    ``encoder_runner`` is the newer name; ``runner`` is kept for
+    backward compatibility with existing corpus.py callers.
     """
     cmd = build_ffmpeg_command(req, ffmpeg_bin=ffmpeg_bin)
-    runner_fn = runner or subprocess.run
+    runner_fn = encoder_runner or runner or subprocess.run
     started = time.monotonic()
     completed = runner_fn(  # type: ignore[operator]
         cmd, capture_output=True, text=True, check=False
@@ -263,7 +331,7 @@ def run_encode(
     if rc == 0 and req.pass_number != 1 and req.output.exists():
         size = os.path.getsize(req.output)
 
-    ffmpeg_v, encoder_v = parse_versions(stderr)
+    ffmpeg_v, encoder_v = parse_versions(stderr, encoder=req.encoder)
     return EncodeResult(
         request=req,
         encode_size_bytes=size,
