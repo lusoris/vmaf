@@ -362,6 +362,7 @@ def _build_production_sample_extractor(
 
             # Locate the centre window; clip to source length if shorter.
             duration_s = SAMPLE_CHUNK_SECONDS
+            is_container = src.suffix.lower() not in {".yuv", ".y4m", ""}
             enc_req = EncodeRequest(
                 source=src,
                 width=width,
@@ -373,6 +374,7 @@ def _build_production_sample_extractor(
                 crf=crf,
                 output=dist,
                 sample_clip_seconds=duration_s,
+                source_is_container=is_container,
             )
             enc_result = run_encode(enc_req, ffmpeg_bin=ffmpeg_bin)
             if enc_result.exit_status != 0 or not dist.exists():
@@ -440,6 +442,7 @@ def _build_production_encode_runner(
             if width == 0 or height == 0 or fps == 0.0:
                 raise RuntimeError(f"fast encode_runner: ffprobe failed for {src}")
 
+            is_container = src.suffix.lower() not in {".yuv", ".y4m", ""}
             enc_req = EncodeRequest(
                 source=src,
                 width=width,
@@ -450,6 +453,7 @@ def _build_production_encode_runner(
                 preset=preset,
                 crf=crf,
                 output=dist,
+                source_is_container=is_container,
             )
             enc_result = run_encode(enc_req, ffmpeg_bin=ffmpeg_bin)
             if enc_result.exit_status != 0 or not dist.exists():

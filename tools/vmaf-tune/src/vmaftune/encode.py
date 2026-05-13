@@ -66,6 +66,11 @@ class EncodeRequest:
     # single-pass.
     pass_number: int = 0
     stats_path: Path | None = None
+    # When True, the source is a container file (mkv/mp4/…) not raw YUV.
+    # build_ffmpeg_command omits the -f rawvideo / -pix_fmt / -s / -r
+    # input flags so ffmpeg auto-detects the format. sample_clip_seconds
+    # uses -ss/-t on the input side when set.
+    source_is_container: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -181,26 +186,33 @@ def build_ffmpeg_command(req: EncodeRequest, ffmpeg_bin: str = "ffmpeg") -> list
     legacy ``-c:v <enc> -preset <p> -crf <q>`` shape stays available
     as a fallback for unregistered encoders.
     """
-    cmd: list[str] = [
-        ffmpeg_bin,
-        "-y",  # overwrite
-        "-hide_banner",
-        "-loglevel",
-        "info",
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        req.pix_fmt,
-        "-s",
-        f"{req.width}x{req.height}",
-        "-r",
-        f"{req.framerate}",
-    ]
-    if req.sample_clip_seconds > 0.0:
-        # Input-side -ss / -t — fast-seek for raw YUV.
-        cmd.extend(["-ss", f"{req.sample_clip_start_s}"])
-        cmd.extend(["-t", f"{req.sample_clip_seconds}"])
-    cmd.extend(["-i", str(req.source)])
+    cmd: list[str] = [ffmpeg_bin, "-y", "-hide_banner", "-loglevel", "info"]
+    if req.source_is_container:
+        # Container source (mkv/mp4/…): let ffmpeg auto-detect format.
+        # -ss/-t go before -i for fast input-seek on compressed streams.
+        if req.sample_clip_seconds > 0.0:
+            cmd.extend(["-ss", f"{req.sample_clip_start_s}"])
+            cmd.extend(["-t", f"{req.sample_clip_seconds}"])
+        cmd.extend(["-i", str(req.source)])
+    else:
+        # Raw YUV source: must tell ffmpeg the format explicitly.
+        cmd.extend(
+            [
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                req.pix_fmt,
+                "-s",
+                f"{req.width}x{req.height}",
+                "-r",
+                f"{req.framerate}",
+            ]
+        )
+        if req.sample_clip_seconds > 0.0:
+            # Input-side -ss / -t — fast-seek for raw YUV.
+            cmd.extend(["-ss", f"{req.sample_clip_start_s}"])
+            cmd.extend(["-t", f"{req.sample_clip_seconds}"])
+        cmd.extend(["-i", str(req.source)])
     cmd.extend(_resolve_codec_args(req))
 
     # Phase F: 2-pass argv from the codec adapter, when requested.
@@ -361,25 +373,29 @@ def build_pass1_stats_command(
     output. The stats file lands at ``<prefix>-0.log`` (and an
     ``mbtree`` sidecar at ``<prefix>-0.log.mbtree`` which we ignore).
     """
-    cmd: list[str] = [
-        ffmpeg_bin,
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "info",
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        req.pix_fmt,
-        "-s",
-        f"{req.width}x{req.height}",
-        "-r",
-        f"{req.framerate}",
-    ]
-    if req.sample_clip_seconds > 0.0:
-        cmd.extend(["-ss", f"{req.sample_clip_start_s}"])
-        cmd.extend(["-t", f"{req.sample_clip_seconds}"])
-    cmd.extend(["-i", str(req.source)])
+    cmd = [ffmpeg_bin, "-y", "-hide_banner", "-loglevel", "info"]
+    if req.source_is_container:
+        if req.sample_clip_seconds > 0.0:
+            cmd.extend(["-ss", f"{req.sample_clip_start_s}"])
+            cmd.extend(["-t", f"{req.sample_clip_seconds}"])
+        cmd.extend(["-i", str(req.source)])
+    else:
+        cmd.extend(
+            [
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                req.pix_fmt,
+                "-s",
+                f"{req.width}x{req.height}",
+                "-r",
+                f"{req.framerate}",
+            ]
+        )
+        if req.sample_clip_seconds > 0.0:
+            cmd.extend(["-ss", f"{req.sample_clip_start_s}"])
+            cmd.extend(["-t", f"{req.sample_clip_seconds}"])
+        cmd.extend(["-i", str(req.source)])
     cmd.extend(
         [
             "-c:v",
