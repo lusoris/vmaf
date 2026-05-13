@@ -145,9 +145,9 @@ def test_validate_rejects_phase_a_out_of_window_but_legal_crf():
 
 
 def test_parse_versions_recognises_svtav1_banner():
-    stderr = "ffmpeg version 7.0.1 built with gcc\n" "Svt[info]:SVT-AV1 Encoder Lib v2.1.0\n"
+    stderr = "ffmpeg version n8.1 built with gcc\n" "Svt[info]:SVT-AV1 Encoder Lib v2.1.0\n"
     ffm, enc = parse_versions(stderr)
-    assert ffm == "7.0.1"
+    assert ffm == "n8.1"
     # ``v`` prefix in the banner is stripped by the parser so the row
     # carries a bare version token.
     assert enc == "libsvtav1-2.1.0"

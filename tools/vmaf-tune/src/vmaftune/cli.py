@@ -729,14 +729,16 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
     aligned with ``corpus`` means downstream scripts can swap one for
     the other without re-learning the CLI.
     """
-    p.add_argument("--source", type=Path, action="append", required=True)
-    p.add_argument("--width", type=int, required=True)
-    p.add_argument("--height", type=int, required=True)
+    # --source / --width / --height / --preset are only required when
+    # not using --from-corpus. Validation happens in the handler.
+    p.add_argument("--source", type=Path, action="append", default=None)
+    p.add_argument("--width", type=int, default=None)
+    p.add_argument("--height", type=int, default=None)
     p.add_argument("--pix-fmt", default="yuv420p")
     p.add_argument("--framerate", type=float, default=24.0)
     p.add_argument("--duration", type=float, default=0.0)
     p.add_argument("--encoder", default="libx264", choices=list(known_codecs()))
-    p.add_argument("--preset", action="append", required=True)
+    p.add_argument("--preset", action="append", default=None)
     p.add_argument(
         "--output",
         type=Path,
@@ -772,6 +774,36 @@ def _add_recommend_args(p: argparse.ArgumentParser) -> None:
     )
     _add_coarse_to_fine_flags(p)
     _add_recommend_uncertainty_flags(p)
+
+    p.add_argument(
+        "--from-corpus",
+        type=Path,
+        default=None,
+        metavar="JSONL",
+        help=(
+            "pick from an existing corpus JSONL instead of running new "
+            "encodes. When set, --source / --width / --height / --preset "
+            "are not required. Use --target-vmaf or --target-bitrate to "
+            "select the recommendation strategy."
+        ),
+    )
+    grp = p.add_mutually_exclusive_group()
+    grp.add_argument(
+        "--target-bitrate",
+        type=float,
+        default=None,
+        metavar="KBPS",
+        help=(
+            "when using --from-corpus: pick the row whose bitrate is "
+            "closest to this target (in kbps)."
+        ),
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="emit the recommendation as a single JSON object to stdout.",
+    )
 
 
 def _add_recommend_uncertainty_flags(p: argparse.ArgumentParser) -> None:
@@ -892,7 +924,70 @@ def _run_corpus(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_recommend_from_corpus(args: argparse.Namespace) -> int:
+    """Pick a recommendation from a pre-built corpus JSONL (no new encodes)."""
+    import json as _json  # noqa: PLC0415
+
+    from .recommend import pick_target_bitrate, pick_target_vmaf  # noqa: PLC0415
+
+    corpus_path: Path = args.from_corpus
+    if not corpus_path.exists():
+        sys.stderr.write(f"recommend: corpus file not found: {corpus_path}\n")
+        return 2
+
+    rows: list[dict] = []
+    with corpus_path.open(encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                rows.append(_json.loads(line))
+
+    target_vmaf: float | None = getattr(args, "target_vmaf", None)
+    target_bitrate: float | None = getattr(args, "target_bitrate", None)
+
+    if target_vmaf is not None and target_bitrate is not None:
+        sys.stderr.write("recommend: --target-vmaf and --target-bitrate are mutually exclusive\n")
+        return 2
+
+    try:
+        if target_vmaf is not None:
+            pick = pick_target_vmaf(rows, target_vmaf)
+        elif target_bitrate is not None:
+            pick = pick_target_bitrate(rows, target_bitrate)
+        else:
+            sys.stderr.write("recommend: --target-vmaf or --target-bitrate required\n")
+            return 2
+    except ValueError as exc:
+        sys.stderr.write(f"recommend: {exc}\n")
+        return 2
+
+    json_output: bool = getattr(args, "json_output", False)
+    if json_output:
+        sys.stdout.write(_json.dumps(pick.row) + "\n")
+    else:
+        crf = pick.row.get("crf", "?")
+        vmaf = pick.row.get("vmaf_score", float("nan"))
+        kbps = pick.row.get("bitrate_kbps", float("nan"))
+        predicate = pick.predicate
+        status = "UNMET" if pick.margin < 0 else "OK"
+        sys.stdout.write(
+            f"crf={crf}  vmaf={vmaf:.3f}  kbps={kbps:.0f}" f"  predicate={predicate}  [{status}]\n"
+        )
+    return 0
+
+
 def _run_recommend(args: argparse.Namespace) -> int:
+    if getattr(args, "from_corpus", None) is not None:
+        return _run_recommend_from_corpus(args)
+
+    # Encode-driven path: validate required args.
+    if not args.source or not args.width or not args.height or not args.preset:
+        sys.stderr.write(
+            "recommend: --source, --width, --height, --preset are required "
+            "unless --from-corpus is used\n"
+        )
+        return 2
+
     if args.target_vmaf is None:
         sys.stderr.write("recommend requires --target-vmaf\n")
         return 2

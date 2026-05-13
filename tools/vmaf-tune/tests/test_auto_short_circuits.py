@@ -364,15 +364,19 @@ def test_run_auto_smoke_emits_stable_json() -> None:
     assert "sample-clip-propagate" in payload["metadata"]["short_circuits"]
 
 
-def test_run_auto_non_smoke_requires_explicit_meta() -> None:
-    with pytest.raises(NotImplementedError):
-        run_auto(
-            src=Path("/dev/null"),
-            target_vmaf=93.0,
-            max_budget_kbps=5000.0,
-            allow_codecs=("libx264",),
-            smoke=False,
-        )
+def test_run_auto_non_smoke_probes_source_when_no_meta() -> None:
+    # Production path now probes the source via ffprobe. /dev/null is a
+    # valid file but not a video — ffprobe returns empty geometry (0×0,
+    # 0 fps) and the builder falls back to 1080p/1920×1080 defaults so
+    # the tree can still run. Verify the plan comes back (no error).
+    plan = run_auto(
+        src=Path("/dev/null"),
+        target_vmaf=93.0,
+        max_budget_kbps=5000.0,
+        allow_codecs=("libx264",),
+        smoke=False,
+    )
+    assert plan is not None
 
 
 def test_run_auto_4k_hdr_animation_does_not_short_circuit_inappropriately() -> None:

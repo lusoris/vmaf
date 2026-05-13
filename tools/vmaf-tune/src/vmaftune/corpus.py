@@ -119,6 +119,18 @@ class CorpusOptions:
     # single-pass (matching the saliency x264-only fallback
     # precedent).
     two_pass: bool = False
+    # Content-addressed encode cache (ADR-0298): when enabled, iter_rows
+    # skips re-encoding cells whose (src_sha256, encoder, preset, crf)
+    # key already exists in cache_dir. Default off; CLI enables via
+    # --cache-dir. The cache key schema matches vmaftune.cache.
+    cache_enabled: bool = False
+    cache_dir: Path | None = None
+    # Resolution-aware model selection (ADR-0289): when True, iter_rows
+    # overrides vmaf_model with the resolution-appropriate model returned
+    # by vmaftune.resolution.model_for_resolution — vmaf_4k_v0.6.1 for
+    # height >= 2160, vmaf_v0.6.1 otherwise. False keeps the explicit
+    # vmaf_model value regardless of source resolution.
+    resolution_aware: bool = True
 
 
 def _sha256_of(path: Path, *, chunk: int = 1 << 20) -> str:
@@ -296,17 +308,26 @@ def iter_rows(
     encode_runner: object | None = None,
     score_runner: object | None = None,
     shot_runner: object | None = None,
+    probe_runner: object | None = None,
 ) -> Iterator[dict]:
     """Yield one JSONL row per (preset, crf) cell.
 
-    ``encode_runner`` / ``score_runner`` / ``shot_runner`` are
-    subprocess-runner stubs parameterised for tests. Production
+    ``encode_runner`` / ``score_runner`` / ``shot_runner`` / ``probe_runner``
+    are subprocess-runner stubs parameterised for tests. Production
     callers leave them ``None``.
     """
     adapter = get_adapter(opts.encoder)
     src_hash = _sha256_of(job.source) if (opts.src_sha256 and job.source.exists()) else ""
 
     opts.encode_dir.mkdir(parents=True, exist_ok=True)
+
+    # Content-addressed cache (ADR-0298). Initialise once per iter_rows
+    # call so the cache index is loaded only once, not per cell.
+    tune_cache = None
+    if opts.cache_enabled and opts.cache_dir is not None:
+        from .cache import TuneCache  # noqa: PLC0415
+
+        tune_cache = TuneCache(path=opts.cache_dir)
 
     clip_seconds, start_s, frame_skip_ref, frame_cnt, clip_mode = _resolve_sample_clip(job, opts)
     shot_meta = _resolve_shot_metadata(job, shot_runner=shot_runner, per_shot_bin="vmaf-perShot")
@@ -323,6 +344,66 @@ def iter_rows(
 
     for preset, crf in job.cells:
         adapter.validate(preset, crf)
+
+        # Cache hit: return the cached row without encoding.
+        if tune_cache is not None and src_hash:
+            from .cache import cache_key  # noqa: PLC0415
+
+            key = cache_key(
+                src_sha256=src_hash,
+                encoder=opts.encoder,
+                preset=preset,
+                crf=crf,
+                adapter_version="",
+                ffmpeg_version="",
+            )
+            cached = tune_cache.get(key)
+            if cached is not None:
+                # Reconstruct a minimal corpus row from CachedResult fields.
+                # Provenance metadata (run_id, timestamp) gets a fresh stamp
+                # so downstream tools can tell the row came from cache.
+                nan = float("nan")
+                hit_row = {k: nan for k in CORPUS_ROW_KEYS}
+                hit_row.update(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "run_id": uuid.uuid4().hex,
+                        "timestamp": _utc_now_iso(),
+                        "src": str(job.source),
+                        "src_sha256": src_hash,
+                        "width": job.width,
+                        "height": job.height,
+                        "pix_fmt": job.pix_fmt,
+                        "framerate": job.framerate,
+                        "duration_s": job.duration_s,
+                        "encoder": opts.encoder,
+                        "encoder_version": cached.encoder_version,
+                        "preset": preset,
+                        "crf": crf,
+                        "extra_params": [],
+                        "encode_path": str(cached.artifact_path) if opts.keep_encodes else "",
+                        "encode_size_bytes": cached.encode_size_bytes,
+                        "bitrate_kbps": bitrate_kbps(
+                            cached.encode_size_bytes, job.duration_s or 1.0
+                        ),
+                        "encode_time_ms": cached.encode_time_ms,
+                        "vmaf_score": cached.vmaf_score,
+                        "vmaf_model": cached.vmaf_model,
+                        "score_time_ms": cached.score_time_ms,
+                        "ffmpeg_version": cached.ffmpeg_version,
+                        "vmaf_binary_version": cached.vmaf_binary_version,
+                        "exit_status": 0,
+                        "clip_mode": "full",
+                        "hdr_transfer": "",
+                        "hdr_primaries": "",
+                        "hdr_forced": False,
+                        "shot_count": 0,
+                        "shot_avg_duration_sec": nan,
+                        "shot_duration_std_sec": nan,
+                    }
+                )
+                yield hit_row
+                continue
 
         out = _encode_path(opts, job.source, preset, crf)
         enc_req = EncodeRequest(
@@ -361,7 +442,12 @@ def iter_rows(
         else:
             enc_res = run_encode(enc_req, ffmpeg_bin=opts.ffmpeg_bin, runner=encode_runner)
 
-        score_model = _resolve_hdr_score_model(hdr_info, opts.vmaf_model, warned=score_model_warned)
+        base_model = opts.vmaf_model
+        if opts.resolution_aware:
+            from .resolution import select_vmaf_model_version  # noqa: PLC0415
+
+            base_model = select_vmaf_model_version(job.width, job.height)
+        score_model = _resolve_hdr_score_model(hdr_info, base_model, warned=score_model_warned)
         score_req = ScoreRequest(
             reference=job.source,
             distorted=out,
@@ -398,15 +484,60 @@ def iter_rows(
             src_sha=src_hash,
             enc_res=enc_res,
             score_res=score_res,
+            score_model=score_model,
             clip_mode=clip_mode,
             hdr_info=hdr_info,
             hdr_forced=hdr_forced,
             shot_meta=shot_meta,
         )
+        # Cache put: must happen BEFORE cleanup so artifact_path exists.
+        # Store successful rows so the next run gets a hit.
+        if tune_cache is not None and src_hash and enc_res.exit_status == 0:
+            from .cache import CachedResult, TuneCache, cache_key  # noqa: PLC0415
+
+            key = cache_key(
+                src_sha256=src_hash,
+                encoder=opts.encoder,
+                preset=preset,
+                crf=crf,
+                adapter_version="",
+                ffmpeg_version=enc_res.ffmpeg_version,
+            )
+            with contextlib.suppress(Exception):
+                # Re-compute key with the same placeholder values used at
+                # lookup so get(key) and put(key, ...) are always
+                # consistent. adapter_version / ffmpeg_version are set
+                # to "" in both paths; the corpus row records the real
+                # values in the encoder_version / ffmpeg_version columns.
+                put_key = cache_key(
+                    src_sha256=src_hash,
+                    encoder=opts.encoder,
+                    preset=preset,
+                    crf=crf,
+                    adapter_version="",
+                    ffmpeg_version="",
+                )
+                tune_cache.put(
+                    put_key,
+                    CachedResult(
+                        encode_size_bytes=enc_res.encode_size_bytes,
+                        encode_time_ms=enc_res.encode_time_ms,
+                        encoder_version=enc_res.encoder_version,
+                        ffmpeg_version=enc_res.ffmpeg_version,
+                        vmaf_score=score_res.vmaf_score,
+                        vmaf_model=score_model,
+                        score_time_ms=score_res.score_time_ms,
+                        vmaf_binary_version=score_res.vmaf_binary_version,
+                        artifact_path=out,  # placeholder; put() overwrites it
+                    ),
+                    artifact_path=out,
+                )
+
         if not opts.keep_encodes and out.exists() and enc_res.exit_status == 0:
             # best-effort cleanup; corpus row stays valid either way
             with contextlib.suppress(OSError):
                 out.unlink()
+
         yield row
 
 
@@ -419,6 +550,7 @@ def _row_for(
     src_sha: str,
     enc_res,
     score_res,
+    score_model: str = "",
     clip_mode: str = "full",
     hdr_info: HdrInfo | None = None,
     hdr_forced: bool = False,
@@ -453,7 +585,7 @@ def _row_for(
         "bitrate_kbps": bitrate_kbps(enc_res.encode_size_bytes, encoded_duration_s),
         "encode_time_ms": enc_res.encode_time_ms,
         "vmaf_score": score_res.vmaf_score,
-        "vmaf_model": opts.vmaf_model,
+        "vmaf_model": score_model,
         "score_time_ms": score_res.score_time_ms,
         "ffmpeg_version": enc_res.ffmpeg_version,
         "vmaf_binary_version": score_res.vmaf_binary_version,

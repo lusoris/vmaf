@@ -838,13 +838,46 @@ def run_auto(
     plus the driver's smoke verdict.
     """
     if not smoke and meta_override is None:
-        # Production probe wiring is a follow-up PR; until it lands
-        # the auto driver only runs in smoke mode or with an explicit
-        # caller-supplied meta.
-        raise NotImplementedError(
-            "auto: non-smoke path requires meta_override until production "
-            "probe wiring lands (F.3 follow-up). Re-run with --smoke or "
-            "pass an explicit SourceMeta."
+        # Build SourceMeta from the actual source via ffprobe + HDR detect.
+        from .hdr import detect_hdr  # noqa: PLC0415
+        from .predictor_features import (  # noqa: PLC0415
+            FeatureExtractorConfig,
+            _probe_video_geometry,
+        )
+
+        _cfg = FeatureExtractorConfig()
+        import subprocess  # noqa: PLC0415
+
+        _width, _height, _fps = _probe_video_geometry(src, _cfg, subprocess.run)  # type: ignore[arg-type]
+        _hdr_info = detect_hdr(src)
+        _is_hdr = _hdr_info is not None
+        _duration_s = 0.0
+        try:
+            import json  # noqa: PLC0415
+
+            _dur_cmd = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+                str(src),
+            ]
+            _dur_out = subprocess.run(_dur_cmd, capture_output=True, text=True, check=False)
+            if _dur_out.returncode == 0:
+                _dur_data = json.loads(_dur_out.stdout)
+                _duration_s = float(_dur_data.get("format", {}).get("duration", 0.0))
+        except Exception:  # noqa: BLE001
+            pass
+
+        meta_override = SourceMeta(
+            height=_height or 1080,
+            width=_width or 1920,
+            is_hdr=_is_hdr,
+            duration_s=_duration_s,
+            sample_clip_seconds=sample_clip_seconds,
         )
 
     meta = meta_override or SourceMeta(
