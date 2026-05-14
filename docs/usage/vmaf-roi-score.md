@@ -76,9 +76,10 @@ blends the full-frame and masked scores.
 
 ## Synthetic-mask smoke
 
-The synthetic-mask path skips ONNX inference and scores the same
-distorted YUV twice. Use it to verify your install + the combine math
-without depending on ONNX Runtime.
+The synthetic-mask path skips ONNX inference but still materialises a
+masked distorted YUV through the same plane-blending code path. Use it
+to verify your install, mask materialisation, VMAF subprocess calls,
+and combine math without depending on an ONNX model.
 
 ```bash
 vmaf-roi-score \
@@ -92,10 +93,10 @@ Output (JSON to stdout):
 ```json
 {
   "schema_version": 1,
-  "vmaf_full": 87.5,
-  "vmaf_masked": 87.5,
+  "vmaf_full": 80.0,
+  "vmaf_masked": 90.0,
   "weight": 0.5,
-  "vmaf_roi": 87.5,
+  "vmaf_roi": 85.0,
   "model": "vmaf_v0.6.1",
   "saliency_model": "synthetic",
   "reference": "path/to/ref.yuv",
@@ -103,9 +104,10 @@ Output (JSON to stdout):
 }
 ```
 
-In synthetic mode `vmaf_full == vmaf_masked` by construction, so
-`vmaf_roi` equals both regardless of `--weight`. This is the contract
-the smoke tests verify.
+In synthetic mode `--synthetic-mask FILL` supplies a constant mask.
+`--threshold` and `--fade` are applied the same way as they are for a
+real saliency model, so `--threshold 0 --fade 1 --synthetic-mask 0.5`
+blends each plane halfway between the reference and distorted inputs.
 
 ## Mask Materialisation
 
@@ -131,7 +133,7 @@ the interval between them is blended.
 | `--width N`, `--height N` | (required) | YUV dimensions |
 | `--pix-fmt FMT` | `yuv420p` | ffmpeg pix_fmt; mapped to libvmaf's `--pixel_format` |
 | `--saliency-model PATH` | none | path to saliency ONNX (mutually exclusive with `--synthetic-mask`) |
-| `--synthetic-mask FILL` | none | constant-value mask in `[0, 1]` (testing only; mutually exclusive with `--saliency-model`) |
+| `--synthetic-mask FILL` | none | constant-value mask in `[0, 1]`; skips ONNX inference but still writes and scores a masked YUV (testing only; mutually exclusive with `--saliency-model`) |
 | `--weight W` | `0.5` | saliency-masked component weight in `[0, 1]` |
 | `--threshold T` | `0.3` | saliency cutoff used by `--saliency-model` |
 | `--fade F` | `0.1` | soft fade band above `--threshold`; `0` makes a hard mask |

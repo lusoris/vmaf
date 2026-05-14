@@ -55,11 +55,11 @@ tools/vmaf-roi-score/
 pip install -e tools/vmaf-roi-score
 pip install -e 'tools/vmaf-roi-score[runtime]'
 
-# Smoke (no ONNX) — synthetic mask just exercises the combine plumbing
+# Smoke (no ONNX) — synthetic mask exercises materialisation + combine plumbing
 vmaf-roi-score \
     --reference /path/to/ref.yuv --distorted /path/to/dis.yuv \
     --width 1920 --height 1080 --pix-fmt yuv420p \
-    --synthetic-mask 0.5 --weight 0.7
+    --synthetic-mask 0.5 --threshold 0 --fade 1 --weight 0.7
 
 # Real saliency mask materialisation
 vmaf-roi-score \

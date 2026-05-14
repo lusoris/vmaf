@@ -126,6 +126,10 @@ def _validate(ns: argparse.Namespace) -> None:
         raise SystemExit(f"vmaf-roi-score: distorted not found: {ns.distorted}")
     if not (0.0 <= ns.weight <= 1.0):
         raise SystemExit(f"vmaf-roi-score: --weight must be in [0, 1], got {ns.weight}")
+    if ns.synthetic_mask is not None and not (0.0 <= ns.synthetic_mask <= 1.0):
+        raise SystemExit(
+            f"vmaf-roi-score: --synthetic-mask must be in [0, 1], got {ns.synthetic_mask}"
+        )
     if not (0.0 <= ns.threshold <= 1.0):
         raise SystemExit(f"vmaf-roi-score: --threshold must be in [0, 1], got {ns.threshold}")
     if not (0.0 <= ns.fade <= 1.0):
@@ -154,45 +158,51 @@ def main(argv: list[str] | None = None) -> int:
         )
         return full.exit_status
 
-    if ns.saliency_model is not None:
-        with tempfile.TemporaryDirectory(prefix="vmaf_roi_score_") as tmp:
-            masked_yuv = Path(tmp) / "distorted.saliency-masked.yuv"
-            try:
-                from .mask import MaskRequest, apply_saliency_mask
+    with tempfile.TemporaryDirectory(prefix="vmaf_roi_score_") as tmp:
+        masked_yuv = Path(tmp) / "distorted.saliency-masked.yuv"
+        try:
+            from .mask import MaskRequest, apply_saliency_mask, synthesise_uniform_mask
 
-                apply_saliency_mask(
-                    MaskRequest(
-                        reference=ns.reference,
-                        distorted=ns.distorted,
-                        output=masked_yuv,
-                        width=ns.width,
-                        height=ns.height,
-                        pix_fmt=ns.pix_fmt,
-                        saliency_model=ns.saliency_model,
-                        threshold=ns.threshold,
-                        fade=ns.fade,
-                    )
-                )
-            except (ImportError, RuntimeError, ValueError) as exc:
-                sys.stderr.write(f"vmaf-roi-score: saliency mask failed: {exc}\n")
-                return 64
-
-            masked_req = ScoreRequest(
-                reference=ns.reference,
-                distorted=masked_yuv,
-                width=ns.width,
-                height=ns.height,
-                pix_fmt=ns.pix_fmt,
-                model=ns.model,
+            inference = None
+            saliency_model = (
+                ns.saliency_model if ns.saliency_model is not None else Path("synthetic")
             )
-            masked = run_score(masked_req, vmaf_bin=ns.vmaf_bin)
-    else:
-        # --synthetic-mask path: re-score the same distorted YUV. The two
-        # scalars are identical by construction, so the blend collapses to
-        # vmaf_full. This is the smoke-test contract — it proves the
-        # subprocess seam + JSON parse + combine math without depending on
-        # ONNX Runtime.
-        masked = run_score(score_req, vmaf_bin=ns.vmaf_bin)
+            if ns.synthetic_mask is not None:
+                fill = float(ns.synthetic_mask)
+                saliency_model = Path("synthetic")
+
+                def _synthetic_mask(_rgb: bytes, width: int, height: int) -> list[list[float]]:
+                    return synthesise_uniform_mask(width, height, fill=fill)
+
+                inference = _synthetic_mask
+
+            apply_saliency_mask(
+                MaskRequest(
+                    reference=ns.reference,
+                    distorted=ns.distorted,
+                    output=masked_yuv,
+                    width=ns.width,
+                    height=ns.height,
+                    pix_fmt=ns.pix_fmt,
+                    saliency_model=saliency_model,
+                    threshold=ns.threshold,
+                    fade=ns.fade,
+                ),
+                inference=inference,
+            )
+        except (ImportError, RuntimeError, ValueError) as exc:
+            sys.stderr.write(f"vmaf-roi-score: saliency mask failed: {exc}\n")
+            return 64
+
+        masked_req = ScoreRequest(
+            reference=ns.reference,
+            distorted=masked_yuv,
+            width=ns.width,
+            height=ns.height,
+            pix_fmt=ns.pix_fmt,
+            model=ns.model,
+        )
+        masked = run_score(masked_req, vmaf_bin=ns.vmaf_bin)
 
     if masked.exit_status != 0:
         sys.stderr.write(
