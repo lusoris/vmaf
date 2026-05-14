@@ -713,8 +713,11 @@ numbers in stub cards are artificially high. Real-corpus retrains
 follow the same trainer entry point with `--corpus path/to/file.jsonl`
 or `--corpus path/to/corpus-dir/` and produce honest metrics. Directory
 corpus inputs are recursive and sorted so `.workingdir2/corpus_run/`
-trains deterministically without a manual concatenation step. The loader
-accepts both canonical `encoder` / `crf` / `vmaf_score` /
+trains deterministically without a manual concatenation step. Keep that
+directory handling reachable from both `train_all_codecs()` and the CLI;
+file-only `is_file()` guards above `load_corpus()` silently turn real
+corpus directories back into synthetic stubs. The loader accepts both
+canonical `encoder` / `crf` / `vmaf_score` /
 `bitrate_kbps` rows and historical hardware-sweep `codec` / `q` /
 `vmaf` / `actual_kbps` aliases; do not reintroduce external conversion
 scripts for those local corpora.
