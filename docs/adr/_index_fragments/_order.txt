@@ -118,6 +118,7 @@
 0194-float-ansnr-gpu
 0195-float-psnr-gpu
 0196-float-motion-gpu
+0428-vmaf-tune-auto-winner-selection
 0197-float-vif-gpu
 0191-psnr-hvs-vulkan
 0190-ms-ssim-vulkan

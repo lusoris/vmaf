@@ -2132,6 +2132,29 @@ That means x264 gets only container-level `-color_*` flags, x265 gets
 `-x265-params` SEI signalling, SVT-AV1 gets `-svtav1-params`, and SDR
 cells record an empty list after the `sdr-skip` short-circuit fires.
 
+### Winner selection
+
+`auto` now finishes the planning pass by selecting one estimated cell.
+The chosen cell is marked with `"selected": true` in `cells[]`; every
+other cell has `"selected": false`. The same decision is copied to
+`metadata.winner` so scripts can read a stable object without scanning
+the cell array.
+
+Winner statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `budget_and_quality_met` | At least one cell met `--target-vmaf` and `--max-budget-bitrate`; the lowest estimated bitrate wins. |
+| `quality_met_budget_exceeded` | No cell was inside budget, but at least one cell met the quality target; the smallest budget overage wins. |
+| `target_unmet` | No cell met the quality target; the closest estimated VMAF miss wins so the caller still gets a concrete next encode. |
+| `no_eligible_cells` | No cell carried finite `estimated_vmaf` and `estimated_bitrate_kbps`; this is an input/planner evidence failure. |
+
+`metadata.winner` records `cell_index`, `rung`, `codec`, `crf`,
+`estimated_vmaf`, `estimated_bitrate_kbps`, `quality_margin`, and
+`budget_margin_kbps`. This is still a planning result: the selected
+cell is the next encode target, not a substitute for the final
+encode/score verification pass.
+
 ### Confidence-aware fallbacks (F.3)
 
 F.2 treats the predictor's verdict as a binary GOSPEL / FALL_BACK gate
