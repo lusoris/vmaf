@@ -47,6 +47,19 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Re-test**:
   `PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest tools/vmaf-tune/tests/test_codec_adapter_libvpx.py tools/vmaf-tune/tests/test_encode_multi_codec.py -q`
 
+### fix/ai-frame-loader-color-pixfmt-2026-05-14 — packed colour frame loader
+
+- **Touches**: `ai/src/vmaf_train/data/frame_loader.py`,
+  `ai/tests/test_frame_loader.py`, `docs/ai/training.md`, and
+  `ai/AGENTS.md`.
+- **Invariant**: frame-loader support is limited to byte-contiguous
+  formats with unambiguous tensor shape: `gray` -> `HxW`, and
+  `rgb24` / `bgr24` / `rgba` / `bgra` -> `HxWxC`. Planar or
+  subsampled formats such as `yuv420p` must keep failing before
+  spawning ffmpeg until a PR adds explicit plane semantics.
+- **Re-test**:
+  `PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_frame_loader.py -q`
+
 ### fix/backlog-gap-pass-10-2026-05-14 — KonViD-150k split score ingestion
 
 - **Touches**: `ai/scripts/konvid_150k_to_corpus_jsonl.py`,
