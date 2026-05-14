@@ -1,4 +1,4 @@
-# FR regressor v2 — codec-aware (planned)
+# FR regressor v2 — codec-aware (superseded design card)
 
 `vmaf_tiny_fr_regressor_v2_codec_aware` — a codec-conditioned successor
 to the v1 FR MOS regressor (`fr_regressor_v1.onnx`). Maps a libvmaf
@@ -8,14 +8,14 @@ literature cited in
 [ADR-0235](../../adr/0235-codec-aware-fr-regressor.md) and
 [Research-0040](../../research/0040-codec-aware-fr-conditioning.md).
 
-> **Status: training BLOCKED.** This PR ships the model surface +
-> training-side plumbing only. The cached Netflix Public training
-> corpus at `~/.cache/vmaf-tiny-ai/` is not reachable from the
-> sandbox that authored the change, so the empirical PLCC/SROCC
-> delta is not yet measured. A follow-up PR (backlog item
-> **T7-CODEC-AWARE**) re-runs the trainer + ships the ONNX +
-> registers it. Until then, no `model/tiny/fr_regressor_v2_codec_aware.onnx`
-> is committed and no `registry.json` row exists.
+> **Status: superseded by [`fr_regressor_v2`](fr_regressor_v2.md).**
+> This ADR-0235-era card described a canonical-9 / `FULL_FEATURES`
+> codec-aware graph before the vmaf-tune Phase-A corpus path became the
+> production route. No separate
+> `model/tiny/fr_regressor_v2_codec_aware.onnx` is shipped. The
+> registry-backed production checkpoint is `fr_regressor_v2.onnx`
+> (`smoke: false`), and the wider 16-slot vocabulary successor is
+> [`fr_regressor_v3`](fr_regressor_v3.md).
 
 ## What the output means
 
@@ -47,7 +47,7 @@ codec is a schema bump that requires retraining; the model-card
 sidecar pins the vocabulary version against which the ONNX was
 trained.
 
-## ONNX I/O contract (planned)
+## Historical ONNX I/O contract
 
 Two-input session, matching the LPIPS-Sq precedent
 ([ADR-0040](../../adr/0040-dnn-session-multi-input-api.md),
@@ -75,7 +75,7 @@ calling the v1 graph. v2 ships only when the empirical lift
 clears the 0.005 PLCC bar (per ADR-0235's "no negative releases"
 rule).
 
-## Training recipe (planned)
+## Historical training recipe
 
 Same as v1 (`ai/src/vmaf_train/train.py` driver, `FRRegressor`
 hyperparameters per the C1 baseline) with three deltas:
@@ -101,15 +101,17 @@ python ai/scripts/bvi_dvc_to_full_features.py --tier D --codec x264
 # value aliased through ai/src/vmaf_train/codec.py.
 ```
 
-## Known limitations (carried into v2)
+## Known limitations of this superseded design
 
 - **22-feature `FULL_FEATURES` set only.** Re-running with a
   different feature pool requires a fresh export.
 - **Codec one-hot, not embedding.** New codecs can't be added at
   inference time without retraining (see ADR-0235's alternatives
   table for why we chose one-hot over `nn.Embedding`).
-- **No CUDA/SYCL/Vulkan EP wiring.** The v1 ONNX runs on the ORT
-  CPU EP today; v2 inherits that limitation.
+- **Not the shipped v2 graph.** The shipped `fr_regressor_v2.onnx`
+  uses canonical-6 features plus an 8-D codec block documented in
+  [`fr_regressor_v2.md`](fr_regressor_v2.md), not this card's
+  `FULL_FEATURES` + `codec_onehot` shape.
 - **Single-frame regression.** No temporal pooling inside the
   graph; pool with `mean` / `harmonic_mean` at the `VmafContext`
   level.
