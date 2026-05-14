@@ -47,7 +47,7 @@ This is an overview of the available documentation in the VMAF repository.
 - [Features](metrics/features.md) – VMAF's core features (metrics)
 - [CAMBI](metrics/cambi.md) – contrast-aware multiscale banding index
 - [SSIMULACRA 2](metrics/ssimulacra2.md) – fork-added structural similarity metric (modern-codec quality)
-- [DISTS](metrics/dists.md) – fork-added deep image structure & texture similarity (FR; proposed)
+- [DISTS-Sq](metrics/dists.md) – fork-added deep image structure & texture similarity extractor (FR; smoke checkpoint)
 - [Confidence Interval](metrics/confidence-interval.md) – bootstrapping for CI estimates of VMAF scores
 - [Bad Cases](metrics/bad-cases.md) – how to report cases of VMAF not working well
 - [AOM CTC](metrics/ctc/aom.md) – running VMAF under [AOM](http://aomedia.org/) common test conditions

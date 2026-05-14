@@ -1,6 +1,6 @@
 # ADR-0236 — DISTS extractor as LPIPS companion
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-01
 - **Deciders**: Lusoris, Claude (Anthropic)
 - **Tags**: ai, fr, dnn, tiny-ai, fork-local, perceptual
@@ -138,7 +138,7 @@ No new op gating needed.
 - `req`: Research-0033 audit explicitly flagged DISTS as the missing
   LPIPS companion (actionable item #5).
 
-### Status update 2026-05-08: stays Proposed — implementation not started (T7-DISTS)
+### Status update 2026-05-08: implementation not started (T7-DISTS)
 
 Audited as part of the 2026-05-08 ADR `Proposed` sweep
 ([Research-0086](../research/0086-adr-proposed-status-sweep-2026-05-08.md)).
@@ -164,3 +164,21 @@ Verification command:
 ls libvmaf/src/feature/dists* 2>&1 | grep -E "no match|cannot access"
 grep -c '"dists_sq"' model/tiny/registry.json   # expects 0
 ```
+
+### Status update 2026-05-14: Accepted — smoke extractor landed
+
+The implementation PR closes the original `T7-DISTS` surface:
+
+- `libvmaf/src/feature/feature_dists.c` registers `dists_sq` and consumes
+  `model_path` or `VMAF_DISTS_SQ_MODEL_PATH`.
+- `model/tiny/dists_sq.onnx` and `model/tiny/dists_sq.json` ship the
+  smoke checkpoint contract with registry id `dists_sq_placeholder_v0`.
+- `libvmaf/test/test_dists.c` locks registration and missing-model
+  behaviour.
+- [`docs/metrics/dists.md`](../metrics/dists.md) and
+  [`docs/ai/models/dists_sq.md`](../ai/models/dists_sq.md) document the
+  user-facing metric and model-card surface.
+
+The real learned DISTS weights remain `T7-DISTS-followup`. The accepted
+decision is the extractor ABI and in-tree smoke surface, not a claim that
+the placeholder ONNX reproduces Ding et al.'s published DISTS scores.

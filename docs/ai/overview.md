@@ -70,6 +70,7 @@ Every shipped tiny-AI checkpoint gets its own usage page under
 for the rule. Current pages:
 
 - [LPIPS-SqueezeNet](models/lpips_sq.md) — full-reference perceptual distance.
+- [DISTS-Sq](models/dists_sq.md) — full-reference DISTS-shaped smoke checkpoint.
 - [fr_regressor_v1](models/fr_regressor_v1.md) — FR MLP regressor v1 (baseline).
 - [fr_regressor_v2](models/fr_regressor_v2.md) — FR MLP regressor v2.
 - [fr_regressor_v2 codec-aware](models/fr_regressor_v2_codec_aware.md) —

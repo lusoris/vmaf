@@ -2,6 +2,18 @@
   "$schema": "./registry.schema.json",
   "models": [
     {
+      "id": "dists_sq_placeholder_v0",
+      "kind": "fr",
+      "license": "BSD-3-Clause-Plus-Patent",
+      "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
+      "notes": "DISTS-Sq smoke placeholder. Synthetic mean-squared tensor distance over two ImageNet-normalised RGB NCHW inputs; not a production DISTS checkpoint. Real upstream-derived weights from Ding et al. are tracked as T7-DISTS-followup. See docs/ai/models/dists_sq.md and ADR-0236.",
+      "onnx": "dists_sq.onnx",
+      "opset": 17,
+      "sha256": "ec8433e8c7c6a33ef3032a6e4538833e0bbb59de9f088054bbcb3be0e371ee55",
+      "sigstore_bundle": "dists_sq.onnx.sigstore.json",
+      "smoke": true
+    },
+    {
       "description": "FastDVDnet temporal pre-filter (5-frame luma window) \u2014 upstream m-tassano/fastdvdnet weights wrapped for the fork's luma-only NCHW contract.",
       "id": "fastdvdnet_pre",
       "kind": "filter",

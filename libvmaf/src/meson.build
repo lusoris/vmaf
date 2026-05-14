@@ -1144,6 +1144,9 @@ libvmaf_feature_sources = [
     # available as -ENOSYS stubs when ORT is missing — so compile
     # unconditionally; init() declines at runtime on stub builds.
     feature_src_dir + 'feature_lpips.c',
+    # DISTS-Sq extractor — same DNN-stub-friendly registration and
+    # runtime-decline posture as feature_lpips.c.
+    feature_src_dir + 'feature_dists.c',
     # FastDVDnet temporal pre-filter (T6-7) — same -ENOSYS-stub-friendly
     # libvmaf/dnn.h surface as feature_lpips.c.
     feature_src_dir + 'fastdvdnet_pre.c',
