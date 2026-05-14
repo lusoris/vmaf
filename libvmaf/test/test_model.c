@@ -16,7 +16,11 @@
  *
  */
 
+#include <errno.h>
+#include <stdarg.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "config.h"
 #include "test.h"
@@ -91,6 +95,23 @@ static char *slurp(const char *path, size_t *len)
     buf[sz] = '\0';
     *len = (size_t)sz;
     return buf;
+}
+
+static int append_fmt(char *dst, size_t dst_sz, size_t *off, const char *fmt, ...)
+{
+    if (*off >= dst_sz)
+        return -ENOSPC;
+
+    va_list args;
+    va_start(args, fmt);
+    const int wrote = vsnprintf(&dst[*off], dst_sz - *off, fmt, args);
+    va_end(args);
+    if (wrote < 0)
+        return -EINVAL;
+    if ((size_t)wrote >= dst_sz - *off)
+        return -ENOSPC;
+    *off += (size_t)wrote;
+    return 0;
 }
 
 static char *test_json_model()
@@ -561,6 +582,64 @@ static char *test_json_model_synthetic_branches(void)
     return NULL;
 }
 
+static char *test_json_model_allows_more_than_64_features(void)
+{
+    char json[8192];
+    size_t off = 0;
+    int err = append_fmt(json, sizeof(json), &off, "{\"model_dict\":{\"feature_names\":[");
+    for (unsigned i = 0; i < 65u && !err; i++) {
+        err = append_fmt(json, sizeof(json), &off, "%s\"feature_%u\"", i ? "," : "", i);
+    }
+    if (!err)
+        err = append_fmt(json, sizeof(json), &off, "],\"slopes\":[1.0");
+    for (unsigned i = 0; i < 65u && !err; i++)
+        err = append_fmt(json, sizeof(json), &off, ",%u.0", i + 1u);
+    if (!err)
+        err = append_fmt(json, sizeof(json), &off, "],\"intercepts\":[0.0");
+    for (unsigned i = 0; i < 65u && !err; i++)
+        err = append_fmt(json, sizeof(json), &off, ",%u.0", i);
+    if (!err)
+        err = append_fmt(json, sizeof(json), &off, "]}}");
+    mu_assert("synthetic model JSON builder overflowed", !err);
+
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)off);
+    mu_assert("65-feature JSON model must parse", !err);
+    mu_assert("feature count must be preserved", m->n_features == 65u);
+    mu_assert("feature capacity must grow past the old fixed limit", m->feature_cap >= 65u);
+    mu_assert("last feature name must parse", strcmp(m->feature[64].name, "feature_64") == 0);
+    mu_assert("last feature slope must parse", m->feature[64].slope == 65.0);
+    mu_assert("last feature intercept must parse", m->feature[64].intercept == 64.0);
+    vmaf_model_destroy(m);
+    return NULL;
+}
+
+static char *test_json_model_allows_more_than_10_knots(void)
+{
+    char json[2048];
+    size_t off = 0;
+    int err = append_fmt(json, sizeof(json), &off,
+                         "{\"model_dict\":{\"score_transform\":{\"enabled\":true,\"knots\":[");
+    for (unsigned i = 0; i < 11u && !err; i++)
+        err = append_fmt(json, sizeof(json), &off, "%s[%u.0,%u.0]", i ? "," : "", i, i + 1u);
+    if (!err)
+        err = append_fmt(json, sizeof(json), &off, "]}}}");
+    mu_assert("synthetic knot JSON builder overflowed", !err);
+
+    VmafModel *m = NULL;
+    VmafModelConfig cfg = {0};
+    err = vmaf_read_json_model_from_buffer(&m, &cfg, json, (int)off);
+    mu_assert("11-knot JSON model must parse", !err);
+    mu_assert("knot count must be preserved", m->score_transform.knots.n_knots == 11u);
+    mu_assert("knot capacity must grow past the old fixed limit",
+              m->score_transform.knots.cap >= 11u);
+    mu_assert("last knot x must parse", m->score_transform.knots.list[10].x == 10.0);
+    mu_assert("last knot y must parse", m->score_transform.knots.list[10].y == 11.0);
+    vmaf_model_destroy(m);
+    return NULL;
+}
+
 /* parse_model_dict: unknown model_type value → -EINVAL (line 333). */
 static char *test_json_model_unknown_model_type(void)
 {
@@ -902,6 +981,8 @@ char *run_tests()
     mu_run_test(test_json_model_collection_malformed_buffer);
     mu_run_test(test_json_model_score_transform);
     mu_run_test(test_json_model_synthetic_branches);
+    mu_run_test(test_json_model_allows_more_than_64_features);
+    mu_run_test(test_json_model_allows_more_than_10_knots);
     mu_run_test(test_json_model_collection_skips_unknown_keys);
     mu_run_test(test_json_model_unknown_model_type);
     mu_run_test(test_json_model_unknown_norm_type);

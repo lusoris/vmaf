@@ -315,6 +315,13 @@ Built-in version strings accepted by `vmaf_model_load`:
 variants). See [../usage/cli.md#models](../usage/cli.md#models) for when to
 pick which.
 
+External JSON models loaded by `vmaf_model_load_from_path` allocate their
+`feature_names`, `slopes`, `intercepts`, `feature_opts_dicts`, and
+piecewise-linear score-transform `knots` arrays from the JSON payload. There
+is no schema-level fixed feature or knot ceiling beyond available memory and
+the unsigned parser counters; malformed array entries still fail closed with a
+negative errno.
+
 Discover the list programmatically rather than hard-coding it — the set
 depends on the build's `VMAF_BUILT_IN_MODELS` and `VMAF_FLOAT_FEATURES`
 flags:

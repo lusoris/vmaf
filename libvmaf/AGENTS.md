@@ -104,6 +104,14 @@ libvmaf/
   is `push_c()` at entry → body → `pop()` before the `ferror`
   check; dropping the `pop()` leaks a `locale_t` on POSIX and
   leaves the calling thread locked to `"C"` on Windows.
+- **JSON model loader has no fixed feature/knot schema ceiling.**
+  [`src/read_json_model.c`](src/read_json_model.c) grows
+  `VmafModel.feature` and `score_transform.knots.list` from the JSON
+  payload. Do not restore the old `MAX_FEATURE_COUNT` / `MAX_KNOT_COUNT`
+  rejection pattern during an upstream sync; external model JSONs with
+  65+ features or 11+ piecewise-linear knots must parse if the payload
+  is otherwise valid. The regression coverage lives in
+  [`test/test_model.c`](test/test_model.c).
 - **HIP backend scaffold contract** (fork-local, ADR-0212 / T7-10):
   the `enable_hip=true` build path compiles
   [src/hip/](src/hip/) and [src/feature/hip/](src/feature/hip/)
