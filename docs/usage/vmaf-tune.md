@@ -61,6 +61,28 @@ External binaries required at runtime:
   pass `--encoder libsvtav1`) on `PATH` (or `--ffmpeg-bin`).
 - `vmaf` (this fork's CLI, built via meson) on `PATH` (or `--vmaf-bin`).
 
+## Predictor Training Corpora
+
+`vmaftune.predictor_train` trains the per-codec ONNX predictors consumed
+by the fast, per-shot, ladder, and auto paths. `--corpus` accepts either
+a single Phase-A JSONL file or a directory of JSONL shards; directory
+inputs are scanned recursively in sorted order so the trainer can consume
+`.workingdir2/corpus_run/` directly:
+
+```shell
+python -m vmaftune.predictor_train \
+    --corpus .workingdir2/corpus_run \
+    --codec libx264 \
+    --output-dir .workingdir2/predictor-real
+```
+
+Rows are filtered per codec after schema aliases are normalised. The
+trainer accepts both current `corpus.py` rows (`encoder`, `crf`,
+`vmaf_score`, `bitrate_kbps`) and older hardware-sweep rows (`codec`,
+`q`/`cq`, `vmaf`, `actual_kbps`). If a codec has no usable rows, that
+codec still falls back to the documented synthetic-stub corpus and the
+model card records `corpus.kind: synthetic-stub-*`.
+
 ## Quick start
 
 Generate a 6-cell corpus row over `(medium, slow) × (22, 28, 34)` for one

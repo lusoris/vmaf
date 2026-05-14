@@ -9,10 +9,12 @@ that produces those models.
 Pipeline shape
 --------------
 
-1. Read a vmaf-tune Phase A JSONL corpus (one row per ``(source,
-   preset, crf)`` cell) — the same schema written by
+1. Read one or more vmaf-tune Phase A JSONL corpora (one row per
+   ``(source, preset, crf)`` cell) — the same schema written by
    :mod:`vmaftune.corpus` plus the older hardware-sweep aliases
-   (``codec`` / ``q`` / ``vmaf`` / ``actual_kbps``). Filter by codec.
+   (``codec`` / ``q`` / ``vmaf`` / ``actual_kbps``). A corpus source
+   may be a single JSONL file or a directory of JSONL shards. Filter
+   by codec after normalising schema aliases.
 2. Project each row onto the predictor's 14-feature input vector
    (CRF, probe-bitrate-kbps, frame-size stats, signalstats, structural
    metadata). The corpus does not currently carry per-shot probe
@@ -284,6 +286,21 @@ def _normalise_real_corpus_row(row: dict[str, Any]) -> dict[str, Any] | None:
     return out
 
 
+def iter_corpus_files(path: Path) -> tuple[Path, ...]:
+    """Return JSONL files represented by ``path`` in deterministic order.
+
+    ``path`` may be either a single file or a directory containing
+    sharded corpus files. Directory traversal is recursive so the
+    trainer can consume the ``.workingdir2/corpus_run`` style layout
+    directly without first concatenating rows by hand.
+    """
+    if path.is_file():
+        return (path,)
+    if path.is_dir():
+        return tuple(sorted(p for p in path.rglob("*.jsonl") if p.is_file()))
+    return ()
+
+
 def load_corpus(path: Path, codec: str) -> list[dict]:
     """Read a JSONL corpus and filter to ``codec`` rows with a usable score.
 
@@ -292,23 +309,24 @@ def load_corpus(path: Path, codec: str) -> list[dict]:
     hardware-sweep schema (``codec``/``q``/``vmaf``/``actual_kbps``).
     """
     rows: list[dict] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            normalised = _normalise_real_corpus_row(row)
-            if normalised is None:
-                continue
-            if normalised["encoder"] != codec:
-                continue
-            if int(normalised.get("exit_status", 0) or 0) != 0:
-                continue
-            rows.append(normalised)
+    for jsonl_path in iter_corpus_files(path):
+        with jsonl_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                normalised = _normalise_real_corpus_row(row)
+                if normalised is None:
+                    continue
+                if normalised["encoder"] != codec:
+                    continue
+                if int(normalised.get("exit_status", 0) or 0) != 0:
+                    continue
+                rows.append(normalised)
     return rows
 
 
@@ -837,8 +855,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--corpus",
         type=Path,
         default=None,
-        help="Phase A JSONL corpus. Missing/empty per-codec rows fall back to "
-        "the synthetic-stub corpus.",
+        help="Phase A JSONL corpus file or directory of JSONL shards. "
+        "Missing/empty per-codec rows fall back to the synthetic-stub corpus.",
     )
     parser.add_argument(
         "--output-dir",
@@ -913,6 +931,7 @@ __all__ = [
     "TrainConfig",
     "TrainResult",
     "generate_synthetic_corpus",
+    "iter_corpus_files",
     "load_corpus",
     "main",
     "project_row",

@@ -33778,3 +33778,26 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/src/vmaftune/codec_adapters/libaom.py \
   tools/vmaf-tune/src/vmaftune/per_shot.py
 ```
+
+## 2026-05-14 — `vmaf-tune` Predictor Directory-Corpus Training
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/predictor_train.py`,
+`tools/vmaf-tune/tests/test_predictor_train.py`, `docs/usage/vmaf-tune.md`,
+`tools/vmaf-tune/README.md`.
+
+**Rebase impact**: low. This only broadens the trainer's corpus input
+resolver from a single JSONL file to a file-or-directory source. The corpus
+row schema, predictor input vector, shipped model defaults, and libvmaf public
+surface are unchanged.
+
+**Invariant to preserve on rebase**: directory corpus traversal is recursive
+and sorted. Keep that determinism so repeated training over
+`.workingdir2/corpus_run/` sees the same row order across filesystems.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_predictor_train.py \
+  -q
+```

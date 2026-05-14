@@ -100,6 +100,23 @@ Each emitted row has the schema documented in
 the API contract every downstream subcommand consumes; do not change it
 without bumping `SCHEMA_VERSION` in `src/vmaftune/__init__.py`.
 
+## Predictor Training
+
+The offline trainer accepts either one corpus JSONL file or a directory
+of sharded JSONL files:
+
+```bash
+python -m vmaftune.predictor_train \
+  --corpus .workingdir2/corpus_run \
+  --codec libx264 \
+  --output-dir .workingdir2/predictor-real
+```
+
+Directory inputs are scanned recursively in sorted order. Per-codec rows
+are filtered after normalising both current `corpus.py` keys and older
+hardware-sweep aliases, so existing `.workingdir2` corpora can be used
+without concatenating them first.
+
 ## Tests
 
 ```bash

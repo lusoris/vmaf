@@ -37,6 +37,7 @@ from vmaftune.predictor_train import (  # noqa: E402
     INPUT_DIM,
     TrainConfig,
     generate_synthetic_corpus,
+    iter_corpus_files,
     load_corpus,
     project_row,
     train_one_codec,
@@ -144,6 +145,44 @@ def test_load_corpus_accepts_hardware_sweep_aliases(tmp_path: Path) -> None:
     assert rows[0]["crf"] == 24.0
     assert rows[0]["bitrate_kbps"] == pytest.approx(3100.5)
     assert rows[0]["vmaf_score"] == pytest.approx(93.2)
+
+
+def test_iter_corpus_files_accepts_directory_shards(tmp_path: Path) -> None:
+    """Training can consume the sharded ``.workingdir2/corpus_run`` layout."""
+    corpus_dir = tmp_path / "corpus"
+    nested = corpus_dir / "nested"
+    nested.mkdir(parents=True)
+    b = nested / "b.jsonl"
+    a = corpus_dir / "a.jsonl"
+    ignored = corpus_dir / "notes.txt"
+    b.write_text("{}", encoding="utf-8")
+    a.write_text("{}", encoding="utf-8")
+    ignored.write_text("not corpus", encoding="utf-8")
+
+    assert iter_corpus_files(corpus_dir) == (a, b)
+    assert iter_corpus_files(a) == (a,)
+    assert iter_corpus_files(tmp_path / "missing") == ()
+
+
+def test_load_corpus_reads_all_jsonl_shards_in_directory(tmp_path: Path) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "one.jsonl").write_text(
+        '{"encoder":"libx264","crf":23,"bitrate_kbps":3000.0,"vmaf_score":95.0}\n'
+        '{"encoder":"libx265","crf":28,"bitrate_kbps":2100.0,"vmaf_score":96.0}\n',
+        encoding="utf-8",
+    )
+    (corpus_dir / "two.jsonl").write_text(
+        '{"codec":"libx264","q":28,"actual_kbps":1800.0,"vmaf":90.5}\n'
+        '{"encoder":"libx264","crf":35,"bitrate_kbps":900.0,"vmaf_score":82.0,'
+        '"exit_status":1}\n',
+        encoding="utf-8",
+    )
+
+    rows = load_corpus(corpus_dir, "libx264")
+    assert len(rows) == 2
+    assert [row["crf"] for row in rows] == [23.0, 28.0]
+    assert [row["vmaf_score"] for row in rows] == [95.0, 90.5]
 
 
 # ---------------------------------------------------------------------

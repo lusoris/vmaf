@@ -689,7 +689,10 @@ Stub models are explicitly **not** for production CRF picks. The
 synthetic target *is* the analytical fallback, so PLCC / SROCC
 numbers in stub cards are artificially high. Real-corpus retrains
 follow the same trainer entry point with `--corpus path/to/file.jsonl`
-and produce honest metrics. The loader accepts both canonical
-`encoder` / `crf` / `vmaf_score` / `bitrate_kbps` rows and historical
-hardware-sweep `codec` / `q` / `vmaf` / `actual_kbps` aliases; do not
-reintroduce external conversion scripts for those local corpora.
+or `--corpus path/to/corpus-dir/` and produce honest metrics. Directory
+corpus inputs are recursive and sorted so `.workingdir2/corpus_run/`
+trains deterministically without a manual concatenation step. The loader
+accepts both canonical `encoder` / `crf` / `vmaf_score` /
+`bitrate_kbps` rows and historical hardware-sweep `codec` / `q` /
+`vmaf` / `actual_kbps` aliases; do not reintroduce external conversion
+scripts for those local corpora.
