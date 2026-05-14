@@ -156,6 +156,7 @@ def bisect_target_vmaf(
     pix_fmt: str = "yuv420p",
     framerate: float = 24.0,
     duration_s: float = 0.0,
+    sample_clip_seconds: float = 0.0,
     preset: str | None = None,
     crf_range: tuple[int, int] | None = None,
     max_iterations: int = 8,
@@ -180,6 +181,10 @@ def bisect_target_vmaf(
     target_vmaf
         Quality floor; the bisect returns the highest-CRF cell whose
         measured VMAF clears this.
+    sample_clip_seconds
+        Optional ADR-0301 centre-window sample clip. When positive and
+        shorter than ``duration_s``, each iteration encodes only that
+        window and scores against the matching reference frame window.
     crf_range
         ``(lo, hi)`` inclusive bound on the search domain. ``None``
         defaults to the codec adapter's ``quality_range`` (per
@@ -255,6 +260,7 @@ def bisect_target_vmaf(
                 pix_fmt=pix_fmt,
                 framerate=framerate,
                 duration_s=duration_s,
+                sample_clip_seconds=sample_clip_seconds,
                 vmaf_model=vmaf_model,
                 score_backend=score_backend,
                 encode_runner=encode_runner,
@@ -356,6 +362,25 @@ def _describe_best_miss(history: dict[int, float]) -> str:
     return f"closest miss VMAF={vmaf:.2f} at CRF {crf}"
 
 
+def _sample_clip_window(
+    *,
+    duration_s: float,
+    sample_clip_seconds: float,
+    framerate: float,
+) -> tuple[float, float, int, int]:
+    """Return encode/score alignment knobs for ADR-0301 sample clips."""
+    sample_s = float(sample_clip_seconds)
+    duration = float(duration_s)
+    fps = float(framerate)
+    if sample_s <= 0.0 or duration <= 0.0 or sample_s >= duration or fps <= 0.0:
+        return 0.0, 0.0, 0, 0
+    clip_s = sample_s
+    start_s = max(0.0, (duration - clip_s) / 2.0)
+    frame_skip_ref = max(0, int(round(start_s * fps)))
+    frame_cnt = max(1, int(round(clip_s * fps)))
+    return start_s, clip_s, frame_skip_ref, frame_cnt
+
+
 def _encode_and_score(
     *,
     src: Path,
@@ -368,6 +393,7 @@ def _encode_and_score(
     pix_fmt: str,
     framerate: float,
     duration_s: float,
+    sample_clip_seconds: float,
     vmaf_model: str,
     score_backend: str | None,
     encode_runner: object | None,
@@ -388,6 +414,11 @@ def _encode_and_score(
 
     out_path = workdir / f"bisect_{codec}_{preset}_{crf}.mkv"
     encoder_name = getattr(adapter, "encoder", codec)
+    sample_start_s, sample_duration_s, frame_skip_ref, frame_cnt = _sample_clip_window(
+        duration_s=duration_s,
+        sample_clip_seconds=sample_clip_seconds,
+        framerate=framerate,
+    )
     enc_req = EncodeRequest(
         source=Path(src),
         width=int(width),
@@ -398,6 +429,8 @@ def _encode_and_score(
         preset=preset,
         crf=int(crf),
         output=out_path,
+        sample_clip_seconds=sample_duration_s,
+        sample_clip_start_s=sample_start_s,
     )
     enc_res = run_encode(enc_req, ffmpeg_bin=ffmpeg_bin, runner=encode_runner)
     if enc_res.exit_status != 0:
@@ -416,6 +449,8 @@ def _encode_and_score(
         height=int(height),
         pix_fmt=pix_fmt,
         model=vmaf_model,
+        frame_skip_ref=frame_skip_ref,
+        frame_cnt=frame_cnt,
     )
     score_res = run_score(
         score_req,
@@ -449,10 +484,8 @@ def _encode_and_score(
             encoder_version=enc_res.encoder_version,
         )
 
-    # Bitrate is computed against the source duration (matches
-    # corpus.py's full-source mode; sample-clip mode is out of scope
-    # for Phase B's first cut).
-    br_kbps = bitrate_kbps(enc_res.encode_size_bytes, duration_s) if duration_s > 0 else 0.0
+    bitrate_duration_s = sample_duration_s if sample_duration_s > 0.0 else duration_s
+    br_kbps = bitrate_kbps(enc_res.encode_size_bytes, bitrate_duration_s)
 
     return BisectResult(
         codec=codec,
@@ -475,6 +508,7 @@ def make_bisect_predicate(
     pix_fmt: str = "yuv420p",
     framerate: float = 24.0,
     duration_s: float = 0.0,
+    sample_clip_seconds: float = 0.0,
     preset: str | None = None,
     crf_range: tuple[int, int] | None = None,
     max_iterations: int = 8,
@@ -520,6 +554,7 @@ def make_bisect_predicate(
             pix_fmt=pix_fmt,
             framerate=framerate,
             duration_s=duration_s,
+            sample_clip_seconds=sample_clip_seconds,
             preset=preset,
             crf_range=crf_range,
             max_iterations=max_iterations,

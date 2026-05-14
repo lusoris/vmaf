@@ -1289,6 +1289,7 @@ vmaf-tune compare \
     --src ref.yuv \
     --width 1920 --height 1080 --pix-fmt yuv420p \
     --framerate 24 --duration 10 \
+    --sample-clip-seconds 4 \
     --target-vmaf 92 \
     --encoders libx264,libx265,libsvtav1,libaom,libvvenc \
     --crf-min 15 --crf-max 40 \
@@ -1298,10 +1299,14 @@ vmaf-tune compare \
 The real bisect backend needs source geometry because raw YUV does not
 self-describe. Pass `--width` and `--height` explicitly; `--pix-fmt`,
 `--framerate`, and `--duration` default to the common SDR 24 fps shape
-but should be set for accurate scoring and bitrate math. For custom
-rankers or tests, `--predicate-module MODULE:CALLABLE` still accepts
-any importable `(codec, src, target_vmaf) -> RecommendResult` callable
-and bypasses the bisect backend.
+but should be set for accurate scoring and bitrate math. Pass
+`--sample-clip-seconds N` to evaluate the centre `N` seconds of the
+source per bisect iteration; compare forwards matching
+`--frame_skip_ref` / `--frame_cnt` scorer bounds and normalises
+bitrate against the sample duration. For custom rankers or tests,
+`--predicate-module MODULE:CALLABLE` still accepts any importable
+`(codec, src, target_vmaf) -> RecommendResult` callable and bypasses
+the bisect backend.
 
 Sample output (`--format markdown`, abridged):
 
@@ -1333,6 +1338,7 @@ Sample output (`--format markdown`, abridged):
 | `--pix-fmt` | `yuv420p` | Source pixel format forwarded to the scorer. |
 | `--framerate` | `24.0` | Source framerate. |
 | `--duration` | `0.0` | Source duration in seconds, used for bitrate math. |
+| `--sample-clip-seconds` | `0.0` | `0.0` scores the full source. Positive values shorter than `--duration` use a centre sample window for encode, score, and bitrate math (ADR-0301). |
 | `--preset` | adapter default | Preset forwarded to the codec adapter. |
 | `--crf-min / --crf-max` | adapter range | Inclusive CRF search window. Pass both or neither. |
 | `--max-iterations` | `8` | Encode+score round-trip cap per codec. |
