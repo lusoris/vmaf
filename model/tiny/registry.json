@@ -42,60 +42,60 @@
       "kind": "fr",
       "license": "BSD-3-Clause-Plus-Patent",
       "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
-      "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=0). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
+      "notes": "Production ensemble member of fr_regressor_v2_ensemble_v1 (seed=0). Full-corpus fit after PROMOTE gate; see docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1_seed0.json.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed0.onnx",
       "opset": 17,
       "sha256": "08ab1aedab2337c458387f0961c14837fa972635e5d5b0cf6a3839976593dde4",
       "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed0.onnx.sigstore.json",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed1",
       "kind": "fr",
       "license": "BSD-3-Clause-Plus-Patent",
       "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
-      "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=1). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
+      "notes": "Production ensemble member of fr_regressor_v2_ensemble_v1 (seed=1). Full-corpus fit after PROMOTE gate; see docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1_seed1.json.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed1.onnx",
       "opset": 17,
       "sha256": "42d86249d41aaff5d93547a744bb251d89085475e6e10197815a612c44894f5a",
       "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed1.onnx.sigstore.json",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed2",
       "kind": "fr",
       "license": "BSD-3-Clause-Plus-Patent",
       "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
-      "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=2). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
+      "notes": "Production ensemble member of fr_regressor_v2_ensemble_v1 (seed=2). Full-corpus fit after PROMOTE gate; see docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1_seed2.json.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed2.onnx",
       "opset": 17,
       "sha256": "0f1d8a81d5ffc4b76223fd1f1993e3baf177536819e10ecc4c732f81067dd150",
       "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed2.onnx.sigstore.json",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed3",
       "kind": "fr",
       "license": "BSD-3-Clause-Plus-Patent",
       "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
-      "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=3). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
+      "notes": "Production ensemble member of fr_regressor_v2_ensemble_v1 (seed=3). Full-corpus fit after PROMOTE gate; see docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1_seed3.json.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed3.onnx",
       "opset": 17,
       "sha256": "ed5e926037922b9b65903265f22702a61ca1c6fdee7da2418cfb5bed01072719",
       "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed3.onnx.sigstore.json",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v2_ensemble_v1_seed4",
       "kind": "fr",
       "license": "BSD-3-Clause-Plus-Patent",
       "license_url": "https://github.com/lusoris/vmaf/blob/master/LICENSE",
-      "notes": "Ensemble member of fr_regressor_v2_ensemble_v1 (seed=4). See docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1.json manifest.",
+      "notes": "Production ensemble member of fr_regressor_v2_ensemble_v1 (seed=4). Full-corpus fit after PROMOTE gate; see docs/ai/models/fr_regressor_v2_probabilistic.md and fr_regressor_v2_ensemble_v1_seed4.json.",
       "onnx": "fr_regressor_v2_ensemble_v1_seed4.onnx",
       "opset": 17,
       "sha256": "036c622401529b04d48a04cc06c65018126d2970a1139e2c89e18d8b12fa4c84",
       "sigstore_bundle": "fr_regressor_v2_ensemble_v1_seed4.onnx.sigstore.json",
-      "smoke": true
+      "smoke": false
     },
     {
       "id": "fr_regressor_v3",

@@ -415,6 +415,35 @@ def test_run_auto_4k_hdr_animation_does_not_short_circuit_inappropriately() -> N
     assert "predictor-gospel" in fired
 
 
+def test_run_auto_hdr_cells_use_codec_specific_dispatch() -> None:
+    meta = SourceMeta(
+        height=2160,
+        width=3840,
+        is_hdr=True,
+        content_class="live_action_hdr",
+        duration_s=7200.0,
+        shot_variance=0.30,
+        sample_clip_seconds=0.0,
+    )
+    plan = run_auto(
+        src=Path("/dev/null"),
+        target_vmaf=93.0,
+        max_budget_kbps=20000.0,
+        allow_codecs=("libx264", "libx265", "libsvtav1"),
+        smoke=True,
+        meta_override=meta,
+    )
+    by_codec = {}
+    for cell in plan.cells:
+        by_codec.setdefault(cell["codec"], cell["hdr_args"])
+
+    assert "-color_trc" in by_codec["libx264"]
+    assert "-x265-params" in by_codec["libx265"]
+    assert any("hdr10-opt=1" in arg for arg in by_codec["libx265"])
+    assert "-svtav1-params" in by_codec["libsvtav1"]
+    assert len({tuple(args) for args in by_codec.values()}) == 3
+
+
 def test_run_auto_does_not_dispatch_fast_subcommand() -> None:
     # Coordination with PR #467 — the Phase F driver must NOT invoke
     # the `fast` subcommand from inside its tree. We assert this by

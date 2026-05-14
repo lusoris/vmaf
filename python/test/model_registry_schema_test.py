@@ -62,6 +62,20 @@ def test_every_entry_has_license_metadata() -> None:
         assert m["sigstore_bundle"].endswith(".sigstore.json")
 
 
+def test_fr_regressor_v2_ensemble_seed_rows_are_production() -> None:
+    """ADR-0321 flipped the five ensemble seed rows out of smoke mode."""
+    reg = _load_registry()
+    rows = {m["id"]: m for m in reg["models"]}
+    for seed in range(5):
+        mid = f"fr_regressor_v2_ensemble_v1_seed{seed}"
+        row = rows[mid]
+        sidecar = json.loads((REGISTRY_PATH.parent / f"{mid}.json").read_text(encoding="utf-8"))
+        assert row["smoke"] is False
+        assert sidecar["sha256"] == row["sha256"]
+        assert sidecar["gate"]["passed"] is True
+        assert sidecar["gate"]["verdict"] == "PROMOTE"
+
+
 def test_structural_fallback_rejects_bad_hex_sha256() -> None:
     reg = _load_registry()
     bad = copy.deepcopy(reg)

@@ -506,6 +506,26 @@ class SourceMeta:
     baseline_vmaf: float = 0.0
 
 
+def _default_hdr_info_for_auto():
+    """Return conservative PQ HDR metadata for metadata-only auto runs.
+
+    `SourceMeta` intentionally carries only the boolean `is_hdr` signal.
+    Production non-smoke runs keep the richer `HdrInfo` returned by
+    `detect_hdr`; tests and API callers that pass `meta_override` still
+    need deterministic codec-specific dispatch, so they fall back to the
+    same BT.2020/PQ tuple the old scaffold hard-coded.
+    """
+    from .hdr import HdrInfo  # noqa: PLC0415
+
+    return HdrInfo(
+        transfer="pq",
+        primaries="bt2020",
+        matrix="bt2020nc",
+        color_range="tv",
+        pix_fmt="yuv420p10le",
+    )
+
+
 @dataclasses.dataclass
 class PlanState:
     """Mutable state threaded through the decision tree.
@@ -837,6 +857,7 @@ def run_auto(
     from the sequence falls back to a NaN interval (uncalibrated)
     plus the driver's smoke verdict.
     """
+    detected_hdr_info = None
     if not smoke and meta_override is None:
         # Build SourceMeta from the actual source via ffprobe + HDR detect.
         from .hdr import detect_hdr  # noqa: PLC0415
@@ -849,8 +870,8 @@ def run_auto(
         import subprocess  # noqa: PLC0415
 
         _width, _height, _fps = _probe_video_geometry(src, _cfg, subprocess.run)  # type: ignore[arg-type]
-        _hdr_info = detect_hdr(src)
-        _is_hdr = _hdr_info is not None
+        detected_hdr_info = detect_hdr(src)
+        _is_hdr = detected_hdr_info is not None
         _duration_s = 0.0
         try:
             import json  # noqa: PLC0415
@@ -889,6 +910,9 @@ def run_auto(
         shot_variance=0.05,
         sample_clip_seconds=sample_clip_seconds,
     )
+    hdr_info = detected_hdr_info if bool(meta.is_hdr) else None
+    if bool(meta.is_hdr) and hdr_info is None:
+        hdr_info = _default_hdr_info_for_auto()
 
     plan_state = PlanState(
         target_vmaf=target_vmaf,
@@ -943,13 +967,12 @@ def run_auto(
     # ------------------------------------------------------------------
     # Stage 3 — HDR pipeline (short-circuit #5).
     # ------------------------------------------------------------------
+    _hdr_codec_args = None
     if _should_short_circuit_5_sdr_skip(meta, plan_state):
         plan_state.fired(ShortCircuit.SDR_SKIP)
-        hdr_args: tuple[str, ...] = ()
+        hdr_info = None
     else:
-        # Production wiring delegates to hdr.hdr_codec_args + the
-        # HDR VMAF model selector.
-        hdr_args = ("-color_primaries", "bt2020", "-color_trc", "smpte2084")
+        from .hdr import hdr_codec_args as _hdr_codec_args  # noqa: PLC0415
 
     # ------------------------------------------------------------------
     # Stage 4 — sample-clip propagation (short-circuit #6).
@@ -974,28 +997,6 @@ def run_auto(
 
     # Use the recipe-narrowed thresholds for the rest of the driver.
     thresholds = effective_thresholds
-    # Build a (rung, codec) -> (verdict, width) lookup from the
-    # production-wiring seam. Missing cells fall back to (verdict,
-    # NaN) — NaN width defers F.3 to the native verdict so the gate
-    # degrades gracefully when no calibration is available.
-    interval_lookup: dict[tuple[int, str], tuple[str | None, float]] = {}
-    if cell_intervals is not None:
-        for rung_in, codec_in, verdict_in, width_in in cell_intervals:
-            interval_lookup[(int(rung_in), str(codec_in))] = (
-                verdict_in,
-                float(width_in),
-            )
-
-    confidence_aware_escalations: list[dict] = []
-    # Stage 5 — per-cell predictor + escalation (short-circuit #3).
-    # In smoke mode we synthesise a GOSPEL verdict so the gate fires
-    # in the unit smoke run; production wiring will set the verdict
-    # from predictor_validate.ValidationReport.verdict.
-    # ------------------------------------------------------------------
-    if smoke:
-        plan_state.predictor_verdict = "GOSPEL"
-
-    thresholds = confidence_thresholds or ConfidenceThresholds()
     # Build a (rung, codec) -> (verdict, width) lookup from the
     # production-wiring seam. Missing cells fall back to (verdict,
     # NaN) — NaN width defers F.3 to the native verdict so the gate
@@ -1040,6 +1041,9 @@ def run_auto(
                 cell_verdict = plan_state.predictor_verdict
                 cell_width = 1.0 if smoke else float("nan")
             decision = _confidence_aware_escalation(cell_verdict, cell_width, thresholds)
+            cell_hdr_args = ()
+            if hdr_info is not None and _hdr_codec_args is not None:
+                cell_hdr_args = _hdr_codec_args(str(codec), hdr_info)
             confidence_aware_escalations.append(
                 {
                     "rung": int(rung),
@@ -1058,7 +1062,7 @@ def run_auto(
                     "crf": 23,  # placeholder; production wiring fills this in
                     "estimated_vmaf": float(target_vmaf),
                     "estimated_bitrate_kbps": float(max_budget_kbps),
-                    "hdr_args": list(hdr_args),
+                    "hdr_args": list(cell_hdr_args),
                     "sample_clip_seconds": propagated_clip,
                     "confidence_decision": decision.value,
                     "interval_width": cell_width,

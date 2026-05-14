@@ -27,6 +27,37 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/vmaf-tune-ai-scaffold-state-cleanup — auto HDR dispatch + ensemble seed registry flip (2026-05-14)
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py`,
+  `tools/vmaf-tune/tests/test_auto_short_circuits.py`,
+  `tools/vmaf-tune/tests/test_auto_recipe_overrides.py`,
+  `model/tiny/registry.json`,
+  `python/test/model_registry_schema_test.py`,
+  `docs/usage/vmaf-tune.md`, `docs/state.md`,
+  `docs/research/0100-vmaf-tune-ai-scaffold-audit-2026-05-14.md`,
+  `changelog.d/fixed/vmaf-tune-ai-scaffold-state-cleanup.md`.
+- **Invariant**: `vmaf-tune auto` must use
+  `vmaftune.hdr.hdr_codec_args(codec, info)` per HDR cell; a single
+  generic PQ tuple is not valid because x265/SVT-AV1/NVENC/VVenC
+  carry HDR signalling through different ffmpeg flag families.
+  Recipe-adjusted `effective_thresholds` from `_apply_recipe_override`
+  must be the thresholds used for F.3 decisions and JSON metadata.
+  The five `fr_regressor_v2_ensemble_v1_seed{0..4}` registry rows are
+  production entries (`smoke: false`) only while their sidecars carry
+  matching SHA-256s and a passing PROMOTE gate.
+- **Re-test on rebase**:
+
+  ```bash
+  PYTHONPATH=tools/vmaf-tune/src python -m pytest \
+      tools/vmaf-tune/tests/test_auto_short_circuits.py \
+      tools/vmaf-tune/tests/test_auto_recipe_overrides.py \
+      tools/vmaf-tune/tests/test_auto_confidence_aware.py \
+      tools/vmaf-tune/tests/test_hdr.py -v
+  PYTHONPATH=python python -m pytest python/test/model_registry_schema_test.py -v
+  bash libvmaf/test/dnn/test_registry.sh
+  ```
+
 ### feat/libvmaf-metal-filter-iosurface — Metal IOSurface zero-copy import (ADR-0423)
 
 - **Touches**: `libvmaf/include/libvmaf/libvmaf_metal.h` (new
