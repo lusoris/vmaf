@@ -27,6 +27,7 @@ encoders in one corpus row.
 | `libx265`           | HEVC  | CPU     | [ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)    | Accepted         | yes      | x265-style preset names; same CRF range as libx264.       |
 | `libaom-av1`        | AV1   | CPU     | [ADR-0279](../adr/0279-vmaf-tune-codec-adapter-libaom.md)  | Accepted         | no       | `--cpu-used` mapped from preset; long-encode warning.     |
 | `libsvtav1`         | AV1   | CPU     | [ADR-0294](../adr/0294-vmaf-tune-codec-adapter-svtav1.md)  | Accepted         | no       | SVT-AV1 preset 0–13 mapped from `--preset` slug.          |
+| `libvpx-vp9`        | VP9   | CPU     | —                                                          | Accepted         | yes      | `-deadline good`, `-cpu-used`, `-crf`, `-b:v 0`.          |
 | `libvvenc`          | VVC   | CPU     | [ADR-0285](../adr/0285-vmaf-tune-vvenc-nnvc.md)            | Accepted         | no       | VVenC (Fraunhofer); also covers vvenc-NNVC variant.       |
 | `h264_nvenc`        | H.264 | NVENC   | [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)        | Accepted         | no       | Requires Maxwell+ NVIDIA GPU + ffmpeg `--enable-nvenc`.   |
 | `hevc_nvenc`        | HEVC  | NVENC   | [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)        | Accepted         | no       | Same gating as h264_nvenc.                                |
@@ -68,8 +69,9 @@ software adapters; `p1` … `p7` for NVENC) is mapped per-adapter:
 |------------------|---------------------------------------------|----------------------------------------------------|
 | `libx264`        | x264 native preset names                    | Pass-through.                                      |
 | `libx265`        | x265 native preset names                    | Pass-through.                                      |
-| `libaom-av1`     | `--cpu-used 0…8` mapped from slug           | `placebo`→0, `medium`→4, `ultrafast`→8.            |
-| `libsvtav1`      | `--preset 0…13` mapped from slug            | Inverse — `placebo`→0, `medium`→7, `ultrafast`→12. |
+| `libaom-av1`     | `--cpu-used 0…9` mapped from slug           | `placebo`→0, `medium`→4, `ultrafast`→9.            |
+| `libsvtav1`      | `--preset 0…13` mapped from slug            | Inverse — `placebo`→0, `medium`→7, `veryfast`→13. |
+| `libvpx-vp9`     | `--cpu-used 0…5` mapped from slug           | `placebo`/`slowest`→0, `medium`→3, `ultrafast`→5.  |
 | `libvvenc`       | VVenC native preset names                   | Pass-through (`slower`, `medium`, `faster`).       |
 | `*_nvenc`        | NVENC `p1`…`p7` accepted directly           | `--preset p4` etc.                                 |
 | `*_qsv`          | QSV `veryslow`…`veryfast` accepted directly | Pass-through.                                      |

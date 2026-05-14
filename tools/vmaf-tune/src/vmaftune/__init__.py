@@ -101,9 +101,10 @@ CORPUS_ROW_KEYS: tuple[str, ...] = (
     *CANONICAL6_AGGREGATE_KEYS,
     # ADR-0332: per-frame encoder-internal stats aggregates.
     # Populated for codecs whose adapter declares
-    # ``supports_encoder_stats = True`` (libx264 in v1; libx265 /
-    # libvpx wired through but parser deferred). Hardware encoders
-    # (NVENC / AMF / QSV / VideoToolbox) opt out and emit ``0.0``.
+    # ``supports_encoder_stats = True`` (libx264 in v1; libx265
+    # capture wired with parser support deferred). libvpx-vp9 writes
+    # binary first-pass stats, and hardware encoders (NVENC / AMF /
+    # QSV / VideoToolbox) opt out and emit ``0.0``.
     "enc_internal_qp_mean",
     "enc_internal_qp_std",
     "enc_internal_bits_mean",
