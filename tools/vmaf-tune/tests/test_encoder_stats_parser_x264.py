@@ -47,6 +47,14 @@ _b_FRAME = (
     "in:3 out:4 type:b dur:2 cpbdur:2 q:25.23 aq:14.02 "
     "tex:58 mv:3 misc:115 imb:0 pmb:1 smb:79 d:- ref:0 ;"
 )
+_X265_I_FRAME = (
+    "in:0 out:0 type:I q:27.83 q-aq:28.41 q-noVbv:27.83 q-Rceq:0.53 "
+    "tex:11836 mv:1752 misc:129 icu:80.00 pcu:0.00 scu:0.00 sc:0 ;"
+)
+_X265_P_FRAME = (
+    "in:1 out:1 type:P q:27.83 q-aq:28.71 q-noVbv:27.83 q-Rceq:0.53 "
+    "tex:1317 mv:200 misc:191 icu:0.53 pcu:12.00 scu:67.47 sc:0 ;"
+)
 
 
 def test_parse_options_header_returns_none():
@@ -97,6 +105,33 @@ def test_parse_b_frame_classified_as_inter():
     assert rec.is_intra is False
 
 
+def test_parse_x265_i_frame_aliases_aq_and_coding_unit_counts():
+    rec = parse_stats_line(_X265_I_FRAME)
+    assert rec is not None
+    assert rec.frame_type == "I"
+    assert rec.qp == pytest.approx(27.83)
+    assert rec.aq == pytest.approx(28.41)
+    assert rec.tex == 11836
+    assert rec.mv == 1752
+    assert rec.misc == 129
+    assert rec.imb == pytest.approx(80.0)
+    assert rec.pmb == pytest.approx(0.0)
+    assert rec.smb == pytest.approx(0.0)
+    assert rec.mb_total == pytest.approx(80.0)
+
+
+def test_parse_x265_p_frame_keeps_fractional_ctu_ratios():
+    rec = parse_stats_line(_X265_P_FRAME)
+    assert rec is not None
+    assert rec.frame_type == "P"
+    assert rec.is_intra is False
+    assert rec.aq == pytest.approx(28.71)
+    assert rec.imb == pytest.approx(0.53)
+    assert rec.pmb == pytest.approx(12.00)
+    assert rec.smb == pytest.approx(67.47)
+    assert rec.mb_total == pytest.approx(80.0)
+
+
 def test_parse_stats_file_round_trips_three_frames(tmp_path: Path):
     p = tmp_path / "x264.stats"
     p.write_text("\n".join([_OPTIONS_HEADER, _I_FRAME, _P_FRAME, _b_FRAME, ""]))
@@ -133,6 +168,19 @@ def test_aggregate_stats_emits_all_ten_columns():
     # intra = 80, skip = 0 + 47 + 79 = 126.
     assert agg["enc_internal_intra_ratio"] == pytest.approx(80.0 / 240.0)
     assert agg["enc_internal_skip_ratio"] == pytest.approx(126.0 / 240.0)
+
+
+def test_aggregate_stats_handles_x265_fractional_coding_unit_counts():
+    frames = [
+        parse_stats_line(_X265_I_FRAME),
+        parse_stats_line(_X265_P_FRAME),
+    ]
+    agg = aggregate_stats(f for f in frames if f is not None)
+    assert agg["enc_internal_qp_mean"] == pytest.approx(27.83)
+    assert agg["enc_internal_itex_mean"] == pytest.approx(11836.0)
+    assert agg["enc_internal_ptex_mean"] == pytest.approx(1317.0)
+    assert agg["enc_internal_intra_ratio"] == pytest.approx((80.0 + 0.53) / 160.0)
+    assert agg["enc_internal_skip_ratio"] == pytest.approx(67.47 / 160.0)
 
 
 def test_aggregate_stats_empty_input_emits_zeros():
