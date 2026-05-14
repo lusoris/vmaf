@@ -222,10 +222,10 @@ for the option-space digest.
   `supports_two_pass = False`, the
   driver falls back to single-pass with a stderr warning by default
   (`on_unsupported="fallback"`), or raises with
-  `on_unsupported="raise"` — matches the saliency.py "x264-only,
-  fallback to plain encode" precedent. Sibling codec adapters
-  (libsvtav1, libvvenc, libaom-av1) inherit this seam
-  without touching the driver — their PRs only need to override
+  `on_unsupported="raise"` — matches the saliency.py
+  "unsupported ROI encoder, fallback to plain encode" precedent.
+  Sibling codec adapters (libsvtav1, libvvenc, libaom-av1) inherit
+  this seam without touching the driver — their PRs only need to override
   `supports_two_pass` + `two_pass_args` on the adapter file. NVENC's
   `-multipass` is **not** this seam (single-invocation lookahead, not
   a stats-file two-call sequence); a separate adapter contract is the

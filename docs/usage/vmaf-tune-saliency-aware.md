@@ -31,6 +31,16 @@ vmaf-tune recommend-saliency \
 4. Unsupported ROI encoders fall back to a plain encode with a warning
    rather than failing the whole run.
 
+Supported saliency ROI encoders are:
+
+| Encoder | ROI channel |
+| --- | --- |
+| `libx264` | `-x264-params qpfile=...` |
+| `libaom-av1` | patched FFmpeg `-qpfile ...` bridge |
+| `libx265` | `-x265-params zones=...` |
+| `libsvtav1` | `-svtav1-params qp-file=...` |
+| `libvvenc` | `-vvenc-params ROIFile=...` |
+
 The shipped default model is documented in
 [`saliency_student_v1.md`](../ai/models/saliency_student_v1.md).
 

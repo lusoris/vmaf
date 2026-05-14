@@ -12,8 +12,8 @@ Pipeline:
 
     raw YUV ── sample N frames ── YUV->RGB ── ImageNet-normalise
             ── onnxruntime(saliency_student_v1) ── mean saliency mask [0, 1]
-            ── per-MB reduce ── linear map to QP offsets [-12, +12]
-            ── x264 ASCII qpfile ── ffmpeg --qpfile
+            ── per-block reduce ── linear map to QP offsets [-12, +12]
+            ── codec ROI sidecar/argv ── ffmpeg
 
 Design notes:
 
@@ -21,9 +21,9 @@ Design notes:
   can graceful-fallback to non-saliency encoding when onnxruntime or
   the model file is unavailable. This matches the `vmaf-roi` C
   sidecar's posture (ADR-0247).
-- Per-MB granularity is chosen to match x264's ``--qpfile`` natural
-  granularity (16x16 luma) and SVT-AV1's ROI-map granularity (the
-  only two encoders Phase A / Bucket #2 need).
+- Per-codec helpers reduce the pixel-level map to the encoder's ROI
+  unit: 16x16 luma for x264/libaom qpfiles, a spatial mean for x265
+  zones, and 64x64 units for SVT-AV1 / VVenC ROI files.
 - All numeric kernels (RGB conversion, ImageNet normalisation,
   per-MB reduce, QP-offset clamp) are pure NumPy so the test suite
   can exercise them without onnxruntime installed.
@@ -335,6 +335,16 @@ def augment_extra_params_with_qpfile(base: Sequence[str], qpfile: Path) -> tuple
     return tuple(base) + ("-x264-params", f"qpfile={qpfile}")
 
 
+def augment_extra_params_with_libaom_qpfile(base: Sequence[str], qpfile: Path) -> tuple[str, ...]:
+    """Return ``base + ('-qpfile', str(qpfile))`` for patched libaom-av1.
+
+    The fork's FFmpeg patch stack exposes a shared top-level ``-qpfile``
+    AVOption on ``libaom-av1``. Unlike x264's wrapper, libaom does not
+    receive the path through an opaque encoder-params key.
+    """
+    return tuple(base) + ("-qpfile", str(qpfile))
+
+
 # ---------------------------------------------------------------------------
 # x265 zones formatter
 # ---------------------------------------------------------------------------
@@ -531,6 +541,36 @@ def _saliency_augment_x264(
     )
 
 
+def _saliency_augment_libaom(
+    request: "EncodeRequest",
+    qp_map: "np.ndarray",
+    *,
+    duration_frames: int,
+    persist: bool,
+) -> "EncodeRequest":
+    """Return a copy of ``request`` augmented with libaom's qpfile argv.
+
+    The FFmpeg patch stack teaches ``libaom-av1`` to consume the same
+    x264-style qpfile saliency.py already emits, mapping each 16x16
+    macroblock delta onto libaom's mode-info grid and segment-QP table.
+    """
+    block_offsets = reduce_qp_map_to_blocks(qp_map, block=X264_MB_SIDE)
+    if persist:
+        qpfile = request.output.with_suffix(".libaom-qpfile.txt")
+        write_x264_qpfile(block_offsets, qpfile, duration_frames=duration_frames)
+        return dataclasses.replace(
+            request,
+            extra_params=augment_extra_params_with_libaom_qpfile(request.extra_params, qpfile),
+        )
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".libaom-qpfile.txt", delete=False) as fh:
+        qpfile = Path(fh.name)
+    write_x264_qpfile(block_offsets, qpfile, duration_frames=duration_frames)
+    return dataclasses.replace(
+        request,
+        extra_params=augment_extra_params_with_libaom_qpfile(request.extra_params, qpfile),
+    )
+
+
 def _saliency_augment_x265(
     request: "EncodeRequest",
     qp_map: "np.ndarray",
@@ -627,10 +667,27 @@ def _saliency_augment_vvenc(
 # that appears in ``EncodeRequest.encoder``.
 _SALIENCY_DISPATCH: dict[str, Any] = {
     "libx264": _saliency_augment_x264,
+    "libaom-av1": _saliency_augment_libaom,
     "libx265": _saliency_augment_x265,
     "libsvtav1": _saliency_augment_svtav1,
     "libvvenc": _saliency_augment_vvenc,
 }
+
+
+def _cleanup_path_from_extra_params(extra_params: Sequence[str]) -> Path | None:
+    """Find an ephemeral ROI sidecar path injected into extra params."""
+    params = tuple(extra_params)
+    for idx in range(len(params) - 1, -1, -1):
+        token = params[idx]
+        if idx > 0 and params[idx - 1] == "-qpfile":
+            candidate = Path(token)
+            if candidate.exists():
+                return candidate
+        if "=" in token:
+            candidate = Path(token.split("=", 1)[-1])
+            if candidate.exists():
+                return candidate
+    return None
 
 
 def saliency_aware_encode(
@@ -649,6 +706,8 @@ def saliency_aware_encode(
     ``request.encoder``:
 
     - ``libx264``  — ASCII ``--qpfile`` at 16×16 macroblock granularity.
+    - ``libaom-av1`` — patched FFmpeg ``-qpfile <path>`` bridge at
+      16×16 macroblock granularity.
     - ``libx265``  — ``--zones`` QP delta (per-clip spatial mean) via
       ``-x265-params zones=0,N,q=<delta>``.
     - ``libsvtav1`` — space-separated QP-offset map at 64×64 super-block
@@ -716,15 +775,7 @@ def saliency_aware_encode(
     # encode. The augmented extra_params carries the file path injected
     # by the augment helper in the last ``key=<path>`` slot.
     if not cfg.persist_qpfile:
-        cleanup_path: Path | None = None
-        for token in reversed(augmented.extra_params):
-            # Augment helpers inject paths via "key=<path>" tokens; the
-            # path is always the value after the last ``=``.
-            if "=" in token:
-                candidate = Path(token.split("=", 1)[-1])
-                if candidate.exists():
-                    cleanup_path = candidate
-                    break
+        cleanup_path = _cleanup_path_from_extra_params(augmented.extra_params)
         try:
             return run_encode(augmented, ffmpeg_bin=ffmpeg_bin, runner=runner)
         finally:
@@ -747,6 +798,7 @@ __all__ = [
     "X264_MB_SIDE",
     "SaliencyConfig",
     "SaliencyUnavailableError",
+    "augment_extra_params_with_libaom_qpfile",
     "augment_extra_params_with_qpfile",
     "augment_extra_params_with_svtav1_qpmap",
     "augment_extra_params_with_vvenc_roi",

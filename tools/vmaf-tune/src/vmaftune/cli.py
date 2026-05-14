@@ -465,7 +465,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--encoder",
         default="libx264",
         choices=list(known_codecs()),
-        help="codec adapter (saliency QP-offset map is currently x264-only)",
+        help=(
+            "codec adapter; saliency ROI supports libx264, libaom-av1, "
+            "libx265, libsvtav1, and libvvenc"
+        ),
     )
     rec_sal.add_argument("--preset", default="medium", help="encoder preset")
     rec_sal.add_argument(
@@ -1676,10 +1679,10 @@ def _run_recommend_saliency(args: argparse.Namespace) -> int:
     Builds an :class:`~vmaftune.encode.EncodeRequest` from the CLI
     flags and delegates to :func:`vmaftune.saliency.saliency_aware_encode`,
     which runs the fork's ``saliency_student_v1`` ONNX model over the
-    source, materialises an x264 ``--qpfile``, and runs one encode
-    biased toward salient regions. Falls back to a plain encode when
-    onnxruntime / the model are unavailable so the caller always gets
-    a result.
+    source, materialises the selected encoder's ROI sidecar/argv, and
+    runs one encode biased toward salient regions. Falls back to a
+    plain encode when onnxruntime / the model are unavailable so the
+    caller always gets a result.
     """
     from .encode import EncodeRequest
     from .saliency import SaliencyConfig, saliency_aware_encode

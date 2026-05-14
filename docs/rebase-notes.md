@@ -33971,6 +33971,33 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_benchmark.py -q
 ```
 
+## 2026-05-14 — `vmaf-tune` libaom-av1 saliency ROI Dispatch
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/saliency.py`,
+`tools/vmaf-tune/src/vmaftune/codec_adapters/libaom.py`,
+`tools/vmaf-tune/src/vmaftune/cli.py`, vmaf-tune saliency tests,
+and the matching usage docs/state/changelog notes.
+
+**Rebase impact**: low. The change only adds `libaom-av1` to the
+existing saliency ROI dispatch table and uses the FFmpeg patch stack's
+top-level `-qpfile <path>` option. It does not alter scoring,
+predictor inputs, model files, or libvmaf public ABI.
+
+**Invariant to preserve on rebase**: libaom-av1 saliency uses the
+shared x264-style 16x16 qpfile writer, but passes it as separate argv
+tokens `("-qpfile", path)`. Keep ephemeral cleanup aware of both
+`key=path` params and `-qpfile path` pairs.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_saliency.py \
+  tools/vmaf-tune/tests/test_saliency_roi_adapters.py \
+  tools/vmaf-tune/tests/test_saliency_roi_codec.py \
+  -q
+```
+
 ## 2026-05-14 — Metal Dispatch Support Table
 
 **Files touched**: `libvmaf/src/metal/dispatch_strategy.c`,
