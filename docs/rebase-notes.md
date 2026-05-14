@@ -40,6 +40,30 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Re-test**:
   `PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest tools/vmaf-tune/tests/test_codec_adapter_x265_two_pass.py tools/vmaf-tune/tests/test_auto_phase_f1_f2.py -q`
 
+### fix/backlog-gap-pass-8-2026-05-14 — CUDA psnr_hvs drain-batch integration
+
+- **Touches**: `libvmaf/src/feature/cuda/integer_psnr_hvs_cuda.c`,
+  `libvmaf/src/feature/cuda/AGENTS.md`,
+  `docs/backends/cuda/overview.md`,
+  `docs/development/cuda-profile-2026-05-03.md`.
+- **Invariant**: `integer_psnr_hvs_cuda.c` enqueues all three
+  plane-partial DtoH copies on `s->lc.str` during submit, calls
+  `vmaf_cuda_kernel_submit_post_record(&s->lc, fex->cu_state)`, and
+  uses `vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state)` in
+  collect before reading `h_partials[]`. Do not move the readback +
+  raw `cuStreamSynchronize(s->lc.str)` back into collect.
+- **Re-test**: `meson setup build-cuda-drain libvmaf -Denable_cuda=true
+  -Denable_sycl=false -Denable_vulkan=disabled --buildtype=debug && ninja
+  -C build-cuda-drain src/libvmaf.so.3.0.0 && python3
+  scripts/ci/cross_backend_vif_diff.py --vmaf-binary
+  "$PWD/build-cuda-drain/tools/vmaf" --reference
+  testdata/ref_576x324_48f.yuv --distorted testdata/dis_576x324_48f.yuv
+  --width 576 --height 324 --feature psnr_hvs --backend cuda
+  --places 3`. If the local CUDA fatbin build is blocked by toolkit
+  include-path drift, at minimum compile the touched host TU:
+  `ninja -C build-cuda-drain
+  src/liblibvmaf_feature.a.p/feature_cuda_integer_psnr_hvs_cuda.c.o`.
+
 ### fix/tune-scaffold-gap-pass-2-2026-05-14 — vmaf-tune per-shot real bisect CLI
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/cli.py`,
