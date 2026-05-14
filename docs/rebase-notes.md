@@ -33975,6 +33975,30 @@ python3 scripts/ci/cross_backend_vif_diff.py \
   --device 0 --places 4
 ```
 
+## 2026-05-14 — `test_score_pooled_eagain` Sanitizer Deselect Retired
+
+**Files touched**: `.github/workflows/tests-and-quality-gates.yml`,
+`docs/state.md`.
+
+**Rebase impact**: low. The sanitizer workflow now dispatches
+`test_score_pooled_eagain` again in ASan, UBSan, and TSan lanes. The remaining
+T-SANITIZER-DEFECTS-REVEALED-758 exclusions stay in place.
+
+**Invariant to preserve on rebase**: sanitizer deselect regexes should contain
+only tests with an active state row. Do not re-add `test_score_pooled_eagain`
+unless a fresh sanitizer report is captured and tracked.
+
+**Smoke-test after rebase**:
+
+```bash
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  ./libvmaf/build-asan-score/test/test_score_pooled_eagain
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+  ./libvmaf/build-ubsan-score/test/test_score_pooled_eagain
+TSAN_OPTIONS=halt_on_error=1 \
+  ./libvmaf/build-tsan-score/test/test_score_pooled_eagain
+```
+
 ## 2026-05-14 — `vmaf-tune` libx265 encoder-stats parser
 
 **Files touched**: `tools/vmaf-tune/src/vmaftune/encoder_stats.py`,
