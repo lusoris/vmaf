@@ -58,6 +58,14 @@ score on whatever scale the model was trained on. The aggregation in
 `compare.py` reports PLCC / SROCC / RMSE per competitor — units in the
 score field do not need to match across competitors.
 
+`compare.py` validates every wrapper payload before aggregation. Missing
+required keys, a `summary.competitor` that does not match the wrapper
+name, non-object frames, and non-numeric metric fields are reported as
+`wrapper <name> produced invalid schema: ...`; malformed JSON is
+reported as `wrapper <name> produced invalid JSON: ...`. A bad wrapper
+is skipped for that corpus item instead of crashing the whole run with
+an aggregation-time `KeyError`.
+
 ## Operator install (external competitors only)
 
 The fork ships **only** the wrappers. You install the external binaries

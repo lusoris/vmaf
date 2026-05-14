@@ -126,6 +126,64 @@ def test_run_wrapper_propagates_failure(tmp_path: pathlib.Path) -> None:
         )
 
 
+def test_validate_wrapper_output_rejects_missing_summary() -> None:
+    payload = {"frames": []}
+    with pytest.raises(ValueError, match="summary"):
+        compare.validate_wrapper_output("x264-pvmaf", payload)
+
+
+def test_validate_wrapper_output_rejects_wrong_competitor() -> None:
+    payload = _canned_output("dover-mobile")
+    with pytest.raises(ValueError, match=r"summary\.competitor"):
+        compare.validate_wrapper_output("x264-pvmaf", payload)
+
+
+def test_validate_wrapper_output_rejects_bad_frame_value() -> None:
+    payload = _canned_output("x264-pvmaf")
+    payload["frames"][0]["runtime_ms"] = "slow"
+    with pytest.raises(ValueError, match=r"frames\[0\]\.runtime_ms"):
+        compare.validate_wrapper_output("x264-pvmaf", payload)
+
+
+def test_run_wrapper_rejects_invalid_json(tmp_path: pathlib.Path) -> None:
+    item = compare.CorpusItem(
+        name="t/0",
+        ref=None,
+        dis=tmp_path / "dis.yuv",
+        width=10,
+        height=10,
+    )
+
+    def stub_run(cmd, *_a, **_kw):
+        out_idx = cmd.index("--out")
+        pathlib.Path(cmd[out_idx + 1]).write_text("{not json", encoding="utf-8")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="invalid JSON"):
+        compare.run_wrapper("dover-mobile", item, tmp_path / "out.json", runner=stub_run)
+
+
+def test_run_wrapper_rejects_invalid_schema(tmp_path: pathlib.Path) -> None:
+    item = compare.CorpusItem(
+        name="t/0",
+        ref=None,
+        dis=tmp_path / "dis.yuv",
+        width=10,
+        height=10,
+    )
+
+    def stub_run(cmd, *_a, **_kw):
+        out_idx = cmd.index("--out")
+        pathlib.Path(cmd[out_idx + 1]).write_text(
+            json.dumps({"frames": [], "summary": {"competitor": "dover-mobile"}}),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="invalid schema"):
+        compare.run_wrapper("dover-mobile", item, tmp_path / "out.json", runner=stub_run)
+
+
 def test_aggregate_computes_means() -> None:
     results = [
         {
