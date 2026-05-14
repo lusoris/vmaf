@@ -32,13 +32,14 @@ Citation:
 
 ## 2. Where to download
 
-KonViD-150k is distributed by the University of Konstanz / MMSP group
-as a published manifest CSV listing per-clip download URLs (the actual
-clips live on YouTube/Vimeo and must be pulled per-URL — there is no
-single mirrored archive). **The fork does not redistribute the corpus,
-the per-clip MOS values, or any derived per-clip statistics** (license
-is research-only — see ADR-0325 §License). Obtain the manifest from the
-upstream source and place it locally:
+KonViD-150k is distributed by the University of Konstanz / MMSP group.
+Depending on the drop, operators may have either a URL manifest CSV
+or the canonical split score CSVs plus already-extracted MP4s. **The
+fork does not redistribute the corpus, the per-clip MOS values, or any
+derived per-clip statistics** (license is research-only — see
+ADR-0325 §License).
+
+URL-manifest layout:
 
 ```text
 .workingdir2/konvid-150k/
@@ -51,10 +52,22 @@ upstream source and place it locally:
   └── konvid_150k.jsonl              # written by this script (output)
 ```
 
-Both paths are gitignored (`.workingdir2/` is the fork's standard
-research-data drop, see CLAUDE.md §5). The script downloads on demand
-into `clips/`; you do **not** have to pre-fetch the corpus before
-running.
+Split score-drop layout:
+
+```text
+.workingdir2/konvid-150k/
+  ├── k150ka_scores.csv              # video_name,video_score
+  ├── k150ka_extracted/              # K150K-A MP4 clips
+  ├── k150kb_scores.csv              # video_name,mos,video_score
+  ├── k150kb_extracted/              # K150K-B MP4 clips
+  └── konvid_150k.jsonl              # written by this script (output)
+```
+
+All of these paths are gitignored (`.workingdir2/` is the fork's
+standard research-data drop, see CLAUDE.md §5). With a URL manifest,
+the script downloads on demand into `clips/`. With the split score
+layout, the script reads the local extracted MP4s directly; it does
+not try to reconstruct source URLs.
 
 Dataset URL: <https://database.mmsp-kn.de/konvid-150k-vqa-database.html>
 
@@ -96,16 +109,19 @@ parquet shards.
 
 ## 4. Run command
 
-After dropping the manifest CSV under `.workingdir2/konvid-150k/`:
+After dropping either the URL manifest or the split score/extracted
+layout under `.workingdir2/konvid-150k/`:
 
 ```bash
 python ai/scripts/konvid_150k_to_corpus_jsonl.py
 ```
 
 Default output path is `.workingdir2/konvid-150k/konvid_150k.jsonl`.
-Override with `--output`. Override the input layout with `--konvid-dir`
-or `--manifest-csv`. Override the curl / ffprobe binaries with
-`--curl-bin` / `--ffprobe-bin` (also picked up from `$CURL_BIN` /
+Override with `--output`. Override the input root with `--konvid-dir`.
+Passing `--manifest-csv` is strict: if that explicit file is missing,
+the script fails instead of falling back to split CSV discovery. This
+catches typoed manifest paths. Override the curl / ffprobe binaries
+with `--curl-bin` / `--ffprobe-bin` (also picked up from `$CURL_BIN` /
 `$FFPROBE_BIN`). Override the resumable-state path with
 `--progress-path`.
 
@@ -266,6 +282,12 @@ under one second and require neither curl, ffprobe, nor the corpus.
   The adapter accepts every spelling that has shipped to date; if a
   new release adds an alias, edit `_CSV_*_KEYS` at the top of the
   script.
+- **Split score-drop aliases.** `k150ka_scores.csv` commonly carries
+  `video_name,video_score`; `k150kb_scores.csv` commonly carries
+  `video_name,mos,video_score`. Both are accepted. Split rows have no
+  URL, per-row standard deviation, or rating count in the score CSVs.
+  The internal download field is empty, and the emitted JSONL records
+  `mos_std_dev = 0.0` and `n_ratings = 0`.
 - **License posture.** Per ADR-0325 §License, neither the clips, the
   per-clip MOS values, nor the JSONL itself ship in the repo. Only the
   ingestion script, this docs page, and the schema definition are
