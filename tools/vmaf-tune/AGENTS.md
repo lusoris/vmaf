@@ -248,6 +248,11 @@ for the option-space digest.
   wrong — the algorithm is pinned by `test_ladder.py` invariants
   (monotonic both axes, no domination). Don't refactor without
   re-running that suite.
+- **Phase E spacing names are part of the CLI contract.** `--spacing
+  log_bitrate` is the default, `--spacing vmaf` is the documented
+  perceptual-spacing mode, and `uniform` is a legacy alias for `vmaf`.
+  Keep the CLI choices and `ladder.select_knees()` aliases in lockstep
+  so argparse cannot accept a value the library rejects.
 - **Phase E sampler is pluggable; default is a 5-point CRF sweep
   (ADR-0307).** `ladder.build_ladder` accepts an explicit `sampler=`
   callback; when omitted, `_default_sampler` composes

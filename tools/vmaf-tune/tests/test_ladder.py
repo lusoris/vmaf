@@ -20,6 +20,7 @@ import pytest
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "src"))
 
+from vmaftune.cli import _build_parser  # noqa: E402
 from vmaftune.ladder import (  # noqa: E402
     Ladder,
     LadderPoint,
@@ -310,6 +311,38 @@ def test_select_knees_vmaf_spacing_picks_distinct_quality_levels():
     vmafs = [r.vmaf for r in rungs]
     assert len(set(vmafs)) == 3
     assert vmafs == sorted(vmafs)
+
+
+def test_select_knees_uniform_alias_matches_vmaf_spacing():
+    ladder = build_ladder(
+        src=Path("foo.yuv"),
+        encoder="libx264",
+        resolutions=CANONICAL_RES,
+        target_vmafs=CANONICAL_VMAFS,
+        sampler=synthetic_sampler,
+    )
+    hull = convex_hull(ladder.points)
+    vmaf_rungs = select_knees(hull, n=3, spacing="vmaf")
+    uniform_rungs = select_knees(hull, n=3, spacing="uniform")
+    assert uniform_rungs == vmaf_rungs
+
+
+def test_cli_accepts_documented_ladder_vmaf_spacing():
+    parser = _build_parser()
+    args = parser.parse_args(
+        [
+            "ladder",
+            "--src",
+            "foo.yuv",
+            "--resolutions",
+            "1920x1080",
+            "--target-vmafs",
+            "95",
+            "--spacing",
+            "vmaf",
+        ]
+    )
+    assert args.spacing == "vmaf"
 
 
 # ---------------------------------------------------------------------------

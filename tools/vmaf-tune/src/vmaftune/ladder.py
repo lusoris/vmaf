@@ -342,6 +342,7 @@ def select_knees(
     - ``"log_bitrate"`` — Apple HLS authoring spec convention; rungs
       double in bitrate as you go up the ladder. Default.
     - ``"vmaf"`` — perceptually-spaced; equal VMAF gap per rung.
+      ``"uniform"`` is accepted as a legacy alias for this mode.
 
     The first and last hull points are always included, and the
     interior rungs are picked by snapping the ideal coordinate to the
@@ -373,6 +374,8 @@ def select_knees(
 
 
 def _ideal_targets(hull: Sequence[LadderPoint], n: int, spacing: str) -> list[float]:
+    if spacing == "uniform":
+        spacing = "vmaf"
     if spacing == "log_bitrate":
         lo = math.log(max(hull[0].bitrate_kbps, 1.0))
         hi = math.log(max(hull[-1].bitrate_kbps, 1.0))
@@ -388,6 +391,9 @@ def _ideal_targets(hull: Sequence[LadderPoint], n: int, spacing: str) -> list[fl
 
 
 def _nearest_index(hull: Sequence[LadderPoint], target: float, spacing: str) -> int:
+    if spacing == "uniform":
+        spacing = "vmaf"
+
     def _key(p: LadderPoint) -> float:
         if spacing == "log_bitrate":
             return math.log(max(p.bitrate_kbps, 1.0))
