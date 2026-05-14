@@ -33992,6 +33992,27 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_auto_short_circuits.py -q
 ```
 
+## 2026-05-14 — testdata bench_perf portability
+
+**Files touched**: `testdata/bench_perf.py`, `testdata/test_bench_perf.py`,
+`docs/benchmarks.md`.
+
+**Rebase impact**: low. The performance JSON snapshots are unchanged; only the
+FFmpeg lavfi benchmark harness gains configuration and hardware-free smoke
+surfaces.
+
+**Invariant to preserve on rebase**: `bench_perf.py` must not reintroduce
+mandatory machine-local paths. The MP4 decode test remains opt-in through
+`--bbb-mp4-ref` / `VMAF_BBB_MP4_REF`, while `--require-all` is the strict mode.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pytest testdata/test_bench_perf.py -q
+.venv/bin/python testdata/bench_perf.py --list-tests
+.venv/bin/python testdata/bench_perf.py --backend cpu --dry-run
+```
+
 ## 2026-05-14 — CHUG HDR Corpus Ingestion + Feature Materialisation
 
 **Files touched**: `ai/scripts/chug_to_corpus_jsonl.py`,
