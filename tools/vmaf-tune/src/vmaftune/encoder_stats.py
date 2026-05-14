@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""x264 / FFmpeg pass-1 stats-file parser.
+"""x264 / x265 FFmpeg pass-1 stats-file parser.
 
 Captures encoder-internal per-frame signal that x264 already emits during
 a single ``--pass 1`` / ``-pass 1 -passlogfile <prefix>`` encode. The
@@ -11,9 +11,10 @@ its rate-distortion decisions, so feeding them back into the predictor
 closes the loop on what the encoder's *own* RC engine saw, not just on
 what the input pixels look like (research digest 0086, 2026-05-08).
 
-Format (verified empirically against x264 0.165.r3214 via
-``ffmpeg -pass 1 -passlogfile <prefix>`` on a 2-second testsrc clip).
-The on-disk file is line-oriented UTF-8 with the layout:
+Formats (verified empirically against x264 0.165.r3214 and x265 4.1 via
+``ffmpeg -pass 1 -passlogfile <prefix>`` / ``-x265-params
+pass=1:stats=<path>`` on tiny ``testsrc`` clips). The on-disk files are
+line-oriented UTF-8 with layouts like:
 
     #options: <space-separated key=value config record>
     in:0 out:0 type:I dur:2 cpbdur:2 q:25.23 aq:20.39 tex:14051 mv:1126 misc:5871 imb:80 pmb:0 smb:0 d:- ref:;
@@ -21,8 +22,14 @@ The on-disk file is line-oriented UTF-8 with the layout:
     in:3 out:4 type:b dur:2 cpbdur:2 q:25.23 aq:14.02 tex:58   mv:3   misc:115 imb:0 pmb:1  smb:79 d:- ref:0 ;
     ...
 
-One frame per line; tokens are space-separated ``key:value`` pairs. Per
-x264's source (`encoder/ratecontrol.c`, the ``parse_zone`` /
+    #options: <space-separated key=value config record>
+    in:0 out:0 type:I q:27.83 q-aq:28.41 q-noVbv:27.83 q-Rceq:0.53 tex:11836 mv:1752 misc:129 icu:80.00 pcu:0.00 scu:0.00 sc:0 ;
+    in:1 out:1 type:P q:27.83 q-aq:28.71 q-noVbv:27.83 q-Rceq:0.53 tex:1317  mv:200  misc:191 icu:0.53  pcu:12.00 scu:67.47 sc:0 ;
+    ...
+
+One frame per line; tokens are space-separated ``key:value`` pairs with
+``key=value`` reserved for the ``#options`` header. Per x264's source
+(`encoder/ratecontrol.c`, the ``parse_zone`` /
 ``rate_estimate_qscale`` / pass-1 writer paths), the meaning of each
 token is:
 
@@ -34,14 +41,15 @@ token is:
     cpbdur   — CPB-domain duration
     q        — quantizer (the ``QP`` the encoder picked, post-AQ)
     aq       — adaptive-quantization variance signal driving the
-               per-macroblock QP offsets
+               per-macroblock QP offsets. x265 spells this ``q-aq``.
     tex      — texture bits. For I/i frames: intra-texture cost. For
                P/B/b frames: predicted-texture cost (post-MC residual)
     mv       — motion-vector bits (zero for I-frames)
     misc     — header / overhead bits
-    imb      — intra macroblock count
-    pmb      — predicted (inter) macroblock count
-    smb      — skipped macroblock count
+    imb      — intra macroblock count. x265 spells this ``icu`` and
+               emits fractional CTU counts.
+    pmb      — predicted (inter) macroblock count. x265: ``pcu``.
+    smb      — skipped macroblock count. x265: ``scu``.
     d        — direct-mode flag (``-`` = N/A)
     ref      — reference list (semicolon-terminated)
 
@@ -62,13 +70,11 @@ single per-frame ``tex`` token in the stats file, partitioned by the
 frame's ``type``. ``intra_ratio`` and ``skip_ratio`` are corpus-wide
 averages of ``imb / (imb + pmb + smb)`` and ``smb / (imb + pmb + smb)``.
 
-The parser is encoder-agnostic only insofar as the stats-file shape is
-x264-specific; libvpx's first-pass stats use a different binary layout
-(see ``vpx_codec_pkt_t`` / ``VPX_CODEC_STATS_PKT``) and libx265 emits a
-similar but not identical text format. The codec-adapter contract gates
-opt-in via ``supports_encoder_stats``; only x264 / x265 / libvpx wire
-the stats path, and only x264 is parsed here in this PR. Predictor
-integration (consuming the new corpus columns) lands in a follow-up.
+The parser intentionally covers the text pass-1 formats emitted by x264
+and x265. libvpx's first-pass stats use a different binary layout (see
+``vpx_codec_pkt_t`` / ``VPX_CODEC_STATS_PKT``) and remain opt-out until a
+binary packet parser lands. Predictor integration (consuming the new
+corpus columns) lands in a follow-up.
 """
 
 from __future__ import annotations
@@ -99,10 +105,10 @@ ENCODER_STATS_COLUMNS: tuple[str, ...] = (
 class PerFrameStats:
     """One x264 stats-file frame record.
 
-    Maps 1:1 to a non-comment line in the stats file. Numeric fields
-    are coerced to ``float`` (``q``, ``aq``) or ``int`` (everything
-    else); unknown / missing tokens default to zero so the aggregator
-    never raises on a partial row.
+    Maps 1:1 to a non-comment line in the stats file. Numeric fields are
+    coerced to ``float`` (``q``, ``aq``, coding-unit counts) or ``int``
+    (bit costs and frame indexes); unknown / missing tokens default to
+    zero so the aggregator never raises on a partial row.
     """
 
     in_idx: int
@@ -113,9 +119,9 @@ class PerFrameStats:
     tex: int
     mv: int
     misc: int
-    imb: int
-    pmb: int
-    smb: int
+    imb: float
+    pmb: float
+    smb: float
 
     @property
     def bits(self) -> int:
@@ -123,8 +129,8 @@ class PerFrameStats:
         return self.tex + self.mv + self.misc
 
     @property
-    def mb_total(self) -> int:
-        """Total macroblock count for the frame."""
+    def mb_total(self) -> float:
+        """Total macroblock / CTU count for the frame."""
         return self.imb + self.pmb + self.smb
 
     @property
@@ -158,42 +164,66 @@ def _coerce_float(token: str) -> float:
         return 0.0
 
 
+def _tokenize_stats_line(text: str) -> dict[str, str]:
+    """Return case-insensitive key/value tokens for an encoder stats row."""
+    tokens: dict[str, str] = {}
+    for raw in text.replace(",", " ").split():
+        tok = raw.strip().rstrip(";")
+        if not tok:
+            continue
+        sep = ":" if ":" in tok else "=" if "=" in tok else ""
+        if not sep:
+            continue
+        key, _, value = tok.partition(sep)
+        if not key:
+            continue
+        tokens[key] = value
+        tokens[key.lower()] = value
+    return tokens
+
+
+def _token(tokens: dict[str, str], *names: str, default: str = "0") -> str:
+    for name in names:
+        value = tokens.get(name)
+        if value is None:
+            value = tokens.get(name.lower())
+        if value is not None:
+            return value
+    return default
+
+
 def parse_stats_line(line: str) -> PerFrameStats | None:
     """Parse one stats-file line into :class:`PerFrameStats`.
 
     Returns ``None`` for the ``#options:`` header line, blank lines,
     and unrecognised lines. Per-frame lines are tokenised on whitespace
-    and split on the first ``:`` per token; later ``:`` characters
-    (e.g. inside ``ref:0;1;2``) are preserved as part of the value.
+    and split on the first ``:`` / ``=`` per token; later ``:``
+    characters (e.g. inside ``ref:0;1;2``) are preserved as part of the
+    value.
     """
     text = line.strip()
     if not text or text.startswith("#"):
         return None
-    tokens: dict[str, str] = {}
-    for tok in text.split():
-        if ":" not in tok:
-            continue
-        key, _, value = tok.partition(":")
-        tokens[key] = value.rstrip(";")
+    tokens = _tokenize_stats_line(text)
     if "in" not in tokens or "type" not in tokens:
         return None
     return PerFrameStats(
-        in_idx=_coerce_int(tokens.get("in", "0")),
-        out_idx=_coerce_int(tokens.get("out", "0")),
-        frame_type=tokens.get("type", "P"),
-        qp=_coerce_float(tokens.get("q", "0")),
-        aq=_coerce_float(tokens.get("aq", "0")),
-        tex=_coerce_int(tokens.get("tex", "0")),
-        mv=_coerce_int(tokens.get("mv", "0")),
-        misc=_coerce_int(tokens.get("misc", "0")),
-        imb=_coerce_int(tokens.get("imb", "0")),
-        pmb=_coerce_int(tokens.get("pmb", "0")),
-        smb=_coerce_int(tokens.get("smb", "0")),
+        in_idx=_coerce_int(_token(tokens, "in")),
+        out_idx=_coerce_int(_token(tokens, "out")),
+        frame_type=_token(tokens, "type", default="P"),
+        qp=_coerce_float(_token(tokens, "q")),
+        aq=_coerce_float(_token(tokens, "aq", "q-aq")),
+        tex=_coerce_int(_token(tokens, "tex")),
+        mv=_coerce_int(_token(tokens, "mv")),
+        misc=_coerce_int(_token(tokens, "misc")),
+        imb=_coerce_float(_token(tokens, "imb", "icu")),
+        pmb=_coerce_float(_token(tokens, "pmb", "pcu")),
+        smb=_coerce_float(_token(tokens, "smb", "scu")),
     )
 
 
 def parse_stats_file(path: Path) -> list[PerFrameStats]:
-    """Load every per-frame record from an x264 stats file.
+    """Load every per-frame record from an x264 / x265 stats file.
 
     Skips the ``#options:`` header and any blank lines. Returns an
     empty list if the file is missing or empty — callers decide how

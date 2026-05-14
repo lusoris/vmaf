@@ -33974,3 +33974,25 @@ python3 scripts/ci/cross_backend_vif_diff.py \
   --width 576 --height 324 --feature vif --backend vulkan \
   --device 0 --places 4
 ```
+
+## 2026-05-14 — `vmaf-tune` libx265 encoder-stats parser
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/encoder_stats.py`,
+`tools/vmaf-tune/src/vmaftune/codec_adapters/x265.py`,
+`tools/vmaf-tune/tests/test_encoder_stats_parser_x264.py`,
+`tools/vmaf-tune/AGENTS.md`, `docs/usage/vmaf-tune.md`.
+
+**Rebase impact**: low. The corpus row schema stays at the existing v3
+ten-column `enc_internal_*` contract; this only teaches the parser x265's
+pass-1 aliases (`q-aq`, `icu`, `pcu`, `scu`) and fractional CTU counts.
+
+**Invariant to preserve on rebase**: x264 `imb` / `pmb` / `smb` and x265
+`icu` / `pcu` / `scu` must continue to feed the same intra / predicted /
+skip ratio columns. Do not split the public corpus schema per codec.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_encoder_stats_parser_x264.py -q
+```

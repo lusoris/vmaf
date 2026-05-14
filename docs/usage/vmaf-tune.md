@@ -522,8 +522,10 @@ edit row shape without bumping the version.
 | `enc_internal_skip_ratio` | float | Fraction of macroblocks coded as skip. v3+ (ADR-0332). |
 
 The ten `enc_internal_*` columns are populated for adapters that
-declare `supports_encoder_stats = True` (currently libx264; libx265
-is wired through but its parser is deferred to a follow-up PR).
+declare `supports_encoder_stats = True` (currently libx264 and
+libx265). The parser normalizes x264 macroblock counters and x265
+`icu` / `pcu` / `scu` CTU counters into the same intra / predicted /
+skip ratio columns.
 Hardware encoders (NVENC / AMF / QSV / VideoToolbox) and AV1 software
 encoders (libaom-av1 / libsvtav1 / libvvenc) opt out and emit `0.0`
 for every column so the schema is uniform across the corpus. The

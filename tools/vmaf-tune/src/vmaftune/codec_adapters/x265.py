@@ -63,9 +63,8 @@ class X265Adapter:
     supports_qpfile: bool = False
     # Zones-based saliency ROI is available for x265 (ADR-0370).
     supports_saliency_roi: bool = True
-    # ADR-0332: libx265 emits a similar pass-1 text stats file. The
-    # capture path is enabled but the v1 parser only handles x264;
-    # libx265-specific format support arrives in a follow-up PR.
+    # ADR-0332: libx265 emits a pass-1 text stats file whose q-aq and
+    # CTU-count aliases are normalised by ``encoder_stats``.
     supports_encoder_stats: bool = True
 
     # Phase F (ADR-0333): libx265 supports 2-pass encoding via

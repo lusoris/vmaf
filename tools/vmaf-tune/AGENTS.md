@@ -646,7 +646,9 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
 - Every adapter in ``codec_adapters/`` must declare
   ``supports_encoder_stats: bool`` (no Protocol default). x264 / x265
   set True; everything else False until a codec-specific parser
-  lands.
+  lands. x265's ``q-aq`` and ``icu`` / ``pcu`` / ``scu`` pass-1 aliases
+  are intentionally normalised in ``encoder_stats.py`` so corpus rows
+  keep the same ten ``enc_internal_*`` columns as x264.
 - ``run_encode_with_stats`` doubles per-encode wall-clock on opt-in
   adapters by design. Do not collapse the pass-1 + pass-2 calls into
   one — the encoder won't emit a parseable stats file outside
