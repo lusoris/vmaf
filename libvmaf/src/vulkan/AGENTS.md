@@ -198,6 +198,16 @@ Public header: [`include/libvmaf/libvmaf_vulkan.h`](../../include/libvmaf/libvma
   is host-policy-dependent. The shipping default is API 1.3
   where the gate is 0/48 on every device. See research-0090.
 
+- **Phase 3c update 2026-05-14 — `vif.comp` manual int64 subgroup
+  reduction closes the NVIDIA API-1.4 VIF residual.** Do not replace
+  the seven Phase-4 `reduce_i64_subgroup(...)` calls in
+  `../feature/vulkan/shaders/vif.comp` with `subgroupAdd(int64_t)`.
+  The manual `subgroupShuffleXor` butterfly is load-bearing on
+  NVIDIA RTX 4090 + driver 595.71.05 at Vulkan API 1.4: it changes
+  `integer_vif_scale2` from 45/48 failures at max abs `1.527e-02`
+  to 0/48 at max abs `2.000000e-06`, while Arc A380 and RADV stay
+  0/48. See research-0108 and ADR-0269 Phase-3c status update.
+
 ## Governing ADRs
 
 - [ADR-0127](../../../docs/adr/0127-vulkan-compute-backend.md) —

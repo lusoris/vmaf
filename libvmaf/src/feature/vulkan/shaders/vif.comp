@@ -56,6 +56,7 @@
 #version 460
 #extension GL_KHR_shader_subgroup_arithmetic               : require
 #extension GL_KHR_shader_subgroup_basic                    : require
+#extension GL_KHR_shader_subgroup_shuffle                  : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64   : require
 #extension GL_EXT_shader_subgroup_extended_types_int64     : require
 
@@ -226,6 +227,20 @@ shared uint  s_vert[N_CH_MAX * VERT_TOTAL_MAX];
  * effective number is WG_SIZE / SUBGROUP_SIZE. */
 const int ACCUM_FIELDS = 7;
 shared int64_t s_lmem[ACCUM_FIELDS * MAX_SUBGROUPS];
+
+/* NVIDIA 595.71.05 at Vulkan API 1.4 has been observed to produce
+ * non-deterministic SCALE=2 VIF accumulator values through
+ * subgroupAdd(int64_t), even after stronger shared-memory fences
+ * (research-0090 / ADR-0269 Phase-3b). Use explicit lane exchanges
+ * plus plain int64 adds so the driver avoids its int64 subgroup-add
+ * lowering path. */
+int64_t reduce_i64_subgroup(int64_t v) {
+    int64_t r = v;
+    for (uint mask = 1u; mask < gl_SubgroupSize; mask <<= 1u) {
+        r += subgroupShuffleXor(r, mask);
+    }
+    return r;
+}
 
 /* ------------------------------------------------------------------
  * Helpers (mirror dev_mirror / dev_get_best16_from32 / from64
@@ -554,13 +569,13 @@ void main()
     /* ============================================================
      * Phase 4: subgroup + cross-subgroup reduction.
      * ============================================================ */
-    int64_t sg_x        = subgroupAdd(t_x);
-    int64_t sg_x2       = subgroupAdd(t_x2);
-    int64_t sg_num_x    = subgroupAdd(t_num_x);
-    int64_t sg_num_log  = subgroupAdd(t_num_log);
-    int64_t sg_den_log  = subgroupAdd(t_den_log);
-    int64_t sg_num_nlog = subgroupAdd(t_num_non_log);
-    int64_t sg_den_nlog = subgroupAdd(t_den_non_log);
+    int64_t sg_x        = reduce_i64_subgroup(t_x);
+    int64_t sg_x2       = reduce_i64_subgroup(t_x2);
+    int64_t sg_num_x    = reduce_i64_subgroup(t_num_x);
+    int64_t sg_num_log  = reduce_i64_subgroup(t_num_log);
+    int64_t sg_den_log  = reduce_i64_subgroup(t_den_log);
+    int64_t sg_num_nlog = reduce_i64_subgroup(t_num_non_log);
+    int64_t sg_den_nlog = reduce_i64_subgroup(t_den_non_log);
 
     uint sg_id     = gl_SubgroupID;
     uint n_subgrps = gl_NumSubgroups;

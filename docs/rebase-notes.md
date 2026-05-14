@@ -33926,3 +33926,36 @@ encode comparisons remain owned by `vmaf-tune compare`.
 PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_benchmark.py -q
 ```
+
+## 2026-05-14 — Vulkan VIF Manual Int64 Subgroup Reduction
+
+**Files touched**: `libvmaf/src/feature/vulkan/shaders/vif.comp`,
+`libvmaf/src/vulkan/AGENTS.md`, `docs/adr/0269-vif-ciede-precise-step-a.md`,
+`docs/research/0108-vulkan-vif-int64-subgroup-reduction-2026-05-14.md`,
+`docs/state.md`.
+
+**Rebase impact**: medium. The shader semantic change is intentionally
+small, but it is load-bearing for Vulkan API-1.4 parity on NVIDIA.
+Do not simplify the Phase-4 VIF accumulator path back to
+`subgroupAdd(int64_t)` when resolving upstream shader conflicts.
+
+**Invariant to preserve on rebase**: `vif.comp` must keep
+`GL_KHR_shader_subgroup_shuffle` and the manual
+`reduce_i64_subgroup(...)` helper for all seven int64 accumulator
+fields. The helper exists because NVIDIA RTX 4090 + driver 595.71.05
+produced non-deterministic `integer_vif_scale2` output through
+`subgroupAdd(int64_t)` at Vulkan API 1.4.
+
+**Smoke-test after rebase**:
+
+```bash
+glslc --target-env=vulkan1.3 -O \
+  libvmaf/src/feature/vulkan/shaders/vif.comp -o /tmp/vif.spv
+ninja -C build-vulkan-int64 tools/vmaf
+python3 scripts/ci/cross_backend_vif_diff.py \
+  --vmaf-binary "$PWD/build-vulkan-int64/tools/vmaf" \
+  --reference testdata/ref_576x324_48f.yuv \
+  --distorted testdata/dis_576x324_48f.yuv \
+  --width 576 --height 324 --feature vif --backend vulkan \
+  --device 0 --places 4
+```
