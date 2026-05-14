@@ -588,6 +588,12 @@ grid flags) and applies one of two predicates:
 The two flags are mutually exclusive — argparse rejects passing both
 with exit code `2`.
 
+When reading a pre-built corpus, `recommend` ignores rows whose
+`exit_status` is non-zero and rows with missing or non-finite
+`vmaf_score`. The `--encoder` and `--preset` flags act as filters in
+that mode, so a mixed-codec corpus can be reused without first splitting
+it into per-codec files.
+
 ### Use a pre-built corpus
 
 ```shell
