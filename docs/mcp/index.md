@@ -6,10 +6,10 @@ The Lusoris VMAF fork ships **two** MCP surfaces:
    wraps the `vmaf` CLI, recommended for "score a video and hand
    the result to my agent" workflows. Stable, in production use.
 2. **Embedded MCP server inside libvmaf** — runs in-process on
-   the host that loaded `libvmaf.so`; lets agents introspect or
-   steer a running measurement (mid-stream feature queries, model
-   hot-swap requests). Currently scaffold-only — every entry
-   point returns `-ENOSYS` until the T5-2b runtime PR. See
+   the host that loaded `libvmaf.so`; serves stdio, UDS, and
+   loopback SSE transports with `list_features` and `compute_vmaf`.
+   It is the right surface when an embedding host needs an
+   in-process control plane rather than a child `vmaf` process. See
    [`docs/mcp/embedded.md`](embedded.md) for the build flags +
    API reference.
 
@@ -45,14 +45,6 @@ under an allowlisted root. See [security](#security-model) below.
 | `run_benchmark` | Run `testdata/bench_all.sh` on a pair | [tools.md#run_benchmark](tools.md#run_benchmark) |
 | `eval_model_on_split` | Evaluate a tiny-AI ONNX model on a parquet feature cache | [tools.md#eval_model_on_split](tools.md#eval_model_on_split) |
 | `compare_models` | Rank several ONNX models on the same split by descending PLCC | [tools.md#compare_models](tools.md#compare_models) |
-| Tool                    | Purpose                                                                                                | Detail                                                           |
-|-------------------------|--------------------------------------------------------------------------------------------------------|------------------------------------------------------------------|
-| `vmaf_score`            | Score one `(ref, dis)` YUV pair; return the full JSON report                                           | [tools.md#vmaf_score](tools.md#vmaf_score)                       |
-| `list_models`           | Enumerate `.json` / `.pkl` / `.onnx` under `model/`                                                    | [tools.md#list_models](tools.md#list_models)                     |
-| `list_backends`         | Report which backends the local `vmaf` binary was built with                                           | [tools.md#list_backends](tools.md#list_backends)                 |
-| `run_benchmark`         | Run `testdata/bench_all.sh` on a pair                                                                  | [tools.md#run_benchmark](tools.md#run_benchmark)                 |
-| `eval_model_on_split`   | Evaluate a tiny-AI ONNX model on a parquet feature cache                                               | [tools.md#eval_model_on_split](tools.md#eval_model_on_split)     |
-| `compare_models`        | Rank several ONNX models on the same split by descending PLCC                                          | [tools.md#compare_models](tools.md#compare_models)               |
 | `describe_worst_frames` | Score a pair, extract the N worst-VMAF frames as PNGs, and describe visible artefacts via a local VLM  | [tools.md#describe_worst_frames](tools.md#describe_worst_frames) |
 
 All tools return a single `TextContent` message whose body is a JSON

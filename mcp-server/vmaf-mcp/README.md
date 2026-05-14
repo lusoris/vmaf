@@ -11,6 +11,9 @@ scoring CLI to LLM tooling via JSON-RPC over stdio.
 | `list_models`   | Enumerate models under `model/` (`.json`, `.pkl`, `.onnx`).  |
 | `list_backends` | Report which backends (`cpu`/`cuda`/`sycl`/`hip`) are live.  |
 | `run_benchmark` | Run `testdata/bench_all.sh` on a pair.                       |
+| `eval_model_on_split` | Evaluate an ONNX tiny-AI model on a parquet feature split. |
+| `compare_models` | Rank ONNX models on the same split by PLCC. |
+| `describe_worst_frames` | Extract the lowest-VMAF frames and describe visible artefacts with local VLM extras. |
 
 ## Install
 
@@ -31,8 +34,9 @@ vmaf-mcp
 
 ## Path allowlisting
 
-For safety, the server only reads files under `testdata/` and
-`python/test/resource/`. Extend via colon-separated `VMAF_MCP_ALLOW`:
+For safety, the server only reads files under `testdata/`,
+`python/test/resource/`, and `model/`. Extend via colon-separated
+`VMAF_MCP_ALLOW`:
 
 ```bash
 VMAF_MCP_ALLOW=/data/my-corpus:/mnt/yuv vmaf-mcp

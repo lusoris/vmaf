@@ -34,7 +34,7 @@ for the design rationale.
 | Workflow | Surface | Notes |
 |---|---|---|
 | "Score a video, hand the result to my agent." | **External Python MCP server** (`mcp-server/vmaf-mcp/`) | Recommended default. Spawns `vmaf` as a child process. See [`docs/mcp/index.md`](index.md). |
-| "Steer a running measurement: hot-swap models, query mid-stream state." | **Embedded MCP server** (this doc) | Runs in-process. Currently scaffold-only — the runtime arrives in T5-2b. |
+| "Score from inside an embedding process, or prepare an in-process control plane for a running measurement." | **Embedded MCP server** (this doc) | Runs in-process. Stdio, UDS, and loopback SSE are live; `list_features` and `compute_vmaf` are implemented. Mutating mid-stream tools remain future work. |
 
 The two are additive — running both at the same time is fine.
 
@@ -45,9 +45,9 @@ The two are additive — running both at the same time is fine.
 meson setup build -Denable_cuda=false -Denable_sycl=false
 ninja -C build
 
-# Opt in to the scaffold (returns -ENOSYS everywhere until T5-2b):
+# Opt in to the embedded runtime:
 meson setup build -Denable_mcp=true \
-                  -Denable_mcp_sse=true \
+                  -Denable_mcp_sse=enabled \
                   -Denable_mcp_uds=true \
                   -Denable_mcp_stdio=true
 ninja -C build
@@ -80,7 +80,6 @@ VmafMcpServer *server = NULL;
 VmafMcpConfig cfg = { .queue_depth = 64, .max_drain_per_frame = 4 };
 int rc = vmaf_mcp_init(&server, ctx, &cfg);
 if (rc < 0) {
-    /* Currently always -ENOSYS — runtime arrives in T5-2b. */
     fprintf(stderr, "MCP unavailable: %d\n", rc);
     /* Fall back to the external Python server, or proceed without. */
 }
@@ -174,14 +173,14 @@ This differs from the UDS transport (AF_UNIX), where plain
 - **Use case:** headless Linux boxes where filesystem permissions
   give cleaner auth than loopback TCP.
 
-### stdio (LSP-framed)
+### stdio (newline-delimited JSON-RPC)
 
 - **Spec status:** canonical MCP transport.
 - **Bind:** caller hands over an fd pair (typically fd 3 / fd 4
   from a parent-spawned wrapper). The host's own stdin / stdout
   are *not* claimed.
-- **Wire:** LSP-style `Content-Length:` framed JSON-RPC, identical
-  to the spec's reference framing.
+- **Wire:** newline-delimited JSON-RPC, one object per line. LSP
+  `Content-Length:` framing is still a v4 roadmap item.
 - **Use case:** child-process spawned by an agent that already
   sets up an inheritable fd pair.
 
@@ -190,19 +189,17 @@ This differs from the UDS transport (AF_UNIX), where plain
 - One **MCP pthread** per active transport. The thread owns the
   socket, owns JSON parsing, owns all per-request allocation. It
   does **not** touch measurement state directly.
-- One **SPSC ring buffer** per server, sized at `vmaf_mcp_init`
-  from `VmafMcpConfig.queue_depth`. Pre-allocated; the
-  measurement-thread hot path performs **no allocation** after
-  init (NASA Power-of-10 rule 3).
-- The measurement thread drains at most
-  `VmafMcpConfig.max_drain_per_frame` envelopes per frame
-  boundary (NASA Power-of-10 rule 2 — bounded loop).
-- Queue overflow returns `-EAGAIN` style errors from the MCP
-  thread to the agent, never blocks the measurement thread.
+- `VmafMcpConfig.queue_depth` and
+  `VmafMcpConfig.max_drain_per_frame` are validated at init time
+  and reserved for the future measurement-thread queue. v1-v3
+  request handlers run to completion on the transport thread.
+- Mutating tools that need measurement-thread access must first
+  add the preallocated SPSC ring and bounded frame-boundary drain
+  described by ADR-0128. Until then, the live tools stay
+  read-only or use an ephemeral scoring context (`compute_vmaf`).
 
 These invariants are documented in the public header
-([`libvmaf_mcp.h`](../../libvmaf/include/libvmaf/libvmaf_mcp.h))
-and locked in via the T5-2b runtime PR's TSan tests.
+([`libvmaf_mcp.h`](../../libvmaf/include/libvmaf/libvmaf_mcp.h)).
 
 ## Status table
 

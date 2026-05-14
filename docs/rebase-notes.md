@@ -66,6 +66,23 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_auto_short_circuits.py
 ```
 
+### fix/backlog-gap-pass-12-2026-05-14 — MCP docs + SSIMULACRA2 snapshot hardening
+
+- **Touches**: `python/test/ssimulacra2_test.py`, `docs/mcp/index.md`,
+  `docs/mcp/embedded.md`, `docs/mcp/release-channel.md`,
+  `mcp-server/vmaf-mcp/README.md`, `mcp-server/AGENTS.md`.
+- **Invariant**: the SSIMULACRA2 snapshot gate remains fork-local. It
+  pins current extractor output for the 576x324 fixture with explicit
+  x86_64 and arm64/aarch64 baselines, pins the shared 160x90 tail
+  fixture, and must invoke the repo `vmaf` binary with an argv list,
+  not a shell string. The external MCP server docs list all seven live
+  tools. The embedded MCP docs describe the v3 runtime accurately:
+  stdio, UDS, and loopback SSE are live; `list_features` and
+  `compute_vmaf` are live; the SPSC measurement-thread drain and
+  mutating tools remain future work.
+- **Re-test**:
+  `PYTHONPATH=python .venv/bin/python -m pytest python/test/ssimulacra2_test.py -q && PYTHONPATH=mcp-server/vmaf-mcp/src .venv/bin/python -m pytest mcp-server/vmaf-mcp/tests/test_server.py -q`
+
 ### fix/real-scaffold-gap-pass-4-2026-05-14 — vmaf-tune x264 two-pass
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/x264.py`,

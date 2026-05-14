@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+
 from vmaf_mcp import server as srv
 
 REPO = Path(__file__).resolve().parents[3]
