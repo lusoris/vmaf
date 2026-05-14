@@ -15,6 +15,7 @@ Validates two surfaces:
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -99,6 +100,24 @@ def test_crf_range_is_respected() -> None:
         n_trials=20,
     )
     assert 20 <= result["recommended_crf"] <= 30
+
+
+def test_time_budget_stops_tpe_before_requested_trials() -> None:
+    """``--time-budget-s`` is a real Optuna timeout, not just metadata."""
+
+    def _slow_predictor(crf: int) -> TrialSample:
+        time.sleep(0.02)
+        return TrialSample(crf=crf, predicted_vmaf=90.0, predicted_kbps=2000.0)
+
+    result = fast_recommend(
+        src=None,
+        target_vmaf=90.0,
+        smoke=True,
+        predictor=_slow_predictor,
+        n_trials=100,
+        time_budget_s=0.05,
+    )
+    assert 1 <= result["n_trials"] < 100
 
 
 # ---------------------------------------------------------------------------

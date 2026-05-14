@@ -3,7 +3,7 @@
 """Phase A.5 fast-path — proxy + Bayesian + GPU-verify recommend.
 
 This module wires the production ``vmaf-tune fast`` subcommand
-documented in :doc:`/adr/0276-vmaf-tune-fast-path` (scaffold) and
+documented in :doc:`/adr/0276-vmaf-tune-fast-path` and
 :doc:`/adr/0304-vmaf-tune-fast-path-prod-wiring` (production wiring).
 The flow is:
 
@@ -76,7 +76,7 @@ DEFAULT_PROXY_TOLERANCE: float = 1.5
 
 
 # ---------------------------------------------------------------------------
-# Pluggable surfaces — production wiring + scaffold-mode entry points.
+# Pluggable surfaces — production wiring + smoke-mode entry points.
 # ---------------------------------------------------------------------------
 
 
@@ -295,8 +295,11 @@ def _run_tpe(
     predictor: Callable[[int], TrialSample],
     crf_range: tuple[int, int],
     n_trials: int,
-) -> tuple[int, float, float]:
-    """Run the Optuna TPE search; return (recommended_crf, vmaf, kbps)."""
+    time_budget_s: float | None = None,
+) -> tuple[int, float, float, int]:
+    """Run the Optuna TPE search; return (recommended_crf, vmaf, kbps, trials)."""
+    if time_budget_s is not None and time_budget_s <= 0.0:
+        raise ValueError(f"time_budget_s must be > 0 when set; got {time_budget_s!r}")
     objective = _objective_factory(target_vmaf, predictor, crf_range)
 
     # Suppress Optuna's default INFO-level chatter; the CLI is the
@@ -306,13 +309,18 @@ def _run_tpe(
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=0),
     )
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    study.optimize(
+        objective,
+        n_trials=n_trials,
+        timeout=float(time_budget_s) if time_budget_s is not None else None,
+        show_progress_bar=False,
+    )
 
     best = study.best_trial
     recommended_crf = int(best.params["crf"])
     predicted_vmaf = float(best.user_attrs.get("predicted_vmaf", float("nan")))
     predicted_kbps = float(best.user_attrs.get("predicted_kbps", float("nan")))
-    return recommended_crf, predicted_vmaf, predicted_kbps
+    return recommended_crf, predicted_vmaf, predicted_kbps, len(study.trials)
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +503,7 @@ def fast_recommend(
     src: Path | None,
     target_vmaf: float,
     encoder: str = "libx264",
-    time_budget_s: int = 300,  # noqa: ARG001 — production only
+    time_budget_s: int = 300,
     crf_range: tuple[int, int] = (DEFAULT_CRF_LO, DEFAULT_CRF_HI),
     n_trials: int | None = None,
     smoke: bool = False,
@@ -529,8 +537,9 @@ def fast_recommend(
         Codec adapter name (must be in ``ENCODER_VOCAB_V2`` for the
         production proxy path).
     time_budget_s
-        Soft wall-clock budget. Currently advisory; production loop
-        will enforce it via ``optuna.TrialPruned``.
+        Soft wall-clock budget for Optuna's TPE loop. Optuna stops
+        scheduling new trials after the timeout; an in-flight trial is
+        allowed to finish so probe encodes are not interrupted midway.
     crf_range
         ``(lo, hi)`` inclusive CRF search range.
     n_trials
@@ -546,7 +555,7 @@ def fast_recommend(
     sample_extractor
         Production seam — takes ``(src, crf, encoder)`` and returns
         ``(canonical_6_features, observed_kbps)``. Defaults to the
-        encode-extract pipeline (NotImplementedError until wired).
+        encode-extract pipeline backed by ffmpeg + libvmaf JSON.
     encode_runner
         Production seam — takes ``(src, encoder, crf, backend)`` and
         returns ``(observed_kbps, vmaf_score)`` for the verify pass.
@@ -564,9 +573,9 @@ def fast_recommend(
     ------
     RuntimeError
         Optuna missing (install ``vmaf-tune[fast]``).
-    NotImplementedError
-        ``smoke=False`` and neither ``predictor`` nor
-        ``sample_extractor`` is wired.
+    ValueError
+        Invalid in-process argument, such as ``src=None`` in production
+        mode or a non-positive ``time_budget_s``.
     """
     _require_optuna()
 
@@ -576,11 +585,12 @@ def fast_recommend(
 
     if smoke:
         chosen_predictor = predictor or _smoke_predictor
-        recommended_crf, predicted_vmaf, predicted_kbps = _run_tpe(
+        recommended_crf, predicted_vmaf, predicted_kbps, completed_trials = _run_tpe(
             target_vmaf=target_vmaf,
             predictor=chosen_predictor,
             crf_range=crf_range,
             n_trials=effective_n_trials,
+            time_budget_s=time_budget_s,
         )
         result = FastRecommendResult(
             encoder=encoder,
@@ -588,7 +598,7 @@ def fast_recommend(
             recommended_crf=recommended_crf,
             predicted_vmaf=predicted_vmaf,
             predicted_kbps=predicted_kbps,
-            n_trials=effective_n_trials,
+            n_trials=completed_trials,
             smoke=True,
             notes=(
                 "smoke mode — synthetic predictor; no ffmpeg / ONNX / GPU. "
@@ -601,14 +611,14 @@ def fast_recommend(
 
     # Production path.
     if src is None:
-        raise NotImplementedError(
+        raise ValueError(
             "vmaf-tune fast production mode requires a source path. "
             "Use smoke=True for the synthetic pipeline."
         )
 
     if predictor is None:
-        # Build the v2-proxy-backed predictor; raises NotImplementedError
-        # until the encode-extract follow-up wires sample_extractor.
+        # Build the v2-proxy-backed predictor from the production
+        # encode-extract sample seam.
         predictor = _build_prod_predictor(
             src=src,
             encoder=encoder,
@@ -616,11 +626,12 @@ def fast_recommend(
             sample_extractor=sample_extractor,
         )
 
-    recommended_crf, predicted_vmaf, predicted_kbps = _run_tpe(
+    recommended_crf, predicted_vmaf, predicted_kbps, completed_trials = _run_tpe(
         target_vmaf=target_vmaf,
         predictor=predictor,
         crf_range=crf_range,
         n_trials=effective_n_trials,
+        time_budget_s=time_budget_s,
     )
 
     # Single GPU verify pass — mandatory; proxy alone never wins.
@@ -650,7 +661,7 @@ def fast_recommend(
         recommended_crf=recommended_crf,
         predicted_vmaf=predicted_vmaf,
         predicted_kbps=predicted_kbps,
-        n_trials=effective_n_trials,
+        n_trials=completed_trials,
         smoke=False,
         notes=notes,
         verify_vmaf=float(verify_vmaf),

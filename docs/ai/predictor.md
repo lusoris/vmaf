@@ -53,13 +53,20 @@ recommend / per-shot tools already produce — one row per
 `(source, preset, crf)` cell with `bitrate_kbps` and the measured
 `vmaf_score`.
 
-The shipped models are **synthetic-stub** trained per
-[ADR-0325](../adr/0325-predictor-stub-models-policy.md): each codec
-gets a deterministic 100-row synthetic corpus seeded by the codec
-name. The synthetic target is the predictor's own analytical-fallback
-curve, so the resulting ONNX model is a smooth re-encoding of the
-analytical formula. **Stub models are not authoritative for production
-CRF picks.** Every per-codec model card flags this prominently.
+The hardware-encoder models for `h264_nvenc`, `hevc_nvenc`,
+`av1_nvenc`, `h264_qsv`, `hevc_qsv`, and `av1_qsv` are trained on the
+real Phase-A hardware sweep at
+`runs/phase_a/full_grid/comprehensive.jsonl` (local training corpus;
+not committed). Their model cards carry `corpus.kind: real-N=<rows>`
+and honest held-out metrics.
+
+The software and AMF models remain **synthetic-stub** models per
+[ADR-0325](../adr/0325-predictor-stub-models-policy.md): each such codec
+gets a deterministic 100-row synthetic corpus seeded by the codec name.
+The synthetic target is the predictor's own analytical-fallback curve,
+so the resulting ONNX model is a smooth re-encoding of the analytical
+formula. **Stub models are not authoritative for production CRF picks.**
+Every per-codec model card flags this prominently.
 
 To train real models on a real corpus:
 
@@ -85,8 +92,8 @@ in the same run; mixed runs are explicit in each card via the
 
 | Predictor input               | Source                                                   |
 |-------------------------------|----------------------------------------------------------|
-| `crf`                         | row `crf`                                                |
-| `probe_bitrate_kbps`          | row `bitrate_kbps`                                       |
+| `crf`                         | row `crf` (`cq` / `q` aliases accepted for hardware sweeps) |
+| `probe_bitrate_kbps`          | row `bitrate_kbps` (`actual_kbps` alias accepted)        |
 | `probe_*_avg_bytes`           | derived from `bitrate_kbps` + `framerate` (stand-in)     |
 | `saliency_*` / signalstats    | zero (not in Phase A schema; future `--predictor-training`) |
 | `shot_length_frames`          | `framerate × duration_s`                                  |
@@ -142,12 +149,11 @@ signature attached at the release-please tag step (per the existing
 `model/tiny/*.onnx` pattern; see
 [`docs/development/release.md`](../development/release.md)). Stub
 models ship **unsigned** because their numerical content is not
-authoritative; the model card carries a `Sigstore signature:
-PLACEHOLDER` line.
-
-When a real-corpus retrain lands, the signing step runs as part of
-the production-flip PR — the same workflow `fr_regressor_v2` followed
-under [ADR-0303](../adr/0303-fr-regressor-v2-ensemble-flip.md).
+authoritative; their cards carry a `Sigstore signature: PLACEHOLDER`
+line. Real-corpus model files are still unsigned while in-tree on a
+branch; release automation attaches the Sigstore-keyless OIDC bundles
+for published tags, following the same release workflow as the
+`model/tiny/*.onnx` artefacts.
 
 ## File layout
 

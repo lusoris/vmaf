@@ -1,13 +1,12 @@
 # `predictor_av1_nvenc` — VMAF predictor model card
 
 - **Codec adapter**: `av1_nvenc`
-- **Training date**: 2026-05-08
+- **Training date**: 2026-05-14
 - **ONNX opset**: 18
 - **Graph nodes**: 10
 - **File**: `model/predictor_av1_nvenc.onnx` (21877 bytes)
-- **SHA-256**: `60657a59d51154832b5c48a19c37407d7f4bf872cb777faf6e031ed2d979abdb`
+- **SHA-256**: `56f84000fd3cbd4819b9f91f40abd5b02454303bc47633e556040aa5a56e060b`
 
-> **Warning — synthetic-stub model.** Trained on a deterministic synthetic-100 corpus seeded by the codec name. Predictions are a smooth re-encoding of the analytical fallback; PLCC / SROCC / RMSE below are artificially high because the regression target *is* the fallback. **Do not use this model to drive production CRF picks.** Generate a real corpus via `vmaftune.corpus` and re-run `predictor_train.py` against it.
 
 ## 1. Purpose
 
@@ -19,9 +18,9 @@ predict-then-verify loop.
 
 ## 2. Training data
 
-- **Corpus kind**: `synthetic-stub-N=100`
-- **Train rows**: 80
-- **Held-out rows**: 20
+- **Corpus kind**: `real-N=2592`
+- **Train rows**: 2074
+- **Held-out rows**: 518
 - **Split**: 80 / 20 with seeded shuffle (seed = 42).
 - **Schema**: vmaf-tune Phase A JSONL (`CORPUS_ROW_KEYS` v2).
 
@@ -41,17 +40,14 @@ Computed on the 20 % held-out split.
 
 | Metric | Value |
 |--------|-------|
-| PLCC   | 0.9949 |
-| SROCC  | 0.9966 |
-| RMSE   | 1.0186 VMAF |
+| PLCC   | 0.6561 |
+| SROCC  | 0.6154 |
+| RMSE   | 12.4922 VMAF |
 
 ## 5. Signing
 
-- **Sigstore signature**: PLACEHOLDER — the stub model ships unsigned.
-  Production weights will land with a Sigstore-keyless OIDC signature
-  attached at the release-please tag step (per the existing
-  `model/tiny/*.onnx` pattern). See
-  [`docs/development/release.md`](../docs/development/release.md).
+- **Sigstore signature**: unsigned in-tree artefact. Release automation attaches the Sigstore-keyless OIDC signature for the published tag; verify that bundle when consuming release assets. See
+[`docs/development/release.md`](../docs/development/release.md).
 
 ## Architecture
 

@@ -37,6 +37,7 @@ from vmaftune.predictor_train import (  # noqa: E402
     INPUT_DIM,
     TrainConfig,
     generate_synthetic_corpus,
+    load_corpus,
     project_row,
     train_one_codec,
     train_val_split,
@@ -119,6 +120,30 @@ def test_project_row_returns_input_dim_floats() -> None:
     assert all(isinstance(v, float) for v in vec)
     assert vec[0] == 28.0
     assert vec[1] == pytest.approx(4321.5)
+
+
+def test_load_corpus_accepts_hardware_sweep_aliases(tmp_path: Path) -> None:
+    """Real Phase-A hardware sweeps predate canonical corpus key names."""
+    corpus = tmp_path / "hardware.jsonl"
+    corpus.write_text(
+        "\n".join(
+            [
+                '{"codec":"h264_nvenc","q":24,"actual_kbps":3100.5,"vmaf":93.2}',
+                '{"encoder":"h264_nvenc","crf":28,"bitrate_kbps":2100.0,"vmaf_score":88.0}',
+                '{"codec":"hevc_nvenc","q":24,"actual_kbps":2200.0,"vmaf":94.0}',
+                '{"codec":"h264_nvenc","q":32,"actual_kbps":0,"vmaf":"nan"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rows = load_corpus(corpus, "h264_nvenc")
+    assert len(rows) == 2
+    assert rows[0]["encoder"] == "h264_nvenc"
+    assert rows[0]["crf"] == 24.0
+    assert rows[0]["bitrate_kbps"] == pytest.approx(3100.5)
+    assert rows[0]["vmaf_score"] == pytest.approx(93.2)
 
 
 # ---------------------------------------------------------------------

@@ -11,7 +11,8 @@ Pipeline shape
 
 1. Read a vmaf-tune Phase A JSONL corpus (one row per ``(source,
    preset, crf)`` cell) — the same schema written by
-   :mod:`vmaftune.corpus`. Filter by codec.
+   :mod:`vmaftune.corpus` plus the older hardware-sweep aliases
+   (``codec`` / ``q`` / ``vmaf`` / ``actual_kbps``). Filter by codec.
 2. Project each row onto the predictor's 14-feature input vector
    (CRF, probe-bitrate-kbps, frame-size stats, signalstats, structural
    metadata). The corpus does not currently carry per-shot probe
@@ -106,8 +107,8 @@ def project_row(row: dict[str, Any], crf_override: float | None = None) -> list[
     can run end-to-end on the schema as-shipped. Predictions remain
     monotone in CRF because the stand-in does not depend on CRF.
     """
-    crf = float(crf_override if crf_override is not None else row.get("crf", 0))
-    bitrate_kbps = float(row.get("bitrate_kbps", 0.0) or 0.0)
+    crf = float(crf_override if crf_override is not None else _row_quality(row))
+    bitrate_kbps = float(_first_present(row, ("bitrate_kbps", "actual_kbps"), 0.0) or 0.0)
     width = int(row.get("width", 0) or 0)
     height = int(row.get("height", 0) or 0)
     framerate = float(row.get("framerate", 0.0) or 0.0)
@@ -226,8 +227,70 @@ def generate_synthetic_corpus(codec: str, n_rows: int = SYNTHETIC_CORPUS_ROWS) -
 # ---------------------------------------------------------------------
 
 
+def _first_present(row: dict[str, Any], keys: Sequence[str], default: Any = None) -> Any:
+    """Return the first non-``None`` / non-empty value among ``keys``."""
+    for key in keys:
+        value = row.get(key)
+        if value is not None and value != "":
+            return value
+    return default
+
+
+def _row_codec(row: dict[str, Any]) -> str | None:
+    """Return the codec identifier across corpus schema variants."""
+    value = _first_present(row, ("encoder", "codec"), None)
+    return str(value) if value is not None else None
+
+
+def _row_score(row: dict[str, Any]) -> float | None:
+    """Return the VMAF target across corpus schema variants."""
+    value = _first_present(row, ("vmaf_score", "vmaf"), None)
+    if value is None:
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) else None
+
+
+def _row_quality(row: dict[str, Any]) -> float:
+    """Return the CRF/CQ/Q axis value across corpus schema variants."""
+    value = _first_present(row, ("crf", "cq", "q"), 0.0)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _normalise_real_corpus_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Project a real corpus row onto the trainer's canonical row keys.
+
+    Historical hardware sweeps predate the canonical ``corpus.py`` JSONL
+    names and use ``codec`` / ``q`` / ``vmaf`` / ``actual_kbps``. The
+    model trainer should consume those corpora directly; otherwise the
+    real data sits idle while the shipped predictors remain synthetic.
+    """
+    codec = _row_codec(row)
+    score = _row_score(row)
+    if codec is None or score is None:
+        return None
+    out = dict(row)
+    out["encoder"] = codec
+    out["crf"] = _row_quality(row)
+    out["vmaf_score"] = score
+    if "bitrate_kbps" not in out and "actual_kbps" in out:
+        out["bitrate_kbps"] = out["actual_kbps"]
+    return out
+
+
 def load_corpus(path: Path, codec: str) -> list[dict]:
-    """Read a JSONL corpus and filter to ``codec`` rows with a usable score."""
+    """Read a JSONL corpus and filter to ``codec`` rows with a usable score.
+
+    Accepts both the canonical ``corpus.py`` schema
+    (``encoder``/``crf``/``vmaf_score``/``bitrate_kbps``) and the
+    hardware-sweep schema (``codec``/``q``/``vmaf``/``actual_kbps``).
+    """
     rows: list[dict] = []
     with path.open("r", encoding="utf-8") as fh:
         for line in fh:
@@ -238,20 +301,14 @@ def load_corpus(path: Path, codec: str) -> list[dict]:
                 row = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if row.get("encoder") != codec:
+            normalised = _normalise_real_corpus_row(row)
+            if normalised is None:
                 continue
-            score = row.get("vmaf_score")
-            if score is None:
+            if normalised["encoder"] != codec:
                 continue
-            try:
-                score_f = float(score)
-            except (TypeError, ValueError):
+            if int(normalised.get("exit_status", 0) or 0) != 0:
                 continue
-            if not math.isfinite(score_f):
-                continue
-            if int(row.get("exit_status", 0) or 0) != 0:
-                continue
-            rows.append(row)
+            rows.append(normalised)
     return rows
 
 
@@ -635,6 +692,16 @@ def _write_model_card(
         if is_synthetic
         else ""
     )
+    signing_note = (
+        "- **Sigstore signature**: PLACEHOLDER — the synthetic stub ships "
+        "unsigned. Production retrains should replace this card with a "
+        "`real-N=<rows>` corpus and receive a Sigstore-keyless OIDC "
+        "signature at the release-please tag step."
+        if is_synthetic
+        else "- **Sigstore signature**: unsigned in-tree artefact. Release "
+        "automation attaches the Sigstore-keyless OIDC signature for the "
+        "published tag; verify that bundle when consuming release assets."
+    )
     op_status = "OK" if op_allowlist_ok else f"FAIL — forbidden: {', '.join(forbidden_ops)}"
     body = f"""# `predictor_{codec}` — VMAF predictor model card
 
@@ -684,11 +751,8 @@ Computed on the 20 % held-out split.
 
 ## 5. Signing
 
-- **Sigstore signature**: PLACEHOLDER — the stub model ships unsigned.
-  Production weights will land with a Sigstore-keyless OIDC signature
-  attached at the release-please tag step (per the existing
-  `model/tiny/*.onnx` pattern). See
-  [`docs/development/release.md`](../docs/development/release.md).
+{signing_note} See
+[`docs/development/release.md`](../docs/development/release.md).
 
 ## Architecture
 
