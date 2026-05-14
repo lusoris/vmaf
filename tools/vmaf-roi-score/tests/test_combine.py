@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Smoke tests for vmaf-roi-score Option C scaffold.
+"""Smoke tests for vmaf-roi-score Option C.
 
 Mocks the ``vmaf`` subprocess so no binaries are required. Pins:
 
@@ -25,7 +25,11 @@ sys.path.insert(0, str(_HERE.parent / "src"))
 
 from vmafroiscore import ROI_RESULT_KEYS, SCHEMA_VERSION, blend_scores  # noqa: E402
 from vmafroiscore.cli import _build_parser, main  # noqa: E402
-from vmafroiscore.mask import synthesise_uniform_mask  # noqa: E402
+from vmafroiscore.mask import (  # noqa: E402
+    MaskRequest,
+    apply_saliency_mask,
+    synthesise_uniform_mask,
+)
 from vmafroiscore.score import ScoreRequest, build_vmaf_command, parse_vmaf_json  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -146,6 +150,46 @@ def test_synthesise_uniform_mask_rejects_bad_args():
         synthesise_uniform_mask(0, 3, fill=0.5)
 
 
+def test_apply_saliency_mask_materialises_yuv420p(tmp_path: Path):
+    ref = tmp_path / "ref.yuv"
+    dis = tmp_path / "dis.yuv"
+    out = tmp_path / "masked.yuv"
+
+    # 4x4 yuv420p: Y has 16 bytes, U/V have 4 bytes each.
+    ref.write_bytes(bytes([10] * 16 + [20] * 4 + [30] * 4))
+    dis.write_bytes(bytes([110] * 16 + [120] * 4 + [130] * 4))
+
+    def _mask(_rgb: bytes, width: int, height: int):
+        assert width == 4
+        assert height == 4
+        return [
+            [0.0, 0.0, 1.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+        ]
+
+    apply_saliency_mask(
+        MaskRequest(
+            reference=ref,
+            distorted=dis,
+            output=out,
+            width=4,
+            height=4,
+            pix_fmt="yuv420p",
+            saliency_model=tmp_path / "unused.onnx",
+            threshold=0.5,
+            fade=0.0,
+        ),
+        inference=_mask,
+    )
+
+    data = out.read_bytes()
+    assert data[:16] == bytes([10, 10, 110, 110] * 4)
+    assert data[16:20] == bytes([20, 120, 20, 120])
+    assert data[20:24] == bytes([30, 130, 30, 130])
+
+
 # ---------------------------------------------------------------------------
 # end-to-end smoke (synthetic-mask path) — mocks subprocess
 
@@ -217,24 +261,35 @@ def test_cli_synthetic_smoke(monkeypatch, tmp_path: Path):
     assert payload["saliency_model"] == "synthetic"
 
 
-def test_cli_saliency_model_is_scaffolded_only(monkeypatch, tmp_path: Path):
-    """The --saliency-model path is wired to a clear error today."""
+def test_cli_saliency_model_materialises_mask(monkeypatch, tmp_path: Path):
+    """The --saliency-model path materialises a masked YUV and scores it."""
     ref = tmp_path / "ref.yuv"
     dis = tmp_path / "dis.yuv"
     fake_model = tmp_path / "saliency.onnx"
-    ref.write_bytes(b"\x80" * 16)
-    dis.write_bytes(b"\x80" * 16)
+    out = tmp_path / "result.json"
+    ref.write_bytes(bytes([10] * 16 + [20] * 4 + [30] * 4))
+    dis.write_bytes(bytes([110] * 16 + [120] * 4 + [130] * 4))
     fake_model.write_bytes(b"")  # presence is enough; cli only checks exists()
 
+    seen_distorted: list[Path] = []
+
     def _fake_run(cmd, capture_output=False, text=False, check=False):
+        distorted = Path(cmd[cmd.index("--distorted") + 1])
+        seen_distorted.append(distorted)
         out_idx = cmd.index("--output")
+        score = 90.0 if len(seen_distorted) == 1 else 95.0
         Path(cmd[out_idx + 1]).write_text(
-            json.dumps({"pooled_metrics": {"vmaf": {"mean": 90.0}}}),
+            json.dumps({"pooled_metrics": {"vmaf": {"mean": score}}}),
             encoding="utf-8",
         )
         return _FakeCompleted(0, stderr="VMAF version: smoke-mock\n")
 
+    def _fake_mask(req, *, inference=None):
+        req.output.write_bytes(b"masked-yuv")
+        return req.output
+
     monkeypatch.setattr("vmafroiscore.score.subprocess.run", _fake_run)
+    monkeypatch.setattr("vmafroiscore.mask.apply_saliency_mask", _fake_mask)
 
     rc = main(
         [
@@ -243,12 +298,22 @@ def test_cli_saliency_model_is_scaffolded_only(monkeypatch, tmp_path: Path):
             "--distorted",
             str(dis),
             "--width",
-            "576",
+            "4",
             "--height",
-            "324",
+            "4",
             "--saliency-model",
             str(fake_model),
+            "--weight",
+            "0.25",
+            "--output",
+            str(out),
         ]
     )
-    # Exit code 64 = data-not-ready (mask materialiser deferred).
-    assert rc == 64
+    assert rc == 0
+    assert seen_distorted[0] == dis
+    assert seen_distorted[1].name == "distorted.saliency-masked.yuv"
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["vmaf_full"] == 90.0
+    assert payload["vmaf_masked"] == 95.0
+    assert payload["vmaf_roi"] == 91.25
+    assert payload["saliency_model"] == str(fake_model)

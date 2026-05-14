@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""``vmaf-roi-score`` — region-of-interest VMAF *scoring* (Option C scaffold).
+"""``vmaf-roi-score`` — region-of-interest VMAF *scoring* (Option C).
 
 Distinct surface from `libvmaf/tools/vmaf_roi.c` (ADR-0247), which is
 the *encoder-steering* sidecar that emits per-CTU QP offsets. This
@@ -16,11 +16,11 @@ is the VMAF of a saliency-masked variant of the distorted YUV (low-
 saliency pixels substituted with reference pixels so they score as a
 perfect match).
 
-Option C (this scaffold) is intentionally tool-level: it drives the
-existing ``vmaf`` binary twice and combines pooled scalars. It does
+Option C is intentionally tool-level: it drives the existing ``vmaf``
+binary twice and combines pooled scalars. It does
 **not** modify libvmaf's per-pixel feature pooling, and it therefore
 cannot deliver true per-pixel saliency-weighted VMAF — see
-ADR-0288 for the deferred Option A roadmap.
+ADR-0296 for the deferred Option A roadmap.
 """
 
 from __future__ import annotations

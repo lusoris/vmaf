@@ -3,7 +3,7 @@
 [project]
 name = "vmaf-roi-score"
 version = "0.0.1"
-description = "Region-of-interest VMAF score (Option C scaffold): saliency-weighted full-frame VMAF combo."
+description = "Region-of-interest VMAF score (Option C): saliency-weighted full-frame VMAF combo."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "BSD-3-Clause-Plus-Patent" }

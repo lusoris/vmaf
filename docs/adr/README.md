@@ -434,3 +434,4 @@ ADRs may exist there for local session continuity, but the tracked
 | [ADR-0416](0416-vif-upstream-onthefly-filter-sync.md) | VIF on-the-fly filter sync from Netflix upstream | Proposed |  |
 | [ADR-0421](0421-metal-first-kernel-motion-v2.md) | Metal first kernel — `integer_motion_v2` (T8-1c) | Accepted | gpu, metal, apple-silicon, kernel, bit-exact, fork-local |
 | [ADR-0424](0424-vmaf-tune-corpus-benchmark.md) | `vmaf-tune benchmark` consumes existing Phase-A JSONL corpora and reports one matched-quality row per encoder. The command filters successful finite rows, chooses the lowest-bitrate point clearing `--target-vmaf`, keeps closest misses visible as `unmet`, and emits markdown / JSON / CSV without launching FFmpeg or libvmaf. | Accepted | vmaf-tune, cli, benchmark, corpus |
+| [ADR-0425](../0425-vmaf-roi-score-saliency-materialiser.md) | vmaf-roi-score saliency materialiser | Accepted | 2026-05-14 |
