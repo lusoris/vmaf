@@ -278,6 +278,13 @@ for the option-space digest.
   predicates so ranking is exercised without `ffmpeg` / `vmaf`
   binaries. Do not branch on codec name inside `compare.py` — route
   every per-codec call through the predicate / adapter registry.
+- **Phase G benchmark is read-only corpus analysis (ADR-0424).**
+  `vmaf-tune benchmark` consumes existing Phase-A JSONL rows and must
+  not call `ffmpeg`, `vmaf`, `compare.compare_codecs`, or Phase-B
+  bisect. Its contract is one summary row per encoder: lowest-bitrate
+  corpus point clearing `--target-vmaf`, with closest misses preserved
+  as `status="unmet"`. Live encode comparisons stay in `compare`;
+  offline corpus reports stay in `benchmark`.
 - **Phase B bisect assumes monotone-decreasing VMAF in CRF
   ([ADR-0326](../../docs/adr/0326-vmaf-tune-phase-b-bisect.md)).**
   `vmaftune.bisect.bisect_target_vmaf` aborts with a clear error when

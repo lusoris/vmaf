@@ -681,6 +681,47 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    benchmark = sub.add_parser(
+        "benchmark",
+        help=(
+            "Phase G — rank encoders from an existing corpus JSONL at a "
+            "matched target VMAF, without running new encodes"
+        ),
+    )
+    benchmark.add_argument(
+        "--from-corpus",
+        type=Path,
+        required=True,
+        metavar="JSONL",
+        help="Phase-A corpus JSONL to benchmark",
+    )
+    benchmark.add_argument(
+        "--target-vmaf",
+        type=float,
+        default=92.0,
+        help="matched-quality threshold each encoder must clear (default 92)",
+    )
+    benchmark.add_argument(
+        "--baseline-encoder",
+        default=None,
+        help=(
+            "encoder used for bitrate-delta percentages. Default: lowest-bitrate "
+            "encoder that clears the target."
+        ),
+    )
+    benchmark.add_argument(
+        "--format",
+        default="markdown",
+        choices=("markdown", "json", "csv"),
+        help="report format (default markdown)",
+    )
+    benchmark.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="report destination (default: stdout)",
+    )
+
     auto = sub.add_parser(
         "auto",
         help=(
@@ -1832,6 +1873,35 @@ def _run_compare(args: argparse.Namespace) -> int:
     return 0 if report.best() is not None else 1
 
 
+def _run_benchmark(args: argparse.Namespace) -> int:
+    """Phase G — cross-codec report from an existing corpus JSONL."""
+    from .benchmark import render_benchmark, summarize_benchmark
+    from .recommend import load_corpus_jsonl
+
+    corpus_path: Path = args.from_corpus
+    if not corpus_path.exists():
+        sys.stderr.write(f"vmaf-tune benchmark: corpus file not found: {corpus_path}\n")
+        return 2
+    try:
+        summaries = summarize_benchmark(
+            load_corpus_jsonl(corpus_path),
+            target_vmaf=args.target_vmaf,
+            baseline_encoder=args.baseline_encoder,
+        )
+        rendered = render_benchmark(summaries, fmt=args.format)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"vmaf-tune benchmark: {exc}\n")
+        return 2
+
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8")
+        sys.stderr.write(f"wrote benchmark report -> {args.output}\n")
+    else:
+        sys.stdout.write(rendered)
+    return 0
+
+
 def _load_compare_predicate(spec: str):
     """Load ``MODULE:CALLABLE`` for ``vmaf-tune compare``."""
     if ":" not in spec:
@@ -2336,6 +2406,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_ladder(args)
     if args.cmd == "compare":
         return _run_compare(args)
+    if args.cmd == "benchmark":
+        return _run_benchmark(args)
     if args.cmd == "auto":
         return _run_auto(args)
     if args.cmd == "fast":

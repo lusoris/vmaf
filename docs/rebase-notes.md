@@ -33801,3 +33801,26 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_predictor_train.py \
   -q
 ```
+
+## 2026-05-14 — `vmaf-tune benchmark` Phase-G Corpus Report
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/benchmark.py`,
+`tools/vmaf-tune/src/vmaftune/cli.py`,
+`tools/vmaf-tune/tests/test_benchmark.py`, `tools/vmaf-tune/AGENTS.md`,
+`docs/usage/vmaf-tune.md`, `docs/adr/0424-vmaf-tune-corpus-benchmark.md`,
+`docs/research/0106-vmaf-tune-corpus-benchmark.md`.
+
+**Rebase impact**: low. The new command is a read-only consumer of the
+existing Phase-A JSONL row schema. It does not change `CORPUS_ROW_KEYS`,
+libvmaf public API, FFmpeg patches, or encode/scoring behaviour.
+
+**Invariant to preserve on rebase**: `vmaf-tune benchmark` must stay offline.
+It reads corpus rows and reports matched-quality encoder summaries; live
+encode comparisons remain owned by `vmaf-tune compare`.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_benchmark.py -q
+```

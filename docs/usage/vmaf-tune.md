@@ -19,6 +19,7 @@ with [`vmaf`](cli.md), and emits a JSONL corpus of
 | `fast`                | Predicted-CRF fast path                                | [ADR-0276](../adr/0276-vmaf-tune-fast-path.md)                                                       |
 | `hdr`                 | HDR-aware tuning + HDR-VMAF scoring                    | (PR #434, bucket #9)                                                                                 |
 | `compare`             | Apples-to-apples codec comparison at matched VMAF      | (PR #435)                                                                                            |
+| `benchmark`           | Offline cross-codec report from an existing JSONL      | [ADR-0424](../adr/0424-vmaf-tune-corpus-benchmark.md)                                                |
 
 ## Codec adapters
 
@@ -42,6 +43,7 @@ ref.yuv ──► vmaf-tune corpus ──► encode (libx264|libx265) ──► 
 
 corpus.jsonl ──► vmaf-tune recommend --target-vmaf T   ──► smallest CRF >= T
                                     --target-bitrate B ──► CRF closest to B
+corpus.jsonl ──► vmaf-tune benchmark --target-vmaf T   ──► encoder ranking
 ```
 
 ## Install
@@ -424,6 +426,40 @@ vmaf-tune corpus \
 Each emitted row carries `clip_mode="sample_10s"` (or `"full"`),
 letting Phase B/C either filter sample rows out, weight them
 differently, or rescore the chosen cell on the full source.
+
+## `benchmark` subcommand — corpus-level codec ranking
+
+`vmaf-tune benchmark` is Phase G of the tune workflow. It does not run
+FFmpeg or libvmaf; it reads an existing Phase-A JSONL corpus and ranks
+encoders by their best matched-quality point.
+
+For each encoder in the corpus, the command filters to successful rows
+with finite `vmaf_score` and `bitrate_kbps`, then chooses the lowest
+bitrate row whose VMAF clears `--target-vmaf`. Encoders that never clear
+the target stay in the report as `status=unmet` using their closest VMAF
+miss, so a too-narrow CRF sweep is visible instead of silently dropped.
+
+```shell
+vmaf-tune benchmark \
+    --from-corpus corpus.jsonl \
+    --target-vmaf 92 \
+    --baseline-encoder libx264 \
+    --format markdown
+```
+
+Output formats:
+
+| Format | Use |
+| --- | --- |
+| `markdown` | PR comments and human review. |
+| `json` | Notebooks, dashboards, and follow-up automation. |
+| `csv` | Spreadsheets and quick plots. |
+
+`--baseline-encoder` controls the bitrate-delta column. When omitted,
+the baseline is the lowest-bitrate encoder that clears the target. The
+report inherits the corpus coverage: if `libx264` was swept over 20 CRFs
+and `libx265` over 3 CRFs, the ranking reflects those sampled points
+only.
 
 ## Corpus JSONL schema
 
