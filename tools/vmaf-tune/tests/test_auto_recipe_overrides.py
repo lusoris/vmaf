@@ -35,11 +35,13 @@ sys.path.insert(0, str(_HERE.parent / "src"))
 
 from vmaftune.auto import (  # noqa: E402
     _CONTENT_RECIPE_TABLE,
+    DEFAULT_TIGHT_INTERVAL_MAX_WIDTH,
     RECIPE_CLASS_ANIMATION,
     RECIPE_CLASS_DEFAULT,
     RECIPE_CLASS_LIVE_ACTION_HDR,
     RECIPE_CLASS_SCREEN_CONTENT,
     RECIPE_CLASS_UGC,
+    ConfidenceDecision,
     ConfidenceThresholds,
     PlanState,
     SourceMeta,
@@ -235,6 +237,27 @@ def test_apply_recipe_default_class_preserves_thresholds_verbatim() -> None:
     assert recipe == {}
     assert eff.tight_interval_max_width == base.tight_interval_max_width
     assert eff.wide_interval_min_width == base.wide_interval_min_width
+
+
+def test_run_auto_uses_recipe_thresholds_for_confidence_decisions() -> None:
+    recipe = get_recipe_for_class(RECIPE_CLASS_LIVE_ACTION_HDR)
+    recipe_tight = float(recipe["tight_interval_max_width"])
+    assert recipe_tight < DEFAULT_TIGHT_INTERVAL_MAX_WIDTH
+    interval_width = (recipe_tight + DEFAULT_TIGHT_INTERVAL_MAX_WIDTH) / 2.0
+    plan = run_auto(
+        src=Path("/dev/null"),
+        target_vmaf=93.0,
+        max_budget_kbps=5000.0,
+        allow_codecs=("libx264",),
+        smoke=True,
+        meta_override=_meta(content_class=RECIPE_CLASS_LIVE_ACTION_HDR, is_hdr=True),
+        cell_intervals=[(1080, "libx264", "FALL_BACK", interval_width)],
+    )
+    thresholds = plan.metadata["confidence_thresholds"]
+    assert thresholds["tight_interval_max_width"] == recipe_tight
+    assert str(thresholds["source"]).startswith(f"recipe:{RECIPE_CLASS_LIVE_ACTION_HDR}/")
+    escalation = plan.metadata["confidence_aware_escalations"][0]
+    assert escalation["decision"] == ConfidenceDecision.RECOMMEND_ESCALATION.value
 
 
 # ---------------------------------------------------------------------------

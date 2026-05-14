@@ -289,12 +289,13 @@ model card:
   vocabulary. Bumping the vocabulary requires retraining the
   ensemble; the existing closed-vocabulary invariant from ADR-0235
   carries over verbatim.
-- **Smoke artefact is a load-path probe**, not a quality model. The
-  shipped `model/tiny/fr_regressor_v2_ensemble_v1*.onnx` files come
-  from a synthetic 100-row corpus + 1 epoch / member; do NOT
-  benchmark them against real VMAF. Production training is gated on
-  the multi-codec Phase A corpus and is tracked as backlog item
-  T7-FR-REGRESSOR-V2-PROBABILISTIC.
+- **Historical smoke artefacts are retired.** ADR-0303 originally
+  shipped synthetic 100-row / 1-epoch ensemble members as load-path
+  probes. ADR-0321 replaced the five seed ONNX files with
+  full-corpus-trained production weights and added per-seed sidecars.
+  Do not reintroduce `smoke: true` for
+  `fr_regressor_v2_ensemble_v1_seed{0..4}` unless a future ADR
+  explicitly rolls the production flip back.
 - **Ensemble registry invariant (ADR-0303)**: each ensemble member's
   `smoke: true` registry row flips to `false` **only after** that
   individual seed clears the `PLCC_i ≥ 0.95` LOSO ship gate

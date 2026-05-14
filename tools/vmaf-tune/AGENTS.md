@@ -314,6 +314,13 @@ for the option-space digest.
   codec adapter (libx265, libsvtav1, ...) lands under
   `codec_adapters/`, it inherits the dispatch row that already
   exists; adapters do not roll their own HDR flag set.
+- **`auto` records HDR args through the same dispatch table.**
+  `run_auto` must call `hdr_codec_args(codec, info)` per cell when
+  `meta.is_hdr` is true. A generic tuple such as
+  `("-color_primaries", "bt2020", "-color_trc", "smpte2084")`
+  is insufficient because x265, SVT-AV1, NVENC HEVC, and VVenC use
+  different ffmpeg flag families. Tests in
+  `tests/test_auto_short_circuits.py` lock this per-codec shape.
 - **`select_hdr_vmaf_model` falls back silently.** When
   `model/vmaf_hdr_*.json` is absent (current state — fork hasn't
   ported Netflix's HDR model yet), `_resolve_vmaf_model` logs a
@@ -552,6 +559,11 @@ tree without an ADR-0237 follow-up promoting the corresponding phase.
   `_confidence_aware_escalation` is a pure function of
   `(verdict, interval_width, thresholds)` so it stays trivially
   unit-testable; keep it pure when extending the decision table.
+  `run_auto` must pass the recipe-adjusted `effective_thresholds`
+  from `_apply_recipe_override` into every F.3 decision and into
+  `plan.metadata.confidence_thresholds`; computing the adjusted
+  value and then falling back to `ConfidenceThresholds()` is a
+  user-visible planning bug.
 
 - **F.4 recipe overrides are read-only factories, not literal
   dicts.** `_CONTENT_RECIPE_TABLE` in `auto.py` stores **callables**

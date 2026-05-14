@@ -1952,14 +1952,13 @@ test on machines that have not built the shot-detector binary yet.
 
 ## auto
 
-`vmaf-tune auto` is the Phase F entry point (ADR-0364). One CLI verb
 `vmaf-tune auto` is the Phase F entry point (ADR-0325). One CLI verb
 composes the per-phase subcommands (`corpus`, `recommend`, `predict`,
 `tune-per-shot`, `recommend-saliency`, `ladder`, `compare`) plus the
 orthogonal modes (HDR auto-detect, sample-clip, resolution-aware) into
-a deterministic decision tree. F.1 ships the sequential scaffold; F.2
-adds seven short-circuits that skip stages whose output is determined
-by metadata alone.
+a deterministic decision tree. F.1 shipped the sequential composition;
+F.2-F.5 added the short-circuits, confidence-aware fallbacks, and
+per-content recipes.
 
 ### Synopsis
 
@@ -1975,12 +1974,12 @@ vmaf-tune auto \
     [--output plan.json]
 ```
 
-The non-smoke path requires production probe wiring that lands in F.3;
-until then, run with `--smoke` to exercise the composition end-to-end
-with mocked sub-phases (no ffmpeg, no ONNX). The JSON plan emitted
-under `metadata.short_circuits` records which short-circuits fired —
-post-hoc analysis uses this to measure the speedup contribution of
-each one.
+The non-smoke path probes source geometry and HDR metadata through the
+same ffprobe/HDR helpers used by the corpus path. `--smoke` still
+exercises the composition end-to-end with mocked sub-phases (no
+ffmpeg, no ONNX). The JSON plan emitted under
+`metadata.short_circuits` records which short-circuits fired; post-hoc
+analysis uses this to measure the speedup contribution of each one.
 
 ### Short-circuits
 
@@ -2021,6 +2020,12 @@ new short-circuit means appending; never reordering.
 tree. `fast` (ADR-0276 fast-path) is a different operator surface
 (proxy + Bayesian over a single codec) and remains a sibling, not a
 child, of `auto`.
+
+For HDR sources, every emitted cell records the codec-specific
+`hdr_args` produced by `vmaftune.hdr.hdr_codec_args(codec, info)`.
+That means x264 gets only container-level `-color_*` flags, x265 gets
+`-x265-params` SEI signalling, SVT-AV1 gets `-svtav1-params`, and SDR
+cells record an empty list after the `sdr-skip` short-circuit fires.
 
 ### Confidence-aware fallbacks (F.3)
 
@@ -2144,16 +2149,16 @@ calibration):
   keeping text near-lossless. Predictor target nudged +1.
 - **Live-action HDR** — per [ADR-0300](../adr/0300-vmaf-tune-hdr-aware.md)
   the HDR pipeline already runs; the F.3 conformal-tight gate is
-  narrowed to `1.2` because a wide predictor interval on HDR is more
+  narrowed to `1.4` because a wide predictor interval on HDR is more
   suspect than on SDR (the predictor was largely trained on SDR per
   [ADR-0279](../adr/0279-fr-regressor-v2-probabilistic.md)).
 - **UGC** — user-generated content carries higher upstream-encode
   noise, inconsistent grading, and resolution mismatches; predictor
-  uncertainty is the baseline. Widening the F.3 tight gate to `3.0`
+  uncertainty is the baseline. Widening the F.3 tight gate to `3.5`
   avoids over-flagging UGC cells as "needs escalation" simply because
-  the interval is wider than a Netflix-grade reference. The predictor
-  target is nudged **down** 1 because UGC's perceptual ceiling is
-  already capped by source-side artefacts.
+  the interval is wider than a Netflix-grade reference. The K150K
+  calibration nudges the predictor target **up** 1.5 because the
+  corpus MOS distribution has a heavier upper tail.
 
 The recipe class is recorded in `plan.metadata.recipe_applied` (one
 of `animation`, `screen_content`, `live_action_hdr`, `ugc`, or
