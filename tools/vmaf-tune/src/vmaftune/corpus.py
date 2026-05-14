@@ -111,8 +111,8 @@ class CorpusOptions:
     hdr_mode: str = "auto"
     ffprobe_bin: str = "ffprobe"
     # Phase F (ADR-0333): opt into 2-pass encoding for codecs whose
-    # adapter sets ``supports_two_pass = True`` (libx265 today;
-    # libx264 / libsvtav1 / libvvenc follow as sibling PRs). Default
+    # adapter sets ``supports_two_pass = True`` (libx264 / libx265
+    # today; libsvtav1 / libvvenc follow as sibling PRs). Default
     # off — single-pass behaviour stays the canonical path. When set
     # against an adapter where ``supports_two_pass = False``, the
     # encode driver writes a one-line stderr warning and runs

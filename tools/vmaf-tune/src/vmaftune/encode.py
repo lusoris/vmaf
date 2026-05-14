@@ -511,6 +511,17 @@ def _stats_path_for(req: EncodeRequest, scratch_dir: Path) -> Path:
     return scratch_dir / f"{stem}.stats"
 
 
+def _two_pass_cleanup_candidates(stats_path: Path) -> tuple[Path, ...]:
+    """Files known encoders may create for a two-pass stats prefix."""
+    ffmpeg_stream_log = _stats_file_for(stats_path)
+    return (
+        stats_path,
+        stats_path.with_suffix(stats_path.suffix + ".cutree"),
+        ffmpeg_stream_log,
+        ffmpeg_stream_log.with_suffix(ffmpeg_stream_log.suffix + ".mbtree"),
+    )
+
+
 def run_two_pass_encode(
     req: EncodeRequest,
     *,
@@ -596,11 +607,11 @@ def run_two_pass_encode(
             stderr_tail=pass2.stderr_tail,
         )
     finally:
-        # Remove the stats file (libx265 also writes a sidecar
-        # ``<stats>.cutree`` — clean both). A user-provided
-        # ``scratch_dir`` is left in place; only the auto-tempdir
-        # is rmtree'd.
-        for candidate in (stats_path, stats_path.with_suffix(stats_path.suffix + ".cutree")):
+        # Remove known stats artefacts. libx265 writes ``<stats>`` and
+        # may add ``<stats>.cutree``; FFmpeg's generic passlogfile path
+        # (used by libx264) writes ``<stats>-0.log`` plus an optional
+        # mbtree sidecar.
+        for candidate in _two_pass_cleanup_candidates(stats_path):
             try:
                 candidate.unlink()
             except (OSError, FileNotFoundError):

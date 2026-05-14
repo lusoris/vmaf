@@ -27,6 +27,19 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/real-scaffold-gap-pass-4-2026-05-14 — vmaf-tune x264 two-pass
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/x264.py`,
+  `tools/vmaf-tune/src/vmaftune/encode.py` consumers, and
+  `docs/usage/vmaf-tune.md`.
+- **Invariant**: `libx264` opts into the shared Phase F two-pass seam
+  through `supports_two_pass = True` and
+  `two_pass_args() -> ("-pass", N, "-passlogfile", path)`. The encode
+  driver must stay adapter-driven; do not add an x264 branch in
+  `build_ffmpeg_command`.
+- **Re-test**:
+  `PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest tools/vmaf-tune/tests/test_codec_adapter_x265_two_pass.py tools/vmaf-tune/tests/test_auto_phase_f1_f2.py -q`
+
 ### fix/tune-scaffold-gap-pass-2-2026-05-14 — vmaf-tune per-shot real bisect CLI
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/cli.py`,

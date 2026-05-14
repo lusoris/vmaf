@@ -258,8 +258,8 @@ def test_run_auto_smoke_records_baseline_meets_target_short_circuit() -> None:
     assert ShortCircuit.BASELINE_MEETS_TARGET.value in plan.metadata["short_circuits"]
 
 
-def test_run_auto_smoke_records_no_two_pass_for_x264() -> None:
-    # libx264 does not declare supports_two_pass=True; predicate fires.
+def test_run_auto_smoke_does_not_record_no_two_pass_for_x264() -> None:
+    # libx264 declares supports_two_pass=True; predicate must NOT fire.
     meta = SourceMeta(
         height=1080,
         width=1920,
@@ -278,7 +278,7 @@ def test_run_auto_smoke_records_no_two_pass_for_x264() -> None:
         smoke=True,
         meta_override=meta,
     )
-    assert ShortCircuit.NO_TWO_PASS.value in plan.metadata["short_circuits"]
+    assert ShortCircuit.NO_TWO_PASS.value not in plan.metadata["short_circuits"]
 
 
 def test_run_auto_smoke_does_not_record_no_two_pass_for_x265() -> None:

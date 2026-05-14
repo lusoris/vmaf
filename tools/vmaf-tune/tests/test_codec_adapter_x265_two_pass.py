@@ -29,7 +29,7 @@ import pytest
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "src"))
 
-from vmaftune.codec_adapters import X265Adapter, get_adapter  # noqa: E402
+from vmaftune.codec_adapters import X264Adapter, X265Adapter, get_adapter  # noqa: E402
 from vmaftune.encode import EncodeRequest, build_ffmpeg_command, run_two_pass_encode  # noqa: E402
 
 
@@ -53,6 +53,36 @@ def _make_yuv(path: Path, nbytes: int = 1024) -> Path:
 def test_x265_advertises_two_pass_support():
     a = get_adapter("libx265")
     assert getattr(a, "supports_two_pass", False) is True
+
+
+def test_x264_advertises_two_pass_support():
+    a = get_adapter("libx264")
+    assert getattr(a, "supports_two_pass", False) is True
+
+
+def test_x264_two_pass_args_pass1_emits_ffmpeg_passlogfile():
+    a = X264Adapter()
+    args = a.two_pass_args(1, Path("/tmp/foo.stats"))
+    assert args == ("-pass", "1", "-passlogfile", "/tmp/foo.stats")
+
+
+def test_x264_two_pass_args_pass2_emits_ffmpeg_passlogfile():
+    a = X264Adapter()
+    args = a.two_pass_args(2, Path("/tmp/foo.stats"))
+    assert args == ("-pass", "2", "-passlogfile", "/tmp/foo.stats")
+
+
+def test_x264_two_pass_args_pass0_returns_empty_tuple():
+    a = X264Adapter()
+    assert a.two_pass_args(0, Path("/tmp/foo.stats")) == ()
+
+
+def test_x264_two_pass_args_rejects_invalid_pass_number():
+    a = X264Adapter()
+    with pytest.raises(ValueError):
+        a.two_pass_args(3, Path("/tmp/foo.stats"))
+    with pytest.raises(ValueError):
+        a.two_pass_args(-1, Path("/tmp/foo.stats"))
 
 
 def test_x265_two_pass_args_pass1_emits_x265_params():
@@ -126,6 +156,50 @@ def test_build_ffmpeg_command_pass2_writes_real_output(tmp_path: Path):
     # Pass 2 writes the actual encoded bitstream.
     assert cmd[-1] == str(req.output)
     assert "null" not in cmd[-3:]
+
+
+def test_build_ffmpeg_command_x264_pass1_uses_native_passlogfile(tmp_path: Path):
+    stats = tmp_path / "encode.stats"
+    req = EncodeRequest(
+        source=tmp_path / "ref.yuv",
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        encoder="libx264",
+        preset="medium",
+        crf=23,
+        output=tmp_path / "out.mp4",
+        pass_number=1,
+        stats_path=stats,
+    )
+    cmd = build_ffmpeg_command(req)
+    assert "-pass" in cmd
+    assert cmd[cmd.index("-pass") + 1] == "1"
+    assert "-passlogfile" in cmd
+    assert cmd[cmd.index("-passlogfile") + 1] == str(stats)
+    assert cmd[-3:] == ["-f", "null", "-"]
+
+
+def test_build_ffmpeg_command_x264_pass2_writes_real_output(tmp_path: Path):
+    stats = tmp_path / "encode.stats"
+    req = EncodeRequest(
+        source=tmp_path / "ref.yuv",
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        encoder="libx264",
+        preset="medium",
+        crf=23,
+        output=tmp_path / "out.mp4",
+        pass_number=2,
+        stats_path=stats,
+    )
+    cmd = build_ffmpeg_command(req)
+    assert cmd[cmd.index("-pass") + 1] == "2"
+    assert cmd[cmd.index("-passlogfile") + 1] == str(stats)
+    assert cmd[-1] == str(req.output)
 
 
 def test_build_ffmpeg_command_pass_number_requires_stats_path(tmp_path: Path):
@@ -212,6 +286,45 @@ def test_run_two_pass_encode_drives_both_passes_in_order(tmp_path: Path):
     assert pass1_params.split("stats=", 1)[1] == pass2_params.split("stats=", 1)[1]
 
     # Pass 1 writes to null muxer; pass 2 writes to the requested output.
+    assert invocations[0][-3:] == ["-f", "null", "-"]
+    assert invocations[1][-1] == str(out)
+
+
+def test_run_two_pass_encode_x264_drives_both_passes_in_order(tmp_path: Path):
+    src = _make_yuv(tmp_path / "ref.yuv")
+    out = tmp_path / "out.mp4"
+    invocations: list[list[str]] = []
+
+    def fake_run(cmd, capture_output, text, check):
+        invocations.append(list(cmd))
+        if "-pass" in cmd and cmd[cmd.index("-pass") + 1] == "2":
+            Path(cmd[-1]).write_bytes(b"\x00" * 4096)
+        return _FakeCompleted(
+            returncode=0,
+            stderr=("ffmpeg version 6.1.1\n" "x264 - core 164 r3107\n"),
+        )
+
+    req = EncodeRequest(
+        source=src,
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        encoder="libx264",
+        preset="medium",
+        crf=23,
+        output=out,
+    )
+    res = run_two_pass_encode(req, runner=fake_run)
+
+    assert res.exit_status == 0
+    assert res.encode_size_bytes == 4096
+    assert len(invocations) == 2
+    assert invocations[0][invocations[0].index("-pass") + 1] == "1"
+    assert invocations[1][invocations[1].index("-pass") + 1] == "2"
+    pass1_log = invocations[0][invocations[0].index("-passlogfile") + 1]
+    pass2_log = invocations[1][invocations[1].index("-passlogfile") + 1]
+    assert pass1_log == pass2_log
     assert invocations[0][-3:] == ["-f", "null", "-"]
     assert invocations[1][-1] == str(out)
 
@@ -329,6 +442,42 @@ def test_run_two_pass_encode_cleans_stats_file(tmp_path: Path):
     assert all(not p.exists() for p in seen_stats), (
         "stats file should be cleaned up after the 2-pass run; survivors: "
         f"{[p for p in seen_stats if p.exists()]}"
+    )
+
+
+def test_run_two_pass_encode_cleans_x264_passlog_files(tmp_path: Path):
+    """FFmpeg's generic passlogfile path writes <prefix>-0.log."""
+    src = _make_yuv(tmp_path / "ref.yuv")
+    out = tmp_path / "out.mp4"
+    seen_logs: list[Path] = []
+
+    def fake_run(cmd, capture_output, text, check):
+        log_prefix = Path(cmd[cmd.index("-passlogfile") + 1])
+        stream_log = log_prefix.parent / f"{log_prefix.name}-0.log"
+        stream_log.parent.mkdir(parents=True, exist_ok=True)
+        stream_log.write_text("x264 stats placeholder\n")
+        stream_log.with_suffix(stream_log.suffix + ".mbtree").write_text("mbtree\n")
+        seen_logs.extend([stream_log, stream_log.with_suffix(stream_log.suffix + ".mbtree")])
+        if cmd[cmd.index("-pass") + 1] == "2":
+            Path(cmd[-1]).write_bytes(b"\x00" * 4096)
+        return _FakeCompleted(returncode=0, stderr="ffmpeg version 6.1.1\nx264 - core 164\n")
+
+    req = EncodeRequest(
+        source=src,
+        width=64,
+        height=64,
+        pix_fmt="yuv420p",
+        framerate=24.0,
+        encoder="libx264",
+        preset="medium",
+        crf=23,
+        output=out,
+    )
+    run_two_pass_encode(req, runner=fake_run)
+    assert seen_logs, "fake_run should have observed x264 passlog files"
+    assert all(not p.exists() for p in seen_logs), (
+        "x264 passlog files should be cleaned up; survivors: "
+        f"{[p for p in seen_logs if p.exists()]}"
     )
 
 
