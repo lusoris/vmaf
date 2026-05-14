@@ -152,6 +152,13 @@ for the option-space digest.
   state, update both the standalone page and the umbrella page in
   the same PR; do not leave `(stub)`, `scaffold-only`, or stale CLI
   names on paths backed by implementation and tests.
+- **`auto` non-smoke source probing is a real planning path.**
+  `run_auto(smoke=False, meta_override=None)` must route source
+  metadata through `_probe_source_meta`: ffprobe geometry, ffprobe
+  duration, and `hdr.detect_hdr` share the same subprocess runner seam.
+  Keep failures conservative (1920x1080 SDR, `duration_s=0.0`) so the
+  planner can still emit an auditable JSON plan instead of depending on
+  host ffprobe quirks or reintroducing `NotImplementedError`.
 - **Fast-path proxy invariant
   ([ADR-0304](../../docs/adr/0304-vmaf-tune-fast-path-prod-wiring.md)).**
   The production proxy is **always** `fr_regressor_v2` (no smoke

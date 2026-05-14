@@ -28,6 +28,7 @@ from vmaftune.auto import (  # noqa: E402
     PlanState,
     ShortCircuit,
     SourceMeta,
+    _probe_source_meta,
     _should_short_circuit_1_single_rung_ladder,
     _should_short_circuit_2_codec_pinned,
     _should_short_circuit_3_predictor_gospel,
@@ -39,6 +40,51 @@ from vmaftune.auto import (  # noqa: E402
     evaluate_short_circuits,
     run_auto,
 )
+
+
+class _FakeCompleted:
+    def __init__(self, returncode: int = 0, stdout: str = "", stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _auto_probe_runner(cmd, capture_output, text, check):  # noqa: ANN001
+    del capture_output, text, check
+    joined = " ".join(str(part) for part in cmd)
+    if "format=duration" in joined:
+        return _FakeCompleted(stdout=json.dumps({"format": {"duration": "456.5"}}))
+    if "stream=width,height,r_frame_rate" in joined:
+        return _FakeCompleted(
+            stdout=json.dumps(
+                {
+                    "streams": [
+                        {
+                            "width": 3840,
+                            "height": 2160,
+                            "r_frame_rate": "24000/1001",
+                        }
+                    ]
+                }
+            )
+        )
+    if "stream=color_transfer" in joined:
+        return _FakeCompleted(
+            stdout=json.dumps(
+                {
+                    "streams": [
+                        {
+                            "color_transfer": "smpte2084",
+                            "color_primaries": "bt2020",
+                            "color_space": "bt2020nc",
+                            "color_range": "tv",
+                            "pix_fmt": "yuv420p10le",
+                        }
+                    ]
+                }
+            )
+        )
+    return _FakeCompleted(returncode=1, stderr=f"unexpected command: {joined}")
 
 
 def _meta(**overrides) -> SourceMeta:
@@ -364,19 +410,38 @@ def test_run_auto_smoke_emits_stable_json() -> None:
     assert "sample-clip-propagate" in payload["metadata"]["short_circuits"]
 
 
-def test_run_auto_non_smoke_probes_source_when_no_meta() -> None:
-    # Production path now probes the source via ffprobe. /dev/null is a
-    # valid file but not a video — ffprobe returns empty geometry (0×0,
-    # 0 fps) and the builder falls back to 1080p/1920×1080 defaults so
-    # the tree can still run. Verify the plan comes back (no error).
+def test_probe_source_meta_reads_geometry_duration_and_hdr(tmp_path: Path) -> None:
+    src = tmp_path / "hdr.mp4"
+    src.write_bytes(b"\x00")
+    meta, hdr_info = _probe_source_meta(
+        src,
+        sample_clip_seconds=12.0,
+        runner=_auto_probe_runner,
+    )
+    assert meta.width == 3840
+    assert meta.height == 2160
+    assert meta.duration_s == pytest.approx(456.5)
+    assert meta.sample_clip_seconds == pytest.approx(12.0)
+    assert meta.is_hdr is True
+    assert hdr_info is not None
+    assert hdr_info.transfer == "pq"
+
+
+def test_run_auto_non_smoke_uses_probe_runner_when_no_meta(tmp_path: Path) -> None:
+    src = tmp_path / "hdr.mp4"
+    src.write_bytes(b"\x00")
     plan = run_auto(
-        src=Path("/dev/null"),
+        src=src,
         target_vmaf=93.0,
         max_budget_kbps=5000.0,
         allow_codecs=("libx264",),
         smoke=False,
+        probe_runner=_auto_probe_runner,
     )
-    assert plan is not None
+    assert plan.metadata["source_meta"]["width"] == 3840
+    assert plan.metadata["source_meta"]["height"] == 2160
+    assert plan.metadata["source_meta"]["duration_s"] == pytest.approx(456.5)
+    assert plan.metadata["source_meta"]["is_hdr"] is True
 
 
 def test_run_auto_4k_hdr_animation_does_not_short_circuit_inappropriately() -> None:

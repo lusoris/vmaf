@@ -2042,10 +2042,12 @@ vmaf-tune auto \
     [--output plan.json]
 ```
 
-The non-smoke path probes source geometry and HDR metadata through the
-same ffprobe/HDR helpers used by the corpus path. `--smoke` still
-exercises the composition end-to-end with mocked sub-phases (no
-ffmpeg, no ONNX). The JSON plan emitted under
+The non-smoke path probes source geometry, source duration, and HDR
+metadata through the same ffprobe/HDR helpers used by the corpus path.
+Probe failures degrade to conservative 1920x1080 SDR defaults so the
+planner can still emit a JSON plan and expose which later stages need
+real evidence. `--smoke` still exercises the composition end-to-end
+with mocked sub-phases (no ffmpeg, no ONNX). The JSON plan emitted under
 `metadata.short_circuits` records which short-circuits fired; post-hoc
 analysis uses this to measure the speedup contribution of each one.
 
