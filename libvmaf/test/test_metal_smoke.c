@@ -24,6 +24,7 @@
 #include "feature/feature_extractor.h"
 #include "libvmaf/libvmaf_metal.h"
 #include "metal/common.h"
+#include "metal/dispatch_strategy.h"
 #include "metal/kernel_template.h"
 
 /*
@@ -236,6 +237,44 @@ static char *test_motion_v2_metal_extractor_registered(void)
     return NULL;
 }
 
+static char *test_dispatch_strategy_rejects_null_and_unknown(void)
+{
+    mu_assert("NULL context is unsupported",
+              vmaf_metal_dispatch_supports(NULL, "float_psnr_metal") == 0);
+
+    VmafMetalContext *ctx = NULL;
+    const int ctx_rc = try_get_ctx(&ctx);
+    mu_assert("context_new returns 0 or -ENODEV", ctx_rc == 0 || ctx_rc == -ENODEV);
+    if (ctx_rc != 0) {
+        return NULL;
+    }
+    mu_assert("NULL feature is unsupported", vmaf_metal_dispatch_supports(ctx, NULL) == 0);
+    mu_assert("unknown feature is unsupported",
+              vmaf_metal_dispatch_supports(ctx, "definitely_not_metal") == 0);
+    vmaf_metal_context_destroy(ctx);
+    return NULL;
+}
+
+static char *test_dispatch_strategy_supports_landed_kernels_or_skips(void)
+{
+    VmafMetalContext *ctx = NULL;
+    const int ctx_rc = try_get_ctx(&ctx);
+    mu_assert("context_new returns 0 or -ENODEV", ctx_rc == 0 || ctx_rc == -ENODEV);
+    if (ctx_rc != 0) {
+        return NULL;
+    }
+    mu_assert("extractor name is supported",
+              vmaf_metal_dispatch_supports(ctx, "float_psnr_metal") == 1);
+    mu_assert("provided feature key is supported",
+              vmaf_metal_dispatch_supports(ctx, "psnr_y") == 1);
+    mu_assert("motion_v2 extractor is supported",
+              vmaf_metal_dispatch_supports(ctx, "motion_v2_metal") == 1);
+    mu_assert("ms-ssim provided feature key is supported",
+              vmaf_metal_dispatch_supports(ctx, "float_ms_ssim") == 1);
+    vmaf_metal_context_destroy(ctx);
+    return NULL;
+}
+
 /* ---- T8-IOS impl contract (ADR-0423) ---- */
 /* IOSurface-import entry points were scaffolded as -ENOSYS in the
  * initial PR and flipped to real semantics in T8-IOS-b (same PR,
@@ -316,6 +355,8 @@ static const test_fn test_table[] = {
     test_kernel_buffer_free_zero_handles_is_noop,
     /* T8-1 first-consumer registration — kernel arrives in T8-1c (ADR-0361). */
     test_motion_v2_metal_extractor_registered,
+    test_dispatch_strategy_rejects_null_and_unknown,
+    test_dispatch_strategy_supports_landed_kernels_or_skips,
     /* T8-IOS impl contract — input-validation (ADR-0423). */
     test_iosurface_state_init_external_default_device_or_enodev,
     test_iosurface_state_init_external_rejects_null_out,
