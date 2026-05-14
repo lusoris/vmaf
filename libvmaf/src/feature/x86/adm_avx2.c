@@ -1447,6 +1447,11 @@ void adm_dwt2_8_avx2(const uint8_t *src, const adm_dwt_band_t *dst, AdmBuffer *b
 
 static inline uint16_t get_best15_from32(uint32_t temp, int *x)
 {
+    if (temp < 32768u) {
+        *x = 0;
+        return (uint16_t)temp;
+    }
+
     int k = __builtin_clz(temp); //built in for intel
     k = 17 - k;
     temp = (temp + (1 << (k - 1))) >> k;
