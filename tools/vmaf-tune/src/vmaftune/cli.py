@@ -550,8 +550,11 @@ def _build_parser() -> argparse.ArgumentParser:
     ladder.add_argument(
         "--spacing",
         default="log_bitrate",
-        choices=("log_bitrate", "uniform"),
-        help="knee spacing strategy on the hull (default log_bitrate)",
+        choices=("log_bitrate", "vmaf", "uniform"),
+        help=(
+            "knee spacing strategy on the hull: log_bitrate or vmaf "
+            "(legacy alias: uniform). Default log_bitrate"
+        ),
     )
     ladder.add_argument(
         "--output",

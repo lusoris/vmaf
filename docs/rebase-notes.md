@@ -34019,3 +34019,27 @@ file-only guards above the loader.
 PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_predictor_train.py -q
 ```
+
+## 2026-05-14 — `vmaf-tune ladder` spacing alias fix
+
+**Files touched**: `tools/vmaf-tune/src/vmaftune/cli.py`,
+`tools/vmaf-tune/src/vmaftune/ladder.py`,
+`tools/vmaf-tune/tests/test_ladder.py`, `tools/vmaf-tune/AGENTS.md`,
+`docs/usage/vmaf-tune.md`.
+
+**Rebase impact**: low. This only keeps the Phase-E CLI choices and
+library spacing modes aligned. The ladder hull math, default sampler,
+manifest schema, and encode/scoring behaviour are unchanged.
+
+**Invariant to preserve on rebase**: argparse choices for
+`vmaf-tune ladder --spacing` must stay in lockstep with
+`ladder.select_knees()`. `vmaf` is the documented perceptual spacing
+mode; `uniform` remains a backwards-compatible alias for that same
+mode.
+
+**Smoke-test after rebase**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_ladder.py -q
+```

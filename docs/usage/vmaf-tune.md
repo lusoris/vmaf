@@ -1601,7 +1601,8 @@ vmaf-tune ladder --src ep01.yuv --format json --output ladder.json
 
 `--spacing log_bitrate` (default) doubles bandwidth per rung — Apple
 HLS authoring-spec convention. `--spacing vmaf` spaces rungs by equal
-VMAF gaps, matching how viewers perceive quality steps.
+VMAF gaps, matching how viewers perceive quality steps. `uniform` is
+accepted as a legacy alias for `vmaf`.
 
 ### Phase E ladder CLI flags
 
@@ -1612,7 +1613,7 @@ VMAF gaps, matching how viewers perceive quality steps.
 | `--resolutions WxH,...` | `1920x1080,1280x720,854x480,640x360,426x240` | Canonical 5-rung. |
 | `--target-vmafs F,...` | `95,90,85,75,65` | VMAF targets per resolution. |
 | `--quality-tiers N` | `5` | Rungs to pick from the Pareto hull. |
-| `--spacing` | `log_bitrate` | `log_bitrate` (HLS spec) or `vmaf` (perceptual). |
+| `--spacing` | `log_bitrate` | `log_bitrate` (HLS spec) or `vmaf` (perceptual); `uniform` is a legacy alias for `vmaf`. |
 | `--format` | `hls` | `hls`, `dash`, or `json`. |
 | `--output PATH` | stdout | Manifest destination. |
 
