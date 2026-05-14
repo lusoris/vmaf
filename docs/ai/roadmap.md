@@ -137,18 +137,20 @@ disproportionate bitrate-at-quality savings.
 encoder-ingestible sidecar. Does **not** run inside libvmaf — its output
 is a parameter hint, not a quality score.
 
-**Status.** **Shot-boundary contract + placeholder shipped (T6-3a, 2026-04-29)**
-— [ADR-0220](../adr/0223-transnet-v2-shot-detector.md). The libvmaf-side
-extractor (`transnet_v2`, 100-slot ring buffer, `[1, 100, 3, 27, 48] →
-[1, 100]` ONNX contract) lands with a smoke-only placeholder checkpoint
-emitting per-frame `shot_boundary_probability` + `shot_boundary` flag;
-real upstream weights (Soucek & Lokoc 2020 MIT) are tracked as
-**T6-3a-followup**. See [`docs/ai/models/transnet_v2.md`](models/transnet_v2.md).
+**Status.** **Shot-boundary contract shipped (T6-3a, 2026-04-29) and
+real upstream weights shipped (T6-3a-followup, ADR-0261).** The
+libvmaf-side extractor (`transnet_v2`, 100-slot ring buffer,
+`[1, 100, 3, 27, 48] -> [1, 100]` ONNX contract) now uses the real
+Soucek & Lokoc 2020 MIT checkpoint under `model/tiny/transnet_v2.onnx`
+(`smoke: false` in the registry), wrapped by the fork's NTCHW adapter.
+It emits per-frame `shot_boundary_probability` + `shot_boundary` flags.
+See [`docs/ai/models/transnet_v2.md`](models/transnet_v2.md).
 **T6-3b shipped 2026-04-29** —
 [`tools/vmaf-perShot`](../usage/vmaf-perShot.md) sidecar landed under
 [ADR-0222](../adr/0222-vmaf-per-shot-tool.md). v1 uses a transparent
-linear-blend predictor + frame-difference shot detector (fallback path;
-the TransNet V2 extractor wires in once T6-3a / ADR-0220 merges). v2
+linear-blend predictor + frame-difference shot detector fallback path;
+TransNet V2 is available as the libvmaf feature extractor for pipelines
+that consume feature-collector output directly. v2
 will swap the linear blend for a small trained MLP under the same
 CSV / JSON schema (separate ADR, deferred until a labelled per-shot
 CRF corpus is in hand).
@@ -193,13 +195,14 @@ per-frame filters. Deferred if Wave 1 is already too wide.
 **Integration.** New `vmaf_pre_temporal` filter, or a mode flag on
 `vmaf_pre`.
 
-**Status.** **Contract + placeholder shipped (T6-7, 2026-04-29)** —
-[ADR-0215](../adr/0215-fastdvdnet-pre-filter.md). The libvmaf-side
-extractor (`fastdvdnet_pre`, 5-slot ring buffer, `[1, 5, H, W] →
-[1, 1, H, W]` ONNX contract) lands with a smoke-only placeholder
-checkpoint; real upstream weights + the FFmpeg `vmaf_pre_temporal`
-filter that consumes the denoised frame buffer are tracked as
-**T6-7b**. See [`docs/ai/models/fastdvdnet_pre.md`](models/fastdvdnet_pre.md).
+**Status.** **Contract shipped (T6-7, 2026-04-29) and real upstream
+weights shipped (T6-7b, ADR-0255).** The libvmaf-side extractor
+(`fastdvdnet_pre`, 5-slot ring buffer, `[1, 5, H, W] → [1, 1, H, W]`
+ONNX contract) now uses the real m-tassano/FastDVDnet checkpoint under
+`model/tiny/fastdvdnet_pre.onnx` (`smoke: false` in the registry),
+wrapped by the fork's luma adapter. The remaining downstream work is
+the FFmpeg `vmaf_pre_temporal` filter that consumes the denoised frame
+buffer. See [`docs/ai/models/fastdvdnet_pre.md`](models/fastdvdnet_pre.md).
 
 ## 4. Op-allowlist expansion — bounded `Loop` / `If`
 

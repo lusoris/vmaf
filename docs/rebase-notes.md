@@ -34392,3 +34392,26 @@ mode.
 PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_ladder.py -q
 ```
+
+## 2026-05-15 — Tiny-AI real-weight limitation docs
+
+**Files touched**: `docs/ai/roadmap.md`,
+`docs/ai/models/fastdvdnet_pre.md`, `docs/metrics/features.md`,
+`libvmaf/src/dnn/AGENTS.md`, `libvmaf/src/feature/AGENTS.md`.
+
+**Rebase impact**: low. This is a documentation / invariant-note cleanup
+that aligns user-facing docs with the already-shipped `smoke: false`
+FastDVDnet and TransNet V2 registry entries. Model bytes, registry
+schema, extractor I/O names, and runtime behaviour are unchanged.
+
+**Invariant to preserve on rebase**: do not reintroduce placeholder-only
+wording for `fastdvdnet_pre` or `transnet_v2`. The remaining follow-ups
+are the FFmpeg temporal-filter consumer, luma-native FastDVDnet retrain,
+per-shot CRF aggregation, and true RGB / bilinear TransNet thumbnails.
+
+**Smoke-test after rebase**:
+
+```bash
+rg -n "real upstream weights are tracked|ADR-0246|0253-fastdvdnet" \
+  docs/ai docs/metrics libvmaf/src/dnn/AGENTS.md libvmaf/src/feature/AGENTS.md
+```

@@ -157,9 +157,10 @@ Runtime directly.
   path in `model/tiny/registry.json`.
 - **MobileSal (T6-2a, PR #208 open, ADR-0218 placeholder)** —
   saliency feature extractor; opens session via `vmaf_dnn_*`.
-- **TransNet V2 (T6-3a, PR #210 open)** — shot-boundary detector
-  ~1M params; uses bounded-Loop guard from ADR-0171.
-- **FastDVDnet (T6-7, PR #203 open, ADR-0215 placeholder)** —
+- **TransNet V2 (T6-3a + real weights, ADR-0223 + ADR-0261)** —
+  shot-boundary detector with real upstream weights; uses the
+  bounded-Loop guard from ADR-0171.
+- **FastDVDnet (T6-7 / T6-7b, ADR-0215 + ADR-0255)** —
   5-frame window pre-filter; same DNN session contract.
 - **OpenVINO NPU EP wiring (ADR-0332, 2026-05-08)** — the
   `VmafDnnDevice` enum carries three explicit OpenVINO selectors

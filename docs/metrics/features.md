@@ -804,9 +804,10 @@ encode is a bitrate lever, not a score. Runs through ORT once at
 init; per-frame inference uses a 5-slot ring buffer of float32 luma
 planes with reflection-pad-light end behaviour.
 
-See also [`docs/ai/models/fastdvdnet_pre.md`](../ai/models/fastdvdnet_pre.md)
-and [ADR-0215](../adr/0215-fastdvdnet-pre-filter.md) for the full
-surface contract and the placeholder-checkpoint rationale.
+See also [`docs/ai/models/fastdvdnet_pre.md`](../ai/models/fastdvdnet_pre.md),
+[ADR-0215](../adr/0215-fastdvdnet-pre-filter.md), and
+[ADR-0255](../adr/0255-fastdvdnet-pre-real-weights.md) for the full
+surface contract, placeholder history, and real-weight export.
 
 #### Invocation
 
@@ -820,13 +821,13 @@ frame): mean-absolute difference between the centre frame ``t``
 (normalised to `[0, 1]`) and the denoised output. Exists so libvmaf's
 per-frame plumbing has a scalar to record; **not** a quality metric.
 Downstream pipelines that want the actual denoised pixel data should
-consume the FFmpeg `vmaf_pre_temporal` filter once T6-7b lands.
+consume the FFmpeg `vmaf_pre_temporal` filter once that follow-up
+lands; the current extractor records the diagnostic residual only.
 
 **Output range** — `[0.0, 1.0]` by construction (mean-absolute on
-normalised luma). Typical values: `~0.0` for the placeholder
-near-identity model or quiet/flat content; `~0.05` for a working
-FastDVDnet on lightly noisy content; `~0.20+` on heavy denoising or
-saturated placeholder passes.
+normalised luma). Typical values: `~0.0` for quiet / flat content,
+`~0.05` for lightly noisy content, and `~0.20+` on heavy denoising or
+saturated inputs.
 
 **Input formats** — YUV 4:2:0 / 4:2:2 / 4:4:4, 8 / 10 / 12 / 16 bpc.
 Y plane only (chroma is ignored).
@@ -848,12 +849,15 @@ extractor init fails with `-EINVAL` if no model path is provided
 (neither the `model_path` option nor the
 `VMAF_FASTDVDNET_PRE_MODEL_PATH` env var). Returns `-ENOSYS` from
 init if libvmaf was built without ORT. The shipped checkpoint at
-`model/tiny/fastdvdnet_pre.onnx` is a smoke-only placeholder with
-randomly-initialised weights that respects the I/O shape contract;
-it is not a working denoiser. Real upstream-derived FastDVDnet
-weights are tracked as backlog item T6-7b. Per ADR-0215 the
-placeholder is intentional — the surface, plumbing, and FFmpeg
-patch land first; weights follow.
+`model/tiny/fastdvdnet_pre.onnx` now carries real upstream
+m-tassano/FastDVDnet weights (`smoke: false` in
+`model/tiny/registry.json`) wrapped by the ADR-0255 luma adapter.
+The wrapper tiles Y into RGB, supplies the fixed `sigma = 25/255`
+noise map, and collapses the RGB output back to BT.601 luma while
+preserving the C extractor's `[1, 5, H, W] -> [1, 1, H, W]` ONNX
+contract. Remaining follow-ups are the FFmpeg `vmaf_pre_temporal`
+consumer filter and a luma-native retrain; the model shipped here is
+not the old smoke-only placeholder.
 
 ### `mobilesal` — MobileSal saliency map (tiny-AI, NR / single-input)
 
@@ -887,12 +891,13 @@ tracked in T6-2a-followup. Depends on the
 Runs the TransNet V2 shot-boundary detector on a sliding 100-frame
 window of 27x48 RGB thumbnails (downsampled from the distorted
 stream's luma + reconstructed chroma) and emits a per-frame shot-
-boundary probability plus a thresholded binary flag. Companion ADR
+boundary probability plus a thresholded binary flag. Companion ADRs
 [`docs/adr/0223-transnet-v2-shot-detector.md`](../adr/0223-transnet-v2-shot-detector.md)
-records the extractor design and the synthetic-placeholder ONNX
-shipped in this PR. Real upstream Soucek & Lokoc 2020 weights
-(MIT-licensed) are tracked as a T6-3a-followup row; the per-shot CRF
-predictor that consumes these features is T6-3b.
+and
+[`docs/adr/0261-transnet-v2-real-weights.md`](../adr/0261-transnet-v2-real-weights.md)
+record the extractor contract and the real upstream Soucek & Lokoc
+2020 weights drop. The per-shot CRF predictor that consumes these
+features is T6-3b.
 
 #### Invocation
 
@@ -917,12 +922,14 @@ extractor init fails with `-EINVAL` if no model path is provided
 (neither the `model_path` option nor the
 `VMAF_TRANSNET_V2_MODEL_PATH` env var). Returns `-ENOSYS` from init
 if libvmaf was built without ORT. The shipped checkpoint at
-`model/tiny/transnet_v2.onnx` is a smoke-only placeholder with
-randomly-initialised weights that respects the I/O shape contract;
-it is not a working shot detector. Per
-[ADR-0223](../adr/0223-transnet-v2-shot-detector.md) the placeholder
-is intentional — surface, plumbing, and FFmpeg patch land first;
-weights follow.
+`model/tiny/transnet_v2.onnx` now carries real upstream
+soCzech/TransNetV2 weights (`smoke: false` in
+`model/tiny/registry.json`) wrapped by the ADR-0261 NTCHW adapter.
+The wrapper preserves the C extractor's `[1, 100, 3, 27, 48] ->
+[1, 100]` ONNX contract while invoking the upstream NTHWC graph and
+selecting the boundary-logits output. Remaining follow-ups are
+per-shot CRF aggregation and true RGB / bilinear thumbnail input;
+the model shipped here is not the old smoke-only placeholder.
 
 ### Speed (chroma + temporal) — Netflix research extractors
 
