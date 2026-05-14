@@ -21,24 +21,24 @@ encoders in one corpus row.
 
 ## Adapter matrix
 
-| `--encoder` value   | Codec | Backend | ADR                                                        | Status           | Notes                                                     |
-|---------------------|-------|---------|------------------------------------------------------------|------------------|-----------------------------------------------------------|
-| `libx264`           | H.264 | CPU     | [ADR-0237](../adr/0237-quality-aware-encode-automation.md) | Phase A baseline | Reference adapter; the rest mirror its shape.             |
-| `libx265`           | HEVC  | CPU     | [ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)    | Accepted         | x265-style preset names; same CRF range as libx264.       |
-| `libaom-av1`        | AV1   | CPU     | [ADR-0279](../adr/0279-vmaf-tune-codec-adapter-libaom.md)  | Accepted         | `--cpu-used` mapped from preset; long-encode warning.     |
-| `libsvtav1`         | AV1   | CPU     | [ADR-0294](../adr/0294-vmaf-tune-codec-adapter-svtav1.md)  | Accepted         | SVT-AV1 preset 0–13 mapped from `--preset` slug.          |
-| `libvvenc`          | VVC   | CPU     | [ADR-0285](../adr/0285-vmaf-tune-vvenc-nnvc.md)            | Accepted         | VVenC (Fraunhofer); also covers vvenc-NNVC variant.       |
-| `h264_nvenc`        | H.264 | NVENC   | [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)        | Accepted         | Requires Maxwell+ NVIDIA GPU + ffmpeg `--enable-nvenc`.   |
-| `hevc_nvenc`        | HEVC  | NVENC   | [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)        | Accepted         | Same gating as h264_nvenc.                                |
-| `av1_nvenc`         | AV1   | NVENC   | [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)        | Accepted         | Ada Lovelace+ silicon only (RTX 40-series and newer).     |
-| `h264_qsv`          | H.264 | QSV     | [ADR-0281](../adr/0281-vmaf-tune-qsv-adapters.md)          | Accepted         | Intel Quick Sync; Intel iGPU / Arc / Xeon-W.              |
-| `hevc_qsv`          | HEVC  | QSV     | [ADR-0281](../adr/0281-vmaf-tune-qsv-adapters.md)          | Accepted         | Same gating as h264_qsv.                                  |
-| `av1_qsv`           | AV1   | QSV     | [ADR-0281](../adr/0281-vmaf-tune-qsv-adapters.md)          | Accepted         | Arc A-series / Battlemage / Lunar Lake only.              |
-| `h264_amf`          | H.264 | AMF     | [ADR-0282](../adr/0282-vmaf-tune-amf-adapters.md)          | Accepted         | AMD Radeon (Polaris+) / Ryzen iGPU.                       |
-| `hevc_amf`          | HEVC  | AMF     | [ADR-0282](../adr/0282-vmaf-tune-amf-adapters.md)          | Accepted         | Same gating as h264_amf.                                  |
-| `av1_amf`           | AV1   | AMF     | [ADR-0282](../adr/0282-vmaf-tune-amf-adapters.md)          | Accepted         | RDNA 3 (RX 7000-series) and newer.                        |
-| `h264_videotoolbox` | H.264 | VTB     | [ADR-0283](../adr/0283-vmaf-tune-videotoolbox-adapters.md) | Accepted         | macOS only; uses Apple Silicon Media Engine when present. |
-| `hevc_videotoolbox` | HEVC  | VTB     | [ADR-0283](../adr/0283-vmaf-tune-videotoolbox-adapters.md) | Accepted         | macOS only; same gating.                                  |
+| `--encoder` value   | Codec | Backend | ADR                                                        | Status           | Two-pass | Notes                                                     |
+|---------------------|-------|---------|------------------------------------------------------------|------------------|----------|-----------------------------------------------------------|
+| `libx264`           | H.264 | CPU     | [ADR-0237](../adr/0237-quality-aware-encode-automation.md) | Phase A baseline | yes      | Reference adapter; uses FFmpeg `-pass` / `-passlogfile`.  |
+| `libx265`           | HEVC  | CPU     | [ADR-0288](../adr/0288-vmaf-tune-codec-adapter-x265.md)    | Accepted         | yes      | x265-style preset names; same CRF range as libx264.       |
+| `libaom-av1`        | AV1   | CPU     | [ADR-0279](../adr/0279-vmaf-tune-codec-adapter-libaom.md)  | Accepted         | no       | `--cpu-used` mapped from preset; long-encode warning.     |
+| `libsvtav1`         | AV1   | CPU     | [ADR-0294](../adr/0294-vmaf-tune-codec-adapter-svtav1.md)  | Accepted         | no       | SVT-AV1 preset 0–13 mapped from `--preset` slug.          |
+| `libvvenc`          | VVC   | CPU     | [ADR-0285](../adr/0285-vmaf-tune-vvenc-nnvc.md)            | Accepted         | no       | VVenC (Fraunhofer); also covers vvenc-NNVC variant.       |
+| `h264_nvenc`        | H.264 | NVENC   | [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)        | Accepted         | no       | Requires Maxwell+ NVIDIA GPU + ffmpeg `--enable-nvenc`.   |
+| `hevc_nvenc`        | HEVC  | NVENC   | [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)        | Accepted         | no       | Same gating as h264_nvenc.                                |
+| `av1_nvenc`         | AV1   | NVENC   | [ADR-0290](../adr/0290-vmaf-tune-nvenc-adapters.md)        | Accepted         | no       | Ada Lovelace+ silicon only (RTX 40-series and newer).     |
+| `h264_qsv`          | H.264 | QSV     | [ADR-0281](../adr/0281-vmaf-tune-qsv-adapters.md)          | Accepted         | no       | Intel Quick Sync; Intel iGPU / Arc / Xeon-W.              |
+| `hevc_qsv`          | HEVC  | QSV     | [ADR-0281](../adr/0281-vmaf-tune-qsv-adapters.md)          | Accepted         | no       | Same gating as h264_qsv.                                  |
+| `av1_qsv`           | AV1   | QSV     | [ADR-0281](../adr/0281-vmaf-tune-qsv-adapters.md)          | Accepted         | no       | Arc A-series / Battlemage / Lunar Lake only.              |
+| `h264_amf`          | H.264 | AMF     | [ADR-0282](../adr/0282-vmaf-tune-amf-adapters.md)          | Accepted         | no       | AMD Radeon (Polaris+) / Ryzen iGPU.                       |
+| `hevc_amf`          | HEVC  | AMF     | [ADR-0282](../adr/0282-vmaf-tune-amf-adapters.md)          | Accepted         | no       | Same gating as h264_amf.                                  |
+| `av1_amf`           | AV1   | AMF     | [ADR-0282](../adr/0282-vmaf-tune-amf-adapters.md)          | Accepted         | no       | RDNA 3 (RX 7000-series) and newer.                        |
+| `h264_videotoolbox` | H.264 | VTB     | [ADR-0283](../adr/0283-vmaf-tune-videotoolbox-adapters.md) | Accepted         | no       | macOS only; uses Apple Silicon Media Engine when present. |
+| `hevc_videotoolbox` | HEVC  | VTB     | [ADR-0283](../adr/0283-vmaf-tune-videotoolbox-adapters.md) | Accepted         | no       | macOS only; same gating.                                  |
 
 ## Multi-codec corpus
 

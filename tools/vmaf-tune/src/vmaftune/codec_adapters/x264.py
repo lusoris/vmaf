@@ -1,22 +1,24 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""libx264 codec adapter — Phase A.
+"""libx264 codec adapter — Phase A + Phase F.
 
-Single-pass CRF-mode encodes; the eight standard x264 presets;
-quality range pinned to the canonical CRF window for which VMAF is
-informative. Out-of-range CRFs are accepted but logged.
+CRF-mode encodes; the eight standard x264 presets; quality range
+pinned to the canonical CRF window for which VMAF is informative.
+Phase F opts into FFmpeg's native two-pass controls via ``-pass`` and
+``-passlogfile``.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 from . import _gop_common
 
 
 @dataclasses.dataclass(frozen=True)
 class X264Adapter:
-    """libx264 single-pass CRF adapter."""
+    """libx264 CRF adapter with optional FFmpeg-native two-pass."""
 
     name: str = "libx264"
     encoder: str = "libx264"
@@ -24,7 +26,7 @@ class X264Adapter:
     # Bumps when the adapter's argv shape / preset list / CRF window
     # changes. Folded into the cache key so an adapter upgrade
     # invalidates older entries (ADR-0298).
-    adapter_version: str = "1"
+    adapter_version: str = "2"
     # x264 nominally accepts 0..51 and that's the search domain for
     # ADR-0306 coarse-to-fine. The perceptually-informative window
     # for the recommend / target-VMAF flows is narrower (~15..40
@@ -45,6 +47,9 @@ class X264Adapter:
     # ``-pass 1 -passlogfile <prefix>``; the parser is in
     # :mod:`vmaftune.encoder_stats`.
     supports_encoder_stats: bool = True
+    # Phase F (ADR-0333): libx264 supports 2-pass encoding through
+    # FFmpeg's native ``-pass`` / ``-passlogfile`` pair.
+    supports_two_pass: bool = True
 
     presets: tuple[str, ...] = (
         "ultrafast",
@@ -90,3 +95,24 @@ class X264Adapter:
     def probe_args(self) -> list[str]:
         """Predictor probe-encode argv: ultrafast preset, fixed CRF."""
         return _gop_common.default_probe_args(self)
+
+    def two_pass_args(self, pass_number: int, stats_path: Path) -> tuple[str, ...]:
+        """FFmpeg argv slice for libx264 2-pass encoding.
+
+        FFmpeg exposes x264 pass control through the generic
+        ``-pass`` / ``-passlogfile`` flags. ``stats_path`` is used as
+        the passlog prefix; FFmpeg writes stream-specific files under
+        that prefix while pass 1 analyses the source and pass 2 reads
+        the recorded rate-control state.
+
+        Returns an empty tuple when ``pass_number == 0`` so callers
+        can forward the result on single-pass paths without branching.
+        Raises :class:`ValueError` for pass numbers outside ``{1, 2}``.
+        """
+        if pass_number == 0:
+            return ()
+        if pass_number not in (1, 2):
+            raise ValueError(
+                f"libx264 two_pass_args: pass_number must be 1 or 2, got {pass_number}"
+            )
+        return ("-pass", str(pass_number), "-passlogfile", str(stats_path))

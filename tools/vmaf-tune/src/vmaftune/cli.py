@@ -143,8 +143,8 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Phase F (ADR-0333): run a 2-pass encode for codecs that "
-            "support it (libx265 today; libx264 / libsvtav1 / libvvenc "
-            "follow as sibling PRs). Default off — single-pass remains "
+            "support it (libx264 / libx265 today; libsvtav1 / libvvenc "
+            "follow as sibling PRs). Default off; single-pass remains "
             "the canonical path. Adapters where supports_two_pass = "
             "False fall back to single-pass with a stderr warning."
         ),

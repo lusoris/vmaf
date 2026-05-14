@@ -193,8 +193,9 @@ for the option-space digest.
 - **Phase F 2-pass goes through the adapter, not the driver (ADR-0333).**
   Codecs opting into 2-pass encoding declare `supports_two_pass = True`
   and override `two_pass_args(pass_number, stats_path) -> tuple[str, ...]`
-  on their adapter (today: `X265Adapter` only, returning
-  `('-x265-params', f'pass={N}:stats={path}')`). The encode driver
+  on their adapter (today: `X264Adapter`, returning
+  `('-pass', str(N), '-passlogfile', str(path))`, and `X265Adapter`,
+  returning `('-x265-params', f'pass={N}:stats={path}')`). The encode driver
   (`encode.py`) calls the adapter via `getattr(adapter, "supports_two_pass", False)`
   + `adapter.two_pass_args(...)` — it never branches on codec name.
   `EncodeRequest` carries `pass_number: int = 0` (0 = single-pass /
@@ -203,13 +204,14 @@ for the option-space digest.
   the throwaway encoded bitstream isn't written. The 2-pass loop
   itself lives in `run_two_pass_encode` in `encode.py`; it
   materialises the stats file in a `tempfile.mkdtemp` (or a
-  caller-supplied `scratch_dir`) and removes it (plus libx265's
-  `.cutree` sidecar) on exit. When `supports_two_pass = False`, the
+  caller-supplied `scratch_dir`) and removes it (plus known encoder
+  sidecars such as libx265's `.cutree`) on exit. When
+  `supports_two_pass = False`, the
   driver falls back to single-pass with a stderr warning by default
   (`on_unsupported="fallback"`), or raises with
   `on_unsupported="raise"` — matches the saliency.py "x264-only,
   fallback to plain encode" precedent. Sibling codec adapters
-  (libx264, libsvtav1, libvvenc, libaom-av1) inherit this seam
+  (libsvtav1, libvvenc, libaom-av1) inherit this seam
   without touching the driver — their PRs only need to override
   `supports_two_pass` + `two_pass_args` on the adapter file. NVENC's
   `-multipass` is **not** this seam (single-invocation lookahead, not

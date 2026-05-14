@@ -161,7 +161,7 @@ The mapping is closed and order-stable; see
 | `--force-sdr` | off | Treat all sources as SDR; skip HDR detection. |
 | `--force-hdr-pq` | off | Treat all sources as HDR PQ (SMPTE-2084) without probing. Useful for raw YUV refs that ffprobe cannot read color metadata from. |
 | `--force-hdr-hlg` | off | Treat all sources as HDR HLG (ARIB STD-B67) without probing. |
-| `--two-pass` | off | Phase F (ADR-0333). Run a 2-pass encode for codecs whose adapter sets `supports_two_pass = True` (today: `libx265`). Codecs without 2-pass support fall back to single-pass with a stderr warning. Doubles encode wall time. |
+| `--two-pass` | off | Phase F (ADR-0333). Run a 2-pass encode for codecs whose adapter sets `supports_two_pass = True` (today: `libx264`, `libx265`). Codecs without 2-pass support fall back to single-pass with a stderr warning. Doubles encode wall time. |
 
 ## Resolution-aware mode
 
@@ -1578,15 +1578,15 @@ vmaf-tune corpus \
 
 The driver materialises a per-encode stats file under
 `tempfile.gettempdir()` (e.g. `/tmp/vmaftune-2pass-XXXXXX/`), runs
-both passes back-to-back, and removes the stats file (and libx265's
-sidecar `.cutree`) when the run completes — successful or not.
+both passes back-to-back, and removes the stats file plus known
+encoder sidecars when the run completes — successful or not.
 
 ### Codec support matrix
 
 | Codec | `supports_two_pass` | Notes |
 | --- | --- | --- |
 | `libx265` | yes | First Phase F implementation. ADR-0333. |
-| `libx264` | not yet | Sibling PR planned. Native `-pass`/`-passlogfile`. |
+| `libx264` | yes | FFmpeg-native `-pass` / `-passlogfile` wiring. |
 | `libsvtav1` | not yet | Sibling PR planned. Uses `-svtav1-params passes=2`. |
 | `libvvenc` | not yet | Sibling PR planned. Uses `-vvenc-params`. |
 | `libaom-av1` | not yet | Possible sibling PR; encode time prohibitive on long sources. |
@@ -1619,7 +1619,7 @@ file is unique per slice. No special handling required.
 - No per-title or per-shot CRF prediction (Phase C / D).
 - No real-corpus end-to-end ladder validation against a Netflix per-
   title baseline yet.
-- 2-pass on codecs other than `libx265` (Phase F sibling PRs land
+- 2-pass on codecs other than `libx264` / `libx265` (Phase F sibling PRs land
   one-file-at-a-time per the ADR-0288 / ADR-0333 pattern).
 - The shipped `encode.py` driver only wires the `-preset` argv shape
   used by x264/x265. The libaom-av1 adapter's metadata + preset
@@ -2004,7 +2004,7 @@ isolation.
 | 7 | `skip-per-shot` | `duration < 5min` AND `shot_variance < 0.15` | The `tune_per_shot.refine` pass (ADR-0392). |
 | 8 | `low-complexity` | `meta.complexity_score < 200 kbps` (probe-encode bitrate) | The `recommend.coarse_to_fine` sweep — the predictor's point estimate is already tight on simple content. `0.0`/`NaN` does not fire (no probe run yet). |
 | 9 | `baseline-meets-target` | `meta.baseline_vmaf >= target_vmaf` | The full predictor sweep — the default-CRF encode already satisfies the quality target. `0.0`/`NaN` does not fire (no baseline scored yet). |
-| 10 | `no-two-pass` | `adapter.supports_two_pass == False` (ADR-0333) | The two-pass calibration stage. Hardware encoders (`*_nvenc`, `*_amf`, `*_qsv`, `*_videotoolbox`) and most software encoders fire this. Only `libx265` currently sets `supports_two_pass = True`. |
+| 10 | `no-two-pass` | `adapter.supports_two_pass == False` (ADR-0333) | The two-pass calibration stage. Hardware encoders (`*_nvenc`, `*_amf`, `*_qsv`, `*_videotoolbox`) and most software encoders fire this. `libx264` and `libx265` currently set `supports_two_pass = True`. |
 
 The 5-min and 0.15 thresholds in short-circuit #7 are placeholders;
 F.3 fits them empirically once Phase F has emitted enough labelled
