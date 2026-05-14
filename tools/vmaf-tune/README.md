@@ -14,7 +14,7 @@ The Phase A scaffold landed via
 expansions are tracked under separate ADRs (codec adapters
 [0288](../../docs/adr/0288-vmaf-tune-codec-adapter-x265.md) /
 [0290](../../docs/adr/0290-vmaf-tune-nvenc-adapters.md) and siblings,
-per-shot tuning [0276](../../docs/adr/0276-vmaf-tune-phase-d-per-shot.md),
+per-shot tuning [0392](../../docs/adr/0392-vmaf-tune-phase-d-per-shot.md),
 fast-path [0276](../../docs/adr/0276-vmaf-tune-fast-path.md), bitrate
 ladder [0295](../../docs/adr/0295-vmaf-tune-phase-e-bitrate-ladder.md),
 GPU score backend

@@ -1,9 +1,4 @@
-# Refreshing the in-tree FFmpeg patch series (stub)
-
-> **Stub** — placeholder per
-> [Research-0086](../research/0086-usage-doc-coverage-audit-2026-05-08.md).
-> Cite the ADR for the authoritative shape; full prose follows in a
-> later PR.
+# Refreshing the In-Tree FFmpeg Patch Series
 
 The fork's FFmpeg integration is a stack of patches under
 `ffmpeg-patches/series.txt`, applied on top of upstream FFmpeg `n8.1`
@@ -24,6 +19,38 @@ The most recent refresh is documented in
 [ADR-0277](../adr/0277-ffmpeg-patches-refresh-2026-05-04.md). The
 `/refresh-ffmpeg-patches` skill (declared in
 [`CLAUDE.md` §7](../../CLAUDE.md)) automates the replay step.
+
+## Preconditions
+
+- Keep a clean FFmpeg checkout available at the upstream tag the fork
+  currently targets (`n8.1` unless a newer ADR says otherwise).
+- Start from a clean VMAF branch; refresh PRs should contain the patch
+  stack delta and the required notes, not unrelated source changes.
+- Read [`docs/rebase-notes.md`](../rebase-notes.md) before resolving
+  conflicts. Several patch hunks mirror fork-local libvmaf API surfaces.
+
+## Refresh Steps
+
+1. Reset the FFmpeg checkout to the target tag:
+
+   ```bash
+   git -C /path/to/ffmpeg-8 reset --hard n8.1
+   ```
+
+2. Apply the current series cumulatively:
+
+   ```bash
+   for p in ffmpeg-patches/000*-*.patch; do
+       git -C /path/to/ffmpeg-8 am --3way "$PWD/$p" || break
+   done
+   ```
+
+3. Resolve conflicts inside the FFmpeg checkout and continue `git am`.
+4. Export the refreshed commits back into `ffmpeg-patches/` in series
+   order.
+5. Update `ffmpeg-patches/series.txt` if the patch list changed.
+6. Add a changelog fragment and a rebase-note entry describing the
+   refreshed surface.
 
 ## Verification
 

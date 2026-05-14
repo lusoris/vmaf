@@ -1,9 +1,4 @@
-# Tiny-AI per-PR doc bar (stub)
-
-> **Stub** — placeholder per
-> [Research-0086](../research/0086-usage-doc-coverage-audit-2026-05-08.md).
-> The substantive content lives in the ADR; this stub exists to give
-> readers a topic-tree entry point.
+# Tiny-AI Per-PR Doc Bar
 
 [ADR-0042](../adr/0042-tinyai-docs-required-per-pr.md) sets a tighter
 **5-point doc bar** for any PR touching the tiny-AI surface (`ai/`,
@@ -26,6 +21,29 @@ This bar co-exists with — does not replace — the project-wide r10
 rule from [`CLAUDE.md` §12](../../CLAUDE.md). PRs that touch *both*
 a tiny-AI surface and a non-tiny-AI surface satisfy both bars
 independently.
+
+## Applies To
+
+- Model files under `model/tiny/`.
+- Model cards under `docs/ai/models/`.
+- Training, export, quantisation, or calibration scripts under `ai/`.
+- Runtime inference paths under `libvmaf/src/dnn/`.
+- Registry, model-verification, or tiny-device selector changes.
+
+## Practical Checklist
+
+Before opening a tiny-AI PR, make sure the PR contains:
+
+1. The model card or topic page that explains how a human should use
+   the changed artefact.
+2. The training or export command that can reproduce the artefact.
+3. The held-out metrics that justify promotion, or an explicit
+   `smoke: true` / deferred status when no promotion is claimed.
+4. An ONNX allowlist or runtime compatibility check when a graph
+   changes.
+5. A changelog fragment in the appropriate `changelog.d/` section.
+
+ADRs and code comments do not substitute for the user-facing model card.
 
 ## See also
 

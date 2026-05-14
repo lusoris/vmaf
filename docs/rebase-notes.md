@@ -33732,3 +33732,36 @@ PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
   tools/vmaf-tune/tests/test_fast.py \
   tools/vmaf-tune/tests/test_cli_fast.py -q
 ```
+
+## 2026-05-14 — `vmaf-tune` Public Doc Stub-Label Sweep
+
+**Files touched**: `docs/usage/vmaf-tune-resolution-aware.md`,
+`docs/ai/ensemble-training-kit.md`, `docs/ai/models/vmaf_tiny_v5.md`,
+`docs/ai/per-pr-doc-bar.md`, `docs/ai/predictor.md`,
+`docs/development/ffmpeg-patches-refresh.md`,
+`docs/development/ossf-scorecard.md`, `tools/vmaf-tune/README.md`,
+`tools/vmaf-tune/src/vmaftune/codec_adapters/libaom.py`,
+`tools/vmaf-tune/src/vmaftune/per_shot.py`.
+
+**Rebase impact**: low. This PR updates stale public wording and docstrings
+after already-shipped implementations. It does not change the vmaf-tune row
+schema, CLI arguments, model defaults, or libvmaf public API.
+
+**Invariant to preserve on rebase**: user-facing docs describe shipped
+implementation status, not old backlog labels. Keep intentional scaffold
+warnings only where the backing implementation or required external artefact
+is still genuinely missing.
+
+**Smoke-test after rebase**:
+
+```bash
+rg -n '^# .*\(stub\)|^# .*stub|> \*\*Stub\*\*|0276-vmaf-tune-phase-d|full prose follows|later PR' \
+  docs/usage docs/ai docs/development tools/vmaf-tune/README.md -g '*.md'
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_resolution.py \
+  tools/vmaf-tune/tests/test_per_shot.py \
+  tools/vmaf-tune/tests/test_encode_dispatcher_per_adapter.py -q
+.venv/bin/python -m ruff check \
+  tools/vmaf-tune/src/vmaftune/codec_adapters/libaom.py \
+  tools/vmaf-tune/src/vmaftune/per_shot.py
+```
