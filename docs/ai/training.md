@@ -340,10 +340,34 @@ will flag as a regression when it exceeds a tight allclose).
 
 ## Hyperparameter sweeps
 
-The `ai[tune]` extra pulls in Optuna + Ray Tune. A first-class `vmaf-train
-tune` subcommand is planned but not yet wired — for now, drive the sweep
-from a standalone script that imports the training entry point and
-dispatches configs through Optuna.
+The `ai[tune]` extra pulls in Optuna + Ray Tune. `vmaf-train tune`
+wraps the existing Optuna sweep helper around a base YAML config and
+searches `model_args` entries. Each trial writes to
+`<output>/trial_NNN` and the objective minimises the best validation
+loss (`val/mse` for regressors, `val/l1` for learned filters) recorded
+by Lightning.
+
+```bash
+pip install -e 'ai[tune]'
+vmaf-train tune \
+  --config ai/configs/fr_tiny_v1.yaml \
+  --output runs/fr_tiny_sweep \
+  --trials 20 \
+  --param hidden=choice:16,32,64 \
+  --param lr=float:0.0001:0.01:log
+```
+
+`--param` is repeatable and accepts three forms:
+
+| Form | Example | Trial API |
+| --- | --- | --- |
+| `name=float:LOW:HIGH[:log]` | `lr=float:0.0001:0.01:log` | `trial.suggest_float` |
+| `name=int:LOW:HIGH` | `depth=int:1:4` | `trial.suggest_int` |
+| `name=choice:A,B,...` | `hidden=choice:16,32,64` | `trial.suggest_categorical` |
+
+Values from `choice` are coerced to `int`, `float`, or boolean when
+possible; otherwise they stay strings. Use `--storage sqlite:///...`
+to resume or share an Optuna study.
 
 ## Troubleshooting
 
