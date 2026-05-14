@@ -728,7 +728,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Phase F — adaptive recipe-aware tuning entry point "
             "(ADR-0364). Composes the per-phase subcommands into one "
             "deterministic decision tree with seven short-circuits "
-            "(F.1 scaffold + F.2 short-circuits)."
+            "and non-smoke source metadata probing."
         ),
     )
     auto.add_argument(
@@ -780,7 +780,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "exercise the composition end-to-end with mocked sub-phases "
-            "(no ffmpeg, no ONNX). Production wiring lands in F.3+."
+            "(no ffmpeg, no ONNX); non-smoke probes source metadata."
         ),
     )
     auto.add_argument(
@@ -1935,10 +1935,9 @@ def _load_per_shot_predicate(spec: str) -> PerShotPredicateFn:
 def _run_auto(args: argparse.Namespace) -> int:
     """Phase F — ``vmaf-tune auto`` (ADR-0364).
 
-    F.1 scaffold + F.2 short-circuits. The non-smoke path raises
-    :class:`NotImplementedError` until the production probe wiring
-    follow-up lands; ``--smoke`` exercises the composition with
-    mocked sub-phases so this surface is testable from F.1 onward.
+    Runs the Phase F decision tree. Non-smoke mode probes source
+    geometry, duration, and HDR metadata before planning; ``--smoke``
+    exercises the same composition with synthetic metadata.
     """
     from .auto import emit_plan_json, run_auto
 

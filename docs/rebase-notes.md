@@ -41,6 +41,31 @@ cover several PRs in one workstream; cross-link from the ID heading.
 - **Re-test**:
   `PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_konvid_150k.py -q`
 
+### fix/backlog-gap-pass-11-2026-05-14 — vmaf-tune auto source probe
+
+- **Touches**: `tools/vmaf-tune/src/vmaftune/auto.py`,
+  `tools/vmaf-tune/src/vmaftune/cli.py`,
+  `tools/vmaf-tune/tests/test_auto_short_circuits.py`,
+  `docs/usage/vmaf-tune.md`, and `tools/vmaf-tune/AGENTS.md`.
+- **Invariant**: `run_auto(smoke=False, meta_override=None)` is not a
+  scaffold. It probes source geometry, duration, and HDR once through
+  `_probe_source_meta`, using one subprocess runner seam for testability.
+  Probe failure must degrade to conservative defaults rather than raising
+  or reintroducing `NotImplementedError`.
+- **Re-test**:
+
+```bash
+PYTHONPATH=tools/vmaf-tune/src .venv/bin/python -m pytest \
+  tools/vmaf-tune/tests/test_auto_short_circuits.py \
+  tools/vmaf-tune/tests/test_auto_confidence_aware.py \
+  tools/vmaf-tune/tests/test_auto_recipe_overrides.py \
+  tools/vmaf-tune/tests/test_auto_phase_f1_f2.py -q
+.venv/bin/python -m ruff check \
+  tools/vmaf-tune/src/vmaftune/auto.py \
+  tools/vmaf-tune/src/vmaftune/cli.py \
+  tools/vmaf-tune/tests/test_auto_short_circuits.py
+```
+
 ### fix/real-scaffold-gap-pass-4-2026-05-14 — vmaf-tune x264 two-pass
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/x264.py`,

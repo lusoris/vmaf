@@ -47,10 +47,10 @@ ADR-0279). F.4 ships per-content-type recipe overrides
 (:func:`_apply_recipe_override`, recipes for ``animation``,
 ``screen_content``, ``live_action_hdr``, and ``ugc``) — the recipe
 fires *before* the F.2 short-circuits evaluate so a recipe can flip
-``force_single_rung`` and have the ladder stage honour it. The
-``--smoke`` mode exercises the composition end-to-end with mocked
-sub-phases (no ffmpeg, no ONNX) so this scaffold can ship without the
-production wiring.
+``force_single_rung`` and have the ladder stage honour it. Non-smoke
+runs probe source geometry, duration, and HDR signaling through
+ffprobe-backed helpers; ``--smoke`` keeps the same planner deterministic
+without ffmpeg or ONNX.
 
 See also:
 
@@ -70,8 +70,9 @@ import enum
 import json
 import logging
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 _LOG = logging.getLogger(__name__)
 
@@ -526,6 +527,73 @@ def _default_hdr_info_for_auto():
     )
 
 
+def _probe_source_duration(
+    src: Path,
+    *,
+    ffprobe_bin: str,
+    runner: Callable[..., Any],
+) -> float:
+    """Return source duration in seconds, or ``0.0`` when probing fails."""
+    cmd = [
+        ffprobe_bin,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "json",
+        str(src),
+    ]
+    try:
+        completed = runner(cmd, capture_output=True, text=True, check=False)
+    except (OSError, FileNotFoundError):
+        return 0.0
+    if int(getattr(completed, "returncode", 1)) != 0:
+        return 0.0
+    try:
+        payload = json.loads(getattr(completed, "stdout", "") or "{}")
+        return float(payload.get("format", {}).get("duration", 0.0))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return 0.0
+
+
+def _probe_source_meta(
+    src: Path,
+    *,
+    sample_clip_seconds: float,
+    runner: Callable[..., Any] | None = None,
+) -> tuple[SourceMeta, Any | None]:
+    """Probe metadata needed by the non-smoke auto planner.
+
+    The helper is the production seam for ffprobe-bound source facts:
+    geometry and duration come from ffprobe, HDR signaling comes from
+    :func:`vmaftune.hdr.detect_hdr`, and all failures degrade to the
+    same conservative defaults the planner used before the probe path
+    was extracted. Tests pass a fake ``runner`` so the production path
+    is covered without depending on host ffprobe behavior.
+    """
+    import subprocess  # noqa: PLC0415
+
+    from .hdr import detect_hdr  # noqa: PLC0415
+    from .predictor_features import FeatureExtractorConfig, _probe_video_geometry  # noqa: PLC0415
+
+    actual_runner = runner or subprocess.run
+    cfg = FeatureExtractorConfig()
+    width, height, _fps = _probe_video_geometry(src, cfg, actual_runner)
+    hdr_info = detect_hdr(src, runner=actual_runner)
+    duration_s = _probe_source_duration(src, ffprobe_bin=cfg.ffprobe_bin, runner=actual_runner)
+    return (
+        SourceMeta(
+            height=height or 1080,
+            width=width or 1920,
+            is_hdr=hdr_info is not None,
+            duration_s=duration_s,
+            sample_clip_seconds=sample_clip_seconds,
+        ),
+        hdr_info,
+    )
+
+
 @dataclasses.dataclass
 class PlanState:
     """Mutable state threaded through the decision tree.
@@ -748,10 +816,10 @@ def evaluate_short_circuits(meta: SourceMeta, plan_state: PlanState) -> list[str
 
 
 # ---------------------------------------------------------------------------
-# F.1 sequential scaffold + F.2 short-circuit-aware driver.
-# The ``--smoke`` mode skips real ffmpeg / ONNX wiring; production
-# wiring lands in subsequent F.x PRs that swap the smoke stubs for the
-# real per-phase calls.
+# F.1 sequential planner + F.2 short-circuit-aware driver.
+# The non-smoke path probes source metadata through ffprobe/HDR helpers;
+# ``--smoke`` skips those process-bound probes and uses deterministic
+# synthetic metadata.
 # ---------------------------------------------------------------------------
 
 
@@ -830,13 +898,14 @@ def run_auto(
     meta_override: SourceMeta | None = None,
     confidence_thresholds: ConfidenceThresholds | None = None,
     cell_intervals: Sequence[tuple[int, str, str | None, float]] | None = None,
+    probe_runner: Callable[..., Any] | None = None,
 ) -> AutoPlan:
     """Drive the F.1 + F.2 + F.3 decision tree.
 
-    The non-smoke path is intentionally unimplemented at this PR's
-    scope — production wiring lands in follow-up PRs that fill in
-    each per-phase call. ``smoke=True`` exercises the composition
-    end-to-end with mocked sub-phases.
+    The non-smoke path probes source metadata from the actual source
+    and runs the same deterministic planner. ``smoke=True`` skips the
+    process-bound probes and exercises the composition end-to-end with
+    synthetic metadata.
 
     ``meta_override`` lets callers (and tests) inject a pre-built
     :class:`SourceMeta`. When ``None`` and ``smoke=True``, a synthetic
@@ -856,49 +925,17 @@ def run_auto(
     deterministically without ONNX). Any (rung, codec) cell missing
     from the sequence falls back to a NaN interval (uncalibrated)
     plus the driver's smoke verdict.
+
+    ``probe_runner`` is the subprocess seam used by the non-smoke
+    metadata probe. Production callers leave it ``None``; tests pass a
+    fake runner that returns ffprobe-compatible JSON.
     """
     detected_hdr_info = None
     if not smoke and meta_override is None:
-        # Build SourceMeta from the actual source via ffprobe + HDR detect.
-        from .hdr import detect_hdr  # noqa: PLC0415
-        from .predictor_features import (  # noqa: PLC0415
-            FeatureExtractorConfig,
-            _probe_video_geometry,
-        )
-
-        _cfg = FeatureExtractorConfig()
-        import subprocess  # noqa: PLC0415
-
-        _width, _height, _fps = _probe_video_geometry(src, _cfg, subprocess.run)  # type: ignore[arg-type]
-        detected_hdr_info = detect_hdr(src)
-        _is_hdr = detected_hdr_info is not None
-        _duration_s = 0.0
-        try:
-            import json  # noqa: PLC0415
-
-            _dur_cmd = [
-                "ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "json",
-                str(src),
-            ]
-            _dur_out = subprocess.run(_dur_cmd, capture_output=True, text=True, check=False)
-            if _dur_out.returncode == 0:
-                _dur_data = json.loads(_dur_out.stdout)
-                _duration_s = float(_dur_data.get("format", {}).get("duration", 0.0))
-        except Exception:  # noqa: BLE001
-            pass
-
-        meta_override = SourceMeta(
-            height=_height or 1080,
-            width=_width or 1920,
-            is_hdr=_is_hdr,
-            duration_s=_duration_s,
+        meta_override, detected_hdr_info = _probe_source_meta(
+            src,
             sample_clip_seconds=sample_clip_seconds,
+            runner=probe_runner,
         )
 
     meta = meta_override or SourceMeta(
@@ -1366,6 +1403,8 @@ __all__ = [
     "SourceMeta",
     "_apply_recipe_override",
     "_confidence_aware_escalation",
+    "_probe_source_duration",
+    "_probe_source_meta",
     "_should_short_circuit_1_single_rung_ladder",
     "_should_short_circuit_2_codec_pinned",
     "_should_short_circuit_3_predictor_gospel",
