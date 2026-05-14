@@ -512,6 +512,24 @@ threshold). When extending these scripts:
   concurrently with another training process — the two share
   BLAS threads and serialise badly.
 
+## KonViD-150k MOS-corpus ingestion (ADR-0325)
+
+**Script:** `ai/scripts/konvid_150k_to_corpus_jsonl.py`
+
+### Rebase-sensitive invariants
+
+- The adapter accepts two local layouts under `.workingdir2/konvid-150k/`:
+  a URL `manifest.csv` plus `clips/`, or the split score-drop layout
+  `k150ka_scores.csv` / `k150kb_scores.csv` plus
+  `k150ka_extracted/` / `k150kb_extracted/`. Do not remove the split
+  discovery path unless the staged corpus is migrated first.
+- An explicit `--manifest-csv` remains strict. If that file is missing,
+  the adapter must fail instead of falling back to split discovery; this
+  catches typoed operator paths.
+- The emitted JSONL schema is still the shared MOS-corpus schema. Split
+  score rows do not add a `split` column to output; missing score-drop
+  metadata is represented as `mos_std_dev = 0.0` and `n_ratings = 0`.
+
 ## K150K-A corpus extraction (ADR-0362, ADR-0382)
 
 **Script:** `ai/scripts/extract_k150k_features.py`

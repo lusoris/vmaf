@@ -92,6 +92,18 @@ def _make_manifest_csv(
             )
 
 
+def _make_split_score_csv(path: Path, rows: list[tuple[str, float]], *, header: str) -> None:
+    """Write a synthetic K150K-A/B score CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        fh.write(header + "\n")
+        for name, score in rows:
+            if header == "video_name,video_score":
+                fh.write(f"{name},{score}\n")
+            else:
+                fh.write(f"{name},{score},{score}\n")
+
+
 def _ffprobe_ok_payload(
     *,
     width: int = 960,
@@ -513,6 +525,56 @@ def test_mos_columns_present_with_alias_headers(tmp_path: Path) -> None:
     assert row["mos"] == pytest.approx(3.7)
     assert row["mos_std_dev"] == pytest.approx(0.2)
     assert row["n_ratings"] == 42
+
+
+def test_split_score_layout_is_auto_discovered(tmp_path: Path) -> None:
+    """Default path accepts canonical k150ka/k150kb score CSV + extracted dirs."""
+    konvid_dir = tmp_path / "konvid-150k"
+    clips_a = konvid_dir / "k150ka_extracted"
+    clips_b = konvid_dir / "k150kb_extracted"
+    rows_a = [("a1.mp4", 3.4), ("a2.mp4", 2.8)]
+    rows_b = [("b1.mp4", 3.61)]
+    _make_split_score_csv(konvid_dir / "k150ka_scores.csv", rows_a, header="video_name,video_score")
+    _make_split_score_csv(
+        konvid_dir / "k150kb_scores.csv", rows_b, header="video_name,mos,video_score"
+    )
+    for name, _score in rows_a:
+        _make_clip(clips_a / name)
+    for name, _score in rows_b:
+        _make_clip(clips_b / name)
+
+    output = tmp_path / "out.jsonl"
+    stats = KONVID.run(
+        konvid_dir=konvid_dir,
+        output=output,
+        runner=_FakeRunner(),
+        min_csv_rows=3,
+    )
+
+    assert stats.written == 3
+    rows = _read_jsonl(output)
+    by_src = {r["src"]: r for r in rows}
+    assert by_src["a1.mp4"]["mos"] == pytest.approx(3.4)
+    assert by_src["a2.mp4"]["mos"] == pytest.approx(2.8)
+    assert by_src["b1.mp4"]["mos"] == pytest.approx(3.61)
+    assert all(r["mos_std_dev"] == 0.0 for r in rows)
+    assert all(r["n_ratings"] == 0 for r in rows)
+
+
+def test_explicit_missing_manifest_does_not_fallback_to_split_scores(tmp_path: Path) -> None:
+    """An explicit --manifest-csv remains strict and does not mask path mistakes."""
+    konvid_dir = tmp_path / "konvid-150k"
+    _make_split_score_csv(
+        konvid_dir / "k150ka_scores.csv", [("a1.mp4", 3.4)], header="video_name,video_score"
+    )
+    with pytest.raises(FileNotFoundError, match=r"missing\.csv"):
+        KONVID.run(
+            konvid_dir=konvid_dir,
+            output=tmp_path / "out.jsonl",
+            manifest_csv=konvid_dir / "missing.csv",
+            runner=_FakeRunner(),
+            min_csv_rows=1,
+        )
 
 
 # ---------------------------------------------------------------------------

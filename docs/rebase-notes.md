@@ -27,6 +27,20 @@ cover several PRs in one workstream; cross-link from the ID heading.
 
 ## Entries (backfilled 2026-04-18 per ADR-0108 adoption)
 
+### fix/backlog-gap-pass-10-2026-05-14 — KonViD-150k split score ingestion
+
+- **Touches**: `ai/scripts/konvid_150k_to_corpus_jsonl.py`,
+  `ai/tests/test_konvid_150k.py`, `docs/ai/konvid-150k-ingestion.md`,
+  `ai/AGENTS.md`.
+- **Invariant**: `konvid_150k_to_corpus_jsonl.py` accepts both the
+  URL-manifest layout (`manifest.csv` + `clips/`) and the staged
+  split score layout (`k150ka_scores.csv` / `k150kb_scores.csv` plus
+  `k150ka_extracted/` / `k150kb_extracted/`). Explicit
+  `--manifest-csv` stays strict and must not silently fall back.
+  Output JSONL schema remains unchanged.
+- **Re-test**:
+  `PYTHONPATH=ai/src .venv/bin/python -m pytest ai/tests/test_konvid_150k.py -q`
+
 ### fix/real-scaffold-gap-pass-4-2026-05-14 — vmaf-tune x264 two-pass
 
 - **Touches**: `tools/vmaf-tune/src/vmaftune/codec_adapters/x264.py`,
