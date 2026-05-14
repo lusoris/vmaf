@@ -9,9 +9,10 @@ The Lusoris VMAF fork ships **two** MCP surfaces:
    the host that loaded `libvmaf.so`; serves stdio, UDS, and
    loopback SSE transports with `list_features` and `compute_vmaf`.
    It is the right surface when an embedding host needs an
-   in-process control plane rather than a child `vmaf` process. See
-   [`docs/mcp/embedded.md`](embedded.md) for the build flags +
-   API reference.
+   in-process control plane rather than a child `vmaf` process.
+   Model hot-swap and frame-boundary SPSC draining remain future
+   work. See [`docs/mcp/embedded.md`](embedded.md) for build flags,
+   transport limits, and the C API reference.
 
 The two surfaces are additive; running both at once is fine.
 

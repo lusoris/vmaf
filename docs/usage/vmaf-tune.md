@@ -2066,6 +2066,15 @@ real evidence. `--smoke` still exercises the composition end-to-end
 with mocked sub-phases (no ffmpeg, no ONNX). The JSON plan emitted under
 `metadata.short_circuits` records which short-circuits fired; post-hoc
 analysis uses this to measure the speedup contribution of each one.
+For each non-smoke cell, `auto` now feeds the probed metadata into the
+existing `Predictor` path, picks a codec-specific CRF for
+`metadata.effective_predictor_target_vmaf`, and records predictor
+estimates for `estimated_vmaf` and `estimated_bitrate_kbps`. These are
+planner estimates, not measured encode results, until the future
+realise/encode step scores the chosen cells. The per-cell
+`prediction_source` key distinguishes the production estimate path
+(`"predictor"`) from the `--smoke` composition placeholder
+(`"smoke-placeholder"`).
 
 ### Short-circuits
 

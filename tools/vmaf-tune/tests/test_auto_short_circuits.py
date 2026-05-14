@@ -444,6 +444,33 @@ def test_run_auto_non_smoke_uses_probe_runner_when_no_meta(tmp_path: Path) -> No
     assert plan.metadata["source_meta"]["is_hdr"] is True
 
 
+def test_run_auto_non_smoke_uses_predictor_for_cell_estimates() -> None:
+    meta = SourceMeta(
+        height=1080,
+        width=1920,
+        is_hdr=False,
+        content_class="live_action",
+        duration_s=180.0,
+        shot_variance=0.07,
+        complexity_score=2500.0,
+        baseline_vmaf=0.0,
+    )
+    plan = run_auto(
+        src=Path("/dev/null"),
+        target_vmaf=92.0,
+        max_budget_kbps=5000.0,
+        allow_codecs=("libx264",),
+        smoke=False,
+        meta_override=meta,
+    )
+    cell = plan.cells[0]
+    assert cell["prediction_source"] == "predictor"
+    assert 0 <= cell["crf"] <= 51
+    assert cell["crf"] != 23
+    assert cell["estimated_vmaf"] >= 92.0
+    assert cell["estimated_bitrate_kbps"] != 5000.0
+
+
 def test_run_auto_4k_hdr_animation_does_not_short_circuit_inappropriately() -> None:
     # Pessimistic input — codec, saliency, HDR, sample-clip, per-shot
     # stages all proceed. Note that under F.4 the ``animation`` recipe

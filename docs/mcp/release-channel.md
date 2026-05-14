@@ -12,10 +12,7 @@ The fork ships **two** MCP server flavours:
 standalone Python server release channel. The `vmaf-mcp`
 distribution is published to PyPI from the same release flow as the
 libvmaf fork, uses the fork's `v3.x.y-lusoris.N` version line, and
-is signed through the same keyless Sigstore/OIDC pipeline. The
-embedded server ships inside libvmaf, so its compatibility version
-is the libvmaf release and SOVERSION rather than a separate Python
-package version.
+is signed through the same keyless Sigstore/OIDC pipeline.
 
 Operators should install the standalone server from PyPI when an
 agent needs a child-process tool surface:
@@ -37,7 +34,32 @@ additional corpus roots the server is allowed to read.
 
 Embedded-MCP users do not install `vmaf-mcp`; they build libvmaf
 with `-Denable_mcp=true` and the needed transport flags, then call
-the `libvmaf_mcp.h` C API from the host process.
+the `libvmaf_mcp.h` C API from the host process. The embedded server
+is not a separate package. Its ABI and version ride with libvmaf
+itself: the public symbols live in `libvmaf_mcp.h`, the
+implementation is compiled by `-Denable_mcp=true`, and compatibility
+follows the libvmaf SOVERSION. That keeps client expectations simple:
+a libvmaf build advertises the embedded transports it actually
+compiled via `vmaf_mcp_transport_available()`, while the Python
+package advertises the standalone CLI-wrapping tool surface.
+
+## Release Checklist
+
+For a libvmaf release:
+
+- Build with the intended MCP flags and run `test_mcp_smoke`.
+- Confirm `vmaf_mcp_available()` and
+  `vmaf_mcp_transport_available()` match the release configuration.
+- Keep embedded MCP behavior documented in
+  [`embedded.md`](embedded.md), not in the Python package README.
+
+For a `vmaf-mcp` Python package release:
+
+- Build from `mcp-server/vmaf-mcp/`.
+- Keep the tool schemas in [`tools.md`](tools.md) aligned with
+  `mcp-server/vmaf-mcp/src/vmaf_mcp/server.py`.
+- Publish and sign through the same release workflow used for the
+  rest of the fork.
 
 ## See also
 
