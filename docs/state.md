@@ -1,6 +1,7 @@
 # Fork bug-status — `docs/state.md`
 
 <!-- markdownlint-disable MD013 -->
+_Updated: 2026-05-14 (public-doc stub sweep — removed stale Research-0086 stub banners from accepted/proposed/deferred docs, replaced the `vmaf-tune --resolution-aware` placeholder page with real operator docs, and corrected stale Phase-D ADR links to ADR-0392.)_
 _Updated: 2026-05-14 (`vmaf-tune tune-per-shot` scaffold gap closed — CLI now extracts each detected shot and runs the real Phase-B bisect backend by default; `--predicate-module` remains the custom/test hook.)_
 _Updated: 2026-05-14 (scaffold-state audit on synced `origin/master`: removed stale Deferred rows for T-HDR-ITER-ROWS and Tiny-AI C1 baseline because both already have Recently closed entries; aligned the `fr_regressor_v2_ensemble_v1_seed{0..4}` registry rows with ADR-0321's production flip; fixed `vmaf-tune auto` HDR dispatch + recipe-threshold use.)_
 _Updated: 2026-05-14 (vmaf-tune predictor scaffold gap partially closed — six hardware predictor models `h264/hevc/av1_{nvenc,qsv}` retrained from the real Phase-A hardware corpus; software + AMF predictors remain synthetic stubs until matching corpora exist.)_

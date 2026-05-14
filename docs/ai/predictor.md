@@ -198,6 +198,6 @@ pytest tools/vmaf-tune/tests/test_predictor_train.py -v
 ## See also
 
 - [ADR-0237 — quality-aware encode automation](../adr/0237-quality-aware-encode-automation.md)
-- [ADR-0276 — vmaf-tune Phase D per-shot scaffold](../adr/0276-vmaf-tune-phase-d-per-shot.md)
+- [ADR-0392 — vmaf-tune Phase D per-shot tuning](../adr/0392-vmaf-tune-phase-d-per-shot.md)
 - [ADR-0325 — predictor stub-models policy](../adr/0325-predictor-stub-models-policy.md)
 - [ADR-0042 — tiny-AI docs bar](../adr/0042-tinyai-docs-required-per-pr.md)

@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""libaom-av1 codec adapter — Phase A scaffold.
+"""libaom-av1 codec adapter.
 
 libaom is Google's reference AV1 encoder. Compared with the SVT-AV1
 adapter shipped alongside this one, libaom is meaningfully slower at
@@ -19,10 +19,11 @@ parity with x264/x265 we expose human-readable preset names that map
 onto the ``cpu-used`` integer; the search loop only ever speaks
 ``preset`` and ``crf`` and never branches on codec identity.
 
-Phase A wires this adapter's metadata only — `encode.py` is not yet
-codec-pluggable for non-`-preset` encoders, so live grid sweeps with
-libaom unblock once that lands. The mapping table below is the
-contract Phase B+ reads.
+The adapter is live through the codec-dispatcher path in
+``encode.py``: :meth:`ffmpeg_codec_args` emits libaom's
+``-cpu-used`` shape rather than the generic ``-preset`` flag, and the
+search loop stays codec-agnostic by speaking only ``preset`` and
+``crf``.
 """
 
 from __future__ import annotations

@@ -1,9 +1,8 @@
-# Ensemble training kit (stub)
+# Ensemble Training Kit
 
-> **Stub** — placeholder per
-> [Research-0086](../research/0086-usage-doc-coverage-audit-2026-05-08.md).
-> Cite the ADR for the authoritative shape; full prose follows once
-> the kit reaches Accepted status.
+> **Status**: Proposed packaging surface. The component scripts exist in
+> tree; the portable `tools/ensemble-training-kit/` bundle is not yet a
+> required release artefact.
 
 The *ensemble training kit* (per
 [ADR-0324](../adr/0324-ensemble-training-kit.md)) is a portable
@@ -25,6 +24,32 @@ already-in-tree pieces:
 Status: **Proposed** in ADR-0324; the on-disk bundle exists under
 `tools/ensemble-training-kit/` but the kit is not yet on the
 "ship-as-package" critical path.
+
+## What The Kit Packages
+
+The kit is a convenience wrapper around the real training flow. It does
+not define a new model format and does not replace the LOSO trainer.
+
+| Step | Existing entry point | Output |
+| --- | --- | --- |
+| Capture hardware corpus | `scripts/dev/hw_encoder_corpus.py` | Phase-A JSONL rows |
+| Train LOSO folds | `ai/scripts/run_ensemble_v2_real_corpus_loso.sh` | fold metrics + checkpoints |
+| Validate seeds | `ai/scripts/validate_ensemble_seeds.py` | `PROMOTE.json` verdict |
+| Export seed ONNXs | `ai/scripts/export_ensemble_v2_seeds.py` | `fr_regressor_v2_ensemble_v1_seed*.onnx` |
+
+## Current Use
+
+Use the runbook directly when retraining today:
+
+```bash
+bash ai/scripts/run_ensemble_v2_real_corpus_loso.sh
+python ai/scripts/validate_ensemble_seeds.py runs/ensemble_v2_real/
+python ai/scripts/export_ensemble_v2_seeds.py --help
+```
+
+The kit becomes release-critical only when ADR-0324 is accepted and the
+portable bundle is promoted from convenience packaging to a supported
+operator surface.
 
 ## See also
 

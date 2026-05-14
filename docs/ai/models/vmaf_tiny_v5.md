@@ -1,8 +1,6 @@
-# `vmaf_tiny_v5` (deferred — stub)
+# `vmaf_tiny_v5` — deferred model card
 
-> **Stub** — placeholder per
-> [Research-0086](../research/0086-usage-doc-coverage-audit-2026-05-08.md).
-> Records the deferral; no shipped model yet.
+> **Status**: Deferred. No `vmaf_tiny_v5.onnx` is shipped.
 
 Per [ADR-0287](../adr/0287-vmaf-tiny-v5-corpus-expansion.md) the
 `vmaf_tiny_v5` corpus-expansion experiment was **deferred** — the
@@ -11,8 +9,16 @@ v3 → v4 step, and the architecture ladder is treated as saturated
 at v4 (per
 [Research-0048](../research/0048-vmaf-tiny-v4-mlp-large-evaluation.md)).
 There is no `vmaf_tiny_v5.onnx` shipped in `model/tiny/` and no
-`v5` runtime path. This stub exists so a reader looking for a v5
-model card finds the deferral verdict instead of a 404.
+`v5` runtime path. This page exists so a reader looking for a v5
+model card finds the deferral verdict instead of a missing document.
+
+## Operator Impact
+
+- Do not reference `vmaf_tiny_v5` in `model/tiny/registry.json`.
+- Use [`vmaf_tiny_v4`](vmaf_tiny_v4.md) when you need the top shipped
+  tiny-VMAF architecture.
+- Treat any proposed v5 work as a new model-development PR with fresh
+  training data, metrics, model card updates, and ADR coverage.
 
 ## See also
 

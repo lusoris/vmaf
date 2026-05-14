@@ -458,7 +458,7 @@ def plan_to_shell_script(plan: EncodingPlan) -> str:
 def _shell_join(parts: Iterable[str]) -> str:
     """Quote-aware join — minimum viable, no exotic shell escaping.
 
-    Stops short of full ``shlex.quote`` because the scaffold's argv is
+    Stops short of full ``shlex.quote`` because the plan argv is
     constructed in-process and does not contain shell metacharacters in
     normal usage; the helper exists for human-readable output, not for
     safe shell evaluation.
