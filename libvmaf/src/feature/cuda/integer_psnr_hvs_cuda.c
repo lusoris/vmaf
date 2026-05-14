@@ -356,6 +356,18 @@ static int launch_plane_kernels(PsnrHvsStateCuda *s, VmafFeatureExtractor *fex)
     return 0;
 }
 
+static int enqueue_partials_readback(PsnrHvsStateCuda *s, VmafFeatureExtractor *fex)
+{
+    CudaFunctions *cu_f = fex->cu_state->f;
+    for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
+        const size_t partials_bytes = (size_t)s->num_blocks[p] * sizeof(float);
+        CHECK_CUDA_RETURN(cu_f,
+                          cuMemcpyDtoHAsync(s->h_partials[p], (CUdeviceptr)s->d_partials[p]->data,
+                                            partials_bytes, s->lc.str));
+    }
+    return 0;
+}
+
 static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, VmafPicture *ref_pic_90,
                            VmafPicture *dist_pic, VmafPicture *dist_pic_90, unsigned index)
 {
@@ -373,23 +385,25 @@ static int submit_fex_cuda(VmafFeatureExtractor *fex, VmafPicture *ref_pic, Vmaf
      * plane kernels.  The kernel handles all 3 planes via the
      * CSF_TABLES[plane] lookup; PLANE + BPC are runtime args. */
     CHECK_CUDA_RETURN(cu_f, cuStreamWaitEvent(s->lc.str, s->upload_done, CU_EVENT_WAIT_DEFAULT));
-    return launch_plane_kernels(s, fex);
+    err = launch_plane_kernels(s, fex);
+    if (err)
+        return err;
+
+    err = enqueue_partials_readback(s, fex);
+    if (err)
+        return err;
+
+    return vmaf_cuda_kernel_submit_post_record(&s->lc, fex->cu_state);
 }
 
 static int collect_fex_cuda(VmafFeatureExtractor *fex, unsigned index,
                             VmafFeatureCollector *feature_collector)
 {
     PsnrHvsStateCuda *s = fex->priv;
-    CudaFunctions *cu_f = fex->cu_state->f;
 
-    /* D2H readback all 3 planes' partials, then sync. */
-    for (int p = 0; p < PSNR_HVS_NUM_PLANES; p++) {
-        const size_t partials_bytes = (size_t)s->num_blocks[p] * sizeof(float);
-        CHECK_CUDA_RETURN(cu_f,
-                          cuMemcpyDtoHAsync(s->h_partials[p], (CUdeviceptr)s->d_partials[p]->data,
-                                            partials_bytes, s->lc.str));
-    }
-    CHECK_CUDA_RETURN(cu_f, cuStreamSynchronize(s->lc.str));
+    int wait_err = vmaf_cuda_kernel_collect_wait(&s->lc, fex->cu_state);
+    if (wait_err)
+        return wait_err;
 
     /* Per-plane reduction matching CPU's float `ret` register
      * semantics (see psnr_hvs_vulkan.c for the rationale). */

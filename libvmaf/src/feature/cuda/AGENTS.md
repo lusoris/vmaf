@@ -118,6 +118,17 @@ ciede / moment), [ADR-0188](../../../../docs/adr/0188-gpu-long-tail-batch-2.md)
   See [../../AGENTS.md §"`picture_copy()` carries a `channel`
   parameter"](../../AGENTS.md).
 
+- **`integer_psnr_hvs_cuda.c` participates in the engine-scope CUDA
+  drain batch.** Its `submit_fex_cuda` queues all three plane partial
+  DtoH copies on `s->lc.str`, records `s->lc.finished` via
+  `vmaf_cuda_kernel_submit_post_record`, and registers the lifecycle
+  with `drain_batch`. Its `collect_fex_cuda` must call
+  `vmaf_cuda_kernel_collect_wait` before reading `h_partials[]`;
+  reintroducing raw `cuMemcpyDtoHAsync` + `cuStreamSynchronize` in
+  collect reopens T-GPU-OPT-3's per-frame sync stall. The scheduling
+  change is CUDA-only and does not require SYCL / Vulkan twin edits
+  because it does not alter kernel math or emitted metrics.
+
 - **`integer_cambi_cuda.c` + `integer_cambi/cambi_score.cu` are
   Strategy II hybrid** (ADR-0360 / T3-15a). The GPU kernels
   (`cambi_spatial_mask_kernel`, `cambi_decimate_kernel`,

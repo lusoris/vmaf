@@ -126,6 +126,14 @@ order. A parallel reduction with `__syncthreads` + warp shuffle would pass
 
 ### Hotspot 2: psnr_hvs_cuda.c — drain_batch not integrated
 
+**Status update 2026-05-14**: closed by
+`fix/backlog-gap-pass-8-2026-05-14`. `submit_fex_cuda` now queues the
+three plane-partial DtoH copies on `s->lc.str`, records `s->lc.finished`
+through `vmaf_cuda_kernel_submit_post_record`, and joins the engine's
+drain batch. `collect_fex_cuda` now calls `vmaf_cuda_kernel_collect_wait`
+before reducing `h_partials[]`, so the per-extractor stream sync is skipped
+when the engine has already drained the batch.
+
 **Location**: `/libvmaf/src/feature/cuda/integer_psnr_hvs_cuda.c`, lines 383-390.
 
 ```c
@@ -201,7 +209,7 @@ PASS.
 | Rank | Target | Specific change | Effort | Estimated gain |
 |------|--------|----------------|--------|---------------|
 | 1 | `psnr_hvs_score.cu` — thread-0-serial DCT | Parallelize 2-D DCT across 64 threads using `__shared__` transpose + warp-shuffle reduction for the CSF accumulation. Per-plane result matches places=3 contract via two-pass `__syncthreads` reduction (validate against ADR-0191 tolerance bounds). | M | +8–12% e2e on 7-ext at 1080p |
-| 2 | `integer_psnr_hvs_cuda.c` — drain_batch integration | In `submit_fex_cuda`: add `vmaf_cuda_kernel_submit_post_record` after the last plane kernel launch. In `collect_fex_cuda`: replace raw `cuStreamSynchronize` with `vmaf_cuda_kernel_collect_wait`. | S | +2–4% e2e on 7-ext stack |
+| 2 | `integer_psnr_hvs_cuda.c` — drain_batch integration | **DONE 2026-05-14**: submit-side partial readback + `vmaf_cuda_kernel_submit_post_record`; collect now uses `vmaf_cuda_kernel_collect_wait`. | S | +2–4% e2e on 7-ext stack |
 | 3 | `integer_ms_ssim_cuda.c` — async upload + drain_batch | Replace the two blocking `cuStreamSynchronize` calls in `submit_fex_cuda` (upload phase) with a dedicated upload stream + event, mirroring T-GPU-OPT-2 from `integer_psnr_hvs_cuda.c`. Then add drain_batch registration as in target 2. | M | +3–5% e2e on 7-ext stack |
 
 Combined estimated gain (all three): **+13–21%** additional end-to-end improvement
