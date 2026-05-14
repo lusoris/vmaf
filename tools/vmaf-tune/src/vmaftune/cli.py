@@ -14,11 +14,14 @@ import argparse
 import dataclasses
 import importlib
 import json
+import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
 from . import __version__
+from .bisect import bisect_target_vmaf
 from .codec_adapters import get_adapter, known_codecs
 from .corpus import CorpusJob, CorpusOptions, coarse_to_fine_search, iter_rows, write_jsonl
 from .encode import iter_grid
@@ -30,7 +33,9 @@ from .fast import (
     SMOKE_N_TRIALS,
     fast_recommend,
 )
+from .per_shot import PredicateFn as PerShotPredicateFn
 from .per_shot import (
+    Shot,
     detect_shots,
     merge_shots,
     plan_to_shell_script,
@@ -329,8 +334,8 @@ def _build_parser() -> argparse.ArgumentParser:
     per_shot = sub.add_parser(
         "tune-per-shot",
         help=(
-            "Phase D scaffold — detect shots via vmaf-perShot/TransNet V2, "
-            "tune CRF per shot, and emit an FFmpeg encoding plan."
+            "Phase D — detect shots via vmaf-perShot/TransNet V2, run "
+            "Phase-B bisect per shot, and emit an FFmpeg encoding plan."
         ),
     )
     per_shot.add_argument(
@@ -379,6 +384,44 @@ def _build_parser() -> argparse.ArgumentParser:
         "--ffmpeg-bin",
         default="ffmpeg",
         help="path to the ffmpeg binary (default ffmpeg on PATH)",
+    )
+    per_shot.add_argument(
+        "--vmaf-bin",
+        default="vmaf",
+        help="path to the vmaf binary used by the per-shot bisect scorer",
+    )
+    per_shot.add_argument(
+        "--preset",
+        default=None,
+        help="codec preset forwarded to the per-shot bisect backend",
+    )
+    per_shot.add_argument("--crf-min", type=int, default=None, help="inclusive lower CRF bound")
+    per_shot.add_argument("--crf-max", type=int, default=None, help="inclusive upper CRF bound")
+    per_shot.add_argument(
+        "--max-iterations",
+        type=int,
+        default=8,
+        help="maximum encode+score iterations per detected shot",
+    )
+    per_shot.add_argument(
+        "--vmaf-model",
+        default="vmaf_v0.6.1",
+        help="VMAF model name forwarded to the per-shot bisect scorer",
+    )
+    per_shot.add_argument(
+        "--score-backend",
+        default="auto",
+        choices=("auto", *ALL_BACKENDS),
+        help="libvmaf score backend for the per-shot bisect scorer",
+    )
+    per_shot.add_argument(
+        "--predicate-module",
+        default=None,
+        help=(
+            "advanced hook MODULE:CALLABLE matching "
+            "(shot, target_vmaf, encoder) -> (crf, measured_vmaf); "
+            "bypasses real bisect"
+        ),
     )
     per_shot.add_argument(
         "--output",
@@ -1157,7 +1200,7 @@ def _run_predict(args: argparse.Namespace) -> int:
     import tempfile
 
     from .encode import EncodeRequest, run_encode
-    from .per_shot import Shot, detect_shots
+    from .per_shot import detect_shots
     from .predictor import Predictor
     from .predictor_features import FeatureExtractorConfig, _probe_video_geometry, extract_features
     from .predictor_validate import Verdict, validate_predictor
@@ -1377,11 +1420,36 @@ def _run_tune_per_shot(args: argparse.Namespace) -> int:
         total_frames=total_frames,
         per_shot_bin=args.per_shot_bin,
     )
-    recs = tune_per_shot(
-        shots,
-        target_vmaf=args.target_vmaf,
-        encoder=args.encoder,
-    )
+    predicate_label = "bisect"
+    scratch_ctx = None
+    try:
+        if args.predicate_module:
+            predicate = _load_per_shot_predicate(args.predicate_module)
+            predicate_label = args.predicate_module
+        else:
+            crf_range = _parse_optional_crf_range(
+                args.crf_min,
+                args.crf_max,
+            )
+            scratch_ctx = tempfile.TemporaryDirectory(prefix="vmaf-tune-per-shot-")
+            predicate = _build_per_shot_bisect_predicate(
+                args,
+                scratch=Path(scratch_ctx.name),
+                crf_range=crf_range,
+            )
+        recs = tune_per_shot(
+            shots,
+            target_vmaf=args.target_vmaf,
+            encoder=args.encoder,
+            predicate=predicate,
+        )
+    except (AttributeError, ImportError, RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"vmaf-tune tune-per-shot: {exc}\n")
+        return 2
+    finally:
+        if scratch_ctx is not None:
+            scratch_ctx.cleanup()
+
     plan = merge_shots(
         recs,
         source=args.src,
@@ -1395,6 +1463,7 @@ def _run_tune_per_shot(args: argparse.Namespace) -> int:
     plan_doc = {
         "encoder": plan.encoder,
         "framerate": plan.framerate,
+        "predicate": predicate_label,
         "target_vmaf": args.target_vmaf,
         "shots": [
             {
@@ -1425,6 +1494,134 @@ def _run_tune_per_shot(args: argparse.Namespace) -> int:
     seg_dir = args.segment_dir or args.output.parent / "segments"
     write_concat_listing(plan, seg_dir / "concat.txt")
     return 0
+
+
+def _parse_optional_crf_range(
+    crf_min: int | None,
+    crf_max: int | None,
+) -> tuple[int, int] | None:
+    """Validate optional ``--crf-min`` / ``--crf-max`` pairs."""
+    if crf_min is None and crf_max is None:
+        return None
+    if crf_min is None or crf_max is None:
+        raise ValueError("pass both --crf-min and --crf-max")
+    if crf_min > crf_max:
+        raise ValueError(f"invalid CRF range [{crf_min}, {crf_max}]")
+    return (int(crf_min), int(crf_max))
+
+
+def _build_per_shot_bisect_predicate(
+    args: argparse.Namespace,
+    *,
+    scratch: Path,
+    crf_range: tuple[int, int] | None,
+) -> PerShotPredicateFn:
+    """Build the production Phase-D predicate from Phase-B bisect.
+
+    ``bisect_target_vmaf`` operates on raw YUV references, so the
+    per-shot CLI first extracts each detected shot to a temporary raw
+    YUV file and then runs the existing encode+score bisect loop over
+    that isolated shot.
+    """
+    if args.width <= 0 or args.height <= 0:
+        raise ValueError("--width and --height must be positive for per-shot bisect")
+    if args.framerate <= 0:
+        raise ValueError("--framerate must be positive for per-shot bisect")
+
+    scratch.mkdir(parents=True, exist_ok=True)
+    refs_dir = scratch / "refs"
+    work_dir = scratch / "bisect"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    score_backend = None if args.score_backend == "auto" else args.score_backend
+
+    def _predicate(shot: Shot, target_vmaf: float, encoder: str) -> tuple[int, float]:
+        ref_yuv = refs_dir / f"shot_{shot.start_frame}_{shot.end_frame}.yuv"
+        _extract_shot_to_raw_yuv(args, shot=shot, output=ref_yuv)
+        result = bisect_target_vmaf(
+            ref_yuv,
+            encoder,
+            float(target_vmaf),
+            width=args.width,
+            height=args.height,
+            pix_fmt=args.pix_fmt,
+            framerate=args.framerate,
+            duration_s=shot.length / args.framerate,
+            preset=args.preset,
+            crf_range=crf_range,
+            max_iterations=args.max_iterations,
+            vmaf_model=args.vmaf_model,
+            score_backend=score_backend,
+            ffmpeg_bin=args.ffmpeg_bin,
+            vmaf_bin=args.vmaf_bin,
+            workdir=work_dir / f"shot_{shot.start_frame}_{shot.end_frame}",
+        )
+        if not result.ok:
+            raise RuntimeError(
+                "bisect failed for shot " f"[{shot.start_frame}, {shot.end_frame}): {result.error}"
+            )
+        return (result.best_crf, result.measured_vmaf)
+
+    return _predicate
+
+
+def _extract_shot_to_raw_yuv(
+    args: argparse.Namespace,
+    *,
+    shot: Shot,
+    output: Path,
+) -> None:
+    """Extract one half-open shot range to raw YUV for Phase-B scoring."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    start_seconds = shot.start_frame / args.framerate
+    cmd = [
+        args.ffmpeg_bin,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+    ]
+    if _source_needs_rawvideo_demux(args.src):
+        cmd.extend(
+            [
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                args.pix_fmt,
+                "-s",
+                f"{args.width}x{args.height}",
+                "-r",
+                str(args.framerate),
+            ]
+        )
+    cmd.extend(
+        [
+            "-ss",
+            f"{start_seconds:.6f}",
+            "-i",
+            str(args.src),
+            "-frames:v",
+            str(shot.length),
+            "-pix_fmt",
+            args.pix_fmt,
+            "-f",
+            "rawvideo",
+            str(output),
+        ]
+    )
+    completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if completed.returncode != 0 or not output.exists():
+        tail = (completed.stderr or "").strip().splitlines()
+        detail = tail[-1] if tail else "no stderr"
+        raise RuntimeError(
+            f"ffmpeg shot extraction failed for "
+            f"[{shot.start_frame}, {shot.end_frame}) (exit={completed.returncode}): {detail}"
+        )
+
+
+def _source_needs_rawvideo_demux(src: Path) -> bool:
+    """Return True for extension-only raw YUV inputs."""
+    return src.suffix.lower() in {".yuv", ".raw"}
 
 
 def _run_recommend_saliency(args: argparse.Namespace) -> int:
@@ -1637,6 +1834,20 @@ def _run_compare(args: argparse.Namespace) -> int:
 
 def _load_compare_predicate(spec: str):
     """Load ``MODULE:CALLABLE`` for ``vmaf-tune compare``."""
+    if ":" not in spec:
+        raise ValueError("expected MODULE:CALLABLE")
+    module_name, attr_name = spec.split(":", 1)
+    if not module_name or not attr_name:
+        raise ValueError("expected MODULE:CALLABLE")
+    module = importlib.import_module(module_name)
+    predicate = getattr(module, attr_name)
+    if not callable(predicate):
+        raise ValueError(f"{spec!r} is not callable")
+    return predicate
+
+
+def _load_per_shot_predicate(spec: str) -> PerShotPredicateFn:
+    """Load ``MODULE:CALLABLE`` for ``vmaf-tune tune-per-shot``."""
     if ":" not in spec:
         raise ValueError("expected MODULE:CALLABLE")
     module_name, attr_name = spec.split(":", 1)

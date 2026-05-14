@@ -1,6 +1,6 @@
 # Copyright 2026 Lusoris and Claude (Anthropic)
 # SPDX-License-Identifier: BSD-3-Clause-Plus-Patent
-"""Phase D scaffold smoke tests — mocks vmaf-perShot + Phase B predicate.
+"""Phase D smoke tests — mocks vmaf-perShot + Phase B predicate.
 
 Covers:
 * Three-shot detection routes through complexity-aware predicate and
@@ -8,8 +8,8 @@ Covers:
 * Single-shot fallback fires when ``vmaf-perShot`` is unavailable.
 * :func:`merge_shots` emits a well-formed FFmpeg per-segment + concat
   command pair.
-* CLI entrypoint round-trips with mocked subprocess + monkeypatched
-  ``shutil.which``.
+* CLI entrypoint extracts shots and binds the real Phase-B predicate
+  seam, with subprocess + bisect monkeypatched.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -294,7 +295,7 @@ def test_plan_to_shell_script_round_trip(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def test_cli_tune_per_shot_smoke(tmp_path, monkeypatch, capsys):
+def test_cli_tune_per_shot_binds_bisect_predicate(tmp_path, monkeypatch):
     src = tmp_path / "ref.yuv"
     src.write_bytes(b"\x00" * 16)
     plan_out = tmp_path / "plan.json"
@@ -312,10 +313,33 @@ def test_cli_tune_per_shot_smoke(tmp_path, monkeypatch, capsys):
     # Pretend the binary is available + intercept the subprocess call.
     monkeypatch.setattr("vmaftune.per_shot._which", lambda _b: "/fake/vmaf-perShot")
 
+    extracted: list[Path] = []
+
     def fake_run(cmd, capture_output, text, check):
-        return _FakeCompleted(returncode=0, stdout=payload)
+        if cmd[0] == "vmaf-perShot":
+            return _FakeCompleted(returncode=0, stdout=payload)
+        assert cmd[0] == "ffmpeg"
+        assert "-f" in cmd and "rawvideo" in cmd
+        out_path = Path(cmd[-1])
+        out_path.write_bytes(b"\x00" * 16)
+        extracted.append(out_path)
+        return _FakeCompleted(returncode=0)
 
     monkeypatch.setattr("vmaftune.per_shot.subprocess.run", fake_run)
+
+    calls: list[tuple[Path, str, float]] = []
+
+    def fake_bisect(src, codec, target_vmaf, **kwargs):
+        calls.append((Path(src), codec, target_vmaf))
+        crf = 21 + len(calls)
+        return SimpleNamespace(
+            ok=True,
+            best_crf=crf,
+            measured_vmaf=target_vmaf + len(calls) / 10.0,
+            error="",
+        )
+
+    monkeypatch.setattr("vmaftune.cli.bisect_target_vmaf", fake_bisect)
 
     rc = cli.main(
         [
@@ -332,6 +356,12 @@ def test_cli_tune_per_shot_smoke(tmp_path, monkeypatch, capsys):
             "92",
             "--encoder",
             "libx264",
+            "--crf-min",
+            "18",
+            "--crf-max",
+            "30",
+            "--max-iterations",
+            "4",
             "--output",
             str(out),
             "--plan-out",
@@ -342,8 +372,13 @@ def test_cli_tune_per_shot_smoke(tmp_path, monkeypatch, capsys):
     assert plan_out.exists()
     doc = json.loads(plan_out.read_text())
     assert doc["encoder"] == "libx264"
+    assert doc["predicate"] == "bisect"
     assert len(doc["shots"]) == 2
-    assert all("crf" in s for s in doc["shots"])
+    assert [s["crf"] for s in doc["shots"]] == [22, 23]
+    assert [s["predicted_vmaf"] for s in doc["shots"]] == [92.1, 92.2]
+    assert len(calls) == 2
+    assert calls[0][1:] == ("libx264", 92.0)
+    assert len(extracted) == 2
     # Concat listing was written next to the segments.
     listing = (out.parent / "segments" / "concat.txt").read_text()
     assert listing.count("file '") == 2
