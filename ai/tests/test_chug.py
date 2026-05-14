@@ -7,10 +7,14 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
+import sys
 from pathlib import Path
+
+import numpy as np
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "ai" / "scripts" / "chug_to_corpus_jsonl.py"
+_FEATURE_SCRIPT_PATH = _REPO_ROOT / "ai" / "scripts" / "chug_extract_features.py"
 
 
 def _load_module():
@@ -22,6 +26,13 @@ def _load_module():
 
 
 CHUG = _load_module()
+_feature_spec = importlib.util.spec_from_file_location(
+    "chug_extract_features", _FEATURE_SCRIPT_PATH
+)
+assert _feature_spec is not None and _feature_spec.loader is not None
+CHUG_FEATURES = importlib.util.module_from_spec(_feature_spec)
+sys.modules[_feature_spec.name] = CHUG_FEATURES
+_feature_spec.loader.exec_module(CHUG_FEATURES)
 
 
 def _make_manifest(path: Path) -> None:
@@ -110,3 +121,123 @@ def test_run_writes_chug_jsonl_with_hdr_metadata(tmp_path: Path) -> None:
     assert row["mos"] == 3.0
     assert row["mos_raw_0_100"] == 50.0
     assert row["chug_bitladder"] == "360p_0.2M_"
+
+
+def _chug_row(
+    *,
+    src: str,
+    content: str,
+    is_ref: bool,
+    width: int,
+    height: int,
+    sha: str,
+) -> dict:
+    return {
+        "src": src,
+        "src_sha256": sha,
+        "width": width,
+        "height": height,
+        "mos": 5.0 if is_ref else 3.0,
+        "chug_content_name": content,
+        "chug_ref": 1 if is_ref else 0,
+        "chug_bitrate_label": "ref" if is_ref else "0.2M",
+        "chug_bitladder": "1080p_ref_" if is_ref else "360p_0.2M_",
+        "chug_video_id": src.removesuffix(".mp4"),
+    }
+
+
+def test_chug_feature_pairing_uses_matching_reference(tmp_path: Path) -> None:
+    clips_dir = tmp_path / "clips"
+    rows = [
+        _chug_row(
+            src="dist.mp4",
+            content="content-a.mp4",
+            is_ref=False,
+            width=640,
+            height=360,
+            sha="d" * 64,
+        ),
+        _chug_row(
+            src="ref.mp4",
+            content="content-a.mp4",
+            is_ref=True,
+            width=1920,
+            height=1080,
+            sha="r" * 64,
+        ),
+    ]
+
+    pairs = CHUG_FEATURES.build_feature_pairs(rows, clips_dir=clips_dir)
+
+    assert len(pairs) == 1
+    assert pairs[0].dis_path == clips_dir / "dist.mp4"
+    assert pairs[0].ref_path == clips_dir / "ref.mp4"
+    assert pairs[0].width == 1920
+    assert pairs[0].height == 1080
+
+
+class _FakeFeatureRunner:
+    def __call__(self, cmd, **_kwargs):
+        output = Path(cmd[-1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"fake yuv")
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
+
+
+def test_chug_feature_materialiser_writes_mean_features(tmp_path: Path) -> None:
+    chug_jsonl = tmp_path / "chug.jsonl"
+    output = tmp_path / "features.jsonl"
+    clips_dir = tmp_path / "clips"
+    clips_dir.mkdir()
+    (clips_dir / "dist.mp4").write_bytes(b"dist")
+    (clips_dir / "ref.mp4").write_bytes(b"ref")
+    rows = [
+        _chug_row(
+            src="dist.mp4",
+            content="content-a.mp4",
+            is_ref=False,
+            width=640,
+            height=360,
+            sha="d" * 64,
+        ),
+        _chug_row(
+            src="ref.mp4",
+            content="content-a.mp4",
+            is_ref=True,
+            width=1920,
+            height=1080,
+            sha="r" * 64,
+        ),
+    ]
+    chug_jsonl.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    def fake_extract(*_args, **kwargs):
+        names = kwargs["features"]
+        data = np.ones((2, len(names)), dtype=np.float32)
+        data[1, :] = 3.0
+        return CHUG_FEATURES.FeatureExtractionResult(
+            feature_names=names,
+            per_frame=data,
+            n_frames=2,
+        )
+
+    written = CHUG_FEATURES.run(
+        input_jsonl=chug_jsonl,
+        output_jsonl=output,
+        clips_dir=clips_dir,
+        cache_dir=tmp_path / "cache",
+        max_rows=None,
+        runner=_FakeFeatureRunner(),
+        extractor=fake_extract,
+    )
+
+    assert written == 1
+    row = json.loads(output.read_text(encoding="utf-8"))
+    assert row["feature_source"] == "chug-fr-ref-aligned"
+    assert row["feature_alignment"] == "distorted_scaled_to_reference"
+    assert row["feature_ref_src"] == "ref.mp4"
+    assert row["feature_width"] == 1920
+    assert row["feature_height"] == 1080
+    assert row["n_feature_frames"] == 2
+    assert row["adm2"] == 2.0
+    assert row["adm2_mean"] == 2.0

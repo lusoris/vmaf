@@ -565,6 +565,11 @@ threshold). When extending these scripts:
   geometry, and source content name) as optional JSONL fields. Existing
   MOS-head training ignores those columns today; future HDR models may
   consume them explicitly.
+- The CHUG feature materialiser is governed by ADR-0427. It pairs each
+  distorted row with the matching `chug_content_name` reference row,
+  decodes both sides as 10-bit 4:2:0, and scales the distorted side to
+  reference geometry before libvmaf extraction. Changing that alignment
+  policy changes the training distribution and requires a new ADR.
 
 ## K150K-A corpus extraction (ADR-0362, ADR-0382)
 

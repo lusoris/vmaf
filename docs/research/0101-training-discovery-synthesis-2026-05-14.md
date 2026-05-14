@@ -116,9 +116,10 @@ What to do next:
   orientation, FPS, height, and width.
 - Use the script's `--max-rows` smoke path to validate CSV parsing and
   S3 URL construction without downloading the whole dataset.
-- Treat CHUG as NR-HDR/MOS evidence first. FR-style training from CHUG
-  requires a separate decode-original-as-reference decision, as with
-  the existing NR-to-FR corpus discussion.
+- Materialise FR feature rows by pairing each distorted ladder row with
+  its `chug_content_name` reference row, scaling the distorted side to
+  the reference geometry before libvmaf extraction. This is recorded in
+  ADR-0427.
 - Gate all committed CHUG-derived weights as non-commercial research
   artefacts unless the license ambiguity below is resolved in a more
   permissive direction.
@@ -169,7 +170,7 @@ HDR-FR teacher model.
 Blockers:
 
 - no HDR-FR teacher model artefact is in-tree yet;
-- no CHUG feature-extraction pass exists yet;
+- no CHUG feature-extraction pass has completed yet;
 - CHUG's README badge says CC BY-NC 4.0, while `license.txt` contains
   Creative Commons Attribution-NonCommercial-ShareAlike 4.0 text. Treat
   the stricter non-commercial/share-alike terms as the working license

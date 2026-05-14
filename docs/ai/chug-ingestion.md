@@ -80,18 +80,38 @@ The raw value remains available for future aggregation paths that use a
 
 ## Local Baseline Training
 
-Once `chug.jsonl` exists, a local baseline MOS-head train can be launched
-without committing outputs:
+Once `chug.jsonl` exists, materialise feature rows before training:
+
+```bash
+PYTHONPATH=ai/src python ai/scripts/chug_extract_features.py \
+  --input .workingdir2/chug/chug.jsonl \
+  --output .workingdir2/chug/chug_features.jsonl \
+  --clips-dir .workingdir2/chug/clips \
+  --cache-dir .workingdir2/chug/feature-cache \
+  --vmaf-bin build/tools/vmaf \
+  --feature-set canonical \
+  --full
+```
+
+The materialiser pairs each distorted ladder row with the matching
+`chug_content_name` reference row, decodes both clips as 10-bit 4:2:0
+YUV, scales the distorted side to the reference geometry, runs libvmaf,
+and writes clip-level feature aggregates. The trainer-facing feature row
+contains the canonical bare feature names (`adm2`, `vif_scale0` ...
+`motion2`) as means, plus `<feature>_mean`, `<feature>_p10`,
+`<feature>_p90`, and `<feature>_std` columns for downstream sweeps.
+
+Train against the feature rows:
 
 ```bash
 python ai/scripts/train_konvid_mos_head.py \
-  --konvid-1k .workingdir2/chug/chug.jsonl \
+  --konvid-1k .workingdir2/chug/chug_features.jsonl \
   --konvid-150k .workingdir2/chug/no-konvid-150k.jsonl \
   --out-onnx .workingdir2/chug/chug_mos_head.onnx \
   --out-card .workingdir2/chug/chug_mos_head_card.md \
   --out-manifest .workingdir2/chug/chug_mos_head.json
 ```
 
-This is a baseline unlock, not a final HDR model. CHUG rows do not yet
-carry extracted canonical-6, saliency, or shot features, so the next
-quality step is a CHUG feature-extraction pass before production claims.
+This is a baseline unlock, not a final HDR model. The CHUG feature rows
+carry full-reference libvmaf features, but future production HDR claims
+still need the HDR teacher/model decision to land.
